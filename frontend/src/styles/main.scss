@@ -1,0 +1,293 @@
+/**
+ * 全局样式
+ */
+
+// 引入设计系统 (使用 @use 替代已弃用的 @import)
+@use './theme.scss';
+
+// ==================== 重置 ====================
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  height: 100%;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  transition: background-color var(--transition-normal), color var(--transition-normal);
+}
+
+#app {
+  height: 100%;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+// ==================== 滚动条 ====================
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--text-muted);
+  border-radius: 4px;
+  
+  &:hover {
+    background: var(--text-tertiary);
+  }
+}
+
+// 暗色模式滚动条
+html.dark {
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-muted);
+    
+    &:hover {
+      background: var(--text-muted);
+    }
+  }
+}
+
+// ==================== Element Plus 覆盖 ====================
+
+.el-card {
+  --el-card-border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  border-color: var(--border-default);
+  
+  &__header {
+    font-weight: 600;
+    color: var(--text-primary);
+    border-bottom-color: var(--border-light);
+  }
+  
+  &__body {
+    color: var(--text-secondary);
+  }
+}
+
+.el-button {
+  --el-button-border-radius: var(--radius-md);
+  transition: all 0.2s ease;
+  
+  // 暗色模式 hover 从透明到微亮
+  html.dark &:not(.el-button--primary):not(.el-button--success):not(.el-button--warning):not(.el-button--danger):hover {
+    background: rgba(255, 255, 255, 0.04);
+  }
+}
+
+.el-input {
+  --el-input-border-radius: var(--radius-md);
+  
+  .el-input__wrapper {
+    background: var(--bg-elevated);
+    box-shadow: none;
+    border: 1px solid var(--border-default);
+    
+    &:hover {
+      border-color: var(--border-hover);
+    }
+    
+    &.is-focus {
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+    }
+  }
+  
+  .el-input__inner {
+    color: var(--text-primary);
+    
+    &::placeholder {
+      color: var(--text-placeholder);
+    }
+  }
+}
+
+.el-select {
+  .el-select__wrapper {
+    background: var(--bg-elevated);
+    box-shadow: none;
+    border: 1px solid var(--border-default);
+    
+    &:hover {
+      border-color: var(--border-hover);
+    }
+    
+    &.is-focused {
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+    }
+  }
+}
+
+.el-tag {
+  --el-tag-border-radius: var(--radius-sm);
+}
+
+.el-dialog {
+  --el-dialog-border-radius: var(--radius-xl);
+  background: var(--bg-elevated);
+  
+  .el-dialog__header {
+    color: var(--text-primary);
+    border-bottom: 1px solid var(--border-light);
+    padding-bottom: 16px;
+    margin-bottom: 0;
+  }
+  
+  .el-dialog__body {
+    color: var(--text-secondary);
+  }
+  
+  .el-dialog__footer {
+    border-top: 1px solid var(--border-light);
+    padding-top: 16px;
+  }
+}
+
+.el-table {
+  --el-table-border-color: var(--border-default);
+  --el-table-bg-color: var(--bg-elevated);
+  --el-table-header-bg-color: var(--bg-muted);
+  --el-table-tr-bg-color: var(--bg-elevated);
+  --el-table-row-hover-bg-color: var(--bg-hover);
+  --el-table-text-color: var(--text-secondary);
+  --el-table-header-text-color: var(--text-tertiary);
+  
+  // 暗色模式表格行 hover 渐变效果
+  .el-table__row {
+    transition: background-color 0.2s ease;
+  }
+}
+
+.el-menu {
+  background: transparent;
+  border-right: none;
+}
+
+.el-dropdown-menu {
+  background: var(--bg-elevated);
+  border-color: var(--border-default);
+  
+  .el-dropdown-menu__item {
+    color: var(--text-secondary);
+    
+    &:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+    }
+  }
+}
+
+.el-message-box {
+  --el-messagebox-title-color: var(--text-primary);
+  background: var(--bg-elevated);
+  border-color: var(--border-default);
+}
+
+.el-skeleton {
+  --el-skeleton-color: var(--bg-muted);
+  --el-skeleton-to-color: var(--bg-subtle);
+}
+
+.el-empty {
+  --el-empty-description-margin-top: 16px;
+  
+  .el-empty__description {
+    color: var(--text-tertiary);
+  }
+}
+
+// ==================== 工具类 ====================
+
+.text-primary {
+  color: var(--primary-500);
+}
+
+.text-success {
+  color: var(--success);
+}
+
+.text-warning {
+  color: var(--warning);
+}
+
+.text-danger {
+  color: var(--error);
+}
+
+.font-bold {
+  font-weight: 600;
+}
+
+.flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.flex-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+// ==================== 页面容器 ====================
+
+.page-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.page-header {
+  margin-bottom: 24px;
+  
+  .page-title {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0 0 8px 0;
+  }
+  
+  .page-description {
+    font-size: 14px;
+    color: var(--text-tertiary);
+  }
+}
+
+// ==================== 响应式 ====================
+
+@media (max-width: 768px) {
+  .hide-on-mobile {
+    display: none !important;
+  }
+  
+  .page-container {
+    padding: 16px;
+  }
+}
+
+@media (min-width: 769px) {
+  .hide-on-desktop {
+    display: none !important;
+  }
+}

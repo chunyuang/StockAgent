@@ -1,0 +1,206 @@
+version: "3.9"
+
+services:
+  # ==================== 基础设施 ====================
+  
+  mongodb:
+    image: mongo:7.0
+    container_name: stock-agent-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+      - ./mongodb/init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password123
+      MONGO_INITDB_DATABASE: stock_agent
+    networks:
+      - stock-agent-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: stock-agent-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - stock-agent-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  milvus:
+    image: milvusdb/milvus:v2.3.4
+    container_name: stock-agent-milvus
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    volumes:
+      - milvus_data:/var/lib/milvus
+    environment:
+      ETCD_USE_EMBED: "true"
+      COMMON_STORAGETYPE: local
+    networks:
+      - stock-agent-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ==================== 应用节点 ====================
+  
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: stock-agent-web
+    ports:
+      - "8000:8000"
+    environment:
+      NODE_TYPE: web
+      HOST: "0.0.0.0"
+      PORT: "8000"
+      MONGO_HOST: mongodb
+      REDIS_HOST: redis
+      MILVUS_HOST: milvus
+    env_file:
+      - ../.env
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - stock-agent-network
+    restart: unless-stopped
+
+  data-sync:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: stock-agent-data-sync
+    environment:
+      NODE_TYPE: data_sync
+      MONGO_HOST: mongodb
+      REDIS_HOST: redis
+    env_file:
+      - ../.env
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - stock-agent-network
+    restart: unless-stopped
+
+  mcp:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: stock-agent-mcp
+    environment:
+      NODE_TYPE: mcp
+      MCP_PORT: "9000"
+      MONGO_HOST: mongodb
+      REDIS_HOST: redis
+      MILVUS_HOST: milvus
+    env_file:
+      - ../.env
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+    networks:
+      - stock-agent-network
+    restart: unless-stopped
+
+  inference:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: stock-agent-inference
+    environment:
+      NODE_TYPE: inference
+      MAX_CONCURRENT_TASKS: "5"
+      MONGO_HOST: mongodb
+      REDIS_HOST: redis
+      MILVUS_HOST: milvus
+    env_file:
+      - ../.env
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mcp:
+        condition: service_started
+    networks:
+      - stock-agent-network
+    restart: unless-stopped
+    deploy:
+      replicas: 2  # 默认启动 2 个推理节点
+
+  backtest:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: stock-agent-backtest
+    environment:
+      NODE_TYPE: backtest
+      MONGO_HOST: mongodb
+      REDIS_HOST: redis
+    env_file:
+      - ../.env
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - stock-agent-network
+    restart: unless-stopped
+
+  # ==================== 可选: 可观测性 ====================
+  
+  # grafana:
+  #   image: grafana/grafana:10.2.0
+  #   container_name: stock-agent-grafana
+  #   ports:
+  #     - "3000:3000"
+  #   volumes:
+  #     - grafana_data:/var/lib/grafana
+  #   networks:
+  #     - stock-agent-network
+
+  # loki:
+  #   image: grafana/loki:2.9.0
+  #   container_name: stock-agent-loki
+  #   ports:
+  #     - "3100:3100"
+  #   networks:
+  #     - stock-agent-network
+
+volumes:
+  mongo_data:
+  redis_data:
+  milvus_data:
+  # grafana_data:
+
+networks:
+  stock-agent-network:
+    driver: bridge

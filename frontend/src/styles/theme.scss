@@ -1,0 +1,406 @@
+/**
+ * 统一设计系统 - 支持 Light/Dark 模式切换
+ * 
+ * 使用方式：
+ * - 在 html 标签上添加 class="dark" 切换到暗色模式
+ * - 所有颜色使用 CSS 变量，自动跟随主题变化
+ */
+
+// ==================== Light Mode (默认) ====================
+
+:root {
+  // ========== 色彩系统 ==========
+  
+  // 品牌主色 - 深邃蓝
+  --primary-50: #eff6ff;
+  --primary-100: #dbeafe;
+  --primary-200: #bfdbfe;
+  --primary-300: #93c5fd;
+  --primary-400: #60a5fa;
+  --primary-500: #3b82f6;
+  --primary-600: #2563eb;
+  --primary-700: #1d4ed8;
+  --primary-800: #1e40af;
+  --primary-900: #1e3a8a;
+  --primary-950: #172554;
+
+  // ========== 背景色系 ==========
+  --bg-base: #f8f9fa;           // 页面最底层背景
+  --bg-elevated: #ffffff;       // 卡片/弹窗等提升层级
+  --bg-surface: #ffffff;        // 内容表面
+  --bg-muted: #f1f5f9;          // 次要背景/输入框
+  --bg-subtle: #e2e8f0;         // 更浅的背景
+  --bg-inset: #f8fafc;          // 嵌入区域
+  --bg-card: #ffffff;           // 卡片背景
+  --bg-secondary: #f1f5f9;      // 次级背景
+  --bg-tertiary: #e2e8f0;       // 三级背景
+  
+  // 交互背景
+  --bg-hover: rgba(59, 130, 246, 0.04);
+  --bg-active: rgba(59, 130, 246, 0.08);
+  --bg-selected: rgba(59, 130, 246, 0.12);
+
+  // ========== 文字色系 ==========
+  --text-primary: #0f172a;      // 标题/重要内容
+  --text-secondary: #475569;    // 正文
+  --text-tertiary: #64748b;     // 辅助信息
+  --text-muted: #94a3b8;        // 更淡的文字
+  --text-placeholder: #cbd5e1;  // 占位符
+  --text-inverse: #ffffff;      // 反色文字
+
+  // ========== 边框色系 ==========
+  --border-default: #e2e8f0;    // 默认边框
+  --border-light: #f1f5f9;      // 轻量边框
+  --border-muted: #cbd5e1;      // 更明显的边框
+  --border-focus: #3b82f6;      // 聚焦边框
+  --border-hover: #94a3b8;      // 悬停边框
+
+  // ========== 阴影系统 ==========
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.03);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
+  --shadow-glow: 0 0 20px rgba(59, 130, 246, 0.15);
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.05);
+
+  // ========== 涨跌色 (A股规则：红涨绿跌) ==========
+  --stock-up: #f23645;
+  --stock-up-bg: rgba(242, 54, 69, 0.08);
+  --stock-up-light: rgba(242, 54, 69, 0.15);
+  --stock-down: #089981;
+  --stock-down-bg: rgba(8, 153, 129, 0.08);
+  --stock-down-light: rgba(8, 153, 129, 0.15);
+  --stock-flat: #64748b;
+  --stock-flat-bg: rgba(100, 116, 139, 0.08);
+
+  // ========== 功能色 ==========
+  --success: #10b981;
+  --success-bg: rgba(16, 185, 129, 0.1);
+  --warning: #f59e0b;
+  --warning-bg: rgba(245, 158, 11, 0.1);
+  --error: #ef4444;
+  --error-bg: rgba(239, 68, 68, 0.1);
+  --info: #3b82f6;
+  --info-bg: rgba(59, 130, 246, 0.1);
+
+  // ========== 渐变 ==========
+  --gradient-primary: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 50%, #60a5fa 100%);
+  --gradient-hero: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+  --gradient-card: linear-gradient(180deg, rgba(255,255,255,0.9) 0%, rgba(248,250,252,0.8) 100%);
+  --gradient-sidebar: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
+
+  // ========== 圆角 ==========
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-full: 9999px;
+
+  // ========== 动画 ==========
+  --transition-fast: 150ms ease;
+  --transition-normal: 200ms ease;
+  --transition-slow: 300ms ease;
+
+  // ========== 字体 ==========
+  --font-sans: 'Inter', 'PingFang SC', 'Microsoft YaHei', -apple-system, sans-serif;
+  --font-mono: 'SF Mono', 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+
+  // ========== 布局 ==========
+  --header-height: 60px;
+  --sidebar-width: 220px;
+  --sidebar-collapsed-width: 64px;
+  
+  // ========== 侧边栏 ==========
+  --sidebar-bg: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
+  --sidebar-text: rgba(255, 255, 255, 0.7);
+  --sidebar-text-active: #ffffff;
+  --sidebar-hover-bg: rgba(255, 255, 255, 0.1);
+  --sidebar-active-bg: var(--primary-500);
+  --sidebar-border: rgba(255, 255, 255, 0.1);
+
+  // ========== 顶部栏 ==========
+  --header-bg: #ffffff;
+  --header-border: var(--border-default);
+
+  // ========== 图表 ==========
+  --chart-bg: transparent;
+  --chart-grid: #f1f5f9;
+  --chart-axis: #64748b;
+  --chart-tooltip-bg: rgba(255, 255, 255, 0.96);
+  --chart-tooltip-border: #e2e8f0;
+  --chart-tooltip-text: #1e293b;
+}
+
+// ==================== Dark Mode ====================
+
+html.dark {
+  // ========== 背景色系 (深度层级) ==========
+  --bg-base: #0A0A0F;           // 底层背景 - 近纯黑，深邃
+  --bg-elevated: #12121A;       // 卡片背景 - 比底层亮一阶
+  --bg-surface: #16161F;        // 内容表面 - 再亮一阶
+  --bg-muted: #1C1C26;          // 次要背景
+  --bg-subtle: #252530;         // 更浅的背景
+  --bg-inset: #0A0A0F;          // 嵌入区域
+  --bg-card: #12121A;           // 卡片背景
+  --bg-secondary: #1C1C26;      // 次级背景
+  --bg-tertiary: #252530;       // 三级背景
+  
+  // 交互背景 - 从透明到微亮的渐变
+  --bg-hover: rgba(255, 255, 255, 0.03);
+  --bg-active: rgba(255, 255, 255, 0.06);
+  --bg-selected: rgba(59, 130, 246, 0.12);
+
+  // ========== 文字色系 (对比度层级) ==========
+  --text-primary: #FFFFFF;      // 纯白 - 标题/重要内容
+  --text-secondary: #94A3B8;    // 中灰 - 正文
+  --text-tertiary: #64748B;     // 次要信息
+  --text-muted: #475569;        // 时间、背景水印
+  --text-placeholder: #374151;  // 占位符
+  --text-inverse: #0A0A0F;      // 反色文字
+
+  // ========== 边框色系 (用边框代替阴影) ==========
+  --border-default: rgba(255, 255, 255, 0.05);  // 卡片边框
+  --border-light: rgba(255, 255, 255, 0.03);    // 轻量边框
+  --border-muted: rgba(255, 255, 255, 0.08);    // 更明显的边框
+  --border-focus: #3b82f6;
+  --border-hover: rgba(255, 255, 255, 0.1);
+
+  // ========== 阴影系统 (暗色模式取消投影，用边框代替) ==========
+  --shadow-xs: none;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --shadow-xl: none;
+  --shadow-glow: 0 0 20px rgba(59, 130, 246, 0.15);
+  --shadow-card: none;
+
+  // ========== 涨跌色 (柔和红/翡翠绿) ==========
+  --stock-up: #F23645;          // 柔和红
+  --stock-up-bg: rgba(242, 54, 69, 0.12);
+  --stock-up-light: rgba(242, 54, 69, 0.18);
+  --stock-down: #089981;        // 翡翠绿
+  --stock-down-bg: rgba(8, 153, 129, 0.12);
+  --stock-down-light: rgba(8, 153, 129, 0.18);
+  --stock-flat: #64748B;
+  --stock-flat-bg: rgba(100, 116, 139, 0.1);
+
+  // ========== 功能色 ==========
+  --success: #10B981;
+  --success-bg: rgba(16, 185, 129, 0.12);
+  --warning: #F59E0B;
+  --warning-bg: rgba(245, 158, 11, 0.12);
+  --error: #EF4444;
+  --error-bg: rgba(239, 68, 68, 0.12);
+  --info: #3B82F6;
+  --info-bg: rgba(59, 130, 246, 0.12);
+
+  // ========== 渐变 ==========
+  --gradient-primary: linear-gradient(135deg, #1e40af 0%, #3b82f6 50%, #60a5fa 100%);
+  --gradient-hero: linear-gradient(135deg, #0A0A0F 0%, #1e3a8a 100%);
+  --gradient-card: linear-gradient(180deg, rgba(18,18,26,0.95) 0%, rgba(10,10,15,0.9) 100%);
+  --gradient-sidebar: linear-gradient(180deg, #0A0A0F 0%, #12121A 100%);
+
+  // ========== 侧边栏 (深色一体化) ==========
+  --sidebar-bg: linear-gradient(180deg, #0A0A0F 0%, #12121A 100%);
+  --sidebar-text: rgba(255, 255, 255, 0.5);
+  --sidebar-text-active: #ffffff;
+  --sidebar-hover-bg: rgba(255, 255, 255, 0.04);
+  --sidebar-active-bg: var(--primary-600);
+  --sidebar-border: rgba(255, 255, 255, 0.05);
+
+  // ========== 顶部栏 ==========
+  --header-bg: #12121A;
+  --header-border: rgba(255, 255, 255, 0.05);
+
+  // ========== 图表 (网格线若隐若现) ==========
+  --chart-bg: transparent;
+  --chart-grid: rgba(255, 255, 255, 0.03);   // 极低透明度
+  --chart-axis: #64748B;
+  --chart-tooltip-bg: rgba(18, 18, 26, 0.98);
+  --chart-tooltip-border: rgba(255, 255, 255, 0.08);
+  --chart-tooltip-text: #FFFFFF;
+}
+
+// ==================== 通用样式 ====================
+
+// 卡片基础样式
+.card {
+  background: var(--bg-elevated);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--shadow-card);
+  transition: box-shadow var(--transition-normal), transform var(--transition-normal);
+  
+  &:hover {
+    box-shadow: var(--shadow-md);
+  }
+  
+  .card-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-light);
+    font-weight: 600;
+    font-size: 15px;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  
+  .card-body {
+    padding: 20px;
+  }
+  
+  .card-footer {
+    padding: 16px 20px;
+    border-top: 1px solid var(--border-light);
+  }
+}
+
+// 暗色模式卡片 - 用1px细边框代替阴影
+html.dark .card {
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: none;
+  
+  &:hover {
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow: none;
+  }
+}
+
+// ==================== 涨跌色工具类 ====================
+
+.stock-up, .price-up {
+  color: var(--stock-up) !important;
+}
+
+.stock-down, .price-down {
+  color: var(--stock-down) !important;
+}
+
+.stock-flat, .price-flat {
+  color: var(--stock-flat) !important;
+}
+
+.stock-up-bg {
+  background: var(--stock-up-bg);
+}
+
+.stock-down-bg {
+  background: var(--stock-down-bg);
+}
+
+// ==================== 玻璃态效果 ====================
+
+.glass {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  
+  html.dark & {
+    background: rgba(30, 41, 59, 0.7);
+  }
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  
+  html.dark & {
+    background: rgba(30, 41, 59, 0.6);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+}
+
+// ==================== 动画定义 ====================
+
+@keyframes breathe {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(59, 130, 246, 0.1);
+  }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-breathe { animation: breathe 3s ease-in-out infinite; }
+.animate-shimmer {
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+.animate-float { animation: float 3s ease-in-out infinite; }
+.animate-scale-in { animation: scaleIn 0.3s ease-out; }
+.animate-fade-in { animation: fadeIn 0.3s ease-out; }
+.animate-slide-up { animation: slideUp 0.3s ease-out; }
+.animate-pulse { animation: pulse 2s ease-in-out infinite; }
+.animate-spin { animation: spin 1s linear infinite; }
+
+// ==================== 响应式断点 ====================
+
+$breakpoints: (
+  'sm': 640px,
+  'md': 768px,
+  'lg': 1024px,
+  'xl': 1280px,
+  '2xl': 1536px
+);
+
+@mixin respond-to($breakpoint) {
+  @if map-has-key($breakpoints, $breakpoint) {
+    @media (min-width: map-get($breakpoints, $breakpoint)) {
+      @content;
+    }
+  }
+}
