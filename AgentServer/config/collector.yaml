@@ -1,0 +1,430 @@
+# 新闻采集器配置
+# 用于 src/collector/ 相关模块
+#
+# 修改此文件后需要重启服务生效
+# 或者调用 config_manager.reload()
+
+# 采集器通用配置
+general:
+  # 默认采集间隔（分钟）
+  default_interval_minutes: 30
+  # 单次最大采集数量
+  max_items_per_fetch: 50
+  # 并发数
+  max_concurrent: 5
+  # 请求超时（秒）
+  request_timeout: 30
+  # 重试次数
+  max_retries: 3
+
+# 去重配置
+dedup:
+  # 内存缓存最大条目
+  memory_cache_max: 10000
+  # 标题相似度阈值
+  title_similarity_threshold: 0.85
+  
+  # ========== TTL 差异化配置 ==========
+  # 按源优先级配置不同的 Redis TTL（小时）
+  ttl_by_priority:
+    P1_OFFICIAL: 24      # 官方源（国务院/央行）: 24小时
+    P2_REGULATOR: 24     # 监管机构（工信部/交易所）: 24小时
+    P3_PRO_MEDIA: 12     # 专业财经（财联社/金十）: 12小时
+    P4_GENERAL_MEDIA: 6  # 综合媒体（澎湃/东财）: 6小时
+    P5_COMMUNITY: 1      # 社区讨论（雪球）: 1小时
+  
+  # ========== 事件核心指纹配置 ==========
+  # 用于精准去重，基于 policy_level + core_subject + impact_scope
+  event_fingerprint:
+    enabled: true
+    # 核心主体提取关键词（政策类）
+    core_subject_keywords:
+      # 水务/环保
+      - "水资源"
+      - "节水"
+      - "水利"
+      - "污水"
+      - "环保"
+      # 科技制造
+      - "工业互联网"
+      - "智能制造"
+      - "人工智能"
+      - "AI"
+      - "大模型"
+      - "芯片"
+      - "半导体"
+      # 能源
+      - "新能源"
+      - "光伏"
+      - "储能"
+      - "风电"
+      - "油气"
+      - "石油"
+      - "天然气"
+      # 金融
+      - "利率"
+      - "降息"
+      - "降准"
+      - "汇率"
+      - "外汇"
+      - "信贷"
+      # 汽车
+      - "新能源汽车"
+      - "智能驾驶"
+      - "充电桩"
+      - "汽车"
+      # 医药
+      - "医药"
+      - "医疗"
+      - "创新药"
+      - "集采"
+      # 消费
+      - "消费"
+      - "白酒"
+      - "食品"
+      - "家电"
+      # 地产金融
+      - "房地产"
+      - "地产"
+      - "银行"
+      - "保险"
+      # 央企改革
+      - "央企"
+      - "国企"
+      - "混改"
+      - "重组"
+    
+    # 影响范围关键词映射
+    impact_scope_keywords:
+      market:  # 全市场
+        - "A股"
+        - "全市场"
+        - "大盘"
+        - "指数"
+        - "两会"
+        - "政府工作报告"
+        - "中央经济工作会议"
+        - "降准"
+        - "降息"
+        - "印花税"
+      sector:  # 板块级
+        - "行业"
+        - "板块"
+        - "产业链"
+        - "赛道"
+        - "龙头"
+      stock:   # 个股级
+        - "公司"
+        - "股份"
+        - "集团"
+
+# 来源优先级配置
+source_priority:
+  # 官方媒体 (最高优先级)
+  official:
+    priority: 5
+    sources:
+      - gov
+      - xinhua
+  
+  # 监管部门
+  regulator:
+    priority: 4
+    sources:
+      - miit
+      - csrc
+      - pboc
+  
+  # 专业财经媒体
+  professional:
+    priority: 3
+    sources:
+      - cls
+      - yicai
+      - caixin
+  
+  # 综合媒体
+  general:
+    priority: 2
+    sources:
+      - thepaper
+      - sina
+      - netease
+  
+  # 自媒体
+  self_media:
+    priority: 1
+    sources:
+      - weixin
+      - toutiao
+
+# 各来源特定配置
+sources:
+  cls:
+    enabled: true
+    interval_minutes: 10
+    categories:
+      - 要闻
+      - 财经
+      - 股市
+  
+  gov:
+    enabled: true
+    interval_minutes: 60
+    fetch_full_content: true
+  
+  miit:
+    enabled: true
+    interval_minutes: 60
+    fetch_full_content: true
+  
+  thepaper:
+    enabled: true
+    interval_minutes: 30
+    categories:
+      - 财经
+      - 科技
+
+# 事件聚类配置
+event_clustering:
+  # 聚类向量相似度阈值
+  similarity_threshold: 0.75
+  # 单事件最大相关新闻数
+  max_related_news: 10
+  # 聚类时间窗口（小时）
+  time_window_hours: 24
+
+# ========== 低价值事件过滤配置 ==========
+# 过滤时机：聚类合并后、LLM 增强前
+# 目标：事件有效率≥80%，减少报告生成噪音
+event_filter:
+  enabled: true
+  
+  # 过滤规则（满足任一条件即过滤）
+  rules:
+    # 规则1: 过滤 P4/P5 源且无关联板块的事件
+    low_priority_no_sector:
+      enabled: true
+      max_priority: 2  # P4=2, P5=1
+      require_sectors: true  # 必须有板块才保留
+    
+    # 规则2: 过滤 "低优先级 + 仅影响个股 + 无热度" 的冗余事件
+    low_value_individual:
+      enabled: true
+      max_priority: 2           # P4/P5
+      impact_scope: "stock"     # 仅影响个股
+      min_news_count: 2         # 至少2条新闻才算有热度
+    
+    # 规则3: 保留规则（白名单）
+    # 满足此条件的事件一定保留，不受上述过滤影响
+    always_keep:
+      min_priority: 3           # 优先级 >= P3
+      or_has_sectors: true      # 或有明确板块
+      or_news_count: 3          # 或新闻数 >= 3（热点事件）
+  
+  # 过滤后统计
+  log_filtered: true  # 是否记录被过滤的事件
+
+# ========== LLM 分级增强配置 ==========
+# 目标：降低 LLM 调用成本 60%+，不损失核心信息
+llm_enrichment:
+  enabled: true
+  batch_size: 20
+  max_concurrent: 3
+  
+  # 分级策略
+  tiered_strategy:
+    # P1/P2（官方/监管）：全量增强
+    # 提取：情绪 + 板块 + 影响范围 + 关联标的
+    full_enrich_priorities: [5, 4]  # P1_OFFICIAL, P2_REGULATOR
+    
+    # P3（专业财经）：仅未识别板块时增强
+    # 条件：related_sectors 为空时才调用 LLM
+    # 使用简化模板，仅提取板块
+    partial_enrich_priorities: [3]  # P3_PRO_MEDIA
+    
+    # P4/P5（综合/社区）：规则填充，不调用 LLM
+    # 使用关键词匹配板块
+    rule_fill_priorities: [2, 1]  # P4_GENERAL_MEDIA, P5_COMMUNITY
+  
+  # 指标告警阈值
+  alerts:
+    p1_success_rate: 0.99    # P1/P2 采集成功率 < 99% 告警
+    event_valid_rate: 0.80   # 事件有效率 < 80% 告警
+    llm_call_ratio: 0.50     # LLM 调用比例 > 50% 告警
+
+# ========== 数据生命周期配置 ==========
+# 按源优先级 + 新闻类别分层存储，降低存储成本
+lifecycle:
+  # 原始新闻保留周期（天）- 按源优先级
+  news_retention_by_priority:
+    P1_OFFICIAL: 90      # 官方源: 90天（政策类）
+    P2_REGULATOR: 90     # 监管机构: 90天（政策类）
+    P3_PRO_MEDIA: 60     # 专业财经: 60天
+    P4_GENERAL_MEDIA: 14 # 综合媒体: 14天
+    P5_COMMUNITY: 7      # 社区讨论: 7天
+  
+  # 按新闻类别覆盖保留周期（优先级高于 by_priority）
+  news_retention_by_category:
+    # 政策类 - 长期保存（国内政策）
+    policy_release: 90     # 政策发布: 90天
+    policy_interpret: 60   # 政策解读: 60天
+    policy_notice: 60      # 通知公告: 60天
+    policy_standard: 90    # 行业标准: 90天
+    
+    # 国际类 - 分层保存
+    international: 60      # 国际大事件（地缘政治）: 60天
+    intl_economy: 90       # 国际经济（美联储等）: 90天 - 对A股影响大
+    intl_commodity: 60     # 国际大宗商品（油价等）: 60天
+    
+    # 财经类
+    finance_flash: 7       # 财经快讯: 7天（时效性强）
+    finance_article: 60    # 财经文章: 60天
+    finance_report: 90     # 研究报告: 90天
+    
+    # 公司类
+    company_announce: 60   # 公司公告: 60天
+    company_news: 30       # 公司新闻: 30天
+    
+    # 行业类
+    industry_news: 14      # 行业新闻: 14天
+    industry_analysis: 60  # 行业分析: 60天
+    
+    # 默认
+    general: 14            # 一般新闻: 14天
+  
+  # 聚类事件保留周期
+  events_retention_days: 90
+  
+  # LLM 增强结果保留周期（0=永久）
+  enrichment_retention_days: 0
+  
+  # 低价值事件保留周期
+  low_value_events_retention_days: 7
+  
+  # 清理配置
+  cleanup:
+    batch_size: 500
+    run_time: "03:00"  # 每日凌晨3点执行
+
+# ========== 策略迭代配置 ==========
+strategy:
+  # 周统计
+  weekly_stats:
+    enabled: true
+    run_day: 0  # 0=周一生成上周统计
+    run_time: "08:00"
+  
+  # 目标指标
+  targets:
+    event_hit_rate: 0.90      # 事件命中率目标 >= 90%
+    event_valid_rate: 0.80    # 事件有效率目标 >= 80%
+    dedup_mongo_ratio: 0.20   # MongoDB 去重占比目标 <= 20%
+
+  # P4/P5 关键词匹配板块规则
+  keyword_sector_rules:
+    # 科技板块
+    - keywords: ["人工智能", "AI", "大模型", "ChatGPT", "算力", "数据中心"]
+      sectors: ["AI", "算力", "数据中心"]
+      sentiment: "neutral"
+    
+    - keywords: ["芯片", "半导体", "晶圆", "光刻", "封测", "存储", "GPU"]
+      sectors: ["半导体", "芯片", "消费电子"]
+      sentiment: "neutral"
+    
+    - keywords: ["工业互联网", "智能制造", "工业软件", "机器人"]
+      sectors: ["工业软件", "智能制造"]
+      sentiment: "neutral"
+    
+    # 新能源板块
+    - keywords: ["光伏", "风电", "储能", "新能源", "绿电", "核电"]
+      sectors: ["光伏", "风电", "储能", "电力"]
+      sentiment: "neutral"
+    
+    - keywords: ["新能源汽车", "电动车", "充电桩", "动力电池", "锂电"]
+      sectors: ["新能源车", "动力电池", "充电桩"]
+      sentiment: "neutral"
+    
+    # 消费板块
+    - keywords: ["白酒", "茅台", "五粮液", "汾酒"]
+      sectors: ["白酒"]
+      sentiment: "neutral"
+    
+    - keywords: ["食品", "饮料", "乳制品", "调味品"]
+      sectors: ["食品饮料"]
+      sentiment: "neutral"
+    
+    - keywords: ["家电", "空调", "冰箱", "洗衣机", "美的", "格力"]
+      sectors: ["家电"]
+      sentiment: "neutral"
+    
+    # 医药板块
+    - keywords: ["医药", "创新药", "仿制药", "CXO", "医疗器械"]
+      sectors: ["医药", "创新药"]
+      sentiment: "neutral"
+    
+    - keywords: ["集采", "医保", "药品招标"]
+      sectors: ["医药"]
+      sentiment: "negative"
+    
+    # 金融板块
+    - keywords: ["银行", "信贷", "存款", "贷款"]
+      sectors: ["银行"]
+      sentiment: "neutral"
+    
+    - keywords: ["保险", "寿险", "财险"]
+      sectors: ["保险"]
+      sentiment: "neutral"
+    
+    - keywords: ["券商", "证券", "投行"]
+      sectors: ["券商"]
+      sentiment: "neutral"
+    
+    # 地产板块
+    - keywords: ["房地产", "地产", "楼市", "房价", "土地"]
+      sectors: ["地产"]
+      sentiment: "neutral"
+    
+    # 资源板块
+    - keywords: ["石油", "原油", "油价", "天然气"]
+      sectors: ["油气"]
+      sentiment: "neutral"
+    
+    - keywords: ["煤炭", "动力煤", "焦煤"]
+      sectors: ["煤炭"]
+      sentiment: "neutral"
+    
+    - keywords: ["钢铁", "铁矿石", "螺纹钢"]
+      sectors: ["钢铁"]
+      sentiment: "neutral"
+    
+    - keywords: ["铜", "铝", "锌", "有色金属"]
+      sectors: ["有色金属"]
+      sentiment: "neutral"
+    
+    # 农业板块
+    - keywords: ["农业", "粮食", "种子", "种业", "化肥", "农药"]
+      sectors: ["农业", "种业"]
+      sentiment: "neutral"
+    
+    - keywords: ["生猪", "养殖", "猪肉"]
+      sectors: ["养殖"]
+      sentiment: "neutral"
+    
+    # 央企改革
+    - keywords: ["央企", "国企", "混改", "重组", "整合"]
+      sectors: ["央企改革"]
+      sentiment: "positive"
+    
+    # 政策利好/利空关键词
+    - keywords: ["涨价", "提价", "上调", "大涨", "暴涨", "涨停"]
+      sectors: []
+      sentiment: "positive"
+    
+    - keywords: ["降价", "下调", "下跌", "暴跌", "跌停", "利空"]
+      sectors: []
+      sentiment: "negative"
+    
+    - keywords: ["利好", "支持", "补贴", "扶持", "鼓励"]
+      sectors: []
+      sentiment: "positive"

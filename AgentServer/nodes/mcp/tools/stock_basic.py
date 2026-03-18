@@ -7,7 +7,7 @@ from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 
 from core.base import BaseTool, ToolResult
-from core.managers import tushare_manager, mongo_manager
+from core.managers import data_source_manager, mongo_manager
 
 
 class GetStockBasicInput(BaseModel):
@@ -47,6 +47,6 @@ class GetStockBasicTool(BaseTool[GetStockBasicInput, GetStockBasicOutput]):
             )
         else:
             # 从 Tushare 获取
-            data = await tushare_manager.get_stock_basic()
+            data, _ = await data_source_manager.get_stock_basic()
         
         return GetStockBasicOutput(data=data)

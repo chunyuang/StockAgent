@@ -1,0 +1,280 @@
+# 复盘分析系统配置
+# 使用 ConfigManager.get("review.xxx") 读取
+
+# ==================== 调度配置 ====================
+schedule:
+  # 板块映射采集（每周六凌晨）
+  sector_map:
+    cron: "0 2 * * 6"  # 每周六凌晨2点
+    enabled: true
+  
+  # 每日复盘数据采集（收盘后）
+  daily_review:
+    cron: "30 19 * * 1-5"  # 每个交易日19:30
+    enabled: true
+  
+  # 复盘报告生成
+  report:
+    cron: "0 20 * * 1-5"  # 每个交易日20:00
+    enabled: true
+
+# ==================== 数据采集配置 ====================
+collector:
+  # 采集模块开关
+  modules:
+    limit: true       # 涨停数据
+    sector: true      # 板块数据
+    dragon: true      # 龙虎榜
+    hot_stock: true   # 热股排行
+    northbound: true  # 北向资金
+    index: true       # 指数数据
+  
+  # API调用间隔（秒）
+  api_interval: 0.3
+  
+  # 历史数据回溯天数
+  history_days: 30
+
+# ==================== 工作流配置 ====================
+workflow:
+  # 复盘流程步骤
+  steps:
+    - id: market_review
+      name: 大盘复盘
+      enabled: true
+      order: 1
+      agent: MarketReviewAgent
+      
+    - id: sector_review
+      name: 板块复盘
+      enabled: true
+      order: 2
+      agent: SectorReviewAgent
+      depends_on: [market_review]
+      
+    - id: limit_review
+      name: 涨停复盘
+      enabled: true
+      order: 3
+      agent: LimitUpReviewAgent
+      depends_on: [market_review]
+      
+    - id: linkage_analysis
+      name: 个股联动分析
+      enabled: true
+      order: 4
+      agent: StockLinkageAgent
+      depends_on: [sector_review, limit_review]
+      
+    - id: sentiment_review
+      name: 情绪周期复盘
+      enabled: true
+      order: 5
+      agent: SentimentCycleAgent
+      depends_on: [market_review, limit_review]
+      
+    - id: report_generate
+      name: 生成报告
+      enabled: true
+      order: 6
+      agent: ReviewReportAgent
+      depends_on: [market_review, sector_review, limit_review, linkage_analysis, sentiment_review]
+  
+  # 可并行执行的步骤组
+  parallel_groups:
+    - [sector_review, limit_review]
+
+# ==================== 大盘分析配置 ====================
+market:
+  # 核心指数
+  core_indices:
+    - ts_code: "000001.SH"
+      name: "上证指数"
+    - ts_code: "399001.SZ"
+      name: "深证成指"
+    - ts_code: "399006.SZ"
+      name: "创业板指"
+  
+  # 涨跌幅阈值
+  thresholds:
+    strong_up: 1.5      # 强势上涨
+    weak_up: 0.5        # 弱势上涨
+    weak_down: -0.5     # 弱势下跌
+    strong_down: -1.5   # 强势下跌
+  
+  # 成交量阈值（相对20日均量）
+  volume_ratio:
+    high: 1.5           # 放量
+    low: 0.7            # 缩量
+
+# ==================== 板块分析配置 ====================
+sector:
+  # 领涨板块数量
+  top_count: 10
+  
+  # 板块强弱判定
+  thresholds:
+    strong: 3.0         # 强势板块涨幅
+    weak: -2.0          # 弱势板块涨幅
+  
+  # 板块轮动分析周期（天）
+  rotation_period: 5
+
+# ==================== 涨停分析配置 ====================
+limit:
+  # 连板层级定义
+  step_levels:
+    - step: 1
+      name: "首板"
+    - step: 2
+      name: "二板"
+    - step: 3
+      name: "三板"
+    - step: 4
+      name: "四板及以上"
+      min_step: 4
+  
+  # 涨停强度判定
+  strength:
+    strong_time: "09:35"    # 强势涨停时间（9:35前）
+    weak_open_times: 3      # 弱势打开次数
+  
+  # 首板家数阈值
+  first_board_thresholds:
+    hot: 80                 # 热点（首板>80）
+    normal: 40              # 正常
+    cold: 20                # 冷淡
+
+# ==================== 情绪周期配置 ====================
+sentiment:
+  # 情绪阶段定义
+  phases:
+    ice_point:              # 冰点
+      first_board_max: 20
+      high_open_rate_min: 0.6
+      description: "市场极度恐慌，机会大于风险"
+      
+    recovery:               # 修复期
+      first_board_range: [20, 50]
+      limit_rate_improving: true
+      description: "情绪逐步修复，可试探性参与"
+      
+    high_tide:              # 高潮期
+      first_board_min: 60
+      consecutive_boards: true
+      description: "市场情绪高涨，注意风险"
+      
+    ebb:                    # 退潮期
+      breaking_rate_high: true
+      high_position_falling: true
+      description: "高位股退潮，注意回避"
+  
+  # 连板高度预警
+  height_warning:
+    safe: 5                 # 安全高度
+    warning: 7              # 预警高度
+    danger: 10              # 危险高度
+
+# ==================== 个股联动配置 ====================
+linkage:
+  # 角色定义
+  roles:
+    dragon_one:             # 龙一
+      description: "板块首封涨停，最高辨识度"
+      priority: 1
+      
+    dragon_two:             # 龙二
+      description: "板块第二封停，跟随龙一"
+      priority: 2
+      
+    central_army:           # 中军
+      description: "板块大市值核心股"
+      min_market_cap: 200   # 亿元
+      priority: 3
+      
+    catch_up:               # 补涨
+      description: "滞后启动，补涨逻辑"
+      lag_days: 2
+      priority: 4
+      
+    follower:               # 跟风
+      description: "跟风炒作，风险较高"
+      priority: 5
+  
+  # 识别规则权重
+  rule_weights:
+    time_first: 0.3         # 封停时间
+    market_cap: 0.2         # 市值大小
+    limit_times: 0.2        # 连板数
+    sector_match: 0.3       # 板块匹配度
+
+# ==================== 知识库配置 ====================
+knowledge_base:
+  # 规则库
+  rules:
+    collection: "kb_rules"
+    categories:
+      - "涨停规则"
+      - "板块规则"
+      - "情绪规则"
+      - "风险规则"
+  
+  # 龙头档案库
+  dragons:
+    collection: "kb_dragons"
+    history_days: 90        # 保留天数
+  
+  # 历史案例库
+  cases:
+    collection: "kb_cases"
+    similarity_threshold: 0.75
+
+# ==================== 报告配置 ====================
+report:
+  # 输出格式
+  formats:
+    - markdown
+    - wechat
+  
+  # 推送渠道
+  push_channels:
+    wechat:
+      enabled: true
+      bot_key: "${WECHAT_BOT_KEY}"
+  
+  # 报告模板
+  template: "review_daily"
+  
+  # 各部分字数限制
+  limits:
+    overview: 200
+    market: 300
+    sector: 400
+    limit: 500
+    sentiment: 200
+
+# ==================== 盘中实时配置（扩展） ====================
+realtime:
+  enabled: false            # 是否启用盘中实时
+  
+  # 采集间隔（分钟）
+  interval_minutes: 5
+  
+  # 交易时段
+  trading_hours:
+    morning_start: "09:30"
+    morning_end: "11:30"
+    afternoon_start: "13:00"
+    afternoon_end: "15:00"
+  
+  # 采集模块
+  modules:
+    index: true
+    sector: true
+    limit: true
+    northbound: true
+  
+  # WebSocket推送
+  websocket:
+    enabled: false
+    endpoint: "/ws/realtime"

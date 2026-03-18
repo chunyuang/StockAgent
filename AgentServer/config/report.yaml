@@ -1,0 +1,47 @@
+# 报告生成配置
+# 用于 src/report/generator.py 和相关模块
+#
+# 修改此文件后需要重启服务生效
+# 或者调用 config_manager.reload()
+
+# 早报配置
+morning_report:
+  # 是否启用
+  enabled: true
+  # 生成时间 (cron 格式)
+  schedule: "0 8 * * 1-5"
+  # 最大新闻数量
+  max_news: 10
+  # 标题模板
+  title_template: "【{date}】早间财经要闻"
+  
+# 晚报配置
+evening_report:
+  enabled: true
+  schedule: "0 18 * * 1-5"
+  max_news: 8
+  title_template: "【{date}】晚间市场盘点"
+
+# 推送配置
+push:
+  # 是否启用企业微信推送
+  wecom_enabled: true
+  # 是否启用邮件推送
+  email_enabled: false
+  # 推送失败重试次数
+  max_retries: 3
+  # 推送超时时间（秒）
+  timeout: 30
+
+# 格式化配置
+format:
+  # 日期格式
+  date_format: "%Y年%m月%d日"
+  # 时间格式
+  time_format: "%H:%M"
+  # 最大摘要长度
+  max_summary_length: 200
+  # 是否显示来源
+  show_source: true
+  # 是否显示分数
+  show_score: false

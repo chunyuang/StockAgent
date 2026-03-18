@@ -19,7 +19,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from datetime import datetime
-from core.managers import mongo_manager, tushare_manager
+from core.managers import mongo_manager, data_source_manager
 from core.managers.notification_manager import notification_manager
 from core.protocols import (
     StrategySubscription,
@@ -214,21 +214,21 @@ async def test_ma5_buy_strategy():
     return subscription
 
 
-async def test_tushare_apis():
-    """测试 Tushare 实时行情接口"""
-    print("\n=== 5. 测试 Tushare 实时接口 ===")
+async def test_data_source_apis():
+    """测试数据源实时行情接口"""
+    print("\n=== 5. 测试数据源实时接口 ===")
     
-    await tushare_manager.initialize()
+    await data_source_manager.initialize()
     
-    if not tushare_manager.is_initialized:
-        print("⚠ Tushare 未初始化，跳过接口测试")
+    if not data_source_manager.is_initialized:
+        print("⚠ 数据源管理器未初始化，跳过接口测试")
         return
     
     # 测试 stk_limit
     print("测试 stk_limit 接口...")
     try:
-        limit_data = await tushare_manager.get_stk_limit()
-        print(f"✓ 获取涨跌停价格: {len(limit_data)} 条记录")
+        limit_data, _ = await data_source_manager.get_stk_limit()
+        print(f"✓ 获取涨跌停价格: {len(limit_data) if limit_data else 0} 条记录")
         if limit_data:
             sample = limit_data[0]
             print(f"  示例: {sample.get('ts_code')} 涨停价={sample.get('up_limit')} 跌停价={sample.get('down_limit')}")
@@ -236,15 +236,16 @@ async def test_tushare_apis():
         print(f"✗ stk_limit 接口异常: {e}")
     
     # 测试 realtime_quote (需要较高权限)
-    print("\n测试 realtime_quote 接口...")
+    print("\n测试 realtime_quotes 接口...")
     try:
-        quotes = await tushare_manager.get_realtime_quote(["000001.SZ", "600000.SH"])
-        print(f"✓ 获取实时行情: {len(quotes)} 条记录")
-        for q in quotes[:2]:
-            print(f"  {q.get('ts_code')} {q.get('name')}: 价格={q.get('price')} 涨跌={q.get('pct_chg')}%")
+        quotes, _ = await data_source_manager.get_realtime_quotes(["000001.SZ", "600000.SH"])
+        print(f"✓ 获取实时行情: {len(quotes) if quotes else 0} 条记录")
+        if quotes:
+            for code, q in list(quotes.items())[:2]:
+                print(f"  {code} {q.get('name')}: 价格={q.get('price')} 涨跌={q.get('pct_chg')}%")
     except Exception as e:
-        print(f"✗ realtime_quote 接口异常: {e}")
-        print("  注意: 此接口需要 Tushare 较高积分权限")
+        print(f"✗ realtime_quotes 接口异常: {e}")
+        print("  注意: 此接口可能需要较高权限")
 
 
 async def main():
@@ -266,8 +267,8 @@ async def main():
         # 4. 测试5日线低吸策略
         await test_ma5_buy_strategy()
         
-        # 5. 测试 Tushare 接口
-        await test_tushare_apis()
+        # 5. 测试数据源接口
+        await test_data_source_apis()
         
         print("\n" + "=" * 50)
         print("✓ 所有测试完成!")
@@ -285,7 +286,7 @@ async def main():
         # 清理
         await mongo_manager.shutdown()
         await notification_manager.shutdown()
-        await tushare_manager.shutdown()
+        await data_source_manager.shutdown()
 
 
 if __name__ == "__main__":

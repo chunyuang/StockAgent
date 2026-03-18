@@ -32,10 +32,15 @@ import sys
 
 from core.settings import settings
 from core.protocols import NodeType
+from src.config import config_manager
 
 
 def main():
     """主入口"""
+    # 加载 YAML 配置
+    config_count = config_manager.load()
+    print(f"Loaded {config_count} YAML config files from {config_manager.config_dir}")
+    
     # 从环境变量或配置获取节点类型
     node_type_str = os.environ.get("NODE_TYPE", settings.node.node_type)
     

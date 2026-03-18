@@ -25,7 +25,7 @@ from typing import Dict, Any
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from datetime import date, datetime
-from core.managers import mongo_manager, tushare_manager
+from core.managers import mongo_manager, data_source_manager
 
 
 def add_financial_metrics(doc: Dict, daily_metrics: Dict) -> None:
@@ -98,7 +98,7 @@ async def sync_stock_basic(force: bool = False):
     
     # 初始化 managers
     await mongo_manager.initialize()
-    await tushare_manager.initialize()
+    await data_source_manager.initialize()
     
     today = date.today().strftime("%Y%m%d")
     
@@ -109,7 +109,7 @@ async def sync_stock_basic(force: bool = False):
     
     # Step 1: 获取所有上市股票基础信息
     print(f"\n[Step 1] 获取股票基础信息...")
-    records = await tushare_manager.get_stock_basic()
+    records, _ = await data_source_manager.get_stock_basic()
     
     if not records:
         print("未获取到任何数据")
@@ -124,7 +124,7 @@ async def sync_stock_basic(force: bool = False):
     
     # Step 2: 获取最新交易日
     print(f"\n[Step 2] 获取最新交易日...")
-    latest_trade_date = await tushare_manager.get_latest_trade_date()
+    latest_trade_date, _ = await data_source_manager.get_latest_trade_date()
     print(f"  最新交易日: {latest_trade_date}")
     
     # Step 3: 获取最新交易日的 daily_basic 数据
@@ -132,7 +132,7 @@ async def sync_stock_basic(force: bool = False):
     daily_basic_map: Dict[str, Dict] = {}
     
     if latest_trade_date:
-        daily_basic = await tushare_manager.get_daily_basic(trade_date=latest_trade_date)
+        daily_basic, _ = await data_source_manager.get_daily_basic(trade_date=latest_trade_date)
         if daily_basic:
             for item in daily_basic:
                 ts_code = item.get("ts_code")

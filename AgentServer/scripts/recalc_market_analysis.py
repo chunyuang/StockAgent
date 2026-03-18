@@ -23,50 +23,31 @@ import os
 # 添加项目根目录到 path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.managers import mongo_manager, tushare_manager, analysis_manager
+from core.managers import mongo_manager, data_source_manager, analysis_manager
 
 
 async def get_trade_dates_in_range(start_date: str, end_date: str) -> list:
     """获取指定范围内的交易日"""
-    await tushare_manager.initialize()
+    await data_source_manager.initialize()
     
-    df = await tushare_manager._call_api(
-        "trade_cal",
-        exchange="SSE",
-        start_date=start_date,
-        end_date=end_date,
-        is_open="1",
-    )
-    
-    if df.empty:
-        return []
-    
-    dates = df["cal_date"].tolist()
-    dates.sort()  # 从早到晚排序
-    return dates
+    dates, _ = await data_source_manager.get_trade_calendar(start_date, end_date)
+    return sorted(dates) if dates else []
 
 
 async def get_recent_trade_dates(days: int) -> list:
     """获取最近N个交易日"""
-    await tushare_manager.initialize()
+    await data_source_manager.initialize()
     
     end_date = datetime.now().strftime("%Y%m%d")
     start_date = (datetime.now() - timedelta(days=days * 2)).strftime("%Y%m%d")
     
-    df = await tushare_manager._call_api(
-        "trade_cal",
-        exchange="SSE",
-        start_date=start_date,
-        end_date=end_date,
-        is_open="1",
-    )
+    dates, _ = await data_source_manager.get_trade_calendar(start_date, end_date)
     
-    if df.empty:
+    if not dates:
         return []
     
-    dates = df["cal_date"].tolist()
-    dates.sort(reverse=True)
-    return dates[:days][::-1]  # 取最近N天，然后反转为从早到晚
+    sorted_dates = sorted(dates, reverse=True)
+    return sorted_dates[:days][::-1]  # 取最近N天，然后反转为从早到晚
 
 
 async def recalc_analysis_for_dates(trade_dates: list):
@@ -154,7 +135,7 @@ async def recalc_analysis_for_dates(trade_dates: list):
 async def main(args):
     # 初始化
     await mongo_manager.initialize()
-    await tushare_manager.initialize()
+    await data_source_manager.initialize()
     await analysis_manager.initialize()
     
     # 确定要处理的日期范围
@@ -177,7 +158,7 @@ async def main(args):
     
     # 关闭连接
     await mongo_manager.shutdown()
-    await tushare_manager.shutdown()
+    await data_source_manager.shutdown()
     await analysis_manager.shutdown()
 
 

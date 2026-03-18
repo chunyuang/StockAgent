@@ -13,7 +13,7 @@ from datetime import datetime, date, time
 import uuid
 import logging
 
-from nodes.base import BaseNode
+from core.base import BaseNode
 from core.protocols import (
     NodeType,
     StrategySubscription,
@@ -25,7 +25,7 @@ from core.settings import settings
 from core.managers import (
     redis_manager,
     mongo_manager,
-    tushare_manager,
+    data_source_manager,
 )
 from core.managers.notification_manager import notification_manager
 
@@ -81,7 +81,7 @@ class ListenerNode(BaseNode):
         # 初始化 Managers
         await redis_manager.initialize()
         await mongo_manager.initialize()
-        await tushare_manager.initialize()
+        await data_source_manager.initialize()
         await notification_manager.initialize()
         
         # 启动 RPC 服务器
@@ -248,7 +248,7 @@ class ListenerNode(BaseNode):
         await self._fetch_limit_prices_if_needed()
         
         # 2. 获取三大指数实时行情
-        index_quotes = await tushare_manager.get_realtime_index_quote()
+        index_quotes = await data_source_manager.get_realtime_index_quotes()
         
         # 3. 获取需要监听的股票列表
         watch_codes = self._get_all_watch_codes()
@@ -263,7 +263,7 @@ class ListenerNode(BaseNode):
         
         # 4. 获取实时行情 (分批获取，每批50只)
         self.logger.info(f"[poll] Fetching realtime quotes for {len(watch_codes)} stocks...")
-        quotes = await tushare_manager.get_realtime_quote(watch_codes, batch_size=50)
+        quotes = await data_source_manager.get_realtime_quotes(watch_codes, batch_size=50)
         if not quotes:
             self.logger.warning("Failed to get realtime quotes")
             return
@@ -339,7 +339,7 @@ class ListenerNode(BaseNode):
         self.logger.info(f"Fetching limit prices for {today}...")
         
         try:
-            limit_data = await tushare_manager.get_stk_limit(trade_date=today)
+            limit_data = await data_source_manager.get_stk_limit(trade_date=today)
             
             if limit_data:
                 original_count = len(limit_data)
@@ -627,7 +627,7 @@ class ListenerNode(BaseNode):
     
     async def _is_trading_time(self) -> bool:
         """检查是否为交易时间"""
-        return await tushare_manager.is_trading_time()
+        return await data_source_manager.is_trading_time()
     
     def _parse_time(self, time_str: str) -> time:
         """
