@@ -6,12 +6,12 @@ import asyncio
 from typing import Optional, Dict, Type
 import json
 
-from nodes.base import BaseNode
+from core.base import BaseNode
 from core.protocols import NodeType, ToolRequest, ToolResponse
 from core.managers import (
     redis_manager,
     mongo_manager,
-    tushare_manager,
+    data_source_manager,
     milvus_manager,
 )
 from core.base import BaseTool
@@ -50,7 +50,7 @@ class MCPNode(BaseNode):
         self.logger.info("Initializing managers...")
         await redis_manager.initialize()      # 消息队列
         await mongo_manager.initialize()      # 数据查询
-        await tushare_manager.initialize()    # 股票数据
+        await data_source_manager.initialize()    # 股票数据
         await milvus_manager.initialize()     # 向量检索
         
         # 注册工具

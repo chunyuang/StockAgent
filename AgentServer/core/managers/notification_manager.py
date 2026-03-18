@@ -12,7 +12,7 @@ from typing import Optional, Dict, Any, List
 from datetime import datetime
 import httpx
 
-from .base import BaseManager
+from core.base import BaseManager
 from ..settings import settings
 from ..protocols import StrategyAlert
 
@@ -119,12 +119,19 @@ class NotificationManager(BaseManager):
         
         return success
     
-    async def send_markdown(self, content: str) -> bool:
+    async def send_markdown(
+        self, 
+        content: str, 
+        mentioned_list: Optional[List[str]] = None,
+        mentioned_mobile_list: Optional[List[str]] = None,
+    ) -> bool:
         """
         发送 Markdown 消息
         
         Args:
             content: Markdown 内容
+            mentioned_list: 需要 @ 的用户ID列表，使用 "@all" 表示 @ 所有人
+            mentioned_mobile_list: 需要 @ 的用户手机号列表
             
         Returns:
             是否发送成功
@@ -135,10 +142,22 @@ class NotificationManager(BaseManager):
         
         self._ensure_initialized()
         
+        # 如果有 @ 需求，在内容末尾添加提醒
+        final_content = content
+        if mentioned_list and "@all" in mentioned_list:
+            final_content = content + "\n<@all>"
+        
+        # 企业微信 Markdown 消息限制约 4096 字符
+        MAX_LENGTH = 4000
+        if len(final_content) > MAX_LENGTH:
+            self.logger.warning(f"Message too long ({len(final_content)} chars), truncating...")
+            # 截断并添加提示
+            final_content = final_content[:MAX_LENGTH - 50] + "\n\n... 内容过长已截断"
+        
         payload = {
             "msgtype": "markdown",
             "markdown": {
-                "content": content
+                "content": final_content
             }
         }
         

@@ -7,7 +7,7 @@ from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 
 from core.base import BaseTool, ToolResult
-from core.managers import tushare_manager
+from core.managers import data_source_manager
 
 
 class GetFinancialIndicatorInput(BaseModel):
@@ -31,7 +31,7 @@ class GetFinancialIndicatorTool(BaseTool[GetFinancialIndicatorInput, GetFinancia
     
     async def execute(self, input_data: GetFinancialIndicatorInput) -> GetFinancialIndicatorOutput:
         """执行"""
-        data = await tushare_manager.get_financial_indicator(
+        data = await data_source_manager.get_financial_indicator(
             ts_code=input_data.ts_code,
             period=input_data.period,
         )
