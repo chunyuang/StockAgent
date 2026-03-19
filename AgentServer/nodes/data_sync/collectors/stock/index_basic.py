@@ -46,19 +46,26 @@ class IndexBasicCollector(BaseCollector):
             self.logger.info(f"Index basic {today} already synced, skipping")
             return {"count": 0, "message": f"Already synced {today}", "skipped": True}
         
-        all_records: List[Dict] = []
+        total_count = 0
         
         async def collect_market(market: str) -> int:
-            """采集单个市场的指数"""
+            """采集单个市场的指数并立即写入"""
+            nonlocal total_count
             records, source = await data_source_manager.get_index_basic(market=market)
             if records:
-                all_records.extend(records)
-                self.logger.info(f"  {market}: {len(records)} indices")
-            return len(records) if records else 0
+                count = await self._write_buffer(
+                    buffer=records,
+                    collection="index_basic",
+                    key_fields=["ts_code"],
+                )
+                total_count += count
+                self.logger.info(f"  {market}: {count} indices")
+                return count
+            return 0
         
         self.logger.info("Collecting index basic from all markets...")
         
-        # 使用基类并行采集方法
+        # 使用基类并行采集方法，每个市场采集后立即写入
         result = await self._parallel_collect(
             items=self.MARKETS,
             collect_func=collect_market,
@@ -66,15 +73,8 @@ class IndexBasicCollector(BaseCollector):
             retry_failures=True,
         )
         
-        if not all_records:
+        if total_count == 0:
             return {"count": 0, "message": "No data"}
-        
-        # 使用基类方法批量写入
-        total_count = await self._write_buffer(
-            buffer=all_records,
-            collection="index_basic",
-            key_fields=["ts_code"],
-        )
         
         # 记录同步完成
         await mongo_manager.record_sync(
