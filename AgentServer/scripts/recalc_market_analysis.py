@@ -1,6 +1,12 @@
 """
 重新计算指定时间段的 market_analysis 数据 (仅分析，不重算 daily_stats)
 
+V2.1 平滑版双评分系统:
+- 核心分经过 3 日 EMA 平滑，消除单日脉冲
+- 趋势阈值放宽到 ±10%，减少频繁切换
+- 强弱差 ≥10 分才显示，图表更干净
+- 因子权重聚焦核心，减少噪音
+
 用法:
     cd AgentServer
     
@@ -52,19 +58,20 @@ async def get_recent_trade_dates(days: int) -> list:
 
 async def recalc_analysis_for_dates(trade_dates: list):
     """
-    重新计算指定日期列表的 market_analysis
+    重新计算指定日期列表的 market_analysis (V2.1 平滑版)
     
-    算法特性:
-    1. 方向修正强度算法: 放量杀跌时强度分显著下降
-    2. EMA 平滑情绪分: Final = Today * 0.8 + Yesterday * 0.2
-    3. 动态 MA30 基准: 使用实际可用数据天数
+    V2.1 优化:
+    1. 核心分经过 3 日 EMA 平滑 (0.6/0.3/0.1 权重)
+    2. 趋势阈值放宽到 ±10%
+    3. 强弱差 ≥10 分才视为有效背离
+    4. 因子权重聚焦核心因子
     """
-    print(f"=== Recalculating market_analysis for {len(trade_dates)} trading days ===")
+    print(f"=== Recalculating market_analysis (V2.1 Smoothed) for {len(trade_dates)} trading days ===")
     print(f"Date range: {trade_dates[0]} ~ {trade_dates[-1]}")
-    print(f"Algorithm: Direction-corrected strength + EMA smoothed sentiment\n")
+    print(f"Algorithm: 3-day EMA Core + Trend(±10%) + Divergence(≥10)\n")
     
     # 清除 analysis_manager 的缓存
-    analysis_manager._ma30_cache.clear()
+    analysis_manager._ma_cache.clear()
     
     success_count = 0
     skip_count = 0
@@ -83,38 +90,39 @@ async def recalc_analysis_for_dates(trade_dates: list):
                 skip_count += 1
                 continue
             
-            # 获取前一天数据
+            # 获取前一天数据 (兼容旧接口)
             prev_stats = await mongo_manager.find_one(
                 "daily_stats",
                 {"trade_date": {"$lt": trade_date}},
                 sort=[("trade_date", -1)],
             )
             
-            # 重新计算分析 (使用新算法)
+            # 重新计算分析 (V2 双评分系统)
             analysis_result = await analysis_manager.analyze_and_store(
                 stats=stats,
                 prev_stats=prev_stats,
                 mongo_manager=mongo_manager,
             )
             
-            # 显示结果 (包含新字段)
-            v_ratio = analysis_result.get("v_ratio", 0)
-            baseline_count = analysis_result.get("baseline_data_count", 0)
-            sentiment_raw = analysis_result.get("sentiment_score", 0)
-            sentiment_ema = analysis_result.get("sentiment_score_ema", sentiment_raw)
-            strength_diff = analysis_result.get("strength_diff", 0)
-            up_ratio = stats.get("up_ratio", 0)
+            # 显示结果 (V2 格式)
+            sentiment = analysis_result.get("sentiment_score", 0)
+            strength = analysis_result.get("strength_score", 0)
+            sent_trend = analysis_result.get("sentiment_trend", "?")
+            stren_trend = analysis_result.get("strength_trend", "?")
+            cycle = analysis_result.get("cycle", "unknown")
+            position = analysis_result.get("position_advice", {})
+            pos_range = position.get("range", "?")
             
-            # 方向修正标记
-            direction_flag = "↓" if up_ratio < 40 else "→" if up_ratio < 60 else "↑"
+            # 趋势符号
+            trend_sym = {"up": "↑", "flat": "→", "down": "↓"}
+            sent_sym = trend_sym.get(sent_trend, "?")
+            stren_sym = trend_sym.get(stren_trend, "?")
             
             print(
-                f"[{i+1}/{len(trade_dates)}] {trade_date} {direction_flag} "
-                f"S:{analysis_result['strength_score']:.0f} "
-                f"E:{sentiment_raw:.0f}→{sentiment_ema:.0f} "
-                f"Diff:{strength_diff:+.0f} "
-                f"v:{v_ratio:.2f} "
-                f"{analysis_result['cycle']}"
+                f"[{i+1}/{len(trade_dates)}] {trade_date} "
+                f"情绪:{sentiment:.0f}{sent_sym} "
+                f"强度:{strength:.0f}{stren_sym} "
+                f"| {cycle} | {pos_range}"
             )
             success_count += 1
             
@@ -128,8 +136,8 @@ async def recalc_analysis_for_dates(trade_dates: list):
     print(f"  Success: {success_count}")
     print(f"  Skipped: {skip_count}")
     print(f"  Errors:  {error_count}")
-    print(f"\nLegend: S=Strength, E=Sentiment(raw→ema), Diff=Strength-Sentiment")
-    print(f"Direction: ↓=放量杀跌(up<40%), →=中性, ↑=上涨行情")
+    print(f"\nLegend: ↑=走强 →=横盘 ↓=走弱")
+    print(f"Cycles: ice_point/recovery/main_upward/divergence/decline/chaos")
 
 
 async def main(args):

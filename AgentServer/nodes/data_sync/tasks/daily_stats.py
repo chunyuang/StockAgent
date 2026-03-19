@@ -6,14 +6,16 @@
 2. 今日连板统计 (一板~六板及以上)
 3. 今日涨跌个股数量
 4. 今日涨停/跌停/炸板个股数量
+5. 新增: 涨跌幅中位数、涨跌5%统计、封板率、晋级率等
 
 数据来源: 基于已同步的 moneyflow_industry, moneyflow_concept, limit_list, stock_daily 进行统计
 支持历史数据回补。
 """
 
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 import time
+import statistics
 
 from core.base import BaseTask
 from core.settings import settings
@@ -342,6 +344,24 @@ class DailyStatsTask(BaseTask):
             "sh_amount": None,
             "sz_amount": None,
             "total_amount": None,
+            
+            # === 新增字段 (双评分系统) ===
+            # 个股涨跌幅统计
+            "pct_chg_median": None,      # 涨跌幅中位数
+            "up_5pct_count": 0,          # 涨超5%家数
+            "down_5pct_count": 0,        # 跌超5%家数
+            
+            # 大盘指数涨跌幅 (沪深300)
+            "index_pct_chg": None,
+            
+            # 封板率 (涨停封板 / (涨停+炸板))
+            "seal_rate": None,
+            
+            # 连板家数 (2板及以上)
+            "cont_board_count": 0,
+            
+            # 昨日连板晋级率
+            "promotion_rate": None,
         }
         
         # 1. 从 limit_list 获取涨跌停数据
@@ -389,9 +409,12 @@ class DailyStatsTask(BaseTask):
             projection={"ts_code": 1, "pct_chg": 1, "_id": 0},
         )
         
+        pct_chg_list = []  # 收集所有涨跌幅用于计算中位数
+        
         if daily_data:
             for item in daily_data:
                 pct_chg = item.get("pct_chg", 0) or 0
+                pct_chg_list.append(pct_chg)
                 
                 if pct_chg > 0:
                     stats["up_count"] += 1
@@ -399,6 +422,16 @@ class DailyStatsTask(BaseTask):
                     stats["down_count"] += 1
                 else:
                     stats["flat_count"] += 1
+                
+                # 涨跌5%统计
+                if pct_chg >= 5:
+                    stats["up_5pct_count"] += 1
+                elif pct_chg <= -5:
+                    stats["down_5pct_count"] += 1
+        
+        # 计算涨跌幅中位数
+        if pct_chg_list:
+            stats["pct_chg_median"] = round(statistics.median(pct_chg_list), 4)
         
         # 3. 获取沪深港通资金流向
         try:
@@ -445,6 +478,18 @@ class DailyStatsTask(BaseTask):
         except Exception as e:
             self.logger.warning(f"Failed to get market turnover: {e}")
         
+        # 5. 获取大盘指数涨跌幅 (沪深300)
+        try:
+            hs300_index = await mongo_manager.find_one(
+                "index_daily",
+                {"ts_code": "000300.SH", "trade_date": trade_date},
+                projection={"pct_chg": 1, "_id": 0},
+            )
+            if hs300_index:
+                stats["index_pct_chg"] = hs300_index.get("pct_chg")
+        except Exception as e:
+            self.logger.warning(f"Failed to get index pct_chg: {e}")
+        
         # 计算衍生指标
         total_stocks = stats["up_count"] + stats["down_count"] + stats["flat_count"]
         stats["total_stocks"] = total_stocks
@@ -456,6 +501,23 @@ class DailyStatsTask(BaseTask):
             stats["limit_4"] + stats["limit_5"] + stats["limit_6_plus"]
         )
         
+        # 封板率: 涨停封板 / (涨停+炸板)
+        limit_up = stats["limit_up_count"]
+        broken = stats["broken_limit_count"]
+        if limit_up + broken > 0:
+            stats["seal_rate"] = round(limit_up / (limit_up + broken) * 100, 2)
+        else:
+            stats["seal_rate"] = 0
+        
+        # 连板家数 (2板及以上)
+        stats["cont_board_count"] = (
+            stats["limit_2"] + stats["limit_3"] + stats["limit_4"] + 
+            stats["limit_5"] + stats["limit_6_plus"]
+        )
+        
+        # 6. 计算昨日连板晋级率
+        stats["promotion_rate"] = await self._compute_promotion_rate(trade_date)
+        
         # 写入数据库
         await mongo_manager.update_one(
             "daily_stats",
@@ -465,3 +527,55 @@ class DailyStatsTask(BaseTask):
         )
         
         return stats
+    
+    async def _compute_promotion_rate(self, trade_date: str) -> Optional[float]:
+        """
+        计算昨日连板晋级率
+        
+        逻辑: 昨日涨停股中，今日仍涨停的比例
+        
+        Args:
+            trade_date: 当前交易日
+        
+        Returns:
+            晋级率 (0-100)，无法计算时返回 None
+        """
+        # 获取前一个交易日
+        prev_stats = await mongo_manager.find_one(
+            "daily_stats",
+            {"trade_date": {"$lt": trade_date}},
+            sort=[("trade_date", -1)],
+            projection={"trade_date": 1, "_id": 0},
+        )
+        
+        if not prev_stats:
+            return None
+        
+        prev_date = prev_stats["trade_date"]
+        
+        # 获取昨日涨停股
+        prev_limit_ups = await mongo_manager.find_many(
+            "limit_list",
+            {"trade_date": prev_date, "limit": "U"},
+            projection={"ts_code": 1, "_id": 0},
+        )
+        
+        if not prev_limit_ups:
+            return None
+        
+        prev_codes = {item["ts_code"] for item in prev_limit_ups}
+        
+        # 获取今日涨停股
+        today_limit_ups = await mongo_manager.find_many(
+            "limit_list",
+            {"trade_date": trade_date, "limit": "U"},
+            projection={"ts_code": 1, "_id": 0},
+        )
+        
+        today_codes = {item["ts_code"] for item in today_limit_ups} if today_limit_ups else set()
+        
+        # 计算晋级率
+        promoted_count = len(prev_codes & today_codes)
+        promotion_rate = round(promoted_count / len(prev_codes) * 100, 2)
+        
+        return promotion_rate
