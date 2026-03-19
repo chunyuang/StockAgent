@@ -8,7 +8,7 @@ MongoDB 管理器
 - 聚合查询
 """
 
-from typing import Optional, Any, List, Dict
+from typing import Optional, Any, List, Dict, Tuple
 from datetime import datetime
 
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
@@ -110,6 +110,45 @@ class MongoManager(BaseManager):
                         except OperationFailure:
                             pass
                 await collection.create_indexes(indexes)
+            else:
+                raise
+    
+    async def create_index(
+        self,
+        collection_name: str,
+        keys: List[Tuple[str, int]],
+        unique: bool = False,
+        **kwargs
+    ) -> str:
+        """
+        创建单个索引
+        
+        Args:
+            collection_name: 集合名称
+            keys: 索引键列表，如 [("ts_code", 1), ("trade_date", -1)]
+            unique: 是否唯一索引
+            **kwargs: 其他索引选项
+        
+        Returns:
+            索引名称
+        """
+        self._ensure_initialized()
+        collection = self._db[collection_name]
+        
+        index_model = IndexModel(keys, unique=unique, **kwargs)
+        try:
+            result = await collection.create_indexes([index_model])
+            return result[0] if result else ""
+        except OperationFailure as e:
+            if e.code == 86:  # IndexKeySpecsConflict
+                idx_name = "_".join(f"{k}_{v}" for k, v in keys)
+                try:
+                    await collection.drop_index(idx_name)
+                    self.logger.info(f"Dropped conflicting index: {idx_name}")
+                except OperationFailure:
+                    pass
+                result = await collection.create_indexes([index_model])
+                return result[0] if result else ""
             else:
                 raise
 
