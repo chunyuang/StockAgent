@@ -58,14 +58,22 @@ class MoneyflowIndustryCollector(BaseCollector):
         
         self.logger.info(f"Syncing moneyflow industry: {start_date} -> {end_date} ({len(trade_dates)} dates)")
         
-        all_records: List[Dict[str, Any]] = []
+        total_count = 0
         
         async def collect_single_date(trade_date: str) -> int:
+            nonlocal total_count
             records, _ = await data_source_manager.get_moneyflow_industry(trade_date=trade_date)
             if records:
-                all_records.extend(records)
+                count = await self._write_buffer(
+                    buffer=records,
+                    collection="moneyflow_industry",
+                    key_fields=["ts_code", "trade_date"],
+                )
+                total_count += count
+                await asyncio.sleep(self.API_INTERVAL)
+                return count
             await asyncio.sleep(self.API_INTERVAL)
-            return len(records) if records else 0
+            return 0
         
         result = await self._parallel_collect(
             items=trade_dates,
@@ -73,14 +81,6 @@ class MoneyflowIndustryCollector(BaseCollector):
             max_concurrent=self.MAX_CONCURRENT,
             retry_failures=True,
         )
-        
-        total_count = 0
-        if all_records:
-            total_count = await self._write_buffer(
-                buffer=all_records,
-                collection="moneyflow_industry",
-                key_fields=["ts_code", "trade_date"],
-            )
         
         await mongo_manager.record_sync(
             sync_type=self.name,

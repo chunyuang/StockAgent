@@ -165,7 +165,6 @@ class DailyBasicCollector(BaseCollector):
         self.logger.info(f"[{sync_type_desc}] Syncing daily_basic: {start_date} -> {end_date} ({len(trade_dates)} dates)")
         
         total_count = 0
-        all_records: List[Dict[str, Any]] = []
         
         async def collect_single_date(trade_date: str) -> int:
             """采集单个日期的数据"""

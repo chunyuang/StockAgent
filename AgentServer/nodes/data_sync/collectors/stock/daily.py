@@ -98,10 +98,10 @@ class StockDailyCollector(BaseCollector):
         ]
         
         total_count = 0
-        all_records: List[Dict[str, Any]] = []
         
         async def collect_batch(batch: List[str]) -> int:
-            """采集一批股票的数据"""
+            """采集一批股票的数据并立即写入"""
+            nonlocal total_count
             ts_code_str = ",".join(batch)
             records, _ = await data_source_manager.get_daily(
                 ts_code=ts_code_str,
@@ -109,10 +109,16 @@ class StockDailyCollector(BaseCollector):
                 end_date=end_date,
             )
             if records:
-                all_records.extend(records)
-            return len(records) if records else 0
+                count = await self._write_buffer(
+                    buffer=records,
+                    collection="stock_daily",
+                    key_fields=["ts_code", "trade_date"],
+                )
+                total_count += count
+                return count
+            return 0
         
-        # 使用基类并行采集方法
+        # 使用基类并行采集方法，每批次采集后立即写入
         result = await self._parallel_collect(
             items=batches,
             collect_func=collect_batch,
@@ -120,14 +126,6 @@ class StockDailyCollector(BaseCollector):
             retry_failures=True,
             item_id_func=lambda b: f"batch_{b[0]}",
         )
-        
-        # 批量写入所有数据
-        if all_records:
-            total_count = await self._write_buffer(
-                buffer=all_records,
-                collection="stock_daily",
-                key_fields=["ts_code", "trade_date"],
-            )
         
         # 记录同步完成
         await mongo_manager.record_sync(

@@ -13,6 +13,7 @@ from datetime import datetime
 
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from pymongo import ASCENDING, DESCENDING, IndexModel, UpdateOne, InsertOne
+from pymongo.errors import OperationFailure
 
 from core.base import BaseManager
 from ..settings import settings
@@ -85,6 +86,33 @@ class MongoManager(BaseManager):
         self._ensure_initialized()
         return self._db
     
+    async def _safe_create_indexes(self, collection_name: str, indexes: List[IndexModel]) -> None:
+        """安全创建索引，处理索引冲突
+        
+        当已存在同名但属性不同的索引时，先删除旧索引再创建新索引。
+        """
+        collection = self._db[collection_name]
+        try:
+            await collection.create_indexes(indexes)
+        except OperationFailure as e:
+            if e.code == 86:  # IndexKeySpecsConflict
+                self.logger.warning(f"Index conflict in {collection_name}, recreating...")
+                for idx in indexes:
+                    idx_name = idx.document.get("name")
+                    if not idx_name:
+                        keys = idx.document.get("key")
+                        if keys:
+                            idx_name = "_".join(f"{k}_{v}" for k, v in keys.items())
+                    if idx_name:
+                        try:
+                            await collection.drop_index(idx_name)
+                            self.logger.info(f"Dropped conflicting index: {idx_name}")
+                        except OperationFailure:
+                            pass
+                await collection.create_indexes(indexes)
+            else:
+                raise
+
     async def _ensure_indexes(self) -> None:
         """
         确保索引存在
@@ -94,23 +122,23 @@ class MongoManager(BaseManager):
         self.logger.info("Ensuring MongoDB indexes...")
         
         # 用户表
-        await self._db.users.create_indexes([
+        await self._safe_create_indexes("users", [
             IndexModel([("username", ASCENDING)], unique=True),
             IndexModel([("email", ASCENDING)], unique=True),
         ])
         
         # 任务表
-        await self._db.tasks.create_indexes([
+        await self._safe_create_indexes("tasks", [
             IndexModel([("task_id", ASCENDING)], unique=True),
             IndexModel([("user_id", ASCENDING)]),
             IndexModel([("status", ASCENDING)]),
             IndexModel([("created_at", DESCENDING)]),
             IndexModel([("trace_id", ASCENDING)]),
-            IndexModel([("node_id", ASCENDING)]),  # 处理节点索引
+            IndexModel([("node_id", ASCENDING)]),
         ])
         
         # 股票基础信息表
-        await self._db.stock_basic.create_indexes([
+        await self._safe_create_indexes("stock_basic", [
             IndexModel([("ts_code", ASCENDING)], unique=True),
             IndexModel([("name", ASCENDING)]),
             IndexModel([("industry", ASCENDING)]),
@@ -121,7 +149,7 @@ class MongoManager(BaseManager):
         ])
         
         # 日线数据表 (高频查询)
-        await self._db.stock_daily.create_indexes([
+        await self._safe_create_indexes("stock_daily", [
             IndexModel(
                 [("ts_code", ASCENDING), ("trade_date", DESCENDING)],
                 unique=True,
@@ -130,7 +158,7 @@ class MongoManager(BaseManager):
         ])
         
         # 指数基础信息表
-        await self._db.index_basic.create_indexes([
+        await self._safe_create_indexes("index_basic", [
             IndexModel([("ts_code", ASCENDING)], unique=True),
             IndexModel([("name", ASCENDING)]),
             IndexModel([("market", ASCENDING)]),
@@ -138,7 +166,7 @@ class MongoManager(BaseManager):
         ])
         
         # 指数日线数据表 (高频查询)
-        await self._db.index_daily.create_indexes([
+        await self._safe_create_indexes("index_daily", [
             IndexModel(
                 [("ts_code", ASCENDING), ("trade_date", DESCENDING)],
                 unique=True,
@@ -147,41 +175,41 @@ class MongoManager(BaseManager):
         ])
         
         # 行业资金流向表
-        await self._db.moneyflow_industry.create_indexes([
+        await self._safe_create_indexes("moneyflow_industry", [
             IndexModel(
                 [("ts_code", ASCENDING), ("trade_date", DESCENDING)],
                 unique=True,
             ),
             IndexModel([("trade_date", DESCENDING)]),
             IndexModel([("name", ASCENDING)]),
-            IndexModel([("net_amount", DESCENDING)]),  # 按净流入排序
+            IndexModel([("net_amount", DESCENDING)]),
         ])
         
         # 概念板块资金流向表
-        await self._db.moneyflow_concept.create_indexes([
+        await self._safe_create_indexes("moneyflow_concept", [
             IndexModel(
                 [("ts_code", ASCENDING), ("trade_date", DESCENDING)],
                 unique=True,
             ),
             IndexModel([("trade_date", DESCENDING)]),
             IndexModel([("name", ASCENDING)]),
-            IndexModel([("net_amount", DESCENDING)]),  # 按净流入排序
+            IndexModel([("net_amount", DESCENDING)]),
         ])
         
         # 涨跌停数据表
-        await self._db.limit_list.create_indexes([
+        await self._safe_create_indexes("limit_list", [
             IndexModel(
                 [("ts_code", ASCENDING), ("trade_date", DESCENDING)],
                 unique=True,
             ),
             IndexModel([("trade_date", DESCENDING)]),
-            IndexModel([("limit", ASCENDING)]),  # U-涨停 D-跌停
+            IndexModel([("limit", ASCENDING)]),
             IndexModel([("industry", ASCENDING)]),
-            IndexModel([("limit_times", DESCENDING)]),  # 连续涨停次数
+            IndexModel([("limit_times", DESCENDING)]),
         ])
         
         # 板块/行业排名表
-        await self._db.sector_ranking.create_indexes([
+        await self._safe_create_indexes("sector_ranking", [
             IndexModel(
                 [("trade_date", DESCENDING), ("ranking_type", ASCENDING), ("rank", ASCENDING)],
                 unique=True,
@@ -191,50 +219,50 @@ class MongoManager(BaseManager):
         ])
         
         # 每日统计表
-        await self._db.daily_stats.create_indexes([
+        await self._safe_create_indexes("daily_stats", [
             IndexModel([("trade_date", DESCENDING)], unique=True),
         ])
         
         # 每日指标表 (PE/PB/换手率/市值等)
-        await self._db.daily_basic.create_indexes([
+        await self._safe_create_indexes("daily_basic", [
             IndexModel(
                 [("ts_code", ASCENDING), ("trade_date", DESCENDING)],
                 unique=True,
             ),
             IndexModel([("trade_date", DESCENDING)]),
-            IndexModel([("pe_ttm", ASCENDING)]),  # 常用排序字段
+            IndexModel([("pe_ttm", ASCENDING)]),
             IndexModel([("pb", ASCENDING)]),
-            IndexModel([("total_mv", DESCENDING)]),  # 市值排序
+            IndexModel([("total_mv", DESCENDING)]),
         ])
         
         # 市场分析表 (情绪周期分析结果)
-        await self._db.market_analysis.create_indexes([
+        await self._safe_create_indexes("market_analysis", [
             IndexModel([("trade_date", DESCENDING)], unique=True),
             IndexModel([("cycle", ASCENDING)]),
         ])
         
         # 新闻表
-        await self._db.news.create_indexes([
-            IndexModel([("_key", ASCENDING)], unique=True, sparse=True),  # sparse: 忽略无 _key 的文档
+        await self._safe_create_indexes("news", [
+            IndexModel([("_key", ASCENDING)], unique=True, sparse=True),
             IndexModel([("datetime", DESCENDING)]),
-            IndexModel([("content_hash", ASCENDING)], unique=True, sparse=True),  # 内容去重
-            IndexModel([("collect_time", DESCENDING)]),  # 按采集时间排序
-            IndexModel([("event_id", ASCENDING)], sparse=True),  # 事件聚类
-            IndexModel([("title", "text"), ("content", "text")]),  # 全文索引
+            IndexModel([("content_hash", ASCENDING)], unique=True, sparse=True),
+            IndexModel([("collect_time", DESCENDING)]),
+            IndexModel([("event_id", ASCENDING)], sparse=True),
+            IndexModel([("title", "text"), ("content", "text")]),
         ])
         
         # 策略表
-        await self._db.strategies.create_indexes([
+        await self._safe_create_indexes("strategies", [
             IndexModel([("strategy_id", ASCENDING)], unique=True),
             IndexModel([("user_id", ASCENDING)]),
         ])
         
         # 数据同步记录表 (每个 sync_type 只保留一条记录)
-        await self._db.sync_records.create_indexes([
+        await self._safe_create_indexes("sync_records", [
             IndexModel([("sync_type", ASCENDING)], unique=True),
         ])
         
-        self.logger.info("MongoDB indexes ensured ✓")
+        self.logger.info("MongoDB indexes ensured")
     
     # ==================== 通用 CRUD ====================
     

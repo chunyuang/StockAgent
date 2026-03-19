@@ -73,16 +73,23 @@ class LimitListCollector(BaseCollector):
         
         self.logger.info(f"Syncing limit list: {start_date} -> {end_date} ({len(trade_dates)} dates)")
         
-        # 使用并行采集（带失败重试）
-        all_records: List[Dict[str, Any]] = []
+        total_count = 0
         
         async def collect_single_date(trade_date: str) -> int:
-            """采集单个日期的数据"""
+            """采集单个日期的数据并立即写入"""
+            nonlocal total_count
             records, _ = await data_source_manager.get_limit_list(trade_date=trade_date)
             if records:
-                all_records.extend(records)
+                count = await self._write_buffer(
+                    buffer=records,
+                    collection="limit_list",
+                    key_fields=["ts_code", "trade_date"],
+                )
+                total_count += count
+                await asyncio.sleep(self.API_INTERVAL)
+                return count
             await asyncio.sleep(self.API_INTERVAL)
-            return len(records) if records else 0
+            return 0
         
         result = await self._parallel_collect(
             items=trade_dates,
@@ -90,15 +97,6 @@ class LimitListCollector(BaseCollector):
             max_concurrent=self.MAX_CONCURRENT,
             retry_failures=True,
         )
-        
-        # 批量写入
-        total_count = 0
-        if all_records:
-            total_count = await self._write_buffer(
-                buffer=all_records,
-                collection="limit_list",
-                key_fields=["ts_code", "trade_date"],
-            )
         
         # 记录同步完成
         await mongo_manager.record_sync(

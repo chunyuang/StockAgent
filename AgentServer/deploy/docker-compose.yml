@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   # ==================== 基础设施 ====================
   
@@ -111,120 +109,120 @@ services:
 
   # ==================== 应用节点 ====================
   
-  web:
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile
-    container_name: stock-agent-web
-    ports:
-      - "8000:8000"
-    environment:
-      NODE_TYPE: web
-      HOST: "0.0.0.0"
-      PORT: "8000"
-      MONGO_HOST: mongodb
-      REDIS_HOST: redis
-      MILVUS_HOST: milvus
-    env_file:
-      - ../.env
-    depends_on:
-      mongodb:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    networks:
-      - stock-agent-network
-    restart: unless-stopped
+  # web:
+  #   build:
+  #     context: ..
+  #     dockerfile: deploy/Dockerfile
+  #   container_name: stock-agent-web
+  #   ports:
+  #     - "8000:8000"
+  #   environment:
+  #     NODE_TYPE: web
+  #     HOST: "0.0.0.0"
+  #     PORT: "8000"
+  #     MONGO_HOST: mongodb
+  #     REDIS_HOST: redis
+  #     MILVUS_HOST: milvus
+  #   env_file:
+  #     - ../.env
+  #   depends_on:
+  #     mongodb:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #   networks:
+  #     - stock-agent-network
+  #   restart: unless-stopped
 
-  data-sync:
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile
-    container_name: stock-agent-data-sync
-    environment:
-      NODE_TYPE: data_sync
-      MONGO_HOST: mongodb
-      REDIS_HOST: redis
-    env_file:
-      - ../.env
-    depends_on:
-      mongodb:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    networks:
-      - stock-agent-network
-    restart: unless-stopped
+  # data-sync:
+  #   build:
+  #     context: ..
+  #     dockerfile: deploy/Dockerfile
+  #   container_name: stock-agent-data-sync
+  #   environment:
+  #     NODE_TYPE: data_sync
+  #     MONGO_HOST: mongodb
+  #     REDIS_HOST: redis
+  #   env_file:
+  #     - ../.env
+  #   depends_on:
+  #     mongodb:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #   networks:
+  #     - stock-agent-network
+  #   restart: unless-stopped
 
-  mcp:
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile
-    container_name: stock-agent-mcp
-    environment:
-      NODE_TYPE: mcp
-      MCP_PORT: "9000"
-      MONGO_HOST: mongodb
-      REDIS_HOST: redis
-      MILVUS_HOST: milvus
-    env_file:
-      - ../.env
-    depends_on:
-      mongodb:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      milvus:
-        condition: service_healthy
-    networks:
-      - stock-agent-network
-    restart: unless-stopped
+  # mcp:
+  #   build:
+  #     context: ..
+  #     dockerfile: deploy/Dockerfile
+  #   container_name: stock-agent-mcp
+  #   environment:
+  #     NODE_TYPE: mcp
+  #     MCP_PORT: "9000"
+  #     MONGO_HOST: mongodb
+  #     REDIS_HOST: redis
+  #     MILVUS_HOST: milvus
+  #   env_file:
+  #     - ../.env
+  #   depends_on:
+  #     mongodb:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #     milvus:
+  #       condition: service_healthy
+  #   networks:
+  #     - stock-agent-network
+  #   restart: unless-stopped
 
-  inference:
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile
-    container_name: stock-agent-inference
-    environment:
-      NODE_TYPE: inference
-      MAX_CONCURRENT_TASKS: "5"
-      MONGO_HOST: mongodb
-      REDIS_HOST: redis
-      MILVUS_HOST: milvus
-    env_file:
-      - ../.env
-    depends_on:
-      mongodb:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      mcp:
-        condition: service_started
-    networks:
-      - stock-agent-network
-    restart: unless-stopped
-    deploy:
-      replicas: 2  # 默认启动 2 个推理节点
+  # inference:
+  #   build:
+  #     context: ..
+  #     dockerfile: deploy/Dockerfile
+  #   container_name: stock-agent-inference
+  #   environment:
+  #     NODE_TYPE: inference
+  #     MAX_CONCURRENT_TASKS: "5"
+  #     MONGO_HOST: mongodb
+  #     REDIS_HOST: redis
+  #     MILVUS_HOST: milvus
+  #   env_file:
+  #     - ../.env
+  #   depends_on:
+  #     mongodb:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #     mcp:
+  #       condition: service_started
+  #   networks:
+  #     - stock-agent-network
+  #   restart: unless-stopped
+  #   deploy:
+  #     replicas: 2  # 默认启动 2 个推理节点
 
-  backtest:
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile
-    container_name: stock-agent-backtest
-    environment:
-      NODE_TYPE: backtest
-      MONGO_HOST: mongodb
-      REDIS_HOST: redis
-    env_file:
-      - ../.env
-    depends_on:
-      mongodb:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    networks:
-      - stock-agent-network
-    restart: unless-stopped
+  # backtest:
+  #   build:
+  #     context: ..
+  #     dockerfile: deploy/Dockerfile
+  #   container_name: stock-agent-backtest
+  #   environment:
+  #     NODE_TYPE: backtest
+  #     MONGO_HOST: mongodb
+  #     REDIS_HOST: redis
+  #   env_file:
+  #     - ../.env
+  #   depends_on:
+  #     mongodb:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #   networks:
+  #     - stock-agent-network
+  #   restart: unless-stopped
 
   # ==================== 可选: 可观测性 ====================
   

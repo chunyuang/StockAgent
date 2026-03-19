@@ -70,35 +70,33 @@ class IndexDailyCollector(BaseCollector):
             f"({len(self.CORE_INDICES)} indices)"
         )
         
-        all_records: List[Dict[str, Any]] = []
+        total_count = 0
         
         async def collect_single_index(ts_code: str) -> int:
-            """采集单个指数的数据"""
+            """采集单个指数的数据并立即写入"""
+            nonlocal total_count
             records, _ = await data_source_manager.get_index_daily(
                 ts_code=ts_code,
                 start_date=start_date,
                 end_date=end_date,
             )
             if records:
-                all_records.extend(records)
-            return len(records) if records else 0
+                count = await self._write_buffer(
+                    buffer=records,
+                    collection="index_daily",
+                    key_fields=["ts_code", "trade_date"],
+                )
+                total_count += count
+                return count
+            return 0
         
-        # 使用基类并行采集方法
+        # 使用基类并行采集方法，每个指数采集后立即写入
         result = await self._parallel_collect(
             items=self.CORE_INDICES,
             collect_func=collect_single_index,
             max_concurrent=self.MAX_CONCURRENT,
             retry_failures=True,
         )
-        
-        # 批量写入所有数据
-        total_count = 0
-        if all_records:
-            total_count = await self._write_buffer(
-                buffer=all_records,
-                collection="index_daily",
-                key_fields=["ts_code", "trade_date"],
-            )
         
         # 记录同步完成
         await mongo_manager.record_sync(
