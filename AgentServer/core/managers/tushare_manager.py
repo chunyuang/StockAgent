@@ -104,13 +104,17 @@ class TushareManager(BaseManager):
         self._ts = ts  # 保存 tushare 模块引用，用于非 pro 接口
         self._pro = ts.pro_api()
         
+        # 使用第三方共享节点
+        self._pro._DataApi__token = token
+        self._pro._DataApi__http_url = 'http://119.45.170.23'
+        
         # 频率控制（暂时禁用）
         # rate_per_second = self._config.rate_limit / 60.0
         # self._bucket = TokenBucket(rate=rate_per_second, capacity=20)
         self._bucket = None
         
         self._initialized = True
-        self.logger.info(f"Tushare initialized, rate_limit={self._config.rate_limit}/min ✓")
+        self.logger.info(f"Tushare initialized with shared node, rate_limit={self._config.rate_limit}/min ✓")
     
     async def shutdown(self) -> None:
         """关闭"""

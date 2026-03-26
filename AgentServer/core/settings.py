@@ -143,6 +143,30 @@ class TushareSettings(BaseSettings):
         return bool(self.token.get_secret_value())
 
 
+class BiyingSettings(BaseSettings):
+    """比盈 数据源配置
+    
+    环境变量: BIYING_TOKEN
+    """
+    model_config = SettingsConfigDict(
+        env_prefix="BIYING_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+    
+    # Token (必须配置)
+    token: SecretStr = Field(
+        default=SecretStr(""),
+        description="Biying API Token"
+    )
+    
+    @property
+    def is_configured(self) -> bool:
+        """检查是否已配置 Token"""
+        return bool(self.token.get_secret_value())
+
+
 class LLMSettings(BaseSettings):
     """LLM 模型配置
     
@@ -479,6 +503,10 @@ class Settings(BaseSettings):
         return _get_tushare_settings()
     
     @property
+    def biying(self) -> BiyingSettings:
+        return _get_biying_settings()
+    
+    @property
     def llm(self) -> LLMSettings:
         return _get_llm_settings()
     
@@ -532,6 +560,11 @@ def _get_milvus_settings() -> MilvusSettings:
 @lru_cache()
 def _get_tushare_settings() -> TushareSettings:
     return TushareSettings()
+
+
+@lru_cache()
+def _get_biying_settings() -> BiyingSettings:
+    return BiyingSettings()
 
 
 @lru_cache()
