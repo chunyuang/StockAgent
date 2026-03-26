@@ -830,15 +830,22 @@ class TushareManager(BaseManager):
         self,
         start_date: str,
         end_date: str,
+        exchange: str = "SSE",
     ) -> List[str]:
         """
         获取交易日历
+        
+        Args:
+            start_date: 开始日期 (YYYYMMDD)
+            end_date: 结束日期 (YYYYMMDD)
+            exchange: 交易所代码，默认 SSE (上交所)，实际沪深交易日历一致
         
         Returns:
             交易日列表 (YYYYMMDD 格式)
         """
         df = await self._call_api(
             "trade_cal",
+            exchange=exchange,
             start_date=start_date,
             end_date=end_date,
             is_open="1",
