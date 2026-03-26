@@ -100,13 +100,20 @@ class TushareManager(BaseManager):
         import tushare as ts
         
         token = self._config.token.get_secret_value()
-        ts.set_token(token)
-        self._ts = ts  # 保存 tushare 模块引用，用于非 pro 接口
-        self._pro = ts.pro_api()
-        
-        # 使用第三方共享节点
-        self._pro._DataApi__token = token
-        self._pro._DataApi__http_url = 'https://x-fpv.com'
+        if self._config.is_configured and token:
+            # 使用用户配置的 token 和 默认官方 URL
+            ts.set_token(token)
+            self._ts = ts  # 保存 tushare 模块引用，用于非 pro 接口
+            self._pro = ts.pro_api()
+            # token 已经在 ts.pro_api() 中设置好了，不需要再次修改
+        else:
+            # 回退到第三方共享节点
+            ts.set_token(token)
+            self._ts = ts  # 保存 tushare 模块引用，用于非 pro 接口
+            self._pro = ts.pro_api()
+            # 使用第三方共享节点
+            self._pro._DataApi__token = token
+            self._pro._DataApi__http_url = 'https://x-fpv.com'
         
         # 频率控制（暂时禁用）
         # rate_per_second = self._config.rate_limit / 60.0
