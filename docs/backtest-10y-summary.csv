@@ -1,0 +1,8 @@
+strategy,final_value,total_return_pct,sharpe_ratio,max_drawdown_pct,total_trades,win_rate
+涨停开板,0,0,0,0,0,0
+跌停翘板,0,0,0,0,0,0
+5日线低吸,0,0,0,0,0,0
+涨跌幅阈值-跌6%,0,0,0,0,0,0
+龙头战法,0,0,0,0,0,0
+首板打板,0,0,0,0,0,0
+组合-全策略,0,0,0,0,0,0
