@@ -106,7 +106,7 @@ class TushareManager(BaseManager):
         
         # 使用第三方共享节点
         self._pro._DataApi__token = token
-        self._pro._DataApi__http_url = 'http://119.45.170.23'
+        self._pro._DataApi__http_url = 'https://x-fpv.com'
         
         # 频率控制（暂时禁用）
         # rate_per_second = self._config.rate_limit / 60.0
@@ -147,6 +147,14 @@ class TushareManager(BaseManager):
             DataFrame 结果
         """
         self._ensure_initialized()
+        
+        # 频率控制: 根据接口类型判断请求间隔
+        # - daily 按日期获取 → 0.5 秒间隔
+        # - 其他接口（按个股获取）→ 0.15 秒间隔
+        if api_name == "daily" and "trade_date" in kwargs:
+            await asyncio.sleep(0.5)
+        else:
+            await asyncio.sleep(0.15)
         
         # 在线程池中执行同步调用
         loop = asyncio.get_event_loop()
