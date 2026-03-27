@@ -7,15 +7,28 @@
 - 获取调仓日期列表
 """
 
+from enum import Enum
 from typing import List, Set, Optional
 from datetime import datetime, timedelta
 import logging
 
-from core.managers import mongo_manager, data_source_manager
-from common.enums import UniverseType, ExcludeRule
+from core.managers import mongo_manager, tushare_manager
 
 
 logger = logging.getLogger(__name__)
+
+
+class UniverseType(str, Enum):
+    """股票池类型"""
+    ALL_A = "all_a"          # 全A股
+
+
+class ExcludeRule(str, Enum):
+    """排除规则"""
+    ST = "st"                # ST股票
+    NEW_STOCK = "new_stock"  # 次新股 (上市不满1年)
+    LIMIT_UP = "limit_up"    # 涨停股 (一字板)
+    LIMIT_DOWN = "limit_down" # 跌停股
 
 
 class UniverseManager:
@@ -180,7 +193,7 @@ class UniverseManager:
         """
         # 获取交易日历
         logger.info(f"Getting rebalance dates: {start_date} -> {end_date}, freq={freq}")
-        trade_dates, _ = await data_source_manager.get_trade_calendar(start_date, end_date)
+        trade_dates = await tushare_manager.get_trade_cal(start_date, end_date)
         trade_dates = sorted(trade_dates)
         
         if not trade_dates:
@@ -252,5 +265,5 @@ class UniverseManager:
         end_date: str,
     ) -> List[str]:
         """获取日期范围内的所有交易日"""
-        trade_dates, _ = await data_source_manager.get_trade_calendar(start_date, end_date)
+        trade_dates = await tushare_manager.get_trade_cal(start_date, end_date)
         return sorted(trade_dates)

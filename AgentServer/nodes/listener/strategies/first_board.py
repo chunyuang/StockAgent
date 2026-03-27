@@ -9,7 +9,6 @@
   2. 涨停封单量足够（通常大于流通市值的1%）
   3. 所属板块有异动，最好有板块内其他个股助攻
   4. 成交量相较于前几日明显放大，换手充分
-  5. 情绪周期处于上升期或发酵期 ✅ 已集成自动过滤
 
 - **出场条件**:
   1. 次日高开3%以上可分批止盈
@@ -17,14 +16,13 @@
   3. 买入当日炸板无法回封，次日无条件止损
 
 - **仓位管理**:
-  单票仓位5%-10% × 情绪仓位乘数，同时打3-5只首板分散风险，总仓位不超过30%
+  单票仓位5%-10%，同时打3-5只首板分散风险，总仓位不超过30%
 """
 
 from typing import List, Dict, Any, Optional
 import logging
 
 from .base import BaseStrategy
-from .emotion_cycle import emotion_cycle_manager
 from core.protocols import (
     StrategySubscription,
     StrategyAlert,
@@ -73,30 +71,6 @@ class FirstBoardStrategy(BaseStrategy):
         params = subscription.params
         min_turnover = params.get("min_turnover", 8)
         min_volume_ratio = params.get("min_volume_ratio", 1.5)
-        
-        # -------------------- 情绪周期过滤 --------------------
-        # 计算今日情绪得分，退潮期禁止开仓
-        trade_date = getattr(snapshot, 'trade_date', '') if hasattr(snapshot, 'trade_date') else snapshot.get('trade_date', '')
-        if not trade_date:
-            from datetime import datetime
-            trade_date = datetime.now().strftime("%Y%m%d")
-        
-        emotion = await emotion_cycle_manager.calculate_daily_emotion(
-            trade_date, snapshot.limit_stocks
-        )
-        
-        if not emotion.can_open_position:
-            self.logger.info(
-                f"[FIRST_BOARD] ❌ 情绪周期退潮期 (score={emotion.score:.1f}), "
-                f"强制空仓，不允许开新仓"
-            )
-            return []
-        
-        # 情绪周期检查通过
-        self.logger.info(
-            f"[FIRST_BOARD] ✅ 情绪周期检查通过: score={emotion.score:.1f}, phase={emotion.phase.value}"
-        )
-        # -------------------- 情绪周期检查结束 --------------------
         
         watch_stocks = self._get_watch_stocks(subscription, snapshot)
         checked = 0

@@ -12,10 +12,10 @@ import traceback
 
 import pandas as pd
 
-from core.base import BaseNode
+from nodes.base import BaseNode
 from common.utils import convert_numpy_types
 from core.protocols import NodeType
-from core.managers import redis_manager, mongo_manager, data_source_manager
+from core.managers import redis_manager, mongo_manager, tushare_manager
 
 from .factors import FactorData
 from .backtester import VectorizedBacktester, BacktestConfig
@@ -62,7 +62,7 @@ class BacktestNode(BaseNode):
         self.logger.info("Initializing managers...")
         await redis_manager.initialize()
         await mongo_manager.initialize()
-        await data_source_manager.initialize()
+        await tushare_manager.initialize()
         
         # 启动 RPC 服务器
         await self._start_rpc_server()

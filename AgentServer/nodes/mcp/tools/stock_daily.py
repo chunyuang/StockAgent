@@ -7,7 +7,7 @@ from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 
 from core.base import BaseTool, ToolResult
-from core.managers import data_source_manager, mongo_manager
+from core.managers import tushare_manager, mongo_manager
 
 
 class GetStockDailyInput(BaseModel):
@@ -50,7 +50,7 @@ class GetStockDailyTool(BaseTool[GetStockDailyInput, GetStockDailyOutput]):
         
         # 如果没有数据，从 Tushare 获取
         if not data:
-            data = await data_source_manager.get_daily(
+            data = await tushare_manager.get_daily(
                 ts_code=input_data.ts_code,
                 start_date=input_data.start_date,
                 end_date=input_data.end_date,

@@ -100,28 +100,31 @@ class TushareManager(BaseManager):
         import tushare as ts
         
         token = self._config.token.get_secret_value()
-        if self._config.is_configured and token:
-            # 使用用户配置的 token 和 默认官方 URL
-            ts.set_token(token)
-            self._ts = ts  # 保存 tushare 模块引用，用于非 pro 接口
-            self._pro = ts.pro_api()
-            # token 已经在 ts.pro_api() 中设置好了，不需要再次修改
-        else:
-            # 回退到第三方共享节点
-            ts.set_token(token)
-            self._ts = ts  # 保存 tushare 模块引用，用于非 pro 接口
-            self._pro = ts.pro_api()
-            # 使用第三方共享节点
-            self._pro._DataApi__token = token
-            self._pro._DataApi__http_url = 'https://x-fpv.com'
+        ts.set_token(token)
+        self._ts = ts  # 保存 tushare 模块引用，用于非 pro 接口
+        self._pro = ts.pro_api()
         
-        # 频率控制（暂时禁用）
-        # rate_per_second = self._config.rate_limit / 60.0
-        # self._bucket = TokenBucket(rate=rate_per_second, capacity=20)
-        self._bucket = None
+        # 支持两种模式：
+        # 1. 官方 Token：使用默认地址
+        # 2. 代理 Token：使用自定义 http_url
+        self._pro._DataApi__token = token
+        if self._config.has_custom_url:
+            # 自定义代理地址
+            self._pro._DataApi__http_url = self._config.http_url
+            self.logger.info(f"Using custom API URL: {self._config.http_url}")
+        else:
+            # 使用默认地址 (官方 API)
+            self.logger.info("Using official Tushare API URL")
+        
+        # 频率控制
+        rate_per_second = self._config.rate_limit / 60.0
+        self._bucket = TokenBucket(rate=rate_per_second, capacity=min(20, self._config.rate_limit))
         
         self._initialized = True
-        self.logger.info(f"Tushare initialized with shared node, rate_limit={self._config.rate_limit}/min ✓")
+        
+        # 输出配置信息供用户检查
+        token_preview = token[:4] + "****" + token[-4:] if len(token) > 8 else "****"
+        self.logger.info(f"Tushare initialized: token={token_preview}, rate_limit={self._config.rate_limit}/min ✓")
     
     async def shutdown(self) -> None:
         """关闭"""
@@ -154,14 +157,6 @@ class TushareManager(BaseManager):
             DataFrame 结果
         """
         self._ensure_initialized()
-        
-        # 频率控制: 根据接口类型判断请求间隔
-        # - daily 按日期获取 → 0.5 秒间隔
-        # - 其他接口（按个股获取）→ 0.15 秒间隔
-        if api_name == "daily" and "trade_date" in kwargs:
-            await asyncio.sleep(0.5)
-        else:
-            await asyncio.sleep(0.15)
         
         # 在线程池中执行同步调用
         loop = asyncio.get_event_loop()
@@ -240,6 +235,44 @@ class TushareManager(BaseManager):
         # 标准化字段
         records = df.to_dict("records")
         return records
+    
+    async def get_daily_by_stock(
+        self,
+        ts_code: str,
+        start_date: str,
+        end_date: str,
+        adj: str = "qfq",
+    ) -> Optional[pd.DataFrame]:
+        """
+        获取单个股票指定区间的日线数据 (按股票下载模式)
+        
+        Args:
+            ts_code: 股票代码
+            start_date: 开始日期 YYYYMMDD
+            end_date: 结束日期 YYYYMMDD
+            adj: 复权类型
+            
+        Returns:
+            DataFrame 日线数据，出错返回 None
+            
+        Note:
+            物理隔离 - 专为按股票下载模式设计，不与按日期下载模式混用
+        """
+        params = {
+            "ts_code": ts_code,
+            "start_date": start_date,
+            "end_date": end_date,
+            "adj": adj,
+        }
+        
+        df = await self._call_api("daily", **params)
+        
+        if df.empty:
+            return None
+        
+        # trade_date 确保是字符串格式
+        df["trade_date"] = df["trade_date"].astype(str)
+        return df
     
     async def get_daily_basic(
         self,
@@ -837,22 +870,15 @@ class TushareManager(BaseManager):
         self,
         start_date: str,
         end_date: str,
-        exchange: str = "SSE",
     ) -> List[str]:
         """
         获取交易日历
-        
-        Args:
-            start_date: 开始日期 (YYYYMMDD)
-            end_date: 结束日期 (YYYYMMDD)
-            exchange: 交易所代码，默认 SSE (上交所)，实际沪深交易日历一致
         
         Returns:
             交易日列表 (YYYYMMDD 格式)
         """
         df = await self._call_api(
             "trade_cal",
-            exchange=exchange,
             start_date=start_date,
             end_date=end_date,
             is_open="1",
@@ -1058,7 +1084,7 @@ class TushareManager(BaseManager):
         """
         获取每日涨跌停价格 (stk_limit 接口)
         
-        返回当日所有股票的涨停价、跌停价。
+        若 Tushare 权限不足，自动 fallback 到 AKShare 获取。
         
         Args:
             trade_date: 交易日期 (YYYYMMDD)，默认为今天
@@ -1074,19 +1100,171 @@ class TushareManager(BaseManager):
         if not trade_date:
             trade_date = date.today().strftime("%Y%m%d")
         
+        # 优先尝试 Tushare
         try:
             df = await self._call_api(
                 "stk_limit",
                 trade_date=trade_date,
             )
             
-            if df.empty:
-                return []
-            
-            return df.to_dict("records")
+            if df is not None and not df.empty:
+                return df.to_dict("records")
             
         except Exception as e:
-            self.logger.error(f"Failed to get stk_limit: {e}")
+            self.logger.warning(f"Tushare get_stk_limit failed ({e}), falling back to AKShare...")
+        
+        # Tushare 失败，fallback 到 AKShare
+        self.logger.warning(f"Tushare get_stk_limit failed or returned empty, falling back to AKShare...")
+        try:
+            import akshare as ak
+            from datetime import datetime
+            
+            loop = asyncio.get_event_loop()
+            
+            # 涨停板列表 - need to pass date parameter (AKShare has default hardcoded old date)
+            zt_records = []
+            try:
+                zt_df = await loop.run_in_executor(
+                    None,
+                    lambda: ak.stock_zt_pool_em(date=trade_date)
+                )
+                if zt_df is not None and not zt_df.empty:
+                    zt_records = zt_df.to_dict('records')
+                    self.logger.info(f"AKShare got {len(zt_records)} 涨停 stocks today")
+            except Exception as e:
+                self.logger.warning(f"AKShare get zt_pool failed: {e}")
+            
+            # 跌停板列表 - need to pass date parameter (AKShare has default hardcoded old date)
+            dt_records = []
+            try:
+                dt_df = await loop.run_in_executor(
+                    None,
+                    lambda: ak.stock_zt_pool_dtgc_em(date=trade_date)
+                )
+                if dt_df is not None and not dt_df.empty:
+                    dt_records = dt_df.to_dict('records')
+                    self.logger.info(f"AKShare got {len(dt_records)} 跌停 stocks today")
+            except Exception as e:
+                self.logger.warning(f"AKShare get dt_pool failed: {e}")
+            
+            # 合并涨跌停
+            all_records = zt_records + dt_records
+            if not all_records:
+                self.logger.warning(f"AKShare returned empty for today, trying previous (yesterday) zt pool...")
+                # 今天为空，尝试获取昨天涨停数据（专门用于limit_open今天选股）
+                # 1. First try AKShare stock_zt_pool_previous_em (latest previous trading day)
+                zt_records_yd = []
+                try:
+                    # Calculate yesterday date in YYYYMMDD format for AKShare
+                    from datetime import timedelta
+                    year = int(trade_date[:4])
+                    month = int(trade_date[4:6])
+                    day = int(trade_date[6:8])
+                    trade_date_obj = date(year, month, day)
+                    yesterday = trade_date_obj - timedelta(days=1)
+                    yesterday_ymd = yesterday.strftime("%Y%m%d")
+                    
+                    zt_df_yd = await loop.run_in_executor(
+                        None,
+                        lambda: ak.stock_zt_pool_previous_em(date=yesterday_ymd)
+                    )
+                    if zt_df_yd is not None and not zt_df_yd.empty:
+                        zt_records_yd = zt_df_yd.to_dict('records')
+                        self.logger.info(f"AKShare got {len(zt_records_yd)} 涨停 stocks from previous (yesterday)")
+                except Exception as e:
+                    self.logger.warning(f"AKShare get stock_zt_pool_previous_em failed: {e}")
+                
+                # 2. If still empty, try AKShare historical date interface with calendar yesterday
+                if not zt_records_yd:
+                    from datetime import timedelta
+                    # Calculate yesterday based on input trade_date instead of system date
+                    # trade_date format: YYYYMMDD
+                    year = int(trade_date[:4])
+                    month = int(trade_date[4:6])
+                    day = int(trade_date[6:8])
+                    trade_date_obj = date(year, month, day)
+                    yesterday = trade_date_obj - timedelta(days=1)
+                    date_str_yd = yesterday.strftime("%Y-%m-%d")
+                    self.logger.warning(f"previous still empty, trying historical interface for yesterday {date_str_yd}...")
+                    try:
+                        # Check if AKShare has this interface; if not, fall back
+                        if hasattr(ak, 'stock_zt_pool_date_em'):
+                            zt_df_yd2 = await loop.run_in_executor(
+                                None,
+                                lambda: ak.stock_zt_pool_date_em(date=date_str_yd)
+                            )
+                        else:
+                            # AKShare doesn't have this interface, skip
+                            self.logger.warning("AKShare has no stock_zt_pool_date_em interface, skipping historical...")
+                            zt_df_yd2 = None
+                        if zt_df_yd2 is not None and not zt_df_yd2.empty:
+                            zt_records_yd = zt_df_yd2.to_dict('records')
+                            self.logger.info(f"AKShare got {len(zt_records_yd)} 涨停 stocks from historical yesterday {date_str_yd}")
+                    except Exception as e:
+                        self.logger.warning(f"AKShare get historical zt for {date_str_yd} failed: {e}")
+                        if zt_df_yd2 is not None and not zt_df_yd2.empty:
+                            zt_records_yd = zt_df_yd2.to_dict('records')
+                            self.logger.info(f"AKShare got {len(zt_records_yd)} 涨停 stocks from historical yesterday {date_str_yd}")
+                    except Exception as e:
+                        self.logger.warning(f"AKShare get historical zt for {date_str_yd} failed: {e}")
+                
+                # 合并昨天涨停数据（跌停数据不需要昨天，因为limit_open只需要涨停）
+                all_records = zt_records_yd
+                if not all_records:
+                    self.logger.warning(f"Still empty after trying previous (yesterday) zt pool")
+                    return []
+            
+            # 转换为 Tushare 格式
+            result = []
+            for row in all_records:
+                code = str(row['代码'])
+                # 补齐 6 位
+                if len(code) < 6:
+                    code = code.zfill(6)
+                # 添加后缀
+                if code[0] == '6' or code[0] == '5':
+                    ts_code = code + '.SH'
+                else:
+                    ts_code = code + '.SZ'
+                
+                # 计算涨跌停价格
+                change_pct = float(row['涨跌幅'])
+                latest = float(row['最新价'])
+                pre_close = latest / (1 + change_pct / 100)
+                
+                # 计算涨跌停价
+                if ts_code.startswith(('688', '300')):
+                    up_limit = round(pre_close * 1.2, 2)
+                    down_limit = round(pre_close * 0.8, 2)
+                else:
+                    up_limit = round(pre_close * 1.1, 2)
+                    down_limit = round(pre_close * 0.9, 2)
+                
+                # 判断是涨停还是跌停
+                if change_pct > 0:
+                    # 涨停
+                    result.append({
+                        'ts_code': ts_code,
+                        'trade_date': trade_date,
+                        'pre_close': pre_close,
+                        'up_limit': up_limit,
+                        'down_limit': down_limit,
+                    })
+                else:
+                    # 跌停
+                    result.append({
+                        'ts_code': ts_code,
+                        'trade_date': trade_date,
+                        'pre_close': pre_close,
+                        'up_limit': up_limit,
+                        'down_limit': down_limit,
+                    })
+            
+            self.logger.info(f"AKShare got {len(result)} limit stocks for {trade_date} ({len(zt_records)} up, {len(dt_records)} down)")
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"AKShare get_stk_limit also failed: {e}")
             return []
     
     async def is_trading_time(self) -> bool:

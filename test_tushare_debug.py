@@ -1,17 +1,14 @@
 #!/usr/bin/env python3
 """
-调试 Tushare 自定义节点，直接测试 API 调用
+调试 Tushare 官方 API
 """
 
 import tushare as ts
 
-token = "3b610bc78011b162b4bbb5efa8c4f0ee"
+token = "d9f3d9c916a0172173d37e9631ded6d5285dd79d3e61d37b9081cee1"
 pro = ts.pro_api(token)
 
-pro._DataApi__token = token
-pro._DataApi__http_url = 'https://x-fpv.com'
-
-print("=== 直接调试 Tushare API ===")
+print("=== 直接调试 Tushare 官方 API ===")
 print(f"token: {token}")
 print(f"http_url: {pro._DataApi__http_url}")
 print()

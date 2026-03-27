@@ -8,7 +8,7 @@
   1. 连板高度为市场当前最高
   2. 换手充分（非一字板上来，最好有爆量换手板）
   3. 所属板块为当前市场主线，有板块效应支撑
-  4. 情绪周期处于上升期或发酵期 ✅ 已集成自动过滤
+  4. 情绪周期处于上升期或发酵期
 
 - **出场条件**:
   1. 断板无法回封时止盈
@@ -16,14 +16,13 @@
   3. 出现明显的情绪退潮信号时无条件离场
 
 - **仓位管理**:
-  单票仓位不超过总资金的20% × 情绪仓位乘数，龙头确定后可分2-3次加仓，总仓位不超过30%
+  单票仓位不超过总资金的20%，龙头确定后可分2-3次加仓，总仓位不超过30%
 """
 
 from typing import List, Dict, Any, Optional
 import logging
 
 from .base import BaseStrategy
-from .emotion_cycle import emotion_cycle_manager
 from core.protocols import (
     StrategySubscription,
     StrategyAlert,
@@ -75,30 +74,6 @@ class LeadingDragonStrategy(BaseStrategy):
         params = subscription.params
         min_height = params.get("min_height", 3)
         min_turnover = params.get("min_turnover", 15)
-        
-        # -------------------- 情绪周期过滤 --------------------
-        # 计算今日情绪得分，退潮期禁止开仓
-        trade_date = getattr(snapshot, 'trade_date', '') if hasattr(snapshot, 'trade_date') else snapshot.get('trade_date', '')
-        if not trade_date:
-            from datetime import datetime
-            trade_date = datetime.now().strftime("%Y%m%d")
-        
-        emotion = await emotion_cycle_manager.calculate_daily_emotion(
-            trade_date, snapshot.limit_stocks
-        )
-        
-        if not emotion.can_open_position:
-            self.logger.info(
-                f"[LEADING_DRAGON] ❌ 情绪周期退潮期 (score={emotion.score:.1f}), "
-                f"强制空仓，不允许开新仓"
-            )
-            return []
-        
-        # 情绪周期检查通过
-        self.logger.info(
-            f"[LEADING_DRAGON] ✅ 情绪周期检查通过: score={emotion.score:.1f}, phase={emotion.phase.value}"
-        )
-        # -------------------- 情绪周期检查结束 --------------------
         
         watch_stocks = self._get_watch_stocks(subscription, snapshot)
         checked = 0

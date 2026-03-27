@@ -15,7 +15,7 @@ import os
 # 添加项目根目录到路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.managers import data_source_manager, mongo_manager
+from core.managers import tushare_manager, mongo_manager
 
 
 async def get_trade_dates(start_date: str, end_date: str) -> list:
@@ -33,12 +33,18 @@ async def get_trade_dates(start_date: str, end_date: str) -> list:
     if cal_data:
         return [d["cal_date"] for d in cal_data]
     
-    # 如果没有交易日历，尝试从数据源获取
-    print("从数据源获取交易日历...")
+    # 如果没有交易日历，尝试从 Tushare 获取
+    print("从 Tushare 获取交易日历...")
     try:
-        dates, _ = await data_source_manager.get_trade_calendar(start_date, end_date)
-        if dates:
-            return sorted(dates, reverse=True)
+        df = await asyncio.to_thread(
+            lambda: tushare_manager.pro.trade_cal(
+                start_date=start_date,
+                end_date=end_date,
+                is_open=1
+            )
+        )
+        if df is not None and not df.empty:
+            return sorted(df["cal_date"].tolist(), reverse=True)
     except Exception as e:
         print(f"获取交易日历失败: {e}")
     
@@ -73,8 +79,8 @@ async def sync_moneyflow_industry(trade_dates: list) -> dict:
                 success_dates.append(trade_date)
                 continue
             
-            # 从数据源获取数据
-            records, _ = await data_source_manager.get_moneyflow_industry(trade_date=trade_date)
+            # 从 Tushare 获取数据
+            records = await tushare_manager.get_moneyflow_ind_ths(trade_date=trade_date)
             
             if records:
                 # 写入数据库
@@ -125,8 +131,8 @@ async def sync_moneyflow_concept(trade_dates: list) -> dict:
                 success_dates.append(trade_date)
                 continue
             
-            # 从数据源获取数据
-            records, _ = await data_source_manager.get_moneyflow_concept(trade_date=trade_date)
+            # 从 Tushare 获取数据
+            records = await tushare_manager.get_moneyflow_cnt_ths(trade_date=trade_date)
             
             if records:
                 # 写入数据库
@@ -165,7 +171,7 @@ async def main(args):
     
     # 初始化连接
     await mongo_manager.initialize()
-    await data_source_manager.initialize()
+    await tushare_manager.initialize()
     
     # 确定日期范围
     if args.start and args.end:

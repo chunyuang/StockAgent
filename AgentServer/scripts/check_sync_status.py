@@ -4,14 +4,14 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.managers import mongo_manager, data_source_manager
+from core.managers import mongo_manager, tushare_manager
 
 async def main():
     await mongo_manager.initialize()
-    await data_source_manager.initialize()
+    await tushare_manager.initialize()
     
-    # 获取最新交易日
-    latest_trade_date, _ = await data_source_manager.get_latest_trade_date()
+    # 获取 Tushare 认为的最新交易日
+    latest_trade_date = await tushare_manager.get_latest_trade_date()
     print(f"=== Tushare latest trade date: {latest_trade_date} ===\n")
     
     print("=== sync_records (控制增量同步的起点) ===")
@@ -37,7 +37,7 @@ async def main():
         else:
             print(f"  {col}: no data")
     
-    await data_source_manager.shutdown()
+    await tushare_manager.shutdown()
     await mongo_manager.shutdown()
 
 if __name__ == "__main__":
