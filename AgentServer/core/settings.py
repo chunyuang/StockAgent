@@ -117,7 +117,11 @@ class MilvusSettings(BaseSettings):
 class TushareSettings(BaseSettings):
     """Tushare 数据源配置
     
-    环境变量: TUSHARE_TOKEN, TUSHARE_RATE_LIMIT, TUSHARE_BATCH_SIZE
+    环境变量: TUSHARE_TOKEN, TUSHARE_HTTP_URL, TUSHARE_RATE_LIMIT, TUSHARE_BATCH_SIZE
+    
+    支持两种 Token 模式:
+    1. 官方 Token: 配置 TUSHARE_TOKEN，使用官方 API
+    2. 代理 Token: 配置 TUSHARE_TOKEN + TUSHARE_HTTP_URL，使用共享代理
     """
     model_config = SettingsConfigDict(
         env_prefix="TUSHARE_",
@@ -132,6 +136,12 @@ class TushareSettings(BaseSettings):
         description="Tushare Pro API Token"
     )
     
+    # 自定义 API 地址 (代理模式使用，例如 http://119.45.170.23)
+    http_url: Optional[str] = Field(
+        default=None,
+        description="自定义 API 地址，代理模式使用"
+    )
+    
     # 频率限制 (每分钟请求数)
     rate_limit: int = 200
     # 批量请求大小
@@ -141,41 +151,17 @@ class TushareSettings(BaseSettings):
     def is_configured(self) -> bool:
         """检查是否已配置 Token"""
         return bool(self.token.get_secret_value())
-
-
-class BiyingSettings(BaseSettings):
-    """比盈 数据源配置
-    
-    环境变量: BIYING_TOKEN
-    """
-    model_config = SettingsConfigDict(
-        env_prefix="BIYING_",
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
-    
-    # Token (必须配置)
-    token: SecretStr = Field(
-        default=SecretStr(""),
-        description="Biying API Token"
-    )
     
     @property
-    def is_configured(self) -> bool:
-        """检查是否已配置 Token"""
-        return bool(self.token.get_secret_value())
+    def has_custom_url(self) -> bool:
+        """是否使用自定义代理地址"""
+        return self.http_url is not None and bool(self.http_url)
 
 
 class LLMSettings(BaseSettings):
     """LLM 模型配置
     
     环境变量: LLM_PROVIDER, LLM_API_KEY, LLM_API_BASE, LLM_MODEL_NAME, ...
-    
-    模型路由:
-    - fast_model: 简单任务 (分类、提取)
-    - balanced_model: 一般任务 (摘要、问答)
-    - quality_model: 复杂任务 (分析、报告)
     """
     model_config = SettingsConfigDict(
         env_prefix="LLM_",
@@ -184,34 +170,22 @@ class LLMSettings(BaseSettings):
         extra="ignore",
     )
     
-    # 主模型提供商: openai, dashscope (阿里), zhipu, ollama, deepseek
+    # 模型提供商: openai, dashscope (阿里), zhipu, ollama, deepseek
     provider: Literal["openai", "dashscope", "zhipu", "ollama", "deepseek"] = "dashscope"
     
     # API 配置
     api_key: Optional[SecretStr] = None
     api_base: Optional[str] = None
     
-    # 主模型名称
+    # 模型名称
     model_name: str = "qwen-plus"
     embedding_model: str = "text-embedding-v3"
     
-    # 模型路由 (可选，不配置则使用主模型)
-    fast_model: Optional[str] = None       # 简单任务用的模型
-    balanced_model: Optional[str] = None   # 一般任务用的模型
-    quality_model: Optional[str] = None    # 复杂任务用的模型
-    
     # Embedding 单独配置 (可选，如果 provider 不支持 embedding)
+    # 例如 DeepSeek 不支持 embedding，需要用 DashScope
     embedding_provider: Optional[Literal["openai", "dashscope", "zhipu", "ollama"]] = None
     embedding_api_key: Optional[SecretStr] = None
     embedding_api_base: Optional[str] = None
-    
-    # 备用 Provider 配置 (用于多模型路由)
-    openai_api_key: Optional[SecretStr] = None
-    openai_api_base: Optional[str] = None
-    zhipu_api_key: Optional[SecretStr] = None
-    dashscope_api_key: Optional[SecretStr] = None
-    ollama_api_base: Optional[str] = None
-    ollama_model: Optional[str] = None
     
     # 模型参数
     temperature: float = 0.7
@@ -219,12 +193,6 @@ class LLMSettings(BaseSettings):
     
     # 并发限制
     max_concurrent_requests: int = 10
-    
-    # 缓存配置
-    cache_enabled: bool = True
-    cache_use_redis: bool = False
-    cache_chat_ttl: int = 3600       # Chat 缓存 TTL (秒)
-    cache_embedding_ttl: int = 86400  # Embedding 缓存 TTL (秒)
     
     @property
     def is_configured(self) -> bool:
@@ -318,16 +286,13 @@ class DataSyncSettings(BaseSettings):
     """数据同步配置
     
     环境变量: SYNC_STOCK_BASIC_SCHEDULE, SYNC_STOCK_DAILY_SCHEDULE, 
-             SYNC_INDEX_BASIC_SCHEDULE, SYNC_INDEX_DAILY_SCHEDULE, 
-             SYNC_REVIEW_DATA_SCHEDULE, SYNC_THS_SECTOR_SCHEDULE,
-             SYNC_NEWS_SCHEDULE, SYNC_MULTI_SOURCE_NEWS_SCHEDULE
+             SYNC_INDEX_BASIC_SCHEDULE, SYNC_INDEX_DAILY_SCHEDULE, SYNC_NEWS_SCHEDULE
     
     使用 cron 表达式格式: 分 时 日 月 周
     示例:
       - "0 9 * * 1-5"   每个工作日 9:00
       - "30 15 * * 1-5" 每个工作日 15:30
       - "0 */2 * * *"   每 2 小时
-      - "*/10 * * * *"  每 10 分钟
     """
     model_config = SettingsConfigDict(
         env_prefix="SYNC_",
@@ -357,26 +322,11 @@ class DataSyncSettings(BaseSettings):
     # 涨跌停数据采集时间 (默认: 每个交易日 16:10)
     limit_list_schedule: Optional[str] = None
     
-    # 每日统计数据计算时间 (默认: 每个交易日 18:10)
+    # 每日统计数据计算时间 (默认: 每个交易日 16:30)
     daily_stats_schedule: Optional[str] = None
-    
-    # 每日复盘数据采集时间 (默认: 每个交易日 18:05)
-    review_data_schedule: Optional[str] = None
-    
-    # 同花顺板块数据采集时间 (默认: 每周六凌晨 2:00)
-    ths_sector_schedule: Optional[str] = None
     
     # 新闻采集时间 (默认: 每 2 小时)
     news_schedule: Optional[str] = None
-    
-    # 多源新闻采集检查时间 (默认: 每分钟检查，内部按分组差异化调度)
-    multi_source_news_schedule: Optional[str] = None
-    
-    # 事件聚类时间 (默认: 每 30 分钟，LLM 深度去重)
-    event_clustering_schedule: Optional[str] = None
-    
-    # 数据生命周期管理时间 (默认: 每天凌晨 3:00)
-    news_lifecycle_schedule: Optional[str] = None
 
 
 class WebSettings(BaseSettings):
@@ -420,7 +370,7 @@ class ListenerSettings(BaseSettings):
     afternoon_session: str = "13:00-15:00"
     
     # 是否在非交易时间静默
-    silent_outside_trading: bool = True
+    silent_outside_trading: bool = False
 
 
 class NotificationSettings(BaseSettings):
@@ -435,7 +385,7 @@ class NotificationSettings(BaseSettings):
         extra="ignore",
     )
     
-    # 企业微信 Webhook URL
+    # 企业微信 Webhook URL (飞书机器人也兼容此格式)
     wecom_webhook: Optional[str] = None
     
     # 是否启用通知
@@ -448,6 +398,41 @@ class NotificationSettings(BaseSettings):
     def is_configured(self) -> bool:
         """检查是否已配置 Webhook"""
         return bool(self.wecom_webhook)
+
+
+class FeishuSettings(BaseSettings):
+    """飞书多维表格配置
+    
+    环境变量: FEISHU_APP_ID, FEISHU_APP_SECRET, FEISHU_BITABLE_APP_TOKEN, ...
+    """
+    model_config = SettingsConfigDict(
+        env_prefix="FEISHU_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+    
+    # 飞书应用凭证
+    app_id: str = ""
+    app_secret: str = ""
+    
+    # 多维表格
+    bitable_app_token: str = ""  # 多维表格 App Token
+    bitable_table_id: str = ""   # 实时监控表 ID
+    
+    # 是否启用自动写入
+    enabled: bool = False
+    
+    @property
+    def is_configured(self) -> bool:
+        """检查是否完整配置"""
+        return (
+            self.enabled
+            and bool(self.app_id)
+            and bool(self.app_secret)
+            and bool(self.bitable_app_token)
+            and bool(self.bitable_table_id)
+        )
 
 
 # ==================== 主配置类 ====================
@@ -503,10 +488,6 @@ class Settings(BaseSettings):
         return _get_tushare_settings()
     
     @property
-    def biying(self) -> BiyingSettings:
-        return _get_biying_settings()
-    
-    @property
     def llm(self) -> LLMSettings:
         return _get_llm_settings()
     
@@ -535,6 +516,10 @@ class Settings(BaseSettings):
         return _get_notification_settings()
     
     @property
+    def feishu(self) -> FeishuSettings:
+        return _get_feishu_settings()
+    
+    @property
     def rpc(self) -> RPCSettings:
         return _get_rpc_settings()
 
@@ -560,11 +545,6 @@ def _get_milvus_settings() -> MilvusSettings:
 @lru_cache()
 def _get_tushare_settings() -> TushareSettings:
     return TushareSettings()
-
-
-@lru_cache()
-def _get_biying_settings() -> BiyingSettings:
-    return BiyingSettings()
 
 
 @lru_cache()
@@ -600,6 +580,11 @@ def _get_listener_settings() -> ListenerSettings:
 @lru_cache()
 def _get_notification_settings() -> NotificationSettings:
     return NotificationSettings()
+
+
+@lru_cache()
+def _get_feishu_settings() -> FeishuSettings:
+    return FeishuSettings()
 
 
 @lru_cache()

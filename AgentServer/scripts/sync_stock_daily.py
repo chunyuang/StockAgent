@@ -20,13 +20,25 @@ from datetime import datetime
 # 添加项目根目录到 path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.managers import mongo_manager, data_source_manager
+from core.managers import mongo_manager, tushare_manager
 
 
 async def get_trade_dates_in_range(start_date: str, end_date: str) -> list:
     """获取指定范围内的交易日"""
-    dates, _ = await data_source_manager.get_trade_calendar(start_date, end_date)
-    return sorted(dates) if dates else []
+    df = await tushare_manager._call_api(
+        "trade_cal",
+        exchange="SSE",
+        start_date=start_date,
+        end_date=end_date,
+        is_open="1",
+    )
+    
+    if df.empty:
+        return []
+    
+    dates = df["cal_date"].tolist()
+    dates.sort()
+    return dates
 
 
 async def sync_stock_daily_for_date(trade_date: str, batch_size: int = 500) -> dict:
@@ -54,11 +66,16 @@ async def sync_stock_daily_for_date(trade_date: str, batch_size: int = 500) -> d
     if not stock_list:
         # 如果没有 stock_basic，直接用 daily 接口按日期获取
         print("No stock_basic found, fetching all stocks for the date...")
-        records, _ = await data_source_manager.get_daily(trade_date=trade_date)
+        df = await tushare_manager._call_api(
+            "daily",
+            trade_date=trade_date,
+        )
         
-        if not records:
+        if df.empty:
             print(f"  No data returned for {trade_date}")
             return {"date": trade_date, "count": 0, "status": "no_data"}
+        
+        records = df.to_dict("records")
         
         # 批量写入
         result = await mongo_manager.bulk_upsert(
@@ -84,20 +101,19 @@ async def sync_stock_daily_for_date(trade_date: str, batch_size: int = 500) -> d
         
         print(f"  Processing {i+1}-{batch_end}/{total_count}...", end=" ")
         
-        # 调用 API (批量获取每个股票)
-        records = []
-        for code in batch_codes:
-            batch_records, _ = await data_source_manager.get_daily(
-                ts_code=code,
-                start_date=trade_date,
-                end_date=trade_date,
-            )
-            if batch_records:
-                records.extend(batch_records)
+        # 调用 API
+        df = await tushare_manager._call_api(
+            "daily",
+            ts_code=",".join(batch_codes),
+            start_date=trade_date,
+            end_date=trade_date,
+        )
         
-        if not records:
+        if df.empty:
             print("no data")
             continue
+        
+        records = df.to_dict("records")
         
         # 批量写入
         result = await mongo_manager.bulk_upsert(
@@ -134,14 +150,15 @@ async def sync_index_daily_for_date(trade_date: str) -> dict:
     # 逐个获取每个指数的数据（有些API不支持批量查询）
     for ts_code in index_codes:
         try:
-            records, _ = await data_source_manager.get_index_daily(
+            df = await tushare_manager._call_api(
+                "index_daily",
                 ts_code=ts_code,
                 start_date=trade_date,
                 end_date=trade_date,
             )
             
-            if records:
-                all_records.extend(records)
+            if not df.empty:
+                all_records.extend(df.to_dict("records"))
                 print(f"    {ts_code}: OK")
             else:
                 print(f"    {ts_code}: no data")
@@ -167,11 +184,16 @@ async def sync_limit_list_for_date(trade_date: str) -> dict:
     """同步指定日期的涨跌停数据"""
     print(f"\nSyncing limit_list for {trade_date}...")
     
-    records, _ = await data_source_manager.get_limit_list(trade_date=trade_date)
+    df = await tushare_manager._call_api(
+        "limit_list_d",
+        trade_date=trade_date,
+    )
     
-    if not records:
+    if df.empty:
         print(f"  No limit_list data for {trade_date}")
         return {"date": trade_date, "count": 0}
+    
+    records = df.to_dict("records")
     
     result = await mongo_manager.bulk_upsert(
         collection="limit_list",
@@ -191,7 +213,7 @@ async def main(args):
     
     # 初始化
     await mongo_manager.initialize()
-    await data_source_manager.initialize()
+    await tushare_manager.initialize()
     
     # 确定日期范围
     if args.date:
@@ -234,7 +256,7 @@ async def main(args):
     
     # 关闭连接
     await mongo_manager.shutdown()
-    await data_source_manager.shutdown()
+    await tushare_manager.shutdown()
 
 
 if __name__ == "__main__":

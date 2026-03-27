@@ -1,14 +1,6 @@
 """
 重新计算指定时间段的 daily_stats 数据
 
-V2 新增字段:
-- pct_chg_median: 涨跌幅中位数
-- up_5pct_count / down_5pct_count: 涨跌超5%家数
-- index_pct_chg: 大盘指数涨跌幅 (沪深300)
-- seal_rate: 封板率
-- cont_board_count: 连板家数(2板+)
-- promotion_rate: 昨日连板晋级率
-
 用法:
     cd AgentServer
     
@@ -24,7 +16,6 @@ V2 新增字段:
 
 import asyncio
 import argparse
-import statistics
 from datetime import datetime, timedelta
 import sys
 import os
@@ -32,36 +23,55 @@ import os
 # 添加项目根目录到 path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.managers import mongo_manager, data_source_manager, analysis_manager
+from core.managers import mongo_manager, tushare_manager, analysis_manager
 from core.settings import settings
 
 
 async def get_trade_dates_in_range(start_date: str, end_date: str) -> list:
     """获取指定范围内的交易日"""
-    await data_source_manager.initialize()
+    await tushare_manager.initialize()
     
-    dates, _ = await data_source_manager.get_trade_calendar(start_date, end_date)
-    return sorted(dates) if dates else []
+    df = await tushare_manager._call_api(
+        "trade_cal",
+        exchange="SSE",
+        start_date=start_date,
+        end_date=end_date,
+        is_open="1",
+    )
+    
+    if df.empty:
+        return []
+    
+    dates = df["cal_date"].tolist()
+    dates.sort()  # 从早到晚排序
+    return dates
 
 
 async def get_recent_trade_dates(days: int) -> list:
     """获取最近N个交易日"""
-    await data_source_manager.initialize()
+    await tushare_manager.initialize()
     
     end_date = datetime.now().strftime("%Y%m%d")
     start_date = (datetime.now() - timedelta(days=days * 2)).strftime("%Y%m%d")
     
-    dates, _ = await data_source_manager.get_trade_calendar(start_date, end_date)
+    df = await tushare_manager._call_api(
+        "trade_cal",
+        exchange="SSE",
+        start_date=start_date,
+        end_date=end_date,
+        is_open="1",
+    )
     
-    if not dates:
+    if df.empty:
         return []
     
-    sorted_dates = sorted(dates, reverse=True)
-    return sorted_dates[:days][::-1]  # 取最近N天，然后反转为从早到晚
+    dates = df["cal_date"].tolist()
+    dates.sort(reverse=True)
+    return dates[:days][::-1]  # 取最近N天，然后反转为从早到晚
 
 
 async def compute_daily_stats_for_date(trade_date: str) -> dict:
-    """计算指定日期的统计数据 (V2)"""
+    """计算指定日期的统计数据"""
     stats = {
         "trade_date": trade_date,
         "created_at": datetime.utcnow(),
@@ -98,15 +108,6 @@ async def compute_daily_stats_for_date(trade_date: str) -> dict:
         "sh_amount": None,
         "sz_amount": None,
         "total_amount": None,
-        
-        # === V2 新增字段 ===
-        "pct_chg_median": None,      # 涨跌幅中位数
-        "up_5pct_count": 0,          # 涨超5%家数
-        "down_5pct_count": 0,        # 跌超5%家数
-        "index_pct_chg": None,       # 大盘指数涨跌幅 (沪深300)
-        "seal_rate": None,           # 封板率
-        "cont_board_count": 0,       # 连板家数(2板+)
-        "promotion_rate": None,      # 昨日连板晋级率
     }
     
     # 1. 从 limit_list 获取涨跌停数据
@@ -154,8 +155,6 @@ async def compute_daily_stats_for_date(trade_date: str) -> dict:
         projection={"ts_code": 1, "pct_chg": 1, "_id": 0},
     )
     
-    pct_chg_list = []  # 收集涨跌幅用于计算中位数
-    
     if daily_data:
         for item in daily_data:
             pct_chg = item.get("pct_chg", 0) or 0
@@ -163,29 +162,17 @@ async def compute_daily_stats_for_date(trade_date: str) -> dict:
                 pct_chg = float(pct_chg)
             except:
                 pct_chg = 0
-            
-            pct_chg_list.append(pct_chg)
-            
+                
             if pct_chg > 0:
                 stats["up_count"] += 1
             elif pct_chg < 0:
                 stats["down_count"] += 1
             else:
                 stats["flat_count"] += 1
-            
-            # 涨跌5%统计
-            if pct_chg >= 5:
-                stats["up_5pct_count"] += 1
-            elif pct_chg <= -5:
-                stats["down_5pct_count"] += 1
-    
-    # 计算涨跌幅中位数
-    if pct_chg_list:
-        stats["pct_chg_median"] = round(statistics.median(pct_chg_list), 4)
     
     # 3. 获取沪深港通资金流向
     try:
-        hsgt_data, _ = await data_source_manager.get_moneyflow_hsgt(trade_date=trade_date)
+        hsgt_data = await tushare_manager.get_moneyflow_hsgt(trade_date=trade_date)
         if hsgt_data:
             hsgt = hsgt_data[0]
             stats["hgt"] = hsgt.get("hgt")
@@ -216,24 +203,14 @@ async def compute_daily_stats_for_date(trade_date: str) -> dict:
             stats["sz_amount"] = sz_index.get("amount")
         
         if stats["sh_amount"] is not None and stats["sz_amount"] is not None:
+            print(f"------------------------ 深证成交 sz_amount: {stats['sz_amount']}")
+            print(f"------------------------ 上证成交 sh_amount: {stats['sh_amount']}")
             try:
                 stats["total_amount"] = float(stats["sh_amount"]) + float(stats["sz_amount"])
             except:
                 pass
     except Exception as e:
         print(f"  Warning: Failed to get market turnover: {e}")
-    
-    # 5. 获取大盘指数涨跌幅 (沪深300)
-    try:
-        hs300_index = await mongo_manager.find_one(
-            "index_daily",
-            {"ts_code": "000300.SH", "trade_date": trade_date},
-            projection={"pct_chg": 1, "_id": 0},
-        )
-        if hs300_index:
-            stats["index_pct_chg"] = hs300_index.get("pct_chg")
-    except Exception as e:
-        print(f"  Warning: Failed to get index pct_chg: {e}")
     
     # 计算衍生指标
     total_stocks = stats["up_count"] + stats["down_count"] + stats["flat_count"]
@@ -246,66 +223,7 @@ async def compute_daily_stats_for_date(trade_date: str) -> dict:
         stats["limit_4"] + stats["limit_5"] + stats["limit_6_plus"]
     )
     
-    # V2 衍生指标
-    # 封板率
-    limit_up = stats["limit_up_count"]
-    broken = stats["broken_limit_count"]
-    if limit_up + broken > 0:
-        stats["seal_rate"] = round(limit_up / (limit_up + broken) * 100, 2)
-    else:
-        stats["seal_rate"] = 0
-    
-    # 连板家数 (2板及以上)
-    stats["cont_board_count"] = (
-        stats["limit_2"] + stats["limit_3"] + stats["limit_4"] + 
-        stats["limit_5"] + stats["limit_6_plus"]
-    )
-    
-    # 晋级率 (需要前一天数据，单独计算)
-    stats["promotion_rate"] = await compute_promotion_rate(trade_date)
-    
     return stats
-
-
-async def compute_promotion_rate(trade_date: str):
-    """计算昨日连板晋级率"""
-    # 获取前一个交易日
-    prev_stats = await mongo_manager.find_one(
-        "daily_stats",
-        {"trade_date": {"$lt": trade_date}},
-        sort=[("trade_date", -1)],
-        projection={"trade_date": 1, "_id": 0},
-    )
-    
-    if not prev_stats:
-        return None
-    
-    prev_date = prev_stats["trade_date"]
-    
-    # 获取昨日涨停股
-    prev_limit_ups = await mongo_manager.find_many(
-        "limit_list",
-        {"trade_date": prev_date, "limit": "U"},
-        projection={"ts_code": 1, "_id": 0},
-    )
-    
-    if not prev_limit_ups:
-        return None
-    
-    prev_codes = {item["ts_code"] for item in prev_limit_ups}
-    
-    # 获取今日涨停股
-    today_limit_ups = await mongo_manager.find_many(
-        "limit_list",
-        {"trade_date": trade_date, "limit": "U"},
-        projection={"ts_code": 1, "_id": 0},
-    )
-    
-    today_codes = {item["ts_code"] for item in today_limit_ups} if today_limit_ups else set()
-    
-    # 计算晋级率
-    promoted_count = len(prev_codes & today_codes)
-    return round(promoted_count / len(prev_codes) * 100, 2)
 
 
 async def recalc_for_dates(trade_dates: list, force: bool = True):
@@ -454,7 +372,7 @@ async def recalc_for_dates(trade_dates: list, force: bool = True):
 async def main(args):
     # 初始化
     await mongo_manager.initialize()
-    await data_source_manager.initialize()
+    await tushare_manager.initialize()
     
     # 确定要处理的日期范围
     if args.date:
@@ -479,7 +397,7 @@ async def main(args):
     
     # 关闭连接
     await mongo_manager.shutdown()
-    await data_source_manager.shutdown()
+    await tushare_manager.shutdown()
 
 
 if __name__ == "__main__":

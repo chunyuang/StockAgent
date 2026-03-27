@@ -9,7 +9,7 @@
 - ListenerNode: 实时监听节点
 """
 
-from core.base import BaseNode
+from .base import BaseNode
 from .web.node import WebNode
 from .data_sync.node import DataSyncNode
 from .mcp.node import MCPNode

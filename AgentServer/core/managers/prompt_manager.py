@@ -14,7 +14,7 @@ import yaml
 
 from jinja2 import Environment, BaseLoader, TemplateNotFound, StrictUndefined, Template
 
-from core.base import BaseManager
+from core.managers.base import BaseManager
 
 
 class PromptManager(BaseManager):

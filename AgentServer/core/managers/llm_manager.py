@@ -10,7 +10,7 @@ LLM 管理器
 import asyncio
 from typing import Optional, List, Dict, Any, AsyncGenerator
 
-from core.base import BaseManager
+from .base import BaseManager
 from ..settings import settings
 
 
