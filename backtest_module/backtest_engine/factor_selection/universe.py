@@ -59,7 +59,7 @@ class UniverseManager:
         获取指定日期的股票池
         
         Args:
-            universe_type: 股票池类型 (目前只支持全市场)
+            universe_type: 股票池类型
             trade_date: 交易日期 (YYYYMMDD)
             exclude_rules: 排除规则列表
             
@@ -194,12 +194,55 @@ class UniverseManager:
         """
         # 获取交易日历
         logger.info(f"Getting rebalance dates: {start_date} -> {end_date}, freq={freq}")
+        
+        # 优先从 MongoDB stock_daily 直接提取交易日历
+        # 这样不依赖 Tushare/Baostock 外部服务，完全基于已有数据
+        start_int = int(start_date)
+        end_int = int(end_date)
         try:
-            trade_dates = await tushare_manager.get_trade_cal(start_date, end_date)
-            trade_dates = [str(d) for d in trade_dates]
+            pipeline = [
+                {
+                    "$match": {
+                        "trade_date": {
+                            "$gte": start_int,
+                            "$lte": end_int
+                        }
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": "$trade_date"
+                    }
+                },
+                {
+                    "$sort": {
+                        "_id": 1
+                    }
+                }
+            ]
+            cursor = mongo_manager.db.stock_daily.aggregate(pipeline)
+            result = await cursor.to_list(length=200)
+            trade_dates = [str(doc["_id"]) for doc in result]
+            
+            if trade_dates:
+                logger.info(f"Extracted {len(trade_dates)} trade dates from MongoDB")
+            else:
+                # Fallback to external services if MongoDB empty
+                logger.warning("No trade dates found in MongoDB, falling back to Tushare -> Baostock")
+                try:
+                    trade_dates = await tushare_manager.get_trade_cal(start_date, end_date)
+                    trade_dates = [str(d) for d in trade_dates]
+                except Exception as e:
+                    logger.warning(f"Tushare get_trade_cal failed: {e}, falling back to Baostock")
+                    trade_dates = await baostock_manager.get_trade_dates(start_date, end_date)
         except Exception as e:
-            logger.warning(f"Tushare get_trade_cal failed: {e}, falling back to Baostock")
-            trade_dates = await baostock_manager.get_trade_dates(start_date, end_date)
+            logger.warning(f"MongoDB extract failed: {e}, falling back to external services")
+            try:
+                trade_dates = await tushare_manager.get_trade_cal(start_date, end_date)
+                trade_dates = [str(d) for d in trade_dates]
+            except Exception as e2:
+                logger.warning(f"Tushare get_trade_cal failed: {e2}, falling back to Baostock")
+                trade_dates = await baostock_manager.get_trade_dates(start_date, end_date)
         
         if not trade_dates:
             logger.error(f"No trade dates found between {start_date} and {end_date}")
@@ -276,8 +319,46 @@ class UniverseManager:
         end_date: str,
     ) -> List[str]:
         """获取日期范围内的所有交易日"""
+        # 优先从 MongoDB stock_daily 直接提取交易日历
+        start_int = int(start_date)
+        end_int = int(end_date)
+        try:
+            pipeline = [
+                {
+                    "$match": {
+                        "trade_date": {
+                            "$gte": start_int,
+                            "$lte": end_int
+                        }
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": "$trade_date"
+                    }
+                },
+                {
+                    "$sort": {
+                        "_id": 1
+                    }
+                }
+            ]
+            cursor = mongo_manager.db.stock_daily.aggregate(pipeline)
+            result = await cursor.to_list(length=200)
+            trade_dates = [str(doc["_id"]) for doc in result]
+            
+            if trade_dates:
+                logger.info(f"Extracted {len(trade_dates)} trade dates from MongoDB")
+                return sorted(trade_dates)
+            # Fallback if empty
+            logger.warning("No trade dates found in MongoDB, falling back to Tushare -> Baostock")
+        except Exception as e:
+            logger.warning(f"MongoDB extract failed: {e}, falling back to external services")
+        
+        # Fallback to external services
         try:
             trade_dates = await tushare_manager.get_trade_cal(start_date, end_date)
+            trade_dates = [str(d) for d in trade_dates]
         except Exception as e:
             logger.warning(f"Tushare get_trade_cal failed: {e}, falling back to Baostock")
             trade_dates = await baostock_manager.get_trade_dates(start_date, end_date)
