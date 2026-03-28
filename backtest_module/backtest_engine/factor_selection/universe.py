@@ -44,10 +44,21 @@ class UniverseManager:
     - stock_daily: 获取当日有交易的股票
     - stock_basic: 获取 ST 状态、上市日期
     - limit_list: 获取涨跌停信息
+    
+    物理隔离:
+    - stock_daily_ak: AKShare 数据
+    - stock_daily_ts: Tushare 数据
     """
     
     # 次新股定义：上市不满多少个交易日
     NEW_STOCK_DAYS = 250
+    
+    def __init__(self, source: str = None):
+        """
+        Args:
+            source: 数据源过滤 ("ak" for AKShare, "ts" for Tushare, None for all)
+        """
+        self.source = source
     
     async def get_universe(
         self,
@@ -85,11 +96,21 @@ class UniverseManager:
         return stocks
     
     async def _get_tradable_stocks(self, trade_date: str) -> Set[str]:
-        """获取当日有交易的股票"""
-        # 从 stock_daily 获取当日有数据的股票
+        """获取当日有交易的股票
+        物理隔离：根据全局 source 过滤选择不同集合
+        """
+        # 物理隔离：根据数据源选择不同集合
+        from backtest_module.backtest_engine.factor_selection.factor_engine import FactorEngine
+        collection = "stock_daily"
+        if self.source == "ak":
+            collection = "stock_daily_ak"
+        elif self.source == "ts":
+            collection = "stock_daily_ts"
+        
+        # 从对应集合获取当日有数据的股票
         # 注意：我们存储的 trade_date 是 int 类型，不是字符串
         result = await mongo_manager.find_many(
-            "stock_daily",
+            collection,
             {"trade_date": int(trade_date)},
             projection={"ts_code": 1},
         )

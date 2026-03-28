@@ -170,12 +170,15 @@ class FactorEngine:
             "ts_code": {"$in": stocks},
             "trade_date": {"$gte": start_int, "$lte": end_int},
         }
-        # 如果指定了数据源，只查询该来源的数据
-        if source is not None:
-            query["source"] = source
+        # 物理隔离：根据数据源选择不同集合
+        collection = "stock_daily"
+        if source == "ak":
+            collection = "stock_daily_ak"
+        elif source == "ts":
+            collection = "stock_daily_ts"
         
         result = await mongo_manager.find_many(
-            "stock_daily",
+            collection,
             query,
             projection={
                 "ts_code": 1, "trade_date": 1, 
