@@ -104,6 +104,7 @@ class PortfolioBacktester:
         top_n = config.get("top_n", 20)
         weight_method = config.get("weight_method", "equal")
         benchmark_code = config.get("benchmark", "000300.SH")
+        self.max_position_per_stock = config.get("max_position_per_stock", 0.2)  # 单票最大仓位，默认 20%
         
         # 解析排除规则
         exclude_rules = [ExcludeRule(r) for r in config.get("exclude", [])]
@@ -189,6 +190,24 @@ class PortfolioBacktester:
                 target_weights = self._compute_weights(
                     target_stocks, factor_df, weight_method
                 )
+                
+                # 应用最大单票仓位限制 - 确保动态管理，任何时候单票不超过上限
+                # 如果选股数量 > 1/上限，自动等权分配保证不超限
+                # 如果选股数量 <= 1/上限，保持等权已经自然满足
+                if self.max_position_per_stock < 1.0:
+                    # 修剪超过上限的权重
+                    excess = 0.0
+                    for ts_code in list(target_weights.keys()):
+                        if target_weights[ts_code] > self.max_position_per_stock:
+                            excess += target_weights[ts_code] - self.max_position_per_stock
+                            target_weights[ts_code] = self.max_position_per_stock
+                    # 将超额部分均匀分配给其他低于上限的股票
+                    if excess > 0.0001:
+                        available = [ts for ts, w in target_weights.items() if w < self.max_position_per_stock]
+                        if available:
+                            add_per_available = excess / len(available)
+                            for ts_code in available:
+                                target_weights[ts_code] += add_per_available
                 
                 # 4. 获取价格
                 prices = await self._get_prices(

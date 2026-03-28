@@ -34,6 +34,7 @@ from .strategies import (
     BaseStrategy,
     LimitOpenStrategy,
     PriceChangeStrategy,
+    MA5BuyStrategy,
     LeadingDragonStrategy,
     FirstBoardStrategy,
 )
@@ -184,15 +185,13 @@ class ListenerNode(BaseNode):
     # ==================== 策略管理 ====================
     
     def _register_strategies(self) -> None:
-        """注册内置策略执行器（只保留核心5个策略）
-        已移除: 跌停翘板（可通过参数关闭，不需改代码）、MA5低吸
-        保留: 涨停开板、半路追涨、龙头战法、首板打板
-        """
+        """注册内置策略执行器"""
         self._strategies = {
-            StrategyType.LIMIT_OPEN.value: LimitOpenStrategy(),    # 涨停开板
-            StrategyType.PRICE_CHANGE.value: PriceChangeStrategy(), # 半路追涨
-            StrategyType.LEADING_DRAGON.value: LeadingDragonStrategy(), # 龙头战法
-            StrategyType.FIRST_BOARD.value: FirstBoardStrategy(),   # 首板打板
+            StrategyType.LIMIT_OPEN.value: LimitOpenStrategy(),
+            StrategyType.PRICE_CHANGE.value: PriceChangeStrategy(),
+            StrategyType.MA5_BUY.value: MA5BuyStrategy(),
+            StrategyType.LEADING_DRAGON.value: LeadingDragonStrategy(),
+            StrategyType.FIRST_BOARD.value: FirstBoardStrategy(),
         }
         self.logger.info(f"Registered strategies: {list(self._strategies.keys())}")
     

@@ -405,12 +405,26 @@ class StockAnalysisState(BaseModel):
 
 
 class StrategyType(str, Enum):
-    """策略类型"""
+    """策略类型（只保留核心5个策略）
+    
+    活跃策略:
+    - LIMIT_OPEN = "limit_open"           # 涨停开板
+    - PRICE_CHANGE = "price_change"       # 半路追涨（涨跌幅阈值）
+    - LEADING_DRAGON = "leading_dragon"   # 龙头战法（龙头低吸）
+    - FIRST_BOARD = "first_board"         # 首板打板
+    
+    已停用（保留枚举定义不影响，数据库中旧配置兼容）:
+    - MA5_BUY = "ma5_buy"                 # 5日线低吸（回测表现差，已移除）
+    - LIMIT_OPEN 同时支持跌停翘板，但默认不启用
+    - VOLUME_SURGE = "volume_surge"       # 放量突破（预留）
+    - MA_CROSS = "ma_cross"               # 均线交叉（预留）
+    - CUSTOM = "custom"                   # 自定义策略
+    """
     LIMIT_OPEN = "limit_open"           # 涨跌停打开
     PRICE_CHANGE = "price_change"       # 涨跌幅阈值
     VOLUME_SURGE = "volume_surge"       # 放量突破
     MA_CROSS = "ma_cross"               # 均线交叉
-    MA5_BUY = "ma5_buy"                 # 5日线低吸
+    MA5_BUY = "ma5_buy"                 # 5日线低吸（已停用）
     LEADING_DRAGON = "leading_dragon"   # 龙头战法
     FIRST_BOARD = "first_board"         # 首板打板
     CUSTOM = "custom"                   # 自定义策略
