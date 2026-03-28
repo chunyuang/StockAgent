@@ -379,12 +379,12 @@ FactorLibrary.register(FactorDefinition(
     name="open_below_limit",
     display_name="开盘低于涨停价",
     category=FactorCategory.TECHNICAL,
-    description="(涨停价 - 开盘价) / 涨停价，越大越符合高开低走/半路追涨",
+    description="(昨日涨停价 - 今日开盘价) / 昨日涨停价，越大越符合高开低走/半路追涨",
     direction="asc",
     data_source="daily",
     required_fields=["open", "up_limit"],
     lookback_days=1,
-    compute_func=lambda df: (df["up_limit"] - df["open"]) / df["up_limit"].replace(0, np.nan),
+    compute_func=lambda df: (df["up_limit"].shift(1) - df["open"]) / df["up_limit"].shift(1).replace(0, np.nan),
 ))
 
 FactorLibrary.register(FactorDefinition(
@@ -403,12 +403,12 @@ FactorLibrary.register(FactorDefinition(
     name="open_above_limit",
     display_name="开盘高于跌停价",
     category=FactorCategory.TECHNICAL,
-    description="(开盘价 - 跌停价) / 跌停价，越大越符合跌停翘板",
+    description="(今日开盘价 - 昨日跌停价) / 昨日跌停价，越大越符合跌停翘板",
     direction="asc",
     data_source="daily",
     required_fields=["open", "down_limit"],
     lookback_days=1,
-    compute_func=lambda df: (df["open"] - df["down_limit"]) / df["down_limit"].replace(0, np.nan),
+    compute_func=lambda df: (df["open"] - df["down_limit"].shift(1)) / df["down_limit"].shift(1).replace(0, np.nan),
 ))
 
 FactorLibrary.register(FactorDefinition(
