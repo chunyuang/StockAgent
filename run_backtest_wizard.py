@@ -80,7 +80,7 @@ class BacktestWizard:
         print()
         print("📌 第三步: 选择策略组合")
         print()
-        print("  [A] 五大超短策略 (半路追涨/涨停开板/跌停翘板/MA5低吸/龙头低吸)")
+        print("  [A] 五大超短策略 (半路追涨/涨停开板/龙头战法/首板打板)")
         print("  [B] StockAgent-v0.2 因子选股 (月度调仓，top 50 选股)")
         print("  [C] 情绪周期策略 (需要涨跌停/基本面/龙虎榜数据)")
         print()
