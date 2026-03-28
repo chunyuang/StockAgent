@@ -77,8 +77,8 @@ class StrategiesBacktest:
         logger.info(f"  Initial cash: {self.initial_cash:.2f}")
         logger.info(f"{'='*60}\n")
         
-        # Tushare 版本数据源标记为 "ts"，只查询 Tushare 下载的数据
-        backtester = PortfolioBacktester(source="ts")
+        # 使用 AKShare 数据源（我们最新获取的数据都是 source="ak"）
+        backtester = PortfolioBacktester(source="ak")
         
         backtest_config = {
             "universe": "all_a",
