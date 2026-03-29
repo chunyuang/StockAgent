@@ -44,12 +44,12 @@ from backtest_module.backtest_engine.factor_selection.factor_library import Fact
 if 'START_DATE' in globals():
     START_DATE = START_DATE
 else:
-    START_DATE = "20260105"
+    START_DATE = "20251217"
 
 if 'END_DATE' in globals():
     END_DATE = END_DATE
 else:
-    END_DATE = "20260320"
+    END_DATE = "20260317"
 
 if 'INITIAL_CAPITAL' in globals():
     INITIAL_CAPITAL = INITIAL_CAPITAL
