@@ -11,10 +11,10 @@ client = pymongo.MongoClient('mongodb://localhost:27017/')
 db = client['stock_agent']
 coll = db['stock_daily_ak_full']
 
-START_DATE = 20260105
-END_DATE = 20260320
+START_DATE = 20251217
+END_DATE = 20260317
 INITIAL_CAPITAL = 1000000
-LIQUIDITY_THRESHOLD = 500  # 放宽到500万
+LIQUIDITY_THRESHOLD = 300  # 进一步放宽到300万
 SLIPPAGE = 0.001
 COMMISSION = 0.0002
 STAMP_DUTY = 0.001
@@ -24,7 +24,7 @@ print("🚀 弱势行情宽松参数回测启动")
 print("="*60)
 print(f"📅 区间: {START_DATE} ~ {END_DATE}")
 print(f"💰 初始资金: {INITIAL_CAPITAL:,}")
-print(f"🔧 参数: 流动性500万 | 量能放大≥1.5倍 | 低开0-7%")
+print(f"🔧 参数: 流动性300万 | 量能放大≥1.2倍 | 低开0-7%")
 print("="*60)
 
 # 预加载数据
@@ -47,7 +47,7 @@ for ts_code in tqdm(all_ts_codes, desc="加载中"):
         df['prev_up_limit'] = df['up_limit'].shift(1)
         df['open_pct_diff'] = (df['prev_up_limit'] - df['open']) / df['prev_up_limit']
         df['open_below_limit_loose'] = ((df['open_pct_diff'] >= 0) & (df['open_pct_diff'] <= 0.07)).astype(int)  # 放宽到0-7%
-        df['volume_increase_loose'] = (df['vol'] / df['vol'].rolling(5).mean() >= 1.5).astype(int)  # 放宽到1.5倍
+        df['volume_increase_loose'] = (df['vol'] / df['vol'].rolling(5).mean() >= 1.2).astype(int)  # 进一步放宽到1.2倍
         df['limit_up_sum_20d'] = df['is_limit_up'].rolling(20).sum().shift(1)
         df['first_limit_up'] = ((df['is_limit_up'] == True) & (df['limit_up_sum_20d'] < 1)).astype(int)
         all_data[ts_code] = df
