@@ -59,7 +59,7 @@ else:
 if 'LIQUIDITY_THRESHOLD' in globals():
     LIQUIDITY_THRESHOLD = LIQUIDITY_THRESHOLD
 else:
-    LIQUIDITY_THRESHOLD = 1000  # 流动性门槛 1000万
+    LIQUIDITY_THRESHOLD = 500  # 流动性门槛调整为500万，适配弱势行情
 
 if 'MAX_POSITION_PERCENT' in globals():
     MAX_POSITION_PERCENT = MAX_POSITION_PERCENT
@@ -107,8 +107,7 @@ STRATEGIES = [
     {
         "name": "首板打板",
         "filters": [
-            ("limit_up_yesterday", 1),
-            ("first_limit_up", 1),
+            ("first_limit_up", 1),  # 今日首次涨停，不需要昨日涨停条件
         ],
     },
 ]
@@ -127,6 +126,16 @@ async def main():
     logger.info(f"   单票最大仓位: {MAX_POSITION_PERCENT}%")
     logger.info(f"   流动性门槛: {LIQUIDITY_THRESHOLD} 万元")
     
+    # 回测前强制检查
+    from backtest_module.utils.pre_flight_check_simple import pre_flight_check
+    pre_flight_check({
+        "start_date": int(START_DATE),
+        "end_date": int(END_DATE),
+        "data_collection": "stock_daily_ak_full",
+        "strategies": STRATEGIES,
+        "liquidity_threshold": LIQUIDITY_THRESHOLD,
+    })
+    
     # 初始化管理器 - 只初始化需要的，不初始化 Tushare
     logger.info("Initializing managers...")
     await redis_manager.initialize()
@@ -142,8 +151,8 @@ async def main():
     # 这会强制过滤只查询 AKShare 下载的数据，避免与 Tushare 数据混用
     factor_engine = FactorEngine(source="ak")
     
-    # 初始化宇宙管理器 - 使用全市场A股
-    universe_mgr = UniverseManager(universe_type=UniverseType.ALL_A_SHARES)
+    # 初始化宇宙管理器 - 默认全市场，config中已指定data_collection为stock_daily_ak_full
+    universe_mgr = UniverseManager(source="ak")
     
     # 获取调仓日期 - 直接使用 baostock，不依赖 tushare
     rebalance_dates = await baostock_manager.get_trade_dates(START_DATE, END_DATE)

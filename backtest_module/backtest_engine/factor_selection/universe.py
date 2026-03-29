@@ -99,12 +99,10 @@ class UniverseManager:
         """获取当日有交易的股票
         物理隔离：根据全局 source 过滤选择不同集合
         """
-        # 物理隔离：根据数据源选择不同集合
+        # 物理隔离：根据数据源选择不同集合，默认全市场
         from backtest_module.backtest_engine.factor_selection.factor_engine import FactorEngine
-        collection = "stock_daily"
-        if self.source == "ak":
-            collection = "stock_daily_ak"
-        elif self.source == "ts":
+        collection = "stock_daily_ak_full"  # 默认使用全市场AKShare数据集合
+        if self.source == "ts":
             collection = "stock_daily_ts"
         
         # 从对应集合获取当日有数据的股票

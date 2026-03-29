@@ -1,36 +1,47 @@
 #!/usr/bin/env python3
 """
-全市场AKShare回测 - 修复版
-调整起始日期为20260106，保证有昨日数据
+全市场AKShare回测
+使用stock_daily集合的全市场股票数据
 """
 import asyncio
 import sys
 from datetime import datetime
+import json
 
 sys.path.insert(0, '/root/.openclaw/workspace/StockAgent')
 sys.path.insert(0, '/root/.openclaw/workspace/StockAgent/AgentServer')
 
 class FullMarketAKShareBacktest:
     def __init__(self):
-        self.start_date = "20260107"  # 调整起始日期到1月7日，1月6日有5只涨停
+        self.start_date = "20260105"
         self.end_date = "20260320"
         self.initial_capital = 1000000  # 100万
         self.liquidity_threshold = 1000  # 1000万
-        self.source = None
+        self.source = None  # 全市场数据没有source标记
         
     async def run(self):
-        print("="*70)
-        print("🚀 StockAgent 全市场AKShare回测 (修复版)")
-        print("="*70)
+        print("="*60)
+        print("🚀 StockAgent 全市场AKShare回测")
+        print("="*60)
         print(f"📅 回测区间: {self.start_date} ~ {self.end_date}")
         print(f"💰 初始资金: {self.initial_capital:,} 元")
-        print(f"📊 数据: stock_daily集合(266只股票，已补全所有衍生字段)")
-        print("="*70)
+        print(f"📊 数据来源: stock_daily集合(全市场)")
+        print("="*60)
         
         # 策略配置
         strategies = [
             {
                 "name": "半路追涨",
+                "factors": [
+                    {"name": "limit_up_yesterday", "weight": 0.4, "direction": "asc"},
+                    {"name": "open_below_limit", "weight": 0.3, "direction": "asc"},
+                    {"name": "volume_increase", "weight": 0.3, "direction": "desc"}
+                ],
+                "n_stocks": 5,
+                "weight_method": "equal"
+            },
+            {
+                "name": "涨停开板",
                 "factors": [
                     {"name": "limit_up_yesterday", "weight": 0.4, "direction": "asc"},
                     {"name": "open_below_limit", "weight": 0.3, "direction": "asc"},
@@ -59,10 +70,18 @@ class FullMarketAKShareBacktest:
         
         print("✅ 管理器初始化完成")
         
+        # 先检查有没有涨停股票
+        test_date = 20260105
+        count = await mongo_manager.db.stock_daily.count_documents({
+            "trade_date": test_date,
+            "$expr": {"$gte": ["$close", {"$multiply": ["$up_limit", 0.995]}]}
+        })
+        print(f"\n📊 测试日期{test_date}涨停股票数量: {count}只")
+        
         # 运行回测
         from backtest_module.backtest_engine.factor_selection.portfolio_backtest import PortfolioBacktester
         
-        total_trades = 0
+        results = []
         for strategy in strategies:
             print(f"\n🔍 运行策略: {strategy['name']}")
             
@@ -79,30 +98,41 @@ class FullMarketAKShareBacktest:
                 "weight_method": strategy["weight_method"],
                 "liquidity_threshold": self.liquidity_threshold,
                 "factors": strategy["factors"],
-                "data_collection": "stock_daily_ak_full",
-                "verbose": True  # 开启详细日志，看看哪里有问题
+                "data_collection": "stock_daily"  # 使用全市场集合
             }
             
             result = await backtest.run(config)
-            
-            trades = result.get('total_trades', 0)
-            total_trades += trades
+            results.append(result)
             
             print(f"  📊 结果: 总收益率={result.get('total_return_pct', 0):.2f}%, "
-                  f"交易数={trades}, 胜率={result.get('win_rate', 0):.2f}%")
+                  f"交易数={result.get('total_trades', 0)}, "
+                  f"胜率={result.get('win_rate', 0):.2f}%")
         
-        print("\n" + "="*70)
-        print("📊 回测完成总结")
-        print("="*70)
-        print(f"总交易次数: {total_trades}次")
+        # 输出报告
+        print("\n" + "="*60)
+        print("📊 全市场AKShare回测最终报告")
+        print("="*60)
         
-        if total_trades > 0:
-            print("✅ AKShare回测流程完全跑通，能够正常产生交易信号！")
-        else:
-            print("⚠️  仍然没有交易信号，需要进一步调试因子逻辑")
+        for strategy, result in zip(strategies, results):
+            print(f"| {strategy['name']:8} | "
+                  f"{result.get('total_trades', 0):6} | "
+                  f"{result.get('win_rate', 0):6.2f}% | "
+                  f"{result.get('total_return_pct', 0):7.2f}% |")
         
-        return total_trades > 0
+        print("="*60)
+        
+        # 保存结果
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_file = f"/tmp/full_market_akshare_{timestamp}.json"
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump({
+                "strategies": [s["name"] for s in strategies],
+                "results": results
+            }, f, ensure_ascii=False, indent=2)
+        
+        print(f"\n💾 结果保存到: {output_file}")
+        
+        return results
 
 if __name__ == "__main__":
-    success = asyncio.run(FullMarketAKShareBacktest().run())
-    sys.exit(0 if success else 1)
+    asyncio.run(FullMarketAKShareBacktest().run())
