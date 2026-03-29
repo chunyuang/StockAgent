@@ -174,7 +174,8 @@ async def main():
             "end_date": END_DATE,
             "initial_cash": INITIAL_CAPITAL,
             "max_position_percent": MAX_POSITION_PERCENT / 100.0,
-            "liquidity_threshold": LIQUIDITY_THRESHOLD * 10000,  # AKShare amount 单位已经是万元，所以 LIQUIDITY_THRESHOLD 万元 = 直接 × 10000 得到元
+            "liquidity_threshold": LIQUIDITY_THRESHOLD,  # AKShare amount 单位已经是万元，直接使用即可
+            "data_collection": "stock_daily_ak_full",  # 使用全市场AKShare数据集合
             "universe_mgr": universe_mgr,
             "factor_engine": factor_engine,
             "exclude_rules": [ExcludeRule.ST, ExcludeRule.NEW_STOCK],
