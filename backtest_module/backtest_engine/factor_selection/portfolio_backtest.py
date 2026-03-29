@@ -37,6 +37,15 @@ class RebalanceRecord:
 
 
 @dataclass
+class Position:
+    """持仓信息，包含买入日期"""
+    ts_code: str
+    shares: int
+    buy_date: str
+    cost_price: float
+
+
+@dataclass
 class PortfolioSnapshot:
     """组合快照"""
     date: str
@@ -67,14 +76,14 @@ class PortfolioBacktester:
     STAMP_TAX = 0.001          # 印花税 千1 (卖出)
     MIN_COMMISSION = 5         # 最低佣金 5元
     SLIPPAGE = 0.001           # 滑点 千1 (默认)
-    MAX_POSITION = 1.0         # 最大总仓位比例 (默认满仓1.0)
+    MAX_POSITION = 0.7         # 最大总仓位比例 (默认70%仓位，保留30%现金)
     
-    def __init__(self, source: str = None, slippage: float = 0.001, max_position: float = 1.0):
+    def __init__(self, source: str = None, slippage: float = 0.001, max_position: float = 0.7):
         """
         Args:
             source: 数据源过滤，只查询该来源的数据，避免不同数据源混用
             slippage: 滑点比例，默认千1
-            max_position: 最大总仓位比例，默认1.0（满仓），0.5表示最多半仓
+            max_position: 最大总仓位比例，默认0.7（70%仓位，保留30%现金），0.5表示最多半仓
         """
         self.universe_mgr = UniverseManager()
         self.factor_engine = FactorEngine(source=source)
@@ -113,8 +122,8 @@ class PortfolioBacktester:
         self.max_position_per_stock = config.get("max_position_per_stock", 0.2)  # 单票最大仓位，默认 20%
         # 滑点配置，默认千1
         self.SLIPPAGE = max(0.0, min(0.05, config.get("slippage", 0.001)))
-        # 最大总仓位配置，默认满仓1.0
-        self.MAX_POSITION = max(0.0, min(1.0, config.get("max_position", 1.0)))
+        # 最大总仓位配置，默认70%仓位，保留30%现金
+        self.MAX_POSITION = max(0.0, min(1.0, config.get("max_position", 0.7)))
         
         # 解析排除规则
         exclude_rules = [ExcludeRule(r) for r in config.get("exclude", [])]
@@ -144,7 +153,13 @@ class PortfolioBacktester:
         
         # 初始化组合状态
         cash = initial_cash
-        holdings: Dict[str, int] = {}  # {ts_code: shares}
+        holdings: Dict[str, Position] = {}  # {ts_code: Position}
+        # 强制平仓规则：持仓超过X天强制卖出，默认3天
+        self.max_hold_days = config.get("max_hold_days", 3)
+        # 强制空仓规则开关
+        self.enable_force_empty = config.get("enable_force_empty", True)
+        # 情绪周期开关
+        self.enable_sentiment_cycle = config.get("enable_sentiment_cycle", True)
         
         # 记录
         daily_values: List[Dict] = []
@@ -159,6 +174,122 @@ class PortfolioBacktester:
             # 每 20 天打印一次进度
             if idx % 20 == 0:
                 logger.info(f"Processing day {idx+1}/{total_days}: {trade_date}")
+            
+            # ==============================================
+            # 1. 持仓超过3天强制平仓检查
+            # ==============================================
+            if holdings:
+                # 获取当日价格
+                hold_stocks = list(holdings.keys())
+                prices, _, limit_down_prices = await self._get_prices_and_limits(set(hold_stocks), trade_date)
+                
+                for ts_code in list(holdings.keys()):
+                    pos = holdings[ts_code]
+                    # 计算持仓天数
+                    from datetime import datetime
+                    buy_dt = datetime.strptime(pos.buy_date, "%Y%m%d")
+                    current_dt = datetime.strptime(trade_date, "%Y%m%d")
+                    hold_days = (current_dt - buy_dt).days
+                    
+                    if hold_days >= self.max_hold_days:
+                        # 持仓超过最大天数，强制卖出
+                        shares = pos.shares
+                        price = prices.get(ts_code, 0)
+                        if price <= 0 or shares <= 0:
+                            continue
+                        
+                        # 跌停无法卖出判断
+                        limit_down = limit_down_prices.get(ts_code)
+                        if limit_down and price <= limit_down * 1.005:
+                            logger.warning(f"[{trade_date}] {ts_code} 跌停，无法强制平仓，继续持有")
+                            continue
+                        
+                        # 卖出滑点
+                        trade_price = price * (1 - self.SLIPPAGE)
+                        amount = shares * trade_price
+                        commission = max(amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
+                        tax = amount * self.STAMP_TAX
+                        cash += amount - commission - tax
+                        
+                        rebalance_records.append(RebalanceRecord(
+                            date=trade_date, action="sell", ts_code=ts_code,
+                            shares=shares, price=trade_price, amount=amount,
+                            reason=f"force_close_hold_{hold_days}_days",
+                        ))
+                        logger.info(f"[{trade_date}] 强制平仓 {ts_code} （持仓{hold_days}天超过{self.max_hold_days}天上限），卖出{shares}股，收入{amount - commission - tax:.2f}元")
+                        
+                        # 移除持仓
+                        del holdings[ts_code]
+            
+            # ==============================================
+            # 2. 强制空仓检查
+            # ==============================================
+            force_empty = await self._check_force_empty(trade_date)
+            if force_empty:
+                # 强制空仓，卖出所有持仓
+                if holdings:
+                    hold_stocks = list(holdings.keys())
+                    prices, _, limit_down_prices = await self._get_prices_and_limits(set(hold_stocks), trade_date)
+                    
+                    for ts_code in list(holdings.keys()):
+                        pos = holdings[ts_code]
+                        shares = pos.shares
+                        price = prices.get(ts_code, 0)
+                        if price <= 0 or shares <= 0:
+                            continue
+                        
+                        limit_down = limit_down_prices.get(ts_code)
+                        if limit_down and price <= limit_down * 1.005:
+                            logger.warning(f"[{trade_date}] {ts_code} 跌停，无法卖出，保留持仓")
+                            continue
+                        
+                        trade_price = price * (1 - self.SLIPPAGE)
+                        amount = shares * trade_price
+                        commission = max(amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
+                        tax = amount * self.STAMP_TAX
+                        cash += amount - commission - tax
+                        
+                        rebalance_records.append(RebalanceRecord(
+                            date=trade_date, action="sell", ts_code=ts_code,
+                            shares=shares, price=trade_price, amount=amount,
+                            reason="force_empty",
+                        ))
+                        del holdings[ts_code]
+                    
+                    logger.info(f"[{trade_date}] 强制空仓执行完毕，当前现金{cash:.2f}元")
+                
+                # 强制空仓日跳过调仓，直接继续下一天
+                market_value = sum(
+                    pos.shares * prices.get(pos.ts_code, 0)
+                    for pos in holdings.values()
+                )
+                total_value = cash + market_value
+                benchmark_nav = benchmark_data.get(trade_date, 1.0)
+                daily_values.append({
+                    "date": trade_date,
+                    "cash": cash,
+                    "market_value": market_value,
+                    "total_value": total_value,
+                    "benchmark_value": benchmark_nav * initial_cash,
+                    "return_pct": (total_value / initial_cash - 1) * 100,
+                    "force_empty": True
+                })
+                continue
+            
+            # ==============================================
+            # 3. 情绪周期判断，动态调整总仓位上限
+            # ==============================================
+            sentiment = await self._get_sentiment_cycle(trade_date)
+            # 情绪周期对应仓位上限：冰点30%/修复70%/高潮100%
+            sentiment_position_map = {
+                "ice": 0.3,
+                "repair": 0.7,
+                "boom": 1.0
+            }
+            # 取配置的最大仓位和情绪周期对应仓位的最小值，双重控制
+            original_max_position = self.MAX_POSITION
+            self.MAX_POSITION = min(original_max_position, sentiment_position_map.get(sentiment, 0.7))
+            logger.info(f"[{trade_date}] 情绪周期{sentiment}，动态调整总仓位上限为{self.MAX_POSITION:.0%}")
             
             # 检查是否是调仓日
             if trade_date in rebalance_set:
@@ -235,8 +366,8 @@ class PortfolioBacktester:
             # 计算当日市值（只需要收盘价）
             prices, _, _ = await self._get_prices_and_limits(set(holdings.keys()), trade_date)
             market_value = sum(
-                holdings.get(ts_code, 0) * prices.get(ts_code, 0)
-                for ts_code in holdings
+                pos.shares * prices.get(pos.ts_code, 0)
+                for pos in holdings.values()
             )
             total_value = cash + market_value
             
@@ -291,7 +422,14 @@ class PortfolioBacktester:
             "daily_values": daily_values,
             "rebalance_records": rebalance_records_with_names,
             "selection_history": selection_history,
-            "final_holdings": holdings,
+            "final_holdings": {
+                ts_code: {
+                    "shares": pos.shares,
+                    "buy_date": pos.buy_date,
+                    "cost_price": round(pos.cost_price, 2)
+                }
+                for ts_code, pos in holdings.items()
+            },
             "final_cash": cash,
         }
     
@@ -357,7 +495,7 @@ class PortfolioBacktester:
         self,
         trade_date: str,
         cash: float,
-        holdings: Dict[str, int],
+        holdings: Dict[str, Position],
         target_weights: Dict[str, float],
         prices: Dict[str, float],
         limit_up_prices: Dict[str, float] = None,
@@ -375,8 +513,8 @@ class PortfolioBacktester:
         
         # 计算当前总资产
         current_total_value = cash + sum(
-            holdings.get(ts_code, 0) * prices.get(ts_code, 0)
-            for ts_code in holdings
+            pos.shares * prices.get(pos.ts_code, 0)
+            for pos in holdings.values()
         )
         # 应用最大总仓位限制：目标总市值 = 总权益 * 最大仓位比例
         target_total_market_value = current_total_value * self.MAX_POSITION
@@ -384,7 +522,8 @@ class PortfolioBacktester:
         # 1. 先卖出不在目标池的股票
         stocks_to_sell = set(holdings.keys()) - set(target_weights.keys())
         for ts_code in stocks_to_sell:
-            shares = holdings[ts_code]
+            pos = holdings[ts_code]
+            shares = pos.shares
             price = prices.get(ts_code, 0)
             
             if price <= 0 or shares <= 0:
@@ -418,7 +557,8 @@ class PortfolioBacktester:
         for ts_code, target_weight in target_weights.items():
             # 按最大仓位比例调整目标价值
             target_value = target_total_market_value * target_weight
-            current_shares = holdings.get(ts_code, 0)
+            current_pos = holdings.get(ts_code)
+            current_shares = current_pos.shares if current_pos else 0
             price = prices.get(ts_code, 0)
             
             if price <= 0:
@@ -448,7 +588,26 @@ class PortfolioBacktester:
                 
                 if cash >= total_cost:
                     cash -= total_cost
-                    holdings[ts_code] = current_shares + buy_shares
+                    # 更新持仓
+                    if current_pos:
+                        # 已有持仓，合并股数，成本价按加权平均计算
+                        total_shares = current_shares + buy_shares
+                        total_cost_value = current_pos.cost_price * current_shares + trade_price * buy_shares
+                        new_cost_price = total_cost_value / total_shares
+                        holdings[ts_code] = Position(
+                            ts_code=ts_code,
+                            shares=total_shares,
+                            buy_date=trade_date,  # 加仓的话买入日期更新为最新日期
+                            cost_price=new_cost_price
+                        )
+                    else:
+                        # 新买入，创建Position对象
+                        holdings[ts_code] = Position(
+                            ts_code=ts_code,
+                            shares=buy_shares,
+                            buy_date=trade_date,
+                            cost_price=trade_price
+                        )
                     
                     records.append(RebalanceRecord(
                         date=trade_date, action="buy", ts_code=ts_code,
@@ -476,7 +635,19 @@ class PortfolioBacktester:
                 tax = sell_amount * self.STAMP_TAX
                 net_income = sell_amount - commission - tax
                 cash += net_income
-                holdings[ts_code] = current_shares - sell_shares
+                
+                # 更新持仓
+                if current_pos:
+                    remaining_shares = current_shares - sell_shares
+                    if remaining_shares > 0:
+                        holdings[ts_code] = Position(
+                            ts_code=ts_code,
+                            shares=remaining_shares,
+                            buy_date=current_pos.buy_date,
+                            cost_price=current_pos.cost_price
+                        )
+                    else:
+                        del holdings[ts_code]
                 
                 records.append(RebalanceRecord(
                     date=trade_date, action="sell", ts_code=ts_code,
@@ -484,9 +655,6 @@ class PortfolioBacktester:
                     reason="rebalance",
                 ))
                 logger.debug(f"[{trade_date}] 卖出 {ts_code} {sell_shares}股，成交价{trade_price:.2f}（滑点{self.SLIPPAGE:.1%}），收入{net_income:.2f}元")
-        
-        # 清理持仓为 0 的股票
-        holdings = {k: v for k, v in holdings.items() if v > 0}
         
         return cash, holdings, records
     
@@ -519,6 +687,90 @@ class PortfolioBacktester:
             for doc in result
         }
     
+    async def _check_force_empty(self, trade_date: str) -> bool:
+        """检查是否触发强制空仓规则，触发则返回True
+        规则：
+        1. 大盘指数（上证指数/创业板指）单日跌幅≥3%
+        2. 全市场跌停家数≥50只
+        3. 连板高度≤2板（市场无赚钱效应）
+        """
+        if not self.enable_force_empty:
+            return False
+        
+        try:
+            # 检查上证指数跌幅
+            sh_index = await mongo_manager.find_one(
+                "index_daily",
+                {"ts_code": "000001.SH", "trade_date": trade_date},
+                projection={"pct_chg": 1}
+            )
+            cyb_index = await mongo_manager.find_one(
+                "index_daily",
+                {"ts_code": "399006.SZ", "trade_date": trade_date},
+                projection={"pct_chg": 1}
+            )
+            if (sh_index and sh_index.get("pct_chg", 0) <= -3) or (cyb_index and cyb_index.get("pct_chg", 0) <= -3):
+                logger.warning(f"[{trade_date}] 大盘跌幅≥3%，触发强制空仓")
+                return True
+            
+            # 检查跌停家数
+            limit_down_count = await mongo_manager.count_documents(
+                "stock_daily",
+                {"trade_date": trade_date, "pct_chg": {"$lte": -9.5}}
+            )
+            if limit_down_count >= 50:
+                logger.warning(f"[{trade_date}] 跌停家数≥50只，触发强制空仓")
+                return True
+            
+            # 检查连板高度
+            limit_up_stocks = await mongo_manager.find_many(
+                "stock_daily",
+                {"trade_date": trade_date, "pct_chg": {"$gte": 9.5}},
+                projection={"ts_code": 1}
+            )
+            if limit_up_stocks:
+                ts_codes = [s["ts_code"] for s in limit_up_stocks]
+                # 计算每只股票的连板数（简化版，实际可扩展）
+                max_consecutive_limit_up = 1
+                # 暂时简化判断：如果涨停数<10，视为赚钱效应差
+                if len(limit_up_stocks) < 10:
+                    logger.warning(f"[{trade_date}] 涨停家数<10只，市场无赚钱效应，触发强制空仓")
+                    return True
+            
+            return False
+        except Exception as e:
+            logger.error(f"强制空仓检查异常: {e}")
+            return False
+    
+    async def _get_sentiment_cycle(self, trade_date: str) -> str:
+        """获取当日情绪周期，返回："ice"(冰点)/"repair"(修复)/"boom"(高潮)
+        规则：
+        - 冰点：日涨停数≤30只
+        - 修复：日涨停数30-60只
+        - 高潮：日涨停数≥60只
+        """
+        if not self.enable_sentiment_cycle:
+            return "repair"  # 默认修复期，正常仓位
+        
+        try:
+            limit_up_count = await mongo_manager.count_documents(
+                "stock_daily",
+                {"trade_date": trade_date, "pct_chg": {"$gte": 9.5}}
+            )
+            
+            if limit_up_count <= 30:
+                logger.info(f"[{trade_date}] 情绪周期：冰点（涨停数{limit_up_count}只）")
+                return "ice"
+            elif 30 < limit_up_count < 60:
+                logger.info(f"[{trade_date}] 情绪周期：修复（涨停数{limit_up_count}只）")
+                return "repair"
+            else:
+                logger.info(f"[{trade_date}] 情绪周期：高潮（涨停数{limit_up_count}只）")
+                return "boom"
+        except Exception as e:
+            logger.error(f"情绪周期判断异常: {e}")
+            return "repair"
+
     async def _get_stock_names(self, ts_codes: List[str]) -> Dict[str, str]:
         """获取股票名称映射"""
         if not ts_codes:
