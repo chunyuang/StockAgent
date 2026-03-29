@@ -124,6 +124,11 @@ class PortfolioBacktester:
         self.SLIPPAGE = max(0.0, min(0.05, config.get("slippage", 0.001)))
         # 最大总仓位配置，默认70%仓位，保留30%现金
         self.MAX_POSITION = max(0.0, min(1.0, config.get("max_position", 0.7)))
+        # 基础交易参数（可动态调整）
+        self.base_stop_loss_pct = config.get("stop_loss_pct", 0.05)  # 默认止损5%
+        self.base_take_profit_pct = config.get("take_profit_pct", 0.1)  # 默认止盈10%
+        self.base_volume_threshold = config.get("volume_threshold", 1.5)  # 默认量能放大1.5倍
+        self.base_liquidity_threshold = config.get("liquidity_threshold", 5000000)  # 默认流动性门槛500万
         
         # 解析排除规则
         exclude_rules = [ExcludeRule(r) for r in config.get("exclude", [])]
@@ -176,15 +181,87 @@ class PortfolioBacktester:
                 logger.info(f"Processing day {idx+1}/{total_days}: {trade_date}")
             
             # ==============================================
-            # 1. 持仓超过3天强制平仓检查
+            # 1. 止损检查 + 持仓超过3天强制平仓检查
             # ==============================================
             if holdings:
                 # 获取当日价格
                 hold_stocks = list(holdings.keys())
                 prices, _, limit_down_prices = await self._get_prices_and_limits(set(hold_stocks), trade_date)
+                # 获取动态止损系数
+                stop_loss_coeff = self.current_sentiment.get("stop_loss_adjust", 1.0)
+                base_stop_loss_pct = config.get("stop_loss_pct", 0.05)  # 默认止损5%
+                adjusted_stop_loss_pct = base_stop_loss_pct * stop_loss_coeff
                 
                 for ts_code in list(holdings.keys()):
                     pos = holdings[ts_code]
+                    shares = pos.shares
+                    price = prices.get(ts_code, 0)
+                    if price <= 0 or shares <= 0:
+                        continue
+                    
+                    # ==============================================
+                    # 新增：动态止盈/止损检查（根据情绪周期调整幅度）
+                    # ==============================================
+                    take_profit_coeff = self.current_sentiment.get("take_profit_adjust", 1.0)
+                    adjusted_take_profit_pct = self.base_take_profit_pct * take_profit_coeff
+                    
+                    current_profit_pct = (price - pos.cost_price) / pos.cost_price
+                    # 止损判断
+                    if current_profit_pct <= -adjusted_stop_loss_pct:
+                        # 触发止损，强制卖出
+                        # 跌停无法卖出判断
+                        limit_down = limit_down_prices.get(ts_code)
+                        if limit_down and price <= limit_down * 1.005:
+                            logger.warning(f"[{trade_date}] {ts_code} 跌停，无法止损卖出，继续持有")
+                            continue
+                        
+                        # 卖出滑点
+                        trade_price = price * (1 - self.SLIPPAGE)
+                        amount = shares * trade_price
+                        commission = max(amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
+                        tax = amount * self.STAMP_TAX
+                        cash += amount - commission - tax
+                        
+                        rebalance_records.append(RebalanceRecord(
+                            date=trade_date, action="sell", ts_code=ts_code,
+                            shares=shares, price=trade_price, amount=amount,
+                            reason=f"stop_loss_{current_profit_pct:.2%}_adjust_{stop_loss_coeff:.1f}x",
+                        ))
+                        logger.info(f"[{trade_date}] 触发止损 {ts_code} （当前亏损{current_profit_pct:.2%}，调整后止损阈值{-adjusted_stop_loss_pct:.2%}），卖出{shares}股，收入{amount - commission - tax:.2f}元")
+                        
+                        # 移除持仓
+                        del holdings[ts_code]
+                        continue
+                    
+                    # 止盈判断
+                    if current_profit_pct >= adjusted_take_profit_pct:
+                        # 触发止盈，卖出
+                        limit_down = limit_down_prices.get(ts_code)
+                        if limit_down and price <= limit_down * 1.005:
+                            logger.warning(f"[{trade_date}] {ts_code} 跌停，无法止盈卖出，继续持有")
+                            continue
+                        
+                        # 卖出滑点
+                        trade_price = price * (1 - self.SLIPPAGE)
+                        amount = shares * trade_price
+                        commission = max(amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
+                        tax = amount * self.STAMP_TAX
+                        cash += amount - commission - tax
+                        
+                        rebalance_records.append(RebalanceRecord(
+                            date=trade_date, action="sell", ts_code=ts_code,
+                            shares=shares, price=trade_price, amount=amount,
+                            reason=f"take_profit_{current_profit_pct:.2%}_adjust_{take_profit_coeff:.1f}x",
+                        ))
+                        logger.info(f"[{trade_date}] 触发止盈 {ts_code} （当前盈利{current_profit_pct:.2%}，调整后止盈阈值{adjusted_take_profit_pct:.2%}），卖出{shares}股，收入{amount - commission - tax:.2f}元")
+                        
+                        # 移除持仓
+                        del holdings[ts_code]
+                        continue
+                    
+                    # ==============================================
+                    # 持仓超过3天强制平仓检查
+                    # ==============================================
                     # 计算持仓天数
                     from datetime import datetime
                     buy_dt = datetime.strptime(pos.buy_date, "%Y%m%d")
@@ -193,11 +270,6 @@ class PortfolioBacktester:
                     
                     if hold_days >= self.max_hold_days:
                         # 持仓超过最大天数，强制卖出
-                        shares = pos.shares
-                        price = prices.get(ts_code, 0)
-                        if price <= 0 or shares <= 0:
-                            continue
-                        
                         # 跌停无法卖出判断
                         limit_down = limit_down_prices.get(ts_code)
                         if limit_down and price <= limit_down * 1.005:
@@ -311,16 +383,38 @@ class PortfolioBacktester:
                 
                 # 2. 计算因子 & 选股
                 liquidity_threshold = config.get("liquidity_threshold")
+                # 应用情绪周期动态调整参数
+                adjusted_liquidity_threshold = liquidity_threshold
+                if self.current_sentiment["level"] == "ice":
+                    # 冰点期提高流动性门槛，优先选流动性好的核心标的
+                    adjusted_liquidity_threshold = liquidity_threshold * 1.5
+                elif self.current_sentiment["level"] == "boom":
+                    # 高潮期可适当降低流动性门槛，捕捉更多机会
+                    adjusted_liquidity_threshold = liquidity_threshold * 0.8
+                
                 factor_df = await self.factor_engine.compute_factors(
                     universe, trade_date, config["factors"], 
-                    liquidity_threshold=liquidity_threshold
+                    liquidity_threshold=adjusted_liquidity_threshold
                 )
                 target_stocks = self.factor_engine.select_top_stocks(
-                    factor_df, top_n, liquidity_threshold=liquidity_threshold
+                    factor_df, top_n, liquidity_threshold=adjusted_liquidity_threshold
                 )
                 
+                # ==============================================
+                # 新增：情绪周期策略过滤 - 仅保留当前情绪允许的策略对应的标的
+                # ==============================================
+                if target_stocks and "strategy" in factor_df.columns:
+                    allowed_strategies = set(self.current_sentiment["allowed_strategies"])
+                    # 过滤出属于允许策略的标的
+                    strategy_filtered = factor_df[
+                        factor_df["ts_code"].isin(target_stocks) & 
+                        factor_df["strategy"].isin(allowed_strategies)
+                    ]
+                    target_stocks = strategy_filtered["ts_code"].tolist()
+                    logger.info(f"[{trade_date}] 情绪周期策略过滤：原选股{len(target_stocks) + len([s for s in target_stocks if s not in strategy_filtered['ts_code'].tolist()])}只，过滤后剩余{len(target_stocks)}只，允许策略：{allowed_strategies}")
+                
                 if not target_stocks:
-                    logger.warning(f"No stocks selected for {trade_date}")
+                    logger.warning(f"No stocks selected for {trade_date} (after sentiment filter)")
                     continue
                 
                 # 记录选股结果
