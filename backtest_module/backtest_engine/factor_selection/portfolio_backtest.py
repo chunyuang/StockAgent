@@ -381,6 +381,45 @@ class PortfolioBacktester:
                     logger.warning(f"No stocks in universe for {trade_date}")
                     continue
                 
+                # ==============================================
+                # 新增：竞价阶段过滤（第5层筛选）
+                # ==============================================
+                enable_auction_filter = config.get("enable_auction_filter", True)
+                if enable_auction_filter:
+                    # 获取当日集合竞价数据
+                    auction_data = await mongo_manager.find_many(
+                        "stock_bid_auction",
+                        {"trade_date": int(trade_date)},
+                        projection={"ts_code": 1, "auction_pct_chg": 1, "auction_volume": 1, "unmatched_volume": 1}
+                    )
+                    
+                    if auction_data:
+                        auction_map = {x["ts_code"]: x for x in auction_data}
+                        # 竞价过滤规则
+                        filtered_universe = []
+                        for ts_code in universe:
+                            if ts_code not in auction_map:
+                                continue  # 无竞价数据的标的过滤
+                            auction = auction_map[ts_code]
+                            # 基础竞价条件（可根据策略调整）
+                            # 1. 竞价涨幅在0.5%~7%之间，排除一字板和大幅低开
+                            if not (0.5 <= auction["auction_pct_chg"] <= 7):
+                                continue
+                            # 2. 竞价量≥过去5日平均量的10%（量比≥0.1）
+                            if auction["auction_volume"] <= 0:
+                                continue
+                            # 3. 未匹配量为正（买盘大于卖盘）
+                            if auction["unmatched_volume"] <= 0:
+                                continue
+                            filtered_universe.append(ts_code)
+                        
+                        logger.info(f"[{trade_date}] 竞价阶段过滤：原预选池{len(universe)}只，过滤后剩余{len(filtered_universe)}只")
+                        universe = filtered_universe
+                
+                if not universe:
+                    logger.warning(f"No stocks left after auction filter for {trade_date}")
+                    continue
+                
                 # 2. 计算因子 & 选股
                 liquidity_threshold = config.get("liquidity_threshold")
                 # 应用情绪周期动态调整参数
@@ -396,6 +435,42 @@ class PortfolioBacktester:
                     universe, trade_date, config["factors"], 
                     liquidity_threshold=adjusted_liquidity_threshold
                 )
+                
+                # ==============================================
+                # 新增：龙虎榜+北向资金因子过滤
+                # ==============================================
+                if len(factor_df) > 0:
+                    # 获取当日龙虎榜上榜股票
+                    lhb_stocks = await mongo_manager.find_many(
+                        "stock_lhb",
+                        {"trade_date": int(trade_date)},
+                        projection={"ts_code": 1, "net_buy_amount": 1, "reason": 1}
+                    )
+                    lhb_map = {x["ts_code"]: x for x in lhb_stocks} if lhb_stocks else {}
+                    
+                    # 获取当日北向资金持股标的
+                    north_stocks = await mongo_manager.find_many(
+                        "stock_north_money_stock",
+                        {"trade_date": int(trade_date)},
+                        projection={"ts_code": 1, "hold_ratio": 1}
+                    )
+                    north_map = {x["ts_code"]: x for x in north_stocks} if north_stocks else {}
+                    
+                    # 新增因子列
+                    factor_df["has_lhb"] = factor_df["ts_code"].apply(lambda x: 1 if x in lhb_map else 0)
+                    factor_df["lhb_net_buy"] = factor_df["ts_code"].apply(lambda x: lhb_map[x]["net_buy_amount"] if x in lhb_map else 0)
+                    factor_df["north_hold_ratio"] = factor_df["ts_code"].apply(lambda x: north_map[x]["hold_ratio"] if x in north_map else 0)
+                    
+                    # 龙头低吸策略强制要求：龙虎榜有净买入 OR 北向持股比例≥1%
+                    if "strategy" in factor_df.columns:
+                        filter_mask = ~(
+                            (factor_df["strategy"] == "龙头低吸") & 
+                            (factor_df["has_lhb"] == 0) & 
+                            (factor_df["north_hold_ratio"] < 1)
+                        )
+                        factor_df = factor_df[filter_mask]
+                        logger.info(f"[{trade_date}] 龙虎榜/北向过滤：原标的{len(filter_mask)}只，过滤后剩余{len(factor_df)}只")
+                
                 target_stocks = self.factor_engine.select_top_stocks(
                     factor_df, top_n, liquidity_threshold=adjusted_liquidity_threshold
                 )
@@ -912,15 +987,28 @@ class PortfolioBacktester:
             pct_chg_values = [x.get("pct_chg", 0) for x in pct_chg_list]
             median_pct_chg = sorted(pct_chg_values)[len(pct_chg_values)//2] if pct_chg_values else 0
             
-            # ---------- 资金流向类指标 (权重20%) ----------
-            # a. 北向资金 (权重10%) - 暂无数据，暂时用大盘涨跌幅代替
-            sh_index = await mongo_manager.find_one(
-                "index_daily",
-                {"ts_code": "000001.SH", "trade_date": trade_date},
-                projection={"pct_chg": 1}
+            # ---------- 资金流向类指标 (权重25%) ----------
+            # a. 北向资金当日净流入 (权重12%)
+            north_money = await mongo_manager.find_one(
+                "stock_north_money_daily",
+                {"trade_date": int(trade_date)},
+                projection={"net_inflow": 1}
             )
-            sh_pct_chg = sh_index.get("pct_chg", 0) if sh_index else 0
-            # b. 龙虎榜净买入总额 (权重10%) - 暂无数据，暂时用成交额代替
+            net_inflow = north_money.get("net_inflow", 0) if north_money else 0
+            # 北向资金评分：净流入≥50亿得12分，净流出≥30亿得0分，线性插值
+            nm_score = min(12, max(0, (net_inflow + 300000) / 800000 * 12))  # 单位：万元
+            
+            # b. 龙虎榜净买入总额 (权重8%)
+            lhb_records = await mongo_manager.find_many(
+                "stock_lhb",
+                {"trade_date": int(trade_date)},
+                projection={"net_buy_amount": 1}
+            )
+            total_lhb_net_buy = sum([x.get("net_buy_amount", 0) for x in lhb_records]) if lhb_records else 0
+            # 龙虎榜评分：总净买入≥20亿得8分，净卖出≥10亿得0分
+            lhb_score = min(8, max(0, (total_lhb_net_buy + 100000) / 300000 * 8))
+            
+            # c. 全市场成交额 (权重5%)
             total_amount = await mongo_manager.aggregate(
                 "stock_daily",
                 [
@@ -929,6 +1017,7 @@ class PortfolioBacktester:
                 ]
             )
             total_trade_amount = total_amount[0]["total"] if total_amount else 0
+            am_score = min(5, max(0, total_trade_amount / 10000 * 5))
             
             # ---------- 波动率类指标 (权重10%) ----------
             # a. 大盘波动率 (权重5%) - 简化为近5日振幅标准差
@@ -958,13 +1047,9 @@ class PortfolioBacktester:
             total_score += ud_score + md_score
             
             # ---- 资金流向类得分 ----
-            # 大盘涨跌幅得分（0-10分）
-            sh_score = min(10, max(0, (sh_pct_chg + 3) / 6 * 10))
-            # 成交额得分（0-10分）
-            am_score = min(10, max(0, total_trade_amount / 10000 * 10))  # 简化
-            total_score += sh_score + am_score
+            total_score += nm_score + lhb_score + am_score
             
-            # ---- 波动率类得分（暂时给5分基础分） ----
+            # ---- 波动率类得分（权重5%，暂时给5分基础分，后续接入VIX等指标） ----
             total_score += 5
             
             total_score = int(round(total_score, 0))
