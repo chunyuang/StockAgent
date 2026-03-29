@@ -142,8 +142,8 @@ async def main():
     # 这会强制过滤只查询 AKShare 下载的数据，避免与 Tushare 数据混用
     factor_engine = FactorEngine(source="ak")
     
-    # 初始化宇宙管理器
-    universe_mgr = UniverseManager()
+    # 初始化宇宙管理器 - 使用全市场A股
+    universe_mgr = UniverseManager(universe_type=UniverseType.ALL_A_SHARES)
     
     # 获取调仓日期 - 直接使用 baostock，不依赖 tushare
     rebalance_dates = await baostock_manager.get_trade_dates(START_DATE, END_DATE)
