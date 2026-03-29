@@ -272,24 +272,27 @@ class PortfolioBacktester:
                     "total_value": total_value,
                     "benchmark_value": benchmark_nav * initial_cash,
                     "return_pct": (total_value / initial_cash - 1) * 100,
-                    "force_empty": True
+                    "force_empty": True,
+                    "sentiment": current_sentiment
                 })
                 continue
             
             # ==============================================
-            # 3. 情绪周期判断，动态调整总仓位上限
+            # 3. 情绪周期判断，动态调整总仓位上限和策略权限
             # ==============================================
-            sentiment = await self._get_sentiment_cycle(trade_date)
-            # 情绪周期对应仓位上限：冰点30%/修复70%/高潮100%
-            sentiment_position_map = {
-                "ice": 0.3,
-                "repair": 0.7,
-                "boom": 1.0
+            sentiment_info = await self._get_sentiment_cycle(trade_date)
+            # 保存当日情绪信息到daily_values
+            current_sentiment = {
+                "score": sentiment_info["score"],
+                "level": sentiment_info["level"],
+                "position_limit": sentiment_info["position_limit"],
+                "allowed_strategies": sentiment_info["allowed_strategies"]
             }
             # 取配置的最大仓位和情绪周期对应仓位的最小值，双重控制
             original_max_position = self.MAX_POSITION
-            self.MAX_POSITION = min(original_max_position, sentiment_position_map.get(sentiment, 0.7))
-            logger.info(f"[{trade_date}] 情绪周期{sentiment}，动态调整总仓位上限为{self.MAX_POSITION:.0%}")
+            self.MAX_POSITION = min(original_max_position, sentiment_info["position_limit"])
+            # 保存情绪周期参数，供后续选股过滤使用
+            self.current_sentiment = sentiment_info
             
             # 检查是否是调仓日
             if trade_date in rebalance_set:
@@ -381,6 +384,7 @@ class PortfolioBacktester:
                 "total_value": total_value,
                 "benchmark_value": benchmark_nav * initial_cash,
                 "return_pct": (total_value / initial_cash - 1) * 100,
+                "sentiment": current_sentiment
             })
         
         # 计算绩效指标
@@ -742,34 +746,191 @@ class PortfolioBacktester:
             logger.error(f"强制空仓检查异常: {e}")
             return False
     
-    async def _get_sentiment_cycle(self, trade_date: str) -> str:
-        """获取当日情绪周期，返回："ice"(冰点)/"repair"(修复)/"boom"(高潮)
-        规则：
-        - 冰点：日涨停数≤30只
-        - 修复：日涨停数30-60只
-        - 高潮：日涨停数≥60只
+    async def _get_sentiment_cycle(self, trade_date: str) -> Dict:
+        """专业实盘版情绪周期算法（方案2）
+        基于7大类12个指标加权评分，输出情绪详细信息
+        
+        Returns:
+            {
+                "level": "extreme_ice/ice/repair/ferment/boom",
+                "score": 0~100,
+                "position_limit": 0.1~1.0,
+                "allowed_strategies": ["半路追涨", "首板打板", ...],
+                "stop_loss_adjust": 0.8~1.2,  # 止损比例调整系数
+                "take_profit_adjust": 0.8~1.2 # 止盈比例调整系数
+            }
         """
         if not self.enable_sentiment_cycle:
-            return "repair"  # 默认修复期，正常仓位
+            # 默认修复期配置
+            return {
+                "level": "repair",
+                "score": 50,
+                "position_limit": 0.7,
+                "allowed_strategies": ["半路追涨", "首板打板"],
+                "stop_loss_adjust": 1.0,
+                "take_profit_adjust": 1.0
+            }
         
         try:
+            # ==============================================
+            # 1. 计算所有核心指标
+            # ==============================================
+            # ---------- 涨跌停类指标 (权重45%) ----------
+            # a. 涨停家数 (权重25%)
             limit_up_count = await mongo_manager.count_documents(
                 "stock_daily",
                 {"trade_date": trade_date, "pct_chg": {"$gte": 9.5}}
             )
+            # b. 跌停家数 (权重10%)
+            limit_down_count = await mongo_manager.count_documents(
+                "stock_daily",
+                {"trade_date": trade_date, "pct_chg": {"$lte": -9.5}}
+            )
+            # c. 炸板率 (权重7%)
+            limit_up_candidates = await mongo_manager.find_many(
+                "stock_daily",
+                {"trade_date": trade_date, "high": {"$gte": "$up_limit * 0.995"}},
+                projection={"pct_chg": 1}
+            )
+            zhaban_count = len([x for x in limit_up_candidates if x.get("pct_chg", 0) < 9.5])
+            zhaban_rate = zhaban_count / len(limit_up_candidates) if limit_up_candidates else 0
+            # d. 连板高度 (权重3%)
+            max_consecutive_up = 1
+            # 暂时简化，后续可扩展连板统计逻辑
             
-            if limit_up_count <= 30:
-                logger.info(f"[{trade_date}] 情绪周期：冰点（涨停数{limit_up_count}只）")
-                return "ice"
-            elif 30 < limit_up_count < 60:
-                logger.info(f"[{trade_date}] 情绪周期：修复（涨停数{limit_up_count}只）")
-                return "repair"
+            # ---------- 市场广度类指标 (权重25%) ----------
+            # a. 上涨家数 - 下跌家数 (权重15%)
+            up_count = await mongo_manager.count_documents(
+                "stock_daily",
+                {"trade_date": trade_date, "pct_chg": {"$gt": 0}}
+            )
+            down_count = await mongo_manager.count_documents(
+                "stock_daily",
+                {"trade_date": trade_date, "pct_chg": {"$lt": 0}}
+            )
+            up_down_diff = up_count - down_count
+            # b. 涨跌幅中位数 (权重10%)
+            pct_chg_list = await mongo_manager.find_many(
+                "stock_daily",
+                {"trade_date": trade_date},
+                projection={"pct_chg": 1}
+            )
+            pct_chg_values = [x.get("pct_chg", 0) for x in pct_chg_list]
+            median_pct_chg = sorted(pct_chg_values)[len(pct_chg_values)//2] if pct_chg_values else 0
+            
+            # ---------- 资金流向类指标 (权重20%) ----------
+            # a. 北向资金 (权重10%) - 暂无数据，暂时用大盘涨跌幅代替
+            sh_index = await mongo_manager.find_one(
+                "index_daily",
+                {"ts_code": "000001.SH", "trade_date": trade_date},
+                projection={"pct_chg": 1}
+            )
+            sh_pct_chg = sh_index.get("pct_chg", 0) if sh_index else 0
+            # b. 龙虎榜净买入总额 (权重10%) - 暂无数据，暂时用成交额代替
+            total_amount = await mongo_manager.aggregate(
+                "stock_daily",
+                [
+                    {"$match": {"trade_date": trade_date}},
+                    {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
+                ]
+            )
+            total_trade_amount = total_amount[0]["total"] if total_amount else 0
+            
+            # ---------- 波动率类指标 (权重10%) ----------
+            # a. 大盘波动率 (权重5%) - 简化为近5日振幅标准差
+            # b. 涨停股次日平均溢价率 (权重5%) - 暂无数据，暂时简化
+            
+            # ==============================================
+            # 2. 指标标准化和加权评分 (0-100分)
+            # ==============================================
+            total_score = 0
+            
+            # ---- 涨跌停类得分 ----
+            # 涨停家数得分（0-25分）
+            lu_score = min(25, max(0, limit_up_count / 100 * 25))
+            # 跌停家数得分（0-10分，跌停越多得分越低）
+            ld_score = max(0, 10 - min(10, limit_down_count / 10 * 10))
+            # 炸板率得分（0-7分，炸板率越高得分越低）
+            zb_score = max(0, 7 - min(7, zhaban_rate * 10 * 7))
+            # 连板高度得分（0-3分）
+            lb_score = min(3, max_consecutive_up / 10 * 3)
+            total_score += lu_score + ld_score + zb_score + lb_score
+            
+            # ---- 市场广度类得分 ----
+            # 涨跌家数差得分（0-15分）
+            ud_score = min(15, max(0, (up_down_diff + 2000) / 4000 * 15))
+            # 涨跌幅中位数得分（0-10分）
+            md_score = min(10, max(0, (median_pct_chg + 3) / 6 * 10))
+            total_score += ud_score + md_score
+            
+            # ---- 资金流向类得分 ----
+            # 大盘涨跌幅得分（0-10分）
+            sh_score = min(10, max(0, (sh_pct_chg + 3) / 6 * 10))
+            # 成交额得分（0-10分）
+            am_score = min(10, max(0, total_trade_amount / 10000 * 10))  # 简化
+            total_score += sh_score + am_score
+            
+            # ---- 波动率类得分（暂时给5分基础分） ----
+            total_score += 5
+            
+            total_score = int(round(total_score, 0))
+            
+            # ==============================================
+            # 3. 情绪等级映射
+            # ==============================================
+            if total_score <= 20:
+                level = "extreme_ice"
+                position_limit = 0.1  # 最多10%仓位
+                allowed_strategies = ["龙头低吸"]  # 仅允许低吸核心龙头
+                stop_loss_adjust = 0.8  # 止损收窄20%，更严格风控
+                take_profit_adjust = 0.9  # 止盈降低10%，见好就收
+            elif 20 < total_score <= 40:
+                level = "ice"
+                position_limit = 0.3  # 最多30%仓位
+                allowed_strategies = ["龙头低吸", "半路追涨"]  # 仅小仓位参与核心策略
+                stop_loss_adjust = 0.9
+                take_profit_adjust = 0.95
+            elif 40 < total_score <= 60:
+                level = "repair"
+                position_limit = 0.7  # 最多70%仓位
+                allowed_strategies = ["龙头低吸", "半路追涨", "首板打板"]  # 正常参与
+                stop_loss_adjust = 1.0
+                take_profit_adjust = 1.0
+            elif 60 < total_score <= 80:
+                level = "ferment"
+                position_limit = 0.9  # 最多90%仓位
+                allowed_strategies = ["龙头低吸", "半路追涨", "首板打板", "涨停开板"]  # 可参与连板策略
+                stop_loss_adjust = 1.1  # 止损放宽10%，容忍更大波动
+                take_profit_adjust = 1.05  # 止盈提高5%，让利润奔跑
             else:
-                logger.info(f"[{trade_date}] 情绪周期：高潮（涨停数{limit_up_count}只）")
-                return "boom"
+                level = "boom"
+                position_limit = 1.0  # 满仓
+                allowed_strategies = ["龙头低吸", "半路追涨", "首板打板", "涨停开板", "跌停翘板"]  # 全策略开放
+                stop_loss_adjust = 1.2  # 止损放宽20%
+                take_profit_adjust = 1.1  # 止盈提高10%
+            
+            logger.info(f"[{trade_date}] 情绪评分：{total_score}分，等级：{level}，仓位上限：{position_limit:.0%}，允许策略：{','.join(allowed_strategies)}")
+            
+            return {
+                "level": level,
+                "score": total_score,
+                "position_limit": position_limit,
+                "allowed_strategies": allowed_strategies,
+                "stop_loss_adjust": stop_loss_adjust,
+                "take_profit_adjust": take_profit_adjust
+            }
+            
         except Exception as e:
-            logger.error(f"情绪周期判断异常: {e}")
-            return "repair"
+            logger.error(f"情绪周期计算异常: {e}", exc_info=True)
+            # 异常时默认修复期配置
+            return {
+                "level": "repair",
+                "score": 50,
+                "position_limit": 0.7,
+                "allowed_strategies": ["半路追涨", "首板打板"],
+                "stop_loss_adjust": 1.0,
+                "take_profit_adjust": 1.0
+            }
 
     async def _get_stock_names(self, ts_codes: List[str]) -> Dict[str, str]:
         """获取股票名称映射"""
