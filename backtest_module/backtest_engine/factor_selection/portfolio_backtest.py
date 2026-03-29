@@ -66,14 +66,20 @@ class PortfolioBacktester:
     SELL_COMMISSION = 0.0002   # 卖出佣金 万2
     STAMP_TAX = 0.001          # 印花税 千1 (卖出)
     MIN_COMMISSION = 5         # 最低佣金 5元
+    SLIPPAGE = 0.001           # 滑点 千1 (默认)
+    MAX_POSITION = 1.0         # 最大总仓位比例 (默认满仓1.0)
     
-    def __init__(self, source: str = None):
+    def __init__(self, source: str = None, slippage: float = 0.001, max_position: float = 1.0):
         """
         Args:
             source: 数据源过滤，只查询该来源的数据，避免不同数据源混用
+            slippage: 滑点比例，默认千1
+            max_position: 最大总仓位比例，默认1.0（满仓），0.5表示最多半仓
         """
         self.universe_mgr = UniverseManager()
         self.factor_engine = FactorEngine(source=source)
+        self.SLIPPAGE = max(0.0, min(0.05, slippage))  # 限制滑点范围0~5%
+        self.MAX_POSITION = max(0.0, min(1.0, max_position))  # 限制仓位0~100%
     
     async def run(self, config: Dict) -> Dict:
         """
@@ -105,6 +111,10 @@ class PortfolioBacktester:
         weight_method = config.get("weight_method", "equal")
         benchmark_code = config.get("benchmark", "000300.SH")
         self.max_position_per_stock = config.get("max_position_per_stock", 0.2)  # 单票最大仓位，默认 20%
+        # 滑点配置，默认千1
+        self.SLIPPAGE = max(0.0, min(0.05, config.get("slippage", 0.001)))
+        # 最大总仓位配置，默认满仓1.0
+        self.MAX_POSITION = max(0.0, min(1.0, config.get("max_position", 1.0)))
         
         # 解析排除规则
         exclude_rules = [ExcludeRule(r) for r in config.get("exclude", [])]
@@ -209,20 +219,21 @@ class PortfolioBacktester:
                             for ts_code in available:
                                 target_weights[ts_code] += add_per_available
                 
-                # 4. 获取价格
-                prices = await self._get_prices(
+                # 4. 获取价格和涨跌停价格
+                prices, limit_up_prices, limit_down_prices = await self._get_prices_and_limits(
                     set(holdings.keys()) | set(target_weights.keys()),
                     trade_date,
                 )
                 
-                # 5. 执行调仓
+                # 5. 执行调仓（新增滑点、涨跌停限制、总仓位控制）
                 cash, holdings, records = self._rebalance(
-                    trade_date, cash, holdings, target_weights, prices
+                    trade_date, cash, holdings, target_weights, prices,
+                    limit_up_prices, limit_down_prices
                 )
                 rebalance_records.extend(records)
             
-            # 计算当日市值
-            prices = await self._get_prices(set(holdings.keys()), trade_date)
+            # 计算当日市值（只需要收盘价）
+            prices, _, _ = await self._get_prices_and_limits(set(holdings.keys()), trade_date)
             market_value = sum(
                 holdings.get(ts_code, 0) * prices.get(ts_code, 0)
                 for ts_code in holdings
@@ -314,22 +325,33 @@ class PortfolioBacktester:
         
         return {s: 1.0/n for s in stocks}
     
-    async def _get_prices(
+    async def _get_prices_and_limits(
         self,
         stocks: Set[str],
         trade_date: str,
-    ) -> Dict[str, float]:
-        """获取股票价格"""
+    ) -> tuple[Dict[str, float], Dict[str, float], Dict[str, float]]:
+        """获取股票价格、涨停价、跌停价"""
         if not stocks:
-            return {}
+            return {}, {}, {}
         
         result = await mongo_manager.find_many(
             "stock_daily",
             {"ts_code": {"$in": list(stocks)}, "trade_date": trade_date},
-            projection={"ts_code": 1, "close": 1},
+            projection={"ts_code": 1, "close": 1, "up_limit": 1, "down_limit": 1},
         )
         
-        return {doc["ts_code"]: doc["close"] for doc in result if doc.get("close")}
+        prices = {}
+        limit_up = {}
+        limit_down = {}
+        for doc in result:
+            if doc.get("close"):
+                prices[doc["ts_code"]] = doc["close"]
+            if doc.get("up_limit"):
+                limit_up[doc["ts_code"]] = doc["up_limit"]
+            if doc.get("down_limit"):
+                limit_down[doc["ts_code"]] = doc["down_limit"]
+        
+        return prices, limit_up, limit_down
     
     def _rebalance(
         self,
@@ -338,20 +360,26 @@ class PortfolioBacktester:
         holdings: Dict[str, int],
         target_weights: Dict[str, float],
         prices: Dict[str, float],
+        limit_up_prices: Dict[str, float] = None,
+        limit_down_prices: Dict[str, float] = None,
     ) -> tuple:
         """
-        执行调仓
+        执行调仓（支持滑点、涨跌停限制、总仓位控制）
         
         Returns:
             (new_cash, new_holdings, records)
         """
         records = []
+        limit_up_prices = limit_up_prices or {}
+        limit_down_prices = limit_down_prices or {}
         
         # 计算当前总资产
-        current_value = cash + sum(
+        current_total_value = cash + sum(
             holdings.get(ts_code, 0) * prices.get(ts_code, 0)
             for ts_code in holdings
         )
+        # 应用最大总仓位限制：目标总市值 = 总权益 * 最大仓位比例
+        target_total_market_value = current_total_value * self.MAX_POSITION
         
         # 1. 先卖出不在目标池的股票
         stocks_to_sell = set(holdings.keys()) - set(target_weights.keys())
@@ -359,24 +387,37 @@ class PortfolioBacktester:
             shares = holdings[ts_code]
             price = prices.get(ts_code, 0)
             
-            if price > 0 and shares > 0:
-                amount = shares * price
-                commission = max(amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
-                tax = amount * self.STAMP_TAX
-                cash += amount - commission - tax
-                
-                records.append(RebalanceRecord(
-                    date=trade_date, action="sell", ts_code=ts_code,
-                    shares=shares, price=price, amount=amount,
-                    reason="not_in_target",
-                ))
+            if price <= 0 or shares <= 0:
+                continue
+            
+            # 跌停无法卖出判断
+            limit_down = limit_down_prices.get(ts_code)
+            if limit_down and price <= limit_down * 1.005:  # 允许0.5%误差
+                logger.warning(f"[{trade_date}] {ts_code} 跌停，无法卖出，跳过")
+                continue
+            
+            # 卖出滑点：实际成交价 = 收盘价 * (1 - 滑点)
+            trade_price = price * (1 - self.SLIPPAGE)
+            
+            amount = shares * trade_price
+            commission = max(amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
+            tax = amount * self.STAMP_TAX
+            cash += amount - commission - tax
+            
+            records.append(RebalanceRecord(
+                date=trade_date, action="sell", ts_code=ts_code,
+                shares=shares, price=trade_price, amount=amount,
+                reason="not_in_target",
+            ))
+            logger.debug(f"[{trade_date}] 卖出 {ts_code} {shares}股，成交价{trade_price:.2f}（滑点{self.SLIPPAGE:.1%}），收入{amount - commission - tax:.2f}元")
         
         # 清理已卖出的持仓
         holdings = {k: v for k, v in holdings.items() if k in target_weights}
         
         # 2. 调整持仓到目标权重
         for ts_code, target_weight in target_weights.items():
-            target_value = current_value * target_weight
+            # 按最大仓位比例调整目标价值
+            target_value = target_total_market_value * target_weight
             current_shares = holdings.get(ts_code, 0)
             price = prices.get(ts_code, 0)
             
@@ -387,36 +428,62 @@ class PortfolioBacktester:
             diff_value = target_value - current_value_in_stock
             
             if diff_value > 100:  # 需要买入 (至少买 100 元)
+                # 涨停无法买入判断
+                limit_up = limit_up_prices.get(ts_code)
+                if limit_up and price >= limit_up * 0.995:
+                    logger.warning(f"[{trade_date}] {ts_code} 涨停，无法买入，跳过")
+                    continue
+                
+                # 买入滑点：实际成交价 = 收盘价 * (1 + 滑点)
+                trade_price = price * (1 + self.SLIPPAGE)
+                
                 # A股 100 股整数倍
-                buy_shares = int(diff_value / price / 100) * 100
-                if buy_shares > 0:
-                    buy_amount = buy_shares * price
-                    commission = max(buy_amount * self.BUY_COMMISSION, self.MIN_COMMISSION)
-                    
-                    if cash >= buy_amount + commission:
-                        cash -= buy_amount + commission
-                        holdings[ts_code] = current_shares + buy_shares
-                        
-                        records.append(RebalanceRecord(
-                            date=trade_date, action="buy", ts_code=ts_code,
-                            shares=buy_shares, price=price, amount=buy_amount,
-                            reason="rebalance",
-                        ))
-            
-            elif diff_value < -100:  # 需要卖出
-                sell_shares = min(current_shares, int(-diff_value / price / 100) * 100)
-                if sell_shares > 0:
-                    sell_amount = sell_shares * price
-                    commission = max(sell_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
-                    tax = sell_amount * self.STAMP_TAX
-                    cash += sell_amount - commission - tax
-                    holdings[ts_code] = current_shares - sell_shares
+                buy_shares = int(diff_value / trade_price / 100) * 100
+                if buy_shares <= 0:
+                    continue
+                
+                buy_amount = buy_shares * trade_price
+                commission = max(buy_amount * self.BUY_COMMISSION, self.MIN_COMMISSION)
+                total_cost = buy_amount + commission
+                
+                if cash >= total_cost:
+                    cash -= total_cost
+                    holdings[ts_code] = current_shares + buy_shares
                     
                     records.append(RebalanceRecord(
-                        date=trade_date, action="sell", ts_code=ts_code,
-                        shares=sell_shares, price=price, amount=sell_amount,
+                        date=trade_date, action="buy", ts_code=ts_code,
+                        shares=buy_shares, price=trade_price, amount=buy_amount,
                         reason="rebalance",
                     ))
+                    logger.debug(f"[{trade_date}] 买入 {ts_code} {buy_shares}股，成交价{trade_price:.2f}（滑点{self.SLIPPAGE:.1%}），成本{total_cost:.2f}元")
+            
+            elif diff_value < -100:  # 需要卖出
+                # 跌停无法卖出判断
+                limit_down = limit_down_prices.get(ts_code)
+                if limit_down and price <= limit_down * 1.005:
+                    logger.warning(f"[{trade_date}] {ts_code} 跌停，无法卖出，跳过")
+                    continue
+                
+                # 卖出滑点
+                trade_price = price * (1 - self.SLIPPAGE)
+                
+                sell_shares = min(current_shares, int(-diff_value / trade_price / 100) * 100)
+                if sell_shares <= 0:
+                    continue
+                
+                sell_amount = sell_shares * trade_price
+                commission = max(sell_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
+                tax = sell_amount * self.STAMP_TAX
+                net_income = sell_amount - commission - tax
+                cash += net_income
+                holdings[ts_code] = current_shares - sell_shares
+                
+                records.append(RebalanceRecord(
+                    date=trade_date, action="sell", ts_code=ts_code,
+                    shares=sell_shares, price=trade_price, amount=sell_amount,
+                    reason="rebalance",
+                ))
+                logger.debug(f"[{trade_date}] 卖出 {ts_code} {sell_shares}股，成交价{trade_price:.2f}（滑点{self.SLIPPAGE:.1%}），收入{net_income:.2f}元")
         
         # 清理持仓为 0 的股票
         holdings = {k: v for k, v in holdings.items() if v > 0}
