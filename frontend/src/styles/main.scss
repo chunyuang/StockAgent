@@ -19,6 +19,7 @@ html,
 body {
   height: 100%;
   font-family: var(--font-sans);
+  font-size: 14px; /* 调整全局基础字体大小 */
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background: var(--bg-base);
@@ -262,7 +263,7 @@ html.dark {
   margin-bottom: 24px;
   
   .page-title {
-    font-size: 24px;
+    font-size: 20px; /* 调小页面标题字体 */
     font-weight: 700;
     color: var(--text-primary);
     margin: 0 0 8px 0;

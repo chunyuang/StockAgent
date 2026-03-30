@@ -84,14 +84,6 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '热点追踪' },
       },
       
-      // 报告回顾
-      {
-        path: 'reports',
-        name: 'Reports',
-        component: () => import('@/views/report/ReportView.vue'),
-        meta: { title: '报告回顾' },
-      },
-      
       // 量化回测 - 单股回测
       {
         path: 'backtest',
@@ -106,6 +98,13 @@ const routes: RouteRecordRaw[] = [
         name: 'FactorSelection',
         component: () => import('@/views/backtest/FactorSelectionView.vue'),
         meta: { title: '因子选股' },
+      },
+      // 量化回测 - 超短策略回测
+      {
+        path: 'ultra-short',
+        name: 'UltraShortBacktest',
+        component: () => import('@/views/backtest/UltraShortBacktestView.vue'),
+        meta: { title: '超短策略回测' },
       },
       
       // 自选股

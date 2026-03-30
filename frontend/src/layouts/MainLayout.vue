@@ -36,7 +36,6 @@ import {
   Sunny,
   Moon,
   Promotion,
-  Document,
 } from '@element-plus/icons-vue'
 import { useAuth } from '@/hooks'
 import { useUserStore, useTaskStore, useThemeStore } from '@/stores'
@@ -71,9 +70,9 @@ const menuItems = [
   { path: '/market', icon: Histogram, title: '行情分析' },
   { path: '/sector-strategy', icon: TrendCharts, title: '板块分析' },
   { path: '/hot-news', icon: Promotion, title: '热点追踪' },
-  { path: '/reports', icon: Document, title: '报告回顾' },
   { path: '/backtest', icon: DataAnalysis, title: '单股回测' },
   { path: '/factor-selection', icon: DataAnalysis, title: '因子选股' },
+  { path: '/ultra-short', icon: DataAnalysis, title: '超短策略回测' },
   { path: '/analysis', icon: DataAnalysis, title: '分析任务' },
   { path: '/watchlist', icon: Star, title: '自选股' },
   { path: '/strategies', icon: TrendCharts, title: '市场监听' },
@@ -109,7 +108,7 @@ async function handleLogout(): Promise<void> {
 <template>
   <ElContainer class="main-layout">
     <!-- 侧边栏 -->
-    <ElAside :width="isCollapsed ? '64px' : '220px'" class="sidebar">
+    <ElAside :width="isCollapsed ? '64px' : '200px'" class="sidebar">
       <div class="logo" :class="{ collapsed: isCollapsed }">
         <img src="/logo.svg" alt="Logo" class="logo-img" />
         <span v-if="!isCollapsed" class="logo-text">StockAgent</span>
@@ -263,6 +262,9 @@ async function handleLogout(): Promise<void> {
     
     :deep(.el-menu-item) {
       color: var(--sidebar-text);
+      font-size: 13px; /* 调整菜单字体大小 */
+      height: 44px; /* 调小菜单项高度 */
+      line-height: 44px;
       
       &:hover {
         background: var(--sidebar-hover-bg);
@@ -320,7 +322,7 @@ async function handleLogout(): Promise<void> {
 .main-container {
   flex-direction: column;
   background: var(--bg-base);
-  margin-left: v-bind("isCollapsed ? '64px' : '220px'");
+  margin-left: v-bind("isCollapsed ? '64px' : '200px'");
   transition: margin-left 0.3s, background-color var(--transition-normal);
   height: 100vh;
   overflow-y: auto;

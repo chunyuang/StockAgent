@@ -1,12 +1,6 @@
 """
 重新计算指定时间段的 market_analysis 数据 (仅分析，不重算 daily_stats)
 
-V2.1 平滑版双评分系统:
-- 核心分经过 3 日 EMA 平滑，消除单日脉冲
-- 趋势阈值放宽到 ±10%，减少频繁切换
-- 强弱差 ≥10 分才显示，图表更干净
-- 因子权重聚焦核心，减少噪音
-
 用法:
     cd AgentServer
     
@@ -29,49 +23,67 @@ import os
 # 添加项目根目录到 path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.managers import mongo_manager, data_source_manager, analysis_manager
+from core.managers import mongo_manager, tushare_manager, analysis_manager
 
 
 async def get_trade_dates_in_range(start_date: str, end_date: str) -> list:
     """获取指定范围内的交易日"""
-    await data_source_manager.initialize()
+    await tushare_manager.initialize()
     
-    dates, _ = await data_source_manager.get_trade_calendar(start_date, end_date)
-    return sorted(dates) if dates else []
+    df = await tushare_manager._call_api(
+        "trade_cal",
+        exchange="SSE",
+        start_date=start_date,
+        end_date=end_date,
+        is_open="1",
+    )
+    
+    if df.empty:
+        return []
+    
+    dates = df["cal_date"].tolist()
+    dates.sort()  # 从早到晚排序
+    return dates
 
 
 async def get_recent_trade_dates(days: int) -> list:
     """获取最近N个交易日"""
-    await data_source_manager.initialize()
+    await tushare_manager.initialize()
     
     end_date = datetime.now().strftime("%Y%m%d")
     start_date = (datetime.now() - timedelta(days=days * 2)).strftime("%Y%m%d")
     
-    dates, _ = await data_source_manager.get_trade_calendar(start_date, end_date)
+    df = await tushare_manager._call_api(
+        "trade_cal",
+        exchange="SSE",
+        start_date=start_date,
+        end_date=end_date,
+        is_open="1",
+    )
     
-    if not dates:
+    if df.empty:
         return []
     
-    sorted_dates = sorted(dates, reverse=True)
-    return sorted_dates[:days][::-1]  # 取最近N天，然后反转为从早到晚
+    dates = df["cal_date"].tolist()
+    dates.sort(reverse=True)
+    return dates[:days][::-1]  # 取最近N天，然后反转为从早到晚
 
 
 async def recalc_analysis_for_dates(trade_dates: list):
     """
-    重新计算指定日期列表的 market_analysis (V2.1 平滑版)
+    重新计算指定日期列表的 market_analysis
     
-    V2.1 优化:
-    1. 核心分经过 3 日 EMA 平滑 (0.6/0.3/0.1 权重)
-    2. 趋势阈值放宽到 ±10%
-    3. 强弱差 ≥10 分才视为有效背离
-    4. 因子权重聚焦核心因子
+    算法特性:
+    1. 方向修正强度算法: 放量杀跌时强度分显著下降
+    2. EMA 平滑情绪分: Final = Today * 0.8 + Yesterday * 0.2
+    3. 动态 MA30 基准: 使用实际可用数据天数
     """
-    print(f"=== Recalculating market_analysis (V2.1 Smoothed) for {len(trade_dates)} trading days ===")
+    print(f"=== Recalculating market_analysis for {len(trade_dates)} trading days ===")
     print(f"Date range: {trade_dates[0]} ~ {trade_dates[-1]}")
-    print(f"Algorithm: 3-day EMA Core + Trend(±10%) + Divergence(≥10)\n")
+    print(f"Algorithm: Direction-corrected strength + EMA smoothed sentiment\n")
     
     # 清除 analysis_manager 的缓存
-    analysis_manager._ma_cache.clear()
+    analysis_manager._ma30_cache.clear()
     
     success_count = 0
     skip_count = 0
@@ -90,39 +102,38 @@ async def recalc_analysis_for_dates(trade_dates: list):
                 skip_count += 1
                 continue
             
-            # 获取前一天数据 (兼容旧接口)
+            # 获取前一天数据
             prev_stats = await mongo_manager.find_one(
                 "daily_stats",
                 {"trade_date": {"$lt": trade_date}},
                 sort=[("trade_date", -1)],
             )
             
-            # 重新计算分析 (V2 双评分系统)
+            # 重新计算分析 (使用新算法)
             analysis_result = await analysis_manager.analyze_and_store(
                 stats=stats,
                 prev_stats=prev_stats,
                 mongo_manager=mongo_manager,
             )
             
-            # 显示结果 (V2 格式)
-            sentiment = analysis_result.get("sentiment_score", 0)
-            strength = analysis_result.get("strength_score", 0)
-            sent_trend = analysis_result.get("sentiment_trend", "?")
-            stren_trend = analysis_result.get("strength_trend", "?")
-            cycle = analysis_result.get("cycle", "unknown")
-            position = analysis_result.get("position_advice", {})
-            pos_range = position.get("range", "?")
+            # 显示结果 (包含新字段)
+            v_ratio = analysis_result.get("v_ratio", 0)
+            baseline_count = analysis_result.get("baseline_data_count", 0)
+            sentiment_raw = analysis_result.get("sentiment_score", 0)
+            sentiment_ema = analysis_result.get("sentiment_score_ema", sentiment_raw)
+            strength_diff = analysis_result.get("strength_diff", 0)
+            up_ratio = stats.get("up_ratio", 0)
             
-            # 趋势符号
-            trend_sym = {"up": "↑", "flat": "→", "down": "↓"}
-            sent_sym = trend_sym.get(sent_trend, "?")
-            stren_sym = trend_sym.get(stren_trend, "?")
+            # 方向修正标记
+            direction_flag = "↓" if up_ratio < 40 else "→" if up_ratio < 60 else "↑"
             
             print(
-                f"[{i+1}/{len(trade_dates)}] {trade_date} "
-                f"情绪:{sentiment:.0f}{sent_sym} "
-                f"强度:{strength:.0f}{stren_sym} "
-                f"| {cycle} | {pos_range}"
+                f"[{i+1}/{len(trade_dates)}] {trade_date} {direction_flag} "
+                f"S:{analysis_result['strength_score']:.0f} "
+                f"E:{sentiment_raw:.0f}→{sentiment_ema:.0f} "
+                f"Diff:{strength_diff:+.0f} "
+                f"v:{v_ratio:.2f} "
+                f"{analysis_result['cycle']}"
             )
             success_count += 1
             
@@ -136,14 +147,14 @@ async def recalc_analysis_for_dates(trade_dates: list):
     print(f"  Success: {success_count}")
     print(f"  Skipped: {skip_count}")
     print(f"  Errors:  {error_count}")
-    print(f"\nLegend: ↑=走强 →=横盘 ↓=走弱")
-    print(f"Cycles: ice_point/recovery/main_upward/divergence/decline/chaos")
+    print(f"\nLegend: S=Strength, E=Sentiment(raw→ema), Diff=Strength-Sentiment")
+    print(f"Direction: ↓=放量杀跌(up<40%), →=中性, ↑=上涨行情")
 
 
 async def main(args):
     # 初始化
     await mongo_manager.initialize()
-    await data_source_manager.initialize()
+    await tushare_manager.initialize()
     await analysis_manager.initialize()
     
     # 确定要处理的日期范围
@@ -166,7 +177,7 @@ async def main(args):
     
     # 关闭连接
     await mongo_manager.shutdown()
-    await data_source_manager.shutdown()
+    await tushare_manager.shutdown()
     await analysis_manager.shutdown()
 
 

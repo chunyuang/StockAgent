@@ -9,15 +9,54 @@
 
 初始化模式：同步5年历史数据
 增量模式：同步最近8个季度数据
+
+支持 Tushare Pro 和 AKShare 双数据源，Tushare 失败自动 fallback 到 AKShare。
 """
 
 from typing import Dict, Any, List
 from datetime import datetime, date
 import asyncio
+import pandas as pd
 
 from core.base import BaseCollector
 from core.settings import settings
 from core.managers import tushare_manager, mongo_manager
+
+# AKShare 数据获取 - 直接动态导入因为之前目录名问题
+import sys
+import os
+import importlib.util
+
+# 添加 workspace root 到 sys.path
+sys.path.insert(0, '/root/.openclaw/workspace')
+
+# 当前文件: .../StockAgent/AgentServer/nodes/data_sync/collectors/fina_indicator.py
+# 需要向上跳: collectors -> data_sync -> nodes -> AgentServer -> StockAgent
+# 向上跳 5 级目录到 .../StockAgent
+current_file = os.path.abspath(__file__)
+
+# 向上跳 5 级
+level5 = os.path.dirname(
+    os.path.dirname(
+        os.path.dirname(
+            os.path.dirname(
+                os.path.dirname(
+                    current_file
+                )
+            )
+        )
+    )
+)
+# 已经到 StockAgent 目录，不需要再跳一级
+stockagent_project_root = level5
+
+# 动态导入 AKShareFetcher 因为目录结构问题
+akshare_module_path = os.path.join('/root/.openclaw/workspace', 'data_fetcher', 'fetchers', 'akshare.py')
+spec = importlib.util.spec_from_file_location("akshare_fetcher", akshare_module_path)
+akshare_module = importlib.util.module_from_spec(spec)
+sys.modules["akshare_fetcher"] = akshare_module
+spec.loader.exec_module(akshare_module)
+AKShareFetcher = akshare_module.AKShareFetcher
 
 
 class FinaIndicatorCollector(BaseCollector):
@@ -53,8 +92,9 @@ class FinaIndicatorCollector(BaseCollector):
     }
     
     # 批量处理参数
-    BATCH_SIZE = 100  # 每批处理的股票数量
-    SLEEP_INTERVAL = 0.05  # 请求间隔 (秒)
+    # 由于共享 Tushare 有限流，减小批次增加间隔
+    BATCH_SIZE = 50  # 每批处理的股票数量
+    SLEEP_INTERVAL = 0.15  # 请求间隔 (秒) - 适度控制速度，保持每分钟 ~300 次，低于 500 限制
     
     @property
     def schedule(self) -> str:
@@ -105,7 +145,7 @@ class FinaIndicatorCollector(BaseCollector):
     
     async def _sync_all_stocks(
         self, 
-        limit: int = 8,
+        limit: int = 1,
         include_delisted: bool = False,
     ) -> Dict[str, Any]:
         """
@@ -161,13 +201,94 @@ class FinaIndicatorCollector(BaseCollector):
             
             self.logger.info(f"Batch {batch_num}/{total_batches}: {len(batch)} stocks")
             
+            ak_fetcher = AKShareFetcher()
+            
+            # 如果 Tushare token 无效，我们全程直接使用 AKShare，不尝试 Tushare
+            # 现在 Tushare 已经正常，自动检测
+            use_akshare = False
+            if not (tushare_manager._initialized and tushare_manager._pro is not None):
+                use_akshare = True
+            elif not settings.tushare.is_configured:
+                use_akshare = True
+            
             for ts_code in batch:
                 try:
-                    # 获取完整财务数据 (四类数据并行获取)
-                    financial_data = await tushare_manager.get_financial_data(
-                        ts_code=ts_code,
-                        limit=limit,
-                    )
+                    current_use_akshare = use_akshare
+                    if not current_use_akshare:
+                        # 尝试 Tushare
+                        financial_data = await tushare_manager.get_financial_data(
+                            ts_code=ts_code,
+                            limit=limit,
+                        )
+                        # 检查是否真的获取到了数据，如果全为空，说明 Tushare 限额用完/ token 无效，改用 AKShare
+                        has_data = any([
+                            len(financial_data.get(k, [])) > 0 
+                            for k in ["income_statement", "balance_sheet", "cashflow_statement", "financial_indicators"]
+                        ])
+                        if has_data:
+                            # Tushare 成功获取数据，直接保存
+                            pass
+                        else:
+                            # Tushare 获取失败（限额用尽），fallback 到 AKShare
+                            self.logger.debug(f"Tushare failed for {ts_code} (no data), falling back to AKShare")
+                            current_use_akshare = True
+                    
+                    if current_use_akshare:
+                        # Tushare 不可用/失败，完全使用 AKShare
+                        # self.logger.debug(f"Using AKShare for {ts_code}")
+                        
+                        # 使用 AKShare 获取四大财务数据
+                        loop = asyncio.get_event_loop()
+                        
+                        # 并行获取三类报表 + 财务指标
+                        income_df = await loop.run_in_executor(
+                            None, lambda: ak_fetcher.get_financial_report(ts_code, "income")
+                        )
+                        balance_df = await loop.run_in_executor(
+                            None, lambda: ak_fetcher.get_financial_report(ts_code, "balance")
+                        )
+                        cashflow_df = await loop.run_in_executor(
+                            None, lambda: ak_fetcher.get_financial_report(ts_code, "cashflow")
+                        )
+                        indicator_df = await loop.run_in_executor(
+                            None, lambda: ak_fetcher.get_financial_metrics(ts_code)
+                        )
+                        
+                        # 转换为字典列表并按日期降序
+                        financial_data = {
+                            "income_statement": [],
+                            "balance_sheet": [],
+                            "cashflow_statement": [],
+                            "financial_indicators": [],
+                        }
+                        
+                        if not income_df.empty:
+                            income_df = income_df.sort_values("trade_date", ascending=False).head(limit)
+                            financial_data["income_statement"] = income_df.to_dict("records")
+                            for rec in financial_data["income_statement"]:
+                                rec["ts_code"] = ts_code
+                                rec["end_date"] = rec["trade_date"]
+                        
+                        if not balance_df.empty:
+                            balance_df = balance_df.sort_values("trade_date", ascending=False).head(limit)
+                            financial_data["balance_sheet"] = balance_df.to_dict("records")
+                            for rec in financial_data["balance_sheet"]:
+                                rec["ts_code"] = ts_code
+                                rec["end_date"] = rec["trade_date"]
+                        
+                        if not cashflow_df.empty:
+                            cashflow_df = cashflow_df.sort_values("trade_date", ascending=False).head(limit)
+                            financial_data["cashflow_statement"] = cashflow_df.to_dict("records")
+                            for rec in financial_data["cashflow_statement"]:
+                                rec["ts_code"] = ts_code
+                                rec["end_date"] = rec["trade_date"]
+                        
+                        if not indicator_df.empty:
+                            indicator_df = indicator_df.sort_values("trade_date", ascending=False).head(limit)
+                            financial_data["financial_indicators"] = indicator_df.to_dict("records")
+                            for rec in financial_data["financial_indicators"]:
+                                rec["ts_code"] = ts_code
+                                rec["end_date"] = rec["trade_date"]
                     
                     now = datetime.utcnow()
                     

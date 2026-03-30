@@ -30,7 +30,7 @@ from typing import Dict
 # 添加项目根目录到 Python 路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.managers import data_source_manager, mongo_manager
+from core.managers import tushare_manager, mongo_manager
 
 
 def _clean_daily_basic_record(record: Dict) -> Dict:
@@ -124,13 +124,13 @@ async def sync_daily_basic(
     print(f"   数据清洗: 市值(万元→亿元)、过滤NaN、保留PE为None")
     
     # 初始化管理器
-    await data_source_manager.initialize()
+    await tushare_manager.initialize()
     await mongo_manager.initialize()
     
     # 获取交易日列表
     print("\n📅 获取交易日历...")
-    trade_dates, _ = await data_source_manager.get_trade_calendar(start_date, end_date)
-    trade_dates = sorted(trade_dates) if trade_dates else []
+    trade_dates = await tushare_manager.get_trade_cal(start_date, end_date)
+    trade_dates = sorted(trade_dates)
     
     if not trade_dates:
         print("❌ 没有找到交易日")
@@ -168,7 +168,7 @@ async def sync_daily_basic(
             t1 = time.time()
             
             # Step 1: 获取当日全市场数据
-            records, _ = await data_source_manager.get_daily_basic(trade_date=trade_date)
+            records = await tushare_manager.get_daily_basic(trade_date=trade_date)
             t2 = time.time()
             
             if records:
