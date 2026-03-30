@@ -130,6 +130,53 @@ class FactorSelectionRequest(BaseModel):
         }
 
 
+class UltraShortParams(BaseModel):
+    """超短策略参数配置"""
+    liquidity_threshold: float = Field(default=500, ge=100, le=10000, description="流动性门槛(万元)")
+    volume_threshold: float = Field(default=1.5, ge=1.0, le=10.0, description="量能放大倍数")
+    stop_loss_pct: float = Field(default=0.05, ge=0.01, le=0.2, description="止损比例")
+    take_profit_pct: float = Field(default=0.1, ge=0.01, le=0.5, description="止盈比例")
+    max_hold_days: int = Field(default=3, ge=1, le=10, description="最大持仓天数")
+    max_position_per_stock: float = Field(default=0.2, ge=0.1, le=1.0, description="单票最大仓位")
+    max_position: float = Field(default=0.7, ge=0.1, le=1.0, description="总仓位上限")
+
+
+class UltraShortBacktestRequest(BaseModel):
+    """超短策略回测请求"""
+    strategies: List[str] = Field(..., description="策略列表，可选值: halfway_chase(半路追涨), first_limit_up(首板打板), limit_up_open(涨停开板), leader_buy_dip(龙头低吸), limit_down_qiao(跌停翘板)", min_length=1)
+    start_date: str = Field(..., description="开始日期", pattern=r"^\d{8}$")
+    end_date: str = Field(..., description="结束日期", pattern=r"^\d{8}$")
+    
+    initial_cash: float = Field(default=1000000.0, ge=10000, le=100000000, description="初始资金")
+    params: UltraShortParams = Field(default_factory=UltraShortParams, description="策略参数配置")
+    
+    enable_force_empty: bool = Field(default=True, description="启用强制空仓规则")
+    enable_sentiment_cycle: bool = Field(default=True, description="启用情绪周期适配")
+    enable_auction_filter: bool = Field(default=True, description="启用集合竞价过滤")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "strategies": ["halfway_chase"],
+                "start_date": "20260105",
+                "end_date": "20260320",
+                "initial_cash": 1000000,
+                "params": {
+                    "liquidity_threshold": 500,
+                    "volume_threshold": 1.5,
+                    "stop_loss_pct": 0.05,
+                    "take_profit_pct": 0.1,
+                    "max_hold_days": 3,
+                    "max_position_per_stock": 0.2,
+                    "max_position": 0.7,
+                },
+                "enable_force_empty": True,
+                "enable_sentiment_cycle": True,
+                "enable_auction_filter": True,
+            }
+        }
+
+
 class BacktestTaskResponse(BaseModel):
     """回测任务响应"""
     task_id: str
@@ -546,4 +593,76 @@ async def submit_factor_selection_backtest(
         raise
     except Exception as e:
         logger.exception(f"[{task_id}] Failed to submit factor selection: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ultra-short", response_model=BacktestTaskResponse)
+async def submit_ultra_short_backtest(
+    request: UltraShortBacktestRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """
+    提交超短策略回测任务
+    支持5大超短策略：半路追涨、首板打板、涨停开板、龙头低吸、跌停翘板
+    全市场回测，支持实时进度推送和完整结果分析
+    返回 task_id 用于查询进度和结果。
+    """
+    task_id = f"us_{uuid.uuid4().hex[:12]}"
+    
+    logger.info(
+        f"[{task_id}] Ultra short backtest from user {user_id}: "
+        f"strategies={request.strategies}, {request.start_date} ~ {request.end_date}"
+    )
+    
+    # 构建 RPC 参数
+    rpc_params = {
+        "task_id": task_id,
+        "user_id": user_id,
+        "strategies": request.strategies,
+        "start_date": request.start_date,
+        "end_date": request.end_date,
+        "initial_cash": request.initial_cash,
+        "params": request.params.model_dump(),
+        "enable_force_empty": request.enable_force_empty,
+        "enable_sentiment_cycle": request.enable_sentiment_cycle,
+        "enable_auction_filter": request.enable_auction_filter,
+    }
+    
+    # 通过 RPC 调用 BacktestNode
+    rpc_client = RPCClient()
+    
+    try:
+        results = await rpc_client.broadcast_by_type(
+            node_type="backtest",
+            method="run_ultra_short_backtest",
+            params=rpc_params,
+            timeout=10.0,
+            source_node="web-node",
+        )
+        
+        if not results:
+            raise HTTPException(
+                status_code=503,
+                detail="No BacktestNode available. Please ensure backtest node is running."
+            )
+        
+        first_result = results[0]
+        
+        if not first_result.get("success"):
+            error_msg = first_result.get("error", "Unknown error")
+            logger.error(f"[{task_id}] RPC failed: {error_msg}")
+            raise HTTPException(status_code=500, detail=error_msg)
+        
+        rpc_response = first_result.get("result", {})
+        
+        return BacktestTaskResponse(
+            task_id=task_id,
+            status=rpc_response.get("status", "queued"),
+            message="超短策略回测任务已提交，请使用 task_id 查询进度",
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"[{task_id}] Failed to submit ultra short backtest: {e}")
         raise HTTPException(status_code=500, detail=str(e))

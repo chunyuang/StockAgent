@@ -99,6 +99,13 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/backtest/FactorSelectionView.vue'),
         meta: { title: '因子选股' },
       },
+      // 量化回测 - 超短策略回测
+      {
+        path: 'ultra-short',
+        name: 'UltraShortBacktest',
+        component: () => import('@/views/backtest/UltraShortBacktestView.vue'),
+        meta: { title: '超短策略回测' },
+      },
       
       // 自选股
       {
