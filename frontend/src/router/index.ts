@@ -20,6 +20,13 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/auth/RegisterView.vue'),
     meta: { title: '注册', guest: true },
   },
+  // 超短回测独立页面，免登录访问
+  {
+    path: '/ultra-short',
+    name: 'UltraShortBacktest',
+    component: () => import('@/views/backtest/UltraShortBacktestView.vue'),
+    meta: { title: '超短策略回测', requiresAuth: false },
+  },
   
   // 主布局
   {
@@ -99,13 +106,7 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/backtest/FactorSelectionView.vue'),
         meta: { title: '因子选股' },
       },
-      // 量化回测 - 超短策略回测
-      {
-        path: 'ultra-short',
-        name: 'UltraShortBacktest',
-        component: () => import('@/views/backtest/UltraShortBacktestView.vue'),
-        meta: { title: '超短策略回测' },
-      },
+
       
       // 自选股
       {
@@ -171,7 +172,7 @@ const router = createRouter({
 })
 
 // ==================== 路由守卫 ====================
-
+// 临时跳过所有登录验证，方便调试
 router.beforeEach((to, _from, next) => {
   // 设置页面标题
   const title = to.meta.title as string
@@ -179,22 +180,14 @@ router.beforeEach((to, _from, next) => {
     document.title = `${title} - StockAgent`
   }
   
-  const token = localStorage.getItem('access_token')
-  const requiresAuth = to.matched.some(record => record.meta.requiresAuth)
-  const isGuestOnly = to.matched.some(record => record.meta.guest)
-  
-  if (requiresAuth && !token) {
-    // 需要登录但未登录
-    next({ 
-      path: '/login', 
-      query: { redirect: to.fullPath },
-    })
-  } else if (isGuestOnly && token) {
-    // 已登录但访问登录/注册页
-    next('/dashboard')
-  } else {
-    next()
+  // 模拟登录状态，直接放行
+  const mockToken = 'mock-token-123456'
+  if (!localStorage.getItem('access_token')) {
+    localStorage.setItem('access_token', mockToken)
+    localStorage.setItem('refresh_token', 'mock-refresh-token-123456')
   }
+  
+  next()
 })
 
 export default router
