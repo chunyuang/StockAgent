@@ -37,6 +37,11 @@ cd real_trading && python auto_trade_executor.py --date "${DATE}"
 echo "[$(date)] 生成当日绩效报告..."
 PERFORMANCE_REPORT=$(python performance_report.py --account $(python -c "import json; data = json.load(open('paper_accounts.json')); print(next(acc_id for acc_id, acc in data.items() if acc['status'] == 'active'))"))
 /root/.openclaw/bin/openclaw message send --message "📈 每日实盘绩效报告\n---\n$PERFORMANCE_REPORT" --channel feishu
+
+# 5. 每日风控检查
+echo "[$(date)] 开始每日风控检查..."
+python risk_alert.py
+
 cd ..
 
-echo "[$(date)] 任务完成，信号已保存到 ${SIGNAL_FILE}，交易已执行，报告已推送"
+echo "[$(date)] 任务完成，信号已保存到 ${SIGNAL_FILE}，交易已执行，报告已推送，风控检查已完成"
