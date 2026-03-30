@@ -13,7 +13,7 @@ from datetime import datetime, date, time
 import uuid
 import logging
 
-from core.base import BaseNode
+from nodes.base import BaseNode
 from core.protocols import (
     NodeType,
     StrategySubscription,
@@ -25,7 +25,8 @@ from core.settings import settings
 from core.managers import (
     redis_manager,
     mongo_manager,
-    data_source_manager,
+    tushare_manager,
+    feishu_bitable_manager,
 )
 from core.managers.notification_manager import notification_manager
 
@@ -33,7 +34,8 @@ from .strategies import (
     BaseStrategy,
     LimitOpenStrategy,
     PriceChangeStrategy,
-    MA5BuyStrategy,
+    LeadingDragonStrategy,
+    FirstBoardStrategy,
 )
 
 
@@ -81,7 +83,7 @@ class ListenerNode(BaseNode):
         # 初始化 Managers
         await redis_manager.initialize()
         await mongo_manager.initialize()
-        await data_source_manager.initialize()
+        await tushare_manager.initialize()
         await notification_manager.initialize()
         
         # 启动 RPC 服务器
@@ -123,14 +125,14 @@ class ListenerNode(BaseNode):
                 self.set_trace_id(trace_id)
                 
                 # 检查是否为交易时间
-                if self._config.silent_outside_trading:
-                    is_trading = await self._is_trading_time()
-                    if not is_trading:
-                        self.logger.debug("Outside trading hours, sleeping...")
-                        await asyncio.sleep(self._poll_interval)
-                        continue
+                # if self._config.silent_outside_trading:
+                #     is_trading = await self._is_trading_time()
+                #     if not is_trading:
+                #         self.logger.debug("Outside trading hours, sleeping...")
+                #         await asyncio.sleep(self._poll_interval)
+                #         continue
                 
-                # 执行轮询
+                # 执行轮询 - 强制执行，用于测试 fallback 逻辑
                 await self._poll_cycle(trace_id)
                 
             except Exception as e:
@@ -182,11 +184,15 @@ class ListenerNode(BaseNode):
     # ==================== 策略管理 ====================
     
     def _register_strategies(self) -> None:
-        """注册内置策略执行器"""
+        """注册内置策略执行器（只保留核心5个策略）
+        已移除: 跌停翘板（可通过参数关闭，不需改代码）、MA5低吸
+        保留: 涨停开板、半路追涨、龙头战法、首板打板
+        """
         self._strategies = {
-            StrategyType.LIMIT_OPEN.value: LimitOpenStrategy(),
-            StrategyType.PRICE_CHANGE.value: PriceChangeStrategy(),
-            StrategyType.MA5_BUY.value: MA5BuyStrategy(),
+            StrategyType.LIMIT_OPEN.value: LimitOpenStrategy(),    # 涨停开板
+            StrategyType.PRICE_CHANGE.value: PriceChangeStrategy(), # 半路追涨
+            StrategyType.LEADING_DRAGON.value: LeadingDragonStrategy(), # 龙头战法
+            StrategyType.FIRST_BOARD.value: FirstBoardStrategy(),   # 首板打板
         }
         self.logger.info(f"Registered strategies: {list(self._strategies.keys())}")
     
@@ -248,7 +254,7 @@ class ListenerNode(BaseNode):
         await self._fetch_limit_prices_if_needed()
         
         # 2. 获取三大指数实时行情
-        index_quotes = await data_source_manager.get_realtime_index_quotes()
+        index_quotes = await tushare_manager.get_realtime_index_quote()
         
         # 3. 获取需要监听的股票列表
         watch_codes = self._get_all_watch_codes()
@@ -263,7 +269,7 @@ class ListenerNode(BaseNode):
         
         # 4. 获取实时行情 (分批获取，每批50只)
         self.logger.info(f"[poll] Fetching realtime quotes for {len(watch_codes)} stocks...")
-        quotes = await data_source_manager.get_realtime_quotes(watch_codes, batch_size=50)
+        quotes = await tushare_manager.get_realtime_quote(watch_codes, batch_size=50)
         if not quotes:
             self.logger.warning("Failed to get realtime quotes")
             return
@@ -309,13 +315,25 @@ class ListenerNode(BaseNode):
         self.logger.info(f"[poll] Strategy evaluation done, alerts={len(alerts)}")
         
         if alerts:
-            # 9. 发送预警
+            # 9. 发送预警 + 写入飞书多维表格
             for alert in alerts:
                 self.logger.info(
                     f"[poll] Sending alert: {alert.ts_code} - {alert.trigger_reason}"
                 )
+                # 发送到 Webhook (飞书机器人)
                 result = await notification_manager.send_alert(alert)
                 self.logger.info(f"[poll] Alert send result: {result}")
+                # 写入飞书多维表格 (如果配置了)
+                if feishu_bitable_manager.is_configured:
+                    record_id = await feishu_bitable_manager.add_alert_record(alert)
+                    if record_id:
+                        self.logger.info(
+                            f"[poll] Alert written to Feishu Bitable: {alert.ts_code} -> {record_id}"
+                        )
+                    else:
+                        self.logger.warning(
+                            f"[poll] Failed to write alert to Feishu Bitable: {alert.ts_code}"
+                        )
     
     async def _fetch_limit_prices_if_needed(self) -> None:
         """
@@ -339,7 +357,7 @@ class ListenerNode(BaseNode):
         self.logger.info(f"Fetching limit prices for {today}...")
         
         try:
-            limit_data = await data_source_manager.get_stk_limit(trade_date=today)
+            limit_data = await tushare_manager.get_stk_limit(trade_date=today)
             
             if limit_data:
                 original_count = len(limit_data)
@@ -627,7 +645,7 @@ class ListenerNode(BaseNode):
     
     async def _is_trading_time(self) -> bool:
         """检查是否为交易时间"""
-        return await data_source_manager.is_trading_time()
+        return await tushare_manager.is_trading_time()
     
     def _parse_time(self, time_str: str) -> time:
         """

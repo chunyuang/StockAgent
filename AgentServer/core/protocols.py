@@ -5,12 +5,52 @@
 所有消息必须包含 trace_id 用于分布式追踪。
 """
 
+from enum import Enum
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from pydantic import BaseModel, Field
 import uuid
 
-from common.enums import NodeType, TaskType, TaskStatus, SignalType, StrategyType
+
+# ==================== 枚举定义 ====================
+
+
+class NodeType(str, Enum):
+    """节点类型"""
+    WEB = "web"
+    DATA_SYNC = "data_sync"
+    MCP = "mcp"
+    INFERENCE = "inference"
+    LISTENER = "listener"
+    BACKTEST = "backtest"
+
+
+class TaskType(str, Enum):
+    """任务类型"""
+    STOCK_ANALYSIS = "stock_analysis" # 股票分析
+    MARKET_OVERVIEW = "market_overview" # 市场概览
+    NEWS_SENTIMENT = "news_sentiment" # 新闻情感
+    STRATEGY_BACKTEST = "strategy_backtest" # 策略回测
+    CUSTOM_QUERY = "custom_query" # 自定义查询
+
+
+class TaskStatus(str, Enum):
+    """任务状态"""
+    PENDING = "pending" # 待处理
+    QUEUED = "queued" # 已排队
+    RUNNING = "running" # 运行中
+    COMPLETED = "completed" # 已完成
+    FAILED = "failed" # 失败
+    CANCELLED = "cancelled" # 已取消
+
+
+class SignalType(str, Enum):
+    """交易信号"""
+    STRONG_BUY = "strong_buy"
+    BUY = "buy"
+    HOLD = "hold"
+    SELL = "sell"
+    STRONG_SELL = "strong_sell"
 
 
 # ==================== 节点信息 ====================
@@ -362,6 +402,32 @@ class StockAnalysisState(BaseModel):
 
 
 # ==================== 策略监听 (Listener Node) ====================
+
+
+class StrategyType(str, Enum):
+    """策略类型（只保留核心5个策略）
+    
+    活跃策略:
+    - LIMIT_OPEN = "limit_open"           # 涨停开板
+    - PRICE_CHANGE = "price_change"       # 半路追涨（涨跌幅阈值）
+    - LEADING_DRAGON = "leading_dragon"   # 龙头战法（龙头低吸）
+    - FIRST_BOARD = "first_board"         # 首板打板
+    
+    已停用（保留枚举定义不影响，数据库中旧配置兼容）:
+    - MA5_BUY = "ma5_buy"                 # 5日线低吸（回测表现差，已移除）
+    - LIMIT_OPEN 同时支持跌停翘板，但默认不启用
+    - VOLUME_SURGE = "volume_surge"       # 放量突破（预留）
+    - MA_CROSS = "ma_cross"               # 均线交叉（预留）
+    - CUSTOM = "custom"                   # 自定义策略
+    """
+    LIMIT_OPEN = "limit_open"           # 涨跌停打开
+    PRICE_CHANGE = "price_change"       # 涨跌幅阈值
+    VOLUME_SURGE = "volume_surge"       # 放量突破
+    MA_CROSS = "ma_cross"               # 均线交叉
+    MA5_BUY = "ma5_buy"                 # 5日线低吸（已停用）
+    LEADING_DRAGON = "leading_dragon"   # 龙头战法
+    FIRST_BOARD = "first_board"         # 首板打板
+    CUSTOM = "custom"                   # 自定义策略
 
 
 class StrategySubscription(BaseModel):

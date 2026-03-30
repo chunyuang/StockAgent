@@ -43,7 +43,6 @@ $ExcludeDirs = @(
     ".git",
     ".idea",
     ".vscode",
-    ".cursor",
     "dist",
     "build",
     ".pytest_cache",

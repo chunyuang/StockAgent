@@ -12,15 +12,18 @@ import traceback
 
 import pandas as pd
 
-from core.base import BaseNode
+from nodes.base import BaseNode
 from common.utils import convert_numpy_types
 from core.protocols import NodeType
-from core.managers import redis_manager, mongo_manager, data_source_manager
+from core.managers import redis_manager, mongo_manager, tushare_manager
 
 from .factors import FactorData
 from .backtester import VectorizedBacktester, BacktestConfig
 from .performance import PerformanceAnalyzer
 from .factor_selection import PortfolioBacktester
+from .factor_selection.universe import UniverseManager, ExcludeRule
+from .factor_selection.factor_engine import FactorEngine
+from core.managers import baostock_manager, akshare_manager
 
 
 class BacktestNode(BaseNode):
@@ -62,7 +65,7 @@ class BacktestNode(BaseNode):
         self.logger.info("Initializing managers...")
         await redis_manager.initialize()
         await mongo_manager.initialize()
-        await data_source_manager.initialize()
+        await tushare_manager.initialize()
         
         # 启动 RPC 服务器
         await self._start_rpc_server()
@@ -100,6 +103,7 @@ class BacktestNode(BaseNode):
         # 注册回测方法
         self.register_rpc_method("run_backtest", self._handle_run_backtest)
         self.register_rpc_method("run_factor_selection", self._handle_run_factor_selection)
+        self.register_rpc_method("run_ultra_short_backtest", self._handle_run_ultra_short_backtest)
         self.register_rpc_method("get_task_status", self._handle_get_task_status)
         self.register_rpc_method("cancel_task", self._handle_cancel_task)
     
@@ -124,6 +128,8 @@ class BacktestNode(BaseNode):
                     # 根据任务类型执行不同的回测
                     if task_type == "factor_selection":
                         result = await self._execute_factor_selection(task_info)
+                    elif task_type == "ultra_short":
+                        result = await self._execute_ultra_short_backtest(task_info)
                     else:
                         result = await self._execute_backtest(task_info)
                     
@@ -288,6 +294,62 @@ class BacktestNode(BaseNode):
             "queue_size": self._task_queue.qsize(),
         }
     
+    async def _handle_run_ultra_short_backtest(self, params: dict) -> dict:
+        """
+        处理超短策略回测 RPC 请求
+        
+        任务投递到队列后立即返回，不阻塞等待执行结果。
+        客户端需要通过 get_task_status 查询任务状态和结果，支持WebSocket实时日志推送。
+        
+        Args:
+            params: 超短策略回测参数
+                - task_id: 任务ID
+                - strategies: 策略列表
+                - start_date: 开始日期
+                - end_date: 结束日期
+                - initial_cash: 初始资金
+                - params: 策略参数配置
+                - enable_force_empty: 启用强制空仓
+                - enable_sentiment_cycle: 启用情绪周期
+                - enable_auction_filter: 启用竞价过滤
+        
+        Returns:
+            任务投递状态
+        """
+        task_id = params.get("task_id", f"us_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}")
+        
+        self.logger.info(f"Received ultra short backtest request: {task_id}")
+        
+        # 记录任务
+        await mongo_manager.update_one(
+            "backtest_tasks",
+            {"task_id": task_id},
+            {
+                "$set": {
+                    "task_id": task_id,
+                    "status": "queued",
+                    "task_type": "ultra_short",
+                    "params": params,
+                    "node_id": self.node_id,
+                    "created_at": datetime.utcnow(),
+                    "progress": 0,
+                    "logs": [],
+                }
+            },
+            upsert=True,
+        )
+        
+        # 加入任务队列
+        task_info = {"task_id": task_id, "task_type": "ultra_short", **params}
+        await self._task_queue.put(task_info)
+        
+        return {
+            "success": True,
+            "task_id": task_id,
+            "status": "queued",
+            "queue_size": self._task_queue.qsize(),
+        }
+    
     async def _execute_factor_selection(self, params: dict) -> dict:
         """
         执行因子选股回测
@@ -336,6 +398,273 @@ class BacktestNode(BaseNode):
         )
         
         return result
+    
+    async def _execute_ultra_short_backtest(self, params: dict) -> dict:
+        """
+        执行超短策略回测
+        
+        Args:
+            params: 超短回测参数
+                - strategies: 策略列表
+                - start_date: 开始日期
+                - end_date: 结束日期
+                - initial_cash: 初始资金
+                - params: 策略参数配置
+                - enable_force_empty: 启用强制空仓
+                - enable_sentiment_cycle: 启用情绪周期
+                - enable_auction_filter: 启用竞价过滤
+            
+        Returns:
+            回测报告（包含所有策略的结果和汇总统计
+        """
+        task_id = params.get("task_id", "unknown")
+        strategies = params.get("strategies", [])
+        start_date = params.get("start_date", "20260105")
+        end_date = params.get("end_date", "20260320")
+        initial_cash = params.get("initial_cash", 1000000)
+        strategy_params = params.get("params", {})
+        
+        self.logger.info(
+            f"[{task_id}] Executing ultra short backtest: "
+            f"{start_date} ~ {end_date}, strategies={strategies}"
+        )
+        
+        # 更新状态为 running
+        await mongo_manager.update_one(
+            "backtest_tasks",
+            {"task_id": task_id},
+            {"$set": {"status": "running", "started_at": datetime.utcnow(), "progress": 10, "logs": []},
+        )
+        
+        # 推送日志
+        await self._push_log(task_id, "🚀 超短策略回测启动")
+        await self._push_log(task_id, f"📅 回测区间: {start_date} -> {end_date}")
+        await self._push_log(task_id, f"💰 初始资金: {initial_cash:,}")
+        await self._push_log(task_id, f"🔧 流动性门槛: {strategy_params.get('liquidity_threshold', 500)} 万元")
+        await self._push_log(task_id, f"📈 单票最大仓位: {strategy_params.get('max_position_per_stock', 0.2)*100}%")
+        
+        # ========== 策略定义 ==========
+        ALL_STRATEGIES = [
+            {
+                "id": "halfway_chase",
+                "name": "半路追涨",
+                "filters": [
+                    ("limit_up_yesterday", 1),
+                    ("open_below_limit", 1),
+                    ("volume_increase", strategy_params.get('volume_threshold', 1.5)),
+                ],
+            },
+            {
+                "id": "first_limit_up",
+                "name": "首板打板",
+                "filters": [
+                    ("first_limit_up", 1),
+                ],
+            },
+            {
+                "id": "limit_up_open",
+                "name": "涨停开板",
+                "filters": [
+                    ("limit_up_yesterday", 1),
+                    ("first_limit_up", 0),
+                ],
+            },
+            {
+                "id": "leader_buy_dip",
+                "name": "龙头低吸",
+                "filters": [
+                    ("market_leader", 1),
+                    ("pullback_ma5", 1),
+                    ("lhb_buy_in", 1),
+                ],
+            },
+            {
+                "id": "limit_down_qiao",
+                "name": "跌停翘板",
+                "filters": [
+                    ("limit_down_yesterday", 1),
+                    ("open_above_limit", 1),
+                ],
+            },
+        ]
+        
+        # 过滤选择用户选中的策略
+        selected_strategies = [s for s in ALL_STRATEGIES if s["id"] in strategies]
+        if not selected_strategies:
+            selected_strategies = ALL_STRATEGIES
+        
+        await self._push_log(task_id, f"🎯 选中策略: {[s['name'] for s in selected_strategies}")
+        await self._push_log(task_id, "🔄 初始化管理器...")
+        
+        # 初始化管理器
+        await baostock_manager.initialize()
+        await akshare_manager.initialize()
+        
+        await self._push_log(task_id, "✅ 管理器初始化完成")
+        await mongo_manager.update_one(
+            "backtest_tasks",
+            {"task_id": task_id},
+            {"$set": {"progress": 20}},
+        )
+        
+        # 初始化因子引擎和宇宙管理器 - 指定数据源为 AKShare
+        factor_engine = FactorEngine(source="ak")
+        universe_mgr = UniverseManager(source="ak")
+        
+        # 获取调仓日期
+        await self._push_log(task_id, "📆 获取交易日历...")
+        rebalance_dates = await baostock_manager.get_trade_dates(start_date, end_date)
+        if not rebalance_dates:
+            error_msg = "Failed to get trade dates from baostock"
+            await self._push_log(task_id, f"❌ {error_msg}")
+            raise ValueError(error_msg)
+        
+        rebalance_dates = sorted(rebalance_dates)
+        await self._push_log(task_id, f"✅ 总交易日: {len(rebalance_dates)} 天")
+        await mongo_manager.update_one(
+            "backtest_tasks",
+            {"task_id": task_id},
+            {"$set": {"progress": 30}},
+        )
+        
+        # 结果收集
+        all_results = []
+        total = len(selected_strategies)
+        
+        # 遍历每个策略
+        for idx, strategy in enumerate(selected_strategies):
+            current_progress = 30 + int((idx / total) * 50)
+            await mongo_manager.update_one(
+                "backtest_tasks",
+                {"task_id": task_id},
+                {"$set": {"progress": current_progress}},
+            )
+            
+            await self._push_log(task_id, "")
+            await self._push_log(task_id, "=" * 60)
+            await self._push_log(task_id, f"▶️ 开始回测策略: {strategy['name']}")
+            await self._push_log(task_id, "=" * 60)
+            
+            # 创建回测器
+            config = {
+                "start_date": start_date,
+                "end_date": end_date,
+                "initial_cash": initial_cash,
+                "max_position_percent": strategy_params.get("max_position_per_stock", 0.2),
+                "liquidity_threshold": strategy_params.get("liquidity_threshold", 500),
+                "data_collection": "stock_daily_ak_full",
+                "universe_mgr": universe_mgr,
+                "factor_engine": factor_engine,
+                "exclude_rules": [ExcludeRule.ST, ExcludeRule.NEW_STOCK],
+                "factors": [
+                    {"name": factor_name, "target": target}
+                    for factor_name, target in strategy["filters"]
+                ],
+                "top_n": 1,
+                "rebalance_freq": "daily",
+            }
+            backtester = PortfolioBacktester(source="ak")
+            
+            # 运行回测
+            try:
+                result = await backtester.run(config)
+                
+                if result is None or "error" in result:
+                    error_msg = result.get('error', 'unknown error') if result else 'unknown error'
+                    await self._push_log(task_id, f"❌ 策略 {strategy['name']} 回测失败: {error_msg}")
+                    continue
+                
+                # 检查必要字段
+                required_fields = ['trade_days', 'win_rate', 'avg_daily_return', 'total_return', 'max_drawdown', 'sharpe_ratio']
+                missing = [f for f in required_fields if f not in result.get('performance', {})]
+                if missing:
+                    await self._push_log(task_id, f"⚠️ 策略 {strategy['name']} 缺少字段: {missing}，跳过")
+                    continue
+                
+                # 保存结果
+                perf = result["performance"]
+                perf["strategy_id"] = strategy["id"]
+                perf["strategy_name"] = strategy["name"]
+                all_results.append(perf)
+                
+                await self._push_log(task_id, f"✅ 策略 {strategy['name']} 回测完成")
+                await self._push_log(task_id, f"   信号数: {perf['trade_days']}")
+                await self._push_log(task_id, f"   胜率: {perf['win_rate']:.2f}%")
+                await self._push_log(task_id, f"   累计收益率: {perf['total_return']:.2f}%")
+                await self._push_log(task_id, f"   最大回撤: {perf['max_drawdown']:.2f}%")
+                await self._push_log(task_id, f"   盈亏比: {perf.get('profit_loss_ratio', 0):.2f}")
+                await self._push_log(task_id, f"   夏普比率: {perf['sharpe_ratio']:.2f}")
+                
+            except Exception as e:
+                self.logger.error(f"[{task_id}] Strategy {strategy['name']} failed: {e}")
+                await self._push_log(task_id, f"❌ 策略 {strategy['name']} 运行异常: {str(e)}")
+                continue
+        
+        # 计算汇总结果
+        await self._push_log(task_id, "")
+        await self._push_log(task_id, "📊 所有策略回测完成，正在生成汇总报告...")
+        await mongo_manager.update_one(
+            "backtest_tasks",
+            {"task_id": task_id},
+            {"$set": {"progress": 90}},
+        )
+        
+        # 汇总统计
+        total_signals = sum(r.get("trade_days", 0) for r in all_results)
+        avg_win_rate = sum(r.get("win_rate", 0) for r in all_results) / len(all_results) if all_results else 0
+        total_return = sum(r.get("total_return", 0) for r in all_results)
+        max_drawdown = max(r.get("max_drawdown", 0) for r in all_results) if all_results else 0
+        
+        summary = {
+            "total_strategies": len(all_results),
+            "total_signals": total_signals,
+            "avg_win_rate": avg_win_rate,
+            "total_return": total_return,
+            "max_drawdown": max_drawdown,
+        }
+        
+        final_result = {
+            "strategies": all_results,
+            "summary": summary,
+            "params": params,
+            "start_date": start_date,
+            "end_date": end_date,
+            "initial_cash": initial_cash,
+        }
+        
+        await self._push_log(task_id, "✅ 回测全部完成！")
+        await self._push_log(task_id, f"📈 汇总结果：总信号 {total_signals} 个，平均胜率 {avg_win_rate:.2f}%，总收益率 {total_return:.2f}%")
+        await mongo_manager.update_one(
+            "backtest_tasks",
+            {"task_id": task_id},
+            {"$set": {"progress": 100}},
+        )
+        
+        # 关闭管理器
+        await baostock_manager.shutdown()
+        await akshare_manager.shutdown()
+        
+        return final_result
+    
+    async def _push_log(self, task_id: str, log_text: str) -> None:
+        """推送日志到数据库和WebSocket
+        """
+        timestamp = datetime.utcnow().strftime("%H:%M:%S")
+        log_entry = f"[{timestamp}] {log_text}"
+        
+        # 保存到数据库
+        await mongo_manager.update_one(
+            "backtest_tasks",
+            {"task_id": task_id},
+            {"$push": {"logs": log_entry}},
+        )
+        
+        # 推送WebSocket消息
+        from nodes.web.websocket import manager as ws_manager
+        await ws_manager.broadcast_task_update(task_id, {
+            "type": "log",
+            "log": log_text,
+        })
     
     async def _execute_backtest(self, params: dict) -> dict:
         """
