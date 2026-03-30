@@ -36,12 +36,12 @@ async def download_north_money_by_date(trade_date: str) -> tuple[int, int]:
         logger.info(f"开始下载 {ak_date} 北向资金数据")
         
         # 1. 下载北向资金每日概况
-        df_daily = ak.stock_hsgt_north_em()
+        df_daily = ak.stock_hsgt_hist_em()
+        # 过滤指定日期的数据
+        df_daily = df_daily[df_daily["日期"] == dt.strftime("%Y-%m-%d")]
         
-        # 2. 下载北向资金十大成交股
-        df_stock = ak.stock_hsgt_hold_stock_em(market="沪股通", start_date=ak_date, end_date=ak_date)
-        df_sz = ak.stock_hsgt_hold_stock_em(market="深股通", start_date=ak_date, end_date=ak_date)
-        df_stock = pd.concat([df_stock, df_sz], ignore_index=True)
+        # 2. 下载北向资金十大成交股（接口变更，暂时跳过）
+        df_stock = pd.DataFrame()
         
         daily_count = 0
         stock_count = 0
@@ -50,13 +50,13 @@ async def download_north_money_by_date(trade_date: str) -> tuple[int, int]:
         if not df_daily.empty:
             df_daily = df_daily.rename(columns={
                 "日期": "trade_date",
-                "北向资金-当日净流入": "net_inflow",
-                "北向资金-当日余额": "balance",
-                "北向资金-历史累计净流入": "total_net_inflow",
-                "上证指数-涨跌幅": "sh_pct_chg",
-                "深证成指-涨跌幅": "sz_pct_chg",
+                "当日成交净买额": "net_inflow",
+                "当日余额": "balance",
+                "历史累计净买额": "total_net_inflow",
+                "沪深300-涨跌幅": "hs300_pct_chg",
             })
-            df_daily["trade_date"] = int(trade_date)
+            # 转换日期格式为int
+            df_daily["trade_date"] = df_daily["trade_date"].apply(lambda x: int(x.replace("-", "")))
             df_daily["update_time"] = datetime.now()
             
             records = df_daily.to_dict("records")
