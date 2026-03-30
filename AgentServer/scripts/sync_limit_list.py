@@ -23,13 +23,25 @@ import os
 # 添加项目根目录到 path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.managers import mongo_manager, data_source_manager
+from core.managers import mongo_manager, tushare_manager
 
 
 async def get_trade_dates_in_range(start_date: str, end_date: str) -> list:
     """获取指定范围内的交易日"""
-    dates, _ = await data_source_manager.get_trade_calendar(start_date, end_date)
-    return sorted(dates) if dates else []
+    df = await tushare_manager._call_api(
+        "trade_cal",
+        exchange="SSE",
+        start_date=start_date,
+        end_date=end_date,
+        is_open="1",
+    )
+    
+    if df.empty:
+        return []
+    
+    dates = df["cal_date"].tolist()
+    dates.sort()
+    return dates
 
 
 async def sync_limit_list(trade_dates: list):
@@ -44,7 +56,7 @@ async def sync_limit_list(trade_dates: list):
     for i, trade_date in enumerate(trade_dates):
         try:
             # 获取涨跌停数据
-            records, _ = await data_source_manager.get_limit_list(trade_date=trade_date)
+            records = await tushare_manager.get_limit_list_d(trade_date=trade_date)
             
             if records:
                 # 批量写入
@@ -95,7 +107,7 @@ async def sync_limit_list(trade_dates: list):
 async def main(args):
     # 初始化
     await mongo_manager.initialize()
-    await data_source_manager.initialize()
+    await tushare_manager.initialize()
     
     # 确定要处理的日期范围
     if args.date:
@@ -119,7 +131,7 @@ async def main(args):
     
     # 关闭连接
     await mongo_manager.shutdown()
-    await data_source_manager.shutdown()
+    await tushare_manager.shutdown()
 
 
 if __name__ == "__main__":
