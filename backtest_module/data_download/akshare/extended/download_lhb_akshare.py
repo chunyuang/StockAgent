@@ -11,7 +11,6 @@ import pandas as pd
 
 sys.path.insert(0, '.')
 from core.managers import mongo_manager
-from common.utils import date_utils
 import logging
 
 logger = logging.getLogger(__name__)
@@ -33,7 +32,7 @@ async def download_lhb_by_date(trade_date: str) -> int:
         logger.info(f"开始下载 {ak_date} 龙虎榜数据")
         
         # 调用AKShare接口
-        df = ak.stock_lhb_gg_em(date=ak_date)
+        df = ak.stock_lhb_detail_em(start_date=ak_date, end_date=ak_date)
         
         if df.empty:
             logger.info(f"{ak_date} 无龙虎榜数据")
