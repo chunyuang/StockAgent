@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 from typing import List, Dict
 
+from core.managers import mongo_manager
 from backtest_module.backtest_engine.factor_selection.portfolio_backtest import PortfolioBacktester
 from backtest_module.backtest_engine.factor_selection.universe import UniverseManager, UniverseType, ExcludeRule
 
@@ -35,7 +36,15 @@ class RealTradingSignalGenerator:
             "top_n": 5,  # 最多选5只
         }
         self.config = {**self.default_config, **(config or {})}
-        self.backtester = PortfolioBacktester(source="ak", **self.config)
+        # 只传递PortfolioBacktester接受的初始化参数
+        self.backtester = PortfolioBacktester(
+            source="ak",
+            slippage=self.config.get("slippage", 0.001),
+            max_position=self.config.get("max_position", 0.7)
+        )
+        # 补充回测引擎缺少的实盘配置属性
+        self.backtester.enable_sentiment_cycle = self.config.get("enable_sentiment_cycle", True)
+        self.backtester.enable_force_empty = self.config.get("enable_force_empty", True)
         self.universe_mgr = UniverseManager()
     
     async def generate_signals(self, trade_date: str = None) -> Dict:
@@ -65,7 +74,7 @@ class RealTradingSignalGenerator:
             }
         
         # 3. 获取预选池
-        exclude_rules = [ExcludeRule.ST, ExcludeRule.NEW_STOCK, ExcludeRule.LOW_LIQUIDITY]
+        exclude_rules = [ExcludeRule.ST, ExcludeRule.NEW_STOCK]
         universe = await self.universe_mgr.get_universe(
             UniverseType.ALL_A,
             trade_date,
@@ -286,6 +295,9 @@ class RealTradingSignalGenerator:
 
 
 async def main():
+    # 初始化MongoDB连接
+    await mongo_manager.initialize()
+    
     import argparse
     parser = argparse.ArgumentParser(description="实盘每日信号生成器")
     parser.add_argument("--date", help="指定日期(YYYYMMDD)，默认最近一个交易日")
