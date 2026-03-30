@@ -11,7 +11,7 @@ import pandas as pd
 
 sys.path.insert(0, '.')
 from core.managers import mongo_manager
-from utils import date_utils
+from common.utils import date_utils
 import logging
 
 logger = logging.getLogger(__name__)
