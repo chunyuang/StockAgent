@@ -3,7 +3,29 @@
  * 超短策略回测页面
  * 专门针对5大超短策略：半路追涨、首板打板、涨停开板、龙头低吸、跌停翘板
  */
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed, watch, nextTick } from 'vue'
+import * as echarts from 'echarts/core'
+import { LineChart, BarChart } from 'echarts/charts'
+import {
+  TitleComponent,
+  TooltipComponent,
+  GridComponent,
+  LegendComponent,
+  DataZoomComponent
+} from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+
+// 注册ECharts组件
+echarts.use([
+  TitleComponent,
+  TooltipComponent,
+  GridComponent,
+  LegendComponent,
+  DataZoomComponent,
+  LineChart,
+  BarChart,
+  CanvasRenderer
+])
 import { useRouter } from 'vue-router'
 import {
   ElCard,
@@ -119,6 +141,16 @@ const rules = {
   ],
 }
 
+// 折叠面板激活项
+const activeCollapse = ref('params')
+// 标签页激活项
+const activeTab = ref('metrics')
+
+// 图表实例
+let equityChart: echarts.ECharts | null = null
+let positionChart: echarts.ECharts | null = null
+let dailyProfitChart: echarts.ECharts | null = null
+
 // 表格列
 const tradeColumns = [
   { prop: 'ts_code', label: '股票代码', width: 120 },
@@ -130,6 +162,9 @@ const tradeColumns = [
   { prop: 'sell_price', label: '卖出价格', width: 100 },
   { prop: 'profit_pct', label: '收益率', width: 100, formatter: (row: any) => `${(row.profit_pct * 100).toFixed(2)}%` },
   { prop: 'hold_days', label: '持仓天数', width: 100 },
+  { prop: 'signal_reason', label: '信号触发原因', minWidth: 200 },
+  { prop: 'entry_time', label: '入场时点', width: 120 },
+  { prop: 'exit_reason', label: '离场原因', width: 150 },
 ]
 
 // ==================== 计算属性 ====================
@@ -299,6 +334,11 @@ async function loadBacktestResult() {
     const res = await backtestApi.getTaskResult(backtestState.task_id)
     backtestState.result = res
     addLog('✅ 结果加载完成！')
+    
+    // 渲染图表
+    nextTick(() => {
+      renderCharts()
+    })
   } catch (e: any) {
     addLog(`❌ 结果加载失败：${e.message || '未知错误'}`)
   }
@@ -327,6 +367,185 @@ function exportReport() {
   // 待实现
   alert('导出功能开发中...')
 }
+
+/**
+ * 渲染所有图表
+ */
+function renderCharts() {
+  if (!backtestState.result) return
+  
+  // 渲染收益+回撤组合图
+  renderEquityChart()
+  // 渲染仓位变化图
+  renderPositionChart()
+  // 渲染每日盈亏图
+  renderDailyProfitChart()
+}
+
+/**
+ * 渲染收益+回撤组合图
+ */
+function renderEquityChart() {
+  const dom = document.getElementById('equity-chart')
+  if (!dom) return
+  
+  equityChart = echarts.init(dom)
+  
+  const data = backtestState.result.daily_data || []
+  const dates = data.map((item: any) => item.trade_date)
+  const equity = data.map((item: any) => (item.equity / form.initial_cash - 1) * 100)
+  const drawdown = data.map((item: any) => -item.drawdown * 100)
+  
+  const option = {
+    title: { text: '收益曲线 & 回撤曲线', left: 'center' },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'cross' }
+    },
+    legend: { data: ['累计收益率', '最大回撤'], top: 30 },
+    grid: { left: '3%', right: '4%', bottom: '15%', containLabel: true },
+    dataZoom: [{ type: 'inside', start: 0, end: 100 }, { start: 0, end: 100, bottom: 10 }],
+    xAxis: { type: 'category', boundaryGap: false, data: dates },
+    yAxis: [
+      { type: 'value', name: '收益率(%)', axisLabel: { formatter: '{value}%' } },
+      { type: 'value', name: '回撤(%)', axisLabel: { formatter: '{value}%' }, min: -100, max: 0 }
+    ],
+    series: [
+      {
+        name: '累计收益率',
+        type: 'line',
+        yAxisIndex: 0,
+        data: equity,
+        smooth: true,
+        lineStyle: { color: '#f56c6c', width: 2 },
+        itemStyle: { color: '#f56c6c' },
+        areaStyle: {
+          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: 'rgba(245, 108, 108, 0.3)' },
+            { offset: 1, color: 'rgba(245, 108, 108, 0.05)' }
+          ])
+        }
+      },
+      {
+        name: '最大回撤',
+        type: 'line',
+        yAxisIndex: 1,
+        data: drawdown,
+        smooth: true,
+        lineStyle: { color: '#e6a23c', width: 2 },
+        itemStyle: { color: '#e6a23c' },
+        areaStyle: {
+          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: 'rgba(230, 162, 60, 0.3)' },
+            { offset: 1, color: 'rgba(230, 162, 60, 0.05)' }
+          ])
+        }
+      }
+    ]
+  }
+  
+  equityChart.setOption(option)
+  // 自适应
+  window.addEventListener('resize', () => equityChart?.resize())
+}
+
+/**
+ * 渲染仓位变化图
+ */
+function renderPositionChart() {
+  const dom = document.getElementById('position-chart')
+  if (!dom) return
+  
+  positionChart = echarts.init(dom)
+  
+  const data = backtestState.result.daily_data || []
+  const dates = data.map((item: any) => item.trade_date)
+  const position = data.map((item: any) => item.position_ratio * 100)
+  
+  const option = {
+    title: { text: '仓位变化趋势', left: 'center' },
+    tooltip: { trigger: 'axis' },
+    grid: { left: '3%', right: '4%', bottom: '15%', containLabel: true },
+    dataZoom: [{ type: 'inside', start: 0, end: 100 }, { start: 0, end: 100, bottom: 10 }],
+    xAxis: { type: 'category', boundaryGap: false, data: dates },
+    yAxis: { 
+      type: 'value', 
+      name: '仓位比例(%)', 
+      axisLabel: { formatter: '{value}%' },
+      min: 0,
+      max: 100
+    },
+    series: [
+      {
+        name: '仓位比例',
+        type: 'line',
+        data: position,
+        smooth: true,
+        step: 'end',
+        lineStyle: { color: '#409eff', width: 2 },
+        itemStyle: { color: '#409eff' },
+        areaStyle: {
+          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: 'rgba(64, 158, 255, 0.3)' },
+            { offset: 1, color: 'rgba(64, 158, 255, 0.05)' }
+          ])
+        }
+      }
+    ]
+  }
+  
+  positionChart.setOption(option)
+  window.addEventListener('resize', () => positionChart?.resize())
+}
+
+/**
+ * 渲染每日盈亏柱状图
+ */
+function renderDailyProfitChart() {
+  const dom = document.getElementById('daily-profit-chart')
+  if (!dom) return
+  
+  dailyProfitChart = echarts.init(dom)
+  
+  const data = backtestState.result.daily_data || []
+  const dates = data.map((item: any) => item.trade_date)
+  const profit = data.map((item: any) => item.daily_profit_pct * 100)
+  
+  const option = {
+    title: { text: '每日盈亏', left: 'center' },
+    tooltip: { trigger: 'axis' },
+    grid: { left: '3%', right: '4%', bottom: '15%', containLabel: true },
+    dataZoom: [{ type: 'inside', start: 0, end: 100 }, { start: 0, end: 100, bottom: 10 }],
+    xAxis: { type: 'category', data: dates, axisLabel: { rotate: 45 } },
+    yAxis: { 
+      type: 'value', 
+      name: '日收益率(%)', 
+      axisLabel: { formatter: '{value}%' }
+    },
+    series: [
+      {
+        name: '日收益率',
+        type: 'bar',
+        data: profit,
+        itemStyle: {
+          color: (params: any) => {
+            return params.value >= 0 ? '#f56c6c' : '#67c23a'
+          }
+        }
+      }
+    ]
+  }
+  
+  dailyProfitChart.setOption(option)
+  window.addEventListener('resize', () => dailyProfitChart?.resize())
+}
+
+// 页面销毁时释放图表实例
+onUnmounted(() => {
+  equityChart?.dispose()
+  positionChart?.dispose()
+  dailyProfitChart?.dispose()
+})
 </script>
 
 <template>
@@ -602,6 +821,21 @@ function exportReport() {
                     <div class="text-2xl font-bold text-gray-700 dark:text-gray-200">
                       {{ backtestState.result.total_trades }}
                     </div>
+                  </ElCard>
+                </div>
+              </ElTabPane>
+              
+              <!-- 可视化图表 -->
+              <ElTabPane label="可视化图表" name="charts">
+                <div class="space-y-6">
+                  <ElCard>
+                    <div id="equity-chart" style="width: 100%; height: 400px;"></div>
+                  </ElCard>
+                  <ElCard>
+                    <div id="position-chart" style="width: 100%; height: 300px;"></div>
+                  </ElCard>
+                  <ElCard>
+                    <div id="daily-profit-chart" style="width: 100%; height: 300px;"></div>
                   </ElCard>
                 </div>
               </ElTabPane>
