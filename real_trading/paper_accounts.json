@@ -1,0 +1,14 @@
+{
+  "b51ab0de": {
+    "account_id": "b51ab0de",
+    "name": "实盘模拟测试账户",
+    "initial_balance": 1000000,
+    "current_balance": 1000000,
+    "total_profit": 0.0,
+    "total_profit_pct": 0.0,
+    "max_drawdown": 0.0,
+    "created_at": "20260330",
+    "status": "active",
+    "notes": "核心策略自动交易测试"
+  }
+}
