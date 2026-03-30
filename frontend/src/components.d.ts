@@ -42,4 +42,7 @@ declare module 'vue' {
     TaskStatusBadge: typeof import('./components/agent/TaskStatusBadge.vue')['default']
     WatchlistCard: typeof import('./components/dashboard/WatchlistCard.vue')['default']
   }
+  export interface ComponentCustomProperties {
+    vLoading: typeof import('element-plus/es')['ElLoadingDirective']
+  }
 }

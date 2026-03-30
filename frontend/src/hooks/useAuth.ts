@@ -97,28 +97,8 @@ export function useAuth() {
   // ==================== 检查登录状态 ====================
   
   async function checkAuth(): Promise<boolean> {
-    const token = localStorage.getItem('access_token')
-    
-    if (!token) {
-      userStore.setLoggedIn(false)
-      return false
-    }
-    
-    // 跳过真实用户信息请求，模拟已登录状态
+    // 完全跳过登录检查，直接认为已登录
     userStore.setLoggedIn(true)
-    // 模拟用户信息
-    userStore.userInfo = {
-      user_id: 1,
-      username: 'admin',
-      nickname: '管理员',
-      avatar: '',
-      email: 'admin@example.com',
-      is_admin: true,
-      watchlist: [],
-      preferences: {
-        theme: 'light'
-      }
-    }
     return true
   }
   

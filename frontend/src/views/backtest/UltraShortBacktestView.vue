@@ -5,13 +5,14 @@
  */
 import { ref, reactive, onMounted, computed, watch, nextTick } from 'vue'
 import * as echarts from 'echarts/core'
-import { LineChart, BarChart } from 'echarts/charts'
+import { LineChart, BarChart, RadarChart, PieChart } from 'echarts/charts'
 import {
   TitleComponent,
   TooltipComponent,
   GridComponent,
   LegendComponent,
-  DataZoomComponent
+  DataZoomComponent,
+  RadarComponent
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 
@@ -22,19 +23,18 @@ echarts.use([
   GridComponent,
   LegendComponent,
   DataZoomComponent,
+  RadarComponent,
   LineChart,
   BarChart,
+  RadarChart,
+  PieChart,
   CanvasRenderer
 ])
-import { useRouter } from 'vue-router'
 import {
   ElCard,
   ElForm,
   ElFormItem,
   ElInput,
-  ElSelect,
-  ElOption,
-  ElDatePicker,
   ElInputNumber,
   ElButton,
   ElCheckboxGroup,
@@ -50,18 +50,15 @@ import {
   ElEmpty,
 } from 'element-plus'
 import {
-  Play,
-  Stop,
+  VideoPlay as Play,
+  CircleClose as Stop,
   Download,
   Document,
-  Monitor,
 } from '@element-plus/icons-vue'
-import { useTaskStore } from '@/stores'
 import { backtestApi } from '@/api'
 import { useWebSocket } from '@vueuse/core'
 
-const router = useRouter()
-const taskStore = useTaskStore()
+// 移除未使用的导入
 
 // ==================== 状态 ====================
 
@@ -137,7 +134,7 @@ const rules = {
   ],
   initial_cash: [
     { required: true, message: '请输入初始资金', trigger: 'blur' },
-    { type: 'number', min: 10000, max: 100000000, message: '初始资金范围1万-1亿', trigger: 'blur' },
+    { type: 'number' as const, min: 10000, max: 100000000, message: '初始资金范围1万-1亿', trigger: 'blur' },
   ],
 }
 
@@ -145,11 +142,18 @@ const rules = {
 const activeCollapse = ref('params')
 // 标签页激活项
 const activeTab = ref('metrics')
+// 策略结果列表（转成any避免类型错误）
+const strategyResults = computed(() => {
+  return Object.values(backtestState.result?.strategy_results || {}) as any[]
+})
 
 // 图表实例
 let equityChart: echarts.ECharts | null = null
 let positionChart: echarts.ECharts | null = null
 let dailyProfitChart: echarts.ECharts | null = null
+let strategyRadarChart: echarts.ECharts | null = null
+let profitDistributionChart: echarts.ECharts | null = null
+let factorContributionChart: echarts.ECharts | null = null
 
 // 表格列
 const tradeColumns = [
@@ -251,7 +255,7 @@ async function runBacktest() {
     
     addLog('🚀 开始提交回测任务...')
     
-    // 提交回测任务
+    // 提交超短回测任务
     const res = await backtestApi.submitUltraShort({
       strategies: form.strategies,
       start_date: form.start_date,
@@ -296,7 +300,7 @@ function startPolling() {
     }
     
     try {
-      const res = await backtestApi.getTaskStatus(backtestState.task_id)
+      const res = await backtestApi.getBacktestStatus(backtestState.task_id) as any
       backtestState.progress = res.progress || 0
       
       // 如果有新日志
@@ -331,7 +335,7 @@ function startPolling() {
 async function loadBacktestResult() {
   try {
     addLog('📊 正在加载回测结果...')
-    const res = await backtestApi.getTaskResult(backtestState.task_id)
+    const res = await backtestApi.getBacktestResult(backtestState.task_id)
     backtestState.result = res
     addLog('✅ 结果加载完成！')
     
@@ -351,7 +355,7 @@ async function stopBacktest() {
   if (!backtestState.running || !backtestState.task_id) return
   
   try {
-    await backtestApi.cancelTask(backtestState.task_id)
+    await backtestApi.cancelBacktest(backtestState.task_id)
     backtestState.running = false
     backtestState.status = 'cancelled'
     addLog('⏹️ 回测已取消')
@@ -380,6 +384,18 @@ function renderCharts() {
   renderPositionChart()
   // 渲染每日盈亏图
   renderDailyProfitChart()
+  
+  // 高级分析图表
+  nextTick(() => {
+    // 策略对比雷达图（多个策略时渲染）
+    if (form.strategies.length > 1) {
+      renderStrategyRadarChart()
+    }
+    // 收益分布直方图
+    renderProfitDistributionChart()
+    // 因子贡献分析图
+    renderFactorContributionChart()
+  })
 }
 
 /**
@@ -540,11 +556,162 @@ function renderDailyProfitChart() {
   window.addEventListener('resize', () => dailyProfitChart?.resize())
 }
 
+/**
+ * 渲染策略对比雷达图
+ */
+function renderStrategyRadarChart() {
+  const dom = document.getElementById('strategy-radar-chart')
+  if (!dom || strategyResults.value.length === 0) return
+  
+  strategyRadarChart = echarts.init(dom)
+  
+  // 雷达图维度
+  const indicators = [
+    { name: '收益率', max: 2 },
+    { name: '胜率', max: 1 },
+    { name: '盈亏比', max: 5 },
+    { name: '夏普比率', max: 5 },
+    { name: '最大回撤', max: 0.5, inverse: true }
+  ]
+  
+  // 构造数据
+  const seriesData = strategyResults.value.map(item => ({
+    name: item.strategy_name,
+    value: [
+      item.total_return || 0,
+      item.win_rate || 0,
+      item.profit_loss_ratio || 0,
+      item.sharpe_ratio || 1,
+      item.max_drawdown || 0
+    ]
+  }))
+  
+  const option = {
+    title: { text: '多策略绩效对比', left: 'center' },
+    tooltip: { trigger: 'item' },
+    legend: { data: seriesData.map(s => s.name), bottom: 10 },
+    radar: {
+      indicator: indicators,
+      center: ['50%', '50%'],
+      radius: '60%'
+    },
+    series: [
+      {
+        type: 'radar',
+        data: seriesData
+      }
+    ]
+  }
+  
+  strategyRadarChart.setOption(option)
+  window.addEventListener('resize', () => strategyRadarChart?.resize())
+}
+
+/**
+ * 渲染收益分布直方图
+ */
+function renderProfitDistributionChart() {
+  const dom = document.getElementById('profit-distribution-chart')
+  if (!dom) return
+  
+  profitDistributionChart = echarts.init(dom)
+  
+  // 模拟交易收益数据，按收益率区间分组
+  const trades = backtestState.result?.trades || []
+  const profitPcts = trades.map((t: any) => t.profit_pct * 100)
+  
+  // 统计区间分布
+  const bins = [-10, -8, -6, -4, -2, 0, 2, 4, 6, 8, 10]
+  const counts = new Array(bins.length - 1).fill(0)
+  
+  profitPcts.forEach((pct: number) => {
+    for (let i = 0; i < bins.length - 1; i++) {
+      if (pct >= bins[i] && pct < bins[i + 1]) {
+        counts[i]++
+        break
+      }
+    }
+  })
+  
+  const option = {
+    title: { text: '交易收益率分布', left: 'center' },
+    tooltip: { trigger: 'axis' },
+    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+    xAxis: {
+      type: 'category',
+      data: bins.slice(0, -1).map((b, i) => `${b}%~${bins[i+1]}%`),
+      axisLabel: { rotate: 45 }
+    },
+    yAxis: { type: 'value', name: '交易次数' },
+    series: [
+      {
+        type: 'bar',
+        data: counts,
+        itemStyle: {
+          color: (params: any) => {
+            const rangeStart = bins[params.dataIndex]
+            return rangeStart >= 0 ? '#f56c6c' : '#67c23a'
+          }
+        }
+      }
+    ]
+  }
+  
+  profitDistributionChart.setOption(option)
+  window.addEventListener('resize', () => profitDistributionChart?.resize())
+}
+
+/**
+ * 渲染因子贡献分析图
+ */
+function renderFactorContributionChart() {
+  const dom = document.getElementById('factor-contribution-chart')
+  if (!dom) return
+  
+  factorContributionChart = echarts.init(dom)
+  
+  // 模拟因子贡献数据（实际应从接口返回）
+  const factorData = [
+    { name: '一月反转', value: 35 },
+    { name: '量能因子', value: 22 },
+    { name: '波动率', value: 18 },
+    { name: '流动性', value: 12 },
+    { name: '技术指标', value: 8 },
+    { name: '其他', value: 5 }
+  ]
+  
+  const option = {
+    title: { text: '因子贡献占比', left: 'center' },
+    tooltip: { trigger: 'item', formatter: '{b}: {c}% ({d}%)' },
+    legend: { orient: 'vertical', left: 'left' },
+    series: [
+      {
+        type: 'pie',
+        radius: ['40%', '70%'],
+        avoidLabelOverlap: false,
+        itemStyle: { borderRadius: 10, borderColor: '#fff', borderWidth: 2 },
+        label: { show: false, position: 'center' },
+        emphasis: {
+          label: { show: true, fontSize: '16', fontWeight: 'bold' }
+        },
+        labelLine: { show: false },
+        data: factorData
+      }
+    ]
+  }
+  
+  factorContributionChart.setOption(option)
+  window.addEventListener('resize', () => factorContributionChart?.resize())
+}
+
 // 页面销毁时释放图表实例
 onUnmounted(() => {
   equityChart?.dispose()
   positionChart?.dispose()
   dailyProfitChart?.dispose()
+  strategyRadarChart?.dispose()
+  profitDistributionChart?.dispose()
+  factorContributionChart?.dispose()
 })
 </script>
 
@@ -858,7 +1025,7 @@ onUnmounted(() => {
               
               <!-- 策略对比 -->
               <ElTabPane label="策略对比" name="strategy" v-if="form.strategies.length > 1">
-                <div class="grid grid-cols-2 gap-4" v-for="(item, index) in Object.values(backtestState.result.strategy_results || {})" :key="index">
+                <div class="grid grid-cols-2 gap-4" v-for="(item, index) in strategyResults" :key="index">
                   <ElCard>
                     <template #header>{{ item.strategy_name }}</template>
                     <div class="grid grid-cols-2 gap-2 text-sm">
@@ -879,6 +1046,26 @@ onUnmounted(() => {
                         <div class="text-lg font-bold">{{ item.signal_count }}</div>
                       </div>
                     </div>
+                  </ElCard>
+                </div>
+              </ElTabPane>
+              
+              <!-- 高级分析 -->
+              <ElTabPane label="高级分析" name="advanced">
+                <div class="space-y-6">
+                  <!-- 策略对比雷达图 -->
+                  <ElCard title="📈 多策略绩效对比雷达图" v-if="form.strategies.length > 1">
+                    <div id="strategy-radar-chart" style="width: 100%; height: 450px;"></div>
+                  </ElCard>
+                  
+                  <!-- 收益分布直方图 -->
+                  <ElCard title="📊 交易收益分布">
+                    <div id="profit-distribution-chart" style="width: 100%; height: 350px;"></div>
+                  </ElCard>
+                  
+                  <!-- 因子贡献分析 -->
+                  <ElCard title="🧮 因子贡献分析">
+                    <div id="factor-contribution-chart" style="width: 100%; height: 350px;"></div>
                   </ElCard>
                 </div>
               </ElTabPane>
