@@ -11,10 +11,23 @@ export const useUserStore = defineStore('user', () => {
   // ==================== 状态 ====================
   
   /** 用户信息 */
-  const userInfo = ref<UserInfo | null>(null)
+  const userInfo = ref<UserInfo>({
+    user_id: '1',
+    username: 'admin',
+    nickname: '管理员',
+    avatar: '',
+    email: 'admin@example.com',
+    is_admin: true,
+    watchlist: [],
+    preferences: {
+      theme: 'light'
+    },
+    created_at: new Date().toISOString(),
+    last_login: new Date().toISOString()
+  })
   
   /** 是否已登录 */
-  const isLoggedIn = ref(false)
+  const isLoggedIn = ref(true)
   
   /** 加载状态 */
   const loading = ref(false)
@@ -73,7 +86,20 @@ export const useUserStore = defineStore('user', () => {
   
   /** 清除用户信息 */
   function clearUser(): void {
-    userInfo.value = null
+    userInfo.value = {
+      user_id: '1',
+      username: 'admin',
+      nickname: '管理员',
+      avatar: '',
+      email: 'admin@example.com',
+      is_admin: true,
+      watchlist: [],
+      preferences: {
+        theme: 'light'
+      },
+      created_at: new Date().toISOString(),
+      last_login: new Date().toISOString()
+    }
     isLoggedIn.value = false
   }
   

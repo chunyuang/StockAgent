@@ -223,6 +223,37 @@ export async function getFactors(): Promise<FactorListResponse> {
 }
 
 /**
+ * 超短策略回测请求
+ */
+export interface UltraShortParams {
+  liquidity_threshold: number
+  volume_threshold: number
+  stop_loss_pct: number
+  take_profit_pct: number
+  max_hold_days: number
+  max_position_per_stock: number
+  max_position: number
+}
+
+export interface UltraShortBacktestRequest {
+  strategies: string[]
+  start_date: string
+  end_date: string
+  initial_cash: number
+  params: UltraShortParams
+  enable_force_empty: boolean
+  enable_sentiment_cycle: boolean
+  enable_auction_filter: boolean
+}
+
+/**
+ * 提交超短策略回测
+ */
+export async function submitUltraShort(request: UltraShortBacktestRequest): Promise<BacktestTaskResponse> {
+  return api.post<BacktestTaskResponse>('/backtest/ultra-short', request)
+}
+
+/**
  * 提交因子选股回测
  */
 export async function submitFactorSelection(request: FactorSelectionRequest): Promise<BacktestTaskResponse> {
@@ -237,4 +268,5 @@ export default {
   cancelBacktest,
   getFactors,
   submitFactorSelection,
+  submitUltraShort,
 }

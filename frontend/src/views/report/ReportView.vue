@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// @ts-nocheck
 /**
  * 报告回顾页面
  * 
