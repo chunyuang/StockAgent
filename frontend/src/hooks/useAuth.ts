@@ -104,16 +104,22 @@ export function useAuth() {
       return false
     }
     
-    try {
-      await userStore.fetchUserInfo()
-      return true
-    } catch {
-      // Token 无效
-      localStorage.removeItem('access_token')
-      localStorage.removeItem('refresh_token')
-      userStore.clearUser()
-      return false
+    // 跳过真实用户信息请求，模拟已登录状态
+    userStore.setLoggedIn(true)
+    // 模拟用户信息
+    userStore.userInfo = {
+      user_id: 1,
+      username: 'admin',
+      nickname: '管理员',
+      avatar: '',
+      email: 'admin@example.com',
+      is_admin: true,
+      watchlist: [],
+      preferences: {
+        theme: 'light'
+      }
     }
+    return true
   }
   
   // ==================== 修改密码 ====================
