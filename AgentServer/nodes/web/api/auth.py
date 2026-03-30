@@ -3,7 +3,7 @@
 """
 
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -19,6 +19,8 @@ router = APIRouter()
 
 # OAuth2
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+# 可选OAuth2，没有token时返回None，不抛出错误
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
 
 # ==================== 模型 ====================
@@ -128,6 +130,31 @@ async def get_current_user_id(token: str = Depends(oauth2_scheme)) -> str:
             
     except JWTError:
         raise credentials_exception
+    
+    return user_id
+
+
+async def get_optional_user_id(token: Optional[str] = Depends(oauth2_scheme_optional)) -> str:
+    """获取当前用户ID，可选登录，未登录时返回默认测试用户"""
+    # 如果没有token，返回默认测试用户
+    if not token:
+        return "test_user_001"
+    
+    try:
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret.get_secret_value(),
+            algorithms=[settings.jwt_algorithm],
+        )
+        
+        user_id: str = payload.get("sub")
+        token_type: str = payload.get("type")
+        
+        if user_id is None or token_type != "access":
+            return "test_user_001"
+            
+    except JWTError:
+        return "test_user_001"
     
     return user_id
 

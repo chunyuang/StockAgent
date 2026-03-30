@@ -106,7 +106,30 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/backtest/FactorSelectionView.vue'),
         meta: { title: '因子选股' },
       },
-
+      
+      // 实盘交易 - 模拟盘
+      {
+        path: 'sim-account',
+        name: 'SimAccount',
+        component: () => import('@/views/trading/SimAccountView.vue'),
+        meta: { title: '模拟交易' },
+      },
+      
+      // 实盘交易 - 交易信号
+      {
+        path: 'trading-signals',
+        name: 'TradingSignals',
+        component: () => import('@/views/trading/TradingSignalsView.vue'),
+        meta: { title: '交易信号' },
+      },
+      
+      // 实盘交易 - 绩效报告
+      {
+        path: 'performance',
+        name: 'PerformanceReport',
+        component: () => import('@/views/trading/PerformanceReportView.vue'),
+        meta: { title: '绩效报告' },
+      },
       
       // 自选股
       {

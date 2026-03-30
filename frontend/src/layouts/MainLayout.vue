@@ -36,6 +36,9 @@ import {
   Sunny,
   Moon,
   Promotion,
+  CreditCard,
+  DataLine,
+  Document,
 } from '@element-plus/icons-vue'
 import { useAuth } from '@/hooks'
 import { useUserStore, useTaskStore, useThemeStore } from '@/stores'
@@ -75,6 +78,9 @@ const menuItems = [
   { path: '/ultra-short', icon: DataAnalysis, title: '超短策略回测' },
   { path: '/ultra-short-standalone', icon: Document, title: '全面回测独立页' },
   { path: '/analysis', icon: DataAnalysis, title: '分析任务' },
+  { path: '/sim-account', icon: CreditCard, title: '模拟交易' },
+  { path: '/trading-signals', icon: Bell, title: '交易信号' },
+  { path: '/performance', icon: DataLine, title: '绩效报告' },
   { path: '/watchlist', icon: Star, title: '自选股' },
   { path: '/strategies', icon: TrendCharts, title: '市场监听' },
   { path: '/settings', icon: Setting, title: '设置' },
