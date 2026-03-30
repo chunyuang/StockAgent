@@ -73,6 +73,7 @@ const menuItems = [
   { path: '/backtest', icon: DataAnalysis, title: '单股回测' },
   { path: '/factor-selection', icon: DataAnalysis, title: '因子选股' },
   { path: '/ultra-short', icon: DataAnalysis, title: '超短策略回测' },
+  { path: '/ultra-short-standalone', icon: Document, title: '全面回测独立页' },
   { path: '/analysis', icon: DataAnalysis, title: '分析任务' },
   { path: '/watchlist', icon: Star, title: '自选股' },
   { path: '/strategies', icon: TrendCharts, title: '市场监听' },
@@ -89,6 +90,11 @@ onMounted(() => {
 // ==================== 方法 ====================
 
 function handleMenuSelect(path: string): void {
+  // 全面回测独立页跳转到静态html
+  if (path === '/ultra-short-standalone') {
+    window.open('/cc.html', '_blank')
+    return
+  }
   router.push(path)
 }
 
