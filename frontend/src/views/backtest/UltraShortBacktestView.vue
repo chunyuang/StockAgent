@@ -506,6 +506,7 @@ const positiveMonthRatio = computed(() => {
  * 获取回测结论文本
  */
 function getBacktestConclusion() {
+  if (!backtestState.result) return '请先运行回测查看结论'
   const totalReturn = backtestState.result.total_return * 100
   const maxDrawdown = backtestState.result.max_drawdown * 100
   const sharpe = backtestState.result.sharpe_ratio || 0
@@ -533,6 +534,7 @@ function getBacktestConclusionType() {
  * 计算年化收益率
  */
 function calculateAnnualizedReturn() {
+  if (!backtestState.result) return 0
   const startDate = new Date(backtestState.result.start_date.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3'))
   const endDate = new Date(backtestState.result.end_date.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3'))
   const days = (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
@@ -2159,19 +2161,18 @@ onUnmounted(() => {
           </ElCard>
         </div>
 
-        <!-- 第三行：全宽结果区域（正好在回测进度和日志之间） -->
+        <!-- 第三行：全宽结果区域（正好在回测进度和日志之间，永久显示所有标签页） -->
         <div class="col-span-12">
-          <!-- 结果展示：默认显示，不依赖回测状态 -->
+          <!-- 结果展示：永久显示所有标签页 -->
           <div>
-            <!-- 空状态 -->
-            <div v-if="!backtestState.result" class="h-96 flex-center flex-col gap-3 bg-gray-50 dark:bg-gray-900 rounded-lg">
-              <ElEmpty description="暂无回测结果，请先运行回测" :image-size="120" />
-            </div>
-
-            <!-- 有结果时显示所有标签页 -->
-            <ElTabs v-model="activeTab" v-if="backtestState.result">
+            <!-- 永久显示所有标签页 -->
+            <ElTabs v-model="activeTab">
               <!-- 核心指标 -->
               <ElTabPane label="核心指标" name="metrics">
+                <div v-if="!backtestState.result" class="h-64 flex-center">
+                  <ElEmpty description="暂无回测结果，请先运行回测" :image-size="80" />
+                </div>
+                <div v-else>
                 <!-- 回测结论自动提示 -->
                 <div class="mb-4">
                   <ElAlert 
@@ -2187,13 +2188,13 @@ onUnmounted(() => {
                   <ElCard shadow="hover" class="text-center">
                     <div class="text-sm text-gray-500 mb-2">累计收益率</div>
                     <div class="text-4xl font-bold text-red-500">
-                      {{ (backtestState.result.total_return * 100).toFixed(2) }}%
+                      {{ backtestState.result?.total_return ? (backtestState.result.total_return * 100).toFixed(2) : '0.00' }}%
                     </div>
                   </ElCard>
                   <ElCard shadow="hover" class="text-center">
                     <div class="text-sm text-gray-500 mb-2">最大回撤</div>
                     <div class="text-4xl font-bold text-orange-500">
-                      {{ (backtestState.result.max_drawdown * 100).toFixed(2) }}%
+                      {{ backtestState.result?.max_drawdown ? (backtestState.result.max_drawdown * 100).toFixed(2) : '0.00' }}%
                     </div>
                   </ElCard>
                   <ElCard shadow="hover" class="text-center">
@@ -2209,13 +2210,13 @@ onUnmounted(() => {
                   <ElCard class="metric-card shadow-sm">
                     <div class="text-xs text-gray-500 mb-1">胜率</div>
                     <div class="text-xl font-bold text-blue-500">
-                      {{ (backtestState.result.win_rate * 100).toFixed(2) }}%
+                      {{ backtestState.result?.win_rate ? (backtestState.result.win_rate * 100).toFixed(2) : '0.00' }}%
                     </div>
                   </ElCard>
                   <ElCard class="metric-card shadow-sm">
                     <div class="text-xs text-gray-500 mb-1">盈亏比</div>
                     <div class="text-xl font-bold text-green-500">
-                      {{ backtestState.result.profit_loss_ratio.toFixed(2) }}
+                      {{ backtestState.result?.profit_loss_ratio?.toFixed(2) || '0.00' }}
                     </div>
                   </ElCard>
                   <ElCard class="metric-card shadow-sm">
@@ -2242,6 +2243,67 @@ onUnmounted(() => {
                       {{ backtestState.result.trades?.length || 0 }}
                     </div>
                   </ElCard>
+                </div>
+                </div>
+              </ElTabPane>
+
+              <!-- 可视化图表 -->
+              <ElTabPane label="可视化图表" name="charts">
+                <div v-if="!backtestState.result" class="h-64 flex-center">
+                  <ElEmpty description="暂无回测结果，请先运行回测" :image-size="80" />
+                </div>
+                <div v-else>
+                  <div class="text-center py-10">
+                    <ElEmpty description="可视化图表功能开发中" :image-size="80" />
+                  </div>
+                </div>
+              </ElTabPane>
+
+              <!-- 交易记录 -->
+              <ElTabPane label="交易记录" name="trades">
+                <div v-if="!backtestState.result" class="h-64 flex-center">
+                  <ElEmpty description="暂无回测结果，请先运行回测" :image-size="80" />
+                </div>
+                <div v-else>
+                  <div class="text-center py-10">
+                    <ElEmpty description="交易记录功能开发中" :image-size="80" />
+                  </div>
+                </div>
+              </ElTabPane>
+
+              <!-- 交易分析 -->
+              <ElTabPane label="交易分析" name="analysis">
+                <div v-if="!backtestState.result" class="h-64 flex-center">
+                  <ElEmpty description="暂无回测结果，请先运行回测" :image-size="80" />
+                </div>
+                <div v-else>
+                  <div class="text-center py-10">
+                    <ElEmpty description="交易分析功能开发中" :image-size="80" />
+                  </div>
+                </div>
+              </ElTabPane>
+
+              <!-- 策略对比 -->
+              <ElTabPane label="策略对比" name="compare" v-if="Object.values(form.strategyConfigs).filter(c => c.enabled).length > 1">
+                <div v-if="!backtestState.result" class="h-64 flex-center">
+                  <ElEmpty description="暂无回测结果，请先运行回测" :image-size="80" />
+                </div>
+                <div v-else>
+                  <div class="text-center py-10">
+                    <ElEmpty description="策略对比功能开发中" :image-size="80" />
+                  </div>
+                </div>
+              </ElTabPane>
+
+              <!-- 高级分析 -->
+              <ElTabPane label="高级分析" name="advanced">
+                <div v-if="!backtestState.result" class="h-64 flex-center">
+                  <ElEmpty description="暂无回测结果，请先运行回测" :image-size="80" />
+                </div>
+                <div v-else>
+                  <div class="text-center py-10">
+                    <ElEmpty description="高级分析功能开发中" :image-size="80" />
+                  </div>
                 </div>
               </ElTabPane>
             </ElTabs>
