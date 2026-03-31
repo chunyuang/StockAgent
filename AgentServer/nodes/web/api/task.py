@@ -22,7 +22,7 @@ from core.protocols import (
     TaskStatus,
 )
 from core.managers import redis_manager, mongo_manager
-from .auth import get_current_user_id
+from .auth import get_current_user_id, get_optional_user_id
 
 
 router = APIRouter()
@@ -208,7 +208,7 @@ async def dispatch_task(task: AgentTask) -> None:
 async def create_task(
     request: Request,
     body: CreateTaskRequest,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_optional_user_id),
 ):
     """创建分析任务"""
     trace_id = getattr(request.state, "trace_id", uuid.uuid4().hex)
@@ -264,7 +264,7 @@ async def list_tasks(
     task_type: Optional[TaskType] = None,
     limit: int = Query(default=20, le=100),
     offset: int = Query(default=0, ge=0),
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_optional_user_id),
 ):
     """获取任务列表"""
     filter_query = {"user_id": user_id}
@@ -316,7 +316,7 @@ async def list_tasks(
 @router.get("/{task_id}", response_model=TaskItem)
 async def get_task(
     task_id: str,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_optional_user_id),
 ):
     """获取任务详情"""
     task = await mongo_manager.find_one(
@@ -350,30 +350,71 @@ async def get_task(
 @router.delete("/{task_id}")
 async def cancel_task(
     task_id: str,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_optional_user_id),
 ):
-    """取消任务"""
+    """取消任务
+    支持取消等待中和运行中的任务
+    """
+    # 先查询任务
+    task = await mongo_manager.find_one(
+        "tasks",
+        {"task_id": task_id, "user_id": user_id},
+    )
+    
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    
+    # 允许取消的状态：pending/queued/running
+    allowed_statuses = ["pending", "queued", "running"]
+    if task["status"] not in allowed_statuses:
+        raise HTTPException(
+            status_code=400,
+            detail=f"当前状态 {task['status']} 无法取消，只能取消等待中/运行中的任务"
+        )
+    
+    # 1. 从Redis队列移除任务
+    try:
+        await redis_manager.remove_task_from_queue(task_id)
+    except Exception as e:
+        logger.warning(f"Failed to remove task {task_id} from queue: {e}")
+    
+    # 2. 如果任务已经分配到节点，发送取消指令
+    if task.get("node_id"):
+        try:
+            # 通过RPC发送取消指令给对应节点
+            from core.rpc import RPCClient
+            rpc_client = RPCClient()
+            await rpc_client.send_to_node(
+                node_id=task["node_id"],
+                method="cancel_task",
+                params={"task_id": task_id},
+                timeout=5.0,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to send cancel command to node {task['node_id']}: {e}")
+    
+    # 3. 更新数据库状态
     result = await mongo_manager.update_one(
         "tasks",
-        {"task_id": task_id, "user_id": user_id, "status": {"$in": ["pending", "queued"]}},
-        {"$set": {"status": TaskStatus.CANCELLED.value}},
+        {"task_id": task_id, "user_id": user_id},
+        {"$set": {"status": TaskStatus.CANCELLED.value, "cancelled_at": datetime.utcnow()}},
     )
     
     if result == 0:
-        raise HTTPException(status_code=400, detail="任务无法取消")
+        raise HTTPException(status_code=500, detail="取消失败")
     
-    return {"message": "任务已取消"}
+    return {"message": "任务已取消", "task_id": task_id}
 
 
 @router.delete("/{task_id}/delete")
 async def delete_task(
     task_id: str,
-    user_id: str = Depends(get_current_user_id),
+    force: bool = Query(default=False, description="是否强制删除，即使任务运行中"),
+    user_id: str = Depends(get_optional_user_id),
 ):
     """
     永久删除任务
-    
-    只能删除已完成、失败或已取消的任务
+    默认只能删除已完成/失败/已取消的任务，开启force=true可强制删除运行中的任务
     """
     # 先检查任务是否存在且属于当前用户
     task = await mongo_manager.find_one(
@@ -384,13 +425,31 @@ async def delete_task(
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
     
-    # 检查任务状态
-    deletable_statuses = ["completed", "failed", "cancelled"]
-    if task["status"] not in deletable_statuses:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"只能删除已完成/失败/已取消的任务，当前状态: {task['status']}"
-        )
+    # 如果不是强制删除，检查状态
+    if not force:
+        deletable_statuses = ["completed", "failed", "cancelled"]
+        if task["status"] not in deletable_statuses:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"非强制模式下只能删除已完成/失败/已取消的任务，当前状态: {task['status']}，如需删除运行中任务请加force=true参数"
+            )
+    
+    # 强制删除时先尝试取消任务
+    if force and task["status"] in ["pending", "queued", "running"]:
+        try:
+            # 先取消任务
+            await redis_manager.remove_task_from_queue(task_id)
+            if task.get("node_id"):
+                from core.rpc import RPCClient
+                rpc_client = RPCClient()
+                await rpc_client.send_to_node(
+                    node_id=task["node_id"],
+                    method="cancel_task",
+                    params={"task_id": task_id},
+                    timeout=3.0,
+                )
+        except Exception as e:
+            logger.warning(f"Failed to cancel task before delete: {e}")
     
     # 删除任务
     result = await mongo_manager.delete_one(
@@ -401,7 +460,7 @@ async def delete_task(
     if result == 0:
         raise HTTPException(status_code=500, detail="删除失败")
     
-    logger.info(f"Task deleted: {task_id} by user {user_id}")
+    logger.info(f"Task deleted: {task_id} by user {user_id}, force={force}")
     
     return {"message": "任务已删除", "task_id": task_id}
 
@@ -414,7 +473,7 @@ async def analyze_stock(
     request: Request,
     ts_code: str = Query(..., description="股票代码"),
     analysis_type: str = Query(default="comprehensive", description="分析类型"),
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_optional_user_id),
 ):
     """快速个股分析"""
     trace_id = getattr(request.state, "trace_id", uuid.uuid4().hex)
@@ -457,7 +516,7 @@ async def analyze_stock(
 @router.post("/analyze/market", response_model=CreateTaskResponse)
 async def analyze_market(
     request: Request,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_optional_user_id),
 ):
     """快速大盘分析"""
     trace_id = getattr(request.state, "trace_id", uuid.uuid4().hex)
@@ -493,7 +552,7 @@ async def analyze_market(
 async def query_analysis(
     request: Request,
     query: str = Query(..., description="查询内容"),
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_optional_user_id),
 ):
     """自然语言查询"""
     trace_id = getattr(request.state, "trace_id", uuid.uuid4().hex)
