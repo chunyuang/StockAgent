@@ -10,6 +10,7 @@ import { useTaskStore } from '@/stores/task'
 import { useTask } from '@/hooks'
 import { taskApi, stockApi } from '@/api'
 import { ElMessage, ElMessageBox, ElDialog, ElRadioGroup, ElRadioButton, ElAutocomplete } from 'element-plus'
+import { TaskStatus } from '@/api/types'
 import { 
   Plus, 
   Clock, 
@@ -24,6 +25,7 @@ import {
   Filter,
   ArrowRight,
   Delete,
+  VideoPause,
 } from '@element-plus/icons-vue'
 import type { Task, StockBasic } from '@/api/types'
 import dayjs from 'dayjs'
@@ -43,6 +45,8 @@ const typeFilter = ref<string>('all')
 
 // 删除操作状态
 const deletingTaskId = ref<string | null>(null)
+// 取消操作状态
+const cancellingTaskId = ref<string | null>(null)
 
 // 新建任务弹窗
 const createDialogVisible = ref(false)
@@ -108,15 +112,65 @@ function viewTask(taskId: string) {
   router.push(`/analysis/${taskId}`)
 }
 
+// 取消任务
+async function handleCancelTask(event: Event, task: Task) {
+  event.stopPropagation() // 阻止冒泡到卡片点击
+  
+  try {
+    await ElMessageBox.confirm(
+      '确定要取消这个任务吗？取消后任务将停止执行。',
+      '取消确认',
+      {
+        confirmButtonText: '确认取消',
+        cancelButtonText: '返回',
+        type: 'warning',
+        confirmButtonClass: 'el-button--warning',
+      }
+    )
+    
+    cancellingTaskId.value = task.task_id
+    
+    await taskApi.cancelTask(task.task_id)
+    taskStore.updateTaskStatus(task.task_id, TaskStatus.CANCELLED)
+    
+    ElMessage.success('任务已取消')
+  } catch (error: unknown) {
+    if (error !== 'cancel') {
+      const errMsg = error instanceof Error ? error.message : '取消失败'
+      ElMessage.error(errMsg)
+    }
+  } finally {
+    cancellingTaskId.value = null
+  }
+}
+
 // 删除任务
 async function handleDeleteTask(event: Event, task: Task) {
   event.stopPropagation() // 阻止冒泡到卡片点击
   
   // 检查任务状态
   const deletableStatuses = ['completed', 'failed', 'cancelled']
+  let forceDelete = false
+  
   if (!deletableStatuses.includes(task.status)) {
-    ElMessage.warning('只能删除已完成、失败或已取消的任务')
-    return
+    // 运行中的任务，询问是否强制删除
+    try {
+      await ElMessageBox.confirm(
+        '该任务正在运行中，删除会强制终止任务并无法恢复。确定要强制删除吗？',
+        '强制删除确认',
+        {
+          confirmButtonText: '强制删除',
+          cancelButtonText: '取消',
+          type: 'warning',
+          confirmButtonClass: 'el-button--danger',
+        }
+      )
+      forceDelete = true
+    } catch (error) {
+      if (error === 'cancel') {
+        return
+      }
+    }
   }
   
   try {
@@ -133,7 +187,7 @@ async function handleDeleteTask(event: Event, task: Task) {
     
     deletingTaskId.value = task.task_id
     
-    await taskApi.deleteTask(task.task_id)
+    await taskApi.deleteTask(task.task_id, forceDelete)
     taskStore.removeTask(task.task_id)
     
     ElMessage.success('任务已删除')
@@ -148,9 +202,15 @@ async function handleDeleteTask(event: Event, task: Task) {
 }
 
 // 判断任务是否可删除
-function isDeletable(task: Task): boolean {
-  const deletableStatuses = ['completed', 'failed', 'cancelled']
-  return deletableStatuses.includes(task.status)
+function isDeletable(_task: Task): boolean {
+  // 所有状态的任务都可以删除（运行中的可以强制删除）
+  return true
+}
+
+// 判断任务是否可取消
+function isCancellable(task: Task): boolean {
+  const cancellableStatuses = ['pending', 'queued', 'running']
+  return cancellableStatuses.includes(task.status)
 }
 
 // 格式化时间
@@ -409,6 +469,19 @@ async function handleCreateTask(): Promise<void> {
                 />
                 <span>{{ getStatusConfig(task.status).label }}</span>
               </div>
+              
+              <!-- 取消按钮 -->
+              <button 
+                v-if="isCancellable(task)"
+                class="cancel-btn"
+                :class="{ 'is-loading': cancellingTaskId === task.task_id }"
+                :disabled="cancellingTaskId === task.task_id"
+                @click="handleCancelTask($event, task)"
+                title="取消任务"
+              >
+                <Loading v-if="cancellingTaskId === task.task_id" class="spinning" />
+                <VideoPause v-else />
+              </button>
               
               <!-- 删除按钮 -->
               <button 
@@ -696,6 +769,7 @@ async function handleCreateTask(): Promise<void> {
       transform: translateX(4px);
     }
     
+    .cancel-btn,
     .delete-btn {
       opacity: 1;
     }
@@ -804,6 +878,40 @@ async function handleCreateTask(): Promise<void> {
     &.spinning {
       animation: spin 1s linear infinite;
     }
+  }
+}
+
+.cancel-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  opacity: 0;
+  transition: all 0.2s;
+  
+  svg {
+    width: 16px;
+    height: 16px;
+  }
+  
+  &:hover {
+    background: rgba(245, 158, 11, 0.1);
+    color: #f59e0b;
+  }
+  
+  &.is-loading {
+    opacity: 1;
+    color: var(--text-tertiary);
+  }
+  
+  &:disabled {
+    cursor: not-allowed;
   }
 }
 
