@@ -352,6 +352,10 @@ class MongoManager(BaseManager):
         self._ensure_initialized()
         return await self._db[collection].count_documents(filter)
     
+    async def count_documents(self, collection: str, filter: dict) -> int:
+        """统计数量 (count的别名，兼容旧代码)"""
+        return await self.count(collection, filter)
+    
     async def aggregate(
         self,
         collection: str,

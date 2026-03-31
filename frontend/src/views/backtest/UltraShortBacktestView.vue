@@ -1414,8 +1414,8 @@ onUnmounted(() => {
               <div class="config-section mb-3">
                 <div class="section-title mb-2" style="font-size: 14px; font-weight: 600; color: #3b82f6; padding: 12px 16px; background: linear-gradient(135deg, rgba(59, 130, 246, 0.05), rgba(139, 92, 246, 0.05)); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 8px; display: flex; align-items: center; gap: 12px;">
                   🔄 回测执行流程
-                  <div class="process-flow" style="flex: 1; display: flex; align-items: center; justify-content: space-around; transform: scale(0.8); transform-origin: left center;">
-                    <div class="flow-step" v-for="(step, index) in flowSteps" :key="index" :class="{ 'active': (backtestState.running && backtestState.progress >= (index+1)*(100/flowSteps.length)) || backtestState.status === 'completed' }" style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
+                  <div class="process-flow" style="flex: 1; display: flex; align-items: center; justify-content: space-around; transform: scale(0.65); transform-origin: left center; max-width: 600px;">
+                    <div class="flow-step" v-for="(step, index) in flowSteps" :key="index" :class="{ 'active': (backtestState.running && backtestState.progress >= (index+1)*(100/flowSteps.length)) || backtestState.status === 'completed' }" style="display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 60px;">
                       <div class="step-icon" style="font-size: 18px;">{{ step.icon }}</div>
                       <div class="step-name" style="font-size: 11px; font-weight: 500;">{{ step.name }}</div>
                       <div class="step-arrow" v-if="index < flowSteps.length -1" style="font-size: 16px; color: #3b82f6; position: absolute; right: -20px; top: 50%; transform: translateY(-50%);">→</div>
@@ -1426,31 +1426,23 @@ onUnmounted(() => {
 
               <!-- 快速预设模板 -->
               <div class="config-section mb-3">
-                <div style="font-size: 14px; font-weight: 600; color: #10b981; padding: 12px 16px; background: linear-gradient(135deg, rgba(16, 185, 129, 0.05), rgba(5, 150, 105, 0.05)); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 8px;">
-                  <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                <div style="font-size: 14px; font-weight: 600; color: #10b981; padding: 12px 16px; background: linear-gradient(135deg, rgba(16, 185, 129, 0.05), rgba(5, 150, 105, 0.05)); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 8px; display: flex; align-items: center; justify-content: space-between;">
+                  <div style="display: flex; align-items: center; gap: 8px;">
                     ⚡ 快速预设模板
-                    <span style="font-size: 12px; font-weight: normal; color: #059669;">当前: {{ selectedPreset !== null ? presetTemplates[selectedPreset].name : '未选择' }}</span>
+                    <span style="font-size: 12px; font-weight: normal; color: #059669;">
+                      {{ selectedPreset !== null ? `${presetTemplates[selectedPreset].name} (${presetTemplates[selectedPreset].desc})` : '未选择' }}
+                    </span>
                   </div>
-                  <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-                    <button 
-                      v-for="(tpl, index) in presetTemplates" 
-                      :key="index"
-                      :class="{ active: selectedPreset === index }"
-                      style="flex: 1; min-width: 180px; padding: 10px 14px; border: 2px solid var(--border-color); border-radius: 8px; cursor: pointer; transition: all 0.2s; background: var(--bg-secondary); display: flex; align-items: center; gap: 8px;"
-                      :style="selectedPreset === index ? 'border-color: #10b981; background: rgba(16, 185, 129, 0.08);' : ''"
-                      @click="() => { selectedPreset.value = index; applyTemplate(tpl); ElMessage.success(`已应用【${tpl.name}】模板`); }"
-                    >
+                  <div style="display: flex; gap: 24px; align-items: center;">
+                    <label v-for="(tpl, index) in presetTemplates" :key="index" style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; font-weight: normal; color: var(--text-primary);" @click="() => { selectedPreset.value = index; applyTemplate(tpl); ElMessage.success(`已应用【${tpl.name}】模板`); }">
                       <input 
                         type="radio" 
                         name="presetTemplate" 
                         :checked="selectedPreset === index"
-                        style="width: 16px; height: 16px; accent-color: #10b981; flex-shrink: 0;"
+                        style="width: 16px; height: 16px; accent-color: #10b981;"
                       />
-                      <div style="flex: 1; text-align: left;">
-                        <div style="font-weight: 600; font-size: 13px; color: var(--text-primary);">{{ tpl.name }}</div>
-                        <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">{{ tpl.desc }}</div>
-                      </div>
-                    </button>
+                      <span>{{ tpl.name }}</span>
+                    </label>
                   </div>
                 </div>
               </div>
