@@ -246,8 +246,8 @@ const { status: wsStatus, send: wsSend, data: wsData } = useWebSocket(
 
 // 表单验证（简化，基础验证足够）
 
-// 折叠面板激活项
-const activeCollapse = ref('strategies')
+// 折叠面板激活项（数组模式，支持同时展开多个）
+const activeCollapse = ref([])
 // 标签页激活项
 const activeTab = ref('metrics')
 // 策略参数标签页激活项
@@ -642,8 +642,12 @@ function renderTradeAnalysisCharts() {
 
 // ==================== 计算属性 ====================
 
+// 当前选中的预设模板
+const selectedPreset = ref<number | null>(null)
+
 const canRun = computed(() => {
-  return !backtestState.running && form.strategies.length > 0 && form.base.start_date && form.base.end_date
+  return !backtestState.running && form.base.start_date && form.base.end_date && 
+    Object.values(form.strategyConfigs).some((s: any) => s.enabled)
 })
 
 // ==================== 生命周期 ====================
@@ -765,7 +769,9 @@ async function runBacktest() {
     
     // 转换参数格式适配后端
     const submitParams = {
-      strategies: form.strategies,
+      strategies: Object.entries(form.strategyConfigs)
+        .filter(([_, config]) => (config as any).enabled)
+        .map(([key, _]) => key),
       start_date: form.base.start_date,
       end_date: form.base.end_date,
       initial_cash: form.base.initial_cash,
@@ -1404,63 +1410,134 @@ onUnmounted(() => {
               label-width="100px"
               size="small"
             >
-              <!-- 回测流程可视化 -->
-            <div class="config-section mb-4">
-              <div class="section-title mb-3">🔄 回测执行流程</div>
-              <div class="process-flow">
-                <div class="flow-step" v-for="(step, index) in flowSteps" :key="index" :class="{ 'active': (backtestState.running && backtestState.progress >= (index+1)*(100/flowSteps.length)) || backtestState.status === 'completed' }">
-                  <div class="step-icon">{{ step.icon }}</div>
-                  <div class="step-name">{{ step.name }}</div>
-                  <div class="step-arrow" v-if="index < flowSteps.length -1">→</div>
+              <ElCollapse v-model="activeCollapse">
+              </ElCollapse>
+
+              <!-- 回测执行流程 -->
+              <div class="config-section mb-3 mt-3">
+                <div class="section-title mb-2" style="font-size: 16px; font-weight: 600; color: #3b82f6;">🔄 回测执行流程</div>
+                <div class="process-flow" style="height: 60px; padding: 16px 20px; background: linear-gradient(135deg, rgba(59, 130, 246, 0.05), rgba(139, 92, 246, 0.05)); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 12px;">
+                  <div class="flow-step" v-for="(step, index) in flowSteps" :key="index" :class="{ 'active': (backtestState.running && backtestState.progress >= (index+1)*(100/flowSteps.length)) || backtestState.status === 'completed' }" style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
+                    <div class="step-icon" style="font-size: 22px;">{{ step.icon }}</div>
+                    <div class="step-name" style="font-size: 12px; font-weight: 500;">{{ step.name }}</div>
+                    <div class="step-arrow" v-if="index < flowSteps.length -1" style="font-size: 18px; color: #3b82f6; margin: 0 12px;">→</div>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <!-- 预设模板 -->
-            <div class="config-section mb-4">
-              <div class="section-title mb-2">⚡ 快速预设模板</div>
-              <div class="template-buttons">
-                <button 
-                  class="template-btn" 
-                  v-for="(tpl, index) in presetTemplates" 
-                  :key="index"
-                  @click="applyTemplate(tpl)"
-                >
-                  <span class="tpl-name">{{ tpl.name }}</span>
-                  <span class="tpl-desc">{{ tpl.desc }}</span>
-                </button>
-              </div>
-            </div>
+              <ElCollapse v-model="activeCollapse">
 
-            <!-- 基础配置 -->
-            <div class="config-section">
-              <div class="section-title">📅 基础配置</div>
-              <div class="grid grid-cols-2 gap-2">
-                <ElFormItem label="开始日期">
-                  <ElInput v-model="form.base.start_date" placeholder="YYYYMMDD" size="small" />
-                  <div class="param-tip">默认：20260105 | 回测起始日期，格式YYYYMMDD</div>
-                </ElFormItem>
-                <ElFormItem label="结束日期">
-                  <ElInput v-model="form.base.end_date" placeholder="YYYYMMDD" size="small" />
-                  <div class="param-tip">默认：20260320 | 回测结束日期，格式YYYYMMDD</div>
-                </ElFormItem>
-              </div>
-              <ElFormItem label="初始资金">
-                <ElInputNumber 
-                  v-model="form.base.initial_cash" 
-                  :min="10000" 
-                  :max="100000000"
-                  style="width: 100%"
-                  size="small"
-                  prefix="¥"
-                />
-                <div class="param-tip">默认：1000000 | 回测初始资金，单位元，范围1万~1亿</div>
-              </ElFormItem>
-            </div>
+                <!-- 快速预设模板 -->
+                <ElCollapseItem title="⚡ 快速预设模板" name="presetTemplate">
+                  <div class="param-tip mb-3">一键应用预设配置组合，快速切换风险收益偏好</div>
+                  <div class="template-options" style="display: flex; flex-direction: column; gap: 10px;">
+                    <label 
+                      v-for="(tpl, index) in presetTemplates" 
+                      :key="index"
+                      class="template-option"
+                      :class="{ active: selectedPreset === index }"
+                      style="display: flex; align-items: center; gap: 12px; padding: 14px; border: 2px solid var(--border-color); border-radius: 10px; cursor: pointer; transition: all 0.2s; background: var(--bg-secondary);"
+                      :style="selectedPreset === index ? 'border-color: #10b981; background: rgba(16, 185, 129, 0.08);' : ''"
+                      @click="() => { selectedPreset.value = index; applyTemplate(tpl); ElMessage.success(`已应用【${tpl.name}】模板`); }"
+                    >
+                      <input 
+                        type="radio" 
+                        name="presetTemplate" 
+                        :checked="selectedPreset === index"
+                        style="width: 18px; height: 18px; accent-color: #10b981;"
+                      />
+                      <div style="flex: 1;">
+                        <div style="font-weight: 600; font-size: 15px; color: var(--text-primary);">{{ tpl.name }}</div>
+                        <div style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">{{ tpl.desc }}</div>
+                        <div style="font-size: 12px; color: var(--text-secondary); margin-top: 6px; line-height: 1.5;">
+                          🔍 筛选：最低成交额 {{ tpl.config.globalFilter.min_daily_amount }}万 | 换手率 ≥ {{ tpl.config.globalFilter.min_turnover_rate }}%<br/>
+                          💰 交易：总仓位上限 {{ tpl.config.tradeParams.max_total_position * 100 }}% | 止损 {{ tpl.config.tradeParams.stop_loss_pct * 100 }}% | 止盈 {{ tpl.config.tradeParams.take_profit_pct * 100 }}%<br/>
+                          🎯 策略：{{ tpl.config.strategies.map(s => form.strategyConfigs[s as keyof typeof form.strategyConfigs].name).join('、') }}
+                        </div>
+                      </div>
+                    </label>
+                  </div>
+                </ElCollapseItem>
+                <!-- 基础配置 -->
+                <ElCollapseItem :title="`📅 基础配置 (${form.base.start_date}~${form.base.end_date}, 初始资金¥${(form.base.initial_cash/10000).toFixed(0)}万)`" name="baseConfig">
+                  <div class="param-item">
+                    <div class="param-header">
+                      <div>
+                        <span class="param-label">开始日期</span>
+                        <div class="param-tip">默认：20260105 | 回测起始日期，格式YYYYMMDD</div>
+                      </div>
+                      <span class="param-value">
+                        <ElInput v-model="form.base.start_date" placeholder="YYYYMMDD" size="small" style="width: 120px" />
+                      </span>
+                    </div>
+                  </div>
+                  <div class="param-item">
+                    <div class="param-header">
+                      <div>
+                        <span class="param-label">结束日期</span>
+                        <div class="param-tip">默认：20260320 | 回测结束日期，格式YYYYMMDD</div>
+                      </div>
+                      <span class="param-value">
+                        <ElInput v-model="form.base.end_date" placeholder="YYYYMMDD" size="small" style="width: 120px" />
+                      </span>
+                    </div>
+                  </div>
+                  <div class="param-item">
+                    <div class="param-header">
+                      <div>
+                        <span class="param-label">初始资金</span>
+                        <div class="param-tip">默认：1000000 | 回测初始资金，单位元，范围1万~1亿</div>
+                      </div>
+                      <span class="param-value">
+                        <ElInputNumber 
+                          v-model="form.base.initial_cash" 
+                          :min="10000" 
+                          :max="100000000"
+                          size="small"
+                          prefix="¥"
+                          style="width: 120px"
+                        />
+                        <span class="param-unit">元</span>
+                      </span>
+                    </div>
+                  </div>
+                </ElCollapseItem>
 
-              <ElCollapse v-model="activeCollapse" accordion>
+                <!-- 交易参数配置 -->
+                <ElCollapseItem :title="`💹 交易参数 (止损${(form.tradeParams.base_stop_loss_pct*100).toFixed(1)}%, 止盈${(form.tradeParams.base_take_profit_pct*100).toFixed(1)}%, 持仓${form.tradeParams.max_hold_days}天, 总仓${(form.tradeParams.max_total_position*100).toFixed(0)}%, 单票${(form.tradeParams.max_position_per_stock*100).toFixed(0)}%, 佣金${(form.tradeParams.commission_rate*1000).toFixed(2)}‰, 印花税${(form.tradeParams.stamp_duty_rate*1000).toFixed(1)}‰, 滑点${(form.tradeParams.slippage_pct*1000).toFixed(1)}‰)`" name="tradeParams">
+                  <div class="grid grid-cols-2 gap-2">
+                    <div class="param-item" v-for="[key, value] of Object.entries(form.tradeParams)" :key="key">
+                      <div class="param-header">
+                        <span class="param-label">{{ 
+                          key === 'base_stop_loss_pct' ? '基础止损' :
+                          key === 'base_take_profit_pct' ? '基础止盈' :
+                          key === 'max_hold_days' ? '最大持仓天数' :
+                          key === 'max_position_per_stock' ? '单票最大仓位' :
+                          key === 'max_total_position' ? '总仓位上限' :
+                          key === 'commission_rate' ? '佣金费率' :
+                          key === 'stamp_duty_rate' ? '印花税税率' :
+                          key === 'slippage_pct' ? '滑点比例' : key
+                        }}</span>
+                        <span class="param-value">
+                          <ElInputNumber 
+                            v-model="form.tradeParams[key as keyof typeof form.tradeParams]" 
+                            :min="0" 
+                            :max="(key as string).includes('max') && !(key as string).includes('rate') ? 10 : 1" 
+                            :step="(key as string).includes('pct') || (key as string).includes('rate') ? 0.001 : 0.1"
+                            size="small" 
+                            style="width: 160px" 
+                          />
+                          <span class="param-unit">
+                            {{ (key as string).includes('pct') || (key as string).includes('rate') ? '%' : (key as string).includes('day') ? '天' : '' }}
+                          </span>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </ElCollapseItem>
+
                 <!-- 全局筛选配置 -->
-                <ElCollapseItem title="🔍 全局筛选参数" name="globalFilter">
+                <ElCollapseItem :title="`🔍 全局筛选 (剔除ST: ${form.globalFilter.exclude_st ? '✅' : '❌'}, 剔除退市: ${form.globalFilter.exclude_delisting ? '✅' : '❌'}, 次新股≥${form.globalFilter.exclude_new_stock_days}天, 成交额≥${form.globalFilter.min_daily_amount}万, 换手率≥${form.globalFilter.min_turnover_rate}%)`" name="globalFilter">
                   <div class="param-item" v-for="[key, value] of Object.entries(form.globalFilter)" :key="key">
                     <div class="param-header">
                       <div>
@@ -1489,15 +1566,15 @@ onUnmounted(() => {
                           </div>
                         </template>
                         <template v-else-if="key === 'exclude_new_stock_days'">
-                          <ElInputNumber v-model="form.globalFilter[key as keyof typeof form.globalFilter]" :min="30" :max="180" size="small" style="width: 80px" />
+                          <ElInputNumber v-model="form.globalFilter[key as keyof typeof form.globalFilter]" :min="30" :max="180" size="small" style="width: 160px" />
                           <span class="param-unit">天</span>
                         </template>
                         <template v-else-if="key === 'min_daily_amount'">
-                          <ElInputNumber v-model="form.globalFilter[key as keyof typeof form.globalFilter]" :min="100" :max="5000" size="small" style="width: 80px" />
+                          <ElInputNumber v-model="form.globalFilter[key as keyof typeof form.globalFilter]" :min="100" :max="5000" size="small" style="width: 160px" />
                           <span class="param-unit">万元</span>
                         </template>
                         <template v-else-if="key === 'min_turnover_rate'">
-                          <ElInputNumber v-model="form.globalFilter[key as keyof typeof form.globalFilter]" :min="1" :max="20" size="small" style="width: 80px" />
+                          <ElInputNumber v-model="form.globalFilter[key as keyof typeof form.globalFilter]" :min="1" :max="20" size="small" style="width: 160px" />
                           <span class="param-unit">%</span>
                         </template>
                       </span>
@@ -1506,7 +1583,14 @@ onUnmounted(() => {
                 </ElCollapseItem>
 
                 <!-- 强制空仓配置 -->
-                <ElCollapseItem title="⚠️ 强制空仓配置" name="forceEmpty">
+                <ElCollapseItem name="forceEmpty">
+                  <template #title>
+                    ⚠️ 强制空仓 
+                    <span @click.stop="form.forceEmpty.enabled = !form.forceEmpty.enabled" style="cursor: pointer; margin: 0 4px;">
+                      {{ form.forceEmpty.enabled ? '✅' : '❌' }}
+                    </span>
+                    (跌幅≥{{(form.forceEmpty.index_drop_pct*100).toFixed(1)}}%, 跌停≥{{form.forceEmpty.limit_down_count}}只, 涨停<{{form.forceEmpty.limit_up_count}}只)
+                  </template>
                   <div class="param-item">
                     <div class="param-header">
                       <span class="param-label">启用强制空仓</span>
@@ -1543,7 +1627,7 @@ onUnmounted(() => {
                           :max="10" 
                           :step="0.1"
                           size="small" 
-                          style="width: 80px" 
+                          style="width: 160px" 
                         />
                         <ElInputNumber 
                           v-else
@@ -1552,7 +1636,7 @@ onUnmounted(() => {
                           :max="1000" 
                           :step="1"
                           size="small" 
-                          style="width: 80px" 
+                          style="width: 160px" 
                         />
                         <span class="param-unit">{{ (key as string).includes('pct') ? '%' : '只/板' }}</span>
                       </span>
@@ -1561,7 +1645,14 @@ onUnmounted(() => {
                 </ElCollapseItem>
 
                 <!-- 情绪周期配置 -->
-                <ElCollapseItem title="🧠 情绪周期配置" name="sentimentCycle">
+                <ElCollapseItem name="sentimentCycle">
+                  <template #title>
+                    🧠 情绪周期 
+                    <span @click.stop="form.sentimentCycle.enabled = !form.sentimentCycle.enabled" style="cursor: pointer; margin: 0 4px;">
+                      {{ form.sentimentCycle.enabled ? '✅' : '❌' }}
+                    </span>
+                    (涨停{{form.sentimentCycle.weight_limit_up}}, 跌停{{form.sentimentCycle.weight_limit_down}}, 炸板率{{form.sentimentCycle.weight_blast_rate}}, 涨跌差{{form.sentimentCycle.weight_rise_fall_diff}}, 北向{{form.sentimentCycle.weight_north_inflow}})
+                  </template>
                   <div class="param-item">
                     <div class="param-header">
                       <span class="param-label">启用情绪周期</span>
@@ -1593,7 +1684,7 @@ onUnmounted(() => {
                           :max="1" 
                           :step="0.01"
                           size="small" 
-                          style="width: 80px" 
+                          style="width: 160px" 
                         />
                       </span>
                     </div>
@@ -1601,7 +1692,17 @@ onUnmounted(() => {
                 </ElCollapseItem>
 
                 <!-- 竞价过滤配置 -->
-                <ElCollapseItem title="⏰ 竞价过滤配置" name="auctionFilter">
+                <ElCollapseItem name="auctionFilter">
+                  <template #title>
+                    ⏰ 竞价过滤 
+                    <span @click.stop="form.auctionFilter.enabled = !form.auctionFilter.enabled" style="cursor: pointer; margin: 0 4px;">
+                      {{ form.auctionFilter.enabled ? '✅' : '❌' }}
+                    </span>
+                    (涨幅{{(form.auctionFilter.min_auction_pct*100).toFixed(1)}}%~{{(form.auctionFilter.max_auction_pct*100).toFixed(1)}}%, 成交额≥{{form.auctionFilter.min_auction_amount}}万, 量比≥{{form.auctionFilter.min_auction_volume_ratio}}, 未匹配量正: 
+                    <span @click.stop="form.auctionFilter.min_unmatched_volume_positive = !form.auctionFilter.min_unmatched_volume_positive" style="cursor: pointer;">
+                      {{ form.auctionFilter.min_unmatched_volume_positive ? '✅' : '❌' }}
+                    </span>)
+                  </template>
                   <div class="param-item">
                     <div class="param-header">
                       <span class="param-label">启用竞价过滤</span>
@@ -1628,7 +1729,7 @@ onUnmounted(() => {
                             :max="0.2" 
                             :step="0.005"
                             size="small" 
-                            style="width: 80px" 
+                            style="width: 160px" 
                           />
                           <span class="param-unit">%</span>
                         </template>
@@ -1638,7 +1739,7 @@ onUnmounted(() => {
                             :min="100" 
                             :max="5000" 
                             size="small" 
-                            style="width: 80px" 
+                            style="width: 160px" 
                           />
                           <span class="param-unit">万元</span>
                         </template>
@@ -1649,7 +1750,7 @@ onUnmounted(() => {
                             :max="5" 
                             :step="0.1"
                             size="small" 
-                            style="width: 80px" 
+                            style="width: 160px" 
                           />
                           <span class="param-unit">倍</span>
                         </template>
@@ -1658,111 +1759,333 @@ onUnmounted(() => {
                   </div>
                 </ElCollapseItem>
 
-                <!-- 交易参数配置 -->
-                <ElCollapseItem title="💹 交易参数配置" name="tradeParams">
-                  <div class="grid grid-cols-2 gap-2">
-                    <div class="param-item" v-for="[key, value] of Object.entries(form.tradeParams)" :key="key">
-                      <div class="param-header">
-                        <span class="param-label">{{ 
-                          key === 'base_stop_loss_pct' ? '基础止损' :
-                          key === 'base_take_profit_pct' ? '基础止盈' :
-                          key === 'max_hold_days' ? '最大持仓天数' :
-                          key === 'max_position_per_stock' ? '单票最大仓位' :
-                          key === 'max_total_position' ? '总仓位上限' :
-                          key === 'commission_rate' ? '佣金费率' :
-                          key === 'stamp_duty_rate' ? '印花税税率' :
-                          key === 'slippage_pct' ? '滑点比例' : key
-                        }}</span>
-                        <span class="param-value">
-                          <ElInputNumber 
-                            v-model="form.tradeParams[key as keyof typeof form.tradeParams]" 
-                            :min="0" 
-                            :max="(key as string).includes('max') && !(key as string).includes('rate') ? 10 : 1" 
-                            :step="(key as string).includes('pct') || (key as string).includes('rate') ? 0.001 : 0.1"
-                            size="small" 
-                            style="width: 80px" 
-                          />
-                          <span class="param-unit">
-                            {{ (key as string).includes('pct') || (key as string).includes('rate') ? '%' : (key as string).includes('day') ? '天' : '' }}
-                          </span>
-                        </span>
+
+                <!-- 半路追涨策略 -->
+                <ElCollapseItem name="halfway_chase">
+                  <template #title>
+                    🎯 半路追涨 
+                    <span @click.stop="form.strategyConfigs.halfway_chase.enabled = !form.strategyConfigs.halfway_chase.enabled" style="cursor: pointer; margin: 0 4px;">
+                      {{ form.strategyConfigs.halfway_chase.enabled ? '✅' : '❌' }}
+                    </span>
+                    (涨幅{{(form.strategyConfigs.halfway_chase.params.min_rise_pct.value*100).toFixed(1)}}%~{{(form.strategyConfigs.halfway_chase.params.max_rise_pct.value*100).toFixed(1)}}%, 量比≥{{form.strategyConfigs.halfway_chase.params.min_volume_ratio.value.toFixed(1)}}, 10点后买入: 
+                    <span @click.stop="form.strategyConfigs.halfway_chase.params.allow_after_10am.value = !form.strategyConfigs.halfway_chase.params.allow_after_10am.value" style="cursor: pointer;">
+                      {{ form.strategyConfigs.halfway_chase.params.allow_after_10am.value ? '✅' : '❌' }}
+                    </span>)
+                  </template>
+                  <div class="param-item">
+                    <div class="param-header">
+                      <span class="param-label">启用该策略</span>
+                      <span class="param-value">
+                        <ElSwitch v-model="form.strategyConfigs.halfway_chase.enabled" size="small" />
+                      </span>
+                    </div>
+                  </div>
+                  <div class="param-item" v-for="[paramKey, param] of Object.entries(form.strategyConfigs.halfway_chase.params)" :key="paramKey">
+                    <div class="param-header">
+                      <div>
+                        <span class="param-label">{{ param.label }}</span>
+                        <div class="param-tip" v-if="param.desc">{{ param.desc }}</div>
                       </div>
+                      <span class="param-value">
+                        <template v-if="typeof param.value === 'boolean'">
+                          <ElSwitch v-model="form.strategyConfigs.halfway_chase.params[paramKey as keyof typeof form.strategyConfigs['halfway_chase']['params']].value" size="small" />
+                        </template>
+                        <template v-else-if="param.options">
+                          <ElSelect 
+                            v-model="form.strategyConfigs.halfway_chase.params[paramKey as keyof typeof form.strategyConfigs['halfway_chase']['params']].value" 
+                            size="small" 
+                            style="width: 160px"
+                          >
+                            <ElOption 
+                              v-for="option in param.options" 
+                              :key="option" 
+                              :label="option" 
+                              :value="option"
+                            />
+                          </ElSelect>
+                        </template>
+                        <template v-else-if="typeof param.value === 'string' && (param.value as string).includes(':')">
+                          <ElInput 
+                            v-model="form.strategyConfigs.halfway_chase.params[paramKey as keyof typeof form.strategyConfigs['halfway_chase']['params']].value" 
+                            size="small" 
+                            style="width: 160px"
+                          />
+                        </template>
+                        <template v-else>
+                          <ElInputNumber 
+                            v-model="form.strategyConfigs.halfway_chase.params[paramKey as keyof typeof form.strategyConfigs['halfway_chase']['params']].value" 
+                            :min="0" 
+                            :max="(paramKey as string).includes('pct') ? 1 : 100000" 
+                            :step="(paramKey as string).includes('pct') ? 0.01 : 1"
+                            size="small" 
+                            style="width: 160px" 
+                          />
+                          <span class="param-unit" v-if="param.unit">{{ param.unit }}</span>
+                        </template>
+                      </span>
                     </div>
                   </div>
                 </ElCollapseItem>
 
-                <!-- 策略选择与独立参数 -->
-                <ElCollapseItem title="🎯 策略配置" name="strategies">
-                  <div class="mb-3">
-                    <div class="section-title mb-2">选择策略</div>
-                    <ElCheckboxGroup v-model="form.strategies" size="small">
-                      <ElCheckbox 
-                        v-for="(config, key) in form.strategyConfigs" 
-                        :key="key" 
-                        :label="key"
-                      >
-                        {{ config.name }}
-                      </ElCheckbox>
-                    </ElCheckboxGroup>
+                <!-- 首板打板策略 -->
+                <ElCollapseItem name="first_limit_up">
+                  <template #title>
+                    🎯 首板打板 
+                    <span @click.stop="form.strategyConfigs.first_limit_up.enabled = !form.strategyConfigs.first_limit_up.enabled" style="cursor: pointer; margin: 0 4px;">
+                      {{ form.strategyConfigs.first_limit_up.enabled ? '✅' : '❌' }}
+                    </span>
+                    (封单≥{{form.strategyConfigs.first_limit_up.params.min_seal_amount.value}}万, 涨停≤{{form.strategyConfigs.first_limit_up.params.max_limit_up_time.value}}, 流通市值≤{{form.strategyConfigs.first_limit_up.params.max_circulation_market_cap.value}}亿, 炸板≤{{form.strategyConfigs.first_limit_up.params.max_blast_count.value}}次, 热点板块: 
+                    <span @click.stop="form.strategyConfigs.first_limit_up.params.require_hot_sector.value = !form.strategyConfigs.first_limit_up.params.require_hot_sector.value" style="cursor: pointer;">
+                      {{ form.strategyConfigs.first_limit_up.params.require_hot_sector.value ? '✅' : '❌' }}
+                    </span>)
+                  </template>
+                  <div class="param-item">
+                    <div class="param-header">
+                      <span class="param-label">启用该策略</span>
+                      <span class="param-value">
+                        <ElSwitch v-model="form.strategyConfigs.first_limit_up.enabled" size="small" />
+                      </span>
+                    </div>
                   </div>
+                  <div class="param-item" v-for="[paramKey, param] of Object.entries(form.strategyConfigs.first_limit_up.params)" :key="paramKey">
+                    <div class="param-header">
+                      <div>
+                        <span class="param-label">{{ param.label }}</span>
+                        <div class="param-tip" v-if="param.desc">{{ param.desc }}</div>
+                      </div>
+                      <span class="param-value">
+                        <template v-if="typeof param.value === 'boolean'">
+                          <ElSwitch v-model="form.strategyConfigs.first_limit_up.params[paramKey as keyof typeof form.strategyConfigs['first_limit_up']['params']].value" size="small" />
+                        </template>
+                        <template v-else-if="param.options">
+                          <ElSelect 
+                            v-model="form.strategyConfigs.first_limit_up.params[paramKey as keyof typeof form.strategyConfigs['first_limit_up']['params']].value" 
+                            size="small" 
+                            style="width: 160px"
+                          >
+                            <ElOption 
+                              v-for="option in param.options" 
+                              :key="option" 
+                              :label="option" 
+                              :value="option"
+                            />
+                          </ElSelect>
+                        </template>
+                        <template v-else-if="typeof param.value === 'string' && (param.value as string).includes(':')">
+                          <ElInput 
+                            v-model="form.strategyConfigs.first_limit_up.params[paramKey as keyof typeof form.strategyConfigs['first_limit_up']['params']].value" 
+                            size="small" 
+                            style="width: 160px"
+                          />
+                        </template>
+                        <template v-else>
+                          <ElInputNumber 
+                            v-model="form.strategyConfigs.first_limit_up.params[paramKey as keyof typeof form.strategyConfigs['first_limit_up']['params']].value" 
+                            :min="0" 
+                            :max="(paramKey as string).includes('pct') ? 1 : 100000" 
+                            :step="(paramKey as string).includes('pct') ? 0.01 : 1"
+                            size="small" 
+                            style="width: 160px" 
+                          />
+                          <span class="param-unit" v-if="param.unit">{{ param.unit }}</span>
+                        </template>
+                      </span>
+                    </div>
+                  </div>
+                </ElCollapseItem>
 
-                  <div v-if="form.strategies.length > 0">
-                    <el-tabs type="border-card" size="small" v-model="activeStrategyTab">
-                      <el-tab-pane 
-                        v-for="strategyKey in form.strategies" 
-                        :key="strategyKey" 
-                        :label="form.strategyConfigs[strategyKey as keyof typeof form.strategyConfigs].name"
-                        :name="strategyKey"
-                      >
-                        <div class="strategy-params">
-                          <div class="param-item" v-for="[paramKey, param] of Object.entries(form.strategyConfigs[strategyKey as keyof typeof form.strategyConfigs].params)" :key="paramKey">
-                            <div class="param-header">
-                              <div>
-                                <span class="param-label">{{ param.label }}</span>
-                                <div class="param-desc" v-if="param.desc">{{ param.desc }}</div>
-                              </div>
-                              <span class="param-value">
-                                <template v-if="typeof param.value === 'boolean'">
-                                  <ElSwitch v-model="form.strategyConfigs[strategyKey as keyof typeof form.strategyConfigs].params[paramKey as keyof typeof form.strategyConfigs['halfway_chase']['params']].value" size="small" />
-                                </template>
-                                <template v-else-if="param.options">
-                                  <el-select 
-                                    v-model="form.strategyConfigs[strategyKey as keyof typeof form.strategyConfigs].params[paramKey as keyof typeof form.strategyConfigs['halfway_chase']['params']].value" 
-                                    size="small" 
-                                    style="width: 100px"
-                                  >
-                                    <el-option 
-                                      v-for="option in param.options" 
-                                      :key="option" 
-                                      :label="option" 
-                                      :value="option"
-                                    />
-                                  </el-select>
-                                </template>
-                                <template v-else-if="typeof param.value === 'string' && (param.value as string).includes(':')">
-                                  <ElInput 
-                                    v-model="form.strategyConfigs[strategyKey as keyof typeof form.strategyConfigs].params[paramKey as keyof typeof form.strategyConfigs['halfway_chase']['params']].value" 
-                                    size="small" 
-                                    style="width: 100px"
-                                  />
-                                </template>
-                                <template v-else>
-                                  <ElInputNumber 
-                                    v-model="form.strategyConfigs[strategyKey as keyof typeof form.strategyConfigs].params[paramKey as keyof typeof form.strategyConfigs['halfway_chase']['params']].value" 
-                                    :min="0" 
-                                    :max="(paramKey as string).includes('pct') ? 1 : 100000" 
-                                    :step="(paramKey as string).includes('pct') ? 0.01 : 1"
-                                    size="small" 
-                                    style="width: 100px" 
-                                  />
-                                  <span class="param-unit" v-if="param.unit">{{ param.unit }}</span>
-                                </template>
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </el-tab-pane>
-                    </el-tabs>
+                <!-- 涨停开板策略 -->
+                <ElCollapseItem name="limit_up_open">
+                  <template #title>
+                    🎯 涨停开板 
+                    <span @click.stop="form.strategyConfigs.limit_up_open.enabled = !form.strategyConfigs.limit_up_open.enabled" style="cursor: pointer; margin: 0 4px;">
+                      {{ form.strategyConfigs.limit_up_open.enabled ? '✅' : '❌' }}
+                    </span>
+                    (连板≥{{form.strategyConfigs.limit_up_open.params.min_consecutive_limit.value}}板, 开板≤{{form.strategyConfigs.limit_up_open.params.max_open_duration.value}}分钟, 回封锁单≥{{form.strategyConfigs.limit_up_open.params.min_seal_after_open.value}}万, 换手率≥{{(form.strategyConfigs.limit_up_open.params.min_turnover_rate.value*100).toFixed(0)}}%)
+                  </template>
+                  <div class="param-item">
+                    <div class="param-header">
+                      <span class="param-label">启用该策略</span>
+                      <span class="param-value">
+                        <ElSwitch v-model="form.strategyConfigs.limit_up_open.enabled" size="small" />
+                      </span>
+                    </div>
+                  </div>
+                  <div class="param-item" v-for="[paramKey, param] of Object.entries(form.strategyConfigs.limit_up_open.params)" :key="paramKey">
+                    <div class="param-header">
+                      <div>
+                        <span class="param-label">{{ param.label }}</span>
+                        <div class="param-tip" v-if="param.desc">{{ param.desc }}</div>
+                      </div>
+                      <span class="param-value">
+                        <template v-if="typeof param.value === 'boolean'">
+                          <ElSwitch v-model="form.strategyConfigs.limit_up_open.params[paramKey as keyof typeof form.strategyConfigs['limit_up_open']['params']].value" size="small" />
+                        </template>
+                        <template v-else-if="param.options">
+                          <ElSelect 
+                            v-model="form.strategyConfigs.limit_up_open.params[paramKey as keyof typeof form.strategyConfigs['limit_up_open']['params']].value" 
+                            size="small" 
+                            style="width: 160px"
+                          >
+                            <ElOption 
+                              v-for="option in param.options" 
+                              :key="option" 
+                              :label="option" 
+                              :value="option"
+                            />
+                          </ElSelect>
+                        </template>
+                        <template v-else-if="typeof param.value === 'string' && (param.value as string).includes(':')">
+                          <ElInput 
+                            v-model="form.strategyConfigs.limit_up_open.params[paramKey as keyof typeof form.strategyConfigs['limit_up_open']['params']].value" 
+                            size="small" 
+                            style="width: 160px"
+                          />
+                        </template>
+                        <template v-else>
+                          <ElInputNumber 
+                            v-model="form.strategyConfigs.limit_up_open.params[paramKey as keyof typeof form.strategyConfigs['limit_up_open']['params']].value" 
+                            :min="0" 
+                            :max="(paramKey as string).includes('pct') ? 1 : 100000" 
+                            :step="(paramKey as string).includes('pct') ? 0.01 : 1"
+                            size="small" 
+                            style="width: 160px" 
+                          />
+                          <span class="param-unit" v-if="param.unit">{{ param.unit }}</span>
+                        </template>
+                      </span>
+                    </div>
+                  </div>
+                </ElCollapseItem>
+
+                <!-- 龙头低吸策略 -->
+                <ElCollapseItem name="leader_buy_dip">
+                  <template #title>
+                    🎯 龙头低吸 
+                    <span @click.stop="form.strategyConfigs.leader_buy_dip.enabled = !form.strategyConfigs.leader_buy_dip.enabled" style="cursor: pointer; margin: 0 4px;">
+                      {{ form.strategyConfigs.leader_buy_dip.enabled ? '✅' : '❌' }}
+                    </span>
+                    (连板≥{{form.strategyConfigs.leader_buy_dip.params.min_consecutive_limit.value}}板, 回调{{(form.strategyConfigs.leader_buy_dip.params.min_correction_pct.value*100).toFixed(0)}}%~{{(form.strategyConfigs.leader_buy_dip.params.max_correction_pct.value*100).toFixed(0)}}%, 回调{{form.strategyConfigs.leader_buy_dip.params.correction_days_min.value}}~{{form.strategyConfigs.leader_buy_dip.params.correction_days_max.value}}天, 支撑位: {{form.strategyConfigs.leader_buy_dip.params.support_level.value}})
+                  </template>
+                  <div class="param-item">
+                    <div class="param-header">
+                      <span class="param-label">启用该策略</span>
+                      <span class="param-value">
+                        <ElSwitch v-model="form.strategyConfigs.leader_buy_dip.enabled" size="small" />
+                      </span>
+                    </div>
+                  </div>
+                  <div class="param-item" v-for="[paramKey, param] of Object.entries(form.strategyConfigs.leader_buy_dip.params)" :key="paramKey">
+                    <div class="param-header">
+                      <div>
+                        <span class="param-label">{{ param.label }}</span>
+                        <div class="param-tip" v-if="param.desc">{{ param.desc }}</div>
+                      </div>
+                      <span class="param-value">
+                        <template v-if="typeof param.value === 'boolean'">
+                          <ElSwitch v-model="form.strategyConfigs.leader_buy_dip.params[paramKey as keyof typeof form.strategyConfigs['leader_buy_dip']['params']].value" size="small" />
+                        </template>
+                        <template v-else-if="param.options">
+                          <ElSelect 
+                            v-model="form.strategyConfigs.leader_buy_dip.params[paramKey as keyof typeof form.strategyConfigs['leader_buy_dip']['params']].value" 
+                            size="small" 
+                            style="width: 160px"
+                          >
+                            <ElOption 
+                              v-for="option in param.options" 
+                              :key="option" 
+                              :label="option" 
+                              :value="option"
+                            />
+                          </ElSelect>
+                        </template>
+                        <template v-else-if="typeof param.value === 'string' && (param.value as string).includes(':')">
+                          <ElInput 
+                            v-model="form.strategyConfigs.leader_buy_dip.params[paramKey as keyof typeof form.strategyConfigs['leader_buy_dip']['params']].value" 
+                            size="small" 
+                            style="width: 160px"
+                          />
+                        </template>
+                        <template v-else>
+                          <ElInputNumber 
+                            v-model="form.strategyConfigs.leader_buy_dip.params[paramKey as keyof typeof form.strategyConfigs['leader_buy_dip']['params']].value" 
+                            :min="0" 
+                            :max="(paramKey as string).includes('pct') ? 1 : 100000" 
+                            :step="(paramKey as string).includes('pct') ? 0.01 : 1"
+                            size="small" 
+                            style="width: 160px" 
+                          />
+                          <span class="param-unit" v-if="param.unit">{{ param.unit }}</span>
+                        </template>
+                      </span>
+                    </div>
+                  </div>
+                </ElCollapseItem>
+
+                <!-- 跌停翘板策略 -->
+                <ElCollapseItem name="limit_down_qiao">
+                  <template #title>
+                    🎯 跌停翘板 
+                    <span @click.stop="form.strategyConfigs.limit_down_qiao.enabled = !form.strategyConfigs.limit_down_qiao.enabled" style="cursor: pointer; margin: 0 4px;">
+                      {{ form.strategyConfigs.limit_down_qiao.enabled ? '✅' : '❌' }}
+                    </span>
+                    (连板≥{{form.strategyConfigs.limit_down_qiao.params.min_consecutive_limit.value}}板, 翘板成交≥{{form.strategyConfigs.limit_down_qiao.params.min_qiao_amount.value}}万, 翘板后涨≥{{(form.strategyConfigs.limit_down_qiao.params.min_rise_after_qiao.value*100).toFixed(1)}}%, 高潮期: 
+                    <span @click.stop="form.strategyConfigs.limit_down_qiao.params.require_high_sentiment.value = !form.strategyConfigs.limit_down_qiao.params.require_high_sentiment.value" style="cursor: pointer;">
+                      {{ form.strategyConfigs.limit_down_qiao.params.require_high_sentiment.value ? '✅' : '❌' }}
+                    </span>)
+                  </template>
+                  <div class="param-item">
+                    <div class="param-header">
+                      <span class="param-label">启用该策略</span>
+                      <span class="param-value">
+                        <ElSwitch v-model="form.strategyConfigs.limit_down_qiao.enabled" size="small" />
+                      </span>
+                    </div>
+                  </div>
+                  <div class="param-item" v-for="[paramKey, param] of Object.entries(form.strategyConfigs.limit_down_qiao.params)" :key="paramKey">
+                    <div class="param-header">
+                      <div>
+                        <span class="param-label">{{ param.label }}</span>
+                        <div class="param-tip" v-if="param.desc">{{ param.desc }}</div>
+                      </div>
+                      <span class="param-value">
+                        <template v-if="typeof param.value === 'boolean'">
+                          <ElSwitch v-model="form.strategyConfigs.limit_down_qiao.params[paramKey as keyof typeof form.strategyConfigs['limit_down_qiao']['params']].value" size="small" />
+                        </template>
+                        <template v-else-if="param.options">
+                          <ElSelect 
+                            v-model="form.strategyConfigs.limit_down_qiao.params[paramKey as keyof typeof form.strategyConfigs['limit_down_qiao']['params']].value" 
+                            size="small" 
+                            style="width: 160px"
+                          >
+                            <ElOption 
+                              v-for="option in param.options" 
+                              :key="option" 
+                              :label="option" 
+                              :value="option"
+                            />
+                          </ElSelect>
+                        </template>
+                        <template v-else-if="typeof param.value === 'string' && (param.value as string).includes(':')">
+                          <ElInput 
+                            v-model="form.strategyConfigs.limit_down_qiao.params[paramKey as keyof typeof form.strategyConfigs['limit_down_qiao']['params']].value" 
+                            size="small" 
+                            style="width: 160px"
+                          />
+                        </template>
+                        <template v-else>
+                          <ElInputNumber 
+                            v-model="form.strategyConfigs.limit_down_qiao.params[paramKey as keyof typeof form.strategyConfigs['limit_down_qiao']['params']].value" 
+                            :min="0" 
+                            :max="(paramKey as string).includes('pct') ? 1 : 100000" 
+                            :step="(paramKey as string).includes('pct') ? 0.01 : 1"
+                            size="small" 
+                            style="width: 160px" 
+                          />
+                          <span class="param-unit" v-if="param.unit">{{ param.unit }}</span>
+                        </template>
+                      </span>
+                    </div>
                   </div>
                 </ElCollapseItem>
               </ElCollapse>
