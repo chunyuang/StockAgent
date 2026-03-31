@@ -25,7 +25,19 @@ const routes: RouteRecordRaw[] = [
     path: '/ultra-short',
     name: 'UltraShortBacktest',
     component: () => import('@/views/backtest/UltraShortBacktestView.vue'),
-    meta: { title: '超短策略回测', requiresAuth: false },
+    meta: { title: '超短策略回测系统 v0.3.0', requiresAuth: false },
+  },
+  // 兼容旧路径
+  {
+    path: '/backtest/ultra-short',
+    redirect: '/ultra-short',
+    meta: { requiresAuth: false },
+  },
+  // 根路径重定向到仪表盘主页
+  {
+    path: '/',
+    redirect: '/dashboard',
+    meta: { requiresAuth: false },
   },
   
   // 主布局

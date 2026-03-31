@@ -39,8 +39,8 @@ export const taskApi = {
   },
   
   /** 删除任务 */
-  deleteTask(taskId: string): Promise<{ message: string; task_id: string }> {
-    return api.delete(`/tasks/${taskId}/delete`)
+  deleteTask(taskId: string, force = false): Promise<{ message: string; task_id: string }> {
+    return api.delete(`/tasks/${taskId}/delete`, { params: { force } })
   },
   
   // ==================== 快捷分析 ====================

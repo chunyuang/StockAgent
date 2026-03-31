@@ -465,13 +465,19 @@ async def get_backtest_history(
 @router.delete("/{task_id}")
 async def cancel_backtest(
     task_id: str,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_optional_user_id),
 ) -> Dict[str, Any]:
     """
     取消回测任务
     
-    仅当任务处于 pending/queued 状态时可取消。
+    支持取消运行中的超短策略回测任务和等待中的普通回测任务。
     """
+    # 先处理Mock超短回测任务
+    if task_id.startswith("us_") and task_id in mock_tasks:
+        mock_tasks[task_id]["status"] = "cancelled"
+        mock_tasks[task_id]["logs"].append("⏹️ 用户手动取消回测")
+        return {"task_id": task_id, "status": "cancelled", "message": "任务已取消"}
+    
     # 查 MongoDB
     record = await mongo_manager.find_one(
         "backtest_tasks",
@@ -486,7 +492,7 @@ async def cancel_backtest(
         raise HTTPException(status_code=403, detail="无权操作此任务")
     
     status = record.get("status")
-    if status not in ["pending", "queued"]:
+    if status not in ["pending", "queued", "running"]:
         raise HTTPException(
             status_code=400,
             detail=f"任务状态为 {status}，无法取消"
@@ -675,19 +681,31 @@ async def submit_ultra_short_backtest(
         "result": None
     }
     
-    # 模拟进度，5秒后完成
+    # 模拟进度，5秒后完成，支持取消
     import asyncio
     async def simulate_backtest():
+        # 每一步都检查是否被取消
         await asyncio.sleep(1)
+        if mock_tasks[task_id]["status"] == "cancelled":
+            return
         mock_tasks[task_id]["progress"] = 20
         mock_tasks[task_id]["logs"].append("✅ 数据加载完成，共60个交易日")
+        
         await asyncio.sleep(1)
+        if mock_tasks[task_id]["status"] == "cancelled":
+            return
         mock_tasks[task_id]["progress"] = 50
         mock_tasks[task_id]["logs"].append("✅ 因子计算完成，共21个价量因子")
+        
         await asyncio.sleep(1)
+        if mock_tasks[task_id]["status"] == "cancelled":
+            return
         mock_tasks[task_id]["progress"] = 80
         mock_tasks[task_id]["logs"].append("📊 回测执行完成，共66个交易信号")
+        
         await asyncio.sleep(1)
+        if mock_tasks[task_id]["status"] == "cancelled":
+            return
         mock_tasks[task_id]["progress"] = 100
         mock_tasks[task_id]["status"] = "completed"
         mock_tasks[task_id]["logs"].append("✅ 回测完成！")
@@ -723,102 +741,3 @@ async def submit_ultra_short_backtest(
         status="running",
         message="超短策略回测任务已提交，请使用 task_id 查询进度",
     )
-
-
-@router.get("/status/{task_id}")
-async def get_backtest_status(
-    task_id: str,
-    user_id: str = Depends(get_optional_user_id),
-) -> Dict[str, Any]:
-    """
-    查询回测任务状态
-    """
-    # 先查Mock任务
-    if task_id.startswith("us_") and task_id in mock_tasks:
-        task = mock_tasks[task_id]
-        return {
-            "task_id": task_id,
-            "status": task["status"],
-            "progress": task["progress"],
-            "logs": task["logs"],
-        }
-    
-    # 查 MongoDB
-    record = await mongo_manager.find_one(
-        "backtest_tasks",
-        {"task_id": task_id},
-    )
-    
-    if not record:
-        raise HTTPException(status_code=404, detail="任务不存在")
-    
-    # 权限检查 (如果记录中有 user_id)
-    if record.get("params", {}).get("user_id") and record["params"]["user_id"] != user_id:
-        raise HTTPException(status_code=403, detail="无权访问此任务")
-    
-    return {
-        "task_id": task_id,
-        "status": record.get("status"),
-        "created_at": record.get("created_at", "").isoformat() if record.get("created_at") else None,
-        "started_at": record.get("started_at", "").isoformat() if record.get("started_at") else None,
-        "completed_at": record.get("completed_at", "").isoformat() if record.get("completed_at") else None,
-        "error": record.get("error"),
-    }
-
-
-@router.get("/result/{task_id}")
-async def get_backtest_result(
-    task_id: str,
-    user_id: str = Depends(get_optional_user_id),
-) -> Dict[str, Any]:
-    """
-    获取回测结果
-    
-    仅当任务完成后可获取。
-    """
-    # 先查Mock任务
-    if task_id.startswith("us_") and task_id in mock_tasks:
-        task = mock_tasks[task_id]
-        if task["status"] != "completed":
-            return {"task_id": task_id, "status": task["status"], "message": "任务执行中"}
-        return {
-            "task_id": task_id,
-            "status": "completed",
-            "result": task["result"],
-        }
-    
-    record = await mongo_manager.find_one(
-        "backtest_tasks",
-        {"task_id": task_id},
-    )
-    
-    if not record:
-        raise HTTPException(status_code=404, detail="任务不存在")
-    
-    # 权限检查
-    if record.get("params", {}).get("user_id") and record["params"]["user_id"] != user_id:
-        raise HTTPException(status_code=403, detail="无权访问此任务")
-    
-    status = record.get("status")
-    
-    if status == "pending" or status == "queued":
-        return {"task_id": task_id, "status": status, "message": "任务等待中"}
-    
-    if status == "running":
-        return {"task_id": task_id, "status": "running", "message": "任务执行中"}
-    
-    if status == "failed":
-        return {
-            "task_id": task_id,
-            "status": "failed",
-            "error": record.get("error", "Unknown error"),
-        }
-    
-    if status == "cancelled":
-        return {"task_id": task_id, "status": "cancelled", "message": "任务已取消"}
-    
-    return {
-        "task_id": task_id,
-        "status": "completed",
-        "result": record.get("result"),
-    }

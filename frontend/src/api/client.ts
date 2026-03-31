@@ -86,7 +86,17 @@ client.interceptors.request.use(
     }
     
     // 注入 Trace ID (用于分布式追踪)
-    const traceId = crypto.randomUUID()
+    let traceId: string
+    try {
+      traceId = crypto.randomUUID()
+    } catch {
+      // 兼容低版本浏览器/非HTTPS环境，生成简单UUID
+      traceId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0
+        const v = c == 'x' ? r : (r & 0x3 | 0x8)
+        return v.toString(16)
+      })
+    }
     config.headers['X-Trace-ID'] = traceId
     
     return config
@@ -158,7 +168,7 @@ client.interceptors.response.use(
     }
     
     // 其他错误处理
-    if (!originalRequest.skipErrorToast) {
+    if (originalRequest && !originalRequest.skipErrorToast) {
       handleApiError(error)
     }
     
