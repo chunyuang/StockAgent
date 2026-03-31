@@ -1410,33 +1410,33 @@ onUnmounted(() => {
               label-width="100px"
               size="small"
             >
-              <ElCollapse v-model="activeCollapse">
-              </ElCollapse>
-
               <!-- 回测执行流程 -->
-              <div class="config-section mb-3 mt-3">
-                <div class="section-title mb-2" style="font-size: 16px; font-weight: 600; color: #3b82f6;">🔄 回测执行流程</div>
-                <div class="process-flow" style="height: 60px; padding: 16px 20px; background: linear-gradient(135deg, rgba(59, 130, 246, 0.05), rgba(139, 92, 246, 0.05)); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 12px;">
-                  <div class="flow-step" v-for="(step, index) in flowSteps" :key="index" :class="{ 'active': (backtestState.running && backtestState.progress >= (index+1)*(100/flowSteps.length)) || backtestState.status === 'completed' }" style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
-                    <div class="step-icon" style="font-size: 22px;">{{ step.icon }}</div>
-                    <div class="step-name" style="font-size: 12px; font-weight: 500;">{{ step.name }}</div>
-                    <div class="step-arrow" v-if="index < flowSteps.length -1" style="font-size: 18px; color: #3b82f6; margin: 0 12px;">→</div>
+              <div class="config-section mb-3">
+                <div class="section-title mb-2" style="font-size: 14px; font-weight: 600; color: #3b82f6; padding: 12px 16px; background: linear-gradient(135deg, rgba(59, 130, 246, 0.05), rgba(139, 92, 246, 0.05)); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 8px; display: flex; align-items: center; gap: 12px;">
+                  🔄 回测执行流程
+                  <div class="process-flow" style="flex: 1; display: flex; align-items: center; justify-content: space-around; transform: scale(0.8); transform-origin: left center;">
+                    <div class="flow-step" v-for="(step, index) in flowSteps" :key="index" :class="{ 'active': (backtestState.running && backtestState.progress >= (index+1)*(100/flowSteps.length)) || backtestState.status === 'completed' }" style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
+                      <div class="step-icon" style="font-size: 18px;">{{ step.icon }}</div>
+                      <div class="step-name" style="font-size: 11px; font-weight: 500;">{{ step.name }}</div>
+                      <div class="step-arrow" v-if="index < flowSteps.length -1" style="font-size: 16px; color: #3b82f6; position: absolute; right: -20px; top: 50%; transform: translateY(-50%);">→</div>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              <ElCollapse v-model="activeCollapse">
-
-                <!-- 快速预设模板 -->
-                <ElCollapseItem title="⚡ 快速预设模板" name="presetTemplate">
-                  <div class="param-tip mb-3">一键应用预设配置组合，快速切换风险收益偏好</div>
-                  <div class="template-options" style="display: flex; flex-direction: column; gap: 10px;">
-                    <label 
+              <!-- 快速预设模板 -->
+              <div class="config-section mb-3">
+                <div style="font-size: 14px; font-weight: 600; color: #10b981; padding: 12px 16px; background: linear-gradient(135deg, rgba(16, 185, 129, 0.05), rgba(5, 150, 105, 0.05)); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 8px;">
+                  <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                    ⚡ 快速预设模板
+                    <span style="font-size: 12px; font-weight: normal; color: #059669;">当前: {{ selectedPreset !== null ? presetTemplates[selectedPreset].name : '未选择' }}</span>
+                  </div>
+                  <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                    <button 
                       v-for="(tpl, index) in presetTemplates" 
                       :key="index"
-                      class="template-option"
                       :class="{ active: selectedPreset === index }"
-                      style="display: flex; align-items: center; gap: 12px; padding: 14px; border: 2px solid var(--border-color); border-radius: 10px; cursor: pointer; transition: all 0.2s; background: var(--bg-secondary);"
+                      style="flex: 1; min-width: 180px; padding: 10px 14px; border: 2px solid var(--border-color); border-radius: 8px; cursor: pointer; transition: all 0.2s; background: var(--bg-secondary); display: flex; align-items: center; gap: 8px;"
                       :style="selectedPreset === index ? 'border-color: #10b981; background: rgba(16, 185, 129, 0.08);' : ''"
                       @click="() => { selectedPreset.value = index; applyTemplate(tpl); ElMessage.success(`已应用【${tpl.name}】模板`); }"
                     >
@@ -1444,20 +1444,19 @@ onUnmounted(() => {
                         type="radio" 
                         name="presetTemplate" 
                         :checked="selectedPreset === index"
-                        style="width: 18px; height: 18px; accent-color: #10b981;"
+                        style="width: 16px; height: 16px; accent-color: #10b981; flex-shrink: 0;"
                       />
-                      <div style="flex: 1;">
-                        <div style="font-weight: 600; font-size: 15px; color: var(--text-primary);">{{ tpl.name }}</div>
-                        <div style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">{{ tpl.desc }}</div>
-                        <div style="font-size: 12px; color: var(--text-secondary); margin-top: 6px; line-height: 1.5;">
-                          🔍 筛选：最低成交额 {{ tpl.config.globalFilter.min_daily_amount }}万 | 换手率 ≥ {{ tpl.config.globalFilter.min_turnover_rate }}%<br/>
-                          💰 交易：总仓位上限 {{ tpl.config.tradeParams.max_total_position * 100 }}% | 止损 {{ tpl.config.tradeParams.stop_loss_pct * 100 }}% | 止盈 {{ tpl.config.tradeParams.take_profit_pct * 100 }}%<br/>
-                          🎯 策略：{{ tpl.config.strategies.map(s => form.strategyConfigs[s as keyof typeof form.strategyConfigs].name).join('、') }}
-                        </div>
+                      <div style="flex: 1; text-align: left;">
+                        <div style="font-weight: 600; font-size: 13px; color: var(--text-primary);">{{ tpl.name }}</div>
+                        <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">{{ tpl.desc }}</div>
                       </div>
-                    </label>
+                    </button>
                   </div>
-                </ElCollapseItem>
+                </div>
+              </div>
+
+              <ElCollapse v-model="activeCollapse">
+
                 <!-- 基础配置 -->
                 <ElCollapseItem :title="`📅 基础配置 (${form.base.start_date}~${form.base.end_date}, 初始资金¥${(form.base.initial_cash/10000).toFixed(0)}万)`" name="baseConfig">
                   <div class="param-item">
@@ -1758,7 +1757,6 @@ onUnmounted(() => {
                     </div>
                   </div>
                 </ElCollapseItem>
-
 
                 <!-- 半路追涨策略 -->
                 <ElCollapseItem name="halfway_chase">
