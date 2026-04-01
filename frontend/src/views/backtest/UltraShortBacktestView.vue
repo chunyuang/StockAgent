@@ -248,7 +248,7 @@ const { status: wsStatus, send: wsSend, data: wsData } = useWebSocket(
 // 表单验证（简化，基础验证足够）
 
 // 折叠面板激活项（数组模式，支持同时展开多个）
-const activeCollapse = ref([])
+const activeCollapse = ref(['baseConfig', 'tradeParams', 'globalFilter', 'halfway_chase'])
 // 标签页激活项
 const activeTab = ref('metrics')
 // 策略参数标签页激活项
@@ -733,6 +733,11 @@ onMounted(() => {
 
   // 页面加载时自动加载历史回测结果
   loadBacktestResult()
+  
+  // 自动渲染所有图表，无需运行回测即可看到可视化效果
+  nextTick(() => {
+    renderCharts()
+  })
 })
 
 // ==================== 方法 ====================
@@ -1630,7 +1635,10 @@ onUnmounted(() => {
                 </ElCollapseItem>
 
                 <!-- 交易参数配置 -->
-                <ElCollapseItem :title="`💹 交易参数 (止损${(form.tradeParams.base_stop_loss_pct*100).toFixed(1)}%, 止盈${(form.tradeParams.base_take_profit_pct*100).toFixed(1)}%, 持仓${form.tradeParams.max_hold_days}天, 总仓${(form.tradeParams.max_total_position*100).toFixed(0)}%, 单票${(form.tradeParams.max_position_per_stock*100).toFixed(0)}%, 佣金${(form.tradeParams.commission_rate*1000).toFixed(2)}‰, 印花税${(form.tradeParams.stamp_duty_rate*1000).toFixed(1)}‰, 滑点${(form.tradeParams.slippage_pct*1000).toFixed(1)}‰)`" name="tradeParams">
+                <ElCollapseItem name="tradeParams">
+                  <template #title>
+                    💹 交易参数 (止损{{ (form.tradeParams.base_stop_loss_pct*100).toFixed(1) }}%, 止盈{{ (form.tradeParams.base_take_profit_pct*100).toFixed(1) }}%, 持仓{{ form.tradeParams.max_hold_days }}天, 总仓{{ (form.tradeParams.max_total_position*100).toFixed(0) }}%, 单票{{ (form.tradeParams.max_position_per_stock*100).toFixed(0) }}%, 佣金{{ (form.tradeParams.commission_rate*1000).toFixed(2) }}‰, 印花税{{ (form.tradeParams.stamp_duty_rate*1000).toFixed(1) }}‰, 滑点{{ (form.tradeParams.slippage_pct*1000).toFixed(1) }}‰)
+                  </template>
                   <div class="grid grid-cols-2 gap-2">
                     <div class="param-item" v-for="[key, value] of Object.entries(form.tradeParams)" :key="key">
                       <div class="param-header">
@@ -1663,7 +1671,29 @@ onUnmounted(() => {
                 </ElCollapseItem>
 
                 <!-- 全局筛选配置 -->
-                <ElCollapseItem :title="`🔍 全局筛选 (剔除ST: ${form.globalFilter.exclude_st ? '✅' : '❌'}, 剔除退市: ${form.globalFilter.exclude_delisting ? '✅' : '❌'}, 次新股≥${form.globalFilter.exclude_new_stock_days}天, 成交额≥${form.globalFilter.min_daily_amount}万, 换手率≥${form.globalFilter.min_turnover_rate}%)`" name="globalFilter">
+                <ElCollapseItem name="globalFilter">
+                  <template #title>
+                    <span style="display: flex; align-items: center; gap: 4px; width: 100%;">
+                      🔍 全局筛选 
+                      <span style="flex: 1;">
+                        (剔除ST: 
+                        <span 
+                          @click.stop="form.globalFilter.exclude_st = !form.globalFilter.exclude_st"
+                          style="cursor: pointer; user-select: none;"
+                        >
+                          {{ form.globalFilter.exclude_st ? '✅' : '❌' }}
+                        </span>, 
+                        剔除退市: 
+                        <span 
+                          @click.stop="form.globalFilter.exclude_delisting = !form.globalFilter.exclude_delisting"
+                          style="cursor: pointer; user-select: none;"
+                        >
+                          {{ form.globalFilter.exclude_delisting ? '✅' : '❌' }}
+                        </span>, 
+                        次新股≥{{ form.globalFilter.exclude_new_stock_days }}天, 成交额≥{{ form.globalFilter.min_daily_amount }}万, 换手率≥{{ form.globalFilter.min_turnover_rate }}%)
+                      </span>
+                    </span>
+                  </template>
                   <div class="param-item" v-for="[key, value] of Object.entries(form.globalFilter)" :key="key">
                     <div class="param-header">
                       <div>
@@ -1888,7 +1918,25 @@ onUnmounted(() => {
                 <!-- 半路追涨策略 -->
                 <ElCollapseItem name="halfway_chase">
                   <template #title>
-                    🎯 半路追涨 {{ form.strategyConfigs.halfway_chase.enabled ? '✅' : '❌' }} (涨幅{{(form.strategyConfigs.halfway_chase.params.min_rise_pct.value*100).toFixed(1)}}%~{{(form.strategyConfigs.halfway_chase.params.max_rise_pct.value*100).toFixed(1)}}%, 量比≥{{form.strategyConfigs.halfway_chase.params.min_volume_ratio.value.toFixed(1)}}, 10点后买入: {{ form.strategyConfigs.halfway_chase.params.allow_after_10am.value ? '✅' : '❌' }})
+                    <span style="display: flex; align-items: center; gap: 4px; width: 100%;">
+                      🎯 半路追涨 
+                      <span 
+                        @click.stop="form.strategyConfigs.halfway_chase.enabled = !form.strategyConfigs.halfway_chase.enabled"
+                        style="cursor: pointer; user-select: none;"
+                      >
+                        {{ form.strategyConfigs.halfway_chase.enabled ? '✅' : '❌' }}
+                      </span>
+                      <span style="flex: 1;">
+                        (涨幅{{(form.strategyConfigs.halfway_chase.params.min_rise_pct.value*100).toFixed(1)}}%~{{(form.strategyConfigs.halfway_chase.params.max_rise_pct.value*100).toFixed(1)}}%, 量比≥{{form.strategyConfigs.halfway_chase.params.min_volume_ratio.value.toFixed(1)}}, 10点后买入: 
+                        <span 
+                          @click.stop="form.strategyConfigs.halfway_chase.params.allow_after_10am.value = !form.strategyConfigs.halfway_chase.params.allow_after_10am.value"
+                          style="cursor: pointer; user-select: none;"
+                        >
+                          {{ form.strategyConfigs.halfway_chase.params.allow_after_10am.value ? '✅' : '❌' }}
+                        </span>
+                        )
+                      </span>
+                    </span>
                   </template>
                   <div class="param-item">
                     <div class="param-header">
@@ -1948,7 +1996,25 @@ onUnmounted(() => {
                 <!-- 首板打板策略 -->
                 <ElCollapseItem name="first_limit_up">
                   <template #title>
-                    🎯 首板打板 {{ form.strategyConfigs.first_limit_up.enabled ? '✅' : '❌' }} (封单≥{{form.strategyConfigs.first_limit_up.params.min_seal_amount.value}}万, 涨停≤{{form.strategyConfigs.first_limit_up.params.max_limit_up_time.value}}, 流通市值≤{{form.strategyConfigs.first_limit_up.params.max_circulation_market_cap.value}}亿, 热点板块: {{ form.strategyConfigs.first_limit_up.params.require_hot_sector.value ? '✅' : '❌' }})
+                    <span style="display: flex; align-items: center; gap: 4px; width: 100%;">
+                      🎯 首板打板 
+                      <span 
+                        @click.stop="form.strategyConfigs.first_limit_up.enabled = !form.strategyConfigs.first_limit_up.enabled"
+                        style="cursor: pointer; user-select: none;"
+                      >
+                        {{ form.strategyConfigs.first_limit_up.enabled ? '✅' : '❌' }}
+                      </span>
+                      <span style="flex: 1;">
+                        (封单≥{{form.strategyConfigs.first_limit_up.params.min_seal_amount.value}}万, 涨停≤{{form.strategyConfigs.first_limit_up.params.max_limit_up_time.value}}, 流通市值≤{{form.strategyConfigs.first_limit_up.params.max_circulation_market_cap.value}}亿, 热点板块: 
+                        <span 
+                          @click.stop="form.strategyConfigs.first_limit_up.params.require_hot_sector.value = !form.strategyConfigs.first_limit_up.params.require_hot_sector.value"
+                          style="cursor: pointer; user-select: none;"
+                        >
+                          {{ form.strategyConfigs.first_limit_up.params.require_hot_sector.value ? '✅' : '❌' }}
+                        </span>
+                        )
+                      </span>
+                    </span>
                   </template>
                   <div class="param-item">
                     <div class="param-header">
@@ -2008,7 +2074,18 @@ onUnmounted(() => {
                 <!-- 涨停开板策略 -->
                 <ElCollapseItem name="limit_up_open">
                   <template #title>
-                    🎯 涨停开板 {{ form.strategyConfigs.limit_up_open.enabled ? '✅' : '❌' }} (连板≥{{form.strategyConfigs.limit_up_open.params.min_consecutive_limit.value}}板, 开板≤{{form.strategyConfigs.limit_up_open.params.max_open_duration.value}}分钟, 回封锁单≥{{form.strategyConfigs.limit_up_open.params.min_seal_after_open.value}}万)
+                    <span style="display: flex; align-items: center; gap: 4px; width: 100%;">
+                      🎯 涨停开板 
+                      <span 
+                        @click.stop="form.strategyConfigs.limit_up_open.enabled = !form.strategyConfigs.limit_up_open.enabled"
+                        style="cursor: pointer; user-select: none;"
+                      >
+                        {{ form.strategyConfigs.limit_up_open.enabled ? '✅' : '❌' }}
+                      </span>
+                      <span style="flex: 1;">
+                        (连板≥{{form.strategyConfigs.limit_up_open.params.min_consecutive_limit.value}}板, 开板≤{{form.strategyConfigs.limit_up_open.params.max_open_duration.value}}分钟, 回封锁单≥{{form.strategyConfigs.limit_up_open.params.min_seal_after_open.value}}万)
+                      </span>
+                    </span>
                   </template>
                   <div class="param-item">
                     <div class="param-header">
@@ -2068,7 +2145,18 @@ onUnmounted(() => {
                 <!-- 龙头低吸策略 -->
                 <ElCollapseItem name="leader_buy_dip">
                   <template #title>
-                    🎯 龙头低吸 {{ form.strategyConfigs.leader_buy_dip.enabled ? '✅' : '❌' }} (连板≥{{form.strategyConfigs.leader_buy_dip.params.min_consecutive_limit.value}}板, 回调{{(form.strategyConfigs.leader_buy_dip.params.min_correction_pct.value*100).toFixed(0)}}%~{{(form.strategyConfigs.leader_buy_dip.params.max_correction_pct.value*100).toFixed(0)}}%, 回调{{form.strategyConfigs.leader_buy_dip.params.correction_days_min.value}}~{{form.strategyConfigs.leader_buy_dip.params.correction_days_max.value}}天)
+                    <span style="display: flex; align-items: center; gap: 4px; width: 100%;">
+                      🎯 龙头低吸 
+                      <span 
+                        @click.stop="form.strategyConfigs.leader_buy_dip.enabled = !form.strategyConfigs.leader_buy_dip.enabled"
+                        style="cursor: pointer; user-select: none;"
+                      >
+                        {{ form.strategyConfigs.leader_buy_dip.enabled ? '✅' : '❌' }}
+                      </span>
+                      <span style="flex: 1;">
+                        (连板≥{{form.strategyConfigs.leader_buy_dip.params.min_consecutive_limit.value}}板, 回调{{(form.strategyConfigs.leader_buy_dip.params.min_correction_pct.value*100).toFixed(0)}}%~{{(form.strategyConfigs.leader_buy_dip.params.max_correction_pct.value*100).toFixed(0)}}%, 回调{{form.strategyConfigs.leader_buy_dip.params.correction_days_min.value}}~{{form.strategyConfigs.leader_buy_dip.params.correction_days_max.value}}天)
+                      </span>
+                    </span>
                   </template>
                   <div class="param-item">
                     <div class="param-header">
@@ -2128,7 +2216,25 @@ onUnmounted(() => {
                 <!-- 跌停翘板策略 -->
                 <ElCollapseItem name="limit_down_qiao">
                   <template #title>
-                    🎯 跌停翘板 {{ form.strategyConfigs.limit_down_qiao.enabled ? '✅' : '❌' }} (连板≥{{form.strategyConfigs.limit_down_qiao.params.min_consecutive_limit.value}}板, 翘板成交≥{{form.strategyConfigs.limit_down_qiao.params.min_qiao_amount.value}}万, 翘板后涨≥{{(form.strategyConfigs.limit_down_qiao.params.min_rise_after_qiao.value*100).toFixed(1)}}%, 高潮期: {{ form.strategyConfigs.limit_down_qiao.params.require_high_sentiment.value ? '✅' : '❌' }})
+                    <span style="display: flex; align-items: center; gap: 4px; width: 100%;">
+                      🎯 跌停翘板 
+                      <span 
+                        @click.stop="form.strategyConfigs.limit_down_qiao.enabled = !form.strategyConfigs.limit_down_qiao.enabled"
+                        style="cursor: pointer; user-select: none;"
+                      >
+                        {{ form.strategyConfigs.limit_down_qiao.enabled ? '✅' : '❌' }}
+                      </span>
+                      <span style="flex: 1;">
+                        (连板≥{{form.strategyConfigs.limit_down_qiao.params.min_consecutive_limit.value}}板, 翘板成交≥{{form.strategyConfigs.limit_down_qiao.params.min_qiao_amount.value}}万, 翘板后涨≥{{(form.strategyConfigs.limit_down_qiao.params.min_rise_after_qiao.value*100).toFixed(1)}}%, 高潮期: 
+                        <span 
+                          @click.stop="form.strategyConfigs.limit_down_qiao.params.require_high_sentiment.value = !form.strategyConfigs.limit_down_qiao.params.require_high_sentiment.value"
+                          style="cursor: pointer; user-select: none;"
+                        >
+                          {{ form.strategyConfigs.limit_down_qiao.params.require_high_sentiment.value ? '✅' : '❌' }}
+                        </span>
+                        )
+                      </span>
+                    </span>
                   </template>
                   <div class="param-item">
                     <div class="param-header">
@@ -2331,10 +2437,6 @@ onUnmounted(() => {
 
               <!-- 可视化图表 -->
               <ElTabPane label="📈 可视化图表" name="charts">
-                <div v-if="!backtestState.result" class="h-64 flex-center">
-                  <ElEmpty description="暂无回测结果，请先运行回测" :image-size="80" />
-                </div>
-                <div v-else>
                   <!-- 净值+回撤曲线 -->
                   <ElCard shadow="hover" class="mb-4">
                     <template #header>
@@ -2359,7 +2461,6 @@ onUnmounted(() => {
                       <div id="daily-profit-chart" class="h-60"></div>
                     </ElCard>
                   </div>
-                </div>
               </ElTabPane>
 
               <!-- 交易记录 -->
@@ -2453,10 +2554,6 @@ onUnmounted(() => {
 
               <!-- 交易分析 -->
               <ElTabPane label="📉 交易分析" name="analysis">
-                <div v-if="!backtestState.result" class="h-64 flex-center">
-                  <ElEmpty description="暂无回测结果，请先运行回测" :image-size="80" />
-                </div>
-                <div v-else>
                   <!-- ✅ 交易分析分组布局：交易概览/盈亏统计 两组，和核心指标风格统一 -->
                   <div class="grid grid-cols-2 gap-2 mb-3">
                     <!-- 📝 交易概览组：蓝色系 -->
@@ -2560,7 +2657,6 @@ onUnmounted(() => {
                       <div id="monthly-profit-chart" class="h-60"></div>
                     </ElCard>
                   </div>
-                </div>
               </ElTabPane>
 
               <!-- 策略对比 -->
@@ -2577,10 +2673,6 @@ onUnmounted(() => {
 
               <!-- 高级分析 -->
               <ElTabPane label="🔬 高级分析" name="advanced">
-                <div v-if="!backtestState.result" class="h-64 flex-center">
-                  <ElEmpty description="暂无回测结果，请先运行回测" :image-size="80" />
-                </div>
-                <div v-else>
                   <!-- 因子贡献分析 -->
                   <ElCard shadow="hover" class="mb-4">
                     <template #header>
@@ -2610,7 +2702,6 @@ onUnmounted(() => {
                       <p>• <strong>胜率</strong>：盈利交易次数占总交易次数的比例</p>
                     </div>
                   </ElCard>
-                </div>
               </ElTabPane>
             </ElTabs>
           </div>
