@@ -12,7 +12,7 @@ from typing import List, Set, Optional
 from datetime import datetime, timedelta
 import logging
 
-from core.managers import mongo_manager, tushare_manager, baostock_manager
+from core.managers import mongo_manager, baostock_manager
 
 
 logger = logging.getLogger(__name__)
@@ -365,12 +365,8 @@ class UniverseManager:
             logger.warning(f"MongoDB extract failed: {e}, falling back to external services")
         
         # Fallback to external services
-        try:
-            trade_dates = await tushare_manager.get_trade_cal(start_date, end_date)
-            trade_dates = [str(d) for d in trade_dates]
-        except Exception as e:
-            logger.warning(f"Tushare get_trade_cal failed: {e}, falling back to Baostock")
-            trade_dates = await baostock_manager.get_trade_dates(start_date, end_date)
+        logger.warning("Falling back to Baostock for trade dates")
+        trade_dates = await baostock_manager.get_trade_dates(start_date, end_date)
         
         if not trade_dates:
             return []
