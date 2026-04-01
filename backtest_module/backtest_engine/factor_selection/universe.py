@@ -247,21 +247,11 @@ class UniverseManager:
                 logger.info(f"Extracted {len(trade_dates)} trade dates from MongoDB")
             else:
                 # Fallback to external services if MongoDB empty
-                logger.warning("No trade dates found in MongoDB, falling back to Tushare -> Baostock")
-                try:
-                    trade_dates = await tushare_manager.get_trade_cal(start_date, end_date)
-                    trade_dates = [str(d) for d in trade_dates]
-                except Exception as e:
-                    logger.warning(f"Tushare get_trade_cal failed: {e}, falling back to Baostock")
-                    trade_dates = await baostock_manager.get_trade_dates(start_date, end_date)
-        except Exception as e:
-            logger.warning(f"MongoDB extract failed: {e}, falling back to external services")
-            try:
-                trade_dates = await tushare_manager.get_trade_cal(start_date, end_date)
-                trade_dates = [str(d) for d in trade_dates]
-            except Exception as e2:
-                logger.warning(f"Tushare get_trade_cal failed: {e2}, falling back to Baostock")
+                logger.warning("No trade dates found in MongoDB, falling back to Baostock")
                 trade_dates = await baostock_manager.get_trade_dates(start_date, end_date)
+        except Exception as e:
+            logger.warning(f"MongoDB extract failed: {e}, falling back to Baostock")
+            trade_dates = await baostock_manager.get_trade_dates(start_date, end_date)
         
         if not trade_dates:
             logger.error(f"No trade dates found between {start_date} and {end_date}")

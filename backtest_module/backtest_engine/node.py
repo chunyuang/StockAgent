@@ -62,7 +62,10 @@ class BacktestNode(BaseNode):
         self.logger.info("Initializing managers...")
         await redis_manager.initialize()
         await mongo_manager.initialize()
-        await tushare_manager.initialize()
+        try:
+            await tushare_manager.initialize()
+        except Exception as e:
+            self.logger.warning(f"TushareManager initialization skipped: {e}, using Baostock/AKShare only")
         
         # 启动 RPC 服务器
         await self._start_rpc_server()
