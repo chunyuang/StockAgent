@@ -92,7 +92,8 @@ class TushareManager(BaseManager):
             return
         
         if not self._config.is_configured:
-            self.logger.warning("Tushare token not configured, skipping initialization")
+            self.logger.warning("Tushare token not configured, all operations will use fallback sources")
+            self._initialized = True
             return
         
         self.logger.info("Initializing Tushare Pro API...")
@@ -157,6 +158,9 @@ class TushareManager(BaseManager):
             DataFrame 结果
         """
         self._ensure_initialized()
+        if self._pro is None:
+            self.logger.warning(f"Tushare token not configured, cannot call API {api_name}, returning empty DataFrame")
+            return pd.DataFrame()
         
         # 在线程池中执行同步调用
         loop = asyncio.get_event_loop()
