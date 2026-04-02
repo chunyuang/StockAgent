@@ -25,7 +25,20 @@ const routes: RouteRecordRaw[] = [
     path: '/ultra-short',
     name: 'UltraShortBacktest',
     component: () => import('@/views/backtest/UltraShortBacktestView.vue'),
-    meta: { title: '超短策略回测系统 v0.3.0', requiresAuth: false },
+    meta: { title: '超短策略回测系统 V2.0 私募级实盘版', requiresAuth: false },
+  },
+  // 新版本V2路由入口
+  {
+    path: '/ultra-short-v2',
+    name: 'UltraShortBacktestV2',
+    component: () => import('@/views/backtest/UltraShortBacktestV2Simple.vue'),
+    meta: { title: '超短策略回测系统 V2.0 私募级实盘版', requiresAuth: false },
+  },
+  // 旧new路由兼容
+  {
+    path: '/ultra-short-new',
+    redirect: '/ultra-short-v2',
+    meta: { requiresAuth: false },
   },
   // 兼容旧路径
   {
