@@ -3,7 +3,7 @@
  * 超短策略回测V2.0 - 私募级实盘版
  * 极简稳定版本，确保可以正常运行
  */
-import { ref, reactive, onMounted, computed, h } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { VideoPlay as Play, Download } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 
@@ -157,102 +157,12 @@ const form = reactive({
 // 折叠面板默认全部折叠
 const activeCollapse = ref([])
 
-// 每个策略的动态标题（支持折叠状态下点击切换开关）
-const halfwayChaseTitle = computed(() => h('span', [
-  '🏃‍♂️ 半路追涨策略 ',
-  h('span', { 
-    style: 'cursor: pointer; font-weight: bold;', 
-    onClick: (e: Event) => { 
-      e.stopPropagation(); 
-      form.strategyConfigs.halfway_chase.enabled = !form.strategyConfigs.halfway_chase.enabled
-      if (form.strategyConfigs.halfway_chase.enabled) {
-        if (!form.strategies.includes('halfway_chase')) form.strategies.push('halfway_chase')
-      } else {
-        form.strategies = form.strategies.filter(k => k !== 'halfway_chase')
-      }
-    }
-  }, form.strategyConfigs.halfway_chase.enabled ? '✅' : '❌'),
-  ` (涨幅${(form.strategyConfigs.halfway_chase.params.min_rise_pct*100).toFixed(1)}%~${(form.strategyConfigs.halfway_chase.params.max_rise_pct*100).toFixed(1)}%, 量比≥${form.strategyConfigs.halfway_chase.params.min_volume_ratio}倍, 10点后买入: `,
-  h('span', { 
-    style: 'cursor: pointer; font-weight: bold;', 
-    onClick: (e: Event) => { e.stopPropagation(); form.strategyConfigs.halfway_chase.params.allow_after_10am = !form.strategyConfigs.halfway_chase.params.allow_after_10am }
-  }, form.strategyConfigs.halfway_chase.params.allow_after_10am ? '✅' : '❌'),
-  ')'
-]))
-const firstLimitUpTitle = computed(() => h('span', [
-  '🥇 首板打板策略 ',
-  h('span', { 
-    style: 'cursor: pointer; font-weight: bold;', 
-    onClick: (e: Event) => { 
-      e.stopPropagation(); 
-      form.strategyConfigs.first_limit_up.enabled = !form.strategyConfigs.first_limit_up.enabled
-      if (form.strategyConfigs.first_limit_up.enabled) {
-        if (!form.strategies.includes('first_limit_up')) form.strategies.push('first_limit_up')
-      } else {
-        form.strategies = form.strategies.filter(k => k !== 'first_limit_up')
-      }
-    }
-  }, form.strategyConfigs.first_limit_up.enabled ? '✅' : '❌'),
-  ` (封单≥${form.strategyConfigs.first_limit_up.params.min_seal_amount}万, ≤${form.strategyConfigs.first_limit_up.params.max_limit_up_time}涨停, 热点板块: `,
-  h('span', { 
-    style: 'cursor: pointer; font-weight: bold;', 
-    onClick: (e: Event) => { e.stopPropagation(); form.strategyConfigs.first_limit_up.params.require_hot_sector = !form.strategyConfigs.first_limit_up.params.require_hot_sector }
-  }, form.strategyConfigs.first_limit_up.params.require_hot_sector ? '✅' : '❌'),
-  ')'
-]))
-const limitUpOpenTitle = computed(() => h('span', [
-  '📈 涨停开板策略 ',
-  h('span', { 
-    style: 'cursor: pointer; font-weight: bold;', 
-    onClick: (e: Event) => { 
-      e.stopPropagation(); 
-      form.strategyConfigs.limit_up_open.enabled = !form.strategyConfigs.limit_up_open.enabled
-      if (form.strategyConfigs.limit_up_open.enabled) {
-        if (!form.strategies.includes('limit_up_open')) form.strategies.push('limit_up_open')
-      } else {
-        form.strategies = form.strategies.filter(k => k !== 'limit_up_open')
-      }
-    }
-  }, form.strategyConfigs.limit_up_open.enabled ? '✅' : '❌'),
-  ` (连板≥${form.strategyConfigs.limit_up_open.params.min_consecutive_limit}板, 开板≤${form.strategyConfigs.limit_up_open.params.max_open_duration}分钟)`
-]))
-const leaderBuyDipTitle = computed(() => h('span', [
-  '🐲 龙头低吸策略 ',
-  h('span', { 
-    style: 'cursor: pointer; font-weight: bold;', 
-    onClick: (e: Event) => { 
-      e.stopPropagation(); 
-      form.strategyConfigs.leader_buy_dip.enabled = !form.strategyConfigs.leader_buy_dip.enabled
-      if (form.strategyConfigs.leader_buy_dip.enabled) {
-        if (!form.strategies.includes('leader_buy_dip')) form.strategies.push('leader_buy_dip')
-      } else {
-        form.strategies = form.strategies.filter(k => k !== 'leader_buy_dip')
-      }
-    }
-  }, form.strategyConfigs.leader_buy_dip.enabled ? '✅' : '❌'),
-  ` (连板≥${form.strategyConfigs.leader_buy_dip.params.min_consecutive_limit}板, 回调${(form.strategyConfigs.leader_buy_dip.params.min_correction_pct*100).toFixed(0)}%~${(form.strategyConfigs.leader_buy_dip.params.max_correction_pct*100).toFixed(0)}%)`
-]))
-const limitDownQiaoTitle = computed(() => h('span', [
-  '💥 跌停翘板策略 ',
-  h('span', { 
-    style: 'cursor: pointer; font-weight: bold;', 
-    onClick: (e: Event) => { 
-      e.stopPropagation(); 
-      form.strategyConfigs.limit_down_qiao.enabled = !form.strategyConfigs.limit_down_qiao.enabled
-      if (form.strategyConfigs.limit_down_qiao.enabled) {
-        if (!form.strategies.includes('limit_down_qiao')) form.strategies.push('limit_down_qiao')
-      } else {
-        form.strategies = form.strategies.filter(k => k !== 'limit_down_qiao')
-      }
-    }
-  }, form.strategyConfigs.limit_down_qiao.enabled ? '✅' : '❌'),
-  ` (连板≥${form.strategyConfigs.limit_down_qiao.params.min_consecutive_limit}板, 翘板金额≥${form.strategyConfigs.limit_down_qiao.params.min_qiao_amount}万, 仅高潮期: `,
-  h('span', { 
-    style: 'cursor: pointer; font-weight: bold;', 
-    onClick: (e: Event) => { e.stopPropagation(); form.strategyConfigs.limit_down_qiao.params.require_high_sentiment = !form.strategyConfigs.limit_down_qiao.params.require_high_sentiment }
-  }, form.strategyConfigs.limit_down_qiao.params.require_high_sentiment ? '✅' : '❌'),
-  ')'
-]))
+// 每个策略的动态标题
+const halfwayChaseTitle = computed(() => `🏃‍♂️ 半路追涨策略 ${form.strategyConfigs.halfway_chase.enabled ? '✅' : '❌'} (涨幅${(form.strategyConfigs.halfway_chase.params.min_rise_pct*100).toFixed(1)}%~${(form.strategyConfigs.halfway_chase.params.max_rise_pct*100).toFixed(1)}%, 量比≥${form.strategyConfigs.halfway_chase.params.min_volume_ratio}倍, 10点后买入: ${form.strategyConfigs.halfway_chase.params.allow_after_10am ? '✅' : '❌'})`)
+const firstLimitUpTitle = computed(() => `🥇 首板打板策略 ${form.strategyConfigs.first_limit_up.enabled ? '✅' : '❌'} (封单≥${form.strategyConfigs.first_limit_up.params.min_seal_amount}万, ≤${form.strategyConfigs.first_limit_up.params.max_limit_up_time}涨停, 热点板块: ${form.strategyConfigs.first_limit_up.params.require_hot_sector ? '✅' : '❌'})`)
+const limitUpOpenTitle = computed(() => `📈 涨停开板策略 ${form.strategyConfigs.limit_up_open.enabled ? '✅' : '❌'} (连板≥${form.strategyConfigs.limit_up_open.params.min_consecutive_limit}板, 开板≤${form.strategyConfigs.limit_up_open.params.max_open_duration}分钟)`)
+const leaderBuyDipTitle = computed(() => `🐲 龙头低吸策略 ${form.strategyConfigs.leader_buy_dip.enabled ? '✅' : '❌'} (连板≥${form.strategyConfigs.leader_buy_dip.params.min_consecutive_limit}板, 回调${(form.strategyConfigs.leader_buy_dip.params.min_correction_pct*100).toFixed(0)}%~${(form.strategyConfigs.leader_buy_dip.params.max_correction_pct*100).toFixed(0)}%)`)
+const limitDownQiaoTitle = computed(() => `💥 跌停翘板策略 ${form.strategyConfigs.limit_down_qiao.enabled ? '✅' : '❌'} (连板≥${form.strategyConfigs.limit_down_qiao.params.min_consecutive_limit}板, 翘板金额≥${form.strategyConfigs.limit_down_qiao.params.min_qiao_amount}万, 仅高潮期: ${form.strategyConfigs.limit_down_qiao.params.require_high_sentiment ? '✅' : '❌'})`)
 
 // 策略参数标签页激活项
 const activeStrategyTab = ref('halfway_chase')
@@ -270,56 +180,14 @@ const logs = ref<string[]>([])
 // 回测结果
 const backtestResult = ref<any>(null)
 
-// 各配置面板动态标题（支持折叠状态下点击切换开关）
+// 各配置面板动态标题
 const dataSourceTitle = computed(() => `🔌 数据源配置 (${form.dataSource.period === 'daily' ? '日线' : '1分钟'}, ${form.dataSource.adjust_type === 'qfq' ? '前复权' : '不复权'}, 股票池: ${form.dataSource.ts_codes || '全市场'})`)
 const baseConfigTitle = computed(() => `📅 基础配置 (${form.dataSource.start_date}~${form.dataSource.end_date}, 初始资金¥${(form.base.initial_cash/10000).toFixed(0)}万)`)
 const tradeParamsTitle = computed(() => `💹 交易参数 (止损${(form.tradeParams.base_stop_loss_pct*100).toFixed(1)}%, 止盈${(form.tradeParams.base_take_profit_pct*100).toFixed(1)}%, 持仓${form.tradeParams.max_hold_days}天, 总仓${(form.tradeParams.max_total_position*100).toFixed(0)}%, 单票${(form.tradeParams.max_position_per_stock*100).toFixed(0)}%, 佣金${(form.tradeParams.commission_rate*1000).toFixed(1)}‰, 印花税${(form.tradeParams.stamp_duty_rate*1000).toFixed(0)}‰, 滑点${(form.tradeParams.slippage_pct*1000).toFixed(1)}‰)`)
-// 全局筛选标题
-const globalFilterTitle = computed(() => h('span', [
-  '🔍 全局筛选 (剔除ST: ',
-  h('span', { 
-    style: 'cursor: pointer; font-weight: bold;', 
-    onClick: (e: Event) => { e.stopPropagation(); form.globalFilter.exclude_st = !form.globalFilter.exclude_st }
-  }, form.globalFilter.exclude_st ? '✅' : '❌'),
-  ', 剔除退市: ',
-  h('span', { 
-    style: 'cursor: pointer; font-weight: bold;', 
-    onClick: (e: Event) => { e.stopPropagation(); form.globalFilter.exclude_delisting = !form.globalFilter.exclude_delisting }
-  }, form.globalFilter.exclude_delisting ? '✅' : '❌'),
-  `, 次新股≥${form.globalFilter.exclude_new_stock_days}天, 成交额≥${form.globalFilter.min_daily_amount}万, 换手率≥${form.globalFilter.min_turnover_rate}%)`
-]))
-// 强制空仓标题
-const forceEmptyTitle = computed(() => h('span', [
-  '⚠️ 强制空仓 ',
-  h('span', { 
-    style: 'cursor: pointer; font-weight: bold;', 
-    onClick: (e: Event) => { e.stopPropagation(); form.forceEmpty.enabled = !form.forceEmpty.enabled }
-  }, form.forceEmpty.enabled ? '✅' : '❌'),
-  ` (跌幅≥${(form.forceEmpty.index_drop_pct*100).toFixed(1)}%, 跌停≥${form.forceEmpty.limit_down_count}只, 涨停<${form.forceEmpty.limit_up_count}只)`
-]))
-// 情绪周期标题
-const sentimentCycleTitle = computed(() => h('span', [
-  '🧠 情绪周期 ',
-  h('span', { 
-    style: 'cursor: pointer; font-weight: bold;', 
-    onClick: (e: Event) => { e.stopPropagation(); form.sentimentCycle.enabled = !form.sentimentCycle.enabled }
-  }, form.sentimentCycle.enabled ? '✅' : '❌'),
-  ` (涨停${form.sentimentCycle.weight_limit_up}, 跌停${form.sentimentCycle.weight_limit_down}, 炸板率${form.sentimentCycle.weight_blast_rate}, 涨跌差${form.sentimentCycle.weight_rise_fall_diff}, 北向${form.sentimentCycle.weight_north_inflow})`
-]))
-// 竞价过滤标题
-const auctionFilterTitle = computed(() => h('span', [
-  '⏰ 竞价过滤 ',
-  h('span', { 
-    style: 'cursor: pointer; font-weight: bold;', 
-    onClick: (e: Event) => { e.stopPropagation(); form.auctionFilter.enabled = !form.auctionFilter.enabled }
-  }, form.auctionFilter.enabled ? '✅' : '❌'),
-  ` (涨幅${(form.auctionFilter.min_auction_pct*100).toFixed(1)}%~${(form.auctionFilter.max_auction_pct*100).toFixed(1)}%, 成交额≥${form.auctionFilter.min_auction_amount}万, 量比≥${form.auctionFilter.min_auction_volume_ratio}, 未匹配量正: `,
-  h('span', { 
-    style: 'cursor: pointer; font-weight: bold;', 
-    onClick: (e: Event) => { e.stopPropagation(); form.auctionFilter.min_unmatched_volume_positive = !form.auctionFilter.min_unmatched_volume_positive }
-  }, form.auctionFilter.min_unmatched_volume_positive ? '✅' : '❌'),
-  ')'
-]))
+const globalFilterTitle = computed(() => `🔍 全局筛选 (剔除ST: ${form.globalFilter.exclude_st ? '✅' : '❌'}, 剔除退市: ${form.globalFilter.exclude_delisting ? '✅' : '❌'}, 次新股≥${form.globalFilter.exclude_new_stock_days}天, 成交额≥${form.globalFilter.min_daily_amount}万, 换手率≥${form.globalFilter.min_turnover_rate}%)`)
+const forceEmptyTitle = computed(() => `⚠️ 强制空仓 ${form.forceEmpty.enabled ? '✅' : '❌'} (跌幅≥${(form.forceEmpty.index_drop_pct*100).toFixed(1)}%, 跌停≥${form.forceEmpty.limit_down_count}只, 涨停<${form.forceEmpty.limit_up_count}只)`)
+const sentimentCycleTitle = computed(() => `🧠 情绪周期 ${form.sentimentCycle.enabled ? '✅' : '❌'} (涨停${form.sentimentCycle.weight_limit_up}, 跌停${form.sentimentCycle.weight_limit_down}, 炸板率${form.sentimentCycle.weight_blast_rate}, 涨跌差${form.sentimentCycle.weight_rise_fall_diff}, 北向${form.sentimentCycle.weight_north_inflow})`)
+const auctionFilterTitle = computed(() => `⏰ 竞价过滤 ${form.auctionFilter.enabled ? '✅' : '❌'} (涨幅${(form.auctionFilter.min_auction_pct*100).toFixed(1)}%~${(form.auctionFilter.max_auction_pct*100).toFixed(1)}%, 成交额≥${form.auctionFilter.min_auction_amount}万, 量比≥${form.auctionFilter.min_auction_volume_ratio}, 未匹配量正: ${form.auctionFilter.min_unmatched_volume_positive ? '✅' : '❌'})`)
 const strategyConfigTitle = computed(() => `🎯 策略配置 (已选: ${form.strategies.map(id => form.strategyConfigs[id as keyof typeof form.strategyConfigs]?.name).join(', ') || '无'})`)
 
 // ==================== 生命周期 ====================
@@ -439,6 +307,83 @@ const simulateProgress = () => {
   }, 800)
 }
 
+// 切换开关方法
+const toggleGlobalFilterSt = () => {
+  form.globalFilter.exclude_st = !form.globalFilter.exclude_st
+}
+const toggleGlobalFilterDelisting = () => {
+  form.globalFilter.exclude_delisting = !form.globalFilter.exclude_delisting
+}
+const toggleForceEmpty = () => {
+  form.forceEmpty.enabled = !form.forceEmpty.enabled
+}
+const toggleSentimentCycle = () => {
+  form.sentimentCycle.enabled = !form.sentimentCycle.enabled
+}
+const toggleAuctionFilter = () => {
+  form.auctionFilter.enabled = !form.auctionFilter.enabled
+}
+const toggleAuctionUnmatchedVolume = () => {
+  if (form.auctionFilter.enabled) {
+    form.auctionFilter.min_unmatched_volume_positive = !form.auctionFilter.min_unmatched_volume_positive
+  }
+}
+const toggleHalfwayChase = () => {
+  form.strategyConfigs.halfway_chase.enabled = !form.strategyConfigs.halfway_chase.enabled
+  if (form.strategyConfigs.halfway_chase.enabled) {
+    if (!form.strategies.includes('halfway_chase')) form.strategies.push('halfway_chase')
+  } else {
+    form.strategies = form.strategies.filter(k => k !== 'halfway_chase')
+  }
+}
+const toggleHalfwayChaseAllowAfter10am = () => {
+  if (form.strategyConfigs.halfway_chase.enabled) {
+    form.strategyConfigs.halfway_chase.params.allow_after_10am = !form.strategyConfigs.halfway_chase.params.allow_after_10am
+  }
+}
+const toggleFirstLimitUp = () => {
+  form.strategyConfigs.first_limit_up.enabled = !form.strategyConfigs.first_limit_up.enabled
+  if (form.strategyConfigs.first_limit_up.enabled) {
+    if (!form.strategies.includes('first_limit_up')) form.strategies.push('first_limit_up')
+  } else {
+    form.strategies = form.strategies.filter(k => k !== 'first_limit_up')
+  }
+}
+const toggleFirstLimitUpHotSector = () => {
+  if (form.strategyConfigs.first_limit_up.enabled) {
+    form.strategyConfigs.first_limit_up.params.require_hot_sector = !form.strategyConfigs.first_limit_up.params.require_hot_sector
+  }
+}
+const toggleLimitUpOpen = () => {
+  form.strategyConfigs.limit_up_open.enabled = !form.strategyConfigs.limit_up_open.enabled
+  if (form.strategyConfigs.limit_up_open.enabled) {
+    if (!form.strategies.includes('limit_up_open')) form.strategies.push('limit_up_open')
+  } else {
+    form.strategies = form.strategies.filter(k => k !== 'limit_up_open')
+  }
+}
+const toggleLeaderBuyDip = () => {
+  form.strategyConfigs.leader_buy_dip.enabled = !form.strategyConfigs.leader_buy_dip.enabled
+  if (form.strategyConfigs.leader_buy_dip.enabled) {
+    if (!form.strategies.includes('leader_buy_dip')) form.strategies.push('leader_buy_dip')
+  } else {
+    form.strategies = form.strategies.filter(k => k !== 'leader_buy_dip')
+  }
+}
+const toggleLimitDownQiao = () => {
+  form.strategyConfigs.limit_down_qiao.enabled = !form.strategyConfigs.limit_down_qiao.enabled
+  if (form.strategyConfigs.limit_down_qiao.enabled) {
+    if (!form.strategies.includes('limit_down_qiao')) form.strategies.push('limit_down_qiao')
+  } else {
+    form.strategies = form.strategies.filter(k => k !== 'limit_down_qiao')
+  }
+}
+const toggleLimitDownQiaoHighSentiment = () => {
+  if (form.strategyConfigs.limit_down_qiao.enabled) {
+    form.strategyConfigs.limit_down_qiao.params.require_high_sentiment = !form.strategyConfigs.limit_down_qiao.params.require_high_sentiment
+  }
+}
+
 // 添加日志
 const addLog = (text: string) => {
   const timestamp = new Date().toLocaleTimeString('zh-CN')
@@ -487,8 +432,11 @@ const exportTrades = () => {
 
       <ElCollapse v-model="activeCollapse">
         <!-- 数据源配置 -->
-        <ElCollapseItem :title="dataSourceTitle" name="dataSource">
-          <ElForm label-width="120px" :disabled="!activeCollapse.includes('dataSource')">
+        <ElCollapseItem name="dataSource">
+          <template #title>
+            <span>🔌 数据源配置 ({{ form.dataSource.period === 'daily' ? '日线' : '1分钟' }}, {{ form.dataSource.adjust_type === 'qfq' ? '前复权' : '不复权' }}, 股票池: {{ form.dataSource.ts_codes || '全市场' }})</span>
+          </template>
+          <ElForm label-width="120px">
             <ElFormItem label="周期">
               <ElSelect v-model="form.dataSource.period" style="width: 150px">
                 <ElOption label="日线" value="daily" />
@@ -514,8 +462,11 @@ const exportTrades = () => {
         </ElCollapseItem>
 
         <!-- 基础配置 -->
-        <ElCollapseItem :title="baseConfigTitle" name="baseConfig">
-          <ElForm label-width="120px" :disabled="!activeCollapse.includes('baseConfig')">
+        <ElCollapseItem name="baseConfig">
+          <template #title>
+            <span>📅 基础配置 ({{ form.dataSource.start_date }}~{{ form.dataSource.end_date }}, 初始资金¥{{ (form.base.initial_cash/10000).toFixed(0) }}万)</span>
+          </template>
+          <ElForm label-width="120px">
             <ElFormItem label="初始资金">
               <ElInputNumber v-model="form.base.initial_cash" :min="100000" :max="1000000000" style="width: 200px" prefix="¥" />
             </ElFormItem>
@@ -523,8 +474,11 @@ const exportTrades = () => {
         </ElCollapseItem>
 
         <!-- 交易参数 -->
-        <ElCollapseItem :title="tradeParamsTitle" name="tradeParams">
-          <ElForm label-width="120px" :disabled="!activeCollapse.includes('tradeParams')">
+        <ElCollapseItem name="tradeParams">
+          <template #title>
+            <span>💹 交易参数 (止损{{ (form.tradeParams.base_stop_loss_pct*100).toFixed(1) }}%, 止盈{{ (form.tradeParams.base_take_profit_pct*100).toFixed(1) }}%, 持仓{{ form.tradeParams.max_hold_days }}天, 总仓{{ (form.tradeParams.max_total_position*100).toFixed(0) }}%, 单票{{ (form.tradeParams.max_position_per_stock*100).toFixed(0) }}%, 佣金{{ (form.tradeParams.commission_rate*1000).toFixed(1) }}‰, 印花税{{ (form.tradeParams.stamp_duty_rate*1000).toFixed(0) }}‰, 滑点{{ (form.tradeParams.slippage_pct*1000).toFixed(1) }}‰)</span>
+          </template>
+          <ElForm label-width="120px">
             <ElFormItem label="基础止损">
               <ElInputNumber v-model="form.tradeParams.base_stop_loss_pct" :min="0" :max="1" :step="0.001" style="width: 150px" />
               <span class="unit">%</span>
@@ -561,7 +515,17 @@ const exportTrades = () => {
         </ElCollapseItem>
 
         <!-- 全局筛选 -->
-        <ElCollapseItem :title="globalFilterTitle" name="globalFilter">
+        <ElCollapseItem name="globalFilter">
+          <template #title>
+            <span>🔍 全局筛选 (剔除ST: 
+              <span style="cursor: pointer; font-weight: bold;" @click.stop="toggleGlobalFilterSt">
+                {{ form.globalFilter.exclude_st ? '✅' : '❌' }}
+              </span>, 剔除退市: 
+              <span style="cursor: pointer; font-weight: bold;" @click.stop="toggleGlobalFilterDelisting">
+                {{ form.globalFilter.exclude_delisting ? '✅' : '❌' }}
+              </span>, 次新股≥{{ form.globalFilter.exclude_new_stock_days }}天, 成交额≥{{ form.globalFilter.min_daily_amount }}万, 换手率≥{{ form.globalFilter.min_turnover_rate }}%)
+            </span>
+          </template>
           <ElForm label-width="160px" :disabled="!activeCollapse.includes('globalFilter')">
             <ElFormItem label="剔除ST/*ST">
               <ElSwitch v-model="form.globalFilter.exclude_st" />
@@ -585,7 +549,14 @@ const exportTrades = () => {
         </ElCollapseItem>
 
         <!-- 强制空仓 -->
-        <ElCollapseItem :title="forceEmptyTitle" name="forceEmpty">
+        <ElCollapseItem name="forceEmpty">
+          <template #title>
+            <span>⚠️ 强制空仓 
+              <span style="cursor: pointer; font-weight: bold;" @click.stop="toggleForceEmpty">
+                {{ form.forceEmpty.enabled ? '✅' : '❌' }}
+              </span> (跌幅≥{{ (form.forceEmpty.index_drop_pct*100).toFixed(1) }}%, 跌停≥{{ form.forceEmpty.limit_down_count }}只, 涨停<{{ form.forceEmpty.limit_up_count }}只)
+            </span>
+          </template>
           <ElForm label-width="160px">
             <ElFormItem label="启用强制空仓">
               <ElSwitch v-model="form.forceEmpty.enabled" />
@@ -606,7 +577,14 @@ const exportTrades = () => {
         </ElCollapseItem>
 
         <!-- 情绪周期 -->
-        <ElCollapseItem :title="sentimentCycleTitle" name="sentimentCycle">
+        <ElCollapseItem name="sentimentCycle">
+          <template #title>
+            <span>🧠 情绪周期 
+              <span style="cursor: pointer; font-weight: bold;" @click.stop="toggleSentimentCycle">
+                {{ form.sentimentCycle.enabled ? '✅' : '❌' }}
+              </span> (涨停{{ form.sentimentCycle.weight_limit_up }}, 跌停{{ form.sentimentCycle.weight_limit_down }}, 炸板率{{ form.sentimentCycle.weight_blast_rate }}, 涨跌差{{ form.sentimentCycle.weight_rise_fall_diff }}, 北向{{ form.sentimentCycle.weight_north_inflow }})
+            </span>
+          </template>
           <ElForm label-width="160px">
             <ElFormItem label="启用情绪周期">
               <ElSwitch v-model="form.sentimentCycle.enabled" />
@@ -630,7 +608,17 @@ const exportTrades = () => {
         </ElCollapseItem>
 
         <!-- 竞价过滤 -->
-        <ElCollapseItem :title="auctionFilterTitle" name="auctionFilter">
+        <ElCollapseItem name="auctionFilter">
+          <template #title>
+            <span>⏰ 竞价过滤 
+              <span style="cursor: pointer; font-weight: bold;" @click.stop="toggleAuctionFilter">
+                {{ form.auctionFilter.enabled ? '✅' : '❌' }}
+              </span> (涨幅{{ (form.auctionFilter.min_auction_pct*100).toFixed(1) }}%~{{ (form.auctionFilter.max_auction_pct*100).toFixed(1) }}%, 成交额≥{{ form.auctionFilter.min_auction_amount }}万, 量比≥{{ form.auctionFilter.min_auction_volume_ratio }}, 未匹配量正: 
+              <span style="cursor: pointer; font-weight: bold;" @click.stop="toggleAuctionUnmatchedVolume">
+                {{ form.auctionFilter.min_unmatched_volume_positive ? '✅' : '❌' }}
+              </span>)
+            </span>
+          </template>
           <ElForm label-width="160px">
             <ElFormItem label="启用竞价过滤">
               <ElSwitch v-model="form.auctionFilter.enabled" />
@@ -658,7 +646,17 @@ const exportTrades = () => {
         </ElCollapseItem>
 
         <!-- 半路追涨策略 -->
-        <ElCollapseItem :title="halfwayChaseTitle" name="halfway_chase">
+        <ElCollapseItem name="halfway_chase">
+          <template #title>
+            <span>🏃‍♂️ 半路追涨策略 
+              <span style="cursor: pointer; font-weight: bold;" @click.stop="toggleHalfwayChase">
+                {{ form.strategyConfigs.halfway_chase.enabled ? '✅' : '❌' }}
+              </span> (涨幅{{ (form.strategyConfigs.halfway_chase.params.min_rise_pct*100).toFixed(1) }}%~{{ (form.strategyConfigs.halfway_chase.params.max_rise_pct*100).toFixed(1) }}%, 量比≥{{ form.strategyConfigs.halfway_chase.params.min_volume_ratio }}倍, 10点后买入: 
+              <span style="cursor: pointer; font-weight: bold;" @click.stop="toggleHalfwayChaseAllowAfter10am">
+                {{ form.strategyConfigs.halfway_chase.params.allow_after_10am ? '✅' : '❌' }}
+              </span>)
+            </span>
+          </template>
           <ElForm label-width="160px">
             <ElFormItem label="启用策略">
               <ElSwitch 
@@ -693,7 +691,17 @@ const exportTrades = () => {
         </ElCollapseItem>
 
         <!-- 首板打板策略 -->
-        <ElCollapseItem :title="firstLimitUpTitle" name="first_limit_up">
+        <ElCollapseItem name="first_limit_up">
+          <template #title>
+            <span>🥇 首板打板策略 
+              <span style="cursor: pointer; font-weight: bold;" @click.stop="toggleFirstLimitUp">
+                {{ form.strategyConfigs.first_limit_up.enabled ? '✅' : '❌' }}
+              </span> (封单≥{{ form.strategyConfigs.first_limit_up.params.min_seal_amount }}万, ≤{{ form.strategyConfigs.first_limit_up.params.max_limit_up_time }}涨停, 流通市值≤{{ form.strategyConfigs.first_limit_up.params.max_circulation_market_cap }}亿, 炸板≤{{ form.strategyConfigs.first_limit_up.params.max_blast_count }}次, 热点板块: 
+              <span style="cursor: pointer; font-weight: bold;" @click.stop="toggleFirstLimitUpHotSector">
+                {{ form.strategyConfigs.first_limit_up.params.require_hot_sector ? '✅' : '❌' }}
+              </span>)
+            </span>
+          </template>
           <ElForm label-width="160px">
             <ElFormItem label="启用策略">
               <ElSwitch 
@@ -731,7 +739,14 @@ const exportTrades = () => {
         </ElCollapseItem>
 
         <!-- 涨停开板策略 -->
-        <ElCollapseItem :title="limitUpOpenTitle" name="limit_up_open">
+        <ElCollapseItem name="limit_up_open">
+          <template #title>
+            <span>📈 涨停开板策略 
+              <span style="cursor: pointer; font-weight: bold;" @click.stop="toggleLimitUpOpen">
+                {{ form.strategyConfigs.limit_up_open.enabled ? '✅' : '❌' }}
+              </span> (连板≥{{ form.strategyConfigs.limit_up_open.params.min_consecutive_limit }}板, 开板≤{{ form.strategyConfigs.limit_up_open.params.max_open_duration }}分钟, 回封封单≥{{ form.strategyConfigs.limit_up_open.params.min_seal_after_open }}万, 换手率≥{{ (form.strategyConfigs.limit_up_open.params.min_turnover_rate*100).toFixed(0) }}%)
+            </span>
+          </template>
           <ElForm label-width="160px">
             <ElFormItem label="启用策略">
               <ElSwitch 
@@ -767,7 +782,14 @@ const exportTrades = () => {
         </ElCollapseItem>
 
         <!-- 龙头低吸策略 -->
-        <ElCollapseItem :title="leaderBuyDipTitle" name="leader_buy_dip">
+        <ElCollapseItem name="leader_buy_dip">
+          <template #title>
+            <span>🐲 龙头低吸策略 
+              <span style="cursor: pointer; font-weight: bold;" @click.stop="toggleLeaderBuyDip">
+                {{ form.strategyConfigs.leader_buy_dip.enabled ? '✅' : '❌' }}
+              </span> (连板≥{{ form.strategyConfigs.leader_buy_dip.params.min_consecutive_limit }}板, 回调{{ (form.strategyConfigs.leader_buy_dip.params.min_correction_pct*100).toFixed(0) }}%~{{ (form.strategyConfigs.leader_buy_dip.params.max_correction_pct*100).toFixed(0) }}%, 回调{{ form.strategyConfigs.leader_buy_dip.params.correction_days_min }}~{{ form.strategyConfigs.leader_buy_dip.params.correction_days_max }}天, 支撑位: {{ form.strategyConfigs.leader_buy_dip.params.support_level.toUpperCase() }})
+            </span>
+          </template>
           <ElForm label-width="160px">
             <ElFormItem label="启用策略">
               <ElSwitch 
@@ -814,7 +836,17 @@ const exportTrades = () => {
         </ElCollapseItem>
 
         <!-- 跌停翘板策略 -->
-        <ElCollapseItem :title="limitDownQiaoTitle" name="limit_down_qiao">
+        <ElCollapseItem name="limit_down_qiao">
+          <template #title>
+            <span>💥 跌停翘板策略 
+              <span style="cursor: pointer; font-weight: bold;" @click.stop="toggleLimitDownQiao">
+                {{ form.strategyConfigs.limit_down_qiao.enabled ? '✅' : '❌' }}
+              </span> (连板≥{{ form.strategyConfigs.limit_down_qiao.params.min_consecutive_limit }}板, 翘板金额≥{{ form.strategyConfigs.limit_down_qiao.params.min_qiao_amount }}万, 翘板后涨幅≥{{ (form.strategyConfigs.limit_down_qiao.params.min_rise_after_qiao*100).toFixed(0) }}%, 仅高潮期: 
+              <span style="cursor: pointer; font-weight: bold;" @click.stop="toggleLimitDownQiaoHighSentiment">
+                {{ form.strategyConfigs.limit_down_qiao.params.require_high_sentiment ? '✅' : '❌' }}
+              </span>)
+            </span>
+          </template>
           <ElForm label-width="160px">
             <ElFormItem label="启用策略">
               <ElSwitch 
@@ -1030,5 +1062,28 @@ const exportTrades = () => {
   margin-left: 12px;
   color: #606266;
   font-size: 13px;
+}
+
+/* 折叠面板标题强制不换行，完整显示所有参数 */
+:deep(.el-collapse-item__header) {
+  white-space: nowrap !important;
+  overflow-x: auto !important;
+  padding-right: 40px !important;
+}
+
+:deep(.el-collapse-item__header::-webkit-scrollbar) {
+  height: 4px;
+}
+
+:deep(.el-collapse-item__header::-webkit-scrollbar-thumb) {
+  background-color: #dcdfe6;
+  border-radius: 2px;
+}
+
+:deep(.el-collapse-item__arrow) {
+  position: absolute;
+  right: 15px;
+  background: #fff;
+  padding-left: 10px;
 }
 </style>
