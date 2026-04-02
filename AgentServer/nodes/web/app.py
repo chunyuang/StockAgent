@@ -7,9 +7,12 @@ FastAPI 应用工厂
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 import uuid
+import os
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from core.settings import settings
 from core.managers import (
@@ -102,5 +105,23 @@ def create_app() -> FastAPI:
     
     # WebSocket 路由
     app.include_router(websocket_router)
+    
+    # 静态文件挂载 - 前端资源
+    static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../static")
+    if os.path.exists(static_dir):
+        app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
+        
+        # 首页路由
+        @app.get("/")
+        async def read_index():
+            return FileResponse(os.path.join(static_dir, "index.html"))
+            
+        # 处理前端路由刷新的 fallback
+        @app.get("/{full_path:path}")
+        async def catch_all(full_path: str):
+            index_path = os.path.join(static_dir, "index.html")
+            if os.path.exists(index_path):
+                return FileResponse(index_path)
+            return {"detail": "Not Found"}, 404
     
     return app

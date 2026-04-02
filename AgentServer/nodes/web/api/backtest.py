@@ -165,6 +165,12 @@ class UltraShortBacktestRequest(BaseModel):
     start_date: str = Field(..., description="开始日期", pattern=r"^\d{8}$")
     end_date: str = Field(..., description="结束日期", pattern=r"^\d{8}$")
     
+    # 数据源配置
+    data_source: str = Field(default="mongodb", description="数据源：固定为mongodb")
+    period: str = Field(default="daily", description="周期：daily/1min")
+    ts_codes: Optional[str] = Field(default=None, description="股票代码列表，逗号分隔，空为全市场")
+    adjust_type: str = Field(default="qfq", description="复权方式：none(不复权), qfq(前复权)")
+    
     initial_cash: float = Field(default=1000000.0, ge=10000, le=100000000, description="初始资金")
     params: UltraShortParams = Field(default_factory=UltraShortParams, description="策略参数配置")
     
@@ -666,7 +672,7 @@ async def submit_ultra_short_backtest(
         f"strategies={request.strategies}, {request.start_date} ~ {request.end_date}"
     )
     
-    # Mock存储任务
+    # 初始化mock任务状态
     mock_tasks[task_id] = {
         "task_id": task_id,
         "status": "running",
@@ -674,67 +680,76 @@ async def submit_ultra_short_backtest(
         "logs": [
             "🚀 开始提交回测任务...",
             "✅ 任务提交成功",
-            "🔍 加载回测数据...",
-            "🧮 计算因子...",
-            "📈 执行回测..."
+            "🔄 已启动进度轮询保障"
         ],
         "result": None
     }
     
-    # 模拟进度，5秒后完成，支持取消
-    import asyncio
-    async def simulate_backtest():
-        # 每一步都检查是否被取消
-        await asyncio.sleep(1)
-        if mock_tasks[task_id]["status"] == "cancelled":
-            return
-        mock_tasks[task_id]["progress"] = 20
-        mock_tasks[task_id]["logs"].append("✅ 数据加载完成，共60个交易日")
-        
-        await asyncio.sleep(1)
-        if mock_tasks[task_id]["status"] == "cancelled":
-            return
-        mock_tasks[task_id]["progress"] = 50
-        mock_tasks[task_id]["logs"].append("✅ 因子计算完成，共21个价量因子")
-        
-        await asyncio.sleep(1)
-        if mock_tasks[task_id]["status"] == "cancelled":
-            return
-        mock_tasks[task_id]["progress"] = 80
-        mock_tasks[task_id]["logs"].append("📊 回测执行完成，共66个交易信号")
-        
-        await asyncio.sleep(1)
-        if mock_tasks[task_id]["status"] == "cancelled":
-            return
-        mock_tasks[task_id]["progress"] = 100
-        mock_tasks[task_id]["status"] = "completed"
-        mock_tasks[task_id]["logs"].append("✅ 回测完成！")
-        
-        # 填充真实的回测结果（我们之前的真实数据）
-        mock_tasks[task_id]["result"] = {
-            "total_return": 0.6535,
-            "win_rate": 0.4848,
-            "profit_loss_ratio": 2.30,
-            "max_drawdown": 0.2853,
-            "sharpe_ratio": 2.30,
-            "total_trades": 66,
-            "strategy_results": {
-                "halfway_chase": {
-                    "strategy_name": "半路追涨",
-                    "total_return": 0.6535,
-                    "win_rate": 0.4848,
-                    "profit_loss_ratio": 2.30,
-                    "signal_count": 66
-                }
-            },
-            "trades": [
-                {"ts_code": "600000.SH", "stock_name": "浦发银行", "strategy": "半路追涨", "buy_date": "20260105", "sell_date": "20260108", "buy_price": 8.25, "sell_price": 9.10, "profit_pct": 0.103, "hold_days": 3},
-                {"ts_code": "000001.SZ", "stock_name": "平安银行", "strategy": "半路追涨", "buy_date": "20260110", "sell_date": "20260112", "buy_price": 10.50, "sell_price": 11.20, "profit_pct": 0.067, "hold_days": 2},
-                {"ts_code": "601318.SH", "stock_name": "中国平安", "strategy": "半路追涨", "buy_date": "20260115", "sell_date": "20260117", "buy_price": 42.30, "sell_price": 45.80, "profit_pct": 0.0827, "hold_days": 2},
-            ]
-        }
+    # 构建 RPC 参数
+    rpc_params = {
+        "task_id": task_id,
+        "user_id": user_id,
+        "strategies": request.strategies,
+        "start_date": request.start_date,
+        "end_date": request.end_date,
+        "initial_cash": request.initial_cash,
+        "params": {
+            "liquidity_threshold": request.liquidity_threshold,
+            "volume_threshold": request.volume_threshold,
+            "stop_loss_pct": request.stop_loss_pct,
+            "take_profit_pct": request.take_profit_pct,
+            "max_hold_days": request.max_hold_days,
+            "max_position_per_stock": request.max_position_per_stock,
+            "max_position": request.max_position,
+        },
+        "enable_force_empty": request.enable_force_empty,
+        "enable_sentiment_cycle": request.enable_sentiment_cycle,
+        "enable_auction_filter": request.enable_auction_filter,
+    }
     
-    asyncio.create_task(simulate_backtest())
+    # 异步执行RPC调用，避免阻塞请求
+    import asyncio
+    async def run_backtest_async():
+        try:
+            from core.rpc.client import RPCClient
+            rpc_client = RPCClient()
+            
+            results = await rpc_client.broadcast_by_type(
+                node_type="backtest",
+                method="run_ultra_short_backtest",
+                params=rpc_params,
+                timeout=300.0,
+                source_node="web-node",
+            )
+            
+            if not results:
+                mock_tasks[task_id]["status"] = "failed"
+                mock_tasks[task_id]["logs"].append("❌ 回测失败：无可用回测节点")
+                return
+            
+            first_result = results[0]
+            if not first_result.get("success"):
+                error_msg = first_result.get("error", "未知错误")
+                mock_tasks[task_id]["status"] = "failed"
+                mock_tasks[task_id]["logs"].append(f"❌ 回测失败：{error_msg}")
+                logger.error(f"[{task_id}] RPC failed: {error_msg}")
+                return
+            
+            rpc_response = first_result.get("result", {})
+            
+            # 更新任务状态和结果
+            mock_tasks[task_id]["status"] = "completed"
+            mock_tasks[task_id]["progress"] = 100
+            mock_tasks[task_id]["logs"].append("✅ 回测全部完成，正在生成汇总报告...")
+            mock_tasks[task_id]["result"] = rpc_response
+            
+        except Exception as e:
+            mock_tasks[task_id]["status"] = "failed"
+            mock_tasks[task_id]["logs"].append(f"❌ 回测异常：{str(e)}")
+            logger.exception(f"[{task_id}] Ultra short backtest failed: {e}")
+    
+    # 启动异步回测任务
+    asyncio.create_task(run_backtest_async())
     
     return BacktestTaskResponse(
         task_id=task_id,
