@@ -65,7 +65,12 @@ class BacktestNode(BaseNode):
         self.logger.info("Initializing managers...")
         await redis_manager.initialize()
         await mongo_manager.initialize()
-        await tushare_manager.initialize()
+        # Tushare初始化加异常保护，失败不影响运行
+        try:
+            await tushare_manager.initialize()
+            self.logger.info("Tushare manager initialized successfully")
+        except Exception as e:
+            self.logger.warning(f"Tushare manager initialize failed (ignored): {e}, will use AKShare only")
         
         # 启动 RPC 服务器
         await self._start_rpc_server()
@@ -420,6 +425,13 @@ class BacktestNode(BaseNode):
         task_id = params.get("task_id", "unknown")
         strategies = params.get("strategies", [])
         start_date = params.get("start_date", "20260105")
+        
+        # 初始化管理器，异常保护
+        try:
+            await tushare_manager.initialize()
+            self.logger.info("Tushare manager initialized successfully")
+        except Exception as e:
+            self.logger.warning(f"Tushare manager initialize failed (ignored): {e}, will use AKShare only")
         end_date = params.get("end_date", "20260320")
         initial_cash = params.get("initial_cash", 1000000)
         strategy_params = params.get("params", {})
@@ -511,13 +523,32 @@ class BacktestNode(BaseNode):
         factor_engine = FactorEngine(source="ak")
         universe_mgr = UniverseManager(source="ak")
         
-        # 获取调仓日期
+        # 获取调仓日期 - 优先从MongoDB本地读取
         await self._push_log(task_id, "📆 获取交易日历...")
-        rebalance_dates = await baostock_manager.get_trade_dates(start_date, end_date)
-        if not rebalance_dates:
-            error_msg = "Failed to get trade dates from baostock"
-            await self._push_log(task_id, f"❌ {error_msg}")
-            raise ValueError(error_msg)
+        # 从MongoDB stock_daily表中读取日期范围内的所有唯一trade_date
+        try:
+            pipeline = [
+                {"$match": {"trade_date": {"$gte": start_date, "$lte": end_date}}},
+                {"$group": {"_id": "$trade_date"}},
+                {"$sort": {"_id": 1}}
+            ]
+            result = await mongo_manager.aggregate("stock_daily", pipeline)
+            rebalance_dates = [doc["_id"] for doc in result]
+            if not rebalance_dates:
+                # 本地没有数据时 fallback 到Baostock
+                rebalance_dates = await baostock_manager.get_trade_dates(start_date, end_date)
+            
+            if not rebalance_dates:
+                error_msg = "Failed to get trade dates from both MongoDB and Baostock"
+                await self._push_log(task_id, f"❌ {error_msg}")
+                raise ValueError(error_msg)
+        except Exception as e:
+            await self._push_log(task_id, f"⚠️ 读取本地交易日历失败，使用Baostock fallback: {e}")
+            rebalance_dates = await baostock_manager.get_trade_dates(start_date, end_date)
+            if not rebalance_dates:
+                error_msg = "Failed to get trade dates from Baostock"
+                await self._push_log(task_id, f"❌ {error_msg}")
+                raise ValueError(error_msg)
         
         rebalance_dates = sorted(rebalance_dates)
         await self._push_log(task_id, f"✅ 总交易日: {len(rebalance_dates)} 天")
@@ -755,7 +786,7 @@ class BacktestNode(BaseNode):
         start_date: str,
         end_date: str,
     ) -> pd.DataFrame:
-        """从数据库获取行情数据"""
+        """从数据库获取行情数据，不存在则自动从AKShare下载"""
         records = await mongo_manager.find_many(
             "stock_daily",
             {
@@ -764,6 +795,66 @@ class BacktestNode(BaseNode):
             },
             sort=[("trade_date", 1)],
         )
+        
+        if not records:
+            # 本地没有数据，自动从AKShare下载
+            self.logger.info(f"本地没有{ts_code} {start_date}~{end_date}数据，尝试从AKShare下载...")
+            try:
+                # 转换日期格式：YYYYMMDD -> YYYY-MM-DD
+                start_dt = f"{start_date[:4]}-{start_date[4:6]}-{start_date[6:8]}"
+                end_dt = f"{end_date[:4]}-{end_date[4:6]}-{end_date[6:8]}"
+                
+                # 调用AKShare获取日线数据
+                df_ak = await akshare_manager.get_daily(ts_code, start_dt, end_dt)
+                if df_ak.empty:
+                    self.logger.warning(f"AKShare没有获取到{ts_code}的数据")
+                    return pd.DataFrame()
+                
+                # 转换格式存入MongoDB
+                records_to_insert = []
+                for _, row in df_ak.iterrows():
+                    # 转换trade_date为YYYYMMDD格式
+                    trade_date = row["trade_date"].strftime("%Y%m%d") if hasattr(row["trade_date"], 'strftime') else str(row["trade_date"]).replace("-", "")
+                    record = {
+                        "ts_code": ts_code,
+                        "trade_date": trade_date,
+                        "open": float(row["open"]),
+                        "high": float(row["high"]),
+                        "low": float(row["low"]),
+                        "close": float(row["close"]),
+                        "vol": float(row["vol"]) if "vol" in row else float(row["volume"]),
+                        "amount": float(row["amount"]),
+                        "up_limit": float(row["up_limit"]) if "up_limit" in row else None,
+                        "down_limit": float(row["down_limit"]) if "down_limit" in row else None,
+                        "pct_chg": float(row["pct_chg"]) if "pct_chg" in row else None,
+                        "source": "ak" # 标记数据源为AKShare
+                    }
+                    records_to_insert.append(record)
+                
+                if records_to_insert:
+                    # 批量插入数据库，避免重复
+                    for record in records_to_insert:
+                        await mongo_manager.update_one(
+                            "stock_daily",
+                            {"ts_code": record["ts_code"], "trade_date": record["trade_date"]},
+                            {"$setOnInsert": record},
+                            upsert=True
+                        )
+                    self.logger.info(f"成功下载并保存{ts_code} {len(records_to_insert)}条日线数据")
+                    
+                    # 重新查询数据
+                    records = await mongo_manager.find_many(
+                        "stock_daily",
+                        {
+                            "ts_code": ts_code,
+                            "trade_date": {"$gte": start_date, "$lte": end_date},
+                        },
+                        sort=[("trade_date", 1)],
+                    )
+                
+            except Exception as e:
+                self.logger.error(f"从AKShare下载{ts_code}数据失败: {e}")
+                return pd.DataFrame()
         
         if not records:
             return pd.DataFrame()

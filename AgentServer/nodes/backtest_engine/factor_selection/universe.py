@@ -193,7 +193,26 @@ class UniverseManager:
         """
         # 获取交易日历
         logger.info(f"Getting rebalance dates: {start_date} -> {end_date}, freq={freq}")
-        trade_dates = await tushare_manager.get_trade_cal(start_date, end_date)
+        # 优先从本地MongoDB获取交易日历，完全不依赖Tushare
+        trade_dates = await self._get_trade_dates_from_mongo(start_date, end_date)
+        if not trade_dates:
+            # 本地没有数据时 fallback 到Baostock
+            try:
+                from core.managers import baostock_manager
+                await baostock_manager.initialize()
+                trade_dates = await baostock_manager.get_trade_dates(start_date, end_date)
+                await baostock_manager.shutdown()
+                
+                if trade_dates:
+                    # 转换为YYYYMMDD整数格式
+                    trade_dates = [int(d.replace("-", "")) for d in trade_dates]
+                    logger.info(f"从Baostock获取到{len(trade_dates)}个交易日")
+                else:
+                    logger.error("No trade dates found in both MongoDB and Baostock")
+                    return []
+            except Exception as e:
+                logger.error(f"获取交易日历失败: {e}")
+                return []
         trade_dates = sorted(trade_dates)
         
         if not trade_dates:
@@ -259,11 +278,45 @@ class UniverseManager:
         
         return result
     
+    async def _get_trade_dates_from_mongo(self, start_date: str, end_date: str) -> List[str]:
+        """从本地MongoDB stock_daily表中获取日期范围内的所有交易日"""
+        try:
+            # 查询日期范围内的所有不同trade_date
+            pipeline = [
+                {"$match": {"trade_date": {"$gte": start_date, "$lte": end_date}},
+                {"$group": {"_id": "$trade_date"}},
+                {"$sort": {"_id": 1}}
+            ]
+            result = await mongo_manager.aggregate("stock_daily", pipeline)
+            return [doc["_id"] for doc in result]
+        except Exception as e:
+            logger.warning(f"Failed to get trade dates from MongoDB: {e}")
+            return []
+
     async def get_all_trade_dates(
         self,
         start_date: str,
         end_date: str,
     ) -> List[str]:
-        """获取日期范围内的所有交易日"""
-        trade_dates = await tushare_manager.get_trade_cal(start_date, end_date)
+        """获取日期范围内的所有交易日，完全不依赖Tushare"""
+        # 优先从本地MongoDB获取交易日历
+        trade_dates = await self._get_trade_dates_from_mongo(start_date, end_date)
+        if not trade_dates:
+            # 本地没有数据时 fallback 到Baostock
+            try:
+                from core.managers import baostock_manager
+                await baostock_manager.initialize()
+                trade_dates = await baostock_manager.get_trade_dates(start_date, end_date)
+                await baostock_manager.shutdown()
+                
+                if trade_dates:
+                    # 转换为YYYYMMDD整数格式
+                    trade_dates = [int(d.replace("-", "")) for d in trade_dates]
+                    logger.info(f"从Baostock获取到{len(trade_dates)}个交易日")
+                else:
+                    logger.error("No trade dates found in both MongoDB and Baostock")
+                    return []
+            except Exception as e:
+                logger.error(f"获取交易日历失败: {e}")
+                return []
         return sorted(trade_dates)
