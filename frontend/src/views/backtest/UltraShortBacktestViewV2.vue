@@ -565,6 +565,11 @@ const submitBacktest = async () => {
       start_date: form.dataSource.start_date,
       end_date: form.dataSource.end_date,
       initial_cash: form.base.initial_cash,
+      // 数据源配置
+      data_source: form.dataSource.data_source,
+      period: form.dataSource.period,
+      ts_codes: form.dataSource.ts_codes,
+      adjust_type: form.dataSource.adjust_type,
       params: {
         liquidity_threshold: form.globalFilter.min_daily_amount,
         volume_threshold: form.globalFilter.min_turnover_rate,

@@ -418,6 +418,10 @@ class BacktestNode(BaseNode):
                 - enable_force_empty: 启用强制空仓
                 - enable_sentiment_cycle: 启用情绪周期
                 - enable_auction_filter: 启用竞价过滤
+                - data_source: 数据源
+                - period: 周期：daily/1min
+                - ts_codes: 股票代码列表，逗号分隔
+                - adjust_type: 复权方式：none/qfq
             
         Returns:
             回测报告（包含所有策略的结果和汇总统计
@@ -425,6 +429,14 @@ class BacktestNode(BaseNode):
         task_id = params.get("task_id", "unknown")
         strategies = params.get("strategies", [])
         start_date = params.get("start_date", "20260105")
+        end_date = params.get("end_date", "20260320")
+        initial_cash = params.get("initial_cash", 1000000)
+        strategy_params = params.get("params", {})
+        # 数据源配置
+        data_source = params.get("data_source", "mongodb")
+        period = params.get("period", "daily")
+        ts_codes = params.get("ts_codes", "")
+        adjust_type = params.get("adjust_type", "qfq")
         
         # 初始化管理器，异常保护
         try:
@@ -432,13 +444,10 @@ class BacktestNode(BaseNode):
             self.logger.info("Tushare manager initialized successfully")
         except Exception as e:
             self.logger.warning(f"Tushare manager initialize failed (ignored): {e}, will use AKShare only")
-        end_date = params.get("end_date", "20260320")
-        initial_cash = params.get("initial_cash", 1000000)
-        strategy_params = params.get("params", {})
         
         self.logger.info(
             f"[{task_id}] Executing ultra short backtest: "
-            f"{start_date} ~ {end_date}, strategies={strategies}"
+            f"{start_date} ~ {end_date}, strategies={strategies}, period={period}, adjust_type={adjust_type}"
         )
         
         # 更新状态为 running
@@ -452,6 +461,13 @@ class BacktestNode(BaseNode):
         await self._push_log(task_id, "🚀 超短策略回测启动")
         await self._push_log(task_id, f"📅 回测区间: {start_date} -> {end_date}")
         await self._push_log(task_id, f"💰 初始资金: {initial_cash:,}")
+        await self._push_log(task_id, f"🔌 数据源: {data_source}")
+        await self._push_log(task_id, f"⏱️ 周期: {period}")
+        await self._push_log(task_id, f"📊 复权方式: {'前复权' if adjust_type == 'qfq' else '不复权'}")
+        if ts_codes and ts_codes.strip():
+            await self._push_log(task_id, f"📝 股票池: {ts_codes}")
+        else:
+            await self._push_log(task_id, f"📝 股票池: 全市场")
         await self._push_log(task_id, f"🔧 流动性门槛: {strategy_params.get('liquidity_threshold', 500)} 万元")
         await self._push_log(task_id, f"📈 单票最大仓位: {strategy_params.get('max_position_per_stock', 0.2)*100}%")
         
@@ -583,7 +599,7 @@ class BacktestNode(BaseNode):
                 "initial_cash": initial_cash,
                 "max_position_percent": strategy_params.get("max_position_per_stock", 0.2),
                 "liquidity_threshold": strategy_params.get("liquidity_threshold", 500),
-                "data_collection": "stock_daily_ak_full",
+                "data_collection": "stock_daily" if period == "daily" else "stock_1min",
                 "universe_mgr": universe_mgr,
                 "factor_engine": factor_engine,
                 "exclude_rules": [ExcludeRule.ST, ExcludeRule.NEW_STOCK],
