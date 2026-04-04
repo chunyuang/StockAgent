@@ -694,13 +694,13 @@ async def submit_ultra_short_backtest(
         "end_date": request.end_date,
         "initial_cash": request.initial_cash,
         "params": {
-            "liquidity_threshold": request.liquidity_threshold,
-            "volume_threshold": request.volume_threshold,
-            "stop_loss_pct": request.stop_loss_pct,
-            "take_profit_pct": request.take_profit_pct,
-            "max_hold_days": request.max_hold_days,
-            "max_position_per_stock": request.max_position_per_stock,
-            "max_position": request.max_position,
+            "liquidity_threshold": request.params.liquidity_threshold,
+            "volume_threshold": request.params.volume_threshold,
+            "stop_loss_pct": request.params.stop_loss_pct,
+            "take_profit_pct": request.params.take_profit_pct,
+            "max_hold_days": request.params.max_hold_days,
+            "max_position_per_stock": request.params.max_position_per_stock,
+            "max_position": request.params.max_position,
         },
         "enable_force_empty": request.enable_force_empty,
         "enable_sentiment_cycle": request.enable_sentiment_cycle,
@@ -711,7 +711,7 @@ async def submit_ultra_short_backtest(
     import asyncio
     async def run_backtest_async():
         try:
-            from core.rpc.client import RPCClient
+            from core.rpc.rpc_manager import RPCClient
             rpc_client = RPCClient()
             
             results = await rpc_client.broadcast_by_type(
