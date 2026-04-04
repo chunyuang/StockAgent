@@ -12,7 +12,8 @@ import os
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.exceptions import HTTPException
 
 from core.settings import settings
 from core.managers import (
@@ -56,10 +57,10 @@ def create_app() -> FastAPI:
     
     # ==================== 中间件 ====================
     
-    # CORS
+    # CORS - 允许所有来源方便开发调试
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"] if settings.debug else ["http://localhost:5173"],
+        allow_origins=["*"],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -78,6 +79,8 @@ def create_app() -> FastAPI:
         return response
     
     # ==================== 路由 ====================
+    
+
     
     # 健康检查
     @app.get("/health")
@@ -106,22 +109,9 @@ def create_app() -> FastAPI:
     # WebSocket 路由
     app.include_router(websocket_router)
     
-    # 静态文件挂载 - 前端资源
+    # 静态文件挂载 - 前端资源 (html=True自动处理SPA路由，找不到文件返回index.html)
     static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../static")
     if os.path.exists(static_dir):
         app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
-        
-        # 首页路由
-        @app.get("/")
-        async def read_index():
-            return FileResponse(os.path.join(static_dir, "index.html"))
-            
-        # 处理前端路由刷新的 fallback
-        @app.get("/{full_path:path}")
-        async def catch_all(full_path: str):
-            index_path = os.path.join(static_dir, "index.html")
-            if os.path.exists(index_path):
-                return FileResponse(index_path)
-            return {"detail": "Not Found"}, 404
     
     return app

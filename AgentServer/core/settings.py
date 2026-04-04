@@ -273,7 +273,7 @@ class RPCSettings(BaseSettings):
     listener_port: int = 50053
     data_sync_port: int = 50054
     mcp_port: int = 50055
-    backtest_port: int = 50056
+    backtest_port: int = 50057
     
     # RPC 超时 (秒)
     timeout: float = 10.0

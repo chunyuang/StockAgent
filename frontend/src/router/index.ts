@@ -20,30 +20,27 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/auth/RegisterView.vue'),
     meta: { title: '注册', guest: true },
   },
-  // 超短回测独立页面，免登录访问
-  {
-    path: '/ultra-short',
-    name: 'UltraShortBacktest',
-    component: () => import('@/views/backtest/UltraShortBacktestView.vue'),
-    meta: { title: '超短策略回测系统 V2.0 私募级实盘版', requiresAuth: false },
-  },
-  // 新版本V2路由入口
+  // 唯一超短策略回测页面，免登录访问
   {
     path: '/ultra-short-v2',
     name: 'UltraShortBacktestV2',
-    component: () => import('@/views/backtest/UltraShortBacktestV2Simple.vue'),
+    component: () => import('@/views/backtest/UltraShortBacktestViewV2.vue'),
     meta: { title: '超短策略回测系统 V2.0 私募级实盘版', requiresAuth: false },
   },
-  // 旧new路由兼容
+  // 兼容所有旧路径，全部重定向到新页面
+  {
+    path: '/ultra-short',
+    redirect: '/ultra-short-v2',
+    meta: { requiresAuth: false },
+  },
   {
     path: '/ultra-short-new',
     redirect: '/ultra-short-v2',
     meta: { requiresAuth: false },
   },
-  // 兼容旧路径
   {
     path: '/backtest/ultra-short',
-    redirect: '/ultra-short',
+    redirect: '/ultra-short-v2',
     meta: { requiresAuth: false },
   },
   // 根路径重定向到仪表盘主页
@@ -116,21 +113,7 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '热点追踪' },
       },
       
-      // 量化回测 - 单股回测
-      {
-        path: 'backtest',
-        name: 'Backtest',
-        component: () => import('@/views/backtest/BacktestView.vue'),
-        meta: { title: '量化回测' },
-      },
-      
-      // 量化回测 - 因子选股
-      {
-        path: 'factor-selection',
-        name: 'FactorSelection',
-        component: () => import('@/views/backtest/FactorSelectionView.vue'),
-        meta: { title: '因子选股' },
-      },
+
       
       // 实盘交易 - 模拟盘
       {

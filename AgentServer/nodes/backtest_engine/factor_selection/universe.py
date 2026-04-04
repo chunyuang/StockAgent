@@ -283,7 +283,7 @@ class UniverseManager:
         try:
             # 查询日期范围内的所有不同trade_date
             pipeline = [
-                {"$match": {"trade_date": {"$gte": start_date, "$lte": end_date}},
+                {"$match": {"trade_date": {"$gte": start_date, "$lte": end_date}}},
                 {"$group": {"_id": "$trade_date"}},
                 {"$sort": {"_id": 1}}
             ]
