@@ -250,7 +250,7 @@ const submitBacktest = async () => {
 
     backtestState.task_id = res.task_id
     addLog(`✅ 任务提交成功，任务ID：${backtestState.task_id}`)
-    addLog('🔄 等待回测节点调度执行...')
+    // addLog('🔄 等待回测节点调度执行...') // 已移除，使用后端返回的真实日志
 
     // 建立WebSocket连接接收实时日志和结果
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -293,27 +293,45 @@ const submitBacktest = async () => {
       // WebSocket连接失败时自动切换到高速轮询，无错误提示，体验和实时推送一致
       const pollInterval = setInterval(async () => {
         try {
+          console.log('开始轮询任务状态:', backtestState.task_id)
           const statusRes = await backtestApi.getBacktestStatus(backtestState.task_id)
-          if (statusRes.data.logs) {
-            logs.value = statusRes.data.logs.map((log: string) => log)
+          console.log('轮询原始返回:', statusRes)
+          
+          // 完整空值保护
+          if (!statusRes || !statusRes.data) {
+            console.error('轮询返回数据为空:', statusRes)
+            addLog(`⚠️ 轮询异常：接口返回数据为空`)
+            return
           }
-          backtestState.progress = statusRes.data.progress
-          if (statusRes.data.status === 'completed') {
-            backtestResult.value = statusRes.data.result
+          
+          const data = statusRes.data
+          console.log('轮询返回数据:', data)
+          
+          if (data.logs) {
+            logs.value = [...new Set([...logs.value, ...data.logs])]
+            console.log('更新后日志条数:', logs.value.length)
+          }
+          
+          if (data.progress !== undefined) {
+            backtestState.progress = data.progress
+          }
+          
+          if (data.status === 'completed') {
+            backtestResult.value = data.result
             backtestState.running = false
-            addLog('✅ 回测全部完成！')
             ElMessage.success('回测完成！')
             clearInterval(pollInterval)
-          } else if (statusRes.data.status === 'failed') {
-            addLog(`❌ 回测失败：${statusRes.data.error || '未知错误'}`)
+          } else if (data.status === 'failed') {
+            addLog(`❌ 回测失败：${data.error || '未知错误'}`)
             backtestState.running = false
-            ElMessage.error(`回测失败：${statusRes.data.error || '未知错误'}`)
+            ElMessage.error(`回测失败：${data.error || '未知错误'}`)
             clearInterval(pollInterval)
           }
         } catch (e) {
           console.error('轮询失败', e)
+          addLog(`⚠️ 轮询异常：${e.message || '未知错误'}`)
         }
-      }, 300) // 300ms高速轮询，和实时推送几乎无差异
+      }, 1000) // 1秒轮询
     }
 
   } catch (e: any) {
@@ -1179,7 +1197,7 @@ const exportTrades = () => {
         </div>
       </div>
 
-      <ElEmpty v-else description="暂无回测结果，请先运行回测" />
+      <ElEmpty v-else description="暂无回测结果，请先运行回测 【修改时间：2026-04-05 12:27 版本：v2.1.1-真实实时日志版】" />
 
       <!-- 标签页 -->
       <ElTabs v-if="backtestResult" type="border-card">

@@ -297,10 +297,13 @@ async def get_backtest_status(
     if task_id.startswith("us_") and task_id in mock_tasks:
         task = mock_tasks[task_id]
         return {
-            "task_id": task_id,
-            "status": task["status"],
-            "progress": task["progress"],
-            "logs": task["logs"],
+            "success": True,
+            "data": {
+                "task_id": task_id,
+                "status": task["status"],
+                "progress": task["progress"],
+                "logs": task["logs"],
+            }
         }
     
     # 查 MongoDB
@@ -317,12 +320,15 @@ async def get_backtest_status(
         raise HTTPException(status_code=403, detail="无权访问此任务")
     
     return {
-        "task_id": task_id,
-        "status": record.get("status"),
-        "created_at": record.get("created_at", "").isoformat() if record.get("created_at") else None,
-        "started_at": record.get("started_at", "").isoformat() if record.get("started_at") else None,
-        "completed_at": record.get("completed_at", "").isoformat() if record.get("completed_at") else None,
-        "error": record.get("error"),
+        "success": True,
+        "data": {
+            "task_id": task_id,
+            "status": record.get("status"),
+            "created_at": record.get("created_at", "").isoformat() if record.get("created_at") else None,
+            "started_at": record.get("started_at", "").isoformat() if record.get("started_at") else None,
+            "completed_at": record.get("completed_at", "").isoformat() if record.get("completed_at") else None,
+            "error": record.get("error"),
+        }
     }
 
 
@@ -649,8 +655,14 @@ async def submit_factor_selection_backtest(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# 导入回测执行逻辑
+from nodes.backtest_engine.node import BacktestNode
+
 # Mock回测任务存储，临时使用
 mock_tasks = {}
+
+# 初始化回测节点实例（仅用于执行超短回测逻辑，不需要启动RPC服务）
+_backtest_node = BacktestNode()
 
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
@@ -672,81 +684,92 @@ async def submit_ultra_short_backtest(
         f"strategies={request.strategies}, {request.start_date} ~ {request.end_date}"
     )
     
-    # 初始化mock任务状态
+    # 初始化任务状态（初始日志）
     mock_tasks[task_id] = {
         "task_id": task_id,
         "status": "running",
         "progress": 0,
         "logs": [
-            "🚀 开始提交回测任务...",
-            "✅ 任务提交成功",
-            "🔄 已启动进度轮询保障"
+            "🚀 【实盘级】开始提交超短策略回测任务...",
+            f"📅 回测区间: {request.start_date} -> {request.end_date}",
+            f"💰 初始资金: {request.initial_cash:,} 元",
+            f"🎯 选中策略: {['半路追涨' if s == 'halfway_chase' else '首板打板' if s == 'first_limit_up' else '涨停开板' if s == 'limit_up_open' else '龙头低吸' if s == 'leader_buy_dip' else '跌停翘板' for s in request.strategies]}",
+            f"🔧 流动性门槛: {request.params.liquidity_threshold} 万元",
+            f"📈 单票最大仓位: {request.params.max_position_per_stock*100}%",
+            f"✅ 强制空仓规则: {'已启用' if request.enable_force_empty else '已禁用'}",
+            f"✅ 情绪周期算法: {'已启用' if request.enable_sentiment_cycle else '已禁用'}",
+            f"✅ 竞价过滤规则: {'已启用' if request.enable_auction_filter else '已禁用'}",
+            f"✅ 任务提交成功，任务ID：{task_id}",
+            "🔄 已启动回测执行流程"
         ],
         "result": None
     }
     
-    # 构建 RPC 参数
-    rpc_params = {
+    # 构建任务参数
+    task_info = {
         "task_id": task_id,
-        "user_id": user_id,
-        "strategies": request.strategies,
-        "start_date": request.start_date,
-        "end_date": request.end_date,
-        "initial_cash": request.initial_cash,
         "params": {
-            "liquidity_threshold": request.params.liquidity_threshold,
-            "volume_threshold": request.params.volume_threshold,
-            "stop_loss_pct": request.params.stop_loss_pct,
-            "take_profit_pct": request.params.take_profit_pct,
-            "max_hold_days": request.params.max_hold_days,
-            "max_position_per_stock": request.params.max_position_per_stock,
-            "max_position": request.params.max_position,
-        },
-        "enable_force_empty": request.enable_force_empty,
-        "enable_sentiment_cycle": request.enable_sentiment_cycle,
-        "enable_auction_filter": request.enable_auction_filter,
+            "strategies": request.strategies,
+            "start_date": request.start_date,
+            "end_date": request.end_date,
+            "initial_cash": request.initial_cash,
+            "params": {
+                "liquidity_threshold": request.params.liquidity_threshold,
+                "volume_threshold": request.params.volume_threshold,
+                "stop_loss_pct": request.params.stop_loss_pct,
+                "take_profit_pct": request.params.take_profit_pct,
+                "max_hold_days": request.params.max_hold_days,
+                "max_position_per_stock": request.params.max_position_per_stock,
+                "max_position": request.params.max_position,
+            },
+            "enable_force_empty": request.enable_force_empty,
+            "enable_sentiment_cycle": request.enable_sentiment_cycle,
+            "enable_auction_filter": request.enable_auction_filter,
+        }
     }
     
-    # 异步执行RPC调用，避免阻塞请求
+    # 导入回测节点实例
+    from nodes.backtest_engine.node import BacktestNode
+    _backtest_node = BacktestNode()
+    
+    # 异步执行真实回测逻辑
     import asyncio
     async def run_backtest_async():
         try:
-            from core.rpc.rpc_manager import RPCClient
-            rpc_client = RPCClient()
+            logger.info(f"[{task_id}] 开始执行真实回测逻辑")
             
-            results = await rpc_client.broadcast_by_type(
-                node_type="backtest",
-                method="run_ultra_short_backtest",
-                params=rpc_params,
-                timeout=300.0,
-                source_node="web-node",
-            )
+            # 重写_push_log方法，实时更新日志到mock_tasks
+            original_push_log = _backtest_node._push_log
             
-            if not results:
-                mock_tasks[task_id]["status"] = "failed"
-                mock_tasks[task_id]["logs"].append("❌ 回测失败：无可用回测节点")
-                return
+            async def custom_push_log(task_id_inner, log_text):
+                if task_id_inner == task_id and task_id in mock_tasks:
+                    timestamp = datetime.utcnow().strftime("%H:%M:%S")
+                    log_entry = f"[{timestamp}] {log_text}"
+                    mock_tasks[task_id]["logs"].append(log_entry)
+                    mock_tasks[task_id]["progress"] = min(len(mock_tasks[task_id]["logs"]) / 30 * 100, 95)
+                # 调用原方法保存到数据库和本地文件
+                await original_push_log(task_id_inner, log_text)
             
-            first_result = results[0]
-            if not first_result.get("success"):
-                error_msg = first_result.get("error", "未知错误")
-                mock_tasks[task_id]["status"] = "failed"
-                mock_tasks[task_id]["logs"].append(f"❌ 回测失败：{error_msg}")
-                logger.error(f"[{task_id}] RPC failed: {error_msg}")
-                return
+            _backtest_node._push_log = custom_push_log
             
-            rpc_response = first_result.get("result", {})
+            # 执行真实回测逻辑
+            result = await _backtest_node._execute_ultra_short_backtest(task_info)
             
             # 更新任务状态和结果
             mock_tasks[task_id]["status"] = "completed"
             mock_tasks[task_id]["progress"] = 100
-            mock_tasks[task_id]["logs"].append("✅ 回测全部完成，正在生成汇总报告...")
-            mock_tasks[task_id]["result"] = rpc_response
+            mock_tasks[task_id]["result"] = result
+            mock_tasks[task_id]["logs"].append("✅ 回测全部完成！")
+            
+            logger.info(f"[{task_id}] 回测执行完成，日志条数：{len(mock_tasks[task_id]['logs'])}")
             
         except Exception as e:
             mock_tasks[task_id]["status"] = "failed"
-            mock_tasks[task_id]["logs"].append(f"❌ 回测异常：{str(e)}")
-            logger.exception(f"[{task_id}] Ultra short backtest failed: {e}")
+            mock_tasks[task_id]["logs"].append(f"❌ 回测失败：{str(e)}")
+            logger.exception(f"[{task_id}] 回测执行失败: {e}")
+        finally:
+            # 恢复原方法
+            _backtest_node._push_log = original_push_log
     
     # 启动异步回测任务
     asyncio.create_task(run_backtest_async())
@@ -754,5 +777,5 @@ async def submit_ultra_short_backtest(
     return BacktestTaskResponse(
         task_id=task_id,
         status="running",
-        message="超短策略回测任务已提交，请使用 task_id 查询进度",
+        message="超短策略回测任务已提交，正在执行中"
     )
