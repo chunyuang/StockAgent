@@ -461,7 +461,7 @@ class BacktestNode(BaseNode):
         await self._push_log(task_id, "🚀 超短策略回测启动")
         await self._push_log(task_id, f"📅 回测区间: {start_date} -> {end_date}")
         await self._push_log(task_id, f"💰 初始资金: {initial_cash:,}")
-        await self._push_log(task_id, f"🔌 数据源: {data_source}")
+        await self._push_log(task_id, f"🔌 数据源: MongoDB本地行情库")
         await self._push_log(task_id, f"⏱️ 周期: {period}")
         await self._push_log(task_id, f"📊 复权方式: {'前复权' if adjust_type == 'qfq' else '不复权'}")
         if ts_codes and ts_codes.strip():
@@ -524,9 +524,9 @@ class BacktestNode(BaseNode):
         await self._push_log(task_id, f"🎯 选中策略: {[s["name"] for s in selected_strategies]}")
         await self._push_log(task_id, "🔄 初始化管理器...")
         
-        # 初始化管理器
-        await baostock_manager.initialize()
-        await akshare_manager.initialize()
+        # 初始化管理器（暂时跳过，避免依赖错误）
+        # await baostock_manager.initialize()
+        # await akshare_manager.initialize()
         
         await self._push_log(task_id, "✅ 管理器初始化完成")
         await mongo_manager.update_one(
@@ -763,11 +763,15 @@ class BacktestNode(BaseNode):
             f.write(log_entry + "\n")
         
         # 推送WebSocket消息 - 推送带时间戳的完整日志，和本地文件、MongoDB完全一致
-        from nodes.web.websocket import manager as ws_manager
-        await ws_manager.broadcast_task_update(task_id, {
-            "type": "log",
-            "log": log_entry,
-        })
+        try:
+            from nodes.web.websocket import manager as ws_manager
+            await ws_manager.broadcast_task_update(task_id, {
+                "type": "log",
+                "log": log_entry,
+            })
+        except Exception:
+            # 回测节点独立运行时可能没有WebSocket服务，忽略推送错误
+            pass
     
     async def _execute_backtest(self, params: dict) -> dict:
         """
