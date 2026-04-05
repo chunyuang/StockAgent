@@ -317,7 +317,9 @@ const submitBacktest = async () => {
           }
           
           if (data.status === 'completed') {
-            backtestResult.value = data.result
+            // 回测完成后调用结果接口获取完整数据
+            const resultRes = await backtestApi.getBacktestResult(backtestState.task_id)
+            backtestResult.value = resultRes.data.result
             backtestState.running = false
             ElMessage.success('回测完成！')
             clearInterval(pollInterval)
@@ -1197,12 +1199,13 @@ const exportTrades = () => {
         </div>
       </div>
 
-      <ElEmpty v-else description="暂无回测结果，请先运行回测 【修改时间：2026-04-05 12:27 版本：v2.1.1-真实实时日志版】" />
-
-      <!-- 标签页 -->
-      <ElTabs v-if="backtestResult" type="border-card">
+      <!-- 标签页永久显示（符合Element Plus语法规范） -->
+      <ElTabs type="border-card">
         <ElTabPane label="核心指标" name="metrics">
-          <div class="metrics-grid">
+          <!-- 空状态提示：无回测结果时显示 -->
+          <ElEmpty v-if="!backtestResult" description="暂无回测结果，请先运行回测 【修改时间：2026-04-05 15:15 版本：v2.3.0-标签页永久显示最终版】" />
+          <!-- 有结果时显示核心指标 -->
+          <div v-if="backtestResult" class="metrics-grid">
             <div class="metric-card">
               <div class="metric-label">累计收益率</div>
               <div class="metric-value">{{ ((backtestResult.total_return || 0) * 100).toFixed(2) }}%</div>
@@ -1243,7 +1246,10 @@ const exportTrades = () => {
         </ElTabPane>
 
         <ElTabPane label="可视化图表" name="charts">
-          <div class="charts-grid">
+          <!-- 空状态提示 -->
+          <ElEmpty v-if="!backtestResult" description="暂无回测结果，请先运行回测" />
+          <!-- 有结果时显示图表 -->
+          <div v-if="backtestResult" class="charts-grid">
             <div class="chart-card">
               <div class="chart-title">净值曲线与回撤</div>
               <v-chart :option="netValueChartOption" autoresize />
@@ -1264,7 +1270,10 @@ const exportTrades = () => {
         </ElTabPane>
 
         <ElTabPane label="交易记录" name="trades">
-          <div class="mb-3">
+          <!-- 空状态提示 -->
+          <ElEmpty v-if="!backtestResult" description="暂无回测结果，请先运行回测" />
+          <!-- 有结果时显示交易记录 -->
+          <div v-if="backtestResult" class="mb-3">
             <ElInput placeholder="搜索股票代码/名称" style="width: 300px; margin-right: 10px;" v-model="searchTradeKeyword" />
             <ElSelect placeholder="按策略筛选" style="width: 200px; margin-right: 10px;" v-model="filterStrategy">
               <ElOption label="全部策略" value="" />
@@ -1289,7 +1298,10 @@ const exportTrades = () => {
         </ElTabPane>
 
         <ElTabPane label="交易分析" name="analysis">
-          <div class="analysis-grid">
+          <!-- 空状态提示 -->
+          <ElEmpty v-if="!backtestResult" description="暂无回测结果，请先运行回测" />
+          <!-- 有结果时显示交易分析 -->
+          <div v-if="backtestResult" class="analysis-grid">
             <div class="analysis-card">
               <h4>统计概览</h4>
               <div class="analysis-item">
@@ -1334,7 +1346,10 @@ const exportTrades = () => {
         </ElTabPane>
 
         <ElTabPane label="策略对比" name="compare">
-          <div class="compare-grid">
+          <!-- 空状态提示 -->
+          <ElEmpty v-if="!backtestResult" description="暂无回测结果，请先运行回测" />
+          <!-- 有结果时显示策略对比 -->
+          <div v-if="backtestResult" class="compare-grid">
             <div class="chart-card full-width">
               <div class="chart-title">多策略收益曲线对比</div>
               <v-chart :option="strategyCompareChartOption" autoresize />
@@ -1347,7 +1362,10 @@ const exportTrades = () => {
         </ElTabPane>
 
         <ElTabPane label="高级分析" name="advanced">
-          <div class="advanced-grid">
+          <!-- 空状态提示 -->
+          <ElEmpty v-if="!backtestResult" description="暂无回测结果，请先运行回测" />
+          <!-- 有结果时显示高级分析 -->
+          <div v-if="backtestResult" class="advanced-grid">
             <div class="chart-card">
               <div class="chart-title">因子贡献度</div>
               <v-chart :option="factorContributionChartOption" autoresize />
