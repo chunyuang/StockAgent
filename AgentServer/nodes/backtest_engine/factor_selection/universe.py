@@ -205,7 +205,7 @@ class UniverseManager:
                 
                 if trade_dates:
                     # 转换为YYYYMMDD整数格式
-                    trade_dates = [int(d.replace("-", "")) for d in trade_dates]
+                    trade_dates = [d.replace("-", "") for d in trade_dates]
                     logger.info(f"从Baostock获取到{len(trade_dates)}个交易日")
                 else:
                     logger.error("No trade dates found in both MongoDB and Baostock")
@@ -241,7 +241,7 @@ class UniverseManager:
         last_week = None
         
         for d in dates:
-            dt = datetime.strptime(d, "%Y%m%d")
+            dt = datetime.strptime(str(d), "%Y%m%d")
             week = dt.isocalendar()[:2]  # (year, week)
             if week != last_week:
                 result.append(d)
@@ -255,7 +255,8 @@ class UniverseManager:
         last_month = None
         
         for d in dates:
-            month = d[:6]  # YYYYMM
+            d_str = str(d)
+            month = d_str[:6]  # YYYYMM
             if month != last_month:
                 result.append(d)
                 last_month = month
@@ -268,8 +269,9 @@ class UniverseManager:
         last_quarter = None
         
         for d in dates:
-            year = d[:4]
-            month = int(d[4:6])
+            d_str = str(d)
+            year = d_str[:4]
+            month = int(d_str[4:6])
             quarter = (month - 1) // 3 + 1
             q = f"{year}Q{quarter}"
             if q != last_quarter:
@@ -283,12 +285,13 @@ class UniverseManager:
         try:
             # 查询日期范围内的所有不同trade_date
             pipeline = [
-                {"$match": {"trade_date": {"$gte": start_date, "$lte": end_date}}},
+                {"$match": {"trade_date": {"$gte": int(start_date), "$lte": int(end_date)}}},
                 {"$group": {"_id": "$trade_date"}},
                 {"$sort": {"_id": 1}}
             ]
             result = await mongo_manager.aggregate("stock_daily", pipeline)
-            return [doc["_id"] for doc in result]
+            # 统一转换成字符串格式，避免类型错误
+            return [str(doc["_id"]) for doc in result]
         except Exception as e:
             logger.warning(f"Failed to get trade dates from MongoDB: {e}")
             return []
@@ -311,7 +314,7 @@ class UniverseManager:
                 
                 if trade_dates:
                     # 转换为YYYYMMDD整数格式
-                    trade_dates = [int(d.replace("-", "")) for d in trade_dates]
+                    trade_dates = [d.replace("-", "") for d in trade_dates]
                     logger.info(f"从Baostock获取到{len(trade_dates)}个交易日")
                 else:
                     logger.error("No trade dates found in both MongoDB and Baostock")
