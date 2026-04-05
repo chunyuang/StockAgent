@@ -346,11 +346,21 @@ async def get_backtest_result(
     if task_id.startswith("us_") and task_id in mock_tasks:
         task = mock_tasks[task_id]
         if task["status"] != "completed":
-            return {"task_id": task_id, "status": task["status"], "message": "任务执行中"}
+            return {
+                "success": True,
+                "data": {
+                    "task_id": task_id,
+                    "status": task["status"],
+                    "message": "任务执行中"
+                }
+            }
         return {
-            "task_id": task_id,
-            "status": "completed",
-            "result": task["result"],
+            "success": True,
+            "data": {
+                "task_id": task_id,
+                "status": "completed",
+                "result": task["result"],
+            }
         }
     
     record = await mongo_manager.find_one(
@@ -368,25 +378,52 @@ async def get_backtest_result(
     status = record.get("status")
     
     if status == "pending" or status == "queued":
-        return {"task_id": task_id, "status": status, "message": "任务等待中"}
+        return {
+            "success": True,
+            "data": {
+                "task_id": task_id,
+                "status": status,
+                "message": "任务等待中"
+            }
+        }
     
     if status == "running":
-        return {"task_id": task_id, "status": "running", "message": "任务执行中"}
+        return {
+            "success": True,
+            "data": {
+                "task_id": task_id,
+                "status": "running",
+                "message": "任务执行中"
+            }
+        }
     
     if status == "failed":
         return {
-            "task_id": task_id,
-            "status": "failed",
-            "error": record.get("error", "Unknown error"),
+            "success": True,
+            "data": {
+                "task_id": task_id,
+                "status": "failed",
+                "error": record.get("error", "Unknown error"),
+            }
         }
     
     if status == "cancelled":
-        return {"task_id": task_id, "status": "cancelled", "message": "任务已取消"}
+        return {
+            "success": True,
+            "data": {
+                "task_id": task_id,
+                "status": "cancelled",
+                "message": "任务已取消"
+            }
+        }
     
     return {
-        "task_id": task_id,
-        "status": "completed",
-        "result": record.get("result"),
+        "success": True,
+        "data": {
+            "task_id": task_id,
+            "status": "completed",
+            "result": record.get("result"),
+        }
     }
 
 
