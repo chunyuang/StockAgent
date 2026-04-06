@@ -604,8 +604,11 @@ class BacktestNode(BaseNode):
             "universe_mgr": universe_mgr,
             "factor_engine": factor_engine,
             "exclude_rules": [ExcludeRule.ST, ExcludeRule.NEW_STOCK],
+            "factors": all_factors,
             "top_n": 10,
-            "rebalance_freq": "daily"
+            "rebalance_freq": "daily",
+            "task_id": task_id,
+            "push_log": self._push_log
         }
         
         backtester = PortfolioBacktester()
