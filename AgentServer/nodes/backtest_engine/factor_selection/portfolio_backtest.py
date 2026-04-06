@@ -231,19 +231,76 @@ class PortfolioBacktester:
                 
                 await log(f"✅ 因子计算完成，共 {len(factor_df)} 条记录")
                 
-                # 先根据策略过滤条件筛选股票（所有因子值 >= 目标阈值）
-                filtered_df = factor_df.copy()
+                # 🎯 重构为多策略独立筛选逻辑（实盘对齐）：每个策略独立运行，结果合并去重
                 await log(f"🎯 多策略联合筛选：")
-                for factor_config in config["factors"]:
-                    factor_name = factor_config["name"]
-                    target_value = factor_config["target"]
-                    if factor_name in filtered_df.columns:
-                        before_count = len(filtered_df)
-                        filtered_df = filtered_df[filtered_df[factor_name] >= target_value]
-                        after_count = len(filtered_df)
-                        await log(f"   🔹 【{factor_name}】>= {target_value} → 筛选后剩余 {after_count} 只（剔除 {before_count - after_count} 只）")
+                
+                # 定义各策略的独立筛选条件
+                strategy_configs = {
+                    "半路追涨": [
+                        {"name": "limit_up_yesterday", "target": 1},
+                        {"name": "open_below_limit", "target": 1},
+                        {"name": "volume_increase", "target": 3.0}
+                    ],
+                    "首板打板": [
+                        {"name": "first_limit_up", "target": 1},
+                        {"name": "limit_up_yesterday", "target": 0}
+                    ],
+                    "涨停开板": [
+                        {"name": "limit_up_count", "target": 2},
+                        {"name": "limit_up_open_amount", "target": 5000}
+                    ],
+                    "龙头低吸": [
+                        {"name": "market_leader", "target": 1},
+                        {"name": "pullback_ma5", "target": 1},
+                        {"name": "lhb_buy_in", "target": 1}
+                    ],
+                    "跌停翘板": [
+                        {"name": "limit_down_yesterday", "target": 1},
+                        {"name": "open_above_limit", "target": 1}
+                    ]
+                }
+                
+                all_candidates = set()
+                total_strategy_count = 0
+                
+                # 遍历选中的策略，独立筛选
+                for strategy_name, conditions in strategy_configs.items():
+                    # 检查是否是用户选中的策略（根据条件匹配）
+                    is_selected = True
+                    for cond in conditions:
+                        found = False
+                        for f in config["factors"]:
+                            if f["name"] == cond["name"] and f["target"] == cond["target"]:
+                                found = True
+                                break
+                        if not found:
+                            is_selected = False
+                            break
+                    
+                    if not is_selected:
+                        continue
                         
-                await log(f"✅ 所有策略条件过滤后剩余 {len(filtered_df)} 只股票")
+                    total_strategy_count += 1
+                    temp_df = factor_df.copy()
+                    
+                    await log(f"   🔹 【{strategy_name}】筛选过程：")
+                    # 独立执行当前策略的所有条件，输出每一步筛选日志
+                    for cond in conditions:
+                        factor_name = cond["name"]
+                        target_value = cond["target"]
+                        if factor_name in temp_df.columns:
+                            before_count = len(temp_df)
+                            temp_df = temp_df[temp_df[factor_name] >= target_value]
+                            after_count = len(temp_df)
+                            await log(f"      ✅ 【{factor_name}】>= {target_value} → 剩余 {after_count} 只（剔除 {before_count - after_count} 只）")
+                    
+                    candidate_count = len(temp_df)
+                    all_candidates.update(temp_df["ts_code"].tolist())
+                    await log(f"   🎯 【{strategy_name}】最终候选：{candidate_count} 只")
+                
+                # 合并去重得到最终候选池
+                filtered_df = factor_df[factor_df["ts_code"].isin(all_candidates)]
+                await log(f"✅ 所有策略独立筛选后合并去重，总候选：{len(filtered_df)} 只股票")
                 
                 target_stocks = self.factor_engine.select_top_stocks(filtered_df, top_n)
                 
