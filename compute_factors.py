@@ -22,7 +22,7 @@ for ts_code in all_ts_codes:
     # 获取该股票的所有日K数据
     data = list(collection.find(
         {"ts_code": ts_code, "trade_date": {"$gte": 20260101, "$lte": 20260331}},
-        {"trade_date": 1, "close": 1, "high": 1, "low": 1, "pre_close": 1, "vol": 1, "amount": 1, "pct_chg": 1}
+        {"trade_date": 1, "open": 1, "close": 1, "high": 1, "low": 1, "pre_close": 1, "vol": 1, "amount": 1, "pct_chg": 1}
     ).sort("trade_date", 1))
     
     if len(data) < 10:
@@ -53,6 +53,20 @@ for ts_code in all_ts_codes:
     # 计算market_leader：连板>=3且当日成交额>5亿的股票
     df["market_leader"] = ((df["limit_up_count"] >= 3) & (df["amount"] > 50000)).astype(int)
     
+    # 计算open_below_limit：当日开盘价 < 昨日涨停价（昨日收盘价*1.1），用于半路追涨策略
+    df["prev_close"] = df["close"].shift(1)
+    df["limit_up_price_yesterday"] = df["prev_close"] * 1.1
+    df["open_below_limit"] = ((df["open"] < df["limit_up_price_yesterday"]) & (df["limit_up_yesterday"] == 1)).astype(int)
+    
+    # 计算open_above_limit：当日开盘价 > 昨日跌停价（昨日收盘价*0.9），用于跌停翘板策略
+    df["limit_down_price_yesterday"] = df["prev_close"] * 0.9
+    df["open_above_limit"] = ((df["open"] > df["limit_down_price_yesterday"]) & (df["pct_chg"].shift(1) <= -9.8)).astype(int)
+    
+    # 计算limit_up_open_amount：涨停开板成交金额，简化为当日成交额（如果是涨停开板）
+    df["limit_up_open_amount"] = df.apply(
+        lambda x: x["amount"] if (x["high"] == x["limit_up_price_yesterday"] and x["low"] < x["limit_up_price_yesterday"]) else 0, axis=1
+    )
+    
     # 批量更新到数据库
     for _, row in df.iterrows():
         update_data = {
@@ -61,7 +75,10 @@ for ts_code in all_ts_codes:
             "limit_up_count": int(row["limit_up_count"]),
             "volume_ratio": float(row["volume_ratio"]) if not pd.isna(row["volume_ratio"]) else 0,
             "amplitude": float(row["amplitude"]) if not pd.isna(row["amplitude"]) else 0,
-            "market_leader": int(row["market_leader"])
+            "market_leader": int(row["market_leader"]),
+            "open_below_limit": int(row["open_below_limit"]),
+            "open_above_limit": int(row["open_above_limit"]),
+            "limit_up_open_amount": float(row["limit_up_open_amount"]) if not pd.isna(row["limit_up_open_amount"]) else 0
         }
         
         collection.update_one(

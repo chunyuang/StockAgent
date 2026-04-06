@@ -13,7 +13,7 @@ import numpy as np
 import logging
 
 from core.managers import mongo_manager
-from .factor_library import FactorLibrary, FactorDefinition
+from .factor_library import FactorLibrary, FactorDefinition, FactorCategory
 
 
 logger = logging.getLogger(__name__)
@@ -136,15 +136,19 @@ class FactorEngine:
     ) -> Dict[str, pd.DataFrame]:
         """加载日线数据"""
         result = await mongo_manager.find_many(
-            "stock_daily",
+            "stock_daily_ak_full",
             {
                 "ts_code": {"$in": stocks},
-                "trade_date": {"$gte": start_date, "$lte": end_date},
+                "trade_date": {"$gte": int(start_date), "$lte": int(end_date)},
             },
             projection={
                 "ts_code": 1, "trade_date": 1, 
                 "open": 1, "high": 1, "low": 1, "close": 1, 
-                "vol": 1, "amount": 1,
+                "vol": 1, "amount": 1, "pct_chg": 1,
+                # 预计算的涨跌停衍生因子
+                "first_limit_up": 1, "limit_up_yesterday": 1, "limit_up_count": 1,
+                "market_leader": 1, "volume_ratio": 1, "amplitude": 1,
+                "open_below_limit": 1, "open_above_limit": 1, "limit_up_open_amount": 1, "limit_down_yesterday": 1, "volume_increase": 1
             },
         )
         
@@ -244,7 +248,7 @@ class FactorEngine:
             try:
                 if df.empty:
                     continue
-                
+                    
                 # 计算因子值
                 factor_series = factor_def.compute_func(df)
                 
@@ -253,9 +257,10 @@ class FactorEngine:
                     # 财务数据取最新值
                     value = factor_series.iloc[-1] if len(factor_series) > 0 else np.nan
                 else:
-                    # 日线数据取指定日期
-                    if trade_date in factor_series.index:
-                        value = factor_series.loc[trade_date]
+                    # 日线数据取指定日期（转换为int类型匹配MongoDB存储格式）
+                    trade_date_int = int(trade_date)
+                    if trade_date_int in factor_series.index:
+                        value = factor_series.loc[trade_date_int]
                     elif len(factor_series) > 0:
                         value = factor_series.iloc[-1]
                     else:
@@ -387,3 +392,105 @@ class FactorEngine:
         top_stocks = valid_df.nlargest(top_n, "composite_score")["ts_code"].tolist()
         
         return top_stocks
+
+
+# ============== 超短策略专用预计算因子 ==============
+# 这些因子已经提前批量计算存储在MongoDB中，直接读取即可
+FactorLibrary.register(
+    FactorDefinition(
+        name="limit_up_yesterday",
+        display_name="昨日涨停标记",
+        category=FactorCategory.TECHNICAL,
+        description="昨日是否涨停 (1=是, 0=否)",
+        direction="asc",
+        data_source="daily",
+        required_fields=["limit_up_yesterday"],
+        compute_func=lambda df: df["limit_up_yesterday"],
+        lookback_days=1,
+    )
+)
+
+FactorLibrary.register(
+    FactorDefinition(
+        name="first_limit_up",
+        display_name="首次涨停标记",
+        category=FactorCategory.TECHNICAL,
+        description="当日是否首次涨停 (1=是, 0=否)",
+        direction="asc",
+        data_source="daily",
+        required_fields=["first_limit_up"],
+        compute_func=lambda df: df["first_limit_up"],
+        lookback_days=1,
+    )
+)
+
+FactorLibrary.register(
+    FactorDefinition(
+        name="limit_up_count",
+        display_name="连续涨停天数",
+        category=FactorCategory.TECHNICAL,
+        description="连续涨停天数",
+        direction="asc",
+        data_source="daily",
+        required_fields=["limit_up_count"],
+        compute_func=lambda df: df["limit_up_count"],
+        lookback_days=1,
+    )
+)
+
+FactorLibrary.register(
+    FactorDefinition(
+        name="market_leader",
+        display_name="龙头股标记",
+        category=FactorCategory.TECHNICAL,
+        description="是否为市场龙头股 (1=是, 0=否)",
+        direction="asc",
+        data_source="daily",
+        required_fields=["market_leader"],
+        compute_func=lambda df: df["market_leader"],
+        lookback_days=1,
+    )
+)
+
+FactorLibrary.register(
+    FactorDefinition(
+        name="amplitude",
+        display_name="振幅",
+        category=FactorCategory.TECHNICAL,
+        description="当日振幅 ((最高-最低)/昨收*100%)",
+        direction="asc",
+        data_source="daily",
+        required_fields=["amplitude"],
+        compute_func=lambda df: df["amplitude"],
+        lookback_days=1,
+    )
+)
+
+FactorLibrary.register(
+    FactorDefinition(
+        name="volume_ratio",
+        display_name="量比",
+        category=FactorCategory.LIQUIDITY,
+        description="量比 (当日成交量/过去5日平均成交量)",
+        direction="asc",
+        data_source="daily",
+        required_fields=["volume_ratio"],
+        compute_func=lambda df: df["volume_ratio"],
+        lookback_days=1,
+    )
+)
+
+# ============== 辅助函数 ==============
+
+def _safe_divide(a: pd.Series, b: pd.Series) -> pd.Series:
+    """安全除法，避免除零"""
+    return a / b.replace(0, np.nan)
+
+
+def _compute_rsi(close: pd.Series, period: int = 14) -> pd.Series:
+    """计算 RSI"""
+    delta = close.diff()
+    gain = delta.where(delta > 0, 0).rolling(period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(period).mean()
+    rs = _safe_divide(gain, loss)
+    return 100 - (100 / (1 + rs))

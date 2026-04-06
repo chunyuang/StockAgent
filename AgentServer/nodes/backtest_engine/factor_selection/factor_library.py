@@ -85,6 +85,92 @@ class FactorLibrary:
         return [f for f in cls._factors.values() if f.category == category]
 
 
+# ============== 超短策略专用预计算因子 ==============
+# 这些因子已经提前批量计算存储在MongoDB中，直接读取即可
+FactorLibrary.register(
+    FactorDefinition(
+        name="limit_up_yesterday",
+        display_name="昨日涨停标记",
+        category=FactorCategory.TECHNICAL,
+        description="昨日是否涨停 (1=是, 0=否)",
+        direction="asc",
+        data_source="daily",
+        required_fields=["limit_up_yesterday"],
+        compute_func=lambda df: df["limit_up_yesterday"],
+        lookback_days=1,
+    )
+)
+
+FactorLibrary.register(
+    FactorDefinition(
+        name="first_limit_up",
+        display_name="首次涨停标记",
+        category=FactorCategory.TECHNICAL,
+        description="当日是否首次涨停 (1=是, 0=否)",
+        direction="asc",
+        data_source="daily",
+        required_fields=["first_limit_up"],
+        compute_func=lambda df: df["first_limit_up"],
+        lookback_days=1,
+    )
+)
+
+FactorLibrary.register(
+    FactorDefinition(
+        name="limit_up_count",
+        display_name="连续涨停天数",
+        category=FactorCategory.TECHNICAL,
+        description="连续涨停天数",
+        direction="asc",
+        data_source="daily",
+        required_fields=["limit_up_count"],
+        compute_func=lambda df: df["limit_up_count"],
+        lookback_days=1,
+    )
+)
+
+FactorLibrary.register(
+    FactorDefinition(
+        name="market_leader",
+        display_name="龙头股标记",
+        category=FactorCategory.TECHNICAL,
+        description="是否为市场龙头股 (1=是, 0=否)",
+        direction="asc",
+        data_source="daily",
+        required_fields=["market_leader"],
+        compute_func=lambda df: df["market_leader"],
+        lookback_days=1,
+    )
+)
+
+FactorLibrary.register(
+    FactorDefinition(
+        name="amplitude",
+        display_name="振幅",
+        category=FactorCategory.TECHNICAL,
+        description="当日振幅 ((最高-最低)/昨收*100%)",
+        direction="asc",
+        data_source="daily",
+        required_fields=["amplitude"],
+        compute_func=lambda df: df["amplitude"],
+        lookback_days=1,
+    )
+)
+
+FactorLibrary.register(
+    FactorDefinition(
+        name="volume_ratio",
+        display_name="量比",
+        category=FactorCategory.LIQUIDITY,
+        description="量比 (当日成交量/过去5日平均成交量)",
+        direction="asc",
+        data_source="daily",
+        required_fields=["volume_ratio"],
+        compute_func=lambda df: df["volume_ratio"],
+        lookback_days=1,
+    )
+)
+
 # ============== 辅助函数 ==============
 
 def _safe_divide(a: pd.Series, b: pd.Series) -> pd.Series:
@@ -523,4 +609,65 @@ FactorLibrary.register(FactorDefinition(
     required_fields=["close"],
     lookback_days=25,
     compute_func=lambda df: df["close"].pct_change(20),
+))
+
+# -------------------- 超短策略专属因子 --------------------
+FactorLibrary.register(FactorDefinition(
+    name="open_below_limit",
+    display_name="开盘低于昨日涨停价",
+    category=FactorCategory.TECHNICAL,
+    description="当日开盘价 < 昨日涨停价（昨日收盘价*1.1），用于半路追涨策略",
+    direction="asc",
+    data_source="daily",
+    required_fields=["open_below_limit"],
+    lookback_days=1,
+    compute_func=lambda df: df["open_below_limit"],
+))
+
+FactorLibrary.register(FactorDefinition(
+    name="open_above_limit",
+    display_name="开盘高于昨日跌停价",
+    category=FactorCategory.TECHNICAL,
+    description="当日开盘价 > 昨日跌停价（昨日收盘价*0.9），用于跌停翘板策略",
+    direction="asc",
+    data_source="daily",
+    required_fields=["open_above_limit"],
+    lookback_days=1,
+    compute_func=lambda df: df["open_above_limit"],
+))
+
+FactorLibrary.register(FactorDefinition(
+    name="limit_up_open_amount",
+    display_name="涨停开板金额",
+    category=FactorCategory.TECHNICAL,
+    description="当日涨停开板成交总金额，用于涨停开板策略",
+    direction="desc",
+    data_source="daily",
+    required_fields=["limit_up_open_amount"],
+    lookback_days=1,
+    compute_func=lambda df: df["limit_up_open_amount"],
+))
+
+FactorLibrary.register(FactorDefinition(
+    name="limit_down_yesterday",
+    display_name="昨日跌停标记",
+    category=FactorCategory.TECHNICAL,
+    description="前一交易日是否跌停（涨跌幅<=-9.8%）",
+    direction="asc",
+    data_source="daily",
+    required_fields=["limit_down_yesterday"],
+    lookback_days=1,
+    compute_func=lambda df: df["limit_down_yesterday"],
+))
+
+FactorLibrary.register(FactorDefinition(
+    name="volume_increase",
+    display_name="放量标记",
+    category=FactorCategory.TECHNICAL,
+    description="当日成交量 > 过去5日平均成交量*1.5",
+    direction="asc",
+    data_source="daily",
+    required_fields=["volume_increase"],
+    lookback_days=1,
+    compute_func=lambda df: df["volume_increase"],
 ))
