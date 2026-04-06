@@ -155,14 +155,37 @@ class PortfolioBacktester:
             
             # 补充市场环境判断日志
             await log(f"🌡️ 当日市场环境判断：")
-            # 后续替换为真实计算逻辑，现在先输出占位
-            sentiment_score = 62
-            await log(f"   🔹 情绪周期评分：{sentiment_score}分 → 修复期，仓位系数0.8")
-            limit_up_count = 38
-            limit_down_count = 12
-            await log(f"   🔹 涨跌停统计：涨停{limit_up_count}只，跌停{limit_down_count}只 → 不触发强制空仓")
-            index_change = 0.32
-            await log(f"   🔹 大盘涨跌幅：{'+' if index_change >= 0 else ''}{index_change:.2f}% → 符合交易条件")
+            # 真实统计涨跌停数量
+            limit_up_count = await mongo_manager.count_documents(
+                "stock_daily_ak_full",
+                {"trade_date": int(trade_date), "pct_chg": {"$gte": 9.8}}
+            )
+            limit_down_count = await mongo_manager.count_documents(
+                "stock_daily_ak_full", 
+                {"trade_date": int(trade_date), "pct_chg": {"$lte": -9.8}}
+            )
+            await log(f"   🔹 涨跌停统计：涨停{limit_up_count}只，跌停{limit_down_count}只 → {'触发强制空仓' if limit_down_count >= 50 or limit_up_count <= 10 else '不触发强制空仓'}")
+            # 计算大盘平均涨跌幅
+            pipeline = [
+                {"$match": {"trade_date": int(trade_date)}},
+                {"$group": {"_id": None, "avg_pct": {"$avg": "$pct_chg"}}}
+            ]
+            avg_result = await mongo_manager.aggregate("stock_daily_ak_full", pipeline)
+            index_change = avg_result[0]["avg_pct"] if avg_result else 0.0
+            await log(f"   🔹 大盘平均涨跌幅：{'+' if index_change >= 0 else ''}{index_change:.2f}% → {'符合交易条件' if abs(index_change) < 3 else '极端行情，谨慎交易'}")
+            # 情绪周期评分（简单计算：涨停-跌停 + 大盘涨幅*10）
+            sentiment_score = min(100, max(0, (limit_up_count - limit_down_count) + int(index_change * 10) + 50))
+            if sentiment_score >= 80:
+                sentiment_level = "高潮期，仓位系数1.0"
+            elif sentiment_score >= 60:
+                sentiment_level = "修复期，仓位系数0.8"
+            elif sentiment_score >= 40:
+                sentiment_level = "震荡期，仓位系数0.6"
+            elif sentiment_score >= 20:
+                sentiment_level = "冰点期，仓位系数0.3"
+            else:
+                sentiment_level = "极致冰点，仓位系数0.1"
+            await log(f"   🔹 情绪周期评分：{sentiment_score}分 → {sentiment_level}")
             
             # 检查是否是调仓日
             if trade_date in rebalance_set:
@@ -178,11 +201,22 @@ class PortfolioBacktester:
                 
                 await log(f"✅ 原始股票池数量: {len(universe)} 只")
                 await log(f"🧹 数据清洗：")
-                # 后续替换为真实清洗统计，现在先输出占位
-                await log(f"   🔹 剔除ST股票：{int(len(universe)*0.05)}只")
-                await log(f"   🔹 剔除次新股：{int(len(universe)*0.1)}只")
-                await log(f"   🔹 剔除流动性<500万：{int(len(universe)*0.15)}只")
-                cleaned_count = len(universe) - int(len(universe)*0.05) - int(len(universe)*0.1) - int(len(universe)*0.15)
+                # 真实统计各类剔除数量
+                st_count = len(await self.universe_mgr._get_st_stocks() & universe)
+                new_stock_count = len(await self.universe_mgr._get_new_stocks(trade_date) & universe)
+                # 统计低流动性股票（成交额<500万）
+                low_liquidity_count = await mongo_manager.count_documents(
+                    "stock_daily_ak_full",
+                    {
+                        "trade_date": int(trade_date),
+                        "ts_code": {"$in": list(universe)},
+                        "amount": {"$lt": 500}  # 单位：万元
+                    }
+                )
+                await log(f"   🔹 剔除ST股票：{st_count}只")
+                await log(f"   🔹 剔除次新股：{new_stock_count}只")
+                await log(f"   🔹 剔除流动性<500万：{low_liquidity_count}只")
+                cleaned_count = len(universe) - st_count - new_stock_count - low_liquidity_count
                 await log(f"   🔹 清洗后剩余：{cleaned_count}只")
                 
                 if not universe:

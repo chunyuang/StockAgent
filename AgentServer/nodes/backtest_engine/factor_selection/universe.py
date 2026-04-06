@@ -86,9 +86,9 @@ class UniverseManager:
     
     async def _get_tradable_stocks(self, trade_date: str) -> Set[str]:
         """获取当日有交易的股票"""
-        # 从 stock_daily 获取当日有数据的股票
+        # 从 stock_daily_ak_full 获取当日有数据的股票
         result = await mongo_manager.find_many(
-            "stock_daily",
+            "stock_daily_ak_full",
             {"trade_date": int(trade_date)},
             projection={"ts_code": 1},
         )
@@ -148,10 +148,10 @@ class UniverseManager:
     
     async def _get_limit_up_stocks(self, trade_date: str) -> Set[str]:
         """获取涨停股（一字板：开盘=最低=涨停价）"""
-        # 从 limit_list 获取涨停股
+        # 从 stock_daily_ak_full 直接根据涨跌幅判断涨停
         result = await mongo_manager.find_many(
-            "limit_list",
-            {"trade_date": int(trade_date), "limit": "U"},  # U = 涨停
+            "stock_daily_ak_full",
+            {"trade_date": int(trade_date), "pct_chg": {"$gte": 9.8}},
             projection={"ts_code": 1, "open": 1, "low": 1, "close": 1},
         )
         
@@ -167,9 +167,10 @@ class UniverseManager:
     
     async def _get_limit_down_stocks(self, trade_date: str) -> Set[str]:
         """获取跌停股"""
+        # 从 stock_daily_ak_full 直接根据涨跌幅判断跌停
         result = await mongo_manager.find_many(
-            "limit_list",
-            {"trade_date": int(trade_date), "limit": "D"},  # D = 跌停
+            "stock_daily_ak_full",
+            {"trade_date": int(trade_date), "pct_chg": {"$lte": -9.8}},
             projection={"ts_code": 1},
         )
         return {doc["ts_code"] for doc in result}
@@ -281,7 +282,7 @@ class UniverseManager:
         return result
     
     async def _get_trade_dates_from_mongo(self, start_date: str, end_date: str) -> List[str]:
-        """从本地MongoDB stock_daily表中获取日期范围内的所有交易日"""
+        """从本地MongoDB stock_daily_ak_full表中获取日期范围内的所有交易日"""
         try:
             # 查询日期范围内的所有不同trade_date
             pipeline = [
@@ -289,7 +290,7 @@ class UniverseManager:
                 {"$group": {"_id": "$trade_date"}},
                 {"$sort": {"_id": 1}}
             ]
-            result = await mongo_manager.aggregate("stock_daily", pipeline)
+            result = await mongo_manager.aggregate("stock_daily_ak_full", pipeline)
             # 统一转换成字符串格式，避免类型错误
             return [str(doc["_id"]) for doc in result]
         except Exception as e:
