@@ -603,6 +603,8 @@ class BacktestNode(BaseNode):
                 ],
                 "top_n": 1,
                 "rebalance_freq": "daily",
+                "task_id": task_id,
+                "push_log": self._push_log,
             }
             backtester = PortfolioBacktester()
             

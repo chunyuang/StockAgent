@@ -87,10 +87,21 @@ class PortfolioBacktester:
                     {"name": "roe", "weight": 0.4},
                 ],
                 "exclude": ["st", "new_stock"],
-                "benchmark": "000300.SH"
+                "benchmark": "000300.SH",
+                "task_id": "任务ID",
+                "push_log": "日志推送方法"
             }
         """
-        logger.info(f"Starting portfolio backtest: {config['start_date']} -> {config['end_date']}")
+        task_id = config.get("task_id")
+        push_log = config.get("push_log")
+        
+        # 日志推送辅助方法
+        async def log(msg: str):
+            logger.info(msg)
+            if push_log and task_id:
+                await push_log(task_id, msg)
+        
+        await log(f"Starting portfolio backtest: {config['start_date']} -> {config['end_date']}")
         
         # 初始化
         initial_cash = config.get("initial_cash", 1000000)
@@ -119,7 +130,7 @@ class PortfolioBacktester:
         if not all_trade_dates:
             return {"error": "No trade dates found"}
         
-        logger.info(f"Rebalance dates: {len(rebalance_dates)}, Trade dates: {len(all_trade_dates)}")
+        await log(f"Rebalance dates: {len(rebalance_dates)}, Trade dates: {len(all_trade_dates)}")
         
         # 加载基准数据
         benchmark_data = await self._load_benchmark(benchmark_code, config["start_date"], config["end_date"])
@@ -137,40 +148,50 @@ class PortfolioBacktester:
         rebalance_set = set(rebalance_dates)
         total_days = len(all_trade_dates)
         
-        logger.info(f"开始逐日回测，共 {total_days} 个交易日")
+        await log(f"开始逐日回测，共 {total_days} 个交易日")
         
         for idx, trade_date in enumerate(all_trade_dates):
-            logger.info(f"[第 {idx+1}/{total_days} 天] 处理日期: {trade_date}")
+            await log(f"[第 {idx+1}/{total_days} 天] 处理日期: {trade_date}")
             
             # 检查是否是调仓日
             if trade_date in rebalance_set:
-                logger.info(f"📅 当前为调仓日，开始执行调仓逻辑")
+                await log(f"📅 当前为调仓日，开始执行调仓逻辑")
                 
                 # 1. 获取当日股票池
-                logger.info(f"🔍 1/5 正在获取当日股票池...")
+                await log(f"🔍 1/5 正在获取当日股票池...")
                 universe = await self.universe_mgr.get_universe(
                     UniverseType.ALL_A,
                     trade_date,
                     exclude_rules,
                 )
                 
-                logger.info(f"✅ 原始股票池数量: {len(universe)} 只")
+                await log(f"✅ 原始股票池数量: {len(universe)} 只")
                 
                 if not universe:
                     logger.warning(f"⚠️ 当日无符合条件的股票，跳过调仓")
                     continue
                 
                 # 2. 计算因子 & 选股
-                logger.info(f"🧮 2/5 正在计算因子指标...")
+                await log(f"🧮 2/5 正在计算因子指标...")
                 factor_df = await self.factor_engine.compute_factors(
                     universe, trade_date, config["factors"]
                 )
                 
-                logger.info(f"✅ 因子计算完成，共 {len(factor_df)} 条记录")
+                await log(f"✅ 因子计算完成，共 {len(factor_df)} 条记录")
                 
-                target_stocks = self.factor_engine.select_top_stocks(factor_df, top_n)
+                # 先根据策略过滤条件筛选股票（所有因子值 >= 目标阈值）
+                filtered_df = factor_df.copy()
+                for factor_config in config["factors"]:
+                    factor_name = factor_config["name"]
+                    target_value = factor_config["target"]
+                    if factor_name in filtered_df.columns:
+                        filtered_df = filtered_df[filtered_df[factor_name] >= target_value]
+                        
+                await log(f"✅ 策略条件过滤后剩余 {len(filtered_df)} 只股票")
                 
-                logger.info(f"🎯 3/5 选股完成，选中 {len(target_stocks)} 只股票: {target_stocks}")
+                target_stocks = self.factor_engine.select_top_stocks(filtered_df, top_n)
+                
+                await log(f"🎯 3/5 选股完成，选中 {len(target_stocks)} 只股票: {target_stocks}")
                 
                 if not target_stocks:
                     logger.warning(f"⚠️ 无符合选股条件的股票，跳过调仓")
@@ -184,34 +205,34 @@ class PortfolioBacktester:
                 })
                 
                 # 3. 计算目标权重
-                logger.info(f"⚖️ 4/5 正在计算目标权重...")
+                await log(f"⚖️ 4/5 正在计算目标权重...")
                 target_weights = self._compute_weights(
                     target_stocks, factor_df, weight_method
                 )
                 
-                logger.info(f"✅ 权重计算完成: {target_weights}")
+                await log(f"✅ 权重计算完成: {target_weights}")
                 
                 # 4. 获取价格
-                logger.info(f"💲 5/5 正在获取股票价格...")
+                await log(f"💲 5/5 正在获取股票价格...")
                 prices = await self._get_prices(
                     set(holdings.keys()) | set(target_weights.keys()),
                     trade_date,
                 )
                 
-                logger.info(f"✅ 获取到 {len(prices)} 只股票的价格")
+                await log(f"✅ 获取到 {len(prices)} 只股票的价格")
                 
                 # 5. 执行调仓
-                logger.info(f"🔄 正在执行调仓操作...")
+                await log(f"🔄 正在执行调仓操作...")
                 cash, holdings, records = self._rebalance(
                     trade_date, cash, holdings, target_weights, prices
                 )
                 rebalance_records.extend(records)
                 
-                logger.info(f"✅ 调仓完成，当前持仓: {holdings}，现金: {cash:.2f}")
+                await log(f"✅ 调仓完成，当前持仓: {holdings}，现金: {cash:.2f}")
                 
                 # 输出调仓记录
                 for record in records:
-                    logger.info(f"   📝 {record.action}: {record.ts_code} × {record.shares} 股，价格: {record.price:.2f}，金额: {record.amount:.2f}")
+                    await log(f"   📝 {record.action}: {record.ts_code} × {record.shares} 股，价格: {record.price:.2f}，金额: {record.amount:.2f}")
             
             # 计算当日市值
             prices = await self._get_prices(set(holdings.keys()), trade_date)
@@ -244,7 +265,7 @@ class PortfolioBacktester:
         # 计算绩效指标
         performance = self._compute_performance(daily_values, initial_cash)
         
-        logger.info(f"Backtest completed: return={performance.get('total_return', 0):.2f}%")
+        await log(f"Backtest completed: return={performance.get('total_return', 0):.2f}%")
         
         # 获取所有选中过的股票名称
         all_selected_stocks = set()
