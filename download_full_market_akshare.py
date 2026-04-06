@@ -17,8 +17,8 @@ sys.path.insert(0, '/root/.openclaw/workspace/StockAgent/AgentServer')
 from core.managers import mongo_manager
 
 # 下载日期范围
-START_DATE = "20260105"
-END_DATE = "20260320"
+START_DATE = "20251215"
+END_DATE = "20260331"
 COLLECTION_NAME = "stock_daily_ak_full"
 
 async def download_full_market():
