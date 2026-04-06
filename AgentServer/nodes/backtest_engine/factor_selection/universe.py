@@ -89,7 +89,7 @@ class UniverseManager:
         # 从 stock_daily 获取当日有数据的股票
         result = await mongo_manager.find_many(
             "stock_daily",
-            {"trade_date": trade_date},
+            {"trade_date": int(trade_date)},
             projection={"ts_code": 1},
         )
         return {doc["ts_code"] for doc in result}
@@ -151,7 +151,7 @@ class UniverseManager:
         # 从 limit_list 获取涨停股
         result = await mongo_manager.find_many(
             "limit_list",
-            {"trade_date": trade_date, "limit": "U"},  # U = 涨停
+            {"trade_date": int(trade_date), "limit": "U"},  # U = 涨停
             projection={"ts_code": 1, "open": 1, "low": 1, "close": 1},
         )
         
@@ -169,7 +169,7 @@ class UniverseManager:
         """获取跌停股"""
         result = await mongo_manager.find_many(
             "limit_list",
-            {"trade_date": trade_date, "limit": "D"},  # D = 跌停
+            {"trade_date": int(trade_date), "limit": "D"},  # D = 跌停
             projection={"ts_code": 1},
         )
         return {doc["ts_code"] for doc in result}

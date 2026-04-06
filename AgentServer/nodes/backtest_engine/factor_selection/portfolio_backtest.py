@@ -137,34 +137,43 @@ class PortfolioBacktester:
         rebalance_set = set(rebalance_dates)
         total_days = len(all_trade_dates)
         
+        logger.info(f"开始逐日回测，共 {total_days} 个交易日")
+        
         for idx, trade_date in enumerate(all_trade_dates):
-            # 每 20 天打印一次进度
-            if idx % 20 == 0:
-                logger.info(f"Processing day {idx+1}/{total_days}: {trade_date}")
+            logger.info(f"[第 {idx+1}/{total_days} 天] 处理日期: {trade_date}")
             
             # 检查是否是调仓日
             if trade_date in rebalance_set:
-                logger.info(f"Rebalancing on {trade_date} ({idx+1}/{total_days})")
+                logger.info(f"📅 当前为调仓日，开始执行调仓逻辑")
                 
                 # 1. 获取当日股票池
+                logger.info(f"🔍 1/5 正在获取当日股票池...")
                 universe = await self.universe_mgr.get_universe(
                     UniverseType.ALL_A,
                     trade_date,
                     exclude_rules,
                 )
                 
+                logger.info(f"✅ 原始股票池数量: {len(universe)} 只")
+                
                 if not universe:
-                    logger.warning(f"No stocks in universe for {trade_date}")
+                    logger.warning(f"⚠️ 当日无符合条件的股票，跳过调仓")
                     continue
                 
                 # 2. 计算因子 & 选股
+                logger.info(f"🧮 2/5 正在计算因子指标...")
                 factor_df = await self.factor_engine.compute_factors(
                     universe, trade_date, config["factors"]
                 )
+                
+                logger.info(f"✅ 因子计算完成，共 {len(factor_df)} 条记录")
+                
                 target_stocks = self.factor_engine.select_top_stocks(factor_df, top_n)
                 
+                logger.info(f"🎯 3/5 选股完成，选中 {len(target_stocks)} 只股票: {target_stocks}")
+                
                 if not target_stocks:
-                    logger.warning(f"No stocks selected for {trade_date}")
+                    logger.warning(f"⚠️ 无符合选股条件的股票，跳过调仓")
                     continue
                 
                 # 记录选股结果
@@ -175,21 +184,42 @@ class PortfolioBacktester:
                 })
                 
                 # 3. 计算目标权重
+                logger.info(f"⚖️ 4/5 正在计算目标权重...")
                 target_weights = self._compute_weights(
                     target_stocks, factor_df, weight_method
                 )
                 
+                logger.info(f"✅ 权重计算完成: {target_weights}")
+                
                 # 4. 获取价格
+                logger.info(f"💲 5/5 正在获取股票价格...")
                 prices = await self._get_prices(
                     set(holdings.keys()) | set(target_weights.keys()),
                     trade_date,
                 )
                 
+                logger.info(f"✅ 获取到 {len(prices)} 只股票的价格")
+                
                 # 5. 执行调仓
+                logger.info(f"🔄 正在执行调仓操作...")
                 cash, holdings, records = self._rebalance(
                     trade_date, cash, holdings, target_weights, prices
                 )
                 rebalance_records.extend(records)
+                
+                logger.info(f"✅ 调仓完成，当前持仓: {holdings}，现金: {cash:.2f}")
+                
+                # 输出调仓记录
+                for record in records:
+                    logger.info(f"   📝 {record.action}: {record.ts_code} × {record.shares} 股，价格: {record.price:.2f}，金额: {record.amount:.2f}")
+            
+            # 计算当日市值
+            prices = await self._get_prices(set(holdings.keys()), trade_date)
+            market_value = sum(
+                holdings.get(ts_code, 0) * prices.get(ts_code, 0)
+                for ts_code in holdings
+            )
+            total_value = cash + market_value
             
             # 计算当日市值
             prices = await self._get_prices(set(holdings.keys()), trade_date)
@@ -295,7 +325,7 @@ class PortfolioBacktester:
         
         result = await mongo_manager.find_many(
             "stock_daily",
-            {"ts_code": {"$in": list(stocks)}, "trade_date": trade_date},
+            {"ts_code": {"$in": list(stocks)}, "trade_date": int(trade_date)},
             projection={"ts_code": 1, "close": 1},
         )
         
