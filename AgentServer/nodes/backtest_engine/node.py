@@ -568,55 +568,57 @@ class BacktestNode(BaseNode):
             {"$set": {"progress": 30}},
         )
         
-        # 结果收集
-        all_results = []
-        total = len(selected_strategies)
+        # 合并所有选中策略的因子和过滤条件，构建组合回测配置
+        all_factors = []
+        strategy_weights = {}
+        total_weight = 0
         
-        # 遍历每个策略
-        for idx, strategy in enumerate(selected_strategies):
-            current_progress = 30 + int((idx / total) * 50)
-            await mongo_manager.update_one(
-                "backtest_tasks",
-                {"task_id": task_id},
-                {"$set": {"progress": current_progress}},
-            )
+        # 给每个策略分配相同权重
+        weight_per_strategy = 1.0 / len(selected_strategies)
+        
+        for strategy in selected_strategies:
+            strategy_weights[strategy["name"]] = weight_per_strategy
+            total_weight += weight_per_strategy
+            # 添加策略需要的因子
+            for (factor_name, target_value) in strategy["filters"]:
+                all_factors.append({
+                    "name": factor_name,
+                    "weight": weight_per_strategy,
+                    "target": target_value
+                })
+        
+        await self._push_log(task_id, "")
+        await self._push_log(task_id, "=" * 60)
+        await self._push_log(task_id, f"▶️ 开始多策略组合回测")
+        await self._push_log(task_id, f"📊 策略权重配置: {strategy_weights}")
+        await self._push_log(task_id, "=" * 60)
+        
+        # 创建组合回测器
+        config = {
+            "start_date": start_date,
+            "end_date": end_date,
+            "initial_cash": initial_cash,
+            "max_position_percent": strategy_params.get("max_position_per_stock", 0.2),
+            "liquidity_threshold": strategy_params.get("liquidity_threshold", 500),
+            "data_collection": "stock_daily" if period == "daily" else "stock_1min",
+            "universe_mgr": universe_mgr,
+            "factor_engine": factor_engine,
+            "exclude_rules": [ExcludeRule.ST, ExcludeRule.NEW_STOCK],
+            "top_n": 10,
+            "rebalance_freq": "daily"
+        }
+        
+        backtester = PortfolioBacktester()
+        all_results = []
+        
+        # 运行组合回测
+        try:
+            result = await backtester.run(config)
             
-            await self._push_log(task_id, "")
-            await self._push_log(task_id, "=" * 60)
-            await self._push_log(task_id, f"▶️ 开始回测策略: {strategy['name']}")
-            await self._push_log(task_id, "=" * 60)
-            
-            # 创建回测器
-            config = {
-                "start_date": start_date,
-                "end_date": end_date,
-                "initial_cash": initial_cash,
-                "max_position_percent": strategy_params.get("max_position_per_stock", 0.2),
-                "liquidity_threshold": strategy_params.get("liquidity_threshold", 500),
-                "data_collection": "stock_daily" if period == "daily" else "stock_1min",
-                "universe_mgr": universe_mgr,
-                "factor_engine": factor_engine,
-                "exclude_rules": [ExcludeRule.ST, ExcludeRule.NEW_STOCK],
-                "factors": [
-                    {"name": factor_name, "target": target}
-                    for factor_name, target in strategy["filters"]
-                ],
-                "top_n": 1,
-                "rebalance_freq": "daily",
-                "task_id": task_id,
-                "push_log": self._push_log,
-            }
-            backtester = PortfolioBacktester()
-            
-            # 运行回测
-            try:
-                result = await backtester.run(config)
-                
-                if result is None or "error" in result:
-                    error_msg = result.get('error', 'unknown error') if result else 'unknown error'
-                    await self._push_log(task_id, f"❌ 策略 {strategy['name']} 回测失败: {error_msg}")
-                    continue
-                
+            if result is None or "error" in result:
+                error_msg = result.get('error', 'unknown error') if result else 'unknown error'
+                await self._push_log(task_id, f"❌ 组合回测失败: {error_msg}")
+            else:
                 # 兼容字段名，确保所有字段存在
                 perf = result.get('performance', {})
                 # 字段映射，兼容不同返回格式
@@ -640,16 +642,10 @@ class BacktestNode(BaseNode):
                         if field not in perf:
                             perf[field] = aliases[-1]
                 
-                # 保存结果
-                perf = result["performance"]
-                perf["strategy_id"] = strategy["id"]
-                perf["strategy_name"] = strategy["name"]
-                # 兼容字段名
-                if "trade_days" not in perf and "total_trade_days" in perf:
-                    perf["trade_days"] = perf["total_trade_days"]
+                perf["strategy_name"] = "多策略组合"
                 all_results.append(perf)
                 
-                await self._push_log(task_id, f"✅ 策略 {strategy['name']} 回测完成")
+                await self._push_log(task_id, "✅ 多策略组合回测完成")
                 await self._push_log(task_id, f"   信号数: {perf.get('trade_count', perf.get('total_trades', 0))}")
                 await self._push_log(task_id, f"   胜率: {perf['win_rate']:.2f}%")
                 await self._push_log(task_id, f"   累计收益率: {perf['total_return']:.2f}%")
@@ -657,10 +653,9 @@ class BacktestNode(BaseNode):
                 await self._push_log(task_id, f"   盈亏比: {perf.get('profit_loss_ratio', 0):.2f}")
                 await self._push_log(task_id, f"   夏普比率: {perf['sharpe_ratio']:.2f}")
                 
-            except Exception as e:
-                self.logger.error(f"[{task_id}] Strategy {strategy['name']} failed: {e}")
-                await self._push_log(task_id, f"❌ 策略 {strategy['name']} 运行异常: {str(e)}")
-                continue
+        except Exception as e:
+            self.logger.error(f"[{task_id}] Portfolio backtest failed: {e}")
+            await self._push_log(task_id, f"❌ 组合回测运行异常: {str(e)}")
         
         # 计算汇总结果
         await self._push_log(task_id, "")
