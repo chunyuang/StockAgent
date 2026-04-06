@@ -721,24 +721,12 @@ async def submit_ultra_short_backtest(
         f"strategies={request.strategies}, {request.start_date} ~ {request.end_date}"
     )
     
-    # 初始化任务状态（初始日志）
+    # 初始化任务状态
     mock_tasks[task_id] = {
         "task_id": task_id,
         "status": "running",
         "progress": 0,
-        "logs": [
-            "🚀 【实盘级】开始提交超短策略回测任务...",
-            f"📅 回测区间: {request.start_date} -> {request.end_date}",
-            f"💰 初始资金: {request.initial_cash:,} 元",
-            f"🎯 选中策略: {['半路追涨' if s == 'halfway_chase' else '首板打板' if s == 'first_limit_up' else '涨停开板' if s == 'limit_up_open' else '龙头低吸' if s == 'leader_buy_dip' else '跌停翘板' for s in request.strategies]}",
-            f"🔧 流动性门槛: {request.params.liquidity_threshold} 万元",
-            f"📈 单票最大仓位: {request.params.max_position_per_stock*100}%",
-            f"✅ 强制空仓规则: {'已启用' if request.enable_force_empty else '已禁用'}",
-            f"✅ 情绪周期算法: {'已启用' if request.enable_sentiment_cycle else '已禁用'}",
-            f"✅ 竞价过滤规则: {'已启用' if request.enable_auction_filter else '已禁用'}",
-            f"✅ 任务提交成功，任务ID：{task_id}",
-            "🔄 已启动回测执行流程"
-        ],
+        "logs": [],
         "result": None
     }
     

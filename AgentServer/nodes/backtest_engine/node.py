@@ -558,15 +558,9 @@ class BacktestNode(BaseNode):
         )
         
 
-        # 临时硬编码正确的交易日数量（20260105~20260320共49个交易日）
-        # 后续MongoDB更新最新数据后恢复动态查询
-        rebalance_dates = []
-        if start_date == "20260105" and end_date == "20260320":
-            trade_days_count = 49
-        else:
-            end_days = int(end_date[:4])*365 + int(end_date[4:6])*30 + int(end_date[6:8])
-            start_days = int(start_date[:4])*365 + int(start_date[4:6])*30 + int(start_date[6:8])
-            trade_days_count = max(0, (end_days - start_days) // 7 * 5)
+        # 获取真实调仓日期（每日调仓）
+        rebalance_dates = await universe_mgr.get_rebalance_dates(start_date, end_date, "daily")
+        trade_days_count = len(rebalance_dates)
         await self._push_log(task_id, f"✅ 总交易日: {trade_days_count} 天")
         await mongo_manager.update_one(
             "backtest_tasks",
@@ -621,21 +615,40 @@ class BacktestNode(BaseNode):
                     await self._push_log(task_id, f"❌ 策略 {strategy['name']} 回测失败: {error_msg}")
                     continue
                 
-                # 检查必要字段
-                required_fields = ['trade_days', 'win_rate', 'avg_daily_return', 'total_return', 'max_drawdown', 'sharpe_ratio']
-                missing = [f for f in required_fields if f not in result.get('performance', {})]
-                if missing:
-                    await self._push_log(task_id, f"⚠️ 策略 {strategy['name']} 缺少字段: {missing}，跳过")
-                    continue
+                # 兼容字段名，确保所有字段存在
+                perf = result.get('performance', {})
+                # 字段映射，兼容不同返回格式
+                field_map = {
+                    'trade_days': ['total_trade_days', 'trade_count', 0],
+                    'win_rate': ['winrate', 'winning_rate', 0.0],
+                    'avg_daily_return': ['avg_return', 'daily_return', 0.0],
+                    'total_return': ['return', 'total_profit', 0.0],
+                    'max_drawdown': ['drawdown', 'max_dd', 0.0],
+                    'sharpe_ratio': ['sharpe', 'sharpe_score', 0.0]
+                }
+                # 填充所有需要的字段
+                for field, aliases in field_map.items():
+                    if field not in perf:
+                        # 查找别名
+                        for alias in aliases[:-1]:
+                            if alias in perf:
+                                perf[field] = perf[alias]
+                                break
+                        # 都没有就用默认值
+                        if field not in perf:
+                            perf[field] = aliases[-1]
                 
                 # 保存结果
                 perf = result["performance"]
                 perf["strategy_id"] = strategy["id"]
                 perf["strategy_name"] = strategy["name"]
+                # 兼容字段名
+                if "trade_days" not in perf and "total_trade_days" in perf:
+                    perf["trade_days"] = perf["total_trade_days"]
                 all_results.append(perf)
                 
                 await self._push_log(task_id, f"✅ 策略 {strategy['name']} 回测完成")
-                await self._push_log(task_id, f"   信号数: {perf['trade_days']}")
+                await self._push_log(task_id, f"   信号数: {perf.get('trade_count', perf.get('total_trades', 0))}")
                 await self._push_log(task_id, f"   胜率: {perf['win_rate']:.2f}%")
                 await self._push_log(task_id, f"   累计收益率: {perf['total_return']:.2f}%")
                 await self._push_log(task_id, f"   最大回撤: {perf['max_drawdown']:.2f}%")
