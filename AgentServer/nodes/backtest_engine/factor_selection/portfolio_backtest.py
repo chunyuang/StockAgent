@@ -401,7 +401,7 @@ class PortfolioBacktester:
             return {}
         
         result = await mongo_manager.find_many(
-            "stock_daily",
+            "stock_daily_ak_full",
             {"ts_code": {"$in": list(stocks)}, "trade_date": int(trade_date)},
             projection={"ts_code": 1, "close": 1},
         )
@@ -511,7 +511,7 @@ class PortfolioBacktester:
             "index_daily",
             {
                 "ts_code": benchmark_code,
-                "trade_date": {"$gte": start_date, "$lte": end_date},
+                "trade_date": {"$gte": int(start_date), "$lte": int(end_date)},
             },
             projection={"trade_date": 1, "close": 1},
         )
