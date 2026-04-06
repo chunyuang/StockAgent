@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 # 连接MongoDB
 client = pymongo.MongoClient("mongodb://localhost:27017/")
 db = client["stock_agent"]
-collection = db["stock_daily"]
+collection = db["stock_daily_ak_full"]
 
 # 获取所有交易日（2026-01-01 ~ 2026-03-31）
 all_dates = sorted(collection.distinct("trade_date", {"trade_date": {"$gte": 20260101, "$lte": 20260331}}))
