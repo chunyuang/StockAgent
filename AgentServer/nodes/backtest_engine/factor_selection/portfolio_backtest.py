@@ -232,14 +232,32 @@ class PortfolioBacktester:
                 await log(f"✅ 因子计算完成，共 {len(factor_df)} 条记录")
                 
                 # 🎯 重构为多策略独立筛选逻辑（实盘对齐）：每个策略独立运行，结果合并去重
-                await log(f"🎯 多策略联合筛选：")
+                await log(f"🎯 多策略联合筛选：【NEW CODE 2026-04-08 00:10 生效】")
                 
-                # 定义各策略的独立筛选条件
+                all_candidates = set()
+                
+                # 全链路调试日志
+                await log(f"🎯 【全链路调试 2026-04-08 00:25 生效】回测引擎启动")
+                await log(f"🔍 配置所有key: {list(config.keys())}")
+                selected_strategies = config.get("selected_strategies", [])
+                await log(f"🔍 传入的selected_strategies: {selected_strategies}")
+                await log(f"🔍 selected_strategies类型: {type(selected_strategies)}")
+                selected_strategy_names = [s["name"] for s in selected_strategies] if selected_strategies else []
+                await log(f"🔍 最终要执行的策略列表: {selected_strategy_names}")
+                
+                # 定义各策略的独立筛选条件（从全局策略配置获取，动态匹配参数）
+                # 先从选中策略中获取半路追涨的量比参数
+                volume_threshold = 1.5
+                for s in selected_strategies:
+                    if s["name"] == "半路追涨":
+                        volume_threshold = s.get("params", {}).get("volume_threshold", 1.5)
+                        break
+                
                 strategy_configs = {
                     "半路追涨": [
                         {"name": "limit_up_yesterday", "target": 1},
                         {"name": "open_below_limit", "target": 1},
-                        {"name": "volume_increase", "target": 3.0}
+                        {"name": "volume_increase", "target": volume_threshold}  # 动态读取量比阈值
                     ],
                     "首板打板": [
                         {"name": "first_limit_up", "target": 1},
@@ -260,27 +278,13 @@ class PortfolioBacktester:
                     ]
                 }
                 
-                all_candidates = set()
-                total_strategy_count = 0
-                
-                # 遍历选中的策略，独立筛选
-                for strategy_name, conditions in strategy_configs.items():
-                    # 检查是否是用户选中的策略（根据条件匹配）
-                    is_selected = True
-                    for cond in conditions:
-                        found = False
-                        for f in config["factors"]:
-                            if f["name"] == cond["name"] and f["target"] == cond["target"]:
-                                found = True
-                                break
-                        if not found:
-                            is_selected = False
-                            break
-                    
-                    if not is_selected:
+                # 遍历用户选中的所有策略，独立筛选
+                for strategy_name in selected_strategy_names:
+                    if strategy_name not in strategy_configs:
+                        await log(f"   ⚠️ 【{strategy_name}】未找到筛选配置，跳过")
                         continue
                         
-                    total_strategy_count += 1
+                    conditions = strategy_configs[strategy_name]
                     temp_df = factor_df.copy()
                     
                     await log(f"   🔹 【{strategy_name}】筛选过程：")
