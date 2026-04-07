@@ -731,6 +731,24 @@ async def submit_ultra_short_backtest(
     }
     
     # 构建任务参数
+    # 转换策略名称为完整配置（对齐实盘参数结构）
+    strategy_name_map = {
+        "halfway_chase": "半路追涨",
+        "first_limit_up": "首板打板",
+        "limit_up_open": "涨停开板",
+        "leader_buy_dip": "龙头低吸",
+        "limit_down_qiao": "跌停翘板"
+    }
+    
+    selected_strategies = []
+    for s in request.strategies:
+        selected_strategies.append({
+            "name": strategy_name_map.get(s, s),
+            "params": {
+                "volume_threshold": request.params.volume_threshold
+            }
+        })
+    
     task_info = {
         "task_id": task_id,
         "params": {
@@ -750,6 +768,7 @@ async def submit_ultra_short_backtest(
             "enable_force_empty": request.enable_force_empty,
             "enable_sentiment_cycle": request.enable_sentiment_cycle,
             "enable_auction_filter": request.enable_auction_filter,
+            "selected_strategies": selected_strategies
         }
     }
     

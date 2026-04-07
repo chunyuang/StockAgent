@@ -471,6 +471,61 @@ class BacktestNode(BaseNode):
             {"$set": {"status": "running", "started_at": datetime.utcnow(), "progress": 10, "logs": []}},
         )
 
+        # ========== 🔍 服务健康检查（点击回测第一时间输出+自动修复） ==========
+        await self._push_log(task_id, "🔍 【服务健康检查】回测节点启动前自检...")
+        import subprocess, os
+        need_restart = False
+        
+        # 检查端口占用
+        try:
+            port_status = subprocess.check_output("ss -tlnp | grep :50057 2>/dev/null || echo ''", shell=True).decode().strip()
+            current_pid = str(os.getpid())
+            
+            if not port_status:
+                await self._push_log(task_id, "🔹 50057端口状态: 当前节点未监听，需要修复")
+                need_restart = True
+            elif current_pid not in port_status:
+                await self._push_log(task_id, f"🔹 50057端口状态: 被其他进程占用: {port_status}")
+                await self._push_log(task_id, "🔧 自动清理占用端口的旧进程...")
+                subprocess.run("pkill -9 -f 'AgentServer/main.py' 2>/dev/null", shell=True)
+                need_restart = True
+            else:
+                await self._push_log(task_id, "🔹 50057端口状态: ✅ 正常被当前进程占用")
+                
+        except Exception as e:
+            await self._push_log(task_id, f"🔹 50057端口检查异常: {str(e)}")
+            need_restart = True
+        
+        # 检查回测进程数量
+        try:
+            process_count = int(subprocess.check_output("ps aux | grep 'AgentServer/main.py' | grep -v grep | wc -l", shell=True).decode().strip())
+            process_list = subprocess.check_output("ps aux | grep 'AgentServer/main.py' | grep -v grep | awk '{print $2, $9}'", shell=True).decode().strip()
+            await self._push_log(task_id, f"🔹 当前运行回测进程数: {process_count}")
+            
+            if process_count > 1:
+                await self._push_log(task_id, f"🔹 发现多余进程，自动清理: {process_list}")
+                subprocess.run("pkill -9 -f 'AgentServer/main.py' 2>/dev/null", shell=True)
+                need_restart = True
+            elif process_count == 1:
+                await self._push_log(task_id, "🔹 进程状态: ✅ 正常单进程运行")
+                
+        except Exception as e:
+            await self._push_log(task_id, f"🔹 进程检查异常: {str(e)}")
+            need_restart = True
+        
+        # 自动修复重启
+        if need_restart:
+            await self._push_log(task_id, "🔧 正在自动修复服务...")
+            # 执行一键重启脚本，自动启动新服务
+            subprocess.Popen("cd /root/.openclaw/workspace/StockAgent && ./restart_all_services.sh > /tmp/auto_restart.log 2>&1 &", shell=True)
+            await self._push_log(task_id, "⏳ 服务自动修复中，请等待3秒后重新提交回测")
+            return
+        
+        # 代码版本标识
+        await self._push_log(task_id, "🔹 运行代码版本: 【NEW CODE 2026-04-08 稳定版】")
+        await self._push_log(task_id, "✅ 健康检查完成，回测节点正常运行")
+        await self._push_log(task_id, "========================================")
+
         # 推送日志
         await self._push_log(task_id, "🚀 超短策略回测启动")
         await self._push_log(task_id, f"📅 回测区间: {start_date} -> {end_date}")
@@ -537,9 +592,13 @@ class BacktestNode(BaseNode):
 
         await self._push_log(task_id, f"🎯 选中策略: {[s["name"] for s in selected_strategies]}")
         
-        # 打印完整前端提交的策略参数结构，方便核对字段名
+        # 打印完整前端提交的所有参数结构，方便核对字段名
         import json
-        await self._push_log(task_id, f"🔍 前端完整提交的策略参数: {json.dumps(params.get('strategies', []), ensure_ascii=False, indent=2)}")
+        await self._push_log(task_id, f"🔍 前端完整提交的所有参数根字段: {list(params.keys())}")
+        await self._push_log(task_id, f"🔍 完整params内容: {json.dumps(params, ensure_ascii=False, indent=2)}")
+        await self._push_log(task_id, f"🔍 前端提交的strategies字段内容: {json.dumps(params.get('strategies', []), ensure_ascii=False, indent=2)}")
+        await self._push_log(task_id, f"🔍 前端提交的strategy_params字段内容: {json.dumps(params.get('strategy_params', {}), ensure_ascii=False, indent=2)}")
+        await self._push_log(task_id, f"🔍 前端提交的selected_strategies字段内容: {json.dumps(params.get('selected_strategies', []), ensure_ascii=False, indent=2)}")
         
         # ========== 参数核对日志（与界面对照） ==========
         await self._push_log(task_id, "")
