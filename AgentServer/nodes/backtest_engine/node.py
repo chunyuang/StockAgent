@@ -589,9 +589,9 @@ class BacktestNode(BaseNode):
             if line.strip():
                 await self._push_log(task_id, f"     {line}")
         # 打印其他关键字段
-        await self._push_log(task_id, f"🔍 前端提交的strategies字段内容: {json.dumps(params.get('strategies', []), ensure_ascii=False)}")
-        await self._push_log(task_id, f"🔍 前端提交的strategy_params字段内容: {json.dumps(params.get('strategy_params', {}), ensure_ascii=False)}")
-        await self._push_log(task_id, f"🔍 前端提交的selected_strategies字段内容: {json.dumps(params.get('selected_strategies', []), ensure_ascii=False)}")
+        await self._push_log(task_id, f"🔍 前端提交的strategies字段内容: {json.dumps(params.get('params', {}).get('strategies', []), ensure_ascii=False)}")
+        await self._push_log(task_id, f"🔍 前端提交的strategy_params字段内容: {json.dumps(params.get('params', {}).get('strategy_params', {}), ensure_ascii=False)}")
+        await self._push_log(task_id, f"🔍 前端提交的selected_strategies字段内容: {json.dumps(params.get('params', {}).get('selected_strategies', []), ensure_ascii=False)}")
         
         # ========== 参数核对日志（与界面对照） ==========
         await self._push_log(task_id, "")
@@ -612,7 +612,7 @@ class BacktestNode(BaseNode):
             strategy_name = s.get('name', s.get('id', '未知策略'))
             await self._push_log(task_id, "   ┌─ 🎯 【%s】" % strategy_name)
             # 从前端提交的策略参数中找对应策略的配置
-            for frontend_strategy in params.get('strategies', []):
+            for frontend_strategy in params.get('params', {}).get('selected_strategies', []):
                 if isinstance(frontend_strategy, dict) and frontend_strategy.get('name') == strategy_name:
                     strategy_params_local = frontend_strategy.get('params', {})
                     break
