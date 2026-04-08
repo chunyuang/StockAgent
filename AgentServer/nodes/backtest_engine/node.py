@@ -582,10 +582,16 @@ class BacktestNode(BaseNode):
         # 打印完整前端提交的所有参数结构，方便核对字段名
         import json
         await self._push_log(task_id, f"🔍 前端完整提交的所有参数根字段: {list(params.keys())}")
-        await self._push_log(task_id, f"🔍 完整params内容: {json.dumps(params, ensure_ascii=False, indent=2)}")
-        await self._push_log(task_id, f"🔍 前端提交的strategies字段内容: {json.dumps(params.get('strategies', []), ensure_ascii=False, indent=2)}")
-        await self._push_log(task_id, f"🔍 前端提交的strategy_params字段内容: {json.dumps(params.get('strategy_params', {}), ensure_ascii=False, indent=2)}")
-        await self._push_log(task_id, f"🔍 前端提交的selected_strategies字段内容: {json.dumps(params.get('selected_strategies', []), ensure_ascii=False, indent=2)}")
+        # 格式化打印完整参数，每行独立显示避免混乱
+        await self._push_log(task_id, "🔍 完整params内容:")
+        params_json = json.dumps(params, ensure_ascii=False, indent=2)
+        for line in params_json.split('\n'):
+            if line.strip():
+                await self._push_log(task_id, f"     {line}")
+        # 打印其他关键字段
+        await self._push_log(task_id, f"🔍 前端提交的strategies字段内容: {json.dumps(params.get('strategies', []), ensure_ascii=False)}")
+        await self._push_log(task_id, f"🔍 前端提交的strategy_params字段内容: {json.dumps(params.get('strategy_params', {}), ensure_ascii=False)}")
+        await self._push_log(task_id, f"🔍 前端提交的selected_strategies字段内容: {json.dumps(params.get('selected_strategies', []), ensure_ascii=False)}")
         
         # ========== 参数核对日志（与界面对照） ==========
         await self._push_log(task_id, "")
