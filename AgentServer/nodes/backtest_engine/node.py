@@ -56,6 +56,9 @@ class BacktestNode(BaseNode):
 
         # 工作协程数(修改为1,避免重复执行同一个任务)
         self._worker_count = 1
+        
+        # 日志序号计数器，每个任务独立计数，解决日志乱序问题
+        self._log_counters: Dict[str, int] = {}
 
     async def start(self) -> None:
         """启动回测节点"""
@@ -803,14 +806,24 @@ class BacktestNode(BaseNode):
         # 关闭管理器
         await baostock_manager.shutdown()
         await akshare_manager.shutdown()
+        
+        # 清理日志计数器，避免内存泄漏
+        if task_id in self._log_counters:
+            del self._log_counters[task_id]
 
         return final_result
 
     async def _push_log(self, task_id: str, log_text: str) -> None:
         """推送日志到数据库、WebSocket和本地文件
         """
+        # 日志序号，解决乱序问题，每个任务从1开始递增
+        if task_id not in self._log_counters:
+            self._log_counters[task_id] = 1
+        seq = self._log_counters[task_id]
+        self._log_counters[task_id] += 1
+        
         timestamp = datetime.utcnow().strftime("%H:%M:%S")
-        log_entry = f"[{timestamp}] {log_text}"
+        log_entry = f"[{seq:04d}][{timestamp}] {log_text}"
 
         # 保存到数据库
         await mongo_manager.update_one(
@@ -828,16 +841,19 @@ class BacktestNode(BaseNode):
         with open(log_file, "a", encoding="utf-8") as f:
             f.write(log_entry + "\n")
 
-        # 推送WebSocket消息 - 推送带时间戳的完整日志,和本地文件、MongoDB完全一致
+        # 通过Redis发布日志事件，实现跨节点日志推送
         try:
-            from nodes.web.websocket import manager as ws_manager
-            await ws_manager.broadcast_task_update(task_id, {
-                "type": "log",
-                "log": log_entry,
-            })
-        except Exception:
-            # 回测节点独立运行时可能没有WebSocket服务,忽略推送错误
-            pass
+            await redis_manager.publish(
+                "backtest:logs",
+                {
+                    "task_id": task_id,
+                    "type": "log",
+                    "log": log_entry,
+                }
+            )
+        except Exception as e:
+            # Redis发布失败时忽略，不影响回测执行
+            self.logger.warning(f"Failed to publish log to Redis: {e}")
 
     async def _execute_backtest(self, params: dict) -> dict:
         """

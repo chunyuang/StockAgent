@@ -45,6 +45,10 @@ async def get_optional_user_id(token: Optional[str] = Depends(oauth2_scheme_opti
 router = APIRouter(prefix="/backtest", tags=["Backtest"])
 logger = logging.getLogger("api.backtest")
 
+# 回测任务计数器，简单过载保护
+_running_backtest_count = 0
+_MAX_CONCURRENT_BACKTESTS = 3
+
 
 # ==================== 数据模型 ====================
 
@@ -720,17 +724,7 @@ async def submit_ultra_short_backtest(
         f"[{task_id}] Ultra short backtest from user {user_id}: "
         f"strategies={request.strategies}, {request.start_date} ~ {request.end_date}"
     )
-    
-    # 初始化任务状态
-    mock_tasks[task_id] = {
-        "task_id": task_id,
-        "status": "running",
-        "progress": 0,
-        "logs": [],
-        "result": None
-    }
-    
-    # 构建任务参数
+
     # 转换策略名称为完整配置（对齐实盘参数结构）
     strategy_name_map = {
         "halfway_chase": "半路追涨",
@@ -739,16 +733,18 @@ async def submit_ultra_short_backtest(
         "leader_buy_dip": "龙头低吸",
         "limit_down_qiao": "跌停翘板"
     }
-    
+
+    # 构建选中策略列表
     selected_strategies = []
     for s in request.strategies:
         selected_strategies.append({
+            "id": s,
             "name": strategy_name_map.get(s, s),
             "params": {
                 "volume_threshold": request.params.volume_threshold
             }
         })
-    
+
     task_info = {
         "task_id": task_id,
         "params": {
@@ -771,55 +767,101 @@ async def submit_ultra_short_backtest(
             "selected_strategies": selected_strategies
         }
     }
-    
-    # 导入回测节点实例
-    from nodes.backtest_engine.node import BacktestNode
-    _backtest_node = BacktestNode()
-    
-    # 异步执行真实回测逻辑
+
+    # 初始化本地任务状态（用于WebSocket推送和状态查询）
+    mock_tasks[task_id] = {
+        "task_id": task_id,
+        "status": "running",
+        "progress": 0,
+        "logs": [],
+        "result": None
+    }
+
+    # 异步执行真实回测逻辑（不阻塞HTTP请求）
     import asyncio
     async def run_backtest_async():
         try:
             logger.info(f"[{task_id}] 开始执行真实回测逻辑")
-            
+
             # 重写_push_log方法，实时更新日志到mock_tasks
             original_push_log = _backtest_node._push_log
-            
+
             async def custom_push_log(task_id_inner, log_text):
                 if task_id_inner == task_id and task_id in mock_tasks:
+                    # 生成带序号和时间戳的日志
+                    if task_id not in _backtest_node._log_counters:
+                        _backtest_node._log_counters[task_id] = 1
+                    seq = _backtest_node._log_counters[task_id]
+                    _backtest_node._log_counters[task_id] += 1
                     timestamp = datetime.utcnow().strftime("%H:%M:%S")
-                    log_entry = f"[{timestamp}] {log_text}"
+                    log_entry = f"[{seq:04d}][{timestamp}] {log_text}"
                     mock_tasks[task_id]["logs"].append(log_entry)
                     mock_tasks[task_id]["progress"] = min(len(mock_tasks[task_id]["logs"]) / 30 * 100, 95)
+
+                    # 推送到WebSocket
+                    from nodes.web.websocket import manager as ws_manager
+                    await ws_manager.broadcast_task_update(task_id, {
+                        "type": "log",
+                        "log": log_entry,
+                    })
                 # 调用原方法保存到数据库和本地文件
                 await original_push_log(task_id_inner, log_text)
-            
+
             _backtest_node._push_log = custom_push_log
-            
+
             # 执行真实回测逻辑
             result = await _backtest_node._execute_ultra_short_backtest(task_info)
-            
+
             # 更新任务状态和结果
             mock_tasks[task_id]["status"] = "completed"
             mock_tasks[task_id]["progress"] = 100
             mock_tasks[task_id]["result"] = result
-            mock_tasks[task_id]["logs"].append("✅ 回测全部完成！")
-            
+            final_log = "✅ 回测全部完成！"
+            mock_tasks[task_id]["logs"].append(final_log)
+
+            # 推送完成消息到前端
+            from nodes.web.websocket import manager as ws_manager
+            await ws_manager.broadcast_task_update(task_id, {
+                "type": "log",
+                "log": final_log,
+            })
+            await ws_manager.broadcast_task_update(task_id, {
+                "type": "status",
+                "status": "completed",
+                "result": result
+            })
+
             logger.info(f"[{task_id}] 回测执行完成，日志条数：{len(mock_tasks[task_id]['logs'])}")
-            
+
         except Exception as e:
             mock_tasks[task_id]["status"] = "failed"
-            mock_tasks[task_id]["logs"].append(f"❌ 回测失败：{str(e)}")
+            err_log = f"❌ 回测失败：{str(e)}"
+            mock_tasks[task_id]["logs"].append(err_log)
+            # 推送错误到前端
+            from nodes.web.websocket import manager as ws_manager
+            await ws_manager.broadcast_task_update(task_id, {
+                "type": "log",
+                "log": err_log,
+            })
+            await ws_manager.broadcast_task_update(task_id, {
+                "type": "status",
+                "status": "failed",
+                "error": str(e)
+            })
             logger.exception(f"[{task_id}] 回测执行失败: {e}")
         finally:
             # 恢复原方法
             _backtest_node._push_log = original_push_log
-    
+            # 清理计数器
+            if task_id in _backtest_node._log_counters:
+                del _backtest_node._log_counters[task_id]
+
     # 启动异步回测任务
     asyncio.create_task(run_backtest_async())
-    
+
     return BacktestTaskResponse(
         task_id=task_id,
         status="running",
         message="超短策略回测任务已提交，正在执行中"
     )
+

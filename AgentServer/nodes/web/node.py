@@ -41,6 +41,34 @@ class WebNode(BaseNode):
         self.port = port or settings.web.port
         self._server: Optional[uvicorn.Server] = None
     
+    async def _subscribe_backtest_logs(self):
+        """订阅回测日志事件，推送到WebSocket"""
+        from .websocket import manager as ws_manager
+        import json
+        
+        try:
+            pubsub = await redis_manager._redis.pubsub()
+            await pubsub.subscribe("backtest:logs")
+            
+            while True:
+                message = await pubsub.get_message(ignore_subscribe_messages=True)
+                if message:
+                    try:
+                        data = json.loads(message["data"])
+                        task_id = data.get("task_id")
+                        log_entry = data.get("log")
+                        if task_id and log_entry:
+                            # 推送到对应任务的WebSocket连接
+                            await ws_manager.broadcast_task_update(task_id, {
+                                "type": "log",
+                                "log": log_entry,
+                            })
+                    except Exception as e:
+                        self.logger.warning(f"Failed to process log event: {e}")
+                await asyncio.sleep(0.1)
+        except Exception as e:
+            self.logger.error(f"Log subscription failed: {e}")
+
     async def start(self) -> None:
         """启动 Web 服务"""
         # 初始化 Redis（用于 RPC 服务发现）
@@ -48,6 +76,9 @@ class WebNode(BaseNode):
         
         # 启动 RPC 服务器
         await self._start_rpc_server()
+        
+        # 启动回测日志订阅协程
+        asyncio.create_task(self._subscribe_backtest_logs())
         
         self.logger.info(
             f"Web node starting on {self.host}:{self.port}, "
