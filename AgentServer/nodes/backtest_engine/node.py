@@ -474,52 +474,36 @@ class BacktestNode(BaseNode):
         # ========== 🔍 服务健康检查（点击回测第一时间输出+自动修复） ==========
         await self._push_log(task_id, "🔍 【服务健康检查】回测节点启动前自检...")
         import subprocess, os
-        need_restart = False
         
-        # 检查端口占用
+        # 检查端口占用（仅做检查，不自动杀进程，避免误杀服务）
         try:
             port_status = subprocess.check_output("ss -tlnp | grep :50057 2>/dev/null || echo ''", shell=True).decode().strip()
             current_pid = str(os.getpid())
             
             if not port_status:
-                await self._push_log(task_id, "🔹 50057端口状态: 当前节点未监听，需要修复")
-                need_restart = True
+                await self._push_log(task_id, "🔹 50057端口状态: 当前节点未监听")
             elif current_pid not in port_status:
                 await self._push_log(task_id, f"🔹 50057端口状态: 被其他进程占用: {port_status}")
-                await self._push_log(task_id, "🔧 自动清理占用端口的旧进程...")
-                subprocess.run("pkill -9 -f 'AgentServer/main.py' 2>/dev/null", shell=True)
-                need_restart = True
             else:
                 await self._push_log(task_id, "🔹 50057端口状态: ✅ 正常被当前进程占用")
                 
         except Exception as e:
             await self._push_log(task_id, f"🔹 50057端口检查异常: {str(e)}")
-            need_restart = True
         
         # 检查回测进程数量
         try:
             process_count = int(subprocess.check_output("ps aux | grep 'AgentServer/main.py' | grep -v grep | wc -l", shell=True).decode().strip())
             process_list = subprocess.check_output("ps aux | grep 'AgentServer/main.py' | grep -v grep | awk '{print $2, $9}'", shell=True).decode().strip()
             await self._push_log(task_id, f"🔹 当前运行回测进程数: {process_count}")
+            await self._push_log(task_id, f"🔹 进程列表(PID 启动时间): {process_list}")
             
             if process_count > 1:
-                await self._push_log(task_id, f"🔹 发现多余进程，自动清理: {process_list}")
-                subprocess.run("pkill -9 -f 'AgentServer/main.py' 2>/dev/null", shell=True)
-                need_restart = True
+                await self._push_log(task_id, "⚠️  发现多个回测进程，可能影响性能，建议手动清理")
             elif process_count == 1:
                 await self._push_log(task_id, "🔹 进程状态: ✅ 正常单进程运行")
                 
         except Exception as e:
             await self._push_log(task_id, f"🔹 进程检查异常: {str(e)}")
-            need_restart = True
-        
-        # 自动修复重启
-        if need_restart:
-            await self._push_log(task_id, "🔧 正在自动修复服务...")
-            # 执行一键重启脚本，自动启动新服务
-            subprocess.Popen("cd /root/.openclaw/workspace/StockAgent && ./restart_all_services.sh > /tmp/auto_restart.log 2>&1 &", shell=True)
-            await self._push_log(task_id, "⏳ 服务自动修复中，请等待3秒后重新提交回测")
-            return
         
         # 代码版本标识
         await self._push_log(task_id, "🔹 运行代码版本: 【NEW CODE 2026-04-08 稳定版】")
