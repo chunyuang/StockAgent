@@ -161,6 +161,11 @@ class UltraShortParams(BaseModel):
     max_hold_days: int = Field(default=3, ge=1, le=10, description="最大持仓天数")
     max_position_per_stock: float = Field(default=0.2, ge=0.1, le=1.0, description="单票最大仓位")
     max_position: float = Field(default=0.7, ge=0.1, le=1.0, description="总仓位上限")
+    selected_strategies: List[Dict[str, Any]] = Field(default_factory=list, description="选中策略的完整配置（包含独立参数）")
+
+    # 允许所有额外字段，不会过滤任何前端提交的内容
+    class Config:
+        extra = 'allow'
 
 
 class UltraShortBacktestRequest(BaseModel):
@@ -176,11 +181,16 @@ class UltraShortBacktestRequest(BaseModel):
     adjust_type: str = Field(default="qfq", description="复权方式：none(不复权), qfq(前复权)")
     
     initial_cash: float = Field(default=1000000.0, ge=10000, le=100000000, description="初始资金")
-    params: UltraShortParams = Field(default_factory=UltraShortParams, description="策略参数配置")
+    params: UltraShortParams = Field(default_factory=UltraShortParams, description="全局策略参数配置")
+    strategy_params: Dict[str, Dict[str, Any]] = Field(default_factory=dict, description="各策略独立参数配置，key为策略id，value为参数字典")
     
     enable_force_empty: bool = Field(default=True, description="启用强制空仓规则")
     enable_sentiment_cycle: bool = Field(default=True, description="启用情绪周期适配")
     enable_auction_filter: bool = Field(default=True, description="启用集合竞价过滤")
+
+    # 允许所有额外字段，不会过滤任何前端提交的内容
+    class Config:
+        extra = 'allow'
     
     class Config:
         json_schema_extra = {
@@ -734,16 +744,28 @@ async def submit_ultra_short_backtest(
         "limit_down_qiao": "跌停翘板"
     }
 
-    # 构建选中策略列表
+    # 打印完整请求参数，方便排查字段问题
+    import json
+    request_dict = request.dict()
+    logger.info(f"[{task_id}] 前端提交完整参数:")
+    params_json = json.dumps(request_dict, ensure_ascii=False, indent=2)
+    for line in params_json.split('\n'):
+        if line.strip():
+            logger.info(f"[{task_id}]   {line}")
+
+    # 构建选中策略列表：100%原封不动使用前端提交的selected_strategies，不做任何修改
     selected_strategies = []
-    for s in request.strategies:
-        selected_strategies.append({
-            "id": s,
-            "name": strategy_name_map.get(s, s),
-            "params": {
-                "volume_threshold": request.params.volume_threshold
-            }
-        })
+    if hasattr(request.params, "selected_strategies") and request.params.selected_strategies:
+        # 完全透传前端提交的策略和参数，不添加、不修改任何字段
+        selected_strategies = request.params.selected_strategies
+    else:
+        # 如果前端没有提交selected_strategies，从strategies字段读取，参数为空
+        for s in request.strategies:
+            selected_strategies.append({
+                "id": s,
+                "name": strategy_name_map.get(s, s),
+                "params": {}
+            })
 
     task_info = {
         "task_id": task_id,
