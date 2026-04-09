@@ -236,7 +236,12 @@ const submitBacktest = async () => {
         take_profit_pct: form.tradeParams.base_take_profit_pct,
         max_hold_days: form.tradeParams.max_hold_days,
         max_position_per_stock: form.tradeParams.max_position_per_stock,
-        max_position: form.tradeParams.max_total_position
+        max_position: form.tradeParams.max_total_position,
+        selected_strategies: form.strategies.map(id => ({
+          id,
+          name: form.strategyConfigs[id as keyof typeof form.strategyConfigs].name,
+          params: form.strategyConfigs[id as keyof typeof form.strategyConfigs].params
+        }))
       },
       enable_force_empty: form.forceEmpty.enabled,
       enable_sentiment_cycle: form.sentimentCycle.enabled,

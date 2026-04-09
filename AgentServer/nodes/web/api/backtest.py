@@ -799,6 +799,23 @@ async def submit_ultra_short_backtest(
         "result": None
     }
 
+    # 【第一步打印】前端提交完整原始参数，推送到实时日志
+    import json
+    timestamp = datetime.utcnow().strftime("%H:%M:%S")
+    # 打印分隔线
+    mock_tasks[task_id]["logs"].append(f"[0001][{timestamp}] ========================================")
+    mock_tasks[task_id]["logs"].append(f"[0002][{timestamp}] 📌 前端提交完整原始参数（100%原样无修改）:")
+    # 逐行打印参数
+    request_dict = request.dict()
+    params_json = json.dumps(request_dict, ensure_ascii=False, indent=2)
+    seq = 3
+    for line in params_json.split('\n'):
+        if line.strip():
+            mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}]   {line}")
+    logger.info(f"[{task_id}] 📌 前端提交selected_strategies原始内容: ")
+    logger.info(json.dumps(request.params.selected_strategies, ensure_ascii=False, indent=2))
+    logger.info(f"[{task_id}] ==================================================")
+
     # 异步执行真实回测逻辑（不阻塞HTTP请求）
     import asyncio
     async def run_backtest_async():
@@ -878,12 +895,63 @@ async def submit_ultra_short_backtest(
             if task_id in _backtest_node._log_counters:
                 del _backtest_node._log_counters[task_id]
 
+    # 【第二步打印】逐个打印界面参数，方便核对
+    seq += 1
+    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}] 📋 逐个参数明细核对:")
+    seq += 1
+    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}] === 🔧 基础配置 ===")
+    seq += 1
+    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}]   策略列表: {request.strategies}")
+    seq += 1
+    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}]   开始日期: {request.start_date}")
+    seq += 1
+    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}]   结束日期: {request.end_date}")
+    seq += 1
+    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}]   初始资金: {request.initial_cash}")
+    seq += 1
+    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}] === 🔧 全局公共参数 ===")
+    seq += 1
+    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}]   流动性门槛: {request.params.liquidity_threshold}")
+    seq += 1
+    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}]   全局量比阈值: {request.params.volume_threshold}")
+    seq += 1
+    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}]   止损比例: {request.params.stop_loss_pct}")
+    seq += 1
+    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}]   止盈比例: {request.params.take_profit_pct}")
+    seq += 1
+    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}]   最大持仓天数: {request.params.max_hold_days}")
+    seq += 1
+    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}]   单票最大仓位: {request.params.max_position_per_stock}")
+    seq += 1
+    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}]   总仓位上限: {request.params.max_position}")
+    seq += 1
+    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}] === 🎯 各策略独立参数 ===")
+    seq += 1
+    # 遍历每个策略独立参数
+    for s in selected_strategies:
+        strategy_name = s.get("name", s.get("id", "未知策略"))
+        mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}] ┌─ 🎯 【{strategy_name}】")
+        seq +=1
+        params = s.get("params", {})
+        if params:
+            for k, v in params.items():
+                mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}] │   {k}: {v}")
+                seq +=1
+        else:
+            mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}] │   ⚠️ 没有获取到该策略的独立参数")
+            seq +=1
+    seq +=1
+    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}] ========================================")
+    seq +=1
+    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}] ✅ 参数核对完成，开始执行回测逻辑...")
+
     # 启动异步回测任务
+    import asyncio
     asyncio.create_task(run_backtest_async())
 
     return BacktestTaskResponse(
         task_id=task_id,
         status="running",
-        message="超短策略回测任务已提交，正在执行中"
+        message="回测任务提交成功，正在执行"
     )
 

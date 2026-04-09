@@ -17,12 +17,12 @@ from common.utils import convert_numpy_types
 from core.protocols import NodeType
 from core.managers import redis_manager, mongo_manager, tushare_manager
 
-from .factors import FactorData
-from .backtester import VectorizedBacktester, BacktestConfig
-from .performance import PerformanceAnalyzer
-from .factor_selection import PortfolioBacktester
-from .factor_selection.universe import UniverseManager, ExcludeRule
-from .factor_selection.factor_engine import FactorEngine
+from nodes.backtest_engine.factors import FactorData
+from nodes.backtest_engine.backtester import VectorizedBacktester, BacktestConfig
+from nodes.backtest_engine.performance import PerformanceAnalyzer
+from nodes.backtest_engine.factor_selection import PortfolioBacktester
+from nodes.backtest_engine.factor_selection.universe import UniverseManager, ExcludeRule
+from nodes.backtest_engine.factor_selection.factor_engine import FactorEngine
 from core.managers import baostock_manager, akshare_manager
 
 
