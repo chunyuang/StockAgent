@@ -225,6 +225,36 @@ class PortfolioBacktester:
                 
                 # 2. 计算因子 & 选股
                 await log(f"🧮 2/5 正在计算因子指标...")
+                # 添加所有超短策略需要的因子到计算列表
+                ultra_short_factors = [
+                    {"name": "open_below_limit"},
+                    {"name": "pct_chg"},
+                    {"name": "volume_ratio"},
+                    {"name": "first_limit_up"},
+                    {"name": "limit_up_yesterday"},
+                    {"name": "limit_up_open_amount"},
+                    {"name": "circ_mv"},
+                    {"name": "limit_up_open_count"},
+                    {"name": "hot_sector"},
+                    {"name": "limit_up_time"},
+                    {"name": "limit_up_count"},
+                    {"name": "limit_up_open_duration"},
+                    {"name": "turnover_rate"},
+                    {"name": "market_leader"},
+                    {"name": "pullback_pct"},
+                    {"name": "pullback_days"},
+                    {"name": "pullback_ma5"},
+                    {"name": "limit_down_yesterday"},
+                    {"name": "open_above_limit_down"},
+                    {"name": "limit_down_open_amount"},
+                    {"name": "rise_after_limit_down"},
+                    {"name": "sentiment_score"}
+                ]
+                # 合并原有因子和超短策略因子
+                if "factors" not in config:
+                    config["factors"] = []
+                config["factors"].extend([f for f in ultra_short_factors if f not in config["factors"]])
+                
                 factor_df = await self.factor_engine.compute_factors(
                     universe, trade_date, config["factors"]
                 )
@@ -255,6 +285,20 @@ class PortfolioBacktester:
                     strategy_name = s.get("name", s.get("id", "未知策略"))
                     params = s.get("params", {})
                     
+                    # 🔧 全局参数类型统一转换：彻底杜绝类型比较错误
+                    converted_params = {}
+                    for k, v in params.items():
+                        if isinstance(v, bool):
+                            # 布尔值转换为1/0数值
+                            converted_params[k] = 1 if v else 0
+                        elif isinstance(v, str) and v.replace(".", "", 1).isdigit():
+                            # 字符串格式的数值转换为float
+                            converted_params[k] = float(v)
+                        else:
+                            # 其他类型保持原格式
+                            converted_params[k] = v
+                    params = converted_params
+                    
                     if strategy_name == "半路追涨":
                         # 读取半路追涨独立参数，直接从params获取，和前端提交字段一致
                         min_rise_pct = params.get("min_rise_pct", 0.03)
@@ -267,7 +311,7 @@ class PortfolioBacktester:
                             {"name": "open_below_limit", "target": 1, "label": "开盘低于涨停价"},
                             {"name": "pct_chg", "target": min_rise_pct, "operator": ">=", "label": "最小涨幅"},
                             {"name": "pct_chg", "target": max_rise_pct, "operator": "<=", "label": "最大涨幅"},
-                            {"name": "volume_increase", "target": volume_threshold, "label": "量比阈值"}
+                            {"name": "volume_ratio", "target": volume_threshold, "label": "量比阈值"}
                         ]
                         await log(f"   🔧 【半路追涨】参数生效：量比阈值={volume_threshold}倍，涨幅区间={min_rise_pct*100:.1f}%-{max_rise_pct*100:.1f}%，允许10点后买入:{'是' if allow_after_10am else '否'}")
                         
@@ -279,13 +323,18 @@ class PortfolioBacktester:
                         max_blast = params.get("max_blast_count", 1)
                         require_hot = params.get("require_hot_sector", True)
                         
+                        # 时间格式转换：把"HH:MM"字符串转换为分钟数值，方便比较
+                        if isinstance(max_limit_time, str) and ":" in max_limit_time:
+                            h, m = max_limit_time.split(":")
+                            max_limit_time = int(h) * 60 + int(m)
+                        
                         strategy_configs[strategy_name] = [
                             {"name": "first_limit_up", "target": 1, "label": "首次涨停"},
                             {"name": "limit_up_yesterday", "target": 0, "label": "昨日未涨停"},
-                            {"name": "limit_up_amount", "target": min_seal_amount, "label": "最小封单金额"},
-                            {"name": "circulating_mv", "target": max_cap * 100000000, "operator": "<=", "label": "最大流通市值"},
+                            {"name": "limit_up_open_amount", "target": min_seal_amount, "label": "最小封单金额"},
+                            {"name": "circ_mv", "target": max_cap * 10000, "operator": "<=", "label": "最大流通市值"},
                             {"name": "limit_up_open_count", "target": max_blast, "operator": "<=", "label": "最大开板次数"},
-                            {"name": "is_hot_plate", "target": 1 if require_hot else 0, "label": "要求热门板块"},
+                            {"name": "hot_sector", "target": 1 if require_hot else 0, "label": "要求热门板块"},
                             {"name": "limit_up_time", "target": max_limit_time, "operator": "<=", "label": "最晚涨停时间"}
                         ]
                         await log(f"   🔧 【首板打板】参数生效：最小封单金额={min_seal_amount}万元，最晚涨停时间={max_limit_time}，最大流通市值={max_cap}亿，最大开板次数={max_blast}次，要求热门板块:{'是' if require_hot else '否'}")
@@ -316,11 +365,11 @@ class PortfolioBacktester:
                         
                         strategy_configs[strategy_name] = [
                             {"name": "market_leader", "target": 1, "label": "市场龙头"},
-                            {"name": "correction_pct", "target": min_correction, "label": "最小回调幅度"},
-                            {"name": "correction_pct", "target": max_correction, "operator": "<=", "label": "最大回调幅度"},
-                            {"name": "correction_days", "target": correction_days_min, "label": "最小回调天数"},
-                            {"name": "correction_days", "target": correction_days_max, "operator": "<=", "label": "最大回调天数"},
-                            {"name": f"above_{support_level}", "target": 1, "label": f"{support_level.upper()}支撑位"}
+                            {"name": "pullback_pct", "target": min_correction, "label": "最小回调幅度"},
+                            {"name": "pullback_pct", "target": max_correction, "operator": "<=", "label": "最大回调幅度"},
+                            {"name": "pullback_days", "target": correction_days_min, "label": "最小回调天数"},
+                            {"name": "pullback_days", "target": correction_days_max, "operator": "<=", "label": "最大回调天数"},
+                            {"name": f"pullback_{support_level}", "target": 1, "label": f"{support_level.upper()}支撑位"}
                         ]
                         await log(f"   🔧 【龙头低吸】参数生效：最小连续涨停={min_consecutive}天，回调幅度={min_correction*100:.1f}%-{max_correction*100:.1f}%，回调天数={correction_days_min}-{correction_days_max}天，支撑位={support_level}")
                         
@@ -333,10 +382,10 @@ class PortfolioBacktester:
                         
                         strategy_configs[strategy_name] = [
                             {"name": "limit_down_yesterday", "target": 1, "label": "昨日跌停"},
-                            {"name": "open_above_limit", "target": 1, "label": "开盘高于跌停价"},
-                            {"name": "qiao_amount", "target": min_qiao_amount, "label": "翘板最小金额"},
-                            {"name": "rise_after_qiao", "target": min_rise_after, "label": "翘板后最小涨幅"},
-                            {"name": "sentiment_high", "target": 1 if require_high_sentiment else 0, "label": "要求高情绪周期"}
+                            {"name": "open_above_limit_down", "target": 1, "label": "开盘高于跌停价"},
+                            {"name": "limit_down_open_amount", "target": min_qiao_amount, "label": "翘板最小金额"},
+                            {"name": "rise_after_limit_down", "target": min_rise_after, "label": "翘板后最小涨幅"},
+                            {"name": "sentiment_score", "target": 1 if require_high_sentiment else 0, "label": "要求高情绪周期"}
                         ]
                         await log(f"   🔧 【跌停翘板】参数生效：最小连续跌停={min_consecutive}天，最小翘板金额={min_qiao_amount}万元，翘板后最小涨幅={min_rise_after*100:.1f}%，要求高情绪周期:{'是' if require_high_sentiment else '否'}")
                 
@@ -358,6 +407,17 @@ class PortfolioBacktester:
                         label = cond.get("label", factor_name)
                         if factor_name in temp_df.columns:
                             before_count = len(temp_df)
+                            # 类型转换：先尝试转换为数值类型，避免比较类型冲突
+                            try:
+                                # 先尝试把目标值转换为float
+                                target_float = float(target_value)
+                                # 把因子列也转换为float类型
+                                temp_df[factor_name] = temp_df[factor_name].astype(float)
+                                target_value = target_float
+                            except (ValueError, TypeError):
+                                # 转换失败说明是字符串类型（比如时间），保持原类型
+                                pass
+                            
                             if operator == ">=":
                                 temp_df = temp_df[temp_df[factor_name] >= target_value]
                             elif operator == "<=":
@@ -371,7 +431,7 @@ class PortfolioBacktester:
                             after_count = len(temp_df)
                             await log(f"      ✅ 【{label}】{operator} {target_value} → 剩余 {after_count} 只（剔除 {before_count - after_count} 只）")
                         else:
-                            await log(f"      ⚠️ 【{label}】因子缺失，跳过该条件筛选，当前剩余 {len(temp_df)} 只")
+                            await log(f"      ⚠️ 【{label}】因子缺失，因子字段名：{factor_name}，跳过该条件筛选，当前剩余 {len(temp_df)} 只")
                     
                     candidate_count = len(temp_df)
                     all_candidates.update(temp_df["ts_code"].tolist())

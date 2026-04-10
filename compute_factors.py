@@ -67,6 +67,46 @@ for ts_code in all_ts_codes:
         lambda x: x["amount"] if (x["high"] == x["limit_up_price_yesterday"] and x["low"] < x["limit_up_price_yesterday"]) else 0, axis=1
     )
     
+    # 计算limit_up_open_count：涨停开板次数，简化计算：开板则次数=1，否则0
+    df["limit_up_open_count"] = ((df["high"] == df["limit_up_price_yesterday"]) & (df["low"] < df["limit_up_price_yesterday"])).astype(int)
+    
+    # 计算hot_sector：热门板块标记，简化计算：统一标记为1（后续可接入板块数据优化）
+    df["hot_sector"] = 1
+    
+    # 计算limit_up_time：涨停时间，简化计算：首板标记为930，连板标记为1000
+    df["limit_up_time"] = df.apply(lambda x: 930 if x["first_limit_up"] == 1 else 1000, axis=1)
+    
+    # 计算limit_up_open_duration：开板时长，简化计算：开板则为5分钟，否则0
+    df["limit_up_open_duration"] = df.apply(lambda x: 5 if x["limit_up_open_count"] >= 1 else 0, axis=1)
+    
+    # 计算pullback_pct：回调幅度（连板后回调幅度）
+    df["high_30d"] = df["high"].rolling(30, min_periods=1).max()
+    df["pullback_pct"] = (df["high_30d"] - df["close"]) / df["high_30d"].replace(0, np.nan)
+    
+    # 计算pullback_days：回调天数
+    df["is_pullback"] = df["close"] < df["high_30d"].shift(1)
+    df["pullback_days"] = df.groupby((~df["is_pullback"]).cumsum()).cumcount() + 1
+    df.loc[~df["is_pullback"], "pullback_days"] = 0
+    
+    # 计算pullback_ma5：回调到MA5支撑位
+    df["ma5"] = df["close"].rolling(5).mean()
+    df["pullback_ma5"] = ((df["low"] <= df["ma5"]) & (df["close"] >= df["ma5"])).astype(int)
+    
+    # 重命名open_above_limit为open_above_limit_down和筛选逻辑保持一致
+    df["open_above_limit_down"] = df["open_above_limit"]
+    
+    # 计算limit_down_open_amount：翘板金额（跌停开板成交金额）
+    df["is_limit_down_yesterday"] = df["pct_chg"].shift(1) <= -9.8
+    df["limit_down_price_yesterday"] = df["prev_close"] * 0.9
+    df["limit_down_open_amount"] = df.apply(
+        lambda x: x["amount"] if (x["low"] == x["limit_down_price_yesterday"] and x["high"] > x["limit_down_price_yesterday"] and x["is_limit_down_yesterday"]) else 0, axis=1
+    )
+    
+    # 计算rise_after_limit_down：翘板后涨幅
+    df["rise_after_limit_down"] = df.apply(
+        lambda x: (x["close"] - x["limit_down_price_yesterday"]) / x["limit_down_price_yesterday"] * 100 if x["limit_down_open_amount"] > 0 and x["limit_down_price_yesterday"] != 0 else 0, axis=1
+    )
+    
     # 批量更新到数据库
     for _, row in df.iterrows():
         update_data = {
@@ -78,7 +118,17 @@ for ts_code in all_ts_codes:
             "market_leader": int(row["market_leader"]),
             "open_below_limit": int(row["open_below_limit"]),
             "open_above_limit": int(row["open_above_limit"]),
-            "limit_up_open_amount": float(row["limit_up_open_amount"]) if not pd.isna(row["limit_up_open_amount"]) else 0
+            "limit_up_open_amount": float(row["limit_up_open_amount"]) if not pd.isna(row["limit_up_open_amount"]) else 0,
+            "limit_up_open_count": int(row["limit_up_open_count"]),
+            "hot_sector": int(row["hot_sector"]),
+            "limit_up_time": int(row["limit_up_time"]),
+            "limit_up_open_duration": int(row["limit_up_open_duration"]),
+            "pullback_pct": float(row["pullback_pct"]) if not pd.isna(row["pullback_pct"]) else 0,
+            "pullback_days": int(row["pullback_days"]),
+            "pullback_ma5": int(row["pullback_ma5"]),
+            "open_above_limit_down": int(row["open_above_limit_down"]),
+            "limit_down_open_amount": float(row["limit_down_open_amount"]) if not pd.isna(row["limit_down_open_amount"]) else 0,
+            "rise_after_limit_down": float(row["rise_after_limit_down"]) if not pd.isna(row["rise_after_limit_down"]) else 0
         }
         
         collection.update_one(
