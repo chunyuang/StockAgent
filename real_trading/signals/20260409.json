@@ -1,0 +1,18 @@
+{
+  "date": "20260409",
+  "force_empty": false,
+  "sentiment": {
+    "level": "repair",
+    "score": 42,
+    "position_limit": 0.7,
+    "allowed_strategies": [
+      "龙头低吸",
+      "半路追涨",
+      "首板打板"
+    ],
+    "stop_loss_adjust": 1.0,
+    "take_profit_adjust": 1.0
+  },
+  "signals": [],
+  "trading_plan": "无符合条件标的，空仓观望"
+}
