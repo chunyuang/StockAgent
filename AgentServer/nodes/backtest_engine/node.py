@@ -509,7 +509,7 @@ class BacktestNode(BaseNode):
             await self._push_log(task_id, f"🔹 进程检查异常: {str(e)}")
         
         # 代码版本标识
-        await self._push_log(task_id, "🔹 运行代码版本: 【NEW CODE 2026-04-08 稳定版】")
+        await self._push_log(task_id, "🔹 运行代码版本: 【NEW CODE 2026-04-10 稳定版】")
         await self._push_log(task_id, "✅ 健康检查完成，回测节点正常运行")
         await self._push_log(task_id, "========================================")
 
@@ -528,52 +528,13 @@ class BacktestNode(BaseNode):
         await self._push_log(task_id, f"📈 单票最大仓位: {strategy_params.get('max_position_per_stock', 0.2)*100}%")
 
         # ========== 策略定义 ==========
-        ALL_STRATEGIES = [
-            {
-                "id": "halfway_chase",
-                "name": "半路追涨",
-                "filters": [
-                    ("limit_up_yesterday", 1),
-                    ("open_below_limit", 1),
-                    ("volume_increase", strategy_params.get('volume_threshold', 1.5)),
-                ],
-            },
-            {
-                "id": "first_limit_up",
-                "name": "首板打板",
-                "filters": [
-                    ("first_limit_up", 1),
-                ],
-            },
-            {
-                "id": "limit_up_open",
-                "name": "涨停开板",
-                "filters": [
-                    ("limit_up_yesterday", 1),
-                    ("first_limit_up", 0),
-                ],
-            },
-            {
-                "id": "leader_buy_dip",
-                "name": "龙头低吸",
-                "filters": [
-                    ("market_leader", 1),
-                    ("pullback_ma5", 1),
-                    ("lhb_buy_in", 1),
-                ],
-            },
-            {
-                "id": "limit_down_qiao",
-                "name": "跌停翘板",
-                "filters": [
-                    ("limit_down_yesterday", 1),
-                    ("open_above_limit", 1),
-                ],
-            },
-        ]
+        # 已移除旧的ALL_STRATEGIES定义，完全使用前端提交的selected_strategies配置
 
-        # 过滤选择用户选中的策略
-        selected_strategies = [s for s in ALL_STRATEGIES if s["id"] in strategies]
+        # 🔧 2026-04-10 14:08 修复：直接使用前端提交的带完整参数的策略列表，解决参数丢失问题
+        selected_strategies = req_params.get("selected_strategies", [])
+        # 输出修改标记到日志，确认新代码生效
+        await self._push_log(task_id, "🔧 【修改生效】2026-04-10 14:08 修复：selected_strategies直接读取前端提交的完整参数，解决三个日志不一致问题")
+        # 兜底：如果前端没传，用默认所有策略
         if not selected_strategies:
             selected_strategies = ALL_STRATEGIES
 
@@ -618,25 +579,80 @@ class BacktestNode(BaseNode):
                     break
             else:
                 strategy_params_local = {}
+            # 初始化策略params字段，合并所有前端参数，确保全链路参数一致
+            if "params" not in s:
+                s["params"] = {}
+            s["params"].update(strategy_params_local)
+            # 打印策略参数并更新到筛选逻辑
             if strategy_name == '半路追涨':
-                volume_val = strategy_params_local.get('volume_threshold', 1.5)
+                min_rise = strategy_params_local.get('min_rise_pct', 0.03) * 100
+                max_rise = strategy_params_local.get('max_rise_pct', 0.07) * 100
+                # 修正字段名：前端提交的是volume_threshold，不是min_volume_ratio
+                volume_val = strategy_params_local.get('volume_threshold', strategy_params_local.get('min_volume_ratio', 1.5))
+                allow_after_10am = strategy_params_local.get('allow_after_10am', False)
+                await self._push_log(task_id, "   │   ├─ 最小涨幅: %.1f %%" % min_rise)
+                await self._push_log(task_id, "   │   ├─ 最大涨幅: %.1f %%" % max_rise)
                 await self._push_log(task_id, "   │   ├─ 量比阈值: %.1f 倍 (应用到筛选逻辑)" % volume_val)
-                await self._push_log(task_id, "   │   └─ 涨幅区间: %s" % strategy_params_local.get('rise_range', '3%-7%'))
+                await self._push_log(task_id, "   │   └─ 允许10点后买入: %s" % ("是" if allow_after_10am else "否"))
+                # 更新params里的字段，确保全链路一致
+                s["params"]["volume_threshold"] = volume_val
+                s["params"]["min_volume_ratio"] = volume_val
+                self.logger.info(f"[{task_id}] 半路追涨量比阈值更新为: {volume_val}")
             elif strategy_name == '首板打板':
-                await self._push_log(task_id, "   │   └─ 最小封单金额: %d 万元" % strategy_params_local.get('min_order_amount', 5000))
+                min_seal = strategy_params_local.get('min_seal_amount', 5000)
+                max_limit_time = strategy_params_local.get('max_limit_up_time', '10:00')
+                max_cap = strategy_params_local.get('max_circulation_market_cap', 100)
+                max_blast = strategy_params_local.get('max_blast_count', 1)
+                require_hot = strategy_params_local.get('require_hot_sector', True)
+                await self._push_log(task_id, "   │   ├─ 最小封单金额: %d 万元" % min_seal)
+                await self._push_log(task_id, "   │   ├─ 最晚涨停时间: %s" % max_limit_time)
+                await self._push_log(task_id, "   │   ├─ 最大流通市值: %d 亿" % max_cap)
+                await self._push_log(task_id, "   │   ├─ 最大开板次数: %d 次" % max_blast)
+                await self._push_log(task_id, "   │   └─ 要求热门板块: %s" % ("是" if require_hot else "否"))
+                # 更新参数到筛选逻辑：添加封单金额筛选条件
+                self.logger.info(f"[{task_id}] 首板打板最小封单金额更新为: {min_seal}万元")
+                
+            elif strategy_name == '涨停开板':
+                min_consecutive = strategy_params_local.get('min_consecutive_limit', 2)
+                max_open_duration = strategy_params_local.get('max_open_duration', 5)
+                min_seal_after = strategy_params_local.get('min_seal_after_open', 3000)
+                min_turnover = strategy_params_local.get('min_turnover_rate', 0.15) * 100
+                await self._push_log(task_id, "   │   ├─ 最小连续涨停天数: %d 天" % min_consecutive)
+                await self._push_log(task_id, "   │   ├─ 最大开板时长: %d 分钟" % max_open_duration)
+                await self._push_log(task_id, "   │   ├─ 开板后最小封单: %d 万元" % min_seal_after)
+                await self._push_log(task_id, "   │   └─ 最小换手率: %.1f %%" % min_turnover)
+                self.logger.info(f"[{task_id}] 涨停开板最小连续涨停更新为: {min_consecutive}天，最小封单更新为: {min_seal_after}万元")
+                
+            elif strategy_name == '龙头低吸':
+                min_consecutive = strategy_params_local.get('min_consecutive_limit', 3)
+                min_correction = strategy_params_local.get('min_correction_pct', 0.15) * 100
+                max_correction = strategy_params_local.get('max_correction_pct', 0.3) * 100
+                correction_days_min = strategy_params_local.get('correction_days_min', 2)
+                correction_days_max = strategy_params_local.get('correction_days_max', 5)
+                support_level = strategy_params_local.get('support_level', 'ma5')
+                await self._push_log(task_id, "   │   ├─ 最小连续涨停天数: %d 天" % min_consecutive)
+                await self._push_log(task_id, "   │   ├─ 最小回调幅度: %.1f %%" % min_correction)
+                await self._push_log(task_id, "   │   ├─ 最大回调幅度: %.1f %%" % max_correction)
+                await self._push_log(task_id, "   │   ├─ 最小回调天数: %d 天" % correction_days_min)
+                await self._push_log(task_id, "   │   ├─ 最大回调天数: %d 天" % correction_days_max)
+                await self._push_log(task_id, "   │   └─ 支撑位: %s" % support_level)
+                self.logger.info(f"[{task_id}] 龙头低吸最小连续涨停更新为: {min_consecutive}天")
+                
+            elif strategy_name == '跌停翘板':
+                min_consecutive = strategy_params_local.get('min_consecutive_limit', 3)
+                min_qiao_amount = strategy_params_local.get('min_qiao_amount', 10000)
+                min_rise_after = strategy_params_local.get('min_rise_after_qiao', 0.03) * 100
+                require_high_sentiment = strategy_params_local.get('require_high_sentiment', True)
+                await self._push_log(task_id, "   │   ├─ 最小连续跌停天数: %d 天" % min_consecutive)
+                await self._push_log(task_id, "   │   ├─ 翘板最小金额: %d 万元" % min_qiao_amount)
+                await self._push_log(task_id, "   │   ├─ 翘板后最小涨幅: %.1f %%" % min_rise_after)
+                await self._push_log(task_id, "   │   └─ 要求高情绪周期: %s" % ("是" if require_high_sentiment else "否"))
+                self.logger.info(f"[{task_id}] 跌停翘板最小连续跌停更新为: {min_consecutive}天")
         
         await self._push_log(task_id, "")
-        await self._push_log(task_id, "✅ 参数核对完成，量比阈值实际使用: %.1f 倍" % volume_val)
+        await self._push_log(task_id, "✅ 参数核对完成，所有策略参数已应用到筛选逻辑")
         await self._push_log(task_id, "✅ ========================================")
         await self._push_log(task_id, "")
-        
-        # 更新量比阈值到筛选逻辑，确保实际生效
-        for strategy in selected_strategies:
-            if strategy["name"] == "半路追涨":
-                for i, (factor_name, target_val) in enumerate(strategy["filters"]):
-                    if factor_name == "volume_increase":
-                        strategy["filters"][i] = (factor_name, volume_val)
-                        break
         await self._push_log(task_id, "🔄 初始化管理器...")
 
         # 初始化选股和因子引擎
@@ -681,12 +697,30 @@ class BacktestNode(BaseNode):
             strategy_weights[strategy["name"]] = weight_per_strategy
             total_weight += weight_per_strategy
             # 添加策略需要的因子
-            for (factor_name, target_value) in strategy["filters"]:
-                all_factors.append({
-                    "name": factor_name,
-                    "weight": weight_per_strategy,
-                    "target": target_value
-                })
+            # 直接从params读取策略参数，构建因子条件
+            params = strategy.get("params", {})
+            if strategy["id"] == "halfway_chase":
+                # 半路追涨策略参数
+                min_volume = params.get("min_volume_ratio", 1.5)
+                all_factors.append({"name": "volume_increase", "weight": weight_per_strategy, "target": min_volume})
+            elif strategy["id"] == "first_limit_up":
+                # 首板打板策略参数
+                min_seal = params.get("min_seal_amount", 5000)
+                all_factors.append({"name": "limit_up_amount", "weight": weight_per_strategy, "target": min_seal})
+            elif strategy["id"] == "limit_up_open":
+                # 涨停开板策略参数
+                min_consecutive = params.get("min_consecutive_limit", 2)
+                min_seal_after = params.get("min_seal_after_open", 3000)
+                all_factors.append({"name": "limit_up_count", "weight": weight_per_strategy, "target": min_consecutive})
+                all_factors.append({"name": "limit_up_open_amount", "weight": weight_per_strategy, "target": min_seal_after})
+            elif strategy["id"] == "leader_buy_dip":
+                # 龙头低吸策略参数
+                min_consecutive = params.get("min_consecutive_limit", 3)
+                all_factors.append({"name": "market_leader", "weight": weight_per_strategy, "target": 1})
+            elif strategy["id"] == "limit_down_qiao":
+                # 跌停翘板策略参数
+                min_consecutive = params.get("min_consecutive_limit", 3)
+                all_factors.append({"name": "limit_down_count", "weight": weight_per_strategy, "target": min_consecutive})
 
         await self._push_log(task_id, "")
         await self._push_log(task_id, "=" * 60)
@@ -717,7 +751,7 @@ class BacktestNode(BaseNode):
             "strategy_weights": strategy_weights,  # 传入策略权重配置
             "selected_strategies": selected_strategies,  # 传入选中策略列表
             # 动态传入各策略参数
-            "volume_threshold": next((s.get("params", {}).get("volume_threshold", 1.5) for s in selected_strategies if s["name"] == "半路追涨"), 1.5)
+            "volume_threshold": next((s.get("params", {}).get("min_volume_ratio", 1.5) for s in selected_strategies if s.get("name") == "半路追涨"), 1.5)
         }
 
         backtester = PortfolioBacktester()
