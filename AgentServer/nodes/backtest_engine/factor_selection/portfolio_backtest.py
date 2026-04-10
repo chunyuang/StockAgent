@@ -247,36 +247,98 @@ class PortfolioBacktester:
                 
                 # 定义各策略的独立筛选条件（从全局策略配置获取，动态匹配参数）
                 # 先从选中策略中获取半路追涨的量比参数
-                volume_threshold = 1.5
-                for s in selected_strategies:
-                    if s["name"] == "半路追涨":
-                        volume_threshold = s.get("params", {}).get("volume_threshold", 1.5)
-                        break
+                # 动态构建每个策略的筛选配置，从传入的selected_strategies读取参数
+                strategy_configs = {}
                 
-                strategy_configs = {
-                    "半路追涨": [
-                        {"name": "limit_up_yesterday", "target": 1},
-                        {"name": "open_below_limit", "target": 1},
-                        {"name": "volume_increase", "target": volume_threshold}  # 动态读取量比阈值
-                    ],
-                    "首板打板": [
-                        {"name": "first_limit_up", "target": 1},
-                        {"name": "limit_up_yesterday", "target": 0}
-                    ],
-                    "涨停开板": [
-                        {"name": "limit_up_count", "target": 2},
-                        {"name": "limit_up_open_amount", "target": 5000}
-                    ],
-                    "龙头低吸": [
-                        {"name": "market_leader", "target": 1},
-                        {"name": "pullback_ma5", "target": 1},
-                        {"name": "lhb_buy_in", "target": 1}
-                    ],
-                    "跌停翘板": [
-                        {"name": "limit_down_yesterday", "target": 1},
-                        {"name": "open_above_limit", "target": 1}
-                    ]
-                }
+                # 遍历所有传入的策略配置，动态生成筛选条件
+                for s in selected_strategies:
+                    strategy_name = s.get("name", s.get("id", "未知策略"))
+                    params = s.get("params", {})
+                    
+                    if strategy_name == "半路追涨":
+                        # 读取半路追涨独立参数，直接从params获取，和前端提交字段一致
+                        min_rise_pct = params.get("min_rise_pct", 0.03)
+                        max_rise_pct = params.get("max_rise_pct", 0.07)
+                        # 量比阈值直接从params读取min_volume_ratio，和前端提交字段完全对齐
+                        volume_threshold = params.get("min_volume_ratio", 1.5)
+                        allow_after_10am = params.get("allow_after_10am", False)
+                        
+                        strategy_configs[strategy_name] = [
+                            {"name": "open_below_limit", "target": 1, "label": "开盘低于涨停价"},
+                            {"name": "pct_chg", "target": min_rise_pct, "operator": ">=", "label": "最小涨幅"},
+                            {"name": "pct_chg", "target": max_rise_pct, "operator": "<=", "label": "最大涨幅"},
+                            {"name": "volume_increase", "target": volume_threshold, "label": "量比阈值"}
+                        ]
+                        await log(f"   🔧 【半路追涨】参数生效：量比阈值={volume_threshold}倍，涨幅区间={min_rise_pct*100:.1f}%-{max_rise_pct*100:.1f}%，允许10点后买入:{'是' if allow_after_10am else '否'}")
+                        
+                    elif strategy_name == "首板打板":
+                        # 读取首板打板独立参数
+                        min_seal_amount = params.get("min_seal_amount", 5000)
+                        max_limit_time = params.get("max_limit_up_time", "10:00")
+                        max_cap = params.get("max_circulation_market_cap", 100)
+                        max_blast = params.get("max_blast_count", 1)
+                        require_hot = params.get("require_hot_sector", True)
+                        
+                        strategy_configs[strategy_name] = [
+                            {"name": "first_limit_up", "target": 1, "label": "首次涨停"},
+                            {"name": "limit_up_yesterday", "target": 0, "label": "昨日未涨停"},
+                            {"name": "limit_up_amount", "target": min_seal_amount, "label": "最小封单金额"},
+                            {"name": "circulating_mv", "target": max_cap * 100000000, "operator": "<=", "label": "最大流通市值"},
+                            {"name": "limit_up_open_count", "target": max_blast, "operator": "<=", "label": "最大开板次数"},
+                            {"name": "is_hot_plate", "target": 1 if require_hot else 0, "label": "要求热门板块"},
+                            {"name": "limit_up_time", "target": max_limit_time, "operator": "<=", "label": "最晚涨停时间"}
+                        ]
+                        await log(f"   🔧 【首板打板】参数生效：最小封单金额={min_seal_amount}万元，最晚涨停时间={max_limit_time}，最大流通市值={max_cap}亿，最大开板次数={max_blast}次，要求热门板块:{'是' if require_hot else '否'}")
+                        
+                    elif strategy_name == "涨停开板":
+                        # 读取涨停开板独立参数
+                        min_consecutive = params.get("min_consecutive_limit", 2)
+                        max_open_duration = params.get("max_open_duration", 5)
+                        min_seal_after = params.get("min_seal_after_open", 3000)
+                        min_turnover = params.get("min_turnover_rate", 0.15)
+                        
+                        strategy_configs[strategy_name] = [
+                            {"name": "limit_up_count", "target": min_consecutive, "label": "最小连续涨停天数"},
+                            {"name": "limit_up_open_duration", "target": max_open_duration, "operator": "<=", "label": "最大开板时长"},
+                            {"name": "limit_up_open_amount", "target": min_seal_after, "label": "开板后最小封单"},
+                            {"name": "turnover_rate", "target": min_turnover, "label": "最小换手率"}
+                        ]
+                        await log(f"   🔧 【涨停开板】参数生效：最小连续涨停={min_consecutive}天，最大开板时长={max_open_duration}分钟，开板后最小封单={min_seal_after}万元，最小换手率={min_turnover*100:.1f}%")
+                        
+                    elif strategy_name == "龙头低吸":
+                        # 读取龙头低吸独立参数
+                        min_consecutive = params.get("min_consecutive_limit", 3)
+                        min_correction = params.get("min_correction_pct", 0.15)
+                        max_correction = params.get("max_correction_pct", 0.3)
+                        correction_days_min = params.get("correction_days_min", 2)
+                        correction_days_max = params.get("correction_days_max", 5)
+                        support_level = params.get("support_level", "ma5")
+                        
+                        strategy_configs[strategy_name] = [
+                            {"name": "market_leader", "target": 1, "label": "市场龙头"},
+                            {"name": "correction_pct", "target": min_correction, "label": "最小回调幅度"},
+                            {"name": "correction_pct", "target": max_correction, "operator": "<=", "label": "最大回调幅度"},
+                            {"name": "correction_days", "target": correction_days_min, "label": "最小回调天数"},
+                            {"name": "correction_days", "target": correction_days_max, "operator": "<=", "label": "最大回调天数"},
+                            {"name": f"above_{support_level}", "target": 1, "label": f"{support_level.upper()}支撑位"}
+                        ]
+                        await log(f"   🔧 【龙头低吸】参数生效：最小连续涨停={min_consecutive}天，回调幅度={min_correction*100:.1f}%-{max_correction*100:.1f}%，回调天数={correction_days_min}-{correction_days_max}天，支撑位={support_level}")
+                        
+                    elif strategy_name == "跌停翘板":
+                        # 读取跌停翘板独立参数
+                        min_consecutive = params.get("min_consecutive_limit", 3)
+                        min_qiao_amount = params.get("min_qiao_amount", 10000)
+                        min_rise_after = params.get("min_rise_after_qiao", 0.03)
+                        require_high_sentiment = params.get("require_high_sentiment", True)
+                        
+                        strategy_configs[strategy_name] = [
+                            {"name": "limit_down_yesterday", "target": 1, "label": "昨日跌停"},
+                            {"name": "open_above_limit", "target": 1, "label": "开盘高于跌停价"},
+                            {"name": "qiao_amount", "target": min_qiao_amount, "label": "翘板最小金额"},
+                            {"name": "rise_after_qiao", "target": min_rise_after, "label": "翘板后最小涨幅"},
+                            {"name": "sentiment_high", "target": 1 if require_high_sentiment else 0, "label": "要求高情绪周期"}
+                        ]
+                        await log(f"   🔧 【跌停翘板】参数生效：最小连续跌停={min_consecutive}天，最小翘板金额={min_qiao_amount}万元，翘板后最小涨幅={min_rise_after*100:.1f}%，要求高情绪周期:{'是' if require_high_sentiment else '否'}")
                 
                 # 遍历用户选中的所有策略，独立筛选
                 for strategy_name in selected_strategy_names:
@@ -292,11 +354,24 @@ class PortfolioBacktester:
                     for cond in conditions:
                         factor_name = cond["name"]
                         target_value = cond["target"]
+                        operator = cond.get("operator", ">=")
+                        label = cond.get("label", factor_name)
                         if factor_name in temp_df.columns:
                             before_count = len(temp_df)
-                            temp_df = temp_df[temp_df[factor_name] >= target_value]
+                            if operator == ">=":
+                                temp_df = temp_df[temp_df[factor_name] >= target_value]
+                            elif operator == "<=":
+                                temp_df = temp_df[temp_df[factor_name] <= target_value]
+                            elif operator == ">":
+                                temp_df = temp_df[temp_df[factor_name] > target_value]
+                            elif operator == "<":
+                                temp_df = temp_df[temp_df[factor_name] < target_value]
+                            elif operator == "==":
+                                temp_df = temp_df[temp_df[factor_name] == target_value]
                             after_count = len(temp_df)
-                            await log(f"      ✅ 【{factor_name}】>= {target_value} → 剩余 {after_count} 只（剔除 {before_count - after_count} 只）")
+                            await log(f"      ✅ 【{label}】{operator} {target_value} → 剩余 {after_count} 只（剔除 {before_count - after_count} 只）")
+                        else:
+                            await log(f"      ⚠️ 【{label}】因子缺失，跳过该条件筛选，当前剩余 {len(temp_df)} 只")
                     
                     candidate_count = len(temp_df)
                     all_candidates.update(temp_df["ts_code"].tolist())
