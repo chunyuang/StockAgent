@@ -284,6 +284,12 @@ const submitBacktest = async () => {
         addLog('✅ 回测全部完成！')
         ElMessage.success('回测完成！')
         ws.close()
+      } else if (data.type === 'status' && data.status === 'completed') {
+        backtestResult.value = data.result
+        backtestState.running = false
+        addLog('✅ 回测全部完成！')
+        ElMessage.success('回测完成！')
+        ws.close()
       } else if (data.type === 'error') {
         addLog(`❌ 回测失败：${data.message}`)
         backtestState.running = false

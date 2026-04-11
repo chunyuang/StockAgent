@@ -538,7 +538,7 @@ async def cancel_backtest(
     # 先处理Mock超短回测任务
     if task_id.startswith("us_") and task_id in mock_tasks:
         mock_tasks[task_id]["status"] = "cancelled"
-        mock_tasks[task_id]["logs"].append("⏹️ 用户手动取消回测")
+        mock_logs.append("⏹️ 用户手动取消回测")
         return {"task_id": task_id, "status": "cancelled", "message": "任务已取消"}
     
     # 查 MongoDB
@@ -790,31 +790,84 @@ async def submit_ultra_short_backtest(
         }
     }
 
-    # 初始化本地任务状态（用于WebSocket推送和状态查询）
-    mock_tasks[task_id] = {
-        "task_id": task_id,
-        "status": "running",
-        "progress": 0,
-        "logs": [],
-        "result": None
-    }
-
-    # 【第一步打印】前端提交完整原始参数，推送到实时日志
+    # 初始化本地日志和任务状态（用于WebSocket推送和状态查询）
     import json
     timestamp = datetime.utcnow().strftime("%H:%M:%S")
+    mock_logs = []
     # 打印分隔线
-    mock_tasks[task_id]["logs"].append(f"[0001][{timestamp}] ========================================")
-    mock_tasks[task_id]["logs"].append(f"[0002][{timestamp}] 📌 前端提交完整原始参数（100%原样无修改）:")
+    mock_logs.append(f"[0001][{timestamp}] ========================================")
+    mock_logs.append(f"[0002][{timestamp}] 📌 前端提交完整原始参数（100%原样无修改）:")
     # 逐行打印参数
     request_dict = request.dict()
     params_json = json.dumps(request_dict, ensure_ascii=False, indent=2)
     seq = 3
     for line in params_json.split('\n'):
         if line.strip():
-            mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}]   {line}")
+            mock_logs.append(f"[{seq:04d}][{timestamp}]   {line}")
     logger.info(f"[{task_id}] 📌 前端提交selected_strategies原始内容: ")
     logger.info(json.dumps(request.params.selected_strategies, ensure_ascii=False, indent=2))
     logger.info(f"[{task_id}] ==================================================")
+
+
+
+    # 初始化Mock任务，把日志绑定到任务上
+    mock_tasks[task_id] = {
+        "task_id": task_id,
+        "status": "running",
+        "progress": 0,
+        "logs": mock_logs,
+        "result": None
+    }
+
+    # 【第二步打印】逐个打印界面参数，方便核对
+    seq += 1
+    mock_logs.append(f"[{seq:04d}][{timestamp}] 📋 逐个参数明细核对:")
+    seq += 1
+    mock_logs.append(f"[{seq:04d}][{timestamp}] === 🔧 基础配置 ===")
+    seq += 1
+    mock_logs.append(f"[{seq:04d}][{timestamp}]   策略列表: {request.strategies}")
+    seq += 1
+    mock_logs.append(f"[{seq:04d}][{timestamp}]   开始日期: {request.start_date}")
+    seq += 1
+    mock_logs.append(f"[{seq:04d}][{timestamp}]   结束日期: {request.end_date}")
+    seq += 1
+    mock_logs.append(f"[{seq:04d}][{timestamp}]   初始资金: {request.initial_cash}")
+    seq += 1
+    mock_logs.append(f"[{seq:04d}][{timestamp}] === 🔧 全局公共参数 ===")
+    seq += 1
+    mock_logs.append(f"[{seq:04d}][{timestamp}]   流动性门槛: {request.params.liquidity_threshold}")
+    seq += 1
+    mock_logs.append(f"[{seq:04d}][{timestamp}]   全局量比阈值: {request.params.volume_threshold}")
+    seq += 1
+    mock_logs.append(f"[{seq:04d}][{timestamp}]   止损比例: {request.params.stop_loss_pct}")
+    seq += 1
+    mock_logs.append(f"[{seq:04d}][{timestamp}]   止盈比例: {request.params.take_profit_pct}")
+    seq += 1
+    mock_logs.append(f"[{seq:04d}][{timestamp}]   最大持仓天数: {request.params.max_hold_days}")
+    seq += 1
+    mock_logs.append(f"[{seq:04d}][{timestamp}]   单票最大仓位: {request.params.max_position_per_stock}")
+    seq += 1
+    mock_logs.append(f"[{seq:04d}][{timestamp}]   总仓位上限: {request.params.max_position}")
+    seq += 1
+    mock_logs.append(f"[{seq:04d}][{timestamp}] === 🎯 各策略独立参数 ===")
+    seq += 1
+    # 遍历每个策略独立参数
+    for s in selected_strategies:
+        strategy_name = s.get("name", s.get("id", "未知策略"))
+        mock_logs.append(f"[{seq:04d}][{timestamp}] ┌─ 🎯 【{strategy_name}】")
+        seq +=1
+        params = s.get("params", {})
+        if params:
+            for k, v in params.items():
+                mock_logs.append(f"[{seq:04d}][{timestamp}] │   {k}: {v}")
+                seq +=1
+        else:
+            mock_logs.append(f"[{seq:04d}][{timestamp}] │   ⚠️ 没有获取到该策略的独立参数")
+            seq +=1
+    seq +=1
+    mock_logs.append(f"[{seq:04d}][{timestamp}] ========================================")
+    seq +=1
+    mock_logs.append(f"[{seq:04d}][{timestamp}] ✅ 参数核对完成，开始执行回测逻辑...")
 
     # 异步执行真实回测逻辑（不阻塞HTTP请求）
     import asyncio
@@ -834,7 +887,7 @@ async def submit_ultra_short_backtest(
                     _backtest_node._log_counters[task_id] += 1
                     timestamp = datetime.utcnow().strftime("%H:%M:%S")
                     log_entry = f"[{seq:04d}][{timestamp}] {log_text}"
-                    mock_tasks[task_id]["logs"].append(log_entry)
+                    mock_logs.append(log_entry)
                     mock_tasks[task_id]["progress"] = min(len(mock_tasks[task_id]["logs"]) / 30 * 100, 95)
 
                     # 推送到WebSocket
@@ -856,7 +909,7 @@ async def submit_ultra_short_backtest(
             mock_tasks[task_id]["progress"] = 100
             mock_tasks[task_id]["result"] = result
             final_log = "✅ 回测全部完成！"
-            mock_tasks[task_id]["logs"].append(final_log)
+            mock_logs.append(final_log)
 
             # 推送完成消息到前端
             from nodes.web.websocket import manager as ws_manager
@@ -875,7 +928,7 @@ async def submit_ultra_short_backtest(
         except Exception as e:
             mock_tasks[task_id]["status"] = "failed"
             err_log = f"❌ 回测失败：{str(e)}"
-            mock_tasks[task_id]["logs"].append(err_log)
+            mock_logs.append(err_log)
             # 推送错误到前端
             from nodes.web.websocket import manager as ws_manager
             await ws_manager.broadcast_task_update(task_id, {
@@ -895,58 +948,7 @@ async def submit_ultra_short_backtest(
             if task_id in _backtest_node._log_counters:
                 del _backtest_node._log_counters[task_id]
 
-    # 【第二步打印】逐个打印界面参数，方便核对
-    seq += 1
-    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}] 📋 逐个参数明细核对:")
-    seq += 1
-    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}] === 🔧 基础配置 ===")
-    seq += 1
-    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}]   策略列表: {request.strategies}")
-    seq += 1
-    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}]   开始日期: {request.start_date}")
-    seq += 1
-    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}]   结束日期: {request.end_date}")
-    seq += 1
-    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}]   初始资金: {request.initial_cash}")
-    seq += 1
-    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}] === 🔧 全局公共参数 ===")
-    seq += 1
-    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}]   流动性门槛: {request.params.liquidity_threshold}")
-    seq += 1
-    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}]   全局量比阈值: {request.params.volume_threshold}")
-    seq += 1
-    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}]   止损比例: {request.params.stop_loss_pct}")
-    seq += 1
-    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}]   止盈比例: {request.params.take_profit_pct}")
-    seq += 1
-    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}]   最大持仓天数: {request.params.max_hold_days}")
-    seq += 1
-    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}]   单票最大仓位: {request.params.max_position_per_stock}")
-    seq += 1
-    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}]   总仓位上限: {request.params.max_position}")
-    seq += 1
-    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}] === 🎯 各策略独立参数 ===")
-    seq += 1
-    # 遍历每个策略独立参数
-    for s in selected_strategies:
-        strategy_name = s.get("name", s.get("id", "未知策略"))
-        mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}] ┌─ 🎯 【{strategy_name}】")
-        seq +=1
-        params = s.get("params", {})
-        if params:
-            for k, v in params.items():
-                mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}] │   {k}: {v}")
-                seq +=1
-        else:
-            mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}] │   ⚠️ 没有获取到该策略的独立参数")
-            seq +=1
-    seq +=1
-    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}] ========================================")
-    seq +=1
-    mock_tasks[task_id]["logs"].append(f"[{seq:04d}][{timestamp}] ✅ 参数核对完成，开始执行回测逻辑...")
-
     # 启动异步回测任务
-    import asyncio
     asyncio.create_task(run_backtest_async())
 
     return BacktestTaskResponse(
