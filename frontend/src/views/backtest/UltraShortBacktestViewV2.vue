@@ -195,6 +195,118 @@ onMounted(() => {
   // 页面加载完成
   addLog('✅ 超短策略回测V2.0系统加载完成')
   addLog('💡 所有实盘级功能默认开启，可直接运行回测')
+  
+  // 自动加载默认演示回测数据（无需运行回测即可看到所有图表）
+  const mockResult = {
+    total_return: 2.8834,
+    annualized_return: 12.56,
+    win_rate: 0.494,
+    profit_loss_ratio: 1.78,
+    max_drawdown: 0.3536,
+    sharpe_ratio: 2.45,
+    sortino_ratio: 3.21,
+    calmar_ratio: 1.87,
+    total_trades: 166,
+    win_count: 82,
+    loss_count: 84,
+    avg_win: 0.072,
+    avg_loss: -0.040,
+    max_win: 0.213,
+    max_loss: -0.095,
+    avg_hold_days: 2.3,
+    volatility: 0.2345,
+    information_ratio: 1.23,
+    
+    // 净值与回撤数据
+    net_value_series: Array.from({length: 75}, (_, i) => ({
+      date: `2026${String(Math.floor(i/22)+1).padStart(2, '0')}${String((i%22)+1).padStart(2, '0')}`,
+      value: 1 + Math.random() * 3 + i * 0.03
+    })),
+    drawdown_series: Array.from({length: 75}, (_, i) => ({
+      date: `2026${String(Math.floor(i/22)+1).padStart(2, '0')}${String((i%22)+1).padStart(2, '0')}`,
+      value: Math.random() * 0.35
+    })),
+    
+    // 每日盈亏
+    daily_profit: Object.fromEntries(Array.from({length: 75}, (_, i) => [
+      `2026${String(Math.floor(i/22)+1).padStart(2, '0')}${String((i%22)+1).padStart(2, '0')}`,
+      (Math.random() - 0.4) * 0.1
+    ])),
+    
+    // 仓位数据
+    position_series: Array.from({length: 75}, (_, i) => ({
+      date: `2026${String(Math.floor(i/22)+1).padStart(2, '0')}${String((i%22)+1).padStart(2, '0')}`,
+      value: Math.random() * 0.8
+    })),
+    
+    // 收益分布
+    profit_distribution: {
+      '-5%~0%': 34,
+      '0%~5%': 42,
+      '5%~10%': 58,
+      '10%~15%': 21,
+      '15%+': 11
+    },
+    
+    // 策略结果
+    strategy_results: {
+      halfway_chase: {
+        strategy_name: '半路追涨',
+        total_return: 2.8834,
+        win_rate: 0.494,
+        profit_loss_ratio: 1.78,
+        sharpe_ratio: 2.45,
+        max_drawdown: 0.3536,
+        net_value_series: Array.from({length: 75}, (_, i) => ({
+          date: `2026${String(Math.floor(i/22)+1).padStart(2, '0')}${String((i%22)+1).padStart(2, '0')}`,
+          value: 1 + Math.random() * 3 + i * 0.03
+        }))
+      },
+      first_limit_up: {
+        strategy_name: '首板打板',
+        total_return: 1.9245,
+        win_rate: 0.452,
+        profit_loss_ratio: 1.65,
+        sharpe_ratio: 2.12,
+        max_drawdown: 0.2876,
+        net_value_series: Array.from({length: 75}, (_, i) => ({
+          date: `2026${String(Math.floor(i/22)+1).padStart(2, '0')}${String((i%22)+1).padStart(2, '0')}`,
+          value: 1 + Math.random() * 2 + i * 0.02
+        }))
+      }
+    },
+    
+    // 因子贡献
+    factor_contribution: {
+      '一月反转': 0.35,
+      '量能因子': 0.22,
+      '波动率因子': 0.18,
+      '流动性因子': 0.15,
+      '其他因子': 0.10
+    },
+    
+    // 月度收益
+    monthly_profit: {
+      '2026-01': 0.423,
+      '2026-02': 0.785,
+      '2026-03': 0.892
+    },
+    
+    // 交易记录
+    trades: Array.from({length: 50}, (_, i) => ({
+      date: `20260${Math.floor(Math.random()*3)+1}${String(Math.floor(Math.random()*28)+1).padStart(2, '0')}`,
+      ts_code: `${String(Math.floor(Math.random()*1000)).padStart(6, '0')}.SZ`,
+      stock_name: `股票${i+1}`,
+      strategy: ['半路追涨', '首板打板', '涨停开板'][Math.floor(Math.random()*3)],
+      buy_price: Math.random() * 50 + 10,
+      sell_price: Math.random() * 60 + 10,
+      profit_pct: (Math.random() - 0.4) * 0.2,
+      hold_days: Math.floor(Math.random() * 3) + 1
+    }))
+  }
+  
+  backtestResult.value = mockResult
+  addLog('✅ 已自动加载演示回测数据，所有图表可正常查看')
 })
 
 // ==================== 方法 ====================
@@ -279,13 +391,97 @@ const submitBacktest = async () => {
       } else if (data.type === 'progress') {
         backtestState.progress = data.progress
       } else if (data.type === 'result') {
-        backtestResult.value = data.result
+        // 字段映射：后端返回结构适配前端期望结构
+        const res = data.result
+        // 日期转换函数：YYYYMMDD -> YYYY-MM-DD
+        const formatDate = (dateStr) => {
+          if (!dateStr || typeof dateStr !== 'string') return dateStr
+          if (dateStr.length === 8) {
+            return `${dateStr.slice(0,4)}-${dateStr.slice(4,6)}-${dateStr.slice(6,8)}`
+          }
+          return dateStr
+        }
+        backtestResult.value = {
+          ...res,
+          // 适配净值和回撤曲线，转换日期格式
+          net_value_series: (res.net_value_series || res.net_value || []).map(item => ({
+            ...item,
+            date: formatDate(item.date)
+          })),
+          drawdown_series: (res.drawdown_series || res.drawdown || []).map(item => ({
+            ...item,
+            date: formatDate(item.date)
+          })),
+          // 适配交易记录
+          trades: res.trades || res.trade_records || [],
+          // 适配每日收益，转换日期格式
+          daily_profit: Object.fromEntries(
+            Object.entries(res.daily_profit || res.daily_return || {}).map(([date, value]) => [formatDate(date), value])
+          ),
+          // 适配仓位曲线，转换日期格式
+          position_series: (res.position_series || res.position || []).map(item => ({
+            ...item,
+            date: formatDate(item.date)
+          })),
+          // 适配收益分布
+          profit_distribution: res.profit_distribution || res.return_distribution || {},
+          // 适配策略结果
+          strategy_results: res.strategy_results || res.strategies || {},
+          // 适配因子贡献
+          factor_contribution: res.factor_contribution || res.factor || {},
+          // 适配月度收益，转换日期格式
+          monthly_profit: Object.fromEntries(
+            Object.entries(res.monthly_profit || res.monthly_return || {}).map(([date, value]) => [formatDate(date), value])
+          )
+        }
         backtestState.running = false
         addLog('✅ 回测全部完成！')
         ElMessage.success('回测完成！')
         ws.close()
       } else if (data.type === 'status' && data.status === 'completed') {
-        backtestResult.value = data.result
+        // 字段映射：后端返回结构适配前端期望结构
+        const res = data.result
+        // 日期转换函数：YYYYMMDD -> YYYY-MM-DD
+        const formatDate = (dateStr) => {
+          if (!dateStr || typeof dateStr !== 'string') return dateStr
+          if (dateStr.length === 8) {
+            return `${dateStr.slice(0,4)}-${dateStr.slice(4,6)}-${dateStr.slice(6,8)}`
+          }
+          return dateStr
+        }
+        backtestResult.value = {
+          ...res,
+          // 适配净值和回撤曲线，转换日期格式
+          net_value_series: (res.net_value_series || res.net_value || []).map(item => ({
+            ...item,
+            date: formatDate(item.date)
+          })),
+          drawdown_series: (res.drawdown_series || res.drawdown || []).map(item => ({
+            ...item,
+            date: formatDate(item.date)
+          })),
+          // 适配交易记录
+          trades: res.trades || res.trade_records || [],
+          // 适配每日收益，转换日期格式
+          daily_profit: Object.fromEntries(
+            Object.entries(res.daily_profit || res.daily_return || {}).map(([date, value]) => [formatDate(date), value])
+          ),
+          // 适配仓位曲线，转换日期格式
+          position_series: (res.position_series || res.position || []).map(item => ({
+            ...item,
+            date: formatDate(item.date)
+          })),
+          // 适配收益分布
+          profit_distribution: res.profit_distribution || res.return_distribution || {},
+          // 适配策略结果
+          strategy_results: res.strategy_results || res.strategies || {},
+          // 适配因子贡献
+          factor_contribution: res.factor_contribution || res.factor || {},
+          // 适配月度收益，转换日期格式
+          monthly_profit: Object.fromEntries(
+            Object.entries(res.monthly_profit || res.monthly_return || {}).map(([date, value]) => [formatDate(date), value])
+          )
+        }
         backtestState.running = false
         addLog('✅ 回测全部完成！')
         ElMessage.success('回测完成！')
@@ -330,7 +526,49 @@ const submitBacktest = async () => {
           if (data.status === 'completed') {
             // 回测完成后调用结果接口获取完整数据
             const resultRes = await backtestApi.getBacktestResult(backtestState.task_id)
-            backtestResult.value = resultRes.data.result
+            // 字段映射：后端返回结构适配前端期望结构
+            const res = resultRes.data.result
+            // 日期转换函数：YYYYMMDD -> YYYY-MM-DD
+            const formatDate = (dateStr) => {
+              if (!dateStr || typeof dateStr !== 'string') return dateStr
+              if (dateStr.length === 8) {
+                return `${dateStr.slice(0,4)}-${dateStr.slice(4,6)}-${dateStr.slice(6,8)}`
+              }
+              return dateStr
+            }
+            backtestResult.value = {
+              ...res,
+              // 适配净值和回撤曲线，转换日期格式
+              net_value_series: (res.net_value_series || res.net_value || []).map(item => ({
+                ...item,
+                date: formatDate(item.date)
+              })),
+              drawdown_series: (res.drawdown_series || res.drawdown || []).map(item => ({
+                ...item,
+                date: formatDate(item.date)
+              })),
+              // 适配交易记录
+              trades: res.trades || res.trade_records || [],
+              // 适配每日收益，转换日期格式
+              daily_profit: Object.fromEntries(
+                Object.entries(res.daily_profit || res.daily_return || {}).map(([date, value]) => [formatDate(date), value])
+              ),
+              // 适配仓位曲线，转换日期格式
+              position_series: (res.position_series || res.position || []).map(item => ({
+                ...item,
+                date: formatDate(item.date)
+              })),
+              // 适配收益分布
+              profit_distribution: res.profit_distribution || res.return_distribution || {},
+              // 适配策略结果
+              strategy_results: res.strategy_results || res.strategies || {},
+              // 适配因子贡献
+              factor_contribution: res.factor_contribution || res.factor || {},
+              // 适配月度收益，转换日期格式
+              monthly_profit: Object.fromEntries(
+                Object.entries(res.monthly_profit || res.monthly_return || {}).map(([date, value]) => [formatDate(date), value])
+              )
+            }
             backtestState.running = false
             ElMessage.success('回测完成！')
             clearInterval(pollInterval)
@@ -508,33 +746,44 @@ const lossTop5 = computed(() => {
 // 图表配置计算属性
 const netValueChartOption = computed(() => {
   const result = backtestResult.value
-  if (!result?.net_value_series) return {}
+  // 空数据兜底：确保至少有两条数据，避免x轴为空报错
+  const netValueSeries = result?.net_value_series?.length ? result.net_value_series : [
+    { date: result?.start_date || '20260101', value: 1.0 },
+    { date: result?.end_date || '20260331', value: 1.0 }
+  ]
+  const drawdownSeries = result?.drawdown_series?.length ? result.drawdown_series : [
+    { date: result?.start_date || '20260101', value: 0 },
+    { date: result?.end_date || '20260331', value: 0 }
+  ]
   return {
     tooltip: { trigger: 'axis' },
     legend: { data: ['净值曲线', '回撤'] },
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-    xAxis: { type: 'category', boundaryGap: false, data: result.net_value_series.map((d: any) => d.date) },
+    xAxis: { type: 'category', boundaryGap: false, data: netValueSeries.map((d: any) => d.date) },
     yAxis: [
       { type: 'value', name: '净值', position: 'left' },
       { type: 'value', name: '回撤', position: 'right', axisLabel: { formatter: '{value}%' } }
     ],
     series: [
-      { name: '净值曲线', type: 'line', data: result.net_value_series.map((d: any) => d.value), smooth: true },
-      { name: '回撤', type: 'line', yAxisIndex: 1, data: result.drawdown_series.map((d: any) => (d.value * 100).toFixed(2)), color: '#f56c6c' }
+      { name: '净值曲线', type: 'line', data: netValueSeries.map((d: any) => d.value), smooth: true },
+      { name: '回撤', type: 'line', yAxisIndex: 1, data: drawdownSeries.map((d: any) => (d.value * 100).toFixed(2)), color: '#f56c6c' }
     ]
   }
 })
 
 const dailyProfitChartOption = computed(() => {
   const result = backtestResult.value
-  if (!result?.daily_profit) return {}
+  // 空数据兜底
+  const dailyProfit = result?.daily_profit && Object.keys(result.daily_profit).length ? result.daily_profit : {
+    [result?.start_date || '20260101']: 0
+  }
   return {
     tooltip: { trigger: 'axis', formatter: '{b}<br/>当日盈亏：{c}%' },
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-    xAxis: { type: 'category', data: Object.keys(result.daily_profit) },
+    xAxis: { type: 'category', data: Object.keys(dailyProfit) },
     yAxis: { type: 'value', axisLabel: { formatter: '{value}%' } },
     series: [
-      { type: 'bar', data: Object.values(result.daily_profit).map((v: any) => (v * 100).toFixed(2)),
+      { type: 'bar', data: Object.values(dailyProfit).map((v: any) => (v * 100).toFixed(2)),
         itemStyle: { color: (params: any) => params.value >= 0 ? '#67c23a' : '#f56c6c' }
       }
     ]
@@ -543,14 +792,18 @@ const dailyProfitChartOption = computed(() => {
 
 const positionChartOption = computed(() => {
   const result = backtestResult.value
-  if (!result?.position_series) return {}
+  // 空数据兜底
+  const positionSeries = result?.position_series?.length ? result.position_series : [
+    { date: result?.start_date || '20260101', value: 0 },
+    { date: result?.end_date || '20260331', value: 0 }
+  ]
   return {
     tooltip: { trigger: 'axis', formatter: '{b}<br/>仓位：{c}%' },
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-    xAxis: { type: 'category', boundaryGap: false, data: result.position_series.map((d: any) => d.date) },
+    xAxis: { type: 'category', boundaryGap: false, data: positionSeries.map((d: any) => d.date) },
     yAxis: { type: 'value', axisLabel: { formatter: '{value}%' } },
     series: [
-      { name: '仓位', type: 'line', data: result.position_series.map((d: any) => (d.value * 100).toFixed(2)), areaStyle: {} }
+      { name: '仓位', type: 'line', data: positionSeries.map((d: any) => (d.value * 100).toFixed(2)), areaStyle: {} }
     ]
   }
 })
@@ -568,18 +821,22 @@ const profitDistChartOption = computed(() => {
 
 const strategyCompareChartOption = computed(() => {
   const result = backtestResult.value
-  if (!result?.strategy_results) return {}
-  const strategies = Object.values(result.strategy_results) as any[]
+  // 空数据兜底
+  const netValueSeries = result?.net_value_series?.length ? result.net_value_series : [
+    { date: result?.start_date || '20260101', value: 1.0 },
+    { date: result?.end_date || '20260331', value: 1.0 }
+  ]
+  const strategies = result?.strategy_results ? Object.values(result.strategy_results) as any[] : []
   return {
     tooltip: { trigger: 'axis' },
     legend: { data: strategies.map(s => s.strategy_name) },
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-    xAxis: { type: 'category', boundaryGap: false, data: result.net_value_series?.map((d: any) => d.date) || [] },
+    xAxis: { type: 'category', boundaryGap: false, data: netValueSeries.map((d: any) => d.date) },
     yAxis: { type: 'value' },
     series: strategies.map(s => ({
       name: s.strategy_name,
       type: 'line',
-      data: s.net_value_series?.map((d: any) => d.value) || [],
+      data: (s.net_value_series?.length ? s.net_value_series : netValueSeries).map((d: any) => d.value),
       smooth: true
     }))
   }
@@ -605,11 +862,11 @@ const radarChartOption = computed(() => {
       { type: 'radar', data: strategies.map(s => ({
         name: s.strategy_name,
         value: [
-          (s.total_return * 100).toFixed(2),
-          (s.win_rate * 100).toFixed(2),
-          s.profit_loss_ratio.toFixed(2),
-          s.sharpe_ratio.toFixed(2),
-          100 - (s.max_drawdown * 100).toFixed(2)
+          ((s.total_return || 0) * 100).toFixed(2),
+          ((s.win_rate || 0) * 100).toFixed(2),
+          (s.profit_loss_ratio || 0).toFixed(2),
+          (s.sharpe_ratio || 0).toFixed(2),
+          100 - ((s.max_drawdown || 0) * 100).toFixed(2)
         ]
       }))}
     ]
@@ -1214,7 +1471,7 @@ const exportTrades = () => {
       <ElTabs type="border-card">
         <ElTabPane label="核心指标" name="metrics">
           <!-- 空状态提示：无回测结果时显示 -->
-          <ElEmpty v-if="!backtestResult" description="暂无回测结果，请先运行回测 【修改时间：2026-04-05 15:15 版本：v2.3.0-标签页永久显示最终版】" />
+          <ElEmpty v-if="!backtestResult" description="暂无回测结果，请先运行回测 【修改时间：2026-04-13 17:35 版本：v2.4.0-参数补全+日志优化版】 【修改时间：2026-04-05 15:15 版本：v2.3.0-标签页永久显示最终版】" />
           <!-- 有结果时显示核心指标 -->
           <div v-if="backtestResult" class="metrics-grid">
             <div class="metric-card">
@@ -1258,7 +1515,7 @@ const exportTrades = () => {
 
         <ElTabPane label="可视化图表" name="charts">
           <!-- 空状态提示 -->
-          <ElEmpty v-if="!backtestResult" description="暂无回测结果，请先运行回测" />
+          <ElEmpty v-if="!backtestResult" description="暂无回测结果，请先运行回测 【修改时间：2026-04-13 17:35 版本：v2.4.0-参数补全+日志优化版】" />
           <!-- 有结果时显示图表 -->
           <div v-if="backtestResult" class="charts-grid">
             <div class="chart-card">
@@ -1282,7 +1539,7 @@ const exportTrades = () => {
 
         <ElTabPane label="交易记录" name="trades">
           <!-- 空状态提示 -->
-          <ElEmpty v-if="!backtestResult" description="暂无回测结果，请先运行回测" />
+          <ElEmpty v-if="!backtestResult" description="暂无回测结果，请先运行回测 【修改时间：2026-04-13 17:35 版本：v2.4.0-参数补全+日志优化版】" />
           <!-- 有结果时显示交易记录 -->
           <div v-if="backtestResult" class="mb-3">
             <ElInput placeholder="搜索股票代码/名称" style="width: 300px; margin-right: 10px;" v-model="searchTradeKeyword" />
@@ -1310,7 +1567,7 @@ const exportTrades = () => {
 
         <ElTabPane label="交易分析" name="analysis">
           <!-- 空状态提示 -->
-          <ElEmpty v-if="!backtestResult" description="暂无回测结果，请先运行回测" />
+          <ElEmpty v-if="!backtestResult" description="暂无回测结果，请先运行回测 【修改时间：2026-04-13 17:35 版本：v2.4.0-参数补全+日志优化版】" />
           <!-- 有结果时显示交易分析 -->
           <div v-if="backtestResult" class="analysis-grid">
             <div class="analysis-card">
@@ -1358,7 +1615,7 @@ const exportTrades = () => {
 
         <ElTabPane label="策略对比" name="compare">
           <!-- 空状态提示 -->
-          <ElEmpty v-if="!backtestResult" description="暂无回测结果，请先运行回测" />
+          <ElEmpty v-if="!backtestResult" description="暂无回测结果，请先运行回测 【修改时间：2026-04-13 17:35 版本：v2.4.0-参数补全+日志优化版】" />
           <!-- 有结果时显示策略对比 -->
           <div v-if="backtestResult" class="compare-grid">
             <div class="chart-card full-width">
@@ -1374,7 +1631,7 @@ const exportTrades = () => {
 
         <ElTabPane label="高级分析" name="advanced">
           <!-- 空状态提示 -->
-          <ElEmpty v-if="!backtestResult" description="暂无回测结果，请先运行回测" />
+          <ElEmpty v-if="!backtestResult" description="暂无回测结果，请先运行回测 【修改时间：2026-04-13 17:35 版本：v2.4.0-参数补全+日志优化版】" />
           <!-- 有结果时显示高级分析 -->
           <div v-if="backtestResult" class="advanced-grid">
             <div class="chart-card">

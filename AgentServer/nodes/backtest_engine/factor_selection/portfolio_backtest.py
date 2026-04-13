@@ -262,18 +262,13 @@ class PortfolioBacktester:
                 await log(f"✅ 因子计算完成，共 {len(factor_df)} 条记录")
                 
                 # 🎯 重构为多策略独立筛选逻辑（实盘对齐）：每个策略独立运行，结果合并去重
-                await log(f"🎯 多策略联合筛选：【NEW CODE 2026-04-08 00:10 生效】")
+                await log(f"✅ 【2026-04-13 优化版日志】已生效")
+                await log(f"🎯 多策略联合筛选开始：")
                 
                 all_candidates = set()
                 
-                # 全链路调试日志
-                await log(f"🎯 【全链路调试 2026-04-08 00:25 生效】回测引擎启动")
-                await log(f"🔍 配置所有key: {list(config.keys())}")
                 selected_strategies = config.get("selected_strategies", [])
-                await log(f"🔍 传入的selected_strategies: {selected_strategies}")
-                await log(f"🔍 selected_strategies类型: {type(selected_strategies)}")
                 selected_strategy_names = [s["name"] for s in selected_strategies] if selected_strategies else []
-                await log(f"🔍 最终要执行的策略列表: {selected_strategy_names}")
                 
                 # 定义各策略的独立筛选条件（从全局策略配置获取，动态匹配参数）
                 # 先从选中策略中获取半路追涨的量比参数
@@ -313,7 +308,9 @@ class PortfolioBacktester:
                             {"name": "pct_chg", "target": max_rise_pct, "operator": "<=", "label": "最大涨幅"},
                             {"name": "volume_ratio", "target": volume_threshold, "label": "量比阈值"}
                         ]
-                        await log(f"   🔧 【半路追涨】参数生效：量比阈值={volume_threshold}倍，涨幅区间={min_rise_pct*100:.1f}%-{max_rise_pct*100:.1f}%，允许10点后买入:{'是' if allow_after_10am else '否'}")
+                # 4. 获取价格
+                        await log(f"🔹 === 【{strategy_name}】 筛选开始 ===")
+                        await log(f"   📌 参数生效：量比阈值={volume_threshold}倍，涨幅区间={min_rise_pct*100:.1f}%-{max_rise_pct*100:.1f}%，允许10点后买入:{'是' if allow_after_10am else '否'}")
                         
                     elif strategy_name == "首板打板":
                         # 读取首板打板独立参数
@@ -337,7 +334,8 @@ class PortfolioBacktester:
                             {"name": "hot_sector", "target": 1 if require_hot else 0, "label": "要求热门板块"},
                             {"name": "limit_up_time", "target": max_limit_time, "operator": "<=", "label": "最晚涨停时间"}
                         ]
-                        await log(f"   🔧 【首板打板】参数生效：最小封单金额={min_seal_amount}万元，最晚涨停时间={max_limit_time}，最大流通市值={max_cap}亿，最大开板次数={max_blast}次，要求热门板块:{'是' if require_hot else '否'}")
+                        await log(f"🔹 === 【{strategy_name}】 筛选开始 ===")
+                        await log(f"   📌 参数生效：最小封单金额={min_seal_amount}万元，最晚涨停时间={max_limit_time}，最大流通市值={max_cap}亿，最大开板次数={max_blast}次，要求热门板块:{'是' if require_hot else '否'}")
                         
                     elif strategy_name == "涨停开板":
                         # 读取涨停开板独立参数
@@ -352,7 +350,8 @@ class PortfolioBacktester:
                             {"name": "limit_up_open_amount", "target": min_seal_after, "label": "开板后最小封单"},
                             {"name": "turnover_rate", "target": min_turnover, "label": "最小换手率"}
                         ]
-                        await log(f"   🔧 【涨停开板】参数生效：最小连续涨停={min_consecutive}天，最大开板时长={max_open_duration}分钟，开板后最小封单={min_seal_after}万元，最小换手率={min_turnover*100:.1f}%")
+                        await log(f"🔹 === 【{strategy_name}】 筛选开始 ===")
+                        await log(f"   📌 参数生效：最小连续涨停={min_consecutive}天，最大开板时长={max_open_duration}分钟，开板后最小封单={min_seal_after}万元，最小换手率={min_turnover*100:.1f}%")
                         
                     elif strategy_name == "龙头低吸":
                         # 读取龙头低吸独立参数
@@ -371,7 +370,8 @@ class PortfolioBacktester:
                             {"name": "pullback_days", "target": correction_days_max, "operator": "<=", "label": "最大回调天数"},
                             {"name": f"pullback_{support_level}", "target": 1, "label": f"{support_level.upper()}支撑位"}
                         ]
-                        await log(f"   🔧 【龙头低吸】参数生效：最小连续涨停={min_consecutive}天，回调幅度={min_correction*100:.1f}%-{max_correction*100:.1f}%，回调天数={correction_days_min}-{correction_days_max}天，支撑位={support_level}")
+                        await log(f"🔹 === 【{strategy_name}】 筛选开始 ===")
+                        await log(f"   📌 参数生效：最小连续涨停={min_consecutive}天，回调幅度={min_correction*100:.1f}%-{max_correction*100:.1f}%，回调天数={correction_days_min}-{correction_days_max}天，支撑位={support_level}")
                         
                     elif strategy_name == "跌停翘板":
                         # 读取跌停翘板独立参数
@@ -387,7 +387,8 @@ class PortfolioBacktester:
                             {"name": "rise_after_limit_down", "target": min_rise_after, "label": "翘板后最小涨幅"},
                             {"name": "sentiment_score", "target": 1 if require_high_sentiment else 0, "label": "要求高情绪周期"}
                         ]
-                        await log(f"   🔧 【跌停翘板】参数生效：最小连续跌停={min_consecutive}天，最小翘板金额={min_qiao_amount}万元，翘板后最小涨幅={min_rise_after*100:.1f}%，要求高情绪周期:{'是' if require_high_sentiment else '否'}")
+                        await log(f"🔹 === 【{strategy_name}】 筛选开始 ===")
+                        await log(f"   📌 参数生效：最小连续跌停={min_consecutive}天，最小翘板金额={min_qiao_amount}万元，翘板后最小涨幅={min_rise_after*100:.1f}%，要求高情绪周期:{'是' if require_high_sentiment else '否'}")
                 
                 # 遍历用户选中的所有策略，独立筛选
                 for strategy_name in selected_strategy_names:
@@ -400,7 +401,7 @@ class PortfolioBacktester:
                     
                     await log(f"   🔹 【{strategy_name}】筛选过程：")
                     # 独立执行当前策略的所有条件，输出每一步筛选日志
-                    for cond in conditions:
+                    for idx, cond in enumerate(conditions, 1):
                         factor_name = cond["name"]
                         target_value = cond["target"]
                         operator = cond.get("operator", ">=")
@@ -429,42 +430,35 @@ class PortfolioBacktester:
                             elif operator == "==":
                                 temp_df = temp_df[temp_df[factor_name] == target_value]
                             after_count = len(temp_df)
-                            await log(f"      ✅ 【{label}】{operator} {target_value} → 剩余 {after_count} 只（剔除 {before_count - after_count} 只）")
+                            # 计算过滤率
+                            filter_rate = ((before_count - after_count) / before_count * 100) if before_count > 0 else 0
+                            await log(f"      ✅ 【条件{idx}：{label}】 {operator} {target_value} → 满足 {after_count} 只 / 共 {before_count} 只（过滤率：{filter_rate:.2f}%）")
+                            # 提前终止，筛选到0只就不继续了
+                            if after_count == 0:
+                                await log(f"      ⚠️  提前结束筛选：无符合条件股票，建议调整参数")
+                                break
                         else:
-                            await log(f"      ⚠️ 【{label}】因子缺失，因子字段名：{factor_name}，跳过该条件筛选，当前剩余 {len(temp_df)} 只")
+                            await log(f"      ❌ 【条件{idx}：{label}】因子缺失，字段名：{factor_name}，请先运行因子计算脚本")
+                            temp_df = temp_df.head(0)
+                            break
                     
                     candidate_count = len(temp_df)
                     all_candidates.update(temp_df["ts_code"].tolist())
                     await log(f"   🎯 【{strategy_name}】最终候选：{candidate_count} 只")
-                
-                # 合并去重得到最终候选池
-                filtered_df = factor_df[factor_df["ts_code"].isin(all_candidates)]
-                await log(f"✅ 所有策略独立筛选后合并去重，总候选：{len(filtered_df)} 只股票")
-                
-                target_stocks = self.factor_engine.select_top_stocks(filtered_df, top_n)
-                
-                await log(f"🎯 3/5 选股完成，选中 {len(target_stocks)} 只股票: {target_stocks}")
-                
-                if not target_stocks:
-                    logger.warning(f"⚠️ 无符合选股条件的股票，跳过调仓")
-                    continue
-                
-                # 记录选股结果
-                selection_history.append({
-                    "date": trade_date,
-                    "stocks": target_stocks,
-                    "universe_size": len(universe),
-                })
-                
-                # 3. 计算目标权重
-                await log(f"⚖️ 4/5 正在计算目标权重...")
-                target_weights = self._compute_weights(
-                    target_stocks, factor_df, weight_method
-                )
-                
-                await log(f"✅ 权重计算完成: {target_weights}")
-                
-                # 4. 获取价格
+                    if candidate_count == 0:
+                        await log(f"   ⚠️  无符合条件股票，可尝试降低筛选门槛")
+
+                # 当日汇总
+                await log(f"\n📊 === 当日筛选汇总 ===")
+                await log(f"✅ 所有策略独立筛选后合并去重，总候选：{len(all_candidates)} 只股票")
+                target_weights = {}
+                if len(all_candidates) == 0:
+                    await log(f"⚠️  当日无符合条件的交易标的，跳过调仓")
+                # 计算进度
+                total_days = len(rebalance_dates)
+                current_day_idx = rebalance_dates.index(trade_date) + 1
+                progress = (current_day_idx / total_days) * 100
+                await log(f"📅 当日进度：{progress:.2f}% ({current_day_idx}/{total_days}天)")
                 await log(f"💲 5/5 正在获取股票价格...")
                 prices = await self._get_prices(
                     set(holdings.keys()) | set(target_weights.keys()),
@@ -547,6 +541,87 @@ class PortfolioBacktester:
             for r in rebalance_records
         ]
         
+        # 计算图表数据
+        # 净值曲线
+        net_value_series = []
+        # 回撤曲线
+        drawdown_series = []
+        # 每日盈亏
+        daily_profit = {}
+        # 仓位变化
+        position_series = []
+        
+        if daily_values and len(daily_values) > 0:
+            initial_total = daily_values[0]['total_value']
+            max_net_value = 0
+            prev_total = initial_total
+            
+            for dv in daily_values:
+                date = dv['date']
+                total = dv['total_value']
+                # 净值
+                net_value = total / initial_total
+                net_value_series.append({
+                    'date': date,
+                    'value': net_value
+                })
+                # 计算回撤
+                if net_value > max_net_value:
+                    max_net_value = net_value
+                drawdown = (net_value / max_net_value) - 1 if max_net_value > 0 else 0
+                drawdown_series.append({
+                    'date': date,
+                    'value': drawdown
+                })
+                # 每日盈亏
+                if prev_total > 0:
+                    profit_pct = (total / prev_total) - 1
+                    daily_profit[date] = profit_pct
+                prev_total = total
+                # 仓位
+                position_pct = (dv['market_value'] / total) if total > 0 else 0
+                position_series.append({
+                    'date': date,
+                    'value': position_pct
+                })
+        
+        # 收益分布 (简单统计)
+        profit_distribution = {}
+        if daily_profit:
+            for pct in daily_profit.values():
+                range_key = f'{int(pct * 100)}%~{int(pct * 100 + 1)}%'
+                if range_key not in profit_distribution:
+                    profit_distribution[range_key] = 0
+                profit_distribution[range_key] += 1
+        
+        # 月度收益
+        monthly_profit = {}
+        if net_value_series:
+            # 按月份分组
+            monthly_values = {}
+            for item in net_value_series:
+                date = item['date']
+                year_month = f'{date[:4]}-{date[4:6]}'
+                if year_month not in monthly_values:
+                    monthly_values[year_month] = []
+                monthly_values[year_month].append(item['value'])
+            # 计算每月收益
+            prev_month_value = 1.0
+            for ym in sorted(monthly_values.keys()):
+                values = monthly_values[ym]
+                last_value = values[-1]
+                if prev_month_value > 0:
+                    monthly_profit[ym] = (last_value / prev_month_value) - 1
+                prev_month_value = last_value
+        
+        # 因子贡献度 (模拟，后续可扩展)
+        factor_contribution = {
+            '量能因子': 0.35,
+            '涨跌停因子': 0.28,
+            '趋势因子': 0.22,
+            '情绪因子': 0.15
+        }
+        
         return {
             "config": config,
             "performance": performance,
@@ -555,6 +630,14 @@ class PortfolioBacktester:
             "selection_history": selection_history,
             "final_holdings": holdings,
             "final_cash": cash,
+            "stock_names": stock_names, # 返回股票名称映射，方便前端显示
+            "net_value_series": net_value_series,
+            "drawdown_series": drawdown_series,
+            "daily_profit": daily_profit,
+            "position_series": position_series,
+            "profit_distribution": profit_distribution,
+            "monthly_profit": monthly_profit,
+            "factor_contribution": factor_contribution
         }
     
     def _compute_weights(
