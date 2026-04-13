@@ -138,7 +138,7 @@ class BacktestNode(BaseNode):
                         result = await self._execute_factor_selection(task_info)
                     elif task_type == "ultra_short":
                         result = await self._execute_ultra_short_backtest(task_info)
-                    else:
+#else:
                         result = await self._execute_backtest(task_info)
 
                     # 更新任务状态
@@ -246,7 +246,7 @@ class BacktestNode(BaseNode):
 
         if result.modified_count > 0:
             return {"success": True, "task_id": task_id, "status": "cancelled"}
-        else:
+#else:
             return {"success": False, "error": "Task cannot be cancelled (already running or completed)"}
 
     async def _handle_run_factor_selection(self, params: dict) -> dict:
@@ -475,98 +475,81 @@ class BacktestNode(BaseNode):
         )
 
         # ========== 🔍 服务健康检查（点击回测第一时间输出+自动修复） ==========
-        await self._push_log(task_id, "🔍 【服务健康检查】回测节点启动前自检...")
-        import subprocess, os
-        
-        # 检查端口占用（仅做检查，不自动杀进程，避免误杀服务）
-        try:
-            port_status = subprocess.check_output("ss -tlnp | grep :50057 2>/dev/null || echo ''", shell=True).decode().strip()
-            current_pid = str(os.getpid())
-            
-            if not port_status:
-                await self._push_log(task_id, "🔹 50057端口状态: 当前节点未监听")
-            elif current_pid not in port_status:
-                await self._push_log(task_id, f"🔹 50057端口状态: 被其他进程占用: {port_status}")
-            else:
-                await self._push_log(task_id, "🔹 50057端口状态: ✅ 正常被当前进程占用")
-                
-        except Exception as e:
-            await self._push_log(task_id, f"🔹 50057端口检查异常: {str(e)}")
-        
-        # 检查回测进程数量
-        try:
-            process_count = int(subprocess.check_output("ps aux | grep 'AgentServer/main.py' | grep -v grep | wc -l", shell=True).decode().strip())
-            process_list = subprocess.check_output("ps aux | grep 'AgentServer/main.py' | grep -v grep | awk '{print $2, $9}'", shell=True).decode().strip()
-            await self._push_log(task_id, f"🔹 当前运行回测进程数: {process_count}")
-            await self._push_log(task_id, f"🔹 进程列表(PID 启动时间): {process_list}")
-            
-            if process_count > 1:
-                await self._push_log(task_id, "⚠️  发现多个回测进程，可能影响性能，建议手动清理")
-            elif process_count == 1:
-                await self._push_log(task_id, "🔹 进程状态: ✅ 正常单进程运行")
-                
-        except Exception as e:
-            await self._push_log(task_id, f"🔹 进程检查异常: {str(e)}")
-        
-        # 代码版本标识
-        await self._push_log(task_id, "🔹 运行代码版本: 【NEW CODE 2026-04-10 稳定版】")
-        await self._push_log(task_id, "✅ 健康检查完成，回测节点正常运行")
-        await self._push_log(task_id, "========================================")
-
-        # 推送日志
-        await self._push_log(task_id, "🚀 超短策略回测启动")
-        await self._push_log(task_id, f"📅 回测区间: {start_date} -> {end_date}")
-        await self._push_log(task_id, f"💰 初始资金: {initial_cash:,}")
-        await self._push_log(task_id, f"🔌 数据源: MongoDB本地行情库")
-        await self._push_log(task_id, f"⏱️ 周期: {period}")
-        await self._push_log(task_id, f"📊 复权方式: {'前复权' if adjust_type == 'qfq' else '不复权'}")
-        if ts_codes and ts_codes.strip():
-            await self._push_log(task_id, f"📝 股票池: {ts_codes}")
-        else:
-            await self._push_log(task_id, f"📝 股票池: 全市场")
-        await self._push_log(task_id, f"🔧 流动性门槛: {strategy_params.get('liquidity_threshold', 500)} 万元")
-        await self._push_log(task_id, f"📈 单票最大仓位: {strategy_params.get('max_position_per_stock', 0.2)*100}%")
-
-        # ========== 策略定义 ==========
-        # 已移除旧的ALL_STRATEGIES定义，完全使用前端提交的selected_strategies配置
-
+#        import subprocess, os
+#        
+#        # 检查端口占用（仅做检查，不自动杀进程，避免误杀服务）
+#        try:
+#            port_status = subprocess.check_output("ss -tlnp | grep :50057 2>/dev/null || echo ''", shell=True).decode().strip()
+#            current_pid = str(os.getpid())
+#            
+##if not port_status:
+##elif current_pid not in port_status:
+#    #                await self._push_log(task_id, f"🔹 50057端口状态: 被其他进程占用: {port_status}")
+##else:
+#                    
+#        except Exception as e:
+##            await self._push_log(task_id, f"🔹 50057端口检查异常: {str(e)}")
+#        
+#        # 检查回测进程数量
+#        try:
+#            process_count = int(subprocess.check_output("ps aux | grep 'AgentServer/main.py' | grep -v grep | wc -l", shell=True).decode().strip())
+#            process_list = subprocess.check_output("ps aux | grep 'AgentServer/main.py' | grep -v grep | awk '{print $2, $9}'", shell=True).decode().strip()
+##            await self._push_log(task_id, f"🔹 当前运行回测进程数: {process_count}")
+##            await self._push_log(task_id, f"🔹 进程列表(PID 启动时间): {process_list}")
+#            
+#            if process_count > 1:
+#                await self._push_log(task_id, "⚠️  发现多个回测进程，可能影响性能，建议手动清理")
+#            elif process_count == 1:
+##                await self._push_log(task_id, "🔹 进程状态: ✅ 正常单进程运行")
+#                
+#        except Exception as e:
+##            await self._push_log(task_id, f"🔹 进程检查异常: {str(e)}")
+#        
+#        # 代码版本标识
+##        await self._push_log(task_id, "🔹 运行代码版本: 【NEW CODE 2026-04-10 稳定版】")
+#        await self._push_log(task_id, "✅ 健康检查完成，回测节点正常运行")
+#        await self._push_log(task_id, "========================================")
+#
+#        # 推送日志
+#        await self._push_log(task_id, "🚀 超短策略回测启动")
+#        await self._push_log(task_id, f"📅 回测区间: {start_date} -> {end_date}")
+#        await self._push_log(task_id, f"💰 初始资金: {initial_cash:,}")
+#        await self._push_log(task_id, f"🔌 数据源: MongoDB本地行情库")
+#        await self._push_log(task_id, f"⏱️ 周期: {period}")
+#        await self._push_log(task_id, f"📊 复权方式: {'前复权' if adjust_type == 'qfq' else '不复权'}")
+#        if ts_codes and ts_codes.strip():
+#            await self._push_log(task_id, f"📝 股票池: {ts_codes}")
+##else:
+#            await self._push_log(task_id, f"📝 股票池: 全市场")
+#        await self._push_log(task_id, f"🔧 流动性门槛: {strategy_params.get('liquidity_threshold', 500)} 万元")
+#        await self._push_log(task_id, f"📈 单票最大仓位: {strategy_params.get('max_position_per_stock', 0.2)*100}%")
+#
+#        # ========== 策略定义 ==========
+#        # 已移除旧的ALL_STRATEGIES定义，完全使用前端提交的selected_strategies配置
+#
         # 🔧 2026-04-10 14:08 修复：直接使用前端提交的带完整参数的策略列表，解决参数丢失问题
         selected_strategies = req_params.get("selected_strategies", [])
         # 输出修改标记到日志，确认新代码生效
-        await self._push_log(task_id, "🔧 【修改生效】2026-04-10 14:08 修复：selected_strategies直接读取前端提交的完整参数，解决三个日志不一致问题")
         # 兜底：如果前端没传，用默认所有策略
         if not selected_strategies:
             selected_strategies = ALL_STRATEGIES
 
         await self._push_log(task_id, f"🎯 选中策略: {[s["name"] for s in selected_strategies]}")
         
-        # 打印完整前端提交的所有参数结构，方便核对字段名
-        import json
-        await self._push_log(task_id, f"🔍 前端完整提交的所有参数根字段: {list(params.keys())}")
-        # 格式化打印完整参数，每行独立显示避免混乱
-        await self._push_log(task_id, "🔍 完整params内容:")
-        params_json = json.dumps(params, ensure_ascii=False, indent=2)
-        for line in params_json.split('\n'):
-            if line.strip():
-                await self._push_log(task_id, f"     {line}")
-        # 打印其他关键字段
-        await self._push_log(task_id, f"🔍 前端提交的strategies字段内容: {json.dumps(params.get('params', {}).get('strategies', []), ensure_ascii=False)}")
-        await self._push_log(task_id, f"🔍 前端提交的strategy_params字段内容: {json.dumps(params.get('params', {}).get('strategy_params', {}), ensure_ascii=False)}")
-        await self._push_log(task_id, f"🔍 前端提交的selected_strategies字段内容: {json.dumps(params.get('params', {}).get('selected_strategies', []), ensure_ascii=False)}")
-        
         # ========== 参数核对日志（与界面对照） ==========
         await self._push_log(task_id, "")
-        await self._push_log(task_id, "📋 ========================================")
         await self._push_log(task_id, "📋 === 🔧 全局公共参数 ===")
         await self._push_log(task_id, "   ├─ 流动性门槛: %s 万元" % strategy_params.get('liquidity_threshold', 500))
         await self._push_log(task_id, "   ├─ 单票最大仓位: %.1f %%" % (strategy_params.get('max_position_per_stock', 0.3)*100))
         await self._push_log(task_id, "   ├─ 总仓位上限: %.1f %%" % (strategy_params.get('max_position', 0.6)*100))
         await self._push_log(task_id, "   ├─ 止损比例: %.1f %%" % (strategy_params.get('stop_loss_pct', 0.02)*100))
         await self._push_log(task_id, "   ├─ 止盈比例: %.1f %%" % (strategy_params.get('take_profit_pct', 0.07)*100))
-        await self._push_log(task_id, "   └─ 最大持仓天数: %d 天" % strategy_params.get('max_hold_days', 3))
+        await self._push_log(task_id, "   ├─ 最大持仓天数: %d 天" % strategy_params.get('max_hold_days', 3))
+        await self._push_log(task_id, "   ├─ 强制空仓规则: %s" % ("已启用" if req_params.get('enable_force_empty', True) else "已关闭"))
+        await self._push_log(task_id, "   ├─ 情绪周期算法: %s" % ("已启用" if req_params.get('enable_sentiment_cycle', True) else "已关闭"))
+        await self._push_log(task_id, "   └─ 竞价过滤规则: %s" % ("已启用" if req_params.get('enable_auction_filter', True) else "已关闭"))
         
         await self._push_log(task_id, "")
-        await self._push_log(task_id, "📋 === 🎯 各策略独立参数 ===")
         volume_val = 1.5
         # 遍历选中的策略字典，不是原始字符串列表
         for s in selected_strategies:
@@ -577,7 +560,7 @@ class BacktestNode(BaseNode):
                 if isinstance(frontend_strategy, dict) and frontend_strategy.get('name') == strategy_name:
                     strategy_params_local = frontend_strategy.get('params', {})
                     break
-            else:
+#else:
                 strategy_params_local = {}
             # 初始化策略params字段，合并所有前端参数，确保全链路参数一致
             if "params" not in s:
@@ -650,7 +633,6 @@ class BacktestNode(BaseNode):
                 self.logger.info(f"[{task_id}] 跌停翘板最小连续跌停更新为: {min_consecutive}天")
         
         await self._push_log(task_id, "")
-        await self._push_log(task_id, "✅ 参数核对完成，所有策略参数已应用到筛选逻辑")
         await self._push_log(task_id, "✅ ========================================")
         await self._push_log(task_id, "")
         await self._push_log(task_id, "🔄 初始化管理器...")
@@ -729,8 +711,6 @@ class BacktestNode(BaseNode):
         await self._push_log(task_id, "=" * 60)
 
         # 调试：打印所有策略相关参数
-        await self._push_log(task_id, f"🔍 【node.py调试】selected_strategies内容: {selected_strategies}")
-        await self._push_log(task_id, f"🔍 【node.py调试】strategy_weights内容: {strategy_weights}")
         
         # 创建组合回测器
         config = {
@@ -764,9 +744,11 @@ class BacktestNode(BaseNode):
             if result is None or "error" in result:
                 error_msg = result.get('error', 'unknown error') if result else 'unknown error'
                 await self._push_log(task_id, f"❌ 组合回测失败: {error_msg}")
-            else:
+#else:
                 # 兼容字段名,确保所有字段存在
                 perf = result.get('performance', {})
+                # 计算实际信号数：调仓记录数量
+                trade_count = len(result.get('rebalance_records', []))
                 # 字段映射,兼容不同返回格式
                 field_map = {
                     'trade_days': ['total_trade_days', 'trade_count', 0],
@@ -787,12 +769,27 @@ class BacktestNode(BaseNode):
                         # 都没有就用默认值
                         if field not in perf:
                             perf[field] = aliases[-1]
-
+                # 添加实际交易数到perf
+                perf['trade_count'] = trade_count
+                perf['total_trades'] = trade_count
                 perf["strategy_name"] = "多策略组合"
                 perf["name"] = "多策略组合" # 兼容前端字段
                 # 复制交易记录和图表数据
-                if "trades" in result:
-                    perf["trades"] = result["trades"]
+                # 转换调仓记录为前端期望的交易记录格式，补充股票名称等字段
+                raw_trades = result.get('rebalance_records', [])
+                stock_names = result.get('stock_names', {})
+                formatted_trades = []
+                for trade in raw_trades:
+                    # 转换为字典格式
+                    trade_dict = trade.__dict__.copy() if hasattr(trade, '__dict__') else trade
+                    # 补充字段
+                    trade_dict['code'] = trade_dict.get('ts_code', '')
+                    trade_dict['name'] = stock_names.get(trade_dict['code'], trade_dict['code'].replace('.SZ', '').replace('.SH', ''))
+                    trade_dict['volume'] = trade_dict.get('shares', 0)
+                    trade_dict['profit'] = 0.0 # 后续可以补充计算每笔盈亏
+                    trade_dict['trade_date'] = trade_dict.get('date', '')
+                    formatted_trades.append(trade_dict)
+                perf["trades"] = formatted_trades
                 if "net_value_series" in result:
                     perf["net_value_series"] = result["net_value_series"]
                 if "drawdown_series" in result:
@@ -802,7 +799,7 @@ class BacktestNode(BaseNode):
                 all_results.append(perf)
 
                 await self._push_log(task_id, "✅ 多策略组合回测完成")
-                await self._push_log(task_id, f"   信号数: {perf.get('trade_count', perf.get('total_trades', 0))}")
+                await self._push_log(task_id, f"   信号数: {trade_count}")
                 await self._push_log(task_id, f"   胜率: {perf['win_rate']:.2f}%")
                 await self._push_log(task_id, f"   累计收益率: {perf['total_return']:.2f}%")
                 await self._push_log(task_id, f"   最大回撤: {perf['max_drawdown']:.2f}%")
@@ -823,9 +820,9 @@ class BacktestNode(BaseNode):
         )
 
         # 汇总统计
-        total_signals = sum(r.get("trade_days", 0) for r in all_results)
+        total_signals = sum(r.get("trade_count", r.get("total_trades", 0)) for r in all_results)
         avg_win_rate = sum(r.get("win_rate", 0) for r in all_results) / len(all_results) if all_results else 0
-        total_return = sum(r.get("total_return", 0) for r in all_results)
+        total_return = sum(r.get("total_return", 0) for r in all_results) / len(all_results) if all_results else 0
         max_drawdown = max(r.get("max_drawdown", 0) for r in all_results) if all_results else 0
 
         summary = {
@@ -841,8 +838,46 @@ class BacktestNode(BaseNode):
         for r in all_results:
             if r.get("trades"):
                 all_trades.extend(r["trades"])
+            # 兼容不同字段名
+            if r.get("orders"):
+                all_trades.extend(r["orders"])
+            if r.get("trade_list"):
+                all_trades.extend(r["trade_list"])
         
         # 构造符合前端期望的结果结构
+        # 先计算图表数据
+        net_value_series = []
+        drawdown_series = []
+        daily_profit = {}
+        position_series = []
+        
+        if all_results:
+            # 净值曲线
+            net_value_series = all_results[0].get("net_value_series", [
+                {"date": start_date, "value": initial_cash},
+                {"date": end_date, "value": initial_cash * (1 + summary["total_return"] / 100)}
+            ])
+            # 转换为净值格式
+            for item in net_value_series:
+                if "value" in item and initial_cash > 0:
+                    item["value"] = item["value"] / initial_cash
+            
+            # 回撤曲线
+            drawdown_series = all_results[0].get("drawdown_series", [
+                {"date": start_date, "value": 0},
+                {"date": end_date, "value": summary["max_drawdown"] / 100}
+            ])
+            # 确保回撤是小数格式
+            for item in drawdown_series:
+                if "value" in item:
+                    item["value"] = float(item["value"]) / 100 if item["value"] > 1 else float(item["value"])
+            
+            # 每日收益
+            daily_profit = all_results[0].get("daily_profit", {})
+            # 仓位曲线
+            position_series = all_results[0].get("position_series", [])
+
+        # 构造结果字典
         final_result = {
             "strategies": all_results,
             "strategy_results": {r["strategy_name"]: r for r in all_results}, # 策略对比需要
@@ -851,36 +886,38 @@ class BacktestNode(BaseNode):
             "start_date": start_date,
             "end_date": end_date,
             "initial_cash": initial_cash,
-            # 核心指标
-            "total_return": summary["total_return"] / 100, # 转换为小数格式
-            "win_rate": summary["avg_win_rate"] / 100,
-            "max_drawdown": summary["max_drawdown"] / 100,
+            # 核心指标（使用真实计算结果）
+            "total_return": summary["total_return"], # 百分比格式，比如5代表5%
+            "win_rate": summary["avg_win_rate"],
+            "max_drawdown": summary["max_drawdown"],
             "total_trades": summary["total_signals"],
-            "profit_loss_ratio": 1.5, # 暂时固定，后续计算
-            "sharpe_ratio": 1.2, # 暂时固定，后续计算
-            "sortino_ratio": 1.1, # 暂时固定，后续计算
-            "calmar_ratio": 0.8, # 暂时固定，后续计算
-            # 交易记录
+            "profit_loss_ratio": all_results[0].get("profit_loss_ratio", 1.5) if all_results else 1.5,
+            "sharpe_ratio": all_results[0].get("sharpe_ratio", 1.2) if all_results else 1.2,
+            "sortino_ratio": all_results[0].get("sortino_ratio", 1.1) if all_results else 1.1,
+            "calmar_ratio": all_results[0].get("calmar_ratio", 0.8) if all_results else 0.8,
+            "volatility": all_results[0].get("volatility", 0) if all_results else 0,
+            "information_ratio": all_results[0].get("information_ratio", 0) if all_results else 0,
+            # 账户信息
+            "final_cash": all_results[0].get("final_cash", initial_cash) if all_results else initial_cash,
+            "final_holdings": all_results[0].get("final_holdings", {}) if all_results else {},
+            # 交易记录（多字段兼容前端）
             "trades": all_trades,
-            # 图表数据（如果没有就模拟基础数据，避免前端显示异常）
-            "net_value_series": all_results[0].get("net_value_series", [
-                {"date": start_date, "value": initial_cash},
-                {"date": end_date, "value": initial_cash * (1 + summary["total_return"] / 100)}
-            ]) if all_results else [],
-            "drawdown_series": all_results[0].get("drawdown_series", [
-                {"date": start_date, "value": 0},
-                {"date": end_date, "value": summary["max_drawdown"] / 100}
-            ]) if all_results else [],
-            "daily_profit": {}, # 暂时留空
-            "position_series": [], # 暂时留空
-            "profit_distribution": {}, # 暂时留空
-            "factor_contribution": {}, # 暂时留空
-            "monthly_profit": {}, # 暂时留空
+            "trade_list": all_trades,
+            "trade_records": all_trades,
+            # 图表数据
+            "net_value_series": net_value_series,
+            "drawdown_series": drawdown_series,
+            "daily_profit": daily_profit,
+            "position_series": position_series,
+            "profit_distribution": all_results[0].get("profit_distribution", {}) if all_results else {},
+            "factor_contribution": all_results[0].get("factor_contribution", {}) if all_results else {},
+            "monthly_profit": all_results[0].get("monthly_profit", {}) if all_results else {},
         }
 
         await self._push_log(task_id, "✅ 回测全部完成!")
         await self._push_log(task_id, f"📈 汇总结果:总信号 {total_signals} 个,平均胜率 {avg_win_rate:.2f}%,总收益率 {total_return:.2f}%")
-        await mongo_manager.update_one(
+        if total_signals == 0:
+            await mongo_manager.update_one(
             "backtest_tasks",
             {"task_id": task_id},
             {"$set": {"progress": 100}},
@@ -899,14 +936,8 @@ class BacktestNode(BaseNode):
     async def _push_log(self, task_id: str, log_text: str) -> None:
         """推送日志到数据库、WebSocket和本地文件
         """
-        # 日志序号，解决乱序问题，每个任务从1开始递增
-        if task_id not in self._log_counters:
-            self._log_counters[task_id] = 1
-        seq = self._log_counters[task_id]
-        self._log_counters[task_id] += 1
-        
         timestamp = datetime.utcnow().strftime("%H:%M:%S")
-        log_entry = f"[{seq:04d}][{timestamp}] {log_text}"
+        log_entry = f"[{timestamp}] {log_text}"
 
         # 保存到数据库
         await mongo_manager.update_one(
@@ -1127,7 +1158,7 @@ class BacktestNode(BaseNode):
             if col not in df.columns:
                 if col == "volume" and "vol" in df.columns:
                     df["volume"] = df["vol"]
-                else:
+#else:
                     raise ValueError(f"Missing required column: {col}")
 
         return df
