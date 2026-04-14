@@ -142,7 +142,7 @@ class IncrementalBacktester:
         )
 
 
-def get_incremental_result(strategy_id: str) -> Optional[Dict[str, Any]]:
+async def get_incremental_result(strategy_id: str) -> Optional[Dict[str, Any]]:
     """获取已有的增量回测结果"""
     return await mongo_manager.find_one(
         "incremental_backtest_results",

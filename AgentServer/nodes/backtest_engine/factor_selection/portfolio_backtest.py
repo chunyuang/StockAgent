@@ -430,13 +430,13 @@ class PortfolioBacktester:
                             after_count = len(temp_df)
                             # 计算过滤率
                             filter_rate = ((before_count - after_count) / before_count * 100) if before_count > 0 else 0
-                            await log(f"          ✅ 【条件{idx}：{label}】 {operator} {target_value} → 满足 {after_count} 只 / 共 {before_count} 只（过滤率：{filter_rate:.2f}%）")
+                            await log(f"   ✅ 【条件{idx}：{label}】 {operator} {target_value} → 满足 {after_count} 只 / 共 {before_count} 只（过滤率：{filter_rate:.2f}%）")
                             # 提前终止，筛选到0只就不继续了
                             if after_count == 0:
-                                await log(f"          ⚠️  提前结束筛选：无符合条件股票，建议调整参数")
+                                await log(f"   ⚠️  提前结束筛选：无符合条件股票，建议调整参数")
                                 break
                         else:
-                            await log(f"          ❌ 【条件{idx}：{label}】因子缺失，字段名：{factor_name}，请先运行因子计算脚本")
+                            await log(f"   ❌ 【条件{idx}：{label}】因子缺失，字段名：{factor_name}，请先运行因子计算脚本")
                             temp_df = temp_df.head(0)
                             break
                     
@@ -445,9 +445,9 @@ class PortfolioBacktester:
                     await log(f"   🎯 【{strategy_name}】最终候选：{candidate_count} 只")
                     # 输出前5只符合条件股票的筛选原因明细
                     if candidate_count > 0:
-                        await log(f"   📋 筛选原因明细（前{min(5, candidate_count)}只）：")
+                        await log(f"      📋 筛选原因明细（前{min(5, candidate_count)}只）：")
                         for _, row in temp_df.head(5).iterrows():
-                            await log(f"            {row['ts_code']}:")
+                            await log(f"            {row['ts_code']}: {stock_name[row['ts_code']]}")
                             for cond in conditions:
                                 fname = cond["name"]
                                 tval = cond["target"]
