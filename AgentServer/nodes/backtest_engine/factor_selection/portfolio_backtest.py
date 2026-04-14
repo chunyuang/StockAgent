@@ -307,8 +307,8 @@ class PortfolioBacktester:
                             {"name": "volume_ratio", "target": volume_threshold, "label": "量比阈值"}
                         ]
                 # 4. 获取价格
-                        await log(f"🔹 === 【{strategy_name}】 筛选开始 ===")
-                        await log(f"   📌 参数生效：量比阈值={volume_threshold}倍，涨幅区间={min_rise_pct*100:.1f}%-{max_rise_pct*100:.1f}%，允许10点后买入:{'是' if allow_after_10am else '否'}")
+                        await log(f"   🔹 === 【{strategy_name}】 筛选开始 ===")
+                        await log(f"      📌 参数生效：量比阈值={volume_threshold}倍，涨幅区间={min_rise_pct*100:.1f}%-{max_rise_pct*100:.1f}%，允许10点后买入:{'是' if allow_after_10am else '否'}")
                         
                     elif strategy_name == "首板打板":
                         # 读取首板打板独立参数
@@ -332,8 +332,8 @@ class PortfolioBacktester:
                             {"name": "hot_sector", "target": 1 if require_hot else 0, "label": "要求热门板块"},
                             {"name": "limit_up_time", "target": max_limit_time, "operator": "<=", "label": "最晚涨停时间"}
                         ]
-                        await log(f"🔹 === 【{strategy_name}】 筛选开始 ===")
-                        await log(f"   📌 参数生效：最小封单金额={min_seal_amount}万元，最晚涨停时间={max_limit_time}，最大流通市值={max_cap}亿，最大开板次数={max_blast}次，要求热门板块:{'是' if require_hot else '否'}")
+                        await log(f"   🔹 === 【{strategy_name}】 筛选开始 ===")
+                        await log(f"      📌 参数生效：最小封单金额={min_seal_amount}万元，最晚涨停时间={max_limit_time}，最大流通市值={max_cap}亿，最大开板次数={max_blast}次，要求热门板块:{'是' if require_hot else '否'}")
                         
                     elif strategy_name == "涨停开板":
                         # 读取涨停开板独立参数
@@ -348,8 +348,8 @@ class PortfolioBacktester:
                             {"name": "limit_up_open_amount", "target": min_seal_after, "label": "开板后最小封单"},
                             {"name": "turnover_rate", "target": min_turnover, "label": "最小换手率"}
                         ]
-                        await log(f"🔹 === 【{strategy_name}】 筛选开始 ===")
-                        await log(f"   📌 参数生效：最小连续涨停={min_consecutive}天，最大开板时长={max_open_duration}分钟，开板后最小封单={min_seal_after}万元，最小换手率={min_turnover*100:.1f}%")
+                        await log(f"   🔹 === 【{strategy_name}】 筛选开始 ===")
+                        await log(f"      📌 参数生效：最小连续涨停={min_consecutive}天，最大开板时长={max_open_duration}分钟，开板后最小封单={min_seal_after}万元，最小换手率={min_turnover*100:.1f}%")
                         
                     elif strategy_name == "龙头低吸":
                         # 读取龙头低吸独立参数
@@ -368,8 +368,8 @@ class PortfolioBacktester:
                             {"name": "pullback_days", "target": correction_days_max, "operator": "<=", "label": "最大回调天数"},
                             {"name": f"pullback_{support_level}", "target": 1, "label": f"{support_level.upper()}支撑位"}
                         ]
-                        await log(f"🔹 === 【{strategy_name}】 筛选开始 ===")
-                        await log(f"   📌 参数生效：最小连续涨停={min_consecutive}天，回调幅度={min_correction*100:.1f}%-{max_correction*100:.1f}%，回调天数={correction_days_min}-{correction_days_max}天，支撑位={support_level}")
+                        await log(f"   🔹 === 【{strategy_name}】 筛选开始 ===")
+                        await log(f"      📌 参数生效：最小连续涨停={min_consecutive}天，回调幅度={min_correction*100:.1f}%-{max_correction*100:.1f}%，回调天数={correction_days_min}-{correction_days_max}天，支撑位={support_level}")
                         
                     elif strategy_name == "跌停翘板":
                         # 读取跌停翘板独立参数
@@ -385,8 +385,8 @@ class PortfolioBacktester:
                             {"name": "rise_after_limit_down", "target": min_rise_after, "label": "翘板后最小涨幅"},
                             {"name": "sentiment_score", "target": 1 if require_high_sentiment else 0, "label": "要求高情绪周期"}
                         ]
-                        await log(f"🔹 === 【{strategy_name}】 筛选开始 ===")
-                        await log(f"   📌 参数生效：最小连续跌停={min_consecutive}天，最小翘板金额={min_qiao_amount}万元，翘板后最小涨幅={min_rise_after*100:.1f}%，要求高情绪周期:{'是' if require_high_sentiment else '否'}")
+                        await log(f"   🔹 === 【{strategy_name}】 筛选开始 ===")
+                        await log(f"      📌 参数生效：最小连续跌停={min_consecutive}天，最小翘板金额={min_qiao_amount}万元，翘板后最小涨幅={min_rise_after*100:.1f}%，要求高情绪周期:{'是' if require_high_sentiment else '否'}")
                 
                 # 遍历用户选中的所有策略，独立筛选
                 for strategy_name in selected_strategy_names:
