@@ -211,11 +211,11 @@ class PortfolioBacktester:
                         "amount": {"$lt": 500}  # 单位：万元
                     }
                 )
-                await log(f"   🔹 剔除ST股票：{st_count}只")
-                await log(f"   🔹 剔除次新股：{new_stock_count}只")
-                await log(f"   🔹 剔除流动性<500万：{low_liquidity_count}只")
+                await log(f"      🔹 剔除ST股票：{st_count}只")
+                await log(f"      🔹 剔除次新股：{new_stock_count}只")
+                await log(f"      🔹 剔除流动性<500万：{low_liquidity_count}只")
                 cleaned_count = len(universe) - st_count - new_stock_count - low_liquidity_count
-                await log(f"   🔹 清洗后剩余：{cleaned_count}只")
+                await log(f"      🔹 清洗后剩余：{cleaned_count}只")
                 
                 if not universe:
                     logger.warning(f"⚠️ 当日无符合条件的股票，跳过调仓")
@@ -430,13 +430,13 @@ class PortfolioBacktester:
                             after_count = len(temp_df)
                             # 计算过滤率
                             filter_rate = ((before_count - after_count) / before_count * 100) if before_count > 0 else 0
-                            await log(f"      ✅ 【条件{idx}：{label}】 {operator} {target_value} → 满足 {after_count} 只 / 共 {before_count} 只（过滤率：{filter_rate:.2f}%）")
+                            await log(f"          ✅ 【条件{idx}：{label}】 {operator} {target_value} → 满足 {after_count} 只 / 共 {before_count} 只（过滤率：{filter_rate:.2f}%）")
                             # 提前终止，筛选到0只就不继续了
                             if after_count == 0:
-                                await log(f"      ⚠️  提前结束筛选：无符合条件股票，建议调整参数")
+                                await log(f"          ⚠️  提前结束筛选：无符合条件股票，建议调整参数")
                                 break
                         else:
-                            await log(f"      ❌ 【条件{idx}：{label}】因子缺失，字段名：{factor_name}，请先运行因子计算脚本")
+                            await log(f"          ❌ 【条件{idx}：{label}】因子缺失，字段名：{factor_name}，请先运行因子计算脚本")
                             temp_df = temp_df.head(0)
                             break
                     
@@ -447,7 +447,7 @@ class PortfolioBacktester:
                     if candidate_count > 0:
                         await log(f"   📋 筛选原因明细（前{min(5, candidate_count)}只）：")
                         for _, row in temp_df.head(5).iterrows():
-                            reasons = []
+                            await log(f"            {row['ts_code']}:")
                             for cond in conditions:
                                 fname = cond["name"]
                                 tval = cond["target"]
@@ -464,9 +464,8 @@ class PortfolioBacktester:
                                     ok = val < tval
                                 elif op == "==":
                                     ok = val == tval
-                                reason = f"{cond['label']}: {val:.2f} {op} {tval} → {'符合' if ok else '不符合'}"
-                                reasons.append(reason)
-                            await log(f"      {row['ts_code']}: {'; '.join(reasons)}")
+                                status = "✅" if ok else "❌"
+                                await log(f"                {status} {cond['label']}: {val:.2f} {op} {tval}")
                     if candidate_count == 0:
                         await log(f"   ⚠️  无符合条件股票，可尝试降低筛选门槛")
 
@@ -496,11 +495,18 @@ class PortfolioBacktester:
                 )
                 rebalance_records.extend(records)
                 
-                await log(f"✅ 调仓完成，当前持仓: {holdings}，现金: {cash:.2f}")
+                # 获取股票名称
+                stock_names = await self._get_stock_names([r.ts_code for r in records])
                 
-                # 输出调仓记录
-                for record in records:
-                    await log(f"   📝 {record.action}: {record.ts_code} × {record.shares} 股，价格: {record.price:.2f}，金额: {record.amount:.2f}")
+                # 输出调仓记录（带股票名称）
+                if len(records) > 0:
+                    await log(f"📝 【当日调仓记录】：")
+                    for record in records:
+                        name = stock_names.get(record.ts_code, record.ts_code.split('.')[0])
+                        direction = "🔹 买入" if record.action == 'buy' else "🔻 卖出"
+                        await log(f"        {direction} {name}【{record.ts_code}】：{record.shares} 股 @ {record.price:.2f} 元 → {record.reason}")
+                
+                await log(f"✅ 调仓完成，当前持仓: {len(holdings)} 只股票，剩余现金: {cash:.2f} 元")
             
             # 计算当日市值
             prices = await self._get_prices(set(holdings.keys()), trade_date)
@@ -884,6 +890,21 @@ class PortfolioBacktester:
         # 胜率 (正收益天数比例)
         win_rate = (daily_returns > 0).sum() / len(daily_returns) * 100 if len(daily_returns) > 0 else 0
         
+        # 盈亏比 = 平均盈利 / 平均亏损
+        positive_returns = daily_returns[daily_returns > 0]
+        negative_returns = daily_returns[daily_returns < 0]
+        avg_win = positive_returns.mean() if len(positive_returns) > 0 else 0
+        avg_loss = abs(negative_returns.mean()) if len(negative_returns) > 0 else 0.01
+        profit_loss_ratio = avg_win / avg_loss if avg_loss > 0 else 1.0
+        
+        # 卡尔玛比率
+        calmar_ratio = (annual_return / 100) / (max_drawdown / 100) if max_drawdown > 0 else 0
+        
+        # 索提诺比率
+        downside_returns = daily_returns[daily_returns < 0]
+        downside_volatility = downside_returns.std() * np.sqrt(252) * 100 if len(downside_returns) > 0 else volatility
+        sortino_ratio = (annual_return/100 - risk_free_rate) / (downside_volatility/100) if downside_volatility > 0 else 0
+        
         return {
             "total_return": round(total_return, 2),
             "benchmark_return": round(benchmark_return, 2),
@@ -893,6 +914,9 @@ class PortfolioBacktester:
             "max_drawdown_days": int(max_dd_days),
             "volatility": round(volatility, 2),
             "sharpe_ratio": round(sharpe, 2),
+            "sortino_ratio": round(sortino_ratio, 2),
+            "calmar_ratio": round(calmar_ratio, 2),
+            "profit_loss_ratio": round(profit_loss_ratio, 2),
             "win_rate": round(win_rate, 2),
             "trade_days": days,
             "start_date": daily_values[0]["date"],

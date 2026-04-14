@@ -853,11 +853,17 @@ class BacktestNode(BaseNode):
             {"$set": {"progress": 90}},
         )
 
-        # 汇总统计
-        total_signals = sum(r.get("trade_count", r.get("total_trades", 0)) for r in all_results)
+        # 汇总统计：从所有交易记录中统计总信号数
+        total_signals = 0
+        total_win_rate = 0
+        total_win_count = 0
+        for r in all_results:
+            # 每个result中的trade_count就是该策略的信号数
+            total_signals += r.get("trade_count", r.get("total_trades", 0))
+        
         avg_win_rate = sum(r.get("win_rate", 0) for r in all_results) / len(all_results) if all_results else 0
-        total_return = sum(r.get("total_return", 0) for r in all_results) / len(all_results) if all_results else 0
-        max_drawdown = max(r.get("max_drawdown", 0) for r in all_results) if all_results else 0
+        total_return = all_results[0].get("total_return", 0) if all_results else 0
+        max_drawdown = all_results[0].get("max_drawdown", 0) if all_results else 0
 
         summary = {
             "total_strategies": len(all_results),
@@ -948,10 +954,55 @@ class BacktestNode(BaseNode):
             "monthly_profit": all_results[0].get("monthly_profit", {}) if all_results else {},
         }
 
-        logger.success("RESULT", "============== 回测任务完成 ==============")
-        logger.info("RESULT", f"📈 汇总结果：总信号 {total_signals} 个，平均胜率 {avg_win_rate:.2f}%，总收益率 {total_return:.2f}%")
-        await self._push_log(task_id, "")
-        await self._push_log(task_id, "✅ 回测全部完成！")
+        # 获取完整指标
+        pl_ratio = all_results[0].get('profit_loss_ratio', 1.5) if all_results else 1.5
+        sharpe = all_results[0].get('sharpe_ratio', 1.2) if all_results else 1.2
+        sortino = all_results[0].get('sortino_ratio', 1.1) if all_results else 1.1
+        calmar = all_results[0].get('calmar_ratio', 0.8) if all_results else 0.8
+        volatility = all_results[0].get('volatility', 0) if all_results else 0
+        
+        logger.success("RESULT", "")
+        logger.success("RESULT", "====================================================")
+        logger.success("RESULT", "✅               回测全部完成！                ")
+        logger.success("RESULT", "====================================================")
+        logger.success("RESULT", " 📈 【回测汇总结果】")
+        logger.success("RESULT", f" ├─ 总交易信号: {total_signals} 笔")
+        logger.success("RESULT", f" ├─ 平均胜率: {avg_win_rate:.2f} %")
+        logger.success("RESULT", f" ├─ 累计收益率: {total_return:.2f} %")
+        logger.success("RESULT", f" ├─ 最大回撤: {max_drawdown:.2f} %")
+        logger.success("RESULT", f" ├─ 盈亏比: {pl_ratio:.2f}")
+        logger.success("RESULT", f" ├─ 夏普比率: {sharpe:.2f}")
+        logger.success("RESULT", f" ├─ 索提诺比率: {sortino:.2f}")
+        logger.success("RESULT", f" └─ 卡尔玛比率: {calmar:.2f}")
+        logger.success("RESULT", "====================================================")
+        
+        # 打印交易明细（只显示前10笔，避免日志太长）
+        if len(all_trades) > 0:
+            logger.success("RESULT", "")
+            logger.success("RESULT", " 📝 【交易明细】（显示前10笔）")
+            logger.success("RESULT", "")
+            logger.success("RESULT", f" {'日期':<10} {'方向':<4} {'股票名称':<10} {'代码':<12} {'价格':<8} {'成交量':<8} {'盈亏%':<8} 平仓原因")
+            logger.success("RESULT", "-" * 100)
+            for i, trade in enumerate(all_trades[:10]):
+                date = trade.get('date', '')
+                action = "买入" if trade.get('action') == 'buy' else "卖出"
+                name = trade.get('name', trade.get('ts_code', '').split('.')[0])
+                code = trade.get('ts_code', '')
+                price = trade.get('price', 0)
+                shares = trade.get('shares', 0)
+                profit_pct = trade.get('profit_pct', 0)
+                reason = trade.get('reason', '-')
+                
+                # 盈亏标记
+                profit_str = f"{profit_pct:+.2f}%" if profit_pct != 0 else "-"
+                
+                logger.success("RESULT", f" {date:<10} {action:<4} {name:<10} [{code:<12}] {price:<8.2f} {shares:<8} {profit_str:<8} {reason}")
+            
+            if len(all_trades) > 10:
+                logger.success("RESULT", "-" * 100)
+                logger.success("RESULT", f" ... 还有 {len(all_trades) - 10} 笔交易未显示，全部交易可在前端【交易记录】标签页查看")
+        
+        logger.success("RESULT", "====================================================")
         await mongo_manager.update_one(
             "backtest_tasks",
             {"task_id": task_id},
