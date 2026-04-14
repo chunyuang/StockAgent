@@ -307,8 +307,8 @@ class PortfolioBacktester:
                             {"name": "volume_ratio", "target": volume_threshold, "label": "量比阈值"}
                         ]
                 # 4. 获取价格
-                        await log(f"   ├─ 🔹 === 【{strategy_name}】 筛选开始 ===")
-                        await log(f"   │   └─ 📌 参数生效：量比阈值={volume_threshold}倍，涨幅区间={min_rise_pct*100:.1f}%-{max_rise_pct*100:.1f}%，允许10点后买入:{'是' if allow_after_10am else '否'}")
+                        await log(f"    ├─ 🔹 === 【{strategy_name}】 筛选开始 ===")
+                        await log(f"    │   └─ 📌 参数生效：量比阈值={volume_threshold}倍，涨幅区间={min_rise_pct*100:.1f}%-{max_rise_pct*100:.1f}%，允许10点后买入:{'是' if allow_after_10am else '否'}")
                         
                     elif strategy_name == "首板打板":
                         # 读取首板打板独立参数
@@ -332,8 +332,8 @@ class PortfolioBacktester:
                             {"name": "hot_sector", "target": 1 if require_hot else 0, "label": "要求热门板块"},
                             {"name": "limit_up_time", "target": max_limit_time, "operator": "<=", "label": "最晚涨停时间"}
                         ]
-                        await log(f"   ├─ 🔹 === 【{strategy_name}】 筛选开始 ===")
-                        await log(f"   │   └─ 📌 参数生效：最小封单金额={min_seal_amount}万元，最晚涨停时间={max_limit_time}，最大流通市值={max_cap}亿，最大开板次数={max_blast}次，要求热门板块:{'是' if require_hot else '否'}")
+                        await log(f"    ├─ 🔹 === 【{strategy_name}】 筛选开始 ===")
+                        await log(f"    │   └─ 📌 参数生效：最小封单金额={min_seal_amount}万元，最晚涨停时间={max_limit_time}，最大流通市值={max_cap}亿，最大开板次数={max_blast}次，要求热门板块:{'是' if require_hot else '否'}")
                         
                     elif strategy_name == "涨停开板":
                         # 读取涨停开板独立参数
@@ -348,8 +348,8 @@ class PortfolioBacktester:
                             {"name": "limit_up_open_amount", "target": min_seal_after, "label": "开板后最小封单"},
                             {"name": "turnover_rate", "target": min_turnover, "label": "最小换手率"}
                         ]
-                        await log(f"   ├─ 🔹 === 【{strategy_name}】 筛选开始 ===")
-                        await log(f"   │   └─ 📌 参数生效：最小连续涨停={min_consecutive}天，最大开板时长={max_open_duration}分钟，开板后最小封单={min_seal_after}万元，最小换手率={min_turnover*100:.1f}%")
+                        await log(f"    ├─ 🔹 === 【{strategy_name}】 筛选开始 ===")
+                        await log(f"    │   └─ 📌 参数生效：最小连续涨停={min_consecutive}天，最大开板时长={max_open_duration}分钟，开板后最小封单={min_seal_after}万元，最小换手率={min_turnover*100:.1f}%")
                         
                     elif strategy_name == "龙头低吸":
                         # 读取龙头低吸独立参数
@@ -368,8 +368,8 @@ class PortfolioBacktester:
                             {"name": "pullback_days", "target": correction_days_max, "operator": "<=", "label": "最大回调天数"},
                             {"name": f"pullback_{support_level}", "target": 1, "label": f"{support_level.upper()}支撑位"}
                         ]
-                        await log(f"   ├─ 🔹 === 【{strategy_name}】 筛选开始 ===")
-                        await log(f"   │   └─ 📌 参数生效：最小连续涨停={min_consecutive}天，回调幅度={min_correction*100:.1f}%-{max_correction*100:.1f}%，回调天数={correction_days_min}-{correction_days_max}天，支撑位={support_level}")
+                        await log(f"    ├─ 🔹 === 【{strategy_name}】 筛选开始 ===")
+                        await log(f"    │   └─ 📌 参数生效：最小连续涨停={min_consecutive}天，回调幅度={min_correction*100:.1f}%-{max_correction*100:.1f}%，回调天数={correction_days_min}-{correction_days_max}天，支撑位={support_level}")
                         
                     elif strategy_name == "跌停翘板":
                         # 读取跌停翘板独立参数
@@ -385,8 +385,8 @@ class PortfolioBacktester:
                             {"name": "rise_after_limit_down", "target": min_rise_after, "label": "翘板后最小涨幅"},
                             {"name": "sentiment_score", "target": 1 if require_high_sentiment else 0, "label": "要求高情绪周期"}
                         ]
-                        await log(f"   ├─ 🔹 === 【{strategy_name}】 筛选开始 ===")
-                        await log(f"   │   └─ 📌 参数生效：最小连续跌停={min_consecutive}天，最小翘板金额={min_qiao_amount}万元，翘板后最小涨幅={min_rise_after*100:.1f}%，要求高情绪周期:{'是' if require_high_sentiment else '否'}")
+                        await log(f"    ├─ 🔹 === 【{strategy_name}】 筛选开始 ===")
+                        await log(f"    │   └─ 📌 参数生效：最小连续跌停={min_consecutive}天，最小翘板金额={min_qiao_amount}万元，翘板后最小涨幅={min_rise_after*100:.1f}%，要求高情绪周期:{'是' if require_high_sentiment else '否'}")
                 
                 # 遍历用户选中的所有策略，独立筛选
                 for strategy_name in selected_strategy_names:
@@ -397,7 +397,7 @@ class PortfolioBacktester:
                     conditions = strategy_configs[strategy_name]
                     temp_df = factor_df.copy()
                     
-                    await log(f"   ├─ 🔹 【{strategy_name}】筛选过程：")
+                    await log(f"    ├─ 🔹 【{strategy_name}】筛选过程：")
                     # 独立执行当前策略的所有条件，输出每一步筛选日志
                     for idx, cond in enumerate(conditions, 1):
                         factor_name = cond["name"]
@@ -430,24 +430,24 @@ class PortfolioBacktester:
                             after_count = len(temp_df)
                             # 计算过滤率
                             filter_rate = ((before_count - after_count) / before_count * 100) if before_count > 0 else 0
-                            await log(f"   │   ✅ 【条件{idx}：{label}】 {operator} {target_value} → 满足 {after_count} 只 / 共 {before_count} 只（过滤率：{filter_rate:.2f}%）")
+                            await log(f"    │   ✅ 【条件{idx}：{label}】 {operator} {target_value} → 满足 {after_count} 只 / 共 {before_count} 只（过滤率：{filter_rate:.2f}%）")
                             # 提前终止，筛选到0只就不继续了
                             if after_count == 0:
-                                await log(f"   │   ⚠️  提前结束筛选：无符合条件股票，建议调整参数")
+                                await log(f"    │   ⚠️  提前结束筛选：无符合条件股票，建议调整参数")
                                 break
                         else:
-                            await log(f"   │   ❌ 【条件{idx}：{label}】因子缺失，字段名：{factor_name}，请先运行因子计算脚本")
+                            await log(f"    │   ❌ 【条件{idx}：{label}】因子缺失，字段名：{factor_name}，请先运行因子计算脚本")
                             temp_df = temp_df.head(0)
                             break
                     
                     candidate_count = len(temp_df)
                     all_candidates.update(temp_df["ts_code"].tolist())
-                    await log(f"   └─ 🎯 【{strategy_name}】最终候选：{candidate_count} 只")
+                    await log(f"    └─ 🎯 【{strategy_name}】最终候选：{candidate_count} 只")
                     # 输出前5只符合条件股票的筛选原因明细
                     if candidate_count > 0:
-                        await log(f"       └─ 📋 筛选原因明细（前{min(5, candidate_count)}只）：")
+                        await log(f"        └─ 📋 筛选原因明细（前{min(5, candidate_count)}只）：")
                         for _, row in temp_df.head(5).iterrows():
-                            await log(f"           ├─ {stock_name[row['ts_code']]}【{row['ts_code']}】")
+                            await log(f"                ├─ {stock_name[row['ts_code']]}【{row['ts_code']}】")
                             for cond in conditions:
                                 fname = cond["name"]
                                 tval = cond["target"]
@@ -465,9 +465,9 @@ class PortfolioBacktester:
                                 elif op == "==":
                                     ok = val == tval
                                 status = "✅" if ok else "❌"
-                                await log(f"           │   {status} {cond['label']}: {val:.2f} {op} {tval}")
+                                await log(f"                │   {status} {cond['label']}: {val:.2f} {op} {tval}")
                     if candidate_count == 0:
-                        await log(f"       ⚠️  无符合条件股票，可尝试降低筛选门槛")
+                        await log(f"        ⚠️  无符合条件股票，可尝试降低筛选门槛")
 
                 # 当日汇总
                 await log(f"\n📊 === 当日筛选汇总 ===")
@@ -504,7 +504,7 @@ class PortfolioBacktester:
                     for record in records:
                         name = stock_names.get(record.ts_code, record.ts_code.split('.')[0])
                         direction = "🔹 买入" if record.action == 'buy' else "🔻 卖出"
-                        await log(f"   ├─ {direction} {name}【{record.ts_code}】：{record.shares} 股 @ {record.price:.2f} 元 → {record.reason}")
+                        await log(f"    ├─ {direction} {name}【{record.ts_code}】：{record.shares} 股 @ {record.price:.2f} 元 → {record.reason}")
                 
                 await log(f"✅ 调仓完成，当前持仓: {len(holdings)} 只股票，剩余现金: {cash:.2f} 元")
             
