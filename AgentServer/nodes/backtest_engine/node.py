@@ -16,6 +16,7 @@ from nodes.base import BaseNode
 from common.utils import convert_numpy_types
 from core.protocols import NodeType
 from core.managers import redis_manager, mongo_manager, tushare_manager
+from core.utils.logger import logger
 
 from nodes.backtest_engine.factors import FactorData
 from nodes.backtest_engine.backtester import VectorizedBacktester, BacktestConfig
@@ -430,6 +431,8 @@ class BacktestNode(BaseNode):
             回测报告(包含所有策略的结果和汇总统计
         """
         task_id = params.get("task_id", "unknown")
+        # 设置当前任务ID到日志工具类
+        logger.set_task_id(task_id)
         # 参数在params子对象中,因为web层调用时封装在params里
         req_params = params.get("params", {})
         strategies = req_params.get("strategies", [])
@@ -462,10 +465,41 @@ class BacktestNode(BaseNode):
         except Exception as e:
             self.logger.warning(f"AKShare manager initialize failed (ignored): {e}, will use MongoDB only")
 
-        self.logger.info(
-            f"[{task_id}] Executing ultra short backtest: "
-            f"{start_date} ~ {end_date}, strategies={strategies}, period={period}, adjust_type={adjust_type}"
-        )
+        # 打印初始化阶段头部
+        logger.success("INIT", "============== 回测任务启动 ==============")
+        logger.info("INIT", f"回测时间：{start_date} → {end_date}")
+        logger.info("INIT", f"初始资金：{initial_cash:,.0f} 元")
+        
+        # 解析选中策略名称
+        strategy_name_map = {
+            "halfway_chase": "半路追涨",
+            "first_limit_up": "首板打板", 
+            "limit_up_open": "涨停开板",
+            "leader_buy_dip": "龙头低吸",
+            "limit_down_qiao": "跌停翘板"
+        }
+        selected_strategy_names = [strategy_name_map.get(s, s) for s in strategies]
+        logger.info("INIT", f"选中策略：【{'、'.join(selected_strategy_names)}】")
+        
+        # 打印全局参数
+        logger.info("INIT", f"全局参数：流动性门槛{strategy_params.get('liquidity_threshold', 500)}万/止损{strategy_params.get('stop_loss_pct', 0.02)*100}%/止盈{strategy_params.get('take_profit_pct', 0.07)*100}%/最大持仓{strategy_params.get('max_hold_days', 3)}天/单票仓位{strategy_params.get('max_position_per_stock', 0.3)*100}%/总仓位{strategy_params.get('max_position', 0.6)*100}%")
+        
+        # 打印功能开关
+        enable_force_empty = req_params.get("enable_force_empty", True)
+        enable_sentiment_cycle = req_params.get("enable_sentiment_cycle", True)
+        enable_auction_filter = req_params.get("enable_auction_filter", True)
+        logger.info("INIT", f"功能开关：强制空仓{'✅' if enable_force_empty else '❌'} / 情绪周期{'✅' if enable_sentiment_cycle else '❌'} / 竞价过滤{'✅' if enable_auction_filter else '❌'}")
+        
+        # 打印代码版本
+        import subprocess
+        try:
+            commit_id = subprocess.check_output("git rev-parse --short HEAD", shell=True, cwd="/root/.openclaw/workspace/StockAgent").decode().strip()
+            commit_time = subprocess.check_output("git log -1 --format=%cd --date=format:'%Y-%m-%d %H:%M'", shell=True, cwd="/root/.openclaw/workspace/StockAgent").decode().strip()
+            logger.info("INIT", f"代码版本：log分支 commit {commit_id} ({commit_time})")
+        except:
+            pass
+            
+        logger.success("INIT", "===============================================")
 
         # 更新状态为 running
         await mongo_manager.update_one(
@@ -707,7 +741,7 @@ class BacktestNode(BaseNode):
         await self._push_log(task_id, "")
         await self._push_log(task_id, "=" * 60)
         await self._push_log(task_id, f"▶️ 开始多策略组合回测")
-        await self._push_log(task_id, f"📊 策略权重配置: {strategy_weights}")
+        await self._push_log(task_id, "📊 策略权重配置: " + str(strategy_weights))
         await self._push_log(task_id, "=" * 60)
 
         # 调试：打印所有策略相关参数
@@ -798,13 +832,13 @@ class BacktestNode(BaseNode):
                     perf["daily_profit"] = result["daily_profit"]
                 all_results.append(perf)
 
-                await self._push_log(task_id, "✅ 多策略组合回测完成")
-                await self._push_log(task_id, f"   信号数: {trade_count}")
-                await self._push_log(task_id, f"   胜率: {perf['win_rate']:.2f}%")
-                await self._push_log(task_id, f"   累计收益率: {perf['total_return']:.2f}%")
-                await self._push_log(task_id, f"   最大回撤: {perf['max_drawdown']:.2f}%")
-                await self._push_log(task_id, f"   盈亏比: {perf.get('profit_loss_ratio', 0):.2f}")
-                await self._push_log(task_id, f"   夏普比率: {perf['sharpe_ratio']:.2f}")
+                logger.success("RESULT", "多策略组合回测完成")
+                logger.info("RESULT", f"信号数: {trade_count}")
+                logger.info("RESULT", f"胜率: {perf['win_rate']:.2f}%")
+                logger.info("RESULT", f"累计收益率: {perf['total_return']:.2f}%")
+                logger.info("RESULT", f"最大回撤: {perf['max_drawdown']:.2f}%")
+                logger.info("RESULT", f"盈亏比: {perf.get('profit_loss_ratio', 0):.2f}")
+                logger.info("RESULT", f"夏普比率: {perf['sharpe_ratio']:.2f}")
 
         except Exception as e:
             self.logger.error(f"[{task_id}] Portfolio backtest failed: {e}")
@@ -914,10 +948,11 @@ class BacktestNode(BaseNode):
             "monthly_profit": all_results[0].get("monthly_profit", {}) if all_results else {},
         }
 
-        await self._push_log(task_id, "✅ 回测全部完成!")
-        await self._push_log(task_id, f"📈 汇总结果:总信号 {total_signals} 个,平均胜率 {avg_win_rate:.2f}%,总收益率 {total_return:.2f}%")
-        if total_signals == 0:
-            await mongo_manager.update_one(
+        logger.success("RESULT", "============== 回测任务完成 ==============")
+        logger.info("RESULT", f"📈 汇总结果：总信号 {total_signals} 个，平均胜率 {avg_win_rate:.2f}%，总收益率 {total_return:.2f}%")
+        await self._push_log(task_id, "")
+        await self._push_log(task_id, "✅ 回测全部完成！")
+        await mongo_manager.update_one(
             "backtest_tasks",
             {"task_id": task_id},
             {"$set": {"progress": 100}},
@@ -930,30 +965,63 @@ class BacktestNode(BaseNode):
         # 清理日志计数器，避免内存泄漏
         if task_id in self._log_counters:
             del self._log_counters[task_id]
+        
+        # 清除当前任务ID，避免污染下一个任务
+        logger.clear_task_id()
 
         return final_result
 
     async def _push_log(self, task_id: str, log_text: str) -> None:
         """推送日志到数据库、WebSocket和本地文件
+        统一使用新的Logger工具类处理格式、SEQ、持久化
         """
-        timestamp = datetime.utcnow().strftime("%H:%M:%S")
-        log_entry = f"[{timestamp}] {log_text}"
+        # 根据日志内容自动判断级别
+        if log_text.startswith('✅'):
+            level = 'success'
+        elif log_text.startswith('⚠️') or log_text.startswith('⚠'):
+            level = 'warn'
+        elif log_text.startswith('❌') or '错误' in log_text or '失败' in log_text:
+            level = 'error'
+        else:
+            level = 'info'
+        
+        # 自动判断模块
+        if any(key in log_text for key in ['参数', '全局', '策略配置', '代码版本', '启动']):
+            module = 'INIT'
+        elif any(key in log_text for key in ['数据', '加载', '清洗', '因子计算', '股票池', 'K线']):
+            module = 'DATA'
+        elif any(key in log_text for key in ['筛选', '信号', '策略', '候选']):
+            module = 'STRATEGY'
+        elif any(key in log_text for key in ['交易', '调仓', '持仓', '现金', '买入', '卖出', '成交']):
+            module = 'TRADE'
+        elif any(key in log_text for key in ['结果', '收益率', '胜率', '回撤', '收益', '总结']):
+            module = 'RESULT'
+        else:
+            module = 'INFO'
+        
+        # 调用logger输出新格式日志，自动生成SEQ、级别、模块标识
+        if level == 'success':
+            logger.success(module, log_text)
+        elif level == 'warn':
+            logger.warn(module, log_text)
+        elif level == 'error':
+            logger.error(module, log_text)
+        else:
+            logger.info(module, log_text)
+        
+        # 获取最新的格式化日志
+        logs = logger.get_task_logs(task_id)
+        latest_log = logs[-1] if logs else f"[{datetime.utcnow().strftime('%H:%M:%S')}] {log_text}"
 
         # 保存到数据库
         await mongo_manager.update_one(
             "backtest_tasks",
             {"task_id": task_id},
-            {"$push": {"logs": log_entry}},
+            {"$push": {"logs": latest_log}},
         )
 
-        # 写入本地持久化文件 - 同一个任务所有日志写入同一个文件
-        import os
-        log_dir = "/root/.openclaw/workspace/StockAgent/logs/backtest/"
-        os.makedirs(log_dir, exist_ok=True)
-        # 生成文件名:{task_id}.log,确保同一个任务所有日志都写到同一个文件
-        log_file = os.path.join(log_dir, f"{task_id}.log")
-        with open(log_file, "a", encoding="utf-8") as f:
-            f.write(log_entry + "\n")
+        # 本地持久化已经由logger统一处理，不需要再写，避免重复
+        # 日志文件已经在logger里自动写入到/root/.openclaw/workspace/StockAgent/logs/backtest/{task_id}.log
 
         # 通过Redis发布日志事件，实现跨节点日志推送
         try:
@@ -962,7 +1030,7 @@ class BacktestNode(BaseNode):
                 {
                     "task_id": task_id,
                     "type": "log",
-                    "log": log_entry,
+                    "log": latest_log,
                 }
             )
         except Exception as e:
