@@ -210,7 +210,7 @@ class WalkForwardAnalyzer:
         logger.info("Result saved to MongoDB")
 
 
-def get_wfa_analyzer(factor_name: str) -> Optional[Dict[str, Any]]:
+async def get_wfa_analyzer(factor_name: str) -> Optional[Dict[str, Any]]:
     """从数据库获取已有 WFA 分析结果"""
     return await mongo_manager.find_one(
         "walk_forward_analysis",
