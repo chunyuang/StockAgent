@@ -17,11 +17,9 @@ import numpy as np
 import logging
 
 from core.managers import mongo_manager
+from core.utils.logger import logger
 from .universe import UniverseManager, UniverseType, ExcludeRule
 from .factor_engine import FactorEngine
-
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -97,7 +95,7 @@ class PortfolioBacktester:
         
         # 日志推送辅助方法
         async def log(msg: str):
-            logger.info(msg)
+            logger.info('INFO', msg)
             if push_log and task_id:
                 await push_log(task_id, msg)
         
@@ -445,6 +443,30 @@ class PortfolioBacktester:
                     candidate_count = len(temp_df)
                     all_candidates.update(temp_df["ts_code"].tolist())
                     await log(f"   🎯 【{strategy_name}】最终候选：{candidate_count} 只")
+                    # 输出前5只符合条件股票的筛选原因明细
+                    if candidate_count > 0:
+                        await log(f"   📋 筛选原因明细（前{min(5, candidate_count)}只）：")
+                        for _, row in temp_df.head(5).iterrows():
+                            reasons = []
+                            for cond in conditions:
+                                fname = cond["name"]
+                                tval = cond["target"]
+                                op = cond.get("operator", ">=")
+                                val = row[fname]
+                                ok = False
+                                if op == ">=":
+                                    ok = val >= tval
+                                elif op == "<=":
+                                    ok = val <= tval
+                                elif op == ">":
+                                    ok = val > tval
+                                elif op == "<":
+                                    ok = val < tval
+                                elif op == "==":
+                                    ok = val == tval
+                                reason = f"{cond['label']}: {val:.2f} {op} {tval} → {'符合' if ok else '不符合'}"
+                                reasons.append(reason)
+                            await log(f"      {row['ts_code']}: {'; '.join(reasons)}")
                     if candidate_count == 0:
                         await log(f"   ⚠️  无符合条件股票，可尝试降低筛选门槛")
 
