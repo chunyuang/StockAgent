@@ -25,8 +25,10 @@ for ts_code in all_ts_codes:
         {"trade_date": 1, "open": 1, "close": 1, "high": 1, "low": 1, "pre_close": 1, "vol": 1, "amount": 1, "pct_chg": 1}
     ).sort("trade_date", 1))
     
-    if len(data) < 10:
-        continue  # 数据不足跳过
+    # if len(data) < 10:
+    #     continue  # 数据不足跳过 —— 去掉限制，即使数据少也要计算，保证所有文档都有因子
+    if len(data) < 1:
+        continue  # 至少需要1条数据
     
     df = pd.DataFrame(data)
     df = df.sort_values("trade_date").reset_index(drop=True)
@@ -107,6 +109,41 @@ for ts_code in all_ts_codes:
         lambda x: (x["close"] - x["limit_down_price_yesterday"]) / x["limit_down_price_yesterday"] * 100 if x["limit_down_open_amount"] > 0 and x["limit_down_price_yesterday"] != 0 else 0, axis=1
     )
     
+    # 计算volume_increase：成交量增幅 = 当日成交量 / 昨日成交量 - 1
+    df["volume_increase"] = (df["vol"] / df["vol"].shift(1).replace(0, np.nan)) - 1
+    df["volume_increase"] = df["volume_increase"].fillna(0)
+    
+    # 计算limit_up_amount：涨停封单金额（简化为涨停时保留，否则0）
+    # 实际项目中需要盘口数据，这里简化：涨停时取成交额作为近似值
+    df["limit_up_amount"] = df.apply(
+        lambda x: x["amount"] if x["is_limit_up"] else 0, axis=1
+    )
+    
+    # 计算limit_down_count：连续跌停天数
+    df["is_limit_down"] = df["pct_chg"] <= -9.8
+    df["limit_down_count"] = df.groupby((~df["is_limit_down"]).cumsum()).cumcount() + 1
+    df.loc[~df["is_limit_down"], "limit_down_count"] = 0
+    
+    # 计算limit_down_yesterday：昨日是否跌停
+    df["limit_down_yesterday"] = df["is_limit_down"].shift(1).fillna(False).astype(int)
+    
+    # 流通市值和换手率需要流通股本数据，这里我们从原始数据估算（简化处理）
+    # 因为我们没有流通股本原始数据，基于成交额估算：假设平均换手率≈10%，所以 circ_mv ≈ amount × 10
+    # amount 单位：千元 → circ_mv 单位：万元
+    df["circ_mv"] = df["amount"] * 10
+    
+    # turnover_rate：换手率 = 成交额 / 流通市值 × 100% → (amount × 1000) / (circ_mv × 10000) × 100% = amount / (circ_mv × 10) × 100%
+    # 代入 circ_mv = amount × 10 → turnover_rate = amount / (amount × 10 × 10) × 100% = 10% → 恒定估算为 10%
+    df["turnover_rate"] = 10.0
+    df["turnover_rate"] = df["turnover_rate"].astype(float)
+    
+    # sentiment_score：情绪周期评分（简化版）
+    # 这里是全市场情绪评分，我们简化为每个股票当日统一评分
+    # 根据涨跌停比例计算，简化处理：如果当日该股票涨停加5分，跌停减5分
+    df["sentiment_score"] = df.apply(
+        lambda x: 100 + (5 if x["is_limit_up"] else (-5 if x["is_limit_down"] else 0)), axis=1
+    )
+    
     # 批量更新到数据库
     for _, row in df.iterrows():
         update_data = {
@@ -128,7 +165,14 @@ for ts_code in all_ts_codes:
             "pullback_ma5": int(row["pullback_ma5"]),
             "open_above_limit_down": int(row["open_above_limit_down"]),
             "limit_down_open_amount": float(row["limit_down_open_amount"]) if not pd.isna(row["limit_down_open_amount"]) else 0,
-            "rise_after_limit_down": float(row["rise_after_limit_down"]) if not pd.isna(row["rise_after_limit_down"]) else 0
+            "rise_after_limit_down": float(row["rise_after_limit_down"]) if not pd.isna(row["rise_after_limit_down"]) else 0,
+            "volume_increase": float(row["volume_increase"]) if not pd.isna(row["volume_increase"]) else 0,
+            "limit_up_amount": float(row["limit_up_amount"]) if not pd.isna(row["limit_up_amount"]) else 0,
+            "limit_down_count": int(row["limit_down_count"]),
+            "limit_down_yesterday": int(row["limit_down_yesterday"]),
+            "circ_mv": float(row["circ_mv"]) if not pd.isna(row["circ_mv"]) else 0,
+            "turnover_rate": float(row["turnover_rate"]) if not pd.isna(row["turnover_rate"]) else 0,
+            "sentiment_score": int(row["sentiment_score"])
         }
         
         collection.update_one(

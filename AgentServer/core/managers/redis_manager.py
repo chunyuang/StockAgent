@@ -316,6 +316,19 @@ class RedisManager(BaseManager):
     
     # ==================== 发布订阅 ====================
     
+    async def publish(self, channel: str, message: Any) -> None:
+        """
+        通用发布方法
+        
+        Args:
+            channel: 频道名称
+            message: 消息内容 (任意可JSON序列化的对象)
+        """
+        self._ensure_initialized()
+        if not isinstance(message, str):
+            message = json.dumps(message, default=str)
+        await self._client.publish(channel, message)
+    
     async def publish_result(self, task_id: str, result: Any) -> None:
         """
         发布任务结果
