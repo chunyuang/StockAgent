@@ -395,8 +395,8 @@ class PortfolioBacktester:
                             {"name": "volume_ratio", "target": volume_threshold, "label": "量比阈值"}
                         ]
                 # 4. 获取价格
-                        await log(f"    🔹 === 【{strategy_name}】 筛选开始 ===")
-                        await log(f"        📌 参数生效：量比阈值={volume_threshold}倍，涨幅区间={min_rise_pct*100:.1f}%-{max_rise_pct*100:.1f}%，允许10点后买入:{'是' if allow_after_10am else '否'}")
+                        await log(f"├─ 🔹 === 【{strategy_name}】 筛选开始 ===")
+                        await log(f"│ └─ 📌 参数生效：量比阈值={volume_threshold}倍，涨幅区间={min_rise_pct*100:.1f}%-{max_rise_pct*100:.1f}%，允许10点后买入:{'是' if allow_after_10am else '否'}")
                         
                     elif strategy_name == "首板打板":
                         # 读取首板打板独立参数
@@ -420,8 +420,8 @@ class PortfolioBacktester:
                             {"name": "hot_sector", "target": 1 if require_hot else 0, "label": "要求热门板块"},
                             {"name": "limit_up_time", "target": max_limit_time, "operator": "<=", "label": "最晚涨停时间"}
                         ]
-                        await log(f"    🔹 === 【{strategy_name}】 筛选开始 ===")
-                        await log(f"        📌 参数生效：最小封单金额={min_seal_amount}万元，最晚涨停时间={max_limit_time}，最大流通市值={max_cap}亿，最大开板次数={max_blast}次，要求热门板块:{'是' if require_hot else '否'}")
+                        await log(f"├─ 🔹 === 【{strategy_name}】 筛选开始 ===")
+                        await log(f"│ └─ 📌 参数生效：最小封单金额={min_seal_amount}万元，最晚涨停时间={max_limit_time}，最大流通市值={max_cap}亿，最大开板次数={max_blast}次，要求热门板块:{'是' if require_hot else '否'}")
                         
                     elif strategy_name == "涨停开板":
                         # 读取涨停开板独立参数
@@ -645,14 +645,14 @@ class PortfolioBacktester:
                 rebalance_records.extend(records)
                 
                 # 获取股票名称
-                stock_names = await self._get_stock_names([r.ts_code.split('.')[0] for r in records])
+                stock_names = await self._get_stock_names([r.ts_code for r in records])
                 
                 # 输出调仓记录（带股票名称 + 完整买入原因）
                 if len(records) > 0:
                     await log(f"            📝 【当日调仓记录】：")
                     for record in records:
-                        code_no_suffix = record.ts_code.split('.')[0]
-                        name = stock_names.get(code_no_suffix, code_no_suffix)
+                        name = stock_names.get(record.ts_code, record.ts_code.split('.')[0])
+
                         direction = "买入" if record.action == 'buy' else "卖出"
                         # 完善原因说明
                         if record.reason == "rebalance":
