@@ -1075,7 +1075,7 @@ const exportTrades = () => {
               <span class="unit">万元</span>
             </ElFormItem>
             <ElFormItem label="最低换手率">
-              <ElInputNumber v-model="form.globalFilter.min_turnover_rate" :min="1" :max="20" style="width: 150px" />
+              <ElInputNumber v-model="form.globalFilter.min_turnover_rate" :min="0" :max="20" :step="0.1" style="width: 150px" />
               <span class="unit">%</span>
             </ElFormItem>
           </ElForm>
@@ -1172,7 +1172,7 @@ const exportTrades = () => {
               <span class="unit">万元</span>
             </ElFormItem>
             <ElFormItem label="最低竞价量比" :disabled="!form.auctionFilter.enabled">
-              <ElInputNumber v-model="form.auctionFilter.min_auction_volume_ratio" :min="1" :max="10" :step="0.1" :disabled="!form.auctionFilter.enabled" style="width: 150px" />
+              <ElInputNumber v-model="form.auctionFilter.min_auction_volume_ratio" :min="0.5" :max="10" :step="0.1" :disabled="!form.auctionFilter.enabled" style="width: 150px" />
               <span class="unit">倍</span>
             </ElFormItem>
           </ElForm>
@@ -1213,7 +1213,7 @@ const exportTrades = () => {
                 <span class="unit">%</span>
               </ElFormItem>
               <ElFormItem label="最低量能比" :disabled="!form.strategyConfigs.halfway_chase.enabled">
-                <ElInputNumber v-model="form.strategyConfigs.halfway_chase.params.min_volume_ratio" :min="1" :max="10" :step="0.1" style="width: 150px" :disabled="!form.strategyConfigs.halfway_chase.enabled" />
+                <ElInputNumber v-model="form.strategyConfigs.halfway_chase.params.min_volume_ratio" :min="0.5" :max="10" :step="0.1" style="width: 150px" :disabled="!form.strategyConfigs.halfway_chase.enabled" />
                 <span class="unit">倍</span>
               </ElFormItem>
               <ElFormItem label="允许10点后买入" :disabled="!form.strategyConfigs.halfway_chase.enabled">
@@ -1413,14 +1413,6 @@ const exportTrades = () => {
           </ElForm>
         </ElCollapseItem>
       </ElCollapse>
-    </ElCard>
-
-    <!-- 进度展示 -->
-    <ElCard v-if="backtestState.running" class="progress-card">
-      <template #header>
-        <span>⏳ 回测进度</span>
-      </template>
-      <ElProgress :percentage="backtestState.progress" :show-text="true" status="success" />
     </ElCard>
 
     <!-- 结果区域 -->
@@ -1664,6 +1656,14 @@ const exportTrades = () => {
         <div v-for="(log, index) in logs" :key="index" class="log-item">{{ log }}</div>
       </div>
     </ElCard>
+
+    <!-- 进度展示 -->
+    <ElCard v-if="backtestState.running" class="progress-card">
+      <template #header>
+        <span>⏳ 回测进度</span>
+      </template>
+      <ElProgress :percentage="backtestState.progress" :show-text="true" status="success" />
+    </ElCard>
   </div>
 </template>
 
@@ -1835,7 +1835,28 @@ const exportTrades = () => {
   padding: 10px;
   font-family: 'Courier New', monospace;
   font-size: 13px;
+  line-height: 1.5;
   
+  .log-item {
+  }
+  
+  // 树形缩进层级样式
+  .log-level-0 {
+    padding-left: 0;
+    font-weight: 600;
+  }
+  .log-level-1 {
+    padding-left: 18px;
+  }
+  .log-level-2 {
+    padding-left: 36px;
+  }
+  .log-level-3 {
+    padding-left: 54px;
+  }
+  .log-level-4 {
+    padding-left: 72px;
+  }
   .log-item {
     margin-bottom: 4px;
   }
