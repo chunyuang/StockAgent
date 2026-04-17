@@ -219,7 +219,7 @@ class PortfolioBacktester:
             await log(f"✅ 未来函数检查通过：所有因子都符合实盘时间规则")
         
         # 加载基准数据
-        benchmark_data = await self._load_benchmark(benchmark_code, config["start_date"], config["end_date"])
+        benchmark_data = await self._load_benchmark_data(benchmark_code, config["start_date"], config["end_date"])
         
         # 初始化组合状态
         cash = initial_cash
@@ -807,3 +807,21 @@ class PortfolioBacktester:
                     del holdings[ts_code]
         
         return cash, holdings, records
+
+    async def _load_benchmark_data(self, benchmark_code: str, start_date: int, end_date: int):
+        """加载基准指数数据用于计算超额收益"""
+        # 从 stock_daily_ak_full 加载基准数据
+        query = {
+            "ts_code": benchmark_code,
+            "trade_date": {"$gte": start_date, "$lte": end_date}
+        }
+        cursor = mongo_manager.find("stock_daily_ak_full", query)
+        cursor.sort("trade_date", 1)
+        benchmark_data = []
+        async for doc in cursor:
+            benchmark_data.append({
+                "trade_date": doc["trade_date"],
+                "close": doc["close"],
+                "pct_chg": doc.get("pct_chg", 0.0)
+            })
+        return benchmark_data
