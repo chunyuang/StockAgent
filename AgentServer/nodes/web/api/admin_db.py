@@ -6,8 +6,6 @@ MongoDB 数据库管理 API
 
 from typing import Dict, List, Any, Optional
 from datetime import datetime
-import pymongo
-from pymongo import MongoClient
 import logging
 
 from fastapi import APIRouter, Query, HTTPException
@@ -26,6 +24,11 @@ ALLOWED_COLLECTIONS = [
     "stock_daily_ak_full",
     "daily_basic",
     "index_daily",
+    "stock_daily",
+    "stock_1min",
+    "backtest_results",
+    "trade_records",
+    "limit_list",
 ]
 
 
@@ -85,17 +88,10 @@ def _bytes_to_human(size_bytes: int) -> str:
         return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
 
 
-def _get_mongodb_version() -> str:
-    """获取 MongoDB 版本"""
-    client = MongoClient(settings.mongodb_uri)
-    info = client.admin.command('buildInfo')
-    return info.get('version', 'unknown')
-
-
 # ========== API 端点 ==========
 
 
-@router.get("/stats", response_model=StatsResponse)
+@router.get("/stats")
 async def get_database_stats():
     """
     获取数据库整体统计信息
@@ -105,16 +101,22 @@ async def get_database_stats():
     - 显示因子覆盖统计
     """
     # 获取 MongoDB 版本
-    mongodb_version = _get_mongodb_version()
+    # 使用 mongo_manager._client 获取异步客户端
+    info = await mongo_manager._client.admin.command('buildInfo')
+    mongodb_version = info.get('version', 'unknown')
     
     # 获取所有集合统计
     collections = []
     db = mongo_manager._db
     
-    for coll_name in db.list_collection_names():
+    # motor 异步方式获取集合列表
+    collection_names = await db.list_collection_names()
+    
+    for coll_name in collection_names:
         # 获取集合统计
         try:
-            stats = db.command("collstats", coll_name)
+            # motor 使用 async 方式
+            stats = await db.command("collstats", coll_name)
             collections.append({
                 "name": coll_name,
                 "document_count": stats.get("count", 0),
@@ -136,31 +138,33 @@ async def get_database_stats():
     stock_daily_stats = None
     try:
         coll = db["stock_daily_ak_full"]
-        count = coll.count_documents({})
+        count = await coll.count_documents({})
         
         # 获取日期范围
         if count > 0:
             # 最早日期
-            min_date_result = list(coll.aggregate([
+            min_date_result = await coll.aggregate([
                 {"$group": {"_id": None, "min_date": {"$min": "$trade_date"}}}
-            ]))
-            max_date_result = list(coll.aggregate([
+            ]).to_list(length=1)
+            max_date_result = await coll.aggregate([
                 {"$group": {"_id": None, "max_date": {"$max": "$trade_date"}}}
-            ]))
+            ]).to_list(length=1)
             
             min_date = min_date_result[0]["min_date"] if min_date_result else None
             max_date = max_date_result[0]["max_date"] if max_date_result else None
             
             # 统计不重复股票数
-            stock_count = len(coll.distinct("ts_code"))
+            stock_cursor = coll.distinct("ts_code")
+            stock_count = len(await stock_cursor.to_list(length=None))
             
             # 最后更新时间（近似，用最新日期推算）
             last_update = datetime.utcnow().isoformat()
             
+            stats = await db.command("collstats", "stock_daily_ak_full")
             stock_daily_stats = {
                 "document_count": count,
-                "size_bytes": db.command("collstats", "stock_daily_ak_full")["size"],
-                "size_human": _bytes_to_human(db.command("collstats", "stock_daily_ak_full")["size"]),
+                "size_bytes": stats["size"],
+                "size_human": _bytes_to_human(stats["size"]),
                 "date_range": {
                     "min_date": min_date,
                     "max_date": max_date,
@@ -177,9 +181,8 @@ async def get_database_stats():
     try:
         coll = db["stock_daily_ak_full"]
         # 获取最新一天
-        latest = list(coll.find({}, {"trade_date": 1}).sort([("trade_date", -1)]).limit(1))
+        latest = await coll.find({}, {"trade_date": 1}).sort([("trade_date", -1)]).limit(1).to_list(length=1)
         if latest:
-            sample_doc = latest[0]
             # 所有可能的预计算因子
             all_factors = [
                 "limit_up_amount", "limit_down_count", "circ_mv", "turnover_rate",
@@ -199,7 +202,7 @@ async def get_database_stats():
             missing_factors = []
             
             # 抽样 100 个文档检查每个因子
-            sample_docs = list(coll.find().sort([("trade_date", -1)]).limit(100))
+            sample_docs = await coll.find().sort([("trade_date", -1)]).limit(100).to_list(length=100)
             
             for f in all_factors:
                 has_count = sum(1 for doc in sample_docs if f in doc and doc[f] is not None)
@@ -225,12 +228,12 @@ async def get_database_stats():
     
     return {
         "success": True,
-        "data": StatsResponse(
-            mongodb_version=mongodb_version,
-            collections=collections,
-            stock_daily_ak_full=stock_daily_stats,
-            factors=factor_stats,
-        ).model_dump(),
+        "data": {
+            "mongodb_version": mongodb_version,
+            "collections": collections,
+            "stock_daily_ak_full": stock_daily_stats,
+            "factors": factor_stats,
+        },
         "message": "数据库统计获取成功",
     }
 
@@ -261,11 +264,11 @@ async def clear_collection(
     
     db = mongo_manager._db
     coll = db[collection_name]
-    count_before = coll.count_documents({})
+    count_before = await coll.count_documents({})
     
     # 执行清空
-    coll.delete_many({})
-    count_after = coll.count_documents({})
+    await coll.delete_many({})
+    count_after = await coll.count_documents({})
     
     logger.info(f"[admin_db] Cleared collection {collection_name}, documents: {count_before} -> {count_after}")
     
@@ -302,7 +305,7 @@ async def clear_date_range(request: ClearDateRangeRequest):
     coll = db[request.collection_name]
     
     # 统计将要删除
-    deleted_before = coll.count_documents({
+    deleted_before = await coll.count_documents({
         "trade_date": {
             "$gte": request.start_date,
             "$lte": request.end_date,
@@ -322,7 +325,7 @@ async def clear_date_range(request: ClearDateRangeRequest):
         }
     
     # 执行删除
-    result = coll.delete_many({
+    result = await coll.delete_many({
         "trade_date": {
             "$gte": request.start_date,
             "$lte": request.end_date,
@@ -375,7 +378,9 @@ async def deduplicate_collection(request: DeduplicateRequest):
         },
     ]
     
-    duplicate_groups = list(coll.aggregate(pipeline))
+    # motor 异步 aggregate 需要 to_list
+    cursor = coll.aggregate(pipeline)
+    duplicate_groups = await cursor.to_list(length=None)
     
     total_duplicates = sum(g["count"] - 1 for g in duplicate_groups)
     
@@ -399,7 +404,7 @@ async def deduplicate_collection(request: DeduplicateRequest):
     for group in duplicate_groups:
         # 删除除了第一个之外的所有
         ids_to_delete = group["ids"][1:]
-        result = coll.delete_many({"_id": {"$in": ids_to_delete}})
+        result = await coll.delete_many({"_id": {"in": ids_to_delete}})
         actually_deleted += result.deleted_count
     
     logger.info(f"[admin_db] Deduplicated {request.collection_name}: deleted {actually_deleted} duplicates")
@@ -429,7 +434,7 @@ async def check_missing_data(request: CheckMissingRequest):
     
     # 默认检查最新日期
     if request.date is None:
-        latest = list(coll.find({}, {"trade_date": 1}).sort([("trade_date", -1)]).limit(1))
+        latest = await coll.find({}, {"trade_date": 1}).sort([("trade_date", -1)]).limit(1).to_list(length=1)
         if not latest:
             return {
                 "success": False,
@@ -440,7 +445,8 @@ async def check_missing_data(request: CheckMissingRequest):
         check_date = request.date
     
     # 获取当天所有股票
-    docs = list(coll.find({"trade_date": check_date}))
+    cursor = coll.find({"trade_date": check_date})
+    docs = await cursor.to_list(length=None)
     total_stocks = len(docs)
     
     if total_stocks == 0:
@@ -495,7 +501,8 @@ async def verify_integrity(request: VerifyIntegrityRequest):
     
     # 获取交易日历
     trade_cal = db["trade_cal"]
-    trading_days = list(trade_cal.find(
+    # motor async find
+    cursor = trade_cal.find(
         {
             "trade_date": {
                 "$gte": request.start_date,
@@ -505,7 +512,8 @@ async def verify_integrity(request: VerifyIntegrityRequest):
         {
             "trade_date": 1
         }
-    ))
+    )
+    trading_days = await cursor.to_list(length=None)
     
     trading_dates = [d["trade_date"] for d in trading_days if d.get("is_open", 1)]
     total_trading_days = len(trading_dates)
@@ -525,7 +533,7 @@ async def verify_integrity(request: VerifyIntegrityRequest):
     threshold_pct = 0.8  # 少于 80% 视为不完整
     
     for date in trading_dates:
-        count = coll.count_documents({"trade_date": date})
+        count = await coll.count_documents({"trade_date": date})
         expected_count = expected_stocks_per_day
         if count >= int(expected_count * threshold_pct):
             complete = True
@@ -560,7 +568,8 @@ async def verify_integrity(request: VerifyIntegrityRequest):
         {"$match": {"trade_date": {"$gte": request.start_date, "$lte": request.end_date}}},
         {"$sample": {"size": request.sample_size}},
     ]
-    sample_docs = list(coll.aggregate(sample_pipeline))
+    cursor = coll.aggregate(sample_pipeline)
+    sample_docs = await cursor.to_list(length=request.sample_size)
     
     for doc in sample_docs:
         total_checked += 1
