@@ -115,6 +115,33 @@ class PortfolioBacktester:
         
         await log(f"🚀 开始组合回测: {config['start_date']} -> {config['end_date']}")
         
+        # 🔧 读取风控配置（优先使用请求中的配置，如果没有从数据库读取）
+        # 默认风控配置
+        risk_config = {
+            "enable_stop_loss": True,
+            "stop_loss_pct": 0.08,
+            "enable_take_profit": True,
+            "take_profit_pct": 0.10,
+            "enable_ma60_filter": True,
+            "enable_sector_concentration": True,
+            "sector_concentration_top_n": 3,
+        }
+        
+        # 如果请求中传入了风控配置，使用传入的配置
+        if "risk_config" in config and config["risk_config"]:
+            for k, v in config["risk_config"].items():
+                risk_config[k] = v
+        
+        # 输出风控配置到日志
+        await log(f"🔧 当前风控配置:")
+        await log(f"    🔹 {'✅' if risk_config['enable_stop_loss'] else '❌'} 强化止损: {risk_config['stop_loss_pct'] * 100:.1f}%")
+        await log(f"    🔹 {'✅' if risk_config['enable_take_profit'] else '❌'} 动态止盈: {risk_config['take_profit_pct'] * 100:.1f}%")
+        await log(f"    🔹 {'✅' if risk_config['enable_ma60_filter'] else '❌'} 大盘MA60过滤")
+        await log(f"    🔹 {'✅' if risk_config['enable_sector_concentration'] else '❌'} 板块集中度过滤: 保留前 {risk_config['sector_concentration_top_n']} 名")
+        
+        # 保存风控配置到实例，后续使用
+        self._risk_config = risk_config
+        
         # 初始化
         initial_cash = config.get("initial_cash", 1000000)
         top_n = config.get("top_n", 20)
@@ -520,21 +547,25 @@ class PortfolioBacktester:
                                 break
                     candidate_count = len(temp_df)
                     
-                    # 🔧 新增：板块集中度过滤 - 只保留热点板块前三名
-                    # 要求热点板块 = 1，按涨幅排序取前三名
-                    if "hot_sector" in [c["name"] for c in conditions]:
-                        if candidate_count > 3:
-                            # 筛选出热点板块的股票
-                            hot_temp = temp_df[temp_df["hot_sector"] == 1]
-                            if len(hot_temp) > 3:
-                                # 按涨幅降序排序，取前三名
-                                hot_temp = hot_temp.sort_values("pct_chg", ascending=False)
-                                hot_codes = set(hot_temp.head(3)["ts_code"].tolist())
-                                # 过滤只保留前三名
-                                original_count = candidate_count
-                                temp_df = temp_df[temp_df["ts_code"].isin(hot_codes)]
-                                candidate_count = len(temp_df)
-                                await log(f"    ├─── 📌 板块集中度过滤：保留热点板块前 {len(hot_codes)} 只，过滤掉 {original_count - candidate_count} 只")
+                    # 🔧 新增：板块集中度过滤 - 只保留热点板块前N名
+                    # 要求热点板块 = 1，按涨幅排序取前N名
+                    top_n = self._risk_config.get("sector_concentration_top_n", 3)
+                    if (
+                        self._risk_config.get("enable_sector_concentration", True) and
+                        "hot_sector" in [c["name"] for c in conditions] and
+                        candidate_count > top_n
+                    ):
+                        # 筛选出热点板块的股票
+                        hot_temp = temp_df[temp_df["hot_sector"] == 1]
+                        if len(hot_temp) > top_n:
+                            # 按涨幅降序排序，取前N名
+                            hot_temp = hot_temp.sort_values("pct_chg", ascending=False)
+                            hot_codes = set(hot_temp.head(top_n)["ts_code"].tolist())
+                            # 过滤只保留前N名
+                            original_count = candidate_count
+                            temp_df = temp_df[temp_df["ts_code"].isin(hot_codes)]
+                            candidate_count = len(temp_df)
+                            await log(f"    ├─── 📌 板块集中度过滤：保留热点板块前 {len(hot_codes)} 只，过滤掉 {original_count - candidate_count} 只")
                     
                     all_candidates.update(temp_df["ts_code"].tolist())
                     await log(f"└─ 🎯 【{strategy_name}】最终候选：{candidate_count} 只")
@@ -561,27 +592,27 @@ class PortfolioBacktester:
                         weight_method,
                     );
                     
-                    # 🔧 新增：大盘 MA60 过滤 - 大盘跌破 MA60 整体降低仓位 50%
-                    # 获取上证指数最新收盘价，检查是否跌破 MA60
-                    try:
-                        # 从 index_daily 查询上证指数(000001.SH)的均线数据
-                        index_data = await mongo_manager.find_one(
-                            "index_daily",
-                            {"ts_code": "000001.SH", "trade_date": int(trade_date)},
-                            {"close": 1, "ma60": 1},
-                        );
-                        if index_data and "close" in index_data and "ma60" in index_data:
-                            close = index_data["close"]
-                            ma60 = index_data["ma60"]
-                            if close < ma60:
-                                # 跌破 MA60，整体降低仓位 50%
-                                total_weight = sum(target_weights.values())
-                                for code in target_weights:
-                                    target_weights[code] = target_weights[code] * 0.5
-                                await log(f"            📉 大盘跌破 MA60，整体仓位降低 50%");
-                    except Exception as e:
-                        # 查询失败不影响继续执行
-                        logger.warning(f"Failed to check index MA60 for position adjustment: {e}");
+                    # 🔧 新增：大盘 MA60 过滤 - 大盘跌破 MA60 整体降低仓位 50%（可配置开关）
+                    if self._risk_config.get("enable_ma60_filter", True):
+                        try:
+                            # 从 index_daily 查询上证指数(000001.SH)的均线数据
+                            index_data = await mongo_manager.find_one(
+                                "index_daily",
+                                {"ts_code": "000001.SH", "trade_date": int(trade_date)},
+                                {"close": 1, "ma60": 1},
+                            );
+                            if index_data and "close" in index_data and "ma60" in index_data:
+                                close = index_data["close"]
+                                ma60 = index_data["ma60"]
+                                if close < ma60:
+                                    # 跌破 MA60，整体降低仓位 50%
+                                    total_weight = sum(target_weights.values())
+                                    for code in target_weights:
+                                        target_weights[code] = target_weights[code] * 0.5
+                                    await log(f"            📉 大盘跌破 MA60，整体仓位降低 50%");
+                        except Exception as e:
+                            # 查询失败不影响继续执行
+                            logger.warning(f"Failed to check index MA60 for position adjustment: {e}");
                 
                 # 计算进度
                 total_days = len(rebalance_dates);
@@ -623,3 +654,156 @@ class PortfolioBacktester:
                             reason_desc = "不再符合选股条件";
                         else:
                             reason_desc = record.reason;
+                    continue
+                
+                # 计算卖出金额（扣除佣金和印花税）
+                gross_amount = shares * price
+                commission = max(gross_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
+                stamp_tax = gross_amount * self.STAMP_TAX
+                net_amount = gross_amount - commission - stamp_tax
+                
+                cash += net_amount
+                
+                # 移除持仓和成本记录
+                del holdings[ts_code]
+                if ts_code in self._holding_costs:
+                    del self._holding_costs[ts_code]
+                
+                records.append(RebalanceRecord(
+                    date=trade_date,
+                    action="sell",
+                    ts_code=ts_code,
+                    shares=shares,
+                    price=price,
+                    amount=net_amount,
+                    reason=reason
+                ))
+        
+        # 原有调仓逻辑继续...
+        
+        # 1. 卖出不在目标中的股票
+        current_codes = set(holdings.keys())
+        target_codes = set(target_weights.keys())
+        sell_codes = current_codes - target_codes
+        
+        for ts_code in sell_codes:
+            shares = holdings[ts_code]
+            if shares <= 0:
+                continue
+            price = prices.get(ts_code, 0)
+            if price <= 0:
+                continue
+            
+            # 计算卖出金额（扣除佣金和印花税）
+            gross_amount = shares * price
+            commission = max(gross_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
+            stamp_tax = gross_amount * self.STAMP_TAX
+            net_amount = gross_amount - commission - stamp_tax
+            
+            cash += net_amount
+            
+            if ts_code in self._holding_costs:
+                del self._holding_costs[ts_code]
+            
+            records.append(RebalanceRecord(
+                date=trade_date,
+                action="sell",
+                ts_code=ts_code,
+                shares=shares,
+                price=price,
+                amount=net_amount,
+                reason="not_in_target"
+            ))
+            
+            del holdings[ts_code]
+        
+        # 计算当前总价值
+        total_value = cash + sum(
+            holdings.get(ts_code, 0) * prices.get(ts_code, 0)
+            for ts_code in current_codes - sell_codes
+        )
+        
+        # 2. 买入目标股票，调整到目标权重
+        for ts_code, target_weight in target_weights.items():
+            target_value = total_value * target_weight
+            current_shares = holdings.get(ts_code, 0)
+            current_price = prices.get(ts_code, 0)
+            if current_price <= 0:
+                continue
+            
+            current_value = current_shares * current_price
+            target_shares = int(target_value / current_price / 100) * 100  # 整手买入
+            
+            if target_shares > current_shares:
+                # 需要买入
+                buy_shares = target_shares - current_shares
+                gross_amount = buy_shares * current_price
+                commission = max(gross_amount * self.BUY_COMMISSION, self.MIN_COMMISSION)
+                cost = gross_amount + commission
+                
+                if cost > cash:
+                    # 现金不够，按比例缩小
+                    scale = cash / cost
+                    buy_shares = int(buy_shares * scale / 100) * 100
+                    if buy_shares <= 0:
+                        continue
+                    gross_amount = buy_shares * current_price
+                    commission = max(gross_amount * self.BUY_COMMISSION, self.MIN_COMMISSION)
+                    cost = gross_amount + commission
+                
+                cash -= cost
+                
+                if ts_code in holdings:
+                    holdings[ts_code] += buy_shares
+                else:
+                    holdings[ts_code] = buy_shares
+                
+                # 更新平均持仓成本
+                # 加权平均计算新的平均成本
+                total_shares = holdings[ts_code]
+                old_cost = self._holding_costs.get(ts_code, 0) * (total_shares - buy_shares)
+                new_cost = current_price * buy_shares + commission
+                self._holding_costs[ts_code] = (old_cost + new_cost) / total_shares
+                
+                records.append(RebalanceRecord(
+                    date=trade_date,
+                    action="buy",
+                    ts_code=ts_code,
+                    shares=buy_shares,
+                    price=current_price,
+                    amount=cost,
+                    reason="rebalance"
+                ))
+            
+            elif target_shares < current_shares:
+                # 需要卖出
+                sell_shares = current_shares - target_shares
+                gross_amount = sell_shares * current_price
+                commission = max(gross_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
+                stamp_tax = gross_amount * self.STAMP_TAX
+                net_amount = gross_amount - commission - stamp_tax
+                
+                cash += net_amount
+                holdings[ts_code] = target_shares
+                
+                # 更新成本（按比例保留）
+                if target_shares == 0:
+                    if ts_code in self._holding_costs:
+                        del self._holding_costs[ts_code]
+                else:
+                    self._holding_costs[ts_code] = self._holding_costs.get(ts_code, 0) * (target_shares / current_shares)
+                
+                records.append(RebalanceRecord(
+                    date=trade_date,
+                    action="sell",
+                    ts_code=ts_code,
+                    shares=sell_shares,
+                    price=current_price,
+                    amount=net_amount,
+                    reason="rebalance"
+                ))
+                
+                if holdings[ts_code] <= 0:
+                    del holdings[ts_code]
+        
+        return cash, holdings, records
