@@ -13,14 +13,15 @@
 - 技术因子: 基于技术指标
 """
 
-from enum import Enum
-from typing import Callable, Dict, Optional, List
+from collections.abc import Callable
 from dataclasses import dataclass
-import pandas as pd
+from enum import StrEnum
+
 import numpy as np
+import pandas as pd
 
 
-class FactorCategory(str, Enum):
+class FactorCategory(StrEnum):
     """因子分类"""
     MOMENTUM = "momentum"      # 动量因子
     VALUE = "value"           # 价值因子
@@ -40,7 +41,7 @@ class FactorDefinition:
     description: str                   # 描述
     direction: str                     # "asc" 越大越好, "desc" 越小越好
     data_source: str                   # 数据来源: "daily" | "daily_basic" | "fina"
-    required_fields: List[str]         # 需要的数据字段
+    required_fields: list[str]         # 需要的数据字段
     compute_func: Callable             # 计算函数
     lookback_days: int = 60            # 需要的历史数据天数
 
@@ -48,24 +49,24 @@ class FactorDefinition:
 class FactorLibrary:
     """
     因子库
-    
+
     管理所有内置因子和自定义因子
     """
-    
-    _factors: Dict[str, FactorDefinition] = {}
-    
+
+    _factors: dict[str, FactorDefinition] = {}
+
     @classmethod
     def register(cls, factor_def: FactorDefinition):
         """注册因子"""
         cls._factors[factor_def.name] = factor_def
-    
+
     @classmethod
-    def get(cls, name: str) -> Optional[FactorDefinition]:
+    def get(cls, name: str) -> FactorDefinition | None:
         """获取因子定义"""
         return cls._factors.get(name)
-    
+
     @classmethod
-    def list_factors(cls) -> List[Dict]:
+    def list_factors(cls) -> list[dict]:
         """列出所有因子"""
         return [
             {
@@ -78,9 +79,9 @@ class FactorLibrary:
             }
             for f in cls._factors.values()
         ]
-    
+
     @classmethod
-    def get_factors_by_category(cls, category: FactorCategory) -> List[FactorDefinition]:
+    def get_factors_by_category(cls, category: FactorCategory) -> list[FactorDefinition]:
         """按分类获取因子"""
         return [f for f in cls._factors.values() if f.category == category]
 
@@ -441,7 +442,7 @@ FactorLibrary.register(FactorDefinition(
     required_fields=["close", "high", "low"],
     lookback_days=70,
     compute_func=lambda df: (
-        (df["close"] - df["low"].rolling(60).min()) / 
+        (df["close"] - df["low"].rolling(60).min()) /
         (df["high"].rolling(60).max() - df["low"].rolling(60).min() + 1e-10)
     ),
 ))
@@ -555,7 +556,7 @@ FactorLibrary.register(FactorDefinition(
     required_fields=["close", "amount"],
     lookback_days=30,
     compute_func=lambda df: (
-        df["close"].pct_change(20) * 
+        df["close"].pct_change(20) *
         df["amount"].rolling(5).mean() / df["amount"].rolling(20).mean()
     ),
 ))
@@ -570,7 +571,7 @@ FactorLibrary.register(FactorDefinition(
     required_fields=["close", "up_limit"],
     lookback_days=20,
     compute_func=lambda df: (
-        (df["close"] >= df["up_limit"] * 0.998) & 
+        (df["close"] >= df["up_limit"] * 0.998) &
         (df["close"].rolling(20).apply(lambda x: sum(x >= x.iloc[-1] * 0.998) == 1))
     ).astype(float),
 ))
