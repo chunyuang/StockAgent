@@ -391,7 +391,7 @@ async def get_backtest_result(
     
     仅当任务完成后可获取。
     """
-    # 先查Mock任务
+    # 先查Mock任务（超短回测都在这里）
     if task_id.startswith("us_") and task_id in mock_tasks:
         task = mock_tasks[task_id]
         if task["status"] != "completed":
@@ -400,6 +400,8 @@ async def get_backtest_result(
                 "data": {
                     "task_id": task_id,
                     "status": task["status"],
+                    "progress": task.get("progress", 0),
+                    "logs": task.get("logs", []),
                     "message": "任务执行中"
                 }
             }
@@ -408,6 +410,7 @@ async def get_backtest_result(
             "data": {
                 "task_id": task_id,
                 "status": "completed",
+                "progress": 100,
                 "result": task["result"],
             }
         }

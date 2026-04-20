@@ -66,7 +66,7 @@ class WalkForwardAnalyzer:
             self._windows.append(window)
             current = train_end + timedelta(days=1)
         
-        logger.info(f"Generated {len(self._windows)} walk-forward windows")
+        logger.info('WALK_FORWARD', f"Generated {len(self._windows)} walk-forward windows")
     
     async def run_analysis(
         self,
@@ -94,7 +94,7 @@ class WalkForwardAnalyzer:
             test_start = window["test_start"]
             test_end = window["test_end"]
             
-            logger.info(f"Processing window: {train_start} -> {test_end}")
+            logger.info('WALK_FORWARD', f"Processing window: {train_start} -> {test_end}")
             
             # 在训练窗口优化参数
             best_params, best_result = await self._optimize_window(
@@ -184,7 +184,7 @@ class WalkForwardAnalyzer:
             "timestamp": datetime.now().isoformat(),
         }
         
-        logger.info(
+        logger.info('WALK_FORWARD', 
             f"WFA completed: overfitting_score={overfitting_score:.4f}, "
             f"sample_out_sharpe={summary['sample_out']['mean_sharpe']:.4f}"
         )
@@ -205,7 +205,7 @@ class WalkForwardAnalyzer:
             doc,
             upsert=True,
         )
-        logger.info("Result saved to MongoDB")
+        logger.info('WALK_FORWARD', "Result saved to MongoDB")
 
 
 async def get_wfa_analyzer(factor_name: str) -> Optional[Dict[str, Any]]:

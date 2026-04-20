@@ -61,18 +61,18 @@ class BacktestNode(BaseNode):
 
     async def start(self) -> None:
         """启动回测节点"""
-        self.logger.info("Starting Backtest Node...")
+        self.logger.info('BACKTEST_NODE', "Starting Backtest Node...")
 
         # 初始化管理器
-        self.logger.info("Initializing managers...")
+        self.logger.info('BACKTEST_NODE', "Initializing managers...")
         await redis_manager.initialize()
         await mongo_manager.initialize()
         # Tushare初始化加异常保护,失败不影响运行
         try:
             await tushare_manager.initialize()
-            self.logger.info("Tushare manager initialized successfully")
+            self.logger.info('BACKTEST_NODE', "Tushare manager initialized successfully")
         except Exception as e:
-            self.logger.warning(f"Tushare manager initialize failed (ignored): {e}, will use AKShare only")
+            self.logger.warn('BACKTEST_NODE', f"Tushare manager initialize failed (ignored): {e}, will use AKShare only")
 
         # 启动 RPC 服务器
         await self._start_rpc_server()
@@ -80,24 +80,24 @@ class BacktestNode(BaseNode):
         # 启动工作协程
         self._start_workers()
 
-        self.logger.info(f"Backtest Node started: {self.node_id}")
-        self.logger.info(f"RPC listening on port {self._rpc_port}")
+        self.logger.info('BACKTEST_NODE', f"Backtest Node started: {self.node_id}")
+        self.logger.info('BACKTEST_NODE', f"RPC listening on port {self._rpc_port}")
 
     async def stop(self) -> None:
         """停止回测节点"""
-        self.logger.info("Stopping Backtest Node...")
+        self.logger.info('BACKTEST_NODE', "Stopping Backtest Node...")
 
         # 取消所有运行中的任务
         for task_id, task in self._running_tasks.items():
             if not task.done():
                 task.cancel()
-                self.logger.info(f"Cancelled task: {task_id}")
+                self.logger.info('BACKTEST_NODE', f"Cancelled task: {task_id}")
 
         await super().stop()
 
     async def run(self) -> None:
         """节点主循环 - 保持节点运行"""
-        self.logger.info("Backtest Node is running, waiting for tasks...")
+        self.logger.info('BACKTEST_NODE', "Backtest Node is running, waiting for tasks...")
 
         # 回测节点主要通过 RPC 接收任务,这里只需保持运行
         while self._running:
@@ -118,7 +118,7 @@ class BacktestNode(BaseNode):
         """启动工作协程"""
         for i in range(self._worker_count):
             asyncio.create_task(self._worker_loop(i))
-            self.logger.info(f"Started worker {i}")
+            self.logger.info('BACKTEST_NODE', f"Started worker {i}")
 
     async def _worker_loop(self, worker_id: int) -> None:
         """工作协程循环"""
@@ -129,7 +129,7 @@ class BacktestNode(BaseNode):
                 task_id = task_info["task_id"]
                 task_type = task_info.get("task_type", "single_stock")
 
-                self.logger.info(f"[Worker-{worker_id}] Processing {task_type} task: {task_id}")
+                self.logger.info('BACKTEST_NODE', f"[Worker-{worker_id}] Processing {task_type} task: {task_id}")
 
                 try:
                     # 根据任务类型执行不同的回测
@@ -180,7 +180,7 @@ class BacktestNode(BaseNode):
         """
         task_id = params.get("task_id", f"bt_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}")
 
-        self.logger.info(f"Received backtest request: {task_id}")
+        self.logger.info('BACKTEST_NODE', f"Received backtest request: {task_id}")
 
         # 记录任务
         await mongo_manager.update_one(
@@ -272,7 +272,7 @@ class BacktestNode(BaseNode):
         """
         task_id = params.get("task_id", f"fs_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}")
 
-        self.logger.info(f"Received factor selection backtest request: {task_id}")
+        self.logger.info('BACKTEST_NODE', f"Received factor selection backtest request: {task_id}")
 
         # 记录任务
         await mongo_manager.update_one(
@@ -326,7 +326,7 @@ class BacktestNode(BaseNode):
         """
         task_id = params.get("task_id", f"us_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}")
 
-        self.logger.info(f"Received ultra short backtest request: {task_id}")
+        self.logger.info('BACKTEST_NODE', f"Received ultra short backtest request: {task_id}")
 
         # 记录任务
         await mongo_manager.update_one(
@@ -370,7 +370,7 @@ class BacktestNode(BaseNode):
         """
         task_id = params.get("task_id", "unknown")
 
-        self.logger.info(
+        self.logger.info('BACKTEST_NODE', 
             f"[{task_id}] Executing factor selection: "
             f"{params.get('start_date')} ~ {params.get('end_date')}"
         )
@@ -400,7 +400,7 @@ class BacktestNode(BaseNode):
         backtester = PortfolioBacktester()
         result = await backtester.run(config)
 
-        self.logger.info(
+        self.logger.info('BACKTEST_NODE', 
             f"[{task_id}] Factor selection completed: "
             f"return={result.get('performance', {}).get('total_return', 0):.2f}%"
         )
@@ -447,21 +447,21 @@ class BacktestNode(BaseNode):
         # 初始化所有数据管理器,异常保护
         try:
             await tushare_manager.initialize()
-            self.logger.info("Tushare manager initialized successfully")
+            self.logger.info('BACKTEST_NODE', "Tushare manager initialized successfully")
         except Exception as e:
-            self.logger.warning(f"Tushare manager initialize failed (ignored): {e}, will use AKShare only")
+            self.logger.warn('BACKTEST_NODE', f"Tushare manager initialize failed (ignored): {e}, will use AKShare only")
 
         try:
             await baostock_manager.initialize()
-            self.logger.info("Baostock manager initialized successfully")
+            self.logger.info('BACKTEST_NODE', "Baostock manager initialized successfully")
         except Exception as e:
-            self.logger.warning(f"Baostock manager initialize failed (ignored): {e}, will use MongoDB only")
+            self.logger.warn('BACKTEST_NODE', f"Baostock manager initialize failed (ignored): {e}, will use MongoDB only")
 
         try:
             await akshare_manager.initialize()
-            self.logger.info("AKShare manager initialized successfully")
+            self.logger.info('BACKTEST_NODE', "AKShare manager initialized successfully")
         except Exception as e:
-            self.logger.warning(f"AKShare manager initialize failed (ignored): {e}, will use MongoDB only")
+            self.logger.warn('BACKTEST_NODE', f"AKShare manager initialize failed (ignored): {e}, will use MongoDB only")
 
         # 打印初始化阶段头部
         logger.success("INIT", "============== 回测任务启动 ==============")
@@ -607,7 +607,7 @@ class BacktestNode(BaseNode):
                 # 更新params里的字段，确保全链路一致
                 s["params"]["volume_threshold"] = volume_val
                 s["params"]["min_volume_ratio"] = volume_val
-                self.logger.info(f"[{task_id}] 半路追涨量比阈值更新为: {volume_val}")
+                self.logger.info('BACKTEST_NODE', f"[{task_id}] 半路追涨量比阈值更新为: {volume_val}")
             elif strategy_name == '首板打板':
                 min_seal = strategy_params_local.get('min_seal_amount', 5000)
                 max_limit_time = strategy_params_local.get('max_limit_up_time', '10:00')
@@ -620,7 +620,7 @@ class BacktestNode(BaseNode):
                 await self._push_log(task_id, "   │   ├─ 最大开板次数: %d 次" % max_blast)
                 await self._push_log(task_id, "   │   └─ 要求热门板块: %s" % ("是" if require_hot else "否"))
                 # 更新参数到筛选逻辑：添加封单金额筛选条件
-                self.logger.info(f"[{task_id}] 首板打板最小封单金额更新为: {min_seal}万元")
+                self.logger.info('BACKTEST_NODE', f"[{task_id}] 首板打板最小封单金额更新为: {min_seal}万元")
                 
             elif strategy_name == '涨停开板':
                 min_consecutive = strategy_params_local.get('min_consecutive_limit', 2)
@@ -631,7 +631,7 @@ class BacktestNode(BaseNode):
                 await self._push_log(task_id, "   │   ├─ 最大开板时长: %d 分钟" % max_open_duration)
                 await self._push_log(task_id, "   │   ├─ 开板后最小封单: %d 万元" % min_seal_after)
                 await self._push_log(task_id, "   │   └─ 最小换手率: %.1f %%" % min_turnover)
-                self.logger.info(f"[{task_id}] 涨停开板最小连续涨停更新为: {min_consecutive}天，最小封单更新为: {min_seal_after}万元")
+                self.logger.info('BACKTEST_NODE', f"[{task_id}] 涨停开板最小连续涨停更新为: {min_consecutive}天，最小封单更新为: {min_seal_after}万元")
                 
             elif strategy_name == '龙头低吸':
                 min_consecutive = strategy_params_local.get('min_consecutive_limit', 3)
@@ -646,7 +646,7 @@ class BacktestNode(BaseNode):
                 await self._push_log(task_id, "   │   ├─ 最小回调天数: %d 天" % correction_days_min)
                 await self._push_log(task_id, "   │   ├─ 最大回调天数: %d 天" % correction_days_max)
                 await self._push_log(task_id, "   │   └─ 支撑位: %s" % support_level)
-                self.logger.info(f"[{task_id}] 龙头低吸最小连续涨停更新为: {min_consecutive}天")
+                self.logger.info('BACKTEST_NODE', f"[{task_id}] 龙头低吸最小连续涨停更新为: {min_consecutive}天")
                 
             elif strategy_name == '跌停翘板':
                 min_consecutive = strategy_params_local.get('min_consecutive_limit', 3)
@@ -657,7 +657,7 @@ class BacktestNode(BaseNode):
                 await self._push_log(task_id, "   │   ├─ 翘板最小金额: %d 万元" % min_qiao_amount)
                 await self._push_log(task_id, "   │   ├─ 翘板后最小涨幅: %.1f %%" % min_rise_after)
                 await self._push_log(task_id, "   │   └─ 要求高情绪周期: %s" % ("是" if require_high_sentiment else "否"))
-                self.logger.info(f"[{task_id}] 跌停翘板最小连续跌停更新为: {min_consecutive}天")
+                self.logger.info('BACKTEST_NODE', f"[{task_id}] 跌停翘板最小连续跌停更新为: {min_consecutive}天")
         
         await self._push_log(task_id, "")
         await self._push_log(task_id, "✅ ========================================")
@@ -779,33 +779,34 @@ class BacktestNode(BaseNode):
                 )
                 return {"success": False, "error": error_msg}
             
-            # 兼容字段名，确保所有字段存在
-            perf = result.get('performance', {})
-            # 计算实际信号数：调仓记录数量
-            trade_count = len(result.get('rebalance_records', []))
-            # 字段映射，兼容不同返回格式
-            field_map = {
-                'trade_days': ['total_trade_days', 'trade_count', 0],
-                'win_rate': ['winrate', 'winning_rate', 0.0],
-                'avg_daily_return': ['avg_return', 'daily_return', 0.0],
-                'total_return': ['return', 'total_profit', 0.0],
-                'max_drawdown': ['drawdown', 'max_dd', 0.0],
-                'sharpe_ratio': ['sharpe', 'sharpe_score', 0.0],
-            }
-            # 填充所有需要的字段
-            for field, aliases in field_map.items():
-                if field not in perf:
-                    # 查找别名
-                    for alias in aliases[:-1]:
-                        if alias in perf:
-                            perf[field] = perf[alias]
-                            break
-                    # 都没有就用默认值
-                    if field not in perf:
-                        perf[field] = aliases[-1]
-            # 添加实际交易数到perf
-            perf['trade_count'] = trade_count
-            perf['total_trades'] = trade_count
+            # 从 PortfolioBacktester 返回结果构建完整绩效对象
+            # result 直接包含所有需要的数据，我们来构建完整的 perf 对象
+            perf = {}
+            
+            # 计算实际信号数：所有买入交易数量
+            all_trades = result.get('all_trades', [])
+            total_signals = len(all_trades)
+            # 统计盈利交易
+            winning_trades = 0
+            total_return = result.get('total_return', 0.0)
+            
+            # 从结果中提取胜率
+            # 遍历所有交易记录，统计盈利交易
+            for trade in all_trades:
+                if hasattr(trade, 'action') and hasattr(trade, 'amount'):
+                    # 买入交易，amount > 0 表示盈利（这里统计的是最终盈亏）
+                    if trade.action == 'buy' and trade.amount > 0:
+                        winning_trades += 1
+            
+            # 构建完整绩效字段，匹配前端期望
+            perf['trade_days'] = result.get('total_rebalance_days', len(result.get('rebalance_dates', [])))
+            perf['win_rate'] = (winning_trades / total_signals * 100) if total_signals > 0 else 0.0
+            perf['total_return'] = total_return * 100  # 转换为百分比
+            perf['max_drawdown'] = result.get('max_drawdown', 0.0) * 100
+            perf['sharpe_ratio'] = result.get('sharpe_ratio', 0.0)
+            perf['profit_loss_ratio'] = result.get('profit_loss_ratio', 0.0)
+            perf['total_trades'] = total_signals
+            perf['trade_count'] = total_signals
             perf["strategy_name"] = "多策略组合"
             perf["name"] = "多策略组合" # 兼容前端字段
             # 复制交易记录和图表数据
@@ -830,10 +831,13 @@ class BacktestNode(BaseNode):
                 perf["drawdown_series"] = result["drawdown_series"]
             if "daily_profit" in result:
                 perf["daily_profit"] = result["daily_profit"]
+            # 添加净值序列，PortfolioBacktester 现在已经包含每日净值
+            if "net_value_series" not in perf and "net_value_series" in result:
+                perf["net_value_series"] = result["net_value_series"]
             all_results.append(perf)
 
             logger.success("RESULT", "多策略组合回测完成")
-            logger.info("RESULT", f"信号数: {trade_count}")
+            logger.info("RESULT", f"信号数: {total_signals}")
             logger.info("RESULT", f"胜率: {perf['win_rate']:.2f}%")
             logger.info("RESULT", f"累计收益率: {perf['total_return']:.2f}%")
             logger.info("RESULT", f"最大回撤: {perf['max_drawdown']:.2f}%")
@@ -937,7 +941,7 @@ class BacktestNode(BaseNode):
             )
         except Exception as e:
             # Redis发布失败时忽略，不影响回测执行
-            self.logger.warning(f"Failed to publish log to Redis: {e}")
+            self.logger.warn('BACKTEST_NODE', f"Failed to publish log to Redis: {e}")
 
     async def _execute_backtest(self, params: dict) -> dict:
         """
@@ -954,7 +958,7 @@ class BacktestNode(BaseNode):
         start_date = params["start_date"]
         end_date = params["end_date"]
 
-        self.logger.info(f"[{task_id}] Executing backtest: {ts_code} ({start_date} ~ {end_date})")
+        self.logger.info('BACKTEST_NODE', f"[{task_id}] Executing backtest: {ts_code} ({start_date} ~ {end_date})")
 
         # 更新状态为 running
         await mongo_manager.update_one(
@@ -969,7 +973,7 @@ class BacktestNode(BaseNode):
         if price_data.empty:
             raise ValueError(f"No price data found for {ts_code}")
 
-        self.logger.info(f"[{task_id}] Loaded {len(price_data)} days of price data")
+        self.logger.info('BACKTEST_NODE', f"[{task_id}] Loaded {len(price_data)} days of price data")
 
         # 2. 构建因子数据
         factor_data = FactorData(
@@ -1013,7 +1017,7 @@ class BacktestNode(BaseNode):
         metrics = analyzer.analyze(result)
         report = analyzer.generate_report(result, metrics)
 
-        self.logger.info(
+        self.logger.info('BACKTEST_NODE', 
             f"[{task_id}] Backtest completed: "
             f"return={metrics.total_return_pct:.2f}%, "
             f"sharpe={metrics.sharpe_ratio:.2f}, "
@@ -1040,7 +1044,7 @@ class BacktestNode(BaseNode):
 
         if not records:
             # 本地没有数据,自动从AKShare下载
-            self.logger.info(f"本地没有{ts_code} {start_date}~{end_date}数据,尝试从AKShare下载...")
+            self.logger.info('BACKTEST_NODE', f"本地没有{ts_code} {start_date}~{end_date}数据,尝试从AKShare下载...")
             try:
                 # 转换日期格式:YYYYMMDD -> YYYY-MM-DD
                 start_dt = f"{start_date[:4]}-{start_date[4:6]}-{start_date[6:8]}"
@@ -1049,7 +1053,7 @@ class BacktestNode(BaseNode):
                 # 调用AKShare获取日线数据
                 df_ak = await akshare_manager.get_daily(ts_code, start_dt, end_dt)
                 if df_ak.empty:
-                    self.logger.warning(f"AKShare没有获取到{ts_code}的数据")
+                    self.logger.warn('BACKTEST_NODE', f"AKShare没有获取到{ts_code}的数据")
                     return pd.DataFrame()
 
                 # 转换格式存入MongoDB
@@ -1082,7 +1086,7 @@ class BacktestNode(BaseNode):
                             {"$setOnInsert": record},
                             upsert=True
                         )
-                    self.logger.info(f"成功下载并保存{ts_code} {len(records_to_insert)}条日线数据")
+                    self.logger.info('BACKTEST_NODE', f"成功下载并保存{ts_code} {len(records_to_insert)}条日线数据")
 
                     # 重新查询数据
                     records = await mongo_manager.find_many(
@@ -1177,12 +1181,12 @@ async def main():
         await node.start()
 
         # 保持运行
-        logger.info("Backtest Node is running. Press Ctrl+C to stop.")
+        logger.info('MAIN', "Backtest Node is running. Press Ctrl+C to stop.")
         while True:
             await asyncio.sleep(3600)
 
     except KeyboardInterrupt:
-        logger.info("Received shutdown signal")
+        logger.info('MAIN', "Received shutdown signal")
     finally:
         await node.stop()
 

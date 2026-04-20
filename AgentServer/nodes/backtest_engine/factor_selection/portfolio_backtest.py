@@ -227,6 +227,7 @@ class PortfolioBacktester:
 
         # 记录
         rebalance_records: list[RebalanceRecord] = []
+        net_value_series: list[dict] = []  # 每日净值序列，用于绘制曲线
 
         # 逐日模拟
         rebalance_set = set(rebalance_dates)
@@ -703,6 +704,16 @@ class PortfolioBacktester:
             # 如果没有任何股票获取到价格，跳过本次调仓
             if len(prices) == 0 and len(holdings) == 0:
                 await self.log("⚠️  没有任何股票获取到当日价格，跳过调仓")
+                # 仍然记录当前净值（和之前一样）
+                total_value = cash
+                for code, shares in holdings.items():
+                    if shares > 0 and code in last_prices:
+                        total_value += shares * last_prices[code]
+                net_value_series.append({
+                    "date": str(trade_date),
+                    "net_value": total_value,
+                    "return": (total_value - self._initial_cash) / self._initial_cash
+                })
                 continue
 
             # 5. 执行调仓
@@ -711,6 +722,17 @@ class PortfolioBacktester:
                 trade_date, target_weights, cash, holdings, prices
             )
             rebalance_records.extend(records)
+            
+            # 记录每日净值，用于绘制净值曲线
+            total_value = cash
+            for code, shares in holdings.items():
+                if shares > 0 and code in last_prices:
+                    total_value += shares * last_prices[code]
+            net_value_series.append({
+                "date": str(trade_date),
+                "net_value": total_value,
+                "return": (total_value - self._initial_cash) / self._initial_cash
+            })
 
             # 获取股票名称
             stock_names = await self._get_stock_names([r.ts_code for r in records])
@@ -773,12 +795,12 @@ class PortfolioBacktester:
 
         # 输出最终汇总结果到日志
         await self.log("✅ 回测全部完成!")
-        await self.log(f"📊 汇总结果:总信号 {total_signals} 个,平均胜率 {win_rate:.2f}%,总收益率 {total_return * 100:.2f}%")
-        await self.log(f"  累计收益率: {total_return * 100:.2f}%")
-        else:
-            await self.log("✅ 回测全部完成!")
+        if total_signals == 0:
             await self.log("📊 汇总结果:总信号 0 个,平均胜率 0.00%,总收益率 0.00%")
             await self.log("  累计收益率: 0.00%")
+        else:
+            await self.log(f"📊 汇总结果:总信号 {total_signals} 个,平均胜率 {win_rate:.2f}%,总收益率 {total_return * 100:.2f}%")
+            await self.log(f"  累计收益率: {total_return * 100:.2f}%")
 
         # 返回完整结果
         return {
@@ -788,8 +810,15 @@ class PortfolioBacktester:
             "final_value": final_value,
             "final_holdings": holdings,
             "total_return": total_return,
+            "total_rebalance_days": len(rebalance_dates),
+            "winning_trades": winning_trades,
+            "win_rate": win_rate,
+            "sharpe_ratio": 0.0,  # TODO: 后续可以计算准确夏普比率
+            "profit_loss_ratio": 0.0,  # TODO: 后续可以计算准确盈亏比
+            "max_drawdown": 0.0,  # TODO: 后续可以计算最大回撤
             "rebalance_records": rebalance_records,
             "all_trades": all_trades,
+            "net_value_series": net_value_series,
             "benchmark_data": benchmark_data,
         }
 

@@ -67,7 +67,7 @@ class IncrementalBacktester:
         # 更新保存结果
         await self._save_merged_result(merged_result)
         
-        logger.info(
+        logger.info('INCREMENTAL', 
             f"Incremental backtest completed for {self._strategy_id}: "
             f"total_return={merged_result.get('total_return_pct', 0):.2f}%, "
             f"sharpe={merged_result.get('sharpe_ratio', 0):.2f}"
