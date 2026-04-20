@@ -12,7 +12,7 @@ from typing import List, Set, Optional
 from datetime import datetime, timedelta
 import logging
 
-from core.managers import mongo_manager, tushare_manager
+from core.managers import mongo_manager
 
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ class UniverseManager:
     3. 生成调仓日期列表
     
     数据来源:
-    - stock_daily: 获取当日有交易的股票
+    - stock_daily_ak_full: 获取当日有交易的股票
     - stock_basic: 获取 ST 状态、上市日期
     - limit_list: 获取涨跌停信息
     """
@@ -87,12 +87,14 @@ class UniverseManager:
     async def _get_tradable_stocks(self, trade_date: str) -> Set[str]:
         """获取当日有交易的股票"""
         # 从 stock_daily_ak_full 获取当日有数据的股票
+        # 注意：停牌股票也会有一条记录（保留历史字段），但 close 是 None 或 0，需要剔除
         result = await mongo_manager.find_many(
             "stock_daily_ak_full",
             {"trade_date": int(trade_date)},
-            projection={"ts_code": 1},
+            projection={"ts_code": 1, "close": 1},
         )
-        return {doc["ts_code"] for doc in result}
+        # 过滤掉停牌股票：close must be > 0
+        return {doc["ts_code"] for doc in result if doc.get("close") and doc.get("close", 0) > 0}
     
     async def _apply_exclude_rules(
         self,
