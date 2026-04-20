@@ -244,7 +244,7 @@ class MA5BuyStrategy(BaseStrategy):
         try:
             # 获取最近5个交易日的日线数据
             records = await mongo_manager.find_many(
-                "stock_daily",
+                "stock_daily_ak_full",
                 {"ts_code": ts_code},
                 sort=[("trade_date", -1)],
                 limit=5,

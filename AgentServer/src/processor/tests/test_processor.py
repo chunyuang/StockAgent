@@ -10,7 +10,6 @@ Processor 模块单元测试
 
 import asyncio
 import pytest
-from typing import List
 
 from ..cleaner import TextCleaner
 from ..splitter import TextSplitter
@@ -137,7 +136,6 @@ class TestTextSplitter:
         # 检查相邻块是否有重叠
         if len(result) >= 2:
             # 第一块的末尾应该出现在第二块的开头
-            overlap_found = result[0][-10:] in result[1] if len(result[0]) >= 10 else True
             # 由于切割策略可能不同，这里只是基本检查
             assert len(result) >= 2
     

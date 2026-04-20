@@ -25,7 +25,7 @@
 - circ_mv: 流通市值（亿元，已转换）
 """
 
-from typing import Dict, Any, List
+from typing import Dict, Any
 from datetime import datetime
 
 from core.base import BaseCollector

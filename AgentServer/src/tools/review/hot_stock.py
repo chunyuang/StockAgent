@@ -4,7 +4,7 @@
 提供同花顺热股排行榜查询功能。
 """
 
-from typing import Optional, List
+from typing import Optional
 from src.tools.registry import tool
 
 

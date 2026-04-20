@@ -12,11 +12,10 @@
 
 import logging
 import asyncio
-from typing import Any, Dict, List, Optional
+from typing import Optional
 from datetime import datetime, timedelta
-from enum import Enum
 
-from .types import DecayStrategy, DecayResult, MemoryType
+from .types import DecayStrategy, DecayResult
 
 
 class DecayEngine:

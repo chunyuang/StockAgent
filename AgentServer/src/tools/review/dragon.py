@@ -4,7 +4,7 @@
 提供龙虎榜数据、游资追踪等功能。
 """
 
-from typing import Optional, List
+from typing import Optional
 from src.tools.registry import tool
 
 

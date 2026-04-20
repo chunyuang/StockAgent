@@ -35,7 +35,7 @@ def main():
             # AKShare 获取当日全部A股行情
             df = ak.stock_zh_a_spot()
             if df is None or df.empty:
-                print(f"  ⚠️  无数据")
+                print("  ⚠️  无数据")
                 fail_count += 1
                 continue
             
@@ -93,7 +93,7 @@ def main():
                     }
                 })
             if bulk:
-                result = db.stock_daily.bulk_write(bulk)
+                result = db.stock_daily_ak_full.bulk_write(bulk)
                 inserted = result.upserted_count
                 modified = result.modified_count
                 total_records += len(records)
@@ -107,12 +107,12 @@ def main():
         # 限流
         time.sleep(5)
     
-    print(f"\n===== 下载完成 =====")
+    print("\n===== 下载完成 =====")
     print(f"交易日 成功: {success_count}, 失败: {fail_count}")
     print(f"总计记录: {total_records}")
     
-    final_count = db.stock_daily.count_documents({'trade_date': {'$gte': 20260105, '$lte': 20260320}})
-    print(f"最终 stock_daily 区间 (20260105-20260320) 记录数: {final_count}")
+    final_count = db.stock_daily_ak_full.count_documents({'trade_date': {'$gte': 20260105, '$lte': 20260320}})
+    print(f"最终 stock_daily_ak_full 区间 (20260105-20260320) 记录数: {final_count}")
     
     client.close()
 

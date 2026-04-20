@@ -4,7 +4,7 @@ LangGraph 状态定义
 定义各种工作流的状态类型。
 """
 
-from typing import TypedDict, Optional, List, Any, Annotated
+from typing import TypedDict, Optional, List, Annotated
 from operator import add
 
 

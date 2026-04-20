@@ -4,7 +4,7 @@
 封装 Embedding 生成逻辑，对接 core.managers.llm_manager。
 """
 
-from typing import Any, List, Optional, Union
+from typing import List, Optional, Union
 
 from .base import BaseProcessor
 

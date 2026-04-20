@@ -270,7 +270,7 @@ class SupplementaryData(BaseModel):
     
     与初始数据 (initial_data) 区分，用于增量分析
     """
-    source: str = Field(description="数据来源 (如 get_stock_daily, get_news_sentiment)")
+    source: str = Field(description="数据来源 (如 get_stock_daily_ak_full, get_news_sentiment)")
     target_conflict: str = Field(default="", description="针对的矛盾类型")
     content: str = Field(description="数据内容摘要")
     raw_data: Optional[Dict[str, Any]] = Field(default=None, description="原始数据")

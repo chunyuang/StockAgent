@@ -21,7 +21,7 @@
 - review_northbound: 北向资金
 """
 
-from typing import Dict, Any, List, Callable, Tuple
+from typing import Dict, Any, List, Tuple
 from datetime import datetime, timedelta
 import asyncio
 

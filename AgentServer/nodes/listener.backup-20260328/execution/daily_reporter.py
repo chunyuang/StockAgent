@@ -13,7 +13,6 @@ import logging
 from datetime import date, datetime
 from typing import List, Dict, Any, Optional
 
-from core.settings import settings
 from core.managers import mongo_manager
 from .position_manager import PositionManager
 from .base_executor import AccountInfo

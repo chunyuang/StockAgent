@@ -11,7 +11,7 @@
 
 import uuid
 from datetime import datetime
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional
 
 from .base_executor import (
     BaseExecutor,
@@ -210,7 +210,7 @@ class SimulatorExecutor(BaseExecutor):
             "trade_date": today,
         }
         result = await mongo_manager.find_many(
-            "stock_daily",
+            "stock_daily_ak_full",
             query,
             projection={"ts_code": 1, "close": 1},
         )

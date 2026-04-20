@@ -10,7 +10,7 @@
 """
 
 from typing import Dict, Any, List, Optional, Tuple
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta
 import time
 
 from core.base import BaseCollector

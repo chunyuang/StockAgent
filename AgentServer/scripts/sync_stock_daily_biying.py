@@ -1,14 +1,14 @@
 """
-手动同步指定日期范围的 stock_daily 数据 (使用比盈数据源)
+手动同步指定日期范围的 stock_daily_ak_full 数据 (使用比盈数据源)
 
 用法:
     cd AgentServer
     
     # 同步单个日期
-    python scripts/sync_stock_daily_biying.py --date 20260106
+    python scripts/sync_stock_daily_ak_full_biying.py --date 20260106
     
     # 同步时间段
-    python scripts/sync_stock_daily_biying.py --start 20260106 --end 20260109
+    python scripts/sync_stock_daily_ak_full_biying.py --start 20260106 --end 20260109
 """
 
 import asyncio
@@ -25,13 +25,11 @@ from core.managers import mongo_manager, biying_manager
 
 def generate_trade_dates_in_range(start_date: str, end_date: str) -> list:
     """生成日期范围内所有日期，实际交易日期由比盈返回"""
-    start_int = int(start_date)
-    end_int = int(end_date)
     
     # 这里简化处理，实际每个日期都尝试请求，比盈会返回空如果非交易日
     dates = []
     # 需要更智能的方式，但先简单处理，从开始到结束逐天生成
-    from datetime import datetime, timedelta
+    from datetime import timedelta
     
     start_dt = datetime.strptime(start_date, "%Y%m%d")
     end_dt = datetime.strptime(end_date, "%Y%m%d")
@@ -45,9 +43,9 @@ def generate_trade_dates_in_range(start_date: str, end_date: str) -> list:
     return dates
 
 
-async def sync_stock_daily_for_date(trade_date: str) -> dict:
+async def sync_stock_daily_ak_full_for_date(trade_date: str) -> dict:
     """
-    同步指定日期的 stock_daily 数据 (使用比盈数据源)
+    同步指定日期的 stock_daily_ak_full 数据 (使用比盈数据源)
     
     Args:
         trade_date: 交易日期 (YYYYMMDD)
@@ -56,7 +54,7 @@ async def sync_stock_daily_for_date(trade_date: str) -> dict:
         同步结果统计
     """
     print(f"\n{'='*60}")
-    print(f"Syncing stock_daily for {trade_date} (via Biying)")
+    print(f"Syncing stock_daily_ak_full for {trade_date} (via Biying)")
     print(f"{'='*60}")
     
     trade_date_int = int(trade_date)
@@ -74,7 +72,7 @@ async def sync_stock_daily_for_date(trade_date: str) -> dict:
     
     # 批量写入 MongoDB
     result = await mongo_manager.bulk_upsert(
-        collection="stock_daily",
+        collection="stock_daily_ak_full",
         documents=records,
         key_fields=["ts_code", "trade_date"],
     )
@@ -169,9 +167,9 @@ async def main(args):
     # 同步每个日期
     results = []
     for trade_date in trade_dates:
-        # 同步 stock_daily
-        result = await sync_stock_daily_for_date(trade_date)
-        results.append(("stock_daily", result))
+        # 同步 stock_daily_ak_full
+        result = await sync_stock_daily_ak_full_for_date(trade_date)
+        results.append(("stock_daily_ak_full", result))
         
         if result["count"] > 0:
             # 只在有数据时同步每日指标和涨跌停
@@ -206,7 +204,7 @@ async def main(args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Sync stock_daily via Biying DataSource")
+    parser = argparse.ArgumentParser(description="Sync stock_daily_ak_full via Biying DataSource")
     parser.add_argument("--date", type=str, help="Single date to sync (e.g., 20260106)")
     parser.add_argument("--start", type=str, help="Start date of range (e.g., 20260106)")
     parser.add_argument("--end", type=str, help="End date of range (e.g., 20260109)")
@@ -216,8 +214,8 @@ if __name__ == "__main__":
     if not args.date and not (args.start and args.end):
         parser.print_help()
         print("\nExamples:")
-        print("  python scripts/sync_stock_daily_biying.py --date 20260106")
-        print("  python scripts/sync_stock_daily_biying.py --start 20251224 --end 20260324")
+        print("  python scripts/sync_stock_daily_ak_full_biying.py --date 20260106")
+        print("  python scripts/sync_stock_daily_ak_full_biying.py --start 20251224 --end 20260324")
         sys.exit(1)
     
     asyncio.run(main(args))

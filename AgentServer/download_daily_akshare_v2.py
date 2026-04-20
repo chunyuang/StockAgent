@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-逐个股票下载 stock_daily 数据，使用 AKShare，下载指定区间
+逐个股票下载 stock_daily_ak_full 数据，使用 AKShare，下载指定区间
 区间: 2026-01-05 至 2026-03-20
 """
 import sys
@@ -87,9 +87,7 @@ def main():
                     })
                 
                 if bulk:
-                    result = db.stock_daily.bulk_write(bulk)
-                    inserted = result.upserted_count
-                    modified = result.modified_count
+                    result = db.stock_daily_ak_full.bulk_write(bulk)
                     total_records += len(bulk)
                     # tqdm.write(f"{symbol} {name}: {len(bulk)} 条, +{inserted} 新增")
                     success_count += 1
@@ -103,12 +101,12 @@ def main():
             continue
     
     print("\n" + "="*50)
-    print(f"下载完成!")
+    print("下载完成!")
     print(f"成功: {success_count} 只")
     print(f"失败: {fail_count} 只")
     print(f"总记录数: {total_records}")
     
-    final_count = db.stock_daily.count_documents({'trade_date': {'$gte': int(start_date), '$lte': int(end_date)}})
+    final_count = db.stock_daily_ak_full.count_documents({'trade_date': {'$gte': int(start_date), '$lte': int(end_date)}})
     print(f"区间 {start_date} - {end_date} 总记录数: {final_count}")
     
     client.close()

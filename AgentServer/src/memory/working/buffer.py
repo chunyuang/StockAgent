@@ -4,12 +4,11 @@
 使用 Redis 实现分钟级 TTL 的有限容量工作记忆。
 """
 
-import json
 import logging
-from typing import Any, Dict, List, Optional
-from datetime import datetime, timedelta
+from typing import List, Optional
+from datetime import datetime
 
-from ..types import WorkingMemoryItem, MemoryMetadata
+from ..types import WorkingMemoryItem
 
 
 class WorkingBuffer:

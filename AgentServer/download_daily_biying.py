@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-逐个交易日下载 stock_daily 数据，使用比盈数据源
+逐个交易日下载 stock_daily_ak_full 数据，使用比盈数据源
 """
 import asyncio
 import sys
@@ -11,7 +11,6 @@ from core.managers.biying_manager import biying_manager
 from core.managers.mongo_manager import mongo_manager
 import akshare as ak
 import pandas as pd
-from datetime import datetime
 import pymongo
 
 async def main():
@@ -52,13 +51,13 @@ async def main():
                         }
                     })
                 if bulk:
-                    result = db.stock_daily.bulk_write(bulk)
+                    result = db.stock_daily_ak_full.bulk_write(bulk)
                     inserted = result.upserted_count
                     modified = result.modified_count
                     print(f"  → {len(records)} 条, 插入/更新: {inserted}/{modified}")
                 success_count += 1
             else:
-                print(f"  ⚠️  无数据")
+                print("  ⚠️  无数据")
                 fail_count += 1
         except Exception as e:
             print(f"  ❌ 错误: {e}")
@@ -67,11 +66,11 @@ async def main():
         # 睡眠避免限流
         await asyncio.sleep(3)
     
-    print(f"\n===== 下载完成 =====")
+    print("\n===== 下载完成 =====")
     print(f"成功: {success_count}, 失败: {fail_count}")
     
-    final_count = db.stock_daily.count_documents({'trade_date': {'$gte': 20260105, '$lte': 20260320}})
-    print(f"最终 stock_daily 区间记录数: {final_count}")
+    final_count = db.stock_daily_ak_full.count_documents({'trade_date': {'$gte': 20260105, '$lte': 20260320}})
+    print(f"最终 stock_daily_ak_full 区间记录数: {final_count}")
     
     client.close()
     await biying_manager.shutdown()

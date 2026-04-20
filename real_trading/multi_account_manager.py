@@ -16,7 +16,6 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from position_manager import PositionManager
 from performance_analyzer import PerformanceAnalyzer
-from paper_trading import PaperTradingEngine
 
 @dataclass
 class TradingAccount:
@@ -266,7 +265,7 @@ class MultiAccountManager:
         report_lines = [
             "# 📊 多账户汇总报告",
             "",
-            f"## 🔹 总览",
+            "## 🔹 总览",
             f"- 总账户数：{len(accounts)}个（活跃{active_count}个）",
             f"- 总盈利：{total_profit:.2f}元",
             f"- 平均胜率：{avg_win_rate:.2f}%",

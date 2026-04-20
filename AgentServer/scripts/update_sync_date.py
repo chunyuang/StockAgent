@@ -5,10 +5,10 @@
 
 Usage:
     # 修改单个类型的同步日期
-    python scripts/update_sync_date.py --types stock_daily --date 20260101
+    python scripts/update_sync_date.py --types stock_daily_ak_full --date 20260101
     
     # 修改多个类型的同步日期
-    python scripts/update_sync_date.py --types stock_daily,limit_list,daily_stats --date 20260201
+    python scripts/update_sync_date.py --types stock_daily_ak_full,limit_list,daily_stats --date 20260201
     
     # 修改所有类型的同步日期
     python scripts/update_sync_date.py --all --date 20260101
@@ -20,7 +20,7 @@ Usage:
 import asyncio
 import argparse
 from datetime import datetime
-from typing import List, Optional
+from typing import List
 
 import sys
 from pathlib import Path
@@ -33,7 +33,7 @@ from core.managers import mongo_manager
 
 # 默认同步类型（常用）
 DEFAULT_SYNC_TYPES = [
-    "stock_daily",
+    "stock_daily_ak_full",
     "daily_basic",
     "limit_list",
     "moneyflow_concept",
@@ -45,7 +45,7 @@ DEFAULT_SYNC_TYPES = [
 # 所有可用的同步类型
 ALL_SYNC_TYPES = [
     "stock_basic",
-    "stock_daily",
+    "stock_daily_ak_full",
     "daily_basic",
     "index_basic",
     "index_daily",
@@ -170,7 +170,7 @@ async def main():
   python scripts/update_sync_date.py --date 20260101 --execute
   
   # 指定类型
-  python scripts/update_sync_date.py --types stock_daily,limit_list --date 20260101 --execute
+  python scripts/update_sync_date.py --types stock_daily_ak_full,limit_list --date 20260101 --execute
   
   # 修改所有类型
   python scripts/update_sync_date.py --all --date 20260101 --execute
@@ -186,7 +186,7 @@ async def main():
     parser.add_argument(
         "--types", "-t",
         type=str,
-        help="要修改的同步类型，多个用逗号分隔 (如: stock_daily,limit_list)",
+        help="要修改的同步类型，多个用逗号分隔 (如: stock_daily_ak_full,limit_list)",
     )
     
     parser.add_argument(

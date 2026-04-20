@@ -11,10 +11,8 @@ Walk Forward Analysis 滚动窗口回测
 import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Tuple, Optional
-import pandas as pd
 import numpy as np
 
-from core.settings import settings
 from core.managers import mongo_manager
 
 

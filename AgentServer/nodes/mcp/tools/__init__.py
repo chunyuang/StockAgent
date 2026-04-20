@@ -3,7 +3,7 @@ MCP 工具集
 """
 
 from .stock_basic import GetStockBasicTool
-from .stock_daily import GetStockDailyTool
+from .stock_daily_ak_full import GetStockDailyTool
 from .financial import GetFinancialIndicatorTool
 from .news import GetNewsSentimentTool
 from .search import SearchSimilarReportsTool

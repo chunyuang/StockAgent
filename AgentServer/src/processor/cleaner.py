@@ -10,7 +10,7 @@
 
 import re
 import html
-from typing import Any, List, Optional, Union
+from typing import List, Optional, Union
 
 from .base import BaseProcessor
 

@@ -16,7 +16,6 @@ from datetime import datetime, timedelta
 
 from core.managers import mongo_manager
 from src.report.news_filter import (
-    NewsFilter,
     news_filter,
     score_importance,
     is_noise_news,

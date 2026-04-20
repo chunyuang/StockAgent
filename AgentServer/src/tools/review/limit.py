@@ -4,7 +4,7 @@
 提供涨停概况、连板天梯、涨停列表等查询功能。
 """
 
-from typing import Optional, List
+from typing import Optional
 from src.tools.registry import tool
 
 

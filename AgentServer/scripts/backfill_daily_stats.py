@@ -16,7 +16,6 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.managers import mongo_manager, tushare_manager, analysis_manager
-from core.settings import settings
 
 
 async def get_trade_dates(days: int) -> list:
@@ -123,9 +122,9 @@ async def compute_daily_stats_for_date(trade_date: str) -> dict:
             elif limit_type == "D":
                 stats["limit_down_count"] += 1
     
-    # 2. 从 stock_daily 获取涨跌统计
+    # 2. 从 stock_daily_ak_full 获取涨跌统计
     daily_data = await mongo_manager.find_many(
-        "stock_daily",
+        "stock_daily_ak_full",
         {"trade_date": trade_date},
         projection={"ts_code": 1, "pct_chg": 1, "_id": 0},
     )
@@ -208,7 +207,7 @@ async def main(days: int):
     
     # 显示各表数据情况
     print("=== Data Overview ===")
-    for col in ["stock_daily", "limit_list", "index_daily", "daily_stats", "market_analysis"]:
+    for col in ["stock_daily_ak_full", "limit_list", "index_daily", "daily_stats", "market_analysis"]:
         count = await mongo_manager._db[col].count_documents({})
         # 获取最新日期
         latest = await mongo_manager._db[col].find_one({}, sort=[("trade_date", -1)])
@@ -236,10 +235,10 @@ async def main(days: int):
         
         if stats["total_stocks"] == 0:
             # 详细诊断缺失的数据
-            stock_count = await mongo_manager._db.stock_daily.count_documents({"trade_date": trade_date})
+            stock_count = await mongo_manager._db.stock_daily_ak_full.count_documents({"trade_date": trade_date})
             limit_count = await mongo_manager._db.limit_list.count_documents({"trade_date": trade_date})
             index_count = await mongo_manager._db.index_daily.count_documents({"trade_date": trade_date})
-            print(f"[{i+1}/{len(trade_dates)}] {trade_date} - no data! stock_daily={stock_count}, limit_list={limit_count}, index_daily={index_count}")
+            print(f"[{i+1}/{len(trade_dates)}] {trade_date} - no data! stock_daily_ak_full={stock_count}, limit_list={limit_count}, index_daily={index_count}")
             continue
         
         # 保存到 daily_stats

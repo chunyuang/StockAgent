@@ -5,18 +5,14 @@
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Union
+from typing import Dict, List, Optional
 from datetime import datetime
 from dataclasses import dataclass, field
 
 from .types import (
     BaseMemoryItem,
-    SensoryMemoryItem,
     WorkingMemoryItem,
     LongTermMemoryItem,
-    LongTermMemoryType,
-    MemoryType,
-    SearchResult,
 )
 from .sensory import SensoryStream
 from .working import WorkingBuffer

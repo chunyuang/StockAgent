@@ -15,7 +15,6 @@ from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 
-from src.config import config_manager
 
 
 logger = logging.getLogger(__name__)

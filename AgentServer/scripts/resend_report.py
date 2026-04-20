@@ -29,7 +29,7 @@ async def resend_report(report_id: str):
         return
     
     print(f"  Content length: {len(content_wechat)}")
-    print(f"\nSending to WeChat...")
+    print("\nSending to WeChat...")
     
     # 推送
     success = await notification_manager.send_markdown(
@@ -44,9 +44,9 @@ async def resend_report(report_id: str):
             {"_id": report_id},
             {"$set": {"pushed.wechat": True, "pushed_wechat_at": datetime.utcnow()}}
         )
-        print(f"Success! Report pushed to WeChat.")
+        print("Success! Report pushed to WeChat.")
     else:
-        print(f"Failed to push report.")
+        print("Failed to push report.")
 
 
 if __name__ == "__main__":

@@ -25,12 +25,7 @@ from src.collector.types import CollectResult
 from .sources import (
     CLSSource,
     MIITSource,
-    WallstreetcnSource,
-    Jin10Source,
-    XueqiuSource,
-    EastMoneySource,
     GovSource,
-    JuejinSource,
     ThePaperSource,
 )
 

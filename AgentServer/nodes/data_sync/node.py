@@ -26,7 +26,6 @@ from .collectors import (
     MoneyflowConceptCollector,
     LimitListCollector,
     DailyStatsCollector,
-    StockNewsCollector,
     FinaIndicatorCollector,
     HotNewsCollector,
 )
@@ -104,7 +103,7 @@ class DataSyncNode(BaseNode):
         collector_classes: List[Type[BaseCollector]] = [
             StockBasicCollector,
             StockDailyCollector,
-            DailyBasicCollector,  # 每日指标采集器（PE/PB/换手率/市值），在 stock_daily 之后
+            DailyBasicCollector,  # 每日指标采集器（PE/PB/换手率/市值），在 stock_daily_ak_full 之后
             IndexBasicCollector,
             IndexDailyCollector,
             MoneyflowIndustryCollector,

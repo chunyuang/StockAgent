@@ -56,7 +56,6 @@ class DrawdownController:
     async def initialize(self) -> None:
         """初始化，从 MongoDB 加载历史交易计算当前状态"""
         # 获取初始账户峰值
-        from ...position_manager import PositionManager
         # 从历史交易计算当前状态
         await self._calculate_current_state()
         logger.info(f"DrawdownController initialized: peak_asset={self._total_peak_asset:.2f}, drawdown={self._current_total_drawdown:.2f}%")

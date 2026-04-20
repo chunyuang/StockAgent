@@ -7,7 +7,6 @@ WebSocket 端点
 - 心跳保活
 """
 
-import asyncio
 import json
 from typing import Dict, Set
 
@@ -15,7 +14,6 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from jose import JWTError, jwt
 
 from core.settings import settings
-from core.managers import redis_manager
 
 
 router = APIRouter()

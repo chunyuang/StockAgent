@@ -19,7 +19,7 @@ import asyncio
 import argparse
 import sys
 import os
-from typing import Dict, Any
+from typing import Dict
 
 # 添加项目根目录到路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -108,7 +108,7 @@ async def sync_stock_basic(force: bool = False):
         return {"count": 0, "skipped": True}
     
     # Step 1: 获取所有上市股票基础信息
-    print(f"\n[Step 1] 获取股票基础信息...")
+    print("\n[Step 1] 获取股票基础信息...")
     records = await tushare_manager.get_stock_basic()
     
     if not records:
@@ -123,12 +123,12 @@ async def sync_stock_basic(force: bool = False):
         print(f"  基础字段: {list(sample.keys())}")
     
     # Step 2: 获取最新交易日
-    print(f"\n[Step 2] 获取最新交易日...")
+    print("\n[Step 2] 获取最新交易日...")
     latest_trade_date = await tushare_manager.get_latest_trade_date()
     print(f"  最新交易日: {latest_trade_date}")
     
     # Step 3: 获取最新交易日的 daily_basic 数据
-    print(f"\n[Step 3] 获取每日指标数据 (PE/PB/市值等)...")
+    print("\n[Step 3] 获取每日指标数据 (PE/PB/市值等)...")
     daily_basic_map: Dict[str, Dict] = {}
     
     if latest_trade_date:
@@ -148,7 +148,7 @@ async def sync_stock_basic(force: bool = False):
             print("  未获取到指标数据")
     
     # Step 4: 合并数据
-    print(f"\n[Step 4] 合并基础信息与指标数据...")
+    print("\n[Step 4] 合并基础信息与指标数据...")
     merged_count = 0
     
     for record in records:
@@ -165,7 +165,7 @@ async def sync_stock_basic(force: bool = False):
     print(f"  成功合并 {merged_count}/{len(records)} 条记录的指标数据")
     
     # Step 5: 写入数据库
-    print(f"\n[Step 5] 写入数据库...")
+    print("\n[Step 5] 写入数据库...")
     result = await mongo_manager.bulk_upsert(
         collection="stock_basic",
         documents=records,
@@ -173,7 +173,7 @@ async def sync_stock_basic(force: bool = False):
         batch_size=1000,
     )
     
-    print(f"  写入完成:")
+    print("  写入完成:")
     print(f"    - 总数: {result['total']}")
     print(f"    - 新增: {result['upserted']}")
     print(f"    - 更新: {result['modified']}")

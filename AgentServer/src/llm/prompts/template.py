@@ -8,14 +8,12 @@ Prompt 模板引擎
 - 输出格式验证
 """
 
-import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
 from enum import Enum
 
 import yaml
-from pydantic import BaseModel
 
 
 class OutputFormat(str, Enum):

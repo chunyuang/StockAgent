@@ -26,7 +26,7 @@ class GetStockDailyOutput(ToolResult):
 class GetStockDailyTool(BaseTool[GetStockDailyInput, GetStockDailyOutput]):
     """获取股票日线数据"""
     
-    name = "get_stock_daily"
+    name = "get_stock_daily_ak_full"
     description = "获取股票日线行情数据，包括开高低收、成交量等"
     input_model = GetStockDailyInput
     output_model = GetStockDailyOutput
@@ -42,7 +42,7 @@ class GetStockDailyTool(BaseTool[GetStockDailyInput, GetStockDailyOutput]):
             filter_query.setdefault("trade_date", {})["$lte"] = input_data.end_date
         
         data = await mongo_manager.find_many(
-            "stock_daily",
+            "stock_daily_ak_full",
             filter_query,
             sort=[("trade_date", -1)],
             limit=input_data.limit,

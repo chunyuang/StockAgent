@@ -6,7 +6,7 @@
 import sys
 import os
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import List, Dict, Optional
 from dataclasses import dataclass, asdict
 
@@ -112,7 +112,6 @@ class PaperTradingEngine:
         """列出所有账户"""
         result = []
         for acc in self.accounts.values():
-            perf = self.get_account_performance(acc.account_id)
             result.append({
                 "account_id": acc.account_id,
                 "name": acc.name,

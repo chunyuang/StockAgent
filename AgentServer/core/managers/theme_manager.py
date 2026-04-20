@@ -7,8 +7,7 @@
 3. 轮动分析：跟踪板块位次变化趋势
 """
 
-from typing import Dict, Any, List, Optional
-from datetime import datetime
+from typing import Dict, Any, List
 from enum import Enum
 
 from core.managers.base import BaseManager
@@ -596,7 +595,7 @@ class ThemeManager(BaseManager):
         elif category == "PULSE":
             return f"今涨{today_pct:.1f}%，低位脉冲轮动"
         elif category == "FADE":
-            return f"共识度下滑，主线退潮中"
+            return "共识度下滑，主线退潮中"
         elif category == "ACTIVE":
             if max_board >= 3:
                 return f"{max_board}板龙头领涨，活跃板块"

@@ -8,14 +8,13 @@
 """
 
 from datetime import datetime
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 import logging
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from core.managers import mongo_manager
-from .auth import get_current_user_id
 
 router = APIRouter(prefix="/system", tags=["系统状态和配置"])
 logger = logging.getLogger("api.system")
@@ -67,8 +66,8 @@ class SaveRiskConfigRequest(BaseModel):
 # ==================== API 端点 ====================
 
 
-@router.get("/strategy-stats", response_model=StrategyStatsResponse)
-async def get_strategy_stats(user_id: str = Depends(get_current_user_id)) -> StrategyStatsResponse:
+@router.get("/strategy-stats")
+async def get_strategy_stats() -> Dict[str, Any]:
     """
     获取各个策略近期表现统计
     
@@ -80,6 +79,7 @@ async def get_strategy_stats(user_id: str = Depends(get_current_user_id)) -> Str
     - 交易次数
     - 当前权重
     """
+    # 开发阶段：移除认证依赖，不需要登录也能访问
     # 从数据库中查询各个策略的统计数据
     # 默认提供默认策略列表（根据历史回测数据统计
     # 这里使用默认策略信息，如果数据库中没有数据，返回默认值
@@ -138,6 +138,9 @@ async def get_strategy_stats(user_id: str = Depends(get_current_user_id)) -> Str
         },
     ]
     
+    # 开发阶段：默认 user_id = 0
+    user_id = "0"
+    
     # 尝试从数据库读取保存的权重
     try:
         config_doc = await mongo_manager.find_one(
@@ -183,20 +186,29 @@ async def get_strategy_stats(user_id: str = Depends(get_current_user_id)) -> Str
         StrategyStat(**s) for s in default_strategies
     ]
     
-    return StrategyStatsResponse(strategies=strategy_stats)
+    return {
+        "success": True,
+        "data": {
+            "strategies": strategy_stats,
+        },
+        "message": "获取策略统计成功",
+    }
 
 
 @router.post("/save-weights")
 async def save_strategy_weights(
-    request: SaveWeightsRequest,
-    user_id: str = Depends(get_current_user_id)
+    request: SaveWeightsRequest
 ) -> Dict[str, Any]:
     """
     保存用户调整后的策略权重配置
     
     权重总和应该接近 1.0，前端已经做了提示，这里只保存
     """
+    # 开发阶段：移除认证依赖，不需要登录也能访问
     try:
+        # 开发阶段：默认 user_id = 0
+        user_id = "0"
+        
         # 验证权重总和检查
         total_weight = sum(s.get("weight", 0) for s in request.strategies)
         
@@ -227,8 +239,8 @@ async def save_strategy_weights(
         raise HTTPException(status_code=500, detail=f"保存失败: {str(e)}")
 
 
-@router.get("/risk-config", response_model=RiskConfig)
-async def get_risk_config(user_id: str = Depends(get_current_user_id)) -> RiskConfig:
+@router.get("/risk-config")
+async def get_risk_config() -> Dict[str, Any]:
     """
     获取当前风控配置
     
@@ -238,7 +250,11 @@ async def get_risk_config(user_id: str = Depends(get_current_user_id)) -> RiskCo
     - 大盘 MA60 过滤：启用
     - 板块集中度过滤：启用，保留前 3 名
     """
+    # 开发阶段：移除认证依赖，不需要登录也能访问
     default_config = RiskConfig()
+    
+    # 开发阶段：默认 user_id = 0
+    user_id = "0"
     
     # 尝试从数据库读取已保存的配置
     try:
@@ -249,24 +265,35 @@ async def get_risk_config(user_id: str = Depends(get_current_user_id)) -> RiskCo
         )
         if doc and "config" in doc:
             saved_config = doc["config"]
-            # 转换为 RiskConfig 对象
-            return RiskConfig(**saved_config)
+            # 直接返回保存的配置
+            return {
+                "success": True,
+                "data": saved_config,
+                "message": "获取风控配置成功",
+            }
     except Exception as e:
         logger.warning(f"Failed to load saved risk config: {e}")
     
     # 返回默认配置
-    return default_config
+    return {
+        "success": True,
+        "data": default_config.dict(),
+        "message": "获取风控配置成功",
+    }
 
 
 @router.post("/save-risk-config")
 async def save_risk_config(
-    request: SaveRiskConfigRequest,
-    user_id: str = Depends(get_current_user_id)
+    request: SaveRiskConfigRequest
 ) -> Dict[str, Any]:
     """
     保存用户修改后的风控配置
     """
+    # 开发阶段：移除认证依赖，不需要登录也能访问
     try:
+        # 开发阶段：默认 user_id = 0
+        user_id = "0"
+        
         # 保存到数据库
         await mongo_manager.update_one(
             "system_config",

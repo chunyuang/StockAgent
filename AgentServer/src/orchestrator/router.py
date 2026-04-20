@@ -6,7 +6,7 @@ Agent 路由器
 
 import logging
 import re
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Union
 
 from src.agents.base import BaseAgent, AgentResult
 from src.workflows.base import BaseWorkflow, WorkflowResult

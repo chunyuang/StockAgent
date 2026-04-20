@@ -8,9 +8,8 @@
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional
 from dataclasses import dataclass, field
-from datetime import date
 
 import pandas as pd
 import numpy as np

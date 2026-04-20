@@ -58,7 +58,7 @@ async def run_clustering(batch_size: int, skip_enrich: bool = False):
         print("没有待聚类的新闻，退出")
         return None
     
-    print(f"\n开始聚类处理...")
+    print("\n开始聚类处理...")
     engine = EventClusterEngine()
     trace_id = f"test_{datetime.now().strftime('%H%M%S')}"
     
@@ -77,7 +77,7 @@ async def run_clustering(batch_size: int, skip_enrich: bool = False):
     print(f"合并新闻数: {result.merged_news}")
     
     if result.events:
-        print(f"\n新建/更新的事件:")
+        print("\n新建/更新的事件:")
         for event in result.events[:10]:  # 只显示前 10 个
             print(f"  - [{event.importance.value}] {event.title}")
             print(f"    新闻数: {event.news_count}, 分类: {event.category}")
@@ -115,7 +115,7 @@ async def run_enrich_only():
         print("没有待增强的事件，退出")
         return
     
-    print(f"\n开始 LLM 增强...")
+    print("\n开始 LLM 增强...")
     
     enrich_result = await engine.enrich_events_batch(
         hours=72,  # 扩大时间范围
@@ -140,7 +140,7 @@ async def run_enrich_only():
     )
     
     if enriched_events:
-        print(f"\n增强后的事件示例:")
+        print("\n增强后的事件示例:")
         for event in enriched_events:
             title = event.get("title", "")[:40]
             sectors = event.get("related_sectors", [])

@@ -12,7 +12,6 @@
 - 自动 tenant_access_token 刷新
 """
 
-import asyncio
 import httpx
 from typing import Optional, List, Dict, Any
 from datetime import datetime

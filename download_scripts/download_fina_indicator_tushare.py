@@ -20,8 +20,6 @@ Tushare 下载财务指标数据 (物理隔离，独立脚本)
 import asyncio
 import sys
 import time
-from datetime import datetime
-import pandas as pd
 import pymongo
 
 sys.path.insert(0, '/root/.openclaw/workspace/StockAgent/AgentServer')
@@ -37,7 +35,7 @@ async def download_fina_indicator_by_stocks(ts_codes: list, limit_per_stock: int
         ts_codes: 股票代码列表
         limit_per_stock: 每只股票保留最近多少份财报，默认 8 份 = 2 年
     """
-    print(f"=== Tushare 下载财务指标 (物理隔离独立下载) ===")
+    print("=== Tushare 下载财务指标 (物理隔离独立下载) ===")
     print(f"股票数量: {len(ts_codes)}")
     print(f"每只股票保留最近: {limit_per_stock} 份财报")
     print()
@@ -109,7 +107,7 @@ async def download_fina_indicator_by_stocks(ts_codes: list, limit_per_stock: int
     elapsed = time.time() - start_time
     print()
     print("="*60)
-    print(f"下载完成!")
+    print("下载完成!")
     print(f"总股票数: {total_stocks}")
     print(f"总记录数: {total_records}")
     print(f"总耗时: {elapsed:.1f} 秒 ≈ {elapsed/60:.1f} 分钟")
@@ -153,7 +151,7 @@ if __name__ == "__main__":
             limit_per_stock = int(sys.argv[2])
     else:
         # 从 stock_basic 读取全部股票
-        print(f"没有提供股票列表文件，从 MongoDB stock_basic 读取全部股票...")
+        print("没有提供股票列表文件，从 MongoDB stock_basic 读取全部股票...")
         client = pymongo.MongoClient(settings.mongo.url)
         db = client[settings.mongo.database]
         cursor = db['stock_basic'].find({}, {'ts_code': 1})

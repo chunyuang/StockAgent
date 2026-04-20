@@ -10,7 +10,7 @@ AKShare 数据源适配器
 返回数据格式遵循 base.py 中定义的标准 TypedDict 结构。
 """
 import asyncio
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict
 from datetime import datetime, timedelta
 
 import pandas as pd

@@ -39,7 +39,7 @@ async def check_events():
     low_value_true = await db["news_events"].count_documents({"is_low_value": True})
     low_value_false = await db["news_events"].count_documents({"is_low_value": False})
     low_value_none = await db["news_events"].count_documents({"is_low_value": {"$exists": False}})
-    print(f"\nis_low_value 状态:")
+    print("\nis_low_value 状态:")
     print(f"  True: {low_value_true}")
     print(f"  False: {low_value_false}")
     print(f"  不存在: {low_value_none}")

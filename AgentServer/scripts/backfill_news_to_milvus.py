@@ -31,7 +31,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.managers import mongo_manager, initialize_all_managers, shutdown_all_managers
 from core.managers.milvus_manager import milvus_manager
-from core.managers.llm_manager import llm_manager
 
 
 async def backfill_news(
@@ -66,9 +65,9 @@ async def backfill_news(
         print("   提示: 请启动 Milvus 服务或配置远程地址")
         return
     
-    print(f"   ✓ MongoDB 已连接")
+    print("   ✓ MongoDB 已连接")
     print(f"   ✓ Milvus 已连接 (模式: {'Lite' if milvus_manager.is_lite_mode() else 'Remote'})")
-    print(f"   ✓ LLM 已连接 (Embedding)")
+    print("   ✓ LLM 已连接 (Embedding)")
     
     # ==================== 2. 查询新闻数据 ====================
     
@@ -183,7 +182,7 @@ async def backfill_news(
     
     # ==================== 4. 统计结果 ====================
     
-    print(f"\n[4/5] 回填完成!")
+    print("\n[4/5] 回填完成!")
     print(f"   ✓ 成功: {success_count}")
     print(f"   ✗ 失败: {failed_count}")
     print(f"   ○ 跳过: {skipped_count}")

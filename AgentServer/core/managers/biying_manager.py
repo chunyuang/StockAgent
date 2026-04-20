@@ -7,12 +7,9 @@
 文档: https://www.biyingapi.com/docs
 """
 
-import asyncio
 import aiohttp
-import json
-from typing import List, Dict, Any, Optional
+from typing import Dict, Any, Optional
 import pandas as pd
-from datetime import datetime
 
 from .base import BaseManager
 from ..settings import settings

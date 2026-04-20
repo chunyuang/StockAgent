@@ -115,7 +115,7 @@ def _get_supplementary_data_for_node(state: StockAnalysisState, node_type: str) 
         # 根据数据来源匹配节点
         if node_type == "fundamental" and data.source in ["get_financial_indicator", "search_similar_reports"]:
             relevant_data.append({"source": data.source, "content": data.content})
-        elif node_type == "technical" and data.source in ["get_stock_daily"]:
+        elif node_type == "technical" and data.source in ["get_stock_daily_ak_full"]:
             relevant_data.append({"source": data.source, "content": data.content})
         elif node_type == "sentiment" and data.source in ["get_news_sentiment", "search_similar_reports"]:
             relevant_data.append({"source": data.source, "content": data.content})
@@ -172,7 +172,7 @@ async def data_collect_node(state: StockAnalysisState) -> Dict[str, Any]:
     
     # 获取日线数据
     daily_data = await mongo_manager.find_many(
-        "stock_daily",
+        "stock_daily_ak_full",
         {"ts_code": ts_code},
         sort=[("trade_date", -1)],
         limit=60,
@@ -207,7 +207,7 @@ async def data_collect_node(state: StockAnalysisState) -> Dict[str, Any]:
     else:
         _log_with_trace(logger, trace_id, "data_collect", "  (无数据)")
     _log_with_trace(logger, trace_id, "data_collect", "-" * 40)
-    _log_with_trace(logger, trace_id, "data_collect", "【stock_daily 数据】")
+    _log_with_trace(logger, trace_id, "data_collect", "【stock_daily_ak_full 数据】")
     _log_with_trace(logger, trace_id, "data_collect", f"  记录数: {len(daily_data)}")
     if daily_data:
         latest = daily_data[0]
@@ -280,9 +280,9 @@ async def fundamental_node(state: StockAnalysisState) -> Dict[str, Any]:
     pct_chg = latest.get("pct_chg", 0)
     pe = latest.get("pe", stock.get("pe", 0))
     pb = latest.get("pb", stock.get("pb", 0))
-    # total_mv: stock_basic 已经是亿元，stock_daily 是万元
+    # total_mv: stock_basic 已经是亿元，stock_daily_ak_full 是万元
     total_mv_raw = latest.get("total_mv") or stock.get("total_mv") or 0
-    # 判断来源：stock_basic 的 total_mv 已经转换为亿元 (值较小)，stock_daily 是万元 (值较大)
+    # 判断来源：stock_basic 的 total_mv 已经转换为亿元 (值较小)，stock_daily_ak_full 是万元 (值较大)
     # stock_basic 存的是亿元 (sync_stock_basic.py 中已转换)
     total_mv_billion = total_mv_raw if total_mv_raw < 100000 else total_mv_raw / 10000
     turnover_rate = latest.get("turnover_rate") or stock.get("turnover_rate") or 0
@@ -986,7 +986,7 @@ async def query_refinement_node(state: StockAnalysisState) -> Dict[str, Any]:
                         f"Failed to generate queries: {e}", "warning")
         # 默认查询
         refinement_queries = [
-            {"tool": "get_stock_daily", "query": "获取最近10日成交量变化", 
+            {"tool": "get_stock_daily_ak_full", "query": "获取最近10日成交量变化", 
              "target_conflict": "量价关系", "expected_evidence": "验证量能配合"},
             {"tool": "get_news_sentiment", "query": "搜索资金流向相关新闻", 
              "target_conflict": "资金动态", "expected_evidence": "机构动态信息"},
@@ -1037,7 +1037,7 @@ async def mcp_search_node(state: StockAnalysisState) -> Dict[str, Any]:
     
     for query_item in refinement_queries:
         if isinstance(query_item, dict):
-            tool_name = query_item.get("tool", "get_stock_daily")
+            tool_name = query_item.get("tool", "get_stock_daily_ak_full")
             query_desc = query_item.get("query", "")
             target_conflict = query_item.get("target_conflict", "")
             expected_evidence = query_item.get("expected_evidence", "")
@@ -1056,10 +1056,10 @@ async def mcp_search_node(state: StockAnalysisState) -> Dict[str, Any]:
         content_summary = ""
         
         try:
-            if tool_name == "get_stock_daily":
+            if tool_name == "get_stock_daily_ak_full":
                 # 获取日线数据
                 daily_data = await mongo_manager.find_many(
-                    "stock_daily",
+                    "stock_daily_ak_full",
                     {"ts_code": ts_code},
                     sort=[("trade_date", -1)],
                     limit=10,
@@ -2329,7 +2329,7 @@ class StockAnalysisGraph:
                 
                 # 获取最近3日行情
                 daily = await mongo_manager.find_many(
-                    "stock_daily",
+                    "stock_daily_ak_full",
                     {"ts_code": ts_code},
                     sort=[("trade_date", -1)],
                     limit=3,

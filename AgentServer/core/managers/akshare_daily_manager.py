@@ -6,14 +6,14 @@ AKShare 日线数据管理器
 
 特点:
 - 按日期批量下载: 每一天获取全市场股票
-- 存入 stock_daily 集合，格式与 Tushare 一致
+- 存入 stock_daily_ak_full 集合，格式与 Tushare 一致
 - 独立频率控制，不与 Tushare 混用
 - 完全免费，无 Token 限制
 """
 
 import asyncio
 from typing import List, Dict, Any, Optional
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import pandas as pd
 
@@ -27,7 +27,7 @@ class AKShareDailyManager(BaseManager):
     负责:
     - 按日期批量获取全市场日线数据
     - 数据标准化为 Tushare 相同格式
-    - 存入 MongoDB stock_daily 集合
+    - 存入 MongoDB stock_daily_ak_full 集合
     """
     
     def __init__(self):
@@ -76,13 +76,12 @@ class AKShareDailyManager(BaseManager):
             
         Note:
             - 物理隔离 - 纯 AKShare 实现，不依赖 Tushare
-            - 返回格式与 Tushare get_daily 完全一致，方便存储到同一个 stock_daily 集合
+            - 返回格式与 Tushare get_daily 完全一致，方便存储到同一个 stock_daily_ak_full 集合
         """
         self._ensure_initialized()
         
         try:
             # AKShare 接口: 东方财富网-沪深两市每日行情
-            date_str = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
             loop = asyncio.get_event_loop()
             
             df = await loop.run_in_executor(

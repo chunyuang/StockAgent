@@ -5,7 +5,7 @@
 """
 
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict
 from src.tools.registry import tool
 
 logger = logging.getLogger(__name__)
@@ -122,14 +122,14 @@ async def calculate_technical_indicators(
     try:
         # 获取K线数据
         records = await mongo_manager.find_many(
-            "stock_daily",
+            "stock_daily_ak_full",
             {"ts_code": stock_code},
             sort=[("trade_date", -1)],
             limit=120,  # 足够计算各种指标
         )
         
         if not records or len(records) < 30:
-            return {"error": f"K线数据不足，无法计算指标"}
+            return {"error": "K线数据不足，无法计算指标"}
         
         # 按日期正序
         records = list(reversed(records))
@@ -237,7 +237,7 @@ async def analyze_trend(stock_code: str, days: int = 60) -> dict:
     
     try:
         records = await mongo_manager.find_many(
-            "stock_daily",
+            "stock_daily_ak_full",
             {"ts_code": stock_code},
             sort=[("trade_date", -1)],
             limit=days,

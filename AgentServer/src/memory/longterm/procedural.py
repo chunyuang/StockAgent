@@ -12,20 +12,12 @@
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 from datetime import datetime
 from enum import Enum
 from pydantic import BaseModel, Field
 import uuid
 
-from ..types import (
-    LongTermMemoryItem,
-    LongTermMemoryType,
-    MemoryMetadata,
-    MemoryVisibility,
-    TradingPatternMetadata,
-    InsertResult,
-)
 
 
 class PatternType(str, Enum):

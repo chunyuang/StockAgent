@@ -28,7 +28,7 @@ async def main():
     
     print()
     print("=== Latest dates per collection (实际数据) ===")
-    for col in ["stock_daily", "index_daily", "limit_list", "daily_stats", "market_analysis"]:
+    for col in ["stock_daily_ak_full", "index_daily", "limit_list", "daily_stats", "market_analysis"]:
         doc = await mongo_manager.find_one(col, {}, sort=[("trade_date", -1)])
         if doc:
             actual_date = doc.get('trade_date', 'N/A')

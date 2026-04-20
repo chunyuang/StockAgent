@@ -70,7 +70,7 @@ def main():
     
     validator = ConfigValidator(config_manager)
     validated_output = validator.validate("news_filter.output", NewsFilterOutputConfig)
-    print(f"    验证后的输出配置:")
+    print("    验证后的输出配置:")
     print(f"      max_events: {validated_output.max_events}")
     print(f"      min_events: {validated_output.min_events}")
     print(f"      importance_threshold: {validated_output.importance_threshold}")

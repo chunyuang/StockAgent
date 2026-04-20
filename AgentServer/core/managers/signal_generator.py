@@ -6,14 +6,11 @@
 
 import uuid
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import List, Dict, Any, Optional
 
-import pandas as pd
-import numpy as np
 
 from core.managers import mongo_manager
-from core.settings import settings
 from backtest_module.strategies import (
     HalfwayChaseStrategy,
     FirstLimitUpStrategy,
@@ -21,7 +18,7 @@ from backtest_module.strategies import (
     LeaderBuyDipStrategy,
     LimitDownQiaoStrategy,
 )
-from core.utils.date_utils import get_previous_trade_date, get_today_str
+from core.utils.date_utils import get_previous_trade_date
 
 logger = logging.getLogger("signal_generator")
 
@@ -122,7 +119,7 @@ class SignalGenerator:
         # TODO: 加载行情数据、龙虎榜、北向资金等
         # 1. 加载当日日线数据
         daily_data = await mongo_manager.find_many(
-            "stock_daily",
+            "stock_daily_ak_full",
             {"trade_date": int(trade_date)}
         )
         

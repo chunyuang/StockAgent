@@ -7,12 +7,11 @@ import sys
 import os
 import json
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import List, Dict
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'AgentServer'))
 sys.path.insert(0, os.path.dirname(__file__))
 
-from position_manager import PositionManager
 from paper_trading import PaperTradingEngine
 
 class RiskAlertEngine:

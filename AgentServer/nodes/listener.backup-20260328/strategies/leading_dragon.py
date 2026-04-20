@@ -19,7 +19,7 @@
   单票仓位不超过总资金的20%，龙头确定后可分2-3次加仓，总仓位不超过30%
 """
 
-from typing import List, Dict, Any, Optional
+from typing import List, Optional
 import logging
 
 from .base import BaseStrategy

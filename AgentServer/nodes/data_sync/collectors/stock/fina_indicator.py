@@ -11,7 +11,7 @@
 增量模式：同步最近8个季度数据
 """
 
-from typing import Dict, Any, List
+from typing import Dict, Any
 from datetime import datetime, date
 
 from core.base import BaseCollector
@@ -133,7 +133,6 @@ class FinaIndicatorCollector(BaseCollector):
                     total += len(records)
                     
                     # 更新统计
-                    short_name = data_key.split("_")[0][:7]
                     if "income" in data_key:
                         record_counts["income"] += len(records)
                     elif "balance" in data_key:

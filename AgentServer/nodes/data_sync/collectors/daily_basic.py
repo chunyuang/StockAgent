@@ -127,7 +127,7 @@ class DailyBasicCollector(BaseCollector):
     
     调度时间:
     - 可通过 SYNC_DAILY_BASIC_SCHEDULE 环境变量配置
-    - 默认: 每个交易日 16:00 (收盘后，在 stock_daily 之后)
+    - 默认: 每个交易日 16:00 (收盘后，在 stock_daily_ak_full 之后)
     """
     
     name = "daily_basic"

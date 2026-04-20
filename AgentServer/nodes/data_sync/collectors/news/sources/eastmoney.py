@@ -8,7 +8,7 @@
 
 import json
 import re
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 from datetime import datetime
 
 from src.collector.sources.base import BaseSource

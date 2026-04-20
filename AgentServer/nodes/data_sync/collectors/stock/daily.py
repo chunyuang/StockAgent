@@ -33,7 +33,7 @@ class StockDailyCollector(BaseCollector):
     - 默认: 每个交易日 15:30 (收盘后)
     """
     
-    name = "stock_daily"
+    name = "stock_daily_ak_full"
     description = "采集股票日线数据"
     default_schedule = "30 15 * * 1-5"
     
@@ -48,7 +48,7 @@ class StockDailyCollector(BaseCollector):
     
     @property
     def schedule(self) -> str:
-        return settings.data_sync.stock_daily_schedule or self.default_schedule
+        return settings.data_sync.stock_daily_ak_full_schedule or self.default_schedule
     
     async def collect(self) -> Dict[str, Any]:
         """执行采集"""
@@ -111,7 +111,7 @@ class StockDailyCollector(BaseCollector):
             if records:
                 count = await self._write_buffer(
                     buffer=records,
-                    collection="stock_daily",
+                    collection="stock_daily_ak_full",
                     key_fields=["ts_code", "trade_date"],
                 )
                 total_count += count

@@ -3,13 +3,10 @@
 实盘绩效分析模块
 自动生成日/周/月/年度绩效报告、策略效果分析、实盘vs回测对比
 """
-import sys
 import os
 import json
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional
-import pandas as pd
-import numpy as np
+from typing import List, Dict
 
 class PerformanceAnalyzer:
     """实盘绩效分析器"""
@@ -212,8 +209,8 @@ class PerformanceAnalyzer:
             f"## 🔹 统计周期：{stats['period']}",
             "",
             "### 📈 核心指标",
-            f"| 指标 | 数值 |",
-            f"|------|------|",
+            "| 指标 | 数值 |",
+            "|------|------|",
             f"| 总交易次数 | {stats['total_trades']}次 |",
             f"| 胜率 | {stats['win_rate']}%（{stats['win_trades']}胜{stats['lose_trades']}负） |",
             f"| 总盈利 | {stats['total_profit']:.2f}元 |",
@@ -224,8 +221,8 @@ class PerformanceAnalyzer:
             f"| 交易时间段 | {stats['first_trade_date']} ~ {stats['last_trade_date']} |",
             "",
             "### 📅 最近7天交易统计",
-            f"| 日期 | 交易次数 | 胜率 | 当日盈利 |",
-            f"|------|----------|------|----------|",
+            "| 日期 | 交易次数 | 胜率 | 当日盈利 |",
+            "|------|----------|------|----------|",
         ]
         
         for day in recent_daily:
@@ -234,8 +231,8 @@ class PerformanceAnalyzer:
         report_lines.extend([
             "",
             "### 📆 月度统计",
-            f"| 月份 | 交易次数 | 胜率 | 月度盈利 | 平均收益 |",
-            f"|------|----------|------|----------|----------|",
+            "| 月份 | 交易次数 | 胜率 | 月度盈利 | 平均收益 |",
+            "|------|----------|------|----------|----------|",
         ])
         
         for month in monthly_stats:
@@ -244,8 +241,8 @@ class PerformanceAnalyzer:
         report_lines.extend([
             "",
             "### 🎯 分策略表现",
-            f"| 策略 | 交易次数 | 胜率 | 总盈利 | 平均收益 | 最大回撤 | 平均持仓天数 |",
-            f"|------|----------|------|----------|----------|----------|--------------|",
+            "| 策略 | 交易次数 | 胜率 | 总盈利 | 平均收益 | 最大回撤 | 平均持仓天数 |",
+            "|------|----------|------|----------|----------|----------|--------------|",
         ])
         
         for s in strategy_analysis:

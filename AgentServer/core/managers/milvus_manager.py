@@ -306,7 +306,6 @@ class MilvusManager(BaseManager):
         if self._is_disabled:
             return 0
         
-        result = self._client.delete(
             collection_name=collection,
             ids=ids,
         )

@@ -180,6 +180,22 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/settings/SettingsView.vue'),
         meta: { title: '设置' },
       },
+      
+      // 数据库管理
+      {
+        path: 'admin/db',
+        name: 'DbAdmin',
+        component: () => import('@/views/admin/DbAdminView.vue'),
+        meta: { title: '数据库管理' },
+      },
+      
+      // 系统状态
+      {
+        path: 'system/status',
+        name: 'SystemStatus',
+        component: () => import('@/views/system/SystemStatusView.vue'),
+        meta: { title: '系统状态' },
+      },
     ],
   },
   

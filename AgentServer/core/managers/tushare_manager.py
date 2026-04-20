@@ -901,7 +901,6 @@ class TushareManager(BaseManager):
         - 18:00 之前：当天数据还未同步完成，返回昨天或之前最近的交易日
         - 18:00 之后：当天数据已可用，返回今天或之前最近的交易日
         """
-        from datetime import datetime
         
         now = datetime.now()
         today = now.strftime("%Y%m%d")
@@ -1118,10 +1117,9 @@ class TushareManager(BaseManager):
             self.logger.warning(f"Tushare get_stk_limit failed ({e}), falling back to AKShare...")
         
         # Tushare 失败，fallback 到 AKShare
-        self.logger.warning(f"Tushare get_stk_limit failed or returned empty, falling back to AKShare...")
+        self.logger.warning("Tushare get_stk_limit failed or returned empty, falling back to AKShare...")
         try:
             import akshare as ak
-            from datetime import datetime
             
             loop = asyncio.get_event_loop()
             
@@ -1154,7 +1152,7 @@ class TushareManager(BaseManager):
             # 合并涨跌停
             all_records = zt_records + dt_records
             if not all_records:
-                self.logger.warning(f"AKShare returned empty for today, trying previous (yesterday) zt pool...")
+                self.logger.warning("AKShare returned empty for today, trying previous (yesterday) zt pool...")
                 # 今天为空，尝试获取昨天涨停数据（专门用于limit_open今天选股）
                 # 1. First try AKShare stock_zt_pool_previous_em (latest previous trading day)
                 zt_records_yd = []
@@ -1215,7 +1213,7 @@ class TushareManager(BaseManager):
                 # 合并昨天涨停数据（跌停数据不需要昨天，因为limit_open只需要涨停）
                 all_records = zt_records_yd
                 if not all_records:
-                    self.logger.warning(f"Still empty after trying previous (yesterday) zt pool")
+                    self.logger.warning("Still empty after trying previous (yesterday) zt pool")
                     return []
             
             # 转换为 Tushare 格式
@@ -1283,7 +1281,6 @@ class TushareManager(BaseManager):
         Returns:
             True 表示在交易时间内
         """
-        from datetime import datetime
         
         now = datetime.now()
         today = now.strftime("%Y%m%d")

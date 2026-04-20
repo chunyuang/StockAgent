@@ -80,7 +80,7 @@ async def recalc_analysis_for_dates(trade_dates: list):
     """
     print(f"=== Recalculating market_analysis for {len(trade_dates)} trading days ===")
     print(f"Date range: {trade_dates[0]} ~ {trade_dates[-1]}")
-    print(f"Algorithm: Direction-corrected strength + EMA smoothed sentiment\n")
+    print("Algorithm: Direction-corrected strength + EMA smoothed sentiment\n")
     
     # 清除 analysis_manager 的缓存
     analysis_manager._ma30_cache.clear()
@@ -118,7 +118,6 @@ async def recalc_analysis_for_dates(trade_dates: list):
             
             # 显示结果 (包含新字段)
             v_ratio = analysis_result.get("v_ratio", 0)
-            baseline_count = analysis_result.get("baseline_data_count", 0)
             sentiment_raw = analysis_result.get("sentiment_score", 0)
             sentiment_ema = analysis_result.get("sentiment_score_ema", sentiment_raw)
             strength_diff = analysis_result.get("strength_diff", 0)
@@ -143,12 +142,12 @@ async def recalc_analysis_for_dates(trade_dates: list):
             traceback.print_exc()
             error_count += 1
     
-    print(f"\n=== Done! ===")
+    print("\n=== Done! ===")
     print(f"  Success: {success_count}")
     print(f"  Skipped: {skip_count}")
     print(f"  Errors:  {error_count}")
-    print(f"\nLegend: S=Strength, E=Sentiment(raw→ema), Diff=Strength-Sentiment")
-    print(f"Direction: ↓=放量杀跌(up<40%), →=中性, ↑=上涨行情")
+    print("\nLegend: S=Strength, E=Sentiment(raw→ema), Diff=Strength-Sentiment")
+    print("Direction: ↓=放量杀跌(up<40%), →=中性, ↑=上涨行情")
 
 
 async def main(args):

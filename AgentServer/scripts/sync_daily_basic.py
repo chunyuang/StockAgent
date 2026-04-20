@@ -119,9 +119,9 @@ async def sync_daily_basic(
     Returns:
         同步结果
     """
-    print(f"\n📊 开始同步 daily_basic 数据")
+    print("\n📊 开始同步 daily_basic 数据")
     print(f"   日期范围: {start_date} ~ {end_date}")
-    print(f"   数据清洗: 市值(万元→亿元)、过滤NaN、保留PE为None")
+    print("   数据清洗: 市值(万元→亿元)、过滤NaN、保留PE为None")
     
     # 初始化管理器
     await tushare_manager.initialize()
@@ -217,7 +217,7 @@ async def sync_daily_basic(
     
     # 汇总
     print(f"\n{'='*50}")
-    print(f"✅ 同步完成!")
+    print("✅ 同步完成!")
     print(f"   总记录数: {total_count:,}")
     print(f"   总耗时: {elapsed/60:.1f} 分钟")
     print(f"   失败日期: {len(failed_dates)}")

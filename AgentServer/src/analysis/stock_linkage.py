@@ -7,7 +7,6 @@
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
-from datetime import datetime
 from enum import Enum
 
 from motor.motor_asyncio import AsyncIOMotorDatabase

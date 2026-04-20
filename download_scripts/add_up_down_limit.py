@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-补全 stock_daily 表中的 up_limit 和 down_limit 字段
+补全 stock_daily_ak_full 表中的 up_limit 和 down_limit 字段
 
 计算规则 (A股涨跌停规则):
 - 正常股票: 10% 涨跌停
@@ -37,7 +37,7 @@ def main():
     # 连接 MongoDB
     client = pymongo.MongoClient('mongodb://localhost:27017/')
     db = client['stock_agent']
-    collection = db['stock_daily']
+    collection = db['stock_daily_ak_full']
     
     # 统计需要更新的记录
     query = {

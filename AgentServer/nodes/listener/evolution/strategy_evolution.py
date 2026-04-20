@@ -11,8 +11,8 @@
 """
 
 import logging
-from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
+from datetime import datetime
+from typing import List, Dict
 from dataclasses import dataclass
 
 from core.managers import mongo_manager

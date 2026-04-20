@@ -3,7 +3,6 @@
 超短量化回测系统专用
 支持全局单例、自动注入元信息、分级打印、时序保障
 """
-import os
 import logging
 from datetime import datetime
 from typing import Optional

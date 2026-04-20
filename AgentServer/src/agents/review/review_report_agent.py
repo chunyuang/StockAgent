@@ -4,7 +4,7 @@
 汇总各维度分析结果，生成完整的复盘报告。
 """
 
-from typing import List, Dict, Any
+from typing import List, Dict
 from src.agents.base import BaseAgent, AgentResult
 
 

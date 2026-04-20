@@ -12,7 +12,7 @@ import uuid
 import sys
 from datetime import datetime, timezone
 from contextvars import ContextVar
-from typing import Optional, Any
+from typing import Optional
 from functools import wraps
 
 # Trace ID 上下文变量

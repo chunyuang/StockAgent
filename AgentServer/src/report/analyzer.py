@@ -21,7 +21,7 @@ from .types import (
     EventImportance,
     SECTION_TITLES,
 )
-from .news_filter import NewsFilter, FilteredEvent, news_filter
+from .news_filter import FilteredEvent, news_filter
 
 
 logger = logging.getLogger(__name__)
@@ -160,7 +160,7 @@ def validate_and_fix_sectors(
         # 完全错配：直接替换为预期板块
         final_sectors = list(expected_sectors)[:3]
         was_fixed = True
-        fix_reason = f"完全错配(0%)，替换为预期板块"
+        fix_reason = "完全错配(0%)，替换为预期板块"
     
     elif match_rate < 1.0:
         # 部分匹配：保留匹配的，移除错误的，补充预期板块

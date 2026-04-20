@@ -10,7 +10,6 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 import asyncio
 from datetime import datetime, timedelta
-import pandas as pd
 from typing import List, Dict
 
 from core.managers import mongo_manager
@@ -186,7 +185,7 @@ class RealTradingSignalGenerator:
         
         # 获取日线数据
         daily_data = await mongo_manager.find_many(
-            "stock_daily",
+            "stock_daily_ak_full",
             {"ts_code": {"$in": ts_codes}, "trade_date": int(trade_date)},
             projection={"ts_code": 1, "close": 1, "pct_chg": 1, "amount": 1, "volume": 1, "up_limit": 1, "down_limit": 1}
         )

@@ -16,9 +16,8 @@ Baostock 特点:
 官网: http://baostock.com/
 """
 
-from typing import Optional, List, Dict, Any
-from datetime import datetime, date, timedelta
-import logging
+from typing import Optional, List
+from datetime import date
 import pandas as pd
 
 from .base import BaseManager

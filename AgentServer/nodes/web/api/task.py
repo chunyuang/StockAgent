@@ -22,7 +22,7 @@ from core.protocols import (
     TaskStatus,
 )
 from core.managers import redis_manager, mongo_manager
-from .auth import get_current_user_id, get_optional_user_id
+from .auth import get_optional_user_id
 
 
 router = APIRouter()

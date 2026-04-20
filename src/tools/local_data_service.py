@@ -9,7 +9,6 @@ import pymongo
 from datetime import datetime
 
 import sys
-import os
 sys.path.insert(0, '/root/.openclaw/workspace')
 from data_fetcher.fetchers.base import BaseFetcher
 

@@ -8,7 +8,6 @@
 使用 jpaas-publish-server API 获取数据
 """
 
-import json
 import re
 from typing import Any, Dict, List, Optional
 from datetime import datetime

@@ -1,14 +1,14 @@
 """
-手动同步指定日期范围的 stock_daily 数据 (使用 AKShare 数据源)
+手动同步指定日期范围的 stock_daily_ak_full 数据 (使用 AKShare 数据源)
 
 用法:
     cd AgentServer
     
     # 同步单个日期
-    python scripts/sync_stock_daily_akshare.py --date 20260106
+    python scripts/sync_stock_daily_ak_full_akshare.py --date 20260106
     
     # 同步时间段
-    python scripts/sync_stock_daily_akshare.py --start 20251224 --end 20260324
+    python scripts/sync_stock_daily_ak_full_akshare.py --start 20251224 --end 20260324
 """
 
 import asyncio
@@ -60,7 +60,7 @@ async def get_stock_basic_list() -> list:
     return stock_list
 
 
-async def sync_stock_daily_range(ts_codes: list, start_date: str, end_date: str) -> dict:
+async def sync_stock_daily_ak_full_range(ts_codes: list, start_date: str, end_date: str) -> dict:
     """
     批量同步指定股票在时间范围内的日线数据
     
@@ -125,7 +125,7 @@ async def sync_stock_daily_range(ts_codes: list, start_date: str, end_date: str)
             # 批量写入
             records = df.to_dict("records")
             result = await mongo_manager.bulk_upsert(
-                collection="stock_daily",
+                collection="stock_daily_ak_full",
                 documents=records,
                 key_fields=["ts_code", "trade_date"],
             )
@@ -172,7 +172,7 @@ async def main(args):
     print(f"\nSyncing from {start_date} to {end_date}...")
     
     # 批量同步
-    result = await sync_stock_daily_range(ts_codes, start_date, end_date)
+    result = await sync_stock_daily_ak_full_range(ts_codes, start_date, end_date)
     
     # 汇总
     print("\n" + "=" * 60)
@@ -189,7 +189,7 @@ async def main(args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Sync stock_daily via AKShare (free, no token needed)")
+    parser = argparse.ArgumentParser(description="Sync stock_daily_ak_full via AKShare (free, no token needed)")
     parser.add_argument("--start", type=str, required=True, help="Start date (e.g., 20251224)")
     parser.add_argument("--end", type=str, required=True, help="End date (e.g., 20260324)")
     

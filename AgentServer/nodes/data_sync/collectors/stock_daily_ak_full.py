@@ -40,7 +40,7 @@ class StockDailyCollector(BaseCollector):
     - 默认: 每个交易日 15:30 (收盘后)
     """
     
-    name = "stock_daily"
+    name = "stock_daily_ak_full"
     description = "采集股票日线数据"
     default_schedule = "30 15 * * 1-5"  # 默认: 每个交易日 15:30
     
@@ -61,7 +61,7 @@ class StockDailyCollector(BaseCollector):
     @property
     def schedule(self) -> str:
         """从配置读取调度时间，未配置则使用默认值"""
-        return settings.data_sync.stock_daily_schedule or self.default_schedule
+        return settings.data_sync.stock_daily_ak_full_schedule or self.default_schedule
     
     async def collect(self) -> Dict[str, Any]:
         """执行采集"""
@@ -172,7 +172,7 @@ class StockDailyCollector(BaseCollector):
         import time
         t_start = time.time()
         result = await mongo_manager.bulk_upsert(
-            collection="stock_daily",
+            collection="stock_daily_ak_full",
             documents=buffer,
             key_fields=["ts_code", "trade_date"],
             batch_size=self.WRITE_BATCH_SIZE,

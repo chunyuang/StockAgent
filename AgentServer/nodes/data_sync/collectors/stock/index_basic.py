@@ -8,9 +8,8 @@
 - CSI: 中证指数
 """
 
-from typing import Dict, Any, List
+from typing import Dict, Any
 from datetime import date
-import asyncio
 
 from core.base import BaseCollector
 from core.settings import settings

@@ -6,7 +6,7 @@
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 from datetime import datetime
 
 from ..types import (
@@ -16,7 +16,6 @@ from ..types import (
     MemoryVisibility,
     InsertResult,
     SearchResult,
-    DecayStrategy,
 )
 
 

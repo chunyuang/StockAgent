@@ -98,7 +98,7 @@ async def sync_limit_list(trade_dates: list):
             count=total_count,
         )
     
-    print(f"\n=== Done! ===")
+    print("\n=== Done! ===")
     print(f"  Total records: {total_count}")
     print(f"  Success days:  {success_days}")
     print(f"  Failed days:   {failed_days}")
