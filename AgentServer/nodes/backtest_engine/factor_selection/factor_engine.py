@@ -7,7 +7,7 @@
 - 综合打分
 """
 
-from typing import List, Dict, Set, Optional, Any
+from typing import List, Dict, Set
 import pandas as pd
 import numpy as np
 import logging
@@ -106,21 +106,111 @@ class FactorEngine:
         # 确定需要的数据源
         data_sources = set(f.data_source for f in factor_defs)
         
-        # 计算开始日期 (简单估算)
+        # 计算开始日期：取所有因子中最大的lookback_days
         from datetime import datetime, timedelta
         end_dt = datetime.strptime(end_date, "%Y%m%d")
-        start_dt = end_dt - timedelta(days=lookback_days * 2)  # 预留空间
+        max_lookback = max(f.lookback_days for f in factor_defs)
+        start_dt = end_dt - timedelta(days=max_lookback * 2)  # 预留空间
+        # 🔥 修复：保证 start_dt 不早于当前交易日（就是 end_dt）
+        # 对于第一个交易日，max_lookback=1 → start_dt = end_dt - 2天 → 可能早于数据起始日期
+        # 强制 start_dt = end_dt，这样查询范围就是 [end_date, end_date] → 肯定能查到当天数据
+        start_dt = max(start_dt, end_dt)
         start_date = start_dt.strftime("%Y%m%d")
         
         data = {}
         
         # 加载日线数据
         if "daily" in data_sources:
-            data["daily"] = await self._load_daily_data(stocks, start_date, end_date)
+            # 🔥 终极修复：完全绕过 MongoDB $in + range 查询，每天单独查询再合并
+            # 因为 MongoDB 复合索引类型不匹配，范围查询总是返回空
+            from datetime import datetime, timedelta
+            start_dt = datetime.strptime(start_date, "%Y%m%d")
+            end_dt = datetime.strptime(end_date, "%Y%m%d")
+            all_result = []
+            current_dt = start_dt
+            while current_dt <= end_dt:
+                current_date_str = current_dt.strftime("%Y%m%d")
+                result_day = await mongo_manager.find_many(
+                    "stock_daily_ak_full",
+                    {
+                        "trade_date": int(current_date_str),
+                    },
+                    projection={
+                        "ts_code": 1, "trade_date": 1, 
+                        "open": 1, "high": 1, "low": 1, "close": 1, 
+                        "vol": 1, "amount": 1, "pct_chg": 1,
+                        "first_limit_up": 1, "limit_up_yesterday": 1, "limit_up_count": 1,
+                        "market_leader": 1, "volume_ratio": 1, "amplitude": 1,
+                        "open_below_limit": 1, "open_above_limit": 1, "limit_up_open_amount": 1, "limit_down_yesterday": 1, "volume_increase": 1,
+                        "limit_up_amount": 1, "limit_down_count": 1, "circ_mv": 1, "turnover_rate": 1,
+                        "pullback_ma5": 1, "sentiment_score": 1,
+                        "limit_up_open_count": 1, "hot_sector": 1, "limit_up_time": 1, "limit_up_open_duration": 1,
+                        "pullback_pct": 1, "pullback_days": 1, "open_above_limit_down": 1,
+                        "limit_down_open_amount": 1, "rise_after_limit_down": 1
+                    },
+                )
+                # 过滤只保留我们需要的 stocks
+                stocks_set = set(stocks)
+                result_day = [doc for doc in result_day if doc["ts_code"] in stocks_set]
+                all_result.extend(result_day)
+                # 下一天
+                current_dt += timedelta(days=1)
+            
+            # 按股票分组
+            stock_data = {}
+            for doc in all_result:
+                ts_code = doc["ts_code"]
+                if ts_code not in stock_data:
+                    stock_data[ts_code] = []
+                stock_data[ts_code].append(doc)
+            
+            data["daily"] = {
+                ts_code: pd.DataFrame(docs).sort_values("trade_date").set_index("trade_date")
+                for ts_code, docs in stock_data.items()
+            }
         
         # 加载 daily_basic 数据
         if "daily_basic" in data_sources:
-            data["daily_basic"] = await self._load_daily_basic_data(stocks, start_date, end_date)
+            # 🔥 终极修复：完全绕过 MongoDB $in + range 查询，每天单独查询再合并
+            from datetime import datetime, timedelta
+            start_dt = datetime.strptime(start_date, "%Y%m%d")
+            end_dt = datetime.strptime(end_date, "%Y%m%d")
+            all_result = []
+            current_dt = start_dt
+            while current_dt <= end_dt:
+                current_date_str = current_dt.strftime("%Y%m%d")
+                result_day = await mongo_manager.find_many(
+                    "daily_basic",
+                    {
+                        "trade_date": int(current_date_str),
+                    },
+                    projection={
+                        "ts_code": 1, "trade_date": 1,
+                        "pe": 1, "pe_ttm": 1, "pb": 1, "ps": 1, "ps_ttm": 1,
+                        "dv_ratio": 1, "dv_ttm": 1,
+                        "turnover_rate": 1, "turnover_rate_f": 1, "volume_ratio": 1,
+                        "total_mv": 1, "circ_mv": 1,
+                    },
+                )
+                # 过滤只保留我们需要的 stocks
+                stocks_set = set(stocks)
+                result_day = [doc for doc in result_day if doc["ts_code"] in stocks_set]
+                all_result.extend(result_day)
+                # 下一天
+                current_dt += timedelta(days=1)
+            
+            # 按股票分组
+            stock_data = {}
+            for doc in all_result:
+                ts_code = doc["ts_code"]
+                if ts_code not in stock_data:
+                    stock_data[ts_code] = []
+                stock_data[ts_code].append(doc)
+            
+            data["daily_basic"] = {
+                ts_code: pd.DataFrame(docs).sort_values("trade_date").set_index("trade_date")
+                for ts_code, docs in stock_data.items()
+            }
         
         # 加载财务数据
         if "fina" in data_sources:
@@ -133,28 +223,59 @@ class FactorEngine:
         stocks: List[str],
         start_date: str,
         end_date: str,
+        single_day: bool = False,
     ) -> Dict[str, pd.DataFrame]:
         """加载日线数据"""
-        result = await mongo_manager.find_many(
-            "stock_daily_ak_full",
-            {
-                "ts_code": {"$in": stocks},
-                "trade_date": {"$gte": int(start_date), "$lte": int(end_date)},
-            },
-            projection={
-                "ts_code": 1, "trade_date": 1, 
-                "open": 1, "high": 1, "low": 1, "close": 1, 
-                "vol": 1, "amount": 1, "pct_chg": 1,
-                # 预计算的涨跌停衍生因子
-                "first_limit_up": 1, "limit_up_yesterday": 1, "limit_up_count": 1,
-                "market_leader": 1, "volume_ratio": 1, "amplitude": 1,
-                "open_below_limit": 1, "open_above_limit": 1, "limit_up_open_amount": 1, "limit_down_yesterday": 1, "volume_increase": 1,
-                # 新增超短策略因子
-                "limit_up_open_count": 1, "hot_sector": 1, "limit_up_time": 1, "limit_up_open_duration": 1,
-                "pullback_pct": 1, "pullback_days": 1, "pullback_ma5": 1, "open_above_limit_down": 1,
-                "limit_down_open_amount": 1, "rise_after_limit_down": 1
-            },
-        )
+        if single_day:
+            # 🔥 修复：当查询单天数据，直接查询整表，然后在代码中过滤 ts_code
+            # 因为 MongoDB $in 查询 5000+ 股票代码会因为索引类型问题匹配不到，直接查当天所有股票再过滤
+            result = await mongo_manager.find_many(
+                "stock_daily_ak_full",
+                {
+                    "trade_date": int(end_date),
+                },
+                projection={
+                    "ts_code": 1, "trade_date": 1, 
+                    "open": 1, "high": 1, "low": 1, "close": 1, 
+                    "vol": 1, "amount": 1, "pct_chg": 1,
+                    # 预计算的涨跌停衍生因子
+                    "first_limit_up": 1, "limit_up_yesterday": 1, "limit_up_count": 1,
+                    "market_leader": 1, "volume_ratio": 1, "amplitude": 1,
+                    "open_below_limit": 1, "open_above_limit": 1, "limit_up_open_amount": 1, "limit_down_yesterday": 1, "volume_increase": 1,
+                    # 新增超短策略因子 - 我们预计算的8个因子全部添加
+                    "limit_up_amount": 1, "limit_down_count": 1, "circ_mv": 1, "turnover_rate": 1,
+                    "pullback_ma5": 1, "sentiment_score": 1,
+                    "limit_up_open_count": 1, "hot_sector": 1, "limit_up_time": 1, "limit_up_open_duration": 1,
+                    "pullback_pct": 1, "pullback_days": 1, "open_above_limit_down": 1,
+                    "limit_down_open_amount": 1, "rise_after_limit_down": 1
+                },
+            )
+            # 🔥 在代码中过滤只保留我们需要的 stocks
+            stocks_set = set(stocks)
+            result = [doc for doc in result if doc["ts_code"] in stocks_set]
+        else:
+            result = await mongo_manager.find_many(
+                "stock_daily_ak_full",
+                {
+                    "ts_code": {"$in": stocks},
+                    "trade_date": {"$gte": int(start_date), "$lte": int(end_date)},
+                },
+                projection={
+                    "ts_code": 1, "trade_date": 1, 
+                    "open": 1, "high": 1, "low": 1, "close": 1, 
+                    "vol": 1, "amount": 1, "pct_chg": 1,
+                    # 预计算的涨跌停衍生因子
+                    "first_limit_up": 1, "limit_up_yesterday": 1, "limit_up_count": 1,
+                    "market_leader": 1, "volume_ratio": 1, "amplitude": 1,
+                    "open_below_limit": 1, "open_above_limit": 1, "limit_up_open_amount": 1, "limit_down_yesterday": 1, "volume_increase": 1,
+                    # 新增超短策略因子 - 我们预计算的8个因子全部添加
+                    "limit_up_amount": 1, "limit_down_count": 1, "circ_mv": 1, "turnover_rate": 1,
+                    "pullback_ma5": 1, "sentiment_score": 1,
+                    "limit_up_open_count": 1, "hot_sector": 1, "limit_up_time": 1, "limit_up_open_duration": 1,
+                    "pullback_pct": 1, "pullback_days": 1, "open_above_limit_down": 1,
+                    "limit_down_open_amount": 1, "rise_after_limit_down": 1
+                },
+            )
         
         # 按股票分组
         stock_data = {}
@@ -175,22 +296,43 @@ class FactorEngine:
         stocks: List[str],
         start_date: str,
         end_date: str,
+        single_day: bool = False,
     ) -> Dict[str, pd.DataFrame]:
         """加载 daily_basic 数据"""
-        result = await mongo_manager.find_many(
-            "daily_basic",
-            {
-                "ts_code": {"$in": stocks},
-                "trade_date": {"$gte": start_date, "$lte": end_date},
-            },
-            projection={
-                "ts_code": 1, "trade_date": 1,
-                "pe": 1, "pe_ttm": 1, "pb": 1, "ps": 1, "ps_ttm": 1,
-                "dv_ratio": 1, "dv_ttm": 1,
-                "turnover_rate": 1, "turnover_rate_f": 1, "volume_ratio": 1,
-                "total_mv": 1, "circ_mv": 1,
-            },
-        )
+        if single_day:
+            # 🔥 修复：当查询单天数据，直接查询整表，然后在代码中过滤 ts_code
+            # 因为 MongoDB $in 查询 5000+ 股票代码会因为索引类型问题匹配不到，直接查当天所有股票再过滤
+            result = await mongo_manager.find_many(
+                "daily_basic",
+                {
+                    "trade_date": int(end_date),
+                },
+                projection={
+                    "ts_code": 1, "trade_date": 1,
+                    "pe": 1, "pe_ttm": 1, "pb": 1, "ps": 1, "ps_ttm": 1,
+                    "dv_ratio": 1, "dv_ttm": 1,
+                    "turnover_rate": 1, "turnover_rate_f": 1, "volume_ratio": 1,
+                    "total_mv": 1, "circ_mv": 1,
+                },
+            )
+            # 🔥 在代码中过滤只保留我们需要的 stocks
+            stocks_set = set(stocks)
+            result = [doc for doc in result if doc["ts_code"] in stocks_set]
+        else:
+            result = await mongo_manager.find_many(
+                "daily_basic",
+                {
+                    "ts_code": {"$in": stocks},
+                    "trade_date": {"$gte": int(start_date), "$lte": int(end_date)},
+                },
+                projection={
+                    "ts_code": 1, "trade_date": 1,
+                    "pe": 1, "pe_ttm": 1, "pb": 1, "ps": 1, "ps_ttm": 1,
+                    "dv_ratio": 1, "dv_ttm": 1,
+                    "turnover_rate": 1, "turnover_rate_f": 1, "volume_ratio": 1,
+                    "total_mv": 1, "circ_mv": 1,
+                },
+            )
         
         # 按股票分组
         stock_data = {}
@@ -576,7 +718,7 @@ FactorLibrary.register(
         category=FactorCategory.VALUE,
         description="流通市值 (单位：万元)",
         direction="desc",
-        data_source="daily_basic",
+        data_source="daily",
         required_fields=["circ_mv"],
         compute_func=lambda df: df["circ_mv"],
         lookback_days=1,
@@ -590,7 +732,7 @@ FactorLibrary.register(
         category=FactorCategory.LIQUIDITY,
         description="当日换手率 (%)",
         direction="asc",
-        data_source="daily_basic",
+        data_source="daily",
         required_fields=["turnover_rate"],
         compute_func=lambda df: df["turnover_rate"],
         lookback_days=1,

@@ -671,3 +671,75 @@ FactorLibrary.register(FactorDefinition(
     lookback_days=1,
     compute_func=lambda df: df["volume_increase"],
 ))
+
+FactorLibrary.register(FactorDefinition(
+    name="limit_up_amount",
+    display_name="涨停封单金额",
+    category=FactorCategory.TECHNICAL,
+    description="涨停时封单金额（单位：万元），越大越强",
+    direction="asc",
+    data_source="daily",
+    required_fields=["limit_up_amount"],
+    lookback_days=1,
+    compute_func=lambda df: df["limit_up_amount"],
+))
+
+FactorLibrary.register(FactorDefinition(
+    name="limit_down_count",
+    display_name="连续跌停次数",
+    category=FactorCategory.TECHNICAL,
+    description="连续跌停天数",
+    direction="desc",
+    data_source="daily",
+    required_fields=["limit_down_count"],
+    lookback_days=1,
+    compute_func=lambda df: df["limit_down_count"],
+))
+
+FactorLibrary.register(FactorDefinition(
+    name="circ_mv",
+    display_name="流通市值",
+    category=FactorCategory.VALUE,
+    description="流通市值估算（单位：万元）",
+    direction="desc",
+    data_source="daily",
+    required_fields=["circ_mv"],
+    lookback_days=1,
+    compute_func=lambda df: df["circ_mv"],
+))
+
+FactorLibrary.register(FactorDefinition(
+    name="turnover_rate",
+    display_name="换手率",
+    category=FactorCategory.LIQUIDITY,
+    description="换手率百分比（%）",
+    direction="asc",
+    data_source="daily",
+    required_fields=["turnover_rate"],
+    lookback_days=1,
+    compute_func=lambda df: df["turnover_rate"],
+))
+
+FactorLibrary.register(FactorDefinition(
+    name="pullback_ma5",
+    display_name="回踩MA5",
+    category=FactorCategory.TECHNICAL,
+    description="价格回调到MA5附近得分越高",
+    direction="asc",
+    data_source="daily",
+    required_fields=["pullback_ma5"],
+    lookback_days=1,
+    compute_func=lambda df: df["pullback_ma5"],
+))
+
+FactorLibrary.register(FactorDefinition(
+    name="sentiment_score",
+    display_name="情绪评分",
+    category=FactorCategory.MOMENTUM,
+    description="基于涨跌停计算的市场情绪评分",
+    direction="asc",
+    data_source="daily",
+    required_fields=["sentiment_score"],
+    lookback_days=1,
+    compute_func=lambda df: df["sentiment_score"],
+))
