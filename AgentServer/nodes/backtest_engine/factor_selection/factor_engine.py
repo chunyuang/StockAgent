@@ -53,14 +53,14 @@ class FactorEngine:
             return pd.DataFrame()
 
         stocks_list = list(stocks)
-        logger.info(f"Computing factors for {len(stocks_list)} stocks on {trade_date}")
+        logger.info('FACTOR_ENGINE', 'FACTOR_ENGINE', f"Computing factors for {len(stocks_list)} stocks on {trade_date}")
 
         # 1. 收集所需数据
         factor_defs = [FactorLibrary.get(cfg["name"]) for cfg in factor_configs]
         factor_defs = [f for f in factor_defs if f is not None]
 
         if not factor_defs:
-            logger.warning("No valid factors found")
+            logger.warn('FACTOR_ENGINE', "No valid factors found")
             return pd.DataFrame({"ts_code": stocks_list})
 
         logger.debug(f"Loading data for {len(factor_defs)} factors...")

@@ -1,0 +1,23 @@
+repos:
+-   repo: https://github.com/PyCQA/pycodestyle
+    rev: 2.12.1
+    hooks:
+    -   id: pycodestyle
+        args: [--max-line-length=120, --count]
+
+-   repo: https://github.com/PyCQA/pyflakes
+    rev: 3.2.0
+    hooks:
+    -   id: pyflakes
+
+-   repo: https://github.com/psf/black
+    rev: 24.3.0
+    hooks:
+    -   id: black
+        args: [--line-length=120]
+
+-   repo: https://github.com/PyCQA/ruff-pre-commit
+    rev: v0.4.2
+    hooks:
+    -   id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
