@@ -9,7 +9,7 @@ check_date = 20260106
 # Find previous trading day
 pipeline = [
     {'$match': {'trade_date': {'$lt': check_date}, 'source': 'ak'}},
-    {'$group': {'_id': None, 'max_date': {'$max': '$trade_date'}},
+    {'$group': {'_id': None, 'max_date': {'$max': '$trade_date'}}}
 ]
 result = list(db.stock_daily_ak_full.aggregate(pipeline))
 yesterday = result[0]['max_date']

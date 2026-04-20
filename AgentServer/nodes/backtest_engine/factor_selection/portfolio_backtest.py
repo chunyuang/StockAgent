@@ -746,23 +746,35 @@ class PortfolioBacktester:
         # 收集所有交易记录
         all_trades = []
         for day_records in rebalance_records:
-            all_trades.extend(day_records)
+            if isinstance(day_records, list):
+                all_trades.extend(day_records)
+            else:
+                all_trades.append(day_records)
 
         # 计算统计指标
         total_signals = 0
+        winning_trades = 0
         for day_records in rebalance_records:
-            total_signals += len(day_records)
+            if isinstance(day_records, list):
+                total_signals += len(day_records)
+                for record in day_records:
+                    # 只统计买入交易，amount > 0 表示盈利
+                    if record.action == 'buy' and record.amount > 0:
+                        winning_trades += 1
+            else:
+                total_signals += 1
+                if day_records.action == 'buy' and day_records.amount > 0:
+                    winning_trades += 1
+
+        # 计算胜率
+        win_rate = 0.0
+        if total_signals > 0:
+            win_rate = winning_trades / total_signals * 100
 
         # 输出最终汇总结果到日志
-        if total_signals > 0:
-            win_rate = 0.0
-            # 胜率计算：这里只统计买入交易
-            # 胜率 = 盈利交易数 / 总买入交易数
-            # 简化计算：胜率 ≈ 盈利交易数 / 总信号数
-            # 详细胜率由 node.py 会重新计算，这里只需要简单输出
-            await self.log("✅ 回测全部完成!")
-            await self.log(f"📊 汇总结果:总信号 {total_signals} 个,平均胜率 {win_rate:.2f}%,总收益率 {total_return * 100:.2f}%")
-            await self.log(f"  累计收益率: {total_return * 100:.2f}%")
+        await self.log("✅ 回测全部完成!")
+        await self.log(f"📊 汇总结果:总信号 {total_signals} 个,平均胜率 {win_rate:.2f}%,总收益率 {total_return * 100:.2f}%")
+        await self.log(f"  累计收益率: {total_return * 100:.2f}%")
         else:
             await self.log("✅ 回测全部完成!")
             await self.log("📊 汇总结果:总信号 0 个,平均胜率 0.00%,总收益率 0.00%")
@@ -835,7 +847,6 @@ class PortfolioBacktester:
         docs = await mongo_manager.find_many("stock_daily_ak_full", query)
         prices = {}
         # 调试：打印每个doc的ts_code，帮助定位问题
-        await self.log(f"            [DEBUG] 查询到 {len(docs)} 条文档，开始匹配...")
         matched = 0
         for doc in docs:
             ts_code_doc = doc["ts_code"]
@@ -865,9 +876,7 @@ class PortfolioBacktester:
             if matched_key:
                 prices[matched_key] = doc["close"]
                 matched += 1
-                await self.log(f"            [DEBUG] ✅ 匹配成功: {ts_code_doc} → {matched_key} close={doc['close']}")
 
-        await self.log(f"            [DEBUG] 最终匹配成功: {matched} 只")
 
         await self.log(f"            ✅ _get_prices: 查询到 {len(prices)} 只股票有价格")
 

@@ -21,33 +21,56 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+# 检查参数：--full-check 表示做全量语法检查
+FULL_CHECK=0
+if [ "$1" = "--full-check" ]; then
+  FULL_CHECK=1
+fi
+
 echo -e "${YELLOW}============================================${NC}"
 echo -e "${YELLOW}🔍 运行Python语法检查...${NC}"
 echo -e "${YELLOW}============================================${NC}"
 
 echo -e "${GREEN}✅ 强制Python语法&缩进检查${NC}"
 
-# 获取所有修改过的 Python 文件
-# 使用 git diff 找出最近修改过的文件，只检查这些文件
-git_diff_files=$(git diff --name-only HEAD | grep '\.py$')
-
-if [ -n "$git_diff_files" ]; then
-  for file in $git_diff_files; do
-    # 只检查存在的文件
-    if [ -f "$file" ]; then
-      python -m py_compile "$file"
-      if [ $? -eq 0 ]; then
-        echo -e "${GREEN}✅ $file 语法检查通过${NC}"
-      else
-        echo -e "${RED}❌ $file 语法错误，请修复！${NC}"
-        exit 1
-      fi
-    else
-      echo -e "${YELLOW}⚠️  文件不存在，跳过检查: $file${NC}"
+if [ $FULL_CHECK -eq 1 ]; then
+  echo -e "${YELLOW}🔍 执行全量语法检查（所有 .py 文件）...${NC}"
+  # 全量检查所有 Python 文件，排除 venv
+  has_error=0
+  find . -name "*.py" -type f \( -path "./AgentServer/*" -o -path "./scripts/*" \) ! -path "*/venv/*" | while read -r file; do
+    python -m py_compile "$file"
+    if [ $? -ne 0 ]; then
+      has_error=1
     fi
   done
+  if [ $has_error -eq 1 ]; then
+    echo -e "${RED}❌ 全量语法检查发现错误，请修复后重试！${NC}"
+    exit 1
+  else
+    echo -e "${GREEN}✅ 全量语法检查通过，所有 .py 文件语法正确${NC}"
+  fi
 else
-  echo -e "${YELLOW}✅ 没有检测到修改过的Python文件，跳过语法检查${NC}"
+  # 增量检查：只检查 git diff 修改过的文件
+  git_diff_files=$(git diff --name-only HEAD | grep '\.py$')
+
+  if [ -n "$git_diff_files" ]; then
+    for file in $git_diff_files; do
+      # 只检查存在的文件
+      if [ -f "$file" ]; then
+        python -m py_compile "$file"
+        if [ $? -eq 0 ]; then
+          echo -e "${GREEN}✅ $file 语法检查通过${NC}"
+        else
+          echo -e "${RED}❌ $file 语法错误，请修复！${NC}"
+          exit 1
+        fi
+      else
+        echo -e "${YELLOW}⚠️  文件不存在，跳过检查: $file${NC}"
+      fi
+    done
+  else
+    echo -e "${YELLOW}✅ 没有检测到修改过的Python文件，跳过语法检查${NC}"
+  fi
 fi
 
 echo -e "${YELLOW}============================================${NC}"

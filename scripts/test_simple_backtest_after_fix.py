@@ -103,6 +103,7 @@ async def test_simple_backtest():
     print("测试2: 运行简化回测...")
     
     # 使用最简单的策略
+    strategy = {
         "name": "简化测试",
         "filters": [
             ("limit_up_yesterday", 1),

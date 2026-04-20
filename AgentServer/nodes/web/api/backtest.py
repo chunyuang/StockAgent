@@ -153,31 +153,6 @@ class UltraShortParams(BaseModel):
     auction_filter: bool = Field(default=True, description="是否启用竞价过滤规则")
     selected_strategies: List[Dict[str, Any]] = Field(default_factory=list, description="选中策略的完整配置（包含独立参数）")
 
-    # 允许所有额外字段，不会过滤任何前端提交的内容
-    class Config:
-        extra = 'allow'
-
-
-class UltraShortBacktestRequest(BaseModel):
-    """超短策略回测请求"""
-    strategies: Optional[List[str]] = Field(None, description="策略列表，可选值: halfway_chase(半路追涨), first_limit_up(首板打板), limit_up_open(涨停开板), leader_buy_dip(龙头低吸), limit_down_qiao(跌停翘板)", min_length=1)
-    selected_strategies: Optional[List[Dict[str, Any]]] = Field(None, description="前端提交的选中策略对象数组，兼容老版本")
-    start_date: Optional[str] = Field(None, description="开始日期", pattern=r"^\d{8}$")
-    end_date: Optional[str] = Field(None, description="结束日期", pattern=r"^\d{8}$")
-    
-    # 数据源配置
-    data_source: str = Field(default="mongodb", description="数据源：固定为mongodb")
-    period: str = Field(default="daily", description="周期：daily/1min")
-    ts_codes: Optional[str] = Field(default=None, description="股票代码列表，逗号分隔，空为全市场")
-    adjust_type: str = Field(default="qfq", description="复权方式：none(不复权), qfq(前复权)")
-    
-    initial_cash: Optional[float] = Field(default=1000000.0, ge=10000, le=100000000, description="初始资金")
-    initial_capital: Optional[float] = Field(default=1000000.0, ge=10000, le=100000000, description="初始资金，兼容前端字段名")
-    params: UltraShortParams = Field(default_factory=UltraShortParams, description="全局策略参数配置")
-    strategy_params: Dict[str, Dict[str, Any]] = Field(default_factory=dict, description="各策略独立参数配置，key为策略id，value为参数字典")
-    
-    enable_sentiment_cycle: bool = Field(default=True, description="启用情绪周期适配")
-    enable_auction_filter: bool = Field(default=True, description="启用集合竞价过滤")
 # 中文策略名映射，放在类外面避免pydantic v2私有属性问题
 strategy_name_map: Dict[str, str] = {
     "半路追涨": "halfway_chase",
@@ -253,8 +228,6 @@ class UltraShortBacktestRequest(BaseModel):
     # 允许所有额外字段，不会过滤任何前端提交的内容
     class Config:
         extra = 'allow'
-    
-    class Config:
         json_schema_extra = {
             "example": {
                 "strategies": ["halfway_chase"],
@@ -599,7 +572,7 @@ async def cancel_backtest(
     # 先处理Mock超短回测任务
     if task_id.startswith("us_") and task_id in mock_tasks:
         mock_tasks[task_id]["status"] = "cancelled"
-        mock_logs.append("⏹️ 用户手动取消回测")
+        mock_tasks[task_id]["logs"].append("⏹️ 用户手动取消回测")
         return {"task_id": task_id, "status": "cancelled", "message": "任务已取消"}
     
     # 查 MongoDB
@@ -658,14 +631,11 @@ async def list_available_factors() -> Dict[str, Any]:
     """
     获取可用的因子列表
     """
-    # 临时返回mock数据，避免导入错误
-    return {
-        "factors": [],
-        "grouped": {}
-    }
+    from nodes.backtest_engine.factor_selection.factor_library import FACTOR_DEFS
     
     # 按分类分组
     grouped = {}
+    factors = FACTOR_DEFS
     for f in factors:
         category = f["category"]
         if category not in grouped:
