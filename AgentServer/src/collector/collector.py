@@ -14,7 +14,7 @@ import logging
 from typing import Any, Dict, List, Optional, Type
 from datetime import datetime, timedelta
 
-from .types import NewsItem, NewsSource, CollectResult
+from .types import NewsItem, CollectResult
 from .dedup import DeduplicationEngine, QuickDeduplicator
 from .storage import NewsStorage
 from .sources.base import BaseSource

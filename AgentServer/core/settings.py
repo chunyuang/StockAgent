@@ -20,7 +20,6 @@
   mongo_db = settings.mongo.database
 """
 
-import os
 from functools import lru_cache
 from typing import Optional, Literal
 from pydantic import Field, SecretStr
@@ -305,7 +304,7 @@ class DataSyncSettings(BaseSettings):
     stock_basic_schedule: Optional[str] = None
     
     # 股票日线数据采集时间 (默认: 每个交易日 15:30)
-    stock_daily_schedule: Optional[str] = None
+    stock_daily_ak_full_schedule: Optional[str] = None
     
     # 指数基础信息采集时间 (默认: 每个交易日 9:00)
     index_basic_schedule: Optional[str] = None

@@ -5,7 +5,7 @@
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 from datetime import datetime
 
 from ..types import (
@@ -84,7 +84,6 @@ class FixedKnowledgeStore:
         if not items:
             return InsertResult(success=True, inserted_ids=[])
         
-        milvus = await self._get_milvus()
         mongo = await self._get_mongo()
         llm = await self._get_llm()
         
@@ -171,7 +170,6 @@ class FixedKnowledgeStore:
         Returns:
             搜索结果
         """
-        milvus = await self._get_milvus()
         mongo = await self._get_mongo()
         llm = await self._get_llm()
         
@@ -367,7 +365,6 @@ class FixedKnowledgeStore:
     
     async def clear(self, trace_id: Optional[str] = None) -> bool:
         """清空知识库"""
-        milvus = await self._get_milvus()
         mongo = await self._get_mongo()
         
         try:

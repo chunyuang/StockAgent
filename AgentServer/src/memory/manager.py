@@ -5,17 +5,13 @@
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Union
-from datetime import datetime
-import asyncio
+from typing import Any, Dict, List, Optional
 
 from .types import (
-    BaseMemoryItem,
     SensoryMemoryItem,
     WorkingMemoryItem,
     LongTermMemoryItem,
     LongTermMemoryType,
-    MemoryType,
     MemoryMetadata,
     MemoryVisibility,
     InsertResult,
@@ -24,7 +20,7 @@ from .types import (
 )
 from .sensory import SensoryStream, AttentionGate
 from .working import WorkingBuffer, ContextWindow
-from .longterm import SemanticStore, EpisodicStore, ProceduralStore, TradingPattern
+from .longterm import SemanticStore, EpisodicStore, ProceduralStore
 from .consolidation import ConsolidationEngine
 from .decay import DecayEngine
 from .retrieval import UnifiedRetriever, RetrievalQuery, RetrievalResult

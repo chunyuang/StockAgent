@@ -5,10 +5,10 @@ LangGraph 节点工厂
 """
 
 import logging
-from typing import Callable, Dict, Any, Optional, List
+from typing import Callable, Optional, List
 from functools import wraps
 
-from src.agents.base import BaseAgent, AgentResult
+from src.agents.base import BaseAgent
 
 
 logger = logging.getLogger(__name__)

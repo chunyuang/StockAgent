@@ -4,16 +4,12 @@
 支持飞书/企业微信/短信等渠道的消息推送，用于推送交易信号、绩效报告、告警通知等。
 """
 
-import json
 import logging
-import asyncio
-from datetime import datetime
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 
 import aiohttp
 
 from core.settings import settings
-from core.managers import mongo_manager
 
 logger = logging.getLogger("push_service")
 

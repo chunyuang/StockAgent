@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
 Tushare 按股票下载日线数据
-模式: 逐个股票获取全部历史数据 → 逐条存入 MongoDB stock_daily
+模式: 逐个股票获取全部历史数据 → 逐条存入 MongoDB stock_daily_ak_full
 
 特点:
 - 物理隔离: 纯 Tushare 实现，不依赖其他数据源
 - 按股票获取: Tushare 原生 API 模式，支持频率控制
-- 存入统一 stock_daily 集合，方便回测读取
+- 存入统一 stock_daily_ak_full 集合，方便回测读取
 - _id = "{ts_code}_{trade_date}" 确保去重
 """
 
@@ -14,7 +14,6 @@ import asyncio
 import sys
 import time
 from datetime import datetime
-import pandas as pd
 import pymongo
 
 sys.path.insert(0, '/root/.openclaw/workspace/StockAgent/AgentServer')
@@ -23,7 +22,7 @@ from core.settings import settings
 from core.managers.tushare_manager import tushare_manager
 
 async def download_by_stock_list(ts_codes: list, start_date: str, end_date: str):
-    print(f"=== Tushare 按股票下载 (纯 Tushare 模式) ===")
+    print("=== Tushare 按股票下载 (纯 Tushare 模式) ===")
     print(f"股票数量: {len(ts_codes)}")
     print(f"区间: {start_date} ~ {end_date}")
     print()
@@ -41,7 +40,7 @@ async def download_by_stock_list(ts_codes: list, start_date: str, end_date: str)
     # 连接 MongoDB
     client = pymongo.MongoClient(settings.mongo.url)
     db = client[settings.mongo.database]
-    collection = db['stock_daily']
+    collection = db['stock_daily_ak_full']
 
     total_records = 0
     total_stocks = len(ts_codes)
@@ -98,15 +97,14 @@ async def download_by_stock_list(ts_codes: list, start_date: str, end_date: str)
     elapsed = time.time() - start_time
     print()
     print("="*60)
-    print(f"下载完成!")
+    print("下载完成!")
     print(f"总记录数: {total_records}")
     print(f"总耗时: {elapsed:.1f} 秒 ≈ {elapsed/60:.1f} 分钟")
     print(f"平均速度: {total_records/elapsed:.2f} 条/秒")
 
     # 统计最终数据库中的数据
     if len(ts_codes) > 0:
-        sample_date = ts_codes[0][:8] if len(ts_codes[0]) >= 8 else start_date[:8]
-        print(f"统计完成，数据已存入 MongoDB stock_daily")
+        print("统计完成，数据已存入 MongoDB stock_daily_ak_full")
 
     client.close()
 
@@ -148,7 +146,7 @@ if __name__ == "__main__":
         stocks = get_stock_list_from_file(sys.argv[3])
     else:
         # 从 stock_basic 读取全部股票列表
-        print(f"没有提供股票列表文件，从 MongoDB stock_basic 读取全部股票...")
+        print("没有提供股票列表文件，从 MongoDB stock_basic 读取全部股票...")
         client = pymongo.MongoClient(settings.mongo.url)
         db = client[settings.mongo.database]
         cursor = db['stock_basic'].find({}, {'ts_code': 1})

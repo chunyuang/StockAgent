@@ -4,13 +4,11 @@
 从 Markdown 文件加载知识到向量库。
 """
 
-import os
 import re
 import logging
 import yaml
 from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
-from datetime import datetime
 
 from ..types import (
     FixedKnowledgeItem,

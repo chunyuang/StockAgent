@@ -18,7 +18,7 @@
 """
 
 from enum import Enum
-from typing import List, Dict, Any, Optional
+from typing import Dict, Any, Optional
 from dataclasses import dataclass
 import logging
 
@@ -186,9 +186,9 @@ class EmotionCycleManager:
         """获取涨跌家数"""
         # 统计今日涨幅 > 0 的股票数量
         query = {"trade_date": int(trade_date), "pct_chg": {"$gt": 0}}
-        up_count = await mongo_manager.count("stock_daily", query)
+        up_count = await mongo_manager.count("stock_daily_ak_full", query)
         query = {"trade_date": int(trade_date), "pct_chg": {"$lt": 0}}
-        down_count = await mongo_manager.count("stock_daily", query)
+        down_count = await mongo_manager.count("stock_daily_ak_full", query)
         return up_count, down_count
     
     async def _calculate_zt_premium(self, trade_date: str) -> float:
@@ -218,7 +218,7 @@ class EmotionCycleManager:
         for doc in yesterday_zt:
             ts_code = doc["ts_code"]
             today_data = await mongo_manager.find_one(
-                "stock_daily",
+                "stock_daily_ak_full",
                 {"ts_code": ts_code, "trade_date": int(trade_date)},
                 projection={"close": 1, "pre_close": 1},
             )

@@ -5,7 +5,7 @@
 数据来源: 同花顺概念板块资金流向 (moneyflow_cnt_ths)
 """
 
-from typing import Dict, Any, List
+from typing import Dict, Any
 import asyncio
 
 from core.base import BaseCollector

@@ -17,22 +17,19 @@
 """
 
 import asyncio
-from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import List, Optional
 
 from core.settings import settings
-from core.managers import mongo_manager
 from .base_executor import (
     BaseExecutor,
     Order,
     Position,
     AccountInfo,
     OrderDirection,
-    OrderStatus,
 )
 from .drawdown_control import DrawdownController, default_drawdown_controller
 from .simulator_executor import SimulatorExecutor
-from ..strategies.emotion_cycle import emotion_cycle_manager, EmotionScore
+from ..strategies.emotion_cycle import emotion_cycle_manager
 
 
 import logging

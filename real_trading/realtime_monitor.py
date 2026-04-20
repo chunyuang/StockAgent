@@ -8,7 +8,7 @@ import os
 import asyncio
 import time
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import List, Dict
 import akshare as ak
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'AgentServer'))
@@ -232,7 +232,6 @@ class RealTimeMonitor:
             quote_df = quote_df[quote_df["代码"].isin(target_codes)]
             quote_map = {row["代码"]: row for _, row in quote_df.iterrows()}
             
-            buy_threshold = self.config["alert_threshold"]["target_reach_buy_price"]
             
             for target in self.config["target_stocks"]:
                 code = target.split(".")[0]
@@ -247,8 +246,6 @@ class RealTimeMonitor:
                 # 假设目标买入价保存在target_stocks的字典中，这里简化处理
                 # 实际使用时可以配置每个目标的买入价
                 if isinstance(target, dict):
-                    buy_price = target["buy_price"]
-                    ts_code = target["ts_code"]
                 else:
                     # 简单提醒达到预设的涨幅区间
                     if 0.5 <= pct_chg <= 3:

@@ -122,7 +122,7 @@ async def get_stock_basic(ts_code: str):
 
 
 @router.get("/{ts_code}/daily", response_model=List[StockDaily])
-async def get_stock_daily(
+async def get_stock_daily_ak_full(
     ts_code: str,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -137,7 +137,7 @@ async def get_stock_daily(
         filter_query.setdefault("trade_date", {})["$lte"] = end_date
     
     records = await mongo_manager.find_many(
-        "stock_daily",
+        "stock_daily_ak_full",
         filter_query,
         sort=[("trade_date", -1)],
         limit=limit,
@@ -184,7 +184,7 @@ async def get_realtime_quotes(body: RealtimeQuoteRequest):
         
         # 获取该股票最新的日线数据
         daily = await mongo_manager.find_one(
-            "stock_daily",
+            "stock_daily_ak_full",
             {"ts_code": ts_code},
             sort=[("trade_date", -1)],
         )

@@ -22,7 +22,7 @@ async def handle_refresh(params):
     strategy_type = params.get("strategy_type")
     source = params.get("_source_node", "unknown")
     
-    print(f"[Server] Received refresh request!")
+    print("[Server] Received refresh request!")
     print(f"         trace_id={trace_id}")
     print(f"         strategy_type={strategy_type}")
     print(f"         from={source}")
@@ -77,7 +77,7 @@ async def test_e2e():
         source_node="web-test",
     )
     
-    print(f"\n[Client] 调用结果:")
+    print("\n[Client] 调用结果:")
     print(f"         success={result.get('success')}")
     print(f"         result={result.get('result')}")
     print(f"         elapsed_ms={result.get('elapsed_ms')}")
@@ -100,7 +100,7 @@ async def test_e2e():
         source_node="web-test",
     )
     
-    print(f"\n[Client] 广播结果:")
+    print("\n[Client] 广播结果:")
     for r in results:
         node_id = r.get("node_id", "unknown")
         success = r.get("success")

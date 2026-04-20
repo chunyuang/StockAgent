@@ -3,7 +3,7 @@
 """
 
 from datetime import datetime, timedelta
-from typing import Optional, Any
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm

@@ -8,7 +8,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 
 # 需要修复的索引
 INDEXES_TO_FIX = [
-    ("stock_daily", "ts_code_1_trade_date_-1"),
+    ("stock_daily_ak_full", "ts_code_1_trade_date_-1"),
     ("daily_basic", "ts_code_1_trade_date_-1"),
     ("index_daily", "ts_code_1_trade_date_-1"),
     ("moneyflow_industry", "ts_code_1_trade_date_-1"),

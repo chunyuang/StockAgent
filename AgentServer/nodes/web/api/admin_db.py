@@ -8,7 +8,7 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 import logging
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, HTTPException, Body
 from pydantic import BaseModel, Field
 
 from core.managers import mongo_manager
@@ -20,15 +20,18 @@ router = APIRouter(prefix="/admin/db", tags=["数据库管理"])
 
 
 # ========== 允许操作的集合（安全白名单） ==========
+# ========== 允许操作的集合（安全白名单） ==========
+# 只包含实际存在且允许用户管理的集合
 ALLOWED_COLLECTIONS = [
-    "stock_daily_ak_full",
-    "daily_basic",
-    "index_daily",
-    "stock_daily",
-    "stock_1min",
-    "backtest_results",
-    "trade_records",
-    "limit_list",
+    "stock_daily_ak_full",  # 日线行情完整版 - 存在
+    "daily_basic",         # 每日基本信息 - 存在（预留）
+    "index_daily",         # 指数日线 - 存在
+    "stock_daily_ak_full_factors",  # 日线因子 - 存在
+    "stock_1min_factors",   # 1分钟因子 - 存在
+    "backtest_tasks",     # 回测任务 - 存在
+    "limit_list",         # 涨跌停列表 - 存在
+    "trade_cal",          # 交易日历 - 存在
+    "stock_basic",        # 股票基础信息 - 存在
 ]
 
 
@@ -65,13 +68,9 @@ class CheckMissingRequest(BaseModel):
     """检查缺失数据请求"""
     date: Optional[int] = Field(None, description="检查指定日期，不指定检查最新日期")
     factors: Optional[List[str]] = Field(None, description="检查指定因子，不指定检查所有预计算因子")
-
-
-class VerifyIntegrityRequest(BaseModel):
-    """完整性校验请求"""
-    start_date: int = Field(..., description="开始日期")
-    end_date: int = Field(..., description="结束日期")
-    sample_size: int = Field(100, description="抽样检查大小")
+    
+    class Config:
+        extra = 'allow'
 
 
 # ========== 工具函数 ==========
@@ -135,7 +134,7 @@ async def get_database_stats():
             })
     
     # 特别统计 stock_daily_ak_full
-    stock_daily_stats = None
+    stock_daily_ak_full_stats = None
     try:
         coll = db["stock_daily_ak_full"]
         count = await coll.count_documents({})
@@ -161,7 +160,7 @@ async def get_database_stats():
             last_update = datetime.utcnow().isoformat()
             
             stats = await db.command("collstats", "stock_daily_ak_full")
-            stock_daily_stats = {
+            stock_daily_ak_full_stats = {
                 "document_count": count,
                 "size_bytes": stats["size"],
                 "size_human": _bytes_to_human(stats["size"]),
@@ -226,12 +225,19 @@ async def get_database_stats():
     except Exception as e:
         logger.error(f"Failed to get factor stats: {e}")
     
+    # 计算总体统计
+    total_documents = sum(c["document_count"] for c in collections)
+    total_size_bytes = sum(c["size_bytes"] for c in collections)
+    
     return {
         "success": True,
         "data": {
             "mongodb_version": mongodb_version,
+            "db_name": settings.mongo.database,
+            "total_documents": total_documents,
+            "total_size_bytes": total_size_bytes,
             "collections": collections,
-            "stock_daily_ak_full": stock_daily_stats,
+            "stock_daily_ak_full": stock_daily_ak_full_stats,
             "factors": factor_stats,
         },
         "message": "数据库统计获取成功",
@@ -458,7 +464,13 @@ async def check_missing_data(request: CheckMissingRequest):
     # 默认检查所有预计算因子
     default_factors = [
         "limit_up_amount", "limit_down_count", "circ_mv", "turnover_rate",
-        "pullback_ma5", "sentiment_score",
+        "pullback_ma5", "sentiment_score", "first_limit_up", "limit_up_yesterday",
+        "limit_up_count", "market_leader", "volume_ratio", "amplitude",
+        "open_below_limit", "open_above_limit", "limit_up_open_amount",
+        "limit_down_yesterday", "volume_increase", "limit_up_open_count",
+        "hot_sector", "limit_up_time", "limit_up_open_duration",
+        "pullback_pct", "pullback_days", "open_above_limit_down",
+        "limit_down_open_amount", "rise_after_limit_down",
     ]
     factors_to_check = request.factors if request.factors else default_factors
     
@@ -490,7 +502,9 @@ async def check_missing_data(request: CheckMissingRequest):
 
 
 @router.post("/verify-integrity")
-async def verify_integrity(request: VerifyIntegrityRequest):
+async def verify_integrity(
+    body = Body(None)
+):
     """
     验证数据完整性
     
@@ -499,29 +513,43 @@ async def verify_integrity(request: VerifyIntegrityRequest):
     """
     db = mongo_manager._db
     
+    # 完全自己处理默认值
+    if body is None:
+        body = {}
+    # Bug 修复：body.get(key) is not None 判断错误
+    # 如果前端传入 start_date: null，body.get 返回 None → 使用默认值正确
+    # 但是，即使前端不传键，body.get 也返回 None → 使用默认值正确
+    start_date = body.get("start_date") if body.get("start_date") is not None else 20250101
+    end_date = body.get("end_date") if body.get("end_date") is not None else 20261231
+    sample_size = body.get("sample_size") if body.get("sample_size") is not None else 100
+    
+    # Bug 修复：强制转换为 int，防止字符串类型导致查询失败
+    start_date = int(start_date)
+    end_date = int(end_date)
+    
     # 获取交易日历
     trade_cal = db["trade_cal"]
     # motor async find
     cursor = trade_cal.find(
         {
-            "trade_date": {
-                "$gte": request.start_date,
-                "$lte": request.end_date,
+            "cal_date": {
+                "$gte": start_date,
+                "$lte": end_date,
             }
         },
         {
-            "trade_date": 1
+            "cal_date": 1
         }
     )
     trading_days = await cursor.to_list(length=None)
     
-    trading_dates = [d["trade_date"] for d in trading_days if d.get("is_open", 1)]
+    trading_dates = [d["cal_date"] for d in trading_days if d.get("is_open", 1)]
     total_trading_days = len(trading_dates)
     
     if total_trading_days == 0:
         return {
             "success": False,
-            "message": f"指定范围 {request.start_date} ~ {request.end_date} 没有交易日",
+            "message": f"指定范围 {start_date} ~ {end_date} 没有交易日",
         }
     
     # 检查每个交易日的文档数
@@ -565,11 +593,11 @@ async def verify_integrity(request: VerifyIntegrityRequest):
     
     # 随机抽样
     sample_pipeline = [
-        {"$match": {"trade_date": {"$gte": request.start_date, "$lte": request.end_date}}},
-        {"$sample": {"size": request.sample_size}},
+        {"$match": {"trade_date": {"$gte": start_date, "$lte": end_date}}},
+        {"$sample": {"size": sample_size}},
     ]
     cursor = coll.aggregate(sample_pipeline)
-    sample_docs = await cursor.to_list(length=request.sample_size)
+    sample_docs = await cursor.to_list(length=sample_size)
     
     for doc in sample_docs:
         total_checked += 1

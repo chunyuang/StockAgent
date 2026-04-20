@@ -540,9 +540,7 @@ class EventClusterEngine:
         
         async def extract_with_limit(news_doc):
             async with semaphore:
-                news_id = news_doc.get("id", "")
                 title = news_doc.get("title", "")
-                content = news_doc.get("content", "")
                 fingerprint, llm_result = await self.extract_fingerprint(title, content, trace_id)
                 extract_count[0] += 1
                 if extract_count[0] % 10 == 0:
@@ -565,9 +563,7 @@ class EventClusterEngine:
                 continue
             
             news_doc, fingerprint, llm_result = item
-            news_id = news_doc.get("id", "")
             title = news_doc.get("title", "")
-            content = news_doc.get("content", "")
             source = news_doc.get("source", "")
             source_priority = news_doc.get("source_priority", 2)  # 获取源优先级
             

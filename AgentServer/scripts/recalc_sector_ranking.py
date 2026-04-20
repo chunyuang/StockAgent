@@ -15,7 +15,7 @@ import os
 # 添加项目根目录到路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.managers import tushare_manager, mongo_manager
+from core.managers import mongo_manager
 
 
 async def get_trade_dates(start_date: str, end_date: str) -> list:

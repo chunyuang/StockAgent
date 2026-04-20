@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 from dataclasses import dataclass
 from enum import Enum
 
-from .types import NewsCategory, NewsSource
+from .types import NewsCategory
 
 
 class DataTier(str, Enum):

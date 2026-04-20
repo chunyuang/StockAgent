@@ -160,7 +160,7 @@ def is_noise_news(event: Dict[str, Any]) -> Tuple[bool, str]:
     # 检查重复/跟进（从配置读取）
     for pattern in filter_config.duplicate_patterns:
         if re.search(pattern, title):
-            return True, f"重复/跟进新闻"
+            return True, "重复/跟进新闻"
     
     return False, ""
 

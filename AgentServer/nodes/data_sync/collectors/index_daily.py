@@ -103,13 +103,11 @@ class IndexDailyCollector(BaseCollector):
         # 只能逐个指数获取
         for i, ts_code in enumerate(ts_codes):
             try:
-                t1 = time.time()
                 records = await tushare_manager.get_index_daily(
                     ts_code=ts_code,
                     start_date=start_date,
                     end_date=end_date,
                 )
-                t2 = time.time()
                 
                 if records:
                     buffer.extend(records)

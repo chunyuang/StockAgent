@@ -9,11 +9,8 @@ import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
 
-import pandas as pd
-import numpy as np
 
 from core.managers import mongo_manager
-from core.settings import settings
 
 logger = logging.getLogger("performance_report_generator")
 

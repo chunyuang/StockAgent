@@ -10,7 +10,6 @@
 
 import asyncio
 import sys
-import os
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -57,7 +56,7 @@ async def run_test_server():
         return {
             "status": "ok",
             "subscriptions_count": 3,
-            "message": f"已刷新策略配置 (模拟)",
+            "message": "已刷新策略配置 (模拟)",
             "timestamp": datetime.utcnow().isoformat(),
         }
     

@@ -4,7 +4,7 @@
 根据涨跌停数据、连板高度、炸板率等指标判断市场情绪周期。
 """
 
-from typing import Optional, List
+from typing import Optional
 from src.tools.registry import tool
 
 

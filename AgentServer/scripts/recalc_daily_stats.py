@@ -24,7 +24,6 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.managers import mongo_manager, tushare_manager, analysis_manager
-from core.settings import settings
 
 
 async def get_trade_dates_in_range(start_date: str, end_date: str) -> list:
@@ -148,9 +147,9 @@ async def compute_daily_stats_for_date(trade_date: str) -> dict:
             elif limit_type == "D":
                 stats["limit_down_count"] += 1
     
-    # 2. 从 stock_daily 获取涨跌统计
+    # 2. 从 stock_daily_ak_full 获取涨跌统计
     daily_data = await mongo_manager.find_many(
-        "stock_daily",
+        "stock_daily_ak_full",
         {"trade_date": trade_date},
         projection={"ts_code": 1, "pct_chg": 1, "_id": 0},
     )
@@ -239,10 +238,10 @@ async def recalc_for_dates(trade_dates: list, force: bool = True):
     for i, trade_date in enumerate(trade_dates):
         try:
             # 检查是否有基础数据
-            stock_count = await mongo_manager._db.stock_daily.count_documents({"trade_date": trade_date})
+            stock_count = await mongo_manager._db.stock_daily_ak_full.count_documents({"trade_date": trade_date})
             
             if stock_count == 0:
-                print(f"[{i+1}/{len(trade_dates)}] {trade_date} - SKIP (no stock_daily data)")
+                print(f"[{i+1}/{len(trade_dates)}] {trade_date} - SKIP (no stock_daily_ak_full data)")
                 skip_count += 1
                 continue
             
@@ -363,7 +362,7 @@ async def recalc_for_dates(trade_dates: list, force: bool = True):
             print(f"[{i+1}/{len(trade_dates)}] {trade_date} - ERROR: {e}")
             error_count += 1
     
-    print(f"\n=== Done! ===")
+    print("\n=== Done! ===")
     print(f"  Success: {success_count}")
     print(f"  Skipped: {skip_count}")
     print(f"  Errors:  {error_count}")

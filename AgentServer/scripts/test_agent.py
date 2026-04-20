@@ -35,8 +35,6 @@ async def test_tools():
     from src.tools import tool_registry
     
     # 导入工具模块（触发注册）
-    from src.tools.data import stock_quote, historical, news, financial
-    from src.tools.analysis import technical
     
     # 列出所有工具
     tools = tool_registry.list_all()
@@ -92,8 +90,6 @@ async def test_agent(stock_code: str = "600519.SH"):
     await llm_service.initialize()
     
     # 导入工具
-    from src.tools.data import stock_quote, historical, news, financial
-    from src.tools.analysis import technical
     
     # 创建 Agent
     config = AgentConfig(
@@ -155,8 +151,6 @@ async def test_workflow(stock_code: str = "600519.SH"):
     await llm_service.initialize()
     
     # 导入工具
-    from src.tools.data import stock_quote, historical, news, financial
-    from src.tools.analysis import technical
     
     # 创建 Agents
     config = AgentConfig(max_steps=8)

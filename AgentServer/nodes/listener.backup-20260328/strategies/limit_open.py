@@ -4,7 +4,7 @@
 检测涨停/跌停股票开板的情况。
 """
 
-from typing import List, Dict, Any, Optional
+from typing import List, Optional
 import logging
 
 from .base import BaseStrategy

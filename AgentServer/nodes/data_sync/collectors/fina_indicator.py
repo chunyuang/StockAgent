@@ -16,7 +16,6 @@
 from typing import Dict, Any, List
 from datetime import datetime, date
 import asyncio
-import pandas as pd
 
 from core.base import BaseCollector
 from core.settings import settings

@@ -12,8 +12,6 @@ import os
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, HTMLResponse
-from fastapi.exceptions import HTTPException
 
 from core.settings import settings
 from core.managers import (
