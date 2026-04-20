@@ -310,6 +310,21 @@ async def get_subscription_by_type(strategy_type: str = Path(...)):
             detail=f"策略类型 '{strategy_type}' 不存在"
         )
     
+    filter_query = {"strategy_type": strategy_type}
+    record = await mongo_manager.find_one("strategy_subscriptions", filter_query)
+    
+    if not record:
+        # 创建默认记录
+        from ..strategy_configs import get_default_params
+        default_params = get_default_params(strategy_type)
+        record = {
+            "strategy_type": strategy_type,
+            "params": default_params,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow(),
+        }
+        await mongo_manager.insert_one("strategy_subscriptions", record)
+    
     return await _to_response(record)
 
 
@@ -372,6 +387,17 @@ async def toggle_subscription(
             detail=f"策略类型 '{strategy_type}' 不存在"
         )
     
+    record = await mongo_manager.find_one(
+        "strategy_subscriptions",
+        {"strategy_type": strategy_type},
+    )
+    
+    if not record:
+        raise HTTPException(
+            status_code=404,
+            detail=f"策略类型 '{strategy_type}' 未找到，请先创建"
+        )
+    
     new_status = not record.get("is_active", True)
     
     await mongo_manager.update_one(
@@ -419,6 +445,18 @@ async def add_stock_to_strategy(
     ts_code = data.ts_code.upper()
     
     # 确保策略存在
+    record = await mongo_manager.find_one(
+        "strategy_subscriptions",
+        {"strategy_type": strategy_type},
+    )
+    
+    if not record:
+        raise HTTPException(
+            status_code=404,
+            detail=f"策略类型 '{strategy_type}' 未找到，请先创建"
+        )
+    
+    # 读取现有的监听列表
     watch_list: List[str] = record.get("watch_list", [])
     
     # 检查是否已存在
@@ -478,6 +516,18 @@ async def remove_stock_from_strategy(
     ts_code = ts_code.upper()
     
     # 确保策略存在
+    record = await mongo_manager.find_one(
+        "strategy_subscriptions",
+        {"strategy_type": strategy_type},
+    )
+    
+    if not record:
+        raise HTTPException(
+            status_code=404,
+            detail=f"策略类型 '{strategy_type}' 未找到，请先创建"
+        )
+    
+    # 读取现有的监听列表
     watch_list: List[str] = record.get("watch_list", [])
     
     # 检查是否存在

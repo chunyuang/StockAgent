@@ -69,10 +69,10 @@ class UniverseManager:
         stocks = await self._get_tradable_stocks(trade_date)
 
         if not stocks:
-            logger.warning(f"No tradable stocks found for {trade_date}")
+            logger.warn('UNIVERSE', f"No tradable stocks found for {trade_date}")
             return set()
 
-        logger.info(f"[{trade_date}] Base universe: {len(stocks)} stocks")
+        logger.info('UNIVERSE', f"[{trade_date}] Base universe: {len(stocks)} stocks")
 
         # 2. 应用排除规则
         if exclude_rules:
@@ -193,7 +193,7 @@ class UniverseManager:
             调仓日期列表
         """
         # 获取交易日历
-        logger.info(f"Getting rebalance dates: {start_date} -> {end_date}, freq={freq}")
+        logger.info('UNIVERSE', f"Getting rebalance dates: {start_date} -> {end_date}, freq={freq}")
         # 优先从本地MongoDB获取交易日历，完全不依赖Tushare
         trade_dates = await self._get_trade_dates_from_mongo(start_date, end_date)
         if not trade_dates:
@@ -207,7 +207,7 @@ class UniverseManager:
                 if trade_dates:
                     # 转换为YYYYMMDD整数格式
                     trade_dates = [d.replace("-", "") for d in trade_dates]
-                    logger.info(f"从Baostock获取到{len(trade_dates)}个交易日")
+                    logger.info('UNIVERSE', f"从Baostock获取到{len(trade_dates)}个交易日")
                 else:
                     logger.error("No trade dates found in both MongoDB and Baostock")
                     return []
@@ -219,7 +219,7 @@ class UniverseManager:
         if not trade_dates:
             return []
 
-        logger.info(f"Total trade dates: {len(trade_dates)}")
+        logger.info('UNIVERSE', f"Total trade dates: {len(trade_dates)}")
 
         if freq == "daily":
             result = trade_dates
@@ -230,10 +230,10 @@ class UniverseManager:
         elif freq == "quarterly":
             result = self._filter_by_quarter(trade_dates)
         else:
-            logger.warning(f"Unknown freq '{freq}', using all trade dates")
+            logger.warn('UNIVERSE', f"Unknown freq '{freq}', using all trade dates")
             result = trade_dates
 
-        logger.info(f"Filtered rebalance dates: {len(result)} (freq={freq})")
+        logger.info('UNIVERSE', f"Filtered rebalance dates: {len(result)} (freq={freq})")
         return result
 
     def _filter_by_week(self, dates: list[str]) -> list[str]:
@@ -294,7 +294,7 @@ class UniverseManager:
             # 统一转换成字符串格式，避免类型错误
             return [str(doc["_id"]) for doc in result]
         except Exception as e:
-            logger.warning(f"Failed to get trade dates from MongoDB: {e}")
+            logger.warn('UNIVERSE', f"Failed to get trade dates from MongoDB: {e}")
             return []
 
     async def get_all_trade_dates(
@@ -316,7 +316,7 @@ class UniverseManager:
                 if trade_dates:
                     # 转换为YYYYMMDD整数格式
                     trade_dates = [d.replace("-", "") for d in trade_dates]
-                    logger.info(f"从Baostock获取到{len(trade_dates)}个交易日")
+                    logger.info('UNIVERSE', f"从Baostock获取到{len(trade_dates)}个交易日")
                 else:
                     logger.error("No trade dates found in both MongoDB and Baostock")
                     return []

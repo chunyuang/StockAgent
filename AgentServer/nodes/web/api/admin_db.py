@@ -614,8 +614,8 @@ async def verify_integrity(
         "success": True,
         "data": {
             "date_range": {
-                "start": request.start_date,
-                "end": request.end_date,
+                "start": start_date,
+                "end": end_date,
                 "total_days": total_trading_days,
                 "trading_days": total_trading_days,
             },
