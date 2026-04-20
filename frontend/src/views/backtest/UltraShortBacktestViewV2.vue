@@ -507,6 +507,95 @@ const submitBacktest = async () => {
         ws.close()
       }
     }
+
+    ws.onerror = (error) => {
+      // WebSocket连接失败时自动切换到高速轮询，无错误提示，体验和实时推送一致
+      const pollInterval = setInterval(async () => {
+        try {
+          console.log('开始轮询任务状态:', backtestState.task_id)
+          const statusRes = await backtestApi.getBacktestStatus(backtestState.task_id)
+          console.log('轮询原始返回:', statusRes)
+          
+          // 完整空值保护
+          if (!statusRes || !statusRes.data) {
+            console.error('轮询返回数据为空:', statusRes)
+            addLog(`⚠️ 轮询异常：接口返回数据为空`)
+            return
+          }
+          
+          const data = statusRes.data
+          console.log('轮询返回数据:', data)
+          
+          if (data.logs) {
+            logs.value = [...new Set([...logs.value, ...data.logs])]
+            console.log('更新后日志条数:', logs.value.length)
+          }
+          
+          if (data.progress !== undefined) {
+            backtestState.progress = data.progress
+          }
+          
+          if (data.status === 'completed') {
+            // 回测完成后调用结果接口获取完整数据
+            const resultRes = await backtestApi.getBacktestResult(backtestState.task_id)
+            // 字段映射：后端返回结构适配前端期望结构
+            const res = resultRes.data.result
+            // 日期转换函数：YYYYMMDD -> YYYY-MM-DD
+            const formatDate = (dateStr: string) => {
+              if (!dateStr || typeof dateStr !== 'string') return dateStr
+              if (dateStr.length === 8) {
+                return `${dateStr.slice(0,4)}-${dateStr.slice(4,6)}-${dateStr.slice(6,8)}`
+              }
+              return dateStr
+            }
+            backtestResult.value = {
+              ...res,
+              // 适配净值和回撤曲线，转换日期格式
+              net_value_series: (res.net_value_series || res.net_value || []).map((item: any) => ({
+                ...item,
+                date: formatDate(item.date),
+              })),
+              drawdown_series: (res.drawdown_series || res.drawdown || []).map((item: any) => ({
+                ...item,
+                date: formatDate(item.date),
+              })),
+              // 适配交易记录
+              trades: res.trades || res.trade_records || [],
+              // 适配每日收益，转换日期格式
+              daily_profit: Object.fromEntries(
+                Object.entries(res.daily_profit || res.daily_return || {}).map(([date, value]) => [formatDate(date), value])
+              ),
+              // 适配仓位曲线，转换日期格式
+              position_series: (res.position_series || res.position || []).map((item: any) => ({
+                ...item,
+                date: formatDate(item.date),
+              })),
+              // 适配收益分布
+              profit_distribution: res.profit_distribution || res.return_distribution || {},
+              // 适配策略结果
+              strategy_results: res.strategy_results || res.strategies || {},
+              // 适配因子贡献
+              factor_contribution: res.factor_contribution || res.factor || {},
+              // 适配月度收益，转换日期格式
+              monthly_profit: Object.fromEntries(
+                Object.entries(res.monthly_profit || res.monthly_return || {}).map(([date, value]) => [formatDate(date), value])
+              ),
+            }
+            backtestState.running = false
+            ElMessage.success('回测完成！')
+            clearInterval(pollInterval)
+          } else if (data.status === 'failed') {
+            addLog(`❌ 回测失败：${data.error || '未知错误'}`)
+            backtestState.running = false
+            ElMessage.error(`回测失败：${data.error || '未知错误'}`)
+            clearInterval(pollInterval)
+          }
+        } catch (e) {
+          console.error('轮询失败', e)
+          addLog(`⚠️ 轮询异常：${(e as any).message || '未知错误'}`)
+        }
+      }, 1000) // 1秒轮询
+    }
   } catch (e: any) {
     addLog(`❌ 提交回测任务失败：${e.message || '未知错误'}`)
     backtestState.running = false
@@ -607,4 +696,575 @@ const addLog = (text: string) => {
 // 筛选变量
 const searchTradeKeyword = ref('')
 const filterStrategy = ref('')
-const
+</script>
+
+<template>
+  <div class="ultra-short-v2-page">
+    <div class="page-header">
+      <h1 class="page-title">📈 超短策略回测 V2.0</h1>
+      <p class="page-description">多策略并行回测 · 专业日志审计 · 因子选股 · 动态调仓</p>
+    </div>
+
+    <!-- 配置区域 -->
+    <ElCard class="config-card" header="⚙️ 策略参数配置">
+      <ElCollapse v-model="activeCollapse">
+
+        <!-- 数据源 -->
+        <ElCollapseItem name="dataSource">
+          <template #title>
+            <span>📚 数据源 ({{ form.dataSource.period }})</span>
+          </template>
+          <ElForm label-width="140px">
+            <ElFormItem label="股票代码">
+              <ElInput v-model="form.dataSource.ts_codes" placeholder="空为全市场，多只逗号分隔" style="width: 400px" />
+            </ElFormItem>
+            <ElFormItem label="开始日期">
+              <ElInput v-model="form.dataSource.start_date" placeholder="YYYYMMDD" />
+            </ElFormItem>
+            <ElFormItem label="结束日期">
+              <ElInput v-model="form.dataSource.end_date" placeholder="YYYYMMDD" />
+            </ElFormItem>
+          </ElForm>
+        </ElCollapseItem>
+
+        <!-- 基础配置 -->
+        <ElCollapseItem name="baseConfig">
+          <template #title>
+            <span>💹 基础配置 (初始资金¥{{ (form.base.initial_cash/10000).toFixed(0) }}万, 止损{{ (form.tradeParams.base_stop_loss_pct*100).toFixed(1) }}%, 止盈{{ (form.tradeParams.base_take_profit_pct*100).toFixed(1) }}%)</span>
+          </template>
+          <ElForm label-width="120px">
+            <ElFormItem label="初始资金">
+              <ElInputNumber v-model="form.base.initial_cash" :min="100000" :max="100000000" style="width: 200px" prefix="¥" />
+            </ElFormItem>
+            <ElFormItem label="基础止损">
+              <ElInputNumber v-model="form.tradeParams.base_stop_loss_pct" :min="0" :max="1" :step="0.001" style="width: 150px" />
+              <span class="unit">%</span>
+            </ElFormItem>
+            <ElFormItem label="基础止盈">
+              <ElInputNumber v-model="form.tradeParams.base_take_profit_pct" :min="0" :max="1" :step="0.001" style="width: 150px" />
+              <span class="unit">%</span>
+            </ElFormItem>
+            <ElFormItem label="最大持仓天数">
+              <ElInputNumber v-model="form.tradeParams.max_hold_days" :min="1" :max="10" style="width: 150px" />
+              <span class="unit">天</span>
+            </ElFormItem>
+            <ElFormItem label="单票最大仓位">
+              <ElInputNumber v-model="form.tradeParams.max_position_per_stock" :min="0" :max="1" :step="0.05" style="width: 150px" />
+              <span class="unit">%</span>
+            </ElFormItem>
+            <ElFormItem label="总仓位上限">
+              <ElInputNumber v-model="form.tradeParams.max_total_position" :min="0" :max="1" :step="0.05" style="width: 150px" />
+              <span class="unit">%</span>
+            </ElFormItem>
+            <ElFormItem label="佣金费率">
+              <ElInputNumber v-model="form.tradeParams.commission_rate" :min="0" :max="0.01" :step="0.00001" style="width: 150px" />
+              <span class="unit">‰</span>
+            </ElFormItem>
+            <ElFormItem label="印花税税率">
+              <ElInputNumber v-model="form.tradeParams.stamp_duty_rate" :min="0" :max="0.01" :step="0.0001" disabled style="width: 150px" />
+              <span class="unit">‰</span>
+            </ElFormItem>
+            <ElFormItem label="滑点比例">
+              <ElInputNumber v-model="form.tradeParams.slippage_pct" :min="0" :max="0.01" :step="0.0001" style="width: 150px" />
+              <span class="unit">‰</span>
+            </ElFormItem>
+          </ElForm>
+        </ElCollapseItem>
+
+        <!-- 全局筛选 -->
+        <ElCollapseItem name="globalFilter">
+          <template #title>
+            <span>🔍 全局筛选 (剔除ST: 
+              <span style="cursor: pointer; font-weight: bold;" @click.stop="toggleGlobalFilterSt">
+                {{ form.globalFilter.exclude_st ? '✅' : '❌' }}
+              </span>, 剔除退市: 
+              <span style="cursor: pointer; font-weight: bold;" @click.stop="toggleGlobalFilterDelisting">
+                {{ form.globalFilter.exclude_delisting ? '✅' : '❌' }}
+              </span>, 次新股≥{{ form.globalFilter.exclude_new_stock_days }}天, 成交额≥{{ form.globalFilter.min_daily_amount }}万, 换手率≥{{ form.globalFilter.min_turnover_rate }}%)
+            </span>
+          </template>
+          <ElForm label-width="160px" :disabled="!activeCollapse.includes('globalFilter')">
+            <ElFormItem label="剔除ST/*ST">
+              <ElSwitch v-model="form.globalFilter.exclude_st" />
+            </ElFormItem>
+            <ElFormItem label="剔除退市股">
+              <ElSwitch v-model="form.globalFilter.exclude_delisting" />
+            </ElFormItem>
+            <ElFormItem label="剔除上市未满N天次新股">
+              <ElInputNumber v-model="form.globalFilter.exclude_new_stock_days" :min="30" :max="365" style="width: 150px" />
+              <span class="unit">天</span>
+            </ElFormItem>
+            <ElFormItem label="最低日成交额">
+              <ElInputNumber v-model="form.globalFilter.min_daily_amount" :min="100" :max="10000" style="width: 150px" />
+              <span class="unit">万元</span>
+            </ElFormItem>
+            <ElFormItem label="最低换手率">
+              <ElInputNumber v-model="form.globalFilter.min_turnover_rate" :min="0" :max="20" :step="0.1" style="width: 150px" />
+              <span class="unit">%</span>
+            </ElFormItem>
+          </ElForm>
+        </ElCollapseItem>
+
+        <!-- 半路追涨 -->
+        <ElCollapseItem name="halfwayChase">
+          <template #title>
+            <span>📈 半路追涨</span>
+          </template>
+          <div>
+            <ElForm label-width="160px" :disabled="!form.strategyConfigs.halfway_chase.enabled">
+              <ElFormItem label="启用策略">
+                <ElSwitch v-model="form.strategyConfigs.halfway_chase.enabled" />
+              </ElFormItem>
+              <ElFormItem label="允许10点后">
+                <ElSwitch v-model="form.strategyConfigs.halfway_chase.params.allow_after_10am" />
+              </ElFormItem>
+              <ElFormItem label="最低量比">
+                <ElInputNumber v-model="form.strategyConfigs.halfway_chase.params.min_vol_ratio" :min="0.5" :max="10" :step="0.1" style="width: 150px" />
+              </ElFormItem>
+            </ElForm>
+          </div>
+        </ElCollapseItem>
+
+        <!-- 首板涨停 -->
+        <ElCollapseItem name="firstLimitUp">
+          <template #title>
+            <span>🚀 首板涨停</span>
+          </template>
+          <div>
+            <ElForm label-width="160px" :disabled="!form.strategyConfigs.first_limit_up.enabled">
+              <ElFormItem label="启用策略">
+                <ElSwitch v-model="form.strategyConfigs.first_limit_up.enabled" />
+              </ElFormItem>
+              <ElFormItem label="要求热点板块">
+                <ElSwitch v-model="form.strategyConfigs.first_limit_up.params.require_hot_sector" />
+              </ElFormItem>
+            </ElForm>
+          </div>
+        </ElCollapseItem>
+
+        <!-- 高开开盘 -->
+        <ElCollapseItem name="limitUpOpen">
+          <template #title>
+            <span>⏫ 高开开盘</span>
+          </template>
+          <div>
+            <ElForm label-width="160px" :disabled="!form.strategyConfigs.limit_up_open.enabled">
+              <ElFormItem label="启用策略">
+                <ElSwitch v-model="form.strategyConfigs.limit_up_open.enabled" />
+              </ElFormItem>
+            </ElForm>
+          </div>
+        </ElCollapseItem>
+
+        <!-- 龙头低吸 -->
+        <ElCollapseItem name="leaderBuyDip">
+          <template #title>
+            <span>📊 龙头低吸</span>
+          </template>
+          <div>
+            <ElForm label-width="160px" :disabled="!form.strategyConfigs.leader_buy_dip.enabled">
+              <ElFormItem label="启用策略">
+                <ElSwitch v-model="form.strategyConfigs.leader_buy_dip.enabled" />
+              </ElFormItem>
+            </ElForm>
+          </div>
+        </ElCollapseItem>
+
+        <!-- 翘板跌停 -->
+        <ElCollapseItem name="limitDownQiao">
+          <template #title>
+            <span>🔽 地天翘板</span>
+          </template>
+          <div :disabled="!form.strategyConfigs.limit_down_qiao.enabled" class="grid grid-cols-2 gap-4">
+            <ElFormItem label="启用策略">
+              <ElSwitch 
+                v-model="form.strategyConfigs.limit_down_qiao.enabled" 
+                @change="(val) => {
+                  if (val) {
+                    if (!form.strategies.includes('limit_down_qiao')) form.strategies.push('limit_down_qiao')
+                  } else {
+                    form.strategies = form.strategies.filter(k => k !== 'limit_down_qiao')
+                  }
+                }"
+              />
+            </ElFormItem>
+            <ElFormItem label="最低连板高度" :disabled="!form.strategyConfigs.limit_down_qiao.enabled">
+              <ElInputNumber 
+                v-model="form.strategyConfigs.limit_down_qiao.params.min_consecutive_limit" 
+                :min="3" :max="20" 
+                style="width: 150px"
+                :disabled="!form.strategyConfigs.limit_down_qiao.enabled"
+              />
+              <span class="unit">板</span>
+            </ElFormItem>
+            <ElFormItem label="翘板后最低涨幅" :disabled="!form.strategyConfigs.limit_down_qiao.enabled">
+              <ElInputNumber 
+                v-model="form.strategyConfigs.limit_down_qiao.params.min_rise_after_qiao" 
+                :min="0" :max="0.2" 
+                :step="0.01"
+                style="width: 150px"
+                :disabled="!form.strategyConfigs.limit_down_qiao.enabled"
+              />
+              <span class="unit">%</span>
+            </ElFormItem>
+            <ElFormItem label="仅情绪高潮期允许" :disabled="!form.strategyConfigs.limit_down_qiao.enabled">
+              <ElSwitch 
+                v-model="form.strategyConfigs.limit_down_qiao.params.require_high_sentiment"
+                :disabled="!form.strategyConfigs.limit_down_qiao.enabled"
+              />
+            </ElFormItem>
+          </div>
+        </ElCollapseItem>
+      </ElCollapse>
+
+      <div class="mt-4">
+        <ElButton 
+          type="primary" 
+          size="large" 
+          :loading="backtestState.running"
+          @click="startBacktest"
+        >
+          🚀 开始回测
+        </ElButton>
+      </div>
+    </ElCard>
+
+    <!-- 结果区域 -->
+    <ElCard class="result-card">
+      <template #header>
+        <span>📊 回测结果</span>
+        <ElButton 
+          v-if="backtestResult" 
+          @click="exportTrades" 
+          :icon="Download" 
+          type="primary" 
+          plain 
+          size="small"
+        >
+          导出交易记录
+        </ElButton>
+      </template>
+
+      <!-- 核心指标 -->
+      <div v-if="backtestResult" class="metrics-grid">
+        <div class="metric-card">
+          <div class="metric-label">累计收益率</div>
+          <div class="metric-value">{{ ((backtestResult.total_return || 0) * 100).toFixed(2) }}%</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">胜率</div>
+          <div class="metric-value">{{ ((backtestResult.win_rate || 0) * 100).toFixed(2) }}%</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">盈亏比</div>
+          <div class="metric-value">{{ (backtestResult.profit_loss_ratio || 0).toFixed(2) }}</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">最大回撤</div>
+          <div class="metric-value">{{ ((backtestResult.max_drawdown || 0) * 100).toFixed(2) }}%</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">夏普比率</div>
+          <div class="metric-value">{{ (backtestResult.sharpe_ratio || 0).toFixed(2) }}</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">总交易次数</div>
+          <div class="metric-value">{{ backtestResult.total_trades || 0 }}</div>
+        </div>
+      </div>
+
+      <!-- 标签页永久显示（符合Element Plus语法规范） -->
+      <ElTabs type="border-card">
+        <ElTabPane label="核心指标" name="metrics">
+          <!-- 空状态提示：无回测结果时显示 -->
+          <ElEmpty v-if="!backtestResult" description="暂无回测结果，请先运行回测 【修改时间：2026-04-13 17:35 版本：v2.4.0-参数补全+日志优化版】 【修改时间：2026-04-05 15:15 版本：v2.3.0-标签页永久显示最终版】" />
+          <!-- 有结果时显示核心指标 -->
+          <div v-if="backtestResult" class="metrics-grid">
+            <div class="metric-card">
+              <div class="metric-label">累计收益率</div>
+              <div class="metric-value">{{ ((backtestResult.total_return || 0) * 100).toFixed(2) }}%</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">年化收益率</div>
+              <div class="metric-value">{{ ((backtestResult.annualized_return || 0) * 100).toFixed(2) }}%</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">胜率</div>
+              <div class="metric-value">{{ ((backtestResult.win_rate || 0) * 100).toFixed(2) }}%</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-value">{{ (backtestResult.profit_loss_ratio || 0).toFixed(2) }}</div>
+              <div class="metric-label">盈亏比</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">最大回撤</div>
+              <div class="metric-value">{{ ((backtestResult.max_drawdown || 0) * 100).toFixed(2) }}%</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">夏普比率</div>
+              <div class="metric-value">{{ (backtestResult.sharpe_ratio || 0).toFixed(2) }}</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">总交易次数</div>
+              <div class="metric-value">{{ backtestResult.total_trades || 0 }}</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">持仓天数</div>
+              <div class="metric-value">{{ backtestResult.avg_hold_days?.toFixed(2) || 0 }}</div>
+            </div>
+          </div>
+        </ElTabPane>
+
+        <ElTabPane label="绩效分析" name="performance">
+          <ElEmpty v-if="!backtestResult" description="暂无回测结果，请先运行回测" />
+          <div v-if="backtestResult" class="analysis-grid">
+            <div class="analysis-card">
+              <h4>月度收益分布</h4>
+              <div v-if="backtestResult.monthly_returns" class="monthly-grid">
+                <div v-for="(ret, month) in backtestResult.monthly_returns" :key="month" class="month-item">
+                  <span class="month-label">{{ month }}</span>
+                  <span :class="['month-ret', ret >= 0 ? 'positive' : 'negative']">{{ (ret * 100).toFixed(2) }}%</span>
+                </div>
+              </div>
+            </div>
+            <div class="analysis-card full-width">
+              <h4>收益回撤比分布</h4>
+              <!-- 这里留作后续扩展图表 -->
+              <p>图表可视化待扩展，数据已正确返回后端</p>
+            </div>
+          </div>
+        </ElTabPane>
+
+        <ElTabPane label="交易记录" name="trades">
+          <div v-if="!backtestResult">
+            <ElEmpty description="暂无交易记录，请先运行回测" />
+          </div>
+          <div v-if="backtestResult && backtestResult.trades" class="trade-table-container">
+            <div class="filter-row mb-3">
+              <ElInput 
+                v-model="searchTradeKeyword" 
+                placeholder="搜索股票代码或名称..."
+                clearable
+                style="width: 300px;"
+              />
+            </div>
+            <ElTable 
+              :data="filteredTrades" 
+              border 
+              stripe
+              max-height="500"
+            >
+              <ElTableColumn prop="trade_date" label="交易日期" width="120" />
+              <ElTableColumn prop="code" label="股票代码" width="130" />
+              <ElTableColumn prop="name" label="股票名称" width="120" />
+              <ElTableColumn prop="action" label="操作" width="80" />
+              <ElTableColumn prop="shares" label="数量" width="80" />
+              <ElTableColumn prop="price" label="价格" width="90">
+                <template #default="{ row }">
+                  ¥{{ row.price.toFixed(2) }}
+                </template>
+              </ElTableColumn>
+              <ElTableColumn prop="value" label="金额" width="100">
+                <template #default="{ row }">
+                  ¥{{ row.value.toFixed(2) }}
+                </template>
+              </ElTableColumn>
+              <ElTableColumn prop="reason" label="操作原因" />
+            </ElTable>
+          </div>
+        </ElTabPane>
+
+        <ElTabPane label="每日持仓" name="holdings">
+          <ElEmpty v-if="!backtestResult" description="暂无持仓记录，请先运行回测" />
+        </ElTabPane>
+
+        <ElTabPane label="风险指标" name="risk">
+          <ElEmpty v-if="!backtestResult" description="暂无风险指标，请先运行回测" />
+          <div v-if="backtestResult" class="analysis-card full-width">
+            <h4>风险指标矩阵</h4>
+            <ElTable :data="riskMetrics || []" border>
+              <ElTableColumn prop="name" label="指标名称" />
+              <ElTableColumn prop="value" label="数值" />
+              <ElTableColumn prop="desc" label="说明" />
+            </ElTable>
+          </div>
+        </ElTabPane>
+
+        <ElTabPane label="参数设置" name="params">
+          <div class="params-summary">
+            <pre>{{ JSON.stringify(form, null, 2) }}</pre>
+          </div>
+        </ElTabPane>
+      </ElTabs>
+    </ElCard>
+
+    <!-- 日志区域 -->
+    <ElCard class="log-card">
+      <template #header>
+        <span>📝 实时日志（专业审计级）</span>
+      </template>
+      <div id="log-panel" class="log-panel">
+        <div v-for="(log, index) in logs" :key="index" class="log-item">{{ log }}</div>
+      </div>
+    </ElCard>
+
+    <!-- 进度展示 - 回测运行中显示在日志下方（页面最底部），始终可见 -->
+    <ElCard v-if="backtestState.running" class="progress-card">
+      <template #header>
+        <span>⏳ 回测进度</span>
+      </template>
+      <ElProgress :percentage="backtestState.progress" :show-text="true" status="success" />
+    </ElCard>
+  </div>
+</template>
+
+<style scoped lang="scss">
+.ultra-short-v2-page {
+  padding: 20px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.page-header {
+  margin-bottom: 20px;
+  
+  .page-title {
+    font-size: 26px;
+    font-weight: 700;
+    color: #303133;
+    margin: 0 0 8px 0;
+  }
+  
+  .page-description {
+    color: #606266;
+    margin: 0;
+  }
+}
+
+.config-card,
+.progress-card,
+.result-card,
+.log-card {
+  margin-bottom: 20px;
+  
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 600;
+    font-size: 16px;
+  }
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 15px;
+  margin-bottom: 20px;
+  
+  .metric-card {
+    background: #f5f7fa;
+    padding: 15px;
+    border-radius: 8px;
+    text-align: center;
+    
+    .metric-label {
+      font-size: 14px;
+      color: #606266;
+      margin-bottom: 8px;
+    }
+    .metric-value {
+      font-size: 20px;
+      font-weight: 700;
+      color: #409eff;
+    }
+  }
+}
+
+.analysis-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+  
+  .analysis-card {
+    background: #f5f7fa;
+    padding: 15px;
+    border-radius: 8px;
+    
+    h4 {
+      margin-top: 0;
+      margin-bottom: 12px;
+    }
+  }
+  
+  .full-width {
+    grid-column: 1 / -1;
+  }
+}
+
+.log-card {
+  .log-panel {
+    max-height: 600px;
+    overflow-y: auto;
+    background: #1e1e1e;
+    color: #d4d4d4;
+    padding: 12px;
+    border-radius: 6px;
+    
+    .log-item {
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      padding: 2px 0;
+      
+      // 日志分层缩进
+      &.log-level-1 {
+        padding-left: 1em;
+      }
+      &.log-level-2 {
+        padding-left: 2em;
+      }
+      &.log-level-3 {
+        padding-left: 3em;
+      }
+      &.log-level-4 {
+        padding-left: 4em;
+      }
+    }
+  }
+}
+
+.params-summary {
+  pre {
+    background: #f5f7fa;
+    padding: 15px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-family: 'Courier New', monospace;
+  }
+}
+
+.unit {
+  margin-left: 8px;
+  color: #909399;
+}
+
+.grid {
+  &.grid-cols-2 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  gap: 1rem;
+}
+
+.mb-3 {
+  margin-bottom: 1rem;
+}
+
+.mt-4 {
+  margin-top: 1rem;
+}
+
+.full-width {
+  width: 100%;
+}
+</style>
