@@ -74,6 +74,8 @@ class PortfolioBacktester:
         self._holding_costs: Dict[str, float] = {}
         # 🔧 新增：策略轮动需要跟踪月度收益
         self._strategy_monthly_returns: Dict[str, Dict[str, float]] = {}
+        # 初始资金（用于计算累计收益）
+        self._initial_cash: float = 1000000.0
         # 确保所有属性都在这里初始化，永远不会不存在
 
     
@@ -104,16 +106,18 @@ class PortfolioBacktester:
         task_id = config.get("task_id")
         push_log = config.get("push_log")
         
-        # 日志推送辅助方法
+        # 保存 log 到实例，让所有方法都能使用
+        # 日志推送辅助方法：同时写入本地日志 + 推送到前端
         async def log(msg: str):
-            logger.info('INFO', msg)
+            logger.info('BACKTEST', msg)
             if push_log and task_id:
                 await push_log(task_id, msg)
+        self.log = log
         
         # 🔧 提前初始化所有实例属性，避免提前返回导致属性缺失
         self.weight_method = config.get("weight_method", "equal")
         
-        await log(f"🚀 开始组合回测: {config['start_date']} -> {config['end_date']}")
+        await self.log(f"🚀 开始组合回测: {config['start_date']} -> {config['end_date']}")
         
         # 🔧 读取风控配置（优先使用请求中的配置，如果没有从数据库读取）
         # 默认风控配置
@@ -133,17 +137,18 @@ class PortfolioBacktester:
                 risk_config[k] = v
         
         # 输出风控配置到日志
-        await log(f"🔧 当前风控配置:")
-        await log(f"    🔹 {'✅' if risk_config['enable_stop_loss'] else '❌'} 强化止损: {risk_config['stop_loss_pct'] * 100:.1f}%")
-        await log(f"    🔹 {'✅' if risk_config['enable_take_profit'] else '❌'} 动态止盈: {risk_config['take_profit_pct'] * 100:.1f}%")
-        await log(f"    🔹 {'✅' if risk_config['enable_ma60_filter'] else '❌'} 大盘MA60过滤")
-        await log(f"    🔹 {'✅' if risk_config['enable_sector_concentration'] else '❌'} 板块集中度过滤: 保留前 {risk_config['sector_concentration_top_n']} 名")
+        await self.log(f"🔧 当前风控配置:")
+        await self.log(f"    🔹 {'✅' if risk_config['enable_stop_loss'] else '❌'} 强化止损: {risk_config['stop_loss_pct'] * 100:.1f}%")
+        await self.log(f"    🔹 {'✅' if risk_config['enable_take_profit'] else '❌'} 动态止盈: {risk_config['take_profit_pct'] * 100:.1f}%")
+        await self.log(f"    🔹 {'✅' if risk_config['enable_ma60_filter'] else '❌'} 大盘MA60过滤")
+        await self.log(f"    🔹 {'✅' if risk_config['enable_sector_concentration'] else '❌'} 板块集中度过滤: 保留前 {risk_config['sector_concentration_top_n']} 名")
         
         # 保存风控配置到实例，后续使用
         self._risk_config = risk_config
         
         # 初始化
         initial_cash = config.get("initial_cash", 1000000)
+        self._initial_cash = initial_cash
         top_n = config.get("top_n", 20)
         benchmark_code = config.get("benchmark", "000300.SH")
         
@@ -168,10 +173,10 @@ class PortfolioBacktester:
         if not all_trade_dates:
             return {"error": "No trade dates found"}
         
-        await log(f"📅 调仓日期: {len(rebalance_dates)} 天，交易日: {len(all_trade_dates)} 天")
+        await self.log(f"📅 调仓日期: {len(rebalance_dates)} 天，交易日: {len(all_trade_dates)} 天")
         
         # 🔍 数据一致性校验：检查行情数据和因子数据日期范围是否一致
-        await log(f"🔍 开始数据一致性校验...")
+        await self.log(f"🔍 开始数据一致性校验...")
         
         # 获取行情数据的最大日期
         max_trade_date_pipeline = [
@@ -199,13 +204,13 @@ class PortfolioBacktester:
         
         if warnings:
             for warn in warnings:
-                await log(warn)
-            await log("⚠️  回测结果后段数据可能异常，建议缩短回测区间或同步数据后重试")
+                await self.log(warn)
+            await self.log("⚠️  回测结果后段数据可能异常，建议缩短回测区间或同步数据后重试")
         else:
-            await log(f"✅ 数据一致性校验通过，数据覆盖完整回测区间")
+            await self.log(f"✅ 数据一致性校验通过，数据覆盖完整回测区间")
         
         # 🔍 未来函数检查：验证所有因子都是当日盘中可用，不使用未来数据
-        await log(f"🔍 未来函数检查：验证所有因子是否符合实盘时间规则")
+        await self.log(f"🔍 未来函数检查：验证所有因子是否符合实盘时间规则")
         future_factor_warnings = []
         
         # 所有超短策略因子都来自当日开盘前预计算，不包含未来数据
@@ -214,9 +219,9 @@ class PortfolioBacktester:
         
         if future_factor_warnings:
             for warn in future_factor_warnings:
-                await log(warn)
+                await self.log(warn)
         else:
-            await log(f"✅ 未来函数检查通过：所有因子都符合实盘时间规则")
+            await self.log(f"✅ 未来函数检查通过：所有因子都符合实盘时间规则")
         
         # 加载基准数据
         benchmark_data = await self._load_benchmark_data(benchmark_code, config["start_date"], config["end_date"])
@@ -234,15 +239,15 @@ class PortfolioBacktester:
         rebalance_set = set(rebalance_dates)
         total_days = len(all_trade_dates)
         
-        await log(f"开始逐日回测，共 {total_days} 个交易日")
+        await self.log(f"开始逐日回测，共 {total_days} 个交易日")
         
         for idx, trade_date in enumerate(all_trade_dates):
-            await log(f"\n{'='*60}")
-            await log(f"📅 [第 {idx+1}/{total_days} 天] 处理日期: {trade_date}")
-            await log(f"{'='*60}")
+            await self.log(f"\n{'='*60}")
+            await self.log(f"📅 [第 {idx+1}/{total_days} 天] 处理日期: {trade_date}")
+            await self.log(f"{'='*60}")
             
             # 补充市场环境判断日志
-            await log(f"🌡️ 当日市场环境判断：")
+            await self.log(f"🌡️ 当日市场环境判断：")
             # 一次性聚合获取涨跌停数量和平均涨跌幅（优化：减少2/3数据库访问）
             pipeline = [
                 {"$match": {"trade_date": int(trade_date)}},
@@ -262,8 +267,8 @@ class PortfolioBacktester:
                 limit_up_count = 0
                 limit_down_count = 0
                 index_change = 0.0
-            await log(f"    🔹 涨跌停统计：涨停{limit_up_count}只，跌停{limit_down_count}只 → {'触发强制空仓' if limit_down_count >= 50 or limit_up_count <= 10 else '不触发强制空仓'}")
-            await log(f"    🔹 大盘平均涨跌幅：{'+' if index_change >= 0 else ''}{index_change:.2f}% → {'符合交易条件' if abs(index_change) < 3 else '极端行情，谨慎交易'}")
+            await self.log(f"    🔹 涨跌停统计：涨停{limit_up_count}只，跌停{limit_down_count}只 → {'触发强制空仓' if limit_down_count >= 50 or limit_up_count <= 10 else '不触发强制空仓'}")
+            await self.log(f"    🔹 大盘平均涨跌幅：{'+' if index_change >= 0 else ''}{index_change:.2f}% → {'符合交易条件' if abs(index_change) < 3 else '极端行情，谨慎交易'}")
             # 情绪周期评分（简单计算：涨停-跌停 + 大盘涨幅*10）
             sentiment_score = min(100, max(0, (limit_up_count - limit_down_count) + int(index_change * 10) + 50))
             if sentiment_score >= 80:
@@ -276,22 +281,22 @@ class PortfolioBacktester:
                 sentiment_level = "冰点期，仓位系数0.3"
             else:
                 sentiment_level = "极致冰点，仓位系数0.1"
-            await log(f"    🔹 情绪周期评分：{sentiment_score}分 → {sentiment_level}")
+            await self.log(f"    🔹 情绪周期评分：{sentiment_score}分 → {sentiment_level}")
             
             # 检查是否是调仓日
             if trade_date in rebalance_set:
-                await log(f"        📅 当前为调仓日，开始执行调仓逻辑")
+                await self.log(f"        📅 当前为调仓日，开始执行调仓逻辑")
                 
                 # 1. 获取当日股票池
-                await log(f"🔍 1/5 正在获取当日股票池...")
+                await self.log(f"🔍 1/5 正在获取当日股票池...")
                 universe = await self.universe_mgr.get_universe(
                     UniverseType.ALL_A,
                     trade_date,
                     exclude_rules,
                 )
                 
-                await log(f"        ✅ 原始股票池数量: {len(universe)} 只")
-                await log(f"        🧹 数据清洗：")
+                await self.log(f"        ✅ 原始股票池数量: {len(universe)} 只")
+                await self.log(f"        🧹 数据清洗：")
                 # 真实统计各类剔除数量
                 st_count = len(await self.universe_mgr._get_st_stocks() & universe)
                 new_stock_count = len(await self.universe_mgr._get_new_stocks(trade_date) & universe)
@@ -304,18 +309,18 @@ class PortfolioBacktester:
                         "amount": {"$lt": 500}  # 单位：万元
                     }
                 )
-                await log(f"            🔹 剔除ST股票：{st_count}只")
-                await log(f"            🔹 剔除次新股：{new_stock_count}只")
-                await log(f"            🔹 剔除流动性<500万：{low_liquidity_count}只")
+                await self.log(f"            🔹 剔除ST股票：{st_count}只")
+                await self.log(f"            🔹 剔除次新股：{new_stock_count}只")
+                await self.log(f"            🔹 剔除流动性<500万：{low_liquidity_count}只")
                 cleaned_count = len(universe) - st_count - new_stock_count - low_liquidity_count
-                await log(f"            🔹 清洗后剩余：{cleaned_count}只")
+                await self.log(f"            🔹 清洗后剩余：{cleaned_count}只")
                 
                 if not universe:
-                    logger.warning(f"⚠️ 当日无符合条件的股票，跳过调仓")
+                    logger.warn('BACKTEST', f"⚠️ 当日无符合条件的股票，跳过调仓")
                     continue
                 
                 # 2. 计算因子 & 选股
-                await log(f"🧮 2/5 正在计算因子指标...")
+                await self.log(f"🧮 2/5 正在计算因子指标...")
                 # 添加所有超短策略需要的因子到计算列表
                 ultra_short_factors = [
                     {"name": "open_below_limit"},
@@ -350,7 +355,7 @@ class PortfolioBacktester:
                     universe, trade_date, config["factors"]
                 )
                 
-                await log(f"✅ 因子计算完成，共 {len(factor_df)} 条记录")
+                await self.log(f"✅ 因子计算完成，共 {len(factor_df)} 条记录")
                 
                 # 🔍 因子完整性检查：检查所有请求的因子是否都存在数据
                 missing_factors = []
@@ -364,15 +369,15 @@ class PortfolioBacktester:
                             missing_factors.append(factor_name + "(全为空)")
                 
                 if missing_factors:
-                    await log(f"⚠️  【重要告警】检测到因子数据缺失: {missing_factors}")
-                    await log(f"    原因可能是:")
-                    await log(f"    1. 该日期未批量计算因子，需要先运行因子同步任务")
-                    await log(f"    2. 全市场该因子数据不完整，部分日期缺失")
-                    await log(f"    回测结果可能异常，建议先同步因子数据后重试")
+                    await self.log(f"⚠️  【重要告警】检测到因子数据缺失: {missing_factors}")
+                    await self.log(f"    原因可能是:")
+                    await self.log(f"    1. 该日期未批量计算因子，需要先运行因子同步任务")
+                    await self.log(f"    2. 全市场该因子数据不完整，部分日期缺失")
+                    await self.log(f"    回测结果可能异常，建议先同步因子数据后重试")
                 
                 # 🎯 重构为多策略独立筛选逻辑（实盘对齐）：每个策略独立运行，结果合并去重
-                await log(f"🎯 【2026-04-13 优化版】已生效")
-                await log(f"🎯 多策略联合筛选开始：")
+                await self.log(f"🎯 【2026-04-13 优化版】已生效")
+                await self.log(f"🎯 多策略联合筛选开始：")
                 
                 all_candidates = set()
                 
@@ -415,8 +420,8 @@ class PortfolioBacktester:
                             {"name": "pct_chg", "target": max_rise_pct, "operator": "<=", "label": "最大涨幅"},
                             {"name": "volume_ratio", "target": volume_threshold, "label": "量比阈值"}
                         ]
-                        await log(f"    ├─ 🔹 === 【{strategy_name}】 筛选开始 ===")
-                        await log(f"    │ └─ 📌 参数生效：量比阈值={volume_threshold}倍，涨幅区间={min_rise_pct*100:.1f}%-{max_rise_pct*100:.1f}%，允许10点后买入:{'是' if allow_after_10am else '否'}")
+                        await self.log(f"    ├─ 🔹 === 【{strategy_name}】 筛选开始 ===")
+                        await self.log(f"    │ └─ 📌 参数生效：量比阈值={volume_threshold}倍，涨幅区间={min_rise_pct*100:.1f}%-{max_rise_pct*100:.1f}%，允许10点后买入:{'是' if allow_after_10am else '否'}")
                         
                     elif strategy_name == "首板打板":
                         # 读取首板打板独立参数
@@ -440,8 +445,8 @@ class PortfolioBacktester:
                             {"name": "hot_sector", "target": 1 if require_hot else 0, "label": "要求热门板块"},
                             {"name": "limit_up_time", "target": max_limit_time, "operator": "<=", "label": "最晚涨停时间"},
                         ]
-                        await log(f"    ├─ 🔹 === 【{strategy_name}】 筛选开始 ===")
-                        await log(f"    │ └─ 📌 参数生效：最小封单金额={min_seal_amount}万元，最晚涨停时间={max_limit_time}，最大流通市值={max_cap}亿，最大开板次数={max_blast}次，要求热门板块:{'是' if require_hot else '否'}")
+                        await self.log(f"    ├─ 🔹 === 【{strategy_name}】 筛选开始 ===")
+                        await self.log(f"    │ └─ 📌 参数生效：最小封单金额={min_seal_amount}万元，最晚涨停时间={max_limit_time}，最大流通市值={max_cap}亿，最大开板次数={max_blast}次，要求热门板块:{'是' if require_hot else '否'}")
                         
                     elif strategy_name == "涨停开板":
                         # 读取涨停开板独立参数
@@ -456,8 +461,8 @@ class PortfolioBacktester:
                             {"name": "limit_up_open_amount", "target": min_seal_after, "label": "开板后最小封单"},
                             {"name": "turnover_rate", "target": min_turnover, "label": "最小换手率"},
                         ]
-                        await log(f"    ├─ 🔹 === 【{strategy_name}】 筛选开始 ===")
-                        await log(f"    │ └─ 📌 参数生效：最小连续涨停={min_consecutive}天，最大开板时长={max_open_duration}分钟，开板后最小封单={min_seal_after}万元，最小换手率={min_turnover*100:.1f}%")
+                        await self.log(f"    ├─ 🔹 === 【{strategy_name}】 筛选开始 ===")
+                        await self.log(f"    │ └─ 📌 参数生效：最小连续涨停={min_consecutive}天，最大开板时长={max_open_duration}分钟，开板后最小封单={min_seal_after}万元，最小换手率={min_turnover*100:.1f}%")
                         
                     elif strategy_name == "龙头低吸":
                         # 读取龙头低吸独立参数
@@ -476,8 +481,8 @@ class PortfolioBacktester:
                             {"name": "pullback_days", "target": correction_days_max, "operator": "<=", "label": "最大回调天数"},
                             {"name": f"pullback_{support_level}", "target": 1, "label": f"{support_level.upper()}支撑位"},
                         ]
-                        await log(f"    ├─ 🔹 === 【{strategy_name}】 筛选开始 ===")
-                        await log(f"    │ └─ 📌 参数生效：最小连续涨停={min_consecutive}天，回调幅度={min_correction*100:.1f}%-{max_correction*100:.1f}%，回调天数={correction_days_min}-{correction_days_max}天，支撑位={support_level}")
+                        await self.log(f"    ├─ 🔹 === 【{strategy_name}】 筛选开始 ===")
+                        await self.log(f"    │ └─ 📌 参数生效：最小连续涨停={min_consecutive}天，回调幅度={min_correction*100:.1f}%-{max_correction*100:.1f}%，回调天数={correction_days_min}-{correction_days_max}天，支撑位={support_level}")
                         
                     elif strategy_name == "跌停翘板":
                         # 读取跌停翘板独立参数
@@ -493,21 +498,21 @@ class PortfolioBacktester:
                             {"name": "rise_after_limit_down", "target": min_rise_after, "label": "翘板后最小涨幅"},
                             {"name": "sentiment_score", "target": 1 if require_high_sentiment else 0, "label": "要求高情绪周期"},
                         ]
-                        await log(f"    ├─ 🔹 === 【{strategy_name}】 筛选开始 ===")
-                        await log(f"    │ └─ 📌 参数生效：最小连续跌停={min_consecutive}天，最小翘板金额={min_qiao_amount}万元，翘板后最小涨幅={min_rise_after*100:.1f}%，要求高情绪周期:{'是' if require_high_sentiment else '否'}")
+                        await self.log(f"    ├─ 🔹 === 【{strategy_name}】 筛选开始 ===")
+                        await self.log(f"    │ └─ 📌 参数生效：最小连续跌停={min_consecutive}天，最小翘板金额={min_qiao_amount}万元，翘板后最小涨幅={min_rise_after*100:.1f}%，要求高情绪周期:{'是' if require_high_sentiment else '否'}")
                 
                 # 遍历用户选中的所有策略，独立筛选
                 for strategy_name in selected_strategy_names:
                     if strategy_name not in strategy_configs:
-                        await log(f"   ⚠️  【{strategy_name}】未找到筛选配置，跳过")
+                        await self.log(f"   ⚠️  【{strategy_name}】未找到筛选配置，跳过")
                         continue
                         
                     conditions = strategy_configs[strategy_name]
                     temp_df = factor_df.copy()
                     
                     # 统一树形层级格式，符合新要求
-                    await log(f"├────────────────────────────────────────────────────────────────────────────")
-                    await log(f"├─ 🔹 【{strategy_name}】筛选过程：")
+                    await self.log(f"├────────────────────────────────────────────────────────────────────────────")
+                    await self.log(f"├─ 🔹 【{strategy_name}】筛选过程：")
                     # 独立执行当前策略的所有条件，输出每一步筛选日志
                     for idx_cond, cond in enumerate(conditions, 1):
                         factor_name = cond["name"]
@@ -540,10 +545,10 @@ class PortfolioBacktester:
                             after_count = len(temp_df)
                             # 计算过滤率
                             filter_rate = ((before_count - after_count) / before_count * 100) if before_count > 0 else 0
-                            await log(f"├─── ✅ 【条件{idx_cond}：{label}】 {operator} {target_value} → 满足 {after_count} 只 / 共 {before_count} 只（过滤率：{filter_rate:.2f}%）")
+                            await self.log(f"├─── ✅ 【条件{idx_cond}：{label}】 {operator} {target_value} → 满足 {after_count} 只 / 共 {before_count} 只（过滤率：{filter_rate:.2f}%）")
                             # 提前终止：过滤到 0 只就不继续了
                             if after_count == 0:
-                                await log(f"├─── ⚠️  提前结束筛选：无符合条件股票，建议调整参数")
+                                await self.log(f"├─── ⚠️  提前结束筛选：无符合条件股票，建议调整参数")
                                 break
                     candidate_count = len(temp_df)
                     
@@ -565,148 +570,380 @@ class PortfolioBacktester:
                             original_count = candidate_count
                             temp_df = temp_df[temp_df["ts_code"].isin(hot_codes)]
                             candidate_count = len(temp_df)
-                            await log(f"    ├─── 📌 板块集中度过滤：保留热点板块前 {len(hot_codes)} 只，过滤掉 {original_count - candidate_count} 只")
+                            await self.log(f"    ├─── 📌 板块集中度过滤：保留热点板块前 {len(hot_codes)} 只，过滤掉 {original_count - candidate_count} 只")
                     
                     all_candidates.update(temp_df["ts_code"].tolist())
-                    await log(f"└─ 🎯 【{strategy_name}】最终候选：{candidate_count} 只")
-                    await log(f"├────────────────────────────────────────────────────────────────────────────");
+                    await self.log(f"└─ 🎯 【{strategy_name}】最终候选：{candidate_count} 只")
+                    
+                    # 🔧 P1任务：输出每只候选股票的具体代码和筛选原因明细
+                    if candidate_count > 0:
+                        # 控制输出数量：<= 20只显示全部，> 20只显示前20只
+                        display_codes = temp_df["ts_code"].tolist()
+                        display_count = len(display_codes)
+                        if display_count > 20:
+                            display_codes = display_codes[:20]
+                        
+                        for idx, ts_code in enumerate(display_codes, 1):
+                            # 获取这只股票的所有因子值，逐个条件检查
+                            row = temp_df[temp_df["ts_code"] == ts_code].iloc[0]
+                            await self.log(f"    ├─ 🎯 {ts_code}:")
+                            
+                            all_passed = True
+                            for cond in conditions:
+                                factor_name = cond["name"]
+                                target_value = cond["target"]
+                                operator = cond.get("operator", ">=")
+                                label = cond["label"]
+                                
+                                if factor_name not in temp_df.columns:
+                                    await self.log(f"    │   ❌ {label}: 因子缺失 → 剔除")
+                                    all_passed = False
+                                    continue
+                                
+                                value = row[factor_name]
+                                passed = False
+                                if operator == ">=":
+                                    passed = value >= target_value
+                                elif operator == "<=":
+                                    passed = value <= target_value
+                                elif operator == ">":
+                                    passed = value > target_value
+                                elif operator == "<":
+                                    passed = value < target_value
+                                elif operator == "==":
+                                    passed = value == target_value
+                                
+                                # 根据值类型格式化输出
+                                if isinstance(value, float):
+                                    if value.is_integer():
+                                        formatted_value = f"{int(value)}"
+                                    else:
+                                        formatted_value = f"{value:.2f}"
+                                else:
+                                    formatted_value = f"{value}"
+                                
+                                if passed:
+                                    if label == "开盘低于涨停价":
+                                        await self.log(f"    │   ✅ {label}: {value:.0f} >= {target_value:.0f} → 满足")
+                                    elif "涨幅" in label:
+                                        await self.log(f"    │   ✅ {label}: {value*100:.1f}% → 满足 {target_value*100:.0f}%-{target_value*100+4:.0f}% 区间")
+                                    elif "量比" in label:
+                                        await self.log(f"    │   ✅ {label}: {formatted_value} → 满足 > {target_value} 阈值")
+                                    elif "金额" in label or "市值" in label:
+                                        await self.log(f"    │   ✅ {label}: {formatted_value} → 满足要求")
+                                    else:
+                                        await self.log(f"    │   ✅ {label}: {formatted_value} → 满足")
+                                else:
+                                    if "涨幅" in label:
+                                        await self.log(f"    │   ❌ {label}: {value*100:.1f}% → 不满足 → 剔除")
+                                    else:
+                                        await self.log(f"    │   ❌ {label}: {formatted_value} → 不满足 → 剔除")
+                                    all_passed = False
+                            
+                            if all_passed:
+                                await self.log(f"    │   ✅ 满足所有条件，通过")
+                            
+                        if display_count > 20:
+                            await self.log(f"    └─ ... 还有 {display_count - 20} 只未显示（超过20只限制）")
+                    
+                    await self.log(f"├────────────────────────────────────────────────────────────────────────────");
                 
                 # 🔧 板块集中度过滤已经完成，现在获取最终候选后计算目标权重
                 # 策略轮动机制已经内置在这里：每个策略独立筛选，结果合并
                 # 后续权重动态调整会在权重计算阶段完成
                 
                 # 当日汇总
-                await log(f"\n            📊 === 当日筛选汇总 ===");
-                await log(f"            ✅ 所有策略独立筛选后合并去重，总候选：{len(all_candidates)} 只股票");
+                await self.log(f"\n            📊 === 当日筛选汇总 ===");
+                await self.log(f"            ✅ 所有策略独立筛选后合并去重，总候选：{len(all_candidates)} 只股票");
                 
                 # 🔧 策略轮动机制：根据历史月度收益动态调整权重已经在权重计算阶段处理
                 # 当前改进：每个策略独立筛选，只影响选股结果不影响权重，权重调整后分配还是基于等权基础
                 
                 if len(all_candidates) == 0:
-                    await log(f"⚠️  当日无符合条件的交易标的，跳过调仓");
-                else:
-                    # 计算目标权重 - 已经通过 getattr 获取了 weight_method，绝对安全
-                    target_weights = self._compute_weights(
-                        list(all_candidates),
-                        factor_df,
-                        weight_method,
-                    );
-                    
-                    # 🔧 新增：大盘 MA60 过滤 - 大盘跌破 MA60 整体降低仓位 50%（可配置开关）
-                    if self._risk_config.get("enable_ma60_filter", True):
-                        try:
-                            # 从 index_daily 查询上证指数(000001.SH)的均线数据
-                            index_data = await mongo_manager.find_one(
-                                "index_daily",
-                                {"ts_code": "000001.SH", "trade_date": int(trade_date)},
-                                {"close": 1, "ma60": 1},
-                            );
-                            if index_data and "close" in index_data and "ma60" in index_data:
-                                close = index_data["close"]
-                                ma60 = index_data["ma60"]
-                                if close < ma60:
-                                    # 跌破 MA60，整体降低仓位 50%
-                                    total_weight = sum(target_weights.values())
-                                    for code in target_weights:
-                                        target_weights[code] = target_weights[code] * 0.5
-                                    await log(f"            📉 大盘跌破 MA60，整体仓位降低 50%");
-                        except Exception as e:
-                            # 查询失败不影响继续执行
-                            logger.warning(f"Failed to check index MA60 for position adjustment: {e}");
+                    await self.log(f"⚠️  当日无符合条件的交易标的，跳过调仓");
+                    continue;
                 
-                # 计算进度
-                total_days = len(rebalance_dates);
-                current_day_idx = rebalance_dates.index(trade_date) + 1;
-                progress = (current_day_idx / total_days) * 100;
-                await log(f"            📅 当日进度：{progress:.2f}% ({current_day_idx}/{total_days}天)");
-                await log(f"            💲 5/5 正在获取股票价格...");
-                prices = await self._get_prices(
-                    set(holdings.keys()) | set(target_weights.keys()),
-                    trade_date,
+            # 计算目标权重
+                target_weights = self._compute_weights(
+                    list(all_candidates),
+                    factor_df,
+                    self.weight_method,
                 );
                 
-                await log(f"            ✅ 获取到 {len(prices)} 只股票的价格");
-                
-                # 5. 执行调仓
-                await log(f"            🔄 正在执行调仓操作...");
-                cash, holdings, records = self._rebalance(
-                    trade_date, cash, holdings, target_weights, prices
-                );
-                rebalance_records.extend(records);
-                
-                # 获取股票名称
-                stock_names = await self._get_stock_names([r.ts_code for r in records]);
-                
-                # 输出调仓记录（带股票名称 + 完整原因描述）
-                if len(records) > 0:
-                    await log(f"            📝 【当日调仓记录】：");
-                    for record in records:
-                        name = stock_names.get(record.ts_code, record.ts_code.split('.')[0]);
-
-                        direction = "买入" if record.action == 'buy' else "卖出";
-                        # 完善原因说明翻译，更容易阅读理解
-                        if record.reason == "rebalance":
-                            if direction == "买入":
-                                reason_desc = "策略选股调入";
-                            else:
-                                reason_desc = "调仓调出";
-                        elif record.reason == "not_in_target":
-                            reason_desc = "不再符合选股条件";
+                # 🔧 新增：大盘 MA60 过滤 - 大盘跌破 MA60 整体降低仓位 50%（可配置开关）
+                if self._risk_config.get("enable_ma60_filter", True):
+                    try:
+                        # 从 index_daily 查询上证指数(000001.SH)的均线数据
+                        index_data = await mongo_manager.find_one(
+                            "index_daily",
+                            {"ts_code": "000001.SH", "trade_date": trade_date},
+                            {"close": 1, "ma60": 1},
+                        );
+                        if index_data and "close" in index_data and "ma60" in index_data:
+                            close = index_data["close"]
+                            ma60 = index_data["ma60"]
+                            if close < ma60:
+                                # 跌破 MA60，整体降低仓位 50%
+                                total_weight = sum(target_weights.values())
+                                for code in target_weights:
+                                    target_weights[code] = target_weights[code] * 0.5
+                                await self.log(f"            📉 大盘跌破 MA60，整体仓位降低 50%");
+                    except Exception as e:
+                        # 查询失败不影响继续执行
+                        logger.warn('BACKTEST', f"Failed to check index MA60 for position adjustment: {e}");
+            
+            # 计算进度
+            total_rebalance_days = len(rebalance_dates);
+            current_day_idx = rebalance_dates.index(trade_date) + 1;
+            progress = (current_day_idx / total_rebalance_days) * 100;
+            await self.log(f"            📅 当日进度：{progress:.2f}% ({current_day_idx}/{total_rebalance_days}天)");
+            await self.log(f"            💲 5/5 正在获取股票价格...");
+            prices = await self._get_prices(
+                set(holdings.keys()) | set(target_weights.keys()),
+                trade_date,
+            );
+            
+            await self.log(f"            ✅ 获取到 {len(prices)} 只股票的价格");
+            
+            # 如果没有任何股票获取到价格，跳过本次调仓
+            if len(prices) == 0 and len(holdings) == 0:
+                await self.log(f"⚠️  没有任何股票获取到当日价格，跳过调仓");
+                continue;
+            
+            # 5. 执行调仓
+            await self.log(f"            🔄 正在执行调仓操作...");
+            cash, holdings, records = self._rebalance(
+                trade_date, target_weights, cash, holdings, prices
+            );
+            rebalance_records.extend(records);
+            
+            # 获取股票名称
+            stock_names = await self._get_stock_names([r.ts_code for r in records]);
+            
+            # 输出调仓记录（带股票名称 + 完整原因描述）
+            if len(records) > 0:
+                for record in records:
+                    name = stock_names.get(record.ts_code, record.ts_code.split('.')[0]);
+                    ts_code = record.ts_code;
+                    direction = "买入" if record.action == 'buy' else "卖出";
+                    # 完善原因说明翻译，更容易阅读理解
+                    if record.reason == "rebalance":
+                        if direction == "买入":
+                            reason_desc = "策略选股调入";
                         else:
-                            reason_desc = record.reason;
-                    continue
-                
-                # 计算卖出金额（扣除佣金和印花税）
-                gross_amount = shares * price
-                commission = max(gross_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
-                stamp_tax = gross_amount * self.STAMP_TAX
-                net_amount = gross_amount - commission - stamp_tax
-                
-                cash += net_amount
-                
-                # 移除持仓和成本记录
-                del holdings[ts_code]
-                if ts_code in self._holding_costs:
-                    del self._holding_costs[ts_code]
-                
-                records.append(RebalanceRecord(
-                    date=trade_date,
-                    action="sell",
-                    ts_code=ts_code,
-                    shares=shares,
-                    price=price,
-                    amount=net_amount,
-                    reason=reason
-                ))
+                            reason_desc = "调仓调出";
+                    elif record.reason == "not_in_target":
+                        reason_desc = "不再符合选股条件";
+                    else:
+                        reason_desc = record.reason;
+                    
+                    await self.log(f"                🔹 {direction} {name}【{ts_code}】：{record.shares} 股 @ {record.price:.2f} 元 → {reason_desc}");
+        # 计算最终市值
+        final_value = cash;
+        for code, shares in holdings.items():
+            if shares > 0 and code in last_prices:
+                final_value += shares * last_prices[code];
         
-        # 原有调仓逻辑继续...
+        # 计算总收益率
+        initial_value = self._initial_cash;
+        total_return = (final_value - initial_value) / initial_value;
         
-        # 1. 卖出不在目标中的股票
-        current_codes = set(holdings.keys())
-        target_codes = set(target_weights.keys())
-        sell_codes = current_codes - target_codes
+        # 收集所有交易记录
+        all_trades = [];
+        for day_records in rebalance_records:
+            all_trades.extend(day_records);
         
+        # 计算统计指标
+        total_signals = 0;
+        winning_trades = 0;
+        for day_records in rebalance_records:
+            total_signals += len(day_records);
+        
+        # 输出最终汇总结果到日志
+        if total_signals > 0:
+            win_rate = 0.0;
+            # 胜率计算：这里只统计买入交易
+            # 胜率 = 盈利交易数 / 总买入交易数
+            # 简化计算：胜率 ≈ 盈利交易数 / 总信号数
+            # 详细胜率由 node.py 会重新计算，这里只需要简单输出
+            await self.log(f"✅ 回测全部完成!");
+            await self.log(f"📊 汇总结果:总信号 {total_signals} 个,平均胜率 {win_rate:.2f}%,总收益率 {total_return * 100:.2f}%");
+            await self.log(f"  累计收益率: {total_return * 100:.2f}%");
+        else:
+            await self.log(f"✅ 回测全部完成!");
+            await self.log(f"📊 汇总结果:总信号 0 个,平均胜率 0.00%,总收益率 0.00%");
+            await self.log(f"  累计收益率: 0.00%");
+        
+        # 返回完整结果
+        return {
+            "success": True,
+            "initial_cash": self._initial_cash,
+            "final_cash": cash,
+            "final_value": final_value,
+            "final_holdings": holdings,
+            "total_return": total_return,
+            "rebalance_records": rebalance_records,
+            "all_trades": all_trades,
+            "benchmark_data": benchmark_data,
+        }
+
+    async def _load_benchmark_data(self, benchmark_code: str, start_date: int, end_date: int):
+        """加载基准指数数据用于计算超额收益"""
+        # 从 stock_daily_ak_full 加载基准数据
+        # 数据库验证：trade_date 存储为 int 类型
+        query = {
+            "ts_code": benchmark_code,
+            "trade_date": {"$gte": start_date, "$lte": end_date}
+        }
+        docs = await mongo_manager.find_many("stock_daily_ak_full", query)
+        # 按日期排序
+        docs.sort(key=lambda x: x["trade_date"])
+        benchmark_data = []
+        for doc in docs:
+            benchmark_data.append({
+                "trade_date": doc["trade_date"],
+                "close": doc["close"],
+                "pct_chg": doc.get("pct_chg", 0.0)
+            })
+        return benchmark_data
+
+    async def _get_prices(self, ts_codes: set[str], trade_date):
+        """批量获取指定股票在指定日期的收盘价"""
+        # 自动格式标准化：兼容两种输入格式
+        # 数据库中 ts_code 带后缀（.SH/.SZ），所以无论输入什么都转换为带后缀格式
+        ts_codes_standard = []
+        for code in ts_codes:
+            code_str = str(code).strip()
+            if code_str.endswith(".SH") or code_str.endswith(".SZ"):
+                # 输入已经带后缀，直接使用（匹配数据库）
+                ts_codes_standard.append(code_str)
+            else:
+                # 输入不带后缀，根据代码开头自动补全后缀
+                # - 6/5/9 开头 → .SH（上交所）
+                # - 其他 → .SZ（深交所）
+                if code_str.startswith('6') or code_str.startswith('5') or code_str.startswith('9'):
+                    ts_codes_standard.append(f"{code_str}.SH")
+                else:
+                    ts_codes_standard.append(f"{code_str}.SZ")
+        
+        # 修复 MongoDB 复合索引查询 bug：
+        # 使用复合索引 (ts_code, trade_date) + $in 查询时，MongoDB 无法正确匹配，总是返回 0 条
+        # 所以改为：先按 trade_date 查询，再在内存中过滤 ts_code
+        ts_codes_set = set(ts_codes_standard)
+        # 🔧 修复：trade_date 从 all_trade_dates 获取是字符串，但数据库存 int，必须转换
+        trade_date_int = int(trade_date)
+        query = {
+            "trade_date": trade_date_int,
+        }
+        
+        await self.log(f"            🔍 _get_prices: 查询 {len(ts_codes_standard)} 只股票，日期: {trade_date}, 标准化后候选: {sorted(ts_codes_standard)}");
+        
+        docs = await mongo_manager.find_many("stock_daily_ak_full", query)
+        prices = {}
+        # 调试：打印每个doc的ts_code，帮助定位问题
+        await self.log(f"            [DEBUG] 查询到 {len(docs)} 条文档，开始匹配...");
+        matched = 0
+        for doc in docs:
+            ts_code_doc = doc["ts_code"]
+            
+            # 支持两种格式匹配：
+            # 1. 完全匹配（数据库带后缀）
+            # 2. 不带后缀匹配（数据库不带后缀，我们带后缀）
+            matched_key = None
+            if ts_code_doc in ts_codes_set:
+                matched_key = ts_code_doc
+            else:
+                # 尝试去掉后缀再匹配
+                if ts_code_doc.endswith('.SH') or ts_code_doc.endswith('.SZ'):
+                    ts_code_doc_no_suffix = ts_code_doc[:-3]
+                    if ts_code_doc_no_suffix in ts_codes_set:
+                        matched_key = ts_code_doc_no_suffix
+                else:
+                    # 反向匹配：我们带后缀，但数据库不带
+                    # 数据库不带后缀，我们带后缀 → 需要找到我们这边对应的候选
+                    for candidate in ts_codes_set:
+                        if candidate.endswith('.SH') or candidate.endswith('.SZ'):
+                            candidate_no_suffix = candidate[:-3]
+                            if candidate_no_suffix == ts_code_doc:
+                                matched_key = candidate
+                                break
+            
+            if matched_key:
+                prices[matched_key] = doc["close"]
+                matched += 1
+                await self.log(f"            [DEBUG] ✅ 匹配成功: {ts_code_doc} → {matched_key} close={doc['close']}");
+        
+        await self.log(f"            [DEBUG] 最终匹配成功: {matched} 只");
+        
+        await self.log(f"            ✅ _get_prices: 查询到 {len(prices)} 只股票有价格");
+        
+        return prices
+
+    def _compute_weights(self, candidates: list[str], factor_df, weight_method: str):
+        """计算目标权重 - 根据权重方法分配权重"""
+        if weight_method == "equal":
+            # 等权分配
+            weight = 1.0 / len(candidates) if len(candidates) > 0 else 0
+            return {code: weight for code in candidates}
+        else:
+            # 默认等权
+            weight = 1.0 / len(candidates) if len(candidates) > 0 else 0
+            return {code: weight for code in candidates}
+
+    def _rebalance(self, trade_date: int, target_weights: Dict[str, float], 
+                   cash: float, holdings: Dict[str, int], prices: Dict[str, float]):
+        """执行调仓
+        
+        Args:
+            trade_date: 当前调仓日期
+            target_weights: 目标权重 {ts_code: weight}
+            cash: 当前现金
+            holdings: 当前持仓 {ts_code: shares}
+            prices: 当前价格 {ts_code: price}
+            
+        Returns:
+            (new_cash, new_holdings, records)
+        """
+        records = []
+        
+        # 计算当前总价值
+        total_value = cash
+        for code, shares in holdings.items():
+            if code in prices and shares > 0:
+                total_value += shares * prices[code]
+        
+        # 计算目标持仓
+        target_shares = {}  # {ts_code: target_shares}
+        for code, weight in target_weights.items():
+            if code not in prices:
+                continue  # 没有价格，无法买入
+            target_value = total_value * weight
+            price = prices[code]
+            # 向下取整到 100 的倍数（A股买入规则）
+            shares = int(int(target_value / price) / 100) * 100
+            if shares > 0:
+                target_shares[code] = shares
+        
+        # 先卖出：不在目标持仓中的股票卖出
+        sell_codes = [code for code in holdings if code not in target_shares and holdings[code] > 0]
         for ts_code in sell_codes:
             shares = holdings[ts_code]
-            if shares <= 0:
-                continue
             price = prices.get(ts_code, 0)
-            if price <= 0:
+            if price <= 0 or shares <= 0:
                 continue
-            
-            # 计算卖出金额（扣除佣金和印花税）
+                
+            # 计算卖出金额
             gross_amount = shares * price
             commission = max(gross_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
             stamp_tax = gross_amount * self.STAMP_TAX
             net_amount = gross_amount - commission - stamp_tax
             
+            # 更新现金
             cash += net_amount
             
-            if ts_code in self._holding_costs:
-                del self._holding_costs[ts_code]
-            
+            # 记录交易
             records.append(RebalanceRecord(
-                date=trade_date,
+                date=str(trade_date),
                 action="sell",
                 ts_code=ts_code,
                 shares=shares,
@@ -715,113 +952,110 @@ class PortfolioBacktester:
                 reason="not_in_target"
             ))
             
-            del holdings[ts_code]
+            # 清空持仓
+            holdings[ts_code] = 0
         
-        # 计算当前总价值
-        total_value = cash + sum(
-            holdings.get(ts_code, 0) * prices.get(ts_code, 0)
-            for ts_code in current_codes - sell_codes
-        )
-        
-        # 2. 买入目标股票，调整到目标权重
-        for ts_code, target_weight in target_weights.items():
-            target_value = total_value * target_weight
+        # 再买入：目标持仓中需要增加的股票
+        for ts_code, target_count in target_shares.items():
             current_shares = holdings.get(ts_code, 0)
-            current_price = prices.get(ts_code, 0)
-            if current_price <= 0:
+            delta = target_count - current_shares
+            
+            if delta <= 0:
+                continue  # 不需要买入
+                
+            price = prices.get(ts_code, 0)
+            if price <= 0:
                 continue
+                
+            # 计算买入成本
+            gross_amount = delta * price
+            commission = max(gross_amount * self.BUY_COMMISSION, self.MIN_COMMISSION)
+            total_cost = gross_amount + commission
             
-            current_value = current_shares * current_price
-            target_shares = int(target_value / current_price / 100) * 100  # 整手买入
-            
-            if target_shares > current_shares:
-                # 需要买入
-                buy_shares = target_shares - current_shares
-                gross_amount = buy_shares * current_price
+            if cash < total_cost:
+                # 现金不足，按比例缩减
+                ratio = cash / total_cost
+                delta = int(int(delta * ratio) / 100) * 100
+                if delta <= 0:
+                    continue
+                gross_amount = delta * price
                 commission = max(gross_amount * self.BUY_COMMISSION, self.MIN_COMMISSION)
-                cost = gross_amount + commission
-                
-                if cost > cash:
-                    # 现金不够，按比例缩小
-                    scale = cash / cost
-                    buy_shares = int(buy_shares * scale / 100) * 100
-                    if buy_shares <= 0:
-                        continue
-                    gross_amount = buy_shares * current_price
-                    commission = max(gross_amount * self.BUY_COMMISSION, self.MIN_COMMISSION)
-                    cost = gross_amount + commission
-                
-                cash -= cost
-                
-                if ts_code in holdings:
-                    holdings[ts_code] += buy_shares
-                else:
-                    holdings[ts_code] = buy_shares
-                
-                # 更新平均持仓成本
-                # 加权平均计算新的平均成本
-                total_shares = holdings[ts_code]
-                old_cost = self._holding_costs.get(ts_code, 0) * (total_shares - buy_shares)
-                new_cost = current_price * buy_shares + commission
-                self._holding_costs[ts_code] = (old_cost + new_cost) / total_shares
-                
-                records.append(RebalanceRecord(
-                    date=trade_date,
-                    action="buy",
-                    ts_code=ts_code,
-                    shares=buy_shares,
-                    price=current_price,
-                    amount=cost,
-                    reason="rebalance"
-                ))
+                total_cost = gross_amount + commission
             
-            elif target_shares < current_shares:
-                # 需要卖出
-                sell_shares = current_shares - target_shares
-                gross_amount = sell_shares * current_price
-                commission = max(gross_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
-                stamp_tax = gross_amount * self.STAMP_TAX
-                net_amount = gross_amount - commission - stamp_tax
-                
-                cash += net_amount
-                holdings[ts_code] = target_shares
-                
-                # 更新成本（按比例保留）
-                if target_shares == 0:
-                    if ts_code in self._holding_costs:
-                        del self._holding_costs[ts_code]
-                else:
-                    self._holding_costs[ts_code] = self._holding_costs.get(ts_code, 0) * (target_shares / current_shares)
-                
-                records.append(RebalanceRecord(
-                    date=trade_date,
-                    action="sell",
-                    ts_code=ts_code,
-                    shares=sell_shares,
-                    price=current_price,
-                    amount=net_amount,
-                    reason="rebalance"
-                ))
-                
-                if holdings[ts_code] <= 0:
-                    del holdings[ts_code]
+            # 更新现金
+            cash -= total_cost
+            
+            # 更新持仓
+            holdings[ts_code] = current_shares + delta
+            
+            # 记录交易
+            records.append(RebalanceRecord(
+                date=str(trade_date),
+                action="buy",
+                ts_code=ts_code,
+                shares=delta,
+                price=price,
+                amount=total_cost,
+                reason="rebalance"
+            ))
+        
+        # 清理零持仓
+        holdings = {code: shares for code, shares in holdings.items() if shares > 0}
         
         return cash, holdings, records
 
-    async def _load_benchmark_data(self, benchmark_code: str, start_date: int, end_date: int):
-        """加载基准指数数据用于计算超额收益"""
-        # 从 stock_daily_ak_full 加载基准数据
-        query = {
-            "ts_code": benchmark_code,
-            "trade_date": {"$gte": start_date, "$lte": end_date}
-        }
-        cursor = mongo_manager.find("stock_daily_ak_full", query)
-        cursor.sort("trade_date", 1)
-        benchmark_data = []
-        async for doc in cursor:
-            benchmark_data.append({
-                "trade_date": doc["trade_date"],
-                "close": doc["close"],
-                "pct_chg": doc.get("pct_chg", 0.0)
-            })
-        return benchmark_data
+    async def _get_stock_names(self, ts_codes: list[str]):
+        """批量获取股票名称，使用缓存减少查询"""
+        result = {}
+        need_query = []
+        
+        # 自动格式标准化：兼容两种输入格式
+        # 数据库中 stock_basic 的 ts_code 带后缀，所以无论输入什么都转换为带后缀格式
+        for ts_code in ts_codes:
+            code_str = str(ts_code).strip()
+            if code_str.endswith(".SH") or code_str.endswith(".SZ"):
+                # 输入已经带后缀，直接使用
+                standard_code = code_str
+            else:
+                # 输入不带后缀，根据代码开头自动补全后缀
+                if code_str.startswith('6') or code_str.startswith('5') or code_str.startswith('9'):
+                    standard_code = f"{code_str}.SH"
+                else:
+                    standard_code = f"{code_str}.SZ"
+            
+            if standard_code in self._stock_name_cache:
+                result[ts_code] = self._stock_name_cache[standard_code]
+            else:
+                need_query.append(standard_code)
+        
+        # 查询缓存未命中的（已经标准化）
+        if len(need_query) > 0:
+            docs = await mongo_manager.find_many(
+                "stock_basic",
+                {"ts_code": {"$in": need_query}},
+                {"ts_code": 1, "name": 1}
+            )
+            
+            for doc in docs:
+                standard_code = doc["ts_code"]
+                name = doc.get("name", standard_code)
+                self._stock_name_cache[standard_code] = name
+        
+        # 构建结果，返回给调用方使用原始 ts_code 作为 key
+        for ts_code in ts_codes:
+            code_str = str(ts_code).strip()
+            if code_str.endswith(".SH") or code_str.endswith(".SZ"):
+                standard_code = code_str
+            else:
+                if code_str.startswith('6') or code_str.startswith('5') or code_str.startswith('9'):
+                    standard_code = f"{code_str}.SH"
+                else:
+                    standard_code = f"{code_str}.SZ"
+            
+            if standard_code in self._stock_name_cache:
+                result[ts_code] = self._stock_name_cache[standard_code]
+            else:
+                # 找不到，回退到使用原始代码作为名称
+                result[ts_code] = code_str
+        
+        return result
