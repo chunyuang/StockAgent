@@ -703,6 +703,9 @@ class PortfolioBacktester:
                 trade_date,
             );
             
+            # 保存最后一次价格，用于计算最终市值
+            last_prices = prices;
+            
             await self.log(f"            ✅ 获取到 {len(prices)} 只股票的价格");
             
             # 如果没有任何股票获取到价格，跳过本次调仓
