@@ -7,7 +7,7 @@
 """
 
 import re
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 from datetime import datetime
 
 from src.collector.sources.base import BaseSource
@@ -119,7 +119,7 @@ class XueqiuSource(BaseSource):
                 news_item = self.create_news_item(
                     title=self._clean_text(title),
                     content=self._clean_text(text),
-                    url=item.get("target", f"https://xueqiu.com/"),
+                    url=item.get("target", "https://xueqiu.com/"),
                     publish_time=publish_time,
                     category=NewsCategory.FINANCE_FLASH,
                     source_id=str(item.get("id", "")),

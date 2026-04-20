@@ -11,10 +11,9 @@
 
 import logging
 from datetime import datetime
-from typing import List, Dict, Any, Optional, Tuple
+from typing import Optional, Tuple
 import pandas as pd
 
-from core.settings import settings
 from core.managers import mongo_manager
 from core.managers import tushare_manager
 
@@ -26,7 +25,7 @@ class StockDataManager:
     """股票数据管理器"""
     
     def __init__(self):
-        self._cache_collection = "stock_daily_cache"
+        self._cache_collection = "stock_daily_ak_full_cache"
     
     async def get_daily_data(
         self,
@@ -121,7 +120,7 @@ class StockDataManager:
         # 4. Baostock
         import baostock as bs
         try:
-            lg = bs.login()
+            bs.login()
             rs = bs.query_history_k_data_plus(
                 ts_code,
                 "date,code,open,high,low,close,volume,amount,pe,pb,turn",

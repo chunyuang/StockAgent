@@ -19,7 +19,7 @@
   单票仓位5%-10%，同时打3-5只首板分散风险，总仓位不超过30%
 """
 
-from typing import List, Dict, Any, Optional
+from typing import List, Optional
 import logging
 
 from .base import BaseStrategy

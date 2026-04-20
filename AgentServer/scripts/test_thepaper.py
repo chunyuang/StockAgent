@@ -92,7 +92,7 @@ async def main():
                     print(f"    详情内容: {content[:200]}...")
                     print(f"    内容长度: {len(content)} 字符")
                 else:
-                    print(f"    详情内容: [获取失败]")
+                    print("    详情内容: [获取失败]")
             print()
 
 

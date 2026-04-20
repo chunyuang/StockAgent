@@ -5,8 +5,6 @@
 """
 
 import logging
-from typing import Optional, List
-from datetime import datetime, timedelta
 
 from src.tools.registry import tool
 

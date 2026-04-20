@@ -6,16 +6,15 @@
 
 import uuid
 import logging
-from datetime import datetime, timedelta
-from typing import Dict, List, Any, Optional
+from datetime import datetime
+from typing import List, Optional
 from enum import Enum
 
 from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
-from bson.objectid import ObjectId
 
 from core.managers import mongo_manager
-from .auth import get_current_user_id, get_optional_user_id
+from .auth import get_optional_user_id
 
 router = APIRouter(prefix="/trading", tags=["Trading"])
 logger = logging.getLogger("api.trading")

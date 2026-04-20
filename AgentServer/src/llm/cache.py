@@ -13,7 +13,7 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Tuple
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 logger = logging.getLogger(__name__)
@@ -124,7 +124,6 @@ class MemoryCache(CacheBackend):
     
     def _evict(self) -> None:
         """驱逐过期和最少使用的条目"""
-        now = time.time()
         
         # 先删除过期的
         expired = [k for k, v in self._cache.items() if v.is_expired]

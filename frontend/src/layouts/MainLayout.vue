@@ -39,6 +39,8 @@ import {
   CreditCard,
   DataLine,
   Document,
+  Grid,
+  Tools,
 } from '@element-plus/icons-vue'
 import { useAuth } from '@/hooks'
 import { useUserStore, useTaskStore, useThemeStore } from '@/stores'
@@ -73,14 +75,16 @@ const menuItems = [
   { path: '/market', icon: Histogram, title: '行情分析' },
   { path: '/sector-strategy', icon: TrendCharts, title: '板块分析' },
   { path: '/hot-news', icon: Promotion, title: '热点追踪' },
-  { path: '/ultra-short', icon: DataAnalysis, title: '超短策略回测' },
+  { path: '/ultra-short-v2', icon: DataAnalysis, title: '超短策略回测' },
   { path: '/analysis', icon: DataAnalysis, title: '分析任务' },
   { path: '/sim-account', icon: CreditCard, title: '模拟交易' },
   { path: '/trading-signals', icon: Bell, title: '交易信号' },
   { path: '/performance', icon: DataLine, title: '绩效报告' },
   { path: '/watchlist', icon: Star, title: '自选股' },
   { path: '/strategies', icon: TrendCharts, title: '市场监听' },
-  { path: '/settings', icon: Setting, title: '设置' },
+  { path: '/system/status', icon: DataLine, title: '系统状态' },
+  { path: '/admin/db', icon: Grid, title: '数据库管理' },
+  { path: '/settings', icon: Tools, title: '设置' },
 ]
 
 // ==================== 生命周期 ====================

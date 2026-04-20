@@ -337,7 +337,6 @@ class TushareAdapter(AsyncDataSourceAdapter):
         Returns:
             Dict[code, RealtimeQuoteRecord]: 以6位代码为key的实时行情字典
         """
-        import tushare as ts
 
         if not await self.is_available() or self._ts is None:
             return {}
@@ -380,7 +379,7 @@ class TushareAdapter(AsyncDataSourceAdapter):
                             }
                 
             except asyncio.TimeoutError:
-                self.logger.warning(f"Realtime quote batch timeout")
+                self.logger.warning("Realtime quote batch timeout")
             except Exception as e:
                 self.logger.error(f"Failed to get realtime quote: {e}")
             

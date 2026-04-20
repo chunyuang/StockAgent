@@ -36,7 +36,7 @@ async def reset_cluster_status(delete_events: bool = False):
     })
     total_events = await mongo_manager.count("news_events", {})
     
-    print(f"\n当前状态:")
+    print("\n当前状态:")
     print(f"  - 总新闻数: {total_news}")
     print(f"  - 已聚类新闻: {clustered_news}")
     print(f"  - 聚类事件数: {total_events}")
@@ -46,7 +46,7 @@ async def reset_cluster_status(delete_events: bool = False):
         return
     
     # 确认操作
-    print(f"\n即将执行:")
+    print("\n即将执行:")
     print(f"  1. 重置 {clustered_news} 条新闻的聚类状态 (清除 event_id, clustered_at)")
     if delete_events:
         print(f"  2. 删除 {total_events} 个聚类事件")
@@ -83,7 +83,7 @@ async def reset_cluster_status(delete_events: bool = False):
     })
     remaining_events = await mongo_manager.count("news_events", {})
     
-    print(f"\n重置后状态:")
+    print("\n重置后状态:")
     print(f"  - 已聚类新闻: {remaining_clustered}")
     print(f"  - 聚类事件数: {remaining_events}")
     print("\n完成！新闻将在下次聚类任务时重新处理。")

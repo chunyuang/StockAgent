@@ -18,12 +18,10 @@ import os
 # 添加项目根目录到 path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from datetime import datetime
 from core.managers import mongo_manager, tushare_manager
 from core.managers.notification_manager import notification_manager
 from core.protocols import (
     StrategySubscription,
-    StrategyAlert,
     MarketSnapshot,
     StrategyType,
 )

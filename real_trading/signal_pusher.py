@@ -7,7 +7,7 @@ import sys
 import os
 import json
 import requests
-from typing import Dict, Any
+from typing import Dict
 from datetime import datetime
 
 class SignalPusher:
@@ -90,7 +90,7 @@ class SignalPusher:
             content = [
                 f"## {title}",
                 "",
-                f"### 📊 市场情绪",
+                "### 📊 市场情绪",
                 f"- 评分：**{sentiment['score']}分**",
                 f"- 等级：**{sentiment['level']}**",
                 f"- 仓位上限：**{sentiment['position_limit']:.0%}**",
@@ -105,7 +105,7 @@ class SignalPusher:
             content = [
                 f"## {title}",
                 "",
-                f"### 📊 市场情绪",
+                "### 📊 市场情绪",
                 f"- 评分：**{sentiment['score']}分**",
                 f"- 等级：**{sentiment['level']}**",
                 f"- 仓位上限：**{sentiment['position_limit']:.0%}**",

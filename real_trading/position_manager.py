@@ -10,8 +10,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 import json
 import asyncio
-from datetime import datetime, timedelta
-from typing import List, Dict, Optional
+from datetime import datetime
+from typing import List, Dict
 from dataclasses import dataclass, asdict
 
 @dataclass
@@ -197,7 +197,7 @@ class PositionManager:
         from core.managers import mongo_manager
         ts_codes = list(self.positions.keys())
         daily_data = await mongo_manager.find_many(
-            "stock_daily",
+            "stock_daily_ak_full",
             {"ts_code": {"$in": ts_codes}, "trade_date": int(current_date)},
             projection={"ts_code": 1, "close": 1, "pct_chg": 1, "high": 1, "low": 1}
         )

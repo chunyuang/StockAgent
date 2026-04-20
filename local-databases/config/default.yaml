@@ -1,0 +1,40 @@
+# 全局配置文件
+# 本地数据库管理 - 配置
+
+# MongoDB 连接配置
+mongodb:
+  host: "localhost"
+  port: 27017
+  db_name: "stock_agent"
+  collections:
+    raw: "stock_daily"
+    factors: "strategy_signals"
+    backtests: "backtest_results"
+
+# 数据源优先级配置
+priorities:
+  # 回测场景优先级（优先本地）
+  backtest:
+    - local
+    - tushare
+    - akshare
+    - biying
+    - baostock
+
+  # 实盘场景优先级（优先在线）
+  realtime:
+    - biying
+    - akshare
+    - baostock
+    - local
+
+# 数据源限额配置
+limits:
+  biying:
+    daily_limit: 200
+    remaining: 200  # 会自动更新
+
+# 默认设置
+defaults:
+  # 过期提醒天数
+  unused_days_threshold: 30

@@ -10,7 +10,7 @@
 数据来源: 每日涨跌停统计 (limit_list_d)
 """
 
-from typing import Dict, Any, List
+from typing import Dict, Any
 import asyncio
 
 from core.base import BaseCollector

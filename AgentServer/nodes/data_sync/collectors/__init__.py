@@ -3,7 +3,7 @@
 """
 
 from .stock_basic import StockBasicCollector
-from .stock_daily import StockDailyCollector
+from .stock_daily_ak_full import StockDailyCollector
 from .daily_basic import DailyBasicCollector
 from .index_basic import IndexBasicCollector
 from .index_daily import IndexDailyCollector

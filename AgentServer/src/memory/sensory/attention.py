@@ -6,7 +6,6 @@
 
 import logging
 from typing import Any, Callable, Dict, List, Optional
-from datetime import datetime
 
 from ..types import SensoryMemoryItem, WorkingMemoryItem, MemoryMetadata, MemoryType
 

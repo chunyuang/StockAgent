@@ -4,7 +4,7 @@
 提供指数行情、北向资金等大盘相关数据查询。
 """
 
-from typing import Optional, List
+from typing import Optional
 from src.tools.registry import tool
 
 

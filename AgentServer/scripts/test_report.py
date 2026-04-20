@@ -140,7 +140,7 @@ async def test_report_detailed(
         medium_count = sum(1 for item in items if str(item.importance.value) == "medium")
         low_count = sum(1 for item in items if str(item.importance.value) == "low")
         
-        print(f"重要性分布:")
+        print("重要性分布:")
         print(f"  🔴 高: {high_count}")
         print(f"  🟡 中: {medium_count}")
         print(f"  ⚪ 低: {low_count}")
@@ -199,7 +199,7 @@ async def test_report_detailed(
         print(f"\n报告ID: {report.id}")
         print(f"标题: {report.title}")
         
-        print(f"\n统计:")
+        print("\n统计:")
         print(f"  事件数: {report.stats.event_count}")
         print(f"  新闻数: {report.stats.news_count}")
         print(f"  重要事件: {report.stats.high_importance_count}")
@@ -212,7 +212,7 @@ async def test_report_detailed(
             print(f"  核心板块: {', '.join(report.stats.top_sectors)}")
         
         if report.sections:
-            print(f"\n板块详情:")
+            print("\n板块详情:")
             for section in report.sections:
                 print(f"  📁 {section.title}: {len(section.items)} 条")
                 for item in section.items[:3]:

@@ -5,9 +5,7 @@
 import sys
 sys.path.insert(0, '.')
 
-import pandas as pd
 import pymongo
-import time
 from core.settings import settings
 from core.managers.tushare_manager import tushare_manager
 import asyncio
@@ -36,7 +34,7 @@ async def main():
             records = await tushare_manager.get_daily(trade_date=str(trade_date))
             
             if not records:
-                print(f"  ⚠️  无数据")
+                print("  ⚠️  无数据")
                 fail_count += 1
                 continue
             
@@ -55,7 +53,7 @@ async def main():
                 })
             
             if bulk:
-                result = db.stock_daily.bulk_write(bulk)
+                result = db.stock_daily_ak_full.bulk_write(bulk)
                 inserted = result.upserted_count
                 modified = result.modified_count
                 total_records += len(records)
@@ -72,12 +70,12 @@ async def main():
         # 限流，共享节点配额有限
         await asyncio.sleep(2)
     
-    print(f"\n===== 下载完成 =====")
+    print("\n===== 下载完成 =====")
     print(f"交易日 成功: {success_count}, 失败: {fail_count}")
     print(f"总计记录: {total_records}")
     
-    final_count = db.stock_daily.count_documents({'trade_date': {'$gte': 20260105, '$lte': 20260320}})
-    print(f"最终 stock_daily 区间 (20260105-20260320) 记录数: {final_count}")
+    final_count = db.stock_daily_ak_full.count_documents({'trade_date': {'$gte': 20260105, '$lte': 20260320}})
+    print(f"最终 stock_daily_ak_full 区间 (20260105-20260320) 记录数: {final_count}")
     
     client.close()
     await tushare_manager.shutdown()

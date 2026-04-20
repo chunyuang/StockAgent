@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from core.managers import mongo_manager
 from core.protocols import StrategyType
 from core.rpc import rpc_manager
-from .auth import get_current_user, require_admin, CurrentUser
+from .auth import require_admin, CurrentUser
 
 
 logger = logging.getLogger("api.subscription")
@@ -310,7 +310,6 @@ async def get_subscription_by_type(strategy_type: str = Path(...)):
             detail=f"策略类型 '{strategy_type}' 不存在"
         )
     
-    record = await _ensure_strategy_exists(strategy_type)
     return await _to_response(record)
 
 
@@ -332,7 +331,6 @@ async def update_strategy_params(
         )
     
     # 确保策略存在
-    record = await _ensure_strategy_exists(strategy_type)
     
     # 更新参数
     await mongo_manager.update_one(
@@ -374,7 +372,6 @@ async def toggle_subscription(
             detail=f"策略类型 '{strategy_type}' 不存在"
         )
     
-    record = await _ensure_strategy_exists(strategy_type)
     new_status = not record.get("is_active", True)
     
     await mongo_manager.update_one(
@@ -422,7 +419,6 @@ async def add_stock_to_strategy(
     ts_code = data.ts_code.upper()
     
     # 确保策略存在
-    record = await _ensure_strategy_exists(strategy_type)
     watch_list: List[str] = record.get("watch_list", [])
     
     # 检查是否已存在
@@ -482,7 +478,6 @@ async def remove_stock_from_strategy(
     ts_code = ts_code.upper()
     
     # 确保策略存在
-    record = await _ensure_strategy_exists(strategy_type)
     watch_list: List[str] = record.get("watch_list", [])
     
     # 检查是否存在

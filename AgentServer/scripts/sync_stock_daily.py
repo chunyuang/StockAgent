@@ -1,21 +1,20 @@
 """
-手动同步指定日期范围的 stock_daily 数据
+手动同步指定日期范围的 stock_daily_ak_full 数据
 
 用法:
     cd AgentServer
     
     # 同步单个日期
-    python scripts/sync_stock_daily.py --date 20260106
+    python scripts/sync_stock_daily_ak_full.py --date 20260106
     
     # 同步时间段
-    python scripts/sync_stock_daily.py --start 20260106 --end 20260109
+    python scripts/sync_stock_daily_ak_full.py --start 20260106 --end 20260109
 """
 
 import asyncio
 import argparse
 import sys
 import os
-from datetime import datetime
 
 # 添加项目根目录到 path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -41,9 +40,9 @@ async def get_trade_dates_in_range(start_date: str, end_date: str) -> list:
     return dates
 
 
-async def sync_stock_daily_for_date(trade_date: str, batch_size: int = 500) -> dict:
+async def sync_stock_daily_ak_full_for_date(trade_date: str, batch_size: int = 500) -> dict:
     """
-    同步指定日期的 stock_daily 数据
+    同步指定日期的 stock_daily_ak_full 数据
     
     Args:
         trade_date: 交易日期 (YYYYMMDD)
@@ -53,7 +52,7 @@ async def sync_stock_daily_for_date(trade_date: str, batch_size: int = 500) -> d
         同步结果统计
     """
     print(f"\n{'='*60}")
-    print(f"Syncing stock_daily for {trade_date}")
+    print(f"Syncing stock_daily_ak_full for {trade_date}")
     print(f"{'='*60}")
     
     # 获取所有股票列表
@@ -79,7 +78,7 @@ async def sync_stock_daily_for_date(trade_date: str, batch_size: int = 500) -> d
         
         # 批量写入
         result = await mongo_manager.bulk_upsert(
-            collection="stock_daily",
+            collection="stock_daily_ak_full",
             documents=records,
             key_fields=["ts_code", "trade_date"],
         )
@@ -117,7 +116,7 @@ async def sync_stock_daily_for_date(trade_date: str, batch_size: int = 500) -> d
         
         # 批量写入
         result = await mongo_manager.bulk_upsert(
-            collection="stock_daily",
+            collection="stock_daily_ak_full",
             documents=records,
             key_fields=["ts_code", "trade_date"],
         )
@@ -233,8 +232,8 @@ async def main(args):
     # 同步每个日期
     results = []
     for trade_date in trade_dates:
-        # 同步 stock_daily
-        result = await sync_stock_daily_for_date(trade_date)
+        # 同步 stock_daily_ak_full
+        result = await sync_stock_daily_ak_full_for_date(trade_date)
         results.append(result)
         
         # 同步 index_daily
@@ -260,7 +259,7 @@ async def main(args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Sync stock_daily for specified dates")
+    parser = argparse.ArgumentParser(description="Sync stock_daily_ak_full for specified dates")
     parser.add_argument("--date", type=str, help="Single date to sync (e.g., 20260106)")
     parser.add_argument("--start", type=str, help="Start date of range (e.g., 20260106)")
     parser.add_argument("--end", type=str, help="End date of range (e.g., 20260109)")
@@ -270,8 +269,8 @@ if __name__ == "__main__":
     if not args.date and not (args.start and args.end):
         parser.print_help()
         print("\nExamples:")
-        print("  python scripts/sync_stock_daily.py --date 20260106")
-        print("  python scripts/sync_stock_daily.py --start 20260106 --end 20260109")
+        print("  python scripts/sync_stock_daily_ak_full.py --date 20260106")
+        print("  python scripts/sync_stock_daily_ak_full.py --start 20260106 --end 20260109")
         sys.exit(1)
     
     asyncio.run(main(args))

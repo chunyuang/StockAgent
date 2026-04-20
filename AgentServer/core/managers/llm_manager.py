@@ -8,7 +8,7 @@ LLM 管理器
 """
 
 import asyncio
-from typing import Optional, List, Dict, Any, AsyncGenerator
+from typing import Optional, List, Dict, AsyncGenerator
 
 from .base import BaseManager
 from ..settings import settings

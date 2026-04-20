@@ -9,7 +9,7 @@
 import time
 from typing import Any, Dict
 
-from .base import BaseWorkflow, WorkflowResult, WorkflowStep
+from .base import BaseWorkflow, WorkflowResult
 
 
 class StockDeepDiveWorkflow(BaseWorkflow):

@@ -19,7 +19,6 @@ import asyncio
 import sys
 import time
 from datetime import datetime
-import pandas as pd
 import pymongo
 
 sys.path.insert(0, '/root/.openclaw/workspace/StockAgent/AgentServer')
@@ -28,7 +27,7 @@ from core.settings import settings
 from core.managers import tushare_manager
 
 async def download_limit_list_range(start_date: str, end_date: str):
-    print(f"=== Tushare 下载涨跌停价格数据 (物理隔离独立下载) ===")
+    print("=== Tushare 下载涨跌停价格数据 (物理隔离独立下载) ===")
     print(f"区间: {start_date} ~ {end_date}")
     print()
 
@@ -105,7 +104,7 @@ async def download_limit_list_range(start_date: str, end_date: str):
     elapsed = time.time() - start_time
     print()
     print("="*60)
-    print(f"下载完成!")
+    print("下载完成!")
     print(f"总交易日: {total_dates}")
     print(f"总记录数: {total_records}")
     print(f"总耗时: {elapsed:.1f} 秒 ≈ {elapsed/60:.1f} 分钟")

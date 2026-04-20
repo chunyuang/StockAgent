@@ -7,10 +7,9 @@
 import uuid
 import logging
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 from core.managers import mongo_manager
-from core.settings import settings
 
 logger = logging.getLogger("sim_trading_engine")
 

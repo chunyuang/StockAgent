@@ -8,11 +8,11 @@ MongoDB 管理器
 - 聚合查询
 """
 
-from typing import Optional, Any, List, Dict
+from typing import Optional, List
 from datetime import datetime
 
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
-from pymongo import ASCENDING, DESCENDING, IndexModel, UpdateOne, InsertOne
+from pymongo import ASCENDING, DESCENDING, IndexModel, UpdateOne
 
 from .base import BaseManager
 from ..settings import settings
@@ -121,7 +121,7 @@ class MongoManager(BaseManager):
         ])
         
         # 日线数据表 (高频查询)
-        await self._db.stock_daily.create_indexes([
+        await self._db.stock_daily_ak_full.create_indexes([
             IndexModel(
                 [("ts_code", ASCENDING), ("trade_date", DESCENDING)],
                 unique=True,
@@ -497,7 +497,7 @@ class MongoManager(BaseManager):
         每个 sync_type 只保留一条记录，更新 sync_date 字段。
         
         Args:
-            sync_type: 同步类型 (stock_basic, stock_daily, news, etc.)
+            sync_type: 同步类型 (stock_basic, stock_daily_ak_full, news, etc.)
             sync_date: 最后同步日期 (YYYYMMDD)
             count: 本次同步数量 (可选，用于记录)
         """

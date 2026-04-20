@@ -7,7 +7,7 @@ AKShare 官方文档: https://akshare.akfamily.xyz/
 """
 
 import asyncio
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from datetime import datetime
 
 from .base import BaseManager

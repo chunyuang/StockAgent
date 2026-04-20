@@ -202,13 +202,13 @@ async def main(args):
     print("\n" + "=" * 60)
     print("同步完成!")
     print("=" * 60)
-    print(f"\n行业资金流向:")
+    print("\n行业资金流向:")
     print(f"  - 成功: {industry_result['success_dates']} 天")
     print(f"  - 记录: {industry_result['total_count']} 条")
     if industry_result['failed_dates']:
         print(f"  - 失败: {industry_result['failed_dates']}")
     
-    print(f"\n板块资金流向:")
+    print("\n板块资金流向:")
     print(f"  - 成功: {concept_result['success_dates']} 天")
     print(f"  - 记录: {concept_result['total_count']} 条")
     if concept_result['failed_dates']:

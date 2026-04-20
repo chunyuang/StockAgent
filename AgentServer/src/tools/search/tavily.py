@@ -5,7 +5,6 @@ Tavily 搜索工具
 """
 
 import logging
-from typing import Optional, List
 from urllib.parse import urlparse
 
 from src.tools.registry import tool

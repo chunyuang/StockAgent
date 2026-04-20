@@ -6,7 +6,7 @@
 """
 
 import asyncio
-from typing import Optional, Dict, Any
+from typing import Optional, Dict
 from datetime import datetime
 import traceback
 
@@ -22,8 +22,6 @@ from nodes.backtest_engine.factors import FactorData
 from nodes.backtest_engine.backtester import VectorizedBacktester, BacktestConfig
 from nodes.backtest_engine.performance import PerformanceAnalyzer
 from nodes.backtest_engine.factor_selection import PortfolioBacktester
-from nodes.backtest_engine.factor_selection.universe import UniverseManager, ExcludeRule
-from nodes.backtest_engine.factor_selection.factor_engine import FactorEngine
 from core.managers import baostock_manager, akshare_manager
 
 
@@ -444,10 +442,7 @@ class BacktestNode(BaseNode):
         initial_cash = req_params.get("initial_cash", 1000000)
         strategy_params = req_params.get("params", {})
         # 数据源配置
-        data_source = req_params.get("data_source", "mongodb")
         period = req_params.get("period", "daily")
-        ts_codes = req_params.get("ts_codes", "")
-        adjust_type = req_params.get("adjust_type", "qfq")
 
         # 初始化所有数据管理器,异常保护
         try:
@@ -571,7 +566,7 @@ class BacktestNode(BaseNode):
         if not selected_strategies:
             selected_strategies = ALL_STRATEGIES
 
-        await self._push_log(task_id, f"🎯 选中策略: {[s["name"] for s in selected_strategies]}")
+        await self._push_log(task_id, f'🎯 选中策略: {[s["name"] for s in selected_strategies]}')
         
         # ========== 参数核对日志（与界面对照） ==========
         await self._push_log(task_id, "")
@@ -738,7 +733,7 @@ class BacktestNode(BaseNode):
 
         await self._push_log(task_id, "")
         await self._push_log(task_id, "=" * 60)
-        await self._push_log(task_id, f"▶️ 开始多策略组合回测")
+        await self._push_log(task_id, "▶️ 开始多策略组合回测")
         await self._push_log(task_id, "📊 策略权重配置: " + str(strategy_weights))
         await self._push_log(task_id, "=" * 60)
 
@@ -852,7 +847,7 @@ class BacktestNode(BaseNode):
             self.logger.error(f"[{task_id}] Traceback:\n{tb_str}")
             await self._push_log(task_id, f"❌ 组合回测运行异常: {str(e)}")
             # 把 traceback 也加到日志里，方便定位问题
-            await self._push_log(task_id, f"📋 完整错误堆栈:")
+            await self._push_log(task_id, "📋 完整错误堆栈:")
             for line in tb_str.split('\n'):
                 if line.strip():
                     await self._push_log(task_id, f'``` {line} ```')
@@ -1035,10 +1030,10 @@ class BacktestNode(BaseNode):
     ) -> pd.DataFrame:
         """从数据库获取行情数据,不存在则自动从AKShare下载"""
         records = await mongo_manager.find_many(
-            "stock_daily",
+            "stock_daily_ak_full",
             {
                 "ts_code": ts_code,
-                "trade_date": {"$gte": start_date, "$lte": end_date},
+                "trade_date": {"$gte": int(start_date), "$lte": int(end_date)},
             },
             sort=[("trade_date", 1)],
         )
@@ -1082,7 +1077,7 @@ class BacktestNode(BaseNode):
                     # 批量插入数据库,避免重复
                     for record in records_to_insert:
                         await mongo_manager.update_one(
-                            "stock_daily",
+                            "stock_daily_ak_full",
                             {"ts_code": record["ts_code"], "trade_date": record["trade_date"]},
                             {"$setOnInsert": record},
                             upsert=True
@@ -1091,10 +1086,10 @@ class BacktestNode(BaseNode):
 
                     # 重新查询数据
                     records = await mongo_manager.find_many(
-                        "stock_daily",
+                        "stock_daily_ak_full",
                         {
                             "ts_code": ts_code,
-                            "trade_date": {"$gte": start_date, "$lte": end_date},
+                            "trade_date": {"$gte": int(start_date), "$lte": int(end_date)},
                         },
                         sort=[("trade_date", 1)],
                     )

@@ -112,7 +112,6 @@ class CasesKnowledgeBase:
         }
         
         # 使用 upsert 避免重复
-        result = await db[self.COLLECTION].update_one(
             {"trade_date": trade_date},
             {"$set": doc},
             upsert=True,
@@ -139,7 +138,6 @@ class CasesKnowledgeBase:
         """
         db = await self._get_db()
         
-        result = await db[self.COLLECTION].update_one(
             {"trade_date": trade_date},
             {
                 "$set": {

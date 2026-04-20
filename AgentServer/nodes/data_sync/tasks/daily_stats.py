@@ -8,11 +8,11 @@
 4. 今日涨停/跌停/炸板个股数量
 5. 新增: 涨跌幅中位数、涨跌5%统计、封板率、晋级率等
 
-数据来源: 基于已同步的 moneyflow_industry, moneyflow_concept, limit_list, stock_daily 进行统计
+数据来源: 基于已同步的 moneyflow_industry, moneyflow_concept, limit_list, stock_daily_ak_full 进行统计
 支持历史数据回补。
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
 import time
 import statistics
@@ -188,7 +188,6 @@ class DailyStatsTask(BaseTask):
         self.logger.debug(f"Daily stats computed: {time.time()-t2:.2f}s")
         
         # 5. 情绪周期分析
-        t3 = time.time()
         prev_stats = await mongo_manager.find_one(
             "daily_stats",
             {"trade_date": {"$lt": trade_date}},
@@ -402,9 +401,9 @@ class DailyStatsTask(BaseTask):
                 elif limit_type == "D":
                     stats["limit_down_count"] += 1
         
-        # 2. 从 stock_daily 获取涨跌统计
+        # 2. 从 stock_daily_ak_full 获取涨跌统计
         daily_data = await mongo_manager.find_many(
-            "stock_daily",
+            "stock_daily_ak_full",
             {"trade_date": trade_date},
             projection={"ts_code": 1, "pct_chg": 1, "_id": 0},
         )

@@ -13,13 +13,10 @@
 5. 情绪标签（可选）
 """
 
-from datetime import datetime
-from typing import List, Dict
-from collections import Counter
+from typing import List
 
 from .types import (
     Report,
-    ReportSection,
     ReportItem,
     ReportType,
     ReportCategory,
@@ -101,7 +98,7 @@ class ReportFormatter:
         
         # 统计
         stats = report.stats
-        lines.append(f"---")
+        lines.append("---")
         lines.append(f"*本期共收录 {stats.event_count} 条事件，其中重磅 {stats.high_importance_count} 条*")
         lines.append("")
         

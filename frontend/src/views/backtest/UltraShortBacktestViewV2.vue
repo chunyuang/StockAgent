@@ -437,6 +437,13 @@ const submitBacktest = async () => {
         backtestState.running = false
         addLog('✅ 回测全部完成！')
         ElMessage.success('回测完成！')
+        // 自动滚动到结果区域，让用户看到结果
+        setTimeout(() => {
+          const resultCard = document.querySelector('.result-card')
+          if (resultCard) {
+            resultCard.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          }
+        }, 200)
         ws.close()
       } else if (data.type === 'status' && data.status === 'completed') {
         // 字段映射：后端返回结构适配前端期望结构
@@ -485,6 +492,13 @@ const submitBacktest = async () => {
         backtestState.running = false
         addLog('✅ 回测全部完成！')
         ElMessage.success('回测完成！')
+        // 自动滚动到结果区域，让用户看到结果
+        setTimeout(() => {
+          const resultCard = document.querySelector('.result-card')
+          if (resultCard) {
+            resultCard.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          }
+        }, 200)
         ws.close()
       } else if (data.type === 'error') {
         addLog(`❌ 回测失败：${data.message}`)
@@ -1657,7 +1671,7 @@ const exportTrades = () => {
       </div>
     </ElCard>
 
-    <!-- 进度展示 -->
+    <!-- 进度展示 - 回测运行中显示在日志下方（页面最底部），始终可见 -->
     <ElCard v-if="backtestState.running" class="progress-card">
       <template #header>
         <span>⏳ 回测进度</span>

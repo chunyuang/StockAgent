@@ -7,11 +7,11 @@
 3. 今日涨跌个股数量
 4. 今日涨停/跌停/炸板个股数量
 
-数据来源: 基于已同步的 moneyflow_industry, moneyflow_concept, limit_list, stock_daily 进行统计
+数据来源: 基于已同步的 moneyflow_industry, moneyflow_concept, limit_list, stock_daily_ak_full 进行统计
 """
 
-from typing import Dict, Any, List, Optional
-from datetime import datetime, date
+from typing import Dict, Any
+from datetime import datetime
 import time
 
 from core.base import BaseCollector
@@ -294,9 +294,9 @@ class DailyStatsCollector(BaseCollector):
                 elif limit_type == "D":  # 跌停
                     stats["limit_down_count"] += 1
         
-        # 2. 从 stock_daily 获取涨跌统计
+        # 2. 从 stock_daily_ak_full 获取涨跌统计
         daily_data = await mongo_manager.find_many(
-            "stock_daily",
+            "stock_daily_ak_full",
             {"trade_date": trade_date},
             projection={"ts_code": 1, "pct_chg": 1, "_id": 0},
         )

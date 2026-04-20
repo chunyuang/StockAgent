@@ -56,7 +56,7 @@ async def check_news_content():
         print()
     
     print(f"{'='*70}")
-    print(f"统计:")
+    print("统计:")
     print(f"  - 总数: {len(news_list)}")
     print(f"  - 内容为空: {empty_count}")
     print(f"  - 内容=标题: {same_as_title_count}")

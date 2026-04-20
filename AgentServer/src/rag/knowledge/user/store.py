@@ -14,7 +14,6 @@ from ..types import (
     UserKnowledgeType,
     KnowledgeSearchResult,
 )
-from ....memory.types import InsertResult
 
 
 class UserKnowledgeStore:

@@ -9,7 +9,7 @@
 支持增量同步和失败重试。
 """
 
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 from core.base import BaseCollector
 from core.settings import settings

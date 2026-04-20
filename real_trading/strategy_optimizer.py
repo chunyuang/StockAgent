@@ -10,7 +10,6 @@ import itertools
 import random
 from datetime import datetime
 from typing import List, Dict, Tuple
-import pandas as pd
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'AgentServer'))
@@ -263,7 +262,7 @@ class StrategyOptimizer:
         report_lines = [
             "# 🎯 策略参数优化报告",
             "",
-            f"## 🔹 基础配置",
+            "## 🔹 基础配置",
             f"- 回测区间：{self.base_config['start_date']} ~ {self.base_config['end_date']}",
             f"- 初始资金：{self.base_config['initial_cash']:.0f}元",
             f"- 共测试参数组合：{len(self.results)}组",
@@ -293,9 +292,9 @@ class StrategyOptimizer:
         report_lines.extend([
             "",
             "## ✅ 推荐最优参数",
-            f"```python",
+            "```python",
             f"best_params = {best['params']}",
-            f"```",
+            "```",
             f"**预期表现：** 收益率{best['total_return']:.2f}%，夏普比率{best['sharpe_ratio']:.2f}，最大回撤{best['max_drawdown']:.2f}%，胜率{best['win_rate']:.2f}%",
         ])
         

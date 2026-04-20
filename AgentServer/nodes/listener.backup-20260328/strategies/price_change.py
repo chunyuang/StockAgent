@@ -4,7 +4,7 @@
 当股票涨跌幅超过设定阈值时触发预警。
 """
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Optional
 import logging
 
 from .base import BaseStrategy

@@ -19,9 +19,7 @@
 - 完整覆盖: 策略和因子用到的所有数据都支持读取
 """
 
-import asyncio
 from typing import Optional, List, Dict, Any
-from datetime import datetime
 
 import pymongo
 
@@ -58,8 +56,8 @@ class LocalMongoManager(BaseManager):
         try:
             self._client.admin.command('ping')
             self._initialized = True
-            count = self._db['stock_daily'].count_documents({})
-            self.logger.info(f"LocalMongo initialized ✓, stock_daily 共 {count} 条记录")
+            count = self._db['stock_daily_ak_full'].count_documents({})
+            self.logger.info(f"LocalMongo initialized ✓, stock_daily_ak_full 共 {count} 条记录")
         except Exception as e:
             self.logger.error(f"LocalMongo connection failed: {e}")
             raise
@@ -137,7 +135,7 @@ class LocalMongoManager(BaseManager):
             "trade_date": {"$gte": start_date, "$lte": end_date},
         }
         
-        cursor = self._db['stock_daily'].find(query).sort("trade_date", pymongo.ASCENDING)
+        cursor = self._db['stock_daily_ak_full'].find(query).sort("trade_date", pymongo.ASCENDING)
         records = list(cursor)
         
         if not records:
@@ -168,7 +166,7 @@ class LocalMongoManager(BaseManager):
             "trade_date": trade_date,
         }
         
-        cursor = self._db['stock_daily'].find(query)
+        cursor = self._db['stock_daily_ak_full'].find(query)
         records = list(cursor)
         
         if not records:
@@ -224,7 +222,7 @@ class LocalMongoManager(BaseManager):
                 query["trade_date"] = {}
             query["trade_date"]["$lte"] = end_date
         
-        cursor = self._db['stock_daily'].find(query).sort([
+        cursor = self._db['stock_daily_ak_full'].find(query).sort([
             ("ts_code", pymongo.ASCENDING),
             ("trade_date", pymongo.ASCENDING),
         ])
@@ -501,10 +499,10 @@ class LocalMongoManager(BaseManager):
     
     # ==================== 统计工具 ====================
     
-    def count_stock_daily(self) -> int:
-        """统计 stock_daily 总记录数"""
+    def count_stock_daily_ak_full(self) -> int:
+        """统计 stock_daily_ak_full 总记录数"""
         self._ensure_initialized()
-        return self._db['stock_daily'].count_documents({})
+        return self._db['stock_daily_ak_full'].count_documents({})
     
     def count_by_collection(self, collection_name: str) -> int:
         """统计指定集合记录数"""
@@ -519,7 +517,7 @@ class LocalMongoManager(BaseManager):
         """检查指定股票日期的数据是否已存在"""
         self._ensure_initialized()
         doc_id = f"{ts_code}_{trade_date}"
-        return self._db['stock_daily'].count_documents({"_id": doc_id}) > 0
+        return self._db['stock_daily_ak_full'].count_documents({"_id": doc_id}) > 0
 
 
 # ==================== 全局单例 ====================

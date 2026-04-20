@@ -5,10 +5,8 @@
 """
 import sys
 import os
-import json
 from datetime import datetime, timedelta
-from typing import List, Dict, Tuple
-import pandas as pd
+from typing import List, Dict
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'AgentServer'))
@@ -43,8 +41,8 @@ class SmartReviewer:
             f"## 📅 统计周期：最近{period_days}天（{start_date.strftime('%Y-%m-%d')} ~ {end_date.strftime('%Y-%m-%d')}）",
             "",
             "### 📊 核心表现",
-            f"| 指标 | 数值 | 评价 |",
-            f"|------|------|------|",
+            "| 指标 | 数值 | 评价 |",
+            "|------|------|------|",
         ]
         
         # 核心指标评价

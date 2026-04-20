@@ -7,7 +7,6 @@
 - 周期定位 (Cycle Identification): 结合历史趋势的市场周期判定
 """
 
-import logging
 import math
 from typing import Dict, Any, Optional, Tuple, List
 from datetime import datetime
@@ -137,13 +136,6 @@ class AnalysisManager(BaseManager):
             avg_limit_down = sum(limit_downs) / len(limit_downs) if limit_downs else None
             data_count = len(history_data)
             
-            log_level = "debug" if data_count >= 10 else "info"
-            msg = (
-                f"MA baseline loaded ({data_count} days): "
-                f"avg_amount={avg_amount/1e8:.0f}亿, " if avg_amount else "avg_amount=N/A, "
-                f"avg_limit_up={avg_limit_up:.1f}, " if avg_limit_up else "avg_limit_up=N/A, "
-                f"avg_limit_down={avg_limit_down:.1f}" if avg_limit_down else "avg_limit_down=N/A"
-            )
             if data_count >= 10:
                 self.logger.debug(
                     f"MA baseline loaded ({data_count} days): "
@@ -440,13 +432,10 @@ class AnalysisManager(BaseManager):
             broken_rate = 0
         
         # 成交额 (亿元)
-        amount_yi = total_amount / 1e8
         
         # 昨日数据
-        prev_height = 0.0
         prev_amount = 0.0
         if prev_stats:
-            prev_height = self._safe_float(prev_stats.get("max_limit_height"))
             prev_amount = self._safe_float(prev_stats.get("total_amount"))
         
         # 判断 v_ratio 趋势
@@ -676,7 +665,7 @@ class AnalysisManager(BaseManager):
                 {"$set": analysis},
                 upsert=True,
             )
-            self.logger.debug(f"Analysis result saved to market_analysis collection")
+            self.logger.debug("Analysis result saved to market_analysis collection")
         
         return analysis
 

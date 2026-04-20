@@ -21,7 +21,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.managers import initialize_all_managers, shutdown_all_managers
 from core.managers.milvus_manager import milvus_manager
-from core.settings import settings
 
 
 async def view_collections():
@@ -56,7 +55,7 @@ async def view_collections():
 
 async def view_data(collection: str, limit: int = 10):
     """查看指定 collection 的数据"""
-    print(f"\n" + "=" * 60)
+    print("\n" + "=" * 60)
     print(f"Collection: {collection} (前 {limit} 条)")
     print("=" * 60)
     
@@ -69,7 +68,7 @@ async def view_data(collection: str, limit: int = 10):
     # 检查 collection 是否存在
     if not client.has_collection(collection):
         print(f"❌ Collection '{collection}' 不存在")
-        print(f"\n可用的 Collections:")
+        print("\n可用的 Collections:")
         for c in client.list_collections():
             print(f"  - {c}")
         return
@@ -106,7 +105,7 @@ async def view_data(collection: str, limit: int = 10):
 
 async def search_data(query: str, limit: int = 5):
     """语义搜索"""
-    print(f"\n" + "=" * 60)
+    print("\n" + "=" * 60)
     print(f"语义搜索: '{query}'")
     print("=" * 60)
     
@@ -122,7 +121,7 @@ async def search_data(query: str, limit: int = 5):
     query_vector = embeddings[0]
     
     # 搜索研报
-    print(f"\n📚 研报搜索结果:")
+    print("\n📚 研报搜索结果:")
     reports = await milvus_manager.search_reports(query_vector, top_k=limit)
     if reports:
         for i, r in enumerate(reports, 1):
@@ -133,7 +132,7 @@ async def search_data(query: str, limit: int = 5):
         print("  (无结果)")
     
     # 搜索新闻
-    print(f"\n📰 新闻搜索结果:")
+    print("\n📰 新闻搜索结果:")
     snippets = await milvus_manager.search_market_snippets(query_vector, top_k=limit)
     if snippets:
         for i, s in enumerate(snippets, 1):

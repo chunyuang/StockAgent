@@ -8,7 +8,7 @@
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 from datetime import datetime
 from dataclasses import dataclass, field
 from enum import Enum
@@ -18,10 +18,8 @@ from .knowledge import (
     UserKnowledgeStore,
     FixedKnowledgeCategory,
     UserKnowledgeType,
-    KnowledgeSearchResult,
 )
 from ..memory import (
-    memory_manager,
     SemanticStore,
     EpisodicStore,
     ProceduralStore,
@@ -82,16 +80,16 @@ class RetrievalItem:
         """转换为上下文字符串"""
         prefix = ""
         if self.source == RetrievalSource.FIXED_KNOWLEDGE:
-            prefix = f"[知识库] "
+            prefix = "[知识库] "
         elif self.source == RetrievalSource.USER_KNOWLEDGE:
-            prefix = f"[我的规则] "
+            prefix = "[我的规则] "
         elif self.source == RetrievalSource.SEMANTIC_MEMORY:
             source_name = self.metadata.get("source", "资讯")
             prefix = f"[{source_name}] "
         elif self.source == RetrievalSource.EPISODIC_MEMORY:
-            prefix = f"[历史分析] "
+            prefix = "[历史分析] "
         elif self.source == RetrievalSource.PROCEDURAL_MEMORY:
-            prefix = f"[交易模式] "
+            prefix = "[交易模式] "
         
         title_str = f"**{self.title}**\n" if self.title else ""
         return f"{prefix}{title_str}{self.content}"
@@ -478,7 +476,6 @@ class UnifiedRAGPipeline:
         if len(items) <= top_k:
             return items
         
-        llm = await self._get_llm()
         
         # 简单的规则重排序 (避免 LLM 调用开销)
         # 可以后续升级为交叉编码器
@@ -538,7 +535,6 @@ class UnifiedRAGPipeline:
         trace_id: Optional[str],
     ) -> str:
         """生成回答"""
-        llm = await self._get_llm()
         
         default_system_prompt = """你是一个专业的股票分析助手。基于提供的上下文信息回答用户问题。
 

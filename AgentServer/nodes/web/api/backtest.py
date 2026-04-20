@@ -1,4 +1,3 @@
-import json
 from datetime import datetime
 import uuid
 import logging
@@ -13,7 +12,7 @@ from jose import JWTError, jwt
 from core.managers import mongo_manager
 from core.settings import settings
 from core.rpc import RPCClient
-from .auth import get_current_user_id, oauth2_scheme
+from .auth import get_current_user_id
 
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
@@ -545,7 +544,6 @@ async def get_backtest_history(
     items = []
     for r in records:
         result = r.get("result", {})
-        summary = result.get("summary", {})
         metrics = result.get("metrics", {})
         params = r.get("params", {})
         task_type_val = params.get("task_type", "single")

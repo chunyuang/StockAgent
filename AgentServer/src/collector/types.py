@@ -7,7 +7,6 @@ from enum import Enum, IntEnum
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 from pydantic import BaseModel, Field
-import uuid
 
 
 # ==================== 源优先级体系 ====================
