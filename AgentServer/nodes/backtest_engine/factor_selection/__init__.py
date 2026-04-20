@@ -8,14 +8,14 @@
 - PortfolioBacktester: 组合回测引擎
 """
 
-from .universe import UniverseManager, UniverseType, ExcludeRule
-from .factor_library import FactorLibrary, FactorDefinition, FactorCategory
 from .factor_engine import FactorEngine
+from .factor_library import FactorCategory, FactorDefinition, FactorLibrary
 from .portfolio_backtest import PortfolioBacktester
+from .universe import ExcludeRule, UniverseManager, UniverseType
 
 __all__ = [
     "UniverseManager",
-    "UniverseType", 
+    "UniverseType",
     "ExcludeRule",
     "FactorLibrary",
     "FactorDefinition",
