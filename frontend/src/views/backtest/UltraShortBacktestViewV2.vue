@@ -34,17 +34,60 @@ import {
 // API
 import { backtestApi } from '@/api'
 
-// ==================== 状态 ====================
+// ==================== 配置文件加载 ====================
 
-// 表单数据
-const form = reactive({
+// 简单 INI 解析函数
+function parseIni(text: string): Record<string, Record<string, any>> {
+  const result: Record<string, Record<string, any>> = {}
+  let section = ''
+  const lines = text.split('\n')
+  
+  for (const line of lines) {
+    const trimmed = line.trim()
+    // 跳过空行和注释
+    if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith(';')) {
+      continue
+    }
+    // 节标题 [section]
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      section = trimmed.slice(1, -1).trim()
+      result[section] = {}
+      continue
+    }
+    // key = value
+    const eqIndex = trimmed.indexOf('=')
+    if (eqIndex >= 0) {
+      const key = trimmed.slice(0, eqIndex).trim()
+      let value = trimmed.slice(eqIndex + 1).trim()
+      
+      // 去掉引号
+      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1)
+      }
+      
+      // 尝试转换类型
+      if (value === 'true' || value === 'false') {
+        result[section][key] = value === 'true'
+      } else if (!isNaN(parseFloat(value)) && !isNaN(Number(value))) {
+        result[section][key] = parseFloat(value)
+      } else {
+        result[section][key] = value
+      }
+    }
+  }
+  
+  return result
+}
+
+// 默认回退值 - 如果加载配置文件失败，使用这些硬编码默认值
+const defaultForm = {
   // 数据源配置
   dataSource: {
-    period: 'daily', // daily/1min
-    ts_codes: '', // 股票代码，逗号分隔，空为全市场
+    period: 'daily',
+    ts_codes: '',
     start_date: '20260105',
     end_date: '20260320',
-    adjust_type: 'qfq', // 前复权/不复权
+    adjust_type: 'qfq',
   },
   // 基础配置
   base: {
@@ -55,15 +98,15 @@ const form = reactive({
     exclude_st: true,
     exclude_delisting: true,
     exclude_new_stock_days: 60,
-    min_daily_amount: 500, // 最低日成交额(万元)
-    min_turnover_rate: 3, // 最低换手率(%)
+    min_daily_amount: 500,
+    min_turnover_rate: 3,
   },
   // 强制空仓配置
   forceEmpty: {
     enabled: true,
-    index_drop_pct: 0.03, // 大盘跌幅≥3%
-    limit_down_count: 50, // 跌停家数≥50只
-    limit_up_count: 10, // 涨停家数<10只
+    index_drop_pct: 0.03,
+    limit_down_count: 50,
+    limit_up_count: 10,
   },
   // 情绪周期配置
   sentimentCycle: {
@@ -77,24 +120,24 @@ const form = reactive({
   // 竞价过滤配置
   auctionFilter: {
     enabled: true,
-    min_auction_pct: 0.005, // 最低竞价涨幅
-    max_auction_pct: 0.07, // 最高竞价涨幅
-    min_unmatched_volume_positive: true, // 未匹配量必须为正
-    min_auction_amount: 300, // 最低竞价成交额(万元)
-    min_auction_volume_ratio: 1.5, // 最低竞价量比
+    min_auction_pct: 0.005,
+    max_auction_pct: 0.07,
+    min_unmatched_volume_positive: true,
+    min_auction_amount: 300,
+    min_auction_volume_ratio: 1.5,
   },
   // 通用交易参数
   tradeParams: {
-    base_stop_loss_pct: 0.02, // 2%止损
-    base_take_profit_pct: 0.07, // 7%止盈
-    max_hold_days: 3, // 最大持仓天数
-    max_position_per_stock: 0.3, // 单票最大仓位
-    max_total_position: 0.6, // 总仓位上限
-    commission_rate: 0.0003, // 0.03%佣金
-    stamp_duty_rate: 0.001, // 0.1%印花税
-    slippage_pct: 0.002, // 0.2%滑点
+    base_stop_loss_pct: 0.02,
+    base_take_profit_pct: 0.07,
+    max_hold_days: 3,
+    max_position_per_stock: 0.3,
+    max_total_position: 0.6,
+    commission_rate: 0.0003,
+    stamp_duty_rate: 0.001,
+    slippage_pct: 0.002,
   },
-  // 策略选择（默认全选）
+  // 策略选择
   strategies: ['halfway_chase', 'first_limit_up', 'limit_up_open', 'leader_buy_dip', 'limit_down_qiao'],
   // 5个策略独立配置
   strategyConfigs: {
@@ -152,7 +195,110 @@ const form = reactive({
       }
     }
   },
-})
+}
+
+// 表单数据 - 先用默认值初始化
+const form = reactive({ ...defaultForm })
+
+// 加载配置文件
+async function loadDefaultConfig() {
+  try {
+    const response = await fetch('/config.ini')
+    if (!response.ok) {
+      console.warn('⚠️ 无法加载config.ini，使用硬编码默认值')
+      return
+    }
+    const text = await response.text()
+    const config = parseIni(text)
+    console.log('✅ 已从config.ini加载默认参数')
+    
+    // 应用配置
+    if (config.dataSource) {
+      if (config.dataSource.period !== undefined) form.dataSource.period = config.dataSource.period
+      if (config.dataSource.start_date !== undefined) form.dataSource.start_date = String(config.dataSource.start_date)
+      if (config.dataSource.end_date !== undefined) form.dataSource.end_date = String(config.dataSource.end_date)
+      if (config.dataSource.adjust_type !== undefined) form.dataSource.adjust_type = config.dataSource.adjust_type
+    }
+    
+    if (config.base) {
+      if (config.base.initial_cash !== undefined) form.base.initial_cash = config.base.initial_cash
+    }
+    
+    if (config.globalFilter) {
+      if (config.globalFilter.exclude_st !== undefined) form.globalFilter.exclude_st = config.globalFilter.exclude_st
+      if (config.globalFilter.exclude_delisting !== undefined) form.globalFilter.exclude_delisting = config.globalFilter.exclude_delisting
+      if (config.globalFilter.exclude_new_stock_days !== undefined) form.globalFilter.exclude_new_stock_days = config.globalFilter.exclude_new_stock_days
+      if (config.globalFilter.min_daily_amount !== undefined) form.globalFilter.min_daily_amount = config.globalFilter.min_daily_amount
+      if (config.globalFilter.min_turnover_rate !== undefined) form.globalFilter.min_turnover_rate = config.globalFilter.min_turnover_rate
+    }
+    
+    if (config.forceEmpty) {
+      if (config.forceEmpty.enabled !== undefined) form.forceEmpty.enabled = config.forceEmpty.enabled
+      if (config.forceEmpty.index_drop_pct !== undefined) form.forceEmpty.index_drop_pct = config.forceEmpty.index_drop_pct / 100 // 百分比转小数
+      if (config.forceEmpty.limit_down_count !== undefined) form.forceEmpty.limit_down_count = config.forceEmpty.limit_down_count
+      if (config.forceEmpty.limit_up_count !== undefined) form.forceEmpty.limit_up_count = config.forceEmpty.limit_up_count
+    }
+    
+    if (config.sentimentCycle) {
+      if (config.sentimentCycle.enabled !== undefined) form.sentimentCycle.enabled = config.sentimentCycle.enabled
+      if (config.sentimentCycle.weight_limit_up !== undefined) form.sentimentCycle.weight_limit_up = config.sentimentCycle.weight_limit_up
+      if (config.sentimentCycle.weight_limit_down !== undefined) form.sentimentCycle.weight_limit_down = config.sentimentCycle.weight_limit_down
+      if (config.sentimentCycle.weight_blast_rate !== undefined) form.sentimentCycle.weight_blast_rate = config.sentimentCycle.weight_blast_rate
+      if (config.sentimentCycle.weight_rise_fall_diff !== undefined) form.sentimentCycle.weight_rise_fall_diff = config.sentimentCycle.weight_rise_fall_diff
+      if (config.sentimentCycle.weight_north_inflow !== undefined) form.sentimentCycle.weight_north_inflow = config.sentimentCycle.weight_north_inflow
+    }
+    
+    if (config.auctionFilter) {
+      if (config.auctionFilter.enabled !== undefined) form.auctionFilter.enabled = config.auctionFilter.enabled
+      if (config.auctionFilter.min_auction_pct !== undefined) form.auctionFilter.min_auction_pct = config.auctionFilter.min_auction_pct / 100
+      if (config.auctionFilter.max_auction_pct !== undefined) form.auctionFilter.max_auction_pct = config.auctionFilter.max_auction_pct / 100
+      if (config.auctionFilter.min_unmatched_volume_positive !== undefined) form.auctionFilter.min_unmatched_volume_positive = config.auctionFilter.min_unmatched_volume_positive
+      if (config.auctionFilter.min_auction_amount !== undefined) form.auctionFilter.min_auction_amount = config.auctionFilter.min_auction_amount
+      if (config.auctionFilter.min_auction_volume_ratio !== undefined) form.auctionFilter.min_auction_volume_ratio = config.auctionFilter.min_auction_volume_ratio
+    }
+    
+    if (config.tradeParams) {
+      if (config.tradeParams.base_stop_loss_pct !== undefined) form.tradeParams.base_stop_loss_pct = config.tradeParams.base_stop_loss_pct / 100
+      if (config.tradeParams.base_take_profit_pct !== undefined) form.tradeParams.base_take_profit_pct = config.tradeParams.base_take_profit_pct / 100
+      if (config.tradeParams.max_hold_days !== undefined) form.tradeParams.max_hold_days = config.tradeParams.max_hold_days
+      if (config.tradeParams.max_position_per_stock !== undefined) form.tradeParams.max_position_per_stock = config.tradeParams.max_position_per_stock
+      if (config.tradeParams.max_total_position !== undefined) form.tradeParams.max_total_position = config.tradeParams.max_total_position
+      if (config.tradeParams.commission_rate !== undefined) form.tradeParams.commission_rate = config.tradeParams.commission_rate / 10000
+      if (config.tradeParams.stamp_duty_rate !== undefined) form.tradeParams.stamp_duty_rate = config.tradeParams.stamp_duty_rate / 10000
+      if (config.tradeParams.slippage_pct !== undefined) form.tradeParams.slippage_pct = config.tradeParams.slippage_pct / 10000
+    }
+    
+    // 默认策略
+    if (config.defaultStrategies && config.defaultStrategies.selected) {
+      const selected = (config.defaultStrategies.selected as string).split(',').map(s => s.trim())
+      if (selected.length > 0) {
+        form.strategies = selected
+      }
+    }
+    
+    // 各个策略配置
+    const strategyMap: Record<string, any> = {
+      halfway_chase: form.strategyConfigs.halfway_chase.params,
+      first_limit_up: form.strategyConfigs.first_limit_up.params,
+      limit_up_open: form.strategyConfigs.limit_up_open.params,
+      leader_buy_dip: form.strategyConfigs.leader_buy_dip.params,
+      limit_down_qiao: form.strategyConfigs.limit_down_qiao.params,
+    }
+    
+    for (const [key, params] of Object.entries(config)) {
+      if (strategyMap[key]) {
+        // 合并参数
+        Object.assign(strategyMap[key], params)
+      }
+    }
+    
+    ElMessage.success('✅ 已从config.ini加载默认参数')
+  } catch (e) {
+    console.warn('⚠️ 加载config.ini失败，使用硬编码默认值:', e)
+  }
+}
+
+// ==================== 状态 ====================
 
 // 折叠面板默认全部折叠
 const activeCollapse = ref([])
@@ -191,7 +337,10 @@ const auctionFilterTitle = computed(() => `⏰ 竞价过滤 ${form.auctionFilter
 const strategyConfigTitle = computed(() => `🎯 策略配置 (已选: ${form.strategies.map(id => form.strategyConfigs[id as keyof typeof form.strategyConfigs]?.name).join(', ') || '无'})`)
 
 // ==================== 生命周期 ====================
-onMounted(() => {
+onMounted(async () => {
+  // 从config.ini加载默认参数
+  await loadDefaultConfig()
+  
   // 页面加载完成
   addLog('✅ 超短策略回测V2.0系统加载完成')
   addLog('💡 所有实盘级功能默认开启，可直接运行回测')
@@ -729,43 +878,131 @@ const filterProfit = ref('')
 
 // 计算属性：筛选后的交易记录
 const filteredTrades = computed(() => {
-  let trades = backtestResult.value?.trades || []
+  // 修复：交易记录在 performance[0].trades 中，不在顶层
+  let rawTrades = (backtestResult.value?.performance?.[0]?.trades || backtestResult.value?.trades || [])
+  
+  // 后端分开记录买入和卖出，需要合并为完整交易
+  // 按 ts_code 分组，买入在前，卖出在后
+  const openTrades = new Map() // code -> buy trade
+  const completedTrades: any[] = []
+  
+  rawTrades.forEach(t => {
+    if (t.action === 'buy') {
+      // 开仓，保存买入信息
+      openTrades.set(t.ts_code, t)
+    } else if (t.action === 'sell') {
+      // 平仓，合并完整交易
+      const buy = openTrades.get(t.ts_code)
+      if (buy) {
+        // 完整交易 = 买入 + 卖出
+        completedTrades.push({
+          ...buy,
+          sell_price: t.price,
+          profit_pct: t.profit || 0.0,
+          hold_days: parseInt(t.date) - parseInt(buy.date)
+        })
+        openTrades.delete(t.ts_code)
+      } else {
+        // 没有对应的买入，直接添加卖出（这种情况很少见）
+        completedTrades.push({
+          buy_price: undefined,
+          sell_price: t.price,
+          profit_pct: t.profit || 0.0,
+          hold_days: 0,
+          ...t
+        })
+      }
+    }
+  })
+  
+  // 剩下未平仓的，也添加进去（profit_pct 留空）
+  openTrades.forEach((buy, code) => {
+    completedTrades.push({
+      sell_price: undefined,
+      profit_pct: undefined,
+      hold_days: undefined,
+      ...buy
+    })
+  })
+  
+  let trades = completedTrades
+  
   if (searchTradeKeyword.value) {
     const keyword = searchTradeKeyword.value.toLowerCase()
     trades = trades.filter(t => 
       t.ts_code.toLowerCase().includes(keyword) || 
-      t.stock_name.toLowerCase().includes(keyword)
+      (t.stock_name || t.name || '').toLowerCase().includes(keyword)
     )
   }
   if (filterStrategy.value) {
     trades = trades.filter(t => t.strategy === form.strategyConfigs[filterStrategy.value as keyof typeof form.strategyConfigs]?.name)
   }
   if (filterProfit.value) {
-    trades = trades.filter(t => filterProfit.value === 'profit' ? t.profit_pct >= 0 : t.profit_pct < 0)
+    trades = trades.filter(t => filterProfit.value === 'profit' ? (t.profit_pct || 0) >= 0 : (t.profit_pct || 0) < 0)
   }
   return trades
 })
 
 // 计算属性：盈利/亏损TOP5
 const profitTop5 = computed(() => {
-  const trades = [...(backtestResult.value?.trades || [])].filter(t => t.profit_pct > 0)
-  return trades.sort((a, b) => b.profit_pct - a.profit_pct).slice(0, 5)
+  // 修复：需要先合并买入卖出，后端分开记录
+  const rawTrades = (backtestResult.value?.performance?.[0]?.trades || backtestResult.value?.trades || [])
+  const openTrades = new Map()
+  const completedTrades: any[] = []
+  rawTrades.forEach(t => {
+    if (t.action === 'buy') {
+      openTrades.set(t.ts_code, t)
+    } else if (t.action === 'sell') {
+      const buy = openTrades.get(t.ts_code)
+      if (buy) {
+        completedTrades.push({
+          ...buy,
+          sell_price: t.price,
+          profit_pct: t.profit || 0.0,
+          hold_days: parseInt(t.date) - parseInt(buy.date)
+        })
+        openTraves.delete(t.ts_code)
+      }
+    }
+  })
+  return completedTrades.filter(t => (t.profit_pct || 0) > 0).sort((a, b) => (b.profit_pct || 0) - (a.profit_pct || 0)).slice(0, 5)
 })
 
 const lossTop5 = computed(() => {
-  const trades = [...(backtestResult.value?.trades || [])].filter(t => t.profit_pct < 0)
-  return trades.sort((a, b) => a.profit_pct - b.profit_pct).slice(0, 5)
+  // 修复：需要先合并买入卖出，后端分开记录
+  const rawTrades = (backtestResult.value?.performance?.[0]?.trades || backtestResult.value?.trades || [])
+  const openTrades = new Map()
+  const completedTrades: any[] = []
+  rawTrades.forEach(t => {
+    if (t.action === 'buy') {
+      openTrades.set(t.ts_code, t)
+    } else if (t.action === 'sell') {
+      const buy = openTrades.get(t.ts_code)
+      if (buy) {
+        completedTrades.push({
+          ...buy,
+          sell_price: t.price,
+          profit_pct: t.profit || 0.0,
+          hold_days: parseInt(t.date) - parseInt(buy.date)
+        })
+        openTrades.delete(t.ts_code)
+      }
+    }
+  })
+  return completedTrades.filter(t => (t.profit_pct || 0) < 0).sort((a, b) => (a.profit_pct || 0) - (b.profit_pct || 0)).slice(0, 5)
 })
 
 // 图表配置计算属性
 const netValueChartOption = computed(() => {
   const result = backtestResult.value
+  const perf = result?.performance?.[0] || result
+  // 修复：图表数据在 performance[0] 中
   // 空数据兜底：确保至少有两条数据，避免x轴为空报错
-  const netValueSeries = result?.net_value_series?.length ? result.net_value_series : [
+  const netValueSeries = perf?.net_value_series?.length ? perf.net_value_series : [
     { date: result?.start_date || '20260101', value: 1.0 },
     { date: result?.end_date || '20260331', value: 1.0 }
   ]
-  const drawdownSeries = result?.drawdown_series?.length ? result.drawdown_series : [
+  const drawdownSeries = perf?.drawdown_series?.length ? perf.drawdown_series : [
     { date: result?.start_date || '20260101', value: 0 },
     { date: result?.end_date || '20260331', value: 0 }
   ]
@@ -787,8 +1024,10 @@ const netValueChartOption = computed(() => {
 
 const dailyProfitChartOption = computed(() => {
   const result = backtestResult.value
+  const perf = result?.performance?.[0] || result
+  // 修复：数据在 performance[0] 中
   // 空数据兜底
-  const dailyProfit = result?.daily_profit && Object.keys(result.daily_profit).length ? result.daily_profit : {
+  const dailyProfit = perf?.daily_profit && Object.keys(perf.daily_profit).length ? perf.daily_profit : {
     [result?.start_date || '20260101']: 0
   }
   return {
@@ -806,8 +1045,10 @@ const dailyProfitChartOption = computed(() => {
 
 const positionChartOption = computed(() => {
   const result = backtestResult.value
+  const perf = result?.performance?.[0] || result
+  // 修复：数据在 performance[0] 中
   // 空数据兜底
-  const positionSeries = result?.position_series?.length ? result.position_series : [
+  const positionSeries = perf?.position_series?.length ? perf.position_series : [
     { date: result?.start_date || '20260101', value: 0 },
     { date: result?.end_date || '20260331', value: 0 }
   ]
@@ -836,7 +1077,7 @@ const profitDistChartOption = computed(() => {
 const strategyCompareChartOption = computed(() => {
   const result = backtestResult.value
   // 空数据兜底
-  const netValueSeries = result?.net_value_series?.length ? result.net_value_series : [
+  const defaultNetValue = result?.performance?.[0]?.net_value_series?.length ? result.performance[0].net_value_series : [
     { date: result?.start_date || '20260101', value: 1.0 },
     { date: result?.end_date || '20260331', value: 1.0 }
   ]
@@ -845,12 +1086,12 @@ const strategyCompareChartOption = computed(() => {
     tooltip: { trigger: 'axis' },
     legend: { data: strategies.map(s => s.strategy_name) },
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-    xAxis: { type: 'category', boundaryGap: false, data: netValueSeries.map((d: any) => d.date) },
+    xAxis: { type: 'category', boundaryGap: false, data: defaultNetValue.map((d: any) => d.date) },
     yAxis: { type: 'value' },
     series: strategies.map(s => ({
       name: s.strategy_name,
       type: 'line',
-      data: (s.net_value_series?.length ? s.net_value_series : netValueSeries).map((d: any) => d.value),
+      data: (s.performance?.[0]?.net_value_series?.length ? s.performance[0].net_value_series : defaultNetValue).map((d: any) => d.value),
       smooth: true
     }))
   }
@@ -931,14 +1172,16 @@ const riskMetrics = computed(() => {
 
 // 导出记录
 const exportTrades = () => {
-  if (!backtestResult.value?.trades) {
+  // 修复：交易记录在 performance[0].trades 中
+  const trades = backtestResult.value?.performance?.[0]?.trades || backtestResult.value?.trades
+  if (!trades || trades.length === 0) {
     ElMessage.warning('暂无交易记录可导出')
     return
   }
   // 简单导出为CSV
   const headers = ['交易日期', '股票代码', '股票名称', '策略', '买入价', '卖出价', '收益率', '持仓天数']
-  const rows = backtestResult.value.trades.map((t: any) => [
-    t.date, t.ts_code, t.stock_name, t.strategy, t.buy_price, t.sell_price, `${(t.profit_pct * 100).toFixed(2)}%`, t.hold_days
+  const rows = trades.map((t: any) => [
+    t.date, t.ts_code, t.stock_name || t.name || t.ts_code, t.strategy, t.buy_price, t.sell_price, `${(t.profit_pct * 100).toFixed(2)}%`, t.hold_days
   ])
   const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
@@ -1429,10 +1672,20 @@ const exportTrades = () => {
       </ElCollapse>
     </ElCard>
 
-    <!-- 结果区域 -->
+    <!-- 日志区域 -->
+    <ElCard class="log-card">
+      <template #header>
+        <span>📝 实时日志（专业审计级）</span>
+      </template>
+      <div id="log-panel" class="log-panel">
+        <div v-for="(log, index) in logs" :key="index" class="log-item">{{ log }}</div>
+      </div>
+    </ElCard>
+
+    <!-- 回测分析 -->
     <ElCard class="result-card">
       <template #header>
-        <span>📊 回测结果</span>
+        <span>📊 回测分析</span>
         <ElButton 
           v-if="backtestResult" 
           @click="exportTrades" 
@@ -1444,34 +1697,6 @@ const exportTrades = () => {
           导出交易记录
         </ElButton>
       </template>
-
-      <!-- 核心指标 -->
-      <div v-if="backtestResult" class="metrics-grid">
-        <div class="metric-card">
-          <div class="metric-label">累计收益率</div>
-          <div class="metric-value">{{ ((backtestResult.total_return || 0) * 100).toFixed(2) }}%</div>
-        </div>
-        <div class="metric-card">
-          <div class="metric-label">胜率</div>
-          <div class="metric-value">{{ ((backtestResult.win_rate || 0) * 100).toFixed(2) }}%</div>
-        </div>
-        <div class="metric-card">
-          <div class="metric-label">盈亏比</div>
-          <div class="metric-value">{{ (backtestResult.profit_loss_ratio || 0).toFixed(2) }}</div>
-        </div>
-        <div class="metric-card">
-          <div class="metric-label">最大回撤</div>
-          <div class="metric-value">{{ ((backtestResult.max_drawdown || 0) * 100).toFixed(2) }}%</div>
-        </div>
-        <div class="metric-card">
-          <div class="metric-label">夏普比率</div>
-          <div class="metric-value">{{ (backtestResult.sharpe_ratio || 0).toFixed(2) }}</div>
-        </div>
-        <div class="metric-card">
-          <div class="metric-label">总交易次数</div>
-          <div class="metric-value">{{ backtestResult.total_trades || 0 }}</div>
-        </div>
-      </div>
 
       <!-- 标签页永久显示（符合Element Plus语法规范） -->
       <ElTabs type="border-card">
@@ -1661,23 +1886,7 @@ const exportTrades = () => {
       </ElTabs>
     </ElCard>
 
-    <!-- 日志区域 -->
-    <ElCard class="log-card">
-      <template #header>
-        <span>📝 实时日志（专业审计级）</span>
-      </template>
-      <div id="log-panel" class="log-panel">
-        <div v-for="(log, index) in logs" :key="index" class="log-item">{{ log }}</div>
-      </div>
-    </ElCard>
 
-    <!-- 进度展示 - 回测运行中显示在日志下方（页面最底部），始终可见 -->
-    <ElCard v-if="backtestState.running" class="progress-card">
-      <template #header>
-        <span>⏳ 回测进度</span>
-      </template>
-      <ElProgress :percentage="backtestState.progress" :show-text="true" status="success" />
-    </ElCard>
   </div>
 </template>
 
