@@ -752,35 +752,213 @@ class PortfolioBacktester:
                 all_trades.append(day_records)
 
         # 计算统计指标
+        # total_signals = 所有买入信号的数量（每个买入算一个信号）
+        # winning_trades = 卖出后盈利的信号数量
         total_signals = 0
         winning_trades = 0
+        
+        # 收集所有买入记录，按code分组
+        buy_records = {}  # code -> list of buy records
         for day_records in rebalance_records:
-            if isinstance(day_records, list):
-                total_signals += len(day_records)
-                for record in day_records:
-                    # 只统计买入交易，amount > 0 表示盈利
-                    if record.action == 'buy' and record.amount > 0:
-                        winning_trades += 1
-            else:
-                total_signals += 1
-                if day_records.action == 'buy' and day_records.amount > 0:
-                    winning_trades += 1
+            records_list = day_records if isinstance(day_records, list) else [day_records]
+            for record in records_list:
+                if record.action == 'buy':
+                    # 每个买入算一个信号
+                    total_signals += 1
+                    code = record.ts_code
+                    if code not in buy_records:
+                        buy_records[code] = []
+                    buy_records[code].append(record)
+        
+        # 统计每个卖出是否盈利
+        # 只有卖出兑现后才能确定是否盈利
+        for day_records in rebalance_records:
+            records_list = day_records if isinstance(day_records, list) else [day_records]
+            for record in records_list:
+                if record.action == 'sell' and record.ts_code in buy_records:
+                    # 这只股票有买入，现在卖出了，可以计算盈亏
+                    # 简单算法：只要卖出价格高于买入平均成本就算盈利
+                    buys = buy_records[record.ts_code]
+                    total_cost = sum(b.amount for b in buys)
+                    total_shares = sum(b.shares for b in buys)
+                    if total_shares > 0:
+                        avg_cost = total_cost / total_shares
+                        # 卖出价格高于平均成本 → 盈利
+                        if record.price > avg_cost:
+                            winning_trades += 1
 
         # 计算胜率
         win_rate = 0.0
         if total_signals > 0:
-            win_rate = winning_trades / total_signals * 100
-
+            win_rate = winning_trades / total_signals  # 保存为小数，前端会乘以100显示百分比
+            win_rate_percent = win_rate * 100  # 日志显示用百分比
+        else:
+            win_rate_percent = 0.0
+        # 计算年化收益率（交易日/年 ≈ 252）
+        trading_days = len(rebalance_dates)
+        if trading_days > 0:
+            # 复利年化: (1 + total_return) ^ (252 / trading_days) - 1
+            annualized_return = ((1 + total_return) ** (252 / trading_days)) - 1
+        else:
+            annualized_return = 0.0
+            
+        # 已经计算好的其他指标从结果获取
+        max_drawdown = getattr(self, 'max_drawdown', 0.0)
+        profit_loss_ratio = getattr(self, 'profit_loss_ratio', 0.0)
+        sharpe_ratio = getattr(self, 'sharpe_ratio', 0.0)
+        
+        # 统计盈利次数/亏损次数
+        losing_trades = total_signals - winning_trades
+        
         # 输出最终汇总结果到日志
         await self.log("✅ 回测全部完成!")
-        await self.log(f"📊 汇总结果:总信号 {total_signals} 个,平均胜率 {win_rate:.2f}%,总收益率 {total_return * 100:.2f}%")
-        await self.log(f"  累计收益率: {total_return * 100:.2f}%")
-        else:
-            await self.log("✅ 回测全部完成!")
+        if total_signals == 0:
             await self.log("📊 汇总结果:总信号 0 个,平均胜率 0.00%,总收益率 0.00%")
             await self.log("  累计收益率: 0.00%")
+            await self.log("  年化收益率: 0.00%")
+            await self.log("  最大回撤: 0.00%")
+            await self.log("  盈亏比: 0.00")
+            await self.log("  夏普比率: 0.00")
+            await self.log("  总交易次数: 0")
+            await self.log("  盈利次数: 0 / 亏损次数: 0")
+        else:
+            await self.log(f"📊 汇总结果:总信号 {total_signals} 个,平均胜率 {win_rate_percent:.2f}%,总收益率 {total_return * 100:.2f}%")
+            await self.log(f"  累计收益率: {total_return * 100:.2f}%")
+            await self.log(f"  年化收益率: {annualized_return * 100:.2f}%")
+            await self.log(f"  最大回撤: {max_drawdown * 100:.2f}%")
+            await self.log(f"  盈亏比: {profit_loss_ratio:.2f}")
+            await self.log(f"  夏普比率: {sharpe_ratio:.2f}")
+            await self.log(f"  总交易次数: {len(all_trades)}")
+            await self.log(f"  盈利次数: {winning_trades} / 亏损次数: {losing_trades}")
 
-        # 返回完整结果
+        # 将 RebalanceRecord 对象转换为字典，方便 MongoDB 序列化
+        rebalance_records_dict = []
+        for day_records in rebalance_records:
+            if isinstance(day_records, list):
+                day_dict = []
+                for record in day_records:
+                    if hasattr(record, '__dict__'):
+                        day_dict.append(record.__dict__)
+                    else:
+                        day_dict.append(record)
+                rebalance_records_dict.append(day_dict)
+            else:
+                if hasattr(day_records, '__dict__'):
+                    rebalance_records_dict.append(day_records.__dict__)
+                else:
+                    rebalance_records_dict.append(day_records)
+        
+        # 转换 all_trades 也为字典
+        all_trades_dict = []
+        for record in all_trades:
+            if hasattr(record, '__dict__'):
+                all_trades_dict.append(record.__dict__)
+            else:
+                all_trades_dict.append(record)
+        
+        # 计算净值曲线和每日盈亏
+        # 从初始资金开始，记录每个调仓日的组合价值
+        net_value_series = []
+        # 我们需要重新构建每日净值
+        # 由于只有调仓日才有记录，我们只保存调仓日的净值
+        current_value = self._initial_cash
+        net_value_series.append({
+            "trade_date": rebalance_dates[0] if rebalance_dates else start_date,
+            "net_value": current_value,
+            "daily_profit": 0.0
+        })
+        
+        # 如果有调仓记录，计算每日净值
+        # 这里简化处理，只保存每个调仓日的净值
+        daily_profit_list = []
+        # 第一个点：初始资金
+        net_value_series.append({
+            "trade_date": str(config.get('start_date')) if rebalance_dates else str(config.get('start_date')),
+            "net_value": self._initial_cash,
+            "daily_profit": 0.0
+        })
+        daily_profit_list.append(0.0)
+        
+        current_value = self._initial_cash
+        for i, day_records in enumerate(rebalance_records_dict):
+            trade_date = None
+            if isinstance(day_records, list) and len(day_records) > 0:
+                trade_date = day_records[0].get('date', None) if isinstance(day_records[0], dict) else None
+            
+            # 计算当日盈亏（简化：基于最终价值反推）
+            # 完整计算需要每日期权，这里先提供基础结构
+            day_profit = 0.0
+            if i == len(rebalance_records_dict) - 1:
+                # 最后一天用最终价值
+                day_profit = final_value - current_value
+                current_value = final_value
+            daily_profit_list.append(day_profit)
+            
+            if trade_date:
+                net_value_series.append({
+                    "trade_date": trade_date,
+                    "net_value": current_value,
+                    "daily_profit": day_profit
+                })
+            # 如果没有 trade_date，仍然添加到序列（保持净值曲线连续）
+            elif len(net_value_series) > 0:
+                # 和前一天净值相同，盈亏为0
+                last_value = net_value_series[-1]['net_value']
+                net_value_series.append({
+                    "trade_date": str(trade_date) if trade_date else f"day_{i}",
+                    "net_value": last_value,
+                    "daily_profit": 0.0
+                })
+                daily_profit_list.append(0.0)
+        
+        # 计算最大回撤（基于净值曲线）
+        max_drawdown = 0.0
+        if len(net_value_series) > 1:
+            peak = net_value_series[0]['net_value']
+            for point in net_value_series:
+                if point['net_value'] > peak:
+                    peak = point['net_value']
+                drawdown = (peak - point['net_value']) / peak
+                if drawdown > max_drawdown:
+                    max_drawdown = drawdown
+            # max_drawdown 转换为小数（百分比由前端显示时 ×100）
+        
+        # 计算盈亏比：总盈利 / 总亏损
+        # 我们从 daily_profit 统计
+        total_profit = 0.0
+        total_loss = 0.0
+        for p in daily_profit_list:
+            if p > 0:
+                total_profit += p
+            else:
+                total_loss += -p
+        
+        profit_loss_ratio = 0.0
+        if total_loss > 0:
+            profit_loss_ratio = total_profit / total_loss
+        
+        # 计算夏普比率：需要无风险利率，这里简化为 0
+        # sharpe_ratio = mean(daily_profit) / std(daily_profit)
+        # 暂时简化为 0.0，后续可以完整计算
+        sharpe_ratio = 0.0
+        
+        # 提取 daily_profit 序列
+        daily_profit = [point['daily_profit'] for point in net_value_series]
+        
+        # 计算 drawdown 序列
+        drawdown_series = []
+        if len(net_value_series) > 1:
+            peak = net_value_series[0]['net_value']
+            for point in net_value_series:
+                if point['net_value'] > peak:
+                    peak = point['net_value']
+                drawdown = (peak - point['net_value']) / peak
+                drawdown_series.append({
+                    "trade_date": point['trade_date'],
+                    "drawdown": drawdown
+                })
+        
+        # 返回完整结果（全部为字典，可序列化）
         return {
             "success": True,
             "initial_cash": self._initial_cash,
@@ -788,9 +966,19 @@ class PortfolioBacktester:
             "final_value": final_value,
             "final_holdings": holdings,
             "total_return": total_return,
-            "rebalance_records": rebalance_records,
-            "all_trades": all_trades,
+            "win_rate": win_rate,
+            "total_signals": total_signals,
+            "winning_trades": winning_trades,
+            "max_drawdown": max_drawdown,
+            "sharpe_ratio": sharpe_ratio,
+            "profit_loss_ratio": profit_loss_ratio,
+            "rebalance_records": rebalance_records_dict,
+            "all_trades": all_trades_dict,
             "benchmark_data": benchmark_data,
+            "stock_names": stock_names,
+            "net_value_series": net_value_series,
+            "drawdown_series": drawdown_series,
+            "daily_profit": daily_profit,
         }
 
     async def _load_benchmark_data(self, benchmark_code: str, start_date: int, end_date: int):
@@ -1012,19 +1200,32 @@ class PortfolioBacktester:
         result = {}
         need_query = []
 
-        # 自动格式标准化：兼容两种输入格式
-        # 数据库中 stock_basic 的 ts_code 带后缀，所以无论输入什么都转换为带后缀格式
+        # 自动格式标准化：适配数据库实际存储格式
+        # 数据库中 stock_basic 存储格式：
+        #   上海交易所 → sh + 数字 + .SZ   (例如 sh600000.SZ → 浦发银行)
+        #   深圳交易所 → sz + 数字 + .SZ   (例如 sz000001.SZ → 平安银行)
+        #   北交所 → bj + 数字 + .SZ   (例如 bj920000.SZ → 安徽凤凰)
         for ts_code in ts_codes:
             code_str = str(ts_code).strip()
-            if code_str.endswith(".SH") or code_str.endswith(".SZ"):
-                # 输入已经带后缀，直接使用
+            
+            # 如果输入已经带有交易所前缀+后缀，直接使用
+            if code_str.startswith('sh') or code_str.startswith('sz') or code_str.startswith('bj'):
                 standard_code = code_str
-            else:
-                # 输入不带后缀，根据代码开头自动补全后缀
-                if code_str.startswith('6') or code_str.startswith('5') or code_str.startswith('9'):
-                    standard_code = f"{code_str}.SH"
+            elif code_str.endswith(".SH") or code_str.endswith(".SZ"):
+                # 输入带后缀但没有交易所前缀 → 添加交易所前缀
+                code_only = code_str.split('.')[0]
+                if code_only.startswith('6') or code_only.startswith('5') or code_only.startswith('9'):
+                    # 上海交易所
+                    standard_code = f"sh{code_str}"
                 else:
-                    standard_code = f"{code_str}.SZ"
+                    # 深圳交易所
+                    standard_code = f"sz{code_str}"
+            else:
+                # 输入既没有前缀也没有后缀 → 添加交易所前缀和后缀
+                if code_str.startswith('6') or code_str.startswith('5') or code_str.startswith('9'):
+                    standard_code = f"sh{code_str}.SH"
+                else:
+                    standard_code = f"sz{code_str}.SZ"
 
             if standard_code in self._stock_name_cache:
                 result[ts_code] = self._stock_name_cache[standard_code]
@@ -1047,18 +1248,28 @@ class PortfolioBacktester:
         # 构建结果，返回给调用方使用原始 ts_code 作为 key
         for ts_code in ts_codes:
             code_str = str(ts_code).strip()
-            if code_str.endswith(".SH") or code_str.endswith(".SZ"):
+            
+            if code_str.startswith('sh') or code_str.startswith('sz') or code_str.startswith('bj'):
                 standard_code = code_str
+            elif code_str.endswith(".SH") or code_str.endswith(".SZ"):
+                code_only = code_str.split('.')[0]
+                if code_only.startswith('6') or code_only.startswith('5') or code_only.startswith('9'):
+                    standard_code = f"sh{code_str}"
+                else:
+                    standard_code = f"sz{code_str}"
             else:
                 if code_str.startswith('6') or code_str.startswith('5') or code_str.startswith('9'):
-                    standard_code = f"{code_str}.SH"
+                    standard_code = f"sh{code_str}.SH"
                 else:
-                    standard_code = f"{code_str}.SZ"
+                    standard_code = f"sz{code_str}.SZ"
 
             if standard_code in self._stock_name_cache:
                 result[ts_code] = self._stock_name_cache[standard_code]
             else:
-                # 找不到，回退到使用原始代码作为名称
-                result[ts_code] = code_str
+                # 找不到，回退到使用原始代码去掉后缀作为名称
+                if '.' in code_str:
+                    result[ts_code] = code_str.split('.')[0]
+                else:
+                    result[ts_code] = code_str
 
         return result
