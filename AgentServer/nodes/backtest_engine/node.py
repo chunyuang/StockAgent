@@ -566,7 +566,7 @@ class BacktestNode(BaseNode):
         if not selected_strategies:
             selected_strategies = ALL_STRATEGIES
 
-        await self._push_log(task_id, f'🎯 选中策略: {[s["name"] for s in selected_strategies]}')
+        await self._push_log(task_id, f'🎯 选中策略: {[s.get("name", s.get("id", "未知策略")) for s in selected_strategies]}')
         
         # ========== 参数核对日志（与界面对照） ==========
         await self._push_log(task_id, "")
@@ -703,30 +703,32 @@ class BacktestNode(BaseNode):
         weight_per_strategy = 1.0 / len(selected_strategies)
 
         for strategy in selected_strategies:
-            strategy_weights[strategy["name"]] = weight_per_strategy
+            strategy_name = strategy.get('name', strategy.get('id', '未知策略'))
+            strategy_id = strategy.get('id', strategy.get('name', 'unknown'))
+            strategy_weights[strategy_name] = weight_per_strategy
             total_weight += weight_per_strategy
             # 添加策略需要的因子
             # 直接从params读取策略参数，构建因子条件
             params = strategy.get("params", {})
-            if strategy["id"] == "halfway_chase":
+            if strategy_id == "halfway_chase":
                 # 半路追涨策略参数
                 min_volume = params.get("min_volume_ratio", 1.5)
                 all_factors.append({"name": "volume_increase", "weight": weight_per_strategy, "target": min_volume})
-            elif strategy["id"] == "first_limit_up":
+            elif strategy_id == "first_limit_up":
                 # 首板打板策略参数
                 min_seal = params.get("min_seal_amount", 5000)
                 all_factors.append({"name": "limit_up_amount", "weight": weight_per_strategy, "target": min_seal})
-            elif strategy["id"] == "limit_up_open":
+            elif strategy_id == "limit_up_open":
                 # 涨停开板策略参数
                 min_consecutive = params.get("min_consecutive_limit", 2)
                 min_seal_after = params.get("min_seal_after_open", 3000)
                 all_factors.append({"name": "limit_up_count", "weight": weight_per_strategy, "target": min_consecutive})
                 all_factors.append({"name": "limit_up_open_amount", "weight": weight_per_strategy, "target": min_seal_after})
-            elif strategy["id"] == "leader_buy_dip":
+            elif strategy_id == "leader_buy_dip":
                 # 龙头低吸策略参数
                 min_consecutive = params.get("min_consecutive_limit", 3)
                 all_factors.append({"name": "market_leader", "weight": weight_per_strategy, "target": 1})
-            elif strategy["id"] == "limit_down_qiao":
+            elif strategy_id == "limit_down_qiao":
                 # 跌停翘板策略参数
                 min_consecutive = params.get("min_consecutive_limit", 3)
                 all_factors.append({"name": "limit_down_count", "weight": weight_per_strategy, "target": min_consecutive})
@@ -779,66 +781,75 @@ class BacktestNode(BaseNode):
                 )
                 return {"success": False, "error": error_msg}
             
-            # 兼容字段名，确保所有字段存在
-            perf = result.get('performance', {})
-            # 计算实际信号数：调仓记录数量
-            trade_count = len(result.get('rebalance_records', []))
-            # 字段映射，兼容不同返回格式
-            field_map = {
-                'trade_days': ['total_trade_days', 'trade_count', 0],
-                'win_rate': ['winrate', 'winning_rate', 0.0],
-                'avg_daily_return': ['avg_return', 'daily_return', 0.0],
-                'total_return': ['return', 'total_profit', 0.0],
-                'max_drawdown': ['drawdown', 'max_dd', 0.0],
-                'sharpe_ratio': ['sharpe', 'sharpe_score', 0.0],
-            }
-            # 填充所有需要的字段
-            for field, aliases in field_map.items():
-                if field not in perf:
-                    # 查找别名
-                    for alias in aliases[:-1]:
-                        if alias in perf:
-                            perf[field] = perf[alias]
-                            break
-                    # 都没有就用默认值
-                    if field not in perf:
-                        perf[field] = aliases[-1]
-            # 添加实际交易数到perf
-            perf['trade_count'] = trade_count
-            perf['total_trades'] = trade_count
+            # PortfolioBacktester.run() 返回的结果结构：
+            # result 根层级已经包含所有需要的指标
+            # total_return, final_value, rebalance_records 都在根层级
+            # 构建 performance 结构给前端
+            perf = {}
+            # 计算实际信号数：所有买入信号的数量（由 PortfolioBacktester 已经统计好）
+            # 从 result 根层级获取
+            total_return = result.get('total_return', 0.0)
+            rebalance_records = result.get('rebalance_records', [])
+            total_signals = result.get('total_signals', 0)
+            winning_trades = result.get('winning_trades', 0)
+            all_trades = result.get('all_trades', [])
+            
+            # 构建 performance 对象给前端
+            # 根据优化需求：日志已经完整输出所有统计指标
+            # performance 只保留交易记录和图表数据，避免前端核心指标卡片重复显示
             perf["strategy_name"] = "多策略组合"
             perf["name"] = "多策略组合" # 兼容前端字段
+            # 只保留必要数据：交易记录和图表数据
+            # 移除所有核心统计指标，避免前端重复显示
             # 复制交易记录和图表数据
-            # 转换调仓记录为前端期望的交易记录格式，补充股票名称等字段
-            raw_trades = result.get('rebalance_records', [])
+            # 前端交易表格需要所有交易的平展列表，从 all_trades 获取
+            # 注意：all_trades 已经在 portfolio_backtest.py 中转换为字典了，不需要再次转换
+            raw_trades = result.get('all_trades', [])
             stock_names = result.get('stock_names', {})
             formatted_trades = []
             for trade in raw_trades:
-                # 转换为字典格式
-                trade_dict = trade.__dict__.copy() if hasattr(trade, '__dict__') else trade
-                # 补充字段
-                trade_dict['code'] = trade_dict.get('ts_code', '')
-                trade_dict['name'] = stock_names.get(trade_dict['code'], trade_dict['code'].replace('.SZ', '').replace('.SH', ''))
-                trade_dict['volume'] = trade_dict.get('shares', 0)
-                trade_dict['profit'] = 0.0 # 后续可以补充计算每笔盈亏
-                trade_dict['trade_date'] = trade_dict.get('date', '')
+                # trade 已经是字典（portfolio_backtest.py 中已转换），直接使用
+                trade_dict = trade.copy() if isinstance(trade, dict) else {}
+                # 补充字段（如果不存在）
+                if 'ts_code' in trade_dict:
+                    code = trade_dict['ts_code']
+                elif 'code' in trade_dict:
+                    code = trade_dict['code']
+                else:
+                    continue
+                
+                trade_dict['code'] = code
+                if 'name' not in trade_dict:
+                    trade_dict['name'] = stock_names.get(code, code.replace('.SZ', '').replace('.SH', ''))
+                if 'volume' not in trade_dict and 'shares' in trade_dict:
+                    trade_dict['volume'] = trade_dict['shares']
+                if 'profit' not in trade_dict:
+                    trade_dict['profit'] = 0.0 # 后续可以补充计算每笔盈亏
+                if 'trade_date' not in trade_dict and 'date' in trade_dict:
+                    trade_dict['trade_date'] = trade_dict['date']
+                
                 formatted_trades.append(trade_dict)
             perf["trades"] = formatted_trades
-            if "net_value_series" in result:
-                perf["net_value_series"] = result["net_value_series"]
-            if "drawdown_series" in result:
-                perf["drawdown_series"] = result["drawdown_series"]
-            if "daily_profit" in result:
-                perf["daily_profit"] = result["daily_profit"]
+            # 始终添加这些字段，即使为空数组，确保前端可以正常访问
+            perf["net_value_series"] = result.get("net_value_series", [])
+            perf["drawdown_series"] = result.get("drawdown_series", [])
+            perf["daily_profit"] = result.get("daily_profit", [])
+            
+            # 添加 win_rate, total_return 到 result 根层级也放一份，确保兼容
+            # 核心统计指标从顶层 result 获取，不从 perf 获取（perf 已移除重复指标）
+            result['performance'] = [perf]
+            result['win_rate'] = result.get('win_rate', 0.0)
+            result['total_return'] = result.get('total_return', 0.0)
+            
             all_results.append(perf)
 
             logger.success("RESULT", "多策略组合回测完成")
-            logger.info("RESULT", f"信号数: {trade_count}")
-            logger.info("RESULT", f"胜率: {perf['win_rate']:.2f}%")
-            logger.info("RESULT", f"累计收益率: {perf['total_return']:.2f}%")
-            logger.info("RESULT", f"最大回撤: {perf['max_drawdown']:.2f}%")
-            logger.info("RESULT", f"盈亏比: {perf.get('profit_loss_ratio', 0):.2f}")
-            logger.info("RESULT", f"夏普比率: {perf['sharpe_ratio']:.2f}")
+            logger.info("RESULT", f"信号数: {result.get('total_signals', 0)}")
+            logger.info("RESULT", f"胜率: {result.get('win_rate', 0.0) * 100:.2f}%")
+            logger.info("RESULT", f"累计收益率: {result.get('total_return', 0.0) * 100:.2f}%")
+            logger.info("RESULT", f"最大回撤: {result.get('max_drawdown', 0.0) * 100:.2f}%")
+            logger.info("RESULT", f"盈亏比: {result.get('profit_loss_ratio', 0):.2f}")
+            logger.info("RESULT", f"夏普比率: {result.get('sharpe_ratio', 0.0):.2f}")
 
         except Exception as e:
             self.logger.error(f"[{task_id}] Portfolio backtest failed: {e}")
@@ -871,6 +882,9 @@ class BacktestNode(BaseNode):
         # 清除当前任务ID，避免污染下一个任务
         logger.clear_task_id()
 
+        # 保存结果到数据库
+        await self._update_task_result(task_id, "completed", result)
+        
         return result
 
     async def _push_log(self, task_id: str, log_text: str) -> None:
@@ -1157,6 +1171,7 @@ class BacktestNode(BaseNode):
             "backtest_tasks",
             {"task_id": task_id},
             {"$set": update_data},
+            upsert=True,
         )
 
 
