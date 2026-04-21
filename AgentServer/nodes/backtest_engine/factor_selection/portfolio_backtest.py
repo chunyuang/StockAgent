@@ -28,6 +28,8 @@ class RebalanceRecord:
     price: float
     amount: float
     reason: str
+    sentiment: str = ""  # 当日情绪周期状态
+
 
 
 @dataclass
@@ -70,7 +72,7 @@ class PortfolioBacktester:
         self._holding_costs: dict[str, float] = {}
         # 🔧 新增：策略轮动需要跟踪月度收益
         self._strategy_monthly_returns: dict[str, dict[str, float]] = {}
-        # 初始资金（用于计算累计收益）
+        # 初始资金(用于计算累计收益)
         self._initial_cash: float = 1000000.0
         # 确保所有属性都在这里初始化，永远不会不存在
 
@@ -115,7 +117,7 @@ class PortfolioBacktester:
 
         await self.log(f"🚀 开始组合回测: {config['start_date']} -> {config['end_date']}")
 
-        # 🔧 读取风控配置（优先使用请求中的配置，如果没有从数据库读取）
+        # 🔧 读取风控配置(优先使用请求中的配置，如果没有从数据库读取)
         # 默认风控配置
         risk_config = {
             "enable_stop_loss": True,
@@ -241,7 +243,7 @@ class PortfolioBacktester:
 
             # 补充市场环境判断日志
             await self.log("🌡️ 当日市场环境判断：")
-            # 一次性聚合获取涨跌停数量和平均涨跌幅（优化：减少2/3数据库访问）
+            # 一次性聚合获取涨跌停数量和平均涨跌幅(优化：减少2/3数据库访问)
             pipeline = [
                 {"$match": {"trade_date": int(trade_date)}},
                 {"$group": {
@@ -262,7 +264,7 @@ class PortfolioBacktester:
                 index_change = 0.0
             await self.log(f"    🔹 涨跌停统计：涨停{limit_up_count}只，跌停{limit_down_count}只 → {'触发强制空仓' if limit_down_count >= 50 or limit_up_count <= 10 else '不触发强制空仓'}")
             await self.log(f"    🔹 大盘平均涨跌幅：{'+' if index_change >= 0 else ''}{index_change:.2f}% → {'符合交易条件' if abs(index_change) < 3 else '极端行情，谨慎交易'}")
-            # 情绪周期评分（简单计算：涨停-跌停 + 大盘涨幅*10）
+            # 情绪周期评分(简单计算：涨停-跌停 + 大盘涨幅*10)
             sentiment_score = min(100, max(0, (limit_up_count - limit_down_count) + int(index_change * 10) + 50))
             if sentiment_score >= 80:
                 sentiment_level = "高潮期，仓位系数1.0"
@@ -293,7 +295,7 @@ class PortfolioBacktester:
                 # 真实统计各类剔除数量
                 st_count = len(await self.universe_mgr._get_st_stocks() & universe)
                 new_stock_count = len(await self.universe_mgr._get_new_stocks(trade_date) & universe)
-                # 统计低流动性股票（成交额<500万）
+                # 统计低流动性股票(成交额<500万)
                 low_liquidity_count = await mongo_manager.count_documents(
                     "stock_daily_ak_full",
                     {
@@ -368,7 +370,7 @@ class PortfolioBacktester:
                     await self.log("    2. 全市场该因子数据不完整，部分日期缺失")
                     await self.log("    回测结果可能异常，建议先同步因子数据后重试")
 
-                # 🎯 重构为多策略独立筛选逻辑（实盘对齐）：每个策略独立运行，结果合并去重
+                # 🎯 重构为多策略独立筛选逻辑(实盘对齐)：每个策略独立运行，结果合并去重
                 await self.log("🎯 【2026-04-13 优化版】已生效")
                 await self.log("🎯 多策略联合筛选开始：")
 
@@ -377,7 +379,7 @@ class PortfolioBacktester:
                 selected_strategies = config.get("selected_strategies", [])
                 selected_strategy_names = [s["name"] for s in selected_strategies] if selected_strategies else []
 
-                # 定义各策略的独立筛选条件（从全局策略配置获取，动态匹配参数）
+                # 定义各策略的独立筛选条件(从全局策略配置获取，动态匹配参数)
                 strategy_configs = {}
 
                 # 遍历所有传入的策略配置，动态生成筛选条件
@@ -401,10 +403,11 @@ class PortfolioBacktester:
 
                     if strategy_name == "半路追涨":
                         # 读取半路追涨独立参数，直接从params获取，和前端提交字段完全对齐
+                        # P0修改：涨幅上限从 7% → 5%，量比阈值从 1.5 → 2.5
                         min_rise_pct = params.get("min_rise_pct", 0.03)
-                        max_rise_pct = params.get("max_rise_pct", 0.07)
+                        max_rise_pct = params.get("max_rise_pct", 0.05)
                         # 量比阈值直接从params读取min_volume_ratio，和前端提交字段完全对齐
-                        volume_threshold = params.get("min_volume_ratio", 1.5)
+                        volume_threshold = params.get("min_volume_ratio", 2.5)
                         allow_after_10am = params.get("allow_after_10am", False)
 
                         strategy_configs[strategy_name] = [
@@ -418,11 +421,17 @@ class PortfolioBacktester:
 
                     elif strategy_name == "首板打板":
                         # 读取首板打板独立参数
+                        # P1修改：添加竞价涨幅 2%~5%、量比≥1.5、换手率 3%~15%、流通市值 50亿~500亿、要求情绪周期上升期/混沌期
                         min_seal_amount = params.get("min_seal_amount", 5000)
                         max_limit_time = params.get("max_limit_up_time", "10:00")
-                        max_cap = params.get("max_circulation_market_cap", 100)
+                        min_circ_mv = params.get("min_circulation_market_cap", 50)
+                        max_circ_mv = params.get("max_circulation_market_cap", 500)
+                        min_volume_ratio = params.get("min_volume_ratio", 1.5)
+                        min_turnover = params.get("min_turnover_rate", 3)
+                        max_turnover = params.get("max_turnover_rate", 15)
                         max_blast = params.get("max_blast_count", 1)
                         require_hot = params.get("require_hot_sector", True)
+                        require_sentiment = params.get("require_sentiment_period", ["rising", "chaos"])
 
                         # 时间格式转换：把"HH:MM"字符串转换为分钟数值，方便比较
                         if isinstance(max_limit_time, str) and ":" in max_limit_time:
@@ -432,30 +441,50 @@ class PortfolioBacktester:
                         strategy_configs[strategy_name] = [
                             {"name": "first_limit_up", "target": 1, "label": "首次涨停"},
                             {"name": "limit_up_yesterday", "target": 0, "label": "昨日未涨停"},
+                            {"name": "opening_pct_chg", "target": 2.0, "operator": ">=", "label": "竞价涨幅≥2%"},
+                            {"name": "opening_pct_chg", "target": 5.0, "operator": "<=", "label": "竞价涨幅≤5%"},
+                            {"name": "volume_ratio", "target": min_volume_ratio, "operator": ">=", "label": "竞价量比≥1.5"},
+                            {"name": "turnover", "target": min_turnover, "operator": ">=", "label": "换手率≥3%"},
+                            {"name": "turnover", "target": max_turnover, "operator": "<=", "label": "换手率≤15%"},
+                            {"name": "circ_mv", "target": min_circ_mv * 10000, "operator": ">=", "label": "最小流通市值"},
+                            {"name": "circ_mv", "target": max_circ_mv * 10000, "operator": "<=", "label": "最大流通市值"},
                             {"name": "limit_up_open_amount", "target": min_seal_amount, "label": "最小封单金额"},
-                            {"name": "circ_mv", "target": max_cap * 10000, "operator": "<=", "label": "最大流通市值"},
                             {"name": "limit_up_open_count", "target": max_blast, "operator": "<=", "label": "最大开板次数"},
                             {"name": "hot_sector", "target": 1 if require_hot else 0, "label": "要求热门板块"},
+                            # 添加情绪周期要求：上升期/混沌期
+                            {"name": "sentiment_period_in", "target": require_sentiment, "operator": "in", "label": "情绪周期要求"},
                             {"name": "limit_up_time", "target": max_limit_time, "operator": "<=", "label": "最晚涨停时间"},
                         ]
                         await self.log(f"    ├─ 🔹 === 【{strategy_name}】 筛选开始 ===")
-                        await self.log(f"    │ └─ 📌 参数生效：最小封单金额={min_seal_amount}万元，最晚涨停时间={max_limit_time}，最大流通市值={max_cap}亿，最大开板次数={max_blast}次，要求热门板块:{'是' if require_hot else '否'}")
+                        await self.log(f"    │ └─ 📌 参数生效：竞价涨幅={2.0}%~{5.0}%，量比≥{min_volume_ratio}，换手率={min_turnover}%~{max_turnover}%，流通市值={min_circ_mv}亿~{max_circ_mv}亿，最小封单金额={min_seal_amount}万元，最晚涨停时间={max_limit_time}，最大开板次数={max_blast}次，要求热门板块:{'是' if require_hot else '否'}，情绪周期要求: {require_sentiment}")
 
                     elif strategy_name == "涨停开板":
                         # 读取涨停开板独立参数
+                        # P1修改：添加开盘涨幅 0%~3%、量比≥2.0、板数范围 2~4 板、情绪周期要求上升期
                         min_consecutive = params.get("min_consecutive_limit", 2)
-                        max_open_duration = params.get("max_open_duration", 5)
+                        max_consecutive = params.get("max_consecutive_limit", 4)
+                        min_open_duration = params.get("max_open_duration", 5)
                         min_seal_after = params.get("min_seal_after_open", 3000)
                         min_turnover = params.get("min_turnover_rate", 0.15)
+                        opening_pct_min = params.get("opening_pct_min", 0.0)
+                        opening_pct_max = params.get("opening_pct_max", 3.0)
+                        min_volume_ratio = params.get("min_volume_ratio", 2.0)
+                        require_sentiment = params.get("require_sentiment_period", ["rising"])
 
                         strategy_configs[strategy_name] = [
-                            {"name": "limit_up_count", "target": min_consecutive, "label": "最小连续涨停天数"},
+                            {"name": "limit_up_count", "target": min_consecutive, "operator": ">=", "label": "最小连续涨停天数"},
+                            {"name": "limit_up_count", "target": max_consecutive, "operator": "<=", "label": "最大连续涨停天数"},
+                            {"name": "opening_pct_chg", "target": opening_pct_min, "operator": ">=", "label": "开盘涨幅≥0%"},
+                            {"name": "opening_pct_chg", "target": opening_pct_max, "operator": "<=", "label": "开盘涨幅≤3%"},
+                            {"name": "volume_ratio", "target": min_volume_ratio, "operator": ">=", "label": "开盘量比≥2.0"},
                             {"name": "limit_up_open_duration", "target": max_open_duration, "operator": "<=", "label": "最大开板时长"},
                             {"name": "limit_up_open_amount", "target": min_seal_after, "label": "开板后最小封单"},
                             {"name": "turnover_rate", "target": min_turnover, "label": "最小换手率"},
+                            # 添加情绪周期要求：必须是上升期
+                            {"name": "sentiment_period_in", "target": require_sentiment, "operator": "in", "label": "情绪周期要求"},
                         ]
                         await self.log(f"    ├─ 🔹 === 【{strategy_name}】 筛选开始 ===")
-                        await self.log(f"    │ └─ 📌 参数生效：最小连续涨停={min_consecutive}天，最大开板时长={max_open_duration}分钟，开板后最小封单={min_seal_after}万元，最小换手率={min_turnover*100:.1f}%")
+                        await self.log(f"    │ └─ 📌 参数生效：连续涨停={min_consecutive}~{max_consecutive}板，开盘涨幅={opening_pct_min}%~{opening_pct_max}%，量比≥{min_volume_ratio}，最大开板时长={max_open_duration}分钟，开板后最小封单={min_seal_after}万元，最小换手率={min_turnover*100:.1f}%，情绪周期要求: {require_sentiment}")
 
                     elif strategy_name == "龙头低吸":
                         # 读取龙头低吸独立参数
@@ -473,9 +502,11 @@ class PortfolioBacktester:
                             {"name": "pullback_days", "target": correction_days_min, "operator": ">=", "label": "最小回调天数"},
                             {"name": "pullback_days", "target": correction_days_max, "operator": "<=", "label": "最大回调天数"},
                             {"name": f"pullback_{support_level}", "target": 1, "label": f"{support_level.upper()}支撑位"},
+                            # P0添加：要求缩量回调 - 当日成交量 < 5日均量
+                            {"name": "volume_ratio_vs_ma5", "target": 1.0, "operator": "<=", "label": "成交量小于5日均量"},
                         ]
                         await self.log(f"    ├─ 🔹 === 【{strategy_name}】 筛选开始 ===")
-                        await self.log(f"    │ └─ 📌 参数生效：最小连续涨停={min_consecutive}天，回调幅度={min_correction*100:.1f}%-{max_correction*100:.1f}%，回调天数={correction_days_min}-{correction_days_max}天，支撑位={support_level}")
+                        await self.log(f"    │ └─ 📌 参数生效：最小连续涨停={min_consecutive}天，回调幅度={min_correction*100:.1f}%-{max_correction*100:.1f}%，回调天数={correction_days_min}-{correction_days_max}天，支撑位={support_level}，要求缩量回调：volume/ma5 ≤ 1.0")
 
                     elif strategy_name == "跌停翘板":
                         # 读取跌停翘板独立参数
@@ -487,12 +518,14 @@ class PortfolioBacktester:
                         strategy_configs[strategy_name] = [
                             {"name": "limit_down_yesterday", "target": 1, "label": "昨日跌停"},
                             {"name": "open_above_limit_down", "target": 1, "label": "开盘高于跌停价"},
+                            # P0添加：换手率 ≥ 10%
+                            {"name": "turnover", "target": 10.0, "operator": ">=", "label": "换手率≥10%"},
                             {"name": "limit_down_open_amount", "target": min_qiao_amount, "label": "翘板最小金额"},
                             {"name": "rise_after_limit_down", "target": min_rise_after, "label": "翘板后最小涨幅"},
                             {"name": "sentiment_score", "target": 1 if require_high_sentiment else 0, "label": "要求高情绪周期"},
                         ]
                         await self.log(f"    ├─ 🔹 === 【{strategy_name}】 筛选开始 ===")
-                        await self.log(f"    │ └─ 📌 参数生效：最小连续跌停={min_consecutive}天，最小翘板金额={min_qiao_amount}万元，翘板后最小涨幅={min_rise_after*100:.1f}%，要求高情绪周期:{'是' if require_high_sentiment else '否'}")
+                        await self.log(f"    │ └─ 📌 参数生效：最小连续跌停={min_consecutive}天，换手率≥10%，最小翘板金额={min_qiao_amount}万元，翘板后最小涨幅={min_rise_after*100:.1f}%，要求高情绪周期:{'是' if require_high_sentiment else '否'}")
 
                 # 遍历用户选中的所有策略，独立筛选
                 for strategy_name in selected_strategy_names:
@@ -538,7 +571,7 @@ class PortfolioBacktester:
                             after_count = len(temp_df)
                             # 计算过滤率
                             filter_rate = ((before_count - after_count) / before_count * 100) if before_count > 0 else 0
-                            await self.log(f"├─── ✅ 【条件{idx_cond}：{label}】 {operator} {target_value} → 满足 {after_count} 只 / 共 {before_count} 只（过滤率：{filter_rate:.2f}%）")
+                            await self.log(f"├─── ✅ 【条件{idx_cond}：{label}】 {operator} {target_value} → 满足 {after_count} 只 / 共 {before_count} 只(过滤率：{filter_rate:.2f}%)")
                             # 提前终止：过滤到 0 只就不继续了
                             if after_count == 0:
                                 await self.log("├─── ⚠️  提前结束筛选：无符合条件股票，建议调整参数")
@@ -637,7 +670,7 @@ class PortfolioBacktester:
                                 await self.log("    │   ✅ 满足所有条件，通过")
 
                         if display_count > 20:
-                            await self.log(f"    └─ ... 还有 {display_count - 20} 只未显示（超过20只限制）")
+                            await self.log(f"    └─ ... 还有 {display_count - 20} 只未显示(超过20只限制)")
 
                     await self.log("├────────────────────────────────────────────────────────────────────────────")
 
@@ -663,7 +696,7 @@ class PortfolioBacktester:
                     self.weight_method,
                 )
 
-                # 🔧 新增：大盘 MA60 过滤 - 大盘跌破 MA60 整体降低仓位 50%（可配置开关）
+                # 🔧 新增：大盘 MA60 过滤 - 大盘跌破 MA60 整体降低仓位 50%(可配置开关)
                 if self._risk_config.get("enable_ma60_filter", True):
                     try:
                         # 从 index_daily 查询上证指数(000001.SH)的均线数据
@@ -708,15 +741,24 @@ class PortfolioBacktester:
             # 5. 执行调仓
             await self.log("            🔄 正在执行调仓操作...")
             cash, holdings, records = self._rebalance(
-                trade_date, target_weights, cash, holdings, prices
+                trade_date, target_weights, cash, holdings, prices, sentiment_level
             )
             rebalance_records.extend(records)
 
             # 获取股票名称
             stock_names = await self._get_stock_names([r.ts_code for r in records])
 
-            # 输出调仓记录（带股票名称 + 完整原因描述）
+            # 输出调仓记录(带股票名称 + 完整原因描述)
             if len(records) > 0:
+                await self.log("")
+                await self.log(f"            📝 【当日调仓记录】：")
+                await self.log(
+                    "            {:<} {:<6} {:<10} {:<8} {:<12} {:<6} {:<8} {:<}".format(
+                        "", "方向", "日期", "名称", "代码", "股数", "价格", "原因"
+                    )
+                )
+                await self.log("            " + "-" * 110)
+                
                 for record in records:
                     name = stock_names.get(record.ts_code, record.ts_code.split('.')[0])
                     ts_code = record.ts_code
@@ -732,7 +774,11 @@ class PortfolioBacktester:
                     else:
                         reason_desc = record.reason
 
-                    await self.log(f"                🔹 {direction} {name}【{ts_code}】：{record.shares} 股 @ {record.price:.2f} 元 → {reason_desc}")
+                    # 添加日期信息
+                    date = record.date
+                    icon = "🔹" if record.action == 'buy' else "🔻"
+                    await self.log(f"            {icon} {direction:<6} {date:<10} {name:<8} {ts_code:<12} {record.shares:<6} {record.price:<8.2f} {reason_desc:<}")
+                await self.log("            " + "-" * 110)
         # 计算最终市值
         final_value = cash
         for code, shares in holdings.items():
@@ -751,27 +797,28 @@ class PortfolioBacktester:
             else:
                 all_trades.append(day_records)
 
-        # 计算统计指标
-        # total_signals = 所有买入信号的数量（每个买入算一个信号）
-        # winning_trades = 卖出后盈利的信号数量
-        total_signals = 0
-        winning_trades = 0
+        # 合并买入+卖出为完整交易，转换为字典格式
+        merged_trades = []
         
         # 收集所有买入记录，按code分组
         buy_records = {}  # code -> list of buy records
+        total_signals = 0
+        winning_trades = 0
+        
         for day_records in rebalance_records:
             records_list = day_records if isinstance(day_records, list) else [day_records]
             for record in records_list:
                 if record.action == 'buy':
                     # 每个买入算一个信号
-                    total_signals += 1
                     code = record.ts_code
                     if code not in buy_records:
                         buy_records[code] = []
                     buy_records[code].append(record)
         
-        # 统计每个卖出是否盈利
-        # 只有卖出兑现后才能确定是否盈利
+        # 所有买入都是信号，不管是否卖出
+        total_signals = sum(len(buys) for buys in buy_records.values())
+        
+        # 统计每个卖出是否盈利，同时合并完整交易
         for day_records in rebalance_records:
             records_list = day_records if isinstance(day_records, list) else [day_records]
             for record in records_list:
@@ -784,8 +831,71 @@ class PortfolioBacktester:
                     if total_shares > 0:
                         avg_cost = total_cost / total_shares
                         # 卖出价格高于平均成本 → 盈利
+                        profit = (record.price - avg_cost) / avg_cost * 100
                         if record.price > avg_cost:
                             winning_trades += 1
+                        
+                        # 合并为一笔完整交易
+                        first_buy = buys[0]
+                        stock_names = await self._get_stock_names([record.ts_code])
+                        name = stock_names.get(record.ts_code, record.ts_code.split('.')[0])
+                        
+                        # 从 reason 中提取策略名称，如果替换后为空显示 "-"
+                        strategy_name = first_buy.reason.replace(' 策略选股调入', '').strip()
+                        if not strategy_name:
+                            strategy_name = "-"
+                        
+                        merged_trades.append({
+                            'ts_code': record.ts_code,
+                            'name': name,
+                            'strategy': strategy_name,
+                            'sentiment': first_buy.sentiment,
+                            'buy_date': first_buy.date,
+                            'buy_time': '开盘',
+                            'buy_price': avg_cost,
+                            'sell_date': record.date,
+                            'sell_time': '收盘',
+                            'sell_price': record.price,
+                            'shares': total_shares,
+                            'profit_pct': profit,
+                        })
+        
+        # 添加还未卖出的持仓到明细
+        for code, buys in buy_records.items():
+            # 检查是否已经卖出
+            # 简单算法：如果这只code没有卖出记录，说明还在持仓中
+            has_sold = False
+            for day_records in rebalance_records:
+                records_list = day_records if isinstance(day_records, list) else [day_records]
+                for record in records_list:
+                    if record.action == 'sell' and record.ts_code == code:
+                        has_sold = True
+                        break
+            if not has_sold:
+                # 还在持仓中，添加到明细
+                first_buy = buys[0]
+                stock_names = await self._get_stock_names([code])
+                name = stock_names.get(code, code.split('.')[0])
+                
+                # 从 reason 中提取策略名称，如果替换后为空显示 "-"
+                strategy_name = first_buy.reason.replace(' 策略选股调入', '').strip()
+                if not strategy_name:
+                    strategy_name = "-"
+                
+                merged_trades.append({
+                    'ts_code': code,
+                    'name': name,
+                    'strategy': strategy_name,
+                    'sentiment': first_buy.sentiment,
+                    'buy_date': first_buy.date,
+                    'buy_time': '开盘',
+                    'buy_price': sum(b.amount for b in buys) / sum(b.shares for b in buys),
+                    'sell_date': '',
+                    'sell_time': '',
+                    'sell_price': 0.0,
+                    'shares': sum(b.shares for b in buys),
+                    'profit_pct': None,  # 还未卖出
+                })
 
         # 计算胜率
         win_rate = 0.0
@@ -794,7 +904,7 @@ class PortfolioBacktester:
             win_rate_percent = win_rate * 100  # 日志显示用百分比
         else:
             win_rate_percent = 0.0
-        # 计算年化收益率（交易日/年 ≈ 252）
+        # 计算年化收益率(交易日/年 ≈ 252)
         trading_days = len(rebalance_dates)
         if trading_days > 0:
             # 复利年化: (1 + total_return) ^ (252 / trading_days) - 1
@@ -828,8 +938,54 @@ class PortfolioBacktester:
             await self.log(f"  最大回撤: {max_drawdown * 100:.2f}%")
             await self.log(f"  盈亏比: {profit_loss_ratio:.2f}")
             await self.log(f"  夏普比率: {sharpe_ratio:.2f}")
-            await self.log(f"  总交易次数: {len(all_trades)}")
+            await self.log(f"  总交易次数: {len(merged_trades)}")
             await self.log(f"  盈利次数: {winning_trades} / 亏损次数: {losing_trades}")
+
+        #  打印完整逐笔交易明细
+        if len(merged_trades) > 0:
+            await self.log("")
+            await self.log("📝 【完整逐笔交易明细】")
+            await self.log(
+                "{:<12} {:<8} {:<12} {:<8} {:<10} {:<10} {:>10} {:<10} {:<10} {:>10} {:<6} {:<}".format(
+                    "代码", "名称", "策略", "情绪", "买入时间", "买入日期", "买入价格", "卖出时间", "卖出日期", "卖出价格", "股数", "盈亏"
+                )
+            )
+            await self.log("-" * 140)
+            
+            #  merged_trades 已经是合并后的完整交易(买入+卖出合并为一笔)
+            for trade in merged_trades:
+                ts_code = trade.get('ts_code', '')
+                name = trade.get('name', ts_code)
+                strategy = trade.get('strategy', '')
+                # strategy 为空或 rebalance 改为 "-"（表示无策略说明）
+                if not strategy or strategy == 'rebalance':
+                    strategy = "-"
+                sentiment = trade.get('sentiment', '')
+                buy_date = trade.get('buy_date', '')
+                buy_price = float(trade.get('buy_price', 0)) if trade.get('buy_price') is not None else 0.0
+                buy_time = trade.get('buy_time', '') or "开盘"
+                sell_date = trade.get('sell_date', '')
+                sell_price = float(trade.get('sell_price', 0)) if trade.get('sell_price') is not None else 0.0
+                sell_time = trade.get('sell_time', '') or "收盘"
+                shares = int(trade.get('shares', 0)) if trade.get('shares') is not None else 0
+                profit_pct = trade.get('profit_pct')
+                
+                if profit_pct is None:
+                    # 未卖出，显示 -
+                    await self.log(
+                        "{:<12} {:<8} {:<12} {:<8} {:<10} {:<10} {:>10.2f} {:<10} {:<10} {:>10.2f} {:<6d} {:<}".format(
+                            ts_code, name, strategy, sentiment, buy_time, buy_date, buy_price, sell_time, sell_date, sell_price, shares, "-"
+                        )
+                    )
+                else:
+                    await self.log(
+                        "{:<12} {:<8} {:<12} {:<8} {:<10} {:<10} {:>10.2f} {:<10} {:<10} {:>10.2f} {:<6d} {:>+8.2f}%".format(
+                            ts_code, name, strategy, sentiment, buy_time, buy_date, buy_price, sell_time, sell_date, sell_price, shares, float(profit_pct)
+                        )
+                    )
+            
+            await self.log("-" * 130)
+            await self.log(f"📊 总计 {len(all_trades)} 笔完整交易")
 
         # 将 RebalanceRecord 对象转换为字典，方便 MongoDB 序列化
         rebalance_records_dict = []
@@ -885,7 +1041,7 @@ class PortfolioBacktester:
             if isinstance(day_records, list) and len(day_records) > 0:
                 trade_date = day_records[0].get('date', None) if isinstance(day_records[0], dict) else None
             
-            # 计算当日盈亏（简化：基于最终价值反推）
+            # 计算当日盈亏(简化：基于最终价值反推)
             # 完整计算需要每日期权，这里先提供基础结构
             day_profit = 0.0
             if i == len(rebalance_records_dict) - 1:
@@ -900,7 +1056,7 @@ class PortfolioBacktester:
                     "net_value": current_value,
                     "daily_profit": day_profit
                 })
-            # 如果没有 trade_date，仍然添加到序列（保持净值曲线连续）
+            # 如果没有 trade_date，仍然添加到序列(保持净值曲线连续)
             elif len(net_value_series) > 0:
                 # 和前一天净值相同，盈亏为0
                 last_value = net_value_series[-1]['net_value']
@@ -911,7 +1067,7 @@ class PortfolioBacktester:
                 })
                 daily_profit_list.append(0.0)
         
-        # 计算最大回撤（基于净值曲线）
+        # 计算最大回撤(基于净值曲线)
         max_drawdown = 0.0
         if len(net_value_series) > 1:
             peak = net_value_series[0]['net_value']
@@ -921,13 +1077,16 @@ class PortfolioBacktester:
                 drawdown = (peak - point['net_value']) / peak
                 if drawdown > max_drawdown:
                     max_drawdown = drawdown
-            # max_drawdown 转换为小数（百分比由前端显示时 ×100）
+            # max_drawdown 转换为小数(百分比由前端显示时 ×100)
+        
+        # 提取 daily_profit 序列
+        daily_profit = [point['daily_profit'] for point in net_value_series]
         
         # 计算盈亏比：总盈利 / 总亏损
         # 我们从 daily_profit 统计
         total_profit = 0.0
         total_loss = 0.0
-        for p in daily_profit_list:
+        for p in daily_profit:
             if p > 0:
                 total_profit += p
             else:
@@ -942,9 +1101,6 @@ class PortfolioBacktester:
         # 暂时简化为 0.0，后续可以完整计算
         sharpe_ratio = 0.0
         
-        # 提取 daily_profit 序列
-        daily_profit = [point['daily_profit'] for point in net_value_series]
-        
         # 计算 drawdown 序列
         drawdown_series = []
         if len(net_value_series) > 1:
@@ -958,7 +1114,7 @@ class PortfolioBacktester:
                     "drawdown": drawdown
                 })
         
-        # 返回完整结果（全部为字典，可序列化）
+        # 返回完整结果(全部为字典，可序列化)
         return {
             "success": True,
             "initial_cash": self._initial_cash,
@@ -1004,17 +1160,17 @@ class PortfolioBacktester:
     async def _get_prices(self, ts_codes: set[str], trade_date):
         """批量获取指定股票在指定日期的收盘价"""
         # 自动格式标准化：兼容两种输入格式
-        # 数据库中 ts_code 带后缀（.SH/.SZ），所以无论输入什么都转换为带后缀格式
+        # 数据库中 ts_code 带后缀(.SH/.SZ)，所以无论输入什么都转换为带后缀格式
         ts_codes_standard = []
         for code in ts_codes:
             code_str = str(code).strip()
             if code_str.endswith(".SH") or code_str.endswith(".SZ"):
-                # 输入已经带后缀，直接使用（匹配数据库）
+                # 输入已经带后缀，直接使用(匹配数据库)
                 ts_codes_standard.append(code_str)
             else:
                 # 输入不带后缀，根据代码开头自动补全后缀
-                # - 6/5/9 开头 → .SH（上交所）
-                # - 其他 → .SZ（深交所）
+                # - 6/5/9 开头 → .SH(上交所)
+                # - 其他 → .SZ(深交所)
                 if code_str.startswith('6') or code_str.startswith('5') or code_str.startswith('9'):
                     ts_codes_standard.append(f"{code_str}.SH")
                 else:
@@ -1040,8 +1196,8 @@ class PortfolioBacktester:
             ts_code_doc = doc["ts_code"]
 
             # 支持两种格式匹配：
-            # 1. 完全匹配（数据库带后缀）
-            # 2. 不带后缀匹配（数据库不带后缀，我们带后缀）
+            # 1. 完全匹配(数据库带后缀)
+            # 2. 不带后缀匹配(数据库不带后缀，我们带后缀)
             matched_key = None
             if ts_code_doc in ts_codes_set:
                 matched_key = ts_code_doc
@@ -1082,7 +1238,7 @@ class PortfolioBacktester:
             return dict.fromkeys(candidates, weight)
 
     def _rebalance(self, trade_date: int, target_weights: dict[str, float],
-                   cash: float, holdings: dict[str, int], prices: dict[str, float]):
+                   cash: float, holdings: dict[str, int], prices: dict[str, float], sentiment: str = ""):
         """执行调仓
 
         Args:
@@ -1110,7 +1266,7 @@ class PortfolioBacktester:
                 continue  # 没有价格，无法买入
             target_value = total_value * weight
             price = prices[code]
-            # 向下取整到 100 的倍数（A股买入规则）
+            # 向下取整到 100 的倍数(A股买入规则)
             shares = int(int(target_value / price) / 100) * 100
             if shares > 0:
                 target_shares[code] = shares
@@ -1140,7 +1296,8 @@ class PortfolioBacktester:
                 shares=shares,
                 price=price,
                 amount=net_amount,
-                reason="not_in_target"
+                reason="not_in_target",
+                sentiment=sentiment
             ))
 
             # 清空持仓
@@ -1186,8 +1343,9 @@ class PortfolioBacktester:
                 ts_code=ts_code,
                 shares=delta,
                 price=price,
-                amount=total_cost,
-                reason="rebalance"
+                amount=-total_cost,
+                reason="rebalance",
+                sentiment=sentiment
             ))
 
         # 清理零持仓
@@ -1232,7 +1390,7 @@ class PortfolioBacktester:
             else:
                 need_query.append(standard_code)
 
-        # 查询缓存未命中的（已经标准化）
+        # 查询缓存未命中的(已经标准化)
         if len(need_query) > 0:
             docs = await mongo_manager.find_many(
                 "stock_basic",
