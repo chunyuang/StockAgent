@@ -897,8 +897,9 @@ const filteredTrades = computed(() => {
         // 完整交易 = 买入 + 卖出
         completedTrades.push({
           ...buy,
-          sell_price: t.price,
-          profit_pct: t.profit || 0.0,
+          buy_price: buy.price,        // 买入价格来自买入记录的 price
+          sell_price: t.price,         // 卖出价格来自卖出记录的 price
+          profit_pct: t.profit || 0.0, // 收益率来自卖出记录的 profit
           hold_days: parseInt(t.date) - parseInt(buy.date)
         })
         openTrades.delete(t.ts_code)
@@ -918,6 +919,7 @@ const filteredTrades = computed(() => {
   // 剩下未平仓的，也添加进去（profit_pct 留空）
   openTrades.forEach((buy, code) => {
     completedTrades.push({
+      buy_price: buy.price,          // 买入价格来自买入记录的 price
       sell_price: undefined,
       profit_pct: undefined,
       hold_days: undefined,
@@ -957,11 +959,12 @@ const profitTop5 = computed(() => {
       if (buy) {
         completedTrades.push({
           ...buy,
+          buy_price: buy.price,
           sell_price: t.price,
           profit_pct: t.profit || 0.0,
           hold_days: parseInt(t.date) - parseInt(buy.date)
         })
-        openTraves.delete(t.ts_code)
+        openTrades.delete(t.ts_code)
       }
     }
   })
@@ -981,6 +984,7 @@ const lossTop5 = computed(() => {
       if (buy) {
         completedTrades.push({
           ...buy,
+          buy_price: buy.price,
           sell_price: t.price,
           profit_pct: t.profit || 0.0,
           hold_days: parseInt(t.date) - parseInt(buy.date)
