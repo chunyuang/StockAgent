@@ -7,6 +7,7 @@
 - 获取调仓日期列表
 """
 
+import asyncio
 import logging
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -46,6 +47,10 @@ class UniverseManager:
 
     # 次新股定义：上市不满多少个交易日
     NEW_STOCK_DAYS = 250
+    
+    # 🚀 交易日历缓存：所有交易日只需要查询一次，后续直接从缓存读取
+    _all_trade_dates_cache: list[int] | None = None
+    _cache_lock = asyncio.Lock()
 
     async def get_universe(
         self,
@@ -194,26 +199,12 @@ class UniverseManager:
         """
         # 获取交易日历
         logger.info('UNIVERSE', f"Getting rebalance dates: {start_date} -> {end_date}, freq={freq}")
-        # 优先从本地MongoDB获取交易日历，完全不依赖Tushare
+        # 🚀 100% 从本地MongoDB获取交易日历，完全不依赖任何外部API
+        # 本地MongoDB已经有完整的 daily 数据，直接从中提取所有交易日期
         trade_dates = await self._get_trade_dates_from_mongo(start_date, end_date)
         if not trade_dates:
-            # 本地没有数据时 fallback 到Baostock
-            try:
-                from core.managers import baostock_manager
-                await baostock_manager.initialize()
-                trade_dates = await baostock_manager.get_trade_dates(start_date, end_date)
-                await baostock_manager.shutdown()
-
-                if trade_dates:
-                    # 转换为YYYYMMDD整数格式
-                    trade_dates = [d.replace("-", "") for d in trade_dates]
-                    logger.info('UNIVERSE', f"从Baostock获取到{len(trade_dates)}个交易日")
-                else:
-                    logger.error("No trade dates found in both MongoDB and Baostock")
-                    return []
-            except Exception as e:
-                logger.error(f"获取交易日历失败: {e}")
-                return []
+            logger.error(f"UNIVERSE: No trade dates found in local MongoDB for {start_date} -> {end_date}")
+            return []
         trade_dates = sorted(trade_dates)
 
         if not trade_dates:
@@ -284,15 +275,45 @@ class UniverseManager:
     async def _get_trade_dates_from_mongo(self, start_date: str, end_date: str) -> list[str]:
         """从本地MongoDB stock_daily_ak_full表中获取日期范围内的所有交易日"""
         try:
-            # 查询日期范围内的所有不同trade_date
-            pipeline = [
-                {"$match": {"trade_date": {"$gte": int(start_date), "$lte": int(end_date)}}},
-                {"$group": {"_id": "$trade_date"}},
-                {"$sort": {"_id": 1}}
-            ]
-            result = await mongo_manager.aggregate("stock_daily_ak_full", pipeline)
-            # 统一转换成字符串格式，避免类型错误
-            return [str(doc["_id"]) for doc in result]
+            # 🚀 优先从缓存读取，缓存命中直接返回，永远不需要再查询
+            if UniverseManager._all_trade_dates_cache is not None:
+                all_dates = UniverseManager._all_trade_dates_cache
+                start_int = int(start_date)
+                end_int = int(end_date)
+                filtered = [d for d in all_dates if start_int <= d <= end_int]
+                # 统一转换成字符串格式
+                return [str(d) for d in filtered]
+            
+            # 缓存未命中，获取全局锁后重新查询
+            async with UniverseManager._cache_lock:
+                # 双重检查，避免竞态条件
+                if UniverseManager._all_trade_dates_cache is not None:
+                    all_dates = UniverseManager._all_trade_dates_cache
+                    start_int = int(start_date)
+                    end_int = int(end_date)
+                    filtered = [d for d in all_dates if start_int <= d <= end_int]
+                    return [str(d) for d in filtered]
+                
+                # 第一次查询：获取整个表中所有不同的交易日，存入缓存
+                logger.info('UNIVERSE', "First query: getting all trade dates from MongoDB (this may take a while)...")
+                pipeline = [
+                    {"$group": {"_id": "$trade_date"}},
+                    {"$sort": {"_id": 1}}
+                ]
+                result = await mongo_manager.aggregate("stock_daily_ak_full", pipeline)
+                
+                # 存入全局缓存
+                UniverseManager._all_trade_dates_cache = [doc["_id"] for doc in result]
+                logger.info('UNIVERSE', f"Cached all trade dates: {len(UniverseManager._all_trade_dates_cache)} dates total")
+                
+                # 过滤日期范围
+                all_dates = UniverseManager._all_trade_dates_cache
+                start_int = int(start_date)
+                end_int = int(end_date)
+                filtered = [d for d in all_dates if start_int <= d <= end_int]
+                
+                # 统一转换成字符串格式
+                return [str(d) for d in filtered]
         except Exception as e:
             logger.warn('UNIVERSE', f"Failed to get trade dates from MongoDB: {e}")
             return []
@@ -302,25 +323,11 @@ class UniverseManager:
         start_date: str,
         end_date: str,
     ) -> list[str]:
-        """获取日期范围内的所有交易日，完全不依赖Tushare"""
-        # 优先从本地MongoDB获取交易日历
+        """获取日期范围内的所有交易日，100%从本地MongoDB获取，完全不依赖任何外部API"""
+        # 🚀 彻底不依赖任何外部网络API，完全使用本地数据
+        # 本地MongoDB已经存储了完整的日线数据，直接从中提取交易日历
         trade_dates = await self._get_trade_dates_from_mongo(start_date, end_date)
         if not trade_dates:
-            # 本地没有数据时 fallback 到Baostock
-            try:
-                from core.managers import baostock_manager
-                await baostock_manager.initialize()
-                trade_dates = await baostock_manager.get_trade_dates(start_date, end_date)
-                await baostock_manager.shutdown()
-
-                if trade_dates:
-                    # 转换为YYYYMMDD整数格式
-                    trade_dates = [d.replace("-", "") for d in trade_dates]
-                    logger.info('UNIVERSE', f"从Baostock获取到{len(trade_dates)}个交易日")
-                else:
-                    logger.error("No trade dates found in both MongoDB and Baostock")
-                    return []
-            except Exception as e:
-                logger.error(f"获取交易日历失败: {e}")
-                return []
+            logger.error(f"UNIVERSE: No trade dates found in local MongoDB for {start_date} -> {end_date}")
+            return []
         return sorted(trade_dates)
