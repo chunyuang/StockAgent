@@ -5,14 +5,16 @@
 - 多数据源整合 (daily, daily_basic, fina)
 - 因子标准化 (Z-Score / 排名)
 - 综合打分
+- Redis缓存加速：同一股票同一交易日同一因子只计算一次，后续直接命中缓存
 """
 
 import logging
+import json
 
 import numpy as np
 import pandas as pd
 
-from core.managers import mongo_manager
+from core.managers import mongo_manager, redis_manager
 
 from .factor_library import FactorCategory, FactorDefinition, FactorLibrary
 
@@ -69,11 +71,37 @@ class FactorEngine:
         data = await self._load_all_data(stocks_list, trade_date, factor_defs, lookback_days)
         logger.debug("Data loaded, computing factor values...")
 
-        # 3. 计算每个因子
+        # 3. 计算每个因子（带Redis缓存，相同因子同一交易日直接命中缓存）
         factor_values = {}
         for factor_def in factor_defs:
+            # 生成缓存key：因子名 + 交易日，所有股票都用同一个因子同一天数据
+            cache_key = f"factor:v1:{factor_def.name}:{trade_date}"
+            # 尝试从Redis获取缓存
+            cached = await redis_manager.get(cache_key)
+            
+            if cached is not None:
+                # 缓存命中，直接反序列化
+                try:
+                    values = json.loads(cached)
+                    logger.info('FACTOR_ENGINE', f"✅ Cache hit: {factor_def.name} on {trade_date}, {len(values)} stocks")
+                    factor_values[factor_def.name] = values
+                    continue
+                except Exception as e:
+                    logger.debug('FACTOR_ENGINE', f"Cache decode failed: {e}, recomputing")
+            
+            # 缓存未命中，重新计算
+            logger.debug('FACTOR_ENGINE', f"Cache miss: {factor_def.name} on {trade_date}, computing...")
             values = self._compute_single_factor(data, factor_def, trade_date)
             factor_values[factor_def.name] = values
+            
+            # 存入Redis缓存，过期时间24小时
+            try:
+                # 序列化为JSON
+                cached_data = json.dumps(values)
+                await redis_manager.setex(cache_key, 86400, cached_data)
+                logger.debug('FACTOR_ENGINE', f"Cached: {factor_def.name} on {trade_date}, {len(values)} stocks")
+            except Exception as e:
+                logger.debug('FACTOR_ENGINE', f"Cache store failed: {e}")
 
         # 4. 组装 DataFrame
         result = pd.DataFrame({"ts_code": stocks_list})
