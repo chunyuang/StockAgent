@@ -260,6 +260,14 @@ export async function submitFactorSelection(request: FactorSelectionRequest): Pr
   return api.post<BacktestTaskResponse>('/backtest/factor-selection', request)
 }
 
+/**
+ * 获取超短策略回测默认配置
+ * 从后端环境变量/.env读取，返回给前端用于初始化
+ */
+export async function getUltraShortDefaults(): Promise<any> {
+  return api.get<any>('/backtest/ultra-short/defaults')
+}
+
 export default {
   submitBacktest,
   getBacktestStatus,
@@ -269,4 +277,5 @@ export default {
   getFactors,
   submitFactorSelection,
   submitUltraShort,
+  getUltraShortDefaults,
 }

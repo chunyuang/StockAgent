@@ -48,7 +48,7 @@ interface RequestConfig extends AxiosRequestConfig {
 // ==================== 客户端配置 ====================
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1'
-const TIMEOUT = 30000
+const TIMEOUT = 300000  // 5 minutes (回测需要几分钟，不能用30秒超时)
 
 // Token 刷新状态
 let isRefreshing = false

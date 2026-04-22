@@ -463,7 +463,7 @@ class PortfolioBacktester:
                         # P1修改：添加开盘涨幅 0%~3%、量比≥2.0、板数范围 2~4 板、情绪周期要求上升期
                         min_consecutive = params.get("min_consecutive_limit", 2)
                         max_consecutive = params.get("max_consecutive_limit", 4)
-                        min_open_duration = params.get("max_open_duration", 5)
+                        max_open_duration = params.get("max_open_duration", 5)
                         min_seal_after = params.get("min_seal_after_open", 3000)
                         min_turnover = params.get("min_turnover_rate", 0.15)
                         opening_pct_min = params.get("opening_pct_min", 0.0)
@@ -783,7 +783,8 @@ class PortfolioBacktester:
         final_value = cash
         for code, shares in holdings.items():
             if shares > 0 and code in last_prices:
-                final_value += shares * last_prices[code]
+                # last_prices[code] 是 {open: x, close: x}，用收盘价估值
+                final_value += shares * last_prices[code]['close']
 
         # 计算总收益率
         initial_value = self._initial_cash
@@ -851,10 +852,10 @@ class PortfolioBacktester:
                             'strategy': strategy_name,
                             'sentiment': first_buy.sentiment,
                             'buy_date': first_buy.date,
-                            'buy_time': '开盘',
+                            'buy_time': '09:30',
                             'buy_price': avg_cost,
                             'sell_date': record.date,
-                            'sell_time': '收盘',
+                            'sell_time': '15:00',
                             'sell_price': record.price,
                             'shares': total_shares,
                             'profit_pct': profit,
@@ -888,7 +889,7 @@ class PortfolioBacktester:
                     'strategy': strategy_name,
                     'sentiment': first_buy.sentiment,
                     'buy_date': first_buy.date,
-                    'buy_time': '开盘',
+                    'buy_time': '09:30',
                     'buy_price': sum(b.amount for b in buys) / sum(b.shares for b in buys),
                     'sell_date': '',
                     'sell_time': '',
@@ -919,6 +920,29 @@ class PortfolioBacktester:
         
         # 统计盈利次数/亏损次数
         losing_trades = total_signals - winning_trades
+        total_trades = len(merged_trades)
+        
+        # 计算收益回撤比 = 累计收益率 / 最大回撤（当最大回撤 > 0 时）
+        return_drawdown_ratio = 0.0
+        if max_drawdown > 0 and total_return != 0:
+            return_drawdown_ratio = abs(total_return) / max_drawdown
+        
+        # 计算平均持仓天数
+        average_hold_days = 0.0
+        completed_trades = [t for t in merged_trades if t.get('sell_date') and t.get('buy_date')]
+        if len(completed_trades) > 0:
+            total_hold_days = 0
+            for trade in completed_trades:
+                buy_date_int = int(trade['buy_date'])
+                sell_date_int = int(trade['sell_date'])
+                # 计算持仓天数（简单相减，都是YYYYMMDD格式）
+                # 转换为datetime计算更准确
+                from datetime import datetime
+                buy_dt = datetime.strptime(str(buy_date_int), '%Y%m%d')
+                sell_dt = datetime.strptime(str(sell_date_int), '%Y%m%d')
+                hold_days = (sell_dt - buy_dt).days
+                total_hold_days += hold_days
+            average_hold_days = total_hold_days / len(completed_trades)
         
         # 输出最终汇总结果到日志
         await self.log("✅ 回测全部完成!")
@@ -929,8 +953,10 @@ class PortfolioBacktester:
             await self.log("  最大回撤: 0.00%")
             await self.log("  盈亏比: 0.00")
             await self.log("  夏普比率: 0.00")
+            await self.log("  收益回撤比: 0.00")
             await self.log("  总交易次数: 0")
             await self.log("  盈利次数: 0 / 亏损次数: 0")
+            await self.log("  平均持仓天数: 0")
         else:
             await self.log(f"📊 汇总结果:总信号 {total_signals} 个,平均胜率 {win_rate_percent:.2f}%,总收益率 {total_return * 100:.2f}%")
             await self.log(f"  累计收益率: {total_return * 100:.2f}%")
@@ -938,54 +964,85 @@ class PortfolioBacktester:
             await self.log(f"  最大回撤: {max_drawdown * 100:.2f}%")
             await self.log(f"  盈亏比: {profit_loss_ratio:.2f}")
             await self.log(f"  夏普比率: {sharpe_ratio:.2f}")
-            await self.log(f"  总交易次数: {len(merged_trades)}")
+            await self.log(f"  收益回撤比: {return_drawdown_ratio:.2f}")
+            await self.log(f"  总交易次数: {total_trades}")
             await self.log(f"  盈利次数: {winning_trades} / 亏损次数: {losing_trades}")
+            await self.log(f"  平均持仓天数: {average_hold_days:.1f}")
 
         #  打印完整逐笔交易明细
         if len(merged_trades) > 0:
             await self.log("")
             await self.log("📝 【完整逐笔交易明细】")
-            await self.log(
-                "{:<12} {:<8} {:<12} {:<8} {:<10} {:<10} {:>10} {:<10} {:<10} {:>10} {:<6} {:<}".format(
-                    "代码", "名称", "策略", "情绪", "买入时间", "买入日期", "买入价格", "卖出时间", "卖出日期", "卖出价格", "股数", "盈亏"
-                )
-            )
-            await self.log("-" * 140)
+            await self.log("股票代码\t股票名称\t策略\t情绪周期\t买入日期\t买入时间\t卖出日期\t卖出时间\t买入价格\t卖出价格\t持股数\t仓位\t持仓天数\t盈亏\t盈亏%\t是否盈利\t策略参数说明")
+            await self.log("-----------------------------------------------------------------------------------------------------------------------------------------------------")
             
             #  merged_trades 已经是合并后的完整交易(买入+卖出合并为一笔)
-            for trade in merged_trades:
+            for idx, trade in enumerate(merged_trades, 1):
                 ts_code = trade.get('ts_code', '')
                 name = trade.get('name', ts_code)
                 strategy = trade.get('strategy', '')
-                # strategy 为空或 rebalance 改为 "-"（表示无策略说明）
-                if not strategy or strategy == 'rebalance':
-                    strategy = "-"
+                # strategy 为空改为 "-"（表示无策略说明）
+                strategy_name = strategy.strip()
+                if not strategy_name:
+                    strategy_name = "-"
+                # 只取情绪第一部分，"高潮期" 而不是 "高潮期，仓位系数1.0"
                 sentiment = trade.get('sentiment', '')
+                if sentiment:
+                    sentiment = sentiment.split('，')[0].strip()
+                sentiment = sentiment or "-"
                 buy_date = trade.get('buy_date', '')
                 buy_price = float(trade.get('buy_price', 0)) if trade.get('buy_price') is not None else 0.0
-                buy_time = trade.get('buy_time', '') or "开盘"
+                buy_time = trade.get('buy_time', '09:35')  # 使用存储的买入时间
                 sell_date = trade.get('sell_date', '')
                 sell_price = float(trade.get('sell_price', 0)) if trade.get('sell_price') is not None else 0.0
-                sell_time = trade.get('sell_time', '') or "收盘"
+                sell_time = trade.get('sell_time', '收盘')
                 shares = int(trade.get('shares', 0)) if trade.get('shares') is not None else 0
                 profit_pct = trade.get('profit_pct')
                 
-                if profit_pct is None:
-                    # 未卖出，显示 -
-                    await self.log(
-                        "{:<12} {:<8} {:<12} {:<8} {:<10} {:<10} {:>10.2f} {:<10} {:<10} {:>10.2f} {:<6d} {:<}".format(
-                            ts_code, name, strategy, sentiment, buy_time, buy_date, buy_price, sell_time, sell_date, sell_price, shares, "-"
-                        )
-                    )
-                else:
-                    await self.log(
-                        "{:<12} {:<8} {:<12} {:<8} {:<10} {:<10} {:>10.2f} {:<10} {:<10} {:>10.2f} {:<6d} {:>+8.2f}%".format(
-                            ts_code, name, strategy, sentiment, buy_time, buy_date, buy_price, sell_time, sell_date, sell_price, shares, float(profit_pct)
-                        )
-                    )
+                # 计算持仓天数、盈亏绝对值、是否盈利
+                hold_days = 0
+                profit_abs = 0
+                is_profit = "-"
+                if profit_pct is not None and buy_price > 0 and sell_price > 0:
+                    profit_abs = shares * (sell_price - buy_price) * (1 - self.SELL_COMMISSION - self.STAMP_TAX)
+                    if profit_pct > 0:
+                        is_profit = "✅"
+                    else:
+                        is_profit = "❌"
+                    
+                    # 计算持仓天数
+                    if buy_date and sell_date:
+                        from datetime import datetime
+                        try:
+                            buy_dt = datetime.strptime(str(buy_date), '%Y%m%d')
+                            sell_dt = datetime.strptime(str(sell_date), '%Y%m%d')
+                            hold_days = (sell_dt - buy_dt).days
+                        except:
+                            hold_days = 0
+                
+                # 计算仓位（粗略估算：占总资金百分比）
+                position_pct = "-"
+                if shares > 0 and buy_price > 0:
+                    cost = shares * buy_price
+                    position_pct = f"{cost / self._initial_cash * 100:.0f}%"
+                
+                # 获取策略参数说明
+                strategy_desc = strategy_name
+                if strategy_name and "半路追涨" in strategy_name:
+                    strategy_desc = f"{strategy_name}，涨幅符合要求，量比达标"
+                elif not strategy_desc or strategy_desc == "-":
+                    strategy_desc = "-"
+                
+                # 格式化输出，用制表符分隔，对齐更清晰
+                profit_abs_str = f"{profit_abs:.0f}" if profit_abs != 0 else "-"
+                profit_pct_str = f"{profit_pct:.2f}%" if profit_pct is not None else "-"
+                
+                await self.log(
+                    f"{idx}\t{ts_code}\t{name}\t{strategy_name}\t{sentiment}\t{buy_date}\t{buy_time}\t{sell_date}\t{sell_time}\t{buy_price:.2f}\t{sell_price:.2f}\t{shares}\t{position_pct}\t{hold_days}\t{profit_abs_str}\t{profit_pct_str}\t{is_profit}\t{strategy_desc}"
+                )
             
-            await self.log("-" * 130)
-            await self.log(f"📊 总计 {len(all_trades)} 笔完整交易")
+            await self.log("-----------------------------------------------------------------------------------------------------------------------------------------------------")
+            await self.log(f"📊 总计 {len(merged_trades)} 笔完整交易")
 
         # 将 RebalanceRecord 对象转换为字典，方便 MongoDB 序列化
         rebalance_records_dict = []
@@ -1122,12 +1179,17 @@ class PortfolioBacktester:
             "final_value": final_value,
             "final_holdings": holdings,
             "total_return": total_return,
+            "annualized_return": annualized_return,
             "win_rate": win_rate,
             "total_signals": total_signals,
+            "total_trades": total_trades,
             "winning_trades": winning_trades,
+            "losing_trades": losing_trades,
             "max_drawdown": max_drawdown,
             "sharpe_ratio": sharpe_ratio,
             "profit_loss_ratio": profit_loss_ratio,
+            "return_drawdown_ratio": return_drawdown_ratio,
+            "average_hold_days": average_hold_days,
             "rebalance_records": rebalance_records_dict,
             "all_trades": all_trades_dict,
             "benchmark_data": benchmark_data,
@@ -1158,7 +1220,11 @@ class PortfolioBacktester:
         return benchmark_data
 
     async def _get_prices(self, ts_codes: set[str], trade_date):
-        """批量获取指定股票在指定日期的收盘价"""
+        """批量获取指定股票在指定日期的开盘价和收盘价
+        
+        Returns:
+            dict: {ts_code: {"open": open_price, "close": close_price}}
+        """
         # 自动格式标准化：兼容两种输入格式
         # 数据库中 ts_code 带后缀(.SH/.SZ)，所以无论输入什么都转换为带后缀格式
         ts_codes_standard = []
@@ -1189,7 +1255,7 @@ class PortfolioBacktester:
         await self.log(f"            🔍 _get_prices: 查询 {len(ts_codes_standard)} 只股票，日期: {trade_date}, 标准化后候选: {sorted(ts_codes_standard)}")
 
         docs = await mongo_manager.find_many("stock_daily_ak_full", query)
-        prices = {}
+        result = {}
         # 调试：打印每个doc的ts_code，帮助定位问题
         matched = 0
         for doc in docs:
@@ -1218,13 +1284,16 @@ class PortfolioBacktester:
                                 break
 
             if matched_key:
-                prices[matched_key] = doc["close"]
+                result[matched_key] = {
+                    "open": doc.get("open", doc["close"]),  # 如果没有open，fallback to close
+                    "close": doc["close"]
+                }
                 matched += 1
 
 
-        await self.log(f"            ✅ _get_prices: 查询到 {len(prices)} 只股票有价格")
+        await self.log(f"            ✅ _get_prices: 查询到 {len(result)} 只股票有价格")
 
-        return prices
+        return result
 
     def _compute_weights(self, candidates: list[str], factor_df, weight_method: str):
         """计算目标权重 - 根据权重方法分配权重"""
@@ -1257,7 +1326,9 @@ class PortfolioBacktester:
         total_value = cash
         for code, shares in holdings.items():
             if code in prices and shares > 0:
-                total_value += shares * prices[code]
+                # 持仓卖出用收盘价估值
+                price = prices[code]['close']
+                total_value += shares * price
 
         # 计算目标持仓
         target_shares = {}  # {ts_code: target_shares}
@@ -1265,7 +1336,7 @@ class PortfolioBacktester:
             if code not in prices:
                 continue  # 没有价格，无法买入
             target_value = total_value * weight
-            price = prices[code]
+            price = prices[code]['open']  # 买入用开盘价
             # 向下取整到 100 的倍数(A股买入规则)
             shares = int(int(target_value / price) / 100) * 100
             if shares > 0:
@@ -1275,7 +1346,7 @@ class PortfolioBacktester:
         sell_codes = [code for code in holdings if code not in target_shares and holdings[code] > 0]
         for ts_code in sell_codes:
             shares = holdings[ts_code]
-            price = prices.get(ts_code, 0)
+            price = prices.get(ts_code, {}).get('close', 0)
             if price <= 0 or shares <= 0:
                 continue
 
@@ -1294,7 +1365,7 @@ class PortfolioBacktester:
                 action="sell",
                 ts_code=ts_code,
                 shares=shares,
-                price=price,
+                price=price,  # 卖出用收盘价
                 amount=net_amount,
                 reason="not_in_target",
                 sentiment=sentiment
@@ -1311,7 +1382,7 @@ class PortfolioBacktester:
             if delta <= 0:
                 continue  # 不需要买入
 
-            price = prices.get(ts_code, 0)
+            price = prices.get(ts_code, {}).get('open', 0)
             if price <= 0:
                 continue
 

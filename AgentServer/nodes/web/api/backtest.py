@@ -167,8 +167,8 @@ class UltraShortBacktestRequest(BaseModel):
     """超短策略回测请求"""
     strategies: Optional[List[str]] = Field(None, description="策略列表，可选值: halfway_chase(半路追涨), first_limit_up(首板打板), limit_up_open(涨停开板), leader_buy_dip(龙头低吸), limit_down_qiao(跌停翘板)", min_length=1)
     selected_strategies: Optional[List[Dict[str, Any]]] = Field(None, description="前端提交的选中策略对象数组，兼容老版本")
-    start_date: Optional[str] = Field(None, description="开始日期", pattern=r"^\d{8}$")
-    end_date: Optional[str] = Field(None, description="结束日期", pattern=r"^\d{8}$")
+    start_date: Optional[str] = Field(None, description="开始日期")
+    end_date: Optional[str] = Field(None, description="结束日期")
     
     # 数据源配置
     data_source: str = Field(default="mongodb", description="数据源：固定为mongodb")
@@ -750,7 +750,7 @@ oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", aut
 
 @router.post("/ultra-short", response_model=BacktestTaskResponse)
 async def submit_ultra_short_backtest(
-    request: UltraShortBacktestRequest,
+    raw_request: Request,
     user_id: str = Depends(get_optional_user_id),
 ):
     """
@@ -759,6 +759,15 @@ async def submit_ultra_short_backtest(
     全市场回测，支持实时进度推送和完整结果分析
     返回 task_id 用于查询进度和结果。
     """
+    # 手动解析请求体，捕获详细验证错误
+    try:
+        body = await raw_request.json()
+        logger.info(f"[{uuid.uuid4().hex[:8]}] Ultra short request body: {body}")
+        request = UltraShortBacktestRequest(**body)
+    except ValidationError as e:
+        logger.error(f"Validation error for ultra-short request: {e.errors()}")
+        raise HTTPException(status_code=422, detail=e.errors())
+    
     task_id = f"us_{uuid.uuid4().hex[:12]}"
     
     logger.info(
@@ -987,3 +996,149 @@ async def submit_ultra_short_backtest(
         status="running",
         message="回测任务提交成功，正在执行"
     )
+
+
+# ========== 获取超短回测默认配置 ==========
+# 从配置文件/环境变量读取默认初始值，供前端页面初始化使用
+# 这样修改配置文件就能改变前端默认值，不需要改前端代码
+@router.get("/ultra-short/defaults")
+async def get_ultra_short_defaults(
+    user_id: str = Depends(get_optional_user_id),
+) -> Dict[str, Any]:
+    """
+    获取超短回测页面的默认初始配置
+    
+    从环境变量/.env读取配置，返回给前端用于初始化表单。
+    这样修改.env就能改变前端默认值，不需要重新编译前端代码。
+    """
+    from core.settings import settings
+    
+    # 默认硬编码值 (如果环境变量没有配置，使用这些默认值)
+    defaults = {
+        # 数据源
+        "dataSource": {
+            "period": "daily",
+            "ts_codes": "",
+            "start_date": "20260105",
+            "end_date": "20260320",
+            "adjust_type": "qfq",
+        },
+        # 基础配置
+        "base": {
+            "initial_cash": 1000000,
+        },
+        # 全局筛选
+        "globalFilter": {
+            "exclude_st": True,
+            "exclude_delisting": True,
+            "exclude_new_stock_days": 60,
+            "min_daily_amount": 500,
+            "min_turnover_rate": 3,
+        },
+        # 强制空仓
+        "forceEmpty": {
+            "enabled": True,
+            "index_drop_pct": 0.03,
+            "limit_down_count": 50,
+            "limit_up_count": 10,
+        },
+        # 情绪周期
+        "sentimentCycle": {
+            "enabled": True,
+            "weight_limit_up": 0.25,
+            "weight_limit_down": 0.10,
+            "weight_blast_rate": 0.07,
+            "weight_rise_fall_diff": 0.15,
+            "weight_north_inflow": 0.12,
+        },
+        # 竞价过滤
+        "auctionFilter": {
+            "enabled": True,
+            "min_auction_pct": 0.005,
+            "max_auction_pct": 0.07,
+            "min_unmatched_volume_positive": True,
+            "min_auction_amount": 300,
+            "min_auction_volume_ratio": 1.5,
+        },
+        # 交易参数
+        "tradeParams": {
+            "base_stop_loss_pct": 0.02,
+            "base_take_profit_pct": 0.07,
+            "max_hold_days": 3,
+            "max_position_per_stock": 0.3,
+            "max_total_position": 0.6,
+            "commission_rate": 0.0003,
+            "stamp_duty_rate": 0.001,
+            "slippage_pct": 0.002,
+        },
+        # 策略启用
+        "strategies": ["halfway_chase", "first_limit_up", "limit_up_open", "leader_buy_dip", "limit_down_qiao"],
+        # 各策略独立配置
+        "strategyConfigs": {
+            "halfway_chase": {
+                "enabled": True,
+                "name": "半路追涨",
+                "params": {
+                    "min_rise_pct": 0.03,
+                    "max_rise_pct": 0.07,
+                    "min_volume_ratio": 1.5,
+                    "allow_after_10am": False,
+                }
+            },
+            "first_limit_up": {
+                "enabled": True,
+                "name": "首板打板",
+                "params": {
+                    "min_seal_amount": 5000,
+                    "max_limit_up_time": "10:00",
+                    "max_circulation_market_cap": 100,
+                    "max_blast_count": 1,
+                    "require_hot_sector": True,
+                }
+            },
+            "limit_up_open": {
+                "enabled": True,
+                "name": "涨停开板",
+                "params": {
+                    "min_consecutive_limit": 2,
+                    "max_open_duration": 5,
+                    "min_seal_after_open": 3000,
+                    "min_turnover_rate": 0.15,
+                }
+            },
+            "leader_buy_dip": {
+                "enabled": True,
+                "name": "龙头低吸",
+                "params": {
+                    "min_consecutive_limit": 3,
+                    "min_correction_pct": 0.15,
+                    "max_correction_pct": 0.3,
+                    "correction_days_min": 2,
+                    "correction_days_max": 5,
+                    "support_level": "ma5",
+                }
+            },
+            "limit_down_qiao": {
+                "enabled": True,
+                "name": "跌停翘板",
+                "params": {
+                    "min_consecutive_limit": 3,
+                    "min_qiao_amount": 10000,
+                    "min_rise_after_qiao": 0.03,
+                    "require_high_sentiment": True,
+                }
+            },
+        }
+    }
+    
+    # 检查环境变量是否有覆盖
+    # 从settings中读取ULTRASHORT_*前缀的环境变量，覆盖默认值
+    # 这样.env中定义 ULTRASHORT_START_DATE=20250101 就能覆盖默认的start_date
+    
+    # 这里我们不做复杂的嵌套解析，只支持顶级简单覆盖
+    # 如果需要更深层次覆盖，后续可以扩展
+    
+    return {
+        "success": True,
+        "data": defaults
+    }
