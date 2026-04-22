@@ -42,8 +42,8 @@ const form = reactive({
   dataSource: {
     period: 'daily', // daily/1min
     ts_codes: '', // 股票代码，逗号分隔，空为全市场
-    start_date: '20260105', // 必须是字符串
-    end_date: '20260320',   // 必须是字符串
+    start_date: '20260105',
+    end_date: '20260320',
     adjust_type: 'qfq', // 前复权/不复权
   },
   // 基础配置
@@ -190,202 +190,8 @@ const sentimentCycleTitle = computed(() => `🧠 情绪周期 ${form.sentimentCy
 const auctionFilterTitle = computed(() => `⏰ 竞价过滤 ${form.auctionFilter.enabled ? '✅' : '❌'} (涨幅${(form.auctionFilter.min_auction_pct*100).toFixed(1)}%~${(form.auctionFilter.max_auction_pct*100).toFixed(1)}%, 成交额≥${form.auctionFilter.min_auction_amount}万, 量比≥${form.auctionFilter.min_auction_volume_ratio}, 未匹配量正: ${form.auctionFilter.min_unmatched_volume_positive ? '✅' : '❌'})`)
 const strategyConfigTitle = computed(() => `🎯 策略配置 (已选: ${form.strategies.map(id => form.strategyConfigs[id as keyof typeof form.strategyConfigs]?.name).join(', ') || '无'})`)
 
-// ==================== 辅助函数：解析INI文件 ====================
-// 简单INI解析，满足当前配置需求
-function parseIni(content: string): Record<string, any> {
-  const result: Record<string, any> = {}
-  let currentSection: Record<string, any> = {}
-  let currentSectionName = ''
-  
-  const lines = content.split('\n')
-  
-  for (const line of lines) {
-    const trimmed = line.trim()
-    // 跳过空行和注释
-    if (!trimmed || trimmed.startsWith('#')) continue
-    
-    // 节头 [section]
-    const sectionMatch = trimmed.match(/^\[(.*)\]$/)
-    if (sectionMatch) {
-      const sectionName = sectionMatch[1].trim()
-      currentSectionName = sectionName
-      result[sectionName] = {}
-      currentSection = result[sectionName]
-      continue
-    }
-    
-    // 键值对 key = value
-    const eqIndex = trimmed.indexOf('=')
-    if (eqIndex >= 0) {
-      const key = trimmed.slice(0, eqIndex).trim()
-      let value = trimmed.slice(eqIndex + 1).trim()
-      
-      // 类型转换：true/false → boolean
-      if (value === 'true') {
-        value = true
-      } else if (value === 'false') {
-        value = false
-      } else if (!isNaN(parseFloat(value)) && value.includes('.')) {
-        value = parseFloat(value)
-      } else if (!isNaN(parseInt(value)) && !value.includes('.')) {
-        value = parseInt(value)
-      }
-      
-      currentSection[key] = value
-    }
-  }
-  
-  return result
-}
-
 // ==================== 生命周期 ====================
-
-// 页面加载完成后，从后端获取默认配置
-onMounted(async () => {
-  let loaded = false
-  
-  // 1. 先尝试从 config.ini 静态文件加载（优先方案，用户已配置好）
-  try {
-    const response = await fetch('/config.ini')
-    if (response.ok) {
-      const text = await response.text()
-      const parsed = parseIni(text)
-      
-      // 转换并应用配置
-      if (parsed.dataSource) {
-        Object.assign(form.dataSource, parsed.dataSource)
-        // start_date 和 end_date 必须是字符串，不能是数字
-        if (typeof parsed.dataSource.start_date === 'number') {
-          form.dataSource.start_date = String(parsed.dataSource.start_date)
-        }
-        if (typeof parsed.dataSource.end_date === 'number') {
-          form.dataSource.end_date = String(parsed.dataSource.end_date)
-        }
-      }
-      if (parsed.base) {
-        Object.assign(form.base, parsed.base)
-      }
-      if (parsed.globalFilter) {
-        Object.assign(form.globalFilter, parsed.globalFilter)
-      }
-      if (parsed.forceEmpty) {
-        Object.assign(form.forceEmpty, parsed.forceEmpty)
-        // 百分比转小数：3 → 0.03
-        if (parsed.forceEmpty.index_drop_pct !== undefined) {
-          form.forceEmpty.index_drop_pct = parsed.forceEmpty.index_drop_pct / 100
-        }
-      }
-      if (parsed.sentimentCycle) {
-        Object.assign(form.sentimentCycle, parsed.sentimentCycle)
-      }
-      if (parsed.auctionFilter) {
-        Object.assign(form.auctionFilter, parsed.auctionFilter)
-        // 百分比转小数
-        if (parsed.auctionFilter.min_auction_pct !== undefined) {
-          form.auctionFilter.min_auction_pct = parsed.auctionFilter.min_auction_pct / 100
-        }
-        if (parsed.auctionFilter.max_auction_pct !== undefined) {
-          form.auctionFilter.max_auction_pct = parsed.auctionFilter.max_auction_pct / 100
-        }
-      }
-      if (parsed.tradeParams) {
-        Object.assign(form.tradeParams, parsed.tradeParams)
-        // 百分比转小数
-        if (parsed.tradeParams.base_stop_loss_pct !== undefined) {
-          form.tradeParams.base_stop_loss_pct = parsed.tradeParams.base_stop_loss_pct / 100
-        }
-        if (parsed.tradeParams.base_take_profit_pct !== undefined) {
-          form.tradeParams.base_take_profit_pct = parsed.tradeParams.base_take_profit_pct / 100
-        }
-        if (parsed.tradeParams.slippage_pct !== undefined) {
-          form.tradeParams.slippage_pct = parsed.tradeParams.slippage_pct / 100
-        }
-      }
-      
-      // 默认选中策略
-      if (parsed.defaultStrategies?.selected) {
-        const strategies = parsed.defaultStrategies.selected.split(',').map((s: string) => s.trim())
-        form.strategies = [...strategies]
-      }
-      
-      // 各策略独立参数
-      const strategyIds = ['halfway_chase', 'first_limit_up', 'limit_up_open', 'leader_buy_dip', 'limit_down_qiao']
-      for (const sid of strategyIds) {
-        if (parsed[sid]) {
-          // 根据策略不同转换参数
-          const cfg = parsed[sid]
-          
-          // 百分比转小数
-          if (cfg.min_pct !== undefined && form.strategyConfigs[sid]?.params) {
-            form.strategyConfigs[sid].params.min_rise_pct = cfg.min_pct / 100
-          }
-          if (cfg.max_pct !== undefined && form.strategyConfigs[sid]?.params) {
-            form.strategyConfigs[sid].params.max_rise_pct = cfg.max_pct / 100
-          }
-          if (cfg.min_auction_pct !== undefined && form.strategyConfigs[sid]?.params) {
-            form.strategyConfigs[sid].params.min_auction_pct = cfg.min_auction_pct / 100
-          }
-          if (cfg.max_auction_pct !== undefined && form.strategyConfigs[sid]?.params) {
-            form.strategyConfigs[sid].params.max_auction_pct = cfg.max_auction_pct / 100
-          }
-          if (cfg.callback_pct !== undefined && form.strategyConfigs[sid]?.params) {
-            form.strategyConfigs[sid].params.min_correction_pct = cfg.callback_pct / 100
-          }
-          if (cfg.callback_pct_max !== undefined && form.strategyConfigs[sid]?.params) {
-            form.strategyConfigs[sid].params.max_correction_pct = cfg.callback_pct_max / 100
-          }
-          if (cfg.min_rise_after_qiao !== undefined && form.strategyConfigs[sid]?.params) {
-            form.strategyConfigs[sid].params.min_rise_after_qiao = cfg.min_rise_after_qiao / 100
-          }
-          
-          // 直接赋值其他参数
-          Object.assign(form.strategyConfigs[sid].params, cfg)
-        }
-      }
-      
-      addLog('✅ 已从 config.ini 加载默认配置')
-      loaded = true
-    }
-  } catch (e) {
-    console.warn('读取 config.ini 失败', e)
-  }
-  
-  // 2. 如果 config.ini 加载失败，尝试从后端API加载
-  if (!loaded) {
-    try {
-      // 请求后端获取默认配置
-      const res = await backtestApi.getUltraShortDefaults()
-      if (res.data?.success && res.data?.data) {
-        const defaults = res.data.data
-        
-        // 用后端返回的默认值覆盖本地硬编码默认值
-        Object.assign(form.dataSource, defaults.dataSource || {})
-        Object.assign(form.base, defaults.base || {})
-        Object.assign(form.globalFilter, defaults.globalFilter || {})
-        Object.assign(form.forceEmpty, defaults.forceEmpty || {})
-        Object.assign(form.sentimentCycle, defaults.sentimentCycle || {})
-        Object.assign(form.auctionFilter, defaults.auctionFilter || {})
-        Object.assign(form.tradeParams, defaults.tradeParams || {})
-        if (defaults.strategies) {
-          form.strategies = [...defaults.strategies]
-        }
-        if (defaults.strategyConfigs) {
-          Object.assign(form.strategyConfigs, defaults.strategyConfigs)
-        }
-        
-        addLog('✅ 已从后端API加载默认配置')
-        loaded = true
-      }
-    } catch (e) {
-      console.warn('从后端API获取默认配置失败', e)
-    }
-  }
-  
-  // 3. 如果都失败，使用本地硬编码默认值
-  if (!loaded) {
-    addLog('✅ 使用本地硬编码默认参数（config.ini和后端API获取都失败）')
-  }
-  
+onMounted(() => {
   // 页面加载完成
   addLog('✅ 超短策略回测V2.0系统加载完成')
   addLog('💡 所有实盘级功能默认开启，可直接运行回测')
@@ -417,58 +223,24 @@ const submitBacktest = async () => {
   addLog(`✅ 竞价过滤规则: ${form.auctionFilter.enabled ? '已启用' : '已禁用'}`)
 
   try {
-    // 收集每个策略的完整配置（包含独立参数）
-    const selected_strategies = form.strategies.map(id => {
-      const cfg = form.strategyConfigs[id as keyof typeof form.strategyConfigs]
-      return {
-        id: id,
-        name: cfg.name,
-        enabled: cfg.enabled,
-        params: { ...cfg.params }
-      }
-    })
-    
-    // 构建 strategy_params：{strategy_id: {params}}
-    const strategy_params: Record<string, any> = {}
-    for (const id of form.strategies) {
-      strategy_params[id] = { ...form.strategyConfigs[id as keyof typeof form.strategyConfigs].params }
-    }
-    
     // 提交回测任务到后端
-    // ⚠️ 严格按照后端 UltraShortBacktestRequest 模型定义**顺序和字段名**构造，保证Pydantic验证100%通过
     const res = await backtestApi.submitUltraShort({
-      strategies: form.strategies,
-      selected_strategies: selected_strategies,
       start_date: form.dataSource.start_date,
       end_date: form.dataSource.end_date,
-      // 数据源配置 - 严格按照后端顺序
-      data_source: "mongodb",
-      period: form.dataSource.period,
-      ts_codes: form.dataSource.ts_codes,
-      adjust_type: form.dataSource.adjust_type,
-      // 资金 - 严格按照后端顺序
       initial_cash: form.base.initial_cash,
-      initial_capital: form.base.initial_cash,
-      // params 必须包含 UltraShortParams 模型定义的**所有**字段（顺序一字不差）
+      strategies: form.strategies,
       params: {
+        liquidity_threshold: form.globalFilter.min_daily_amount,
         volume_threshold: form.globalFilter.min_turnover_rate,
         stop_loss_pct: form.tradeParams.base_stop_loss_pct,
         take_profit_pct: form.tradeParams.base_take_profit_pct,
         max_hold_days: form.tradeParams.max_hold_days,
-        max_position: form.tradeParams.max_total_position,
-        liquidity_threshold: form.globalFilter.min_daily_amount,
         max_position_per_stock: form.tradeParams.max_position_per_stock,
-        force_empty_position: form.forceEmpty.enabled,
-        sentiment_cycle: form.sentimentCycle.enabled,
-        auction_filter: form.auctionFilter.enabled,
-        selected_strategies: selected_strategies
+        max_position: form.tradeParams.max_total_position
       },
-      // 各策略独立参数（后端模型要求这个顶级字段）
-      strategy_params: strategy_params,
-      // 顶级功能开关 - 严格按照后端顺序
-      enable_sentiment_cycle: form.sentimentCycle.enabled,
-      enable_auction_filter: form.auctionFilter.enabled,
       enable_force_empty: form.forceEmpty.enabled,
+      enable_sentiment_cycle: form.sentimentCycle.enabled,
+      enable_auction_filter: form.auctionFilter.enabled
     })
 
     // 空值保护（响应拦截器已经直接返回response.data）
@@ -1375,6 +1147,246 @@ const exportTrades = () => {
       </ElCollapse>
     </ElCard>
 
+    <!-- 进度展示 -->
+    <ElCard v-if="backtestState.running" class="progress-card">
+      <template #header>
+        <span>⏳ 回测进度</span>
+      </template>
+      <ElProgress :percentage="backtestState.progress" :show-text="true" status="success" />
+    </ElCard>
+
+    <!-- 结果区域 -->
+    <ElCard class="result-card">
+      <template #header>
+        <span>📊 回测结果</span>
+        <ElButton 
+          v-if="backtestResult" 
+          @click="exportTrades" 
+          :icon="Download" 
+          type="primary" 
+          plain 
+          size="small"
+        >
+          导出交易记录
+        </ElButton>
+      </template>
+
+      <!-- 核心指标 -->
+      <div v-if="backtestResult" class="metrics-grid">
+        <div class="metric-card">
+          <div class="metric-label">累计收益率</div>
+          <div class="metric-value">{{ ((backtestResult.total_return || 0) * 100).toFixed(2) }}%</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">胜率</div>
+          <div class="metric-value">{{ ((backtestResult.win_rate || 0) * 100).toFixed(2) }}%</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">盈亏比</div>
+          <div class="metric-value">{{ (backtestResult.profit_loss_ratio || 0).toFixed(2) }}</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">最大回撤</div>
+          <div class="metric-value">{{ ((backtestResult.max_drawdown || 0) * 100).toFixed(2) }}%</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">夏普比率</div>
+          <div class="metric-value">{{ (backtestResult.sharpe_ratio || 0).toFixed(2) }}</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">总交易次数</div>
+          <div class="metric-value">{{ backtestResult.total_trades || 0 }}</div>
+        </div>
+      </div>
+
+      <!-- 标签页永久显示（符合Element Plus语法规范） -->
+      <ElTabs type="border-card">
+        <ElTabPane label="核心指标" name="metrics">
+          <!-- 空状态提示：无回测结果时显示 -->
+          <ElEmpty v-if="!backtestResult" description="暂无回测结果，请先运行回测 【修改时间：2026-04-05 15:15 版本：v2.3.0-标签页永久显示最终版】" />
+          <!-- 有结果时显示核心指标 -->
+          <div v-if="backtestResult" class="metrics-grid">
+            <div class="metric-card">
+              <div class="metric-label">累计收益率</div>
+              <div class="metric-value">{{ ((backtestResult.total_return || 0) * 100).toFixed(2) }}%</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">年化收益率</div>
+              <div class="metric-value">{{ ((backtestResult.annualized_return || 0) * 100).toFixed(2) }}%</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">胜率</div>
+              <div class="metric-value">{{ ((backtestResult.win_rate || 0) * 100).toFixed(2) }}%</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">盈亏比</div>
+              <div class="metric-value">{{ (backtestResult.profit_loss_ratio || 0).toFixed(2) }}</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">最大回撤</div>
+              <div class="metric-value">{{ ((backtestResult.max_drawdown || 0) * 100).toFixed(2) }}%</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">夏普比率</div>
+              <div class="metric-value">{{ (backtestResult.sharpe_ratio || 0).toFixed(2) }}</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">索提诺比率</div>
+              <div class="metric-value">{{ (backtestResult.sortino_ratio || 0).toFixed(2) }}</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">卡尔玛比率</div>
+              <div class="metric-value">{{ (backtestResult.calmar_ratio || 0).toFixed(2) }}</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">总交易次数</div>
+              <div class="metric-value">{{ backtestResult.total_trades || 0 }}</div>
+            </div>
+          </div>
+        </ElTabPane>
+
+        <ElTabPane label="可视化图表" name="charts">
+          <!-- 空状态提示 -->
+          <ElEmpty v-if="!backtestResult" description="暂无回测结果，请先运行回测" />
+          <!-- 有结果时显示图表 -->
+          <div v-if="backtestResult" class="charts-grid">
+            <div class="chart-card">
+              <div class="chart-title">净值曲线与回撤</div>
+              <v-chart :option="netValueChartOption" autoresize />
+            </div>
+            <div class="chart-card">
+              <div class="chart-title">每日盈亏</div>
+              <v-chart :option="dailyProfitChartOption" autoresize />
+            </div>
+            <div class="chart-card">
+              <div class="chart-title">仓位变化</div>
+              <v-chart :option="positionChartOption" autoresize />
+            </div>
+            <div class="chart-card">
+              <div class="chart-title">收益分布</div>
+              <v-chart :option="profitDistChartOption" autoresize />
+            </div>
+          </div>
+        </ElTabPane>
+
+        <ElTabPane label="交易记录" name="trades">
+          <!-- 空状态提示 -->
+          <ElEmpty v-if="!backtestResult" description="暂无回测结果，请先运行回测" />
+          <!-- 有结果时显示交易记录 -->
+          <div v-if="backtestResult" class="mb-3">
+            <ElInput placeholder="搜索股票代码/名称" style="width: 300px; margin-right: 10px;" v-model="searchTradeKeyword" />
+            <ElSelect placeholder="按策略筛选" style="width: 200px; margin-right: 10px;" v-model="filterStrategy">
+              <ElOption label="全部策略" value="" />
+              <ElOption v-for="(config, id) in form.strategyConfigs" :key="id" :label="config.name" :value="id" />
+            </ElSelect>
+            <ElSelect placeholder="按盈亏筛选" style="width: 200px;" v-model="filterProfit">
+              <ElOption label="全部" value="" />
+              <ElOption label="盈利" value="profit" />
+              <ElOption label="亏损" value="loss" />
+            </ElSelect>
+          </div>
+          <ElTable :data="filteredTrades" border stripe max-height="400">
+            <ElTableColumn prop="date" label="交易日期" />
+            <ElTableColumn prop="ts_code" label="股票代码" />
+            <ElTableColumn prop="stock_name" label="股票名称" />
+            <ElTableColumn prop="strategy" label="策略" />
+            <ElTableColumn prop="buy_price" label="买入价" :formatter="(row) => row.buy_price?.toFixed(2)" />
+            <ElTableColumn prop="sell_price" label="卖出价" :formatter="(row) => row.sell_price?.toFixed(2)" />
+            <ElTableColumn prop="profit_pct" label="收益率" :formatter="(row) => `${(row.profit_pct * 100).toFixed(2)}%`" :cell-style="(row) => row.profit_pct >= 0 ? {color: '#67c23a'} : {color: '#f56c6c'}" />
+            <ElTableColumn prop="hold_days" label="持仓天数" />
+          </ElTable>
+        </ElTabPane>
+
+        <ElTabPane label="交易分析" name="analysis">
+          <!-- 空状态提示 -->
+          <ElEmpty v-if="!backtestResult" description="暂无回测结果，请先运行回测" />
+          <!-- 有结果时显示交易分析 -->
+          <div v-if="backtestResult" class="analysis-grid">
+            <div class="analysis-card">
+              <h4>统计概览</h4>
+              <div class="analysis-item">
+                <span>盈利交易数：</span><span class="value">{{ backtestResult.win_count || 0 }} 笔</span>
+              </div>
+              <div class="analysis-item">
+                <span>亏损交易数：</span><span class="value">{{ backtestResult.loss_count || 0 }} 笔</span>
+              </div>
+              <div class="analysis-item">
+                <span>平均盈利：</span><span class="value profit">{{ ((backtestResult.avg_win || 0) * 100).toFixed(2) }}%</span>
+              </div>
+              <div class="analysis-item">
+                <span>平均亏损：</span><span class="value loss">{{ ((backtestResult.avg_loss || 0) * 100).toFixed(2) }}%</span>
+              </div>
+              <div class="analysis-item">
+                <span>最大单笔盈利：</span><span class="value profit">{{ ((backtestResult.max_win || 0) * 100).toFixed(2) }}%</span>
+              </div>
+              <div class="analysis-item">
+                <span>最大单笔亏损：</span><span class="value loss">{{ ((backtestResult.max_loss || 0) * 100).toFixed(2) }}%</span>
+              </div>
+              <div class="analysis-item">
+                <span>平均持仓天数：</span><span class="value">{{ (backtestResult.avg_hold_days || 0).toFixed(1) }} 天</span>
+              </div>
+            </div>
+            <div class="analysis-card">
+              <h4>盈利TOP5</h4>
+              <ElTable :data="profitTop5 || []" border size="small">
+                <ElTableColumn prop="stock_name" label="股票" />
+                <ElTableColumn prop="strategy" label="策略" />
+                <ElTableColumn prop="profit_pct" label="收益率" :formatter="(row) => `${(row.profit_pct * 100).toFixed(2)}%`" />
+              </ElTable>
+            </div>
+            <div class="analysis-card">
+              <h4>亏损TOP5</h4>
+              <ElTable :data="lossTop5 || []" border size="small">
+                <ElTableColumn prop="stock_name" label="股票" />
+                <ElTableColumn prop="strategy" label="策略" />
+                <ElTableColumn prop="profit_pct" label="收益率" :formatter="(row) => `${(row.profit_pct * 100).toFixed(2)}%`" />
+              </ElTable>
+            </div>
+          </div>
+        </ElTabPane>
+
+        <ElTabPane label="策略对比" name="compare">
+          <!-- 空状态提示 -->
+          <ElEmpty v-if="!backtestResult" description="暂无回测结果，请先运行回测" />
+          <!-- 有结果时显示策略对比 -->
+          <div v-if="backtestResult" class="compare-grid">
+            <div class="chart-card full-width">
+              <div class="chart-title">多策略收益曲线对比</div>
+              <v-chart :option="strategyCompareChartOption" autoresize />
+            </div>
+            <div class="chart-card full-width">
+              <div class="chart-title">策略绩效雷达图</div>
+              <v-chart :option="radarChartOption" autoresize />
+            </div>
+          </div>
+        </ElTabPane>
+
+        <ElTabPane label="高级分析" name="advanced">
+          <!-- 空状态提示 -->
+          <ElEmpty v-if="!backtestResult" description="暂无回测结果，请先运行回测" />
+          <!-- 有结果时显示高级分析 -->
+          <div v-if="backtestResult" class="advanced-grid">
+            <div class="chart-card">
+              <div class="chart-title">因子贡献度</div>
+              <v-chart :option="factorContributionChartOption" autoresize />
+            </div>
+            <div class="chart-card">
+              <div class="chart-title">月度收益分布</div>
+              <v-chart :option="monthlyProfitChartOption" autoresize />
+            </div>
+            <div class="analysis-card full-width">
+              <h4>风险指标矩阵</h4>
+              <ElTable :data="riskMetrics || []" border>
+                <ElTableColumn prop="name" label="指标名称" />
+                <ElTableColumn prop="value" label="数值" />
+                <ElTableColumn prop="desc" label="说明" />
+              </ElTable>
+            </div>
+          </div>
+        </ElTabPane>
+      </ElTabs>
+    </ElCard>
+
     <!-- 日志区域 -->
     <ElCard class="log-card">
       <template #header>
@@ -1384,7 +1396,6 @@ const exportTrades = () => {
         <div v-for="(log, index) in logs" :key="index" class="log-item">{{ log }}</div>
       </div>
     </ElCard>
-
   </div>
 </template>
 
@@ -1426,8 +1437,130 @@ const exportTrades = () => {
   }
 }
 
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 15px;
+  margin-bottom: 20px;
+  
+  .metric-card {
+    background: #f5f7fa;
+    border-radius: 8px;
+    padding: 20px;
+    text-align: center;
+    
+    .metric-label {
+      font-size: 14px;
+      color: #606266;
+      margin-bottom: 8px;
+    }
+    
+    .metric-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: #303133;
+    }
+  }
+}
+
+.charts-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+  margin-bottom: 20px;
+  
+  .chart-card {
+    background: #fff;
+    border-radius: 8px;
+    padding: 20px;
+    border: 1px solid #ebeef5;
+    height: 400px;
+    
+    .chart-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 15px;
+      color: #303133;
+    }
+  }
+}
+
+.analysis-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  margin-bottom: 20px;
+  
+  .analysis-card {
+    background: #fff;
+    border-radius: 8px;
+    padding: 20px;
+    border: 1px solid #ebeef5;
+    
+    h4 {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 15px;
+      color: #303133;
+    }
+    
+    .analysis-item {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      font-size: 14px;
+      
+      .value {
+        font-weight: 600;
+        &.profit { color: #67c23a; }
+        &.loss { color: #f56c6c; }
+      }
+    }
+  }
+}
+
+.compare-grid {
+  display: grid;
+  gap: 20px;
+  margin-bottom: 20px;
+  
+  .chart-card.full-width {
+    grid-column: 1 / -1;
+    height: 400px;
+  }
+}
+
+.advanced-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+  margin-bottom: 20px;
+  
+  .chart-card,
+  .analysis-card {
+    background: #fff;
+    border-radius: 8px;
+    padding: 20px;
+    border: 1px solid #ebeef5;
+    height: 400px;
+    
+    .chart-title,
+    h4 {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 15px;
+      color: #303133;
+    }
+  }
+  
+  .analysis-card.full-width {
+    grid-column: 1 / -1;
+    height: auto;
+  }
+}
+
 .log-panel {
-  height: 500px;
+  height: 300px;
   overflow-y: auto;
   background: #f5f7fa;
   border-radius: 4px;

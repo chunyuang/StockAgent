@@ -711,8 +711,8 @@ class BacktestNode(BaseNode):
             # 直接从params读取策略参数，构建因子条件
             params = strategy.get("params", {})
             if strategy_id == "halfway_chase":
-                # 半路追涨策略参数
-                min_volume = params.get("min_volume_ratio", 1.5)
+                # 半路追涨策略参数 - P0修改：量比阈值从 1.5 → 2.5
+                min_volume = params.get("min_volume_ratio", 2.5)
                 all_factors.append({"name": "volume_increase", "weight": weight_per_strategy, "target": min_volume})
             elif strategy_id == "first_limit_up":
                 # 首板打板策略参数
@@ -952,6 +952,10 @@ class BacktestNode(BaseNode):
         except Exception as e:
             # Redis发布失败时忽略，不影响回测执行
             self.logger.warning(f"Failed to publish log to Redis: {e}")
+        
+        # 🚀 让出事件循环，让WebSocket推送能及时发送到前端
+        # 避免日志攒在一起最后一次性推送，前端能看到逐行更新
+        await asyncio.sleep(0)
 
     async def _execute_backtest(self, params: dict) -> dict:
         """
