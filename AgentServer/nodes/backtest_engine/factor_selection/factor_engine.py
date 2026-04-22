@@ -75,9 +75,9 @@ class FactorEngine:
         factor_values = {}
         for factor_def in factor_defs:
             # 生成缓存key：因子名 + 交易日，所有股票都用同一个因子同一天数据
+            # 正确的缓存方法：get → cache_get, setex → cache_setex (会自动添加cache:前缀)
             cache_key = f"factor:v1:{factor_def.name}:{trade_date}"
-            # 尝试从Redis获取缓存
-            cached = await redis_manager.get(cache_key)
+            cached = await redis_manager.cache_get(cache_key)
             
             if cached is not None:
                 # 缓存命中，直接反序列化
@@ -98,7 +98,7 @@ class FactorEngine:
             try:
                 # 序列化为JSON
                 cached_data = json.dumps(values)
-                await redis_manager.setex(cache_key, 86400, cached_data)
+                await redis_manager.cache_setex(cache_key, 86400, cached_data)
                 logger.debug('FACTOR_ENGINE', f"Cached: {factor_def.name} on {trade_date}, {len(values)} stocks")
             except Exception as e:
                 logger.debug('FACTOR_ENGINE', f"Cache store failed: {e}")
