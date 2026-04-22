@@ -334,9 +334,29 @@ class VectorizedBacktester:
                 cash[i] = cash[i - 1]
                 shares[i] = shares[i - 1]
             
-            # 执行价格 (考虑滑点)
-            buy_price = open_price * (1 + self.config.slippage)
-            sell_price = open_price * (1 - self.config.slippage)
+            # 执行价格 (考虑流动性动态滑点 + 卖出冲击成本)
+            # 滑点 = base_slippage / sqrt(circ_mv / 10000)
+            # 流通市值越小，滑点越大
+            # 5亿  → ~0.2% 滑点
+            # 50亿 → ~0.06% 滑点
+            import math
+            circ_mv = factor_data.price_data.loc[date, 'circ_mv'] if 'circ_mv' in factor_data.price_data.columns else 50000
+            volume = factor_data.price_data.loc[date, 'volume'] if 'volume' in factor_data.price_data.columns else 0
+            # circ_mv 单位是 万元
+            dynamic_slippage = self.config.slippage / math.sqrt(max(1.0, circ_mv / 10000))
+            buy_price = open_price * (1 + dynamic_slippage)
+            sell_price = open_price * (1 - dynamic_slippage)
+            
+            # 卖出冲击成本：持仓占当日成交量比例越高，卖出砸盘冲击越大
+            # impact = (shares * 100 * buy_price) / (volume * 10000) * 0.5
+            # 持仓占日成交量 10% → 额外 5% 冲击
+            if signal == -1 and shares[i] > 0 and volume > 0:
+                shares_held = shares[i]
+                amount_bny = shares_held * buy_price  # 买入金额，单位 元
+                volume_amount = volume * 10000  # 日成交额，单位 万元 → 元
+                if volume_amount > 0:
+                    impact_ratio = (amount_bny / volume_amount) * 0.5
+                    sell_price = sell_price * (1 - impact_ratio)
             
             # 买入逻辑
             if signal == 1 and shares[i] == 0 and cash[i] > 0:
