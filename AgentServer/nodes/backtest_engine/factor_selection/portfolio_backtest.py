@@ -53,6 +53,7 @@ from core.utils.logger import logger
 
 from .factor_engine import FactorEngine, log_memory_usage
 from .universe import ExcludeRule, UniverseManager, UniverseType
+from .special_period_filter import get_special_period_filter
 
 
 @dataclass
@@ -708,7 +709,7 @@ class PortfolioBacktester:
                 
                 # 🔴 任务3：流动性过滤真正执行（P0！）
                 # 查询流动性不足的股票，然后真正从universe中剔除
-                low_liquidity_cursor = mongo_manager.find(
+                low_liquidity_cursor = mongo_manager.find_many(
                     "stock_daily_ak_full",
                     {
                         "trade_date": int(trade_date),
@@ -717,7 +718,7 @@ class PortfolioBacktester:
                     },
                     {"ts_code": 1}
                 )
-                low_liquidity_list = [doc["ts_code"] for doc in await low_liquidity_cursor.to_list(length=10000)]
+                low_liquidity_list = [doc["ts_code"] for doc in await low_liquidity_cursor]
                 low_liquidity_set = set(low_liquidity_list)
                 low_liquidity_count = len(low_liquidity_set)
                 
@@ -1577,15 +1578,25 @@ class PortfolioBacktester:
                 total_value += shares * price
 
         # 🔴 任务2：情绪周期仓位系数真正应用（P0！）
-        position_multiplier = self._extract_position_multiplier(sentiment)
+        sentiment_multiplier = self._extract_position_multiplier(sentiment)
+        
+        # 🔴 第2层：特殊时期过滤（新增！）
+        # 节假日前夕/重大会议/月末季末年末 自动降仓
+        special_period_filter = get_special_period_filter()
+        special_multiplier = special_period_filter.get_position_multiplier(str(trade_date))
+        active_periods = special_period_filter.get_active_periods(str(trade_date))
+        
+        # ✅ 综合仓位系数 = 情绪系数 × 特殊时期系数
+        # 两个维度独立判断，取乘积就是最终仓位（最严格的生效）
+        position_multiplier = sentiment_multiplier * special_multiplier
         
         # 计算目标持仓
         target_shares = {}  # {ts_code: target_shares}
         for code, weight in target_weights.items():
             if code not in prices:
                 continue  # 没有价格,无法买入
-            # ✅ 应用情绪仓位系数！
-            # 例如：情绪是冰点期，仓位系数0.3，则目标价值只占总资金的30%
+            # ✅ 应用综合仓位系数！
+            # 例如：情绪冰点 0.3 × 春节前夕 0.2 = 0.06 → 只有 6% 仓位
             target_value = total_value * weight * position_multiplier
             price = prices[code]['open']  # 买入用开盘价
             # 向下取整到 100 的倍数(A股买入规则)
