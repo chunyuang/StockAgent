@@ -5,16 +5,22 @@
 - 策略近期表现统计查询
 - 策略权重配置保存
 - 风控配置查询和保存
+- 版本信息查询
 """
 
+import os
+import subprocess
 from datetime import datetime
 from typing import Dict, List, Any
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 
 from core.managers import mongo_manager
+from .auth import get_current_user_id, get_current_user, require_admin
+
+
 
 router = APIRouter(prefix="/system", tags=["系统状态和配置"])
 logger = logging.getLogger("api.system")
@@ -67,7 +73,9 @@ class SaveRiskConfigRequest(BaseModel):
 
 
 @router.get("/strategy-stats")
-async def get_strategy_stats() -> Dict[str, Any]:
+async def get_strategy_stats(
+    user_id: str = Depends(get_current_user_id)
+) -> Dict[str, Any]:
     """
     获取各个策略近期表现统计
     
@@ -79,11 +87,6 @@ async def get_strategy_stats() -> Dict[str, Any]:
     - 交易次数
     - 当前权重
     """
-    # 开发阶段：移除认证依赖，不需要登录也能访问
-    # 从数据库中查询各个策略的统计数据
-    # 默认提供默认策略列表（根据历史回测数据统计
-    # 这里使用默认策略信息，如果数据库中没有数据，返回默认值
-    
     # 查询已有的策略列表
     default_strategies = [
         {
@@ -137,9 +140,6 @@ async def get_strategy_stats() -> Dict[str, Any]:
             "weight": 0.0,
         },
     ]
-    
-    # 开发阶段：默认 user_id = 0
-    user_id = "0"
     
     # 尝试从数据库读取保存的权重
     try:
@@ -197,17 +197,15 @@ async def get_strategy_stats() -> Dict[str, Any]:
 
 @router.post("/save-weights")
 async def save_strategy_weights(
-    request: SaveWeightsRequest
+    request: SaveWeightsRequest,
+    user_id: str = Depends(get_current_user_id)
 ) -> Dict[str, Any]:
     """
     保存用户调整后的策略权重配置
     
     权重总和应该接近 1.0，前端已经做了提示，这里只保存
     """
-    # 开发阶段：移除认证依赖，不需要登录也能访问
     try:
-        # 开发阶段：默认 user_id = 0
-        user_id = "0"
         
         # 验证权重总和检查
         total_weight = sum(s.get("weight", 0) for s in request.strategies)
@@ -240,7 +238,9 @@ async def save_strategy_weights(
 
 
 @router.get("/risk-config")
-async def get_risk_config() -> Dict[str, Any]:
+async def get_risk_config(
+    user_id: str = Depends(get_current_user_id)
+) -> Dict[str, Any]:
     """
     获取当前风控配置
     
@@ -250,11 +250,7 @@ async def get_risk_config() -> Dict[str, Any]:
     - 大盘 MA60 过滤：启用
     - 板块集中度过滤：启用，保留前 3 名
     """
-    # 开发阶段：移除认证依赖，不需要登录也能访问
     default_config = RiskConfig()
-    
-    # 开发阶段：默认 user_id = 0
-    user_id = "0"
     
     # 尝试从数据库读取已保存的配置
     try:
@@ -284,15 +280,13 @@ async def get_risk_config() -> Dict[str, Any]:
 
 @router.post("/save-risk-config")
 async def save_risk_config(
-    request: SaveRiskConfigRequest
+    request: SaveRiskConfigRequest,
+    user_id: str = Depends(get_current_user_id)
 ) -> Dict[str, Any]:
     """
     保存用户修改后的风控配置
     """
-    # 开发阶段：移除认证依赖，不需要登录也能访问
     try:
-        # 开发阶段：默认 user_id = 0
-        user_id = "0"
         
         # 保存到数据库
         await mongo_manager.update_one(
@@ -318,3 +312,337 @@ async def save_risk_config(
     except Exception as e:
         logger.error(f"Failed to save risk config: {e}")
         raise HTTPException(status_code=500, detail=f"保存失败: {str(e)}")
+
+
+# ==================== 推送配置 API ====================
+
+
+class SavePushConfigRequest(BaseModel):
+    """推送配置保存请求"""
+    config: Dict[str, Any] = Field(..., description="推送配置")
+
+
+@router.get("/push-config")
+async def get_push_config(
+    user_id: str = Depends(get_current_user_id)
+) -> Dict[str, Any]:
+    """
+    获取推送配置
+    
+    返回飞书/企业微信Webhook地址、推送开关、最小发送间隔等配置。
+    """
+    try:
+        
+        record = await mongo_manager.find_one(
+            "system_config",
+            {"user_id": user_id, "type": "push_config"},
+        )
+        
+        if record and "config" in record:
+            return {
+                "success": True,
+                "config": record["config"]
+            }
+        
+        # 默认配置
+        return {
+            "success": True,
+            "config": {
+                "notify_enabled": True,
+                "wecom_webhook": "",
+                "wecom_enabled": True,
+                "feishu_enabled": False,
+                "feishu_webhook": "",
+                "feishu_app_id": "",
+                "feishu_app_secret": "",
+                "feishu_bitable_app_token": "",
+                "min_interval": 10,
+                "min_confidence": 0.0,
+                "push_empty_signal": False,
+            }
+        }
+    except Exception as e:
+        logger.error(f"Failed to get push config: {e}")
+        raise HTTPException(status_code=500, detail=f"获取推送配置失败: {str(e)}")
+
+
+@router.post("/save-push-config")
+async def save_push_config(
+    request: SavePushConfigRequest,
+    user_id: str = Depends(get_current_user_id)
+) -> Dict[str, Any]:
+    """
+    保存推送配置
+    
+    保存飞书/企业微信Webhook地址、推送开关、最小发送间隔等配置。
+    前端PushConfigPanel组件调用此接口保存配置。
+    """
+    try:
+        
+        await mongo_manager.update_one(
+            "system_config",
+            {"user_id": user_id, "type": "push_config"},
+            {
+                "$set": {
+                    "user_id": user_id,
+                    "type": "push_config",
+                    "config": request.config,
+                    "updated_at": datetime.utcnow(),
+                }
+            },
+            upsert=True
+        )
+        
+        logger.info(f"User {user_id} saved push config")
+        return {
+            "success": True,
+            "message": "推送配置已保存",
+            "config": request.config
+        }
+    except Exception as e:
+        logger.error(f"Failed to save push config: {e}")
+        raise HTTPException(status_code=500, detail=f"保存失败: {str(e)}")
+
+
+@router.post("/test-push")
+async def test_push(
+    user_id: str = Depends(get_current_user_id)
+) -> Dict[str, Any]:
+    """
+    发送测试推送消息
+    
+    使用当前保存的推送配置发送一条测试消息，验证Webhook地址是否有效。
+    """
+    try:
+        
+        record = await mongo_manager.find_one(
+            "system_config",
+            {"user_id": user_id, "type": "push_config"},
+        )
+        
+        if not record or "config" not in record:
+            raise HTTPException(status_code=400, detail="推送配置未保存，请先保存配置")
+        
+        config = record["config"]
+        
+        # 构造测试信号数据
+        test_signal = {
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "sentiment": {
+                "score": 75,
+                "level": "偏多",
+                "position_limit": 0.7,
+                "allowed_strategies": ["半路追涨", "首板打板"],
+            },
+            "universe_size": 100,
+            "force_empty": False,
+            "signals": [{
+                "ts_code": "000001.SZ",
+                "name": "平安银行",
+                "strategy": "半路追涨",
+                "industry": "银行",
+                "signal_type": "买入",
+                "confidence": 0.85,
+                "close": 12.50,
+                "pct_chg": 3.21,
+                "reason": "量能放大+突破关键阻力位",
+                "has_lhb": False,
+            }],
+        }
+        
+        from signal_pusher import SignalPusher
+        pusher = SignalPusher(config)
+        success = pusher.push(test_signal)
+        
+        if success:
+            return {"success": True, "message": "测试消息已发送，请检查接收端"}
+        else:
+            return {"success": False, "message": "部分渠道推送失败，请检查Webhook配置"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to test push: {e}")
+        raise HTTPException(status_code=500, detail=f"测试推送失败: {str(e)}")
+
+
+@router.get("/ws-config")
+async def get_websocket_config() -> Dict[str, Any]:
+    """获取 WebSocket 连接配置（前端用）
+    
+    前端调用此接口获取 WebSocket 的 host 和 port，
+    避免在前端硬编码 IP 地址。
+    """
+    from core.settings import settings
+    web_settings = settings.web
+    return {
+        "success": True,
+        "data": {
+            "host": web_settings.websocket_host,
+            "port": web_settings.websocket_port,
+        }
+    }
+
+
+@router.get("/risk-status")
+async def get_risk_status() -> Dict[str, Any]:
+    """获取风控状态（实时，非配置）
+    
+    返回当前风控引擎的实时状态：是否触发止损/止盈、大盘过滤结果等。
+    与 /risk-config 不同，本接口返回运行时状态而非配置项。
+    """
+    try:
+        # 尝试从MongoDB获取最新风控状态
+        status_record = await mongo_manager.find_one(
+            "risk_status",
+            {"type": "latest"},
+        )
+        if status_record:
+            return {
+                "success": True,
+                "data": {
+                    "stop_loss_triggered": status_record.get("stop_loss_triggered", False),
+                    "take_profit_triggered": status_record.get("take_profit_triggered", False),
+                    "ma60_filter": status_record.get("ma60_filter", "unknown"),
+                    "sector_concentration": status_record.get("sector_concentration", {}),
+                    "last_check": status_record.get("last_check", ""),
+                }
+            }
+    except Exception as e:
+        logger.warning(f"获取风控状态失败: {e}")
+    
+    # 降级：返回默认空状态
+    return {
+        "success": True,
+        "data": {
+            "stop_loss_triggered": False,
+            "take_profit_triggered": False,
+            "ma60_filter": "unknown",
+            "sector_concentration": {},
+            "last_check": "",
+            "message": "风控引擎未启动，返回默认状态",
+        }
+    }
+
+
+# ==================== 日志配置 ====================
+
+
+@router.get("/log-config")
+async def get_log_config() -> Dict[str, Any]:
+    """获取日志配置"""
+    try:
+        from core.settings import settings
+        obs = settings.observability if hasattr(settings, 'observability') else None
+        return {
+            "success": True,
+            "data": {
+                "log_level": obs.log_level if obs else "INFO",
+                "log_to_file": obs.log_to_file if obs else True,
+                "log_dir": obs.log_dir if obs else "logs",
+                "log_max_size_mb": obs.log_max_size_mb if obs else 50,
+                "log_backup_count": obs.log_backup_count if obs else 10,
+            }
+        }
+    except Exception as e:
+        logger.warning(f"获取日志配置失败: {e}")
+        return {
+            "success": True,
+            "data": {
+                "log_level": "INFO",
+                "log_to_file": True,
+                "log_dir": "logs",
+                "log_max_size_mb": 50,
+                "log_backup_count": 10,
+            }
+        }
+
+
+@router.post("/save-log-config")
+async def save_log_config(
+    config: Dict[str, Any],
+    _ = Depends(require_admin)
+) -> Dict[str, Any]:
+    """保存日志配置"""
+    try:
+        # 持久化到MongoDB
+        await mongo_manager.update_one(
+            "system_config",
+            {"type": "log_config"},
+            {"$set": {"type": "log_config", "config": config}},
+            upsert=True,
+        )
+        
+        # 动态更新日志级别（立即生效）
+        log_level = config.get("log_level", "INFO")
+        root_logger = logging.getLogger()
+        root_logger.setLevel(getattr(logging, log_level.upper(), logging.INFO))
+        
+        return {"success": True, "message": f"日志配置已保存，级别: {log_level}"}
+    except Exception as e:
+        logger.error(f"保存日志配置失败: {e}")
+        raise HTTPException(status_code=500, detail=f"保存日志配置失败: {str(e)}")
+
+
+# ==================== 版本信息 API ====================
+
+
+def get_git_commit() -> str:
+    """获取当前 git commit hash（短格式）"""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            cwd=os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            timeout=5
+        )
+        return result.stdout.strip() if result.returncode == 0 else "unknown"
+    except Exception:
+        return "unknown"
+
+
+def get_git_branch() -> str:
+    """获取当前 git 分支名"""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True,
+            text=True,
+            cwd=os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            timeout=5
+        )
+        return result.stdout.strip() if result.returncode == 0 else "unknown"
+    except Exception:
+        return "unknown"
+
+
+def get_build_time() -> str:
+    """获取构建时间（服务启动时间）"""
+    return datetime.now().astimezone().isoformat()
+
+
+# 缓存启动时的版本信息（避免每次都调git）
+_GIT_COMMIT = get_git_commit()
+_GIT_BRANCH = get_git_branch()
+_BUILD_TIME = get_build_time()
+
+
+@router.get("/version")
+async def get_version() -> Dict[str, Any]:
+    """
+    获取服务版本信息
+    
+    返回当前代码的 git commit hash、分支名、构建时间等，
+    用于验证代码是否确实生效，以及版本一致性检查。
+    """
+    return {
+        "success": True,
+        "data": {
+            "commit": _GIT_COMMIT,
+            "branch": _GIT_BRANCH,
+            "build_time": _BUILD_TIME,
+            "service": "backtest-engine",
+            "api_version": "v2",
+        },
+        "message": "获取版本信息成功"
+    }
