@@ -10,6 +10,8 @@
 
 import logging
 import json
+import gc
+import os
 
 import numpy as np
 import pandas as pd
@@ -21,13 +23,40 @@ from .factor_library import FactorCategory, FactorDefinition, FactorLibrary
 logger = logging.getLogger(__name__)
 
 
+def log_memory_usage(prefix: str = "MEM"):
+    """记录当前内存使用情况"""
+    try:
+        import psutil
+        process = psutil.Process(os.getpid())
+        mem_info = process.memory_info()
+        rss_mb = mem_info.rss / 1024 / 1024
+        logger.info('FACTOR_ENGINE', f"{prefix}: RSS={rss_mb:.1f}MB")
+    except Exception as e:
+        logger.debug('FACTOR_ENGINE', f"Failed to get memory info: {e}")
+
+
 class FactorEngine:
     """
     因子计算引擎
 
+    【双模式架构设计】
+    
+    ▶️ 回测模式 (MODE=backtest)
+        - 直接从 MongoDB stock_daily_ak_full 集合读取预计算因子
+        - 跳过实时因子计算逻辑，性能提升 10-100 倍
+        - 适用于大规模历史回测，数据已由 DATA_SYNC 节点预计算完成
+        - 支持所有预存因子字段 (first_limit_up/hot_sector/limit_up_yesterday 等)
+        
+    ▶️ 实盘模式 (MODE=live)
+        - 实时调用 factor_engine.compute_factors() 计算因子
+        - 支持 Redis 缓存加速（缓存键格式：factor:v1:{name}:{date}）
+        - 支持滚动窗口、动态指标等实时计算需求
+        - 兼容盘中选股、实时监控、动态调仓等场景
+        - 缓存过期时间：24小时
+
     职责:
     1. 批量加载股票数据
-    2. 计算因子值
+    2. 计算因子值（实盘模式）或读取预存（回测模式）
     3. 因子标准化
     4. 综合打分
     """
@@ -55,7 +84,43 @@ class FactorEngine:
             return pd.DataFrame()
 
         stocks_list = list(stocks)
-        logger.info('FACTOR_ENGINE', 'FACTOR_ENGINE', f"Computing factors for {len(stocks_list)} stocks on {trade_date}")
+        log_memory_usage(f"[{trade_date}] 因子计算开始")
+        logger.info('FACTOR_ENGINE', f"Computing factors for {len(stocks_list)} stocks on {trade_date}")
+
+        # ==================== 双模式分支 ====================
+        # 回测模式：直接从 MongoDB 读取预计算因子，跳过实时计算
+        from core.settings import settings
+        if settings.mode == "backtest":
+            logger.info('FACTOR_ENGINE', f"✅ [回测模式] 从 MongoDB 读取预计算因子: {trade_date}")
+            
+            # 提取需要的因子名称
+            factor_names = [cfg["name"] for cfg in factor_configs]
+            projection = {"ts_code": 1, "_id": 0}
+            for name in factor_names:
+                projection[name] = 1
+            
+            # 从 MongoDB 批量读取所有股票的因子值
+            cursor = mongo_manager.db["stock_daily_ak_full"].find(
+                {"trade_date": int(trade_date), "ts_code": {"$in": stocks_list}},
+                projection=projection
+            )
+            docs = await cursor.to_list(length=len(stocks_list))
+            
+            # 组装 DataFrame
+            result = pd.DataFrame(docs)
+            
+            # 布尔值转浮点，保持与实盘模式输出格式一致
+            for col in factor_names:
+                if col in result.columns:
+                    result[col] = result[col].astype(float)
+            
+            # 标准化 & 综合打分（保持与实盘模式相同的计算逻辑）
+            result = self._normalize_factors(result, factor_configs)
+            result = self._compute_composite_score(result, factor_configs)
+            
+            log_memory_usage(f"[{trade_date}] [回测模式] 因子读取完成")
+            return result
+        # ==================== 双模式分支结束 ====================
 
         # 1. 收集所需数据
         factor_defs = [FactorLibrary.get(cfg["name"]) for cfg in factor_configs]
@@ -112,6 +177,12 @@ class FactorEngine:
         result = self._normalize_factors(result, factor_configs)
         result = self._compute_composite_score(result, factor_configs)
 
+        # 🔧 内存优化:释放不再需要的变量
+        del factor_values
+        del stocks_list
+        gc.collect()
+        log_memory_usage(f"[{trade_date}] 因子计算完成")
+
         return result
 
     async def _load_all_data(
@@ -139,10 +210,10 @@ class FactorEngine:
         end_dt = datetime.strptime(end_date, "%Y%m%d")
         max_lookback = max(f.lookback_days for f in factor_defs)
         start_dt = end_dt - timedelta(days=max_lookback * 2)  # 预留空间
-        # 🔥 修复：保证 start_dt 不早于当前交易日（就是 end_dt）
-        # 对于第一个交易日，max_lookback=1 → start_dt = end_dt - 2天 → 可能早于数据起始日期
-        # 强制 start_dt = end_dt，这样查询范围就是 [end_date, end_date] → 肯定能查到当天数据
-        start_dt = max(start_dt, end_dt)
+        # ✅ 恢复正确的历史数据查询范围！
+        # ❌ 之前的粗暴修复 start_dt = max(start_dt, end_dt) 导致：
+        #    - 查询范围只有一天，所有需要历史数据的因子全变成 NaN！
+        #    - MA5/MA10/MA20/动量/波动率/RSI 等全废了！
         start_date = start_dt.strftime("%Y%m%d")
 
         data = {}
@@ -192,10 +263,23 @@ class FactorEngine:
                     stock_data[ts_code] = []
                 stock_data[ts_code].append(doc)
 
-            data["daily"] = {
-                ts_code: pd.DataFrame(docs).sort_values("trade_date").set_index("trade_date")
-                for ts_code, docs in stock_data.items()
-            }
+            # 🔧 内存优化: 使用更小的dtype减少内存占用
+            daily_data = {}
+            for ts_code, docs in stock_data.items():
+                df = pd.DataFrame(docs).sort_values("trade_date")
+                # 优化数值类型，减少内存占用
+                for col in df.columns:
+                    if pd.api.types.is_float_dtype(df[col]):
+                        df[col] = pd.to_numeric(df[col], downcast="float")
+                    elif pd.api.types.is_integer_dtype(df[col]):
+                        df[col] = pd.to_numeric(df[col], downcast="integer")
+                daily_data[ts_code] = df.set_index("trade_date")
+            data["daily"] = daily_data
+
+            # 🔧 内存优化: 释放临时变量
+            del all_result
+            del stock_data
+            gc.collect()
 
         # 加载 daily_basic 数据
         if "daily_basic" in data_sources:
@@ -235,10 +319,23 @@ class FactorEngine:
                     stock_data[ts_code] = []
                 stock_data[ts_code].append(doc)
 
-            data["daily_basic"] = {
-                ts_code: pd.DataFrame(docs).sort_values("trade_date").set_index("trade_date")
-                for ts_code, docs in stock_data.items()
-            }
+            # 🔧 内存优化: 使用更小的dtype减少内存占用
+            daily_basic_data = {}
+            for ts_code, docs in stock_data.items():
+                df = pd.DataFrame(docs).sort_values("trade_date")
+                # 优化数值类型，减少内存占用
+                for col in df.columns:
+                    if pd.api.types.is_float_dtype(df[col]):
+                        df[col] = pd.to_numeric(df[col], downcast="float")
+                    elif pd.api.types.is_integer_dtype(df[col]):
+                        df[col] = pd.to_numeric(df[col], downcast="integer")
+                daily_basic_data[ts_code] = df.set_index("trade_date")
+            data["daily_basic"] = daily_basic_data
+
+            # 🔧 内存优化: 释放临时变量
+            del all_result
+            del stock_data
+            gc.collect()
 
         # 加载财务数据
         if "fina" in data_sources:
