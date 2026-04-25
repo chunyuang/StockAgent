@@ -685,16 +685,26 @@ class PortfolioBacktester:
                     # 跳过后续选股逻辑
                     continue
 
-                # 1. 获取当日股票池
+                # 1. 获取当日股票池 - 🔧 修复：先获取原始股票池统计，再获取过滤后的
+                # 先获取原始股票池（无排除规则），用于统计真实的剔除数量
+                universe_raw = await self.universe_mgr.get_universe(
+                    UniverseType.ALL_A,
+                    trade_date,
+                    exclude_rules=[],  # 不应用任何排除规则，用于统计
+                )
+                
+                # 再获取过滤后的股票池（应用ST、次新股排除规则）
                 universe = await self.universe_mgr.get_universe(
                     UniverseType.ALL_A,
                     trade_date,
                     exclude_rules,
                 )
 
-                # 真实统计各类剔除数量
-                st_count = len(await self.universe_mgr._get_st_stocks() & universe)
-                new_stock_count = len(await self.universe_mgr._get_new_stocks(trade_date) & universe)
+                # 真实统计各类剔除数量（基于原始股票池统计，而不是过滤后的！）
+                st_stocks = await self.universe_mgr._get_st_stocks()
+                new_stocks = await self.universe_mgr._get_new_stocks(trade_date)
+                st_count = len(st_stocks & universe_raw)
+                new_stock_count = len(new_stocks & universe_raw)
                 
                 # 🔴 任务3：流动性过滤真正执行（P0！）
                 # 查询流动性不足的股票，然后真正从universe中剔除
