@@ -125,7 +125,14 @@ class PortfolioBacktester:
         await self.log(f"═══════════════════════════════════════════════════════════")
 
     async def _print_market_environment(self, trade_date: int):
-        """【统一入口！每日市场环境判断必须调用！】"""
+        """【统一入口！每日市场环境判断必须调用！】
+        
+        Returns:
+            tuple: (sentiment_level, limit_up_count, limit_down_count)
+                sentiment_level: 情绪等级字符串
+                limit_up_count: 涨停家数
+                limit_down_count: 跌停家数
+        """
         await self.log(f"")
         await self.log(f"   ┌───────────────────────────────────────────────────────")
         await self.log(f"   │ 🌡️ 当日市场环境判断")
@@ -172,6 +179,8 @@ class PortfolioBacktester:
             sentiment_level = "极致冰点,仓位系数0.1"
         await self.log(f"   │  🔹 情绪周期评分：{sentiment_score}分 → {sentiment_level}")
         await self.log(f"   └───────────────────────────────────────────────────────")
+        
+        return sentiment_level, limit_up_count, limit_down_count
 
     async def _print_single_strategy_filtering(self, strategy_name: str, params: dict, conditions: list, factor_df, strategy_configs: dict, all_selected_strategies: list):
         """【统一入口！所有策略筛选打印必须调用！One Function, One Format!】
@@ -617,12 +626,64 @@ class PortfolioBacktester:
             await self._print_daily_header(idx+1, total_days, trade_date)
             
             # ==================== 2️⃣ 每日市场环境判断（所有天都走） ====================
-            await self._print_market_environment(trade_date)
+            sentiment_level, limit_up_count, limit_down_count = await self._print_market_environment(trade_date)
+            
+            # ==================== 🔴 任务1：强制空仓真正执行（P0！） ====================
+            # 判断是否触发强制空仓：跌停≥50只 或 涨停≤10只
+            force_empty_triggered = (limit_down_count >= 50 or limit_up_count <= 10)
             
             # ==================== 3️⃣ IF/ELSE 严格对齐！ ====================
             if trade_date in rebalance_set:
                 # ==================== 调仓日完整流程 ====================
                 await self.log(f"   📅 当前为调仓日，开始执行调仓逻辑")
+                
+                # 🔴 如果触发强制空仓：先卖出所有持仓，然后跳过当日选股
+                if force_empty_triggered:
+                    await self.log(f"")
+                    await self.log(f"   ┌───────────────────────────────────────────────────────")
+                    await self.log(f"   │ 🔴 【强制空仓执行】")
+                    await self.log(f"   ├───────────────────────────────────────────────────────")
+                    
+                    if holdings and len(holdings) > 0:
+                        # 获取当日价格用于卖出
+                        prices_for_sell = await self._get_prices(set(holdings.keys()), trade_date)
+                        # 执行卖出所有持仓
+                        sell_count = 0
+                        for code in list(holdings.keys()):
+                            if holdings[code] > 0 and code in prices_for_sell:
+                                price = prices_for_sell[code]['close']
+                                shares = holdings[code]
+                                slippage_pct = self._slippage_pct if hasattr(self, '_slippage_pct') else 0.002
+                                sell_price_adj = price * (1 - slippage_pct)
+                                gross_amount = shares * sell_price_adj
+                                commission = max(gross_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
+                                stamp_tax = gross_amount * self.STAMP_TAX
+                                net_amount = gross_amount - commission - stamp_tax
+                                cash += net_amount
+                                sell_count += 1
+                                # 记录卖出
+                                rebalance_records.append(RebalanceRecord(
+                                    date=str(trade_date),
+                                    action="sell",
+                                    ts_code=code,
+                                    shares=shares,
+                                    price=price,
+                                    amount=net_amount,
+                                    reason="force_empty_position",
+                                    sentiment=sentiment_level
+                                ))
+                                holdings[code] = 0
+                        # 清理零持仓
+                        holdings = {code: shares for code, shares in holdings.items() if shares > 0}
+                        await self.log(f"   │  ✅ 已执行强制清仓，卖出 {sell_count} 只持仓")
+                        await self.log(f"   │  💵 清仓后现金：{cash:,.2f} 元")
+                    else:
+                        await self.log(f"   │  ⚪ 当前无持仓，无需卖出")
+                    
+                    await self.log(f"   │  ⏭️  跳过当日选股，不再开新仓")
+                    await self.log(f"   └───────────────────────────────────────────────────────")
+                    # 跳过后续选股逻辑
+                    continue
 
                 # 1. 获取当日股票池
                 universe = await self.universe_mgr.get_universe(
@@ -634,10 +695,24 @@ class PortfolioBacktester:
                 # 真实统计各类剔除数量
                 st_count = len(await self.universe_mgr._get_st_stocks() & universe)
                 new_stock_count = len(await self.universe_mgr._get_new_stocks(trade_date) & universe)
-                low_liquidity_count = await mongo_manager.count_documents(
+                
+                # 🔴 任务3：流动性过滤真正执行（P0！）
+                # 查询流动性不足的股票，然后真正从universe中剔除
+                low_liquidity_cursor = mongo_manager.find(
                     "stock_daily_ak_full",
-                    {"trade_date": int(trade_date), "ts_code": {"$in": list(universe)}, "amount": {"$lt": 500}}
+                    {
+                        "trade_date": int(trade_date),
+                        "ts_code": {"$in": list(universe)},
+                        "amount": {"$lt": 500}  # 成交额小于500万
+                    },
+                    {"ts_code": 1}
                 )
+                low_liquidity_list = [doc["ts_code"] for doc in await low_liquidity_cursor.to_list(length=10000)]
+                low_liquidity_set = set(low_liquidity_list)
+                low_liquidity_count = len(low_liquidity_set)
+                
+                # 真正执行过滤！从universe中剔除流动性不足的股票
+                universe -= low_liquidity_set
                 
                 # ✅ 统一打印！不再分散调用！
                 await self._print_stock_pool_and_cleaning(trade_date, universe, st_count, new_stock_count, low_liquidity_count)
@@ -1445,6 +1520,27 @@ class PortfolioBacktester:
             weight = 1.0 / len(candidates) if len(candidates) > 0 else 0
             return dict.fromkeys(candidates, weight)
 
+    def _extract_position_multiplier(self, sentiment: str) -> float:
+        """【辅助函数】从情绪等级字符串中提取仓位系数
+        
+        Args:
+            sentiment: 情绪等级字符串，例如 "高潮期,仓位系数1.0"
+        
+        Returns:
+            float: 仓位系数，默认 1.0
+        """
+        if not sentiment or "仓位系数" not in sentiment:
+            return 1.0
+        try:
+            # 从 "高潮期,仓位系数1.0" 中提取 "1.0"
+            idx = sentiment.find("仓位系数")
+            if idx != -1:
+                num_str = sentiment[idx + 4:].strip()
+                return float(num_str)
+        except (ValueError, IndexError):
+            pass
+        return 1.0
+
     def _rebalance(self, trade_date: int, target_weights: dict[str, float],
                    cash: float, holdings: dict[str, int], prices: dict[str, float], sentiment: str = ""):
         """执行调仓
@@ -1455,6 +1551,7 @@ class PortfolioBacktester:
             cash: 当前现金
             holdings: 当前持仓 {ts_code: shares}
             prices: 当前价格 {ts_code: price}
+            sentiment: 情绪等级字符串（含仓位系数）
 
         Returns:
             (new_cash, new_holdings, records)
@@ -1469,12 +1566,17 @@ class PortfolioBacktester:
                 price = prices[code]['close']
                 total_value += shares * price
 
+        # 🔴 任务2：情绪周期仓位系数真正应用（P0！）
+        position_multiplier = self._extract_position_multiplier(sentiment)
+        
         # 计算目标持仓
         target_shares = {}  # {ts_code: target_shares}
         for code, weight in target_weights.items():
             if code not in prices:
                 continue  # 没有价格,无法买入
-            target_value = total_value * weight
+            # ✅ 应用情绪仓位系数！
+            # 例如：情绪是冰点期，仓位系数0.3，则目标价值只占总资金的30%
+            target_value = total_value * weight * position_multiplier
             price = prices[code]['open']  # 买入用开盘价
             # 向下取整到 100 的倍数(A股买入规则)
             shares = int(int(target_value / price) / 100) * 100
