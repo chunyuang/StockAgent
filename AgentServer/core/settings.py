@@ -331,7 +331,7 @@ class DataSyncSettings(BaseSettings):
 class WebSettings(BaseSettings):
     """Web 服务配置
     
-    环境变量: WEB_HOST, WEB_PORT, WEB_WORKERS
+    环境变量: WEB_HOST, WEB_PORT, WEB_WORKERS, WEBSOCKET_HOST, WEBSOCKET_PORT, CORS_ORIGINS
     """
     model_config = SettingsConfigDict(
         env_prefix="WEB_",
@@ -344,6 +344,15 @@ class WebSettings(BaseSettings):
     port: int = 8000
     workers: int = 1
     reload: bool = False
+    
+    # WebSocket 配置（前端连接地址）
+    websocket_host: str = "localhost"
+    websocket_port: int = 8000
+    
+    # CORS 配置
+    # CORS_ORIGINS: 逗号分隔的允许来源，如 "https://example.com,https://app.example.com"
+    # 为空则仅允许同域名前端
+    cors_origins: str = ""
 
 
 class ListenerSettings(BaseSettings):
@@ -460,6 +469,27 @@ class Settings(BaseSettings):
     # 应用基础配置
     app_name: str = "StockAgent"
     debug: bool = Field(default=False, alias="DEBUG")
+    
+    # ==================== 运行模式配置 ====================
+    # 
+    # 【双模式架构设计】
+    # 
+    # MODE = 'backtest' → 回测模式（默认，当前项目阶段）
+    #   - 直接从 MongoDB stock_daily_ak_full 集合读取预计算因子
+    #   - 跳过实时因子计算 (_compute_single_factor)
+    #   - 性能提升 10-100 倍，适合大规模历史回测
+    #   - 依赖 DATA_SYNC 节点预先完成因子批量计算
+    # 
+    # MODE = 'live' → 实盘模式
+    #   - 实时调用 factor_engine.compute_factors() 计算因子
+    #   - 支持 Redis 缓存加速（24小时过期）
+    #   - 支持滚动窗口、动态指标等实时计算需求
+    #   - 兼容盘中选股、实时监控等场景
+    # 
+    # 环境变量: MODE=backtest 或 MODE=live
+    # 
+    # =====================================================
+    mode: Literal["backtest", "live"] = Field(default="backtest", alias="MODE")
     
     # JWT 配置
     jwt_secret: SecretStr = Field(

@@ -47,8 +47,12 @@ class WebNode(BaseNode):
         import json
         
         try:
-            pubsub = await redis_manager._redis.pubsub()
+            # 确保 Redis 已初始化，使用正确的 client 属性
+            await redis_manager.initialize()
+            self.logger.info("✅ Redis 初始化完成，准备订阅回测日志...")
+            pubsub = redis_manager.client.pubsub()  # pubsub() 不需要 await
             await pubsub.subscribe("backtest:logs")
+            self.logger.info("✅ 已成功订阅 backtest:logs 频道，等待日志消息...")
             
             while True:
                 message = await pubsub.get_message(ignore_subscribe_messages=True)
@@ -57,17 +61,19 @@ class WebNode(BaseNode):
                         data = json.loads(message["data"])
                         task_id = data.get("task_id")
                         log_entry = data.get("log")
+                        self.logger.info(f"📨 收到日志消息，task_id={task_id}, log={log_entry}")
                         if task_id and log_entry:
                             # 推送到对应任务的WebSocket连接
                             await ws_manager.broadcast_task_update(task_id, {
                                 "type": "log",
                                 "log": log_entry,
                             })
+                            self.logger.debug(f"✅ 日志已推送到 WebSocket, task_id={task_id}")
                     except Exception as e:
                         self.logger.warning(f"Failed to process log event: {e}")
                 await asyncio.sleep(0.1)
         except Exception as e:
-            self.logger.error(f"Log subscription failed: {e}")
+            self.logger.error(f"Log subscription failed: {e}", exc_info=True)
 
     async def start(self) -> None:
         """启动 Web 服务"""

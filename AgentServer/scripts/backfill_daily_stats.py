@@ -134,7 +134,7 @@ async def compute_daily_stats_for_date(trade_date: str) -> dict:
             pct_chg = item.get("pct_chg", 0) or 0
             try:
                 pct_chg = float(pct_chg)
-            except:
+            except (ValueError, TypeError):
                 pct_chg = 0
                 
             if pct_chg > 0:
@@ -179,7 +179,7 @@ async def compute_daily_stats_for_date(trade_date: str) -> dict:
         if stats["sh_amount"] is not None and stats["sz_amount"] is not None:
             try:
                 stats["total_amount"] = float(stats["sh_amount"]) + float(stats["sz_amount"])
-            except:
+            except (ValueError, TypeError):
                 pass
     except Exception as e:
         print(f"  Warning: Failed to get market turnover: {e}")

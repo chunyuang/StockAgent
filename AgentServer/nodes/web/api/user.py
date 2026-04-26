@@ -140,6 +140,18 @@ async def remove_from_watchlist(
 # ==================== 偏好设置 ====================
 
 
+@router.get("/me/preferences")
+async def get_preferences(user_id: str = Depends(get_current_user_id)):
+    """获取用户偏好设置"""
+    user = await mongo_manager.find_one(
+        "users",
+        {"user_id": user_id},
+        projection={"preferences": 1},
+    )
+    
+    return user.get("preferences", {}) if user else {}
+
+
 @router.put("/me/preferences")
 async def update_preferences(
     body: UserPreferences,

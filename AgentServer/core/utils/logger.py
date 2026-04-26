@@ -17,6 +17,16 @@ LOG_LEVELS = {
     'ERROR': 40
 }
 
+# ANSI颜色代码
+ANSI_COLORS = {
+    'DEBUG': '\033[36m',      # 青色
+    'INFO': '\033[32m',       # 绿色
+    'SUCCESS': '\033[32m',     # 绿色
+    'WARN': '\033[33m',       # 黄色
+    'ERROR': '\033[31m',      # 红色
+}
+ANSI_RESET = '\033[0m'  # 重置颜色
+
 # 级别样式前缀
 LEVEL_PREFIX = {
     'DEBUG': '🐛DEBUG',
@@ -96,10 +106,13 @@ class UltraShortLogger:
         
         # 格式化日志内容：只有当有参数时才格式化，避免message本身包含大括号导致解析错误
         if args or kwargs:
-            formatted_message = message.format(*args, **kwargs)
+            formatted_message = message.format(*args, **kwargs)  # FIXME: 当message包含大括号但无对应参数时抛KeyError/IndexError，建议用 % 或 f-string 替代 .format()
         else:
             formatted_message = message
-        formatted_msg = f"[{timestamp}] [{level_prefix}] [SEQ:{seq}] [TASK:{self._current_task_id}] [{module_prefix}] {formatted_message}"
+        
+        # 添加ANSI颜色
+        color = ANSI_COLORS.get(level, '')
+        formatted_msg = f"{color}[{timestamp}] [{level_prefix}] [SEQ:{seq}] [TASK:{self._current_task_id}] [{module_prefix}] {formatted_message}{ANSI_RESET}"
         
         # 输出到控制台
         if level == 'SUCCESS':

@@ -53,3 +53,4 @@ bcrypt
 jinja2>=3.1.0
 pyyaml>=6.0.0
 akshare
+psutil>=5.9.0  # 内存监控和管理

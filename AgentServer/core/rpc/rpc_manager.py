@@ -282,9 +282,9 @@ class RPCClient:
     Example:
         client = RPCClient()
         
-        # 调用指定地址
+        # 调用指定地址（请通过环境变量或配置文件获取，不要硬编码IP）
         result = await client.invoke(
-            address="192.168.1.100:50053",
+            address=os.getenv("RPC_LISTENER_ADDRESS", "localhost:50053"),
             method="refresh_strategies",
             params={"strategy_type": "ma5_buy"},
             trace_id="xxx",
@@ -563,7 +563,16 @@ class RPCClient:
             try:
                 result = await task
                 result["node_id"] = node_id
-                results.append(result)
+                # 移除任何不可序列化的对象，只保留基础类型
+                clean_result = {}
+                for k, v in result.items():
+                    if isinstance(v, (str, int, float, bool, type(None))):
+                        clean_result[k] = v
+                    elif isinstance(v, dict):
+                        clean_result[k] = v
+                    elif isinstance(v, list):
+                        clean_result[k] = v
+                results.append(clean_result)
             except Exception as e:
                 results.append({
                     "node_id": node_id,
