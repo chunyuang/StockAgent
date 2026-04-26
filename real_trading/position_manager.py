@@ -5,7 +5,7 @@
 """
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'AgentServer'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'AgentServer'))  # FIXME: 使用sys.path.insert做模块查找是反模式，应改用setup.py/pyproject.toml将项目安装到venv中
 sys.path.insert(0, os.path.dirname(__file__))
 
 import json
@@ -16,7 +16,24 @@ from dataclasses import dataclass, asdict
 
 @dataclass
 class Position:
-    """持仓信息"""
+    """持仓信息数据模型
+    
+    记录单只股票的完整持仓信息，包括买入信息、风控参数和策略标签。
+    提供持仓天数计算、止损止盈触发检查等业务方法。
+    
+    Attributes:
+        ts_code: 股票代码（如 000001.SZ）
+        name: 股票名称
+        buy_date: 买入日期（YYYYMMDD格式）
+        buy_price: 买入成交价（元）
+        shares: 持股数量（股）
+        total_cost: 总成本（元），= 买入价 × 数量
+        stop_loss_price: 止损价（元），跌破此价触发止损卖出
+        take_profit_price: 止盈价（元），涨到此价触发止盈卖出
+        max_hold_days: 最大持仓天数，超期强制卖出，默认3天
+        strategy: 策略标签，用于绩效归因分析
+        notes: 备注信息
+    """
     ts_code: str
     name: str
     buy_date: str  # YYYYMMDD
@@ -30,7 +47,14 @@ class Position:
     notes: str = ""
     
     def hold_days(self, current_date: str = None) -> int:
-        """计算持仓天数"""
+        """计算持仓天数（自然日）
+        
+        Args:
+            current_date: 计算基准日期（YYYYMMDD），默认取当天
+        
+        Returns:
+            int: 持仓天数，= current_date - buy_date
+        """
         if not current_date:
             current_date = datetime.now().strftime("%Y%m%d")
         buy_dt = datetime.strptime(self.buy_date, "%Y%m%d")
@@ -38,23 +62,63 @@ class Position:
         return (current_dt - buy_dt).days
     
     def should_force_close(self, current_date: str = None) -> bool:
-        """是否应该强制平仓（持仓超期）"""
+        """是否应该强制平仓（持仓超期）
+        
+        超短策略核心风控：持仓超过 max_hold_days 天必须卖出，
+        防止短线变中线、中线变长线的问题。
+        
+        Args:
+            current_date: 计算基准日期（YYYYMMDD），默认取当天
+        
+        Returns:
+            bool: True表示持仓超期，应强制平仓
+        """
         return self.hold_days(current_date) >= self.max_hold_days
     
     def check_stop_loss(self, current_price: float) -> bool:
-        """检查是否触发止损"""
+        """检查是否触发止损
+        
+        Args:
+            current_price: 当前价格（元）
+        
+        Returns:
+            bool: True表示当前价格已跌破止损价
+        """
         return current_price <= self.stop_loss_price
     
     def check_take_profit(self, current_price: float) -> bool:
-        """检查是否触发止盈"""
+        """检查是否触发止盈
+        
+        Args:
+            current_price: 当前价格（元）
+        
+        Returns:
+            bool: True表示当前价格已达到止盈价
+        """
         return current_price >= self.take_profit_price
     
     def current_profit_pct(self, current_price: float) -> float:
-        """当前收益率"""
+        """计算当前收益率
+        
+        Args:
+            current_price: 当前价格（元）
+        
+        Returns:
+            float: 收益率（%），正数盈利，负数亏损
+        """
         return (current_price - self.buy_price) / self.buy_price * 100
 
 class PositionManager:
-    """持仓管理器"""
+    """持仓管理器
+    
+    管理单个账户的所有持仓，提供：
+    - 持仓的增删查（add/close/get）
+    - 信号驱动建仓（add_position_by_signal）
+    - 每日风控检查（daily_check）：止损/止盈/超期自动告警
+    - 交易历史记录和绩效统计
+    
+    数据持久化到JSON文件：positions.json + trade_history.json
+    """
     
     def __init__(self, data_file: str = "positions.json"):
         self.data_file = os.path.join(os.path.dirname(__file__), data_file)
@@ -67,10 +131,17 @@ class PositionManager:
             try:
                 with open(self.data_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    for ts_code, pos_data in data.items():
+                if not isinstance(data, dict):
+                    print(f"⚠️  持仓数据格式异常（期望dict，实际{type(data).__name__}），初始化空持仓")
+                    self.positions = {}
+                    return
+                for ts_code, pos_data in data.items():
+                    try:
                         self.positions[ts_code] = Position(**pos_data)
+                    except (TypeError, KeyError) as e:
+                        print(f"⚠️  跳过异常持仓记录 {ts_code}: {e}")
                 print(f"✅ 加载持仓数据成功，共{len(self.positions)}只持仓")
-            except Exception as e:
+            except (json.JSONDecodeError, OSError) as e:
                 print(f"❌ 加载持仓数据失败: {e}")
                 self.positions = {}
         else:
@@ -83,11 +154,18 @@ class PositionManager:
             with open(self.data_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
             print("✅ 持仓数据已保存")
-        except Exception as e:
+        except (OSError, TypeError) as e:
             print(f"❌ 保存持仓数据失败: {e}")
     
     def add_position(self, position: Position) -> bool:
-        """添加新持仓"""
+        """添加新持仓
+        
+        Args:
+            position: Position对象，包含完整的持仓信息
+        
+        Returns:
+            bool: True添加成功，False表示该股票已在持仓中（不允许重复建仓）
+        """
         if position.ts_code in self.positions:
             print(f"⚠️  {position.ts_code} 已在持仓中，是否需要加仓？")
             return False
@@ -98,7 +176,22 @@ class PositionManager:
         return True
     
     def add_position_by_signal(self, signal: Dict, buy_price: float = None, shares: int = None) -> bool:
-        """通过信号添加持仓"""
+        """通过选股信号创建持仓
+        
+        便捷方法：根据信号数据自动计算买入价、数量、止损止盈价。
+        - 默认买入价 = 收盘价 × 1.01（应对高开）
+        - 默认买入金额 = 1万元（100股整数倍）
+        - 默认止损 = 买入价 × 0.95（5%）
+        - 默认止盈 = 买入价 × 1.1（10%）
+        
+        Args:
+            signal: 选股信号字典，需包含 ts_code/name/close/date 等字段
+            buy_price: 自定义买入价，None则使用默认计算
+            shares: 自定义买入数量，None则使用默认计算
+        
+        Returns:
+            bool: True建仓成功
+        """
         if not buy_price:
             # 默认买入价为收盘价上浮1%
             buy_price = signal["close"] * 1.01
@@ -128,7 +221,19 @@ class PositionManager:
         return self.add_position(position)
     
     def close_position(self, ts_code: str, sell_price: float, sell_date: str = None, reason: str = "手动平仓") -> Dict:
-        """平仓"""
+        """平仓指定股票
+        
+        执行平仓流程：计算盈亏 → 记录交易历史 → 删除持仓 → 持久化
+        
+        Args:
+            ts_code: 要平仓的股票代码
+            sell_price: 卖出成交价（元）
+            sell_date: 卖出日期（YYYYMMDD），默认当天
+            reason: 平仓原因，用于交易历史记录
+        
+        Returns:
+            Dict: 交易记录字典，包含盈亏详情；股票不在持仓中时返回空dict
+        """
         if ts_code not in self.positions:
             print(f"⚠️  {ts_code} 不在持仓中")
             return {}
@@ -174,15 +279,32 @@ class PositionManager:
             try:
                 with open(history_file, "r", encoding="utf-8") as f:
                     history = json.load(f)
-            except:
-                pass
+            except (json.JSONDecodeError, OSError):
+                pass  # 文件损坏或不存在，从空列表开始
         
         history.append(record)
-        with open(history_file, "w", encoding="utf-8") as f:
-            json.dump(history, f, ensure_ascii=False, indent=2)
+        try:
+            with open(history_file, "w", encoding="utf-8") as f:
+                json.dump(history, f, ensure_ascii=False, indent=2)
+        except (OSError, TypeError) as e:
+            print(f"❌ 保存交易历史失败: {e}")
     
     async def daily_check(self, current_date: str = None) -> List[Dict]:
-        """每日检查持仓状态，返回提醒列表"""
+        """每日盘后持仓风控检查
+        
+        从MongoDB获取当日行情，逐只检查：
+        1. 持仓超期 → danger级别，建议强制平仓
+        2. 触发止损（最低价≤止损价） → danger级别，建议立即卖出
+        3. 接近止损（5%以内） → warning级别
+        4. 触发止盈（最高价≥止盈价） → success级别，建议止盈
+        5. 接近止盈（5%以内） → warning级别
+        
+        Args:
+            current_date: 检查日期（YYYYMMDD），默认当天
+        
+        Returns:
+            List[Dict]: 告警列表，每条包含 ts_code/name/alerts/level 等字段
+        """
         if not current_date:
             current_date = datetime.now().strftime("%Y%m%d")
         
@@ -196,19 +318,27 @@ class PositionManager:
         # 获取当日行情数据
         from core.managers import mongo_manager
         ts_codes = list(self.positions.keys())
-        daily_data = await mongo_manager.find_many(
-            "stock_daily_ak_full",
-            {"ts_code": {"$in": ts_codes}, "trade_date": int(current_date)},
-            projection={"ts_code": 1, "close": 1, "pct_chg": 1, "high": 1, "low": 1}
-        )
-        price_map = {x["ts_code"]: x for x in daily_data}
+        
+        price_map = {}
+        try:
+            daily_data = await mongo_manager.find_many(
+                "stock_daily_ak_full",
+                {"ts_code": {"$in": ts_codes}, "trade_date": int(current_date)},
+                projection={"ts_code": 1, "close": 1, "pct_chg": 1, "high": 1, "low": 1}
+            )
+            if daily_data:
+                price_map = {x.get("ts_code", ""): x for x in daily_data if x.get("ts_code")}
+        except (ConnectionError, OSError, ValueError) as e:
+            print(f"⚠️  获取行情数据失败: {e}，将使用成本价代替")
+        except Exception as e:
+            print(f"⚠️  获取行情数据异常: {e}，将使用成本价代替")
         
         for ts_code, pos in self.positions.items():
             daily = price_map.get(ts_code, {})
-            current_price = daily.get("close", pos.buy_price)
-            high = daily.get("high", current_price)
-            low = daily.get("low", current_price)
-            pct_chg = daily.get("pct_chg", 0)
+            current_price = daily.get("close", pos.buy_price) if isinstance(daily, dict) else pos.buy_price
+            high = daily.get("high", current_price) if isinstance(daily, dict) else current_price
+            low = daily.get("low", current_price) if isinstance(daily, dict) else current_price
+            pct_chg = daily.get("pct_chg", 0) if isinstance(daily, dict) else 0
             
             alert = {
                 "ts_code": ts_code,
@@ -279,55 +409,75 @@ class PositionManager:
         try:
             with open(history_file, "r", encoding="utf-8") as f:
                 history = json.load(f)
+            if not isinstance(history, list):
+                print(f"⚠️  交易历史格式异常，期望list，实际{type(history).__name__}")
+                return []
             # 按卖出日期倒序
-            history.sort(key=lambda x: x["sell_date"], reverse=True)
+            history.sort(key=lambda x: x.get("sell_date", ""), reverse=True)
             return history[:limit]
-        except:
+        except (json.JSONDecodeError, OSError, KeyError) as e:
+            print(f"⚠️  读取交易历史失败: {e}")
             return []
     
     def get_performance_summary(self) -> Dict:
-        """获取绩效统计"""
+        """获取绩效统计摘要
+        
+        基于全部交易历史计算：
+        - 总交易次数、胜率、总盈利
+        - 平均每笔收益率
+        - 最大回撤（简单峰值法）
+        - 平均持仓天数
+        
+        Returns:
+            Dict: 绩效统计字典，无交易记录时返回全零默认值
+        """
+        default_result = {
+            "total_trades": 0,
+            "win_rate": 0,
+            "total_profit": 0,
+            "avg_profit_pct": 0,
+            "max_drawdown": 0,
+            "avg_hold_days": 0
+        }
         history = self.get_trade_history()
         if not history:
+            return default_result
+        
+        try:
+            total_trades = len(history)
+            win_trades = [t for t in history if t.get("profit", 0) > 0]
+            lose_trades = [t for t in history if t.get("profit", 0) <= 0]
+            win_rate = len(win_trades) / total_trades * 100 if total_trades > 0 else 0
+            total_profit = sum(t.get("profit", 0) for t in history)
+            avg_profit_pct = sum(t.get("profit_pct", 0) for t in history) / total_trades if total_trades > 0 else 0
+            avg_hold_days = sum(t.get("hold_days", 0) for t in history) / total_trades if total_trades > 0 else 0
+            
+            # 计算最大回撤（简单版）
+            balance = 0
+            max_balance = 0
+            max_drawdown = 0
+            for trade in sorted(history, key=lambda x: x.get("sell_date", "")):
+                balance += trade.get("profit", 0)
+                if balance > max_balance:
+                    max_balance = balance
+                drawdown = (max_balance - balance) / max_balance * 100 if max_balance > 0 else 0
+                if drawdown > max_drawdown:
+                    max_drawdown = drawdown
+            
             return {
-                "total_trades": 0,
-                "win_rate": 0,
-                "total_profit": 0,
-                "avg_profit_pct": 0,
-                "max_drawdown": 0,
-                "avg_hold_days": 0
+                "total_trades": total_trades,
+                "win_trades": len(win_trades),
+                "lose_trades": total_trades - len(win_trades),
+                "win_rate": round(win_rate, 2),
+                "total_profit": round(total_profit, 2),
+                "avg_profit_pct": round(avg_profit_pct, 2),
+                "max_drawdown": round(max_drawdown, 2),
+                "avg_hold_days": round(avg_hold_days, 1),
+                "latest_trade_date": history[0].get("sell_date", "") if history else ""
             }
-        
-        total_trades = len(history)
-        win_trades = [t for t in history if t["profit"] > 0]
-        win_rate = len(win_trades) / total_trades * 100 if total_trades > 0 else 0
-        total_profit = sum(t["profit"] for t in history)
-        avg_profit_pct = sum(t["profit_pct"] for t in history) / total_trades if total_trades > 0 else 0
-        avg_hold_days = sum(t["hold_days"] for t in history) / total_trades if total_trades > 0 else 0
-        
-        # 计算最大回撤（简单版）
-        balance = 0
-        max_balance = 0
-        max_drawdown = 0
-        for trade in sorted(history, key=lambda x: x["sell_date"]):
-            balance += trade["profit"]
-            if balance > max_balance:
-                max_balance = balance
-            drawdown = (max_balance - balance) / max_balance * 100 if max_balance > 0 else 0
-            if drawdown > max_drawdown:
-                max_drawdown = drawdown
-        
-        return {
-            "total_trades": total_trades,
-            "win_trades": len(win_trades),
-            "lose_trades": total_trades - len(win_trades),
-            "win_rate": round(win_rate, 2),
-            "total_profit": round(total_profit, 2),
-            "avg_profit_pct": round(avg_profit_pct, 2),
-            "max_drawdown": round(max_drawdown, 2),
-            "avg_hold_days": round(avg_hold_days, 1),
-            "latest_trade_date": history[0]["sell_date"] if history else ""
-        }
+        except (KeyError, TypeError, ZeroDivisionError) as e:
+            print(f"⚠️  计算绩效统计失败: {e}")
+            return default_result
 
 
 if __name__ == "__main__":

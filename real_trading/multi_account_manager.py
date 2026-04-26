@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import List, Dict, Optional
 from dataclasses import dataclass, asdict
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'AgentServer'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'AgentServer'))  # FIXME: 使用sys.path.insert做模块查找是反模式，应改用setup.py/pyproject.toml将项目安装到venv中
 sys.path.insert(0, os.path.dirname(__file__))
 
 from position_manager import PositionManager
@@ -34,9 +34,24 @@ class TradingAccount:
     created_at: str
     updated_at: str
     broker: str = ""
-    api_key: str = ""  # 加密存储
-    api_secret: str = ""
+    api_key: str = ""  # 仅存储掩码/占位，真实值通过 get_api_credentials() 从环境变量读取
+    api_secret: str = ""  # 同上
     notes: str = ""
+
+    def get_api_credentials(self) -> tuple[str, str]:
+        """从环境变量获取API凭证，格式: {BROKER}_{ACCOUNT_ID}_API_KEY / _API_SECRET
+        
+        环境变量命名规则：
+        - 券商为空: {ACCOUNT_ID}_API_KEY, {ACCOUNT_ID}_API_SECRET
+        - 券商非空: {BROKER}_{ACCOUNT_ID}_API_KEY, {BROKER}_{ACCOUNT_ID}_API_SECRET
+        
+        Returns:
+            (api_key, api_secret) 元组，未配置则返回空字符串
+        """
+        prefix = f"{self.broker.upper()}_{self.account_id}" if self.broker else self.account_id
+        api_key = os.environ.get(f"{prefix}_API_KEY", "")
+        api_secret = os.environ.get(f"{prefix}_API_SECRET", "")
+        return api_key, api_secret
 
 class MultiAccountManager:
     """多账户管理器"""
@@ -118,11 +133,11 @@ class MultiAccountManager:
             notes=kwargs.get("notes", "")
         )
         
-        # 敏感信息单独保存（实际生产中应加密存储）
+        # 敏感信息：不再通过参数直接存储，提示用户使用环境变量
         if "api_key" in kwargs:
-            account.api_key = kwargs["api_key"]
+            print(f"⚠️  api_key不应通过参数传入，请设置环境变量 {kwargs.get('broker', '').upper()}_{acc_id}_API_KEY")
         if "api_secret" in kwargs:
-            account.api_secret = kwargs["api_secret"]
+            print(f"⚠️  api_secret不应通过参数传入，请设置环境变量 {kwargs.get('broker', '').upper()}_{acc_id}_API_SECRET")
         
         self.accounts[acc_id] = account
         
@@ -147,7 +162,7 @@ class MultiAccountManager:
         # 更新允许修改的字段
         allowed_fields = ["name", "status", "strategy", "risk_level", "max_position", 
                          "max_single_position", "stop_loss_pct", "take_profit_pct", 
-                         "max_hold_days", "broker", "notes", "api_key", "api_secret"]
+                         "max_hold_days", "broker", "notes"]  # api_key/api_secret 已移除，请使用环境变量
         
         for field, value in kwargs.items():
             if field in allowed_fields and hasattr(account, field):

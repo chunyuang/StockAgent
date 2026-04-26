@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import List, Dict
 import akshare as ak
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'AgentServer'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'AgentServer'))  # FIXME: 使用sys.path.insert做模块查找是反模式，应改用setup.py/pyproject.toml将项目安装到venv中
 sys.path.insert(0, os.path.dirname(__file__))
 
 from signal_pusher import SignalPusher
@@ -246,6 +246,7 @@ class RealTimeMonitor:
                 # 假设目标买入价保存在target_stocks的字典中，这里简化处理
                 # 实际使用时可以配置每个目标的买入价
                 if isinstance(target, dict):
+                    pass  # TODO: implement target dict logic
                 else:
                     # 简单提醒达到预设的涨幅区间
                     if 0.5 <= pct_chg <= 3:

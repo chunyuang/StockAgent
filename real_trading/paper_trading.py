@@ -10,15 +10,33 @@ from datetime import datetime
 from typing import List, Dict, Optional
 from dataclasses import dataclass, asdict
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'AgentServer'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'AgentServer'))  # FIXME: 使用sys.path.insert做模块查找是反模式，应改用setup.py/pyproject.toml将项目安装到venv中
 sys.path.insert(0, os.path.dirname(__file__))
 
 from position_manager import Position, PositionManager
 from performance_analyzer import PerformanceAnalyzer
+from pre_buy_risk_check import PreBuyRiskChecker
+# FIXME: 全模块使用print()输出而非logger，生产环境应统一使用logging模块，便于日志级别控制、持久化和集中采集
 
 @dataclass
 class PaperAccount:
-    """模拟账户"""
+    """模拟交易账户数据模型
+    
+    用于记录模拟账户的基本信息，包括账户ID、名称、资金余额、
+    累计收益、最大回撤等核心指标。每个账户独立管理持仓和交易历史。
+    
+    Attributes:
+        account_id: 账户唯一标识（8位短UUID）
+        name: 账户显示名称
+        initial_balance: 初始资金（元）
+        current_balance: 当前可用余额（元）
+        total_profit: 累计盈亏金额（元）
+        total_profit_pct: 累计盈亏百分比（%）
+        max_drawdown: 历史最大回撤（%）
+        created_at: 账户创建日期（YYYYMMDD）
+        status: 账户状态，active-活跃 / closed-已关闭
+        notes: 备注信息
+    """
     account_id: str
     name: str
     initial_balance: float
@@ -31,13 +49,32 @@ class PaperAccount:
     notes: str = ""
 
 class PaperTradingEngine:
-    """模拟交易引擎"""
+    """模拟交易引擎
+    
+    提供完整的模拟交易生命周期管理，包括：
+    - 账户创建/关闭/查询
+    - 模拟买入下单（含滑点、佣金计算）
+    - 模拟卖出平仓（含滑点、佣金、印花税计算）
+    - 每日结算（止损止盈检查、自动平仓）
+    - 账户绩效更新（总权益、收益率、最大回撤）
+    
+    数据持久化到JSON文件，每个账户对应独立的持仓文件。
+    """
     
     def __init__(self, data_file: str = "paper_accounts.json"):
+        """初始化模拟交易引擎
+        
+        Args:
+            data_file: 账户数据持久化文件名，默认 paper_accounts.json
+                       文件存储在与本模块同目录下
+        """
         self.data_file = os.path.join(os.path.dirname(__file__), data_file)
-        self.accounts: Dict[str, PaperAccount] = {}
-        self.position_managers: Dict[str, PositionManager] = {}
+        self.accounts: Dict[str, PaperAccount] = {}  # account_id -> PaperAccount
+        self.position_managers: Dict[str, PositionManager] = {}  # account_id -> PositionManager
         self._load_accounts()
+        
+        # 初始化风控检查器
+        self.risk_checker = PreBuyRiskChecker()
     
     def _load_accounts(self):
         """加载模拟账户数据"""
@@ -45,13 +82,20 @@ class PaperTradingEngine:
             try:
                 with open(self.data_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    for acc_id, acc_data in data.items():
+                if not isinstance(data, dict):
+                    print(f"⚠️  账户数据格式异常（期望dict，实际{type(data).__name__}），初始化空")
+                    self.accounts = {}
+                    return
+                for acc_id, acc_data in data.items():
+                    try:
                         self.accounts[acc_id] = PaperAccount(**acc_data)
                         # 加载对应账户的持仓管理器
                         pos_file = f"paper_positions_{acc_id}.json"
                         self.position_managers[acc_id] = PositionManager(pos_file)
+                    except (TypeError, KeyError) as e:
+                        print(f"⚠️  跳过异常账户记录 {acc_id}: {e}")
                 print(f"✅ 加载模拟账户成功，共{len(self.accounts)}个账户")
-            except Exception as e:
+            except (json.JSONDecodeError, OSError) as e:
                 print(f"❌ 加载模拟账户失败: {e}")
                 self.accounts = {}
         else:
@@ -64,7 +108,7 @@ class PaperTradingEngine:
             with open(self.data_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
             print("✅ 模拟账户数据已保存")
-        except Exception as e:
+        except (OSError, TypeError) as e:
             print(f"❌ 保存模拟账户失败: {e}")
     
     def create_account(self, name: str, initial_balance: float = 1000000, notes: str = "") -> str:
@@ -127,7 +171,23 @@ class PaperTradingEngine:
         return result
     
     async def place_order(self, account_id: str, ts_code: str, name: str, buy_price: float, shares: int, 
-                         strategy: str = "未知", slippage: float = 0.001) -> Dict:
+                         strategy: str = "未知", slippage: float = 0.002) -> Dict:
+        """模拟买入下单
+        
+        完整模拟实盘买入流程：滑点计算 → 佣金计算 → 余额检查 → 扣款 → 建仓
+        
+        Args:
+            account_id: 模拟账户ID
+            ts_code: 股票代码（如 000001.SZ）
+            name: 股票名称
+            buy_price: 买入申报价格（元）
+            shares: 买入数量（股），需为100的整数倍
+            strategy: 策略标签，用于绩效分析归因
+            slippage: 滑点比例，默认0.2%，超短打板滑点较大，模拟成交价=申报价×(1+滑点)
+        
+        Returns:
+            Dict: {success: bool, msg: str, position: dict(仅成功时)}
+        """
         """模拟下单买入"""
         if account_id not in self.accounts:
             return {"success": False, "msg": f"账户{account_id}不存在"}
@@ -139,7 +199,7 @@ class PaperTradingEngine:
         # 计算实际成交价（滑点）
         actual_buy_price = buy_price * (1 + slippage)
         total_cost = actual_buy_price * shares
-        commission = max(total_cost * 0.0002, 5)  # 佣金万2，最低5元
+        commission = max(total_cost * 0.0003, 5)  # 佣金万3，最低5元（对齐前端和回测配置）
         total_payment = total_cost + commission
         
         if total_payment > account.current_balance:
@@ -178,7 +238,21 @@ class PaperTradingEngine:
         }
     
     async def close_position(self, account_id: str, ts_code: str, sell_price: float, 
-                           reason: str = "手动平仓", slippage: float = 0.001) -> Dict:
+                           reason: str = "手动平仓", slippage: float = 0.002) -> Dict:
+        """模拟卖出平仓
+        
+        完整模拟实盘卖出流程：滑点计算 → 佣金+印花税 → 回款 → 平仓记录
+        
+        Args:
+            account_id: 模拟账户ID
+            ts_code: 要平仓的股票代码
+            sell_price: 卖出申报价格（元）
+            reason: 平仓原因，如 '手动平仓'/'止损'/'止盈'/'超期强制'
+            slippage: 滑点比例，默认0.2%，超短打板滑点较大，模拟成交价=申报价×(1-滑点)
+        
+        Returns:
+            Dict: {success: bool, msg: str, trade_record: dict(仅成功时)}
+        """
         """模拟平仓"""
         if account_id not in self.accounts:
             return {"success": False, "msg": f"账户{account_id}不存在"}
@@ -197,7 +271,7 @@ class PaperTradingEngine:
         # 计算实际成交价（滑点）
         actual_sell_price = sell_price * (1 - slippage)
         total_income = actual_sell_price * target_pos["shares"]
-        commission = max(total_income * 0.0002, 5)
+        commission = max(total_income * 0.0003, 5)  # 佣金万3，最低5元（对齐前端和回测配置）
         stamp_tax = total_income * 0.001  # 印花税千1
         net_income = total_income - commission - stamp_tax
         
@@ -218,6 +292,17 @@ class PaperTradingEngine:
         }
     
     async def daily_settlement(self, account_id: str = None):
+        """每日结算：检查持仓止损/止盈/超期，触发自动平仓，更新账户绩效
+        
+        盘后调用，执行以下流程：
+        1. 遍历所有活跃账户（或指定账户）的持仓
+        2. 检查每只持仓的止损、止盈、超期条件
+        3. 对触发的持仓执行自动平仓
+        4. 更新账户绩效指标
+        
+        Args:
+            account_id: 指定结算的账户ID，None则结算所有活跃账户
+        """
         """每日结算：检查持仓止损止盈，更新账户收益"""
         accounts = [account_id] if account_id else list(self.accounts.keys())
         
@@ -244,6 +329,17 @@ class PaperTradingEngine:
         print("✅ 每日结算完成")
     
     def _update_account_performance(self, account_id: str):
+        """更新账户绩效指标
+        
+        计算逻辑：
+        - 总权益 = 可用余额 + 持仓市值（按成本价估算）
+        - 累计盈亏 = 总权益 - 初始资金
+        - 收益率 = 总权益/初始资金 - 1
+        - 最大回撤 = 从 PerformanceAnalyzer 获取历史最大回撤
+        
+        Args:
+            account_id: 要更新绩效的账户ID
+        """
         """更新账户绩效"""
         account = self.accounts[account_id]
         pos_manager = self.position_managers[account_id]
@@ -266,6 +362,16 @@ class PaperTradingEngine:
         account.max_drawdown = perf.get("max_drawdown", 0)
     
     def get_account_performance(self, account_id: str) -> Dict:
+        """获取账户完整绩效信息
+        
+        Returns:
+            Dict: {
+                account_info: PaperAccount字段字典,
+                positions: 当前持仓列表,
+                performance: 绩效统计指标,
+                recent_trades: 最近10条交易记录
+            }
+        """
         """获取账户绩效"""
         if account_id not in self.accounts:
             return {}

@@ -167,6 +167,35 @@ export async function triggerSignalGeneration(): Promise<{ success: boolean; mes
   return api.post<{ success: boolean; message: string; signal_count: number }>('/trading/signals/generate')
 }
 
+/** 今日预选池 - 按策略分组的信号统计 */
+export interface PoolStrategyGroup {
+  strategy_id: string
+  strategy_name: string
+  count: number
+  avg_confidence: number
+  signals: TradingSignal[]
+}
+
+/** 今日预选池概览 */
+export interface TodayPoolOverview {
+  trade_date: string
+  total_count: number
+  buy_count: number
+  sell_count: number
+  pending_count: number
+  executed_count: number
+  strategy_groups: PoolStrategyGroup[]
+}
+
+/**
+ * 获取今日预选池数据
+ */
+export async function getTodayPool(limit: number = 200): Promise<{ total: number; items: TradingSignal[] }> {
+  return api.get<{ total: number; items: TradingSignal[] }>('/trading/signals', {
+    params: { limit, offset: 0, only_unexecuted: false }
+  })
+}
+
 export default {
   getSimAccounts,
   getPositions,

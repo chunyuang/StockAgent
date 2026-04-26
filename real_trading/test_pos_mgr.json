@@ -1,0 +1,15 @@
+{
+  "300001.SZ": {
+    "ts_code": "300001.SZ",
+    "name": "特锐德",
+    "buy_date": "20260410",
+    "buy_price": 15.5,
+    "shares": 100,
+    "total_cost": 1550.0,
+    "stop_loss_price": 14.0,
+    "take_profit_price": 17.0,
+    "max_hold_days": 3,
+    "strategy": "test",
+    "notes": ""
+  }
+}

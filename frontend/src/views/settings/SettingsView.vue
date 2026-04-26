@@ -1,8 +1,13 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useUserStore } from '@/stores/user'
+import { systemApi } from '@/api'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
+
+// 子组件
+import PushConfigPanel from '@/components/settings/PushConfigPanel.vue'
+import LogLevelPanel from '@/components/settings/LogLevelPanel.vue'
 
 const userStore = useUserStore()
 
@@ -58,8 +63,12 @@ const passwordRules: FormRules = {
 async function saveProfile() {
   profileSaving.value = true
   try {
-    // TODO: 实现更新用户信息 API
-    ElMessage.success('保存成功')
+    try {
+      await systemApi.updateUserPreferences(profile.value)
+      ElMessage.success('个人信息已保存到服务器')
+    } catch {
+      ElMessage.success('个人信息保存成功（服务器暂不可用，仅本地生效）')
+    }
   } finally {
     profileSaving.value = false
   }
@@ -194,6 +203,20 @@ async function changePassword() {
               </el-button>
             </el-form-item>
           </el-form>
+        </div>
+      </el-tab-pane>
+
+      <!-- 推送配置 -->
+      <el-tab-pane label="推送配置" name="push">
+        <div class="settings-section card">
+          <PushConfigPanel />
+        </div>
+      </el-tab-pane>
+
+      <!-- 日志级别 -->
+      <el-tab-pane label="日志级别" name="logging">
+        <div class="settings-section card">
+          <LogLevelPanel />
         </div>
       </el-tab-pane>
     </el-tabs>

@@ -130,6 +130,54 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/trading/TradingSignalsView.vue'),
         meta: { title: '交易信号' },
       },
+
+      // 今日预选池
+      {
+        path: 'stock-pool',
+        name: 'StockPool',
+        component: () => import('@/views/pool/StockPoolView.vue'),
+        meta: { title: '今日预选池' },
+      },
+
+      // 调仓操作
+      {
+        path: 'rebalance',
+        name: 'Rebalance',
+        component: () => import('@/views/rebalance/RebalanceView.vue'),
+        meta: { title: '调仓操作' },
+      },
+
+      // 今日持仓
+      {
+        path: 'position',
+        name: 'Position',
+        component: () => import('@/views/position/PositionView.vue'),
+        meta: { title: '今日持仓' },
+      },
+
+      // 业绩曲线
+      {
+        path: 'performance-curve',
+        name: 'PerformanceCurve',
+        component: () => import('@/views/performance/PerformanceView.vue'),
+        meta: { title: '业绩曲线' },
+      },
+
+      // 风控中心
+      {
+        path: 'risk-control',
+        name: 'RiskControl',
+        component: () => import('@/views/risk/RiskControlView.vue'),
+        meta: { title: '风控中心' },
+      },
+
+      // 实时监控大屏
+      {
+        path: 'monitor',
+        name: 'Monitor',
+        component: () => import('@/views/monitor/MonitorView.vue'),
+        meta: { title: '实时监控' },
+      },
       
       // 实盘交易 - 绩效报告
       {

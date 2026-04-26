@@ -13,7 +13,7 @@ from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
 from typing import List, Dict, Optional
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'AgentServer'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'AgentServer'))  # FIXME: 使用sys.path.insert做模块查找是反模式，应改用setup.py/pyproject.toml将项目安装到venv中
 sys.path.insert(0, os.path.dirname(__file__))
 
 from multi_account_manager import MultiAccountManager
@@ -185,5 +185,12 @@ async def get_latest_signal(api_key: str = Depends(get_api_key)):
                     "name": "浦发银行",
                     "strategy": "首板打板",
                     "industry": "银行",
-                    "close": 8.12,
-                    "p
+                    "close": 8.12
+                }
+            ]
+        }
+    }
+
+if __name__ == '__main__':
+    import uvicorn
+    uvicorn.run(app, host='0.0.0.0', port=8001)

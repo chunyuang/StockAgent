@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import List, Dict, Tuple
 import numpy as np
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'AgentServer'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'AgentServer'))  # FIXME: 使用sys.path.insert做模块查找是反模式，应改用setup.py/pyproject.toml将项目安装到venv中
 sys.path.insert(0, os.path.dirname(__file__))
 
 from backtest_module.backtest_engine.factor_selection.portfolio_backtest import PortfolioBacktester

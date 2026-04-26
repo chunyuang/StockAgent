@@ -9,11 +9,20 @@ from datetime import datetime
 from typing import List, Dict, Optional
 from abc import ABC, abstractmethod
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'AgentServer'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'AgentServer'))  # FIXME: 使用sys.path.insert做模块查找是反模式，应改用setup.py/pyproject.toml将项目安装到venv中
 sys.path.insert(0, os.path.dirname(__file__))
 
 class BaseTradeGateway(ABC):
-    """交易网关抽象基类，所有券商对接都需要实现这些接口"""
+    """交易网关抽象基类
+    
+    定义统一的交易接口协议，所有券商对接都必须实现这些方法：
+    - connect/disconnect: 连接管理
+    - get_account_info/get_positions: 账户查询
+    - place_order/cancel_order/get_order_status: 订单管理
+    - get_trade_history/get_realtime_quote: 数据查询
+    
+    子类实现：SimulatedGateway（模拟）、FutuGateway（富途）、TigerGateway（老虎）等
+    """
     
     def __init__(self, config: Dict):
         self.config = config
@@ -42,8 +51,15 @@ class BaseTradeGateway(ABC):
     @abstractmethod
     def place_order(self, ts_code: str, price: float, quantity: int, order_type: str = "limit") -> Dict:
         """下单
-        order_type: limit(限价)/market(市价)
-        返回订单ID
+        
+        Args:
+            ts_code: 股票代码（如 000001.SZ）
+            price: 委托价格（元）
+            quantity: 委托数量（股），需为100的整数倍
+            order_type: 委托类型 limit-限价 / market-市价
+        
+        Returns:
+            Dict: 订单信息，至少包含 order_id 和 success 字段
         """
         pass
     
@@ -68,7 +84,14 @@ class BaseTradeGateway(ABC):
         pass
 
 class SimulatedGateway(BaseTradeGateway):
-    """模拟交易网关，用于测试"""
+    """模拟交易网关，用于测试验证
+    
+    完全模拟实盘交易规则：
+    - 买入：扣除资金+佣金（万2，最低5元）
+    - 卖出：回款-佣金-印花税（千1）
+    - 加仓：加权平均成本价
+    - 100%模拟成交，无滑点
+    """
     
     def __init__(self, config: Dict):
         super().__init__(config)
@@ -129,7 +152,7 @@ class SimulatedGateway(BaseTradeGateway):
         
         # 模拟100%成交
         total_cost = price * quantity
-        commission = max(total_cost * 0.0002, 5)
+        commission = max(total_cost * 0.0003, 5)  # 佣金万3，对齐前端和回测配置
         stamp_tax = total_cost * 0.001 if order_type == "sell" else 0
         total_payment = total_cost + commission + stamp_tax
         
@@ -158,7 +181,7 @@ class SimulatedGateway(BaseTradeGateway):
                 return {"success": False, "msg": "持仓不足", "order_id": order_id}
             
             total_income = price * quantity
-            commission = max(total_income * 0.0002, 5)
+            commission = max(total_income * 0.0003, 5)  # 佣金万3，对齐前端和回测配置
             stamp_tax = total_income * 0.001
             net_income = total_income - commission - stamp_tax
             self.balance += net_income
@@ -239,7 +262,11 @@ class SimulatedGateway(BaseTradeGateway):
 #     pass
 
 class TradeGatewayFactory:
-    """交易网关工厂"""
+    """交易网关工厂
+    
+    根据网关类型字符串创建对应的网关实例，
+    当前仅支持 simulated，可扩展 futu/tiger/snowball 等。
+    """
     
     @staticmethod
     def create_gateway(gateway_type: str, config: Dict) -> BaseTradeGateway:
@@ -255,7 +282,13 @@ class TradeGatewayFactory:
         return gateway_map[gateway_type](config)
 
 class TradingService:
-    """交易服务，上层封装，提供便捷的交易接口"""
+    """交易服务上层封装
+    
+    提供更便捷的交易接口，封装底层网关细节：
+    - start/stop: 生命周期管理
+    - buy/sell: 简化的买卖接口
+    - auto_trade_by_signal: 信号驱动的自动调仓（先卖后买）
+    """
     
     def __init__(self, gateway_type: str = "simulated", gateway_config: Dict = None):
         self.gateway = TradeGatewayFactory.create_gateway(gateway_type, gateway_config or {})
@@ -309,7 +342,22 @@ class TradingService:
             return {"success": False, "msg": str(e)}
     
     def auto_trade_by_signal(self, signals: List[Dict], max_position: float = 0.7, max_single_position: float = 0.2) -> List[Dict]:
-        """根据信号自动交易"""
+        """根据信号自动调仓
+        
+        策略：先卖出不在新信号中的旧持仓，再买入新信号标的。
+        - 卖出价 = 实时价 × 0.995（略低保证成交）
+        - 买入价 = 实时价 × 1.005（略高保证成交）
+        - 单票最大仓位不超过 max_single_position
+        - 总仓位不超过 max_position
+        
+        Args:
+            signals: 选股信号列表，每个信号需包含 ts_code
+            max_position: 最大总仓位比例，默认0.7（70%）
+            max_single_position: 单票最大仓位比例，默认0.2（20%）
+        
+        Returns:
+            List[Dict]: 交易结果列表
+        """
         if not self.connected:
             return []
         
