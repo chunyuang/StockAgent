@@ -321,6 +321,8 @@ class PortfolioBacktester:
                 current_df = current_df[current_df[factor_name] < target_value]
             elif operator == "==":
                 current_df = current_df[current_df[factor_name] == target_value]
+            elif operator == "in":  # ✅ 新增in操作符支持！
+                current_df = current_df[current_df[factor_name].isin(target_value)]
             
             after_count = len(current_df)
             filter_rate = ((before_count - after_count) / before_count * 100) if before_count > 0 else 0
@@ -791,6 +793,24 @@ class PortfolioBacktester:
                     await self.log(f"          2. 全市场该因子数据不完整,部分日期缺失")
                     await self.log(f"      ⚠️  回测结果可能异常,建议先同步因子数据后重试")
 
+                # ✅ 新增：计算情绪周期字段 sentiment_period_in（从 sentiment_score 映射）
+                # 策略中使用 sentiment_period_in 配合 in 操作符过滤
+                import numpy as np
+                if 'sentiment_score' in factor_df.columns:
+                    # 根据情绪分数映射到情绪周期
+                    # score ≥ 70 → 'rising' (上升期)
+                    # 40 ≤ score < 70 → 'chaos' (混沌期)
+                    # score < 40 → 'depression' (衰退期)
+                    def map_sentiment(score):
+                        if score >= 70:
+                            return 'rising'
+                        elif score >= 40:
+                            return 'chaos'
+                        else:
+                            return 'depression'
+                    factor_df['sentiment_period_in'] = factor_df['sentiment_score'].apply(map_sentiment)
+                    await self.log(f"   ✅ 情绪周期计算完成: sentiment_period_in 字段已添加")
+
                 # 🎯 重构为多策略独立筛选逻辑(实盘对齐):每个策略独立运行,结果合并去重
                 await self.log(f"   ═══════════════════════════════════════════════════════════")
                 await self.log(f"   🎯 多策略联合筛选开始")
@@ -863,8 +883,8 @@ class PortfolioBacktester:
                             {"name": "opening_pct_chg", "target": 2.0, "operator": ">=", "label": "竞价涨幅≥2%"},
                             {"name": "opening_pct_chg", "target": 5.0, "operator": "<=", "label": "竞价涨幅≤5%"},
                             {"name": "volume_ratio", "target": min_volume_ratio, "operator": ">=", "label": "竞价量比≥1.5"},
-                            {"name": "turnover", "target": min_turnover, "operator": ">=", "label": "换手率≥3%"},
-                            {"name": "turnover", "target": max_turnover, "operator": "<=", "label": "换手率≤15%"},
+                            {"name": "turnover_rate", "target": min_turnover, "operator": ">=", "label": "换手率≥3%"},
+                            {"name": "turnover_rate", "target": max_turnover, "operator": "<=", "label": "换手率≤15%"},
                             {"name": "circ_mv", "target": min_circ_mv * 10000, "operator": ">=", "label": "最小流通市值"},
                             {"name": "circ_mv", "target": max_circ_mv * 10000, "operator": "<=", "label": "最大流通市值"},
                             {"name": "limit_up_open_amount", "target": min_seal_amount, "label": "最小封单金额"},
@@ -882,7 +902,7 @@ class PortfolioBacktester:
                         max_consecutive = params.get("max_consecutive_limit", 4)
                         max_open_duration = params.get("max_open_duration", 5)
                         min_seal_after = params.get("min_seal_after_open", 3000)
-                        min_turnover = params.get("min_turnover_rate", 0.15)
+                        min_turnover = params.get("min_turnover_rate", 15)  # ✅ 修复：从0.15改为15（百分比单位）
                         opening_pct_min = params.get("opening_pct_min", 0.0)
                         opening_pct_max = params.get("opening_pct_max", 3.0)
                         min_volume_ratio = params.get("min_volume_ratio", 2.0)
