@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
+import os
 import tushare as ts
 
-token = "3b610bc78011b162b4bbb5efa8c4f0ee"
+token = os.getenv("TUSHARE_TOKEN")
+if not token:
+    raise ValueError("请设置环境变量 TUSHARE_TOKEN")
 pro = ts.pro_api(token)
 pro._DataApi__token = token
 pro._DataApi__http_url = 'https://x-fpv.com'

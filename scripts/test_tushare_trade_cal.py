@@ -3,9 +3,12 @@
 单独验证 Tushare trade_cal 接口
 """
 
+import os
 import tushare as ts
 
-token = "d9f3d9c916a0172173d37e9631ded6d5285dd79d3e61d37b9081cee1"
+token = os.getenv("TUSHARE_TOKEN")
+if not token:
+    raise ValueError("请设置环境变量 TUSHARE_TOKEN")
 pro = ts.pro_api(token)
 
 print("=== Testing Tushare trade_cal (official API) ===")

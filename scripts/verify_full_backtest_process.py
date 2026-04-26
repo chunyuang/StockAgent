@@ -57,11 +57,13 @@ async def run_verification():
     await redis_manager.initialize()
     try:
         await tushare_manager.initialize()
-    except:
+    except Exception as e:
+        print(f"⚠️ tushare_manager初始化失败: {e}")
         pass
     try:
         await baostock_manager.initialize()
-    except:
+    except Exception as e:
+        print(f"⚠️ baostock_manager初始化失败: {e}")
         pass
     
     print("\n✅ 管理器初始化完成，开始运行回测...")
