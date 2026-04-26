@@ -1,0 +1,15 @@
+{
+  "600036.SH": {
+    "ts_code": "600036.SH",
+    "name": "招商银行",
+    "buy_date": "20260424",
+    "buy_price": 35.07,
+    "shares": 100,
+    "total_cost": 3507.0,
+    "stop_loss_price": 33.3165,
+    "take_profit_price": 38.577000000000005,
+    "max_hold_days": 3,
+    "strategy": "test",
+    "notes": ""
+  }
+}

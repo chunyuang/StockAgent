@@ -9,20 +9,35 @@ from datetime import datetime, timedelta
 from typing import List, Dict
 import numpy as np
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'AgentServer'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'AgentServer'))  # FIXME: 使用sys.path.insert做模块查找是反模式，应改用setup.py/pyproject.toml将项目安装到venv中
 sys.path.insert(0, os.path.dirname(__file__))
 
 from performance_analyzer import PerformanceAnalyzer
 
 class SmartReviewer:
-    """智能复盘分析器"""
+    """智能复盘分析器
+    
+    基于交易历史进行多维度复盘分析：
+    - 盈亏归因：识别盈利和亏损的核心原因
+    - 策略评估：按策略分析胜率/盈亏比/回撤
+    - 操作习惯：识别频繁交易/持仓过久/追涨杀跌等行为模式
+    - 优化建议：根据复盘结果生成针对性改进方案
+    """
     
     def __init__(self, trade_history_file: str = "trade_history.json"):
         self.analyzer = PerformanceAnalyzer(trade_history_file)
         self.trades = self.analyzer._load_trades()
     
     def generate_review_report(self, period_days: int = 30, output_file: str = None) -> str:
-        """生成智能复盘报告"""
+        """生成智能复盘报告
+        
+        Args:
+            period_days: 回溯天数，默认30天
+            output_file: 报告保存路径，None则仅返回文本
+        
+        Returns:
+            str: Markdown格式复盘报告
+        """
         end_date = datetime.now()
         start_date = end_date - timedelta(days=period_days)
         start_date_str = start_date.strftime("%Y%m%d")

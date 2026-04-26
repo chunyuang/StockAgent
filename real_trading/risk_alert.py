@@ -9,15 +9,34 @@ import json
 from datetime import datetime
 from typing import List, Dict
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'AgentServer'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'AgentServer'))  # FIXME: 使用sys.path.insert做模块查找是反模式，应改用setup.py/pyproject.toml将项目安装到venv中
 sys.path.insert(0, os.path.dirname(__file__))
 
 from paper_trading import PaperTradingEngine
 
 class RiskAlertEngine:
-    """风控告警引擎"""
+    """风控告警引擎
+    
+    提供多层次风控检查：
+    - 账户级：最大回撤超限/仓位超限/单股亏损超限
+    - 市场级：指数波动/情绪极端（框架预留）
+    - 每日盘后例行检查
+    
+    告警通过飞书等渠道推送，历史记录持久化到 alert_history.json。
+    """
     
     def __init__(self, config: Dict = None):
+        """初始化风控引擎
+        
+        Args:
+            config: 可选配置覆盖，支持的字段：
+                - alert_channels: 告警渠道列表，默认 ['feishu']
+                - max_drawdown_alert: 最大回撤告警阈值，默认0.1（10%）
+                - single_stock_loss_alert: 单股亏损告警阈值，默认0.08（8%）
+                - position_limit_alert: 仓位超限告警阈值，默认0.9（90%）
+                - daily_loss_alert: 单日亏损告警阈值，默认0.05（5%）
+                - volatility_alert: 指数波动告警阈值，默认0.03（3%）
+        """
         self.default_config = {
             "alert_channels": ["feishu"],  # 告警渠道
             "max_drawdown_alert": 0.1,  # 最大回撤超过10%告警
@@ -31,23 +50,38 @@ class RiskAlertEngine:
     
     def _load_alert_history(self) -> List[Dict]:
         """加载告警历史"""
-        history_file = "./alert_history.json"
-        if os.path.exists(history_file):
-            try:
-                with open(history_file, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except:
-                return []
-        return []
+        history_file = os.path.join(os.path.dirname(__file__), "alert_history.json")
+        if not os.path.exists(history_file):
+            return []
+        try:
+            with open(history_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if not isinstance(data, list):
+                    return []
+                return data
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"⚠️  加载告警历史失败: {e}")
+            return []
     
     def _save_alert_history(self):
         """保存告警历史"""
-        history_file = "./alert_history.json"
-        with open(history_file, "w", encoding="utf-8") as f:
-            json.dump(self.alert_history, f, ensure_ascii=False, indent=2)
+        history_file = os.path.join(os.path.dirname(__file__), "alert_history.json")
+        try:
+            with open(history_file, "w", encoding="utf-8") as f:
+                json.dump(self.alert_history, f, ensure_ascii=False, indent=2)
+        except (OSError, TypeError) as e:
+            print(f"⚠️  保存告警历史失败: {e}")
     
     def _send_alert(self, title: str, content: str, level: str = "info"):
-        """发送告警"""
+        """发送风控告警
+        
+        根据级别选择emoji，通过配置的渠道推送，并记录到告警历史。
+        
+        Args:
+            title: 告警标题
+            content: 告警内容详情
+            level: 告警级别 info/warning/danger/critical
+        """
         # 生成告警内容
         level_emoji = {
             "info": "ℹ️",
@@ -74,7 +108,19 @@ class RiskAlertEngine:
         self._save_alert_history()
     
     def check_account_risk(self, account_id: str) -> List[Dict]:
-        """检查账户风险"""
+        """检查指定账户的风险状况
+        
+        执行三项检查：
+        1. 最大回撤检查 → 超过 max_drawdown_alert 阈值告警
+        2. 仓位超限检查 → 超过 position_limit_alert 阈值告警
+        3. 单股亏损检查 → 超过 single_stock_loss_alert 阈值告警
+        
+        Args:
+            account_id: 要检查的模拟账户ID
+        
+        Returns:
+            List[Dict]: 告警列表，每条包含 title/content/level
+        """
         engine = PaperTradingEngine()
         if account_id not in engine.accounts:
             return []
@@ -124,7 +170,16 @@ class RiskAlertEngine:
         return alerts
     
     def check_market_risk(self) -> List[Dict]:
-        """检查市场风险"""
+        """检查市场整体风险
+        
+        框架预留，可扩展实现：
+        - 市场指数波动率超限告警
+        - 涨跌停家数异常告警
+        - 情绪周期极端告警
+        
+        Returns:
+            List[Dict]: 告警列表（当前返回空列表）
+        """
         alerts = []
         
         # 这里可以实现市场指数波动、涨跌停家数、情绪周期等检查
@@ -136,7 +191,16 @@ class RiskAlertEngine:
         return alerts
     
     def run_daily_check(self, account_id: str = None):
-        """每日盘后风险检查"""
+        """每日盘后风险检查（入口方法）
+        
+        检查指定账户或所有活跃账户的风险，加上市场风险检查。
+        
+        Args:
+            account_id: 指定账户ID，None则检查所有活跃账户
+        
+        Returns:
+            List[Dict]: 所有告警的汇总列表
+        """
         print("🔍 开始每日风控检查...")
         
         alerts = []

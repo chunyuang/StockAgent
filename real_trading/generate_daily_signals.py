@@ -5,7 +5,7 @@
 """
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'AgentServer'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'AgentServer'))  # FIXME: 使用sys.path.insert做模块查找是反模式，应改用setup.py/pyproject.toml将项目安装到venv中
 sys.path.insert(0, os.path.dirname(__file__))
 
 import asyncio
@@ -17,18 +17,44 @@ from backtest_module.backtest_engine.factor_selection.portfolio_backtest import 
 from backtest_module.backtest_engine.factor_selection.universe import UniverseManager, UniverseType, ExcludeRule
 
 class RealTradingSignalGenerator:
-    """实盘信号生成器"""
+    """实盘信号生成器
+    
+    每日盘后运行，生成次日交易信号，流程：
+    1. 计算当日情绪周期评分 → 判断仓位上限和允许策略
+    2. 检查强制空仓条件 → 触发则不生成信号
+    3. 获取预选池（全A股，排除ST/次新股）
+    4. 竞价阶段过滤（涨幅0.5%~7%、有成交量、有未匹配量）
+    5. 计算多因子并排序（动量/量能/涨停/换手/波动/龙虎榜/北向）
+    6. 情绪周期过滤（仅保留允许策略的标的）
+    7. 选出TOP N标的
+    8. 生成交易计划（含建议买入价、止损止盈价）
+    """
     
     def __init__(self, config: Dict = None):
+        """初始化信号生成器
+        
+        Args:
+            config: 可选配置覆盖，支持的字段：
+                - initial_cash: 初始资金，默认100万
+                - max_position: 最大总仓位，默认0.7（70%）
+                - max_position_per_stock: 单票最大仓位，默认0.2（20%）
+                - max_hold_days: 最大持仓天数，默认3
+                - stop_loss_pct: 止损比例，默认0.05（5%）
+                - take_profit_pct: 止盈比例，默认0.1（10%）
+                - liquidity_threshold: 成交额门槛，默认500万
+                - volume_threshold: 量能放大倍数，默认1.5
+                - top_n: 最多选N只标的，默认5
+        """
         self.default_config = {
             "initial_cash": 1000000,
-            "max_position": 0.7,
-            "max_position_per_stock": 0.2,
-            "max_hold_days": 3,
-            "stop_loss_pct": 0.05,
-            "take_profit_pct": 0.1,
-            "liquidity_threshold": 5000000,  # 500万成交额门槛
-            "volume_threshold": 1.5,  # 量能放大1.5倍
+            "max_position": 0.7,          # 总仓位上限70%，留30%现金防风险
+            "max_position_per_stock": 0.2, # 单票最大仓位20%，分散风险
+            "max_hold_days": 3,            # 超短核心：最多持仓3天
+            "stop_loss_pct": 0.02,         # 止损2%，超短必须严格止损
+            "take_profit_pct": 0.07,       # 止盈7%，超短快进快出
+            "liquidity_threshold": 5000000, # 500万成交额门槛，避免流动性陷阱
+            "volume_threshold": 1.5,       # 量能放大1.5倍
+            "slippage": 0.002,             # 滑点0.2%，超短打板滑点较大
             "enable_force_empty": True,
             "enable_sentiment_cycle": True,
             "enable_auction_filter": True,
@@ -47,7 +73,25 @@ class RealTradingSignalGenerator:
         self.universe_mgr = UniverseManager()
     
     async def generate_signals(self, trade_date: str = None) -> Dict:
-        """生成指定交易日的实盘信号"""
+        """生成指定交易日的实盘信号
+        
+        执行完整的信号生成流水线：情绪周期→强制空仓检查→预选池→竞价过滤→
+        因子计算→策略过滤→选股→生成交易计划
+        
+        Args:
+            trade_date: 交易日期（YYYYMMDD），默认取最近一个交易日
+        
+        Returns:
+            Dict: {
+                date: 交易日期,
+                force_empty: 是否强制空仓,
+                sentiment: 情绪周期信息,
+                universe_size: 预选池数量,
+                signals: 选中的标的列表,
+                trading_plan: Markdown格式交易计划,
+                generated_at: 生成时间
+            }
+        """
         if not trade_date:
             # 默认取最近一个交易日
             trade_date = self._get_latest_trade_date()
@@ -134,7 +178,20 @@ class RealTradingSignalGenerator:
         }
     
     def _get_factors_config(self) -> List[Dict]:
-        """获取策略因子配置"""
+        """获取策略因子权重配置
+        
+        返回7个因子的名称和权重，用于多因子打分排序：
+        - momentum_5d: 5日动量（权重0.2）
+        - volume_increase: 量能放大（权重0.2）
+        - limit_up_count: 涨停次数（权重0.2）
+        - turnover_rate: 换手率（权重0.15）
+        - volatility_20d: 20日波动率（权重0.15）
+        - has_lhb: 龙虎榜（权重0.05）
+        - north_hold_ratio: 北向持股比例（权重0.05）
+        
+        Returns:
+            List[Dict]: 因子配置列表
+        """
         return [
             {"name": "momentum_5d", "weight": 0.2},
             {"name": "volume_increase", "weight": 0.2},
@@ -146,66 +203,117 @@ class RealTradingSignalGenerator:
         ]
     
     async def _auction_filter(self, universe: List[str], trade_date: str) -> List[str]:
-        """竞价阶段过滤"""
+        """竞价阶段过滤
+        
+        从MongoDB获取集合竞价数据，过滤掉不符合竞价特征的标的：
+        - 竞价涨幅必须在0.5%~7%之间（排除一字涨停和低开）
+        - 竞价成交量 > 0（排除无成交的）
+        - 未匹配量 > 0（排除无买盘的）
+        
+        Args:
+            universe: 待过滤的股票代码列表
+            trade_date: 交易日期（YYYYMMDD）
+        
+        Returns:
+            List[str]: 过滤后的股票代码列表
+        """
         from core.managers import mongo_manager
         
-        auction_data = await mongo_manager.find_many(
-            "stock_bid_auction",
-            {"trade_date": int(trade_date)},
-            projection={"ts_code": 1, "auction_pct_chg": 1, "auction_volume": 1, "unmatched_volume": 1}
-        )
+        try:
+            auction_data = await mongo_manager.find_many(
+                "stock_bid_auction",
+                {"trade_date": int(trade_date)},
+                projection={"ts_code": 1, "auction_pct_chg": 1, "auction_volume": 1, "unmatched_volume": 1}
+            )
+        except (ConnectionError, OSError, ValueError) as e:
+            print(f"⚠️  获取竞价数据失败: {e}，跳过竞价过滤")
+            return universe
+        except Exception as e:
+            print(f"⚠️  获取竞价数据异常: {e}，跳过竞价过滤")
+            return universe
         
         if not auction_data:
             return universe
         
-        auction_map = {x["ts_code"]: x for x in auction_data}
+        auction_map = {x.get("ts_code", ""): x for x in auction_data if x.get("ts_code")}
         filtered = []
         
         for ts_code in universe:
             if ts_code not in auction_map:
                 continue
             auction = auction_map[ts_code]
-            # 竞价过滤规则
-            if not (0.5 <= auction["auction_pct_chg"] <= 7):
+            # 竞价过滤规则 - 使用get防止KeyError
+            auction_pct = auction.get("auction_pct_chg", 0)
+            auction_vol = auction.get("auction_volume", 0)
+            unmatched_vol = auction.get("unmatched_volume", 0)
+            if not (0.5 <= auction_pct <= 7):
                 continue
-            if auction["auction_volume"] <= 0:
+            if auction_vol <= 0:
                 continue
-            if auction["unmatched_volume"] <= 0:
+            if unmatched_vol <= 0:
                 continue
             filtered.append(ts_code)
         
         return filtered
     
     async def _get_stock_details(self, ts_codes: List[str], trade_date: str) -> List[Dict]:
-        """获取股票详细信息"""
+        """获取股票详细信息，合并日线/基础/龙虎榜数据
+        
+        从MongoDB三张表聚合数据：
+        - stock_daily_ak_full: 日线行情（收盘价、涨跌幅、涨跌停价）
+        - stock_basic: 股票基础信息（名称、行业）
+        - stock_lhb: 龙虎榜数据（净买入、上榜原因）
+        
+        Args:
+            ts_codes: 股票代码列表
+            trade_date: 交易日期（YYYYMMDD）
+        
+        Returns:
+            List[Dict]: 每只股票的详细信息字典
+        """
         from core.managers import mongo_manager
         
         if not ts_codes:
             return []
         
         # 获取日线数据
-        daily_data = await mongo_manager.find_many(
-            "stock_daily_ak_full",
-            {"ts_code": {"$in": ts_codes}, "trade_date": int(trade_date)},
-            projection={"ts_code": 1, "close": 1, "pct_chg": 1, "amount": 1, "volume": 1, "up_limit": 1, "down_limit": 1}
-        )
-        daily_map = {x["ts_code"]: x for x in daily_data}
+        daily_map = {}
+        try:
+            daily_data = await mongo_manager.find_many(
+                "stock_daily_ak_full",
+                {"ts_code": {"$in": ts_codes}, "trade_date": int(trade_date)},
+                projection={"ts_code": 1, "close": 1, "pct_chg": 1, "amount": 1, "volume": 1, "up_limit": 1, "down_limit": 1}
+            )
+            if daily_data:
+                daily_map = {x.get("ts_code", ""): x for x in daily_data if x.get("ts_code")}
+        except Exception as e:
+            print(f"⚠️  获取日线数据失败: {e}")
         
         # 获取股票名称
-        basic_data = await mongo_manager.find_many(
-            "stock_basic",
-            {"ts_code": {"$in": ts_codes}},
-            projection={"ts_code": 1, "name": 1, "industry": 1}
-        )
-        basic_map = {x["ts_code"]: x for x in basic_data}
+        basic_map = {}
+        try:
+            basic_data = await mongo_manager.find_many(
+                "stock_basic",
+                {"ts_code": {"$in": ts_codes}},
+                projection={"ts_code": 1, "name": 1, "industry": 1}
+            )
+            if basic_data:
+                basic_map = {x.get("ts_code", ""): x for x in basic_data if x.get("ts_code")}
+        except Exception as e:
+            print(f"⚠️  获取基础数据失败: {e}")
         
         # 获取龙虎榜数据
-        lhb_data = await mongo_manager.find_many(
-            "stock_lhb",
-            {"ts_code": {"$in": ts_codes}, "trade_date": int(trade_date)},
-            projection={"ts_code": 1, "net_buy_amount": 1, "reason": 1}
-        )
-        lhb_map = {x["ts_code"]: x for x in lhb_data}
+        lhb_map = {}
+        try:
+            lhb_data = await mongo_manager.find_many(
+                "stock_lhb",
+                {"ts_code": {"$in": ts_codes}, "trade_date": int(trade_date)},
+                projection={"ts_code": 1, "net_buy_amount": 1, "reason": 1}
+            )
+            if lhb_data:
+                lhb_map = {x.get("ts_code", ""): x for x in lhb_data if x.get("ts_code")}
+        except Exception as e:
+            print(f"⚠️  获取龙虎榜数据失败: {e}")
         
         # 合并信息
         details = []
@@ -214,25 +322,41 @@ class RealTradingSignalGenerator:
             basic = basic_map.get(ts_code, {})
             lhb = lhb_map.get(ts_code, {})
             
+            # 使用.get()防止数据缺失导致KeyError
+            close_price = daily.get("close", 0) if isinstance(daily, dict) else 0
+            pct_chg = daily.get("pct_chg", 0) if isinstance(daily, dict) else 0
             details.append({
                 "ts_code": ts_code,
-                "name": basic.get("name", ts_code),
-                "industry": basic.get("industry", "未知"),
-                "close": daily.get("close", 0),
-                "pct_chg": daily.get("pct_chg", 0),
-                "amount": daily.get("amount", 0),
-                "up_limit": daily.get("up_limit", 0),
-                "down_limit": daily.get("down_limit", 0),
+                "name": basic.get("name", ts_code) if isinstance(basic, dict) else ts_code,
+                "industry": basic.get("industry", "未知") if isinstance(basic, dict) else "未知",
+                "close": close_price,
+                "pct_chg": pct_chg,
+                "amount": daily.get("amount", 0) if isinstance(daily, dict) else 0,
+                "up_limit": daily.get("up_limit", 0) if isinstance(daily, dict) else 0,
+                "down_limit": daily.get("down_limit", 0) if isinstance(daily, dict) else 0,
                 "has_lhb": ts_code in lhb_map,
-                "lhb_net_buy": lhb.get("net_buy_amount", 0),
-                "lhb_reason": lhb.get("reason", ""),
-                "strategy": self._get_strategy_for_stock(ts_code, daily),
+                "lhb_net_buy": lhb.get("net_buy_amount", 0) if isinstance(lhb, dict) else 0,
+                "lhb_reason": lhb.get("reason", "") if isinstance(lhb, dict) else "",
+                "strategy": self._get_strategy_for_stock(ts_code, daily if isinstance(daily, dict) else {}),
             })
         
         return details
     
     def _get_strategy_for_stock(self, ts_code: str, daily_data: Dict) -> str:
-        """简单判断股票所属策略"""
+        """根据行情数据判断股票所属策略类型
+        
+        简单规则：
+        - 涨停板附近 → '首板打板'
+        - 涨幅≥5%但未涨停 → '半路追涨'
+        - 其他 → '龙头低吸'
+        
+        Args:
+            ts_code: 股票代码
+            daily_data: 当日行情数据字典
+        
+        Returns:
+            str: 策略名称
+        """
         pct_chg = daily_data.get("pct_chg", 0)
         limit_up = daily_data.get("up_limit", 0)
         close = daily_data.get("close", 0)
@@ -245,7 +369,20 @@ class RealTradingSignalGenerator:
             return "龙头低吸"
     
     def _generate_trading_plan(self, signals: List[Dict], sentiment_info: Dict) -> str:
-        """生成交易计划"""
+        """生成Markdown格式交易计划
+        
+        内容包括：
+        - 情绪等级和仓位上限
+        - 可选标的列表（含建议买入价、仓位、止损止盈价）
+        - 交易纪律提醒
+        
+        Args:
+            signals: 选中的标的信号列表
+            sentiment_info: 情绪周期信息字典
+        
+        Returns:
+            str: Markdown格式交易计划文本
+        """
         if not signals:
             return "无符合条件标的，建议空仓观望"
         
@@ -261,8 +398,10 @@ class RealTradingSignalGenerator:
         for idx, stock in enumerate(signals, 1):
             buy_price = stock["close"] * 1.01  # 预计买入价格（比收盘价高1%，应对高开）
             buy_shares = int(per_stock_value / buy_price / 100) * 100
-            stop_loss_price = buy_price * (1 - self.config["stop_loss_pct"] * sentiment_info["stop_loss_adjust"])
-            take_profit_price = buy_price * (1 + self.config["take_profit_pct"] * sentiment_info["take_profit_adjust"])
+            stop_loss_pct = self.config["stop_loss_pct"] * sentiment_info.get("stop_loss_adjust", 1.0)
+            take_profit_pct = self.config["take_profit_pct"] * sentiment_info.get("take_profit_adjust", 1.0)
+            stop_loss_price = buy_price * (1 - stop_loss_pct)
+            take_profit_price = buy_price * (1 + take_profit_pct)
             
             plan.append(f"{idx}. **{stock['name']}({stock['ts_code']})**")
             plan.append(f"   策略：{stock['strategy']} | 行业：{stock['industry']}")
@@ -282,7 +421,16 @@ class RealTradingSignalGenerator:
         return "\n".join(plan)
     
     def _get_latest_trade_date(self) -> str:
-        """获取最近一个交易日"""
+        """获取最近一个交易日（简单逻辑，未接入交易日历API）
+        
+        规则：
+        - 周末 → 回退到周五
+        - 工作日15:00后 → 当天
+        - 工作日15:00前 → 前一天
+        
+        Returns:
+            str: 交易日期（YYYYMMDD）
+        """
         now = datetime.now()
         # 简单处理，实际可调用交易日历接口
         if now.weekday() >= 5:  # 周末

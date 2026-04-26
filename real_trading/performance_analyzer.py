@@ -9,9 +9,22 @@ from datetime import datetime, timedelta
 from typing import List, Dict
 
 class PerformanceAnalyzer:
-    """实盘绩效分析器"""
+    """实盘绩效分析器
+    
+    从交易历史JSON文件加载记录，提供多维度绩效分析：
+    - 基础统计：胜率/盈亏比/总盈利/最大回撤/平均持仓天数
+    - 月度统计：按月汇总交易次数/胜率/盈利
+    - 策略分析：分策略统计表现，按总盈利排序
+    - 报告生成：Markdown格式完整绩效报告+优化建议
+    """
     
     def __init__(self, trade_history_file: str = "trade_history.json"):
+        """初始化绩效分析器
+        
+        Args:
+            trade_history_file: 交易历史JSON文件名，
+                默认 trade_history.json，位于本模块同目录下
+        """
         self.history_file = os.path.join(os.path.dirname(__file__), trade_history_file)
         self.trades = self._load_trades()
     
@@ -31,7 +44,23 @@ class PerformanceAnalyzer:
             return []
     
     def get_basic_stats(self, start_date: str = None, end_date: str = None) -> Dict:
-        """获取基础统计指标"""
+        """获取基础统计指标
+        
+        计算核心绩效指标：
+        - 总交易次数/胜率/盈亏笔数
+        - 总盈利/平均每笔盈利
+        - 盈亏比（平均盈利÷平均亏损）
+        - 最大回撤（峰值法计算）
+        - 平均/最大持仓天数
+        - 分策略统计（次数/胜率/总盈利）
+        
+        Args:
+            start_date: 起始日期（YYYYMMDD），None表示从最早开始
+            end_date: 结束日期（YYYYMMDD），None表示到最新结束
+        
+        Returns:
+            Dict: 完整统计指标字典，无交易记录时返回空dict
+        """
         trades = self._filter_trades_by_date(start_date, end_date)
         if not trades:
             return {}
@@ -93,7 +122,11 @@ class PerformanceAnalyzer:
         }
     
     def get_monthly_stats(self) -> List[Dict]:
-        """获取按月统计"""
+        """按月统计交易绩效
+        
+        Returns:
+            List[Dict]: 按月份升序排列的统计列表，每条包含 month/total_trades/win_rate/total_profit/avg_profit_pct
+        """
         if not self.trades:
             return []
         
@@ -122,7 +155,14 @@ class PerformanceAnalyzer:
         return result
     
     def get_daily_stats(self, last_n_days: int = 30) -> List[Dict]:
-        """获取最近N天的每日统计"""
+        """获取最近N天的每日交易统计
+        
+        Args:
+            last_n_days: 回溯天数，默认30天
+        
+        Returns:
+            List[Dict]: 按日期倒序排列的每日统计列表
+        """
         if not self.trades:
             return []
         
@@ -158,7 +198,14 @@ class PerformanceAnalyzer:
         return result
     
     def get_strategy_analysis(self) -> List[Dict]:
-        """分策略分析"""
+        """分策略绩效分析
+        
+        对每个策略独立计算胜率/总盈利/最大回撤/平均持仓天数，
+        结果按总盈利降序排列。
+        
+        Returns:
+            List[Dict]: 策略绩效列表
+        """
         if not self.trades:
             return []
         
@@ -192,7 +239,17 @@ class PerformanceAnalyzer:
         return result
     
     def generate_report(self, output_file: str = None, period: str = "all") -> str:
-        """生成完整的绩效报告"""
+        """生成Markdown格式完整绩效报告
+        
+        包含：核心指标表格 + 最近7天统计 + 月度统计 + 分策略表现 + 优化建议
+        
+        Args:
+            output_file: 报告保存路径，None则仅返回文本不写文件
+            period: 统计周期，'all'表示全量
+        
+        Returns:
+            str: Markdown格式绩效报告
+        """
         stats = self.get_basic_stats()
         if not stats:
             report = "ℹ️  暂无交易记录，无法生成绩效报告"
@@ -290,7 +347,17 @@ class PerformanceAnalyzer:
         return series
     
     def _calc_max_drawdown(self, balance_series: List[float]) -> float:
-        """计算最大回撤"""
+        """计算最大回撤（峰值法）
+        
+        遍历资金曲线，跟踪历史峰值，计算每个时点的回撤，
+        返回最大回撤百分比。
+        
+        Args:
+            balance_series: 资金曲线序列，第一个元素为初始值
+        
+        Returns:
+            float: 最大回撤百分比（%），如 15.3 表示最大回撤15.3%
+        """
         if len(balance_series) < 2:
             return 0
         
@@ -307,7 +374,21 @@ class PerformanceAnalyzer:
         return max_dd
     
     def _generate_optimization_suggestions(self, stats: Dict, strategy_analysis: List[Dict]) -> str:
-        """生成优化建议"""
+        """根据统计指标生成优化建议
+        
+        基于阈值的规则引擎：
+        - 胜率<40%: 建议提高选股标准
+        - 盈亏比<1.2: 建议调整止盈止损比例
+        - 最大回撤>20%: 建议降低仓位
+        - 亏损策略: 建议暂停
+        
+        Args:
+            stats: 基础统计指标
+            strategy_analysis: 分策略分析结果
+        
+        Returns:
+            str: Markdown格式优化建议文本
+        """
         suggestions = []
         
         # 胜率建议
