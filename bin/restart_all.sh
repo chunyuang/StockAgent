@@ -21,11 +21,106 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# 检查参数：--full-check 表示做全量语法检查
+# 参数解析
 FULL_CHECK=0
-if [ "$1" = "--full-check" ]; then
-  FULL_CHECK=1
+FORCE_RESTART=0
+SKIP_REDIS_FLUSH=0
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --full-check)
+      FULL_CHECK=1
+      shift
+      ;;
+    --force)
+      FORCE_RESTART=1
+      shift
+      ;;
+    --skip-redis-flush)
+      SKIP_REDIS_FLUSH=1
+      shift
+      ;;
+    *)
+      echo -e "${YELLOW}未知参数: $1${NC}"
+      echo -e "可用参数:"
+      echo -e "  --full-check    : 全量Python语法检查"
+      echo -e "  --force         : 强制重启（忽略未提交修改）"
+      echo -e "  --skip-redis-flush : 跳过Redis缓存清空"
+      exit 1
+      ;;
+  esac
+done
+
+echo -e "${YELLOW}============================================${NC}"
+echo -e "${YELLOW}🔒 6层安全预防机制检查${NC}"
+echo -e "${YELLOW}============================================${NC}"
+
+# =============================================
+# 🔒 安全层1: 检查未提交的Git修改
+# =============================================
+echo -e "${YELLOW}🔍 1/6 检查Git工作区状态...${NC}"
+GIT_STATUS=$(git status --porcelain)
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+CURRENT_COMMIT=$(git rev-parse --short HEAD)
+
+if [[ -n "$GIT_STATUS" ]]; then
+  if [[ $FORCE_RESTART -eq 1 ]]; then
+    echo -e "${YELLOW}⚠️  检测到未提交的修改，但使用了 --force 参数，强制继续！${NC}"
+    echo "$GIT_STATUS"
+  else
+    echo -e "${RED}❌ 检测到未提交的修改！禁止重启！${NC}"
+    echo -e "${YELLOW}当前分支: $CURRENT_BRANCH (commit: $CURRENT_COMMIT)${NC}"
+    echo -e "${YELLOW}未提交文件列表:${NC}"
+    echo "$GIT_STATUS"
+    echo ""
+    echo -e "${YELLOW}请执行以下操作后再重启:${NC}"
+    echo -e "  1. git status          # 查看修改文件"
+    echo -e "  2. git diff            # 查看修改内容"
+    echo -e "  3. git add xxx         # 添加文件"
+    echo -e "  4. git commit -m 'xxx' # 提交代码"
+    echo ""
+    echo -e "${YELLOW}如果确认要强制重启（不推荐），请使用:${NC}"
+    echo -e "  ./bin/restart_all.sh --force"
+    exit 1
+  fi
+else
+  echo -e "${GREEN}✅ Git工作区干净，当前分支: $CURRENT_BRANCH (commit: $CURRENT_COMMIT)${NC}"
 fi
+
+# =============================================
+# 🔒 安全层2: 清理Python __pycache__ 缓存
+# =============================================
+echo -e "${YELLOW}🧹 2/6 清理Python __pycache__ 缓存...${NC}"
+PYCACHE_COUNT=$(find . -type d -name "__pycache__" 2>/dev/null | wc -l)
+PYC_FILE_COUNT=$(find . -type f -name "*.pyc" 2>/dev/null | wc -l)
+
+find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null
+find . -type f -name "*.pyc" -delete 2>/dev/null
+
+echo -e "${GREEN}✅ 已清理 $PYCACHE_COUNT 个 __pycache__ 目录，$PYC_FILE_COUNT 个 .pyc 文件${NC}"
+
+# =============================================
+# 🔒 安全层3: 清空Redis缓存
+# =============================================
+if [[ $SKIP_REDIS_FLUSH -eq 0 ]]; then
+  echo -e "${YELLOW}🧹 3/6 清空Redis缓存...${NC}"
+  if command -v redis-cli &> /dev/null; then
+    REDIS_RESULT=$(redis-cli FLUSHALL 2>&1)
+    if [[ $? -eq 0 ]]; then
+      echo -e "${GREEN}✅ Redis FLUSHALL 成功，所有缓存已清空${NC}"
+    else
+      echo -e "${YELLOW}⚠️  Redis清空失败: $REDIS_RESULT${NC}"
+    fi
+  else
+    echo -e "${YELLOW}⚠️  redis-cli 未找到，跳过Redis缓存清空${NC}"
+  fi
+else
+  echo -e "${YELLOW}⚠️  使用 --skip-redis-flush 参数，跳过Redis缓存清空${NC}"
+fi
+
+echo -e "${YELLOW}============================================${NC}"
+echo -e "${YELLOW}🔍 运行Python语法检查...${NC}"
+echo -e "${YELLOW}============================================${NC}"
 
 echo -e "${YELLOW}============================================${NC}"
 echo -e "${YELLOW}🔍 运行Python语法检查...${NC}"
@@ -145,7 +240,8 @@ export NODE_TYPE=web
 cd "${PROJECT_ROOT}/AgentServer"
 nohup python main.py > "${PROJECT_ROOT}/logs/web_node.log" 2>&1 &
 web_pid=$!
-echo "  Web服务启动，PID: $web_pid"
+echo $web_pid > "${PROJECT_ROOT}/logs/web_node.pid"
+echo "  Web服务启动，PID: $web_pid (已写入PID文件)"
 
 # 等待15秒让Web服务完全启动和端口绑定
 sleep 15
@@ -175,7 +271,8 @@ export NODE_TYPE=backtest
 cd "${PROJECT_ROOT}/AgentServer"
 nohup python main.py > "${PROJECT_ROOT}/logs/backtest_node.log" 2>&1 &
 backtest_pid=$!
-echo "  回测节点启动，PID: $backtest_pid"
+echo $backtest_pid > "${PROJECT_ROOT}/logs/backtest_node.pid"
+echo "  回测节点启动，PID: $backtest_pid (已写入PID文件)"
 
 # 等待5秒让回测节点完全启动
 sleep 5
@@ -194,7 +291,8 @@ echo -e "${YELLOW}🎨 5/6 启动前端Vite开发服务...${NC}"
 cd "${PROJECT_ROOT}/frontend"
 nohup npm run dev -- --port 5174 --host 0.0.0.0 > "${PROJECT_ROOT}/logs/frontend.log" 2>&1 &
 frontend_pid=$!
-echo "  前端服务启动，PID: $frontend_pid"
+echo $frontend_pid > "${PROJECT_ROOT}/logs/frontend.pid"
+echo "  前端服务启动，PID: $frontend_pid (已写入PID文件)"
 
 # 等待3秒让前端服务完全启动
 sleep 3
@@ -214,8 +312,8 @@ echo -e "${GREEN}✅ 所有服务启动成功！${NC}"
 echo -e "${GREEN}👉 Web服务: 端口 8000 (PID $web_pid)${NC}"
 echo -e "${GREEN}👉 回测引擎: 端口 50057 (PID $backtest_pid)${NC}"
 echo -e "${GREEN}👉 前端: 端口 5174 (PID $frontend_pid)${NC}"
-echo -e "${GREEN}👉 前端访问地址: http://172.16.16.101:5174/ultra-short-v2${NC}"
-echo -e "${GREEN}👉 数据库管理页面: http://172.16.16.101:5174/admin/db${NC}"
+echo -e "${GREEN}👉 前端访问地址: http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'localhost'):5174/ultra-short-v2${NC}"
+echo -e "${GREEN}👉 数据库管理页面: http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'localhost'):5174/admin/db${NC}"
 echo -e "${GREEN}👉 当前分支: $(git rev-parse --abbrev-ref HEAD)${NC}"
 echo -e "${YELLOW}============================================${NC}"
 
