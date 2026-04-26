@@ -97,3 +97,21 @@ docker-compose.override.yml
 *.tmp
 *.temp
 *.bak
+
+# ============ Vue/Editor Temp Backups ============
+*.vue.final
+*.vue.full
+*.vue.original
+*.final
+*.full
+*.original
+temp-complete.*
+
+# ============ Runtime PID/Log ============
+*.pid
+
+# ============ Ruff Cache ============
+.ruff_cache/
+
+# ============ Local Databases ============
+local-databases/
