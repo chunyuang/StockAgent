@@ -73,7 +73,7 @@ async def main():
                     if ts > 10000000000:
                         ts = ts / 1000
                     publish_time = datetime.fromtimestamp(ts)
-                except:
+                except (ValueError, TypeError, OSError):
                     pass
             
             print("-" * 60)
