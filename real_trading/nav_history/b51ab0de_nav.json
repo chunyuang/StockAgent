@@ -1,0 +1,57 @@
+[
+  {
+    "date": "20260330",
+    "nav": 1.0,
+    "total_equity": 1000000,
+    "cash": 1000000,
+    "market_value": 0,
+    "daily_return": 0.0,
+    "cumulative_return": 0.0,
+    "position_count": 0,
+    "position_ratio": 0.0
+  },
+  {
+    "date": "20260406",
+    "nav": 1.0,
+    "total_equity": 1000000,
+    "cash": 1000000,
+    "market_value": 0,
+    "daily_return": 0.0,
+    "cumulative_return": 0.0,
+    "position_count": 0,
+    "position_ratio": 0.0
+  },
+  {
+    "date": "20260408",
+    "nav": 1.0,
+    "total_equity": 1000000,
+    "cash": 1000000,
+    "market_value": 0,
+    "daily_return": 0.0,
+    "cumulative_return": 0.0,
+    "position_count": 0,
+    "position_ratio": 0.0
+  },
+  {
+    "date": "20260409",
+    "nav": 1.0,
+    "total_equity": 1000000,
+    "cash": 1000000,
+    "market_value": 0,
+    "daily_return": 0.0,
+    "cumulative_return": 0.0,
+    "position_count": 0,
+    "position_ratio": 0.0
+  },
+  {
+    "date": "20260410",
+    "nav": 1.0,
+    "total_equity": 1000000,
+    "cash": 1000000,
+    "market_value": 0,
+    "daily_return": 0.0,
+    "cumulative_return": 0.0,
+    "position_count": 0,
+    "position_ratio": 0.0
+  }
+]

@@ -7,14 +7,25 @@ import sys
 import os
 from datetime import datetime
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'AgentServer'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'AgentServer'))  # FIXME: 使用sys.path.insert做模块查找是反模式，应改用setup.py/pyproject.toml将项目安装到venv中
 sys.path.insert(0, os.path.dirname(__file__))
 
 from paper_trading import PaperTradingEngine
 from performance_analyzer import PerformanceAnalyzer
 
 def generate_report(account_id: str = None, output_format: str = "text"):
-    """生成绩效报告"""
+    """生成模拟账户绩效报告
+    
+    从PaperTradingEngine和PerformanceAnalyzer获取数据，
+    生成包含账户概览、当前持仓、绩效指标的Markdown报告。
+    
+    Args:
+        account_id: 账户ID，None则列出所有活跃账户供选择
+        output_format: 输出格式 'text'-纯文本 / 'markdown'-Markdown格式
+    
+    Returns:
+        str: 报告内容文本，账户不存在或未指定时返回None
+    """
     engine = PaperTradingEngine()
     
     if not account_id:

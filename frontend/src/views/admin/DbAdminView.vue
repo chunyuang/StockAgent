@@ -13,8 +13,6 @@ import {
   ElTable,
   ElTableColumn,
   ElInput,
-  ElInputNumber,
-  ElDescriptions,
   ElTag,
   ElAlert,
   ElDivider,
@@ -22,7 +20,6 @@ import {
   ElSwitch,
   ElForm,
   ElFormItem,
-  ElProgress,
 } from 'element-plus'
 
 // 导入 API 客户端（自动注入认证 Token）
@@ -39,7 +36,6 @@ const dbStats = ref<any>(null)
 
 // 弹窗状态
 const clearDateDialogVisible = ref(false)
-const checkMissingDialogVisible = ref(false)
 const deduplicateDialogVisible = ref(false)
 
 // 表单数据

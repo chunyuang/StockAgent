@@ -8,18 +8,33 @@ import os
 import json
 from datetime import datetime
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'AgentServer'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'AgentServer'))  # FIXME: 使用sys.path.insert做模块查找是反模式，应改用setup.py/pyproject.toml将项目安装到venv中
 sys.path.insert(0, os.path.dirname(__file__))
 
 from paper_trading import PaperTradingEngine
 
 def execute_daily_trades(date: str = None, account_id: str = None):
-    """执行每日交易"""
+    """执行每日自动交易
+    
+    完整流程：
+    1. 读取当日信号JSON文件（./signals/{date}.json）
+    2. 初始化模拟交易引擎，选择活跃账户
+    3. 先清空所有旧持仓（模拟卖出）
+    4. 按信号买入新标的，平均分配70%仓位
+    5. 更新账户绩效指标
+    
+    Args:
+        date: 交易日期（YYYYMMDD），默认当天
+        account_id: 指定账户ID，None则使用第一个活跃账户
+    
+    Returns:
+        bool: True执行成功，False执行失败（信号文件缺失或无可用账户）
+    """
     if not date:
         date = datetime.now().strftime("%Y%m%d")
     
     # 1. 读取当日信号
-    signal_file = f"./signals/{date}.json"
+    signal_file = f"./signals/{date}.json"  # FIXME: 相对路径，应在项目根目录下使用绝对路径，如 os.path.join(PROJECT_ROOT, 'signals', f'{date}.json')
     if not os.path.exists(signal_file):
         print(f"❌ 未找到{date}的信号文件")
         return False
