@@ -67,7 +67,8 @@ def save_to_mongodb(stock_code, df, collection):
         trade_date_str = str(row['日期']).replace('-', '')
         try:
             trade_date = int(trade_date_str)
-        except:
+        except (ValueError, TypeError) as e:
+            print(f"⚠️ 日期转换失败，跳过: {trade_date_str}, 错误: {e}")
             continue
         
         # 创建记录

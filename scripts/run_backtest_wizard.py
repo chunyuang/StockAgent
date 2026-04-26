@@ -116,7 +116,7 @@ class BacktestWizard:
                 if val >= 0:
                     return val
                 print("❌ 请输入大于等于 0 的数字")
-            except:
+            except ValueError:
                 print("❌ 请输入有效的数字")
     
     def confirm_initial_capital(self, default: int = 1000) -> int:
@@ -138,7 +138,7 @@ class BacktestWizard:
                 if val > 0:
                     return val * 10000  # 转换为元
                 print("❌ 请输入大于 0 的数字")
-            except:
+            except ValueError:
                 print("❌ 请输入有效的数字")
 
     def confirm_concurrency(self, default: int = 5) -> int:
@@ -163,7 +163,7 @@ class BacktestWizard:
                 if val >= 1:
                     return val
                 print("❌ 请输入大于等于 1 的整数")
-            except:
+            except ValueError:
                 print("❌ 请输入有效的整数")
 
     def confirm_verbose_log(self, default: bool = False) -> bool:
@@ -523,7 +523,7 @@ class BacktestWizard:
                     if data_source not in [1, 2, 3]:
                         raise ValueError()
                     self.data_source = data_source
-                except:
+                except (ValueError, IndexError):
                     self.print_banner()
                     self.data_source = self.select_data_source()
             else:
@@ -545,7 +545,7 @@ class BacktestWizard:
             if len(sys.argv) >= 6:
                 try:
                     self.liquidity_threshold = int(sys.argv[5])
-                except:
+                except (ValueError, IndexError):
                     self.liquidity_threshold = self.confirm_liquidity_threshold()
             else:
                 self.liquidity_threshold = self.confirm_liquidity_threshold()
@@ -554,7 +554,7 @@ class BacktestWizard:
                 try:
                     initial_capital_wan = int(sys.argv[6])
                     self.initial_capital = initial_capital_wan * 10000
-                except:
+                except (ValueError, IndexError):
                     self.initial_capital = self.confirm_initial_capital()
             else:
                 self.initial_capital = self.confirm_initial_capital()
@@ -562,7 +562,7 @@ class BacktestWizard:
             if len(sys.argv) >= 8:
                 try:
                     self.max_workers = int(sys.argv[7])
-                except:
+                except (ValueError, IndexError):
                     self.max_workers = self.confirm_concurrency()
             else:
                 self.max_workers = self.confirm_concurrency()
