@@ -108,14 +108,14 @@ class PerformanceReportGenerator:
                 "annual_return_pct": total_return_pct * 250,  # 年化，250个交易日
                 "max_drawdown_pct": max_drawdown_pct,
                 "sharpe_ratio": sharpe_ratio,
-                "sortino_ratio": 0.0,  # TODO: 计算索提诺比率
+                "sortino_ratio": 0.0,  # FIXME(TODO): 返回0.0而非None/NaN，下游可能误认为真实值，应在计算完成前返回None或抛NotImplementedError
                 "win_rate_pct": winning_trades / total_trades if total_trades > 0 else 0,
                 "profit_factor": total_profit / total_loss if total_loss > 0 else float("inf"),
                 "total_trades": total_trades,
                 "winning_trades": winning_trades,
                 "losing_trades": losing_trades,
-                "max_consecutive_wins": 0,  # TODO: 计算最大连续盈利
-                "max_consecutive_losses": 0,  # TODO: 计算最大连续亏损
+                "max_consecutive_wins": 0,  # FIXME(TODO): 返回0而非None，下游无法区分"未计算"和"实际为0"
+                "max_consecutive_losses": 0,  # FIXME(TODO): 同上，0值歧义问题
                 "avg_profit_per_trade": total_profit / winning_trades if winning_trades > 0 else 0,
                 "avg_loss_per_trade": total_loss / losing_trades if losing_trades > 0 else 0,
                 "created_at": now

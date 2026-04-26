@@ -19,7 +19,7 @@ from core.managers import (
     mongo_manager,
 )
 
-from .api import auth_router, user_router, task_router, stock_router, market_router, subscription_router, backtest_router, trading_router, system_router
+from .api import auth_router, user_router, task_router, stock_router, market_router, subscription_router, backtest_router, trading_router, system_router, scheduler_router
 from .websocket import websocket_router
 
 
@@ -49,16 +49,23 @@ def create_app() -> FastAPI:
         description="AI 驱动的股票分析智能体 API",
         version="1.0.0",
         lifespan=lifespan,
-        docs_url="/docs" if settings.debug else None,
-        redoc_url="/redoc" if settings.debug else None,
+        docs_url="/docs",
+        redoc_url="/redoc",
     )
     
     # ==================== 中间件 ====================
     
-    # CORS - 允许所有来源方便开发调试
+    # CORS - 从配置读取允许来源
+    cors_origins_str = settings.web.cors_origins.strip()
+    if cors_origins_str:
+        allow_origins = [origin.strip() for origin in cors_origins_str.split(',') if origin.strip()]
+    else:
+        # 开发环境默认允许所有来源
+        allow_origins = ["*"] if settings.debug else []
+    
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=allow_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -94,6 +101,21 @@ def create_app() -> FastAPI:
             "managers": manager_status,
         }
     
+    @app.get("/healthz")
+    async def healthz():
+        """K8s liveness probe - 快速健康检查"""
+        return {"status": "ok"}
+    
+    @app.get("/ready")
+    async def ready():
+        """K8s readiness probe - 检查依赖是否就绪"""
+        from core.managers import health_check_all
+        manager_status = await health_check_all()
+        is_ready = all(manager_status.values())
+        if is_ready:
+            return {"status": "ready", "managers": manager_status}
+        return {"status": "not_ready", "managers": manager_status}
+    
     # API 路由
     app.include_router(auth_router, prefix="/api/v1/auth", tags=["认证"])
     app.include_router(user_router, prefix="/api/v1/users", tags=["用户"])
@@ -104,6 +126,7 @@ def create_app() -> FastAPI:
     app.include_router(backtest_router, prefix="/api/v1", tags=["量化回测"])
     app.include_router(trading_router, prefix="/api/v1", tags=["实盘交易"])
     app.include_router(system_router, prefix="/api/v1", tags=["系统状态和配置"])
+    app.include_router(scheduler_router, prefix="/api/v1", tags=["调度器管理"])
     from .api.admin_db import router as admin_db_router
     app.include_router(admin_db_router, prefix="/api/v1", tags=["数据库管理"])
 

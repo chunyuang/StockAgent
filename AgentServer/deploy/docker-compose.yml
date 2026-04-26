@@ -135,6 +135,20 @@ services:
     networks:
       - stock-agent-network
     restart: unless-stopped
+    # 🔧 内存优化：限制web节点内存，防止OOM
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    # 🔧 健康检查：新增K8s兼容的健康检查端点
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   data-sync:
     build:
@@ -224,6 +238,20 @@ services:
     networks:
       - stock-agent-network
     restart: unless-stopped
+    # 🔧 内存优化：限制回测节点内存，防止OOM杀死
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+    # 🔧 健康检查：验证回测节点RPC服务正常
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import requests; requests.get('http://localhost:8000/healthz', timeout=5)\" || exit 1"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+      start_period: 60s
 
   # ==================== 可选: 可观测性 ====================
   

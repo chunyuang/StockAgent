@@ -12,6 +12,7 @@ from typing import Dict, List, Any
 from datetime import datetime
 from enum import Enum
 
+import math
 import pandas as pd
 import numpy as np
 
@@ -43,7 +44,7 @@ class BacktestConfig:
     """
     
     # 资金配置
-    initial_cash: float = 100000.0
+    initial_cash: float = 1000000.0  # 默认100万，对齐超短策略实盘配置
     
     # 信号阈值
     entry_threshold: float = 0.7  # 得分 > 0.7 买入
@@ -51,7 +52,7 @@ class BacktestConfig:
     
     # 仓位管理
     position_size: float = 1.0    # 满仓买入
-    max_position_pct: float = 1.0  # 最大仓位比例
+    max_position_pct: float = 0.7  # 最大仓位比例70%，留30%现金防风险
     
     # 费用配置 (A股标准)
     commission_rate: float = 0.0002   # 万2 佣金
@@ -170,7 +171,7 @@ class VectorizedBacktester:
         
         # 配置回测
         config = BacktestConfig(
-            initial_cash=100000,
+            initial_cash=1000000,  # 对齐超短策略实盘配置
             entry_threshold=0.7,
             exit_threshold=0.3,
             factor_weights={"tech_rsi": 0.5, "tech_macd_signal": 0.5},
@@ -339,21 +340,21 @@ class VectorizedBacktester:
             # 流通市值越小，滑点越大
             # 5亿  → ~0.2% 滑点
             # 50亿 → ~0.06% 滑点
-            import math
             circ_mv = factor_data.price_data.loc[date, 'circ_mv'] if 'circ_mv' in factor_data.price_data.columns else 50000
-            volume = factor_data.price_data.loc[date, 'volume'] if 'volume' in factor_data.price_data.columns else 0
             # circ_mv 单位是 万元
             dynamic_slippage = self.config.slippage / math.sqrt(max(1.0, circ_mv / 10000))
             buy_price = open_price * (1 + dynamic_slippage)
             sell_price = open_price * (1 - dynamic_slippage)
             
-            # 卖出冲击成本：持仓占当日成交量比例越高，卖出砸盘冲击越大
-            # impact = (shares * 100 * buy_price) / (volume * 10000) * 0.5
+            # 卖出冲击成本：持仓占当日成交额比例越高，卖出砸盘冲击越大
+            # impact = (shares_held * buy_price) / (amount * 1000) * 0.5
             # 持仓占日成交量 10% → 额外 5% 冲击
-            if signal == -1 and shares[i] > 0 and volume > 0:
+            # amount 单位：千元 → 元 = amount × 1000
+            if signal == -1 and shares[i] > 0 and 'amount' in factor_data.price_data.columns:
                 shares_held = shares[i]
                 amount_bny = shares_held * buy_price  # 买入金额，单位 元
-                volume_amount = volume * 10000  # 日成交额，单位 万元 → 元
+                amount_amt = factor_data.price_data.loc[date, 'amount']  # 日成交额，单位 千元
+                volume_amount = amount_amt * 1000  # 日成交额 → 单位 元
                 if volume_amount > 0:
                     impact_ratio = (amount_bny / volume_amount) * 0.5
                     sell_price = sell_price * (1 - impact_ratio)
