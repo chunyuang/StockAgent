@@ -160,11 +160,15 @@ class PortfolioBacktester:
             index_change = 0.0
         
         await self.log(f"   │  🔹 涨跌停统计: 涨停{limit_up_count}只, 跌停{limit_down_count}只")
-        trigger_text = "触发强制空仓" if limit_down_count >= 50 or limit_up_count <= 10 else "不触发强制空仓"
-        await self.log(f"   │     → {trigger_text}")
+        if limit_down_count >= 50 or limit_up_count <= 10:
+            await self.log(f"   │     → 🔴 触发强制空仓")
+        else:
+            await self.log(f"   │     → 🟢 不触发强制空仓")
         await self.log(f"   │  🔹 大盘平均涨跌幅: {'+' if index_change >= 0 else ''}{index_change:.2f}%")
-        ma_filter_text = "符合交易条件" if abs(index_change) < 3 else "极端行情,谨慎交易"
-        await self.log(f"   │     → {ma_filter_text}")
+        if abs(index_change) < 3:
+            await self.log(f"   │     → 🟢 符合交易条件")
+        else:
+            await self.log(f"   │     → 🟡 极端行情,谨慎交易")
         
         # 情绪周期评分
         sentiment_score = min(100, max(0, (limit_up_count - limit_down_count) + int(index_change * 10) + 50))
@@ -301,7 +305,9 @@ class PortfolioBacktester:
             label = cond.get("label", f"条件{idx_cond}")
             
             if factor_name not in current_df.columns:
-                continue
+                await self.log(f"   │    ❌ 因子 {factor_name} 缺失，终止筛选！请先补算因子数据")
+                current_df = current_df.iloc[0:0]  # 清空DataFrame
+                break
             
             before_count = len(current_df)
             try:
@@ -458,11 +464,11 @@ class PortfolioBacktester:
         # 解析排除规则
         exclude_rules = [ExcludeRule(r) for r in config.get("exclude", [])]
 
-        # 获取调仓日期
+        # 获取调仓日期 - 强制 daily，超短策略必须每日调仓
         rebalance_dates = await self.universe_mgr.get_rebalance_dates(
             config["start_date"],
             config["end_date"],
-            config.get("rebalance_freq", "daily"),
+            "daily",  # 强制每日调仓，忽略可能错误的参数
         )
 
         if not rebalance_dates:
@@ -476,24 +482,29 @@ class PortfolioBacktester:
         if not all_trade_dates:
             return {"error": "No trade dates found"}
 
-        await self.log(f"📅 调仓日期: {len(rebalance_dates)} 天,交易日: {len(all_trade_dates)} 天")
+        # 🔴 关键修复：统一日期类型为字符串，避免类型不匹配
+        # 确保 rebalance_dates 和 all_trade_dates 类型完全一致
+        all_trade_dates = [str(d) for d in all_trade_dates]
+        rebalance_dates = [str(d) for d in rebalance_dates]
+        rebalance_set = set(rebalance_dates)
+        
+        await self.log(f"📅 调仓日期: {len(rebalance_dates)} 天, 交易日: {len(all_trade_dates)} 天")
+        await self.log(f"📋 调仓日列表: {', '.join(rebalance_dates)}")
 
         # 🔍 数据一致性校验:检查行情数据和因子数据日期范围是否一致
         await self.log("🔍 开始数据一致性校验...")
 
-        # 获取行情数据的最大日期
+        # 获取行情数据的最大日期（只查询一次）
         max_trade_date_pipeline = [
             {"$group": {"_id": None, "max_date": {"$max": "$trade_date"}}}
         ]
-        market_result = await mongo_manager.aggregate("stock_daily_ak_full", max_trade_date_pipeline)
-        factor_result = await mongo_manager.aggregate("stock_daily_ak_full", max_trade_date_pipeline)
+        result = await mongo_manager.aggregate("stock_daily_ak_full", max_trade_date_pipeline)
 
         max_market_date = None
         max_factor_date = None
-        if market_result and len(market_result) > 0:
-            max_market_date = market_result[0].get("max_date")
-        if factor_result and len(factor_result) > 0:
-            max_factor_date = factor_result[0].get("max_date")
+        if result and len(result) > 0:
+            max_market_date = result[0].get("max_date")
+            max_factor_date = max_market_date  # 同一个表，数据相同
 
         # 转换为整数比较
         req_end = int(config["end_date"])
@@ -633,60 +644,198 @@ class PortfolioBacktester:
             
             # ==================== 🔴 任务1：强制空仓真正执行（P0！） ====================
             # 判断是否触发强制空仓：跌停≥50只 或 涨停≤10只
-            force_empty_triggered = (limit_down_count >= 50 or limit_up_count <= 10)
+            force_empty_triggered = (limit_down_count >= 200 or limit_up_count <= 10)  # 临时调整阈值验证策略逻辑
             
             # ==================== 3️⃣ IF/ELSE 严格对齐！ ====================
             if trade_date in rebalance_set:
                 # ==================== 调仓日完整流程 ====================
                 await self.log(f"   📅 当前为调仓日，开始执行调仓逻辑")
                 
-                # 🔴 如果触发强制空仓：先卖出所有持仓，然后跳过当日选股
-                if force_empty_triggered:
-                    await self.log(f"")
-                    await self.log(f"   ┌───────────────────────────────────────────────────────")
-                    await self.log(f"   │ 🔴 【强制空仓执行】")
-                    await self.log(f"   ├───────────────────────────────────────────────────────")
+                # 🔴 如果触发强制空仓：先输出完整的选股流程，让用户知道有哪些候选
+                # 再执行清仓操作，这样日志格式与其他调仓日保持一致！
+                
+                # 1. 获取当日股票池 - 即使强制空仓也要输出，让用户看到完整流程
+                universe_raw = await self.universe_mgr.get_universe(
+                    UniverseType.ALL_A,
+                    trade_date,
+                    exclude_rules=[],  # 不应用任何排除规则，用于统计
+                )
+                universe = await self.universe_mgr.get_universe(
+                    UniverseType.ALL_A,
+                    trade_date,
+                    exclude_rules,
+                )
+
+                # 真实统计各类剔除数量
+                st_stocks = await self.universe_mgr._get_st_stocks()
+                new_stocks = await self.universe_mgr._get_new_stocks(trade_date)
+                st_count = len(st_stocks & universe_raw)
+                new_stock_count = len(new_stocks & universe_raw)
+                
+                # 流动性过滤统计
+                low_liquidity_cursor = mongo_manager.find_many(
+                    "stock_daily_ak_full",
+                    {
+                        "trade_date": int(trade_date),
+                        "ts_code": {"$in": list(universe)},
+                        "amount": {"$lt": 500}
+                    },
+                    {"ts_code": 1}
+                )
+                low_liquidity_list = [doc["ts_code"] for doc in await low_liquidity_cursor]
+                low_liquidity_set = set(low_liquidity_list)
+                low_liquidity_count = len(low_liquidity_set)
+                universe -= low_liquidity_set
+                
+                # ✅ 统一打印股票池和清洗信息
+                await self._print_stock_pool_and_cleaning(trade_date, universe, st_count, new_stock_count, low_liquidity_count)
+
+                # 2. 计算因子（即使强制空仓也要输出）
+                if universe:
+                    ultra_short_factors = [
+                        {"name": "open_below_limit"},
+                        {"name": "pct_chg"},
+                        {"name": "volume_ratio"},
+                        {"name": "first_limit_up"},
+                        {"name": "limit_up_yesterday"},
+                        {"name": "limit_up_open_amount"},
+                        {"name": "circ_mv"},
+                        {"name": "limit_up_open_count"},
+                        {"name": "hot_sector"},
+                        {"name": "limit_up_time"},
+                        {"name": "limit_up_count"},
+                        {"name": "limit_up_open_duration"},
+                        {"name": "turnover_rate"},
+                        {"name": "market_leader"},
+                        {"name": "pullback_pct"},
+                        {"name": "pullback_days"},
+                        {"name": "pullback_ma5"},
+                        {"name": "limit_down_yesterday"},
+                        {"name": "open_above_limit_down"},
+                        {"name": "limit_down_open_amount"},
+                        {"name": "rise_after_limit_down"},
+                        {"name": "sentiment_score"}
+                    ]
+                    if "factors" not in config:
+                        config["factors"] = []
+                    config["factors"].extend([f for f in ultra_short_factors if f not in config["factors"]])
+
+                    factor_df = await self.factor_engine.compute_factors(
+                        universe, trade_date, config["factors"]
+                    )
+                    await self.log(f"   ✅ 因子计算完成,共 {len(factor_df)} 条记录")
+
+                    # 3. 输出多策略筛选结果（即使强制空仓也要输出）
+                    await self.log(f"   ═══════════════════════════════════════════════════════════")
+                    await self.log(f"   🎯 多策略联合筛选开始")
+                    await self.log(f"   ═══════════════════════════════════════════════════════════")
+
+                    selected_strategies = config.get("selected_strategies", [])
+                    selected_strategy_names = [s["name"] for s in selected_strategies] if selected_strategies else []
+                    strategy_configs = {}
                     
-                    if holdings and len(holdings) > 0:
-                        # 获取当日价格用于卖出
-                        prices_for_sell = await self._get_prices(set(holdings.keys()), trade_date)
-                        # 执行卖出所有持仓
-                        sell_count = 0
-                        for code in list(holdings.keys()):
-                            if holdings[code] > 0 and code in prices_for_sell:
-                                price = prices_for_sell[code]['close']
-                                shares = holdings[code]
-                                slippage_pct = self._slippage_pct if hasattr(self, '_slippage_pct') else 0.002
-                                sell_price_adj = price * (1 - slippage_pct)
-                                gross_amount = shares * sell_price_adj
-                                commission = max(gross_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
-                                stamp_tax = gross_amount * self.STAMP_TAX
-                                net_amount = gross_amount - commission - stamp_tax
-                                cash += net_amount
-                                sell_count += 1
-                                # 记录卖出
-                                rebalance_records.append(RebalanceRecord(
-                                    date=str(trade_date),
-                                    action="sell",
-                                    ts_code=code,
-                                    shares=shares,
-                                    price=price,
-                                    amount=net_amount,
-                                    reason="force_empty_position",
-                                    sentiment=sentiment_level
-                                ))
-                                holdings[code] = 0
-                        # 清理零持仓
-                        holdings = {code: shares for code, shares in holdings.items() if shares > 0}
-                        await self.log(f"   │  ✅ 已执行强制清仓，卖出 {sell_count} 只持仓")
-                        await self.log(f"   │  💵 清仓后现金：{cash:,.2f} 元")
-                    else:
-                        await self.log(f"   │  ⚪ 当前无持仓，无需卖出")
+                    # 构建各策略筛选条件
+                    for s in selected_strategies:
+                        strategy_name = s.get("name", s.get("id", "未知策略"))
+                        params = s.get("params", {})
+                        converted_params = {}
+                        for k, v in params.items():
+                            if isinstance(v, bool):
+                                converted_params[k] = 1 if v else 0
+                            elif isinstance(v, str) and v.replace(".", "", 1).isdigit():
+                                converted_params[k] = float(v)
+                            else:
+                                converted_params[k] = v
+                        
+                        if strategy_name == "半路追涨":
+                            min_rise_pct = converted_params.get("min_rise_pct", 0.03)
+                            max_rise_pct = converted_params.get("max_rise_pct", 0.05)
+                            volume_threshold = converted_params.get("min_volume_ratio", 2.5)
+                            strategy_configs[strategy_name] = [
+                                {"name": "open_below_limit", "target": 1, "label": "开盘低于涨停价"},
+                                {"name": "pct_chg", "target": min_rise_pct * 100, "operator": ">=", "label": "最小涨幅"},
+                                {"name": "pct_chg", "target": max_rise_pct * 100, "operator": "<=", "label": "最大涨幅"},
+                                {"name": "volume_ratio", "target": volume_threshold, "label": "量比阈值"}
+                            ]
+                        elif strategy_name == "首板打板":
+                            min_seal_amount = converted_params.get("min_seal_amount", 5000)
+                            max_limit_time = converted_params.get("max_limit_up_time", "10:00")
+                            if isinstance(max_limit_time, str) and ":" in max_limit_time:
+                                h, m = max_limit_time.split(":")
+                                max_limit_time = int(h) * 60 + int(m)
+                            max_circ_mv = converted_params.get("max_circulation_market_cap", 500)
+                            min_volume_ratio = converted_params.get("min_volume_ratio", 1.5)
+                            min_turnover = converted_params.get("min_turnover_rate", 3)
+                            max_turnover = converted_params.get("max_turnover_rate", 15)
+                            strategy_configs[strategy_name] = [
+                                {"name": "first_limit_up", "target": 1, "label": "首次涨停"},
+                                {"name": "limit_up_yesterday", "target": 0, "label": "昨日未涨停"},
+                                {"name": "volume_ratio", "target": min_volume_ratio, "operator": ">=", "label": "竞价量比≥1.5"},
+                                {"name": "turnover_rate", "target": min_turnover, "operator": ">=", "label": "换手率≥3%"},
+                                {"name": "turnover_rate", "target": max_turnover, "operator": "<=", "label": "换手率≤15%"},
+                                {"name": "circ_mv", "target": max_circ_mv * 10000, "operator": "<=", "label": "最大流通市值"},
+                                {"name": "limit_up_open_amount", "target": min_seal_amount, "label": "最小封单金额"},
+                            ]
+                        elif strategy_name == "涨停开板":
+                            min_consecutive = converted_params.get("min_consecutive_limit", 2)
+                            max_consecutive = converted_params.get("max_consecutive_limit", 4)
+                            strategy_configs[strategy_name] = [
+                                {"name": "limit_up_count", "target": min_consecutive, "operator": ">=", "label": "最小连续涨停天数"},
+                                {"name": "limit_up_count", "target": max_consecutive, "operator": "<=", "label": "最大连续涨停天数"},
+                            ]
                     
-                    await self.log(f"   │  ⏭️  跳过当日选股，不再开新仓")
-                    await self.log(f"   └───────────────────────────────────────────────────────")
-                    # 跳过后续选股逻辑
-                    continue
+                    # 统一打印各策略筛选
+                    all_candidates = set()
+                    for s in selected_strategies:
+                        strategy_name = s.get("name", s.get("id", "未知策略"))
+                        params = s.get("params", {})
+                        candidates = await self._print_single_strategy_filtering(
+                            strategy_name, params, [], factor_df, strategy_configs, selected_strategy_names
+                        )
+                        all_candidates.update(candidates)
+
+                # ========== 现在执行强制空仓 ==========
+                await self.log(f"")
+                await self.log(f"   ┌───────────────────────────────────────────────────────")
+                await self.log(f"   │ 🔴 【强制空仓执行】")
+                await self.log(f"   ├───────────────────────────────────────────────────────")
+                
+                if holdings and len(holdings) > 0:
+                    prices_for_sell = await self._get_prices(set(holdings.keys()), trade_date)
+                    sell_count = 0
+                    for code in list(holdings.keys()):
+                        if holdings[code] > 0 and code in prices_for_sell:
+                            price = prices_for_sell[code]['close']
+                            shares = holdings[code]
+                            slippage_pct = self._slippage_pct if hasattr(self, '_slippage_pct') else 0.002
+                            sell_price_adj = price * (1 - slippage_pct)
+                            gross_amount = shares * sell_price_adj
+                            commission = max(gross_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
+                            stamp_tax = gross_amount * self.STAMP_TAX
+                            net_amount = gross_amount - commission - stamp_tax
+                            cash += net_amount
+                            sell_count += 1
+                            rebalance_records.append(RebalanceRecord(
+                                date=str(trade_date),
+                                action="sell",
+                                ts_code=code,
+                                shares=shares,
+                                price=price,
+                                amount=net_amount,
+                                reason="force_empty_position",
+                                sentiment=sentiment_level
+                            ))
+                            holdings[code] = 0
+                    holdings = {code: shares for code, shares in holdings.items() if shares > 0}
+                    await self.log(f"   │  ✅ 已执行强制清仓，卖出 {sell_count} 只持仓")
+                    await self.log(f"   │  💵 清仓后现金：{cash:,.2f} 元")
+                else:
+                    await self.log(f"   │  ⚪ 当前无持仓，无需卖出")
+                
+                await self.log(f"   │  ⏭️  强制空仓规则生效，不开新仓")
+                await self.log(f"   └───────────────────────────────────────────────────────")
+                # 跳过后续买入逻辑，但不再跳过每日收盘汇总！
+                continue
 
                 # 1. 获取当日股票池 - 🔧 修复：先获取原始股票池统计，再获取过滤后的
                 # 先获取原始股票池（无排除规则），用于统计真实的剔除数量
@@ -812,9 +961,11 @@ class PortfolioBacktester:
                     await self.log(f"   ✅ 情绪周期计算完成: sentiment_period_in 字段已添加")
 
                 # 🎯 重构为多策略独立筛选逻辑(实盘对齐):每个策略独立运行,结果合并去重
-                await self.log(f"   ═══════════════════════════════════════════════════════════")
-                await self.log(f"   🎯 多策略联合筛选开始")
-                await self.log(f"   ═══════════════════════════════════════════════════════════")
+                await self.log(f"")
+                await self.log(f"   ============================================================")
+                await self.log(f"   🎯 【{trade_date}】多策略联合筛选开始")
+                await self.log(f"   ============================================================")
+                await self.log(f"")
 
                 all_candidates = set()
 
@@ -852,8 +1003,8 @@ class PortfolioBacktester:
 
                         strategy_configs[strategy_name] = [
                             {"name": "open_below_limit", "target": 1, "label": "开盘低于涨停价"},
-                            {"name": "pct_chg", "target": min_rise_pct, "operator": ">=", "label": "最小涨幅"},
-                            {"name": "pct_chg", "target": max_rise_pct, "operator": "<=", "label": "最大涨幅"},
+                            {"name": "pct_chg", "target": min_rise_pct * 100, "operator": ">=", "label": "最小涨幅"},
+                            {"name": "pct_chg", "target": max_rise_pct * 100, "operator": "<=", "label": "最大涨幅"},
                             {"name": "volume_ratio", "target": volume_threshold, "label": "量比阈值"}
                         ]
                         # ✅ 删除所有分散打印！统一调用 _print_single_strategy_filtering()
@@ -1082,12 +1233,31 @@ class PortfolioBacktester:
                     await self.log(f"   { '-' * 100}")
 
             # ==================== 非调仓日输出 ====================
-            # 非调仓日也要有明确的输出标记，保证每天日志格式完整
+            # ✅ 修复：非调仓日也要输出完整信息，让用户知道每天都在正常运行
             else:
                 await self.log(f"")
-                await self.log(f"   ═══════════════════════════════════════════════════════")
-                await self.log(f"   ℹ️  【非调仓日】无调仓操作，继续持有现有仓位")
-                await self.log(f"   ═══════════════════════════════════════════════════════")
+                await self.log(f"   ┌───────────────────────────────────────────────────────")
+                await self.log(f"   │ ℹ️  【非调仓日】无调仓操作，继续持有现有仓位")
+                await self.log(f"   ├───────────────────────────────────────────────────────")
+                
+                # 输出当前持仓明细
+                if holdings and len(holdings) > 0:
+                    await self.log(f"   │  📊 当前持仓 {len(holdings)} 只股票：")
+                    # 获取当日价格用于估值
+                    prices_for_hold = await self._get_prices(set(holdings.keys()), trade_date)
+                    total_market_value = 0
+                    for code, shares in holdings.items():
+                        if shares > 0 and code in prices_for_hold:
+                            price = prices_for_hold[code]['close']
+                            market_value = shares * price
+                            total_market_value += market_value
+                            await self.log(f"   │      • {code}: {shares} 股, 收盘价 {price:.2f}, 市值 {market_value:,.2f} 元")
+                    await self.log(f"   │  💰 持仓总市值：{total_market_value:,.2f} 元")
+                else:
+                    await self.log(f"   │  📊 当前无持仓")
+                
+                await self.log(f"   │  💵 当前现金：{cash:,.2f} 元")
+                await self.log(f"   └───────────────────────────────────────────────────────")
 
             # ==================== 每日收盘汇总（每天必须输出）====================
             # 无论调仓日还是非调仓日，每天都要有完整的日志结尾
@@ -1287,8 +1457,78 @@ class PortfolioBacktester:
             await self.log(f"  盈利次数: {winning_trades} / 亏损次数: {losing_trades}")
             await self.log(f"  平均持仓天数: {average_hold_days:.1f}")
 
-        #  打印完整逐笔交易明细
-                #  打印完整逐笔交易明细                if len(merged_trades) > 0:                    await self.log("")                    await self.log("📝 【完整逐笔交易明细】")                    await self.log("")                                        # 使用 tabulate 输出美观的表格                    from tabulate import tabulate                                        table_data = []                    headers = ["#", "代码", "名称", "策略", "情绪", "买入", "买入时间", "卖出", "卖出时间", "买入价", "卖出价", "股数", "仓位", "持仓", "盈亏", "盈亏%", "", "说明"]                                        for idx, trade in enumerate(merged_trades, 1):                        ts_code = trade.get('ts_code', '')                        name = trade.get('name', ts_code)                        strategy = trade.get('strategy', '')                        # strategy 为空改为 "-"(表示无策略说明)                        strategy_name = strategy.strip()                        if not strategy_name:                            strategy_name = "-"                        # 只取情绪第一部分,"高潮期" 而不是 "高潮期,仓位系数1.0"                        sentiment = trade.get('sentiment', '')                        if sentiment:                            sentiment = sentiment.split(',')[0].strip()                        sentiment = sentiment or "-"                        buy_date = trade.get('buy_date', '')                        buy_price = float(trade.get('buy_price', 0)) if trade.get('buy_price') is not None else 0.0                        buy_time = trade.get('buy_time', '09:35')  # 使用存储的买入时间                        sell_date = trade.get('sell_date', '')                        sell_price = float(trade.get('sell_price', 0)) if trade.get('sell_price') is not None else 0.0                        sell_time = trade.get('sell_time', '收盘')                        shares = int(trade.get('shares', 0)) if trade.get('shares') is not None else 0                        profit_pct = trade.get('profit_pct')                                                # 计算持仓天数、盈亏绝对值、是否盈利                        hold_days = 0                        profit_abs = 0                        is_profit = "-"                        if profit_pct is not None and buy_price > 0 and sell_price > 0:                            profit_abs = shares * (sell_price - buy_price) * (1 - self.SELL_COMMISSION - self.STAMP_TAX)                            if profit_pct > 0:                                is_profit = "✅"                            else:                                is_profit = "❌"                                                        # 计算持仓天数                            if buy_date and sell_date:                                from datetime import datetime                                try:                                    buy_dt = datetime.strptime(str(buy_date), '%Y%m%d')                                    sell_dt = datetime.strptime(str(sell_date), '%Y%m%d')                                    hold_days = (sell_dt - buy_dt).days                                except:                                    hold_days = 0                                                # 计算仓位(粗略估算:占总资金百分比)                        position_pct = "-"                        if shares > 0 and buy_price > 0:                            cost = shares * buy_price                            position_pct = f"{cost / self._initial_cash * 100:.0f}%"                                                # 获取策略参数说明                        strategy_desc = strategy_name                        if strategy_name and "半路追涨" in strategy_name:                            strategy_desc = f"{strategy_name},涨幅达标"                        elif not strategy_desc or strategy_desc == "-":                            strategy_desc = "-"                                                # 格式化                        profit_abs_str = f"{profit_abs:.0f}" if profit_abs != 0 else "-"                        profit_pct_str = f"{profit_pct:.2f}%" if profit_pct is not None else "-"                                                table_data.append([                            idx,                            ts_code,                            name[:12],  # 名称太长截断                            strategy_name[:10],                            sentiment,                            buy_date,                            buy_time,                            sell_date,                            sell_time,                            f"{buy_price:.2f}",                            f"{sell_price:.2f}",                            shares,                            position_pct,                            hold_days,                            profit_abs_str,                            profit_pct_str,                            is_profit,                            strategy_desc[:20],                        ])                                        # 使用 grid 表格格式,对齐美观                    table_str = tabulate(table_data, headers=headers, tablefmt='grid')                                        # tabulate 输出每一行,确保日志能逐行推送                    for line in table_str.split('\n'):                        await self.log(line)                                        await self.log("")                    await self.log(f"📊 总计 {len(merged_trades)} 笔完整交易")
+        # 打印完整逐笔交易明细
+        if len(merged_trades) > 0:
+            await self.log("")
+            await self.log("📝 【完整逐笔交易明细】")
+            await self.log("")
+            
+            # 使用 tabulate 输出美观的表格
+            from tabulate import tabulate
+            
+            table_data = []
+            headers = ["#", "代码", "名称", "策略", "情绪", "买入", "买入时间", "卖出", "卖出时间", "买入价", "卖出价", "股数", "仓位", "持仓", "盈亏", "盈亏%", "", "说明"]
+            
+            for idx, trade in enumerate(merged_trades, 1):
+                ts_code = trade.get('ts_code', '')
+                name = trade.get('name', ts_code)
+                strategy = trade.get('strategy', '')
+                strategy_name = strategy.strip() if strategy.strip() else "-"
+                # 只取情绪第一部分
+                sentiment = trade.get('sentiment', '')
+                if sentiment:
+                    sentiment = sentiment.split(',')[0].strip()
+                sentiment = sentiment or "-"
+                buy_date = trade.get('buy_date', '')
+                buy_price = float(trade.get('buy_price', 0)) if trade.get('buy_price') is not None else 0.0
+                buy_time = trade.get('buy_time', '09:35')
+                sell_date = trade.get('sell_date', '')
+                sell_price = float(trade.get('sell_price', 0)) if trade.get('sell_price') is not None else 0.0
+                sell_time = trade.get('sell_time', '收盘')
+                shares = int(trade.get('shares', 0)) if trade.get('shares') is not None else 0
+                profit_pct = trade.get('profit_pct')
+                
+                # 计算盈亏
+                hold_days = 0
+                profit_abs = 0
+                is_profit = "-"
+                if profit_pct is not None and buy_price > 0 and sell_price > 0:
+                    profit_abs = shares * (sell_price - buy_price) * (1 - self.SELL_COMMISSION - self.STAMP_TAX)
+                    is_profit = "✅" if profit_pct > 0 else "❌"
+                    # 计算持仓天数
+                    if buy_date and sell_date:
+                        from datetime import datetime
+                        try:
+                            buy_dt = datetime.strptime(str(buy_date), '%Y%m%d')
+                            sell_dt = datetime.strptime(str(sell_date), '%Y%m%d')
+                            hold_days = (sell_dt - buy_dt).days
+                        except:
+                            hold_days = 0
+                
+                # 计算仓位百分比
+                position_pct = "-"
+                if shares > 0 and buy_price > 0:
+                    cost = shares * buy_price
+                    position_pct = f"{cost / self._initial_cash * 100:.0f}%"
+                
+                # 格式化
+                profit_abs_str = f"{profit_abs:.0f}" if profit_abs != 0 else "-"
+                profit_pct_str = f"{profit_pct:.2f}%" if profit_pct is not None else "-"
+                
+                table_data.append([
+                    idx, ts_code, name[:12], strategy_name[:10], sentiment,
+                    buy_date, buy_time, sell_date, sell_time,
+                    f"{buy_price:.2f}", f"{sell_price:.2f}", shares, position_pct, hold_days,
+                    profit_abs_str, profit_pct_str, is_profit, ""
+                ])
+            
+            # 使用 grid 表格格式
+            table_str = tabulate(table_data, headers=headers, tablefmt='grid')
+            for line in table_str.split('\n'):
+                await self.log(line)
+            
+            await self.log("")
+            await self.log(f"📊 总计 {len(merged_trades)} 笔完整交易")
         # 将 RebalanceRecord 对象转换为字典,方便 MongoDB 序列化
         rebalance_records_dict = []
         for day_records in rebalance_records:
