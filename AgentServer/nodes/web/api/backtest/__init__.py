@@ -126,27 +126,30 @@ async def get_backtest_status(
     task_id: str,
     user_id: str = Depends(get_optional_user_id),
 ) -> Dict[str, Any]:
-    """查询回测任务状态"""
-    # 先查Mock任务
-    if task_id.startswith("us_") and task_id in mock_tasks:
-        task = mock_tasks[task_id]
-        return {
-            "success": True,
-            "data": {
-                "task_id": task_id,
-                "status": task["status"],
-                "progress": task["progress"],
-                "logs": task["logs"],
-            }
-        }
-
-    # 查 MongoDB
+    """查询回测任务状态
+    
+    【修复：统一从MongoDB读取，mock_tasks仅做临时缓存】
+    优先级：MongoDB → mock_tasks（仅临时缓存）
+    """
+    # 1. 优先查 MongoDB（唯一可信源）
     record = await mongo_manager.find_one(
         "backtest_tasks",
         {"task_id": task_id},
     )
 
+    # 2. 如果MongoDB没有，再查mock_tasks（仅作为临时缓存）
     if not record:
+        if task_id in mock_tasks:
+            task = mock_tasks[task_id]
+            return {
+                "success": True,
+                "data": {
+                    "task_id": task_id,
+                    "status": task["status"],
+                    "progress": task["progress"],
+                    "logs": task["logs"],
+                }
+            }
         raise HTTPException(status_code=404, detail="任务不存在")
 
     # 权限检查 (如果记录中有 user_id)
@@ -158,6 +161,8 @@ async def get_backtest_status(
         "data": {
             "task_id": task_id,
             "status": record.get("status"),
+            "progress": record.get("progress", 0),
+            "logs": record.get("logs", []),
             "created_at": record.get("created_at", "").isoformat() if record.get("created_at") else None,
             "started_at": record.get("started_at", "").isoformat() if record.get("started_at") else None,
             "completed_at": record.get("completed_at", "").isoformat() if record.get("completed_at") else None,

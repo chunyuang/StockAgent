@@ -135,106 +135,16 @@ async def submit_ultra_short_backtest(
     # 递归转换所有 datetime/date 对象到字符串，双重防护确保序列化成功
     task_info = convert_datetime_to_str(task_info)
 
-    # 初始化本地日志和任务状态（用于WebSocket推送和状态查询）
-    timestamp = datetime.utcnow().strftime("%H:%M:%S")
-    mock_logs = []
-    # 打印WebSocket连接成功日志和版本标识
-    mock_logs.append(f"[{timestamp}] ✅ 【代码版本：v2.4.0-2026-04-13-16:55】参数补全+日志优化版已生效")
-    mock_logs.append(f"[{timestamp}] ✅ WebSocket已连接，实时日志推送已开启")
-
-    # 打印完整全局公共参数块（与界面1:1对应），前后加空行+醒目标记完全避免被覆盖
-    mock_logs.append(f"[{timestamp}]")
-    mock_logs.append(f"[{timestamp}]")
-    mock_logs.append(f"[{timestamp}] 🔴🔴🔴 === 🔧 全局公共参数 === 🔴🔴🔴")
-    mock_logs.append(f"[{timestamp}] ├─ 流动性门槛: {request.params.liquidity_threshold} 万元")
-    mock_logs.append(f"[{timestamp}] ├─ 单票最大仓位: {request.params.max_position_per_stock*100} %")
-    mock_logs.append(f"[{timestamp}] ├─ 总仓位上限: {request.params.max_position*100} %")
-    mock_logs.append(f"[{timestamp}] ├─ 止损比例: {request.params.stop_loss_pct*100} %")
-    mock_logs.append(f"[{timestamp}] ├─ 止盈比例: {request.params.take_profit_pct*100} %")
-    mock_logs.append(f"[{timestamp}] ├─ 最大持仓天数: {request.params.max_hold_days} 天")
-    mock_logs.append(f"[{timestamp}] ├─ 综合佣金率: {request.params.commission_rate*10000:.1f} ‰")
-    mock_logs.append(f"[{timestamp}] ├─ 印花税率: {request.params.stamp_duty_rate*1000:.1f} ‰")
-    mock_logs.append(f"[{timestamp}] └─ 滑点: {request.params.slippage_pct*1000:.1f} ‰")
-    mock_logs.append(f"[{timestamp}] ├─ 强制空仓规则: {'已启用' if request.enable_force_empty else '已关闭'}")
-    mock_logs.append(f"[{timestamp}] ├─ 情绪周期算法: {'已启用' if request.enable_sentiment_cycle else '已关闭'}")
-    mock_logs.append(f"[{timestamp}] └─ 竞价过滤规则: {'已启用' if request.enable_auction_filter else '已关闭'}")
-    mock_logs.append(f"[{timestamp}]")
-    mock_logs.append(f"[{timestamp}]")
-
-    # 打印提交参数
-    mock_logs.append(f"[{timestamp}] 🚀 【实盘级】开始提交超短策略回测任务...")
-    mock_logs.append(f"[{timestamp}] 📅 回测区间: {request.start_date} -> {request.end_date}")
-    mock_logs.append(f"[{timestamp}] 💰 初始资金: {request.initial_cash:,} 元")
-    mock_logs.append(f"[{timestamp}] 🎯 选中策略: {[strategy_name_map_reverse.get(s, s) for s in request.strategies]}")
-    mock_logs.append(f"[{timestamp}] ✅ 任务提交成功，任务ID：{task_id}")
-
-    # 打印各策略独立参数块（与界面1:1对应）
-    mock_logs.append(f"[{timestamp}]")
-    mock_logs.append(f"[{timestamp}] 📋 === 🎯 各策略独立参数 ===")
-    for strategy in selected_strategies:
-        strategy_name = strategy.get("name", strategy_name_map_reverse.get(strategy.get("id"), "未知策略"))
-        mock_logs.append(f"[{timestamp}] ┌─ 🎯 【{strategy_name}】")
-        params = strategy.get("params", {})
-        if strategy.get("id") == "halfway_chase":
-            min_rise = params.get('min_rise_pct', 0.03) * 100
-            max_rise = params.get('max_rise_pct', 0.07) * 100
-            volume = params.get('volume_threshold', 1.5)
-            allow_after_10 = '是' if params.get('allow_after_10am', False) else '否'
-            mock_logs.append(f"[{timestamp}] │ ├─ 最小涨幅: {min_rise} %")
-            mock_logs.append(f"[{timestamp}] │ ├─ 最大涨幅: {max_rise} %")
-            mock_logs.append(f"[{timestamp}] │ ├─ 量比阈值: {volume} 倍 (应用到筛选逻辑)")
-            mock_logs.append(f"[{timestamp}] │ └─ 允许10点后买入: {allow_after_10}")
-        elif strategy.get("id") == "first_limit_up":
-            min_seal = params.get('min_seal_amount', 5000)
-            max_time = params.get('max_limit_up_time', '10:00')
-            max_cap = params.get('max_circulation_market_cap', 100)
-            max_blast = params.get('max_blast_count', 1)
-            require_hot = '是' if params.get('require_hot_sector', True) else '否'
-            mock_logs.append(f"[{timestamp}] │ ├─ 最小封单金额: {min_seal} 万元")
-            mock_logs.append(f"[{timestamp}] │ ├─ 最晚涨停时间: {max_time}")
-            mock_logs.append(f"[{timestamp}] │ ├─ 最大流通市值: {max_cap} 亿")
-            mock_logs.append(f"[{timestamp}] │ ├─ 最大开板次数: {max_blast} 次")
-            mock_logs.append(f"[{timestamp}] │ └─ 要求热门板块: {require_hot}")
-        elif strategy.get("id") == "limit_up_open":
-            min_consec = params.get('min_consecutive_limit', 2)
-            max_open = params.get('max_open_duration', 5)
-            min_seal_after = params.get('min_seal_after_open', 3000)
-            min_turnover = params.get('min_turnover_rate', 0.15) * 100
-            mock_logs.append(f"[{timestamp}] │ ├─ 最小连续涨停天数: {min_consec} 天")
-            mock_logs.append(f"[{timestamp}] │ ├─ 最大开板时长: {max_open} 分钟")
-            mock_logs.append(f"[{timestamp}] │ ├─ 开板后最小封单: {min_seal_after} 万元")
-            mock_logs.append(f"[{timestamp}] │ └─ 最小换手率: {min_turnover} %")
-        elif strategy.get("id") == "leader_buy_dip":
-            min_consec = params.get('min_consecutive_limit', 3)
-            min_correct = params.get('min_correction_pct', 0.15) * 100
-            max_correct = params.get('max_correction_pct', 0.3) * 100
-            min_correct_days = params.get('correction_days_min', 2)
-            max_correct_days = params.get('correction_days_max', 5)
-            support = params.get('support_level', 'ma5')
-            mock_logs.append(f"[{timestamp}] │ ├─ 最小连续涨停天数: {min_consec} 天")
-            mock_logs.append(f"[{timestamp}] │ ├─ 最小回调幅度: {min_correct} %")
-            mock_logs.append(f"[{timestamp}] │ ├─ 最大回调幅度: {max_correct} %")
-            mock_logs.append(f"[{timestamp}] │ ├─ 最小回调天数: {min_correct_days} 天")
-            mock_logs.append(f"[{timestamp}] │ ├─ 最大回调天数: {max_correct_days} 天")
-            mock_logs.append(f"[{timestamp}] │ └─ 支撑位: {support}")
-        elif strategy.get("id") == "limit_down_qiao":
-            min_consec = params.get('min_consecutive_limit', 3)
-            min_qiao = params.get('min_qiao_amount', 10000)
-            min_rise_after = params.get('min_rise_after_qiao', 0.03) * 100
-            require_high_sentiment = '是' if params.get('require_high_sentiment', True) else '否'
-            mock_logs.append(f"[{timestamp}] │ ├─ 最小连续跌停天数: {min_consec} 天")
-            mock_logs.append(f"[{timestamp}] │ ├─ 翘板最小金额: {min_qiao} 万元")
-            mock_logs.append(f"[{timestamp}] │ ├─ 翘板后最小涨幅: {min_rise_after} %")
-            mock_logs.append(f"[{timestamp}] │ └─ 要求高情绪周期: {require_high_sentiment}")
-    mock_logs.append(f"[{timestamp}]")
-    mock_logs.append(f"[{timestamp}] ✅ 参数核对完成，所有参数与界面配置完全一致")
-
-    # 初始化Mock任务，把日志绑定到任务上
+    # 【修复：日志只走一条路】
+    # - Web层不再预生成日志，所有日志统一由回测引擎 push_log 推送
+    # - mock_tasks 仅用于临时缓存，status接口优先从MongoDB读取
+    # - 删除虚假"WebSocket已连接"日志
+    # - 参数日志只在回测引擎打印一次
     mock_tasks[task_id] = {
         "task_id": task_id,
-        "status": "running",
+        "status": "queued",
         "progress": 0,
-        "logs": mock_logs,
+        "logs": [],
         "result": None
     }
 
