@@ -77,7 +77,7 @@ class UniverseManager:
             logger.warn('UNIVERSE', f"No tradable stocks found for {trade_date}")
             return set()
 
-        logger.info('UNIVERSE', f"[{trade_date}] Base universe: {len(stocks)} stocks")
+        logger.info(f"UNIVERSE: [{trade_date}] Base universe: {len(stocks)} stocks")
 
         # 2. 应用排除规则
         if exclude_rules:
@@ -200,7 +200,7 @@ class UniverseManager:
             调仓日期列表
         """
         # 获取交易日历
-        logger.info('UNIVERSE', f"Getting rebalance dates: {start_date} -> {end_date}, freq={freq}")
+        logger.info(f"UNIVERSE: Getting rebalance dates: {start_date} -> {end_date}, freq={freq}")
         # 🚀 100% 从本地MongoDB获取交易日历，完全不依赖任何外部API
         # 本地MongoDB已经有完整的 daily 数据，直接从中提取所有交易日期
         trade_dates = await self._get_trade_dates_from_mongo(start_date, end_date)
@@ -212,7 +212,7 @@ class UniverseManager:
         if not trade_dates:
             return []
 
-        logger.info('UNIVERSE', f"Total trade dates: {len(trade_dates)}")
+        logger.info(f"UNIVERSE: Total trade dates: {len(trade_dates)}")
 
         if freq == "daily":
             result = trade_dates
@@ -226,7 +226,7 @@ class UniverseManager:
             logger.warn('UNIVERSE', f"Unknown freq '{freq}', using all trade dates")
             result = trade_dates
 
-        logger.info('UNIVERSE', f"Filtered rebalance dates: {len(result)} (freq={freq})")
+        logger.info(f"UNIVERSE: Filtered rebalance dates: {len(result)} (freq={freq})")
         return result
 
     def _filter_by_week(self, dates: list[str]) -> list[str]:
@@ -297,7 +297,7 @@ class UniverseManager:
                     return [str(int(d)) for d in filtered]
                 
                 # 第一次查询：获取整个表中所有不同的交易日，存入缓存
-                logger.info('UNIVERSE', "First query: getting all trade dates from MongoDB (this may take a while)...")
+                logger.info("UNIVERSE: First query: getting all trade dates from MongoDB (this may take a while)...")
                 pipeline = [
                     {"$group": {"_id": "$trade_date"}},
                     {"$sort": {"_id": 1}}
@@ -306,7 +306,7 @@ class UniverseManager:
                 
                 # 存入全局缓存
                 UniverseManager._all_trade_dates_cache = [doc["_id"] for doc in result]
-                logger.info('UNIVERSE', f"Cached all trade dates: {len(UniverseManager._all_trade_dates_cache)} dates total")
+                logger.info(f"UNIVERSE: Cached all trade dates: {len(UniverseManager._all_trade_dates_cache)} dates total")
                 
                 # 过滤日期范围
                 all_dates = UniverseManager._all_trade_dates_cache

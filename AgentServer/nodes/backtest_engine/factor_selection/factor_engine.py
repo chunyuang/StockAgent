@@ -85,7 +85,7 @@ class FactorEngine:
 
         stocks_list = list(stocks)
         log_memory_usage(f"[{trade_date}] 因子计算开始")
-        logger.info('FACTOR_ENGINE', f"Computing factors for {len(stocks_list)} stocks on {trade_date}")
+        logger.info(f"FACTOR_ENGINE: Computing factors for {len(stocks_list)} stocks on {trade_date}")
 
         # ==================== 双模式分支 ====================
         # 回测模式：直接从 MongoDB 读取预计算因子，跳过实时计算
@@ -148,7 +148,7 @@ class FactorEngine:
                 # 缓存命中，直接反序列化
                 try:
                     values = json.loads(cached)
-                    logger.info('FACTOR_ENGINE', f"✅ Cache hit: {factor_def.name} on {trade_date}, {len(values)} stocks")
+                    logger.info(f"FACTOR_ENGINE: ✅ Cache hit: {factor_def.name} on {trade_date}, {len(values)} stocks")
                     factor_values[factor_def.name] = values
                     continue
                 except Exception as e:
@@ -164,7 +164,7 @@ class FactorEngine:
                 # 序列化为JSON
                 cached_data = json.dumps(values)
                 await redis_manager.cache_setex(cache_key, 86400, cached_data)
-                logger.debug('FACTOR_ENGINE', f"Cached: {factor_def.name} on {trade_date}, {len(values)} stocks")
+                logger.debug(f"FACTOR_ENGINE: Cached: {factor_def.name} on {trade_date}, {len(values)} stocks")
             except Exception as e:
                 logger.debug('FACTOR_ENGINE', f"Cache store failed: {e}")
 
