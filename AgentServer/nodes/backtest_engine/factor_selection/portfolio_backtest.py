@@ -49,7 +49,7 @@ import gc
 import os
 import math
 
-from core.managers import mongo_manager
+from core.managers import mongo_manager, redis_manager
 from core.utils.logger import logger
 
 # 【修复#26/#27：引入 PerformanceAnalyzer 进行绩效指标计算】
@@ -424,6 +424,9 @@ class PortfolioBacktester:
             if push_log and task_id:
                 await push_log(task_id, msg)
         self.log = log
+        
+        # 【修复#4：保存 task_id 实例变量，用于进度推送Redis】
+        self.task_id = task_id
 
         # 🔧 提前初始化所有实例属性,避免提前返回导致属性缺失
         self.weight_method = config.get("weight_method", "equal")
@@ -664,11 +667,34 @@ class PortfolioBacktester:
 
         await self.log(f"开始逐日回测,共 {total_days} 个交易日")
 
+        # 【修复#4：进度推送Redis频道，前端实时接收进度】
+        # 每 10% 进度推送一次
+        last_pushed_progress = -1
+
         for idx, trade_date in enumerate(all_trade_dates):
             # 🔧 内存优化: 每5天强制一次垃圾回收
             if idx % 5 == 0:
                 log_memory_usage(f"[day {idx+1}/{total_days}] 回测开始前")
                 gc.collect()
+            
+            # 推送进度到Redis（每10%推送一次）
+            progress_pct = int(((idx + 1) / total_days) * 100)
+            if progress_pct != last_pushed_progress and progress_pct % 10 == 0:
+                # 同时更新MongoDB进度
+                await mongo_manager.update_one(
+                    "backtest_tasks",
+                    {"task_id": self.task_id},
+                    {"$set": {"progress": 30 + int(progress_pct * 0.6)}},  # 30~90% 总共
+                )
+                # 推送Redis频道
+                await redis_manager.publish(f"backtest:progress:{self.task_id}", {
+                    "task_id": self.task_id,
+                    "progress": 30 + int(progress_pct * 0.6),
+                    "current_day": idx + 1,
+                    "total_days": total_days,
+                    "status": "running"
+                })
+                last_pushed_progress = progress_pct
 
             # ==================== 1️⃣ 每日统一开头 ====================
             await self._print_daily_header(idx+1, total_days, trade_date)
@@ -1651,23 +1677,27 @@ class PortfolioBacktester:
             # 提取 daily_profit 序列（用于兼容）
             daily_profit = daily_profit_list.copy()
 
-            # 返回完整结果(全部为字典,可序列化)
+            # 【修复#49/#31：统一后端输出格式适配前端BacktestResult结构
+            # - final_value → final_equity (字段名对齐)
+            # - 小数百分比转换：total_return/annualized_return/max_drawdown/win_rate ×100
+            #   前端预期百分比数值(如 15.5表示15.5%),不是小数0.155
             return {
                 "success": True,
                 "initial_cash": self._initial_cash,
                 "final_cash": cash,
-                "final_value": final_value,
+                "final_equity": final_value,  # 【修复#49：字段名对齐 → final_equity】
+                "final_value": final_value,  # 保持向后兼容
                 "final_holdings": holdings,
-                "total_return": total_return,
-                "annualized_return": annualized_return,
-                "win_rate": win_rate,
+                "total_return": total_return * 100,  # 【修复#31：小数 → 百分比】
+                "annualized_return": annualized_return * 100,  # 【修复#31：小数 → 百分比】
+                "win_rate": win_rate * 100,  # 【修复#31：小数 → 百分比】
+                "max_drawdown": max_drawdown * 100,  # 【修复#31：小数 → 百分比】
                 "total_signals": total_signals,
                 "total_trades": total_trades,
                 "winning_trades": winning_trades,
                 "losing_trades": losing_trades,
-                "max_drawdown": max_drawdown,
-                "sharpe_ratio": sharpe_ratio,
-                "profit_loss_ratio": profit_loss_ratio,
+                "sharpe_ratio": sharpe_ratio,  # 夏普比率本身不是百分比，保持原值
+                "profit_loss_ratio": profit_loss_ratio,  # 盈亏比不是百分比，保持原值
                 "return_drawdown_ratio": return_drawdown_ratio,
                 "average_hold_days": average_hold_days,
                 "rebalance_records": rebalance_records_dict,
