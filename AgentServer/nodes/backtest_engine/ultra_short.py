@@ -8,7 +8,7 @@ import subprocess
 from datetime import datetime
 from typing import Dict, Any, List
 
-from core.managers import mongo_manager, akshare_manager
+from core.managers import mongo_manager, akshare_manager, redis_manager
 from core.utils.logger import logger
 
 from nodes.backtest_engine.factor_selection import PortfolioBacktester
@@ -97,6 +97,12 @@ async def execute_ultra_short_backtest(
         {"task_id": task_id},
         {"$set": {"status": "running", "started_at": datetime.utcnow(), "progress": 10, "logs": []}},
     )
+    # 【修复#4：进度推送Redis频道，前端实时接收】
+    await redis_manager.publish(f"backtest:progress:{task_id}", {
+        "task_id": task_id,
+        "progress": 10,
+        "status": "running"
+    })
 
     selected_strategies = req_params.get("selected_strategies", [])
     # 兜底：如果前端没传，用默认所有策略
@@ -200,6 +206,12 @@ async def execute_ultra_short_backtest(
         {"task_id": task_id},
         {"$set": {"progress": 20}},
     )
+    # 【修复#4：进度推送Redis频道，前端实时接收】
+    await redis_manager.publish(f"backtest:progress:{task_id}", {
+        "task_id": task_id,
+        "progress": 20,
+        "status": "running"
+    })
 
     # 获取真实调仓日期(每日调仓)
     rebalance_dates = await universe_mgr.get_rebalance_dates(start_date, end_date, "daily")
@@ -210,6 +222,12 @@ async def execute_ultra_short_backtest(
         {"task_id": task_id},
         {"$set": {"progress": 30}},
     )
+    # 【修复#4：进度推送Redis频道，前端实时接收】
+    await redis_manager.publish(f"backtest:progress:{task_id}", {
+        "task_id": task_id,
+        "progress": 30,
+        "status": "running"
+    })
 
     # 合并所有选中策略的因子和过滤条件
     all_factors = []
@@ -283,6 +301,12 @@ async def execute_ultra_short_backtest(
                 {"task_id": task_id},
                 {"$set": {"status": "failed", "error": error_msg, "completed_at": datetime.utcnow()}},
             )
+            # 【修复#4：推送进度到Redis通知前端失败】
+            await redis_manager.publish(f"backtest:progress:{task_id}", {
+                "task_id": task_id,
+                "progress": 100,
+                "status": "failed"
+            })
             return {"success": False, "error": error_msg}
 
         # 构建结果结构
@@ -346,6 +370,18 @@ async def execute_ultra_short_backtest(
         logger.info("RESULT", f"最大回撤: {result.get('max_drawdown', 0.0) * 100:.2f}%")
         logger.info("RESULT", f"盈亏比: {result.get('profit_loss_ratio', 0):.2f}")
         logger.info("RESULT", f"夏普比率: {result.get('sharpe_ratio', 0.0):.2f}")
+        
+        # 【修复#4：推送完成进度到Redis】
+        await mongo_manager.update_one(
+            "backtest_tasks",
+            {"task_id": task_id},
+            {"$set": {"progress": 100}},
+        )
+        await redis_manager.publish(f"backtest:progress:{task_id}", {
+            "task_id": task_id,
+            "progress": 100,
+            "status": "completed"
+        })
 
     except Exception as e:
         node_logger.error(f"[{task_id}] Portfolio backtest failed: {e}")
