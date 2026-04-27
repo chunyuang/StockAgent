@@ -788,6 +788,39 @@ class PortfolioBacktester:
                                 {"name": "limit_up_count", "target": min_consecutive, "operator": ">=", "label": "最小连续涨停天数"},
                                 {"name": "limit_up_count", "target": max_consecutive, "operator": "<=", "label": "最大连续涨停天数"},
                             ]
+                        elif strategy_name == "龙头低吸":
+                            # 读取龙头低吸独立参数
+                            min_consecutive = converted_params.get("min_consecutive_limit", 3)
+                            min_correction = converted_params.get("min_correction_pct", 0.15)
+                            max_correction = converted_params.get("max_correction_pct", 0.3)
+                            correction_days_min = converted_params.get("correction_days_min", 2)
+                            correction_days_max = converted_params.get("correction_days_max", 5)
+                            support_level = converted_params.get("support_level", "ma5")
+
+                            strategy_configs[strategy_name] = [
+                                {"name": "market_leader", "target": 1, "label": "市场龙头"},
+                                {"name": "pullback_pct", "target": min_correction, "operator": ">=", "label": "最小回调幅度"},
+                                {"name": "pullback_pct", "target": max_correction, "operator": "<=", "label": "最大回调幅度"},
+                                {"name": "pullback_days", "target": correction_days_min, "operator": ">=", "label": "最小回调天数"},
+                                {"name": "pullback_days", "target": correction_days_max, "operator": "<=", "label": "最大回调天数"},
+                                {"name": f"pullback_{support_level}", "target": 1, "label": f"{support_level.upper()}支撑位"},
+                                {"name": "volume_ratio_vs_ma5", "target": 1.0, "operator": "<=", "label": "成交量小于5日均量"},
+                            ]
+                        elif strategy_name == "跌停翘板":
+                            # 读取跌停翘板独立参数
+                            min_consecutive = converted_params.get("min_consecutive_limit", 3)
+                            min_qiao_amount = converted_params.get("min_qiao_amount", 10000)
+                            min_rise_after = converted_params.get("min_rise_after_qiao", 0.03)
+                            require_high_sentiment = converted_params.get("require_high_sentiment", True)
+
+                            strategy_configs[strategy_name] = [
+                                {"name": "limit_down_yesterday", "target": 1, "label": "昨日跌停"},
+                                {"name": "open_above_limit_down", "target": 1, "label": "开盘高于跌停价"},
+                                {"name": "turnover_rate", "target": 10.0, "operator": ">=", "label": "换手率≥10%"},
+                                {"name": "limit_down_open_amount", "target": min_qiao_amount, "label": "翘板最小金额"},
+                                {"name": "rise_after_limit_down", "target": min_rise_after, "label": "翘板后最小涨幅"},
+                                {"name": "sentiment_score", "target": 1 if require_high_sentiment else 0, "label": "要求高情绪周期"},
+                            ]
                     
                     # 统一打印各策略筛选
                     all_candidates = set()
@@ -1107,7 +1140,7 @@ class PortfolioBacktester:
                         strategy_configs[strategy_name] = [
                             {"name": "limit_down_yesterday", "target": 1, "label": "昨日跌停"},
                             {"name": "open_above_limit_down", "target": 1, "label": "开盘高于跌停价"},
-                            {"name": "turnover", "target": 10.0, "operator": ">=", "label": "换手率≥10%"},
+                            {"name": "turnover_rate", "target": 10.0, "operator": ">=", "label": "换手率≥10%"},
                             {"name": "limit_down_open_amount", "target": min_qiao_amount, "label": "翘板最小金额"},
                             {"name": "rise_after_limit_down", "target": min_rise_after, "label": "翘板后最小涨幅"},
                             {"name": "sentiment_score", "target": 1 if require_high_sentiment else 0, "label": "要求高情绪周期"},
