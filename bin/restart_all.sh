@@ -88,8 +88,42 @@ else
 fi
 
 # =============================================
-# 🔒 安全层2: 清理Python __pycache__ 缓存
+# 🔒 安全层1.5: 运行分支对齐检查（最重要！避免之前踩过的坑）
 # =============================================
+echo -e "${YELLOW}🔍 1.5/7 检查运行中代码分支与当前Git分支是否对齐...${NC}"
+
+# 从PID文件中提取启动时的Git分支信息（如果存在）
+# 思路：启动时记录分支信息到PID文件旁边，重启时检查是否匹配
+BRANCH_INFO_FILE="${PROJECT_ROOT}/logs/runtime_branch_info.txt"
+
+if [[ -f "$BRANCH_INFO_FILE" ]]; then
+  RUNTIME_BRANCH=$(cat "$BRANCH_INFO_FILE" 2>/dev/null || echo "unknown")
+  if [[ "$RUNTIME_BRANCH" != "$CURRENT_BRANCH" ]] && [[ "$RUNTIME_BRANCH" != "unknown" ]]; then
+    if [[ $FORCE_RESTART -eq 1 ]]; then
+      echo -e "${YELLOW}⚠️  ⚠️  ⚠️  分支不匹配！运行中是 [$RUNTIME_BRANCH]，当前Git是 [$CURRENT_BRANCH]${NC}"
+      echo -e "${YELLOW}但使用了 --force 参数，强制继续！${NC}"
+    else
+      echo -e "${RED}❌ ❌ ❌ 严重警告：分支不匹配！禁止重启！${NC}"
+      echo ""
+      echo -e "${RED}当前运行中的服务是从分支启动:${NC} $RUNTIME_BRANCH"
+      echo -e "${YELLOW}但您当前所在的Git分支是:${NC} $CURRENT_BRANCH"
+      echo ""
+      echo -e "这就是之前踩过的经典大坑！😱"
+      echo -e "  → 在分支A启动服务 → 切到分支B改代码 → 忘记切回直接重启 → 代码不生效"
+      echo ""
+      echo -e "${YELLOW}请先执行:${NC}"
+      echo -e "  git checkout $RUNTIME_BRANCH    # 切回运行中的分支，确认修改正确"
+      echo ""
+      echo -e "${YELLOW}如果确认要强制重启（确认当前分支代码正确），请使用:${NC}"
+      echo -e "  ./bin/restart_all.sh --force"
+      exit 1
+    fi
+  else
+    echo -e "${GREEN}✅ 运行分支与Git分支一致: $CURRENT_BRANCH${NC}"
+  fi
+else
+  echo -e "${YELLOW}⚠️  未找到运行时分支信息（可能是首次运行），跳过对齐检查${NC}"
+fi
 echo -e "${YELLOW}🧹 2/6 清理Python __pycache__ 缓存...${NC}"
 PYCACHE_COUNT=$(find . -type d -name "__pycache__" 2>/dev/null | wc -l)
 PYC_FILE_COUNT=$(find . -type f -name "*.pyc" 2>/dev/null | wc -l)
@@ -232,8 +266,12 @@ if [ $all_free -eq 0 ]; then
   exit 1
 fi
 
+# 记录当前Git分支信息，用于下次重启时的对齐检查（防止踩坑！）
+echo -e "${YELLOW}📝 记录当前运行分支信息: $CURRENT_BRANCH${NC}"
+echo "$CURRENT_BRANCH" > "${PROJECT_ROOT}/logs/runtime_branch_info.txt"
+
 # 3. 启动Web服务节点
-echo -e "${YELLOW}🌐 3/6 启动Web服务节点...${NC}"
+echo -e "${YELLOW}🌐 3/7 启动Web服务节点...${NC}"
 # 设置 PYTHONPATH 包含项目根目录，确保模块能正确导入
 export PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH}"
 export NODE_TYPE=web
