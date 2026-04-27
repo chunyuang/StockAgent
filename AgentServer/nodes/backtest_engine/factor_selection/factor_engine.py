@@ -220,19 +220,25 @@ class FactorEngine:
 
         # 加载日线数据
         if "daily" in data_sources:
-            # 🔥 终极修复：完全绕过 MongoDB $in + range 查询，每天单独查询再合并
-            # 因为 MongoDB 复合索引类型不匹配，范围查询总是返回空
+            # 【修复#9：复合索引查询优化 - 使用$in直接在数据库层面过滤】
+            # 复合索引 (trade_date, ts_code)，查询顺序与索引顺序匹配
+            # 原逻辑：每天查全表→内存过滤（5000条/天 × N天 = 大量冗余数据）
+            # 新逻辑：每天查询时直接$in过滤，只拉取需要的股票（M条/天 × N天 = 只拉需要的）
             from datetime import datetime, timedelta
             start_dt = datetime.strptime(start_date, "%Y%m%d")
             end_dt = datetime.strptime(end_date, "%Y%m%d")
+            stocks_set = set(stocks)  # 提前提取到循环外
             all_result = []
             current_dt = start_dt
             while current_dt <= end_dt:
                 current_date_str = current_dt.strftime("%Y%m%d")
+                # 【修复#9：查询顺序与复合索引(trade_date, ts_code)完全匹配】
+                # 先按 trade_date 命中索引前缀，再用 $in 按 ts_code 过滤，避免全表扫描
                 result_day = await mongo_manager.find_many(
                     "stock_daily_ak_full",
                     {
                         "trade_date": int(current_date_str),
+                        "ts_code": {"$in": list(stocks_set)},  # 直接在数据库层面过滤
                     },
                     projection={
                         "ts_code": 1, "trade_date": 1,
@@ -248,10 +254,7 @@ class FactorEngine:
                         "limit_down_open_amount": 1, "rise_after_limit_down": 1
                     },
                 )
-                # 过滤只保留我们需要的 stocks
-                stocks_set = set(stocks)
-                result_day = [doc for doc in result_day if doc["ts_code"] in stocks_set]
-                all_result.extend(result_day)
+                all_result.extend(result_day)  # 数据库已经过滤好，不需要再过滤
                 # 下一天
                 current_dt += timedelta(days=1)
 
@@ -289,12 +292,16 @@ class FactorEngine:
             end_dt = datetime.strptime(end_date, "%Y%m%d")
             all_result = []
             current_dt = start_dt
+            stocks_set = set(stocks)  # 提前提取到循环外
             while current_dt <= end_dt:
                 current_date_str = current_dt.strftime("%Y%m%d")
+                # 【修复#9：查询顺序与复合索引(trade_date, ts_code)完全匹配】
+                # 先用 trade_date 命中索引前缀，再用 $in 按 ts_code 过滤，避免全表扫描
                 result_day = await mongo_manager.find_many(
                     "daily_basic",
                     {
                         "trade_date": int(current_date_str),
+                        "ts_code": {"$in": list(stocks_set)},  # 直接在数据库层面过滤
                     },
                     projection={
                         "ts_code": 1, "trade_date": 1,
@@ -304,10 +311,7 @@ class FactorEngine:
                         "total_mv": 1, "circ_mv": 1,
                     },
                 )
-                # 过滤只保留我们需要的 stocks
-                stocks_set = set(stocks)
-                result_day = [doc for doc in result_day if doc["ts_code"] in stocks_set]
-                all_result.extend(result_day)
+                all_result.extend(result_day)  # 数据库已经过滤好
                 # 下一天
                 current_dt += timedelta(days=1)
 
