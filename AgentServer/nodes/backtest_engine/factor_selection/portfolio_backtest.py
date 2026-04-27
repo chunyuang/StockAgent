@@ -412,7 +412,7 @@ class PortfolioBacktester:
         # 保存 log 到实例,让所有方法都能使用
         # 日志推送辅助方法:同时写入本地日志 + 推送到前端
         async def log(msg: str):
-            logger.info('BACKTEST', msg)
+            logger.info(f"BACKTEST: {msg}")
             if push_log and task_id:
                 await push_log(task_id, msg)
         self.log = log
@@ -918,7 +918,7 @@ class PortfolioBacktester:
                 await self._print_stock_pool_and_cleaning(trade_date, universe, st_count, new_stock_count, low_liquidity_count)
 
                 if not universe:
-                    logger.warn('BACKTEST', "⚠️ 当日无符合条件的股票,跳过调仓")
+                    logger.warn("BACKTEST: ⚠️ 当日无符合条件的股票,跳过调仓")
                     continue
 
                 # 2. 计算因子 & 选股
@@ -1290,7 +1290,7 @@ class PortfolioBacktester:
                                 await self.log(f"   📉 大盘跌破 MA60,整体仓位降低 50%")
                     except Exception as e:
                         # 查询失败不影响继续执行
-                        logger.warn('BACKTEST', f"Failed to check index MA60 for position adjustment: {e}")
+                        logger.warn(f"BACKTEST: Failed to check index MA60 for position adjustment: {e}")
 
                 # 计算进度
                 total_rebalance_days = len(rebalance_dates)
