@@ -499,6 +499,18 @@ FactorLibrary.register(FactorDefinition(
 ))
 
 FactorLibrary.register(FactorDefinition(
+    name="opening_pct_chg",
+    display_name="开盘涨幅",
+    category=FactorCategory.TECHNICAL,
+    description="(今日开盘价 - 昨日收盘价) / 昨日收盘价 * 100，即竞价开盘涨幅百分比",
+    direction="asc",
+    data_source="daily",
+    required_fields=["open", "close"],
+    lookback_days=2,
+    compute_func=lambda df: (df["open"] - df["close"].shift(1)) / df["close"].shift(1).replace(0, np.nan) * 100,
+))
+
+FactorLibrary.register(FactorDefinition(
     name="price_near_ma5",
     display_name="价格靠近MA5",
     category=FactorCategory.TECHNICAL,
