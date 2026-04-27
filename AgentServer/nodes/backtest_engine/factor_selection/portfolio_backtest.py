@@ -832,13 +832,13 @@ class PortfolioBacktester:
                         )
                         all_candidates.update(candidates)
 
-                # ========== 现在执行强制空仓 ==========
-                await self.log(f"")
-                await self.log(f"   ┌───────────────────────────────────────────────────────")
-                await self.log(f"   │ 🔴 【强制空仓执行】")
-                await self.log(f"   ├───────────────────────────────────────────────────────")
-                
-                if holdings and len(holdings) > 0:
+            # ========== 现在执行强制空仓 ==========
+            await self.log(f"")
+            await self.log(f"   ┌───────────────────────────────────────────────────────")
+            await self.log(f"   │ 🔴 【强制空仓执行】")
+            await self.log(f"   ├───────────────────────────────────────────────────────")
+            
+            if holdings and len(holdings) > 0:
                     prices_for_sell = await self._get_prices(set(holdings.keys()), trade_date)
                     sell_count = 0
                     for code in list(holdings.keys()):
@@ -870,18 +870,18 @@ class PortfolioBacktester:
                 else:
                     await self.log(f"   │  ⚪ 当前无持仓，无需卖出")
                 
-                await self.log(f"   │  ⏭️  强制空仓规则生效，不开新仓")
-                await self.log(f"   └───────────────────────────────────────────────────────")
-                # 跳过后续买入逻辑，但不再跳过每日收盘汇总！
-                continue
+            await self.log(f"   │  ⏭️  强制空仓规则生效，不开新仓")
+            await self.log(f"   └───────────────────────────────────────────────────────")
+            # 跳过后续买入逻辑，但不再跳过每日收盘汇总！
+            continue
 
-                # 1. 获取当日股票池 - 🔧 修复：先获取原始股票池统计，再获取过滤后的
-                # 先获取原始股票池（无排除规则），用于统计真实的剔除数量
-                universe_raw = await self.universe_mgr.get_universe(
-                    UniverseType.ALL_A,
-                    trade_date,
-                    exclude_rules=[],  # 不应用任何排除规则，用于统计
-                )
+        # 1. 获取当日股票池 - 🔧 修复：先获取原始股票池统计，再获取过滤后的
+        # 先获取原始股票池（无排除规则），用于统计真实的剔除数量
+        universe_raw = await self.universe_mgr.get_universe(
+            UniverseType.ALL_A,
+            trade_date,
+            exclude_rules=[],  # 不应用任何排除规则，用于统计
+        )
                 
                 # 再获取过滤后的股票池（应用ST、次新股排除规则）
                 universe = await self.universe_mgr.get_universe(
