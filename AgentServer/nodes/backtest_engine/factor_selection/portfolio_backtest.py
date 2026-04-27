@@ -1153,6 +1153,95 @@ class PortfolioBacktester:
                 for s in selected_strategies:
                     strategy_name = s.get("name", s.get("id", "未知策略"))
                     params = s.get("params", {})
+                    
+                    # 打印策略标题 + 参数配置 + 筛选过程标题（与强制空仓分支对齐）
+                    await self.log(f"")
+                    await self.log(f"   ┌───────────────────────────────────────────────────────")
+                    await self.log(f"   │ 🔹 【{strategy_name}】")
+                    await self.log(f"   ├───────────────────────────────────────────────────────")
+                    
+                    # 参数配置显示（根据不同策略格式化显示）
+                    await self.log(f"   │    📌 参数配置:")
+                    if strategy_name == "半路追涨":
+                        min_rise_pct = params.get("min_rise_pct", 0.03)
+                        max_rise_pct = params.get("max_rise_pct", 0.05)
+                        volume_threshold = params.get("min_volume_ratio", 2.5)
+                        allow_after_10am = params.get("allow_after_10am", False)
+                        await self.log(f"   │        • 量比阈值: {volume_threshold}倍")
+                        await self.log(f"   │        • 涨幅区间: {min_rise_pct*100:.1f}% ~ {max_rise_pct*100:.1f}%")
+                        await self.log(f"   │        • 允许10点后买入: {'是' if allow_after_10am else '否'}")
+                    elif strategy_name == "首板打板":
+                        min_seal_amount = params.get("min_seal_amount", 5000)
+                        max_limit_time = params.get("max_limit_up_time", "10:00")
+                        min_circ_mv = params.get("min_circulation_market_cap", 50)
+                        max_circ_mv = params.get("max_circulation_market_cap", 500)
+                        min_volume_ratio = params.get("min_volume_ratio", 1.5)
+                        min_turnover = params.get("min_turnover_rate", 3)
+                        max_turnover = params.get("max_turnover_rate", 15)
+                        max_blast = params.get("max_blast_count", 1)
+                        require_hot = params.get("require_hot_sector", True)
+                        require_sentiment = params.get("require_sentiment_period", ["rising", "chaos"])
+                        await self.log(f"   │        • 竞价涨幅: 2.0% ~ 5.0%")
+                        await self.log(f"   │        • 量比要求: ≥ {min_volume_ratio}")
+                        await self.log(f"   │        • 换手率: {min_turnover}% ~ {max_turnover}%")
+                        await self.log(f"   │        • 流通市值: {min_circ_mv}亿 ~ {max_circ_mv}亿")
+                        await self.log(f"   │        • 最小封单: {min_seal_amount}万元")
+                        await self.log(f"   │        • 最晚涨停: {max_limit_time}")
+                        await self.log(f"   │        • 最大开板: {max_blast}次")
+                        await self.log(f"   │        • 要求热门板块: {'是' if require_hot else '否'}")
+                        await self.log(f"   │        • 情绪周期要求: {', '.join(require_sentiment)}")
+                    elif strategy_name == "涨停开板":
+                        min_consecutive = params.get("min_consecutive_limit", 2)
+                        max_consecutive = params.get("max_consecutive_limit", 4)
+                        max_open_duration = params.get("max_open_duration", 5)
+                        min_seal_after = params.get("min_seal_after_open", 3000)
+                        min_turnover = params.get("min_turnover_rate", 15)
+                        opening_pct_min = params.get("opening_pct_min", 0.0)
+                        opening_pct_max = params.get("opening_pct_max", 3.0)
+                        min_volume_ratio = params.get("min_volume_ratio", 2.0)
+                        require_sentiment = params.get("require_sentiment_period", ["rising"])
+                        await self.log(f"   │        • 连续涨停: {min_consecutive} ~ {max_consecutive}板")
+                        await self.log(f"   │        • 开盘涨幅: {opening_pct_min}% ~ {opening_pct_max}%")
+                        await self.log(f"   │        • 量比要求: ≥ {min_volume_ratio}")
+                        await self.log(f"   │        • 最大开板时长: {max_open_duration}分钟")
+                        await self.log(f"   │        • 开板后最小封单: {min_seal_after}万元")
+                        await self.log(f"   │        • 最小换手率: {min_turnover}%")
+                        await self.log(f"   │        • 情绪周期要求: {', '.join(require_sentiment)}")
+                    elif strategy_name == "龙头低吸":
+                        min_consecutive = params.get("min_consecutive_limit", 3)
+                        min_correction = params.get("min_correction_pct", 0.15)
+                        max_correction = params.get("max_correction_pct", 0.3)
+                        correction_days_min = params.get("correction_days_min", 2)
+                        correction_days_max = params.get("correction_days_max", 5)
+                        support_level = params.get("support_level", "ma5")
+                        await self.log(f"   │        • 最小连续涨停: {min_consecutive}天")
+                        await self.log(f"   │        • 回调幅度: {min_correction*100:.1f}% ~ {max_correction*100:.1f}%")
+                        await self.log(f"   │        • 回调天数: {correction_days_min} ~ {correction_days_max}天")
+                        await self.log(f"   │        • 支撑位: {support_level.upper()}")
+                        await self.log(f"   │        • 要求缩量回调: volume/ma5 ≤ 1.0")
+                    elif strategy_name == "跌停翘板":
+                        min_consecutive = params.get("min_consecutive_limit", 3)
+                        min_qiao_amount = params.get("min_qiao_amount", 10000)
+                        min_rise_after = params.get("min_rise_after_qiao", 0.03)
+                        require_high_sentiment = params.get("require_high_sentiment", True)
+                        await self.log(f"   │        • 最小连续跌停: {min_consecutive}天")
+                        await self.log(f"   │        • 换手率要求: ≥ 10%")
+                        await self.log(f"   │        • 最小翘板金额: {min_qiao_amount}万元")
+                        await self.log(f"   │        • 翘板后最小涨幅: {min_rise_after*100:.1f}%")
+                        await self.log(f"   │        • 要求高情绪周期: {'是' if require_high_sentiment else '否'}")
+                    else:
+                        # 通用显示
+                        for param_name, param_value in list(params.items())[:8]:
+                            display_value = str(param_value) if not isinstance(param_value, list) else ', '.join(str(v) for v in param_value[:3]) + ('...' if len(param_value) > 3 else '')
+                            await self.log(f"   │        • {param_name}: {display_value}")
+                    
+                    await self.log(f"   └───────────────────────────────────────────────────────")
+                    
+                    await self.log(f"")
+                    await self.log(f"   ┌───────────────────────────────────────────────────────")
+                    await self.log(f"   │ 🔍 【{strategy_name}】筛选过程:")
+                    await self.log(f"   ├───────────────────────────────────────────────────────")
+                    
                     # 统一打印！统一筛选！
                     candidates = await self._print_single_strategy_filtering(
                         strategy_name, 
