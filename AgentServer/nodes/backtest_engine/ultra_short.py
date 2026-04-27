@@ -68,10 +68,10 @@ async def execute_ultra_short_backtest(
         "limit_down_qiao": "跌停翘板"
     }
     selected_strategy_names = [strategy_name_map.get(s, s) for s in strategies]
-    logger.info(f"INIT: 选中策略：【{'、'.join(selected_strategy_names)}】")
+    logger.info("INIT", f"选中策略：【{'、'.join(selected_strategy_names)}】")
 
     # 打印全局参数
-    logger.info(f"INIT: 全局参数：流动性门槛{strategy_params.get('liquidity_threshold', 500)}万/止损{strategy_params.get('stop_loss_pct', 0.02)*100}%/止盈{strategy_params.get('take_profit_pct', 0.07)*100}%/最大持仓{strategy_params.get('max_hold_days', 3)}天/单票仓位{strategy_params.get('max_position_per_stock', 0.2)*100}%/总仓位{strategy_params.get('max_position', 0.7)*100}%")
+    logger.info("INIT", f"全局参数：流动性门槛{strategy_params.get('liquidity_threshold', 500)}万/止损{strategy_params.get('stop_loss_pct', 0.02)*100}%/止盈{strategy_params.get('take_profit_pct', 0.07)*100}%/最大持仓{strategy_params.get('max_hold_days', 3)}天/单票仓位{strategy_params.get('max_position_per_stock', 0.2)*100}%/总仓位{strategy_params.get('max_position', 0.7)*100}%")
 
     # 打印功能开关
     enable_force_empty = req_params.get("enable_force_empty", True)
@@ -85,7 +85,7 @@ async def execute_ultra_short_backtest(
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
         commit_id = subprocess.check_output("git rev-parse --short HEAD", shell=True, cwd=project_root).decode().strip()
         commit_time = subprocess.check_output("git log -1 --format=%cd --date=format:'%Y-%m-%d %H:%M'", shell=True, cwd=project_root).decode().strip()
-        logger.info(f"INIT: 代码版本：log分支 commit {commit_id} ({commit_time})")
+        logger.info("INIT", f"代码版本：log分支 commit {commit_id} ({commit_time})")
     except Exception:
         pass
 
@@ -348,12 +348,12 @@ async def execute_ultra_short_backtest(
         result['total_return'] = result.get('total_return', 0.0)
 
         logger.success("RESULT", "多策略组合回测完成")
-        logger.info(f"RESULT: 信号数: {result.get('total_signals', 0)}")
-        logger.info(f"RESULT: 胜率: {result.get('win_rate', 0.0) * 100:.2f}%")
-        logger.info(f"RESULT: 累计收益率: {result.get('total_return', 0.0) * 100:.2f}%")
-        logger.info(f"RESULT: 最大回撤: {result.get('max_drawdown', 0.0) * 100:.2f}%")
-        logger.info(f"RESULT: 盈亏比: {result.get('profit_loss_ratio', 0):.2f}")
-        logger.info(f"RESULT: 夏普比率: {result.get('sharpe_ratio', 0.0):.2f}")
+        logger.info("RESULT", f"信号数: {result.get('total_signals', 0)}")
+        logger.info("RESULT", f"胜率: {result.get('win_rate', 0.0) * 100:.2f}%")
+        logger.info("RESULT", f"累计收益率: {result.get('total_return', 0.0) * 100:.2f}%")
+        logger.info("RESULT", f"最大回撤: {result.get('max_drawdown', 0.0) * 100:.2f}%")
+        logger.info("RESULT", f"盈亏比: {result.get('profit_loss_ratio', 0):.2f}")
+        logger.info("RESULT", f"夏普比率: {result.get('sharpe_ratio', 0.0):.2f}")
 
     except Exception as e:
         node_logger.error(f"[{task_id}] Portfolio backtest failed: {e}")
