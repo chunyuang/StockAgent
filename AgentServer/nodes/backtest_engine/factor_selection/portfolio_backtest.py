@@ -329,7 +329,9 @@ class PortfolioBacktester:
                 current_df = current_df[current_df[factor_name] == target_value]
             elif operator == "in":  # ✅ 新增in操作符支持！
                 if isinstance(target_value, list) and len(target_value) == 0:
-                    # 🔧 BUG修复: 空列表不进行过滤，直接跳过
+                    # 🔧 BUG修复: 空列表不进行过滤，但仍然打印日志表明该条件已跳过
+                    await self.log(f"   │    ⚪ 条件{idx_cond}: {label}")
+                    await self.log(f"   │       → 跳过（空列表，不进行过滤）")
                     continue
                 current_df = current_df[current_df[factor_name].isin(target_value)]
             
