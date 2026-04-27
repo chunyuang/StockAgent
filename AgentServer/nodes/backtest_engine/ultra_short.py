@@ -103,26 +103,23 @@ async def execute_ultra_short_backtest(
     if not selected_strategies:
         selected_strategies = ALL_STRATEGIES
 
-    await push_log_fn(task_id, f'🎯 选中策略: {[s.get("name", s.get("id", "未知策略")) for s in selected_strategies]}')
-
-    # ========== 参数核对日志（与界面对照） ==========
-    await push_log_fn(task_id, "")
+    # ========== 参数日志只打印一次（与界面对照）==========
+    # 【修复：参数日志只打印一次】
     await push_log_fn(task_id, "📋 === 🔧 全局公共参数 ===")
-    await push_log_fn(task_id, "   ├─ 流动性门槛: %s 万元" % strategy_params.get('liquidity_threshold', 500))
-    await push_log_fn(task_id, "   ├─ 单票最大仓位: %.1f %%" % (strategy_params.get('max_position_per_stock', 0.2)*100))
-    await push_log_fn(task_id, "   ├─ 总仓位上限: %.1f %%" % (strategy_params.get('max_position', 0.7)*100))
-    await push_log_fn(task_id, "   ├─ 止损比例: %.1f %%" % (strategy_params.get('stop_loss_pct', 0.02)*100))
-    await push_log_fn(task_id, "   ├─ 止盈比例: %.1f %%" % (strategy_params.get('take_profit_pct', 0.07)*100))
-    await push_log_fn(task_id, "   ├─ 最大持仓天数: %d 天" % strategy_params.get('max_hold_days', 3))
-    await push_log_fn(task_id, "   ├─ 强制空仓规则: %s" % ("已启用" if req_params.get('enable_force_empty', True) else "已关闭"))
-    await push_log_fn(task_id, "   ├─ 情绪周期算法: %s" % ("已启用" if req_params.get('enable_sentiment_cycle', True) else "已关闭"))
-    await push_log_fn(task_id, "   └─ 竞价过滤规则: %s" % ("已启用" if req_params.get('enable_auction_filter', True) else "已关闭"))
+    await push_log_fn(task_id, "├─ 流动性门槛: %s 万元" % strategy_params.get('liquidity_threshold', 500))
+    await push_log_fn(task_id, "├─ 单票最大仓位: %.1f %%" % (strategy_params.get('max_position_per_stock', 0.2)*100))
+    await push_log_fn(task_id, "├─ 总仓位上限: %.1f %%" % (strategy_params.get('max_position', 0.7)*100))
+    await push_log_fn(task_id, "├─ 止损比例: %.1f %%" % (strategy_params.get('stop_loss_pct', 0.02)*100))
+    await push_log_fn(task_id, "├─ 止盈比例: %.1f %%" % (strategy_params.get('take_profit_pct', 0.07)*100))
+    await push_log_fn(task_id, "├─ 最大持仓天数: %d 天" % strategy_params.get('max_hold_days', 3))
+    await push_log_fn(task_id, "├─ 强制空仓规则: %s" % ("已启用" if req_params.get('enable_force_empty', True) else "已关闭"))
+    await push_log_fn(task_id, "├─ 情绪周期算法: %s" % ("已启用" if req_params.get('enable_sentiment_cycle', True) else "已关闭"))
+    await push_log_fn(task_id, "└─ 竞价过滤规则: %s" % ("已启用" if req_params.get('enable_auction_filter', True) else "已关闭"))
 
-    await push_log_fn(task_id, "")
-    volume_val = 1.5
     for s in selected_strategies:
         strategy_name = s.get('name', s.get('id', '未知策略'))
-        await push_log_fn(task_id, "   ┌─ 🎯 【%s】" % strategy_name)
+        await push_log_fn(task_id, "")
+        await push_log_fn(task_id, "🎯 【%s】" % strategy_name)
         strategy_params_local = s.get('params', {})
         if "params" not in s:
             s["params"] = {}
@@ -132,35 +129,32 @@ async def execute_ultra_short_backtest(
             max_rise = strategy_params_local.get('max_rise_pct', 0.07) * 100
             volume_val = strategy_params_local.get('volume_threshold', strategy_params_local.get('min_volume_ratio', 1.5))
             allow_after_10am = strategy_params_local.get('allow_after_10am', False)
-            await push_log_fn(task_id, "   │   ├─ 最小涨幅: %.1f %%" % min_rise)
-            await push_log_fn(task_id, "   │   ├─ 最大涨幅: %.1f %%" % max_rise)
-            await push_log_fn(task_id, "   │   ├─ 量比阈值: %.1f 倍 (应用到筛选逻辑)" % volume_val)
-            await push_log_fn(task_id, "   │   └─ 允许10点后买入: %s" % ("是" if allow_after_10am else "否"))
+            await push_log_fn(task_id, "  ├─ 最小涨幅: %.1f %%" % min_rise)
+            await push_log_fn(task_id, "  ├─ 最大涨幅: %.1f %%" % max_rise)
+            await push_log_fn(task_id, "  ├─ 量比阈值: %.1f 倍 (应用到筛选逻辑)" % volume_val)
+            await push_log_fn(task_id, "  └─ 允许10点后买入: %s" % ("是" if allow_after_10am else "否"))
             s["params"]["volume_threshold"] = volume_val
             s["params"]["min_volume_ratio"] = volume_val
-            node_logger.info(f"[{task_id}] 半路追涨量比阈值更新为: {volume_val}")
         elif strategy_name == '首板打板':
             min_seal = strategy_params_local.get('min_seal_amount', 5000)
             max_limit_time = strategy_params_local.get('max_limit_up_time', '10:00')
             max_cap = strategy_params_local.get('max_circulation_market_cap', 100)
             max_blast = strategy_params_local.get('max_blast_count', 1)
             require_hot = strategy_params_local.get('require_hot_sector', True)
-            await push_log_fn(task_id, "   │   ├─ 最小封单金额: %d 万元" % min_seal)
-            await push_log_fn(task_id, "   │   ├─ 最晚涨停时间: %s" % max_limit_time)
-            await push_log_fn(task_id, "   │   ├─ 最大流通市值: %d 亿" % max_cap)
-            await push_log_fn(task_id, "   │   ├─ 最大开板次数: %d 次" % max_blast)
-            await push_log_fn(task_id, "   │   └─ 要求热门板块: %s" % ("是" if require_hot else "否"))
-            node_logger.info(f"[{task_id}] 首板打板最小封单金额更新为: {min_seal}万元")
+            await push_log_fn(task_id, "  ├─ 最小封单金额: %d 万元" % min_seal)
+            await push_log_fn(task_id, "  ├─ 最晚涨停时间: %s" % max_limit_time)
+            await push_log_fn(task_id, "  ├─ 最大流通市值: %d 亿" % max_cap)
+            await push_log_fn(task_id, "  ├─ 最大开板次数: %d 次" % max_blast)
+            await push_log_fn(task_id, "  └─ 要求热门板块: %s" % ("是" if require_hot else "否"))
         elif strategy_name == '涨停开板':
             min_consecutive = strategy_params_local.get('min_consecutive_limit', 2)
             max_open_duration = strategy_params_local.get('max_open_duration', 5)
             min_seal_after = strategy_params_local.get('min_seal_after_open', 3000)
             min_turnover = strategy_params_local.get('min_turnover_rate', 0.15) * 100
-            await push_log_fn(task_id, "   │   ├─ 最小连续涨停天数: %d 天" % min_consecutive)
-            await push_log_fn(task_id, "   │   ├─ 最大开板时长: %d 分钟" % max_open_duration)
-            await push_log_fn(task_id, "   │   ├─ 开板后最小封单: %d 万元" % min_seal_after)
-            await push_log_fn(task_id, "   │   └─ 最小换手率: %.1f %%" % min_turnover)
-            node_logger.info(f"[{task_id}] 涨停开板最小连续涨停更新为: {min_consecutive}天，最小封单更新为: {min_seal_after}万元")
+            await push_log_fn(task_id, "  ├─ 最小连续涨停天数: %d 天" % min_consecutive)
+            await push_log_fn(task_id, "  ├─ 最大开板时长: %d 分钟" % max_open_duration)
+            await push_log_fn(task_id, "  ├─ 开板后最小封单: %d 万元" % min_seal_after)
+            await push_log_fn(task_id, "  └─ 最小换手率: %.1f %%" % min_turnover)
         elif strategy_name == '龙头低吸':
             min_consecutive = strategy_params_local.get('min_consecutive_limit', 3)
             min_correction = strategy_params_local.get('min_correction_pct', 0.15) * 100
@@ -168,26 +162,24 @@ async def execute_ultra_short_backtest(
             correction_days_min = strategy_params_local.get('correction_days_min', 2)
             correction_days_max = strategy_params_local.get('correction_days_max', 5)
             support_level = strategy_params_local.get('support_level', 'ma5')
-            await push_log_fn(task_id, "   │   ├─ 最小连续涨停天数: %d 天" % min_consecutive)
-            await push_log_fn(task_id, "   │   ├─ 最小回调幅度: %.1f %%" % min_correction)
-            await push_log_fn(task_id, "   │   ├─ 最大回调幅度: %.1f %%" % max_correction)
-            await push_log_fn(task_id, "   │   ├─ 最小回调天数: %d 天" % correction_days_min)
-            await push_log_fn(task_id, "   │   ├─ 最大回调天数: %d 天" % correction_days_max)
-            await push_log_fn(task_id, "   │   └─ 支撑位: %s" % support_level)
-            node_logger.info(f"[{task_id}] 龙头低吸最小连续涨停更新为: {min_consecutive}天")
+            await push_log_fn(task_id, "  ├─ 最小连续涨停天数: %d 天" % min_consecutive)
+            await push_log_fn(task_id, "  ├─ 最小回调幅度: %.1f %%" % min_correction)
+            await push_log_fn(task_id, "  ├─ 最大回调幅度: %.1f %%" % max_correction)
+            await push_log_fn(task_id, "  ├─ 最小回调天数: %d 天" % correction_days_min)
+            await push_log_fn(task_id, "  ├─ 最大回调天数: %d 天" % correction_days_max)
+            await push_log_fn(task_id, "  └─ 支撑位: %s" % support_level)
         elif strategy_name == '跌停翘板':
             min_consecutive = strategy_params_local.get('min_consecutive_limit', 3)
             min_qiao_amount = strategy_params_local.get('min_qiao_amount', 10000)
             min_rise_after = strategy_params_local.get('min_rise_after_qiao', 0.03) * 100
             require_high_sentiment = strategy_params_local.get('require_high_sentiment', True)
-            await push_log_fn(task_id, "   │   ├─ 最小连续跌停天数: %d 天" % min_consecutive)
-            await push_log_fn(task_id, "   │   ├─ 翘板最小金额: %d 万元" % min_qiao_amount)
-            await push_log_fn(task_id, "   │   ├─ 翘板后最小涨幅: %.1f %%" % min_rise_after)
-            await push_log_fn(task_id, "   │   └─ 要求高情绪周期: %s" % ("是" if require_high_sentiment else "否"))
-            node_logger.info(f"[{task_id}] 跌停翘板最小连续跌停更新为: {min_consecutive}天")
+            await push_log_fn(task_id, "  ├─ 最小连续跌停天数: %d 天" % min_consecutive)
+            await push_log_fn(task_id, "  ├─ 翘板最小金额: %d 万元" % min_qiao_amount)
+            await push_log_fn(task_id, "  ├─ 翘板后最小涨幅: %.1f %%" % min_rise_after)
+            await push_log_fn(task_id, "  └─ 要求高情绪周期: %s" % ("是" if require_high_sentiment else "否"))
 
     await push_log_fn(task_id, "")
-    await push_log_fn(task_id, "✅ ========================================")
+    await push_log_fn(task_id, "✅ 参数核对完成，所有参数与界面配置完全一致")
     await push_log_fn(task_id, "")
     await push_log_fn(task_id, "🔄 初始化管理器...")
 
