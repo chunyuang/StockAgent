@@ -353,68 +353,41 @@ class BacktestNode(BaseNode):
     # ==================== 日志与持久化 ====================
 
     async def _push_log(self, task_id: str, log_text: str) -> None:
-        """推送日志到数据库、WebSocket和本地文件
-        统一使用新的Logger工具类处理格式、SEQ、持久化
+        """推送日志 - 只走一条路
+        
+        【修复：日志只走一条路 + MongoDB和Redis内容统一为原始文本】
+        
+        原则：
+        1. logger只写本地文件（带时间戳格式用于排查）
+        2. push_log推原始文本到Redis（前端显示）和MongoDB（持久化）
+        3. MongoDB和Redis内容完全一致，都是原始文本
+        4. WebSocket推送统一带 type 字段
         """
-        # 根据日志内容自动判断级别
-        if log_text.startswith('✅'):
-            level = 'success'
-        elif log_text.startswith('⚠️') or log_text.startswith('⚠'):
-            level = 'warn'
-        elif log_text.startswith('❌') or '错误' in log_text or '失败' in log_text:
-            level = 'error'
-        else:
-            level = 'info'
+        # 1. 本地文件日志 - 带格式（仅用于本地排查，不对外推送）
+        timestamp = datetime.utcnow().strftime('%H:%M:%S')
+        self.logger.info(f"[{task_id}] {log_text}")
 
-        # 自动判断模块
-        if any(key in log_text for key in ['参数', '全局', '策略配置', '代码版本', '启动']):
-            module = 'INIT'
-        elif any(key in log_text for key in ['数据', '加载', '清洗', '因子计算', '股票池', 'K线']):
-            module = 'DATA'
-        elif any(key in log_text for key in ['筛选', '信号', '策略', '候选']):
-            module = 'STRATEGY'
-        elif any(key in log_text for key in ['交易', '调仓', '持仓', '现金', '买入', '卖出', '成交']):
-            module = 'TRADE'
-        elif any(key in log_text for key in ['结果', '收益率', '胜率', '回撤', '收益', '总结']):
-            module = 'RESULT'
-        else:
-            module = 'INFO'
-
-        # 调用logger输出新格式日志
-        if level == 'success':
-            logger.success(module, log_text)
-        elif level == 'warn':
-            logger.warn(module, log_text)
-        elif level == 'error':
-            logger.error(module, log_text)
-        else:
-            logger.info(module, log_text)
-
-        # 获取最新的格式化日志（用于本地文件和数据库，保留完整信息）
-        logs = logger.get_task_logs(task_id)
-        latest_log = logs[-1] if logs else f"[{datetime.utcnow().strftime('%H:%M:%S')}] {log_text}"
-
-        # 保存到数据库（完整格式用于持久化）
+        # 2. MongoDB保存原始文本
         await mongo_manager.update_one(
             "backtest_tasks",
             {"task_id": task_id},
-            {"$push": {"logs": latest_log}},
+            {"$push": {"logs": f"[{timestamp}] {log_text}"}},
         )
 
-        # 通过Redis发布日志事件（使用简洁格式用于前端显示，避免双重时间戳）
+        # 3. Redis发布原始文本 + 统一带 type 字段
         try:
             await redis_manager.publish(
                 "backtest:logs",
                 {
                     "task_id": task_id,
-                    "type": "log",
-                    "log": log_text,  # 直接使用原始日志文本，前端自己控制时间显示
+                    "type": "log",  # WebSocket推送统一带type字段
+                    "log": f"[{timestamp}] {log_text}",  # MongoDB和Redis内容统一
                 }
             )
         except Exception as e:
             self.logger.warning(f"Failed to publish log to Redis: {e}")
 
-        # 让出事件循环，让WebSocket推送能及时发送到前端
+        # 让出事件循环
         await asyncio.sleep(0)
 
     async def _update_task_result(
