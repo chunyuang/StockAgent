@@ -328,6 +328,9 @@ class PortfolioBacktester:
             elif operator == "==":
                 current_df = current_df[current_df[factor_name] == target_value]
             elif operator == "in":  # ✅ 新增in操作符支持！
+                if isinstance(target_value, list) and len(target_value) == 0:
+                    # 🔧 BUG修复: 空列表不进行过滤，直接跳过
+                    continue
                 current_df = current_df[current_df[factor_name].isin(target_value)]
             
             after_count = len(current_df)

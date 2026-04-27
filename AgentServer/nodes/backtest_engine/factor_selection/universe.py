@@ -139,6 +139,8 @@ class UniverseManager:
 
     async def _get_new_stocks(self, trade_date: str) -> set[str]:
         """获取次新股（上市不满 250 个交易日）"""
+        # 🔧 BUG修复: 统一转为字符串，处理int/str类型不一致
+        trade_date = str(trade_date)
         # 计算截止日期（大约 1 年前）
         trade_dt = datetime.strptime(trade_date, "%Y%m%d")
         cutoff_date = (trade_dt - timedelta(days=365)).strftime("%Y%m%d")
@@ -282,7 +284,7 @@ class UniverseManager:
                 end_int = int(end_date)
                 filtered = [d for d in all_dates if start_int <= d <= end_int]
                 # 统一转换成字符串格式
-                return [str(d) for d in filtered]
+                return [str(int(d)) for d in filtered]
             
             # 缓存未命中，获取全局锁后重新查询
             async with UniverseManager._cache_lock:
@@ -292,7 +294,7 @@ class UniverseManager:
                     start_int = int(start_date)
                     end_int = int(end_date)
                     filtered = [d for d in all_dates if start_int <= d <= end_int]
-                    return [str(d) for d in filtered]
+                    return [str(int(d)) for d in filtered]
                 
                 # 第一次查询：获取整个表中所有不同的交易日，存入缓存
                 logger.info('UNIVERSE', "First query: getting all trade dates from MongoDB (this may take a while)...")
@@ -312,8 +314,8 @@ class UniverseManager:
                 end_int = int(end_date)
                 filtered = [d for d in all_dates if start_int <= d <= end_int]
                 
-                # 统一转换成字符串格式
-                return [str(d) for d in filtered]
+                # 🔴 强制统一转换成字符串格式，确保类型一致
+                return [str(int(d)) for d in filtered]
         except Exception as e:
             logger.warn('UNIVERSE', f"Failed to get trade dates from MongoDB: {e}")
             return []
