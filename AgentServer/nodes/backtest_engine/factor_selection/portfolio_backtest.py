@@ -144,6 +144,9 @@ class PortfolioBacktester:
         await self.log(f"   ├───────────────────────────────────────────────────────")
 
         # 一次性聚合获取涨跌停数量和平均涨跌幅
+        # 【修复新5：trade_date防御性检查，None时跳过避免异常】
+        if trade_date is None:
+            return 0, 0
         pipeline = [
             {"$match": {"trade_date": int(trade_date)}},
             {"$group": {
@@ -1188,7 +1191,7 @@ class PortfolioBacktester:
                     )
                     
                     if not auction_data:
-                        await self.log(f"   ⚠️  未获取到竞价数据，跳过竞价过滤")
+                        await self.log(f"   ⚠️  【竞价过滤】未获取到 stock_bid_auction 竞价数据，竞价过滤**未生效**！请确保已导入竞价数据后再使用竞价过滤功能。")
                     else:
                         auction_map = {x.get("ts_code", ""): x for x in auction_data if x.get("ts_code")}
                         original_count = len(all_candidates)
@@ -1520,16 +1523,21 @@ class PortfolioBacktester:
             # 将merged_trades写入临时JSON文件，使用PerformanceAnalyzer计算
             import tempfile
             import json
+            # 【修复新3：临时文件安全，try/finally包裹，异常时也确保删除避免残留】
             temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8')
-            json.dump(merged_trades, temp_file, ensure_ascii=False, indent=2)
-            temp_file.close()
-            
-            # 使用PerformanceAnalyzer计算绩效
-            analyzer = PerformanceAnalyzer(temp_file.name)
-            basic_stats = analyzer.get_basic_stats()
-            
-            # 删除临时文件
-            os.unlink(temp_file.name)
+            try:
+                json.dump(merged_trades, temp_file, ensure_ascii=False, indent=2)
+                temp_file.close()
+                
+                # 使用PerformanceAnalyzer计算绩效
+                analyzer = PerformanceAnalyzer(temp_file.name)
+                basic_stats = analyzer.get_basic_stats()
+            finally:
+                # 【修复新3：finally确保删除，异常也不残留文件】
+                try:
+                    os.unlink(temp_file.name)
+                except:
+                    pass  # 删除失败静默，不影响主流程
             
             # 从PerformanceAnalyzer获取指标
             if basic_stats:
@@ -1743,33 +1751,55 @@ class PortfolioBacktester:
             # - final_value → final_equity (字段名对齐)
             # - 小数百分比转换：total_return/annualized_return/max_drawdown/win_rate ×100
             #   前端预期百分比数值(如 15.5表示15.5%),不是小数0.155
-            return {
+            # 【修复#17：嵌套BacktestMetrics结构：returns/risk/trades/positions/performance/metadata
+            result = {
                 "success": True,
                 "initial_cash": self._initial_cash,
                 "final_cash": cash,
                 "final_equity": final_value,  # 【修复#49：字段名对齐 → final_equity】
                 "final_value": final_value,  # 保持向后兼容
-                "final_holdings": holdings,
-                "total_return": total_return * 100,  # 【修复#31：小数 → 百分比】
-                "annualized_return": annualized_return * 100,  # 【修复#31：小数 → 百分比】
-                "win_rate": win_rate * 100,  # 【修复#31：小数 → 百分比】
-                "max_drawdown": max_drawdown * 100,  # 【修复#31：小数 → 百分比】
-                "total_signals": total_signals,
-                "total_trades": total_trades,
-                "winning_trades": winning_trades,
-                "losing_trades": losing_trades,
-                "sharpe_ratio": sharpe_ratio,  # 夏普比率本身不是百分比，保持原值
-                "profit_loss_ratio": profit_loss_ratio,  # 盈亏比不是百分比，保持原值
-                "return_drawdown_ratio": return_drawdown_ratio,
-                "average_hold_days": average_hold_days,
-                "rebalance_records": rebalance_records_dict,
-                "all_trades": all_trades_dict,
-                "benchmark_data": benchmark_data,
-                "stock_names": stock_names,
-                "net_value_series": net_value_series,
-                "drawdown_series": formatted_drawdown_series,
-                "daily_profit": daily_profit,
+                "metrics": {  # 嵌套 BacktestMetrics 结构
+                    "returns": {
+                        "total_return": total_return * 100,
+                        "annualized_return": annualized_return * 100,
+                        "benchmark_return": 0.0,  # 基准收益率后续可补
+                        "excess_return": total_return * 100 - 0.0,
+                    },
+                    "risk": {
+                        "max_drawdown": max_drawdown * 100,
+                        "win_rate": win_rate * 100,
+                        "sharpe_ratio": sharpe_ratio,
+                        "profit_loss_ratio": profit_loss_ratio,
+                        "return_drawdown_ratio": return_drawdown_ratio,
+                    },
+                    "trades": {
+                        "total_trades": total_trades,
+                        "winning_trades": winning_trades,
+                        "losing_trades": losing_trades,
+                        "average_hold_days": average_hold_days,
+                    },
+                    "positions": {
+                        "final_holdings": holdings,
+                        "net_value_series": net_value_series,
+                        "drawdown_series": formatted_drawdown_series,
+                        "daily_profit": daily_profit,
+                    },
+                    "performance": {
+                        "total_signals": total_signals,
+                        "rebalance_records": rebalance_records_dict,
+                        "all_trades": all_trades_dict,
+                        "benchmark_data": benchmark_data,
+                        "stock_names": stock_names,
+                    },
+                    "metadata": {
+                        "start_date": config.get("start_date"),
+                        "end_date": config.get("end_date"),
+                        "strategy_name": strategy_name,
+                        "generated_at": datetime.now().isoformat(),
+                    }
+                },
             }
+            return result
 
     async def _load_benchmark_data(self, benchmark_code: str, start_date: int, end_date: int):
         """加载基准指数数据用于计算超额收益"""
