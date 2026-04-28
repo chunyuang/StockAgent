@@ -315,26 +315,42 @@ class RedisManager(BaseManager):
     
     # ==================== 发布订阅 ====================
     
-    async def publish(self, channel: str, message: Any) -> None:
+    async def publish(self, channel: str, message: Any, max_retries: int = 3) -> None:
         """
         通用发布方法
         
         Args:
             channel: 频道名称
             message: 消息内容 (任意可JSON序列化的对象)
+            max_retries: 最大重试次数，默认 3 次
         """
         self._ensure_initialized()
         if not isinstance(message, str):
             message = json.dumps(message, default=str)
-        await self._client.publish(channel, message)
+        
+        # 【修复#18：添加重试机制，断开连接重试3次，最后降级放弃不影响回测】
+        last_exception = None
+        for retry in range(max_retries):
+            try:
+                await self._client.publish(channel, message)
+                return  # 发布成功，直接返回
+            except Exception as e:
+                last_exception = e
+                # 重试间隔 100ms * (retry + 1)，指数退避
+                await asyncio.sleep(0.1 * (retry + 1))
+        
+        # 所有重试都失败，记录日志但不抛出异常（降级处理）
+        # 避免Redis发布失败导致整个回测崩溃
+        logger.warning(f"[redis_manager] publish failed after {max_retries} retries to channel {channel}: {last_exception}")
     
-    async def publish_result(self, task_id: str, result: Any) -> None:
+    async def publish_result(self, task_id: str, result: Any, max_retries: int = 3) -> None:
         """
         发布任务结果
         
         Args:
             task_id: 任务 ID
             result: 结果对象 (Pydantic Model 或 dict)
+            max_retries: 最大重试次数，默认 3 次
         """
         self._ensure_initialized()
         channel = f"{self._config.result_channel_prefix}:{task_id}"
@@ -344,7 +360,21 @@ class RedisManager(BaseManager):
         else:
             data = result
         
-        await self._client.publish(channel, json.dumps(data, default=str))
+        # 【修复#18：添加重试机制，断开连接重试3次，最后降级放弃不影响回测】
+        last_exception = None
+        message = json.dumps(data, default=str)
+        for retry in range(max_retries):
+            try:
+                await self._client.publish(channel, message)
+                return  # 发布成功，直接返回
+            except Exception as e:
+                last_exception = e
+                # 重试间隔 100ms * (retry + 1)，指数退避
+                await asyncio.sleep(0.1 * (retry + 1))
+        
+        # 所有重试都失败，记录日志但不抛出异常（降级处理）
+        # 避免Redis发布失败导致整个回测崩溃
+        logger.warning(f"[redis_manager] publish_result failed after {max_retries} retries for task {task_id}: {last_exception}")
     
     async def subscribe_result(
         self,

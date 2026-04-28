@@ -50,6 +50,7 @@ class UniverseManager:
     
     # 🚀 交易日历缓存：所有交易日只需要查询一次，后续直接从缓存读取
     _all_trade_dates_cache: list[int] | None = None
+    _st_stocks_cache: set[str] | None = None
     _cache_lock = asyncio.Lock()
 
     async def get_universe(
@@ -129,26 +130,42 @@ class UniverseManager:
 
     async def _get_st_stocks(self) -> set[str]:
         """获取 ST 股票（从 stock_basic 表）"""
+        # 【修复#24：ST股票查询缓存，ST名单不会每日变化，缓存一次永久有效】
+        if self._st_stocks_cache is not None:
+            return self._st_stocks_cache.copy()
+        
         # ST 股票名称包含 ST
         result = await mongo_manager.find_many(
             "stock_basic",
             {"name": {"$regex": "ST", "$options": "i"}},
             projection={"ts_code": 1},
         )
-        return {doc["ts_code"] for doc in result}
+        self._st_stocks_cache = {doc["ts_code"] for doc in result}
+        return self._st_stocks_cache.copy()
 
     async def _get_new_stocks(self, trade_date: str) -> set[str]:
-        """获取次新股（上市不满 250 个交易日）"""
+        """获取次新股（上市不满 {self.NEW_STOCK_DAYS} 个交易日）"""
+        # 🔧 修复#25：次新股判断使用交易日 250 天而非自然日 365 天
         # 🔧 BUG修复: 统一转为字符串，处理int/str类型不一致
+        import bisect
         trade_date = str(trade_date)
-        # 计算截止日期（大约 1 年前）
-        trade_dt = datetime.strptime(trade_date, "%Y%m%d")
-        cutoff_date = (trade_dt - timedelta(days=365)).strftime("%Y%m%d")
-
+        
+        # 获取所有交易日历，找到 {self.NEW_STOCK_DAYS} 个交易日前的截止日期
+        if self._all_trade_dates_cache is None:
+            await self._get_trade_dates_from_mongo("19900101", "21000101")
+        
+        # 找到截止日期：当前日期往前数 {self.NEW_STOCK_DAYS} 个交易日
+        all_dates = sorted(self._all_trade_dates_cache)
+        # 二分查找找到当前日期在列表中的位置
+        trade_date_int = int(trade_date)
+        idx = bisect.bisect_right(all_dates, trade_date_int)
+        cutoff_idx = max(0, idx - self.NEW_STOCK_DAYS)
+        cutoff_date_int = all_dates[cutoff_idx]
+        
         # 上市日期晚于截止日期的都是次新股
         result = await mongo_manager.find_many(
             "stock_basic",
-            {"list_date": {"$gt": cutoff_date}},
+            {"list_date": {"$gt": cutoff_date_int}},
             projection={"ts_code": 1},
         )
         return {doc["ts_code"] for doc in result}

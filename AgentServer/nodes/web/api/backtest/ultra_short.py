@@ -216,6 +216,8 @@ async def submit_ultra_short_backtest(
                 "logs": mock_logs + [f"[{timestamp}] ❌ RPC投递失败: {error_msg}"],
                 "result": None
             }
+            # 【修复#1：mock_tasks 任务完成删除残留，避免内存泄漏】
+            del mock_tasks[task_id]
             raise HTTPException(status_code=500, detail=error_msg)
 
         logger.info(f"[{task_id}] 任务已成功投递到RPC回测节点")
@@ -239,6 +241,8 @@ async def submit_ultra_short_backtest(
             "logs": mock_logs + [f"[{timestamp}] ❌ RPC投递异常: {error_msg}"],
             "result": None
         }
+        # 【修复#1：mock_tasks 任务完成删除残留，避免内存泄漏】
+        del mock_tasks[task_id]
         raise HTTPException(status_code=500, detail=error_msg)
 
     return BacktestTaskResponse(
