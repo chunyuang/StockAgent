@@ -152,17 +152,20 @@ async def get_backtest_status(
             }
         raise HTTPException(status_code=404, detail="任务不存在")
 
-    # 【修复#30】悬挂任务检测：如果任务running超过10分钟且无新日志，标记为failed
+    # 【修复风险5：悬挂任务检测 - running超过10分钟且无新日志才标记failed，避免误杀长时间回测】
     if record.get("status") == "running":
         from datetime import datetime, timedelta, timezone
         started = record.get("started_at") or record.get("created_at")
+        logs = record.get("logs", [])
         if started:
             if hasattr(started, 'tzinfo') and started.tzinfo is None:
                 started = started.replace(tzinfo=timezone.utc)
             elapsed = (datetime.now(timezone.utc) - started).total_seconds()
-            if elapsed > 600:  # 10分钟
+            # 只有运行超过10分钟 AND 日志少于5条（说明任务可能卡住/崩溃了）才标failed
+            # 正常回测即使慢也会持续产出日志
+            if elapsed > 600 and len(logs) < 5:
                 record["status"] = "failed"
-                record["error"] = f"任务超时（运行超过{int(elapsed/60)}分钟），回测节点可能已崩溃"
+                record["error"] = f"任务超时（运行{int(elapsed/60)}分钟无日志输出），回测节点可能已崩溃"
                 await mongo_manager.update_one(
                     "backtest_tasks",
                     {"task_id": task_id},

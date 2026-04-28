@@ -78,13 +78,14 @@ class RedisWSBridge:
         self._log_cache: Dict[str, List[str]] = {}
         self._log_cache_max = 500  # 每个task最多缓存500条
 
-        # MongoDB 异步写入队列
-        self._mongo_write_queue: asyncio.Queue = asyncio.Queue(maxsize=10000)
-        self._mongo_writer_task: Optional[asyncio.Task] = None
+        # 【修复风险4：Bridge不再写MongoDB，删除mongo_write_queue相关代码，避免死协程和内存浪费】
+        # MongoDB写入统一由BacktestNode._push_log()负责
+        # self._mongo_write_queue: asyncio.Queue = asyncio.Queue(maxsize=10000)  # 已删除
+        # self._mongo_writer_task: Optional[asyncio.Task] = None  # 已删除
 
-        # 批量写入配置
-        self._batch_size = 20       # 每20条写一次
-        self._batch_interval = 0.5  # 或每0.5秒写一次（取先到者）
+        # 批量写入配置（已废弃）
+        # self._batch_size = 20
+        # self._batch_interval = 0.5
 
     async def start(self) -> None:
         """启动桥接服务"""
@@ -93,9 +94,9 @@ class RedisWSBridge:
 
         logger.info("Starting Redis→WebSocket bridge...")
 
-        # 1. 启动 MongoDB 异步写入器
-        self._mongo_writer_task = asyncio.create_task(self._mongo_batch_writer())
-        logger.info("MongoDB async writer started")
+        # 【修复风险4：不再启动MongoDB writer，Bridge只做Redis→WebSocket推送】
+        # self._mongo_writer_task = asyncio.create_task(self._mongo_batch_writer())
+        # logger.info("MongoDB async writer started")
 
         # 2. 订阅 Redis 频道
         try:
@@ -147,15 +148,14 @@ class RedisWSBridge:
                 pass
             self._pubsub = None
 
-        # 停止 MongoDB 写入器（等待队列刷完）
-        if self._mongo_writer_task:
-            # 放入一个 sentinel 值通知写入器退出
-            await self._mongo_write_queue.put(None)
-            try:
-                await asyncio.wait_for(self._mongo_writer_task, timeout=10.0)
-            except (asyncio.TimeoutError, asyncio.CancelledError):
-                self._mongo_writer_task.cancel()
-            self._mongo_writer_task = None
+        # 【修复风险4：不再停止MongoDB writer】
+        # if self._mongo_writer_task:
+        #     await self._mongo_write_queue.put(None)
+        #     try:
+        #         await asyncio.wait_for(self._mongo_writer_task, timeout=10.0)
+        #     except (asyncio.TimeoutError, asyncio.CancelledError):
+        #         self._mongo_writer_task.cancel()
+        #     self._mongo_writer_task = None
 
         logger.info("Redis→WebSocket bridge stopped")
 
@@ -223,14 +223,11 @@ class RedisWSBridge:
             "log": log_text,
         })
 
-        # 3. 异步写 MongoDB（不阻塞推送）
-        try:
-            self._mongo_write_queue.put_nowait({
-                "task_id": task_id,
-                "log": log_text,
-            })
-        except asyncio.QueueFull:
-            logger.warning(f"MongoDB write queue full, dropping log for {task_id}")
+        # 【修复风险4：不再往mongo_write_queue塞数据，Bridge不写MongoDB】
+        # try:
+        #     self._mongo_write_queue.put_nowait({"task_id": task_id, "log": log_text})
+        # except asyncio.QueueFull:
+        #     logger.warning(f"MongoDB write queue full, dropping log for {task_id}")
 
     async def _handle_status_message(self, task_id: str, data: dict) -> None:
         """处理状态变更消息"""
@@ -423,7 +420,8 @@ class RedisWSBridge:
             "running": self._running,
             "subscribed": self._pubsub is not None,
             "cached_tasks": len(self._log_cache),
-            "mongo_queue_size": self._mongo_write_queue.qsize(),
+        # mongo_queue_size已废弃
+            # "mongo_queue_size": self._mongo_write_queue.qsize(),
         }
 
 
