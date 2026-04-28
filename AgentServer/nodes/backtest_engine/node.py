@@ -154,7 +154,7 @@ class BacktestNode(BaseNode):
                     self.logger.error(f"[Worker-{worker_id}] Task {task_id} failed: {e}")
                     traceback.print_exc()
                     await self._update_task_result(task_id, "failed", error=str(e))
-                    return
+                    continue  # 【修复风险6：任务失败后continue而非return，避免worker永久退出】
 
                 finally:
                     self._task_queue.task_done()
