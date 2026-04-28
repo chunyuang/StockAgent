@@ -324,9 +324,8 @@ class PortfolioBacktester:
             label = cond.get("label", f"条件{idx_cond}")
 
             if factor_name not in current_df.columns:
-                await self.log(f"   │    ❌ 因子 {factor_name} 缺失,终止筛选!请先补算因子数据")
-                current_df = current_df.iloc[0:0]  # 清空DataFrame
-                break
+                await self.log(f"   │    ⚠️ 因子 {factor_name} 缺失,跳过此条件(不影响其他条件筛选)")
+                continue  # 【修复：因子缺失时跳过该条件而非终止整个策略筛选】
 
             before_count = len(current_df)
             try:
@@ -580,6 +579,7 @@ class PortfolioBacktester:
             "first_limit_up", "hot_sector", "limit_up_yesterday", "limit_up_count",
             "limit_up_open_count", "limit_up_open_amount", "limit_up_open_duration",
             "limit_up_time", "turnover_rate", "volume_ratio", "circ_mv",
+            "opening_pct_chg",  # 【修复：首板打板/涨停开板策略需要此因子】
             "market_leader", "pullback_pct", "pullback_days", "pullback_ma5",
             "limit_down_yesterday", "open_above_limit_down", "limit_down_open_amount",
             "rise_after_limit_down", "sentiment_score", "open_below_limit",
@@ -844,7 +844,8 @@ class PortfolioBacktester:
                         {"name": "open_above_limit_down"},
                         {"name": "limit_down_open_amount"},
                         {"name": "rise_after_limit_down"},
-                        {"name": "sentiment_score"}
+                        {"name": "sentiment_score"},
+                        {"name": "opening_pct_chg"},  # 【修复：首板打板/涨停开板策略需要竞价涨幅因子】
                     ]
                     if "factors" not in config:
                         config["factors"] = []
@@ -974,7 +975,8 @@ class PortfolioBacktester:
                     {"name": "open_above_limit_down"},
                     {"name": "limit_down_open_amount"},
                     {"name": "rise_after_limit_down"},
-                    {"name": "sentiment_score"}
+                    {"name": "sentiment_score"},
+                    {"name": "opening_pct_chg"},  # 【修复：首板打板/涨停开板策略需要竞价涨幅因子】
                 ]
                 # 合并原有因子和超短策略因子
                 if "factors" not in config:
@@ -1179,13 +1181,15 @@ class PortfolioBacktester:
                 # 🚫 业务逻辑代码中不再有任何 await self.log() 调用!
                 # 📊 总候选: {len(all_candidates)} 只股票
 
-                    # 🔧 策略轮动机制:根据历史月度收益动态调整权重已经在权重计算阶段处理
-                    # 当前改进:每个策略独立筛选,只影响选股结果不影响权重,权重调整后分配还是基于等权基础
+                # 🔧 策略轮动机制:根据历史月度收益动态调整权重已经在权重计算阶段处理
+                # 当前改进:每个策略独立筛选,只影响选股结果不影响权重,权重调整后分配还是基于等权基础
 
-                    if len(all_candidates) == 0:
-                        await self.log(f"   ⚠️  当日无符合条件的交易标的,跳过调仓")
-                        continue
-                
+                if len(all_candidates) == 0:
+                    await self.log(f"   ⚠️  当日无符合条件的交易标的,跳过调仓")
+                    # 【修复：当日无候选时，输出每日收盘汇总后continue到下一交易日】
+                    await self._print_daily_summary(trade_date, len(holdings), cash)
+                    continue  # continue外层for循环，跳到下一交易日
+
                 # 【修复#7：enable_auction_filter 竞价过滤逻辑，开关真正生效】
                 # 如果开启竞价过滤，过滤掉不符合竞价特征的标的
                 # 必须满足: 0.5% ≤ 竞价涨幅 ≤ 7%，竞价成交量 > 0，未匹配成交量 > 0
