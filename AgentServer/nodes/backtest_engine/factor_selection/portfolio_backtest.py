@@ -48,6 +48,7 @@ from dataclasses import dataclass
 import gc
 import os
 import math
+from datetime import datetime as dt_now  # 【修复：避免局部from datetime import datetime导致UnboundLocalError】
 
 from core.managers import mongo_manager, redis_manager
 from core.utils.logger import logger
@@ -1587,9 +1588,8 @@ class PortfolioBacktester:
                     sell_date_int = int(trade['sell_date'])
                     # 计算持仓天数(简单相减,都是YYYYMMDD格式)
                     # 转换为datetime计算更准确
-                    from datetime import datetime
-                    buy_dt = datetime.strptime(str(buy_date_int), '%Y%m%d')
-                    sell_dt = datetime.strptime(str(sell_date_int), '%Y%m%d')
+                    buy_dt = dt_now.strptime(str(buy_date_int), '%Y%m%d')
+                    sell_dt = dt_now.strptime(str(sell_date_int), '%Y%m%d')
                     hold_days = (sell_dt - buy_dt).days
                     total_hold_days += hold_days
                 average_hold_days = total_hold_days / len(completed_trades)
@@ -1659,10 +1659,9 @@ class PortfolioBacktester:
                         is_profit = "✅" if profit_pct > 0 else "❌"
                         # 计算持仓天数
                         if buy_date and sell_date:
-                            from datetime import datetime
                             try:
-                                buy_dt = datetime.strptime(str(buy_date), '%Y%m%d')
-                                sell_dt = datetime.strptime(str(sell_date), '%Y%m%d')
+                                buy_dt = dt_now.strptime(str(buy_date), '%Y%m%d')
+                                sell_dt = dt_now.strptime(str(sell_date), '%Y%m%d')
                                 hold_days = (sell_dt - buy_dt).days
                             except:
                                 hold_days = 0
@@ -1818,7 +1817,7 @@ class PortfolioBacktester:
                         "start_date": config.get("start_date"),
                         "end_date": config.get("end_date"),
                         "strategy_name": strategy_name,
-                        "generated_at": datetime.now().isoformat(),
+                        "generated_at": dt_now.now().isoformat(),
                     }
                 },
             }
