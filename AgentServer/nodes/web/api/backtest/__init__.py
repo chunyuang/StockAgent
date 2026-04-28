@@ -152,6 +152,23 @@ async def get_backtest_status(
             }
         raise HTTPException(status_code=404, detail="任务不存在")
 
+    # 【修复#30】悬挂任务检测：如果任务running超过10分钟且无新日志，标记为failed
+    if record.get("status") == "running":
+        from datetime import datetime, timedelta, timezone
+        started = record.get("started_at") or record.get("created_at")
+        if started:
+            if hasattr(started, 'tzinfo') and started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            elapsed = (datetime.now(timezone.utc) - started).total_seconds()
+            if elapsed > 600:  # 10分钟
+                record["status"] = "failed"
+                record["error"] = f"任务超时（运行超过{int(elapsed/60)}分钟），回测节点可能已崩溃"
+                await mongo_manager.update_one(
+                    "backtest_tasks",
+                    {"task_id": task_id},
+                    {"$set": {"status": "failed", "error": record["error"]}}
+                )
+
     # 权限检查 (如果记录中有 user_id)
     if record.get("params", {}).get("user_id") and record["params"]["user_id"] != user_id:
         raise HTTPException(status_code=403, detail="无权访问此任务")

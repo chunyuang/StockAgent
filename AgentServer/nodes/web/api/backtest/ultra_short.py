@@ -175,7 +175,7 @@ async def submit_ultra_short_backtest(
             node_type="backtest",
             method="run_ultra_short_backtest",
             params=task_info_serialized,
-            timeout=10.0,  # 只等待任务投递确认，不等待执行结果
+            timeout=60.0,  # 【修复#30】RPC超时从10s增加到60s，避免大数据量投递超时
             source_node="web-node",
         )
 
