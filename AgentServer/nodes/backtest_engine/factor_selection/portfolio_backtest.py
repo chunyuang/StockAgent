@@ -70,6 +70,7 @@ class RebalanceRecord:
     price: float
     amount: float
     reason: str
+    strategy_name: str = ""  # 【修复新6：strategy_name独立字段，不需要从reason字符串replace提取】
     sentiment: str = ""  # 当日情绪周期状态
 
 
@@ -1446,8 +1447,11 @@ class PortfolioBacktester:
                             stock_names = await self._get_stock_names([record.ts_code])
                             name = stock_names.get(record.ts_code, record.ts_code.split('.')[0])
 
-                            # 从 reason 中提取策略名称,如果替换后为空显示 "-"
-                            strategy_name = first_buy.reason.replace(' 策略选股调入', '').strip()
+                            # 【修复新6：直接从独立字段 strategy_name 读取，不需要硬编码字符串 replace 提取】
+                            strategy_name = first_buy.strategy_name if first_buy.strategy_name else "策略选股"
+                            # 兼容旧数据：如果strategy_name为空，再尝试从reason提取
+                            if not strategy_name and first_buy.reason:
+                                strategy_name = first_buy.reason.replace(' 策略选股调入', '').strip() or "-"
                             if not strategy_name:
                                 strategy_name = "-"
 
@@ -1483,9 +1487,11 @@ class PortfolioBacktester:
                     stock_names = await self._get_stock_names([code])
                     name = stock_names.get(code, code.split('.')[0])
 
-                    # 从 reason 中提取策略名称,如果替换后为空显示 "-"
-                    strategy_name = first_buy.reason.replace(' 策略选股调入', '').strip()
-                    if not strategy_name:
+                    # 【修复新6：直接从独立字段 strategy_name 读取，不需要硬编码字符串 replace 提取】
+                    strategy_name = first_buy.strategy_name if first_buy.strategy_name else "策略选股"
+                    # 兼容旧数据：如果strategy_name为空，再尝试从reason提取
+                    if not strategy_name and first_buy.reason:
+                        strategy_name = first_buy.reason.replace(' 策略选股调入', '').strip() or "-"
                         strategy_name = "-"
 
                     merged_trades.append({
@@ -2156,10 +2162,13 @@ class PortfolioBacktester:
 
             if cash < total_cost:
                 # 现金不足,按比例缩减
+                original_delta = delta
                 ratio = cash / total_cost
                 delta = int(int(delta * ratio) / 100) * 100
                 if delta <= 0:
                     continue
+                # 【修复新7：现金缩减买入信息附加到reason字段，后续日志显示】
+                reduce_reason = f"现金不足缩减{ratio*100:.1f}%"
                 gross_amount = delta * buy_price_adj
                 commission = max(gross_amount * self.BUY_COMMISSION, self.MIN_COMMISSION)
                 total_cost = gross_amount + commission
@@ -2171,6 +2180,11 @@ class PortfolioBacktester:
             holdings[ts_code] = current_shares + delta
 
             # 记录交易
+            strategy_name = stock_to_strategy.get(ts_code, "策略选股")  # 【修复新6：从stock_to_strategy获取策略名，存独立字段】
+            # 【修复新7：如果有现金缩减信息附加到reason】
+            final_reason = "rebalance"
+            if 'reduce_reason' in locals():
+                final_reason = f"rebalance ({reduce_reason})"
             records.append(RebalanceRecord(
                 date=str(trade_date),
                 action="buy",
@@ -2178,7 +2192,8 @@ class PortfolioBacktester:
                 shares=delta,
                 price=price,
                 amount=-total_cost,
-                reason="rebalance",
+                reason=final_reason,
+                strategy_name=strategy_name,  # 【修复新6：存独立字段】
                 sentiment=sentiment
             ))
 
