@@ -286,6 +286,10 @@ async def execute_ultra_short_backtest(
         "commission_rate": strategy_params.get("commission_rate", 0.0003),  # 万3
         "stamp_duty_rate": strategy_params.get("stamp_duty_rate", 0.001),   # 千1
         "slippage_pct": strategy_params.get("slippage_pct", 0.002),         # 0.2%
+        # 【修复#7：传递功能开关配置】
+        "enable_auction_filter": enable_auction_filter,
+        "enable_sentiment_cycle": enable_sentiment_cycle,
+        "enable_force_empty": enable_force_empty,
     }
     backtester = PortfolioBacktester()
 
