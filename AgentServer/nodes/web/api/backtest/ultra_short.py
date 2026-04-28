@@ -180,12 +180,13 @@ async def submit_ultra_short_backtest(
         )
 
         if not results:
+            # 【修复#3：mock_logs格式统一，改成直接传空数组，真实日志由node统一格式
             # 无可用回测节点 — 致命错误，抛503而非谎报running
             mock_tasks[task_id] = {
                 "task_id": task_id,
                 "status": "failed",
                 "progress": 0,
-                "logs": mock_logs + [f"[{timestamp}] ❌ 无可用回测节点，请确保BacktestNode已启动"],
+                "logs": [],
                 "result": None
             }
             raise HTTPException(
@@ -209,11 +210,12 @@ async def submit_ultra_short_backtest(
         
         if not success:
             logger.error(f"[{task_id}] RPC failed: {error_msg}")
+            # 【修复#3：mock_logs格式统一，改成直接传空数组，真实日志由node统一格式
             mock_tasks[task_id] = {
                 "task_id": task_id,
                 "status": "failed",
                 "progress": 0,
-                "logs": mock_logs + [f"[{timestamp}] ❌ RPC投递失败: {error_msg}"],
+                "logs": [],
                 "result": None
             }
             # 【修复#1：mock_tasks 任务完成删除残留，避免内存泄漏】
@@ -221,11 +223,12 @@ async def submit_ultra_short_backtest(
             raise HTTPException(status_code=500, detail=error_msg)
 
         logger.info(f"[{task_id}] 任务已成功投递到RPC回测节点")
+        # 【修复#3：mock_logs格式统一，改成直接传空数组，真实日志由node统一格式
         mock_tasks[task_id] = {
             "task_id": task_id,
             "status": "running",
             "progress": 10,
-            "logs": mock_logs,
+            "logs": [],
             "result": None
         }
 
@@ -234,11 +237,12 @@ async def submit_ultra_short_backtest(
     except Exception as e:
         logger.exception(f"[{task_id}] RPC投递异常: {e}")
         error_msg = str(e)
+        # 【修复#3：mock_logs格式统一，改成直接传空数组，真实日志由node统一格式
         mock_tasks[task_id] = {
             "task_id": task_id,
             "status": "failed",
             "progress": 0,
-            "logs": mock_logs + [f"[{timestamp}] ❌ RPC投递异常: {error_msg}"],
+            "logs": [],
             "result": None
         }
         # 【修复#1：mock_tasks 任务完成删除残留，避免内存泄漏】

@@ -230,7 +230,8 @@ class PortfolioBacktester:
             # 外层 -> strategy_params -> volume_threshold 保存进来
             # 这里策略内使用 min_volume_ratio 是因子表内统一字段名
             # 两种名称都尝试，保证向后兼容
-            volume_threshold = params.get("volume_threshold", params.get("min_volume_ratio", 2.5))
+            # 【修复#4：默认值统一为1.5，和 models.py/ultra_short.py/defaults.py 保持一致
+            volume_threshold = params.get("volume_threshold", params.get("min_volume_ratio", 1.5))
             min_volume_ratio = volume_threshold
             allow_after_10am = params.get("allow_after_10am", False)
             await self.log(f"   │        • 量比阈值: {volume_threshold}倍")
@@ -1069,7 +1070,8 @@ class PortfolioBacktester:
                     if strategy_name == "半路追涨":
                         min_rise_pct = params.get("min_rise_pct", 0.03)
                         max_rise_pct = params.get("max_rise_pct", 0.05)
-                        volume_threshold = params.get("min_volume_ratio", 2.5)
+                        # 【修复#4：默认值统一为1.5，和 models.py/ultra_short.py/defaults.py 保持一致
+                        volume_threshold = params.get("min_volume_ratio", 1.5)
                         allow_after_10am = params.get("allow_after_10am", False)
                         await self.log(f"   │        • 量比阈值: {volume_threshold}倍")
                         await self.log(f"   │        • 涨幅区间: {min_rise_pct*100:.1f}% ~ {max_rise_pct*100:.1f}%")
@@ -1926,7 +1928,8 @@ class PortfolioBacktester:
         if strategy_name == "半路追涨":
             min_rise_pct = converted_params.get("min_rise_pct", 0.03)
             max_rise_pct = converted_params.get("max_rise_pct", 0.05)
-            volume_threshold = converted_params.get("min_volume_ratio", 2.5)
+            # 【修复#4：默认值统一为1.5，和 models.py/ultra_short.py/defaults.py 保持一致
+            volume_threshold = converted_params.get("min_volume_ratio", 1.5)
             return [
                 {"name": "open_below_limit", "target": 1, "label": "开盘低于涨停价"},
                 {"name": "pct_chg", "target": min_rise_pct * 100, "operator": ">=", "label": "最小涨幅"},
