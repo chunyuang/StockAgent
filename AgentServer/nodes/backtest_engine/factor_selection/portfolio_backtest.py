@@ -53,8 +53,7 @@ from datetime import datetime as dt_now  # 【修复：避免局部from datetime
 from core.managers import mongo_manager, redis_manager
 from core.utils.logger import logger
 
-# 【修复#26/#27：引入 PerformanceAnalyzer 进行绩效指标计算】
-from real_trading.performance_analyzer import PerformanceAnalyzer
+# 【修复：PerformanceAnalyzer已弃用（API不匹配），移除import避免ModuleNotFoundError】n# from real_trading.performance_analyzer import PerformanceAnalyzer
 
 from .factor_engine import FactorEngine, log_memory_usage
 from .universe import ExcludeRule, UniverseManager, UniverseType
@@ -712,14 +711,17 @@ class PortfolioBacktester:
                     {"task_id": self.task_id},
                     {"$set": {"progress": 30 + int(progress_pct * 0.6)}},  # 30~90% 总共
                 )
-                # 推送Redis频道
-                await redis_manager.publish(f"backtest:progress:{self.task_id}", {
-                    "task_id": self.task_id,
-                    "progress": 30 + int(progress_pct * 0.6),
-                    "current_day": idx + 1,
-                    "total_days": total_days,
-                    "status": "running"
-                })
+                # 推送Redis频道（失败不影响回测主流程）
+                try:
+                    await redis_manager.publish(f"backtest:progress:{self.task_id}", {
+                        "task_id": self.task_id,
+                        "progress": 30 + int(progress_pct * 0.6),
+                        "current_day": idx + 1,
+                        "total_days": total_days,
+                        "status": "running"
+                    })
+                except Exception:
+                    pass  # Redis不可用时静默跳过
                 last_pushed_progress = progress_pct
 
             # ==================== 1️⃣ 每日统一开头 ====================
@@ -1411,428 +1413,436 @@ class PortfolioBacktester:
                 await self.log(f"   💵 当日持仓: {len(holdings)} 只股票, 现金剩余: {cash:,.2f} 元")
                 await self.log(f"═══════════════════════════════════════════════════════════════")
 
-            # 计算最终市值(所有日期处理完成后)
-            final_value = cash
-            for code, shares in holdings.items():
-                if shares > 0 and code in last_prices:
-                    # last_prices[code] 是 {open: x, close: x},用收盘价估值
-                    final_value += shares * last_prices[code]['close']
 
-            # 计算总收益率
-            initial_value = self._initial_cash
-            total_return = (final_value - initial_value) / initial_value
 
-            # 收集所有交易记录
-            all_trades = []
-            for day_records in rebalance_records:
-                if isinstance(day_records, list):
-                    all_trades.extend(day_records)
-                else:
-                    all_trades.append(day_records)
+        # 计算最终市值(所有日期处理完成后)
+        final_value = cash
+        for code, shares in holdings.items():
+            if shares > 0 and code in last_prices:
+                # last_prices[code] 是 {open: x, close: x},用收盘价估值
+                final_value += shares * last_prices[code]['close']
 
-            # 合并买入+卖出为完整交易,转换为字典格式
-            merged_trades = []
+        # 计算总收益率
+        initial_value = self._initial_cash
+        total_return = (final_value - initial_value) / initial_value
 
-            # 收集所有买入记录,按code分组
-            buy_records = {}  # code -> list of buy records
-            total_signals = 0
-            winning_trades = 0
+        # 收集所有交易记录
+        all_trades = []
+        for day_records in rebalance_records:
+            if isinstance(day_records, list):
+                all_trades.extend(day_records)
+            else:
+                all_trades.append(day_records)
 
+        # 合并买入+卖出为完整交易,转换为字典格式
+        merged_trades = []
+
+        # 收集所有买入记录,按code分组
+        buy_records = {}  # code -> list of buy records
+        total_signals = 0
+        winning_trades = 0
+
+        for day_records in rebalance_records:
+            records_list = day_records if isinstance(day_records, list) else [day_records]
+            for record in records_list:
+                if record.action == 'buy':
+                    # 每个买入算一个信号
+                    code = record.ts_code
+                    if code not in buy_records:
+                        buy_records[code] = []
+                    buy_records[code].append(record)
+
+        # 所有买入都是信号,不管是否卖出
+        total_signals = sum(len(buys) for buys in buy_records.values())
+
+        # 统计每个卖出是否盈利,同时合并完整交易
+        for day_records in rebalance_records:
+            records_list = day_records if isinstance(day_records, list) else [day_records]
+            for record in records_list:
+                if record.action == 'sell' and record.ts_code in buy_records:
+                    # 这只股票有买入,现在卖出了,可以计算盈亏
+                    # 简单算法:只要卖出价格高于买入平均成本就算盈利
+                    buys = buy_records[record.ts_code]
+                    total_cost = sum(b.amount for b in buys)
+                    total_shares = sum(b.shares for b in buys)
+                    if total_shares > 0:
+                        avg_cost = total_cost / total_shares
+                        # 卖出价格高于平均成本 → 盈利
+                        profit = (record.price - avg_cost) / avg_cost * 100
+                        if record.price > avg_cost:
+                            winning_trades += 1
+
+                        # 合并为一笔完整交易
+                        first_buy = buys[0]
+                        stock_names = await self._get_stock_names([record.ts_code])
+                        name = stock_names.get(record.ts_code, record.ts_code.split('.')[0])
+
+                        # 【修复新6：直接从独立字段 strategy_name 读取，不需要硬编码字符串 replace 提取】
+                        strategy_name = first_buy.strategy_name if first_buy.strategy_name else "策略选股"
+                        # 兼容旧数据：如果strategy_name为空，再尝试从reason提取
+                        if not strategy_name and first_buy.reason:
+                            strategy_name = first_buy.reason.replace(' 策略选股调入', '').strip() or "-"
+                        if not strategy_name:
+                            strategy_name = "-"
+
+                        merged_trades.append({
+                            'ts_code': record.ts_code,
+                            'name': name,
+                            'strategy': strategy_name,
+                            'sentiment': first_buy.sentiment,
+                            'buy_date': first_buy.date,
+                            'buy_time': '09:30',
+                            'buy_price': avg_cost,
+                            'sell_date': record.date,
+                            'sell_time': '15:00',
+                            'sell_price': record.price,
+                            'shares': total_shares,
+                            'profit_pct': profit,
+                        })
+
+        # 添加还未卖出的持仓到明细
+        for code, buys in buy_records.items():
+            # 检查是否已经卖出
+            # 简单算法:如果这只code没有卖出记录,说明还在持仓中
+            has_sold = False
             for day_records in rebalance_records:
                 records_list = day_records if isinstance(day_records, list) else [day_records]
                 for record in records_list:
-                    if record.action == 'buy':
-                        # 每个买入算一个信号
-                        code = record.ts_code
-                        if code not in buy_records:
-                            buy_records[code] = []
-                        buy_records[code].append(record)
+                    if record.action == 'sell' and record.ts_code == code:
+                        has_sold = True
+                        break
+            if not has_sold:
+                # 还在持仓中,添加到明细
+                first_buy = buys[0]
+                stock_names = await self._get_stock_names([code])
+                name = stock_names.get(code, code.split('.')[0])
 
-            # 所有买入都是信号,不管是否卖出
-            total_signals = sum(len(buys) for buys in buy_records.values())
+                # 【修复新6：直接从独立字段 strategy_name 读取，不需要硬编码字符串 replace 提取】
+                strategy_name = first_buy.strategy_name if first_buy.strategy_name else "策略选股"
+                # 兼容旧数据：如果strategy_name为空，再尝试从reason提取
+                if not strategy_name and first_buy.reason:
+                    strategy_name = first_buy.reason.replace(' 策略选股调入', '').strip() or "-"
+                    strategy_name = "-"
 
-            # 统计每个卖出是否盈利,同时合并完整交易
-            for day_records in rebalance_records:
-                records_list = day_records if isinstance(day_records, list) else [day_records]
-                for record in records_list:
-                    if record.action == 'sell' and record.ts_code in buy_records:
-                        # 这只股票有买入,现在卖出了,可以计算盈亏
-                        # 简单算法:只要卖出价格高于买入平均成本就算盈利
-                        buys = buy_records[record.ts_code]
-                        total_cost = sum(b.amount for b in buys)
-                        total_shares = sum(b.shares for b in buys)
-                        if total_shares > 0:
-                            avg_cost = total_cost / total_shares
-                            # 卖出价格高于平均成本 → 盈利
-                            profit = (record.price - avg_cost) / avg_cost * 100
-                            if record.price > avg_cost:
-                                winning_trades += 1
-
-                            # 合并为一笔完整交易
-                            first_buy = buys[0]
-                            stock_names = await self._get_stock_names([record.ts_code])
-                            name = stock_names.get(record.ts_code, record.ts_code.split('.')[0])
-
-                            # 【修复新6：直接从独立字段 strategy_name 读取，不需要硬编码字符串 replace 提取】
-                            strategy_name = first_buy.strategy_name if first_buy.strategy_name else "策略选股"
-                            # 兼容旧数据：如果strategy_name为空，再尝试从reason提取
-                            if not strategy_name and first_buy.reason:
-                                strategy_name = first_buy.reason.replace(' 策略选股调入', '').strip() or "-"
-                            if not strategy_name:
-                                strategy_name = "-"
-
-                            merged_trades.append({
-                                'ts_code': record.ts_code,
-                                'name': name,
-                                'strategy': strategy_name,
-                                'sentiment': first_buy.sentiment,
-                                'buy_date': first_buy.date,
-                                'buy_time': '09:30',
-                                'buy_price': avg_cost,
-                                'sell_date': record.date,
-                                'sell_time': '15:00',
-                                'sell_price': record.price,
-                                'shares': total_shares,
-                                'profit_pct': profit,
-                            })
-
-            # 添加还未卖出的持仓到明细
-            for code, buys in buy_records.items():
-                # 检查是否已经卖出
-                # 简单算法:如果这只code没有卖出记录,说明还在持仓中
-                has_sold = False
-                for day_records in rebalance_records:
-                    records_list = day_records if isinstance(day_records, list) else [day_records]
-                    for record in records_list:
-                        if record.action == 'sell' and record.ts_code == code:
-                            has_sold = True
-                            break
-                if not has_sold:
-                    # 还在持仓中,添加到明细
-                    first_buy = buys[0]
-                    stock_names = await self._get_stock_names([code])
-                    name = stock_names.get(code, code.split('.')[0])
-
-                    # 【修复新6：直接从独立字段 strategy_name 读取，不需要硬编码字符串 replace 提取】
-                    strategy_name = first_buy.strategy_name if first_buy.strategy_name else "策略选股"
-                    # 兼容旧数据：如果strategy_name为空，再尝试从reason提取
-                    if not strategy_name and first_buy.reason:
-                        strategy_name = first_buy.reason.replace(' 策略选股调入', '').strip() or "-"
-                        strategy_name = "-"
-
-                    merged_trades.append({
-                        'ts_code': code,
-                        'name': name,
-                        'strategy': strategy_name,
-                        'sentiment': first_buy.sentiment,
-                        'buy_date': first_buy.date,
-                        'buy_time': '09:30',
-                        'buy_price': sum(b.amount for b in buys) / sum(b.shares for b in buys),
-                        'sell_date': '',
-                        'sell_time': '',
-                        'sell_price': 0.0,
-                        'shares': sum(b.shares for b in buys),
-                        'profit_pct': None,  # 还未卖出
-                    })
-
-            # 计算胜率
-            win_rate = 0.0
-            if total_signals > 0:
-                win_rate = winning_trades / total_signals  # 保存为小数,前端会乘以100显示百分比
-                win_rate_percent = win_rate * 100  # 日志显示用百分比
-            else:
-                win_rate_percent = 0.0
-            # 【修复#13：年化收益率使用真实交易天数而不是调仓日数】
-            # 交易天数 = 所有交易日数量，而不是仅仅调仓日数量
-            trading_days = len(all_trade_dates)
-            if trading_days > 0:
-                # 复利年化: (1 + total_return) ^ (252 / trading_days) - 1
-                annualized_return = ((1 + total_return) ** (252 / trading_days)) - 1
-            else:
-                annualized_return = 0.0
-
-            # 【修复#26/#27：使用 PerformanceAnalyzer 重新计算所有绩效指标】
-            # 将merged_trades写入临时JSON文件，使用PerformanceAnalyzer计算
-            # 【修复：PerformanceAnalyzer API不匹配(file_path≠risk_free_rate, 无get_basic_stats方法)，
-            # 改为直接使用已计算的绩效指标，不再调用PerformanceAnalyzer】
-            # 原代码：analyzer = PerformanceAnalyzer(temp_file.name) → 传了文件路径给risk_free_rate参数，且无get_basic_stats方法
-            # 当有交易时，win_rate/max_drawdown/sharpe_ratio等已在上方正确计算，无需重复计算
-
-            # 统计盈利次数/亏损次数
-            losing_trades = total_signals - winning_trades
-            total_trades = len(merged_trades)
-
-            # 计算收益回撤比 = 累计收益率 / 最大回撤(当最大回撤 > 0 时)
-            return_drawdown_ratio = 0.0
-            if max_drawdown > 0 and total_return != 0:
-                return_drawdown_ratio = abs(total_return) / max_drawdown
-
-            # 计算平均持仓天数
-            average_hold_days = 0.0
-            completed_trades = [t for t in merged_trades if t.get('sell_date') and t.get('buy_date')]
-            if len(completed_trades) > 0:
-                total_hold_days = 0
-                for trade in completed_trades:
-                    buy_date_int = int(trade['buy_date'])
-                    sell_date_int = int(trade['sell_date'])
-                    # 计算持仓天数(简单相减,都是YYYYMMDD格式)
-                    # 转换为datetime计算更准确
-                    buy_dt = dt_now.strptime(str(buy_date_int), '%Y%m%d')
-                    sell_dt = dt_now.strptime(str(sell_date_int), '%Y%m%d')
-                    hold_days = (sell_dt - buy_dt).days
-                    total_hold_days += hold_days
-                average_hold_days = total_hold_days / len(completed_trades)
-
-            # 输出最终汇总结果到日志
-            await self.log("✅ 回测全部完成!")
-            if total_signals == 0:
-                await self.log("📊 汇总结果:总信号 0 个,平均胜率 0.00%,总收益率 0.00%")
-                await self.log("  累计收益率: 0.00%")
-                await self.log("  年化收益率: 0.00%")
-                await self.log("  最大回撤: 0.00%")
-                await self.log("  盈亏比: 0.00")
-                await self.log("  夏普比率: 0.00")
-                await self.log("  收益回撤比: 0.00")
-                await self.log("  总交易次数: 0")
-                await self.log("  盈利次数: 0 / 亏损次数: 0")
-                await self.log("  平均持仓天数: 0")
-            else:
-                await self.log(f"📊 汇总结果:总信号 {total_signals} 个,平均胜率 {win_rate_percent:.2f}%,总收益率 {total_return * 100:.2f}%")
-                await self.log(f"  累计收益率: {total_return * 100:.2f}%")
-                await self.log(f"  年化收益率: {annualized_return * 100:.2f}%")
-                await self.log(f"  最大回撤: {max_drawdown * 100:.2f}%")
-                await self.log(f"  盈亏比: {profit_loss_ratio:.2f}")
-                await self.log(f"  夏普比率: {sharpe_ratio:.2f}")
-                await self.log(f"  收益回撤比: {return_drawdown_ratio:.2f}")
-                await self.log(f"  总交易次数: {total_trades}")
-                await self.log(f"  盈利次数: {winning_trades} / 亏损次数: {losing_trades}")
-                await self.log(f"  平均持仓天数: {average_hold_days:.1f}")
-
-            # 打印完整逐笔交易明细
-            if len(merged_trades) > 0:
-                await self.log("")
-                await self.log("📝 【完整逐笔交易明细】")
-                await self.log("")
-
-                # 使用 tabulate 输出美观的表格
-                from tabulate import tabulate
-
-                table_data = []
-                headers = ["#", "代码", "名称", "策略", "情绪", "买入", "买入时间", "卖出", "卖出时间", "买入价", "卖出价", "股数", "仓位", "持仓", "盈亏", "盈亏%", "", "说明"]
-
-                for idx, trade in enumerate(merged_trades, 1):
-                    ts_code = trade.get('ts_code', '')
-                    name = trade.get('name', ts_code)
-                    strategy = trade.get('strategy', '')
-                    strategy_name = strategy.strip() if strategy.strip() else "-"
-                    # 只取情绪第一部分
-                    sentiment = trade.get('sentiment', '')
-                    if sentiment:
-                        sentiment = sentiment.split(',')[0].strip()
-                    sentiment = sentiment or "-"
-                    buy_date = trade.get('buy_date', '')
-                    buy_price = float(trade.get('buy_price', 0)) if trade.get('buy_price') is not None else 0.0
-                    buy_time = trade.get('buy_time', '09:35')
-                    sell_date = trade.get('sell_date', '')
-                    sell_price = float(trade.get('sell_price', 0)) if trade.get('sell_price') is not None else 0.0
-                    sell_time = trade.get('sell_time', '收盘')
-                    shares = int(trade.get('shares', 0)) if trade.get('shares') is not None else 0
-                    profit_pct = trade.get('profit_pct')
-
-                    # 计算盈亏
-                    hold_days = 0
-                    profit_abs = 0
-                    is_profit = "-"
-                    if profit_pct is not None and buy_price > 0 and sell_price > 0:
-                        profit_abs = shares * (sell_price - buy_price) * (1 - self.SELL_COMMISSION - self.STAMP_TAX)
-                        is_profit = "✅" if profit_pct > 0 else "❌"
-                        # 计算持仓天数
-                        if buy_date and sell_date:
-                            try:
-                                buy_dt = dt_now.strptime(str(buy_date), '%Y%m%d')
-                                sell_dt = dt_now.strptime(str(sell_date), '%Y%m%d')
-                                hold_days = (sell_dt - buy_dt).days
-                            except:
-                                hold_days = 0
-
-                    # 计算仓位百分比
-                    position_pct = "-"
-                    if shares > 0 and buy_price > 0:
-                        cost = shares * buy_price
-                        position_pct = f"{cost / self._initial_cash * 100:.0f}%"
-
-                    # 格式化
-                    profit_abs_str = f"{profit_abs:.0f}" if profit_abs != 0 else "-"
-                    profit_pct_str = f"{profit_pct:.2f}%" if profit_pct is not None else "-"
-
-                    table_data.append([
-                        idx, ts_code, name[:12], strategy_name[:10], sentiment,
-                        buy_date, buy_time, sell_date, sell_time,
-                        f"{buy_price:.2f}", f"{sell_price:.2f}", shares, position_pct, hold_days,
-                        profit_abs_str, profit_pct_str, is_profit, ""
-                    ])
-
-                # 使用 grid 表格格式
-                table_str = tabulate(table_data, headers=headers, tablefmt='grid')
-                for line in table_str.split('\n'):
-                    await self.log(line)
-
-                await self.log("")
-                await self.log(f"📊 总计 {len(merged_trades)} 笔完整交易")
-            # 将 RebalanceRecord 对象转换为字典,方便 MongoDB 序列化
-            rebalance_records_dict = []
-            for day_records in rebalance_records:
-                if isinstance(day_records, list):
-                    day_dict = []
-                    for record in day_records:
-                        if hasattr(record, '__dict__'):
-                            day_dict.append(record.__dict__)
-                        else:
-                            day_dict.append(record)
-                    rebalance_records_dict.append(day_dict)
-                else:
-                    if hasattr(day_records, '__dict__'):
-                        rebalance_records_dict.append(day_records.__dict__)
-                    else:
-                        rebalance_records_dict.append(day_records)
-
-            # 转换 all_trades 也为字典
-            all_trades_dict = []
-            for record in all_trades:
-                if hasattr(record, '__dict__'):
-                    all_trades_dict.append(record.__dict__)
-                else:
-                    all_trades_dict.append(record)
-
-            # 【修复#47/#48/#13：基于逐日净值计算绩效指标】
-            # 净值曲线和每日盈亏已经在逐日回测循环中计算完成，这里直接使用
-            # 删除了原来基于调仓日的简化估算，现在使用精确的逐日持仓市值计算
-            
-            # 计算最大回撤（基于逐日净值，已经在循环中计算了 drawdown_series）
-            max_drawdown = max(drawdown_series) if drawdown_series else 0.0
-            
-            # 计算盈亏比：总盈利 / 总亏损（基于每日盈亏）
-            total_profit = sum(p for p in daily_profit_list if p > 0)
-            total_loss = sum(-p for p in daily_profit_list if p < 0)
-            profit_loss_ratio = total_profit / total_loss if total_loss > 0 else 0.0
-            
-            # 【修复#13：基于修复后的净值曲线正确计算夏普比率】
-            # 夏普比率 = 平均日收益率 / 日收益率标准差 × sqrt(252)
-            # 假设无风险利率为0
-            sharpe_ratio = 0.0
-            if len(daily_profit_list) > 1 and last_net_value > 0:
-                # 计算日收益率序列
-                daily_returns = []
-                current_value = self._initial_cash
-                for p in daily_profit_list:
-                    if current_value > 0:
-                        daily_returns.append(p / current_value)
-                    current_value += p
-                
-                # 计算平均日收益率和标准差
-                if len(daily_returns) > 1:
-                    import math
-                    avg_return = sum(daily_returns) / len(daily_returns)
-                    variance = sum((r - avg_return) ** 2 for r in daily_returns) / (len(daily_returns) - 1)
-                    std_return = math.sqrt(variance)
-                    
-                    if std_return > 0:
-                        # 年化夏普比率（252个交易日）
-                        sharpe_ratio = avg_return / std_return * math.sqrt(252)
-            
-            # 格式化 drawdown_series 为最终返回格式
-            formatted_drawdown_series = []
-            for i, point in enumerate(net_value_series):
-                formatted_drawdown_series.append({
-                    "trade_date": point["trade_date"],
-                    "drawdown": drawdown_series[i] if i < len(drawdown_series) else 0.0
+                merged_trades.append({
+                    'ts_code': code,
+                    'name': name,
+                    'strategy': strategy_name,
+                    'sentiment': first_buy.sentiment,
+                    'buy_date': first_buy.date,
+                    'buy_time': '09:30',
+                    'buy_price': sum(b.amount for b in buys) / sum(b.shares for b in buys),
+                    'sell_date': '',
+                    'sell_time': '',
+                    'sell_price': 0.0,
+                    'shares': sum(b.shares for b in buys),
+                    'profit_pct': None,  # 还未卖出
                 })
+
+        # 初始化绩效指标（避免 UnboundLocalError 当0交易时）
+        max_drawdown = 0.0
+        sharpe_ratio = 0.0
+        profit_loss_ratio = 0.0
+        strategy_name = "组合策略"
+
+        # 计算胜率
+        win_rate = 0.0
+        if total_signals > 0:
+            win_rate = winning_trades / total_signals  # 保存为小数,前端会乘以100显示百分比
+            win_rate_percent = win_rate * 100  # 日志显示用百分比
+        else:
+            win_rate_percent = 0.0
+        # 【修复#13：年化收益率使用真实交易天数而不是调仓日数】
+        # 交易天数 = 所有交易日数量，而不是仅仅调仓日数量
+        trading_days = len(all_trade_dates)
+        if trading_days > 0:
+            # 复利年化: (1 + total_return) ^ (252 / trading_days) - 1
+            annualized_return = ((1 + total_return) ** (252 / trading_days)) - 1
+        else:
+            annualized_return = 0.0
+
+        # 【修复#26/#27：使用 PerformanceAnalyzer 重新计算所有绩效指标】
+        # 将merged_trades写入临时JSON文件，使用PerformanceAnalyzer计算
+        # 【修复：PerformanceAnalyzer API不匹配(file_path≠risk_free_rate, 无get_basic_stats方法)，
+        # 改为直接使用已计算的绩效指标，不再调用PerformanceAnalyzer】
+        # 原代码：analyzer = PerformanceAnalyzer(temp_file.name) → 传了文件路径给risk_free_rate参数，且无get_basic_stats方法
+        # 当有交易时，win_rate/max_drawdown/sharpe_ratio等已在上方正确计算，无需重复计算
+
+        # 统计盈利次数/亏损次数
+        losing_trades = total_signals - winning_trades
+        total_trades = len(merged_trades)
+
+        # 计算收益回撤比 = 累计收益率 / 最大回撤(当最大回撤 > 0 时)
+        return_drawdown_ratio = 0.0
+        if max_drawdown > 0 and total_return != 0:
+            return_drawdown_ratio = abs(total_return) / max_drawdown
+
+        # 计算平均持仓天数
+        average_hold_days = 0.0
+        completed_trades = [t for t in merged_trades if t.get('sell_date') and t.get('buy_date')]
+        if len(completed_trades) > 0:
+            total_hold_days = 0
+            for trade in completed_trades:
+                buy_date_int = int(trade['buy_date'])
+                sell_date_int = int(trade['sell_date'])
+                # 计算持仓天数(简单相减,都是YYYYMMDD格式)
+                # 转换为datetime计算更准确
+                buy_dt = dt_now.strptime(str(buy_date_int), '%Y%m%d')
+                sell_dt = dt_now.strptime(str(sell_date_int), '%Y%m%d')
+                hold_days = (sell_dt - buy_dt).days
+                total_hold_days += hold_days
+            average_hold_days = total_hold_days / len(completed_trades)
+
+        # 输出最终汇总结果到日志
+        await self.log("✅ 回测全部完成!")
+        if total_signals == 0:
+            await self.log("📊 汇总结果:总信号 0 个,平均胜率 0.00%,总收益率 0.00%")
+            await self.log("  累计收益率: 0.00%")
+            await self.log("  年化收益率: 0.00%")
+            await self.log("  最大回撤: 0.00%")
+            await self.log("  盈亏比: 0.00")
+            await self.log("  夏普比率: 0.00")
+            await self.log("  收益回撤比: 0.00")
+            await self.log("  总交易次数: 0")
+            await self.log("  盈利次数: 0 / 亏损次数: 0")
+            await self.log("  平均持仓天数: 0")
+        else:
+            await self.log(f"📊 汇总结果:总信号 {total_signals} 个,平均胜率 {win_rate_percent:.2f}%,总收益率 {total_return * 100:.2f}%")
+            await self.log(f"  累计收益率: {total_return * 100:.2f}%")
+            await self.log(f"  年化收益率: {annualized_return * 100:.2f}%")
+            await self.log(f"  最大回撤: {max_drawdown * 100:.2f}%")
+            await self.log(f"  盈亏比: {profit_loss_ratio:.2f}")
+            await self.log(f"  夏普比率: {sharpe_ratio:.2f}")
+            await self.log(f"  收益回撤比: {return_drawdown_ratio:.2f}")
+            await self.log(f"  总交易次数: {total_trades}")
+            await self.log(f"  盈利次数: {winning_trades} / 亏损次数: {losing_trades}")
+            await self.log(f"  平均持仓天数: {average_hold_days:.1f}")
+
+        # 打印完整逐笔交易明细
+        if len(merged_trades) > 0:
+            await self.log("")
+            await self.log("📝 【完整逐笔交易明细】")
+            await self.log("")
+
+            # 使用 tabulate 输出美观的表格
+            from tabulate import tabulate
+
+            table_data = []
+            headers = ["#", "代码", "名称", "策略", "情绪", "买入", "买入时间", "卖出", "卖出时间", "买入价", "卖出价", "股数", "仓位", "持仓", "盈亏", "盈亏%", "", "说明"]
+
+            for idx, trade in enumerate(merged_trades, 1):
+                ts_code = trade.get('ts_code', '')
+                name = trade.get('name', ts_code)
+                strategy = trade.get('strategy', '')
+                strategy_name = strategy.strip() if strategy.strip() else "-"
+                # 只取情绪第一部分
+                sentiment = trade.get('sentiment', '')
+                if sentiment:
+                    sentiment = sentiment.split(',')[0].strip()
+                sentiment = sentiment or "-"
+                buy_date = trade.get('buy_date', '')
+                buy_price = float(trade.get('buy_price', 0)) if trade.get('buy_price') is not None else 0.0
+                buy_time = trade.get('buy_time', '09:35')
+                sell_date = trade.get('sell_date', '')
+                sell_price = float(trade.get('sell_price', 0)) if trade.get('sell_price') is not None else 0.0
+                sell_time = trade.get('sell_time', '收盘')
+                shares = int(trade.get('shares', 0)) if trade.get('shares') is not None else 0
+                profit_pct = trade.get('profit_pct')
+
+                # 计算盈亏
+                hold_days = 0
+                profit_abs = 0
+                is_profit = "-"
+                if profit_pct is not None and buy_price > 0 and sell_price > 0:
+                    profit_abs = shares * (sell_price - buy_price) * (1 - self.SELL_COMMISSION - self.STAMP_TAX)
+                    is_profit = "✅" if profit_pct > 0 else "❌"
+                    # 计算持仓天数
+                    if buy_date and sell_date:
+                        try:
+                            buy_dt = dt_now.strptime(str(buy_date), '%Y%m%d')
+                            sell_dt = dt_now.strptime(str(sell_date), '%Y%m%d')
+                            hold_days = (sell_dt - buy_dt).days
+                        except:
+                            hold_days = 0
+
+                # 计算仓位百分比
+                position_pct = "-"
+                if shares > 0 and buy_price > 0:
+                    cost = shares * buy_price
+                    position_pct = f"{cost / self._initial_cash * 100:.0f}%"
+
+                # 格式化
+                profit_abs_str = f"{profit_abs:.0f}" if profit_abs != 0 else "-"
+                profit_pct_str = f"{profit_pct:.2f}%" if profit_pct is not None else "-"
+
+                table_data.append([
+                    idx, ts_code, name[:12], strategy_name[:10], sentiment,
+                    buy_date, buy_time, sell_date, sell_time,
+                    f"{buy_price:.2f}", f"{sell_price:.2f}", shares, position_pct, hold_days,
+                    profit_abs_str, profit_pct_str, is_profit, ""
+                ])
+
+            # 使用 grid 表格格式
+            table_str = tabulate(table_data, headers=headers, tablefmt='grid')
+            for line in table_str.split('\n'):
+                await self.log(line)
+
+            await self.log("")
+            await self.log(f"📊 总计 {len(merged_trades)} 笔完整交易")
+        # 将 RebalanceRecord 对象转换为字典,方便 MongoDB 序列化
+        rebalance_records_dict = []
+        for day_records in rebalance_records:
+            if isinstance(day_records, list):
+                day_dict = []
+                for record in day_records:
+                    if hasattr(record, '__dict__'):
+                        day_dict.append(record.__dict__)
+                    else:
+                        day_dict.append(record)
+                rebalance_records_dict.append(day_dict)
+            else:
+                if hasattr(day_records, '__dict__'):
+                    rebalance_records_dict.append(day_records.__dict__)
+                else:
+                    rebalance_records_dict.append(day_records)
+
+        # 转换 all_trades 也为字典
+        all_trades_dict = []
+        for record in all_trades:
+            if hasattr(record, '__dict__'):
+                all_trades_dict.append(record.__dict__)
+            else:
+                all_trades_dict.append(record)
+
+        # 【修复#47/#48/#13：基于逐日净值计算绩效指标】
+        # 净值曲线和每日盈亏已经在逐日回测循环中计算完成，这里直接使用
+        # 删除了原来基于调仓日的简化估算，现在使用精确的逐日持仓市值计算
+        
+        # 计算最大回撤（基于逐日净值，已经在循环中计算了 drawdown_series）
+        max_drawdown = max(drawdown_series) if drawdown_series else 0.0
+        
+        # 计算盈亏比：总盈利 / 总亏损（基于每日盈亏）
+        total_profit = sum(p for p in daily_profit_list if p > 0)
+        total_loss = sum(-p for p in daily_profit_list if p < 0)
+        profit_loss_ratio = total_profit / total_loss if total_loss > 0 else 0.0
+        
+        # 【修复#13：基于修复后的净值曲线正确计算夏普比率】
+        # 夏普比率 = 平均日收益率 / 日收益率标准差 × sqrt(252)
+        # 假设无风险利率为0
+        sharpe_ratio = 0.0
+        if len(daily_profit_list) > 1 and last_net_value > 0:
+            # 计算日收益率序列
+            daily_returns = []
+            current_value = self._initial_cash
+            for p in daily_profit_list:
+                if current_value > 0:
+                    daily_returns.append(p / current_value)
+                current_value += p
             
-            # 提取 daily_profit 序列（用于兼容）
-            daily_profit = daily_profit_list.copy()
+            # 计算平均日收益率和标准差
+            if len(daily_returns) > 1:
+                import math
+                avg_return = sum(daily_returns) / len(daily_returns)
+                variance = sum((r - avg_return) ** 2 for r in daily_returns) / (len(daily_returns) - 1)
+                std_return = math.sqrt(variance)
+                
+                if std_return > 0:
+                    # 年化夏普比率（252个交易日）
+                    sharpe_ratio = avg_return / std_return * math.sqrt(252)
+        
+        # 格式化 drawdown_series 为最终返回格式
+        formatted_drawdown_series = []
+        for i, point in enumerate(net_value_series):
+            formatted_drawdown_series.append({
+                "trade_date": point["trade_date"],
+                "drawdown": drawdown_series[i] if i < len(drawdown_series) else 0.0
+            })
+        
+        # 提取 daily_profit 序列（用于兼容）
+        daily_profit = daily_profit_list.copy()
 
-            # 【修复#49/#31：统一后端输出格式适配前端BacktestResult结构
-            # - final_value → final_equity (字段名对齐)
-            # - 小数百分比转换：total_return/annualized_return/max_drawdown/win_rate ×100
-            #   前端预期百分比数值(如 15.5表示15.5%),不是小数0.155
-            # 【修复#17：嵌套BacktestMetrics结构：returns/risk/trades/positions/performance/metadata
-            result = {
-                "success": True,
-                "initial_cash": self._initial_cash,
-                "final_cash": cash,
-                "final_equity": final_value,  # 【修复#49：字段名对齐 → final_equity】
-                "final_value": final_value,  # 保持向后兼容
-                "metrics": {  # 嵌套 BacktestMetrics 结构，字段名对齐前端TypeScript类型定义
-                    "returns": {
-                        "total_return_pct": total_return * 100,
-                        "annual_return_pct": annualized_return * 100,
-                        "benchmark_return_pct": 0.0,  # 基准收益率后续可补
-                        "alpha_pct": total_return * 100 - 0.0,
-                        # 以下字段保持兼容旧代码
-                        "total_return": total_return * 100,
-                        "annualized_return": annualized_return * 100,
-                    },
-                    "risk": {
-                        "max_drawdown_pct": max_drawdown * 100,
-                        "win_rate_pct": win_rate * 100,
-                        "sharpe_ratio": sharpe_ratio,
-                        "profit_loss_ratio": profit_loss_ratio,
-                        "return_drawdown_ratio": return_drawdown_ratio,
-                        # 以下字段保持兼容旧代码
-                        "max_drawdown": max_drawdown * 100,
-                        "win_rate": win_rate * 100,
-                    },
-                    "trades": {
-                        "total_trades": total_trades,
-                        "winning_trades": winning_trades,
-                        "losing_trades": losing_trades,
-                        "avg_holding_days": average_hold_days,
-                        "average_hold_days": average_hold_days,
-                    },
-                    "positions": {
-                        "final_holdings": holdings,
-                        "net_value_series": net_value_series,
-                        "drawdown_series": formatted_drawdown_series,
-                        "daily_profit": daily_profit,
-                    },
-                    "performance": {
-                        "total_signals": total_signals,
-                        "rebalance_records": rebalance_records_dict,
-                        "all_trades": all_trades_dict,
-                        "benchmark_data": benchmark_data,
-                        "stock_names": stock_names,
-                    },
-                    "metadata": {
-                        "start_date": config.get("start_date"),
-                        "end_date": config.get("end_date"),
-                        "strategy_name": strategy_name,
-                        "generated_at": dt_now.now().isoformat(),
-                    }
+        # 【修复#49/#31：统一后端输出格式适配前端BacktestResult结构
+        # - final_value → final_equity (字段名对齐)
+        # - 小数百分比转换：total_return/annualized_return/max_drawdown/win_rate ×100
+        #   前端预期百分比数值(如 15.5表示15.5%),不是小数0.155
+        # 【修复#17：嵌套BacktestMetrics结构：returns/risk/trades/positions/performance/metadata
+        result = {
+            "success": True,
+            "initial_cash": self._initial_cash,
+            "final_cash": cash,
+            "final_equity": final_value,  # 【修复#49：字段名对齐 → final_equity】
+            "final_value": final_value,  # 保持向后兼容
+            "metrics": {  # 嵌套 BacktestMetrics 结构，字段名对齐前端TypeScript类型定义
+                "returns": {
+                    "total_return_pct": total_return * 100,
+                    "annual_return_pct": annualized_return * 100,
+                    "benchmark_return_pct": 0.0,  # 基准收益率后续可补
+                    "alpha_pct": total_return * 100 - 0.0,
+                    # 以下字段保持兼容旧代码
+                    "total_return": total_return * 100,
+                    "annualized_return": annualized_return * 100,
                 },
-            }
+                "risk": {
+                    "max_drawdown_pct": max_drawdown * 100,
+                    "win_rate_pct": win_rate * 100,
+                    "sharpe_ratio": sharpe_ratio,
+                    "profit_loss_ratio": profit_loss_ratio,
+                    "return_drawdown_ratio": return_drawdown_ratio,
+                    # 以下字段保持兼容旧代码
+                    "max_drawdown": max_drawdown * 100,
+                    "win_rate": win_rate * 100,
+                },
+                "trades": {
+                    "total_trades": total_trades,
+                    "winning_trades": winning_trades,
+                    "losing_trades": losing_trades,
+                    "avg_holding_days": average_hold_days,
+                    "average_hold_days": average_hold_days,
+                },
+                "positions": {
+                    "final_holdings": holdings,
+                    "net_value_series": net_value_series,
+                    "drawdown_series": formatted_drawdown_series,
+                    "daily_profit": daily_profit,
+                },
+                "performance": {
+                    "total_signals": total_signals,
+                    "rebalance_records": rebalance_records_dict,
+                    "all_trades": all_trades_dict,
+                    "benchmark_data": benchmark_data,
+                    "stock_names": stock_names,
+                },
+                "metadata": {
+                    "start_date": config.get("start_date"),
+                    "end_date": config.get("end_date"),
+                    "strategy_name": strategy_name,
+                    "generated_at": dt_now.now().isoformat(),
+                }
+            },
+        }
 
-            # 【修复风险3/11：顶层同时保留扁平字段做兼容，ultra_short.py和前端旧代码可能从顶层读取】
-            # 注意：这些值已经是百分比形式（如5.0表示5%），和metrics内一致
-            result["total_return"] = total_return * 100
-            result["annualized_return"] = annualized_return * 100
-            result["max_drawdown"] = max_drawdown * 100
-            result["win_rate"] = win_rate * 100
-            result["sharpe_ratio"] = sharpe_ratio
-            result["profit_loss_ratio"] = profit_loss_ratio
-            result["total_signals"] = total_signals
-            result["total_trades"] = total_trades
-            result["winning_trades"] = winning_trades
-            result["losing_trades"] = losing_trades
-            result["average_hold_days"] = average_hold_days
-            result["all_trades"] = all_trades_dict
-            result["rebalance_records"] = rebalance_records_dict
-            result["stock_names"] = stock_names
-            result["net_value_series"] = net_value_series
-            result["drawdown_series"] = formatted_drawdown_series
-            result["daily_profit"] = daily_profit
-            result["benchmark_data"] = benchmark_data
+        # 【修复风险3/11：顶层同时保留扁平字段做兼容，ultra_short.py和前端旧代码可能从顶层读取】
+        # 注意：这些值已经是百分比形式（如5.0表示5%），和metrics内一致
+        result["total_return"] = total_return * 100
+        result["annualized_return"] = annualized_return * 100
+        result["max_drawdown"] = max_drawdown * 100
+        result["win_rate"] = win_rate * 100
+        result["sharpe_ratio"] = sharpe_ratio
+        result["profit_loss_ratio"] = profit_loss_ratio
+        result["total_signals"] = total_signals
+        result["total_trades"] = total_trades
+        result["winning_trades"] = winning_trades
+        result["losing_trades"] = losing_trades
+        result["average_hold_days"] = average_hold_days
+        result["all_trades"] = all_trades_dict
+        result["rebalance_records"] = rebalance_records_dict
+        result["stock_names"] = stock_names
+        result["net_value_series"] = net_value_series
+        result["drawdown_series"] = formatted_drawdown_series
+        result["daily_profit"] = daily_profit
+        result["benchmark_data"] = benchmark_data
 
-            return result
+        return result
 
     async def _load_benchmark_data(self, benchmark_code: str, start_date: int, end_date: int):
         """加载基准指数数据用于计算超额收益"""
