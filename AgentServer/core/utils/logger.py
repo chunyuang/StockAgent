@@ -4,9 +4,13 @@
 支持全局单例、自动注入元信息、分级打印、时序保障
 """
 import logging
+import contextvars  # 【修复#33：使用contextvars实现协程本地变量，隔离并发任务状态】
 from datetime import datetime
 from typing import Optional
 from pathlib import Path
+
+# 【修复#33：协程本地存储task_id，并发任务互不干扰】
+_current_task_id_var = contextvars.ContextVar[str]('current_task_id', default=None)
 
 # 日志级别定义
 LOG_LEVELS = {
@@ -49,7 +53,6 @@ MODULE_PREFIX = {
 class UltraShortLogger:
     _instance: Optional['UltraShortLogger'] = None
     _seq_counter: int = 0
-    _current_task_id: Optional[str] = None
     _log_cache: dict[str, list[str]] = {}  # 按task_id缓存日志
     _log_dir: Path = Path('/root/.openclaw/workspace/StockAgent/logs/backtest')
 
@@ -84,18 +87,22 @@ class UltraShortLogger:
 
     def set_task_id(self, task_id: str):
         """设置当前任务ID，后续日志自动绑定"""
-        self._current_task_id = task_id
+        # 【修复#33：使用contextvars设置协程本地task_id，并发安全】
+        _current_task_id_var.set(task_id)
         # 初始化该任务的日志缓存
         if task_id not in self._log_cache:
             self._log_cache[task_id] = []
 
     def clear_task_id(self):
         """清除当前任务ID"""
-        self._current_task_id = None
+        # 【修复#33：清除协程本地变量】
+        _current_task_id_var.set(None)
 
     def _log(self, level: str, module: str, message: str, *args, **kwargs):
         """统一日志打印方法"""
-        if not self._current_task_id:
+        # 【修复#33：从contextvars读取task_id，并发任务隔离】
+        current_task_id = _current_task_id_var.get()
+        if not current_task_id:
             # 没有任务ID时不打印，避免混乱
             return
             
@@ -112,7 +119,7 @@ class UltraShortLogger:
         
         # 添加ANSI颜色
         color = ANSI_COLORS.get(level, '')
-        formatted_msg = f"{color}[{timestamp}] [{level_prefix}] [SEQ:{seq}] [TASK:{self._current_task_id}] [{module_prefix}] {formatted_message}{ANSI_RESET}"
+        formatted_msg = f"{color}[{timestamp}] [{level_prefix}] [SEQ:{seq}] [TASK:{current_task_id}] [{module_prefix}] {formatted_message}{ANSI_RESET}"
         
         # 输出到控制台
         if level == 'SUCCESS':
@@ -121,11 +128,11 @@ class UltraShortLogger:
             self.logger.log(LOG_LEVELS[level], formatted_msg)
         
         # 加入内存缓存
-        if self._current_task_id in self._log_cache:
-            self._log_cache[self._current_task_id].append(formatted_msg)
+        if current_task_id in self._log_cache:
+            self._log_cache[current_task_id].append(formatted_msg)
         
         # 写入本地文件持久化
-        log_file = self._log_dir / f"{self._current_task_id}.log"
+        log_file = self._log_dir / f"{current_task_id}.log"
         with open(log_file, 'a', encoding='utf-8') as f:
             f.write(formatted_msg + '\n')
 

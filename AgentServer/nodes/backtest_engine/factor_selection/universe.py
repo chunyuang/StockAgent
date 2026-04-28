@@ -52,6 +52,8 @@ class UniverseManager:
     _all_trade_dates_cache: list[int] | None = None
     _st_stocks_cache: set[str] | None = None
     _cache_lock = asyncio.Lock()
+    _cache_timestamp: float = 0.0  # 【修复#34：缓存时间戳，24小时过期】
+    _CACHE_TTL_SECONDS: int = 86400  # 24小时
 
     async def get_universe(
         self,
@@ -130,6 +132,14 @@ class UniverseManager:
 
     async def _get_st_stocks(self) -> set[str]:
         """获取 ST 股票（从 stock_basic 表）"""
+        # 【修复#34：缓存添加24小时TTL，超过时间自动失效】
+        import time
+        now = time.time()
+        if now - self._cache_timestamp > self._CACHE_TTL_SECONDS:
+            self._st_stocks_cache = None
+            self._all_trade_dates_cache = None
+            logger.info("UNIVERSE: Cache expired (24h TTL), reloading...")
+        
         # 【修复#24：ST股票查询缓存，ST名单不会每日变化，缓存一次永久有效】
         if self._st_stocks_cache is not None:
             return self._st_stocks_cache.copy()
@@ -141,6 +151,7 @@ class UniverseManager:
             projection={"ts_code": 1},
         )
         self._st_stocks_cache = {doc["ts_code"] for doc in result}
+        self._cache_timestamp = now  # 更新缓存时间戳
         return self._st_stocks_cache.copy()
 
     async def _get_new_stocks(self, trade_date: str) -> set[str]:
@@ -151,6 +162,14 @@ class UniverseManager:
         trade_date = str(trade_date)
         
         # 获取所有交易日历，找到 {self.NEW_STOCK_DAYS} 个交易日前的截止日期
+        # 【修复#34：先检查缓存是否过期】
+        import time
+        now = time.time()
+        if now - UniverseManager._cache_timestamp > UniverseManager._CACHE_TTL_SECONDS:
+            UniverseManager._all_trade_dates_cache = None
+            UniverseManager._st_stocks_cache = None
+            logger.info("UNIVERSE: Cache expired (24h TTL), reloading...")
+        
         if self._all_trade_dates_cache is None:
             await self._get_trade_dates_from_mongo("19900101", "21000101")
         
@@ -294,6 +313,14 @@ class UniverseManager:
     async def _get_trade_dates_from_mongo(self, start_date: str, end_date: str) -> list[str]:
         """从本地MongoDB stock_daily_ak_full表中获取日期范围内的所有交易日"""
         try:
+            # 【修复#34：先检查缓存是否过期，24小时TTL】
+            import time
+            now = time.time()
+            if now - UniverseManager._cache_timestamp > UniverseManager._CACHE_TTL_SECONDS:
+                UniverseManager._all_trade_dates_cache = None
+                UniverseManager._st_stocks_cache = None
+                logger.info("UNIVERSE: Cache expired (24h TTL), reloading...")
+            
             # 🚀 优先从缓存读取，缓存命中直接返回，永远不需要再查询
             if UniverseManager._all_trade_dates_cache is not None:
                 all_dates = UniverseManager._all_trade_dates_cache
@@ -323,6 +350,8 @@ class UniverseManager:
                 
                 # 存入全局缓存
                 UniverseManager._all_trade_dates_cache = [doc["_id"] for doc in result]
+                import time
+                UniverseManager._cache_timestamp = time.time()  # 【修复#34：更新缓存时间戳】
                 logger.info(f"UNIVERSE: Cached all trade dates: {len(UniverseManager._all_trade_dates_cache)} dates total")
                 
                 # 过滤日期范围
