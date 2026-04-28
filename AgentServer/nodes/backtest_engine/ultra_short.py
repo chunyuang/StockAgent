@@ -400,11 +400,12 @@ async def execute_ultra_short_backtest(
         result['max_drawdown'] = max_drawdown
         result['sharpe_ratio'] = sharpe_ratio
 
+        # 注意：win_rate/total_return/max_drawdown 已是百分比形式（如5.0=5%），不需要再×100
         logger.success("RESULT", "多策略组合回测完成")
         logger.info("RESULT", f"信号数: {total_signals}")
-        logger.info("RESULT", f"胜率: {win_rate * 100:.2f}%")
-        logger.info("RESULT", f"累计收益率: {total_return * 100:.2f}%")
-        logger.info("RESULT", f"最大回撤: {max_drawdown * 100:.2f}%")
+        logger.info("RESULT", f"胜率: {win_rate:.2f}%")
+        logger.info("RESULT", f"累计收益率: {total_return:.2f}%")
+        logger.info("RESULT", f"最大回撤: {max_drawdown:.2f}%")
         logger.info("RESULT", f"盈亏比: {profit_loss_ratio:.2f}")
         logger.info("RESULT", f"夏普比率: {sharpe_ratio:.2f}")
         

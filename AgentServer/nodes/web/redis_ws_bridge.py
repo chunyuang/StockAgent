@@ -78,15 +78,6 @@ class RedisWSBridge:
         self._log_cache: Dict[str, List[str]] = {}
         self._log_cache_max = 500  # 每个task最多缓存500条
 
-        # 【修复风险4：Bridge不再写MongoDB，删除mongo_write_queue相关代码，避免死协程和内存浪费】
-        # MongoDB写入统一由BacktestNode._push_log()负责
-        # self._mongo_write_queue: asyncio.Queue = asyncio.Queue(maxsize=10000)  # 已删除
-        # self._mongo_writer_task: Optional[asyncio.Task] = None  # 已删除
-
-        # 批量写入配置（已废弃）
-        # self._batch_size = 20
-        # self._batch_interval = 0.5
-
     async def start(self) -> None:
         """启动桥接服务"""
         if self._running:
@@ -94,9 +85,6 @@ class RedisWSBridge:
 
         logger.info("Starting Redis→WebSocket bridge...")
 
-        # 【修复风险4：不再启动MongoDB writer，Bridge只做Redis→WebSocket推送】
-        # self._mongo_writer_task = asyncio.create_task(self._mongo_batch_writer())
-        # logger.info("MongoDB async writer started")
 
         # 2. 订阅 Redis 频道
         try:
@@ -149,14 +137,6 @@ class RedisWSBridge:
             self._pubsub = None
 
         # 【修复风险4：不再停止MongoDB writer】
-        # if self._mongo_writer_task:
-        #     await self._mongo_write_queue.put(None)
-        #     try:
-        #         await asyncio.wait_for(self._mongo_writer_task, timeout=10.0)
-        #     except (asyncio.TimeoutError, asyncio.CancelledError):
-        #         self._mongo_writer_task.cancel()
-        #     self._mongo_writer_task = None
-
         logger.info("Redis→WebSocket bridge stopped")
 
     # ==================== Redis 监听 ====================
@@ -225,9 +205,6 @@ class RedisWSBridge:
 
         # 【修复风险4：不再往mongo_write_queue塞数据，Bridge不写MongoDB】
         # try:
-        #     self._mongo_write_queue.put_nowait({"task_id": task_id, "log": log_text})
-        # except asyncio.QueueFull:
-        #     logger.warning(f"MongoDB write queue full, dropping log for {task_id}")
 
     async def _handle_status_message(self, task_id: str, data: dict) -> None:
         """处理状态变更消息"""
@@ -276,79 +253,10 @@ class RedisWSBridge:
 
     # ==================== MongoDB 异步批量写入 ====================
 
-    async def _mongo_batch_writer(self) -> None:
-        """
-        MongoDB 异步批量写入器
-
-        策略：收集日志到批次，满足以下任一条件时写入：
-        1. 批次达到 _batch_size 条
-        2. 距离上次写入超过 _batch_interval 秒
-        3. 收到 None sentinel（服务关闭）
-
-        这样既减少MongoDB写入次数，又保证日志不丢失。
-        """
-        batch: Dict[str, List[str]] = {}  # task_id -> [logs]
-        last_flush_time = asyncio.get_event_loop().time()
-
-        while True:
-            try:
-                # 计算等待时间
-                now = asyncio.get_event_loop().time()
-                wait_time = max(0, self._batch_interval - (now - last_flush_time))
-
-                # 等待新消息或超时
-                try:
-                    item = await asyncio.wait_for(
-                        self._mongo_write_queue.get(),
-                        timeout=wait_time if wait_time > 0 else 0.1,
-                    )
-                except asyncio.TimeoutError:
-                    item = None
-
-                # Sentinel → 刷写剩余并退出
-                if item is None and self._mongo_write_queue.empty():
-                    # 超时，检查是否需要刷写
-                    if batch and (asyncio.get_event_loop().time() - last_flush_time >= self._batch_interval):
-                        await self._flush_batch(batch)
-                        batch = {}
-                        last_flush_time = asyncio.get_event_loop().time()
-                    continue
-
-                if item is None:
-                    # sentinel (服务关闭信号)
-                    if batch:
-                        await self._flush_batch(batch)
-                    return
-
-                # 添加到批次
-                task_id = item["task_id"]
-                log = item["log"]
-                if task_id not in batch:
-                    batch[task_id] = []
-                batch[task_id].append(log)
-
-                # 检查是否达到批次大小
-                total_count = sum(len(v) for v in batch.values())
-                if total_count >= self._batch_size:
-                    await self._flush_batch(batch)
-                    batch = {}
-                    last_flush_time = asyncio.get_event_loop().time()
-
-            except asyncio.CancelledError:
-                # 被取消时，尝试刷写剩余数据
-                if batch:
-                    try:
-                        await self._flush_batch(batch)
-                    except Exception:
-                        pass
-                return
-            except Exception as e:
-                logger.error(f"MongoDB batch writer error: {e}")
-                await asyncio.sleep(1)  # 出错后等待再重试
-
-    async def _flush_batch(self, batch: Dict[str, List[str]]) -> None:
-        """【修复#32】日志写入统一由BacktestNode node.py负责，Bridge不再写MongoDB，避免双写冲突"""
-        pass  # BacktestNode的_push_log已统一写MongoDB，Bridge只负责Redis→WebSocket推送
+    # 【修复风险4：_mongo_batch_writer已废弃，不再调用，Bridge不写MongoDB】
+    # MongoDB写入统一由BacktestNode._push_log()负责
+    # async def _mongo_batch_writer(self) -> None: ... 已删除
+    # async def _flush_batch(self, batch) -> None: ... 已删除
 
     # ==================== WebSocket 重连日志补发 ====================
 
@@ -420,8 +328,6 @@ class RedisWSBridge:
             "running": self._running,
             "subscribed": self._pubsub is not None,
             "cached_tasks": len(self._log_cache),
-        # mongo_queue_size已废弃
-            # "mongo_queue_size": self._mongo_write_queue.qsize(),
         }
 
 
