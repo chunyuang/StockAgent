@@ -685,6 +685,7 @@ class PortfolioBacktester:
         drawdown_series = []   # 回撤序列
         peak_value = initial_cash  # 净值峰值
         last_net_value = initial_cash  # 上一日净值
+        last_prices = {}  # 【修复：初始化last_prices，避免全强制空仓时NameError】
 
         # 逐日模拟
         rebalance_set = set(rebalance_dates)
@@ -1411,7 +1412,6 @@ class PortfolioBacktester:
                 await self.log(f"═══════════════════════════════════════════════════════════════")
 
             # 计算最终市值(所有日期处理完成后)
-            await self.log(f"🔍 DEBUG: 循环结束,开始计算绩效指标")
             final_value = cash
             for code, shares in holdings.items():
                 if shares > 0 and code in last_prices:
@@ -1756,7 +1756,6 @@ class PortfolioBacktester:
             # - 小数百分比转换：total_return/annualized_return/max_drawdown/win_rate ×100
             #   前端预期百分比数值(如 15.5表示15.5%),不是小数0.155
             # 【修复#17：嵌套BacktestMetrics结构：returns/risk/trades/positions/performance/metadata
-            await self.log(f"🔍 DEBUG: 开始构建result字典, total_return={total_return}, max_drawdown={max_drawdown}")
             result = {
                 "success": True,
                 "initial_cash": self._initial_cash,
@@ -1833,7 +1832,6 @@ class PortfolioBacktester:
             result["daily_profit"] = daily_profit
             result["benchmark_data"] = benchmark_data
 
-            await self.log(f"🔍 DEBUG: return result, keys={list(result.keys())}")
             return result
 
     async def _load_benchmark_data(self, benchmark_code: str, start_date: int, end_date: int):
