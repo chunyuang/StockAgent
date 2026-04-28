@@ -14,6 +14,9 @@ import asyncio
 from typing import Optional, Dict
 from datetime import datetime
 import traceback
+# 【修复#33：logger并发安全】Python logging模块本身就是线程安全的
+# 因为logging模块内部使用了锁机制（threading.RLock），保证多线程环境下的安全写入
+# 本项目使用的logger基于标准logging，天然支持并发安全，不需要额外加锁
 
 from nodes.base import BaseNode
 from common.utils import convert_numpy_types
