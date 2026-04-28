@@ -1,4 +1,5 @@
 """
+
 超短策略回测执行器
 
 从node.py拆分出的超短策略回测执行逻辑。
@@ -12,6 +13,15 @@ from core.managers import mongo_manager, akshare_manager, redis_manager
 from core.utils.logger import logger
 
 from nodes.backtest_engine.factor_selection import PortfolioBacktester
+
+
+async def _redis_publish_safe(channel, data):
+    """Redis publish with fallback - does not crash if Redis is unavailable"""
+    try:
+        await redis_manager.publish(channel, data)
+    except Exception:
+        pass
+
 
 
 # 默认所有策略（兜底用）
@@ -98,7 +108,7 @@ async def execute_ultra_short_backtest(
         {"$set": {"status": "running", "started_at": datetime.utcnow(), "progress": 10, "logs": []}},
     )
     # 【修复#4：进度推送Redis频道，前端实时接收】
-    await redis_manager.publish(f"backtest:progress:{task_id}", {
+    await _redis_publish_safe(f"backtest:progress:{task_id}", {
         "task_id": task_id,
         "progress": 10,
         "status": "running"
@@ -207,7 +217,7 @@ async def execute_ultra_short_backtest(
         {"$set": {"progress": 20}},
     )
     # 【修复#4：进度推送Redis频道，前端实时接收】
-    await redis_manager.publish(f"backtest:progress:{task_id}", {
+    await _redis_publish_safe(f"backtest:progress:{task_id}", {
         "task_id": task_id,
         "progress": 20,
         "status": "running"
@@ -223,7 +233,7 @@ async def execute_ultra_short_backtest(
         {"$set": {"progress": 30}},
     )
     # 【修复#4：进度推送Redis频道，前端实时接收】
-    await redis_manager.publish(f"backtest:progress:{task_id}", {
+    await _redis_publish_safe(f"backtest:progress:{task_id}", {
         "task_id": task_id,
         "progress": 30,
         "status": "running"
@@ -306,7 +316,7 @@ async def execute_ultra_short_backtest(
                 {"$set": {"status": "failed", "error": error_msg, "completed_at": datetime.utcnow()}},
             )
             # 【修复#4：推送进度到Redis通知前端失败】
-            await redis_manager.publish(f"backtest:progress:{task_id}", {
+            await _redis_publish_safe(f"backtest:progress:{task_id}", {
                 "task_id": task_id,
                 "progress": 100,
                 "status": "failed"
@@ -415,7 +425,7 @@ async def execute_ultra_short_backtest(
             {"task_id": task_id},
             {"$set": {"progress": 100}},
         )
-        await redis_manager.publish(f"backtest:progress:{task_id}", {
+        await _redis_publish_safe(f"backtest:progress:{task_id}", {
             "task_id": task_id,
             "progress": 100,
             "status": "completed"
