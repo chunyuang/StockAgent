@@ -1021,6 +1021,10 @@ class PortfolioBacktester:
                         # 40 ≤ score < 70 → 'chaos' (混沌期)
                         # score < 40 → 'depression' (衰退期)
                         def map_sentiment(score):
+                            import math
+                            # 【修复风险8：NaN单值防御，返回None而非depression】
+                            if score is None or (isinstance(score, float) and math.isnan(score)):
+                                return None
                             if score >= 70:
                                 return 'rising'
                             elif score >= 40:
@@ -1028,6 +1032,10 @@ class PortfolioBacktester:
                             else:
                                 return 'depression'
                         factor_df['sentiment_period_in'] = factor_df['sentiment_score'].apply(map_sentiment)
+                        # NaN行sentiment_period_in为None，策略筛选时in操作符会自动跳过None行
+                        nan_count = factor_df['sentiment_period_in'].isna().sum()
+                        if nan_count > 0:
+                            await self.log(f"   ⚠️  {nan_count} 只股票sentiment_score为空，将跳过情绪周期筛选")
                         await self.log(f"   ✅ 情绪周期计算完成: sentiment_period_in 字段已添加")
                     else:
                         await self.log(f"   ⚠️  sentiment_score 全为空，跳过情绪周期计算")
@@ -1193,6 +1201,7 @@ class PortfolioBacktester:
                     
                     if not auction_data:
                         await self.log(f"   ⚠️  【竞价过滤】未获取到 stock_bid_auction 竞价数据，竞价过滤**未生效**！请确保已导入竞价数据后再使用竞价过滤功能。")
+                        # 【修复风险7：无竞价数据时跳过竞价过滤，不清空候选集】
                     else:
                         auction_map = {x.get("ts_code", ""): x for x in auction_data if x.get("ts_code")}
                         original_count = len(all_candidates)
@@ -1201,7 +1210,8 @@ class PortfolioBacktester:
                         for code in all_candidates:
                             auction = auction_map.get(code)
                             if not auction:
-                                continue  # 没有竞价数据，过滤掉
+                                filtered_candidates.append(code)  # 【修复风险7：没有竞价数据时保留候选，不过滤掉】
+                                continue
                             pct = auction.get("auction_pct_chg", 0)
                             vol = auction.get("auction_volume", 0)
                             unmatched_vol = auction.get("unmatched_volume", 0)
@@ -1764,24 +1774,31 @@ class PortfolioBacktester:
                 "final_cash": cash,
                 "final_equity": final_value,  # 【修复#49：字段名对齐 → final_equity】
                 "final_value": final_value,  # 保持向后兼容
-                "metrics": {  # 嵌套 BacktestMetrics 结构
+                "metrics": {  # 嵌套 BacktestMetrics 结构，字段名对齐前端TypeScript类型定义
                     "returns": {
+                        "total_return_pct": total_return * 100,
+                        "annual_return_pct": annualized_return * 100,
+                        "benchmark_return_pct": 0.0,  # 基准收益率后续可补
+                        "alpha_pct": total_return * 100 - 0.0,
+                        # 以下字段保持兼容旧代码
                         "total_return": total_return * 100,
                         "annualized_return": annualized_return * 100,
-                        "benchmark_return": 0.0,  # 基准收益率后续可补
-                        "excess_return": total_return * 100 - 0.0,
                     },
                     "risk": {
-                        "max_drawdown": max_drawdown * 100,
-                        "win_rate": win_rate * 100,
+                        "max_drawdown_pct": max_drawdown * 100,
+                        "win_rate_pct": win_rate * 100,
                         "sharpe_ratio": sharpe_ratio,
                         "profit_loss_ratio": profit_loss_ratio,
                         "return_drawdown_ratio": return_drawdown_ratio,
+                        # 以下字段保持兼容旧代码
+                        "max_drawdown": max_drawdown * 100,
+                        "win_rate": win_rate * 100,
                     },
                     "trades": {
                         "total_trades": total_trades,
                         "winning_trades": winning_trades,
                         "losing_trades": losing_trades,
+                        "avg_holding_days": average_hold_days,
                         "average_hold_days": average_hold_days,
                     },
                     "positions": {
@@ -1805,6 +1822,28 @@ class PortfolioBacktester:
                     }
                 },
             }
+
+            # 【修复风险3/11：顶层同时保留扁平字段做兼容，ultra_short.py和前端旧代码可能从顶层读取】
+            # 注意：这些值已经是百分比形式（如5.0表示5%），和metrics内一致
+            result["total_return"] = total_return * 100
+            result["annualized_return"] = annualized_return * 100
+            result["max_drawdown"] = max_drawdown * 100
+            result["win_rate"] = win_rate * 100
+            result["sharpe_ratio"] = sharpe_ratio
+            result["profit_loss_ratio"] = profit_loss_ratio
+            result["total_signals"] = total_signals
+            result["total_trades"] = total_trades
+            result["winning_trades"] = winning_trades
+            result["losing_trades"] = losing_trades
+            result["average_hold_days"] = average_hold_days
+            result["all_trades"] = all_trades_dict
+            result["rebalance_records"] = rebalance_records_dict
+            result["stock_names"] = stock_names
+            result["net_value_series"] = net_value_series
+            result["drawdown_series"] = formatted_drawdown_series
+            result["daily_profit"] = daily_profit
+            result["benchmark_data"] = benchmark_data
+
             return result
 
     async def _load_benchmark_data(self, benchmark_code: str, start_date: int, end_date: int):

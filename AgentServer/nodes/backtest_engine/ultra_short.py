@@ -240,7 +240,7 @@ async def execute_ultra_short_backtest(
         strategy_weights[strategy_name] = weight_per_strategy
         sp = strategy.get("params", {})
         if strategy_id == "halfway_chase":
-            min_volume = sp.get("min_volume_ratio", 2.5)
+            min_volume = sp.get("min_volume_ratio", 1.5)  # 【修复风险9：默认值统一为1.5】
             all_factors.append({"name": "volume_increase", "weight": weight_per_strategy, "target": min_volume})
         elif strategy_id == "first_limit_up":
             min_seal = sp.get("min_seal_amount", 5000)
@@ -313,32 +313,62 @@ async def execute_ultra_short_backtest(
             })
             return {"success": False, "error": error_msg}
 
-        # 构建结果结构
-        perf = {}
-        total_return = result.get('total_return', 0.0)
-        rebalance_records = result.get('rebalance_records', [])
+        # 【修复风险1：适配portfolio_backtest.py的嵌套metrics结构】
+        # portfolio_backtest.py现在返回: {success, initial_cash, final_value, metrics: {returns, risk, trades, positions, performance, metadata}}
+        # 需要从嵌套结构中正确提取数据
+        metrics = result.get('metrics', {})
+        returns_data = metrics.get('returns', {})
+        risk_data = metrics.get('risk', {})
+        trades_data = metrics.get('trades', {})
+        positions_data = metrics.get('positions', {})
+        performance_data = metrics.get('performance', {})
 
-        perf["strategy_name"] = "多策略组合"
-        perf["name"] = "多策略组合"
-        # 从result中提取性能指标
-        perf["win_rate"] = result.get('win_rate', 0.0)
-        perf["total_return"] = result.get('total_return', 0.0)
-        perf["max_drawdown"] = result.get('max_drawdown', 0.0)
-        perf["sharpe_ratio"] = result.get('sharpe_ratio', 0.0)
-        perf["profit_loss_ratio"] = result.get('profit_loss_ratio', 0.0)
-        perf["annualized_return"] = result.get('annualized_return', 0.0)
-        perf["return_drawdown_ratio"] = result.get('return_drawdown_ratio', 0.0)
-        perf["total_signals"] = result.get('total_signals', 0)
-        perf["total_trades"] = result.get('total_trades', 0)
-        perf["winning_trades"] = result.get('winning_trades', 0)
-        perf["losing_trades"] = result.get('losing_trades', 0)
-        perf["average_hold_days"] = result.get('average_hold_days', 0.0)
-        perf["initial_cash"] = result.get('initial_cash', 1000000.0)
-        perf["final_cash"] = result.get('final_cash', 0.0)
-        perf["final_value"] = result.get('final_value', 0.0)
+        # 从嵌套结构提取（兼容：如果嵌套结构为空，fallback到顶层扁平字段）
+        total_return = returns_data.get('total_return', result.get('total_return', 0.0))
+        max_drawdown = risk_data.get('max_drawdown', result.get('max_drawdown', 0.0))
+        win_rate = risk_data.get('win_rate', result.get('win_rate', 0.0))
+        sharpe_ratio = risk_data.get('sharpe_ratio', result.get('sharpe_ratio', 0.0))
+        profit_loss_ratio = risk_data.get('profit_loss_ratio', result.get('profit_loss_ratio', 0.0))
+        return_drawdown_ratio = risk_data.get('return_drawdown_ratio', result.get('return_drawdown_ratio', 0.0))
+        annualized_return = returns_data.get('annualized_return', result.get('annualized_return', 0.0))
+        total_signals = performance_data.get('total_signals', result.get('total_signals', 0))
+        total_trades = trades_data.get('total_trades', result.get('total_trades', 0))
+        winning_trades = trades_data.get('winning_trades', result.get('winning_trades', 0))
+        losing_trades = trades_data.get('losing_trades', result.get('losing_trades', 0))
+        average_hold_days = trades_data.get('average_hold_days', result.get('average_hold_days', 0.0))
+        initial_cash = result.get('initial_cash', 1000000.0)
+        final_cash = result.get('final_cash', 0.0)
+        final_value = result.get('final_value', result.get('final_equity', 0.0))
 
-        raw_trades = result.get('all_trades', [])
-        stock_names = result.get('stock_names', {})
+        raw_trades = performance_data.get('all_trades', result.get('all_trades', []))
+        rebalance_records = performance_data.get('rebalance_records', result.get('rebalance_records', []))
+        stock_names = performance_data.get('stock_names', result.get('stock_names', {}))
+        net_value_series = positions_data.get('net_value_series', result.get('net_value_series', []))
+        drawdown_series = positions_data.get('drawdown_series', result.get('drawdown_series', []))
+        daily_profit = positions_data.get('daily_profit', result.get('daily_profit', []))
+
+        # 构建perf字典（兼容旧格式，同时确保数据正确）
+        perf = {
+            "strategy_name": "多策略组合",
+            "name": "多策略组合",
+            "win_rate": win_rate,
+            "total_return": total_return,
+            "max_drawdown": max_drawdown,
+            "sharpe_ratio": sharpe_ratio,
+            "profit_loss_ratio": profit_loss_ratio,
+            "annualized_return": annualized_return,
+            "return_drawdown_ratio": return_drawdown_ratio,
+            "total_signals": total_signals,
+            "total_trades": total_trades,
+            "winning_trades": winning_trades,
+            "losing_trades": losing_trades,
+            "average_hold_days": average_hold_days,
+            "initial_cash": initial_cash,
+            "final_cash": final_cash,
+            "final_value": final_value,
+        }
+
+        # 格式化交易记录
         formatted_trades = []
         for trade in raw_trades:
             trade_dict = trade.copy() if isinstance(trade, dict) else {}
@@ -359,21 +389,24 @@ async def execute_ultra_short_backtest(
                 trade_dict['trade_date'] = trade_dict['date']
             formatted_trades.append(trade_dict)
         perf["trades"] = formatted_trades
-        perf["net_value_series"] = result.get("net_value_series", [])
-        perf["drawdown_series"] = result.get("drawdown_series", [])
-        perf["daily_profit"] = result.get("daily_profit", [])
+        perf["net_value_series"] = net_value_series
+        perf["drawdown_series"] = drawdown_series
+        perf["daily_profit"] = daily_profit
 
+        # 更新result顶层字段，确保前端多路径都能读取到正确值
         result['performance'] = [perf]
-        result['win_rate'] = result.get('win_rate', 0.0)
-        result['total_return'] = result.get('total_return', 0.0)
+        result['win_rate'] = win_rate
+        result['total_return'] = total_return
+        result['max_drawdown'] = max_drawdown
+        result['sharpe_ratio'] = sharpe_ratio
 
         logger.success("RESULT", "多策略组合回测完成")
-        logger.info("RESULT", f"信号数: {result.get('total_signals', 0)}")
-        logger.info("RESULT", f"胜率: {result.get('win_rate', 0.0) * 100:.2f}%")
-        logger.info("RESULT", f"累计收益率: {result.get('total_return', 0.0) * 100:.2f}%")
-        logger.info("RESULT", f"最大回撤: {result.get('max_drawdown', 0.0) * 100:.2f}%")
-        logger.info("RESULT", f"盈亏比: {result.get('profit_loss_ratio', 0):.2f}")
-        logger.info("RESULT", f"夏普比率: {result.get('sharpe_ratio', 0.0):.2f}")
+        logger.info("RESULT", f"信号数: {total_signals}")
+        logger.info("RESULT", f"胜率: {win_rate * 100:.2f}%")
+        logger.info("RESULT", f"累计收益率: {total_return * 100:.2f}%")
+        logger.info("RESULT", f"最大回撤: {max_drawdown * 100:.2f}%")
+        logger.info("RESULT", f"盈亏比: {profit_loss_ratio:.2f}")
+        logger.info("RESULT", f"夏普比率: {sharpe_ratio:.2f}")
         
         # 【修复#4：推送完成进度到Redis】
         await mongo_manager.update_one(
