@@ -178,18 +178,18 @@ class PortfolioBacktester:
         else:
             await self.log(f"   │     → 🟡 极端行情,谨慎交易")
 
-        # 情绪周期评分
+        # 【修复#22：统一情绪周期阈值，和因子映射保持一致】
+        # 情绪周期评分 → 阈值统一：
+        #  score ≥ 70 → 上升期 (rising)
+        #  40 ≤ score < 70 → 混沌期 (chaos)
+        #  score < 40 → 衰退期 (depression)
         sentiment_score = min(100, max(0, (limit_up_count - limit_down_count) + int(index_change * 10) + 50))
-        if sentiment_score >= 80:
+        if sentiment_score >= 70:
             sentiment_level = "高潮期,仓位系数1.0"
-        elif sentiment_score >= 60:
-            sentiment_level = "修复期,仓位系数0.8"
         elif sentiment_score >= 40:
             sentiment_level = "震荡期,仓位系数0.6"
-        elif sentiment_score >= 20:
-            sentiment_level = "冰点期,仓位系数0.3"
         else:
-            sentiment_level = "极致冰点,仓位系数0.1"
+            sentiment_level = "冰点期,仓位系数0.3"
         await self.log(f"   │  🔹 情绪周期评分:{sentiment_score}分 → {sentiment_level}")
         await self.log(f"   └───────────────────────────────────────────────────────")
 
@@ -226,7 +226,12 @@ class PortfolioBacktester:
         if strategy_name == "半路追涨":
             min_rise_pct = params.get("min_rise_pct", 0.03)
             max_rise_pct = params.get("max_rise_pct", 0.05)
-            volume_threshold = params.get("min_volume_ratio", 2.5)
+            # 【修复#29：volume_threshold 参数名统一
+            # 外层 -> strategy_params -> volume_threshold 保存进来
+            # 这里策略内使用 min_volume_ratio 是因子表内统一字段名
+            # 两种名称都尝试，保证向后兼容
+            volume_threshold = params.get("volume_threshold", params.get("min_volume_ratio", 2.5))
+            min_volume_ratio = volume_threshold
             allow_after_10am = params.get("allow_after_10am", False)
             await self.log(f"   │        • 量比阈值: {volume_threshold}倍")
             await self.log(f"   │        • 涨幅区间: {min_rise_pct*100:.1f}% ~ {max_rise_pct*100:.1f}%")
@@ -443,6 +448,10 @@ class PortfolioBacktester:
             "enable_ma60_filter": True,
             "enable_sector_concentration": True,
             "sector_concentration_top_n": 3,
+            # 【修复#7：添加功能开关默认配置】
+            "enable_auction_filter": config.get("enable_auction_filter", True),
+            "enable_sentiment_cycle": config.get("enable_sentiment_cycle", True),
+            "enable_force_empty": config.get("enable_force_empty", True),
         }
 
         # 如果请求中传入了风控配置,使用传入的配置
@@ -996,21 +1005,29 @@ class PortfolioBacktester:
 
                 # ✅ 新增:计算情绪周期字段 sentiment_period_in(从 sentiment_score 映射)
                 # 策略中使用 sentiment_period_in 配合 in 操作符过滤
+                # 【修复#7：enable_sentiment_cycle 开关真正生效，关闭则不计算】
+                # 【修复#新增：sentiment_score NaN 防御，如果全为NaN不添加字段，策略筛选会直接跳过】
                 import numpy as np
-                if 'sentiment_score' in factor_df.columns:
-                    # 根据情绪分数映射到情绪周期
-                    # score ≥ 70 → 'rising' (上升期)
-                    # 40 ≤ score < 70 → 'chaos' (混沌期)
-                    # score < 40 → 'depression' (衰退期)
-                    def map_sentiment(score):
-                        if score >= 70:
-                            return 'rising'
-                        elif score >= 40:
-                            return 'chaos'
-                        else:
-                            return 'depression'
-                    factor_df['sentiment_period_in'] = factor_df['sentiment_score'].apply(map_sentiment)
-                    await self.log(f"   ✅ 情绪周期计算完成: sentiment_period_in 字段已添加")
+                if self._risk_config.get("enable_sentiment_cycle", True) and 'sentiment_score' in factor_df.columns:
+                    # 检查是否有有效值
+                    if not factor_df['sentiment_score'].isna().all():
+                        # 根据情绪分数映射到情绪周期
+                        # score ≥ 70 → 'rising' (上升期)
+                        # 40 ≤ score < 70 → 'chaos' (混沌期)
+                        # score < 40 → 'depression' (衰退期)
+                        def map_sentiment(score):
+                            if score >= 70:
+                                return 'rising'
+                            elif score >= 40:
+                                return 'chaos'
+                            else:
+                                return 'depression'
+                        factor_df['sentiment_period_in'] = factor_df['sentiment_score'].apply(map_sentiment)
+                        await self.log(f"   ✅ 情绪周期计算完成: sentiment_period_in 字段已添加")
+                    else:
+                        await self.log(f"   ⚠️  sentiment_score 全为空，跳过情绪周期计算")
+                elif not self._risk_config.get("enable_sentiment_cycle", True):
+                    await self.log(f"   ℹ️  情绪周期算法已关闭，跳过情绪周期计算")
 
                 # 🎯 重构为多策略独立筛选逻辑(实盘对齐):每个策略独立运行,结果合并去重
                 await self.log(f"")
@@ -1153,6 +1170,49 @@ class PortfolioBacktester:
                     if len(all_candidates) == 0:
                         await self.log(f"   ⚠️  当日无符合条件的交易标的,跳过调仓")
                         continue
+                
+                # 【修复#7：enable_auction_filter 竞价过滤逻辑，开关真正生效】
+                # 如果开启竞价过滤，过滤掉不符合竞价特征的标的
+                # 必须满足: 0.5% ≤ 竞价涨幅 ≤ 7%，竞价成交量 > 0，未匹配成交量 > 0
+                if self._risk_config.get("enable_auction_filter", True) and len(all_candidates) > 0:
+                    await self.log("")
+                    await self.log(f"   📊 【竞价过滤】启用竞价过滤，当前 {len(all_candidates)} 个候选，开始过滤...")
+                    
+                    # 从MongoDB获取当日竞价数据
+                    auction_data = await mongo_manager.find_many(
+                        "stock_bid_auction",
+                        {"trade_date": int(trade_date)},
+                        projection={"ts_code": 1, "auction_pct_chg": 1, "auction_volume": 1, "unmatched_volume": 1}
+                    )
+                    
+                    if not auction_data:
+                        await self.log(f"   ⚠️  未获取到竞价数据，跳过竞价过滤")
+                    else:
+                        auction_map = {x.get("ts_code", ""): x for x in auction_data if x.get("ts_code")}
+                        original_count = len(all_candidates)
+                        filtered_candidates = []
+                        
+                        for code in all_candidates:
+                            auction = auction_map.get(code)
+                            if not auction:
+                                continue  # 没有竞价数据，过滤掉
+                            pct = auction.get("auction_pct_chg", 0)
+                            vol = auction.get("auction_volume", 0)
+                            unmatched_vol = auction.get("unmatched_volume", 0)
+                            
+                            # 竞价过滤规则:
+                            # 1. 竞价涨幅必须在 0.5% ~ 7% 之间（排除大幅高开和低开）
+                            # 2. 竞价成交量必须大于 0（确实有成交）
+                            # 3. 未匹配成交量必须大于 0（确保有足够流动性）
+                            if 0.5 <= pct <= 7 and vol > 0 and unmatched_vol > 0:
+                                filtered_candidates.append(code)
+                        
+                        all_candidates = set(filtered_candidates)
+                        await self.log(f"   ✅ 竞价过滤完成: {original_count} → {len(all_candidates)}")
+                        
+                        if len(all_candidates) == 0:
+                            await self.log(f"   ⚠️  竞价过滤后无候选，跳过调仓")
+                            continue
 
                 # 计算目标权重
                     target_weights = self._compute_weights(
