@@ -350,16 +350,8 @@ class RedisWSBridge:
                 await asyncio.sleep(1)  # 出错后等待再重试
 
     async def _flush_batch(self, batch: Dict[str, List[str]]) -> None:
-        """将一批日志刷写到 MongoDB"""
-        for task_id, logs in batch.items():
-            try:
-                await mongo_manager.update_one(
-                    "backtest_tasks",
-                    {"task_id": task_id},
-                    {"$push": {"logs": {"$each": logs}}},
-                )
-            except Exception as e:
-                logger.error(f"Failed to flush logs to MongoDB for {task_id}: {e}")
+        """【修复#32】日志写入统一由BacktestNode node.py负责，Bridge不再写MongoDB，避免双写冲突"""
+        pass  # BacktestNode的_push_log已统一写MongoDB，Bridge只负责Redis→WebSocket推送
 
     # ==================== WebSocket 重连日志补发 ====================
 
