@@ -339,9 +339,19 @@ class BacktestNode(BaseNode):
         }
 
         # 执行组合回测
+        # 【修复#30：添加超时检测，超时 10 分钟自动标记失败，避免悬挂任务
+        import asyncio
         from .factor_selection import PortfolioBacktester
         backtester = PortfolioBacktester()
-        result = await backtester.run(config)
+        try:
+            # 超时 600 秒 = 10 分钟
+            result = await asyncio.wait_for(backtester.run(config), timeout=600)
+        except asyncio.TimeoutError:
+            # 超时，标记任务失败
+            error_msg = "回测执行超时（超过 10 分钟），任务自动终止"
+            self.logger.error(f"[{task_id}] {error_msg}")
+            await self._update_task_result(task_id, "failed", error=error_msg)
+            return {"success": False, "error": error_msg}
 
         self.logger.info(
             f"[{task_id}] Factor selection completed: "
