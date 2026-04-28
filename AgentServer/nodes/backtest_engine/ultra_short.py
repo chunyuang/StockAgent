@@ -298,7 +298,7 @@ async def execute_ultra_short_backtest(
         result = await backtester.run(config)
 
         if result is None or "error" in result:
-            error_msg = result.get('error', 'unknown error') if result else 'unknown error'
+            error_msg = result.get('error', 'unknown error') if result else 'unknown error (run() returned None)'
             await push_log_fn(task_id, f"❌ 组合回测失败: {error_msg}")
             await mongo_manager.update_one(
                 "backtest_tasks",

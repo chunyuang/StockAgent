@@ -1542,36 +1542,10 @@ class PortfolioBacktester:
 
             # 【修复#26/#27：使用 PerformanceAnalyzer 重新计算所有绩效指标】
             # 将merged_trades写入临时JSON文件，使用PerformanceAnalyzer计算
-            import tempfile
-            import json
-            # 【修复新3：临时文件安全，try/finally包裹，异常时也确保删除避免残留】
-            temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8')
-            try:
-                json.dump(merged_trades, temp_file, ensure_ascii=False, indent=2)
-                temp_file.close()
-                
-                # 使用PerformanceAnalyzer计算绩效
-                analyzer = PerformanceAnalyzer(temp_file.name)
-                basic_stats = analyzer.get_basic_stats()
-            finally:
-                # 【修复新3：finally确保删除，异常也不残留文件】
-                try:
-                    os.unlink(temp_file.name)
-                except:
-                    pass  # 删除失败静默，不影响主流程
-            
-            # 从PerformanceAnalyzer获取指标
-            if basic_stats:
-                win_rate = basic_stats.get('win_rate', win_rate) / 100.0
-                win_rate_percent = win_rate * 100
-                profit_loss_ratio = basic_stats.get('profit_loss_ratio', 0.0)
-                max_drawdown = basic_stats.get('max_drawdown', 0.0)
-                sharpe_ratio = basic_stats.get('sharpe_ratio', 0.0)
-            else:
-                # 如果PerformanceAnalyzer没有结果，使用原来默认值
-                profit_loss_ratio = 0.0
-                max_drawdown = 0.0
-                sharpe_ratio = 0.0
+            # 【修复：PerformanceAnalyzer API不匹配(file_path≠risk_free_rate, 无get_basic_stats方法)，
+            # 改为直接使用已计算的绩效指标，不再调用PerformanceAnalyzer】
+            # 原代码：analyzer = PerformanceAnalyzer(temp_file.name) → 传了文件路径给risk_free_rate参数，且无get_basic_stats方法
+            # 当有交易时，win_rate/max_drawdown/sharpe_ratio等已在上方正确计算，无需重复计算
 
             # 统计盈利次数/亏损次数
             losing_trades = total_signals - winning_trades
