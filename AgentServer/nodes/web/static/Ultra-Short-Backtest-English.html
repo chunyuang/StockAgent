@@ -431,8 +431,17 @@
                 const logPanel = Vue.ref(null)
 
                 const addLog = (text) => {
-                    const timestamp = new Date().toLocaleTimeString()
-                    logs.value.push(`[${timestamp}] ${text}`)
+                    // 【修复#14：检测日志是否已带时间戳，避免双重时间戳】
+                    // 匹配后端格式: [HH:MM:SS] 或带颜色前缀的 [HH:MM:SS]
+                    const hasTimestamp = /\[\d{2}:\d{2}:\d{2}\]/.test(text)
+                    if (hasTimestamp) {
+                        // 已有时间戳，直接添加
+                        logs.value.push(text)
+                    } else {
+                        // 没有时间戳，添加本地时间
+                        const timestamp = new Date().toLocaleTimeString()
+                        logs.value.push(`[${timestamp}] ${text}`)
+                    }
                     Vue.nextTick(() => {
                         if (logPanel.value) {
                             logPanel.value.scrollTop = logPanel.value.scrollHeight
