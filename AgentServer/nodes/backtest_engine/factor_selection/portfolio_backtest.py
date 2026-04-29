@@ -297,14 +297,14 @@ class PortfolioBacktester:
             min_consecutive = params.get("min_consecutive_limit", 3)
             # 【修复#47: min_qiao_amount单位统一为千元(与数据库limit_down_open_amount一致)】
             # 前端传10000(万元),数据库因子是千元,需*1000转换
-            # 10000万元 = 100000千元
-            _raw_qiao = params.get("min_qiao_amount", 10000)
-            min_qiao_amount = _raw_qiao * 1000 if _raw_qiao < 100000 else _raw_qiao  # <100000说明是万元,需转千元
+            # 前端传万元,数据库因子千元,需*10转换
+            _raw_qiao = params.get("min_qiao_amount", 1000)
+            min_qiao_amount = _raw_qiao * 10 if _raw_qiao < 100000 else _raw_qiao  # <100000说明是万元,需*10转千元
             min_rise_after = params.get("min_rise_after_qiao", 0.03)
             require_high_sentiment = params.get("require_high_sentiment", True)
             await self.log(f"   │        • 最小连续跌停: {min_consecutive}天")
             await self.log(f"   │        • 换手率要求: ≥ 10%")
-            await self.log(f"   │        • 最小翘板金额: {min_qiao_amount}千元(≈{min_qiao_amount/10000:.0f}亿元)")
+            await self.log(f"   │        • 最小翘板金额: {_raw_qiao}万元={min_qiao_amount}千元")
             await self.log(f"   │        • 翘板后最小涨幅: {min_rise_after*100:.1f}%")
             await self.log(f"   │        • 要求高情绪周期: {'是' if require_high_sentiment else '否'}")
         else:
@@ -1033,13 +1033,13 @@ class PortfolioBacktester:
                     elif strategy_name == "跌停翘板":
                         min_consecutive = params.get("min_consecutive_limit", 3)
                         # 【修复#47: min_qiao_amount单位统一为千元(与数据库limit_down_open_amount一致)】
-                        _raw_qiao = params.get("min_qiao_amount", 10000)
-                        min_qiao_amount = _raw_qiao * 1000 if _raw_qiao < 100000 else _raw_qiao
+                        _raw_qiao = params.get("min_qiao_amount", 1000)
+                        min_qiao_amount = _raw_qiao * 10 if _raw_qiao < 100000 else _raw_qiao
                         min_rise_after = params.get("min_rise_after_qiao", 0.03)
                         require_high_sentiment = params.get("require_high_sentiment", True)
                         await self.log(f"   │        • 最小连续跌停: {min_consecutive}天")
                         await self.log(f"   │        • 换手率要求: ≥ 10%")
-                        await self.log(f"   │        • 最小翘板金额: {min_qiao_amount}千元(≈{min_qiao_amount/10000:.0f}亿元)")
+                        await self.log(f"   │        • 最小翘板金额: {_raw_qiao}万元={min_qiao_amount}千元")
                         await self.log(f"   │        • 翘板后最小涨幅: {min_rise_after*100:.1f}%")
                         await self.log(f"   │        • 要求高情绪周期: {'是' if require_high_sentiment else '否'}")
                     else:
@@ -1962,8 +1962,8 @@ class PortfolioBacktester:
             min_consecutive = converted_params.get("min_consecutive_limit", 3)
             # 【修复#47: min_qiao_amount单位统一为千元(与数据库limit_down_open_amount一致)】
             # 前端传10000(万元),数据库因子是千元,需*1000转换
-            _raw_qiao = converted_params.get("min_qiao_amount", 10000)
-            min_qiao_amount = _raw_qiao * 1000 if _raw_qiao < 100000 else _raw_qiao  # <100000说明是万元,需转千元
+            _raw_qiao = converted_params.get("min_qiao_amount", 1000)
+            min_qiao_amount = _raw_qiao * 10 if _raw_qiao < 100000 else _raw_qiao  # <100000说明是万元,需*10转千元
             min_rise_after = converted_params.get("min_rise_after_qiao", 0.03)
             require_high_sentiment = converted_params.get("require_high_sentiment", True)
             return [

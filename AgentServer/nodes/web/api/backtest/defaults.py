@@ -83,8 +83,8 @@ def get_ultra_short_defaults() -> Dict[str, Any]:
                 "name": "半路追涨",
                 "params": {
                     "min_rise_pct": 0.03,
-                    "max_rise_pct": 0.07,
-                    "min_volume_ratio": 1.5,
+                    "max_rise_pct": 0.05,
+                    "min_volume_ratio": 1.0,
                     "allow_after_10am": False,
                 },
                 "riskParams": {
@@ -100,7 +100,7 @@ def get_ultra_short_defaults() -> Dict[str, Any]:
                 "params": {
                     "min_seal_amount": 5000,
                     "max_limit_up_time": "10:00",
-                    "max_circulation_market_cap": 100,
+                    "max_circulation_market_cap": 500,
                     "max_blast_count": 1,
                     "require_hot_sector": True,
                 },
@@ -150,7 +150,7 @@ def get_ultra_short_defaults() -> Dict[str, Any]:
                 "name": "跌停翘板",
                 "params": {
                     "min_consecutive_limit": 3,
-                    "min_qiao_amount": 10000,
+                    "min_qiao_amount": 1000,
                     "min_rise_after_qiao": 0.03,
                     "require_high_sentiment": True,
                 },
