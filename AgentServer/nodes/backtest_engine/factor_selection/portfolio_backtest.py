@@ -1365,16 +1365,17 @@ class PortfolioBacktester:
                         if not strategy_name:
                             strategy_name = "-"
 
+                        strategy_buy_time = {'半路追涨': '10:00', '首板打板': '09:35', '涨停开板': '10:00', '龙头低吸': '14:00', '跌停翘板': '10:30'}.get(strategy_name, '09:35')
                         merged_trades.append({
                             'ts_code': record.ts_code,
                             'name': name,
                             'strategy': strategy_name,
                             'sentiment': first_buy.sentiment,
                             'buy_date': first_buy.date,
-                            'buy_time': '09:30',
+                            'buy_time': strategy_buy_time,
                             'buy_price': avg_cost,
                             'sell_date': record.date,
-                            'sell_time': '15:00',
+                            'sell_time': '收盘',
                             'sell_price': record.price,
                             'shares': total_shares,
                             'profit_pct': profit,
@@ -1410,7 +1411,7 @@ class PortfolioBacktester:
                     'strategy': strategy_name,
                     'sentiment': first_buy.sentiment,
                     'buy_date': first_buy.date,
-                    'buy_time': '09:30',
+                    'buy_time': {'半路追涨': '10:00', '首板打板': '09:35', '涨停开板': '10:00', '龙头低吸': '14:00', '跌停翘板': '10:30'}.get(strategy_name, '09:35'),
                     'buy_price': sum(abs(b.amount) for b in buys) / sum(b.shares for b in buys),  # amount存为负数,取绝对值
                     'sell_date': '',
                     'sell_time': '',
@@ -1809,8 +1810,10 @@ class PortfolioBacktester:
 
             if matched_key:
                 result[matched_key] = {
-                    "open": doc.get("open", doc["close"]),  # 如果没有open,fallback to close
-                    "close": doc["close"]
+                    "open": doc.get("open", doc["close"]),
+                    "close": doc["close"],
+                    "low": doc.get("low", doc["close"]),  # 最低价,用于跌停翘板买入价近似
+                    "pre_close": doc.get("pre_close", None)  # 前收盘价(可能为None)
                 }
                 matched += 1
 
@@ -2074,7 +2077,27 @@ class PortfolioBacktester:
             if delta <= 0:
                 continue  # 不需要买入
 
-            price = prices.get(ts_code, {}).get('open', 0)
+            # 根据策略差异化买入价(日频回测近似)
+            price_info = prices.get(ts_code, {})
+            open_price = price_info.get('open', 0)
+            close_price = price_info.get('close', 0)
+            strategy_name = getattr(self, 'stock_to_strategy', {}).get(ts_code, '')
+            if strategy_name == '半路追涨':
+                # 半路追涨:盘中涨幅3%~5%时买入,近似取 open*1.04
+                price = open_price * 1.04 if open_price > 0 else 0
+            elif strategy_name in ('首板打板', '涨停开板'):
+                # 涨停相关:涨停价≈close(涨停日close即涨停价)
+                price = close_price if close_price > open_price * 1.08 else open_price * 1.10
+            elif strategy_name == '龙头低吸':
+                # 龙头低吸:回调到支撑位,近似 open*0.98
+                price = open_price * 0.98 if open_price > 0 else 0
+            elif strategy_name == '跌停翘板':
+                # 跌停翘板:跌停价附近买入,用low近似
+                price = price_info.get('low', open_price) if price_info.get('low', 0) > 0 else open_price * 0.92
+            else:
+                price = open_price
+            if price <= 0:
+                price = open_price
             if price <= 0:
                 continue
 
