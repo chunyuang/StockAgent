@@ -2022,47 +2022,42 @@ class PortfolioBacktester:
         # 两个维度独立判断,取乘积就是最终仓位(最严格的生效)
         position_multiplier = sentiment_multiplier * special_multiplier
 
-        # 计算目标持仓
+        # 计算目标持仓(用策略对应买入价计算仓位,而非开盘价)
         target_shares = {}  # {ts_code: target_shares}
         for code, weight in target_weights.items():
             if code not in prices:
-                continue  # 没有价格,无法买入
+                continue
             # ✅ 应用综合仓位系数!
             # 例如:情绪冰点 0.3 × 春节前夕 0.2 = 0.06 → 只有 6% 仓位
-            # 用策略对应买入价计算仓位(而非开盘价)
-            price = open_price  # 默认用开盘价
-            for code, weight in target_weights.items():
-                if code not in prices:
-                    continue
-                p_info = prices[code]
-                o = p_info.get('open', 0)
-                h = p_info.get('high', o)
-                l = p_info.get('low', o)
-                sname = getattr(self, 'stock_to_strategy', {}).get(code, '')
-                if sname == '半路追涨':
-                    buy_p = min(o * 1.04, h) if o > 0 else 0
-                elif sname in ('首板打板', '涨停开板'):
-                    buy_p = p_info.get('close', o) if p_info.get('close', 0) >= o * 1.08 else min(o * 1.10, h)
-                elif sname == '龙头低吸':
-                    buy_p = l * 1.005 if l > 0 else o * 0.98
-                elif sname == '跌停翘板':
-                    buy_p = l * 1.005 if l > 0 else o * 0.92
-                else:
-                    buy_p = o
-                if buy_p <= 0:
-                    buy_p = o
-                target_value = total_value * weight * position_multiplier
-                shares = int(int(target_value / buy_p) / 100) * 100
-                if shares > 0:
-                    target_shares[code] = shares
+            p_info = prices[code]
+            o = p_info.get('open', 0)
+            h = p_info.get('high', o)
+            l = p_info.get('low', o)
+            sname = getattr(self, 'stock_to_strategy', {}).get(code, '')
+            if sname == '半路追涨':
+                buy_p = min(o * 1.04, h) if o > 0 else 0
+            elif sname in ('首板打板', '涨停开板'):
+                buy_p = p_info.get('close', o) if p_info.get('close', 0) >= o * 1.08 else min(o * 1.10, h)
+            elif sname == '龙头低吸':
+                buy_p = l * 1.005 if l > 0 else o * 0.98
+            elif sname == '跌停翘板':
+                buy_p = l * 1.005 if l > 0 else o * 0.92
+            else:
+                buy_p = o
+            if buy_p <= 0:
+                buy_p = o
+            target_value = total_value * weight * position_multiplier
+            shares = int(int(target_value / buy_p) / 100) * 100
+            if shares > 0:
+                target_shares[code] = shares
 
         # 先卖出:不在目标持仓中的股票卖出
         # 【方案2:日频数据推算盘中卖出价】
         # 止损:盘中最低价触发 → 用low近似
         # 止盈:盘中最高价触发 → 用high近似
         # 其他:收盘卖出 → 用close
-        stop_loss_pct = config.get('risk_config', config).get('stop_loss_pct', 0.02) if isinstance(config, dict) else 0.02
-        take_profit_pct = config.get('risk_config', config).get('take_profit_pct', 0.07) if isinstance(config, dict) else 0.07
+        stop_loss_pct = self._risk_config.get('stop_loss_pct', 0.02) if hasattr(self, '_risk_config') else 0.02
+        take_profit_pct = self._risk_config.get('take_profit_pct', 0.07) if hasattr(self, '_risk_config') else 0.07
         for ts_code in sell_codes:
             shares = holdings[ts_code]
             price_info = prices.get(ts_code, {})
@@ -2073,9 +2068,8 @@ class PortfolioBacktester:
             if close_price <= 0 or shares <= 0:
                 continue
 
-            # 判断盘中是否触发止损/止盈(基于买入成本)
-            # 买入价从持仓记录获取,简化处理用open*0.99作为成本估算
-            cost_basis = open_price * 0.99  # 粗略成本(实际应为买入价)
+            # 判断盘中是否触发止损/止盈(基于实际买入成本)
+            cost_basis = getattr(self, '_cost_basis', {}).get(ts_code, open_price)  # 用实际买入价
             sell_price = close_price  # 默认收盘价
             sell_reason = '调仓卖出'
             if cost_basis > 0:
@@ -2110,12 +2104,15 @@ class PortfolioBacktester:
                 shares=shares,
                 price=price,  # 卖出用收盘价
                 amount=net_amount,
-                reason="not_in_target",
+                reason=sell_reason,
                 sentiment=sentiment
             ))
 
             # 清空持仓
             holdings[ts_code] = 0
+            # 清理买入成本记录
+            if hasattr(self, '_cost_basis') and ts_code in self._cost_basis:
+                del self._cost_basis[ts_code]
 
         # 再买入:目标持仓中需要增加的股票
         for ts_code, target_count in target_shares.items():
@@ -2177,6 +2174,10 @@ class PortfolioBacktester:
 
             # 更新持仓
             holdings[ts_code] = current_shares + delta
+            # 【记录买入成本,用于卖出时止损止盈判断】
+            if not hasattr(self, '_cost_basis'):
+                self._cost_basis = {}
+            self._cost_basis[ts_code] = price  # 记录实际买入价(含策略差异化)
 
             # 记录交易
             strategy_name = getattr(self, 'stock_to_strategy', {}).get(ts_code, "策略选股")  # 【修复新6：从stock_to_strategy获取策略名，存独立字段】
