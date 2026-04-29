@@ -266,8 +266,11 @@ class PortfolioBacktester:
             max_consecutive = params.get("max_consecutive_limit", 4)
             max_open_duration = params.get("max_open_duration", 5)
             min_seal_after = params.get("min_seal_after_open", 3000)
-            min_turnover = params.get("min_turnover_rate", 15)  # 【修复#44:统一为百分比单位,15代表15%】
-            opening_pct_min = params.get("opening_pct_min", 0.0)
+            # 【修复#45: min_turnover_rate前端传小数(0.15=15%),需*100转为百分比单位】
+            _raw_turnover = params.get("min_turnover_rate", 0.15)
+            min_turnover = _raw_turnover * 100 if _raw_turnover < 1 else _raw_turnover  # <1说明是小数,需转换
+            # 【修复#46: 开盘涨幅下限0%太严格,连板股开板日常低开,改为-3%】
+            opening_pct_min = params.get("opening_pct_min", -3.0)
             opening_pct_max = params.get("opening_pct_max", 3.0)
             min_volume_ratio = params.get("min_volume_ratio", 2.0)
             require_sentiment = params.get("require_sentiment_period", ["rising"])
@@ -276,7 +279,7 @@ class PortfolioBacktester:
             await self.log(f"   │        • 量比要求: ≥ {min_volume_ratio}")
             await self.log(f"   │        • 最大开板时长: {max_open_duration}分钟")
             await self.log(f"   │        • 开板后最小封单: {min_seal_after}万元")
-            await self.log(f"   │        • 最小换手率: {min_turnover}%")  # 【修复#44:不再需要 *100】
+            await self.log(f"   │        • 最小换手率: {min_turnover:.1f}%")
             await self.log(f"   │        • 情绪周期要求: {', '.join(require_sentiment)}")
         elif strategy_name == "龙头低吸":
             min_consecutive = params.get("min_consecutive_limit", 3)
@@ -292,12 +295,16 @@ class PortfolioBacktester:
             await self.log(f"   │        • 要求缩量回调: volume/ma5 ≤ 1.0")
         elif strategy_name == "跌停翘板":
             min_consecutive = params.get("min_consecutive_limit", 3)
-            min_qiao_amount = params.get("min_qiao_amount", 10000)
+            # 【修复#47: min_qiao_amount单位统一为千元(与数据库limit_down_open_amount一致)】
+            # 前端传10000(万元),数据库因子是千元,需*1000转换
+            # 10000万元 = 100000千元
+            _raw_qiao = params.get("min_qiao_amount", 10000)
+            min_qiao_amount = _raw_qiao * 1000 if _raw_qiao < 100000 else _raw_qiao  # <100000说明是万元,需转千元
             min_rise_after = params.get("min_rise_after_qiao", 0.03)
             require_high_sentiment = params.get("require_high_sentiment", True)
             await self.log(f"   │        • 最小连续跌停: {min_consecutive}天")
             await self.log(f"   │        • 换手率要求: ≥ 10%")
-            await self.log(f"   │        • 最小翘板金额: {min_qiao_amount}万元")
+            await self.log(f"   │        • 最小翘板金额: {min_qiao_amount}千元(≈{min_qiao_amount/10000:.0f}亿元)")
             await self.log(f"   │        • 翘板后最小涨幅: {min_rise_after*100:.1f}%")
             await self.log(f"   │        • 要求高情绪周期: {'是' if require_high_sentiment else '否'}")
         else:
@@ -996,8 +1003,11 @@ class PortfolioBacktester:
                         max_consecutive = params.get("max_consecutive_limit", 4)
                         max_open_duration = params.get("max_open_duration", 5)
                         min_seal_after = params.get("min_seal_after_open", 3000)
-                        min_turnover = params.get("min_turnover_rate", 15)
-                        opening_pct_min = params.get("opening_pct_min", 0.0)
+                        # 【修复#45: min_turnover_rate前端传小数(0.15=15%),需*100转为百分比单位】
+                        _raw_turnover = params.get("min_turnover_rate", 0.15)
+                        min_turnover = _raw_turnover * 100 if _raw_turnover < 1 else _raw_turnover
+                        # 【修复#46: 开盘涨幅下限0%太严格,连板股开板日常低开,改为-3%】
+                        opening_pct_min = params.get("opening_pct_min", -3.0)
                         opening_pct_max = params.get("opening_pct_max", 3.0)
                         min_volume_ratio = params.get("min_volume_ratio", 2.0)
                         require_sentiment = params.get("require_sentiment_period", ["rising"])
@@ -1006,7 +1016,7 @@ class PortfolioBacktester:
                         await self.log(f"   │        • 量比要求: ≥ {min_volume_ratio}")
                         await self.log(f"   │        • 最大开板时长: {max_open_duration}分钟")
                         await self.log(f"   │        • 开板后最小封单: {min_seal_after}万元")
-                        await self.log(f"   │        • 最小换手率: {min_turnover}%")
+                        await self.log(f"   │        • 最小换手率: {min_turnover:.1f}%")
                         await self.log(f"   │        • 情绪周期要求: {', '.join(require_sentiment)}")
                     elif strategy_name == "龙头低吸":
                         min_consecutive = params.get("min_consecutive_limit", 3)
@@ -1022,12 +1032,14 @@ class PortfolioBacktester:
                         await self.log(f"   │        • 要求缩量回调: volume/ma5 ≤ 1.0")
                     elif strategy_name == "跌停翘板":
                         min_consecutive = params.get("min_consecutive_limit", 3)
-                        min_qiao_amount = params.get("min_qiao_amount", 10000)
+                        # 【修复#47: min_qiao_amount单位统一为千元(与数据库limit_down_open_amount一致)】
+                        _raw_qiao = params.get("min_qiao_amount", 10000)
+                        min_qiao_amount = _raw_qiao * 1000 if _raw_qiao < 100000 else _raw_qiao
                         min_rise_after = params.get("min_rise_after_qiao", 0.03)
                         require_high_sentiment = params.get("require_high_sentiment", True)
                         await self.log(f"   │        • 最小连续跌停: {min_consecutive}天")
                         await self.log(f"   │        • 换手率要求: ≥ 10%")
-                        await self.log(f"   │        • 最小翘板金额: {min_qiao_amount}万元")
+                        await self.log(f"   │        • 最小翘板金额: {min_qiao_amount}千元(≈{min_qiao_amount/10000:.0f}亿元)")
                         await self.log(f"   │        • 翘板后最小涨幅: {min_rise_after*100:.1f}%")
                         await self.log(f"   │        • 要求高情绪周期: {'是' if require_high_sentiment else '否'}")
                     else:
@@ -1911,16 +1923,19 @@ class PortfolioBacktester:
             max_consecutive = converted_params.get("max_consecutive_limit", 4)
             max_open_duration = converted_params.get("max_open_duration", 5)
             min_seal_after = converted_params.get("min_seal_after_open", 3000)
-            min_turnover = converted_params.get("min_turnover_rate", 15)  # 【修复#44:百分比单位】
-            opening_pct_min = converted_params.get("opening_pct_min", 0.0)
+            # 【修复#45: min_turnover_rate前端传小数(0.15=15%),需*100转为百分比单位】
+            _raw_turnover = converted_params.get("min_turnover_rate", 0.15)
+            min_turnover = _raw_turnover * 100 if _raw_turnover < 1 else _raw_turnover
+            # 【修复#46: 开盘涨幅下限0%太严格,连板股开板日常低开,改为-3%】
+            opening_pct_min = converted_params.get("opening_pct_min", -3.0)
             opening_pct_max = converted_params.get("opening_pct_max", 3.0)
             min_volume_ratio = converted_params.get("min_volume_ratio", 2.0)
             require_sentiment = converted_params.get("require_sentiment_period", ["rising"])
             return [
                 {"name": "limit_up_count", "target": min_consecutive, "operator": ">=", "label": "最小连续涨停天数"},
                 {"name": "limit_up_count", "target": max_consecutive, "operator": "<=", "label": "最大连续涨停天数"},
-                {"name": "opening_pct_chg", "target": opening_pct_min, "operator": ">=", "label": "开盘涨幅≥0%"},
-                {"name": "opening_pct_chg", "target": opening_pct_max, "operator": "<=", "label": "开盘涨幅≤3%"},
+                {"name": "opening_pct_chg", "target": opening_pct_min, "operator": ">=", "label": f"开盘涨幅≥{opening_pct_min}%"},
+                {"name": "opening_pct_chg", "target": opening_pct_max, "operator": "<=", "label": f"开盘涨幅≤{opening_pct_max}%"},
                 {"name": "volume_ratio", "target": min_volume_ratio, "operator": ">=", "label": "开盘量比≥2.0"},
                 {"name": "limit_up_open_duration", "target": max_open_duration, "operator": "<=", "label": "最大开板时长"},
                 {"name": "limit_up_open_amount", "target": min_seal_after, "label": "开板后最小封单"},
@@ -1945,7 +1960,10 @@ class PortfolioBacktester:
             ]
         elif strategy_name == "跌停翘板":
             min_consecutive = converted_params.get("min_consecutive_limit", 3)
-            min_qiao_amount = converted_params.get("min_qiao_amount", 10000)
+            # 【修复#47: min_qiao_amount单位统一为千元(与数据库limit_down_open_amount一致)】
+            # 前端传10000(万元),数据库因子是千元,需*1000转换
+            _raw_qiao = converted_params.get("min_qiao_amount", 10000)
+            min_qiao_amount = _raw_qiao * 1000 if _raw_qiao < 100000 else _raw_qiao  # <100000说明是万元,需转千元
             min_rise_after = converted_params.get("min_rise_after_qiao", 0.03)
             require_high_sentiment = converted_params.get("require_high_sentiment", True)
             return [
