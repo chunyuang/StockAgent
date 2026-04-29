@@ -38,12 +38,12 @@ def extract_stats_from_md(metadata_path):
                 if '.' in digits:
                     try:
                         value = float(digits)
-                    except:
+                    except ValueError:
                         pass
                 else:
                     try:
                         value = int(digits)
-                    except:
+                    except ValueError:
                         pass
         stats[key] = value
     

@@ -4,7 +4,7 @@
 定义记忆系统的核心数据结构。
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 import uuid
@@ -55,7 +55,7 @@ class MemoryItem(BaseModel):
     vector: List[float] = Field(default_factory=list, description="向量表示")
     metadata: MemoryMetadata = Field(default_factory=MemoryMetadata, description="元数据")
     score: Optional[float] = Field(default=None, description="相似度分数")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="创建时间")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="创建时间")
     
     class Config:
         extra = "allow"
@@ -97,5 +97,5 @@ class MemoryItem(BaseModel):
             vector=hit.get("vector", []),
             metadata=metadata,
             score=score,
-            created_at=datetime.fromisoformat(hit.get("created_at", datetime.utcnow().isoformat())),
+            created_at=datetime.fromisoformat(hit.get("created_at", datetime.now(timezone.utc).isoformat())),
         )

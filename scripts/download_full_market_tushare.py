@@ -5,6 +5,7 @@
 【优化】分批 + GC + 重试 + 断点续传
 """
 import asyncio
+import os
 import sys
 import gc
 import time
@@ -22,8 +23,10 @@ sys.path.insert(0, '/root/.openclaw/workspace/StockAgent/AgentServer')
 from core.managers import mongo_manager
 
 # ==================== 配置区（严格按照老板要求）====================
-TOKEN = "3b610bc78011b162b4bbb5efa8c4f0ee"
-API_URL = "https://x-fpv.com"
+TOKEN = os.getenv("TUSHARE_TOKEN", "")
+if not TOKEN:
+    raise ValueError("请设置环境变量 TUSHARE_TOKEN")
+API_URL = os.getenv("TUSHARE_HTTP_URL", "https://api.tushare.pro")
 
 START_DATE = "20260105"
 END_DATE = "20260320"

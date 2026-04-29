@@ -4,6 +4,9 @@
 每日盘后运行，生成当日情绪评分、选股信号、交易计划
 """
 import sys
+import logging
+
+logger = logging.getLogger(__name__)
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'AgentServer'))  # FIXME: 使用sys.path.insert做模块查找是反模式，应改用setup.py/pyproject.toml将项目安装到venv中
 sys.path.insert(0, os.path.dirname(__file__))
@@ -96,18 +99,18 @@ class RealTradingSignalGenerator:
             # 默认取最近一个交易日
             trade_date = self._get_latest_trade_date()
         
-        print(f"========== 生成 {trade_date} 实盘信号 ==========")
+        logger.info(f"========== 生成 {trade_date} 实盘信号 ==========")
         
         # 1. 计算当日情绪周期
         sentiment_info = await self.backtester._get_sentiment_cycle(trade_date)
-        print(f"📊 情绪评分：{sentiment_info['score']}分，等级：{sentiment_info['level']}")
-        print(f"⚖️  仓位上限：{sentiment_info['position_limit']:.0%}")
-        print(f"✅ 允许策略：{', '.join(sentiment_info['allowed_strategies'])}")
+        logger.info(f"📊 情绪评分：{sentiment_info['score']}分，等级：{sentiment_info['level']}")
+        logger.info(f"⚖️  仓位上限：{sentiment_info['position_limit']:.0%}")
+        logger.info(f"✅ 允许策略：{', '.join(sentiment_info['allowed_strategies'])}")
         
         # 2. 检查强制空仓
         force_empty = await self.backtester._check_force_empty(trade_date)
         if force_empty:
-            print("⚠️  触发强制空仓，今日无交易信号")
+            logger.warning("⚠️  触发强制空仓，今日无交易信号")
             return {
                 "date": trade_date,
                 "force_empty": True,
@@ -123,15 +126,15 @@ class RealTradingSignalGenerator:
             trade_date,
             exclude_rules,
         )
-        print(f"🔍 预选池数量：{len(universe)}只")
+        logger.debug(f"🔍 预选池数量：{len(universe)}只")
         
         # 4. 竞价阶段过滤
         if self.config["enable_auction_filter"]:
             universe = await self._auction_filter(universe, trade_date)
-            print(f"🔍 竞价过滤后剩余：{len(universe)}只")
+            logger.debug(f"🔍 竞价过滤后剩余：{len(universe)}只")
         
         if not universe:
-            print("⚠️  预选池为空，今日无交易信号")
+            logger.warning("⚠️  预选池为空，今日无交易信号")
             return {
                 "date": trade_date,
                 "force_empty": False,
@@ -163,9 +166,9 @@ class RealTradingSignalGenerator:
         # 9. 生成交易计划
         trading_plan = self._generate_trading_plan(stock_details, sentiment_info)
         
-        print(f"🎯 最终选中标的：{len(stock_details)}只")
+        logger.info(f"🎯 最终选中标的：{len(stock_details)}只")
         for idx, stock in enumerate(stock_details, 1):
-            print(f"{idx}. {stock['ts_code']} {stock['name']} | 策略：{stock['strategy']} | 收盘价：{stock['close']:.2f} | 涨跌幅：{stock['pct_chg']:.2f}%")
+            logger.info(f"{idx}. {stock['ts_code']} {stock['name']} | 策略：{stock['strategy']} | 收盘价：{stock['close']:.2f} | 涨跌幅：{stock['pct_chg']:.2f}%")
         
         return {
             "date": trade_date,
@@ -226,10 +229,10 @@ class RealTradingSignalGenerator:
                 projection={"ts_code": 1, "auction_pct_chg": 1, "auction_volume": 1, "unmatched_volume": 1}
             )
         except (ConnectionError, OSError, ValueError) as e:
-            print(f"⚠️  获取竞价数据失败: {e}，跳过竞价过滤")
+            logger.error(f"⚠️  获取竞价数据失败: {e}，跳过竞价过滤")
             return universe
         except Exception as e:
-            print(f"⚠️  获取竞价数据异常: {e}，跳过竞价过滤")
+            logger.error(f"⚠️  获取竞价数据异常: {e}，跳过竞价过滤")
             return universe
         
         if not auction_data:
@@ -287,7 +290,7 @@ class RealTradingSignalGenerator:
             if daily_data:
                 daily_map = {x.get("ts_code", ""): x for x in daily_data if x.get("ts_code")}
         except Exception as e:
-            print(f"⚠️  获取日线数据失败: {e}")
+            logger.error(f"⚠️  获取日线数据失败: {e}")
         
         # 获取股票名称
         basic_map = {}
@@ -300,7 +303,7 @@ class RealTradingSignalGenerator:
             if basic_data:
                 basic_map = {x.get("ts_code", ""): x for x in basic_data if x.get("ts_code")}
         except Exception as e:
-            print(f"⚠️  获取基础数据失败: {e}")
+            logger.error(f"⚠️  获取基础数据失败: {e}")
         
         # 获取龙虎榜数据
         lhb_map = {}
@@ -313,7 +316,7 @@ class RealTradingSignalGenerator:
             if lhb_data:
                 lhb_map = {x.get("ts_code", ""): x for x in lhb_data if x.get("ts_code")}
         except Exception as e:
-            print(f"⚠️  获取龙虎榜数据失败: {e}")
+            logger.error(f"⚠️  获取龙虎榜数据失败: {e}")
         
         # 合并信息
         details = []
@@ -460,11 +463,11 @@ async def main():
         import json
         with open(args.output, "w", encoding="utf-8") as f:
             json.dump(signals, f, ensure_ascii=False, indent=2)
-        print(f"✅ 信号已保存到：{args.output}")
+        logger.info(f"✅ 信号已保存到：{args.output}")
     else:
-        print("\n" + "="*50)
-        print(signals["trading_plan"])
-        print("="*50)
+        logger.info("\n" + "="*50)
+        logger.info(signals["trading_plan"])
+        logger.info("="*50)
 
 if __name__ == "__main__":
     asyncio.run(main())

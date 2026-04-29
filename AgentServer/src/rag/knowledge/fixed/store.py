@@ -6,7 +6,7 @@
 
 import logging
 from typing import Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from ..types import (
     FixedKnowledgeItem,
@@ -174,7 +174,7 @@ class FixedKnowledgeStore:
         llm = await self._get_llm()
         
         try:
-            start_time = datetime.utcnow()
+            start_time = datetime.now(timezone.utc)
             
             # 生成查询向量
             vectors = await llm.embedding([query])
@@ -250,7 +250,7 @@ class FixedKnowledgeStore:
                     if any(tag in item.tags for tag in tags)
                 ]
             
-            elapsed_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
+            elapsed_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
             
             return KnowledgeSearchResult(
                 items=items,

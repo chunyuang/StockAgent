@@ -4,6 +4,9 @@
 功能：实时行情监控、买入条件触发提醒、大盘风险预警、持仓异动提醒
 """
 import sys
+import logging
+
+logger = logging.getLogger(__name__)
 import os
 import asyncio
 import time
@@ -42,13 +45,13 @@ class RealTimeMonitor:
         """启动监控
         duration: 监控时长，秒，None表示一直运行
         """
-        print(f"🚀 盘中实时监控启动，检查间隔{self.config['check_interval']}秒")
+        logger.info(f"🚀 盘中实时监控启动，检查间隔{self.config['check_interval']}秒")
         start_time = time.time()
         
         try:
             while True:
                 if duration and time.time() - start_time > duration:
-                    print("⏰ 监控时长到，停止监控")
+                    logger.info("⏰ 监控时长到，停止监控")
                     break
                 
                 now = datetime.now()
@@ -57,7 +60,7 @@ class RealTimeMonitor:
                     await asyncio.sleep(60)
                     continue
                 
-                print(f"\n[{now.strftime('%H:%M:%S')}] 开始本轮检查...")
+                logger.info(f"\n[{now.strftime('%H:%M:%S')}] 开始本轮检查...")
                 
                 alerts = []
                 
@@ -84,7 +87,7 @@ class RealTimeMonitor:
                 await asyncio.sleep(self.config["check_interval"])
         
         except KeyboardInterrupt:
-            print("\n⏹️  手动停止监控")
+            logger.info("\n⏹️  手动停止监控")
     
     def _is_trading_time(self, dt: datetime) -> bool:
         """判断是否是交易时间"""
@@ -154,7 +157,7 @@ class RealTimeMonitor:
                 })
         
         except Exception as e:
-            print(f"❌ 大盘监控异常: {e}")
+            logger.error(f"❌ 大盘监控异常: {e}")
         
         return alerts
     
@@ -218,7 +221,7 @@ class RealTimeMonitor:
                         })
         
         except Exception as e:
-            print(f"❌ 持仓监控异常: {e}")
+            logger.error(f"❌ 持仓监控异常: {e}")
         
         return alerts
     
@@ -259,7 +262,7 @@ class RealTimeMonitor:
                             })
         
         except Exception as e:
-            print(f"❌ 目标股监控异常: {e}")
+            logger.error(f"❌ 目标股监控异常: {e}")
         
         return alerts
     
@@ -302,9 +305,9 @@ class RealTimeMonitor:
         
         try:
             self.pusher.push(signal_data)
-            print(f"✅ 推送{len(alerts)}条提醒")
+            logger.info(f"✅ 推送{len(alerts)}条提醒")
         except Exception as e:
-            print(f"❌ 推送提醒失败: {e}")
+            logger.error(f"❌ 推送提醒失败: {e}")
 
 
 if __name__ == "__main__":

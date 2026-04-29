@@ -9,7 +9,7 @@
 
 import asyncio
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 import sys
 import os
 
@@ -81,7 +81,7 @@ async def init_strategies():
             continue
         
         # 创建新策略
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         doc = {
             "subscription_id": uuid.uuid4().hex,
             "strategy_id": uuid.uuid4().hex,

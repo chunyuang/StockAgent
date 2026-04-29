@@ -4,6 +4,9 @@
 功能：模拟实盘交易，验证策略效果，支持手动/自动交易，完全仿真实盘规则
 """
 import sys
+import logging
+
+logger = logging.getLogger(__name__)
 import os
 import json
 from datetime import datetime
@@ -16,7 +19,6 @@ sys.path.insert(0, os.path.dirname(__file__))
 from position_manager import Position, PositionManager
 from performance_analyzer import PerformanceAnalyzer
 from pre_buy_risk_check import PreBuyRiskChecker
-# FIXME: 全模块使用print()输出而非logger，生产环境应统一使用logging模块，便于日志级别控制、持久化和集中采集
 
 @dataclass
 class PaperAccount:
@@ -83,7 +85,7 @@ class PaperTradingEngine:
                 with open(self.data_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 if not isinstance(data, dict):
-                    print(f"⚠️  账户数据格式异常（期望dict，实际{type(data).__name__}），初始化空")
+                    logger.error(f"⚠️  账户数据格式异常（期望dict，实际{type(data).__name__}），初始化空")
                     self.accounts = {}
                     return
                 for acc_id, acc_data in data.items():
@@ -93,13 +95,13 @@ class PaperTradingEngine:
                         pos_file = f"paper_positions_{acc_id}.json"
                         self.position_managers[acc_id] = PositionManager(pos_file)
                     except (TypeError, KeyError) as e:
-                        print(f"⚠️  跳过异常账户记录 {acc_id}: {e}")
-                print(f"✅ 加载模拟账户成功，共{len(self.accounts)}个账户")
+                        logger.error(f"⚠️  跳过异常账户记录 {acc_id}: {e}")
+                logger.info(f"✅ 加载模拟账户成功，共{len(self.accounts)}个账户")
             except (json.JSONDecodeError, OSError) as e:
-                print(f"❌ 加载模拟账户失败: {e}")
+                logger.error(f"❌ 加载模拟账户失败: {e}")
                 self.accounts = {}
         else:
-            print("ℹ️  无历史模拟账户，初始化空")
+            logger.info("ℹ️  无历史模拟账户，初始化空")
     
     def _save_accounts(self):
         """保存账户数据"""
@@ -107,9 +109,9 @@ class PaperTradingEngine:
             data = {acc_id: asdict(acc) for acc_id, acc in self.accounts.items()}
             with open(self.data_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-            print("✅ 模拟账户数据已保存")
+            logger.info("✅ 模拟账户数据已保存")
         except (OSError, TypeError) as e:
-            print(f"❌ 保存模拟账户失败: {e}")
+            logger.error(f"❌ 保存模拟账户失败: {e}")
     
     def create_account(self, name: str, initial_balance: float = 1000000, notes: str = "") -> str:
         """创建新模拟账户"""
@@ -134,18 +136,18 @@ class PaperTradingEngine:
         self.position_managers[acc_id] = PositionManager(pos_file)
         
         self._save_accounts()
-        print(f"✅ 创建模拟账户成功：{name}({acc_id})，初始资金{initial_balance:.2f}元")
+        logger.info(f"✅ 创建模拟账户成功：{name}({acc_id})，初始资金{initial_balance:.2f}元")
         return acc_id
     
     def close_account(self, account_id: str) -> bool:
         """关闭账户"""
         if account_id not in self.accounts:
-            print(f"⚠️  账户{account_id}不存在")
+            logger.warning(f"⚠️  账户{account_id}不存在")
             return False
         
         self.accounts[account_id].status = "closed"
         self._save_accounts()
-        print(f"✅ 关闭模拟账户：{self.accounts[account_id].name}({account_id})")
+        logger.info(f"✅ 关闭模拟账户：{self.accounts[account_id].name}({account_id})")
         return True
     
     def get_account(self, account_id: str) -> Optional[PaperAccount]:
@@ -319,14 +321,14 @@ class PaperTradingEngine:
                 if alert["level"] == "danger" and ("止损" in str(alert["alerts"]) or "超期" in str(alert["alerts"])):
                     # 获取当前价格（这里简化，实际可接入实时行情）
                     # 模拟平仓
-                    print(f"📅 自动平仓：{alert['name']}({alert['ts_code']})，原因：{alert['alerts'][0]}")
+                    logger.info(f"📅 自动平仓：{alert['name']}({alert['ts_code']})，原因：{alert['alerts'][0]}")
                     # 这里可以扩展接入真实行情自动平仓
             
             # 更新账户收益
             self._update_account_performance(acc_id)
         
         self._save_accounts()
-        print("✅ 每日结算完成")
+        logger.info("✅ 每日结算完成")
     
     def _update_account_performance(self, account_id: str):
         """更新账户绩效指标
@@ -412,59 +414,59 @@ if __name__ == "__main__":
     if args.action == "list":
         accounts = engine.list_accounts()
         if not accounts:
-            print("暂无模拟账户")
+            logger.info("暂无模拟账户")
         else:
-            print(f"共{len(accounts)}个模拟账户：")
+            logger.info(f"共{len(accounts)}个模拟账户：")
             for acc in accounts:
                 status_icon = "✅" if acc["status"] == "active" else "❌"
                 profit_icon = "📈" if acc["total_profit"] >= 0 else "📉"
-                print(f"{status_icon} {acc['name']}({acc['account_id']}) | 初始资金{acc['initial_balance']:.0f} | 当前{acc['current_balance']:.0f} | {profit_icon} {acc['total_profit_pct']:.2f}% | 持仓{acc['position_count']}只 | 创建于{acc['created_at']}")
+                logger.info(f"{status_icon} {acc['name']}({acc['account_id']}) | 初始资金{acc['initial_balance']:.0f} | 当前{acc['current_balance']:.0f} | {profit_icon} {acc['total_profit_pct']:.2f}% | 持仓{acc['position_count']}只 | 创建于{acc['created_at']}")
     
     elif args.action == "create":
         if not args.name:
-            print("参数错误：需要 --name")
+            logger.error("参数错误：需要 --name")
             sys.exit(1)
         acc_id = engine.create_account(args.name, args.balance)
-        print(f"创建成功，账户ID：{acc_id}")
+        logger.info(f"创建成功，账户ID：{acc_id}")
     
     elif args.action == "close":
         if not args.account_id:
-            print("参数错误：需要 --account-id")
+            logger.error("参数错误：需要 --account-id")
             sys.exit(1)
         engine.close_account(args.account_id)
     
     elif args.action == "info":
         if not args.account_id:
-            print("参数错误：需要 --account-id")
+            logger.error("参数错误：需要 --account-id")
             sys.exit(1)
         perf = engine.get_account_performance(args.account_id)
         if not perf:
-            print("账户不存在")
+            logger.info("账户不存在")
         else:
             acc = perf["account_info"]
-            print("="*60)
-            print(f"📊 模拟账户：{acc['name']}({acc['account_id']})")
-            print("="*60)
-            print(f"初始资金：{acc['initial_balance']:.2f}元")
-            print(f"当前权益：{acc['current_balance']:.2f}元")
-            print(f"总收益：{acc['total_profit']:.2f}元（{acc['total_profit_pct']:.2f}%）")
-            print(f"最大回撤：{acc['max_drawdown']:.2f}%")
-            print(f"账户状态：{acc['status']}")
-            print(f"创建时间：{acc['created_at']}")
+            logger.info("="*60)
+            logger.info(f"📊 模拟账户：{acc['name']}({acc['account_id']})")
+            logger.info("="*60)
+            logger.info(f"初始资金：{acc['initial_balance']:.2f}元")
+            logger.info(f"当前权益：{acc['current_balance']:.2f}元")
+            logger.info(f"总收益：{acc['total_profit']:.2f}元（{acc['total_profit_pct']:.2f}%）")
+            logger.info(f"最大回撤：{acc['max_drawdown']:.2f}%")
+            logger.info(f"账户状态：{acc['status']}")
+            logger.info(f"创建时间：{acc['created_at']}")
             print()
-            print("当前持仓：")
+            logger.info("当前持仓：")
             for pos in perf["positions"]:
-                print(f"- {pos['name']}({pos['ts_code']}) | {pos['shares']}股 | 成本{pos['buy_price']:.2f} | 持仓{pos['hold_days']}天 | 止损{pos['stop_loss_price']:.2f} | 止盈{pos['take_profit_price']:.2f}")
+                logger.info(f"- {pos['name']}({pos['ts_code']}) | {pos['shares']}股 | 成本{pos['buy_price']:.2f} | 持仓{pos['hold_days']}天 | 止损{pos['stop_loss_price']:.2f} | 止盈{pos['take_profit_price']:.2f}")
             print()
-            print("最近10笔交易：")
+            logger.info("最近10笔交易：")
             for t in perf["recent_trades"]:
                 icon = "✅" if t["profit"] > 0 else "❌"
-                print(f"{icon} {t['sell_date']} {t['name']}({t['ts_code']}) | 盈利{t['profit']:.2f}元({t['profit_pct']:.2f}%) | 持仓{t['hold_days']}天")
-            print("="*60)
+                logger.info(f"{icon} {t['sell_date']} {t['name']}({t['ts_code']}) | 盈利{t['profit']:.2f}元({t['profit_pct']:.2f}%) | 持仓{t['hold_days']}天")
+            logger.info("="*60)
     
     elif args.action == "buy":
         if not all([args.account_id, args.ts_code, args.stock_name, args.price, args.shares]):
-            print("参数错误：需要 --account-id、--ts-code、--stock-name、--price、--shares")
+            logger.error("参数错误：需要 --account-id、--ts-code、--stock-name、--price、--shares")
             sys.exit(1)
         
         import asyncio
@@ -472,18 +474,18 @@ if __name__ == "__main__":
             args.account_id, args.ts_code, args.stock_name, 
             args.price, args.shares, args.strategy
         ))
-        print(result["msg"])
+        logger.info(result["msg"])
     
     elif args.action == "sell":
         if not all([args.account_id, args.ts_code, args.price]):
-            print("参数错误：需要 --account-id、--ts-code、--price")
+            logger.error("参数错误：需要 --account-id、--ts-code、--price")
             sys.exit(1)
         
         import asyncio
         result = asyncio.run(engine.close_position(
             args.account_id, args.ts_code, args.price, args.reason
         ))
-        print(result["msg"])
+        logger.info(result["msg"])
     
     elif args.action == "settlement":
         import asyncio

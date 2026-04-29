@@ -4,6 +4,9 @@
 支持实时监控和多种告警规则
 """
 import sys
+import logging
+
+logger = logging.getLogger(__name__)
 import os
 import json
 from datetime import datetime
@@ -60,7 +63,7 @@ class RiskAlertEngine:
                     return []
                 return data
         except (json.JSONDecodeError, OSError) as e:
-            print(f"⚠️  加载告警历史失败: {e}")
+            logger.error(f"⚠️  加载告警历史失败: {e}")
             return []
     
     def _save_alert_history(self):
@@ -70,7 +73,7 @@ class RiskAlertEngine:
             with open(history_file, "w", encoding="utf-8") as f:
                 json.dump(self.alert_history, f, ensure_ascii=False, indent=2)
         except (OSError, TypeError) as e:
-            print(f"⚠️  保存告警历史失败: {e}")
+            logger.error(f"⚠️  保存告警历史失败: {e}")
     
     def _send_alert(self, title: str, content: str, level: str = "info"):
         """发送风控告警
@@ -94,7 +97,7 @@ class RiskAlertEngine:
         
         # 发送到飞书
         if "feishu" in self.config["alert_channels"]:
-            print(f"📤 发送风控告警：{title}")
+            logger.info(f"📤 发送风控告警：{title}")
             # 调用系统消息推送
             os.system(f'/root/.openclaw/bin/openclaw message send --message "{alert_message}" --channel feishu')
         
@@ -201,7 +204,7 @@ class RiskAlertEngine:
         Returns:
             List[Dict]: 所有告警的汇总列表
         """
-        print("🔍 开始每日风控检查...")
+        logger.debug("🔍 开始每日风控检查...")
         
         alerts = []
         
@@ -218,7 +221,7 @@ class RiskAlertEngine:
         alerts.extend(self.check_market_risk())
         
         if not alerts:
-            print("✅ 今日风控检查通过，无异常")
+            logger.error("✅ 今日风控检查通过，无异常")
         
         return alerts
 

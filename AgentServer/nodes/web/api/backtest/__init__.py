@@ -407,7 +407,7 @@ async def cancel_backtest(
     await mongo_manager.update_one(
         "backtest_tasks",
         {"task_id": task_id},
-        {"$set": {"status": "cancelled", "cancelled_at": datetime.utcnow()}},
+        {"$set": {"status": "cancelled", "cancelled_at": datetime.now(timezone.utc)}},
     )
 
     return {"task_id": task_id, "status": "cancelled", "message": "任务已取消"}

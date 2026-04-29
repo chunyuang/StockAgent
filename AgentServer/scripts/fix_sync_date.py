@@ -19,7 +19,7 @@ Usage:
 
 import asyncio
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List
 
 import sys
@@ -133,7 +133,7 @@ async def update_sync_date(
                     {
                         "$set": {
                             "sync_date": new_date,
-                            "updated_at": datetime.utcnow(),
+                            "updated_at": datetime.now(timezone.utc),
                         }
                     },
                 )

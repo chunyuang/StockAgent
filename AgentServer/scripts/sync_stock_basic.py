@@ -24,7 +24,7 @@ from typing import Dict
 # 添加项目根目录到路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from core.managers import mongo_manager, tushare_manager
 
 
@@ -155,7 +155,7 @@ async def sync_stock_basic(force: bool = False):
         ts_code = record.get("ts_code")
         
         # 添加更新时间
-        record["updated_at"] = datetime.utcnow()
+        record["updated_at"] = datetime.now(timezone.utc)
         
         # 合并 daily_basic 指标
         if ts_code and ts_code in daily_basic_map:

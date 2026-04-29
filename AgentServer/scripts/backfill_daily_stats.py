@@ -8,7 +8,7 @@
 
 import asyncio
 import argparse
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import sys
 import os
 
@@ -49,7 +49,7 @@ async def compute_daily_stats_for_date(trade_date: str) -> dict:
     
     stats = {
         "trade_date": trade_date,
-        "created_at": datetime.utcnow(),
+        "created_at": datetime.now(timezone.utc),
         
         # 连板统计
         "limit_1": 0,

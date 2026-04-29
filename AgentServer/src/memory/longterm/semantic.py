@@ -7,7 +7,7 @@
 
 import logging
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from ..types import (
     LongTermMemoryItem,
@@ -183,7 +183,7 @@ class SemanticStore:
         llm = await self._get_llm()
         
         try:
-            start_time = datetime.utcnow()
+            start_time = datetime.now(timezone.utc)
             
             # 生成查询向量
             vectors = await llm.embedding([query])
@@ -249,7 +249,7 @@ class SemanticStore:
                 )
                 items.append(item)
             
-            elapsed_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
+            elapsed_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
             
             return SearchResult(
                 items=items,

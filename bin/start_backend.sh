@@ -7,6 +7,6 @@ echo "✅ 后端服务已启动，PID: $!"
 echo "📝 日志路径: /tmp/backend.log"
 sleep 5
 echo "🔍 检查服务状态..."
-curl -I http://localhost:8000/api/v1/health
+curl -s http://localhost:8000/health | head -c 200
 echo ""
 echo "✅ 服务启动完成！"

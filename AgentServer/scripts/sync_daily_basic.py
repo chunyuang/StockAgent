@@ -23,7 +23,7 @@ Usage:
 import asyncio
 import argparse
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict
 
@@ -176,7 +176,7 @@ async def sync_daily_basic(
                 cleaned_records = []
                 for record in records:
                     cleaned = _clean_daily_basic_record(record)
-                    cleaned["updated_at"] = datetime.utcnow()
+                    cleaned["updated_at"] = datetime.now(timezone.utc)
                     cleaned_records.append(cleaned)
                 
                 # Step 3: 批量写入

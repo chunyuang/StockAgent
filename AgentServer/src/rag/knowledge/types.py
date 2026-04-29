@@ -4,7 +4,7 @@
 
 from enum import Enum
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 import uuid
 
@@ -81,8 +81,8 @@ class KnowledgeItem(BaseModel):
     
     # 元数据
     importance: str = Field(default="medium", description="重要性: low/medium/high")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     
     # 检索相关
     score: Optional[float] = Field(default=None, description="相似度分数")
@@ -133,7 +133,7 @@ class UserKnowledgeItem(KnowledgeItem):
     def touch(self) -> None:
         """更新使用统计"""
         self.use_count += 1
-        self.last_used_at = datetime.utcnow()
+        self.last_used_at = datetime.now(timezone.utc)
 
 
 # ==================== 操作结果 ====================

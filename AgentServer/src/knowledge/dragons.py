@@ -12,7 +12,7 @@
 
 import logging
 from typing import Any, Dict, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
@@ -103,8 +103,8 @@ class DragonsKnowledgeBase:
             "max_step": max_step,
             "characteristics": characteristics or {},
             "notes": notes,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
         }
         
         result = await db[self.COLLECTION].insert_one(doc)
@@ -122,7 +122,7 @@ class DragonsKnowledgeBase:
         """更新龙头记录"""
         db = await self._get_db()
         
-        updates["updated_at"] = datetime.utcnow()
+        updates["updated_at"] = datetime.now(timezone.utc)
         
         result = await db[self.COLLECTION].update_one(
             {"ts_code": ts_code, "start_date": start_date},

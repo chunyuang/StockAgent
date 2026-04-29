@@ -113,7 +113,11 @@ class UltraShortLogger:
         
         # 格式化日志内容：只有当有参数时才格式化，避免message本身包含大括号导致解析错误
         if args or kwargs:
-            formatted_message = message.format(*args, **kwargs)  # FIXME: 当message包含大括号但无对应参数时抛KeyError/IndexError，建议用 % 或 f-string 替代 .format()
+            try:
+                formatted_message = message.format(*args, **kwargs)
+            except (KeyError, IndexError, ValueError):
+                # message包含大括号但无对应参数时，回退到原始message
+                formatted_message = message
         else:
             formatted_message = message
         

@@ -37,7 +37,7 @@ import asyncio
 import json
 import logging
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Any
 
 from core.managers import mongo_manager
@@ -153,7 +153,7 @@ class PremarketSignalScheduler:
             trade_date = self._get_latest_trade_date()
 
         signal_id = f"pre_{uuid.uuid4().hex[:12]}"
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         logger.info(f"[{signal_id}] ========== 盘前信号生成 {trade_date} ==========")
 
@@ -255,7 +255,7 @@ class PremarketSignalScheduler:
         if not trade_date:
             trade_date = self._get_latest_trade_date()
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         # 1. 将当日所有 pending 信号标记为 expired
         expired_count = await self._expire_pending_signals(trade_date, now)
@@ -423,7 +423,7 @@ class PremarketSignalScheduler:
             if signals:
                 trade_date = signal_doc["date"]
                 expired_at = datetime.strptime(f"{trade_date} 15:00:00", "%Y%m%d %H:%M:%S")
-                now = datetime.utcnow()
+                now = datetime.now(timezone.utc)
 
                 trading_signal_docs = []
                 for stock in signals:

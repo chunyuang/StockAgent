@@ -4,6 +4,9 @@
 生成模拟账户的详细绩效报告
 """
 import sys
+import logging
+
+logger = logging.getLogger(__name__)
 import os
 from datetime import datetime
 
@@ -30,14 +33,14 @@ def generate_report(account_id: str = None, output_format: str = "text"):
     
     if not account_id:
         # 列出所有活跃账户
-        print("📋 可用模拟账户：")
+        logger.info("📋 可用模拟账户：")
         for acc_id, acc in engine.accounts.items():
             if acc.status == "active":
-                print(f"  - {acc.name} ({acc_id})：余额{acc.current_balance:.2f}元，收益{acc.total_profit_pct:.2f}%")
+                logger.info(f"  - {acc.name} ({acc_id})：余额{acc.current_balance:.2f}元，收益{acc.total_profit_pct:.2f}%")
         return
     
     if account_id not in engine.accounts:
-        print(f"❌ 账户{account_id}不存在")
+        logger.error(f"❌ 账户{account_id}不存在")
         return
     
     account = engine.accounts[account_id]
@@ -98,11 +101,11 @@ def generate_report(account_id: str = None, output_format: str = "text"):
     report_content = "\n".join(report)
     
     if output_format == "markdown":
-        print(report_content)
+        logger.info(report_content)
     else:
         # 纯文本格式，去掉markdown标记
         text = report_content.replace("#", "").replace("##", "").replace("|", " ").replace("---", "")
-        print(text)
+        logger.info(text)
     
     return report_content
 

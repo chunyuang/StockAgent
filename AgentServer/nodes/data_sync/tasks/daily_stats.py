@@ -13,7 +13,7 @@
 """
 
 from typing import Dict, Any, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import time
 import statistics
 
@@ -310,7 +310,7 @@ class DailyStatsTask(BaseTask):
         """统计每日综合数据"""
         stats = {
             "trade_date": trade_date,
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
             
             # 连板统计
             "limit_1": 0,

@@ -1662,7 +1662,7 @@ class PortfolioBacktester:
                             buy_dt = dt_now.strptime(str(buy_date), '%Y%m%d')
                             sell_dt = dt_now.strptime(str(sell_date), '%Y%m%d')
                             hold_days = (sell_dt - buy_dt).days
-                        except:
+                        except (ValueError, TypeError):
                             hold_days = 0
 
                 # 计算仓位百分比

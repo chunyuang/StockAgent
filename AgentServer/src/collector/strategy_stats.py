@@ -12,7 +12,7 @@
 
 import logging
 from typing import Any, Dict, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field
 
 
@@ -160,7 +160,7 @@ class StrategyStatsManager:
         mongo = await self._get_mongo()
         
         # 计算周时间范围
-        today = datetime.utcnow().date()
+        today = datetime.now(timezone.utc).date()
         week_start = today - timedelta(days=today.weekday() + 7 * (-week_offset))
         week_end = week_start + timedelta(days=7)
         
@@ -386,7 +386,7 @@ class StrategyStatsManager:
             "events_in_report": stats.events_in_report,
             "reports_generated": stats.reports_generated,
             "event_hit_rate": stats.event_hit_rate,
-            "_created_at": datetime.utcnow(),
+            "_created_at": datetime.now(timezone.utc),
         }
         
         try:
@@ -485,7 +485,7 @@ class StrategyStatsManager:
         """获取历史周统计"""
         mongo = await self._get_mongo()
         
-        today = datetime.utcnow().date()
+        today = datetime.now(timezone.utc).date()
         week_start = today - timedelta(days=today.weekday() + 7 * (-week_offset))
         week_start_dt = datetime.combine(week_start, datetime.min.time())
         

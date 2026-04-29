@@ -11,7 +11,7 @@
 """
 
 from typing import Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 import time
 
 from core.base import BaseCollector
@@ -218,7 +218,7 @@ class DailyStatsCollector(BaseCollector):
         """
         stats = {
             "trade_date": trade_date,
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
             
             # 连板统计
             "limit_1": 0,   # 一板 (首板)

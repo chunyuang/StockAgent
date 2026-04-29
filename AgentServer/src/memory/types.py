@@ -6,7 +6,7 @@
 
 from enum import Enum
 from typing import Any, Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 import uuid
 
@@ -50,9 +50,9 @@ class MemoryMetadata(BaseModel):
     visibility: MemoryVisibility = Field(default=MemoryVisibility.PRIVATE)
     
     # 时间字段
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
-    accessed_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    accessed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     expires_at: Optional[datetime] = Field(default=None, description="过期时间")
     
     # 遗忘机制
@@ -124,14 +124,14 @@ class BaseMemoryItem(BaseModel):
     
     def touch(self) -> None:
         """更新访问时间和计数"""
-        self.metadata.accessed_at = datetime.utcnow()
+        self.metadata.accessed_at = datetime.now(timezone.utc)
         self.metadata.access_count += 1
     
     def is_expired(self) -> bool:
         """检查是否过期"""
         if self.metadata.expires_at is None:
             return False
-        return datetime.utcnow() > self.metadata.expires_at
+        return datetime.now(timezone.utc) > self.metadata.expires_at
     
     def calculate_decay_score(self) -> float:
         """计算衰减后的重要性分数"""
@@ -139,7 +139,7 @@ class BaseMemoryItem(BaseModel):
             return self.metadata.importance_score
         
         # 时间衰减因子
-        hours_since_access = (datetime.utcnow() - self.metadata.accessed_at).total_seconds() / 3600
+        hours_since_access = (datetime.now(timezone.utc) - self.metadata.accessed_at).total_seconds() / 3600
         time_decay = 0.95 ** (hours_since_access / 24)  # 每天衰减 5%
         
         # 访问频率因子

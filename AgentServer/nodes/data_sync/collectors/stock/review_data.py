@@ -22,7 +22,7 @@
 """
 
 from typing import Dict, Any, List, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import asyncio
 
 from core.base import BaseCollector
@@ -158,7 +158,7 @@ class ReviewDataCollector(BaseCollector):
         await collection.delete_many({"trade_date": trade_date})
         
         for item in data:
-            item["collected_at"] = datetime.utcnow()
+            item["collected_at"] = datetime.now(timezone.utc)
         
         await collection.insert_many(data)
         

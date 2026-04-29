@@ -9,7 +9,7 @@
 
 import math
 from typing import Dict, Any, Optional, Tuple, List
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from .base import BaseManager
@@ -623,7 +623,7 @@ class AnalysisManager(BaseManager):
         # 构建分析结果
         analysis = {
             "trade_date": trade_date,
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
             
             # 评分 (原始 + 平滑)
             "sentiment_score": sentiment_raw,       # 原始情绪分

@@ -8,7 +8,7 @@
 import asyncio
 import time
 from abc import abstractmethod
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Optional, Tuple, Callable, TypeVar
 
 from .scheduled_job import ScheduledJob
@@ -340,8 +340,8 @@ class BaseCollector(ScheduledJob):
                 "item_id": item_id,
                 "error": error_msg,
                 "retry_count": 0,
-                "created_at": datetime.utcnow(),
-                "updated_at": datetime.utcnow(),
+                "created_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc),
             }
             if extra_data:
                 doc["extra"] = extra_data
@@ -352,13 +352,13 @@ class BaseCollector(ScheduledJob):
                 {
                     "$set": {
                         "error": error_msg,
-                        "updated_at": datetime.utcnow(),
+                        "updated_at": datetime.now(timezone.utc),
                     },
                     "$inc": {"retry_count": 1},
                     "$setOnInsert": {
                         "collector": self.name,
                         "item_id": item_id,
-                        "created_at": datetime.utcnow(),
+                        "created_at": datetime.now(timezone.utc),
                     },
                 },
                 upsert=True,

@@ -11,7 +11,7 @@
 
 import logging
 from typing import Any, Dict, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 from enum import Enum
 
@@ -313,8 +313,8 @@ class NewsLifecycleManager:
         compressed_count = 0
         
         for category, config in RETENTION_POLICIES.items():
-            hot_cutoff = datetime.utcnow() - timedelta(days=config.hot_days)
-            warm_cutoff = datetime.utcnow() - timedelta(
+            hot_cutoff = datetime.now(timezone.utc) - timedelta(days=config.hot_days)
+            warm_cutoff = datetime.now(timezone.utc) - timedelta(
                 days=config.hot_days + config.warm_days
             )
             
@@ -341,7 +341,7 @@ class NewsLifecycleManager:
                         },
                         "$set": {
                             "data_tier": DataTier.WARM.value,
-                            "compressed_at": datetime.utcnow(),
+                            "compressed_at": datetime.now(timezone.utc),
                         }
                     }
                 )
@@ -376,7 +376,7 @@ class NewsLifecycleManager:
             else:
                 total_days = config.hot_days + config.warm_days + config.cold_days
             
-            cutoff = datetime.utcnow() - timedelta(days=total_days)
+            cutoff = datetime.now(timezone.utc) - timedelta(days=total_days)
             
             query = {
                 "category": category,
@@ -456,7 +456,7 @@ class NewsLifecycleManager:
         
         try:
             # 删除过期的正常事件
-            cutoff = datetime.utcnow() - timedelta(days=events_retention)
+            cutoff = datetime.now(timezone.utc) - timedelta(days=events_retention)
             count = await mongo.delete_many(
                 "news_events",
                 {
@@ -470,7 +470,7 @@ class NewsLifecycleManager:
             deleted_count += count
             
             # 低价值事件更快删除
-            low_value_cutoff = datetime.utcnow() - timedelta(days=low_value_retention)
+            low_value_cutoff = datetime.now(timezone.utc) - timedelta(days=low_value_retention)
             low_count = await mongo.delete_many(
                 "news_events",
                 {
@@ -531,7 +531,7 @@ class NewsLifecycleManager:
         
         # 按优先级删除（排除按类别管理的新闻）
         for priority, days in retention_by_priority.items():
-            cutoff = datetime.utcnow() - timedelta(days=days)
+            cutoff = datetime.now(timezone.utc) - timedelta(days=days)
             
             try:
                 # 先获取要删除的 ID（排除有特定类别的新闻，它们由 _delete_by_category 处理）
@@ -596,7 +596,7 @@ class NewsLifecycleManager:
         
         # 按类别删除
         for category, days in retention_by_category.items():
-            cutoff = datetime.utcnow() - timedelta(days=days)
+            cutoff = datetime.now(timezone.utc) - timedelta(days=days)
             
             try:
                 to_delete = await mongo.find_many(

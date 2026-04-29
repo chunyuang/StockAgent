@@ -15,7 +15,7 @@
 """
 
 from typing import Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timezone
 import asyncio
 
 from core.base import BaseCollector
@@ -110,7 +110,7 @@ class ThsSectorCollector(BaseCollector):
                 for sector in sectors:
                     sector["sector_type"] = sector_type
                     sector["type_name"] = type_name
-                    sector["updated_at"] = datetime.utcnow()
+                    sector["updated_at"] = datetime.now(timezone.utc)
                 
                 all_sectors.extend(sectors)
                 stats[type_name] = len(sectors)
@@ -210,7 +210,7 @@ class ThsSectorCollector(BaseCollector):
                 "code": stock_code,
                 "sectors": sectors_list,
                 "sector_count": len(sectors_list),
-                "updated_at": datetime.utcnow(),
+                "updated_at": datetime.now(timezone.utc),
             }
             for stock_code, sectors_list in stock_to_sectors.items()
         ]
@@ -233,7 +233,7 @@ class ThsSectorCollector(BaseCollector):
                 "name": sector_doc["name"] if sector_doc else sector_code,
                 "stocks": stocks_list,
                 "stock_count": len(stocks_list),
-                "updated_at": datetime.utcnow(),
+                "updated_at": datetime.now(timezone.utc),
             })
         
         if sector_docs:

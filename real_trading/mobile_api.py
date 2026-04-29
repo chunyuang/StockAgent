@@ -22,12 +22,15 @@ from signal_pusher import SignalPusher
 
 app = FastAPI(title="StockAgent 移动端API", version="1.0")
 
-# API密钥验证
-API_KEY = os.getenv("MOBILE_API_KEY", "stockagent_2026")
+# API密钥验证 - 必须通过环境变量设置，无默认值
+API_KEY = os.getenv("MOBILE_API_KEY", "")
+if not API_KEY:
+    import warnings
+    warnings.warn("MOBILE_API_KEY 未设置，移动端API将无法访问！请在.env中配置MOBILE_API_KEY")
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 async def get_api_key(api_key: str = Depends(api_key_header)):
-    if api_key != API_KEY:
+    if not API_KEY or api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API Key")
     return api_key
 

@@ -12,7 +12,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from core.managers import mongo_manager
 from src.report.news_filter import (
@@ -28,7 +28,7 @@ async def test_filter():
     await mongo_manager.initialize()
     
     # 获取最近的事件
-    cutoff = datetime.utcnow() - timedelta(hours=24)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
     events = await mongo_manager.find_many(
         "news_events",
         {"last_update_time": {"$gte": cutoff}},

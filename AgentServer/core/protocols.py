@@ -7,7 +7,7 @@
 
 from enum import Enum
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 import uuid
 
@@ -63,7 +63,7 @@ class NodeInfo(BaseModel):
     host: str
     port: int
     status: str = "online"  # online, busy, offline
-    last_heartbeat: datetime = Field(default_factory=datetime.utcnow)
+    last_heartbeat: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     
     # 负载信息 (Inference 节点)
     current_tasks: int = 0
@@ -81,7 +81,7 @@ class NodeInfo(BaseModel):
 class NodeHeartbeat(BaseModel):
     """节点心跳"""
     node_id: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     status: str = "alive"
     load: float = 0.0
 
@@ -109,7 +109,7 @@ class AgentTask(BaseModel):
     # 元信息
     user_id: str
     priority: int = 0  # 优先级，数字越大越优先
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     
     # 目标节点 (用于定向分发)
     target_node_id: Optional[str] = None
@@ -138,7 +138,7 @@ class AgentResponse(BaseModel):
     llm_tokens_used: int = 0
     
     # 时间戳
-    completed_at: datetime = Field(default_factory=datetime.utcnow)
+    completed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ==================== 进度消息 ====================
@@ -162,7 +162,7 @@ class AgentThought(BaseModel):
     node_name: str
     content: str
     is_final: bool = False
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ==================== 分析结果 ====================
@@ -237,7 +237,7 @@ class ReasoningStep(BaseModel):
     action: str = Field(description="执行动作")
     reasoning: str = Field(description="推理过程")
     result_summary: str = Field(default="", description="结果摘要")
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class RoundSummary(BaseModel):
@@ -261,7 +261,7 @@ class RoundSummary(BaseModel):
     decision: str = Field(default="", description="该轮决策")
     unresolved_issues: List[str] = Field(default_factory=list, description="未解决的问题")
     
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class SupplementaryData(BaseModel):
@@ -274,7 +274,7 @@ class SupplementaryData(BaseModel):
     target_conflict: str = Field(default="", description="针对的矛盾类型")
     content: str = Field(description="数据内容摘要")
     raw_data: Optional[Dict[str, Any]] = Field(default=None, description="原始数据")
-    fetched_at: datetime = Field(default_factory=datetime.utcnow)
+    fetched_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class StockAnalysisState(BaseModel):
@@ -459,8 +459,8 @@ class StrategySubscription(BaseModel):
     user_id: Optional[str] = Field(default=None, description="所属用户")
     
     # 时间戳
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     
     def is_all_market(self) -> bool:
         """是否监听全市场 (必须明确包含 'ALL' 标识)"""
@@ -491,7 +491,7 @@ class StrategyAlert(BaseModel):
     extra_data: Dict[str, Any] = Field(default_factory=dict, description="额外数据")
     
     # 时间戳
-    triggered_at: datetime = Field(default_factory=datetime.utcnow)
+    triggered_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class MarketSnapshot(BaseModel):
@@ -501,7 +501,7 @@ class MarketSnapshot(BaseModel):
     每次轮询获取的全市场实时数据快照。
     """
     snapshot_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
-    snapshot_time: datetime = Field(default_factory=datetime.utcnow)
+    snapshot_time: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     
     # 数据
     quotes: Dict[str, Dict[str, Any]] = Field(

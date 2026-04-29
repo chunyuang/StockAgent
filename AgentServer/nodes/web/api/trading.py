@@ -6,7 +6,7 @@
 
 import uuid
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 from enum import Enum
 
@@ -212,8 +212,8 @@ async def get_sim_accounts(
                 total_profit=0.0,
                 position_value=0.0,
                 position_ratio=0.0,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow()
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc)
             )
             
             await mongo_manager.insert_one(
@@ -238,7 +238,7 @@ async def create_sim_account(
     """
     try:
         account_id = f"sim_{uuid.uuid4().hex[:12]}"
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         
         account = SimAccount(
             account_id=account_id,
@@ -468,7 +468,7 @@ async def execute_signal(
         if signal.get("status") != SignalStatus.PENDING:
             raise HTTPException(status_code=400, detail="信号已执行或已过期")
         
-        if signal.get("expired_at", datetime.max) < datetime.utcnow():
+        if signal.get("expired_at", datetime.max) < datetime.now(timezone.utc):
             raise HTTPException(status_code=400, detail="信号已过期")
         
         # 调用模拟交易引擎执行交易
@@ -492,7 +492,7 @@ async def execute_signal(
             raise HTTPException(status_code=400, detail=message)
         
         # 更新信号状态
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         await mongo_manager.update_one(
             "trading_signals",
             {"signal_id": signal_id},

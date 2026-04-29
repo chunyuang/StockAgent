@@ -7,7 +7,7 @@
 import json
 import logging
 from typing import Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from ..types import WorkingMemoryItem
 
@@ -98,7 +98,7 @@ class ContextWindow:
             message = {
                 "role": role,
                 "content": content,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
             
             # 添加到列表末尾

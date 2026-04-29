@@ -9,7 +9,7 @@
 
 import logging
 from typing import Any, Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -198,7 +198,7 @@ class UnifiedRAGPipeline:
             RAG 结果
         """
         config = config or RetrievalConfig()
-        start_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc)
         
         result = RAGResult(query=query)
         
@@ -233,7 +233,7 @@ class UnifiedRAGPipeline:
                 # 提取引用
                 result.citations = self._extract_citations(result.response, items)
             
-            result.query_time_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
+            result.query_time_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
             
             self.logger.info(
                 f"[{trace_id}] RAG query completed: {result.total_count} items, "

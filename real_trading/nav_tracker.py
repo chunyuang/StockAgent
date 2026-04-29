@@ -13,6 +13,9 @@
 - monthly_stats/{account_id}_monthly.json — 月度收益统计
 """
 import sys
+import logging
+
+logger = logging.getLogger(__name__)
 import os
 import json
 from datetime import datetime, timedelta
@@ -211,10 +214,10 @@ class NavTracker:
         # 更新或追加
         if existing_idx is not None:
             self.nav_records[existing_idx] = record
-            print(f"✅ 更新 {trade_date} 净值：NAV={record.nav:.4f}，日收益={record.daily_return:.2f}%")
+            logger.info(f"✅ 更新 {trade_date} 净值：NAV={record.nav:.4f}，日收益={record.daily_return:.2f}%")
         else:
             self.nav_records.append(record)
-            print(f"✅ 记录 {trade_date} 净值：NAV={record.nav:.4f}，日收益={record.daily_return:.2f}%")
+            logger.info(f"✅ 记录 {trade_date} 净值：NAV={record.nav:.4f}，日收益={record.daily_return:.2f}%")
         
         # 按日期排序
         self.nav_records.sort(key=lambda r: r.date)
@@ -442,7 +445,7 @@ class NavTracker:
             filepath = os.path.join(output_dir, filename)
             with open(filepath, "w", encoding="utf-8") as f:
                 f.write(report_content)
-            print(f"✅ 净值报告已保存到：{filepath}")
+            logger.info(f"✅ 净值报告已保存到：{filepath}")
         
         return report_content
     
@@ -498,7 +501,7 @@ class NavTracker:
         if output_path:
             with open(output_path, "w", encoding="utf-8") as f:
                 f.write(csv_content)
-            print(f"✅ CSV已导出到：{output_path}")
+            logger.info(f"✅ CSV已导出到：{output_path}")
         
         return csv_content
     
@@ -513,18 +516,18 @@ class NavTracker:
             with open(self.nav_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
             if not isinstance(data, list):
-                print(f"⚠️  净值数据格式异常，初始化空")
+                logger.error(f"⚠️  净值数据格式异常，初始化空")
                 return []
             records = []
             for item in data:
                 try:
                     records.append(NavRecord(**item))
                 except (TypeError, KeyError) as e:
-                    print(f"⚠️  跳过异常净值记录: {e}")
-            print(f"✅ 加载净值历史成功，共{len(records)}条记录")
+                    logger.error(f"⚠️  跳过异常净值记录: {e}")
+            logger.info(f"✅ 加载净值历史成功，共{len(records)}条记录")
             return records
         except (json.JSONDecodeError, OSError) as e:
-            print(f"❌ 加载净值历史失败: {e}")
+            logger.error(f"❌ 加载净值历史失败: {e}")
             return []
     
     def _save_nav_history(self):
@@ -534,7 +537,7 @@ class NavTracker:
             with open(self.nav_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
         except (OSError, TypeError) as e:
-            print(f"❌ 保存净值历史失败: {e}")
+            logger.error(f"❌ 保存净值历史失败: {e}")
     
     def _get_trade_count_by_month(self) -> Dict[str, int]:
         """从交易历史文件获取每月交易次数
@@ -600,16 +603,16 @@ def main():
     
     elif args.action == "report":
         report = tracker.generate_report(args.date, args.output_dir)
-        print(report)
+        logger.info(report)
     
     elif args.action == "history":
         records = tracker.get_nav_history(args.start, args.end)
         if not records:
-            print("暂无净值记录")
+            logger.info("暂无净值记录")
         else:
             for r in records:
                 icon = "📈" if r.daily_return > 0 else ("📉" if r.daily_return < 0 else "➖")
-                print(f"{r.date} {icon} NAV={r.nav:.4f} 日收益={r.daily_return:.2f}% 累计={r.cumulative_return:.2f}%")
+                logger.info(f"{r.date} {icon} NAV={r.nav:.4f} 日收益={r.daily_return:.2f}% 累计={r.cumulative_return:.2f}%")
     
     elif args.action == "export-csv":
         tracker.export_nav_csv(args.output_path)

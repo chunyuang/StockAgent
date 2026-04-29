@@ -4,7 +4,7 @@
 
 import asyncio
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 
 from nodes.base import BaseNode
@@ -123,7 +123,7 @@ class InferenceNode(BaseNode):
             # 设置 trace_id (用于日志)
             self.set_trace_id(task.trace_id)
             
-            start_time = datetime.utcnow()
+            start_time = datetime.now(timezone.utc)
             
             try:
                 self.logger.info(f"Processing task: {task.task_id}, type={task.task_type}")
@@ -146,7 +146,7 @@ class InferenceNode(BaseNode):
                 result = await self._execute_analysis(task)
                 
                 # 计算执行时间
-                execution_time_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
+                execution_time_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
                 
                 # 更新任务结果
                 await mongo_manager.update_one(
@@ -154,7 +154,7 @@ class InferenceNode(BaseNode):
                     {"task_id": task.task_id},
                     {"$set": {
                         "status": TaskStatus.COMPLETED.value,
-                        "completed_at": datetime.utcnow(),
+                        "completed_at": datetime.now(timezone.utc),
                         "result": result,
                         "execution_time_ms": execution_time_ms,
                     }},

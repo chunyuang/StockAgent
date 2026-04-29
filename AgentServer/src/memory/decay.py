@@ -13,7 +13,7 @@
 import logging
 import asyncio
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from .types import DecayStrategy, DecayResult
 
@@ -137,7 +137,7 @@ class DecayEngine:
         mongo = await self._get_mongo()
         
         try:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             
             # 清理情景记忆中的过期项
             query = {
@@ -169,7 +169,7 @@ class DecayEngine:
         mongo = await self._get_mongo()
         
         try:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             decay_count = 0
             
             # 获取需要衰减的记忆 (24 小时未访问)
@@ -345,7 +345,7 @@ class DecayEngine:
         mongo = await self._get_mongo()
         
         try:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             
             # 获取当前重要性
             doc = await mongo.find_one(collection, {"_id": item_id, "user_id": user_id})
@@ -390,7 +390,7 @@ class DecayEngine:
                 {"_id": item_id, "user_id": user_id},
                 {"$set": {
                     "metadata.decay_strategy": DecayStrategy.NEVER.value,
-                    "metadata.updated_at": datetime.utcnow(),
+                    "metadata.updated_at": datetime.now(timezone.utc),
                 }}
             )
             

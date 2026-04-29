@@ -5,7 +5,7 @@
 """
 
 from typing import Dict, Any
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 
 from core.base import BaseCollector
 from core.settings import settings
@@ -113,7 +113,7 @@ class StockBasicCollector(BaseCollector):
         merged_count = 0
         for record in records:
             ts_code = record.get("ts_code")
-            record["updated_at"] = datetime.utcnow()
+            record["updated_at"] = datetime.now(timezone.utc)
             
             if ts_code and ts_code in daily_basic_map:
                 _add_financial_metrics(record, daily_basic_map[ts_code])

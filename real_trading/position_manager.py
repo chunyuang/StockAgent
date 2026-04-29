@@ -4,6 +4,9 @@
 功能：记录持仓、自动检查止损止盈、持仓超期提醒、强制平仓提醒
 """
 import sys
+import logging
+
+logger = logging.getLogger(__name__)
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'AgentServer'))  # FIXME: 使用sys.path.insert做模块查找是反模式，应改用setup.py/pyproject.toml将项目安装到venv中
 sys.path.insert(0, os.path.dirname(__file__))
@@ -132,20 +135,20 @@ class PositionManager:
                 with open(self.data_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 if not isinstance(data, dict):
-                    print(f"⚠️  持仓数据格式异常（期望dict，实际{type(data).__name__}），初始化空持仓")
+                    logger.error(f"⚠️  持仓数据格式异常（期望dict，实际{type(data).__name__}），初始化空持仓")
                     self.positions = {}
                     return
                 for ts_code, pos_data in data.items():
                     try:
                         self.positions[ts_code] = Position(**pos_data)
                     except (TypeError, KeyError) as e:
-                        print(f"⚠️  跳过异常持仓记录 {ts_code}: {e}")
-                print(f"✅ 加载持仓数据成功，共{len(self.positions)}只持仓")
+                        logger.error(f"⚠️  跳过异常持仓记录 {ts_code}: {e}")
+                logger.info(f"✅ 加载持仓数据成功，共{len(self.positions)}只持仓")
             except (json.JSONDecodeError, OSError) as e:
-                print(f"❌ 加载持仓数据失败: {e}")
+                logger.error(f"❌ 加载持仓数据失败: {e}")
                 self.positions = {}
         else:
-            print("ℹ️  无历史持仓数据，初始化空持仓")
+            logger.info("ℹ️  无历史持仓数据，初始化空持仓")
     
     def _save_positions(self):
         """保存持仓数据"""
@@ -153,9 +156,9 @@ class PositionManager:
             data = {ts_code: asdict(pos) for ts_code, pos in self.positions.items()}
             with open(self.data_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-            print("✅ 持仓数据已保存")
+            logger.info("✅ 持仓数据已保存")
         except (OSError, TypeError) as e:
-            print(f"❌ 保存持仓数据失败: {e}")
+            logger.error(f"❌ 保存持仓数据失败: {e}")
     
     def add_position(self, position: Position) -> bool:
         """添加新持仓
@@ -167,12 +170,12 @@ class PositionManager:
             bool: True添加成功，False表示该股票已在持仓中（不允许重复建仓）
         """
         if position.ts_code in self.positions:
-            print(f"⚠️  {position.ts_code} 已在持仓中，是否需要加仓？")
+            logger.warning(f"⚠️  {position.ts_code} 已在持仓中，是否需要加仓？")
             return False
         
         self.positions[position.ts_code] = position
         self._save_positions()
-        print(f"✅ 添加持仓：{position.name}({position.ts_code})，{position.shares}股，成本{position.buy_price:.2f}元")
+        logger.info(f"✅ 添加持仓：{position.name}({position.ts_code})，{position.shares}股，成本{position.buy_price:.2f}元")
         return True
     
     def add_position_by_signal(self, signal: Dict, buy_price: float = None, shares: int = None) -> bool:
@@ -235,7 +238,7 @@ class PositionManager:
             Dict: 交易记录字典，包含盈亏详情；股票不在持仓中时返回空dict
         """
         if ts_code not in self.positions:
-            print(f"⚠️  {ts_code} 不在持仓中")
+            logger.warning(f"⚠️  {ts_code} 不在持仓中")
             return {}
         
         pos = self.positions[ts_code]
@@ -268,7 +271,7 @@ class PositionManager:
         del self.positions[ts_code]
         self._save_positions()
         
-        print(f"✅ 平仓 {pos.name}({ts_code})，持仓{hold_days}天，盈利{profit:.2f}元({profit_pct:.2f}%)，原因：{reason}")
+        logger.info(f"✅ 平仓 {pos.name}({ts_code})，持仓{hold_days}天，盈利{profit:.2f}元({profit_pct:.2f}%)，原因：{reason}")
         return trade_record
     
     def _add_trade_history(self, record: Dict):
@@ -287,7 +290,7 @@ class PositionManager:
             with open(history_file, "w", encoding="utf-8") as f:
                 json.dump(history, f, ensure_ascii=False, indent=2)
         except (OSError, TypeError) as e:
-            print(f"❌ 保存交易历史失败: {e}")
+            logger.error(f"❌ 保存交易历史失败: {e}")
     
     async def daily_check(self, current_date: str = None) -> List[Dict]:
         """每日盘后持仓风控检查
@@ -308,11 +311,11 @@ class PositionManager:
         if not current_date:
             current_date = datetime.now().strftime("%Y%m%d")
         
-        print(f"========== 持仓每日检查 {current_date} ==========")
+        logger.info(f"========== 持仓每日检查 {current_date} ==========")
         alerts = []
         
         if not self.positions:
-            print("ℹ️  当前无持仓")
+            logger.info("ℹ️  当前无持仓")
             return alerts
         
         # 获取当日行情数据
@@ -329,9 +332,9 @@ class PositionManager:
             if daily_data:
                 price_map = {x.get("ts_code", ""): x for x in daily_data if x.get("ts_code")}
         except (ConnectionError, OSError, ValueError) as e:
-            print(f"⚠️  获取行情数据失败: {e}，将使用成本价代替")
+            logger.error(f"⚠️  获取行情数据失败: {e}，将使用成本价代替")
         except Exception as e:
-            print(f"⚠️  获取行情数据异常: {e}，将使用成本价代替")
+            logger.error(f"⚠️  获取行情数据异常: {e}，将使用成本价代替")
         
         for ts_code, pos in self.positions.items():
             daily = price_map.get(ts_code, {})
@@ -373,11 +376,11 @@ class PositionManager:
             
             if alert["alerts"]:
                 alerts.append(alert)
-                print(f"{alert['level'] == 'danger' and '🔴' or alert['level'] == 'warning' and '🟡' or '🟢'} {pos.name}({ts_code})：")
+                logger.warning(f"{alert['level'] == 'danger' and '🔴' or alert['level'] == 'warning' and '🟡' or '🟢'} {pos.name}({ts_code})：")
                 for a in alert["alerts"]:
-                    print(f"   - {a}")
+                    logger.info(f"   - {a}")
             else:
-                print(f"✅ {pos.name}({ts_code})：当前盈利{alert['profit_pct']:.2f}%，持仓{alert['hold_days']}天，正常")
+                logger.info(f"✅ {pos.name}({ts_code})：当前盈利{alert['profit_pct']:.2f}%，持仓{alert['hold_days']}天，正常")
         
         return alerts
     
@@ -410,13 +413,13 @@ class PositionManager:
             with open(history_file, "r", encoding="utf-8") as f:
                 history = json.load(f)
             if not isinstance(history, list):
-                print(f"⚠️  交易历史格式异常，期望list，实际{type(history).__name__}")
+                logger.error(f"⚠️  交易历史格式异常，期望list，实际{type(history).__name__}")
                 return []
             # 按卖出日期倒序
             history.sort(key=lambda x: x.get("sell_date", ""), reverse=True)
             return history[:limit]
         except (json.JSONDecodeError, OSError, KeyError) as e:
-            print(f"⚠️  读取交易历史失败: {e}")
+            logger.error(f"⚠️  读取交易历史失败: {e}")
             return []
     
     def get_performance_summary(self) -> Dict:
@@ -476,7 +479,7 @@ class PositionManager:
                 "latest_trade_date": history[0].get("sell_date", "") if history else ""
             }
         except (KeyError, TypeError, ZeroDivisionError) as e:
-            print(f"⚠️  计算绩效统计失败: {e}")
+            logger.error(f"⚠️  计算绩效统计失败: {e}")
             return default_result
 
 
@@ -499,15 +502,15 @@ if __name__ == "__main__":
     if args.action == "list":
         positions = manager.get_positions()
         if not positions:
-            print("当前无持仓")
+            logger.info("当前无持仓")
         else:
-            print(f"当前持仓共{len(positions)}只：")
+            logger.info(f"当前持仓共{len(positions)}只：")
             for pos in positions:
-                print(f"{pos['name']}({pos['ts_code']}) | 成本{pos['buy_price']:.2f} | 持仓{pos['hold_days']}天 | 止损{pos['stop_loss_price']:.2f} | 止盈{pos['take_profit_price']:.2f}")
+                logger.info(f"{pos['name']}({pos['ts_code']}) | 成本{pos['buy_price']:.2f} | 持仓{pos['hold_days']}天 | 止损{pos['stop_loss_price']:.2f} | 止盈{pos['take_profit_price']:.2f}")
     
     elif args.action == "add":
         if not all([args.ts_code, args.name, args.buy_price, args.shares]):
-            print("参数错误：需要 --ts-code、--name、--buy-price、--shares")
+            logger.error("参数错误：需要 --ts-code、--name、--buy-price、--shares")
             sys.exit(1)
         
         pos = Position(
@@ -524,7 +527,7 @@ if __name__ == "__main__":
     
     elif args.action == "close":
         if not all([args.ts_code, args.sell_price]):
-            print("参数错误：需要 --ts-code、--sell-price")
+            logger.error("参数错误：需要 --ts-code、--sell-price")
             sys.exit(1)
         manager.close_position(args.ts_code, args.sell_price, args.date, args.reason or "手动平仓")
     
@@ -533,22 +536,22 @@ if __name__ == "__main__":
     
     elif args.action == "history":
         history = manager.get_trade_history(20)
-        print(f"最近{len(history)}笔交易：")
+        logger.info(f"最近{len(history)}笔交易：")
         for t in history:
             profit_icon = "✅" if t["profit"] > 0 else "❌"
-            print(f"{t['sell_date']} {profit_icon} {t['name']}({t['ts_code']}) | 盈利{t['profit']:.2f}元({t['profit_pct']:.2f}%) | 持仓{t['hold_days']}天 | 原因：{t['reason']}")
+            logger.info(f"{t['sell_date']} {profit_icon} {t['name']}({t['ts_code']}) | 盈利{t['profit']:.2f}元({t['profit_pct']:.2f}%) | 持仓{t['hold_days']}天 | 原因：{t['reason']}")
     
     elif args.action == "performance":
         perf = manager.get_performance_summary()
-        print("="*50)
-        print("📊 实盘绩效统计")
-        print("="*50)
-        print(f"总交易次数：{perf['total_trades']}次")
-        print(f"胜率：{perf['win_rate']}%（{perf['win_trades']}胜{perf['lose_trades']}负）")
-        print(f"总盈利：{perf['total_profit']:.2f}元")
-        print(f"平均每笔收益：{perf['avg_profit_pct']:.2f}%")
-        print(f"最大回撤：{perf['max_drawdown']:.2f}%")
-        print(f"平均持仓天数：{perf['avg_hold_days']}天")
+        logger.info("="*50)
+        logger.info("📊 实盘绩效统计")
+        logger.info("="*50)
+        logger.info(f"总交易次数：{perf['total_trades']}次")
+        logger.info(f"胜率：{perf['win_rate']}%（{perf['win_trades']}胜{perf['lose_trades']}负）")
+        logger.info(f"总盈利：{perf['total_profit']:.2f}元")
+        logger.info(f"平均每笔收益：{perf['avg_profit_pct']:.2f}%")
+        logger.info(f"最大回撤：{perf['max_drawdown']:.2f}%")
+        logger.info(f"平均持仓天数：{perf['avg_hold_days']}天")
         if perf['latest_trade_date']:
-            print(f"最近交易日期：{perf['latest_trade_date']}")
-        print("="*50)
+            logger.info(f"最近交易日期：{perf['latest_trade_date']}")
+        logger.info("="*50)

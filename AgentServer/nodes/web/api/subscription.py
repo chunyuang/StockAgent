@@ -11,7 +11,7 @@ import asyncio
 import logging
 import uuid
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Path, Body, Depends
 from pydantic import BaseModel, Field
@@ -229,7 +229,7 @@ async def _ensure_strategy_exists(strategy_type: str) -> dict:
     
     # 不存在则创建
     meta = STRATEGY_META.get(strategy_type, {})
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     
     doc = {
         "subscription_id": uuid.uuid4().hex,
@@ -320,8 +320,8 @@ async def get_subscription_by_type(strategy_type: str = Path(...)):
         record = {
             "strategy_type": strategy_type,
             "params": default_params,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
         }
         await mongo_manager.insert_one("strategy_subscriptions", record)
     
@@ -354,7 +354,7 @@ async def update_strategy_params(
         {
             "$set": {
                 "params": data.params,
-                "updated_at": datetime.utcnow(),
+                "updated_at": datetime.now(timezone.utc),
             }
         },
     )
@@ -406,7 +406,7 @@ async def toggle_subscription(
         {
             "$set": {
                 "is_active": new_status,
-                "updated_at": datetime.utcnow(),
+                "updated_at": datetime.now(timezone.utc),
             }
         },
     )
@@ -485,7 +485,7 @@ async def add_stock_to_strategy(
         {
             "$set": {
                 "watch_list": watch_list,
-                "updated_at": datetime.utcnow(),
+                "updated_at": datetime.now(timezone.utc),
             }
         },
     )
@@ -547,7 +547,7 @@ async def remove_stock_from_strategy(
         {
             "$set": {
                 "watch_list": watch_list,
-                "updated_at": datetime.utcnow(),
+                "updated_at": datetime.now(timezone.utc),
             }
         },
     )

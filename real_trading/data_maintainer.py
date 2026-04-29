@@ -816,29 +816,29 @@ async def main():
     try:
         if args.action == "download-daily":
             result = await maintainer.download_daily_data(args.date)
-            print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
+            logger.info(json.dumps(asdict(result), ensure_ascii=False, indent=2))
         
         elif args.action == "download-auction":
             result = await maintainer.download_auction_data(args.date)
-            print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
+            logger.info(json.dumps(asdict(result), ensure_ascii=False, indent=2))
         
         elif args.action == "incremental":
             results = await maintainer.incremental_update(args.days)
             for r in results:
                 icon = "✅" if r.success else "❌"
-                print(f"{icon} {r.trade_date}: {r.records_downloaded}条 from {r.source} ({r.elapsed_seconds:.1f}s)")
+                logger.info(f"{icon} {r.trade_date}: {r.records_downloaded}条 from {r.source} ({r.elapsed_seconds:.1f}s)")
         
         elif args.action == "validate":
             result = await maintainer.validate_daily_data(args.date)
-            print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
+            logger.info(json.dumps(asdict(result), ensure_ascii=False, indent=2))
         
         elif args.action == "status":
             status = await maintainer.get_data_status()
-            print(json.dumps(status, ensure_ascii=False, indent=2))
+            logger.info(json.dumps(status, ensure_ascii=False, indent=2))
         
         elif args.action == "latest-date":
             latest = await maintainer.get_latest_date()
-            print(f"最新数据日期: {latest or '无数据'}")
+            logger.info(f"最新数据日期: {latest or '无数据'}")
     
     finally:
         await maintainer.shutdown()

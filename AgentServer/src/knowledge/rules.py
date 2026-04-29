@@ -12,7 +12,7 @@
 
 import logging
 from typing import Any, Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
@@ -96,8 +96,8 @@ class RulesKnowledgeBase:
             "priority": priority,
             "tags": tags or [],
             "enabled": True,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
         }
         
         result = await db[self.COLLECTION].insert_one(doc)
@@ -116,7 +116,7 @@ class RulesKnowledgeBase:
         
         db = await self._get_db()
         
-        updates["updated_at"] = datetime.utcnow()
+        updates["updated_at"] = datetime.now(timezone.utc)
         
         result = await db[self.COLLECTION].update_one(
             {"_id": ObjectId(rule_id)},
@@ -337,8 +337,8 @@ class RulesKnowledgeBase:
         # 添加默认规则
         for rule in default_rules:
             rule["enabled"] = True
-            rule["created_at"] = datetime.utcnow()
-            rule["updated_at"] = datetime.utcnow()
+            rule["created_at"] = datetime.now(timezone.utc)
+            rule["updated_at"] = datetime.now(timezone.utc)
         
         result = await db[self.COLLECTION].insert_many(default_rules)
         

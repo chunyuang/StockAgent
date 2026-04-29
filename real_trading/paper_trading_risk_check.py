@@ -8,6 +8,9 @@
 """
 
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 import os
 from typing import Dict, List, Optional
 from datetime import datetime
@@ -67,7 +70,7 @@ class PaperTradingEngineWithRisk:
             with open(self.data_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 if not isinstance(data, dict):
-                    print(f"⚠️  账户数据格式异常")
+                    logger.error(f"⚠️  账户数据格式异常")
                     self.accounts = {}
                     return
                 
@@ -78,13 +81,13 @@ class PaperTradingEngineWithRisk:
                         from dataclasses import dataclass
                         acc = dataclass(**acc_data)
                         self.accounts[acc_id] = acc
-                    except:
+                    except (TypeError, AttributeError, KeyError):
                         # 如果数据结构不匹配，创建空对象
                         pass
                 
-                print(f"✅ 加载账户数据成功，共{len(self.accounts)}个账户")
+                logger.info(f"✅ 加载账户数据成功，共{len(self.accounts)}个账户")
         except Exception as e:
-            print(f"❌ 加载账户数据失败: {e}")
+            logger.error(f"❌ 加载账户数据失败: {e}")
             self.accounts = {}
     
     def _save_accounts(self):
@@ -95,9 +98,9 @@ class PaperTradingEngineWithRisk:
             with open(self.data_file, "w", encoding="utf-8") as f:
                 data = {acc_id: acc.__dict__ for acc_id, acc in self.accounts.items()}
                 json.dump(data, f, ensure_ascii=False, indent=2)
-            print("✅ 账户数据已保存")
+            logger.info("✅ 账户数据已保存")
         except Exception as e:
-            print(f"❌ 保存账户数据失败: {e}")
+            logger.error(f"❌ 保存账户数据失败: {e}")
     
     def _load_rejections(self):
         """加载拒绝记录"""
@@ -111,7 +114,7 @@ class PaperTradingEngineWithRisk:
                     return data
                 return []
         except Exception as e:
-            print(f"⚠️  加载拒绝记录失败: {e}")
+            logger.error(f"⚠️  加载拒绝记录失败: {e}")
             return []
     
     def _save_rejection(self, rejection: Dict):
@@ -132,9 +135,9 @@ class PaperTradingEngineWithRisk:
             # 保存
             with open(self.rejection_log_file, "w", encoding="utf-8") as f:
                 json.dump(rejections, f, ensure_ascii=False, indent=2)
-            print(f"✅ 拒绝记录已保存")
+            logger.info(f"✅ 拒绝记录已保存")
         except Exception as e:
-            print(f"❌ 保存拒绝记录失败: {e}")
+            logger.error(f"❌ 保存拒绝记录失败: {e}")
     
     async def place_order_with_risk_check(self, account_id: str, ts_code: str, name: str, 
                                     buy_price: float, shares: int, 
@@ -170,7 +173,7 @@ class PaperTradingEngineWithRisk:
             )
         except Exception as e:
             # 风控检查异常，记录日志但允许交易继续
-            print(f"⚠️ 风控检查异常: {e}")
+            logger.error(f"⚠️ 风控检查异常: {e}")
             risk_result = RiskCheckResult(
                 allowed=True,  # 检查失败默认允许交易
                 reason="风控检查异常，允许交易",
@@ -194,7 +197,7 @@ class PaperTradingEngineWithRisk:
             }
             self._save_rejection(rejection)
             
-            print(f"❌ 交易被拒绝: {risk_result.reason}")
+            logger.error(f"❌ 交易被拒绝: {risk_result.reason}")
             return {
                 "success": False,
                 "msg": f"交易被风控拒绝: {risk_result.reason}",
@@ -202,8 +205,8 @@ class PaperTradingEngineWithRisk:
             }
         
         # 4. 通过风控检查，执行交易（这里简化处理，实际应调用原PaperTradingEngine的交易逻辑）
-        print(f"✅ 风控检查通过，允许交易")
-        print(f"📊 股票: {name}({ts_code}) 数量: {shares}")
+        logger.info(f"✅ 风控检查通过，允许交易")
+        logger.info(f"📊 股票: {name}({ts_code}) 数量: {shares}")
         
         # TODO: 这里应该调用原有的buy_stock逻辑
         # 实际集成时需要：
@@ -271,7 +274,7 @@ class PaperTradingEngineWithRisk:
             **self.risk_checker.config,
             **config
         }
-        print(f"✅ 风控配置已更新")
+        logger.info(f"✅ 风控配置已更新")
     
     def get_risk_config(self) -> Dict[str, any]:
         """
@@ -288,12 +291,12 @@ if __name__ == "__main__":
     engine = PaperTradingEngineWithRisk()
     
     # 测试风控检查
-    print("测试风控检查...")
+    logger.info("测试风控检查...")
     
     # 获取当前风控配置
     config = engine.get_risk_config()
-    print("当前风控配置:", config)
+    logger.info("当前风控配置:", config)
     
     # 获取拒绝记录
     rejections = engine.get_rejection_list()
-    print(f"拒绝记录数: {len(rejections)}")
+    logger.info(f"拒绝记录数: {len(rejections)}")

@@ -28,7 +28,7 @@ import argparse
 import sys
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -200,7 +200,7 @@ async def check_pending_news():
         await mongo_manager.initialize()
     
     # 查询条件与 process_pending_news 保持一致
-    cutoff = datetime.utcnow() - timedelta(hours=48)  # 48小时内的新闻
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=48)  # 48小时内的新闻
     count = await mongo_manager._db["news"].count_documents({
         "clustered_at": {"$exists": False},
         "collect_time": {"$gte": cutoff},

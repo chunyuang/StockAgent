@@ -6,7 +6,7 @@
 
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from .types import (
@@ -184,7 +184,7 @@ class ReportGenerator:
         """从 MongoDB 获取聚合后的事件"""
         mongo = await self._get_mongo()
         
-        cutoff = datetime.utcnow() - timedelta(hours=hours_back)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours_back)
         
         events = await mongo.find_many(
             "news_events",
@@ -345,7 +345,7 @@ class ReportGenerator:
             await mongo.update_one(
                 "reports",
                 {"_id": report.id},
-                {"$set": {"pushed.wechat": True, "pushed_wechat_at": datetime.utcnow()}}
+                {"$set": {"pushed.wechat": True, "pushed_wechat_at": datetime.now(timezone.utc)}}
             )
             
             self.logger.info(f"[{trace_id}] Report pushed to WeChat: {report.id}")
@@ -383,7 +383,7 @@ class ReportGenerator:
             await mongo.update_one(
                 "reports",
                 {"_id": report.id},
-                {"$set": {"pushed.websocket": True, "pushed_websocket_at": datetime.utcnow()}}
+                {"$set": {"pushed.websocket": True, "pushed_websocket_at": datetime.now(timezone.utc)}}
             )
             
             self.logger.info(f"[{trace_id}] Report pushed to WebSocket: {report.id}")

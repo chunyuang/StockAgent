@@ -22,7 +22,7 @@ import argparse
 import sys
 import os
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -44,7 +44,7 @@ async def fetch_events(hours_back: int):
     if not mongo_manager.is_initialized:
         await mongo_manager.initialize()
     
-    cutoff = datetime.utcnow() - timedelta(hours=hours_back)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours_back)
     
     events = await mongo_manager.find_many(
         "news_events",

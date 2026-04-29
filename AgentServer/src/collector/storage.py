@@ -6,7 +6,7 @@
 
 import logging
 from typing import Any, Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .types import NewsItem, CollectResult
 
@@ -421,7 +421,7 @@ class NewsStorage:
             source=NewsSource(doc.get("source", "other")),
             category=NewsCategory(doc.get("category", "general")),
             publish_time=doc.get("publish_time"),
-            collect_time=doc.get("collect_time", datetime.utcnow()),
+            collect_time=doc.get("collect_time", datetime.now(timezone.utc)),
             ts_codes=doc.get("ts_codes", []),
             tags=doc.get("tags", []),
             keywords=doc.get("keywords", []),

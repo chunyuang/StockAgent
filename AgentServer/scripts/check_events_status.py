@@ -5,7 +5,7 @@
 import asyncio
 import sys
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -45,7 +45,7 @@ async def check_events():
     print(f"  不存在: {low_value_none}")
     
     # 时间范围
-    cutoff = datetime.utcnow() - timedelta(hours=24)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
     recent = await db["news_events"].count_documents({"last_update_time": {"$gte": cutoff}})
     print(f"\n最近24小时内: {recent}")
     

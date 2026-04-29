@@ -2,7 +2,7 @@
 用户模型定义
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List
 from pydantic import BaseModel, Field, EmailStr
 from bson import ObjectId
@@ -37,8 +37,8 @@ class UserBase(BaseModel):
 class User(UserBase):
     """用户模型（不含密码）"""
     id: Optional[PyObjectId] = Field(default=None, alias="_id")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     last_login: Optional[datetime] = None
     
     # 用户偏好

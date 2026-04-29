@@ -2,7 +2,7 @@
 策略与分析任务模型定义
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Any, Dict
 from pydantic import BaseModel, Field
 from enum import Enum
@@ -47,7 +47,7 @@ class AnalysisTask(BaseModel):
     trace_id: Optional[str] = Field(None, description="追踪ID")
     
     # 时间信息
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     started_at: Optional[datetime] = Field(None, description="开始时间")
     completed_at: Optional[datetime] = Field(None, description="完成时间")
     
@@ -125,7 +125,7 @@ class StrategyResult(BaseModel):
         description="引用的研报列表"
     )
     
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     
     model_config = {
         "json_schema_extra": {
@@ -187,8 +187,8 @@ class Strategy(BaseModel):
     )
     
     # 元数据
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     
     # 统计信息
     run_count: int = Field(default=0, description="执行次数")
@@ -244,4 +244,4 @@ class BacktestResult(BaseModel):
         description="交易记录"
     )
     
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

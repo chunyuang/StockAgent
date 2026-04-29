@@ -4,7 +4,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from core.managers import mongo_manager, notification_manager
 
 
@@ -42,7 +42,7 @@ async def resend_report(report_id: str):
         await mongo_manager.update_one(
             "reports",
             {"_id": report_id},
-            {"$set": {"pushed.wechat": True, "pushed_wechat_at": datetime.utcnow()}}
+            {"$set": {"pushed.wechat": True, "pushed_wechat_at": datetime.now(timezone.utc)}}
         )
         print("Success! Report pushed to WeChat.")
     else:

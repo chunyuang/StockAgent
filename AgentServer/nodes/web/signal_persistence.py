@@ -51,7 +51,7 @@ Collections & Indexes:
 
 import logging
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Any
 
 from core.managers import mongo_manager
@@ -204,7 +204,7 @@ class SignalPersistence:
                         "status": signal_doc["status"],
                         "config_snapshot": signal_doc.get("config_snapshot", {}),
                         "generated_at": signal_doc["generated_at"],
-                        "regenerated_at": datetime.utcnow(),
+                        "regenerated_at": datetime.now(timezone.utc),
                         "regeneration_count": (existing.get("regeneration_count", 0) or 0) + 1,
                     },
                 },
@@ -252,7 +252,7 @@ class SignalPersistence:
         """构建 trading_signals 集合的文档列表"""
         trade_date = parent_doc["date"]
         sentiment = parent_doc.get("sentiment", {})
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         expired_at = datetime.strptime(f"{trade_date} 15:00:00", "%Y%m%d %H:%M:%S")
 
         docs = []
@@ -324,7 +324,7 @@ class SignalPersistence:
         # 删除同一天的旧记录
         await mongo_manager.delete_many(COLLECTION_POOL, {"date": trade_date})
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         docs = [
             {
                 "date": trade_date,
@@ -473,7 +473,7 @@ class SignalPersistence:
             return False
 
         # 2. 更新信号状态
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         update_fields = {
             "status": SignalStatus.EXECUTED,
             "executed_time": now,
@@ -531,7 +531,7 @@ class SignalPersistence:
             {"signal_id": signal_id},
             {"$set": {
                 "status": SignalStatus.CANCELLED,
-                "cancelled_at": datetime.utcnow(),
+                "cancelled_at": datetime.now(timezone.utc),
                 "cancel_reason": reason,
             }},
         )
@@ -549,7 +549,7 @@ class SignalPersistence:
         """
         day_start = datetime.strptime(f"{trade_date} 00:00:00", "%Y%m%d %H:%M:%S")
         day_end = datetime.strptime(f"{trade_date} 23:59:59", "%Y%m%d %H:%M:%S")
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         # 过期 trading_signals
         result = await mongo_manager.update_many(
@@ -588,7 +588,7 @@ class SignalPersistence:
             await mongo_manager.update_one(
                 COLLECTION_PREMARKET,
                 {"signal_id": premarket_signal_id},
-                {"$set": {"status": SignalStatus.EXECUTED, "executed_at": datetime.utcnow()}},
+                {"$set": {"status": SignalStatus.EXECUTED, "executed_at": datetime.now(timezone.utc)}},
             )
             logger.info(f"All sub-signals of {premarket_signal_id} executed, marking as executed")
 
@@ -604,7 +604,7 @@ class SignalPersistence:
         Returns:
             Dict: 各集合删除数量
         """
-        cutoff = datetime.utcnow() - timedelta(days=retention_days)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
         cutoff_date = cutoff.strftime("%Y%m%d")
 
         results = {}

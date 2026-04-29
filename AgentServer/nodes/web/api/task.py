@@ -9,7 +9,7 @@
 """
 
 from typing import Optional, List, Dict
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 import logging
 
@@ -397,7 +397,7 @@ async def cancel_task(
     result = await mongo_manager.update_one(
         "tasks",
         {"task_id": task_id, "user_id": user_id},
-        {"$set": {"status": TaskStatus.CANCELLED.value, "cancelled_at": datetime.utcnow()}},
+        {"$set": {"status": TaskStatus.CANCELLED.value, "cancelled_at": datetime.now(timezone.utc)}},
     )
     
     if result == 0:

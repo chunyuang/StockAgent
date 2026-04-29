@@ -17,7 +17,7 @@ import logging
 import hashlib
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 
@@ -198,7 +198,7 @@ class DeduplicationEngine:
         
         try:
             # 查询时间窗口内的新闻
-            cutoff = datetime.utcnow() - time_window
+            cutoff = datetime.now(timezone.utc) - time_window
             docs = await mongo.find_many(
                 collection,
                 {"collect_time": {"$gte": cutoff}},

@@ -6,7 +6,7 @@
 
 import logging
 from typing import Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 
 from .types import (
@@ -119,7 +119,7 @@ class UnifiedRetriever:
         Returns:
             检索结果
         """
-        start_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc)
         result = RetrievalResult()
         
         import asyncio
@@ -168,7 +168,7 @@ class UnifiedRetriever:
             
             result.items = merged[:query.top_k]
             result.total_count = len(merged)
-            result.query_time_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
+            result.query_time_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
             
             self.logger.debug(
                 f"[{trace_id}] Unified search: {result.total_count} items, "
@@ -296,7 +296,7 @@ class UnifiedRetriever:
         
         # 计算综合分数
         scored_items = []
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         
         for item in unique_items:
             if isinstance(item, dict):
