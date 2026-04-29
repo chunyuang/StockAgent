@@ -116,14 +116,31 @@ async def compute_all_factors():
             limit_down_counts.append(count)
         group['limit_down_count'] = limit_down_counts
         
+        # 竞价涨幅(开盘涨幅): 用于首板打板/涨停开板策略的竞价筛选
+        group['opening_pct_chg'] = (group['open'] - group['close'].shift(1)) / group['close'].shift(1) * 100
+        
         # 开盘在涨停价附近
         group['open_above_limit'] = (group['open'] - group['close'].shift(1)) / group['close'].shift(1) >= 0.095
         group['open_below_limit'] = (group['open'] - group['close'].shift(1)) / group['close'].shift(1) <= -0.095
         group['open_above_limit_down'] = group['open_above_limit'] & group['limit_down_yesterday']
         
-        # 涨停开盘金额
-        group['limit_up_open_amount'] = np.where(group['open_above_limit'], group['amount'], 0)
-        group['limit_down_open_amount'] = np.where(group['open_below_limit'], group['amount'], 0)
+        # 涨停开板金额: 涨停盘中打开(最高=涨停价 且 最低<涨停价) 时的成交额
+        # 单位: 千元(与amount一致)
+        limit_up_price = group['close'].shift(1) * 1.1  # 涨停价(近似)
+        group['limit_up_open_amount'] = np.where(
+            (group['high'] >= limit_up_price * 0.995) & (group['low'] < limit_up_price * 0.995),
+            group['amount'], 0
+        )
+        
+        # 跌停翘板金额: 昨日跌停 + 今日盘中触及跌停价但收盘高于跌停价(开板)
+        # 单位: 千元(与amount一致)
+        limit_down_price_yesterday = group['close'].shift(1) * 0.9  # 昨日跌停价
+        group['limit_down_open_amount'] = np.where(
+            group['limit_down_yesterday'] &  # 昨日跌停
+            (group['low'] <= limit_down_price_yesterday * 1.005) &  # 盘中触及跌停价
+            (group['close'] > limit_down_price_yesterday * 1.005),  # 收盘高于跌停价=翘板成功
+            group['amount'], 0  # 单位: 千元
+        )
         
         # 涨停开盘股票数（每日统计，后续统一计算）
         group['limit_up_open_count'] = 0
@@ -153,8 +170,13 @@ async def compute_all_factors():
         # 回踩MA5
         group['pullback_ma5'] = (group['low'] <= group['ma5']) & (group['close'] >= group['ma5'])
         
-        # 跌停后上涨
-        group['rise_after_limit_down'] = group['limit_down_yesterday'] & (group['pct_chg'] > 0)
+        # 跌停后上涨(翘板后涨幅): 翘板成功后收盘价相对跌停价的涨幅(%)
+        limit_down_price_yesterday2 = group['close'].shift(1) * 0.9
+        group['rise_after_limit_down'] = np.where(
+            group['limit_down_open_amount'] > 0,
+            (group['close'] - limit_down_price_yesterday2) / limit_down_price_yesterday2 * 100,
+            0
+        )
         
         # ---------- 简化策略指标 ----------
         group['market_leader'] = False  # 简化，后续完善
