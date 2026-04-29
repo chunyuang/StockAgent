@@ -102,7 +102,7 @@ def get_ultra_short_defaults() -> Dict[str, Any]:
                     "max_limit_up_time": "10:00",
                     "max_circulation_market_cap": 500,
                     "max_blast_count": 1,
-                    "require_hot_sector": True,
+                    "require_hot_sector": False,
                 },
                 "riskParams": {
                     "stop_loss_pct": 0.015,     # 止损1.5%
