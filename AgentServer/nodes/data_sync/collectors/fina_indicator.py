@@ -14,7 +14,7 @@
 """
 
 from typing import Dict, Any, List
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 import asyncio
 
 from core.base import BaseCollector
@@ -289,7 +289,7 @@ class FinaIndicatorCollector(BaseCollector):
                                 rec["ts_code"] = ts_code
                                 rec["end_date"] = rec["trade_date"]
                     
-                    now = datetime.utcnow()
+                    now = datetime.now(timezone.utc)
                     
                     # 存储利润表
                     income_records = financial_data.get("income_statement", [])

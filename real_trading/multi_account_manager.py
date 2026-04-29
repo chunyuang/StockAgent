@@ -4,6 +4,9 @@
 功能：管理多个实盘/模拟账户，支持独立风控、独立策略、汇总统计、批量操作
 """
 import sys
+import logging
+
+logger = logging.getLogger(__name__)
 import os
 import json
 import asyncio
@@ -76,12 +79,12 @@ class MultiAccountManager:
                         self.position_managers[acc_id] = PositionManager(pos_file)
                         perf_file = f"trade_history_{acc_id}.json"
                         self.performance_analyzers[acc_id] = PerformanceAnalyzer(perf_file)
-                print(f"✅ 加载多账户配置成功，共{len(self.accounts)}个账户")
+                logger.info(f"✅ 加载多账户配置成功，共{len(self.accounts)}个账户")
             except Exception as e:
-                print(f"❌ 加载多账户配置失败: {e}")
+                logger.error(f"❌ 加载多账户配置失败: {e}")
                 self.accounts = {}
         else:
-            print("ℹ️  无多账户配置，初始化空")
+            logger.info("ℹ️  无多账户配置，初始化空")
     
     def _save_config(self):
         """保存账户配置"""
@@ -95,9 +98,9 @@ class MultiAccountManager:
                     data[acc_id]["api_secret"] = "***"
             with open(self.config_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-            print("✅ 多账户配置已保存")
+            logger.info("✅ 多账户配置已保存")
         except Exception as e:
-            print(f"❌ 保存多账户配置失败: {e}")
+            logger.error(f"❌ 保存多账户配置失败: {e}")
     
     def add_account(self, name: str, account_type: str = "paper", strategy: str = "default",
                   risk_level: str = "medium", **kwargs) -> str:
@@ -135,9 +138,9 @@ class MultiAccountManager:
         
         # 敏感信息：不再通过参数直接存储，提示用户使用环境变量
         if "api_key" in kwargs:
-            print(f"⚠️  api_key不应通过参数传入，请设置环境变量 {kwargs.get('broker', '').upper()}_{acc_id}_API_KEY")
+            logger.warning(f"⚠️  api_key不应通过参数传入，请设置环境变量 {kwargs.get('broker', '').upper()}_{acc_id}_API_KEY")
         if "api_secret" in kwargs:
-            print(f"⚠️  api_secret不应通过参数传入，请设置环境变量 {kwargs.get('broker', '').upper()}_{acc_id}_API_SECRET")
+            logger.warning(f"⚠️  api_secret不应通过参数传入，请设置环境变量 {kwargs.get('broker', '').upper()}_{acc_id}_API_SECRET")
         
         self.accounts[acc_id] = account
         
@@ -148,13 +151,13 @@ class MultiAccountManager:
         self.performance_analyzers[acc_id] = PerformanceAnalyzer(perf_file)
         
         self._save_config()
-        print(f"✅ 添加账户成功：{name}({acc_id})，类型：{account_type}，风险等级：{risk_level}")
+        logger.info(f"✅ 添加账户成功：{name}({acc_id})，类型：{account_type}，风险等级：{risk_level}")
         return acc_id
     
     def update_account(self, account_id: str, **kwargs) -> bool:
         """更新账户配置"""
         if account_id not in self.accounts:
-            print(f"⚠️  账户{account_id}不存在")
+            logger.warning(f"⚠️  账户{account_id}不存在")
             return False
         
         account = self.accounts[account_id]
@@ -182,13 +185,13 @@ class MultiAccountManager:
                 setattr(account, k, v)
         
         self._save_config()
-        print(f"✅ 更新账户成功：{account.name}({account_id})")
+        logger.info(f"✅ 更新账户成功：{account.name}({account_id})")
         return True
     
     def delete_account(self, account_id: str) -> bool:
         """删除账户"""
         if account_id not in self.accounts:
-            print(f"⚠️  账户{account_id}不存在")
+            logger.warning(f"⚠️  账户{account_id}不存在")
             return False
         
         del self.accounts[account_id]
@@ -198,7 +201,7 @@ class MultiAccountManager:
             del self.performance_analyzers[account_id]
         
         self._save_config()
-        print(f"✅ 删除账户成功：{account_id}")
+        logger.info(f"✅ 删除账户成功：{account_id}")
         return True
     
     def list_accounts(self) -> List[Dict]:
@@ -244,28 +247,28 @@ class MultiAccountManager:
     
     async def run_daily_routine(self):
         """每日例行任务：所有账户检查持仓、结算、生成信号"""
-        print("🌞 开始执行所有账户每日例行任务")
+        logger.info("🌞 开始执行所有账户每日例行任务")
         
         for acc_id, account in self.accounts.items():
             if account.status != "active":
                 continue
             
-            print(f"\n📋 处理账户：{account.name}({acc_id})")
+            logger.info(f"\n📋 处理账户：{account.name}({acc_id})")
             
             # 1. 每日持仓检查
             pos_manager = self.position_managers[acc_id]
             alerts = await pos_manager.daily_check()
             
             if alerts:
-                print(f"⚠️  账户{account.name}有{len(alerts)}条提醒：")
+                logger.warning(f"⚠️  账户{account.name}有{len(alerts)}条提醒：")
                 for alert in alerts:
-                    print(f"   - {alert['title']}: {alert['content']}")
+                    logger.info(f"   - {alert['title']}: {alert['content']}")
             
             # 2. 生成当日信号（这里可以扩展调用信号生成器）
             # 3. 模拟/实盘下单（根据配置）
             # 4. 每日结算
         
-        print("\n✅ 所有账户每日例行任务执行完成")
+        logger.info("\n✅ 所有账户每日例行任务执行完成")
     
     def get_summary_report(self) -> str:
         """生成所有账户汇总报告"""
@@ -325,18 +328,18 @@ if __name__ == "__main__":
     if args.action == "list":
         accounts = manager.list_accounts()
         if not accounts:
-            print("暂无账户")
+            logger.info("暂无账户")
         else:
-            print(f"共{len(accounts)}个账户：")
+            logger.info(f"共{len(accounts)}个账户：")
             for acc in accounts:
                 status_icon = "✅" if acc["status"] == "active" else "❌"
                 type_icon = "💵" if acc["type"] == "real" else "📝"
                 profit_icon = "📈" if acc["total_profit"] >= 0 else "📉"
-                print(f"{status_icon} {acc['name']}({acc['account_id']}) | {type_icon} {acc['type']} | {acc['strategy']} | {acc['risk_level']} | {profit_icon} {acc['total_profit']:.2f}元 | 胜率{acc['win_rate']:.2f}% | 持仓{acc['position_count']}只")
+                logger.info(f"{status_icon} {acc['name']}({acc['account_id']}) | {type_icon} {acc['type']} | {acc['strategy']} | {acc['risk_level']} | {profit_icon} {acc['total_profit']:.2f}元 | 胜率{acc['win_rate']:.2f}% | 持仓{acc['position_count']}只")
     
     elif args.action == "add":
         if not args.name:
-            print("参数错误：需要 --name")
+            logger.error("参数错误：需要 --name")
             sys.exit(1)
         
         # 收集额外参数
@@ -349,11 +352,11 @@ if __name__ == "__main__":
         acc_id = manager.add_account(
             args.name, args.type, args.strategy, args.risk_level, **kwargs
         )
-        print(f"账户ID：{acc_id}")
+        logger.info(f"账户ID：{acc_id}")
     
     elif args.action == "update":
         if not args.account_id:
-            print("参数错误：需要 --account-id")
+            logger.error("参数错误：需要 --account-id")
             sys.exit(1)
         
         kwargs = {}
@@ -372,47 +375,47 @@ if __name__ == "__main__":
     
     elif args.action == "delete":
         if not args.account_id:
-            print("参数错误：需要 --account-id")
+            logger.error("参数错误：需要 --account-id")
             sys.exit(1)
         manager.delete_account(args.account_id)
     
     elif args.action == "info":
         if not args.account_id:
-            print("参数错误：需要 --account-id")
+            logger.error("参数错误：需要 --account-id")
             sys.exit(1)
         info = manager.get_account_info(args.account_id)
         if not info:
-            print("账户不存在")
+            logger.info("账户不存在")
         else:
             acc = info["account_info"]
-            print("="*60)
-            print(f"📋 账户信息：{acc['name']}({acc['account_id']})")
-            print("="*60)
-            print(f"类型：{acc['account_type']} | 状态：{acc['status']} | 策略：{acc['strategy']} | 风险等级：{acc['risk_level']}")
-            print(f"最大仓位：{acc['max_position']:.0%} | 单票最大：{acc['max_single_position']:.0%}")
-            print(f"止损：{acc['stop_loss_pct']:.1%} | 止盈：{acc['take_profit_pct']:.1%} | 最长持仓：{acc['max_hold_days']}天")
-            print(f"券商：{acc['broker']} | 创建时间：{acc['created_at']} | 备注：{acc['notes']}")
+            logger.info("="*60)
+            logger.info(f"📋 账户信息：{acc['name']}({acc['account_id']})")
+            logger.info("="*60)
+            logger.info(f"类型：{acc['account_type']} | 状态：{acc['status']} | 策略：{acc['strategy']} | 风险等级：{acc['risk_level']}")
+            logger.info(f"最大仓位：{acc['max_position']:.0%} | 单票最大：{acc['max_single_position']:.0%}")
+            logger.info(f"止损：{acc['stop_loss_pct']:.1%} | 止盈：{acc['take_profit_pct']:.1%} | 最长持仓：{acc['max_hold_days']}天")
+            logger.info(f"券商：{acc['broker']} | 创建时间：{acc['created_at']} | 备注：{acc['notes']}")
             print()
-            print("当前持仓：")
+            logger.info("当前持仓：")
             for pos in info["positions"]:
-                print(f"- {pos['name']}({pos['ts_code']}) | {pos['shares']}股 | 成本{pos['buy_price']:.2f} | 持仓{pos['hold_days']}天")
+                logger.info(f"- {pos['name']}({pos['ts_code']}) | {pos['shares']}股 | 成本{pos['buy_price']:.2f} | 持仓{pos['hold_days']}天")
             print()
             perf = info["performance"]
-            print("绩效表现：")
-            print(f"总盈利：{perf['total_profit']:.2f}元（{perf['total_profit_pct']:.2f}%） | 胜率：{perf['win_rate']:.2f}% | 最大回撤：{perf['max_drawdown']:.2f}%")
-            print(f"交易次数：{perf['total_trades']}次 | 平均持仓天数：{perf['avg_hold_days']}天")
-            print("="*60)
+            logger.info("绩效表现：")
+            logger.info(f"总盈利：{perf['total_profit']:.2f}元（{perf['total_profit_pct']:.2f}%） | 胜率：{perf['win_rate']:.2f}% | 最大回撤：{perf['max_drawdown']:.2f}%")
+            logger.info(f"交易次数：{perf['total_trades']}次 | 平均持仓天数：{perf['avg_hold_days']}天")
+            logger.info("="*60)
     
     elif args.action == "summary":
         report = manager.get_summary_report()
         if args.output:
             with open(args.output, "w", encoding="utf-8") as f:
                 f.write(report)
-            print(f"✅ 汇总报告已保存到：{args.output}")
+            logger.info(f"✅ 汇总报告已保存到：{args.output}")
         else:
-            print("\n" + "="*80)
-            print(report)
-            print("="*80)
+            logger.info("\n" + "="*80)
+            logger.info(report)
+            logger.info("="*80)
     
     elif args.action == "daily":
         asyncio.run(manager.run_daily_routine())

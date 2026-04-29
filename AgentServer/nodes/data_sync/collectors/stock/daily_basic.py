@@ -26,7 +26,7 @@
 """
 
 from typing import Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 from core.base import BaseCollector
 from core.settings import settings
@@ -176,7 +176,7 @@ class DailyBasicCollector(BaseCollector):
                 cleaned_records = []
                 for record in records:
                     cleaned = _clean_daily_basic_record(record)
-                    cleaned["updated_at"] = datetime.utcnow()
+                    cleaned["updated_at"] = datetime.now(timezone.utc)
                     cleaned_records.append(cleaned)
                 
                 # 直接写入（避免内存问题）

@@ -336,27 +336,45 @@ class VectorizedBacktester:
                 shares[i] = shares[i - 1]
             
             # 执行价格 (考虑流动性动态滑点 + 卖出冲击成本)
-            # 滑点 = base_slippage / sqrt(circ_mv / 10000)
+            # 滑点 = base_slippage / sqrt(circ_mv_亿)
             # 流通市值越小，滑点越大
-            # 5亿  → ~0.2% 滑点
-            # 50亿 → ~0.06% 滑点
-            circ_mv = factor_data.price_data.loc[date, 'circ_mv'] if 'circ_mv' in factor_data.price_data.columns else 50000
-            # circ_mv 单位是 万元
-            dynamic_slippage = self.config.slippage / math.sqrt(max(1.0, circ_mv / 10000))
+            # 5亿  → ~0.2% 滑点, 50亿 → ~0.06% 滑点
+            #
+            # ⚠️ circ_mv 是基于 amount 的估算值 (circ_mv ≈ amount × 10, 假设换手率≈10%)
+            #    非真实流通市值，动态滑点为近似模型
+            use_dynamic_slippage = 'circ_mv' in factor_data.price_data.columns
+            if use_dynamic_slippage:
+                circ_mv_wan = factor_data.price_data.loc[date, 'circ_mv']  # circ_mv 单位: 万元
+                circ_mv_yi = circ_mv_wan / 10000  # 万元 → 亿元
+                if circ_mv_yi < 1.0:
+                    # 流通市值 < 1亿，估算值异常偏低，回退到基础滑点
+                    # (可能是数据缺失或单位不一致导致)
+                    use_dynamic_slippage = False
+                else:
+                    dynamic_slippage = self.config.slippage / math.sqrt(circ_mv_yi)
+            
+            if not use_dynamic_slippage:
+                # 无 circ_mv 数据或估算异常 → 使用基础固定滑点
+                dynamic_slippage = self.config.slippage
+            
             buy_price = open_price * (1 + dynamic_slippage)
             sell_price = open_price * (1 - dynamic_slippage)
             
             # 卖出冲击成本：持仓占当日成交额比例越高，卖出砸盘冲击越大
-            # impact = (shares_held * buy_price) / (amount * 1000) * 0.5
-            # 持仓占日成交量 10% → 额外 5% 冲击
-            # amount 单位：千元 → 元 = amount × 1000
+            # impact = (持仓金额 / 日成交额) * 0.5
+            # 持仓占日成交额 10% → 额外 5% 冲击
+            # ⚠️ amount 单位取决于数据源:
+            #   Tushare: 千元, AKShare(经转换): 元
+            #   此处使用 amount (Tushare原始单位千元), 若数据源不同需调整
             if signal == -1 and shares[i] > 0 and 'amount' in factor_data.price_data.columns:
                 shares_held = shares[i]
-                amount_bny = shares_held * buy_price  # 买入金额，单位 元
-                amount_amt = factor_data.price_data.loc[date, 'amount']  # 日成交额，单位 千元
-                volume_amount = amount_amt * 1000  # 日成交额 → 单位 元
-                if volume_amount > 0:
-                    impact_ratio = (amount_bny / volume_amount) * 0.5
+                holding_value = shares_held * buy_price  # 持仓市值，单位 元
+                daily_amount = factor_data.price_data.loc[date, 'amount']  # 日成交额
+                # amount 单位: 千元(Tushare) → 元 = amount × 1000
+                # 注意: 若 AKShare 数据源 amount 已为元，则此处会高估冲击成本
+                daily_amount_yuan = daily_amount * 1000  # 日成交额 → 单位 元
+                if daily_amount_yuan > 0:
+                    impact_ratio = min((holding_value / daily_amount_yuan) * 0.5, 0.5)  # 上限50%避免极端值
                     sell_price = sell_price * (1 - impact_ratio)
             
             # 买入逻辑

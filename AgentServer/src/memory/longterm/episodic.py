@@ -7,7 +7,7 @@
 
 import logging
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from ..types import (
     LongTermMemoryItem,
@@ -145,7 +145,7 @@ class EpisodicStore:
                     "metadata": item.metadata.model_dump(),
                     "relationships": item.relationships,
                     "created_at": item.metadata.created_at,
-                    "updated_at": datetime.utcnow(),
+                    "updated_at": datetime.now(timezone.utc),
                 }
                 
                 await mongo.insert_one(self.mongo_collection, mongo_doc)
@@ -196,7 +196,7 @@ class EpisodicStore:
         llm = await self._get_llm()
         
         try:
-            start_time = datetime.utcnow()
+            start_time = datetime.now(timezone.utc)
             
             # 生成查询向量
             vectors = await llm.embedding([query])
@@ -246,7 +246,7 @@ class EpisodicStore:
                 )
                 items.append(item)
             
-            elapsed_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
+            elapsed_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
             
             return SearchResult(
                 items=items,
@@ -355,7 +355,7 @@ class EpisodicStore:
                 {"_id": item_id, "user_id": user_id},
                 {"$set": {
                     "metadata.importance_score": importance,
-                    "updated_at": datetime.utcnow(),
+                    "updated_at": datetime.now(timezone.utc),
                 }},
             )
             return result.modified_count > 0

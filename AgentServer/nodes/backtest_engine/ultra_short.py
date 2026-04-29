@@ -6,7 +6,7 @@
 """
 
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List
 
 from core.managers import mongo_manager, akshare_manager, redis_manager
@@ -105,7 +105,7 @@ async def execute_ultra_short_backtest(
     await mongo_manager.update_one(
         "backtest_tasks",
         {"task_id": task_id},
-        {"$set": {"status": "running", "started_at": datetime.utcnow(), "progress": 10, "logs": []}},
+        {"$set": {"status": "running", "started_at": datetime.now(timezone.utc), "progress": 10, "logs": []}},
     )
     # 【修复#4：进度推送Redis频道，前端实时接收】
     await _redis_publish_safe(f"backtest:progress:{task_id}", {
@@ -313,7 +313,7 @@ async def execute_ultra_short_backtest(
             await mongo_manager.update_one(
                 "backtest_tasks",
                 {"task_id": task_id},
-                {"$set": {"status": "failed", "error": error_msg, "completed_at": datetime.utcnow()}},
+                {"$set": {"status": "failed", "error": error_msg, "completed_at": datetime.now(timezone.utc)}},
             )
             # 【修复#4：推送进度到Redis通知前端失败】
             await _redis_publish_safe(f"backtest:progress:{task_id}", {

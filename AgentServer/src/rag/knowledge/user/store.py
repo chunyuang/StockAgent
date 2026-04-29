@@ -7,7 +7,7 @@
 
 import logging
 from typing import Any, Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from ..types import (
     UserKnowledgeItem,
@@ -163,7 +163,7 @@ class UserKnowledgeStore:
                 return False
             
             # 更新字段
-            updates["updated_at"] = datetime.utcnow()
+            updates["updated_at"] = datetime.now(timezone.utc)
             
             await mongo.update_one(
                 self.mongo_collection,
@@ -276,7 +276,7 @@ class UserKnowledgeStore:
         llm = await self._get_llm()
         
         try:
-            start_time = datetime.utcnow()
+            start_time = datetime.now(timezone.utc)
             
             # 生成查询向量
             vectors = await llm.embedding([query])
@@ -321,7 +321,7 @@ class UserKnowledgeStore:
                     item.score = hit.get("distance", 0)
                     items.append(item)
             
-            elapsed_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
+            elapsed_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
             
             return KnowledgeSearchResult(
                 items=items,
@@ -453,7 +453,7 @@ class UserKnowledgeStore:
                 {"_id": item_id, "user_id": user_id},
                 {
                     "$inc": {"use_count": 1},
-                    "$set": {"last_used_at": datetime.utcnow()},
+                    "$set": {"last_used_at": datetime.now(timezone.utc)},
                 },
             )
             return True
@@ -558,6 +558,6 @@ class UserKnowledgeStore:
             last_used_at=doc.get("last_used_at"),
             source=doc.get("source", "manual"),
             importance=doc.get("importance", "medium"),
-            created_at=doc.get("created_at", datetime.utcnow()),
-            updated_at=doc.get("updated_at", datetime.utcnow()),
+            created_at=doc.get("created_at", datetime.now(timezone.utc)),
+            updated_at=doc.get("updated_at", datetime.now(timezone.utc)),
         )

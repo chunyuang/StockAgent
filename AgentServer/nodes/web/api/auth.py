@@ -2,7 +2,7 @@
 认证 API
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -84,7 +84,7 @@ def hash_password(password: str) -> str:
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """创建访问 Token"""
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=settings.jwt_expire_minutes))
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=settings.jwt_expire_minutes))
     to_encode.update({"exp": expire, "type": "access"})
     
     return jwt.encode(
@@ -97,7 +97,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 def create_refresh_token(data: dict) -> str:
     """创建刷新 Token"""
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(days=30)
+    expire = datetime.now(timezone.utc) + timedelta(days=30)
     to_encode.update({"exp": expire, "type": "refresh"})
     
     return jwt.encode(
@@ -267,7 +267,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     await mongo_manager.update_one(
         "users",
         {"user_id": user["user_id"]},
-        {"$set": {"last_login": datetime.utcnow()}},
+        {"$set": {"last_login": datetime.now(timezone.utc)}},
     )
     
     # 生成 Token

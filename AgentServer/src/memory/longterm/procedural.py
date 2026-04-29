@@ -13,7 +13,7 @@
 
 import logging
 from typing import Any, Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from pydantic import BaseModel, Field
 import uuid
@@ -69,8 +69,8 @@ class TradingPattern(BaseModel):
     derived_from: Optional[str] = Field(default=None, description="衍生自哪个模式")
     
     # 时间戳
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     last_used_at: Optional[datetime] = Field(default=None)
     
     # 状态
@@ -98,8 +98,8 @@ class TradingPattern(BaseModel):
         sample_factor = min(1.0, self.sample_count / 20)  # 20 个样本达到最大
         self.confidence = sample_factor * self.success_rate
         
-        self.updated_at = datetime.utcnow()
-        self.last_used_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
+        self.last_used_at = datetime.now(timezone.utc)
 
 
 class TradeRecord(BaseModel):
@@ -136,8 +136,8 @@ class TradeRecord(BaseModel):
     # 反思
     lessons_learned: Optional[str] = Field(default=None, description="复盘总结")
     
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class ProceduralStore:
@@ -283,7 +283,7 @@ class ProceduralStore:
                 "return_pct": return_pct,
                 "holding_days": holding_days,
                 "lessons_learned": lessons_learned,
-                "updated_at": datetime.utcnow(),
+                "updated_at": datetime.now(timezone.utc),
             }
             
             await mongo.update_one(

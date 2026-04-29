@@ -12,7 +12,7 @@
 """
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Type, Any, Optional
 
 from core.base import BaseCollector
@@ -181,7 +181,7 @@ class MultiSourceCollector(BaseCollector):
         if last_time is None:
             return True
         
-        elapsed = (datetime.utcnow() - last_time).total_seconds() / 60
+        elapsed = (datetime.now(timezone.utc) - last_time).total_seconds() / 60
         return elapsed >= interval_minutes
     
     async def collect(self) -> Dict[str, Any]:
@@ -239,7 +239,7 @@ class MultiSourceCollector(BaseCollector):
                     )
                 
                 # 更新上次采集时间 (持久化到 MongoDB)
-                await self._save_collect_time(group, datetime.utcnow())
+                await self._save_collect_time(group, datetime.now(timezone.utc))
                 
                 total_result["count"] += result.new_count
                 total_result["total_fetched"] += result.total_fetched
@@ -281,7 +281,7 @@ class MultiSourceCollector(BaseCollector):
             trace_id=trace_id,
         )
         # 更新上次采集时间 (持久化到 MongoDB)
-        await self._save_collect_time(group, datetime.utcnow())
+        await self._save_collect_time(group, datetime.now(timezone.utc))
         return result
     
     async def collect_source(
@@ -292,7 +292,7 @@ class MultiSourceCollector(BaseCollector):
     ) -> CollectResult:
         """手动采集指定源"""
         trace_id = trace_id or uuid.uuid4().hex[:8]
-        since = datetime.utcnow() - timedelta(hours=since_hours)
+        since = datetime.now(timezone.utc) - timedelta(hours=since_hours)
         return await self._inner.collect_source(
             source_id=source_id,
             since=since,
@@ -314,7 +314,7 @@ class MultiSourceCollector(BaseCollector):
             trace_id=trace_id,
         )
         # 更新所有分组的采集时间 (持久化到 MongoDB)
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         for group in GROUP_INTERVALS.keys():
             await self._save_collect_time(group, now)
         return result

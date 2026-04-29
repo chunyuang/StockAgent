@@ -12,6 +12,9 @@
 返回结果：包含是否允许交易和明确拒绝原因
 """
 import sys
+import logging
+
+logger = logging.getLogger(__name__)
 import os
 import json
 from datetime import datetime, timedelta
@@ -51,9 +54,9 @@ class PreBuyRiskChecker:
         )
         
         if not result.allowed:
-            print(f"❌ 交易被拒绝: {result.reason}")
+            logger.error(f"❌ 交易被拒绝: {result.reason}")
         else:
-            print(f"✅ 允许交易: {result.reason}")
+            logger.info(f"✅ 允许交易: {result.reason}")
     """
     
     def __init__(self, config: Dict = None):
@@ -105,7 +108,7 @@ class PreBuyRiskChecker:
                     return []
                 return data
         except (json.JSONDecodeError, OSError) as e:
-            print(f"⚠️  加载交易历史失败: {e}")
+            logger.error(f"⚠️  加载交易历史失败: {e}")
             return []
     
     def _save_trade_history(self):
@@ -114,7 +117,7 @@ class PreBuyRiskChecker:
             with open(self.trade_history_file, "w", encoding="utf-8") as f:
                 json.dump(self.trade_history, f, ensure_ascii=False, indent=2)
         except (OSError, TypeError) as e:
-            print(f"⚠️  保存交易历史失败: {e}")
+            logger.error(f"⚠️  保存交易历史失败: {e}")
     
     def _load_market_data(self) -> Dict:
         """加载市场数据缓存"""
@@ -127,7 +130,7 @@ class PreBuyRiskChecker:
                     return {}
                 return data
         except (json.JSONDecodeError, OSError) as e:
-            print(f"⚠️  加载市场数据失败: {e}")
+            logger.error(f"⚠️  加载市场数据失败: {e}")
             return {}
     
     def _save_market_data(self):
@@ -136,7 +139,7 @@ class PreBuyRiskChecker:
             with open(self.market_data_file, "w", encoding="utf-8") as f:
                 json.dump(self.market_data, f, ensure_ascii=False, indent=2)
         except (OSError, TypeError) as e:
-            print(f"⚠️  保存市场数据失败: {e}")
+            logger.error(f"⚠️  保存市场数据失败: {e}")
     
     def _load_stock_risk_cache(self) -> Dict:
         """加载股票风险缓存"""
@@ -149,7 +152,7 @@ class PreBuyRiskChecker:
                     return {}
                 return data
         except (json.JSONDecodeError, OSError) as e:
-            print(f"⚠️  加载股票风险缓存失败: {e}")
+            logger.error(f"⚠️  加载股票风险缓存失败: {e}")
             return {}
     
     def _save_stock_risk_cache(self):
@@ -158,7 +161,7 @@ class PreBuyRiskChecker:
             with open(self.stock_risk_file, "w", encoding="utf-8") as f:
                 json.dump(self.stock_risk_cache, f, ensure_ascii=False, indent=2)
         except (OSError, TypeError) as e:
-            print(f"⚠️  保存股票风险缓存失败: {e}")
+            logger.error(f"⚠️  保存股票风险缓存失败: {e}")
     
     def _record_trade(self, account_id: str, ts_code: str, 
                       buy_price: float, buy_amount: float, 
@@ -263,7 +266,7 @@ class PreBuyRiskChecker:
             return True, f"市场环境正常，{index_code}今日跌幅{today_drop*100:.2f}%，在安全范围内", details
             
         except Exception as e:
-            print(f"⚠️  市场环境检查异常: {e}")
+            logger.error(f"⚠️  市场环境检查异常: {e}")
             # 出错时保守处理，允许交易
             return True, "市场环境检查异常，默认允许交易", {"error": str(e)}
     
@@ -585,8 +588,8 @@ if __name__ == "__main__":
             initial_balance=args.initial_balance
         )
         if result:
-            print(f"风控检查结果: {'允许' if result.allowed else '拒绝'}")
-            print(f"原因: {result.reason}")
-            print(f"风险等级: {result.risk_level}")
+            logger.info(f"风控检查结果: {'允许' if result.allowed else '拒绝'}")
+            logger.info(f"原因: {result.reason}")
+            logger.info(f"风险等级: {result.risk_level}")
         else:
-            print("风控检查返回空结果（可能数据源异常）")
+            logger.error("风控检查返回空结果（可能数据源异常）")

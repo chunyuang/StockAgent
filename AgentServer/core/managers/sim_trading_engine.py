@@ -6,7 +6,7 @@
 
 import uuid
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Optional, Tuple
 
 from core.managers import mongo_manager
@@ -108,7 +108,7 @@ class SimTradingEngine:
                     available = position["available_quantity"] if position else 0
                     return False, f"可用持仓不足，需要 {quantity} 股，实际可用 {available} 股", {}
             
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             trade_id = f"trd_{uuid.uuid4().hex[:12]}"
             
             # 创建交易记录

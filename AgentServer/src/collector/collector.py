@@ -12,7 +12,7 @@
 import asyncio
 import logging
 from typing import Any, Dict, List, Optional, Type
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from .types import NewsItem, CollectResult
 from .dedup import DeduplicationEngine, QuickDeduplicator
@@ -91,11 +91,11 @@ class BaseNewsCollector:
     ) -> CollectResult:
         """采集所有源"""
         self.logger.info(f"[{trace_id}] Starting collect all sources...")
-        start_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc)
         
         since = None
         if since_hours:
-            since = datetime.utcnow() - timedelta(hours=since_hours)
+            since = datetime.now(timezone.utc) - timedelta(hours=since_hours)
         
         tasks = []
         for source_id in self.SOURCE_CLASSES.keys():
@@ -117,7 +117,7 @@ class BaseNewsCollector:
             elif isinstance(result, CollectResult):
                 final_result = final_result.merge(result)
         
-        elapsed_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
+        elapsed_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
         final_result.elapsed_ms = elapsed_ms
         
         self.logger.info(
@@ -151,7 +151,7 @@ class BaseNewsCollector:
             trace_id: 追踪ID
         """
         result = CollectResult(source=source_id)
-        start_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc)
         
         source = self._get_source(source_id)
         if not source:
@@ -222,7 +222,7 @@ class BaseNewsCollector:
                 result.new_count = len(new_items)
                 result.new_ids = [item.id for item in new_items]
             
-            result.elapsed_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
+            result.elapsed_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
             
         except Exception as e:
             self.logger.error(f"[{trace_id}] Collect {source_id} error: {e}")
@@ -262,7 +262,7 @@ class BaseNewsCollector:
         
         # 优先使用 since 参数，其次使用 since_hours 计算
         if since is None and since_hours:
-            since = datetime.utcnow() - timedelta(hours=since_hours)
+            since = datetime.now(timezone.utc) - timedelta(hours=since_hours)
         
         tasks = []
         for source_id in source_ids:

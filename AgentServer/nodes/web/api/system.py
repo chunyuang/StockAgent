@@ -10,7 +10,7 @@
 
 import os
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Any
 import logging
 
@@ -220,7 +220,7 @@ async def save_strategy_weights(
                     "type": "strategy_weights",
                     "config": request.strategies,
                     "total_weight": total_weight,
-                    "updated_at": datetime.utcnow(),
+                    "updated_at": datetime.now(timezone.utc),
                 }
             },
             upsert=True
@@ -297,7 +297,7 @@ async def save_risk_config(
                     "user_id": user_id,
                     "type": "risk_config",
                     "config": request.config.dict(),
-                    "updated_at": datetime.utcnow(),
+                    "updated_at": datetime.now(timezone.utc),
                 }
             },
             upsert=True
@@ -387,7 +387,7 @@ async def save_push_config(
                     "user_id": user_id,
                     "type": "push_config",
                     "config": request.config,
-                    "updated_at": datetime.utcnow(),
+                    "updated_at": datetime.now(timezone.utc),
                 }
             },
             upsert=True

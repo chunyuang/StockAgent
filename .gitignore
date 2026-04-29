@@ -115,3 +115,8 @@ temp-complete.*
 
 # ============ Local Databases ============
 local-databases/
+
+# ============ Real Trading Data (runtime generated) ============
+real_trading/*.json
+real_trading/*.log
+!real_trading/*.example.json

@@ -5,7 +5,7 @@ MongoDB 数据库管理 API
 """
 
 from typing import Dict, List, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 from fastapi import APIRouter, HTTPException, Body
@@ -157,7 +157,7 @@ async def get_database_stats():
             stock_count = len(await stock_cursor.to_list(length=None))
             
             # 最后更新时间（近似，用最新日期推算）
-            last_update = datetime.utcnow().isoformat()
+            last_update = datetime.now(timezone.utc).isoformat()
             
             stats = await db.command("collstats", "stock_daily_ak_full")
             stock_daily_ak_full_stats = {

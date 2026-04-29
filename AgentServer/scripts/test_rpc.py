@@ -11,7 +11,7 @@
 import asyncio
 import sys
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 # 添加项目根目录到 Python 路径
@@ -57,7 +57,7 @@ async def run_test_server():
             "status": "ok",
             "subscriptions_count": 3,
             "message": "已刷新策略配置 (模拟)",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     
     server.register_method("refresh_strategies", handle_refresh)

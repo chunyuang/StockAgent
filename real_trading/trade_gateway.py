@@ -4,6 +4,9 @@
 框架设计，支持扩展对接不同券商/量化平台API，提供统一的交易接口
 """
 import sys
+import logging
+
+logger = logging.getLogger(__name__)
 import os
 from datetime import datetime
 from typing import List, Dict, Optional
@@ -102,12 +105,12 @@ class SimulatedGateway(BaseTradeGateway):
     
     def connect(self) -> bool:
         self.connected = True
-        print("✅ 模拟交易网关连接成功")
+        logger.info("✅ 模拟交易网关连接成功")
         return True
     
     def disconnect(self) -> bool:
         self.connected = False
-        print("✅ 模拟交易网关断开连接")
+        logger.info("✅ 模拟交易网关断开连接")
         return True
     
     def get_account_info(self) -> Dict:
@@ -204,7 +207,7 @@ class SimulatedGateway(BaseTradeGateway):
         }
         self.orders[order_id] = order
         
-        print(f"✅ 模拟下单成功：订单ID{order_id}，{order_type} {ts_code} {quantity}股，价格{price:.2f}元")
+        logger.info(f"✅ 模拟下单成功：订单ID{order_id}，{order_type} {ts_code} {quantity}股，价格{price:.2f}元")
         return order
     
     def cancel_order(self, order_id: str) -> bool:
@@ -303,7 +306,7 @@ class TradingService:
             self.connected = self.gateway.connect()
             return self.connected
         except Exception as e:
-            print(f"❌ 启动交易服务失败：{e}")
+            logger.error(f"❌ 启动交易服务失败：{e}")
             return False
     
     def stop(self) -> bool:
@@ -316,7 +319,7 @@ class TradingService:
             self.connected = False
             return True
         except Exception as e:
-            print(f"❌ 停止交易服务失败：{e}")
+            logger.error(f"❌ 停止交易服务失败：{e}")
             return False
     
     def buy(self, ts_code: str, price: float, quantity: int, order_type: str = "limit") -> Dict:
@@ -327,7 +330,7 @@ class TradingService:
         try:
             return self.gateway.place_order(ts_code, price, quantity, "buy")
         except Exception as e:
-            print(f"❌ 买入失败：{e}")
+            logger.error(f"❌ 买入失败：{e}")
             return {"success": False, "msg": str(e)}
     
     def sell(self, ts_code: str, price: float, quantity: int, order_type: str = "limit") -> Dict:
@@ -338,7 +341,7 @@ class TradingService:
         try:
             return self.gateway.place_order(ts_code, price, quantity, "sell")
         except Exception as e:
-            print(f"❌ 卖出失败：{e}")
+            logger.error(f"❌ 卖出失败：{e}")
             return {"success": False, "msg": str(e)}
     
     def auto_trade_by_signal(self, signals: List[Dict], max_position: float = 0.7, max_single_position: float = 0.2) -> List[Dict]:
@@ -397,7 +400,7 @@ class TradingService:
                 if result["success"]:
                     available_balance -= result.get("filled_quantity", 0) * buy_price * 1.003  # 扣除手续费
         
-        print(f"✅ 自动交易执行完成，共{len(results)}笔交易")
+        logger.info(f"✅ 自动交易执行完成，共{len(results)}笔交易")
         return results
 
 
@@ -419,51 +422,51 @@ if __name__ == "__main__":
     service = TradingService(args.gateway, gateway_config)
     
     if not service.start():
-        print("❌ 交易服务启动失败")
+        logger.error("❌ 交易服务启动失败")
         sys.exit(1)
     
     try:
         if args.action == "test":
-            print("✅ 交易网关连接测试成功")
+            logger.info("✅ 交易网关连接测试成功")
             info = service.gateway.get_account_info()
-            print(f"账户总资产：{info['total_asset']:.2f}元，可用余额：{info['available_balance']:.2f}元")
+            logger.info(f"账户总资产：{info['total_asset']:.2f}元，可用余额：{info['available_balance']:.2f}元")
         
         elif args.action == "info":
             info = service.gateway.get_account_info()
-            print("="*50)
-            print("📊 账户信息")
-            print("="*50)
-            print(f"总资产：{info['total_asset']:.2f}元")
-            print(f"可用余额：{info['available_balance']:.2f}元")
-            print(f"持仓市值：{info['market_value']:.2f}元")
-            print(f"浮动盈亏：{info['pnl']:.2f}元")
-            print("="*50)
+            logger.info("="*50)
+            logger.info("📊 账户信息")
+            logger.info("="*50)
+            logger.info(f"总资产：{info['total_asset']:.2f}元")
+            logger.info(f"可用余额：{info['available_balance']:.2f}元")
+            logger.info(f"持仓市值：{info['market_value']:.2f}元")
+            logger.info(f"浮动盈亏：{info['pnl']:.2f}元")
+            logger.info("="*50)
         
         elif args.action == "positions":
             positions = service.gateway.get_positions()
             if not positions:
-                print("当前无持仓")
+                logger.info("当前无持仓")
             else:
-                print("="*50)
-                print("📋 持仓列表")
-                print("="*50)
+                logger.info("="*50)
+                logger.info("📋 持仓列表")
+                logger.info("="*50)
                 for pos in positions:
-                    print(f"{pos['ts_code']}：{pos['shares']}股，成本价{pos['cost_price']:.2f}元，市值{pos['market_value']:.2f}元，浮盈{pos['pnl']:.2f}元")
-                print("="*50)
+                    logger.info(f"{pos['ts_code']}：{pos['shares']}股，成本价{pos['cost_price']:.2f}元，市值{pos['market_value']:.2f}元，浮盈{pos['pnl']:.2f}元")
+                logger.info("="*50)
         
         elif args.action == "buy":
             if not all([args.ts_code, args.price, args.shares]):
-                print("参数错误：需要 --ts-code、--price、--shares")
+                logger.error("参数错误：需要 --ts-code、--price、--shares")
                 sys.exit(1)
             result = service.buy(args.ts_code, args.price, args.shares)
-            print(result["msg"])
+            logger.info(result["msg"])
         
         elif args.action == "sell":
             if not all([args.ts_code, args.price, args.shares]):
-                print("参数错误：需要 --ts-code、--price、--shares")
+                logger.error("参数错误：需要 --ts-code、--price、--shares")
                 sys.exit(1)
             result = service.sell(args.ts_code, args.price, args.shares)
-            print(result["msg"])
+            logger.info(result["msg"])
         
         elif args.action == "auto":
             # 示例信号，实际使用时从信号生成器获取
@@ -473,7 +476,7 @@ if __name__ == "__main__":
             ]
             results = service.auto_trade_by_signal(signals)
             for res in results:
-                print(res["msg"])
+                logger.info(res["msg"])
     
     finally:
         service.stop()

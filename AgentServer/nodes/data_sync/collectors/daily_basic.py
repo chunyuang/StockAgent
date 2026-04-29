@@ -26,7 +26,7 @@
 """
 
 from typing import Dict, Any, List, Optional, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from core.base import BaseCollector
 from core.settings import settings
@@ -201,7 +201,7 @@ class DailyBasicCollector(BaseCollector):
                     cleaned_records = []
                     for record in records:
                         cleaned = _clean_daily_basic_record(record)
-                        cleaned["updated_at"] = datetime.utcnow()
+                        cleaned["updated_at"] = datetime.now(timezone.utc)
                         cleaned_records.append(cleaned)
                     
                     # Step 3: 批量写入

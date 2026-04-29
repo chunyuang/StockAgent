@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
+import os
 import tushare as ts
 import pymongo
 import asyncio
 import time
 
 # 使用系统已有的 Token
-TS_TOKEN = "d9f3d9c916a0172173d37e9631ded6d5285dd79d3e61d37b9081cee1"
+TS_TOKEN = os.getenv("TUSHARE_TOKEN", "")
+if not TS_TOKEN:
+    raise ValueError("请设置环境变量 TUSHARE_TOKEN")
 ts.set_token(TS_TOKEN)
 pro = ts.pro_api()
 
