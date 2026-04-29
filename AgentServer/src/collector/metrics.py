@@ -16,7 +16,7 @@
 
 import logging
 from typing import Any, Dict, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -38,7 +38,7 @@ class MetricPoint:
     """指标数据点"""
     name: str
     value: float
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     labels: Dict[str, str] = field(default_factory=dict)
     metric_type: MetricType = MetricType.GAUGE
 
@@ -204,7 +204,7 @@ class MetricsCollector:
         self._event_metrics = EventMetrics()
         
         # 指标重置时间
-        self._last_reset = datetime.utcnow()
+        self._last_reset = datetime.now(timezone.utc)
         self._reset_interval = timedelta(minutes=5)
         
         # MongoDB 管理器
@@ -345,8 +345,8 @@ class MetricsCollector:
     def get_current_metrics(self) -> Dict[str, Any]:
         """获取当前指标"""
         return {
-            "timestamp": datetime.utcnow().isoformat(),
-            "period_minutes": (datetime.utcnow() - self._last_reset).total_seconds() / 60,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "period_minutes": (datetime.now(timezone.utc) - self._last_reset).total_seconds() / 60,
             "collector": {
                 "fetch_total": self._collector_metrics.fetch_total,
                 "fetch_success_rate": self._collector_metrics.fetch_success_rate,
@@ -397,7 +397,7 @@ class MetricsCollector:
         
         metrics = self.get_current_metrics()
         metrics["trace_id"] = trace_id
-        metrics["_created_at"] = datetime.utcnow()
+        metrics["_created_at"] = datetime.now(timezone.utc)
         
         try:
             await mongo.insert_one("collector_metrics", metrics)
@@ -410,7 +410,7 @@ class MetricsCollector:
         self._collector_metrics = CollectorMetrics()
         self._llm_metrics = LLMMetrics()
         self._event_metrics = EventMetrics()
-        self._last_reset = datetime.utcnow()
+        self._last_reset = datetime.now(timezone.utc)
     
     # ==================== 告警检查 ====================
     
@@ -493,7 +493,7 @@ class MetricsCollector:
         """获取历史指标"""
         mongo = await self._get_mongo()
         
-        cutoff = datetime.utcnow() - timedelta(hours=hours)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
         
         docs = await mongo.find_many(
             "collector_metrics",

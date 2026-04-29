@@ -7,7 +7,7 @@
 import json
 import logging
 from typing import Any, Dict, List, Optional, AsyncIterator
-from datetime import datetime
+from datetime import datetime, timezone
 
 from ..types import SensoryMemoryItem, MemoryMetadata
 
@@ -84,7 +84,7 @@ class SensoryStream:
             # 序列化数据
             entry = {
                 "data": json.dumps(data, ensure_ascii=False, default=str),
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "trace_id": trace_id or "",
             }
             
@@ -255,7 +255,7 @@ class SensoryStream:
                 metadata=MemoryMetadata(
                     user_id=user_id,
                     category=stream_type,
-                    created_at=datetime.fromisoformat(timestamp_str) if timestamp_str else datetime.utcnow(),
+                    created_at=datetime.fromisoformat(timestamp_str) if timestamp_str else datetime.now(timezone.utc),
                 ),
             )
         except Exception as e:

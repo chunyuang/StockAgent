@@ -12,6 +12,9 @@
 6. 分策略绩效归因
 """
 import sys
+import logging
+
+logger = logging.getLogger(__name__)
 import os
 import json
 import math
@@ -425,7 +428,7 @@ class PerformanceCalculator:
             filepath = os.path.join(output_dir, filename)
             with open(filepath, "w", encoding="utf-8") as f:
                 f.write(report_content)
-            print(f"✅ 绩效指标报告已保存到：{filepath}")
+            logger.info(f"✅ 绩效指标报告已保存到：{filepath}")
         
         return report_content
     
@@ -572,7 +575,7 @@ class PerformanceCalculator:
                 "max_consecutive_losses": max_consec_loss,
             }
         except (json.JSONDecodeError, OSError, KeyError, ZeroDivisionError) as e:
-            print(f"⚠️  加载交易统计失败: {e}")
+            logger.error(f"⚠️  加载交易统计失败: {e}")
             return None
     
     def _generate_evaluation(self, m: PerformanceMetrics) -> str:
@@ -661,7 +664,7 @@ def main():
     calculator = PerformanceCalculator(tracker.account_id)
     metrics = calculator.calculate(nav_records, args.start, args.end)
     report = calculator.generate_report(metrics, args.output_dir, strategy_analysis)
-    print(report)
+    logger.info(report)
 
 
 if __name__ == "__main__":

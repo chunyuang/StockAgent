@@ -4,6 +4,9 @@
 功能：自动分析交易历史，识别盈亏原因、策略问题、操作习惯问题，给出针对性优化建议
 """
 import sys
+import logging
+
+logger = logging.getLogger(__name__)
 import os
 from datetime import datetime, timedelta
 from typing import List, Dict
@@ -146,7 +149,7 @@ class SmartReviewer:
         if output_file:
             with open(output_file, "w", encoding="utf-8") as f:
                 f.write(report)
-            print(f"✅ 复盘报告已保存到：{output_file}")
+            logger.info(f"✅ 复盘报告已保存到：{output_file}")
         
         return report
     
@@ -414,6 +417,6 @@ if __name__ == "__main__":
     report = reviewer.generate_review_report(args.period, args.output)
     
     if not args.output:
-        print("\n" + "="*80)
-        print(report)
-        print("="*80)
+        logger.info("\n" + "="*80)
+        logger.info(report)
+        logger.info("="*80)

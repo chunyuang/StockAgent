@@ -9,7 +9,7 @@ MongoDB 管理器
 """
 
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from pymongo import ASCENDING, DESCENDING, IndexModel, UpdateOne
@@ -238,14 +238,14 @@ class MongoManager(BaseManager):
     async def insert_one(self, collection: str, document: dict) -> str:
         """插入单条文档"""
         self._ensure_initialized()
-        document["created_at"] = datetime.utcnow()
+        document["created_at"] = datetime.now(timezone.utc)
         result = await self._db[collection].insert_one(document)
         return str(result.inserted_id)
     
     async def insert_many(self, collection: str, documents: List[dict]) -> List[str]:
         """批量插入"""
         self._ensure_initialized()
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         for doc in documents:
             doc["created_at"] = now
         result = await self._db[collection].insert_many(documents)
@@ -303,9 +303,9 @@ class MongoManager(BaseManager):
         
         # 添加 updated_at 时间戳
         if "$set" in update:
-            update["$set"]["updated_at"] = datetime.utcnow()
+            update["$set"]["updated_at"] = datetime.now(timezone.utc)
         else:
-            update["$set"] = {"updated_at": datetime.utcnow()}
+            update["$set"] = {"updated_at": datetime.now(timezone.utc)}
         
         result = await self._db[collection].update_one(filter, update, upsert=upsert)
         return result.modified_count
@@ -328,9 +328,9 @@ class MongoManager(BaseManager):
         
         # 添加 updated_at 时间戳
         if "$set" in update:
-            update["$set"]["updated_at"] = datetime.utcnow()
+            update["$set"]["updated_at"] = datetime.now(timezone.utc)
         else:
-            update["$set"] = {"updated_at": datetime.utcnow()}
+            update["$set"] = {"updated_at": datetime.now(timezone.utc)}
         
         result = await self._db[collection].update_many(filter, update)
         return result.modified_count
@@ -403,7 +403,7 @@ class MongoManager(BaseManager):
         total_modified = 0
         total_upserted = 0
         
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         
         # 分批处理
         for i in range(0, len(documents), batch_size):
@@ -462,7 +462,7 @@ class MongoManager(BaseManager):
         if not documents:
             return 0
         
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         total_inserted = 0
         
         for i in range(0, len(documents), batch_size):
@@ -508,7 +508,7 @@ class MongoManager(BaseManager):
                 "sync_type": sync_type,
                 "sync_date": sync_date,
                 "last_count": count,
-                "updated_at": datetime.utcnow(),
+                "updated_at": datetime.now(timezone.utc),
             },
             upsert=True,
         )

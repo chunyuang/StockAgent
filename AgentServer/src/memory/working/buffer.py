@@ -6,7 +6,7 @@
 
 import logging
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from ..types import WorkingMemoryItem
 
@@ -246,7 +246,7 @@ class WorkingBuffer:
             
             item = WorkingMemoryItem.model_validate_json(data)
             item.metadata.importance_score = new_importance
-            item.metadata.updated_at = datetime.utcnow()
+            item.metadata.updated_at = datetime.now(timezone.utc)
             
             # 保存更新
             await client.hset(hash_key, item_id, item.model_dump_json())

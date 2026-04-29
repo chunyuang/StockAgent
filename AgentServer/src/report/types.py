@@ -6,7 +6,7 @@
 
 from enum import Enum
 from typing import Any, Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 
 
@@ -201,7 +201,7 @@ class Report(BaseModel):
     stats: ReportStats = Field(default_factory=ReportStats)
     
     # 元数据
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     pushed: Dict[str, bool] = Field(
         default_factory=lambda: {"wechat": False, "websocket": False}
     )

@@ -6,7 +6,7 @@
 
 import logging
 from typing import Any, Dict, Optional, Union
-from datetime import datetime
+from datetime import datetime, timezone
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
@@ -138,7 +138,7 @@ class ReviewReportPusher:
                 "sentiment": state.get("sentiment_result"),
             },
             "report": state.get("report"),
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
         }
         
         # Upsert

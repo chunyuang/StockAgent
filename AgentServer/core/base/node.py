@@ -19,7 +19,7 @@ import signal
 import uuid
 import socket
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 from core.settings import settings
 from core.managers import redis_manager
@@ -243,7 +243,7 @@ class BaseNode(ABC):
             "pong": True,
             "node_id": self.node_id,
             "node_type": self.node_type.value,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     
     @abstractmethod
@@ -321,7 +321,7 @@ class BaseNode(ABC):
             host=socket.gethostname(),
             port=int(os.environ.get("PORT", settings.web.port)),
             status=self._get_status(),
-            last_heartbeat=datetime.utcnow(),
+            last_heartbeat=datetime.now(timezone.utc),
             current_tasks=self._current_tasks,
             max_tasks=self._max_tasks,
             rpc_address=self._rpc_address,
@@ -347,7 +347,7 @@ class BaseNode(ABC):
             "node_id": self.node_id,
             "node_type": self.node_type.value,
             "status": "healthy" if all(manager_health.values()) else "unhealthy",
-            "uptime_seconds": (datetime.utcnow() - self._start_time).total_seconds() if self._start_time else 0,
+            "uptime_seconds": (datetime.now(timezone.utc) - self._start_time).total_seconds() if self._start_time else 0,
             "managers": manager_health,
         }
     
@@ -366,7 +366,7 @@ class BaseNode(ABC):
         
         try:
             self._running = True
-            self._start_time = datetime.utcnow()
+            self._start_time = datetime.now(timezone.utc)
             
             self.logger.info(f"Starting node: {self.node_id} ({self.node_type.value})")
             
@@ -416,9 +416,9 @@ class BaseNode(ABC):
         if self._current_tasks > 0:
             self.logger.info(f"Waiting for {self._current_tasks} tasks to complete...")
             
-            start_wait = datetime.utcnow()
+            start_wait = datetime.now(timezone.utc)
             while self._current_tasks > 0:
-                elapsed = (datetime.utcnow() - start_wait).total_seconds()
+                elapsed = (datetime.now(timezone.utc) - start_wait).total_seconds()
                 if elapsed > self.SHUTDOWN_TIMEOUT:
                     self.logger.warning(
                         f"Shutdown timeout ({self.SHUTDOWN_TIMEOUT}s), "

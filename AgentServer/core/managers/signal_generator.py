@@ -6,7 +6,7 @@
 
 import uuid
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 
 
@@ -78,7 +78,7 @@ class SignalGenerator:
                 
                 for signal in signals:
                     signal_id = f"sig_{uuid.uuid4().hex[:12]}"
-                    now = datetime.utcnow()
+                    now = datetime.now(timezone.utc)
                     
                     # 计算过期时间：当日收盘后过期
                     expired_at = datetime.strptime(f"{trade_date} 15:00:00", "%Y%m%d %H:%M:%S")

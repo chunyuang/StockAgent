@@ -1030,7 +1030,7 @@ class HotNewsCollector(BaseCollector):
                 "hot": item.get("hot", 0),
                 "rank": item.get("rank", 0),
                 "extra": item.get("extra", {}),
-                "updated_at": datetime.utcnow().isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
             }
             documents.append(doc)
         

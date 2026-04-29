@@ -11,7 +11,7 @@
 """
 
 from typing import Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timezone
 
 from core.base import BaseCollector
 from core.settings import settings
@@ -169,7 +169,7 @@ class NewsCollector(BaseCollector):
         for news in news_list:
             # 使用 ts_code + datetime + title前50字 作为唯一标识
             news["_key"] = f"{news.get('ts_code', '')}_{news.get('datetime', '')}_{news.get('title', '')[:50]}"
-            news["created_at"] = datetime.utcnow()
+            news["created_at"] = datetime.now(timezone.utc)
         
         # ==================== 1. 保存到 MongoDB ====================
         result = await mongo_manager.bulk_upsert(

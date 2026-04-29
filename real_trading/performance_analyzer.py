@@ -4,6 +4,9 @@
 自动生成日/周/月/年度绩效报告、策略效果分析、实盘vs回测对比
 """
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 import json
 from datetime import datetime, timedelta
 from typing import List, Dict
@@ -40,7 +43,7 @@ class PerformanceAnalyzer:
             trades.sort(key=lambda x: x["sell_date"])
             return trades
         except Exception as e:
-            print(f"❌ 加载交易历史失败: {e}")
+            logger.error(f"❌ 加载交易历史失败: {e}")
             return []
     
     def get_basic_stats(self, start_date: str = None, end_date: str = None) -> Dict:
@@ -253,7 +256,7 @@ class PerformanceAnalyzer:
         stats = self.get_basic_stats()
         if not stats:
             report = "ℹ️  暂无交易记录，无法生成绩效报告"
-            print(report)
+            logger.info(report)
             return report
         
         monthly_stats = self.get_monthly_stats()
@@ -318,7 +321,7 @@ class PerformanceAnalyzer:
         if output_file:
             with open(output_file, "w", encoding="utf-8") as f:
                 f.write(report)
-            print(f"✅ 绩效报告已保存到：{output_file}")
+            logger.info(f"✅ 绩效报告已保存到：{output_file}")
         
         return report
     
@@ -440,42 +443,42 @@ if __name__ == "__main__":
     if args.action == "stats":
         stats = analyzer.get_basic_stats(args.start, args.end)
         if not stats:
-            print("暂无交易记录")
+            logger.info("暂无交易记录")
         else:
-            print("="*50)
-            print("📊 基础绩效统计")
-            print("="*50)
-            print(f"统计周期：{stats['period']}")
-            print(f"总交易次数：{stats['total_trades']}次")
-            print(f"胜率：{stats['win_rate']}%（{stats['win_trades']}胜{stats['lose_trades']}负）")
-            print(f"总盈利：{stats['total_profit']:.2f}元")
-            print(f"平均每笔收益：{stats['avg_profit_pct']:.2f}%")
-            print(f"盈亏比：{stats['profit_loss_ratio']}:1")
-            print(f"最大回撤：{stats['max_drawdown']:.2f}%")
-            print(f"平均持仓天数：{stats['avg_hold_days']}天")
-            print("="*50)
+            logger.info("="*50)
+            logger.info("📊 基础绩效统计")
+            logger.info("="*50)
+            logger.info(f"统计周期：{stats['period']}")
+            logger.info(f"总交易次数：{stats['total_trades']}次")
+            logger.info(f"胜率：{stats['win_rate']}%（{stats['win_trades']}胜{stats['lose_trades']}负）")
+            logger.info(f"总盈利：{stats['total_profit']:.2f}元")
+            logger.info(f"平均每笔收益：{stats['avg_profit_pct']:.2f}%")
+            logger.info(f"盈亏比：{stats['profit_loss_ratio']}:1")
+            logger.info(f"最大回撤：{stats['max_drawdown']:.2f}%")
+            logger.info(f"平均持仓天数：{stats['avg_hold_days']}天")
+            logger.info("="*50)
     
     elif args.action == "monthly":
         monthly = analyzer.get_monthly_stats()
-        print("="*50)
-        print("📆 月度统计")
-        print("="*50)
+        logger.info("="*50)
+        logger.info("📆 月度统计")
+        logger.info("="*50)
         for m in monthly:
-            print(f"{m['month']}: {m['total_trades']}次交易，胜率{m['win_rate']}%，盈利{m['total_profit']:.2f}元，平均收益{m['avg_profit_pct']:.2f}%")
-        print("="*50)
+            logger.info(f"{m['month']}: {m['total_trades']}次交易，胜率{m['win_rate']}%，盈利{m['total_profit']:.2f}元，平均收益{m['avg_profit_pct']:.2f}%")
+        logger.info("="*50)
     
     elif args.action == "strategy":
         strategy = analyzer.get_strategy_analysis()
-        print("="*50)
-        print("🎯 分策略分析")
-        print("="*50)
+        logger.info("="*50)
+        logger.info("🎯 分策略分析")
+        logger.info("="*50)
         for s in strategy:
-            print(f"{s['strategy']}: {s['total_trades']}次，胜率{s['win_rate']}%，总盈利{s['total_profit']:.2f}元，平均收益{s['avg_profit_pct']:.2f}%，最大回撤{s['max_drawdown']:.2f}%")
-        print("="*50)
+            logger.info(f"{s['strategy']}: {s['total_trades']}次，胜率{s['win_rate']}%，总盈利{s['total_profit']:.2f}元，平均收益{s['avg_profit_pct']:.2f}%，最大回撤{s['max_drawdown']:.2f}%")
+        logger.info("="*50)
     
     elif args.action == "report":
         report = analyzer.generate_report(args.output)
         if not args.output:
-            print("\n" + "="*80)
-            print(report)
-            print("="*80)
+            logger.info("\n" + "="*80)
+            logger.info(report)
+            logger.info("="*80)

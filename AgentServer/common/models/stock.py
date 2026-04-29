@@ -2,7 +2,7 @@
 股票相关模型定义
 """
 
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from typing import Optional, List
 from pydantic import BaseModel, Field
 from enum import Enum
@@ -41,8 +41,8 @@ class Stock(BaseModel):
     is_hs: Optional[str] = Field(None, description="是否沪深港通标的")
     
     # 元数据
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     
     model_config = {
         "json_schema_extra": {
@@ -160,7 +160,7 @@ class StockNews(BaseModel):
     # 关键词
     keywords: List[str] = Field(default_factory=list, description="关键词列表")
     
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class MarketOverview(BaseModel):
@@ -189,4 +189,4 @@ class MarketOverview(BaseModel):
     # 板块热点
     hot_sectors: List[str] = Field(default_factory=list, description="热门板块")
     
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

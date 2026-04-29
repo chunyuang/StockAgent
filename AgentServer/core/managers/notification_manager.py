@@ -9,7 +9,7 @@
 
 import asyncio
 from typing import Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timezone
 import httpx
 
 from .base import BaseManager
@@ -96,7 +96,7 @@ class NotificationManager(BaseManager):
         async with self._lock:
             last_time = self._last_send_time.get(alert.strategy_id)
             if last_time:
-                elapsed = (datetime.utcnow() - last_time).total_seconds()
+                elapsed = (datetime.now(timezone.utc) - last_time).total_seconds()
                 if elapsed < self._config.min_interval:
                     self.logger.warning(
                         f"[NOTIFY] Rate limited: strategy={alert.strategy_id}, "
@@ -112,7 +112,7 @@ class NotificationManager(BaseManager):
         
         if success:
             async with self._lock:
-                self._last_send_time[alert.strategy_id] = datetime.utcnow()
+                self._last_send_time[alert.strategy_id] = datetime.now(timezone.utc)
             self.logger.info(f"[NOTIFY] ★ Alert sent successfully: {alert.ts_code}")
         else:
             self.logger.error(f"[NOTIFY] Failed to send alert: {alert.ts_code}")

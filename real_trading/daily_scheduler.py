@@ -905,12 +905,12 @@ async def main():
 
     if args.phase == "status":
         status = scheduler.get_status()
-        print(json.dumps(status, ensure_ascii=False, indent=2))
+        logger.info(json.dumps(status, ensure_ascii=False, indent=2))
         return
 
     if args.phase == "start":
         await scheduler.start()
-        print("✅ 定时调度已启动，按 Ctrl+C 退出...")
+        logger.info("✅ 定时调度已启动，按 Ctrl+C 退出...")
         try:
             while True:
                 await asyncio.sleep(3600)
@@ -931,7 +931,7 @@ async def main():
 
     if result:
         output = asdict(result) if isinstance(result, ScheduleResult) else result
-        print(json.dumps(output, ensure_ascii=False, indent=2, default=str))
+        logger.info(json.dumps(output, ensure_ascii=False, indent=2, default=str))
 
 
 if __name__ == "__main__":

@@ -4,6 +4,9 @@
 支持多渠道推送：飞书、企业微信、钉钉、邮件、短信
 """
 import sys
+import logging
+
+logger = logging.getLogger(__name__)
 import os
 import json
 import time
@@ -74,12 +77,12 @@ class SignalPusher:
         
         # 推送总开关检查
         if not self.config.get("notify_enabled", True):
-            print("ℹ️  推送已关闭，跳过")
+            logger.info("ℹ️  推送已关闭，跳过")
             return True
         
         # 空信号判断
         if not signal_data.get("signals") and not self.config["push_empty_signal"]:
-            print("ℹ️  无交易信号，跳过推送")
+            logger.info("ℹ️  无交易信号，跳过推送")
             return True
         
         # 置信度过滤：过滤低置信度信号
@@ -91,9 +94,9 @@ class SignalPusher:
                 if s.get("confidence", 1.0) >= min_confidence
             ]
             if len(signal_data["signals"]) < original_count:
-                print(f"ℹ️  过滤掉{original_count - len(signal_data['signals'])}个低置信度信号(阈值={min_confidence})")
+                logger.info(f"ℹ️  过滤掉{original_count - len(signal_data['signals'])}个低置信度信号(阈值={min_confidence})")
             if not signal_data["signals"] and not self.config["push_empty_signal"]:
-                print("ℹ️  过滤后无信号，跳过推送")
+                logger.info("ℹ️  过滤后无信号，跳过推送")
                 return True
         
         # 最小发送间隔防刷屏
@@ -102,46 +105,46 @@ class SignalPusher:
         elapsed = now - self._last_push_time
         if elapsed < min_interval and self._last_push_time > 0:
             wait_time = min_interval - elapsed
-            print(f"⏳ 推送间隔不足({elapsed:.1f}s < {min_interval}s)，等待{wait_time:.1f}s...")
+            logger.info(f"⏳ 推送间隔不足({elapsed:.1f}s < {min_interval}s)，等待{wait_time:.1f}s...")
             time.sleep(wait_time)
         
-        print(f"📤 开始推送{signal_data['date']}信号...")
+        logger.info(f"📤 开始推送{signal_data['date']}信号...")
         self._last_push_time = time.time()
         
         # 推送飞书
         if self.config["feishu_webhook"] and self.config.get("feishu_enabled", True):
             try:
                 self._push_feishu(signal_data)
-                print("✅ 飞书推送成功")
+                logger.info("✅ 飞书推送成功")
             except Exception as e:
-                print(f"❌ 飞书推送失败: {e}")
+                logger.error(f"❌ 飞书推送失败: {e}")
                 success = False
         
         # 推送企业微信
         if self.config["wecom_webhook"] and self.config.get("wecom_enabled", True):
             try:
                 self._push_wecom(signal_data)
-                print("✅ 企业微信推送成功")
+                logger.info("✅ 企业微信推送成功")
             except Exception as e:
-                print(f"❌ 企业微信推送失败: {e}")
+                logger.error(f"❌ 企业微信推送失败: {e}")
                 success = False
         
         # 推送钉钉
         if self.config["dingtalk_webhook"]:
             try:
                 self._push_dingtalk(signal_data)
-                print("✅ 钉钉推送成功")
+                logger.info("✅ 钉钉推送成功")
             except Exception as e:
-                print(f"❌ 钉钉推送失败: {e}")
+                logger.error(f"❌ 钉钉推送失败: {e}")
                 success = False
         
         # 推送邮件
         if self.config["smtp_config"]["host"] and self.config["smtp_config"]["to"]:
             try:
                 self._push_email(signal_data)
-                print("✅ 邮件推送成功")
+                logger.info("✅ 邮件推送成功")
             except Exception as e:
-                print(f"❌ 邮件推送失败: {e}")
+                logger.error(f"❌ 邮件推送失败: {e}")
                 success = False
         
         return success

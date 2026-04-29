@@ -12,7 +12,7 @@
 
 import asyncio
 from typing import Optional, Dict
-from datetime import datetime
+from datetime import datetime, timezone
 import traceback
 # 【修复#33：logger并发安全】Python logging模块本身就是线程安全的
 # 因为logging模块内部使用了锁机制（threading.RLock），保证多线程环境下的安全写入
@@ -168,7 +168,7 @@ class BacktestNode(BaseNode):
 
     async def _handle_run_backtest(self, params: dict) -> dict:
         """处理回测 RPC 请求"""
-        task_id = params.get("task_id", f"bt_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}")
+        task_id = params.get("task_id", f"bt_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}")
 
         self.logger.info(f"Received backtest request: {task_id}")
 
@@ -182,7 +182,7 @@ class BacktestNode(BaseNode):
                     "status": "queued",
                     "params": params,
                     "node_id": self.node_id,
-                    "created_at": datetime.utcnow(),
+                    "created_at": datetime.now(timezone.utc),
                 }
             },
             upsert=True,
@@ -231,7 +231,7 @@ class BacktestNode(BaseNode):
         result = await mongo_manager.update_one(
             "backtest_tasks",
             {"task_id": task_id, "status": {"$in": ["pending", "queued"]}},
-            {"$set": {"status": "cancelled", "cancelled_at": datetime.utcnow()}},
+            {"$set": {"status": "cancelled", "cancelled_at": datetime.now(timezone.utc)}},
         )
 
         if result.modified_count > 0:
@@ -241,7 +241,7 @@ class BacktestNode(BaseNode):
 
     async def _handle_run_factor_selection(self, params: dict) -> dict:
         """处理因子选股回测 RPC 请求"""
-        task_id = params.get("task_id", f"fs_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}")
+        task_id = params.get("task_id", f"fs_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}")
 
         self.logger.info(f"Received factor selection backtest request: {task_id}")
 
@@ -256,7 +256,7 @@ class BacktestNode(BaseNode):
                     "status": "queued",
                     "params": params,
                     "node_id": self.node_id,
-                    "created_at": datetime.utcnow(),
+                    "created_at": datetime.now(timezone.utc),
                 }
             },
             upsert=True,
@@ -275,7 +275,7 @@ class BacktestNode(BaseNode):
 
     async def _handle_run_ultra_short_backtest(self, params: dict) -> dict:
         """处理超短策略回测 RPC 请求"""
-        task_id = params.get("task_id", f"us_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}")
+        task_id = params.get("task_id", f"us_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}")
 
         self.logger.info(f"Received ultra short backtest request: {task_id}")
 
@@ -290,7 +290,7 @@ class BacktestNode(BaseNode):
                     "task_type": "ultra_short",
                     "params": params,
                     "node_id": self.node_id,
-                    "created_at": datetime.utcnow(),
+                    "created_at": datetime.now(timezone.utc),
                     "progress": 0,
                     "logs": [],
                 }
@@ -324,7 +324,7 @@ class BacktestNode(BaseNode):
         await mongo_manager.update_one(
             "backtest_tasks",
             {"task_id": task_id},
-            {"$set": {"status": "running", "started_at": datetime.utcnow()}},
+            {"$set": {"status": "running", "started_at": datetime.now(timezone.utc)}},
         )
 
         # 构建回测配置
@@ -377,7 +377,7 @@ class BacktestNode(BaseNode):
         4. WebSocket推送统一带 type 字段
         """
         # 1. 本地文件日志 - 带格式（仅用于本地排查，不对外推送）
-        timestamp = datetime.utcnow().strftime('%H:%M:%S')
+        timestamp = datetime.now(timezone.utc).strftime('%H:%M:%S')
         self.logger.info(f"[{task_id}] {log_text}")
 
         # 2. MongoDB保存原始文本
@@ -413,7 +413,7 @@ class BacktestNode(BaseNode):
         """更新任务结果"""
         update_data = {
             "status": status,
-            "completed_at": datetime.utcnow(),
+            "completed_at": datetime.now(timezone.utc),
         }
 
         if result:

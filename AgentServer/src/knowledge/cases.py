@@ -12,7 +12,7 @@
 
 import logging
 from typing import Any, Dict, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
@@ -107,8 +107,8 @@ class CasesKnowledgeBase:
             "outcome": outcome,
             "tags": tags or [],
             "embedding": embedding,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
         }
         
         # 使用 upsert 避免重复
@@ -144,7 +144,7 @@ class CasesKnowledgeBase:
             {
                 "$set": {
                     "outcome": outcome,
-                    "updated_at": datetime.utcnow(),
+                    "updated_at": datetime.now(timezone.utc),
                 },
             },
         )

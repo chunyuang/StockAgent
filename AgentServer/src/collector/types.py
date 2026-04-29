@@ -5,7 +5,7 @@
 import hashlib
 from enum import Enum, IntEnum
 from typing import Any, Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 
 
@@ -172,7 +172,7 @@ class NewsItem(BaseModel):
     
     # 时间
     publish_time: Optional[datetime] = Field(default=None, description="发布时间")
-    collect_time: datetime = Field(default_factory=datetime.utcnow, description="采集时间")
+    collect_time: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="采集时间")
     
     # 关联
     ts_codes: List[str] = Field(default_factory=list, description="关联股票代码")
@@ -260,7 +260,7 @@ class NewsItem(BaseModel):
         if self.publish_time:
             date_str = self.publish_time.strftime("%Y%m%d")
         else:
-            date_str = datetime.utcnow().strftime("%Y%m%d")
+            date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
         
         return f"{self.source.value}_{date_str}_{self.content_hash[:12]}"
     

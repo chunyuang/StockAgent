@@ -4,6 +4,9 @@
 功能：基于历史数据自动优化策略参数，支持网格搜索、遗传算法、随机搜索，找到最优参数组合
 """
 import sys
+import logging
+
+logger = logging.getLogger(__name__)
 import os
 import asyncio
 import itertools
@@ -31,7 +34,7 @@ class StrategyOptimizer:
     
     async def grid_search(self, param_grid: Dict[str, List]) -> List[Dict]:
         """网格搜索：遍历所有参数组合"""
-        print(f"🚀 开始网格搜索，参数组合数：{self._calc_combination_count(param_grid)}")
+        logger.info(f"🚀 开始网格搜索，参数组合数：{self._calc_combination_count(param_grid)}")
         
         # 生成所有参数组合
         param_names = list(param_grid.keys())
@@ -40,7 +43,7 @@ class StrategyOptimizer:
         total = len(list(itertools.product(*param_values)))
         for idx, combination in enumerate(itertools.product(*param_values)):
             params = dict(zip(param_names, combination))
-            print(f"[{idx+1}/{total}] 测试参数组合：{params}")
+            logger.info(f"[{idx+1}/{total}] 测试参数组合：{params}")
             
             # 运行回测
             result = await self._run_backtest(params)
@@ -55,7 +58,7 @@ class StrategyOptimizer:
     
     async def random_search(self, param_ranges: Dict[str, Tuple], n_iter: int = 100) -> List[Dict]:
         """随机搜索：在参数范围内随机采样n次，适合大范围参数空间"""
-        print(f"🚀 开始随机搜索，迭代次数：{n_iter}")
+        logger.info(f"🚀 开始随机搜索，迭代次数：{n_iter}")
         
         for i in range(n_iter):
             # 随机生成参数
@@ -68,7 +71,7 @@ class StrategyOptimizer:
                 elif dtype == "bool":
                     params[name] = random.choice([True, False])
             
-            print(f"[{i+1}/{n_iter}] 测试参数组合：{params}")
+            logger.info(f"[{i+1}/{n_iter}] 测试参数组合：{params}")
             
             # 运行回测
             result = await self._run_backtest(params)
@@ -85,18 +88,18 @@ class StrategyOptimizer:
     async def genetic_algorithm(self, param_ranges: Dict[str, Tuple], pop_size: int = 50, 
                                  generations: int = 20, mutation_rate: float = 0.1) -> List[Dict]:
         """遗传算法优化：适合复杂参数空间，收敛更快"""
-        print(f"🚀 开始遗传算法优化，种群大小：{pop_size}，迭代代数：{generations}")
+        logger.info(f"🚀 开始遗传算法优化，种群大小：{pop_size}，迭代代数：{generations}")
         
         # 初始化种群
         population = self._generate_population(param_ranges, pop_size)
         
         for gen in range(generations):
-            print(f"\n📈 第{gen+1}代进化：")
+            logger.info(f"\n📈 第{gen+1}代进化：")
             
             # 评估种群
             evaluated = []
             for idx, params in enumerate(population):
-                print(f"评估个体 {idx+1}/{pop_size}：{params}")
+                logger.info(f"评估个体 {idx+1}/{pop_size}：{params}")
                 result = await self._run_backtest(params)
                 if result:
                     evaluated.append((result["total_return"], params, result))
@@ -105,7 +108,7 @@ class StrategyOptimizer:
             evaluated.sort(key=lambda x: x[0], reverse=True)
             top_performers = evaluated[:int(pop_size * 0.3)]  # 前30%保留
             
-            print(f"当前代最优收益：{top_performers[0][0]:.2f}%，参数：{top_performers[0][1]}")
+            logger.info(f"当前代最优收益：{top_performers[0][0]:.2f}%，参数：{top_performers[0][1]}")
             
             # 保存结果
             for fitness, params, result in top_performers:
@@ -152,7 +155,7 @@ class StrategyOptimizer:
             result = await self.backtester.run(config)
             
             if "error" in result:
-                print(f"❌ 回测失败：{result['error']}")
+                logger.error(f"❌ 回测失败：{result['error']}")
                 return None
             
             perf = result["performance"]
@@ -169,7 +172,7 @@ class StrategyOptimizer:
             }
         
         except Exception as e:
-            print(f"❌ 回测异常：{e}")
+            logger.error(f"❌ 回测异常：{e}")
             return None
     
     def _calc_combination_count(self, param_grid: Dict[str, List]) -> int:
@@ -246,7 +249,7 @@ class StrategyOptimizer:
             return
         
         best = max(self.results, key=lambda x: x["total_return"])
-        print(f"🌟 当前最优：收益{best['total_return']:.2f}%，夏普{best['sharpe_ratio']:.2f}，最大回撤{best['max_drawdown']:.2f}%，参数：{best['params']}")
+        logger.info(f"🌟 当前最优：收益{best['total_return']:.2f}%，夏普{best['sharpe_ratio']:.2f}，最大回撤{best['max_drawdown']:.2f}%，参数：{best['params']}")
     
     def get_top_results(self, top_n: int = 10) -> List[Dict]:
         """获取前N名最优结果"""
@@ -303,7 +306,7 @@ class StrategyOptimizer:
         if output_file:
             with open(output_file, "w", encoding="utf-8") as f:
                 f.write(report)
-            print(f"✅ 优化报告已保存到：{output_file}")
+            logger.info(f"✅ 优化报告已保存到：{output_file}")
         
         return report
     
@@ -418,8 +421,8 @@ if __name__ == "__main__":
             await optimizer.genetic_algorithm(param_ranges, args.pop_size, args.iters)
         
         # 打印结果
-        print("\n" + "="*80)
-        print(optimizer.generate_optimization_report(args.output))
-        print("="*80)
+        logger.info("\n" + "="*80)
+        logger.info(optimizer.generate_optimization_report(args.output))
+        logger.info("="*80)
     
     asyncio.run(main())

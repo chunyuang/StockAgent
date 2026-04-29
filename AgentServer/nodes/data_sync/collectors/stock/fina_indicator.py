@@ -12,7 +12,7 @@
 """
 
 from typing import Dict, Any
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 
 from core.base import BaseCollector
 from core.settings import settings
@@ -116,7 +116,7 @@ class FinaIndicatorCollector(BaseCollector):
             if not financial_data:
                 return 0
             
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             total = 0
             
             for data_key, collection_name, key_fields in FINA_COLLECTIONS:

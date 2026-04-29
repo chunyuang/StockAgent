@@ -4,7 +4,7 @@
 从node.py拆分出的单股回测执行逻辑，包含行情数据获取。
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict
 
 import pandas as pd
@@ -39,7 +39,7 @@ async def execute_backtest(params: dict, node_logger) -> dict:
     await mongo_manager.update_one(
         "backtest_tasks",
         {"task_id": task_id},
-        {"$set": {"status": "running", "started_at": datetime.utcnow()}},
+        {"$set": {"status": "running", "started_at": datetime.now(timezone.utc)}},
     )
 
     # 1. 获取行情数据

@@ -6,7 +6,7 @@
 
 from abc import ABC, abstractmethod
 from typing import TypeVar, Generic, Optional, Dict, Any, Type
-from datetime import datetime
+from datetime import datetime, timezone
 import time
 import logging
 
@@ -161,7 +161,7 @@ class BaseCollector(ABC):
             
             duration_ms = (time.time() - start_time) * 1000
             
-            self._last_run = datetime.utcnow()
+            self._last_run = datetime.now(timezone.utc)
             self._last_result = {
                 "success": True,
                 "count": result.get("count", 0),
@@ -176,7 +176,7 @@ class BaseCollector(ABC):
             
             duration_ms = (time.time() - start_time) * 1000
             
-            self._last_run = datetime.utcnow()
+            self._last_run = datetime.now(timezone.utc)
             self._last_result = {
                 "success": False,
                 "error": str(e),

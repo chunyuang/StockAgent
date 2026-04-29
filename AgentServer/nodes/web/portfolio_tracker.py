@@ -49,7 +49,7 @@ MongoDB Collections:
 
 import logging
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Any
 
 from core.managers import mongo_manager
@@ -147,7 +147,7 @@ class PortfolioTracker:
 
         # 创建默认账户
         cash = initial_cash or self.config["default_initial_cash"]
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         account = {
             "account_id": account_id,
             "name": "默认模拟账户",
@@ -242,7 +242,7 @@ class PortfolioTracker:
             "strategy": strategy,
             "signal_id": signal_id,
             "status": PositionStatus.OPEN,
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
         }
 
         # 4. 写入持仓
@@ -319,7 +319,7 @@ class PortfolioTracker:
         profit_pct = (sell_price - position["buy_price"]) / position["buy_price"] * 100
         hold_days = self._calc_hold_days(position["buy_date"])
         sell_date = self._get_today_str()
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         # 1. 更新持仓状态
         await mongo_manager.update_one(
@@ -487,7 +487,7 @@ class PortfolioTracker:
             "initial_cash": initial_cash,
             "total_profit": round(total_assets - initial_cash, 2),
             "total_profit_pct": round((total_assets - initial_cash) / initial_cash * 100, 2) if initial_cash > 0 else 0,
-            "generated_at": datetime.utcnow(),
+            "generated_at": datetime.now(timezone.utc),
         }
 
         await self._upsert_nav_record(account_id, trade_date, nav_record)

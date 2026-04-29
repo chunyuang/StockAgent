@@ -13,7 +13,7 @@
 import logging
 import hashlib
 from typing import Any, Dict, List, Optional, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -242,7 +242,7 @@ class EventClusterEngine:
         """
         mongo = await self._get_mongo()
         
-        cutoff = datetime.utcnow() - self.time_window
+        cutoff = datetime.now(timezone.utc) - self.time_window
         
         try:
             # 先按指纹哈希精确匹配
@@ -326,7 +326,7 @@ class EventClusterEngine:
                 existing.primary_news_priority = news_priority
                 existing.title = news_title  # 使用更权威来源的标题
                 existing.news_count += 1
-                existing.last_update_time = datetime.utcnow()
+                existing.last_update_time = datetime.now(timezone.utc)
                 if news_source not in existing.sources:
                     existing.sources.append(news_source)
                 
@@ -340,7 +340,7 @@ class EventClusterEngine:
                             "primary_news_id": news_id,
                             "primary_news_priority": news_priority,
                             "title": news_title,
-                            "last_update_time": datetime.utcnow(),
+                            "last_update_time": datetime.now(timezone.utc),
                         },
                         "$addToSet": {"sources": news_source},
                     }
@@ -361,7 +361,7 @@ class EventClusterEngine:
                         "$set": {
                             "event_id": existing.id,
                             "is_primary": True,
-                            "clustered_at": datetime.utcnow(),
+                            "clustered_at": datetime.now(timezone.utc),
                         }
                     }
                 )
@@ -375,7 +375,7 @@ class EventClusterEngine:
                 # 普通合并，不替换主新闻
                 existing.related_news_ids.append(news_id)
                 existing.news_count += 1
-                existing.last_update_time = datetime.utcnow()
+                existing.last_update_time = datetime.now(timezone.utc)
                 if news_source not in existing.sources:
                     existing.sources.append(news_source)
                 
@@ -385,7 +385,7 @@ class EventClusterEngine:
                     {
                         "$push": {"related_news_ids": news_id},
                         "$inc": {"news_count": 1},
-                        "$set": {"last_update_time": datetime.utcnow()},
+                        "$set": {"last_update_time": datetime.now(timezone.utc)},
                         "$addToSet": {"sources": news_source},
                     }
                 )
@@ -398,7 +398,7 @@ class EventClusterEngine:
                         "$set": {
                             "event_id": existing.id,
                             "is_primary": False,
-                            "clustered_at": datetime.utcnow(),
+                            "clustered_at": datetime.now(timezone.utc),
                         }
                     }
                 )
@@ -423,8 +423,8 @@ class EventClusterEngine:
             primary_news_priority=news_priority,
             related_news_ids=[],
             news_count=1,
-            first_report_time=datetime.utcnow(),
-            last_update_time=datetime.utcnow(),
+            first_report_time=datetime.now(timezone.utc),
+            last_update_time=datetime.now(timezone.utc),
             sources=[news_source],
         )
         
@@ -438,7 +438,7 @@ class EventClusterEngine:
                 "$set": {
                     "event_id": event.id,
                     "is_primary": True,
-                    "clustered_at": datetime.utcnow(),
+                    "clustered_at": datetime.now(timezone.utc),
                 }
             }
         )
@@ -476,7 +476,7 @@ class EventClusterEngine:
             # 使用 milvus_manager 的 insert_news 方法
             # 它会自动生成向量并存入正确的 collection
             ts_code = event.ts_codes[0] if event.ts_codes else ""
-            trade_date = event.first_report_time.strftime("%Y%m%d") if event.first_report_time else datetime.utcnow().strftime("%Y%m%d")
+            trade_date = event.first_report_time.strftime("%Y%m%d") if event.first_report_time else datetime.now(timezone.utc).strftime("%Y%m%d")
             news_datetime = event.first_report_time.isoformat() if event.first_report_time else ""
             
             vector_id = await milvus.insert_news(
@@ -520,7 +520,7 @@ class EventClusterEngine:
             "news",
             {
                 "clustered_at": {"$exists": False},
-                "collect_time": {"$gte": datetime.utcnow() - self.time_window},
+                "collect_time": {"$gte": datetime.now(timezone.utc) - self.time_window},
             },
             limit=batch_size,
             sort=[("collect_time", 1)],
@@ -652,7 +652,7 @@ class EventClusterEngine:
         mongo = await self._get_mongo()
         
         query = {
-            "last_update_time": {"$gte": datetime.utcnow() - timedelta(hours=hours)}
+            "last_update_time": {"$gte": datetime.now(timezone.utc) - timedelta(hours=hours)}
         }
         
         if importance:
@@ -714,7 +714,7 @@ class EventClusterEngine:
             {
                 "enriched_at": {"$exists": False},
                 "filtered_at": {"$exists": False},  # 未被过滤处理过
-                "last_update_time": {"$gte": datetime.utcnow() - timedelta(hours=hours)},
+                "last_update_time": {"$gte": datetime.now(timezone.utc) - timedelta(hours=hours)},
             },
             limit=500,
             sort=[("news_count", -1)],
@@ -786,7 +786,7 @@ class EventClusterEngine:
                     "news_events",
                     {"id": event_id},
                     {"$set": {
-                        "filtered_at": datetime.utcnow(),
+                        "filtered_at": datetime.now(timezone.utc),
                         "filter_reason": filter_reason,
                         "is_low_value": True,
                     }}
@@ -814,7 +814,7 @@ class EventClusterEngine:
             "news_events",
             {
                 "is_low_value": True,
-                "last_update_time": {"$gte": datetime.utcnow() - timedelta(hours=hours)},
+                "last_update_time": {"$gte": datetime.now(timezone.utc) - timedelta(hours=hours)},
             },
             limit=limit,
             sort=[("filtered_at", -1)],
@@ -842,7 +842,7 @@ class EventClusterEngine:
                     {"is_low_value": {"$exists": False}},
                     {"is_low_value": False},
                 ],
-                "last_update_time": {"$gte": datetime.utcnow() - timedelta(hours=hours)},
+                "last_update_time": {"$gte": datetime.now(timezone.utc) - timedelta(hours=hours)},
             },
             limit=limit,
             sort=[("news_count", -1), ("last_update_time", -1)],
@@ -897,7 +897,7 @@ class EventClusterEngine:
         else:
             query = {
                 "enriched_at": {"$exists": False},
-                "last_update_time": {"$gte": datetime.utcnow() - timedelta(hours=hours)},
+                "last_update_time": {"$gte": datetime.now(timezone.utc) - timedelta(hours=hours)},
                 # 排除已标记为低价值的事件
                 "$or": [
                     {"is_low_value": {"$exists": False}},
@@ -947,7 +947,7 @@ class EventClusterEngine:
                                 "impact_scope": result.get("impact_scope"),
                                 "related_sectors": result.get("related_sectors", []),
                                 "policy_level": result.get("policy_level"),
-                                "enriched_at": datetime.utcnow(),
+                                "enriched_at": datetime.now(timezone.utc),
                                 "enrich_type": "full",
                             }
                             await mongo.update_one(
@@ -973,7 +973,7 @@ class EventClusterEngine:
                                     "sentiment": rule_result.get("sentiment", "neutral"),
                                     "sentiment_score": 0.0,
                                     "impact_scope": "sector",
-                                    "enriched_at": datetime.utcnow(),
+                                    "enriched_at": datetime.now(timezone.utc),
                                     "enrich_type": "partial",
                                 }
                                 await mongo.update_one(
@@ -989,7 +989,7 @@ class EventClusterEngine:
                                 "sentiment": rule_result.get("sentiment", "neutral"),
                                 "sentiment_score": 0.0,
                                 "impact_scope": "sector",
-                                "enriched_at": datetime.utcnow(),
+                                "enriched_at": datetime.now(timezone.utc),
                                 "enrich_type": "rule",
                             }
                             await mongo.update_one(
@@ -1007,7 +1007,7 @@ class EventClusterEngine:
                             "sentiment_score": 0.0,
                             "impact_scope": rule_result.get("impact_scope", "stock"),
                             "related_sectors": rule_result.get("sectors", []),
-                            "enriched_at": datetime.utcnow(),
+                            "enriched_at": datetime.now(timezone.utc),
                             "enrich_type": "rule",
                         }
                         await mongo.update_one(
@@ -1097,7 +1097,7 @@ class EventClusterEngine:
             "news_events",
             {
                 "enriched_at": {"$exists": False},
-                "last_update_time": {"$gte": datetime.utcnow() - timedelta(hours=hours)},
+                "last_update_time": {"$gte": datetime.now(timezone.utc) - timedelta(hours=hours)},
             },
             limit=limit,
             sort=[("news_count", -1)],

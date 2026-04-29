@@ -12,6 +12,9 @@
 6. 次日交易计划
 """
 import sys
+import logging
+
+logger = logging.getLogger(__name__)
 import os
 import json
 from datetime import datetime
@@ -454,7 +457,7 @@ class DailyRebalanceReportGenerator:
             filepath = os.path.join(output_dir, filename)
             with open(filepath, "w", encoding="utf-8") as f:
                 f.write(report_content)
-            print(f"✅ 调仓报告已保存到：{filepath}")
+            logger.info(f"✅ 调仓报告已保存到：{filepath}")
         
         return report_content
     
@@ -474,20 +477,20 @@ class DailyRebalanceReportGenerator:
                 )
                 if files:
                     latest = os.path.join(signals_dir, files[0])
-                    print(f"ℹ️  未找到{trade_date}的信号文件，使用最近的信号文件：{files[0]}")
+                    logger.info(f"ℹ️  未找到{trade_date}的信号文件，使用最近的信号文件：{files[0]}")
                     signal_file = latest
                 else:
-                    print(f"⚠️  信号目录为空，无可用信号文件")
+                    logger.warning(f"⚠️  信号目录为空，无可用信号文件")
                     return None
             else:
-                print(f"⚠️  信号目录不存在：{signals_dir}")
+                logger.warning(f"⚠️  信号目录不存在：{signals_dir}")
                 return None
         
         try:
             with open(signal_file, "r", encoding="utf-8") as f:
                 return json.load(f)
         except (json.JSONDecodeError, OSError) as e:
-            print(f"❌ 加载信号文件失败: {e}")
+            logger.error(f"❌ 加载信号文件失败: {e}")
             return None
     
     @staticmethod
@@ -509,7 +512,7 @@ def main():
     
     generator = DailyRebalanceReportGenerator(args.account)
     report = generator.generate(args.date, args.output_dir)
-    print(report)
+    logger.info(report)
 
 
 if __name__ == "__main__":
