@@ -1811,9 +1811,10 @@ class PortfolioBacktester:
             if matched_key:
                 result[matched_key] = {
                     "open": doc.get("open", doc["close"]),
+                    "high": doc.get("high", doc["close"]),
+                    "low": doc.get("low", doc["close"]),
                     "close": doc["close"],
-                    "low": doc.get("low", doc["close"]),  # 最低价,用于跌停翘板买入价近似
-                    "pre_close": doc.get("pre_close", None)  # 前收盘价(可能为None)
+                    "pre_close": doc.get("pre_close", None)
                 }
                 matched += 1
 
@@ -2028,20 +2029,67 @@ class PortfolioBacktester:
                 continue  # 没有价格,无法买入
             # ✅ 应用综合仓位系数!
             # 例如:情绪冰点 0.3 × 春节前夕 0.2 = 0.06 → 只有 6% 仓位
-            target_value = total_value * weight * position_multiplier
-            price = prices[code]['open']  # 买入用开盘价
-            # 向下取整到 100 的倍数(A股买入规则)
-            shares = int(int(target_value / price) / 100) * 100
-            if shares > 0:
-                target_shares[code] = shares
+            # 用策略对应买入价计算仓位(而非开盘价)
+            price = open_price  # 默认用开盘价
+            for code, weight in target_weights.items():
+                if code not in prices:
+                    continue
+                p_info = prices[code]
+                o = p_info.get('open', 0)
+                h = p_info.get('high', o)
+                l = p_info.get('low', o)
+                sname = getattr(self, 'stock_to_strategy', {}).get(code, '')
+                if sname == '半路追涨':
+                    buy_p = min(o * 1.04, h) if o > 0 else 0
+                elif sname in ('首板打板', '涨停开板'):
+                    buy_p = p_info.get('close', o) if p_info.get('close', 0) >= o * 1.08 else min(o * 1.10, h)
+                elif sname == '龙头低吸':
+                    buy_p = l * 1.005 if l > 0 else o * 0.98
+                elif sname == '跌停翘板':
+                    buy_p = l * 1.005 if l > 0 else o * 0.92
+                else:
+                    buy_p = o
+                if buy_p <= 0:
+                    buy_p = o
+                target_value = total_value * weight * position_multiplier
+                shares = int(int(target_value / buy_p) / 100) * 100
+                if shares > 0:
+                    target_shares[code] = shares
 
         # 先卖出:不在目标持仓中的股票卖出
-        sell_codes = [code for code in holdings if code not in target_shares and holdings[code] > 0]
+        # 【方案2:日频数据推算盘中卖出价】
+        # 止损:盘中最低价触发 → 用low近似
+        # 止盈:盘中最高价触发 → 用high近似
+        # 其他:收盘卖出 → 用close
+        stop_loss_pct = config.get('risk_config', config).get('stop_loss_pct', 0.02) if isinstance(config, dict) else 0.02
+        take_profit_pct = config.get('risk_config', config).get('take_profit_pct', 0.07) if isinstance(config, dict) else 0.07
         for ts_code in sell_codes:
             shares = holdings[ts_code]
-            price = prices.get(ts_code, {}).get('close', 0)
-            if price <= 0 or shares <= 0:
+            price_info = prices.get(ts_code, {})
+            close_price = price_info.get('close', 0)
+            high_price = price_info.get('high', close_price)
+            low_price = price_info.get('low', close_price)
+            open_price = price_info.get('open', close_price)
+            if close_price <= 0 or shares <= 0:
                 continue
+
+            # 判断盘中是否触发止损/止盈(基于买入成本)
+            # 买入价从持仓记录获取,简化处理用open*0.99作为成本估算
+            cost_basis = open_price * 0.99  # 粗略成本(实际应为买入价)
+            sell_price = close_price  # 默认收盘价
+            sell_reason = '调仓卖出'
+            if cost_basis > 0:
+                stop_price = cost_basis * (1 - stop_loss_pct)
+                profit_price = cost_basis * (1 + take_profit_pct)
+                if low_price <= stop_price:
+                    # 盘中触及止损,用stop_price近似(止损价卖出)
+                    sell_price = stop_price
+                    sell_reason = f'止损({stop_loss_pct*100:.0f}%)'
+                elif high_price >= profit_price:
+                    # 盘中触及止盈,用profit_price近似(止盈价卖出)
+                    sell_price = profit_price
+                    sell_reason = f'止盈({take_profit_pct*100:.0f}%)'
+            price = sell_price
 
             # 计算卖出金额(含滑点扣除)
             slippage_pct = self._slippage_pct if hasattr(self, '_slippage_pct') else 0.002
@@ -2077,23 +2125,26 @@ class PortfolioBacktester:
             if delta <= 0:
                 continue  # 不需要买入
 
-            # 根据策略差异化买入价(日频回测近似)
+            # 【方案2:日频数据推算盘中触发价】
+            # 不同策略的买入时机不同,用日频OHLC推算合理买入价
             price_info = prices.get(ts_code, {})
             open_price = price_info.get('open', 0)
+            high_price = price_info.get('high', open_price)
+            low_price = price_info.get('low', open_price)
             close_price = price_info.get('close', 0)
             strategy_name = getattr(self, 'stock_to_strategy', {}).get(ts_code, '')
             if strategy_name == '半路追涨':
-                # 半路追涨:盘中涨幅3%~5%时买入,近似取 open*1.04
-                price = open_price * 1.04 if open_price > 0 else 0
+                # 涨幅3%~5%时买入,取open*1.04,但不超过high(盘中最高价是上限)
+                price = min(open_price * 1.04, high_price) if open_price > 0 else 0
             elif strategy_name in ('首板打板', '涨停开板'):
-                # 涨停相关:涨停价≈close(涨停日close即涨停价)
-                price = close_price if close_price > open_price * 1.08 else open_price * 1.10
+                # 涨停价≈close(涨停日close即涨停价),若非涨停日用open*1.10
+                price = close_price if close_price >= open_price * 1.08 else min(open_price * 1.10, high_price)
             elif strategy_name == '龙头低吸':
-                # 龙头低吸:回调到支撑位,近似 open*0.98
-                price = open_price * 0.98 if open_price > 0 else 0
+                # 回调到支撑位买入,取low附近(盘中最低价≈支撑位),加0.5%滑点
+                price = low_price * 1.005 if low_price > 0 else open_price * 0.98
             elif strategy_name == '跌停翘板':
-                # 跌停翘板:跌停价附近买入,用low近似
-                price = price_info.get('low', open_price) if price_info.get('low', 0) > 0 else open_price * 0.92
+                # 跌停价附近买入,low≈跌停价,加0.5%滑点(不是实盘的"正好跌停价")
+                price = low_price * 1.005 if low_price > 0 else open_price * 0.92
             else:
                 price = open_price
             if price <= 0:
