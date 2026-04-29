@@ -942,6 +942,7 @@ class PortfolioBacktester:
                 all_candidates = set()
                 # 【修复#45:记录每只股票来自哪个策略,用于调仓日志显示】
                 stock_to_strategy = {}  # code -> strategy_name
+                self.stock_to_strategy = stock_to_strategy  # 存实例变量,供_rebalance使用
 
                 selected_strategies = config.get("selected_strategies", [])
                 selected_strategy_names = [s["name"] for s in selected_strategies] if selected_strategies else []
@@ -2102,7 +2103,7 @@ class PortfolioBacktester:
             holdings[ts_code] = current_shares + delta
 
             # 记录交易
-            strategy_name = stock_to_strategy.get(ts_code, "策略选股")  # 【修复新6：从stock_to_strategy获取策略名，存独立字段】
+            strategy_name = getattr(self, 'stock_to_strategy', {}).get(ts_code, "策略选股")  # 【修复新6：从stock_to_strategy获取策略名，存独立字段】
             # 【修复新7：如果有现金缩减信息附加到reason】
             final_reason = "rebalance"
             if 'reduce_reason' in locals():
