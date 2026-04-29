@@ -377,7 +377,7 @@ class PortfolioBacktester:
         await self.log(f"   🧹 数据清洗:")
         await self.log(f"      🔹 剔除ST股票: {st_count}只")
         await self.log(f"      🔹 剔除次新股: {new_stock_count}只")
-        await self.log(f"      🔹 剔除流动性<500万: {low_liquidity_count}只")
+        await self.log(f"      🔹 剔除流动性<500万(amount<5000千元): {low_liquidity_count}只")
         cleaned_count = len(universe) - st_count - new_stock_count - low_liquidity_count
         await self.log(f"      🔹 清洗后剩余: {cleaned_count}只")
 
@@ -821,7 +821,7 @@ class PortfolioBacktester:
                     {
                         "trade_date": int(trade_date),
                         "ts_code": {"$in": list(universe)},
-                        "amount": {"$lt": 500}
+                        "amount": {"$lt": 5000}  # 5000千元=500万元,与流动性门槛对齐(amount单位:千元)
                     },
                     {"ts_code": 1}
                 )
@@ -834,138 +834,11 @@ class PortfolioBacktester:
                 await self._print_stock_pool_and_cleaning(trade_date, universe, st_count, new_stock_count, low_liquidity_count)
 
                 # 2. 计算因子
-                if universe:
-                    ultra_short_factors = [
-                        {"name": "open_below_limit"},
-                        {"name": "pct_chg"},
-                        {"name": "volume_ratio"},
-                        {"name": "first_limit_up"},
-                        {"name": "limit_up_yesterday"},
-                        {"name": "limit_up_open_amount"},
-                        {"name": "circ_mv"},
-                        {"name": "limit_up_open_count"},
-                        {"name": "hot_sector"},
-                        {"name": "limit_up_time"},
-                        {"name": "limit_up_count"},
-                        {"name": "limit_up_open_duration"},
-                        {"name": "turnover_rate"},
-                        {"name": "market_leader"},
-                        {"name": "pullback_pct"},
-                        {"name": "pullback_days"},
-                        {"name": "pullback_ma5"},
-                        {"name": "limit_down_yesterday"},
-                        {"name": "open_above_limit_down"},
-                        {"name": "limit_down_open_amount"},
-                        {"name": "rise_after_limit_down"},
-                        {"name": "sentiment_score"},
-                        {"name": "opening_pct_chg"},  # 【修复：首板打板/涨停开板策略需要竞价涨幅因子】
-                    ]
-                    if "factors" not in config:
-                        config["factors"] = []
-                    config["factors"].extend([f for f in ultra_short_factors if f not in config["factors"]])
-
-                    factor_df = await self.factor_engine.compute_factors(
-                        universe, trade_date, config["factors"]
-                    )
-                    await self.log(f"   ✅ 因子计算完成,共 {len(factor_df)} 条记录")
-
-                    # 3. 输出多策略筛选结果
-                    await self.log(f"   ═══════════════════════════════════════════════════════════")
-                    await self.log(f"   🎯 多策略联合筛选开始")
-                    await self.log(f"   ═══════════════════════════════════════════════════════════")
-
-                    selected_strategies = config.get("selected_strategies", [])
-                    selected_strategy_names = [s["name"] for s in selected_strategies] if selected_strategies else []
-                    strategy_configs = {}
-
-                    # 【修复#7:统一调用策略条件构建方法,消除重复定义】
-                    # 遍历所有传入的策略配置,动态构建筛选条件
-                    for s in selected_strategies:
-                        strategy_name = s.get("name", s.get("id", "未知策略"))
-                        params = s.get("params", {})
-                        strategy_configs[strategy_name] = self._build_strategy_filter_conditions(strategy_name, params)
-
-                    # 统一打印各策略筛选
-                    all_candidates = set()
-                    for s in selected_strategies:
-                        strategy_name = s.get("name", s.get("id", "未知策略"))
-                        params = s.get("params", {})
-                        candidates = await self._print_single_strategy_filtering(
-                            strategy_name, params, [], factor_df, strategy_configs, selected_strategy_names
-                        )
-                        all_candidates.update(candidates)
-
-                # 1. 获取当日股票池 - 🔧 修复:先获取原始股票池统计,再获取过滤后的
-                # 先获取原始股票池(无排除规则),用于统计真实的剔除数量
-                universe_raw = await self.universe_mgr.get_universe(
-                    UniverseType.ALL_A,
-                    trade_date,
-                    exclude_rules=[],  # 不应用任何排除规则,用于统计
-                )
-
-                # 再获取过滤后的股票池(应用ST、次新股排除规则)
-                universe = await self.universe_mgr.get_universe(
-                    UniverseType.ALL_A,
-                    trade_date,
-                    exclude_rules,
-                )
-
-                # 真实统计各类剔除数量(基于原始股票池统计,而不是过滤后的!)
-                st_stocks = await self.universe_mgr._get_st_stocks()
-                new_stocks = await self.universe_mgr._get_new_stocks(trade_date)
-                st_count = len(st_stocks & universe_raw)
-                new_stock_count = len(new_stocks & universe_raw)
-
-                # 🔴 任务3:流动性过滤真正执行(P0!)
-
-                # 1. 获取当日股票池 - 🔧 修复:先获取原始股票池统计,再获取过滤后的
-                # 先获取原始股票池(无排除规则),用于统计真实的剔除数量
-                universe_raw = await self.universe_mgr.get_universe(
-                    UniverseType.ALL_A,
-                    trade_date,
-                    exclude_rules=[],  # 不应用任何排除规则,用于统计
-                )
-
-                # 再获取过滤后的股票池(应用ST、次新股排除规则)
-                universe = await self.universe_mgr.get_universe(
-                    UniverseType.ALL_A,
-                    trade_date,
-                    exclude_rules,
-                )
-
-                # 真实统计各类剔除数量(基于原始股票池统计,而不是过滤后的!)
-                st_stocks = await self.universe_mgr._get_st_stocks()
-                new_stocks = await self.universe_mgr._get_new_stocks(trade_date)
-                st_count = len(st_stocks & universe_raw)
-                new_stock_count = len(new_stocks & universe_raw)
-
-                # 🔴 任务3:流动性过滤真正执行(P0!)
-                # 查询流动性不足的股票,然后真正从universe中剔除
-                low_liquidity_cursor = mongo_manager.find_many(
-                    "stock_daily_ak_full",
-                    {
-                        "trade_date": int(trade_date),
-                        "ts_code": {"$in": list(universe)},
-                        "amount": {"$lt": 500}  # 成交额小于500万
-                    },
-                    {"ts_code": 1}
-                )
-                low_liquidity_list = [doc["ts_code"] for doc in await low_liquidity_cursor]
-                low_liquidity_set = set(low_liquidity_list)
-                low_liquidity_count = len(low_liquidity_set)
-
-                # 真正执行过滤!从universe中剔除流动性不足的股票
-                universe -= low_liquidity_set
-
-                # ✅ 统一打印!不再分散调用!
-                await self._print_stock_pool_and_cleaning(trade_date, universe, st_count, new_stock_count, low_liquidity_count)
-
                 if not universe:
-                    logger.warn('BACKTEST', "⚠️ 当日无符合条件的股票,跳过调仓")
+                    await self.log(f"   ⚠️  当日无符合条件的股票,跳过调仓")
+                    await self._print_daily_summary(trade_date, len(holdings), cash)
                     continue
 
-                # 2. 计算因子 & 选股
-                # 添加所有超短策略需要的因子到计算列表
                 ultra_short_factors = [
                     {"name": "open_below_limit"},
                     {"name": "pct_chg"},
@@ -991,7 +864,6 @@ class PortfolioBacktester:
                     {"name": "sentiment_score"},
                     {"name": "opening_pct_chg"},  # 【修复：首板打板/涨停开板策略需要竞价涨幅因子】
                 ]
-                # 合并原有因子和超短策略因子
                 if "factors" not in config:
                     config["factors"] = []
                 config["factors"].extend([f for f in ultra_short_factors if f not in config["factors"]])
@@ -999,9 +871,7 @@ class PortfolioBacktester:
                 factor_df = await self.factor_engine.compute_factors(
                     universe, trade_date, config["factors"]
                 )
-
                 await self.log(f"   ✅ 因子计算完成,共 {len(factor_df)} 条记录")
-
                 # 🔍 因子完整性检查:检查所有请求的因子是否都存在数据
                 missing_factors = []
                 for f in config["factors"]:
@@ -1058,9 +928,6 @@ class PortfolioBacktester:
                 elif not self._risk_config.get("enable_sentiment_cycle", True):
                     await self.log(f"   ℹ️  情绪周期算法已关闭，跳过情绪周期计算")
 
-                # 🎯 重构为多策略独立筛选逻辑(实盘对齐):每个策略独立运行,结果合并去重
-                await self.log(f"")
-                await self.log(f"   ============================================================")
                 await self.log(f"   🎯 【{trade_date}】多策略联合筛选开始")
                 await self.log(f"   ============================================================")
                 await self.log(f"")
