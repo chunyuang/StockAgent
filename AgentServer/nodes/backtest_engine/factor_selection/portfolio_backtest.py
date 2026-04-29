@@ -2052,6 +2052,7 @@ class PortfolioBacktester:
                 target_shares[code] = shares
 
         # 先卖出:不在目标持仓中的股票卖出
+        sell_codes = [code for code in holdings if code not in target_shares and holdings[code] > 0]
         # 【方案2:日频数据推算盘中卖出价】
         # 止损:盘中最低价触发 → 用low近似
         # 止盈:盘中最高价触发 → 用high近似
