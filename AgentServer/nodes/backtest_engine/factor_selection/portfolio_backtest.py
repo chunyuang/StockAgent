@@ -250,7 +250,7 @@ class PortfolioBacktester:
             min_turnover = params.get("min_turnover_rate", 3)
             max_turnover = params.get("max_turnover_rate", 15)
             max_blast = params.get("max_blast_count", 1)
-            require_hot = params.get("require_hot_sector", True)
+            require_hot = params.get("require_hot_sector", False)
             require_sentiment = params.get("require_sentiment_period", ["rising", "chaos"])
             await self.log(f"   │        • 竞价涨幅: 2.0% ~ 5.0%")
             await self.log(f"   │        • 量比要求: ≥ {min_volume_ratio}")
@@ -988,7 +988,7 @@ class PortfolioBacktester:
                         min_turnover = params.get("min_turnover_rate", 3)
                         max_turnover = params.get("max_turnover_rate", 15)
                         max_blast = params.get("max_blast_count", 1)
-                        require_hot = params.get("require_hot_sector", True)
+                        require_hot = params.get("require_hot_sector", False)
                         require_sentiment = params.get("require_sentiment_period", ["rising", "chaos"])
                         await self.log(f"   │        • 竞价涨幅: 2.0% ~ 5.0%")
                         await self.log(f"   │        • 量比要求: ≥ {min_volume_ratio}")
@@ -1343,7 +1343,7 @@ class PortfolioBacktester:
                     # 这只股票有买入,现在卖出了,可以计算盈亏
                     # 简单算法:只要卖出价格高于买入平均成本就算盈利
                     buys = buy_records[record.ts_code]
-                    total_cost = sum(b.amount for b in buys)
+                    total_cost = sum(abs(b.amount) for b in buys)  # amount存为负数,取绝对值
                     total_shares = sum(b.shares for b in buys)
                     if total_shares > 0:
                         avg_cost = total_cost / total_shares
@@ -1411,7 +1411,7 @@ class PortfolioBacktester:
                     'sentiment': first_buy.sentiment,
                     'buy_date': first_buy.date,
                     'buy_time': '09:30',
-                    'buy_price': sum(b.amount for b in buys) / sum(b.shares for b in buys),
+                    'buy_price': sum(abs(b.amount) for b in buys) / sum(b.shares for b in buys),  # amount存为负数,取绝对值
                     'sell_date': '',
                     'sell_time': '',
                     'sell_price': 0.0,
@@ -1901,7 +1901,7 @@ class PortfolioBacktester:
             min_turnover = converted_params.get("min_turnover_rate", 3)
             max_turnover = converted_params.get("max_turnover_rate", 15)
             max_blast = converted_params.get("max_blast_count", 1)
-            require_hot = converted_params.get("require_hot_sector", True)
+            require_hot = converted_params.get("require_hot_sector", False)
             require_sentiment = converted_params.get("require_sentiment_period", ["rising", "chaos"])
             return [
                 {"name": "first_limit_up", "target": 1, "label": "首次涨停"},
@@ -1951,7 +1951,9 @@ class PortfolioBacktester:
             correction_days_max = converted_params.get("correction_days_max", 5)
             support_level = converted_params.get("support_level", "ma5")
             return [
-                {"name": "market_leader", "target": 1, "label": "市场龙头"},
+                # 【修复: market_leader因子全0不可用,暂时跳过该条件】
+                # {"name": "market_leader", "target": 1, "label": "市场龙头"},
+                {"name": "limit_up_count", "target": 3, "operator": ">=", "label": "近5日至少3板"},
                 {"name": "pullback_pct", "target": min_correction, "operator": ">=", "label": "最小回调幅度"},
                 {"name": "pullback_pct", "target": max_correction, "operator": "<=", "label": "最大回调幅度"},
                 {"name": "pullback_days", "target": correction_days_min, "operator": ">=", "label": "最小回调天数"},
