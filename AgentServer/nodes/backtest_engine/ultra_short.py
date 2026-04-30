@@ -105,7 +105,7 @@ async def execute_ultra_short_backtest(
     await mongo_manager.update_one(
         "backtest_tasks",
         {"task_id": task_id},
-        {"$set": {"status": "running", "started_at": datetime.now(timezone.utc), "progress": 10, "logs": []}},
+        {"$set": {"status": "running", "started_at": datetime.now(timezone.utc), "progress": 10}},
     )
     # 【修复#4：进度推送Redis频道，前端实时接收】
     await _redis_publish_safe(f"backtest:progress:{task_id}", {

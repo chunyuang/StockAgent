@@ -342,7 +342,6 @@ const submitBacktest = async () => {
           const statusRes = await backtestApi.getBacktestStatus(backtestState.task_id)
           if (!statusRes || !statusRes.data) { addLog('⚠️ 轮询异常：接口返回数据为空'); return }
           const data = statusRes.data
-          if (data.logs) logs.value = [...new Set([...logs.value, ...data.logs])]
           if (data.progress !== undefined) backtestState.progress = data.progress
           if (data.status === 'completed') {
             const resultRes = await backtestApi.getBacktestResult(backtestState.task_id)

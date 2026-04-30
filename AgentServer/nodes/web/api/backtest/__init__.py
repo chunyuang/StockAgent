@@ -147,7 +147,7 @@ async def get_backtest_status(
                     "task_id": task_id,
                     "status": task["status"],
                     "progress": task["progress"],
-                    "logs": task["logs"],
+                    "logs": [],  # 方案B：日志走Redis WS
                 }
             }
         raise HTTPException(status_code=404, detail="任务不存在")
@@ -156,16 +156,16 @@ async def get_backtest_status(
     if record.get("status") == "running":
         from datetime import datetime, timedelta, timezone
         started = record.get("started_at") or record.get("created_at")
-        logs = record.get("logs", [])
+        # 方案B：日志不再存MongoDB，不需要读logs
         if started:
             if hasattr(started, 'tzinfo') and started.tzinfo is None:
                 started = started.replace(tzinfo=timezone.utc)
             elapsed = (datetime.now(timezone.utc) - started).total_seconds()
-            # 只有运行超过10分钟 AND 日志少于5条（说明任务可能卡住/崩溃了）才标failed
-            # 正常回测即使慢也会持续产出日志
-            if elapsed > 600 and len(logs) < 5:
+            # 方案B：日志不再存MongoDB，用progress判断是否卡住
+            # 运行超过10分钟且progress无变化（说明回测节点可能已崩溃）
+            if elapsed > 600 and (record.get('progress') or 0) < 15:
                 record["status"] = "failed"
-                record["error"] = f"任务超时（运行{int(elapsed/60)}分钟无日志输出），回测节点可能已崩溃"
+                record["error"] = f"任务超时（运行{int(elapsed/60)}分钟进度无变化），回测节点可能已崩溃"
                 await mongo_manager.update_one(
                     "backtest_tasks",
                     {"task_id": task_id},
@@ -182,7 +182,7 @@ async def get_backtest_status(
             "task_id": task_id,
             "status": record.get("status"),
             "progress": record.get("progress", 0),
-            "logs": record.get("logs", []),
+            "logs": [],  # 方案B：日志走Redis WS，不再从MongoDB返回
             "created_at": record.get("created_at", "").isoformat() if record.get("created_at") else None,
             "started_at": record.get("started_at", "").isoformat() if record.get("started_at") else None,
             "completed_at": record.get("completed_at", "").isoformat() if record.get("completed_at") else None,
@@ -362,7 +362,7 @@ async def cancel_backtest(
     # 先处理Mock超短回测任务
     if task_id.startswith("us_") and task_id in mock_tasks:
         mock_tasks[task_id]["status"] = "cancelled"
-        mock_tasks[task_id]["logs"].append("⏹️ 用户手动取消回测")
+        pass  # 日志走Redis，不再写mock_tasks
         return {"task_id": task_id, "status": "cancelled", "message": "任务已取消"}
 
     # 查 MongoDB

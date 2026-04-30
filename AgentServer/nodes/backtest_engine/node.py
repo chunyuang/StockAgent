@@ -368,33 +368,26 @@ class BacktestNode(BaseNode):
     async def _push_log(self, task_id: str, log_text: str) -> None:
         """推送日志 - 只走一条路
         
-        【修复：日志只走一条路 + MongoDB和Redis内容统一为原始文本】
+        【方案B：日志只走Redis+本地文件，MongoDB不再$push每条日志】
         
         原则：
         1. logger只写本地文件（带时间戳格式用于排查）
-        2. push_log推原始文本到Redis（前端显示）和MongoDB（持久化）
-        3. MongoDB和Redis内容完全一致，都是原始文本
-        4. WebSocket推送统一带 type 字段
+        2. Redis推实时日志给前端（WebSocket）
+        3. MongoDB不再逐条$push日志，只存状态变更和最终结果
+        4. 历史回测查看从MongoDB读结果，不读逐条日志
         """
         # 1. 本地文件日志 - 带格式（仅用于本地排查，不对外推送）
         timestamp = datetime.now(timezone.utc).strftime('%H:%M:%S')
         self.logger.info(f"[{task_id}] {log_text}")
 
-        # 2. MongoDB保存原始文本
-        await mongo_manager.update_one(
-            "backtest_tasks",
-            {"task_id": task_id},
-            {"$push": {"logs": f"[{timestamp}] {log_text}"}},
-        )
-
-        # 3. Redis发布原始文本 + 统一带 type 字段
+        # 2. Redis发布实时日志（给前端WebSocket）
         try:
             await redis_manager.publish(
                 "backtest:logs",
                 {
                     "task_id": task_id,
-                    "type": "log",  # WebSocket推送统一带type字段
-                    "log": f"[{timestamp}] {log_text}",  # MongoDB和Redis内容统一
+                    "type": "log",
+                    "log": f"[{timestamp}] {log_text}",
                 }
             )
         except Exception as e:
