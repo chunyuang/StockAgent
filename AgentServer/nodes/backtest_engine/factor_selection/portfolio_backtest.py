@@ -1281,8 +1281,14 @@ class PortfolioBacktester:
                     prices_for_hold = await self._get_prices(set(holdings.keys()), trade_date)
                     holdings_market_value = 0
                     for code, shares in holdings.items():
-                        if shares > 0 and code in prices_for_hold:
-                            holdings_market_value += shares * prices_for_hold[code]['close']
+                        if shares > 0:
+                            if code in prices_for_hold and prices_for_hold[code].get('close', 0) > 0:
+                                holdings_market_value += shares * prices_for_hold[code]['close']
+                            else:
+                                # 【P0-1修复：停牌股用_last_valid_price估值，避免市值=0导致净值骤降】
+                                lvp = getattr(self, '_last_valid_price', {}).get(code, 0)
+                                if lvp > 0:
+                                    holdings_market_value += shares * lvp
                 else:
                     holdings_market_value = 0
                 
@@ -1341,50 +1347,66 @@ class PortfolioBacktester:
         merged_trades = []
 
         # 收集所有买入记录,按code分组
-        buy_records = {}  # code -> list of buy records
+        # 【P0-3修复：buy_records改为FIFO队列，每次卖出扣除对应股数】
+        buy_records = {}  # code -> list of {record, remaining_shares}
         total_signals = 0
         winning_trades = 0
+        completed_trades = 0  # 【P1-4修复：完整交易数(非买入信号数)】
 
         for day_records in rebalance_records:
             records_list = day_records if isinstance(day_records, list) else [day_records]
             for record in records_list:
                 if record.action == 'buy':
-                    # 每个买入算一个信号
                     code = record.ts_code
                     if code not in buy_records:
                         buy_records[code] = []
-                    buy_records[code].append(record)
+                    buy_records[code].append({'record': record, 'remaining': record.shares})
 
-        # 所有买入都是信号,不管是否卖出
+        # 所有买入都是信号
         total_signals = sum(len(buys) for buys in buy_records.values())
 
         # 统计每个卖出是否盈利,同时合并完整交易
+        # 【P0-3修复：FIFO匹配 — 卖出时从buy_records中按顺序扣减】
         for day_records in rebalance_records:
             records_list = day_records if isinstance(day_records, list) else [day_records]
             for record in records_list:
                 if record.action == 'sell' and record.ts_code in buy_records:
-                    # 这只股票有买入,现在卖出了,可以计算盈亏
-                    # 【P1-6修复：profit_pct用实际到手金额/总成本，包含佣金+滑点】
-                    buys = buy_records[record.ts_code]
-                    total_buy_cost = sum(abs(b.amount) for b in buys)  # 买入总成本(含佣金+滑点)
-                    total_shares = sum(b.shares for b in buys)
-                    if total_shares > 0:
-                        avg_cost = total_buy_cost / total_shares
-                        # record.amount是卖出净额(已扣佣金+印花税+滑点)
-                        # profit = (net_sell - total_buy_cost) / total_buy_cost
-                        net_sell_amount = record.amount  # 已扣费用
-                        profit = (net_sell_amount - total_buy_cost) / total_buy_cost * 100
-                        if net_sell_amount > total_buy_cost:
+                    code = record.ts_code
+                    sells = buy_records[code]
+                    if not sells:
+                        continue
+                    
+                    # 卖出时按FIFO匹配买入记录
+                    sell_shares = record.shares
+                    sell_cost = 0.0
+                    sell_buy_shares = 0  # 匹配到的买入股数
+                    first_buy = sells[0]['record']  # 最早买入记录
+                    
+                    while sell_shares > 0 and sells:
+                        entry = sells[0]
+                        matched = min(sell_shares, entry['remaining'])
+                        # 按比例分配该买入记录的成本
+                        buy_rec = entry['record']
+                        cost_per_share = abs(buy_rec.amount) / buy_rec.shares if buy_rec.shares > 0 else 0
+                        sell_cost += matched * cost_per_share
+                        sell_buy_shares += matched
+                        entry['remaining'] -= matched
+                        sell_shares -= matched
+                        if entry['remaining'] <= 0:
+                            sells.pop(0)  # 该买入记录已完全匹配
+                    
+                    if sell_buy_shares > 0 and sell_cost > 0:
+                        avg_cost = sell_cost / sell_buy_shares
+                        net_sell_amount = record.amount
+                        profit = (net_sell_amount - sell_cost) / sell_cost * 100
+                        if net_sell_amount > sell_cost:
                             winning_trades += 1
+                        completed_trades += 1
 
-                        # 合并为一笔完整交易
-                        first_buy = buys[0]
-                        stock_names = await self._get_stock_names([record.ts_code])
-                        name = stock_names.get(record.ts_code, record.ts_code.split('.')[0])
+                        stock_names = await self._get_stock_names([code])
+                        name = stock_names.get(code, code.split('.')[0])
 
-                        # 【修复新6：直接从独立字段 strategy_name 读取，不需要硬编码字符串 replace 提取】
                         strategy_name = first_buy.strategy_name if first_buy.strategy_name else "策略选股"
-                        # 兼容旧数据：如果strategy_name为空，再尝试从reason提取
                         if not strategy_name and first_buy.reason:
                             strategy_name = first_buy.reason.replace(' 策略选股调入', '').strip() or "-"
                         if not strategy_name:
@@ -1392,7 +1414,7 @@ class PortfolioBacktester:
 
                         strategy_buy_time = {'半路追涨': '10:00', '首板打板': '09:35', '涨停开板': '10:00', '龙头低吸': '14:00', '跌停翘板': '10:30'}.get(strategy_name, '09:35')
                         merged_trades.append({
-                            'ts_code': record.ts_code,
+                            'ts_code': code,
                             'name': name,
                             'strategy': strategy_name,
                             'sentiment': first_buy.sentiment,
@@ -1402,48 +1424,52 @@ class PortfolioBacktester:
                             'sell_date': record.date,
                             'sell_time': '收盘',
                             'sell_price': record.price,
-                            'shares': total_shares,
+                            'shares': sell_buy_shares,
                             'profit_pct': profit,
                         })
 
+                    # 清理空的buy_records
+                    if not sells:
+                        del buy_records[code]
+
         # 添加还未卖出的持仓到明细
         for code, buys in buy_records.items():
-            # 检查是否已经卖出
-            # 简单算法:如果这只code没有卖出记录,说明还在持仓中
-            has_sold = False
-            for day_records in rebalance_records:
-                records_list = day_records if isinstance(day_records, list) else [day_records]
-                for record in records_list:
-                    if record.action == 'sell' and record.ts_code == code:
-                        has_sold = True
-                        break
-            if not has_sold:
-                # 还在持仓中,添加到明细
-                first_buy = buys[0]
-                stock_names = await self._get_stock_names([code])
-                name = stock_names.get(code, code.split('.')[0])
+            # buy_records中剩余的=还未卖出的持仓(FIFO扣减后)
+            if not buys:
+                continue
+            # 检查是否还有剩余股数
+            remaining_shares = sum(b['remaining'] for b in buys)
+            if remaining_shares <= 0:
+                continue
+            # 还在持仓中,添加到明细
+            first_buy = buys[0]['record']
+            stock_names = await self._get_stock_names([code])
+            name = stock_names.get(code, code.split('.')[0])
 
-                # 【修复新6：直接从独立字段 strategy_name 读取，不需要硬编码字符串 replace 提取】
-                strategy_name = first_buy.strategy_name if first_buy.strategy_name else "策略选股"
-                # 兼容旧数据：如果strategy_name为空，再尝试从reason提取
-                if not strategy_name and first_buy.reason:
-                    strategy_name = first_buy.reason.replace(' 策略选股调入', '').strip() or "-"
-                    strategy_name = "-"
+            strategy_name = first_buy.strategy_name if first_buy.strategy_name else "策略选股"
+            if not strategy_name and first_buy.reason:
+                strategy_name = first_buy.reason.replace(' 策略选股调入', '').strip() or "-"
+            if not strategy_name:
+                strategy_name = "-"
 
-                merged_trades.append({
-                    'ts_code': code,
-                    'name': name,
-                    'strategy': strategy_name,
-                    'sentiment': first_buy.sentiment,
-                    'buy_date': first_buy.date,
-                    'buy_time': {'半路追涨': '10:00', '首板打板': '09:35', '涨停开板': '10:00', '龙头低吸': '14:00', '跌停翘板': '10:30'}.get(strategy_name, '09:35'),
-                    'buy_price': sum(abs(b.amount) for b in buys) / sum(b.shares for b in buys),  # amount存为负数,取绝对值
-                    'sell_date': '',
-                    'sell_time': '',
-                    'sell_price': 0.0,
-                    'shares': sum(b.shares for b in buys),
-                    'profit_pct': None,  # 还未卖出
-                })
+            # 计算剩余持仓的平均成本
+            total_remaining_cost = sum(abs(b['record'].amount) / b['record'].shares * b['remaining'] for b in buys if b['record'].shares > 0)
+            avg_remaining_cost = total_remaining_cost / remaining_shares if remaining_shares > 0 else 0
+
+            merged_trades.append({
+                'ts_code': code,
+                'name': name,
+                'strategy': strategy_name,
+                'sentiment': first_buy.sentiment,
+                'buy_date': first_buy.date,
+                'buy_time': {'半路追涨': '10:00', '首板打板': '09:35', '涨停开板': '10:00', '龙头低吸': '14:00', '跌停翘板': '10:30'}.get(strategy_name, '09:35'),
+                'buy_price': avg_remaining_cost,
+                'sell_date': '',
+                'sell_time': '',
+                'sell_price': 0.0,
+                'shares': remaining_shares,
+                'profit_pct': None,  # 还未卖出
+            })
 
         # 初始化绩效指标（避免 UnboundLocalError 当0交易时）
         max_drawdown = 0.0
@@ -1452,10 +1478,11 @@ class PortfolioBacktester:
         strategy_name = "组合策略"
 
         # 计算胜率
+        # 【P1-4修复：用完整交易数(completed_trades)而非买入信号数(total_signals)】
         win_rate = 0.0
-        if total_signals > 0:
-            win_rate = winning_trades / total_signals  # 保存为小数,前端会乘以100显示百分比
-            win_rate_percent = win_rate * 100  # 日志显示用百分比
+        if completed_trades > 0:
+            win_rate = winning_trades / completed_trades
+            win_rate_percent = win_rate * 100
         else:
             win_rate_percent = 0.0
         # 【修复#13：年化收益率使用真实交易天数而不是调仓日数】
@@ -1634,6 +1661,10 @@ class PortfolioBacktester:
         
         # 计算最大回撤（基于逐日净值，已经在循环中计算了 drawdown_series）
         max_drawdown = max(drawdown_series) if drawdown_series else 0.0
+        
+        # 【P0-2修复：在max_drawdown正确计算后，重新计算return_drawdown_ratio】
+        if max_drawdown > 0 and total_return != 0:
+            return_drawdown_ratio = abs(total_return) / max_drawdown
         
         # 计算盈亏比：总盈利 / 总亏损（基于每日盈亏）
         total_profit = sum(p for p in daily_profit_list if p > 0)
@@ -2250,10 +2281,15 @@ class PortfolioBacktester:
         # 计算当前总价值
         total_value = cash
         for code, shares in holdings.items():
-            if code in prices and shares > 0:
-                # 持仓卖出用收盘价估值
-                price = prices[code]['close']
-                total_value += shares * price
+            if shares > 0:
+                if code in prices and prices[code].get('close', 0) > 0:
+                    # 持仓卖出用收盘价估值
+                    total_value += shares * prices[code]['close']
+                else:
+                    # 【P0-1修复：停牌股用_last_valid_price估值】
+                    lvp = getattr(self, '_last_valid_price', {}).get(code, 0)
+                    if lvp > 0:
+                        total_value += shares * lvp
 
         # 🔴 任务2:情绪周期仓位系数真正应用(P0!)
         sentiment_multiplier = self._extract_position_multiplier(sentiment)
