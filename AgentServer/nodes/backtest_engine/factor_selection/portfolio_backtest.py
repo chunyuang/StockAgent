@@ -2058,8 +2058,30 @@ class PortfolioBacktester:
             if shares > 0:
                 target_shares[code] = shares
 
-        # 先卖出:不在目标持仓中的股票卖出
+        # 先卖出:不在目标持仓中的股票全卖 + 持仓超过目标的股票减仓
         sell_codes = [code for code in holdings if code not in target_shares and holdings[code] > 0]
+        # 【修复P1-6：减仓逻辑 — 持仓超过目标时卖出差额】
+        reduce_codes = {code: holdings[code] - target_shares[code] for code in holdings
+                        if code in target_shares and holdings.get(code, 0) > target_shares[code]}
+        # 【修复P1-8：停牌股超时强卖 — close<=0的持仓连续持有>5天强制卖出(取最后有效价)】
+        suspend_sell_codes = []
+        for code in list(holdings.keys()):
+            if holdings.get(code, 0) > 0 and code in prices:
+                p = prices[code]
+                if p.get('close', 0) <= 0:
+                    # 检查停牌天数(从_cost_basis_date记录)
+                    if buy_date is not None:
+                        try:
+                            trade_int = int(trade_date)
+                            days_held = (trade_int - int(buy_date)) % 10000  # 简化计算
+                            # 超过10个交易日停牌，强制以open价(或最后有效价)卖出
+                            if days_held > 10 or (isinstance(buy_date, (int, str)) and len(str(buy_date)) >= 8):
+                                last_price = p.get('open', 0) or getattr(self, '_last_valid_price', {}).get(code, 0)
+                                if last_price > 0:
+                                    suspend_sell_codes.append(code)
+                        except (ValueError, TypeError):
+                            pass
+
         # 【方案2:日频数据推算盘中卖出价】
         # 止损:盘中最低价触发 → 用low近似
         # 止盈:盘中最高价触发 → 用high近似
@@ -2076,6 +2098,30 @@ class PortfolioBacktester:
             low_price = price_info.get('low', close_price)
             open_price = price_info.get('open', close_price)
             if close_price <= 0 or shares <= 0:
+                # 【修复P1-8：停牌股close=0时尝试用最后有效价卖出】
+                if ts_code in suspend_sell_codes:
+                    last_price = price_info.get('open', 0) or getattr(self, '_last_valid_price', {}).get(ts_code, 0)
+                    if last_price > 0 and shares > 0:
+                        # 停牌超时强卖，用最后有效价
+                        sell_price = last_price
+                        sell_reason = '停牌超时强卖'
+                        price = sell_price
+                        slippage_pct = self._slippage_pct if hasattr(self, '_slippage_pct') else 0.002
+                        sell_price_adj = price * (1 - slippage_pct)
+                        gross_amount = shares * sell_price_adj
+                        commission = max(gross_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
+                        stamp_tax = gross_amount * self.STAMP_TAX
+                        net_amount = gross_amount - commission - stamp_tax
+                        cash += net_amount
+                        records.append(RebalanceRecord(
+                            date=str(trade_date), action="sell", ts_code=ts_code,
+                            shares=shares, price=price, amount=net_amount,
+                            reason=sell_reason, sentiment=sentiment))
+                        holdings[ts_code] = 0
+                        if hasattr(self, '_cost_basis') and ts_code in self._cost_basis:
+                            del self._cost_basis[ts_code]
+                            if hasattr(self, '_cost_basis_date') and ts_code in self._cost_basis_date:
+                                del self._cost_basis_date[ts_code]
                 continue
 
             # 判断盘中是否触发止损/止盈(基于实际买入成本)
@@ -2121,6 +2167,8 @@ class PortfolioBacktester:
             # 清理买入成本记录
             if hasattr(self, '_cost_basis') and ts_code in self._cost_basis:
                 del self._cost_basis[ts_code]
+                if hasattr(self, '_cost_basis_date') and ts_code in self._cost_basis_date:
+                    del self._cost_basis_date[ts_code]
 
         # 再买入:目标持仓中需要增加的股票
         for ts_code, target_count in target_shares.items():
@@ -2183,9 +2231,19 @@ class PortfolioBacktester:
             # 更新持仓
             holdings[ts_code] = current_shares + delta
             # 【记录买入成本,用于卖出时止损止盈判断】
+            # 【修复P1-7：增仓时更新cost_basis为加权平均价】
             if not hasattr(self, '_cost_basis'):
                 self._cost_basis = {}
-            self._cost_basis[ts_code] = price  # 记录实际买入价(含策略差异化)
+            if not hasattr(self, '_cost_basis_date'):
+                self._cost_basis_date = {}
+            if current_shares > 0 and ts_code in self._cost_basis:
+                # 增仓：加权平均成本 = (旧成本*旧股数 + 新价*新股数) / 总股数
+                old_cost = self._cost_basis[ts_code]
+                total_shares = current_shares + delta
+                self._cost_basis[ts_code] = (old_cost * current_shares + price * delta) / total_shares
+            else:
+                self._cost_basis[ts_code] = price  # 新买入：记录实际买入价(含策略差异化)
+            self._cost_basis_date[ts_code] = trade_date  # 记录首次买入日期(用于停牌超时)
 
             # 记录交易
             strategy_name = getattr(self, 'stock_to_strategy', {}).get(ts_code, "策略选股")  # 【修复新6：从stock_to_strategy获取策略名，存独立字段】
@@ -2204,6 +2262,38 @@ class PortfolioBacktester:
                 strategy_name=strategy_name,  # 【修复新6：存独立字段】
                 sentiment=sentiment
             ))
+
+        # 【修复P1-6：减仓逻辑 — 卖出超过目标的部分】
+        for ts_code, reduce_shares in reduce_codes.items():
+            if reduce_shares <= 0:
+                continue
+            shares = holdings.get(ts_code, 0)
+            if shares < reduce_shares:
+                reduce_shares = shares
+            price_info = prices.get(ts_code, {})
+            close_price = price_info.get('close', 0)
+            if close_price <= 0:
+                continue  # 停牌股不处理减仓
+            # 减仓用收盘价(不做止损止盈判断，减仓是调仓行为)
+            sell_price = close_price
+            sell_reason = '减仓'
+            slippage_pct = self._slippage_pct if hasattr(self, '_slippage_pct') else 0.002
+            sell_price_adj = sell_price * (1 - slippage_pct)
+            gross_amount = reduce_shares * sell_price_adj
+            commission = max(gross_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
+            stamp_tax = gross_amount * self.STAMP_TAX
+            net_amount = gross_amount - commission - stamp_tax
+            cash += net_amount
+            holdings[ts_code] = shares - reduce_shares
+            records.append(RebalanceRecord(
+                date=str(trade_date), action="sell", ts_code=ts_code,
+                shares=reduce_shares, price=sell_price, amount=net_amount,
+                reason=sell_reason, sentiment=sentiment))
+            # 减仓后如果清零，删除cost_basis
+            if holdings[ts_code] <= 0 and hasattr(self, '_cost_basis') and ts_code in self._cost_basis:
+                del self._cost_basis[ts_code]
+                if hasattr(self, '_cost_basis_date') and ts_code in self._cost_basis_date:
+                    del self._cost_basis_date[ts_code]
 
         # 清理零持仓
         holdings = {code: shares for code, shares in holdings.items() if shares > 0}
