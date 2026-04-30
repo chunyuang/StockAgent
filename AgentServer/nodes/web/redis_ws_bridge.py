@@ -264,10 +264,8 @@ class RedisWSBridge:
         """
         为重连的 WebSocket 客户端补发历史日志
 
-        策略：
-        1. 优先从内存缓存中读取（最快）
-        2. 如果缓存不足或不存在，从 MongoDB 读取
-        3. 补发后发送一个 "catchup_end" 标记，让前端知道补发完毕
+        方案B：日志不再存MongoDB，只从内存缓存补发
+        如果缓存不存在（服务重启后丢失），前端只看到重连后的新日志
 
         Args:
             task_id: 任务ID
@@ -275,25 +273,13 @@ class RedisWSBridge:
         """
         logs_to_send = []
 
-        # 1. 尝试从内存缓存获取
+        # 从内存缓存获取（方案B：不再查MongoDB）
         cached_logs = self._log_cache.get(task_id, [])
         if cached_logs:
             logs_to_send = cached_logs
             logger.info(f"[catchup] Sending {len(cached_logs)} cached logs for {task_id}")
         else:
-            # 2. 从 MongoDB 获取
-            try:
-                record = await mongo_manager.find_one(
-                    "backtest_tasks",
-                    {"task_id": task_id},
-                )
-                if record and record.get("logs"):
-                    logs_to_send = record["logs"]
-                    logger.info(f"[catchup] Sending {len(logs_to_send)} MongoDB logs for {task_id}")
-                    # 同步到内存缓存
-                    self._log_cache[task_id] = logs_to_send[-self._log_cache_max:]
-            except Exception as e:
-                logger.error(f"[catchup] Failed to fetch logs from MongoDB for {task_id}: {e}")
+            logger.info(f"[catchup] No cached logs for {task_id}, only new logs will be shown")
 
         # 3. 逐条补发（避免一次性发送大量数据导致WebSocket阻塞）
         for log_text in logs_to_send:
