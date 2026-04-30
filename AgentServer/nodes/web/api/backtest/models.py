@@ -213,6 +213,16 @@ class UltraShortBacktestRequest(BaseModel):
         if hasattr(params, 'auction_filter'):
             values['enable_auction_filter'] = getattr(params, 'auction_filter', True)
 
+        # 【P2-7：日期校验 — start_date必须<=end_date】
+        start = values.get('start_date')
+        end = values.get('end_date')
+        if start and end:
+            try:
+                if int(start) > int(end):
+                    raise ValueError(f'开始日期({start})不能晚于结束日期({end})')
+            except (ValueError, TypeError):
+                pass  # 格式错误由pattern校验处理
+
         return values
 
     # 允许所有额外字段，不会过滤任何前端提交的内容
