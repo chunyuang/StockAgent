@@ -144,7 +144,6 @@ async def submit_ultra_short_backtest(
         "task_id": task_id,
         "status": "queued",
         "progress": 0,
-        "logs": [],
         "result": None
     }
 
@@ -186,7 +185,6 @@ async def submit_ultra_short_backtest(
                 "task_id": task_id,
                 "status": "failed",
                 "progress": 0,
-                "logs": [],
                 "result": None
             }
             raise HTTPException(
@@ -215,7 +213,6 @@ async def submit_ultra_short_backtest(
                 "task_id": task_id,
                 "status": "failed",
                 "progress": 0,
-                "logs": [],
                 "result": None
             }
             # 【修复#1：mock_tasks 任务完成删除残留，避免内存泄漏】
@@ -228,7 +225,6 @@ async def submit_ultra_short_backtest(
             "task_id": task_id,
             "status": "running",
             "progress": 10,
-            "logs": [],
             "result": None
         }
 
@@ -242,7 +238,6 @@ async def submit_ultra_short_backtest(
             "task_id": task_id,
             "status": "failed",
             "progress": 0,
-            "logs": [],
             "result": None
         }
         # 【修复#1：mock_tasks 任务完成删除残留，避免内存泄漏】
