@@ -279,6 +279,10 @@ const submitBacktest = async () => {
         force_empty_position: form.forceEmpty.enabled,
         sentiment_cycle: form.sentimentCycle.enabled,
         auction_filter: form.auctionFilter.enabled,
+        enable_stop_loss: form.tradeParams.enable_stop_loss ?? true,
+        enable_take_profit: form.tradeParams.enable_take_profit ?? true,
+        enable_ma60_filter: form.globalFilter.enable_ma60_filter ?? true,
+        enable_sector_concentration: form.globalFilter.enable_sector_concentration ?? true,
         selected_strategies
       },
       strategy_params,
