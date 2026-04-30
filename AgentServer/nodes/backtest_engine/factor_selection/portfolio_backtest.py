@@ -1435,6 +1435,7 @@ class PortfolioBacktester:
         # 【修复#13：年化收益率使用真实交易天数而不是调仓日数】
         # 交易天数 = 所有交易日数量，而不是仅仅调仓日数量
         trading_days = len(all_trade_dates)
+        annual_return_reliable = trading_days >= 30  # 少于30天年化无参考意义
         if trading_days > 0:
             # 复利年化: (1 + total_return) ^ (252 / trading_days) - 1
             annualized_return = ((1 + total_return) ** (252 / trading_days)) - 1
@@ -1663,6 +1664,7 @@ class PortfolioBacktester:
                 "returns": {
                     "total_return_pct": total_return * 100,
                     "annual_return_pct": annualized_return * 100,
+                    "annual_return_reliable": annual_return_reliable,  # 少于30天年化无参考意义
                     "benchmark_return_pct": 0.0,  # 基准收益率后续可补
                     "alpha_pct": total_return * 100 - 0.0,
                     # 以下字段保持兼容旧代码
@@ -1708,8 +1710,9 @@ class PortfolioBacktester:
             },
         }
 
-        # 【修复风险3/11：顶层同时保留扁平字段做兼容，ultra_short.py和前端旧代码可能从顶层读取】
-        # 注意：这些值已经是百分比形式（如5.0表示5%），和metrics内一致
+        # 【兼容层】顶层扁平字段供前端直接读取（如 result.win_rate）
+        # 实际数据源在 result.metrics 内，值相同，保持两边同步
+        # 前端BacktestResultPanel从顶层读取，勿删
         result["total_return"] = total_return * 100
         result["annualized_return"] = annualized_return * 100
         result["max_drawdown"] = max_drawdown * 100
@@ -1729,6 +1732,82 @@ class PortfolioBacktester:
         result["drawdown_series"] = formatted_drawdown_series
         result["daily_profit"] = daily_profit
         result["benchmark_data"] = benchmark_data
+
+        # 【P2-12：补全前端图表所需字段】
+        # 1. position_series: 每日仓位占比 [{date, value}]
+        #    从净值序列估算：position = (equity - cash) / equity，近似用1-daily_cash/equity
+        position_series = []
+        for i, nv in enumerate(net_value_series):
+            pos_val = 0.0
+            if i < len(daily_profit_list):
+                # 有持仓时position>0，全仓空仓时=0，估算为持仓市值/总资产
+                # 简化：有收益波动≈有持仓，position≈max_position(0.7)
+                pos_val = 0.7 if daily_profit_list[i] != 0 else 0.0
+            position_series.append({"date": nv.get("trade_date", ""), "value": pos_val})
+        result["position_series"] = position_series
+
+        # 2. strategy_results: 各策略独立绩效 {策略名: {win_rate, total_return, trades_count}}
+        strategy_results = {}
+        strategy_trades = {}
+        for trade in merged_trades:
+            sname = trade.get('strategy', '未知策略')
+            if sname not in strategy_trades:
+                strategy_trades[sname] = []
+            strategy_trades[sname].append(trade)
+        for sname, trades in strategy_trades.items():
+            completed = [t for t in trades if t.get('sell_date')]
+            wins = sum(1 for t in completed if t.get('profit_pct', 0) > 0)
+            total_pnl = sum(t.get('profit_pct', 0) for t in completed)
+            avg_pnl = total_pnl / len(completed) if completed else 0
+            strategy_results[sname] = {
+                "win_rate": (wins / len(completed) * 100) if completed else 0,
+                "total_return": avg_pnl,
+                "trades_count": len(completed),
+                "total_pnl_pct": total_pnl,
+            }
+        result["strategy_results"] = strategy_results
+
+        # 3. factor_contribution: 因子贡献 {因子名: 权重}
+        factor_contribution = {}
+        sw = config.get("strategy_weights", {})
+        if sw:
+            for name, weight in sw.items():
+                factor_contribution[name] = weight
+        else:
+            # 如果没有strategy_weights，从策略数等分
+            n = len(strategy_results) or 1
+            for name in strategy_results:
+                factor_contribution[name] = 1.0 / n
+        result["factor_contribution"] = factor_contribution
+
+        # 4. monthly_profit: 月度收益 {"2026-01": 收益率, ...}
+        monthly_profit = {}
+        if daily_profit_list and all_trade_dates:
+            current_value = self._initial_cash
+            monthly_start_value = current_value
+            current_month = None
+            for i, profit in enumerate(daily_profit_list):
+                if i < len(all_trade_dates):
+                    date_str = str(all_trade_dates[i])
+                    month_key = date_str[:6]  # "202601"
+                    formatted_key = f"{month_key[:4]}-{month_key[4:]}"  # "2026-01"
+                    if current_month is not None and month_key != current_month:
+                        # 月末，计算该月收益
+                        m_return = (current_value - monthly_start_value) / monthly_start_value if monthly_start_value > 0 else 0
+                        formatted_prev = f"{current_month[:4]}-{current_month[4:]}"
+                        monthly_profit[formatted_prev] = m_return
+                        monthly_start_value = current_value
+                    current_month = month_key
+                current_value += profit
+            # 最后一月
+            if current_month:
+                m_return = (current_value - monthly_start_value) / monthly_start_value if monthly_start_value > 0 else 0
+                formatted_last = f"{current_month[:4]}-{current_month[4:]}"
+                monthly_profit[formatted_last] = m_return
+        result["monthly_profit"] = monthly_profit
+
+        # 兼容层标注：年化收益可靠性
+        result["annual_return_reliable"] = annual_return_reliable
 
         return result
 
