@@ -56,9 +56,10 @@ function onAccountChange(accountId: string) {
 /** 最新报告的核心指标 */
 const latestReport = computed(() => reports.value.length ? reports.value[0] : null)
 
+// 后端返回的百分比字段已经是百分比数值(如50.0=50%)，不需要再×100
 function fmtPct(v: number | undefined): string {
   if (v == null) return '-'
-  const val = (v * 100).toFixed(2)
+  const val = v.toFixed(2)
   return v >= 0 ? `+${val}%` : `${val}%`
 }
 
@@ -119,7 +120,7 @@ onMounted(() => {
       <div class="kpi-chip">
         <span class="kpi-label">胜率</span>
         <span class="kpi-value" :style="{ color: (latestReport.win_rate_pct || 0) >= 50 ? '#67c23a' : '#f56c6c' }">
-          {{ ((latestReport.win_rate_pct || 0) * 100).toFixed(1) }}%
+          {{ ((latestReport.win_rate_pct || 0)).toFixed(1) }}%
         </span>
       </div>
       <div class="kpi-chip">
