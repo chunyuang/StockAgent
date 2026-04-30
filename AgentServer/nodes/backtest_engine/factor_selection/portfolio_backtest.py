@@ -688,6 +688,7 @@ class PortfolioBacktester:
         net_value_series = []  # 净值序列
         daily_profit_list = []  # 每日盈亏
         drawdown_series = []   # 回撤序列
+        daily_cash_list = []   # 【P1-3修复：每日现金占比(用于position_series)】
         peak_value = initial_cash  # 净值峰值
         last_net_value = initial_cash  # 上一日净值
         last_prices = {}  # 【修复：初始化last_prices，避免全强制空仓时NameError】
@@ -703,6 +704,9 @@ class PortfolioBacktester:
         last_pushed_progress = -1
 
         for idx, trade_date in enumerate(all_trade_dates):
+            # 【P2-4：每日价格缓存，避免同一天多次查MongoDB】
+            self._daily_price_cache = {}
+            self._daily_price_cache_date = trade_date
             # 🔧 内存优化: 每5天强制一次垃圾回收
             if idx % 5 == 0:
                 log_memory_usage(f"[day {idx+1}/{total_days}] 回测开始前")
@@ -878,6 +882,10 @@ class PortfolioBacktester:
                     universe, trade_date, config["factors"]
                 )
                 await self.log(f"   ✅ 因子计算完成,共 {len(factor_df)} 条记录")
+                # 【P2-6：因子数据为空时告警】
+                if len(factor_df) == 0:
+                    await self.log(f"   ⚠️  【重要告警】因子数据为空！该日期无任何股票数据，全天空仓")
+                    await self._print_daily_summary(trade_date, len(holdings), cash)
                 # 🔍 因子完整性检查:检查所有请求的因子是否都存在数据
                 missing_factors = []
                 for f in config["factors"]:
@@ -1065,9 +1073,13 @@ class PortfolioBacktester:
                         selected_strategy_names
                     )
                     all_candidates.update(candidates)
-                    # 【修复#45:记录每只股票来自哪个策略,用于调仓日志显示】
+                    # 【修复#45+P1-1:记录每只股票来自哪个策略,支持多策略选同股】
+                    # 存策略列表(而非覆盖)，买入价取最低价(最保守)
                     for code in candidates:
-                        stock_to_strategy[code] = strategy_name
+                        if code not in stock_to_strategy:
+                            stock_to_strategy[code] = []
+                        if strategy_name not in stock_to_strategy[code]:
+                            stock_to_strategy[code].append(strategy_name)
 
                 # ✅ 所有策略筛选完成!One Function, One Format!
                 # 🚫 业务逻辑代码中不再有任何 await self.log() 调用!
@@ -1209,7 +1221,8 @@ class PortfolioBacktester:
                             if record.reason == "rebalance":
                                 if direction == "买入":
                                     # 【修复#45:买入reason带上具体策略名称】
-                                    strategy_name = stock_to_strategy.get(ts_code, "策略选股")
+                                    sname_raw = stock_to_strategy.get(ts_code, "策略选股")
+                                    strategy_name = sname_raw[0] if isinstance(sname_raw, list) and len(sname_raw) > 0 else sname_raw
                                     reason_desc = f"{strategy_name}调入"
                                 else:
                                     reason_desc = "调仓调出"
@@ -1280,6 +1293,7 @@ class PortfolioBacktester:
                 })
                 daily_profit_list.append(daily_profit)
                 drawdown_series.append(drawdown)
+                daily_cash_list.append(cash / current_net_value if current_net_value > 0 else 1.0)  # 【P1-3：现金占比】
                 
                 # 更新上一日净值
                 last_net_value = current_net_value
@@ -1735,14 +1749,13 @@ class PortfolioBacktester:
 
         # 【P2-12：补全前端图表所需字段】
         # 1. position_series: 每日仓位占比 [{date, value}]
-        #    从净值序列估算：position = (equity - cash) / equity，近似用1-daily_cash/equity
+        #    position = 1 - cash/equity (真实仓位比例)
         position_series = []
         for i, nv in enumerate(net_value_series):
-            pos_val = 0.0
-            if i < len(daily_profit_list):
-                # 有持仓时position>0，全仓空仓时=0，估算为持仓市值/总资产
-                # 简化：有收益波动≈有持仓，position≈max_position(0.7)
-                pos_val = 0.7 if daily_profit_list[i] != 0 else 0.0
+            if i < len(daily_cash_list):
+                pos_val = max(0.0, 1.0 - daily_cash_list[i])  # 仓位=1-现金占比
+            else:
+                pos_val = 0.0
             position_series.append({"date": nv.get("trade_date", ""), "value": pos_val})
         result["position_series"] = position_series
 
@@ -1833,24 +1846,62 @@ class PortfolioBacktester:
 
     async def _get_prices(self, ts_codes: set[str], trade_date):
         """批量获取指定股票在指定日期的开盘价和收盘价
+        【P2-4优化：使用每日价格缓存，同一天只查一次MongoDB】
 
         Returns:
             dict: {ts_code: {"open": open_price, "close": close_price}}
         """
+        # 【P2-4：每日价格缓存】同一天只查一次MongoDB，后续调用直接从缓存取
+        cache = getattr(self, '_daily_price_cache', {})
+        cache_date = getattr(self, '_daily_price_cache_date', None)
+        if cache and cache_date == trade_date:
+            # 从缓存中取需要的股票
+            result = {}
+            missing = set()
+            for code in ts_codes:
+                code_str = str(code).strip()
+                # 标准化代码
+                if code_str.endswith('.SH') or code_str.endswith('.SZ') or code_str.endswith('.BJ'):
+                    std_code = code_str
+                elif code_str.startswith('6') or code_str.startswith('5') or code_str.startswith('9'):
+                    std_code = f"{code_str}.SH"
+                elif code_str.startswith('8') or code_str.startswith('4'):
+                    std_code = f"{code_str}.BJ"  # 【P2-5：北交所用.BJ】
+                else:
+                    std_code = f"{code_str}.SZ"
+                if std_code in cache:
+                    result[std_code] = cache[std_code]
+                elif code_str in cache:
+                    result[code_str] = cache[code_str]
+                else:
+                    missing.add(code_str)
+                    missing.add(std_code)
+            if not missing:
+                return result
+            # 只查缺失的股票
+            ts_codes = missing
+        else:
+            # 新的一天，重置缓存
+            self._daily_price_cache = {}
+            self._daily_price_cache_date = trade_date
+            cache = self._daily_price_cache
         # 自动格式标准化:兼容两种输入格式
         # 数据库中 ts_code 带后缀(.SH/.SZ),所以无论输入什么都转换为带后缀格式
         ts_codes_standard = []
         for code in ts_codes:
             code_str = str(code).strip()
-            if code_str.endswith(".SH") or code_str.endswith(".SZ"):
+            if code_str.endswith(".SH") or code_str.endswith(".SZ") or code_str.endswith(".BJ"):
                 # 输入已经带后缀,直接使用(匹配数据库)
                 ts_codes_standard.append(code_str)
             else:
                 # 输入不带后缀,根据代码开头自动补全后缀
                 # - 6/5/9 开头 → .SH(上交所)
+                # - 8/4 开头 → .BJ(北交所) 【P2-5修复】
                 # - 其他 → .SZ(深交所)
                 if code_str.startswith('6') or code_str.startswith('5') or code_str.startswith('9'):
                     ts_codes_standard.append(f"{code_str}.SH")
+                elif code_str.startswith('8') or code_str.startswith('4'):
+                    ts_codes_standard.append(f"{code_str}.BJ")
                 else:
                     ts_codes_standard.append(f"{code_str}.SZ")
 
@@ -1907,6 +1958,11 @@ class PortfolioBacktester:
 
         await self.log(f"            ✅ _get_prices: 查询到 {len(result)} 只股票有价格")
 
+        # 【P2-4：存入每日价格缓存】
+        cache = getattr(self, '_daily_price_cache', {})
+        cache.update(result)
+        self._daily_price_cache = cache
+
         return result
 
     def _compute_weights(self, candidates: list[str], factor_df, weight_method: str):
@@ -1962,6 +2018,39 @@ class PortfolioBacktester:
 
         # 非涨停日：用涨停价估算，不超过high(盘中最高价是上限)
         return min(open_price * (1 + limit_pct), high_price)
+
+    def _get_strategy_for_stock(self, code: str) -> str:
+        """【辅助函数】获取股票的策略名(支持多策略选同股，取第一个策略)"""
+        sinfo = getattr(self, 'stock_to_strategy', {}).get(code, '')
+        if isinstance(sinfo, list) and len(sinfo) > 0:
+            return sinfo[0]  # 取第一个策略(最优先)
+        return sinfo if isinstance(sinfo, str) else "策略选股"
+
+    def _get_buy_price_for_stock(self, code: str, open_price: float, close_price: float,
+                                  high_price: float, low_price: float) -> float:
+        """【辅助函数】计算买入价(多策略选同股时取最低买入价，最保守)"""
+        sinfo = getattr(self, 'stock_to_strategy', {}).get(code, '')
+        strategies = sinfo if isinstance(sinfo, list) else [sinfo]
+        
+        prices = []
+        for sname in strategies:
+            if sname == '半路追涨':
+                p = min(open_price * 1.04, high_price) if open_price > 0 else 0
+            elif sname in ('首板打板', '涨停开板'):
+                p = self._get_limit_up_price(code, open_price, close_price, high_price, low_price)
+            elif sname == '龙头低吸':
+                p = low_price * 1.005 if low_price > 0 else open_price * 0.98
+            elif sname == '跌停翘板':
+                p = low_price * 1.005 if low_price > 0 else open_price * 0.92
+            else:
+                p = open_price
+            if p > 0:
+                prices.append(p)
+        
+        if not prices:
+            return open_price
+        # 多策略选同股：取最低买入价(最保守，避免高估成本)
+        return min(prices)
 
     def _extract_position_multiplier(self, sentiment: str) -> float:
         """【辅助函数】从情绪等级字符串中提取仓位系数
@@ -2162,17 +2251,8 @@ class PortfolioBacktester:
             o = p_info.get('open', 0)
             h = p_info.get('high', o)
             l = p_info.get('low', o)
-            sname = getattr(self, 'stock_to_strategy', {}).get(code, '')
-            if sname == '半路追涨':
-                buy_p = min(o * 1.04, h) if o > 0 else 0
-            elif sname in ('首板打板', '涨停开板'):
-                buy_p = self._get_limit_up_price(code, o, p_info.get('close', o), h, l)
-            elif sname == '龙头低吸':
-                buy_p = l * 1.005 if l > 0 else o * 0.98
-            elif sname == '跌停翘板':
-                buy_p = l * 1.005 if l > 0 else o * 0.92
-            else:
-                buy_p = o
+            # 【P1-1修复：多策略选同股时取最低买入价】
+            buy_p = self._get_buy_price_for_stock(code, o, p_info.get('close', o), h, l)
             if buy_p <= 0:
                 buy_p = o
             target_value = total_value * weight * position_multiplier
@@ -2307,21 +2387,9 @@ class PortfolioBacktester:
             high_price = price_info.get('high', open_price)
             low_price = price_info.get('low', open_price)
             close_price = price_info.get('close', 0)
-            strategy_name = getattr(self, 'stock_to_strategy', {}).get(ts_code, '')
-            if strategy_name == '半路追涨':
-                # 涨幅3%~5%时买入,取open*1.04,但不超过high(盘中最高价是上限)
-                price = min(open_price * 1.04, high_price) if open_price > 0 else 0
-            elif strategy_name in ('首板打板', '涨停开板'):
-                # 涨停价买入：区分一字板/非一字板/非涨停日，按板块涨跌停幅度
-                price = self._get_limit_up_price(ts_code, open_price, close_price, high_price, low_price)
-            elif strategy_name == '龙头低吸':
-                # 回调到支撑位买入,取low附近(盘中最低价≈支撑位),加0.5%滑点
-                price = low_price * 1.005 if low_price > 0 else open_price * 0.98
-            elif strategy_name == '跌停翘板':
-                # 跌停价附近买入,low≈跌停价,加0.5%滑点(不是实盘的"正好跌停价")
-                price = low_price * 1.005 if low_price > 0 else open_price * 0.92
-            else:
-                price = open_price
+            strategy_name = self._get_strategy_for_stock(ts_code)
+            # 【P1-1修复：多策略选同股时取最低买入价】
+            price = self._get_buy_price_for_stock(ts_code, open_price, close_price, high_price, low_price)
             if price <= 0:
                 price = open_price
             if price <= 0:
@@ -2368,7 +2436,7 @@ class PortfolioBacktester:
             self._cost_basis_date[ts_code] = trade_date  # 记录首次买入日期(用于停牌超时)
 
             # 记录交易
-            strategy_name = getattr(self, 'stock_to_strategy', {}).get(ts_code, "策略选股")  # 【修复新6：从stock_to_strategy获取策略名，存独立字段】
+            strategy_name = self._get_strategy_for_stock(ts_code)  # 【P1-1修复：支持多策略列表】
             # 【修复新7：如果有现金缩减信息附加到reason】
             final_reason = "rebalance"
             if 'reduce_reason' in locals():
