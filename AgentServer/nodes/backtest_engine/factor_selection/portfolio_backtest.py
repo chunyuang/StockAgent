@@ -462,14 +462,13 @@ class PortfolioBacktester:
         # 🔧 读取风控配置(优先使用请求中的配置,如果没有从数据库读取)
         # 默认风控配置
         risk_config = {
-            "enable_stop_loss": True,
-            "stop_loss_pct": 0.02,  # 超短策略严格止损2%
-            "enable_take_profit": True,
-            "take_profit_pct": 0.07,  # 超短策略止盈7%
-            "enable_ma60_filter": True,
-            "enable_sector_concentration": True,
-            "sector_concentration_top_n": 3,
-            # 【修复#7：添加功能开关默认配置】
+            "enable_stop_loss": config.get("enable_stop_loss", True),
+            "stop_loss_pct": config.get("stop_loss_pct", 0.02),
+            "enable_take_profit": config.get("enable_take_profit", True),
+            "take_profit_pct": config.get("take_profit_pct", 0.07),
+            "enable_ma60_filter": config.get("enable_ma60_filter", True),
+            "enable_sector_concentration": config.get("enable_sector_concentration", True),
+            "sector_concentration_top_n": config.get("sector_concentration_top_n", 3),
             "enable_auction_filter": config.get("enable_auction_filter", True),
             "enable_sentiment_cycle": config.get("enable_sentiment_cycle", True),
             "enable_force_empty": config.get("enable_force_empty", True),
