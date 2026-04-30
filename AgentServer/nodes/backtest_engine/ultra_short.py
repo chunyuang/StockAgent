@@ -351,6 +351,7 @@ async def execute_ultra_short_backtest(
         final_value = result.get('final_value', result.get('final_equity', 0.0))
 
         raw_trades = performance_data.get('all_trades', result.get('all_trades', []))
+        merged_trades = performance_data.get('merged_trades', result.get('merged_trades', []))
         rebalance_records = performance_data.get('rebalance_records', result.get('rebalance_records', []))
         stock_names = performance_data.get('stock_names', result.get('stock_names', {}))
         net_value_series = positions_data.get('net_value_series', result.get('net_value_series', []))
@@ -398,7 +399,8 @@ async def execute_ultra_short_backtest(
             if 'trade_date' not in trade_dict and 'date' in trade_dict:
                 trade_dict['trade_date'] = trade_dict['date']
             formatted_trades.append(trade_dict)
-        perf["trades"] = formatted_trades
+        perf["trades"] = merged_trades if merged_trades else formatted_trades  # 优先用完整交易记录
+        perf["merged_trades"] = merged_trades
         perf["net_value_series"] = net_value_series
         perf["drawdown_series"] = drawdown_series
         perf["daily_profit"] = daily_profit

@@ -1723,6 +1723,7 @@ class PortfolioBacktester:
         result["losing_trades"] = losing_trades
         result["average_hold_days"] = average_hold_days
         result["all_trades"] = all_trades_dict
+        result["merged_trades"] = merged_trades  # 完整交易记录(含买卖信息，给前端展示)
         result["rebalance_records"] = rebalance_records_dict
         result["stock_names"] = stock_names
         result["net_value_series"] = net_value_series

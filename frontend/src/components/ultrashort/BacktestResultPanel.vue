@@ -37,6 +37,13 @@ const props = defineProps<{
   form: any
 }>()
 
+// 后端返回的百分比值已是百分比形式(如50.0=50%)，不需要*100
+// 格式化百分比
+function fmtPct(val: number): string {
+  if (val == null || isNaN(val)) return '--'
+  return val.toFixed(2) + '%'
+}
+
 // 筛选变量
 const searchTradeKeyword = ref('')
 const filterStrategy = ref('')
@@ -44,12 +51,12 @@ const filterProfit = ref('')
 
 // 筛选后的交易记录
 const filteredTrades = computed(() => {
-  let trades = props.result?.trades || []
+  let trades = props.result?.trades || props.result?.merged_trades || []
   if (searchTradeKeyword.value) {
     const keyword = searchTradeKeyword.value.toLowerCase()
     trades = trades.filter((t: any) =>
-      t.ts_code.toLowerCase().includes(keyword) ||
-      t.stock_name.toLowerCase().includes(keyword)
+      (t.ts_code || '').toLowerCase().includes(keyword) ||
+      (t.name || t.stock_name || '').toLowerCase().includes(keyword)
     )
   }
   if (filterStrategy.value) {
@@ -63,46 +70,53 @@ const filteredTrades = computed(() => {
 
 // 盈亏TOP5
 const profitTop5 = computed(() => {
-  const trades = [...(props.result?.trades || [])].filter((t: any) => t.profit_pct > 0)
+  const trades = [...(props.result?.trades || props.result?.merged_trades || [])].filter((t: any) => t.profit_pct > 0)
   return trades.sort((a: any, b: any) => b.profit_pct - a.profit_pct).slice(0, 5)
 })
 
 const lossTop5 = computed(() => {
-  const trades = [...(props.result?.trades || [])].filter((t: any) => t.profit_pct < 0)
+  const trades = [...(props.result?.trades || props.result?.merged_trades || [])].filter((t: any) => t.profit_pct < 0)
   return trades.sort((a: any, b: any) => a.profit_pct - b.profit_pct).slice(0, 5)
 })
 
 // 图表配置
 const netValueChartOption = computed(() => {
   const result = props.result
-  if (!result?.net_value_series) return {}
+  if (!result?.net_value_series || result.net_value_series.length === 0) return {}
   return {
     tooltip: { trigger: 'axis' },
     legend: { data: ['净值曲线', '回撤'] },
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-    xAxis: { type: 'category', boundaryGap: false, data: result.net_value_series.map((d: any) => d.date) },
+    xAxis: { type: 'category', boundaryGap: false, data: result.net_value_series.map((d: any) => d.trade_date) },
     yAxis: [
       { type: 'value', name: '净值', position: 'left' },
-      { type: 'value', name: '回撤', position: 'right', axisLabel: { formatter: '{value}%' } }
+      { type: 'value', name: '回撤(%)', position: 'right' }
     ],
     series: [
-      { name: '净值曲线', type: 'line', data: result.net_value_series.map((d: any) => d.value), smooth: true },
-      { name: '回撤', type: 'line', yAxisIndex: 1, data: result.drawdown_series.map((d: any) => (d.value * 100).toFixed(2)), color: '#f56c6c' }
+      { name: '净值曲线', type: 'line', data: result.net_value_series.map((d: any) => d.net_value), smooth: true },
+      { name: '回撤', type: 'line', yAxisIndex: 1, data: result.drawdown_series.map((d: any) => (d.drawdown * 100).toFixed(2)), color: '#f56c6c' }
     ]
   }
 })
 
 const dailyProfitChartOption = computed(() => {
   const result = props.result
-  if (!result?.daily_profit) return {}
+  if (!result?.daily_profit || result.daily_profit.length === 0) return {}
+  const dp = result.daily_profit
+  const nvs = result.net_value_series || []
+  // daily_profit 是数组，日期从net_value_series取
+  const dates = nvs.length === dp.length ? nvs.map((d: any) => d.trade_date) : dp.map((_: any, i: number) => `Day${i+1}`)
+  // 转百分比
+  const initial = result.initial_cash || 1000000
+  const values = dp.map((v: any) => ((v / initial) * 100).toFixed(2))
   return {
     tooltip: { trigger: 'axis', formatter: '{b}<br/>当日盈亏：{c}%' },
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-    xAxis: { type: 'category', data: Object.keys(result.daily_profit) },
+    xAxis: { type: 'category', data: dates },
     yAxis: { type: 'value', axisLabel: { formatter: '{value}%' } },
     series: [
-      { type: 'bar', data: Object.values(result.daily_profit).map((v: any) => (v * 100).toFixed(2)),
-        itemStyle: { color: (params: any) => params.value >= 0 ? '#67c23a' : '#f56c6c' }
+      { type: 'bar', data: values,
+        itemStyle: { color: (params: any) => parseFloat(params.value) >= 0 ? '#67c23a' : '#f56c6c' }
       }
     ]
   }
@@ -196,9 +210,9 @@ const riskMetrics = computed(() => {
   return [
     { name: '波动率', value: (result.volatility || 0).toFixed(4), desc: '收益率的标准差，衡量风险水平' },
     { name: '信息比率', value: (result.information_ratio || 0).toFixed(2), desc: '超额收益与跟踪误差的比值' },
-    { name: '胜率', value: ((result.win_rate || 0) * 100).toFixed(2) + '%', desc: '盈利交易占总交易的比例' },
+    { name: '胜率', value: fmtPct(result.win_rate || 0), desc: '盈利交易占总交易的比例' },
     { name: '盈亏比', value: (result.profit_loss_ratio || 0).toFixed(2), desc: '平均盈利/平均亏损的比值' },
-    { name: '最大回撤', value: ((result.max_drawdown || 0) * 100).toFixed(2) + '%', desc: '净值从最高点到最低点的最大跌幅' },
+    { name: '最大回撤', value: fmtPct(result.max_drawdown || 0), desc: '净值从最高点到最低点的最大跌幅' },
     { name: '夏普比率', value: (result.sharpe_ratio || 0).toFixed(2), desc: '单位风险获得的超额收益' },
     { name: '卡玛比率', value: (result.calmar_ratio || 0).toFixed(2), desc: '年化收益/最大回撤' },
     { name: '索提诺比率', value: (result.sortino_ratio || 0).toFixed(2), desc: '只考虑下行风险的夏普比率' }
@@ -211,9 +225,9 @@ function exportTrades() {
     ElMessage.warning('暂无交易记录可导出')
     return
   }
-  const headers = ['交易日期', '股票代码', '股票名称', '策略', '买入价', '卖出价', '收益率', '持仓天数']
+  const headers = ['买入日期', '股票代码', '股票名称', '策略', '买入价', '卖出价', '收益率', '持仓天数']
   const rows = props.result.trades.map((t: Record<string, any>) => [
-    t.date, t.ts_code, t.stock_name, t.strategy, t.buy_price, t.sell_price, `${(t.profit_pct * 100).toFixed(2)}%`, t.hold_days
+    t.buy_date || t.date, t.ts_code, t.name || t.stock_name || '', t.strategy || '', t.buy_price, t.sell_price, t.profit_pct != null ? `${t.profit_pct.toFixed(2)}%` : '-', t.hold_days || 0
   ])
   const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
@@ -232,18 +246,18 @@ function exportTrades() {
       <div class="kpi-chip">
         <span class="kpi-label">累计收益</span>
         <span class="kpi-value" :style="{ color: (result.total_return || 0) >= 0 ? '#67c23a' : '#f56c6c' }">
-          {{ ((result.total_return || 0) * 100).toFixed(2) }}%
+          {{ fmtPct(result.total_return || 0) }}
         </span>
       </div>
       <div class="kpi-chip">
         <span class="kpi-label">年化收益</span>
-        <span class="kpi-value" :style="{ color: (result.annual_return || 0) >= 0 ? '#67c23a' : '#f56c6c' }">
-          {{ ((result.annual_return || 0) * 100).toFixed(2) }}%
+        <span class="kpi-value" :style="{ color: (result.annualized_return || 0) >= 0 ? '#67c23a' : '#f56c6c' }">
+          {{ fmtPct(result.annualized_return || 0) }}
         </span>
       </div>
       <div class="kpi-chip">
         <span class="kpi-label">最大回撤</span>
-        <span class="kpi-value" style="color: #f56c6c">{{ ((result.max_drawdown || 0) * 100).toFixed(2) }}%</span>
+        <span class="kpi-value" style="color: #f56c6c">{{ fmtPct(result.max_drawdown || 0) }}</span>
       </div>
       <div class="kpi-chip">
         <span class="kpi-label">夏普比率</span>
@@ -251,8 +265,8 @@ function exportTrades() {
       </div>
       <div class="kpi-chip">
         <span class="kpi-label">胜率</span>
-        <span class="kpi-value" :style="{ color: (result.win_rate || 0) >= 0.5 ? '#67c23a' : '#f56c6c' }">
-          {{ ((result.win_rate || 0) * 100).toFixed(1) }}%
+        <span class="kpi-value" :style="{ color: (result.win_rate || 0) >= 50 ? '#67c23a' : '#f56c6c' }">
+          {{ fmtPct(result.win_rate || 0) }}
         </span>
       </div>
     </div>
@@ -312,7 +326,7 @@ function exportTrades() {
           <ElTableColumn prop="stock_name" label="名称" width="80" />
           <ElTableColumn prop="strategy" label="策略" width="100" />
           <ElTableColumn label="收益率" width="90">
-            <template #default="{ row }"><span style="color: #67c23a">{{ (row.profit_pct * 100).toFixed(2) }}%</span></template>
+            <template #default="{ row }"><span style="color: #67c23a">{{ row.profit_pct != null ? row.profit_pct.toFixed(2) + '%' : '-' }}</span></template>
           </ElTableColumn>
         </ElTable>
       </ElCard>
@@ -320,10 +334,10 @@ function exportTrades() {
         <template #header><span style="color: #f56c6c">💀 亏损TOP5</span></template>
         <ElTable :data="lossTop5" size="small" border>
           <ElTableColumn prop="ts_code" label="代码" width="100" />
-          <ElTableColumn prop="stock_name" label="名称" width="80" />
+          <ElTableColumn prop="name" label="名称" width="80" />
           <ElTableColumn prop="strategy" label="策略" width="100" />
           <ElTableColumn label="收益率" width="90">
-            <template #default="{ row }"><span style="color: #f56c6c">{{ (row.profit_pct * 100).toFixed(2) }}%</span></template>
+            <template #default="{ row }"><span style="color: #f56c6c">{{ row.profit_pct != null ? row.profit_pct.toFixed(2) + '%' : '-' }}</span></template>
           </ElTableColumn>
         </ElTable>
       </ElCard>
@@ -350,14 +364,14 @@ function exportTrades() {
       <ElTable :data="filteredTrades" size="small" border stripe max-height="500">
         <ElTableColumn prop="date" label="日期" width="100" />
         <ElTableColumn prop="ts_code" label="代码" width="100" />
-        <ElTableColumn prop="stock_name" label="名称" width="80" />
+        <ElTableColumn prop="name" label="名称" width="80" />
         <ElTableColumn prop="strategy" label="策略" width="100" />
         <ElTableColumn prop="buy_price" label="买入" width="80" />
         <ElTableColumn prop="sell_price" label="卖出" width="80" />
         <ElTableColumn label="收益率" width="90">
           <template #default="{ row }">
-            <span :style="{ color: row.profit_pct >= 0 ? '#67c23a' : '#f56c6c' }">
-              {{ (row.profit_pct * 100).toFixed(2) }}%
+            <span :style="{ color: row.profit_pct > 0 ? '#67c23a' : '#f56c6c' }">
+              {{ row.profit_pct != null ? row.profit_pct.toFixed(2) + '%' : '-' }}
             </span>
           </template>
         </ElTableColumn>
