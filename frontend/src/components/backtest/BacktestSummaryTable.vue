@@ -58,7 +58,7 @@ const kpiMetrics = computed(() => {
   addMetric('年化收益率', fmtPct(r.annual_return), r.annual_return, colorBySign(r.annual_return), '📊', '折算为年度的收益率', 'annual_return')
   addMetric('最大回撤', fmtPct(r.max_drawdown, true), r.max_drawdown, '#f56c6c', '📉', '净值从最高点到最低点的最大跌幅', 'max_drawdown')
   addMetric('夏普比率', fmtNum(r.sharpe_ratio), r.sharpe_ratio, r.sharpe_ratio >= 1 ? '#67c23a' : r.sharpe_ratio >= 0 ? '#e6a23c' : '#f56c6c', '⚖️', '单位风险获得的超额收益', 'sharpe_ratio')
-  addMetric('胜率', fmtPct(r.win_rate), r.win_rate, r.win_rate >= 0.5 ? '#67c23a' : '#f56c6c', '🎯', '盈利交易占总交易的比例', 'win_rate')
+  addMetric('胜率', fmtPct(r.win_rate), r.win_rate, r.win_rate >= 50 ? '#67c23a' : '#f56c6c', '🎯', '盈利交易占总交易的比例', 'win_rate')
   addMetric('盈亏比', fmtNum(r.profit_loss_ratio), r.profit_loss_ratio, r.profit_loss_ratio >= 1.5 ? '#67c23a' : r.profit_loss_ratio >= 1 ? '#e6a23c' : '#f56c6c', '💰', '平均盈利与平均亏损之比', 'profit_loss_ratio')
   addMetric('卡玛比率', fmtNum(r.calmar_ratio), r.calmar_ratio, r.calmar_ratio >= 1 ? '#67c23a' : r.calmar_ratio >= 0 ? '#e6a23c' : '#f56c6c', '🔥', '年化收益 / 最大回撤', 'calmar_ratio')
   addMetric('索提诺比率', fmtNum(r.sortino_ratio), r.sortino_ratio, r.sortino_ratio >= 1 ? '#67c23a' : r.sortino_ratio >= 0 ? '#e6a23c' : '#f56c6c', '🛡️', '只考虑下行风险的夏普比率', 'sortino_ratio')
@@ -163,10 +163,11 @@ const lossTop5 = computed(() => {
 
 // ==================== 格式化辅助 ====================
 
+// 后端返回的百分比字段已经是百分比数值(如50.0=50%)，不需要再×100
 function fmtPct(val: number, alwaysNeg = false): string {
   if (val == null || isNaN(val)) return '--'
-  const pct = (val * 100).toFixed(2)
-  return alwaysNeg ? `${pct}%` : `${pct}%`
+  const pct = val.toFixed(2)
+  return `${pct}%`
 }
 
 function fmtNum(val: number): string {
@@ -286,7 +287,7 @@ const handleExport = () => {
         </ElTableColumn>
         <ElTableColumn label="胜率" min-width="90" sortable>
           <template #default="{ row }">
-            <span :style="{ color: row.win_rate >= 0.5 ? '#67c23a' : '#f56c6c' }">
+            <span :style="{ color: row.win_rate >= 50 ? '#67c23a' : '#f56c6c' }">
               {{ fmtPct(row.win_rate) }}
             </span>
           </template>

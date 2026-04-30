@@ -135,7 +135,7 @@ onMounted(() => {
         <ElTableColumn prop="sortino_ratio" label="索提诺比率" width="120" :formatter="(row) => row.sortino_ratio.toFixed(2)" />
         <ElTableColumn label="胜率" width="100">
           <template #default="{ row }">
-            {{ (row.win_rate_pct * 100).toFixed(1) }}%
+            {{ (row.win_rate_pct).toFixed(1) }}%
           </template>
         </ElTableColumn>
         <ElTableColumn prop="profit_factor" label="盈亏比" width="100" :formatter="(row) => row.profit_factor.toFixed(2)" />
