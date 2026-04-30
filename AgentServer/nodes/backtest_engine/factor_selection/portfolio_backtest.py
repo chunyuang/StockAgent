@@ -707,6 +707,9 @@ class PortfolioBacktester:
             # 【P2-4：每日价格缓存，避免同一天多次查MongoDB】
             self._daily_price_cache = {}
             self._daily_price_cache_date = trade_date
+            # 【P0-3：维护_last_valid_price，停牌强卖时用】
+            if not hasattr(self, '_last_valid_price'):
+                self._last_valid_price = {}
             # 🔧 内存优化: 每5天强制一次垃圾回收
             if idx % 5 == 0:
                 log_memory_usage(f"[day {idx+1}/{total_days}] 回测开始前")
@@ -793,6 +796,13 @@ class PortfolioBacktester:
                                     sentiment=sentiment_level
                                 ))
                                 holdings[code] = 0
+                        # 【P1-7修复：强制空仓清仓时清理cost_basis】
+                        if hasattr(self, '_cost_basis'):
+                            for code in list(self._cost_basis.keys()):
+                                if code not in holdings or holdings.get(code, 0) <= 0:
+                                    del self._cost_basis[code]
+                                    if hasattr(self, '_cost_basis_date') and code in self._cost_basis_date:
+                                        del self._cost_basis_date[code]
                         holdings = {code: shares for code, shares in holdings.items() if shares > 0}
                         await self.log(f"   │  ✅ 已执行强制清仓,卖出 {sell_count} 只持仓")
                         await self.log(f"   │  💵 清仓后现金:{cash:,.2f} 元")
@@ -1354,15 +1364,17 @@ class PortfolioBacktester:
             for record in records_list:
                 if record.action == 'sell' and record.ts_code in buy_records:
                     # 这只股票有买入,现在卖出了,可以计算盈亏
-                    # 简单算法:只要卖出价格高于买入平均成本就算盈利
+                    # 【P1-6修复：profit_pct用实际到手金额/总成本，包含佣金+滑点】
                     buys = buy_records[record.ts_code]
-                    total_cost = sum(abs(b.amount) for b in buys)  # amount存为负数,取绝对值
+                    total_buy_cost = sum(abs(b.amount) for b in buys)  # 买入总成本(含佣金+滑点)
                     total_shares = sum(b.shares for b in buys)
                     if total_shares > 0:
-                        avg_cost = total_cost / total_shares
-                        # 卖出价格高于平均成本 → 盈利
-                        profit = (record.price - avg_cost) / avg_cost * 100
-                        if record.price > avg_cost:
+                        avg_cost = total_buy_cost / total_shares
+                        # record.amount是卖出净额(已扣佣金+印花税+滑点)
+                        # profit = (net_sell - total_buy_cost) / total_buy_cost
+                        net_sell_amount = record.amount  # 已扣费用
+                        profit = (net_sell_amount - total_buy_cost) / total_buy_cost * 100
+                        if net_sell_amount > total_buy_cost:
                             winning_trades += 1
 
                         # 合并为一笔完整交易
@@ -1963,6 +1975,13 @@ class PortfolioBacktester:
         cache.update(result)
         self._daily_price_cache = cache
 
+        # 【P0-3：更新_last_valid_price，停牌强卖时回退用】
+        lvp = getattr(self, '_last_valid_price', {})
+        for code, price_info in result.items():
+            if price_info.get('close', 0) > 0:
+                lvp[code] = price_info['close']
+        self._last_valid_price = lvp
+
         return result
 
     def _compute_weights(self, candidates: list[str], factor_df, weight_method: str):
@@ -1992,13 +2011,15 @@ class PortfolioBacktester:
             return 0.10
 
     def _get_limit_up_price(self, ts_code: str, open_price: float, close_price: float,
-                             high_price: float, low_price: float) -> float:
+                             high_price: float, low_price: float, pre_close: float = 0) -> float:
         """【辅助函数】计算涨停价买入价
 
         逻辑：
         1. 一字涨停板(open=close=high=low)：open本身就是涨停价
         2. 非一字板涨停(收盘涨幅>=阈值)：close即涨停价
-        3. 非涨停日(高开未封板等)：用open*(1+涨停幅度)估算，不超过high
+        3. 非涨停日(高开未封板等)：用pre_close*(1+涨停幅度)估算，不超过high
+
+        【P0-2修复】涨停判断改用pre_close(昨收)，原来用open导致高开涨停误判
         """
         limit_pct = self._get_limit_pct(ts_code)
         # 判断阈值：涨停幅度-0.5%容差(避免浮点误差)
@@ -2011,13 +2032,20 @@ class PortfolioBacktester:
         if (open_price == close_price == high_price == low_price) and open_price > 0:
             return open_price
 
-        # 非一字板涨停：收盘涨幅>=阈值，close即涨停价
-        pct_from_open = (close_price - open_price) / open_price
-        if pct_from_open >= threshold:
-            return close_price
+        # 非一字板涨停：【P0-2修复】用pre_close判断是否涨停
+        if pre_close > 0:
+            pct_from_pre_close = (close_price - pre_close) / pre_close
+            if pct_from_pre_close >= threshold:
+                return close_price
+        else:
+            # 回退：无pre_close时用open近似(兼容旧数据)
+            pct_from_open = (close_price - open_price) / open_price
+            if pct_from_open >= threshold:
+                return close_price
 
-        # 非涨停日：用涨停价估算，不超过high(盘中最高价是上限)
-        return min(open_price * (1 + limit_pct), high_price)
+        # 非涨停日：用昨收*(1+涨停幅度)估算涨停价，不超过high
+        base_price = pre_close if pre_close > 0 else open_price
+        return min(base_price * (1 + limit_pct), high_price)
 
     def _get_strategy_for_stock(self, code: str) -> str:
         """【辅助函数】获取股票的策略名(支持多策略选同股，取第一个策略)"""
@@ -2027,7 +2055,7 @@ class PortfolioBacktester:
         return sinfo if isinstance(sinfo, str) else "策略选股"
 
     def _get_buy_price_for_stock(self, code: str, open_price: float, close_price: float,
-                                  high_price: float, low_price: float) -> float:
+                                  high_price: float, low_price: float, pre_close: float = 0) -> float:
         """【辅助函数】计算买入价(多策略选同股时取最低买入价，最保守)"""
         sinfo = getattr(self, 'stock_to_strategy', {}).get(code, '')
         strategies = sinfo if isinstance(sinfo, list) else [sinfo]
@@ -2037,7 +2065,7 @@ class PortfolioBacktester:
             if sname == '半路追涨':
                 p = min(open_price * 1.04, high_price) if open_price > 0 else 0
             elif sname in ('首板打板', '涨停开板'):
-                p = self._get_limit_up_price(code, open_price, close_price, high_price, low_price)
+                p = self._get_limit_up_price(code, open_price, close_price, high_price, low_price, pre_close)
             elif sname == '龙头低吸':
                 p = low_price * 1.005 if low_price > 0 else open_price * 0.98
             elif sname == '跌停翘板':
@@ -2252,7 +2280,7 @@ class PortfolioBacktester:
             h = p_info.get('high', o)
             l = p_info.get('low', o)
             # 【P1-1修复：多策略选同股时取最低买入价】
-            buy_p = self._get_buy_price_for_stock(code, o, p_info.get('close', o), h, l)
+            buy_p = self._get_buy_price_for_stock(code, o, p_info.get('close', o), h, l, p_info.get('pre_close', 0))
             if buy_p <= 0:
                 buy_p = o
             target_value = total_value * weight * position_multiplier
@@ -2265,20 +2293,40 @@ class PortfolioBacktester:
         # 【修复P1-6：减仓逻辑 — 持仓超过目标时卖出差额】
         reduce_codes = {code: holdings[code] - target_shares[code] for code in holdings
                         if code in target_shares and holdings.get(code, 0) > target_shares[code]}
-        # 【修复P1-8：停牌股超时强卖 — close<=0的持仓连续持有>5天强制卖出(取最后有效价)】
+        # 【P1-4修复：减仓前检查止损止盈 — 已触发止损的减仓股改为全卖】
+        enable_sl = self._risk_config.get('enable_stop_loss', True) if hasattr(self, '_risk_config') else True
+        enable_tp = self._risk_config.get('enable_take_profit', True) if hasattr(self, '_risk_config') else True
+        stop_loss_pct = self._risk_config.get('stop_loss_pct', 0.02) if hasattr(self, '_risk_config') else 0.02
+        take_profit_pct = self._risk_config.get('take_profit_pct', 0.07) if hasattr(self, '_risk_config') else 0.07
+        codes_to_promote = []  # 从reduce_codes升级到sell_codes的股票
+        for code in list(reduce_codes.keys()):
+            p = prices.get(code, {})
+            low_p = p.get('low', 0)
+            high_p = p.get('high', 0)
+            cost = getattr(self, '_cost_basis', {}).get(code, 0)
+            if cost > 0 and p.get('close', 0) > 0:
+                if enable_sl and low_p <= cost * (1 - stop_loss_pct):
+                    codes_to_promote.append(code)  # 触发止损，应全卖
+                elif enable_tp and high_p >= cost * (1 + take_profit_pct):
+                    codes_to_promote.append(code)  # 触发止盈，应全卖
+        for code in codes_to_promote:
+            sell_codes.append(code)
+            del reduce_codes[code]
+        # 【修复P1-8：停牌股超时强卖 — close<=0的持仓连续持有>10天强制卖出(取最后有效价)】
         suspend_sell_codes = []
         for code in list(holdings.keys()):
             if holdings.get(code, 0) > 0 and code in prices:
                 p = prices[code]
                 if p.get('close', 0) <= 0:
-                    # 检查停牌天数(从_cost_basis_date记录)
-                    if buy_date is not None:
+                    # 【P0-1修复：从_cost_basis_date获取买入日期】
+                    buy_date_raw = getattr(self, '_cost_basis_date', {}).get(code)
+                    if buy_date_raw is not None:
                         try:
                             trade_int = int(trade_date)
-                            days_held = (trade_int - int(buy_date)) % 10000  # 简化计算
-                            # 超过10个交易日停牌，强制以open价(或最后有效价)卖出
-                            if days_held > 10 or (isinstance(buy_date, (int, str)) and len(str(buy_date)) >= 8):
-                                last_price = p.get('open', 0) or getattr(self, '_last_valid_price', {}).get(code, 0)
+                            days_held = (trade_int - int(buy_date_raw)) % 10000  # 日历天数
+                            # 超过15个日历天(≈10个交易日)停牌，强制卖出
+                            if days_held > 15:
+                                last_price = p.get('open', 0) or self._last_valid_price.get(code, 0) if hasattr(self, '_last_valid_price') else 0
                                 if last_price > 0:
                                     suspend_sell_codes.append(code)
                         except (ValueError, TypeError):
@@ -2376,6 +2424,7 @@ class PortfolioBacktester:
         for ts_code, target_count in target_shares.items():
             current_shares = holdings.get(ts_code, 0)
             delta = target_count - current_shares
+            reduce_reason = None  # 【P1-5修复：每次循环重置，避免泄漏到后续股票】
 
             if delta <= 0:
                 continue  # 不需要买入
@@ -2389,7 +2438,7 @@ class PortfolioBacktester:
             close_price = price_info.get('close', 0)
             strategy_name = self._get_strategy_for_stock(ts_code)
             # 【P1-1修复：多策略选同股时取最低买入价】
-            price = self._get_buy_price_for_stock(ts_code, open_price, close_price, high_price, low_price)
+            price = self._get_buy_price_for_stock(ts_code, open_price, close_price, high_price, low_price, price_info.get('pre_close', 0))
             if price <= 0:
                 price = open_price
             if price <= 0:
@@ -2439,7 +2488,7 @@ class PortfolioBacktester:
             strategy_name = self._get_strategy_for_stock(ts_code)  # 【P1-1修复：支持多策略列表】
             # 【修复新7：如果有现金缩减信息附加到reason】
             final_reason = "rebalance"
-            if 'reduce_reason' in locals():
+            if reduce_reason:
                 final_reason = f"rebalance ({reduce_reason})"
             records.append(RebalanceRecord(
                 date=str(trade_date),
@@ -2506,19 +2555,23 @@ class PortfolioBacktester:
             # 如果输入已经带有交易所前缀+后缀,直接使用
             if code_str.startswith('sh') or code_str.startswith('sz') or code_str.startswith('bj'):
                 standard_code = code_str
-            elif code_str.endswith(".SH") or code_str.endswith(".SZ"):
+            elif code_str.endswith(".SH") or code_str.endswith(".SZ") or code_str.endswith(".BJ"):
                 # 输入带后缀但没有交易所前缀 → 添加交易所前缀
                 code_only = code_str.split('.')[0]
                 if code_only.startswith('6') or code_only.startswith('5') or code_only.startswith('9'):
-                    # 上海交易所
                     standard_code = f"sh{code_str}"
+                elif code_only.startswith('8') or code_only.startswith('4'):
+                    # 【P2-8修复：北交所8/4开头+BJ后缀】
+                    standard_code = f"bj{code_str}"
                 else:
-                    # 深圳交易所
                     standard_code = f"sz{code_str}"
             else:
                 # 输入既没有前缀也没有后缀 → 添加交易所前缀和后缀
                 if code_str.startswith('6') or code_str.startswith('5') or code_str.startswith('9'):
                     standard_code = f"sh{code_str}.SH"
+                elif code_str.startswith('8') or code_str.startswith('4'):
+                    # 【P2-8修复：北交所8/4开头→BJ】
+                    standard_code = f"bj{code_str}.BJ"
                 else:
                     standard_code = f"sz{code_str}.SZ"
 
