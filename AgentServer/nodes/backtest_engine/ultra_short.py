@@ -87,7 +87,11 @@ async def execute_ultra_short_backtest(
     enable_force_empty = req_params.get("enable_force_empty", True)
     enable_sentiment_cycle = req_params.get("enable_sentiment_cycle", True)
     enable_auction_filter = req_params.get("enable_auction_filter", True)
-    logger.info("INIT", f"功能开关：强制空仓{'✅' if enable_force_empty else '❌'} / 情绪周期{'✅' if enable_sentiment_cycle else '❌'} / 竞价过滤{'✅' if enable_auction_filter else '❌'}")
+    enable_stop_loss = req_params.get("enable_stop_loss", True)
+    enable_take_profit = req_params.get("enable_take_profit", True)
+    enable_ma60_filter = req_params.get("enable_ma60_filter", True)
+    enable_sector_concentration = req_params.get("enable_sector_concentration", True)
+    logger.info("INIT", f"功能开关：强制空仓{'✅' if enable_force_empty else '❌'} / 情绪周期{'✅' if enable_sentiment_cycle else '❌'} / 竞价过滤{'✅' if enable_auction_filter else '❌'} / 止损{'✅' if enable_stop_loss else '❌'} / 止盈{'✅' if enable_take_profit else '❌'} / MA60过滤{'✅' if enable_ma60_filter else '❌'} / 板块集中度{'✅' if enable_sector_concentration else '❌'}")
 
     # 打印代码版本
     try:
@@ -300,6 +304,10 @@ async def execute_ultra_short_backtest(
         "enable_auction_filter": enable_auction_filter,
         "enable_sentiment_cycle": enable_sentiment_cycle,
         "enable_force_empty": enable_force_empty,
+        "enable_stop_loss": enable_stop_loss,
+        "enable_take_profit": enable_take_profit,
+        "enable_ma60_filter": enable_ma60_filter,
+        "enable_sector_concentration": enable_sector_concentration,
     }
     backtester = PortfolioBacktester()
 

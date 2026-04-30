@@ -33,6 +33,8 @@ const form = reactive({
     exclude_new_stock_days: 60,
     min_daily_amount: 500,
     min_turnover_rate: 3,
+    enable_ma60_filter: true,
+    enable_sector_concentration: true,
   },
   forceEmpty: {
     enabled: true,
@@ -65,6 +67,8 @@ const form = reactive({
     commission_rate: 0.0003,
     stamp_duty_rate: 0.001,
     slippage_pct: 0.002,
+    enable_stop_loss: true,
+    enable_take_profit: true,
   },
   strategies: ['halfway_chase', 'first_limit_up', 'limit_up_open', 'leader_buy_dip', 'limit_down_qiao'],
   strategyConfigs: {
@@ -281,6 +285,10 @@ const submitBacktest = async () => {
       enable_sentiment_cycle: form.sentimentCycle.enabled,
       enable_auction_filter: form.auctionFilter.enabled,
       enable_force_empty: form.forceEmpty.enabled,
+      enable_stop_loss: form.tradeParams.enable_stop_loss ?? true,
+      enable_take_profit: form.tradeParams.enable_take_profit ?? true,
+      enable_ma60_filter: form.globalFilter.enable_ma60_filter ?? true,
+      enable_sector_concentration: form.globalFilter.enable_sector_concentration ?? true,
     })
 
     if (!res || !res.task_id) {

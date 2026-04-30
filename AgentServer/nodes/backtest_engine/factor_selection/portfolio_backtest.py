@@ -2065,6 +2065,8 @@ class PortfolioBacktester:
         # 止损:盘中最低价触发 → 用low近似
         # 止盈:盘中最高价触发 → 用high近似
         # 其他:收盘卖出 → 用close
+        enable_stop_loss = self._risk_config.get('enable_stop_loss', True) if hasattr(self, '_risk_config') else True
+        enable_take_profit = self._risk_config.get('enable_take_profit', True) if hasattr(self, '_risk_config') else True
         stop_loss_pct = self._risk_config.get('stop_loss_pct', 0.02) if hasattr(self, '_risk_config') else 0.02
         take_profit_pct = self._risk_config.get('take_profit_pct', 0.07) if hasattr(self, '_risk_config') else 0.07
         for ts_code in sell_codes:
@@ -2084,12 +2086,10 @@ class PortfolioBacktester:
             if cost_basis > 0:
                 stop_price = cost_basis * (1 - stop_loss_pct)
                 profit_price = cost_basis * (1 + take_profit_pct)
-                if low_price <= stop_price:
-                    # 盘中触及止损,用stop_price近似(止损价卖出)
+                if enable_stop_loss and low_price <= stop_price:
                     sell_price = stop_price
                     sell_reason = f'止损({stop_loss_pct*100:.0f}%)'
-                elif high_price >= profit_price:
-                    # 盘中触及止盈,用profit_price近似(止盈价卖出)
+                elif enable_take_profit and high_price >= profit_price:
                     sell_price = profit_price
                     sell_reason = f'止盈({take_profit_pct*100:.0f}%)'
             price = sell_price
