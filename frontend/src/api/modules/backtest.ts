@@ -233,6 +233,10 @@ export interface UltraShortParams {
   max_hold_days: number
   max_position_per_stock: number
   max_position: number
+  enable_stop_loss?: boolean
+  enable_take_profit?: boolean
+  enable_ma60_filter?: boolean
+  enable_sector_concentration?: boolean
 }
 
 export interface UltraShortBacktestRequest {
@@ -244,6 +248,10 @@ export interface UltraShortBacktestRequest {
   enable_force_empty: boolean
   enable_sentiment_cycle: boolean
   enable_auction_filter: boolean
+  enable_stop_loss?: boolean
+  enable_take_profit?: boolean
+  enable_ma60_filter?: boolean
+  enable_sector_concentration?: boolean
 }
 
 /**
