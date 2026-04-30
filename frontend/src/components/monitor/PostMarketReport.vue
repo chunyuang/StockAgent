@@ -36,9 +36,10 @@ function selectReport(report: PerformanceReport) {
   selectedReport.value = report
 }
 
+// 后端返回的百分比字段已经是百分比数值(如50.0=50%)，不需要再×100
 function fmtPct(v: number | undefined): string {
   if (v == null) return '-'
-  const val = (v * 100).toFixed(2)
+  const val = v.toFixed(2)
   return v >= 0 ? `+${val}%` : `${val}%`
 }
 
@@ -93,7 +94,7 @@ onMounted(() => { loadReports() })
         </ElDescriptionsItem>
         <ElDescriptionsItem label="胜率">
           <span :style="{ color: (selectedReport.win_rate_pct || 0) >= 50 ? '#67c23a' : '#f56c6c' }">
-            {{ ((selectedReport.win_rate_pct || 0) * 100).toFixed(1) }}%
+            {{ ((selectedReport.win_rate_pct || 0)).toFixed(1) }}%
           </span>
         </ElDescriptionsItem>
         <ElDescriptionsItem label="盈亏比">

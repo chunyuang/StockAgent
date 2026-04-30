@@ -1552,15 +1552,22 @@ class PortfolioBacktester:
                     cost = shares * buy_price
                     position_pct = f"{cost / self._initial_cash * 100:.0f}%"
 
+                # 未卖出持仓的特殊标记
+                is_open_position = not sell_date and sell_price == 0.0
+                display_sell_date = sell_date if sell_date else '持仓中'
+                display_sell_time = sell_time if sell_time else '-'
+                display_sell_price = f"{sell_price:.2f}" if sell_price > 0 else '持仓中'
+
                 # 格式化
                 profit_abs_str = f"{profit_abs:.0f}" if profit_abs != 0 else "-"
                 profit_pct_str = f"{profit_pct:.2f}%" if profit_pct is not None else "-"
+                hold_days_str = hold_days if hold_days > 0 else ("持仓中" if is_open_position else 0)
 
                 table_data.append([
                     idx, ts_code, name[:12], strategy_name[:10], sentiment,
-                    buy_date, buy_time, sell_date, sell_time,
-                    f"{buy_price:.2f}", f"{sell_price:.2f}", shares, position_pct, hold_days,
-                    profit_abs_str, profit_pct_str, is_profit, ""
+                    buy_date, buy_time, display_sell_date, display_sell_time,
+                    f"{buy_price:.2f}", display_sell_price, shares, position_pct, hold_days_str,
+                    profit_abs_str, profit_pct_str, is_profit, "🔓" if is_open_position else ""
                 ])
 
             # 使用 grid 表格格式
