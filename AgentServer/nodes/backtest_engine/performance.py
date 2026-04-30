@@ -15,7 +15,7 @@ from datetime import datetime
 import pandas as pd
 import numpy as np
 
-from .backtester import BacktestResult, Trade, TradeDirection
+from .models import BacktestResult, Trade, TradeDirection
 
 
 @dataclass
