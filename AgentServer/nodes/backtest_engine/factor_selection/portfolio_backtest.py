@@ -1841,6 +1841,49 @@ class PortfolioBacktester:
             weight = 1.0 / len(candidates) if len(candidates) > 0 else 0
             return dict.fromkeys(candidates, weight)
 
+    @staticmethod
+    def _get_limit_pct(ts_code: str) -> float:
+        """【辅助函数】根据股票代码获取涨跌停幅度
+        主板(60/00): 10%
+        创业板(30): 20%
+        科创板(68): 20%
+        北交所(8/4): 30%
+        """
+        if ts_code.startswith('30') or ts_code.startswith('68'):
+            return 0.20
+        elif ts_code.startswith('8') or ts_code.startswith('4'):
+            return 0.30
+        else:
+            return 0.10
+
+    def _get_limit_up_price(self, ts_code: str, open_price: float, close_price: float,
+                             high_price: float, low_price: float) -> float:
+        """【辅助函数】计算涨停价买入价
+
+        逻辑：
+        1. 一字涨停板(open=close=high=low)：open本身就是涨停价
+        2. 非一字板涨停(收盘涨幅>=阈值)：close即涨停价
+        3. 非涨停日(高开未封板等)：用open*(1+涨停幅度)估算，不超过high
+        """
+        limit_pct = self._get_limit_pct(ts_code)
+        # 判断阈值：涨停幅度-0.5%容差(避免浮点误差)
+        threshold = limit_pct - 0.005
+
+        if open_price <= 0:
+            return 0
+
+        # 一字涨停板：四价相同，open本身就是涨停价
+        if (open_price == close_price == high_price == low_price) and open_price > 0:
+            return open_price
+
+        # 非一字板涨停：收盘涨幅>=阈值，close即涨停价
+        pct_from_open = (close_price - open_price) / open_price
+        if pct_from_open >= threshold:
+            return close_price
+
+        # 非涨停日：用涨停价估算，不超过high(盘中最高价是上限)
+        return min(open_price * (1 + limit_pct), high_price)
+
     def _extract_position_multiplier(self, sentiment: str) -> float:
         """【辅助函数】从情绪等级字符串中提取仓位系数
 
@@ -2044,7 +2087,7 @@ class PortfolioBacktester:
             if sname == '半路追涨':
                 buy_p = min(o * 1.04, h) if o > 0 else 0
             elif sname in ('首板打板', '涨停开板'):
-                buy_p = p_info.get('close', o) if p_info.get('close', 0) >= o * 1.08 else min(o * 1.10, h)
+                buy_p = self._get_limit_up_price(code, o, p_info.get('close', o), h, l)
             elif sname == '龙头低吸':
                 buy_p = l * 1.005 if l > 0 else o * 0.98
             elif sname == '跌停翘板':
@@ -2190,8 +2233,8 @@ class PortfolioBacktester:
                 # 涨幅3%~5%时买入,取open*1.04,但不超过high(盘中最高价是上限)
                 price = min(open_price * 1.04, high_price) if open_price > 0 else 0
             elif strategy_name in ('首板打板', '涨停开板'):
-                # 涨停价≈close(涨停日close即涨停价),若非涨停日用open*1.10
-                price = close_price if close_price >= open_price * 1.08 else min(open_price * 1.10, high_price)
+                # 涨停价买入：区分一字板/非一字板/非涨停日，按板块涨跌停幅度
+                price = self._get_limit_up_price(ts_code, open_price, close_price, high_price, low_price)
             elif strategy_name == '龙头低吸':
                 # 回调到支撑位买入,取low附近(盘中最低价≈支撑位),加0.5%滑点
                 price = low_price * 1.005 if low_price > 0 else open_price * 0.98
