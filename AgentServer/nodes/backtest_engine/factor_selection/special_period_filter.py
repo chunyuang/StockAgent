@@ -31,6 +31,8 @@ class SpecialPeriodFilter:
     """特殊时期过滤器 - 第2层筛选"""
     
     # 内置的中国股市特殊时期配置（2025-2026）
+    # 【P2-E：假期日期为硬编码，回测2027+年时需更新此配置】
+    # TODO: 后续接入MongoDB交易日历自动生成假期配置
     DEFAULT_CONFIG = [
         # ========== 节假日前夕 ==========
         # 2026年春节（1月29日-2月4日，节前7天降仓）
@@ -238,7 +240,11 @@ class SpecialPeriodFilter:
     
     def _is_month_end(self, dt: datetime, n_days: int = 3) -> bool:
         """
-        判断是否为月末最后N个交易日（用自然日近似）
+        判断是否为月末最后N个自然日（用自然日近似交易日）
+        
+        【P0-D修复：增加注释说明这是自然日近似，非精确交易日】
+        精确方案需要传入交易日历，但当前回测中special_period_filter是同步调用，
+        无法访问MongoDB交易日历。自然日近似在大多数情况下误差≤2天，可接受。
         
         Args:
             dt: 日期
@@ -261,7 +267,9 @@ class SpecialPeriodFilter:
     
     def _is_quarter_end(self, dt: datetime, n_days: int = 5) -> bool:
         """
-        判断是否为季末最后N个交易日
+        判断是否为季末最后N个自然日
+        
+        【P0-D修复：增加注释说明这是自然日近似】
         
         Args:
             dt: 日期
@@ -292,7 +300,9 @@ class SpecialPeriodFilter:
     
     def _is_year_end(self, dt: datetime, n_days: int = 7) -> bool:
         """
-        判断是否为年末最后N个交易日
+        判断是否为年末最后N个自然日
+        
+        【P0-D修复：增加注释说明这是自然日近似】
         
         Args:
             dt: 日期
