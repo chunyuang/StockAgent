@@ -25,12 +25,18 @@ async def _redis_publish_safe(channel, data):
 
 
 # 默认所有策略（兜底用）
+# 【P1-4修复：补齐riskParams，与defaults.py保持一致】
 ALL_STRATEGIES = [
-    {"id": "halfway_chase", "name": "半路追涨", "params": {}},
-    {"id": "first_limit_up", "name": "首板打板", "params": {}},
-    {"id": "limit_up_open", "name": "涨停开板", "params": {}},
-    {"id": "leader_buy_dip", "name": "龙头低吸", "params": {}},
-    {"id": "limit_down_qiao", "name": "跌停翘板", "params": {}},
+    {"id": "halfway_chase", "name": "半路追涨", "params": {},
+     "riskParams": {"stop_loss_pct": 0.02, "take_profit_pct": 0.06}},
+    {"id": "first_limit_up", "name": "首板打板", "params": {},
+     "riskParams": {"stop_loss_pct": 0.015, "take_profit_pct": 0.085}},
+    {"id": "limit_up_open", "name": "涨停开板", "params": {},
+     "riskParams": {"stop_loss_pct": 0.02, "take_profit_pct": 0.06}},
+    {"id": "leader_buy_dip", "name": "龙头低吸", "params": {},
+     "riskParams": {"stop_loss_pct": 0.0275, "take_profit_pct": 0.06}},
+    {"id": "limit_down_qiao", "name": "跌停翘板", "params": {},
+     "riskParams": {"stop_loss_pct": 0.02, "take_profit_pct": 0.07}},
 ]
 
 

@@ -126,7 +126,7 @@ class UltraShortParams(BaseModel):
     enable_take_profit: bool = Field(default=True, description="是否启用止盈")
     enable_ma60_filter: bool = Field(default=True, description="是否启用大盘MA60过滤")
     enable_sector_concentration: bool = Field(default=True, description="是否启用板块集中度过滤")
-    force_empty_position: bool = Field(default=True, description="是否启用强制空仓规则")
+    enable_force_empty: bool = Field(default=True, description="是否启用强制空仓规则")
     sentiment_cycle: bool = Field(default=True, description="是否启用情绪周期算法")
     auction_filter: bool = Field(default=True, description="是否启用竞价过滤规则")
     selected_strategies: List[Dict[str, Any]] = Field(default_factory=list, description="选中策略的完整配置（包含独立参数）")
@@ -206,8 +206,8 @@ class UltraShortBacktestRequest(BaseModel):
             values['initial_cash'] = initial_capital
 
         # 兼容params里的enable字段
-        if hasattr(params, 'force_empty_position'):
-            values['enable_force_empty'] = getattr(params, 'force_empty_position', True)
+        if hasattr(params, 'enable_force_empty'):
+            values['enable_force_empty'] = getattr(params, 'enable_force_empty', True)
         if hasattr(params, 'sentiment_cycle'):
             values['enable_sentiment_cycle'] = getattr(params, 'sentiment_cycle', True)
         if hasattr(params, 'auction_filter'):
