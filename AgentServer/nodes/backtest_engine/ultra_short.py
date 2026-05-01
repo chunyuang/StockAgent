@@ -457,11 +457,15 @@ async def execute_ultra_short_backtest(
         for line in tb_str.split('\n'):
             if line.strip():
                 await push_log_fn(task_id, f'``` {line} ```')
-        await akshare_manager.shutdown()
+        # 【P2-4修复：shutdown统一到finally，避免双分支调用】
         logger.clear_task_id()
         return {"error": str(e)}
 
-    await akshare_manager.shutdown()
-    logger.clear_task_id()
+    finally:
+        # 【P2-4修复：无论成功或异常都只调一次shutdown】
+        try:
+            await akshare_manager.shutdown()
+        except Exception:
+            pass  # shutdown失败不应影响返回结果
 
     return result
