@@ -48,12 +48,14 @@ class UniverseManager:
     # 次新股定义：上市不满多少个交易日
     NEW_STOCK_DAYS = 250
     
-    # 🚀 交易日历缓存：所有交易日只需要查询一次，后续直接从缓存读取
+    # 🚀 交易日历缓存
     _all_trade_dates_cache: list[int] | None = None
     _st_stocks_cache: set[str] | None = None
     _cache_lock = asyncio.Lock()
     _cache_timestamp: float = 0.0  # 【修复#34：缓存时间戳，24小时过期】
     _CACHE_TTL_SECONDS: int = 86400  # 24小时
+    # 【P2-3修复：当日可交易股票缓存，同一天内复用】
+    _tradable_stocks_cache: dict[str, set[str]] = {}  # {trade_date: set[ts_code]}
 
     async def get_universe(
         self,
@@ -91,16 +93,19 @@ class UniverseManager:
         return stocks
 
     async def _get_tradable_stocks(self, trade_date: str) -> set[str]:
-        """获取当日有交易的股票"""
-        # 从 stock_daily_ak_full 获取当日有数据的股票
-        # 注意：停牌股票也会有一条记录（保留历史字段），但 close 是 None 或 0，需要剔除
+        """获取当日有交易的股票（带日期级缓存）"""
+        # 【P2-3修复：同一天内复用缓存】
+        if trade_date in self._tradable_stocks_cache:
+            return self._tradable_stocks_cache[trade_date].copy()
+        
         result = await mongo_manager.find_many(
             "stock_daily_ak_full",
             {"trade_date": int(trade_date)},
             projection={"ts_code": 1, "close": 1},
         )
-        # 过滤掉停牌股票：close must be > 0
-        return {doc["ts_code"] for doc in result if doc.get("close") and doc.get("close", 0) > 0}
+        stocks = {doc["ts_code"] for doc in result if doc.get("close") and doc.get("close", 0) > 0}
+        self._tradable_stocks_cache[trade_date] = stocks
+        return stocks.copy()
 
     async def _apply_exclude_rules(
         self,

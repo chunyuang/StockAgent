@@ -220,43 +220,30 @@ class FactorEngine:
 
         # 加载日线数据
         if "daily" in data_sources:
-            # 【修复#9：复合索引查询优化 - 使用$in直接在数据库层面过滤】
-            # 复合索引 (trade_date, ts_code)，查询顺序与索引顺序匹配
-            # 原逻辑：每天查全表→内存过滤（5000条/天 × N天 = 大量冗余数据）
-            # 新逻辑：每天查询时直接$in过滤，只拉取需要的股票（M条/天 × N天 = 只拉需要的）
-            from datetime import datetime, timedelta
-            start_dt = datetime.strptime(start_date, "%Y%m%d")
-            end_dt = datetime.strptime(end_date, "%Y%m%d")
-            stocks_set = set(stocks)  # 提前提取到循环外
-            all_result = []
-            current_dt = start_dt
-            while current_dt <= end_dt:
-                current_date_str = current_dt.strftime("%Y%m%d")
-                # 【修复#9：查询顺序与复合索引(trade_date, ts_code)完全匹配】
-                # 先按 trade_date 命中索引前缀，再用 $in 按 ts_code 过滤，避免全表扫描
-                result_day = await mongo_manager.find_many(
-                    "stock_daily_ak_full",
-                    {
-                        "trade_date": int(current_date_str),
-                        "ts_code": {"$in": list(stocks_set)},  # 直接在数据库层面过滤
-                    },
-                    projection={
-                        "ts_code": 1, "trade_date": 1,
-                        "open": 1, "high": 1, "low": 1, "close": 1,
-                        "vol": 1, "amount": 1, "pct_chg": 1,
-                        "first_limit_up": 1, "limit_up_yesterday": 1, "limit_up_count": 1,
-                        "market_leader": 1, "volume_ratio": 1, "amplitude": 1,
-                        "open_below_limit": 1, "open_above_limit": 1, "limit_up_open_amount": 1, "limit_down_yesterday": 1, "volume_increase": 1,
-                        "limit_up_amount": 1, "limit_down_count": 1, "circ_mv": 1, "turnover_rate": 1,
-                        "pullback_ma5": 1, "sentiment_score": 1,
-                        "limit_up_open_count": 1, "hot_sector": 1, "limit_up_time": 1, "limit_up_open_duration": 1,
-                        "pullback_pct": 1, "pullback_days": 1, "open_above_limit_down": 1,
-                        "limit_down_open_amount": 1, "rise_after_limit_down": 1
-                    },
-                )
-                all_result.extend(result_day)  # 数据库已经过滤好，不需要再过滤
-                # 下一天
-                current_dt += timedelta(days=1)
+            # 【P1-1修复：用$dateRange单次查询替代逐自然日循环，避免查询非交易日】
+            # 旧逻辑逐自然日循环（含周末/假期），浪费约30%查询。新逻辑一次范围查询。
+            stocks_set = set(stocks)
+            all_result = await mongo_manager.find_many(
+                "stock_daily_ak_full",
+                {
+                    "trade_date": {"$gte": int(start_date), "$lte": int(end_date)},
+                    "ts_code": {"$in": list(stocks_set)},
+                },
+                projection={
+                    "ts_code": 1, "trade_date": 1,
+                    "open": 1, "high": 1, "low": 1, "close": 1,
+                    "vol": 1, "amount": 1, "pct_chg": 1,
+                    "first_limit_up": 1, "limit_up_yesterday": 1, "limit_up_count": 1,
+                    "market_leader": 1, "volume_ratio": 1, "amplitude": 1,
+                    "open_below_limit": 1, "open_above_limit": 1, "limit_up_open_amount": 1, "limit_down_yesterday": 1, "volume_increase": 1,
+                    "limit_up_amount": 1, "limit_down_count": 1, "circ_mv": 1, "turnover_rate": 1,
+                    "pullback_ma5": 1, "sentiment_score": 1,
+                    "limit_up_open_count": 1, "hot_sector": 1, "limit_up_time": 1, "limit_up_open_duration": 1,
+                    "pullback_pct": 1, "pullback_days": 1, "open_above_limit_down": 1,
+                    "limit_down_open_amount": 1, "rise_after_limit_down": 1,
+                    "up_limit": 1, "down_limit": 1, "pre_close": 1,
+                },
+            )
 
             # 按股票分组
             stock_data = {}
@@ -286,34 +273,22 @@ class FactorEngine:
 
         # 加载 daily_basic 数据
         if "daily_basic" in data_sources:
-            # 🔥 终极修复：完全绕过 MongoDB $in + range 查询，每天单独查询再合并
-            from datetime import datetime, timedelta
-            start_dt = datetime.strptime(start_date, "%Y%m%d")
-            end_dt = datetime.strptime(end_date, "%Y%m%d")
-            all_result = []
-            current_dt = start_dt
-            stocks_set = set(stocks)  # 提前提取到循环外
-            while current_dt <= end_dt:
-                current_date_str = current_dt.strftime("%Y%m%d")
-                # 【修复#9：查询顺序与复合索引(trade_date, ts_code)完全匹配】
-                # 先用 trade_date 命中索引前缀，再用 $in 按 ts_code 过滤，避免全表扫描
-                result_day = await mongo_manager.find_many(
-                    "daily_basic",
-                    {
-                        "trade_date": int(current_date_str),
-                        "ts_code": {"$in": list(stocks_set)},  # 直接在数据库层面过滤
-                    },
-                    projection={
-                        "ts_code": 1, "trade_date": 1,
-                        "pe": 1, "pe_ttm": 1, "pb": 1, "ps": 1, "ps_ttm": 1,
-                        "dv_ratio": 1, "dv_ttm": 1,
-                        "turnover_rate": 1, "turnover_rate_f": 1, "volume_ratio": 1,
-                        "total_mv": 1, "circ_mv": 1,
-                    },
-                )
-                all_result.extend(result_day)  # 数据库已经过滤好
-                # 下一天
-                current_dt += timedelta(days=1)
+            # 【P1-1修复：用$dateRange单次查询替代逐自然日循环】
+            stocks_set = set(stocks)
+            all_result = await mongo_manager.find_many(
+                "daily_basic",
+                {
+                    "trade_date": {"$gte": int(start_date), "$lte": int(end_date)},
+                    "ts_code": {"$in": list(stocks_set)},
+                },
+                projection={
+                    "ts_code": 1, "trade_date": 1,
+                    "pe": 1, "pe_ttm": 1, "pb": 1, "ps": 1, "ps_ttm": 1,
+                    "dv_ratio": 1, "dv_ttm": 1,
+                    "turnover_rate": 1, "turnover_rate_f": 1, "volume_ratio": 1,
+                    "total_mv": 1, "circ_mv": 1,
+                },
+            )
 
             # 按股票分组
             stock_data = {}
@@ -347,134 +322,6 @@ class FactorEngine:
 
         return data
 
-    async def _load_daily_data(
-        self,
-        stocks: list[str],
-        start_date: str,
-        end_date: str,
-        single_day: bool = False,
-    ) -> dict[str, pd.DataFrame]:
-        """加载日线数据"""
-        if single_day:
-            # 🔥 修复：当查询单天数据，直接查询整表，然后在代码中过滤 ts_code
-            # 因为 MongoDB $in 查询 5000+ 股票代码会因为索引类型问题匹配不到，直接查当天所有股票再过滤
-            result = await mongo_manager.find_many(
-                "stock_daily_ak_full",
-                {
-                    "trade_date": int(end_date),
-                },
-                projection={
-                    "ts_code": 1, "trade_date": 1,
-                    "open": 1, "high": 1, "low": 1, "close": 1,
-                    "vol": 1, "amount": 1, "pct_chg": 1,
-                    # 预计算的涨跌停衍生因子
-                    "first_limit_up": 1, "limit_up_yesterday": 1, "limit_up_count": 1,
-                    "market_leader": 1, "volume_ratio": 1, "amplitude": 1,
-                    "open_below_limit": 1, "open_above_limit": 1, "limit_up_open_amount": 1, "limit_down_yesterday": 1, "volume_increase": 1,
-                    # 新增超短策略因子 - 我们预计算的8个因子全部添加
-                    "limit_up_amount": 1, "limit_down_count": 1, "circ_mv": 1, "turnover_rate": 1,
-                    "pullback_ma5": 1, "sentiment_score": 1,
-                    "limit_up_open_count": 1, "hot_sector": 1, "limit_up_time": 1, "limit_up_open_duration": 1,
-                    "pullback_pct": 1, "pullback_days": 1, "open_above_limit_down": 1,
-                    "limit_down_open_amount": 1, "rise_after_limit_down": 1
-                },
-            )
-            # 🔥 在代码中过滤只保留我们需要的 stocks
-            stocks_set = set(stocks)
-            result = [doc for doc in result if doc["ts_code"] in stocks_set]
-        else:
-            result = await mongo_manager.find_many(
-                "stock_daily_ak_full",
-                {
-                    "ts_code": {"$in": stocks},
-                    "trade_date": {"$gte": int(start_date), "$lte": int(end_date)},
-                },
-                projection={
-                    "ts_code": 1, "trade_date": 1,
-                    "open": 1, "high": 1, "low": 1, "close": 1,
-                    "vol": 1, "amount": 1, "pct_chg": 1,
-                    # 预计算的涨跌停衍生因子
-                    "first_limit_up": 1, "limit_up_yesterday": 1, "limit_up_count": 1,
-                    "market_leader": 1, "volume_ratio": 1, "amplitude": 1,
-                    "open_below_limit": 1, "open_above_limit": 1, "limit_up_open_amount": 1, "limit_down_yesterday": 1, "volume_increase": 1,
-                    # 新增超短策略因子 - 我们预计算的8个因子全部添加
-                    "limit_up_amount": 1, "limit_down_count": 1, "circ_mv": 1, "turnover_rate": 1,
-                    "pullback_ma5": 1, "sentiment_score": 1,
-                    "limit_up_open_count": 1, "hot_sector": 1, "limit_up_time": 1, "limit_up_open_duration": 1,
-                    "pullback_pct": 1, "pullback_days": 1, "open_above_limit_down": 1,
-                    "limit_down_open_amount": 1, "rise_after_limit_down": 1
-                },
-            )
-
-        # 按股票分组
-        stock_data = {}
-        for doc in result:
-            ts_code = doc["ts_code"]
-            if ts_code not in stock_data:
-                stock_data[ts_code] = []
-            stock_data[ts_code].append(doc)
-
-        # 转换为 DataFrame
-        return {
-            ts_code: pd.DataFrame(docs).sort_values("trade_date").set_index("trade_date")
-            for ts_code, docs in stock_data.items()
-        }
-
-    async def _load_daily_basic_data(
-        self,
-        stocks: list[str],
-        start_date: str,
-        end_date: str,
-        single_day: bool = False,
-    ) -> dict[str, pd.DataFrame]:
-        """加载 daily_basic 数据"""
-        if single_day:
-            # 🔥 修复：当查询单天数据，直接查询整表，然后在代码中过滤 ts_code
-            # 因为 MongoDB $in 查询 5000+ 股票代码会因为索引类型问题匹配不到，直接查当天所有股票再过滤
-            result = await mongo_manager.find_many(
-                "daily_basic",
-                {
-                    "trade_date": int(end_date),
-                },
-                projection={
-                    "ts_code": 1, "trade_date": 1,
-                    "pe": 1, "pe_ttm": 1, "pb": 1, "ps": 1, "ps_ttm": 1,
-                    "dv_ratio": 1, "dv_ttm": 1,
-                    "turnover_rate": 1, "turnover_rate_f": 1, "volume_ratio": 1,
-                    "total_mv": 1, "circ_mv": 1,
-                },
-            )
-            # 🔥 在代码中过滤只保留我们需要的 stocks
-            stocks_set = set(stocks)
-            result = [doc for doc in result if doc["ts_code"] in stocks_set]
-        else:
-            result = await mongo_manager.find_many(
-                "daily_basic",
-                {
-                    "ts_code": {"$in": stocks},
-                    "trade_date": {"$gte": int(start_date), "$lte": int(end_date)},
-                },
-                projection={
-                    "ts_code": 1, "trade_date": 1,
-                    "pe": 1, "pe_ttm": 1, "pb": 1, "ps": 1, "ps_ttm": 1,
-                    "dv_ratio": 1, "dv_ttm": 1,
-                    "turnover_rate": 1, "turnover_rate_f": 1, "volume_ratio": 1,
-                    "total_mv": 1, "circ_mv": 1,
-                },
-            )
-
-        # 按股票分组
-        stock_data = {}
-        for doc in result:
-            ts_code = doc["ts_code"]
-            if ts_code not in stock_data:
-                stock_data[ts_code] = []
-            stock_data[ts_code].append(doc)
-
-        return {
-            ts_code: pd.DataFrame(docs).sort_values("trade_date").set_index("trade_date")
-            for ts_code, docs in stock_data.items()
-        }
 
     async def _load_fina_data(
         self,
@@ -669,357 +516,3 @@ class FactorEngine:
         return top_stocks
 
 
-# ============== 超短策略专用预计算因子 ==============
-# 这些因子已经提前批量计算存储在MongoDB中，直接读取即可
-FactorLibrary.register(
-    FactorDefinition(
-        name="limit_up_yesterday",
-        display_name="昨日涨停标记",
-        category=FactorCategory.TECHNICAL,
-        description="昨日是否涨停 (1=是, 0=否)",
-        direction="asc",
-        data_source="daily",
-        required_fields=["limit_up_yesterday"],
-        compute_func=lambda df: df["limit_up_yesterday"],
-        lookback_days=1,
-    )
-)
-
-FactorLibrary.register(
-    FactorDefinition(
-        name="first_limit_up",
-        display_name="首次涨停标记",
-        category=FactorCategory.TECHNICAL,
-        description="当日是否首次涨停 (1=是, 0=否)",
-        direction="asc",
-        data_source="daily",
-        required_fields=["first_limit_up"],
-        compute_func=lambda df: df["first_limit_up"],
-        lookback_days=1,
-    )
-)
-
-FactorLibrary.register(
-    FactorDefinition(
-        name="limit_up_count",
-        display_name="连续涨停天数",
-        category=FactorCategory.TECHNICAL,
-        description="连续涨停天数",
-        direction="asc",
-        data_source="daily",
-        required_fields=["limit_up_count"],
-        compute_func=lambda df: df["limit_up_count"],
-        lookback_days=1,
-    )
-)
-
-FactorLibrary.register(
-    FactorDefinition(
-        name="market_leader",
-        display_name="龙头股标记",
-        category=FactorCategory.TECHNICAL,
-        description="是否为市场龙头股 (1=是, 0=否)",
-        direction="asc",
-        data_source="daily",
-        required_fields=["market_leader"],
-        compute_func=lambda df: df["market_leader"],
-        lookback_days=1,
-    )
-)
-
-FactorLibrary.register(
-    FactorDefinition(
-        name="amplitude",
-        display_name="振幅",
-        category=FactorCategory.TECHNICAL,
-        description="当日振幅 ((最高-最低)/昨收*100%)",
-        direction="asc",
-        data_source="daily",
-        required_fields=["amplitude"],
-        compute_func=lambda df: df["amplitude"],
-        lookback_days=1,
-    )
-)
-
-FactorLibrary.register(
-    FactorDefinition(
-        name="volume_ratio",
-        display_name="量比",
-        category=FactorCategory.LIQUIDITY,
-        description="量比 (当日成交量/过去5日平均成交量)",
-        direction="asc",
-        data_source="daily",
-        required_fields=["volume_ratio"],
-        compute_func=lambda df: df["volume_ratio"],
-        lookback_days=1,
-    )
-)
-
-# 新增超短策略因子
-FactorLibrary.register(
-    FactorDefinition(
-        name="open_below_limit",
-        display_name="开盘低于涨停价",
-        category=FactorCategory.TECHNICAL,
-        description="当日开盘价 < 昨日涨停价 (1=是, 0=否)",
-        direction="asc",
-        data_source="daily",
-        required_fields=["open_below_limit"],
-        compute_func=lambda df: df["open_below_limit"],
-        lookback_days=1,
-    )
-)
-
-FactorLibrary.register(
-    FactorDefinition(
-        name="open_above_limit",
-        display_name="开盘高于跌停价",
-        category=FactorCategory.TECHNICAL,
-        description="当日开盘价 > 昨日跌停价 (1=是, 0=否)",
-        direction="asc",
-        data_source="daily",
-        required_fields=["open_above_limit"],
-        compute_func=lambda df: df["open_above_limit"],
-        lookback_days=1,
-    )
-)
-
-FactorLibrary.register(
-    FactorDefinition(
-        name="limit_up_open_amount",
-        display_name="涨停开板金额",
-        category=FactorCategory.TECHNICAL,
-        description="涨停开板成交总金额 (单位：万元)",
-        direction="asc",
-        data_source="daily",
-        required_fields=["limit_up_open_amount"],
-        compute_func=lambda df: df["limit_up_open_amount"],
-        lookback_days=1,
-    )
-)
-
-FactorLibrary.register(
-    FactorDefinition(
-        name="limit_down_yesterday",
-        display_name="昨日跌停标记",
-        category=FactorCategory.TECHNICAL,
-        description="昨日是否跌停 (1=是, 0=否)",
-        direction="asc",
-        data_source="daily",
-        required_fields=["limit_down_yesterday"],
-        compute_func=lambda df: df["limit_down_yesterday"],
-        lookback_days=1,
-    )
-)
-
-FactorLibrary.register(
-    FactorDefinition(
-        name="volume_increase",
-        display_name="量增标记",
-        category=FactorCategory.LIQUIDITY,
-        description="当日成交量 > 过去5日平均成交量1.5倍 (1=是, 0=否)",
-        direction="asc",
-        data_source="daily",
-        required_fields=["volume_increase"],
-        compute_func=lambda df: df["volume_increase"],
-        lookback_days=1,
-    )
-)
-
-FactorLibrary.register(
-    FactorDefinition(
-        name="pct_chg",
-        display_name="当日涨幅",
-        category=FactorCategory.TECHNICAL,
-        description="当日涨跌幅 (%)",
-        direction="asc",
-        data_source="daily",
-        required_fields=["pct_chg"],
-        compute_func=lambda df: df["pct_chg"],
-        lookback_days=1,
-    )
-)
-
-FactorLibrary.register(
-    FactorDefinition(
-        name="circ_mv",
-        display_name="流通市值",
-        category=FactorCategory.VALUE,
-        description="流通市值 (单位：万元)",
-        direction="desc",
-        data_source="daily",
-        required_fields=["circ_mv"],
-        compute_func=lambda df: df["circ_mv"],
-        lookback_days=1,
-    )
-)
-
-FactorLibrary.register(
-    FactorDefinition(
-        name="turnover_rate",
-        display_name="换手率",
-        category=FactorCategory.LIQUIDITY,
-        description="当日换手率 (%)",
-        direction="asc",
-        data_source="daily",
-        required_fields=["turnover_rate"],
-        compute_func=lambda df: df["turnover_rate"],
-        lookback_days=1,
-    )
-)
-
-# 新增超短策略衍生因子注册
-FactorLibrary.register(
-    FactorDefinition(
-        name="limit_up_open_count",
-        display_name="涨停开板次数",
-        category=FactorCategory.TECHNICAL,
-        description="当日涨停被打开的次数",
-        direction="asc",
-        data_source="daily",
-        required_fields=["limit_up_open_count"],
-        compute_func=lambda df: df["limit_up_open_count"],
-        lookback_days=1,
-    )
-)
-
-FactorLibrary.register(
-    FactorDefinition(
-        name="hot_sector",
-        display_name="热门板块标记",
-        category=FactorCategory.TECHNICAL,
-        description="股票是否属于当前热门板块 (1=是，0=否)",
-        direction="asc",
-        data_source="daily",
-        required_fields=["hot_sector"],
-        compute_func=lambda df: df["hot_sector"],
-        lookback_days=1,
-    )
-)
-
-FactorLibrary.register(
-    FactorDefinition(
-        name="limit_up_time",
-        display_name="涨停时间",
-        category=FactorCategory.TECHNICAL,
-        description="当日首次涨停的时间 (分钟，比如930=9:30，1000=10:00)",
-        direction="asc",
-        data_source="daily",
-        required_fields=["limit_up_time"],
-        compute_func=lambda df: df["limit_up_time"],
-        lookback_days=1,
-    )
-)
-
-FactorLibrary.register(
-    FactorDefinition(
-        name="limit_up_open_duration",
-        display_name="开板时长",
-        category=FactorCategory.TECHNICAL,
-        description="涨停被打开的总时长 (分钟)",
-        direction="asc",
-        data_source="daily",
-        required_fields=["limit_up_open_duration"],
-        compute_func=lambda df: df["limit_up_open_duration"],
-        lookback_days=1,
-    )
-)
-
-FactorLibrary.register(
-    FactorDefinition(
-        name="pullback_pct",
-        display_name="回调幅度",
-        category=FactorCategory.TECHNICAL,
-        description="从近期高点回调的幅度 (%)",
-        direction="asc",
-        data_source="daily",
-        required_fields=["pullback_pct"],
-        compute_func=lambda df: df["pullback_pct"],
-        lookback_days=30,
-    )
-)
-
-FactorLibrary.register(
-    FactorDefinition(
-        name="pullback_days",
-        display_name="回调天数",
-        category=FactorCategory.TECHNICAL,
-        description="从近期高点回调的天数",
-        direction="asc",
-        data_source="daily",
-        required_fields=["pullback_days"],
-        compute_func=lambda df: df["pullback_days"],
-        lookback_days=30,
-    )
-)
-
-FactorLibrary.register(
-    FactorDefinition(
-        name="open_above_limit_down",
-        display_name="开盘高于跌停价",
-        category=FactorCategory.TECHNICAL,
-        description="当日开盘价高于昨日跌停价 (1=是，0=否)",
-        direction="asc",
-        data_source="daily",
-        required_fields=["open_above_limit_down"],
-        compute_func=lambda df: df["open_above_limit_down"],
-        lookback_days=1,
-    )
-)
-
-FactorLibrary.register(
-    FactorDefinition(
-        name="limit_down_open_amount",
-        display_name="翘板金额",
-        category=FactorCategory.TECHNICAL,
-        description="跌停被打开时的成交金额 (万元)",
-        direction="asc",
-        data_source="daily",
-        required_fields=["limit_down_open_amount"],
-        compute_func=lambda df: df["limit_down_open_amount"],
-        lookback_days=1,
-    )
-)
-
-FactorLibrary.register(
-    FactorDefinition(
-        name="rise_after_limit_down",
-        display_name="翘板后涨幅",
-        category=FactorCategory.TECHNICAL,
-        description="跌停被打开后到收盘的涨幅 (%)",
-        direction="asc",
-        data_source="daily",
-        required_fields=["rise_after_limit_down"],
-        compute_func=lambda df: df["rise_after_limit_down"],
-        lookback_days=1,
-    )
-)
-
-FactorLibrary.register(
-    FactorDefinition(
-        name="sentiment_score",
-        display_name="情绪周期评分",
-        category=FactorCategory.TECHNICAL,
-        description="当日市场情绪评分 (0-100，越高情绪越亢奋)",
-        direction="asc",
-        data_source="daily",
-        required_fields=["sentiment_score"],
-        compute_func=lambda df: df["sentiment_score"],
-        lookback_days=1,
-    )
-)
-
-# ============== 辅助函数 ==============
-
-def _safe_divide(a: pd.Series, b: pd.Series) -> pd.Series:
-    """安全除法，避免除零"""
-    return a / b.replace(0, np.nan)
-
-
-def _compute_rsi(close: pd.Series, period: int = 14) -> pd.Series:
-    """计算 RSI"""
-    delta = close.diff()
-    gain = delta.where(delta > 0, 0).rolling(period).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(period).mean()
-    rs = _safe_divide(gain, loss)
-    return 100 - (100 / (1 + rs))
