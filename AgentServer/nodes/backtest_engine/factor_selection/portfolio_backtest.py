@@ -298,8 +298,14 @@ class PortfolioBacktester:
             # 【修复#47: min_qiao_amount单位统一为千元(与数据库limit_down_open_amount一致)】
             # 前端传10000(万元),数据库因子是千元,需*1000转换
             # 前端传万元,数据库因子千元,需*10转换
-            _raw_qiao = params.get("min_qiao_amount", 1000)
-            min_qiao_amount = _raw_qiao * 10 if _raw_qiao < 100000 else _raw_qiao  # <100000说明是万元,需*10转千元
+            # 【P2-C修复：明确单位转换规则，消除魔法数字】
+            # 前端默认传万元(1000万元=10000)，数据库因子limit_down_open_amount存千元
+            # 规则：如果<100000(即<10万元千元单位)，说明传入的是万元单位，需×1000转千元
+            # 如果>=100000，说明已经是千元单位，无需转换
+            _raw_qiao = params.get("min_qiao_amount", 1000)  # 前端传入，单位万元
+            # 万元→千元: 1000万 × 1000 = 1000000千元；但前端传的是10000(万元)不是10000000
+            # 实际: 前端传10000(万) → ×10 = 100000千元 ✓; 前端传100000(千) → 不转换 ✓
+            min_qiao_amount = _raw_qiao * 10 if _raw_qiao < 100000 else _raw_qiao
             min_rise_after = params.get("min_rise_after_qiao", 0.03)
             require_high_sentiment = params.get("require_high_sentiment", True)
             await self.log(f"   │        • 最小连续跌停: {min_consecutive}天")
@@ -979,101 +985,11 @@ class PortfolioBacktester:
                     strategy_name = s.get("name", s.get("id", "未知策略"))
                     params = s.get("params", {})
 
-                    # 打印策略标题 + 参数配置 + 筛选过程标题(与强制空仓分支对齐)
-                    await self.log(f"")
-                    await self.log(f"   ┌───────────────────────────────────────────────────────")
-                    await self.log(f"   │ 🔹 【{strategy_name}】")
-                    await self.log(f"   ├───────────────────────────────────────────────────────")
+                    # 【P2-B修复：删除重复的参数打印逻辑，统一走 _print_single_strategy_filtering】
+                    # 之前这里有80行重复打印代码，与 _print_single_strategy_filtering 完全一致
+                    # 且默认值不一致（如半路追涨max_rise_pct这里写0.05，_print_single写0.05，但ultra_short写0.07）
 
-                    # 参数配置显示(根据不同策略格式化显示)
-                    await self.log(f"   │    📌 参数配置:")
-                    if strategy_name == "半路追涨":
-                        min_rise_pct = params.get("min_rise_pct", 0.03)
-                        max_rise_pct = params.get("max_rise_pct", 0.05)
-                        # 【修复#4：默认值统一为1.5，和 models.py/ultra_short.py/defaults.py 保持一致
-                        volume_threshold = params.get("min_volume_ratio", 1.5)
-                        allow_after_10am = params.get("allow_after_10am", False)
-                        await self.log(f"   │        • 量比阈值: {volume_threshold}倍")
-                        await self.log(f"   │        • 涨幅区间: {min_rise_pct*100:.1f}% ~ {max_rise_pct*100:.1f}%")
-                        await self.log(f"   │        • 允许10点后买入: {'是' if allow_after_10am else '否'}")
-                    elif strategy_name == "首板打板":
-                        min_seal_amount = params.get("min_seal_amount", 5000)
-                        max_limit_time = params.get("max_limit_up_time", "10:00")
-                        min_circ_mv = params.get("min_circulation_market_cap", 50)
-                        max_circ_mv = params.get("max_circulation_market_cap", 500)
-                        min_volume_ratio = params.get("min_volume_ratio", 1.5)
-                        min_turnover = params.get("min_turnover_rate", 3)
-                        max_turnover = params.get("max_turnover_rate", 15)
-                        max_blast = params.get("max_blast_count", 1)
-                        require_hot = params.get("require_hot_sector", False)
-                        require_sentiment = params.get("require_sentiment_period", ["rising", "chaos"])
-                        await self.log(f"   │        • 竞价涨幅: 2.0% ~ 5.0%")
-                        await self.log(f"   │        • 量比要求: ≥ {min_volume_ratio}")
-                        await self.log(f"   │        • 换手率: {min_turnover}% ~ {max_turnover}%")
-                        await self.log(f"   │        • 流通市值: {min_circ_mv}亿 ~ {max_circ_mv}亿")
-                        await self.log(f"   │        • 最小封单: {min_seal_amount}万元")
-                        await self.log(f"   │        • 最晚涨停: {max_limit_time}")
-                        await self.log(f"   │        • 最大开板: {max_blast}次")
-                        await self.log(f"   │        • 要求热门板块: {'是' if require_hot else '否'}")
-                        await self.log(f"   │        • 情绪周期要求: {', '.join(require_sentiment)}")
-                    elif strategy_name == "涨停开板":
-                        min_consecutive = params.get("min_consecutive_limit", 2)
-                        max_consecutive = params.get("max_consecutive_limit", 4)
-                        max_open_duration = params.get("max_open_duration", 5)
-                        min_seal_after = params.get("min_seal_after_open", 3000)
-                        # 【修复#45: min_turnover_rate前端传小数(0.15=15%),需*100转为百分比单位】
-                        _raw_turnover = params.get("min_turnover_rate", 0.15)
-                        min_turnover = _raw_turnover * 100 if _raw_turnover < 1 else _raw_turnover
-                        # 【修复#46: 开盘涨幅下限0%太严格,连板股开板日常低开,改为-3%】
-                        opening_pct_min = params.get("opening_pct_min", -3.0)
-                        opening_pct_max = params.get("opening_pct_max", 3.0)
-                        min_volume_ratio = params.get("min_volume_ratio", 2.0)
-                        require_sentiment = params.get("require_sentiment_period", ["rising"])
-                        await self.log(f"   │        • 连续涨停: {min_consecutive} ~ {max_consecutive}板")
-                        await self.log(f"   │        • 开盘涨幅: {opening_pct_min}% ~ {opening_pct_max}%")
-                        await self.log(f"   │        • 量比要求: ≥ {min_volume_ratio}")
-                        await self.log(f"   │        • 最大开板时长: {max_open_duration}分钟")
-                        await self.log(f"   │        • 开板后最小封单: {min_seal_after}万元")
-                        await self.log(f"   │        • 最小换手率: {min_turnover:.1f}%")
-                        await self.log(f"   │        • 情绪周期要求: {', '.join(require_sentiment)}")
-                    elif strategy_name == "龙头低吸":
-                        min_consecutive = params.get("min_consecutive_limit", 3)
-                        min_correction = params.get("min_correction_pct", 0.15)
-                        max_correction = params.get("max_correction_pct", 0.3)
-                        correction_days_min = params.get("correction_days_min", 2)
-                        correction_days_max = params.get("correction_days_max", 5)
-                        support_level = params.get("support_level", "ma5")
-                        await self.log(f"   │        • 最小连续涨停: {min_consecutive}天")
-                        await self.log(f"   │        • 回调幅度: {min_correction*100:.1f}% ~ {max_correction*100:.1f}%")
-                        await self.log(f"   │        • 回调天数: {correction_days_min} ~ {correction_days_max}天")
-                        await self.log(f"   │        • 支撑位: {support_level.upper()}")
-                        await self.log(f"   │        • 要求缩量回调: volume/ma5 ≤ 1.0")
-                    elif strategy_name == "跌停翘板":
-                        min_consecutive = params.get("min_consecutive_limit", 3)
-                        # 【修复#47: min_qiao_amount单位统一为千元(与数据库limit_down_open_amount一致)】
-                        _raw_qiao = params.get("min_qiao_amount", 1000)
-                        min_qiao_amount = _raw_qiao * 10 if _raw_qiao < 100000 else _raw_qiao
-                        min_rise_after = params.get("min_rise_after_qiao", 0.03)
-                        require_high_sentiment = params.get("require_high_sentiment", True)
-                        await self.log(f"   │        • 最小连续跌停: {min_consecutive}天")
-                        await self.log(f"   │        • 换手率要求: ≥ 10%")
-                        await self.log(f"   │        • 最小翘板金额: {_raw_qiao}万元={min_qiao_amount}千元")
-                        await self.log(f"   │        • 翘板后最小涨幅: {min_rise_after*100:.1f}%")
-                        await self.log(f"   │        • 要求高情绪周期: {'是' if require_high_sentiment else '否'}")
-                    else:
-                        # 通用显示
-                        for param_name, param_value in list(params.items())[:8]:
-                            display_value = str(param_value) if not isinstance(param_value, list) else ', '.join(str(v) for v in param_value[:3]) + ('...' if len(param_value) > 3 else '')
-                            await self.log(f"   │        • {param_name}: {display_value}")
-
-                    await self.log(f"   └───────────────────────────────────────────────────────")
-
-                    await self.log(f"")
-                    await self.log(f"   ┌───────────────────────────────────────────────────────")
-                    await self.log(f"   │ 🔍 【{strategy_name}】筛选过程:")
-                    await self.log(f"   ├───────────────────────────────────────────────────────")
-
-                    # 统一打印!统一筛选!
+                    # 统一调用策略筛选+打印
                     candidates = await self._print_single_strategy_filtering(
                         strategy_name,
                         params,
@@ -1149,103 +1065,106 @@ class PortfolioBacktester:
                             await self.log(f"   ⚠️  竞价过滤后无候选，跳过调仓")
                             continue
 
+                # 【P0-A修复：以下调仓逻辑必须与竞价过滤if平级，不能在if内部】
+                # 否则 enable_auction_filter=False 时不执行任何调仓！
+
                 # 计算目标权重
-                    target_weights = self._compute_weights(
-                        list(all_candidates),
-                        factor_df,
-                        self.weight_method,
-                    )
+                target_weights = self._compute_weights(
+                    list(all_candidates),
+                    factor_df,
+                    self.weight_method,
+                )
 
-                    # 🔧 新增:大盘 MA60 过滤 - 大盘跌破 MA60 整体降低仓位 50%(可配置开关)
-                    if self._risk_config.get("enable_ma60_filter", True):
-                        try:
-                            # 从 index_daily 查询上证指数(000001.SH)的均线数据
-                            index_data = await mongo_manager.find_one(
-                                "index_daily",
-                                {"ts_code": "000001.SH", "trade_date": trade_date},
-                                {"close": 1, "ma60": 1},
-                            )
-                            if index_data and "close" in index_data and "ma60" in index_data:
-                                close = index_data["close"]
-                                ma60 = index_data["ma60"]
-                                if close < ma60:
-                                    # 跌破 MA60,整体降低仓位 50%
-                                    for code in target_weights:
-                                        target_weights[code] = target_weights[code] * 0.5
-                                    await self.log(f"   📉 大盘跌破 MA60,整体仓位降低 50%")
-                        except Exception as e:
-                            # 查询失败不影响继续执行
-                            logger.warn('BACKTEST', f"Failed to check index MA60 for position adjustment: {e}")
+                # 🔧 新增:大盘 MA60 过滤 - 大盘跌破 MA60 整体降低仓位 50%(可配置开关)
+                if self._risk_config.get("enable_ma60_filter", True):
+                    try:
+                        # 从 index_daily 查询上证指数(000001.SH)的均线数据
+                        index_data = await mongo_manager.find_one(
+                            "index_daily",
+                            {"ts_code": "000001.SH", "trade_date": trade_date},
+                            {"close": 1, "ma60": 1},
+                        )
+                        if index_data and "close" in index_data and "ma60" in index_data:
+                            close = index_data["close"]
+                            ma60 = index_data["ma60"]
+                            if close < ma60:
+                                # 跌破 MA60,整体降低仓位 50%
+                                for code in target_weights:
+                                    target_weights[code] = target_weights[code] * 0.5
+                                await self.log(f"   📉 大盘跌破 MA60,整体仓位降低 50%")
+                    except Exception as e:
+                        # 查询失败不影响继续执行
+                        logger.warn('BACKTEST', f"Failed to check index MA60 for position adjustment: {e}")
 
-                    # 计算进度
-                    total_rebalance_days = len(rebalance_dates)
-                    current_day_idx = rebalance_dates.index(trade_date) + 1
-                    progress = (current_day_idx / total_rebalance_days) * 100
-                    await self.log(f"   📅 当日调仓进度: {progress:.2f}% ({current_day_idx}/{total_rebalance_days}天)")
-                    await self.log(f"   💲 正在获取股票价格...")
-                    prices = await self._get_prices(
-                        set(holdings.keys()) | set(target_weights.keys()),
-                        trade_date,
-                    )
+                # 计算进度
+                total_rebalance_days = len(rebalance_dates)
+                current_day_idx = rebalance_dates.index(trade_date) + 1
+                progress = (current_day_idx / total_rebalance_days) * 100
+                await self.log(f"   📅 当日调仓进度: {progress:.2f}% ({current_day_idx}/{total_rebalance_days}天)")
+                await self.log(f"   💲 正在获取股票价格...")
+                prices = await self._get_prices(
+                    set(holdings.keys()) | set(target_weights.keys()),
+                    trade_date,
+                )
 
-                    # 保存最后一次价格,用于计算最终市值
-                    last_prices = prices
+                # 保存最后一次价格,用于计算最终市值
+                last_prices = prices
 
-                    await self.log(f"   ✅ 获取到 {len(prices)} 只股票的价格")
+                await self.log(f"   ✅ 获取到 {len(prices)} 只股票的价格")
 
-                    # 如果没有任何股票获取到价格,跳过本次调仓
-                    if len(prices) == 0 and len(holdings) == 0:
-                        await self.log(f"   ⚠️  没有任何股票获取到当日价格,跳过调仓")
-                        continue
+                # 如果没有任何股票获取到价格,跳过本次调仓
+                if len(prices) == 0 and len(holdings) == 0:
+                    await self.log(f"   ⚠️  没有任何股票获取到当日价格,跳过调仓")
+                    continue
 
-                    # 5. 执行调仓
-                    await self.log(f"   🔄 正在执行调仓操作...")
-                    cash, holdings, records = self._rebalance(
-                        trade_date, target_weights, cash, holdings, prices, sentiment_level
-                    )
-                    rebalance_records.extend(records)
+                # 5. 执行调仓
+                await self.log(f"   🔄 正在执行调仓操作...")
+                cash, holdings, records = self._rebalance(
+                    trade_date, target_weights, cash, holdings, prices, sentiment_level
+                )
+                rebalance_records.extend(records)
 
-                    # 获取股票名称
-                    stock_names = await self._get_stock_names([r.ts_code for r in records])
+                # 获取股票名称
+                stock_names = await self._get_stock_names([r.ts_code for r in records])
 
-                    # 🔧 内存优化: 释放不再需要的因子数据和目标权重
-                    if 'factor_df' in locals():
-                        del factor_df
-                    if 'target_weights' in locals():
-                        del target_weights
-                    gc.collect()
+                # 🔧 内存优化: 释放不再需要的因子数据和目标权重
+                if 'factor_df' in locals():
+                    del factor_df
+                if 'target_weights' in locals():
+                    del target_weights
+                gc.collect()
 
-                    # 输出调仓记录(带股票名称 + 完整原因描述)
-                    if len(records) > 0:
-                        await self.log("")
-                        await self.log(f"   📝 【当日调仓记录】:")
-                        await self.log(f"   { '-' * 100}")
-                        await self.log(f"   | {'方向':<6} {'日期':<10} {'名称':<8} {'代码':<12} {'股数':<6} {'价格':<8} {'原因'} ")
-                        await self.log(f"   { '-' * 100}")
+                # 输出调仓记录(带股票名称 + 完整原因描述)
+                if len(records) > 0:
+                    await self.log("")
+                    await self.log(f"   📝 【当日调仓记录】:")
+                    await self.log(f"   { '-' * 100}")
+                    await self.log(f"   | {'方向':<6} {'日期':<10} {'名称':<8} {'代码':<12} {'股数':<6} {'价格':<8} {'原因'} ")
+                    await self.log(f"   { '-' * 100}")
 
-                        for record in records:
-                            name = stock_names.get(record.ts_code, record.ts_code.split('.')[0])
-                            ts_code = record.ts_code
-                            direction = "买入" if record.action == 'buy' else "卖出"
-                            # 完善原因说明翻译,更容易阅读理解
-                            if record.reason == "rebalance":
-                                if direction == "买入":
-                                    # 【修复#45:买入reason带上具体策略名称】
-                                    sname_raw = stock_to_strategy.get(ts_code, "策略选股")
-                                    strategy_name = sname_raw[0] if isinstance(sname_raw, list) and len(sname_raw) > 0 else sname_raw
-                                    reason_desc = f"{strategy_name}调入"
-                                else:
-                                    reason_desc = "调仓调出"
-                            elif record.reason == "not_in_target":
-                                reason_desc = "不再符合选股条件"
+                    for record in records:
+                        name = stock_names.get(record.ts_code, record.ts_code.split('.')[0])
+                        ts_code = record.ts_code
+                        direction = "买入" if record.action == 'buy' else "卖出"
+                        # 完善原因说明翻译,更容易阅读理解
+                        if record.reason == "rebalance":
+                            if direction == "买入":
+                                # 【修复#45:买入reason带上具体策略名称】
+                                sname_raw = stock_to_strategy.get(ts_code, "策略选股")
+                                strategy_name = sname_raw[0] if isinstance(sname_raw, list) and len(sname_raw) > 0 else sname_raw
+                                reason_desc = f"{strategy_name}调入"
                             else:
-                                reason_desc = record.reason
+                                reason_desc = "调仓调出"
+                        elif record.reason == "not_in_target":
+                            reason_desc = "不再符合选股条件"
+                        else:
+                            reason_desc = record.reason
 
-                            # 添加日期信息
-                            date = record.date
-                            icon = "🔹" if record.action == 'buy' else "🔻"
-                            await self.log(f"   | {icon} {direction:<6} {date:<10} {name:<8} {ts_code:<12} {record.shares:<6} {record.price:<8.2f} {reason_desc:<}")
-                        await self.log(f"   { '-' * 100}")
+                        # 添加日期信息
+                        date = record.date
+                        icon = "🔹" if record.action == 'buy' else "🔻"
+                        await self.log(f"   | {icon} {direction:<6} {date:<10} {name:<8} {ts_code:<12} {record.shares:<6} {record.price:<8.2f} {reason_desc:<}")
+                    await self.log(f"   { '-' * 100}")
 
                 # ==================== 非调仓日输出 ====================
                 # ✅ 修复:非调仓日也要输出完整信息,让用户知道每天都在正常运行
@@ -1255,30 +1174,36 @@ class PortfolioBacktester:
                     await self.log(f"   │ i️  【非调仓日】无调仓操作,继续持有现有仓位")
                     await self.log(f"   ├───────────────────────────────────────────────────────")
 
-                    # 输出当前持仓明细
+                    # 【P0-C修复：非调仓日只调用一次_get_prices，和下方净值计算共享】
+                    # 避免重复查询MongoDB（虽然有缓存，但减少冗余调用更干净）
                     if holdings and len(holdings) > 0:
+                        _prices_for_display = await self._get_prices(set(holdings.keys()), trade_date)
                         await self.log(f"   │  📊 当前持仓 {len(holdings)} 只股票:")
-                        # 获取当日价格用于估值
-                        prices_for_hold = await self._get_prices(set(holdings.keys()), trade_date)
                         total_market_value = 0
                         for code, shares in holdings.items():
-                            if shares > 0 and code in prices_for_hold:
-                                price = prices_for_hold[code]['close']
+                            if shares > 0 and code in _prices_for_display:
+                                price = _prices_for_display[code]['close']
                                 market_value = shares * price
                                 total_market_value += market_value
                                 await self.log(f"   │      • {code}: {shares} 股, 收盘价 {price:.2f}, 市值 {market_value:,.2f} 元")
                         await self.log(f"   │  💰 持仓总市值:{total_market_value:,.2f} 元")
                     else:
                         await self.log(f"   │  📊 当前无持仓")
+                        _prices_for_display = {}
 
                     await self.log(f"   │  💵 当前现金：{cash:,.2f} 元")
                     await self.log(f"   └───────────────────────────────────────────────────────")
 
                 # 【修复#47：逐日计算持仓市值，修复净值曲线】
-                # 在每日收盘汇总前，计算当日持仓市值和当日盈亏
-                # 这样 daily_profit 就不会全是0了
+                # 【P0-C修复：复用非调仓日已获取的价格，避免二次调用】
                 if holdings and len(holdings) > 0:
-                    prices_for_hold = await self._get_prices(set(holdings.keys()), trade_date)
+                    # 调仓日用rebalance时的prices，非调仓日用上面获取的_prices_for_display
+                    if trade_date in rebalance_set:
+                        # 调仓日：rebalance后的prices已经获取过了，重新获取（缓存命中）
+                        prices_for_hold = await self._get_prices(set(holdings.keys()), trade_date)
+                    else:
+                        # 非调仓日：复用上面已获取的价格
+                        prices_for_hold = _prices_for_display
                     holdings_market_value = 0
                     for code, shares in holdings.items():
                         if shares > 0:
@@ -2246,8 +2171,9 @@ class PortfolioBacktester:
             min_consecutive = converted_params.get("min_consecutive_limit", 3)
             # 【修复#47: min_qiao_amount单位统一为千元(与数据库limit_down_open_amount一致)】
             # 前端传10000(万元),数据库因子是千元,需*1000转换
+            # 【P2-C修复：同上单位转换规则】
             _raw_qiao = converted_params.get("min_qiao_amount", 1000)
-            min_qiao_amount = _raw_qiao * 10 if _raw_qiao < 100000 else _raw_qiao  # <100000说明是万元,需*10转千元
+            min_qiao_amount = _raw_qiao * 10 if _raw_qiao < 100000 else _raw_qiao
             min_rise_after = converted_params.get("min_rise_after_qiao", 0.03)
             require_high_sentiment = converted_params.get("require_high_sentiment", True)
             return [
@@ -2279,11 +2205,16 @@ class PortfolioBacktester:
         records = []
 
         # 计算当前总价值
+        # 【P0-B修复：用open价估值持仓(调仓决策基于开盘前信息)，而非close价】
+        # 收盘价是盘中最终价，调仓时还没收盘，用open更合理
         total_value = cash
         for code, shares in holdings.items():
             if shares > 0:
-                if code in prices and prices[code].get('close', 0) > 0:
-                    # 持仓卖出用收盘价估值
+                if code in prices and prices[code].get('open', 0) > 0:
+                    # 持仓用开盘价估值(调仓决策时刻)
+                    total_value += shares * prices[code]['open']
+                elif code in prices and prices[code].get('close', 0) > 0:
+                    # 回退：open不可用时用close
                     total_value += shares * prices[code]['close']
                 else:
                     # 【P0-1修复：停牌股用_last_valid_price估值】
@@ -2358,8 +2289,10 @@ class PortfolioBacktester:
                     buy_date_raw = getattr(self, '_cost_basis_date', {}).get(code)
                     if buy_date_raw is not None:
                         try:
-                            trade_int = int(trade_date)
-                            days_held = (trade_int - int(buy_date_raw)) % 10000  # 日历天数
+                            # 【P0-E修复：用datetime计算天数差，替代%10000模运算（跨年必错）】
+                            buy_dt = dt_now.strptime(str(buy_date_raw), '%Y%m%d')
+                            trade_dt = dt_now.strptime(str(trade_date), '%Y%m%d')
+                            days_held = (trade_dt - buy_dt).days  # 日历天数
                             # 超过15个日历天(≈10个交易日)停牌，强制卖出
                             if days_held > 15:
                                 last_price = p.get('open', 0) or self._last_valid_price.get(code, 0) if hasattr(self, '_last_valid_price') else 0
@@ -2580,36 +2513,25 @@ class PortfolioBacktester:
         result = {}
         need_query = []
 
-        # 自动格式标准化:适配数据库实际存储格式
-        # 数据库中 stock_basic 存储格式:
-        #   上海交易所 → sh + 数字 + .SZ   (例如 sh600000.SZ → 浦发银行)
-        #   深圳交易所 → sz + 数字 + .SZ   (例如 sz000001.SZ → 平安银行)
-        #   北交所 → bj + 数字 + .SZ   (例如 bj920000.SZ → 安徽凤凰)
-        for ts_code in ts_codes:
-            code_str = str(ts_code).strip()
-
-            # 如果输入已经带有交易所前缀+后缀,直接使用
-            if code_str.startswith('sh') or code_str.startswith('sz') or code_str.startswith('bj'):
-                standard_code = code_str
-            elif code_str.endswith(".SH") or code_str.endswith(".SZ") or code_str.endswith(".BJ"):
-                # 输入带后缀但没有交易所前缀 → 添加交易所前缀
-                code_only = code_str.split('.')[0]
-                if code_only.startswith('6') or code_only.startswith('5') or code_only.startswith('9'):
-                    standard_code = f"sh{code_str}"
-                elif code_only.startswith('8') or code_only.startswith('4'):
-                    # 【P2-8修复：北交所8/4开头+BJ后缀】
-                    standard_code = f"bj{code_str}"
-                else:
-                    standard_code = f"sz{code_str}"
+        # 【P1-D修复：代码标准化逻辑与_get_prices保持一致】
+        # 数据库 stock_basic 存储格式: 600000.SH / 000001.SZ / 830001.BJ
+        # 与 stock_daily_ak_full 的 ts_code 格式完全一致
+        def _standardize_code(code_str: str) -> str:
+            """标准化股票代码为数据库格式: NNNNNN.EX"""
+            code_str = str(code_str).strip()
+            # 已经是标准格式
+            if code_str.endswith('.SH') or code_str.endswith('.SZ') or code_str.endswith('.BJ'):
+                return code_str
+            # 无后缀:根据代码开头自动补全
+            if code_str.startswith('6') or code_str.startswith('5') or code_str.startswith('9'):
+                return f"{code_str}.SH"
+            elif code_str.startswith('8') or code_str.startswith('4'):
+                return f"{code_str}.BJ"  # 北交所
             else:
-                # 输入既没有前缀也没有后缀 → 添加交易所前缀和后缀
-                if code_str.startswith('6') or code_str.startswith('5') or code_str.startswith('9'):
-                    standard_code = f"sh{code_str}.SH"
-                elif code_str.startswith('8') or code_str.startswith('4'):
-                    # 【P2-8修复：北交所8/4开头→BJ】
-                    standard_code = f"bj{code_str}.BJ"
-                else:
-                    standard_code = f"sz{code_str}.SZ"
+                return f"{code_str}.SZ"
+
+        for ts_code in ts_codes:
+            standard_code = _standardize_code(ts_code)
 
             if standard_code in self._stock_name_cache:
                 result[ts_code] = self._stock_name_cache[standard_code]
@@ -2631,29 +2553,15 @@ class PortfolioBacktester:
 
         # 构建结果,返回给调用方使用原始 ts_code 作为 key
         for ts_code in ts_codes:
-            code_str = str(ts_code).strip()
-
-            if code_str.startswith('sh') or code_str.startswith('sz') or code_str.startswith('bj'):
-                standard_code = code_str
-            elif code_str.endswith(".SH") or code_str.endswith(".SZ"):
-                code_only = code_str.split('.')[0]
-                if code_only.startswith('6') or code_only.startswith('5') or code_only.startswith('9'):
-                    standard_code = f"sh{code_str}"
-                else:
-                    standard_code = f"sz{code_str}"
-            else:
-                if code_str.startswith('6') or code_str.startswith('5') or code_str.startswith('9'):
-                    standard_code = f"sh{code_str}.SH"
-                else:
-                    standard_code = f"sz{code_str}.SZ"
+            standard_code = _standardize_code(ts_code)
 
             if standard_code in self._stock_name_cache:
                 result[ts_code] = self._stock_name_cache[standard_code]
             else:
                 # 找不到,回退到使用原始代码去掉后缀作为名称
-                if '.' in code_str:
-                    result[ts_code] = code_str.split('.')[0]
+                if '.' in ts_code:
+                    result[ts_code] = ts_code.split('.')[0]
                 else:
-                    result[ts_code] = code_str
+                    result[ts_code] = ts_code
 
         return result
