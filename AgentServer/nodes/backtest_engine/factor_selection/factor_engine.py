@@ -423,11 +423,16 @@ class FactorEngine:
                 continue
 
             # 去极值 (MAD 方法)
+            # 【P2-1修复：小样本时降低MAD倍数，避免极值不被裁剪】
+            # 大样本(>100)：3*1.4826*MAD ≈ 4.45σ，标准去极值
+            # 小样本(<=50)：2*1.4826*MAD ≈ 2.97σ，更积极裁剪极值
+            n_valid = values.dropna().count()
+            mad_multiplier = 3 if n_valid > 100 else 2
             median = values.median()
             mad = (values - median).abs().median()
             if mad > 0:
-                upper = median + 3 * 1.4826 * mad
-                lower = median - 3 * 1.4826 * mad
+                upper = median + mad_multiplier * 1.4826 * mad
+                lower = median - mad_multiplier * 1.4826 * mad
                 values = values.clip(lower, upper)
 
             # Z-Score 标准化
