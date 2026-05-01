@@ -822,6 +822,13 @@ class PortfolioBacktester:
                         for code in list(holdings.keys()):
                             if holdings[code] > 0 and code in prices_for_sell:
                                 price = prices_for_sell[code]['close']
+                                # 【P0-1修复：停牌股close=0时用最后有效价，避免0元卖出丢失持仓价值】
+                                if price <= 0:
+                                    price = getattr(self, '_last_valid_price', {}).get(code, 0)
+                                if price <= 0:
+                                    # 无法获取有效价格，跳过该股不卖（保留持仓）
+                                    await self.log(f"   │  ⚠️ {code}停牌且无有效价，跳过卖出")
+                                    continue
                                 shares = holdings[code]
                                 slippage_pct = self._slippage_pct if hasattr(self, '_slippage_pct') else 0.002
                                 sell_price_adj = price * (1 - slippage_pct)
@@ -1482,10 +1489,11 @@ class PortfolioBacktester:
 
         # 计算平均持仓天数
         average_hold_days = 0.0
-        completed_trades = [t for t in merged_trades if t.get('sell_date') and t.get('buy_date')]
-        if len(completed_trades) > 0:
+        # 【P2-1修复：变量重命名，避免completed_trades从int被遮蔽为list】
+        completed_trades_for_avg = [t for t in merged_trades if t.get('sell_date') and t.get('buy_date')]
+        if len(completed_trades_for_avg) > 0:
             total_hold_days = 0
-            for trade in completed_trades:
+            for trade in completed_trades_for_avg:
                 buy_date_int = int(trade['buy_date'])
                 sell_date_int = int(trade['sell_date'])
                 # 计算持仓天数(简单相减,都是YYYYMMDD格式)
@@ -1494,7 +1502,7 @@ class PortfolioBacktester:
                 sell_dt = dt_now.strptime(str(sell_date_int), '%Y%m%d')
                 hold_days = (sell_dt - buy_dt).days
                 total_hold_days += hold_days
-            average_hold_days = total_hold_days / len(completed_trades)
+            average_hold_days = total_hold_days / len(completed_trades_for_avg)
 
         # 输出最终汇总结果到日志
         await self.log("✅ 回测全部完成!")
@@ -1865,13 +1873,17 @@ class PortfolioBacktester:
 
     async def _load_benchmark_data(self, benchmark_code: str, start_date: int, end_date: int):
         """加载基准指数数据用于计算超额收益"""
-        # 从 stock_daily_ak_full 加载基准数据
-        # 数据库验证:trade_date 存储为 int 类型
+        # 【P1-1修复：基准数据应查index_daily集合，stock_daily_ak_full无指数数据】
+        # 先尝试从 index_daily 查询（指数专用集合）
         query = {
             "ts_code": benchmark_code,
             "trade_date": {"$gte": start_date, "$lte": end_date}
         }
-        docs = await mongo_manager.find_many("stock_daily_ak_full", query)
+        docs = await mongo_manager.find_many("index_daily", query)
+        
+        # 如果index_daily无数据，回退到stock_daily_ak_full（兼容旧数据）
+        if not docs:
+            docs = await mongo_manager.find_many("stock_daily_ak_full", query)
         # 按日期排序
         docs.sort(key=lambda x: x["trade_date"])
         benchmark_data = []
@@ -1990,6 +2002,8 @@ class PortfolioBacktester:
                     "high": doc.get("high", doc["close"]),
                     "low": doc.get("low", doc["close"]),
                     "close": doc["close"],
+                    # 【P1-2记录：stock_daily_ak_full无pre_close字段，回测模式下涨停价计算回退到open】
+                    # 影响：高开非涨停股的买入价可能被高估，需数据管道补充pre_close
                     "pre_close": doc.get("pre_close", None)
                 }
                 matched += 1
