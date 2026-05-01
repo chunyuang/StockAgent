@@ -324,7 +324,9 @@ class PortfolioBacktester:
             min_rise_after = params.get("min_rise_after_qiao", 0.03)
             require_high_sentiment = params.get("require_high_sentiment", True)
             await self.log(f"   │        • 最小连续跌停: {min_consecutive}天")
-            await self.log(f"   │        • 换手率要求: ≥ 10%")
+            _raw_turnover_qiao = params.get('min_turnover_rate', 0.10)
+            _turnover_display = _raw_turnover_qiao * 100 if _raw_turnover_qiao < 1 else _raw_turnover_qiao
+            await self.log(f"   │        • 换手率要求: ≥ {_turnover_display:.0f}%")
             await self.log(f"   │        • 最小翘板金额: {_raw_qiao}万元={min_qiao_amount}千元")
             await self.log(f"   │        • 翘板后最小涨幅: {min_rise_after*100:.1f}%")
             await self.log(f"   │        • 要求高情绪周期: {'是' if require_high_sentiment else '否'}")
@@ -353,6 +355,12 @@ class PortfolioBacktester:
             if factor_name not in current_df.columns:
                 await self.log(f"   │    ⚠️ 因子 {factor_name} 缺失,跳过此条件(不影响其他条件筛选)")
                 continue  # 【修复：因子缺失时跳过该条件而非终止整个策略筛选】
+
+            # 【P0-2修复：因子列存在但值全NaN时，也应跳过该条件】
+            # NaN >= target 结果为False，会过滤掉所有股票，导致策略0候选
+            if current_df[factor_name].isna().all():
+                await self.log(f"   │    ⚠️ 因子 {factor_name} 全部为空,跳过此条件(不影响其他条件筛选)")
+                continue
 
             before_count = len(current_df)
             try:
@@ -2222,7 +2230,7 @@ class PortfolioBacktester:
             return [
                 # 【修复: market_leader因子全0不可用,暂时跳过该条件】
                 # {"name": "market_leader", "target": 1, "label": "市场龙头"},
-                {"name": "limit_up_count", "target": 3, "operator": ">=", "label": "近5日至少3板"},
+                {"name": "limit_up_count", "target": min_consecutive, "operator": ">=", "label": f"近5日至少{min_consecutive}板"},
                 {"name": "pullback_pct", "target": min_correction, "operator": ">=", "label": "最小回调幅度"},
                 {"name": "pullback_pct", "target": max_correction, "operator": "<=", "label": "最大回调幅度"},
                 {"name": "pullback_days", "target": correction_days_min, "operator": ">=", "label": "最小回调天数"},
@@ -2239,13 +2247,20 @@ class PortfolioBacktester:
             min_qiao_amount = _raw_qiao * 10 if _raw_qiao < 100000 else _raw_qiao
             min_rise_after = converted_params.get("min_rise_after_qiao", 0.03)
             require_high_sentiment = converted_params.get("require_high_sentiment", True)
+            require_sentiment = converted_params.get("require_sentiment_period", ["rising", "chaos"])
+            min_turnover_qiao = converted_params.get("min_turnover_rate", 10.0)
+            # 【修复：min_turnover_rate前端可能传小数(0.10=10%)，需转换】
+            if min_turnover_qiao < 1:
+                min_turnover_qiao *= 100
             return [
                 {"name": "limit_down_yesterday", "target": 1, "label": "昨日跌停"},
                 {"name": "open_above_limit_down", "target": 1, "label": "开盘高于跌停价"},
-                {"name": "turnover_rate", "target": 10.0, "operator": ">=", "label": "换手率≥10%"},
+                {"name": "turnover_rate", "target": min_turnover_qiao, "operator": ">=", "label": f"换手率≥{min_turnover_qiao:.0f}%"},
                 {"name": "limit_down_open_amount", "target": min_qiao_amount, "label": "翘板最小金额"},
                 {"name": "rise_after_limit_down", "target": min_rise_after, "label": "翘板后最小涨幅"},
-                {"name": "sentiment_score", "target": 1 if require_high_sentiment else 0, "label": "要求高情绪周期"},
+                # 【P0-1修复：sentiment_score是0-100分数，>=1只排除0分，语义错误】
+                # 改用sentiment_period_in + in操作符，与首板/涨停策略一致
+                {"name": "sentiment_period_in", "target": require_sentiment if require_high_sentiment else [], "operator": "in", "label": "情绪周期要求"},
             ]
         else:
             return []
