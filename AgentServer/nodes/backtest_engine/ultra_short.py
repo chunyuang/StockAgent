@@ -152,7 +152,7 @@ async def execute_ultra_short_backtest(
         s["params"].update(strategy_params_local)
         if strategy_name == '半路追涨':
             min_rise = strategy_params_local.get('min_rise_pct', 0.03) * 100
-            max_rise = strategy_params_local.get('max_rise_pct', 0.07) * 100
+            max_rise = strategy_params_local.get('max_rise_pct', 0.05) * 100
             volume_val = strategy_params_local.get('volume_threshold', strategy_params_local.get('min_volume_ratio', 1.5))
             allow_after_10am = strategy_params_local.get('allow_after_10am', False)
             await push_log_fn(task_id, "  ├─ 最小涨幅: %.1f %%" % min_rise)
@@ -196,7 +196,7 @@ async def execute_ultra_short_backtest(
             await push_log_fn(task_id, "  └─ 支撑位: %s" % support_level)
         elif strategy_name == '跌停翘板':
             min_consecutive = strategy_params_local.get('min_consecutive_limit', 3)
-            min_qiao_amount = strategy_params_local.get('min_qiao_amount', 10000)
+            min_qiao_amount = strategy_params_local.get('min_qiao_amount', 1000)
             min_rise_after = strategy_params_local.get('min_rise_after_qiao', 0.03) * 100
             require_high_sentiment = strategy_params_local.get('require_high_sentiment', True)
             await push_log_fn(task_id, "  ├─ 最小连续跌停天数: %d 天" % min_consecutive)
