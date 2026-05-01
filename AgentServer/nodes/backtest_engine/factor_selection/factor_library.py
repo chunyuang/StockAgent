@@ -449,54 +449,13 @@ FactorLibrary.register(FactorDefinition(
 
 
 # -------------------- 游资策略专用因子 --------------------
-
-FactorLibrary.register(FactorDefinition(
-    name="limit_up_yesterday",
-    display_name="昨日涨停",
-    category=FactorCategory.TECHNICAL,
-    description="昨日是否涨停，1=涨停，0=未涨停",
-    direction="asc",
-    data_source="daily",
-    required_fields=["close", "up_limit"],
-    lookback_days=2,
-    compute_func=lambda df: (df["close"] >= df["up_limit"] * 0.998).shift(1).fillna(0),
-))
-
-FactorLibrary.register(FactorDefinition(
-    name="open_below_limit",
-    display_name="开盘低于涨停价",
-    category=FactorCategory.TECHNICAL,
-    description="(涨停价 - 开盘价) / 涨停价，越大越符合高开低走/半路追涨",
-    direction="asc",
-    data_source="daily",
-    required_fields=["open", "up_limit"],
-    lookback_days=1,
-    compute_func=lambda df: (df["up_limit"] - df["open"]) / df["up_limit"].replace(0, np.nan),
-))
-
-FactorLibrary.register(FactorDefinition(
-    name="limit_down_yesterday",
-    display_name="昨日跌停",
-    category=FactorCategory.TECHNICAL,
-    description="昨日是否跌停，1=跌停，0=未跌停",
-    direction="asc",
-    data_source="daily",
-    required_fields=["close", "down_limit"],
-    lookback_days=2,
-    compute_func=lambda df: (df["close"] <= df["down_limit"] * 1.002).shift(1).fillna(0),
-))
-
-FactorLibrary.register(FactorDefinition(
-    name="open_above_limit",
-    display_name="开盘高于跌停价",
-    category=FactorCategory.TECHNICAL,
-    description="(开盘价 - 跌停价) / 跌停价，越大越符合跌停翘板",
-    direction="asc",
-    data_source="daily",
-    required_fields=["open", "down_limit"],
-    lookback_days=1,
-    compute_func=lambda df: (df["open"] - df["down_limit"]) / df["down_limit"].replace(0, np.nan),
-))
+# 【P0-1修复：删除重复注册的因子定义】
+# 以下因子已在文件顶部以预计算版本注册（直接读取MongoDB字段），
+# 这里曾用up_limit/down_limit实时计算版本重复注册，导致后者覆盖前者。
+# 实盘模式下up_limit/down_limit不在projection中，compute_func必然返回NaN。
+# 现在统一使用顶部的预计算版本，删除此处的重复定义。
+# 保留的因子（不重复）: opening_pct_chg, price_near_ma5, ma5, leading_stock,
+#   lhb_buy_in, one_month_reversal
 
 FactorLibrary.register(FactorDefinition(
     name="opening_pct_chg",
@@ -535,18 +494,6 @@ FactorLibrary.register(FactorDefinition(
 ))
 
 FactorLibrary.register(FactorDefinition(
-    name="pullback_ma5",
-    display_name="回踩MA5",
-    category=FactorCategory.TECHNICAL,
-    description="回踩MA5打分，价格回调到MA5附近得分高",
-    direction="asc",
-    data_source="daily",
-    required_fields=["close"],
-    lookback_days=10,
-    compute_func=lambda df: 1 - abs(df["close"] / df["close"].rolling(5).mean() - 1),
-))
-
-FactorLibrary.register(FactorDefinition(
     name="leading_stock",
     display_name="领涨龙头",
     category=FactorCategory.TECHNICAL,
@@ -556,48 +503,6 @@ FactorLibrary.register(FactorDefinition(
     required_fields=["close"],
     lookback_days=25,
     compute_func=lambda df: df["close"].pct_change(20),
-))
-
-FactorLibrary.register(FactorDefinition(
-    name="market_leader",
-    display_name="市场龙头",
-    category=FactorCategory.TECHNICAL,
-    description="市场总龙头判断，基于近期涨幅和成交量",
-    direction="asc",
-    data_source="daily",
-    required_fields=["close", "amount"],
-    lookback_days=30,
-    compute_func=lambda df: (
-        df["close"].pct_change(20) *
-        df["amount"].rolling(5).mean() / df["amount"].rolling(20).mean()
-    ),
-))
-
-FactorLibrary.register(FactorDefinition(
-    name="first_limit_up",
-    display_name="首次涨停",
-    category=FactorCategory.TECHNICAL,
-    description="是否为近期首次涨停，1=首次，0=非首次",
-    direction="asc",
-    data_source="daily",
-    required_fields=["close", "up_limit"],
-    lookback_days=20,
-    compute_func=lambda df: (
-        (df["close"] >= df["up_limit"] * 0.998) &
-        (df["close"].rolling(20).apply(lambda x: sum(x >= x.iloc[-1] * 0.998) == 1))
-    ).astype(float),
-))
-
-FactorLibrary.register(FactorDefinition(
-    name="volume_increase",
-    display_name="放量",
-    category=FactorCategory.TECHNICAL,
-    description="成交量相对于5日均量的放大比例，越大放量越明显",
-    direction="asc",
-    data_source="daily",
-    required_fields=["vol"],
-    lookback_days=10,
-    compute_func=lambda df: df["vol"] / df["vol"].rolling(5).mean(),
 ))
 
 FactorLibrary.register(FactorDefinition(

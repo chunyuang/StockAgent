@@ -303,6 +303,9 @@ async def execute_ultra_short_backtest(
         # 🔧 传递止盈止损比例(前端可配置)
         "stop_loss_pct": strategy_params.get("stop_loss_pct", 0.02),
         "take_profit_pct": strategy_params.get("take_profit_pct", 0.07),
+        # 【P1-1/P1-2修复：传递max_hold_days和max_position_per_stock到回测引擎】
+        "max_hold_days": strategy_params.get("max_hold_days", 3),
+        "max_position_per_stock": strategy_params.get("max_position_per_stock", 0.2),
         # 【修复#7：传递功能开关配置】
         "enable_auction_filter": enable_auction_filter,
         "enable_sentiment_cycle": enable_sentiment_cycle,

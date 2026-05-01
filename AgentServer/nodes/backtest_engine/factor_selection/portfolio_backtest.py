@@ -478,6 +478,9 @@ class PortfolioBacktester:
             "enable_auction_filter": config.get("enable_auction_filter", True),
             "enable_sentiment_cycle": config.get("enable_sentiment_cycle", True),
             "enable_force_empty": config.get("enable_force_empty", True),
+            # 【P1-1/P1-2修复：添加max_hold_days和max_position_per_stock到风控配置】
+            "max_hold_days": config.get("max_hold_days", 10),  # 默认10天（超短策略默认3天由ultra_short传入）
+            "max_position_per_stock": config.get("max_position_per_stock", config.get("max_position_percent", 1.0)),  # 默认不限制
         }
 
         # 如果请求中传入了风控配置,使用传入的配置
@@ -489,11 +492,25 @@ class PortfolioBacktester:
         await self.log("🔧 当前风控配置:")
         await self.log(f"    🔹 {'✅' if risk_config['enable_stop_loss'] else '❌'} 强化止损: {risk_config['stop_loss_pct'] * 100:.1f}%")
         await self.log(f"    🔹 {'✅' if risk_config['enable_take_profit'] else '❌'} 动态止盈: {risk_config['take_profit_pct'] * 100:.1f}%")
+        await self.log(f"    🔹 📅 最大持仓天数: {risk_config['max_hold_days']}")
+        await self.log(f"    🔹 📊 单票最大仓位: {risk_config['max_position_per_stock'] * 100:.0f}%")
         await self.log(f"    🔹 {'✅' if risk_config['enable_ma60_filter'] else '❌'} 大盘MA60过滤")
         await self.log(f"    🔹 {'✅' if risk_config['enable_sector_concentration'] else '❌'} 板块集中度过滤: 保留前 {risk_config['sector_concentration_top_n']} 名")
 
         # 保存风控配置到实例,后续使用
         self._risk_config = risk_config
+
+        # 【P0-2修复：构建策略级riskParams映射，策略级止损止盈优先于全局】
+        selected_strategies = config.get("selected_strategies", [])
+        self._strategy_risk_params = {}  # strategy_name -> {stop_loss_pct, take_profit_pct}
+        for s in selected_strategies:
+            sname = s.get("name", "")
+            rp = s.get("riskParams", {})
+            if rp:
+                self._strategy_risk_params[sname] = {
+                    "stop_loss_pct": rp.get("stop_loss_pct", risk_config["stop_loss_pct"]),
+                    "take_profit_pct": rp.get("take_profit_pct", risk_config["take_profit_pct"]),
+                }
 
         # 初始化
         initial_cash = config.get("initial_cash", 1000000)
@@ -2237,6 +2254,8 @@ class PortfolioBacktester:
 
         # 计算目标持仓(用策略对应买入价计算仓位,而非开盘价)
         target_shares = {}  # {ts_code: target_shares}
+        # 【P1-2修复：max_position_per_stock 单票仓位上限】
+        max_pos_per_stock = self._risk_config.get('max_position_per_stock', 1.0) if hasattr(self, '_risk_config') else 1.0
         for code, weight in target_weights.items():
             if code not in prices:
                 continue
@@ -2250,21 +2269,51 @@ class PortfolioBacktester:
             buy_p = self._get_buy_price_for_stock(code, o, p_info.get('close', o), h, l, p_info.get('pre_close', 0))
             if buy_p <= 0:
                 buy_p = o
-            target_value = total_value * weight * position_multiplier
+            # 【P1-2修复：仓位上限 = min(weight * position_multiplier, max_position_per_stock)】
+            effective_weight = min(weight * position_multiplier, max_pos_per_stock)
+            target_value = total_value * effective_weight
             shares = int(int(target_value / buy_p) / 100) * 100
             if shares > 0:
                 target_shares[code] = shares
 
         # 先卖出:不在目标持仓中的股票全卖 + 持仓超过目标的股票减仓
         sell_codes = [code for code in holdings if code not in target_shares and holdings[code] > 0]
+        # 【P1-1修复：超过max_hold_days的持仓强制卖出，即使仍在目标池中】
+        max_hold_days = self._risk_config.get('max_hold_days', 999) if hasattr(self, '_risk_config') else 999
+        over_hold_codes = []
+        for code in list(holdings.keys()):
+            if holdings.get(code, 0) > 0:
+                buy_date_raw = getattr(self, '_cost_basis_date', {}).get(code)
+                if buy_date_raw is not None and max_hold_days < 999:
+                    try:
+                        buy_dt = dt_now.strptime(str(buy_date_raw), '%Y%m%d')
+                        trade_dt = dt_now.strptime(str(trade_date), '%Y%m%d')
+                        days_held = (trade_dt - buy_dt).days
+                        if days_held > max_hold_days and code not in sell_codes:
+                            over_hold_codes.append(code)
+                    except (ValueError, TypeError):
+                        pass
+        sell_codes.extend(over_hold_codes)
         # 【修复P1-6：减仓逻辑 — 持仓超过目标时卖出差额】
         reduce_codes = {code: holdings[code] - target_shares[code] for code in holdings
                         if code in target_shares and holdings.get(code, 0) > target_shares[code]}
         # 【P1-4修复：减仓前检查止损止盈 — 已触发止损的减仓股改为全卖】
         enable_sl = self._risk_config.get('enable_stop_loss', True) if hasattr(self, '_risk_config') else True
         enable_tp = self._risk_config.get('enable_take_profit', True) if hasattr(self, '_risk_config') else True
-        stop_loss_pct = self._risk_config.get('stop_loss_pct', 0.02) if hasattr(self, '_risk_config') else 0.02
-        take_profit_pct = self._risk_config.get('take_profit_pct', 0.07) if hasattr(self, '_risk_config') else 0.07
+        # 【P0-2修复：按策略查找策略级止损止盈参数，优先于全局参数】
+        def _get_sl_tp_for_code(code):
+            """获取某只股票对应的策略级止损止盈参数"""
+            strategies = getattr(self, 'stock_to_strategy', {}).get(code, [])
+            strategy_rp = getattr(self, '_strategy_risk_params', {})
+            global_sl = self._risk_config.get('stop_loss_pct', 0.02) if hasattr(self, '_risk_config') else 0.02
+            global_tp = self._risk_config.get('take_profit_pct', 0.07) if hasattr(self, '_risk_config') else 0.07
+            if isinstance(strategies, list) and strategies:
+                # 多策略时取最宽松的止损（最小stop_loss_pct）和最宽松的止盈（最大take_profit_pct）
+                sl = min(strategy_rp.get(s, {}).get('stop_loss_pct', global_sl) for s in strategies)
+                tp = max(strategy_rp.get(s, {}).get('take_profit_pct', global_tp) for s in strategies)
+                return sl, tp
+            return global_sl, global_tp
+
         codes_to_promote = []  # 从reduce_codes升级到sell_codes的股票
         for code in list(reduce_codes.keys()):
             p = prices.get(code, {})
@@ -2272,9 +2321,10 @@ class PortfolioBacktester:
             high_p = p.get('high', 0)
             cost = getattr(self, '_cost_basis', {}).get(code, 0)
             if cost > 0 and p.get('close', 0) > 0:
-                if enable_sl and low_p <= cost * (1 - stop_loss_pct):
+                code_sl, code_tp = _get_sl_tp_for_code(code)  # 【P0-2修复：按策略获取参数】
+                if enable_sl and low_p <= cost * (1 - code_sl):
                     codes_to_promote.append(code)  # 触发止损，应全卖
-                elif enable_tp and high_p >= cost * (1 + take_profit_pct):
+                elif enable_tp and high_p >= cost * (1 + code_tp):
                     codes_to_promote.append(code)  # 触发止盈，应全卖
         for code in codes_to_promote:
             sell_codes.append(code)
@@ -2307,8 +2357,9 @@ class PortfolioBacktester:
         # 其他:收盘卖出 → 用close
         enable_stop_loss = self._risk_config.get('enable_stop_loss', True) if hasattr(self, '_risk_config') else True
         enable_take_profit = self._risk_config.get('enable_take_profit', True) if hasattr(self, '_risk_config') else True
-        stop_loss_pct = self._risk_config.get('stop_loss_pct', 0.02) if hasattr(self, '_risk_config') else 0.02
-        take_profit_pct = self._risk_config.get('take_profit_pct', 0.07) if hasattr(self, '_risk_config') else 0.07
+        # 【P0-2修复：默认全局参数，卖出循环中按code覆盖】
+        global_sl = self._risk_config.get('stop_loss_pct', 0.02) if hasattr(self, '_risk_config') else 0.02
+        global_tp = self._risk_config.get('take_profit_pct', 0.07) if hasattr(self, '_risk_config') else 0.07
         for ts_code in sell_codes:
             shares = holdings[ts_code]
             price_info = prices.get(ts_code, {})
@@ -2348,14 +2399,16 @@ class PortfolioBacktester:
             sell_price = close_price  # 默认收盘价
             sell_reason = '调仓卖出'
             if cost_basis > 0:
-                stop_price = cost_basis * (1 - stop_loss_pct)
-                profit_price = cost_basis * (1 + take_profit_pct)
+                # 【P0-2修复：按策略获取止损止盈参数】
+                code_sl, code_tp = _get_sl_tp_for_code(ts_code)
+                stop_price = cost_basis * (1 - code_sl)
+                profit_price = cost_basis * (1 + code_tp)
                 if enable_stop_loss and low_price <= stop_price:
                     sell_price = stop_price
-                    sell_reason = f'止损({stop_loss_pct*100:.0f}%)'
+                    sell_reason = f'止损({code_sl*100:.0f}%)'
                 elif enable_take_profit and high_price >= profit_price:
                     sell_price = profit_price
-                    sell_reason = f'止盈({take_profit_pct*100:.0f}%)'
+                    sell_reason = f'止盈({code_tp*100:.0f}%)'
             price = sell_price
 
             # 计算卖出金额(含滑点扣除)
