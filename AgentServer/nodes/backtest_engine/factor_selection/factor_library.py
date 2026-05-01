@@ -51,19 +51,30 @@ class FactorLibrary:
     因子库
 
     管理所有内置因子和自定义因子
+    
+    【P2-1修复：_factors改用惰性初始化，避免类变量dict全局共享问题】
+    旧写法 _factors: dict = {} 会导致所有子类共享同一个dict实例，
+    修改后改为 None + property 延迟创建，确保每个类层级有独立存储。
     """
 
-    _factors: dict[str, FactorDefinition] = {}
+    _factors: dict[str, FactorDefinition] | None = None
+
+    @classmethod
+    def _ensure_factors(cls) -> dict[str, FactorDefinition]:
+        """确保_factors已初始化（惰性初始化，避免类变量共享问题）"""
+        if cls._factors is None:
+            cls._factors = {}
+        return cls._factors
 
     @classmethod
     def register(cls, factor_def: FactorDefinition):
         """注册因子"""
-        cls._factors[factor_def.name] = factor_def
+        cls._ensure_factors()[factor_def.name] = factor_def
 
     @classmethod
     def get(cls, name: str) -> FactorDefinition | None:
         """获取因子定义"""
-        return cls._factors.get(name)
+        return cls._ensure_factors().get(name)
 
     @classmethod
     def list_factors(cls) -> list[dict]:
@@ -77,13 +88,13 @@ class FactorLibrary:
                 "direction": f.direction,
                 "data_source": f.data_source,
             }
-            for f in cls._factors.values()
+            for f in cls._ensure_factors().values()
         ]
 
     @classmethod
     def get_factors_by_category(cls, category: FactorCategory) -> list[FactorDefinition]:
         """按分类获取因子"""
-        return [f for f in cls._factors.values() if f.category == category]
+        return [f for f in cls._ensure_factors().values() if f.category == category]
 
 
 # ============== 超短策略专用预计算因子 ==============

@@ -187,6 +187,12 @@ class PortfolioBacktester:
         #  score ≥ 70 → 上升期 (rising)
         #  40 ≤ score < 70 → 混沌期 (chaos)
         #  score < 40 → 衰退期 (depression)
+        #
+        # 【P2-5文档化】情绪评分公式：
+        #   sentiment_score = (涨停数 - 跌停数) + 大盘涨跌幅*10 + 50
+        #   设计思路：以50为中性基准，涨跌停差反映市场极端情绪，
+        #   大盘涨跌幅*10放大权重(±1%对应±10分)，结果夹逼到[0,100]
+        #   注意：此为经验公式，未经过统计验证，后续可考虑用因子库替换
         sentiment_score = min(100, max(0, (limit_up_count - limit_down_count) + int(index_change * 10) + 50))
         if sentiment_score >= 70:
             sentiment_level = "高潮期,仓位系数1.0"
@@ -1489,6 +1495,9 @@ class PortfolioBacktester:
             await self.log(f"  最大回撤: {max_drawdown * 100:.2f}%")
             await self.log(f"  盈亏比: {profit_loss_ratio:.2f}")
             await self.log(f"  夏普比率: {sharpe_ratio:.2f}")
+            await self.log(f"  索提诺比率: {sortino_ratio:.2f}")
+            await self.log(f"  卡玛比率: {calmar_ratio:.2f}")
+            await self.log(f"  年化波动率: {volatility * 100:.2f}%")
             await self.log(f"  收益回撤比: {return_drawdown_ratio:.2f}")
             await self.log(f"  总交易次数: {total_trades}")
             await self.log(f"  盈利次数: {winning_trades} / 亏损次数: {losing_trades}")
@@ -1617,6 +1626,9 @@ class PortfolioBacktester:
         # 夏普比率 = 平均日收益率 / 日收益率标准差 × sqrt(252)
         # 假设无风险利率为0
         sharpe_ratio = 0.0
+        sortino_ratio = 0.0
+        calmar_ratio = 0.0
+        volatility = 0.0  # 年化波动率
         if len(daily_profit_list) > 1 and last_net_value > 0:
             # 计算日收益率序列
             daily_returns = []
@@ -1633,9 +1645,26 @@ class PortfolioBacktester:
                 variance = sum((r - avg_return) ** 2 for r in daily_returns) / (len(daily_returns) - 1)
                 std_return = math.sqrt(variance)
                 
+                # 年化波动率
+                volatility = std_return * math.sqrt(252)
+                
                 if std_return > 0:
-                    # 年化夏普比率（252个交易日）
-                    sharpe_ratio = avg_return / std_return * math.sqrt(252)
+                    # 年化夏普比率（252个交易日，无风险利率3%）
+                    daily_rf = 0.03 / 252
+                    sharpe_ratio = (avg_return - daily_rf) / std_return * math.sqrt(252)
+                
+                # 【P1-7修复：索提诺比率（只考虑下行波动）】
+                downside_returns = [r for r in daily_returns if r < 0]
+                if len(downside_returns) > 1:
+                    downside_variance = sum((r - sum(downside_returns) / len(downside_returns)) ** 2 for r in downside_returns) / (len(downside_returns) - 1)
+                    downside_std = math.sqrt(downside_variance)
+                    if downside_std > 0:
+                        daily_rf = 0.03 / 252
+                        sortino_ratio = (avg_return - daily_rf) / downside_std * math.sqrt(252)
+        
+        # 【P1-7修复：卡玛比率 = 年化收益率 / 最大回撤】
+        if max_drawdown > 0 and annualized_return != 0:
+            calmar_ratio = annualized_return / max_drawdown
         
         # 格式化 drawdown_series 为最终返回格式
         formatted_drawdown_series = []
@@ -1650,8 +1679,9 @@ class PortfolioBacktester:
 
         # 【修复#49/#31：统一后端输出格式适配前端BacktestResult结构
         # - final_value → final_equity (字段名对齐)
-        # - 小数百分比转换：total_return/annualized_return/max_drawdown/win_rate ×100
-        #   前端预期百分比数值(如 15.5表示15.5%),不是小数0.155
+        # - 百分比单位约定：所有_pct后缀字段和total_return/max_drawdown/win_rate等字段
+        #   均为百分比数值(如15.5表示15.5%),不是小数(0.155)
+        # - 此约定与ultra_short.py中读取时一致，前端亦按百分比展示
         # 【修复#17：嵌套BacktestMetrics结构：returns/risk/trades/positions/performance/metadata
         result = {
             "success": True,
@@ -1674,6 +1704,9 @@ class PortfolioBacktester:
                     "max_drawdown_pct": max_drawdown * 100,
                     "win_rate_pct": win_rate * 100,
                     "sharpe_ratio": sharpe_ratio,
+                    "sortino_ratio": sortino_ratio,  # 【P1-7修复：新增索提诺比率】
+                    "calmar_ratio": calmar_ratio,    # 【P1-7修复：新增卡玛比率】
+                    "volatility_pct": volatility * 100,  # 【P1-7修复：新增年化波动率】
                     "profit_loss_ratio": profit_loss_ratio,
                     "return_drawdown_ratio": return_drawdown_ratio,
                     # 以下字段保持兼容旧代码
