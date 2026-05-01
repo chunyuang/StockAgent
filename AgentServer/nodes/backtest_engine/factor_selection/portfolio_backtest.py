@@ -1112,8 +1112,39 @@ class PortfolioBacktester:
                             await self.log(f"   ⚠️  竞价过滤后无候选，跳过调仓")
                             continue
 
-                # 【P0-A修复：以下调仓逻辑必须与竞价过滤if平级，不能在if内部】
+                # 【P0-A修复：以下调仓逻辑必须与竞价过滤if平级，不能在if内部！】
                 # 否则 enable_auction_filter=False 时不执行任何调仓！
+
+                # 【P1-2修复：板块集中度过滤 — 同板块候选过多时只保留评分最高的N只】
+                # 之前只有开关和日志，从未实际执行过滤逻辑
+                if self._risk_config.get("enable_sector_concentration", True) and len(all_candidates) > 0:
+                    try:
+                        sector_top_n = self._risk_config.get("sector_concentration_top_n", 3)
+                        # 从stock_basic获取行业信息(factor_df无industry列)
+                        industry_map = {}
+                        if all_candidates:
+                            industry_docs = await mongo_manager.find_many(
+                                "stock_basic",
+                                {"ts_code": {"$in": list(all_candidates)}},
+                                {"ts_code": 1, "industry": 1}
+                            )
+                            for d in industry_docs:
+                                industry_map[d['ts_code']] = d.get('industry', 'unknown')
+                        
+                        if industry_map:
+                            sector_counts = {}
+                            filtered_by_sector = set()
+                            # 按行业分组，每行业最多保留sector_top_n只
+                            for code in sorted(all_candidates):
+                                industry = industry_map.get(code, 'unknown')
+                                sector_counts[industry] = sector_counts.get(industry, 0) + 1
+                                if sector_counts[industry] <= sector_top_n:
+                                    filtered_by_sector.add(code)
+                            if len(filtered_by_sector) < len(all_candidates):
+                                await self.log(f"   🏢 板块集中度过滤: {len(all_candidates)} → {len(filtered_by_sector)} (每行业最多{sector_top_n}只)");
+                                all_candidates = filtered_by_sector
+                    except Exception as e:
+                        logger.warn('BACKTEST', f"Sector concentration filter failed: {e}")
 
                 # 计算目标权重
                 target_weights = self._compute_weights(
@@ -1215,6 +1246,9 @@ class PortfolioBacktester:
 
                 # ==================== 非调仓日输出 ====================
                 # ✅ 修复:非调仓日也要输出完整信息,让用户知道每天都在正常运行
+                # 【P2风险：非调仓日不做止损止盈检查！当前超短策略daily调仓所以无影响，
+                # 但如果改为weekly/monthly调仓，止损止盈可能延迟多日执行，造成超额亏损】
+                # TODO: 在非调仓日添加止损止盈检查逻辑
                 else:
                     await self.log(f"")
                     await self.log(f"   ┌───────────────────────────────────────────────────────")
@@ -1723,8 +1757,8 @@ class PortfolioBacktester:
                     "total_return_pct": total_return * 100,
                     "annual_return_pct": annualized_return * 100,
                     "annual_return_reliable": annual_return_reliable,  # 少于30天年化无参考意义
-                    "benchmark_return_pct": 0.0,  # 基准收益率后续可补
-                    "alpha_pct": total_return * 100 - 0.0,
+                    "benchmark_return_pct": (benchmark_data[-1]["close"] / benchmark_data[0]["close"] - 1) * 100 if benchmark_data and len(benchmark_data) >= 2 and benchmark_data[0].get("close", 0) > 0 else 0.0,
+                    "alpha_pct": total_return * 100 - ((benchmark_data[-1]["close"] / benchmark_data[0]["close"] - 1) * 100 if benchmark_data and len(benchmark_data) >= 2 and benchmark_data[0].get("close", 0) > 0 else 0.0),
                     # 以下字段保持兼容旧代码
                     "total_return": total_return * 100,
                     "annualized_return": annualized_return * 100,
