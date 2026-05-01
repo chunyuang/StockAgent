@@ -103,6 +103,15 @@ class PortfolioBacktester:
     STAMP_TAX = 0.001          # 印花税 千1 (卖出)
     MIN_COMMISSION = 5         # 最低佣金 5元
 
+    # 【P2-3修复：策略买入时间常量，避免硬编码重复】
+    STRATEGY_BUY_TIMES = {
+        '半路追涨': '10:00',
+        '首板打板': '09:35',
+        '涨停开板': '10:00',
+        '龙头低吸': '14:00',
+        '跌停翘板': '10:30',
+    }
+
     def __init__(self):
         # 🔒 优先初始化所有基础属性,避免构造过程中抛出异常导致属性缺失
         # 这非常重要!如果后续构造过程抛出异常,属性已经存在,不会导致 AttributeError
@@ -1194,7 +1203,7 @@ class PortfolioBacktester:
                 else:
                     await self.log(f"")
                     await self.log(f"   ┌───────────────────────────────────────────────────────")
-                    await self.log(f"   │ i️  【非调仓日】无调仓操作,继续持有现有仓位")
+                    await self.log(f"   │ i️  【调仓日无交易】当前持仓与目标一致,无需调仓")
                     await self.log(f"   ├───────────────────────────────────────────────────────")
 
                     # 【P0-C修复：非调仓日只调用一次_get_prices，和下方净值计算共享】
@@ -1222,11 +1231,13 @@ class PortfolioBacktester:
                 if holdings and len(holdings) > 0:
                     # 调仓日用rebalance时的prices，非调仓日用上面获取的_prices_for_display
                     if trade_date in rebalance_set:
-                        # 调仓日：rebalance后的prices已经获取过了，重新获取（缓存命中）
-                        prices_for_hold = await self._get_prices(set(holdings.keys()), trade_date)
+                        # 调仓日：rebalance后的prices已经获取过了，直接复用
+                        prices_for_hold = prices
                     else:
                         # 非调仓日：复用上面已获取的价格
                         prices_for_hold = _prices_for_display
+                    # 【P1-4修复：每日更新last_prices，避免非调仓日过期导致final_value失真】
+                    last_prices = prices_for_hold
                     holdings_market_value = 0
                     for code, shares in holdings.items():
                         if shares > 0:
@@ -1360,7 +1371,7 @@ class PortfolioBacktester:
                         if not strategy_name:
                             strategy_name = "-"
 
-                        strategy_buy_time = {'半路追涨': '10:00', '首板打板': '09:35', '涨停开板': '10:00', '龙头低吸': '14:00', '跌停翘板': '10:30'}.get(strategy_name, '09:35')
+                        strategy_buy_time = self.STRATEGY_BUY_TIMES.get(strategy_name, '09:35')
                         merged_trades.append({
                             'ts_code': code,
                             'name': name,
@@ -1410,7 +1421,7 @@ class PortfolioBacktester:
                 'strategy': strategy_name,
                 'sentiment': first_buy.sentiment,
                 'buy_date': first_buy.date,
-                'buy_time': {'半路追涨': '10:00', '首板打板': '09:35', '涨停开板': '10:00', '龙头低吸': '14:00', '跌停翘板': '10:30'}.get(strategy_name, '09:35'),
+                'buy_time': self.STRATEGY_BUY_TIMES.get(strategy_name, '09:35'),
                 'buy_price': avg_remaining_cost,
                 'sell_date': '',
                 'sell_time': '',
@@ -1451,7 +1462,9 @@ class PortfolioBacktester:
         # 当有交易时，win_rate/max_drawdown/sharpe_ratio等已在上方正确计算，无需重复计算
 
         # 统计盈利次数/亏损次数
-        losing_trades = total_signals - winning_trades
+        # 【P0-1修复：losing_trades用completed_trades-winning_trades，而非total_signals-winning_trades】
+        # total_signals是买入信号数(含未卖出持仓)，winning_trades是已卖出盈利数，维度不一致
+        losing_trades = completed_trades - winning_trades
         total_trades = len(merged_trades)
 
         # 计算收益回撤比 = 累计收益率 / 最大回撤(当最大回撤 > 0 时)
@@ -2312,6 +2325,7 @@ class PortfolioBacktester:
         # 先卖出:不在目标持仓中的股票全卖 + 持仓超过目标的股票减仓
         sell_codes = [code for code in holdings if code not in target_shares and holdings[code] > 0]
         # 【P1-1修复：超过max_hold_days的持仓强制卖出，即使仍在目标池中】
+        # max_hold_days语义是交易日天数，但日历天数≈交易日*1.5，用日历天数>max_hold_days*1.5判断
         max_hold_days = self._risk_config.get('max_hold_days', 999) if hasattr(self, '_risk_config') else 999
         over_hold_codes = []
         for code in list(holdings.keys()):
@@ -2321,8 +2335,9 @@ class PortfolioBacktester:
                     try:
                         buy_dt = dt_now.strptime(str(buy_date_raw), '%Y%m%d')
                         trade_dt = dt_now.strptime(str(trade_date), '%Y%m%d')
-                        days_held = (trade_dt - buy_dt).days
-                        if days_held > max_hold_days and code not in sell_codes:
+                        calendar_days = (trade_dt - buy_dt).days
+                        # 日历天数 > 交易日*1.5 视为超时（周末2天+1交易日=3日历天≈1交易日）
+                        if calendar_days > max_hold_days * 1.5 and code not in sell_codes:
                             over_hold_codes.append(code)
                     except (ValueError, TypeError):
                         pass
