@@ -672,3 +672,126 @@ FactorLibrary.register(FactorDefinition(
     lookback_days=1,
     compute_func=lambda df: df["sentiment_score"],
 ))
+
+# -------------------- factor_engine.py迁移的独有因子 --------------------
+# 【P0-1修复：从factor_engine.py迁移，避免跨文件重复注册覆盖】
+
+FactorLibrary.register(FactorDefinition(
+    name="pct_chg",
+    display_name="当日涨幅",
+    category=FactorCategory.TECHNICAL,
+    description="当日涨跌幅 (%)",
+    direction="asc",
+    data_source="daily",
+    required_fields=["pct_chg"],
+    lookback_days=1,
+    compute_func=lambda df: df["pct_chg"],
+))
+
+FactorLibrary.register(FactorDefinition(
+    name="limit_up_open_count",
+    display_name="涨停开板次数",
+    category=FactorCategory.TECHNICAL,
+    description="当日涨停被打开的次数",
+    direction="asc",
+    data_source="daily",
+    required_fields=["limit_up_open_count"],
+    lookback_days=1,
+    compute_func=lambda df: df["limit_up_open_count"],
+))
+
+FactorLibrary.register(FactorDefinition(
+    name="hot_sector",
+    display_name="热门板块标记",
+    category=FactorCategory.TECHNICAL,
+    description="股票是否属于当前热门板块 (1=是，0=否)",
+    direction="asc",
+    data_source="daily",
+    required_fields=["hot_sector"],
+    lookback_days=1,
+    compute_func=lambda df: df["hot_sector"],
+))
+
+FactorLibrary.register(FactorDefinition(
+    name="limit_up_time",
+    display_name="涨停时间",
+    category=FactorCategory.TECHNICAL,
+    description="当日首次涨停的时间 (分钟，如930=9:30，1000=10:00)",
+    direction="asc",
+    data_source="daily",
+    required_fields=["limit_up_time"],
+    lookback_days=1,
+    compute_func=lambda df: df["limit_up_time"],
+))
+
+FactorLibrary.register(FactorDefinition(
+    name="limit_up_open_duration",
+    display_name="开板时长",
+    category=FactorCategory.TECHNICAL,
+    description="涨停被打开的总时长 (分钟)",
+    direction="asc",
+    data_source="daily",
+    required_fields=["limit_up_open_duration"],
+    lookback_days=1,
+    compute_func=lambda df: df["limit_up_open_duration"],
+))
+
+FactorLibrary.register(FactorDefinition(
+    name="pullback_pct",
+    display_name="回调幅度",
+    category=FactorCategory.TECHNICAL,
+    description="从近期高点回调的幅度 (%)",
+    direction="asc",
+    data_source="daily",
+    required_fields=["pullback_pct"],
+    lookback_days=30,
+    compute_func=lambda df: df["pullback_pct"],
+))
+
+FactorLibrary.register(FactorDefinition(
+    name="pullback_days",
+    display_name="回调天数",
+    category=FactorCategory.TECHNICAL,
+    description="从近期高点回调的天数",
+    direction="asc",
+    data_source="daily",
+    required_fields=["pullback_days"],
+    lookback_days=30,
+    compute_func=lambda df: df["pullback_days"],
+))
+
+FactorLibrary.register(FactorDefinition(
+    name="open_above_limit_down",
+    display_name="开盘高于跌停价",
+    category=FactorCategory.TECHNICAL,
+    description="当日开盘价高于昨日跌停价 (1=是，0=否)",
+    direction="asc",
+    data_source="daily",
+    required_fields=["open_above_limit_down"],
+    lookback_days=1,
+    compute_func=lambda df: df["open_above_limit_down"],
+))
+
+FactorLibrary.register(FactorDefinition(
+    name="limit_down_open_amount",
+    display_name="翘板金额",
+    category=FactorCategory.TECHNICAL,
+    description="跌停被打开时的成交金额 (万元)",
+    direction="asc",
+    data_source="daily",
+    required_fields=["limit_down_open_amount"],
+    lookback_days=1,
+    compute_func=lambda df: df["limit_down_open_amount"],
+))
+
+FactorLibrary.register(FactorDefinition(
+    name="rise_after_limit_down",
+    display_name="翘板后涨幅",
+    category=FactorCategory.TECHNICAL,
+    description="跌停被打开后到收盘的涨幅 (%)",
+    direction="asc",
+    data_source="daily",
+    required_fields=["rise_after_limit_down"],
+    lookback_days=1,
+    compute_func=lambda df: df["rise_after_limit_down"],
+))

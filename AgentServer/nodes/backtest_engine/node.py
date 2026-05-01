@@ -141,9 +141,18 @@ class BacktestNode(BaseNode):
                     if task_type == "factor_selection":
                         result = await self._execute_factor_selection(task_info)
                     elif task_type == "ultra_short":
-                        result = await execute_ultra_short_backtest(
-                            task_info, self._push_log, self.logger, task_id
-                        )
+                        # 【P2-4修复：添加超时检测，超时30分钟自动标记失败】
+                        import asyncio as _asyncio
+                        try:
+                            result = await _asyncio.wait_for(
+                                execute_ultra_short_backtest(task_info, self._push_log, self.logger, task_id),
+                                timeout=1800  # 30分钟超时
+                            )
+                        except _asyncio.TimeoutError:
+                            error_msg = "超短策略回测执行超时（超过30分钟），任务自动终止"
+                            self.logger.error(f"[{task_id}] {error_msg}")
+                            await self._update_task_result(task_id, "failed", error=error_msg)
+                            continue
                     else:
                         result = await execute_backtest(task_info, self.logger)
 
