@@ -190,33 +190,62 @@ class UniverseManager:
         return {doc["ts_code"] for doc in result}
 
     async def _get_limit_up_stocks(self, trade_date: str) -> set[str]:
-        """获取涨停股（一字板：开盘=最低=涨停价）"""
-        # 从 stock_daily_ak_full 直接根据涨跌幅判断涨停
+        """获取涨停股（一字板：开盘=最低=涨停价）
+        【P2-3修复：区分板块涨跌停阈值】
+        主板(60/00): 9.8%
+        创业板(30): 19.8%
+        科创板(68): 19.8%
+        北交所(8/4): 29.8%
+        """
+        # 从 stock_daily_ak_full 获取当日数据，按板块分别判断涨停
         result = await mongo_manager.find_many(
             "stock_daily_ak_full",
-            {"trade_date": int(trade_date), "pct_chg": {"$gte": 9.8}},
-            projection={"ts_code": 1, "open": 1, "low": 1, "close": 1},
+            {"trade_date": int(trade_date)},
+            projection={"ts_code": 1, "pct_chg": 1, "open": 1, "low": 1, "close": 1},
         )
 
-        # 筛选一字板：open == low == close (涨停价)
         limit_up = set()
         for doc in result:
-            # 简化判断：如果在涨停榜且开盘=最低，认为是一字板
-            if doc.get("open") and doc.get("low"):
-                if abs(doc["open"] - doc["low"]) < 0.001:
-                    limit_up.add(doc["ts_code"])
+            ts_code = doc.get("ts_code", "")
+            pct = doc.get("pct_chg", 0)
+            # 根据代码前缀确定涨停阈值
+            if ts_code.startswith('30') or ts_code.startswith('68'):
+                threshold = 19.8  # 创业板/科创板 20%
+            elif ts_code.startswith('8') or ts_code.startswith('4'):
+                threshold = 29.8  # 北交所 30%
+            else:
+                threshold = 9.8   # 主板 10%
+            
+            if pct >= threshold and doc.get("open") and doc.get("low") and doc.get("close"):
+                # 一字板判断：开盘价和最低价差异 < 0.01%
+                if doc["open"] > 0 and abs(doc["open"] - doc["low"]) / doc["open"] < 0.0001:
+                    limit_up.add(ts_code)
 
         return limit_up
 
     async def _get_limit_down_stocks(self, trade_date: str) -> set[str]:
-        """获取跌停股"""
-        # 从 stock_daily_ak_full 直接根据涨跌幅判断跌停
+        """获取跌停股
+        【P2-3修复：区分板块涨跌停阈值】
+        """
+        # 获取所有当日数据，按板块分别判断
         result = await mongo_manager.find_many(
             "stock_daily_ak_full",
-            {"trade_date": int(trade_date), "pct_chg": {"$lte": -9.8}},
-            projection={"ts_code": 1},
+            {"trade_date": int(trade_date)},
+            projection={"ts_code": 1, "pct_chg": 1},
         )
-        return {doc["ts_code"] for doc in result}
+        limit_down = set()
+        for doc in result:
+            ts_code = doc.get("ts_code", "")
+            pct = doc.get("pct_chg", 0)
+            if ts_code.startswith('30') or ts_code.startswith('68'):
+                threshold = -19.8
+            elif ts_code.startswith('8') or ts_code.startswith('4'):
+                threshold = -29.8
+            else:
+                threshold = -9.8
+            if pct <= threshold:
+                limit_down.add(ts_code)
+        return limit_down
 
     async def get_rebalance_dates(
         self,

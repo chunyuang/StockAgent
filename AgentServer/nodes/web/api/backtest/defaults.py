@@ -68,11 +68,9 @@ def get_ultra_short_defaults() -> Dict[str, Any]:
             "max_hold_days": 3,
             "max_position_per_stock": 0.2,  # 单票20%分散风险
             "max_total_position": 0.7,  # 总仓位70%
-            "commission_rate": 0.0003,
-            "stamp_duty_rate": 0.001,
-            "slippage_pct": 0.002,
             "commission_rate": 0.0003,  # 综合佣金率万3
             "stamp_duty_rate": 0.001,   # 印花税率千1
+            "slippage_pct": 0.002,     # 滑点0.2%
         },
         # 策略启用
         "strategies": ["halfway_chase", "first_limit_up", "limit_up_open", "leader_buy_dip", "limit_down_qiao"],
