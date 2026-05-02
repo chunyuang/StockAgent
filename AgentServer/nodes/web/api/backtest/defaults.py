@@ -82,7 +82,7 @@ def get_ultra_short_defaults() -> Dict[str, Any]:
                 "params": {
                     "min_rise_pct": 0.03,
                     "max_rise_pct": 0.05,
-                    "min_volume_ratio": 1.0,
+                    "min_volume_ratio": 1.5,  # 【P2-5修复(第十轮)：与portfolio_backtest.py默认值1.5对齐，之前为1.0】
                     "allow_after_10am": False,
                 },
                 "riskParams": {
