@@ -120,10 +120,6 @@ class PortfolioBacktester:
         self.universe_mgr = UniverseManager()
         self.factor_engine = FactorEngine()
         self._stock_name_cache: dict[str, str] = {}
-        # 🔧 新增:止损止盈需要跟踪持仓成本
-        self._holding_costs: dict[str, float] = {}
-        # 🔧 新增:策略轮动需要跟踪月度收益
-        self._strategy_monthly_returns: dict[str, dict[str, float]] = {}
         # 初始资金(用于计算累计收益)
         self._initial_cash: float = 1000000.0
         # 确保所有属性都在这里初始化,永远不会不存在
@@ -466,13 +462,6 @@ class PortfolioBacktester:
         cleaned_count = len(universe) - st_count - new_stock_count - low_liquidity_count
         await self.log(f"      🔹 清洗后剩余: {cleaned_count}只")
 
-    async def _print_non_rebalance_marker(self):
-        """【统一入口!非调仓日标记必须调用!】"""
-        await self.log(f"")
-        await self.log(f"   ═══════════════════════════════════════════════════════")
-        await self.log(f"   i️  【非调仓日】无调仓操作,继续持有现有仓位")
-        await self.log(f"   ═══════════════════════════════════════════════════════")
-
     async def _print_daily_summary(self, trade_date: str, holdings_count: int, cash: float):
         """【统一入口!每日收盘汇总必须调用!】"""
         await self.log(f"")
@@ -792,7 +781,6 @@ class PortfolioBacktester:
         last_prices = {}  # 【修复：初始化last_prices，避免全强制空仓时NameError】
 
         # 逐日模拟
-        rebalance_set = set(rebalance_dates)
         total_days = len(all_trade_dates)
 
         await self.log(f"开始逐日回测,共 {total_days} 个交易日")
