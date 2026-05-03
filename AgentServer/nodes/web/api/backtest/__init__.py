@@ -10,7 +10,7 @@
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Depends, Request
@@ -154,7 +154,7 @@ async def get_backtest_status(
 
     # 【修复风险5：悬挂任务检测 - running超过10分钟且无新日志才标记failed，避免误杀长时间回测】
     if record.get("status") == "running":
-        from datetime import datetime, timedelta, timezone
+        from datetime import timedelta
         started = record.get("started_at") or record.get("created_at")
         # 方案B：日志不再存MongoDB，不需要读logs
         if started:
