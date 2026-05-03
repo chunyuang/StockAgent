@@ -241,6 +241,7 @@ class FactorEngine:
                     "limit_up_open_count": 1, "hot_sector": 1, "limit_up_time": 1, "limit_up_open_duration": 1,
                     "pullback_pct": 1, "pullback_days": 1, "open_above_limit_down": 1,
                     "limit_down_open_amount": 1, "rise_after_limit_down": 1,
+                    "opening_pct_chg": 1,
                     "up_limit": 1, "down_limit": 1, "pre_close": 1,
                 },
             )
