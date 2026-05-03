@@ -43,8 +43,8 @@ from typing import Dict, List, Optional, Any
 from core.managers import mongo_manager
 
 try:
-    from backtest_module.backtest_engine.factor_selection.portfolio_backtest import PortfolioBacktester
-    from backtest_module.backtest_engine.factor_selection.universe import (
+    from nodes.backtest_engine.factor_selection.portfolio_backtest import PortfolioBacktester
+    from nodes.backtest_engine.factor_selection.universe import (
         UniverseManager, UniverseType, ExcludeRule,
     )
     _HAS_BACKTEST_MODULE = True
