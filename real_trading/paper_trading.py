@@ -316,13 +316,45 @@ class PaperTradingEngine:
             # 检查持仓
             alerts = await pos_manager.daily_check()
             
-            # 如果有需要平仓的，自动模拟平仓
+            # 【P0修复：检测到止损/超期/止盈时，实际执行卖出平仓】
+            # 原代码只打日志不执行卖出，风控形同虚设
+            sell_codes = set()  # 避免同股票重复卖出
             for alert in alerts:
-                if alert["level"] == "danger" and ("止损" in str(alert["alerts"]) or "超期" in str(alert["alerts"])):
-                    # 获取当前价格（这里简化，实际可接入实时行情）
-                    # 模拟平仓
-                    logger.info(f"📅 自动平仓：{alert['name']}({alert['ts_code']})，原因：{alert['alerts'][0]}")
-                    # 这里可以扩展接入真实行情自动平仓
+                ts_code = alert["ts_code"]
+                if ts_code in sell_codes:
+                    continue
+                
+                should_sell = False
+                reason = ""
+                
+                if alert["level"] == "danger":
+                    for a in alert["alerts"]:
+                        if "止损" in a:
+                            should_sell = True
+                            reason = "止损平仓"
+                            break
+                        elif "超期" in a:
+                            should_sell = True
+                            reason = "超期强制平仓"
+                            break
+                elif alert["level"] == "success":
+                    for a in alert["alerts"]:
+                        if "止盈" in a:
+                            should_sell = True
+                            reason = "止盈平仓"
+                            break
+                
+                if should_sell:
+                    sell_price = alert.get("current_price", 0)
+                    if sell_price > 0:
+                        result = await self.close_position(acc_id, ts_code, sell_price, reason=reason)
+                        if result.get("success"):
+                            logger.info(f"✅ {reason}：{alert['name']}({ts_code}) @ {sell_price:.2f}")
+                            sell_codes.add(ts_code)
+                        else:
+                            logger.error(f"❌ {reason}失败：{alert['name']}({ts_code}) - {result.get('msg')}")
+                    else:
+                        logger.warning(f"⚠️ {reason}跳过：{alert['name']}({ts_code}) 价格为0（可能停牌）")
             
             # 更新账户收益
             self._update_account_performance(acc_id)
