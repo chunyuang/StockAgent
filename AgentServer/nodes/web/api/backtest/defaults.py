@@ -98,6 +98,7 @@ def get_ultra_short_defaults() -> Dict[str, Any]:
                 "params": {
                     "min_seal_amount": 5000,
                     "max_limit_up_time": "10:00",
+                    "min_circulation_market_cap": 50,
                     "max_circulation_market_cap": 500,
                     "max_blast_count": 1,
                     "require_hot_sector": False,
@@ -117,6 +118,9 @@ def get_ultra_short_defaults() -> Dict[str, Any]:
                     "max_open_duration": 5,
                     "min_seal_after_open": 3000,
                     "min_turnover_rate": 0.15,
+                    "opening_pct_min": -3.0,
+                    "opening_pct_max": 3.0,
+                    "min_volume_ratio": 2.0,
                 },
                 "riskParams": {
                     "stop_loss_pct": 0.02,      # 止损2%

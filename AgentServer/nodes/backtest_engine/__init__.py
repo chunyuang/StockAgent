@@ -4,7 +4,7 @@
 核心组件：
 - BacktestNode: 回测引擎节点
 - PortfolioBacktester: 组合回测引擎（主引擎）
-- PerformanceAnalyzer: 绩效评估与回撤系统
+- PerformanceAnalyzer: 绩效评估与回撤系统（已弃用，portfolio_backtest.py内置计算）
 - 数据模型: BacktestResult, Trade, TradeDirection, BacktestConfig
 """
 
