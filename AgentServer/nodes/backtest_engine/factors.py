@@ -1,6 +1,10 @@
 """
 因子数据系统
 
+⚠️ 已废弃 — 本文件无任何导入者，属于死代码。
+因子系统已迁移到 factor_selection/factor_library.py + factor_engine.py。
+如需恢复，请从 git history 获取。
+
 支持多类型因子的标准化输入：
 - 技术因子 (technical_factors): K线技术指标
 - 情绪因子 (sentiment_factors): 舆情/情绪评分

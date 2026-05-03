@@ -1,6 +1,10 @@
 """
 绩效评估与回撤系统
 
+⚠️ 已弃用 — PortfolioBacktester 已内置绩效计算，不再使用此类。
+本文件仍从 __init__.py 导出以保持向后兼容，但不应在新代码中使用。
+如需绩效计算，请参考 portfolio_backtest.py 中的 _calculate_performance() 方法。
+
 核心功能：
 - 每日净值追踪
 - 最大回撤计算
