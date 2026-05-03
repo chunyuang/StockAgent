@@ -758,7 +758,19 @@ class PortfolioBacktester:
 
         if missing_fields:
             await self.log(f"   ⚠️ 缺失因子 ({len(missing_fields)}个): {', '.join(missing_fields[:10])}{'...' if len(missing_fields) > 10 else ''}")
-            await self.log(f"   💡 建议: 执行 DATA_SYNC 节点的因子批量补算任务")
+            # 【F1修复(第二十一轮)：因子自动计算——检测到缺失时自动触发计算，无需手动运行脚本】
+            from .factor_auto_compute import auto_compute_factors
+            auto_result = await auto_compute_factors(
+                missing_fields=missing_fields,
+                start_date=start_dt,
+                end_date=end_dt,
+                push_log_fn=push_log,
+                task_id=task_id or '',
+            )
+            if auto_result.get("computed"):
+                await self.log(f"   ✅ 因子自动计算成功！{auto_result.get('records_updated', 0):,} 条记录已更新")
+            else:
+                await self.log(f"   ⚠️ 部分因子无法自动计算(技术指标)，请手动运行: python scripts/compute_all_factors.py")
         else:
             await self.log(f"   ✅ 所有因子字段完整性检查通过!")
             await self.log(f"   ⚡ 回测模式: 跳过实时因子计算,直接使用 MongoDB 预计算数据")
