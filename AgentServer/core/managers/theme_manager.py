@@ -1,5 +1,4 @@
 """
-# ⚠️ DEPRECATED: This file is an unimplemented stub (674 lines, identical across 3 files). Only docstrings differ.
 板块主线分析管理器
 
 功能：
