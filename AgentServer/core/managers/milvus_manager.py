@@ -1,5 +1,4 @@
 """
-# ⚠️ DEPRECATED: This file is an unimplemented stub (674 lines, identical across 3 files). Only docstrings differ.
 Milvus 管理器 (V2.0 - RAG 增强版)
 
 负责:
