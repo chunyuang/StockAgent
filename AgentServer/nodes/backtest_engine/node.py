@@ -27,7 +27,7 @@ from core.managers import baostock_manager, akshare_manager
 
 # 导入拆分后的执行器
 from .ultra_short import execute_ultra_short_backtest
-from .single_stock import execute_backtest, fetch_price_data
+from .single_stock import execute_backtest  # fetch_price_data已废弃，不再导入
 
 
 class BacktestNode(BaseNode):
