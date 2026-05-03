@@ -19,6 +19,22 @@ from core.managers import mongo_manager
 logger = logging.getLogger(__name__)
 
 
+# 技术指标因子列表（需要talib）
+TECHNICAL_FACTOR_FIELDS = [
+    "ema12", "ema26",
+    "rsi_6", "rsi_12", "rsi_24",
+    "macd", "macd_signal", "macd_hist",
+    "boll_upper", "boll_mid", "boll_lower",
+    "atr", "natr", "trange",
+    "momentum_1d", "momentum_5d", "momentum_10d", "momentum_20d",
+    "volatility_5d", "volatility_10d", "volatility_20d",
+    "turnover_5d_avg", "turnover_20d_avg",
+    "fear_greed_index",
+]
+
+# 所有可自动计算的因子
+ALL_COMPUTABLE_FIELDS = STRATEGY_FACTOR_FIELDS + TECHNICAL_FACTOR_FIELDS
+
 # 策略因子列表（compute_all_factors.py计算的因子，不含技术指标）
 STRATEGY_FACTOR_FIELDS = [
     "ma5", "ma10", "ma20", "ma60",
@@ -64,12 +80,11 @@ async def auto_compute_factors(
     """
     log = lambda msg: push_log_fn(task_id, msg) if push_log_fn else logger.info(msg)
 
-    # 筛选出需要计算的策略因子（跳过技术指标，那些需要talib等额外依赖）
-    # 技术指标(ema/rsi/macd/boll/atr/momentum_1d等)暂不支持自动计算
-    computable_fields = [f for f in missing_fields if f in STRATEGY_FACTOR_FIELDS]
+    # 筛选出需要计算的因子（策略因子+技术指标）
+    computable_fields = [f for f in missing_fields if f in ALL_COMPUTABLE_FIELDS]
 
     if not computable_fields:
-        log("   ℹ️ 缺失的因子均为技术指标(ema/rsi/macd等)，暂不支持自动计算，需要手动运行compute_all_factors.py")
+        log("   ℹ️ 缺失的因子无法自动计算，请手动运行: python scripts/compute_all_factors.py")
         return {"computed": False, "fields_computed": [], "records_updated": 0}
 
     log(f"   🔄 检测到 {len(computable_fields)} 个策略因子缺失，启动自动计算...")
@@ -271,6 +286,62 @@ def _compute_factors_for_stock(group: pd.DataFrame, fields: List[str]) -> pd.Dat
     group['market_leader'] = False
     group['hot_sector'] = False
     group['sentiment_score'] = 0.5
+
+    # ========== 技术指标因子（需要talib） ==========
+    try:
+        import talib
+
+        close_arr = group['close'].values.astype(float)
+        high_arr = group['high'].values.astype(float)
+        low_arr = group['low'].values.astype(float)
+        vol_arr = group['vol'].values.astype(float)
+
+        # EMA
+        group['ema12'] = talib.EMA(close_arr, timeperiod=12)
+        group['ema26'] = talib.EMA(close_arr, timeperiod=26)
+
+        # RSI
+        group['rsi_6'] = talib.RSI(close_arr, timeperiod=6)
+        group['rsi_12'] = talib.RSI(close_arr, timeperiod=12)
+        group['rsi_24'] = talib.RSI(close_arr, timeperiod=24)
+
+        # MACD
+        macd, macd_signal, macd_hist = talib.MACD(close_arr)
+        group['macd'] = macd
+        group['macd_signal'] = macd_signal
+        group['macd_hist'] = macd_hist
+
+        # Bollinger Bands
+        bb_upper, bb_mid, bb_lower = talib.BBANDS(close_arr, timeperiod=20)
+        group['boll_upper'] = bb_upper
+        group['boll_mid'] = bb_mid
+        group['boll_lower'] = bb_lower
+
+        # ATR / NATR / TRANGE
+        group['atr'] = talib.ATR(high_arr, low_arr, close_arr, timeperiod=14)
+        group['natr'] = talib.NATR(high_arr, low_arr, close_arr, timeperiod=14)
+        group['trange'] = talib.TRANGE(high_arr, low_arr, close_arr)
+
+        # 动量 (补充 momentum_1d, momentum_10d)
+        group['momentum_1d'] = group['close'].pct_change(1)
+        group['momentum_10d'] = group['close'].pct_change(10)
+
+        # 波动率 (补充 volatility_5d, volatility_10d)
+        group['volatility_5d'] = group['pct_chg'].rolling(5).std()
+        group['volatility_10d'] = group['pct_chg'].rolling(10).std()
+
+        # 换手率均值
+        group['turnover_5d_avg'] = group['turnover_rate'].rolling(5).mean()
+        group['turnover_20d_avg'] = group['turnover_rate'].rolling(20).mean()
+
+        # 恐贪指数(简化版: 基于RSI和波动率)
+        rsi_norm = (group['rsi_12'] - 50) / 50  # -1 to 1
+        vol_zscore = (group['volatility_20d'] - group['volatility_20d'].rolling(60).mean()) / (group['volatility_20d'].rolling(60).std() + 0.001)
+        group['fear_greed_index'] = (rsi_norm - vol_zscore) * 2.5 + 5  # 简化映射到0~10
+
+    except ImportError:
+        # talib不可用时跳过技术指标
+        pass
 
     return group
 
