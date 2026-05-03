@@ -239,16 +239,39 @@ class SimulatedGateway(BaseTradeGateway):
         if not self.connected:
             raise Exception("网关未连接")
         
-        # 模拟返回行情，这里简化处理，实际应该接入真实行情源
+        # 【P1修复：从MongoDB获取最近交易日行情，替代硬编码假数据】
+        try:
+            import asyncio
+            from core.managers import mongo_manager
+            loop = asyncio.get_event_loop()
+            doc = loop.run_until_complete(mongo_manager.find_one(
+                "stock_daily_ak_full",
+                {"ts_code": ts_code},
+                projection={"ts_code": 1, "trade_date": 1, "close": 1, "open": 1, "high": 1, "low": 1, "vol": 1, "amount": 1, "pct_chg": 1},
+                sort=[("trade_date", -1)],
+            ))
+            if doc and doc.get("close", 0) > 0:
+                return {
+                    "ts_code": ts_code,
+                    "name": doc.get("name", ts_code),
+                    "price": doc["close"],
+                    "high": doc.get("high", doc["close"]),
+                    "low": doc.get("low", doc["close"]),
+                    "volume": doc.get("vol", 0),
+                    "amount": doc.get("amount", 0),
+                    "pct_chg": doc.get("pct_chg", 0),
+                    "update_time": str(doc.get("trade_date", "")),
+                }
+        except Exception as e:
+            logger.warning(f"Failed to get quote from MongoDB for {ts_code}: {e}")
+        
+        # 回退：无法获取行情时返回None标记
         return {
             "ts_code": ts_code,
-            "name": "模拟股票",
-            "price": 10.0,
-            "high": 10.5,
-            "low": 9.8,
-            "volume": 1000000,
-            "amount": 10000000,
-            "pct_chg": 2.5,
+            "name": "(无数据)",
+            "price": 0,
+            "high": 0, "low": 0, "volume": 0, "amount": 0,
+            "pct_chg": 0,
             "update_time": datetime.now().strftime("%Y%m%d %H:%M:%S")
         }
 
