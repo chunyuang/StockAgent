@@ -65,16 +65,21 @@ async def execute_daily_trades(date: str = None, account_id: str = None):
     account = engine.accounts[account_id]
     logger.info(f"💼 使用账户：{account.name}({account_id})，当前资金：{account.current_balance:.2f}元")
     
-    # 3. 执行交易逻辑（先清空旧持仓，再买入新信号标的）
+    # 3. 执行交易逻辑（增量调仓：只卖出不在新信号中的持仓，只买入新信号标的）
     pos_manager = engine.position_managers[account_id]
     current_positions = pos_manager.get_all_positions()
+    current_codes = {pos.ts_code for pos in current_positions} if current_positions else set()
+    signals = signal_data["signals"] or []
+    new_signal_codes = {s["ts_code"] for s in signals}
     
-    # 卖出所有旧持仓
-    if current_positions:
-        logger.info(f"📤 卖出所有现有持仓：{len(current_positions)}只")
+    # 卖出不在新信号中的旧持仓（保留仍在信号中的持仓）
+    sell_codes = current_codes - new_signal_codes
+    if sell_codes:
+        logger.info(f"📤 卖出不在新信号中的持仓：{len(sell_codes)}只（保留{len(current_codes - sell_codes)}只）")
         for pos in current_positions:
-            # 【P0修复：卖出价不能用硬编码10.0，应从数据库获取收盘价】
-            # 原代码 sell_price = 10.0 导致所有股票都按10元卖出，盈亏完全失真
+            if pos.ts_code not in sell_codes:
+                continue
+            # 卖出价从MongoDB获取收盘价
             try:
                 from core.managers import mongo_manager
                 await mongo_manager.initialize()
@@ -93,15 +98,18 @@ async def execute_daily_trades(date: str = None, account_id: str = None):
                 shares=pos.shares,
                 trade_date=date
             )
+    else:
+        logger.info(f"📤 无需卖出（无旧持仓或所有旧持仓仍在信号中）")
     
-    # 买入新信号标的
-    signals = signal_data["signals"]
-    if signals:
-        # 平均分配仓位
-        per_stock_amount = account.current_balance * 0.7 / len(signals)
-        logger.info(f"📥 买入新标的：{len(signals)}只，每只分配{per_stock_amount:.2f}元")
+    # 买入新信号标的（仅买入当前未持仓的）
+    buy_codes = new_signal_codes - current_codes
+    if buy_codes:
+        # 仅买入新标的（不在当前持仓中的）
+        buy_signals = [s for s in signals if s["ts_code"] in buy_codes]
+        per_stock_amount = account.current_balance * 0.7 / max(len(buy_signals), 1)
+        logger.info(f"📥 买入新标的：{len(buy_signals)}只（保留{len(current_codes & new_signal_codes)}只），每只分配{per_stock_amount:.2f}元")
         
-        for signal in signals:
+        for signal in buy_signals:
             buy_price = signal["price"]
             shares = int(per_stock_amount / buy_price / 100) * 100  # 整百股买入
             if shares <= 0:
