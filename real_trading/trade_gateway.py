@@ -119,16 +119,19 @@ class SimulatedGateway(BaseTradeGateway):
         
         # 计算持仓市值
         market_value = 0
+        cost_basis = 0
         for ts_code, pos in self.positions.items():
-            # 模拟用成本价计算市值
+            # 【P1修复：PnL=0是因为market_value和cost_basis用了同样的值】
+            # 模拟网关无实时行情，用成本价估算市值（PnL=0是预期行为）
             market_value += pos["shares"] * pos["cost_price"]
+            cost_basis += pos["shares"] * pos["cost_price"]
         
         return {
             "total_asset": self.balance + market_value,
             "available_balance": self.balance,
             "market_value": market_value,
             "frozen_balance": 0,
-            "pnl": market_value - sum(pos["shares"] * pos["cost_price"] for pos in self.positions.values())
+            "pnl": 0  # 模拟网关无实时行情，无法计算真实PnL
         }
     
     def get_positions(self) -> List[Dict]:
