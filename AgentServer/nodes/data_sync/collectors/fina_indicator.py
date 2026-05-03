@@ -26,32 +26,18 @@ import sys
 import os
 import importlib.util
 
-# 添加 workspace root 到 sys.path
-sys.path.insert(0, '/root/.openclaw/workspace')
+# 【P2修复：不再硬编码绝对路径，改用相对跳转】
+# 向上跳5级: collectors -> data_sync -> nodes -> AgentServer -> StockAgent
+_fina_dir = os.path.abspath(__file__)
+for _ in range(5):
+    _fina_dir = os.path.dirname(_fina_dir)
+_workspace_root = _fina_dir  # .../StockAgent 的父目录
+_stockagent_dir = os.path.join(_fina_dir, 'AgentServer')
+if _stockagent_dir not in sys.path:
+    sys.path.insert(0, _stockagent_dir)
 
-# 当前文件: .../StockAgent/AgentServer/nodes/data_sync/collectors/fina_indicator.py
-# 需要向上跳: collectors -> data_sync -> nodes -> AgentServer -> StockAgent
-# 向上跳 5 级目录到 .../StockAgent
-current_file = os.path.abspath(__file__)
-
-# 向上跳 5 级
-level5 = os.path.dirname(
-    os.path.dirname(
-        os.path.dirname(
-            os.path.dirname(
-                os.path.dirname(
-                    current_file
-                )
-            )
-        )
-    )
-)
-# 已经到 StockAgent 目录，不需要再跳一级
-stockagent_project_root = level5
-
-# 动态导入 AKShareFetcher 因为目录结构问题
-akshare_module_path = os.path.join('/root/.openclaw/workspace', 'data_fetcher', 'fetchers', 'akshare.py')
-spec = importlib.util.spec_from_file_location("akshare_fetcher", akshare_module_path)
+# 动态导入 AKShareFetcher（同层目录 data_fetcher）
+akshare_module_path = os.path.join(_fina_dir, 'data_fetcher', 'fetchers', 'akshare.py')
 akshare_module = importlib.util.module_from_spec(spec)
 sys.modules["akshare_fetcher"] = akshare_module
 spec.loader.exec_module(akshare_module)
