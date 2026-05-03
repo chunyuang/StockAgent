@@ -388,6 +388,12 @@ async def execute_ultra_short_backtest(
             "sharpe_ratio": sharpe_ratio,
             "profit_loss_ratio": profit_loss_ratio,
             "annualized_return": annualized_return,
+            "benchmark_return": benchmark_return,
+            "alpha": alpha,
+            "sortino_ratio": sortino_ratio,
+            "calmar_ratio": calmar_ratio,
+            "volatility": volatility,
+            "annual_return_reliable": annual_return_reliable,
             "return_drawdown_ratio": return_drawdown_ratio,
             "total_signals": total_signals,
             "total_trades": total_trades,
@@ -397,6 +403,7 @@ async def execute_ultra_short_backtest(
             "initial_cash": initial_cash,
             "final_cash": final_cash,
             "final_value": final_value,
+            "monthly_profit": monthly_profit,
         }
 
         # 格式化交易记录

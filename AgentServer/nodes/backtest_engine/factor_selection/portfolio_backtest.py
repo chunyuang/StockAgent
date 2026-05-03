@@ -54,7 +54,8 @@ from datetime import datetime as dt_now  # 【修复：避免局部from datetime
 from core.managers import mongo_manager, redis_manager
 from core.utils.logger import logger
 
-# 【修复：PerformanceAnalyzer已弃用（API不匹配），移除import避免ModuleNotFoundError】n# from real_trading.performance_analyzer import PerformanceAnalyzer
+# 【修复：PerformanceAnalyzer已弃用（API不匹配），移除import避免ModuleNotFoundError】
+# from real_trading.performance_analyzer import PerformanceAnalyzer
 
 from .factor_engine import FactorEngine, log_memory_usage
 from .universe import ExcludeRule, UniverseManager, UniverseType
