@@ -2414,8 +2414,10 @@ class PortfolioBacktester:
                 # 【P0-1修复(第十二轮)：circ_mv在MongoDB中存万元，需*10000(亿→万元)，与首板打板一致】
                 {"name": "circ_mv", "target": _min_circ_for_leader * 10000, "operator": ">=", "label": f"流通市值≥{_min_circ_for_leader}亿(龙头)"},
                 {"name": "limit_up_count", "target": min_consecutive, "operator": ">=", "label": f"近5日至少{min_consecutive}板"},
-                {"name": "pullback_pct", "target": min_correction, "operator": ">=", "label": "最小回调幅度"},
-                {"name": "pullback_pct", "target": max_correction, "operator": "<=", "label": "最大回调幅度"},
+                # 【P0-2修复(第十五轮)：pullback_pct在MongoDB中存负数(如-0.15=回调15%)】
+                # 正确语义：pullback_pct <= -min_correction(回调至少这么深) AND >= -max_correction(不超跌)
+                {"name": "pullback_pct", "target": -min_correction, "operator": "<=", "label": f"回调≥{min_correction*100:.0f}%"},
+                {"name": "pullback_pct", "target": -max_correction, "operator": ">=", "label": f"回调≤{max_correction*100:.0f}%"},
                 {"name": "pullback_days", "target": correction_days_min, "operator": ">=", "label": "最小回调天数"},
                 {"name": "pullback_days", "target": correction_days_max, "operator": "<=", "label": "最大回调天数"},
                 {"name": f"pullback_{support_level}", "target": 1, "label": f"{support_level.upper()}支撑位"},
@@ -2442,7 +2444,7 @@ class PortfolioBacktester:
                 {"name": "open_above_limit_down", "target": 1, "label": "开盘高于跌停价"},
                 {"name": "turnover_rate", "target": min_turnover_qiao, "operator": ">=", "label": f"换手率≥{min_turnover_qiao:.0f}%"},
                 {"name": "limit_down_open_amount", "target": min_qiao_amount, "label": "翘板最小金额"},
-                {"name": "rise_after_limit_down", "target": min_rise_after, "label": "翘板后最小涨幅"},
+                {"name": "rise_after_limit_down", "target": min_rise_after * 100, "label": "翘板后最小涨幅"},
                 # 【P0-1修复：sentiment_score是0-100分数，>=1只排除0分，语义错误】
                 # 改用sentiment_period_in + in操作符，与首板/涨停策略一致
                 {"name": "sentiment_period_in", "target": require_sentiment if require_high_sentiment else [], "operator": "in", "label": "情绪周期要求"},
