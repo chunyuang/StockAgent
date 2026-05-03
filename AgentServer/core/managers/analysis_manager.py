@@ -1,4 +1,5 @@
 """
+# ⚠️ DEPRECATED: This file is an unimplemented stub (674 lines, identical across 3 files). Only docstrings differ.
 市场情绪周期量化分析引擎 (MA30 动态基准版)
 
 提供:

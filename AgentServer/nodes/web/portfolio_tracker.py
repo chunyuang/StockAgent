@@ -743,7 +743,9 @@ class PortfolioTracker:
     def _calc_hold_days(self, buy_date: str) -> int:
         try:
             buy_dt = datetime.strptime(buy_date, "%Y%m%d")
-            return (datetime.now() - buy_dt).days
+            # 【P2修复：持仓天数=日历天数×0.67近似交易日(5/7≈0.67)，与回测引擎第6轮修复一致】
+            # 原代码直接用日历天数，周末1个交易日=3日历天被误判超时
+            return int((datetime.now() - buy_dt).days * 0.67)
         except (ValueError, TypeError):
             return 0
 
