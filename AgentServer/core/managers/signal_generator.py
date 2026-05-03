@@ -11,13 +11,23 @@ from typing import List, Dict, Any, Optional
 
 
 from core.managers import mongo_manager
-from backtest_module.strategies import (
-    HalfwayChaseStrategy,
-    FirstLimitUpStrategy,
-    LimitUpOpenStrategy,
-    LeaderBuyDipStrategy,
-    LimitDownQiaoStrategy,
-)
+
+try:
+    from backtest_module.strategies import (
+        HalfwayChaseStrategy,
+        FirstLimitUpStrategy,
+        LimitUpOpenStrategy,
+        LeaderBuyDipStrategy,
+        LimitDownQiaoStrategy,
+    )
+    _HAS_STRATEGIES = True
+except ImportError:
+    _HAS_STRATEGIES = False
+    HalfwayChaseStrategy = None
+    FirstLimitUpStrategy = None
+    LimitUpOpenStrategy = None
+    LeaderBuyDipStrategy = None
+    LimitDownQiaoStrategy = None
 from core.utils.date_utils import get_previous_trade_date
 
 logger = logging.getLogger("signal_generator")
@@ -44,8 +54,12 @@ class SignalGenerator:
     
     def __init__(self):
         self.strategies = {}
+        if not _HAS_STRATEGIES:
+            logger.warning("backtest_module.strategies不可用，信号生成器将返回空信号")
+            return
         for strategy_id, strategy_cls in STRATEGY_MAP.items():
-            self.strategies[strategy_id] = strategy_cls()
+            if strategy_cls is not None:
+                self.strategies[strategy_id] = strategy_cls()
     
     async def generate_daily_signals(self, trade_date: Optional[str] = None) -> List[Dict[str, Any]]:
         """

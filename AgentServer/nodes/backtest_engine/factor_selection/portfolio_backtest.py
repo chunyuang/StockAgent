@@ -801,6 +801,11 @@ class PortfolioBacktester:
             # 【P0-3：维护_last_valid_price，停牌强卖时用】
             if not hasattr(self, '_last_valid_price'):
                 self._last_valid_price = {}
+            # 【D1修复(第二十轮)：维护_prev_day_close，用于补充stock_daily_ak_full缺失的pre_close】
+            # stock_daily_ak_full使用前复权数据，Tushare qfq模式不返回pre_close
+            # 解决方案：用前一交易日的close作为当日的pre_close
+            if not hasattr(self, '_prev_day_close'):
+                self._prev_day_close = {}
             # 🔧 内存优化: 每5天强制一次垃圾回收
             if idx % 5 == 0:
                 log_memory_usage(f"[day {idx+1}/{total_days}] 回测开始前")
@@ -2167,9 +2172,10 @@ class PortfolioBacktester:
                     "high": doc.get("high", doc["close"]),
                     "low": doc.get("low", doc["close"]),
                     "close": doc["close"],
-                    # 【P1-2记录：stock_daily_ak_full无pre_close字段，回测模式下涨停价计算回退到open】
-                    # 影响：高开非涨停股的买入价可能被高估，需数据管道补充pre_close
-                    "pre_close": doc.get("pre_close", None)
+                    # 【D1修复(第二十轮)：pre_close补充逻辑】
+                    # stock_daily_ak_full无pre_close字段(前复权数据Tushare不返回)
+                    # 优先用MongoDB的pre_close→回退到前一交易日close(_prev_day_close)
+                    "pre_close": doc.get("pre_close") or self._prev_day_close.get(matched_key, None)
                 }
                 matched += 1
 
@@ -2183,10 +2189,14 @@ class PortfolioBacktester:
 
         # 【P0-3：更新_last_valid_price，停牌强卖时回退用】
         lvp = getattr(self, '_last_valid_price', {})
+        # 【D1修复(第二十轮)：同时更新_prev_day_close，供次日pre_close回退】
+        pdc = getattr(self, '_prev_day_close', {})
         for code, price_info in result.items():
             if price_info.get('close', 0) > 0:
                 lvp[code] = price_info['close']
+                pdc[code] = price_info['close']  # 记录当日close，次日作为pre_close
         self._last_valid_price = lvp
+        self._prev_day_close = pdc
 
         return result
 
