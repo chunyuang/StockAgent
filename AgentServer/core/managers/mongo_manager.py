@@ -251,16 +251,6 @@ class MongoManager(BaseManager):
         result = await self._db[collection].insert_many(documents)
         return [str(id) for id in result.inserted_ids]
     
-    async def find_one(
-        self,
-        collection: str,
-        filter: dict,
-        projection: Optional[dict] = None,
-    ) -> Optional[dict]:
-        """查询单条文档"""
-        self._ensure_initialized()
-        return await self._db[collection].find_one(filter, projection)
-    
     async def find_many(
         self,
         collection: str,
@@ -411,13 +401,15 @@ class MongoManager(BaseManager):
             
             operations = []
             for doc in batch:
-                doc["updated_at"] = now
                 # 构建复合键查询条件
                 filter_query = {k: doc[k] for k in key_fields}
+                # $set中排除_id(不可变字段)，避免upsert时写入_id冲突
+                set_doc = {k: v for k, v in doc.items() if k != "_id"}
+                set_doc["updated_at"] = now
                 operations.append(
                     UpdateOne(
                         filter_query,
-                        {"$set": doc},
+                        {"$set": set_doc},
                         upsert=True,
                     )
                 )
