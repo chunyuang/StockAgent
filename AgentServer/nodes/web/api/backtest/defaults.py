@@ -130,6 +130,7 @@ def get_ultra_short_defaults() -> Dict[str, Any]:
                 "name": "龙头低吸",
                 "params": {
                     "min_consecutive_limit": 3,
+                    "min_circulation_market_cap": 100,
                     "min_correction_pct": 0.15,
                     "max_correction_pct": 0.3,
                     "correction_days_min": 2,
