@@ -148,7 +148,7 @@ class TushareManager(BaseManager):
     
     async def _call_api(self, api_name: str, **kwargs) -> pd.DataFrame:
         """
-        调用 Tushare API
+        调用 Tushare API (自动频率控制)
         
         Args:
             api_name: API 名称
@@ -161,6 +161,10 @@ class TushareManager(BaseManager):
         if self._pro is None:
             self.logger.warning(f"Tushare token not configured, cannot call API {api_name}, returning empty DataFrame")
             return pd.DataFrame()
+        
+        # 【P1修复：频率控制——_bucket已创建但从未使用，所有API调用无速率限制】
+        if self._bucket:
+            await self._bucket.wait_and_acquire()
         
         # 在线程池中执行同步调用
         loop = asyncio.get_event_loop()
@@ -1204,11 +1208,6 @@ class TushareManager(BaseManager):
                             self.logger.info(f"AKShare got {len(zt_records_yd)} 涨停 stocks from historical yesterday {date_str_yd}")
                     except Exception as e:
                         self.logger.warning(f"AKShare get historical zt for {date_str_yd} failed: {e}")
-                        if zt_df_yd2 is not None and not zt_df_yd2.empty:
-                            zt_records_yd = zt_df_yd2.to_dict('records')
-                            self.logger.info(f"AKShare got {len(zt_records_yd)} 涨停 stocks from historical yesterday {date_str_yd}")
-                    except Exception as e:
-                        self.logger.warning(f"AKShare get historical zt for {date_str_yd} failed: {e}")
                 
                 # 合并昨天涨停数据（跌停数据不需要昨天，因为limit_open只需要涨停）
                 all_records = zt_records_yd
@@ -1224,8 +1223,10 @@ class TushareManager(BaseManager):
                 if len(code) < 6:
                     code = code.zfill(6)
                 # 添加后缀
-                if code[0] == '6' or code[0] == '5':
+                if code[0] in ('6', '9'):
                     ts_code = code + '.SH'
+                elif code[0] == '8' or code[:2] == '43' or code[:2] == '83':
+                    ts_code = code + '.BJ'  # 北交所
                 else:
                     ts_code = code + '.SZ'
                 
@@ -1234,11 +1235,14 @@ class TushareManager(BaseManager):
                 latest = float(row['最新价'])
                 pre_close = latest / (1 + change_pct / 100)
                 
-                # 计算涨跌停价
-                if ts_code.startswith(('688', '300')):
+                # 计算涨跌停价（区分板块）
+                if ts_code.startswith(('688', '300', '301')):  # 科创板+创业板
                     up_limit = round(pre_close * 1.2, 2)
                     down_limit = round(pre_close * 0.8, 2)
-                else:
+                elif ts_code.endswith('.BJ'):  # 北交所
+                    up_limit = round(pre_close * 1.3, 2)
+                    down_limit = round(pre_close * 0.7, 2)
+                else:  # 主板
                     up_limit = round(pre_close * 1.1, 2)
                     down_limit = round(pre_close * 0.9, 2)
                 
