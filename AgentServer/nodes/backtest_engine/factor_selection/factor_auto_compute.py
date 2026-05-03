@@ -32,9 +32,6 @@ TECHNICAL_FACTOR_FIELDS = [
     "fear_greed_index",
 ]
 
-# 所有可自动计算的因子
-ALL_COMPUTABLE_FIELDS = STRATEGY_FACTOR_FIELDS + TECHNICAL_FACTOR_FIELDS
-
 # 策略因子列表（compute_all_factors.py计算的因子，不含技术指标）
 STRATEGY_FACTOR_FIELDS = [
     "ma5", "ma10", "ma20", "ma60",
@@ -56,6 +53,9 @@ STRATEGY_FACTOR_FIELDS = [
     "market_leader", "hot_sector", "sentiment_score",
     "amplitude",
 ]
+
+# 所有可自动计算的因子
+ALL_COMPUTABLE_FIELDS = STRATEGY_FACTOR_FIELDS + TECHNICAL_FACTOR_FIELDS
 
 
 async def auto_compute_factors(
