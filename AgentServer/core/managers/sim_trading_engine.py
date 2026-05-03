@@ -219,9 +219,19 @@ class SimTradingEngine:
     
     async def _get_latest_price(self, ts_code: str) -> Optional[float]:
         """获取股票最新价格"""
-        # TODO: 实现从行情数据库获取最新价格
-        # 临时返回固定价格用于测试
-        return 10.0
+        # 【P1修复：不再返回硬编码10.0，从MongoDB获取最近收盘价】
+        try:
+            doc = await mongo_manager.find_one(
+                "stock_daily_ak_full",
+                {"ts_code": ts_code},
+                projection={"close": 1, "trade_date": 1},
+                sort=[("trade_date", -1)],
+            )
+            if doc and doc.get("close", 0) > 0:
+                return doc["close"]
+        except Exception as e:
+            logger.warning(f"Failed to get latest price for {ts_code}: {e}")
+        return None
     
     async def daily_settlement(self, trade_date: Optional[str] = None):
         """
