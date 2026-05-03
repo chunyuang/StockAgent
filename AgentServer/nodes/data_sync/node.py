@@ -26,6 +26,7 @@ from .collectors import (
     MoneyflowConceptCollector,
     LimitListCollector,
     DailyStatsCollector,
+    StockNewsCollector,
     FinaIndicatorCollector,
     HotNewsCollector,
 )
@@ -110,7 +111,7 @@ class DataSyncNode(BaseNode):
             MoneyflowConceptCollector,
             LimitListCollector,
             DailyStatsCollector,  # 统计采集器放在最后，确保依赖数据已同步
-            NewsCollector,
+            StockNewsCollector,
             FinaIndicatorCollector,  # 财务指标采集器，每月1号更新
             HotNewsCollector,  # 热点新闻采集器，每半小时更新
         ]
