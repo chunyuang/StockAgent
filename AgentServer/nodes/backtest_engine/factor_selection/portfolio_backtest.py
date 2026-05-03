@@ -46,8 +46,9 @@
 
 from dataclasses import dataclass
 import gc
-import os
 import math
+import os
+import numpy as np
 from datetime import datetime as dt_now  # 【修复：避免局部from datetime import datetime导致UnboundLocalError】
 
 from core.managers import mongo_manager, redis_manager
@@ -158,7 +159,7 @@ class PortfolioBacktester:
         # 主板: ±9.8%  创业板(300/301)/科创板(688): ±19.6%  北交所(8/4开头): ±29.8%
         # 【修复新5：trade_date防御性检查，None时跳过避免异常】
         if trade_date is None:
-            return 0, 0
+            return 0, 0, 0
         td = int(trade_date)
         # 主板涨停/跌停(排除创业板/科创板/北交所的ts_code)
         main_pipeline = [
@@ -702,7 +703,7 @@ class PortfolioBacktester:
             # 流动性因子
             "turnover_5d_avg", "turnover_20d_avg",
             # 情绪因子
-            "sentiment_score", "fear_greed_index"
+            "fear_greed_index"
         ]
 
         start_dt = int(config["start_date"])
@@ -882,6 +883,8 @@ class PortfolioBacktester:
                                 net_amount = gross_amount - commission - stamp_tax
                                 cash += net_amount
                                 sell_count += 1
+                                # 【P1-3修复(第十二轮)：强制空仓卖出记录补上strategy_name】
+                                _fs_strategy = self._get_strategy_for_stock(code) if hasattr(self, 'stock_to_strategy') else ""
                                 rebalance_records.append(RebalanceRecord(
                                     date=str(trade_date),
                                     action="sell",
@@ -890,6 +893,7 @@ class PortfolioBacktester:
                                     price=price,
                                     amount=net_amount,
                                     reason="force_empty_position",
+                                    strategy_name=_fs_strategy,
                                     sentiment=sentiment_level
                                 ))
                                 holdings[code] = 0
@@ -1020,7 +1024,6 @@ class PortfolioBacktester:
                 # 策略中使用 sentiment_period_in 配合 in 操作符过滤
                 # 【修复#7：enable_sentiment_cycle 开关真正生效，关闭则不计算】
                 # 【修复#新增：sentiment_score NaN 防御，如果全为NaN不添加字段，策略筛选会直接跳过】
-                import numpy as np
                 if self._risk_config.get("enable_sentiment_cycle", True) and 'sentiment_score' in factor_df.columns:
                     # 检查是否有有效值
                     if not factor_df['sentiment_score'].isna().all():
@@ -1029,7 +1032,6 @@ class PortfolioBacktester:
                         # 40 ≤ score < 70 → 'chaos' (混沌期)
                         # score < 40 → 'depression' (衰退期)
                         def map_sentiment(score):
-                            import math
                             # 【修复风险8：NaN单值防御，返回None而非depression】
                             if score is None or (isinstance(score, float) and math.isnan(score)):
                                 return None
@@ -1832,7 +1834,6 @@ class PortfolioBacktester:
             
             # 计算平均日收益率和标准差
             if len(daily_returns) > 1:
-                import math
                 avg_return = sum(daily_returns) / len(daily_returns)
                 variance = sum((r - avg_return) ** 2 for r in daily_returns) / (len(daily_returns) - 1)
                 std_return = math.sqrt(variance)
@@ -2409,7 +2410,8 @@ class PortfolioBacktester:
             # 替代方案：用circ_mv(流通市值)识别龙头股——大市值更可能是龙头
             _min_circ_for_leader = converted_params.get("min_circulation_market_cap", 100)
             return [
-                {"name": "circ_mv", "target": _min_circ_for_leader, "operator": ">=", "label": f"流通市值≥{_min_circ_for_leader}亿(龙头)"},
+                # 【P0-1修复(第十二轮)：circ_mv在MongoDB中存万元，需*10000(亿→万元)，与首板打板一致】
+                {"name": "circ_mv", "target": _min_circ_for_leader * 10000, "operator": ">=", "label": f"流通市值≥{_min_circ_for_leader}亿(龙头)"},
                 {"name": "limit_up_count", "target": min_consecutive, "operator": ">=", "label": f"近5日至少{min_consecutive}板"},
                 {"name": "pullback_pct", "target": min_correction, "operator": ">=", "label": "最小回调幅度"},
                 {"name": "pullback_pct", "target": max_correction, "operator": "<=", "label": "最大回调幅度"},
@@ -2826,7 +2828,7 @@ class PortfolioBacktester:
                 date=str(trade_date), action="sell", ts_code=ts_code,
                 shares=reduce_shares, price=sell_price, amount=net_amount,
                 reason=sell_reason, sentiment=sentiment))
-            # 减仓后如果清零，删除cost_basis
+            # 减仓后如果清零，删除cost_basis；部分减仓时保留(成本不变)
             if holdings[ts_code] <= 0 and hasattr(self, '_cost_basis') and ts_code in self._cost_basis:
                 del self._cost_basis[ts_code]
                 if hasattr(self, '_cost_basis_date') and ts_code in self._cost_basis_date:
