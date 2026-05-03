@@ -350,8 +350,10 @@ class PaperTradingEngine:
         positions = pos_manager.get_positions()
         market_value = 0
         for pos in positions:
-            # 暂时用成本价计算市值，实际可接入实时行情
-            market_value += pos["shares"] * pos["buy_price"]
+            # 【P1修复：用current_price计算市值，而非buy_price(买入价)】
+            # 原代码用buy_price导致持仓期间PnL永远不变，收益计算完全失真
+            current_price = pos.get("current_price") or pos.get("last_price") or pos["buy_price"]
+            market_value += pos["shares"] * current_price
         
         # 计算总权益
         total_equity = account.current_balance + market_value

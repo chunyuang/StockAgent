@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from paper_trading import PaperTradingEngine
 
-def execute_daily_trades(date: str = None, account_id: str = None):
+async def execute_daily_trades(date: str = None, account_id: str = None):
     """执行每日自动交易
     
     完整流程：
@@ -73,8 +73,19 @@ def execute_daily_trades(date: str = None, account_id: str = None):
     if current_positions:
         logger.info(f"📤 卖出所有现有持仓：{len(current_positions)}只")
         for pos in current_positions:
-            # 模拟卖出，这里简化处理，实际应获取当日收盘价计算
-            sell_price = 10.0  # 实际应从数据库获取
+            # 【P0修复：卖出价不能用硬编码10.0，应从数据库获取收盘价】
+            # 原代码 sell_price = 10.0 导致所有股票都按10元卖出，盈亏完全失真
+            try:
+                from core.managers import mongo_manager
+                await mongo_manager.initialize()
+                doc = await mongo_manager.find_one(
+                    "stock_daily_ak_full",
+                    {"ts_code": pos.ts_code, "trade_date": int(date)},
+                    projection={"close": 1}
+                )
+                sell_price = doc["close"] if doc and doc.get("close", 0) > 0 else pos.cost_price
+            except Exception:
+                sell_price = pos.cost_price  # 回退到成本价
             engine.sell(
                 account_id=account_id,
                 ts_code=pos.ts_code,
@@ -115,9 +126,10 @@ def execute_daily_trades(date: str = None, account_id: str = None):
 
 if __name__ == "__main__":
     import argparse
+    import asyncio
     parser = argparse.ArgumentParser(description="自动交易执行器")
     parser.add_argument("--date", help="指定交易日期(YYYYMMDD)")
     parser.add_argument("--account", help="指定模拟账户ID")
     args = parser.parse_args()
     
-    execute_daily_trades(args.date, args.account)
+    asyncio.run(execute_daily_trades(args.date, args.account))
