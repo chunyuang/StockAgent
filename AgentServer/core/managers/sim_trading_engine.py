@@ -238,17 +238,142 @@ class SimTradingEngine:
         """
         每日收盘结算
         更新持仓市值、收益、持仓天数等信息
+        
+        流程:
+        1. 获取所有活跃账户
+        2. 对每个账户的每个持仓:
+           a. 获取最新收盘价
+           b. 更新持仓天数(近似交易日=日历天数×0.67)
+           c. 计算当前市值和浮动盈亏
+        3. 更新账户总资产
         """
-        # TODO: 实现每日结算逻辑
-        logger.info("开始每日结算...")
-        pass
+        logger.info(f"开始每日结算 trade_date={trade_date}...")
+        
+        # 获取所有活跃账户
+        accounts = await mongo_manager.find_many(
+            "sim_accounts",
+            {},
+            projection={"account_id": 1},
+        )
+        if not accounts:
+            logger.info("无活跃账户，跳过结算")
+            return
+        
+        settled_count = 0
+        for account in accounts:
+            account_id = account["account_id"]
+            
+            # 获取该账户所有持仓
+            positions = await mongo_manager.find_many(
+                C.POSITIONS,
+                {"account_id": account_id, "quantity": {"$gt": 0}},
+            )
+            if not positions:
+                continue
+            
+            total_market_value = 0
+            now = datetime.now(timezone.utc)
+            
+            for pos in positions:
+                ts_code = pos["ts_code"]
+                latest_price = await self._get_latest_price(ts_code)
+                
+                if not latest_price or latest_price <= 0:
+                    logger.warning(f"{ts_code} 无法获取最新价，跳过结算")
+                    # 用成本价估算
+                    latest_price = pos.get("avg_cost", 0)
+                
+                market_value = latest_price * pos["quantity"]
+                total_market_value += market_value
+                
+                # 更新持仓天数(近似交易日)
+                first_buy = pos.get("first_buy_date")
+                hold_days = pos.get("hold_days", 1)
+                if first_buy:
+                    if isinstance(first_buy, str):
+                        first_buy = datetime.fromisoformat(first_buy.replace('Z', '+00:00'))
+                    calendar_days = (now - first_buy).days
+                    hold_days = max(1, int(calendar_days * 0.67))
+                
+                # 更新持仓记录
+                await mongo_manager.update_one(
+                    C.POSITIONS,
+                    {"position_id": pos["position_id"]},
+                    {"$set": {
+                        "current_price": latest_price,
+                        "market_value": market_value,
+                        "profit": market_value - pos["avg_cost"] * pos["quantity"],
+                        "profit_pct": (latest_price / pos["avg_cost"] - 1) if pos["avg_cost"] > 0 else 0,
+                        "hold_days": hold_days,
+                        "updated_at": now,
+                    }}
+                )
+            
+            # 更新账户总资产
+            account_data = await mongo_manager.find_one(
+                "sim_accounts", {"account_id": account_id}
+            )
+            if account_data:
+                total_assets = account_data["available_cash"] + total_market_value
+                await mongo_manager.update_one(
+                    "sim_accounts",
+                    {"account_id": account_id},
+                    {"$set": {
+                        "total_assets": total_assets,
+                        "position_value": total_market_value,
+                        "updated_at": now,
+                    }}
+                )
+            
+            settled_count += 1
+        
+        logger.info(f"每日结算完成，共结算 {settled_count} 个账户")
     
     async def calculate_account_performance(self, account_id: str) -> Dict[str, Any]:
         """
         计算账户绩效指标
+        
+        返回: 总资产、总收益、收益率、持仓数、持仓市值等
         """
-        # TODO: 计算账户绩效
-        return {}
+        account = await mongo_manager.find_one(
+            "sim_accounts", {"account_id": account_id}
+        )
+        if not account:
+            return {}
+        
+        # 获取持仓
+        positions = await mongo_manager.find_many(
+            C.POSITIONS,
+            {"account_id": account_id, "quantity": {"$gt": 0}},
+        )
+        
+        # 计算当前持仓总市值
+        total_market_value = 0
+        total_cost = 0
+        for pos in positions:
+            price = pos.get("current_price") or await self._get_latest_price(pos["ts_code"]) or pos.get("avg_cost", 0)
+            mv = price * pos["quantity"]
+            total_market_value += mv
+            total_cost += pos.get("avg_cost", 0) * pos["quantity"]
+        
+        total_assets = account["available_cash"] + total_market_value
+        initial_cash = account.get("initial_cash", total_assets)
+        total_profit = total_assets - initial_cash
+        total_profit_pct = (total_profit / initial_cash * 100) if initial_cash > 0 else 0
+        unrealized_profit = total_market_value - total_cost
+        
+        return {
+            "account_id": account_id,
+            "initial_cash": initial_cash,
+            "available_cash": account["available_cash"],
+            "total_assets": total_assets,
+            "position_value": total_market_value,
+            "position_count": len(positions),
+            "total_profit": total_profit,
+            "total_profit_pct": total_profit_pct,
+            "unrealized_profit": unrealized_profit,
+            "return_rate": total_profit_pct,
+        }
 
 
 # 全局实例
