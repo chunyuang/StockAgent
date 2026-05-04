@@ -19,8 +19,8 @@ python -m py_compile core/managers/sim_trading_engine.py && echo "  ✅ sim_trad
 
 # 2. 单元测试
 echo ""
-echo "📋 Step 2: 单元测试..."
-python -m pytest tests/ -v --tb=short
+echo "📋 Step 2: 测试套件 (单元+集成)..."
+python -m pytest tests/ -v --tb=short -q
 
 # 3. 常量一致性检查
 echo ""
