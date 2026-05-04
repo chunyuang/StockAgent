@@ -218,6 +218,124 @@ class SimTradingEngine:
             logger.exception(f"下单失败: {e}")
             return False, f"交易失败：{str(e)}", {}
     
+    async def _check_and_execute_risk_sells(self, accounts: list) -> int:
+        """每日结算后检查止损/止盈/超期，执行强卖
+        
+        回测引擎已有非调仓日止损(第十轮P1-5)，但sim_trading_engine的
+        daily_settlement只更新估值不执行卖出。此方法补全实盘/模拟交易侧。
+        
+        Returns:
+            执行卖出的数量
+        """
+        risk_sell_count = 0
+        
+        # 风控参数(从配置读取，未配置则用默认值)
+        stop_loss_pct = 0.02   # 止损: -2%
+        take_profit_pct = 0.07 # 止盈: +7%
+        max_hold_days = 10     # 超期: 10个交易日
+        
+        try:
+            from core.settings import settings
+            risk_cfg = getattr(settings, 'risk', {})
+            stop_loss_pct = risk_cfg.get('stop_loss_pct', stop_loss_pct)
+            take_profit_pct = risk_cfg.get('take_profit_pct', take_profit_pct)
+            max_hold_days = risk_cfg.get('max_hold_days', max_hold_days)
+        except Exception:
+            pass
+        
+        for account in accounts:
+            account_id = account.get("account_id")
+            if not account_id:
+                continue
+            
+            positions = await mongo_manager.find_many(
+                C.POSITIONS,
+                {"account_id": account_id, "quantity": {"$gt": 0}},
+            )
+            if not positions:
+                continue
+            
+            sell_codes = []  # [(ts_code, reason, price)]
+            
+            for pos in positions:
+                ts_code = pos["ts_code"]
+                avg_cost = pos.get("avg_cost", 0)
+                quantity = pos.get("quantity", 0)
+                hold_days = pos.get("hold_days", 0)
+                
+                if avg_cost <= 0 or quantity <= 0:
+                    continue
+                
+                # 获取最新价
+                current_price = await self._get_latest_price(ts_code)
+                if not current_price or current_price <= 0:
+                    continue
+                
+                # 止损检查
+                if current_price <= avg_cost * (1 - stop_loss_pct):
+                    sell_codes.append((ts_code, f'止损({current_price/avg_cost-1:.1%})', current_price))
+                    continue
+                
+                # 止盈检查
+                if current_price >= avg_cost * (1 + take_profit_pct):
+                    sell_codes.append((ts_code, f'止盈({current_price/avg_cost-1:.1%})', current_price))
+                    continue
+                
+                # 超期检查
+                if hold_days >= max_hold_days:
+                    sell_codes.append((ts_code, f'超期({hold_days}天)', current_price))
+                    continue
+            
+            # 执行卖出
+            for ts_code, reason, sell_price in sell_codes:
+                try:
+                    # 更新持仓: quantity→0
+                    pos_doc = await mongo_manager.find_one(
+                        C.POSITIONS,
+                        {"account_id": account_id, "ts_code": ts_code, "quantity": {"$gt": 0}},
+                    )
+                    if not pos_doc:
+                        continue
+                    
+                    quantity = pos_doc["quantity"]
+                    sell_amount = sell_price * quantity
+                    # 扣除手续费(简化)
+                    commission = max(sell_amount * 0.0003, 5)  # 最低5元
+                    stamp_tax = sell_amount * 0.001  # 印花税
+                    net_amount = sell_amount - commission - stamp_tax
+                    
+                    # 更新持仓为0
+                    await mongo_manager.update_one(
+                        C.POSITIONS,
+                        {"position_id": pos_doc["position_id"]},
+                        {"$set": {
+                            "quantity": 0,
+                            "market_value": 0,
+                            "profit": net_amount - pos_doc.get("avg_cost", 0) * quantity,
+                            "current_price": sell_price,
+                            "updated_at": datetime.now(timezone.utc),
+                            "close_reason": reason,
+                        }}
+                    )
+                    
+                    # 回收资金到账户
+                    await mongo_manager.update_one(
+                        C.SIM_ACCOUNTS,
+                        {"account_id": account_id},
+                        {"$inc": {"available_cash": net_amount}},
+                    )
+                    
+                    risk_sell_count += 1
+                    logger.info(
+                        f"风控卖出: account={account_id} {ts_code} "
+                        f"qty={quantity} price={sell_price:.2f} reason={reason}"
+                    )
+                    
+                except Exception as e:
+                    logger.error(f"风控卖出执行失败: {ts_code} {e}")
+        
+        return risk_sell_count
+    
     async def _get_latest_price(self, ts_code: str) -> Optional[float]:
         """获取股票最新价格"""
         # 【P1修复：不再返回硬编码10.0，从MongoDB获取最近收盘价】
@@ -326,6 +444,12 @@ class SimTradingEngine:
                 )
             
             settled_count += 1
+        
+        # ========= 非调仓日止损/止盈/超期检查 =========
+        # 每日结算后检查是否需要强卖
+        risk_sell_count = await self._check_and_execute_risk_sells(accounts)
+        if risk_sell_count > 0:
+            logger.info(f"每日结算: 执行 {risk_sell_count} 笔风控卖出(止损/止盈/超期)")
         
         logger.info(f"每日结算完成，共结算 {settled_count} 个账户")
     
