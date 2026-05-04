@@ -14,6 +14,12 @@ from .daily_stats import DailyStatsCollector
 from .news import StockNewsCollector
 from .fina_indicator import FinaIndicatorCollector
 from .hot_news import HotNewsCollector
+from .liangmai_collectors import (
+    LiangMaiKlineCollector,
+    LiangMaiLimitUpCollector,
+    LiangMaiRealtimeCollector,
+    LiangMaiIndexCollector,
+)
 
 __all__ = [
     "StockBasicCollector",
@@ -28,4 +34,8 @@ __all__ = [
     "StockNewsCollector",
     "FinaIndicatorCollector",
     "HotNewsCollector",
+    "LiangMaiKlineCollector",
+    "LiangMaiLimitUpCollector",
+    "LiangMaiRealtimeCollector",
+    "LiangMaiIndexCollector",
 ]
