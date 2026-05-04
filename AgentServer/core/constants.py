@@ -35,6 +35,11 @@ HOT_NEWS = "hot_news"                         # 热点新闻
 TRADING_SIGNALS = "trading_signals"            # 交易信号
 DAILY_PREMARKET_SIGNALS = "daily_premarket_signals"  # 盘前信号
 POSITIONS = "positions"                        # 持仓
+DAILY_REPORTS = "daily_reports"                # 日报
+TRADING_RECORDS = "trading_records"            # 交易记录
+STRATEGY_EVOLUTION = "strategy_evolution"      # 策略进化
+SIM_ACCOUNTS = "sim_accounts"                  # 模拟账户
+TRADE_RECORDS = "trade_records"                # 成交记录(与trading_records区分)
 
 # ==================== 缓存 ====================
 STOCK_DAILY_CACHE = "stock_daily_ak_full_cache"  # 日线数据缓存
@@ -60,6 +65,11 @@ class _CollectionConstants:
     TRADING_SIGNALS = TRADING_SIGNALS
     DAILY_PREMARKET_SIGNALS = DAILY_PREMARKET_SIGNALS
     POSITIONS = POSITIONS
+    DAILY_REPORTS = DAILY_REPORTS
+    TRADING_RECORDS = TRADING_RECORDS
+    STRATEGY_EVOLUTION = STRATEGY_EVOLUTION
+    SIM_ACCOUNTS = SIM_ACCOUNTS
+    TRADE_RECORDS = TRADE_RECORDS
     STOCK_DAILY_CACHE = STOCK_DAILY_CACHE
 
     # 反向映射: 集合名 → 常量名(用于日志/调试)
@@ -79,6 +89,11 @@ class _CollectionConstants:
         TRADING_SIGNALS: "TRADING_SIGNALS",
         DAILY_PREMARKET_SIGNALS: "DAILY_PREMARKET_SIGNALS",
         POSITIONS: "POSITIONS",
+        DAILY_REPORTS: "DAILY_REPORTS",
+        TRADING_RECORDS: "TRADING_RECORDS",
+        STRATEGY_EVOLUTION: "STRATEGY_EVOLUTION",
+        SIM_ACCOUNTS: "SIM_ACCOUNTS",
+        TRADE_RECORDS: "TRADE_RECORDS",
     }
 
 

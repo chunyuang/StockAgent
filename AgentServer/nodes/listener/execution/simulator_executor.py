@@ -205,7 +205,7 @@ class SimulatorExecutor(BaseExecutor):
         if not ts_codes:
             return
         
-        # 查询最新价格
+        # 查询最新价格（先查今天，没有则查最近交易日）
         query = {
             "ts_code": {"$in": ts_codes},
             "trade_date": today,
@@ -213,8 +213,20 @@ class SimulatorExecutor(BaseExecutor):
         result = await mongo_manager.find_many(
             C.STOCK_DAILY,
             query,
-            projection={"ts_code": 1, "close": 1},
+            projection={"ts_code": 1, "close": 1, "trade_date": 1},
         )
+        
+        # 如果今天没数据（非交易时段/停牌），fallback到每只股票最近交易日
+        if not result:
+            for ts_code in ts_codes:
+                latest = await mongo_manager.find_one(
+                    C.STOCK_DAILY,
+                    {"ts_code": ts_code},
+                    projection={"close": 1},
+                    sort=[("trade_date", -1)],
+                )
+                if latest and latest.get("close", 0) > 0:
+                    result.append(latest)
         
         price_map = {r["ts_code"]: r["close"] for r in result}
         
