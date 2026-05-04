@@ -31,8 +31,10 @@ class SpecialPeriodFilter:
     """特殊时期过滤器 - 第2层筛选"""
     
     # 内置的中国股市特殊时期配置（2025-2026）
-    # 【P2-E：假期日期为硬编码，回测2027+年时需更新此配置】
-    # TODO: 后续接入MongoDB交易日历自动生成假期配置
+    # 【P2-E修复：假期/会议日期硬编码，回测超出2025-2026范围时warn】
+    # 假期日期来源：国务院办公厅年度放假通知
+    # 会议日期来源：两会/政治局会议常规时间
+    # 注意：新增年份时需在此追加配置
     DEFAULT_CONFIG = [
         # ========== 节假日前夕 ==========
         # 2026年春节（1月29日-2月4日，节前7天降仓）
@@ -149,6 +151,12 @@ class SpecialPeriodFilter:
         """
         self.config = custom_config if custom_config is not None else self.DEFAULT_CONFIG
         self._period_cache: Dict[str, List[SpecialPeriod]] = {}
+        # 检测配置覆盖的年份范围，用于回测时警告
+        fixed_dates = [p for p in self.config if p.start_date]
+        if fixed_dates:
+            self._covered_years = {int(p.start_date[:4]) for p in fixed_dates}
+        else:
+            self._covered_years = set()
     
     def get_position_multiplier(self, trade_date: str) -> float:
         """
@@ -164,6 +172,14 @@ class SpecialPeriodFilter:
         """
         date_int = int(trade_date)
         dt = datetime.strptime(trade_date, "%Y%m%d")
+        
+        # 警告：回测日期超出固定假期配置范围
+        if self._covered_years and int(trade_date[:4]) > max(self._covered_years):
+            import logging
+            logging.getLogger(__name__).warning(
+                f"回测日期{trade_date}超出特殊时期配置范围({min(self._covered_years)}-{max(self._covered_years)})，"
+                f"假期/会议降仓将不会生效，请在DEFAULT_CONFIG中补充{trade_date[:4]}年配置"
+            )
         
         active_periods: List[SpecialPeriod] = []
         

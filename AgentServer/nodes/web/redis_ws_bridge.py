@@ -132,7 +132,8 @@ class RedisWSBridge:
             try:
                 await self._pubsub.unsubscribe()
                 await self._pubsub.close()
-            except Exception:
+            except Exception as e:
+                logger.warning(f"WebSocket error: {e}")
                 pass
             self._pubsub = None
 

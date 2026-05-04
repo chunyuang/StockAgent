@@ -27,7 +27,7 @@ from core.managers import baostock_manager, akshare_manager
 
 # 导入拆分后的执行器
 from .ultra_short import execute_ultra_short_backtest
-from .single_stock import execute_backtest  # fetch_price_data已废弃，不再导入
+# single_stock.py已废弃，execute_backtest已移除，不再导入
 
 
 class BacktestNode(BaseNode):
@@ -154,7 +154,9 @@ class BacktestNode(BaseNode):
                             await self._update_task_result(task_id, "failed", error=error_msg)
                             continue
                     else:
-                        result = await execute_backtest(task_info, self.logger)
+                        # 非ultra_short/factor_selection类型已废弃
+                        result = {"error": f"不支持的回测类型: {task_type}，请使用 ultra_short"}
+                        self.logger.warning(f"Unsupported task_type: {task_type}, task_id: {task_id}")
 
                     # 更新任务状态
                     await self._update_task_result(task_id, "completed", result)
