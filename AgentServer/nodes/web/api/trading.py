@@ -175,8 +175,9 @@ async def get_sim_accounts(
             )
             
             for pos in positions:
-                # TODO: 获取最新价格计算当前市值
-                total_position_value += pos.get("quantity", 0) * pos.get("avg_cost", 0)
+                # 优先使用已结算的current_price，否则用avg_cost估算
+                price = pos.get("current_price") or pos.get("avg_cost", 0)
+                total_position_value += pos.get("quantity", 0) * price
             
             total_assets = record["available_cash"] + total_position_value
             total_profit = total_assets - record["initial_cash"]
@@ -302,6 +303,9 @@ async def get_positions(
                 quantity=record["quantity"],
                 available_quantity=record["available_quantity"],
                 avg_cost=record["avg_cost"],
+                current_price=current_price,
+                profit=profit,
+                profit_pct=profit_pct,
                 first_buy_date=record.get("first_buy_date"),
                 hold_days=record.get("hold_days", 0),
                 strategy=record.get("strategy"),

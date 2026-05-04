@@ -131,7 +131,6 @@ class SignalGenerator:
     
     async def _load_market_data(self, trade_date: str) -> Dict[str, Any]:
         """加载指定交易日的市场数据"""
-        # TODO: 加载行情数据、龙虎榜、北向资金等
         # 1. 加载当日日线数据
         daily_data = await mongo_manager.find_many(
             C.STOCK_DAILY,
@@ -150,16 +149,31 @@ class SignalGenerator:
             {"trade_date": int(trade_date)}
         )
         
+        # 4. 加载每日统计(含北向资金)
+        daily_stat = await mongo_manager.find_one(
+            C.DAILY_STATS,
+            {"trade_date": int(trade_date)}
+        )
+        
+        # 5. 加载资金流向(行业)
+        moneyflow_data = await mongo_manager.find_many(
+            C.MONEYFLOW_INDUSTRY,
+            {"trade_date": int(trade_date)}
+        )
+        
         # 转换为字典方便查询
         daily_dict = {d["ts_code"]: d for d in daily_data}
         basic_dict = {b["ts_code"]: b for b in basic_info}
         limit_dict = {l["ts_code"]: l for l in limit_data}
+        moneyflow_dict = {m.get("industry", ""): m for m in moneyflow_data}
         
         return {
             "trade_date": trade_date,
             "daily": daily_dict,
             "basic": basic_dict,
-            "limit": limit_dict
+            "limit": limit_dict,
+            "daily_stat": daily_stat or {},  # 北向资金等大盘统计
+            "moneyflow_industry": moneyflow_dict,  # 行业资金流向
         }
     
     async def get_latest_signals(self, limit: int = 50, only_pending: bool = False) -> List[Dict[str, Any]]:
