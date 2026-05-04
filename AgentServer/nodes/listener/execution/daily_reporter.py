@@ -114,7 +114,7 @@ class DailyReporter:
         
         # 写入 MongoDB
         await mongo_manager.replace_one(
-            "daily_reports",
+            C.DAILY_REPORTS,
             {"date": today},
             report,
             upsert=True,
@@ -146,7 +146,7 @@ class DailyReporter:
             }
         }
         
-        result = await mongo_manager.find_many("trading_records", query)
+        result = await mongo_manager.find_many(C.TRADING_RECORDS, query)
         return list(result)
     
     async def _calculate_today_profit(

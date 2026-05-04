@@ -56,7 +56,7 @@ class StrategyEvolution:
         query = {
             "strategy_id": self._strategy_id,
         }
-        result = await mongo_manager.find_one("strategy_evolution", query)
+        result = await mongo_manager.find_one(C.STRATEGY_EVOLUTION, query)
         
         if not result:
             logger.info(f"[EVOLUTION] No existing evolution data for {self._strategy_id}, starting fresh")
@@ -190,7 +190,7 @@ class StrategyEvolution:
         }
         
         await mongo_manager.replace_one(
-            "strategy_evolution",
+            C.STRATEGY_EVOLUTION,
             {"strategy_id": self._strategy_id},
             doc,
             upsert=True,

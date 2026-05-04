@@ -68,7 +68,7 @@ class DrawdownController:
         query = {
             "date": {"$gte": start_date},
         }
-        reports = await mongo_manager.find_many("daily_reports", query)
+        reports = await mongo_manager.find_many(C.DAILY_REPORTS, query)
         
         if not reports:
             # 没有历史记录，使用初始资金
@@ -116,7 +116,7 @@ class DrawdownController:
             "created_at": {"$gte": start_date},
             "action": "sell",
         }
-        result = await mongo_manager.find_many("trading_records", query)
+        result = await mongo_manager.find_many(C.TRADING_RECORDS, query)
         return list(result)
     
     def can_open_new_position(self, current_daily_profit_pct: float = 0) -> bool:
