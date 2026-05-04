@@ -39,10 +39,14 @@ if _stockagent_dir not in sys.path:
 
 # 动态导入 AKShareFetcher（同层目录 data_fetcher）
 akshare_module_path = os.path.join(_fina_dir, 'data_fetcher', 'fetchers', 'akshare.py')
-akshare_module = importlib.util.module_from_spec(spec)
-sys.modules["akshare_fetcher"] = akshare_module
-spec.loader.exec_module(akshare_module)
-AKShareFetcher = akshare_module.AKShareFetcher
+spec = importlib.util.spec_from_file_location("akshare_fetcher", akshare_module_path)
+if spec and spec.loader:
+    akshare_module = importlib.util.module_from_spec(spec)
+    sys.modules["akshare_fetcher"] = akshare_module
+    spec.loader.exec_module(akshare_module)
+    AKShareFetcher = akshare_module.AKShareFetcher
+else:
+    AKShareFetcher = None  # AKShare fetcher not available
 
 
 class FinaIndicatorCollector(BaseCollector):
