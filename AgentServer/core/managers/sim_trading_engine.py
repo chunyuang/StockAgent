@@ -60,7 +60,7 @@ class SimTradingEngine:
             
             # 获取账户信息
             account = await mongo_manager.find_one(
-                "sim_accounts",
+                C.SIM_ACCOUNTS,
                 {"account_id": account_id}
             )
             
@@ -138,7 +138,7 @@ class SimTradingEngine:
                 new_available_cash = account["available_cash"] + (trade_amount - commission - stamp_duty)
             
             await mongo_manager.update_one(
-                "sim_accounts",
+                C.SIM_ACCOUNTS,
                 {"account_id": account_id},
                 {"$set": {"available_cash": new_available_cash, "updated_at": now}}
             )
@@ -208,7 +208,7 @@ class SimTradingEngine:
                     )
             
             # 保存交易记录
-            await mongo_manager.insert_one("trade_records", trade_record)
+            await mongo_manager.insert_one(C.TRADE_RECORDS, trade_record)
             
             logger.info(f"交易成功：{trade_id} {direction} {ts_code} {quantity}股，价格{trade_price:.2f}元")
             
@@ -251,7 +251,7 @@ class SimTradingEngine:
         
         # 获取所有活跃账户
         accounts = await mongo_manager.find_many(
-            "sim_accounts",
+            C.SIM_ACCOUNTS,
             {},
             projection={"account_id": 1},
         )
@@ -311,12 +311,12 @@ class SimTradingEngine:
             
             # 更新账户总资产
             account_data = await mongo_manager.find_one(
-                "sim_accounts", {"account_id": account_id}
+                C.SIM_ACCOUNTS, {"account_id": account_id}
             )
             if account_data:
                 total_assets = account_data["available_cash"] + total_market_value
                 await mongo_manager.update_one(
-                    "sim_accounts",
+                    C.SIM_ACCOUNTS,
                     {"account_id": account_id},
                     {"$set": {
                         "total_assets": total_assets,
@@ -336,7 +336,7 @@ class SimTradingEngine:
         返回: 总资产、总收益、收益率、持仓数、持仓市值等
         """
         account = await mongo_manager.find_one(
-            "sim_accounts", {"account_id": account_id}
+            C.SIM_ACCOUNTS, {"account_id": account_id}
         )
         if not account:
             return {}
