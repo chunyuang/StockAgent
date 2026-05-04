@@ -51,6 +51,7 @@ import os
 import numpy as np
 from datetime import datetime as dt_now  # 【修复：避免局部from datetime import datetime导致UnboundLocalError】
 
+from core.constants import C
 from core.managers import mongo_manager, redis_manager
 from core.utils.logger import logger
 
@@ -195,10 +196,10 @@ class PortfolioBacktester:
         limit_down_count = 0
         index_change = 0.0
         try:
-            main_r = await mongo_manager.aggregate("stock_daily_ak_full", main_pipeline)
-            gem_r = await mongo_manager.aggregate("stock_daily_ak_full", gem_pipeline)
-            bse_r = await mongo_manager.aggregate("stock_daily_ak_full", bse_pipeline)
-            avg_r = await mongo_manager.aggregate("stock_daily_ak_full", avg_pipeline)
+            main_r = await mongo_manager.aggregate(C.STOCK_DAILY, main_pipeline)
+            gem_r = await mongo_manager.aggregate(C.STOCK_DAILY, gem_pipeline)
+            bse_r = await mongo_manager.aggregate(C.STOCK_DAILY, bse_pipeline)
+            avg_r = await mongo_manager.aggregate(C.STOCK_DAILY, avg_pipeline)
             if main_r and len(main_r) > 0:
                 limit_up_count += main_r[0].get("up", 0)
                 limit_down_count += main_r[0].get("down", 0)
@@ -221,7 +222,7 @@ class PortfolioBacktester:
                     "avg_pct": {"$avg": "$pct_chg"}
                 }}
             ]
-            result = await mongo_manager.aggregate("stock_daily_ak_full", fallback_pipeline)
+            result = await mongo_manager.aggregate(C.STOCK_DAILY, fallback_pipeline)
             if result and len(result) > 0:
                 limit_up_count = result[0].get("limit_up_count", 0)
                 limit_down_count = result[0].get("limit_down_count", 0)
@@ -636,7 +637,7 @@ class PortfolioBacktester:
         max_trade_date_pipeline = [
             {"$group": {"_id": None, "max_date": {"$max": "$trade_date"}}}
         ]
-        result = await mongo_manager.aggregate("stock_daily_ak_full", max_trade_date_pipeline)
+        result = await mongo_manager.aggregate(C.STOCK_DAILY, max_trade_date_pipeline)
 
         max_market_date = None
         max_factor_date = None
@@ -728,7 +729,7 @@ class PortfolioBacktester:
 
         # 一次聚合完成所有因子的检测
         pipeline = [{"$facet": facet_stages}]
-        result = await mongo_manager.aggregate("stock_daily_ak_full", pipeline)
+        result = await mongo_manager.aggregate(C.STOCK_DAILY, pipeline)
 
         factor_checks = []
         missing_fields = []
@@ -956,7 +957,7 @@ class PortfolioBacktester:
 
                 # 流动性过滤统计
                 low_liquidity_cursor = mongo_manager.find_many(
-                    "stock_daily_ak_full",
+                    C.STOCK_DAILY,
                     {
                         "trade_date": int(trade_date),
                         "ts_code": {"$in": list(universe)},
@@ -1189,7 +1190,7 @@ class PortfolioBacktester:
                         industry_map = {}
                         if all_candidates:
                             industry_docs = await mongo_manager.find_many(
-                                "stock_basic",
+                                C.STOCK_BASIC,
                                 {"ts_code": {"$in": list(all_candidates)}},
                                 {"ts_code": 1, "industry": 1}
                             )
@@ -1235,7 +1236,7 @@ class PortfolioBacktester:
                     try:
                         # 从 index_daily 查询上证指数(000001.SH)的均线数据
                         index_data = await mongo_manager.find_one(
-                            "index_daily",
+                            C.INDEX_DAILY,
                             {"ts_code": "000001.SH", "trade_date": trade_date},
                             {"close": 1, "ma60": 1},
                         )
@@ -2061,11 +2062,11 @@ class PortfolioBacktester:
             "ts_code": benchmark_code,
             "trade_date": {"$gte": start_date, "$lte": end_date}
         }
-        docs = await mongo_manager.find_many("index_daily", query)
+        docs = await mongo_manager.find_many(C.INDEX_DAILY, query)
         
         # 如果index_daily无数据，回退到stock_daily_ak_full（兼容旧数据）
         if not docs:
-            docs = await mongo_manager.find_many("stock_daily_ak_full", query)
+            docs = await mongo_manager.find_many(C.STOCK_DAILY, query)
         # 按日期排序
         docs.sort(key=lambda x: x["trade_date"])
         benchmark_data = []
@@ -2153,7 +2154,7 @@ class PortfolioBacktester:
 
         await self.log(f"            🔍 _get_prices: 查询 {len(ts_codes_standard)} 只股票,日期: {trade_date}, 直接使用$in过滤")
 
-        docs = await mongo_manager.find_many("stock_daily_ak_full", query)
+        docs = await mongo_manager.find_many(C.STOCK_DAILY, query)
         result = {}
         # 不需要再做复杂匹配,因为数据库已经用$in过滤了
         matched = 0
@@ -2897,7 +2898,7 @@ class PortfolioBacktester:
         # 查询缓存未命中的(已经标准化)
         if len(need_query) > 0:
             docs = await mongo_manager.find_many(
-                "stock_basic",
+                C.STOCK_BASIC,
                 {"ts_code": {"$in": need_query}},
                 {"ts_code": 1, "name": 1}
             )

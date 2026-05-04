@@ -22,6 +22,7 @@ from core.protocols import (
     StrategyType,
 )
 from core.settings import settings
+from core.constants import C
 from core.managers import (
     redis_manager,
     mongo_manager,
@@ -612,7 +613,7 @@ class ListenerNode(BaseNode):
         """
         try:
             stocks = await mongo_manager.find_many(
-                "stock_basic",
+                C.STOCK_BASIC,
                 {"list_status": "L"},  # 只获取上市状态的股票
                 projection={"ts_code": 1, "name": 1, "industry": 1, "_id": 0}
             )

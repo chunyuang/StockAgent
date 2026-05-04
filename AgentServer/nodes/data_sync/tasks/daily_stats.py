@@ -19,6 +19,7 @@ import statistics
 
 from core.base import BaseTask
 from core.settings import settings
+from core.constants import C
 from core.managers import data_source_manager, mongo_manager, analysis_manager
 
 
@@ -40,7 +41,7 @@ class DailyStatsTask(BaseTask):
     - 默认: 每个交易日 18:10 (确保其他数据已同步完成)
     """
     
-    name = "daily_stats"
+    name = C.DAILY_STATS
     description = "计算每日统计数据"
     default_schedule = "10 18 * * 1-5"
     
@@ -112,7 +113,7 @@ class DailyStatsTask(BaseTask):
             return {"backfilled": 0, "missing": []}
         
         # 获取已计算的日期
-        existing = await mongo_manager.db["daily_stats"].distinct("trade_date")
+        existing = await mongo_manager.db[C.DAILY_STATS].distinct("trade_date")
         existing_set = set(existing)
         
         # 找出缺失的日期
@@ -184,12 +185,12 @@ class DailyStatsTask(BaseTask):
         # 2-4. 统计每日综合数据
         t2 = time.time()
         stats_result = await self._compute_daily_stats(trade_date)
-        results["daily_stats"] = stats_result
+        results[C.DAILY_STATS] = stats_result
         self.logger.debug(f"Daily stats computed: {time.time()-t2:.2f}s")
         
         # 5. 情绪周期分析
         prev_stats = await mongo_manager.find_one(
-            "daily_stats",
+            C.DAILY_STATS,
             {"trade_date": {"$lt": trade_date}},
             sort=[("trade_date", -1)],
         )
@@ -218,7 +219,7 @@ class DailyStatsTask(BaseTask):
         
         # 1. 行业排名 (前20)
         industry_data = await mongo_manager.find_many(
-            "moneyflow_industry",
+            C.MONEYFLOW_INDUSTRY,
             {"trade_date": trade_date},
         )
         
@@ -255,7 +256,7 @@ class DailyStatsTask(BaseTask):
         
         # 2. 概念板块排名 (前20)
         concept_data = await mongo_manager.find_many(
-            "moneyflow_concept",
+            C.MONEYFLOW_CONCEPT,
             {"trade_date": trade_date},
         )
         
@@ -365,7 +366,7 @@ class DailyStatsTask(BaseTask):
         
         # 1. 从 limit_list 获取涨跌停数据
         limit_data = await mongo_manager.find_many(
-            "limit_list",
+            C.LIMIT_LIST,
             {"trade_date": trade_date},
             projection={"ts_code": 1, "limit": 1, "limit_times": 1, "open_times": 1, "_id": 0},
         )
@@ -403,7 +404,7 @@ class DailyStatsTask(BaseTask):
         
         # 2. 从 stock_daily_ak_full 获取涨跌统计
         daily_data = await mongo_manager.find_many(
-            "stock_daily_ak_full",
+            C.STOCK_DAILY,
             {"trade_date": trade_date},
             projection={"ts_code": 1, "pct_chg": 1, "_id": 0},
         )
@@ -454,7 +455,7 @@ class DailyStatsTask(BaseTask):
         # 4. 获取两市成交额
         try:
             sh_index = await mongo_manager.find_one(
-                "index_daily",
+                C.INDEX_DAILY,
                 {"ts_code": "000001.SH", "trade_date": trade_date},
                 projection={"amount": 1, "_id": 0},
             )
@@ -462,7 +463,7 @@ class DailyStatsTask(BaseTask):
                 stats["sh_amount"] = sh_index.get("amount")
             
             sz_index = await mongo_manager.find_one(
-                "index_daily",
+                C.INDEX_DAILY,
                 {"ts_code": "399001.SZ", "trade_date": trade_date},
                 projection={"amount": 1, "_id": 0},
             )
@@ -480,7 +481,7 @@ class DailyStatsTask(BaseTask):
         # 5. 获取大盘指数涨跌幅 (沪深300)
         try:
             hs300_index = await mongo_manager.find_one(
-                "index_daily",
+                C.INDEX_DAILY,
                 {"ts_code": "000300.SH", "trade_date": trade_date},
                 projection={"pct_chg": 1, "_id": 0},
             )
@@ -519,7 +520,7 @@ class DailyStatsTask(BaseTask):
         
         # 写入数据库
         await mongo_manager.update_one(
-            "daily_stats",
+            C.DAILY_STATS,
             {"trade_date": trade_date},
             {"$set": stats},
             upsert=True,
@@ -541,7 +542,7 @@ class DailyStatsTask(BaseTask):
         """
         # 获取前一个交易日
         prev_stats = await mongo_manager.find_one(
-            "daily_stats",
+            C.DAILY_STATS,
             {"trade_date": {"$lt": trade_date}},
             sort=[("trade_date", -1)],
             projection={"trade_date": 1, "_id": 0},
@@ -554,7 +555,7 @@ class DailyStatsTask(BaseTask):
         
         # 获取昨日涨停股
         prev_limit_ups = await mongo_manager.find_many(
-            "limit_list",
+            C.LIMIT_LIST,
             {"trade_date": prev_date, "limit": "U"},
             projection={"ts_code": 1, "_id": 0},
         )
@@ -566,7 +567,7 @@ class DailyStatsTask(BaseTask):
         
         # 获取今日涨停股
         today_limit_ups = await mongo_manager.find_many(
-            "limit_list",
+            C.LIMIT_LIST,
             {"trade_date": trade_date, "limit": "U"},
             projection={"ts_code": 1, "_id": 0},
         )

@@ -35,6 +35,7 @@ import httpx
 
 from core.base import BaseCollector
 from core.settings import settings
+from core.constants import C
 from core.managers import redis_manager
 
 
@@ -889,7 +890,7 @@ class HotNewsCollector(BaseCollector):
     - thepaper: 澎湃新闻
     """
     
-    name = "hot_news"
+    name = C.HOT_NEWS
     description = "采集多来源热点新闻"
     default_schedule = "*/5 * * * *"  # 每5分钟执行一次
     

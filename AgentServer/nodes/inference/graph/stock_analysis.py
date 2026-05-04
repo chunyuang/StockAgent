@@ -46,6 +46,7 @@ import json
 import re
 import asyncio
 
+from core.constants import C
 from core.managers import llm_manager, mongo_manager, milvus_manager, prompt_manager
 from core.protocols import (
     SignalType,
@@ -167,12 +168,12 @@ async def data_collect_node(state: StockAnalysisState) -> Dict[str, Any]:
     _log_with_trace(logger, trace_id, "data_collect", f"Fetching data for {ts_code}")
     
     # 获取股票基本信息
-    stock = await mongo_manager.find_one("stock_basic", {"ts_code": ts_code})
+    stock = await mongo_manager.find_one(C.STOCK_BASIC, {"ts_code": ts_code})
     stock_name = stock.get("name", ts_code) if stock else ts_code
     
     # 获取日线数据
     daily_data = await mongo_manager.find_many(
-        "stock_daily_ak_full",
+        C.STOCK_DAILY,
         {"ts_code": ts_code},
         sort=[("trade_date", -1)],
         limit=60,
@@ -182,7 +183,7 @@ async def data_collect_node(state: StockAnalysisState) -> Dict[str, Any]:
     
     # 获取财务指标数据 (最近8个季度，约2年)
     fina_data = await mongo_manager.find_many(
-        "fina_indicator",
+        C.FINA_INDICATOR,
         {"ts_code": ts_code},
         sort=[("end_date", -1)],
         limit=8,
@@ -280,11 +281,15 @@ async def fundamental_node(state: StockAnalysisState) -> Dict[str, Any]:
     pct_chg = latest.get("pct_chg", 0)
     pe = latest.get("pe", stock.get("pe", 0))
     pb = latest.get("pb", stock.get("pb", 0))
-    # total_mv: stock_basic 已经是亿元，stock_daily_ak_full 是万元
+    # total_mv: stock_basic 存储单位是亿元(在sync_stock_basic.py中已转换)，
+    # stock_daily_ak_full 的 total_mv 存储单位是万元。
+    # 根据数据来源字段确定性判断，而非靠值大小猜测
     total_mv_raw = latest.get("total_mv") or stock.get("total_mv") or 0
-    # 判断来源：stock_basic 的 total_mv 已经转换为亿元 (值较小)，stock_daily_ak_full 是万元 (值较大)
-    # stock_basic 存的是亿元 (sync_stock_basic.py 中已转换)
-    total_mv_billion = total_mv_raw if total_mv_raw < 100000 else total_mv_raw / 10000
+    # stock_basic的数据是亿元(值较小<10000)，stock_daily_ak_full是万元(值较大)
+    # 用来源判断：如果total_mv来自daily_data(stock_daily_ak_full)，单位是万元→÷10000转亿
+    # 如果来自stock(stock_basic)，已经是亿元
+    has_daily_total_mv = bool(latest.get("total_mv"))
+    total_mv_billion = total_mv_raw / 10000 if has_daily_total_mv else total_mv_raw
     turnover_rate = latest.get("turnover_rate") or stock.get("turnover_rate") or 0
     
     # 计算区间涨跌幅 (30天)
@@ -1059,7 +1064,7 @@ async def mcp_search_node(state: StockAnalysisState) -> Dict[str, Any]:
             if tool_name == "get_stock_daily_ak_full":
                 # 获取日线数据
                 daily_data = await mongo_manager.find_many(
-                    "stock_daily_ak_full",
+                    C.STOCK_DAILY,
                     {"ts_code": ts_code},
                     sort=[("trade_date", -1)],
                     limit=10,
@@ -1486,7 +1491,7 @@ class StockAnalysisGraph:
         
         # 1.1 获取最近 10 个交易日的 daily_stats
         daily_stats_list = await mongo_manager.find_many(
-            "daily_stats",
+            C.DAILY_STATS,
             {},
             sort=[("trade_date", -1)],
             limit=10,
@@ -1520,7 +1525,7 @@ class StockAnalysisGraph:
         
         # 1.4 获取上证指数10日K线数据
         sh_index_list = await mongo_manager.find_many(
-            "index_daily",
+            C.INDEX_DAILY,
             {"ts_code": "000001.SH"},
             sort=[("trade_date", -1)],
             limit=10,
@@ -2280,7 +2285,7 @@ class StockAnalysisGraph:
         try:
             # 获取最新的 daily_stats
             stats = await mongo_manager.find_one(
-                "daily_stats",
+                C.DAILY_STATS,
                 {},
                 sort=[("trade_date", -1)],
             )
@@ -2322,14 +2327,14 @@ class StockAnalysisGraph:
             for ts_code in ts_codes[:3]:  # 最多3只股票
                 # 获取基本信息
                 basic = await mongo_manager.find_one(
-                    "stock_basic",
+                    C.STOCK_BASIC,
                     {"ts_code": ts_code},
                     projection={"name": 1, "industry": 1},
                 )
                 
                 # 获取最近3日行情
                 daily = await mongo_manager.find_many(
-                    "stock_daily_ak_full",
+                    C.STOCK_DAILY,
                     {"ts_code": ts_code},
                     sort=[("trade_date", -1)],
                     limit=3,

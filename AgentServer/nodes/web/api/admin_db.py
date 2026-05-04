@@ -11,6 +11,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Body
 from pydantic import BaseModel, Field
 
+from core.constants import C
 from core.managers import mongo_manager
 from core.settings import settings
 
@@ -23,15 +24,15 @@ router = APIRouter(prefix="/admin/db", tags=["数据库管理"])
 # ========== 允许操作的集合（安全白名单） ==========
 # 只包含实际存在且允许用户管理的集合
 ALLOWED_COLLECTIONS = [
-    "stock_daily_ak_full",  # 日线行情完整版 - 存在
-    "daily_basic",         # 每日基本信息 - 存在（预留）
-    "index_daily",         # 指数日线 - 存在
+    C.STOCK_DAILY,  # 日线行情完整版 - 存在
+    C.DAILY_BASIC,         # 每日基本信息 - 存在（预留）
+    C.INDEX_DAILY,         # 指数日线 - 存在
     "stock_daily_ak_full_factors",  # 日线因子 - 存在
     "stock_1min_factors",   # 1分钟因子 - 存在
     "backtest_tasks",     # 回测任务 - 存在
-    "limit_list",         # 涨跌停列表 - 存在
+    C.LIMIT_LIST,         # 涨跌停列表 - 存在
     "trade_cal",          # 交易日历 - 存在
-    "stock_basic",        # 股票基础信息 - 存在
+    C.STOCK_BASIC,        # 股票基础信息 - 存在
 ]
 
 
@@ -136,7 +137,7 @@ async def get_database_stats():
     # 特别统计 stock_daily_ak_full
     stock_daily_ak_full_stats = None
     try:
-        coll = db["stock_daily_ak_full"]
+        coll = db[C.STOCK_DAILY]
         count = await coll.count_documents({})
         
         # 获取日期范围
@@ -159,7 +160,7 @@ async def get_database_stats():
             # 最后更新时间（近似，用最新日期推算）
             last_update = datetime.now(timezone.utc).isoformat()
             
-            stats = await db.command("collstats", "stock_daily_ak_full")
+            stats = await db.command("collstats", C.STOCK_DAILY)
             stock_daily_ak_full_stats = {
                 "document_count": count,
                 "size_bytes": stats["size"],
@@ -178,7 +179,7 @@ async def get_database_stats():
     # 因子覆盖统计（抽样检查最新一天）
     factor_stats = None
     try:
-        coll = db["stock_daily_ak_full"]
+        coll = db[C.STOCK_DAILY]
         # 获取最新一天
         latest = await coll.find({}, {"trade_date": 1}).sort([("trade_date", -1)]).limit(1).to_list(length=1)
         if latest:
@@ -237,7 +238,7 @@ async def get_database_stats():
             "total_documents": total_documents,
             "total_size_bytes": total_size_bytes,
             "collections": collections,
-            "stock_daily_ak_full": stock_daily_ak_full_stats,
+            C.STOCK_DAILY: stock_daily_ak_full_stats,
             "factors": factor_stats,
         },
         "message": "数据库统计获取成功",
@@ -436,7 +437,7 @@ async def check_missing_data(request: CheckMissingRequest):
     检查指定日期的因子缺失情况
     """
     db = mongo_manager._db
-    coll = db["stock_daily_ak_full"]
+    coll = db[C.STOCK_DAILY]
     
     # 默认检查最新日期
     if request.date is None:
@@ -553,7 +554,7 @@ async def verify_integrity(
         }
     
     # 检查每个交易日的文档数
-    coll = db["stock_daily_ak_full"]
+    coll = db[C.STOCK_DAILY]
     daily_checks = []
     complete_days = 0
     

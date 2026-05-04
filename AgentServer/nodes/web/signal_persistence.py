@@ -54,6 +54,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Any
 
+from core.constants import C
 from core.managers import mongo_manager
 
 logger = logging.getLogger("signal_persistence")
@@ -61,11 +62,11 @@ logger = logging.getLogger("signal_persistence")
 
 # ==================== 集合名 ====================
 
-COLLECTION_PREMARKET = "daily_premarket_signals"
-COLLECTION_TRADING = "trading_signals"
-COLLECTION_REVIEW = "daily_postmarket_review"
-COLLECTION_EXECUTION_LOG = "signal_execution_log"
-COLLECTION_POOL = "premarket_pool"
+# C.DAILY_PREMARKET_SIGNALS -> C.DAILY_PREMARKET_SIGNALS
+# C.TRADING_SIGNALS -> C.TRADING_SIGNALS
+# COLLECTION_REVIEW kept (not in C)
+# COLLECTION_EXECUTION_LOG kept (not in C)
+# COLLECTION_POOL kept (not in C)
 
 
 # ==================== 信号状态 ====================
@@ -117,7 +118,7 @@ class SignalPersistence:
             db = mongo_manager.db
 
             # daily_premarket_signals 索引
-            await db[COLLECTION_PREMARKET].create_indexes([
+            await db[C.DAILY_PREMARKET_SIGNALS].create_indexes([
                 {"key": [("date", 1)], "unique": False, "name": "idx_date"},
                 {"key": [("signal_id", 1)], "unique": True, "name": "idx_signal_id"},
                 {"key": [("status", 1), ("generated_at", -1)], "name": "idx_status_date"},
@@ -125,7 +126,7 @@ class SignalPersistence:
             ])
 
             # trading_signals 索引
-            await db[COLLECTION_TRADING].create_indexes([
+            await db[C.TRADING_SIGNALS].create_indexes([
                 {"key": [("signal_id", 1)], "unique": True, "name": "idx_signal_id"},
                 {"key": [("ts_code", 1), ("generated_at", -1)], "name": "idx_tscode_date"},
                 {"key": [("status", 1), ("generated_at", -1)], "name": "idx_status_date"},
@@ -182,14 +183,14 @@ class SignalPersistence:
         # 1. 幂等写入 daily_premarket_signals
         #    使用 (date) 作为 upsert 键：同一天只保留最新信号
         existing = await mongo_manager.find_one(
-            COLLECTION_PREMARKET,
+            C.DAILY_PREMARKET_SIGNALS,
             {"date": trade_date},
         )
 
         if existing:
             # 更新已有记录（保留原 _id）
             await mongo_manager.update_one(
-                COLLECTION_PREMARKET,
+                C.DAILY_PREMARKET_SIGNALS,
                 {"date": trade_date},
                 {
                     "$set": {
@@ -213,7 +214,7 @@ class SignalPersistence:
             upserted = False
         else:
             signal_doc["regeneration_count"] = 1
-            await mongo_manager.insert_one(COLLECTION_PREMARKET, signal_doc)
+            await mongo_manager.insert_one(C.DAILY_PREMARKET_SIGNALS, signal_doc)
             logger.info(f"Inserted new premarket signal for {trade_date}: {signal_id}")
             upserted = True
 
@@ -226,7 +227,7 @@ class SignalPersistence:
             day_start = datetime.strptime(f"{trade_date} 00:00:00", "%Y%m%d %H:%M:%S")
             day_end = datetime.strptime(f"{trade_date} 23:59:59", "%Y%m%d %H:%M:%S")
             deleted = await mongo_manager.delete_many(
-                COLLECTION_TRADING,
+                C.TRADING_SIGNALS,
                 {
                     "status": {"$in": [SignalStatus.PENDING, SignalStatus.ACTIVE]},
                     "generated_at": {"$gte": day_start, "$lte": day_end},
@@ -238,7 +239,7 @@ class SignalPersistence:
             # 插入新的交易信号
             trading_docs = self._build_trading_signal_docs(signals, signal_doc)
             if trading_docs:
-                await mongo_manager.insert_many(COLLECTION_TRADING, trading_docs)
+                await mongo_manager.insert_many(C.TRADING_SIGNALS, trading_docs)
                 trading_count = len(trading_docs)
                 logger.info(f"Inserted {trading_count} trading signals for {trade_date}")
 
@@ -343,14 +344,14 @@ class SignalPersistence:
 
     async def get_signals_by_date(self, trade_date: str) -> Optional[Dict]:
         """查询指定日期的盘前信号"""
-        return await mongo_manager.find_one(COLLECTION_PREMARKET, {"date": trade_date})
+        return await mongo_manager.find_one(C.DAILY_PREMARKET_SIGNALS, {"date": trade_date})
 
     async def get_signals_range(
         self, start_date: str, end_date: str, limit: int = 30,
     ) -> List[Dict]:
         """查询日期范围内的盘前信号"""
         return await mongo_manager.find_many(
-            COLLECTION_PREMARKET,
+            C.DAILY_PREMARKET_SIGNALS,
             {"date": {"$gte": start_date, "$lte": end_date}},
             sort=[("generated_at", -1)],
             limit=limit,
@@ -359,7 +360,7 @@ class SignalPersistence:
     async def get_latest_signals(self, limit: int = 10) -> List[Dict]:
         """获取最近的盘前信号"""
         return await mongo_manager.find_many(
-            COLLECTION_PREMARKET,
+            C.DAILY_PREMARKET_SIGNALS,
             {},
             sort=[("generated_at", -1)],
             limit=limit,
@@ -373,7 +374,7 @@ class SignalPersistence:
             day_end = datetime.strptime(f"{trade_date} 23:59:59", "%Y%m%d %H:%M:%S")
             query["generated_at"] = {"$gte": day_start, "$lte": day_end}
         return await mongo_manager.find_many(
-            COLLECTION_TRADING, query,
+            C.TRADING_SIGNALS, query,
             sort=[("confidence", -1)],
         )
 
@@ -382,7 +383,7 @@ class SignalPersistence:
     ) -> List[Dict]:
         """按策略查询交易信号"""
         return await mongo_manager.find_many(
-            COLLECTION_TRADING,
+            C.TRADING_SIGNALS,
             {"strategy": strategy},
             sort=[("generated_at", -1)],
             limit=limit,
@@ -393,7 +394,7 @@ class SignalPersistence:
     ) -> List[Dict]:
         """按股票查询交易信号"""
         return await mongo_manager.find_many(
-            COLLECTION_TRADING,
+            C.TRADING_SIGNALS,
             {"ts_code": ts_code},
             sort=[("generated_at", -1)],
             limit=limit,
@@ -414,7 +415,7 @@ class SignalPersistence:
                 "count": {"$sum": 1},
             }},
         ]
-        results = await mongo_manager.aggregate(COLLECTION_TRADING, pipeline)
+        results = await mongo_manager.aggregate(C.TRADING_SIGNALS, pipeline)
 
         stats = {s: 0 for s in [SignalStatus.PENDING, SignalStatus.EXECUTED, SignalStatus.EXPIRED, SignalStatus.CANCELLED]}
         for r in results:
@@ -459,7 +460,7 @@ class SignalPersistence:
         """
         # 1. 验证信号存在且状态允许转换
         signal = await mongo_manager.find_one(
-            COLLECTION_TRADING,
+            C.TRADING_SIGNALS,
             {"signal_id": signal_id},
         )
 
@@ -486,7 +487,7 @@ class SignalPersistence:
             update_fields["execution_quantity"] = execution_quantity
 
         await mongo_manager.update_one(
-            COLLECTION_TRADING,
+            C.TRADING_SIGNALS,
             {"signal_id": signal_id},
             {"$set": update_fields},
         )
@@ -516,7 +517,7 @@ class SignalPersistence:
     async def mark_signal_cancelled(self, signal_id: str, reason: str = "") -> bool:
         """标记信号为已取消"""
         signal = await mongo_manager.find_one(
-            COLLECTION_TRADING,
+            C.TRADING_SIGNALS,
             {"signal_id": signal_id},
         )
         if not signal:
@@ -527,7 +528,7 @@ class SignalPersistence:
             return False
 
         await mongo_manager.update_one(
-            COLLECTION_TRADING,
+            C.TRADING_SIGNALS,
             {"signal_id": signal_id},
             {"$set": {
                 "status": SignalStatus.CANCELLED,
@@ -553,7 +554,7 @@ class SignalPersistence:
 
         # 过期 trading_signals
         result = await mongo_manager.update_many(
-            COLLECTION_TRADING,
+            C.TRADING_SIGNALS,
             {
                 "status": {"$in": [SignalStatus.PENDING, SignalStatus.ACTIVE]},
                 "generated_at": {"$gte": day_start, "$lte": day_end},
@@ -567,7 +568,7 @@ class SignalPersistence:
 
         # 更新盘前信号状态
         await mongo_manager.update_one(
-            COLLECTION_PREMARKET,
+            C.DAILY_PREMARKET_SIGNALS,
             {"date": trade_date, "status": SignalStatus.ACTIVE},
             {"$set": {"status": SignalStatus.EXPIRED, "expired_at": now}},
         )
@@ -578,7 +579,7 @@ class SignalPersistence:
     async def _check_premarket_all_executed(self, premarket_signal_id: str) -> None:
         """检查盘前信号的所有子信号是否都已执行"""
         # 查找该盘前信号下所有未执行的子信号
-        pending_count = await mongo_manager.count(COLLECTION_TRADING, {
+        pending_count = await mongo_manager.count(C.TRADING_SIGNALS, {
             "premarket_signal_id": premarket_signal_id,
             "status": {"$in": [SignalStatus.PENDING, SignalStatus.ACTIVE]},
         })
@@ -586,7 +587,7 @@ class SignalPersistence:
         if pending_count == 0:
             # 所有子信号都已处理，更新盘前信号状态
             await mongo_manager.update_one(
-                COLLECTION_PREMARKET,
+                C.DAILY_PREMARKET_SIGNALS,
                 {"signal_id": premarket_signal_id},
                 {"$set": {"status": SignalStatus.EXECUTED, "executed_at": datetime.now(timezone.utc)}},
             )
@@ -611,7 +612,7 @@ class SignalPersistence:
 
         # 1. 清理 trading_signals
         deleted = await mongo_manager.delete_many(
-            COLLECTION_TRADING,
+            C.TRADING_SIGNALS,
             {"generated_at": {"$lt": cutoff}},
         )
         results["trading_signals_deleted"] = deleted
@@ -619,7 +620,7 @@ class SignalPersistence:
 
         # 2. 清理 daily_premarket_signals
         deleted = await mongo_manager.delete_many(
-            COLLECTION_PREMARKET,
+            C.DAILY_PREMARKET_SIGNALS,
             {"date": {"$lt": cutoff_date}},
         )
         results["premarket_signals_deleted"] = deleted

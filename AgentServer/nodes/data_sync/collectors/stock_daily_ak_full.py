@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 
 from core.base import BaseCollector
 from core.settings import settings
+from core.constants import C
 from core.managers import tushare_manager, mongo_manager
 
 
@@ -40,7 +41,7 @@ class StockDailyCollector(BaseCollector):
     - 默认: 每个交易日 15:30 (收盘后)
     """
     
-    name = "stock_daily_ak_full"
+    name = C.STOCK_DAILY
     description = "采集股票日线数据"
     default_schedule = "30 15 * * 1-5"  # 默认: 每个交易日 15:30
     
@@ -75,7 +76,7 @@ class StockDailyCollector(BaseCollector):
         
         # 获取所有股票代码
         stocks = await mongo_manager.find_many(
-            "stock_basic",
+            C.STOCK_BASIC,
             {"list_status": "L"},
             projection={"ts_code": 1},
         )
@@ -167,12 +168,49 @@ class StockDailyCollector(BaseCollector):
             "message": f"[{sync_type_desc}] Synced {total_count} daily records from {start_date} to {end_date}, {failed_count} failed",
         }
     
+    def _enrich_pre_close(self, buffer: List[Dict[str, Any]]) -> None:
+        """补充pre_close字段：stock_daily_ak_full使用前复权数据，Tushare qfq不返回pre_close。
+        方案：按ts_code分组排序后，用前一交易日的close作为当日的pre_close。
+        对于已有pre_close的记录(来自AKShare)，保留原值不覆盖。
+        """
+        # 按ts_code分组
+        by_code: Dict[str, List[Dict]] = {}
+        for rec in buffer:
+            code = rec.get("ts_code", "")
+            if code not in by_code:
+                by_code[code] = []
+            by_code[code].append(rec)
+        
+        enriched = 0
+        for code, records in by_code.items():
+            # 按trade_date排序
+            records.sort(key=lambda r: r.get("trade_date", 0))
+            prev_close = None
+            for rec in records:
+                # 如果已有pre_close且非0，保留
+                if rec.get("pre_close") and rec["pre_close"] > 0:
+                    prev_close = rec["pre_close"]
+                    continue
+                # 用前一交易日的close补充
+                if prev_close is not None and prev_close > 0:
+                    rec["pre_close"] = prev_close
+                    enriched += 1
+                # 更新prev_close为当日close(用于下一条)
+                if rec.get("close") and rec["close"] > 0:
+                    prev_close = rec["close"]
+        
+        if enriched > 0:
+            self.logger.info(f"Enriched pre_close for {enriched} records (from previous day close)")
+    
     async def _write_buffer(self, buffer: List[Dict[str, Any]]) -> int:
-        """写入缓冲区数据到数据库"""
+        """写入缓冲区数据到数据库，写入前补充pre_close"""
+        # 补充pre_close字段（数据管道层修复，替代回测运行时的_prev_day_close hack）
+        self._enrich_pre_close(buffer)
+        
         import time
         t_start = time.time()
         result = await mongo_manager.bulk_upsert(
-            collection="stock_daily_ak_full",
+            collection=C.STOCK_DAILY,
             documents=buffer,
             key_fields=["ts_code", "trade_date"],
             batch_size=self.WRITE_BATCH_SIZE,

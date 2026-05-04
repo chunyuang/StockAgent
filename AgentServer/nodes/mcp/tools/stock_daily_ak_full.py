@@ -7,6 +7,7 @@ from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 
 from core.base import BaseTool, ToolResult
+from core.constants import C
 from core.managers import tushare_manager, mongo_manager
 
 
@@ -42,7 +43,7 @@ class GetStockDailyTool(BaseTool[GetStockDailyInput, GetStockDailyOutput]):
             filter_query.setdefault("trade_date", {})["$lte"] = input_data.end_date
         
         data = await mongo_manager.find_many(
-            "stock_daily_ak_full",
+            C.STOCK_DAILY,
             filter_query,
             sort=[("trade_date", -1)],
             limit=input_data.limit,

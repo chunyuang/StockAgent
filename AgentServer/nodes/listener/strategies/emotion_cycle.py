@@ -22,6 +22,7 @@ from typing import Dict, Any, Optional
 from dataclasses import dataclass
 import logging
 
+from core.constants import C
 from core.managers import mongo_manager
 
 
@@ -115,9 +116,9 @@ class EmotionCycleManager:
         else:
             # 从 MongoDB 查询
             query = {"trade_date": int(trade_date), "is_limit_up": True}
-            limit_up_count = await mongo_manager.count("limit_list", query)
+            limit_up_count = await mongo_manager.count(C.LIMIT_LIST, query)
             query = {"trade_date": int(trade_date), "is_limit_down": True}
-            limit_down_count = await mongo_manager.count("limit_list", query)
+            limit_down_count = await mongo_manager.count(C.LIMIT_LIST, query)
         
         # 2. 获取最高连板高度
         max_continue_limit = await self._get_max_continuation_limit(trade_date, limit_up_count)
@@ -186,9 +187,9 @@ class EmotionCycleManager:
         """获取涨跌家数"""
         # 统计今日涨幅 > 0 的股票数量
         query = {"trade_date": int(trade_date), "pct_chg": {"$gt": 0}}
-        up_count = await mongo_manager.count("stock_daily_ak_full", query)
+        up_count = await mongo_manager.count(C.STOCK_DAILY, query)
         query = {"trade_date": int(trade_date), "pct_chg": {"$lt": 0}}
-        down_count = await mongo_manager.count("stock_daily_ak_full", query)
+        down_count = await mongo_manager.count(C.STOCK_DAILY, query)
         return up_count, down_count
     
     async def _calculate_zt_premium(self, trade_date: str) -> float:
@@ -203,7 +204,7 @@ class EmotionCycleManager:
         
         # 查询昨日涨停
         yesterday_zt = await mongo_manager.find_many(
-            "limit_list",
+            C.LIMIT_LIST,
             {"trade_date": int(yesterday), "is_limit_up": True},
             projection={"ts_code": 1},
         )
@@ -218,7 +219,7 @@ class EmotionCycleManager:
         for doc in yesterday_zt:
             ts_code = doc["ts_code"]
             today_data = await mongo_manager.find_one(
-                "stock_daily_ak_full",
+                C.STOCK_DAILY,
                 {"ts_code": ts_code, "trade_date": int(trade_date)},
                 projection={"close": 1, "pre_close": 1},
             )

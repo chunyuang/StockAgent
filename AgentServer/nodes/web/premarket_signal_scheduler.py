@@ -40,6 +40,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Any
 
+from core.constants import C
 from core.managers import mongo_manager
 
 try:
@@ -68,9 +69,9 @@ logger = logging.getLogger("premarket_scheduler")
 
 # ==================== 常量 ====================
 
-COLLECTION_SIGNALS = "daily_premarket_signals"
+COLLECTION_SIGNALS = C.DAILY_PREMARKET_SIGNALS
 COLLECTION_POOL = "premarket_pool"
-COLLECTION_TRADING_SIGNALS = "trading_signals"  # 已有集合，兼容写入
+COLLECTION_TRADING_SIGNALS = C.TRADING_SIGNALS  # 已有集合，兼容写入
 
 # 调度时间配置
 SCHEDULE_PREMARKET = {"hour": 8, "minute": 50}   # 盘前08:50
@@ -577,7 +578,7 @@ class PremarketSignalScheduler:
 
         try:
             daily_data = await mongo_manager.find_many(
-                "stock_daily_ak_full",
+                C.STOCK_DAILY,
                 {"ts_code": {"$in": ts_codes}, "trade_date": int(trade_date)},
                 projection={"ts_code": 1, "close": 1, "pct_chg": 1, "amount": 1, "up_limit": 1, "down_limit": 1},
             )
@@ -587,7 +588,7 @@ class PremarketSignalScheduler:
 
         try:
             basic_data = await mongo_manager.find_many(
-                "stock_basic",
+                C.STOCK_BASIC,
                 {"ts_code": {"$in": ts_codes}},
                 projection={"ts_code": 1, "name": 1, "industry": 1},
             )

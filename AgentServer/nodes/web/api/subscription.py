@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Path, Body, Depends
 from pydantic import BaseModel, Field
 
+from core.constants import C
 from core.managers import mongo_manager
 from core.protocols import StrategyType
 from core.rpc import rpc_manager
@@ -175,7 +176,7 @@ async def _get_stock_names(ts_codes: List[str]) -> dict:
         return {}
     
     stocks = await mongo_manager.find_many(
-        "stock_basic",
+        C.STOCK_BASIC,
         {"ts_code": {"$in": ts_codes}},
         projection={"ts_code": 1, "name": 1},
     )
@@ -469,7 +470,7 @@ async def add_stock_to_strategy(
     
     # 验证股票是否存在
     stock = await mongo_manager.find_one(
-        "stock_basic",
+        C.STOCK_BASIC,
         {"ts_code": ts_code},
     )
     

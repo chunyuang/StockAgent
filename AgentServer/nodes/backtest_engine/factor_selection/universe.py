@@ -12,6 +12,7 @@ import logging
 from datetime import datetime, timedelta
 from enum import StrEnum
 
+from core.constants import C
 from core.managers import mongo_manager
 
 logger = logging.getLogger(__name__)
@@ -99,7 +100,7 @@ class UniverseManager:
             return self._tradable_stocks_cache[trade_date].copy()
         
         result = await mongo_manager.find_many(
-            "stock_daily_ak_full",
+            C.STOCK_DAILY,
             {"trade_date": int(trade_date)},
             projection={"ts_code": 1, "close": 1},
         )
@@ -151,7 +152,7 @@ class UniverseManager:
         
         # ST 股票名称包含 ST
         result = await mongo_manager.find_many(
-            "stock_basic",
+            C.STOCK_BASIC,
             {"name": {"$regex": "ST", "$options": "i"}},
             projection={"ts_code": 1},
         )
@@ -188,7 +189,7 @@ class UniverseManager:
         
         # 上市日期晚于截止日期的都是次新股
         result = await mongo_manager.find_many(
-            "stock_basic",
+            C.STOCK_BASIC,
             {"list_date": {"$gt": cutoff_date_int}},
             projection={"ts_code": 1},
         )
@@ -204,7 +205,7 @@ class UniverseManager:
         """
         # 从 stock_daily_ak_full 获取当日数据，按板块分别判断涨停
         result = await mongo_manager.find_many(
-            "stock_daily_ak_full",
+            C.STOCK_DAILY,
             {"trade_date": int(trade_date)},
             projection={"ts_code": 1, "pct_chg": 1, "open": 1, "low": 1, "close": 1},
         )
@@ -234,7 +235,7 @@ class UniverseManager:
         """
         # 获取所有当日数据，按板块分别判断
         result = await mongo_manager.find_many(
-            "stock_daily_ak_full",
+            C.STOCK_DAILY,
             {"trade_date": int(trade_date)},
             projection={"ts_code": 1, "pct_chg": 1},
         )
@@ -380,7 +381,7 @@ class UniverseManager:
                     {"$group": {"_id": "$trade_date"}},
                     {"$sort": {"_id": 1}}
                 ]
-                result = await mongo_manager.aggregate("stock_daily_ak_full", pipeline)
+                result = await mongo_manager.aggregate(C.STOCK_DAILY, pipeline)
                 
                 # 存入全局缓存
                 UniverseManager._all_trade_dates_cache = [doc["_id"] for doc in result]

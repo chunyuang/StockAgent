@@ -30,6 +30,7 @@ from datetime import datetime, timedelta, timezone
 
 from core.base import BaseCollector
 from core.settings import settings
+from core.constants import C
 from core.managers import tushare_manager, mongo_manager
 
 
@@ -130,7 +131,7 @@ class DailyBasicCollector(BaseCollector):
     - 默认: 每个交易日 16:00 (收盘后，在 stock_daily_ak_full 之后)
     """
     
-    name = "daily_basic"
+    name = C.DAILY_BASIC
     description = "采集股票每日指标数据（PE/PB/换手率/市值等）"
     default_schedule = "0 16 * * 1-5"  # 默认: 每个交易日 16:00
     
@@ -206,7 +207,7 @@ class DailyBasicCollector(BaseCollector):
                     
                     # Step 3: 批量写入
                     result = await mongo_manager.bulk_upsert(
-                        collection="daily_basic",
+                        collection=C.DAILY_BASIC,
                         documents=cleaned_records,
                         key_fields=["ts_code", "trade_date"],
                         batch_size=self.WRITE_BATCH_SIZE,

@@ -16,6 +16,7 @@ import time
 
 from core.base import BaseCollector
 from core.settings import settings
+from core.constants import C
 from core.managers import tushare_manager, mongo_manager, analysis_manager
 
 
@@ -32,7 +33,7 @@ class DailyStatsCollector(BaseCollector):
     - 默认: 每个交易日 16:30 (确保其他数据已同步完成)
     """
     
-    name = "daily_stats"
+    name = C.DAILY_STATS
     description = "计算每日统计数据"
     default_schedule = "30 16 * * 1-5"  # 默认: 每个交易日 16:30
     
@@ -64,14 +65,14 @@ class DailyStatsCollector(BaseCollector):
         # 2-4. 统计每日综合数据
         t2 = time.time()
         stats_result = await self._compute_daily_stats(latest_trade_date)
-        results["daily_stats"] = stats_result
+        results[C.DAILY_STATS] = stats_result
         self.logger.info(f"Daily stats computed: {time.time()-t2:.2f}s")
         
         # 5. 情绪周期分析
         t3 = time.time()
         # 获取昨日数据用于趋势判断
         prev_stats = await mongo_manager.find_one(
-            "daily_stats",
+            C.DAILY_STATS,
             {"trade_date": {"$lt": latest_trade_date}},
             sort=[("trade_date", -1)],
         )
@@ -97,7 +98,7 @@ class DailyStatsCollector(BaseCollector):
         return {
             "trade_date": latest_trade_date,
             "sector_ranking": ranking_result,
-            "daily_stats": stats_result,
+            C.DAILY_STATS: stats_result,
             "market_analysis": analysis_result,
             "message": f"Computed daily stats for {latest_trade_date}",
         }
@@ -114,7 +115,7 @@ class DailyStatsCollector(BaseCollector):
         # 1. 行业排名 (前20)
         # 注意: moneyflow_industry 表的名称字段是 "industry"
         industry_data = await mongo_manager.find_many(
-            "moneyflow_industry",
+            C.MONEYFLOW_INDUSTRY,
             {"trade_date": trade_date},
         )
         
@@ -152,7 +153,7 @@ class DailyStatsCollector(BaseCollector):
         
         # 2. 概念板块排名 (前20)
         concept_data = await mongo_manager.find_many(
-            "moneyflow_concept",
+            C.MONEYFLOW_CONCEPT,
             {"trade_date": trade_date},
         )
         
@@ -255,7 +256,7 @@ class DailyStatsCollector(BaseCollector):
         
         # 1. 从 limit_list 获取涨跌停数据
         limit_data = await mongo_manager.find_many(
-            "limit_list",
+            C.LIMIT_LIST,
             {"trade_date": trade_date},
             projection={"ts_code": 1, "limit": 1, "limit_times": 1, "open_times": 1, "_id": 0},
         )
@@ -296,7 +297,7 @@ class DailyStatsCollector(BaseCollector):
         
         # 2. 从 stock_daily_ak_full 获取涨跌统计
         daily_data = await mongo_manager.find_many(
-            "stock_daily_ak_full",
+            C.STOCK_DAILY,
             {"trade_date": trade_date},
             projection={"ts_code": 1, "pct_chg": 1, "_id": 0},
         )
@@ -334,7 +335,7 @@ class DailyStatsCollector(BaseCollector):
         try:
             # 上证指数 000001.SH
             sh_index = await mongo_manager.find_one(
-                "index_daily",
+                C.INDEX_DAILY,
                 {"ts_code": "000001.SH", "trade_date": trade_date},
                 projection={"amount": 1, "_id": 0},
             )
@@ -343,7 +344,7 @@ class DailyStatsCollector(BaseCollector):
             
             # 深证成指 399001.SZ
             sz_index = await mongo_manager.find_one(
-                "index_daily",
+                C.INDEX_DAILY,
                 {"ts_code": "399001.SZ", "trade_date": trade_date},
                 projection={"amount": 1, "_id": 0},
             )
@@ -373,7 +374,7 @@ class DailyStatsCollector(BaseCollector):
         
         # 写入数据库 (upsert)
         await mongo_manager.update_one(
-            "daily_stats",
+            C.DAILY_STATS,
             {"trade_date": trade_date},
             {"$set": stats},
             upsert=True,

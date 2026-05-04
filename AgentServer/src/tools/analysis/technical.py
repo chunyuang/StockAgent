@@ -114,7 +114,8 @@ async def calculate_technical_indicators(
     Returns:
         技术指标数据
     """
-    from core.managers import mongo_manager
+    from core.constants import C
+from core.managers import mongo_manager
     
     if indicators is None:
         indicators = ["ma", "macd", "rsi"]
@@ -122,7 +123,7 @@ async def calculate_technical_indicators(
     try:
         # 获取K线数据
         records = await mongo_manager.find_many(
-            "stock_daily_ak_full",
+            C.STOCK_DAILY,
             {"ts_code": stock_code},
             sort=[("trade_date", -1)],
             limit=120,  # 足够计算各种指标
@@ -237,7 +238,7 @@ async def analyze_trend(stock_code: str, days: int = 60) -> dict:
     
     try:
         records = await mongo_manager.find_many(
-            "stock_daily_ak_full",
+            C.STOCK_DAILY,
             {"ts_code": stock_code},
             sort=[("trade_date", -1)],
             limit=days,

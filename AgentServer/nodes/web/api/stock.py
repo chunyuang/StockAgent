@@ -7,6 +7,7 @@ from typing import Optional, List
 from fastapi import APIRouter, Query, HTTPException
 from pydantic import BaseModel
 
+from core.constants import C
 from core.managers import mongo_manager
 
 
@@ -80,7 +81,7 @@ async def search_stocks(
     }
     
     stocks = await mongo_manager.find_many(
-        "stock_basic",
+        C.STOCK_BASIC,
         filter_query,
         limit=limit,
     )
@@ -103,7 +104,7 @@ async def search_stocks(
 async def get_stock_basic(ts_code: str):
     """获取股票基础信息"""
     stock = await mongo_manager.find_one(
-        "stock_basic",
+        C.STOCK_BASIC,
         {"ts_code": ts_code.upper()},
     )
     
@@ -137,7 +138,7 @@ async def get_stock_daily_ak_full(
         filter_query.setdefault("trade_date", {})["$lte"] = end_date
     
     records = await mongo_manager.find_many(
-        "stock_daily_ak_full",
+        C.STOCK_DAILY,
         filter_query,
         sort=[("trade_date", -1)],
         limit=limit,
@@ -172,7 +173,7 @@ async def get_realtime_quotes(body: RealtimeQuoteRequest):
     
     # 获取股票基本信息
     stocks = await mongo_manager.find_many(
-        "stock_basic",
+        C.STOCK_BASIC,
         {"ts_code": {"$in": ts_codes}},
     )
     stock_map = {s["ts_code"]: s for s in stocks}
@@ -184,7 +185,7 @@ async def get_realtime_quotes(body: RealtimeQuoteRequest):
         
         # 获取该股票最新的日线数据
         daily = await mongo_manager.find_one(
-            "stock_daily_ak_full",
+            C.STOCK_DAILY,
             {"ts_code": ts_code},
             sort=[("trade_date", -1)],
         )
@@ -209,7 +210,7 @@ async def get_realtime_quotes(body: RealtimeQuoteRequest):
 async def get_industries():
     """获取行业列表"""
     industries = await mongo_manager.aggregate(
-        "stock_basic",
+        C.STOCK_BASIC,
         [
             {"$match": {"list_status": "L", "industry": {"$ne": None}}},
             {"$group": {"_id": "$industry"}},
@@ -227,7 +228,7 @@ async def get_stocks_by_industry(
 ):
     """按行业获取股票"""
     stocks = await mongo_manager.find_many(
-        "stock_basic",
+        C.STOCK_BASIC,
         {"industry": industry, "list_status": "L"},
         limit=limit,
     )

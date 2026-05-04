@@ -22,6 +22,7 @@ from .base_executor import (
     AccountInfo,
 )
 
+from core.constants import C
 from core.managers import mongo_manager
 from core.settings import settings
 
@@ -210,7 +211,7 @@ class SimulatorExecutor(BaseExecutor):
             "trade_date": today,
         }
         result = await mongo_manager.find_many(
-            "stock_daily_ak_full",
+            C.STOCK_DAILY,
             query,
             projection={"ts_code": 1, "close": 1},
         )

@@ -20,6 +20,7 @@ import time
 
 from core.base import BaseCollector
 from core.settings import settings
+from core.constants import C
 from core.managers import tushare_manager, mongo_manager
 
 
@@ -44,7 +45,7 @@ class IndexDailyCollector(BaseCollector):
     - 默认: 每个交易日 15:35 (收盘后)
     """
     
-    name = "index_daily"
+    name = C.INDEX_DAILY
     description = "采集指数日线数据"
     default_schedule = "35 15 * * 1-5"  # 默认: 每个交易日 15:35
     
@@ -149,7 +150,7 @@ class IndexDailyCollector(BaseCollector):
         """写入缓冲区数据到数据库"""
         t_start = time.time()
         result = await mongo_manager.bulk_upsert(
-            collection="index_daily",
+            collection=C.INDEX_DAILY,
             documents=buffer,
             key_fields=["ts_code", "trade_date"],
             batch_size=self.WRITE_BATCH_SIZE,

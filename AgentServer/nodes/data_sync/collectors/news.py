@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 
 from core.base import BaseCollector
 from core.settings import settings
+from core.constants import C
 from core.managers import mongo_manager
 from core.managers.akshare_manager import akshare_manager
 from core.managers.milvus_manager import milvus_manager
@@ -124,7 +125,7 @@ class NewsCollector(BaseCollector):
         """
         # 从 limit_list 表查询涨跌停股票
         limit_records = await mongo_manager.find_many(
-            "limit_list",
+            C.LIMIT_LIST,
             {"trade_date": trade_date},
             projection={"ts_code": 1, "limit": 1, "_id": 0},
         )
@@ -132,7 +133,7 @@ class NewsCollector(BaseCollector):
         if not limit_records:
             # 尝试获取最新日期的数据
             latest = await mongo_manager.find_one(
-                "limit_list",
+                C.LIMIT_LIST,
                 {},
                 sort=[("trade_date", -1)],
                 projection={"trade_date": 1},
@@ -141,7 +142,7 @@ class NewsCollector(BaseCollector):
                 latest_date = latest.get("trade_date")
                 self.logger.info(f"No data for {trade_date}, using latest: {latest_date}")
                 limit_records = await mongo_manager.find_many(
-                    "limit_list",
+                    C.LIMIT_LIST,
                     {"trade_date": latest_date},
                     projection={"ts_code": 1, "limit": 1, "_id": 0},
                 )

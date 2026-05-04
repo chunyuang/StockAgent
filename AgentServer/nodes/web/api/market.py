@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException, Query, Depends
 from typing import Optional, List, Dict, Any
 from datetime import datetime, date
 
+from core.constants import C
 from core.managers import mongo_manager, theme_manager, redis_manager
 from .auth import require_admin, CurrentUser
 
@@ -73,7 +74,7 @@ async def _get_index_data_from_mongodb(trade_date: Optional[str] = None) -> Dict
             query["trade_date"] = trade_date
         
         index_data = await mongo_manager.find_one(
-            "index_daily",
+            C.INDEX_DAILY,
             query,
             sort=[("trade_date", -1)],
         )
@@ -165,7 +166,7 @@ async def _get_market_overview_from_mongodb(trade_date: Optional[str] = None) ->
     
     # 获取 daily_stats (涨跌统计)
     stats = await mongo_manager.find_one(
-        "daily_stats",
+        C.DAILY_STATS,
         query,
         sort=[("trade_date", -1)],
     )
@@ -221,7 +222,7 @@ async def get_latest_market_data() -> Dict[str, Any]:
     """
     # 获取最新的 daily_stats
     latest_stats = await mongo_manager.find_one(
-        "daily_stats",
+        C.DAILY_STATS,
         {},
         sort=[("trade_date", -1)],
     )
@@ -299,7 +300,7 @@ async def get_market_history(
     """
     # 获取历史 daily_stats
     stats_list = await mongo_manager.find_many(
-        "daily_stats",
+        C.DAILY_STATS,
         {},
         sort=[("trade_date", -1)],
         limit=days,
@@ -454,7 +455,7 @@ async def get_stats_table(
         表格数据
     """
     stats_list = await mongo_manager.find_many(
-        "daily_stats",
+        C.DAILY_STATS,
         {},
         sort=[("trade_date", -1)],
         limit=days,

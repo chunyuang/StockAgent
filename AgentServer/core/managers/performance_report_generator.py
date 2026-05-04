@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Any, Optional
 
 
+from core.constants import C
 from core.managers import mongo_manager
 
 logger = logging.getLogger("performance_report_generator")
@@ -59,7 +60,7 @@ class PerformanceReportGenerator:
             
             # 获取账户持仓
             positions = await mongo_manager.find_many(
-                "positions",
+                C.POSITIONS,
                 {"account_id": account_id}
             )
             
@@ -199,7 +200,7 @@ class PerformanceReportGenerator:
                 return None
             
             initial_cash = account.get("initial_cash", 0)
-            positions = await mongo_manager.find_many("positions", {"account_id": account_id})
+            positions = await mongo_manager.find_many(C.POSITIONS, {"account_id": account_id})
             total_assets = account.get("available_cash", 0) + sum(
                 pos["quantity"] * pos.get("current_price", pos.get("avg_cost", 0)) for pos in positions
             )

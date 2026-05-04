@@ -37,7 +37,7 @@ class BaseCollector(ScheduledJob):
             
             async def collect(self) -> dict:
                 data = await data_source_manager.get_stock_basic()
-                await mongo_manager.bulk_upsert("stock_basic", data)
+                await mongo_manager.bulk_upsert(C.STOCK_BASIC, data)
                 return {"count": len(data)}
     """
     

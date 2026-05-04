@@ -13,6 +13,7 @@ from enum import Enum
 from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
 
+from core.constants import C
 from core.managers import mongo_manager
 from .auth import get_optional_user_id
 
@@ -169,7 +170,7 @@ async def get_sim_accounts(
             # 计算实时资产
             total_position_value = 0
             positions = await mongo_manager.find_many(
-                "positions",
+                C.POSITIONS,
                 {"account_id": record["account_id"]}
             )
             
@@ -285,7 +286,7 @@ async def get_positions(
             raise HTTPException(status_code=404, detail="账户不存在或无权限访问")
         
         records = await mongo_manager.find_many(
-            "positions",
+            C.POSITIONS,
             {"account_id": account_id, "quantity": {"$gt": 0}},
             sort=[("created_at", -1)]
         )
@@ -396,10 +397,10 @@ async def get_trading_signals(
         if only_unexecuted:
             query["status"] = SignalStatus.PENDING
         
-        total = await mongo_manager.count("trading_signals", query)
+        total = await mongo_manager.count(C.TRADING_SIGNALS, query)
         
         records = await mongo_manager.find_many(
-            "trading_signals",
+            C.TRADING_SIGNALS,
             query,
             sort=[("generated_at", -1)],
             skip=offset,
@@ -458,7 +459,7 @@ async def execute_signal(
         
         # 获取信号
         signal = await mongo_manager.find_one(
-            "trading_signals",
+            C.TRADING_SIGNALS,
             {"signal_id": signal_id}
         )
         
@@ -494,7 +495,7 @@ async def execute_signal(
         # 更新信号状态
         now = datetime.now(timezone.utc)
         await mongo_manager.update_one(
-            "trading_signals",
+            C.TRADING_SIGNALS,
             {"signal_id": signal_id},
             {
                 "$set": {
