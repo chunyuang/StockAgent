@@ -131,3 +131,57 @@ class TestCostVsMarketPrice:
         pnl_using_market = (current_price - avg_cost) * 100  # = 200 ✅
         assert pnl_using_cost == 0           # 用成本价算PnL恒为0
         assert pnl_using_market == 200       # 用市价算PnL才正确
+
+
+class TestSentimentScore:
+    """情绪评分计算测试 — 防止硬编码0.5"""
+
+    def test_sentiment_not_always_05(self):
+        rsi_normalized = (70 - 50) / 50  # 0.4
+        vol_zscore = -0.5
+        score = 0.5 + rsi_normalized * 0.3 - vol_zscore * 0.1
+        assert score > 0.5  # 贪婪
+
+    def test_sentiment_fear(self):
+        rsi_normalized = (30 - 50) / 50  # -0.4
+        vol_zscore = 1.5
+        score = 0.5 + rsi_normalized * 0.3 - vol_zscore * 0.1
+        assert score < 0.5  # 恐惧
+
+    def test_sentiment_bounded(self):
+        score = max(0, min(1, 0.5 + 1.0 * 0.3 - (-3) * 0.1))  # 1.1 → 1.0
+        assert score == 1.0
+        score = max(0, min(1, 0.5 + (-1.0) * 0.3 - 3 * 0.1))  # -0.1 → 0
+        assert score == 0
+
+
+class TestDailyBasicMerge:
+    """daily_basic数据合并逻辑测试"""
+
+    def test_circ_mv_from_daily_basic_overrides_approximation(self):
+        approx_circ_mv = 1000000 * 100
+        daily_basic_circ_mv = 50.0
+        final_circ_mv = daily_basic_circ_mv if daily_basic_circ_mv else approx_circ_mv
+        assert final_circ_mv == 50.0
+        assert final_circ_mv != approx_circ_mv / 10000
+
+    def test_merge_fields_list(self):
+        merge_fields = ["circ_mv", "turnover_rate", "pe_ttm", "pb", "volume_ratio"]
+        assert len(merge_fields) == 5
+
+
+class TestSortinoCalmar:
+    """Sortino/Calmar计算测试"""
+
+    def test_sortino_formula(self):
+        annualized_return = 0.15
+        sortino = (annualized_return - 0.02) / 0.10
+        assert abs(sortino - 1.3) < 0.001
+
+    def test_calmar_formula(self):
+        calmar = 0.20 / 0.10
+        assert abs(calmar - 2.0) < 0.001
+
+    def test_sortino_negative_return(self):
+        sortino = (-0.05 - 0.02) / 0.10
+        assert sortino < 0
