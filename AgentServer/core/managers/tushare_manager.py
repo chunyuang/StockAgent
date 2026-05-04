@@ -1036,6 +1036,35 @@ class TushareManager(BaseManager):
             f"Realtime quote completed: {len(all_records)}/{len(ts_codes)} stocks"
             + (f" (skipped {skipped} batches)" if skipped > 0 else "")
         )
+        
+        # 量脉fallback: Tushare实时行情失败时，尝试量脉API
+        if not all_records:
+            try:
+                from core.data_fetchers.liangmai_client import get_liangmai_client
+                client = await get_liangmai_client()
+                # 6位代码列表
+                code6_list = [c.split(".")[0] if "." in c else c for c in ts_codes]
+                liangmai_records = await client.get_realtime_multi(code6_list[:20])
+                if liangmai_records:
+                    for r in liangmai_records:
+                        dm = r.get("dm", "")
+                        ts_code = dm if "." in dm else f"{dm}.SZ"
+                        all_records.append({
+                            "ts_code": ts_code,
+                            "name": "",
+                            "price": r.get("p"),
+                            "open": r.get("o"),
+                            "high": r.get("h"),
+                            "low": r.get("l"),
+                            "pre_close": r.get("yc"),
+                            "pct_change": r.get("pc"),
+                            "vol": r.get("v"),
+                            "amount": r.get("cje"),
+                        })
+                    self.logger.info(f"LiangMai fallback: got {len(all_records)} realtime quotes")
+            except Exception as e:
+                self.logger.warning(f"LiangMai realtime fallback failed: {e}")
+        
         return all_records
     
     # 三大核心指数代码

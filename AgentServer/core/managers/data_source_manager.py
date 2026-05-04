@@ -28,6 +28,7 @@ from src.data_sources import (
     AKShareAdapter,
     BaoStockAdapter,
 )
+from src.data_sources.liangmai_adapter import LiangMaiAdapter
 
 
 logger = logging.getLogger(__name__)
@@ -76,6 +77,10 @@ class DataSourceManager(BaseManager):
         # 免费数据源始终添加
         adapter_classes.append((AKShareAdapter, {}))
         adapter_classes.append((BaoStockAdapter, {}))
+        
+        # 量脉数据源(实时行情/涨停池/资金流向) - 高优先级
+        adapter_classes.insert(0, (LiangMaiAdapter, {}))
+        self.logger.info("LiangMaiAdapter added (priority: realtime quotes + limit pools)")
         
         # 初始化所有适配器
         for adapter_cls, kwargs in adapter_classes:
