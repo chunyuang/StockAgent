@@ -19,6 +19,7 @@ import asyncio
 
 from core.base import BaseCollector
 from core.settings import settings
+from core.constants import C
 from core.managers import tushare_manager, mongo_manager
 
 # AKShare 数据获取 - 直接动态导入因为之前目录名问题
@@ -64,7 +65,7 @@ class FinaIndicatorCollector(BaseCollector):
     - 默认: 每月1号 09:00 (财报按季度披露，月度更新即可)
     """
     
-    name = "fina_indicator"
+    name = C.FINA_INDICATOR
     description = "采集财务数据 (三大报表 + 财务指标)"
     default_schedule = "0 9 1 * *"  # 默认: 每月1号 09:00
     
@@ -73,7 +74,7 @@ class FinaIndicatorCollector(BaseCollector):
         "income_statement": "fina_income",
         "balance_sheet": "fina_balance",
         "cashflow_statement": "fina_cashflow",
-        "financial_indicators": "fina_indicator",
+        "financial_indicators": C.FINA_INDICATOR,
     }
     
     # 批量处理参数
@@ -91,7 +92,7 @@ class FinaIndicatorCollector(BaseCollector):
         today = date.today().strftime("%Y%m%d")
         
         # 检查是否已同步 (按月检查，同一月份内不重复同步)
-        if await mongo_manager.is_synced("fina_indicator", today, granularity="month"):
+        if await mongo_manager.is_synced(C.FINA_INDICATOR, today, granularity="month"):
             self.logger.info(f"Fina indicator {today[:6]} already synced this month, skipping")
             return {"count": 0, "message": f"Already synced this month ({today[:6]})", "skipped": True}
         
@@ -102,7 +103,7 @@ class FinaIndicatorCollector(BaseCollector):
         
         # 记录同步完成
         await mongo_manager.record_sync(
-            sync_type="fina_indicator",
+            sync_type=C.FINA_INDICATOR,
             sync_date=today,
             count=result["count"],
         )
@@ -143,7 +144,7 @@ class FinaIndicatorCollector(BaseCollector):
         # 从数据库读取股票列表 (比调用 Tushare API 更快)
         query = {} if include_delisted else {"list_status": "L"}
         stocks = await mongo_manager.find_many(
-            "stock_basic",
+            C.STOCK_BASIC,
             query,
             projection={"ts_code": 1},
         )
@@ -322,7 +323,7 @@ class FinaIndicatorCollector(BaseCollector):
                         for r in indicator_records:
                             r["updated_at"] = now
                         await mongo_manager.bulk_upsert(
-                            collection="fina_indicator",
+                            collection=C.FINA_INDICATOR,
                             documents=indicator_records,
                             key_fields=["ts_code", "end_date"],
                             batch_size=500,
@@ -367,7 +368,7 @@ class FinaIndicatorCollector(BaseCollector):
     
     async def _ensure_indexes(self) -> None:
         """确保所有财务数据表的索引存在"""
-        collections = ["fina_income", "fina_balance", "fina_cashflow", "fina_indicator"]
+        collections = ["fina_income", "fina_balance", "fina_cashflow", C.FINA_INDICATOR]
         
         self.logger.info(f"Creating indexes for {len(collections)} collections...")
         

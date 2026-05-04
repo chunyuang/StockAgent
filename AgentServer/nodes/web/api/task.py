@@ -21,6 +21,7 @@ from core.protocols import (
     TaskType,
     TaskStatus,
 )
+from core.constants import C
 from core.managers import redis_manager, mongo_manager
 from .auth import get_optional_user_id
 
@@ -90,7 +91,7 @@ async def _get_stock_names(ts_codes: List[str]) -> Dict[str, str]:
     # 批量查询未缓存的
     if codes_to_fetch:
         stocks = await mongo_manager.find_many(
-            "stock_basic",
+            C.STOCK_BASIC,
             {"ts_code": {"$in": codes_to_fetch}},
             projection={"ts_code": 1, "name": 1, "_id": 0},
         )

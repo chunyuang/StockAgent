@@ -11,6 +11,7 @@ from typing import List, Dict, Any, Optional
 
 
 from core.managers import mongo_manager
+from core.constants import C
 
 try:
     from backtest_module.strategies import (
@@ -123,7 +124,7 @@ class SignalGenerator:
         
         # 批量保存信号到数据库
         if all_signals:
-            await mongo_manager.insert_many("trading_signals", all_signals)
+            await mongo_manager.insert_many(C.TRADING_SIGNALS, all_signals)
             logger.info(f"成功生成 {len(all_signals)} 个交易信号，已存入数据库")
         
         return all_signals
@@ -133,19 +134,19 @@ class SignalGenerator:
         # TODO: 加载行情数据、龙虎榜、北向资金等
         # 1. 加载当日日线数据
         daily_data = await mongo_manager.find_many(
-            "stock_daily_ak_full",
+            C.STOCK_DAILY,
             {"trade_date": int(trade_date)}
         )
         
         # 2. 加载基础信息
         basic_info = await mongo_manager.find_many(
-            "stock_basic",
+            C.STOCK_BASIC,
             {}
         )
         
         # 3. 加载涨跌停数据
         limit_data = await mongo_manager.find_many(
-            "limit_list",
+            C.LIMIT_LIST,
             {"trade_date": int(trade_date)}
         )
         
@@ -168,7 +169,7 @@ class SignalGenerator:
             query["status"] = "pending"
         
         signals = await mongo_manager.find_many(
-            "trading_signals",
+            C.TRADING_SIGNALS,
             query,
             sort=[("generated_at", -1)],
             limit=limit

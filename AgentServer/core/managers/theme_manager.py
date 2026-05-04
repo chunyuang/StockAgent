@@ -7,6 +7,7 @@
 3. 轮动分析：跟踪板块位次变化趋势
 """
 
+from core.constants import C
 from typing import Dict, Any, List
 from enum import Enum
 
@@ -145,7 +146,7 @@ class ThemeManager(BaseManager):
         """获取涨停板数据，按板块统计3板以上个数"""
         # 从 limit_list 获取当日涨停数据
         limit_data = await mongo_manager.find_many(
-            "limit_list",
+            C.LIMIT_LIST,
             {"trade_date": trade_date, "limit_times": {"$gte": 3}},
         )
         
@@ -415,7 +416,7 @@ class ThemeManager(BaseManager):
         
         # 2. 获取涨停板数据（用于连板系数）
         limit_data = await mongo_manager.find_many(
-            "limit_list",
+            C.LIMIT_LIST,
             {"trade_date": trade_date},
         )
         
@@ -435,7 +436,7 @@ class ThemeManager(BaseManager):
         
         # 3. 获取资金流向数据
         moneyflow = await mongo_manager.find_many(
-            "moneyflow_industry",
+            C.MONEYFLOW_INDUSTRY,
             {"trade_date": trade_date},
         )
         moneyflow_map = {m.get("industry"): m for m in moneyflow}

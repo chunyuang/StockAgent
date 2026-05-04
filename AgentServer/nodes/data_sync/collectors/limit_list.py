@@ -16,6 +16,7 @@ import asyncio
 
 from core.base import BaseCollector
 from core.settings import settings
+from core.constants import C
 from core.managers import tushare_manager, mongo_manager
 
 
@@ -35,7 +36,7 @@ class LimitListCollector(BaseCollector):
     - 默认: 每个交易日 16:10 (收盘后)
     """
     
-    name = "limit_list"
+    name = C.LIMIT_LIST
     description = "采集涨跌停统计数据"
     default_schedule = "10 16 * * 1-5"  # 默认: 每个交易日 16:10
     
@@ -104,7 +105,7 @@ class LimitListCollector(BaseCollector):
             # 缓冲区满时批量写入
             if len(buffer) >= self.WRITE_BATCH_SIZE:
                 result = await mongo_manager.bulk_upsert(
-                    collection="limit_list",
+                    collection=C.LIMIT_LIST,
                     documents=buffer,
                     key_fields=["ts_code", "trade_date"],
                     batch_size=self.WRITE_BATCH_SIZE,
@@ -121,7 +122,7 @@ class LimitListCollector(BaseCollector):
         # 写入剩余数据
         if buffer:
             result = await mongo_manager.bulk_upsert(
-                collection="limit_list",
+                collection=C.LIMIT_LIST,
                 documents=buffer,
                 key_fields=["ts_code", "trade_date"],
                 batch_size=self.WRITE_BATCH_SIZE,

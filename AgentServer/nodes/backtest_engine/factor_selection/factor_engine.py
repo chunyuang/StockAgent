@@ -16,6 +16,7 @@ import os
 import numpy as np
 import pandas as pd
 
+from core.constants import C
 from core.managers import mongo_manager, redis_manager
 
 from .factor_library import FactorCategory, FactorDefinition, FactorLibrary
@@ -100,7 +101,7 @@ class FactorEngine:
                 projection[name] = 1
             
             # 从 MongoDB 批量读取所有股票的因子值
-            cursor = mongo_manager.db["stock_daily_ak_full"].find(
+            cursor = mongo_manager.db[C.STOCK_DAILY].find(
                 {"trade_date": int(trade_date), "ts_code": {"$in": stocks_list}},
                 projection=projection
             )
@@ -198,7 +199,7 @@ class FactorEngine:
         Returns:
             {
                 "daily": {ts_code: DataFrame},
-                "daily_basic": {ts_code: DataFrame},
+                C.DAILY_BASIC: {ts_code: DataFrame},
                 "fina": {ts_code: DataFrame},
             }
         """
@@ -224,7 +225,7 @@ class FactorEngine:
             # 旧逻辑逐自然日循环（含周末/假期），浪费约30%查询。新逻辑一次范围查询。
             stocks_set = set(stocks)
             all_result = await mongo_manager.find_many(
-                "stock_daily_ak_full",
+                C.STOCK_DAILY,
                 {
                     "trade_date": {"$gte": int(start_date), "$lte": int(end_date)},
                     "ts_code": {"$in": list(stocks_set)},
@@ -273,11 +274,11 @@ class FactorEngine:
             gc.collect()
 
         # 加载 daily_basic 数据
-        if "daily_basic" in data_sources:
+        if C.DAILY_BASIC in data_sources:
             # 【P1-1修复：用$dateRange单次查询替代逐自然日循环】
             stocks_set = set(stocks)
             all_result = await mongo_manager.find_many(
-                "daily_basic",
+                C.DAILY_BASIC,
                 {
                     "trade_date": {"$gte": int(start_date), "$lte": int(end_date)},
                     "ts_code": {"$in": list(stocks_set)},
@@ -310,7 +311,7 @@ class FactorEngine:
                     elif pd.api.types.is_integer_dtype(df[col]):
                         df[col] = pd.to_numeric(df[col], downcast="integer")
                 daily_basic_data[ts_code] = df.set_index("trade_date")
-            data["daily_basic"] = daily_basic_data
+            data[C.DAILY_BASIC] = daily_basic_data
 
             # 🔧 内存优化: 释放临时变量
             del all_result
@@ -331,7 +332,7 @@ class FactorEngine:
         """加载最新财务数据"""
         # 从 fina_indicator 获取最新的财务数据
         result = await mongo_manager.find_many(
-            "fina_indicator",
+            C.FINA_INDICATOR,
             {"ts_code": {"$in": stocks}},
             projection={
                 "ts_code": 1, "end_date": 1,

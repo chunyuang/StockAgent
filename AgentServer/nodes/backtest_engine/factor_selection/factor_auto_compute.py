@@ -14,6 +14,7 @@ import pandas as pd
 from datetime import datetime
 from typing import List, Optional
 
+from core.constants import C
 from core.managers import mongo_manager
 
 logger = logging.getLogger(__name__)
@@ -112,7 +113,7 @@ async def _compute_and_write_factors(
     """核心计算逻辑：加载原始数据 → 计算因子 → 写回MongoDB"""
 
     log_fn(f"   📥 加载 {start_date}~{end_date} 的原始OHLCV数据...")
-    coll = mongo_manager.db["stock_daily_ak_full"]
+    coll = mongo_manager.db[C.STOCK_DAILY]
 
     # 加载日期范围内的原始数据（只取OHLCV基础字段 + _id用于更新）
     # 注意：需要多加载一些历史数据用于滚动窗口计算(如ma60需要60天历史)

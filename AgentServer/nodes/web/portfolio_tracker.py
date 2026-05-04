@@ -52,6 +52,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Any
 
+from core.constants import C
 from core.managers import mongo_manager
 
 logger = logging.getLogger("portfolio_tracker")
@@ -168,7 +169,7 @@ class PortfolioTracker:
             "position_value": 0,
             "nav": 1.0,
             "nav_change_pct": 0,
-            "positions": [],
+            C.POSITIONS: [],
         })
 
         logger.info(f"Created account {account_id} with initial cash {cash}")
@@ -428,7 +429,7 @@ class PortfolioTracker:
         if ts_codes:
             try:
                 daily_data = await mongo_manager.find_many(
-                    "stock_daily_ak_full",
+                    C.STOCK_DAILY,
                     {"ts_code": {"$in": ts_codes}, "trade_date": int(trade_date)},
                     projection={"ts_code": 1, "close": 1, "pct_chg": 1, "high": 1, "low": 1},
                 )
@@ -483,7 +484,7 @@ class PortfolioTracker:
             "nav_change_pct": round(nav_change_pct, 2),
             "position_ratio": round(position_ratio, 4),
             "position_count": len(positions),
-            "positions": position_details,
+            C.POSITIONS: position_details,
             "initial_cash": initial_cash,
             "total_profit": round(total_assets - initial_cash, 2),
             "total_profit_pct": round((total_assets - initial_cash) / initial_cash * 100, 2) if initial_cash > 0 else 0,
@@ -677,7 +678,7 @@ class PortfolioTracker:
         price_map = {}
         try:
             daily_data = await mongo_manager.find_many(
-                "stock_daily_ak_full",
+                C.STOCK_DAILY,
                 {"ts_code": {"$in": ts_codes}, "trade_date": int(trade_date)},
                 projection={"ts_code": 1, "close": 1, "high": 1, "low": 1, "pct_chg": 1},
             )

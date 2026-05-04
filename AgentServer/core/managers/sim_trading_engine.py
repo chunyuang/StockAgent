@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import Dict, Optional, Tuple
 
 from core.managers import mongo_manager
+from core.constants import C
 
 logger = logging.getLogger("sim_trading_engine")
 
@@ -68,7 +69,7 @@ class SimTradingEngine:
             
             # 获取持仓信息
             position = await mongo_manager.find_one(
-                "positions",
+                C.POSITIONS,
                 {"account_id": account_id, "ts_code": ts_code}
             )
             
@@ -151,7 +152,7 @@ class SimTradingEngine:
                     new_avg_cost = total_cost / total_quantity
                     
                     await mongo_manager.update_one(
-                        "positions",
+                        C.POSITIONS,
                         {"position_id": position["position_id"]},
                         {
                             "$set": {
@@ -180,7 +181,7 @@ class SimTradingEngine:
                         "updated_at": now
                     }
                     
-                    await mongo_manager.insert_one("positions", new_position)
+                    await mongo_manager.insert_one(C.POSITIONS, new_position)
             else:  # sell
                 # 卖出，减少持仓
                 new_quantity = position["quantity"] - quantity
@@ -189,13 +190,13 @@ class SimTradingEngine:
                 if new_quantity <= 0:
                     # 全部卖出，删除持仓
                     await mongo_manager.delete_one(
-                        "positions",
+                        C.POSITIONS,
                         {"position_id": position["position_id"]}
                     )
                 else:
                     # 部分卖出，更新持仓
                     await mongo_manager.update_one(
-                        "positions",
+                        C.POSITIONS,
                         {"position_id": position["position_id"]},
                         {
                             "$set": {
@@ -222,7 +223,7 @@ class SimTradingEngine:
         # 【P1修复：不再返回硬编码10.0，从MongoDB获取最近收盘价】
         try:
             doc = await mongo_manager.find_one(
-                "stock_daily_ak_full",
+                C.STOCK_DAILY,
                 {"ts_code": ts_code},
                 projection={"close": 1, "trade_date": 1},
                 sort=[("trade_date", -1)],

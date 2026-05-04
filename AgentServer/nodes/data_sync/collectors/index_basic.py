@@ -13,6 +13,7 @@ from datetime import date
 
 from core.base import BaseCollector
 from core.settings import settings
+from core.constants import C
 from core.managers import tushare_manager, mongo_manager
 
 
@@ -37,7 +38,7 @@ class IndexBasicCollector(BaseCollector):
     - 默认: 每个交易日 9:00
     """
     
-    name = "index_basic"
+    name = C.INDEX_BASIC
     description = "采集指数基础信息"
     default_schedule = "0 9 * * 1-5"  # 默认: 每个交易日 9:00
     
@@ -51,7 +52,7 @@ class IndexBasicCollector(BaseCollector):
         today = date.today().strftime("%Y%m%d")
         
         # 检查是否已同步
-        if await mongo_manager.is_synced("index_basic", today):
+        if await mongo_manager.is_synced(C.INDEX_BASIC, today):
             self.logger.info(f"Index basic {today} already synced, skipping")
             return {"count": 0, "message": f"Already synced {today}", "skipped": True}
         
@@ -65,7 +66,7 @@ class IndexBasicCollector(BaseCollector):
         
         # 批量 upsert 到 MongoDB (使用 BulkWrite)
         result = await mongo_manager.bulk_upsert(
-            collection="index_basic",
+            collection=C.INDEX_BASIC,
             documents=records,
             key_fields=["ts_code"],
             batch_size=1000,
@@ -78,7 +79,7 @@ class IndexBasicCollector(BaseCollector):
         
         # 记录同步完成
         await mongo_manager.record_sync(
-            sync_type="index_basic",
+            sync_type=C.INDEX_BASIC,
             sync_date=today,
             count=result["total"],
         )

@@ -9,6 +9,7 @@ import subprocess
 from datetime import datetime, timezone
 from typing import Dict, Any, List
 
+from core.constants import C
 from core.managers import mongo_manager, akshare_manager, redis_manager
 from core.utils.logger import logger
 
@@ -298,7 +299,7 @@ async def execute_ultra_short_backtest(
         "initial_cash": initial_cash,
         "max_position_percent": strategy_params.get("max_position_per_stock", 0.2),
         "liquidity_threshold": strategy_params.get("liquidity_threshold", 500),
-        "data_collection": "stock_daily_ak_full" if period == "daily" else "stock_1min",
+        "data_collection": C.STOCK_DAILY if period == "daily" else C.STOCK_1MIN,
         "universe_mgr": universe_mgr,
         "factor_engine": factor_engine,
         "exclude_rules": [ExcludeRule.ST, ExcludeRule.NEW_STOCK],

@@ -21,6 +21,7 @@ from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
 
+from core.constants import C
 from core.managers import mongo_manager
 from .auth import get_optional_user_id
 
@@ -132,10 +133,10 @@ async def get_signals(
         if date:
             query["date"] = date
 
-        total = await mongo_manager.count("daily_premarket_signals", query)
+        total = await mongo_manager.count(C.DAILY_PREMARKET_SIGNALS, query)
 
         records = await mongo_manager.find_many(
-            "daily_premarket_signals",
+            C.DAILY_PREMARKET_SIGNALS,
             query,
             sort=[("generated_at", -1)],
             skip=offset,
@@ -172,7 +173,7 @@ async def get_signal_by_date(
     """查询指定日期的完整信号详情"""
     try:
         record = await mongo_manager.find_one(
-            "daily_premarket_signals",
+            C.DAILY_PREMARKET_SIGNALS,
             {"date": date},
         )
 
