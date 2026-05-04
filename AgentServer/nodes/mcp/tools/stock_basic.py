@@ -7,6 +7,7 @@ from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 
 from core.base import BaseTool, ToolResult
+from core.constants import C
 from core.managers import tushare_manager, mongo_manager
 
 
@@ -34,14 +35,14 @@ class GetStockBasicTool(BaseTool[GetStockBasicInput, GetStockBasicOutput]):
         if input_data.ts_code:
             # 精确查询
             stock = await mongo_manager.find_one(
-                "stock_basic",
+                C.STOCK_BASIC,
                 {"ts_code": input_data.ts_code.upper()},
             )
             data = [stock] if stock else []
         elif input_data.name:
             # 模糊搜索
             data = await mongo_manager.find_many(
-                "stock_basic",
+                C.STOCK_BASIC,
                 {"name": {"$regex": input_data.name}},
                 limit=10,
             )

@@ -10,6 +10,7 @@ from datetime import datetime, date, timezone
 
 from core.base import BaseCollector
 from core.settings import settings
+from core.constants import C
 from core.managers import tushare_manager, mongo_manager
 
 
@@ -86,7 +87,7 @@ class StockBasicCollector(BaseCollector):
     - 默认: 每个交易日 9:00
     """
     
-    name = "stock_basic"
+    name = C.STOCK_BASIC
     description = "采集股票基础信息和估值指标"
     default_schedule = "0 9 * * 1-5"  # 默认: 每个交易日 9:00
     
@@ -100,7 +101,7 @@ class StockBasicCollector(BaseCollector):
         today = date.today().strftime("%Y%m%d")
         
         # 检查是否已同步
-        if await mongo_manager.is_synced("stock_basic", today):
+        if await mongo_manager.is_synced(C.STOCK_BASIC, today):
             self.logger.info(f"Stock basic {today} already synced, skipping")
             return {"count": 0, "message": f"Already synced {today}", "skipped": True}
         
@@ -139,7 +140,7 @@ class StockBasicCollector(BaseCollector):
         
         # Step 4: 批量 upsert 到 MongoDB
         result = await mongo_manager.bulk_upsert(
-            collection="stock_basic",
+            collection=C.STOCK_BASIC,
             documents=records,
             key_fields=["ts_code"],
             batch_size=1000,
@@ -152,7 +153,7 @@ class StockBasicCollector(BaseCollector):
         
         # 记录同步完成
         await mongo_manager.record_sync(
-            sync_type="stock_basic",
+            sync_type=C.STOCK_BASIC,
             sync_date=today,
             count=result["total"],
         )

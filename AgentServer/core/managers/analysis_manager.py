@@ -110,7 +110,7 @@ class AnalysisManager(BaseManager):
         
         # 从 MongoDB 加载最近 30 个交易日的数据 (不含当天)
         history_data = await mongo_manager.find_many(
-            "daily_stats",
+            C.DAILY_STATS,
             {"trade_date": {"$lt": trade_date}},
             projection={
                 "trade_date": 1,

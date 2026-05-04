@@ -15,6 +15,7 @@ import time
 
 from core.base import BaseCollector
 from core.settings import settings
+from core.constants import C
 from core.managers import tushare_manager, mongo_manager
 
 
@@ -34,7 +35,7 @@ class MoneyflowConceptCollector(BaseCollector):
     - 默认: 每个交易日 16:05 (收盘后)
     """
     
-    name = "moneyflow_concept"
+    name = C.MONEYFLOW_CONCEPT
     description = "采集概念板块资金流向数据"
     default_schedule = "5 16 * * 1-5"  # 默认: 每个交易日 16:05
     
@@ -100,7 +101,7 @@ class MoneyflowConceptCollector(BaseCollector):
             # 缓冲区满时批量写入
             if len(buffer) >= self.WRITE_BATCH_SIZE:
                 result = await mongo_manager.bulk_upsert(
-                    collection="moneyflow_concept",
+                    collection=C.MONEYFLOW_CONCEPT,
                     documents=buffer,
                     key_fields=["ts_code", "trade_date"],
                     batch_size=self.WRITE_BATCH_SIZE,
@@ -117,7 +118,7 @@ class MoneyflowConceptCollector(BaseCollector):
         # 写入剩余数据
         if buffer:
             result = await mongo_manager.bulk_upsert(
-                collection="moneyflow_concept",
+                collection=C.MONEYFLOW_CONCEPT,
                 documents=buffer,
                 key_fields=["ts_code", "trade_date"],
                 batch_size=self.WRITE_BATCH_SIZE,

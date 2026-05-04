@@ -27,6 +27,7 @@ from core.protocols import (
     MarketSnapshot,
     StrategyType,
 )
+from core.constants import C
 from core.managers import mongo_manager
 
 
@@ -244,7 +245,7 @@ class MA5BuyStrategy(BaseStrategy):
         try:
             # 获取最近5个交易日的日线数据
             records = await mongo_manager.find_many(
-                "stock_daily_ak_full",
+                C.STOCK_DAILY,
                 {"ts_code": ts_code},
                 sort=[("trade_date", -1)],
                 limit=5,
