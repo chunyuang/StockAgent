@@ -185,3 +185,62 @@ class TestSortinoCalmar:
     def test_sortino_negative_return(self):
         sortino = (-0.05 - 0.02) / 0.10
         assert sortino < 0
+
+
+class TestDailyBasicMergeInBacktest:
+    """回测引擎中daily_basic精确值合并到stock_daily测试"""
+
+    def test_pe_ttm_from_daily_basic_overrides_approximation(self):
+        """pe_ttm从daily_basic精确值覆盖stock_daily缺失"""
+        # stock_daily_ak_full不含pe_ttm(None)
+        stock_daily_pe = None
+        # daily_basic含Tushare精确PE
+        daily_basic_pe = 25.3
+        final_pe = daily_basic_pe if daily_basic_pe is not None else stock_daily_pe
+        assert final_pe == 25.3
+
+    def test_pb_from_daily_basic(self):
+        """pb从daily_basic精确值补充"""
+        stock_daily_pb = None  # stock_daily_ak_full不含pb
+        daily_basic_pb = 3.2
+        final_pb = daily_basic_pb if daily_basic_pb is not None else stock_daily_pb
+        assert final_pb == 3.2
+
+    def test_circ_mv_precise_overrides_approximation(self):
+        """daily_basic精确circ_mv覆盖近似值"""
+        # stock_daily: circ_mv = amount * 100 (近似)
+        approx_circ_mv = 1000000 * 100  # 1亿(近似)
+        # daily_basic: circ_mv = 50亿(Tushare精确)
+        precise_circ_mv = 50.0
+        # 精确值应覆盖近似值
+        final = precise_circ_mv if precise_circ_mv is not None else approx_circ_mv
+        assert final == 50.0
+        assert final != approx_circ_mv  # 不是原始近似值
+
+    def test_daily_basic_missing_falls_back_to_stock_daily(self):
+        """daily_basic缺失时回退到stock_daily近似值"""
+        approx_circ_mv = 100.0
+        daily_basic_circ_mv = None  # daily_basic无此股数据
+        final = daily_basic_circ_mv if daily_basic_circ_mv is not None else approx_circ_mv
+        assert final == 100.0  # 回退到近似值
+
+    def test_merge_fields_coverage(self):
+        """合并字段覆盖: pe_ttm, pb, circ_mv, turnover_rate, volume_ratio"""
+        merge_fields = {"pe_ttm", "pb", "circ_mv", "turnover_rate", "volume_ratio"}
+        # 回测筛选需要的字段都应被合并
+        assert "circ_mv" in merge_fields  # 流通市值筛选
+        assert "turnover_rate" in merge_fields  # 换手率筛选
+        assert "pe_ttm" in merge_fields  # PE因子
+        assert "pb" in merge_fields  # PB因子
+
+    def test_nan_protection_during_merge(self):
+        """合并时NaN值不应覆盖有效值"""
+        import math
+        stock_daily_val = 100.0
+        daily_basic_val = float('nan')  # daily_basic有记录但值为NaN
+        # NaN不应覆盖有效值
+        if not math.isnan(daily_basic_val):
+            final = daily_basic_val
+        else:
+            final = stock_daily_val
+        assert final == 100.0

@@ -110,6 +110,53 @@ class FactorEngine:
             # 组装 DataFrame
             result = pd.DataFrame(docs)
             
+            # ========= 从daily_basic合并精确PE/PB/流通市值/换手率 =========
+            # daily_basic含Tushare精确数据(或量脉实时数据)，比stock_daily_ak_full的近似值更准确
+            # 需要合并的字段: pe_ttm, pb, circ_mv, turnover_rate, volume_ratio
+            daily_basic_fields = {"pe_ttm", "pb", "circ_mv", "turnover_rate", "volume_ratio"}
+            needed_db_fields = daily_basic_fields & set(factor_names)
+            # circ_mv/turnover_rate即使不在因子列表中，也可能被筛选条件用到
+            if "circ_mv" not in needed_db_fields:
+                needed_db_fields.add("circ_mv")
+            if "turnover_rate" not in needed_db_fields:
+                needed_db_fields.add("turnover_rate")
+            
+            if needed_db_fields:
+                db_projection = {"ts_code": 1, "_id": 0}
+                for f in needed_db_fields:
+                    db_projection[f] = 1
+                
+                db_cursor = mongo_manager.db[C.DAILY_BASIC].find(
+                    {"trade_date": int(trade_date), "ts_code": {"$in": stocks_list}},
+                    db_projection
+                )
+                db_docs = await db_cursor.to_list(length=len(stocks_list))
+                
+                if db_docs:
+                    db_df = pd.DataFrame(db_docs)
+                    # 用daily_basic精确值覆盖stock_daily_ak_full近似值
+                    # 只覆盖非NaN值，避免daily_basic缺失时丢失stock_daily的数据
+                    if len(result) > 0 and len(db_df) > 0:
+                        db_df = db_df.set_index("ts_code")
+                        for col in needed_db_fields:
+                            if col in db_df.columns and col in result.columns:
+                                # 精确值覆盖近似值
+                                mask = db_df[col].notna()
+                                if mask.any():
+                                    result = result.set_index("ts_code")
+                                    result.loc[mask, col] = db_df.loc[mask, col]
+                                    result = result.reset_index()
+                            elif col in db_df.columns and col not in result.columns:
+                                # stock_daily没有的字段，直接从daily_basic补充
+                                result = result.set_index("ts_code")
+                                result[col] = db_df[col]
+                                result = result.reset_index()
+                    
+                    merged_count = len(db_df)
+                    logger.debug(f"FACTOR_ENGINE: Merged {merged_count} records from daily_basic "
+                                f"(fields: {needed_db_fields})")
+            # ========= daily_basic合并结束 =========
+            
             # 布尔值转浮点，保持与实盘模式输出格式一致
             for col in factor_names:
                 if col in result.columns:
