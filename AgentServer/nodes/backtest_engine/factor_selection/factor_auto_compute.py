@@ -197,14 +197,19 @@ def _compute_factors_for_stock(group: pd.DataFrame, fields: List[str]) -> pd.Dat
 
     # 量比
     vol_5d_avg = group['vol'].rolling(5).mean()
-    group['volume_ratio'] = group['vol'] / vol_5d_avg
+    # 优先使用已有精确值(来自daily_basic)，仅缺失时用近似值
+    if 'volume_ratio' not in group.columns or group['volume_ratio'].isna().all():
+        group['volume_ratio'] = group['vol'] / vol_5d_avg
 
     # 20日平均成交额
     group['amount_20d'] = group['amount'].rolling(20).mean()
 
     # 流通市值和换手率
-    group['circ_mv'] = group['amount'] * 100
-    group['turnover_rate'] = group['amount'] / group['circ_mv'] * 10000
+    # 优先使用已有精确值(来自daily_basic合并)，仅缺失时用近似值
+    if 'circ_mv' not in group.columns or group['circ_mv'].isna().all():
+        group['circ_mv'] = group['amount'] * 100  # 近似值: 成交额×100
+    if 'turnover_rate' not in group.columns or group['turnover_rate'].isna().all():
+        group['turnover_rate'] = group['amount'] / group['circ_mv'] * 10000  # 近似值
     group['turnover_20d'] = group['turnover_rate'].rolling(20).mean()
 
     # 振幅
@@ -286,7 +291,19 @@ def _compute_factors_for_stock(group: pd.DataFrame, fields: List[str]) -> pd.Dat
     # 简化策略指标
     group['market_leader'] = False
     group['hot_sector'] = False
-    group['sentiment_score'] = 0.5
+    # 情绪评分: 基于市场数据计算(而非硬编码0.5)
+    # 使用RSI和波动率的z-score映射到[0,1]，RSI>50且波动率低→高情绪
+    if 'rsi_6' not in group.columns:
+        # talib不可用时，用pct_chg近似
+        group['rsi_6'] = 50 + group['pct_chg'].rolling(6).mean() * 10
+    rsi_normalized = (group['rsi_6'] - 50) / 50  # [-1, 1]
+    volatility = group['pct_chg'].rolling(20).std()
+    vol_mean = volatility.rolling(60).mean()
+    vol_zscore = (volatility - vol_mean) / vol_mean.clip(lower=0.01)  # 避免除0
+    # 高RSI + 低波动率 = 高情绪(贪婪), 低RSI + 高波动率 = 低情绪(恐惧)
+    group['sentiment_score'] = (0.5 + rsi_normalized * 0.3 - vol_zscore.clip(-2, 2) * 0.1).clip(0, 1)
+    # 填充NaN为中性
+    group['sentiment_score'] = group['sentiment_score'].fillna(0.5)
 
     # ========== 技术指标因子（需要talib） ==========
     try:

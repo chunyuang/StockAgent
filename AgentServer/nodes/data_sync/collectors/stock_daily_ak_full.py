@@ -203,7 +203,7 @@ class StockDailyCollector(BaseCollector):
             self.logger.info(f"Enriched pre_close for {enriched} records (from previous day close)")
     
     async def _write_buffer(self, buffer: List[Dict[str, Any]]) -> int:
-        """写入缓冲区数据到数据库，写入前补充pre_close"""
+        """写入缓冲区数据到数据库，写入前补充pre_close，写入后合并daily_basic精确字段"""
         # 补充pre_close字段（数据管道层修复，替代回测运行时的_prev_day_close hack）
         self._enrich_pre_close(buffer)
         
@@ -220,7 +220,90 @@ class StockDailyCollector(BaseCollector):
             f"Bulk write: {len(buffer)} records in {t_end-t_start:.2f}s, "
             f"upserted={result['upserted']}, modified={result['modified']}"
         )
+        
+        # 合并daily_basic精确字段（覆盖AKShare近似值）
+        await self._enrich_from_daily_basic(buffer)
+        
         return result["upserted"] + result["modified"]
+    
+    async def _enrich_from_daily_basic(self, buffer: List[Dict[str, Any]]):
+        """从daily_basic集合合并精确字段到stock_daily_ak_full
+        
+        daily_basic包含Tushare精确的circ_mv/turnover_rate/pe_ttm/pb等，
+        而stock_daily_ak_full的circ_mv来自AKShare近似值(amount*100)。
+        此方法用daily_basic的精确值覆盖近似值，提升回测准确性。
+        
+        合并字段: circ_mv, turnover_rate, pe_ttm, pb, volume_ratio
+        """
+        if not buffer:
+            return
+        
+        # 提取本次写入的日期范围
+        trade_dates = {r.get("trade_date") for r in buffer if r.get("trade_date")}
+        if not trade_dates:
+            return
+        
+        min_date = min(trade_dates)
+        max_date = max(trade_dates)
+        
+        # 从daily_basic查询对应日期的数据
+        # daily_basic中circ_mv单位是亿元(已在collector中转换)
+        daily_basic_records = await mongo_manager.find_many(
+            C.DAILY_BASIC,
+            {"trade_date": {"$gte": min_date, "$lte": max_date}},
+            projection={
+                "ts_code": 1, "trade_date": 1,
+                "circ_mv": 1, "turnover_rate": 1,
+                "pe_ttm": 1, "pb": 1, "volume_ratio": 1,
+            },
+        )
+        
+        if not daily_basic_records:
+            self.logger.info(f"No daily_basic data found for {min_date}-{max_date}, skip enrichment")
+            return
+        
+        # 构建 (ts_code, trade_date) → daily_basic 索引
+        db_index = {}
+        for rec in daily_basic_records:
+            key = (rec.get("ts_code"), rec.get("trade_date"))
+            db_index[key] = rec
+        
+        # 批量更新stock_daily_ak_full
+        merge_fields = ["circ_mv", "turnover_rate", "pe_ttm", "pb", "volume_ratio"]
+        updated = 0
+        
+        for rec in buffer:
+            key = (rec.get("ts_code"), rec.get("trade_date"))
+            db_rec = db_index.get(key)
+            if not db_rec:
+                continue
+            
+            # 构建更新字段(daily_basic中circ_mv已是亿元，与回测筛选单位一致)
+            update_fields = {}
+            for field in merge_fields:
+                if field in db_rec and db_rec[field] is not None:
+                    val = db_rec[field]
+                    # 确保数值有效
+                    try:
+                        if isinstance(val, float) and val == val:  # 非NaN
+                            update_fields[field] = val
+                    except (ValueError, TypeError):
+                        continue
+            
+            if update_fields:
+                success = await mongo_manager.update_one(
+                    C.STOCK_DAILY,
+                    {"ts_code": rec["ts_code"], "trade_date": rec["trade_date"]},
+                    {"$set": update_fields},
+                )
+                if success:
+                    updated += 1
+        
+        if updated > 0:
+            self.logger.info(
+                f"Enriched {updated} records from daily_basic "
+                f"({min_date}-{max_date}, fields: {merge_fields})"
+            )
     
     async def _determine_sync_range(
         self,

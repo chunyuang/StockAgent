@@ -1662,6 +1662,29 @@ class PortfolioBacktester:
         calmar_ratio = 0.0
         volatility = 0.0
 
+        # 计算波动率(日收益率标准差 × √252)
+        if len(daily_returns_list) > 1:
+            daily_returns_arr = [r for r in daily_returns_list if r is not None and r == r]  # 过滤NaN
+            if len(daily_returns_arr) > 1:
+                import numpy as _np
+                volatility = float(_np.std(daily_returns_arr) * _np.sqrt(252))
+        
+        # 计算Sortino比率(年化) = (年化收益率 - 无风险利率) / 下行波动率
+        # 无风险利率取2%(货币基金近似)
+        risk_free_rate = 0.02
+        if len(daily_returns_list) > 1:
+            daily_returns_arr = [r for r in daily_returns_list if r is not None and r == r]
+            if len(daily_returns_arr) > 1:
+                import numpy as _np
+                downside_returns = [min(r, 0) for r in daily_returns_arr]
+                downside_vol = float(_np.std(downside_returns) * _np.sqrt(252))
+                if downside_vol > 0:
+                    sortino_ratio = (annualized_return - risk_free_rate) / downside_vol
+        
+        # 计算Calmar比率 = 年化收益率 / 最大回撤
+        if max_drawdown > 0:
+            calmar_ratio = annualized_return / max_drawdown
+
         # 统计盈利次数/亏损次数
         # 【P0-1修复：losing_trades用completed_trades-winning_trades，而非total_signals-winning_trades】
         # total_signals是买入信号数(含未卖出持仓)，winning_trades是已卖出盈利数，维度不一致
