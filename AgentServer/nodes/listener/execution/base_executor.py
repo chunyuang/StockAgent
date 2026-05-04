@@ -152,7 +152,7 @@ class BaseExecutor(ABC):
         pass
     
     async def update_current_prices(self, positions: List[Position]) -> None:
-        """更新当前持仓价格（从行情获取更新盈亏"""
+        """更新当前持仓价格（从行情获取更新盈亏）。非抽象方法，子类可按需覆盖。"""
         pass
     
     def calculate_commission(
