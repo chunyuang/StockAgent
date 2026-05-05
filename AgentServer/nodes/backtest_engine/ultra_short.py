@@ -371,6 +371,13 @@ async def execute_ultra_short_backtest(
         profit_loss_ratio = risk_data.get('profit_loss_ratio', result.get('profit_loss_ratio', 0.0))
         return_drawdown_ratio = risk_data.get('return_drawdown_ratio', result.get('return_drawdown_ratio', 0.0))
         annualized_return = returns_data.get('annualized_return', result.get('annualized_return', 0.0))
+        benchmark_return = returns_data.get('benchmark_return_pct', returns_data.get('benchmark_return', result.get('benchmark_return', 0.0)))
+        alpha = returns_data.get('alpha_pct', returns_data.get('alpha', result.get('alpha', 0.0)))
+        sortino_ratio = risk_data.get('sortino_ratio', result.get('sortino_ratio', 0.0))
+        calmar_ratio = risk_data.get('calmar_ratio', result.get('calmar_ratio', 0.0))
+        volatility = risk_data.get('volatility', result.get('volatility', 0.0))
+        annual_return_reliable = returns_data.get('annual_return_reliable', result.get('annual_return_reliable', False))
+        monthly_profit = performance_data.get('monthly_profit', result.get('monthly_profit', {}))
         total_signals = performance_data.get('total_signals', result.get('total_signals', 0))
         total_trades = trades_data.get('total_trades', result.get('total_trades', 0))
         winning_trades = trades_data.get('winning_trades', result.get('winning_trades', 0))
@@ -471,10 +478,11 @@ async def execute_ultra_short_backtest(
         })
 
     except Exception as e:
-        node_logger.error(f"[{task_id}] Portfolio backtest failed: {e}")
+        _logger = node_logger or logger
+        _logger.error(f"[{task_id}] Portfolio backtest failed: {e}")
         import traceback
         tb_str = traceback.format_exc()
-        node_logger.error(f"[{task_id}] Traceback:\n{tb_str}")
+        _logger.error(f"[{task_id}] Traceback:\n{tb_str}")
         await push_log_fn(task_id, f"❌ 组合回测运行异常: {str(e)}")
         await push_log_fn(task_id, "📋 完整错误堆栈:")
         for line in tb_str.split('\n'):

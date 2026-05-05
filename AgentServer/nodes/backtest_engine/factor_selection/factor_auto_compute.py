@@ -394,12 +394,11 @@ async def _write_factors_to_mongo(
                     update_fields[field] = val
 
             if update_fields:
-                update_ops.append({
-                    'update_one': {
-                        'filter': {'ts_code': row['ts_code'], 'trade_date': int(row['trade_date'])},
-                        'update': {'$set': update_fields}
-                    }
-                })
+                from pymongo import UpdateOne
+                update_ops.append(UpdateOne(
+                    {'ts_code': row['ts_code'], 'trade_date': int(row['trade_date'])},
+                    {'$set': update_fields}
+                ))
 
         if update_ops:
             result = await coll.bulk_write(update_ops, ordered=False)

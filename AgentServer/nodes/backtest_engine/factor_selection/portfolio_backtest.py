@@ -778,7 +778,7 @@ class PortfolioBacktester:
         # ==================== 因子完整性检测结束 ====================
 
         # 加载基准数据
-        benchmark_data = await self._load_benchmark_data(benchmark_code, config["start_date"], config["end_date"])
+        benchmark_data = await self._load_benchmark_data(benchmark_code, start_dt, end_dt)
 
         # 初始化组合状态
         cash = initial_cash
@@ -1662,26 +1662,9 @@ class PortfolioBacktester:
         calmar_ratio = 0.0
         volatility = 0.0
 
-        # 计算波动率(日收益率标准差 × √252)
-        if len(daily_returns_list) > 1:
-            daily_returns_arr = [r for r in daily_returns_list if r is not None and r == r]  # 过滤NaN
-            if len(daily_returns_arr) > 1:
-                import numpy as _np
-                volatility = float(_np.std(daily_returns_arr) * _np.sqrt(252))
-        
-        # 计算Sortino比率(年化) = (年化收益率 - 无风险利率) / 下行波动率
-        # 无风险利率取2%(货币基金近似)
-        risk_free_rate = 0.02
-        if len(daily_returns_list) > 1:
-            daily_returns_arr = [r for r in daily_returns_list if r is not None and r == r]
-            if len(daily_returns_arr) > 1:
-                import numpy as _np
-                downside_returns = [min(r, 0) for r in daily_returns_arr]
-                downside_vol = float(_np.std(downside_returns) * _np.sqrt(252))
-                if downside_vol > 0:
-                    sortino_ratio = (annualized_return - risk_free_rate) / downside_vol
-        
-        # 计算Calmar比率 = 年化收益率 / 最大回撤
+        # 【第二十四轮修复：删除引用未定义daily_returns_list的重复计算块】
+        # volatility/sortino_ratio/calmar_ratio 已在下方(daily_profit_list计算段)正确赋值
+        # 此处仅保留Calmar(不依赖daily_returns_list)
         if max_drawdown > 0:
             calmar_ratio = annualized_return / max_drawdown
 
@@ -2081,21 +2064,55 @@ class PortfolioBacktester:
         """加载基准指数数据用于计算超额收益"""
         # 【P1-1修复：基准数据应查index_daily集合，stock_daily_ak_full无指数数据】
         # 先尝试从 index_daily 查询（指数专用集合）
-        query = {
+        # 注意：index_daily的trade_date可能是字符串，需要兼容两种类型
+        query_int = {
             "ts_code": benchmark_code,
             "trade_date": {"$gte": start_date, "$lte": end_date}
         }
-        docs = await mongo_manager.find_many(C.INDEX_DAILY, query)
+        docs = await mongo_manager.find_many(C.INDEX_DAILY, query_int)
+        
+        # 如果int查询无结果，尝试字符串格式
+        if not docs:
+            query_str = {
+                "ts_code": benchmark_code,
+                "trade_date": {"$gte": str(start_date), "$lte": str(end_date)}
+            }
+            docs = await mongo_manager.find_many(C.INDEX_DAILY, query_str)
+        
+        # 如果指定代码查不到，尝试000001.SH(上证指数)
+        if not docs and benchmark_code != "000001.SH":
+            fallback_query = {
+                "ts_code": "000001.SH",
+                "trade_date": {"$gte": str(start_date), "$lte": str(end_date)}
+            }
+            docs = await mongo_manager.find_many(C.INDEX_DAILY, fallback_query)
+            if docs:
+                await self.log(f"   ⚠️ 基准数据回退: {benchmark_code}无数据，使用000001.SH(上证指数)")
         
         # 如果index_daily无数据，回退到stock_daily_ak_full（兼容旧数据）
         if not docs:
-            docs = await mongo_manager.find_many(C.STOCK_DAILY, query)
-        # 按日期排序
-        docs.sort(key=lambda x: x["trade_date"])
+            docs = await mongo_manager.find_many(C.STOCK_DAILY, query_int)
+        
+        # 如果仍然无数据，用上证指数近似——查任意一只宽基ETF
+        if not docs:
+            # 尝试510050.SH(上证50ETF)或510300.SH(沪深300ETF)
+            for fallback_code in ["510050.SH", "510300.SH", "510500.SH"]:
+                fallback_query = {
+                    "ts_code": fallback_code,
+                    "trade_date": {"$gte": start_date, "$lte": end_date}
+                }
+                docs = await mongo_manager.find_many(C.STOCK_DAILY, fallback_query)
+                if docs:
+                    self.log(f"   ⚠️ 基准数据回退使用 {fallback_code}(ETF)近似")
+                    break
+        
+        # 按日期排序（兼容int和string）
+        docs.sort(key=lambda x: int(x["trade_date"]) if isinstance(x["trade_date"], str) else x["trade_date"])
         benchmark_data = []
         for doc in docs:
+            td = int(doc["trade_date"]) if isinstance(doc["trade_date"], str) else doc["trade_date"]
             benchmark_data.append({
-                "trade_date": doc["trade_date"],
+                "trade_date": td,
                 "close": doc["close"],
                 "pct_chg": doc.get("pct_chg", 0.0)
             })
