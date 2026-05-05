@@ -138,19 +138,19 @@ class FactorEngine:
                     # 只覆盖非NaN值，避免daily_basic缺失时丢失stock_daily的数据
                     if len(result) > 0 and len(db_df) > 0:
                         db_df = db_df.set_index("ts_code")
+                        result = result.set_index("ts_code")
                         for col in needed_db_fields:
                             if col in db_df.columns and col in result.columns:
-                                # 精确值覆盖近似值
-                                mask = db_df[col].notna()
-                                if mask.any():
-                                    result = result.set_index("ts_code")
-                                    result.loc[mask, col] = db_df.loc[mask, col]
-                                    result = result.reset_index()
+                                # 精确值覆盖近似值 - 对齐索引后赋值
+                                common_idx = result.index.intersection(db_df.index)
+                                for idx in common_idx:
+                                    db_val = db_df.loc[idx, col] if idx in db_df.index else None
+                                    if pd.notna(db_val):
+                                        result.loc[idx, col] = db_val
                             elif col in db_df.columns and col not in result.columns:
                                 # stock_daily没有的字段，直接从daily_basic补充
-                                result = result.set_index("ts_code")
-                                result[col] = db_df[col]
-                                result = result.reset_index()
+                                result[col] = db_df.reindex(result.index)[col]
+                        result = result.reset_index()
                     
                     merged_count = len(db_df)
                     logger.debug(f"FACTOR_ENGINE: Merged {merged_count} records from daily_basic "
