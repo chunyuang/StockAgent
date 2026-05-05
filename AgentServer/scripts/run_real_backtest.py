@@ -34,9 +34,9 @@ async def run_backtest():
         "initial_cash": 1000000,
         "period": "daily",
         "volume_threshold": 1.5,
-        "stop_loss_pct": 0.02,
-        "take_profit_pct": 0.07,
-        "max_hold_days": 10,
+        "stop_loss_pct": 0.05,
+        "take_profit_pct": 0.10,
+        "max_hold_days": 5,
         "max_position_per_stock": 0.1,
         "liquidity_threshold": 500,
         "max_position": 0.7,
@@ -51,11 +51,10 @@ async def run_backtest():
         "enable_sentiment_cycle": True,
         "enable_auction_filter": False,
         "selected_strategies": [
-            {"id": "halfway_chase", "name": "半路追涨", "params": {"min_volume_ratio": 1.5, "min_rise_pct": 0.03, "max_rise_pct": 0.05}},
-            {"id": "first_limit_up", "name": "首板打板", "params": {"min_seal_amount": 5000}},
-            {"id": "limit_up_open", "name": "涨停开板", "params": {"min_consecutive_limit": 2, "min_seal_after_open": 3000}},
-            {"id": "leader_buy_dip", "name": "龙头低吸", "params": {}},
-            {"id": "limit_down_qiao", "name": "跌停翘板", "params": {"min_consecutive_limit": 3, "min_qiao_amount": 1000}},
+            {"id": "halfway_chase", "name": "半路追涨", "params": {"min_volume_ratio": 0.8, "min_rise_pct": 0.02, "max_rise_pct": 0.07}},
+            {"id": "first_limit_up", "name": "首板打板", "params": {"min_seal_amount": 1000, "min_volume_ratio": 0.5}},
+            {"id": "limit_up_open", "name": "涨停开板", "params": {"min_consecutive_limit": 1, "min_seal_after_open": 500}},
+            {"id": "limit_down_qiao", "name": "跌停翘板", "params": {"min_consecutive_limit": 1, "min_qiao_amount": 500}},
         ],
     }
     
