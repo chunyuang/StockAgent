@@ -34,6 +34,7 @@ class LiangMaiClient:
     DEFAULT_BASE_URL = "http://124.220.44.71/api/gateway"
     RATE_LIMIT_PER_MINUTE = 120
     CACHE_TTL = 60  # 秒
+    MIN_REQUEST_INTERVAL = 0.6  # 最小请求间隔(秒)，120/min=0.5s，留0.1s余量
 
     def __init__(
         self,
@@ -52,9 +53,13 @@ class LiangMaiClient:
     async def initialize(self):
         """初始化HTTP会话"""
         if self._session is None or self._session.closed:
+            # ⚠️ connection_pool=False: 不复用连接，避免429后连接池被污染
+            # 每次请求独立TCP连接，牺牲少量性能换取稳定性
+            connector = aiohttp.TCPConnector(force_close=True, limit=1)
             self._session = aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=30),
                 headers={"User-Agent": "StockAgent-LiangMai/1.0"},
+                connector=connector,
             )
             logger.info(f"LiangMaiClient initialized, base_url={self.base_url}")
 
@@ -65,21 +70,36 @@ class LiangMaiClient:
             self._session = None
 
     async def _wait_rate_limit(self):
-        """等待速率限制窗口"""
+        """等待速率限制窗口
+        
+        两层限流:
+        1. 最小间隔: 每次请求至少间隔MIN_REQUEST_INTERVAL秒(0.6s)
+        2. 窗口限流: 60秒内不超过RATE_LIMIT_PER_MINUTE次(120次)
+        """
         async with self._lock:
             now = time.time()
-            # 清理1分钟前的请求记录
+            
+            # 第一层: 最小请求间隔(防止突发并发)
+            if self._request_timestamps:
+                elapsed = now - self._request_timestamps[-1]
+                if elapsed < self.MIN_REQUEST_INTERVAL:
+                    wait = self.MIN_REQUEST_INTERVAL - elapsed
+                    logger.debug(f"Min interval wait: {wait:.2f}s")
+                    await asyncio.sleep(wait)
+                    now = time.time()
+            
+            # 第二层: 窗口限流(60秒内不超过120次)
             self._request_timestamps = [
                 t for t in self._request_timestamps if now - t < 60
             ]
             if len(self._request_timestamps) >= self.rate_limit:
-                # 等待最早的请求过期
                 oldest = self._request_timestamps[0]
                 wait_time = 60 - (now - oldest) + 0.1
                 if wait_time > 0:
                     logger.warning(f"Rate limit reached, waiting {wait_time:.1f}s")
                     await asyncio.sleep(wait_time)
-            self._request_timestamps.append(time.time())
+                    now = time.time()
+            self._request_timestamps.append(now)
 
     def _cache_key(self, api: str, params: Dict) -> str:
         """生成缓存键"""
@@ -133,6 +153,22 @@ class LiangMaiClient:
                 async with self._session.get(
                     self.base_url, params=request_params
                 ) as resp:
+                    # ⚠️ 处理HTTP层面的429 (Too Many Requests)
+                    # 量脉在请求频率超限时返回HTTP 429，不是JSON里的code=4291
+                    if resp.status == 429:
+                        if attempt < max_retries - 1:
+                            wait = 5 * (attempt + 1)  # 5s, 10s, 15s
+                            logger.warning(
+                                f"HTTP 429 Too Many Requests (attempt {attempt+1}), "
+                                f"waiting {wait}s"
+                            )
+                            # 重建session避免连接池污染
+                            await self.close()
+                            await self.initialize()
+                            await asyncio.sleep(wait)
+                            continue
+                        raise RuntimeError(f"HTTP 429 rate limit after {max_retries} retries")
+                    
                     data = await resp.json()
 
                     code = data.get("code", -1)
@@ -146,7 +182,7 @@ class LiangMaiClient:
                         return result
 
                     elif code == 4291:
-                        # IP限流
+                        # 业务层IP限流(Token绑定IP超限)
                         if attempt < max_retries - 1:
                             wait = 30 * (attempt + 1)
                             logger.warning(
