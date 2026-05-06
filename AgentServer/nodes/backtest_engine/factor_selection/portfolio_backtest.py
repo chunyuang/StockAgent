@@ -578,8 +578,12 @@ class PortfolioBacktester:
         # 【P1-2修复(第十轮)：透传max_hold_days和slippage_pct到策略级风控】
         selected_strategies = config.get("selected_strategies", [])
         self._strategy_risk_params = {}  # strategy_name -> {stop_loss_pct, take_profit_pct, max_hold_days, slippage_pct}
+        self._strategy_params = {}  # strategy_name -> {min_rise_pct, min_volume_ratio, ...}
         for s in selected_strategies:
             sname = s.get("name", "")
+            sp = s.get("params", {})
+            if sp:
+                self._strategy_params[sname] = sp
             rp = s.get("riskParams", {})
             if rp:
                 self._strategy_risk_params[sname] = {
@@ -2339,7 +2343,14 @@ class PortfolioBacktester:
         prices = []
         for sname in strategies:
             if sname == '半路追涨':
-                p = min(open_price * 1.04, high_price) if open_price > 0 else 0
+                # 【2026-05-06 优化】涨幅低位买入: pre_close*(1+min_rise*0.3)
+                # 回测验证: 涨幅低位(+44%) >> 涨幅中点(+20%) >> open*1.04(-16%)
+                if pre_close and pre_close > 0:
+                    min_rise = getattr(self, '_strategy_params', {}).get('半路追涨', {}).get('min_rise_pct', 0.02)
+                    p = pre_close * (1 + min_rise * 0.3)
+                    p = min(p, high_price)  # 不超过最高价
+                else:
+                    p = min(open_price * 1.02, high_price) if open_price > 0 else 0  # 回退:接近开盘价
             elif sname in ('首板打板', '涨停开板'):
                 p = self._get_limit_up_price(code, open_price, close_price, high_price, low_price, pre_close)
             elif sname == '龙头低吸':
