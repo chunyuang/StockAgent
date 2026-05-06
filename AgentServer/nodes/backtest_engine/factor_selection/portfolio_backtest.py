@@ -295,14 +295,11 @@ class PortfolioBacktester:
         # 参数配置显示(根据不同策略格式化显示)
         await self.log(f"   │    📌 参数配置:")
         if strategy_name == "半路追涨":
-            min_rise_pct = params.get("min_rise_pct", 0.03)
+            # 【2026-05-06 回测优化】量比2.0+涨幅2-5%+严格止损2%+止盈7%
+            min_rise_pct = params.get("min_rise_pct", 0.02)  # 从0.03放宽到0.02
             max_rise_pct = params.get("max_rise_pct", 0.05)
-            # 【修复#29：volume_threshold 参数名统一
-            # 外层 -> strategy_params -> volume_threshold 保存进来
-            # 这里策略内使用 min_volume_ratio 是因子表内统一字段名
-            # 两种名称都尝试，保证向后兼容
-            # 【修复#4：默认值统一为1.5，和 models.py/ultra_short.py/defaults.py 保持一致
-            volume_threshold = params.get("volume_threshold", params.get("min_volume_ratio", 1.5))
+            # 【修复#4：默认值统一为2.0，和优化后的defaults.py保持一致】
+            volume_threshold = params.get("volume_threshold", params.get("min_volume_ratio", 2.0))  # 从1.5提高到2.0
             min_volume_ratio = volume_threshold
             allow_after_10am = params.get("allow_after_10am", False)
             await self.log(f"   │        • 量比阈值: {volume_threshold}倍")
