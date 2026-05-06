@@ -149,7 +149,9 @@ for r in coll.find({'pre_close': None, 'open': {'$gt': 0}}, {'_id': 1, 'open': 1
 | **东财 spot_em** | ✅全市场5200+ | ✅ | 12秒全市场 | ❌ IP被封 |
 | **通达信 daily** | ✅SH/SZ | ❌只有换手率 | 0.4s/只 | ✅ |
 
-### 3.2 量脉 market_realtime_all_network 实测
+### 3.2 ⭐ market_realtime_all_broker 实测（推荐！全市场PE/PB）
+
+**✅ 2026-05-06实测确认: 这是全市场PE/PB的最佳数据源！**
 
 ```python
 import urllib.request, json
@@ -157,51 +159,75 @@ import urllib.request, json
 token = 'ebacbad6d64444cd037ac5504b63f25d'
 base = 'http://124.220.44.71/api/gateway'
 
-url = f'{base}?token={token}&api=market_realtime_all_network'
-with urllib.request.urlopen(url, timeout=15) as resp:
+url = f'{base}?token={token}&api=market_realtime_all_broker'
+with urllib.request.urlopen(url, timeout=30) as resp:
     data = json.loads(resp.read())
+    # 返回8479只股票!
 ```
 
-**返回字段映射:**
+**broker源字段映射:**
 
 | 量脉字段 | 含义 | 示例 | 用途 | 单位转换 |
 |----------|------|------|------|----------|
 | `dm` | 股票代码 | 688553 | 匹配 | 需加后缀(.SH/.SZ/.BJ) |
 | `p` | 现价 | 20.34 | 行情 | 直接用 |
-| `pe` | **市盈率** | 98.5 | ✅补daily_basic | 直接用 |
-| `sjl` | **市净率(PB)** | 2.28 | ✅补daily_basic | 直接用 |
+| `pe` | **市盈率** | 27.94 | ✅补daily_basic | 直接用 |
+| `pb_ratio` | **市净率(PB)** | 2.28 | ✅补daily_basic | 直接用 ⚠️不是sjl! |
+| `zf` | 涨幅(%) | 4.85 | 行情 | 直接用 |
+| `h` | 最高 | 21.5 | 行情 | 直接用 |
+| `l` | 最低 | 19.8 | 行情 | 直接用 |
+| `o` | 开盘 | 20.1 | 行情 | 直接用 |
+| `yc` | 昨收 | 19.98 | 行情 | 直接用 |
+| `cje` | 成交额 | 188198782 | 因子 | 直接用(元) |
+| `v` | 成交量 | 12345.6 | 因子 | 手? |
+
+**⚠️ broker源缺少的字段**（vs all_network）:
+- ❌ 没有`sjl`(PB) → 用`pb_ratio`替代
+- ❌ 没有`hs`(换手率)
+- ❌ 没有`lt`(流通市值)
+- ❌ 没有`sz`(总市值)
+- ❌ 没有`lb`(量比)
+- ❌ BJ股票0只
+
+**关键:** broker源PE/PB全覆盖8161只(SH+SZ)，但缺流通市值/换手率/量比
+
+### 3.3 market_realtime_all_network（补充流通市值/换手率）
+
+```python
+url = f'{base}?token={token}&api=market_realtime_all_network'
+```
+
+**network源字段映射（含流通市值/换手率）:**
+
+| 量脉字段 | 含义 | 示例 | 用途 | 单位转换 |
+|----------|------|------|------|----------|
+| `pe` | **市盈率** | 98.5 | 补daily_basic | 直接用 |
+| `sjl` | **市净率(PB)** | 2.28 | 补daily_basic | 直接用 |
 | `lt` | **流通市值** | 6987598007 | ✅补daily_basic | 元→万元: ÷10000 |
 | `sz` | **总市值** | 8616024000 | ✅补daily_basic | 元→万元: ÷10000 |
 | `hs` | **换手率(%)** | 2.7 | ✅补daily_basic | 直接用(已是百分比) |
 | `lb` | 量比 | 0.9 | 回测筛选 | 直接用 |
-| `zf` | 涨幅(%) | 4.85 | 回测筛选 | 直接用 |
-| `cje` | 成交额 | 188198782 | 因子 | 直接用(元) |
-| `yc` | 昨收 | 19.98 | 计算pre_close | 直接用 |
-| `zdf60` | 60日涨跌(%) | 3.3 | 因子 | 直接用 |
-| `zdfnc` | 年内涨跌(%) | 14.33 | 因子 | 直接用 |
 
 **⚠️ 关键限制:**
-- **只返回300只SH股票**，SZ/BJ不覆盖（实测3次确认）
-- 每次返回相同的300只（不是分页，不是随机）
+- **只返回300只SH股票**，SZ/BJ不覆盖
 - 限1次/分钟 + IP绑定限制
-- 这是**实时数据**（当日快照），不是历史数据
+- 用于补充broker源缺失的流通市值/换手率字段
 
-### 3.3 stock_realtime 单只获取（IP修复后推荐）
+### 3.4 stock_realtime 单只获取（完整字段）
 
 ```python
-# IP修复后可用，120次/分
 url = f'{base}?token={token}&api=stock_realtime&ts_code=000001.SZ'
 ```
 
-**预估**: 5200只 ÷ 120次/分 = 43分钟覆盖全市场  
-**优势**: 逐只获取，确保全覆盖  
-**待确认**: 返回字段是否与all_network相同（含PE/PB）
+**✅ 实测确认含完整字段:** pe, sjl(PB), lt(流通市值), sz(总市值), hs(换手率), lb(量比)
+**预估**: IP修复后120次/分，5200只≈43分钟
+**优势**: 字段最全，逐只确保覆盖
 
-### 3.4 market_realtime_all_broker（待测）
+### 3.5 推荐方案: broker + network 组合
 
-- 文档说"全市场行情(券商)"，可能覆盖比network更全
-- 限1次/分钟
-- **当前因4291未能测试**，IP修复后优先测试
+1. **先调`all_broker`** → 获取8479只PE/PB（1次请求）
+2. **再调`all_network`** → 补充300只SH的流通市值/换手率/量比
+3. **最终缺的SZ流通市值** → 等IP修复后用`stock_realtime`逐只补
 
 ---
 
