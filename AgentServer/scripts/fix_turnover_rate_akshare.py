@@ -16,6 +16,7 @@ import os
 import time
 import akshare as ak
 import pandas as pd
+from pymongo import UpdateOne
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -90,12 +91,11 @@ async def fix():
                 if fields['turnover_rate'] is not None:
                     # trade_date在DB中存为int，确保filter匹配
                     td_filter = int(td) if len(td) == 8 else td
-                    bulk_ops.append({
-                        'updateOne': {
-                            'filter': {'ts_code': ts_code, 'trade_date': td_filter},
-                            'update': {'$set': {k: v for k, v in fields.items() if k not in ('trade_date_int',) and v is not None}}
-                        }
-                    })
+                    set_fields = {k: v for k, v in fields.items() if k not in ('trade_date_int',) and v is not None}
+                    bulk_ops.append(UpdateOne(
+                        {'ts_code': ts_code, 'trade_date': td_filter},
+                        {'$set': set_fields}
+                    ))
 
             if bulk_ops:
                 result = await db.stock_daily_ak_full.bulk_write(bulk_ops)

@@ -52,9 +52,10 @@ async def run_backtest():
         "enable_auction_filter": False,
         "selected_strategies": [
             {"id": "halfway_chase", "name": "半路追涨", "params": {"min_volume_ratio": 0.8, "min_rise_pct": 0.02, "max_rise_pct": 0.07}},
-            {"id": "first_limit_up", "name": "首板打板", "params": {"min_seal_amount": 1000, "min_volume_ratio": 0.5}},
-            {"id": "limit_up_open", "name": "涨停开板", "params": {"min_consecutive_limit": 1, "min_seal_after_open": 500}},
-            {"id": "limit_down_qiao", "name": "跌停翘板", "params": {"min_consecutive_limit": 1, "min_qiao_amount": 500}},
+            {"id": "first_limit_up", "name": "首板打板", "params": {"min_seal_amount": 1000, "min_volume_ratio": 0.5, "require_hot_sector": False, "require_sentiment_period": [], "max_turnover_rate": 50, "min_turnover_rate": 1}},
+            {"id": "limit_up_open", "name": "涨停开板", "params": {"min_consecutive_limit": 1, "min_seal_after_open": 500, "require_sentiment_period": []}},
+            {"id": "limit_down_qiao", "name": "跌停翘板", "params": {"min_consecutive_limit": 1, "min_qiao_amount": 500, "require_high_sentiment": False}},
+            {"id": "leader_buy_dip", "name": "龙头低吸", "params": {"min_consecutive_limit": 1, "min_correction": 0.001, "max_correction": 0.30, "min_circulation_market_cap": 20, "require_sentiment_period": []}},
         ],
     }
     

@@ -2477,10 +2477,10 @@ class PortfolioBacktester:
                 # 【P0-1修复(第十二轮)：circ_mv在MongoDB中存万元，需*10000(亿→万元)，与首板打板一致】
                 {"name": "circ_mv", "target": _min_circ_for_leader * 10000, "operator": ">=", "label": f"流通市值≥{_min_circ_for_leader}亿(龙头)"},
                 {"name": "limit_up_count", "target": min_consecutive, "operator": ">=", "label": f"近5日至少{min_consecutive}板"},
-                # 【P0-2修复(第十五轮)：pullback_pct在MongoDB中存负数(如-0.15=回调15%)】
-                # 正确语义：pullback_pct <= -min_correction(回调至少这么深) AND >= -max_correction(不超跌)
-                {"name": "pullback_pct", "target": -min_correction, "operator": "<=", "label": f"回调≥{min_correction*100:.0f}%"},
-                {"name": "pullback_pct", "target": -max_correction, "operator": ">=", "label": f"回调≤{max_correction*100:.0f}%"},
+                # 【P0-2修复(第33轮)：pullback_pct在MongoDB中存正数(如0.15=回调15%)]
+                # 正确语义：pullback_pct >= min_correction(回调至少这么深) AND <= max_correction(不超跌)
+                {"name": "pullback_pct", "target": min_correction, "operator": ">=", "label": f"回调≥{min_correction*100:.0f}%"},
+                {"name": "pullback_pct", "target": max_correction, "operator": "<=", "label": f"回调≤{max_correction*100:.0f}%"},
                 {"name": "pullback_days", "target": correction_days_min, "operator": ">=", "label": "最小回调天数"},
                 {"name": "pullback_days", "target": correction_days_max, "operator": "<=", "label": "最大回调天数"},
                 {"name": f"pullback_{support_level}", "target": 1, "label": f"{support_level.upper()}支撑位"},
