@@ -343,7 +343,7 @@ class PerformanceAnalyzer:
     def _get_balance_series(self, trades: List[Dict]) -> List[float]:
         """获取资金曲线"""
         balance = 0
-        series = [0]
+        series = [0]  # 初始为0（纯利润累计），需配合_calc_max_drawdown使用
         for t in sorted(trades, key=lambda x: x["sell_date"]):
             balance += t["profit"]
             series.append(balance)
@@ -364,7 +364,18 @@ class PerformanceAnalyzer:
         if len(balance_series) < 2:
             return 0
         
+        # 平衡序列起始为0时，用首个非零值作为初始peak
+        # 这样回撤 = 从峰值到谷值的跌幅
         peak = balance_series[0]
+        if peak <= 0:
+            # 找到第一个正值作为起点
+            for v in balance_series[1:]:
+                if v > 0:
+                    peak = v
+                    break
+            if peak <= 0:
+                return 0  # 全为0或负数，无回撤
+        
         max_dd = 0
         
         for balance in balance_series[1:]:

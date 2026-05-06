@@ -390,7 +390,8 @@ class PreBuyRiskChecker:
     
     def check_before_buy(self, account_id: str, ts_code: str, 
                        buy_price: float, buy_amount: float,
-                       initial_balance: float = None) -> RiskCheckResult:
+                       initial_balance: float = None,
+                       current_balance: float = None) -> RiskCheckResult:
         """买入前风控检查（入口方法）
         
         依次执行5项检查，如果任何一项未通过则拒绝交易
@@ -426,7 +427,7 @@ class PreBuyRiskChecker:
         # 2. 日内回撤控制
         if initial_balance:
             drawdown_passed, drawdown_reason, drawdown_details = self._check_daily_drawdown(
-                account_id, buy_amount, initial_balance
+                account_id, current_balance or initial_balance or buy_amount, initial_balance
             )
             details["drawdown_check"] = drawdown_details
             all_reasons.append(f"日内回撤: {drawdown_reason}")

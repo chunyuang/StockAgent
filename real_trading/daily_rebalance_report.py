@@ -84,7 +84,7 @@ class DailyRebalanceReportGenerator:
         strategy_analysis = analyzer.get_strategy_analysis()
         
         # 计算持仓市值
-        total_market_value = sum(p["shares"] * p["buy_price"] for p in current_positions)
+        total_market_value = sum(p["shares"] * p.get("current_price", p["buy_price"]) for p in current_positions)
         total_equity = account.current_balance + total_market_value
         
         # === 报告正文 ===

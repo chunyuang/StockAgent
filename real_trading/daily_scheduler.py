@@ -818,7 +818,16 @@ class DailyScheduler:
         # 卖出
         for pos in rebalance_ops.get("to_sell", []):
             try:
-                sell_price = pos.get("buy_price", 0)
+                sell_price = pos.get("current_price", 0) or pos.get("buy_price", 0)
+                if sell_price <= 0:
+                    # 尝试从MongoDB获取收盘价
+                    try:
+                        from core.managers import mongo_manager
+                        doc = await mongo_manager.find_one("stock_daily_ak_full", {"ts_code": pos["ts_code"], "trade_date": trade_date})
+                        if doc and doc.get("close", 0) > 0:
+                            sell_price = doc["close"]
+                    except Exception:
+                        pass
                 if _HAS_PORTFOLIO_TRACKER:
                     result = await portfolio_tracker.close_position(
                         self.account_id, pos["ts_code"], sell_price, reason="调仓卖出"

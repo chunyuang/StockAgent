@@ -314,9 +314,9 @@ class DataMaintainer:
                         'low': round(float(row.get('最低', row.get('low', 0))), 2),
                         'close': round(close, 2),
                         'pre_close': round(pre_close, 2),
-                        'pct_chg': round(float(row.get('涨跌幅', row.get('pct_change', 0))) * 100, 2),
+                        'pct_chg': round(float(row.get('涨跌幅', row.get('pct_change', 0))), 2),  # AKShare已是百分比，无需×100
                         'vol': float(row.get('成交量', row.get('volume', 0))),
-                        'amount': float(row.get('成交额', row.get('amount', 0))) * 10000,  # 万→元
+                        'amount': float(row.get('成交额', row.get('amount', 0))),  # AKShare成交额已是元，无需×10000
                         'source': DataSource.AKSHARE,
                     }
                     records.append(record)
@@ -361,7 +361,7 @@ class DataMaintainer:
                         'pre_close': round(float(row.get('pre_close', 0)), 2),
                         'pct_chg': round(float(row.get('pct_chg', 0)), 2),
                         'vol': float(row.get('vol', 0)),
-                        'amount': float(row.get('amount', 0)),
+                        'amount': float(row.get('amount', 0)) * 1000,  # Tushare amount单位千元→元
                         'source': DataSource.TUSHARE,
                     }
                     records.append(record)

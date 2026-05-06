@@ -175,7 +175,7 @@ class NavTracker:
         
         # 计算持仓市值
         positions = self.pos_manager.get_positions()
-        market_value = sum(p["shares"] * p["buy_price"] for p in positions)
+        market_value = sum(p["shares"] * p.get("current_price", p["buy_price"]) for p in positions)
         
         # 计算总权益
         total_equity = self.account.current_balance + market_value
