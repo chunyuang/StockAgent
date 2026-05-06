@@ -3,6 +3,13 @@
 
 统一网关接口，支持76个API，频率限制1分钟120次。
 文档: docs/LIANGMAI_API.md
+
+⚠️ 限制规则（两个独立限制，都必须遵守）:
+    1. 请求限流: 每分钟120次 (TokenBucket控制)
+    2. IP限制: Token绑定2个IP (4291错误=IP超限)
+
+⚠️ IP被占时不要反复重试！等用户确认IP释放后再调用。
+⚠️ 修改数据源前必须跟用户沟通（见 docs/DATA_SOURCE_POLICY.md）
 """
 import asyncio
 import time
