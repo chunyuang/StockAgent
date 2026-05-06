@@ -3,6 +3,19 @@
 
 统一管理多个数据源适配器，提供自动降级和优先级调度。
 
+⚠️ 数据源使用规范（详见 docs/DATA_SOURCE_POLICY.md）:
+    - 历史数据: MongoDB本地读取(无限制) > AKShare(下载用)
+    - 实时数据: 量脉(120次/分钟 + 2个IP限制)
+    - ⚠️ 不要重复尝试已知失败的数据源(Tushare已失效)
+    - ⚠️ 量脉IP被占(4291错误)时不要反复重试
+    - ⚠️ 新增数据源前必须跟用户沟通
+
+当前数据源状态 (2026-05-06):
+    ✅ AKShare: 历史日线/快照数据(主力)
+    ⚠️ 量脉: 实时行情(120次/分钟, Token绑定2个IP)
+    ❌ Tushare: token已失效
+    ❌ BaoStock: 仅作最后降级
+
 使用方式:
     from core.managers import data_source_manager
     
