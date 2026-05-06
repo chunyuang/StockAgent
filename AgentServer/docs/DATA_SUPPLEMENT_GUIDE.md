@@ -301,7 +301,95 @@ for code, name in indices.items():
 
 ---
 
-## 七、待解决事项
+## 七、量脉单只/批量获取PE/PB（IP修复后操作）
+
+### 7.1 stock_realtime 单只获取
+
+```python
+# 获取单只股票实时行情（含PE/PB）
+url = f'{base}?token={token}&api=stock_realtime&ts_code=000001.SZ'
+```
+
+**待确认**: 返回字段是否含PE/PB（与all_network相同？）
+**预估**: IP修复后120次/分，5200只≈43分钟覆盖全市场
+
+**操作步骤（IP修复后）**:
+```python
+import urllib.request, json, time, pymongo
+from pymongo import UpdateOne
+
+token = 'ebacbad6d64444cd037ac5504b63f25d'
+base = 'http://124.220.44.71/api/gateway'
+client = pymongo.MongoClient('localhost', 27017)
+db = client['stock_agent']
+coll = db['daily_basic']
+
+# 获取股票列表
+codes = db['stock_daily_ak_full'].distinct('ts_code', {'ts_code': {'$regex': '\.(SH|SZ)$'}})
+today = int(time.strftime('%Y%m%d'))
+
+for ts_code in codes:
+    try:
+        url = f'{base}?token={token}&api=stock_realtime&ts_code={ts_code}'
+        with urllib.request.urlopen(url, timeout=15) as resp:
+            data = json.loads(resp.read())
+            if isinstance(data, dict) and 'data' in data:
+                data = data['data']
+            if data and len(data) > 0:
+                r = data[0]
+                doc = {
+                    'ts_code': ts_code,
+                    'trade_date': today,
+                    'pe': r.get('pe'),
+                    'pb': r.get('sjl'),  # 注意: PB字段名是sjl不是pb
+                    'circ_mv': r.get('lt', 0) / 10000 if r.get('lt') else None,  # 元→万元
+                    'total_mv': r.get('sz', 0) / 10000 if r.get('sz') else None,
+                    'turnover_rate': r.get('hs'),  # 已是百分比
+                    'volume_ratio': r.get('lb'),
+                    'close': r.get('p'),
+                    'pct_chg': r.get('zf'),
+                }
+                coll.update_one(
+                    {'ts_code': ts_code, 'trade_date': today},
+                    {'$set': doc},
+                    upsert=True
+                )
+        time.sleep(0.6)  # ⚠️ 120次/分 = 0.5s + 0.1s余量
+    except Exception as e:
+        time.sleep(2)  # 出错后等2秒
+```
+
+### 7.2 stock_realtime_multi 批量获取
+
+```python
+# 批量获取（≤20只）
+codes_str = '000001,600000,300750'  # 不带后缀!
+url = f'{base}?token={token}&api=stock_realtime_multi&ts_code={codes_str}'
+```
+
+**待确认**: 是否含PE/PB字段
+**预估**: IP修复后120次/分÷20只/次 = 6次/分×20 = 120只/分，5200只≈43分钟
+
+### 7.3 market_realtime_all_broker 全市场行情
+
+```python
+# 可能返回全市场（比all_network更全）
+url = f'{base}?token={token}&api=market_realtime_all_broker'
+```
+
+**⚠️ 待测**: IP修复后优先测试！如果返回全市场5200+只，这是最快方案（1次请求搞定）
+**限制**: 1次/分钟
+
+### 7.4 IP修复后推荐操作顺序
+
+1. **先测 `all_broker`** → 如果返回全市场含PE/PB，1次请求写入daily_basic，完成！
+2. **再测 `stock_realtime`** → 确认单只返回字段含PE/PB
+3. **最后用 `stock_realtime` 逐只补全** → 如果all_broker不全，用逐只方案兜底
+4. **历史PE/PB** → 需要其他方案（量脉无历史PE/PB接口，需东财或其他）
+
+---
+
+## 八、待解决事项
 
 | 优先级 | 事项 | 依赖 |
 |--------|------|------|
