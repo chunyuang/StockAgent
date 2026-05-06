@@ -237,7 +237,9 @@ class PortfolioBacktester:
             await self.log(f"   │     → 🔴 触发强制空仓 (跌停≥{FORCE_EMPTY_LIMIT_DOWN}只 或 涨停≤{FORCE_EMPTY_LIMIT_UP}只)")
         else:
             await self.log(f"   │     → 🟢 不触发强制空仓 (跌停<{FORCE_EMPTY_LIMIT_DOWN}只 且 涨停>{FORCE_EMPTY_LIMIT_UP}只)")
-        await self.log(f"   │  🔹 大盘平均涨跌幅: {'+' if index_change >= 0 else ''}{index_change:.2f}%")
+        await self.log(f"   │  🔹 大盘平均涨跌幅: {'+' if index_change and index_change >= 0 else ''}{index_change:.2f}%")
+        if index_change is None:
+            index_change = 0.0
         if abs(index_change) < 3:
             await self.log(f"   │     → 🟢 符合交易条件")
         else:
