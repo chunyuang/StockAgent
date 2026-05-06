@@ -404,6 +404,15 @@ class PortfolioBacktester:
             operator = cond.get("operator", ">=")
             label = cond.get("label", f"条件{idx_cond}")
 
+            # 【修复：target=0且operator为>=时，表示"不限制"，跳过此条件】
+            # 用于日线回测模式：封单金额等分时因子设为0表示不限制
+            try:
+                if operator == ">=" and float(target_value) == 0 and factor_name not in ('first_limit_up', 'limit_up_yesterday', 'hot_sector', 'open_above_limit_down', 'limit_down_yesterday'):
+                    await self.log(f"   │    ⚪ 条件{idx_cond}: {label} → 跳过(target=0表示不限制)")
+                    continue
+            except (ValueError, TypeError):
+                pass
+
             if factor_name not in current_df.columns:
                 await self.log(f"   │    ⚠️ 因子 {factor_name} 缺失,跳过此条件(不影响其他条件筛选)")
                 continue  # 【修复：因子缺失时跳过该条件而非终止整个策略筛选】
@@ -2411,10 +2420,15 @@ class PortfolioBacktester:
             ]
         elif strategy_name == "首板打板":
             min_seal_amount = converted_params.get("min_seal_amount", 5000)
+            # 【修复：日线回测模式下limit_up_time只有0/925/1000三个离散值，
+            # 1000=盘中封板(无法区分具体时间)，0=未检测到涨停，925=一字板
+            # 当max_limit_time>=900(即15:00)时，跳过此条件(日线模式无法精确判断)】
             max_limit_time = converted_params.get("max_limit_up_time", "10:00")
             if isinstance(max_limit_time, str) and ":" in max_limit_time:
                 h, m = max_limit_time.split(":")
                 max_limit_time = int(h) * 60 + int(m)
+            # 900分钟=15:00，表示日线模式不限制涨停时间
+            skip_limit_time = max_limit_time >= 900
             min_circ_mv = converted_params.get("min_circulation_market_cap", 50)
             max_circ_mv = converted_params.get("max_circulation_market_cap", 500)
             min_volume_ratio = converted_params.get("min_volume_ratio", 1.5)
@@ -2423,21 +2437,27 @@ class PortfolioBacktester:
             max_blast = converted_params.get("max_blast_count", 1)
             require_hot = converted_params.get("require_hot_sector", False)
             require_sentiment = converted_params.get("require_sentiment_period", ["rising", "chaos"])
+            # 【修复：opening_pct_min/max从params读取，不再硬编码2.0/5.0】
+            opening_pct_min = converted_params.get("opening_pct_min", 2.0)
+            opening_pct_max = converted_params.get("opening_pct_max", 5.0)
+            # 【修复：limit_up_open_amount用>=而非默认==，且从params读取】
+            # 日线回测模式下封单金额为0(无法计算)，应设为0跳过此条件
+            min_seal_amount_filter = converted_params.get("min_seal_amount", min_seal_amount)
             return [
                 {"name": "first_limit_up", "target": 1, "label": "首次涨停"},
                 {"name": "limit_up_yesterday", "target": 0, "label": "昨日未涨停"},
-                {"name": "opening_pct_chg", "target": 2.0, "operator": ">=", "label": "竞价涨幅≥2%"},
-                {"name": "opening_pct_chg", "target": 5.0, "operator": "<=", "label": "竞价涨幅≤5%"},
-                {"name": "volume_ratio", "target": min_volume_ratio, "operator": ">=", "label": "竞价量比≥1.5"},
-                {"name": "turnover_rate", "target": min_turnover, "operator": ">=", "label": "换手率≥3%"},
-                {"name": "turnover_rate", "target": max_turnover, "operator": "<=", "label": "换手率≤15%"},
+                {"name": "opening_pct_chg", "target": opening_pct_min, "operator": ">=", "label": f"竞价涨幅≥{opening_pct_min}%"},
+                {"name": "opening_pct_chg", "target": opening_pct_max, "operator": "<=", "label": f"竞价涨幅≤{opening_pct_max}%"},
+                {"name": "volume_ratio", "target": min_volume_ratio, "operator": ">=", "label": f"竞价量比≥{min_volume_ratio}"},
+                {"name": "turnover_rate", "target": min_turnover, "operator": ">=", "label": f"换手率≥{min_turnover}%"},
+                {"name": "turnover_rate", "target": max_turnover, "operator": "<=", "label": f"换手率≤{max_turnover}%"},
                 {"name": "circ_mv", "target": min_circ_mv * 10000, "operator": ">=", "label": "最小流通市值"},
                 {"name": "circ_mv", "target": max_circ_mv * 10000, "operator": "<=", "label": "最大流通市值"},
-                {"name": "limit_up_open_amount", "target": min_seal_amount, "label": "最小封单金额"},
+                {"name": "limit_up_open_amount", "target": min_seal_amount_filter, "operator": ">=", "label": "最小封单金额"},
                 {"name": "limit_up_open_count", "target": max_blast, "operator": "<=", "label": "最大开板次数"},
                 {"name": "hot_sector", "target": 1 if require_hot else 0, "label": "要求热门板块"},
                 {"name": "sentiment_period_in", "target": require_sentiment, "operator": "in", "label": "情绪周期要求"},
-                {"name": "limit_up_time", "target": max_limit_time, "operator": "<=", "label": "最晚涨停时间"},
+                {"name": "limit_up_time", "target": max_limit_time, "operator": "<=", "label": "最晚涨停时间"} if not skip_limit_time else {"name": "limit_up_time", "target": 0, "operator": ">=", "label": "最晚涨停时间(日线模式不限制)"},
             ]
         elif strategy_name == "涨停开板":
             min_consecutive = converted_params.get("min_consecutive_limit", 2)
