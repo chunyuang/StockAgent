@@ -168,9 +168,10 @@ async def _compute_and_write_factors(
 def _compute_factors_for_stock(group: pd.DataFrame, fields: List[str]) -> pd.DataFrame:
     """为单只股票计算因子（与compute_all_factors.py逻辑一致）"""
 
-    # 确保数值列为float类型，避免int64列赋值float时TypeError
-    for col in ['circ_mv', 'turnover_rate', 'amount', 'vol', 'close', 'open', 'high', 'low']:
-        if col in group.columns:
+    # 确保所有策略因子列为float类型，避免int64列赋值float时TypeError
+    # MongoDB中很多因子存为int64(如is_limit_up=0/1, circ_mv=整数)，但计算结果是float
+    for col in group.columns:
+        if group[col].dtype in ['int64', 'int32', 'int16', 'int8']:
             group[col] = group[col].astype(float)
 
     # 始终计算所有策略因子（即使只缺部分，因为有些因子互相依赖）
