@@ -80,14 +80,15 @@ def get_ultra_short_defaults() -> Dict[str, Any]:
                 "enabled": True,
                 "name": "半路追涨",
                 "params": {
-                    "min_rise_pct": 0.03,
+                    # 【2026-05-06 回测优化】量比2.0+涨幅2-5%+涨幅低位买入, 55日+44%
+                    "min_rise_pct": 0.02,       # 从0.03放宽到0.02, 更多候选
                     "max_rise_pct": 0.05,
-                    "min_volume_ratio": 1.5,  # 【P2-5修复(第十轮)：与portfolio_backtest.py默认值1.5对齐，之前为1.0】
+                    "min_volume_ratio": 2.0,    # 从1.5提高到2.0, 更强放量信号
                     "allow_after_10am": False,
                 },
                 "riskParams": {
-                    "stop_loss_pct": 0.02,      # 止损2%
-                    "take_profit_pct": 0.06,    # 止盈6%
+                    "stop_loss_pct": 0.02,      # 严格止损2% (回测: SL-2% >> SL-3%/4%/5%)
+                    "take_profit_pct": 0.07,    # 止盈7% (回测: TP7%在SL-2%下最优)
                     "max_hold_days": 2,          # 最大持仓2天
                     "slippage_pct": 0.002         # 滑点0.2%
                 }
