@@ -5,6 +5,13 @@ Tushare 管理器 (数据 Provider)
 - Tushare API 调用
 - 令牌桶算法频率限制
 - 数据格式标准化
+
+⚠️ 当前状态 (2026-05-06): Tushare token已失效！
+    - 官方token (d9f3d9c...): 积分不足/接口封禁
+    - 代理token (2f031a2...): 已过期
+    - 不要调用此管理器获取新数据！
+    - 历史数据已存在MongoDB中，回测从MongoDB读取
+    - 如需重新启用Tushare，必须先跟用户确认token可用
 """
 
 import asyncio
