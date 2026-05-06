@@ -70,9 +70,14 @@ class RealTradingSignalGenerator:
             slippage=self.config.get("slippage", 0.001),
             max_position=self.config.get("max_position", 0.7)
         )
-        # 补充回测引擎缺少的实盘配置属性
-        self.backtester.enable_sentiment_cycle = self.config.get("enable_sentiment_cycle", True)
-        self.backtester.enable_force_empty = self.config.get("enable_force_empty", True)
+        # 补充回测引擎缺少的实盘配置属性（通过_risk_config传递，避免直接设属性）
+        if hasattr(self.backtester, '_risk_config') and isinstance(self.backtester._risk_config, dict):
+            self.backtester._risk_config["enable_sentiment_cycle"] = self.config.get("enable_sentiment_cycle", True)
+            self.backtester._risk_config["enable_force_empty"] = self.config.get("enable_force_empty", True)
+        else:
+            # fallback: 直接设属性（PortfolioBacktester无__slots__，支持动态属性）
+            self.backtester.enable_sentiment_cycle = self.config.get("enable_sentiment_cycle", True)
+            self.backtester.enable_force_empty = self.config.get("enable_force_empty", True)
         self.universe_mgr = UniverseManager()
     
     async def generate_signals(self, trade_date: str = None) -> Dict:

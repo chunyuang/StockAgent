@@ -338,7 +338,22 @@ class PositionManager:
         
         for ts_code, pos in self.positions.items():
             daily = price_map.get(ts_code, {})
-            current_price = daily.get("close", pos.buy_price) if isinstance(daily, dict) else pos.buy_price
+            current_price = daily.get("close", 0) if isinstance(daily, dict) else 0
+            if current_price <= 0:
+                # 行情缺失时标记为critical而非用成本价替代（成本价代市价导致止损止盈检查失效）
+                logger.warning(f"⚠️  {ts_code} 行情缺失，标记为critical")
+                alert = {
+                    "ts_code": ts_code,
+                    "name": pos.name,
+                    "current_price": pos.buy_price,  # 仅用于显示
+                    "pct_chg": 0,
+                    "hold_days": pos.hold_days(current_date),
+                    "profit_pct": 0,
+                    "alerts": ["⚠️  行情数据缺失，无法计算盈亏，建议人工核查"],
+                    "level": "danger"
+                }
+                alerts.append(alert)
+                continue
             high = daily.get("high", current_price) if isinstance(daily, dict) else current_price
             low = daily.get("low", current_price) if isinstance(daily, dict) else current_price
             pct_chg = daily.get("pct_chg", 0) if isinstance(daily, dict) else 0

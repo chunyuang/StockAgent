@@ -236,7 +236,7 @@ class MultiAccountManager:
         acc = self.accounts[account_id]
         positions = self.position_managers[account_id].get_positions()
         perf = self.performance_analyzers[account_id].get_basic_stats()
-        recent_trades = self.performance_analyzers[account_id].get_trade_history(10)
+        recent_trades = self.performance_analyzers[account_id].trades[:10] if hasattr(self.performance_analyzers[account_id], 'trades') else []
         
         return {
             "account_info": asdict(acc),
@@ -277,7 +277,7 @@ class MultiAccountManager:
             return "ℹ️  无账户"
         
         total_profit = sum(acc["total_profit"] for acc in accounts)
-        avg_win_rate = np.mean([acc["win_rate"] for acc in accounts if acc["win_rate"] > 0]) if accounts else 0
+        avg_win_rate = sum(acc["win_rate"] for acc in accounts if acc["win_rate"] > 0) / max(sum(1 for acc in accounts if acc["win_rate"] > 0), 1)
         active_count = len([acc for acc in accounts if acc["status"] == "active"])
         
         report_lines = [
