@@ -205,19 +205,37 @@ def _compute_factors_for_stock(group: pd.DataFrame, fields: List[str]) -> pd.Dat
     group['amount_20d'] = group['amount'].rolling(20).mean()
 
     # 流通市值和换手率
-    # 优先使用已有精确值(来自daily_basic合并)，仅缺失时用近似值
+    # 优先使用已有精确值(来自daily_basic合并或修复脚本)，仅缺失时用近似值
     if 'circ_mv' not in group.columns or group['circ_mv'].isna().all():
-        group['circ_mv'] = group['amount'] * 100  # 近似值: 成交额×100
+        # 近似值: 成交额/换手率*100（需要turnover_rate先算好）
+        if 'turnover_rate' in group.columns and group['turnover_rate'].notna().any() and (group['turnover_rate'] > 0).any():
+            group['circ_mv'] = group['amount'] / (group['turnover_rate'] / 100) / 10000  # 元→万元
+        else:
+            group['circ_mv'] = None  # 无法近似时不设假值
     if 'turnover_rate' not in group.columns or group['turnover_rate'].isna().all():
-        group['turnover_rate'] = group['amount'] / group['circ_mv'] * 10000  # 近似值
+        if group.get('circ_mv') is not None and (group['circ_mv'] > 0).any():
+            group['turnover_rate'] = group['amount'] / group['circ_mv'] / 10000 * 100  # circ_mv万元→元
+        # else: 留空
     group['turnover_20d'] = group['turnover_rate'].rolling(20).mean()
 
     # 振幅
     group['amplitude'] = (group['high'] - group['low']) / group['close'].shift(1) * 100
 
-    # 涨跌停识别
-    group['is_limit_up'] = group['pct_chg'] >= 9.8
-    group['is_limit_down'] = group['pct_chg'] <= -9.8
+    # 涨跌停识别（分板块阈值）
+    # 主板10%/ST5%, 创业板/科创板20%, 北交所30%
+    # 用9.5%作为主板阈值（考虑四舍五入），19.5%作为创业板/科创板阈值
+    ts_code_prefix = group['ts_code'].iloc[0][:3] if 'ts_code' in group.columns else '000'
+    if ts_code_prefix.startswith(('300', '301', '688')):
+        limit_up_thresh = 19.5
+        limit_down_thresh = -19.5
+    elif ts_code_prefix.startswith(('8', '4')):
+        limit_up_thresh = 29.5
+        limit_down_thresh = -29.5
+    else:
+        limit_up_thresh = 9.5  # 主板(含ST的5%会漏掉，但ST一般不是策略目标)
+        limit_down_thresh = -9.5
+    group['is_limit_up'] = group['pct_chg'] >= limit_up_thresh
+    group['is_limit_down'] = group['pct_chg'] <= limit_down_thresh
     group['limit_up_yesterday'] = group['is_limit_up'].shift(1).fillna(False)
     group['limit_down_yesterday'] = group['is_limit_down'].shift(1).fillna(False)
     group['first_limit_up'] = group['is_limit_up'] & ~group['limit_up_yesterday']
