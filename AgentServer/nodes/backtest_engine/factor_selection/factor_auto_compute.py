@@ -246,13 +246,17 @@ def _compute_factors_for_stock(group: pd.DataFrame, fields: List[str]) -> pd.Dat
     group['limit_down_yesterday'] = group['is_limit_down'].shift(1).fillna(False)
     group['first_limit_up'] = group['is_limit_up'] & ~group['limit_up_yesterday']
 
-    # 连续涨停天数
-    limit_up_counts = []
+    # 连续涨停天数(用于首板打板等策略)
+    consecutive_limit_up_counts = []
     count = 0
     for val in group['is_limit_up']:
         count = count + 1 if val else 0
-        limit_up_counts.append(count)
-    group['limit_up_count'] = limit_up_counts
+        consecutive_limit_up_counts.append(count)
+    group['consecutive_limit_up_count'] = consecutive_limit_up_counts
+    
+    # 近5日涨停次数(用于龙头低吸等策略，需"近5日至少N板")
+    is_lu_int = group['is_limit_up'].astype(int)
+    group['limit_up_count'] = is_lu_int.rolling(5, min_periods=1).sum().astype(int)
 
     # 连续跌停天数
     limit_down_counts = []
