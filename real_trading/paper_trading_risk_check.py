@@ -78,8 +78,8 @@ class PaperTradingEngineWithRisk:
                     # 只加载账户信息，不加载持仓和交易历史
                     # 这里简化处理，实际应该使用原有的加载逻辑
                     try:
-                        from dataclasses import dataclass
-                        acc = dataclass(**acc_data)
+                        from types import SimpleNamespace
+                        acc = SimpleNamespace(**acc_data) if isinstance(acc_data, dict) else acc_data
                         self.accounts[acc_id] = acc
                     except (TypeError, AttributeError, KeyError):
                         # 如果数据结构不匹配，创建空对象
