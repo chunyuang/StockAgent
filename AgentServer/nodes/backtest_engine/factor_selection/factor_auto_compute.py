@@ -168,6 +168,11 @@ async def _compute_and_write_factors(
 def _compute_factors_for_stock(group: pd.DataFrame, fields: List[str]) -> pd.DataFrame:
     """为单只股票计算因子（与compute_all_factors.py逻辑一致）"""
 
+    # 确保数值列为float类型，避免int64列赋值float时TypeError
+    for col in ['circ_mv', 'turnover_rate', 'amount', 'vol', 'close', 'open', 'high', 'low']:
+        if col in group.columns:
+            group[col] = group[col].astype(float)
+
     # 始终计算所有策略因子（即使只缺部分，因为有些因子互相依赖）
     # MA均线
     group['ma5'] = group['close'].rolling(5).mean()
