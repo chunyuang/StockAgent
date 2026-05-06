@@ -70,16 +70,26 @@ def generate_report(account_id: str = None, output_format: str = "text"):
         report.append("|----------|----------|--------|----------|------|--------|")
         total_market_value = 0
         for pos in positions:
-            # 这里简化，实际应获取当前价格计算市值
-            current_price = pos.cost_price  # 暂时用成本价代替
-            market_value = pos.shares * current_price
+            # 从MongoDB获取当前价格（字典访问，get_positions返回dict）
+            cost = pos.get("buy_price", pos.get("cost_price", 0))
+            try:
+                import pymongo
+                from core.settings import settings as _s
+                _client = pymongo.MongoClient(_s.mongo.url)
+                _db = _client[_s.mongo.database]
+                doc = _db.stock_daily_ak_full.find_one({"ts_code": pos["ts_code"]}, sort=[("trade_date", -1)])
+                _client.close()
+                current_price = doc["close"] if doc and doc.get("close", 0) > 0 else cost
+            except Exception:
+                current_price = cost
+            market_value = pos["shares"] * current_price
             total_market_value += market_value
-            profit = market_value - (pos.shares * pos.cost_price)
-            profit_pct = profit / (pos.shares * pos.cost_price) * 100 if (pos.shares * pos.cost_price) > 0 else 0
+            profit = market_value - (pos["shares"] * cost)
+            profit_pct = profit / (pos["shares"] * cost) * 100 if (pos["shares"] * cost) > 0 else 0
             
-            report.append(f"| {pos.ts_code} | {pos.shares} | {pos.cost_price:.2f} | {market_value:.2f} | {profit:.2f} | {profit_pct:.2f}% |")
+            report.append(f"| {pos['ts_code']} | {pos['shares']} | {cost:.2f} | {market_value:.2f} | {profit:.2f} | {profit_pct:.2f}% |")
         
-        report.append(f"\n总持仓市值：{total_market_value:.2f}元，仓位：{total_market_value/account.current_balance*100:.1f}%")
+        report.append(f"\n总持仓市值：{total_market_value:.2f}元，仓位：{total_market_value/account.current_balance*100:.1f}%" if account.current_balance > 0 else f"\n总持仓市值：{total_market_value:.2f}元")
     else:
         report.append("当前空仓，无持仓股票")
     
