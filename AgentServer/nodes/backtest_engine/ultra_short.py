@@ -270,7 +270,7 @@ async def execute_ultra_short_backtest(
         strategy_weights[strategy_name] = weight_per_strategy
         sp = strategy.get("params", {})
         if strategy_id == "halfway_chase":
-            min_volume = sp.get("min_volume_ratio", 1.5)  # 【修复风险9：默认值统一为1.5】
+            min_volume = sp.get("min_volume_ratio", 2.0)  # 【P0修复：默认值统一为2.0，与回测优化结果一致】
             all_factors.append({"name": "volume_increase", "weight": weight_per_strategy, "target": min_volume})
         elif strategy_id == "first_limit_up":
             min_seal = sp.get("min_seal_amount", 5000)
@@ -310,7 +310,7 @@ async def execute_ultra_short_backtest(
         "push_log": push_log_fn,
         "strategy_weights": strategy_weights,
         "selected_strategies": selected_strategies,
-        "volume_threshold": next((s.get("params", {}).get("min_volume_ratio", 1.5) for s in selected_strategies if s.get("name") == "半路追涨"), 1.5),
+        "volume_threshold": next((s.get("params", {}).get("min_volume_ratio", 2.0) for s in selected_strategies if s.get("name") == "半路追涨"), 2.0),
         "weight_method": "equal",
         # 🔧 传递前端配置的佣金/滑点参数到回测引擎
         "commission_rate": strategy_params.get("commission_rate", 0.0003),  # 万3

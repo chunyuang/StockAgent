@@ -2421,7 +2421,8 @@ class PortfolioBacktester:
             min_rise_pct = converted_params.get("min_rise_pct", 0.03)
             max_rise_pct = converted_params.get("max_rise_pct", 0.05)
             # 【修复#4：默认值统一为1.5，和 models.py/ultra_short.py/defaults.py 保持一致
-            volume_threshold = converted_params.get("min_volume_ratio", 1.5)
+            # 【P0修复：默认值统一为2.0，与_print_single_strategy_filtering显示一致】
+            volume_threshold = converted_params.get("min_volume_ratio", 2.0)
             return [
                 {"name": "open_below_limit", "target": 1, "label": "开盘低于涨停价"},
                 {"name": "pct_chg", "target": min_rise_pct * 100, "operator": ">=", "label": "最小涨幅"},
