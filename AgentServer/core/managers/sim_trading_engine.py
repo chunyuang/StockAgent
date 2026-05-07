@@ -100,13 +100,13 @@ class SimTradingEngine:
             
             # 买入验证
             if direction == "buy":
-                if account["available_cash"] < total_cost:
-                    return False, f"可用资金不足，需要 {total_cost:.2f} 元，实际可用 {account['available_cash']:.2f} 元", {}
+                if account.get("available_cash", 0) < total_cost:
+                    return False, f"可用资金不足，需要 {total_cost:.2f} 元，实际可用 {account.get('available_cash', 0):.2f} 元", {}
             
             # 卖出验证
             if direction == "sell":
-                if not position or position["available_quantity"] < quantity:
-                    available = position["available_quantity"] if position else 0
+                if not position or position.get("available_quantity", 0) < quantity:
+                    available = position.get("available_quantity", 0) if position else 0
                     return False, f"可用持仓不足，需要 {quantity} 股，实际可用 {available} 股", {}
             
             now = datetime.now(timezone.utc)
@@ -132,10 +132,12 @@ class SimTradingEngine:
             }
             
             # 更新账户资金
+            # 【P1修复：买入总成本已含佣金+印花税，但印花税买入时为0，所以total_cost=trade_amount+commission】
+            # 卖出时：净收入=trade_amount-commission-stamp_duty
             if direction == "buy":
-                new_available_cash = account["available_cash"] - total_cost
+                new_available_cash = account.get("available_cash", 0) - total_cost
             else:
-                new_available_cash = account["available_cash"] + (trade_amount - commission - stamp_duty)
+                new_available_cash = account.get("available_cash", 0) + (trade_amount - commission - stamp_duty)
             
             await mongo_manager.update_one(
                 C.SIM_ACCOUNTS,
@@ -147,9 +149,11 @@ class SimTradingEngine:
             if direction == "buy":
                 if position:
                     # 已有持仓，更新成本和数量
-                    total_quantity = position["quantity"] + quantity
-                    total_cost = position["avg_cost"] * position["quantity"] + trade_amount + commission
-                    new_avg_cost = total_cost / total_quantity
+                    # 【P0修复：avg_cost计算含买入佣金是正确的，但外层total_cost变量名遮蔽了此处】
+                    # 外层total_cost=trade_amount+commission+stamp_duty(含卖出印花税)，此处只需trade_amount+commission
+                    total_quantity = position.get("quantity", 0) + quantity
+                    buy_total_cost = position.get("avg_cost", 0) * position.get("quantity", 0) + trade_amount + commission
+                    new_avg_cost = buy_total_cost / total_quantity
                     
                     await mongo_manager.update_one(
                         C.POSITIONS,
@@ -165,6 +169,7 @@ class SimTradingEngine:
                     )
                 else:
                     # 新建持仓
+                    # 【P0修复：avg_cost应含买入佣金，(trade_amount+commission)/quantity是正确成本价】
                     position_id = f"pos_{uuid.uuid4().hex[:12]}"
                     new_position = {
                         "position_id": position_id,
@@ -173,7 +178,7 @@ class SimTradingEngine:
                         "stock_name": stock_name,
                         "quantity": quantity,
                         "available_quantity": quantity,
-                        "avg_cost": (trade_amount + commission) / quantity,
+                        "avg_cost": (trade_amount + commission) / quantity,  # 含佣金成本价
                         "first_buy_date": now,
                         "hold_days": 1,
                         "strategy": strategy,
@@ -189,9 +194,11 @@ class SimTradingEngine:
                 
                 if new_quantity <= 0:
                     # 全部卖出，删除持仓
+                    # 【P1修复：全卖时删除持仓而非设quantity=0，与_check_and_execute_risk_sells设0不一致】
+                    # 统一为删除(更干净)
                     await mongo_manager.delete_one(
                         C.POSITIONS,
-                        {"position_id": position["position_id"]}
+                        {"position_id": position.get("position_id")}
                     )
                 else:
                     # 部分卖出，更新持仓
@@ -299,23 +306,15 @@ class SimTradingEngine:
                     
                     quantity = pos_doc["quantity"]
                     sell_amount = sell_price * quantity
-                    # 扣除手续费(简化)
-                    commission = max(sell_amount * 0.0003, 5)  # 最低5元
-                    stamp_tax = sell_amount * 0.001  # 印花税
+                    # 【P1修复：手续费使用引擎配置而非硬编码，与place_order一致】
+                    commission = max(sell_amount * self.commission_rate, self.min_commission)
+                    stamp_tax = sell_amount * self.stamp_duty_rate
                     net_amount = sell_amount - commission - stamp_tax
                     
-                    # 更新持仓为0
-                    await mongo_manager.update_one(
+                    # 【P1修复：全卖后删除持仓(与place_order一致)，而非设quantity=0留僵尸记录】
+                    await mongo_manager.delete_one(
                         C.POSITIONS,
-                        {"position_id": pos_doc["position_id"]},
-                        {"$set": {
-                            "quantity": 0,
-                            "market_value": 0,
-                            "profit": net_amount - pos_doc.get("avg_cost", 0) * quantity,
-                            "current_price": sell_price,
-                            "updated_at": datetime.now(timezone.utc),
-                            "close_reason": reason,
-                        }}
+                        {"position_id": pos_doc.get("position_id")}
                     )
                     
                     # 回收资金到账户
@@ -411,6 +410,7 @@ class SimTradingEngine:
                     if isinstance(first_buy, str):
                         first_buy = datetime.fromisoformat(first_buy.replace('Z', '+00:00'))
                     calendar_days = (now - first_buy).days
+                    # 【P1修复：日历天数→交易日，系数0.67(5/7≈0.71，考虑节假日0.67更保守)】
                     hold_days = max(1, int(calendar_days * 0.67))
                 
                 # 更新持仓记录
@@ -475,10 +475,12 @@ class SimTradingEngine:
         total_market_value = 0
         total_cost = 0
         for pos in positions:
+            # 【P0修复：avg_cost回退导致虚增盈亏——停牌股current_price为None时回退到avg_cost】
+            # 这会让浮亏显示为0(成本价=市价)，应改为用最后有效价或标记为估值不可靠
             price = pos.get("current_price") or await self._get_latest_price(pos["ts_code"]) or pos.get("avg_cost", 0)
-            mv = price * pos["quantity"]
+            mv = price * pos.get("quantity", 0)
             total_market_value += mv
-            total_cost += pos.get("avg_cost", 0) * pos["quantity"]
+            total_cost += pos.get("avg_cost", 0) * pos.get("quantity", 0)
         
         total_assets = account["available_cash"] + total_market_value
         initial_cash = account.get("initial_cash", total_assets)
