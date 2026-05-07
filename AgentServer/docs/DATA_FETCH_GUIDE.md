@@ -1,7 +1,80 @@
 # 数据获取操作手册
 
 > 最后更新: 2026-05-08
-> 分支: fix/data-quality-and-docs
+> 分支: fix/data-layer-and-docs
+
+---
+
+## ⚠️ 数据统一标准（最高优先级）
+
+**所有写入MongoDB的数据必须满足以下格式，不接受例外：**
+
+| 字段 | 单位 | 类型 | 示例 | 说明 |
+|------|------|------|------|------|
+| open/high/low/close | 元 | float | 11.37 | **真实价(不复权)** |
+| pre_close | 元 | float | 11.36 | **真实价(不复权)** |
+| pct_chg | % | float | -2.15 | 涨跌幅百分比 |
+| vol | 股 | int | 93695800 | **不是手** |
+| amount | 元 | float | 1062755238.5 | **不是千元/万元** |
+| circ_mv | 万元 | float | 22064167.94 | 流通市值 |
+| turnover_rate | % | float | 0.48 | 换手率 |
+| volume_ratio | 倍 | float | 1.5 | 量比 |
+| trade_date | — | int | 20260508 | yyyyMMdd格式 |
+
+**🔴 绝对禁止: 前复权价、vol=手、amount=千元/万元**
+
+### 数据写入前必须做的转换
+
+每个数据源写入MongoDB前，必须做以下转换确保统一：
+
+| 数据源 | 需要转换的字段 | 转换规则 |
+|--------|--------------|----------|
+| 东方财富API | circ_mv | 元→万元: ÷10000 |
+| 东方财富API | vol | 手→股: ×100 |
+| AKShare stock_zh_a_daily | turnover | 小数→百分比: ×100 |
+| AKShare stock_zh_a_daily | pre_close | close-change (API不直接返回) |
+| AKShare stock_zh_a_spot_em | vol | 手→股: ×100 |
+| AKShare stock_zh_a_spot_em | amount | 万元→元: ×10000 |
+| 量脉 | circ_mv(lt) | 元→万元: ÷10000 |
+| 量脉 | pe/sjl/pb/hs/lb | **直接使用,不需转换** (上次sniper脚本映射错误已清除) |
+| Tushare | **不要使用** | token已失效 |
+
+### 数据质量验证
+
+**每次写入数据后，必须运行验证:**
+
+```bash
+python3 scripts/unify_data.py --validate
+```
+
+验证项:
+1. 前复权数据检测(平安银行close>30=前复权，正常应<15)
+2. vol单位检测(vol<1000可能是手而非股)
+3. amount单位检测(amount<100000可能是千元而非元)
+4. 每日股票数量(<4000=偏少)
+
+### 当前数据质量问题（截至2026-05-08）
+
+| 问题 | 范围 | 严重度 | 修复方案 |
+|------|------|--------|----------|
+| **前复权close** | 114天(20251008~20260320) | 🔴致命 | 用AKShare重新拉真实价覆盖 |
+| **amount=千元** | 同上114天，全部5510只 | 🔴致命 | 同上 |
+| **vol=手** | 同上114天 | 🔴致命 | 同上 |
+| **4月底每天只有2400只** | AKShare段(3/23~5/6) | 🟡 | AKShare补全SZ/BJ |
+| **5/7前circ_mv缺失** | AKShare段 | 🟡 | 东方财富/daily_basic合并 |
+| **circ_mv 9只大盘股存元** | 全部日期 | 🟡 | 特殊处理9只股票 |
+| **5/8=5/7盘中快照** | 东方财富段当天盘中运行 | 🟡 | 收盘后再拉 |
+
+**⚠️ 在修复前复权数据之前，回测结果不可信！**
+
+修复命令:
+```bash
+# 修复前复权数据(约17分钟, 逐只从AKShare拉)
+python3 scripts/unify_data.py --fix-qfq --start 20251008 --end 20260320
+
+# 先干跑看效果
+python3 scripts/unify_data.py --fix-qfq --dry-run
+```
 
 ---
 
@@ -49,8 +122,12 @@ python3 scripts/eastmoney_daily_bar.py --date 20260508
 - 速度: 2.8秒拉5849只，0.4秒写入MongoDB
 - 字段: open/high/low/close/pre_close/pct_chg/vol(股)/amount(元)/turnover_rate/volume_ratio/circ_mv(万元)
 - 涨跌停: 自动判断(主板10%/创业板20%/北交所30%)
-- **注意**: 拉的是盘中实时快照，盘中运行时数据会变化，收盘后拉才是最终数据
-- **注意**: circ_mv单位=万元(与旧数据一致), 但5/7前新数据(AKShare段)的circ_mv是None
+- **数据转换(脚本内已处理):**
+  - f5(vol)手→股: ×100
+  - f21(流通市值)元→万元: ÷10000
+  - f10(量比)直接使用
+- **注意**: 拉的是盘中实时快照，盘中运行时数据会变化，**收盘后拉才是最终数据**
+- **注意**: 5/8和5/7数据相同，说明是盘中快照未更新，**需在收盘后重新拉**
 
 **方法2: AKShare (备选，逐只拉，慢)**
 
@@ -59,8 +136,11 @@ import akshare as ak
 # 历史日线(逐只，0.2s/只，5000只≈17分钟)
 df = ak.stock_zh_a_daily(symbol='sz000001', start_date='20260507', end_date='20260507', adjust='')
 # 字段: date/open/high/low/close/volume(股)/amount(元)/outstanding_share/turnover
-# ⚠️ 北交所(8/4开头)会报KeyError('date')，需过滤
-# ⚠️ 不含PE/PB/流通市值/量比
+# **数据转换(需手动处理):**
+#   - turnover: 小数→百分比, ×100
+#   - pre_close: close - change (API不返回pre_close)
+#   - 北交所(8/4开头)会报KeyError('date')，需过滤
+#   - 不含PE/PB/流通市值/量比
 ```
 
 ### 2.3 补因子数据
@@ -91,8 +171,13 @@ python3 scripts/eastmoney_daily_basic.py --date 20260508
 - 速度: 2.4秒拉5849只，0.4秒写入MongoDB
 - 字段: pe(PE_TTM)/pb/circ_mv(亿元)/total_mv(亿元)/turnover_rate(%)/volume_ratio/close
 - 覆盖率: PE 75.7%, PB 93.6%, circ_mv 94.3%, volume_ratio 93.9%
-- **注意**: circ_mv存的是**亿元**（与stock_daily_ak_full的**万元**不同！）
+- **数据转换(脚本内已处理):**
+  - f21(流通市值)元→亿元: ÷1e8
+  - f20(总市值)元→亿元: ÷1e8
+  - f115(PE_TTM)优先于f9(PE动态)
+- **注意**: daily_basic的circ_mv存的是**亿元**（与stock_daily_ak_full的**万元**不同！）
 - **注意**: 已有>100条时自动删除旧数据重写（确保数据是最新的）
+- **注意**: 写入后运行 `python3 scripts/unify_data.py --validate` 验证
 
 **方法2: 量脉 (不推荐，4291限制)**
 
