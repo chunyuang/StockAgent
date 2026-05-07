@@ -28,21 +28,22 @@ async def run_backtest():
             print(msg)
     
     # 超短回测参数 - 和前端提交的一致
+    # 【调参v2：只跑半路追涨(唯一有候选的策略)，量比1.0适配日线数据】
     params = {
         "start_date": "20260105",
-        "end_date": "20260116",
+        "end_date": "20260320",
         "initial_cash": 1000000,
         "period": "daily",
-        "volume_threshold": 1.5,
-        "stop_loss_pct": 0.05,
-        "take_profit_pct": 0.10,
-        "max_hold_days": 5,
-        "max_position_per_stock": 0.1,
+        "volume_threshold": 1.0,
+        "stop_loss_pct": 0.02,
+        "take_profit_pct": 0.07,
+        "max_hold_days": 10,
+        "max_position_per_stock": 0.15,
         "liquidity_threshold": 500,
         "max_position": 0.7,
-        "commission_rate": 0.0003,
+        "commission_rate": 0.0002,
         "stamp_duty_rate": 0.001,
-        "slippage_pct": 0.002,
+        "slippage_pct": 0.001,
         "enable_stop_loss": True,
         "enable_take_profit": True,
         "enable_ma60_filter": True,
@@ -51,11 +52,7 @@ async def run_backtest():
         "enable_sentiment_cycle": True,
         "enable_auction_filter": False,
         "selected_strategies": [
-            {"id": "halfway_chase", "name": "半路追涨", "params": {"min_volume_ratio": 0.8, "min_rise_pct": 0.02, "max_rise_pct": 0.07}},
-            {"id": "first_limit_up", "name": "首板打板", "params": {"min_seal_amount": 1000, "min_volume_ratio": 0.5, "require_hot_sector": False, "require_sentiment_period": [], "max_turnover_rate": 50, "min_turnover_rate": 1}},
-            {"id": "limit_up_open", "name": "涨停开板", "params": {"min_consecutive_limit": 1, "min_seal_after_open": 500, "require_sentiment_period": []}},
-            {"id": "limit_down_qiao", "name": "跌停翘板", "params": {"min_consecutive_limit": 1, "min_qiao_amount": 500, "require_high_sentiment": False}},
-            {"id": "leader_buy_dip", "name": "龙头低吸", "params": {"min_consecutive_limit": 1, "min_correction": 0.001, "max_correction": 0.30, "min_circulation_market_cap": 20, "require_sentiment_period": []}},
+            {"id": "halfway_chase", "name": "半路追涨", "params": {"min_volume_ratio": 1.0, "min_rise_pct": 0.02, "max_rise_pct": 0.05}},
         ],
     }
     
