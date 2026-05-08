@@ -107,7 +107,7 @@ def fix_qfq_segment(db, start_date, end_date, dry_run=False):
     log.info(f"需要修复的交易日: {len(qfq_dates)}天")
     
     # 获取股票列表(只拉还在列表中的)
-    codes = db.stock_basic.distinct("ts_code", {"list_status": "L"})
+    codes = db.stock_basic.distinct("ts_code")
     log.info(f"活跃股票: {len(codes)}只")
     
     # 转换ts_code → AKShare symbol
@@ -143,16 +143,26 @@ def fix_qfq_segment(db, start_date, end_date, dry_run=False):
                 continue
             
             updates = []
-            for _, row in df.iterrows():
-                td = int(row["date"].replace("-", ""))
+            prev_close = None
+            for idx, row in df.iterrows():
+                d = row["date"]
+                td = int(f"{d.year:04d}{d.month:02d}{d.day:02d}") if hasattr(d, 'year') else int(str(d).replace("-", ""))
+                close = round(float(row["close"]), 2)
+                # pre_close: 用前一行close(本段数据按日期排序)
+                if prev_close is None:
+                    pre_close = round(float(row["open"]), 2)  # 首日回退到open
+                else:
+                    pre_close = prev_close
+                pct_chg = round((close - pre_close) / pre_close * 100, 2) if pre_close else 0.0
+                prev_close = close
                 
                 record = {
                     "open": round(float(row["open"]), 2),
                     "high": round(float(row["high"]), 2),
                     "low": round(float(row["low"]), 2),
-                    "close": round(float(row["close"]), 2),
-                    "pre_close": round(float(row["close"]) - float(row.get("change", 0)), 2),
-                    "pct_chg": round(float(row.get("pct_change", 0)) * 100, 2),
+                    "close": close,
+                    "pre_close": pre_close,
+                    "pct_chg": pct_chg,
                     "vol": int(float(row["volume"])),  # 股
                     "amount": float(row["amount"]),     # 元
                     "turnover_rate": round(float(row.get("turnover", 0)) * 100, 4),  # 小数→百分比
@@ -169,9 +179,13 @@ def fix_qfq_segment(db, start_date, end_date, dry_run=False):
                 try:
                     result = db.stock_daily_ak_full.bulk_write(updates, ordered=False)
                     total_updated += result.modified_count
+                    if result.modified_count > 0:
+                        log.info(f"  {ts_code}: {result.modified_count}条已更新")
                 except Exception as e:
                     log.error(f"  {ts_code} bulk_write error: {e}")
                     total_failed += len(updates)
+            elif updates and dry_run:
+                log.info(f"  {ts_code}: DRY RUN {len(updates)}条待更新")
             
         except Exception as e:
             if "date" not in str(e):  # 北交所date错误不记录
@@ -179,7 +193,7 @@ def fix_qfq_segment(db, start_date, end_date, dry_run=False):
             total_failed += 1
             continue
         
-        if (i + 1) % 500 == 0:
+        if (i + 1) % 100 == 0:
             log.info(f"  进度: {i+1}/{len(codes)}, 更新={total_updated}, 失败={total_failed}")
         
         time.sleep(0.15)  # AKShare限流
@@ -201,7 +215,7 @@ def fix_segment2_missing(db, start_date, end_date, dry_run=False):
     
     for td in dates:
         existing_codes = set(db.stock_daily_ak_full.distinct("ts_code", {"trade_date": td}))
-        all_codes = set(db.stock_basic.distinct("ts_code", {"list_status": "L"}))
+        all_codes = set(db.stock_basic.distinct("ts_code"))
         missing = all_codes - existing_codes
         
         if not missing:
@@ -225,15 +239,19 @@ def fix_segment2_missing(db, start_date, end_date, dry_run=False):
                     continue
                 
                 row = df.iloc[0]
+                close = round(float(row["close"]), 2)
+                # 单日查询无法算pre_close, 回退到open
+                pre_close = round(float(row["open"]), 2)
+                pct_chg = round((close - pre_close) / pre_close * 100, 2) if pre_close else 0.0
                 record = {
                     "ts_code": ts_code,
                     "trade_date": td,
                     "open": round(float(row["open"]), 2),
                     "high": round(float(row["high"]), 2),
                     "low": round(float(row["low"]), 2),
-                    "close": round(float(row["close"]), 2),
-                    "pre_close": round(float(row["close"]) - float(row.get("change", 0)), 2),
-                    "pct_chg": round(float(row.get("pct_change", 0)) * 100, 2),
+                    "close": close,
+                    "pre_close": pre_close,
+                    "pct_chg": pct_chg,
                     "vol": int(float(row["volume"])),
                     "amount": float(row["amount"]),
                     "turnover_rate": round(float(row.get("turnover", 0)) * 100, 4),
