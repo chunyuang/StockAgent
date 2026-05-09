@@ -477,6 +477,49 @@ class PortfolioBacktester:
         cleaned_count = len(universe) - st_count - new_stock_count - low_liquidity_count
         await self.log(f"      🔹 清洗后剩余: {cleaned_count}只")
 
+    async def _record_daily_net_value(self, trade_date: str, holdings: dict, cash: float,
+                                             last_net_value: float, peak_value: float,
+                                             net_value_series: list, daily_profit_list: list,
+                                             drawdown_series: list, daily_cash_list: list,
+                                             last_prices: dict = None, prices: dict = None,
+                                             rebalance_set: set = None) -> tuple:
+        """【P0修复】统一记录每日净值,确保continue前也能调用
+        Returns: (last_net_value, peak_value) 更新后的值
+        """
+        # 计算持仓市值
+        holdings_market_value = 0
+        if holdings and len(holdings) > 0:
+            prices_for_hold = last_prices or prices or {}
+            for code, shares in holdings.items():
+                if shares > 0:
+                    if code in prices_for_hold and isinstance(prices_for_hold.get(code), dict):
+                        close = prices_for_hold[code].get('close', 0)
+                        if close > 0:
+                            holdings_market_value += shares * close
+                            continue
+                    lvp = getattr(self, '_last_valid_price', {}).get(code, 0)
+                    if lvp > 0:
+                        holdings_market_value += shares * lvp
+
+        current_net_value = cash + holdings_market_value
+        daily_profit = current_net_value - last_net_value
+
+        if current_net_value > peak_value:
+            peak_value = current_net_value
+        drawdown = (peak_value - current_net_value) / peak_value if peak_value > 0 else 0
+
+        net_value_series.append({
+            "trade_date": trade_date,
+            "net_value": current_net_value,
+            "daily_profit": daily_profit,
+            "drawdown": drawdown
+        })
+        daily_profit_list.append(daily_profit)
+        drawdown_series.append(drawdown)
+        daily_cash_list.append(cash / current_net_value if current_net_value > 0 else 1.0)
+
+        return current_net_value, peak_value
+
     async def _print_daily_summary(self, trade_date: str, holdings_count: int, cash: float):
         """【统一入口!每日收盘汇总必须调用!】"""
         await self.log(f"")
@@ -946,6 +989,11 @@ class PortfolioBacktester:
 
                     # 【修复#6:强制空仓也输出每日收盘汇总,continue前加上】
                     await self._print_daily_summary(trade_date, len(holdings), cash)
+                    # 【P0修复：continue前记录净值】
+                    last_net_value, peak_value = await self._record_daily_net_value(
+                        trade_date, holdings, cash, last_net_value, peak_value,
+                        net_value_series, daily_profit_list, drawdown_series, daily_cash_list,
+                        last_prices=last_prices)
                     continue
 
                 # ==================== 正常调仓流程 ====================
@@ -989,6 +1037,11 @@ class PortfolioBacktester:
                 if not universe:
                     await self.log(f"   ⚠️  当日无符合条件的股票,跳过调仓")
                     await self._print_daily_summary(trade_date, len(holdings), cash)
+                    # 【P0修复：continue前记录净值】
+                    last_net_value, peak_value = await self._record_daily_net_value(
+                        trade_date, holdings, cash, last_net_value, peak_value,
+                        net_value_series, daily_profit_list, drawdown_series, daily_cash_list,
+                        last_prices=last_prices)
                     continue
 
                 ultra_short_factors = [
@@ -1028,6 +1081,11 @@ class PortfolioBacktester:
                 if len(factor_df) == 0:
                     await self.log(f"   ⚠️  【重要告警】因子数据为空！该日期无任何股票数据，全天空仓")
                     await self._print_daily_summary(trade_date, len(holdings), cash)
+                    # 【P0修复：continue前记录净值】
+                    last_net_value, peak_value = await self._record_daily_net_value(
+                        trade_date, holdings, cash, last_net_value, peak_value,
+                        net_value_series, daily_profit_list, drawdown_series, daily_cash_list,
+                        last_prices=last_prices)
                     continue  # 【P0-3修复(第十一轮)：跳过后续逻辑，避免空DataFrame上无意义运算】
                 # 🔍 因子完整性检查:检查所有请求的因子是否都存在数据
                 missing_factors = []
@@ -1143,6 +1201,11 @@ class PortfolioBacktester:
                     await self.log(f"   ⚠️  当日无符合条件的交易标的,跳过调仓")
                     # 【修复：当日无候选时，输出每日收盘汇总后continue到下一交易日】
                     await self._print_daily_summary(trade_date, len(holdings), cash)
+                    # 【P0修复：continue前记录净值】
+                    last_net_value, peak_value = await self._record_daily_net_value(
+                        trade_date, holdings, cash, last_net_value, peak_value,
+                        net_value_series, daily_profit_list, drawdown_series, daily_cash_list,
+                        last_prices=last_prices)
                     continue  # continue外层for循环，跳到下一交易日
 
                 # 【修复#7：enable_auction_filter 竞价过滤逻辑，开关真正生效】
@@ -1283,6 +1346,11 @@ class PortfolioBacktester:
                 # 如果没有任何股票获取到价格,跳过本次调仓
                 if len(prices) == 0 and len(holdings) == 0:
                     await self.log(f"   ⚠️  没有任何股票获取到当日价格,跳过调仓")
+                    # 【P0修复：continue前记录净值】
+                    last_net_value, peak_value = await self._record_daily_net_value(
+                        trade_date, holdings, cash, last_net_value, peak_value,
+                        net_value_series, daily_profit_list, drawdown_series, daily_cash_list,
+                        last_prices=last_prices)
                     continue
 
                 # 5. 执行调仓
@@ -1430,52 +1498,13 @@ class PortfolioBacktester:
                     await self.log(f"   │  💵 当前现金：{cash:,.2f} 元")
                     await self.log(f"   └───────────────────────────────────────────────────────")
 
-                # 【修复#47：逐日计算持仓市值，修复净值曲线】
-                # 【P0-C修复：复用非调仓日已获取的价格，避免二次调用】
-                if holdings and len(holdings) > 0:
-                    # 调仓日用rebalance时的prices，非调仓日用上面获取的_prices_for_display
-                    if trade_date in rebalance_set:
-                        # 调仓日：rebalance后的prices已经获取过了，直接复用
-                        prices_for_hold = prices
-                    else:
-                        # 非调仓日：复用上面已获取的价格
-                        prices_for_hold = _prices_for_display
-                    # 【P1-4修复：每日更新last_prices，避免非调仓日过期导致final_value失真】
-                    last_prices = prices_for_hold
-                    holdings_market_value = 0
-                    for code, shares in holdings.items():
-                        if shares > 0:
-                            if code in prices_for_hold and prices_for_hold[code].get('close', 0) > 0:
-                                holdings_market_value += shares * prices_for_hold[code]['close']
-                            else:
-                                # 【P0-1修复：停牌股用_last_valid_price估值，避免市值=0导致净值骤降】
-                                lvp = getattr(self, '_last_valid_price', {}).get(code, 0)
-                                if lvp > 0:
-                                    holdings_market_value += shares * lvp
-                else:
-                    holdings_market_value = 0
-                
-                current_net_value = cash + holdings_market_value  # 当日总净值 = 现金 + 持仓市值
-                daily_profit = current_net_value - last_net_value  # 当日盈亏
-                
-                # 计算当日回撤（基于净值峰值）
-                if current_net_value > peak_value:
-                    peak_value = current_net_value
-                drawdown = (peak_value - current_net_value) / peak_value if peak_value > 0 else 0
-                
-                # 记录到净值序列
-                net_value_series.append({
-                    "trade_date": trade_date,
-                    "net_value": current_net_value,
-                    "daily_profit": daily_profit,
-                    "drawdown": drawdown
-                })
-                daily_profit_list.append(daily_profit)
-                drawdown_series.append(drawdown)
-                daily_cash_list.append(cash / current_net_value if current_net_value > 0 else 1.0)  # 【P1-3：现金占比】
-                
-                # 更新上一日净值
-                last_net_value = current_net_value
+                # 【P0修复：统一调用净值记录函数，避免continue跳过】
+                last_net_value, peak_value = await self._record_daily_net_value(
+                    trade_date, holdings, cash, last_net_value, peak_value,
+                    net_value_series, daily_profit_list, drawdown_series, daily_cash_list,
+                    last_prices=last_prices, prices=prices,
+                    rebalance_set=rebalance_set)
+                # last_net_value已由_record_daily_net_value更新
 
                 # ==================== 每日收盘汇总（每天必须输出）====================
                 # 无论调仓日还是非调仓日，每天都要有完整的日志结尾
