@@ -10,7 +10,7 @@ import copy
 from datetime import datetime
 from bson import ObjectId
 
-from fastapi import APIRouter, HTTPException, Request, Depends
+from fastapi import APIRouter, HTTPException, Request, Depends, Query
 from pydantic import ValidationError
 
 from core.managers import mongo_manager
@@ -273,4 +273,70 @@ async def get_ultra_short_defaults_endpoint(
     return {
         "success": True,
         "data": defaults
+    }
+
+
+@router.get("/ultra-short/history")
+async def get_ultra_short_history(
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    status: str = Query(default=None, description="状态筛选: completed/failed"),
+):
+    """获取超短策略回测历史列表"""
+    query: dict = {"task_type": "ultra_short"}
+    if status:
+        query["status"] = status
+    else:
+        query["status"] = {"$in": ["completed", "failed"]}
+
+    total = await mongo_manager.count_documents("backtest_tasks", query)
+    records = await mongo_manager.find_many(
+        "backtest_tasks",
+        query,
+        sort=[("created_at", -1)],
+        skip=offset,
+        limit=limit,
+        projection={
+            "task_id": 1, "status": 1, "created_at": 1, "completed_at": 1,
+            "started_at": 1, "params": 1, "result.total_return": 1,
+            "result.win_rate": 1, "result.sharpe_ratio": 1, "result.max_drawdown": 1,
+            "result.total_signals": 1, "result.completed_trades": 1,
+            "result.initial_cash": 1, "result.final_value": 1,
+            "result.trades": 1,
+        },
+    )
+
+    items = []
+    for r in records:
+        result = r.get("result", {})
+        params = r.get("params", {})
+        inner_params = params.get("params", {})  # 嵌套: params.params
+        item = {
+            "task_id": r.get("task_id"),
+            "status": r.get("status"),
+            "created_at": r.get("created_at", "").isoformat() if r.get("created_at") else None,
+            "completed_at": r.get("completed_at", "").isoformat() if r.get("completed_at") else None,
+            "started_at": r.get("started_at", "").isoformat() if r.get("started_at") else None,
+            # 参数(从内层params取)
+            "start_date": inner_params.get("start_date"),
+            "end_date": inner_params.get("end_date"),
+            "initial_cash": inner_params.get("initial_cash", 1000000),
+            "strategies": inner_params.get("strategies", []),
+            "strategy_params": inner_params.get("strategy_params", {}),
+            # 结果
+            "total_return": result.get("total_return"),
+            "win_rate": result.get("win_rate"),
+            "sharpe_ratio": result.get("sharpe_ratio"),
+            "max_drawdown": result.get("max_drawdown"),
+            "total_signals": result.get("total_signals"),
+            "completed_trades": result.get("completed_trades"),
+            "initial_cash_result": result.get("initial_cash"),
+            "final_value": result.get("final_value"),
+            "trades_count": len(result.get("trades", [])),
+        }
+        items.append(item)
+
+    return {
+        "total": total,
+        "items": items,
     }
