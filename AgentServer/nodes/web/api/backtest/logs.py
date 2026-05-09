@@ -76,19 +76,18 @@ async def get_backtest_logs(
         search_lower = search.lower()
         filtered = [r for r in filtered if search_lower in r.get("text", "").lower()]
 
-    # 构建天数索引
+    # 构建天数索引（O(n)而非O(n²)）
     days_info = []
     seen_days = {}
+    day_line_counts = {}
     for r in records:
         d = r.get("day", 0)
-        if d > 0 and d not in seen_days:
-            seen_days[d] = r.get("date", "")
-            days_info.append({"day": d, "date": r.get("date", ""), "lines": 0})
         if d > 0:
-            for di in days_info:
-                if di["day"] == d:
-                    di["lines"] += 1
-                    break
+            day_line_counts[d] = day_line_counts.get(d, 0) + 1
+            if d not in seen_days:
+                seen_days[d] = r.get("date", "")
+    for d in sorted(seen_days.keys()):
+        days_info.append({"day": d, "date": seen_days[d], "lines": day_line_counts.get(d, 0)})
 
     # tail模式
     if tail:
@@ -180,7 +179,7 @@ async def _parse_log_file(log_path: str, task_id: str, day: str, strategy: str,
                 sec = 'position'
             elif any(k in clean for k in ['📈RESULT', '📊', '总计', '交易明细', '胜率', '收益率', '回撤', '夏普']):
                 sec = 'result'
-            elif any(k in clean for k in ['📅', '第', '天']):
+            elif '📅' in clean and ('处理日期' in clean or '处理完成' in clean or '调仓进度' in clean):
                 sec = 'daily'
 
             # 提取策略名
@@ -259,7 +258,7 @@ async def _parse_log_file(log_path: str, task_id: str, day: str, strategy: str,
 
 @router.get("/logs/{task_id}/summary")
 async def get_backtest_log_summary(task_id: str):
-    """获取日志摘要 - 天数/策略/section分布"""
+    """获取日志摘要 - 天数/策略/section分布（直接读文件，不调主API）"""
     if not task_id.replace('_', '').replace('-', '').isalnum():
         raise HTTPException(status_code=400, detail="Invalid task_id")
 
@@ -269,14 +268,50 @@ async def get_backtest_log_summary(task_id: str):
     if not os.path.exists(jsonl_path) and not os.path.exists(log_path):
         raise HTTPException(status_code=404, detail=f"No logs found for task {task_id}")
 
-    # 用主API获取，只要摘要信息
-    result = await get_backtest_logs(
-        task_id=task_id, day="all", limit=0  # 0条=只要摘要
-    )
-    return {
-        "task_id": result["task_id"],
-        "total_lines": result["total_lines"],
-        "days": result["days"],
-        "strategies": result["strategies"],
-        "sections": result["sections"],
-    }
+    # 直接从JSONL读摘要，不调主API（避免limit=0与ge=1冲突）
+    if os.path.exists(jsonl_path):
+        days_set = {}
+        strategies_set = set()
+        sections_set = set()
+        total = 0
+        try:
+            with open(jsonl_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        r = json.loads(line)
+                        total += 1
+                        d = r.get("day", 0)
+                        if d > 0 and d not in days_set:
+                            days_set[d] = r.get("date", "")
+                        s = r.get("strategy")
+                        if s:
+                            strategies_set.add(s)
+                        sec = r.get("section")
+                        if sec:
+                            sections_set.add(sec)
+                    except json.JSONDecodeError:
+                        total += 1
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to read log file: {e}")
+
+        days_info = [{"day": d, "date": dt} for d, dt in sorted(days_set.items())]
+        return {
+            "task_id": task_id,
+            "total_lines": total,
+            "days": days_info,
+            "strategies": sorted(strategies_set),
+            "sections": sorted(sections_set),
+        }
+    else:
+        # .log文件：解析提取结构化摘要
+        result = await _parse_log_file(log_path, task_id, "all", None, None, None, 0, 1, None)
+        return {
+            "task_id": result["task_id"],
+            "total_lines": result["total_lines"],
+            "days": result["days"],
+            "strategies": result["strategies"],
+            "sections": result["sections"],
+        }
