@@ -276,6 +276,65 @@ export async function getUltraShortDefaults(): Promise<any> {
   return api.get<any>('/backtest/ultra-short/defaults')
 }
 
+// ==================== 回测日志 API ====================
+
+export interface BacktestLogRecord {
+  seq: number
+  time: string
+  level: string
+  day: number
+  date: string
+  section: string
+  strategy: string | null
+  text: string
+}
+
+export interface BacktestLogDayInfo {
+  day: number
+  date: string
+  lines?: number
+}
+
+export interface BacktestLogsResponse {
+  task_id: string
+  total_lines: number
+  filtered_total: number
+  days: BacktestLogDayInfo[]
+  strategies: string[]
+  sections: string[]
+  offset: number | null
+  limit: number
+  logs: BacktestLogRecord[]
+}
+
+export interface BacktestLogParams {
+  day?: string
+  strategy?: string
+  section?: string
+  search?: string
+  offset?: number
+  limit?: number
+  tail?: number
+  format?: string
+}
+
+/**
+ * 获取回测日志（从本地文件读取，支持筛选）
+ */
+export async function getBacktestLogs(
+  taskId: string,
+  params?: BacktestLogParams
+): Promise<BacktestLogsResponse> {
+  return api.get<BacktestLogsResponse>(`/backtest/logs/${taskId}`, { params })
+}
+
+/**
+ * 获取回测日志摘要
+ */
+export async function getBacktestLogSummary(taskId: string): Promise<any> {
+  return api.get<any>(`/backtest/logs/${taskId}/summary`)
+}
+
 export default {
   submitBacktest,
   getBacktestStatus,
