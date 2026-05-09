@@ -231,8 +231,13 @@ def _compute_factors_for_stock(group: pd.DataFrame, fields: List[str]) -> pd.Dat
             is_new_data = group['amount'] > 100000000
             tr_calc = group['amount'] / group['circ_mv'] / 10000 * 100  # circ_mv万元→元
             group['turnover_rate'] = tr_calc.where(is_new_data, None)
-        # else: 留空
-    group['turnover_20d'] = group['turnover_rate'].rolling(20).mean()
+        else:
+            group['turnover_rate'] = None  # 无法计算时设为None
+    # 【Bug修复：turnover_rate可能仍全NaN，rolling前需检查】
+    if 'turnover_rate' in group.columns and group['turnover_rate'].notna().any():
+        group['turnover_20d'] = group['turnover_rate'].rolling(20).mean()
+    else:
+        group['turnover_20d'] = None
 
     # 振幅
     group['amplitude'] = (group['high'] - group['low']) / group['close'].shift(1) * 100
@@ -387,8 +392,12 @@ def _compute_factors_for_stock(group: pd.DataFrame, fields: List[str]) -> pd.Dat
         group['volatility_10d'] = group['pct_chg'].rolling(10).std()
 
         # 换手率均值
-        group['turnover_5d_avg'] = group['turnover_rate'].rolling(5).mean()
-        group['turnover_20d_avg'] = group['turnover_rate'].rolling(20).mean()
+        if 'turnover_rate' in group.columns and group['turnover_rate'].notna().any():
+            group['turnover_5d_avg'] = group['turnover_rate'].rolling(5).mean()
+            group['turnover_20d_avg'] = group['turnover_rate'].rolling(20).mean()
+        else:
+            group['turnover_5d_avg'] = None
+            group['turnover_20d_avg'] = None
 
         # 恐贪指数(简化版: 基于RSI和波动率)
         rsi_norm = (group['rsi_12'] - 50) / 50  # -1 to 1

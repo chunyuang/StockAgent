@@ -91,6 +91,10 @@ class BacktestNode(BaseNode):
         # 启动工作协程
         self._start_workers()
 
+        # 启动心跳(注册到Redis供web节点发现)
+        self._running = True
+        self._heartbeat_task = asyncio.create_task(self._start_heartbeat())
+
         self.logger.info(f"Backtest Node started: {self.node_id}")
         self.logger.info(f"RPC listening on port {self._rpc_port}")
 
@@ -542,9 +546,7 @@ class BacktestNode(BaseNode):
 async def main():
     """回测节点启动入口"""
     import logging
-    from core.logging import setup_logging
-
-    setup_logging()
+    from core.utils.logger import logger as _logger_instance
     _logger = logging.getLogger("backtest_node")
 
     node = BacktestNode()

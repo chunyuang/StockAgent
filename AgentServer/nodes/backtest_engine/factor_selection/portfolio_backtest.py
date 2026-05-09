@@ -657,6 +657,10 @@ class PortfolioBacktester:
 
         # 解析排除规则
         exclude_rules = [ExcludeRule(r) for r in config.get("exclude", [])]
+        # 【Bug修复：默认排除ST股，即使前端没传exclude字段】
+        if not any(r == ExcludeRule.ST for r in exclude_rules):
+            if config.get("exclude_st", True):  # 默认启用ST过滤
+                exclude_rules.append(ExcludeRule.ST)
 
         # 获取调仓日期 - 强制 daily,超短策略必须每日调仓
         rebalance_dates = await self.universe_mgr.get_rebalance_dates(
@@ -1406,7 +1410,7 @@ class PortfolioBacktester:
                 # ✅ 修复:非调仓日也要输出完整信息,让用户知道每天都在正常运行
                 # 【P1-5修复(第十轮)：非调仓日止损止盈检查，weekly/monthly调仓时避免延迟多日】
                 else:
-                    # 【P1-5：非调仓日止损止盈检查】
+                    # 【P1-5：非调仓日止损止盈检查 + 超时强卖检查】
                     enable_sl = self._risk_config.get('enable_stop_loss', True) if hasattr(self, '_risk_config') else True
                     enable_tp = self._risk_config.get('enable_take_profit', True) if hasattr(self, '_risk_config') else True
                     forced_sell_codes = []
@@ -1435,6 +1439,27 @@ class PortfolioBacktester:
                                 forced_sell_codes.append((code, '止损'))
                             elif enable_tp and high_p >= cost * (1 + tp_pct):
                                 forced_sell_codes.append((code, '止盈'))
+                            # 【Bug修复：非调仓日也要检查max_hold_days超时】
+                            buy_date_raw = getattr(self, '_cost_basis_date', {}).get(code)
+                            global_max_hold = self._risk_config.get('max_hold_days', 999) if hasattr(self, '_risk_config') else 999
+                            strategy_max_hold = None
+                            if isinstance(strategies, list):
+                                for sname in strategies:
+                                    smh = strategy_rp.get(sname, {}).get('max_hold_days')
+                                    if smh is not None:
+                                        if strategy_max_hold is None or smh < strategy_max_hold:
+                                            strategy_max_hold = smh
+                            max_hold = strategy_max_hold if strategy_max_hold is not None else global_max_hold
+                            if buy_date_raw is not None and max_hold < 999:
+                                try:
+                                    buy_dt = dt_now.strptime(str(buy_date_raw), '%Y%m%d')
+                                    trade_dt = dt_now.strptime(str(trade_date), '%Y%m%d')
+                                    calendar_days = (trade_dt - buy_dt).days
+                                    if calendar_days > max_hold * 1.5:
+                                        if not any(c == code for c, _ in forced_sell_codes):
+                                            forced_sell_codes.append((code, f'超时({calendar_days}日>{max_hold}交易日)'))
+                                except (ValueError, TypeError):
+                                    pass
                         # 执行非调仓日强卖
                         for code, reason in forced_sell_codes:
                             shares = holdings.get(code, 0)
