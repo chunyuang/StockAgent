@@ -68,25 +68,25 @@ async function loadHistory() {
   }
 }
 
-function formatReturn(val: number | null): string {
+function formatReturn(val: number | null | undefined): string {
   if (val === null || val === undefined) return '-'
   // total_return在MongoDB中已存储为百分比(-1.11表示-1.11%)
   const sign = val >= 0 ? '+' : ''
   return `${sign}${val.toFixed(2)}%`
 }
 
-function formatRate(val: number | null): string {
+function formatRate(val: number | null | undefined): string {
   if (val === null || val === undefined) return '-'
   // win_rate在MongoDB中已存储为百分比(60表示60%)
   return `${val.toFixed(1)}%`
 }
 
-function formatSharpe(val: number | null): string {
+function formatSharpe(val: number | null | undefined): string {
   if (val === null || val === undefined) return '-'
   return val.toFixed(2)
 }
 
-function formatDrawdown(val: number | null): string {
+function formatDrawdown(val: number | null | undefined): string {
   if (val === null || val === undefined) return '-'
   // max_drawdown也是百分比存储
   return `${val.toFixed(2)}%`
@@ -97,14 +97,14 @@ function formatDate(iso: string | null): string {
   return iso.slice(0, 10)
 }
 
-function strategyNames(strategies: string[]): string {
+function strategyNames(strategies: string[] | undefined): string {
   if (!strategies || strategies.length === 0) return '-'
   const names = strategies.map(s => strategyNameMap[s] || s)
   if (names.length <= 3) return names.join('、')
   return names.slice(0, 3).join('、') + `等${names.length}个`
 }
 
-function returnClass(val: number | null): string {
+function returnClass(val: number | null | undefined): string {
   if (val === null || val === undefined) return ''
   return val >= 0 ? 'text-green-400' : 'text-red-400'
 }

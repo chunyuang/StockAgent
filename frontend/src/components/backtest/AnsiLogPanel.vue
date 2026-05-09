@@ -8,7 +8,7 @@
  * 3. 筛选+分页：按天/策略/类型/搜索筛选，大量日志不卡
  */
 import { ref, watch, nextTick, computed, onMounted, onUnmounted } from 'vue'
-import { getBacktestLogs, type BacktestLogRecord, type BacktestLogDayInfo } from '@/api/modules/backtest'
+import { getBacktestLogs, type BacktestLogRecord } from '@/api/modules/backtest'
 
 interface LogDay {
   day: number
@@ -193,13 +193,6 @@ function levelClass(level: string): string {
 }
 
 /** 滚动到底部 */
-const scrollToBottom = () => {
-  nextTick(() => {
-    if (panelRef.value) {
-      panelRef.value.scrollTop = panelRef.value.scrollHeight
-    }
-  })
-}
 
 // 任务状态变化 → 自动切换实时/完成模式
 watch(() => props.taskStatus, (status) => {
