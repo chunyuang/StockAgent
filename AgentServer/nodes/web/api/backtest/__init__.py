@@ -200,31 +200,30 @@ async def get_backtest_result(
     user_id: str = Depends(get_optional_user_id),
 ) -> Dict[str, Any]:
     """获取回测结果，仅当任务完成后可获取。"""
-    # 先查Mock任务
-    if task_id.startswith("us_") and task_id in mock_tasks:
-        task = mock_tasks[task_id]
-        if task["status"] != "completed":
-            return {
-                "success": True,
-                "data": {
-                    "task_id": task_id,
-                    "status": task["status"],
-                    "message": "任务执行中"
+    # 方案C: ultra_short任务结果从MongoDB读取，不走mock_tasks缓存
+    if task_id.startswith("us_"):
+        record = await mongo_manager.find_one(
+            "backtest_tasks",
+            {"task_id": task_id},
+        )
+        if not record:
+            # 兜底: 查mock_tasks
+            if task_id in mock_tasks:
+                task = mock_tasks[task_id]
+                return {
+                    "success": True,
+                    "data": {
+                        "task_id": task_id,
+                        "status": task.get("status", "unknown"),
+                        "result": task.get("result"),
+                    }
                 }
-            }
-        return {
-            "success": True,
-            "data": {
-                "task_id": task_id,
-                "status": "completed",
-                "result": task["result"],
-            }
-        }
-
-    record = await mongo_manager.find_one(
-        "backtest_tasks",
-        {"task_id": task_id},
-    )
+            raise HTTPException(status_code=404, detail="任务不存在")
+    else:
+        record = await mongo_manager.find_one(
+            "backtest_tasks",
+            {"task_id": task_id},
+        )
 
     if not record:
         raise HTTPException(status_code=404, detail="任务不存在")
