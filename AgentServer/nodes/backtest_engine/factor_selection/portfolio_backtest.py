@@ -2021,6 +2021,7 @@ class PortfolioBacktester:
             total_pnl = sum(t.get('profit_pct', 0) for t in completed)
             avg_pnl = total_pnl / len(completed) if completed else 0
             strategy_results[sname] = {
+                "strategy_name": sname,
                 "win_rate": (wins / len(completed) * 100) if completed else 0,
                 "total_return": avg_pnl,
                 "trades_count": len(completed),
