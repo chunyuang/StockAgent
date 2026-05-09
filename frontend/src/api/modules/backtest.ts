@@ -335,6 +335,45 @@ export async function getBacktestLogSummary(taskId: string): Promise<any> {
   return api.get<any>(`/backtest/logs/${taskId}/summary`)
 }
 
+// ==================== 回测历史 API ====================
+
+export interface BacktestHistoryItem {
+  task_id: string
+  status: string
+  created_at: string | null
+  completed_at: string | null
+  started_at: string | null
+  start_date: string | null
+  end_date: string | null
+  initial_cash: number
+  strategies: string[]
+  strategy_params: Record<string, any>
+  total_return: number | null
+  win_rate: number | null
+  sharpe_ratio: number | null
+  max_drawdown: number | null
+  total_signals: number | null
+  completed_trades: number | null
+  final_value: number | null
+  trades_count: number
+}
+
+export interface BacktestHistoryResponse {
+  total: number
+  items: BacktestHistoryItem[]
+}
+
+/**
+ * 获取超短策略回测历史列表
+ */
+export async function getUltraShortHistory(params?: {
+  limit?: number
+  offset?: number
+  status?: string
+}): Promise<BacktestHistoryResponse> {
+  return api.get<BacktestHistoryResponse>('/backtest/ultra-short/history', { params })
+}
+
 export default {
   submitBacktest,
   getBacktestStatus,

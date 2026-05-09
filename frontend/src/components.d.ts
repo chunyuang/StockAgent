@@ -9,6 +9,7 @@ declare module 'vue' {
   export interface GlobalComponents {
     AgentThinking: typeof import('./components/agent/AgentThinking.vue')['default']
     AnsiLogPanel: typeof import('./components/backtest/AnsiLogPanel.vue')['default']
+    BacktestHistoryPanel: typeof import('./components/backtest/BacktestHistoryPanel.vue')['default']
     BacktestResultPanel: typeof import('./components/ultrashort/BacktestResultPanel.vue')['default']
     BacktestSummaryTable: typeof import('./components/backtest/BacktestSummaryTable.vue')['default']
     ElBadge: typeof import('element-plus/es')['ElBadge']
