@@ -258,6 +258,17 @@ def _compute_factors_for_stock(group: pd.DataFrame, fields: List[str]) -> pd.Dat
             group['turnover_rate'] = tr_calc.where(is_new_data, None)
         else:
             group['turnover_rate'] = None  # 无法计算时设为None
+    else:
+        # 【Bug修复：段1(通达信)的turnover_rate是前复权基准异常值(如4444)】
+        # 正确值应该用 amount / (circ_mv * 1e8) * 100 反算(百分比)
+        # 段2(AKShare)的turnover_rate是正确的(如0.3)
+        if group['turnover_rate'].max() > 50:  # 百分比不可能>50%, 大于说明是异常值
+            if group.get('circ_mv') is not None and (group['circ_mv'] > 0).any():
+                # circ_mv=亿元, amount=元(段1的amount虽标注千元但实际已是元)
+                tr_recalc = group['amount'] / (group['circ_mv'] * 1e8) * 100
+                # 只替换异常值(>50%)
+                mask = group['turnover_rate'] > 50
+                group.loc[mask, 'turnover_rate'] = tr_recalc[mask]
     # 【Bug修复：turnover_rate可能仍全NaN，rolling前需检查】
     if 'turnover_rate' in group.columns and group['turnover_rate'].notna().any():
         group['turnover_20d'] = group['turnover_rate'].rolling(20).mean()
