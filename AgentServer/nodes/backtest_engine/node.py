@@ -166,11 +166,15 @@ class BacktestNode(BaseNode):
 
                     # 更新任务状态
                     await self._update_task_result(task_id, "completed", result)
+                    # 关闭JSONL文件句柄
+                    self._close_log_handles(task_id)
 
                 except Exception as e:
                     self.logger.error(f"[Worker-{worker_id}] Task {task_id} failed: {e}")
                     traceback.print_exc()
                     await self._update_task_result(task_id, "failed", error=str(e))
+                    # 关闭JSONL文件句柄
+                    self._close_log_handles(task_id)
                     continue  # 【修复风险6：任务失败后continue而非return，避免worker永久退出】
 
                 finally:
@@ -414,6 +418,11 @@ class BacktestNode(BaseNode):
             os.makedirs(log_dir, exist_ok=True)
             jsonl_path = os.path.join(log_dir, f"{task_id}.jsonl")
 
+            # 复用文件句柄，避免每次open/close
+            if task_id not in self._log_jsonl_files:
+                self._log_jsonl_files[task_id] = open(jsonl_path, 'a', encoding='utf-8')
+            f = self._log_jsonl_files[task_id]
+
             # 分类section和strategy
             section = self._classify_log_section(log_text)
             strategy = self._extract_strategy_name(log_text)
@@ -440,9 +449,9 @@ class BacktestNode(BaseNode):
                 "text": re.sub(r'\x1b\[[0-9;]*m', '', log_text),  # 去ANSI
             }
 
-            # 追加写JSONL
-            with open(jsonl_path, 'a', encoding='utf-8') as f:
-                f.write(json.dumps(record, ensure_ascii=False) + '\n')
+            # 写入JSONL（复用句柄，手动flush确保数据落盘）
+            f.write(json.dumps(record, ensure_ascii=False) + '\n')
+            f.flush()
         except Exception as e:
             self.logger.warning(f"Failed to write JSONL log: {e}")
 
@@ -451,6 +460,19 @@ class BacktestNode(BaseNode):
 
         # 让出事件循环
         await asyncio.sleep(0)
+
+    def _close_log_handles(self, task_id: str) -> None:
+        """关闭指定任务的JSONL文件句柄"""
+        if task_id in self._log_jsonl_files:
+            try:
+                self._log_jsonl_files[task_id].close()
+            except Exception:
+                pass
+            del self._log_jsonl_files[task_id]
+        # 清理计数器和日期状态
+        self._log_counters.pop(task_id, None)
+        self._log_day.pop(task_id, None)
+        self._log_date.pop(task_id, None)
 
     @staticmethod
     def _classify_log_section(text: str) -> str:
@@ -467,7 +489,8 @@ class BacktestNode(BaseNode):
             return 'position'
         if any(k in text for k in ['📈RESULT', '📊', '总计', '交易明细', '胜率', '收益率', '回撤', '夏普']):
             return 'result'
-        if any(k in text for k in ['📅', '第', '天']):
+        # 日期切换标记：只匹配真正的日期进度行
+        if '📅' in text and ('处理日期' in text or '处理完成' in text or '调仓进度' in text):
             return 'daily'
         return 'other'
 
