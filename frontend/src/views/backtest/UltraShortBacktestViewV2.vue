@@ -294,6 +294,7 @@ const submitBacktest = async () => {
       enable_take_profit: form.tradeParams.enable_take_profit ?? true,
       enable_ma60_filter: form.globalFilter.enable_ma60_filter ?? true,
       enable_sector_concentration: form.globalFilter.enable_sector_concentration ?? true,
+      exclude_st: form.globalFilter.exclude_st ?? true,
     })
 
     if (!res || !res.task_id) {
