@@ -2754,6 +2754,9 @@ class PortfolioBacktester:
                             if strategy_max_hold is None or smh < strategy_max_hold:
                                 strategy_max_hold = smh
                 max_hold_days = strategy_max_hold if strategy_max_hold is not None else global_max_hold
+                # 【调试日志：超时检查】
+                if holdings.get(code, 0) > 0 and code == list(holdings.keys())[0] if holdings else False:
+                    logger.info('BACKTEST', f'超时检查: {code} buy_date_raw={buy_date_raw} max_hold={max_hold_days} _cost_basis_date_keys={list(getattr(self, "_cost_basis_date", {}).keys())[:3]}')
                 if buy_date_raw is not None and max_hold_days < 999:
                     try:
                         buy_dt = dt_now.strptime(str(buy_date_raw), '%Y%m%d')
@@ -2969,9 +2972,10 @@ class PortfolioBacktester:
                 old_cost = self._cost_basis[ts_code]
                 total_shares = current_shares + delta
                 self._cost_basis[ts_code] = (old_cost * current_shares + price * delta) / total_shares
+                # 【Bug修复：增仓时不更新买入日期，保留首次买入日期用于超时判断】
             else:
                 self._cost_basis[ts_code] = price  # 新买入：记录实际买入价(含策略差异化)
-            self._cost_basis_date[ts_code] = trade_date  # 记录首次买入日期(用于停牌超时)
+                self._cost_basis_date[ts_code] = trade_date  # 仅新买入时记录首次买入日期
 
             # 记录交易
             strategy_name = self._get_strategy_for_stock(ts_code)  # 【P1-1修复：支持多策略列表】
