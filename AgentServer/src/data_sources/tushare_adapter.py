@@ -151,9 +151,13 @@ class TushareAdapter(AsyncDataSourceAdapter):
         return self._initialized and self._pro is not None
     
     async def _call_api(self, api_name: str, **kwargs) -> pd.DataFrame:
-        """调用 Tushare API"""
+        """调用 Tushare API（带速率控制）"""
         if not await self.is_available():
             raise RuntimeError("Tushare adapter not initialized")
+        
+        # 【P0修复：速率控制——_bucket在initialize创建但从未调用，可能触发封号】
+        if self._bucket:
+            await self._bucket.wait_and_acquire()
         
         loop = asyncio.get_event_loop()
         api_func = getattr(self._pro, api_name)
