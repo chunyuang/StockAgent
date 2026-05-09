@@ -1606,6 +1606,22 @@ class PortfolioBacktester:
                             strategy_name = "-"
 
                         strategy_buy_time = self.STRATEGY_BUY_TIMES.get(strategy_name, '09:35')
+                        # 【P1修复】计算持仓天数
+                        try:
+                            buy_d = int(first_buy.date) if first_buy.date else 0
+                            sell_d = int(record.date) if record.date else 0
+                            # 简单用日历天数差(交易日更精确但开销大)
+                            hold_d = (sell_d - buy_d) // 10000 * 250 + \
+                                     ((sell_d % 10000) // 100 - (buy_d % 10000) // 100) * 20 + \
+                                     (sell_d % 100 - buy_d % 100)
+                            # 更简单: 直接用差值天数近似
+                            from datetime import datetime
+                            bd = datetime.strptime(str(buy_d), '%Y%m%d')
+                            sd = datetime.strptime(str(sell_d), '%Y%m%d')
+                            hold_d = (sd - bd).days
+                        except:
+                            hold_d = 1
+
                         merged_trades.append({
                             'ts_code': code,
                             'name': name,
@@ -1619,6 +1635,7 @@ class PortfolioBacktester:
                             'sell_price': record.price,
                             'shares': sell_buy_shares,
                             'profit_pct': profit,
+                            'hold_days': hold_d,
                         })
 
                     # 清理空的buy_records
@@ -1664,6 +1681,7 @@ class PortfolioBacktester:
                 'sell_price': 0.0,
                 'shares': remaining_shares,
                 'profit_pct': None,  # 还未卖出
+                'hold_days': None,  # 还未卖出
             })
 
         # 初始化绩效指标（避免 UnboundLocalError 当0交易时）
