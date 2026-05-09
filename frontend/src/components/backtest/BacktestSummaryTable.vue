@@ -171,7 +171,7 @@ const lossTop5 = computed(() => {
 // ==================== 格式化辅助 ====================
 
 // 后端返回的百分比字段已经是百分比数值(如50.0=50%)，不需要再×100
-function fmtPct(val: number, alwaysNeg = false): string {
+function fmtPct(val: number, _alwaysNeg = false): string {
   if (val == null || isNaN(val)) return '--'
   const pct = val.toFixed(2)
   return `${pct}%`

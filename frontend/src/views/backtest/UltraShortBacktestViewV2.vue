@@ -177,14 +177,17 @@ onMounted(async () => {
       for (const sid of strategyIds) {
         if (parsed[sid]) {
           const cfg = parsed[sid]
-          if (cfg.min_pct !== undefined && form.strategyConfigs[sid]?.params) form.strategyConfigs[sid].params.min_rise_pct = cfg.min_pct / 100
-          if (cfg.max_pct !== undefined && form.strategyConfigs[sid]?.params) form.strategyConfigs[sid].params.max_rise_pct = cfg.max_pct / 100
-          if (cfg.min_auction_pct !== undefined && form.strategyConfigs[sid]?.params) form.strategyConfigs[sid].params.min_auction_pct = cfg.min_auction_pct / 100
-          if (cfg.max_auction_pct !== undefined && form.strategyConfigs[sid]?.params) form.strategyConfigs[sid].params.max_auction_pct = cfg.max_auction_pct / 100
-          if (cfg.callback_pct !== undefined && form.strategyConfigs[sid]?.params) form.strategyConfigs[sid].params.min_correction_pct = cfg.callback_pct / 100
-          if (cfg.callback_pct_max !== undefined && form.strategyConfigs[sid]?.params) form.strategyConfigs[sid].params.max_correction_pct = cfg.callback_pct_max / 100
-          if (cfg.min_rise_after_qiao !== undefined && form.strategyConfigs[sid]?.params) form.strategyConfigs[sid].params.min_rise_after_qiao = cfg.min_rise_after_qiao / 100
-          Object.assign(form.strategyConfigs[sid].params, cfg)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const params = (form.strategyConfigs as any)[sid]?.params
+          if (!params) continue
+          if (cfg.min_pct !== undefined) params.min_rise_pct = cfg.min_pct / 100
+          if (cfg.max_pct !== undefined) params.max_rise_pct = cfg.max_pct / 100
+          if (cfg.min_auction_pct !== undefined) params.min_auction_pct = cfg.min_auction_pct / 100
+          if (cfg.max_auction_pct !== undefined) params.max_auction_pct = cfg.max_auction_pct / 100
+          if (cfg.callback_pct !== undefined) params.min_correction_pct = cfg.callback_pct / 100
+          if (cfg.callback_pct_max !== undefined) params.max_correction_pct = cfg.callback_pct_max / 100
+          if (cfg.min_rise_after_qiao !== undefined) params.min_rise_after_qiao = cfg.min_rise_after_qiao / 100
+          Object.assign(params, cfg)
         }
       }
       addLog('✅ 已从 config.ini 加载默认配置')
@@ -276,14 +279,12 @@ const submitBacktest = async () => {
         max_position: form.tradeParams.max_total_position,
         liquidity_threshold: form.globalFilter.min_daily_amount,
         max_position_per_stock: form.tradeParams.max_position_per_stock,
-        force_empty_position: form.forceEmpty.enabled,
         sentiment_cycle: form.sentimentCycle.enabled,
         auction_filter: form.auctionFilter.enabled,
         enable_stop_loss: form.tradeParams.enable_stop_loss ?? true,
         enable_take_profit: form.tradeParams.enable_take_profit ?? true,
         enable_ma60_filter: form.globalFilter.enable_ma60_filter ?? true,
         enable_sector_concentration: form.globalFilter.enable_sector_concentration ?? true,
-        selected_strategies
       },
       strategy_params,
       enable_sentiment_cycle: form.sentimentCycle.enabled,
