@@ -477,7 +477,11 @@ class BacktestNode(BaseNode):
     @staticmethod
     def _classify_log_section(text: str) -> str:
         """根据日志文本内容分类section"""
-        if any(k in text for k in ['🔧INIT', '代码版本', '回测任务启动', '全局参数', '功能开关']):
+        if any(k in text for k in ['回测任务启动', '全局公共参数', '全局参数', '功能开关', '代码版本',
+                                      '回测时间', '初始资金', '选中策略',
+                                      '开始组合回测', '风控配置', '强化止损', '动态止盈',
+                                      '数据一致性校验', '未来函数检查', '因子完整性', '因子字段完整性',
+                                      '回测模式', '开始逐日回测']):
             return 'init'
         if any(k in text for k in ['🌡️', '涨跌停统计', '情绪周期评分', '大盘平均']):
             return 'market'
