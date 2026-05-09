@@ -39,13 +39,15 @@ if _stockagent_dir not in sys.path:
 
 # 动态导入 AKShareFetcher（同层目录 data_fetcher）
 akshare_module_path = os.path.join(_fina_dir, 'data_fetcher', 'fetchers', 'akshare.py')
-spec = importlib.util.spec_from_file_location("akshare_fetcher", akshare_module_path)
-if spec and spec.loader:
-    akshare_module = importlib.util.module_from_spec(spec)
-    sys.modules["akshare_fetcher"] = akshare_module
-    spec.loader.exec_module(akshare_module)
-    AKShareFetcher = akshare_module.AKShareFetcher
-else:
+AKShareFetcher = None  # 默认不可用
+try:
+    spec = importlib.util.spec_from_file_location("akshare_fetcher", akshare_module_path)
+    if spec and spec.loader:
+        akshare_module = importlib.util.module_from_spec(spec)
+        sys.modules["akshare_fetcher"] = akshare_module
+        spec.loader.exec_module(akshare_module)
+        AKShareFetcher = akshare_module.AKShareFetcher
+except (FileNotFoundError, ImportError, AttributeError) as e:
     AKShareFetcher = None  # AKShare fetcher not available
 
 
@@ -191,7 +193,11 @@ class FinaIndicatorCollector(BaseCollector):
             
             self.logger.info(f"Batch {batch_num}/{total_batches}: {len(batch)} stocks")
             
-            ak_fetcher = AKShareFetcher()
+            if AKShareFetcher is not None:
+                ak_fetcher = AKShareFetcher()
+            else:
+                ak_fetcher = None
+                use_akshare = False  # AKShare fetcher不可用，禁用AKShare路径
             
             # 如果 Tushare token 无效，我们全程直接使用 AKShare，不尝试 Tushare
             # 现在 Tushare 已经正常，自动检测
