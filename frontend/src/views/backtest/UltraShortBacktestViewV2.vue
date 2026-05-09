@@ -390,7 +390,7 @@ const addLog = (text: string) => {
 
 // ==================== 历史回测操作 ====================
 
-const showHistory = ref(true)
+const activeMainTab = ref<'config' | 'history'>('config')
 
 /** 从历史回测复用参数 */
 function onReuseParams(task: BacktestHistoryItem) {
@@ -400,16 +400,18 @@ function onReuseParams(task: BacktestHistoryItem) {
   if (task.strategies && task.strategies.length > 0) {
     form.strategies = [...task.strategies]
   }
-  ElMessage.success('已复用参数到表单，可修改后提交回测')
+  activeMainTab.value = 'config'  // 切回配置Tab
+  ElMessage.success('已复用参数到表单，修改后点击提交')
 }
 
 /** 查看历史回测结果 */
 function onViewResult(task: BacktestHistoryItem) {
-  // 从API加载结果
   backtestApi.getBacktestResult(task.task_id).then(res => {
-    if (res?.data?.result) {
-      backtestResult.value = res.data.result
+    const result = res?.data?.result
+    if (result) {
+      backtestResult.value = result
       backtestState.task_id = task.task_id
+      activeMainTab.value = 'config'  // 切到配置Tab看结果
       ElMessage.success('已加载历史回测结果')
     } else {
       ElMessage.warning('该回测无结果数据')
@@ -442,40 +444,50 @@ function onViewLogs(taskId: string) {
       </div>
     </div>
 
-    <!-- 策略配置面板 -->
-    <StrategyConfigPanel
-      :form="form"
-      :backtestRunning="backtestState.running"
-      v-model:activeCollapse="activeCollapse"
-      @submit="submitBacktest"
-    />
+    <!-- 主Tab切换 -->
+    <div class="main-tabs">
+      <button :class="['tab-btn', activeMainTab === 'config' ? 'active' : '']" @click="activeMainTab = 'config'">
+        🎯 新建回测
+      </button>
+      <button :class="['tab-btn', activeMainTab === 'history' ? 'active' : '']" @click="activeMainTab = 'history'">
+        📊 回测历史
+        <span class="tab-badge">74</span>
+      </button>
+    </div>
 
-    <!-- 回测进度条 -->
-    <ElCard v-if="backtestState.running" class="progress-card" style="margin-bottom: 20px">
-      <ElProgress :percentage="backtestState.progress" :stroke-width="18" :text-inside="true" status="success" />
-    </ElCard>
+    <!-- Tab内容：新建回测 -->
+    <div v-show="activeMainTab === 'config'">
+      <!-- 策略配置面板 -->
+      <StrategyConfigPanel
+        :form="form"
+        :backtestRunning="backtestState.running"
+        v-model:activeCollapse="activeCollapse"
+        @submit="submitBacktest"
+      />
 
-    <!-- 回测结果总结表格 -->
-    <BacktestSummaryTable v-if="backtestResult" :result="backtestResult" />
+      <!-- 回测进度条 -->
+      <ElCard v-if="backtestState.running" class="progress-card" style="margin-bottom: 20px">
+        <ElProgress :percentage="backtestState.progress" :stroke-width="18" :text-inside="true" status="success" />
+      </ElCard>
 
-    <!-- 回测结果详细面板 -->
-    <BacktestResultPanel v-if="backtestResult" :result="backtestResult" :form="form" />
+      <!-- 回测结果总结表格 -->
+      <BacktestSummaryTable v-if="backtestResult" :result="backtestResult" />
 
-    <!-- 实时日志面板 -->
-    <AnsiLogPanel :task-id="backtestState.task_id" :task-status="backtestState.running ? 'running' : 'completed'" />
+      <!-- 回测结果详细面板 -->
+      <BacktestResultPanel v-if="backtestResult" :result="backtestResult" :form="form" />
+    </div>
 
-    <!-- 回测历史面板 -->
-    <div style="margin-top: 20px">
-      <div class="history-toggle" @click="showHistory = !showHistory">
-        <span>{{ showHistory ? '▼' : '▶' }} 回测历史记录</span>
-      </div>
+    <!-- Tab内容：回测历史 -->
+    <div v-show="activeMainTab === 'history'">
       <BacktestHistoryPanel
-        v-if="showHistory"
         @view-result="onViewResult"
         @view-logs="onViewLogs"
         @reuse-params="onReuseParams"
       />
     </div>
+
+    <!-- 日志面板（跨Tab共享） -->
+    <AnsiLogPanel :task-id="backtestState.task_id" :task-status="backtestState.running ? 'running' : 'completed'" />
   </div>
 </template>
 
@@ -508,5 +520,49 @@ function onViewLogs(taskId: string) {
   user-select: none;
 
   &:hover { color: #409eff; }
+}
+
+.main-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 20px;
+  border-bottom: 2px solid #e4e7ed;
+
+  .tab-btn {
+    padding: 10px 24px;
+    font-size: 15px;
+    font-weight: 600;
+    border: none;
+    background: transparent;
+    color: #909399;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    transition: all 0.2s;
+    position: relative;
+
+    &:hover { color: #409eff; }
+
+    &.active {
+      color: #409eff;
+      border-bottom-color: #409eff;
+    }
+
+    .tab-badge {
+      display: inline-block;
+      background: #e4e7ed;
+      color: #909399;
+      font-size: 11px;
+      padding: 1px 6px;
+      border-radius: 10px;
+      margin-left: 6px;
+      font-weight: 500;
+    }
+
+    &.active .tab-badge {
+      background: #ecf5ff;
+      color: #409eff;
+    }
+  }
 }
 </style>
