@@ -28,10 +28,12 @@ export interface BacktestTaskResponse {
 export interface BacktestStatus {
   task_id: string
   status: 'pending' | 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+  progress?: number
   created_at?: string
   started_at?: string
   completed_at?: string
   error?: string
+  result?: any
 }
 
 export interface BacktestTrade {
@@ -115,12 +117,25 @@ export interface BacktestResult {
 export interface BacktestHistoryItem {
   task_id: string
   task_type?: 'single' | 'factor_selection'
-  start_date: string
-  end_date: string
-  created_at: string
+  status?: string
+  start_date: string | null
+  end_date: string | null
+  created_at: string | null
+  completed_at?: string | null
+  started_at?: string | null
+  initial_cash?: number
+  strategies?: string[]
+  strategy_params?: Record<string, any>
   total_return_pct?: number
-  sharpe_ratio?: number
+  total_return?: number | null
+  sharpe_ratio?: number | null
   max_drawdown_pct?: number
+  max_drawdown?: number | null
+  win_rate?: number | null
+  total_signals?: number | null
+  completed_trades?: number | null
+  final_value?: number | null
+  trades_count?: number
   // 单股回测字段
   ts_code?: string
   stock_name?: string
@@ -178,15 +193,15 @@ export async function submitBacktest(request: BacktestRequest): Promise<Backtest
 /**
  * 查询回测任务状态
  */
-export async function getBacktestStatus(taskId: string): Promise<BacktestStatus> {
-  return api.get<BacktestStatus>(`/backtest/status/${taskId}`)
+export async function getBacktestStatus(taskId: string): Promise<{success: boolean, data: BacktestStatus}> {
+  return api.get(`/backtest/status/${taskId}`)
 }
 
 /**
  * 获取回测结果
  */
-export async function getBacktestResult(taskId: string): Promise<BacktestResult> {
-  return api.get<BacktestResult>(`/backtest/result/${taskId}`)
+export async function getBacktestResult(taskId: string): Promise<{success: boolean, data: BacktestResult}> {
+  return api.get(`/backtest/result/${taskId}`)
 }
 
 /**
@@ -233,6 +248,9 @@ export interface UltraShortParams {
   max_hold_days: number
   max_position_per_stock: number
   max_position: number
+  sentiment_cycle?: boolean
+  auction_filter?: boolean
+  selected_strategies?: string[]
   enable_stop_loss?: boolean
   enable_take_profit?: boolean
   enable_ma60_filter?: boolean
@@ -245,6 +263,14 @@ export interface UltraShortBacktestRequest {
   end_date: string
   initial_cash: number
   params: UltraShortParams
+  strategy_params?: Record<string, any>
+  selected_strategies?: any[]
+  data_source?: string
+  period?: string
+  ts_codes?: string
+  adjust_type?: string
+  initial_capital?: number
+  rebalance_freq?: string
   enable_force_empty: boolean
   enable_sentiment_cycle: boolean
   enable_auction_filter: boolean
@@ -336,27 +362,6 @@ export async function getBacktestLogSummary(taskId: string): Promise<any> {
 }
 
 // ==================== 回测历史 API ====================
-
-export interface BacktestHistoryItem {
-  task_id: string
-  status: string
-  created_at: string | null
-  completed_at: string | null
-  started_at: string | null
-  start_date: string | null
-  end_date: string | null
-  initial_cash: number
-  strategies: string[]
-  strategy_params: Record<string, any>
-  total_return: number | null
-  win_rate: number | null
-  sharpe_ratio: number | null
-  max_drawdown: number | null
-  total_signals: number | null
-  completed_trades: number | null
-  final_value: number | null
-  trades_count: number
-}
 
 export interface BacktestHistoryResponse {
   total: number

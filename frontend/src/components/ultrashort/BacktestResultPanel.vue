@@ -39,7 +39,6 @@ import {
   ElOption,
   ElEmpty,
   ElMessage,
-  ElTag,
 } from 'element-plus'
 import { Download } from '@element-plus/icons-vue'
 
@@ -56,12 +55,7 @@ function fmtPct(val: number | undefined | null): string {
   return val.toFixed(2) + '%'
 }
 
-// 格式化金额
-function fmtMoney(val: number | undefined | null): string {
-  if (val == null || isNaN(val)) return '--'
-  if (Math.abs(val) >= 10000) return (val / 10000).toFixed(2) + '万'
-  return val.toFixed(2)
-}
+// 格式化金额(备用)
 
 // 筛选变量
 const searchTradeKeyword = ref('')
@@ -335,7 +329,7 @@ function exportTrades() {
     t.strategy || '', t.buy_price ?? '', t.sell_price ?? '',
     t.profit_pct != null ? t.profit_pct.toFixed(2) : '-', t.hold_days ?? 1
   ])
-  const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
+  const csvContent = [headers.join(','), ...rows.map((r: string[]) => r.join(','))].join('\n')
   const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' })
   const link = document.createElement('a')
   link.href = URL.createObjectURL(blob)
