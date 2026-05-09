@@ -769,7 +769,13 @@ class PortfolioBacktester:
 
         start_dt = int(config["start_date"])
         end_dt = int(config["end_date"])
-        total_records = (end_dt - start_dt + 1) * 5510  # 5510只股票
+        # 【Bug修复：total_records用实际记录数而非错误的日历天数×5510】
+        # 原代码: (end_dt - start_dt + 1) * 5510 → end_dt-start_dt=202216(日历天数差非交易日!)
+        # 正确做法: 查MongoDB获取回测区间内实际记录数
+        actual_total = await mongo_manager.count_documents(
+            C.STOCK_DAILY, {"trade_date": {"$gte": start_dt, "$lte": end_dt}}
+        )
+        total_records = actual_total if actual_total > 0 else 1  # 避免除零
 
         # 【修复#41:用$facet合并55次因子完整性检测为1次聚合查询】
         # 原逻辑:每个因子单独做一次聚合 → 55次独立查询 × 全表扫描 = 性能灾难
@@ -2516,7 +2522,8 @@ class PortfolioBacktester:
             # 【P0修复：默认值统一为2.0，与_print_single_strategy_filtering显示一致】
             volume_threshold = converted_params.get("min_volume_ratio", 2.0)
             return [
-                {"name": "open_below_limit", "target": 1, "label": "开盘低于涨停价"},
+                # 【Bug修复：去掉open_below_limit条件——该因子含义是'开盘接近跌停'而非'开盘低于涨停'】
+                # 半路追涨要求：量比≥2 + 涨幅2-5% + 非涨停(用pct_chg<=9.5%保证)
                 {"name": "pct_chg", "target": min_rise_pct * 100, "operator": ">=", "label": "最小涨幅"},
                 {"name": "pct_chg", "target": max_rise_pct * 100, "operator": "<=", "label": "最大涨幅"},
                 {"name": "volume_ratio", "target": volume_threshold, "label": "量比阈值"}
@@ -2754,9 +2761,6 @@ class PortfolioBacktester:
                             if strategy_max_hold is None or smh < strategy_max_hold:
                                 strategy_max_hold = smh
                 max_hold_days = strategy_max_hold if strategy_max_hold is not None else global_max_hold
-                # 【调试日志：超时检查】
-                if holdings.get(code, 0) > 0 and code == list(holdings.keys())[0] if holdings else False:
-                    logger.info('BACKTEST', f'超时检查: {code} buy_date_raw={buy_date_raw} max_hold={max_hold_days} _cost_basis_date_keys={list(getattr(self, "_cost_basis_date", {}).keys())[:3]}')
                 if buy_date_raw is not None and max_hold_days < 999:
                     try:
                         buy_dt = dt_now.strptime(str(buy_date_raw), '%Y%m%d')
