@@ -32,6 +32,7 @@ from .models import (
     strategy_name_map,
 )
 from .ultra_short import router as ultra_short_router
+from .logs import router as logs_router
 
 
 # 主路由（单股回测 + 因子选股 + 查询/取消）
@@ -39,6 +40,8 @@ router = APIRouter(prefix="/backtest", tags=["Backtest"])
 
 # 合并超短策略路由
 router.include_router(ultra_short_router)
+# 合并日志查询路由
+router.include_router(logs_router)
 
 
 # ==================== 单股回测 API ====================
