@@ -6,15 +6,15 @@
  */
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-
-// 子组件
 import StrategyConfigPanel from '@/components/ultrashort/StrategyConfigPanel.vue'
 import AnsiLogPanel from '@/components/backtest/AnsiLogPanel.vue'
 import BacktestSummaryTable from '@/components/backtest/BacktestSummaryTable.vue'
 import BacktestResultPanel from '@/components/ultrashort/BacktestResultPanel.vue'
+import BacktestHistoryPanel from '@/components/backtest/BacktestHistoryPanel.vue'
 
 // API
 import { backtestApi } from '@/api'
+import type { BacktestHistoryItem } from '@/api/modules/backtest'
 
 // ==================== 状态 ====================
 
@@ -387,6 +387,45 @@ const addLog = (text: string) => {
     if (logPanel) logPanel.scrollTop = logPanel.scrollHeight
   }, 100)
 }
+
+// ==================== 历史回测操作 ====================
+
+const showHistory = ref(true)
+
+/** 从历史回测复用参数 */
+function onReuseParams(task: BacktestHistoryItem) {
+  if (task.start_date) form.dataSource.start_date = task.start_date
+  if (task.end_date) form.dataSource.end_date = task.end_date
+  if (task.initial_cash) form.base.initial_cash = task.initial_cash
+  if (task.strategies && task.strategies.length > 0) {
+    form.strategies = [...task.strategies]
+  }
+  ElMessage.success('已复用参数到表单，可修改后提交回测')
+}
+
+/** 查看历史回测结果 */
+function onViewResult(task: BacktestHistoryItem) {
+  // 从API加载结果
+  backtestApi.getBacktestResult(task.task_id).then(res => {
+    if (res?.data?.result) {
+      backtestResult.value = res.data.result
+      backtestState.task_id = task.task_id
+      ElMessage.success('已加载历史回测结果')
+    } else {
+      ElMessage.warning('该回测无结果数据')
+    }
+  }).catch(() => {
+    ElMessage.error('加载结果失败')
+  })
+}
+
+/** 查看历史回测日志 */
+function onViewLogs(taskId: string) {
+  // 滚动到日志面板
+  backtestState.task_id = taskId
+  const logEl = document.querySelector('.ansi-log-card')
+  if (logEl) logEl.scrollIntoView({ behavior: 'smooth' })
+}
 </script>
 
 <template>
@@ -423,7 +462,20 @@ const addLog = (text: string) => {
     <BacktestResultPanel v-if="backtestResult" :result="backtestResult" :form="form" />
 
     <!-- 实时日志面板 -->
-    <AnsiLogPanel :logs="logs" />
+    <AnsiLogPanel :task-id="backtestState.task_id" :task-status="backtestState.running ? 'running' : 'completed'" />
+
+    <!-- 回测历史面板 -->
+    <div style="margin-top: 20px">
+      <div class="history-toggle" @click="showHistory = !showHistory">
+        <span>{{ showHistory ? '▼' : '▶' }} 回测历史记录</span>
+      </div>
+      <BacktestHistoryPanel
+        v-if="showHistory"
+        @view-result="onViewResult"
+        @view-logs="onViewLogs"
+        @reuse-params="onReuseParams"
+      />
+    </div>
   </div>
 </template>
 
@@ -445,5 +497,16 @@ const addLog = (text: string) => {
     color: #606266;
     margin: 0;
   }
+}
+
+.history-toggle {
+  cursor: pointer;
+  padding: 10px 0;
+  color: #606266;
+  font-size: 14px;
+  font-weight: 600;
+  user-select: none;
+
+  &:hover { color: #409eff; }
 }
 </style>
