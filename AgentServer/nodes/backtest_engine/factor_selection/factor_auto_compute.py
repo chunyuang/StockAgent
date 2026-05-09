@@ -136,6 +136,31 @@ async def _compute_and_write_factors(
 
     df = pd.DataFrame(docs)
     log_fn(f"   ✅ 加载完成: {len(df):,} 条记录, {df['ts_code'].nunique():,} 只股票")
+    
+    # 【修复：从daily_basic合并turnover_rate/volume_ratio/circ_mv等精确字段】
+    # daily_basic已补全(东方财富数据中心，5400+只/天)，远比OHLCV反算准确
+    db_coll = mongo_manager.db["daily_basic"]
+    db_cursor = db_coll.find(
+        {"trade_date": {"$gte": lookback_start, "$lte": end_date}},
+        {"ts_code": 1, "trade_date": 1, "turnover_rate": 1, "volume_ratio": 1,
+         "circ_mv": 1, "pe": 1, "pe_ttm": 1, "pb": 1, "total_mv": 1}
+    )
+    db_docs = await db_cursor.to_list(length=None)
+    if db_docs:
+        db_df = pd.DataFrame(db_docs)
+        db_df = db_df.drop(columns=['_id'], errors='ignore')
+        # merge到主df（left join: 保留所有OHLCV记录，补充daily_basic字段）
+        df = df.merge(db_df, on=['ts_code', 'trade_date'], how='left', suffixes=('', '_db'))
+        # 如果daily_basic有值，覆盖OHLCV反算的值
+        for col in ['turnover_rate', 'volume_ratio', 'circ_mv', 'pe', 'pe_ttm', 'pb', 'total_mv']:
+            db_col = f'{col}_db'
+            if db_col in df.columns:
+                # 优先用daily_basic的值
+                df[col] = df[db_col].fillna(df.get(col))
+                df = df.drop(columns=[db_col])
+        log_fn(f"   ✅ daily_basic合并: {len(db_docs):,}条精确数据")
+    else:
+        log_fn(f"   ⚠️ daily_basic无数据，将使用OHLCV反算")
 
     # 按股票分组计算因子
     log_fn(f"   🧮 计算因子...")
