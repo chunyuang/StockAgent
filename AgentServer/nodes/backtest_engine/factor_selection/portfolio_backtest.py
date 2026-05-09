@@ -1125,7 +1125,12 @@ class PortfolioBacktester:
                 # 【修复#新增：sentiment_score NaN 防御，如果全为NaN不添加字段，策略筛选会直接跳过】
                 if self._risk_config.get("enable_sentiment_cycle", True) and 'sentiment_score' in factor_df.columns:
                     # 检查是否有有效值
-                    if not factor_df['sentiment_score'].isna().all():
+                    # 【Bug修复：日线回测模式sentiment_score全为同一值(如0.5)→映射后全为depression→所有策略0候选】
+                    # 当sentiment_score的std=0(全部相同)时，说明不是真实的情绪计算，跳过
+                    sentiment_std = factor_df['sentiment_score'].std()
+                    if sentiment_std == 0 or (isinstance(sentiment_std, float) and math.isnan(sentiment_std)):
+                        await self.log(f"   ⚠️  sentiment_score全为同一值({factor_df['sentiment_score'].iloc[0]:.1f})，跳过情绪周期计算(日线回测模式)")
+                    elif not factor_df['sentiment_score'].isna().all():
                         # 根据情绪分数映射到情绪周期
                         # score ≥ 70 → 'rising' (上升期)
                         # 40 ≤ score < 70 → 'chaos' (混沌期)
@@ -2561,8 +2566,8 @@ class PortfolioBacktester:
                 {"name": "volume_ratio", "target": min_volume_ratio, "operator": ">=", "label": f"竞价量比≥{min_volume_ratio}"},
                 {"name": "turnover_rate", "target": min_turnover, "operator": ">=", "label": f"换手率≥{min_turnover}%"},
                 {"name": "turnover_rate", "target": max_turnover, "operator": "<=", "label": f"换手率≤{max_turnover}%"},
-                {"name": "circ_mv", "target": min_circ_mv * 10000, "operator": ">=", "label": "最小流通市值"},
-                {"name": "circ_mv", "target": max_circ_mv * 10000, "operator": "<=", "label": "最大流通市值"},
+                {"name": "circ_mv", "target": min_circ_mv, "operator": ">=", "label": f"最小流通市值{min_circ_mv}亿"},
+                {"name": "circ_mv", "target": max_circ_mv, "operator": "<=", "label": f"最大流通市值{max_circ_mv}亿"},
                 {"name": "limit_up_open_amount", "target": min_seal_amount_filter, "operator": ">=", "label": "最小封单金额"},
                 {"name": "limit_up_open_count", "target": max_blast, "operator": "<=", "label": "最大开板次数"},
                 {"name": "hot_sector", "target": 1 if require_hot else 0, "label": "要求热门板块"},
@@ -2604,8 +2609,8 @@ class PortfolioBacktester:
             # 替代方案：用circ_mv(流通市值)识别龙头股——大市值更可能是龙头
             _min_circ_for_leader = converted_params.get("min_circulation_market_cap", 100)
             return [
-                # 【P0-1修复(第十二轮)：circ_mv在MongoDB中存万元，需*10000(亿→万元)，与首板打板一致】
-                {"name": "circ_mv", "target": _min_circ_for_leader * 10000, "operator": ">=", "label": f"流通市值≥{_min_circ_for_leader}亿(龙头)"},
+                # circ_mv单位=亿元(东方财富daily_basic free_shares*close/1e8)
+                {"name": "circ_mv", "target": _min_circ_for_leader, "operator": ">=", "label": f"流通市值≥{_min_circ_for_leader}亿(龙头)"},
                 {"name": "limit_up_count", "target": min_consecutive, "operator": ">=", "label": f"近5日至少{min_consecutive}板"},
                 # 【P0-2修复(第33轮)：pullback_pct在MongoDB中存正数(如0.15=回调15%)]
                 # 正确语义：pullback_pct >= min_correction(回调至少这么深) AND <= max_correction(不超跌)
