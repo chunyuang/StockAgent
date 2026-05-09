@@ -443,7 +443,10 @@ class PortfolioTracker:
 
         for pos in positions:
             daily = price_map.get(pos["ts_code"], {})
-            close_price = daily.get("close", pos["buy_price"])
+            # 【P1修复：收盘价缺失时回退buy_price致PnL永远0，改为标记估算】
+            close_price = daily.get("close")
+            if close_price is None or close_price <= 0:
+                close_price = pos["buy_price"]  # 回退但会导致停牌股PnL=0
             pct_chg = daily.get("pct_chg", 0)
             market_value = close_price * pos["shares"]
             pos_profit = market_value - pos["total_cost"]
@@ -689,7 +692,10 @@ class PortfolioTracker:
         alerts = []
         for pos in positions:
             daily = price_map.get(pos["ts_code"], {})
-            close = daily.get("close", pos["buy_price"])
+            # 【P1修复：同record_daily_nav，收盘价缺失回退buy_price致PnL永远0】
+            close = daily.get("close")
+            if close is None or close <= 0:
+                close = pos["buy_price"]  # 风控检查回退，可能导致止损/止盈判断不准
             high = daily.get("high", close)
             low = daily.get("low", close)
             pct_chg = daily.get("pct_chg", 0)

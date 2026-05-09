@@ -31,9 +31,9 @@ def log_memory_usage(prefix: str = "MEM"):
         process = psutil.Process(os.getpid())
         mem_info = process.memory_info()
         rss_mb = mem_info.rss / 1024 / 1024
-        logger.info('FACTOR_ENGINE', f"{prefix}: RSS={rss_mb:.1f}MB")
+        logger.info(f"FACTOR_ENGINE: {prefix}: RSS={rss_mb:.1f}MB")
     except Exception as e:
-        logger.debug('FACTOR_ENGINE', f"Failed to get memory info: {e}")
+        logger.debug(f"FACTOR_ENGINE: Failed to get memory info: {e}")
 
 
 class FactorEngine:
@@ -92,7 +92,7 @@ class FactorEngine:
         # 回测模式：直接从 MongoDB 读取预计算因子，跳过实时计算
         from core.settings import settings
         if settings.mode == "backtest":
-            logger.info('FACTOR_ENGINE', f"✅ [回测模式] 从 MongoDB 读取预计算因子: {trade_date}")
+            logger.info(f"FACTOR_ENGINE: ✅ [回测模式] 从 MongoDB 读取预计算因子: {trade_date}")
             
             # 提取需要的因子名称
             factor_names = [cfg["name"] for cfg in factor_configs]
@@ -175,7 +175,7 @@ class FactorEngine:
         factor_defs = [f for f in factor_defs if f is not None]
 
         if not factor_defs:
-            logger.warn('FACTOR_ENGINE', "No valid factors found")
+            logger.warning("FACTOR_ENGINE: No valid factors found")
             return pd.DataFrame({"ts_code": stocks_list})
 
         logger.debug(f"Loading data for {len(factor_defs)} factors...")
@@ -200,10 +200,10 @@ class FactorEngine:
                     factor_values[factor_def.name] = values
                     continue
                 except Exception as e:
-                    logger.debug('FACTOR_ENGINE', f"Cache decode failed: {e}, recomputing")
+                    logger.debug(f"FACTOR_ENGINE: Cache decode failed: {e}, recomputing")
             
             # 缓存未命中，重新计算
-            logger.debug('FACTOR_ENGINE', f"Cache miss: {factor_def.name} on {trade_date}, computing...")
+            logger.debug(f"FACTOR_ENGINE: Cache miss: {factor_def.name} on {trade_date}, computing...")
             values = self._compute_single_factor(data, factor_def, trade_date)
             factor_values[factor_def.name] = values
             
@@ -214,7 +214,7 @@ class FactorEngine:
                 await redis_manager.cache_setex(cache_key, 86400, cached_data)
                 logger.debug(f"FACTOR_ENGINE: Cached: {factor_def.name} on {trade_date}, {len(values)} stocks")
             except Exception as e:
-                logger.debug('FACTOR_ENGINE', f"Cache store failed: {e}")
+                logger.debug(f"FACTOR_ENGINE: Cache store failed: {e}")
 
         # 4. 组装 DataFrame
         result = pd.DataFrame({"ts_code": stocks_list})
