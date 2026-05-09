@@ -152,6 +152,20 @@ else
   echo -e "${YELLOW}⚠️  使用 --skip-redis-flush 参数，跳过Redis缓存清空${NC}"
 fi
 
+# 🧹 日志文件生命周期管理：保留最近50个task日志
+LOG_DIR="${PROJECT_ROOT}/logs/backtest"
+if [ -d "$LOG_DIR" ]; then
+  LOG_COUNT=$(ls -1 "$LOG_DIR" 2>/dev/null | wc -l)
+  if [ "$LOG_COUNT" -gt 50 ]; then
+    OLD_FILES=$(ls -1t "$LOG_DIR" | tail -n +51)
+    OLD_COUNT=$(echo "$OLD_FILES" | wc -l)
+    echo "$OLD_FILES" | xargs rm -f "$LOG_DIR"/ 2>/dev/null
+    echo -e "${GREEN}✅ 清理 ${OLD_COUNT} 个旧日志文件（保留最近50个）${NC}"
+  else
+    echo -e "${GREEN}✅ 日志文件 ${LOG_COUNT} 个，无需清理（阈值50）${NC}"
+  fi
+fi
+
 echo -e "${YELLOW}============================================${NC}"
 echo -e "${YELLOW}🔍 运行Python语法检查...${NC}"
 echo -e "${YELLOW}============================================${NC}"
