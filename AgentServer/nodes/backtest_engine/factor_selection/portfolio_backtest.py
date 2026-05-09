@@ -1713,7 +1713,8 @@ class PortfolioBacktester:
         # 【P0-1修复：losing_trades用completed_trades-winning_trades，而非total_signals-winning_trades】
         # total_signals是买入信号数(含未卖出持仓)，winning_trades是已卖出盈利数，维度不一致
         losing_trades = completed_trades - winning_trades
-        total_trades = len(merged_trades)
+        # 【P1修复】total_trades只计已完成交易(有sell_date的)，不含未平仓
+        total_trades = completed_trades
 
         # 计算收益回撤比 = 累计收益率 / 最大回撤(当最大回撤 > 0 时)
         return_drawdown_ratio = 0.0
@@ -2058,17 +2059,24 @@ class PortfolioBacktester:
             }
         result["strategy_results"] = strategy_results
 
-        # 3. factor_contribution: 因子贡献 {因子名: 权重}
+        # 3. factor_contribution: 因子贡献 {策略名: 贡献比例}
+        # 【P1修复】按实际交易信号数比例分配，忽略strategy_weights(那是配置权重不是实际贡献)
         factor_contribution = {}
-        sw = config.get("strategy_weights", {})
-        if sw:
-            for name, weight in sw.items():
-                factor_contribution[name] = weight
+        total_trades_count = sum(s.get("trades_count", 0) for s in strategy_results.values())
+        if total_trades_count > 0:
+            for name, s in strategy_results.items():
+                factor_contribution[name] = s.get("trades_count", 0) / total_trades_count
         else:
-            # 如果没有strategy_weights，从策略数等分
-            n = len(strategy_results) or 1
-            for name in strategy_results:
-                factor_contribution[name] = 1.0 / n
+            # 无交易时按配置权重等分
+            sw = config.get("strategy_weights", {})
+            if sw:
+                total_w = sum(sw.values()) or 1
+                for name, weight in sw.items():
+                    factor_contribution[name] = weight / total_w
+            else:
+                n = len(strategy_results) or 1
+                for name in strategy_results:
+                    factor_contribution[name] = 1.0 / n
         result["factor_contribution"] = factor_contribution
 
         # 4. monthly_profit: 月度收益 {"2026-01": 收益率, ...}
@@ -2151,12 +2159,20 @@ class PortfolioBacktester:
         # 按日期排序（兼容int和string）
         docs.sort(key=lambda x: int(x["trade_date"]) if isinstance(x["trade_date"], str) else x["trade_date"])
         benchmark_data = []
-        for doc in docs:
+        for i, doc in enumerate(docs):
             td = int(doc["trade_date"]) if isinstance(doc["trade_date"], str) else doc["trade_date"]
+            close = doc["close"]
+            # 【P0修复】pct_chg: 优先用文档值，否则从前一天close计算
+            pct_chg = doc.get("pct_chg")
+            if pct_chg is None or pct_chg == 0:
+                if i > 0 and benchmark_data[i-1]["close"] > 0:
+                    pct_chg = (close / benchmark_data[i-1]["close"] - 1) * 100
+                else:
+                    pct_chg = 0.0
             benchmark_data.append({
                 "trade_date": td,
-                "close": doc["close"],
-                "pct_chg": doc.get("pct_chg", 0.0)
+                "close": close,
+                "pct_chg": pct_chg
             })
         return benchmark_data
 
