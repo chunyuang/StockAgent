@@ -201,8 +201,8 @@ const handleExport = () => {
 
   const headers = ['交易日期', '股票代码', '股票名称', '策略', '买入价', '卖出价', '收益率', '持仓天数']
   const rows = filteredTrades.value.map((t: any) => [
-    t.date, t.ts_code, t.stock_name, t.strategy, t.buy_price, t.sell_price,
-    `${((t.profit_pct || 0) * 100).toFixed(2)}%`, t.hold_days,
+    t.buy_date || t.date, t.ts_code, t.name || t.stock_name, t.strategy, t.buy_price, t.sell_price,
+    `${(t.profit_pct || 0).toFixed(2)}%`, t.hold_days,
   ])
   const csvContent = [headers.join(','), ...rows.map((r: any) => r.join(','))].join('\n')
   const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' })
