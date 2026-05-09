@@ -70,14 +70,15 @@ async function loadHistory() {
 
 function formatReturn(val: number | null): string {
   if (val === null || val === undefined) return '-'
-  const pct = val * 100
-  const sign = pct >= 0 ? '+' : ''
-  return `${sign}${pct.toFixed(2)}%`
+  // total_return在MongoDB中已存储为百分比(-1.11表示-1.11%)
+  const sign = val >= 0 ? '+' : ''
+  return `${sign}${val.toFixed(2)}%`
 }
 
 function formatRate(val: number | null): string {
   if (val === null || val === undefined) return '-'
-  return `${(val * 100).toFixed(1)}%`
+  // win_rate在MongoDB中已存储为百分比(60表示60%)
+  return `${val.toFixed(1)}%`
 }
 
 function formatSharpe(val: number | null): string {
@@ -87,7 +88,8 @@ function formatSharpe(val: number | null): string {
 
 function formatDrawdown(val: number | null): string {
   if (val === null || val === undefined) return '-'
-  return `${(val * 100).toFixed(2)}%`
+  // max_drawdown也是百分比存储
+  return `${val.toFixed(2)}%`
 }
 
 function formatDate(iso: string | null): string {
@@ -97,7 +99,9 @@ function formatDate(iso: string | null): string {
 
 function strategyNames(strategies: string[]): string {
   if (!strategies || strategies.length === 0) return '-'
-  return strategies.map(s => strategyNameMap[s] || s).join('、')
+  const names = strategies.map(s => strategyNameMap[s] || s)
+  if (names.length <= 3) return names.join('、')
+  return names.slice(0, 3).join('、') + `等${names.length}个`
 }
 
 function returnClass(val: number | null): string {
@@ -152,7 +156,7 @@ onMounted(loadHistory)
             <td class="date-cell">{{ formatDate(item.created_at) }}</td>
             <td class="range-cell">{{ item.start_date || '?' }} ~ {{ item.end_date || '?' }}</td>
             <td class="strat-cell" :title="strategyNames(item.strategies)">
-              {{ strategyNames(item.strategies?.slice(0, 2)) }}{{ (item.strategies?.length || 0) > 2 ? '...' : '' }}
+              {{ strategyNames(item.strategies) }}
             </td>
             <td :class="['num-cell', returnClass(item.total_return)]">
               {{ formatReturn(item.total_return) }}
