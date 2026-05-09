@@ -212,15 +212,25 @@ def _compute_factors_for_stock(group: pd.DataFrame, fields: List[str]) -> pd.Dat
 
     # 流通市值和换手率
     # 优先使用已有精确值(来自daily_basic合并或修复脚本)，仅缺失时用近似值
+    # ⚠️ 关键：stock_daily_ak_full的amount单位在20260323前后不一致:
+    #   旧数据(通达信≤3/20): amount=千元, vol=手, close=前复权价, turnover_rate=前复权基准
+    #   新数据(AKShare≥3/23): amount=元, vol=股, close=真实价, turnover_rate=真实基准
+    #   因此不能用amount/turnover_rate直接反算circ_mv(偏差1.7倍)
+    #   正确方案: 只对新数据(amount>1亿即>100000000元)反算，旧数据标记None
     if 'circ_mv' not in group.columns or group['circ_mv'].isna().all():
-        # 近似值: 成交额/换手率*100（需要turnover_rate先算好）
         if 'turnover_rate' in group.columns and group['turnover_rate'].notna().any() and (group['turnover_rate'] > 0).any():
-            group['circ_mv'] = group['amount'] / (group['turnover_rate'] / 100) / 10000  # 元→万元
+            # 仅对新数据(amount=元, 即amount>100000000)反算circ_mv
+            is_new_data = group['amount'] > 100000000  # 新数据amount=元(>1亿)
+            circ_mv_calc = group['amount'] / (group['turnover_rate'] / 100) / 10000  # 元→万元
+            group['circ_mv'] = circ_mv_calc.where(is_new_data, None)
         else:
             group['circ_mv'] = None  # 无法近似时不设假值
     if 'turnover_rate' not in group.columns or group['turnover_rate'].isna().all():
         if group.get('circ_mv') is not None and (group['circ_mv'] > 0).any():
-            group['turnover_rate'] = group['amount'] / group['circ_mv'] / 10000 * 100  # circ_mv万元→元
+            # 同样只对新数据反算
+            is_new_data = group['amount'] > 100000000
+            tr_calc = group['amount'] / group['circ_mv'] / 10000 * 100  # circ_mv万元→元
+            group['turnover_rate'] = tr_calc.where(is_new_data, None)
         # else: 留空
     group['turnover_20d'] = group['turnover_rate'].rolling(20).mean()
 
