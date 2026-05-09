@@ -145,7 +145,14 @@ def _normalize_ts_code(code: str) -> str:
     
     # 纯数字代码，根据规则补全后缀
     code = code.strip()
-    if code.startswith(("6", "5", "9")):
+    # 【P1修复：920xxx是北交所新股，9开头需细分】
+    if code.startswith("9") and len(code) == 6 and code[1] in ("0", "1", "2"):
+        # 900-929: 上海B股(900xxx)或北交所新股(920xxx)
+        # 920xxx是北交所2023年后新代码规则，优先判断北交所
+        if code.startswith("92"):
+            return f"{code}.BJ"  # 北交所新股(920xxx)
+        return f"{code}.SH"  # 上海B股(900xxx等)
+    elif code.startswith(("6", "5")):
         return f"{code}.SH"  # 上海
     elif code.startswith(("0", "3", "2")):
         return f"{code}.SZ"  # 深圳
@@ -281,15 +288,19 @@ async def fundamental_node(state: StockAnalysisState) -> Dict[str, Any]:
     pct_chg = latest.get("pct_chg", 0)
     pe = latest.get("pe", stock.get("pe", 0))
     pb = latest.get("pb", stock.get("pb", 0))
-    # total_mv: stock_basic 存储单位是亿元(在sync_stock_basic.py中已转换)，
-    # stock_daily_ak_full 的 total_mv 存储单位是万元。
-    # 根据数据来源字段确定性判断，而非靠值大小猜测
+    # total_mv单位判断:
+    # stock_daily_ak_full: total_mv单位是万元(值>10000)
+    # stock_basic: total_mv单位是亿元(值<10000, sync_stock_basic.py已转换)
+    # 【P1修复：用值范围判断+来源注释，而非仅靠has_daily_total_mv】
     total_mv_raw = latest.get("total_mv") or stock.get("total_mv") or 0
-    # stock_basic的数据是亿元(值较小<10000)，stock_daily_ak_full是万元(值较大)
-    # 用来源判断：如果total_mv来自daily_data(stock_daily_ak_full)，单位是万元→÷10000转亿
-    # 如果来自stock(stock_basic)，已经是亿元
-    has_daily_total_mv = bool(latest.get("total_mv"))
-    total_mv_billion = total_mv_raw / 10000 if has_daily_total_mv else total_mv_raw
+    if total_mv_raw > 0:
+        # stock_daily_ak_full的total_mv一般在1万以上(万元), stock_basic一般在1万以下(亿元)
+        # 但小盘股流通市值也可能<10亿(即stock_daily_ak_full中<100000万元)
+        # 最可靠的判断：如果来自latest(daily_data)，单位是万元；来自stock(stock_basic)，单位是亿元
+        source_is_daily = bool(latest.get("total_mv"))
+        total_mv_billion = total_mv_raw / 10000 if source_is_daily else total_mv_raw
+    else:
+        total_mv_billion = 0
     turnover_rate = latest.get("turnover_rate") or stock.get("turnover_rate") or 0
     
     # 计算区间涨跌幅 (30天)
