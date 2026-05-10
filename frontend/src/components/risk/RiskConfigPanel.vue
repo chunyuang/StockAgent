@@ -18,6 +18,7 @@ import {
   ElMessage,
 } from 'element-plus'
 import { Refresh, Check } from '@element-plus/icons-vue'
+import { systemApi } from '@/api'
 
 // ==================== 类型定义 ====================
 
@@ -87,12 +88,12 @@ const defaultConfig: RiskConfig = {
   },
 }
 
+
 // ==================== 状态 ====================
 
 const config = reactive<RiskConfig>(JSON.parse(JSON.stringify(defaultConfig)))
 const saving = reactive({ value: false })
 
-import { systemApi } from '@/api'
 
 const STORAGE_KEY = 'stockagent_risk_config'
 

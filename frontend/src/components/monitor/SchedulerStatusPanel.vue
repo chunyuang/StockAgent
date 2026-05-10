@@ -13,11 +13,7 @@ import {
   ElCard,
   ElTooltip,
   ElBadge,
-  ElProgress,
   ElButton,
-  ElSwitch,
-  ElDescriptions,
-  ElDescriptionsItem,
   ElAlert,
   ElDialog,
   ElTimeline,
@@ -25,7 +21,6 @@ import {
 } from 'element-plus'
 import { VideoPlay, VideoPause, RefreshRight, Delete, Clock } from '@element-plus/icons-vue'
 import {
-  systemApi,
   getSchedulerStatus,
   startScheduler,
   stopScheduler,

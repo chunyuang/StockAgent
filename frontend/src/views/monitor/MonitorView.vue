@@ -124,7 +124,7 @@ function handleWSMessage(msg: { type: string; [key: string]: any }) {
       break
     case 'risk_event':
       // 风控事件
-      intradayRef.value?.onRiskEvent(msg)
+      intradayRef.value?.onRiskEvent(msg as unknown as { risk_level: string; message: string })
       break
     case 'position_alert':
       // 持仓异动

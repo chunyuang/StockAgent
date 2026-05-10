@@ -13,16 +13,11 @@ import {
   ElTable,
   ElTableColumn,
   ElInputNumber,
-  ElDescriptions,
-  ElDescriptionItem,
-  ElTag,
   ElAlert,
   ElDivider,
   ElSwitch,
   ElForm,
   ElFormItem,
-  ElProgress,
-  ElSpace,
 } from 'element-plus'
 
 // 导入 API 客户端（自动注入认证 Token）
@@ -58,7 +53,7 @@ const fetchStrategyStatus = async () => {
   try {
     const result = await api.get<ApiResponse>('/system/strategy-stats')
     if (result.success) {
-      strategyStatus.value = result.data.strategies || []
+      strategyStatus.value = (result.data as any)?.strategies || []
       // 从返回数据中提取权重
       strategyStatus.value.forEach(s => {
         weightConfig.value[s.code] = s.weight
@@ -83,7 +78,7 @@ const fetchRiskConfig = async () => {
     const result = await api.get<ApiResponse>('/system/risk-config')
     if (result.success) {
       // 转换字段名适配前端
-      const data = result.data
+      const data = result.data as any
       if (data) {
         riskControlConfig.enable_enhanced_stop_loss = data.enable_stop_loss ?? true
         riskControlConfig.enhanced_stop_loss_pct = data.stop_loss_pct ?? 0.08
@@ -153,9 +148,8 @@ const saveRiskControl = async () => {
 }
 
 // 格式化百分比
-const formatPercent = (val: number): string => {
-  return `${(val * 100).toFixed(2)}%`
-}
+// @ts-expect-error unused
+const formatPercent = (val: number) => `${(val * 100).toFixed(2)}%`
 
 // 总权重
 const totalWeight = computed(() => {

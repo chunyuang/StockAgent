@@ -17,9 +17,6 @@ const reports = ref<PerformanceReport[]>([])
 const selectedAccountId = ref('')
 const loading = ref(false)
 
-const selectedAccount = computed(() =>
-  accounts.value.find(a => a.account_id === selectedAccountId.value) || null
-)
 
 async function loadAccounts() {
   try {
