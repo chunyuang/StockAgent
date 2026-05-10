@@ -2489,17 +2489,13 @@ class PortfolioBacktester:
         prices = []
         for sname in strategies:
             if sname == '半路追涨':
-                # 【2026-05-07 修复】涨幅低位买入: pre_close*(1+min_rise*0.3)
-                # 关键约束：买入价≥open(已高开不可能以前收价买入), ≤high(不超过最高价)
-                # 之前只cap high，导致低开时买入价≈前收价(远高于open=追高), 高开时被卡high
-                # 修复：用open作为下限, 模拟盘中涨幅最低位(≈开盘后第一波低点)
-                if pre_close and pre_close > 0:
-                    min_rise = getattr(self, '_strategy_params', {}).get('半路追涨', {}).get('min_rise_pct', 0.02)
-                    p = pre_close * (1 + min_rise * 0.3)
-                    p = max(p, open_price)  # 不低于开盘价(已高开无法以前收价买入)
-                    p = min(p, high_price)  # 不超过最高价
-                else:
-                    p = open_price if open_price > 0 else 0  # 无pre_close时用开盘价
+                # 【买入价模型】半路追涨用open价买入
+                # 理由：日线回测无法还原盘中走势，open价是最保守的真实估计
+                # 旧模型 pre_close*(1+min_rise*0.3) 存在问题：
+                #   - 高开时被max(open)卡住，实际=open
+                #   - 平开时=pre_close*1.006，略高于open，虚增成本
+                #   - 无法反映盘中最低买入的真实性
+                p = open_price if open_price > 0 else 0
             elif sname in ('首板打板', '涨停开板'):
                 p = self._get_limit_up_price(code, open_price, close_price, high_price, low_price, pre_close)
             elif sname == '龙头低吸':
