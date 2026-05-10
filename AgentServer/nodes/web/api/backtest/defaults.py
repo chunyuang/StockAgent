@@ -153,10 +153,10 @@ def get_ultra_short_defaults() -> Dict[str, Any]:
                 "enabled": True,
                 "name": "跌停翘板",
                 "params": {
-                    "min_consecutive_limit": 3,
+                    "min_consecutive_limit": 2,     # 2连跌即可(3连跌太严,全区间0笔)
                     "min_qiao_amount": 1000,
                     "min_rise_after_qiao": 0.03,
-                    "require_high_sentiment": True,
+                    "require_high_sentiment": False,  # 放宽情绪要求
                 },
                 "riskParams": {
                     "stop_loss_pct": 0.07,      # 跌停翘板止损7% (极端波动,需大空间)

@@ -36,13 +36,23 @@ else
 fi
 
 # 2. 东方财富全市场快照 → daily_basic (PE/PB/流通市值/换手率/量比)
-echo "$LOG_PREFIX [2/2] 补全daily_basic..."
+echo "$LOG_PREFIX [2/3] 补全daily_basic..."
 python3 "$SCRIPT_DIR/eastmoney_daily_basic.py" 2>&1
 BASIC_EXIT=$?
 if [ $BASIC_EXIT -eq 0 ]; then
-    echo "$LOG_PREFIX [2/2] ✅ daily_basic补全成功"
+    echo "$LOG_PREFIX [2/3] ✅ daily_basic补全成功"
 else
-    echo "$LOG_PREFIX [2/2] ⚠️ daily_basic补全失败(exit=$BASIC_EXIT), 可能是非交易日"
+    echo "$LOG_PREFIX [2/3] ⚠️ daily_basic补全失败(exit=$BASIC_EXIT), 可能是非交易日"
+fi
+
+# 3. 预计算因子(MA/涨跌停/量比等)
+echo "$LOG_PREFIX [3/3] 预计算因子..."
+python3 "$SCRIPT_DIR/daily_factor_precompute.py" 2>&1
+FACTOR_EXIT=$?
+if [ $FACTOR_EXIT -eq 0 ]; then
+    echo "$LOG_PREFIX [3/3] ✅ 因子预计算成功"
+else
+    echo "$LOG_PREFIX [3/3] ⚠️ 因子预计算失败(exit=$FACTOR_EXIT)"
 fi
 
 echo "$LOG_PREFIX ========== 每日数据更新完成 =========="
