@@ -113,7 +113,7 @@ class FactorSelectionRequest(BaseModel):
 class UltraShortParams(BaseModel):
     """超短策略参数配置"""
     volume_threshold: float = Field(default=1.5, ge=1.0, le=10.0, description="量能放大倍数")
-    stop_loss_pct: float = Field(default=0.02, ge=0.01, le=0.2, description="止损比例(超短严格止损2%)")
+    stop_loss_pct: float = Field(default=0.03, ge=0.01, le=0.2, description="止损比例(3%)")
     take_profit_pct: float = Field(default=0.07, ge=0.01, le=0.5, description="止盈比例(超短快进快出7%)")
     max_hold_days: int = Field(default=3, ge=1, le=10, description="最大持仓天数")
     max_position: float = Field(default=0.7, ge=0.1, le=1.0, description="总仓位上限")
@@ -238,7 +238,7 @@ class UltraShortBacktestRequest(BaseModel):
                 "params": {
                     "liquidity_threshold": 500,
                     "volume_threshold": 1.5,
-                    "stop_loss_pct": 0.02,
+                    "stop_loss_pct": 0.03,
                     "take_profit_pct": 0.07,
                     "max_hold_days": 3,
                     "max_position_per_stock": 0.2,
