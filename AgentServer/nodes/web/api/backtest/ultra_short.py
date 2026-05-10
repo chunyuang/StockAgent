@@ -120,6 +120,7 @@ async def submit_ultra_short_backtest(
                 "commission_rate": request.params.commission_rate,
                 "stamp_duty_rate": request.params.stamp_duty_rate,
                 "slippage_pct": request.params.slippage_pct,
+                "signal_delay": request.params.signal_delay,
                 "enable_force_empty": request.params.enable_force_empty,
                 "sentiment_cycle": request.params.sentiment_cycle,
                 "auction_filter": request.params.auction_filter,
