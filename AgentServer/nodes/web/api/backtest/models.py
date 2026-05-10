@@ -177,15 +177,20 @@ class UltraShortBacktestRequest(BaseModel):
         if selected_strategies and not strategies:
             strategies = []
             strategy_params = values.get('strategy_params', {})
+            strategy_risk_params = values.get('strategy_risk_params', {})
             for s in selected_strategies:
                 s_name = s.get('name', '')
                 s_params = s.get('params', {})
+                s_risk_params = s.get('riskParams', {})  # 🔧 保留策略级风控参数
                 if s_name in strategy_name_map:
                     s_id = strategy_name_map[s_name]
                     strategies.append(s_id)
                     strategy_params[s_id] = s_params
+                    if s_risk_params:
+                        strategy_risk_params[s_id] = s_risk_params
             values['strategies'] = strategies
             values['strategy_params'] = strategy_params
+            values['strategy_risk_params'] = strategy_risk_params
 
         # 兼容start_date/end_date在params里的情况
         params = values.get('params')
