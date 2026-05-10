@@ -588,7 +588,7 @@ class PortfolioBacktester:
         # 默认风控配置
         risk_config = {
             "enable_stop_loss": config.get("enable_stop_loss", True),
-            "stop_loss_pct": config.get("stop_loss_pct", 0.02),
+            "stop_loss_pct": config.get("stop_loss_pct", 0.03),
             "enable_take_profit": config.get("enable_take_profit", True),
             "take_profit_pct": config.get("take_profit_pct", 0.07),
             "enable_ma60_filter": config.get("enable_ma60_filter", True),
@@ -625,9 +625,10 @@ class PortfolioBacktester:
         self._strategy_risk_params = {}  # strategy_name -> {stop_loss_pct, take_profit_pct, max_hold_days, slippage_pct}
         self._strategy_params = {}  # strategy_name -> {min_rise_pct, min_volume_ratio, ...}
         # 【策略级默认风控】日线回测买入价=次日open，首板/涨停策略买入价接近涨停价
-        # 默认2%止损对这些策略太紧，放宽至5%
+        # 半路追涨3%止损(从2%放宽), 首板打板4%止损(从5%收紧,减少单笔亏损)
         _strategy_default_sl = {
-            "首板打板": 0.05,
+            "半路追涨": 0.03,
+            "首板打板": 0.04,
             "涨停开板": 0.05,
             "龙头低吸": 0.05,
             "跌停翘板": 0.07,
@@ -2690,7 +2691,7 @@ class PortfolioBacktester:
             support_level = converted_params.get("support_level", "ma5")
             # 【P0-3修复(第十轮)：market_leader因子在MongoDB中全0，无法用于龙头筛选】
             # 替代方案：用circ_mv(流通市值)识别龙头股——大市值更可能是龙头
-            _min_circ_for_leader = converted_params.get("min_circulation_market_cap", 100)
+            _min_circ_for_leader = converted_params.get("min_circulation_market_cap", 50)
             return [
                 # circ_mv单位=亿元(东方财富daily_basic free_shares*close/1e8)
                 {"name": "circ_mv", "target": _min_circ_for_leader, "operator": ">=", "label": f"流通市值≥{_min_circ_for_leader}亿(龙头)"},
