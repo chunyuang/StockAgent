@@ -81,17 +81,17 @@ def get_ultra_short_defaults() -> Dict[str, Any]:
                 "enabled": True,
                 "name": "半路追涨",
                 "params": {
-                    # 【2026-05-06 回测优化】量比2.0+涨幅2-5%+涨幅低位买入, 55日+44%
-                    "min_rise_pct": 0.02,       # 从0.03放宽到0.02, 更多候选
-                    "max_rise_pct": 0.05,
-                    "min_volume_ratio": 2.0,    # 从1.5提高到2.0, 更强放量信号
+                    # 【2026-05-10 调优】量比2.0+涨幅2-7%+涨幅低位买入, 止损3%
+                    "min_rise_pct": 0.02,
+                    "max_rise_pct": 0.07,       # 从0.05放宽到0.07, 覆盖更多强势股
+                    "min_volume_ratio": 2.0,
                     "allow_after_10am": False,
                 },
                 "riskParams": {
-                    "stop_loss_pct": 0.02,      # 严格止损2% (回测: SL-2% >> SL-3%/4%/5%)
-                    "take_profit_pct": 0.07,    # 止盈7% (回测: TP7%在SL-2%下最优)
-                    "max_hold_days": 2,          # 最大持仓2天
-                    "slippage_pct": 0.002         # 滑点0.2%
+                    "stop_loss_pct": 0.03,      # 从0.02放宽到0.03, 减少被洗出
+                    "take_profit_pct": 0.07,    # 止盈7%
+                    "max_hold_days": 2,
+                    "slippage_pct": 0.002
                 }
             },
             "first_limit_up": {
@@ -106,10 +106,10 @@ def get_ultra_short_defaults() -> Dict[str, Any]:
                     "require_hot_sector": False,
                 },
                 "riskParams": {
-                    "stop_loss_pct": 0.05,      # 首板打板止损5% (买入价≈涨停价,2%太紧必触发)
-                    "take_profit_pct": 0.085,    # 止盈8.5%
-                    "max_hold_days": 2,          # 最大持仓2天
-                    "slippage_pct": 0.005         # 滑点0.5%(打板场景)
+                    "stop_loss_pct": 0.04,      # 从0.05收紧到0.04, 减少单笔亏损
+                    "take_profit_pct": 0.07,    # 从0.085降到0.07, 更及时止盈
+                    "max_hold_days": 2,
+                    "slippage_pct": 0.005
                 }
             },
             "limit_up_open": {
@@ -135,19 +135,19 @@ def get_ultra_short_defaults() -> Dict[str, Any]:
                 "enabled": True,
                 "name": "龙头低吸",
                 "params": {
-                    "min_consecutive_limit": 3,
-                    "min_circulation_market_cap": 100,
-                    "min_correction_pct": 0.15,
-                    "max_correction_pct": 0.3,
-                    "correction_days_min": 2,
-                    "correction_days_max": 5,
+                    "min_consecutive_limit": 2,     # 从3放宽到2, 增加候选
+                    "min_circulation_market_cap": 50, # 从100放宽到50, 覆盖中小盘龙头
+                    "min_correction_pct": 0.08,      # 从0.15放宽到0.08
+                    "max_correction_pct": 0.35,      # 从0.3放宽到0.35
+                    "correction_days_min": 1,        # 从2放宽到1
+                    "correction_days_max": 7,        # 从5放宽到7
                     "support_level": "ma5",
                 },
                 "riskParams": {
-                    "stop_loss_pct": 0.05,      # 龙头低吸止损5% (回调买入,需空间)
-                    "take_profit_pct": 0.06,    # 止盈6%
-                    "max_hold_days": 4,          # 最大持仓4天(需等待企稳)
-                    "slippage_pct": 0.002         # 滑点0.2%
+                    "stop_loss_pct": 0.05,
+                    "take_profit_pct": 0.06,
+                    "max_hold_days": 4,
+                    "slippage_pct": 0.002
                 }
             },
             "limit_down_qiao": {
