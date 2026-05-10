@@ -26,18 +26,18 @@ async def _redis_publish_safe(channel, data):
 
 
 # 默认所有策略（兜底用）
-# 【P1-4修复：补齐riskParams，与defaults.py保持一致】
+# 与defaults.py strategyConfigs保持一致
 ALL_STRATEGIES = [
     {"id": "halfway_chase", "name": "半路追涨", "params": {},
-     "riskParams": {"stop_loss_pct": 0.02, "take_profit_pct": 0.06}},
+     "riskParams": {"stop_loss_pct": 0.03, "take_profit_pct": 0.07}},
     {"id": "first_limit_up", "name": "首板打板", "params": {},
-     "riskParams": {"stop_loss_pct": 0.015, "take_profit_pct": 0.085}},
+     "riskParams": {"stop_loss_pct": 0.04, "take_profit_pct": 0.07}},
     {"id": "limit_up_open", "name": "涨停开板", "params": {},
-     "riskParams": {"stop_loss_pct": 0.02, "take_profit_pct": 0.06}},
+     "riskParams": {"stop_loss_pct": 0.05, "take_profit_pct": 0.06}},
     {"id": "leader_buy_dip", "name": "龙头低吸", "params": {},
-     "riskParams": {"stop_loss_pct": 0.0275, "take_profit_pct": 0.06}},
+     "riskParams": {"stop_loss_pct": 0.05, "take_profit_pct": 0.06}},
     {"id": "limit_down_qiao", "name": "跌停翘板", "params": {},
-     "riskParams": {"stop_loss_pct": 0.02, "take_profit_pct": 0.07}},
+     "riskParams": {"stop_loss_pct": 0.07, "take_profit_pct": 0.07}},
 ]
 
 
@@ -88,7 +88,7 @@ async def execute_ultra_short_backtest(
     logger.info("INIT", f"选中策略：【{'、'.join(selected_strategy_names)}】")
 
     # 打印全局参数
-    logger.info("INIT", f"全局参数：流动性门槛{strategy_params.get('liquidity_threshold', 500)}万/止损{strategy_params.get('stop_loss_pct', 0.02)*100}%/止盈{strategy_params.get('take_profit_pct', 0.07)*100}%/最大持仓{strategy_params.get('max_hold_days', 3)}天/单票仓位{strategy_params.get('max_position_per_stock', 0.2)*100}%/总仓位{strategy_params.get('max_position', 0.7)*100}%")
+    logger.info("INIT", f"全局参数：流动性门槛{strategy_params.get('liquidity_threshold', 500)}万/止损{strategy_params.get('stop_loss_pct', 0.03)*100}%/止盈{strategy_params.get('take_profit_pct', 0.07)*100}%/最大持仓{strategy_params.get('max_hold_days', 3)}天/单票仓位{strategy_params.get('max_position_per_stock', 0.2)*100}%/总仓位{strategy_params.get('max_position', 0.7)*100}%")
 
     # 打印功能开关
     enable_force_empty = req_params.get("enable_force_empty", True)
@@ -136,7 +136,7 @@ async def execute_ultra_short_backtest(
     await push_log_fn(task_id, "├─ 流动性门槛: %s 万元" % strategy_params.get('liquidity_threshold', 500))
     await push_log_fn(task_id, "├─ 单票最大仓位: %.1f %%" % (strategy_params.get('max_position_per_stock', 0.2)*100))
     await push_log_fn(task_id, "├─ 总仓位上限: %.1f %%" % (strategy_params.get('max_position', 0.7)*100))
-    await push_log_fn(task_id, "├─ 止损比例: %.1f %%" % (strategy_params.get('stop_loss_pct', 0.02)*100))
+    await push_log_fn(task_id, "├─ 止损比例: %.1f %%" % (strategy_params.get('stop_loss_pct', 0.03)*100))
     await push_log_fn(task_id, "├─ 止盈比例: %.1f %%" % (strategy_params.get('take_profit_pct', 0.07)*100))
     await push_log_fn(task_id, "├─ 最大持仓天数: %d 天" % strategy_params.get('max_hold_days', 3))
     await push_log_fn(task_id, "├─ 强制空仓规则: %s" % ("已启用" if req_params.get('enable_force_empty', True) else "已关闭"))
@@ -318,7 +318,7 @@ async def execute_ultra_short_backtest(
         "slippage_pct": strategy_params.get("slippage_pct", 0.002),         # 0.2%
         # 【信号延迟模式】
         # 🔧 传递止盈止损比例(前端可配置)
-        "stop_loss_pct": strategy_params.get("stop_loss_pct", 0.02),
+        "stop_loss_pct": strategy_params.get("stop_loss_pct", 0.03),
         "take_profit_pct": strategy_params.get("take_profit_pct", 0.07),
         # 【P1-1/P1-2修复：传递max_hold_days和max_position_per_stock到回测引擎】
         "max_hold_days": strategy_params.get("max_hold_days", 3),
