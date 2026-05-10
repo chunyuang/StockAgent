@@ -16,8 +16,9 @@ from datetime import datetime, timedelta
 from typing import List, Dict
 
 from core.managers import mongo_manager
-from backtest_module.backtest_engine.factor_selection.portfolio_backtest import PortfolioBacktester
-from backtest_module.backtest_engine.factor_selection.universe import UniverseManager, UniverseType, ExcludeRule
+from nodes.backtest_engine.factor_selection.portfolio_backtest import PortfolioBacktester, STRATEGY_CONFIGS
+from nodes.backtest_engine.factor_selection.universe import UniverseManager, UniverseType, ExcludeRule
+from nodes.backtest_engine.factor_selection.strategy_filter import filter_stocks_by_strategies
 
 class RealTradingSignalGenerator:
     """实盘信号生成器
@@ -148,25 +149,51 @@ class RealTradingSignalGenerator:
                 "trading_plan": "无符合条件标的，空仓观望"
             }
         
-        # 5. 计算因子 & 选股
+        # 5. 计算因子
         factor_df = await self.backtester.factor_engine.compute_factors(
             universe, trade_date, self._get_factors_config(),
             liquidity_threshold=self.config["liquidity_threshold"]
         )
         
-        # 6. 情绪周期策略过滤
-        allowed_strategies = set(sentiment_info["allowed_strategies"])
-        if "strategy" in factor_df.columns:
-            factor_df = factor_df[factor_df["strategy"].isin(allowed_strategies)]
+        # 6. 策略条件筛选（与回测引擎一致）
+        # 策略条件筛选（与回测引擎一致，已在顶部导入）
         
-        # 7. 选择TOP标的
-        target_stocks = self.backtester.factor_engine.select_top_stocks(
-            factor_df, self.config["top_n"],
-            liquidity_threshold=self.config["liquidity_threshold"]
-        )
+        # 构建策略配置：用默认参数构建筛选条件
+        strategy_configs = {}
+        allowed_strategies = set(sentiment_info.get("allowed_strategies", ["半路追涨", "首板打板", "龙头低吸", "跌停翘板"]))
+        for sid, sname in [("halfway_chase", "半路追涨"), ("first_limit_up", "首板打板"),
+                           ("leader_buy_dip", "龙头低吸"), ("limit_down_qiao", "跌停翘板")]:
+            if sname in allowed_strategies:
+                params = STRATEGY_CONFIGS.get(sid, {}).get("params", {})
+                conditions = self.backtester._build_strategy_filter_conditions(sname, params)
+                strategy_configs[sname] = conditions
+        
+        # 策略筛选
+        strategy_results = filter_stocks_by_strategies(factor_df, strategy_configs)
+        
+        # 合并所有策略的候选，记录每只股票来自哪个策略
+        all_candidates = set()
+        stock_strategy_map = {}  # {ts_code: [策略名列表]}
+        for sname, candidates in strategy_results.items():
+            all_candidates.update(candidates)
+            for code in candidates:
+                stock_strategy_map.setdefault(code, []).append(sname)
+        
+        logger.info(f"📊 策略筛选结果: {', '.join(f'{k}:{len(v)}只' for k,v in strategy_results.items())}")
+        
+        # 7. 按综合得分排序取TOP N（从候选中选最优的）
+        if all_candidates and "composite_score" in factor_df.columns:
+            candidate_df = factor_df[factor_df["ts_code"].isin(all_candidates)]
+            candidate_df = candidate_df.dropna(subset=["composite_score"])
+            if not candidate_df.empty:
+                top_codes = candidate_df.nlargest(self.config["top_n"], "composite_score")["ts_code"].tolist()
+            else:
+                top_codes = list(all_candidates)[:self.config["top_n"]]
+        else:
+            top_codes = list(all_candidates)[:self.config["top_n"]]
         
         # 8. 获取股票详细信息
-        stock_details = await self._get_stock_details(target_stocks, trade_date)
+        stock_details = await self._get_stock_details(top_codes, trade_date)
         
         # 9. 生成交易计划
         trading_plan = self._generate_trading_plan(stock_details, sentiment_info)
