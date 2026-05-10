@@ -317,7 +317,7 @@ async def execute_ultra_short_backtest(
         "stamp_duty_rate": strategy_params.get("stamp_duty_rate", 0.001),   # 千1
         "slippage_pct": strategy_params.get("slippage_pct", 0.002),         # 0.2%
         # 【P0-前瞻偏差修复：T+1选股模式】
-        "signal_delay": strategy_params.get("signal_delay", 1),               # 默认T+1
+        "signal_delay": strategy_params.get("signal_delay", 0),               # 默认T+0盘中模式
         # 🔧 传递止盈止损比例(前端可配置)
         "stop_loss_pct": strategy_params.get("stop_loss_pct", 0.02),
         "take_profit_pct": strategy_params.get("take_profit_pct", 0.07),
