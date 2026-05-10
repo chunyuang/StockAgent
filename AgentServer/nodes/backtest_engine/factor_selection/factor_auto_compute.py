@@ -36,9 +36,9 @@ TECHNICAL_FACTOR_FIELDS = [
 # 策略因子列表（compute_all_factors.py计算的因子，不含技术指标）
 STRATEGY_FACTOR_FIELDS = [
     "ma5", "ma10", "ma20", "ma60",
-    "ma_deviation_20", "price_position", "price_near_ma5",
-    "momentum_5d", "momentum_20d", "momentum_60d",
-    "volatility_20d", "volatility_60d",
+
+    "momentum_5d", "momentum_20d",
+    "volatility_20d",
     "volume_ratio", "amount_20d",
     "circ_mv", "turnover_rate", "turnover_20d",
     "is_limit_up", "is_limit_down",
@@ -206,25 +206,12 @@ def _compute_factors_for_stock(group: pd.DataFrame, fields: List[str]) -> pd.Dat
     group['ma20'] = group['close'].rolling(20).mean()
     group['ma60'] = group['close'].rolling(60).mean()
 
-    # MA偏离度
-    group['ma_deviation_20'] = (group['close'] - group['ma20']) / group['ma20']
-
-    # 价格位置
-    low_20 = group['low'].rolling(20).min()
-    high_20 = group['high'].rolling(20).max()
-    group['price_position'] = (group['close'] - low_20) / (high_20 - low_20 + 0.001)
-
-    # 接近MA5
-    group['price_near_ma5'] = abs(group['close'] - group['ma5']) / group['ma5'] < 0.02
-
     # 动量
     group['momentum_5d'] = group['close'].pct_change(5)
     group['momentum_20d'] = group['close'].pct_change(20)
-    group['momentum_60d'] = group['close'].pct_change(60)
 
     # 波动率
     group['volatility_20d'] = group['pct_chg'].rolling(20).std()
-    group['volatility_60d'] = group['pct_chg'].rolling(60).std()
 
     # 量比
     vol_5d_avg = group['vol'].rolling(5).mean()
