@@ -2688,12 +2688,11 @@ class PortfolioBacktester:
                 min_turnover_qiao *= 100
             return [
                 {"name": "limit_down_yesterday", "target": 1, "label": "昨日跌停"},
-                {"name": "open_above_limit_down", "target": 1, "label": "开盘高于跌停价"},
+                {"name": "open_above_limit_down", "target": 1, "label": "开盘高于跌停价(不继续跌停)"},
                 {"name": "turnover_rate", "target": min_turnover_qiao, "operator": ">=", "label": f"换手率≥{min_turnover_qiao:.0f}%"},
-                {"name": "limit_down_open_amount", "target": min_qiao_amount, "label": "翘板最小金额"},
-                {"name": "rise_after_limit_down", "target": min_rise_after * 100, "label": "翘板后最小涨幅"},
-                # 【P0-1修复：sentiment_score是0-100分数，>=1只排除0分，语义错误】
-                # 改用sentiment_period_in + in操作符，与首板/涨停策略一致
+                # 【放宽】去掉limit_down_open_amount和rise_after_limit_down条件
+                # 原因：日线数据无法准确计算盘中翘板，且这两个因子大部分为0
+                # 只保留基本条件：昨日跌停+今日不继续跌停+有换手率
                 {"name": "sentiment_period_in", "target": require_sentiment if require_high_sentiment else [], "operator": "in", "label": "情绪周期要求"},
             ]
         else:
