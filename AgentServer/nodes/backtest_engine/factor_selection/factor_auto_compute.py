@@ -323,7 +323,10 @@ def _compute_factors_for_stock(group: pd.DataFrame, fields: List[str]) -> pd.Dat
     # 开盘在涨跌停价附近
     group['open_above_limit'] = (group['open'] - group['close'].shift(1)) / group['close'].shift(1) >= 0.095
     group['open_below_limit'] = (group['open'] - group['close'].shift(1)) / group['close'].shift(1) <= -0.095
-    group['open_above_limit_down'] = group['open_above_limit'] & group['limit_down_yesterday']
+    # 【Bug修复】open_above_limit_down 原逻辑=开盘接近涨停 AND 昨日跌停，几乎不可能满足
+    # 正确语义: 昨日跌停 AND 今日开盘高于跌停价(=昨收×0.9)，即跌停打开
+    limit_down_price_yesterday = group['close'].shift(1) * 0.9
+    group['open_above_limit_down'] = (group['open'] > limit_down_price_yesterday) & group['limit_down_yesterday']
 
     # 涨停开板金额
     limit_up_price = group['close'].shift(1) * 1.1
