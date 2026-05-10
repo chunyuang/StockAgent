@@ -5,6 +5,7 @@
  * 每种策略有独立的风控覆盖参数
  */
 import { reactive, onMounted, watch } from 'vue'
+import { STRATEGY_CONFIGS, GLOBAL_RISK } from '@/config/strategyDefaults'
 import { systemApi } from '@/api'
 import {
   ElTabs,
@@ -50,8 +51,8 @@ function defaultOverride(name: string): StrategyRiskOverride & { name: string } 
     enabled: false,
     max_position_pct: 0.3,
     max_daily_trades: 3,
-    stop_loss_pct: 0.02,
-    take_profit_pct: 0.07,
+    stop_loss_pct: GLOBAL_RISK.stop_loss_pct,
+    take_profit_pct: GLOBAL_RISK.take_profit_pct,
     min_confidence: 0.6,
     max_slippage_pct: 0.005,
     time_restrict_enabled: true,
@@ -71,11 +72,11 @@ const config = reactive<AllStrategyRiskConfig>({
 
 // 预设覆盖值
 const strategyPresets: Record<string, Partial<StrategyRiskOverride>> = {
-  halfway_chase: { max_position_pct: 0.25, stop_loss_pct: 0.025, take_profit_pct: 0.05, earliest_entry: '09:35', latest_entry: '10:30' },
-  first_limit_up: { max_position_pct: 0.20, stop_loss_pct: 0.03, take_profit_pct: 0.10, min_confidence: 0.7, latest_entry: '10:00' },
-  limit_up_open: { max_position_pct: 0.15, stop_loss_pct: 0.02, take_profit_pct: 0.08, min_confidence: 0.65 },
-  leader_buy_dip: { max_position_pct: 0.30, stop_loss_pct: 0.025, take_profit_pct: 0.12, min_confidence: 0.5, no_entry_before_close: 30 },
-  limit_down_qiao: { max_position_pct: 0.10, stop_loss_pct: 0.015, take_profit_pct: 0.06, max_daily_trades: 1, min_confidence: 0.75, no_entry_before_close: 30 },
+  halfway_chase: { max_position_pct: 0.25, stop_loss_pct: STRATEGY_CONFIGS.halfway_chase.riskParams.stop_loss_pct, take_profit_pct: STRATEGY_CONFIGS.halfway_chase.riskParams.take_profit_pct, earliest_entry: '09:35', latest_entry: '10:30' },
+  first_limit_up: { max_position_pct: 0.20, stop_loss_pct: STRATEGY_CONFIGS.first_limit_up.riskParams.stop_loss_pct, take_profit_pct: STRATEGY_CONFIGS.first_limit_up.riskParams.take_profit_pct, min_confidence: 0.7, latest_entry: '10:00' },
+  limit_up_open: { max_position_pct: 0.15, stop_loss_pct: STRATEGY_CONFIGS.limit_up_open.riskParams.stop_loss_pct, take_profit_pct: STRATEGY_CONFIGS.limit_up_open.riskParams.take_profit_pct, min_confidence: 0.65 },
+  leader_buy_dip: { max_position_pct: 0.30, stop_loss_pct: STRATEGY_CONFIGS.leader_buy_dip.riskParams.stop_loss_pct, take_profit_pct: STRATEGY_CONFIGS.leader_buy_dip.riskParams.take_profit_pct, min_confidence: 0.5, no_entry_before_close: 30 },
+  limit_down_qiao: { max_position_pct: 0.10, stop_loss_pct: STRATEGY_CONFIGS.limit_down_qiao.riskParams.stop_loss_pct, take_profit_pct: STRATEGY_CONFIGS.limit_down_qiao.riskParams.take_profit_pct, max_daily_trades: 1, min_confidence: 0.75, no_entry_before_close: 30 },
 }
 
 const STORAGE_KEY = 'stockagent_strategy_risk_config'
