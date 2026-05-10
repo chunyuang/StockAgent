@@ -886,20 +886,7 @@ class PortfolioBacktester:
         last_net_value = initial_cash  # 上一日净值
         last_prices = {}  # 【修复：初始化last_prices，避免全强制空仓时NameError】
 
-        # 【信号延迟模式】
-        # 核心改动：用T-1日的因子选股结果，在T日执行买入
-        # 当前模式(有前瞻偏差): T日因子→T日选股→T日买入(实盘不可能)
-        # 延迟执行模式: 昨日因子→昨日选股→今日买入
-        prev_day_candidates = set()  # T-1日选股结果
-        prev_day_target_weights = {}  # T-1日目标权重
-        prev_day_sentiment = ""  # T-1日情绪等级
-        prev_day_force_empty = False  # T-1日强制空仓标志
-        prev_day_stock_to_strategy = {}  # T-1日stock_to_strategy映射(买入时需要知道策略)
-        signal_delay = config.get("signal_delay", 0)  # 默认即时执行, 1=延迟执行
-        if signal_delay > 0:
-            await self.log(f"🔔 【延迟执行模式】启用: 用昨日因子选股, 今日开盘执行买入")
-        else:
-            await self.log(f"⚠️  【即时执行模式】当日信号当日执行 (模拟盘中操作)")
+        # 逐日模拟: 当日信号当日执行(模拟盘中操作)
 
         # 逐日模拟
         total_days = len(all_trade_dates)
@@ -1395,32 +1382,11 @@ class PortfolioBacktester:
                         # 查询失败不影响继续执行
                         logger.warn('BACKTEST', f"Failed to check index MA60 for position adjustment: {e}")
 
-                # 决定用哪天的选股结果执行买入
-                if signal_delay > 0 and prev_day_target_weights is not None:
-                    # 延迟执行: 用昨日的选股结果
-                    execute_weights = prev_day_target_weights
-                    execute_sentiment = prev_day_sentiment
-                    execute_force_empty = prev_day_force_empty
-                    # 【关键修复: 恢复T-1日的stock_to_strategy映射,否则买入时策略名丢失】
-                    # 保存当前stock_to_strategy(今日新计算的), 换成T-1日的
-                    _today_stock_to_strategy = {k: list(v) if isinstance(v, list) else v for k, v in stock_to_strategy.items()}
-                    stock_to_strategy.clear()
-                    stock_to_strategy.update(prev_day_stock_to_strategy)
-                    await self.log(f"   📋 【延迟执行】执行昨日选股结果: {len(execute_weights)}只候选 (今日选股为次日准备)")
-                else:
-                    # 即时执行: 用今日选股结果
-                    execute_weights = today_target_weights
-                    execute_sentiment = sentiment_level
-                    execute_force_empty = force_empty_triggered
-                    _today_stock_to_strategy = None
-                    await self.log(f"   📋 【即时执行】执行今日选股结果: {len(execute_weights)}只候选")
-
-                # 保存今日选股结果为明日的prev
-                prev_day_target_weights = today_target_weights
-                prev_day_sentiment = sentiment_level
-                prev_day_force_empty = force_empty_triggered
-                prev_day_candidates = all_candidates.copy()
-                prev_day_stock_to_strategy = _today_stock_to_strategy if _today_stock_to_strategy else {k: list(v) if isinstance(v, list) else v for k, v in stock_to_strategy.items()}
+                # 当日选股当日执行
+                execute_weights = today_target_weights
+                execute_sentiment = sentiment_level
+                execute_force_empty = force_empty_triggered
+                await self.log(f"   📋 执行今日选股结果: {len(execute_weights)}只候选")
 
                 # 计算进度
                 total_rebalance_days = len(rebalance_dates)

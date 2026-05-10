@@ -71,7 +71,7 @@ def get_ultra_short_defaults() -> Dict[str, Any]:
             "commission_rate": 0.0003,  # 综合佣金率万3
             "stamp_duty_rate": 0.001,   # 印花税率千1
             "slippage_pct": 0.002,     # 滑点0.2%
-            "signal_delay": 0,        # 即时执行模式(默认,当日信号当日执行), 1=延迟执行模式
+
         },
         # 策略启用
         "strategies": ["halfway_chase", "first_limit_up", "limit_up_open", "leader_buy_dip", "limit_down_qiao"],
