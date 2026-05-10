@@ -52,8 +52,8 @@ export const STRATEGY_CONFIGS = {
     },
     riskParams: {
       stop_loss_pct: 0.04,
-      take_profit_pct: 0.07,
-      max_hold_days: 2,
+      take_profit_pct: 0.12,
+      max_hold_days: 3,
       slippage_pct: 0.005,
     }
   },
