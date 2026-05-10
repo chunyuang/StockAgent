@@ -893,6 +893,7 @@ class PortfolioBacktester:
         prev_day_target_weights = {}  # T-1日目标权重
         prev_day_sentiment = ""  # T-1日情绪等级
         prev_day_force_empty = False  # T-1日强制空仓标志
+        prev_day_stock_to_strategy = {}  # T-1日stock_to_strategy映射(买入时需要知道策略)
         signal_delay = config.get("signal_delay", 1)  # 默认T+1, 设0可回退旧模式
         if signal_delay > 0:
             await self.log(f"🔔 【T+1选股模式】启用: 用T-1日因子选股, T日开盘执行买入 (消除前瞻偏差)")
@@ -1399,12 +1400,18 @@ class PortfolioBacktester:
                     execute_weights = prev_day_target_weights
                     execute_sentiment = prev_day_sentiment
                     execute_force_empty = prev_day_force_empty
+                    # 【关键修复: 恢复T-1日的stock_to_strategy映射,否则买入时策略名丢失】
+                    # 保存当前stock_to_strategy(今日新计算的), 换成T-1日的
+                    _today_stock_to_strategy = {k: list(v) if isinstance(v, list) else v for k, v in stock_to_strategy.items()}
+                    stock_to_strategy.clear()
+                    stock_to_strategy.update(prev_day_stock_to_strategy)
                     await self.log(f"   📋 【T+1模式】执行T-1日选股结果: {len(execute_weights)}只候选 (今日选股{len(today_target_weights)}只为明日准备)")
                 else:
                     # T+0模式(旧): 用今日选股结果
                     execute_weights = today_target_weights
                     execute_sentiment = sentiment_level
                     execute_force_empty = force_empty_triggered
+                    _today_stock_to_strategy = None
                     await self.log(f"   📋 【T+0模式】执行今日选股结果: {len(execute_weights)}只候选")
 
                 # 保存今日选股结果为明日的prev
@@ -1412,6 +1419,7 @@ class PortfolioBacktester:
                 prev_day_sentiment = sentiment_level
                 prev_day_force_empty = force_empty_triggered
                 prev_day_candidates = all_candidates.copy()
+                prev_day_stock_to_strategy = _today_stock_to_strategy if _today_stock_to_strategy else {k: list(v) if isinstance(v, list) else v for k, v in stock_to_strategy.items()}
 
                 # 计算进度
                 total_rebalance_days = len(rebalance_dates)
