@@ -75,8 +75,8 @@ STRATEGY_CONFIGS = {
         },
         "riskParams": {
             "stop_loss_pct": 0.04,          # 止损4%
-            "take_profit_pct": 0.07,        # 止盈7%
-            "max_hold_days": 2,             # 最大持仓2天
+            "take_profit_pct": 0.12,        # 止盈12%(提高:首板成功往往涨幅大)
+            "max_hold_days": 3,             # 最大持仓3天(延长:让利润奔跑)
             "slippage_pct": 0.005,          # 滑点0.5%(打板场景)
         }
     },
