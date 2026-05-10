@@ -3,7 +3,7 @@
  * SchedulerStatusPanel - 调度器运行状态面板
  * 对接后端 /scheduler/* API，展示调度器状态、任务列表、操作按钮、告警和历史
  */
-import { ref, reactive, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ElTable,
@@ -23,7 +23,7 @@ import {
   ElTimeline,
   ElTimelineItem,
 } from 'element-plus'
-import { VideoPlay, VideoPause, RefreshRight, Bell, Delete, Clock } from '@element-plus/icons-vue'
+import { VideoPlay, VideoPause, RefreshRight, Delete, Clock } from '@element-plus/icons-vue'
 import {
   systemApi,
   getSchedulerStatus,

@@ -24,6 +24,7 @@ import {
 
 // 导入 API 客户端（自动注入认证 Token）
 import { api } from '@/api'
+import type { ApiResponse } from '@/api/client'
 
 // ==================== 状态 ====================
 
@@ -73,7 +74,7 @@ const ALLOWED_COLLECTIONS = [
 const fetchStats = async () => {
   loading.value = true
   try {
-    const result = await api.get('/admin/db/stats')
+    const result = await api.get<ApiResponse>('/admin/db/stats')
     if (result.success) {
       dbStats.value = result.data
       ElMessage.success('获取统计信息成功')
@@ -103,7 +104,7 @@ const handleClearCollection = async (collectionName: string) => {
     )
 
     operating.value = true
-    const result = await api.post(`/admin/db/clear-collection/${collectionName}`, { confirm: true })
+    const result = await api.post<ApiResponse>(`/admin/db/clear-collection/${collectionName}`, { confirm: true })
     if (result.success) {
       ElMessage.success(`集合 ${collectionName} 清空成功`)
       operationResult.value = result.data
@@ -148,7 +149,7 @@ const confirmClearDateRange = async () => {
     )
 
     operating.value = true
-    const result = await api.post('/admin/db/clear-date-range', {
+    const result = await api.post<ApiResponse>('/admin/db/clear-date-range', {
       collection_name: clearDateForm.collection_name,
       start_date: parseInt(clearDateForm.start_date),
       end_date: parseInt(clearDateForm.end_date),
@@ -190,7 +191,7 @@ const confirmDeduplicate = async () => {
 
   operating.value = true
   try {
-    const result = await api.post('/admin/db/deduplicate', {
+    const result = await api.post<ApiResponse>('/admin/db/deduplicate', {
       collection_name: deduplicateForm.collection_name,
       dry_run: deduplicateForm.dry_run,
     })
@@ -219,7 +220,7 @@ const confirmDeduplicate = async () => {
 const handleCheckMissing = async () => {
   operating.value = true
   try {
-    const result = await api.post('/admin/db/check-missing', {})
+    const result = await api.post<ApiResponse>('/admin/db/check-missing', {})
 
     if (result.success) {
       ElMessage.success('检查完成')
@@ -240,7 +241,7 @@ const handleCheckMissing = async () => {
 const handleVerifyIntegrity = async () => {
   operating.value = true
   try {
-    const result = await api.post('/admin/db/verify-integrity', {})
+    const result = await api.post<ApiResponse>('/admin/db/verify-integrity', {})
 
     if (result.success) {
       ElMessage.success('验证完成')
