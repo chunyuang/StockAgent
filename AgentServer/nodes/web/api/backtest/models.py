@@ -120,6 +120,7 @@ class UltraShortParams(BaseModel):
     commission_rate: float = Field(default=0.0003, ge=0.0001, le=0.003, description="综合佣金率(万3)")
     stamp_duty_rate: float = Field(default=0.001, ge=0.0005, le=0.005, description="印花税率(千1)")
     slippage_pct: float = Field(default=0.002, ge=0.0, le=0.01, description="滑点比例(0.2%)")
+    signal_delay: int = Field(default=1, ge=0, le=2, description="选股延迟天数: 1=T+1消除前瞻偏差, 0=T+0旧模式")
     liquidity_threshold: float = Field(default=500.0, ge=100.0, le=5000.0, description="流动性门槛（万元）")
     max_position_per_stock: float = Field(default=0.2, ge=0.05, le=1.0, description="单票最大仓位比例(20%分散风险)")
     enable_stop_loss: bool = Field(default=True, description="是否启用止损")

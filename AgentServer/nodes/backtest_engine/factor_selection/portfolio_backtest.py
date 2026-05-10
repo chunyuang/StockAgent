@@ -885,6 +885,20 @@ class PortfolioBacktester:
         last_net_value = initial_cash  # 上一日净值
         last_prices = {}  # 【修复：初始化last_prices，避免全强制空仓时NameError】
 
+        # 【P0-前瞻偏差修复：T+1选股模式】
+        # 核心改动：用T-1日的因子选股结果，在T日执行买入
+        # 当前模式(有前瞻偏差): T日因子→T日选股→T日买入(实盘不可能)
+        # T+1模式(无前瞻偏差): T-1日因子→T-1日选股→T日买入(实盘可执行)
+        prev_day_candidates = set()  # T-1日选股结果
+        prev_day_target_weights = {}  # T-1日目标权重
+        prev_day_sentiment = ""  # T-1日情绪等级
+        prev_day_force_empty = False  # T-1日强制空仓标志
+        signal_delay = config.get("signal_delay", 1)  # 默认T+1, 设0可回退旧模式
+        if signal_delay > 0:
+            await self.log(f"🔔 【T+1选股模式】启用: 用T-1日因子选股, T日开盘执行买入 (消除前瞻偏差)")
+        else:
+            await self.log(f"⚠️  【T+0选股模式】当日选股当日买入 (存在前瞻偏差,仅用于对比测试)")
+
         # 逐日模拟
         total_days = len(all_trade_dates)
 
@@ -1344,8 +1358,15 @@ class PortfolioBacktester:
                     except Exception as e:
                         logger.warn('BACKTEST', f"Sector concentration filter failed: {e}")
 
-                # 计算目标权重
-                target_weights = self._compute_weights(
+                # ==========================================
+                # 【P0-前瞻偏差修复：T+1选股模式核心逻辑】
+                # ==========================================
+                # 旧模式: T日因子→T日选股→T日买入 (前瞻偏差)
+                # 新模式: T日因子→T日选股→存入prev→用T-1选股结果在T日买入
+                # ==========================================
+
+                # 计算今日的目标权重(基于今日因子,为T+1日买入准备)
+                today_target_weights = self._compute_weights(
                     list(all_candidates),
                     factor_df,
                     self.weight_method,
@@ -1365,12 +1386,32 @@ class PortfolioBacktester:
                             ma60 = index_data["ma60"]
                             if close < ma60:
                                 # 跌破 MA60,整体降低仓位 50%
-                                for code in target_weights:
-                                    target_weights[code] = target_weights[code] * 0.5
+                                for code in today_target_weights:
+                                    today_target_weights[code] = today_target_weights[code] * 0.5
                                 await self.log(f"   📉 大盘跌破 MA60,整体仓位降低 50%")
                     except Exception as e:
                         # 查询失败不影响继续执行
                         logger.warn('BACKTEST', f"Failed to check index MA60 for position adjustment: {e}")
+
+                # 决定用哪天的选股结果执行买入
+                if signal_delay > 0 and prev_day_target_weights is not None:
+                    # T+1模式: 用T-1日的选股结果
+                    execute_weights = prev_day_target_weights
+                    execute_sentiment = prev_day_sentiment
+                    execute_force_empty = prev_day_force_empty
+                    await self.log(f"   📋 【T+1模式】执行T-1日选股结果: {len(execute_weights)}只候选 (今日选股{len(today_target_weights)}只为明日准备)")
+                else:
+                    # T+0模式(旧): 用今日选股结果
+                    execute_weights = today_target_weights
+                    execute_sentiment = sentiment_level
+                    execute_force_empty = force_empty_triggered
+                    await self.log(f"   📋 【T+0模式】执行今日选股结果: {len(execute_weights)}只候选")
+
+                # 保存今日选股结果为明日的prev
+                prev_day_target_weights = today_target_weights
+                prev_day_sentiment = sentiment_level
+                prev_day_force_empty = force_empty_triggered
+                prev_day_candidates = all_candidates.copy()
 
                 # 计算进度
                 total_rebalance_days = len(rebalance_dates)
@@ -1379,7 +1420,7 @@ class PortfolioBacktester:
                 await self.log(f"   📅 当日调仓进度: {progress:.2f}% ({current_day_idx}/{total_rebalance_days}天)")
                 await self.log(f"   💲 正在获取股票价格...")
                 prices = await self._get_prices(
-                    set(holdings.keys()) | set(target_weights.keys()),
+                    set(holdings.keys()) | set(execute_weights.keys()),
                     trade_date,
                 )
 
@@ -1398,10 +1439,10 @@ class PortfolioBacktester:
                         last_prices=last_prices)
                     continue
 
-                # 5. 执行调仓
+                # 5. 执行调仓(用execute_weights, 可能是T-1日的选股结果)
                 await self.log(f"   🔄 正在执行调仓操作...")
                 cash, holdings, records = self._rebalance(
-                    trade_date, target_weights, cash, holdings, prices, sentiment_level
+                    trade_date, execute_weights, cash, holdings, prices, execute_sentiment
                 )
                 rebalance_records.extend(records)
 
@@ -1411,8 +1452,10 @@ class PortfolioBacktester:
                 # 🔧 内存优化: 释放不再需要的因子数据和目标权重
                 if 'factor_df' in locals():
                     del factor_df
-                if 'target_weights' in locals():
-                    del target_weights
+                if 'today_target_weights' in locals():
+                    del today_target_weights
+                if 'execute_weights' in locals():
+                    del execute_weights
                 gc.collect()
 
                 # 输出调仓记录(带股票名称 + 完整原因描述)
