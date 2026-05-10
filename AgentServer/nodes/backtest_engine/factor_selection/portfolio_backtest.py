@@ -348,17 +348,17 @@ class PortfolioBacktester:
             await self.log(f"   │        • 最小换手率: {min_turnover:.1f}%")
             await self.log(f"   │        • 情绪周期要求: {', '.join(require_sentiment)}")
         elif strategy_name == "龙头低吸":
-            min_consecutive = params.get("min_consecutive_limit", 3)
-            min_correction = params.get("min_correction_pct", 0.15)
-            max_correction = params.get("max_correction_pct", 0.3)
-            correction_days_min = params.get("correction_days_min", 2)
-            correction_days_max = params.get("correction_days_max", 5)
+            min_consecutive = params.get("min_consecutive_limit", 2)
+            min_correction = params.get("min_correction_pct", 0.08)
+            max_correction = params.get("max_correction_pct", 0.35)
+            correction_days_min = params.get("correction_days_min", 1)
+            correction_days_max = params.get("correction_days_max", 7)
             support_level = params.get("support_level", "ma5")
             await self.log(f"   │        • 最小连续涨停: {min_consecutive}天")
             await self.log(f"   │        • 回调幅度: {min_correction*100:.1f}% ~ {max_correction*100:.1f}%")
             await self.log(f"   │        • 回调天数: {correction_days_min} ~ {correction_days_max}天")
             await self.log(f"   │        • 支撑位: {support_level.upper()}")
-            await self.log(f"   │        • 要求缩量回调: volume/ma5 ≤ 1.0")
+            await self.log(f"   │        • 要求缩量回调: volume/ma5 ≤ 1.5")
         elif strategy_name == "跌停翘板":
             min_consecutive = params.get("min_consecutive_limit", 3)
             # 【修复#47: min_qiao_amount单位统一为千元(与数据库limit_down_open_amount一致)】
@@ -624,22 +624,44 @@ class PortfolioBacktester:
         selected_strategies = config.get("selected_strategies", [])
         self._strategy_risk_params = {}  # strategy_name -> {stop_loss_pct, take_profit_pct, max_hold_days, slippage_pct}
         self._strategy_params = {}  # strategy_name -> {min_rise_pct, min_volume_ratio, ...}
+        # 【策略级默认风控】日线回测买入价=T+1 open，首板/涨停策略买入价接近涨停价
+        # 默认2%止损对这些策略太紧，放宽至5%
+        _strategy_default_sl = {
+            "首板打板": 0.05,
+            "涨停开板": 0.05,
+            "龙头低吸": 0.05,
+            "跌停翘板": 0.07,
+        }
         for s in selected_strategies:
             sname = s.get("name", "")
             sp = s.get("params", {})
             if sp:
                 self._strategy_params[sname] = sp
             rp = s.get("riskParams", {})
+            strategy_default_sl = _strategy_default_sl.get(sname, risk_config["stop_loss_pct"])
             if rp:
                 self._strategy_risk_params[sname] = {
-                    "stop_loss_pct": rp.get("stop_loss_pct", risk_config["stop_loss_pct"]),
+                    "stop_loss_pct": rp.get("stop_loss_pct", strategy_default_sl),
                     "take_profit_pct": rp.get("take_profit_pct", risk_config["take_profit_pct"]),
                     "max_hold_days": rp.get("max_hold_days", risk_config.get("max_hold_days", 3)),
                     "slippage_pct": rp.get("slippage_pct", config.get("slippage_pct", 0.002)),
                 }
+            else:
+                # 没有前端传riskParams时，使用策略级默认止损
+                self._strategy_risk_params[sname] = {
+                    "stop_loss_pct": strategy_default_sl,
+                    "take_profit_pct": risk_config["take_profit_pct"],
+                    "max_hold_days": risk_config.get("max_hold_days", 3),
+                    "slippage_pct": config.get("slippage_pct", 0.002),
+                }
 
         # 初始化
         initial_cash = config.get("initial_cash", 1000000)
+        self._initial_cash = initial_cash
+        # 【调试日志】验证_strategy_risk_params是否正确填充
+        import logging as _logging
+        _logging.getLogger('backtest').info(f'[SL_DEBUG] _strategy_risk_params = {self._strategy_risk_params}')
+        _logging.getLogger('backtest').info(f'[SL_DEBUG] risk_config stop_loss = {risk_config.get("stop_loss_pct")}')
         self._initial_cash = initial_cash
 
         # 🔧 读取前端传入的佣金/滑点参数,覆盖硬编码常量
@@ -1162,8 +1184,16 @@ class PortfolioBacktester:
 
                 all_candidates = set()
                 # 【修复#45:记录每只股票来自哪个策略,用于调仓日志显示】
-                stock_to_strategy = {}  # code -> strategy_name
-                self.stock_to_strategy = stock_to_strategy  # 存实例变量,供_rebalance使用
+                # 【P0-3修复：不清空持仓中股票的映射，否则T+1卖出时找不到策略级止损参数】
+                # 只清空已不再持仓的股票映射(避免无限增长)
+                if not hasattr(self, 'stock_to_strategy') or self.stock_to_strategy is None:
+                    self.stock_to_strategy = {}
+                stock_to_strategy = self.stock_to_strategy
+                # 清理已卖出股票的映射(不在holdings中的)
+                _current_holdings = set(holdings.keys()) if holdings else set()
+                _to_remove = [k for k in stock_to_strategy if k not in _current_holdings]
+                for k in _to_remove:
+                    del stock_to_strategy[k]
 
                 selected_strategies = config.get("selected_strategies", [])
                 selected_strategy_names = [s["name"] for s in selected_strategies] if selected_strategies else []
@@ -2599,11 +2629,12 @@ class PortfolioBacktester:
                 {"name": "sentiment_period_in", "target": require_sentiment, "operator": "in", "label": "情绪周期要求"},
             ]
         elif strategy_name == "龙头低吸":
-            min_consecutive = converted_params.get("min_consecutive_limit", 3)
-            min_correction = converted_params.get("min_correction_pct", 0.15)
-            max_correction = converted_params.get("max_correction_pct", 0.3)
-            correction_days_min = converted_params.get("correction_days_min", 2)
-            correction_days_max = converted_params.get("correction_days_max", 5)
+            # 【参数放宽】3连板回调太严,改为2连板+放宽回调范围
+            min_consecutive = converted_params.get("min_consecutive_limit", 2)
+            min_correction = converted_params.get("min_correction_pct", 0.08)
+            max_correction = converted_params.get("max_correction_pct", 0.35)
+            correction_days_min = converted_params.get("correction_days_min", 1)
+            correction_days_max = converted_params.get("correction_days_max", 7)
             support_level = converted_params.get("support_level", "ma5")
             # 【P0-3修复(第十轮)：market_leader因子在MongoDB中全0，无法用于龙头筛选】
             # 替代方案：用circ_mv(流通市值)识别龙头股——大市值更可能是龙头
@@ -2620,8 +2651,8 @@ class PortfolioBacktester:
                 {"name": "pullback_days", "target": correction_days_max, "operator": "<=", "label": "最大回调天数"},
                 {"name": f"pullback_{support_level}", "target": 1, "label": f"{support_level.upper()}支撑位"},
                 # 【P0-2修复(第十轮)：volume_ratio_vs_ma5因子不存在于factor_library和MongoDB】
-                # 改用volume_ratio(量比)近似：量比<1.0表示成交低于5日均量，实现缩量回调语义
-                {"name": "volume_ratio", "target": 1.0, "operator": "<=", "label": "量比≤1.0(缩量回调)"},
+                # 【参数放宽】缩量条件放宽至1.5(轻度缩量即可),连板后回调常伴随放量
+                {"name": "volume_ratio", "target": 1.5, "operator": "<=", "label": "量比≤1.5(缩量/温和回调)"},
             ]
         elif strategy_name == "跌停翘板":
             min_consecutive = converted_params.get("min_consecutive_limit", 3)
@@ -2656,6 +2687,7 @@ class PortfolioBacktester:
         strategy_rp = getattr(self, '_strategy_risk_params', {})
         global_sl = self._risk_config.get('stop_loss_pct', 0.02) if hasattr(self, '_risk_config') else 0.02
         global_tp = self._risk_config.get('take_profit_pct', 0.07) if hasattr(self, '_risk_config') else 0.07
+        # 【P0-3修复：按策略获取止损止盈参数】
         if isinstance(strategies, list) and strategies:
             sl = min(strategy_rp.get(s, {}).get('stop_loss_pct', global_sl) for s in strategies)
             tp = max(strategy_rp.get(s, {}).get('take_profit_pct', global_tp) for s in strategies)

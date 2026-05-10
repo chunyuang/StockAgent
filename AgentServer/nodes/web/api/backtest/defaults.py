@@ -105,14 +105,14 @@ def get_ultra_short_defaults() -> Dict[str, Any]:
                     "require_hot_sector": False,
                 },
                 "riskParams": {
-                    "stop_loss_pct": 0.015,     # 止损1.5%
+                    "stop_loss_pct": 0.05,      # 首板打板止损5% (买入价≈涨停价,2%太紧必触发)
                     "take_profit_pct": 0.085,    # 止盈8.5%
                     "max_hold_days": 2,          # 最大持仓2天
                     "slippage_pct": 0.005         # 滑点0.5%(打板场景)
                 }
             },
             "limit_up_open": {
-                "enabled": True,
+                "enabled": False,  # 默认关闭：胜率<30%，全区间亏损
                 "name": "涨停开板",
                 "params": {
                     "min_consecutive_limit": 2,
@@ -124,7 +124,7 @@ def get_ultra_short_defaults() -> Dict[str, Any]:
                     "min_volume_ratio": 2.0,
                 },
                 "riskParams": {
-                    "stop_loss_pct": 0.02,      # 止损2%
+                    "stop_loss_pct": 0.05,      # 涨停开板止损5% (买入价≈涨停价,2%太紧)
                     "take_profit_pct": 0.06,    # 止盈6%
                     "max_hold_days": 2,          # 最大持仓2天
                     "slippage_pct": 0.003         # 滑点0.3%(开板后波动大)
@@ -143,7 +143,7 @@ def get_ultra_short_defaults() -> Dict[str, Any]:
                     "support_level": "ma5",
                 },
                 "riskParams": {
-                    "stop_loss_pct": 0.0275,    # 止损2.75%
+                    "stop_loss_pct": 0.05,      # 龙头低吸止损5% (回调买入,需空间)
                     "take_profit_pct": 0.06,    # 止盈6%
                     "max_hold_days": 4,          # 最大持仓4天(需等待企稳)
                     "slippage_pct": 0.002         # 滑点0.2%
@@ -159,7 +159,7 @@ def get_ultra_short_defaults() -> Dict[str, Any]:
                     "require_high_sentiment": True,
                 },
                 "riskParams": {
-                    "stop_loss_pct": 0.02,      # 止损2%
+                    "stop_loss_pct": 0.07,      # 跌停翘板止损7% (极端波动,需大空间)
                     "take_profit_pct": 0.07,    # 止盈7%
                     "max_hold_days": 3,          # 最大持仓3天(博反弹)
                     "slippage_pct": 0.003         # 滑点0.3%(跌停后波动大)
