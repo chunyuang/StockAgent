@@ -255,6 +255,7 @@ export interface UltraShortParams {
   enable_take_profit?: boolean
   enable_ma60_filter?: boolean
   enable_sector_concentration?: boolean
+  exclude_st?: boolean
 }
 
 export interface UltraShortBacktestRequest {
@@ -278,6 +279,7 @@ export interface UltraShortBacktestRequest {
   enable_take_profit?: boolean
   enable_ma60_filter?: boolean
   enable_sector_concentration?: boolean
+  exclude_st?: boolean
 }
 
 /**

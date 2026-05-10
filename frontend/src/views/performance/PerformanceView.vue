@@ -6,7 +6,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { RefreshRight } from '@element-plus/icons-vue'
-import { tradingApi, systemApi, type SimAccount, type PerformanceReport } from '@/api'
+import { tradingApi, type SimAccount, type PerformanceReport } from '@/api'
 
 // 拆分子组件
 import NetValueChart from '@/components/performance/NetValueChart.vue'
