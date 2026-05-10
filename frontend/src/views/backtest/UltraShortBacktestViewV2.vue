@@ -12,6 +12,8 @@ import BacktestSummaryTable from '@/components/backtest/BacktestSummaryTable.vue
 import BacktestResultPanel from '@/components/ultrashort/BacktestResultPanel.vue'
 import BacktestHistoryPanel from '@/components/backtest/BacktestHistoryPanel.vue'
 
+import { GLOBAL_RISK, STRATEGY_CONFIGS } from '@/config/strategyDefaults'
+
 // API
 import { backtestApi } from '@/api'
 import type { BacktestHistoryItem } from '@/api/modules/backtest'
@@ -59,38 +61,43 @@ const form = reactive({
     min_auction_volume_ratio: 1.5,
   },
   tradeParams: {
-    base_stop_loss_pct: 0.03,
-    base_take_profit_pct: 0.07,
-    max_hold_days: 3,
-    max_position_per_stock: 0.2,  // 单票20%分散风险
-    max_total_position: 0.7,  // 总仓位70%，留30%现金
-    commission_rate: 0.0003,
-    stamp_duty_rate: 0.001,
-    slippage_pct: 0.002,
+    base_stop_loss_pct: GLOBAL_RISK.stop_loss_pct,
+    base_take_profit_pct: GLOBAL_RISK.take_profit_pct,
+    max_hold_days: GLOBAL_RISK.max_hold_days,
+    max_position_per_stock: GLOBAL_RISK.max_position_per_stock,
+    max_total_position: GLOBAL_RISK.max_total_position,
+    commission_rate: GLOBAL_RISK.commission_rate,
+    stamp_duty_rate: GLOBAL_RISK.stamp_duty_rate,
+    slippage_pct: GLOBAL_RISK.slippage_pct,
     enable_stop_loss: true,
     enable_take_profit: true,
   },
   strategies: ['halfway_chase', 'first_limit_up', 'limit_up_open', 'leader_buy_dip', 'limit_down_qiao'],
   strategyConfigs: {
     halfway_chase: {
-      enabled: true, name: '半路追涨',
-      params: { min_rise_pct: 0.02, max_rise_pct: 0.07, min_volume_ratio: 2.0, allow_after_10am: false }
+      enabled: STRATEGY_CONFIGS.halfway_chase.enabled, name: STRATEGY_CONFIGS.halfway_chase.name,
+      params: { ...STRATEGY_CONFIGS.halfway_chase.params },
+      riskParams: { ...STRATEGY_CONFIGS.halfway_chase.riskParams }
     },
     first_limit_up: {
-      enabled: true, name: '首板打板',
-      params: { min_seal_amount: 5000, max_limit_up_time: '10:00', max_circulation_market_cap: 100, max_blast_count: 1, require_hot_sector: true }
+      enabled: STRATEGY_CONFIGS.first_limit_up.enabled, name: STRATEGY_CONFIGS.first_limit_up.name,
+      params: { ...STRATEGY_CONFIGS.first_limit_up.params },
+      riskParams: { ...STRATEGY_CONFIGS.first_limit_up.riskParams }
     },
     limit_up_open: {
-      enabled: true, name: '涨停开板',
-      params: { min_consecutive_limit: 2, max_open_duration: 5, min_seal_after_open: 3000, min_turnover_rate: 0.15 }
+      enabled: STRATEGY_CONFIGS.limit_up_open.enabled, name: STRATEGY_CONFIGS.limit_up_open.name,
+      params: { ...STRATEGY_CONFIGS.limit_up_open.params },
+      riskParams: { ...STRATEGY_CONFIGS.limit_up_open.riskParams }
     },
     leader_buy_dip: {
-      enabled: true, name: '龙头低吸',
-      params: { min_consecutive_limit: 2, min_correction_pct: 0.08, max_correction_pct: 0.35, correction_days_min: 1, correction_days_max: 7, support_level: 'ma5' }
+      enabled: STRATEGY_CONFIGS.leader_buy_dip.enabled, name: STRATEGY_CONFIGS.leader_buy_dip.name,
+      params: { ...STRATEGY_CONFIGS.leader_buy_dip.params },
+      riskParams: { ...STRATEGY_CONFIGS.leader_buy_dip.riskParams }
     },
     limit_down_qiao: {
-      enabled: true, name: '跌停翘板',
-      params: { min_consecutive_limit: 2, min_qiao_amount: 1000, min_rise_after_qiao: 0.03, require_high_sentiment: false }
+      enabled: STRATEGY_CONFIGS.limit_down_qiao.enabled, name: STRATEGY_CONFIGS.limit_down_qiao.name,
+      params: { ...STRATEGY_CONFIGS.limit_down_qiao.params },
+      riskParams: { ...STRATEGY_CONFIGS.limit_down_qiao.riskParams }
     },
   },
 })
