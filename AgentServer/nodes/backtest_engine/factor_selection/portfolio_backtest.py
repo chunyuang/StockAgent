@@ -838,6 +838,13 @@ class PortfolioBacktester:
         complete_count = sum(1 for _, c, _, _ in factor_checks if c >= 90)
         total_factor_count = len(REQUIRED_FACTOR_FIELDS)
 
+        # 【因子Bug修复】已知计算有Bug的因子，即使覆盖率100%也要重算
+        BUGGY_FIELDS = {'open_above_limit_down', 'limit_down_open_amount', 'rise_after_limit_down'}
+        for bf in BUGGY_FIELDS:
+            if bf not in missing_fields and bf in REQUIRED_FACTOR_FIELDS:
+                missing_fields.append(bf)
+                await self.log(f'   🔧 强制重算已知Bug因子: {bf}')
+
         await self.log(f"   完整因子: {complete_count}/{total_factor_count} 个 (覆盖率≥90%)")
 
         if missing_fields:
