@@ -20,6 +20,14 @@ from nodes.backtest_engine.strategy_defaults import ALL_STRATEGIES as _ALL_STRAT
 ALL_STRATEGIES = _ALL_STRATEGIES
 
 
+async def _redis_publish_safe(channel, data):
+    """Redis publish with fallback - does not crash if Redis is unavailable"""
+    try:
+        await redis_manager.publish(channel, data)
+    except Exception:
+        pass
+
+
 async def execute_ultra_short_backtest(
     params: dict,
     push_log_fn,
