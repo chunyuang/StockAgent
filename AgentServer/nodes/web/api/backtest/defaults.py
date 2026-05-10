@@ -63,7 +63,7 @@ def get_ultra_short_defaults() -> Dict[str, Any]:
         },
         # 交易参数
         "tradeParams": {
-            "base_stop_loss_pct": 0.02,
+            "base_stop_loss_pct": 0.03,
             "base_take_profit_pct": 0.07,
             "max_hold_days": 3,
             "max_position_per_stock": 0.2,  # 单票20%分散风险
