@@ -64,7 +64,19 @@ const filterProfit = ref('')
 
 // 统一的交易数据源(merged_trades优先)
 const allTrades = computed(() => {
-  return props.result?.merged_trades || props.result?.all_trades || []
+  const trades = props.result?.merged_trades || props.result?.all_trades || []
+  // 🔧 用stock_names兜底: 如果交易记录里没name, 从result.stock_names补上
+  const stockNames = props.result?.stock_names || {}
+  if (stockNames && Object.keys(stockNames).length > 0) {
+    return trades.map((t: any) => {
+      if (!t.name || t.name === t.ts_code?.split('.')[0]) {
+        const fallbackName = stockNames[t.ts_code]
+        if (fallbackName) return { ...t, name: fallbackName }
+      }
+      return t
+    })
+  }
+  return trades
 })
 
 // 筛选后的交易记录
@@ -115,31 +127,57 @@ const netValueChartOption = computed(() => {
   // net_value是绝对金额, 归一化为净值(初始=1.0)
   const netValues = result.net_value_series.map((d: any) => +(d.net_value / initialCash).toFixed(4))
   // drawdown是小数(0.003=0.3%), ×100转百分比
-  const drawdowns = result.drawdown_series.map((d: any) => +(d.drawdown * 100).toFixed(4))
+  const drawdowns = result.drawdown_series?.map((d: any) => +(d.drawdown * 100).toFixed(4)) || []
   const dates = result.net_value_series.map((d: any) => d.trade_date)
+
+  // 🔧 Bug1修复: 计算基准净值线(从benchmark_data累乘pct_chg)
+  const benchmarkData = result.benchmark_data || []
+  let benchmarkValues: number[] = []
+  if (benchmarkData.length > 0) {
+    // 按日期对齐: benchmark_data可能有不同的日期范围
+    const bdMap = new Map(benchmarkData.map((b: any) => [String(b.trade_date), b.pct_chg]))
+    let cumBench = 1.0
+    benchmarkValues = dates.map((d: string) => {
+      const pct = bdMap.get(String(d))
+      if (pct != null && !isNaN(pct)) {
+        cumBench *= (1 + pct / 100)
+      }
+      return +cumBench.toFixed(4)
+    })
+  }
+
   // 自动计算Y轴范围
-  const minNV = Math.min(...netValues)
+  const minNV = Math.min(...netValues, ...(benchmarkValues.length > 0 ? benchmarkValues : [1]))
+  const series: any[] = [
+    {
+      name: '策略净值', type: 'line', data: netValues, smooth: true,
+      lineStyle: { width: 2 },
+      areaStyle: { color: 'rgba(64,158,255,0.1)' }
+    },
+  ]
+  if (benchmarkValues.length > 0) {
+    series.push({
+      name: '基准(沪深300)', type: 'line', data: benchmarkValues, smooth: true,
+      lineStyle: { width: 1.5, type: 'dashed', color: '#e6a23c' },
+      itemStyle: { color: '#e6a23c' },
+    })
+  }
+  series.push({
+    name: '回撤(%)', type: 'line', yAxisIndex: 1, data: drawdowns,
+    color: '#f56c6c', lineStyle: { width: 1.5, type: 'dashed' },
+    areaStyle: { color: 'rgba(245,108,108,0.1)' }
+  })
+
   return {
     tooltip: { trigger: 'axis' },
-    legend: { data: ['净值曲线', '回撤(%)'] },
+    legend: { data: ['策略净值', ...(benchmarkValues.length > 0 ? ['基准(沪深300)'] : []), '回撤(%)'] },
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
     xAxis: { type: 'category', boundaryGap: false, data: dates },
     yAxis: [
       { type: 'value', name: '净值', min: Math.floor(minNV * 100) / 100 - 0.01 },
       { type: 'value', name: '回撤(%)', position: 'right' }
     ],
-    series: [
-      {
-        name: '净值曲线', type: 'line', data: netValues, smooth: true,
-        lineStyle: { width: 2 },
-        areaStyle: { color: 'rgba(64,158,255,0.1)' }
-      },
-      {
-        name: '回撤(%)', type: 'line', yAxisIndex: 1, data: drawdowns,
-        color: '#f56c6c', lineStyle: { width: 1.5, type: 'dashed' },
-        areaStyle: { color: 'rgba(245,108,108,0.1)' }
-      }
-    ]
+    series,
   }
 })
 
