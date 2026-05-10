@@ -299,7 +299,7 @@ class PortfolioBacktester:
         if strategy_name == "半路追涨":
             # 【2026-05-06 回测优化】量比2.0+涨幅2-5%+严格止损2%+止盈7%
             min_rise_pct = params.get("min_rise_pct", 0.02)  # 从0.03放宽到0.02
-            max_rise_pct = params.get("max_rise_pct", 0.05)
+            max_rise_pct = params.get("max_rise_pct", 0.07)
             # 【修复#4：默认值统一为2.0，和优化后的defaults.py保持一致】
             volume_threshold = params.get("volume_threshold", params.get("min_volume_ratio", 2.0))  # 从1.5提高到2.0
             min_volume_ratio = volume_threshold
@@ -360,7 +360,7 @@ class PortfolioBacktester:
             await self.log(f"   │        • 支撑位: {support_level.upper()}")
             await self.log(f"   │        • 要求缩量回调: volume/ma5 ≤ 1.5")
         elif strategy_name == "跌停翘板":
-            min_consecutive = params.get("min_consecutive_limit", 3)
+            min_consecutive = params.get("min_consecutive_limit", 2)
             # 【修复#47: min_qiao_amount单位统一为千元(与数据库limit_down_open_amount一致)】
             # 前端传10000(万元),数据库因子是千元,需*1000转换
             # 前端传万元,数据库因子千元,需*10转换
@@ -1485,7 +1485,7 @@ class PortfolioBacktester:
                             # 查找策略级参数
                             strategies = getattr(self, 'stock_to_strategy', {}).get(code, [])
                             strategy_rp = getattr(self, '_strategy_risk_params', {})
-                            global_sl = self._risk_config.get('stop_loss_pct', 0.02)
+                            global_sl = self._risk_config.get('stop_loss_pct', 0.03)
                             global_tp = self._risk_config.get('take_profit_pct', 0.07)
                             if isinstance(strategies, list) and strategies:
                                 sl_pct = min(strategy_rp.get(s, {}).get('stop_loss_pct', global_sl) for s in strategies)
@@ -2570,8 +2570,8 @@ class PortfolioBacktester:
                 converted_params[k] = v
 
         if strategy_name == "半路追涨":
-            min_rise_pct = converted_params.get("min_rise_pct", 0.03)
-            max_rise_pct = converted_params.get("max_rise_pct", 0.05)
+            min_rise_pct = converted_params.get("min_rise_pct", 0.02)
+            max_rise_pct = converted_params.get("max_rise_pct", 0.07)
             # 【修复#4：默认值统一为1.5，和 models.py/ultra_short.py/defaults.py 保持一致
             # 【P0修复：默认值统一为2.0，与_print_single_strategy_filtering显示一致】
             volume_threshold = converted_params.get("min_volume_ratio", 2.0)
@@ -2674,7 +2674,7 @@ class PortfolioBacktester:
                 {"name": "volume_ratio", "target": 1.5, "operator": "<=", "label": "量比≤1.5(缩量/温和回调)"},
             ]
         elif strategy_name == "跌停翘板":
-            min_consecutive = converted_params.get("min_consecutive_limit", 3)
+            min_consecutive = converted_params.get("min_consecutive_limit", 2)
             # 【修复#47: min_qiao_amount单位统一为千元(与数据库limit_down_open_amount一致)】
             # 前端传10000(万元),数据库因子是千元,需*1000转换
             # 【P2-C修复：同上单位转换规则】
@@ -2704,7 +2704,7 @@ class PortfolioBacktester:
         """获取某只股票对应的策略级止损止盈参数"""
         strategies = getattr(self, 'stock_to_strategy', {}).get(code, [])
         strategy_rp = getattr(self, '_strategy_risk_params', {})
-        global_sl = self._risk_config.get('stop_loss_pct', 0.02) if hasattr(self, '_risk_config') else 0.02
+        global_sl = self._risk_config.get('stop_loss_pct', 0.03) if hasattr(self, '_risk_config') else 0.03
         global_tp = self._risk_config.get('take_profit_pct', 0.07) if hasattr(self, '_risk_config') else 0.07
         # 【P0-3修复：按策略获取止损止盈参数】
         if isinstance(strategies, list) and strategies:
@@ -2888,7 +2888,7 @@ class PortfolioBacktester:
         enable_stop_loss = self._risk_config.get('enable_stop_loss', True) if hasattr(self, '_risk_config') else True
         enable_take_profit = self._risk_config.get('enable_take_profit', True) if hasattr(self, '_risk_config') else True
         # 【P0-2修复：默认全局参数，卖出循环中按code覆盖】
-        global_sl = self._risk_config.get('stop_loss_pct', 0.02) if hasattr(self, '_risk_config') else 0.02
+        global_sl = self._risk_config.get('stop_loss_pct', 0.03) if hasattr(self, '_risk_config') else 0.03
         global_tp = self._risk_config.get('take_profit_pct', 0.07) if hasattr(self, '_risk_config') else 0.07
         for ts_code in sell_codes:
             shares = holdings[ts_code]

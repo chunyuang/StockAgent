@@ -59,7 +59,7 @@ const form = reactive({
     min_auction_volume_ratio: 1.5,
   },
   tradeParams: {
-    base_stop_loss_pct: 0.02,
+    base_stop_loss_pct: 0.03,
     base_take_profit_pct: 0.07,
     max_hold_days: 3,
     max_position_per_stock: 0.2,  // 单票20%分散风险
@@ -74,7 +74,7 @@ const form = reactive({
   strategyConfigs: {
     halfway_chase: {
       enabled: true, name: '半路追涨',
-      params: { min_rise_pct: 0.03, max_rise_pct: 0.07, min_volume_ratio: 1.5, allow_after_10am: false }
+      params: { min_rise_pct: 0.02, max_rise_pct: 0.07, min_volume_ratio: 2.0, allow_after_10am: false }
     },
     first_limit_up: {
       enabled: true, name: '首板打板',
@@ -86,11 +86,11 @@ const form = reactive({
     },
     leader_buy_dip: {
       enabled: true, name: '龙头低吸',
-      params: { min_consecutive_limit: 3, min_correction_pct: 0.15, max_correction_pct: 0.3, correction_days_min: 2, correction_days_max: 5, support_level: 'ma5' }
+      params: { min_consecutive_limit: 2, min_correction_pct: 0.08, max_correction_pct: 0.35, correction_days_min: 1, correction_days_max: 7, support_level: 'ma5' }
     },
     limit_down_qiao: {
       enabled: true, name: '跌停翘板',
-      params: { min_consecutive_limit: 3, min_qiao_amount: 10000, min_rise_after_qiao: 0.03, require_high_sentiment: true }
+      params: { min_consecutive_limit: 2, min_qiao_amount: 1000, min_rise_after_qiao: 0.03, require_high_sentiment: false }
     },
   },
 })
