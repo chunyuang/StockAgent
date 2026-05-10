@@ -329,24 +329,17 @@ class PortfolioBacktester:
             await self.log(f"   │        • 要求热门板块: {'是' if require_hot else '否'}")
             await self.log(f"   │        • 情绪周期要求: {', '.join(require_sentiment)}")
         elif strategy_name == "涨停开板":
-            min_consecutive = params.get("min_consecutive_limit", STRATEGY_CONFIGS["leader_buy_dip"]["params"]["min_consecutive_limit"])
-            max_consecutive = params.get("max_consecutive_limit", 4)
-            max_open_duration = params.get("max_open_duration", STRATEGY_CONFIGS["limit_up_open"]["params"]["max_open_duration"])
-            min_seal_after = params.get("min_seal_after_open", STRATEGY_CONFIGS["limit_up_open"]["params"]["min_seal_after_open"])
-            # 【修复#45: min_turnover_rate前端传小数(0.15=15%),需*100转为百分比单位】
+            min_consecutive = params.get("min_consecutive_limit", STRATEGY_CONFIGS.get("limit_up_open", {}).get("params", {}).get("min_consecutive_limit", 2))
             _raw_turnover = params.get("min_turnover_rate", STRATEGY_CONFIGS["limit_up_open"]["params"]["min_turnover_rate"])
-            min_turnover = _raw_turnover * 100 if _raw_turnover < 1 else _raw_turnover  # <1说明是小数,需转换
-            # 【修复#46: 开盘涨幅下限0%太严格,连板股开板日常低开,改为-3%】
-            opening_pct_min = params.get("opening_pct_min", STRATEGY_CONFIGS["limit_up_open"]["params"]["opening_pct_min"])
-            opening_pct_max = params.get("opening_pct_max", STRATEGY_CONFIGS["limit_up_open"]["params"]["opening_pct_max"])
-            min_volume_ratio = params.get("min_volume_ratio", STRATEGY_CONFIGS["limit_up_open"]["params"]["min_volume_ratio"])
+            min_turnover = _raw_turnover * 100 if _raw_turnover < 1 else _raw_turnover
+            min_volume_ratio = params.get("min_volume_ratio", STRATEGY_CONFIGS["limit_up_open"]["params"].get("min_volume_ratio", 2.0))
             require_sentiment = params.get("require_sentiment_period", ["rising"])
-            await self.log(f"   │        • 连续涨停: {min_consecutive} ~ {max_consecutive}板")
-            await self.log(f"   │        • 开盘涨幅: {opening_pct_min}% ~ {opening_pct_max}%")
-            await self.log(f"   │        • 量比要求: ≥ {min_volume_ratio}")
-            await self.log(f"   │        • 最大开板时长: {max_open_duration}分钟")
-            await self.log(f"   │        • 开板后最小封单: {min_seal_after}万元")
-            await self.log(f"   │        • 最小换手率: {min_turnover:.1f}%")
+            # 【日线模式修复】涨停开板不再依赖盘中数据
+            await self.log(f"   │        • 昨日涨停 + 今日未封住")
+            await self.log(f"   │        • 近5日≥{min_consecutive}板")
+            await self.log(f"   │        • 今日涨幅≥0%")
+            await self.log(f"   │        • 量比≥{min_volume_ratio}")
+            await self.log(f"   │        • 换手率≥{min_turnover:.1f}%")
             await self.log(f"   │        • 情绪周期要求: {', '.join(require_sentiment)}")
         elif strategy_name == "龙头低吸":
             min_consecutive = params.get("min_consecutive_limit", STRATEGY_CONFIGS["leader_buy_dip"]["params"]["min_consecutive_limit"])
@@ -2620,27 +2613,25 @@ class PortfolioBacktester:
                 {"name": "limit_up_time", "target": max_limit_time, "operator": "<=", "label": "最晚涨停时间"} if not skip_limit_time else {"name": "limit_up_time", "target": 0, "operator": ">=", "label": "最晚涨停时间(日线模式不限制)"},
             ]
         elif strategy_name == "涨停开板":
-            min_consecutive = converted_params.get("min_consecutive_limit", STRATEGY_CONFIGS["leader_buy_dip"]["params"]["min_consecutive_limit"])
+            min_consecutive = converted_params.get("min_consecutive_limit", STRATEGY_CONFIGS.get("limit_up_open", {}).get("params", {}).get("min_consecutive_limit", 2))
             max_consecutive = converted_params.get("max_consecutive_limit", 4)
-            max_open_duration = converted_params.get("max_open_duration", STRATEGY_CONFIGS["limit_up_open"]["params"]["max_open_duration"])
-            min_seal_after = converted_params.get("min_seal_after_open", STRATEGY_CONFIGS["limit_up_open"]["params"]["min_seal_after_open"])
-            # 【修复#45: min_turnover_rate前端传小数(0.15=15%),需*100转为百分比单位】
             _raw_turnover = converted_params.get("min_turnover_rate", STRATEGY_CONFIGS["limit_up_open"]["params"]["min_turnover_rate"])
             min_turnover = _raw_turnover * 100 if _raw_turnover < 1 else _raw_turnover
-            # 【修复#46: 开盘涨幅下限0%太严格,连板股开板日常低开,改为-3%】
-            opening_pct_min = converted_params.get("opening_pct_min", STRATEGY_CONFIGS["limit_up_open"]["params"]["opening_pct_min"])
-            opening_pct_max = converted_params.get("opening_pct_max", STRATEGY_CONFIGS["limit_up_open"]["params"]["opening_pct_max"])
-            min_volume_ratio = converted_params.get("min_volume_ratio", STRATEGY_CONFIGS["halfway_chase"]["params"]["min_volume_ratio"])
+            min_volume_ratio = converted_params.get("min_volume_ratio", STRATEGY_CONFIGS["limit_up_open"]["params"].get("min_volume_ratio", 2.0))
             require_sentiment = converted_params.get("require_sentiment_period", ["rising"])
+            # 【日线模式修复】涨停开板的盘中数据(limit_up_open_duration/limit_up_open_amount/limit_up_time)
+            # 在日线回测中全为0，无法区分。改为日线可观测条件：
+            # - limit_up_yesterday=1: 昨日涨停(连板候选)
+            # - is_limit_up=0: 今日未封住(开板)
+            # - pct_chg>=0: 今日仍有涨幅(非大跌)
+            # - volume_ratio放大: 开板时放量
+            # - turnover_rate: 换手活跃
             return [
-                {"name": "limit_up_count", "target": min_consecutive, "operator": ">=", "label": "最小连续涨停天数"},
-                {"name": "limit_up_count", "target": max_consecutive, "operator": "<=", "label": "最大连续涨停天数"},
-                {"name": "opening_pct_chg", "target": opening_pct_min, "operator": ">=", "label": f"开盘涨幅≥{opening_pct_min}%"},
-                {"name": "opening_pct_chg", "target": opening_pct_max, "operator": "<=", "label": f"开盘涨幅≤{opening_pct_max}%"},
-                {"name": "volume_ratio", "target": min_volume_ratio, "operator": ">=", "label": "开盘量比≥2.0"},
-                {"name": "limit_up_open_duration", "target": max_open_duration, "operator": "<=", "label": "最大开板时长"},
-                {"name": "limit_up_open_amount", "target": min_seal_after, "label": "开板后最小封单"},
-                {"name": "turnover_rate", "target": min_turnover, "label": "最小换手率"},
+                {"name": "limit_up_yesterday", "target": 1, "operator": "==", "label": "昨日涨停(连板候选)"},
+                {"name": "is_limit_up", "target": 0, "operator": "==", "label": "今日未封住(开板)"},
+                {"name": "pct_chg", "target": 0, "operator": ">=", "label": "今日涨幅≥0%"},
+                {"name": "volume_ratio", "target": min_volume_ratio, "operator": ">=", "label": f"量比≥{min_volume_ratio}"},
+                {"name": "turnover_rate", "target": min_turnover, "operator": ">=", "label": f"换手率≥{min_turnover}%"},
                 {"name": "sentiment_period_in", "target": require_sentiment, "operator": "in", "label": "情绪周期要求"},
             ]
         elif strategy_name == "龙头低吸":

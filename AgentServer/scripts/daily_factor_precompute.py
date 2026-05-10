@@ -33,6 +33,7 @@ KEY_FACTORS = [
     "limit_up_count", "limit_down_count",
     "first_limit_up",
     "is_limit_up", "is_limit_down",
+    "pullback_pct", "pullback_days", "pullback_ma5",
 ]
 
 def precompute_factors(trade_date: int):
@@ -132,6 +133,29 @@ def precompute_factors(trade_date: int):
         
         # 涨停/跌停打开 (简化版)
         update['first_limit_up'] = update.get('is_limit_up', 0)
+        
+        # 回调指标(pullback_pct/pullback_days/pullback_ma5)
+        if len(group) >= 10:
+            high_10 = group['high'].astype(float).tail(10).max()
+            close_val = float(row.get('close', 0))
+            if high_10 > 0:
+                update['pullback_pct'] = round((close_val - high_10) / high_10, 4)
+            
+            # pullback_days: 连续回调天数
+            pb_days = 0
+            for j in range(len(group) - 1, max(len(group) - 10, -1), -1):
+                pb_val = (float(group.iloc[j]['close']) - float(group.iloc[j-max(0,j-len(group)+10):j+1]['high'].max())) / float(group.iloc[j-max(0,j-len(group)+10):j+1]['high'].max()) if len(group) > 0 else 0
+                if pb_val < -0.01:
+                    pb_days += 1
+                else:
+                    break
+            update['pullback_days'] = pb_days
+            
+            # pullback_ma5: 最低价<=MA5 且 收盘价>=MA5
+            ma5_val = update.get('ma5')
+            low_val = float(row.get('low', 0))
+            if ma5_val and ma5_val > 0:
+                update['pullback_ma5'] = 1 if (low_val <= ma5_val and close_val >= ma5_val) else 0
         
         if update:
             results.append(
