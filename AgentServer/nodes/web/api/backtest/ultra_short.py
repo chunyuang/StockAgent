@@ -131,7 +131,6 @@ async def submit_ultra_short_backtest(
                 "enable_ma60_filter": request.params.enable_ma60_filter,
                 "enable_sector_concentration": request.params.enable_sector_concentration,
                 "selected_strategies": selected_strategies,
-                "signal_delay": request.params.signal_delay,
             },
             "enable_force_empty": request.params.enable_force_empty,
             "enable_sentiment_cycle": request.params.sentiment_cycle,
@@ -140,8 +139,7 @@ async def submit_ultra_short_backtest(
             "enable_take_profit": request.params.enable_take_profit,
             "enable_ma60_filter": request.params.enable_ma60_filter,
             "enable_sector_concentration": request.params.enable_sector_concentration,
-            "selected_strategies": selected_strategies,
-            "signal_delay": request.params.signal_delay
+            "selected_strategies": selected_strategies
         }
     }
 
