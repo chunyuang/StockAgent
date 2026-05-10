@@ -894,7 +894,7 @@ class PortfolioBacktester:
         prev_day_sentiment = ""  # T-1日情绪等级
         prev_day_force_empty = False  # T-1日强制空仓标志
         prev_day_stock_to_strategy = {}  # T-1日stock_to_strategy映射(买入时需要知道策略)
-        signal_delay = config.get("signal_delay", 1)  # 默认T+1, 设0可回退旧模式
+        signal_delay = config.get("signal_delay", 0)  # 默认T+0盘中模式, 1=T+1隔日
         if signal_delay > 0:
             await self.log(f"🔔 【T+1选股模式】启用: 用T-1日因子选股, T日开盘执行买入 (消除前瞻偏差)")
         else:
