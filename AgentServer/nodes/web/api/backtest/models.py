@@ -132,7 +132,6 @@ class UltraShortParams(BaseModel):
     sentiment_cycle: bool = Field(default=True, description="是否启用情绪周期算法")
     auction_filter: bool = Field(default=True, description="是否启用竞价过滤规则")
     selected_strategies: List[Dict[str, Any]] = Field(default_factory=list, description="选中策略的完整配置（包含独立参数）")
-    signal_delay: int = Field(default=0, ge=0, le=1, description="信号延迟天数: 0=T+0(当日买入,有前瞻偏差), 1=T+1(次日买入,实盘可执行)")
 
 
 # 中文策略名映射，放在类外面避免pydantic v2私有属性问题

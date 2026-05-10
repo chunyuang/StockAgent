@@ -318,8 +318,6 @@ async def execute_ultra_short_backtest(
         "enable_take_profit": enable_take_profit,
         "enable_ma60_filter": enable_ma60_filter,
         "enable_sector_concentration": enable_sector_concentration,
-        # 【T+1信号延迟】
-        "signal_delay": req_params.get("signal_delay", 0),
     }
     backtester = PortfolioBacktester()
 

@@ -895,15 +895,6 @@ class PortfolioBacktester:
 
         await self.log(f"开始逐日回测,共 {total_days} 个交易日")
 
-        # 【T+1信号延迟】
-        # signal_delay=1: 昨日选股→今日买入(实盘可执行)
-        # signal_delay=0: 当日选股→当日买入(有前瞻偏差,仅供对比)
-        signal_delay = config.get("signal_delay", 0)  # 默认T+0(向后兼容)
-        prev_day_target_weights = {}  # T-1日的选股结果
-        prev_day_sentiment = None     # T-1日的情绪
-        prev_day_force_empty = False  # T-1日是否强制空仓
-        prev_day_all_candidates = set()  # T-1日候选股
-
         # 【修复#4：进度推送Redis频道，前端实时接收进度】
         # 每 10% 进度推送一次
         last_pushed_progress = -1
@@ -1358,10 +1349,11 @@ class PortfolioBacktester:
                     except Exception as e:
                         logger.warn('BACKTEST', f"Sector concentration filter failed: {e}")
 
+                # ==========================================
                 # 【信号延迟模式核心逻辑】
                 # ==========================================
-                # T+0(旧): T日因子→T日选股→T日买入 (前瞻偏差)
-                # T+1(新): T日因子→T日选股→存入prev→用T-1选股结果在T日买入
+                # 旧模式: T日因子→T日选股→T日买入 (前瞻偏差)
+                # 新模式: T日因子→T日选股→存入prev→用T-1选股结果在T日买入
                 # ==========================================
 
                 # 计算今日的目标权重(基于今日因子,为次日买入准备)
@@ -1371,9 +1363,10 @@ class PortfolioBacktester:
                     self.weight_method,
                 )
 
-                # 🔧 新增:大盘 MA60 过滤
+                # 🔧 新增:大盘 MA60 过滤 - 大盘跌破 MA60 整体降低仓位 50%(可配置开关)
                 if self._risk_config.get("enable_ma60_filter", True):
                     try:
+                        # 从 index_daily 查询上证指数(000001.SH)的均线数据
                         index_data = await mongo_manager.find_one(
                             C.INDEX_DAILY,
                             {"ts_code": "000001.SH", "trade_date": trade_date},
@@ -1383,38 +1376,19 @@ class PortfolioBacktester:
                             close = index_data["close"]
                             ma60 = index_data["ma60"]
                             if close < ma60:
+                                # 跌破 MA60,整体降低仓位 50%
                                 for code in today_target_weights:
                                     today_target_weights[code] = today_target_weights[code] * 0.5
                                 await self.log(f"   📉 大盘跌破 MA60,整体仓位降低 50%")
                     except Exception as e:
+                        # 查询失败不影响继续执行
                         logger.warn('BACKTEST', f"Failed to check index MA60 for position adjustment: {e}")
 
-                # ======================
-                # T+1信号延迟执行
-                # ======================
-                if signal_delay == 1 and len(prev_day_target_weights) > 0:
-                    # T+1模式: 用昨日的选股结果今日执行
-                    execute_weights = prev_day_target_weights
-                    execute_sentiment = prev_day_sentiment
-                    execute_force_empty = prev_day_force_empty
-                    await self.log(f"   📋 T+1模式: 执行昨日选股结果 {len(execute_weights)}只候选")
-                elif signal_delay == 1 and len(prev_day_target_weights) == 0:
-                    # T+1模式第一天: 没有昨日数据,空仓
-                    execute_weights = {}
-                    execute_sentiment = prev_day_sentiment
-                    execute_force_empty = prev_day_force_empty
-                    await self.log(f"   📋 T+1模式: 首日无昨日信号,空仓等待")
-                else:
-                    # T+0模式: 当日选股当日执行
-                    execute_weights = today_target_weights
-                    execute_sentiment = sentiment_level
-                    execute_force_empty = force_empty_triggered
-                    await self.log(f"   📋 T+0模式: 执行今日选股结果 {len(execute_weights)}只候选")
-
-                # 保存今日选股结果为明日使用
-                prev_day_target_weights = today_target_weights
-                prev_day_sentiment = sentiment_level
-                prev_day_force_empty = force_empty_triggered
+                # 当日选股当日执行
+                execute_weights = today_target_weights
+                execute_sentiment = sentiment_level
+                execute_force_empty = force_empty_triggered
+                await self.log(f"   📋 执行今日选股结果: {len(execute_weights)}只候选")
 
                 # 计算进度
                 total_rebalance_days = len(rebalance_dates)
