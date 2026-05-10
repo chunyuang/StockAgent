@@ -1522,11 +1522,12 @@ class PortfolioBacktester:
                                 del self._cost_basis[code]
                             if hasattr(self, '_cost_basis_date') and code in self._cost_basis_date:
                                 del self._cost_basis_date[code]
+                            _nrt_strategy = self._get_strategy_for_stock(code) if hasattr(self, 'stock_to_strategy') else ""
                             rebalance_records.append(RebalanceRecord(
                                 date=str(trade_date), action='sell', ts_code=code,
                                 shares=shares, price=close_p, amount=net_amount,
                                 reason=f'非调仓日{reason}',
-                                strategy_name=getattr(self, 'stock_to_strategy', {}).get(code, [''])[0] if isinstance(getattr(self, 'stock_to_strategy', {}).get(code, []), list) else '',
+                                strategy_name=_nrt_strategy,
                                 sentiment=''))
                             await self.log(f"   │  ⚠️  非调仓日{reason}卖出: {code} {shares}股 @ {close_p:.2f}")
                         # 更新价格缓存供后续净值计算
@@ -2934,6 +2935,7 @@ class PortfolioBacktester:
             cash += net_amount
 
             # 记录交易
+            _sell_strategy = self._get_strategy_for_stock(ts_code) if hasattr(self, 'stock_to_strategy') else ""
             records.append(RebalanceRecord(
                 date=str(trade_date),
                 action="sell",
@@ -2942,6 +2944,7 @@ class PortfolioBacktester:
                 price=price,  # 卖出用收盘价
                 amount=net_amount,
                 reason=sell_reason,
+                strategy_name=_sell_strategy,
                 sentiment=sentiment
             ))
 
