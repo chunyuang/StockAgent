@@ -2455,8 +2455,9 @@ class PortfolioBacktester:
             return 0
 
         # 一字涨停板：四价相同，open本身就是涨停价
+        # 【修复】一字板无法买入(全天封死涨停，排单买不进)，返回0跳过
         if (open_price == close_price == high_price == low_price) and open_price > 0:
-            return open_price
+            return 0  # 一字板不可买入
 
         # 非一字板涨停：【P0-2修复】用pre_close判断是否涨停
         if pre_close > 0:

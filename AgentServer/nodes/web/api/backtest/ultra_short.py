@@ -63,10 +63,13 @@ async def submit_ultra_short_backtest(
 
     # 构建选中策略列表：100%原封不动使用前端提交的selected_strategies，不做任何修改
     selected_strategies = []
-    # 安全获取selected_strategies，即使属性不存在也不会抛出异常
+    # 【修复】优先从请求顶层读selected_strategies，再从params读
+    selected_from_top = getattr(request, 'selected_strategies', None)
     selected_from_params = getattr(request.params, 'selected_strategies', None)
-    if selected_from_params and len(selected_from_params) > 0:
-        # 完全透传前端提交的策略和参数，不添加、不修改任何字段
+    if selected_from_top and len(selected_from_top) > 0:
+        selected_strategies = selected_from_top
+    elif selected_from_params and len(selected_from_params) > 0:
+        # 兼容前端将selected_strategies放在params内的情况
         selected_strategies = selected_from_params
     else:
         # 如果前端没有提交selected_strategies，从strategies字段读取，参数为空
