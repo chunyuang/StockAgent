@@ -2155,19 +2155,19 @@ class PortfolioBacktester:
         result["strategy_results"] = strategy_results
 
         # 3. factor_contribution: 因子贡献 {策略名: 贡献比例}
-        # 【P1修复】按实际交易信号数比例分配，忽略strategy_weights(那是配置权重不是实际贡献)
+        # 【修复】按实际收益贡献(绝对值)分配，而非笔数等分
+        # 半路追涨110笔赚62% vs 涨停开板11笔亏3.9%，按笔数分配不合理
         factor_contribution = {}
-        total_trades_count = sum(s.get("trades_count", 0) for s in strategy_results.values())
-        if total_trades_count > 0:
+        total_pnl_abs = sum(abs(s.get("total_pnl_pct", 0)) for s in strategy_results.values())
+        if total_pnl_abs > 0:
             for name, s in strategy_results.items():
-                factor_contribution[name] = s.get("trades_count", 0) / total_trades_count
+                factor_contribution[name] = abs(s.get("total_pnl_pct", 0)) / total_pnl_abs
         else:
-            # 无交易时按配置权重等分
-            sw = config.get("strategy_weights", {})
-            if sw:
-                total_w = sum(sw.values()) or 1
-                for name, weight in sw.items():
-                    factor_contribution[name] = weight / total_w
+            # 无收益时按笔数比例分配
+            total_trades_count = sum(s.get("trades_count", 0) for s in strategy_results.values())
+            if total_trades_count > 0:
+                for name, s in strategy_results.items():
+                    factor_contribution[name] = s.get("trades_count", 0) / total_trades_count
             else:
                 n = len(strategy_results) or 1
                 for name in strategy_results:
