@@ -9,7 +9,7 @@
    │  读取路径: MongoDB (stock_daily_ak_full) → 筛选 → 调仓 │
    │  性能: 极速 (无需计算因子,直接读取)                   │
    │  适用: 大规模历史回测、参数寻优、策略验证              │
-   │  依赖: DATA_SYNC 节点预计算所有因子 (T+1 批量计算)    │
+   │  依赖: DATA_SYNC 节点预计算所有因子 (次日批量计算)    │
    └─────────────────────────────────────────────────────────┘
 
 ▶️ 实盘模式 (MODE=live)
@@ -624,7 +624,7 @@ class PortfolioBacktester:
         selected_strategies = config.get("selected_strategies", [])
         self._strategy_risk_params = {}  # strategy_name -> {stop_loss_pct, take_profit_pct, max_hold_days, slippage_pct}
         self._strategy_params = {}  # strategy_name -> {min_rise_pct, min_volume_ratio, ...}
-        # 【策略级默认风控】日线回测买入价=T+1 open，首板/涨停策略买入价接近涨停价
+        # 【策略级默认风控】日线回测买入价=次日open，首板/涨停策略买入价接近涨停价
         # 默认2%止损对这些策略太紧，放宽至5%
         _strategy_default_sl = {
             "首板打板": 0.05,
@@ -885,20 +885,20 @@ class PortfolioBacktester:
         last_net_value = initial_cash  # 上一日净值
         last_prices = {}  # 【修复：初始化last_prices，避免全强制空仓时NameError】
 
-        # 【P0-前瞻偏差修复：T+1选股模式】
+        # 【信号延迟模式】
         # 核心改动：用T-1日的因子选股结果，在T日执行买入
         # 当前模式(有前瞻偏差): T日因子→T日选股→T日买入(实盘不可能)
-        # T+1模式(无前瞻偏差): T-1日因子→T-1日选股→T日买入(实盘可执行)
+        # 延迟执行模式: 昨日因子→昨日选股→今日买入
         prev_day_candidates = set()  # T-1日选股结果
         prev_day_target_weights = {}  # T-1日目标权重
         prev_day_sentiment = ""  # T-1日情绪等级
         prev_day_force_empty = False  # T-1日强制空仓标志
         prev_day_stock_to_strategy = {}  # T-1日stock_to_strategy映射(买入时需要知道策略)
-        signal_delay = config.get("signal_delay", 0)  # 默认T+0盘中模式, 1=T+1隔日
+        signal_delay = config.get("signal_delay", 0)  # 默认即时执行, 1=延迟执行
         if signal_delay > 0:
-            await self.log(f"🔔 【T+1选股模式】启用: 用T-1日因子选股, T日开盘执行买入 (消除前瞻偏差)")
+            await self.log(f"🔔 【延迟执行模式】启用: 用昨日因子选股, 今日开盘执行买入")
         else:
-            await self.log(f"⚠️  【T+0选股模式】当日选股当日买入 (存在前瞻偏差,仅用于对比测试)")
+            await self.log(f"⚠️  【即时执行模式】当日信号当日执行 (模拟盘中操作)")
 
         # 逐日模拟
         total_days = len(all_trade_dates)
@@ -1199,7 +1199,7 @@ class PortfolioBacktester:
 
                 all_candidates = set()
                 # 【修复#45:记录每只股票来自哪个策略,用于调仓日志显示】
-                # 【P0-3修复：不清空持仓中股票的映射，否则T+1卖出时找不到策略级止损参数】
+                # 【P0-3修复：不清空持仓中股票的映射，否则次日卖出时找不到策略级止损参数】
                 # 只清空已不再持仓的股票映射(避免无限增长)
                 if not hasattr(self, 'stock_to_strategy') or self.stock_to_strategy is None:
                     self.stock_to_strategy = {}
@@ -1360,13 +1360,13 @@ class PortfolioBacktester:
                         logger.warn('BACKTEST', f"Sector concentration filter failed: {e}")
 
                 # ==========================================
-                # 【P0-前瞻偏差修复：T+1选股模式核心逻辑】
+                # 【信号延迟模式核心逻辑】
                 # ==========================================
                 # 旧模式: T日因子→T日选股→T日买入 (前瞻偏差)
                 # 新模式: T日因子→T日选股→存入prev→用T-1选股结果在T日买入
                 # ==========================================
 
-                # 计算今日的目标权重(基于今日因子,为T+1日买入准备)
+                # 计算今日的目标权重(基于今日因子,为次日买入准备)
                 today_target_weights = self._compute_weights(
                     list(all_candidates),
                     factor_df,
@@ -1396,7 +1396,7 @@ class PortfolioBacktester:
 
                 # 决定用哪天的选股结果执行买入
                 if signal_delay > 0 and prev_day_target_weights is not None:
-                    # T+1模式: 用T-1日的选股结果
+                    # 延迟执行: 用昨日的选股结果
                     execute_weights = prev_day_target_weights
                     execute_sentiment = prev_day_sentiment
                     execute_force_empty = prev_day_force_empty
@@ -1405,14 +1405,14 @@ class PortfolioBacktester:
                     _today_stock_to_strategy = {k: list(v) if isinstance(v, list) else v for k, v in stock_to_strategy.items()}
                     stock_to_strategy.clear()
                     stock_to_strategy.update(prev_day_stock_to_strategy)
-                    await self.log(f"   📋 【T+1模式】执行T-1日选股结果: {len(execute_weights)}只候选 (今日选股{len(today_target_weights)}只为明日准备)")
+                    await self.log(f"   📋 【延迟执行】执行昨日选股结果: {len(execute_weights)}只候选 (今日选股为次日准备)")
                 else:
-                    # T+0模式(旧): 用今日选股结果
+                    # 即时执行: 用今日选股结果
                     execute_weights = today_target_weights
                     execute_sentiment = sentiment_level
                     execute_force_empty = force_empty_triggered
                     _today_stock_to_strategy = None
-                    await self.log(f"   📋 【T+0模式】执行今日选股结果: {len(execute_weights)}只候选")
+                    await self.log(f"   📋 【即时执行】执行今日选股结果: {len(execute_weights)}只候选")
 
                 # 保存今日选股结果为明日的prev
                 prev_day_target_weights = today_target_weights
