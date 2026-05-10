@@ -325,8 +325,15 @@ def _compute_factors_for_stock(group: pd.DataFrame, fields: List[str]) -> pd.Dat
     group['open_below_limit'] = (group['open'] - group['close'].shift(1)) / group['close'].shift(1) <= -0.095
     # 【Bug修复】open_above_limit_down 原逻辑=开盘接近涨停 AND 昨日跌停，几乎不可能满足
     # 正确语义: 昨日跌停 AND 今日开盘高于跌停价(=昨收×0.9)，即跌停打开
+    # 【修复v2】放宽条件：不仅限于昨日跌停，今日盘中跌停被翘也可
+    # 即：open > 跌停价(pre_close*0.9) AND (limit_down_yesterday OR 盘中低点触跌停)
     limit_down_price_yesterday = group['close'].shift(1) * 0.9
+    # 方案A（原）：严格要求昨日跌停 + 今日高开
     group['open_above_limit_down'] = (group['open'] > limit_down_price_yesterday) & group['limit_down_yesterday']
+    # 方案B（补充）：今日低点触及跌停价但收盘翘起（盘中翘板）
+    intraday_qiao = (group['low'] <= limit_down_price_yesterday * 1.005) & (group['close'] > limit_down_price_yesterday * 1.005)
+    # 合并：方案A OR 方案B
+    group['open_above_limit_down'] = group['open_above_limit_down'] | intraday_qiao
 
     # 涨停开板金额
     limit_up_price = group['close'].shift(1) * 1.1
@@ -336,11 +343,10 @@ def _compute_factors_for_stock(group: pd.DataFrame, fields: List[str]) -> pd.Dat
     )
 
     # 跌停翘板金额
+    # 【修复】放宽条件：只要盘中触跌停+收盘翘起就算，不要求昨日一定跌停
     limit_down_price_yesterday = group['close'].shift(1) * 0.9
     group['limit_down_open_amount'] = np.where(
-        group['limit_down_yesterday'] &
-        (group['low'] <= limit_down_price_yesterday * 1.005) &
-        (group['close'] > limit_down_price_yesterday * 1.005),
+        (group['low'] <= limit_down_price_yesterday * 1.005) & (group['close'] > limit_down_price_yesterday * 1.005),
         group['amount'], 0
     )
 
