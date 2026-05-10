@@ -14,31 +14,10 @@ from core.managers import mongo_manager, akshare_manager, redis_manager
 from core.utils.logger import logger
 
 from nodes.backtest_engine.factor_selection import PortfolioBacktester
+from nodes.backtest_engine.strategy_defaults import ALL_STRATEGIES as _ALL_STRATEGIES, GLOBAL_RISK
 
-
-async def _redis_publish_safe(channel, data):
-    """Redis publish with fallback - does not crash if Redis is unavailable"""
-    try:
-        await redis_manager.publish(channel, data)
-    except Exception:
-        pass
-
-
-
-# 默认所有策略（兜底用）
-# 与defaults.py strategyConfigs保持一致
-ALL_STRATEGIES = [
-    {"id": "halfway_chase", "name": "半路追涨", "params": {},
-     "riskParams": {"stop_loss_pct": 0.03, "take_profit_pct": 0.07}},
-    {"id": "first_limit_up", "name": "首板打板", "params": {},
-     "riskParams": {"stop_loss_pct": 0.04, "take_profit_pct": 0.07}},
-    {"id": "limit_up_open", "name": "涨停开板", "params": {},
-     "riskParams": {"stop_loss_pct": 0.05, "take_profit_pct": 0.06}},
-    {"id": "leader_buy_dip", "name": "龙头低吸", "params": {},
-     "riskParams": {"stop_loss_pct": 0.05, "take_profit_pct": 0.06}},
-    {"id": "limit_down_qiao", "name": "跌停翘板", "params": {},
-     "riskParams": {"stop_loss_pct": 0.07, "take_profit_pct": 0.07}},
-]
+# 默认所有策略（兜底用）— 从单一来源读取
+ALL_STRATEGIES = _ALL_STRATEGIES
 
 
 async def execute_ultra_short_backtest(
@@ -88,7 +67,7 @@ async def execute_ultra_short_backtest(
     logger.info("INIT", f"选中策略：【{'、'.join(selected_strategy_names)}】")
 
     # 打印全局参数
-    logger.info("INIT", f"全局参数：流动性门槛{strategy_params.get('liquidity_threshold', 500)}万/止损{strategy_params.get('stop_loss_pct', 0.03)*100}%/止盈{strategy_params.get('take_profit_pct', 0.07)*100}%/最大持仓{strategy_params.get('max_hold_days', 3)}天/单票仓位{strategy_params.get('max_position_per_stock', 0.2)*100}%/总仓位{strategy_params.get('max_position', 0.7)*100}%")
+    logger.info("INIT", f"全局参数：流动性门槛{strategy_params.get('liquidity_threshold', GLOBAL_RISK['liquidity_threshold'])}万/止损{strategy_params.get('stop_loss_pct', GLOBAL_RISK['stop_loss_pct'])*100}%/止盈{strategy_params.get('take_profit_pct', GLOBAL_RISK['take_profit_pct'])*100}%/最大持仓{strategy_params.get('max_hold_days', GLOBAL_RISK['max_hold_days'])}天/单票仓位{strategy_params.get('max_position_per_stock', GLOBAL_RISK['max_position_per_stock'])*100}%/总仓位{strategy_params.get('max_total_position', GLOBAL_RISK['max_total_position'])*100}%")
 
     # 打印功能开关
     enable_force_empty = req_params.get("enable_force_empty", True)
@@ -133,12 +112,12 @@ async def execute_ultra_short_backtest(
     # ========== 参数日志只打印一次（与界面对照）==========
     # 【修复：参数日志只打印一次】
     await push_log_fn(task_id, "📋 === 🔧 全局公共参数 ===")
-    await push_log_fn(task_id, "├─ 流动性门槛: %s 万元" % strategy_params.get('liquidity_threshold', 500))
-    await push_log_fn(task_id, "├─ 单票最大仓位: %.1f %%" % (strategy_params.get('max_position_per_stock', 0.2)*100))
-    await push_log_fn(task_id, "├─ 总仓位上限: %.1f %%" % (strategy_params.get('max_position', 0.7)*100))
-    await push_log_fn(task_id, "├─ 止损比例: %.1f %%" % (strategy_params.get('stop_loss_pct', 0.03)*100))
-    await push_log_fn(task_id, "├─ 止盈比例: %.1f %%" % (strategy_params.get('take_profit_pct', 0.07)*100))
-    await push_log_fn(task_id, "├─ 最大持仓天数: %d 天" % strategy_params.get('max_hold_days', 3))
+    await push_log_fn(task_id, "├─ 流动性门槛: %s 万元" % strategy_params.get('liquidity_threshold', GLOBAL_RISK['liquidity_threshold']))
+    await push_log_fn(task_id, "├─ 单票最大仓位: %.1f %%" % (strategy_params.get('max_position_per_stock', GLOBAL_RISK['max_position_per_stock'])*100))
+    await push_log_fn(task_id, "├─ 总仓位上限: %.1f %%" % (strategy_params.get('max_total_position', GLOBAL_RISK['max_total_position'])*100))
+    await push_log_fn(task_id, "├─ 止损比例: %.1f %%" % (strategy_params.get('stop_loss_pct', GLOBAL_RISK['stop_loss_pct'])*100))
+    await push_log_fn(task_id, "├─ 止盈比例: %.1f %%" % (strategy_params.get('take_profit_pct', GLOBAL_RISK['take_profit_pct'])*100))
+    await push_log_fn(task_id, "├─ 最大持仓天数: %d 天" % strategy_params.get('max_hold_days', GLOBAL_RISK['max_hold_days']))
     await push_log_fn(task_id, "├─ 强制空仓规则: %s" % ("已启用" if req_params.get('enable_force_empty', True) else "已关闭"))
     await push_log_fn(task_id, "├─ 情绪周期算法: %s" % ("已启用" if req_params.get('enable_sentiment_cycle', True) else "已关闭"))
     await push_log_fn(task_id, "└─ 竞价过滤规则: %s" % ("已启用" if req_params.get('enable_auction_filter', True) else "已关闭"))
@@ -227,7 +206,7 @@ async def execute_ultra_short_backtest(
     universe_mgr.start_date = start_date
     universe_mgr.end_date = end_date
     universe_mgr.exclude_rules = [ExcludeRule.ST, ExcludeRule.NEW_STOCK]
-    universe_mgr.min_liquidity = strategy_params.get('liquidity_threshold', 500)
+    universe_mgr.min_liquidity = strategy_params.get('liquidity_threshold', GLOBAL_RISK['liquidity_threshold'])
     factor_engine = FactorEngine()
 
     await push_log_fn(task_id, "✅ 管理器初始化完成")
@@ -313,13 +292,13 @@ async def execute_ultra_short_backtest(
         "volume_threshold": next((s.get("params", {}).get("min_volume_ratio", 2.0) for s in selected_strategies if s.get("name") == "半路追涨"), 2.0),
         "weight_method": "equal",
         # 🔧 传递前端配置的佣金/滑点参数到回测引擎
-        "commission_rate": strategy_params.get("commission_rate", 0.0003),  # 万3
-        "stamp_duty_rate": strategy_params.get("stamp_duty_rate", 0.001),   # 千1
-        "slippage_pct": strategy_params.get("slippage_pct", 0.002),         # 0.2%
+        "commission_rate": strategy_params.get("commission_rate", GLOBAL_RISK["commission_rate"]),  # 万3
+        "stamp_duty_rate": strategy_params.get("stamp_duty_rate", GLOBAL_RISK["stamp_duty_rate"]),   # 千1
+        "slippage_pct": strategy_params.get("slippage_pct", GLOBAL_RISK["slippage_pct"]),         # 0.2%
         # 【信号延迟模式】
         # 🔧 传递止盈止损比例(前端可配置)
-        "stop_loss_pct": strategy_params.get("stop_loss_pct", 0.03),
-        "take_profit_pct": strategy_params.get("take_profit_pct", 0.07),
+        "stop_loss_pct": strategy_params.get("stop_loss_pct", GLOBAL_RISK["stop_loss_pct"]),
+        "take_profit_pct": strategy_params.get("take_profit_pct", GLOBAL_RISK["take_profit_pct"]),
         # 【P1-1/P1-2修复：传递max_hold_days和max_position_per_stock到回测引擎】
         "max_hold_days": strategy_params.get("max_hold_days", 3),
         "max_position_per_stock": strategy_params.get("max_position_per_stock", 0.2),
