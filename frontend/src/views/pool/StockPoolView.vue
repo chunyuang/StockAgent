@@ -3,7 +3,7 @@
  * StockPoolView - 今日预选池页面
  * 展示策略生成的选股列表，包含概览统计和可筛选的选股表格
  */
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { RefreshRight, Download } from '@element-plus/icons-vue'
 import { tradingApi, type TradingSignal } from '@/api'
