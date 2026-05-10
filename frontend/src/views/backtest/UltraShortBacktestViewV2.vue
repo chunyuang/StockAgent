@@ -250,7 +250,7 @@ const submitBacktest = async () => {
       .filter(id => strategyKeys.includes(id as keyof typeof form.strategyConfigs))
       .map(id => {
         const cfg = form.strategyConfigs[id as keyof typeof form.strategyConfigs]
-        return { id, name: cfg.name, enabled: cfg.enabled, params: { ...cfg.params } }
+        return { id, name: cfg.name, enabled: cfg.enabled, params: { ...cfg.params }, riskParams: { ...cfg.riskParams } }
       })
     const strategy_params: Record<string, any> = {}
     for (const id of form.strategies) {
