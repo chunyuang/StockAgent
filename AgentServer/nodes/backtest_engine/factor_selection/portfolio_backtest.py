@@ -716,19 +716,44 @@ class PortfolioBacktester:
             max_factor_date = max_market_date  # 同一个表,数据相同
 
         # 转换为整数比较
+        req_start = int(config["start_date"])
         req_end = int(config["end_date"])
 
         warnings = []
+        data_quality_issues = []
         if max_market_date and req_end > max_market_date:
             warnings.append(f"⚠️ 行情数据最新日期 {max_market_date},回测结束日期 {req_end},后{req_end - max_market_date}天行情数据缺失")
         if max_factor_date and req_end > max_factor_date:
             warnings.append(f"⚠️ 因子数据最新日期 {max_factor_date},回测结束日期 {req_end},后{req_end - max_factor_date}天因子数据缺失")
 
+        # 🔧 数据完整性校验：检查回测区间内每天的股票数量是否一致
+        # 如果某天只有几十只(而非5000+),说明那天数据缺失
+        daily_count_pipeline = [
+            {"$match": {"trade_date": {"$gte": req_start, "$lte": req_end}}},
+            {"$group": {"_id": "$trade_date", "count": {"$sum": 1}}},
+            {"$sort": {"_id": 1}}
+        ]
+        daily_counts = await mongo_manager.aggregate(C.STOCK_DAILY, daily_count_pipeline)
+        if daily_counts:
+            counts_list = [d["count"] for d in daily_counts]
+            median_count = sorted(counts_list)[len(counts_list)//2] if counts_list else 0
+            low_days = [d for d in daily_counts if d["count"] < median_count * 0.3 and d["count"] < 1000]
+            if low_days:
+                data_quality_issues.append(f"⚠️ {len(low_days)}天数据异常稀少(< 30%中位数{median_count}只)")
+                for d in low_days[:5]:
+                    data_quality_issues.append(f"   • {d['_id']}: 仅{d['count']}只(正常{median_count}只)")
+                if len(low_days) > 5:
+                    data_quality_issues.append(f"   • ...等{len(low_days)}天")
+
         if warnings:
             for warn in warnings:
                 await self.log(warn)
             await self.log("⚠️  回测结果后段数据可能异常,建议缩短回测区间或同步数据后重试")
-        else:
+        if data_quality_issues:
+            for issue in data_quality_issues:
+                await self.log(issue)
+            await self.log("⚠️  数据稀疏天的选股结果可能为空,不是策略问题而是数据缺失")
+        if not warnings and not data_quality_issues:
             await self.log("✅ 数据一致性校验通过,数据覆盖完整回测区间")
 
         # 🔍 未来函数检查:验证所有因子都是当日盘中可用,不使用未来数据
@@ -1222,6 +1247,14 @@ class PortfolioBacktester:
                         selected_strategy_names
                     )
                     all_candidates.update(candidates)
+                    # 🔧 因子缺失告警：记录每个策略每天的候选数
+                    if not hasattr(self, '_strategy_signal_stats'):
+                        self._strategy_signal_stats = {}  # {策略名: {total_days: N, signal_days: M, zero_reason: str}}
+                    if strategy_name not in self._strategy_signal_stats:
+                        self._strategy_signal_stats[strategy_name] = {"total_days": 0, "signal_days": 0}
+                    self._strategy_signal_stats[strategy_name]["total_days"] += 1
+                    if candidates:
+                        self._strategy_signal_stats[strategy_name]["signal_days"] += 1
                     # 【修复#45+P1-1:记录每只股票来自哪个策略,支持多策略选同股】
                     # 存策略列表(而非覆盖)，买入价取最低价(最保守)
                     for code in candidates:
@@ -2152,6 +2185,43 @@ class PortfolioBacktester:
                 "trades_count": len(completed),
                 "total_pnl_pct": total_pnl,
             }
+
+        # 🔧 因子缺失告警：0交易策略加warning字段
+        # 先从selected_strategies补上0交易的策略(它们不在merged_trades里)
+        signal_stats = getattr(self, '_strategy_signal_stats', {})
+        all_strategy_names = set()
+        for s in config.get('selected_strategies', []):
+            all_strategy_names.add(s.get('name', ''))
+        for sname in all_strategy_names:
+            if sname and sname not in strategy_results:
+                ss = signal_stats.get(sname, {})
+                total_days = ss.get('total_days', 0)
+                signal_days = ss.get('signal_days', 0)
+                if total_days == 0:
+                    warning = "策略未启用或选股条件过于严格，回测期间从未触发筛选"
+                elif signal_days == 0:
+                    warning = f"回测{total_days}天均0候选→可能因子数据缺失(如limit_up_yesterday/volume_ratio为空)或选股条件过严"
+                else:
+                    warning = f"{signal_days}/{total_days}天有候选但0笔成交→可能买入条件(竞价/仓位)未满足"
+                strategy_results[sname] = {
+                    "strategy_name": sname,
+                    "win_rate": 0, "total_return": 0,
+                    "trades_count": 0, "total_pnl_pct": 0,
+                    "warning": warning,
+                }
+
+        for sname, sdata in strategy_results.items():
+            if sdata.get("trades_count", 0) == 0 and "warning" not in sdata:
+                ss = signal_stats.get(sname, {})
+                total_days = ss.get('total_days', 0)
+                signal_days = ss.get('signal_days', 0)
+                if total_days == 0:
+                    sdata["warning"] = "策略未启用或选股条件过于严格，回测期间从未触发筛选"
+                elif signal_days == 0:
+                    sdata["warning"] = f"回测{total_days}天均0候选→可能因子数据缺失(如limit_up_yesterday/volume_ratio为空)或选股条件过严"
+                else:
+                    sdata["warning"] = f"{signal_days}/{total_days}天有候选但0笔成交→可能买入条件(竞价/仓位)未满足"
+
         result["strategy_results"] = strategy_results
 
         # 3. factor_contribution: 因子贡献 {策略名: 贡献比例}
