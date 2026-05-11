@@ -72,7 +72,7 @@ const form = reactive({
     enable_stop_loss: true,
     enable_take_profit: true,
   },
-  strategies: ['halfway_chase', 'first_limit_up', 'limit_up_open', 'leader_buy_dip', 'limit_down_qiao'],
+  strategies: ['halfway_chase', 'first_limit_up', 'leader_buy_dip', 'limit_down_qiao'],
   strategyConfigs: {
     halfway_chase: {
       enabled: STRATEGY_CONFIGS.halfway_chase.enabled, name: STRATEGY_CONFIGS.halfway_chase.name,
