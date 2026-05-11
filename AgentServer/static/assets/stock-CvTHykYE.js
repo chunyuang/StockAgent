@@ -1,1 +1,0 @@
-import{b as t}from"./index-t71_ye6b.js";const c={async getStockInfo(s){return await t.get(`/stocks/${s}`)},async searchStocks(s){return await t.get("/stocks/search",{params:{query:s}})}};export{c as s};

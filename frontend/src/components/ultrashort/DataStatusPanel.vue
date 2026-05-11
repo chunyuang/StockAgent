@@ -2,6 +2,15 @@
 import { ref, computed, onMounted } from 'vue'
 import { ElCard, ElEmpty, ElProgress, ElTable, ElTableColumn, ElTag, ElButton, ElTooltip, ElDescriptions, ElDescriptionsItem } from 'element-plus'
 import VChart from 'vue-echarts'
+import { use } from 'echarts/core'
+import { CanvasRenderer } from 'echarts/renderers'
+import { LineChart, BarChart, HeatmapChart } from 'echarts/charts'
+import {
+  TitleComponent, TooltipComponent, LegendComponent, GridComponent,
+  VisualMapComponent, DataZoomComponent
+} from 'echarts/components'
+
+use([CanvasRenderer, LineChart, BarChart, HeatmapChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent, VisualMapComponent, DataZoomComponent])
 
 interface DailyCoverage {
   date: string
