@@ -379,14 +379,14 @@ class PortfolioBacktester:
             # 前端默认传万元(1000万元=10000)，数据库因子limit_down_open_amount存千元
             # 规则：如果<100000(即<10万元千元单位)，说明传入的是万元单位，需×1000转千元
             # 如果>=100000，说明已经是千元单位，无需转换
-            _raw_qiao = params.get("min_qiao_amount")  # 前端传入，单位万元
+            _raw_qiao = params.get("min_qiao_amount") or STRATEGY_CONFIGS["limit_down_qiao"]["params"]["min_qiao_amount"]  # 前端传入，单位万元
             # 万元→千元: 1000万 × 1000 = 1000000千元；但前端传的是10000(万元)不是10000000
             # 实际: 前端传10000(万) → ×10 = 100000千元 ✓; 前端传100000(千) → 不转换 ✓
             min_qiao_amount = _raw_qiao * 10 if _raw_qiao < 100000 else _raw_qiao
-            min_rise_after = params.get("min_rise_after_qiao")
-            require_high_sentiment = params.get("require_high_sentiment")
+            min_rise_after = params.get("min_rise_after_qiao") or STRATEGY_CONFIGS["limit_down_qiao"]["params"]["min_rise_after_qiao"]
+            require_high_sentiment = params.get("require_high_sentiment") if params.get("require_high_sentiment") is not None else STRATEGY_CONFIGS["limit_down_qiao"]["params"]["require_high_sentiment"]
             await self.log(f"   │        • 最小连续跌停: {min_consecutive}天")
-            _raw_turnover_qiao = params.get('min_turnover_rate')
+            _raw_turnover_qiao = params.get('min_turnover_rate') or STRATEGY_CONFIGS["limit_down_qiao"]["params"].get('min_turnover_rate', 10.0)
             _turnover_display = _raw_turnover_qiao * 100 if _raw_turnover_qiao < 1 else _raw_turnover_qiao
             await self.log(f"   │        • 换手率要求: ≥ {_turnover_display:.0f}%")
             await self.log(f"   │        • 最小翘板金额: {_raw_qiao}万元={min_qiao_amount}千元")
@@ -2751,10 +2751,10 @@ class PortfolioBacktester:
             # 【修复#47: min_qiao_amount单位统一为千元(与数据库limit_down_open_amount一致)】
             # 前端传10000(万元),数据库因子是千元,需*1000转换
             # 【P2-C修复：同上单位转换规则】
-            _raw_qiao = converted_params.get("min_qiao_amount")
+            _raw_qiao = converted_params.get("min_qiao_amount") or STRATEGY_CONFIGS["limit_down_qiao"]["params"]["min_qiao_amount"]
             min_qiao_amount = _raw_qiao * 10 if _raw_qiao < 100000 else _raw_qiao
-            min_rise_after = converted_params.get("min_rise_after_qiao")
-            require_high_sentiment = converted_params.get("require_high_sentiment")
+            min_rise_after = converted_params.get("min_rise_after_qiao") or STRATEGY_CONFIGS["limit_down_qiao"]["params"]["min_rise_after_qiao"]
+            require_high_sentiment = converted_params.get("require_high_sentiment") if converted_params.get("require_high_sentiment") is not None else STRATEGY_CONFIGS["limit_down_qiao"]["params"]["require_high_sentiment"]
             require_sentiment = converted_params.get("require_sentiment_period", ["rising", "chaos"])
             min_turnover_qiao = converted_params.get("min_turnover_rate", 10.0)
             # 【修复：min_turnover_rate前端可能传小数(0.10=10%)，需转换】
