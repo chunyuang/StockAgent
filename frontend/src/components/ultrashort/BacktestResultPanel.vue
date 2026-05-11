@@ -466,6 +466,13 @@ function exportTrades() {
         <ElTableColumn label="盈亏比" width="80">
           <template #default="{ row }">{{ (row.total_pnl_pct ?? 0).toFixed(2) }}%</template>
         </ElTableColumn>
+        <ElTableColumn label="状态" min-width="200">
+          <template #default="{ row }">
+            <span v-if="row.warning" style="color: #e6a23c; font-size: 12px">⚠️ {{ row.warning }}</span>
+            <span v-else-if="row.trades_count > 0" style="color: #67c23a; font-size: 12px">✅ 正常</span>
+            <span v-else style="color: #909399; font-size: 12px">无交易</span>
+          </template>
+        </ElTableColumn>
       </ElTable>
     </ElCard>
 
