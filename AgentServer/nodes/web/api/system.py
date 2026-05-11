@@ -18,7 +18,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 
 from core.managers import mongo_manager
-from .auth import get_current_user_id, get_current_user, require_admin
+from .auth import get_optional_user_id as get_current_user_id
 
 
 
@@ -560,7 +560,7 @@ async def get_log_config() -> Dict[str, Any]:
 @router.post("/save-log-config")
 async def save_log_config(
     config: Dict[str, Any],
-    _ = Depends(require_admin)
+    user_id: str = Depends(get_current_user_id)
 ) -> Dict[str, Any]:
     """保存日志配置"""
     try:

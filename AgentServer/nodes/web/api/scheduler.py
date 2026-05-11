@@ -67,33 +67,70 @@ _scheduler_lock = asyncio.Lock()
 
 
 async def get_scheduler() -> Any:
-    """获取或创建 DailyScheduler 单例"""
+    """获取调度器实例(回测模式下返回占位对象)"""
     global _scheduler_instance
     async with _scheduler_lock:
-        if _scheduler_instance is None:
-            try:
-                # 确保daily_scheduler模块可导入
-                import sys, os
-                real_trading_dir = os.path.join(
-                    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
-                    'real_trading'
-                )
-                if real_trading_dir not in sys.path and os.path.isdir(real_trading_dir):
-                    sys.path.insert(0, real_trading_dir)
-                
-                from daily_scheduler import DailyScheduler
-                _scheduler_instance = DailyScheduler()
-            except ImportError as e:
-                logger.error(f"DailyScheduler 模块不可用: {e}")
-                raise HTTPException(
-                    status_code=503,
-                    detail=f"调度器模块不可用，请确认 real_trading 模块已安装: {str(e)}"
-                )
-            except Exception as e:
-                logger.error(f"DailyScheduler 初始化失败: {e}")
-                raise HTTPException(status_code=500, detail=f"调度器初始化失败: {str(e)}")
-        return _scheduler_instance
+        if _scheduler_instance is not None:
+            return _scheduler_instance
+        try:
+            from nodes.scheduler.daily_scheduler import DailyScheduler
+            _scheduler_instance = DailyScheduler()
+            logger.info("DailyScheduler(实盘调度)加载成功")
+            return _scheduler_instance
+        except ImportError:
+            pass
+        try:
+            from daily_scheduler import DailyScheduler
+            _scheduler_instance = DailyScheduler()
+            return _scheduler_instance
+        except ImportError:
+            logger.info("DailyScheduler未安装, 使用回测模式占位")
+            _scheduler_instance = _StubScheduler()
+            return _scheduler_instance
+        except Exception as e:
+            logger.error(f"DailyScheduler初始化失败: {e}")
+            raise HTTPException(status_code=500, detail=f"调度器初始化失败: {str(e)}")
 
+
+class _StubScheduler:
+    """调度器占位: 回测模式不需要实盘调度"""
+    is_stub = True
+    
+    async def run_premarket(self, trade_date):
+        return {"success": False, "steps": [], "errors": ["回测模式: 调度器未安装"], "message": "请使用交易信号页面手动生成信号"}
+    
+    async def run_intraday(self, trade_date):
+        return {"success": False, "steps": [], "errors": ["回测模式: 调度器未安装"], "message": "请使用今日持仓页面查看持仓"}
+    
+    async def run_postmarket(self, trade_date):
+        return {"success": False, "steps": [], "errors": ["回测模式: 调度器未安装"], "message": "请使用绩效报告页面查看报告"}
+    
+    async def run_full_day(self, trade_date):
+        return {"success": False, "steps": [], "errors": ["回测模式: 调度器未安装"], "message": "回测模式不支持全天调度"}
+    
+    async def start(self):
+        return {"success": True, "message": "回测模式: 调度器占位启动"}
+    
+    async def stop(self):
+        return {"success": True, "message": "回测模式: 调度器占位停止"}
+    
+    def get_status(self):
+        return {"is_running": False, "mode": "backtest", "message": "回测模式, 无实盘调度"}
+    
+    @property
+    def account_id(self):
+        return "backtest_mode"
+    
+    SCHEDULE_TIMES = {}
+    
+    def get_data_alerts(self, severity=None):
+        return []
+    
+    def clear_data_alerts(self, before_date=None):
+        pass
+    
+    def get_schedule_history(self, days=7):
+        return []
 
 def reset_scheduler():
     """重置调度器单例（测试用）"""
@@ -164,6 +201,9 @@ async def start_scheduler(req: SchedulerStartRequest = None):
                 from daily_scheduler import DailyScheduler
                 config = req.config or {}
                 _scheduler_instance = DailyScheduler(account_id=req.account_id, config=config)
+                scheduler = _scheduler_instance
+            except ImportError:
+                _scheduler_instance = _StubScheduler()
                 scheduler = _scheduler_instance
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"调度器重建失败: {str(e)}")

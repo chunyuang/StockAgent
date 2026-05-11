@@ -102,7 +102,6 @@ class SimulatorExecutor(BaseExecutor):
                 pos.cost_price = new_cost
             else:
                 # 新建持仓
-                from datetime import datetime
                 pos = Position(
                     ts_code=ts_code,
                     shares=shares,

@@ -7,6 +7,7 @@
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 from enum import Enum
+from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
 
 from pydantic import BaseModel, Field, root_validator
 
@@ -113,13 +114,14 @@ class FactorSelectionRequest(BaseModel):
 class UltraShortParams(BaseModel):
     """超短策略参数配置"""
     volume_threshold: float = Field(default=1.5, ge=1.0, le=10.0, description="量能放大倍数")
-    stop_loss_pct: float = Field(default=0.02, ge=0.01, le=0.2, description="止损比例(超短严格止损2%)")
-    take_profit_pct: float = Field(default=0.07, ge=0.01, le=0.5, description="止盈比例(超短快进快出7%)")
-    max_hold_days: int = Field(default=3, ge=1, le=10, description="最大持仓天数")
+    stop_loss_pct: float = Field(default=GLOBAL_RISK["stop_loss_pct"], ge=0.01, le=0.2, description="止损比例")
+    take_profit_pct: float = Field(default=GLOBAL_RISK["take_profit_pct"], ge=0.01, le=0.5, description="止盈比例")
+    max_hold_days: int = Field(default=GLOBAL_RISK["max_hold_days"], ge=1, le=10, description="最大持仓天数")
     max_position: float = Field(default=0.7, ge=0.1, le=1.0, description="总仓位上限")
     commission_rate: float = Field(default=0.0003, ge=0.0001, le=0.003, description="综合佣金率(万3)")
     stamp_duty_rate: float = Field(default=0.001, ge=0.0005, le=0.005, description="印花税率(千1)")
-    slippage_pct: float = Field(default=0.002, ge=0.0, le=0.01, description="滑点比例(0.2%)")
+    slippage_pct: float = Field(default=GLOBAL_RISK["slippage_pct"], ge=0.0, le=0.01, description="滑点比例")
+
     liquidity_threshold: float = Field(default=500.0, ge=100.0, le=5000.0, description="流动性门槛（万元）")
     max_position_per_stock: float = Field(default=0.2, ge=0.05, le=1.0, description="单票最大仓位比例(20%分散风险)")
     enable_stop_loss: bool = Field(default=True, description="是否启用止损")
@@ -175,15 +177,20 @@ class UltraShortBacktestRequest(BaseModel):
         if selected_strategies and not strategies:
             strategies = []
             strategy_params = values.get('strategy_params', {})
+            strategy_risk_params = values.get('strategy_risk_params', {})
             for s in selected_strategies:
                 s_name = s.get('name', '')
                 s_params = s.get('params', {})
+                s_risk_params = s.get('riskParams', {})  # 🔧 保留策略级风控参数
                 if s_name in strategy_name_map:
                     s_id = strategy_name_map[s_name]
                     strategies.append(s_id)
                     strategy_params[s_id] = s_params
+                    if s_risk_params:
+                        strategy_risk_params[s_id] = s_risk_params
             values['strategies'] = strategies
             values['strategy_params'] = strategy_params
+            values['strategy_risk_params'] = strategy_risk_params
 
         # 兼容start_date/end_date在params里的情况
         params = values.get('params')
@@ -237,9 +244,9 @@ class UltraShortBacktestRequest(BaseModel):
                 "params": {
                     "liquidity_threshold": 500,
                     "volume_threshold": 1.5,
-                    "stop_loss_pct": 0.02,
-                    "take_profit_pct": 0.07,
-                    "max_hold_days": 3,
+                    "stop_loss_pct": GLOBAL_RISK["stop_loss_pct"],
+                    "take_profit_pct": GLOBAL_RISK["take_profit_pct"],
+                    "max_hold_days": GLOBAL_RISK["max_hold_days"],
                     "max_position_per_stock": 0.2,
                     "max_position": 0.7,
                 },
