@@ -105,8 +105,9 @@ def write_daily_bar(trade_date=None):
     # 检查已有
     existing = db.stock_daily_ak_full.count_documents({"trade_date": trade_date})
     if existing > 100:
-        db.stock_daily_ak_full.delete_many({"trade_date": trade_date})
-        print(f"删除已有 {existing} 条, 重新写入")
+        # 只有成功拉到数据时才删除旧数据
+        # db.stock_daily_ak_full.delete_many({"trade_date": trade_date})
+        # print(f"删除已有 {existing} 条, 重新写入")
     
     updates = []
     for item in all_data:
