@@ -658,7 +658,7 @@ async def get_data_status() -> Dict[str, Any]:
             'technical': ['ma5', 'ma10', 'ma20', 'ma60', 'ema12', 'macd', 'rsi_6', 'boll_upper', 'atr', 'volatility_5d'],
             'volume': ['turnover_rate', 'volume_ratio', 'circ_mv', 'total_mv'],
             'limit': ['is_limit_up', 'is_limit_down', 'first_limit_up', 'limit_up_count', 'limit_up_amount'],
-            'sentiment': ['sentiment_score', 'fear_greed_index', 'opening_pct_chg'],
+            'sentiment': ['fear_greed_index', 'sentiment_score', 'opening_pct_chg'],
             'basic': ['pct_chg', 'pre_close'],
         }
         for d in sorted(days):
