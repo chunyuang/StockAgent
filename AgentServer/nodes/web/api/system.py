@@ -627,6 +627,72 @@ _GIT_BRANCH = get_git_branch()
 _BUILD_TIME = get_build_time()
 
 
+@router.get("/data-status")
+async def get_data_status() -> Dict[str, Any]:
+    """获取数据层状态：各集合记录数、因子覆盖率、最新数据日期"""
+    try:
+        from pymongo import MongoClient as SyncClient
+        from core.settings import settings as app_settings
+        client = SyncClient(app_settings.mongo.host, app_settings.mongo.port)
+        db = client[app_settings.mongo.database]
+
+        # 集合记录数
+        collections = {}
+        for name in ['stock_daily_ak_full', 'daily_basic', 'index_daily', 'limit_list', 'limit_pool_down', 'backtest_tasks']:
+            try:
+                collections[name] = db[name].count_documents({})
+            except:
+                collections[name] = 0
+
+        # 每日因子覆盖率(最近30天)
+        daily_coverage = []
+        days = sorted(db.stock_daily_ak_full.distinct('trade_date'), reverse=True)[:30]
+        factor_groups = {
+            'technical': ['ma5', 'ma10', 'ma20', 'ma60', 'ema12', 'macd', 'rsi_6', 'boll_upper', 'atr', 'volatility_5d'],
+            'volume': ['turnover_rate', 'volume_ratio', 'circ_mv', 'total_mv'],
+            'limit': ['is_limit_up', 'is_limit_down', 'first_limit_up', 'limit_up_count', 'limit_up_amount'],
+            'sentiment': ['sentiment_score', 'fear_greed_index', 'opening_pct_chg'],
+            'basic': ['pct_chg', 'pre_close'],
+        }
+        for d in sorted(days):
+            total = db.stock_daily_ak_full.count_documents({'trade_date': d})
+            if total == 0:
+                continue
+            # 抽样检查5个因子组的覆盖率
+            group_rates = {}
+            for gname, factors in factor_groups.items():
+                has = db.stock_daily_ak_full.count_documents({'trade_date': d, factors[0]: {'$exists': True, '$ne': 0}})
+                group_rates[gname] = round(has / total * 100, 1)
+            # 总体覆盖率(5组平均)
+            avg_rate = round(sum(group_rates.values()) / len(group_rates), 1)
+            daily_coverage.append({
+                'date': str(d),
+                'total': total,
+                'factor_rate': avg_rate,
+                'groups': group_rates,
+            })
+
+        # 最新数据日期
+        last_daily = list(db.stock_daily_ak_full.find({}, {'trade_date': 1}).sort('trade_date', -1).limit(1))
+        last_basic = list(db.daily_basic.find({}, {'trade_date': 1}).sort('trade_date', -1).limit(1))
+        client.close()
+
+        return {
+            "success": True,
+            "data": {
+                "collections": collections,
+                "daily_coverage": daily_coverage,
+                "latest": {
+                    "stock_daily": str(last_daily[0]['trade_date']) if last_daily else None,
+                    "daily_basic": str(last_basic[0]['trade_date']) if last_basic else None,
+                },
+                "factor_groups": {k: len(v) for k, v in factor_groups.items()},
+            }
+        }
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
 @router.get("/version")
 async def get_version() -> Dict[str, Any]:
     """

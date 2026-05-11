@@ -11,6 +11,7 @@ import AnsiLogPanel from '@/components/backtest/AnsiLogPanel.vue'
 import BacktestSummaryTable from '@/components/backtest/BacktestSummaryTable.vue'
 import BacktestResultPanel from '@/components/ultrashort/BacktestResultPanel.vue'
 import BacktestHistoryPanel from '@/components/backtest/BacktestHistoryPanel.vue'
+import DataStatusPanel from '@/components/ultrashort/DataStatusPanel.vue'
 
 import { GLOBAL_RISK, STRATEGY_CONFIGS } from '@/config/strategyDefaults'
 
@@ -472,6 +473,9 @@ function onViewLogs(taskId: string) {
         📊 回测历史
         <span class="tab-badge">{{ historyCount }}</span>
       </button>
+      <button :class="['tab-btn', activeMainTab === 'data' ? 'active' : '']" @click="activeMainTab = 'data'">
+        🗄️ 数据状态
+      </button>
     </div>
 
     <!-- Tab内容：新建回测 -->
@@ -503,6 +507,11 @@ function onViewLogs(taskId: string) {
         @view-logs="onViewLogs"
         @reuse-params="onReuseParams"
       />
+    </div>
+
+    <!-- Tab内容：数据状态 -->
+    <div v-show="activeMainTab === 'data'">
+      <DataStatusPanel />
     </div>
 
     <!-- 日志面板（跨Tab共享） -->
