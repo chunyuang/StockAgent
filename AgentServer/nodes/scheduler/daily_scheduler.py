@@ -58,6 +58,9 @@ class DailyScheduler:
         self._current_phase = "idle"
         self._task: Optional[asyncio.Task] = None
 
+        # 执行器(模拟盘)
+        self._executor = None
+
         # 量脉客户端(延迟初始化)
         self._liangmai = None
 
@@ -174,7 +177,21 @@ class DailyScheduler:
         step.duration_ms = int((datetime.now() - t0).total_seconds() * 1000)
         result.steps.append(step)
 
-        # Step 3: 推送
+        # Step 3: 执行买入(模拟盘)
+        step = ScheduleStep(name="execute_buy")
+        t0 = datetime.now()
+        try:
+            executed = await self._execute_signals(self._signals, trade_date)
+            step.success = True
+            step.data = {"executed_count": len(executed)}
+            step.message = f"执行{len(executed)}笔买入"
+        except Exception as e:
+            step.message = f"失败: {e}"
+            result.errors.append(step.message)
+        step.duration_ms = int((datetime.now() - t0).total_seconds() * 1000)
+        result.steps.append(step)
+
+        # Step 4: 推送
         step = ScheduleStep(name="push_signals")
         t0 = datetime.now()
         try:
@@ -281,8 +298,15 @@ class DailyScheduler:
     # ==================== 核心实现 ====================
 
     async def _update_daily_data(self, trade_date: str):
-        """调东方财富脚本更新日线+估值"""
+        """调东方财富脚本更新当日日线+估值(仅当天)"""
         import subprocess
+        today = datetime.now().strftime("%Y%m%d")
+        
+        # 仅更新当天数据, 历史日期跳过
+        if trade_date != today:
+            logger.info(f"[DATA] {trade_date}为历史日期, 跳过数据更新")
+            return
+        
         scripts_dir = os.path.join(
             os.path.dirname(os.path.dirname(os.path.dirname(
                 os.path.abspath(__file__)))), 'scripts')
@@ -362,13 +386,25 @@ class DailyScheduler:
 
             selected = factor_df[mask]
             for _, row in selected.iterrows():
+                ts_code_val = row.get('ts_code', '')
+                # 从MongoDB获取收盘价
+                close_price = 0
+                if ts_code_val:
+                    try:
+                        price_doc = await mongo_manager.db['stock_daily_ak_full'].find_one(
+                            {'ts_code': ts_code_val, 'trade_date': int(trade_date)},
+                            {'close': 1, '_id': 0}
+                        )
+                        close_price = price_doc.get('close', 0) if price_doc else 0
+                    except:
+                        pass
                 signals.append({
                     "ts_code": row.get("ts_code", ""),
                     "strategy": strategy_key,
                     "strategy_name": strategy_name,
                     "signal_type": "buy",
                     "confidence": 0.8,
-                    "price": row.get("close", 0),
+                    "price": close_price,
                     "trade_date": trade_date,
                     "reason": f"{strategy_name}筛选",
                 })
@@ -400,14 +436,87 @@ class DailyScheduler:
             return None
 
     async def _check_stop_loss_take_profit(self, trade_date: str) -> List[Dict]:
-        """止损止盈检查"""
+        """止损止盈检查(模拟盘)"""
+        from nodes.listener.execution.simulator_executor import SimulatorExecutor
+        
+        if not self._executor:
+            self._executor = SimulatorExecutor(initial_cash=1000000.0)
+            await self._executor.connect()
+        
+        # 更新价格
+        await self._executor.update_current_prices()
+        
         alerts = []
-        # TODO: 从sim_accounts加载持仓, 计算盈亏
+        positions = await self._executor.get_position()
+        
+        for pos in positions:
+            # 止损: -3% (默认)
+            if pos.profit_pct <= -3.0:
+                try:
+                    await self._executor.send_order(
+                        ts_code=pos.ts_code,
+                        direction="sell",
+                        shares=pos.shares,
+                        price=pos.current_price,
+                    )
+                    alerts.append({
+                        "ts_code": pos.ts_code,
+                        "type": "stop_loss",
+                        "profit_pct": pos.profit_pct,
+                        "action": "已卖出",
+                    })
+                    logger.info(f"[RISK] 止损卖出 {pos.ts_code} 亏损{pos.profit_pct:.1f}%")
+                except Exception as e:
+                    logger.error(f"[RISK] 止损卖出失败 {pos.ts_code}: {e}")
+            
+            # 止盈: +7% (默认)
+            elif pos.profit_pct >= 7.0:
+                try:
+                    await self._executor.send_order(
+                        ts_code=pos.ts_code,
+                        direction="sell",
+                        shares=pos.shares,
+                        price=pos.current_price,
+                    )
+                    alerts.append({
+                        "ts_code": pos.ts_code,
+                        "type": "take_profit",
+                        "profit_pct": pos.profit_pct,
+                        "action": "已卖出",
+                    })
+                    logger.info(f"[RISK] 止盈卖出 {pos.ts_code} 盈利{pos.profit_pct:.1f}%")
+                except Exception as e:
+                    logger.error(f"[RISK] 止盈卖出失败 {pos.ts_code}: {e}")
+        
+        # 更新持仓状态
+        self._positions = {p.ts_code: {"shares": p.shares, "cost": p.cost_price, "current": p.current_price} 
+                          for p in await self._executor.get_position()}
+        
         return alerts
 
     async def _calc_daily_performance(self, trade_date: str) -> Dict:
-        """今日绩效"""
-        return {"daily_return": "N/A", "positions": len(self._positions)}
+        """今日绩效(模拟盘)"""
+        from nodes.listener.execution.simulator_executor import SimulatorExecutor
+        
+        if not self._executor:
+            self._executor = SimulatorExecutor(initial_cash=1000000.0)
+            await self._executor.connect()
+        
+        await self._executor.update_current_prices()
+        account = await self._executor.get_account()
+        positions = await self._executor.get_position()
+        
+        if account:
+            daily_return = (account.total_asset - 1000000) / 1000000 * 100  # 相对初始资金
+            return {
+                "daily_return": f"{daily_return:.2f}%",
+                "total_assets": f"{account.total_asset:,.0f}",
+                "cash": f"{account.available_cash:,.0f}",
+                "positions": len(positions),
+                "signals_today": len(self._signals),
+                "alerts_today": len(self._alerts),
+            }
+        return {"daily_return": "N/A", "positions": len(positions)}
 
     async def _push_signals_to_feishu(self, signals: List[Dict], trade_date: str):
         """推送飞书"""
@@ -415,6 +524,55 @@ class DailyScheduler:
             return
         # TODO: 飞书webhook推送
         logger.info(f"[PUSH] {len(signals)}个信号(飞书待配置)")
+
+    async def _execute_signals(self, signals: List[Dict], trade_date: str) -> List[Dict]:
+        """执行信号(模拟盘)"""
+        from nodes.listener.execution.simulator_executor import SimulatorExecutor
+        
+        if not self._executor:
+            self._executor = SimulatorExecutor(initial_cash=1000000.0)
+            await self._executor.connect()
+        
+        executed = []
+        for sig in signals:
+            try:
+                ts_code = sig["ts_code"]
+                # 计算买入量(单票最大20%仓位, 总仓位上限70%)
+                price = sig.get("price", 0)
+                if price <= 0:
+                    continue
+                account = await self._executor.get_account()
+                if not account:
+                    continue
+                
+                # 总仓位检查
+                if account.market_value / account.total_asset > 0.7:
+                    break  # 已超70%总仓位, 停止买入
+                
+                max_amount = account.available_cash * 0.5  # 用剩余现金的50%
+                shares = int(max_amount / price / 100) * 100  # 整手
+                if shares <= 0:
+                    continue
+                
+                order = await self._executor.send_order(
+                    ts_code=ts_code,
+                    direction="buy",
+                    shares=shares,
+                    price=price,
+                )
+                if order and order.status.value in ("filled", "partial"):
+                    executed.append({
+                        "ts_code": ts_code,
+                        "strategy": sig["strategy"],
+                        "shares": shares,
+                        "price": price,
+                        "order_id": order.order_id,
+                    })
+                    logger.info(f"[EXEC] 买入 {ts_code} {shares}股@{price}")
+            except Exception as e:
+                logger.error(f"[EXEC] 执行失败 {sig['ts_code']}: {e}")
+        
+        return executed
 
     async def _push_daily_report(self, trade_date: str):
         """推送日报"""
