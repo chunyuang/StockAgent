@@ -226,6 +226,15 @@ onMounted(async () => {
   if (!loaded) addLog('✅ 使用本地硬编码默认参数（config.ini和后端API获取都失败）')
   addLog('✅ 超短策略回测V2.0系统加载完成')
   addLog('💡 所有实盘级功能默认开启，可直接运行回测')
+
+  // 获取回测历史数量
+  try {
+    const res = await fetch('/api/v1/backtest/ultra-short/history')
+    if (res.ok) {
+      const data = await res.json()
+      historyCount.value = data.total || 0
+    }
+  } catch {}
 })
 
 // ==================== 方法 ====================
@@ -400,6 +409,7 @@ const addLog = (text: string) => {
 // ==================== 历史回测操作 ====================
 
 const activeMainTab = ref<'config' | 'history'>('config')
+const historyCount = ref(0)
 
 /** 从历史回测复用参数 */
 function onReuseParams(task: BacktestHistoryItem) {
@@ -460,7 +470,7 @@ function onViewLogs(taskId: string) {
       </button>
       <button :class="['tab-btn', activeMainTab === 'history' ? 'active' : '']" @click="activeMainTab = 'history'">
         📊 回测历史
-        <span class="tab-badge">74</span>
+        <span class="tab-badge">{{ historyCount }}</span>
       </button>
     </div>
 
