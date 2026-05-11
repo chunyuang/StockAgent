@@ -1,20 +1,69 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { ElCard, ElTable, ElTableColumn, ElButton, ElMessage, ElTag, ElSpace, ElSwitch, ElMessageBox } from 'element-plus'
-import { Bell, RefreshRight, Check } from '@element-plus/icons-vue'
+/**
+ * TradingSignalsView - 交易信号页面
+ * 合并: 交易信号 + 今日预选池
+ * Tab1: 全部信号(含执行操作)
+ * Tab2: 今日预选(信号生成+导出)
+ */
+import { ref, onMounted, computed } from 'vue'
+import { ElCard, ElTable, ElTableColumn, ElButton, ElMessage, ElTag, ElSpace, ElSwitch, ElMessageBox, ElTabs, ElTabPane, ElStatistic } from 'element-plus'
+import { Bell, RefreshRight, Check, Download, Opportunity } from '@element-plus/icons-vue'
 import { tradingApi, type TradingSignal } from '@/api'
 
-// 状态
+const activeTab = ref('pool')
 const signals = ref<TradingSignal[]>([])
 const loading = ref(false)
-const onlyUnexecuted = ref(false)
+const onlyUnexecuted = ref(true)
+const tradeDate = ref('')
 
-// 加载信号列表
-async function loadSignals() {
+const strategyNameMap: Record<string, string> = {
+  halfway_chase: '半路追涨', first_limit_up: '首板打板',
+  limit_up_open: '涨停开板', leader_buy_dip: '龙头低吸', limit_down_qiao: '跌停翘板',
+}
+
+// 今日预选统计
+const poolStats = computed(() => {
+  const today = signals.value
+  return {
+    total: today.length,
+    buy: today.filter(s => s.signal_type === 'buy').length,
+    strategies: [...new Set(today.map(s => s.strategy))].length,
+    avgConfidence: today.length ? (today.reduce((a, s) => a + s.confidence, 0) / today.length * 100).toFixed(1) + '%' : '-',
+  }
+})
+
+/** 获取今日日期字符串 */
+function getTodayStr() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/** 加载预选池数据 */
+async function loadPool() {
+  try {
+    loading.value = true
+    const res = await tradingApi.getTodayPool(200)
+    signals.value = res.items || []
+    if (signals.value.length > 0 && signals.value[0].generated_at) {
+      const d = new Date(signals.value[0].generated_at)
+      tradeDate.value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    } else {
+      tradeDate.value = getTodayStr()
+    }
+  } catch (e: any) {
+    ElMessage.error(`加载失败: ${e.message || '未知错误'}`)
+    tradeDate.value = getTodayStr()
+  } finally {
+    loading.value = false
+  }
+}
+
+/** 加载全部信号 */
+async function loadAllSignals() {
   try {
     loading.value = true
     const res = await tradingApi.getTradingSignals(50, 0, onlyUnexecuted.value)
-    signals.value = res.items
+    signals.value = res.items || res || []
   } catch (e: any) {
     ElMessage.error(`加载信号失败: ${e.message || '未知错误'}`)
   } finally {
@@ -22,136 +71,132 @@ async function loadSignals() {
   }
 }
 
-// 执行信号
-async function executeSignal(signal: TradingSignal) {
+/** 手动触发信号生成 */
+async function handleGenerate() {
   try {
-    await ElMessageBox.confirm(
-      `确认执行信号：${signal.stock_name}(${signal.ts_code}) ${signal.signal_type === 'buy' ? '买入' : '卖出'} ${signal.suggest_quantity}股，价格 ${signal.price.toFixed(2)}元？`,
-      '执行交易信号',
-      { confirmButtonText: '确认执行', cancelButtonText: '取消', type: 'warning' }
-    )
-    
-    // 这里应该让用户选择账户，暂时用默认账户
-    await tradingApi.executeSignal(signal.signal_id, 'default_account', signal.suggest_quantity)
-    ElMessage.success('信号执行成功')
-    loadSignals()
-  } catch {
-    // 取消不提示
-  }
-}
-
-// 手动触发信号生成
-async function triggerGenerate() {
-  try {
-    await ElMessageBox.confirm(
-      '确认手动触发今日交易信号生成？会覆盖今日已生成的信号。',
-      '生成交易信号',
-      { confirmButtonText: '确认生成', cancelButtonText: '取消', type: 'warning' }
-    )
-    
     const res = await tradingApi.triggerSignalGeneration()
-    ElMessage.success(`信号生成完成，共生成 ${res.signal_count} 个信号`)
-    loadSignals()
-  } catch {
-    // 取消不提示
+    ElMessage.success(`信号生成完成，共 ${res.signal_count} 个信号`)
+    await loadPool()
+  } catch (e: any) {
+    ElMessage.error(`信号生成失败: ${e.message || '未知错误'}`)
   }
 }
 
-// 信号类型颜色
-function getSignalTypeColor(type: string): 'success' | 'danger' | 'info' {
-  switch (type) {
-    case 'buy': return 'success'
-    case 'sell': return 'danger'
-    default: return 'info'
+/** 执行信号 */
+async function handleExecute(signal: TradingSignal) {
+  try {
+    await tradingApi.executeSignal(signal.signal_id, 'default_account', signal.suggest_quantity)
+    ElMessage.success(`${signal.stock_name} 信号已执行`)
+    loadAllSignals()
+  } catch (e: any) {
+    ElMessage.error(`执行失败: ${e.message || '未知错误'}`)
   }
 }
 
-// 信号类型文本
-function getSignalTypeText(type: string): string {
-  switch (type) {
-    case 'buy': return '买入'
-    case 'sell': return '卖出'
-    default: return '持有'
-  }
+/** 导出CSV */
+function handleExport() {
+  if (!signals.value.length) { ElMessage.warning('暂无数据'); return }
+  const headers = ['股票代码', '股票名称', '策略', '信号类型', '价格', '置信度', '建议数量', '状态']
+  const typeMap: Record<string, string> = { buy: '买入', sell: '卖出', hold: '持有' }
+  const rows = signals.value.map(s => [
+    s.ts_code, s.stock_name, strategyNameMap[s.strategy] || s.strategy,
+    typeMap[s.signal_type] || s.signal_type, s.price?.toFixed(2) || '',
+    (s.confidence * 100).toFixed(1) + '%', String(s.suggest_quantity),
+    s.executed ? '已执行' : '待执行',
+  ])
+  const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' })
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(blob)
+  link.download = `预选池_${tradeDate.value}.csv`
+  link.click()
 }
 
-// 置信度颜色
-function getConfidenceColor(confidence: number): 'success' | 'warning' | 'info' {
-  if (confidence >= 0.8) return 'success'
-  if (confidence >= 0.6) return 'warning'
-  return 'info'
-}
-
-onMounted(() => {
-  loadSignals()
-})
+onMounted(() => { loadPool() })
 </script>
 
 <template>
-  <div class="trading-signals-page p-6 space-y-6">
-    <div class="flex items-center justify-between">
-      <h1 class="text-2xl font-bold">交易信号</h1>
+  <div class="trading-signals-page">
+    <div class="page-header">
+      <h2>🎯 交易信号</h2>
       <ElSpace>
-        <ElSwitch
-          v-model="onlyUnexecuted"
-          @change="loadSignals"
-          active-text="仅看未执行"
-          inactive-text="全部信号"
-        />
-        <ElButton :icon="RefreshRight" @click="loadSignals">刷新</ElButton>
-        <ElButton type="primary" :icon="Bell" @click="triggerGenerate">生成今日信号</ElButton>
+        <ElButton size="small" @click="activeTab === 'pool' ? loadPool() : loadAllSignals()" :loading="loading" :icon="RefreshRight">刷新</ElButton>
+        <ElButton size="small" type="primary" @click="handleGenerate" :loading="loading">生成今日信号</ElButton>
+        <ElButton size="small" @click="handleExport" :disabled="!signals.length" :icon="Download">导出</ElButton>
       </ElSpace>
     </div>
 
-    <!-- 信号列表 -->
-    <ElCard v-loading="loading">
-      <ElTable :data="signals" border stripe>
-        <ElTableColumn prop="generated_at" label="生成时间" width="160" />
-        <ElTableColumn prop="stock_name" label="股票名称" width="120" />
-        <ElTableColumn prop="ts_code" label="股票代码" width="120" />
-        <ElTableColumn prop="strategy" label="策略来源" width="120" />
-        <ElTableColumn label="信号类型" width="100">
-          <template #default="{ row }">
-            <ElTag :type="getSignalTypeColor(row.signal_type)">
-              {{ getSignalTypeText(row.signal_type) }}
-            </ElTag>
-          </template>
-        </ElTableColumn>
-        <ElTableColumn prop="price" label="信号价格" width="100" />
-        <ElTableColumn prop="suggest_quantity" label="建议数量" width="100" />
-        <ElTableColumn label="置信度" width="100">
-          <template #default="{ row }">
-            <ElTag :type="getConfidenceColor(row.confidence)">
-              {{ (row.confidence * 100).toFixed(0) }}%
-            </ElTag>
-          </template>
-        </ElTableColumn>
-        <ElTableColumn label="状态" width="100">
-          <template #default="{ row }">
-            <ElTag :type="row.executed ? 'info' : 'warning'">
-              {{ row.executed ? '已执行' : '待执行' }}
-            </ElTag>
-          </template>
-        </ElTableColumn>
-        <ElTableColumn prop="expired_at" label="过期时间" width="160" />
-        <ElTableColumn prop="reason" label="信号原因" min-width="250" />
-        <ElTableColumn label="操作" width="120" fixed="right" v-if="!onlyUnexecuted">
-          <template #default="{ row }">
-            <ElButton
-              v-if="!row.executed && row.signal_type !== 'hold'"
-              type="primary"
-              size="small"
-              :icon="Check"
-              @click="executeSignal(row)"
-            >
-              执行
-            </ElButton>
-          </template>
-        </ElTableColumn>
-      </ElTable>
-    </ElCard>
+    <ElTabs v-model="activeTab" type="border-card" @tab-change="(t: string) => t === 'pool' ? loadPool() : loadAllSignals()">
+      <!-- Tab1: 今日预选池 -->
+      <ElTabPane name="pool">
+        <template #label><span>📋 今日预选 <ElTag size="small" type="primary" style="margin-left:4px">{{ poolStats.total }}</ElTag></span></template>
+        <!-- 概览 -->
+        <div class="pool-stats" v-if="signals.length">
+          <ElStatistic title="买入信号" :value="poolStats.buy" />
+          <ElStatistic title="覆盖策略" :value="poolStats.strategies" />
+          <ElStatistic title="平均置信度" :value="poolStats.avgConfidence" />
+        </div>
+        <ElTable :data="signals" size="small" border stripe v-loading="loading" style="margin-top:12px" empty-text="暂无信号，点击「生成今日信号」">
+          <ElTableColumn prop="stock_name" label="股票" width="120" />
+          <ElTableColumn prop="ts_code" label="代码" width="110" />
+          <ElTableColumn label="策略" width="100">
+            <template #default="{ row }">{{ strategyNameMap[row.strategy] || row.strategy }}</template>
+          </ElTableColumn>
+          <ElTableColumn label="类型" width="80">
+            <template #default="{ row }"><ElTag :type="row.signal_type === 'buy' ? 'danger' : 'success'" size="small">{{ row.signal_type === 'buy' ? '买入' : '卖出' }}</ElTag></template>
+          </ElTableColumn>
+          <ElTableColumn prop="price" label="价格" width="90" />
+          <ElTableColumn label="置信度" width="90">
+            <template #default="{ row }">{{ (row.confidence * 100).toFixed(0) }}%</template>
+          </ElTableColumn>
+          <ElTableColumn prop="suggest_quantity" label="建议量" width="80" />
+          <ElTableColumn label="状态" width="80">
+            <template #default="{ row }"><ElTag :type="row.executed ? 'success' : 'info'" size="small">{{ row.executed ? '已执行' : '待执行' }}</ElTag></template>
+          </ElTableColumn>
+          <ElTableColumn prop="reason" label="推荐理由" min-width="150" show-overflow-tooltip />
+        </ElTable>
+      </ElTabPane>
+
+      <!-- Tab2: 全部信号 -->
+      <ElTabPane name="all">
+        <template #label><span>🔔 全部信号</span></template>
+        <div style="margin-bottom:12px">
+          <ElSwitch v-model="onlyUnexecuted" active-text="仅未执行" @change="loadAllSignals" />
+        </div>
+        <ElTable :data="signals" size="small" border stripe v-loading="loading" empty-text="暂无信号">
+          <ElTableColumn prop="generated_at" label="时间" width="160" />
+          <ElTableColumn prop="stock_name" label="股票" width="120" />
+          <ElTableColumn prop="ts_code" label="代码" width="110" />
+          <ElTableColumn label="策略" width="100">
+            <template #default="{ row }">{{ strategyNameMap[row.strategy] || row.strategy }}</template>
+          </ElTableColumn>
+          <ElTableColumn label="类型" width="80">
+            <template #default="{ row }"><ElTag :type="row.signal_type === 'buy' ? 'danger' : 'success'" size="small">{{ row.signal_type === 'buy' ? '买入' : '卖出' }}</ElTag></template>
+          </ElTableColumn>
+          <ElTableColumn prop="price" label="价格" width="90" />
+          <ElTableColumn prop="suggest_quantity" label="建议量" width="80" />
+          <ElTableColumn label="置信度" width="80">
+            <template #default="{ row }">{{ (row.confidence * 100).toFixed(0) }}%</template>
+          </ElTableColumn>
+          <ElTableColumn label="操作" width="100" fixed="right">
+            <template #default="{ row }">
+              <ElButton v-if="!row.executed" type="primary" size="small" :icon="Check" @click="handleExecute(row)">执行</ElButton>
+              <ElTag v-else type="success" size="small">已执行</ElTag>
+            </template>
+          </ElTableColumn>
+        </ElTable>
+      </ElTabPane>
+    </ElTabs>
   </div>
 </template>
 
-<style scoped lang="scss">
+<script lang="ts">
+export default { name: 'TradingSignalsView' }
+</script>
+
+<style scoped>
+.trading-signals-page { padding: 20px; max-width: 1400px; margin: 0 auto; }
+.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.page-header h2 { font-size: 20px; font-weight: 600; margin: 0; }
+.pool-stats { display: flex; gap: 32px; padding: 12px 0; }
 </style>
