@@ -73,11 +73,18 @@ async def get_scheduler() -> Any:
         if _scheduler_instance is not None:
             return _scheduler_instance
         try:
+            from nodes.scheduler.daily_scheduler import DailyScheduler
+            _scheduler_instance = DailyScheduler()
+            logger.info("DailyScheduler(实盘调度)加载成功")
+            return _scheduler_instance
+        except ImportError:
+            pass
+        try:
             from daily_scheduler import DailyScheduler
             _scheduler_instance = DailyScheduler()
             return _scheduler_instance
         except ImportError:
-            logger.info("daily_scheduler模块未安装, 使用回测模式占位")
+            logger.info("DailyScheduler未安装, 使用回测模式占位")
             _scheduler_instance = _StubScheduler()
             return _scheduler_instance
         except Exception as e:
