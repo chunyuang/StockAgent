@@ -98,7 +98,7 @@ export interface StrategyRiskOverride {
 }
 
 // UserPreferences 从 types.ts 统一导入，避免重复导出冲突
-export type { UserPreferences } from '../types'
+import type { UserPreferences } from '../types'
 
 // ==================== API 函数 ====================
 

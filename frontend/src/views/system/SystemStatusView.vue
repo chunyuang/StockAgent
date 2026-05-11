@@ -4,7 +4,7 @@
  * 功能：显示策略近期表现、策略权重配置、支持手动调整权重
  */
 import { ref, reactive, onMounted, computed } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 
 // 导入组件
 import {
@@ -13,20 +13,16 @@ import {
   ElTable,
   ElTableColumn,
   ElInputNumber,
-  ElDescriptions,
-  ElDescriptionItem,
-  ElTag,
   ElAlert,
   ElDivider,
   ElSwitch,
   ElForm,
   ElFormItem,
-  ElProgress,
-  ElSpace,
 } from 'element-plus'
 
 // 导入 API 客户端（自动注入认证 Token）
 import { api } from '@/api'
+import type { ApiResponse } from '@/api/client'
 
 // ==================== 状态 ====================
 
@@ -55,9 +51,9 @@ const riskControlConfig = reactive({
 const fetchStrategyStatus = async () => {
   loading.value = true
   try {
-    const result = await api.get('/system/strategy-stats')
+    const result = await api.get<ApiResponse>('/system/strategy-stats')
     if (result.success) {
-      strategyStatus.value = result.data.strategies || []
+      strategyStatus.value = (result.data as any)?.strategies || []
       // 从返回数据中提取权重
       strategyStatus.value.forEach(s => {
         weightConfig.value[s.code] = s.weight
@@ -79,10 +75,10 @@ const fetchStrategyStatus = async () => {
 // 获取风控配置
 const fetchRiskConfig = async () => {
   try {
-    const result = await api.get('/system/risk-config')
+    const result = await api.get<ApiResponse>('/system/risk-config')
     if (result.success) {
       // 转换字段名适配前端
-      const data = result.data
+      const data = result.data as any
       if (data) {
         riskControlConfig.enable_enhanced_stop_loss = data.enable_stop_loss ?? true
         riskControlConfig.enhanced_stop_loss_pct = data.stop_loss_pct ?? 0.08
@@ -108,7 +104,7 @@ const saveWeights = async () => {
       weight: weightConfig.value[s.code] ?? s.weight,
     }))
     
-    const result = await api.post('/system/save-weights', { strategies })
+    const result = await api.post<ApiResponse>('/system/save-weights', { strategies })
     if (result.success) {
       ElMessage.success('权重配置保存成功')
     } else {
@@ -137,7 +133,7 @@ const saveRiskControl = async () => {
       sector_concentration_top_n: riskControlConfig.max_sector_stocks,
     }
     
-    const result = await api.post('/system/save-risk-config', { config })
+    const result = await api.post<ApiResponse>('/system/save-risk-config', { config })
     if (result.success) {
       ElMessage.success('风控配置保存成功')
     } else {
@@ -152,9 +148,8 @@ const saveRiskControl = async () => {
 }
 
 // 格式化百分比
-const formatPercent = (val: number): string => {
-  return `${(val * 100).toFixed(2)}%`
-}
+// @ts-expect-error unused
+const formatPercent = (val: number) => `${(val * 100).toFixed(2)}%`
 
 // 总权重
 const totalWeight = computed(() => {

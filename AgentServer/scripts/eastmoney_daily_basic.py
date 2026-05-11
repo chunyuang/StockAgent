@@ -33,23 +33,67 @@ def code_to_ts_code(code_str):
         return f"{code}.SZ"
 
 def fetch_all():
-    """拉全市场快照"""
+    """拉全市场快照，失败时回退datacenter API"""
     all_data = []
-    for pn in range(1, 60):
-        url = 'https://push2.eastmoney.com/api/qt/clist/get'
-        params = {
-            'pn': pn, 'pz': 200, 'po': 1, 'np': 1,
-            'fltt': 2, 'invt': 2, 'fid': 'f3',
-            'fs': 'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048',
-            'fields': 'f2,f3,f8,f9,f10,f12,f14,f20,f21,f23,f26,f115'
+    try:
+        for pn in range(1, 60):
+            url = 'https://push2.eastmoney.com/api/qt/clist/get'
+            params = {
+                'pn': pn, 'pz': 200, 'po': 1, 'np': 1,
+                'fltt': 2, 'invt': 2, 'fid': 'f3',
+                'fs': 'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048',
+                'fields': 'f2,f3,f8,f9,f10,f12,f14,f20,f21,f23,f26,f115'
+            }
+            r = requests.get(url, params=params, timeout=10)
+            d = r.json()
+            diff = d.get('data', {}).get('diff', [])
+            if not diff:
+                break
+            all_data.extend(diff)
+        if all_data:
+            return all_data
+    except Exception as e:
+        print(f"push2 API失败({e}), 尝试datacenter回退...")
+    
+    # 回退: datacenter API (周末/非交易日也可用)
+    try:
+        dc_url = 'https://datacenter-web.eastmoney.com/api/data/v1/get'
+        dc_params = {
+            'reportName': 'RPT_VALUEANALYSIS_DET',
+            'columns': 'ALL',
+            'filter': '',
+            'pageNumber': 1,
+            'pageSize': 6000,
+            'sortTypes': -1,
+            'sortColumns': 'SECURITY_CODE',
+            'source': 'WEB',
+            'client': 'WEB',
         }
-        r = requests.get(url, params=params, timeout=10)
+        r = requests.get(dc_url, params=dc_params, timeout=15)
         d = r.json()
-        diff = d.get('data', {}).get('diff', [])
-        if not diff:
-            break
-        all_data.extend(diff)
-    return all_data
+        rows = d.get('result', {}).get('data', [])
+        if rows:
+            print(f"datacenter回退: 获取{len(rows)}只")
+            for row in rows:
+                code = row.get('SECURITY_CODE', '')
+                all_data.append({
+                    'f12': code,
+                    'f14': row.get('SECURITY_NAME_ABBR', ''),
+                    'f2': row.get('NEW_PRICE'),
+                    'f3': row.get('CHANGE_RATE'),
+                    'f8': row.get('EXCHANGE_RATE'),  # 换手率%
+                    'f9': row.get('PE_DYNAMIC'),     # PE动态
+                    'f115': row.get('PE_TTM'),       # PE_TTM
+                    'f23': row.get('PB_NEW'),        # PB
+                    'f21': row.get('FREE_MARKET_CAP'), # 流通市值
+                    'f20': row.get('TOTAL_MARKET_CAP'), # 总市值
+                    'f10': row.get('VOLUME_RATIO'),    # 量比
+                })
+            return all_data
+    except Exception as e2:
+        print(f"datacenter也失败({e2})")
+    
+    return []
 
 def write_to_daily_basic(trade_date=None):
     """拉取并写入daily_basic"""

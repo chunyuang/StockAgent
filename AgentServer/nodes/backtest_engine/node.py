@@ -11,6 +11,7 @@
 """
 
 import asyncio
+import os
 from typing import Optional, Dict
 from datetime import datetime, timezone
 import traceback
@@ -64,6 +65,11 @@ class BacktestNode(BaseNode):
         # 日志序号计数器，每个任务独立计数，解决日志乱序问题
         self._log_counters: Dict[str, int] = {}
 
+        # JSONL结构化日志相关
+        self._log_jsonl_files: Dict[str, object] = {}  # task_id -> file handle
+        self._log_day: Dict[str, int] = {}  # task_id -> 当前交易日序号
+        self._log_date: Dict[str, str] = {}  # task_id -> 当前交易日期
+
     async def start(self) -> None:
         """启动回测节点"""
         self.logger.info("Starting Backtest Node...")
@@ -84,6 +90,10 @@ class BacktestNode(BaseNode):
 
         # 启动工作协程
         self._start_workers()
+
+        # 启动心跳(注册到Redis供web节点发现)
+        self._running = True
+        self._heartbeat_task = asyncio.create_task(self._start_heartbeat())
 
         self.logger.info(f"Backtest Node started: {self.node_id}")
         self.logger.info(f"RPC listening on port {self._rpc_port}")
@@ -160,11 +170,15 @@ class BacktestNode(BaseNode):
 
                     # 更新任务状态
                     await self._update_task_result(task_id, "completed", result)
+                    # 关闭JSONL文件句柄
+                    self._close_log_handles(task_id)
 
                 except Exception as e:
                     self.logger.error(f"[Worker-{worker_id}] Task {task_id} failed: {e}")
                     traceback.print_exc()
                     await self._update_task_result(task_id, "failed", error=str(e))
+                    # 关闭JSONL文件句柄
+                    self._close_log_handles(task_id)
                     continue  # 【修复风险6：任务失败后continue而非return，避免worker永久退出】
 
                 finally:
@@ -377,35 +391,126 @@ class BacktestNode(BaseNode):
     # ==================== 日志与持久化 ====================
 
     async def _push_log(self, task_id: str, log_text: str) -> None:
-        """推送日志 - 只走一条路
-        
-        【方案B：日志只走Redis+本地文件，MongoDB不再$push每条日志】
-        
-        原则：
-        1. logger只写本地文件（带时间戳格式用于排查）
-        2. Redis推实时日志给前端（WebSocket）
-        3. MongoDB不再逐条$push日志，只存状态变更和最终结果
-        4. 历史回测查看从MongoDB读结果，不读逐条日志
-        """
-        # 1. 本地文件日志 - 带格式（仅用于本地排查，不对外推送）
-        timestamp = datetime.now(timezone.utc).strftime('%H:%M:%S')
-        self.logger.info(f"[{task_id}] {log_text}")
+        """推送日志 - 双写模式
 
-        # 2. Redis发布实时日志（给前端WebSocket）
+        【方案C：本地文件 + JSONL结构化 + Redis仅推进度】
+
+        原则：
+        1. .log文件：ANSI彩色文本，终端排查用（不变）
+        2. .jsonl文件：结构化JSON Lines，API查询用（新增）
+        3. Redis：仅推进度百分比，不推日志文本（简化）
+        4. 前端日志：完成后从.jsonl文件API拉取，支持筛选
+        """
+        import json
+        import re
+
+        # 序号递增
+        if task_id not in self._log_counters:
+            self._log_counters[task_id] = 0
+        self._log_counters[task_id] += 1
+        seq = self._log_counters[task_id]
+
+        # 时间戳
+        timestamp = datetime.now(timezone.utc).strftime('%H:%M:%S')
+
+        # 1. 本地.log文件（ANSI文本，终端排查用）
+        self.logger.info(f"[SEQ:{seq}] [TASK:{task_id}] {log_text}")
+
+        # 2. 本地.jsonl文件（结构化，API查询用）
         try:
-            await redis_manager.publish(
-                "backtest:logs",
-                {
-                    "task_id": task_id,
-                    "type": "log",
-                    "log": f"[{timestamp}] {log_text}",
-                }
-            )
+            log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), 'logs', 'backtest')
+            os.makedirs(log_dir, exist_ok=True)
+            jsonl_path = os.path.join(log_dir, f"{task_id}.jsonl")
+
+            # 复用文件句柄，避免每次open/close
+            if task_id not in self._log_jsonl_files:
+                self._log_jsonl_files[task_id] = open(jsonl_path, 'a', encoding='utf-8')
+            f = self._log_jsonl_files[task_id]
+
+            # 分类section和strategy
+            section = self._classify_log_section(log_text)
+            strategy = self._extract_strategy_name(log_text)
+            level = "SUCCESS" if "✅" in log_text or "📈" in log_text else (
+                     "WARNING" if "⚠️" in log_text else (
+                     "ERROR" if "❌" in log_text else "INFO"))
+
+            # 检测交易日切换
+            day_match = re.search(r'第\s*(\d+)/\d+\s*天', log_text)
+            if day_match:
+                self._log_day[task_id] = int(day_match.group(1))
+            date_match = re.search(r'处理日期[:\s]*(\d{8})', log_text)
+            if date_match:
+                self._log_date[task_id] = date_match.group(1)
+
+            record = {
+                "seq": seq,
+                "time": timestamp,
+                "level": level,
+                "day": self._log_day.get(task_id, 0),
+                "date": self._log_date.get(task_id, ""),
+                "section": section,
+                "strategy": strategy,
+                "text": re.sub(r'\x1b\[[0-9;]*m', '', log_text),  # 去ANSI
+            }
+
+            # 写入JSONL（复用句柄，手动flush确保数据落盘）
+            f.write(json.dumps(record, ensure_ascii=False) + '\n')
+            f.flush()
         except Exception as e:
-            self.logger.warning(f"Failed to publish log to Redis: {e}")
+            self.logger.warning(f"Failed to write JSONL log: {e}")
+
+        # 3. Redis仅推进度（不推日志文本）
+        # 进度由ultra_short.py单独推送，此处不再重复publish
 
         # 让出事件循环
         await asyncio.sleep(0)
+
+    def _close_log_handles(self, task_id: str) -> None:
+        """关闭指定任务的JSONL文件句柄"""
+        if task_id in self._log_jsonl_files:
+            try:
+                self._log_jsonl_files[task_id].close()
+            except Exception:
+                pass
+            del self._log_jsonl_files[task_id]
+        # 清理计数器和日期状态
+        self._log_counters.pop(task_id, None)
+        self._log_day.pop(task_id, None)
+        self._log_date.pop(task_id, None)
+
+    @staticmethod
+    def _classify_log_section(text: str) -> str:
+        """根据日志文本内容分类section"""
+        if any(k in text for k in ['回测任务启动', '全局公共参数', '全局参数', '功能开关', '代码版本',
+                                      '回测时间', '初始资金', '选中策略',
+                                      '开始组合回测', '风控配置', '强化止损', '动态止盈',
+                                      '数据一致性校验', '未来函数检查', '因子完整性', '因子字段完整性',
+                                      '回测模式', '开始逐日回测']):
+            return 'init'
+        if any(k in text for k in ['🌡️', '涨跌停统计', '情绪周期评分', '大盘平均']):
+            return 'market'
+        if any(k in text for k in ['🔍', '📌', '🎯', '条件1', '条件2', '条件3', '条件4', '筛选过程', '参数配置', '最终候选']):
+            return 'filter'
+        if any(k in text for k in ['🔹 买入', '🔻 卖出', '📝', '调仓记录', '调仓操作']):
+            return 'trade'
+        if any(k in text for k in ['💵', '💼', '当日持仓', '现金剩余']):
+            return 'position'
+        if any(k in text for k in ['📈RESULT', '📊', '总计', '交易明细', '胜率', '收益率', '回撤', '夏普']):
+            return 'result'
+        # 日期切换标记：只匹配真正的日期进度行
+        if '📅' in text and ('处理日期' in text or '处理完成' in text or '调仓进度' in text):
+            return 'daily'
+        return 'other'
+
+    @staticmethod
+    def _extract_strategy_name(text: str) -> str:
+        """从日志中提取策略名"""
+        for name in ['半路追涨', '首板打板', '涨停开板', '龙头低吸', '跌停翘板']:
+            if f'【{name}】' in text or f'{name}】' in text:
+                return name
+            if f'{name}调入' in text or f'{name}候选' in text:
+                return name
+        return None
 
     async def _update_task_result(
         self,
@@ -441,9 +546,7 @@ class BacktestNode(BaseNode):
 async def main():
     """回测节点启动入口"""
     import logging
-    from core.logging import setup_logging
-
-    setup_logging()
+    from core.utils.logger import logger as _logger_instance
     _logger = logging.getLogger("backtest_node")
 
     node = BacktestNode()

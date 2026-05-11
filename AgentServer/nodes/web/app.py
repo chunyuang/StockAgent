@@ -19,7 +19,7 @@ from core.managers import (
     mongo_manager,
 )
 
-from .api import auth_router, user_router, task_router, stock_router, market_router, subscription_router, backtest_router, trading_router, system_router, scheduler_router
+from .api import auth_router, user_router, task_router, stock_router, subscription_router, backtest_router, trading_router, system_router, scheduler_router
 from .websocket import websocket_router
 
 
@@ -121,7 +121,7 @@ def create_app() -> FastAPI:
     app.include_router(user_router, prefix="/api/v1/users", tags=["用户"])
     app.include_router(task_router, prefix="/api/v1/tasks", tags=["任务"])
     app.include_router(stock_router, prefix="/api/v1/stocks", tags=["股票"])
-    app.include_router(market_router, prefix="/api/v1", tags=["市场分析"])
+    # market_router removed: 行情分析/板块分析/热点追踪已从前端移除
     app.include_router(subscription_router, prefix="/api/v1/strategy/subscriptions", tags=["策略订阅"])
     app.include_router(backtest_router, prefix="/api/v1", tags=["量化回测"])
     app.include_router(trading_router, prefix="/api/v1", tags=["实盘交易"])

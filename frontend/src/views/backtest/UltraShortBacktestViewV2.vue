@@ -6,15 +6,17 @@
  */
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-
-// 子组件
 import StrategyConfigPanel from '@/components/ultrashort/StrategyConfigPanel.vue'
 import AnsiLogPanel from '@/components/backtest/AnsiLogPanel.vue'
 import BacktestSummaryTable from '@/components/backtest/BacktestSummaryTable.vue'
 import BacktestResultPanel from '@/components/ultrashort/BacktestResultPanel.vue'
+import BacktestHistoryPanel from '@/components/backtest/BacktestHistoryPanel.vue'
+
+import { GLOBAL_RISK, STRATEGY_CONFIGS } from '@/config/strategyDefaults'
 
 // API
 import { backtestApi } from '@/api'
+import type { BacktestHistoryItem } from '@/api/modules/backtest'
 
 // ==================== 状态 ====================
 
@@ -59,38 +61,43 @@ const form = reactive({
     min_auction_volume_ratio: 1.5,
   },
   tradeParams: {
-    base_stop_loss_pct: 0.02,
-    base_take_profit_pct: 0.07,
-    max_hold_days: 3,
-    max_position_per_stock: 0.2,  // 单票20%分散风险
-    max_total_position: 0.7,  // 总仓位70%，留30%现金
-    commission_rate: 0.0003,
-    stamp_duty_rate: 0.001,
-    slippage_pct: 0.002,
+    base_stop_loss_pct: GLOBAL_RISK.stop_loss_pct,
+    base_take_profit_pct: GLOBAL_RISK.take_profit_pct,
+    max_hold_days: GLOBAL_RISK.max_hold_days,
+    max_position_per_stock: GLOBAL_RISK.max_position_per_stock,
+    max_total_position: GLOBAL_RISK.max_total_position,
+    commission_rate: GLOBAL_RISK.commission_rate,
+    stamp_duty_rate: GLOBAL_RISK.stamp_duty_rate,
+    slippage_pct: GLOBAL_RISK.slippage_pct,
     enable_stop_loss: true,
     enable_take_profit: true,
   },
-  strategies: ['halfway_chase', 'first_limit_up', 'limit_up_open', 'leader_buy_dip', 'limit_down_qiao'],
+  strategies: ['halfway_chase', 'first_limit_up', 'leader_buy_dip', 'limit_down_qiao'],
   strategyConfigs: {
     halfway_chase: {
-      enabled: true, name: '半路追涨',
-      params: { min_rise_pct: 0.03, max_rise_pct: 0.07, min_volume_ratio: 1.5, allow_after_10am: false }
+      enabled: STRATEGY_CONFIGS.halfway_chase.enabled, name: STRATEGY_CONFIGS.halfway_chase.name,
+      params: { ...STRATEGY_CONFIGS.halfway_chase.params },
+      riskParams: { ...STRATEGY_CONFIGS.halfway_chase.riskParams }
     },
     first_limit_up: {
-      enabled: true, name: '首板打板',
-      params: { min_seal_amount: 5000, max_limit_up_time: '10:00', max_circulation_market_cap: 100, max_blast_count: 1, require_hot_sector: true }
+      enabled: STRATEGY_CONFIGS.first_limit_up.enabled, name: STRATEGY_CONFIGS.first_limit_up.name,
+      params: { ...STRATEGY_CONFIGS.first_limit_up.params },
+      riskParams: { ...STRATEGY_CONFIGS.first_limit_up.riskParams }
     },
     limit_up_open: {
-      enabled: true, name: '涨停开板',
-      params: { min_consecutive_limit: 2, max_open_duration: 5, min_seal_after_open: 3000, min_turnover_rate: 0.15 }
+      enabled: STRATEGY_CONFIGS.limit_up_open.enabled, name: STRATEGY_CONFIGS.limit_up_open.name,
+      params: { ...STRATEGY_CONFIGS.limit_up_open.params },
+      riskParams: { ...STRATEGY_CONFIGS.limit_up_open.riskParams }
     },
     leader_buy_dip: {
-      enabled: true, name: '龙头低吸',
-      params: { min_consecutive_limit: 3, min_correction_pct: 0.15, max_correction_pct: 0.3, correction_days_min: 2, correction_days_max: 5, support_level: 'ma5' }
+      enabled: STRATEGY_CONFIGS.leader_buy_dip.enabled, name: STRATEGY_CONFIGS.leader_buy_dip.name,
+      params: { ...STRATEGY_CONFIGS.leader_buy_dip.params },
+      riskParams: { ...STRATEGY_CONFIGS.leader_buy_dip.riskParams }
     },
     limit_down_qiao: {
-      enabled: true, name: '跌停翘板',
-      params: { min_consecutive_limit: 3, min_qiao_amount: 10000, min_rise_after_qiao: 0.03, require_high_sentiment: true }
+      enabled: STRATEGY_CONFIGS.limit_down_qiao.enabled, name: STRATEGY_CONFIGS.limit_down_qiao.name,
+      params: { ...STRATEGY_CONFIGS.limit_down_qiao.params },
+      riskParams: { ...STRATEGY_CONFIGS.limit_down_qiao.riskParams }
     },
   },
 })
@@ -177,14 +184,17 @@ onMounted(async () => {
       for (const sid of strategyIds) {
         if (parsed[sid]) {
           const cfg = parsed[sid]
-          if (cfg.min_pct !== undefined && form.strategyConfigs[sid]?.params) form.strategyConfigs[sid].params.min_rise_pct = cfg.min_pct / 100
-          if (cfg.max_pct !== undefined && form.strategyConfigs[sid]?.params) form.strategyConfigs[sid].params.max_rise_pct = cfg.max_pct / 100
-          if (cfg.min_auction_pct !== undefined && form.strategyConfigs[sid]?.params) form.strategyConfigs[sid].params.min_auction_pct = cfg.min_auction_pct / 100
-          if (cfg.max_auction_pct !== undefined && form.strategyConfigs[sid]?.params) form.strategyConfigs[sid].params.max_auction_pct = cfg.max_auction_pct / 100
-          if (cfg.callback_pct !== undefined && form.strategyConfigs[sid]?.params) form.strategyConfigs[sid].params.min_correction_pct = cfg.callback_pct / 100
-          if (cfg.callback_pct_max !== undefined && form.strategyConfigs[sid]?.params) form.strategyConfigs[sid].params.max_correction_pct = cfg.callback_pct_max / 100
-          if (cfg.min_rise_after_qiao !== undefined && form.strategyConfigs[sid]?.params) form.strategyConfigs[sid].params.min_rise_after_qiao = cfg.min_rise_after_qiao / 100
-          Object.assign(form.strategyConfigs[sid].params, cfg)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const params = (form.strategyConfigs as any)[sid]?.params
+          if (!params) continue
+          if (cfg.min_pct !== undefined) params.min_rise_pct = cfg.min_pct / 100
+          if (cfg.max_pct !== undefined) params.max_rise_pct = cfg.max_pct / 100
+          if (cfg.min_auction_pct !== undefined) params.min_auction_pct = cfg.min_auction_pct / 100
+          if (cfg.max_auction_pct !== undefined) params.max_auction_pct = cfg.max_auction_pct / 100
+          if (cfg.callback_pct !== undefined) params.min_correction_pct = cfg.callback_pct / 100
+          if (cfg.callback_pct_max !== undefined) params.max_correction_pct = cfg.callback_pct_max / 100
+          if (cfg.min_rise_after_qiao !== undefined) params.min_rise_after_qiao = cfg.min_rise_after_qiao / 100
+          Object.assign(params, cfg)
         }
       }
       addLog('✅ 已从 config.ini 加载默认配置')
@@ -247,7 +257,7 @@ const submitBacktest = async () => {
       .filter(id => strategyKeys.includes(id as keyof typeof form.strategyConfigs))
       .map(id => {
         const cfg = form.strategyConfigs[id as keyof typeof form.strategyConfigs]
-        return { id, name: cfg.name, enabled: cfg.enabled, params: { ...cfg.params } }
+        return { id, name: cfg.name, enabled: cfg.enabled, params: { ...cfg.params }, riskParams: { ...cfg.riskParams } }
       })
     const strategy_params: Record<string, any> = {}
     for (const id of form.strategies) {
@@ -276,14 +286,12 @@ const submitBacktest = async () => {
         max_position: form.tradeParams.max_total_position,
         liquidity_threshold: form.globalFilter.min_daily_amount,
         max_position_per_stock: form.tradeParams.max_position_per_stock,
-        force_empty_position: form.forceEmpty.enabled,
         sentiment_cycle: form.sentimentCycle.enabled,
         auction_filter: form.auctionFilter.enabled,
         enable_stop_loss: form.tradeParams.enable_stop_loss ?? true,
         enable_take_profit: form.tradeParams.enable_take_profit ?? true,
         enable_ma60_filter: form.globalFilter.enable_ma60_filter ?? true,
         enable_sector_concentration: form.globalFilter.enable_sector_concentration ?? true,
-        selected_strategies
       },
       strategy_params,
       enable_sentiment_cycle: form.sentimentCycle.enabled,
@@ -293,6 +301,7 @@ const submitBacktest = async () => {
       enable_take_profit: form.tradeParams.enable_take_profit ?? true,
       enable_ma60_filter: form.globalFilter.enable_ma60_filter ?? true,
       enable_sector_concentration: form.globalFilter.enable_sector_concentration ?? true,
+      exclude_st: form.globalFilter.exclude_st ?? true,
     })
 
     if (!res || !res.task_id) {
@@ -387,6 +396,47 @@ const addLog = (text: string) => {
     if (logPanel) logPanel.scrollTop = logPanel.scrollHeight
   }, 100)
 }
+
+// ==================== 历史回测操作 ====================
+
+const activeMainTab = ref<'config' | 'history'>('config')
+
+/** 从历史回测复用参数 */
+function onReuseParams(task: BacktestHistoryItem) {
+  if (task.start_date) form.dataSource.start_date = task.start_date
+  if (task.end_date) form.dataSource.end_date = task.end_date
+  if (task.initial_cash) form.base.initial_cash = task.initial_cash
+  if (task.strategies && task.strategies.length > 0) {
+    form.strategies = [...task.strategies]
+  }
+  activeMainTab.value = 'config'  // 切回配置Tab
+  ElMessage.success('已复用参数到表单，修改后点击提交')
+}
+
+/** 查看历史回测结果 */
+function onViewResult(task: BacktestHistoryItem) {
+  backtestApi.getBacktestResult(task.task_id).then(res => {
+    const result = res?.data?.result
+    if (result) {
+      backtestResult.value = result
+      backtestState.task_id = task.task_id
+      activeMainTab.value = 'config'  // 切到配置Tab看结果
+      ElMessage.success('已加载历史回测结果')
+    } else {
+      ElMessage.warning('该回测无结果数据')
+    }
+  }).catch(() => {
+    ElMessage.error('加载结果失败')
+  })
+}
+
+/** 查看历史回测日志 */
+function onViewLogs(taskId: string) {
+  // 滚动到日志面板
+  backtestState.task_id = taskId
+  const logEl = document.querySelector('.ansi-log-card')
+  if (logEl) logEl.scrollIntoView({ behavior: 'smooth' })
+}
 </script>
 
 <template>
@@ -403,27 +453,50 @@ const addLog = (text: string) => {
       </div>
     </div>
 
-    <!-- 策略配置面板 -->
-    <StrategyConfigPanel
-      :form="form"
-      :backtestRunning="backtestState.running"
-      v-model:activeCollapse="activeCollapse"
-      @submit="submitBacktest"
-    />
+    <!-- 主Tab切换 -->
+    <div class="main-tabs">
+      <button :class="['tab-btn', activeMainTab === 'config' ? 'active' : '']" @click="activeMainTab = 'config'">
+        🎯 新建回测
+      </button>
+      <button :class="['tab-btn', activeMainTab === 'history' ? 'active' : '']" @click="activeMainTab = 'history'">
+        📊 回测历史
+        <span class="tab-badge">74</span>
+      </button>
+    </div>
 
-    <!-- 回测进度条 -->
-    <ElCard v-if="backtestState.running" class="progress-card" style="margin-bottom: 20px">
-      <ElProgress :percentage="backtestState.progress" :stroke-width="18" :text-inside="true" status="success" />
-    </ElCard>
+    <!-- Tab内容：新建回测 -->
+    <div v-show="activeMainTab === 'config'">
+      <!-- 策略配置面板 -->
+      <StrategyConfigPanel
+        :form="form"
+        :backtestRunning="backtestState.running"
+        v-model:activeCollapse="activeCollapse"
+        @submit="submitBacktest"
+      />
 
-    <!-- 回测结果总结表格 -->
-    <BacktestSummaryTable v-if="backtestResult" :result="backtestResult" />
+      <!-- 回测进度条 -->
+      <ElCard v-if="backtestState.running" class="progress-card" style="margin-bottom: 20px">
+        <ElProgress :percentage="backtestState.progress" :stroke-width="18" :text-inside="true" status="success" />
+      </ElCard>
 
-    <!-- 回测结果详细面板 -->
-    <BacktestResultPanel v-if="backtestResult" :result="backtestResult" :form="form" />
+      <!-- 回测结果总结表格 -->
+      <BacktestSummaryTable v-if="backtestResult" :result="backtestResult" />
 
-    <!-- 实时日志面板 -->
-    <AnsiLogPanel :logs="logs" />
+      <!-- 回测结果详细面板 -->
+      <BacktestResultPanel v-if="backtestResult" :result="backtestResult" :form="form" />
+    </div>
+
+    <!-- Tab内容：回测历史 -->
+    <div v-show="activeMainTab === 'history'">
+      <BacktestHistoryPanel
+        @view-result="onViewResult"
+        @view-logs="onViewLogs"
+        @reuse-params="onReuseParams"
+      />
+    </div>
+
+    <!-- 日志面板（跨Tab共享） -->
+    <AnsiLogPanel :task-id="backtestState.task_id" :task-status="backtestState.running ? 'running' : 'completed'" />
   </div>
 </template>
 
@@ -444,6 +517,61 @@ const addLog = (text: string) => {
   .page-description {
     color: #606266;
     margin: 0;
+  }
+}
+
+.history-toggle {
+  cursor: pointer;
+  padding: 10px 0;
+  color: #606266;
+  font-size: 14px;
+  font-weight: 600;
+  user-select: none;
+
+  &:hover { color: #409eff; }
+}
+
+.main-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 20px;
+  border-bottom: 2px solid #e4e7ed;
+
+  .tab-btn {
+    padding: 10px 24px;
+    font-size: 15px;
+    font-weight: 600;
+    border: none;
+    background: transparent;
+    color: #909399;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    transition: all 0.2s;
+    position: relative;
+
+    &:hover { color: #409eff; }
+
+    &.active {
+      color: #409eff;
+      border-bottom-color: #409eff;
+    }
+
+    .tab-badge {
+      display: inline-block;
+      background: #e4e7ed;
+      color: #909399;
+      font-size: 11px;
+      padding: 1px 6px;
+      border-radius: 10px;
+      margin-left: 6px;
+      font-weight: 500;
+    }
+
+    &.active .tab-badge {
+      background: #ecf5ff;
+      color: #409eff;
+    }
   }
 }
 </style>

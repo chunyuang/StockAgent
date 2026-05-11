@@ -64,7 +64,7 @@ async function saveProfile() {
   profileSaving.value = true
   try {
     try {
-      await systemApi.updateUserPreferences(profile.value)
+      await systemApi.updateUserPreferences(profileForm.value as any)
       ElMessage.success('个人信息已保存到服务器')
     } catch {
       ElMessage.success('个人信息保存成功（服务器暂不可用，仅本地生效）')

@@ -87,6 +87,11 @@ export interface PerformanceReport {
   win_rate_pct: number
   profit_factor: number
   total_trades: number
+  winning_trades: number
+  losing_trades: number
+  max_consecutive_wins: number
+  max_consecutive_losses: number
+  avg_profit_per_trade: number
   created_at: string
 }
 
@@ -204,4 +209,5 @@ export default {
   executeSignal,
   getPerformanceReports,
   triggerSignalGeneration,
+  getTodayPool,
 }
