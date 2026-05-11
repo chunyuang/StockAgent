@@ -39,12 +39,6 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '今日持仓' },
       },
       {
-        path: 'monitor',
-        name: 'Monitor',
-        component: () => import('@/views/monitor/MonitorView.vue'),
-        meta: { title: '实时监控' },
-      },
-      {
         path: 'performance',
         name: 'PerformanceReport',
         component: () => import('@/views/trading/PerformanceReportView.vue'),

@@ -37,7 +37,6 @@ import {
   DataLine,
   Grid,
   Tools,
-  Monitor,
 } from '@element-plus/icons-vue'
 import { useAuth } from '@/hooks'
 import { useUserStore, useTaskStore, useThemeStore } from '@/stores'
@@ -72,7 +71,6 @@ const menuItems = [
   { path: '/strategies', icon: TrendCharts, title: '市场监听' },
   { path: '/trading-signals', icon: Bell, title: '交易信号' },
   { path: '/position', icon: Wallet, title: '今日持仓' },
-  { path: '/monitor', icon: Monitor, title: '实时监控' },
   { path: '/performance', icon: DataLine, title: '绩效报告' },
   { path: '/system/status', icon: DataLine, title: '系统状态' },
   { path: '/admin/db', icon: Grid, title: '数据库管理' },
