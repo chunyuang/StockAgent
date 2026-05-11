@@ -1,13 +1,15 @@
+from pathlib import Path
 #!/usr/bin/env python3
 """
 策略单元测试
 每个策略必须通过单元测试才能跑全量回测
 """
 import sys
-sys.path.insert(0, '/root/.openclaw/workspace/StockAgent')
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'AgentServer'))
 import pandas as pd
 import numpy as np
-from backtest_module.backtest_engine.factor_selection.factor_library import FactorLibrary
+from nodes.backtest_engine.factor_selection.factor_library import FactorLibrary
 
 def test_limit_up_yesterday():
     """测试昨日涨停因子"""
@@ -56,7 +58,7 @@ def test_open_below_limit():
 def test_strategy_logic_consistency():
     """测试策略逻辑一致性，避免矛盾条件"""
     # 首板打板不能同时有limit_up_yesterday条件
-    from backtest_module.backtest_engine.scripts.run_strategies_backtest_3months_akshare_only import STRATEGIES
+    from nodes.backtest_engine.scripts.run_strategies_backtest_3months_akshare_only import STRATEGIES
     for strategy in STRATEGIES:
         if strategy['name'] == '首板打板':
             filters = [f[0] for f in strategy['filters']]

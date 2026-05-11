@@ -54,7 +54,7 @@ class UltraShortLogger:
     _instance: Optional['UltraShortLogger'] = None
     _seq_counter: int = 0
     _log_cache: dict[str, list[str]] = {}  # 按task_id缓存日志
-    _log_dir: Path = Path('/root/.openclaw/workspace/StockAgent/logs/backtest')
+    _log_dir: Path = Path(__file__).resolve().parent.parent.parent.parent / 'logs' / 'backtest'
 
     def __new__(cls, *args, **kwargs):
         if not cls._instance:

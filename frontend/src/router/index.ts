@@ -4,22 +4,21 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 
 const routes: RouteRecordRaw[] = [
-  {
-    path: '/ultra-short-v2',
-    name: 'UltraShortBacktestV2',
-    component: () => import('@/views/backtest/UltraShortBacktestViewV2.vue'),
-    meta: { title: '超短策略回测', requiresAuth: false },
-  },
-  { path: '/ultra-short', redirect: '/ultra-short-v2' },
-  { path: '/ultra-short-new', redirect: '/ultra-short-v2' },
-  { path: '/backtest/ultra-short', redirect: '/ultra-short-v2' },
-  { path: '/', redirect: '/ultra-short-v2' },
+  { path: '/ultra-short', redirect: '/' },
+  { path: '/ultra-short-new', redirect: '/' },
+  { path: '/ultra-short-v2', redirect: '/' },
+  { path: '/backtest/ultra-short', redirect: '/' },
   {
     path: '/',
     component: () => import('@/layouts/MainLayout.vue'),
     meta: { requiresAuth: true },
     children: [
-      { path: '', redirect: '/ultra-short-v2' },
+      {
+        path: '',
+        name: 'UltraShortBacktestV2',
+        component: () => import('@/views/backtest/UltraShortBacktestViewV2.vue'),
+        meta: { title: '超短策略回测' },
+      },
       {
         path: 'stock/:code',
         name: 'StockDetail',

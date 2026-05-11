@@ -1,12 +1,14 @@
 #!/bin/bash
 echo "============================================="
+# 定位项目根目录（相对于脚本位置）
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 echo "🚀 StockAgent修改生效检查工具 v1.0"
 echo "============================================="
 echo ""
 
 # 1. 检查后端代码是否有未提交的修改
 echo "🔍 1/4 检查后端代码修改状态："
-cd /root/.openclaw/workspace/StockAgent/AgentServer
+cd "$SCRIPT_DIR/AgentServer"
 git diff --stat -- nodes/web/api/backtest.py nodes/backtest_engine/factor_selection/portfolio_backtest.py
 if [ $? -eq 0 ]; then
     echo "✅ 后端代码已修改保存"
@@ -17,7 +19,7 @@ echo ""
 
 # 2. 检查前端代码是否已编译
 echo "🔍 2/4 检查前端代码编译状态："
-cd /root/.openclaw/workspace/StockAgent/frontend
+cd "$SCRIPT_DIR/frontend"
 if [ -d dist/assets ]; then
     echo "✅ 前端代码已编译（dist目录存在）"
     dist_time=$(stat -c %Y dist/index.html)
@@ -45,7 +47,7 @@ echo ""
 
 # 4. 检查版本标识
 echo "🔍 4/4 检查当前代码版本标识："
-grep -n "代码版本" /root/.openclaw/workspace/StockAgent/AgentServer/nodes/web/api/backtest.py
+grep -n "代码版本" /AgentServer/nodes/web/api/backtest.py
 if [ $? -eq 0 ]; then
     echo "✅ 版本标识已设置，提交回测第一行会显示该版本号"
 else

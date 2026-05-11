@@ -115,7 +115,7 @@ async def calculate_technical_indicators(
         技术指标数据
     """
     from core.constants import C
-from core.managers import mongo_manager
+    from core.managers import mongo_manager
     
     if indicators is None:
         indicators = ["ma", "macd", "rsi"]
