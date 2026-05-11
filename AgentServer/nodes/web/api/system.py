@@ -636,13 +636,20 @@ async def get_data_status() -> Dict[str, Any]:
         client = SyncClient(app_settings.mongo.host, app_settings.mongo.port)
         db = client[app_settings.mongo.database]
 
-        # 集合记录数
+        # 集合记录数 + 日期范围
         collections = {}
         for name in ['stock_daily_ak_full', 'daily_basic', 'index_daily', 'limit_list', 'limit_pool_down', 'backtest_tasks']:
             try:
-                collections[name] = db[name].count_documents({})
-            except:
-                collections[name] = 0
+                cnt = db[name].count_documents({})
+                # 日期范围
+                first = list(db[name].find({}, {'trade_date': 1}).sort('trade_date', 1).limit(1))
+                last = list(db[name].find({}, {'trade_date': 1}).sort('trade_date', -1).limit(1))
+                date_range = None
+                if first and last:
+                    date_range = {'start': str(first[0].get('trade_date', '')), 'end': str(last[0].get('trade_date', ''))}
+                collections[name] = {'count': cnt, 'date_range': date_range}
+            except Exception as e:
+                collections[name] = {'count': 0, 'date_range': None, 'error': str(e)}
 
         # 每日因子覆盖率(最近30天)
         daily_coverage = []
@@ -675,6 +682,87 @@ async def get_data_status() -> Dict[str, Any]:
         # 最新数据日期
         last_daily = list(db.stock_daily_ak_full.find({}, {'trade_date': 1}).sort('trade_date', -1).limit(1))
         last_basic = list(db.daily_basic.find({}, {'trade_date': 1}).sort('trade_date', -1).limit(1))
+
+        # 推荐回测区间(因子覆盖>70%的连续段)
+        recommended_ranges = []
+        if daily_coverage:
+            seg_start = None
+            for c in daily_coverage:
+                if c['factor_rate'] >= 70:
+                    if seg_start is None:
+                        seg_start = c['date']
+                else:
+                    if seg_start is not None:
+                        recommended_ranges.append({'start': seg_start, 'end': c_prev['date'], 'factor_rate': f'{c_prev["factor_rate"]}%'})
+                        seg_start = None
+                c_prev = c
+            if seg_start is not None:
+                recommended_ranges.append({'start': seg_start, 'end': daily_coverage[-1]['date'], 'factor_rate': f'{daily_coverage[-1]["factor_rate"]}%'})
+
+        # 数据源元信息
+        data_sources = [
+            {
+                'name': '东方财富 push2',
+                'type': '日线行情',
+                'status': 'blocked',
+                'status_text': 'IP被封(5/11起)',
+                'rate_limit': '无限制(3秒/全市场)',
+                'coverage': '全市场5180只 OHLCV',
+                'gotchas': ['Connection aborted = IP被封', '周末不可用', '返回数据只含OHLCV+amount,无换手率/PE等'],
+                'scripts': ['eastmoney_daily_bar.py'],
+            },
+            {
+                'name': '东方财富 datacenter',
+                'type': 'PE/PB/市值',
+                'status': 'blocked',
+                'status_text': '返回9701(服务器繁忙)',
+                'rate_limit': '无限制(0.4秒/天)',
+                'coverage': '5400+只 PE_TTM/PB_MRQ/流通市值',
+                'gotchas': ['9701错误 = IP被封或服务器繁忙', '周末/非交易日也可能查到历史估值', 'daily_basic专用'],
+                'scripts': ['eastmoney_daily_basic.py', 'eastmoney_datacenter_daily_basic.py'],
+            },
+            {
+                'name': 'AKShare',
+                'type': '日线/指标',
+                'status': 'degraded',
+                'status_text': '走东方财富API,同样被封',
+                'rate_limit': '无官方限制',
+                'coverage': '全市场日线(含换手率)',
+                'gotchas': ['底层走东方财富,被封时同步不可用', '字段名与stock_daily_ak_full不同需映射', '速度慢(逐只拉)'],
+                'scripts': ['akshare_daily_manager.py', 'fill_missing_daily_ak.py'],
+            },
+            {
+                'name': '量脉 LiangMai',
+                'type': '实时行情/分钟K线',
+                'status': 'limited',
+                'status_text': '120次/分钟+2IP限制',
+                'rate_limit': '120次/分钟, Token绑定2个IP',
+                'coverage': '实时盘中/1min K线/PE/PB',
+                'gotchas': ['4291错误=IP超限,不要反复重试', '服务器动态IP导致IP超限不可避免', 'daily_basic不要再用量脉,用东方财富替代', 'Token: ebacbad6d64444cd037ac5504b63f25d'],
+                'scripts': ['LiangMaiClient'],
+            },
+            {
+                'name': 'MongoDB本地',
+                'type': '回测数据源',
+                'status': 'ok',
+                'status_text': '主力数据源,无限制',
+                'rate_limit': '无限制',
+                'coverage': 'stock_daily_ak_full(432K) + daily_basic(732K) + index_daily(564)',
+                'gotchas': ['回测时从MongoDB读取,不调外部API', '5月数据因子缺失需factor_auto_compute补算', 'stock_daily_ak_full日期是int格式(20260106)'],
+                'scripts': ['portfolio_backtest.py(回测引擎)'],
+            },
+            {
+                'name': 'Tushare',
+                'type': '全品种',
+                'status': 'disabled',
+                'status_text': 'Token已失效,不要调用',
+                'rate_limit': 'N/A',
+                'coverage': 'N/A',
+                'gotchas': ['Token失效,调用必失败', '不要再尝试,不要再尝试', '已从代码中移除依赖'],
+                'scripts': [],
+            },
+        ]
+
         client.close()
 
         return {
@@ -687,6 +775,8 @@ async def get_data_status() -> Dict[str, Any]:
                     "daily_basic": str(last_basic[0]['trade_date']) if last_basic else None,
                 },
                 "factor_groups": {k: len(v) for k, v in factor_groups.items()},
+                "recommended_ranges": recommended_ranges,
+                "data_sources": data_sources,
             }
         }
     except Exception as e:
