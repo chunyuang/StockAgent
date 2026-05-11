@@ -747,8 +747,8 @@ async def get_data_status() -> Dict[str, Any]:
                 'status': 'ok',
                 'status_text': '主力数据源,无限制',
                 'rate_limit': '无限制',
-                'coverage': 'stock_daily_ak_full(432K) + daily_basic(732K) + index_daily(564)',
-                'gotchas': ['回测时从MongoDB读取,不调外部API', '5月数据因子缺失需factor_auto_compute补算', 'stock_daily_ak_full日期是int格式(20260106)'],
+                'coverage': f'stock_daily_ak_full({collections.get("stock_daily_ak_full",{}).get("count",0)//1000}K) + daily_basic({collections.get("daily_basic",{}).get("count",0)//1000}K) + index_daily({collections.get("index_daily",{}).get("count",0)})',
+                'gotchas': ['回测时从MongoDB读取,不调外部API', '5月数据因子缺失需factor_auto_compute补算', 'stock_daily_ak_full日期是int格式(20260106)', 'is_limit_up/is_limit_down已用pct_chg阈值重算(5/11修复)'],
                 'scripts': ['portfolio_backtest.py(回测引擎)'],
             },
             {
@@ -763,11 +763,76 @@ async def get_data_status() -> Dict[str, Any]:
             },
         ]
 
+        # 健康评分 + 问题诊断
+        diagnostics = []
+        health_score = 0
+        
+        # 因子覆盖率得分(0-50分)
+        if daily_coverage:
+            latest = daily_coverage[-1]
+            factor_score = min(50, latest['factor_rate'] / 2)
+            
+            # 量价因子
+            vol_rate = latest['groups'].get('volume', 0)
+            if vol_rate < 50:
+                diagnostics.append({'level': 'red', 'message': f'量价因子仅{vol_rate}% — turnover_rate/volume_ratio缺失'})
+            
+            # 涨跌停因子
+            limit_rate = latest['groups'].get('limit', 0)
+            if limit_rate == 0:
+                diagnostics.append({'level': 'red', 'message': '涨跌停因子0% — is_limit_up/is_limit_down缺失,影响首板/跌停策略'})
+            elif limit_rate < 5:
+                diagnostics.append({'level': 'yellow', 'message': f'涨跌停因子仅{limit_rate}% — 涨停/跌停股本来就少,属正常'})
+            
+            # 情绪因子
+            sent_rate = latest['groups'].get('sentiment', 0)
+            if sent_rate == 0:
+                diagnostics.append({'level': 'yellow', 'message': '情绪因子0% — fear_greed_index/sentiment_score缺失'})
+            
+            # 技术因子
+            tech_rate = latest['groups'].get('technical', 0)
+            if tech_rate == 0:
+                diagnostics.append({'level': 'red', 'message': '5月技术因子全缺失 — MA/MACD/RSI等需factor_auto_compute补算'})
+        else:
+            factor_score = 0
+            diagnostics.append({'level': 'red', 'message': '无因子覆盖率数据'})
+        
+        # 数据新鲜度得分(0-30分)
+        freshness_score = 0
+        today = datetime.now().strftime('%Y%m%d')
+        latest_daily = str(last_daily[0]['trade_date']) if last_daily else '0'
+        days_old = (int(today) - int(latest_daily)) if latest_daily and len(latest_daily) == 8 else 999
+        if days_old <= 1:
+            freshness_score = 30
+        elif days_old <= 3:
+            freshness_score = 20
+        elif days_old <= 7:
+            freshness_score = 10
+        
+        # 数据源可用率得分(0-20分)
+        source_score = 0
+        ok_sources = sum(1 for s in data_sources if s['status'] == 'ok')
+        source_score = min(20, ok_sources * 10)
+        
+        health_score = int(factor_score + freshness_score + source_score)
+        
+        # 东方财富API状态
+        for s in data_sources:
+            if s['name'] in ('东方财富 push2', '东方财富 datacenter') and s['status'] == 'blocked':
+                diagnostics.append({'level': 'red', 'message': f'{s["name"]}被封 — 数据更新暂停,需等IP解封或换代理'})
+                break
+        
+        # 跌停池数据
+        if collections.get('limit_pool_down', {}).get('count', 0) < 10:
+            diagnostics.append({'level': 'yellow', 'message': f'跌停池仅{collections.get("limit_pool_down",{}).get("count",0)}条 — 跌停翘板策略数据不足'})
+
         client.close()
 
         return {
             "success": True,
             "data": {
+                "health_score": health_score,
+                "diagnostics": diagnostics,
                 "collections": collections,
                 "daily_coverage": daily_coverage,
                 "latest": {

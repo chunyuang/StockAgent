@@ -190,15 +190,22 @@ const diagnosis = computed(() => {
   const issues: { level: string; text: string }[] = []
   const cov = status.value.daily_coverage
   const mayDays = cov.filter(c => c.date.startsWith('202605'))
-  if (mayDays.length > 0 && mayDays[0].factor_rate === 0) {
-    issues.push({ level: 'error', text: '5月因子完全缺失 — 需运行factor_auto_compute或等东方财富API解封后重跑' })
+  const mayTech = mayDays.filter(c => c.groups.technical === 0)
+  if (mayDays.length > 0 && mayTech.length === mayDays.length) {
+    issues.push({ level: 'error', text: '5月技术因子全缺失 — MA/MACD/RSI需factor_auto_compute补算' })
   }
   const recentLow = cov.filter(c => c.groups.volume < 80 && c.groups.volume > 0)
   if (recentLow.length > 0) {
-    issues.push({ level: 'warn', text: `量价因子仅${recentLow[recentLow.length-1].groups.volume}% — daily_basic的turnover_rate未合并到日线` })
+    issues.push({ level: 'warn', text: `量价因子${recentLow[recentLow.length-1].groups.volume}% — 部分股票turnover_rate/circ_mv缺失` })
   }
-  if (cov.some(c => c.groups.limit === 0 && c.factor_rate > 0)) {
-    issues.push({ level: 'warn', text: '涨跌停因子始终0% — limit_list数据未写入日线,影响首板/跌停策略选股' })
+  const limitZeroDays = cov.filter(c => c.groups.limit === 0 && c.factor_rate > 0)
+  if (limitZeroDays.length > 3) {
+    issues.push({ level: 'warn', text: `${limitZeroDays.length}天涨跌停因子0% — is_limit_up/is_limit_down缺失,影响首板/跌停策略` })
+  }
+  // 检查limit是否有真实数据(>0.5%表示有涨停/跌停标记)
+  const limitGood = cov.filter(c => c.groups.limit > 0.5)
+  if (limitGood.length > 0 && limitGood.length < cov.length * 0.5) {
+    issues.push({ level: 'warn', text: `涨跌停因子部分覆盖(${limitGood.length}/${cov.length}天) — 涨停/跌停股本来就少,1-3%属正常` })
   }
   const downCount = status.value.collections?.limit_pool_down?.count || 0
   if (downCount < 10) {
