@@ -1,5 +1,7 @@
 #!/bin/bash
-cd /root/.openclaw/workspace/StockAgent
+cd "$SCRIPT_DIR"
+# 定位项目根目录（相对于脚本位置）
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export PYTHONPATH=.
 echo "🚀 启动后端Web服务..."
 python AgentServer/main.py > /tmp/backend.log 2>&1 &

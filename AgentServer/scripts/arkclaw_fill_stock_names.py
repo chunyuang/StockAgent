@@ -1,10 +1,11 @@
+from pathlib import Path
 """
 用ARKCLAW stock_basic批量补全stock_basic集合的股票名称
 每批50只，写入MongoDB stock_basic
 """
 import asyncio
 import sys
-sys.path.insert(0, '/root/.openclaw/workspace/StockAgent/AgentServer')
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.managers.mongo_manager import MongoManager
 
