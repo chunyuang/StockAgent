@@ -152,3 +152,23 @@ ALL_STRATEGIES = [
     }
     for cfg in STRATEGY_CONFIGS.values()
 ]
+
+
+def merge_strategy_params(strategy_id: str, user_params: dict) -> dict:
+    """合并用户传入的策略参数与默认值
+    
+    用户参数优先, 缺失的从STRATEGY_CONFIGS取默认值
+    返回完整的参数字典
+    """
+    defaults = STRATEGY_CONFIGS.get(strategy_id, {}).get("params", {})
+    merged = dict(defaults)  # 先复制默认值
+    merged.update(user_params)  # 用户参数覆盖
+    return merged
+
+
+def merge_strategy_risk_params(strategy_id: str, user_risk: dict) -> dict:
+    """合并用户传入的风控参数与默认值"""
+    defaults = STRATEGY_CONFIGS.get(strategy_id, {}).get("riskParams", {})
+    merged = dict(defaults)
+    merged.update(user_risk or {})
+    return merged
