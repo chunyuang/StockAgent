@@ -11,6 +11,7 @@ declare module 'vue' {
     BacktestHistoryPanel: typeof import('./components/backtest/BacktestHistoryPanel.vue')['default']
     BacktestResultPanel: typeof import('./components/ultrashort/BacktestResultPanel.vue')['default']
     BacktestSummaryTable: typeof import('./components/backtest/BacktestSummaryTable.vue')['default']
+    DataStatusPanel: typeof import('./components/ultrashort/DataStatusPanel.vue')['default']
     ElBadge: typeof import('element-plus/es')['ElBadge']
     ElButton: typeof import('element-plus/es')['ElButton']
     ElCard: typeof import('element-plus/es')['ElCard']
