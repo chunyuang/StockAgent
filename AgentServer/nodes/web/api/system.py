@@ -714,8 +714,8 @@ async def get_data_status() -> Dict[str, Any]:
             {
                 'name': '东方财富 datacenter',
                 'type': 'PE/PB/市值',
-                'status': 'blocked',
-                'status_text': '返回9701(服务器繁忙)',
+                'status': 'ok',
+                'status_text': '已恢复可用',
                 'rate_limit': '无限制(0.4秒/天)',
                 'coverage': '5400+只 PE_TTM/PB_MRQ/流通市值',
                 'gotchas': ['9701错误 = IP被封或服务器繁忙', '周末/非交易日也可能查到历史估值', 'daily_basic专用'],
