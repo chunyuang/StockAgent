@@ -486,5 +486,41 @@ async def execute_ultra_short_backtest(
             await akshare_manager.shutdown()
         except Exception:
             pass  # shutdown失败不应影响返回结果
+        # 🔧 自动清理旧回测结果(保留最近20条)
+        try:
+            await cleanup_old_backtest_tasks(mongo_manager, keep=20)
+        except Exception:
+            pass
+        # 🔧 内存泄漏防护：强制GC释放回测中分配的大对象
+        try:
+            import gc
+            gc.collect()
+            logger.info(f"[{task_id}] GC completed, freed memory")
+        except Exception:
+            pass
 
     return result
+
+
+async def cleanup_old_backtest_tasks(mongo_manager, keep: int = 20):
+    """自动清理旧的回测任务结果,只保留最近N条"""
+    try:
+        total = await mongo_manager.count_documents("backtest_tasks", {})
+        if total <= keep:
+            return
+        # 找到要保留的task_id
+        docs = await mongo_manager.find_many(
+            "backtest_tasks",
+            {},
+            projection={"task_id": 1},
+            sort=[("_id", -1)],
+            limit=keep
+        )
+        keep_ids = [d["task_id"] for d in docs]
+        delete_result = await mongo_manager.delete_many(
+            "backtest_tasks",
+            {"task_id": {"$nin": keep_ids}}
+        )
+        logger.info(f"[cleanup] 删除{delete_result}条旧回测结果, 保留{len(keep_ids)}条")
+    except Exception as e:
+        logger.warning(f"[cleanup] 清理旧回测任务失败: {e}")
