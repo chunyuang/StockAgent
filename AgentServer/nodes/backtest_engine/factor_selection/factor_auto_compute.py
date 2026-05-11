@@ -36,9 +36,9 @@ TECHNICAL_FACTOR_FIELDS = [
 # 策略因子列表（compute_all_factors.py计算的因子，不含技术指标）
 STRATEGY_FACTOR_FIELDS = [
     "ma5", "ma10", "ma20", "ma60",
-    "ma_deviation_20", "price_position", "price_near_ma5",
-    "momentum_5d", "momentum_20d", "momentum_60d",
-    "volatility_20d", "volatility_60d",
+
+    "momentum_5d", "momentum_20d",
+    "volatility_20d",
     "volume_ratio", "amount_20d",
     "circ_mv", "turnover_rate", "turnover_20d",
     "is_limit_up", "is_limit_down",
@@ -136,6 +136,31 @@ async def _compute_and_write_factors(
 
     df = pd.DataFrame(docs)
     log_fn(f"   ✅ 加载完成: {len(df):,} 条记录, {df['ts_code'].nunique():,} 只股票")
+    
+    # 【修复：从daily_basic合并turnover_rate/volume_ratio/circ_mv等精确字段】
+    # daily_basic已补全(东方财富数据中心，5400+只/天)，远比OHLCV反算准确
+    db_coll = mongo_manager.db["daily_basic"]
+    db_cursor = db_coll.find(
+        {"trade_date": {"$gte": lookback_start, "$lte": end_date}},
+        {"ts_code": 1, "trade_date": 1, "turnover_rate": 1, "volume_ratio": 1,
+         "circ_mv": 1, "pe": 1, "pe_ttm": 1, "pb": 1, "total_mv": 1}
+    )
+    db_docs = await db_cursor.to_list(length=None)
+    if db_docs:
+        db_df = pd.DataFrame(db_docs)
+        db_df = db_df.drop(columns=['_id'], errors='ignore')
+        # merge到主df（left join: 保留所有OHLCV记录，补充daily_basic字段）
+        df = df.merge(db_df, on=['ts_code', 'trade_date'], how='left', suffixes=('', '_db'))
+        # 如果daily_basic有值，覆盖OHLCV反算的值
+        for col in ['turnover_rate', 'volume_ratio', 'circ_mv', 'pe', 'pe_ttm', 'pb', 'total_mv']:
+            db_col = f'{col}_db'
+            if db_col in df.columns:
+                # 优先用daily_basic的值
+                df[col] = df[db_col].fillna(df.get(col))
+                df = df.drop(columns=[db_col])
+        log_fn(f"   ✅ daily_basic合并: {len(db_docs):,}条精确数据")
+    else:
+        log_fn(f"   ⚠️ daily_basic无数据，将使用OHLCV反算")
 
     # 按股票分组计算因子
     log_fn(f"   🧮 计算因子...")
@@ -181,25 +206,12 @@ def _compute_factors_for_stock(group: pd.DataFrame, fields: List[str]) -> pd.Dat
     group['ma20'] = group['close'].rolling(20).mean()
     group['ma60'] = group['close'].rolling(60).mean()
 
-    # MA偏离度
-    group['ma_deviation_20'] = (group['close'] - group['ma20']) / group['ma20']
-
-    # 价格位置
-    low_20 = group['low'].rolling(20).min()
-    high_20 = group['high'].rolling(20).max()
-    group['price_position'] = (group['close'] - low_20) / (high_20 - low_20 + 0.001)
-
-    # 接近MA5
-    group['price_near_ma5'] = abs(group['close'] - group['ma5']) / group['ma5'] < 0.02
-
     # 动量
     group['momentum_5d'] = group['close'].pct_change(5)
     group['momentum_20d'] = group['close'].pct_change(20)
-    group['momentum_60d'] = group['close'].pct_change(60)
 
     # 波动率
     group['volatility_20d'] = group['pct_chg'].rolling(20).std()
-    group['volatility_60d'] = group['pct_chg'].rolling(60).std()
 
     # 量比
     vol_5d_avg = group['vol'].rolling(5).mean()
@@ -231,8 +243,24 @@ def _compute_factors_for_stock(group: pd.DataFrame, fields: List[str]) -> pd.Dat
             is_new_data = group['amount'] > 100000000
             tr_calc = group['amount'] / group['circ_mv'] / 10000 * 100  # circ_mv万元→元
             group['turnover_rate'] = tr_calc.where(is_new_data, None)
-        # else: 留空
-    group['turnover_20d'] = group['turnover_rate'].rolling(20).mean()
+        else:
+            group['turnover_rate'] = None  # 无法计算时设为None
+    else:
+        # 【Bug修复：段1(通达信)的turnover_rate是前复权基准异常值(如4444)】
+        # 正确值应该用 amount / (circ_mv * 1e8) * 100 反算(百分比)
+        # 段2(AKShare)的turnover_rate是正确的(如0.3)
+        if group['turnover_rate'].max() > 50:  # 百分比不可能>50%, 大于说明是异常值
+            if group.get('circ_mv') is not None and (group['circ_mv'] > 0).any():
+                # circ_mv=亿元, amount=元(段1的amount虽标注千元但实际已是元)
+                tr_recalc = group['amount'] / (group['circ_mv'] * 1e8) * 100
+                # 只替换异常值(>50%)
+                mask = group['turnover_rate'] > 50
+                group.loc[mask, 'turnover_rate'] = tr_recalc[mask]
+    # 【Bug修复：turnover_rate可能仍全NaN，rolling前需检查】
+    if 'turnover_rate' in group.columns and group['turnover_rate'].notna().any():
+        group['turnover_20d'] = group['turnover_rate'].rolling(20).mean()
+    else:
+        group['turnover_20d'] = None
 
     # 振幅
     group['amplitude'] = (group['high'] - group['low']) / group['close'].shift(1) * 100
@@ -282,7 +310,17 @@ def _compute_factors_for_stock(group: pd.DataFrame, fields: List[str]) -> pd.Dat
     # 开盘在涨跌停价附近
     group['open_above_limit'] = (group['open'] - group['close'].shift(1)) / group['close'].shift(1) >= 0.095
     group['open_below_limit'] = (group['open'] - group['close'].shift(1)) / group['close'].shift(1) <= -0.095
-    group['open_above_limit_down'] = group['open_above_limit'] & group['limit_down_yesterday']
+    # 【Bug修复】open_above_limit_down 原逻辑=开盘接近涨停 AND 昨日跌停，几乎不可能满足
+    # 正确语义: 昨日跌停 AND 今日开盘高于跌停价(=昨收×0.9)，即跌停打开
+    # 【修复v2】放宽条件：不仅限于昨日跌停，今日盘中跌停被翘也可
+    # 即：open > 跌停价(pre_close*0.9) AND (limit_down_yesterday OR 盘中低点触跌停)
+    limit_down_price_yesterday = group['close'].shift(1) * 0.9
+    # 方案A（原）：严格要求昨日跌停 + 今日高开
+    group['open_above_limit_down'] = (group['open'] > limit_down_price_yesterday) & group['limit_down_yesterday']
+    # 方案B（补充）：今日低点触及跌停价但收盘翘起（盘中翘板）
+    intraday_qiao = (group['low'] <= limit_down_price_yesterday * 1.005) & (group['close'] > limit_down_price_yesterday * 1.005)
+    # 合并：方案A OR 方案B
+    group['open_above_limit_down'] = group['open_above_limit_down'] | intraday_qiao
 
     # 涨停开板金额
     limit_up_price = group['close'].shift(1) * 1.1
@@ -292,11 +330,10 @@ def _compute_factors_for_stock(group: pd.DataFrame, fields: List[str]) -> pd.Dat
     )
 
     # 跌停翘板金额
+    # 【修复】放宽条件：只要盘中触跌停+收盘翘起就算，不要求昨日一定跌停
     limit_down_price_yesterday = group['close'].shift(1) * 0.9
     group['limit_down_open_amount'] = np.where(
-        group['limit_down_yesterday'] &
-        (group['low'] <= limit_down_price_yesterday * 1.005) &
-        (group['close'] > limit_down_price_yesterday * 1.005),
+        (group['low'] <= limit_down_price_yesterday * 1.005) & (group['close'] > limit_down_price_yesterday * 1.005),
         group['amount'], 0
     )
 
@@ -387,8 +424,12 @@ def _compute_factors_for_stock(group: pd.DataFrame, fields: List[str]) -> pd.Dat
         group['volatility_10d'] = group['pct_chg'].rolling(10).std()
 
         # 换手率均值
-        group['turnover_5d_avg'] = group['turnover_rate'].rolling(5).mean()
-        group['turnover_20d_avg'] = group['turnover_rate'].rolling(20).mean()
+        if 'turnover_rate' in group.columns and group['turnover_rate'].notna().any():
+            group['turnover_5d_avg'] = group['turnover_rate'].rolling(5).mean()
+            group['turnover_20d_avg'] = group['turnover_rate'].rolling(20).mean()
+        else:
+            group['turnover_5d_avg'] = None
+            group['turnover_20d_avg'] = None
 
         # 恐贪指数(简化版: 基于RSI和波动率)
         rsi_norm = (group['rsi_12'] - 50) / 50  # -1 to 1

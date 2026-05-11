@@ -41,22 +41,56 @@ def safe_float(v, default=None):
         return default
 
 def fetch_all():
+    """从东方财富push2拉全市场数据，失败时回退AKShare"""
     all_data = []
-    for pn in range(1, 60):
-        url = 'https://push2.eastmoney.com/api/qt/clist/get'
-        params = {
-            'pn': pn, 'pz': 200, 'po': 1, 'np': 1,
-            'fltt': 2, 'invt': 2, 'fid': 'f3',
-            'fs': 'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048',
-            'fields': 'f2,f3,f4,f5,f6,f7,f8,f9,f10,f12,f14,f15,f16,f17,f18,f20,f21,f23,f115'
-        }
-        r = requests.get(url, params=params, timeout=10)
-        d = r.json()
-        diff = d.get('data', {}).get('diff', [])
-        if not diff:
-            break
-        all_data.extend(diff)
-    return all_data
+    try:
+        for pn in range(1, 60):
+            url = 'https://push2.eastmoney.com/api/qt/clist/get'
+            params = {
+                'pn': pn, 'pz': 200, 'po': 1, 'np': 1,
+                'fltt': 2, 'invt': 2, 'fid': 'f3',
+                'fs': 'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048',
+                'fields': 'f2,f3,f4,f5,f6,f7,f8,f9,f10,f12,f14,f15,f16,f17,f18,f20,f21,f23,f115'
+            }
+            r = requests.get(url, params=params, timeout=10)
+            d = r.json()
+            diff = d.get('data', {}).get('diff', [])
+            if not diff:
+                break
+            all_data.extend(diff)
+        if all_data:
+            return all_data
+    except Exception as e:
+        print(f"push2 API失败({e}), 尝试AKShare回退...")
+    
+    # 回退: AKShare stock_zh_a_spot_em (非push2数据源)
+    try:
+        import akshare as ak
+        df = ak.stock_zh_a_spot_em()
+        print(f"AKShare回退: 获取{len(df)}只")
+        # 转换为push2兼容格式
+        for _, row in df.iterrows():
+            all_data.append({
+                'f12': str(row.get('代码', '')),
+                'f14': row.get('名称', ''),
+                'f2': row.get('最新价'),
+                'f3': row.get('涨跌幅'),
+                'f4': row.get('涨跌额'),
+                'f5': row.get('成交量'),  # 手
+                'f6': row.get('成交额'),
+                'f7': row.get('振幅'),
+                'f8': row.get('换手率'),
+                'f10': row.get('量比'),
+                'f15': row.get('最高'),
+                'f16': row.get('最低'),
+                'f17': row.get('今开'),
+                'f18': row.get('昨收'),
+                'f21': row.get('流通市值'),
+            })
+        return all_data
+    except Exception as e2:
+        print(f"AKShare也失败({e2}), 无法获取数据")
+        return []
 
 def write_daily_bar(trade_date=None):
     db = MongoClient(MONGO_URI)[DB_NAME]

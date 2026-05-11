@@ -73,10 +73,7 @@ class RedisWSBridge:
         self._listener_task: Optional[asyncio.Task] = None
         self._running = False
 
-        # 日志缓存：task_id -> [log_string, ...]
-        # 用于快速补发最近日志（不查MongoDB）
-        self._log_cache: Dict[str, List[str]] = {}
-        self._log_cache_max = 500  # 每个task最多缓存500条
+        # 【方案C】日志不再缓存，前端完成后通过API从.jsonl文件读取
 
     async def start(self) -> None:
         """启动桥接服务"""
@@ -184,28 +181,17 @@ class RedisWSBridge:
             logger.error(f"Redis listener error: {e}")
 
     async def _handle_log_message(self, task_id: str, data: dict) -> None:
-        """处理日志消息：缓存 + 推送到WebSocket + 异步写MongoDB"""
+        """处理日志消息：透传到WebSocket（不再缓存，前端完成后从API拉取）"""
         log_text = data.get("log", "")
         if not log_text:
             return
 
-        # 1. 缓存日志（用于重连补发）
-        if task_id not in self._log_cache:
-            self._log_cache[task_id] = []
-        self._log_cache[task_id].append(log_text)
-        # 控制缓存大小
-        if len(self._log_cache[task_id]) > self._log_cache_max:
-            self._log_cache[task_id] = self._log_cache[task_id][-self._log_cache_max:]
-
-        # 2. 即时推送到 WebSocket 客户端（毫秒级延迟）
+        # 即时推送到 WebSocket 客户端（运行中可见）
         await self._ws_manager.broadcast_task_update(task_id, {
             "type": "log",
             "task_id": task_id,
             "log": log_text,
         })
-
-        # 【修复风险4：不再往mongo_write_queue塞数据，Bridge不写MongoDB】
-        # try:
 
     async def _handle_status_message(self, task_id: str, data: dict) -> None:
         """处理状态变更消息"""
@@ -265,40 +251,17 @@ class RedisWSBridge:
         """
         为重连的 WebSocket 客户端补发历史日志
 
-        方案B：日志不再存MongoDB，只从内存缓存补发
-        如果缓存不存在（服务重启后丢失），前端只看到重连后的新日志
-
-        Args:
-            task_id: 任务ID
-            websocket: WebSocket 连接
+        方案C：日志从本地.jsonl/.log文件读取（通过API）
+        不再依赖内存缓存，重启后仍可补发
         """
-        logs_to_send = []
-
-        # 从内存缓存获取（方案B：不再查MongoDB）
-        cached_logs = self._log_cache.get(task_id, [])
-        if cached_logs:
-            logs_to_send = cached_logs
-            logger.info(f"[catchup] Sending {len(cached_logs)} cached logs for {task_id}")
-        else:
-            logger.info(f"[catchup] No cached logs for {task_id}, only new logs will be shown")
-
-        # 3. 逐条补发（避免一次性发送大量数据导致WebSocket阻塞）
-        for log_text in logs_to_send:
-            try:
-                await websocket.send_json({
-                    "type": "log",
-                    "task_id": task_id,
-                    "log": log_text,
-                })
-            except Exception:
-                break  # WebSocket已断开，停止补发
-
-        # 4. 发送补发完成标记
+        # 不再做内存补发，前端完成后通过API /backtest/logs/{task_id} 获取
+        # 运行中的实时日志仍通过Redis推送
         try:
             await websocket.send_json({
                 "type": "catchup_end",
                 "task_id": task_id,
-                "count": len(logs_to_send),
+                "count": 0,
+                "message": "历史日志请通过API获取: GET /backtest/logs/{task_id}",
             })
         except Exception:
             pass
