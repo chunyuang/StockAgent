@@ -67,14 +67,10 @@ const activeTaskCount = computed(() => taskStore.activeTaskCount)
 // ==================== 菜单项 ====================
 
 const menuItems = [
-  { path: '/ultra-short-v2', icon: DataAnalysis, title: '超短策略回测' },
-  { path: '/strategies', icon: TrendCharts, title: '市场监听' },
-  { path: '/trading-signals', icon: Bell, title: '交易信号' },
-  { path: '/position', icon: Wallet, title: '今日持仓' },
-  { path: '/performance', icon: DataLine, title: '绩效报告' },
-  { path: '/system/status', icon: DataLine, title: '系统状态' },
-  { path: '/admin/db', icon: Grid, title: '数据库管理' },
-  { path: '/settings', icon: Tools, title: '设置' },
+  { path: '/ultra-short-v2', icon: DataAnalysis, title: '策略回测' },
+  { path: '/live-trading', icon: TrendCharts, title: '实盘交易' },
+  { path: '/strategies', icon: Bell, title: '市场监听' },
+  { path: '/system/status', icon: DataLine, title: '系统管理' },
 ]
 
 // ==================== 生命周期 ====================

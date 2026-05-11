@@ -27,23 +27,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '个股详情' },
       },
       {
-        path: 'trading-signals',
-        name: 'TradingSignals',
-        component: () => import('@/views/trading/TradingSignalsView.vue'),
-        meta: { title: '交易信号' },
+        path: 'live-trading',
+        name: 'LiveTrading',
+        component: () => import('@/views/trading/LiveTradingView.vue'),
+        meta: { title: '实盘交易' },
       },
-      {
-        path: 'position',
-        name: 'Position',
-        component: () => import('@/views/position/PositionView.vue'),
-        meta: { title: '今日持仓' },
-      },
-      {
-        path: 'performance',
-        name: 'PerformanceReport',
-        component: () => import('@/views/trading/PerformanceReportView.vue'),
-        meta: { title: '绩效报告' },
-      },
+
       {
         path: 'strategies',
         name: 'StrategyList',
