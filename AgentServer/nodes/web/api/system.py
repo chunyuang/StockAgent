@@ -753,13 +753,13 @@ async def get_data_status() -> Dict[str, Any]:
             },
             {
                 'name': 'Tushare',
-                'type': '全品种',
-                'status': 'disabled',
-                'status_text': 'Token已失效,不要调用',
-                'rate_limit': 'N/A',
-                'coverage': 'N/A',
-                'gotchas': ['Token失效,调用必失败', '不要再尝试,不要再尝试', '已从代码中移除依赖'],
-                'scripts': [],
+                'type': '全品种日线/指标',
+                'status': 'ok',
+                'status_text': '5000积分,约4758剩余',
+                'rate_limit': '5000积分(每日约200次)',
+                'coverage': 'daily/daily_basic全市场批量补',
+                'gotchas': ['新token 5/11提供,已验证可用', 'vol单位是手(×100→股), amount单位是千元(×1000→元)', '代理地址: http://119.45.170.23', '积分用完前优先批量补缺失数据'],
+                'scripts': ['tushare_fill_v2.py basic', 'tushare_fill_v2.py daily'],
             },
         ]
 
