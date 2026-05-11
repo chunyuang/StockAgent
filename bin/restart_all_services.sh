@@ -1,5 +1,7 @@
 #!/bin/bash
 # 一键重启所有回测相关服务脚本
+# 定位项目根目录（相对于脚本位置）
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # 使用方式：./restart_all_services.sh
 
 echo "========================================"
@@ -7,7 +9,7 @@ echo "🚀 开始重启所有回测服务 $(date '+%Y-%m-%d %H:%M:%S')"
 echo "========================================"
 
 # 记录操作日志
-LOG_FILE="/root/.openclaw/workspace/StockAgent/logs/service_restart.log"
+LOG_FILE="$SCRIPT_DIR/logs/service_restart.log"
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] 开始执行服务重启操作" >> $LOG_FILE
 
 # 1. 杀掉所有相关进程
@@ -32,7 +34,7 @@ fi
 # 2. 启动回测节点
 echo ""
 echo "🚀 正在启动回测节点..."
-cd /root/.openclaw/workspace/StockAgent
+cd "$SCRIPT_DIR"
 # 明确设置回测节点类型
 NODE_TYPE=backtest nohup python AgentServer/main.py > /tmp/backtest_node.log 2>&1 &
 BACKTEST_PID=$!
