@@ -12,6 +12,17 @@ declare module 'vue' {
     BacktestResultPanel: typeof import('./components/ultrashort/BacktestResultPanel.vue')['default']
     BacktestSummaryTable: typeof import('./components/backtest/BacktestSummaryTable.vue')['default']
     DataStatusPanel: typeof import('./components/ultrashort/DataStatusPanel.vue')['default']
+    ElButton: typeof import('element-plus/es')['ElButton']
+    ElCard: typeof import('element-plus/es')['ElCard']
+    ElEmpty: typeof import('element-plus/es')['ElEmpty']
+    ElForm: typeof import('element-plus/es')['ElForm']
+    ElFormItem: typeof import('element-plus/es')['ElFormItem']
+    ElProgress: typeof import('element-plus/es')['ElProgress']
+    ElRadio: typeof import('element-plus/es')['ElRadio']
+    ElRadioGroup: typeof import('element-plus/es')['ElRadioGroup']
+    ElSwitch: typeof import('element-plus/es')['ElSwitch']
+    ElTabPane: typeof import('element-plus/es')['ElTabPane']
+    ElTabs: typeof import('element-plus/es')['ElTabs']
     LogLevelPanel: typeof import('./components/settings/LogLevelPanel.vue')['default']
     PositionDetailTable: typeof import('./components/position/PositionDetailTable.vue')['default']
     PositionSummaryCards: typeof import('./components/position/PositionSummaryCards.vue')['default']
@@ -21,5 +32,8 @@ declare module 'vue' {
     SearchBar: typeof import('./components/common/SearchBar.vue')['default']
     StockChart: typeof import('./components/charts/StockChart.vue')['default']
     StrategyConfigPanel: typeof import('./components/ultrashort/StrategyConfigPanel.vue')['default']
+  }
+  export interface ComponentCustomProperties {
+    vLoading: typeof import('element-plus/es')['ElLoadingDirective']
   }
 }

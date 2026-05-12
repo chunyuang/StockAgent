@@ -215,10 +215,6 @@ const pauseCircuitBreaker = async () => {
     ElMessage.error('暂停失败: ' + (e.response?.data?.detail || e.message))
   }
 }
-    ElMessage.error(`重置失败: ${e.message}`)
-  }
-}
-
 const fetchDataSources = async () => {
   try {
     const [srcRes, bkRes, cmpRes] = await Promise.all([
