@@ -179,6 +179,13 @@ class MarketScanner:
     def get_timeline(self) -> List[Dict]:
         return list(self._timeline)
 
+    def update_strategy_config(self, strategy_id: str, config: Dict):
+        """运行时更新策略配置(来自前端策略配置页)"""
+        if "strategy_overrides" not in self.config:
+            self.config["strategy_overrides"] = {}
+        self.config["strategy_overrides"][strategy_id] = config
+        logger.info(f"[SCANNER] 策略配置更新: {strategy_id} enabled={config.get('enabled')}")
+
     # ==================== 生命周期 ====================
 
     async def start(self, trade_date: str = None):
