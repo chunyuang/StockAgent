@@ -71,6 +71,10 @@ const status = ref<ScannerStatus | null>(null)
 const signals = ref<ScanSignal[]>([])
 const positions = ref<PositionInfo[]>([])
 const timeline = ref<TimelineItem[]>([])
+const orders = ref<any[]>([])
+const limitPools = ref<{limit_up: any[], limit_down: any[], broken: any[]}>({limit_up: [], limit_down: [], broken: []})
+const limitPoolTab = ref('limit_up')
+const dailyReport = ref<any>(null)
 
 // 策略配置
 const strategies = ref<StrategyConfig[]>([])
@@ -109,6 +113,23 @@ const dataSourceLabels: Record<string, string> = {
   gm: '掘金(需终端)',
 }
 
+// 信号筛选
+const signalFilter = ref('all')  // all | halfway_chase | first_limit_up | limit_down_qiao | anomaly
+const signalSort = ref('pct')  // pct | strategy | time
+const filteredSignals = computed(() => {
+  let list = [...signals.value]
+  if (signalFilter.value !== 'all') {
+    if (signalFilter.value === 'anomaly') {
+      list = list.filter(s => s.strategy.startsWith('anomaly_'))
+    } else {
+      list = list.filter(s => s.strategy === signalFilter.value || s.strategy.startsWith(signalFilter.value))
+    }
+  }
+  if (signalSort.value === 'pct') list.sort((a, b) => b.pct_chg - a.pct_chg)
+  else if (signalSort.value === 'strategy') list.sort((a, b) => a.strategy.localeCompare(b.strategy))
+  return list
+})
+
 // 手动交易
 const manualTrade = reactive({
   ts_code: '',
@@ -117,6 +138,30 @@ const manualTrade = reactive({
   quantity: 0,
   price: 0,
 })
+const manualQuote = ref<any>(null)  // 实时行情预览
+
+// 手动交易输入代码时自动获取行情
+async function onManualCodeChange(code: string) {
+  if (!code || code.length < 9) { manualQuote.value = null; return }
+  try {
+    const res = await api.get(`${scannerApi}/positions`)  // 从持仓/缓存获取
+    // 更好的方式: 从scanner的realtime_cache获取
+    const posData = (res?.data || []).find((p: any) => p.ts_code === code)
+    if (posData) {
+      manualQuote.value = { price: posData.current_price, cost: posData.cost_price, name: posData.stock_name }
+      if (!manualTrade.stock_name) manualTrade.stock_name = posData.stock_name
+    } else {
+      // 尝试从信号获取
+      const sig = signals.value.find(s => s.ts_code === code)
+      if (sig) {
+        manualQuote.value = { price: sig.price, name: sig.stock_name }
+        if (!manualTrade.stock_name) manualTrade.stock_name = sig.stock_name
+      } else {
+        manualQuote.value = null
+      }
+    }
+  } catch { manualQuote.value = null }
+}
 
 const executeManualTrade = async () => {
   if (!manualTrade.ts_code) return
@@ -196,16 +241,18 @@ const accountInfo = computed(() => status.value?.account ?? { total_assets: 0, a
 
 async function fetchScanner() {
   try {
-    const [sR, sigR, posR, tlR] = await Promise.all([
+    const [sR, sigR, posR, tlR, ordR] = await Promise.all([
       api.get(`${scannerApi}/status`),
       api.get(`${scannerApi}/signals`),
       api.get(`${scannerApi}/positions`),
       api.get(`${scannerApi}/timeline`),
+      api.get(`${scannerApi}/orders`),
     ])
     if (sR?.success) status.value = sR.data
     if (sigR?.success) signals.value = sigR.data
     if (posR?.success) positions.value = posR.data
     if (tlR?.success) timeline.value = tlR.data
+    if (ordR?.success) orders.value = ordR.data || []
   } catch (e) { console.error(e) }
 }
 
@@ -227,7 +274,21 @@ async function manualScan() {
 }
 
 async function fetchAll(force = false) {
-  await Promise.all([fetchScanner(), fetchStrategies(), fetchDataSources()])
+  await Promise.all([fetchScanner(), fetchStrategies(), fetchDataSources(), fetchLimitPools(), fetchDailyReport()])
+}
+
+async function fetchLimitPools() {
+  try {
+    const res = await api.get(`${scannerApi}/limit-pools`)
+    if (res?.success) limitPools.value = res.data
+  } catch (e) { console.warn('涨停池获取失败:', e) }
+}
+
+async function fetchDailyReport() {
+  try {
+    const res = await api.get(`${scannerApi}/daily-report`)
+    if (res?.success) dailyReport.value = res.data
+  } catch (e) { console.warn('复盘获取失败:', e) }
 }
 
 function toggleTradeMode() {
@@ -347,12 +408,15 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
             <template #header>
               <div class="panel-header">
                 <span>🎯 活跃信号</span>
-                <ElBadge :value="signals.length" :max="99" />
+                <div class="sig-filters">
+                  <ElTag v-for="f in [{k:'all',l:'全部'},{k:'halfway_chase',l:'半路'},{k:'limit_up',l:'首板/连板'},{k:'limit_down_qiao',l:'跌停撬板'},{k:'anomaly',l:'异动'}]" :key="f.k" size="small" :type="signalFilter===f.k?'primary':'info'" style="cursor:pointer;margin-right:4px" @click="signalFilter=f.k">{{ f.l }}</ElTag>
+                </div>
+                <ElBadge :value="filteredSignals.length" :max="99" />
               </div>
             </template>
             <div v-if="!signals.length" class="empty">启动扫描器或手动扫描</div>
             <div v-else class="signal-list">
-              <div v-for="sig in signals" :key="sig.ts_code + sig.strategy" class="signal-row" @click="manualTrade.ts_code = sig.ts_code; manualTrade.stock_name = sig.stock_name; manualTrade.side = 'buy'" style="cursor:pointer" title="点击填入手动交易">
+              <div v-for="sig in filteredSignals" :key="sig.ts_code + sig.strategy" class="signal-row" @click="manualTrade.ts_code = sig.ts_code; manualTrade.stock_name = sig.stock_name; manualTrade.side = 'buy'" style="cursor:pointer" title="点击填入手动交易">
                 <div class="sig-top">
                   <span class="code">{{ sig.ts_code }}</span>
                   <span class="name">{{ sig.stock_name }}</span>
@@ -363,6 +427,36 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
                   <span v-if="sig.volume_ratio" class="factor">量比{{ sig.volume_ratio.toFixed(1) }}</span>
                   <span v-if="sig.is_limit_up" class="limit-tag">涨停</span>
                   <span class="reason">{{ sig.reason }}</span>
+                </div>
+              </div>
+            </div>
+          </ElCard>
+
+          <!-- 涨停池 -->
+          <ElCard class="panel" shadow="never">
+            <template #header>
+              <div class="panel-header">
+                <span>🔥 涨停池</span>
+                <div class="sig-filters">
+                  <ElTag size="small" :type="limitPoolTab==='limit_up'?'danger':'info'" style="cursor:pointer;margin-right:4px" @click="limitPoolTab='limit_up'">涨停 {{ limitPools.limit_up.length }}</ElTag>
+                  <ElTag size="small" :type="limitPoolTab==='limit_down'?'warning':'info'" style="cursor:pointer;margin-right:4px" @click="limitPoolTab='limit_down'">跌停 {{ limitPools.limit_down.length }}</ElTag>
+                  <ElTag size="small" :type="limitPoolTab==='broken'?'':'info'" style="cursor:pointer" @click="limitPoolTab='broken'">炸板 {{ limitPools.broken.length }}</ElTag>
+                </div>
+              </div>
+            </template>
+            <div v-if="!limitPools[limitPoolTab as keyof typeof limitPools]?.length" class="empty">暂无数据</div>
+            <div v-else class="limit-list">
+              <div v-for="item in (limitPools[limitPoolTab as keyof typeof limitPools] || []).slice(0, 30)" :key="item.ts_code" class="limit-row" @click="manualTrade.ts_code = item.ts_code; manualTrade.stock_name = item.name; manualTrade.side = 'buy'" style="cursor:pointer">
+                <div class="limit-top">
+                  <span class="code">{{ item.ts_code }}</span>
+                  <span class="name">{{ item.name }}</span>
+                  <span :class="item.pct_chg >= 0 ? 'up' : 'down'">{{ item.pct_chg >= 0 ? '+' : '' }}{{ item.pct_chg.toFixed(1) }}%</span>
+                </div>
+                <div class="limit-bot">
+                  <span v-if="item.limit_times" class="lb-tag">{{ item.limit_times }}连板</span>
+                  <span v-if="item.open_times" class="zb-tag">炸{{ item.open_times }}次</span>
+                  <span v-if="item.fd_amount" class="fd-tag">封单{{ item.fd_amount }}万</span>
+                  <span v-if="item.industry" class="hy-tag">{{ item.industry }}</span>
                 </div>
               </div>
             </div>
@@ -415,6 +509,18 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
                 </span>
               </div>
             </div>
+            <!-- 历史订单 -->
+            <div v-if="orders.length" class="orders-section">
+              <div class="orders-title">📋 历史订单 ({{ orders.length }})</div>
+              <div v-for="o in orders.slice(0, 20)" :key="o.order_id" class="tl-row">
+                <span class="tl-time">{{ o.trade_date?.slice(-4) || '' }} {{ o.create_time }}</span>
+                <span class="tl-action" :class="o.side === 'buy' ? 'buy' : 'sell'">{{ o.side === 'buy' ? '买' : '卖' }}</span>
+                <span class="code">{{ o.ts_code }}</span>
+                <span class="name">{{ o.stock_name }}</span>
+                <span class="tl-detail">{{ o.filled_qty }}股@{{ o.filled_price?.toFixed(2) || '0.00' }}</span>
+                <span class="reason-tag">{{ o.strategy }}</span>
+              </div>
+            </div>
           </ElCard>
 
           <!-- 统计 -->
@@ -440,7 +546,7 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
             </template>
             <div class="manual-trade">
               <div class="mt-row">
-                <ElInput v-model="manualTrade.ts_code" placeholder="股票代码 如000001.SZ" size="small" style="width:150px" />
+                <ElInput v-model="manualTrade.ts_code" placeholder="股票代码 如000001.SZ" size="small" style="width:150px" @change="onManualCodeChange(manualTrade.ts_code)" />
                 <ElInput v-model="manualTrade.stock_name" placeholder="名称" size="small" style="width:80px" />
                 <ElSelect v-model="manualTrade.side" size="small" style="width:80px">
                   <ElOption label="买入" value="buy" />
@@ -449,6 +555,11 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
                 <ElInputNumber v-model="manualTrade.quantity" :min="0" :step="100" placeholder="数量(0=自动)" size="small" style="width:130px" controls-position="right" />
                 <ElInputNumber v-model="manualTrade.price" :min="0" :precision="2" placeholder="价格(0=市价)" size="small" style="width:120px" controls-position="right" />
                 <ElButton type="primary" size="small" :disabled="!manualTrade.ts_code" @click="executeManualTrade">下单</ElButton>
+              </div>
+              <div class="mt-quote" v-if="manualQuote">
+                <span>💡 当前价: <strong :class="manualQuote.price >= (manualQuote.cost||0) ? 'up' : 'down'">¥{{ manualQuote.price?.toFixed(2) }}</strong></span>
+                <span v-if="manualQuote.cost"> 成本: ¥{{ manualQuote.cost?.toFixed(2) }}</span>
+                <span v-if="manualTrade.quantity > 0"> 预估金额: ¥{{ ((manualTrade.price || manualQuote.price || 0) * manualTrade.quantity / 10000).toFixed(1) }}万</span>
               </div>
               <div class="mt-info" v-if="status?.account">
                 <span>💰 总资产: ¥{{ (status.account.total_assets / 10000).toFixed(1) }}万</span>
@@ -575,6 +686,41 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
           </ElCard>
         </div>
       </ElTabPane>
+
+      <!-- ==================== Tab3: 盘后复盘 ==================== -->
+      <ElTabPane label="📊 盘后复盘" name="report">
+        <div v-if="!dailyReport" class="empty">点击刷新加载复盘数据</div>
+        <div v-else class="report-grid">
+          <ElCard shadow="never">
+            <template #header><span>💰 账户概览</span></template>
+            <div class="rpt-row" v-for="(v, k) in dailyReport.account" :key="k">
+              <span class="rpt-label">{{ {total_assets:'总资产',available_cash:'可用现金',market_value:'持仓市值',today_profit:'今日盈亏',total_profit:'累计盈亏',position_ratio:'仓位比例'}[k] || k }}</span>
+              <span class="rpt-val" :class="k.includes('profit') && v < 0 ? 'down' : ''">{{ k.includes('ratio') ? v + '%' : '¥' + (v/10000).toFixed(1) + '万' }}</span>
+            </div>
+          </ElCard>
+          <ElCard shadow="never">
+            <template #header><span>📈 策略表现</span></template>
+            <div v-for="(v, k) in dailyReport.positions?.strategy_summary" :key="k" class="rpt-row">
+              <span class="rpt-label">{{ k }}</span>
+              <span>{{ v.count }}只 | ¥{{ (v.market_value/10000).toFixed(1) }}万 | <span :class="v.total_profit >= 0 ? 'up' : 'down'">{{ v.total_profit >= 0 ? '+' : '' }}¥{{ v.total_profit.toFixed(0) }}</span></span>
+            </div>
+          </ElCard>
+          <ElCard shadow="never">
+            <template #header><span>🎯 今日交易</span></template>
+            <div class="rpt-row" v-for="(v, k) in dailyReport.trades" :key="k">
+              <span class="rpt-label">{{ {buy:'买入',sell:'卖出',total_amount:'成交额'}[k] || k }}</span>
+              <span class="rpt-val">{{ k === 'total_amount' ? '¥' + (v/10000).toFixed(1) + '万' : v + '笔' }}</span>
+            </div>
+            <div class="rpt-row"><span class="rpt-label">信号</span><span class="rpt-val">{{ dailyReport.scanner_stats?.signals_found || 0 }}个</span></div>
+            <div class="rpt-row"><span class="rpt-label">扫描</span><span class="rpt-val">{{ dailyReport.scanner_stats?.scans || 0 }}次</span></div>
+          </ElCard>
+          <ElCard shadow="never">
+            <template #header><span>⚠️ 风控状态</span></template>
+            <div class="rpt-row"><span class="rpt-label">熔断</span><span :class="dailyReport.risk?.circuit_breaker ? 'down' : 'up'">{{ dailyReport.risk?.circuit_breaker ? '已触发' : '正常' }}</span></div>
+            <div class="rpt-row"><span class="rpt-label">连亏</span><span class="rpt-val">{{ dailyReport.risk?.consecutive_losses || 0 }}次</span></div>
+          </ElCard>
+        </div>
+      </ElTabPane>
     </ElTabs>
 
     <!-- ==================== 编辑参数弹窗 ==================== -->
@@ -647,6 +793,7 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
 /* 信号 */
 .signal-list, .pos-list, .tl-list { max-height: 340px; overflow-y: auto; }
 .signal-row { padding: 6px 0; border-bottom: 1px solid #f5f5f5; }
+.sig-filters { display: flex; gap: 0; align-items: center; flex-wrap: wrap; }
 .sig-top { display: flex; align-items: center; gap: 5px; }
 .sig-bot { display: flex; align-items: center; gap: 6px; margin-top: 2px; font-size: 11px; }
 .factor { color: #909399; } .limit-tag { color: #f56c6c; font-weight: 600; }
@@ -667,6 +814,26 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
 .tl-action { font-weight: 600; min-width: 20px; }
 .tl-action.buy { color: #f56c6c; } .tl-action.sell { color: #67c23a; }
 .tl-detail { color: #909399; }
+.orders-section { margin-top: 8px; padding-top: 8px; border-top: 1px dashed #dcdfe6; }
+.orders-title { font-size: 12px; font-weight: 600; color: #606266; margin-bottom: 4px; }
+.reason-tag { font-size: 10px; color: #909399; background: #f5f7fa; padding: 1px 4px; border-radius: 3px; }
+
+/* 涨停池 */
+.limit-list { max-height: 240px; overflow-y: auto; }
+.limit-row { padding: 4px 0; border-bottom: 1px solid #f5f5f5; cursor: pointer; }
+.limit-row:hover { background: #f5f7fa; }
+.limit-top { display: flex; align-items: center; gap: 5px; }
+.limit-bot { display: flex; gap: 4px; margin-top: 2px; flex-wrap: wrap; }
+.lb-tag { font-size: 10px; color: #e6a23c; background: #fdf6ec; padding: 1px 4px; border-radius: 3px; }
+.zb-tag { font-size: 10px; color: #f56c6c; background: #fef0f0; padding: 1px 4px; border-radius: 3px; }
+.fd-tag { font-size: 10px; color: #67c23a; background: #f0f9eb; padding: 1px 4px; border-radius: 3px; }
+.hy-tag { font-size: 10px; color: #909399; background: #f5f7fa; padding: 1px 4px; border-radius: 3px; }
+
+/* 复盘 */
+.report-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.rpt-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; border-bottom: 1px solid #f5f5f5; }
+.rpt-label { color: #606266; }
+.rpt-val { font-weight: 600; font-family: monospace; }
 
 /* 统计 */
 .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; text-align: center; }
@@ -747,6 +914,7 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
 .mt-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .mt-actions { display: flex; gap: 8px; }
 .mt-info { display: flex; gap: 12px; font-size: 12px; color: #606266; align-items: center; flex-wrap: wrap; }
+.mt-quote { font-size: 12px; color: #606266; display: flex; gap: 10px; align-items: center; padding: 2px 0; }
 
 /* === 数据源进度条 === */
 .ds-progress { height: 4px; background: #ebeef5; border-radius: 2px; flex: 1; min-width: 80px; margin-top: 2px; }

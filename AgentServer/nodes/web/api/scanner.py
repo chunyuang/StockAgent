@@ -257,3 +257,150 @@ async def scan_once():
             "positions": len(scanner.get_positions()),
         },
     }
+
+
+@router.get("/orders")
+async def get_orders(limit: int = 50):
+    """获取历史订单(从MongoDB)"""
+    scanner = _get_scanner()
+    if not scanner._broker:
+        return {"success": True, "data": []}
+    
+    try:
+        if not await scanner._broker._ensure_mongo():
+            return {"success": True, "data": []}
+        
+        db = scanner._broker._mongo_db
+        docs = await db["broker_orders"].find(
+            {"account_id": scanner._broker.account.account_id}
+        ).sort("create_time", -1).limit(limit).to_list(limit)
+        
+        # 转换ObjectId
+        for d in docs:
+            d.pop("_id", None)
+        
+        return {"success": True, "data": docs}
+    except Exception as e:
+        return {"success": True, "data": [], "message": str(e)}
+
+
+@router.get("/limit-pools")
+async def get_limit_pools():
+    """获取今日涨停/跌停/炸板池"""
+    scanner = _get_scanner()
+    
+    try:
+        if not scanner._data_router:
+            return {"success": True, "data": {"limit_up": [], "limit_down": [], "broken": []}}
+        
+        biying = scanner._data_router._sources.get("biying")
+        if not biying:
+            return {"success": True, "data": {"limit_up": [], "limit_down": [], "broken": []}}
+        
+        today = datetime.now().strftime("%Y-%m-%d")
+        
+        limit_ups = await biying.get_limit_up_pool(today)
+        limit_downs = await biying.get_limit_down_pool(today)
+        brokens = await biying.get_broken_board_pool(today)
+        
+        def to_list(items):
+            result = []
+            for item in items:
+                d = item if isinstance(item, dict) else item.__dict__ if hasattr(item, '__dict__') else {}
+                result.append({
+                    "ts_code": d.get("ts_code", ""),
+                    "name": d.get("name", ""),
+                    "close": d.get("close", 0),
+                    "pct_chg": d.get("pct_chg", 0),
+                    "limit_times": d.get("limit_times", 0),
+                    "open_times": d.get("open_times", 0),
+                    "fd_amount": round(d.get("fd_amount", 0) / 1000, 0),  # 千元→万元
+                    "turnover": d.get("turnover_ratio", 0),
+                    "first_time": d.get("first_time", ""),
+                    "industry": d.get("industry", ""),
+                })
+            return result
+        
+        return {
+            "success": True,
+            "data": {
+                "limit_up": to_list(limit_ups),
+                "limit_down": to_list(limit_downs),
+                "broken": to_list(brokens),
+            }
+        }
+    except Exception as e:
+        return {"success": True, "data": {"limit_up": [], "limit_down": [], "broken": []}, "message": str(e)}
+
+
+@router.get("/daily-report")
+async def get_daily_report():
+    """每日复盘报告"""
+    scanner = _get_scanner()
+    if not scanner._broker:
+        return {"success": True, "data": {}}
+    
+    try:
+        acct = scanner._broker.get_account()
+        positions = scanner._broker.get_positions()
+        cb = scanner._circuit_breaker
+        stats = scanner._stats
+        
+        # 按策略汇总
+        strategy_summary = {}
+        for pos in positions:
+            key = pos.strategy or "unknown"
+            if key not in strategy_summary:
+                strategy_summary[key] = {"count": 0, "market_value": 0, "total_profit": 0}
+            strategy_summary[key]["count"] += 1
+            strategy_summary[key]["market_value"] += pos.current_price * pos.total_qty
+            strategy_summary[key]["total_profit"] += (pos.current_price - pos.avg_cost) * pos.total_qty
+        
+        # 从MongoDB获取今日订单统计
+        today_trades = {"buy": 0, "sell": 0, "total_amount": 0}
+        if await scanner._broker._ensure_mongo():
+            db = scanner._broker._mongo_db
+            today = datetime.now().strftime("%Y%m%d")
+            async for doc in db["broker_orders"].find({
+                "account_id": scanner._broker.account.account_id,
+                "trade_date": today,
+                "status": "filled"
+            }):
+                side = doc.get("side", "")
+                today_trades[side] = today_trades.get(side, 0) + 1
+                today_trades["total_amount"] += doc.get("filled_price", 0) * doc.get("filled_qty", 0)
+        
+        report = {
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "account": {
+                "total_assets": round(acct.total_assets, 2),
+                "available_cash": round(acct.available_cash, 2),
+                "market_value": round(acct.market_value, 2),
+                "today_profit": round(acct.today_profit, 2),
+                "total_profit": round(acct.total_profit, 2),
+                "position_ratio": round(acct.market_value / max(acct.total_assets, 1) * 100, 1),
+            },
+            "positions": {
+                "count": len(positions),
+                "strategy_summary": strategy_summary,
+                "top_profit": sorted(
+                    [{"ts_code": p.ts_code, "name": p.stock_name, "pct": round(p.profit_pct, 1)} for p in positions],
+                    key=lambda x: x["pct"], reverse=True
+                )[:5],
+                "top_loss": sorted(
+                    [{"ts_code": p.ts_code, "name": p.stock_name, "pct": round(p.profit_pct, 1)} for p in positions],
+                    key=lambda x: x["pct"]
+                )[:5],
+            },
+            "trades": today_trades,
+            "risk": {
+                "circuit_breaker": cb.get("trading_paused", False),
+                "consecutive_losses": cb.get("consecutive_losses", 0),
+                "today_losses": cb.get("today_losses", 0),
+            },
+            "scanner_stats": stats,
+        }
+        
+        return {"success": True, "data": report}
+    except Exception as e:
+        return {"success": True, "data": {}, "message": str(e)}
