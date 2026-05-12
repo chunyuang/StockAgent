@@ -53,12 +53,23 @@ async def get_scanner_status():
 @router.post("/start")
 async def start_scanner(req: ScannerStartRequest):
     """启动扫描"""
-    scanner = _get_scanner()
-    if req.account_id != scanner.account_id and not scanner.is_running:
-        global _scanner_instance
+    global _scanner_instance
+
+    # 如果请求的trade_mode与当前实例不一致, 需要重建
+    if _scanner_instance is None or (
+        req.trade_mode == 'gm' and _scanner_instance._trade_mode != 'gm'
+    ) or (
+        req.trade_mode == 'simulated' and _scanner_instance._trade_mode != 'simulated'
+    ):
         from nodes.market_monitor.scanner import MarketScanner
-        _scanner_instance = MarketScanner(account_id=req.account_id, config=req.config)
-        scanner = _scanner_instance
+        config = dict(req.config)
+        config["trade_mode"] = req.trade_mode
+        if req.trade_mode == 'gm':
+            config.setdefault("gm_token", "")
+            config.setdefault("gm_strategy_id", "")
+        _scanner_instance = MarketScanner(account_id=req.account_id, config=config)
+
+    scanner = _scanner_instance
     result = await scanner.start(trade_date=req.trade_date)
     return {"success": True, "data": result}
 

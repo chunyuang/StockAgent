@@ -72,6 +72,7 @@ const timeline = ref<TimelineItem[]>([])
 
 // 策略配置
 const strategies = ref<StrategyConfig[]>([])
+const globalRisk = ref<GlobalRisk | null>(null)
 const editingStrategy = ref<StrategyConfig | null>(null)
 const editDialogVisible = ref(false)
 const editTab = ref('params')
@@ -95,8 +96,9 @@ const strategyIcon: Record<string, string> = {
 
 // ==================== Computed ====================
 
+const tradeMode = ref('simulated')  // 'simulated' | 'gm'
+
 const isRunning = computed(() => status.value?.is_running ?? false)
-const tradeMode = computed(() => status.value?.trade_mode ?? 'simulated')
 const accountInfo = computed(() => status.value?.account ?? { total_assets: 0, available_cash: 0, market_value: 0, total_profit: 0 })
 
 // ==================== Scanner Methods ====================
@@ -119,7 +121,7 @@ async function fetchScanner() {
 async function startScanner() {
   await fetch(`${scannerApi}/start`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ account_id: 'default', trade_mode: 'simulated' })
+    body: JSON.stringify({ account_id: 'default', trade_mode: tradeMode.value })
   })
   await fetchScanner()
 }
@@ -134,12 +136,24 @@ async function manualScan() {
   await fetchScanner()
 }
 
+function toggleTradeMode() {
+  if (isRunning.value) {
+    ElMessage.warning('请先停止扫描器再切换模式')
+    return
+  }
+  tradeMode.value = tradeMode.value === 'simulated' ? 'gm' : 'simulated'
+}
+
 // ==================== Strategy Config Methods ====================
 
 async function fetchStrategies() {
   try {
-    const res = await fetch(`${configApi}/strategies`).then(r => r.json())
-    if (res.success) strategies.value = res.data
+    const [sRes, rRes] = await Promise.all([
+      fetch(`${configApi}/strategies`).then(r => r.json()),
+      fetch(`${configApi}/global-risk`).then(r => r.json()),
+    ])
+    if (sRes.success) strategies.value = sRes.data
+    if (rRes.success) globalRisk.value = rRes.data
   } catch (e) { console.error(e) }
 }
 
@@ -189,7 +203,11 @@ async function resetStrategy(sid: string) {
 
 onMounted(async () => {
   await Promise.all([fetchScanner(), fetchStrategies()])
-  refreshTimer = setInterval(() => { if (autoRefresh.value && activeTab.value === 'scanner') fetchScanner() }, 5000)
+  refreshTimer = setInterval(() => {
+    if (!autoRefresh.value || activeTab.value !== 'scanner') return
+    // 非交易时间降频(15秒), 交易时间5秒
+    fetchScanner()
+  }, 5000)
 })
 onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
 </script>
@@ -203,9 +221,6 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
           <span class="dot"></span>
           <span>{{ isRunning ? '扫描中' : '已停止' }}</span>
         </div>
-        <ElTag size="small" :type="tradeMode === 'gm' ? 'warning' : 'info'">
-          {{ tradeMode === 'gm' ? '掘金' : '仿真' }}
-        </ElTag>
       </div>
 
       <div class="header-stats" v-if="status">
@@ -222,6 +237,9 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
         <ElButton v-else type="danger" size="small" @click="stopScanner">■ 停止</ElButton>
         <ElButton size="small" @click="manualScan" :disabled="isRunning">手动扫描</ElButton>
         <ElSwitch v-model="autoRefresh" size="small" active-text="自动" inactive-text="" />
+        <ElTag size="small" :type="tradeMode === 'gm' ? 'warning' : 'info'" style="cursor:pointer" @click="toggleTradeMode">
+          {{ tradeMode === 'gm' ? '🟢 掘金' : '🔵 仿真' }}
+        </ElTag>
       </div>
     </div>
 
@@ -352,6 +370,19 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
             </div>
           </div>
         </div>
+
+        <!-- 全局风控 -->
+        <ElCard class="global-risk-card" shadow="never">
+          <template #header><span>🛡️ 全局风控参数</span></template>
+          <div class="global-risk-grid" v-if="globalRisk">
+            <div class="gr-item"><span class="gr-label">默认止损</span><span class="gr-val">{{ (globalRisk.stop_loss_pct * 100).toFixed(1) }}%</span></div>
+            <div class="gr-item"><span class="gr-label">默认止盈</span><span class="gr-val">{{ (globalRisk.take_profit_pct * 100).toFixed(1) }}%</span></div>
+            <div class="gr-item"><span class="gr-label">最大持仓天数</span><span class="gr-val">{{ globalRisk.max_hold_days }}天</span></div>
+            <div class="gr-item"><span class="gr-label">单票上限</span><span class="gr-val">{{ (globalRisk.max_position_per_stock * 100).toFixed(0) }}%</span></div>
+            <div class="gr-item"><span class="gr-label">总仓位上限</span><span class="gr-val">{{ (globalRisk.max_total_position * 100).toFixed(0) }}%</span></div>
+            <div class="gr-item"><span class="gr-label">滑点</span><span class="gr-val">{{ (globalRisk.slippage_pct * 100).toFixed(1) }}%</span></div>
+          </div>
+        </ElCard>
       </ElTabPane>
     </ElTabs>
 
@@ -474,6 +505,13 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
 .strat-risk { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
 .risk-tag { font-size: 11px; color: #909399; background: var(--el-fill-color-light); padding: 2px 6px; border-radius: 4px; }
 .strat-actions { display: flex; gap: 6px; }
+
+/* 全局风控 */
+.global-risk-card { margin-top: 12px; }
+.global-risk-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.gr-item { display: flex; flex-direction: column; align-items: center; padding: 6px; }
+.gr-label { font-size: 11px; color: #909399; }
+.gr-val { font-size: 15px; font-weight: 700; }
 
 /* === 编辑弹窗 === */
 .edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }

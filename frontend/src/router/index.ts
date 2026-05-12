@@ -27,9 +27,7 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'live-trading',
-        name: 'LiveTrading',
-        component: () => import('@/views/trading/LiveTradingView.vue'),
-        meta: { title: '实盘交易' },
+        redirect: '/monitor',
       },
 
       {
