@@ -293,12 +293,36 @@ async def scan_once():
     scanner = _get_scanner()
     from datetime import datetime
     trade_date = datetime.now().strftime("%Y%m%d")
-    await scanner.scan_once(trade_date)
+    try:
+        await scanner.scan_once(trade_date)
+    except Exception as e:
+        logger.error(f"[API] scan_once失败: {e}")
+        return {
+            "success": False,
+            "data": {"signals": 0, "positions": 0},
+            "message": f"扫描失败: {str(e)}",
+        }
+    
+    signals_count = len(scanner.get_signals())
+    positions_count = len(scanner.get_positions())
+    
+    # 如果无数据，可能是数据源问题
+    msg = None
+    if signals_count == 0 and positions_count == 0:
+        # 检查数据源状态
+        if scanner._data_router:
+            biying = scanner._data_router._sources.get("biying")
+            if biying and not biying._available:
+                msg = "必盈API今日额度已用完，请明天再试或升级必盈套餐"
+        if not msg:
+            msg = "未发现信号，可能非交易时间或数据源异常"
+    
     return {
         "success": True,
         "data": {
-            "signals": len(scanner.get_signals()),
-            "positions": len(scanner.get_positions()),
+            "signals": signals_count,
+            "positions": positions_count,
+            "message": msg,
         },
     }
 
@@ -457,6 +481,12 @@ async def daily_settlement():
     if not scanner._broker:
         raise HTTPException(400, "Broker未初始化")
     
+    positions = scanner._broker.get_positions()
+    t1_locked = len([p for p in positions if p.total_qty > 0 and p.available_qty <= 0])
+    
+    if not positions:
+        return {"success": True, "data": {"message": "当前无持仓，无需结算", "positions_unlocked": 0}}
+    
     scanner._broker.daily_settlement()
     
     # 保存状态
@@ -466,11 +496,12 @@ async def daily_settlement():
         pass
     
     positions = scanner._broker.get_positions()
+    unlocked = len([p for p in positions if p.available_qty > 0])
     return {
         "success": True,
         "data": {
-            "message": "日结算完成",
-            "positions_unlocked": len([p for p in positions if p.available_qty > 0]),
+            "message": f"日结算完成: {t1_locked}只T+1已解锁" if t1_locked > 0 else "无T+1持仓需要解锁",
+            "positions_unlocked": unlocked,
         }
     }
 
@@ -500,8 +531,13 @@ async def reset_account():
     scanner._circuit_breaker["today_losses"] = 0
     
     # 清空信号和时间线
-    scanner._signals.clear()
+    scanner._active_signals.clear()
     scanner._timeline.clear()
+    
+    # 重置统计
+    scanner._stats = {"scans": 0, "signals_found": 0, "trades_executed": 0, "stop_losses": 0, "take_profits": 0, "stocks_scanned": 0}
+    scanner._scan_count = 0
+    scanner._last_scan_time = ""
     
     # 清除MongoDB
     try:

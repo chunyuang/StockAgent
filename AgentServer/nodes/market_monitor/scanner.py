@@ -551,6 +551,13 @@ class MarketScanner:
         logger.info(f"[SCAN #{self._scan_count}] 完成: "
                      f"{len(realtime_data)}只 | {len(self._active_signals)}信号 | "
                      f"{elapsed:.1f}秒")
+        
+        # 持久化到MongoDB
+        try:
+            saved = await self._broker.save_state()
+            logger.info(f"[SCAN] save_state={saved} positions={len(self._broker.positions)} orders={len(self._broker.orders)}")
+        except Exception as e:
+            logger.warning(f"[SCAN] save_state失败: {e}")
 
     # ==================== 实时行情 ====================
 
