@@ -791,6 +791,19 @@ async def get_data_status() -> Dict[str, Any]:
         diagnostics = []
         health_score = 0
         
+        # 数据新鲜度(提前计算, diagnostics要用)
+        today_str = datetime.now().strftime('%Y%m%d')
+        latest_daily_str = str(last_daily[0]['trade_date']) if last_daily else '0'
+        if len(latest_daily_str) == 8 and len(today_str) == 8:
+            try:
+                today_dt = datetime.strptime(today_str, '%Y%m%d')
+                latest_dt = datetime.strptime(latest_daily_str, '%Y%m%d')
+                days_old = (today_dt - latest_dt).days
+            except ValueError:
+                days_old = 999
+        else:
+            days_old = 999
+        
         # 因子覆盖率得分(0-50分, 基于核心3组)
         if daily_coverage:
             latest = daily_coverage[-1]
@@ -812,24 +825,31 @@ async def get_data_status() -> Dict[str, Any]:
             tech_rate = latest['groups'].get('technical', 0)
             if tech_rate < 50:
                 diagnostics.append({'level': 'red', 'message': f'技术因子仅{tech_rate}% — MA/MACD/RSI等需factor_auto_compute补算'})
+            
+            # 数据新鲜度(日线滞后天数)
+            if days_old > 3:
+                diagnostics.append({'level': 'yellow', 'message': f'日线数据滞后{days_old}天 — 需运行eastmoney_daily_bar.py补全当日数据'})
+            
+            # 每日股票数异常(稀疏天)
+            if len(daily_coverage) >= 2:
+                totals = [c['total'] for c in daily_coverage]
+                median_total = sorted(totals)[len(totals)//2]
+                sparse_days = [c for c in daily_coverage if c['total'] < median_total * 0.7]
+                if sparse_days:
+                    diagnostics.append({'level': 'yellow', 'message': f'{len(sparse_days)}天股票数异常稀疏(<{int(median_total*0.7)}只) — 可能缺SH/BJ数据'})
+            
+            # daily_basic与stock_daily对齐
+            sd_cnt = collections.get('stock_daily_ak_full', {}).get('count', 0)
+            db_cnt = collections.get('daily_basic', {}).get('count', 0)
+            if sd_cnt > 0 and db_cnt > sd_cnt * 1.1:
+                diff = db_cnt - sd_cnt
+                diagnostics.append({'level': 'yellow', 'message': f'daily_basic比stock_daily多{diff:,}条 — 可能有基金/ETF需清理, 或停牌股缺少日线'})
         else:
             factor_score = 0
             diagnostics.append({'level': 'red', 'message': '无因子覆盖率数据'})
         
         # 数据新鲜度得分(0-30分)
         freshness_score = 0
-        today_str = datetime.now().strftime('%Y%m%d')
-        latest_daily = str(last_daily[0]['trade_date']) if last_daily else '0'
-        if len(latest_daily) == 8 and len(today_str) == 8:
-            # 转成日期对象计算真实天数差
-            try:
-                today_dt = datetime.strptime(today_str, '%Y%m%d')
-                latest_dt = datetime.strptime(latest_daily, '%Y%m%d')
-                days_old = (today_dt - latest_dt).days
-            except ValueError:
-                days_old = 999
-        else:
-            days_old = 999
         if days_old <= 1:
             freshness_score = 30
         elif days_old <= 3:
