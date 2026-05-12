@@ -13,39 +13,27 @@ import {
   ElMain,
   ElMenu,
   ElMenuItem,
-  ElDropdown,
-  ElDropdownMenu,
-  ElDropdownItem,
-  ElAvatar,
   ElBadge,
   ElIcon,
   ElTooltip,
 } from 'element-plus'
 import {
   DataAnalysis,
-  TrendCharts,
   Setting,
-  Opportunity,
-  Wallet,
   Fold,
   Expand,
-  User,
-  SwitchButton,
   Bell,
   Monitor,
   Sunny,
   Moon,
   DataLine,
-  Grid,
-  Tools,
 } from '@element-plus/icons-vue'
 import { useAuth } from '@/hooks'
-import { useUserStore, useTaskStore, useThemeStore } from '@/stores'
+import { useTaskStore, useThemeStore } from '@/stores'
 
 const route = useRoute()
 const router = useRouter()
 const { logout } = useAuth()
-const userStore = useUserStore()
 const taskStore = useTaskStore()
 const themeStore = useThemeStore()
 
@@ -101,9 +89,6 @@ function toggleTheme(): void {
   themeStore.toggleTheme()
 }
 
-async function handleLogout(): Promise<void> {
-  await logout()
-}
 </script>
 
 <template>
@@ -174,28 +159,10 @@ async function handleLogout(): Promise<void> {
             <ElIcon :size="20"><Bell /></ElIcon>
           </ElBadge>
           
-          <!-- 用户菜单 -->
-          <ElDropdown trigger="click" @command="handleMenuSelect">
-            <div class="user-info">
-              <ElAvatar :size="32" :src="userStore.avatar || undefined">
-                {{ userStore.nickname.charAt(0) }}
-              </ElAvatar>
-              <span class="username">{{ userStore.nickname }}</span>
-            </div>
-            <template #dropdown>
-              <ElDropdownMenu>
-                <ElDropdownItem :icon="User" command="/settings">
-                  个人中心
-                </ElDropdownItem>
-                <ElDropdownItem :icon="Setting" command="/settings">
-                  设置
-                </ElDropdownItem>
-                <ElDropdownItem divided :icon="SwitchButton" @click="handleLogout">
-                  退出登录
-                </ElDropdownItem>
-              </ElDropdownMenu>
-            </template>
-          </ElDropdown>
+          <!-- 设置 -->
+          <ElTooltip content="设置" placement="bottom">
+            <ElIcon :size="20" class="header-icon" @click="handleMenuSelect('/settings')"><Setting /></ElIcon>
+          </ElTooltip>
         </div>
       </ElHeader>
       
@@ -393,21 +360,12 @@ async function handleLogout(): Promise<void> {
       }
     }
     
-    .user-info {
-      display: flex;
-      align-items: center;
-      gap: 8px;
+    .header-icon {
       cursor: pointer;
-      padding: 4px 8px;
-      border-radius: var(--radius-md);
-      transition: background var(--transition-fast);
+      color: var(--text-secondary);
+      transition: color var(--transition-fast);
       
       &:hover {
-        background: var(--bg-hover);
-      }
-      
-      .username {
-        font-weight: 500;
         color: var(--text-primary);
       }
     }
