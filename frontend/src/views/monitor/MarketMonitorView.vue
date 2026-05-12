@@ -89,15 +89,14 @@ const saving = ref(false)
 const scannerApi = '/scanner'
 const configApi = '/strategy-config'
 
-// ==================== 策略颜色 ====================
+// ==================== 策略配色/图标/说明 ====================
 
-const strategyColor: Record<string, string> = {
-  halfway_chase: '#409eff', first_limit_up: '#e6a23c',
-  limit_up_open: '#909399', leader_buy_dip: '#67c23a', limit_down_qiao: '#f56c6c',
-}
-const strategyIcon: Record<string, string> = {
-  halfway_chase: '📈', first_limit_up: '🎯', limit_up_open: '🔓',
-  leader_buy_dip: '👑', limit_down_qiao: '🔨',
+const strategyMeta: Record<string, { color: string; icon: string; desc: string; flow: string }> = {
+  halfway_chase: { color: '#409eff', icon: '📈', desc: '涨3-7%+量比>2+换手>3%', flow: '东方财富全市场选股 → 量比/换手确认' },
+  first_limit_up: { color: '#e6a23c', icon: '🎯', desc: '首板涨停+封单强+少炸板', flow: '必盈涨停池 → 封板资金/连板数筛选' },
+  leader_buy_dip: { color: '#67c23a', icon: '👑', desc: '2+连板龙头回调3-7%', flow: '必盈涨停池(连板) → 实时价回调确认' },
+  limit_down_qiao: { color: '#f56c6c', icon: '🔨', desc: '跌停打开后反弹>2%', flow: '必盈跌停池 → 实时价反弹确认' },
+  limit_up_open: { color: '#909399', icon: '🔓', desc: '涨停开板回封(已关闭)', flow: '已关闭: 胜率38%负期望' },
 }
 
 // ==================== Computed ====================
@@ -512,7 +511,7 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
                 <div class="sig-top">
                   <span class="code">{{ sig.ts_code }}</span>
                   <span class="name">{{ sig.stock_name }}</span>
-                  <ElTag size="small" :color="strategyColor[sig.strategy]" style="color:#fff;border:none">{{ sig.strategy_name }}</ElTag>
+                  <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || '#909399'" style="color:#fff;border:none">{{ sig.strategy_name }}</ElTag>
                 </div>
                 <div class="sig-bot">
                   <span :class="sig.pct_chg >= 0 ? 'up' : 'down'">{{ sig.pct_chg >= 0 ? '+' : '' }}{{ sig.pct_chg.toFixed(1) }}%</span>
@@ -568,7 +567,7 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
                 <div class="pos-top">
                   <span class="code">{{ pos.ts_code }}</span>
                   <span class="name">{{ pos.stock_name }}</span>
-                  <ElTag size="small" :color="strategyColor[pos.strategy]" style="color:#fff;border:none; font-size:10px">{{ pos.strategy }}</ElTag>
+                  <ElTag size="small" :color="strategyMeta[pos.strategy]?.color || '#909399'" style="color:#fff;border:none; font-size:10px">{{ pos.strategy }}</ElTag>
                   <span :class="pos.profit_pct >= 0 ? 'up' : 'down'" class="pct">{{ pos.profit_pct >= 0 ? '+' : '' }}{{ pos.profit_pct.toFixed(1) }}%</span>
                 </div>
                 <div class="pos-bar-wrap">
@@ -665,7 +664,7 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
         <div class="strategy-cards">
           <div v-for="s in strategies" :key="s.id" class="strat-card" :class="{ disabled: !s.enabled }">
             <div class="strat-top">
-              <span class="strat-icon">{{ strategyIcon[s.id] || '📋' }}</span>
+              <span class="strat-icon">{{ strategyMeta[s.id]?.icon || '📋' }}</span>
               <span class="strat-name">{{ s.name }}</span>
               <ElSwitch :model-value="s.enabled" @change="(v: boolean) => toggleStrategy(s.id, v)" size="small" />
             </div>
