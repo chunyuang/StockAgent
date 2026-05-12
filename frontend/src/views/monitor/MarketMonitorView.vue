@@ -86,8 +86,8 @@ const editParams = ref<Record<string, any>>({})
 const editRiskParams = ref<Record<string, any>>({})
 const saving = ref(false)
 
-const scannerApi = '/api/v1/scanner'
-const configApi = '/api/v1/strategy-config'
+const scannerApi = '/scanner'
+const configApi = '/strategy-config'
 
 // ==================== 策略颜色 ====================
 
