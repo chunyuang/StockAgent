@@ -473,3 +473,50 @@ async def daily_settlement():
             "positions_unlocked": len([p for p in positions if p.available_qty > 0]),
         }
     }
+
+
+@router.post("/reset")
+async def reset_account():
+    """清仓重置(清空所有持仓/订单, 恢复初始资金)"""
+    scanner = _get_scanner()
+    if not scanner._broker:
+        raise HTTPException(400, "Broker未初始化")
+    
+    # 清空持仓
+    scanner._broker.positions.clear()
+    scanner._broker.orders.clear()
+    
+    # 重置账户
+    scanner._broker.account.available_cash = scanner._broker.account.total_assets
+    scanner._broker.account.market_value = 0
+    scanner._broker.account.total_profit = 0
+    scanner._broker.account.today_profit = 0
+    
+    # 重置熔断
+    scanner._circuit_breaker["trading_paused"] = False
+    scanner._circuit_breaker["pause_reason"] = ""
+    scanner._circuit_breaker["consecutive_losses"] = 0
+    scanner._circuit_breaker["today_trades"] = 0
+    scanner._circuit_breaker["today_losses"] = 0
+    
+    # 清空信号和时间线
+    scanner._signals.clear()
+    scanner._timeline.clear()
+    
+    # 清除MongoDB
+    try:
+        if await scanner._broker._ensure_mongo():
+            db = scanner._broker._mongo_db
+            await db["broker_positions"].delete_many({})
+            await db["broker_orders"].delete_many({})
+            await db["broker_accounts"].delete_one({"account_id": scanner._broker.account.account_id})
+    except Exception:
+        pass
+    
+    # 保存状态
+    try:
+        await scanner._broker.save_state()
+    except Exception:
+        pass
+    
+    return {"success": True, "data": {"message": "账户已重置"}}
