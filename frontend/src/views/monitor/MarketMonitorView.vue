@@ -301,6 +301,28 @@ async function manualScan() {
   }
 }
 
+async function forceScan() {
+  loading.value = true
+  try {
+    const res = await api.post(`${scannerApi}/scan-once`, { force: true })
+    if (res?.success) {
+      const msg = res.data?.message
+      if (msg) {
+        ElMessage.warning(msg)
+      } else {
+        ElMessage.success(`强制扫描完成: ${res.data?.signals || 0}个信号, ${res.data?.positions || 0}只持仓`)
+      }
+    } else {
+      ElMessage.error(res?.message || '扫描失败')
+    }
+  } catch (e: any) {
+    ElMessage.error('扫描失败: ' + e.message)
+  } finally {
+    loading.value = false
+    await fetchScanner()
+  }
+}
+
 async function resetAccount() {
   try {
     const res = await api.post(`${scannerApi}/reset`)
@@ -433,7 +455,8 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
         <div class="header-actions">
           <ElButton v-if="!isRunning" type="success" size="small" @click="startScanner" :loading="loading">▶ 启动</ElButton>
           <ElButton v-else type="danger" size="small" @click="stopScanner">■ 停止</ElButton>
-          <ElButton size="small" @click="manualScan">⚡ 手动扫描</ElButton>
+          <ElButton size="small" @click="manualScan">⚡ 扫描</ElButton>
+          <ElButton size="small" type="warning" plain @click="forceScan" title="忽略交易时间检查, 消耗必盈额度">⚡ 强制扫描</ElButton>
           <ElButton size="small" @click="fetchAll(true)" plain>🔄 刷新</ElButton>
           <ElButton size="small" type="info" plain @click="resetAccount">🗑️ 清仓重置</ElButton>
           <ElSwitch v-model="autoRefresh" size="small" active-text="自动" inactive-text="" />

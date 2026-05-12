@@ -101,28 +101,20 @@ class BiyingAdapter(AsyncDataSourceAdapter):
         )
 
     async def initialize(self) -> bool:
-        """初始化: 创建HTTP session"""
+        """初始化: 创建HTTP session (不消耗必盈额度)"""
         if not self._licence:
             logger.error("[BIYING] 缺少licence")
             return False
 
-        self._session = aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=10),
-            headers={"Accept": "application/json"},
-        )
-
-        # 验证licence: 拉股票列表
-        try:
-            data = await self._get("/hslt/list")
-            if isinstance(data, list) and len(data) > 0:
-                logger.info(f"[BIYING] 初始化成功, {len(data)}只股票, licence有效")
-                return True
-            else:
-                logger.error(f"[BIYING] licence验证失败: {data}")
-                return False
-        except Exception as e:
-            logger.error(f"[BIYING] 初始化失败: {e}")
-            return False
+        if self._session is None:
+            self._session = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=10),
+                headers={"Accept": "application/json"},
+            )
+        
+        # 延迟验证: 不在初始化时调用API, 第一次实际请求时自动验证
+        logger.info("[BIYING] 初始化完成(延迟验证模式)")
+        return True
 
     async def is_available(self) -> bool:
         """检查是否可用"""

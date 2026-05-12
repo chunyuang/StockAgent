@@ -262,8 +262,13 @@ class MarketScanner:
         # 3. 加载当前持仓
         await self._load_positions()
 
-        # 4. 竞价预选(9:15-9:25集合竞价分析)
-        await self._premarket_auction(trade_date)
+        # 4. 竞价预选(仅交易时间9:15-9:30)
+        now = datetime.now()
+        ct = now.strftime("%H:%M")
+        if "09:15" <= ct <= "09:30":
+            await self._premarket_auction(trade_date)
+        else:
+            logger.debug(f"[SCANNER] 非竞价时间({ct}), 跳过竞价预选")
 
         logger.info(f"[SCANNER] 准备完成: {len(self._all_codes)}只股票, "
                      f"{len(self._daily_factors_df) if self._daily_factors_df is not None else 0}条因子, "
@@ -505,8 +510,13 @@ class MarketScanner:
             logger.error(f"[SCANNER] 异常: {e}", exc_info=True)
             self._is_running = False
 
-    async def scan_once(self, trade_date: str):
-        """单次扫描"""
+    async def scan_once(self, trade_date: str, force: bool = False):
+        """单次扫描
+        
+        Args:
+            trade_date: 交易日期
+            force: 强制模式, 忽略交易时间检查(测试用)
+        """
         t0 = time.time()
         self._scan_count += 1
         scan_time = datetime.now().strftime("%H:%M:%S")
@@ -514,7 +524,7 @@ class MarketScanner:
         logger.info(f"[SCAN #{self._scan_count}] 开始扫描 {scan_time}")
 
         # Step 1: 获取实时行情
-        realtime_data = await self._fetch_realtime_batch()
+        realtime_data = await self._fetch_realtime_batch(force=force)
 
         # Step 2: 合并日级因子+实时数据
         merged_df = self._merge_factors(realtime_data)
@@ -561,7 +571,7 @@ class MarketScanner:
 
     # ==================== 实时行情 ====================
 
-    async def _fetch_realtime_batch(self) -> Dict[str, Dict]:
+    async def _fetch_realtime_batch(self, force: bool = False) -> Dict[str, Dict]:
         """批量获取实时行情(必盈API)
         
         必盈免费版200次/天, 所以只对信号股/持仓股+涨停池获取行情。
@@ -590,6 +600,14 @@ class MarketScanner:
         biying = self._data_router._sources.get("biying")
         if not biying:
             logger.error("[REALTIME] 必盈适配器不可用")
+            return {}
+        
+        # 非交易时间检查: 盘中才有实时数据
+        now = datetime.now()
+        ct = now.strftime("%H:%M")
+        is_trading = ("09:15" <= ct <= "15:05")  # 含竞价和收盘后5分钟
+        if not is_trading and not force:
+            logger.info(f"[REALTIME] 非交易时间({ct}), 跳过必盈API调用(用force=True强制)")
             return {}
 
         realtime = {}
@@ -668,8 +686,8 @@ class MarketScanner:
         for sig in self._active_signals:
             priority_codes.add(sig.ts_code)
         
-        # 批量获取(受200次/天限制, 每轮最多20只)
-        quote_codes = list(priority_codes - set(realtime.keys()))[:20]
+        # 批量获取(受200次/天限制, 每轮最多10只, 只获取无缓存的新代码)
+        quote_codes = list(priority_codes - set(realtime.keys()))[:10]
         for ts_code in quote_codes:
             try:
                 quote = await biying.get_realtime_quote(ts_code)

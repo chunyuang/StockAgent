@@ -287,14 +287,22 @@ async def pause_circuit_breaker(req: PauseRequest = None):
     return {"success": True, "data": {"message": f"交易已暂停: {reason}"}}
 
 
+class ScanOnceRequest(BaseModel):
+    force: bool = False
+
+
 @router.post("/scan-once")
-async def scan_once():
-    """手动触发一次扫描"""
+async def scan_once(req: ScanOnceRequest = ScanOnceRequest()):
+    """手动触发一次扫描
+    
+    Body:
+        force: 强制模式, 忽略交易时间检查(消耗必盈额度, 测试用)
+    """
     scanner = _get_scanner()
     from datetime import datetime
     trade_date = datetime.now().strftime("%Y%m%d")
     try:
-        await scanner.scan_once(trade_date)
+        await scanner.scan_once(trade_date, force=req.force)
     except Exception as e:
         logger.error(f"[API] scan_once失败: {e}")
         return {
@@ -312,7 +320,7 @@ async def scan_once():
         # 检查数据源状态
         if scanner._data_router:
             biying = scanner._data_router._sources.get("biying")
-            if biying and not biying._available:
+            if biying and not await biying.is_available():
                 msg = "必盈API今日额度已用完，请明天再试或升级必盈套餐"
         if not msg:
             msg = "未发现信号，可能非交易时间或数据源异常"
