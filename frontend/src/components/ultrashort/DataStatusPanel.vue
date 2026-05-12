@@ -261,7 +261,7 @@ onMounted(fetchData)
     <div v-if="diagnosis.length" class="diagnosis-box">
       <div class="diag-title">⚠️ 数据问题</div>
       <div v-for="(issue, i) in diagnosis" :key="i" class="diag-item" :class="'diag-' + issue.level">
-        {{ issue.level === 'error' ? '🔴' : '🟡' }} {{ issue.text }}
+        {{ issue.level === 'red' ? '🔴' : issue.level === 'yellow' ? '🟡' : '🔴' }} {{ issue.text }}
       </div>
     </div>
 
@@ -278,7 +278,7 @@ onMounted(fetchData)
     <ElCard v-else style="margin-top: 12px">
       <template #header><span>🎯 推荐回测区间</span></template>
       <div style="color: #e6a23c; font-size: 13px">
-        当前无因子覆盖率≥70%的连续区间。最近30天最高覆盖率约75%（涨跌停因子0%拉低均值），1-3月旧段数据因子100%覆盖，推荐使用1/5~3/20区间。
+        当前无因子覆盖率≥70%的连续区间，请检查数据补全情况。
       </div>
     </ElCard>
 
@@ -302,6 +302,9 @@ onMounted(fetchData)
         <ElTableColumn label="状态" width="80">
           <template #default="{ row }">
             <ElTag v-if="row.key === 'stock_daily_ak_full' && row.count > 400000" type="success" size="small">完整</ElTag>
+            <ElTag v-else-if="row.key === 'daily_basic' && row.count > 2000000" type="success" size="small">完整</ElTag>
+            <ElTag v-else-if="row.key === 'index_daily' && row.count > 1000" type="success" size="small">完整</ElTag>
+            <ElTag v-else-if="row.key === 'limit_list' && row.count > 0" type="success" size="small">有数据</ElTag>
             <ElTag v-else-if="row.key === 'limit_pool_down' && row.count < 10" type="danger" size="small">缺失</ElTag>
             <ElTag v-else-if="row.count > 0" type="success" size="small">有数据</ElTag>
             <ElTag v-else type="info" size="small">空</ElTag>
