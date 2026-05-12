@@ -4,10 +4,24 @@ MarketScanner REST API
 超短量化市场扫描器的控制接口
 """
 import logging
+import math
 from datetime import datetime
 from typing import Dict, Any, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+
+
+def _sanitize(obj):
+    """递归清理NaN/inf, 防止JSON序列化失败"""
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    if isinstance(obj, dict):
+        return {k: _sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize(v) for v in obj]
+    return obj
 
 logger = logging.getLogger("api.scanner")
 
@@ -118,21 +132,21 @@ async def stop_scanner():
 async def get_signals():
     """获取当前活跃信号"""
     scanner = _get_scanner()
-    return {"success": True, "data": scanner.get_signals()}
+    return _sanitize({"success": True, "data": scanner.get_signals()})
 
 
 @router.get("/positions")
 async def get_positions():
     """获取实时持仓"""
     scanner = _get_scanner()
-    return {"success": True, "data": scanner.get_positions()}
+    return _sanitize({"success": True, "data": scanner.get_positions()})
 
 
 @router.get("/timeline")
 async def get_timeline():
     """获取今日交易时间线"""
     scanner = _get_scanner()
-    return {"success": True, "data": scanner.get_timeline()}
+    return _sanitize({"success": True, "data": scanner.get_timeline()})
 
 
 @router.get("/account")

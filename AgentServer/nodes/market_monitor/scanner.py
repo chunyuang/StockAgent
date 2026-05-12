@@ -1133,10 +1133,10 @@ class MarketScanner:
                 pass
 
     async def _check_positions_quick(self, trade_date: str):
-        """持仓快速检查(30秒级, 只查持仓股行情)
+        """持仓快速检查(30秒级, 用东方财富全市场缓存)
         
-        不做全量扫描, 只获取持仓股的实时行情并检查止损止盈。
-        每只持仓1次必盈API, 10只持仓=10次/轮。
+        东方财富3秒获取全市场5400只价格, 不消耗必盈额度。
+        只从缓存提取持仓股价格, 然后检查止损止盈。
         """
         if not self._broker:
             return
@@ -1149,37 +1149,33 @@ class MarketScanner:
         if not self._check_circuit_breaker():
             return
         
-        # 逐只获取持仓股行情
+        # 东方财富: 从缓存获取持仓股价格(0额外API)
+        pos_codes = [pos.ts_code for pos in positions]
+        if self._data_router:
+            eastmoney = self._data_router._sources.get("eastmoney")
+            if eastmoney:
+                prices = await eastmoney.get_position_prices(pos_codes)
+                for ts_code, price in prices.items():
+                    if price and price > 0:
+                        self._broker.update_realtime(ts_code=ts_code, price=price)
+                logger.debug(f"[QUICK] 东方财富更新: {len(prices)}/{len(pos_codes)}只持仓价")
+        
+        # 回退: 用全量扫描缓存
         for pos in positions:
-            try:
-                if self._data_router:
-                    biying = self._data_router._sources.get("biying")
-                    if biying:
-                        quote = await biying.get_realtime_quote(pos.ts_code)
-                        if quote:
-                            self._broker.update_realtime(
-                                ts_code=pos.ts_code,
-                                price=float(quote.get("close", 0)),
-                                pre_close=float(quote.get("pre_close", 0)),
-                            )
-                else:
-                    # 回退: 用缓存
-                    cached = self._realtime_cache.get(pos.ts_code, {})
-                    if cached.get("price", 0) > 0:
-                        self._broker.update_realtime(
-                            ts_code=pos.ts_code,
-                            price=cached["price"],
-                            pre_close=cached.get("pre_close", 0),
-                        )
-                await asyncio.sleep(0.1)
-            except Exception as e:
-                logger.debug(f"[QUICK] {pos.ts_code}行情失败: {e}")
+            if pos.ts_code not in (self._realtime_cache or {}):
+                continue
+            cached = self._realtime_cache.get(pos.ts_code, {})
+            if cached.get("price", 0) > 0 and pos.current_price <= 0:
+                self._broker.update_realtime(
+                    ts_code=pos.ts_code,
+                    price=cached["price"],
+                    pre_close=cached.get("pre_close", 0),
+                )
         
         # 检查止损止盈
         to_sell = []
         for pos in self._broker.get_positions():
             risk = self._get_strategy_risk(pos.strategy)
-            # riskParams里是小数(0.03), broker.profit_pct是百分比(3.0)
             stop_loss_pct = -risk.get("stop_loss_pct", 0.03) * 100
             take_profit_pct = risk.get("take_profit_pct", 0.07) * 100
             
@@ -1220,6 +1216,13 @@ class MarketScanner:
                 else:
                     self._stats["take_profits"] += 1
                 logger.info(f"[QUICK] {reason}: {pos.ts_code} {pos.available_qty}股@{order.filled_price:.2f}")
+        
+        # 止损止盈后持久化
+        if to_sell and self._broker:
+            try:
+                await self._broker.save_state()
+            except Exception:
+                pass
 
     # ==================== 参数校验 ====================
 
@@ -1452,14 +1455,27 @@ class MarketScanner:
     # ==================== 工具方法 ====================
 
     @staticmethod
+    def _safe_round(v, digits=2):
+        """安全round, 处理None/NaN/inf"""
+        if v is None:
+            return None
+        try:
+            import math
+            if math.isnan(v) or math.isinf(v):
+                return None
+            return round(v, digits)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
     def _signal_to_dict(s: ScanSignal) -> Dict:
         return {
             "ts_code": s.ts_code, "stock_name": s.stock_name,
             "strategy": s.strategy, "strategy_name": s.strategy_name,
-            "signal_type": s.signal_type, "price": s.price,
-            "pct_chg": round(s.pct_chg, 2),
-            "volume_ratio": round(s.volume_ratio, 2) if s.volume_ratio else None,
-            "turnover_rate": round(s.turnover_rate, 2),
+            "signal_type": s.signal_type, "price": MarketScanner._safe_round(s.price),
+            "pct_chg": MarketScanner._safe_round(s.pct_chg),
+            "volume_ratio": MarketScanner._safe_round(s.volume_ratio),
+            "turnover_rate": MarketScanner._safe_round(s.turnover_rate),
             "is_limit_up": s.is_limit_up,
             "limit_up_count": s.limit_up_count,
             "confidence": s.confidence, "reason": s.reason,
@@ -1471,9 +1487,9 @@ class MarketScanner:
         return {
             "ts_code": p.ts_code, "stock_name": p.stock_name,
             "strategy": p.strategy, "shares": p.shares,
-            "cost_price": round(p.cost_price, 2),
-            "current_price": round(p.current_price, 2),
-            "profit_pct": round(p.profit_pct, 2),
+            "cost_price": MarketScanner._safe_round(p.cost_price),
+            "current_price": MarketScanner._safe_round(p.current_price),
+            "profit_pct": MarketScanner._safe_round(p.profit_pct),
             "stop_loss_pct": p.stop_loss_pct,
             "take_profit_pct": p.take_profit_pct,
             "should_sell": p.should_sell, "sell_reason": p.sell_reason,

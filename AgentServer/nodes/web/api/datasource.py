@@ -58,7 +58,7 @@ async def list_data_sources():
                         "total_stocks": status.get("total_stocks", 0),
                         "cached_stocks": status.get("cached_stocks", 0),
                         "note": status.get("note", ""),
-                        "capabilities": str(adapter.capability()),
+                        "capabilities": "",
                     })
                 except Exception as e:
                     result.append({"name": name, "available": False, "error": str(e)})
