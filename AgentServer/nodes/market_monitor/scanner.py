@@ -68,6 +68,10 @@ class MarketScanner:
     MAX_POSITIONS = 10  # 最大持仓数
     MAX_POSITION_RATIO = 0.7  # 最大仓位比例
 
+    # 交易模式
+    MODE_SIMULATED = "simulated"  # 内置仿真撮合
+    MODE_GM = "gm"                # 掘金量化
+
     def __init__(self, account_id: str = "default", config: Dict = None):
         self.account_id = account_id
         self.config = config or {}
@@ -84,9 +88,28 @@ class MarketScanner:
         self._realtime_cache: Dict[str, Dict] = {}  # ts_code → 实时行情
         self._all_codes: List[str] = []  # 全市场代码
 
-        # 撮合引擎
-        initial_cash = config.get("initial_cash", 1_000_000) if config else 1_000_000
-        self._broker = SimulatedBroker(account_id=account_id, initial_cash=initial_cash)
+        # 撮合引擎: 根据模式选择
+        trade_mode = self.config.get("trade_mode", self.MODE_SIMULATED)
+        self._trade_mode = trade_mode
+        initial_cash = self.config.get("initial_cash", 1_000_000)
+
+        if trade_mode == self.MODE_GM:
+            # 掘金模式
+            from nodes.market_monitor.gm_broker import GmBroker
+            self._gm_broker = GmBroker(
+                token=self.config.get("gm_token", ""),
+                strategy_id=self.config.get("gm_strategy_id", ""),
+                mode=1,  # MODE_LIVE
+                serv_addr=self.config.get("gm_serv_addr", ""),
+                account_id=account_id,
+            )
+            self._broker = None  # 掘金模式下不用SimulatedBroker
+            logger.info(f"[SCANNER] 交易模式: 掘金量化")
+        else:
+            # 内置仿真模式
+            self._broker = SimulatedBroker(account_id=account_id, initial_cash=initial_cash)
+            self._gm_broker = None
+            logger.info(f"[SCANNER] 交易模式: 内置仿真撮合")
 
         # 信号
         self._active_signals: List[ScanSignal] = []
@@ -107,28 +130,42 @@ class MarketScanner:
         return self._is_running
 
     def get_status(self) -> Dict[str, Any]:
-        acct = self._broker.get_account()
+        if self._trade_mode == self.MODE_GM and self._gm_broker:
+            gm_acct = self._gm_broker.get_account()
+            gm_positions = self._gm_broker.get_positions()
+            account_info = {
+                "total_assets": gm_acct.get("total_assets", 0),
+                "available_cash": gm_acct.get("available_cash", 0),
+                "market_value": gm_acct.get("market_value", 0),
+                "total_profit": 0,
+            }
+        else:
+            acct = self._broker.get_account()
+            account_info = {
+                "total_assets": round(acct.total_assets, 2),
+                "available_cash": round(acct.available_cash, 2),
+                "market_value": round(acct.market_value, 2),
+                "total_profit": round(acct.total_profit, 2),
+            }
         return {
             "is_running": self._is_running,
             "scan_count": self._scan_count,
             "last_scan_time": self._last_scan_time,
             "active_signals": len(self._active_signals),
-            "positions": len(self._broker.get_positions()),
+            "positions": len(self.get_positions()),
             "stocks_scanned": len(self._realtime_cache),
-            "account": {
-                "total_assets": round(acct.total_assets, 2),
-                "available_cash": round(acct.available_cash, 2),
-                "market_value": round(acct.market_value, 2),
-                "total_profit": round(acct.total_profit, 2),
-            },
+            "account": account_info,
             "stats": self._stats,
             "account_id": self.account_id,
+            "trade_mode": self._trade_mode,
         }
 
     def get_signals(self) -> List[Dict]:
         return [self._signal_to_dict(s) for s in self._active_signals]
 
     def get_positions(self) -> List[Dict]:
+        if self._trade_mode == self.MODE_GM and self._gm_broker:
+            return self._gm_broker.get_positions()
         return [{
             "ts_code": p.ts_code, "stock_name": p.stock_name,
             "strategy": p.strategy, "shares": p.total_qty,
