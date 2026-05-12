@@ -36,6 +36,12 @@ const routes: RouteRecordRaw[] = [
         path: 'strategies',
         name: 'StrategyList',
         component: () => import('@/views/strategy/StrategyListView.vue'),
+        meta: { title: '策略管理' },
+      },
+      {
+        path: 'monitor',
+        name: 'MarketMonitor',
+        component: () => import('@/views/monitor/MarketMonitorView.vue'),
         meta: { title: '市场监听' },
       },
       {

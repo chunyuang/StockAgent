@@ -12,6 +12,7 @@ from .backtest import router as backtest_router
 from .trading import router as trading_router
 from .system import router as system_router
 from .scheduler import router as scheduler_router
+from .scanner import router as scanner_router
 
 __all__ = [
     "auth_router",
@@ -24,4 +25,5 @@ __all__ = [
     "trading_router",
     "system_router",
     "scheduler_router",
+    "scanner_router",
 ]
