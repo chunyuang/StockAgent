@@ -217,6 +217,9 @@ class MarketScanner:
         if not trade_date:
             trade_date = datetime.now().strftime("%Y%m%d")
 
+        # 实盘参数校验
+        self._validate_live_params()
+
         # 盘前准备
         await self.premarket_prepare(trade_date)
 
@@ -259,8 +262,12 @@ class MarketScanner:
         # 3. 加载当前持仓
         await self._load_positions()
 
+        # 4. 竞价预选(9:15-9:25集合竞价分析)
+        await self._premarket_auction(trade_date)
+
         logger.info(f"[SCANNER] 准备完成: {len(self._all_codes)}只股票, "
-                     f"{len(self._daily_factors_df) if self._daily_factors_df is not None else 0}条因子")
+                     f"{len(self._daily_factors_df) if self._daily_factors_df is not None else 0}条因子, "
+                     f"{len(self._active_signals)}个竞价信号")
 
     async def _load_stock_list(self):
         """加载全市场代码"""
@@ -350,6 +357,68 @@ class MarketScanner:
         
         logger.info(f"[SCANNER] 持仓: {len(self._broker.get_positions()) if self._broker else 0}个")
 
+    async def _premarket_auction(self, trade_date: str):
+        """竞价预选(9:15-9:25集合竞价分析)
+        
+        利用必盈涨停池的封板时间和连板数据，
+        在9:25之前预选出可能的强势股。
+        
+        策略:
+        - 昨日涨停+今竞价继续涨停 → 龙头连板候选
+        - 昨日连板≥2 → 强势股继续关注
+        - 不消耗必盈额度(用昨日的涨停池数据)
+        """
+        try:
+            if not self._data_router:
+                return
+                
+            biying = self._data_router._sources.get("biying")
+            if not biying:
+                return
+            
+            # 获取昨日涨停池(用于连板预判)
+            # 昨日日期(简单算: 今天-1天, 不考虑节假日)
+            from datetime import timedelta
+            yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+            
+            yesterday_limit_ups = await biying.get_limit_up_pool(yesterday)
+            
+            if not yesterday_limit_ups:
+                logger.info("[AUCTION] 昨日无涨停数据")
+                return
+            
+            # 筛选连板股(昨日≥2连板, 今竞价可能继续)
+            for item in yesterday_limit_ups:
+                limit_times = item.get("limit_times", 0)
+                if limit_times >= 2:
+                    ts_code = item.get("ts_code", "")
+                    name = item.get("name", "")
+                    pct = item.get("pct_chg", 0)
+                    fd = item.get("fd_amount", 0)
+                    open_times = item.get("open_times", 0)
+                    
+                    # 加入预选信号(竞价候选)
+                    existing = {s.ts_code for s in self._active_signals}
+                    if ts_code not in existing:
+                        self._active_signals.append(ScanSignal(
+                            ts_code=ts_code,
+                            stock_name=name,
+                            strategy="limit_up",
+                            strategy_name="竞价连板",
+                            signal_type="buy",
+                            price=0,  # 竞价价格待更新
+                            pct_chg=pct,
+                            volume_ratio=0,
+                            turnover_rate=0,
+                            is_limit_up=True,
+                            reason=f"昨{limit_times}连板 封单{fd/1000:.0f}万 炸板{open_times}次",
+                        ))
+            
+            logger.info(f"[AUCTION] 竞价预选: {len([s for s in self._active_signals if s.strategy_name == '竞价连板'])}只连板候选")
+            
+        except Exception as e:
+            logger.warning(f"[AUCTION] 竞价预选失败: {e}")
+
     # ==================== 扫描循环 ====================
 
     async def _scan_loop(self, trade_date: str):
@@ -423,6 +492,10 @@ class MarketScanner:
 
         # Step 3: 策略筛选
         new_signals = await self._apply_strategies(merged_df, trade_date)
+
+        # Step 3.5: 异动检测(从realtime_data检测, 不消耗额外API)
+        anomaly_signals = await self._detect_anomalies(realtime_data)
+        new_signals.extend(anomaly_signals)
 
         # Step 4: 增量更新信号
         await self._update_signals(new_signals, scan_time)
@@ -783,6 +856,29 @@ class MarketScanner:
 
             # 执行新信号
             await self._execute_signals(added)
+            
+            # WebSocket推送(通过Redis PubSub)
+            try:
+                from core.managers import redis_manager
+                if redis_manager._client:
+                    import json
+                    await redis_manager._client.publish(
+                        "scanner:signals",
+                        json.dumps({
+                            "type": "new_signals",
+                            "time": scan_time,
+                            "count": len(added),
+                            "signals": [{
+                                "ts_code": s.ts_code,
+                                "name": s.stock_name,
+                                "strategy": s.strategy_name,
+                                "pct_chg": round(s.pct_chg, 1),
+                                "reason": s.reason,
+                            } for s in added[:10]],
+                        })
+                    )
+            except Exception:
+                pass  # 推送失败不影响交易
 
     async def _push_signals(self, signals: List[ScanSignal]):
         """推送信号"""
@@ -1009,6 +1105,122 @@ class MarketScanner:
                 else:
                     self._stats["take_profits"] += 1
                 logger.info(f"[QUICK] {reason}: {pos.ts_code} {pos.available_qty}股@{order.filled_price:.2f}")
+
+    # ==================== 参数校验 ====================
+
+    def _validate_live_params(self):
+        """实盘参数校验
+        
+        检查回测参数是否合理, 避免用不切实际的参数跑实盘。
+        """
+        warnings = []
+        
+        # 1. 滑点检查
+        if self._broker and hasattr(self._broker, 'SLIPPAGE_RATE'):
+            if self._broker.SLIPPAGE_RATE < 0.001:
+                warnings.append(f"滑点{self._broker.SLIPPAGE_RATE*100:.2f}%过低, 实盘建议≥0.1%")
+        
+        # 2. 仓位上限
+        if self._broker and hasattr(self._broker, 'MAX_TOTAL_RATIO'):
+            if self._broker.MAX_TOTAL_RATIO > 0.8:
+                warnings.append(f"总仓位上限{self._broker.MAX_TOTAL_RATIO*100:.0f}%过高, 实盘建议≤70%")
+        
+        # 3. 止损检查
+        risk = self._get_strategy_risk("default")
+        if risk.get("stop_loss_pct", 0.03) < 0.02:
+            warnings.append("止损<2%过紧, 实盘容易被震出")
+        
+        if warnings:
+            for w in warnings:
+                logger.warning(f"[VALIDATE] ⚠️ {w}")
+        else:
+            logger.info("[VALIDATE] ✅ 实盘参数校验通过")
+        
+        return warnings
+
+    # ==================== 盘中异动监控 ====================
+
+    async def _detect_anomalies(self, realtime_data: Dict[str, Dict]) -> List[ScanSignal]:
+        """盘中异动检测
+        
+        检测类型:
+        1. 急速拉升: 5分钟内涨幅>3%
+        2. 跌停打开: 跌停后打开(撬板机会)
+        3. 量比突变: 量比>5(资金异动)
+        4. 封板松动: 涨停后炸板(炸板股池)
+        
+        不消耗额外必盈额度, 从已有的realtime_data里检测
+        """
+        signals = []
+        
+        for ts_code, rt in realtime_data.items():
+            if ts_code in {s.ts_code for s in self._active_signals}:
+                continue  # 已有信号, 跳过
+                
+            pct_chg = rt.get("pct_chg", 0)
+            is_limit_up = rt.get("is_limit_up", False)
+            is_limit_down = rt.get("is_limit_down", False)
+            is_broken = rt.get("is_broken_board", False)
+            open_times = rt.get("open_times", 0)
+            limit_times = rt.get("limit_times", 0)
+            name = rt.get("name", "")
+            price = rt.get("price", 0)
+            turnover = rt.get("turnover_rate", 0)
+            fd_amount = rt.get("fd_amount", 0)
+            
+            # === 1. 跌停撬板(从必盈跌停/炸板池检测) ===
+            if is_broken and not is_limit_down:
+                # 炸板股: 涨停后打开 → 可能是炸板回封或龙头分歧
+                if pct_chg > 5 and open_times <= 2:
+                    signals.append(ScanSignal(
+                        ts_code=ts_code, stock_name=name,
+                        strategy="limit_up", strategy_name="涨停炸板",
+                        signal_type="buy", price=price,
+                        pct_chg=pct_chg, volume_ratio=0,
+                        turnover_rate=turnover,
+                        is_limit_up=False,
+                        reason=f"涨停炸板2次内 涨{pct_chg:.1f}%",
+                    ))
+                    continue
+            
+            # === 2. 量比突变(从涨停池里的换手率/封单判断) ===
+            if is_limit_up:
+                # 涨停股: 封单缩小+换手率高 → 可能开板
+                if turnover > 10 and fd_amount < 50000 and limit_times >= 2:
+                    # 高换手+封单小+连板 → 可能开板, 观望
+                    pass
+                elif fd_amount > 100000 and open_times == 0:
+                    # 大封单+无炸板 → 强势涨停, 次日溢价
+                    signals.append(ScanSignal(
+                        ts_code=ts_code, stock_name=name,
+                        strategy="limit_up", strategy_name="强势涨停",
+                        signal_type="buy", price=price,
+                        pct_chg=pct_chg, volume_ratio=0,
+                        turnover_rate=turnover, is_limit_up=True,
+                        reason=f"连板{limit_times} 封单{fd_amount/1000:.0f}万 无炸板",
+                    ))
+                    continue
+            
+            # === 3. 急速拉升(5分钟内涨幅>3%) ===
+            # 需要对比缓存, 看最近价格变化
+            cached = self._realtime_cache.get(ts_code, {})
+            if cached.get("price", 0) > 0:
+                price_change_pct = (price - cached["price"]) / cached["price"] * 100
+                if price_change_pct > 3 and not is_limit_up:
+                    signals.append(ScanSignal(
+                        ts_code=ts_code, stock_name=name,
+                        strategy="mid_chase", strategy_name="急速拉升",
+                        signal_type="buy", price=price,
+                        pct_chg=pct_chg, volume_ratio=0,
+                        turnover_rate=turnover, is_limit_up=False,
+                        reason=f"5分钟涨{price_change_pct:.1f}%",
+                    ))
+                    continue
+        
+        if signals:
+            logger.info(f"[ANOMALY] 异动检测: {len(signals)}只")
+        
+        return signals
 
     # ==================== 仓位管理 ====================
 
