@@ -21,6 +21,18 @@ def _get_scanner():
     if _scanner_instance is None:
         from nodes.market_monitor.scanner import MarketScanner
         _scanner_instance = MarketScanner()
+    # 确保熔断器存在(兼容旧实例)
+    if not hasattr(_scanner_instance, '_circuit_breaker'):
+        _scanner_instance._circuit_breaker = {
+            "daily_start_assets": 1_000_000,
+            "daily_max_drawdown": 0.05,
+            "consecutive_losses": 0,
+            "consecutive_loss_limit": 3,
+            "trading_paused": False,
+            "pause_reason": "",
+            "today_trades": 0,
+            "today_losses": 0,
+        }
     return _scanner_instance
 
 

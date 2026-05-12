@@ -12,7 +12,9 @@ import {
   ElCard, ElButton, ElTag, ElEmpty, ElTable, ElTableColumn,
   ElSwitch, ElInputNumber, ElSlider, ElDescriptions, ElDescriptionsItem,
   ElTabs, ElTabPane, ElDialog, ElMessage, ElTooltip, ElBadge,
+  ElInput, ElSelect, ElOption,
 } from 'element-plus'
+import { api } from '@/api/client'
 
 // ==================== Types ====================
 
@@ -224,6 +226,10 @@ async function manualScan() {
   await fetchScanner()
 }
 
+async function fetchAll(force = false) {
+  await Promise.all([fetchScanner(), fetchStrategies(), fetchDataSources()])
+}
+
 function toggleTradeMode() {
   if (isRunning.value) {
     ElMessage.warning('请先停止扫描器再切换模式')
@@ -237,20 +243,17 @@ function toggleTradeMode() {
 async function fetchStrategies() {
   try {
     const [sRes, rRes] = await Promise.all([
-      fetch(`${configApi}/strategies`).then(r => r.json()),
-      fetch(`${configApi}/global-risk`).then(r => r.json()),
+      api.get(`${configApi}/strategies`),
+      api.get(`${configApi}/global-risk`),
     ])
-    if (sRes.success) strategies.value = sRes.data
-    if (rRes.success) globalRisk.value = rRes.data
+    if (sRes?.success) strategies.value = sRes.data
+    if (rRes?.success) globalRisk.value = rRes.data
   } catch (e) { console.error(e) }
 }
 
 async function toggleStrategy(sid: string, enabled: boolean) {
   try {
-    await fetch(`${configApi}/strategies/${sid}`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled })
-    })
+    await api.put(`${configApi}/strategies/${sid}`, { enabled })
     await fetchStrategies()
     ElMessage.success(enabled ? '已启用' : '已停用')
   } catch (e) { ElMessage.error('操作失败') }
@@ -268,9 +271,8 @@ async function saveStrategy() {
   if (!editingStrategy.value) return
   saving.value = true
   try {
-    await fetch(`${configApi}/strategies/${editingStrategy.value.id}`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ params: editParams.value, riskParams: editRiskParams.value })
+    await api.put(`${configApi}/strategies/${editingStrategy.value.id}`, {
+      params: editParams.value, riskParams: editRiskParams.value
     })
     await fetchStrategies()
     editDialogVisible.value = false
@@ -281,7 +283,7 @@ async function saveStrategy() {
 
 async function resetStrategy(sid: string) {
   try {
-    await fetch(`${configApi}/reset/${sid}`, { method: 'POST' })
+    await api.post(`${configApi}/reset/${sid}`)
     await fetchStrategies()
     ElMessage.success('已重置为默认')
   } catch (e) { ElMessage.error('重置失败') }
