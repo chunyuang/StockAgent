@@ -27,6 +27,7 @@ def _get_scanner():
 class ScannerStartRequest(BaseModel):
     account_id: str = "default"
     trade_date: Optional[str] = None
+    trade_mode: str = "simulated"  # simulated | gm
     config: Dict[str, Any] = {}
 
 
