@@ -63,8 +63,8 @@ class DailyScheduler:
         # 执行器(模拟盘)
         self._executor = None
 
-        # 量脉客户端(延迟初始化)
-        self._liangmai = None
+        # 数据源(必盈, 延迟初始化)
+        self._ds_router = None
 
         # 持仓状态
         self._positions: Dict[str, Dict] = {}
@@ -517,24 +517,43 @@ class DailyScheduler:
         return signals
 
     async def _fetch_realtime_data(self) -> Optional[Dict]:
-        """量脉实时行情"""
+        """实时行情(通过Scanner的必盈数据源)"""
         try:
-            from core.data_fetchers.liangmai_client import LiangMaiClient
-            if not self._liangmai:
-                self._liangmai = LiangMaiClient()
-                await self._liangmai.initialize()
-
-            codes = list(self._positions.keys())
-            if not codes:
+            # 优先从Scanner获取(已接必盈)
+            from nodes.web.api.scanner import _get_scanner_instance
+            scanner = _get_scanner_instance()
+            if scanner and scanner._realtime_cache:
+                return scanner._realtime_cache
+            
+            # 回退: 直接用必盈适配器
+            from src.data_sources.biying_adapter import BiyingAdapter
+            from nodes.market_monitor.data_source_router import DataSourceRouter
+            
+            if not hasattr(self, '_ds_router') or self._ds_router is None:
+                router = DataSourceRouter()
+                biying = BiyingAdapter(licence="E53CA0F0-3E85-4736-B22D-8FA41A5DB050")
+                router.register("biying", biying, priority=10)
+                await router.initialize_all()
+                self._ds_router = router
+            
+            biying = self._ds_router._sources.get("biying")
+            if not biying:
                 return {}
-
+            
             result = {}
-            for code in codes:
-                short = code.split('.')[0]
-                kline = await self._liangmai.get_kline(ts_code=short, klt="1", lt=1)
-                if kline:
-                    result[code] = kline[0]
+            for ts_code in list(self._positions.keys())[:10]:  # 最多10只
+                try:
+                    quote = await biying.get_realtime_quote(ts_code)
+                    if quote:
+                        result[ts_code] = {
+                            "price": float(quote.get("close", 0)),
+                            "pct_chg": float(quote.get("pct_chg", 0)),
+                        }
+                except Exception:
+                    pass
+                await asyncio.sleep(0.1)
             return result
+            
         except Exception as e:
             logger.error(f"[REALTIME] 失败: {e}")
             return None
