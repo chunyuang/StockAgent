@@ -15,6 +15,7 @@ SimulatedBroker — 仿真撮合引擎
 """
 import asyncio
 import logging
+import time
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass, field
@@ -136,7 +137,12 @@ class SimulatedBroker:
             return False
 
     async def save_state(self):
-        """持久化当前状态到MongoDB"""
+        """持久化当前状态到MongoDB(带节流: 30秒内不重复保存)"""
+        now = time.time()
+        if hasattr(self, '_last_save_time') and now - self._last_save_time < 30:
+            return True  # 节流: 30秒内不重复保存
+        self._last_save_time = now
+
         if not await self._ensure_mongo():
             return False
 
@@ -174,12 +180,20 @@ class SimulatedBroker:
                     "strategy": pos.strategy,
                 })
 
-            # 先删旧持仓再写入
-            await self._mongo_db["broker_positions"].delete_many(
-                {"account_id": self.account.account_id}
-            )
-            if positions_docs:
-                await self._mongo_db["broker_positions"].insert_many(positions_docs)
+            # Upsert持仓(避免并发重复)
+            for doc in positions_docs:
+                await self._mongo_db["broker_positions"].update_one(
+                    {"account_id": doc["account_id"], "ts_code": doc["ts_code"]},
+                    {"$set": doc},
+                    upsert=True,
+                )
+            
+            # 清理已平仓的持仓(内存里没有但MongoDB还留着的)
+            current_codes = set(self.positions.keys())
+            await self._mongo_db["broker_positions"].delete_many({
+                "account_id": self.account.account_id,
+                "ts_code": {"$nin": list(current_codes)} if current_codes else {"$exists": True},
+            })
 
             # 今日订单(追加,不删)
             today = datetime.now().strftime("%Y%m%d")

@@ -52,8 +52,8 @@ class PositionStatus:
     cost_price: float = 0.0
     current_price: float = 0.0
     profit_pct: float = 0.0
-    stop_loss_pct: float = -5.0
-    take_profit_pct: float = 7.0
+    stop_loss_pct: float = -3.0   # 百分比形式(与broker.profit_pct一致), -3.0表示-3%
+    take_profit_pct: float = 7.0   # 百分比形式, 7.0表示7%
     hold_minutes: int = 0
     should_sell: bool = False
     sell_reason: str = ""
@@ -360,13 +360,14 @@ class MarketScanner:
     async def _premarket_auction(self, trade_date: str):
         """竞价预选(9:15-9:25集合竞价分析)
         
-        利用必盈涨停池的封板时间和连板数据，
-        在9:25之前预选出可能的强势股。
+        数据源:
+        1. 昨日涨停池 → 连板候选(必盈ztgc, 不占今日额度)
+        2. 今日强势股池 → 竞价强势确认(必盈qsgc)
+        3. 实时行情 → 竞价涨幅>3%确认(逐只, 仅候选股)
         
         策略:
-        - 昨日涨停+今竞价继续涨停 → 龙头连板候选
+        - 昨日涨停+今竞价继续强势 → 龙头连板候选
         - 昨日连板≥2 → 强势股继续关注
-        - 不消耗必盈额度(用昨日的涨停池数据)
         """
         try:
             if not self._data_router:
@@ -376,45 +377,73 @@ class MarketScanner:
             if not biying:
                 return
             
-            # 获取昨日涨停池(用于连板预判)
-            # 昨日日期(简单算: 今天-1天, 不考虑节假日)
+            today = datetime.now().strftime("%Y-%m-%d")
+            
+            # === 1. 今日强势股池(1次API) ===
+            strong_stocks = set()
+            try:
+                strong_pool = await biying.get_strong_pool(today)
+                for item in strong_pool:
+                    dm = item.get("dm", "")
+                    ts_code = self._dm_to_tscode(dm) if hasattr(self, '_dm_to_tscode') else f"{dm}.SZ" if dm else ""
+                    if ts_code:
+                        strong_stocks.add(ts_code)
+                logger.info(f"[AUCTION] 今日强势股池: {len(strong_stocks)}只")
+            except Exception as e:
+                logger.warning(f"[AUCTION] 强势股池获取失败: {e}")
+            
+            # === 2. 昨日涨停池(1次API, 非今日额度) ===
             from datetime import timedelta
             yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-            
             yesterday_limit_ups = await biying.get_limit_up_pool(yesterday)
             
             if not yesterday_limit_ups:
                 logger.info("[AUCTION] 昨日无涨停数据")
                 return
             
-            # 筛选连板股(昨日≥2连板, 今竞价可能继续)
+            # === 3. 对昨日涨停+今日强势的交叉验证 ===
             for item in yesterday_limit_ups:
-                limit_times = item.get("limit_times", 0)
-                if limit_times >= 2:
-                    ts_code = item.get("ts_code", "")
-                    name = item.get("name", "")
-                    pct = item.get("pct_chg", 0)
-                    fd = item.get("fd_amount", 0)
-                    open_times = item.get("open_times", 0)
-                    
-                    # 加入预选信号(竞价候选)
-                    existing = {s.ts_code for s in self._active_signals}
-                    if ts_code not in existing:
+                limit_times = item.get("limit_times", 0) if isinstance(item, dict) else getattr(item, 'limit_times', 0)
+                ts_code = item.get("ts_code", "") if isinstance(item, dict) else getattr(item, 'ts_code', "")
+                name = item.get("name", "") if isinstance(item, dict) else getattr(item, 'name', "")
+                pct = item.get("pct_chg", 0) if isinstance(item, dict) else getattr(item, 'pct_chg', 0)
+                fd = item.get("fd_amount", 0) if isinstance(item, dict) else getattr(item, 'fd_amount', 0)
+                open_times = item.get("open_times", 0) if isinstance(item, dict) else getattr(item, 'open_times', 0)
+                
+                if not ts_code:
+                    continue
+                
+                # 连板≥2 或 今日强势确认
+                is_strong = ts_code in strong_stocks
+                if limit_times >= 2 or is_strong:
+                    existing = {s.ts_code + s.strategy for s in self._active_signals}
+                    key = ts_code + "limit_up"
+                    if key not in existing:
+                        # 获取实时行情确认价格(仅候选股, 1次/只)
+                        price = 0.0
+                        try:
+                            quote = await biying.get_realtime_quote(ts_code)
+                            if quote:
+                                price = float(quote.get("close", 0) if isinstance(quote, dict) else getattr(quote, 'close', 0))
+                        except Exception:
+                            pass
+                        
                         self._active_signals.append(ScanSignal(
                             ts_code=ts_code,
                             stock_name=name,
                             strategy="limit_up",
-                            strategy_name="竞价连板",
+                            strategy_name="竞价连板" + ("+强势" if is_strong else ""),
                             signal_type="buy",
-                            price=0,  # 竞价价格待更新
+                            price=price,  # 实时竞价价格
                             pct_chg=pct,
                             volume_ratio=0,
                             turnover_rate=0,
                             is_limit_up=True,
-                            reason=f"昨{limit_times}连板 封单{fd/1000:.0f}万 炸板{open_times}次",
+                            reason=f"昨{limit_times}连板 封单{fd/1000:.0f}万 炸板{open_times}次" + (" 今强势确认" if is_strong else ""),
                         ))
             
-            logger.info(f"[AUCTION] 竞价预选: {len([s for s in self._active_signals if s.strategy_name == '竞价连板'])}只连板候选")
+            auction_count = len([s for s in self._active_signals if s.strategy_name.startswith("竞价")])
+            logger.info(f"[AUCTION] 竞价预选: {auction_count}只候选")
             
         except Exception as e:
             logger.warning(f"[AUCTION] 竞价预选失败: {e}")
@@ -752,11 +781,16 @@ class MarketScanner:
         return base
 
     def _get_strategy_risk(self, strategy_key: str) -> Dict:
-        """获取策略级风控参数"""
+        """获取策略风控参数(小数形式: 0.03=3%)"""
         from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
         cfg = self._get_effective_strategy_config(strategy_key)
         risk = dict(GLOBAL_RISK)  # 全局兜底
         risk.update(cfg.get("riskParams", {}))  # 策略级覆盖
+        # 防御: 如果传了百分比形式(>1), 自动转小数
+        if risk.get("stop_loss_pct", 0) > 1:
+            risk["stop_loss_pct"] = risk["stop_loss_pct"] / 100
+        if risk.get("take_profit_pct", 0) > 1:
+            risk["take_profit_pct"] = risk["take_profit_pct"] / 100
         return risk
 
     async def _apply_strategies(self, merged_df: pd.DataFrame, trade_date: str) -> List[ScanSignal]:
@@ -833,14 +867,15 @@ class MarketScanner:
 
     async def _update_signals(self, new_signals: List[ScanSignal], scan_time: str):
         """增量更新信号"""
-        # 去重: 已存在的信号不重复
-        existing_codes = {s.ts_code for s in self._active_signals}
+        # 去重: 同一只股+同一策略不重复(不同策略可共存)
+        existing_keys = {s.ts_code + "|" + s.strategy for s in self._active_signals}
         added = []
 
         for sig in new_signals:
-            if sig.ts_code not in existing_codes:
+            key = sig.ts_code + "|" + sig.strategy
+            if key not in existing_keys:
                 self._active_signals.append(sig)
-                existing_codes.add(sig.ts_code)
+                existing_keys.add(key)
                 added.append(sig)
 
         # 过期信号: 超过5分钟没刷新的信号移除
@@ -856,6 +891,13 @@ class MarketScanner:
 
             # 执行新信号
             await self._execute_signals(added)
+            
+            # 执行后立即持久化(防止崩溃丢数据)
+            if self._broker:
+                try:
+                    await self._broker.save_state()
+                except Exception:
+                    pass  # 持久化失败不影响交易
             
             # WebSocket推送(通过Redis PubSub)
             try:
@@ -975,8 +1017,10 @@ class MarketScanner:
 
             # 获取策略级风控参数
             risk = self._get_strategy_risk(pos.strategy)
-            stop_loss_pct = -risk.get("stop_loss_pct", 0.03) * 100   # 转为负百分比
-            take_profit_pct = risk.get("take_profit_pct", 0.07) * 100  # 转为正百分比
+            # riskParams里stop_loss_pct/take_profit_pct是小数(0.03=3%)
+            # broker.profit_pct是百分比形式(3.0=3%), 需要转换
+            stop_loss_pct = -risk.get("stop_loss_pct", 0.03) * 100   # 0.03→-3.0%
+            take_profit_pct = risk.get("take_profit_pct", 0.07) * 100  # 0.07→7.0%
 
             # 检查止损/止盈
             if pos.profit_pct <= stop_loss_pct:
@@ -1017,6 +1061,13 @@ class MarketScanner:
                 else:
                     self._stats["take_profits"] += 1
                 logger.info(f"[RISK] {reason}: {pos.ts_code} {pos.available_qty}股@{order.filled_price:.2f}")
+        
+        # 止损止盈后持久化
+        if to_sell and self._broker:
+            try:
+                await self._broker.save_state()
+            except Exception:
+                pass
 
     async def _check_positions_quick(self, trade_date: str):
         """持仓快速检查(30秒级, 只查持仓股行情)
@@ -1065,6 +1116,7 @@ class MarketScanner:
         to_sell = []
         for pos in self._broker.get_positions():
             risk = self._get_strategy_risk(pos.strategy)
+            # riskParams里是小数(0.03), broker.profit_pct是百分比(3.0)
             stop_loss_pct = -risk.get("stop_loss_pct", 0.03) * 100
             take_profit_pct = risk.get("take_profit_pct", 0.07) * 100
             
@@ -1154,7 +1206,8 @@ class MarketScanner:
         signals = []
         
         for ts_code, rt in realtime_data.items():
-            if ts_code in {s.ts_code for s in self._active_signals}:
+            key = ts_code + "|anomaly"
+            if key in {s.ts_code + "|" + s.strategy for s in self._active_signals}:
                 continue  # 已有信号, 跳过
                 
             pct_chg = rt.get("pct_chg", 0)
@@ -1174,7 +1227,7 @@ class MarketScanner:
                 if pct_chg > 5 and open_times <= 2:
                     signals.append(ScanSignal(
                         ts_code=ts_code, stock_name=name,
-                        strategy="limit_up", strategy_name="涨停炸板",
+                        strategy="anomaly_broken", strategy_name="涨停炸板",
                         signal_type="buy", price=price,
                         pct_chg=pct_chg, volume_ratio=0,
                         turnover_rate=turnover,
@@ -1193,7 +1246,7 @@ class MarketScanner:
                     # 大封单+无炸板 → 强势涨停, 次日溢价
                     signals.append(ScanSignal(
                         ts_code=ts_code, stock_name=name,
-                        strategy="limit_up", strategy_name="强势涨停",
+                        strategy="anomaly_strong", strategy_name="强势涨停",
                         signal_type="buy", price=price,
                         pct_chg=pct_chg, volume_ratio=0,
                         turnover_rate=turnover, is_limit_up=True,
@@ -1209,7 +1262,7 @@ class MarketScanner:
                 if price_change_pct > 3 and not is_limit_up:
                     signals.append(ScanSignal(
                         ts_code=ts_code, stock_name=name,
-                        strategy="mid_chase", strategy_name="急速拉升",
+                        strategy="anomaly_surge", strategy_name="急速拉升",
                         signal_type="buy", price=price,
                         pct_chg=pct_chg, volume_ratio=0,
                         turnover_rate=turnover, is_limit_up=False,
@@ -1251,6 +1304,8 @@ class MarketScanner:
             ratio = 0.15
         elif "龙头" in strategy or "leader" in strategy:
             ratio = 0.15
+        elif "anomaly" in strategy:
+            ratio = 0.10  # 异动信号: 观察仓, 轻仓试探
         else:
             ratio = 0.20  # 默认
         
