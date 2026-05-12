@@ -1,3 +1,4 @@
+from pathlib import Path
 """
 从日线OHLC推算盘中因子（无需分时数据）
 
@@ -17,7 +18,7 @@
 - rise_after_limit_down: (close - limit_down_price) / limit_down_price * 100
 """
 import asyncio, sys, time
-sys.path.insert(0, '/root/.openclaw/workspace/StockAgent/AgentServer')
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.managers.mongo_manager import mongo_manager
 from core.constants import C

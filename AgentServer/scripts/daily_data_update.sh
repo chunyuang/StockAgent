@@ -1,6 +1,6 @@
 #!/bin/bash
 # 每日收盘后自动补数据
-# crontab: 15 15 * * 1-5 /root/.openclaw/workspace/StockAgent/AgentServer/scripts/daily_data_update.sh >> /var/log/stock_daily_update.log 2>&1
+# crontab: 15 15 * * 1-5 cd /path/to/StockAgent && bash AgentServer/scripts/daily_data_update.sh >> /var/log/stock_daily_update.log 2>&1
 # 周一到周五 15:15 运行(A股15:00收盘,留15分钟缓冲)
 
 set -e

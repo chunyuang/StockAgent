@@ -79,28 +79,35 @@ async def auto_compute_factors(
     Returns:
         {"computed": True/False, "fields_computed": [...], "records_updated": N}
     """
-    log = lambda msg: push_log_fn(task_id, msg) if push_log_fn else logger.info(msg)
+    async def log(msg):
+        if push_log_fn:
+            try:
+                await push_log_fn(task_id, msg)
+            except Exception:
+                pass
+        else:
+            logger.info(msg)
 
     # 筛选出需要计算的因子（策略因子+技术指标）
     computable_fields = [f for f in missing_fields if f in ALL_COMPUTABLE_FIELDS]
 
     if not computable_fields:
-        log("   ℹ️ 缺失的因子无法自动计算，请手动运行: python scripts/compute_all_factors.py")
+        await log("   ℹ️ 缺失的因子无法自动计算，请手动运行: python scripts/compute_all_factors.py")
         return {"computed": False, "fields_computed": [], "records_updated": 0}
 
-    log(f"   🔄 检测到 {len(computable_fields)} 个策略因子缺失，启动自动计算...")
-    log(f"   📋 需计算: {', '.join(computable_fields[:10])}{'...' if len(computable_fields) > 10 else ''}")
+    await log(f"   🔄 检测到 {len(computable_fields)} 个策略因子缺失，启动自动计算...")
+    await log(f"   📋 需计算: {', '.join(computable_fields[:10])}{'...' if len(computable_fields) > 10 else ''}")
 
     try:
         result = await _compute_and_write_factors(
             computable_fields, start_date, end_date, log
         )
-        log(f"   ✅ 因子自动计算完成！更新 {result['records_updated']:,} 条记录")
+        await log(f"   ✅ 因子自动计算完成！更新 {result['records_updated']:,} 条记录")
         return result
     except Exception as e:
         logger.exception(f"因子自动计算失败: {e}")
-        log(f"   ❌ 因子自动计算失败: {e}")
-        log(f"   💡 请手动运行: python scripts/compute_all_factors.py")
+        await log(f"   ❌ 因子自动计算失败: {e}")
+        await log(f"   💡 请手动运行: python scripts/compute_all_factors.py")
         return {"computed": False, "fields_computed": [], "records_updated": 0, "error": str(e)}
 
 
@@ -110,83 +117,92 @@ async def _compute_and_write_factors(
     end_date: int,
     log_fn,
 ) -> dict:
-    """核心计算逻辑：加载原始数据 → 计算因子 → 写回MongoDB"""
+    """核心计算逻辑：分月加载 → 计算因子 → 写回MongoDB"""
 
-    log_fn(f"   📥 加载 {start_date}~{end_date} 的原始OHLCV数据...")
     coll = mongo_manager.db[C.STOCK_DAILY]
+    total_updated = 0
 
-    # 加载日期范围内的原始数据（只取OHLCV基础字段 + _id用于更新）
-    # 注意：需要多加载一些历史数据用于滚动窗口计算(如ma60需要60天历史)
-    # 回溯天数取决于最长的滚动窗口
-    max_lookback = 60  # ma60需要60天
-    # 计算回溯起始日期(近似：每个自然月≈22交易日，60交易日≈3个月)
-    lookback_start = _subtract_months(start_date, 3)
+    # 生成月份列表（按月分批避免OOM）
+    months = []
+    y, m = start_date // 10000, (start_date % 10000) // 100
+    ey, em = end_date // 10000, (end_date % 10000) // 100
+    while (y, m) <= (ey, em):
+        months.append((y, m))
+        m += 1
+        if m > 12:
+            m = 1
+            y += 1
 
-    cursor = coll.find(
-        {"trade_date": {"$gte": lookback_start, "$lte": end_date}},
-        {"_id": 1, "ts_code": 1, "trade_date": 1,
-         "open": 1, "high": 1, "low": 1, "close": 1,
-         "pct_chg": 1, "vol": 1, "amount": 1}
-    )
-    docs = await cursor.to_list(length=None)
+    await log_fn(f"   📥 分{len(months)}个月加载 {start_date}~{end_date} 的原始数据...")
 
-    if not docs:
-        log_fn(f"   ⚠️ 未找到任何原始数据")
-        return {"computed": False, "fields_computed": [], "records_updated": 0}
+    for mi, (year, month) in enumerate(months):
+        month_start = year * 10000 + month * 100 + 1
+        if month == 12:
+            month_end = (year + 1) * 10000 + 100  # 下月1号
+        else:
+            month_end = year * 10000 + (month + 1) * 100 + 1
 
-    df = pd.DataFrame(docs)
-    log_fn(f"   ✅ 加载完成: {len(df):,} 条记录, {df['ts_code'].nunique():,} 只股票")
-    
-    # 【修复：从daily_basic合并turnover_rate/volume_ratio/circ_mv等精确字段】
-    # daily_basic已补全(东方财富数据中心，5400+只/天)，远比OHLCV反算准确
-    db_coll = mongo_manager.db["daily_basic"]
-    db_cursor = db_coll.find(
-        {"trade_date": {"$gte": lookback_start, "$lte": end_date}},
-        {"ts_code": 1, "trade_date": 1, "turnover_rate": 1, "volume_ratio": 1,
-         "circ_mv": 1, "pe": 1, "pe_ttm": 1, "pb": 1, "total_mv": 1}
-    )
-    db_docs = await db_cursor.to_list(length=None)
-    if db_docs:
-        db_df = pd.DataFrame(db_docs)
-        db_df = db_df.drop(columns=['_id'], errors='ignore')
-        # merge到主df（left join: 保留所有OHLCV记录，补充daily_basic字段）
-        df = df.merge(db_df, on=['ts_code', 'trade_date'], how='left', suffixes=('', '_db'))
-        # 如果daily_basic有值，覆盖OHLCV反算的值
-        for col in ['turnover_rate', 'volume_ratio', 'circ_mv', 'pe', 'pe_ttm', 'pb', 'total_mv']:
-            db_col = f'{col}_db'
-            if db_col in df.columns:
-                # 优先用daily_basic的值
-                df[col] = df[db_col].fillna(df.get(col))
-                df = df.drop(columns=[db_col])
-        log_fn(f"   ✅ daily_basic合并: {len(db_docs):,}条精确数据")
-    else:
-        log_fn(f"   ⚠️ daily_basic无数据，将使用OHLCV反算")
+        # 回溯3个月用于MA60
+        lookback_start = _subtract_months(month_start, 3)
 
-    # 按股票分组计算因子
-    log_fn(f"   🧮 计算因子...")
-    computed_groups = []
+        cursor = coll.find(
+            {"trade_date": {"$gte": lookback_start, "$lt": month_end}},
+            {"_id": 1, "ts_code": 1, "trade_date": 1,
+             "open": 1, "high": 1, "low": 1, "close": 1,
+             "pct_chg": 1, "vol": 1, "amount": 1, "pre_close": 1,
+             "turnover_rate": 1, "volume_ratio": 1, "circ_mv": 1}
+        )
+        docs = await cursor.to_list(length=None)
+        if not docs:
+            continue
 
-    for ts_code, group in df.groupby('ts_code'):
-        group = group.sort_values('trade_date').copy()
-        computed = _compute_factors_for_stock(group, fields)
-        computed_groups.append(computed)
+        df = pd.DataFrame(docs)
 
-    final_df = pd.concat(computed_groups, ignore_index=True)
+        # 合并daily_basic
+        db_coll = mongo_manager.db["daily_basic"]
+        db_cursor = db_coll.find(
+            {"trade_date": {"$gte": lookback_start, "$lt": month_end}},
+            {"ts_code": 1, "trade_date": 1, "turnover_rate": 1, "volume_ratio": 1,
+             "circ_mv": 1, "pe": 1, "pe_ttm": 1, "pb": 1, "total_mv": 1}
+        )
+        db_docs = await db_cursor.to_list(length=None)
+        if db_docs:
+            db_df = pd.DataFrame(db_docs)
+            db_df = db_df.drop(columns=['_id'], errors='ignore')
+            df = df.merge(db_df, on=['ts_code', 'trade_date'], how='left', suffixes=('', '_db'))
+            for col in ['turnover_rate', 'volume_ratio', 'circ_mv', 'pe', 'pe_ttm', 'pb', 'total_mv']:
+                db_col = f'{col}_db'
+                if db_col in df.columns:
+                    df[col] = df[db_col].fillna(df.get(col))
+                    df = df.drop(columns=[db_col])
 
-    # 只保留回测日期范围内的记录（丢弃回溯窗口的历史数据）
-    final_df = final_df[final_df['trade_date'] >= start_date]
+        # 按股票分组计算
+        computed_groups = []
+        for ts_code, group in df.groupby('ts_code'):
+            group = group.sort_values('trade_date').copy()
+            computed = _compute_factors_for_stock(group, fields)
+            computed_groups.append(computed)
 
-    # 替换NaN为None
-    final_df = final_df.replace({np.nan: None})
+        if not computed_groups:
+            continue
 
-    # 写回MongoDB
-    log_fn(f"   💾 写入MongoDB (仅更新缺失的因子字段)...")
-    records_updated = await _write_factors_to_mongo(final_df, fields, coll, log_fn)
+        final_df = pd.concat(computed_groups, ignore_index=True)
+        # 只保留当月
+        final_df = final_df[(final_df['trade_date'] >= month_start) & (final_df['trade_date'] < month_end)]
+        final_df = final_df.replace({np.nan: None})
+
+        # 写入
+        async def silent_log(msg): pass
+        n = await _write_factors_to_mongo(final_df, fields, coll, silent_log)  # 静默写入避免日志过多
+        total_updated += n
+
+        if (mi + 1) % 6 == 0 or mi == len(months) - 1:
+            await log_fn(f"   📊 因子计算进度: {mi+1}/{len(months)}月 | 累计更新{total_updated:,}条")
 
     return {
         "computed": True,
         "fields_computed": fields,
-        "records_updated": records_updated,
+        "records_updated": total_updated,
     }
 
 
@@ -482,7 +498,7 @@ async def _write_factors_to_mongo(
         if update_ops:
             result = await coll.bulk_write(update_ops, ordered=False)
             total_updated += result.modified_count + result.upserted_count
-            log_fn(f"      写入进度: {min(i + batch_size, len(df)):,} / {len(df):,}")
+            await log_fn(f"      写入进度: {min(i + batch_size, len(df)):,} / {len(df):,}")
 
     return total_updated
 

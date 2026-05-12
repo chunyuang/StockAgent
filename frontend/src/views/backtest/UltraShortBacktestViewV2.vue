@@ -11,6 +11,7 @@ import AnsiLogPanel from '@/components/backtest/AnsiLogPanel.vue'
 import BacktestSummaryTable from '@/components/backtest/BacktestSummaryTable.vue'
 import BacktestResultPanel from '@/components/ultrashort/BacktestResultPanel.vue'
 import BacktestHistoryPanel from '@/components/backtest/BacktestHistoryPanel.vue'
+import DataStatusPanel from '@/components/ultrashort/DataStatusPanel.vue'
 
 import { GLOBAL_RISK, STRATEGY_CONFIGS } from '@/config/strategyDefaults'
 
@@ -226,6 +227,15 @@ onMounted(async () => {
   if (!loaded) addLog('✅ 使用本地硬编码默认参数（config.ini和后端API获取都失败）')
   addLog('✅ 超短策略回测V2.0系统加载完成')
   addLog('💡 所有实盘级功能默认开启，可直接运行回测')
+
+  // 获取回测历史数量
+  try {
+    const res = await fetch('/api/v1/backtest/ultra-short/history')
+    if (res.ok) {
+      const data = await res.json()
+      historyCount.value = data.total || 0
+    }
+  } catch {}
 })
 
 // ==================== 方法 ====================
@@ -400,6 +410,7 @@ const addLog = (text: string) => {
 // ==================== 历史回测操作 ====================
 
 const activeMainTab = ref<'config' | 'history'>('config')
+const historyCount = ref(0)
 
 /** 从历史回测复用参数 */
 function onReuseParams(task: BacktestHistoryItem) {
@@ -444,11 +455,11 @@ function onViewLogs(taskId: string) {
     <!-- 页面头部 -->
     <div class="page-header">
       <div>
-        <h1 class="page-title">超短策略回测系统 V2.1.0 ✅ 私募级实盘版</h1>
+        <h1 class="page-title">超短策略回测系统 V3.0 ✅ 专业量化版</h1>
         <p class="page-description">
-          【版本标识：V2.1.0 - 2026-04-05 专业升级】无Tushare依赖 | 专业级日志 | 实盘级风控 | 完全无未来函数<br/>
-          🚀 系统架构说明：回测功能需要【Web节点】+【回测引擎节点】启动运行才会生效<br/>
-          🟢 当前运行状态：Web节点✅ 运行中 | 回测节点✅ 运行中 | 分布式多节点架构
+          【V3.0 - 2026-05-11】4策略组合回测 | Tab式结果展示 | 策略对比+交易分析 | 东方财富数据源 | 实盘级风控<br/>
+          🚀 分布式架构：Web节点 + 回测引擎节点 + MongoDB | 数据覆盖 5580只A股 × 141个交易日<br/>
+          🟢 系统状态：Web✅ 运行中 | 引擎✅ 运行中 | 数据✅ 已就绪（5/11最新） | 4策略启用 / 涨停开板已关闭(负期望)
         </p>
       </div>
     </div>
@@ -460,7 +471,10 @@ function onViewLogs(taskId: string) {
       </button>
       <button :class="['tab-btn', activeMainTab === 'history' ? 'active' : '']" @click="activeMainTab = 'history'">
         📊 回测历史
-        <span class="tab-badge">74</span>
+        <span class="tab-badge">{{ historyCount }}</span>
+      </button>
+      <button :class="['tab-btn', activeMainTab === 'data' ? 'active' : '']" @click="activeMainTab = 'data'">
+        🗄️ 数据状态
       </button>
     </div>
 
@@ -493,6 +507,11 @@ function onViewLogs(taskId: string) {
         @view-logs="onViewLogs"
         @reuse-params="onReuseParams"
       />
+    </div>
+
+    <!-- Tab内容：数据状态 -->
+    <div v-show="activeMainTab === 'data'">
+      <DataStatusPanel />
     </div>
 
     <!-- 日志面板（跨Tab共享） -->

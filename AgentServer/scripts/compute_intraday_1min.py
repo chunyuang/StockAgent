@@ -1,10 +1,11 @@
+from pathlib import Path
 """
 从量脉1分钟K线计算盘中因子，写入stock_daily_ak_full
 
 只处理涨停/跌停候选股票(is_limit_up=1 或 is_limit_down=1)，每只股票间隔1秒避免限流。
 """
 import asyncio, sys, time
-sys.path.insert(0, '/root/.openclaw/workspace/StockAgent/AgentServer')
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.data_fetchers.liangmai_client import LiangMaiClient
 from core.managers.mongo_manager import mongo_manager

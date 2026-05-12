@@ -467,10 +467,10 @@ async def execute_ultra_short_backtest(
 
     except Exception as e:
         _logger = node_logger or logger
-        _logger.error(f"[{task_id}] Portfolio backtest failed: {e}")
+        _logger.error("BACKTEST", f"[{task_id}] Portfolio backtest failed: {e}")
         import traceback
         tb_str = traceback.format_exc()
-        _logger.error(f"[{task_id}] Traceback:\n{tb_str}")
+        _logger.error("BACKTEST", f"[{task_id}] Traceback:\n{tb_str}")
         await push_log_fn(task_id, f"❌ 组合回测运行异常: {str(e)}")
         await push_log_fn(task_id, "📋 完整错误堆栈:")
         for line in tb_str.split('\n'):
