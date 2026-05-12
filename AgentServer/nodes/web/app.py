@@ -8,6 +8,9 @@ from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 import uuid
 import os
+import logging
+
+logger = logging.getLogger("web.app")
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,7 +22,7 @@ from core.managers import (
     mongo_manager,
 )
 
-from .api import auth_router, user_router, task_router, stock_router, subscription_router, backtest_router, trading_router, system_router, scheduler_router, scanner_router, strategy_config_router
+from .api import auth_router, user_router, task_router, stock_router, subscription_router, backtest_router, trading_router, system_router, scheduler_router, scanner_router, strategy_config_router, datasource_router
 from .websocket import websocket_router
 
 
@@ -34,6 +37,42 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # 初始化必要的管理器 (Web 节点只需要 Redis 和 Mongo)
     await redis_manager.initialize()
     await mongo_manager.initialize()
+    
+    # 初始化数据源路由器(量脉+必盈+掘金)
+    try:
+        from nodes.market_monitor.data_source_router import DataSourceRouter
+        from src.data_sources.biying_adapter import BiyingAdapter
+        
+        ds_router = DataSourceRouter()
+        
+        # 必盈(免费版, 无IP限制, 涨停池核心)
+        biying_licence = os.environ.get("BIYING_LICENCE", "E53CA0F0-3E85-4736-B22D-8FA41A5DB050")
+        if biying_licence:
+            biying = BiyingAdapter(licence=biying_licence)
+            ds_router.register("biying", biying, priority=10)
+        
+        # 量脉(已付费, 实时行情, IP限制)
+        try:
+            from core.data_fetchers.liangmai_client import LiangMaiClient
+            # 量脉适配器稍后接入
+        except ImportError:
+            pass
+        
+        # 掘金(需终端, 当前不可用)
+        # gm适配器待终端可用后接入
+        
+        # 初始化所有注册的数据源
+        results = await ds_router.initialize_all()
+        logger.info(f"[APP] 数据源初始化: {results}")
+        
+        # 将router注入API模块
+        from nodes.web.api.datasource import set_router
+        set_router(ds_router)
+        
+        # 存到app.state供其他模块使用
+        app.state.data_source_router = ds_router
+    except Exception as e:
+        logger.warning(f"[APP] 数据源初始化失败(不影响其他功能): {e}")
     
     yield
     
@@ -146,6 +185,7 @@ def create_app() -> FastAPI:
     app.include_router(scheduler_router, prefix="/api/v1", tags=["调度器管理"])
     app.include_router(scanner_router, prefix="/api/v1", tags=["市场监听"])
     app.include_router(strategy_config_router, tags=["策略配置"])
+    app.include_router(datasource_router, prefix="/api/v1", tags=["数据源管理"])
     from .api.admin_db import router as admin_db_router
     app.include_router(admin_db_router, prefix="/api/v1", tags=["数据库管理"])
 
