@@ -129,8 +129,8 @@ const executeManualTrade = async () => {
       strategy: 'manual',
       reason: '手动操作',
     })
-    if (res.data?.success) {
-      const d = res.data.data
+    if (res?.success) {
+      const d = res.data
       ElMessage.success(`${d.side === 'buy' ? '买入' : '卖出'} ${d.ts_code} ${d.filled_qty}股@${d.filled_price}`)
       manualTrade.ts_code = ''
       manualTrade.stock_name = ''
@@ -138,7 +138,7 @@ const executeManualTrade = async () => {
       manualTrade.price = 0
       fetchAll(true)
     } else {
-      ElMessage.error(`下单失败: ${res.data?.data?.message || '未知错误'}`)
+      ElMessage.error(`下单失败: ${res?.data?.message || '未知错误'}`)
     }
   } catch (e: any) {
     ElMessage.error(`下单失败: ${e.message}`)
@@ -148,7 +148,7 @@ const executeManualTrade = async () => {
 const resetCircuitBreaker = async () => {
   try {
     const res = await api.post(`${scannerApi}/circuit-breaker/reset`)
-    if (res.data?.success) {
+    if (res?.success) {
       ElMessage.success('熔断已重置')
       fetchAll(true)
     }
@@ -164,9 +164,10 @@ const fetchDataSources = async () => {
       api.get('/datasource/brokers'),
       api.get('/datasource/comparison'),
     ])
-    if (srcRes.data?.success) dataSources.value = srcRes.data.data || []
-    if (bkRes.data?.success) brokers.value = bkRes.data.data || []
-    if (cmpRes.data?.success) dsComparison.value = cmpRes.data.data || []
+    // api客户端拦截器已返回response.data, 所以直接用.success
+    if (srcRes?.success) dataSources.value = srcRes.data || []
+    if (bkRes?.success) brokers.value = bkRes.data || []
+    if (cmpRes?.success) dsComparison.value = cmpRes.data || []
   } catch (e: any) {
     console.warn('数据源信息获取失败:', e.message)
   }
@@ -175,7 +176,7 @@ const fetchDataSources = async () => {
 const switchDataSource = async (source: string) => {
   try {
     const res = await api.post('/datasource/switch', { source })
-    if (res.data?.success) {
+    if (res?.success) {
       ElMessage.success(`已切换到 ${dataSourceLabels[source] || source}`)
       fetchDataSources()
     }
@@ -194,33 +195,32 @@ const accountInfo = computed(() => status.value?.account ?? { total_assets: 0, a
 async function fetchScanner() {
   try {
     const [sR, sigR, posR, tlR] = await Promise.all([
-      fetch(`${scannerApi}/status`).then(r => r.json()),
-      fetch(`${scannerApi}/signals`).then(r => r.json()),
-      fetch(`${scannerApi}/positions`).then(r => r.json()),
-      fetch(`${scannerApi}/timeline`).then(r => r.json()),
+      api.get(`${scannerApi}/status`),
+      api.get(`${scannerApi}/signals`),
+      api.get(`${scannerApi}/positions`),
+      api.get(`${scannerApi}/timeline`),
     ])
-    if (sR.success) status.value = sR.data
-    if (sigR.success) signals.value = sigR.data
-    if (posR.success) positions.value = posR.data
-    if (tlR.success) timeline.value = tlR.data
+    if (sR?.success) status.value = sR.data
+    if (sigR?.success) signals.value = sigR.data
+    if (posR?.success) positions.value = posR.data
+    if (tlR?.success) timeline.value = tlR.data
   } catch (e) { console.error(e) }
 }
 
 async function startScanner() {
-  await fetch(`${scannerApi}/start`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ account_id: 'default', trade_mode: tradeMode.value })
+  await api.post(`${scannerApi}/start`, {
+    account_id: 'default', trade_mode: tradeMode.value
   })
   await fetchScanner()
 }
 
 async function stopScanner() {
-  await fetch(`${scannerApi}/stop`, { method: 'POST' })
+  await api.post(`${scannerApi}/stop`)
   await fetchScanner()
 }
 
 async function manualScan() {
-  await fetch(`${scannerApi}/scan-once`, { method: 'POST' })
+  await api.post(`${scannerApi}/scan-once`)
   await fetchScanner()
 }
 
@@ -346,7 +346,7 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
             </template>
             <div v-if="!signals.length" class="empty">启动扫描器或手动扫描</div>
             <div v-else class="signal-list">
-              <div v-for="sig in signals" :key="sig.ts_code + sig.strategy" class="signal-row">
+              <div v-for="sig in signals" :key="sig.ts_code + sig.strategy" class="signal-row" @click="manualTrade.ts_code = sig.ts_code; manualTrade.stock_name = sig.stock_name; manualTrade.side = 'buy'" style="cursor:pointer" title="点击填入手动交易">
                 <div class="sig-top">
                   <span class="code">{{ sig.ts_code }}</span>
                   <span class="name">{{ sig.stock_name }}</span>
@@ -372,7 +372,7 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
             </template>
             <div v-if="!positions.length" class="empty">暂无持仓</div>
             <div v-else class="pos-list">
-              <div v-for="pos in positions" :key="pos.ts_code" class="pos-row">
+              <div v-for="pos in positions" :key="pos.ts_code" class="pos-row" @click="manualTrade.ts_code = pos.ts_code; manualTrade.stock_name = pos.stock_name; manualTrade.side = 'sell'" style="cursor:pointer" title="点击填入卖出">
                 <div class="pos-top">
                   <span class="code">{{ pos.ts_code }}</span>
                   <span class="name">{{ pos.stock_name }}</span>
@@ -434,15 +434,21 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
             </template>
             <div class="manual-trade">
               <div class="mt-row">
-                <ElInput v-model="manualTrade.ts_code" placeholder="股票代码" size="small" style="width:120px" />
+                <ElInput v-model="manualTrade.ts_code" placeholder="股票代码 如000001.SZ" size="small" style="width:150px" />
                 <ElInput v-model="manualTrade.stock_name" placeholder="名称" size="small" style="width:80px" />
                 <ElSelect v-model="manualTrade.side" size="small" style="width:80px">
                   <ElOption label="买入" value="buy" />
                   <ElOption label="卖出" value="sell" />
                 </ElSelect>
-                <ElInput v-model="manualTrade.quantity" type="number" placeholder="数量" size="small" style="width:80px" />
-                <ElInput v-model="manualTrade.price" type="number" placeholder="价格(0=市价)" size="small" style="width:100px" />
+                <ElInputNumber v-model="manualTrade.quantity" :min="0" :step="100" placeholder="数量(0=自动)" size="small" style="width:130px" controls-position="right" />
+                <ElInputNumber v-model="manualTrade.price" :min="0" :precision="2" placeholder="价格(0=市价)" size="small" style="width:120px" controls-position="right" />
                 <ElButton type="primary" size="small" :disabled="!manualTrade.ts_code" @click="executeManualTrade">下单</ElButton>
+              </div>
+              <div class="mt-info" v-if="status?.account">
+                <span>💰 总资产: ¥{{ (status.account.total_assets / 10000).toFixed(1) }}万</span>
+                <span>💵 可用: ¥{{ (status.account.available_cash / 10000).toFixed(1) }}万</span>
+                <span>📊 持仓: {{ positions.length }}只</span>
+                <span v-if="status?.circuit_breaker?.trading_paused" style="color:#f56c6c">⚠️ 熔断中: {{ status.circuit_breaker.pause_reason }}</span>
               </div>
               <div class="mt-actions">
                 <ElButton size="small" @click="fetchAll(true)" plain>🔄 刷新</ElButton>
@@ -515,7 +521,11 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
                 </div>
                 <div class="ds-source-detail">
                   <span v-if="src.daily_limit">调用: {{ src.daily_calls }}/{{ src.daily_limit }}/日</span>
+                  <span v-if="src.daily_remaining !== undefined" class="ds-remaining">剩余{{ src.daily_remaining }}次</span>
                   <span v-if="src.last_error" class="ds-error">{{ src.last_error }}</span>
+                </div>
+                <div v-if="src.daily_limit" class="ds-progress">
+                  <div class="ds-progress-bar" :style="{ width: (src.daily_calls / src.daily_limit * 100) + '%' }" :class="{ 'ds-warn': src.daily_calls / src.daily_limit > 0.8 }"></div>
                 </div>
                 <ElButton v-if="src.available && !src.active" size="small" type="primary" plain @click="switchDataSource(src.name)">切换</ElButton>
               </div>
@@ -730,4 +740,11 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
 .manual-trade { display: flex; flex-direction: column; gap: 10px; }
 .mt-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .mt-actions { display: flex; gap: 8px; }
+.mt-info { display: flex; gap: 12px; font-size: 12px; color: #606266; align-items: center; flex-wrap: wrap; }
+
+/* === 数据源进度条 === */
+.ds-progress { height: 4px; background: #ebeef5; border-radius: 2px; flex: 1; min-width: 80px; margin-top: 2px; }
+.ds-progress-bar { height: 100%; background: var(--el-color-primary); border-radius: 2px; transition: width 0.3s; }
+.ds-progress-bar.ds-warn { background: var(--el-color-danger); }
+.ds-remaining { color: var(--el-color-success); font-weight: 600; }
 </style>
