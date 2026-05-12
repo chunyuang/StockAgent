@@ -627,6 +627,37 @@ _GIT_BRANCH = get_git_branch()
 _BUILD_TIME = get_build_time()
 
 
+def _factor_to_group(factor: str) -> str:
+    """因子名→所属组"""
+    mapping = {
+        'pct_chg': 'basic', 'pre_close': 'basic',
+        'ma5': 'technical', 'ma10': 'technical', 'ma20': 'technical', 'macd': 'technical',
+        'rsi_6': 'technical', 'boll_upper': 'technical', 'atr': 'technical', 'fear_greed_index': 'technical',
+        'turnover_rate': 'volume', 'volume_ratio': 'volume', 'circ_mv': 'volume',
+        'is_limit_up': 'limit', 'is_limit_down': 'limit', 'first_limit_up': 'limit', 'limit_up_count': 'limit',
+    }
+    return mapping.get(factor, 'basic')
+
+
+def _get_factor_detail(db, date_str: str, factors: list) -> dict:
+    """获取指定日期每个因子的覆盖率(单次聚合)"""
+    d = int(date_str) if isinstance(date_str, str) else date_str
+    total = db.stock_daily_ak_full.count_documents({'trade_date': d})
+    if total == 0:
+        return {f: 0 for f in factors}
+    group_fields = {'total': {'$sum': 1}}
+    for f in factors:
+        group_fields[f'{f}_cnt'] = {'$sum': {'$cond': [{'$ne': [{'$type': f'${f}'}, 'missing']}, 1, 0]}}
+    result = list(db.stock_daily_ak_full.aggregate([
+        {'$match': {'trade_date': d}},
+        {'$group': {'_id': None, **group_fields}}
+    ]))
+    if not result:
+        return {f: 0 for f in factors}
+    r = result[0]
+    return {f: round(r.get(f'{f}_cnt', 0) / r['total'] * 100, 1) for f in factors}
+
+
 @router.get("/data-status")
 async def get_data_status() -> Dict[str, Any]:
     """获取数据层状态：各集合记录数、因子覆盖率、最新数据日期"""
@@ -864,6 +895,130 @@ async def get_data_status() -> Dict[str, Any]:
         
         health_score = int(factor_score + freshness_score + source_score)
         
+        # ====== 策略可用性 ======
+        # 根据最新一天因子覆盖判断各策略能否运行
+        strategy_availability = []
+        if daily_coverage:
+            latest = daily_coverage[-1]
+            lg = latest['groups']
+            strategies = [
+                {
+                    'name': '半路追涨', 'key': 'half_chase',
+                    'factors': ['pct_chg', 'volume_ratio', 'ma5', 'rsi_6'],
+                    'desc': '需要pct_chg+量比+技术指标',
+                },
+                {
+                    'name': '首板打板', 'key': 'first_limit',
+                    'factors': ['is_limit_up', 'first_limit_up', 'pct_chg'],
+                    'desc': '需要涨停标记+涨跌幅',
+                },
+                {
+                    'name': '跌停翘板', 'key': 'limit_down_bounce',
+                    'factors': ['is_limit_down', 'pct_chg'],
+                    'desc': '需要跌停标记+涨跌幅',
+                },
+                {
+                    'name': '龙头低吸', 'key': 'leader_pullback',
+                    'factors': ['limit_up_count', 'pct_chg', 'ma5'],
+                    'desc': '需要连板数+涨跌幅+技术指标',
+                },
+            ]
+            for st in strategies:
+                missing = [f for f in st['factors'] if lg.get(_factor_to_group(f), 0) < 50]
+                # 更精确: 检查单个因子覆盖率
+                factor_detail = _get_factor_detail(db, latest['date'], st['factors'])
+                missing = [f for f in st['factors'] if factor_detail.get(f, 0) < 50]
+                st['available'] = len(missing) == 0
+                st['missing_factors'] = missing
+                st['coverage'] = round(sum(factor_detail.get(f, 0) for f in st['factors']) / len(st['factors']), 1)
+                strategy_availability.append(st)
+
+        # ====== 今日待办 ======
+        action_items = []
+        today_int = int(datetime.now().strftime('%Y%m%d'))
+        is_weekend = datetime.now().weekday() >= 5
+        latest_date = int(latest_daily_str) if len(latest_daily_str) == 8 else 0
+
+        if not is_weekend and latest_date < today_int:
+            action_items.append({
+                'action': '补今日日线',
+                'command': 'python3 eastmoney_daily_bar.py',
+                'desc': f'最新日线={latest_daily_str}, 需补今日数据',
+                'priority': 'high',
+            })
+            action_items.append({
+                'action': '补今日PE/PB',
+                'command': 'python3 eastmoney_daily_basic.py',
+                'desc': '日线补完后运行',
+                'priority': 'high',
+            })
+        elif is_weekend:
+            action_items.append({
+                'action': '周末休息',
+                'command': '',
+                'desc': '非交易日, 无需补数据',
+                'priority': 'info',
+            })
+        elif latest_date == today_int:
+            action_items.append({
+                'action': '数据已是最新',
+                'command': '',
+                'desc': f'今日({latest_daily_str})数据已补全',
+                'priority': 'done',
+            })
+
+        # 检查因子是否需要补算
+        if daily_coverage:
+            latest = daily_coverage[-1]
+            if latest['groups'].get('technical', 100) < 90:
+                action_items.append({
+                    'action': '补算技术因子',
+                    'command': '回测时自动计算(factor_auto_compute)',
+                    'desc': f'技术因子覆盖率{latest["groups"].get("technical", 0):.0f}%',
+                    'priority': 'medium',
+                })
+
+        # ====== 数据对齐 ======
+        data_alignment = {}
+        if daily_coverage:
+            last_day = daily_coverage[-1]['date']
+            sd_total = db.stock_daily_ak_full.count_documents({'trade_date': int(last_day)})
+            db_total = db.daily_basic.count_documents({'trade_date': int(last_day)})
+            sd_codes = set(d['ts_code'] for d in db.stock_daily_ak_full.find({'trade_date': int(last_day)}, {'ts_code': 1}))
+            db_codes = set(d['ts_code'] for d in db.daily_basic.find({'trade_date': int(last_day)}, {'ts_code': 1}))
+            common = sd_codes & db_codes
+            only_basic = db_codes - sd_codes
+            only_daily = sd_codes - db_codes
+            data_alignment = {
+                'date': last_day,
+                'stock_daily_count': sd_total,
+                'daily_basic_count': db_total,
+                'common': len(common),
+                'only_in_basic': len(only_basic),
+                'only_in_daily': len(only_daily),
+                'only_in_basic_samples': sorted(only_basic)[:5],
+            }
+
+        # ====== 因子详情(最新一天) ======
+        factor_detail_latest = {}
+        if daily_coverage:
+            last_day = daily_coverage[-1]['date']
+            all_check_factors = ['pct_chg', 'pre_close', 'open', 'high', 'low', 'close',
+                                 'ma5', 'macd', 'rsi_6', 'boll_upper', 'atr', 'fear_greed_index',
+                                 'turnover_rate', 'volume_ratio', 'circ_mv',
+                                 'is_limit_up', 'is_limit_down', 'first_limit_up', 'limit_up_count']
+            factor_detail_latest = _get_factor_detail(db, last_day, all_check_factors)
+
+        # ====== 健康分拆分 ======
+        health_breakdown = {
+            'factor_score': factor_score if daily_coverage else 0,
+            'factor_max': 50,
+            'freshness_score': freshness_score,
+            'freshness_max': 30,
+            'source_score': source_score,
+            'source_max': 20,
+        }
+
         # 跌停池数据
         if collections.get('limit_pool_down', {}).get('count', 0) < 10:
             diagnostics.append({'level': 'yellow', 'message': f'跌停池仅{collections.get("limit_pool_down",{}).get("count",0)}条 — 跌停翘板策略数据不足'})
@@ -874,6 +1029,7 @@ async def get_data_status() -> Dict[str, Any]:
             "success": True,
             "data": {
                 "health_score": health_score,
+                "health_breakdown": health_breakdown,
                 "diagnostics": diagnostics,
                 "collections": collections,
                 "daily_coverage": daily_coverage,
@@ -882,8 +1038,12 @@ async def get_data_status() -> Dict[str, Any]:
                     "daily_basic": str(last_basic[0]['trade_date']) if last_basic else None,
                 },
                 "factor_groups": {k: len(v) for k, v in factor_groups.items()},
+                "factor_detail_latest": factor_detail_latest,
                 "recommended_ranges": recommended_ranges,
                 "data_sources": data_sources,
+                "strategy_availability": strategy_availability,
+                "action_items": action_items,
+                "data_alignment": data_alignment,
             }
         }
     except Exception as e:
