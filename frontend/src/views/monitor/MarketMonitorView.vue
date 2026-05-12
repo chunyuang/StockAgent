@@ -284,8 +284,17 @@ async function manualScan() {
   try {
     const res = await api.post(`${scannerApi}/scan-once`)
     if (res?.success) {
-      ElMessage.success(`扫描完成: ${res.data?.signals || 0}个信号, ${res.data?.positions || 0}只持仓`)
+      const msg = res.data?.message
+      if (msg) {
+        ElMessage.warning(msg)
+      } else {
+        ElMessage.success(`扫描完成: ${res.data?.signals || 0}个信号, ${res.data?.positions || 0}只持仓`)
+      }
+    } else {
+      ElMessage.error(res?.message || '扫描失败')
     }
+  } catch (e: any) {
+    ElMessage.error('扫描失败: ' + e.message)
   } finally {
     loading.value = false
     await fetchScanner()
