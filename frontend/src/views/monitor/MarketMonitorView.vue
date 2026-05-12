@@ -98,6 +98,45 @@ const strategyIcon: Record<string, string> = {
 
 const tradeMode = ref('simulated')  // 'simulated' | 'gm'
 
+// 数据源管理
+const dataSources = ref<any[]>([])
+const brokers = ref<any[]>([])
+const dsComparison = ref<any[]>([])
+const dataSourceLabels: Record<string, string> = {
+  liangmai: '量脉(已付费)',
+  biying: '必盈(免费)',
+  gm: '掘金(需终端)',
+}
+
+const fetchDataSources = async () => {
+  try {
+    const [srcRes, bkRes, cmpRes] = await Promise.all([
+      api.get('/datasource/sources'),
+      api.get('/datasource/brokers'),
+      api.get('/datasource/comparison'),
+    ])
+    if (srcRes.data?.success) dataSources.value = srcRes.data.data || []
+    if (bkRes.data?.success) brokers.value = bkRes.data.data || []
+    if (cmpRes.data?.success) dsComparison.value = cmpRes.data.data || []
+  } catch (e: any) {
+    console.warn('数据源信息获取失败:', e.message)
+  }
+}
+
+const switchDataSource = async (source: string) => {
+  try {
+    const res = await api.post('/datasource/switch', { source })
+    if (res.data?.success) {
+      ElMessage.success(`已切换到 ${dataSourceLabels[source] || source}`)
+      fetchDataSources()
+    }
+  } catch (e: any) {
+    ElMessage.error(`切换失败: ${e.message}`)
+  }
+}
+
+// 初始加载数据源(fetchDataSources会在主onMounted中调用)
+
 const isRunning = computed(() => status.value?.is_running ?? false)
 const accountInfo = computed(() => status.value?.account ?? { total_assets: 0, available_cash: 0, market_value: 0, total_profit: 0 })
 
@@ -202,7 +241,7 @@ async function resetStrategy(sid: string) {
 // ==================== Lifecycle ====================
 
 onMounted(async () => {
-  await Promise.all([fetchScanner(), fetchStrategies()])
+  await Promise.all([fetchScanner(), fetchStrategies(), fetchDataSources()])
   refreshTimer = setInterval(() => {
     if (!autoRefresh.value || activeTab.value !== 'scanner') return
     // 非交易时间降频(15秒), 交易时间5秒
@@ -384,6 +423,69 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
           </div>
         </ElCard>
       </ElTabPane>
+
+      <!-- ==================== Tab: 数据源管理 ==================== -->
+      <ElTabPane label="🔌 数据源" name="datasource">
+        <div class="datasource-panel">
+          <!-- 数据源状态 -->
+          <ElCard class="ds-card" shadow="never">
+            <template #header><div class="card-header">数据源状态</div></template>
+            <div class="ds-sources">
+              <div v-for="src in dataSources" :key="src.name" class="ds-source-item" :class="{ active: src.active }">
+                <div class="ds-source-header">
+                  <span class="ds-name">{{ dataSourceLabels[src.name] || src.name }}</span>
+                  <ElTag :type="src.available ? 'success' : 'danger'" size="small">
+                    {{ src.available ? '可用' : '不可用' }}
+                  </ElTag>
+                  <ElTag v-if="src.active" type="warning" size="small" effect="dark">当前</ElTag>
+                </div>
+                <div class="ds-source-detail">
+                  <span v-if="src.daily_limit">调用: {{ src.daily_calls }}/{{ src.daily_limit }}/日</span>
+                  <span v-if="src.last_error" class="ds-error">{{ src.last_error }}</span>
+                </div>
+                <ElButton v-if="src.available && !src.active" size="small" type="primary" plain @click="switchDataSource(src.name)">切换</ElButton>
+              </div>
+            </div>
+          </ElCard>
+
+          <!-- 券商状态 -->
+          <ElCard class="ds-card" shadow="never">
+            <template #header><div class="card-header">券商/交易</div></template>
+            <div class="ds-brokers">
+              <div v-for="b in brokers" :key="b.name" class="ds-source-item">
+                <div class="ds-source-header">
+                  <span class="ds-name">{{ b.label }}</span>
+                  <ElTag :type="b.available ? 'success' : 'info'" size="small">
+                    {{ b.available ? '已连接' : '未配置' }}
+                  </ElTag>
+                </div>
+                <div class="ds-source-detail">{{ b.description }}</div>
+                <div class="ds-source-detail ds-requires">需要: {{ b.requires }}</div>
+              </div>
+            </div>
+          </ElCard>
+
+          <!-- 能力对比 -->
+          <ElCard class="ds-card" shadow="never">
+            <template #header><div class="card-header">数据源对比</div></template>
+            <div class="ds-comparison">
+              <table class="ds-table">
+                <thead>
+                  <tr><th>维度</th><th>量脉</th><th>必盈</th><th>掘金</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in dsComparison" :key="row.dimension">
+                    <td>{{ row.dimension }}</td>
+                    <td>{{ row.liangmai }}</td>
+                    <td>{{ row.biying }}</td>
+                    <td>{{ row.gm }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </ElCard>
+        </div>
+      </ElTabPane>
     </ElTabs>
 
     <!-- ==================== 编辑参数弹窗 ==================== -->
@@ -528,4 +630,26 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
   .strategy-cards { grid-template-columns: 1fr; }
   .edit-grid { grid-template-columns: 1fr; }
 }
+
+/* === 数据源管理 === */
+.datasource-panel { display: flex; flex-direction: column; gap: 16px; }
+.ds-card { margin-bottom: 0; }
+.ds-card .card-header { font-weight: 600; font-size: 14px; }
+.ds-sources, .ds-brokers { display: flex; flex-direction: column; gap: 10px; }
+.ds-source-item {
+  display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+  border: 1px solid var(--el-border-color-lighter); border-radius: 8px;
+  background: #fafbfc; transition: all 0.2s;
+}
+.ds-source-item.active { border-color: var(--el-color-primary); background: #ecf5ff; }
+.ds-source-header { display: flex; align-items: center; gap: 8px; min-width: 180px; }
+.ds-name { font-weight: 600; font-size: 14px; }
+.ds-source-detail { font-size: 12px; color: #909399; flex: 1; display: flex; gap: 12px; }
+.ds-error { color: var(--el-color-danger); }
+.ds-requires { font-size: 11px; color: #b0b0b0; font-style: italic; }
+.ds-comparison { overflow-x: auto; }
+.ds-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.ds-table th, .ds-table td { padding: 6px 10px; border: 1px solid #ebeef5; text-align: left; }
+.ds-table th { background: #f5f7fa; font-weight: 600; white-space: nowrap; }
+.ds-table td { white-space: nowrap; }
 </style>

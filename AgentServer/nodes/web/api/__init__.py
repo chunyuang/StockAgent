@@ -14,10 +14,11 @@ from .system import router as system_router
 from .scheduler import router as scheduler_router
 from .scanner import router as scanner_router
 from .strategy_config import router as strategy_config_router
+from .datasource import router as datasource_router
 
 __all__ = [
     "auth_router", "user_router", "task_router", "stock_router",
     "market_router", "subscription_router", "backtest_router",
     "trading_router", "system_router", "scheduler_router",
-    "scanner_router", "strategy_config_router",
+    "scanner_router", "strategy_config_router", "datasource_router",
 ]
