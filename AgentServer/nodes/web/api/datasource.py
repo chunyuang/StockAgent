@@ -36,24 +36,50 @@ def set_router(router_instance):
 @router.get("/sources")
 async def list_data_sources():
     """列出所有数据源及状态"""
-    router = _get_router()
-    statuses = router.get_all_statuses()
-
     result = []
-    for name, status in statuses.items():
-        result.append({
-            "name": name,
-            "available": status.available,
-            "initialized": status.initialized,
-            "priority": status.priority,
-            "active": name == router.get_active_source(),
-            "daily_calls": status.daily_calls,
-            "daily_limit": status.daily_limit,
-            "daily_remaining": status.daily_remaining,
-            "last_error": status.last_error,
-            "last_success": status.last_success,
-            "capabilities": status.capabilities,
-        })
+    
+    # 尝试从scanner获取实际数据源状态
+    try:
+        from nodes.web.api.scanner import _get_scanner
+        scanner = _get_scanner()
+        if scanner._data_router:
+            for name, adapter in scanner._data_router._sources.items():
+                try:
+                    status = adapter.get_status()
+                    result.append({
+                        "name": name,
+                        "available": status.get("available", status.get("initialized", True)),
+                        "initialized": status.get("initialized", True),
+                        "priority": adapter._get_default_priority(),
+                        "active": True,
+                        "daily_calls": status.get("daily_calls", 0),
+                        "daily_limit": status.get("daily_limit", -1),
+                        "daily_remaining": status.get("daily_limit", 0) - status.get("daily_calls", 0) if status.get("daily_limit", -1) > 0 else -1,
+                        "total_stocks": status.get("total_stocks", 0),
+                        "cached_stocks": status.get("cached_stocks", 0),
+                        "note": status.get("note", ""),
+                        "capabilities": str(adapter.capability()),
+                    })
+                except Exception as e:
+                    result.append({"name": name, "available": False, "error": str(e)})
+    except Exception:
+        pass
+    
+    if not result:
+        router = _get_router()
+        statuses = router.get_all_statuses()
+        for name, status in statuses.items():
+            result.append({
+                "name": name,
+                "available": status.available,
+                "initialized": status.initialized,
+                "priority": status.priority,
+                "active": name == router.get_active_source(),
+                "daily_calls": status.daily_calls,
+                "daily_limit": status.daily_limit,
+                "daily_remaining": status.daily_remaining,
+                "capabilities": status.capabilities,
+            })
 
     return {"success": True, "data": result}
 
