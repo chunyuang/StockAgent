@@ -1,0 +1,494 @@
+#!/usr/bin/env python3
+"""
+实盘绩效分析模块
+自动生成日/周/月/年度绩效报告、策略效果分析、实盘vs回测对比
+"""
+import logging
+
+logger = logging.getLogger(__name__)
+import json
+from datetime import datetime, timedelta
+from typing import List, Dict
+
+class PerformanceAnalyzer:
+    """实盘绩效分析器
+    
+    从交易历史JSON文件加载记录，提供多维度绩效分析：
+    - 基础统计：胜率/盈亏比/总盈利/最大回撤/平均持仓天数
+    - 月度统计：按月汇总交易次数/胜率/盈利
+    - 策略分析：分策略统计表现，按总盈利排序
+    - 报告生成：Markdown格式完整绩效报告+优化建议
+    """
+    
+    def __init__(self, trade_history_file: str = "trade_history.json"):
+        """初始化绩效分析器
+        
+        Args:
+            trade_history_file: 交易历史JSON文件名，
+                默认 trade_history.json，位于本模块同目录下
+        """
+        # MongoDB数据源，不再使用JSON文件
+        self.trades = []  # 延迟加载，用load_from_mongodb()
+    
+    def load_from_mongodb(self, account_id: str = None, days: int = 90) -> List[Dict]:
+        """从MongoDB加载交易历史"""
+        from core.managers import mongo_manager
+        db = mongo_manager.get_db()
+        query = {}
+        if account_id:
+            query["account_id"] = account_id
+        from datetime import datetime, timedelta
+        cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
+        query["trade_date"] = {"$gte": cutoff}
+        
+        trades = list(db.sim_trades.find(query).sort("trade_date", 1))
+        self.trades = trades
+        return trades
+    
+    def get_basic_stats(self, start_date: str = None, end_date: str = None) -> Dict:
+        """获取基础统计指标
+        
+        计算核心绩效指标：
+        - 总交易次数/胜率/盈亏笔数
+        - 总盈利/平均每笔盈利
+        - 盈亏比（平均盈利÷平均亏损）
+        - 最大回撤（峰值法计算）
+        - 平均/最大持仓天数
+        - 分策略统计（次数/胜率/总盈利）
+        
+        Args:
+            start_date: 起始日期（YYYYMMDD），None表示从最早开始
+            end_date: 结束日期（YYYYMMDD），None表示到最新结束
+        
+        Returns:
+            Dict: 完整统计指标字典，无交易记录时返回空dict
+        """
+        trades = self._filter_trades_by_date(start_date, end_date)
+        if not trades:
+            return {}
+        
+        total_trades = len(trades)
+        win_trades = [t for t in trades if t["profit"] > 0]
+        lose_trades = [t for t in trades if t["profit"] <= 0]
+        win_rate = len(win_trades) / total_trades * 100 if total_trades > 0 else 0
+        
+        total_profit = sum(t["profit"] for t in trades)
+        avg_profit = total_profit / total_trades if total_trades > 0 else 0
+        avg_profit_pct = sum(t["profit_pct"] for t in trades) / total_trades if total_trades > 0 else 0
+        
+        # 盈亏比
+        avg_win = sum(t["profit"] for t in win_trades) / len(win_trades) if win_trades else 0
+        avg_lose = abs(sum(t["profit"] for t in lose_trades) / len(lose_trades)) if lose_trades else 0
+        profit_loss_ratio = avg_win / avg_lose if avg_lose > 0 else 0
+        
+        # 最大回撤
+        balance_series = self._get_balance_series(trades)
+        max_drawdown = self._calc_max_drawdown(balance_series)
+        
+        # 持仓天数统计
+        avg_hold_days = sum(t["hold_days"] for t in trades) / total_trades if total_trades > 0 else 0
+        max_hold_days = max(t["hold_days"] for t in trades) if trades else 0
+        
+        # 策略分布
+        strategy_stats = {}
+        for t in trades:
+            strategy = t.get("strategy", "未知")
+            if strategy not in strategy_stats:
+                strategy_stats[strategy] = {"count": 0, "total_profit": 0, "win_count": 0}
+            strategy_stats[strategy]["count"] += 1
+            strategy_stats[strategy]["total_profit"] += t["profit"]
+            if t["profit"] > 0:
+                strategy_stats[strategy]["win_count"] += 1
+        
+        for s in strategy_stats:
+            cnt = strategy_stats[s]["count"]
+            strategy_stats[s]["win_rate"] = strategy_stats[s]["win_count"] / cnt * 100 if cnt > 0 else 0
+            strategy_stats[s]["avg_profit"] = strategy_stats[s]["total_profit"] / cnt if cnt > 0 else 0
+        
+        return {
+            "period": f"{start_date or '最早'} ~ {end_date or '最新'}",
+            "total_trades": total_trades,
+            "win_trades": len(win_trades),
+            "lose_trades": len(lose_trades),
+            "win_rate": round(win_rate, 2),
+            "total_profit": round(total_profit, 2),
+            "avg_profit": round(avg_profit, 2),
+            "avg_profit_pct": round(avg_profit_pct, 2),
+            "profit_loss_ratio": round(profit_loss_ratio, 2),
+            "max_drawdown": round(max_drawdown, 2),
+            "avg_hold_days": round(avg_hold_days, 1),
+            "max_hold_days": max_hold_days,
+            "strategy_stats": strategy_stats,
+            "first_trade_date": trades[0]["sell_date"] if trades else "",
+            "last_trade_date": trades[-1]["sell_date"] if trades else ""
+        }
+    
+    def get_monthly_stats(self) -> List[Dict]:
+        """按月统计交易绩效
+        
+        Returns:
+            List[Dict]: 按月份升序排列的统计列表，每条包含 month/total_trades/win_rate/total_profit/avg_profit_pct
+        """
+        if not self.trades:
+            return []
+        
+        # 按月份分组
+        monthly = {}
+        for t in self.trades:
+            month = t["sell_date"][:6]  # YYYYMM
+            if month not in monthly:
+                monthly[month] = []
+            monthly[month].append(t)
+        
+        result = []
+        for month in sorted(monthly.keys()):
+            trades = monthly[month]
+            total = len(trades)
+            win = len([t for t in trades if t["profit"] > 0])
+            profit = sum(t["profit"] for t in trades)
+            result.append({
+                "month": month,
+                "total_trades": total,
+                "win_rate": round(win/total*100, 2) if total > 0 else 0,
+                "total_profit": round(profit, 2),
+                "avg_profit_pct": round(sum(t["profit_pct"] for t in trades)/total, 2) if total >0 else 0
+            })
+        
+        return result
+    
+    def get_daily_stats(self, last_n_days: int = 30) -> List[Dict]:
+        """获取最近N天的每日交易统计
+        
+        Args:
+            last_n_days: 回溯天数，默认30天
+        
+        Returns:
+            List[Dict]: 按日期倒序排列的每日统计列表
+        """
+        if not self.trades:
+            return []
+        
+        # 按日期分组
+        daily = {}
+        for t in self.trades:
+            date = t["sell_date"]
+            if date not in daily:
+                daily[date] = []
+            daily[date].append(t)
+        
+        # 只保留最近N天
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=last_n_days)
+        result = []
+        
+        for date in sorted(daily.keys(), reverse=True):
+            dt = datetime.strptime(date, "%Y%m%d")
+            if dt < start_date:
+                break
+            
+            trades = daily[date]
+            total = len(trades)
+            win = len([t for t in trades if t["profit"] > 0])
+            profit = sum(t["profit"] for t in trades)
+            result.append({
+                "date": date,
+                "total_trades": total,
+                "win_rate": round(win/total*100, 2) if total >0 else 0,
+                "total_profit": round(profit, 2)
+            })
+        
+        return result
+    
+    def get_strategy_analysis(self) -> List[Dict]:
+        """分策略绩效分析
+        
+        对每个策略独立计算胜率/总盈利/最大回撤/平均持仓天数，
+        结果按总盈利降序排列。
+        
+        Returns:
+            List[Dict]: 策略绩效列表
+        """
+        if not self.trades:
+            return []
+        
+        strategy_map = {}
+        for t in self.trades:
+            strategy = t.get("strategy", "未知")
+            if strategy not in strategy_map:
+                strategy_map[strategy] = []
+            strategy_map[strategy].append(t)
+        
+        result = []
+        for strategy, trades in strategy_map.items():
+            total = len(trades)
+            win = len([t for t in trades if t["profit"] > 0])
+            total_profit = sum(t["profit"] for t in trades)
+            avg_profit_pct = sum(t["profit_pct"] for t in trades)/total if total>0 else 0
+            max_drawdown = self._calc_max_drawdown(self._get_balance_series(trades))
+            
+            result.append({
+                "strategy": strategy,
+                "total_trades": total,
+                "win_rate": round(win/total*100, 2) if total>0 else 0,
+                "total_profit": round(total_profit, 2),
+                "avg_profit_pct": round(avg_profit_pct, 2),
+                "max_drawdown": round(max_drawdown, 2),
+                "avg_hold_days": round(sum(t["hold_days"] for t in trades)/total, 1) if total>0 else 0
+            })
+        
+        # 按总盈利排序
+        result.sort(key=lambda x: x["total_profit"], reverse=True)
+        return result
+    
+    def generate_report(self, output_file: str = None, period: str = "all") -> str:
+        """生成Markdown格式完整绩效报告
+        
+        包含：核心指标表格 + 最近7天统计 + 月度统计 + 分策略表现 + 优化建议
+        
+        Args:
+            output_file: 报告保存路径，None则仅返回文本不写文件
+            period: 统计周期，'all'表示全量
+        
+        Returns:
+            str: Markdown格式绩效报告
+        """
+        stats = self.get_basic_stats()
+        if not stats:
+            report = "ℹ️  暂无交易记录，无法生成绩效报告"
+            logger.info(report)
+            return report
+        
+        monthly_stats = self.get_monthly_stats()
+        strategy_analysis = self.get_strategy_analysis()
+        recent_daily = self.get_daily_stats(7)  # 最近7天
+        
+        report_lines = [
+            "# 📊 StockAgent 实盘绩效报告",
+            "",
+            f"## 🔹 统计周期：{stats['period']}",
+            "",
+            "### 📈 核心指标",
+            "| 指标 | 数值 |",
+            "|------|------|",
+            f"| 总交易次数 | {stats['total_trades']}次 |",
+            f"| 胜率 | {stats['win_rate']}%（{stats['win_trades']}胜{stats['lose_trades']}负） |",
+            f"| 总盈利 | {stats['total_profit']:.2f}元 |",
+            f"| 平均每笔盈利 | {stats['avg_profit_pct']:.2f}% |",
+            f"| 盈亏比 | {stats['profit_loss_ratio']}:1 |",
+            f"| 最大回撤 | {stats['max_drawdown']:.2f}% |",
+            f"| 平均持仓天数 | {stats['avg_hold_days']}天 |",
+            f"| 交易时间段 | {stats['first_trade_date']} ~ {stats['last_trade_date']} |",
+            "",
+            "### 📅 最近7天交易统计",
+            "| 日期 | 交易次数 | 胜率 | 当日盈利 |",
+            "|------|----------|------|----------|",
+        ]
+        
+        for day in recent_daily:
+            report_lines.append(f"| {day['date']} | {day['total_trades']}次 | {day['win_rate']}% | {day['total_profit']:.2f}元 |")
+        
+        report_lines.extend([
+            "",
+            "### 📆 月度统计",
+            "| 月份 | 交易次数 | 胜率 | 月度盈利 | 平均收益 |",
+            "|------|----------|------|----------|----------|",
+        ])
+        
+        for month in monthly_stats:
+            report_lines.append(f"| {month['month']} | {month['total_trades']}次 | {month['win_rate']}% | {month['total_profit']:.2f}元 | {month['avg_profit_pct']:.2f}% |")
+        
+        report_lines.extend([
+            "",
+            "### 🎯 分策略表现",
+            "| 策略 | 交易次数 | 胜率 | 总盈利 | 平均收益 | 最大回撤 | 平均持仓天数 |",
+            "|------|----------|------|----------|----------|----------|--------------|",
+        ])
+        
+        for s in strategy_analysis:
+            report_lines.append(f"| {s['strategy']} | {s['total_trades']}次 | {s['win_rate']}% | {s['total_profit']:.2f}元 | {s['avg_profit_pct']:.2f}% | {s['max_drawdown']:.2f}% | {s['avg_hold_days']}天 |")
+        
+        report_lines.extend([
+            "",
+            "### 💡 优化建议",
+            self._generate_optimization_suggestions(stats, strategy_analysis),
+            "",
+            f"*报告生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*"
+        ])
+        
+        report = "\n".join(report_lines)
+        
+        if output_file:
+            with open(output_file, "w", encoding="utf-8") as f:
+                f.write(report)
+            logger.info(f"✅ 绩效报告已保存到：{output_file}")
+        
+        return report
+    
+    def _filter_trades_by_date(self, start_date: str = None, end_date: str = None) -> List[Dict]:
+        """按日期范围过滤交易"""
+        if not start_date and not end_date:
+            return self.trades
+        
+        filtered = []
+        for t in self.trades:
+            sell_date = t["sell_date"]
+            if start_date and sell_date < start_date:
+                continue
+            if end_date and sell_date > end_date:
+                continue
+            filtered.append(t)
+        return filtered
+    
+    def _get_balance_series(self, trades: List[Dict]) -> List[float]:
+        """获取资金曲线"""
+        balance = 0
+        series = [0]  # 初始为0（纯利润累计），需配合_calc_max_drawdown使用
+        for t in sorted(trades, key=lambda x: x["sell_date"]):
+            balance += t["profit"]
+            series.append(balance)
+        return series
+    
+    def _calc_max_drawdown(self, balance_series: List[float]) -> float:
+        """计算最大回撤（峰值法）
+        
+        遍历资金曲线，跟踪历史峰值，计算每个时点的回撤，
+        返回最大回撤百分比。
+        
+        Args:
+            balance_series: 资金曲线序列，第一个元素为初始值
+        
+        Returns:
+            float: 最大回撤百分比（%），如 15.3 表示最大回撤15.3%
+        """
+        if len(balance_series) < 2:
+            return 0
+        
+        # 平衡序列起始为0时，用首个非零值作为初始peak
+        # 这样回撤 = 从峰值到谷值的跌幅
+        peak = balance_series[0]
+        if peak <= 0:
+            # 找到第一个正值作为起点
+            for v in balance_series[1:]:
+                if v > 0:
+                    peak = v
+                    break
+            if peak <= 0:
+                return 0  # 全为0或负数，无回撤
+        
+        max_dd = 0
+        
+        for balance in balance_series[1:]:
+            if balance > peak:
+                peak = balance
+            dd = (peak - balance) / peak * 100 if peak > 0 else 0
+            if dd > max_dd:
+                max_dd = dd
+        
+        return max_dd
+    
+    def _generate_optimization_suggestions(self, stats: Dict, strategy_analysis: List[Dict]) -> str:
+        """根据统计指标生成优化建议
+        
+        基于阈值的规则引擎：
+        - 胜率<40%: 建议提高选股标准
+        - 盈亏比<1.2: 建议调整止盈止损比例
+        - 最大回撤>20%: 建议降低仓位
+        - 亏损策略: 建议暂停
+        
+        Args:
+            stats: 基础统计指标
+            strategy_analysis: 分策略分析结果
+        
+        Returns:
+            str: Markdown格式优化建议文本
+        """
+        suggestions = []
+        
+        # 胜率建议
+        if stats["win_rate"] < 40:
+            suggestions.append("- ⚠️  胜率偏低（<40%），建议提高选股标准，过滤低质量信号")
+        elif stats["win_rate"] > 60:
+            suggestions.append("✅ 胜率优秀（>60%），可以适当放宽仓位限制")
+        else:
+            suggestions.append("✅ 胜率处于合理区间（40%-60%），继续保持")
+        
+        # 盈亏比建议
+        if stats["profit_loss_ratio"] < 1.2:
+            suggestions.append("- ⚠️  盈亏比偏低（<1.2），建议适当提高止盈比例，或收紧止损幅度")
+        elif stats["profit_loss_ratio"] > 2:
+            suggestions.append("✅ 盈亏比优秀（>2），利润覆盖亏损能力强")
+        else:
+            suggestions.append("✅ 盈亏比处于合理区间（1.2-2）")
+        
+        # 最大回撤建议
+        if stats["max_drawdown"] > 20:
+            suggestions.append("- ⚠️  最大回撤过大（>20%），建议降低仓位或增加空仓规则")
+        elif stats["max_drawdown"] < 10:
+            suggestions.append("✅ 最大回撤控制优秀（<10%），风险控制能力强")
+        
+        # 策略优化建议
+        bad_strategies = [s for s in strategy_analysis if s["total_profit"] < 0 or s["win_rate"] < 30]
+        good_strategies = [s for s in strategy_analysis if s["total_profit"] > 0 and s["win_rate"] > 50]
+        
+        if bad_strategies:
+            suggestions.append(f"- ⚠️  以下策略表现不佳，建议暂停或优化：{', '.join([s['strategy'] for s in bad_strategies])}")
+        if good_strategies:
+            suggestions.append(f"✅ 以下策略表现优秀，建议加大仓位：{', '.join([s['strategy'] for s in good_strategies])}")
+        
+        return "\n".join(suggestions)
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="实盘绩效分析工具")
+    parser.add_argument("--action", required=True, choices=["stats", "monthly", "strategy", "report"], help="操作类型")
+    parser.add_argument("--start", help="开始日期(YYYYMMDD)")
+    parser.add_argument("--end", help="结束日期(YYYYMMDD)")
+    parser.add_argument("--output", help="输出报告文件路径")
+    
+    args = parser.parse_args()
+    
+    analyzer = PerformanceAnalyzer()
+    
+    if args.action == "stats":
+        stats = analyzer.get_basic_stats(args.start, args.end)
+        if not stats:
+            logger.info("暂无交易记录")
+        else:
+            logger.info("="*50)
+            logger.info("📊 基础绩效统计")
+            logger.info("="*50)
+            logger.info(f"统计周期：{stats['period']}")
+            logger.info(f"总交易次数：{stats['total_trades']}次")
+            logger.info(f"胜率：{stats['win_rate']}%（{stats['win_trades']}胜{stats['lose_trades']}负）")
+            logger.info(f"总盈利：{stats['total_profit']:.2f}元")
+            logger.info(f"平均每笔收益：{stats['avg_profit_pct']:.2f}%")
+            logger.info(f"盈亏比：{stats['profit_loss_ratio']}:1")
+            logger.info(f"最大回撤：{stats['max_drawdown']:.2f}%")
+            logger.info(f"平均持仓天数：{stats['avg_hold_days']}天")
+            logger.info("="*50)
+    
+    elif args.action == "monthly":
+        monthly = analyzer.get_monthly_stats()
+        logger.info("="*50)
+        logger.info("📆 月度统计")
+        logger.info("="*50)
+        for m in monthly:
+            logger.info(f"{m['month']}: {m['total_trades']}次交易，胜率{m['win_rate']}%，盈利{m['total_profit']:.2f}元，平均收益{m['avg_profit_pct']:.2f}%")
+        logger.info("="*50)
+    
+    elif args.action == "strategy":
+        strategy = analyzer.get_strategy_analysis()
+        logger.info("="*50)
+        logger.info("🎯 分策略分析")
+        logger.info("="*50)
+        for s in strategy:
+            logger.info(f"{s['strategy']}: {s['total_trades']}次，胜率{s['win_rate']}%，总盈利{s['total_profit']:.2f}元，平均收益{s['avg_profit_pct']:.2f}%，最大回撤{s['max_drawdown']:.2f}%")
+        logger.info("="*50)
+    
+    elif args.action == "report":
+        report = analyzer.generate_report(args.output)
+        if not args.output:
+            logger.info("\n" + "="*80)
+            logger.info(report)
+            logger.info("="*80)

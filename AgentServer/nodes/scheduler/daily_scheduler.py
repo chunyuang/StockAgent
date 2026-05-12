@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
 """
-DailyScheduler - 每日调度编排器
+DailyScheduler - 每日调度编排器 (整合版)
 
 3阶段调度:
-- premarket (9:15): 数据更新 + 因子计算 + 信号生成 + 飞书推送
+- premarket (9:15): 数据更新 + 因子计算 + 信号生成 + 风控检查 + 建仓 + 推送
 - intraday (每5min, 9:30-15:00): 持仓监控 + 止损止盈检查 + 风控告警
-- postmarket (15:30): 数据补全 + 绩效统计 + 日报推送
+- postmarket (15:30): 数据补全 + 结算 + 净值更新 + 绩效统计 + 日报推送
 
-直接复用回测引擎的策略逻辑(FactorEngine + _build_strategy_filter_conditions)
+整合自:
+- real_trading/daily_scheduler.py (947行, 竞价数据+风控+调仓+净值)
+- 原nodes/scheduler/daily_scheduler.py (580行, 简化版)
 """
 import os
 import asyncio
 import logging
 import json
-from datetime import datetime, time as dtime
+from datetime import datetime, time as dtime, timedelta
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 
@@ -40,7 +42,7 @@ class ScheduleResult:
 
 
 class DailyScheduler:
-    """每日调度编排器 - 实盘核心"""
+    """每日调度编排器 - 整合版(含风控+调仓+净值)"""
 
     # 定时配置
     SCHEDULE_TIMES = {
@@ -68,6 +70,30 @@ class DailyScheduler:
         self._positions: Dict[str, Dict] = {}
         self._signals: List[Dict] = []
         self._alerts: List[Dict] = []
+        
+        # 风控+推送(延迟初始化)
+        self._risk_checker = None
+        self._signal_pusher = None
+        self._data_alerts: List[Dict] = []
+        self._schedule_history: List[Dict] = []
+
+    def _ensure_risk_checker(self):
+        """延迟初始化风控检查器"""
+        if self._risk_checker is None:
+            try:
+                from core.managers.live.risk_checker import PreBuyRiskChecker
+                self._risk_checker = PreBuyRiskChecker()
+            except Exception as e:
+                logger.warning(f"[RISK] 风控检查器初始化失败: {e}")
+
+    def _ensure_signal_pusher(self):
+        """延迟初始化推送器"""
+        if self._signal_pusher is None:
+            try:
+                from core.managers.live.signal_pusher import SignalPusher
+                self._signal_pusher = SignalPusher(self.config.get('push', {}))
+            except Exception as e:
+                logger.warning(f"[PUSH] 推送器初始化失败: {e}")
 
     @property
     def is_running(self):
@@ -85,13 +111,30 @@ class DailyScheduler:
         }
 
     def get_data_alerts(self, severity=None):
-        return []
+        """获取数据告警"""
+        if severity:
+            return [a for a in self._data_alerts if a.get('severity') == severity]
+        return list(self._data_alerts)
 
     def clear_data_alerts(self, before_date=None):
-        pass
+        """清除告警"""
+        if before_date:
+            self._data_alerts = [a for a in self._data_alerts if a.get('trade_date', '99999999') >= before_date]
+        else:
+            self._data_alerts.clear()
 
     def get_schedule_history(self, days=7):
-        return []
+        cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
+        return [h for h in self._schedule_history if h.get('trade_date', '') >= cutoff]
+
+    def _add_data_alert(self, alert_type: str, severity: str, trade_date: str, message: str, data: Dict = None):
+        """记录数据告警"""
+        self._data_alerts.append({
+            "type": alert_type, "severity": severity,
+            "trade_date": trade_date, "message": message,
+            "data": data or {}, "time": datetime.now().isoformat(),
+        })
+        logger.warning(f"[ALERT] [{severity}] {message}")
 
     # ==================== 生命周期 ====================
 
@@ -177,11 +220,44 @@ class DailyScheduler:
         step.duration_ms = int((datetime.now() - t0).total_seconds() * 1000)
         result.steps.append(step)
 
-        # Step 3: 执行买入(模拟盘)
+        # Step 3: 风控过滤
+        step = ScheduleStep(name="risk_check")
+        t0 = datetime.now()
+        passed_signals = []
+        try:
+            self._ensure_risk_checker()
+            if self._risk_checker:
+                for sig in self._signals:
+                    try:
+                        chk = self._risk_checker.check_before_buy(
+                            account_id=self.account_id,
+                            ts_code=sig.get('ts_code', ''),
+                            buy_price=sig.get('price', 0),
+                            buy_amount=sig.get('amount', 0),
+                        )
+                        if chk.allowed:
+                            passed_signals.append(sig)
+                        else:
+                            logger.info(f"[RISK] 拒绝 {sig.get('ts_code')}: {chk.reason}")
+                    except Exception as e:
+                        passed_signals.append(sig)  # 风控异常默认允许
+            else:
+                passed_signals = self._signals
+            step.success = True
+            blocked = len(self._signals) - len(passed_signals)
+            step.data = {"passed": len(passed_signals), "blocked": blocked}
+            step.message = f"通过{len(passed_signals)}/拦截{blocked}"
+        except Exception as e:
+            step.message = f"风控异常: {e}"
+            passed_signals = self._signals
+        step.duration_ms = int((datetime.now() - t0).total_seconds() * 1000)
+        result.steps.append(step)
+
+        # Step 4: 执行买入(模拟盘)
         step = ScheduleStep(name="execute_buy")
         t0 = datetime.now()
         try:
-            executed = await self._execute_signals(self._signals, trade_date)
+            executed = await self._execute_signals(passed_signals, trade_date)
             step.success = True
             step.data = {"executed_count": len(executed)}
             step.message = f"执行{len(executed)}笔买入"
@@ -191,11 +267,11 @@ class DailyScheduler:
         step.duration_ms = int((datetime.now() - t0).total_seconds() * 1000)
         result.steps.append(step)
 
-        # Step 4: 推送
+        # Step 5: 推送
         step = ScheduleStep(name="push_signals")
         t0 = datetime.now()
         try:
-            await self._push_signals_to_feishu(self._signals, trade_date)
+            await self._push_signals(self._signals, passed_signals, trade_date)
             step.success = True
             step.message = "推送完成"
         except Exception as e:
@@ -267,7 +343,23 @@ class DailyScheduler:
         step.duration_ms = int((datetime.now() - t0).total_seconds() * 1000)
         result.steps.append(step)
 
-        # Step 2: 绩效
+        # Step 2: 每日结算
+        step = ScheduleStep(name="daily_settlement")
+        t0 = datetime.now()
+        try:
+            from core.managers.sim_trading_engine import SimTradingEngine
+            engine = SimTradingEngine()
+            settle_result = await engine.daily_settlement(trade_date)
+            step.success = True
+            step.data = settle_result or {}
+            step.message = f"结算完成: {settle_result.get('accounts_settled', '?')}个账户"
+        except Exception as e:
+            step.message = f"结算失败: {e}"
+            result.errors.append(step.message)
+        step.duration_ms = int((datetime.now() - t0).total_seconds() * 1000)
+        result.steps.append(step)
+
+        # Step 3: 绩效
         step = ScheduleStep(name="performance")
         t0 = datetime.now()
         try:
@@ -277,6 +369,18 @@ class DailyScheduler:
             step.message = f"收益: {perf.get('daily_return', '?')}"
         except Exception as e:
             step.message = f"失败: {e}"
+        step.duration_ms = int((datetime.now() - t0).total_seconds() * 1000)
+        result.steps.append(step)
+
+        # Step 4: 日报推送
+        step = ScheduleStep(name="push_report")
+        t0 = datetime.now()
+        try:
+            await self._push_daily_report(trade_date, result)
+            step.success = True
+            step.message = "日报已推送"
+        except Exception as e:
+            step.message = f"推送失败: {e}"
         step.duration_ms = int((datetime.now() - t0).total_seconds() * 1000)
         result.steps.append(step)
 
@@ -518,12 +622,39 @@ class DailyScheduler:
             }
         return {"daily_return": "N/A", "positions": len(positions)}
 
-    async def _push_signals_to_feishu(self, signals: List[Dict], trade_date: str):
-        """推送飞书"""
-        if not signals:
-            return
-        # TODO: 飞书webhook推送
-        logger.info(f"[PUSH] {len(signals)}个信号(飞书待配置)")
+    async def _push_signals(self, all_signals: List[Dict], passed_signals: List[Dict], trade_date: str):
+        """推送信号(飞书+企业微信)"""
+        self._ensure_signal_pusher()
+        if self._signal_pusher:
+            try:
+                lines = [f"📊 **{trade_date} 盘前信号**"]
+                lines.append(f"生成: {len(all_signals)}个 | 风控通过: {len(passed_signals)}个")
+                for sig in passed_signals[:10]:
+                    lines.append(f"- {sig.get('ts_code', '?')} ({sig.get('strategy_name', '?')}) @ {sig.get('price', '?')}")
+                if len(passed_signals) > 10:
+                    lines.append(f"... 等共{len(passed_signals)}个")
+                msg = "\n".join(lines)
+                await asyncio.to_thread(self._signal_pusher.push_signal, msg)
+            except Exception as e:
+                logger.warning(f"[PUSH] 推送失败: {e}")
+        else:
+            logger.info(f"[PUSH] {len(passed_signals)}个信号(推送器未配置)")
+
+    async def _push_daily_report(self, trade_date: str, result: ScheduleResult):
+        """推送日报"""
+        self._ensure_signal_pusher()
+        if self._signal_pusher:
+            try:
+                lines = [f"📋 **{trade_date} 盘后日报**"]
+                for step in result.steps:
+                        icon = "✅" if step.success else "❌"
+                        lines.append(f"{icon} {step.name}: {step.message}")
+                msg = "\n".join(lines)
+                await asyncio.to_thread(self._signal_pusher.push_signal, msg)
+            except Exception as e:
+                logger.warning(f"[REPORT] 日报推送失败: {e}")
+        else:
+            logger.info("[REPORT] 日报待推送(推送器未配置)")
 
     async def _execute_signals(self, signals: List[Dict], trade_date: str) -> List[Dict]:
         """执行信号(模拟盘)"""
@@ -574,6 +705,4 @@ class DailyScheduler:
         
         return executed
 
-    async def _push_daily_report(self, trade_date: str):
-        """推送日报"""
-        logger.info("[REPORT] 日报待推送")
+
