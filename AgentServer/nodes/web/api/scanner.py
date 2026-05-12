@@ -193,6 +193,11 @@ async def manual_trade(req: ManualTradeRequest):
     if not scanner._broker._realtime_prices.get(req.ts_code, 0) > 0:
         raise HTTPException(400, f"{req.ts_code} 无实时行情, 请先启动扫描器")
     
+    # 熔断器检查(买入时检查, 卖出允许止损)
+    cb = scanner._circuit_breaker
+    if req.side == "buy" and cb.get("trading_paused", False):
+        raise HTTPException(403, f"交易已暂停: {cb.get('pause_reason', '熔断触发')}")
+    
     # 数量校验
     if req.side == "buy":
         if req.quantity <= 0:
@@ -211,6 +216,8 @@ async def manual_trade(req: ManualTradeRequest):
             pos = scanner._broker.positions.get(req.ts_code)
             if pos:
                 req.quantity = pos.available_qty
+                if req.quantity <= 0:
+                    raise HTTPException(400, f"{req.ts_code} 无可卖数量(T+1限制, 请先日结算)")
             else:
                 raise HTTPException(400, f"无持仓: {req.ts_code}")
     
@@ -262,6 +269,22 @@ async def reset_circuit_breaker():
         return {"success": True, "data": {"message": "熔断已重置, 交易恢复"}}
     else:
         raise HTTPException(400, "扫描器不支持熔断重置")
+
+
+class PauseRequest(BaseModel):
+    reason: str = "手动暂停"
+
+
+@router.post("/circuit-breaker/pause")
+async def pause_circuit_breaker(req: PauseRequest = None):
+    """手动暂停交易(熔断)"""
+    scanner = _get_scanner()
+    if not scanner._circuit_breaker:
+        raise HTTPException(400, "熔断器未初始化")
+    reason = req.reason if req else "手动暂停"
+    scanner._circuit_breaker["trading_paused"] = True
+    scanner._circuit_breaker["pause_reason"] = reason
+    return {"success": True, "data": {"message": f"交易已暂停: {reason}"}}
 
 
 @router.post("/scan-once")

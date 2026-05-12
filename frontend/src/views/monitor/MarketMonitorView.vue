@@ -200,6 +200,21 @@ const resetCircuitBreaker = async () => {
       fetchAll(true)
     }
   } catch (e: any) {
+    ElMessage.error('重置失败: ' + (e.response?.data?.detail || e.message))
+  }
+}
+
+const pauseCircuitBreaker = async () => {
+  try {
+    const res = await api.post(`${scannerApi}/circuit-breaker/pause`, { reason: '手动暂停' })
+    if (res?.success) {
+      ElMessage.warning('交易已暂停')
+      fetchAll(true)
+    }
+  } catch (e: any) {
+    ElMessage.error('暂停失败: ' + (e.response?.data?.detail || e.message))
+  }
+}
     ElMessage.error(`重置失败: ${e.message}`)
   }
 }
@@ -569,6 +584,7 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
               </div>
               <div class="mt-actions">
                 <ElButton size="small" @click="fetchAll(true)" plain>🔄 刷新</ElButton>
+                <ElButton v-if="!status?.circuit_breaker?.trading_paused" type="danger" size="small" plain @click="pauseCircuitBreaker">⛔ 暂停交易</ElButton>
                 <ElButton v-if="status?.circuit_breaker?.trading_paused" type="warning" size="small" @click="resetCircuitBreaker">🔓 解除熔断</ElButton>
               </div>
             </div>
