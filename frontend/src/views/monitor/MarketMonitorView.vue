@@ -280,8 +280,28 @@ async function stopScanner() {
 }
 
 async function manualScan() {
-  await api.post(`${scannerApi}/scan-once`)
-  await fetchScanner()
+  loading.value = true
+  try {
+    const res = await api.post(`${scannerApi}/scan-once`)
+    if (res?.success) {
+      ElMessage.success(`扫描完成: ${res.data?.signals || 0}个信号, ${res.data?.positions || 0}只持仓`)
+    }
+  } finally {
+    loading.value = false
+    await fetchScanner()
+  }
+}
+
+async function resetAccount() {
+  try {
+    const res = await api.post(`${scannerApi}/reset`)
+    if (res?.success) {
+      ElMessage.success('账户已重置')
+      await fetchAll(true)
+    }
+  } catch (e: any) {
+    ElMessage.error('重置失败: ' + (e.response?.data?.detail || e.message))
+  }
 }
 
 async function fetchAll(force = false) {
@@ -382,30 +402,59 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
   <div class="market-monitor">
     <!-- 顶部状态栏 -->
     <div class="monitor-header">
-      <div class="header-left">
-        <div class="status-badge" :class="{ running: isRunning, stopped: !isRunning }">
-          <span class="dot"></span>
-          <span>{{ isRunning ? '扫描中' : '已停止' }}</span>
+      <div class="header-row-1">
+        <div class="header-left">
+          <div class="status-badge" :class="{ running: isRunning, stopped: !isRunning }">
+            <span class="dot"></span>
+            <span>{{ isRunning ? '扫描中' : '已停止' }}</span>
+          </div>
+          <ElTag size="small" :type="tradeMode === 'gm' ? 'warning' : 'info'" style="cursor:pointer" @click="toggleTradeMode">
+            {{ tradeMode === 'gm' ? '🟢 掘金' : '🔵 仿真盘' }}
+          </ElTag>
+        </div>
+
+        <div class="header-stats" v-if="status">
+          <div class="hs"><span class="hl">总资产</span><span class="hv">{{ (accountInfo.total_assets / 10000).toFixed(1) }}万</span></div>
+          <div class="hs"><span class="hl">可用</span><span class="hv">{{ (accountInfo.available_cash / 10000).toFixed(1) }}万</span></div>
+          <div class="hs"><span class="hl">市值</span><span class="hv">{{ (accountInfo.market_value / 10000).toFixed(1) }}万</span></div>
+          <div class="hs"><span class="hl">盈亏</span><span class="hv" :class="accountInfo.total_profit >= 0 ? 'up' : 'down'">{{ accountInfo.total_profit >= 0 ? '+' : '' }}{{ accountInfo.total_profit.toFixed(0) }}</span></div>
+          <div class="hs"><span class="hl">仓位</span><span class="hv">{{ accountInfo.market_value > 0 ? (accountInfo.market_value / accountInfo.total_assets * 100).toFixed(1) : 0 }}%</span></div>
+        </div>
+
+        <div class="header-actions">
+          <ElButton v-if="!isRunning" type="success" size="small" @click="startScanner" :loading="loading">▶ 启动</ElButton>
+          <ElButton v-else type="danger" size="small" @click="stopScanner">■ 停止</ElButton>
+          <ElButton size="small" @click="manualScan">⚡ 手动扫描</ElButton>
+          <ElButton size="small" @click="fetchAll(true)" plain>🔄 刷新</ElButton>
+          <ElButton size="small" type="info" plain @click="resetAccount">🗑️ 清仓重置</ElButton>
+          <ElSwitch v-model="autoRefresh" size="small" active-text="自动" inactive-text="" />
         </div>
       </div>
 
-      <div class="header-stats" v-if="status">
-        <div class="hs"><span class="hl">总资产</span><span class="hv">{{ (accountInfo.total_assets / 10000).toFixed(1) }}万</span></div>
-        <div class="hs"><span class="hl">可用</span><span class="hv">{{ (accountInfo.available_cash / 10000).toFixed(1) }}万</span></div>
-        <div class="hs"><span class="hl">市值</span><span class="hv">{{ (accountInfo.market_value / 10000).toFixed(1) }}万</span></div>
-        <div class="hs"><span class="hl">盈亏</span><span class="hv" :class="accountInfo.total_profit >= 0 ? 'up' : 'down'">{{ accountInfo.total_profit >= 0 ? '+' : '' }}{{ accountInfo.total_profit.toFixed(0) }}</span></div>
-        <div class="hs"><span class="hl">扫描</span><span class="hv">{{ status.stocks_scanned }}</span></div>
-        <div class="hs"><span class="hl">信号</span><span class="hv">{{ status.active_signals }}</span></div>
-      </div>
-
-      <div class="header-actions">
-        <ElButton v-if="!isRunning" type="success" size="small" @click="startScanner" :loading="loading">▶ 启动</ElButton>
-        <ElButton v-else type="danger" size="small" @click="stopScanner">■ 停止</ElButton>
-        <ElButton size="small" @click="manualScan" :disabled="isRunning">手动扫描</ElButton>
-        <ElSwitch v-model="autoRefresh" size="small" active-text="自动" inactive-text="" />
-        <ElTag size="small" :type="tradeMode === 'gm' ? 'warning' : 'info'" style="cursor:pointer" @click="toggleTradeMode">
-          {{ tradeMode === 'gm' ? '🟢 掘金' : '🔵 仿真' }}
-        </ElTag>
+      <!-- 信息说明栏 -->
+      <div class="header-row-2" v-if="status">
+        <div class="info-chip" v-if="status.last_scan_time">
+          <span class="ic-icon">🕐</span>
+          <span>上次扫描: <strong>{{ status.last_scan_time }}</strong></span>
+          <span class="ic-sub">(第{{ status.scan_count }}次)</span>
+        </div>
+        <div class="info-chip">
+          <span class="ic-icon">📡</span>
+          <span>扫描 <strong>{{ status.stocks_scanned }}</strong> 只 → 信号 <strong>{{ status.active_signals }}</strong> 个 → 持仓 <strong>{{ positions.length }}</strong> 只</span>
+        </div>
+        <div class="info-chip">
+          <span class="ic-icon">⏱️</span>
+          <span>{{ isRunning ? '全量5分钟 / 持仓30秒' : '未启动自动扫描' }}</span>
+        </div>
+        <div class="info-chip" v-if="status.circuit_breaker?.trading_paused">
+          <span class="ic-icon" style="color:#f56c6c">⚠️</span>
+          <span style="color:#f56c6c;font-weight:600">熔断中: {{ status.circuit_breaker.pause_reason }}</span>
+          <ElButton size="small" type="warning" @click="resetCircuitBreaker" style="margin-left:4px">解除</ElButton>
+        </div>
+        <div class="info-chip">
+          <span class="ic-icon">💡</span>
+          <span class="ic-hint">信号 = 策略筛选出的候选股，点击可填入手动交易；T+1持仓需先「日结算」才可卖出</span>
+        </div>
       </div>
     </div>
 
@@ -570,18 +619,11 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
               <div class="mt-quote" v-if="manualQuote">
                 <span>💡 当前价: <strong :class="manualQuote.price >= (manualQuote.cost||0) ? 'up' : 'down'">¥{{ manualQuote.price?.toFixed(2) }}</strong></span>
                 <span v-if="manualQuote.cost"> 成本: ¥{{ manualQuote.cost?.toFixed(2) }}</span>
-                <span v-if="manualTrade.quantity > 0"> 预估金额: ¥{{ ((manualTrade.price || manualQuote.price || 0) * manualTrade.quantity / 10000).toFixed(1) }}万</span>
+                <span v-if="manualTrade.quantity > 0"> 预估: ¥{{ ((manualTrade.price || manualQuote.price || 0) * manualTrade.quantity / 10000).toFixed(1) }}万</span>
               </div>
-              <div class="mt-info" v-if="status?.account">
-                <span>💰 总资产: ¥{{ (status.account.total_assets / 10000).toFixed(1) }}万</span>
-                <span>💵 可用: ¥{{ (status.account.available_cash / 10000).toFixed(1) }}万</span>
-                <span>📊 持仓: {{ positions.length }}只</span>
-                <span v-if="status?.circuit_breaker?.trading_paused" style="color:#f56c6c">⚠️ 熔断中: {{ status.circuit_breaker.pause_reason }}</span>
-              </div>
-              <div class="mt-actions">
-                <ElButton size="small" @click="fetchAll(true)" plain>🔄 刷新</ElButton>
-                <ElButton v-if="!status?.circuit_breaker?.trading_paused" type="danger" size="small" plain @click="pauseCircuitBreaker">⛔ 暂停交易</ElButton>
-                <ElButton v-if="status?.circuit_breaker?.trading_paused" type="warning" size="small" @click="resetCircuitBreaker">🔓 解除熔断</ElButton>
+              <div class="mt-info">
+                <span v-if="status?.circuit_breaker?.trading_paused" style="color:#f56c6c">⚠️ 熔断中，买入被禁止</span>
+                <span>💡 点击信号/持仓行可自动填入代码</span>
               </div>
             </div>
           </ElCard>
@@ -772,9 +814,11 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
 
 /* === 顶部状态栏 === */
 .monitor-header {
-  display: flex; align-items: center; gap: 12px; padding: 10px 16px;
-  background: var(--el-fill-color-lighter); border-radius: 8px; flex-wrap: wrap; flex-shrink: 0;
+  display: flex; flex-direction: column; gap: 8px; padding: 10px 16px;
+  background: var(--el-fill-color-lighter); border-radius: 8px; flex-shrink: 0;
 }
+.header-row-1 { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.header-row-2 { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .header-left { display: flex; align-items: center; gap: 8px; }
 .status-badge { display: flex; align-items: center; gap: 5px; font-weight: 600; font-size: 13px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; }
@@ -790,6 +834,12 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
 .up { color: #f56c6c; } .down { color: #67c23a; }
 
 .header-actions { display: flex; align-items: center; gap: 6px; }
+
+/* 信息芯片 */
+.info-chip { display: flex; align-items: center; gap: 3px; font-size: 11px; color: #606266; background: #fff; padding: 3px 8px; border-radius: 4px; border: 1px solid #ebeef5; }
+.ic-icon { font-size: 12px; }
+.ic-sub { color: #c0c4cc; font-size: 10px; }
+.ic-hint { color: #909399; font-size: 10px; }
 
 /* === Tabs === */
 .monitor-tabs { flex: 1; display: flex; flex-direction: column; }
