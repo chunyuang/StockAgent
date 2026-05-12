@@ -295,7 +295,11 @@ onMounted(async () => {
   await Promise.all([fetchScanner(), fetchStrategies(), fetchDataSources()])
   refreshTimer = setInterval(() => {
     if (!autoRefresh.value || activeTab.value !== 'scanner') return
-    // 非交易时间降频(15秒), 交易时间5秒
+    // 非交易时间降频: 30秒(交易时间5秒)
+    const now = new Date()
+    const h = now.getHours(), m = now.getMinutes()
+    const isTrading = (h === 9 && m >= 30) || (h >= 10 && h < 15) || (h === 15 && m === 0)
+    if (!isTrading && Date.now() % 6 !== 0) return  // 30秒等效: 每6次跳5次
     fetchScanner()
   }, 5000)
 })
