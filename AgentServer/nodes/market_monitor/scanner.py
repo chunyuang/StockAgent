@@ -1354,6 +1354,17 @@ class MarketScanner:
                     cb["trading_paused"] = True
                     cb["pause_reason"] = f"单日回撤{drawdown*100:.1f}%超限({cb['daily_max_drawdown']*100:.0f}%)"
                     logger.warning(f"[CIRCUIT] ⚠️ 熔断触发: {cb['pause_reason']}")
+                    # 主动推送熔断通知
+                    try:
+                        import json
+                        from core.managers import redis_manager
+                        if redis_manager._client:
+                            asyncio.ensure_future(redis_manager._client.publish(
+                                "scanner:signals",
+                                json.dumps({"type": "circuit_breaker", "message": cb["pause_reason"], "trading_paused": True})
+                            ))
+                    except Exception:
+                        pass
                     return False
         
         # 连续亏损检查(只限制买入, 不限制卖出)
