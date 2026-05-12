@@ -63,7 +63,8 @@ class MarketScanner:
     """超短量化市场扫描器"""
 
     # 扫描配置
-    SCAN_INTERVAL = 30  # 秒
+    SCAN_INTERVAL = 300    # 全量扫描间隔(秒): 涨停池+策略筛选, 5分钟
+    POSITION_CHECK_INTERVAL = 30  # 持仓检查间隔(秒): 止损止盈, 30秒
     BATCH_SIZE = 100    # 批量行情每批处理数
     MAX_POSITIONS = 10  # 最大持仓数
     MAX_POSITION_RATIO = 0.7  # 最大仓位比例
@@ -123,6 +124,18 @@ class MarketScanner:
             "stop_losses": 0,
             "take_profits": 0,
             "stocks_scanned": 0,
+        }
+
+        # 风控熔断
+        self._circuit_breaker = {
+            "daily_start_assets": initial_cash,  # 今日开盘资产
+            "daily_max_drawdown": 0.05,          # 单日最大回撤5%
+            "consecutive_losses": 0,              # 连续亏损次数
+            "consecutive_loss_limit": 3,          # 连续亏损3次熔断
+            "trading_paused": False,              # 是否暂停交易
+            "pause_reason": "",                  # 暂停原因
+            "today_trades": 0,                    # 今日交易次数
+            "today_losses": 0,                    # 今日亏损次数
         }
 
     @property
@@ -340,8 +353,17 @@ class MarketScanner:
     # ==================== 扫描循环 ====================
 
     async def _scan_loop(self, trade_date: str):
-        """主扫描循环"""
-        settled = False  # 今日是否已结算
+        """主扫描循环(双层节奏)
+        
+        全量扫描(5分钟): 涨停池+策略筛选 → 发现新信号
+        持仓检查(30秒): 只查持仓股行情 → 止损止盈
+        
+        必盈200次/天:
+        - 全量: 23次/轮 × 48轮(4h/5min) = 1104次 → 太多!
+        - 优化: 全量8轮(184次) + 持仓检查(不消耗必盈额度,用缓存)
+        """
+        settled = False
+        last_full_scan = 0  # 上次全量扫描时间
 
         try:
             while self._is_running:
@@ -350,14 +372,30 @@ class MarketScanner:
 
                 # 仅在交易时间扫描
                 if "09:30" <= ct <= "15:00":
-                    settled = False  # 交易时间内重置结算标记
-                    await self.scan_once(trade_date)
-                    await asyncio.sleep(self.SCAN_INTERVAL)
+                    settled = False
+                    
+                    elapsed = time.time() - last_full_scan
+                    
+                    if elapsed >= self.SCAN_INTERVAL:
+                        # === 全量扫描(5分钟) ===
+                        await self.scan_once(trade_date)
+                        last_full_scan = time.time()
+                    else:
+                        # === 持仓检查(30秒) ===
+                        await self._check_positions_quick(trade_date)
+                        await asyncio.sleep(self.POSITION_CHECK_INTERVAL)
+                        continue
+                        
                 elif ct >= "15:05" and not settled and self._broker:
                     # 收盘后自动结算(T+1解锁)
                     self._broker.daily_settlement(trade_date)
                     settled = True
-                    logger.info("[SCANNER] 收盘自动结算完成")
+                    # 持久化最终状态
+                    try:
+                        await self._broker.save_state()
+                    except Exception:
+                        pass
+                    logger.info("[SCANNER] 收盘自动结算+持久化完成")
                     await asyncio.sleep(60)
                 else:
                     # 非交易时间, 降低频率
@@ -762,11 +800,23 @@ class MarketScanner:
             logger.debug(f"[PUSH] 推送失败(可忽略): {e}")
 
     async def _execute_signals(self, signals: List[ScanSignal]):
-        """执行信号(SimulatedBroker撮合)"""
+        """执行信号(SimulatedBroker撮合)
+        
+        仓位管理(PositionSizer):
+        - 信号强度高(涨停+连板) → 重仓(可用现金40%)
+        - 信号强度中(半路追涨/首板) → 中仓(可用现金25%)
+        - 信号强度低(跌停翘板/低吸) → 轻仓(可用现金15%)
+        - 总仓位上限70%, 单票上限15%
+        """
         stop_loss = self.config.get("stop_loss", -5.0)
         take_profit = self.config.get("take_profit", 7.0)
 
         for sig in signals:
+            # 熔断检查
+            if not self._check_circuit_breaker():
+                logger.info(f"[EXEC] 风控熔断, 跳过买入")
+                break
+                
             if len(self._broker.get_positions()) >= self.MAX_POSITIONS:
                 logger.info(f"[EXEC] 已达最大持仓{self.MAX_POSITIONS}, 跳过")
                 break
@@ -774,10 +824,16 @@ class MarketScanner:
             if sig.price <= 0:
                 continue
 
-            # 计算买入量: 单票最大15%仓位
+            # === PositionSizer: 按策略和信号强度分配仓位 ===
             acct = self._broker.get_account()
-            max_amount = acct.available_cash * 0.3
+            position_ratio = self._calc_position_ratio(sig)
+            max_amount = acct.available_cash * position_ratio
             shares = int(max_amount / sig.price / 100) * 100
+            
+            # 科创板最小200股
+            if sig.ts_code.startswith('688'):
+                shares = int(max_amount / sig.price / 200) * 200
+                
             if shares <= 0:
                 continue
 
@@ -865,6 +921,192 @@ class MarketScanner:
                 else:
                     self._stats["take_profits"] += 1
                 logger.info(f"[RISK] {reason}: {pos.ts_code} {pos.available_qty}股@{order.filled_price:.2f}")
+
+    async def _check_positions_quick(self, trade_date: str):
+        """持仓快速检查(30秒级, 只查持仓股行情)
+        
+        不做全量扫描, 只获取持仓股的实时行情并检查止损止盈。
+        每只持仓1次必盈API, 10只持仓=10次/轮。
+        """
+        if not self._broker:
+            return
+            
+        positions = self._broker.get_positions()
+        if not positions:
+            return
+        
+        # 风控熔断检查
+        if not self._check_circuit_breaker():
+            return
+        
+        # 逐只获取持仓股行情
+        for pos in positions:
+            try:
+                if self._data_router:
+                    biying = self._data_router._sources.get("biying")
+                    if biying:
+                        quote = await biying.get_realtime_quote(pos.ts_code)
+                        if quote:
+                            self._broker.update_realtime(
+                                ts_code=pos.ts_code,
+                                price=float(quote.get("close", 0)),
+                                pre_close=float(quote.get("pre_close", 0)),
+                            )
+                else:
+                    # 回退: 用缓存
+                    cached = self._realtime_cache.get(pos.ts_code, {})
+                    if cached.get("price", 0) > 0:
+                        self._broker.update_realtime(
+                            ts_code=pos.ts_code,
+                            price=cached["price"],
+                            pre_close=cached.get("pre_close", 0),
+                        )
+                await asyncio.sleep(0.1)
+            except Exception as e:
+                logger.debug(f"[QUICK] {pos.ts_code}行情失败: {e}")
+        
+        # 检查止损止盈
+        to_sell = []
+        for pos in self._broker.get_positions():
+            risk = self._get_strategy_risk(pos.strategy)
+            stop_loss_pct = -risk.get("stop_loss_pct", 0.03) * 100
+            take_profit_pct = risk.get("take_profit_pct", 0.07) * 100
+            
+            if pos.profit_pct <= stop_loss_pct:
+                to_sell.append((pos, f"止损 {pos.profit_pct:.1f}%"))
+            elif pos.profit_pct >= take_profit_pct:
+                to_sell.append((pos, f"止盈 {pos.profit_pct:.1f}%"))
+        
+        # 执行卖出
+        for pos, reason in to_sell:
+            if pos.available_qty <= 0:
+                continue
+            self._broker.update_realtime(pos.ts_code, pos.current_price)
+            ok, msg, order = self._broker.place_order(
+                ts_code=pos.ts_code,
+                stock_name=pos.stock_name,
+                side="sell",
+                quantity=pos.available_qty,
+                price=pos.current_price,
+                order_type="market",
+                strategy=pos.strategy,
+                reason=reason,
+            )
+            if ok:
+                self._timeline.append({
+                    "time": datetime.now().strftime("%H:%M:%S"),
+                    "action": "sell",
+                    "ts_code": pos.ts_code,
+                    "stock_name": pos.stock_name,
+                    "strategy": pos.strategy,
+                    "shares": pos.available_qty,
+                    "price": order.filled_price,
+                    "reason": reason,
+                    "profit_pct": round(pos.profit_pct, 2),
+                })
+                if "止损" in reason:
+                    self._stats["stop_losses"] += 1
+                else:
+                    self._stats["take_profits"] += 1
+                logger.info(f"[QUICK] {reason}: {pos.ts_code} {pos.available_qty}股@{order.filled_price:.2f}")
+
+    # ==================== 仓位管理 ====================
+
+    def _calc_position_ratio(self, signal: ScanSignal) -> float:
+        """根据信号特征计算仓位比例
+        
+        逻辑:
+        - 涨停+连板≥2 → 重仓40% (确定性高)
+        - 涨停+首板 → 中仓25% (有确定性)
+        - 半路追涨 → 中仓25% (主力策略)
+        - 跌停翘板 → 轻仓15% (高风险)
+        - 龙头低吸 → 轻仓15% (高风险)
+        
+        总仓位限制: 单票≤总资产15%, 总仓位≤70%
+        """
+        strategy = signal.strategy or ""
+        
+        # 策略级仓位
+        if "涨停" in strategy or "limit_up" in strategy:
+            # 连板股重仓
+            if signal.is_limit_up and getattr(signal, 'limit_times', 0) >= 2:
+                ratio = 0.40
+            else:
+                ratio = 0.25
+        elif "半路" in strategy or "mid_chase" in strategy:
+            ratio = 0.25
+        elif "跌停" in strategy or "limit_down" in strategy:
+            ratio = 0.15
+        elif "龙头" in strategy or "leader" in strategy:
+            ratio = 0.15
+        else:
+            ratio = 0.20  # 默认
+        
+        # 动态调整: 持仓多时减仓
+        if self._broker:
+            acct = self._broker.get_account()
+            if acct.total_assets > 0:
+                current_ratio = acct.market_value / acct.total_assets
+                if current_ratio > 0.5:
+                    ratio *= 0.7  # 已半仓, 减量
+                if current_ratio > 0.65:
+                    ratio *= 0.5  # 接近满仓, 减半
+        
+        return ratio
+
+    # ==================== 风控熔断 ====================
+
+    def _check_circuit_breaker(self) -> bool:
+        """风控熔断检查
+        
+        规则:
+        1. 单日回撤>5% → 暂停所有交易
+        2. 连续亏损3次 → 暂停买入(可卖出止损)
+        3. 手动暂停 → 尊重人工干预
+        
+        Returns: True=允许交易, False=应暂停
+        """
+        cb = self._circuit_breaker
+        
+        if cb["trading_paused"]:
+            logger.debug(f"[CIRCUIT] 交易已暂停: {cb['pause_reason']}")
+            return False
+        
+        # 单日回撤检查
+        if self._broker:
+            acct = self._broker.get_account()
+            if cb["daily_start_assets"] > 0:
+                drawdown = (cb["daily_start_assets"] - acct.total_assets) / cb["daily_start_assets"]
+                if drawdown >= cb["daily_max_drawdown"]:
+                    cb["trading_paused"] = True
+                    cb["pause_reason"] = f"单日回撤{drawdown*100:.1f}%超限({cb['daily_max_drawdown']*100:.0f}%)"
+                    logger.warning(f"[CIRCUIT] ⚠️ 熔断触发: {cb['pause_reason']}")
+                    return False
+        
+        # 连续亏损检查(只限制买入, 不限制卖出)
+        if cb["consecutive_losses"] >= cb["consecutive_loss_limit"]:
+            logger.info(f"[CIRCUIT] 连续亏损{cb['consecutive_losses']}次, 暂停买入")
+            return False
+        
+        return True
+
+    def _record_trade_result(self, profit_pct: float):
+        """记录交易结果(用于连续亏损统计)"""
+        cb = self._circuit_breaker
+        cb["today_trades"] += 1
+        
+        if profit_pct < 0:
+            cb["consecutive_losses"] += 1
+            cb["today_losses"] += 1
+        else:
+            cb["consecutive_losses"] = 0  # 盈利重置
+
+    def reset_circuit_breaker(self):
+        """重置熔断(手动恢复)"""
+        self._circuit_breaker["trading_paused"] = False
+        self._circuit_breaker["pause_reason"] = ""
+        self._circuit_breaker["consecutive_losses"] = 0
+        logger.info("[CIRCUIT] 熔断已重置")
 
     # ==================== 工具方法 ====================
 
