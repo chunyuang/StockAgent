@@ -627,6 +627,429 @@ _GIT_BRANCH = get_git_branch()
 _BUILD_TIME = get_build_time()
 
 
+def _factor_to_group(factor: str) -> str:
+    """因子名→所属组"""
+    mapping = {
+        'pct_chg': 'basic', 'pre_close': 'basic',
+        'ma5': 'technical', 'ma10': 'technical', 'ma20': 'technical', 'macd': 'technical',
+        'rsi_6': 'technical', 'boll_upper': 'technical', 'atr': 'technical', 'fear_greed_index': 'technical',
+        'turnover_rate': 'volume', 'volume_ratio': 'volume', 'circ_mv': 'volume',
+        'is_limit_up': 'limit', 'is_limit_down': 'limit', 'first_limit_up': 'limit', 'limit_up_count': 'limit',
+    }
+    return mapping.get(factor, 'basic')
+
+
+def _get_factor_detail(db, date_str: str, factors: list) -> dict:
+    """获取指定日期每个因子的覆盖率(单次聚合)"""
+    d = int(date_str) if isinstance(date_str, str) else date_str
+    total = db.stock_daily_ak_full.count_documents({'trade_date': d})
+    if total == 0:
+        return {f: 0 for f in factors}
+    group_fields = {'total': {'$sum': 1}}
+    for f in factors:
+        group_fields[f'{f}_cnt'] = {'$sum': {'$cond': [{'$ne': [{'$type': f'${f}'}, 'missing']}, 1, 0]}}
+    result = list(db.stock_daily_ak_full.aggregate([
+        {'$match': {'trade_date': d}},
+        {'$group': {'_id': None, **group_fields}}
+    ]))
+    if not result:
+        return {f: 0 for f in factors}
+    r = result[0]
+    return {f: round(r.get(f'{f}_cnt', 0) / r['total'] * 100, 1) for f in factors}
+
+
+@router.get("/data-status")
+async def get_data_status() -> Dict[str, Any]:
+    """获取数据层状态：各集合记录数、因子覆盖率、最新数据日期"""
+    try:
+        from pymongo import MongoClient as SyncClient
+        from core.settings import settings as app_settings
+        client = SyncClient(app_settings.mongo.host, app_settings.mongo.port)
+        db = client[app_settings.mongo.database]
+
+        # 集合记录数 + 日期范围
+        collections = {}
+        for name in ['stock_daily_ak_full', 'daily_basic', 'index_daily', 'limit_list', 'limit_pool_down', 'backtest_tasks']:
+            try:
+                cnt = db[name].count_documents({})
+                # 日期范围(只对有trade_date字段的集合查询)
+                date_range = None
+                if cnt > 0:
+                    try:
+                        first = list(db[name].find({}, {'trade_date': 1}).sort('trade_date', 1).limit(1))
+                        last = list(db[name].find({}, {'trade_date': 1}).sort('trade_date', -1).limit(1))
+                        if first and last and 'trade_date' in first[0] and 'trade_date' in last[0]:
+                            date_range = {'start': str(first[0]['trade_date']), 'end': str(last[0]['trade_date'])}
+                    except Exception:
+                        pass  # backtest_tasks等集合没有trade_date字段
+                collections[name] = {'count': cnt, 'date_range': date_range}
+            except Exception as e:
+                collections[name] = {'count': 0, 'date_range': None, 'error': str(e)}
+
+        # 每日因子覆盖率(全量, 单次聚合查询)
+        daily_coverage = []
+        # 因子组定义: 只包含实际存在且回测需要的因子
+        factor_groups = {
+            'basic': ['pct_chg', 'pre_close'],
+            'technical': ['ma5', 'macd', 'rsi_6', 'boll_upper', 'atr', 'fear_greed_index'],
+            'volume': ['turnover_rate', 'volume_ratio', 'circ_mv'],
+            'limit': ['is_limit_up', 'is_limit_down', 'first_limit_up', 'limit_up_count'],
+        }
+        all_factors = []
+        for factors in factor_groups.values():
+            all_factors.extend(factors)
+
+        # 单次聚合: 每天统计每个因子是否存在(用$type判断, missing=不存在)
+        group_fields = {'total': {'$sum': 1}}
+        for f in all_factors:
+            group_fields[f'{f}_count'] = {'$sum': {'$cond': [{'$ne': [{'$type': f'${f}'}, 'missing']}, 1, 0]}}
+
+        agg_result = list(db.stock_daily_ak_full.aggregate([
+            {'$group': {'_id': '$trade_date', **group_fields}},
+            {'$sort': {'_id': 1}}
+        ]))
+
+        for doc in agg_result:
+            d = str(doc['_id'])
+            total = doc['total']
+            if total == 0:
+                continue
+            group_rates = {}
+            for gname, factors in factor_groups.items():
+                if not factors:
+                    group_rates[gname] = 0
+                    continue
+                rates = []
+                for f in factors:
+                    has = doc.get(f'{f}_count', 0)
+                    rates.append(has / total * 100)
+                group_rates[gname] = round(sum(rates) / len(rates), 1)
+            # 核心覆盖率(排除limit组后的3组平均)
+            core_rates = [group_rates[k] for k in ['basic', 'technical', 'volume']]
+            avg_rate = round(sum(core_rates) / len(core_rates), 1)
+            daily_coverage.append({
+                'date': d,
+                'total': total,
+                'factor_rate': avg_rate,
+                'groups': group_rates,
+            })
+
+        # 最新数据日期
+        last_daily = list(db.stock_daily_ak_full.find({}, {'trade_date': 1}).sort('trade_date', -1).limit(1))
+        last_basic = list(db.daily_basic.find({}, {'trade_date': 1}).sort('trade_date', -1).limit(1))
+
+        # 推荐回测区间(核心3组因子覆盖>70%的连续段)
+        recommended_ranges = []
+        if daily_coverage:
+            seg_start = None
+            for i, c in enumerate(daily_coverage):
+                if c['factor_rate'] >= 70:  # factor_rate现在是3组平均
+                    if seg_start is None:
+                        seg_start = c['date']
+                else:
+                    if seg_start is not None:
+                        c_prev = daily_coverage[i-1]
+                        recommended_ranges.append({'start': seg_start, 'end': c_prev['date'], 'factor_rate': f'{c_prev["factor_rate"]}%'})
+                        seg_start = None
+            if seg_start is not None:
+                recommended_ranges.append({'start': seg_start, 'end': daily_coverage[-1]['date'], 'factor_rate': f'{daily_coverage[-1]["factor_rate"]}%'})
+
+        # 数据源元信息
+        data_sources = [
+            {
+                'name': '东方财富 push2',
+                'type': '日线行情',
+                'status': 'ok',
+                'status_text': '主力日线数据源',
+                'rate_limit': '无限制(3秒/全市场)',
+                'coverage': '全市场5180只 OHLCV',
+                'gotchas': ['Connection aborted = IP被封', '周末不可用', '返回数据只含OHLCV+amount,无换手率/PE等'],
+                'scripts': ['eastmoney_daily_bar.py'],
+            },
+            {
+                'name': '东方财富 datacenter',
+                'type': 'PE/PB/市值',
+                'status': 'ok',
+                'status_text': '日常可用',
+                'rate_limit': '无限制(0.4秒/天)',
+                'coverage': '5400+只 PE_TTM/PB_MRQ/流通市值',
+                'gotchas': ['9701错误 = IP被封或服务器繁忙', '周末/非交易日也可能查到历史估值', 'daily_basic专用'],
+                'scripts': ['eastmoney_daily_basic.py', 'eastmoney_datacenter_daily_basic.py'],
+            },
+            {
+                'name': 'AKShare',
+                'type': '日线/指标',
+                'status': 'ok',
+                'status_text': '备用日线数据源',
+                'rate_limit': '无官方限制',
+                'coverage': '全市场日线(含换手率)',
+                'gotchas': ['底层走东方财富,被封时同步不可用', '字段名与stock_daily_ak_full不同需映射', '速度慢(逐只拉)'],
+                'scripts': ['akshare_daily_manager.py', 'fill_missing_daily_ak.py'],
+            },
+            {
+                'name': '量脉 LiangMai',
+                'type': '实时行情/分钟K线',
+                'status': 'limited',
+                'status_text': '120次/分钟+2IP限制',
+                'rate_limit': '120次/分钟, Token绑定2个IP',
+                'coverage': '实时盘中/1min K线/PE/PB',
+                'gotchas': ['4291错误=IP超限,不要反复重试', '服务器动态IP导致IP超限不可避免', 'daily_basic不要再用量脉,用东方财富替代'],
+                'scripts': ['LiangMaiClient'],
+            },
+            {
+                'name': 'MongoDB本地',
+                'type': '回测数据源',
+                'status': 'ok',
+                'status_text': '主力数据源,无限制',
+                'rate_limit': '无限制',
+                'coverage': f'stock_daily_ak_full({collections.get("stock_daily_ak_full",{}).get("count",0)//1000}K) + daily_basic({collections.get("daily_basic",{}).get("count",0)//1000}K) + index_daily({collections.get("index_daily",{}).get("count",0)})',
+                'gotchas': ['回测时从MongoDB读取,不调外部API', 'stock_daily_ak_full日期是int格式(20260106)', 'is_limit_up/is_limit_down已用pct_chg阈值重算(5/11修复)'],
+                'scripts': ['portfolio_backtest.py(回测引擎)'],
+            },
+            {
+                'name': 'Tushare',
+                'type': '全品种日线/指标',
+                'status': 'ok',
+                'status_text': '5000积分(约4758剩余)',
+                'rate_limit': '5000积分(每日约200次)',
+                'coverage': 'daily/daily_basic全市场批量补',
+                'gotchas': ['新token 5/11提供,已验证可用', 'vol单位是手(×100→股), amount单位是千元(×1000→元)', '代理地址: http://119.45.170.23'],
+                'scripts': ['tushare_fill_v2.py basic', 'tushare_fill_v2.py daily'],
+            },
+        ]
+
+        # 健康评分 + 问题诊断
+        diagnostics = []
+        health_score = 0
+        
+        # 数据新鲜度(提前计算, diagnostics要用)
+        today_str = datetime.now().strftime('%Y%m%d')
+        latest_daily_str = str(last_daily[0]['trade_date']) if last_daily else '0'
+        if len(latest_daily_str) == 8 and len(today_str) == 8:
+            try:
+                today_dt = datetime.strptime(today_str, '%Y%m%d')
+                latest_dt = datetime.strptime(latest_daily_str, '%Y%m%d')
+                days_old = (today_dt - latest_dt).days
+            except ValueError:
+                days_old = 999
+        else:
+            days_old = 999
+        
+        # 因子覆盖率得分(0-50分, 基于核心3组)
+        if daily_coverage:
+            latest = daily_coverage[-1]
+            factor_score = min(50, latest['factor_rate'] / 2)
+            
+            # 量价因子
+            vol_rate = latest['groups'].get('volume', 0)
+            if vol_rate < 50:
+                diagnostics.append({'level': 'red', 'message': f'量价因子仅{vol_rate}% — turnover_rate/volume_ratio缺失'})
+            elif vol_rate < 90:
+                diagnostics.append({'level': 'yellow', 'message': f'量价因子{vol_rate}% — 部分字段缺失(circ_mv/total_mv等)'})
+            
+            # 涨跌停因子(独立提示,不影响主评分)
+            limit_rate = latest['groups'].get('limit', 0)
+            if limit_rate < 50:
+                diagnostics.append({'level': 'yellow', 'message': f'涨跌停因子{limit_rate}% — is_limit_up等字段缺失,影响首板/跌停策略(不影响半路追涨)'})
+            
+            # 技术因子
+            tech_rate = latest['groups'].get('technical', 0)
+            if tech_rate < 50:
+                diagnostics.append({'level': 'red', 'message': f'技术因子仅{tech_rate}% — MA/MACD/RSI等需factor_auto_compute补算'})
+            
+            # 数据新鲜度(日线滞后天数)
+            if days_old > 3:
+                diagnostics.append({'level': 'yellow', 'message': f'日线数据滞后{days_old}天 — 需运行eastmoney_daily_bar.py补全当日数据'})
+            
+            # 每日股票数异常(稀疏天)
+            if len(daily_coverage) >= 2:
+                totals = [c['total'] for c in daily_coverage]
+                median_total = sorted(totals)[len(totals)//2]
+                sparse_days = [c for c in daily_coverage if c['total'] < median_total * 0.7]
+                if sparse_days:
+                    diagnostics.append({'level': 'yellow', 'message': f'{len(sparse_days)}天股票数异常稀疏(<{int(median_total*0.7)}只) — 可能缺SH/BJ数据'})
+            
+            # daily_basic与stock_daily对齐
+            sd_cnt = collections.get('stock_daily_ak_full', {}).get('count', 0)
+            db_cnt = collections.get('daily_basic', {}).get('count', 0)
+            if sd_cnt > 0 and db_cnt > sd_cnt * 1.1:
+                diff = db_cnt - sd_cnt
+                diagnostics.append({'level': 'yellow', 'message': f'daily_basic比stock_daily多{diff:,}条 — 可能有基金/ETF需清理, 或停牌股缺少日线'})
+        else:
+            factor_score = 0
+            diagnostics.append({'level': 'red', 'message': '无因子覆盖率数据'})
+        
+        # 数据新鲜度得分(0-30分)
+        freshness_score = 0
+        if days_old <= 1:
+            freshness_score = 30
+        elif days_old <= 3:
+            freshness_score = 20
+        elif days_old <= 7:
+            freshness_score = 10
+        
+        # 数据源可用率得分(0-20分)
+        source_score = 0
+        ok_sources = sum(1 for s in data_sources if s['status'] == 'ok')
+        source_score = min(20, ok_sources * 5)  # 4个ok=20分
+        
+        health_score = int(factor_score + freshness_score + source_score)
+        
+        # ====== 策略可用性 ======
+        # 根据最新一天因子覆盖判断各策略能否运行
+        strategy_availability = []
+        if daily_coverage:
+            latest = daily_coverage[-1]
+            lg = latest['groups']
+            strategies = [
+                {
+                    'name': '半路追涨', 'key': 'half_chase',
+                    'factors': ['pct_chg', 'volume_ratio', 'ma5', 'rsi_6'],
+                    'desc': '需要pct_chg+量比+技术指标',
+                },
+                {
+                    'name': '首板打板', 'key': 'first_limit',
+                    'factors': ['is_limit_up', 'first_limit_up', 'pct_chg'],
+                    'desc': '需要涨停标记+涨跌幅',
+                },
+                {
+                    'name': '跌停翘板', 'key': 'limit_down_bounce',
+                    'factors': ['is_limit_down', 'pct_chg'],
+                    'desc': '需要跌停标记+涨跌幅',
+                },
+                {
+                    'name': '龙头低吸', 'key': 'leader_pullback',
+                    'factors': ['limit_up_count', 'pct_chg', 'ma5'],
+                    'desc': '需要连板数+涨跌幅+技术指标',
+                },
+            ]
+            for st in strategies:
+                missing = [f for f in st['factors'] if lg.get(_factor_to_group(f), 0) < 50]
+                # 更精确: 检查单个因子覆盖率
+                factor_detail = _get_factor_detail(db, latest['date'], st['factors'])
+                missing = [f for f in st['factors'] if factor_detail.get(f, 0) < 50]
+                st['available'] = len(missing) == 0
+                st['missing_factors'] = missing
+                st['coverage'] = round(sum(factor_detail.get(f, 0) for f in st['factors']) / len(st['factors']), 1)
+                strategy_availability.append(st)
+
+        # ====== 今日待办 ======
+        action_items = []
+        today_int = int(datetime.now().strftime('%Y%m%d'))
+        is_weekend = datetime.now().weekday() >= 5
+        latest_date = int(latest_daily_str) if len(latest_daily_str) == 8 else 0
+
+        if not is_weekend and latest_date < today_int:
+            action_items.append({
+                'action': '补今日日线',
+                'command': 'python3 eastmoney_daily_bar.py',
+                'desc': f'最新日线={latest_daily_str}, 需补今日数据',
+                'priority': 'high',
+            })
+            action_items.append({
+                'action': '补今日PE/PB',
+                'command': 'python3 eastmoney_daily_basic.py',
+                'desc': '日线补完后运行',
+                'priority': 'high',
+            })
+        elif is_weekend:
+            action_items.append({
+                'action': '周末休息',
+                'command': '',
+                'desc': '非交易日, 无需补数据',
+                'priority': 'info',
+            })
+        elif latest_date == today_int:
+            action_items.append({
+                'action': '数据已是最新',
+                'command': '',
+                'desc': f'今日({latest_daily_str})数据已补全',
+                'priority': 'done',
+            })
+
+        # 检查因子是否需要补算
+        if daily_coverage:
+            latest = daily_coverage[-1]
+            if latest['groups'].get('technical', 100) < 90:
+                action_items.append({
+                    'action': '补算技术因子',
+                    'command': '回测时自动计算(factor_auto_compute)',
+                    'desc': f'技术因子覆盖率{latest["groups"].get("technical", 0):.0f}%',
+                    'priority': 'medium',
+                })
+
+        # ====== 数据对齐 ======
+        data_alignment = {}
+        if daily_coverage:
+            last_day = daily_coverage[-1]['date']
+            sd_total = db.stock_daily_ak_full.count_documents({'trade_date': int(last_day)})
+            db_total = db.daily_basic.count_documents({'trade_date': int(last_day)})
+            sd_codes = set(d['ts_code'] for d in db.stock_daily_ak_full.find({'trade_date': int(last_day)}, {'ts_code': 1}))
+            db_codes = set(d['ts_code'] for d in db.daily_basic.find({'trade_date': int(last_day)}, {'ts_code': 1}))
+            common = sd_codes & db_codes
+            only_basic = db_codes - sd_codes
+            only_daily = sd_codes - db_codes
+            data_alignment = {
+                'date': last_day,
+                'stock_daily_count': sd_total,
+                'daily_basic_count': db_total,
+                'common': len(common),
+                'only_in_basic': len(only_basic),
+                'only_in_daily': len(only_daily),
+                'only_in_basic_samples': sorted(only_basic)[:5],
+            }
+
+        # ====== 因子详情(最新一天) ======
+        factor_detail_latest = {}
+        if daily_coverage:
+            last_day = daily_coverage[-1]['date']
+            all_check_factors = ['pct_chg', 'pre_close', 'open', 'high', 'low', 'close',
+                                 'ma5', 'macd', 'rsi_6', 'boll_upper', 'atr', 'fear_greed_index',
+                                 'turnover_rate', 'volume_ratio', 'circ_mv',
+                                 'is_limit_up', 'is_limit_down', 'first_limit_up', 'limit_up_count']
+            factor_detail_latest = _get_factor_detail(db, last_day, all_check_factors)
+
+        # ====== 健康分拆分 ======
+        health_breakdown = {
+            'factor_score': factor_score if daily_coverage else 0,
+            'factor_max': 50,
+            'freshness_score': freshness_score,
+            'freshness_max': 30,
+            'source_score': source_score,
+            'source_max': 20,
+        }
+
+        # 跌停池数据
+        if collections.get('limit_pool_down', {}).get('count', 0) < 10:
+            diagnostics.append({'level': 'yellow', 'message': f'跌停池仅{collections.get("limit_pool_down",{}).get("count",0)}条 — 跌停翘板策略数据不足'})
+
+        client.close()
+
+        return {
+            "success": True,
+            "data": {
+                "health_score": health_score,
+                "health_breakdown": health_breakdown,
+                "diagnostics": diagnostics,
+                "collections": collections,
+                "daily_coverage": daily_coverage,
+                "latest": {
+                    "stock_daily": str(last_daily[0]['trade_date']) if last_daily else None,
+                    "daily_basic": str(last_basic[0]['trade_date']) if last_basic else None,
+                },
+                "factor_groups": {k: len(v) for k, v in factor_groups.items()},
+                "factor_detail_latest": factor_detail_latest,
+                "recommended_ranges": recommended_ranges,
+                "data_sources": data_sources,
+                "strategy_availability": strategy_availability,
+                "action_items": action_items,
+                "data_alignment": data_alignment,
+            }
+        }
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
 @router.get("/version")
 async def get_version() -> Dict[str, Any]:
     """

@@ -71,6 +71,23 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     
+    # SPA Fallback 中间件 - 非API/非静态文件请求返回index.html
+    @app.middleware("http")
+    async def spa_fallback_middleware(request: Request, call_next):
+        """处理前端SPA路由：非API请求且不是静态文件时返回index.html"""
+        response = await call_next(request)
+        if response.status_code == 404 and not request.url.path.startswith("/api/"):
+            # 检查是否是前端路由（无文件扩展名）
+            path = request.url.path
+            if "." not in path.split("/")[-1]:
+                # 返回index.html让前端路由处理
+                from starlette.responses import FileResponse
+                static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../static")
+                index_path = os.path.join(static_dir, "index.html")
+                if os.path.exists(index_path):
+                    return FileResponse(index_path, media_type="text/html")
+        return response
+
     # Trace ID 中间件
     @app.middleware("http")
     async def trace_id_middleware(request: Request, call_next):

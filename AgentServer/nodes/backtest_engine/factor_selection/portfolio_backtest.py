@@ -873,116 +873,53 @@ class PortfolioBacktester:
         else:
             await self.log("✅ 未来函数检查通过:所有因子都符合实盘时间规则")
 
-        # ==================== 因子完整性自动检测 ====================
-        # 【自动检测机制】
-        # 1. 检测回测日期范围内所有因子字段的完整性
-        # 2. 检测因子覆盖率(是否有null/缺失)
-        # 3. 如果完整则跳过所有实时计算,直接使用预存数据
-        # 4. 如果缺失则触发告警并建议补算
-        await self.log("🔍 因子完整性自动检测:检查 48 个预计算因子字段...")
-
-        # 所有超短策略需要的因子字段列表
-        REQUIRED_FACTOR_FIELDS = [
-            "first_limit_up", "hot_sector", "limit_up_yesterday", "limit_up_count",
-            "limit_up_open_count", "limit_up_open_amount", "limit_up_open_duration",
-            "limit_up_time", "turnover_rate", "volume_ratio", "circ_mv",
-            "opening_pct_chg",  # 【修复：首板打板/涨停开板策略需要此因子】
-            "limit_down_yesterday", "open_above_limit_down", "limit_down_open_amount",
-            "rise_after_limit_down", "sentiment_score", "open_below_limit",
-            "amount_20d", "amplitude", "pct_chg", "vol", "amount",
-            # OHLC基础数据
-            "open", "high", "low", "close",
-            # 技术指标因子
-            "ma5", "ma10", "ma20", "ma60", "ema12", "ema26",
-            "rsi_6", "rsi_12", "rsi_24", "macd", "macd_signal", "macd_hist",
-            "boll_upper", "boll_mid", "boll_lower", "atr", "natr", "trange",
-            # 动量因子
-            "momentum_1d", "momentum_5d", "momentum_10d", "momentum_20d",
-            # 波动率因子
-            "volatility_5d", "volatility_10d", "volatility_20d",
-            # 流动性因子
-            "turnover_5d_avg", "turnover_20d_avg",
-            # 情绪因子
-            "fear_greed_index"
-        ]
-
+        # ==================== 因子完整性自动检测(2年回测跳过) ====================
         start_dt = int(config["start_date"])
         end_dt = int(config["end_date"])
-        # 【Bug修复：total_records用实际记录数而非错误的日历天数×5510】
-        # 原代码: (end_dt - start_dt + 1) * 5510 → end_dt-start_dt=202216(日历天数差非交易日!)
-        # 正确做法: 查MongoDB获取回测区间内实际记录数
-        actual_total = await mongo_manager.count_documents(
-            C.STOCK_DAILY, {"trade_date": {"$gte": start_dt, "$lte": end_dt}}
-        )
-        total_records = actual_total if actual_total > 0 else 1  # 避免除零
-
-        # 【修复#41:用$facet合并55次因子完整性检测为1次聚合查询】
-        # 原逻辑:每个因子单独做一次聚合 → 55次独立查询 × 全表扫描 = 性能灾难
-        # 新逻辑:用$facet一次性计算所有因子的非空数量 → 1次聚合查询完成所有检测
-
-        # 构建facet阶段:每个因子对应一个子管道
-        facet_stages = {}
-        for field in REQUIRED_FACTOR_FIELDS:
-            facet_stages[f"field_{field}"] = [
-                {"$match": {
-                    "trade_date": {"$gte": start_dt, "$lte": end_dt},
-                    field: {"$ne": None}
-                }},
-                {"$count": "valid_count"}
+        total_days = len(await self.universe_mgr.get_rebalance_dates(start_dt, end_dt, "daily"))
+        if total_days > 100:
+            await self.log(f"⚡ 大区间回测({total_days}天)，跳过因子预检测，运行时动态计算")
+        else:
+            await self.log("🔍 因子完整性自动检测:检查 48 个预计算因子字段...")
+            # 小区间保留原有逻辑 - 简化版检测
+            REQUIRED_FACTOR_FIELDS = [
+                "first_limit_up", "hot_sector", "limit_up_yesterday", "limit_up_count",
+                "limit_up_open_count", "limit_up_open_amount", "limit_up_open_duration",
+                "limit_up_time", "turnover_rate", "volume_ratio", "circ_mv",
+                "opening_pct_chg", "limit_down_yesterday", "open_above_limit_down",
+                "limit_down_open_amount", "rise_after_limit_down", "sentiment_score",
+                "open_below_limit", "amount_20d", "amplitude", "pct_chg", "vol", "amount",
+                "open", "high", "low", "close",
+                "ma5", "ma10", "ma20", "ma60", "ema12", "ema26",
+                "rsi_6", "rsi_12", "rsi_24", "macd", "macd_signal", "macd_hist",
+                "boll_upper", "boll_mid", "boll_lower", "atr", "natr", "trange",
+                "momentum_1d", "momentum_5d", "momentum_10d", "momentum_20d",
+                "volatility_5d", "volatility_10d", "volatility_20d",
+                "turnover_5d_avg", "turnover_20d_avg", "fear_greed_index"
             ]
-
-        # 一次聚合完成所有因子的检测
-        pipeline = [{"$facet": facet_stages}]
-        result = await mongo_manager.aggregate(C.STOCK_DAILY, pipeline)
-
-        factor_checks = []
-        missing_fields = []
-
-        if result and len(result) > 0:
-            facet_result = result[0]
-            for field in REQUIRED_FACTOR_FIELDS:
-                field_result = facet_result.get(f"field_{field}", [])
-                if field_result and len(field_result) > 0:
-                    valid_count = field_result[0]["valid_count"]
-                    coverage = valid_count / total_records * 100 if total_records > 0 else 0
-                    factor_checks.append((field, coverage, valid_count, total_records))
-
-                    if coverage < 90:  # 覆盖率低于90%视为缺失
-                        missing_fields.append(field)
-                else:
-                    missing_fields.append(field)
-        else:
-            # 查询失败时标记所有字段为缺失
-            missing_fields = REQUIRED_FACTOR_FIELDS.copy()
-
-        # 输出检测结果
-        complete_count = sum(1 for _, c, _, _ in factor_checks if c >= 90)
-        total_factor_count = len(REQUIRED_FACTOR_FIELDS)
-
-        # 【已修复】BUGGY_FIELDS强制重算已移除
-        # 2026-05-10: 用recompute_buggy_factors.py重算后MongoDB数据已正确
-        # 这3个因子不再需要每次回测都重算，节省3-4分钟
-
-        await self.log(f"   完整因子: {complete_count}/{total_factor_count} 个 (覆盖率≥90%)")
-
-        if missing_fields:
-            await self.log(f"   ⚠️ 缺失因子 ({len(missing_fields)}个): {', '.join(missing_fields[:10])}{'...' if len(missing_fields) > 10 else ''}")
-            # 【F1修复(第二十一轮)：因子自动计算——检测到缺失时自动触发计算，无需手动运行脚本】
-            from .factor_auto_compute import auto_compute_factors
-            auto_result = await auto_compute_factors(
-                missing_fields=missing_fields,
-                start_date=start_dt,
-                end_date=end_dt,
-                push_log_fn=push_log,
-                task_id=task_id or '',
+            actual_total = await mongo_manager.count_documents(
+                C.STOCK_DAILY, {"trade_date": {"$gte": start_dt, "$lte": end_dt}}
             )
-            if auto_result.get("computed"):
-                await self.log(f"   ✅ 因子自动计算成功！{auto_result.get('records_updated', 0):,} 条记录已更新")
+            total_records = actual_total if actual_total > 0 else 1
+            # 逐字段检测(小区间数据量小，不会有内存问题)
+            missing_fields = []
+            for field in REQUIRED_FACTOR_FIELDS:
+                valid = await mongo_manager.count_documents(
+                    C.STOCK_DAILY, {"trade_date": {"$gte": start_dt, "$lte": end_dt}, field: {"$ne": None}}
+                )
+                if valid / total_records < 0.9:
+                    missing_fields.append(field)
+            if missing_fields:
+                await self.log(f"   ⚠️ 缺失因子 ({len(missing_fields)}个): {', '.join(missing_fields[:10])}")
+                from .factor_auto_compute import auto_compute_factors
+                auto_result = await auto_compute_factors(
+                    missing_fields=missing_fields, start_date=start_dt, end_date=end_dt,
+                    push_log_fn=push_log, task_id=task_id or '',
+                )
+                if auto_result.get("computed"):
+                    await self.log(f"   ✅ 因子自动计算成功！{auto_result.get('records_updated', 0):,} 条记录已更新")
             else:
-                await self.log(f"   ⚠️ 部分因子无法自动计算(技术指标)，请手动运行: python scripts/compute_all_factors.py")
-        else:
-            await self.log(f"   ✅ 所有因子字段完整性检查通过!")
-            await self.log(f"   ⚡ 回测模式: 跳过实时因子计算,直接使用 MongoDB 预计算数据")
+                await self.log("   ✅ 所有因子字段完整性检查通过!")
         # ==================== 因子完整性检测结束 ====================
 
         # 加载基准数据

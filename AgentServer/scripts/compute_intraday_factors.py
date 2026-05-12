@@ -1,3 +1,4 @@
+from pathlib import Path
 """
 从量脉1分钟K线计算盘中因子，写入stock_daily_ak_full
 
@@ -13,7 +14,7 @@
 - open_above_limit_down: 开盘高于跌停价
 """
 import asyncio, sys, time
-sys.path.insert(0, '/root/.openclaw/workspace/StockAgent/AgentServer')
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.data_fetchers.liangmai_client import LiangMaiClient
 from core.managers.mongo_manager import mongo_manager
