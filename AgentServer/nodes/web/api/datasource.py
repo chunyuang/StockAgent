@@ -88,49 +88,41 @@ async def get_data_source_comparison():
     comparison = [
         {
             "dimension": "Linux可用",
-            "liangmai": True,
             "biying": True,
             "gm": False,
         },
         {
             "dimension": "IP限制",
-            "liangmai": "2IP绑定(频4291)",
             "biying": "无限制",
             "gm": "无(但用不了)",
         },
         {
             "dimension": "实时行情",
-            "liangmai": "3秒tick(120次/分)",
             "biying": "实时(200次/天免费)",
             "gm": "免费版无",
         },
         {
             "dimension": "涨停股池",
-            "liangmai": "✅(封单/封比/封板时间)",
             "biying": "✅(封板资金/连板/炸板次数)",
             "gm": "❌ 无直接API",
         },
         {
             "dimension": "买卖五档",
-            "liangmai": "1只/次(慢)",
             "biying": "✅ 批量",
             "gm": "免费版无",
         },
         {
             "dimension": "资金流向",
-            "liangmai": "✅",
             "biying": "待确认URL",
             "gm": "免费版无",
         },
         {
             "dimension": "交易接口",
-            "liangmai": "❌ 纯数据",
             "biying": "❌ 纯数据",
             "gm": "✅(需终端)",
         },
         {
             "dimension": "费用",
-            "liangmai": "已付费",
             "biying": "免费/¥688年",
             "gm": "免费(数据少)",
         },

@@ -103,8 +103,7 @@ const dataSources = ref<any[]>([])
 const brokers = ref<any[]>([])
 const dsComparison = ref<any[]>([])
 const dataSourceLabels: Record<string, string> = {
-  liangmai: '量脉(已付费)',
-  biying: '必盈(免费)',
+  biying: '必盈(主力)',
   gm: '掘金(需终端)',
 }
 
@@ -471,12 +470,11 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
             <div class="ds-comparison">
               <table class="ds-table">
                 <thead>
-                  <tr><th>维度</th><th>量脉</th><th>必盈</th><th>掘金</th></tr>
+                  <tr><th>维度</th><th>必盈</th><th>掘金</th></tr>
                 </thead>
                 <tbody>
                   <tr v-for="row in dsComparison" :key="row.dimension">
                     <td>{{ row.dimension }}</td>
-                    <td>{{ row.liangmai }}</td>
                     <td>{{ row.biying }}</td>
                     <td>{{ row.gm }}</td>
                   </tr>

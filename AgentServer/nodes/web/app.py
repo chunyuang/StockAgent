@@ -38,7 +38,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await redis_manager.initialize()
     await mongo_manager.initialize()
     
-    # 初始化数据源路由器(量脉+必盈+掘金)
+    # 初始化数据源路由器(必盈+掘金)
     try:
         from nodes.market_monitor.data_source_router import DataSourceRouter
         from src.data_sources.biying_adapter import BiyingAdapter
@@ -50,13 +50,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         if biying_licence:
             biying = BiyingAdapter(licence=biying_licence)
             ds_router.register("biying", biying, priority=10)
-        
-        # 量脉(已付费, 实时行情, IP限制)
-        try:
-            from core.data_fetchers.liangmai_client import LiangMaiClient
-            # 量脉适配器稍后接入
-        except ImportError:
-            pass
         
         # 掘金(需终端, 当前不可用)
         # gm适配器待终端可用后接入
