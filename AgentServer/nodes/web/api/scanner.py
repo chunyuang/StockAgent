@@ -24,6 +24,11 @@ def _get_scanner():
     return _scanner_instance
 
 
+def _get_scanner_instance():
+    """外部模块获取scanner实例(只读)"""
+    return _scanner_instance
+
+
 class ScannerStartRequest(BaseModel):
     account_id: str = "default"
     trade_date: Optional[str] = None

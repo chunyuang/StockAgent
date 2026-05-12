@@ -58,9 +58,9 @@ const isCollapsed = ref(false)
 const activeMenu = computed(() => {
   const path = route.path
   if (path === '/' || path.startsWith('/ultra-short')) return '/'
-  if (path.startsWith('/live-trading')) return '/live-trading'
-  if (path.startsWith('/stock')) return '/strategies'
-  if (path.startsWith('/strategies')) return '/strategies'
+  if (path.startsWith('/live-trading')) return '/monitor'
+  if (path.startsWith('/stock')) return '/'
+  if (path.startsWith('/strategies')) return '/monitor'
   if (path.startsWith('/system') || path.startsWith('/admin') || path.startsWith('/settings')) return '/system/status'
   return path
 })
@@ -71,8 +71,6 @@ const activeTaskCount = computed(() => taskStore.activeTaskCount)
 
 const menuItems = [
   { path: '/', icon: DataAnalysis, title: '策略回测' },
-  { path: '/live-trading', icon: TrendCharts, title: '实盘交易' },
-  { path: '/strategies', icon: Bell, title: '策略管理' },
   { path: '/monitor', icon: Monitor, title: '市场监听' },
   { path: '/system/status', icon: DataLine, title: '系统管理' },
 ]

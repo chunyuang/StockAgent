@@ -33,34 +33,31 @@ const routes: RouteRecordRaw[] = [
       },
 
       {
-        path: 'strategies',
-        name: 'StrategyList',
-        component: () => import('@/views/strategy/StrategyListView.vue'),
-        meta: { title: '策略管理' },
-      },
-      {
         path: 'monitor',
         name: 'MarketMonitor',
         component: () => import('@/views/monitor/MarketMonitorView.vue'),
         meta: { title: '市场监听' },
       },
+
+      {
+        path: 'live-trading',
+        redirect: '/monitor',
+      },
+      {
+        path: 'strategies',
+        redirect: '/monitor',
+      },
       {
         path: 'strategies/new',
-        name: 'StrategyCreate',
-        component: () => import('@/views/strategy/StrategyEditView.vue'),
-        meta: { title: '创建策略' },
+        redirect: '/monitor',
       },
       {
         path: 'strategies/:id',
-        name: 'StrategyDetail',
-        component: () => import('@/views/strategy/StrategyDetailView.vue'),
-        meta: { title: '策略详情' },
+        redirect: '/monitor',
       },
       {
         path: 'strategies/:id/edit',
-        name: 'StrategyEdit',
-        component: () => import('@/views/strategy/StrategyEditView.vue'),
-        meta: { title: '编辑策略' },
+        redirect: '/monitor',
       },
       {
         path: 'system/status',
