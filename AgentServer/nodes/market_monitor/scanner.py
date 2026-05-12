@@ -17,6 +17,8 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
+from nodes.market_monitor.broker import SimulatedBroker
+
 logger = logging.getLogger("scanner.market")
 
 
@@ -82,9 +84,12 @@ class MarketScanner:
         self._realtime_cache: Dict[str, Dict] = {}  # ts_code → 实时行情
         self._all_codes: List[str] = []  # 全市场代码
 
-        # 信号与持仓
+        # 撮合引擎
+        initial_cash = config.get("initial_cash", 1_000_000) if config else 1_000_000
+        self._broker = SimulatedBroker(account_id=account_id, initial_cash=initial_cash)
+
+        # 信号
         self._active_signals: List[ScanSignal] = []
-        self._positions: Dict[str, PositionStatus] = {}
         self._timeline: List[Dict] = []  # 今日交易时间线
 
         # 统计
@@ -102,13 +107,20 @@ class MarketScanner:
         return self._is_running
 
     def get_status(self) -> Dict[str, Any]:
+        acct = self._broker.get_account()
         return {
             "is_running": self._is_running,
             "scan_count": self._scan_count,
             "last_scan_time": self._last_scan_time,
             "active_signals": len(self._active_signals),
-            "positions": len(self._positions),
+            "positions": len(self._broker.get_positions()),
             "stocks_scanned": len(self._realtime_cache),
+            "account": {
+                "total_assets": round(acct.total_assets, 2),
+                "available_cash": round(acct.available_cash, 2),
+                "market_value": round(acct.market_value, 2),
+                "total_profit": round(acct.total_profit, 2),
+            },
             "stats": self._stats,
             "account_id": self.account_id,
         }
@@ -117,7 +129,15 @@ class MarketScanner:
         return [self._signal_to_dict(s) for s in self._active_signals]
 
     def get_positions(self) -> List[Dict]:
-        return [self._position_to_dict(p) for p in self._positions.values()]
+        return [{
+            "ts_code": p.ts_code, "stock_name": p.stock_name,
+            "strategy": p.strategy, "shares": p.total_qty,
+            "available_qty": p.available_qty,
+            "cost_price": round(p.avg_cost, 2),
+            "current_price": round(p.current_price, 2),
+            "profit_pct": round(p.profit_pct, 2),
+            "today_buy": p.today_buy_qty,
+        } for p in self._broker.get_positions()]
 
     def get_timeline(self) -> List[Dict]:
         return list(self._timeline)
@@ -249,32 +269,9 @@ class MarketScanner:
             logger.error(f"[SCANNER] 加载日级因子失败: {e}")
 
     async def _load_positions(self):
-        """加载当前持仓"""
-        try:
-            from core.managers import mongo_manager
-            await mongo_manager.initialize()
-
-            cursor = mongo_manager.db["sim_positions"].find(
-                {"account_id": self.account_id, "quantity": {"$gt": 0}}
-            )
-            docs = await cursor.to_list(length=100)
-
-            for doc in docs:
-                ts_code = doc.get("ts_code", "")
-                self._positions[ts_code] = PositionStatus(
-                    ts_code=ts_code,
-                    stock_name=doc.get("stock_name", ""),
-                    strategy=doc.get("strategy", ""),
-                    shares=doc.get("quantity", 0),
-                    cost_price=doc.get("avg_cost", 0),
-                    current_price=doc.get("current_price", 0),
-                    profit_pct=doc.get("profit_pct", 0),
-                    stop_loss_pct=self.config.get("stop_loss", -5.0),
-                    take_profit_pct=self.config.get("take_profit", 7.0),
-                )
-            logger.info(f"[SCANNER] 加载{len(docs)}个持仓")
-        except Exception as e:
-            logger.error(f"[SCANNER] 加载持仓失败: {e}")
+        """加载当前持仓(从broker获取, 初始为空)"""
+        # SimulatedBroker 内存管理, 无需从MongoDB加载
+        logger.info(f"[SCANNER] 持仓: {len(self._broker.get_positions())}个")
 
     # ==================== 扫描循环 ====================
 
@@ -319,8 +316,17 @@ class MarketScanner:
         # Step 4: 增量更新信号
         await self._update_signals(new_signals, scan_time)
 
-        # Step 5: 持仓检查
+        # Step 5: 持仓检查(止损止盈)
         await self._check_positions(realtime_data, trade_date)
+
+        # Step 6: 更新broker实时价格(用于持仓估值)
+        for ts_code, rt in realtime_data.items():
+            self._broker.update_realtime(
+                ts_code=ts_code,
+                price=rt.get("price", 0),
+                upper_limit=rt.get("high", 0),  # 简化: 用当日最高作涨停价
+                lower_limit=rt.get("low", 0),   # 用当日最低作跌停价
+            )
 
         elapsed = time.time() - t0
         self._last_scan_time = scan_time
@@ -499,7 +505,8 @@ class MarketScanner:
             # 排除已有持仓
             for _, row in selected.iterrows():
                 ts_code = row.get("ts_code", "")
-                if ts_code in self._positions:
+                existing_positions = {p.ts_code for p in self._broker.get_positions()}
+                if ts_code in existing_positions:
                     continue  # 已持仓, 跳过
 
                 signals.append(ScanSignal(
@@ -567,133 +574,107 @@ class MarketScanner:
             logger.debug(f"[PUSH] 推送失败(可忽略): {e}")
 
     async def _execute_signals(self, signals: List[ScanSignal]):
-        """执行信号(模拟盘)"""
-        from core.managers.sim_trading_engine import SimTradingEngine
-
-        engine = SimTradingEngine()
+        """执行信号(SimulatedBroker撮合)"""
+        stop_loss = self.config.get("stop_loss", -5.0)
+        take_profit = self.config.get("take_profit", 7.0)
 
         for sig in signals:
-            if len(self._positions) >= self.MAX_POSITIONS:
+            if len(self._broker.get_positions()) >= self.MAX_POSITIONS:
                 logger.info(f"[EXEC] 已达最大持仓{self.MAX_POSITIONS}, 跳过")
                 break
 
             if sig.price <= 0:
                 continue
 
-            # 计算买入量: 单票最大10%仓位
-            try:
-                # 获取账户信息
-                from core.managers import mongo_manager
-                await mongo_manager.initialize()
-                acct = mongo_manager.db["sim_accounts"].find_one(
-                    {"account_id": self.account_id})
-                if not acct:
-                    continue
+            # 计算买入量: 单票最大15%仓位
+            acct = self._broker.get_account()
+            max_amount = acct.available_cash * 0.3
+            shares = int(max_amount / sig.price / 100) * 100
+            if shares <= 0:
+                continue
 
-                available = acct.get("available_cash", 0)
-                max_amount = available * 0.15  # 单票15%可用现金
-                shares = int(max_amount / sig.price / 100) * 100
-                if shares <= 0:
-                    continue
+            # 更新实时价格到broker
+            self._broker.update_realtime(sig.ts_code, sig.price)
 
-                ok, msg, data = await engine.place_order(
-                    account_id=self.account_id,
-                    ts_code=sig.ts_code,
-                    stock_name=sig.stock_name,
-                    direction="buy",
-                    quantity=shares,
-                    price=sig.price,
-                    strategy=sig.strategy,
-                    reason=sig.reason,
-                )
+            ok, msg, order = self._broker.place_order(
+                ts_code=sig.ts_code,
+                stock_name=sig.stock_name,
+                side="buy",
+                quantity=shares,
+                price=sig.price,
+                order_type="market",
+                strategy=sig.strategy,
+                reason=sig.reason,
+            )
 
-                if ok:
-                    self._positions[sig.ts_code] = PositionStatus(
-                        ts_code=sig.ts_code,
-                        stock_name=sig.stock_name,
-                        strategy=sig.strategy,
-                        shares=shares,
-                        cost_price=sig.price,
-                        current_price=sig.price,
-                        profit_pct=0,
-                        stop_loss_pct=self.config.get("stop_loss", -5.0),
-                        take_profit_pct=self.config.get("take_profit", 7.0),
-                    )
-                    self._timeline.append({
-                        "time": datetime.now().strftime("%H:%M:%S"),
-                        "action": "buy",
-                        "ts_code": sig.ts_code,
-                        "stock_name": sig.stock_name,
-                        "strategy": sig.strategy_name,
-                        "shares": shares,
-                        "price": sig.price,
-                        "reason": sig.reason,
-                    })
-                    self._stats["trades_executed"] += 1
-                    logger.info(f"[EXEC] 买入 {sig.ts_code} {shares}股@{sig.price:.2f} ({sig.strategy_name})")
-                else:
-                    logger.warning(f"[EXEC] 买入失败 {sig.ts_code}: {msg}")
-            except Exception as e:
-                logger.error(f"[EXEC] 执行异常 {sig.ts_code}: {e}")
+            if ok:
+                self._timeline.append({
+                    "time": datetime.now().strftime("%H:%M:%S"),
+                    "action": "buy",
+                    "ts_code": sig.ts_code,
+                    "stock_name": sig.stock_name,
+                    "strategy": sig.strategy_name,
+                    "shares": shares,
+                    "price": order.filled_price,
+                    "reason": sig.reason,
+                })
+                self._stats["trades_executed"] += 1
+                logger.info(f"[EXEC] 买入 {sig.ts_code} {shares}股@{order.filled_price:.2f} ({sig.strategy_name})")
+            else:
+                logger.warning(f"[EXEC] 买入被拒 {sig.ts_code}: {msg}")
 
     # ==================== 持仓检查 ====================
 
     async def _check_positions(self, realtime_data: Dict[str, Dict], trade_date: str):
-        """止损止盈检查"""
-        from core.managers.sim_trading_engine import SimTradingEngine
-        engine = SimTradingEngine()
+        """止损止盈检查(SimulatedBroker撮合)"""
+        stop_loss = self.config.get("stop_loss", -5.0)
+        take_profit = self.config.get("take_profit", 7.0)
 
         to_sell = []
-        for ts_code, pos in self._positions.items():
+        for pos in self._broker.get_positions():
             # 更新实时价格
-            if ts_code in realtime_data:
-                pos.current_price = realtime_data[ts_code].get("price", pos.current_price)
-                if pos.cost_price > 0:
-                    pos.profit_pct = (pos.current_price - pos.cost_price) / pos.cost_price * 100
+            if pos.ts_code in realtime_data:
+                self._broker.update_realtime(pos.ts_code, realtime_data[pos.ts_code].get("price", pos.current_price))
 
             # 检查止损/止盈
-            if pos.profit_pct <= pos.stop_loss_pct:
-                pos.should_sell = True
-                pos.sell_reason = f"止损 {pos.profit_pct:.1f}%"
-                to_sell.append(pos)
-            elif pos.profit_pct >= pos.take_profit_pct:
-                pos.should_sell = True
-                pos.sell_reason = f"止盈 {pos.profit_pct:.1f}%"
-                to_sell.append(pos)
+            if pos.profit_pct <= stop_loss:
+                to_sell.append((pos, f"止损 {pos.profit_pct:.1f}%"))
+            elif pos.profit_pct >= take_profit:
+                to_sell.append((pos, f"止盈 {pos.profit_pct:.1f}%"))
 
         # 执行卖出
-        for pos in to_sell:
-            try:
-                ok, msg, data = await engine.place_order(
-                    account_id=self.account_id,
-                    ts_code=pos.ts_code,
-                    stock_name=pos.stock_name,
-                    direction="sell",
-                    quantity=pos.shares,
-                    price=pos.current_price,
-                    strategy=pos.strategy,
-                    reason=pos.sell_reason,
-                )
-                if ok:
-                    self._timeline.append({
-                        "time": datetime.now().strftime("%H:%M:%S"),
-                        "action": "sell",
-                        "ts_code": pos.ts_code,
-                        "stock_name": pos.stock_name,
-                        "strategy": pos.strategy,
-                        "shares": pos.shares,
-                        "price": pos.current_price,
-                        "reason": pos.sell_reason,
-                        "profit_pct": round(pos.profit_pct, 2),
-                    })
-                    if "止损" in pos.sell_reason:
-                        self._stats["stop_losses"] += 1
-                    else:
-                        self._stats["take_profits"] += 1
-                    del self._positions[pos.ts_code]
-                    logger.info(f"[RISK] {pos.sell_reason}: {pos.ts_code} {pos.shares}股@{pos.current_price:.2f}")
-            except Exception as e:
-                logger.error(f"[RISK] 卖出失败 {pos.ts_code}: {e}")
+        for pos, reason in to_sell:
+            if pos.available_qty <= 0:
+                continue  # T+1: 今日买入不可卖
+
+            self._broker.update_realtime(pos.ts_code, pos.current_price)
+            ok, msg, order = self._broker.place_order(
+                ts_code=pos.ts_code,
+                stock_name=pos.stock_name,
+                side="sell",
+                quantity=pos.available_qty,
+                price=pos.current_price,
+                order_type="market",
+                strategy=pos.strategy,
+                reason=reason,
+            )
+            if ok:
+                self._timeline.append({
+                    "time": datetime.now().strftime("%H:%M:%S"),
+                    "action": "sell",
+                    "ts_code": pos.ts_code,
+                    "stock_name": pos.stock_name,
+                    "strategy": pos.strategy,
+                    "shares": pos.available_qty,
+                    "price": order.filled_price,
+                    "reason": reason,
+                    "profit_pct": round(pos.profit_pct, 2),
+                })
+                if "止损" in reason:
+                    self._stats["stop_losses"] += 1
+                else:
+                    self._stats["take_profits"] += 1
+                logger.info(f"[RISK] {reason}: {pos.ts_code} {pos.available_qty}股@{order.filled_price:.2f}")
 
     # ==================== 工具方法 ====================
 
