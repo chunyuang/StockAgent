@@ -140,6 +140,7 @@ class SimulatedBroker:
         """持久化当前状态到MongoDB(带节流: 30秒内不重复保存)"""
         now = time.time()
         if hasattr(self, '_last_save_time') and now - self._last_save_time < 30:
+            logger.debug(f"[BROKER] save_state节流: {now - self._last_save_time:.0f}s < 30s")
             return True  # 节流: 30秒内不重复保存
         self._last_save_time = now
 
@@ -550,11 +551,16 @@ class SimulatedBroker:
         # 持久化(异步, 不阻塞)
         try:
             import asyncio
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.ensure_future(self.save_state())
-        except Exception:
-            pass  # 持久化失败不影响交易
+            loop = asyncio.get_running_loop()
+            loop.create_task(self.save_state())
+        except RuntimeError:
+            # 没有running loop, 尝试直接调用
+            try:
+                asyncio.run(self.save_state())
+            except Exception:
+                pass
+        except Exception as e:
+            logger.debug(f"[BROKER] 异步保存失败: {e}")
 
         return True, f"{action}{quantity}股@{fill_price:.2f}", order
 

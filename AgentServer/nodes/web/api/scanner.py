@@ -4,6 +4,7 @@ MarketScanner REST API
 超短量化市场扫描器的控制接口
 """
 import logging
+from datetime import datetime
 from typing import Dict, Any, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -169,6 +170,26 @@ async def manual_trade(req: ManualTradeRequest):
     if not scanner._broker:
         raise HTTPException(400, "Broker未初始化")
     
+    if not scanner._broker._realtime_prices.get(req.ts_code, 0) > 0:
+        # 尝试从必盈获取实时行情
+        try:
+            if scanner._data_router:
+                biying = scanner._data_router._sources.get("biying")
+                if biying:
+                    quote = await biying.get_realtime_quote(req.ts_code)
+                    if quote:
+                        price = float(quote.get("close", 0) if isinstance(quote, dict) else getattr(quote, 'close', 0))
+                        pre_close = float(quote.get("pre_close", 0) if isinstance(quote, dict) else getattr(quote, 'pre_close', 0))
+                        name = quote.get("name", "") if isinstance(quote, dict) else getattr(quote, 'name', '')
+                        if price > 0:
+                            scanner._broker.update_realtime(req.ts_code, price, pre_close=pre_close)
+                            if name and not req.stock_name:
+                                req.stock_name = name
+                            logger.info(f"[TRADE] 自动获取 {req.ts_code} 行情: {price}")
+        except Exception as e:
+            logger.warning(f"[TRADE] 自动获取行情失败: {e}")
+    
+    # 再次检查
     if not scanner._broker._realtime_prices.get(req.ts_code, 0) > 0:
         raise HTTPException(400, f"{req.ts_code} 无实时行情, 请先启动扫描器")
     
@@ -404,3 +425,28 @@ async def get_daily_report():
         return {"success": True, "data": report}
     except Exception as e:
         return {"success": True, "data": {}, "message": str(e)}
+
+
+@router.post("/daily-settlement")
+async def daily_settlement():
+    """手动触发日结算(T+1解锁)"""
+    scanner = _get_scanner()
+    if not scanner._broker:
+        raise HTTPException(400, "Broker未初始化")
+    
+    scanner._broker.daily_settlement()
+    
+    # 保存状态
+    try:
+        await scanner._broker.save_state()
+    except Exception:
+        pass
+    
+    positions = scanner._broker.get_positions()
+    return {
+        "success": True,
+        "data": {
+            "message": "日结算完成",
+            "positions_unlocked": len([p for p in positions if p.available_qty > 0]),
+        }
+    }
