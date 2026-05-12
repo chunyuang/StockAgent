@@ -43,6 +43,8 @@ interface RecommendedRange {
 }
 
 interface DataStatus {
+  health_score: number
+  diagnostics: { level: string; message: string }[]
   collections: Record<string, CollectionInfo>
   daily_coverage: DailyCoverage[]
   latest: { stock_daily: string | null; daily_basic: string | null }
@@ -89,9 +91,9 @@ function fmtDate(d: string) {
 const heatmapOption = computed(() => {
   if (!status.value?.daily_coverage?.length) return null
   const cov = status.value.daily_coverage
-  const groups = ['basic', 'technical', 'volume', 'limit', 'sentiment']
+  const groups = ['basic', 'technical', 'volume', 'limit']
   const groupLabels: Record<string, string> = {
-    basic: '基础', technical: '技术指标', volume: '量价', limit: '涨跌停', sentiment: '情绪'
+    basic: '基础', technical: '技术指标', volume: '量价', limit: '涨跌停'
   }
   const data: number[][] = []
   const yLabels = cov.map(c => `${c.date.slice(4,6)}/${c.date.slice(6,8)}`)
@@ -102,6 +104,18 @@ const heatmapOption = computed(() => {
     })
   })
 
+  // 当日期较多时启用Y轴滚动
+  const needZoom = yLabels.length > 15
+  const dataZoomY = needZoom ? [{
+    type: 'slider', yAxisIndex: 0,
+    startValue: Math.max(0, yLabels.length - 30),
+    endValue: yLabels.length - 1,
+    right: 0, width: 16, top: 10, bottom: 30,
+    borderColor: '#ddd', fillerColor: 'rgba(64,158,255,0.15)',
+    handleStyle: { color: '#409eff' },
+    labelFormatter: (v: number) => yLabels[v] || ''
+  }] : []
+
   return {
     tooltip: {
       formatter: (p: any) => {
@@ -110,7 +124,8 @@ const heatmapOption = computed(() => {
         return `${c.date} ${groupLabels[g]}<br/>覆盖率: ${p.data[2]}%<br/>股票数: ${c.total}`
       }
     },
-    grid: { left: 60, right: 30, top: 10, bottom: 30 },
+    grid: { left: 60, right: needZoom ? 36 : 30, top: 10, bottom: 30 },
+    dataZoom: dataZoomY,
     xAxis: { type: 'category', data: groups.map(g => groupLabels[g]), splitArea: { show: true }, axisLabel: { fontSize: 11 } },
     yAxis: { type: 'category', data: yLabels, axisLabel: { fontSize: 10 } },
     visualMap: {
@@ -131,9 +146,28 @@ const heatmapOption = computed(() => {
 const stockCountOption = computed(() => {
   if (!status.value?.daily_coverage?.length) return null
   const cov = status.value.daily_coverage
+  // 计算合理的初始显示范围（最近60个交易日）
+  const totalDays = cov.length
+  const showDays = Math.min(totalDays, 60)
+  const startPercent = ((totalDays - showDays) / totalDays) * 100
+
   return {
     tooltip: { trigger: 'axis' },
-    grid: { left: 50, right: 20, top: 20, bottom: 30 },
+    grid: { left: 50, right: 20, top: 20, bottom: 60 },
+    dataZoom: [
+      {
+        type: 'slider', xAxisIndex: 0,
+        start: startPercent, end: 100,
+        height: 20, bottom: 8,
+        borderColor: '#ddd', fillerColor: 'rgba(64,158,255,0.15)',
+        handleStyle: { color: '#409eff' },
+        labelFormatter: (v: number) => {
+          const idx = Math.round(v / 100 * (cov.length - 1))
+          return cov[idx] ? `${cov[idx].date.slice(4,6)}/${cov[idx].date.slice(6,8)}` : ''
+        }
+      },
+      { type: 'inside', xAxisIndex: 0 }
+    ],
     xAxis: { type: 'category', data: cov.map(c => `${c.date.slice(4,6)}/${c.date.slice(6,8)}`), axisLabel: { fontSize: 10, rotate: 30 } },
     yAxis: [
       { type: 'value', name: '股票数', min: 0, axisLabel: { fontSize: 10 } },
@@ -159,22 +193,9 @@ const collectionRows = computed(() => {
   }))
 })
 
-// 健康评分
+// 健康评分(用后端返回的值)
 const healthScore = computed(() => {
-  if (!status.value) return 0
-  const cov = status.value.daily_coverage
-  if (!cov.length) return 0
-  const recent = cov.slice(-3)
-  const avgFactor = recent.reduce((s, c) => s + c.factor_rate, 0) / recent.length
-  const latest = status.value.latest.stock_daily
-  const today = new Date()
-  const latestDate = latest ? new Date(parseInt(latest.slice(0,4)), parseInt(latest.slice(4,6))-1, parseInt(latest.slice(6,8))) : new Date(0)
-  const daysSince = Math.floor((today.getTime() - latestDate.getTime()) / 86400000)
-  const freshness = Math.max(0, 100 - daysSince * 20)
-  // 数据源健康(可用源占比)
-  const srcOk = (status.value.data_sources || []).filter(s => s.status === 'ok' || s.status === 'limited').length
-  const srcTotal = Math.max((status.value.data_sources || []).length, 1)
-  return Math.round(avgFactor * 0.5 + freshness * 0.3 + (srcOk / srcTotal) * 20)
+  return status.value?.health_score || 0
 })
 
 const healthStatus = computed(() => {
@@ -184,38 +205,13 @@ const healthStatus = computed(() => {
   return { text: '需补数据', color: '#f56c6c' }
 })
 
-// 问题诊断
+// 问题诊断(用后端返回的)
 const diagnosis = computed(() => {
-  if (!status.value) return []
-  const issues: { level: string; text: string }[] = []
-  const cov = status.value.daily_coverage
-  const mayDays = cov.filter(c => c.date.startsWith('202605'))
-  const mayTech = mayDays.filter(c => c.groups.technical === 0)
-  if (mayDays.length > 0 && mayTech.length === mayDays.length) {
-    issues.push({ level: 'error', text: '5月技术因子全缺失 — MA/MACD/RSI需factor_auto_compute补算' })
-  }
-  const recentLow = cov.filter(c => c.groups.volume < 80 && c.groups.volume > 0)
-  if (recentLow.length > 0) {
-    issues.push({ level: 'warn', text: `量价因子${recentLow[recentLow.length-1].groups.volume}% — 部分股票turnover_rate/circ_mv缺失` })
-  }
-  const limitZeroDays = cov.filter(c => c.groups.limit === 0 && c.factor_rate > 0)
-  if (limitZeroDays.length > 3) {
-    issues.push({ level: 'warn', text: `${limitZeroDays.length}天涨跌停因子0% — is_limit_up/is_limit_down缺失,影响首板/跌停策略` })
-  }
-  // 检查limit是否有真实数据(>0.5%表示有涨停/跌停标记)
-  const limitGood = cov.filter(c => c.groups.limit > 0.5)
-  if (limitGood.length > 0 && limitGood.length < cov.length * 0.5) {
-    issues.push({ level: 'warn', text: `涨跌停因子部分覆盖(${limitGood.length}/${cov.length}天) — 涨停/跌停股本来就少,1-3%属正常` })
-  }
-  const downCount = status.value.collections?.limit_pool_down?.count || 0
-  if (downCount < 10) {
-    issues.push({ level: 'warn', text: `跌停池仅${downCount}条 — 跌停翘板策略数据不足` })
-  }
-  const blocked = (status.value.data_sources || []).filter(s => s.status === 'blocked')
-  if (blocked.length > 0) {
-    issues.push({ level: 'error', text: `${blocked.map(s=>s.name).join('、')}被封 — 数据更新暂停,需等IP解封或换代理` })
-  }
-  return issues
+  if (!status.value?.diagnostics) return []
+  return status.value.diagnostics.map(d => ({
+    level: d.level,
+    text: d.message
+  }))
 })
 
 // 数据源状态样式

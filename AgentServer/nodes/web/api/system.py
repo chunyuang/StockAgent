@@ -641,39 +641,63 @@ async def get_data_status() -> Dict[str, Any]:
         for name in ['stock_daily_ak_full', 'daily_basic', 'index_daily', 'limit_list', 'limit_pool_down', 'backtest_tasks']:
             try:
                 cnt = db[name].count_documents({})
-                # 日期范围
-                first = list(db[name].find({}, {'trade_date': 1}).sort('trade_date', 1).limit(1))
-                last = list(db[name].find({}, {'trade_date': 1}).sort('trade_date', -1).limit(1))
+                # 日期范围(只对有trade_date字段的集合查询)
                 date_range = None
-                if first and last:
-                    date_range = {'start': str(first[0].get('trade_date', '')), 'end': str(last[0].get('trade_date', ''))}
+                if cnt > 0:
+                    try:
+                        first = list(db[name].find({}, {'trade_date': 1}).sort('trade_date', 1).limit(1))
+                        last = list(db[name].find({}, {'trade_date': 1}).sort('trade_date', -1).limit(1))
+                        if first and last and 'trade_date' in first[0] and 'trade_date' in last[0]:
+                            date_range = {'start': str(first[0]['trade_date']), 'end': str(last[0]['trade_date'])}
+                    except Exception:
+                        pass  # backtest_tasks等集合没有trade_date字段
                 collections[name] = {'count': cnt, 'date_range': date_range}
             except Exception as e:
                 collections[name] = {'count': 0, 'date_range': None, 'error': str(e)}
 
-        # 每日因子覆盖率(最近30天)
+        # 每日因子覆盖率(全量, 单次聚合查询)
         daily_coverage = []
-        days = sorted(db.stock_daily_ak_full.distinct('trade_date'), reverse=True)[:30]
+        # 因子组定义: 只包含实际存在且回测需要的因子
         factor_groups = {
-            'technical': ['ma5', 'ma10', 'ma20', 'ma60', 'ema12', 'macd', 'rsi_6', 'boll_upper', 'atr', 'volatility_5d'],
-            'volume': ['turnover_rate', 'volume_ratio', 'circ_mv', 'total_mv'],
-            'limit': ['is_limit_up', 'is_limit_down', 'first_limit_up', 'limit_up_count', 'limit_up_amount'],
-            'sentiment': ['fear_greed_index', 'sentiment_score', 'opening_pct_chg'],
             'basic': ['pct_chg', 'pre_close'],
+            'technical': ['ma5', 'macd', 'rsi_6', 'boll_upper', 'atr', 'fear_greed_index'],
+            'volume': ['turnover_rate', 'volume_ratio', 'circ_mv'],
+            'limit': ['is_limit_up', 'is_limit_down', 'first_limit_up', 'limit_up_count'],
         }
-        for d in sorted(days):
-            total = db.stock_daily_ak_full.count_documents({'trade_date': d})
+        all_factors = []
+        for factors in factor_groups.values():
+            all_factors.extend(factors)
+
+        # 单次聚合: 每天统计每个因子是否存在(用$type判断, missing=不存在)
+        group_fields = {'total': {'$sum': 1}}
+        for f in all_factors:
+            group_fields[f'{f}_count'] = {'$sum': {'$cond': [{'$ne': [{'$type': f'${f}'}, 'missing']}, 1, 0]}}
+
+        agg_result = list(db.stock_daily_ak_full.aggregate([
+            {'$group': {'_id': '$trade_date', **group_fields}},
+            {'$sort': {'_id': 1}}
+        ]))
+
+        for doc in agg_result:
+            d = str(doc['_id'])
+            total = doc['total']
             if total == 0:
                 continue
-            # 抽样检查5个因子组的覆盖率
             group_rates = {}
             for gname, factors in factor_groups.items():
-                has = db.stock_daily_ak_full.count_documents({'trade_date': d, factors[0]: {'$exists': True, '$ne': 0}})
-                group_rates[gname] = round(has / total * 100, 1)
-            # 总体覆盖率(5组平均)
-            avg_rate = round(sum(group_rates.values()) / len(group_rates), 1)
+                if not factors:
+                    group_rates[gname] = 0
+                    continue
+                rates = []
+                for f in factors:
+                    has = doc.get(f'{f}_count', 0)
+                    rates.append(has / total * 100)
+                group_rates[gname] = round(sum(rates) / len(rates), 1)
+            # 核心覆盖率(排除limit组后的3组平均)
+            core_rates = [group_rates[k] for k in ['basic', 'technical', 'volume']]
+            avg_rate = round(sum(core_rates) / len(core_rates), 1)
             daily_coverage.append({
-                'date': str(d),
+                'date': d,
                 'total': total,
                 'factor_rate': avg_rate,
                 'groups': group_rates,
@@ -683,19 +707,19 @@ async def get_data_status() -> Dict[str, Any]:
         last_daily = list(db.stock_daily_ak_full.find({}, {'trade_date': 1}).sort('trade_date', -1).limit(1))
         last_basic = list(db.daily_basic.find({}, {'trade_date': 1}).sort('trade_date', -1).limit(1))
 
-        # 推荐回测区间(因子覆盖>70%的连续段)
+        # 推荐回测区间(核心3组因子覆盖>70%的连续段)
         recommended_ranges = []
         if daily_coverage:
             seg_start = None
-            for c in daily_coverage:
-                if c['factor_rate'] >= 70:
+            for i, c in enumerate(daily_coverage):
+                if c['factor_rate'] >= 70:  # factor_rate现在是3组平均
                     if seg_start is None:
                         seg_start = c['date']
                 else:
                     if seg_start is not None:
+                        c_prev = daily_coverage[i-1]
                         recommended_ranges.append({'start': seg_start, 'end': c_prev['date'], 'factor_rate': f'{c_prev["factor_rate"]}%'})
                         seg_start = None
-                c_prev = c
             if seg_start is not None:
                 recommended_ranges.append({'start': seg_start, 'end': daily_coverage[-1]['date'], 'factor_rate': f'{daily_coverage[-1]["factor_rate"]}%'})
 
@@ -704,8 +728,8 @@ async def get_data_status() -> Dict[str, Any]:
             {
                 'name': '东方财富 push2',
                 'type': '日线行情',
-                'status': 'blocked',
-                'status_text': 'IP被封(5/11起)',
+                'status': 'ok',
+                'status_text': '主力日线数据源',
                 'rate_limit': '无限制(3秒/全市场)',
                 'coverage': '全市场5180只 OHLCV',
                 'gotchas': ['Connection aborted = IP被封', '周末不可用', '返回数据只含OHLCV+amount,无换手率/PE等'],
@@ -715,7 +739,7 @@ async def get_data_status() -> Dict[str, Any]:
                 'name': '东方财富 datacenter',
                 'type': 'PE/PB/市值',
                 'status': 'ok',
-                'status_text': '已恢复可用',
+                'status_text': '日常可用',
                 'rate_limit': '无限制(0.4秒/天)',
                 'coverage': '5400+只 PE_TTM/PB_MRQ/流通市值',
                 'gotchas': ['9701错误 = IP被封或服务器繁忙', '周末/非交易日也可能查到历史估值', 'daily_basic专用'],
@@ -724,8 +748,8 @@ async def get_data_status() -> Dict[str, Any]:
             {
                 'name': 'AKShare',
                 'type': '日线/指标',
-                'status': 'degraded',
-                'status_text': '走东方财富API,同样被封',
+                'status': 'ok',
+                'status_text': '备用日线数据源',
                 'rate_limit': '无官方限制',
                 'coverage': '全市场日线(含换手率)',
                 'gotchas': ['底层走东方财富,被封时同步不可用', '字段名与stock_daily_ak_full不同需映射', '速度慢(逐只拉)'],
@@ -738,7 +762,7 @@ async def get_data_status() -> Dict[str, Any]:
                 'status_text': '120次/分钟+2IP限制',
                 'rate_limit': '120次/分钟, Token绑定2个IP',
                 'coverage': '实时盘中/1min K线/PE/PB',
-                'gotchas': ['4291错误=IP超限,不要反复重试', '服务器动态IP导致IP超限不可避免', 'daily_basic不要再用量脉,用东方财富替代', 'Token: ebacbad6d64444cd037ac5504b63f25d'],
+                'gotchas': ['4291错误=IP超限,不要反复重试', '服务器动态IP导致IP超限不可避免', 'daily_basic不要再用量脉,用东方财富替代'],
                 'scripts': ['LiangMaiClient'],
             },
             {
@@ -748,17 +772,17 @@ async def get_data_status() -> Dict[str, Any]:
                 'status_text': '主力数据源,无限制',
                 'rate_limit': '无限制',
                 'coverage': f'stock_daily_ak_full({collections.get("stock_daily_ak_full",{}).get("count",0)//1000}K) + daily_basic({collections.get("daily_basic",{}).get("count",0)//1000}K) + index_daily({collections.get("index_daily",{}).get("count",0)})',
-                'gotchas': ['回测时从MongoDB读取,不调外部API', '5月数据因子缺失需factor_auto_compute补算', 'stock_daily_ak_full日期是int格式(20260106)', 'is_limit_up/is_limit_down已用pct_chg阈值重算(5/11修复)'],
+                'gotchas': ['回测时从MongoDB读取,不调外部API', 'stock_daily_ak_full日期是int格式(20260106)', 'is_limit_up/is_limit_down已用pct_chg阈值重算(5/11修复)'],
                 'scripts': ['portfolio_backtest.py(回测引擎)'],
             },
             {
                 'name': 'Tushare',
                 'type': '全品种日线/指标',
                 'status': 'ok',
-                'status_text': '5000积分,约4758剩余',
+                'status_text': '5000积分(约4758剩余)',
                 'rate_limit': '5000积分(每日约200次)',
                 'coverage': 'daily/daily_basic全市场批量补',
-                'gotchas': ['新token 5/11提供,已验证可用', 'vol单位是手(×100→股), amount单位是千元(×1000→元)', '代理地址: http://119.45.170.23', '积分用完前优先批量补缺失数据'],
+                'gotchas': ['新token 5/11提供,已验证可用', 'vol单位是手(×100→股), amount单位是千元(×1000→元)', '代理地址: http://119.45.170.23'],
                 'scripts': ['tushare_fill_v2.py basic', 'tushare_fill_v2.py daily'],
             },
         ]
@@ -767,7 +791,7 @@ async def get_data_status() -> Dict[str, Any]:
         diagnostics = []
         health_score = 0
         
-        # 因子覆盖率得分(0-50分)
+        # 因子覆盖率得分(0-50分, 基于核心3组)
         if daily_coverage:
             latest = daily_coverage[-1]
             factor_score = min(50, latest['factor_rate'] / 2)
@@ -776,32 +800,36 @@ async def get_data_status() -> Dict[str, Any]:
             vol_rate = latest['groups'].get('volume', 0)
             if vol_rate < 50:
                 diagnostics.append({'level': 'red', 'message': f'量价因子仅{vol_rate}% — turnover_rate/volume_ratio缺失'})
+            elif vol_rate < 90:
+                diagnostics.append({'level': 'yellow', 'message': f'量价因子{vol_rate}% — 部分字段缺失(circ_mv/total_mv等)'})
             
-            # 涨跌停因子
+            # 涨跌停因子(独立提示,不影响主评分)
             limit_rate = latest['groups'].get('limit', 0)
-            if limit_rate == 0:
-                diagnostics.append({'level': 'red', 'message': '涨跌停因子0% — is_limit_up/is_limit_down缺失,影响首板/跌停策略'})
-            elif limit_rate < 5:
-                diagnostics.append({'level': 'yellow', 'message': f'涨跌停因子仅{limit_rate}% — 涨停/跌停股本来就少,属正常'})
-            
-            # 情绪因子
-            sent_rate = latest['groups'].get('sentiment', 0)
-            if sent_rate == 0:
-                diagnostics.append({'level': 'yellow', 'message': '情绪因子0% — fear_greed_index/sentiment_score缺失'})
+            if limit_rate < 50:
+                diagnostics.append({'level': 'yellow', 'message': f'涨跌停因子{limit_rate}% — is_limit_up等字段缺失,影响首板/跌停策略(不影响半路追涨)'})
             
             # 技术因子
             tech_rate = latest['groups'].get('technical', 0)
-            if tech_rate == 0:
-                diagnostics.append({'level': 'red', 'message': '5月技术因子全缺失 — MA/MACD/RSI等需factor_auto_compute补算'})
+            if tech_rate < 50:
+                diagnostics.append({'level': 'red', 'message': f'技术因子仅{tech_rate}% — MA/MACD/RSI等需factor_auto_compute补算'})
         else:
             factor_score = 0
             diagnostics.append({'level': 'red', 'message': '无因子覆盖率数据'})
         
         # 数据新鲜度得分(0-30分)
         freshness_score = 0
-        today = datetime.now().strftime('%Y%m%d')
+        today_str = datetime.now().strftime('%Y%m%d')
         latest_daily = str(last_daily[0]['trade_date']) if last_daily else '0'
-        days_old = (int(today) - int(latest_daily)) if latest_daily and len(latest_daily) == 8 else 999
+        if len(latest_daily) == 8 and len(today_str) == 8:
+            # 转成日期对象计算真实天数差
+            try:
+                today_dt = datetime.strptime(today_str, '%Y%m%d')
+                latest_dt = datetime.strptime(latest_daily, '%Y%m%d')
+                days_old = (today_dt - latest_dt).days
+            except ValueError:
+                days_old = 999
+        else:
+            days_old = 999
         if days_old <= 1:
             freshness_score = 30
         elif days_old <= 3:
@@ -812,15 +840,9 @@ async def get_data_status() -> Dict[str, Any]:
         # 数据源可用率得分(0-20分)
         source_score = 0
         ok_sources = sum(1 for s in data_sources if s['status'] == 'ok')
-        source_score = min(20, ok_sources * 10)
+        source_score = min(20, ok_sources * 5)  # 4个ok=20分
         
         health_score = int(factor_score + freshness_score + source_score)
-        
-        # 东方财富API状态
-        for s in data_sources:
-            if s['name'] in ('东方财富 push2', '东方财富 datacenter') and s['status'] == 'blocked':
-                diagnostics.append({'level': 'red', 'message': f'{s["name"]}被封 — 数据更新暂停,需等IP解封或换代理'})
-                break
         
         # 跌停池数据
         if collections.get('limit_pool_down', {}).get('count', 0) < 10:
