@@ -32,6 +32,7 @@ import {
   User,
   SwitchButton,
   Bell,
+  Monitor,
   Sunny,
   Moon,
   DataLine,
@@ -71,7 +72,8 @@ const activeTaskCount = computed(() => taskStore.activeTaskCount)
 const menuItems = [
   { path: '/', icon: DataAnalysis, title: '策略回测' },
   { path: '/live-trading', icon: TrendCharts, title: '实盘交易' },
-  { path: '/strategies', icon: Bell, title: '市场监听' },
+  { path: '/strategies', icon: Bell, title: '策略管理' },
+  { path: '/monitor', icon: Monitor, title: '市场监听' },
   { path: '/system/status', icon: DataLine, title: '系统管理' },
 ]
 
