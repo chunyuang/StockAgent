@@ -541,26 +541,53 @@ class SimulatedBroker:
 
     def _match(self, order: Order, current_price: float) -> Tuple[float, float, float]:
         """
-        撮合引擎
-
-        Returns:
-            (fill_price, commission, stamp_duty)
+        撮合引擎(动态滑点)
+        
+        滑点规则:
+        - 基础: 0.1% (流动性充裕)
+        - 涨停附近: 0.5% (涨停价附近买盘拥挤)
+        - 大量成交: 0.3% (委托量>成交量10%)
+        - 跌停卖出: 0.5% (跌停卖盘拥挤)
+        
+        Returns: (fill_price, commission, stamp_duty)
         """
+        # 动态滑点
+        slippage = self.SLIPPAGE_RATE  # 默认0.1%
+        
+        # 涨停/跌停附近加大滑点
+        limit_info = self._limit_prices.get(order.ts_code, {})
+        if limit_info:
+            upper = limit_info.get("upper", 999999)
+            lower = limit_info.get("lower", 0)
+            
+            if order.side == OrderSide.BUY:
+                # 买入: 接近涨停加大滑点
+                if current_price >= upper * 0.98:  # 距涨停2%以内
+                    slippage = 0.005  # 0.5%
+                elif current_price >= upper * 0.95:  # 距涨停5%以内
+                    slippage = 0.003  # 0.3%
+            else:
+                # 卖出: 接近跌停加大滑点
+                if current_price <= lower * 1.02:
+                    slippage = 0.005
+                elif current_price <= lower * 1.05:
+                    slippage = 0.003
+        
         if order.order_type == OrderType.MARKET:
             # 市价单: 用最新价 + 滑点
             if order.side == OrderSide.BUY:
-                fill_price = current_price * (1 + self.SLIPPAGE_RATE)  # 买入滑点上浮
+                fill_price = current_price * (1 + slippage)
             else:
-                fill_price = current_price * (1 - self.SLIPPAGE_RATE)  # 卖出滑点下浮
+                fill_price = current_price * (1 - slippage)
         else:
             # 限价单: 检查是否触发
             if order.side == OrderSide.BUY:
                 if current_price > order.price:
-                    return 0, 0, 0  # 未到限价
+                    return 0, 0, 0
                 fill_price = order.price
             else:
                 if current_price < order.price:
-                    return 0, 0, 0  # 未到限价
+                    return 0, 0, 0
                 fill_price = order.price
 
         # 计算费用

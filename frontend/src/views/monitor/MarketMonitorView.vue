@@ -107,6 +107,56 @@ const dataSourceLabels: Record<string, string> = {
   gm: '掘金(需终端)',
 }
 
+// 手动交易
+const manualTrade = reactive({
+  ts_code: '',
+  stock_name: '',
+  side: 'buy',
+  quantity: 0,
+  price: 0,
+})
+
+const executeManualTrade = async () => {
+  if (!manualTrade.ts_code) return
+  try {
+    const res = await api.post(`${scannerApi}/trade`, {
+      ts_code: manualTrade.ts_code,
+      stock_name: manualTrade.stock_name,
+      side: manualTrade.side,
+      quantity: manualTrade.quantity || 0,
+      price: manualTrade.price || 0,
+      order_type: 'market',
+      strategy: 'manual',
+      reason: '手动操作',
+    })
+    if (res.data?.success) {
+      const d = res.data.data
+      ElMessage.success(`${d.side === 'buy' ? '买入' : '卖出'} ${d.ts_code} ${d.filled_qty}股@${d.filled_price}`)
+      manualTrade.ts_code = ''
+      manualTrade.stock_name = ''
+      manualTrade.quantity = 0
+      manualTrade.price = 0
+      fetchAll(true)
+    } else {
+      ElMessage.error(`下单失败: ${res.data?.data?.message || '未知错误'}`)
+    }
+  } catch (e: any) {
+    ElMessage.error(`下单失败: ${e.message}`)
+  }
+}
+
+const resetCircuitBreaker = async () => {
+  try {
+    const res = await api.post(`${scannerApi}/circuit-breaker/reset`)
+    if (res.data?.success) {
+      ElMessage.success('熔断已重置')
+      fetchAll(true)
+    }
+  } catch (e: any) {
+    ElMessage.error(`重置失败: ${e.message}`)
+  }
+}
+
 const fetchDataSources = async () => {
   try {
     const [srcRes, bkRes, cmpRes] = await Promise.all([
@@ -373,10 +423,35 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
               <div class="stat"><div class="sv">{{ status.scan_count }}</div><div class="sl">扫描次数</div></div>
             </div>
           </ElCard>
+
+          <!-- 手动交易 -->
+          <ElCard class="panel" shadow="never">
+            <template #header>
+              <div style="display:flex;align-items:center;gap:8px">
+                <span>🔧 手动交易</span>
+                <ElTag v-if="status?.circuit_breaker?.trading_paused" type="danger" size="small">⚠️ 熔断中</ElTag>
+              </div>
+            </template>
+            <div class="manual-trade">
+              <div class="mt-row">
+                <ElInput v-model="manualTrade.ts_code" placeholder="股票代码" size="small" style="width:120px" />
+                <ElInput v-model="manualTrade.stock_name" placeholder="名称" size="small" style="width:80px" />
+                <ElSelect v-model="manualTrade.side" size="small" style="width:80px">
+                  <ElOption label="买入" value="buy" />
+                  <ElOption label="卖出" value="sell" />
+                </ElSelect>
+                <ElInput v-model="manualTrade.quantity" type="number" placeholder="数量" size="small" style="width:80px" />
+                <ElInput v-model="manualTrade.price" type="number" placeholder="价格(0=市价)" size="small" style="width:100px" />
+                <ElButton type="primary" size="small" :disabled="!manualTrade.ts_code" @click="executeManualTrade">下单</ElButton>
+              </div>
+              <div class="mt-actions">
+                <ElButton size="small" @click="fetchAll(true)" plain>🔄 刷新</ElButton>
+                <ElButton v-if="status?.circuit_breaker?.trading_paused" type="warning" size="small" @click="resetCircuitBreaker">🔓 解除熔断</ElButton>
+              </div>
+            </div>
+          </ElCard>
         </div>
       </ElTabPane>
-
-      <!-- ==================== Tab2: 策略配置 ==================== -->
       <ElTabPane label="🎛️ 策略配置" name="config">
         <div class="strategy-cards">
           <div v-for="s in strategies" :key="s.id" class="strat-card" :class="{ disabled: !s.enabled }">
@@ -650,4 +725,9 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
 .ds-table th, .ds-table td { padding: 6px 10px; border: 1px solid #ebeef5; text-align: left; }
 .ds-table th { background: #f5f7fa; font-weight: 600; white-space: nowrap; }
 .ds-table td { white-space: nowrap; }
+
+/* === 手动交易 === */
+.manual-trade { display: flex; flex-direction: column; gap: 10px; }
+.mt-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.mt-actions { display: flex; gap: 8px; }
 </style>
