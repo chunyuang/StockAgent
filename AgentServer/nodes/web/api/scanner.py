@@ -78,10 +78,50 @@ class ManualTradeRequest(BaseModel):
 
 @router.get("/status")
 async def get_scanner_status():
-    """获取扫描器状态(含熔断状态)"""
+    """获取扫描器状态(含熔断状态、交易时间、数据源)"""
     scanner = _get_scanner()
     status = scanner.get_status()
-    # 追加熔断状态
+    
+    # 交易时间判断
+    from datetime import datetime
+    now = datetime.now()
+    ct = now.strftime("%H:%M")
+    is_trading = ("09:15" <= ct <= "15:05")
+    is_premarket = ("09:00" <= ct < "09:15")
+    is_closed = ct > "15:05"
+    
+    if is_trading:
+        market_status = "交易中"
+    elif is_premarket:
+        market_status = "盘前"
+    elif is_closed:
+        market_status = "已收盘"
+    else:
+        market_status = "盘前"
+    
+    status["market_status"] = market_status
+    status["current_time"] = now.strftime("%H:%M:%S")
+    status["is_trading_time"] = is_trading
+    
+    # 数据源状态
+    ds_info = []
+    if scanner._data_router:
+        for name, adapter in scanner._data_router._sources.items():
+            try:
+                s = adapter.get_status()
+                ds_info.append({
+                    "name": name,
+                    "available": s.get("available", s.get("initialized", True)),
+                    "stocks": s.get("cached_stocks", s.get("total_stocks", 0)),
+                    "calls": s.get("daily_calls", 0),
+                    "limit": s.get("daily_limit", -1),
+                    "note": s.get("note", ""),
+                })
+            except Exception:
+                ds_info.append({"name": name, "available": False})
+    status["data_sources"] = ds_info
+    
+    # 熔断状态
     if hasattr(scanner, '_circuit_breaker'):
         status["circuit_breaker"] = {
             "trading_paused": scanner._circuit_breaker.get("trading_paused", False),
@@ -90,7 +130,7 @@ async def get_scanner_status():
             "today_trades": scanner._circuit_breaker.get("today_trades", 0),
             "today_losses": scanner._circuit_breaker.get("today_losses", 0),
         }
-    return {"success": True, "data": status}
+    return _sanitize({"success": True, "data": status})
 
 
 # ==================== 控制 ====================

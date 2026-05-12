@@ -902,6 +902,24 @@ class MarketScanner:
                 if ts_code in existing_positions:
                     continue  # 已持仓, 跳过
 
+                # 构造详细reason
+                pct = row.get('pct_chg', 0)
+                vr = row.get('volume_ratio', 0)
+                tr = row.get('turnover_rate', 0)
+                is_lu = bool(row.get('is_limit_up', 0))
+                lbc = int(row.get('limit_up_count', 0))
+                
+                if strategy_key == 'halfway_chase':
+                    reason = f"涨{pct:.1f}% 量比{vr:.1f} 换手{tr:.1f}%{' ⚠️ST' if 'ST' in row.get('stock_name','') else ''}"
+                elif strategy_key == 'first_limit_up':
+                    reason = f"首板涨停 封单强 炸板{lbc}次"
+                elif strategy_key == 'leader_buy_dip':
+                    reason = f"{lbc}连板龙头 回调{pct:.1f}%"
+                elif strategy_key == 'limit_down_qiao':
+                    reason = f"跌停撬板 反弹{pct:.1f}%"
+                else:
+                    reason = f"{strategy_name} 涨{pct:.1f}%"
+
                 signals.append(ScanSignal(
                     ts_code=ts_code,
                     stock_name=row.get("stock_name", ""),
@@ -913,7 +931,7 @@ class MarketScanner:
                     turnover_rate=row.get("turnover_rate", 0),
                     is_limit_up=bool(row.get("is_limit_up", 0)),
                     limit_up_count=int(row.get("limit_up_count", 0)),
-                    reason=f"{strategy_name}筛选",
+                    reason=reason,
                     scan_time=datetime.now().strftime("%H:%M:%S"),
                     factors={k: row.get(k, 0) for k in
                              ["pct_chg", "volume_ratio", "turnover_rate", "circ_mv",
