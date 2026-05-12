@@ -287,10 +287,50 @@ class DailyScheduler:
     # ==================== 盘中 ====================
 
     async def run_intraday(self, trade_date: str) -> ScheduleResult:
+        """盘中调度(委托给Scanner执行, Scheduler只负责记录状态)"""
         result = ScheduleResult(trade_date=trade_date)
         self._current_phase = "intraday"
 
-        # Step 1: 实时行情
+        # 优先从Scanner获取实时状态(Scanner负责所有交易逻辑)
+        try:
+            from nodes.web.api.scanner import _get_scanner_instance
+            scanner = _get_scanner_instance()
+            if scanner and scanner._is_running:
+                # Scanner在运行, 直接读取状态
+                step = ScheduleStep(name="scanner_status")
+                t0 = datetime.now()
+                positions = scanner.get_positions()
+                acct = scanner._broker.get_account() if scanner._broker else None
+                step.success = True
+                step.data = {
+                    "positions": len(positions),
+                    "cash": acct.available_cash if acct else 0,
+                    "total_assets": acct.total_assets if acct else 0,
+                }
+                step.message = f"Scanner运行中: {len(positions)}持仓"
+                step.duration_ms = int((datetime.now() - t0).total_seconds() * 1000)
+                result.steps.append(step)
+                
+                # 从Scanner读取风控告警
+                step2 = ScheduleStep(name="check_risk")
+                t0 = datetime.now()
+                alerts = []
+                for pos in positions:
+                    if pos.get("profit_pct", 0) <= -3:
+                        alerts.append(f"{pos['ts_code']} 浮亏{pos['profit_pct']:.1f}%")
+                self._alerts.extend(alerts)
+                step2.success = True
+                step2.data = {"alerts": len(alerts)}
+                step2.message = f"{len(alerts)}个告警"
+                step2.duration_ms = int((datetime.now() - t0).total_seconds() * 1000)
+                result.steps.append(step2)
+                
+                result.success = True
+                return result
+        except Exception as e:
+            logger.warning(f"[INTRADAY] Scanner状态获取失败, 回退到自有逻辑: {e}")
+
+        # 回退: Scanner未运行时, 用自有逻辑
         step = ScheduleStep(name="fetch_realtime")
         t0 = datetime.now()
         try:

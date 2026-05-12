@@ -534,10 +534,13 @@ class MarketScanner:
 
         # Step 6: 更新broker实时价格(用于持仓估值和涨跌停判断)
         for ts_code, rt in realtime_data.items():
+            name = rt.get("name", "")
+            is_st = bool(name and ("ST" in name or "*ST" in name))
             self._broker.update_realtime(
                 ts_code=ts_code,
                 price=rt.get("price", 0),
                 pre_close=rt.get("pre_close", 0),
+                is_st=is_st,
             )
 
         elapsed = time.time() - t0
@@ -971,6 +974,9 @@ class MarketScanner:
             # 科创板最小200股
             if sig.ts_code.startswith('688'):
                 shares = int(max_amount / sig.price / 200) * 200
+                if shares <= 0 and max_amount > 0:
+                    logger.info(f"[EXEC] {sig.ts_code} 科创板资金不足200股(需≥{sig.price*200:.0f}元, 可用{max_amount:.0f}元)")
+                    continue
                 
             if shares <= 0:
                 continue
