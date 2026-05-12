@@ -3,7 +3,7 @@
 MarketScanner — 超短量化市场扫描器
 
 核心: 把回测引擎的选股逻辑搬到实时数据上跑
-- 每30秒扫描全市场(量脉批量行情)
+- 每30秒扫描全市场(必盈实时行情)
 - 合并日级因子(盘前预加载) + 实时因子(盘中提取)
 - 策略筛选(复用 _build_strategy_filter_conditions)
 - 信号→模拟执行→止损止盈
@@ -64,7 +64,7 @@ class MarketScanner:
 
     # 扫描配置
     SCAN_INTERVAL = 30  # 秒
-    BATCH_SIZE = 20     # 量脉批量行情每批20只
+    BATCH_SIZE = 100    # 批量行情每批处理数
     MAX_POSITIONS = 10  # 最大持仓数
     MAX_POSITION_RATIO = 0.7  # 最大仓位比例
 
@@ -83,7 +83,7 @@ class MarketScanner:
         self._last_scan_time = ""
 
         # 数据
-        self._liangmai = None
+        self._data_router: Optional[Any] = None  # DataSourceRouter实例
         self._daily_factors_df: Optional[pd.DataFrame] = None
         self._realtime_cache: Dict[str, Dict] = {}  # ts_code → 实时行情
         self._all_codes: List[str] = []  # 全市场代码
@@ -221,10 +221,13 @@ class MarketScanner:
                 await self._task
             except asyncio.CancelledError:
                 pass
-        # 关闭量脉
-        if self._liangmai:
-            await self._liangmai.close()
-            self._liangmai = None
+        # 关闭数据源
+        if self._data_router:
+            try:
+                await self._data_router.close_all()
+            except Exception as e:
+                logger.warning(f"[SCANNER] 数据源关闭失败: {e}")
+            self._data_router = None
         logger.info("[SCANNER] 已停止")
         return {"success": True, "message": "扫描器已停止"}
 
@@ -321,9 +324,18 @@ class MarketScanner:
             logger.error(f"[SCANNER] 加载日级因子失败: {e}")
 
     async def _load_positions(self):
-        """加载当前持仓(从broker获取, 初始为空)"""
-        # SimulatedBroker 内存管理, 无需从MongoDB加载
-        logger.info(f"[SCANNER] 持仓: {len(self._broker.get_positions())}个")
+        """加载当前持仓(优先从MongoDB恢复, 否则从broker获取)"""
+        if self._broker:
+            # 尝试从MongoDB恢复
+            try:
+                restored = await self._broker.load_state()
+                if restored and self._broker.positions:
+                    logger.info(f"[SCANNER] 持仓已从MongoDB恢复: {len(self._broker.positions)}个")
+                    return
+            except Exception as e:
+                logger.warning(f"[SCANNER] 持仓恢复失败(使用空持仓): {e}")
+        
+        logger.info(f"[SCANNER] 持仓: {len(self._broker.get_positions()) if self._broker else 0}个")
 
     # ==================== 扫描循环 ====================
 
@@ -400,52 +412,144 @@ class MarketScanner:
     # ==================== 实时行情 ====================
 
     async def _fetch_realtime_batch(self) -> Dict[str, Dict]:
-        """批量获取实时行情(量脉)"""
-        if not self._liangmai:
+        """批量获取实时行情(必盈API)
+        
+        必盈免费版200次/天, 所以只对信号股/持仓股+涨停池获取行情。
+        全市场扫描用涨停池(1次=全市场涨停) + 逐只行情(信号股)。
+        """
+        if not self._data_router:
             try:
-                from core.data_fetchers.liangmai_client import LiangMaiClient
-                self._liangmai = LiangMaiClient()
-                await self._liangmai.initialize()
+                from nodes.market_monitor.data_source_router import DataSourceRouter
+                from src.data_sources.biying_adapter import BiyingAdapter
+                
+                router = DataSourceRouter()
+                biying = BiyingAdapter(licence="E53CA0F0-3E85-4736-B22D-8FA41A5DB050")
+                router.register("biying", biying, priority=10)
+                results = await router.initialize_all()
+                
+                if not results.get("biying"):
+                    logger.error("[REALTIME] 必盈数据源初始化失败")
+                    return {}
+                    
+                self._data_router = router
+                logger.info("[REALTIME] 必盈数据源初始化成功")
             except Exception as e:
-                logger.error(f"[REALTIME] 量脉初始化失败: {e}")
+                logger.error(f"[REALTIME] 数据源初始化失败: {e}")
                 return {}
 
+        biying = self._data_router._sources.get("biying")
+        if not biying:
+            logger.error("[REALTIME] 必盈适配器不可用")
+            return {}
+
         realtime = {}
-        codes = self._all_codes
+        today = datetime.now().strftime("%Y-%m-%d")
 
-        # 量脉 stock_realtime_multi 一次20只
-        for i in range(0, len(codes), self.BATCH_SIZE):
-            batch = codes[i:i + self.BATCH_SIZE]
-            # 转换格式: 600519.SH → 600519 (量脉用6位代码)
-            short_codes = [c.split('.')[0] for c in batch]
+        # === 1. 涨停池(1次API调用 = 全市场涨停数据) ===
+        try:
+            limit_ups = await biying.get_limit_up_pool(today)
+            for item in limit_ups:
+                ts_code = item.get("ts_code", "")
+                if not ts_code or "." not in ts_code:
+                    continue
+                realtime[ts_code] = {
+                    "price": float(item.get("close", 0)),
+                    "pct_chg": float(item.get("pct_chg", 0)),
+                    "turnover_rate": float(item.get("turnover_ratio", 0)),
+                    "float_mv": float(item.get("float_mv", 0)) * 1e4,  # 亿→万
+                    "name": item.get("name", ""),
+                    "is_limit_up": True,
+                    "limit_times": item.get("limit_times", 0),
+                    "open_times": item.get("open_times", 0),
+                    "fd_amount": item.get("fd_amount", 0),
+                }
+            logger.info(f"[REALTIME] 涨停池: {len(limit_ups)}只")
+        except Exception as e:
+            logger.warning(f"[REALTIME] 涨停池获取失败: {e}")
 
+        # === 2. 跌停池(1次API调用) ===
+        try:
+            limit_downs = await biying.get_limit_down_pool(today)
+            for item in limit_downs:
+                ts_code = item.get("ts_code", "")
+                if not ts_code or "." not in ts_code:
+                    continue
+                if ts_code not in realtime:  # 涨停优先
+                    realtime[ts_code] = {
+                        "price": float(item.get("close", 0)),
+                        "pct_chg": float(item.get("pct_chg", 0)),
+                        "name": item.get("name", ""),
+                        "is_limit_down": True,
+                    }
+        except Exception as e:
+            logger.warning(f"[REALTIME] 跌停池获取失败: {e}")
+
+        # === 3. 炸板池(1次API调用) ===
+        try:
+            broken = await biying.get_broken_board_pool(today)
+            for item in broken:
+                ts_code = item.get("ts_code", "")
+                if not ts_code or "." not in ts_code:
+                    continue
+                if ts_code not in realtime:
+                    realtime[ts_code] = {
+                        "price": float(item.get("close", 0)),
+                        "pct_chg": float(item.get("pct_chg", 0)),
+                        "name": item.get("name", ""),
+                        "is_broken_board": True,
+                        "open_times": item.get("open_times", 0),
+                    }
+        except Exception as e:
+            logger.warning(f"[REALTIME] 炸板池获取失败: {e}")
+
+        # === 4. 逐只行情: 信号股+持仓股(每只1次API调用) ===
+        # 优先级: 持仓股(止损用) > 信号股(买入选股用)
+        priority_codes = set()
+        
+        # 持仓股
+        if self._broker:
+            for pos in self._broker.get_positions():
+                priority_codes.add(pos.ts_code)
+        elif self._gm_broker:
+            for pos in self._gm_broker.get_positions():
+                priority_codes.add(pos.get("ts_code", ""))
+        
+        # 信号股
+        for sig in self._active_signals:
+            priority_codes.add(sig.ts_code)
+        
+        # 批量获取(受200次/天限制, 每轮最多20只)
+        quote_codes = list(priority_codes - set(realtime.keys()))[:20]
+        for ts_code in quote_codes:
             try:
-                result = await self._liangmai.get_realtime_multi(short_codes)
-                if result:
-                    for item in result:
-                        # 找回原始ts_code
-                        dm = item.get("dm", "")
-                        ts_code = self._short_to_ts_code(dm)
-                        if ts_code:
-                            realtime[ts_code] = {
-                                "price": float(item.get("p", 0)),
-                                "pct_chg": float(item.get("zdf", 0)),
-                                "volume_ratio": float(item.get("lb", 0)),
-                                "turnover_rate": float(item.get("hs", 0)),
-                                "circ_mv": float(item.get("lt", 0)),  # 流通市值(万)
-                                "open": float(item.get("o", 0)),
-                                "high": float(item.get("h", 0)),
-                                "low": float(item.get("l", 0)),
-                                "pre_close": float(item.get("pc", 0)),
-                                "name": item.get("mc", ""),
-                            }
+                quote = await biying.get_realtime_quote(ts_code)
+                if quote:
+                    realtime[ts_code] = {
+                        "price": float(quote.get("close", 0)),
+                        "pct_chg": float(quote.get("pct_chg", 0)),
+                        "turnover_rate": float(quote.get("_turnover_rate", 0)),
+                        "pe": float(quote.get("_pe", 0)),
+                        "pb": float(quote.get("_pb", 0)),
+                        "open": float(quote.get("open", 0)),
+                        "high": float(quote.get("high", 0)),
+                        "low": float(quote.get("low", 0)),
+                        "pre_close": float(quote.get("pre_close", 0)),
+                        "name": "",
+                    }
             except Exception as e:
-                logger.warning(f"[REALTIME] 批次{i//self.BATCH_SIZE}失败: {e}")
-
-            # 频率控制: 120次/分钟
-            await asyncio.sleep(0.5)
+                logger.debug(f"[REALTIME] {ts_code}行情失败: {e}")
+            await asyncio.sleep(0.1)  # 必盈限流
 
         self._realtime_cache = realtime
+        
+        # 状态汇报
+        biying_status = biying.get_status()
+        logger.info(
+            f"[REALTIME] 完成: {len(realtime)}只 "
+            f"(涨停{len(limit_ups) if 'limit_ups' in dir() else 0}) "
+            f"| 必盈今日已用{biying_status['daily_calls']}/{biying_status['daily_limit']}次"
+        )
+        
         return realtime
 
     def _short_to_ts_code(self, short_code: str) -> str:

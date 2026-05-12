@@ -178,14 +178,29 @@ class BiyingAdapter(AsyncDataSourceAdapter):
 
     def _dm_to_tscode(self, dm: str) -> str:
         """必盈代码 → 标准ts_code
-        必盈格式: sz000001, sh600519
-        标准格式: 000001.SZ, 600519.SH
+        
+        必盈格式多种: 
+        - 纯数字: 000001, 600519, 688001
+        - 带前缀: sz000001, sh600519
+        - 标准格式: 000001.SZ
+        
+        标准输出: 000001.SZ, 600519.SH, 688001.SH
         """
+        if not dm:
+            return ""
         if "." in dm:
             return dm  # 已经是标准格式
         if dm.startswith("sz") or dm.startswith("sh"):
             return dm[2:].upper() + "." + dm[:2].upper()
-        return dm  # 未知格式, 原样返回
+        # 纯数字 → 根据首位判断交易所
+        if dm.startswith('6') or dm.startswith('9'):
+            return f"{dm}.SH"
+        elif dm.startswith('0') or dm.startswith('3'):
+            return f"{dm}.SZ"
+        elif dm.startswith('4') or dm.startswith('8'):
+            return f"{dm}.BJ"
+        else:
+            return f"{dm}.SZ"  # 默认深证
 
     def _tscode_to_dm(self, ts_code: str) -> str:
         """标准ts_code → 必盈代码

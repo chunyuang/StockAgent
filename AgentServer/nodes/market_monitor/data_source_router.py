@@ -1,12 +1,11 @@
 """
 数据源与券商路由器
 
-统一管理3个数据源(量脉/必盈/掘金)和2种券商(仿真/实盘)，
+统一管理数据源(必盈/掘金)和券商(仿真/实盘)，
 支持运行时切换、降级、状态监控。
 
 数据源:
-  - liangmai: 量脉(已付费, 实时行情+涨停池, IP限制)
-  - biying:   必盈(免费/付费, 涨停池+五档+行情, 无IP限制)
+  - biying:   必盈(免费/付费, 涨停池+五档+行情, 无IP限制) ← 主力
   - gm:       掘金(需终端, 数据+交易, 当前不可用)
 
 券商:
@@ -27,7 +26,6 @@ logger = logging.getLogger(__name__)
 
 class DataSourceType(str, Enum):
     """数据源类型"""
-    LIANGMAI = "liangmai"
     BIYING = "biying"
     GM = "gm"
 
