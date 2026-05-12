@@ -74,8 +74,38 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await redis_manager.shutdown()
 
 
+import math
+import json as json_lib
+
+
+def _sanitize_nan(obj):
+    """递归清理NaN/inf, 防止JSON序列化失败"""
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    if isinstance(obj, dict):
+        return {k: _sanitize_nan(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize_nan(v) for v in obj]
+    return obj
+
+
 def create_app() -> FastAPI:
     """创建 FastAPI 应用"""
+    # 自定义JSON编码: NaN/inf → null
+    from fastapi.responses import JSONResponse
+    import json as _json
+    
+    class SafeJSONResponse(JSONResponse):
+        def render(self, content) -> bytes:
+            return _json.dumps(
+                _sanitize_nan(content),
+                ensure_ascii=False,
+                allow_nan=False,
+                default=str,
+            ).encode("utf-8")
+    
     app = FastAPI(
         title="StockAgent API",
         description="AI 驱动的股票分析智能体 API",
@@ -83,6 +113,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
         docs_url="/docs",
         redoc_url="/redoc",
+        default_response_class=SafeJSONResponse,
     )
     
     # ==================== 中间件 ====================

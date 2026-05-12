@@ -54,6 +54,7 @@ class BiyingAdapter(AsyncDataSourceAdapter):
         return "biying"
     
     @property
+    @property
     def capability(self) -> DataSourceCapability:
         return self.get_capabilities()
     
@@ -404,10 +405,13 @@ class BiyingAdapter(AsyncDataSourceAdapter):
         return {
             "name": self.name,
             "description": self.description,
+            "available": self._session is not None and self._licence is not None,
             "licence": self._licence[:8] + "..." if self._licence else "未配置",
             "daily_calls": self._daily_calls,
             "daily_limit": self._daily_limit,
             "daily_remaining": self.daily_remaining,
             "daily_reset": str(self._daily_reset_date) if self._daily_reset_date else "",
             "initialized": self._session is not None,
+            "cached_stocks": 0,
+            "note": f"免费版{self._daily_limit}次/天" if self._daily_limit <= 200 else "",
         }

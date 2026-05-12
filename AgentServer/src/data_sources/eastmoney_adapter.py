@@ -65,6 +65,7 @@ class EastmoneyAdapter(AsyncDataSourceAdapter):
     def source_type(self) -> DataSourceType:
         return DataSourceType.REALTIME
 
+    @property
     def capability(self) -> DataSourceCapability:
         return DataSourceCapability(
             realtime_quotes=True,
@@ -257,12 +258,39 @@ class EastmoneyAdapter(AsyncDataSourceAdapter):
             await asyncio.sleep(0.1)
 
         if all_data:
+            # 从MongoDB daily_basic补充PE/PB/量比(腾讯回退时缺这些)
+            try:
+                from pymongo import MongoClient
+                client = MongoClient("mongodb://localhost:27017", serverSelectionTimeoutMS=3000)
+                db = client["stock_agent"]
+                latest = db["daily_basic"].find_one(sort=[("trade_date", -1)])
+                if latest:
+                    latest_date = latest["trade_date"]
+                    supplemented = 0
+                    for doc in db["daily_basic"].find({"trade_date": latest_date},
+                            {"ts_code": 1, "pe": 1, "pb": 1, "volume_ratio": 1, "turnover_rate": 1, "circ_mv": 1}):
+                        ts_code = doc.get("ts_code")
+                        if ts_code and ts_code in all_data:
+                            item = all_data[ts_code]
+                            if item.get("volume_ratio") is None and doc.get("volume_ratio"):
+                                item["volume_ratio"] = doc["volume_ratio"]
+                                supplemented += 1
+                            if item.get("pe") is None and doc.get("pe"):
+                                item["pe"] = doc["pe"]
+                            if item.get("pb") is None and doc.get("pb"):
+                                item["pb"] = doc["pb"]
+                            if item.get("float_mv") is None and doc.get("circ_mv"):
+                                item["float_mv"] = doc["circ_mv"]  # 万
+                    logger.info(f"[EASTMONEY] MongoDB补全: {supplemented}只PE/PB/量比")
+            except Exception as e:
+                logger.debug(f"[EASTMONEY] MongoDB补全失败(非致命): {e}")
+
             self._total_stocks = len(all_data)
             self._cache = all_data
             self._cache_time = time.time()
             self._last_fetch_time = time.time()
             self._fetch_count += 1
-            logger.info(f"[EASTMONEY] 腾讯回退: {len(all_data)}只 (无量比/PE/PB)")
+            logger.info(f"[EASTMONEY] 腾讯回退: {len(all_data)}只")
             return all_data
         return {}
 
@@ -461,6 +489,7 @@ class EastmoneyAdapter(AsyncDataSourceAdapter):
         return {
             "name": self.name(),
             "available": self._session is not None,
+            "initialized": self._session is not None and self._total_stocks > 0,
             "total_stocks": self._total_stocks,
             "cached_stocks": len(self._cache),
             "cache_age_seconds": round(cache_age, 1) if cache_age >= 0 else None,
@@ -468,5 +497,6 @@ class EastmoneyAdapter(AsyncDataSourceAdapter):
             "last_fetch_time": datetime.fromtimestamp(self._last_fetch_time).strftime("%H:%M:%S") if self._last_fetch_time > 0 else None,
             "daily_calls": self._fetch_count,  # 东方财富无限流, 此为统计用
             "daily_limit": -1,                  # -1 = 无限制
-            "note": "免费无限流, 全市场快照3秒",
+            "daily_remaining": -1,               # -1 = 无限制
+            "note": "免费无限流, 全市场快照3秒" if self._total_stocks > 0 else "push2被封, 腾讯回退",
         }
