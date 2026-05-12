@@ -99,8 +99,16 @@ class SimulatedBroker:
 
     # 限制
     LOT_SIZE = 100             # 整手
+    KCB_LOT_SIZE = 200         # 科创板最小200股
     MAX_POSITION_RATIO = 0.15  # 单票最大15%仓位
     MAX_TOTAL_RATIO = 0.7      # 总仓位上限70%
+
+    # 涨跌停比例
+    LIMIT_RATIO_MAIN = 0.10       # 主板±10%
+    LIMIT_RATIO_KCB = 0.20        # 科创板±20%
+    LIMIT_RATIO_CYB = 0.20        # 创业板±20%
+    LIMIT_RATIO_BJB = 0.30        # 北交所±30%
+    LIMIT_RATIO_ST = 0.05         # ST股±5%
 
     def __init__(self, account_id: str = "default", initial_cash: float = 1_000_000):
         self.account = Account(account_id=account_id, total_assets=initial_cash, available_cash=initial_cash)
@@ -110,12 +118,46 @@ class SimulatedBroker:
         self._limit_prices: Dict[str, Dict] = {}  # ts_code → {upper, lower}
         self._suspended: set = set()  # 停牌股
 
+    def _calc_limit_prices(self, ts_code: str, pre_close: float) -> Dict[str, float]:
+        """根据板块计算涨跌停价"""
+        if pre_close <= 0:
+            return {"upper": 0, "lower": 0}
+
+        # 科创板688xxx: ±20%
+        if ts_code.startswith('688'):
+            ratio = 0.20
+        # 北交所4xx/8xx.BJ: ±30%
+        elif ts_code.startswith(('4', '8')) and ts_code.endswith('.BJ'):
+            ratio = 0.30
+        # 创业板300xxx: ±20%
+        elif ts_code.startswith('300'):
+            ratio = 0.20
+        # 主板: ±10%
+        else:
+            ratio = 0.10
+
+        # ST股: ±5% (从stock_name判断)
+        # TODO: 后续传入is_st标志
+
+        upper = round(pre_close * (1 + ratio), 2)
+        lower = round(pre_close * (1 - ratio), 2)
+        return {"upper": upper, "lower": lower}
+
     def update_realtime(self, ts_code: str, price: float,
+                        pre_close: float = None,
                         upper_limit: float = None, lower_limit: float = None,
-                        suspended: bool = False):
+                        suspended: bool = False, is_st: bool = False):
         """更新实时行情(由MarketScanner调用)"""
         self._realtime_prices[ts_code] = price
-        if upper_limit is not None or lower_limit is not None:
+
+        # 自动计算涨跌停价
+        if pre_close and pre_close > 0:
+            calc = self._calc_limit_prices(ts_code, pre_close)
+            if is_st:  # ST股±5%
+                calc["upper"] = round(pre_close * 1.05, 2)
+                calc["lower"] = round(pre_close * 0.95, 2)
+            self._limit_prices[ts_code] = calc
+        elif upper_limit is not None or lower_limit is not None:
             self._limit_prices[ts_code] = {
                 "upper": upper_limit or price * 1.1,
                 "lower": lower_limit or price * 0.9,
@@ -209,11 +251,12 @@ class SimulatedBroker:
             return False, "无实时行情", order
 
         # 3. 整手检查
-        if quantity % self.LOT_SIZE != 0 or quantity <= 0:
+        lot_size = self.KCB_LOT_SIZE if ts_code.startswith('688') else self.LOT_SIZE
+        if quantity % lot_size != 0 or quantity <= 0:
             order.status = OrderStatus.REJECTED
-            order.reason = f"数量必须为{self.LOT_SIZE}的整数倍"
+            order.reason = f"数量必须为{lot_size}的整数倍"
             self.orders.append(order)
-            return False, f"数量必须为{self.LOT_SIZE}的整数倍", order
+            return False, f"数量必须为{lot_size}的整数倍", order
 
         # ==================== 买入检查 ====================
         if side_enum == OrderSide.BUY:
@@ -229,7 +272,7 @@ class SimulatedBroker:
             est_amount = quantity * current_price
             if est_amount > self.account.available_cash:
                 # 缩减到可用现金能买到的数量
-                quantity = int(self.account.available_cash / current_price / self.LOT_SIZE) * self.LOT_SIZE
+                quantity = int(self.account.available_cash / current_price / lot_size) * lot_size
                 if quantity <= 0:
                     order.status = OrderStatus.REJECTED
                     order.reason = "可用资金不足"
@@ -242,7 +285,7 @@ class SimulatedBroker:
                 existing = self.positions.get(ts_code)
                 existing_value = existing.avg_cost * existing.total_qty if existing else 0
                 if existing_value + est_amount > single_max:
-                    max_qty = int((single_max - existing_value) / current_price / self.LOT_SIZE) * self.LOT_SIZE
+                    max_qty = int((single_max - existing_value) / current_price / lot_size) * lot_size
                     quantity = max(0, min(quantity, max_qty))
                     if quantity <= 0:
                         order.status = OrderStatus.REJECTED
@@ -343,26 +386,28 @@ class SimulatedBroker:
 
     def _execute_buy(self, order: Order, fill_price: float, total_cost: float):
         """执行买入"""
+        # 买入成本含佣金, 计入avg_cost
         amount = fill_price * order.quantity + total_cost
         self.account.available_cash -= amount
-        self.account.frozen_cash += 0  # 简化: 不冻结
 
         if order.ts_code in self.positions:
             pos = self.positions[order.ts_code]
-            # 加仓: 重算均价
-            total_cost_base = pos.avg_cost * pos.total_qty + fill_price * order.quantity
+            # 加仓: 重算均价(含佣金)
+            total_cost_base = pos.avg_cost * pos.total_qty + fill_price * order.quantity + total_cost
             pos.total_qty += order.quantity
             pos.today_buy_qty += order.quantity  # T+1: 今日买入不可卖
             pos.avg_cost = total_cost_base / pos.total_qty
             pos.current_price = fill_price
             pos.strategy = order.strategy
         else:
+            # 新仓: avg_cost含佣金
+            avg_cost_with_fee = (fill_price * order.quantity + total_cost) / order.quantity
             self.positions[order.ts_code] = Position(
                 ts_code=order.ts_code,
                 stock_name=order.stock_name,
                 total_qty=order.quantity,
                 available_qty=0,  # T+1: 今日买入不可卖
-                avg_cost=fill_price,
+                avg_cost=avg_cost_with_fee,
                 current_price=fill_price,
                 today_buy_qty=order.quantity,
                 strategy=order.strategy,
@@ -374,6 +419,10 @@ class SimulatedBroker:
         if not pos:
             return
 
+        # 计算本笔盈亏
+        profit = (fill_price - pos.avg_cost) * order.quantity - total_cost
+        self.account.total_profit += profit
+
         # 收回资金
         amount = fill_price * order.quantity - total_cost
         self.account.available_cash += amount
@@ -382,14 +431,9 @@ class SimulatedBroker:
         pos.available_qty -= order.quantity
         pos.total_qty -= order.quantity
 
-        # 计算盈亏
         if pos.total_qty <= 0:
-            profit = (fill_price - pos.avg_cost) * order.quantity
-            self.account.total_profit += profit
             del self.positions[order.ts_code]
-        else:
-            # 部分卖出
-            pass
+        # 部分卖出: 盈亏已在上方计入total_profit
 
     def daily_settlement(self, trade_date: str = None):
         """

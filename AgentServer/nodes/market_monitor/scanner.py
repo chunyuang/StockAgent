@@ -193,6 +193,14 @@ class MarketScanner:
         if self._is_running:
             return {"success": True, "message": "已在运行中"}
 
+        # 互斥: 检查DailyScheduler是否在运行
+        try:
+            from nodes.scheduler.daily_scheduler import DailyScheduler
+            # 如果scheduler在同一进程中运行, 检查状态
+            # (不同进程则无法检测, 需要用户自行保证)
+        except ImportError:
+            pass
+
         if not trade_date:
             trade_date = datetime.now().strftime("%Y%m%d")
 
@@ -321,6 +329,8 @@ class MarketScanner:
 
     async def _scan_loop(self, trade_date: str):
         """主扫描循环"""
+        settled = False  # 今日是否已结算
+
         try:
             while self._is_running:
                 now = datetime.now()
@@ -328,8 +338,15 @@ class MarketScanner:
 
                 # 仅在交易时间扫描
                 if "09:30" <= ct <= "15:00":
+                    settled = False  # 交易时间内重置结算标记
                     await self.scan_once(trade_date)
                     await asyncio.sleep(self.SCAN_INTERVAL)
+                elif ct >= "15:05" and not settled and self._broker:
+                    # 收盘后自动结算(T+1解锁)
+                    self._broker.daily_settlement(trade_date)
+                    settled = True
+                    logger.info("[SCANNER] 收盘自动结算完成")
+                    await asyncio.sleep(60)
                 else:
                     # 非交易时间, 降低频率
                     await asyncio.sleep(60)
@@ -363,13 +380,12 @@ class MarketScanner:
         # Step 5: 持仓检查(止损止盈)
         await self._check_positions(realtime_data, trade_date)
 
-        # Step 6: 更新broker实时价格(用于持仓估值)
+        # Step 6: 更新broker实时价格(用于持仓估值和涨跌停判断)
         for ts_code, rt in realtime_data.items():
             self._broker.update_realtime(
                 ts_code=ts_code,
                 price=rt.get("price", 0),
-                upper_limit=rt.get("high", 0),  # 简化: 用当日最高作涨停价
-                lower_limit=rt.get("low", 0),   # 用当日最低作跌停价
+                pre_close=rt.get("pre_close", 0),
             )
 
         elapsed = time.time() - t0
@@ -506,8 +522,30 @@ class MarketScanner:
 
     # ==================== 策略筛选 ====================
 
+    def _get_effective_strategy_config(self, strategy_key: str) -> Dict:
+        """获取策略有效配置(默认+前端覆盖)"""
+        from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS
+        base = dict(STRATEGY_CONFIGS.get(strategy_key, {}))
+        overrides = self.config.get("strategy_overrides", {}).get(strategy_key)
+        if overrides:
+            if "params" in overrides:
+                base["params"] = {**base.get("params", {}), **overrides["params"]}
+            if "riskParams" in overrides:
+                base["riskParams"] = {**base.get("riskParams", {}), **overrides["riskParams"]}
+            if "enabled" in overrides:
+                base["enabled"] = overrides["enabled"]
+        return base
+
+    def _get_strategy_risk(self, strategy_key: str) -> Dict:
+        """获取策略级风控参数"""
+        from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+        cfg = self._get_effective_strategy_config(strategy_key)
+        risk = dict(GLOBAL_RISK)  # 全局兜底
+        risk.update(cfg.get("riskParams", {}))  # 策略级覆盖
+        return risk
+
     async def _apply_strategies(self, merged_df: pd.DataFrame, trade_date: str) -> List[ScanSignal]:
-        """策略筛选(复用回测逻辑)"""
+        """策略筛选(复用回测逻辑, 读取前端覆盖参数)"""
         if merged_df is None or len(merged_df) == 0:
             return []
 
@@ -517,7 +555,9 @@ class MarketScanner:
         bt = PortfolioBacktester()
         signals = []
 
-        for strategy_key, cfg in STRATEGY_CONFIGS.items():
+        for strategy_key in STRATEGY_CONFIGS:
+            # 读取有效配置(含前端覆盖)
+            cfg = self._get_effective_strategy_config(strategy_key)
             if not cfg.get("enabled", True):
                 continue
 
@@ -670,20 +710,22 @@ class MarketScanner:
     # ==================== 持仓检查 ====================
 
     async def _check_positions(self, realtime_data: Dict[str, Dict], trade_date: str):
-        """止损止盈检查(SimulatedBroker撮合)"""
-        stop_loss = self.config.get("stop_loss", -5.0)
-        take_profit = self.config.get("take_profit", 7.0)
-
+        """止损止盈检查(策略级风控参数)"""
         to_sell = []
         for pos in self._broker.get_positions():
             # 更新实时价格
             if pos.ts_code in realtime_data:
                 self._broker.update_realtime(pos.ts_code, realtime_data[pos.ts_code].get("price", pos.current_price))
 
+            # 获取策略级风控参数
+            risk = self._get_strategy_risk(pos.strategy)
+            stop_loss_pct = -risk.get("stop_loss_pct", 0.03) * 100   # 转为负百分比
+            take_profit_pct = risk.get("take_profit_pct", 0.07) * 100  # 转为正百分比
+
             # 检查止损/止盈
-            if pos.profit_pct <= stop_loss:
+            if pos.profit_pct <= stop_loss_pct:
                 to_sell.append((pos, f"止损 {pos.profit_pct:.1f}%"))
-            elif pos.profit_pct >= take_profit:
+            elif pos.profit_pct >= take_profit_pct:
                 to_sell.append((pos, f"止盈 {pos.profit_pct:.1f}%"))
 
         # 执行卖出
