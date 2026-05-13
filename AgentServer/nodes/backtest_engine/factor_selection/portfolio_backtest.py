@@ -901,9 +901,10 @@ class PortfolioBacktester:
                 "boll_upper", "boll_mid", "boll_lower", "atr", "natr", "trange",
                 "momentum_1d", "momentum_5d", "momentum_10d", "momentum_20d",
                 "volatility_5d", "volatility_10d", "volatility_20d",
-                "turnover_5d_avg", "turnover_20d_avg", "fear_greed_index",
+                "turnover_5d_avg", "turnover_20d_avg", "fear_greed_index"
                 # 【Phase2】盘中可观测因子，替代收盘涨幅pct_chg（未来函数）
-                "intraday_max_rise_pct", "intraday_open_rise_pct"
+                # 注意：intraday_max_rise_pct和intraday_open_rise_pct是动态计算因子，不在REQUIRED_FACTOR_FIELDS中
+                # 它们在factor_engine.py中实时计算，无需预存储
             ]
             actual_total = await mongo_manager.count_documents(
                 C.STOCK_DAILY, {"trade_date": {"$gte": start_dt, "$lte": end_dt}}
