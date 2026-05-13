@@ -99,6 +99,10 @@ class FactorEngine:
             projection = {"ts_code": 1, "_id": 0}
             for name in factor_names:
                 projection[name] = 1
+            # 【Phase2】确保high/open/pre_close也在projection中，用于计算盘中可观测因子
+            for _field in ["high", "open", "pre_close"]:
+                if _field not in projection:
+                    projection[_field] = 1
             
             # 从 MongoDB 批量读取所有股票的因子值
             cursor = mongo_manager.db[C.STOCK_DAILY].find(
@@ -162,6 +166,19 @@ class FactorEngine:
                 if col in result.columns:
                     result[col] = result[col].astype(float)
             
+            # 【Phase2】计算盘中可观测因子（替代pct_chg收盘涨幅，消除未来函数）
+            # intraday_max_rise_pct: 盘中最高价相对昨收的涨幅 (high - pre_close) / pre_close * 100
+            # intraday_open_rise_pct: 开盘价相对昨收的涨幅 (open - pre_close) / pre_close * 100
+            # 这两个因子用已有的high/open/pre_close列计算，无需额外数据源
+            if "high" in result.columns and "pre_close" in result.columns:
+                result["intraday_max_rise_pct"] = (
+                    (result["high"] - result["pre_close"]) / result["pre_close"].replace(0, np.nan) * 100
+                )
+            if "open" in result.columns and "pre_close" in result.columns:
+                result["intraday_open_rise_pct"] = (
+                    (result["open"] - result["pre_close"]) / result["pre_close"].replace(0, np.nan) * 100
+                )
+
             # 标准化 & 综合打分（保持与实盘模式相同的计算逻辑）
             result = self._normalize_factors(result, factor_configs)
             result = self._compute_composite_score(result, factor_configs)
@@ -220,6 +237,16 @@ class FactorEngine:
         result = pd.DataFrame({"ts_code": stocks_list})
         for factor_name, values in factor_values.items():
             result[factor_name] = result["ts_code"].map(values)
+
+        # 【Phase2】计算盘中可观测因子（实盘模式也需要）
+        if "high" in result.columns and "pre_close" in result.columns:
+            result["intraday_max_rise_pct"] = (
+                (result["high"] - result["pre_close"]) / result["pre_close"].replace(0, np.nan) * 100
+            )
+        if "open" in result.columns and "pre_close" in result.columns:
+            result["intraday_open_rise_pct"] = (
+                (result["open"] - result["pre_close"]) / result["pre_close"].replace(0, np.nan) * 100
+            )
 
         # 5. 标准化 & 综合打分
         result = self._normalize_factors(result, factor_configs)
