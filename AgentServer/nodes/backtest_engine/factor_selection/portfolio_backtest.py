@@ -712,6 +712,12 @@ class PortfolioBacktester:
         await self.log(f"    🔹 📊 单票最大仓位: {risk_config['max_position_per_stock'] * 100:.0f}%")
         await self.log(f"    🔹 {'✅' if risk_config['enable_ma60_filter'] else '❌'} 大盘MA60过滤")
         await self.log(f"    🔹 {'✅' if risk_config['enable_sector_concentration'] else '❌'} 板块集中度过滤: 保留前 {risk_config['sector_concentration_top_n']} 名")
+        await self.log("🔧 Phase1 实盘对标修复:")
+        await self.log("    🔹 ✅ T+1约束: 当日买入不可卖出")
+        await self.log("    🔹 ✅ 半路追涨买入价: open→open×(1+min_rise×0.6) (盘中信号触发价)")
+        await self.log("    🔹 ✅ 龙头低吸买入价: low×1.005→low+(high-low)×0.25 (偏低位但不极端)")
+        await self.log("    🔹 ✅ 跳空止损: open<止损价→以open卖出 (最差情况)")
+        await self.log("    🔹 ✅ 止损卖出价: close→止损价/跳空open (不再一律用close)")
 
         # 保存风控配置到实例,后续使用
         self._risk_config = risk_config
@@ -1042,6 +1048,11 @@ class PortfolioBacktester:
                 sell_count = 0
                 for code in list(holdings.keys()):
                     if holdings[code] > 0 and code in prices_for_sell:
+                        # 【Phase1-T+1】强制空仓也要递守T+1: 当日买入不可卖
+                        buy_dt = self._cost_basis_date.get(code)
+                        if buy_dt is not None and buy_dt == trade_date:
+                            await self.log(f"   │  🔒 T+1限制: {code} 当日买入不可卖(强制空仓跳过)")
+                            continue
                         price = prices_for_sell[code]['close']
                         # 【P0-1修复：停牌股close=0时用最后有效价，避免0元卖出丢失持仓价值】
                         if price <= 0:
@@ -1713,10 +1724,15 @@ class PortfolioBacktester:
         enable_sl = self._risk_config.get('enable_stop_loss', True)
         enable_tp = self._risk_config.get('enable_take_profit', True)
         forced_sell_codes = []
+        forced_sell_prices = {}  # code -> actual sell price (Phase1: gap handling)
         if (enable_sl or enable_tp) and holdings:
             _sl_tp_prices = await self._get_prices(set(holdings.keys()), trade_date)
             for code in list(holdings.keys()):
                 if holdings.get(code, 0) <= 0:
+                    continue
+                # 【Phase1-T+1】当日买入的股票不可止损/止盈卖出(T+1限制)
+                buy_dt = getattr(self, '_cost_basis_date', {}).get(code)
+                if buy_dt is not None and buy_dt == trade_date:
                     continue
                 p = _sl_tp_prices.get(code, {})
                 cost = getattr(self, '_cost_basis', {}).get(code, 0)
@@ -1734,9 +1750,19 @@ class PortfolioBacktester:
                     sl_pct, tp_pct = global_sl, global_tp
                 low_p = p.get('low', p['close'])
                 high_p = p.get('high', p['close'])
-                if enable_sl and low_p <= cost * (1 - sl_pct):
-                    forced_sell_codes.append((code, '止损'))
-                elif enable_tp and high_p >= cost * (1 + tp_pct):
+                open_p = p.get('open', p['close'])
+                stop_price = cost * (1 - sl_pct)
+                tp_price = cost * (1 + tp_pct)
+                if enable_sl and low_p <= stop_price:
+                    # 【Phase1-跳空止损】如果open直接跳空低于止损价，以open卖出(最差情况)
+                    if open_p <= stop_price:
+                        forced_sell_prices[code] = open_p  # 跳空低开，以open卖出
+                        forced_sell_codes.append((code, f'跳空止损(开{open_p:.2f}<止损{stop_price:.2f})'))
+                    else:
+                        forced_sell_prices[code] = stop_price  # 盘中跌破止损，以止损价卖出
+                        forced_sell_codes.append((code, '止损'))
+                elif enable_tp and high_p >= tp_price:
+                    forced_sell_prices[code] = tp_price  # 止盈以止盈价卖出
                     forced_sell_codes.append((code, '止盈'))
                 # 【Bug修复：非调仓日也要检查max_hold_days超时】
                 buy_date_raw = getattr(self, '_cost_basis_date', {}).get(code)
@@ -1765,11 +1791,13 @@ class PortfolioBacktester:
                 if shares <= 0:
                     continue
                 p = _sl_tp_prices.get(code, {})
-                close_p = p.get('close', 0)
-                if close_p <= 0:
+                # 【Phase1-止损卖出价修复】不再一律用close，改用实际触发价格
+                # 止损→止损价, 跳空止损→open价, 止盈→止盈价
+                sell_p = forced_sell_prices.get(code, p.get('close', 0))
+                if sell_p <= 0:
                     continue
                 slippage_pct = self._get_slippage_for_code(code)
-                sell_price_adj = close_p * (1 - slippage_pct)
+                sell_price_adj = sell_p * (1 - slippage_pct)
                 gross_amount = shares * sell_price_adj
                 commission = max(gross_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
                 stamp_tax = gross_amount * self.STAMP_TAX
@@ -1783,11 +1811,11 @@ class PortfolioBacktester:
                 _nrt_strategy = self._get_strategy_for_stock(code)
                 rebalance_records.append(RebalanceRecord(
                     date=str(trade_date), action='sell', ts_code=code,
-                    shares=shares, price=close_p, amount=net_amount,
+                    shares=shares, price=sell_p, amount=net_amount,
                     reason=f'非调仓日{reason}',
                     strategy_name=_nrt_strategy,
                     sentiment=''))
-                await self.log(f"   │  ⚠️  非调仓日{reason}卖出: {code} {shares}股 @ {close_p:.2f}")
+                await self.log(f"   │  ⚠️  非调仓日{reason}卖出: {code} {shares}股 @ {sell_p:.2f}")
             # 更新价格缓存供后续净值计算
             _prices_for_display = _sl_tp_prices
         else:
@@ -2791,31 +2819,50 @@ class PortfolioBacktester:
 
     def _get_buy_price_for_stock(self, code: str, open_price: float, close_price: float,
                                   high_price: float, low_price: float, pre_close: float = 0) -> float:
-        """【辅助函数】计算买入价(多策略选同股时取最低买入价，最保守)"""
+        """【辅助函数】计算买入价(多策略选同股时取最低买入价，最保守)
+
+        【Phase1-修复】半路追涨买入价从open改为盘中信号触发价:
+        - 实盘中半路追涨在10:00-11:00观察到涨幅2-7%时追入，不是9:30开盘时
+        - 用open价买入严重低估成本(9:30时还没涨2%)
+        - 修正: open*(1+min_rise*0.6)，模拟涨到阈值后追入的真实价格
+        - min_rise*0.6: 保守估计信号触发在日内涨幅的60%位置
+        """
         sinfo = getattr(self, 'stock_to_strategy', {}).get(code, '')
         strategies = sinfo if isinstance(sinfo, list) else [sinfo]
-        
+
         prices = []
         for sname in strategies:
             if sname == '半路追涨':
-                # 【买入价模型】半路追涨用open价买入
-                # 理由：日线回测无法还原盘中走势，open价是最保守的真实估计
-                # 旧模型 pre_close*(1+min_rise*0.3) 存在问题：
-                #   - 高开时被max(open)卡住，实际=open
-                #   - 平开时=pre_close*1.006，略高于open，虚增成本
-                #   - 无法反映盘中最低买入的真实性
-                p = open_price if open_price > 0 else 0
+                # 【Phase1-修复】不再用open价(9:30)，改用盘中信号触发价
+                # 实盘: 股价涨到min_rise时才触发信号，此时价格已高于open
+                # 保守模型: buy_price = open * (1 + min_rise_pct * signal_fraction)
+                # signal_fraction=0.6: 信号在涨到min_rise的60%处就开始观察，
+                # 实际买入在确认突破min_rise后，所以约60%位置
+                min_rise = self._strategy_params.get('半路追涨', {}).get('min_rise_pct', 0.02)
+                signal_fraction = 0.6  # 保守: 在日内60%涨幅位置触发
+                p = open_price * (1 + min_rise * signal_fraction) if open_price > 0 else 0
+                # 确保不低于open(防高开回落被选入)
+                p = max(p, open_price) if open_price > 0 else 0
             elif sname in ('首板打板', '涨停开板'):
                 p = self._get_limit_up_price(code, open_price, close_price, high_price, low_price, pre_close)
             elif sname == '龙头低吸':
-                p = low_price * 1.005 if low_price > 0 else open_price * 0.98
+                # 【Phase1-修复】low价偏乐观(不可能精确抄底)
+                # 改为: low上方25%位置(日内偏低但不极端)
+                if low_price > 0 and high_price > low_price:
+                    p = low_price + (high_price - low_price) * 0.25
+                elif low_price > 0:
+                    p = low_price * 1.01
+                else:
+                    p = open_price * 0.98
             elif sname == '跌停翘板':
+                # 跌停撬板买入价: 跌停价上方1-3%
+                # 保持现有逻辑(low*1.005)，因为翘板确实在低价区
                 p = low_price * 1.005 if low_price > 0 else open_price * 0.92
             else:
                 p = open_price
             if p > 0:
                 prices.append(p)
-        
+
         if not prices:
             return open_price
         # 多策略选同股：取最低买入价(最保守，避免高估成本)
@@ -3094,6 +3141,15 @@ class PortfolioBacktester:
 
         # 先卖出:不在目标持仓中的股票全卖 + 持仓超过目标的股票减仓
         sell_codes = [code for code in holdings if code not in target_shares and holdings[code] > 0]
+        # 【Phase1-T+1】排除当日买入的股票(T+1: 当日买入不可卖出)
+        t1_blocked = []
+        for code in list(sell_codes):
+            buy_dt = self._cost_basis_date.get(code)
+            if buy_dt is not None and buy_dt == trade_date:
+                t1_blocked.append(code)
+                sell_codes.remove(code)
+        if t1_blocked:
+            logger.info(f"[T+1] 当日买入不可卖: {','.join(t1_blocked[:5])}{'...' if len(t1_blocked)>5 else ''}")
         # 【P1-1修复：超过max_hold_days的持仓强制卖出，即使仍在目标池中】
         # max_hold_days语义是交易日天数，但日历天数≈交易日*1.5，用日历天数>max_hold_days*1.5判断
         # 【P1-2修复(第十轮)：优先使用策略级max_hold_days，取最短的天数(最严格)】
@@ -3125,6 +3181,8 @@ class PortfolioBacktester:
                     except (ValueError, TypeError):
                         pass
         sell_codes.extend(over_hold_codes)
+        # 【Phase1-T+1】超时强卖也要递守T+1(正常不应出现:昨日买的今天不触超时)
+        sell_codes = [c for c in sell_codes if self._cost_basis_date.get(c) != trade_date]
         # 【P1-4修复(第十一轮)：去重，避免超时强卖股重复卖出】
         sell_codes = list(set(sell_codes))
         # 【P1-4修复(第十轮)：超时强卖的股票当天不应被重新买入，从目标池中排除】
@@ -3134,6 +3192,9 @@ class PortfolioBacktester:
         # 【修复P1-6：减仓逻辑 — 持仓超过目标时卖出差额】
         reduce_codes = {code: holdings[code] - target_shares[code] for code in holdings
                         if code in target_shares and holdings.get(code, 0) > target_shares[code]}
+        # 【Phase1-T+1】当日买入的股票不可减仓(减仓=部分卖出)
+        reduce_codes = {code: delta for code, delta in reduce_codes.items()
+                        if self._cost_basis_date.get(code) != trade_date}
         # 【P1-4修复：减仓前检查止损止盈 — 已触发止损的减仓股改为全卖】
         enable_sl = self._risk_config.get('enable_stop_loss', True)
         enable_tp = self._risk_config.get('enable_take_profit', True)
@@ -3231,8 +3292,13 @@ class PortfolioBacktester:
                 stop_price = cost_basis * (1 - code_sl)
                 profit_price = cost_basis * (1 + code_tp)
                 if enable_stop_loss and low_price <= stop_price:
-                    sell_price = stop_price
-                    sell_reason = f'止损({code_sl*100:.0f}%)'
+                    # 【Phase1-跳空止损】open直接跳空低于止损价，以open卖出(最差情况)
+                    if open_price <= stop_price:
+                        sell_price = open_price
+                        sell_reason = f'跳空止损(开{open_price:.2f}<止损{stop_price:.2f})'
+                    else:
+                        sell_price = stop_price
+                        sell_reason = f'止损({code_sl*100:.0f}%)'
                 elif enable_take_profit and high_price >= profit_price:
                     sell_price = profit_price
                     sell_reason = f'止盈({code_tp*100:.0f}%)'
