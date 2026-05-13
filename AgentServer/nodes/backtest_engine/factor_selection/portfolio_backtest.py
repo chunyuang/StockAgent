@@ -901,7 +901,9 @@ class PortfolioBacktester:
                 "boll_upper", "boll_mid", "boll_lower", "atr", "natr", "trange",
                 "momentum_1d", "momentum_5d", "momentum_10d", "momentum_20d",
                 "volatility_5d", "volatility_10d", "volatility_20d",
-                "turnover_5d_avg", "turnover_20d_avg", "fear_greed_index"
+                "turnover_5d_avg", "turnover_20d_avg", "fear_greed_index",
+                # 【Phase2】盘中可观测因子，替代收盘涨幅pct_chg（未来函数）
+                "intraday_max_rise_pct", "intraday_open_rise_pct"
             ]
             actual_total = await mongo_manager.count_documents(
                 C.STOCK_DAILY, {"trade_date": {"$gte": start_dt, "$lte": end_dt}}
@@ -2919,14 +2921,13 @@ class PortfolioBacktester:
         if strategy_name == "半路追涨":
             min_rise_pct = converted_params.get("min_rise_pct")
             max_rise_pct = converted_params.get("max_rise_pct")
-            # 【修复#4：默认值统一为1.5，和 models.py/ultra_short.py/defaults.py 保持一致
-            # 【P0修复：默认值统一为2.0，与_print_single_strategy_filtering显示一致】
+            # 【Phase2修复：用盘中可观测指标替代收盘涨幅，消除未来函数】
+            # 回测模式下，high/open/pre_close在日线结束后才确定，但仍比pct_chg更接近盘中可观测性
+            # 实盘模式下，high/open/pre_close都是盘中实时可观测
             volume_threshold = converted_params.get("min_volume_ratio")
             return [
-                # 【Bug修复：去掉open_below_limit条件——该因子含义是'开盘接近跌停'而非'开盘低于涨停'】
-                # 半路追涨要求：量比≥2 + 涨幅2-5% + 非涨停(用pct_chg<=9.5%保证)
-                {"name": "pct_chg", "target": min_rise_pct * 100, "operator": ">=", "label": "最小涨幅"},
-                {"name": "pct_chg", "target": max_rise_pct * 100, "operator": "<=", "label": "最大涨幅"},
+                {"name": "intraday_max_rise_pct", "target": min_rise_pct * 100, "operator": ">=", "label": "盘中最高涨幅≥{min_rise_pct}%"},
+                {"name": "intraday_open_rise_pct", "target": max_rise_pct * 100, "operator": "<=", "label": "开盘涨幅≤{max_rise_pct}%"},
                 {"name": "volume_ratio", "target": volume_threshold, "label": "量比阈值"}
             ]
         elif strategy_name == "首板打板":
@@ -2987,7 +2988,7 @@ class PortfolioBacktester:
             return [
                 {"name": "limit_up_yesterday", "target": 1, "operator": "==", "label": "昨日涨停(连板候选)"},
                 {"name": "is_limit_up", "target": 0, "operator": "==", "label": "今日未封住(开板)"},
-                {"name": "pct_chg", "target": 0, "operator": ">=", "label": "今日涨幅≥0%"},
+                {"name": "intraday_max_rise_pct", "target": 0, "operator": ">=", "label": "盘中最高涨幅≥0%(非大跌)"},
                 {"name": "volume_ratio", "target": min_volume_ratio, "operator": ">=", "label": f"量比≥{min_volume_ratio}"},
                 {"name": "turnover_rate", "target": min_turnover, "operator": ">=", "label": f"换手率≥{min_turnover}%"},
                 {"name": "sentiment_period_in", "target": require_sentiment, "operator": "in", "label": "情绪周期要求"},
