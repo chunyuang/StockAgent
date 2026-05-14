@@ -899,12 +899,9 @@ class PortfolioBacktester:
                 "boll_upper", "boll_mid", "boll_lower", "atr", "natr", "trange",
                 "momentum_1d", "momentum_5d", "momentum_10d", "momentum_20d",
                 "volatility_5d", "volatility_10d", "volatility_20d",
-                "turnover_5d_avg", "turnover_20d_avg", "fear_greed_index"
-                # 移除了缺失/有问题的因子：
-                # - hot_sector (假因子，全为False)
-                # - market_leader (假因子，全为False) 
-                # - volume_increase (未正确实现)
-                # - sentiment_score (数据问题，全为0.5)
+                "turnover_5d_avg", "turnover_20d_avg", "fear_greed_index",
+                # 已修复的因子：
+                "volume_increase", "market_leader", "hot_sector", "sentiment_score"
                 # 注意：日线回测无法获取盘中因子，如：
                 # - limit_up_open_count (开板次数，盘中数据)
                 # - limit_up_open_amount (开板金额，盘中数据) 
