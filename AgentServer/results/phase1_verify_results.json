@@ -1,0 +1,22 @@
+{
+  "halfway_only": {
+    "name": "halfway_only",
+    "total_return": 61.40981646526631,
+    "alpha": 64.60472796717283,
+    "win_rate": 69.88911988911988,
+    "max_drawdown": 1.8002696204821564,
+    "sharpe": 12.212854121482557,
+    "total_trades": 2886,
+    "elapsed": 123.15206289291382
+  },
+  "all_strategies": {
+    "name": "all_strategies",
+    "total_return": 63.23839261795955,
+    "alpha": 66.43330411986608,
+    "win_rate": 69.60816595324333,
+    "max_drawdown": 2.109199132153692,
+    "sharpe": 11.642294061644616,
+    "total_trades": 3037,
+    "elapsed": 124.07066607475281
+  }
+}

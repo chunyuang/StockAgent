@@ -25,15 +25,22 @@ DB_NAME = "stock_agent"
 
 # 需要预计算的关键因子(回测高频使用)
 KEY_FACTORS = [
+    # 基础因子
     "turnover_rate", "volume_ratio", "amount_20d",
     "ma5", "ma10", "ma20", "ma60",
     "rsi_6", "rsi_12",
+    
+    # 涨跌停相关
     "limit_up_yesterday", "limit_down_yesterday",
     "open_above_limit", "open_above_limit_down",
     "limit_up_count", "limit_down_count",
     "first_limit_up",
     "is_limit_up", "is_limit_down",
+    
+    # 回调指标
     "pullback_pct", "pullback_days", "pullback_ma5",
+    
+    # 新修复的因子（通过 _compute_factors_for_stock 计算）
     "volume_increase", "market_leader", "hot_sector", "sentiment_score",
 ]
 
@@ -158,11 +165,43 @@ def precompute_factors(trade_date: int):
             if ma5_val and ma5_val > 0:
                 update['pullback_ma5'] = 1 if (low_val <= ma5_val and close_val >= ma5_val) else 0
         
-        if update:
+        # 使用_factor_auto_compute中的函数计算新修复的因子
+        try:
+            from nodes.backtest_engine.factor_selection.factor_auto_compute import _compute_factors_for_stock
+            
+            # 计算新修复的因子
+            new_factors = ['volume_increase', 'market_leader', 'hot_sector', 'sentiment_score']
+            factor_result = _compute_factors_for_stock(group, new_factors)
+            
+            # 取目标日期的因子值
+            target_row = factor_result[factor_result['trade_date'] == trade_date]
+            if not target_row.empty:
+                factor_row = target_row.iloc[0]
+                for factor in new_factors:
+                    if factor in factor_row and pd.notna(factor_row[factor]):
+                        update[factor] = factor_row[factor]
+        except Exception as e:
+            print(f"  ⚠️  计算新因子失败 ({code}): {e}")
+        
+        # 类型转换：numpy类型转Python原生类型
+        converted_update = {}
+        for key, val in update.items():
+            if isinstance(val, (bool, np.bool_)):
+                converted_update[key] = float(val)  # MongoDB中布尔值存为float
+            elif isinstance(val, (np.integer,)):
+                converted_update[key] = int(val)
+            elif isinstance(val, (np.floating,)):
+                converted_update[key] = float(val)
+            elif pd.isna(val):
+                continue  # 跳过NaN值
+            else:
+                converted_update[key] = val
+        
+        if converted_update:
             results.append(
                 UpdateOne(
                     {"ts_code": row['ts_code'], "trade_date": trade_date},
-                    {"$set": update},
+                    {"$set": converted_update},
                     upsert=False,
                 )
             )

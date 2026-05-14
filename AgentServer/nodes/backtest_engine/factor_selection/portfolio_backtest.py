@@ -670,6 +670,8 @@ class PortfolioBacktester:
 
         # 🔧 提前初始化所有实例属性,避免提前返回导致属性缺失
         self.weight_method = config.get("weight_method", "equal")
+        self._max_stocks = config.get("max_stocks", 3)
+        self._strategy_weights = config.get("strategy_weights", {})
 
         await self.log(f"🚀 开始组合回测: {config['start_date']} -> {config['end_date']}")
 
@@ -1761,17 +1763,35 @@ class PortfolioBacktester:
                 open_p = p.get('open', p['close'])
                 stop_price = cost * (1 - sl_pct)
                 tp_price = cost * (1 + tp_pct)
-                if enable_sl and low_p <= stop_price:
-                    # 【Phase1-跳空止损】如果open直接跳空低于止损价，以open卖出(最差情况)
-                    if open_p <= stop_price:
-                        forced_sell_prices[code] = open_p  # 跳空低开，以open卖出
-                        forced_sell_codes.append((code, f'跳空止损(开{open_p:.2f}<止损{stop_price:.2f})'))
-                    else:
-                        forced_sell_prices[code] = stop_price  # 盘中跌破止损，以止损价卖出
-                        forced_sell_codes.append((code, '止损'))
-                elif enable_tp and high_p >= tp_price:
-                    forced_sell_prices[code] = tp_price  # 止盈以止盈价卖出
-                    forced_sell_codes.append((code, '止盈'))
+                # 【V3新增】策略级冲高回落保护/次日高开即卖
+                # 跌停翘板: 次日高开3%即卖(冲高回落保护)
+                # 首板打板: 次日高开3%即卖(落袋为安)
+                open_rise_from_cost = (open_p / cost - 1) if cost > 0 else 0
+                early_sell_triggered = False
+                if isinstance(strategies, list):
+                    for sname in strategies:
+                        if sname == '跌停翘板' and open_rise_from_cost >= 0.03:
+                            forced_sell_prices[code] = open_p
+                            forced_sell_codes.append((code, f'冲高回落保护(开{open_p:.2f}涨{open_rise_from_cost*100:.1f}%)'))
+                            early_sell_triggered = True
+                            break
+                        elif sname == '首板打板' and open_rise_from_cost >= 0.03:
+                            forced_sell_prices[code] = open_p
+                            forced_sell_codes.append((code, f'次日高开即卖(开{open_p:.2f}涨{open_rise_from_cost*100:.1f}%)'))
+                            early_sell_triggered = True
+                            break
+                if not early_sell_triggered:
+                    if enable_sl and low_p <= stop_price:
+                        # 【Phase1-跳空止损】如果open直接跳空低于止损价，以open卖出(最差情况)
+                        if open_p <= stop_price:
+                            forced_sell_prices[code] = open_p  # 跳空低开，以open卖出
+                            forced_sell_codes.append((code, f'跳空止损(开{open_p:.2f}<止损{stop_price:.2f})'))
+                        else:
+                            forced_sell_prices[code] = stop_price  # 盘中跌破止损，以止损价卖出
+                            forced_sell_codes.append((code, '止损'))
+                    elif enable_tp and high_p >= tp_price:
+                        forced_sell_prices[code] = tp_price  # 止盈以止盈价卖出
+                        forced_sell_codes.append((code, '止盈'))
                 # 【Bug修复：非调仓日也要检查max_hold_days超时】
                 buy_date_raw = getattr(self, '_cost_basis_date', {}).get(code)
                 global_max_hold = self._risk_config.get('max_hold_days', 999)
@@ -2753,17 +2773,93 @@ class PortfolioBacktester:
 
         return result
 
-    def _compute_weights(self, candidates: list[str], factor_df, weight_method: str):
-        """计算目标权重 - 根据权重方法分配权重"""
-        if weight_method == "equal":
-            # 等权分配
-            weight = 1.0 / len(candidates) if len(candidates) > 0 else 0
-            return dict.fromkeys(candidates, weight)
+    def _compute_weights(self, candidates: list[str], factor_df, weight_method: str) -> dict[str, float]:
+        """计算目标权重 - 根据权重方法分配权重
+        
+        【V3】策略席位制: 按strategy_weights分配max_stocks席位
+        例: max_stocks=3, weights={半路:0.7, 首板:0.1, 龙头:0.1, 跌停:0.1}
+        → 半路: ceil(3*0.7)=3, 首板: max(1,ceil(3*0.1))=1 → 总4(>3时按权重比缩减)
+        """
+        max_stocks = getattr(self, '_max_stocks', 3)
+        strategy_weights = getattr(self, '_strategy_weights', {})
+        stock_strategy = getattr(self, 'stock_to_strategy', {})
+        
+        # 按策略分组候选
+        strat_groups = {}  # strategy_name -> [(code, score)]
+        for code in candidates:
+            strategies = stock_strategy.get(code, [])
+            if isinstance(strategies, str): strategies = [strategies]
+            
+            # 计算分数
+            row_score = 0
+            if factor_df is not None and len(factor_df) > 0:
+                row = factor_df[factor_df['ts_code'] == code]
+                if len(row) > 0:
+                    if 'composite_score' in row.columns and not row['composite_score'].isna().iloc[0]:
+                        row_score = float(row['composite_score'].iloc[0])
+                    elif 'pct_chg' in row.columns and not row['pct_chg'].isna().iloc[0]:
+                        row_score = float(row['pct_chg'].iloc[0])
+            
+            # 归入每个策略组(一只股可属多个策略)
+            for sname in strategies:
+                if sname not in strat_groups:
+                    strat_groups[sname] = []
+                strat_groups[sname].append((code, row_score))
+        
+        # 按strategy_weights分配席位
+        import math
+        total_seats = max_stocks
+        selected_codes = []
+        
+        if strategy_weights:
+            # 计算每个策略的席位数
+            seats = {}
+            for sname, w in strategy_weights.items():
+                seats[sname] = max(1, math.ceil(total_seats * w))  # 至少1席
+            
+            # 如果总席位>max_stocks，按权重比缩减
+            total_allocated = sum(seats.values())
+            if total_allocated > total_seats:
+                # 按权重从大到小分配，直到用完
+                sorted_strats = sorted(seats.keys(), key=lambda s: strategy_weights.get(s, 0), reverse=True)
+                remaining = total_seats
+                seats = {}
+                for sname in sorted_strats:
+                    alloc = max(1, round(total_seats * strategy_weights.get(sname, 0) / sum(strategy_weights.values())))
+                    alloc = min(alloc, remaining)
+                    seats[sname] = alloc
+                    remaining -= alloc
+                    if remaining <= 0:
+                        break
+                # 补上没有席位的策略
+                for sname in strategy_weights:
+                    if sname not in seats and remaining > 0:
+                        seats[sname] = 1
+                        remaining -= 1
         else:
-            # 【P1-3修复(第十一轮)：非等权方法静默回退等权，加告警日志】
+            # 无权重配置时等分
+            n_strats = len(strat_groups) or 1
+            seats = {s: max(1, total_seats // n_strats) for s in strat_groups}
+        
+        # 每个策略组内按分数排序取前N
+        used_codes = set()
+        for sname, group in strat_groups.items():
+            group.sort(key=lambda x: x[1], reverse=True)
+            n = seats.get(sname, 1)
+            count = 0
+            for code, score in group:
+                if code not in used_codes and count < n:
+                    selected_codes.append(code)
+                    used_codes.add(code)
+                    count += 1
+        
+        if weight_method == "equal":
+            weight = 1.0 / len(selected_codes) if len(selected_codes) > 0 else 0
+            return dict.fromkeys(selected_codes, weight)
+        else:
             logger.warn('BACKTEST', f"weight_method='{weight_method}' not implemented, falling back to equal weight")
-            weight = 1.0 / len(candidates) if len(candidates) > 0 else 0
-            return dict.fromkeys(candidates, weight)
+            weight = 1.0 / len(selected_codes) if len(selected_codes) > 0 else 0
+            return dict.fromkeys(selected_codes, weight)
 
     @staticmethod
     def _get_limit_pct(ts_code: str) -> float:
@@ -2928,57 +3024,43 @@ class PortfolioBacktester:
                 converted_params[k] = v
 
         if strategy_name == "半路追涨":
-            min_rise_pct = converted_params.get("min_rise_pct")
-            max_rise_pct = converted_params.get("max_rise_pct")
+            min_rise_pct = converted_params.get("min_rise_pct") or 0.02
+            max_rise_pct = converted_params.get("max_rise_pct") or 0.07
+            volume_threshold = converted_params.get("min_volume_ratio") or 2.0
             # 【Phase2修复：用盘中可观测指标替代收盘涨幅，消除未来函数】
             # 回测模式下，high/open/pre_close在日线结束后才确定，但仍比pct_chg更接近盘中可观测性
             # 实盘模式下，high/open/pre_close都是盘中实时可观测
-            volume_threshold = converted_params.get("min_volume_ratio")
             return [
                 {"name": "intraday_max_rise_pct", "target": min_rise_pct * 100, "operator": ">=", "label": "盘中最高涨幅≥{min_rise_pct}%"},
                 {"name": "intraday_open_rise_pct", "target": max_rise_pct * 100, "operator": "<=", "label": "开盘涨幅≤{max_rise_pct}%"},
                 {"name": "volume_ratio", "target": volume_threshold, "label": "量比阈值"}
             ]
         elif strategy_name == "首板打板":
-            min_seal_amount = converted_params.get("min_seal_amount")
-            # 【修复：日线回测模式下limit_up_time只有0/925/1000三个离散值，
-            # 1000=盘中封板(无法区分具体时间)，0=未检测到涨停，925=一字板
-            # 当max_limit_time>=900(即15:00)时，跳过此条件(日线模式无法精确判断)】
-            max_limit_time = converted_params.get("max_limit_up_time")
-            if isinstance(max_limit_time, str) and ":" in max_limit_time:
-                h, m = max_limit_time.split(":")
-                max_limit_time = int(h) * 60 + int(m)
-            # 900分钟=15:00，表示日线模式不限制涨停时间
-            skip_limit_time = max_limit_time >= 900
-            min_circ_mv = converted_params.get("min_circulation_market_cap")
-            max_circ_mv = converted_params.get("max_circulation_market_cap")
-            min_volume_ratio = converted_params.get("min_volume_ratio")
-            min_turnover = converted_params.get("min_turnover_rate")
-            max_turnover = converted_params.get("max_turnover_rate")
-            max_blast = converted_params.get("max_blast_count")
-            require_hot = converted_params.get("require_hot_sector")
-            require_sentiment = converted_params.get("require_sentiment_period", ["rising", "chaos"])
-            # 【修复：opening_pct_min/max从params读取，不再硬编码2.0/5.0】
-            opening_pct_min = converted_params.get("opening_pct_min")
-            opening_pct_max = converted_params.get("opening_pct_max")
-            # 【修复：limit_up_open_amount用>=而非默认==，且从params读取】
-            # 日线回测模式下封单金额为0(无法计算)，应设为0跳过此条件
-            min_seal_amount_filter = converted_params.get("min_seal_amount", min_seal_amount)
+            # 【V3改造】首板打板：T-1预选 + T日竞价确认 + 盘中封板
+            # 核心变化：
+            # 1. 去掉limit_up_open_count/hot_sector/limit_up_time（数据全0）
+            # 2. 去掉limit_up_open_amount（日线无法计算盘中封单）
+            # 3. 用first_limit_up=1作为T日盘中封板确认（日线可推断）
+            # 4. 保留opening_pct_chg作为竞价筛选（9:25可观测）
+            # 5. 成交概率在_rebalance中模拟（一字板0%/秒板10%/快速板30%/盘中板50%）
+            # 【注意】circ_mv单位是万元，参数单位是亿，需×10000转换
+            min_circ_mv = (converted_params.get("min_circulation_market_cap") or 50) * 10000
+            max_circ_mv = (converted_params.get("max_circulation_market_cap") or 500) * 10000
+            min_volume_ratio = converted_params.get("min_volume_ratio") or 1.5
+            min_turnover = converted_params.get("min_turnover_rate") or 3
+            max_turnover = converted_params.get("max_turnover_rate") or 15
+            opening_pct_min = converted_params.get("opening_pct_min") or 2.0
+            opening_pct_max = converted_params.get("opening_pct_max") or 5.0
             return [
-                {"name": "first_limit_up", "target": 1, "label": "首次涨停"},
-                {"name": "limit_up_yesterday", "target": 0, "label": "昨日未涨停"},
+                {"name": "first_limit_up", "target": 1, "label": "首次涨停(盘中封板)"},
+                {"name": "limit_up_yesterday", "target": 0, "label": "昨日未涨停(T-1预选)"},
                 {"name": "opening_pct_chg", "target": opening_pct_min, "operator": ">=", "label": f"竞价涨幅≥{opening_pct_min}%"},
                 {"name": "opening_pct_chg", "target": opening_pct_max, "operator": "<=", "label": f"竞价涨幅≤{opening_pct_max}%"},
-                {"name": "volume_ratio", "target": min_volume_ratio, "operator": ">=", "label": f"竞价量比≥{min_volume_ratio}"},
+                {"name": "volume_ratio", "target": min_volume_ratio, "operator": ">=", "label": f"量比≥{min_volume_ratio}"},
                 {"name": "turnover_rate", "target": min_turnover, "operator": ">=", "label": f"换手率≥{min_turnover}%"},
                 {"name": "turnover_rate", "target": max_turnover, "operator": "<=", "label": f"换手率≤{max_turnover}%"},
-                {"name": "circ_mv", "target": min_circ_mv, "operator": ">=", "label": f"最小流通市值{min_circ_mv}亿"},
-                {"name": "circ_mv", "target": max_circ_mv, "operator": "<=", "label": f"最大流通市值{max_circ_mv}亿"},
-                {"name": "limit_up_open_amount", "target": min_seal_amount_filter, "operator": ">=", "label": "最小封单金额"},
-                {"name": "limit_up_open_count", "target": max_blast, "operator": "<=", "label": "最大开板次数"},
-                {"name": "hot_sector", "target": 1 if require_hot else 0, "label": "要求热门板块"},
-                {"name": "sentiment_period_in", "target": require_sentiment, "operator": "in", "label": "情绪周期要求"},
-                {"name": "limit_up_time", "target": max_limit_time, "operator": "<=", "label": "最晚涨停时间"} if not skip_limit_time else {"name": "limit_up_time", "target": 0, "operator": ">=", "label": "最晚涨停时间(日线模式不限制)"},
+                {"name": "circ_mv", "target": min_circ_mv, "operator": ">=", "label": f"流通市值≥{min_circ_mv//10000}亿"},
+                {"name": "circ_mv", "target": max_circ_mv, "operator": "<=", "label": f"流通市值≤{max_circ_mv//10000}亿"},
             ]
         elif strategy_name == "涨停开板":
             min_consecutive = converted_params.get("min_consecutive_limit")
@@ -3012,10 +3094,10 @@ class PortfolioBacktester:
             support_level = converted_params.get("support_level")
             # 【P0-3修复(第十轮)：market_leader因子在MongoDB中全0，无法用于龙头筛选】
             # 替代方案：用circ_mv(流通市值)识别龙头股——大市值更可能是龙头
-            _min_circ_for_leader = converted_params.get("min_circulation_market_cap")
+            # 【注意】circ_mv单位是万元，参数单位是亿，需×10000转换
+            _min_circ_for_leader = (converted_params.get("min_circulation_market_cap") or 30) * 10000
             return [
-                # circ_mv单位=亿元(东方财富daily_basic free_shares*close/1e8)
-                {"name": "circ_mv", "target": _min_circ_for_leader, "operator": ">=", "label": f"流通市值≥{_min_circ_for_leader}亿(龙头)"},
+                {"name": "circ_mv", "target": _min_circ_for_leader, "operator": ">=", "label": f"流通市值≥{_min_circ_for_leader//10000}亿(龙头)"},
                 {"name": "limit_up_count", "target": min_consecutive, "operator": ">=", "label": f"近5日至少{min_consecutive}板"},
                 # 【P0-2修复(第33轮)：pullback_pct在MongoDB中存正数(如0.15=回调15%)]
                 # 正确语义：pullback_pct >= min_correction(回调至少这么深) AND <= max_correction(不超跌)
@@ -3023,10 +3105,12 @@ class PortfolioBacktester:
                 {"name": "pullback_pct", "target": max_correction, "operator": "<=", "label": f"回调≤{max_correction*100:.0f}%"},
                 {"name": "pullback_days", "target": correction_days_min, "operator": ">=", "label": "最小回调天数"},
                 {"name": "pullback_days", "target": correction_days_max, "operator": "<=", "label": "最大回调天数"},
-                {"name": f"pullback_{support_level}", "target": 1, "label": f"{support_level.upper()}支撑位"},
+                # 【V3】去掉pullback_ma5硬性条件(数据质量差，15→0只) 
+                # MA5支撑作为概念参考，不强制要求pullback_ma5=1
+                # {"name": f"pullback_{support_level}", "target": 1, "label": f"{support_level.upper()}支撑位"},
                 # 【P0-2修复(第十轮)：volume_ratio_vs_ma5因子不存在于factor_library和MongoDB】
                 # 【参数放宽】缩量条件放宽至1.5(轻度缩量即可),连板后回调常伴随放量
-                {"name": "volume_ratio", "target": 1.5, "operator": "<=", "label": "量比≤1.5(缩量/温和回调)"},
+                {"name": "volume_ratio", "target": 2.0, "operator": "<=", "label": "量比≤2.0(缩量/温和回调)"},
             ]
         elif strategy_name == "跌停翘板":
             min_consecutive = converted_params.get("min_consecutive_limit")
@@ -3148,6 +3232,54 @@ class PortfolioBacktester:
             shares = int(int(target_value / buy_p) / 100) * 100
             if shares > 0:
                 target_shares[code] = shares
+
+        # 【V3】首板打板成交概率模拟：涨停价排队买入，成交概率取决于封板类型
+        # 一字板(open=close=high=low且接近涨停价): 0%成交
+        # 秒板(open涨>8%): 10%成交
+        # 快速板(open涨2-8%): 30%成交
+        # 盘中板(open涨<2%): 50%成交
+        if target_shares:
+            _limit_up_codes = []
+            sinfo = getattr(self, 'stock_to_strategy', {})
+            for code in list(target_shares.keys()):
+                strategies = sinfo.get(code, [])
+                if isinstance(strategies, str):
+                    strategies = [strategies]
+                if '首板打板' in strategies:
+                    _limit_up_codes.append(code)
+            
+            if _limit_up_codes and len(prices) > 0:
+                import random
+                for code in _limit_up_codes:
+                    p_info = prices.get(code, {})
+                    o = p_info.get('open', 0)
+                    pc = p_info.get('pre_close', 0)
+                    c = p_info.get('close', 0)
+                    h = p_info.get('high', 0)
+                    l = p_info.get('low', 0)
+                    
+                    if o <= 0 or pc <= 0:
+                        continue
+                    
+                    open_rise = (o - pc) / pc * 100
+                    
+                    # 判断封板类型
+                    if o == c == h == l:
+                        # 一字板: 买不到
+                        hit_prob = 0.0
+                    elif open_rise >= 8:
+                        hit_prob = 0.3  # 秒板
+                    elif open_rise >= 2:
+                        hit_prob = 0.5  # 快速板
+                    else:
+                        hit_prob = 0.7  # 盘中板
+                    
+                    # 按成交概率决定是否成交
+                    if random.random() > hit_prob:
+                        del target_shares[code]  # 未成交，不买
+                        logger.info(f'[首板打板] {code} 成交概率{hit_prob*100:.0f}%→未成交', code, hit_prob)
+                    else:
+                        logger.info(f'[首板打板] {code} 成交概率{hit_prob*100:.0f}%→成交', code, hit_prob)
 
         # 先卖出:不在目标持仓中的股票全卖 + 持仓超过目标的股票减仓
         sell_codes = [code for code in holdings if code not in target_shares and holdings[code] > 0]
