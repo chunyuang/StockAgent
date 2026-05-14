@@ -380,21 +380,41 @@ def _compute_factors_for_stock(group: pd.DataFrame, fields: List[str]) -> pd.Dat
     )
 
     # 简化策略指标
-    group['market_leader'] = False
+    # market_leader: 板块内涨幅前10%且成交量前10%的股票
+    if len(group) > 10:
+        pct_chg_rank = group['pct_chg'].rank(pct=True)
+        vol_rank = group['vol'].rank(pct=True)
+        group['market_leader'] = (pct_chg_rank > 0.9) & (vol_rank > 0.9)
+    else:
+        group['market_leader'] = False
+    
+    # hot_sector: 暂时设为False，后续可基于板块热度计算
     group['hot_sector'] = False
-    # 情绪评分: 基于市场数据计算(而非硬编码0.5)
-    # 使用RSI和波动率的z-score映射到[0,1]，RSI>50且波动率低→高情绪
+    
+    # 放量标记: 当日成交量 > 过去5日平均成交量 * 1.5
+    if 'vol' in group.columns:
+        avg_vol_5d = group['vol'].rolling(5, min_periods=1).mean()
+        group['volume_increase'] = group['vol'] > (avg_vol_5d * 1.5)
+    else:
+        group['volume_increase'] = False
+    # 情绪评分: 基于市场数据计算(0-100分)
+    # 使用RSI和波动率计算情绪分数，RSI>50且波动率低→高情绪(贪婪)
     if 'rsi_6' not in group.columns:
-        # talib不可用时，用pct_chg近似
+        # talib不可用时，用pct_chg近似RSI
         group['rsi_6'] = 50 + group['pct_chg'].rolling(6).mean() * 10
-    rsi_normalized = (group['rsi_6'] - 50) / 50  # [-1, 1]
-    volatility = group['pct_chg'].rolling(20).std()
-    vol_mean = volatility.rolling(60).mean()
-    vol_zscore = (volatility - vol_mean) / vol_mean.clip(lower=0.01)  # 避免除0
-    # 高RSI + 低波动率 = 高情绪(贪婪), 低RSI + 高波动率 = 低情绪(恐惧)
-    group['sentiment_score'] = (0.5 + rsi_normalized * 0.3 - vol_zscore.clip(-2, 2) * 0.1).clip(0, 1)
-    # 填充NaN为中性
-    group['sentiment_score'] = group['sentiment_score'].fillna(0.5)
+    
+    # RSI分数: 0-100分，RSI越高分数越高
+    rsi_score = group['rsi_6'].clip(0, 100)
+    
+    # 波动率分数: 波动率越低分数越高
+    volatility = group['pct_chg'].rolling(20).std().fillna(0.01)
+    vol_score = 100 * (1 - volatility.clip(0, 0.1) / 0.1)  # 波动率0-10%映射到0-100分
+    
+    # 综合情绪分数: RSI占60%，波动率占40%
+    group['sentiment_score'] = (rsi_score * 0.6 + vol_score * 0.4).clip(0, 100)
+    
+    # 填充NaN为中性分数50
+    group['sentiment_score'] = group['sentiment_score'].fillna(50)
 
     # ========== 技术指标因子（需要talib） ==========
     try:
