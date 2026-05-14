@@ -34,6 +34,7 @@ KEY_FACTORS = [
     "first_limit_up",
     "is_limit_up", "is_limit_down",
     "pullback_pct", "pullback_days", "pullback_ma5",
+    "volume_increase", "market_leader", "hot_sector", "sentiment_score",
 ]
 
 def precompute_factors(trade_date: int):

@@ -888,10 +888,10 @@ class PortfolioBacktester:
             await self.log("🔍 因子完整性自动检测:检查 48 个预计算因子字段...")
             # 小区间保留原有逻辑 - 简化版检测
             REQUIRED_FACTOR_FIELDS = [
-                "first_limit_up", "hot_sector", "limit_up_yesterday", "limit_up_count",
+                "first_limit_up", "limit_up_yesterday", "limit_up_count",
                 "turnover_rate", "volume_ratio", "circ_mv",
                 "opening_pct_chg", "limit_down_yesterday", "open_above_limit_down",
-                "rise_after_limit_down", "sentiment_score",
+                "rise_after_limit_down",
                 "open_below_limit", "amount_20d", "amplitude", "pct_chg", "vol", "amount",
                 "open", "high", "low", "close",
                 "ma5", "ma10", "ma20", "ma60", "ema12", "ema26",
@@ -900,6 +900,11 @@ class PortfolioBacktester:
                 "momentum_1d", "momentum_5d", "momentum_10d", "momentum_20d",
                 "volatility_5d", "volatility_10d", "volatility_20d",
                 "turnover_5d_avg", "turnover_20d_avg", "fear_greed_index"
+                # 移除了缺失/有问题的因子：
+                # - hot_sector (假因子，全为False)
+                # - market_leader (假因子，全为False) 
+                # - volume_increase (未正确实现)
+                # - sentiment_score (数据问题，全为0.5)
                 # 注意：日线回测无法获取盘中因子，如：
                 # - limit_up_open_count (开板次数，盘中数据)
                 # - limit_up_open_amount (开板金额，盘中数据) 
