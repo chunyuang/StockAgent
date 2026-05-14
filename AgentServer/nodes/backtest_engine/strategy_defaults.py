@@ -61,22 +61,23 @@ STRATEGY_CONFIGS = {
         "name": "首板打板",
         "enabled": True,
         "params": {
-            "min_seal_amount": 5000,                    # 最小封单金额(万元)
-            "max_limit_up_time": "10:00",               # 最晚涨停时间
-            "min_circulation_market_cap": 50,            # 最小流通市值(亿)
-            "max_circulation_market_cap": 500,           # 最大流通市值(亿)
-            "max_blast_count": 1,                        # 最大开板次数
-            "require_hot_sector": False,                 # 不要求热门板块
-            "opening_pct_min": 2.0,                      # 竞价涨幅下限%
-            "opening_pct_max": 5.0,                      # 竞价涨幅上限%
+            "opening_pct_min": -1.0,                      # 竞价涨幅下限%(放宽:低开也能涨停)
+            "opening_pct_max": 7.0,                      # 竞价涨幅上限%(放宽:高开7%内都考虑)
             "min_volume_ratio": 1.5,                     # 量比≥1.5
             "min_turnover_rate": 3,                      # 换手率≥3%
             "max_turnover_rate": 15,                     # 换手率≤15%
+            "min_circulation_market_cap": 50,            # 最小流通市值(亿)
+            "max_circulation_market_cap": 500,           # 最大流通市值(亿)
+            "hit_probability_yizi": 0.0,                # 一字板成交概率0%
+            "hit_probability_fast": 0.3,                 # 秒板(开盘>8%)成交概率30%
+            "hit_probability_normal": 0.5,               # 快速板(开盘2-8%)50%
+            "hit_probability_slow": 0.7,                 # 盘中板(开盘<2%)70%
+            "next_day_open_sell_pct": 0.03,             # 次日高开3%即卖
         },
         "riskParams": {
             "stop_loss_pct": 0.04,          # 止损4%
-            "take_profit_pct": 0.12,        # 止盈12%(提高:首板成功往往涨幅大)
-            "max_hold_days": 3,             # 最大持仓3天(延长:让利润奔跑)
+            "take_profit_pct": 0.12,        # 止盈12%
+            "max_hold_days": 3,             # 最大持仓3天
             "slippage_pct": 0.005,          # 滑点0.5%(打板场景)
         }
     },
@@ -100,14 +101,34 @@ STRATEGY_CONFIGS = {
             "slippage_pct": 0.003,          # 滑点0.3%(开板后波动大)
         }
     },
+    "dragon_head": {
+        "id": "dragon_head",
+        "name": "龙头低吸",
+        "enabled": True,
+        "params": {
+            "min_consecutive_limit": 1,                 # 最小连板数(放宽:1板即可)
+            "min_circulation_market_cap": 30,           # 最小流通市值30亿(放宽)
+            "min_correction_pct": 0.05,                 # 最小回调5%(放宽)
+            "max_correction_pct": 0.35,                 # 最大回调35%
+            "correction_days_min": 1,                   # 回调天数下限
+            "correction_days_max": 7,                   # 回调天数上限
+            "support_level": "ma5",                     # 支撑位参考
+        },
+        "riskParams": {
+            "stop_loss_pct": 0.05,          # 止损5%
+            "take_profit_pct": 0.06,        # 止盈6%
+            "max_hold_days": 4,             # 最大持仓4天
+            "slippage_pct": 0.002,          # 滑点0.2%
+        }
+    },
     "leader_buy_dip": {
         "id": "leader_buy_dip",
         "name": "龙头低吸",
         "enabled": True,
         "params": {
-            "min_consecutive_limit": 2,                 # 最小连板数
-            "min_circulation_market_cap": 50,           # 最小流通市值(亿)
-            "min_correction_pct": 0.08,                 # 最小回调8%
+            "min_consecutive_limit": 1,                 # 最小连板数(放宽)
+            "min_circulation_market_cap": 30,           # 最小流通市值30亿(放宽)
+            "min_correction_pct": 0.05,                 # 最小回调5%(放宽)
             "max_correction_pct": 0.35,                 # 最大回调35%
             "correction_days_min": 1,                   # 回调天数下限
             "correction_days_max": 7,                   # 回调天数上限
