@@ -12,18 +12,10 @@
    │  依赖: DATA_SYNC 节点预计算所有因子 (次日批量计算)    │
    └─────────────────────────────────────────────────────────┘
 
-▶️ 实盘模式 (MODE=live)
-   ┌─────────────────────────────────────────────────────────┐
-   │  计算路径: 实时行情 → factor_engine → 因子计算 → 筛选  │
-   │  性能: 实时计算 (支持 Redis 缓存加速,24小时过期)       │
-   │  适用: 盘中选股、实时监控、动态调仓、模拟交易            │
-   │  依赖: Listener 节点实时行情推送 + LLM 因子推理         │
-   └─────────────────────────────────────────────────────────┘
-
-【两种模式切换方式】
-  • 环境变量: export MODE=backtest 或 export MODE=live
-  • .env 文件: MODE=backtest
-  • 默认值: live (实盘模式)
+【回测模式说明】
+  • 本文件专用于历史回测，不包含实盘交易逻辑
+  • 所有数据基于已收盘的日线数据
+  • 因子均为预计算，不依赖实时计算
 
 【因子字段映射关系(两种模式输出完全一致)】
   • first_limit_up     → 首板标记 (0.0/1.0)
@@ -865,19 +857,26 @@ class PortfolioBacktester:
         if not warnings and not data_quality_issues:
             await self.log("✅ 数据一致性校验通过,数据覆盖完整回测区间")
 
-        # 🔍 未来函数检查:验证所有因子都是当日盘中可用,不使用未来数据
-        await self.log("🔍 未来函数检查:验证所有因子是否符合实盘时间规则")
+        # 🔍 未来函数检查:验证所有因子都是基于日线可计算数据,不使用未来函数
+        await self.log("🔍 未来函数检查:验证所有因子符合日线回测规则")
         future_factor_warnings = []
 
-        # 所有超短策略因子都来自当日开盘前预计算,不包含未来数据
-        # 涨停时间、开板次数、开板时长等都是当日交易过程中产生的数据,回测中当日选股就是在盘中进行,使用正确
-        # 不存在使用收盘数据的情况,所以检查通过
+        # 检查日线回测中不可用的因子(如盘中实时数据)
+        # 回测基于已收盘日线数据，无法获取盘中实时数据
+        # 盘中因子如 limit_up_open_duration, limit_up_open_count 等在日线中不可用
+
+        # 检查因子是否依赖盘中数据
+        intraday_factors = ["limit_up_open_duration", "limit_up_open_count", "limit_up_open_amount", "limit_up_time"]
+        for factor in intraday_factors:
+            if factor in config.get("strategy_filters", {}):
+                future_factor_warnings.append(f"⚠️  因子 {factor} 依赖盘中数据，日线回测中不可用")
 
         if future_factor_warnings:
             for warn in future_factor_warnings:
                 await self.log(warn)
+            await self.log("⚠️  建议: 回测应使用日线可计算的因子")
         else:
-            await self.log("✅ 未来函数检查通过:所有因子都符合实盘时间规则")
+            await self.log("✅ 未来函数检查通过:所有因子都符合日线回测规则")
 
         # ==================== 因子完整性自动检测(2年回测跳过) ====================
         start_dt = int(config["start_date"])
@@ -890,10 +889,9 @@ class PortfolioBacktester:
             # 小区间保留原有逻辑 - 简化版检测
             REQUIRED_FACTOR_FIELDS = [
                 "first_limit_up", "hot_sector", "limit_up_yesterday", "limit_up_count",
-                "limit_up_open_count", "limit_up_open_amount", "limit_up_open_duration",
-                "limit_up_time", "turnover_rate", "volume_ratio", "circ_mv",
+                "turnover_rate", "volume_ratio", "circ_mv",
                 "opening_pct_chg", "limit_down_yesterday", "open_above_limit_down",
-                "limit_down_open_amount", "rise_after_limit_down", "sentiment_score",
+                "rise_after_limit_down", "sentiment_score",
                 "open_below_limit", "amount_20d", "amplitude", "pct_chg", "vol", "amount",
                 "open", "high", "low", "close",
                 "ma5", "ma10", "ma20", "ma60", "ema12", "ema26",
@@ -902,9 +900,14 @@ class PortfolioBacktester:
                 "momentum_1d", "momentum_5d", "momentum_10d", "momentum_20d",
                 "volatility_5d", "volatility_10d", "volatility_20d",
                 "turnover_5d_avg", "turnover_20d_avg", "fear_greed_index"
-                # 【Phase2】盘中可观测因子，替代收盘涨幅pct_chg（未来函数）
-                # 注意：intraday_max_rise_pct和intraday_open_rise_pct是动态计算因子，不在REQUIRED_FACTOR_FIELDS中
-                # 它们在factor_engine.py中实时计算，无需预存储
+                # 注意：日线回测无法获取盘中因子，如：
+                # - limit_up_open_count (开板次数，盘中数据)
+                # - limit_up_open_amount (开板金额，盘中数据) 
+                # - limit_up_open_duration (开板时长，盘中数据)
+                # - limit_up_time (涨停时间，盘中数据)
+                # - limit_down_open_amount (跌停开板金额，盘中数据)
+                # - intraday_max_rise_pct (盘中最大涨幅，实时计算)
+                # - intraday_open_rise_pct (开盘涨幅，实时计算)
             ]
             actual_total = await mongo_manager.count_documents(
                 C.STOCK_DAILY, {"trade_date": {"$gte": start_dt, "$lte": end_dt}}
@@ -2824,11 +2827,13 @@ class PortfolioBacktester:
                                   high_price: float, low_price: float, pre_close: float = 0) -> float:
         """【辅助函数】计算买入价(多策略选同股时取最低买入价，最保守)
 
-        【Phase1-修复】半路追涨买入价从open改为盘中信号触发价:
-        - 实盘中半路追涨在10:00-11:00观察到涨幅2-7%时追入，不是9:30开盘时
-        - 用open价买入严重低估成本(9:30时还没涨2%)
-        - 修正: open*(1+min_rise*0.6)，模拟涨到阈值后追入的真实价格
-        - min_rise*0.6: 保守估计信号触发在日内涨幅的60%位置
+        【日线回测买入价模拟】:
+        - 回测基于日线数据，无法精确模拟盘中价格
+        - 半路追涨: open*(1+min_rise*0.6) 模拟涨到阈值后追入
+        - 龙头低吸: 日内偏低位但不极端的位置
+        - 跌停翘板: 跌停价附近小幅上涨
+        
+        注意：这是对实盘价格的近似模拟，实际成交价可能有所不同
         """
         sinfo = getattr(self, 'stock_to_strategy', {}).get(code, '')
         strategies = sinfo if isinstance(sinfo, list) else [sinfo]
@@ -2836,9 +2841,10 @@ class PortfolioBacktester:
         prices = []
         for sname in strategies:
             if sname == '半路追涨':
-                # 【Phase1-修复】不再用open价(9:30)，改用盘中信号触发价
-                # 实盘: 股价涨到min_rise时才触发信号，此时价格已高于open
-                # 保守模型: buy_price = open * (1 + min_rise_pct * signal_fraction)
+                # 日线回测中模拟实盘信号触发价
+                # 实盘在股价达到min_rise阈值时买入，此时价格高于开盘价
+                # 保守估计: 在日内涨幅的60%位置触发信号
+                # buy_price = open * (1 + min_rise_pct * 0.6)
                 # signal_fraction=0.6: 信号在涨到min_rise的60%处就开始观察，
                 # 实际买入在确认突破min_rise后，所以约60%位置
                 min_rise = self._strategy_params.get('半路追涨', {}).get('min_rise_pct', 0.02)
