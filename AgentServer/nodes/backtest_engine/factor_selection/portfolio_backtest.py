@@ -3130,6 +3130,8 @@ class PortfolioBacktester:
             # 替代方案：用circ_mv(流通市值)识别龙头股——大市值更可能是龙头
             # 【注意】circ_mv单位是万元，参数单位是亿，需×10000转换
             _min_circ_for_leader = (converted_params.get("min_circulation_market_cap") if converted_params.get("min_circulation_market_cap") is not None else 30) * 10000
+            _min_vr = converted_params.get("min_volume_ratio") if converted_params.get("min_volume_ratio") is not None else 0.5
+            _max_vr = converted_params.get("max_volume_ratio") if converted_params.get("max_volume_ratio") is not None else 2.0
             return [
                 {"name": "circ_mv", "target": _min_circ_for_leader, "operator": ">=", "label": f"流通市值≥{_min_circ_for_leader//10000}亿(龙头)"},
                 {"name": "limit_up_count", "target": min_consecutive, "operator": ">=", "label": f"近5日至少{min_consecutive}板"},
@@ -3142,10 +3144,10 @@ class PortfolioBacktester:
                 {"name": "pullback_days", "target": correction_days_max, "operator": "<=", "label": "最大回调天数"},
                 # 【V3】去掉pullback_ma5硬性条件(数据质量差，15→0只) 
                 # MA5支撑作为概念参考，不强制要求pullback_ma5=1
-                # {"name": f"pullback_{support_level}", "target": 1, "label": f"{support_level.upper()}支撑位"},
-                # 【P0-2修复(第十轮)：volume_ratio_vs_ma5因子不存在于factor_library和MongoDB】
-                # 【参数放宽】缩量条件放宽至1.5(轻度缩量即可),连板后回调常伴随放量
-                {"name": "volume_ratio", "target": 2.0, "operator": "<=", "label": "量比≤2.0(缩量/温和回调)"},
+                # 量比双限: VR<0.5极度冷门(几乎无成交), VR>2.0放量回调(抛压未止)
+                # 数据: VR<0.8胜率50.2%(抛压枯竭), VR 0.8-1.5胜率44.1%, VR 1.5-2.0胜率47.4%
+                {"name": "volume_ratio", "target": _min_vr, "operator": ">=", "label": f"量比≥{_min_vr}(保流动性)"},
+                {"name": "volume_ratio", "target": _max_vr, "operator": "<=", "label": f"量比≤{_max_vr}(缩量回调)"},
             ]
         elif strategy_name == "跌停翘板":
             min_consecutive = converted_params.get("min_consecutive_limit")
