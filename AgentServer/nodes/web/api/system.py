@@ -943,13 +943,22 @@ async def get_data_status() -> Dict[str, Any]:
             action_items.append({
                 'action': '补今日日线',
                 'command': 'python3 eastmoney_daily_bar.py',
+                'api': 'POST /api/v1/system/sync-daily-bar',
                 'desc': f'最新日线={latest_daily_str}, 需补今日数据',
                 'priority': 'high',
             })
             action_items.append({
                 'action': '补今日PE/PB',
                 'command': 'python3 eastmoney_daily_basic.py',
+                'api': 'POST /api/v1/system/sync-daily-basic',
                 'desc': '日线补完后运行',
+                'priority': 'high',
+            })
+            action_items.append({
+                'action': '一键补全',
+                'command': '',
+                'api': 'POST /api/v1/system/sync-all',
+                'desc': '日线+PE/PB+因子一步到位',
                 'priority': 'high',
             })
         elif is_weekend:
@@ -1069,3 +1078,218 @@ async def get_version() -> Dict[str, Any]:
         },
         "message": "获取版本信息成功"
     }
+
+
+# ==================== 数据同步 API ====================
+
+import subprocess
+import threading
+
+_sync_tasks: Dict[str, Dict] = {}
+_sync_lock = threading.Lock()
+
+
+def _run_sync_script(script_name: str, task_id: str):
+    """后台线程运行数据同步脚本"""
+    script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../../scripts", script_name)
+    script_path = os.path.normpath(script_path)
+    
+    with _sync_lock:
+        _sync_tasks[task_id]["status"] = "running"
+        _sync_tasks[task_id]["started_at"] = datetime.now().isoformat()
+    
+    try:
+        result = subprocess.run(
+            ["python3", "-u", script_path],
+            capture_output=True, text=True, timeout=300,
+            cwd=os.path.dirname(script_path),
+        )
+        with _sync_lock:
+            _sync_tasks[task_id]["status"] = "success" if result.returncode == 0 else "failed"
+            _sync_tasks[task_id]["finished_at"] = datetime.now().isoformat()
+            _sync_tasks[task_id]["returncode"] = result.returncode
+            _sync_tasks[task_id]["stdout"] = result.stdout[-2000:] if result.stdout else ""
+            _sync_tasks[task_id]["stderr"] = result.stderr[-2000:] if result.stderr else ""
+    except subprocess.TimeoutExpired:
+        with _sync_lock:
+            _sync_tasks[task_id]["status"] = "timeout"
+            _sync_tasks[task_id]["finished_at"] = datetime.now().isoformat()
+            _sync_tasks[task_id]["stderr"] = "脚本超时(300秒)"
+    except Exception as e:
+        with _sync_lock:
+            _sync_tasks[task_id]["status"] = "error"
+            _sync_tasks[task_id]["finished_at"] = datetime.now().isoformat()
+            _sync_tasks[task_id]["stderr"] = str(e)
+
+
+@router.post("/sync-daily-bar")
+async def sync_daily_bar() -> Dict[str, Any]:
+    """
+    补全今日日线数据(OHLCV)
+    
+    运行 eastmoney_daily_bar.py，从东方财富获取全市场日线数据写入MongoDB。
+    约需3-5秒完成。
+    """
+    task_id = f"bar_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    
+    with _sync_lock:
+        # 检查是否有正在运行的任务
+        running = [t for t in _sync_tasks.values() if t.get("status") == "running" and "bar" in t.get("type", "")]
+        if running:
+            return {"success": False, "message": "日线补全任务正在运行中，请稍后再试"}
+        
+        _sync_tasks[task_id] = {"type": "daily_bar", "status": "pending"}
+    
+    t = threading.Thread(target=_run_sync_script, args=("eastmoney_daily_bar.py", task_id))
+    t.daemon = True
+    t.start()
+    
+    return {
+        "success": True,
+        "task_id": task_id,
+        "message": "日线数据补全已启动，请通过 /api/v1/system/sync-status/{task_id} 查看进度",
+    }
+
+
+@router.post("/sync-daily-basic")
+async def sync_daily_basic() -> Dict[str, Any]:
+    """
+    补全今日PE/PB/流通市值等基本面数据
+    
+    运行 eastmoney_daily_basic.py，从东方财富获取全市场估值数据写入MongoDB。
+    需先完成日线数据补全。约需2-3秒完成。
+    """
+    task_id = f"basic_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    
+    with _sync_lock:
+        running = [t for t in _sync_tasks.values() if t.get("status") == "running" and "basic" in t.get("type", "")]
+        if running:
+            return {"success": False, "message": "PE/PB补全任务正在运行中，请稍后再试"}
+        
+        _sync_tasks[task_id] = {"type": "daily_basic", "status": "pending"}
+    
+    t = threading.Thread(target=_run_sync_script, args=("eastmoney_daily_basic.py", task_id))
+    t.daemon = True
+    t.start()
+    
+    return {
+        "success": True,
+        "task_id": task_id,
+        "message": "PE/PB数据补全已启动，请通过 /api/v1/system/sync-status/{task_id} 查看进度",
+    }
+
+
+@router.post("/sync-factors")
+async def sync_factors() -> Dict[str, Any]:
+    """
+    补算缺失因子(intraday_max_rise_pct/is_limit_up/volume_increase等)
+    
+    运行 lightweight_factor_fill.py，补算回测所需策略因子。
+    """
+    task_id = f"factor_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    
+    with _sync_lock:
+        running = [t for t in _sync_tasks.values() if t.get("status") == "running" and "factor" in t.get("type", "")]
+        if running:
+            return {"success": False, "message": "因子补算任务正在运行中，请稍后再试"}
+        
+        _sync_tasks[task_id] = {"type": "factors", "status": "pending"}
+    
+    t = threading.Thread(target=_run_sync_script, args=("lightweight_factor_fill.py", task_id))
+    t.daemon = True
+    t.start()
+    
+    return {
+        "success": True,
+        "task_id": task_id,
+        "message": "因子补算已启动，请通过 /api/v1/system/sync-status/{task_id} 查看进度",
+    }
+
+
+@router.post("/sync-all")
+async def sync_all() -> Dict[str, Any]:
+    """
+    一键补全全部数据(日线+PE/PB+因子)
+    
+    按顺序执行: eastmoney_daily_bar → eastmoney_daily_basic → lightweight_factor_fill
+    """
+    task_id = f"all_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    
+    with _sync_lock:
+        running = [t for t in _sync_tasks.values() if t.get("status") == "running"]
+        if running:
+            return {"success": False, "message": "已有数据补全任务正在运行中，请稍后再试"}
+        
+        _sync_tasks[task_id] = {"type": "all", "status": "pending", "steps": ["daily_bar", "daily_basic", "factors"]}
+    
+    def _run_all():
+        with _sync_lock:
+            _sync_tasks[task_id]["status"] = "running"
+            _sync_tasks[task_id]["started_at"] = datetime.now().isoformat()
+        
+        results = []
+        scripts = [
+            ("daily_bar", "eastmoney_daily_bar.py"),
+            ("daily_basic", "eastmoney_daily_basic.py"),
+            ("factors", "lightweight_factor_fill.py"),
+        ]
+        
+        for step_name, script_name in scripts:
+            script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../../scripts", script_name)
+            script_path = os.path.normpath(script_path)
+            
+            with _sync_lock:
+                _sync_tasks[task_id]["current_step"] = step_name
+            
+            try:
+                r = subprocess.run(
+                    ["python3", "-u", script_path],
+                    capture_output=True, text=True, timeout=300,
+                    cwd=os.path.dirname(script_path),
+                )
+                results.append({
+                    "step": step_name,
+                    "success": r.returncode == 0,
+                    "stdout": r.stdout[-500:] if r.stdout else "",
+                    "stderr": r.stderr[-500:] if r.stderr else "",
+                })
+            except Exception as e:
+                results.append({"step": step_name, "success": False, "stderr": str(e)})
+        
+        with _sync_lock:
+            _sync_tasks[task_id]["status"] = "success" if all(r["success"] for r in results) else "partial"
+            _sync_tasks[task_id]["finished_at"] = datetime.now().isoformat()
+            _sync_tasks[task_id]["results"] = results
+    
+    t = threading.Thread(target=_run_all)
+    t.daemon = True
+    t.start()
+    
+    return {
+        "success": True,
+        "task_id": task_id,
+        "message": "一键补全已启动(日线→PE/PB→因子)，请通过 /api/v1/system/sync-status/{task_id} 查看进度",
+    }
+
+
+@router.get("/sync-status/{task_id}")
+async def get_sync_status(task_id: str) -> Dict[str, Any]:
+    """查询数据同步任务状态"""
+    with _sync_lock:
+        task = _sync_tasks.get(task_id)
+    
+    if not task:
+        return {"success": False, "message": f"任务 {task_id} 不存在"}
+    
+    return {"success": True, "data": task}
+
+
+@router.get("/sync-tasks")
+async def list_sync_tasks() -> Dict[str, Any]:
+    """列出所有数据同步任务"""
+    with _sync_lock:
+        tasks = dict(_sync_tasks)
+    
+    # 只返回最近10个
+    recent = sorted(tasks.items(), key=lambda x: x[0], reverse=True)[:10]
+    return {"success": True, "data": dict(recent)}
