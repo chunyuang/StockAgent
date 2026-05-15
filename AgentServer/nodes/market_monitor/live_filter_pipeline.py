@@ -66,7 +66,10 @@ class LiveFilterPipeline:
         "leader_buy_dip": 1,
         "limit_down_qiao": 2,     # 跌停翘板
         "first_limit_up": 3,      # 首板打板
-        "halfway_chase": 4,       # 半路追涨最低
+        "halfway_chase": 4,       # 半路追涨
+        "anomaly_broken": 5,     # 异动开板
+        "anomaly_strong": 5,     # 异动强势
+        "anomaly_surge": 5,      # 异动拉升
     }
 
     def __init__(self, scanner=None, config: Dict = None):

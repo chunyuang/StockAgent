@@ -138,17 +138,10 @@ class PremarketSignalScheduler:
 
     async def generate_premarket_signals(self, trade_date: str = None) -> Dict:
         """
-        盘前信号生成主流水线
-
-        Args:
-            trade_date: 交易日期（YYYYMMDD），默认自动获取
-
-        Returns:
-            Dict: {
-                signal_id, date, force_empty, sentiment, pool_size,
-                auction_filtered_size, signals, trading_plan,
-                generated_at, status
-            }
+        盘前信号生成 — 委托给scanner(9层筛选+实时行情)
+        
+        整合前: 9步自实现(情绪→空仓→预选→竞价→因子→策略→TOPN→详情→计划)
+        整合后: scanner统一选股(9层筛选), 本模块只负责持久化+推送+交易计划
         """
         if not trade_date:
             trade_date = self._get_latest_trade_date()
@@ -158,13 +151,104 @@ class PremarketSignalScheduler:
 
         logger.info(f"[{signal_id}] ========== 盘前信号生成 {trade_date} ==========")
 
-        # ---- Step 1: 情绪周期 ----
+        # ---- 委托scanner获取9层筛选后的信号 ----
+        stock_details = []
+        sentiment_info = {"score": 50, "level": "中性", "position_limit": self.config["max_position"]}
+        force_empty = False
+        pool_size = 0
+        auction_size = 0
+
+        try:
+            from nodes.web.api.scanner import _get_scanner_instance
+            scanner = _get_scanner_instance()
+
+            if scanner and scanner._is_running:
+                # scanner在运行 → 直接取9层筛选后的信号
+                await scanner.scan_once(trade_date, force=True)
+                signals = scanner.get_signals()
+                
+                # 获取情绪信息
+                pipeline_info = scanner.get_status().get("filter_pipeline", {})
+                sentiment = pipeline_info.get("sentiment", {})
+                sentiment_info = {
+                    "score": sentiment.get("score", 50),
+                    "level": sentiment.get("period", "chaos"),
+                    "position_limit": pipeline_info.get("position_ratio", self.config["max_position"]),
+                    "allowed_strategies": ["半路追涨", "首板打板", "龙头低吸", "跌停翘板"],
+                }
+                
+                # 检查强制空仓
+                force_empty = pipeline_info.get("position_ratio", 1.0) == 0.0
+                pool_size = len(signals) + 50  # 近似
+                auction_size = len(signals) + 10  # 近似
+                
+                # 转换信号格式
+                for sig in signals:
+                    stock_details.append({
+                        "ts_code": sig.get("ts_code", ""),
+                        "name": sig.get("stock_name", ""),
+                        "strategy": sig.get("strategy_name", ""),
+                        "close": sig.get("price", 0),
+                        "pct_chg": sig.get("pct_chg", 0),
+                        "volume_ratio": sig.get("volume_ratio", 0),
+                        "turnover_rate": sig.get("turnover_rate", 0),
+                        "reason": sig.get("reason", ""),
+                    })
+                
+                logger.info(f"[{signal_id}] scanner获取{len(signals)}个信号(9层筛选)")
+            else:
+                # scanner未运行 → 回退到自实现
+                logger.info(f"[{signal_id}] scanner未运行, 回退到自实现")
+                result = await self._generate_signals_fallback(signal_id, trade_date, now)
+                return result
+        except Exception as e:
+            logger.warning(f"[{signal_id}] scanner不可用: {e}, 回退到自实现")
+            result = await self._generate_signals_fallback(signal_id, trade_date, now)
+            return result
+
+        # ---- 强制空仓处理 ----
+        if force_empty:
+            logger.info(f"[{signal_id}] 触发强制空仓，今日无交易信号")
+            result = self._build_signal_doc(
+                signal_id=signal_id, trade_date=trade_date, now=now,
+                force_empty=True, sentiment=sentiment_info,
+                pool_size=0, auction_filtered_size=0, signals=[],
+                trading_plan="触发强制空仓条件，今日空仓观望",
+            )
+            await self._save_signal(result)
+            await self._notify(result)
+            return result
+
+        # ---- 生成交易计划 ----
+        trading_plan = self._generate_trading_plan(stock_details, sentiment_info)
+
+        logger.info(f"[{signal_id}] 最终选中标的：{len(stock_details)}只")
+        for i, s in enumerate(stock_details, 1):
+            logger.info(f"  {i}. {s['ts_code']} {s.get('name', '')} | {s.get('strategy', '')} | "
+                        f"收盘{s.get('close', 0):.2f} | 涨跌{s.get('pct_chg', 0):.2f}%")
+
+        # ---- 存入 MongoDB + 推送 ----
+        result = self._build_signal_doc(
+            signal_id=signal_id, trade_date=trade_date, now=now,
+            force_empty=False, sentiment=sentiment_info,
+            pool_size=pool_size, auction_filtered_size=auction_size,
+            signals=stock_details, trading_plan=trading_plan,
+        )
+        await self._save_signal(result)
+        await self._notify(result)
+
+        logger.info(f"[{signal_id}] 盘前信号生成完成(9层筛选)，已存入MongoDB")
+        return result
+
+    async def _generate_signals_fallback(self, signal_id: str, trade_date: str, now) -> Dict:
+        """回退方案: scanner不可用时自实现选股(原始9步流水线)"""
+        # Step 1: 情绪周期
         sentiment_info = await self._safe_get_sentiment(trade_date)
         logger.info(f"[{signal_id}] 情绪评分：{sentiment_info.get('score', 'N/A')}，"
                      f"等级：{sentiment_info.get('level', 'N/A')}，"
                      f"仓位上限：{sentiment_info.get('position_limit', 0):.0%}")
 
-        # ---- Step 2: 强制空仓检查 ----
+        # Step 2: 强制空仓检查
         force_empty = await self._safe_check_force_empty(trade_date)
         if force_empty:
             logger.info(f"[{signal_id}] 触发强制空仓，今日无交易信号")
@@ -178,20 +262,17 @@ class PremarketSignalScheduler:
             await self._notify(result)
             return result
 
-        # ---- Step 3: 预选池 ----
+        # Step 3: 预选池
         pool = await self._safe_get_universe(trade_date)
         pool_size = len(pool)
-        logger.info(f"[{signal_id}] 预选池数量：{pool_size}只")
 
-        # ---- Step 4: 竞价阶段过滤 ----
+        # Step 4: 竞价过滤
         auction_filtered = pool
         if self.config["enable_auction_filter"] and pool:
             auction_filtered = await self._auction_filter(pool, trade_date)
         auction_size = len(auction_filtered)
-        logger.info(f"[{signal_id}] 竞价过滤后剩余：{auction_size}只")
 
         if not auction_filtered:
-            logger.info(f"[{signal_id}] 预选池为空，今日无交易信号")
             result = self._build_signal_doc(
                 signal_id=signal_id, trade_date=trade_date, now=now,
                 force_empty=False, sentiment=sentiment_info,
@@ -202,16 +283,13 @@ class PremarketSignalScheduler:
             await self._notify(result)
             return result
 
-        # ---- Step 5: 多因子计算 + 排序 ----
+        # Step 5-7: 因子+策略+TOP N
         factor_df = await self._safe_compute_factors(auction_filtered, trade_date)
-
-        # ---- Step 6: 情绪周期策略过滤 ----
         if factor_df is not None and not factor_df.empty:
             allowed_strategies = set(sentiment_info.get("allowed_strategies", []))
             if allowed_strategies and "strategy" in factor_df.columns:
                 factor_df = factor_df[factor_df["strategy"].isin(allowed_strategies)]
 
-        # ---- Step 7: 选出 TOP N ----
         target_stocks = []
         if factor_df is not None and not factor_df.empty:
             target_stocks = self.backtester.factor_engine.select_top_stocks(
@@ -219,16 +297,12 @@ class PremarketSignalScheduler:
                 liquidity_threshold=self.config["liquidity_threshold"],
             )
 
-        # ---- Step 8: 获取详细信息 + 生成交易计划 ----
+        # Step 8: 详细信息 + 交易计划
         stock_details = await self._get_stock_details(target_stocks, trade_date)
         trading_plan = self._generate_trading_plan(stock_details, sentiment_info)
 
-        logger.info(f"[{signal_id}] 最终选中标的：{len(stock_details)}只")
-        for i, s in enumerate(stock_details, 1):
-            logger.info(f"  {i}. {s['ts_code']} {s['name']} | {s['strategy']} | "
-                        f"收盘{s['close']:.2f} | 涨跌{s['pct_chg']:.2f}%")
+        logger.info(f"[{signal_id}] 回退选股: {len(stock_details)}只")
 
-        # ---- Step 9: 存入 MongoDB + 推送 ----
         result = self._build_signal_doc(
             signal_id=signal_id, trade_date=trade_date, now=now,
             force_empty=False, sentiment=sentiment_info,
@@ -237,8 +311,6 @@ class PremarketSignalScheduler:
         )
         await self._save_signal(result)
         await self._notify(result)
-
-        logger.info(f"[{signal_id}] 盘前信号生成完成，已存入MongoDB")
         return result
 
     # ==================== 盘后回顾 ====================
