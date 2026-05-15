@@ -465,7 +465,41 @@ class DailyScheduler:
                     logger.warning(f"{script}: rc={r.returncode}, {r.stderr[:100]}")
 
     async def _generate_signals(self, trade_date: str) -> List[Dict]:
-        """复用回测引擎逻辑生成信号"""
+        """生成交易信号 — 委托给scanner(9层筛选+实时行情)
+        
+        整合前: 自己算因子+策略筛选(2/9层, 无情绪/空仓/竞价)
+        整合后: 委托scanner._apply_strategies + _apply_filter_pipeline(9/9层)
+        scanner无实时数据时回退到MongoDB日线
+        """
+        # 优先从scanner获取信号(有9层筛选+实时行情)
+        try:
+            from nodes.web.api.scanner import _get_scanner_instance
+            scanner = _get_scanner_instance()
+            if scanner and scanner._is_running:
+                # scanner在运行 → 直接取它的信号
+                signals = scanner.get_signals()
+                if signals:
+                    logger.info(f"[SIGNAL] 从scanner获取{len(signals)}个信号(9层筛选)")
+                    return signals
+                
+                # scanner在运行但无信号 → 执行一次扫描
+                try:
+                    await scanner.scan_once(trade_date, force=True)
+                    signals = scanner.get_signals()
+                    if signals:
+                        logger.info(f"[SIGNAL] scanner扫描后获取{len(signals)}个信号")
+                        return signals
+                except Exception as e:
+                    logger.warning(f"[SIGNAL] scanner扫描失败: {e}")
+        except Exception as e:
+            logger.warning(f"[SIGNAL] 获取scanner实例失败: {e}")
+
+        # 回退: scanner不可用时用MongoDB日线(轻量版, 无9层筛选)
+        logger.info("[SIGNAL] scanner不可用, 回退到MongoDB日线选股(轻量版)")
+        return await self._generate_signals_from_db(trade_date)
+
+    async def _generate_signals_from_db(self, trade_date: str) -> List[Dict]:
+        """回退方案: 从MongoDB日线生成信号(无9层筛选, 仅策略量能层)"""
         from core.managers import mongo_manager
         from nodes.backtest_engine.factor_selection.factor_engine import FactorEngine
         from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS
@@ -486,10 +520,7 @@ class DailyScheduler:
 
         # 计算因子
         factor_engine = FactorEngine()
-
-        ultra_short_factors = [{"name": "pct_chg"}, {"name": "volume_ratio"}, {"name": "first_limit_up"}, {"name": "limit_up_yesterday"}, {"name": "limit_up_open_amount"}, {"name": "circ_mv"}, {"name": "turnover_rate"}, {"name": "limit_down_yesterday"}, {"name": "limit_down_open_amount"}, {"name": "rise_after_limit_down"}, {"name": "sentiment_score"}, {"name": "opening_pct_chg"}, {"name": "open_below_limit"}, {"name": "hot_sector"}, {"name": "market_leader"}, {"name": "pullback_pct"}, {"name": "pullback_days"}, {"name": "pullback_ma5"}, {"name": "open_above_limit_down"}, {"name": "limit_up_count"}, {"name": "limit_up_time"}, {"name": "limit_up_open_duration"}, {"name": "limit_up_open_count"}]
-        # factor_configs defined inline below
-        # see ultra_short_factors below
+        ultra_short_factors = [{"name": "pct_chg"}, {"name": "volume_ratio"}, {"name": "first_limit_up"}, {"name": "limit_up_yesterday"}, {"name": "circ_mv"}, {"name": "turnover_rate"}, {"name": "limit_down_yesterday"}, {"name": "rise_after_limit_down"}, {"name": "opening_pct_chg"}, {"name": "pullback_pct"}, {"name": "pullback_days"}, {"name": "pullback_ma5"}, {"name": "limit_up_count"}]
         factor_df = await factor_engine.compute_factors(stocks, trade_date, ultra_short_factors)
 
         if factor_df is None or len(factor_df) == 0:
@@ -506,16 +537,12 @@ class DailyScheduler:
 
             strategy_name = cfg["name"]
             params = cfg["params"]
-
-            # 调回测引擎的筛选
             conditions = bt._build_strategy_filter_conditions(strategy_name, params)
 
-            # 应用条件(_build_strategy_filter_conditions返回的格式)
-            # key是"name"不是"column", operator默认是">="
             mask = pd.Series(True, index=factor_df.index)
             for cond in conditions:
                 col = cond.get("name") or cond.get("column")
-                op = cond.get("operator", ">=")  # 默认>=
+                op = cond.get("operator", ">=")
                 val = cond.get("target") or cond.get("value")
                 if col and val is not None and col in factor_df.columns:
                     try:
@@ -531,7 +558,6 @@ class DailyScheduler:
             selected = factor_df[mask]
             for _, row in selected.iterrows():
                 ts_code_val = row.get('ts_code', '')
-                # 从MongoDB获取收盘价
                 close_price = 0
                 if ts_code_val:
                     try:
@@ -550,10 +576,10 @@ class DailyScheduler:
                     "confidence": 0.8,
                     "price": close_price,
                     "trade_date": trade_date,
-                    "reason": f"{strategy_name}筛选",
+                    "reason": f"{strategy_name}筛选(DB回退)",
                 })
 
-        logger.info(f"[SIGNAL] {len(signals)}个信号")
+        logger.info(f"[SIGNAL] DB回退: {len(signals)}个信号")
         return signals
 
     async def _fetch_realtime_data(self) -> Optional[Dict]:
@@ -716,18 +742,65 @@ class DailyScheduler:
             logger.info("[REPORT] 日报待推送(推送器未配置)")
 
     async def _execute_signals(self, signals: List[Dict], trade_date: str) -> List[Dict]:
-        """执行信号(模拟盘)"""
+        """执行信号 — 通过scanner的SimulatedBroker(统一撮合引擎)
+        
+        整合前: 用SimulatorExecutor(另一套模拟盘, 无T+1/止损/持久化)
+        整合后: 统一用scanner._broker(有T+1/跳空止损/持久化/熔断器)
+        """
+        executed = []
+
+        # 优先用scanner的broker(功能更完整)
+        try:
+            from nodes.web.api.scanner import _get_scanner_instance
+            scanner = _get_scanner_instance()
+            if scanner and scanner._broker:
+                for sig in signals:
+                    try:
+                        ts_code = sig["ts_code"]
+                        strategy = sig.get("strategy", "")
+                        strategy_name = sig.get("strategy_name", "")
+                        price = sig.get("price", 0)
+                        reason = sig.get("reason", strategy_name)
+
+                        if price <= 0:
+                            continue
+
+                        # 通过scanner._execute_signals执行(含仓位计算+T+1+止损)
+                        from nodes.market_monitor.scanner import ScanSignal
+                        scan_sig = ScanSignal(
+                            ts_code=ts_code,
+                            stock_name=sig.get("stock_name", ""),
+                            strategy=strategy,
+                            strategy_name=strategy_name,
+                            price=price,
+                            pct_chg=sig.get("pct_chg", 0),
+                            volume_ratio=sig.get("volume_ratio", 0),
+                            turnover_rate=sig.get("turnover_rate", 0),
+                            reason=reason,
+                        )
+                        # 用scanner的_execute_signals处理(含仓位/风控/熔断器)
+                        await scanner._execute_signals([scan_sig])
+                        executed.append(sig)
+                        logger.info(f"[EXEC] scanner买入 {ts_code} @{price:.2f}")
+                    except Exception as e:
+                        logger.error(f"[EXEC] scanner执行失败 {sig.get('ts_code', '')}: {e}")
+
+                if executed:
+                    logger.info(f"[EXEC] 通过scanner执行{len(executed)}笔")
+                    return executed
+        except Exception as e:
+            logger.warning(f"[EXEC] scanner不可用: {e}, 回退到本地执行")
+
+        # 回退: scanner不可用时用本地SimulatorExecutor
         from nodes.listener.execution.simulator_executor import SimulatorExecutor
         
         if not self._executor:
             self._executor = SimulatorExecutor(initial_cash=1000000.0)
             await self._executor.connect()
         
-        executed = []
         for sig in signals:
             try:
                 ts_code = sig["ts_code"]
-                # 计算买入量(单票最大20%仓位, 总仓位上限70%)
                 price = sig.get("price", 0)
                 if price <= 0:
                     continue
@@ -735,32 +808,24 @@ class DailyScheduler:
                 if not account:
                     continue
                 
-                # 总仓位检查
                 if account.market_value / account.total_asset > 0.7:
-                    break  # 已超70%总仓位, 停止买入
+                    break
                 
-                max_amount = account.available_cash * 0.5  # 用剩余现金的50%
-                shares = int(max_amount / price / 100) * 100  # 整手
+                max_amount = account.available_cash * 0.5
+                shares = int(max_amount / price / 100) * 100
                 if shares <= 0:
                     continue
                 
                 order = await self._executor.send_order(
-                    ts_code=ts_code,
-                    direction="buy",
-                    shares=shares,
-                    price=price,
-                )
+                    ts_code=ts_code, direction="buy", shares=shares, price=price)
                 if order and order.status.value in ("filled", "partial"):
                     executed.append({
-                        "ts_code": ts_code,
-                        "strategy": sig["strategy"],
-                        "shares": shares,
-                        "price": price,
-                        "order_id": order.order_id,
+                        "ts_code": ts_code, "strategy": sig["strategy"],
+                        "shares": shares, "price": price, "order_id": order.order_id,
                     })
-                    logger.info(f"[EXEC] 买入 {ts_code} {shares}股@{price}")
+                    logger.info(f"[EXEC] 本地买入 {ts_code} {shares}股@{price}")
             except Exception as e:
-                logger.error(f"[EXEC] 执行失败 {sig['ts_code']}: {e}")
+                logger.error(f"[EXEC] 本地执行失败 {sig['ts_code']}: {e}")
         
         return executed
 

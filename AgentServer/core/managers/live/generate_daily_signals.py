@@ -1,10 +1,24 @@
 #!/usr/bin/env python3
 """
 实盘每日信号生成器
+
+⚠️ DEPRECATED: 本模块已被 scanner.py + LiveFilterPipeline 完全替代
+- scanner.py: 实时行情+9层筛选+模拟执行 (主力)
+- LiveFilterPipeline: 强制空仓/情绪/竞价/排序/仓位控制
+- 本模块仅作为回退和兼容保留, 新功能请使用scanner
+
 每日盘后运行，生成当日情绪评分、选股信号、交易计划
 """
 import sys
 import logging
+import warnings
+
+warnings.warn(
+    "RealTradingSignalGenerator is deprecated. "
+    "Use MarketScanner + LiveFilterPipeline instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 logger = logging.getLogger(__name__)
 import os
