@@ -109,33 +109,15 @@ STRATEGY_CONFIGS = {
         "name": "龙头低吸",
         "enabled": True,
         "params": {
-            "min_consecutive_limit": 1,                 # 最小连板数(放宽:1板即可)
-            "min_circulation_market_cap": 30,           # 最小流通市值30亿(放宽)
-            "min_correction_pct": 0.05,                 # 最小回调5%(放宽)
+            "min_consecutive_limit": 1,                 # 最小连板数(1板即可:数据50.5%wr>2板42.2%>3板39.4%)
+            "min_circulation_market_cap": 30,           # 最小流通市值30亿
+            "min_correction_pct": 0.05,                 # 最小回调5%
             "max_correction_pct": 0.35,                 # 最大回调35%
             "correction_days_min": 1,                   # 回调天数下限
             "correction_days_max": 7,                   # 回调天数上限
             "support_level": "ma5",                     # 支撑位参考
-        },
-        "riskParams": {
-            "stop_loss_pct": 0.05,          # 止损5%
-            "take_profit_pct": 0.06,        # 止盈6%
-            "max_hold_days": 4,             # 最大持仓4天
-            "slippage_pct": 0.002,          # 滑点0.2%
-        }
-    },
-    "leader_buy_dip": {
-        "id": "leader_buy_dip",
-        "name": "龙头低吸",
-        "enabled": True,
-        "params": {
-            "min_consecutive_limit": 1,                 # 最小连板数(放宽)
-            "min_circulation_market_cap": 30,           # 最小流通市值30亿(放宽)
-            "min_correction_pct": 0.05,                 # 最小回调5%(放宽)
-            "max_correction_pct": 0.35,                 # 最大回调35%
-            "correction_days_min": 1,                   # 回调天数下限
-            "correction_days_max": 7,                   # 回调天数上限
-            "support_level": "ma5",                     # 支撑位参考
+            "min_volume_ratio": 0.5,                    # 量比≥0.5(排除极度冷门,<0.5几乎无成交)
+            "max_volume_ratio": 2.0,                    # 量比≤2.0(缩量回调,放量回调危险)
         },
         "riskParams": {
             "stop_loss_pct": 0.05,          # 止损5%
