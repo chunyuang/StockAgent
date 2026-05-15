@@ -44,15 +44,17 @@ STRATEGY_CONFIGS = {
         "name": "半路追涨",
         "enabled": True,
         "params": {
-            "min_rise_pct": 0.02,           # 最小涨幅2%
+            "min_rise_pct": 0.03,           # 最小涨幅3%(2%太多噪音,次日胜率仅33%)
             "max_rise_pct": 0.07,           # 最大涨幅7%
             "min_volume_ratio": 2.0,        # 量比≥2.0
+            "max_volume_ratio": 3.0,        # 量比≤3.0(>3过热回调,胜率反而下降)
+            "min_close_rise_pct": 0.03,     # 收盘涨幅≥3%(收盘确认:盘中涨但收不站的次日35%胜率,收住的84%)
             "allow_after_10am": False,      # 不允许10点后买入
         },
         "riskParams": {
-            "stop_loss_pct": 0.03,          # 止损3%
+            "stop_loss_pct": 0.05,          # 止损5%(3%太紧,跳空低开频繁触发)
             "take_profit_pct": 0.07,        # 止盈7%
-            "max_hold_days": 2,             # 最大持仓2天
+            "max_hold_days": 3,             # 最大持仓3天(2天太短,给更多空间)
             "slippage_pct": 0.002,          # 滑点0.2%
         }
     },

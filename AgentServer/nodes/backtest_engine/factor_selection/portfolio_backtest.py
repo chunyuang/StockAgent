@@ -1386,62 +1386,76 @@ class PortfolioBacktester:
             run_state['last_net_value'] = last_net_value
             return run_state
 
-        # 【修复#7：enable_auction_filter 竞价过滤逻辑，开关真正生效】
-        # 如果开启竞价过滤，过滤掉不符合竞价特征的标的
-        # 必须满足: 0.5% ≤ 竞价涨幅 ≤ 7%，竞价成交量 > 0，未匹配成交量 > 0
+        # 【竞价过滤】第5层筛选
+        # 规则: 排除极端竞价情况 — 大幅高开(>7%)或大幅低开(<-5%)
+        # ⚠️ 不可用opening_pct_chg要求0.5%~7%做近似!
+        #   实测: 半路追涨76%候选的竞价涨幅在-2%~0.5%(低开盘中涨),0.5%门槛会杀掉核心候选
+        # 正确做法: 只排除极端值,保留正常区间
         if self._risk_config.get("enable_auction_filter", True) and len(all_candidates) > 0:
             await self.log("")
-            await self.log(f"   📊 【竞价过滤】启用竞价过滤，当前 {len(all_candidates)} 个候选，开始过滤...")
+            await self.log(f"   📊 【竞价过滤】启用竞价过滤，当前 {len(all_candidates)} 个候选")
             
-            # 从MongoDB获取当日竞价数据
+            # 从stock_bid_auction获取真实竞价数据
             auction_data = await mongo_manager.find_many(
                 "stock_bid_auction",
                 {"trade_date": int(trade_date)},
                 projection={"ts_code": 1, "auction_pct_chg": 1, "auction_volume": 1, "unmatched_volume": 1}
             )
             
-            if not auction_data:
-                await self.log(f"   ⚠️  【竞价过滤】未获取到 stock_bid_auction 竞价数据，竞价过滤**未生效**！请确保已导入竞价数据后再使用竞价过滤功能。")
-                # 【修复风险7：无竞价数据时跳过竞价过滤，不清空候选集】
-            else:
+            if auction_data:
+                # ✅ 有真实竞价数据 → 用原始规则(0.5%~7% + 成交量>0 + 未匹配量>0)
                 auction_map = {x.get("ts_code", ""): x for x in auction_data if x.get("ts_code")}
                 original_count = len(all_candidates)
                 filtered_candidates = []
-                
                 for code in all_candidates:
                     auction = auction_map.get(code)
                     if not auction:
-                        filtered_candidates.append(code)  # 【修复风险7：没有竞价数据时保留候选，不过滤掉】
+                        filtered_candidates.append(code)
                         continue
                     pct = auction.get("auction_pct_chg", 0)
                     vol = auction.get("auction_volume", 0)
                     unmatched_vol = auction.get("unmatched_volume", 0)
-                    
-                    # 竞价过滤规则:
-                    # 1. 竞价涨幅必须在 0.5% ~ 7% 之间（排除大幅高开和低开）
-                    # 2. 竞价成交量必须大于 0（确实有成交）
-                    # 3. 未匹配成交量必须大于 0（确保有足够流动性）
                     if 0.5 <= pct <= 7 and vol > 0 and unmatched_vol > 0:
                         filtered_candidates.append(code)
-                
                 all_candidates = set(filtered_candidates)
-                await self.log(f"   ✅ 竞价过滤完成: {original_count} → {len(all_candidates)}")
-                
-                if len(all_candidates) == 0:
-                    await self.log(f"   ⚠️  竞价过滤后无候选，跳过调仓")
-                    # [重构] continue→return: 竞价过滤后无候选，跳过当日剩余处理
-                    run_state['cash'] = cash
-                    run_state['holdings'] = holdings
-                    run_state['rebalance_records'] = rebalance_records
-                    run_state['last_prices'] = last_prices
-                    run_state['stock_names'] = stock_names
-                    run_state['net_value_series'] = net_value_series
-                    run_state['daily_profit_list'] = daily_profit_list
-                    run_state['drawdown_series'] = drawdown_series
-                    run_state['daily_cash_list'] = daily_cash_list
-                    run_state['peak_value'] = peak_value
-                    run_state['last_net_value'] = last_net_value
-                    return run_state
+                await self.log(f"   ✅ 竞价过滤(真实数据)完成: {original_count} → {len(all_candidates)}")
+            else:
+                # 无真实竞价数据 → 用opening_pct_chg做宽松过滤(仅排除极端值)
+                # 半路追涨候选76%在-2%~0.5%, 不可要求≥0.5%
+                # 只排除: 大幅高开>7%(追高风险大) 或 大幅低开<-5%(可能有风险)
+                original_count = len(all_candidates)
+                filtered_candidates = []
+                for code in all_candidates:
+                    code_rows = factor_df[factor_df['ts_code'] == code]
+                    if code_rows.empty:
+                        filtered_candidates.append(code)
+                        continue
+                    opening_pct = code_rows.iloc[0].get('opening_pct_chg', None)
+                    if opening_pct is None or (isinstance(opening_pct, float) and math.isnan(opening_pct)):
+                        filtered_candidates.append(code)
+                        continue
+                    # 仅排除极端竞价: 高开>7% 或 低开<-5%
+                    if opening_pct > 7 or opening_pct < -5:
+                        pass  # 排除极端竞价
+                    else:
+                        filtered_candidates.append(code)
+                all_candidates = set(filtered_candidates)
+                await self.log(f"   ✅ 竞价过滤(日线近似: 排除高开>7%/低开<-5%)完成: {original_count} → {len(all_candidates)}")
+            
+            if len(all_candidates) == 0:
+                await self.log(f"   ⚠️  竞价过滤后无候选，跳过调仓")
+                run_state['cash'] = cash
+                run_state['holdings'] = holdings
+                run_state['rebalance_records'] = rebalance_records
+                run_state['last_prices'] = last_prices
+                run_state['stock_names'] = stock_names
+                run_state['net_value_series'] = net_value_series
+                run_state['daily_profit_list'] = daily_profit_list
+                run_state['drawdown_series'] = drawdown_series
+                run_state['daily_cash_list'] = daily_cash_list
+                run_state['peak_value'] = peak_value
+                run_state['last_net_value'] = last_net_value
+                return run_state
 
         # 【P0-A修复：以下调仓逻辑必须与竞价过滤if平级，不能在if内部！】
         # 否则 enable_auction_filter=False 时不执行任何调仓！
@@ -3008,18 +3022,29 @@ class PortfolioBacktester:
                 converted_params[k] = v
 
         if strategy_name == "半路追涨":
-            min_rise_pct = converted_params.get("min_rise_pct") if converted_params.get("min_rise_pct") is not None else 0.02
+            min_rise_pct = converted_params.get("min_rise_pct") if converted_params.get("min_rise_pct") is not None else 0.03
             max_rise_pct = converted_params.get("max_rise_pct") if converted_params.get("max_rise_pct") is not None else 0.07
-            volume_threshold = converted_params.get("min_volume_ratio") if converted_params.get("min_volume_ratio") is not None else 2.0
+            min_volume_ratio = converted_params.get("min_volume_ratio") if converted_params.get("min_volume_ratio") is not None else 2.0
+            max_volume_ratio = converted_params.get("max_volume_ratio") if converted_params.get("max_volume_ratio") is not None else 3.0
+            min_close_rise = converted_params.get("min_close_rise_pct") if converted_params.get("min_close_rise_pct") is not None else 0.03
             # 【Phase2修复：用盘中可观测指标替代收盘涨幅，消除未来函数】
             # 回测模式下，high/open/pre_close在日线结束后才确定，但仍比pct_chg更接近盘中可观测性
             # 实盘模式下，high/open/pre_close都是盘中实时可观测
-            return [
+            conditions = [
                 {"name": "intraday_max_rise_pct", "target": min_rise_pct * 100, "operator": ">=", "label": f"盘中最高涨幅≥{min_rise_pct*100:.0f}%"},
                 {"name": "intraday_max_rise_pct", "target": max_rise_pct * 100, "operator": "<=", "label": f"盘中最高涨幅≤{max_rise_pct*100:.0f}%"},
                 {"name": "intraday_open_rise_pct", "target": max_rise_pct * 100, "operator": "<=", "label": f"开盘涨幅≤{max_rise_pct*100:.0f}%"},
-                {"name": "volume_ratio", "target": volume_threshold, "label": "量比阈值"}
+                {"name": "volume_ratio", "target": min_volume_ratio, "operator": ">=", "label": f"量比≥{min_volume_ratio}"},
             ]
+            # 量比上限: >3过热回调,胜率反而下降
+            if max_volume_ratio and max_volume_ratio < 100:
+                conditions.append({"name": "volume_ratio", "target": max_volume_ratio, "operator": "<=", "label": f"量比≤{max_volume_ratio}(不过热)"})
+            # 【核心优化】收盘确认: 盘中涨了但收盘不站的次日35%胜率, 收盘站住的84%
+            # 日线回测中pct_chg=收盘涨幅, 是未来函数(收盘后才知)
+            # 但实盘可在14:50后观察是否站稳,回测近似是可接受的
+            if min_close_rise and min_close_rise > 0:
+                conditions.append({"name": "pct_chg", "target": min_close_rise * 100, "operator": ">=", "label": f"收盘涨幅≥{min_close_rise*100:.0f}%"})
+            return conditions
         elif strategy_name == "首板打板":
             # 【V3改造】首板打板：T-1预选 + T日竞价确认 + 盘中封板
             # 核心变化：
