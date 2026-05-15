@@ -458,7 +458,7 @@ class PortfolioBacktester:
             await self.log(f"   │       → 满足 {after_count} 只 / 共 {before_count} 只 (过滤率:{filter_rate:.2f}%)")
 
             if after_count == 0:
-                await self.log(f"   │    ⚠️  提前结束:无符合条件股票,建议调整参数")
+                await self.log(f"   │    ⚠️  提前结束: 条件{idx_cond}【{label}】过滤后0只,建议调整参数")
                 break
 
         candidate_count = len(current_df)
@@ -905,6 +905,7 @@ class PortfolioBacktester:
                 # 已修复的因子：
                 "volume_increase", "market_leader", "hot_sector", "sentiment_score",
                 "intraday_max_rise_pct", "intraday_open_rise_pct",  # 从OHLCV推算，自动补算
+                "pullback_pct", "pullback_days", "pullback_ma5",  # 龙头低吸回调指标
                 # 注意：日线回测无法获取盘中因子，如：
                 # - limit_up_open_count (开板次数，盘中数据)
                 # - limit_up_open_amount (开板金额，盘中数据) 
@@ -2224,7 +2225,13 @@ class PortfolioBacktester:
                 profit_abs = 0
                 is_profit = "-"
                 if profit_pct is not None and buy_price > 0 and sell_price > 0:
-                    profit_abs = shares * (sell_price - buy_price) * (1 - self.SELL_COMMISSION - self.STAMP_TAX)
+                    # 正确的盈亏 = (卖出-买入)×股数 - 买入佣金 - 卖出佣金 - 印花税
+                    buy_cost = shares * buy_price
+                    sell_income = shares * sell_price
+                    buy_comm = max(buy_cost * self.BUY_COMMISSION, self.MIN_COMMISSION)
+                    sell_comm = max(sell_income * self.SELL_COMMISSION, self.MIN_COMMISSION)
+                    stamp = sell_income * self.STAMP_TAX
+                    profit_abs = sell_income - buy_cost - buy_comm - sell_comm - stamp
                     is_profit = "✅" if profit_pct > 0 else "❌"
                     # 计算持仓天数
                     if buy_date and sell_date:
@@ -2474,12 +2481,27 @@ class PortfolioBacktester:
             wins = sum(1 for t in completed if t.get('profit_pct', 0) > 0)
             total_pnl = sum(t.get('profit_pct', 0) for t in completed)
             avg_pnl = total_pnl / len(completed) if completed else 0
+            
+            # 【P2修复】计算策略级最大回撤(基于累计净值曲线)
+            strategy_max_dd = 0.0
+            if completed:
+                cum_pnl = 0.0
+                peak_pnl = 0.0
+                for t in sorted(completed, key=lambda x: x.get('sell_date', '')):
+                    cum_pnl += t.get('profit_pct', 0)
+                    if cum_pnl > peak_pnl:
+                        peak_pnl = cum_pnl
+                    dd = peak_pnl - cum_pnl
+                    if dd > strategy_max_dd:
+                        strategy_max_dd = dd
+            
             strategy_results[sname] = {
                 "strategy_name": sname,
                 "win_rate": (wins / len(completed) * 100) if completed else 0,
                 "total_return": avg_pnl,
                 "trades_count": len(completed),
                 "total_pnl_pct": total_pnl,
+                "max_drawdown": strategy_max_dd,
             }
 
         # 🔧 因子缺失告警：0交易策略加warning字段
@@ -3285,12 +3307,22 @@ class PortfolioBacktester:
                     else:
                         hit_prob = 0.7  # 盘中板
                     
-                    # 按成交概率决定是否成交
-                    if random.random() > hit_prob:
-                        del target_shares[code]  # 未成交，不买
-                        logger.info(f'[首板打板] {code} 成交概率{hit_prob*100:.0f}%→未成交', code, hit_prob)
+                    # 【P1修复】用确定性hash替代random,保证回测可复现
+                    # 规则: 用代码+日期的hash值模拟成交概率
+                    # 同一只股票同一交易日的hash固定→同参数结果一致
+                    if hit_prob > 0:
+                        import hashlib
+                        seed_str = f"{code}_{trade_date}"
+                        hash_val = int(hashlib.md5(seed_str.encode()).hexdigest(), 16) % 1000 / 1000.0
+                        if hash_val > hit_prob:
+                            del target_shares[code]  # 未成交，不买
+                            logger.info(f'[首板打板] {code} 成交概率{hit_prob*100:.0f}%→未成交(deterministic)')
+                        else:
+                            logger.info(f'[首板打板] {code} 成交概率{hit_prob*100:.0f}%→成交(deterministic)')
                     else:
-                        logger.info(f'[首板打板] {code} 成交概率{hit_prob*100:.0f}%→成交', code, hit_prob)
+                        # 一字板0%概率，直接不买
+                        del target_shares[code]
+                        logger.info(f'[首板打板] {code} 一字板→不成交')
 
         # 先卖出:不在目标持仓中的股票全卖 + 持仓超过目标的股票减仓
         sell_codes = [code for code in holdings if code not in target_shares and holdings[code] > 0]
