@@ -1066,7 +1066,9 @@ class PortfolioBacktester:
                         if buy_dt is not None and buy_dt == trade_date:
                             await self.log(f"   │  🔒 T+1限制: {code} 当日买入不可卖(强制空仓跳过)")
                             continue
-                        price = prices_for_sell[code]['close']
+                        price = prices_for_sell[code].get('open', 0) or prices_for_sell[code]['close']
+                        # 【P1-4修复】强制空仓卖出用open价(开盘看到极端行情立即卖出)
+                        # 原来用close=收盘才卖，延迟了1天。强制空仓是开盘决策，应用open
                         # 【P0-1修复：停牌股close=0时用最后有效价，避免0元卖出丢失持仓价值】
                         if price <= 0:
                             price = getattr(self, '_last_valid_price', {}).get(code, 0)
@@ -1764,17 +1766,20 @@ class PortfolioBacktester:
                 tp_price = cost * (1 + tp_pct)
                 # 【V3新增】策略级冲高回落保护/次日高开即卖
                 # 跌停翘板: 次日高开3%即卖(冲高回落保护)
-                # 首板打板: 次日高开3%即卖(落袋为安)
+                # 首板打板: 次日高开即卖(落袋为安)
                 open_rise_from_cost = (open_p / cost - 1) if cost > 0 else 0
                 early_sell_triggered = False
                 if isinstance(strategies, list):
                     for sname in strategies:
-                        if sname == '跌停翘板' and open_rise_from_cost >= 0.03:
+                        # 【P1-6修复】从策略参数读取高开即卖阈值，不再硬编码0.03
+                        sp = self._strategy_params.get(sname, {})
+                        _open_sell_pct = sp.get('next_day_open_sell_pct', 0.03)
+                        if sname == '跌停翘板' and open_rise_from_cost >= _open_sell_pct:
                             forced_sell_prices[code] = open_p
                             forced_sell_codes.append((code, f'冲高回落保护(开{open_p:.2f}涨{open_rise_from_cost*100:.1f}%)'))
                             early_sell_triggered = True
                             break
-                        elif sname == '首板打板' and open_rise_from_cost >= 0.03:
+                        elif sname == '首板打板' and open_rise_from_cost >= _open_sell_pct:
                             forced_sell_prices[code] = open_p
                             forced_sell_codes.append((code, f'次日高开即卖(开{open_p:.2f}涨{open_rise_from_cost*100:.1f}%)'))
                             early_sell_triggered = True
@@ -3166,10 +3171,11 @@ class PortfolioBacktester:
             return [
                 {"name": "limit_down_yesterday", "target": 1, "label": "昨日跌停"},
                 {"name": "open_above_limit_down", "target": 1, "label": "开盘高于跌停价(不继续跌停)"},
+                {"name": "circ_mv", "target": 200000, "operator": ">=", "label": "流通市值≥20亿(排除小盘操纵)"},
                 {"name": "turnover_rate", "target": min_turnover_qiao, "operator": ">=", "label": f"换手率≥{min_turnover_qiao:.0f}%"},
                 # 【放宽】去掉limit_down_open_amount和rise_after_limit_down条件
                 # 原因：日线数据无法准确计算盘中翘板，且这两个因子大部分为0
-                # 只保留基本条件：昨日跌停+今日不继续跌停+有换手率
+                # 只保留基本条件：昨日跌停+今日不继续跌停+有换手率+有市值
                 {"name": "sentiment_period_in", "target": require_sentiment if require_high_sentiment else [], "operator": "in", "label": "情绪周期要求"},
             ]
         else:
@@ -3300,16 +3306,22 @@ class PortfolioBacktester:
                     
                     open_rise = (o - pc) / pc * 100
                     
+                    # 【P0-2修复】从策略参数读取成交概率，不再硬编码
+                    sp = self._strategy_params.get('首板打板', {})
+                    hit_prob_yizi = sp.get('hit_probability_yizi', 0.0)
+                    hit_prob_fast = sp.get('hit_probability_fast', 0.3)  # 秒板(open_rise>=8%)
+                    hit_prob_normal = sp.get('hit_probability_normal', 0.5)  # 快速板(open_rise>=2%)
+                    hit_prob_slow = sp.get('hit_probability_slow', 0.7)  # 盘中板
+                    
                     # 判断封板类型
                     if o == c == h == l:
-                        # 一字板: 买不到
-                        hit_prob = 0.0
+                        hit_prob = hit_prob_yizi  # 一字板
                     elif open_rise >= 8:
-                        hit_prob = 0.3  # 秒板
+                        hit_prob = hit_prob_fast  # 秒板
                     elif open_rise >= 2:
-                        hit_prob = 0.5  # 快速板
+                        hit_prob = hit_prob_normal  # 快速板
                     else:
-                        hit_prob = 0.7  # 盘中板
+                        hit_prob = hit_prob_slow  # 盘中板
                     
                     # 【P1修复】用确定性hash替代random,保证回测可复现
                     # 规则: 用代码+日期的hash值模拟成交概率
