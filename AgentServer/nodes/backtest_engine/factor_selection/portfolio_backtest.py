@@ -3316,13 +3316,13 @@ class PortfolioBacktester:
                         hash_val = int(hashlib.md5(seed_str.encode()).hexdigest(), 16) % 1000 / 1000.0
                         if hash_val > hit_prob:
                             del target_shares[code]  # 未成交，不买
-                            logger.info(f'[首板打板] {code} 成交概率{hit_prob*100:.0f}%→未成交(deterministic)')
+                            logger.info('backtest', f'[首板打板] {code} 成交概率{hit_prob*100:.0f}%→未成交(deterministic)')
                         else:
-                            logger.info(f'[首板打板] {code} 成交概率{hit_prob*100:.0f}%→成交(deterministic)')
+                            logger.info('backtest', f'[首板打板] {code} 成交概率{hit_prob*100:.0f}%→成交(deterministic)')
                     else:
                         # 一字板0%概率，直接不买
                         del target_shares[code]
-                        logger.info(f'[首板打板] {code} 一字板→不成交')
+                        logger.info('backtest', f'[首板打板] {code} 一字板→不成交')
 
         # 先卖出:不在目标持仓中的股票全卖 + 持仓超过目标的股票减仓
         sell_codes = [code for code in holdings if code not in target_shares and holdings[code] > 0]
