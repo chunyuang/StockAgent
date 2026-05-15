@@ -49,12 +49,13 @@ STRATEGY_CONFIGS = {
             "min_volume_ratio": 2.0,        # 量比≥2.0
             "max_volume_ratio": 3.0,        # 量比≤3.0(>3过热回调,胜率反而下降)
             "min_close_rise_pct": 0.03,     # 收盘涨幅≥3%(收盘确认:盘中涨但收不站的次日35%胜率,收住的84%)
+            "max_open_rise_pct": 0.03,      # 开盘涨幅≤3%(高开>3%追高胜率仅44%,低开冲高81.5%胜率)
             "allow_after_10am": False,      # 不允许10点后买入
         },
         "riskParams": {
-            "stop_loss_pct": 0.05,          # 止损5%(3%太紧,跳空低开频繁触发)
-            "take_profit_pct": 0.07,        # 止盈7%
-            "max_hold_days": 3,             # 最大持仓3天(2天太短,给更多空间)
+            "stop_loss_pct": 0.05,          # 止损5%(3%太紧,半路追涨波动大易被震出,回撤从12.8%升至16.2%)
+            "take_profit_pct": 0.10,        # 止盈10%(让利润奔跑,半路追涨收盘5-7%的次日均值+3.1%)
+            "max_hold_days": 3,             # 最大持仓3天
             "slippage_pct": 0.002,          # 滑点0.2%
         }
     },

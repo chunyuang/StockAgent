@@ -709,6 +709,7 @@ class PortfolioBacktester:
         await self.log("🔧 Phase1 实盘对标修复:")
         await self.log("    🔹 ✅ T+1约束: 当日买入不可卖出")
         await self.log("    🔹 ✅ 半路追涨买入价: open→open×(1+min_rise×0.6) (盘中信号触发价)")
+        await self.log("    🔹 ✅ 半路追涨方案B: 开盘≤3%(排除高开追高) + SL5%/TP10% + 收盘确认≥3%")
         await self.log("    🔹 ✅ 龙头低吸买入价: low×1.005→low+(high-low)×0.25 (偏低位但不极端)")
         await self.log("    🔹 ✅ 跳空止损: open<止损价→以open卖出 (最差情况)")
         await self.log("    🔹 ✅ 止损卖出价: close→止损价/跳空open (不再一律用close)")
@@ -722,7 +723,7 @@ class PortfolioBacktester:
         self._strategy_risk_params = {}  # strategy_name -> {stop_loss_pct, take_profit_pct, max_hold_days, slippage_pct}
         self._strategy_params = {}  # strategy_name -> {min_rise_pct, min_volume_ratio, ...}
         # 【策略级默认风控】日线回测买入价=次日open，首板/涨停策略买入价接近涨停价
-        # 半路追涨3%止损(从2%放宽), 首板打板4%止损(从5%收紧,减少单笔亏损)
+        # 半路追涨3%止损(方案B:快速止损降低单笔亏损), 首板打板4%止损(从5%收紧)
         _strategy_default_sl = STRATEGY_DEFAULT_STOP_LOSS
         for s in selected_strategies:
             sname = s.get("name", "")
@@ -3050,13 +3051,13 @@ class PortfolioBacktester:
             min_volume_ratio = converted_params.get("min_volume_ratio") if converted_params.get("min_volume_ratio") is not None else 2.0
             max_volume_ratio = converted_params.get("max_volume_ratio") if converted_params.get("max_volume_ratio") is not None else 3.0
             min_close_rise = converted_params.get("min_close_rise_pct") if converted_params.get("min_close_rise_pct") is not None else 0.03
-            # 【Phase2修复：用盘中可观测指标替代收盘涨幅，消除未来函数】
-            # 回测模式下，high/open/pre_close在日线结束后才确定，但仍比pct_chg更接近盘中可观测性
-            # 实盘模式下，high/open/pre_close都是盘中实时可观测
+            max_open_rise = converted_params.get("max_open_rise_pct") if converted_params.get("max_open_rise_pct") is not None else 0.03
+            # 【方案B优化】开盘涨幅上限: 高开>3%追高胜率仅44%, 低开冲高81.5%胜率
+            # 核心逻辑: 低开/平开→盘中放量冲高→收盘站稳→次日惯性上涨
             conditions = [
                 {"name": "intraday_max_rise_pct", "target": min_rise_pct * 100, "operator": ">=", "label": f"盘中最高涨幅≥{min_rise_pct*100:.0f}%"},
                 {"name": "intraday_max_rise_pct", "target": max_rise_pct * 100, "operator": "<=", "label": f"盘中最高涨幅≤{max_rise_pct*100:.0f}%"},
-                {"name": "intraday_open_rise_pct", "target": max_rise_pct * 100, "operator": "<=", "label": f"开盘涨幅≤{max_rise_pct*100:.0f}%"},
+                {"name": "intraday_open_rise_pct", "target": max_open_rise * 100, "operator": "<=", "label": f"开盘涨幅≤{max_open_rise*100:.0f}%(排除高开追高)"},
                 {"name": "volume_ratio", "target": min_volume_ratio, "operator": ">=", "label": f"量比≥{min_volume_ratio}"},
             ]
             # 量比上限: >3过热回调,胜率反而下降
