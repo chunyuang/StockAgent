@@ -28,7 +28,7 @@ GLOBAL_RISK = {
 # 策略级默认止损映射（当策略没有传riskParams时的兜底）
 # ============================================================
 STRATEGY_DEFAULT_STOP_LOSS = {
-    "半路追涨": 0.03,
+    "半路追涨": 0.05,    # 与riskParams.stop_loss_pct一致
     "首板打板": 0.04,
     "涨停开板": 0.05,
     "龙头低吸": 0.05,
@@ -134,6 +134,7 @@ STRATEGY_CONFIGS = {
             "min_consecutive_limit": 2,                 # 最小连跌数
             "min_qiao_amount": 1000,                    # 翘板金额(万元)
             "min_rise_after_qiao": 0.03,                # 翘板后最小涨幅3%
+            "min_circulation_market_cap": 20,            # 最小流通市值20亿(排除小盘操纵)
             "require_high_sentiment": False,             # 不要求高情绪
         },
         "riskParams": {
