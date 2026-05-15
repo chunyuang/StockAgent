@@ -25,7 +25,7 @@ const strategyNameMap: Record<string, string> = {
   halfway_chase: '半路追涨',
   first_limit_up: '首板打板',
   limit_up_open: '涨停开板',
-  leader_buy_dip: '龙头低吸',
+  dragon_head: '龙头低吸',
   limit_down_qiao: '跌停翘板',
 }
 

@@ -45,7 +45,7 @@ const schedulerPhase = ref('idle')
 // 策略名称映射
 const strategyNameMap: Record<string, string> = {
   halfway_chase: '半路追涨', first_limit_up: '首板打板',
-  limit_up_open: '涨停开板', leader_buy_dip: '龙头低吸', limit_down_qiao: '跌停翘板',
+  limit_up_open: '涨停开板', dragon_head: '龙头低吸', limit_down_qiao: '跌停翘板',
 }
 const typeMap: Record<string, string> = { buy: '买入', sell: '卖出', hold: '持有' }
 const directionMap: Record<string, string> = { buy: '买入', sell: '卖出' }

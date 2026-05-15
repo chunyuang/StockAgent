@@ -68,7 +68,7 @@ async def execute_ultra_short_backtest(
         "halfway_chase": "半路追涨",
         "first_limit_up": "首板打板",
         "limit_up_open": "涨停开板",
-        "leader_buy_dip": "龙头低吸",
+        "dragon_head": "龙头低吸",
         "limit_down_qiao": "跌停翘板"
     }
     selected_strategy_names = [strategy_name_map.get(s, s) for s in strategies]
@@ -267,7 +267,7 @@ async def execute_ultra_short_backtest(
             min_seal_after = sp.get("min_seal_after_open", 3000)
             all_factors.append({"name": "limit_up_count", "weight": weight_per_strategy, "target": min_consecutive})
             all_factors.append({"name": "limit_up_open_amount", "weight": weight_per_strategy, "target": min_seal_after})
-        elif strategy_id == "leader_buy_dip":
+        elif strategy_id == "dragon_head":
             all_factors.append({"name": "market_leader", "weight": weight_per_strategy, "target": 1})
         elif strategy_id == "limit_down_qiao":
             min_consecutive = sp.get("min_consecutive_limit", 3)

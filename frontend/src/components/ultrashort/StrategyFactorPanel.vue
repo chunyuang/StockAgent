@@ -76,7 +76,7 @@ const strategies: StrategyFactor[] = [
     ],
   },
   {
-    id: 'leader_buy_dip',
+    id: 'dragon_head',
     name: '龙头低吸',
     emoji: '🐉',
     color: '#e6a23c',

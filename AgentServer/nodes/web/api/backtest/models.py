@@ -139,7 +139,7 @@ strategy_name_map: Dict[str, str] = {
     "半路追涨": "halfway_chase",
     "首板打板": "first_limit_up",
     "涨停开板": "limit_up_open",
-    "龙头低吸": "leader_buy_dip",
+    "龙头低吸": "dragon_head",
     "跌停翘板": "limit_down_qiao",
 }
 
@@ -149,7 +149,7 @@ strategy_name_map_reverse: Dict[str, str] = {v: k for k, v in strategy_name_map.
 
 class UltraShortBacktestRequest(BaseModel):
     """超短策略回测请求"""
-    strategies: Optional[List[str]] = Field(None, description="策略列表，可选值: halfway_chase(半路追涨), first_limit_up(首板打板), limit_up_open(涨停开板), leader_buy_dip(龙头低吸), limit_down_qiao(跌停翘板)", min_length=1)
+    strategies: Optional[List[str]] = Field(None, description="策略列表，可选值: halfway_chase(半路追涨), first_limit_up(首板打板), limit_up_open(涨停开板), dragon_head(龙头低吸), limit_down_qiao(跌停翘板)", min_length=1)
     selected_strategies: Optional[List[Dict[str, Any]]] = Field(None, description="前端提交的选中策略对象数组，兼容老版本")
     start_date: Optional[str] = Field(None, description="开始日期")
     end_date: Optional[str] = Field(None, description="结束日期")
