@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 import pandas as pd
 
 from nodes.market_monitor.broker import SimulatedBroker
+from nodes.market_monitor.live_filter_pipeline import LiveFilterPipeline
 
 logger = logging.getLogger("scanner.market")
 
@@ -116,6 +117,23 @@ class MarketScanner:
         self._active_signals: List[ScanSignal] = []
         self._timeline: List[Dict] = []  # 今日交易时间线
 
+        # 9层筛选管道
+        self._filter_pipeline = LiveFilterPipeline(
+            scanner=self,
+            config={
+                "enable_force_empty": True,
+                "enable_special_period": True,
+                "enable_sentiment_cycle": True,
+                "enable_premarket_filter": True,
+                "enable_auction_filter": True,
+                "max_total_position": 0.7,
+                "max_position_per_stock": 0.2,
+                "max_candidates_per_scan": 10,
+            }
+        )
+        self._current_position_ratio = 1.0  # 默认满仓
+        self._current_sentiment = {"score": 50, "period": "chaos"}
+
         # 统计
         self._stats = {
             "scans": 0,
@@ -171,6 +189,10 @@ class MarketScanner:
             "stats": self._stats,
             "account_id": self.account_id,
             "trade_mode": self._trade_mode,
+            "filter_pipeline": {
+                "position_ratio": self._current_position_ratio,
+                "sentiment": self._current_sentiment,
+            },
         }
 
     def get_signals(self) -> List[Dict]:
@@ -532,7 +554,12 @@ class MarketScanner:
         # Step 3: 策略筛选
         new_signals = await self._apply_strategies(merged_df, trade_date)
 
-        # Step 3.5: 异动检测(从realtime_data检测, 不消耗额外API)
+        # Step 3.5: 9层筛选管道(强制空仓/情绪/竞价/排序/仓位)
+        new_signals = await self._apply_filter_pipeline(
+            new_signals, trade_date, realtime_data
+        )
+
+        # Step 3.6: 异动检测(从realtime_data检测, 不消耗额外API)
         anomaly_signals = await self._detect_anomalies(realtime_data)
         new_signals.extend(anomaly_signals)
 
@@ -940,6 +967,81 @@ class MarketScanner:
                 ))
 
         return signals
+
+    # ==================== 9层筛选管道 ====================
+
+    async def _apply_filter_pipeline(
+        self, signals: List[ScanSignal], trade_date: str, realtime_data: Dict
+    ) -> List[ScanSignal]:
+        """9层筛选管道: 强制空仓/情绪/竞价/排序/仓位"""
+        if not signals:
+            return signals
+
+        # 转换为管道输入格式
+        candidates = []
+        for s in signals:
+            candidates.append({
+                "ts_code": s.ts_code,
+                "stock_name": s.stock_name,
+                "strategy": s.strategy,
+                "strategy_name": s.strategy_name,
+                "price": s.price,
+                "pct_chg": s.pct_chg,
+                "volume_ratio": s.volume_ratio,
+                "turnover_rate": s.turnover_rate,
+                "is_limit_up": s.is_limit_up,
+                "limit_up_count": s.limit_up_count,
+                "reason": s.reason,
+                "confidence": s.confidence,
+            })
+
+        # 获取持仓信息
+        positions = []
+        if self._broker:
+            for p in self._broker.get_positions():
+                positions.append({"ts_code": p.ts_code, "strategy": p.strategy})
+
+        # 执行管道
+        result = await self._filter_pipeline.apply(
+            trade_date=trade_date,
+            candidates=candidates,
+            positions=positions,
+            account={"cash": self._broker.cash if self._broker else 0},
+            realtime_data=realtime_data,
+        )
+
+        # 日志
+        for layer, detail in result.layer_details.items():
+            logger.info(f"[FILTER] {layer}: {detail}")
+
+        # 强制空仓 → 清所有持仓
+        if result.action == "empty":
+            logger.warning(f"[FILTER] ⚠️ 强制空仓: {result.force_empty_reason}")
+            if self._broker:
+                for p in self._broker.get_positions():
+                    self._broker.sell(
+                        ts_code=p.ts_code,
+                        shares=p.shares,
+                        price=p.current_price,
+                        reason=f"强制空仓: {result.force_empty_reason}",
+                    )
+            return []
+
+        # 转回ScanSignal
+        filtered_signals = []
+        candidate_codes = {c["ts_code"] for c in result.candidates}
+        for s in signals:
+            if s.ts_code in candidate_codes:
+                filtered_signals.append(s)
+
+        # 存储仓位系数和情绪信息(供execute_signals使用)
+        self._current_position_ratio = result.position_ratio
+        self._current_sentiment = self._filter_pipeline.get_sentiment_info()
+
+        logger.info(f"[FILTER] 筛选完成: {len(signals)}→{len(filtered_signals)}个信号, "
+                     f"仓位系数={result.position_ratio:.0%}")
+
+        return filtered_signals
 
     # ==================== 信号管理 ====================
 
@@ -1402,6 +1504,11 @@ class MarketScanner:
                     ratio *= 0.7  # 已半仓, 减量
                 if current_ratio > 0.65:
                     ratio *= 0.5  # 接近满仓, 减半
+        
+        # 情绪仓位系数: 9层筛选L3情绪周期/L2特殊时期的仓位调整
+        pipeline_ratio = getattr(self, '_current_position_ratio', None)
+        if pipeline_ratio is not None and pipeline_ratio < 1.0:
+            ratio *= pipeline_ratio  # 情绪低迷/特殊时期降仓
         
         return ratio
 
