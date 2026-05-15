@@ -94,7 +94,7 @@ const configApi = '/strategy-config'
 const strategyMeta: Record<string, { color: string; icon: string; desc: string; flow: string }> = {
   halfway_chase: { color: '#409eff', icon: '📈', desc: '涨3-7%+量比>2+换手>3%', flow: '东方财富全市场选股 → 量比/换手确认' },
   first_limit_up: { color: '#e6a23c', icon: '🎯', desc: '首板涨停+封单强+少炸板', flow: '必盈涨停池 → 封板资金/连板数筛选' },
-  leader_buy_dip: { color: '#67c23a', icon: '👑', desc: '2+连板龙头回调3-7%', flow: '必盈涨停池(连板) → 实时价回调确认' },
+  dragon_head: { color: '#67c23a', icon: '👑', desc: '2+连板龙头回调3-7%', flow: '必盈涨停池(连板) → 实时价回调确认' },
   limit_down_qiao: { color: '#f56c6c', icon: '🔨', desc: '跌停打开后反弹>2%', flow: '必盈跌停池 → 实时价反弹确认' },
   limit_up_open: { color: '#909399', icon: '🔓', desc: '涨停开板回封(已关闭)', flow: '已关闭: 胜率38%负期望' },
 }

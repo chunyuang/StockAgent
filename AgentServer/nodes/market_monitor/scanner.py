@@ -940,7 +940,7 @@ class MarketScanner:
                     reason = f"涨{pct:.1f}% 量比{vr:.1f} 换手{tr:.1f}%{' ⚠️ST' if 'ST' in row.get('stock_name','') else ''}"
                 elif strategy_key == 'first_limit_up':
                     reason = f"首板涨停 封单强 炸板{lbc}次"
-                elif strategy_key == 'leader_buy_dip':
+                elif strategy_key == 'dragon_head':
                     reason = f"{lbc}连板龙头 回调{pct:.1f}%"
                 elif strategy_key == 'limit_down_qiao':
                     reason = f"跌停撬板 反弹{pct:.1f}%"

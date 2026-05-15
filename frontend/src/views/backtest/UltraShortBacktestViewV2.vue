@@ -74,7 +74,7 @@ const form = reactive({
     enable_stop_loss: true,
     enable_take_profit: true,
   },
-  strategies: ['halfway_chase', 'first_limit_up', 'leader_buy_dip', 'limit_down_qiao'],
+  strategies: ['halfway_chase', 'first_limit_up', 'dragon_head', 'limit_down_qiao'],
   strategyConfigs: {
     halfway_chase: {
       enabled: STRATEGY_CONFIGS.halfway_chase.enabled, name: STRATEGY_CONFIGS.halfway_chase.name,
@@ -91,10 +91,10 @@ const form = reactive({
       params: { ...STRATEGY_CONFIGS.limit_up_open.params },
       riskParams: { ...STRATEGY_CONFIGS.limit_up_open.riskParams }
     },
-    leader_buy_dip: {
-      enabled: STRATEGY_CONFIGS.leader_buy_dip.enabled, name: STRATEGY_CONFIGS.leader_buy_dip.name,
-      params: { ...STRATEGY_CONFIGS.leader_buy_dip.params },
-      riskParams: { ...STRATEGY_CONFIGS.leader_buy_dip.riskParams }
+    dragon_head: {
+      enabled: STRATEGY_CONFIGS.dragon_head.enabled, name: STRATEGY_CONFIGS.dragon_head.name,
+      params: { ...STRATEGY_CONFIGS.dragon_head.params },
+      riskParams: { ...STRATEGY_CONFIGS.dragon_head.riskParams }
     },
     limit_down_qiao: {
       enabled: STRATEGY_CONFIGS.limit_down_qiao.enabled, name: STRATEGY_CONFIGS.limit_down_qiao.name,
@@ -182,7 +182,7 @@ onMounted(async () => {
       if (parsed.defaultStrategies?.selected) {
         form.strategies = parsed.defaultStrategies.selected.split(',').map((s: string) => s.trim())
       }
-      const strategyIds = ['halfway_chase', 'first_limit_up', 'limit_up_open', 'leader_buy_dip', 'limit_down_qiao']
+      const strategyIds = ['halfway_chase', 'first_limit_up', 'limit_up_open', 'dragon_head', 'limit_down_qiao']
       for (const sid of strategyIds) {
         if (parsed[sid]) {
           const cfg = parsed[sid]
