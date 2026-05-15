@@ -1191,28 +1191,51 @@ class MarketScanner:
     # ==================== 持仓检查 ====================
 
     async def _check_positions(self, realtime_data: Dict[str, Dict], trade_date: str):
-        """止损止盈检查(策略级风控参数)"""
+        """止损止盈检查(策略级风控参数 + 跳空止损)
+        
+        与回测portfolio_backtest.py一致的止损逻辑:
+        1. 跳空止损: 当日开盘价<止损价 → 用开盘价卖出(不计止损价,因为跳空低开了)
+        2. 正常止损: 当前价触发止损 → 止损价卖出(回测用止损价,实盘用市价近似)
+        3. 止盈: 当前价触发止盈 → 市价卖出
+        """
         to_sell = []
         for pos in self._broker.get_positions():
             # 更新实时价格
-            if pos.ts_code in realtime_data:
-                self._broker.update_realtime(pos.ts_code, realtime_data[pos.ts_code].get("price", pos.current_price))
+            rt = realtime_data.get(pos.ts_code, {})
+            if rt:
+                self._broker.update_realtime(pos.ts_code, rt.get("price", pos.current_price))
 
             # 获取策略级风控参数
             risk = self._get_strategy_risk(pos.strategy)
-            # riskParams里stop_loss_pct/take_profit_pct是小数(0.03=3%)
-            # broker.profit_pct是百分比形式(3.0=3%), 需要转换
             stop_loss_pct = -risk.get("stop_loss_pct", 0.03) * 100   # 0.03→-3.0%
             take_profit_pct = risk.get("take_profit_pct", 0.07) * 100  # 0.07→7.0%
 
-            # 检查止损/止盈
+            # 跳空止损检查(与回测一致)
+            # 当日open < 止损价 → 跳空低开, 用open卖出(不计止损价)
+            sell_reason = None
+            sell_price = pos.current_price  # 默认市价
+            
             if pos.profit_pct <= stop_loss_pct:
-                to_sell.append((pos, f"止损 {pos.profit_pct:.1f}%"))
+                # 计算止损价: cost_price * (1 - stop_loss_pct/100)
+                stop_loss_price = pos.avg_cost * (1 + stop_loss_pct / 100)
+                
+                # 检查是否跳空低开(open < 止损价)
+                today_open = rt.get("open", 0)
+                if today_open > 0 and today_open < stop_loss_price:
+                    # 跳空止损: 用open卖出,不用止损价(因为已经跳空了)
+                    sell_reason = f"跳空止损(开{today_open:.2f}<止损{stop_loss_price:.2f})"
+                    sell_price = today_open
+                else:
+                    # 正常止损
+                    sell_reason = f"止损 {pos.profit_pct:.1f}%"
             elif pos.profit_pct >= take_profit_pct:
-                to_sell.append((pos, f"止盈 {pos.profit_pct:.1f}%"))
+                sell_reason = f"止盈 {pos.profit_pct:.1f}%"
+
+            if sell_reason:
+                to_sell.append((pos, sell_reason, sell_price))
 
         # 执行卖出
-        for pos, reason in to_sell:
+        for pos, reason, sell_price in to_sell:
             if pos.available_qty <= 0:
                 continue  # T+1: 今日买入不可卖
 
@@ -1222,7 +1245,7 @@ class MarketScanner:
                 stock_name=pos.stock_name,
                 side="sell",
                 quantity=pos.available_qty,
-                price=pos.current_price,
+                price=sell_price,
                 order_type="market",
                 strategy=pos.strategy,
                 reason=reason,
