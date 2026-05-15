@@ -3132,10 +3132,11 @@ class PortfolioBacktester:
             return [
                 {"name": "circ_mv", "target": _min_circ_for_leader, "operator": ">=", "label": f"流通市值≥{_min_circ_for_leader//10000}亿(龙头)"},
                 {"name": "limit_up_count", "target": min_consecutive, "operator": ">=", "label": f"近5日至少{min_consecutive}板"},
-                # 【P0-2修复(第33轮)：pullback_pct在MongoDB中存正数(如0.15=回调15%)]
-                # 正确语义：pullback_pct >= min_correction(回调至少这么深) AND <= max_correction(不超跌)
-                {"name": "pullback_pct", "target": min_correction, "operator": ">=", "label": f"回调≥{min_correction*100:.0f}%"},
-                {"name": "pullback_pct", "target": max_correction, "operator": "<=", "label": f"回调≤{max_correction*100:.0f}%"},
+                # 【Bug修复】pullback_pct在MongoDB中存负数(如-0.15=回调15%)
+                # close < high_peak → pullback_pct < 0 → 回调时是负值
+                # 所以：回调≥5% → pullback_pct <= -0.05, 回调≤35% → pullback_pct >= -0.35
+                {"name": "pullback_pct", "target": -max_correction, "operator": ">=", "label": f"回调≤{max_correction*100:.0f}%(不超跌)"},
+                {"name": "pullback_pct", "target": -min_correction, "operator": "<=", "label": f"回调≥{min_correction*100:.0f}%"},
                 {"name": "pullback_days", "target": correction_days_min, "operator": ">=", "label": "最小回调天数"},
                 {"name": "pullback_days", "target": correction_days_max, "operator": "<=", "label": "最大回调天数"},
                 # 【V3】去掉pullback_ma5硬性条件(数据质量差，15→0只) 
