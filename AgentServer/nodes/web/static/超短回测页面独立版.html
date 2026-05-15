@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en-US">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ultra-Short Strategy Backtest - StockAgent</title>
+    <title>超短策略回测 - StockAgent</title>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://unpkg.com/element-plus/dist/index.full.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
@@ -81,25 +81,22 @@
         .text-purple {
             color: #909399;
         }
-        .warning-row {
-            background-color: #fdf6ec !important;
-        }
     </style>
 </head>
 <body>
     <div id="app" class="page-container">
         <div class="page-header">
-            <h1 class="page-title">Ultra-Short Strategy Backtest</h1>
-            <p class="page-description">Full-market backtest tool for 5 major ultra-short strategies, with real-time process logs and complete result analysis</p>
+            <h1 class="page-title">超短策略回测</h1>
+            <p class="page-description">专门针对5大超短策略的全市场回测工具，支持实时过程日志和完整结果分析</p>
         </div>
 
         <div class="grid grid-cols-12 gap-6">
-            <!-- Left Config Panel -->
+            <!-- 左侧配置面板 -->
             <div class="col-span-4">
                 <el-card class="config-card">
                     <template #header>
                         <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <span>Backtest Configuration</span>
+                            <span>回测配置</span>
                             <el-button 
                                 type="primary" 
                                 :icon="running ? 'el-icon-refresh' : 'el-icon-video-play'"
@@ -107,31 +104,31 @@
                                 @click="runBacktest"
                                 size="small"
                             >
-                                {{ running ? 'Running...' : 'Run Backtest' }}
+                                {{ running ? '运行中...' : '运行回测' }}
                             </el-button>
                         </div>
                     </template>
 
-                    <el-form :model="form" label-width="160px" size="small">
-                        <el-form-item label="Select Strategies">
+                    <el-form :model="form" label-width="120px" size="small">
+                        <el-form-item label="选择策略">
                             <el-checkbox-group v-model="form.strategies">
-                                <el-checkbox label="halfway_chase">🚀 Halfway Chase</el-checkbox>
-                                <el-checkbox label="first_limit_up">🚀 First Limit Up</el-checkbox>
-                                <el-checkbox label="limit_up_open">🚀 Limit Up Open</el-checkbox>
-                                <el-checkbox label="leader_buy_dip">🚀 Leader Buy Dip</el-checkbox>
-                                <el-checkbox label="limit_down_qiao">🚀 Limit Down Flipping</el-checkbox>
+                                <el-checkbox label="halfway_chase">🚀 半路追涨</el-checkbox>
+                                <el-checkbox label="first_limit_up">🚀 首板打板</el-checkbox>
+                                <el-checkbox label="limit_up_open">🚀 涨停开板</el-checkbox>
+                                <el-checkbox label="leader_buy_dip">🚀 龙头低吸</el-checkbox>
+                                <el-checkbox label="limit_down_qiao">🚀 跌停翘板</el-checkbox>
                             </el-checkbox-group>
                         </el-form-item>
 
-                        <el-form-item label="Start Date">
-                            <el-input v-model="form.start_date" placeholder="e.g. 20260105" />
+                        <el-form-item label="开始日期">
+                            <el-input v-model="form.start_date" placeholder="如：20260105" />
                         </el-form-item>
 
-                        <el-form-item label="End Date">
-                            <el-input v-model="form.end_date" placeholder="e.g. 20260320" />
+                        <el-form-item label="结束日期">
+                            <el-input v-model="form.end_date" placeholder="如：20260320" />
                         </el-form-item>
 
-                        <el-form-item label="Initial Capital">
+                        <el-form-item label="初始资金">
                             <el-input-number 
                                 v-model="form.initial_cash" 
                                 :min="10000" 
@@ -141,8 +138,8 @@
                         </el-form-item>
 
                         <el-collapse v-model="activeCollapse" accordion>
-                            <el-collapse-item title="Strategy Parameters" name="params">
-                                <el-form-item label="Liquidity Threshold (10k CNY)">
+                            <el-collapse-item title="策略参数" name="params">
+                                <el-form-item label="流动性门槛(万元)">
                                     <el-input-number 
                                         v-model="form.params.liquidity_threshold" 
                                         :min="100" 
@@ -150,7 +147,7 @@
                                         style="width: 100%"
                                     />
                                 </el-form-item>
-                                <el-form-item label="Volume Amplification">
+                                <el-form-item label="量能放大倍数">
                                     <el-input-number 
                                         v-model="form.params.volume_threshold" 
                                         :min="1" 
@@ -159,7 +156,7 @@
                                         style="width: 100%"
                                     />
                                 </el-form-item>
-                                <el-form-item label="Stop Loss Ratio">
+                                <el-form-item label="止损比例">
                                     <el-input-number 
                                         v-model="form.params.stop_loss_pct" 
                                         :min="0.01" 
@@ -168,7 +165,7 @@
                                         style="width: 100%"
                                     />
                                 </el-form-item>
-                                <el-form-item label="Take Profit Ratio">
+                                <el-form-item label="止盈比例">
                                     <el-input-number 
                                         v-model="form.params.take_profit_pct" 
                                         :min="0.01" 
@@ -177,7 +174,7 @@
                                         style="width: 100%"
                                     />
                                 </el-form-item>
-                                <el-form-item label="Max Holding Days">
+                                <el-form-item label="最大持仓天数">
                                     <el-input-number 
                                         v-model="form.params.max_hold_days" 
                                         :min="1" 
@@ -187,8 +184,8 @@
                                 </el-form-item>
                             </el-collapse-item>
                             
-                            <el-collapse-item title="Position Configuration" name="position">
-                                <el-form-item label="Max Position per Stock">
+                            <el-collapse-item title="仓位配置" name="position">
+                                <el-form-item label="单票最大仓位">
                                     <el-input-number 
                                         v-model="form.params.max_position_per_stock" 
                                         :min="0.1" 
@@ -197,7 +194,7 @@
                                         style="width: 100%"
                                     />
                                 </el-form-item>
-                                <el-form-item label="Total Position Limit">
+                                <el-form-item label="总仓位上限">
                                     <el-input-number 
                                         v-model="form.params.max_position" 
                                         :min="0.1" 
@@ -208,14 +205,14 @@
                                 </el-form-item>
                             </el-collapse-item>
                             
-                            <el-collapse-item title="Advanced Settings" name="advanced">
-                                <el-form-item label="Force Empty Position">
+                            <el-collapse-item title="高级设置" name="advanced">
+                                <el-form-item label="强制空仓">
                                     <el-switch v-model="form.enable_force_empty" />
                                 </el-form-item>
-                                <el-form-item label="Sentiment Cycle">
+                                <el-form-item label="情绪周期">
                                     <el-switch v-model="form.enable_sentiment_cycle" />
                                 </el-form-item>
-                                <el-form-item label="Auction Filter">
+                                <el-form-item label="竞价过滤">
                                     <el-switch v-model="form.enable_auction_filter" />
                                 </el-form-item>
                             </el-collapse-item>
@@ -223,15 +220,15 @@
                     </el-form>
                 </el-card>
 
-                <!-- Backtest Progress -->
+                <!-- 回测进度 -->
                 <el-card class="mt-4" v-if="status !== 'idle'">
-                    <template #header>Backtest Progress</template>
+                    <template #header>回测进度</template>
                     
                     <div class="mb-2" style="display: flex; justify-content: space-between;">
-                        <span>Status: {{ 
-                            status === 'running' ? 'Running' :
-                            status === 'completed' ? 'Completed' :
-                            status === 'failed' ? 'Failed' : 'Cancelled'
+                        <span>状态：{{ 
+                            status === 'running' ? '运行中' :
+                            status === 'completed' ? '已完成' :
+                            status === 'failed' ? '失败' : '已取消'
                         }}</span>
                         <span>{{ progress }}%</span>
                     </div>
@@ -245,14 +242,14 @@
                     
                     <el-alert 
                         v-if="status === 'failed'"
-                        title="Backtest Failed"
+                        title="回测失败"
                         type="error"
                         :closable="false"
                         class="mt-4"
                     />
                     <el-alert 
                         v-if="status === 'completed'"
-                        title="Backtest Completed"
+                        title="回测完成"
                         type="success"
                         :closable="false"
                         class="mt-4"
@@ -260,26 +257,26 @@
                 </el-card>
             </div>
             
-            <!-- Right Content Area -->
+            <!-- 右侧内容区 -->
             <div class="col-span-8">
-                <!-- Log Panel -->
+                <!-- 日志面板 -->
                 <el-card class="log-card">
                     <template #header>
                         <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <span>Real-time Logs</span>
+                            <span>实时日志</span>
                             <el-button 
                                 icon="el-icon-document-delete"
                                 size="small"
                                 @click="logs = []"
                             >
-                                Clear
+                                清空
                             </el-button>
                         </div>
                     </template>
                     
                     <div class="log-panel" ref="logPanel">
                         <div v-if="logs.length === 0" style="text-align: center; padding: 60px 0; color: #909399;">
-                            No logs yet
+                            暂无日志
                         </div>
                         <div v-for="(log, index) in logs" :key="index" class="log-item">
                             {{ log }}
@@ -287,45 +284,44 @@
                     </div>
                 </el-card>
                 
-                <!-- Result Display -->
-                <div class="mt-6">
+                <!-- 结果展示 -->
+                <div class="mt-6" v-if="result">
                     <el-tabs v-model="activeTab">
-                    <template v-if="result">
-                        <!-- Core Metrics -->
-                        <el-tab-pane label="Core Metrics" name="metrics">
+                        <!-- 核心指标 -->
+                        <el-tab-pane label="核心指标" name="metrics">
                             <div class="grid grid-cols-3 gap-4">
                                 <el-card class="metric-card">
-                                    <div class="metric-label">Total Return</div>
+                                    <div class="metric-label">累计收益率</div>
                                     <div class="metric-value text-red">
                                         {{ (result.total_return * 100).toFixed(2) }}%
                                     </div>
                                 </el-card>
                                 <el-card class="metric-card">
-                                    <div class="metric-label">Win Rate</div>
+                                    <div class="metric-label">胜率</div>
                                     <div class="metric-value text-blue">
                                         {{ (result.win_rate * 100).toFixed(2) }}%
                                     </div>
                                 </el-card>
                                 <el-card class="metric-card">
-                                    <div class="metric-label">Profit/Loss Ratio</div>
+                                    <div class="metric-label">盈亏比</div>
                                     <div class="metric-value text-green">
                                         {{ result.profit_loss_ratio.toFixed(2) }}
                                     </div>
                                 </el-card>
                                 <el-card class="metric-card">
-                                    <div class="metric-label">Max Drawdown</div>
+                                    <div class="metric-label">最大回撤</div>
                                     <div class="metric-value text-orange">
                                         {{ (result.max_drawdown * 100).toFixed(2) }}%
                                     </div>
                                 </el-card>
                                 <el-card class="metric-card">
-                                    <div class="metric-label">Sharpe Ratio</div>
+                                    <div class="metric-label">夏普比率</div>
                                     <div class="metric-value text-purple">
                                         {{ result.sharpe_ratio.toFixed(2) }}
                                     </div>
                                 </el-card>
                                 <el-card class="metric-card">
-                                    <div class="metric-label">Total Trades</div>
+                                    <div class="metric-label">总交易次数</div>
                                     <div class="metric-value">
                                         {{ result.total_trades }}
                                     </div>
@@ -333,58 +329,58 @@
                             </div>
                         </el-tab-pane>
                         
-                        <!-- Trade Records -->
-                        <el-tab-pane label="Trade Records" name="trades">
+                        <!-- 交易记录 -->
+                        <el-tab-pane label="交易记录" name="trades">
                             <el-table 
                                 :data="result.trades || []" 
                                 border
                                 size="small"
                                 max-height="400"
                             >
-                                <el-table-column prop="ts_code" label="Stock Code" width="120" />
-                                <el-table-column prop="stock_name" label="Stock Name" width="120" />
-                                <el-table-column prop="strategy" label="Strategy" width="120" />
-                                <el-table-column prop="buy_date" label="Buy Date" width="120" />
-                                <el-table-column prop="sell_date" label="Sell Date" width="120" />
-                                <el-table-column prop="buy_price" label="Buy Price" width="100" />
-                                <el-table-column prop="sell_price" label="Sell Price" width="100" />
-                                <el-table-column label="Return %" width="100">
+                                <el-table-column prop="ts_code" label="股票代码" width="120" />
+                                <el-table-column prop="stock_name" label="股票名称" width="120" />
+                                <el-table-column prop="strategy" label="策略" width="120" />
+                                <el-table-column prop="buy_date" label="买入日期" width="120" />
+                                <el-table-column prop="sell_date" label="卖出日期" width="120" />
+                                <el-table-column prop="buy_price" label="买入价格" width="100" />
+                                <el-table-column prop="sell_price" label="卖出价格" width="100" />
+                                <el-table-column label="收益率" width="100">
                                     <template #default="{ row }">
                                         <span :class="row.profit_pct >= 0 ? 'text-green' : 'text-red'">
                                             {{ (row.profit_pct * 100).toFixed(2) }}%
                                         </span>
                                     </template>
                                 </el-table-column>
-                                <el-table-column prop="hold_days" label="Holding Days" width="100" />
+                                <el-table-column prop="hold_days" label="持仓天数" width="100" />
                             </el-table>
                         </el-tab-pane>
                         
-                        <!-- Strategy Comparison -->
-                        <el-tab-pane label="Strategy Comparison" name="strategy" v-if="form.strategies.length > 1">
+                        <!-- 策略对比 -->
+                        <el-tab-pane label="策略对比" name="strategy" v-if="form.strategies.length > 1">
                             <div class="grid grid-cols-2 gap-4">
                                 <el-card v-for="(item, key) in result.strategy_results || {}" :key="key">
                                     <template #header>{{ item.strategy_name }}</template>
                                     <div class="grid grid-cols-2 gap-2 text-sm">
                                         <div>
-                                            <div class="text-gray-500">Total Return</div>
+                                            <div class="text-gray-500">收益率</div>
                                             <div class="text-lg font-bold text-red">
                                                 {{ (item.total_return * 100).toFixed(2) }}%
                                             </div>
                                         </div>
                                         <div>
-                                            <div class="text-gray-500">Win Rate</div>
+                                            <div class="text-gray-500">胜率</div>
                                             <div class="text-lg font-bold text-blue">
                                                 {{ (item.win_rate * 100).toFixed(2) }}%
                                             </div>
                                         </div>
                                         <div>
-                                            <div class="text-gray-500">Profit/Loss Ratio</div>
+                                            <div class="text-gray-500">盈亏比</div>
                                             <div class="text-lg font-bold text-green">
                                                 {{ item.profit_loss_ratio.toFixed(2) }}
                                             </div>
                                         </div>
                                         <div>
-                                            <div class="text-gray-500">Signal Count</div>
+                                            <div class="text-gray-500">信号数</div>
                                             <div class="text-lg font-bold">
                                                 {{ item.signal_count }}
                                             </div>
@@ -393,84 +389,6 @@
                                 </el-card>
                             </div>
                         </el-tab-pane>
-                        
-                        <!-- Factor Reference -->
-                        <el-tab-pane label="📊 Factor Reference" name="factors">
-                            <div style="margin-bottom:12px; display:flex; gap:12px; align-items:center;">
-                                <el-input v-model="factorSearch" placeholder="Search factor name or description..." style="max-width:360px;" clearable />
-                                <el-select v-model="factorCat" placeholder="Category" clearable style="width:180px">
-                                    <el-option v-for="c in factorCategories" :key="c" :label="c" :value="c" />
-                                </el-select>
-                                <span style="color:#909399;font-size:12px">{{ filteredFactors.length }} / {{ allFactors.length }} factors</span>
-                            </div>
-                            <el-table :data="filteredFactors" border size="small" max-height="500" :row-class-name="factorRowClass">
-                                <el-table-column prop="name" label="Field" width="200">
-                                    <template #default="{row}">
-                                        <code style="font-size:12px;color:#409eff">{{ row.name }}</code>
-                                    </template>
-                                </el-table-column>
-                                <el-table-column prop="desc" label="Description" min-width="200" />
-                                <el-table-column prop="cat" label="Category" width="120">
-                                    <template #default="{row}">
-                                        <el-tag size="small" :type="catTagType(row.cat)">{{ row.cat }}</el-tag>
-                                    </template>
-                                </el-table-column>
-                                <el-table-column prop="source" label="Source" width="140">
-                                    <template #default="{row}">
-                                        <span :style="{color: row.source.includes('⚠')||row.source.includes('❌')?'#e6a23c':'#67c23a',fontSize:'12px'}">{{ row.source }}</span>
-                                    </template>
-                                </el-table-column>
-                                <el-table-column prop="strategies" label="Used By" width="140">
-                                    <template #default="{row}">
-                                        <el-tag v-for="s in row.strategies" :key="s" size="small" type="warning" style="margin:1px">{{ s }}</el-tag>
-                                        <span v-if="row.strategies.length===0" style="color:#c0c4cc;font-size:11px">-</span>
-                                    </template>
-                                </el-table-column>
-                                <el-table-column prop="example" label="Example" width="110">
-                                    <template #default="{row}">
-                                        <code style="font-size:11px;color:#909399">{{ row.example }}</code>
-                                    </template>
-                                </el-table-column>
-                            </el-table>
-                        </el-tab-pane>
-                        
-                        <!-- Data Sync -->
-                        <el-tab-pane label="🔄 Data Sync" name="sync">
-                            <el-alert type="info" :closable="false" style="margin-bottom:16px">
-                                <template #title>Run after market close (15:00+) to sync today's data. Factor computation starts automatically if coverage < 90%.</template>
-                            </el-alert>
-                            <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-                                <el-button type="primary" @click="syncAll" :loading="syncLoading">🔄 One-Click Sync All</el-button>
-                                <el-button @click="syncDailyBar" :loading="syncLoading">📈 Daily OHLCV</el-button>
-                                <el-button @click="syncDailyBasic" :loading="syncLoading">💰 PE/PB/MCap</el-button>
-                                <el-button @click="syncFactors" :loading="syncLoading">🧮 Factors</el-button>
-                            </div>
-                            <el-card v-if="syncStatus">
-                                <template #header>
-                                    <div style="display:flex;justify-content:space-between;align-items:center">
-                                        <span>{{ syncStatus.task_type || 'Sync Task' }}</span>
-                                        <el-tag :type="syncStatus.status==='completed'?'success':syncStatus.status==='failed'?'danger':'warning'">{{ syncStatus.status }}</el-tag>
-                                    </div>
-                                </template>
-                                <el-progress :percentage="syncStatus.progress||0" :status="syncStatus.status==='completed'?'success':syncStatus.status==='failed'?'exception':undefined" />
-                                <div v-if="syncStatus.message" style="margin-top:8px;color:#606266;font-size:13px">{{ syncStatus.message }}</div>
-                            </el-card>
-                            <el-card style="margin-top:12px" v-if="syncTasks.length">
-                                <template #header>Recent Tasks</template>
-                                <el-table :data="syncTasks" size="small" border>
-                                    <el-table-column prop="task_type" label="Type" width="160" />
-                                    <el-table-column prop="status" label="Status" width="100">
-                                        <template #default="{row}"><el-tag size="small" :type="row.status==='completed'?'success':row.status==='failed'?'danger':'warning'">{{ row.status }}</el-tag></template>
-                                    </el-table-column>
-                                    <el-table-column prop="progress" label="Progress" width="100">
-                                        <template #default="{row}">{{ (row.progress||0) }}%</template>
-                                    </el-table-column>
-                                    <el-table-column prop="message" label="Message" min-width="200" show-overflow-tooltip />
-                                    <el-table-column prop="created_at" label="Time" width="160" />
-                                </el-table>
-                            </el-card>
-                        </el-tab-pane>
-                    </template>
                     </el-tabs>
                 </div>
             </div>
@@ -503,7 +421,7 @@
                 })
 
                 const activeCollapse = Vue.ref('params')
-                const activeTab = Vue.ref('factors')
+                const activeTab = Vue.ref('metrics')
                 const running = Vue.ref(false)
                 const status = Vue.ref('idle')
                 const progress = Vue.ref(0)
@@ -511,141 +429,6 @@
                 const result = Vue.ref(null)
                 const taskId = Vue.ref('')
                 const logPanel = Vue.ref(null)
-                
-                // Factor reference data
-                const factorSearch = Vue.ref('')
-                const factorCat = Vue.ref('')
-                const allFactors = Vue.reactive([
-                    {name:'open',desc:'开盘价',cat:'行情原始',source:'AKShare/东方财富',strategies:[],example:'9.41'},
-                    {name:'high',desc:'最高价',cat:'行情原始',source:'AKShare/东方财富',strategies:[],example:'9.45'},
-                    {name:'low',desc:'最低价',cat:'行情原始',source:'AKShare/东方财富',strategies:[],example:'8.96'},
-                    {name:'close',desc:'收盘价',cat:'行情原始',source:'AKShare/东方财富',strategies:[],example:'8.96'},
-                    {name:'pre_close',desc:'前收盘价',cat:'行情原始',source:'AKShare/东方财富',strategies:[],example:'9.37'},
-                    {name:'pct_chg',desc:'涨跌幅(%)',cat:'行情原始',source:'AKShare/东方财富',strategies:['半路追涨'],example:'-4.38'},
-                    {name:'vol',desc:'成交量(股)',cat:'行情原始',source:'AKShare/东方财富',strategies:[],example:'20294181'},
-                    {name:'amount',desc:'成交额',cat:'行情原始',source:'AKShare/东方财富',strategies:[],example:'1.86亿'},
-                    {name:'turnover_rate',desc:'换手率(%)',cat:'基础面',source:'东方财富daily_basic',strategies:['首板打板','跌停翘板'],example:'2.92%'},
-                    {name:'volume_ratio',desc:'量比(当日成交/5日均量)',cat:'基础面',source:'factor_auto_compute',strategies:['半路追涨','龙头低吸'],example:'1.5'},
-                    {name:'circ_mv',desc:'流通市值(万元)',cat:'基础面',source:'东方财富daily_basic',strategies:['首板打板','龙头低吸','跌停翘板'],example:'62亿'},
-                    {name:'pe_ttm',desc:'滚动市盈率(TTM)',cat:'基础面',source:'东方财富daily_basic',strategies:[],example:'154.6'},
-                    {name:'pb',desc:'市净率',cat:'基础面',source:'东方财富daily_basic',strategies:[],example:'5.27'},
-                    {name:'is_limit_up',desc:'是否涨停(当日)',cat:'涨跌停',source:'factor_auto_compute: pct_chg≥阈值',strategies:['涨停开板'],example:'0/1'},
-                    {name:'is_limit_down',desc:'是否跌停(当日)',cat:'涨跌停',source:'factor_auto_compute: pct_chg≤-阈值',strategies:[],example:'0/1'},
-                    {name:'first_limit_up',desc:'是否首板(首次涨停且非连板)',cat:'涨跌停',source:'factor_auto_compute',strategies:['首板打板'],example:'0/1'},
-                    {name:'limit_up_count',desc:'近5日涨停次数',cat:'涨跌停',source:'factor_auto_compute: 滚动5日计数',strategies:['龙头低吸'],example:'0'},
-                    {name:'limit_down_count',desc:'近5日跌停次数',cat:'涨跌停',source:'factor_auto_compute',strategies:[],example:'0'},
-                    {name:'limit_up_yesterday',desc:'昨日是否涨停',cat:'涨跌停',source:'factor_auto_compute',strategies:['首板打板','涨停开板'],example:'0/1'},
-                    {name:'limit_down_yesterday',desc:'昨日是否跌停',cat:'涨跌停',source:'factor_auto_compute',strategies:['跌停翘板'],example:'0/1'},
-                    {name:'open_above_limit_down',desc:'开盘高于跌停价',cat:'涨跌停',source:'factor_auto_compute',strategies:['跌停翘板'],example:'0/1'},
-                    {name:'limit_up_open_amount',desc:'涨停封单金额(日线大部分为0)⚠️',cat:'涨跌停',source:'日线估算⚠️',strategies:['首板打板'],example:'0'},
-                    {name:'limit_down_open_amount',desc:'跌停封单金额(日线大部分为0)⚠️',cat:'涨跌停',source:'日线估算⚠️',strategies:['跌停翘板'],example:'0'},
-                    {name:'market_leader',desc:'是否市场龙头(全0不可用)❌',cat:'涨跌停',source:'日线数据全0❌',strategies:[],example:'0'},
-                    {name:'hot_sector',desc:'是否热门板块(日线大部分为0)⚠️',cat:'涨跌停',source:'日线估算⚠️',strategies:['首板打板'],example:'0'},
-                    {name:'opening_pct_chg',desc:'开盘涨幅(%)=(open-pre_close)/pre_close',cat:'开盘/盘中',source:'factor_auto_compute',strategies:['首板打板'],example:'0.43%'},
-                    {name:'intraday_max_rise_pct',desc:'盘中最高涨幅(%)=(high-pre_close)/pre_close',cat:'开盘/盘中',source:'factor_auto_compute',strategies:['半路追涨'],example:'0.85%'},
-                    {name:'intraday_open_rise_pct',desc:'开盘涨幅(=opening_pct_chg)',cat:'开盘/盘中',source:'factor_auto_compute',strategies:['半路追涨'],example:'0.43%'},
-                    {name:'amplitude',desc:'振幅(%)=(high-low)/pre_close',cat:'开盘/盘中',source:'factor_auto_compute',strategies:[],example:'5.23%'},
-                    {name:'pullback_pct',desc:'回调幅度=(close-N日high)/high,负数=回调',cat:'回调因子',source:'factor_auto_compute: 20日窗口',strategies:['龙头低吸'],example:'-0.093'},
-                    {name:'pullback_days',desc:'回调天数(距N日内最高价)',cat:'回调因子',source:'factor_auto_compute',strategies:['龙头低吸'],example:'43'},
-                    {name:'pullback_ma5',desc:'回调至MA5支撑(数据质量差)⚠️',cat:'回调因子',source:'factor_auto_compute⚠️',strategies:['龙头低吸'],example:'0/1'},
-                    {name:'ma5',desc:'5日均线',cat:'均线',source:'factor_auto_compute',strategies:[],example:'9.396'},
-                    {name:'ma10',desc:'10日均线',cat:'均线',source:'factor_auto_compute',strategies:[],example:'9.549'},
-                    {name:'ma20',desc:'20日均线',cat:'均线',source:'factor_auto_compute',strategies:[],example:'9.775'},
-                    {name:'ma60',desc:'60日均线',cat:'均线',source:'factor_auto_compute',strategies:[],example:'10.29'},
-                    {name:'macd',desc:'MACD线(12,26,9)',cat:'Talib技术',source:'talib.MACD',strategies:[],example:'-0.284'},
-                    {name:'macd_signal',desc:'MACD信号线',cat:'Talib技术',source:'talib.MACD',strategies:[],example:'-0.241'},
-                    {name:'macd_hist',desc:'MACD柱状图',cat:'Talib技术',source:'talib.MACD',strategies:[],example:'-0.043'},
-                    {name:'rsi_6',desc:'6日RSI',cat:'Talib技术',source:'talib.RSI',strategies:[],example:'21.83'},
-                    {name:'rsi_12',desc:'12日RSI',cat:'Talib技术',source:'talib.RSI',strategies:[],example:'28.82'},
-                    {name:'boll_upper',desc:'布林带上轨(20日,2σ)',cat:'Talib技术',source:'talib.BBANDS',strategies:[],example:'10.64'},
-                    {name:'boll_mid',desc:'布林带中轨(=MA20)',cat:'Talib技术',source:'talib.BBANDS',strategies:[],example:'9.78'},
-                    {name:'boll_lower',desc:'布林带下轨',cat:'Talib技术',source:'talib.BBANDS',strategies:[],example:'8.91'},
-                    {name:'atr',desc:'14日平均真实波幅',cat:'Talib技术',source:'talib.ATR',strategies:[],example:'0.28'},
-                    {name:'momentum_1d',desc:'1日动量(pct_chg)',cat:'动量/波动',source:'factor_auto_compute',strategies:[],example:'-4.38%'},
-                    {name:'momentum_5d',desc:'5日动量(5日涨跌幅)',cat:'动量/波动',source:'factor_auto_compute',strategies:[],example:'-5.68%'},
-                    {name:'momentum_10d',desc:'10日动量',cat:'动量/波动',source:'factor_auto_compute',strategies:[],example:'-7.05%'},
-                    {name:'momentum_20d',desc:'20日动量',cat:'动量/波动',source:'factor_auto_compute',strategies:[],example:'-13.76%'},
-                    {name:'volatility_5d',desc:'5日波动率',cat:'动量/波动',source:'factor_auto_compute',strategies:[],example:'2.45%'},
-                    {name:'volatility_10d',desc:'10日波动率',cat:'动量/波动',source:'factor_auto_compute',strategies:[],example:'2.07%'},
-                    {name:'volatility_20d',desc:'20日波动率',cat:'动量/波动',source:'factor_auto_compute',strategies:[],example:'2.25%'},
-                    {name:'fear_greed_index',desc:'恐贪指数(0=极度恐惧~100=极度贪婪)',cat:'复合因子',source:'RSI+量比+动量+波动综合',strategies:[],example:'2.26'},
-                    {name:'sentiment_score',desc:'情绪评分(个股级,大部分0.5填充)⚠️',cat:'复合因子',source:'factor_auto_compute⚠️',strategies:[],example:'0.40'},
-                    {name:'turnover_5d_avg',desc:'5日平均换手率',cat:'辅助',source:'factor_auto_compute',strategies:[],example:'2.05%'},
-                    {name:'turnover_20d_avg',desc:'20日平均换手率',cat:'辅助',source:'factor_auto_compute',strategies:[],example:'2.66%'},
-                ])
-                
-                const factorCategories = [...new Set(allFactors.map(f => f.cat))]
-                
-                const filteredFactors = Vue.computed(() => {
-                    const q = factorSearch.value.toLowerCase()
-                    const cat = factorCat.value
-                    return allFactors.filter(f => {
-                        if (cat && f.cat !== cat) return false
-                        if (!q) return true
-                        return f.name.toLowerCase().includes(q) || f.desc.toLowerCase().includes(q) || f.strategies.some(s => s.includes(q))
-                    })
-                })
-                
-                const catTagType = (cat) => {
-                    const map = {'行情原始':'','基础面':'success','涨跌停':'danger','开盘/盘中':'warning','回调因子':'info','均线':'info','Talib技术':'warning','动量/波动':'danger','复合因子':'info','辅助':'info'}
-                    return map[cat] || 'info'
-                }
-                
-                const factorRowClass = ({row}) => {
-                    if (row.source.includes('❌')) return 'warning-row'
-                    return ''
-                }
-                
-                // Data sync
-                const syncLoading = Vue.ref(false)
-                const syncStatus = Vue.ref(null)
-                const syncTasks = Vue.ref([])
-                
-                const loadSyncTasks = async () => {
-                    try {
-                        const res = await axios.get('/api/v1/system/sync-tasks')
-                        syncTasks.value = (res.data.tasks || []).slice(0, 10)
-                    } catch(e) {}
-                }
-                
-                const pollSyncStatus = async (taskId) => {
-                    const poll = async () => {
-                        try {
-                            const res = await axios.get(`/api/v1/system/sync-status/${taskId}`)
-                            syncStatus.value = res.data
-                            if (res.data.status === 'running' || res.data.status === 'pending') {
-                                setTimeout(poll, 2000)
-                            } else {
-                                syncLoading.value = false
-                                loadSyncTasks()
-                            }
-                        } catch(e) { syncLoading.value = false }
-                    }
-                    poll()
-                }
-                
-                const doSync = async (url) => {
-                    syncLoading.value = true
-                    try {
-                        const res = await axios.post(url)
-                        const tid = res.data.task_id
-                        if (tid) {
-                            syncStatus.value = {task_type: url.split('/').pop(), status: 'running', progress: 0, message: 'Started...'}
-                            pollSyncStatus(tid)
-                        }
-                    } catch(e) {
-                        ElMessage.error('Sync failed: ' + (e.response?.data?.detail || e.message))
-                        syncLoading.value = false
-                    }
-                }
-                
-                const syncAll = () => doSync('/api/v1/system/sync-all')
-                const syncDailyBar = () => doSync('/api/v1/system/sync-daily-bar')
-                const syncDailyBasic = () => doSync('/api/v1/system/sync-daily-basic')
-                const syncFactors = () => doSync('/api/v1/system/sync-factors')
-                
-                // Load sync tasks on init
-                loadSyncTasks()
 
                 const addLog = (text) => {
                     const timestamp = new Date().toLocaleTimeString()
@@ -659,11 +442,11 @@
 
                 const runBacktest = async () => {
                     if (form.strategies.length === 0) {
-                        ElMessage.warning('Please select at least one strategy')
+                        ElMessage.warning('请至少选择一个策略')
                         return
                     }
                     if (!form.start_date || !form.end_date) {
-                        ElMessage.warning('Please fill in start and end date')
+                        ElMessage.warning('请填写开始和结束日期')
                         return
                     }
 
@@ -674,16 +457,16 @@
                     result.value = null
 
                     try {
-                        addLog('🚀 Starting to submit backtest task...')
+                        addLog('🚀 开始提交回测任务...')
                         
                         const res = await axios.post('http://localhost:8000/api/v1/backtest/ultra-short', form)
                         taskId.value = res.data.task_id
                         
-                        addLog('✅ Task submitted successfully, Task ID: ' + taskId.value)
-                        addLog('🔍 Loading backtest data...')
+                        addLog('✅ 任务提交成功，任务ID：' + taskId.value)
+                        addLog('🔍 加载回测数据...')
                         progress.value = 20
 
-                        // Simulate progress update
+                        // 模拟进度更新
                         const updateInterval = setInterval(async () => {
                             try {
                                 const statusRes = await axios.get(`http://localhost:8000/api/v1/backtest/status/${taskId.value}`)
@@ -696,31 +479,31 @@
 
                                 if (statusRes.data.status === 'completed') {
                                     clearInterval(updateInterval)
-                                    addLog('✅ Backtest completed, loading results...')
+                                    addLog('✅ 回测完成，正在加载结果...')
                                     progress.value = 100
                                     status.value = 'completed'
 
                                     const resultRes = await axios.get(`http://localhost:8000/api/v1/backtest/result/${taskId.value}`)
                                     result.value = resultRes.data.result
-                                    addLog('✅ Result loaded successfully!')
+                                    addLog('✅ 结果加载完成！')
                                     running.value = false
                                 } else if (statusRes.data.status === 'failed') {
                                     clearInterval(updateInterval)
                                     status.value = 'failed'
                                     running.value = false
-                                    ElMessage.error('Backtest failed')
+                                    ElMessage.error('回测失败')
                                 }
                             } catch (e) {
-                                console.error('Failed to query status', e)
+                                console.error('查询状态失败', e)
                             }
                         }, 1000)
 
                     } catch (e) {
-                        console.error('Submission failed', e)
-                        addLog('❌ Task submission failed: ' + (e.response?.data?.detail || e.message))
+                        console.error('提交失败', e)
+                        addLog('❌ 任务提交失败：' + (e.response?.data?.detail || e.message))
                         status.value = 'failed'
                         running.value = false
-                        ElMessage.error('Submission failed')
+                        ElMessage.error('提交失败')
                     }
                 }
 
@@ -734,20 +517,6 @@
                     logs,
                     result,
                     logPanel,
-                    factorSearch,
-                    factorCat,
-                    factorCategories,
-                    allFactors,
-                    filteredFactors,
-                    catTagType,
-                    factorRowClass,
-                    syncLoading,
-                    syncStatus,
-                    syncTasks,
-                    syncAll,
-                    syncDailyBar,
-                    syncDailyBasic,
-                    syncFactors,
                     runBacktest,
                 }
             }

@@ -1,16 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { ElCard, ElEmpty, ElProgress, ElTable, ElTableColumn, ElTag, ElButton } from 'element-plus'
-import VChart from 'vue-echarts'
-import { use } from 'echarts/core'
-import { CanvasRenderer } from 'echarts/renderers'
-import { LineChart, BarChart, HeatmapChart } from 'echarts/charts'
-import {
-  TitleComponent, TooltipComponent, LegendComponent, GridComponent,
-  VisualMapComponent, DataZoomComponent
-} from 'echarts/components'
-
-use([CanvasRenderer, LineChart, BarChart, HeatmapChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent, VisualMapComponent, DataZoomComponent])
+import StrategyFactorPanel from './StrategyFactorPanel.vue'
 
 interface DailyCoverage { date: string; total: number; factor_rate: number; groups: Record<string, number> }
 interface CollectionInfo { count: number; date_range: { start: string; end: string } | null; error?: string }
@@ -279,19 +270,8 @@ onMounted(fetchData)
       </div>
     </ElCard>
 
-    <!-- 热力图 -->
-    <ElCard style="margin-top: 12px">
-      <template #header><span>🌡️ 因子覆盖率热力图</span></template>
-      <VChart v-if="heatmapOption" :option="heatmapOption" autoresize style="height: 500px; width: 100%" />
-      <ElEmpty v-else description="暂无数据" />
-    </ElCard>
-
-    <!-- 趋势图 -->
-    <ElCard style="margin-top: 12px">
-      <template #header><span>📈 数据量趋势</span></template>
-      <VChart v-if="stockCountOption" :option="stockCountOption" autoresize style="height: 280px; width: 100%" />
-      <ElEmpty v-else description="暂无数据" />
-    </ElCard>
+    <!-- 策略因子关系+流程 -->
+    <StrategyFactorPanel />
   </div>
 </template>
 

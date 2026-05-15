@@ -12,6 +12,7 @@ import BacktestSummaryTable from '@/components/backtest/BacktestSummaryTable.vue
 import BacktestResultPanel from '@/components/ultrashort/BacktestResultPanel.vue'
 import BacktestHistoryPanel from '@/components/backtest/BacktestHistoryPanel.vue'
 import DataStatusPanel from '@/components/ultrashort/DataStatusPanel.vue'
+import FactorReferencePanel from '@/components/ultrashort/FactorReferencePanel.vue'
 
 import { GLOBAL_RISK, STRATEGY_CONFIGS } from '@/config/strategyDefaults'
 
@@ -476,6 +477,9 @@ function onViewLogs(taskId: string) {
       <button :class="['tab-btn', activeMainTab === 'data' ? 'active' : '']" @click="activeMainTab = 'data'">
         🗄️ 数据状态
       </button>
+      <button :class="['tab-btn', activeMainTab === 'factors' ? 'active' : '']" @click="activeMainTab = 'factors'">
+        📊 因子参考
+      </button>
     </div>
 
     <!-- Tab内容：新建回测 -->
@@ -512,6 +516,11 @@ function onViewLogs(taskId: string) {
     <!-- Tab内容：数据状态 -->
     <div v-show="activeMainTab === 'data'">
       <DataStatusPanel />
+    </div>
+
+    <!-- Tab内容：因子参考 -->
+    <div v-show="activeMainTab === 'factors'">
+      <FactorReferencePanel />
     </div>
 
     <!-- 日志面板（跨Tab共享） -->
