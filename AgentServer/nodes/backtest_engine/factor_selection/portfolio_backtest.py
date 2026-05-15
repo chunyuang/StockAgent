@@ -903,7 +903,8 @@ class PortfolioBacktester:
                 "volatility_5d", "volatility_10d", "volatility_20d",
                 "turnover_5d_avg", "turnover_20d_avg", "fear_greed_index",
                 # 已修复的因子：
-                "volume_increase", "market_leader", "hot_sector", "sentiment_score"
+                "volume_increase", "market_leader", "hot_sector", "sentiment_score",
+                "intraday_max_rise_pct", "intraday_open_rise_pct",  # 从OHLCV推算，自动补算
                 # 注意：日线回测无法获取盘中因子，如：
                 # - limit_up_open_count (开板次数，盘中数据)
                 # - limit_up_open_amount (开板金额，盘中数据) 

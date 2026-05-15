@@ -46,13 +46,14 @@ STRATEGY_FACTOR_FIELDS = [
     "first_limit_up",
     "limit_up_count", "limit_down_count",
     "opening_pct_chg",
+    "intraday_max_rise_pct", "intraday_open_rise_pct",  # 从OHLCV推算: (high/pre_close-1)*100, (open/pre_close-1)*100
     "open_above_limit", "open_below_limit", "open_above_limit_down",
     "limit_up_open_amount", "limit_down_open_amount",
     "limit_up_open_count", "limit_up_time", "limit_up_open_duration",
     "pullback_pct", "pullback_days", "pullback_ma5",
     "rise_after_limit_down",
     "market_leader", "hot_sector", "sentiment_score",
-    "amplitude",
+    "amplitude", "volume_increase",
 ]
 
 # 所有可自动计算的因子
@@ -92,7 +93,7 @@ async def auto_compute_factors(
     computable_fields = [f for f in missing_fields if f in ALL_COMPUTABLE_FIELDS]
 
     if not computable_fields:
-        await log("   ℹ️ 缺失的因子无法自动计算，请手动运行: python scripts/compute_all_factors.py")
+        await log("   ℹ️ 缺失的因子无法自动计算，请手动运行: python scripts/lightweight_factor_fill.py (或等待自动补算)")
         return {"computed": False, "fields_computed": [], "records_updated": 0}
 
     await log(f"   🔄 检测到 {len(computable_fields)} 个策略因子缺失，启动自动计算...")
@@ -107,7 +108,7 @@ async def auto_compute_factors(
     except Exception as e:
         logger.exception(f"因子自动计算失败: {e}")
         await log(f"   ❌ 因子自动计算失败: {e}")
-        await log(f"   💡 请手动运行: python scripts/compute_all_factors.py")
+        await log(f"   💡 请手动运行: python scripts/lightweight_factor_fill.py (或等待自动补算)")
         return {"computed": False, "fields_computed": [], "records_updated": 0, "error": str(e)}
 
 
@@ -322,6 +323,22 @@ def _compute_factors_for_stock(group: pd.DataFrame, fields: List[str]) -> pd.Dat
 
     # 竞价涨幅
     group['opening_pct_chg'] = (group['open'] - group['close'].shift(1)) / group['close'].shift(1) * 100
+
+    # 盘中涨幅指标(与factor_engine.py一致)
+    # intraday_max_rise_pct: 盘中最高价相对昨收的涨幅
+    # intraday_open_rise_pct: 开盘价相对昨收的涨幅
+    pre_close = group['close'].shift(1)
+    valid_pre = pre_close > 0
+    group['intraday_max_rise_pct'] = np.where(
+        valid_pre,
+        (group['high'] - pre_close) / pre_close * 100,
+        0.0
+    )
+    group['intraday_open_rise_pct'] = np.where(
+        valid_pre,
+        (group['open'] - pre_close) / pre_close * 100,
+        0.0
+    )
 
     # 开盘在涨跌停价附近
     group['open_above_limit'] = (group['open'] - group['close'].shift(1)) / group['close'].shift(1) >= 0.095
