@@ -276,7 +276,7 @@ class PortfolioBacktester:
         await self.log(f"   │  🔹 情绪周期评分:{sentiment_score}分 → {sentiment_level}")
         await self.log(f"   └───────────────────────────────────────────────────────")
 
-        return sentiment_level, limit_up_count, limit_down_count
+        return sentiment_level, sentiment_score, limit_up_count, limit_down_count
 
     async def _print_single_strategy_filtering(self, strategy_name: str, params: dict, conditions: list, factor_df, strategy_configs: dict, all_selected_strategies: list):
         """【统一入口!所有策略筛选打印必须调用!One Function, One Format!】
@@ -618,7 +618,7 @@ class PortfolioBacktester:
             await self._print_daily_header(idx+1, total_days, trade_date)
 
             # ==================== 2️⃣ 每日市场环境判断(所有天都走) ====================
-            sentiment_level, limit_up_count, limit_down_count = await self._print_market_environment(trade_date)
+            sentiment_level, market_sentiment_score, limit_up_count, limit_down_count = await self._print_market_environment(trade_date)
 
             # ==================== 🔴 强制空仓判断 ====================
             # 【修复#5:统一阈值 - 与日志打印使用同一阈值】
@@ -639,7 +639,7 @@ class PortfolioBacktester:
             if trade_date in rebalance_set:
                 run_state = await self._process_rebalance_day(
                     trade_date, idx, run_state,
-                    sentiment_level, limit_up_count, limit_down_count,
+                    sentiment_level, market_sentiment_score, limit_up_count, limit_down_count,
                     force_empty_triggered)
             else:
                 run_state = await self._process_non_rebalance_day(
@@ -1005,7 +1005,7 @@ class PortfolioBacktester:
         return run_state
 
     async def _process_rebalance_day(self, trade_date, idx: int, run_state: dict,
-                                       sentiment_level: str, limit_up_count: int, limit_down_count: int,
+                                       sentiment_level: str, market_sentiment_score: int, limit_up_count: int, limit_down_count: int,
                                        force_empty_triggered: bool) -> dict:
         """调仓日处理: 股票池清洗、策略筛选、调仓执行、日志输出
         
@@ -1269,41 +1269,23 @@ class PortfolioBacktester:
             await self.log(f"          2. 全市场该因子数据不完整,部分日期缺失")
             await self.log(f"      ⚠️  回测结果可能异常,建议先同步因子数据后重试")
 
-        # ✅ 新增:计算情绪周期字段 sentiment_period_in(从 sentiment_score 映射)
-        # 策略中使用 sentiment_period_in 配合 in 操作符过滤
-        # 【修复#7：enable_sentiment_cycle 开关真正生效，关闭则不计算】
-        # 【修复#新增：sentiment_score NaN 防御，如果全为NaN不添加字段，策略筛选会直接跳过】
-        if self._risk_config.get("enable_sentiment_cycle", True) and 'sentiment_score' in factor_df.columns:
-            # 检查是否有有效值
-            # 【Bug修复：日线回测模式sentiment_score全为同一值(如0.5)→映射后全为depression→所有策略0候选】
-            # 当sentiment_score的std=0(全部相同)时，说明不是真实的情绪计算，跳过
-            sentiment_std = factor_df['sentiment_score'].std()
-            if sentiment_std == 0 or (isinstance(sentiment_std, float) and math.isnan(sentiment_std)):
-                await self.log(f"   ⚠️  sentiment_score全为同一值({factor_df['sentiment_score'].iloc[0]:.1f})，跳过情绪周期计算(日线回测模式)")
-            elif not factor_df['sentiment_score'].isna().all():
-                # 根据情绪分数映射到情绪周期
-                # score ≥ 70 → 'rising' (上升期)
-                # 40 ≤ score < 70 → 'chaos' (混沌期)
-                # score < 40 → 'depression' (衰退期)
-                def map_sentiment(score):
-                    # 【修复风险8：NaN单值防御，返回None而非depression】
-                    if score is None or (isinstance(score, float) and math.isnan(score)):
-                        return None
-                    if score >= 70:
-                        return 'rising'
-                    elif score >= 40:
-                        return 'chaos'
-                    else:
-                        return 'depression'
-                factor_df['sentiment_period_in'] = factor_df['sentiment_score'].apply(map_sentiment)
-                # NaN行sentiment_period_in为None，策略筛选时in操作符会自动跳过None行
-                nan_count = factor_df['sentiment_period_in'].isna().sum()
-                if nan_count > 0:
-                    await self.log(f"   ⚠️  {nan_count} 只股票sentiment_score为空，将跳过情绪周期筛选")
-                await self.log(f"   ✅ 情绪周期计算完成: sentiment_period_in 字段已添加")
+        # ✅ 情绪周期映射: sentiment_period_in
+        # 【P0-1修复】不再依赖factor_df中的sentiment_score(全为0.5填充值，std=0→跳过)
+        # 改用市场级情绪评分(market_sentiment_score)，来自_print_market_environment的计算：
+        #   sentiment_score = (涨停数 - 跌停数) + 大盘涨跌幅*10 + 50, 范围[0,100]
+        # 所有个股共享同一个市场情绪周期，这是正确语义：情绪是市场属性不是个股属性
+        if self._risk_config.get("enable_sentiment_cycle", True):
+            # 从市场级sentiment_score映射到情绪周期
+            if market_sentiment_score >= 70:
+                market_sentiment_period = 'rising'
+            elif market_sentiment_score >= 40:
+                market_sentiment_period = 'chaos'
             else:
-                await self.log(f"   ⚠️  sentiment_score 全为空，跳过情绪周期计算")
-        elif not self._risk_config.get("enable_sentiment_cycle", True):
+                market_sentiment_period = 'depression'
+            # 统一设置所有个股的sentiment_period_in为市场级情绪
+            factor_df['sentiment_period_in'] = market_sentiment_period
+            await self.log(f"   ✅ 情绪周期计算完成(市场级): score={market_sentiment_score} → {market_sentiment_period}")
+        else:
             await self.log(f"   ℹ️  情绪周期算法已关闭，跳过情绪周期计算")
 
         await self.log(f"   🎯 【{trade_date}】多策略联合筛选开始")
@@ -2299,7 +2281,9 @@ class PortfolioBacktester:
         # 删除了原来基于调仓日的简化估算，现在使用精确的逐日持仓市值计算
         
         # 计算最大回撤（基于逐日净值，已经在循环中计算了 drawdown_series）
-        max_drawdown = max(drawdown_series) if drawdown_series else 0.0
+        # 【P2-5修复：drawdown = (peak-current)/peak，理论范围[0,1]，超过1说明数据异常】
+        raw_max_drawdown = max(drawdown_series) if drawdown_series else 0.0
+        max_drawdown = min(raw_max_drawdown, 1.0)  # 硬限制，防止异常值
         
         # 【P0-2修复：在max_drawdown正确计算后，重新计算return_drawdown_ratio】
         if max_drawdown > 0 and total_return != 0:
@@ -3024,15 +3008,16 @@ class PortfolioBacktester:
                 converted_params[k] = v
 
         if strategy_name == "半路追涨":
-            min_rise_pct = converted_params.get("min_rise_pct") or 0.02
-            max_rise_pct = converted_params.get("max_rise_pct") or 0.07
-            volume_threshold = converted_params.get("min_volume_ratio") or 2.0
+            min_rise_pct = converted_params.get("min_rise_pct") if converted_params.get("min_rise_pct") is not None else 0.02
+            max_rise_pct = converted_params.get("max_rise_pct") if converted_params.get("max_rise_pct") is not None else 0.07
+            volume_threshold = converted_params.get("min_volume_ratio") if converted_params.get("min_volume_ratio") is not None else 2.0
             # 【Phase2修复：用盘中可观测指标替代收盘涨幅，消除未来函数】
             # 回测模式下，high/open/pre_close在日线结束后才确定，但仍比pct_chg更接近盘中可观测性
             # 实盘模式下，high/open/pre_close都是盘中实时可观测
             return [
-                {"name": "intraday_max_rise_pct", "target": min_rise_pct * 100, "operator": ">=", "label": "盘中最高涨幅≥{min_rise_pct}%"},
-                {"name": "intraday_open_rise_pct", "target": max_rise_pct * 100, "operator": "<=", "label": "开盘涨幅≤{max_rise_pct}%"},
+                {"name": "intraday_max_rise_pct", "target": min_rise_pct * 100, "operator": ">=", "label": f"盘中最高涨幅≥{min_rise_pct*100:.0f}%"},
+                {"name": "intraday_max_rise_pct", "target": max_rise_pct * 100, "operator": "<=", "label": f"盘中最高涨幅≤{max_rise_pct*100:.0f}%"},
+                {"name": "intraday_open_rise_pct", "target": max_rise_pct * 100, "operator": "<=", "label": f"开盘涨幅≤{max_rise_pct*100:.0f}%"},
                 {"name": "volume_ratio", "target": volume_threshold, "label": "量比阈值"}
             ]
         elif strategy_name == "首板打板":
@@ -3044,13 +3029,13 @@ class PortfolioBacktester:
             # 4. 保留opening_pct_chg作为竞价筛选（9:25可观测）
             # 5. 成交概率在_rebalance中模拟（一字板0%/秒板10%/快速板30%/盘中板50%）
             # 【注意】circ_mv单位是万元，参数单位是亿，需×10000转换
-            min_circ_mv = (converted_params.get("min_circulation_market_cap") or 50) * 10000
-            max_circ_mv = (converted_params.get("max_circulation_market_cap") or 500) * 10000
-            min_volume_ratio = converted_params.get("min_volume_ratio") or 1.5
-            min_turnover = converted_params.get("min_turnover_rate") or 3
-            max_turnover = converted_params.get("max_turnover_rate") or 15
-            opening_pct_min = converted_params.get("opening_pct_min") or 2.0
-            opening_pct_max = converted_params.get("opening_pct_max") or 5.0
+            min_circ_mv = (converted_params.get("min_circulation_market_cap") if converted_params.get("min_circulation_market_cap") is not None else 50) * 10000
+            max_circ_mv = (converted_params.get("max_circulation_market_cap") if converted_params.get("max_circulation_market_cap") is not None else 500) * 10000
+            min_volume_ratio = converted_params.get("min_volume_ratio") if converted_params.get("min_volume_ratio") is not None else 1.5
+            min_turnover = converted_params.get("min_turnover_rate") if converted_params.get("min_turnover_rate") is not None else 3
+            max_turnover = converted_params.get("max_turnover_rate") if converted_params.get("max_turnover_rate") is not None else 15
+            opening_pct_min = converted_params.get("opening_pct_min") if converted_params.get("opening_pct_min") is not None else 2.0
+            opening_pct_max = converted_params.get("opening_pct_max") if converted_params.get("opening_pct_max") is not None else 5.0
             return [
                 {"name": "first_limit_up", "target": 1, "label": "首次涨停(盘中封板)"},
                 {"name": "limit_up_yesterday", "target": 0, "label": "昨日未涨停(T-1预选)"},
@@ -3095,7 +3080,7 @@ class PortfolioBacktester:
             # 【P0-3修复(第十轮)：market_leader因子在MongoDB中全0，无法用于龙头筛选】
             # 替代方案：用circ_mv(流通市值)识别龙头股——大市值更可能是龙头
             # 【注意】circ_mv单位是万元，参数单位是亿，需×10000转换
-            _min_circ_for_leader = (converted_params.get("min_circulation_market_cap") or 30) * 10000
+            _min_circ_for_leader = (converted_params.get("min_circulation_market_cap") if converted_params.get("min_circulation_market_cap") is not None else 30) * 10000
             return [
                 {"name": "circ_mv", "target": _min_circ_for_leader, "operator": ">=", "label": f"流通市值≥{_min_circ_for_leader//10000}亿(龙头)"},
                 {"name": "limit_up_count", "target": min_consecutive, "operator": ">=", "label": f"近5日至少{min_consecutive}板"},
