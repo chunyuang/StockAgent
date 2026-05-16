@@ -270,10 +270,11 @@ const submitBacktest = async () => {
         const cfg = form.strategyConfigs[id as keyof typeof form.strategyConfigs]
         return { id, name: cfg.name, enabled: cfg.enabled, params: { ...cfg.params }, riskParams: { ...cfg.riskParams } }
       })
-    const strategy_params: Record<string, any> = {}
+    // 【P2-2修复：重命名为strategyParamsMap，避免与params字段混淆】
+    const strategyParamsMap: Record<string, any> = {}
     for (const id of form.strategies) {
       if (strategyKeys.includes(id as keyof typeof form.strategyConfigs)) {
-        strategy_params[id] = { ...form.strategyConfigs[id as keyof typeof form.strategyConfigs].params }
+        strategyParamsMap[id] = { ...form.strategyConfigs[id as keyof typeof form.strategyConfigs].params }
       }
     }
 
@@ -306,7 +307,7 @@ const submitBacktest = async () => {
         enable_ma60_filter: form.globalFilter.enable_ma60_filter ?? true,
         enable_sector_concentration: form.globalFilter.enable_sector_concentration ?? true,
       },
-      strategy_params,
+      strategy_params: strategyParamsMap,
       enable_sentiment_cycle: form.sentimentCycle.enabled,
       enable_auction_filter: form.auctionFilter.enabled,
       enable_force_empty: form.forceEmpty.enabled,
@@ -389,29 +390,56 @@ const submitBacktest = async () => {
     }
 
     ws.onerror = () => {
-      // 回退到轮询
-      const pollInterval = setInterval(async () => {
-        try {
-          const statusRes = await backtestApi.getBacktestStatus(backtestState.task_id)
-          if (!statusRes || !statusRes.data) { addLog('⚠️ 轮询异常：接口返回数据为空'); return }
-          const data = statusRes.data
-          if (data.progress !== undefined) backtestState.progress = data.progress
-          if (data.status === 'completed') {
-            const resultRes = await backtestApi.getBacktestResult(backtestState.task_id)
-            backtestResult.value = resultRes.data.result
-            backtestState.running = false
-            ElMessage.success('回测完成！')
-            clearInterval(pollInterval)
-          } else if (data.status === 'failed') {
-            addLog(`❌ 回测失败：${data.error || '未知错误'}`)
-            backtestState.running = false
-            ElMessage.error(`回测失败：${data.error || '未知错误'}`)
-            clearInterval(pollInterval)
-          }
-        } catch (e: any) {
-          addLog(`⚠️ 轮询异常：${e.message || '未知错误'}`)
+      // 【P2-1修复：WebSocket指数退避重连，最多3次，失败后回退到轮询】
+      let wsRetryCount = 0
+      const maxWsRetry = 3
+      const wsRetryBaseMs = 1000
+      
+      const tryReconnect = () => {
+        if (wsRetryCount >= maxWsRetry || !backtestState.running) {
+          addLog(`⚠️ WebSocket重连${wsRetryCount}次失败，回退到轮询模式`)
+          const pollInterval = setInterval(async () => {
+            try {
+              const statusRes = await backtestApi.getBacktestStatus(backtestState.task_id)
+              if (!statusRes || !statusRes.data) { return }
+              const data = statusRes.data
+              if (data.progress !== undefined) backtestState.progress = data.progress
+              if (data.status === 'completed') {
+                const resultRes = await backtestApi.getBacktestResult(backtestState.task_id)
+                backtestResult.value = resultRes.data.result
+                backtestState.running = false
+                ElMessage.success('回测完成！')
+                clearInterval(pollInterval)
+              } else if (data.status === 'failed') {
+                addLog(`❌ 回测失败：${data.error || '未知错误'}`)
+                backtestState.running = false
+                ElMessage.error(`回测失败：${data.error || '未知错误'}`)
+                clearInterval(pollInterval)
+              }
+            } catch (e: any) {
+              addLog(`⚠️ 轮询异常：${e.message || '未知错误'}`)
+            }
+          }, 1000)
+          return
         }
-      }, 1000)
+        const delay = wsRetryBaseMs * Math.pow(2, wsRetryCount)
+        wsRetryCount++
+        addLog(`⚠️ WebSocket断开，${delay}ms后第${wsRetryCount}次重连...`)
+        setTimeout(() => {
+          try {
+            const newWs = new WebSocket(`${wsProtocol}//${wsHost}/ws?token=${token}`)
+            newWs.onopen = () => {
+              wsRetryCount = 0
+              newWs.send(JSON.stringify({ type: 'subscribe', task_id: backtestState.task_id }))
+              addLog('✅ WebSocket重连成功')
+            }
+            newWs.onmessage = ws.onmessage
+            newWs.onerror = () => { tryReconnect() }
+            newWs.onclose = () => { if (backtestState.running) tryReconnect() }
+          } catch { tryReconnect() }
+        }, delay)
+      }
+      tryReconnect()
     }
   } catch (e: any) {
     addLog(`❌ 提交回测任务失败：${e.message || '未知错误'}`)
@@ -421,12 +449,14 @@ const submitBacktest = async () => {
 }
 
 const addLog = (text: string) => {
+  // 【P3-1修复：使用requestAnimationFrame防抖，避免高频日志导致DOM频繁更新】
   const timestamp = new Date().toLocaleTimeString('zh-CN')
-  logs.value.push(`[${timestamp}] ${text}`)
-  setTimeout(() => {
+  const logLine = `[${timestamp}] ${text}`
+  logs.value.push(logLine)
+  requestAnimationFrame(() => {
     const logPanel = document.getElementById('log-panel')
     if (logPanel) logPanel.scrollTop = logPanel.scrollHeight
-  }, 100)
+  })
 }
 
 // ==================== 历史回测操作 ====================
