@@ -1110,3 +1110,423 @@ async def strategy_hot_update(strategy_key: str, updates: Dict[str, Any] = {}):
             "message": f"策略{strategy_key}参数已热更新, 下次扫描生效",
         }
     }
+
+
+# ==================== 交易终止增强 ====================
+
+class PartialSellRequest(BaseModel):
+    ts_code: str
+    quantity: int = 0  # 0=全部卖出
+    reason: str = ""
+
+
+@router.post("/sell")
+async def sell_position(req: PartialSellRequest):
+    """卖出持仓(支持部分卖出)
+    
+    - quantity=0: 全部卖出可用持仓
+    - quantity>0: 卖出指定数量(必须为100的整数倍)
+    """
+    scanner = _get_scanner()
+    if not scanner._broker:
+        raise HTTPException(400, "Broker未初始化")
+    
+    pos = scanner._broker.positions.get(req.ts_code)
+    if not pos:
+        raise HTTPException(404, f"无持仓: {req.ts_code}")
+    
+    if pos.available_qty <= 0:
+        raise HTTPException(400, f"T+1限制: {req.ts_code} 今日买入不可卖")
+    
+    # 确定卖出数量
+    sell_qty = req.quantity if req.quantity > 0 else pos.available_qty
+    lot = 200 if req.ts_code.startswith('688') else 100
+    sell_qty = min(sell_qty, pos.available_qty)
+    sell_qty = (sell_qty // lot) * lot  # 整手
+    
+    if sell_qty <= 0:
+        raise HTTPException(400, "卖出数量不足1手")
+    
+    # 熔断检查(卖出允许, 但记录)
+    reason = req.reason or f"手动卖出{sell_qty}股"
+    
+    ok, msg, order = scanner._broker.place_order(
+        ts_code=req.ts_code,
+        stock_name=pos.stock_name,
+        side="sell",
+        quantity=sell_qty,
+        price=pos.current_price,
+        order_type="market",
+        strategy=pos.strategy,
+        reason=reason,
+    )
+    
+    if ok:
+        scanner._timeline.append({
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "action": "sell",
+            "ts_code": req.ts_code,
+            "stock_name": pos.stock_name,
+            "strategy": pos.strategy,
+            "shares": sell_qty,
+            "price": order.filled_price,
+            "reason": reason,
+            "profit_pct": round(pos.profit_pct, 2),
+        })
+        try:
+            await scanner._save_timeline()
+        except Exception:
+            pass
+        scanner._stats["trades_executed"] += 1
+    
+    return {
+        "success": ok,
+        "data": {
+            "order_id": order.order_id,
+            "ts_code": req.ts_code,
+            "quantity": sell_qty,
+            "filled_qty": order.filled_qty,
+            "filled_price": order.filled_price,
+            "remaining_qty": pos.total_qty - sell_qty if ok else pos.total_qty,
+            "message": msg,
+        },
+    }
+
+
+@router.post("/sell-all")
+async def sell_all_positions():
+    """一键清仓(卖出所有可用持仓)
+    
+    遍历所有持仓, 逐个卖出可用部分。
+    跌停股自动跳过(无法成交)。
+    """
+    scanner = _get_scanner()
+    if not scanner._broker:
+        raise HTTPException(400, "Broker未初始化")
+    
+    positions = scanner._broker.get_positions()
+    if not positions:
+        return {"success": True, "data": {"message": "无持仓", "sold": 0, "skipped": 0}}
+    
+    results = []
+    sold = 0
+    skipped = 0
+    
+    for pos in positions:
+        if pos.available_qty <= 0:
+            skipped += 1
+            results.append({"ts_code": pos.ts_code, "status": "skipped", "reason": "T+1限制"})
+            continue
+        
+        # 检查跌停
+        if scanner._is_limit_down(pos.ts_code):
+            skipped += 1
+            results.append({"ts_code": pos.ts_code, "status": "skipped", "reason": "跌停不可卖"})
+            continue
+        
+        ok, msg, order = scanner._broker.place_order(
+            ts_code=pos.ts_code,
+            stock_name=pos.stock_name,
+            side="sell",
+            quantity=pos.available_qty,
+            price=pos.current_price,
+            order_type="market",
+            strategy=pos.strategy,
+            reason="一键清仓",
+        )
+        
+        if ok:
+            sold += 1
+            scanner._timeline.append({
+                "time": datetime.now().strftime("%H:%M:%S"),
+                "action": "sell",
+                "ts_code": pos.ts_code,
+                "stock_name": pos.stock_name,
+                "strategy": pos.strategy,
+                "shares": pos.available_qty,
+                "price": order.filled_price,
+                "reason": "一键清仓",
+                "profit_pct": round(pos.profit_pct, 2),
+            })
+            results.append({"ts_code": pos.ts_code, "status": "sold", "price": order.filled_price, "qty": order.filled_qty})
+        else:
+            skipped += 1
+            results.append({"ts_code": pos.ts_code, "status": "failed", "reason": msg})
+    
+    # 保存
+    try:
+        await scanner._save_timeline()
+        await scanner._broker.save_state()
+    except Exception:
+        pass
+    
+    return {
+        "success": True,
+        "data": {
+            "sold": sold,
+            "skipped": skipped,
+            "results": results,
+            "message": f"清仓完成: 卖出{sold}只, 跳过{skipped}只",
+        },
+    }
+
+
+# ==================== 交易报告增强 ====================
+
+@router.get("/weekly-report")
+async def get_weekly_report():
+    """周报: 最近5个交易日的汇总
+    
+    包含:
+    - 每日盈亏
+    - 累计收益曲线
+    - 策略表现汇总
+    - 最大回撤
+    - 交易统计
+    """
+    scanner = _get_scanner()
+    if not scanner._broker:
+        return {"success": True, "data": {}}
+    
+    try:
+        from core.managers import mongo_manager
+        if not mongo_manager.db:
+            return {"success": True, "data": {}}
+        
+        account_id = scanner._broker.account.account_id
+        
+        # 获取最近5个交易日的订单
+        from datetime import timedelta
+        start_date = (datetime.now() - timedelta(days=7)).strftime("%Y%m%d")
+        
+        daily_stats = {}
+        async for doc in mongo_manager.db["broker_orders"].find({
+            "account_id": account_id,
+            "trade_date": {"$gte": start_date},
+            "status": "filled",
+        }).sort("trade_date", 1):
+            td = doc.get("trade_date", "")
+            if td not in daily_stats:
+                daily_stats[td] = {"buys": 0, "sells": 0, "buy_amount": 0, "sell_amount": 0, "strategies": {}}
+            
+            side = doc.get("side", "")
+            amount = doc.get("filled_price", 0) * doc.get("filled_qty", 0)
+            strategy = doc.get("strategy", "unknown")
+            
+            if side == "buy":
+                daily_stats[td]["buys"] += 1
+                daily_stats[td]["buy_amount"] += amount
+            else:
+                daily_stats[td]["sells"] += 1
+                daily_stats[td]["sell_amount"] += amount
+            
+            if strategy not in daily_stats[td]["strategies"]:
+                daily_stats[td]["strategies"][strategy] = {"trades": 0, "amount": 0}
+            daily_stats[td]["strategies"][strategy]["trades"] += 1
+            daily_stats[td]["strategies"][strategy]["amount"] += amount
+        
+        # 获取账户快照(如果有)
+        account_snapshots = {}
+        async for doc in mongo_manager.db["broker_accounts"].find(
+            {"account_id": account_id}
+        ):
+            account_snapshots[doc.get("updated_at", "")] = doc
+        
+        # 当前账户状态
+        acct = scanner._broker.get_account()
+        
+        # 策略汇总
+        strategy_summary = {}
+        for td, stats in daily_stats.items():
+            for strat, sdata in stats.get("strategies", {}).items():
+                if strat not in strategy_summary:
+                    strategy_summary[strat] = {"trades": 0, "amount": 0}
+                strategy_summary[strat]["trades"] += sdata["trades"]
+                strategy_summary[strat]["amount"] += sdata["amount"]
+        
+        # 总交易统计
+        total_buys = sum(d["buys"] for d in daily_stats.values())
+        total_sells = sum(d["sells"] for d in daily_stats.values())
+        total_buy_amount = sum(d["buy_amount"] for d in daily_stats.values())
+        total_sell_amount = sum(d["sell_amount"] for d in daily_stats.values())
+        
+        report = {
+            "period": f"{start_date} ~ {datetime.now().strftime('%Y%m%d')}",
+            "account": {
+                "total_assets": round(acct.total_assets, 2),
+                "total_profit": round(acct.total_profit, 2),
+                "available_cash": round(acct.available_cash, 2),
+            },
+            "daily_stats": daily_stats,
+            "strategy_summary": strategy_summary,
+            "totals": {
+                "trading_days": len(daily_stats),
+                "total_buys": total_buys,
+                "total_sells": total_sells,
+                "total_buy_amount": round(total_buy_amount, 2),
+                "total_sell_amount": round(total_sell_amount, 2),
+                "net_flow": round(total_sell_amount - total_buy_amount, 2),
+            },
+            "scanner_stats": scanner._stats,
+        }
+        
+        return {"success": True, "data": report}
+    except Exception as e:
+        return {"success": True, "data": {}, "message": str(e)}
+
+
+@router.get("/trade-log")
+async def get_trade_log(days: int = 30, format: str = "json"):
+    """交易日志(可导出)
+    
+    Args:
+        days: 最近N天
+        format: json | csv
+    """
+    scanner = _get_scanner()
+    if not scanner._broker:
+        return {"success": True, "data": []}
+    
+    try:
+        from core.managers import mongo_manager
+        if not mongo_manager.db:
+            return {"success": True, "data": []}
+        
+        account_id = scanner._broker.account.account_id
+        from datetime import timedelta
+        start_date = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
+        
+        orders = []
+        async for doc in mongo_manager.db["broker_orders"].find({
+            "account_id": account_id,
+            "trade_date": {"$gte": start_date},
+            "status": "filled",
+        }).sort("trade_date", -1).limit(500):
+            doc.pop("_id", None)
+            orders.append(doc)
+        
+        if format == "csv":
+            # 生成CSV
+            import io
+            import csv
+            output = io.StringIO()
+            writer = csv.writer(output)
+            writer.writerow(["日期", "时间", "代码", "名称", "方向", "数量", "价格", "金额", "策略", "原因"])
+            for o in orders:
+                writer.writerow([
+                    o.get("trade_date", ""),
+                    o.get("create_time", ""),
+                    o.get("ts_code", ""),
+                    o.get("stock_name", ""),
+                    "买入" if o.get("side") == "buy" else "卖出",
+                    o.get("filled_qty", 0),
+                    o.get("filled_price", 0),
+                    round(o.get("filled_price", 0) * o.get("filled_qty", 0), 2),
+                    o.get("strategy", ""),
+                    o.get("reason", ""),
+                ])
+            return {
+                "success": True,
+                "data": output.getvalue(),
+                "format": "csv",
+                "filename": f"trade_log_{datetime.now().strftime('%Y%m%d')}.csv",
+            }
+        
+        return {"success": True, "data": orders, "count": len(orders)}
+    except Exception as e:
+        return {"success": True, "data": [], "message": str(e)}
+
+
+# ==================== 性能追踪 ====================
+
+@router.post("/snapshot")
+async def save_performance_snapshot():
+    """保存当前性能快照到MongoDB(用于历史追踪)
+    
+    记录: 账户状态/持仓/信号/时间线/统计
+    用于后续复盘和回测对比
+    """
+    scanner = _get_scanner()
+    if not scanner._broker:
+        return {"success": True, "data": {"message": "Broker未初始化"}}
+    
+    try:
+        from core.managers import mongo_manager
+        if not mongo_manager.db:
+            return {"success": True, "data": {}}
+        
+        acct = scanner._broker.get_account()
+        positions = scanner._broker.get_positions()
+        
+        snapshot = {
+            "account_id": scanner._broker.account.account_id,
+            "timestamp": datetime.now().isoformat(),
+            "trade_date": datetime.now().strftime("%Y%m%d"),
+            "account": {
+                "total_assets": acct.total_assets,
+                "available_cash": acct.available_cash,
+                "market_value": acct.market_value,
+                "total_profit": acct.total_profit,
+            },
+            "positions": [{
+                "ts_code": p.ts_code,
+                "stock_name": p.stock_name,
+                "shares": p.total_qty,
+                "cost_price": p.avg_cost,
+                "current_price": p.current_price,
+                "profit_pct": p.profit_pct,
+                "strategy": p.strategy,
+            } for p in positions],
+            "active_signals": len(scanner._active_signals),
+            "timeline_count": len(scanner._timeline),
+            "stats": dict(scanner._stats),
+            "circuit_breaker": scanner._circuit_breaker,
+            "sentiment": scanner._current_sentiment,
+            "position_ratio": scanner._current_position_ratio,
+        }
+        
+        await mongo_manager.db["performance_snapshots"].insert_one(snapshot)
+        
+        return {"success": True, "data": {"message": "快照已保存", "timestamp": snapshot["timestamp"]}}
+    except Exception as e:
+        return {"success": True, "data": {"message": f"保存失败: {e}"}}
+
+
+@router.get("/performance-history")
+async def get_performance_history(days: int = 30):
+    """获取历史性能快照(资产曲线)"""
+    try:
+        from core.managers import mongo_manager
+        if not mongo_manager.db:
+            return {"success": True, "data": []}
+        
+        from datetime import timedelta
+        start = (datetime.now() - timedelta(days=days)).isoformat()
+        
+        snapshots = []
+        async for doc in mongo_manager.db["performance_snapshots"].find(
+            {"timestamp": {"$gte": start}}
+        ).sort("timestamp", 1):
+            doc.pop("_id", None)
+            snapshots.append(doc)
+        
+        return {"success": True, "data": snapshots, "count": len(snapshots)}
+    except Exception as e:
+        return {"success": True, "data": [], "message": str(e)}
+
+
+@router.get("/summary")
+async def get_summary_report():
+    """完整交易摘要报告
+    
+    一站式获取所有关键信息:
+    - 账户概览(资产/现金/仓位/盈亏)
+    - 持仓详情(每只股票的成本/现价/盈亏/止损止盈/距止损距离)
+    - 今日交易统计(买入/卖出/胜率/盈亏比)
+    - 策略表现(每策略的交易数/胜率/盈亏)
+    - 风控状态(熔断/连续亏损)
+    - 信号统计(活跃/过期/执行/跳过)
+    """
+    scanner = _get_scanner()
+    report = scanner.generate_summary_report()
+    return _sanitize({"success": True, "data": report})
