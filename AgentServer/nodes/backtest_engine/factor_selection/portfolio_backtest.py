@@ -82,8 +82,9 @@ class PortfolioBacktester:
     }
 
     # 【P1-5修复(第十一轮)：强制空仓阈值提升为类常量，避免两处分别定义不一致】
-    FORCE_EMPTY_LIMIT_DOWN = 50   # 跌停超过此阈值触发强制空仓
-    FORCE_EMPTY_LIMIT_UP = 10    # 涨停低于此阈值触发强制空仓
+    # 【P1-5修复】强制空仓阈值从strategy_defaults.py读取（单一来源）
+    FORCE_EMPTY_LIMIT_DOWN = GLOBAL_RISK.get("force_empty_limit_down", 50)
+    FORCE_EMPTY_LIMIT_UP = GLOBAL_RISK.get("force_empty_limit_up", 10)
 
     def __init__(self):
         # 🔒 优先初始化所有基础属性,避免构造过程中抛出异常导致属性缺失
@@ -256,7 +257,7 @@ class PortfolioBacktester:
         if sentiment_score >= 70:
             sentiment_level = "高潮期,仓位系数1.0"
         elif sentiment_score >= 40:
-            sentiment_level = "震荡期,仓位系数0.6"
+            sentiment_level = "震荡期,仓位系数0.7"
         else:
             sentiment_level = "冰点期,仓位系数0.3"
         await self.log(f"   │  🔹 情绪周期评分:{sentiment_score}分 → {sentiment_level}")
@@ -502,10 +503,16 @@ class PortfolioBacktester:
             peak_value = current_net_value
         drawdown = (peak_value - current_net_value) / peak_value if peak_value > 0 else 0
 
+        # 【修复】净值归一化：net_value 除以 initial_cash，前端期望首日净值=1.0
+        _initial_cash = getattr(self, '_initial_cash', 0)
+        if _initial_cash <= 0:
+            _initial_cash = getattr(self, '_risk_config', {}).get('initial_cash', 1000000)
+        normalized_nv = current_net_value / _initial_cash if _initial_cash > 0 else current_net_value
+
         net_value_series.append({
             "trade_date": trade_date,
-            "net_value": current_net_value,
-            "daily_profit": daily_profit,
+            "net_value": normalized_nv,
+            "daily_profit": daily_profit / _initial_cash if _initial_cash > 0 else daily_profit,
             "drawdown": drawdown
         })
         daily_profit_list.append(daily_profit)
@@ -568,6 +575,10 @@ class PortfolioBacktester:
         """
         # 1. 初始化配置和运行状态
         run_state = await self._init_run_config(config)
+        
+        # 【P0-1修复】检查_init_run_config是否返回错误dict
+        if isinstance(run_state, dict) and 'error' in run_state:
+            return run_state  # 直接返回错误，避免KeyError
         
         # 2. 逐日回测主循环
         all_trade_dates = run_state['all_trade_dates']
@@ -1842,6 +1853,10 @@ class PortfolioBacktester:
                 if sell_p <= 0:
                     continue
                 slippage_pct = self._get_slippage_for_code(code)
+                # 【P1-1修复】止损/止盈不扣滑点 — 止损价已含保守估计，再扣滑点会导致实际亏损超过止损线
+                reason = next((r for c, r in forced_sell_codes if c == code), '')
+                if '止损' in reason or '止盈' in reason:
+                    slippage_pct = 0  # 止损止盈不扣滑点
                 sell_price_adj = sell_p * (1 - slippage_pct)
                 gross_amount = shares * sell_price_adj
                 commission = max(gross_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
@@ -1938,6 +1953,18 @@ class PortfolioBacktester:
         daily_profit_list = run_state['daily_profit_list']
         drawdown_series = run_state['drawdown_series']
         daily_cash_list = run_state['daily_cash_list']
+        # 【P1-3修复】在净值序列开头插入初始净值=1.0，确保前端首日显示1.0
+        if net_value_series and net_value_series[0].get('net_value', 0) != 1.0:
+            first_date = str(run_state['config'].get('start_date', ''))
+            net_value_series.insert(0, {
+                "trade_date": first_date,
+                "net_value": 1.0,
+                "daily_profit": 0.0,
+                "drawdown": 0.0
+            })
+            daily_profit_list.insert(0, 0.0)
+            drawdown_series.insert(0, 0.0)
+            daily_cash_list.insert(0, 1.0)
         peak_value = run_state['peak_value']
         last_net_value = run_state['last_net_value']
         last_prices = run_state['last_prices']
@@ -2065,6 +2092,7 @@ class PortfolioBacktester:
                             'sell_date': record.date,
                             'sell_time': '收盘',
                             'sell_price': record.price,
+                            'sell_reason': record.reason,  # 【修复】记录卖出原因(止损/止盈/调仓/强制空仓等)
                             'shares': sell_buy_shares,
                             'profit_pct': profit,
                             'hold_days': hold_d,
@@ -2525,9 +2553,9 @@ class PortfolioBacktester:
             strategy_results[sname] = {
                 "strategy_name": sname,
                 "win_rate": (wins / len(completed) * 100) if completed else 0,
-                "total_return": avg_pnl,
+                "total_return": total_pnl,  # 【P1-2修复】total_return=总收益率(之前误用avg_pnl)
+                "avg_profit_pct": avg_pnl,  # 平均盈亏百分比
                 "trades_count": len(completed),
-                "total_pnl_pct": total_pnl,
                 "max_drawdown": strategy_max_dd,
             }
 
@@ -3046,13 +3074,11 @@ class PortfolioBacktester:
 
     # ==================== 【修复#7:统一策略筛选条件构建方法】 ====================
     # 【P1-9修复：策略中文名→ID映射，用于从STRATEGY_CONFIGS读取默认值】
-    _STRATEGY_NAME_TO_ID = {
-        "半路追涨": "halfway_chase",
-        "首板打板": "first_limit_up",
-        "涨停开板": "limit_up_open",
-        "龙头低吸": "dragon_head",
-        "跌停翘板": "limit_down_qiao",
-    }
+    # 【P1-7修复】删除硬编码的_STRATEGY_NAME_TO_ID，从STRATEGY_CONFIGS动态生成
+    @property
+    def _strategy_name_to_id(self):
+        """从strategy_defaults.py动态生成策略名→ID映射"""
+        return {cfg['name']: sid for sid, cfg in STRATEGY_CONFIGS.items()}
 
     def _build_strategy_filter_conditions(self, strategy_name: str, params: dict) -> list:
         """【统一入口】构建单个策略的因子筛选条件
@@ -3087,7 +3113,7 @@ class PortfolioBacktester:
                 converted_params[k] = v
 
         # 【P1-9修复：从STRATEGY_CONFIGS读取默认值，不再硬编码】
-        strategy_id = self._STRATEGY_NAME_TO_ID.get(strategy_name, "")
+        strategy_id = self._strategy_name_to_id.get(strategy_name, "")
         strategy_defaults = STRATEGY_CONFIGS.get(strategy_id, {}).get("params", {})
 
         if strategy_name == "半路追涨":
@@ -3383,6 +3409,33 @@ class PortfolioBacktester:
 
         # 先卖出:不在目标持仓中的股票全卖 + 持仓超过目标的股票减仓
         sell_codes = [code for code in holdings if code not in target_shares and holdings[code] > 0]
+        # 【P0-4修复：调仓日止损检查 — 即使股票仍在目标池中，如果触发止损也要卖出】
+        # 之前bug: 止损只对"不在目标池"的股票生效，导致16笔交易亏损>3%止损线却未触发
+        # 注意：_rebalance是同步方法，不能使用await，复用已有的prices参数
+        enable_stop_loss = self._risk_config.get('enable_stop_loss', True)
+        enable_take_profit = self._risk_config.get('enable_take_profit', True)
+        if (enable_stop_loss or enable_take_profit) and holdings:
+            _sl_tp_codes = set(holdings.keys()) - set(sell_codes)  # 还在目标池中的持仓
+            for code in list(_sl_tp_codes):
+                if holdings.get(code, 0) <= 0:
+                    continue
+                # T+1: 当日买入不可止损卖出
+                buy_dt = getattr(self, '_cost_basis_date', {}).get(code)
+                if buy_dt is not None and buy_dt == trade_date:
+                    continue
+                p = prices.get(code, {})
+                cost = getattr(self, '_cost_basis', {}).get(code, 0)
+                if cost <= 0 or not isinstance(p, dict) or p.get('close', 0) <= 0:
+                    continue
+                code_sl, code_tp = self._get_sl_tp_for_code(code)
+                stop_price = cost * (1 - code_sl)
+                tp_price = cost * (1 + code_tp)
+                low_p = p.get('low', p['close'])
+                high_p = p.get('high', p['close'])
+                if enable_stop_loss and low_p <= stop_price:
+                    sell_codes.append(code)
+                elif enable_take_profit and high_p >= tp_price:
+                    sell_codes.append(code)
         # 【Phase1-T+1】排除当日买入的股票(T+1: 当日买入不可卖出)
         t1_blocked = []
         for code in list(sell_codes):
@@ -3546,8 +3599,13 @@ class PortfolioBacktester:
                     sell_reason = f'止盈({code_tp*100:.0f}%)'
             price = sell_price
 
-            # 计算卖出金额(含滑点扣除)
-            slippage_pct = self._get_slippage_for_code(ts_code)
+            # 计算卖出金额
+            # 【P1-1修复】止损/止盈卖出不扣滑点 — 止损价已含保守估计，再扣滑点会导致实际亏损超过止损线
+            # 调仓卖出仍扣滑点(模拟正常卖出时的市场摩擦)
+            if sell_reason.startswith('止损') or sell_reason.startswith('跳空止损') or sell_reason.startswith('止盈'):
+                slippage_pct = 0  # 止损止盈不扣滑点
+            else:
+                slippage_pct = self._get_slippage_for_code(ts_code)
             sell_price_adj = price * (1 - slippage_pct)
             gross_amount = shares * sell_price_adj
             commission = max(gross_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)

@@ -402,7 +402,9 @@ class MongoManager(BaseManager):
             operations = []
             for doc in batch:
                 # 构建复合键查询条件
-                filter_query = {k: doc[k] for k in key_fields}
+                # 【P2-2 修复：对 key_fields 值进行转义，防止正则特殊字符 ($, ., *) 导致匹配错误】
+                # 使用 $eq 操作符进行精确匹配，避免 MongoDB 将值解释为正则表达式
+                filter_query = {k: {"$eq": doc[k]} for k in key_fields}
                 # $set中排除_id(不可变字段)，避免upsert时写入_id冲突
                 set_doc = {k: v for k, v in doc.items() if k != "_id"}
                 set_doc["updated_at"] = now
