@@ -41,6 +41,8 @@ class ScanSignal:
     reason: str = ""
     scan_time: str = ""
     factors: Dict[str, float] = field(default_factory=dict)
+    # 【实盘审查增强】决策详情
+    decision_detail: Dict[str, Any] = field(default_factory=dict)  # 完整决策链路
 
 
 @dataclass
@@ -1027,11 +1029,29 @@ class MarketScanner:
                     )
             return []
 
-        # 转回ScanSignal
+        # 转回ScanSignal，注入筛选决策详情
+        candidate_map = {c["ts_code"]: c for c in result.candidates}
         filtered_signals = []
-        candidate_codes = {c["ts_code"] for c in result.candidates}
         for s in signals:
-            if s.ts_code in candidate_codes:
+            if s.ts_code in candidate_map:
+                # 【实盘审查增强】注入9层筛选决策详情
+                s.decision_detail = {
+                    "filter_pipeline": {
+                        "layers_applied": result.layers_applied,
+                        "layer_details": result.layer_details,
+                        "position_ratio": result.position_ratio,
+                        "action": result.action,
+                    },
+                    "signal_reason": s.reason,
+                    "strategy": s.strategy,
+                    "strategy_name": s.strategy_name,
+                    "price": s.price,
+                    "pct_chg": s.pct_chg,
+                    "volume_ratio": s.volume_ratio,
+                    "turnover_rate": s.turnover_rate,
+                    "factors": s.factors,
+                    "scan_time": s.scan_time,
+                }
                 filtered_signals.append(s)
 
         # 存储仓位系数和情绪信息(供execute_signals使用)
@@ -1182,6 +1202,7 @@ class MarketScanner:
                     "shares": shares,
                     "price": order.filled_price,
                     "reason": sig.reason,
+                    "decision_detail": sig.decision_detail,  # 【实盘审查增强】
                 })
                 self._stats["trades_executed"] += 1
                 logger.info(f"[EXEC] 买入 {sig.ts_code} {shares}股@{order.filled_price:.2f} ({sig.strategy_name})")
@@ -1261,6 +1282,16 @@ class MarketScanner:
                     "price": order.filled_price,
                     "reason": reason,
                     "profit_pct": round(pos.profit_pct, 2),
+                    "decision_detail": {  # 【实盘审查增强】卖出决策详情
+                        "sell_reason": reason,
+                        "profit_pct": round(pos.profit_pct, 2),
+                        "cost_price": pos.cost_price,
+                        "sell_price": order.filled_price,
+                        "current_price": pos.current_price,
+                        "stop_loss_pct": pos.stop_loss_pct,
+                        "take_profit_pct": pos.take_profit_pct,
+                        "hold_minutes": pos.hold_minutes,
+                    },
                 })
                 if "止损" in reason:
                     self._stats["stop_losses"] += 1
@@ -1617,7 +1648,7 @@ class MarketScanner:
 
     @staticmethod
     def _signal_to_dict(s: ScanSignal) -> Dict:
-        return {
+        d = {
             "ts_code": s.ts_code, "stock_name": s.stock_name,
             "strategy": s.strategy, "strategy_name": s.strategy_name,
             "signal_type": s.signal_type, "price": MarketScanner._safe_round(s.price),
@@ -1629,6 +1660,9 @@ class MarketScanner:
             "confidence": s.confidence, "reason": s.reason,
             "scan_time": s.scan_time, "factors": s.factors,
         }
+        if s.decision_detail:
+            d["decision_detail"] = s.decision_detail
+        return d
 
     @staticmethod
     def _position_to_dict(p: PositionStatus) -> Dict:

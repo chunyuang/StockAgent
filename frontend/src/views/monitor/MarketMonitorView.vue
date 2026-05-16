@@ -34,6 +34,7 @@ interface ScanSignal {
   turnover_rate: number; is_limit_up: boolean; limit_up_count: number
   confidence: number; reason: string; scan_time: string
   factors: Record<string, number>
+  decision_detail?: Record<string, any>  // 【实盘审查增强】决策详情
 }
 interface PositionInfo {
   ts_code: string; stock_name: string; strategy: string; shares: number
@@ -43,6 +44,7 @@ interface PositionInfo {
 interface TimelineItem {
   time: string; action: string; ts_code: string; stock_name: string
   strategy: string; shares: number; price: number; reason: string; profit_pct?: number
+  decision_detail?: Record<string, any>  // 【实盘审查增强】决策详情
 }
 interface StrategyConfig {
   id: string; name: string; enabled: boolean
@@ -138,6 +140,77 @@ const manualTrade = reactive({
   price: 0,
 })
 const manualQuote = ref<any>(null)  // 实时行情预览
+
+// ==================== 交易审查增强 ====================
+const tradeDetailVisible = ref(false)
+const tradeDetailData = ref<any>(null)
+const tradeAuditData = ref<any[]>([])
+const tradeAuditVisible = ref(false)
+
+// 打开单只股票的交易详情
+async function openTradeDetail(ts_code: string) {
+  try {
+    const res = await api.get(`${scannerApi}/trade-detail/${ts_code}`)
+    if (res?.success) {
+      tradeDetailData.value = res.data
+      tradeDetailVisible.value = true
+    }
+  } catch (e: any) {
+    ElMessage.error('获取交易详情失败: ' + (e.response?.data?.detail || e.message))
+  }
+}
+
+// 打开全部交易审查摘要
+async function openTradeAudit() {
+  try {
+    const res = await api.get(`${scannerApi}/trade-audit`)
+    if (res?.success) {
+      tradeAuditData.value = res.data
+      tradeAuditVisible.value = true
+    }
+  } catch (e: any) {
+    ElMessage.error('获取交易审查失败: ' + (e.response?.data?.detail || e.message))
+  }
+}
+
+// 格式化决策详情为可读文本
+function formatDecisionDetail(detail: any): string[] {
+  if (!detail) return ['无决策详情']
+  const lines: string[] = []
+  
+  // 买入决策: 9层筛选管道
+  if (detail.filter_pipeline) {
+    const fp = detail.filter_pipeline
+    lines.push('【9层筛选管道】')
+    for (const [layer, applied] of Object.entries(fp.layers_applied || {})) {
+      const detailText = fp.layer_details?.[layer] || ''
+      lines.push(`  ${applied ? '✅' : '⏭️'} ${layer}: ${detailText || (applied ? '生效' : '跳过')}`)
+    }
+    lines.push(`  仓位系数: ${fp.position_ratio || 'N/A'}`)
+    lines.push(`  最终动作: ${fp.action || 'N/A'}`)
+  }
+  
+  // 信号因子
+  if (detail.factors) {
+    lines.push('【关键因子】')
+    for (const [k, v] of Object.entries(detail.factors)) {
+      if (v !== 0 && v !== null) lines.push(`  ${k}: ${typeof v === 'number' ? v.toFixed(2) : v}`)
+    }
+  }
+  
+  // 卖出决策
+  if (detail.sell_reason) {
+    lines.push('【卖出决策】')
+    lines.push(`  原因: ${detail.sell_reason}`)
+    if (detail.profit_pct) lines.push(`  盈亏: ${detail.profit_pct.toFixed(2)}%`)
+    if (detail.cost_price) lines.push(`  成本: ${detail.cost_price.toFixed(2)} → 卖出: ${detail.sell_price?.toFixed(2) || 'N/A'}`)
+    if (detail.stop_loss_pct) lines.push(`  止损线: ${detail.stop_loss_pct}%`)
+    if (detail.take_profit_pct) lines.push(`  止盈线: ${detail.take_profit_pct}%`)
+    if (detail.hold_minutes) lines.push(`  持仓时长: ${detail.hold_minutes}分钟`)
+  }
+  
+  return lines
+}
 
 // 手动交易输入代码时自动获取行情
 async function onManualCodeChange(code: string) {
@@ -586,10 +659,15 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
 
           <!-- 时间线 -->
           <ElCard class="panel" shadow="never">
-            <template #header><span>⏱️ 今日时间线 ({{ timeline.length }})</span></template>
+            <template #header>
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                <span>⏱️ 今日时间线 ({{ timeline.length }})</span>
+                <ElButton v-if="timeline.length" size="small" type="warning" @click="openTradeAudit">🔍 审查全部交易</ElButton>
+              </div>
+            </template>
             <div v-if="!timeline.length" class="empty">暂无交易</div>
             <div v-else class="tl-list">
-              <div v-for="(item, i) in timeline" :key="i" class="tl-row">
+              <div v-for="(item, i) in timeline" :key="i" class="tl-row tl-clickable" @click="openTradeDetail(item.ts_code)" title="点击查看交易决策详情">
                 <span class="tl-time">{{ item.time }}</span>
                 <span class="tl-action" :class="item.action === 'buy' ? 'buy' : 'sell'">{{ item.action === 'buy' ? '买' : '卖' }}</span>
                 <span class="code">{{ item.ts_code }}</span>
@@ -598,18 +676,21 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
                 <span v-if="item.profit_pct !== undefined" :class="item.profit_pct >= 0 ? 'up' : 'down'">
                   {{ item.profit_pct >= 0 ? '+' : '' }}{{ item.profit_pct.toFixed(1) }}%
                 </span>
+                <span class="tl-reason">{{ item.reason }}</span>
+                <ElTag v-if="item.decision_detail" size="small" type="info" style="margin-left:4px">🔍详情</ElTag>
               </div>
             </div>
             <!-- 历史订单 -->
             <div v-if="orders.length" class="orders-section">
               <div class="orders-title">📋 历史订单 ({{ orders.length }})</div>
-              <div v-for="o in orders.slice(0, 20)" :key="o.order_id" class="tl-row">
+              <div v-for="o in orders.slice(0, 20)" :key="o.order_id" class="tl-row tl-clickable" @click="openTradeDetail(o.ts_code)" title="点击查看交易决策详情">
                 <span class="tl-time">{{ o.trade_date?.slice(-4) || '' }} {{ o.create_time }}</span>
                 <span class="tl-action" :class="o.side === 'buy' ? 'buy' : 'sell'">{{ o.side === 'buy' ? '买' : '卖' }}</span>
                 <span class="code">{{ o.ts_code }}</span>
                 <span class="name">{{ o.stock_name }}</span>
                 <span class="tl-detail">{{ o.filled_qty }}股@{{ o.filled_price?.toFixed(2) || '0.00' }}</span>
                 <span class="reason-tag">{{ o.strategy }}</span>
+                <ElTag size="small" type="info" style="margin-left:4px">🔍</ElTag>
               </div>
             </div>
           </ElCard>
@@ -837,6 +918,105 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
         <ElButton type="primary" :loading="saving" @click="saveStrategy">保存</ElButton>
       </template>
     </ElDialog>
+
+       <!-- ==================== 交易详情弹窗 ==================== -->
+    <ElDialog v-model="tradeDetailVisible" :title="`🔍 交易审查 — ${tradeDetailData?.ts_code || ''}`" width="680px" :close-on-click-modal="true">
+      <div v-if="tradeDetailData" class="trade-detail">
+        <!-- 买入信息 -->
+        <div class="detail-section">
+          <div class="detail-title">📥 买入决策</div>
+          <template v-if="tradeDetailData.buy">
+            <div class="detail-grid">
+              <div class="detail-item"><span class="label">时间</span><span class="value">{{ tradeDetailData.buy.time }}</span></div>
+              <div class="detail-item"><span class="label">价格</span><span class="value">{{ tradeDetailData.buy.price?.toFixed(2) }}</span></div>
+              <div class="detail-item"><span class="label">数量</span><span class="value">{{ tradeDetailData.buy.shares }}股</span></div>
+              <div class="detail-item"><span class="label">策略</span><span class="value">{{ tradeDetailData.buy.strategy }}</span></div>
+            </div>
+            <div class="detail-reason">原因: {{ tradeDetailData.buy.reason }}</div>
+            <template v-if="tradeDetailData.buy.decision_detail">
+              <div class="detail-chain">决策链路:</div>
+              <div v-for="(line, i) in formatDecisionDetail(tradeDetailData.buy.decision_detail)" :key="i" class="chain-line">{{ line }}</div>
+            </template>
+          </template>
+          <div v-else class="detail-empty">无买入记录</div>
+        </div>
+
+        <!-- 卖出信息 -->
+        <div class="detail-section">
+          <div class="detail-title">📤 卖出决策</div>
+          <template v-if="tradeDetailData.sell">
+            <div class="detail-grid">
+              <div class="detail-item"><span class="label">时间</span><span class="value">{{ tradeDetailData.sell.time }}</span></div>
+              <div class="detail-item"><span class="label">价格</span><span class="value">{{ tradeDetailData.sell.price?.toFixed(2) }}</span></div>
+              <div class="detail-item"><span class="label">数量</span><span class="value">{{ tradeDetailData.sell.shares }}股</span></div>
+              <div class="detail-item"><span class="label">盈亏</span><span class="value" :class="tradeDetailData.sell.profit_pct >= 0 ? 'up' : 'down'">{{ tradeDetailData.sell.profit_pct >= 0 ? '+' : '' }}{{ tradeDetailData.sell.profit_pct?.toFixed(2) }}%</span></div>
+            </div>
+            <div class="detail-reason">原因: {{ tradeDetailData.sell.reason }}</div>
+            <template v-if="tradeDetailData.sell.decision_detail">
+              <div class="detail-chain">决策链路:</div>
+              <div v-for="(line, i) in formatDecisionDetail(tradeDetailData.sell.decision_detail)" :key="i" class="chain-line">{{ line }}</div>
+            </template>
+          </template>
+          <div v-else class="detail-empty">无卖出记录</div>
+        </div>
+
+        <!-- 当前持仓 -->
+        <div class="detail-section" v-if="tradeDetailData.position">
+          <div class="detail-title">📊 当前持仓</div>
+          <div class="detail-grid">
+            <div class="detail-item"><span class="label">持仓</span><span class="value">{{ tradeDetailData.position.shares }}股</span></div>
+            <div class="detail-item"><span class="label">成本</span><span class="value">{{ tradeDetailData.position.cost_price?.toFixed(2) }}</span></div>
+            <div class="detail-item"><span class="label">现价</span><span class="value">{{ tradeDetailData.position.current_price?.toFixed(2) }}</span></div>
+            <div class="detail-item"><span class="label">盈亏</span><span class="value" :class="tradeDetailData.position.profit_pct >= 0 ? 'up' : 'down'">{{ tradeDetailData.position.profit_pct >= 0 ? '+' : '' }}{{ tradeDetailData.position.profit_pct?.toFixed(2) }}%</span></div>
+            <div class="detail-item"><span class="label">止损线</span><span class="value">{{ tradeDetailData.position.stop_loss_pct }}%</span></div>
+            <div class="detail-item"><span class="label">止盈线</span><span class="value">{{ tradeDetailData.position.take_profit_pct }}%</span></div>
+          </div>
+        </div>
+
+        <!-- 当前信号 -->
+        <div class="detail-section" v-if="tradeDetailData.signal">
+          <div class="detail-title">📡 当前信号</div>
+          <div class="detail-reason">{{ tradeDetailData.signal.reason }}</div>
+          <template v-if="tradeDetailData.signal.decision_detail">
+            <div class="detail-chain">决策链路:</div>
+            <div v-for="(line, i) in formatDecisionDetail(tradeDetailData.signal.decision_detail)" :key="i" class="chain-line">{{ line }}</div>
+          </template>
+        </div>
+
+        <!-- 历史订单 -->
+        <div class="detail-section" v-if="tradeDetailData.orders?.length">
+          <div class="detail-title">📋 历史订单 ({{ tradeDetailData.orders.length }})</div>
+          <div v-for="o in tradeDetailData.orders" :key="o.order_id" class="order-row">
+            <span :class="o.side === 'buy' ? 'buy' : 'sell'">{{ o.side === 'buy' ? '买入' : '卖出' }}</span>
+            <span>{{ o.filled_qty }}股@{{ o.filled_price?.toFixed(2) }}</span>
+            <span class="reason-tag">{{ o.strategy }}</span>
+            <span class="tl-time">{{ o.trade_date }} {{ o.create_time }}</span>
+          </div>
+        </div>
+      </div>
+      <div v-else class="empty">无数据</div>
+    </ElDialog>
+
+       <!-- ==================== 全部交易审查弹窗 ==================== -->
+    <ElDialog v-model="tradeAuditVisible" title="🔍 全部交易审查" width="800px" :close-on-click-modal="true">
+      <div v-if="tradeAuditData.length" class="audit-list">
+        <div class="audit-header">
+          <span>股票</span><span>策略</span><span>买入</span><span>卖出</span><span>盈亏</span><span>状态</span><span>操作</span>
+        </div>
+        <div v-for="t in tradeAuditData" :key="t.ts_code" class="audit-row" @click="openTradeDetail(t.ts_code); tradeAuditVisible = false">
+          <span class="code">{{ t.ts_code }}</span>
+          <span><ElTag size="small" type="info">{{ t.strategy }}</ElTag></span>
+          <span class="audit-buy">{{ t.buy_time }} {{ t.buy_price?.toFixed(2) }}</span>
+          <span class="audit-sell">{{ t.sell_time || '-' }} {{ t.sell_price?.toFixed(2) || '-' }}</span>
+          <span :class="t.profit_pct !== null && t.profit_pct >= 0 ? 'up' : 'down'">
+            {{ t.profit_pct !== null ? (t.profit_pct >= 0 ? '+' : '') + t.profit_pct.toFixed(2) + '%' : '-' }}
+          </span>
+          <span class="audit-status">{{ t.status }}</span>
+          <span><ElTag size="small" type="warning" style="cursor:pointer">详情</ElTag></span>
+        </div>
+      </div>
+      <div v-else class="empty">暂无交易记录</div>
+    </ElDialog>
   </div>
 </template>
 
@@ -1014,4 +1194,28 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
 .ds-progress-bar { height: 100%; background: var(--el-color-primary); border-radius: 2px; transition: width 0.3s; }
 .ds-progress-bar.ds-warn { background: var(--el-color-danger); }
 .ds-remaining { color: var(--el-color-success); font-weight: 600; }
+
+/* === 交易审查增强 === */
+.tl-clickable { cursor: pointer; transition: background 0.15s; border-radius: 4px; padding: 2px 4px; }
+.tl-clickable:hover { background: rgba(64,158,255,0.08); }
+.tl-reason { font-size: 11px; color: #909399; margin-left: 6px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trade-detail { font-size: 13px; }
+.detail-section { margin-bottom: 16px; padding: 12px; background: #fafafa; border-radius: 8px; border: 1px solid #ebeef5; }
+.detail-title { font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #303133; }
+.detail-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 6px; }
+.detail-item { display: flex; flex-direction: column; gap: 2px; }
+.detail-item .label { font-size: 11px; color: #909399; }
+.detail-item .value { font-size: 13px; font-weight: 500; }
+.detail-reason { font-size: 12px; color: #606266; margin: 6px 0; padding: 6px 8px; background: #fff; border-radius: 4px; border-left: 3px solid #409eff; }
+.detail-chain { font-size: 12px; font-weight: 600; color: #606266; margin-top: 6px; }
+.chain-line { font-size: 11px; color: #606266; padding: 1px 0 1px 12px; font-family: monospace; }
+.detail-empty { color: #c0c4cc; font-size: 12px; }
+.order-row { display: flex; gap: 8px; align-items: center; padding: 4px 0; font-size: 12px; border-bottom: 1px solid #f2f3f5; }
+.audit-list { max-height: 500px; overflow-y: auto; }
+.audit-header { display: grid; grid-template-columns: 100px 80px 120px 120px 70px 90px 60px; gap: 4px; padding: 8px 0; font-size: 12px; font-weight: 600; color: #909399; border-bottom: 1px solid #ebeef5; }
+.audit-row { display: grid; grid-template-columns: 100px 80px 120px 120px 70px 90px 60px; gap: 4px; padding: 6px 0; font-size: 12px; align-items: center; border-bottom: 1px solid #f2f3f5; cursor: pointer; transition: background 0.15s; }
+.audit-row:hover { background: rgba(64,158,255,0.06); }
+.audit-buy { color: #f56c6c; }
+.audit-sell { color: #67c23a; }
+.audit-status { font-size: 11px; color: #909399; }
 </style>

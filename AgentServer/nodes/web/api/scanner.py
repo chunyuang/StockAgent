@@ -620,3 +620,133 @@ async def reset_account():
         pass
     
     return {"success": True, "data": {"message": "账户已重置"}}
+
+
+# ==================== 交易审查详情 ====================
+
+@router.get("/trade-detail/{ts_code}")
+async def get_trade_detail(ts_code: str):
+    """获取指定股票的完整交易审查详情
+    
+    包含：买入原因、9层筛选决策链路、卖出原因、盈亏分析
+    用于人工审查自动交易的决策是否合理
+    """
+    scanner = _get_scanner()
+    
+    detail = {
+        "ts_code": ts_code,
+        "buy": None,       # 买入决策详情
+        "sell": None,      # 卖出决策详情
+        "position": None,  # 当前持仓状态
+        "signal": None,    # 当前信号状态
+    }
+    
+    # 1. 从时间线查找买入/卖出记录
+    for item in scanner._timeline:
+        if item.get("ts_code") == ts_code:
+            if item.get("action") == "buy" and not detail["buy"]:
+                detail["buy"] = {
+                    "time": item.get("time", ""),
+                    "price": item.get("price", 0),
+                    "shares": item.get("shares", 0),
+                    "reason": item.get("reason", ""),
+                    "strategy": item.get("strategy", ""),
+                    "decision_detail": item.get("decision_detail", {}),
+                }
+            elif item.get("action") == "sell" and not detail["sell"]:
+                detail["sell"] = {
+                    "time": item.get("time", ""),
+                    "price": item.get("price", 0),
+                    "shares": item.get("shares", 0),
+                    "reason": item.get("reason", ""),
+                    "profit_pct": item.get("profit_pct", 0),
+                    "decision_detail": item.get("decision_detail", {}),
+                }
+    
+    # 2. 从持仓查找当前状态
+    for p in scanner._broker.get_positions():
+        if p.ts_code == ts_code:
+            detail["position"] = {
+                "shares": p.total_qty,
+                "cost_price": p.avg_cost,
+                "current_price": p.current_price,
+                "profit_pct": p.profit_pct,
+                "strategy": p.strategy,
+                "available_qty": p.available_qty,
+                "today_buy": p.today_buy_qty,
+            }
+    
+    # 3. 从活跃信号查找
+    for s in scanner._active_signals:
+        if s.ts_code == ts_code:
+            detail["signal"] = scanner._signal_to_dict(s)
+            break
+    
+    # 4. 从历史订单查找
+    orders = []
+    for o in scanner._broker.orders:
+        if o.ts_code == ts_code:
+            orders.append({
+                "order_id": o.order_id,
+                "side": o.side,
+                "quantity": o.quantity,
+                "filled_qty": o.filled_qty,
+                "filled_price": o.filled_price,
+                "strategy": o.strategy,
+                "reason": o.reason,
+                "trade_date": o.trade_date,
+                "create_time": o.create_time,
+            })
+    detail["orders"] = orders
+    
+    return {"success": True, "data": detail}
+
+
+@router.get("/trade-audit")
+async def get_trade_audit():
+    """获取全部交易的审查摘要
+    
+    每笔交易一行，包含买入/卖出原因和盈亏
+    用于快速扫描所有自动交易的决策质量
+    """
+    scanner = _get_scanner()
+    
+    # 收集所有交易过的股票
+    traded_stocks = {}
+    for item in scanner._timeline:
+        ts_code = item.get("ts_code", "")
+        if not ts_code:
+            continue
+        if ts_code not in traded_stocks:
+            traded_stocks[ts_code] = {
+                "ts_code": ts_code,
+                "stock_name": item.get("stock_name", ""),
+                "strategy": item.get("strategy", ""),
+                "buy_time": "", "buy_price": 0, "buy_reason": "",
+                "buy_detail": None,
+                "sell_time": "", "sell_price": 0, "sell_reason": "",
+                "sell_detail": None,
+                "profit_pct": None,
+                "status": "持仓中",
+            }
+        
+        entry = traded_stocks[ts_code]
+        if item.get("action") == "buy":
+            entry["buy_time"] = item.get("time", "")
+            entry["buy_price"] = item.get("price", 0)
+            entry["buy_reason"] = item.get("reason", "")
+            entry["buy_detail"] = item.get("decision_detail")
+        elif item.get("action") == "sell":
+            entry["sell_time"] = item.get("time", "")
+            entry["sell_price"] = item.get("price", 0)
+            entry["sell_reason"] = item.get("reason", "")
+            entry["sell_detail"] = item.get("decision_detail")
+            entry["profit_pct"] = item.get("profit_pct")
+            entry["status"] = "已卖出"
+    
+    # 标记当前持仓
+    for p in scanner._broker.get_positions():
+        if p.ts_code in traded_stocks:
+            traded_stocks[p.ts_code]["status"] = f"持仓中 {p.profit_pct:+.1f}%"
+    
+    return {"success": True, "data": list(traded_stocks.values())}
