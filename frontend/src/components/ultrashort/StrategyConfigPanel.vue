@@ -34,15 +34,15 @@ const dataSourceTitle = computed(() => `🔌 数据源配置 (${props.form.dataS
 const baseConfigTitle = computed(() => `📅 基础配置 (${props.form.dataSource.start_date}~${props.form.dataSource.end_date}, 初始资金¥${(props.form.base.initial_cash / 10000).toFixed(0)}万)`)
 const tradeParamsTitle = computed(() => `💹 交易参数 (止损${(props.form.tradeParams.base_stop_loss_pct * 100).toFixed(1)}%, 止盈${(props.form.tradeParams.base_take_profit_pct * 100).toFixed(1)}%, 持仓${props.form.tradeParams.max_hold_days}天, 总仓${(props.form.tradeParams.max_total_position * 100).toFixed(0)}%, 单票${(props.form.tradeParams.max_position_per_stock * 100).toFixed(0)}%, 佣金${(props.form.tradeParams.commission_rate * 1000).toFixed(1)}‰, 印花税${(props.form.tradeParams.stamp_duty_rate * 1000).toFixed(0)}‰, 滑点${(props.form.tradeParams.slippage_pct * 1000).toFixed(1)}‰)`)
 const globalFilterTitle = computed(() => `🔍 全局筛选 (剔除ST: ${props.form.globalFilter.exclude_st ? '✅' : '❌'}, 剔除退市: ${props.form.globalFilter.exclude_delisting ? '✅' : '❌'}, 次新股≥${props.form.globalFilter.exclude_new_stock_days}天, 成交额≥${props.form.globalFilter.min_daily_amount}万, 换手率≥${props.form.globalFilter.min_turnover_rate}%)`)
-const forceEmptyTitle = computed(() => `⚠️ 强制空仓 ${props.form.forceEmpty.enabled ? '✅' : '❌'} (跌幅≥${(props.form.forceEmpty.index_drop_pct * 100).toFixed(1)}%, 跌停≥${props.form.forceEmpty.limit_down_count}只, 涨停<${props.form.forceEmpty.limit_up_count}只)`)
-const sentimentCycleTitle = computed(() => `🧠 情绪周期 ${props.form.sentimentCycle.enabled ? '✅' : '❌'} (涨停${props.form.sentimentCycle.weight_limit_up}, 跌停${props.form.sentimentCycle.weight_limit_down}, 炸板率${props.form.sentimentCycle.weight_blast_rate}, 涨跌差${props.form.sentimentCycle.weight_rise_fall_diff}, 北向${props.form.sentimentCycle.weight_north_inflow})`)
-const auctionFilterTitle = computed(() => `⏰ 竞价过滤 ${props.form.auctionFilter.enabled ? '✅' : '❌'} (涨幅${(props.form.auctionFilter.min_auction_pct * 100).toFixed(1)}%~${(props.form.auctionFilter.max_auction_pct * 100).toFixed(1)}%, 成交额≥${props.form.auctionFilter.min_auction_amount}万, 量比≥${props.form.auctionFilter.min_auction_volume_ratio}, 未匹配量正: ${props.form.auctionFilter.min_unmatched_volume_positive ? '✅' : '❌'})`)
+const forceEmptyTitle = computed(() => `⚠️ 强制空仓`)
+const sentimentCycleTitle = computed(() => `🧠 情绪周期`)
+const auctionFilterTitle = computed(() => `⏰ 竞价过滤`)
 
-const halfwayChaseTitle = computed(() => `🏃‍♂️ 半路追涨策略 ${props.form.strategyConfigs.halfway_chase.enabled ? '✅' : '❌'} (涨幅${(props.form.strategyConfigs.halfway_chase.params.min_rise_pct * 100).toFixed(1)}%~${(props.form.strategyConfigs.halfway_chase.params.max_rise_pct * 100).toFixed(1)}%, 量比${props.form.strategyConfigs.halfway_chase.params.min_volume_ratio}~${props.form.strategyConfigs.halfway_chase.params.max_volume_ratio}, 止损${(props.form.strategyConfigs.halfway_chase.riskParams.stop_loss_pct * 100).toFixed(0)}%/止盈${(props.form.strategyConfigs.halfway_chase.riskParams.take_profit_pct * 100).toFixed(0)}%)`)
-const firstLimitUpTitle = computed(() => `🥇 首板打板策略 ${props.form.strategyConfigs.first_limit_up.enabled ? '✅' : '❌'} (开盘${props.form.strategyConfigs.first_limit_up.params.opening_pct_min}%~${props.form.strategyConfigs.first_limit_up.params.opening_pct_max}%, 量比≥${props.form.strategyConfigs.first_limit_up.params.min_volume_ratio}, 换手${props.form.strategyConfigs.first_limit_up.params.min_turnover_rate}%~${props.form.strategyConfigs.first_limit_up.params.max_turnover_rate}%, 流通市值${props.form.strategyConfigs.first_limit_up.params.min_circulation_market_cap}~${props.form.strategyConfigs.first_limit_up.params.max_circulation_market_cap}亿, 止损${(props.form.strategyConfigs.first_limit_up.riskParams.stop_loss_pct * 100).toFixed(0)}%/止盈${(props.form.strategyConfigs.first_limit_up.riskParams.take_profit_pct * 100).toFixed(0)}%)`)
-const limitUpOpenTitle = computed(() => `📈 涨停开板策略 ${props.form.strategyConfigs.limit_up_open.enabled ? '✅' : '❌'} (连板≥${props.form.strategyConfigs.limit_up_open.params.min_consecutive_limit}板, 开板≤${props.form.strategyConfigs.limit_up_open.params.max_open_duration}分钟, 止损${(props.form.strategyConfigs.limit_up_open.riskParams.stop_loss_pct * 100).toFixed(0)}%/止盈${(props.form.strategyConfigs.limit_up_open.riskParams.take_profit_pct * 100).toFixed(0)}%)`)
-const dragonHeadTitle = computed(() => `🐲 龙头低吸策略 ${props.form.strategyConfigs.dragon_head.enabled ? '✅' : '❌'} (连板≥${props.form.strategyConfigs.dragon_head.params.min_consecutive_limit}板, 回调${(props.form.strategyConfigs.dragon_head.params.min_correction_pct * 100).toFixed(0)}%~${(props.form.strategyConfigs.dragon_head.params.max_correction_pct * 100).toFixed(0)}%, 止损${(props.form.strategyConfigs.dragon_head.riskParams.stop_loss_pct * 100).toFixed(0)}%/止盈${(props.form.strategyConfigs.dragon_head.riskParams.take_profit_pct * 100).toFixed(0)}%)`)
-const limitDownQiaoTitle = computed(() => `💥 跌停翘板策略 ${props.form.strategyConfigs.limit_down_qiao.enabled ? '✅' : '❌'} (连板≥${props.form.strategyConfigs.limit_down_qiao.params.min_consecutive_limit}板, 翘板金额≥${props.form.strategyConfigs.limit_down_qiao.params.min_qiao_amount}万, 止损${(props.form.strategyConfigs.limit_down_qiao.riskParams.stop_loss_pct * 100).toFixed(0)}%/止盈${(props.form.strategyConfigs.limit_down_qiao.riskParams.take_profit_pct * 100).toFixed(0)}%)`)
+const halfwayChaseTitle = computed(() => `🏃‍♂️ 半路追涨`)
+const firstLimitUpTitle = computed(() => `🥇 首板打板`)
+const limitUpOpenTitle = computed(() => `📈 涨停开板`)
+const dragonHeadTitle = computed(() => `🐲 龙头低吸`)
+const limitDownQiaoTitle = computed(() => `💥 跌停翘板`)
 
 // 折叠面板
 const activeCollapse = defineModel<string[]>('activeCollapse', { default: [] })
@@ -170,7 +170,13 @@ function toggleStrategy(strategyId: string) {
 
       <!-- 强制空仓 -->
       <ElCollapseItem name="forceEmpty">
-        <template #title><span>{{ forceEmptyTitle }}</span></template>
+        <template #title>
+          <div class="collapse-title-row" @click.stop>
+            <span>{{ forceEmptyTitle }}</span>
+            <ElSwitch v-model="form.forceEmpty.enabled" size="small" @click.stop />
+            <span class="title-summary" v-if="form.forceEmpty.enabled">跌幅≥{{ (form.forceEmpty.index_drop_pct * 100).toFixed(1) }}% / 跌停≥{{ form.forceEmpty.limit_down_count }}只 / 涨停<{{ form.forceEmpty.limit_up_count }}只</span>
+          </div>
+        </template>
         <ElForm label-width="160px">
           <ElFormItem label="启用强制空仓"><ElSwitch v-model="form.forceEmpty.enabled" /></ElFormItem>
           <ElFormItem label="大盘跌幅≥" :disabled="!form.forceEmpty.enabled">
@@ -190,7 +196,12 @@ function toggleStrategy(strategyId: string) {
 
       <!-- 情绪周期 -->
       <ElCollapseItem name="sentimentCycle">
-        <template #title><span>{{ sentimentCycleTitle }}</span></template>
+        <template #title>
+          <div class="collapse-title-row" @click.stop>
+            <span>{{ sentimentCycleTitle }}</span>
+            <ElSwitch v-model="form.sentimentCycle.enabled" size="small" @click.stop />
+          </div>
+        </template>
         <ElForm label-width="160px">
           <ElFormItem label="启用情绪周期"><ElSwitch v-model="form.sentimentCycle.enabled" /></ElFormItem>
           <ElFormItem label="涨停家数权重" :disabled="!form.sentimentCycle.enabled">
@@ -213,7 +224,13 @@ function toggleStrategy(strategyId: string) {
 
       <!-- 竞价过滤 -->
       <ElCollapseItem name="auctionFilter">
-        <template #title><span>{{ auctionFilterTitle }}</span></template>
+        <template #title>
+          <div class="collapse-title-row" @click.stop>
+            <span>{{ auctionFilterTitle }}</span>
+            <ElSwitch v-model="form.auctionFilter.enabled" size="small" @click.stop />
+            <span class="title-summary" v-if="form.auctionFilter.enabled">{{ (form.auctionFilter.min_auction_pct * 100).toFixed(1) }}%~{{ (form.auctionFilter.max_auction_pct * 100).toFixed(1) }}%</span>
+          </div>
+        </template>
         <ElForm label-width="160px">
           <ElFormItem label="启用竞价过滤"><ElSwitch v-model="form.auctionFilter.enabled" /></ElFormItem>
           <ElFormItem label="最低竞价涨幅" :disabled="!form.auctionFilter.enabled">
@@ -240,7 +257,13 @@ function toggleStrategy(strategyId: string) {
 
       <!-- 半路追涨 (halfway_chase) -->
       <ElCollapseItem name="halfway_chase">
-        <template #title><span>{{ halfwayChaseTitle }}</span></template>
+        <template #title>
+          <div class="collapse-title-row" @click.stop>
+            <span>{{ halfwayChaseTitle }}</span>
+            <ElSwitch v-model="form.strategyConfigs.halfway_chase.enabled" size="small" @click.stop @change="() => toggleStrategy('halfway_chase')" />
+            <span class="title-summary" v-if="form.strategyConfigs.halfway_chase.enabled">涨幅{{ (form.strategyConfigs.halfway_chase.params.min_rise_pct * 100).toFixed(1) }}%~{{ (form.strategyConfigs.halfway_chase.params.max_rise_pct * 100).toFixed(1) }}% / 量比{{ form.strategyConfigs.halfway_chase.params.min_volume_ratio }}~{{ form.strategyConfigs.halfway_chase.params.max_volume_ratio }} / 止损{{ (form.strategyConfigs.halfway_chase.riskParams.stop_loss_pct * 100).toFixed(0) }}% / 止盈{{ (form.strategyConfigs.halfway_chase.riskParams.take_profit_pct * 100).toFixed(0) }}%</span>
+          </div>
+        </template>
         <ElForm label-width="160px">
           <ElFormItem label="启用策略"><ElSwitch v-model="form.strategyConfigs.halfway_chase.enabled" @change="() => toggleStrategy('halfway_chase')" /></ElFormItem>
           <div :disabled="!form.strategyConfigs.halfway_chase.enabled" class="grid grid-cols-2 gap-4">
@@ -288,7 +311,13 @@ function toggleStrategy(strategyId: string) {
       </ElCollapseItem>
       <!-- 首板打板 (first_limit_up) -->
       <ElCollapseItem name="first_limit_up">
-        <template #title><span>{{ firstLimitUpTitle }}</span></template>
+        <template #title>
+          <div class="collapse-title-row" @click.stop>
+            <span>{{ firstLimitUpTitle }}</span>
+            <ElSwitch v-model="form.strategyConfigs.first_limit_up.enabled" size="small" @click.stop @change="() => toggleStrategy('first_limit_up')" />
+            <span class="title-summary" v-if="form.strategyConfigs.first_limit_up.enabled">开盘{{ form.strategyConfigs.first_limit_up.params.opening_pct_min }}%~{{ form.strategyConfigs.first_limit_up.params.opening_pct_max }}% / 市值{{ form.strategyConfigs.first_limit_up.params.min_circulation_market_cap }}~{{ form.strategyConfigs.first_limit_up.params.max_circulation_market_cap }}亿 / 止损{{ (form.strategyConfigs.first_limit_up.riskParams.stop_loss_pct * 100).toFixed(0) }}%</span>
+          </div>
+        </template>
         <ElForm label-width="160px">
           <ElFormItem label="启用策略"><ElSwitch v-model="form.strategyConfigs.first_limit_up.enabled" @change="() => toggleStrategy('first_limit_up')" /></ElFormItem>
           <div :disabled="!form.strategyConfigs.first_limit_up.enabled" class="grid grid-cols-2 gap-4">
@@ -351,7 +380,13 @@ function toggleStrategy(strategyId: string) {
       </ElCollapseItem>
       <!-- 涨停开板 (limit_up_open) -->
       <ElCollapseItem name="limit_up_open">
-        <template #title><span>{{ limitUpOpenTitle }}</span></template>
+        <template #title>
+          <div class="collapse-title-row" @click.stop>
+            <span>{{ limitUpOpenTitle }}</span>
+            <ElSwitch v-model="form.strategyConfigs.limit_up_open.enabled" size="small" @click.stop @change="() => toggleStrategy('limit_up_open')" />
+            <span class="title-summary" v-if="form.strategyConfigs.limit_up_open.enabled">连板≥{{ form.strategyConfigs.limit_up_open.params.min_consecutive_limit }} / 止损{{ (form.strategyConfigs.limit_up_open.riskParams.stop_loss_pct * 100).toFixed(0) }}%</span>
+          </div>
+        </template>
         <ElForm label-width="160px">
           <ElFormItem label="启用策略"><ElSwitch v-model="form.strategyConfigs.limit_up_open.enabled" @change="() => toggleStrategy('limit_up_open')" /></ElFormItem>
           <div :disabled="!form.strategyConfigs.limit_up_open.enabled" class="grid grid-cols-2 gap-4">
@@ -399,7 +434,13 @@ function toggleStrategy(strategyId: string) {
       </ElCollapseItem>
       <!-- 龙头低吸 (dragon_head) -->
       <ElCollapseItem name="dragon_head">
-        <template #title><span>{{ dragonHeadTitle }}</span></template>
+        <template #title>
+          <div class="collapse-title-row" @click.stop>
+            <span>{{ dragonHeadTitle }}</span>
+            <ElSwitch v-model="form.strategyConfigs.dragon_head.enabled" size="small" @click.stop @change="() => toggleStrategy('dragon_head')" />
+            <span class="title-summary" v-if="form.strategyConfigs.dragon_head.enabled">连板≥{{ form.strategyConfigs.dragon_head.params.min_consecutive_limit }} / 回调{{ (form.strategyConfigs.dragon_head.params.min_correction_pct * 100).toFixed(0) }}%~{{ (form.strategyConfigs.dragon_head.params.max_correction_pct * 100).toFixed(0) }}% / 止损{{ (form.strategyConfigs.dragon_head.riskParams.stop_loss_pct * 100).toFixed(0) }}%</span>
+          </div>
+        </template>
         <ElForm label-width="160px">
           <ElFormItem label="启用策略"><ElSwitch v-model="form.strategyConfigs.dragon_head.enabled" @change="() => toggleStrategy('dragon_head')" /></ElFormItem>
           <div :disabled="!form.strategyConfigs.dragon_head.enabled" class="grid grid-cols-2 gap-4">
@@ -458,7 +499,13 @@ function toggleStrategy(strategyId: string) {
       </ElCollapseItem>
       <!-- 跌停翘板 (limit_down_qiao) -->
       <ElCollapseItem name="limit_down_qiao">
-        <template #title><span>{{ limitDownQiaoTitle }}</span></template>
+        <template #title>
+          <div class="collapse-title-row" @click.stop>
+            <span>{{ limitDownQiaoTitle }}</span>
+            <ElSwitch v-model="form.strategyConfigs.limit_down_qiao.enabled" size="small" @click.stop @change="() => toggleStrategy('limit_down_qiao')" />
+            <span class="title-summary" v-if="form.strategyConfigs.limit_down_qiao.enabled">连板≥{{ form.strategyConfigs.limit_down_qiao.params.min_consecutive_limit }} / 翘板≥{{ form.strategyConfigs.limit_down_qiao.params.min_qiao_amount }}万 / 止损{{ (form.strategyConfigs.limit_down_qiao.riskParams.stop_loss_pct * 100).toFixed(0) }}%</span>
+          </div>
+        </template>
         <ElForm label-width="160px">
           <ElFormItem label="启用策略"><ElSwitch v-model="form.strategyConfigs.limit_down_qiao.enabled" @change="() => toggleStrategy('limit_down_qiao')" /></ElFormItem>
           <div :disabled="!form.strategyConfigs.limit_down_qiao.enabled" class="grid grid-cols-2 gap-4">
@@ -547,5 +594,19 @@ export default { name: 'StrategyConfigPanel' }
   right: 15px;
   background: #fff;
   padding-left: 10px;
+}
+.collapse-title-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 500;
+
+  .title-summary {
+    font-size: 12px;
+    color: #8b949e;
+    font-weight: 400;
+    white-space: nowrap;
+  }
 }
 </style>

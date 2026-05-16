@@ -248,6 +248,9 @@ export interface UltraShortParams {
   max_hold_days: number
   max_position_per_stock: number
   max_position: number
+  commission_rate?: number
+  stamp_duty_rate?: number
+  slippage_pct?: number
   sentiment_cycle?: boolean
   auction_filter?: boolean
   selected_strategies?: string[]
@@ -280,6 +283,11 @@ export interface UltraShortBacktestRequest {
   enable_ma60_filter?: boolean
   enable_sector_concentration?: boolean
   exclude_st?: boolean
+  // 【P1-3/P1-4修复】细粒度配置对象
+  forceEmpty?: any
+  sentimentCycle?: any
+  auctionFilter?: any
+  globalFilter?: any
 }
 
 /**
@@ -379,6 +387,13 @@ export async function getUltraShortHistory(params?: {
   status?: string
 }): Promise<BacktestHistoryResponse> {
   return api.get<BacktestHistoryResponse>('/backtest/ultra-short/history', { params })
+}
+
+/**
+ * 删除回测历史记录
+ */
+export async function deleteBacktestHistory(taskId: string): Promise<{ task_id: string; status: string; message: string }> {
+  return api.delete<{ task_id: string; status: string; message: string }>(`/backtest/history/${taskId}`)
 }
 
 export default {

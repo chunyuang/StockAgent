@@ -5,10 +5,12 @@
  * 展示所有历史回测记录，支持：
  * - 收益率/胜率/夏普等指标排序
  * - 查看结果、查看日志、复用参数
+ * - 删除历史记录
  * - 状态/日期筛选
  */
 import { ref, onMounted, computed } from 'vue'
-import { getUltraShortHistory, type BacktestHistoryItem } from '@/api/modules/backtest'
+import { getUltraShortHistory, deleteBacktestHistory, type BacktestHistoryItem } from '@/api/modules/backtest'
+import { ElMessageBox, ElMessage } from 'element-plus'
 
 const emit = defineEmits<{
   (e: 'view-result', task: BacktestHistoryItem): void
@@ -68,16 +70,35 @@ async function loadHistory() {
   }
 }
 
+async function handleDelete(item: BacktestHistoryItem) {
+  const dateRange = `${item.start_date || '?'}~${item.end_date || '?'}`
+  const strategies = strategyNames(item.strategies)
+  try {
+    await ElMessageBox.confirm(
+      `确定删除这条回测记录？\n日期: ${dateRange}\n策略: ${strategies}\n收益: ${formatReturn(item.total_return)}`,
+      '删除确认',
+      { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch {
+    return // 取消
+  }
+  try {
+    await deleteBacktestHistory(item.task_id)
+    ElMessage.success('已删除')
+    await loadHistory()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '删除失败')
+  }
+}
+
 function formatReturn(val: number | null | undefined): string {
   if (val === null || val === undefined) return '-'
-  // total_return在MongoDB中已存储为百分比(-1.11表示-1.11%)
   const sign = val >= 0 ? '+' : ''
   return `${sign}${val.toFixed(2)}%`
 }
 
 function formatRate(val: number | null | undefined): string {
   if (val === null || val === undefined) return '-'
-  // win_rate在MongoDB中已存储为百分比(60表示60%)
   return `${val.toFixed(1)}%`
 }
 
@@ -88,7 +109,6 @@ function formatSharpe(val: number | null | undefined): string {
 
 function formatDrawdown(val: number | null | undefined): string {
   if (val === null || val === undefined) return '-'
-  // max_drawdown也是百分比存储
   return `${val.toFixed(2)}%`
 }
 
@@ -169,6 +189,7 @@ onMounted(loadHistory)
               <button class="action-btn" @click="emit('view-result', item)" title="查看结果">📊</button>
               <button class="action-btn" @click="emit('view-logs', item.task_id)" title="查看日志">📋</button>
               <button class="action-btn reuse-btn" @click="emit('reuse-params', item)" title="复用参数重跑">🔄</button>
+              <button class="action-btn delete-btn" @click="handleDelete(item)" title="删除此记录">🗑️</button>
             </td>
           </tr>
         </tbody>
@@ -285,6 +306,11 @@ onMounted(loadHistory)
       &.reuse-btn {
         border-color: #238636;
         &:hover { background: #23863620; }
+      }
+
+      &.delete-btn {
+        border-color: #da3633;
+        &:hover { background: #da363320; }
       }
     }
   }

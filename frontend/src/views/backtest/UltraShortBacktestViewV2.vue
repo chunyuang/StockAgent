@@ -432,7 +432,7 @@ const addLog = (text: string) => {
 
 // ==================== 历史回测操作 ====================
 
-const activeMainTab = ref<'config' | 'history'>('config')
+const activeMainTab = ref<'config' | 'history' | 'data' | 'factors'>('config')
 const historyCount = ref(0)
 
 /** 从历史回测复用参数 */
