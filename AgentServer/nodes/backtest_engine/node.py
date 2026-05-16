@@ -191,9 +191,13 @@ class BacktestNode(BaseNode):
                     traceback.print_exc()
                     await self._update_task_result(task_id, "failed", error=str(e))
                     continue  # 【修复风险6：任务失败后continue而非return，避免worker永久退出】
+                    # 【P1-1 修复：任务失败时也要清理文件句柄，避免资源泄漏】
+                    self._close_log_handles(task_id)
 
                 finally:
-                    # 【P1-4修复：确保JSONL文件句柄在所有路径都被关闭】
+                    # 【P1-1 修复：确保 JSONL 文件句柄在所有路径都被关闭】
+                    # 注意：_close_log_handles 已在 except 块中调用，此处重复调用是安全的（幂等）
+                    # 这样可以确保即使 except 块未执行（如 asyncio.CancelledError），句柄也会被关闭
                     self._close_log_handles(task_id)
                     self._task_queue.task_done()
 

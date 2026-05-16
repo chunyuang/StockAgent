@@ -43,9 +43,10 @@ def get_ultra_short_defaults() -> Dict[str, Any]:
         # 强制空仓
         "forceEmpty": {
             "enabled": True,
-            "index_drop_pct": 0.03,
-            "limit_down_count": 50,
-            "limit_up_count": 10,
+            # 【P1-5/P1-6修复】从strategy_defaults.py读取（单一来源）
+            "index_drop_pct": GLOBAL_RISK.get("force_empty_index_drop_pct", 0.03),
+            "limit_down_count": GLOBAL_RISK.get("force_empty_limit_down", 50),
+            "limit_up_count": GLOBAL_RISK.get("force_empty_limit_up", 10),
         },
         # 情绪周期
         "sentimentCycle": {
