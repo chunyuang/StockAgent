@@ -44,6 +44,12 @@ class ScanSignal:
     factors: Dict[str, float] = field(default_factory=dict)
     # 【实盘审查增强】决策详情
     decision_detail: Dict[str, Any] = field(default_factory=dict)  # 完整决策链路
+    # 【调试增强】逐层筛选中间结果
+    layer_trace: Dict[str, Any] = field(default_factory=dict)  # 每层筛选的输入/输出/过滤原因
+    # 信号状态
+    signal_status: str = "new"  # new/executed/expired/skipped
+    # 信号创建时间(用于过期判断)
+    created_at: float = 0.0  # time.time()戳
 
 
 @dataclass
@@ -72,10 +78,12 @@ class MarketScanner:
     BATCH_SIZE = 100    # 批量行情每批处理数
     MAX_POSITIONS = 10  # 最大持仓数
     MAX_POSITION_RATIO = 0.7  # 最大仓位比例
+    SIGNAL_EXPIRE_SECONDS = 300  # 信号过期时间(秒): 5分钟后信号失效
 
     # 交易模式
     MODE_SIMULATED = "simulated"  # 内置仿真撮合
     MODE_GM = "gm"                # 掘金量化
+    MODE_DRY_RUN = "dry_run"      # 调试模式: 只扫描不交易
 
     def __init__(self, account_id: str = "default", config: Dict = None):
         self.account_id = account_id
@@ -98,6 +106,9 @@ class MarketScanner:
         self._trade_mode = trade_mode
         initial_cash = self.config.get("initial_cash", 1_000_000)
 
+        # 【调试增强】dry_run模式: 只扫描不交易
+        self._dry_run = (trade_mode == self.MODE_DRY_RUN)
+
         if trade_mode == self.MODE_GM:
             # 掘金模式
             from nodes.market_monitor.gm_broker import GmBroker
@@ -110,6 +121,11 @@ class MarketScanner:
             )
             self._broker = None  # 掘金模式下不用SimulatedBroker
             logger.info(f"[SCANNER] 交易模式: 掘金量化")
+        elif self._dry_run:
+            # 调试模式: 仍创建broker用于模拟, 但不实际下单
+            self._broker = SimulatedBroker(account_id=account_id, initial_cash=initial_cash)
+            self._gm_broker = None
+            logger.info(f"[SCANNER] 交易模式: 🔍调试模式(只扫描不交易)")
         else:
             # 内置仿真模式
             self._broker = SimulatedBroker(account_id=account_id, initial_cash=initial_cash)
@@ -1029,6 +1045,17 @@ class MarketScanner:
                              ["pct_chg", "volume_ratio", "turnover_rate", "circ_mv",
                               "ma5", "rsi_6", "is_limit_up", "limit_up_count"]
                              if k in row.index},
+                    # 【调试增强】策略筛选层trace
+                    layer_trace={
+                        "L6_strategy": {
+                            "strategy": strategy_key,
+                            "strategy_name": strategy_name,
+                            "conditions_applied": len(conditions),
+                            "candidates_before": len(merged_df),
+                            "candidates_after": len(selected),
+                            "passed": True,
+                        }
+                    },
                 ))
 
         return signals
@@ -1092,7 +1119,7 @@ class MarketScanner:
                     )
             return []
 
-        # 转回ScanSignal，注入筛选决策详情
+        # 转回ScanSignal，注入筛选决策详情+逐层trace
         candidate_map = {c["ts_code"]: c for c in result.candidates}
         filtered_signals = []
         for s in signals:
@@ -1115,7 +1142,25 @@ class MarketScanner:
                     "factors": s.factors,
                     "scan_time": s.scan_time,
                 }
+                # 【调试增强】逐层trace: 合并9层筛选结果到layer_trace
+                for layer_name, detail in result.layer_details.items():
+                    s.layer_trace[layer_name] = {
+                        "detail": detail,
+                        "applied": result.layers_applied.get(layer_name, False),
+                    }
+                s.layer_trace["L8_position"] = {
+                    "position_ratio": result.position_ratio,
+                    "action": result.action,
+                }
                 filtered_signals.append(s)
+            else:
+                # 被过滤掉的信号: 记录被哪层过滤
+                s.signal_status = "filtered"
+                s.layer_trace["filter_result"] = {
+                    "filtered_out": True,
+                    "reason": "9层筛选管道过滤",
+                    "layer_details": result.layer_details,
+                }
 
         # 存储仓位系数和情绪信息(供execute_signals使用)
         self._current_position_ratio = result.position_ratio
@@ -1129,20 +1174,42 @@ class MarketScanner:
     # ==================== 信号管理 ====================
 
     async def _update_signals(self, new_signals: List[ScanSignal], scan_time: str):
-        """增量更新信号"""
-        # 去重: 同一只股+同一策略不重复(不同策略可共存)
+        """增量更新信号 + 过期清理"""
+        # === 1. 过期清理: 超过SIGNAL_EXPIRE_SECONDS的信号标记为expired ===
+        now = time.time()
+        expired_keys = set()
+        for s in self._active_signals:
+            if s.created_at > 0 and (now - s.created_at) > self.SIGNAL_EXPIRE_SECONDS:
+                if s.signal_status == "new":  # 只过期未执行的信号
+                    s.signal_status = "expired"
+                    expired_keys.add(s.ts_code + "|" + s.strategy)
+                    logger.debug(f"[SIGNAL] 过期: {s.ts_code} {s.strategy_name} ({now - s.created_at:.0f}s)")
+        # 移除已过期且已执行的信号(保留expired状态供前端展示)
+        self._active_signals = [s for s in self._active_signals
+                                 if s.signal_status not in ("expired",) or s.created_at == 0]
+
+        # === 2. 增量更新 ===
         existing_keys = {s.ts_code + "|" + s.strategy for s in self._active_signals}
         added = []
 
         for sig in new_signals:
             key = sig.ts_code + "|" + sig.strategy
+            sig.created_at = now  # 设置创建时间
             if key not in existing_keys:
                 self._active_signals.append(sig)
                 existing_keys.add(key)
                 added.append(sig)
-
-        # 过期信号: 超过5分钟没刷新的信号移除
-        # (简化: 每次扫描重建, 不做时间过期)
+            else:
+                # 已存在: 刷新价格和因子(信号可能价格变了)
+                for s in self._active_signals:
+                    if s.ts_code + "|" + s.strategy == key:
+                        s.price = sig.price
+                        s.pct_chg = sig.pct_chg
+                        s.volume_ratio = sig.volume_ratio
+                        s.turnover_rate = sig.turnover_rate
+                        s.scan_time = sig.scan_time
+                        s.created_at = now  # 刷新过期时间
+                        break
 
         if added:
             self._stats["signals_found"] += len(added)
@@ -1208,7 +1275,22 @@ class MarketScanner:
         - 信号强度中(半路追涨/首板) → 中仓(可用现金25%)
         - 信号强度低(跌停翘板/低吸) → 轻仓(可用现金15%)
         - 总仓位上限70%, 单票上限15%
+
+        【调试增强】dry_run模式: 只记录信号, 不实际下单
         """
+        # dry_run模式: 标记信号为skipped, 不执行交易
+        if self._dry_run:
+            for sig in signals:
+                sig.signal_status = "skipped"
+                sig.layer_trace["execution"] = {
+                    "mode": "dry_run",
+                    "reason": "调试模式, 不执行交易",
+                    "would_buy_shares": self._calc_would_buy_shares(sig),
+                    "would_buy_amount": round(sig.price * self._calc_would_buy_shares(sig), 2),
+                }
+                logger.info(f"[DRY-RUN] 跳过买入 {sig.ts_code} {sig.stock_name} ({sig.strategy_name})")
+            return
+
         stop_loss = self.config.get("stop_loss", -5.0)
         take_profit = self.config.get("take_profit", 7.0)
 
@@ -1590,6 +1672,17 @@ class MarketScanner:
 
     # ==================== 仓位管理 ====================
 
+    def _calc_would_buy_shares(self, signal: ScanSignal) -> int:
+        """计算dry_run模式下会买入多少股(不实际下单)"""
+        if not self._broker or signal.price <= 0:
+            return 0
+        acct = self._broker.get_account()
+        position_ratio = self._calc_position_ratio(signal)
+        max_amount = acct.available_cash * position_ratio
+        lot = 200 if signal.ts_code.startswith('688') else 100
+        shares = int(max_amount / signal.price / lot) * lot
+        return shares
+
     def _calc_position_ratio(self, signal: ScanSignal) -> float:
         """根据信号特征计算仓位比例
         
@@ -1719,7 +1812,6 @@ class MarketScanner:
         except (TypeError, ValueError):
             return None
 
-    @staticmethod
     async def _publish_scanner_event(self, event_type: str, data: Dict):
         """推送scanner事件到Redis Pub/Sub(→WebSocket实时推送)"""
         try:
@@ -1746,7 +1838,8 @@ class MarketScanner:
             "take_profit_pct": round(risk.get("take_profit_pct", 0.07) * 100, 1),
         }
 
-    def _signal_to_dict(s: ScanSignal) -> Dict:
+    def _signal_to_dict(self, s: ScanSignal) -> Dict:
+        """ScanSignal对象转dict"""
         d = {
             "ts_code": s.ts_code, "stock_name": s.stock_name,
             "strategy": s.strategy, "strategy_name": s.strategy_name,
@@ -1758,22 +1851,11 @@ class MarketScanner:
             "limit_up_count": s.limit_up_count,
             "confidence": s.confidence, "reason": s.reason,
             "scan_time": s.scan_time, "factors": s.factors,
+            "signal_status": s.signal_status,
+            "created_at": s.created_at,
         }
         if s.decision_detail:
             d["decision_detail"] = s.decision_detail
-        # 信号状态: new(新发现)/executed(已买入)/expired(价格偏离)
-        d["signal_status"] = getattr(s, 'signal_status', 'new')
+        if s.layer_trace:
+            d["layer_trace"] = s.layer_trace
         return d
-
-    @staticmethod
-    def _position_to_dict(p: PositionStatus) -> Dict:
-        return {
-            "ts_code": p.ts_code, "stock_name": p.stock_name,
-            "strategy": p.strategy, "shares": p.shares,
-            "cost_price": MarketScanner._safe_round(p.cost_price),
-            "current_price": MarketScanner._safe_round(p.current_price),
-            "profit_pct": MarketScanner._safe_round(p.profit_pct),
-            "stop_loss_pct": p.stop_loss_pct,
-            "take_profit_pct": p.take_profit_pct,
-            "should_sell": p.should_sell, "sell_reason": p.sell_reason,
-        }
