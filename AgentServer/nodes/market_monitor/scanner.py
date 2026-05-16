@@ -239,11 +239,14 @@ class MarketScanner:
                 doc["trade_date"] = today
                 # decision_detail可能很大, 但值得保存
                 docs.append(doc)
-            # 追加: 先查已有记录数, 只插入新增的
-            existing = await mongo_manager.db["scanner_timeline"].count_documents({
-                "account_id": docs[0]["account_id"], "trade_date": today
-            })
-            new_docs = docs[existing:]  # 只插入新增部分
+            # 去重: 查已有记录的time+ts_code+action组合, 只插入新的
+            existing_keys = set()
+            async for doc in mongo_manager.db["scanner_timeline"].find(
+                {"account_id": docs[0]["account_id"], "trade_date": today},
+                {"time": 1, "ts_code": 1, "action": 1, "_id": 0}
+            ):
+                existing_keys.add(f"{doc.get('time','')}|{doc.get('ts_code','')}|{doc.get('action','')}")
+            new_docs = [d for d in docs if f"{d.get('time','')}|{d.get('ts_code','')}|{d.get('action','')}" not in existing_keys]
             if new_docs:
                 await mongo_manager.db["scanner_timeline"].insert_many(new_docs)
                 logger.info(f"[SCAN] 保存时间线: {len(new_docs)}条新增")
@@ -1263,6 +1266,7 @@ class MarketScanner:
                     "reason": sig.reason,
                     "decision_detail": sig.decision_detail,  # 【实盘审查增强】
                 })
+                sig.signal_status = "executed"  # 标记信号已执行
                 self._stats["trades_executed"] += 1
                 logger.info(f"[EXEC] 买入 {sig.ts_code} {shares}股@{order.filled_price:.2f} ({sig.strategy_name})")
             else:
@@ -1721,6 +1725,8 @@ class MarketScanner:
         }
         if s.decision_detail:
             d["decision_detail"] = s.decision_detail
+        # 信号状态: new(新发现)/executed(已买入)/expired(价格偏离)
+        d["signal_status"] = getattr(s, 'signal_status', 'new')
         return d
 
     @staticmethod
