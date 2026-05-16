@@ -579,8 +579,10 @@ async def reset_account():
     scanner._broker.positions.clear()
     scanner._broker.orders.clear()
     
-    # 重置账户
-    scanner._broker.account.available_cash = scanner._broker.account.total_assets
+    # 重置账户为初始资金100万
+    initial_cash = scanner.config.get("initial_cash", 1_000_000)
+    scanner._broker.account.available_cash = initial_cash
+    scanner._broker.account.total_assets = initial_cash
     scanner._broker.account.market_value = 0
     scanner._broker.account.total_profit = 0
     scanner._broker.account.today_profit = 0
