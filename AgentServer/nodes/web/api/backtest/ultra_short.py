@@ -105,6 +105,12 @@ async def submit_ultra_short_backtest(
             return super().default(obj)
 
     # 构建初始 task_info
+    # 【P2-4文档化：参数嵌套规范】
+    # task_info.params.params = 前端params字段(流动性/止损/止盈/佣金等全局参数)
+    # task_info.params = 顶层参数(策略/日期/开关/selected_strategies等)
+    # 引擎侧 ultra_short.py 通过 req_params=params.params 读取全局参数
+    # 引擎侧 portfolio_backtest.py 通过 config 读取所有参数(合并flatten)
+    #
     # 【P1-3/P1-4修复：透传forceEmpty/sentimentCycle/auctionFilter/globalFilter细粒度参数】
     # 提取前端细粒度配置（从前端提交的原始body中读取，不经过Pydantic过滤）
     force_empty_config = body.get("forceEmpty", {})
@@ -130,7 +136,7 @@ async def submit_ultra_short_backtest(
                 "commission_rate": request.params.commission_rate,
                 "stamp_duty_rate": request.params.stamp_duty_rate,
                 "slippage_pct": request.params.slippage_pct,
-                "enable_force_empty": request.params.enable_force_empty,
+                "enable_force_empty": request.enable_force_empty,
                 "sentiment_cycle": request.params.sentiment_cycle,
                 "auction_filter": request.params.auction_filter,
                 "enable_stop_loss": request.params.enable_stop_loss,

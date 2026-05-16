@@ -22,7 +22,7 @@ class TradeDirection(Enum):
 
 @dataclass
 class BacktestConfig:
-    """回测配置"""
+    """回测配置 (旧版单股回测用，超短回测使用PortfolioBacktester+dict配置)"""
     # 资金配置
     initial_cash: float = 1000000.0
 

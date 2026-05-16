@@ -3105,7 +3105,8 @@ class PortfolioBacktester:
             min_consecutive = converted_params.get("min_consecutive_limit")
             max_consecutive = converted_params.get("max_consecutive_limit", 4)
             _raw_turnover = converted_params.get("min_turnover_rate")
-            min_turnover = _raw_turnover * 100 if _raw_turnover < 1 else _raw_turnover
+            # 【P2-8修复：统一为百分比形式(如15.0=15%)，不再做<1自动转换】
+            min_turnover = _raw_turnover if _raw_turnover is not None else 15.0
             min_volume_ratio = converted_params.get("min_volume_ratio")
             require_sentiment = converted_params.get("require_sentiment_period", ["rising"])
             # 【日线模式修复】涨停开板的盘中数据(limit_up_open_duration/limit_up_open_amount/limit_up_time)
