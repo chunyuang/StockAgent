@@ -23,7 +23,23 @@ _running_backtest_count = 0
 _MAX_CONCURRENT_BACKTESTS = 3
 
 # Mock回测任务存储，临时使用（超短策略回测）
+# 【P2-3修复：添加TTL自动清理机制】
 mock_tasks: dict = {}
+
+# mock_tasks TTL配置：任务缓存最多保留5分钟
+MOCK_TASKS_TTL_SECONDS = 300
+
+import time
+
+def cleanup_expired_mock_tasks():
+    """清理超过TTL的mock_tasks条目，防止内存泄漏"""
+    now = time.time()
+    expired_keys = [k for k, v in mock_tasks.items() 
+                    if isinstance(v, dict) and v.get('_created_at', 0) < now - MOCK_TASKS_TTL_SECONDS]
+    for k in expired_keys:
+        del mock_tasks[k]
+    if expired_keys:
+        logger.info(f"[mock_tasks] 清理{len(expired_keys)}条过期缓存")
 
 
 async def get_optional_user_id(token: Optional[str] = Depends(oauth2_scheme_optional)) -> str:

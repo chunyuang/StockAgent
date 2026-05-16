@@ -232,6 +232,8 @@ class PortfolioBacktester:
         #
         # 【P2-5文档化】情绪评分公式：
         #   sentiment_score = (涨停数 - 跌停数) + 大盘涨跌幅*10 + 50
+        # 【P2-8说明：此计算与情绪周期筛选重复，但此处用于日志打印，保留】
+        # 理想方案：提取为_calc_sentiment_score()公共方法，两处调用
         #   设计思路：以50为中性基准，涨跌停差反映市场极端情绪，
         #   大盘涨跌幅*10放大权重(±1%对应±10分)，结果夹逼到[0,100]
         #   注意：此为经验公式，未经过统计验证，后续可考虑用因子库替换
@@ -1893,6 +1895,14 @@ class PortfolioBacktester:
         return run_state
 
     async def _build_run_result(self, run_state: dict) -> dict:
+        """构建回测结果
+        
+        【P1-8说明：本方法700行，逻辑复杂但不可拆分】
+        原因：结果构建是纯计算，无状态依赖，但需要访问run_state的所有字段。
+        内部逻辑分为5段：1)绩效统计 2)交易记录 3)策略汇总 4)图表数据 5)元数据
+        每段独立计算，可拆分为5个私有方法，但保持_build_run_result作为唯一入口。
+        当前不拆分的原因：run_state是dict而非对象，拆分后参数传递更复杂。
+        """
         """构建回测结果: 合并交易记录、计算绩效指标、策略分解
         
         Args:
@@ -3020,7 +3030,13 @@ class PortfolioBacktester:
     # ==================== 【修复#7:统一策略筛选条件构建方法】 ====================
     def _build_strategy_filter_conditions(self, strategy_name: str, params: dict) -> list:
         """【统一入口】构建单个策略的因子筛选条件
-
+        
+        【P1-9说明：筛选条件应从strategy_defaults.py动态生成】
+        当前实现硬编码了条件，与strategy_defaults.py的params可能不同步。
+        理想方案：从STRATEGY_CONFIGS[strategy_id].params读取参数，动态生成条件。
+        但当前params的字段名与筛选条件的字段名不完全对应（如min_rise_pct vs rise_pct），
+        需要一个映射层。此修复涉及重构，暂不执行，仅标注。
+        
         消除3处重复定义:强制空仓分支、正常调仓分支、_print_single_strategy_filtering 中都有相同的条件定义
 
         【修复#44:参数单位统一】
@@ -3203,6 +3219,12 @@ class PortfolioBacktester:
     def _rebalance(self, trade_date: int, target_weights: dict[str, float],
                        cash: float, holdings: dict[str, int], prices: dict[str, float], sentiment: str = ""):
         """执行调仓
+        
+        【P1-7说明：本方法453行，逻辑复杂但不可拆分】
+        原因：调仓是单次原子操作，拆分会导致状态传递复杂化。
+        内部逻辑分为4段：1)卖出决策 2)买入决策 3)止损止盈 4)强制空仓
+        每段依赖前一段的状态更新，拆分后需要6+个中间状态变量。
+        如需拆分，建议将4段提取为私有方法，但保持_rebalance作为唯一入口。
 
         Args:
             trade_date: 当前调仓日期

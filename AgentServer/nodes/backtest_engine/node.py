@@ -60,6 +60,10 @@ class BacktestNode(BaseNode):
         self._running_tasks: Dict[str, asyncio.Task] = {}
 
         # 工作协程数(修改为1,避免重复执行同一个任务)
+        # 【P1-3说明：单worker是设计决策，非缺陷】
+        # 回测引擎是CPU密集型+内存密集型任务，并行执行会导致:
+        # 1. MongoDB连接池竞争  2. 内存翻倍(3714行引擎×N)  3. 因子数据缓存冲突
+        # 如需并行，建议部署多个BacktestNode实例而非增加worker数
         self._worker_count = 1
 
         # 日志序号计数器，每个任务独立计数，解决日志乱序问题
@@ -473,8 +477,10 @@ class BacktestNode(BaseNode):
         # 3. Redis仅推进度（不推日志文本）
         # 进度由ultra_short.py单独推送，此处不再重复publish
 
-        # 让出事件循环
-        await asyncio.sleep(0)
+        # 【P2-5修复：每10条日志让出事件循环，而非每条都让出】
+        self._log_count = getattr(self, '_log_count', 0) + 1
+        if self._log_count % 10 == 0:
+            await asyncio.sleep(0)
 
     def _close_log_handles(self, task_id: str) -> None:
         """关闭指定任务的JSONL文件句柄"""

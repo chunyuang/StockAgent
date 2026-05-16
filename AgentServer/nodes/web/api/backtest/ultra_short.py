@@ -7,6 +7,7 @@
 import json
 import uuid
 import copy
+import time
 from datetime import datetime
 from bson import ObjectId
 
@@ -82,16 +83,18 @@ async def submit_ultra_short_backtest(
 
     # 构建选中策略列表：100%原封不动使用前端提交的selected_strategies，不做任何修改
     selected_strategies = []
-    # 【修复】优先从请求顶层读selected_strategies，再从params读
+    # 【P1-2修复：selected_strategies读取统一为单一来源】
+    # 优先级：1.顶层selected_strategies → 2.params内selected_strategies → 3.从strategies构建
+    selected_strategies = []
     selected_from_top = getattr(request, 'selected_strategies', None)
     selected_from_params = getattr(request.params, 'selected_strategies', None)
+    
     if selected_from_top and len(selected_from_top) > 0:
         selected_strategies = selected_from_top
     elif selected_from_params and len(selected_from_params) > 0:
-        # 兼容前端将selected_strategies放在params内的情况
         selected_strategies = selected_from_params
     else:
-        # 如果前端没有提交selected_strategies，从strategies字段读取，参数为空
+        # 兜底：从strategies字段构建空参数策略列表
         for s in request.strategies:
             selected_strategies.append({
                 "id": s,
@@ -200,7 +203,8 @@ async def submit_ultra_short_backtest(
         "task_id": task_id,
         "status": "queued",
         "progress": 0,
-        "result": None
+        "result": None,
+        "_created_at": time.time(),  # 【P2-3修复：添加TTL时间戳】
     }
 
     # 保存任务信息到MongoDB（注意：MongoDB会原地修改task_info，添加_id: ObjectId(...)）
@@ -351,6 +355,9 @@ async def get_ultra_short_history(
             "result.total_signals": 1, "result.completed_trades": 1,
             "result.initial_cash": 1, "result.final_value": 1,
             "result.trades": 1,
+            # 【P2-4修复：添加嵌套字段projection】
+            "result.performance": 1, "result.strategies": 1,
+            "result.summary": 1, "result.charts": 1,
         },
     )
 
