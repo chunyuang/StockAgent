@@ -25,17 +25,11 @@ GLOBAL_RISK = {
 }
 
 # ============================================================
-# 策略级默认止损映射（当策略没有传riskParams时的兜底）
-# ⚠️ 【P2-9修复：此映射与STRATEGY_CONFIGS.riskParams.stop_loss_pct重复】
-#    优先使用STRATEGY_CONFIGS.riskParams，本映射仅作为merge_strategy_risk_params的兜底
+# 策略级默认止损映射 — 已废弃
+# ⚠️ 【P2-9修复：此映射已删除，统一使用STRATEGY_CONFIGS.riskParams】
+# 之前的问题：止损比例在STRATEGY_DEFAULT_STOP_LOSS和riskParams两处定义，可能不一致
+# 现在统一从STRATEGY_CONFIGS.riskParams读取，单一来源
 # ============================================================
-STRATEGY_DEFAULT_STOP_LOSS = {
-    "半路追涨": 0.05,    # 与riskParams.stop_loss_pct一致
-    "首板打板": 0.04,
-    "涨停开板": 0.05,
-    "龙头低吸": 0.05,
-    "跌停翘板": 0.07,
-}
 
 # ============================================================
 # 各策略完整配置

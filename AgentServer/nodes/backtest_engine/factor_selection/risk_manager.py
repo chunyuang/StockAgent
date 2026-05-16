@@ -8,7 +8,7 @@
 """
 
 from typing import Dict, List, Tuple
-from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK, STRATEGY_DEFAULT_STOP_LOSS
+from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK, STRATEGY_CONFIGS
 
 
 class RiskManager:
