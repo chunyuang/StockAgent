@@ -40,6 +40,7 @@ interface PositionInfo {
   ts_code: string; stock_name: string; strategy: string; shares: number
   available_qty: number; cost_price: number; current_price: number; profit_pct: number
   today_buy: number
+  stop_loss_pct?: number; take_profit_pct?: number
 }
 interface TimelineItem {
   time: string; action: string; ts_code: string; stock_name: string
@@ -210,6 +211,51 @@ function formatDecisionDetail(detail: any): string[] {
   }
   
   return lines
+}
+
+// ==================== 快捷交易 ====================
+async function quickBuy(sig: ScanSignal) {
+  // 自动计算可买数量(可用资金的25%)
+  const acct = status.value?.account
+  if (!acct) { ElMessage.warning('请先启动扫描器'); return }
+  const maxAmount = acct.available_cash * 0.25
+  const qty = Math.floor(maxAmount / sig.price / 100) * 100
+  if (qty <= 0) { ElMessage.warning('可用资金不足'); return }
+  try {
+    const res = await api.post(`${scannerApi}/trade`, {
+      ts_code: sig.ts_code, stock_name: sig.stock_name,
+      side: 'buy', quantity: qty, price: sig.price,
+      order_type: 'market', strategy: sig.strategy, reason: sig.reason,
+    })
+    if (res?.success) {
+      ElMessage.success(`买入 ${sig.stock_name} ${qty}股@${res.data.filled_price?.toFixed(2) || sig.price.toFixed(2)}`)
+      fetchStatus()
+    } else {
+      ElMessage.error(res?.data?.message || '买入失败')
+    }
+  } catch (e: any) {
+    ElMessage.error('买入失败: ' + (e.response?.data?.detail || e.message))
+  }
+}
+
+async function quickSell(pos: PositionInfo) {
+  if (pos.available_qty <= 0) { ElMessage.warning('T+1限制，今日买入不可卖'); return }
+  try {
+    const res = await api.post(`${scannerApi}/trade`, {
+      ts_code: pos.ts_code, stock_name: pos.stock_name,
+      side: 'sell', quantity: pos.available_qty, price: pos.current_price,
+      order_type: 'market', strategy: pos.strategy,
+      reason: `手动卖出 盈亏${pos.profit_pct >= 0 ? '+' : ''}${pos.profit_pct.toFixed(1)}%`,
+    })
+    if (res?.success) {
+      ElMessage.success(`卖出 ${pos.stock_name} ${pos.available_qty}股@${res.data.filled_price?.toFixed(2) || pos.current_price.toFixed(2)}`)
+      fetchStatus()
+    } else {
+      ElMessage.error(res?.data?.message || '卖出失败')
+    }
+  } catch (e: any) {
+    ElMessage.error('卖出失败: ' + (e.response?.data?.detail || e.message))
+  }
 }
 
 // 手动交易输入代码时自动获取行情
@@ -580,7 +626,7 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
             </template>
             <div v-if="!signals.length" class="empty">启动扫描器或手动扫描</div>
             <div v-else class="signal-list">
-              <div v-for="sig in filteredSignals" :key="sig.ts_code + sig.strategy" class="signal-row" @click="manualTrade.ts_code = sig.ts_code; manualTrade.stock_name = sig.stock_name; manualTrade.side = 'buy'" style="cursor:pointer" title="点击填入手动交易">
+              <div v-for="sig in filteredSignals" :key="sig.ts_code + sig.strategy" class="signal-row">
                 <div class="sig-top">
                   <span class="code">{{ sig.ts_code }}</span>
                   <span class="name">{{ sig.stock_name }}</span>
@@ -591,6 +637,11 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
                   <span v-if="sig.volume_ratio" class="factor">量比{{ sig.volume_ratio.toFixed(1) }}</span>
                   <span v-if="sig.is_limit_up" class="limit-tag">涨停</span>
                   <span class="reason">{{ sig.reason }}</span>
+                </div>
+                <!-- 快捷操作 -->
+                <div class="sig-actions">
+                  <ElButton size="small" type="danger" plain @click="quickBuy(sig)">🟢 买入</ElButton>
+                  <ElButton v-if="sig.decision_detail" size="small" type="info" plain @click="openTradeDetail(sig.ts_code)">🔍 决策</ElButton>
                 </div>
               </div>
             </div>
@@ -636,7 +687,7 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
             </template>
             <div v-if="!positions.length" class="empty">暂无持仓</div>
             <div v-else class="pos-list">
-              <div v-for="pos in positions" :key="pos.ts_code" class="pos-row" @click="manualTrade.ts_code = pos.ts_code; manualTrade.stock_name = pos.stock_name; manualTrade.side = 'sell'" style="cursor:pointer" title="点击填入卖出">
+              <div v-for="pos in positions" :key="pos.ts_code" class="pos-row">
                 <div class="pos-top">
                   <span class="code">{{ pos.ts_code }}</span>
                   <span class="name">{{ pos.stock_name }}</span>
@@ -652,6 +703,23 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
                 <div class="pos-bot">
                   <span>{{ pos.shares }}股 @{{ pos.cost_price.toFixed(2) }} → {{ pos.current_price.toFixed(2) }}</span>
                   <span v-if="pos.today_buy > 0" class="t1-tag">T+1</span>
+                </div>
+                <!-- 止损止盈线 -->
+                <div class="pos-risk" v-if="pos.stop_loss_pct != null">
+                  <span class="risk-line stop">止损 {{ pos.stop_loss_pct.toFixed(1) }}%</span>
+                  <span class="risk-line profit">止盈 {{ pos.take_profit_pct?.toFixed(1) || 7.0 }}%</span>
+                  <span class="risk-dist" :class="pos.profit_pct <= pos.stop_loss_pct ? 'danger' : ''">
+                    距止损 {{ (pos.profit_pct - pos.stop_loss_pct).toFixed(1) }}%
+                  </span>
+                </div>
+                <!-- 快捷操作 -->
+                <div class="pos-actions">
+                  <ElButton size="small" type="danger" plain @click="quickSell(pos)" :disabled="pos.available_qty <= 0">
+                    🔴 卖出
+                  </ElButton>
+                  <ElButton size="small" type="info" plain @click="openTradeDetail(pos.ts_code)">
+                    🔍 详情
+                  </ElButton>
                 </div>
               </div>
             </div>
@@ -1218,4 +1286,17 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
 .audit-buy { color: #f56c6c; }
 .audit-sell { color: #67c23a; }
 .audit-status { font-size: 11px; color: #909399; }
+
+/* === 持仓止损止盈 + 快捷操作 === */
+.pos-risk { display: flex; gap: 8px; margin-top: 4px; font-size: 11px; align-items: center; }
+.risk-line { padding: 1px 6px; border-radius: 3px; font-weight: 500; }
+.risk-line.stop { color: #f56c6c; background: #fef0f0; }
+.risk-line.profit { color: #67c23a; background: #f0f9eb; }
+.risk-dist { color: #909399; }
+.risk-dist.danger { color: #f56c6c; font-weight: 600; animation: blink 1s infinite; }
+@keyframes blink { 50% { opacity: 0.5; } }
+.pos-actions { display: flex; gap: 4px; margin-top: 6px; }
+.pos-actions .el-button { padding: 4px 8px; font-size: 11px; }
+.sig-actions { display: flex; gap: 4px; margin-top: 4px; }
+.sig-actions .el-button { padding: 4px 8px; font-size: 11px; }
 </style>

@@ -663,9 +663,11 @@ async def get_trade_detail(ts_code: str):
                     "decision_detail": item.get("decision_detail", {}),
                 }
     
-    # 2. 从持仓查找当前状态
+    # 2. 从持仓查找当前状态(含止损止盈)
     for p in scanner._broker.get_positions():
         if p.ts_code == ts_code:
+            # 获取策略风控参数
+            risk = scanner._get_strategy_risk(p.strategy)
             detail["position"] = {
                 "shares": p.total_qty,
                 "cost_price": p.avg_cost,
@@ -674,6 +676,8 @@ async def get_trade_detail(ts_code: str):
                 "strategy": p.strategy,
                 "available_qty": p.available_qty,
                 "today_buy": p.today_buy_qty,
+                "stop_loss_pct": risk.get("stop_loss_pct", 0.03) * 100,  # 3%→3.0
+                "take_profit_pct": risk.get("take_profit_pct", 0.07) * 100,  # 7%→7.0
             }
     
     # 3. 从活跃信号查找
