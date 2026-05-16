@@ -3246,6 +3246,90 @@ class PortfolioBacktester:
             return max(strategy_rp.get(s, {}).get('slippage_pct', global_slippage) for s in strategies)
         return global_slippage
 
+    def _calc_total_value(self, cash: float, holdings: dict, prices: dict) -> float:
+        """【P1-7修复：提取持仓总价值计算为独立方法】
+        用open价估值持仓计算总资产(调仓决策时刻)
+        """
+        total_value = cash
+        for code, shares in holdings.items():
+            if shares > 0:
+                if code in prices and prices[code].get('open', 0) > 0:
+                    total_value += shares * prices[code]['open']
+                elif code in prices and prices[code].get('close', 0) > 0:
+                    total_value += shares * prices[code]['close']
+                else:
+                    lvp = getattr(self, '_last_valid_price', {}).get(code, 0)
+                    if lvp > 0:
+                        total_value += shares * lvp
+        return total_value
+
+    def _calc_position_multiplier(self, sentiment: str, trade_date: int) -> tuple:
+        """【P1-7修复：提取综合仓位系数计算为独立方法】
+        Returns: (position_multiplier, active_periods)
+        """
+        sentiment_multiplier = self._extract_position_multiplier(sentiment)
+        special_period_filter = get_special_period_filter()
+        special_multiplier = special_period_filter.get_position_multiplier(str(trade_date))
+        active_periods = special_period_filter.get_active_periods(str(trade_date))
+        position_multiplier = sentiment_multiplier * special_multiplier
+        return position_multiplier, active_periods
+
+    def _apply_limit_up_hit_probability(self, target_shares: dict, prices: dict, trade_date: int) -> dict:
+        """【P1-7修复：提取首板打板成交概率模拟为独立方法】
+        一字板0%/秒板30%/快速板50%/盘中板70%, 用确定性hash保证可复现
+        Returns: 修改后的target_shares
+        """
+        _limit_up_codes = []
+        sinfo = getattr(self, 'stock_to_strategy', {})
+        for code in list(target_shares.keys()):
+            strategies = sinfo.get(code, [])
+            if isinstance(strategies, str):
+                strategies = [strategies]
+            if '首板打板' in strategies:
+                _limit_up_codes.append(code)
+        
+        if _limit_up_codes and len(prices) > 0:
+            import hashlib
+            for code in _limit_up_codes:
+                p_info = prices.get(code, {})
+                o = p_info.get('open', 0)
+                pc = p_info.get('pre_close', 0)
+                c = p_info.get('close', 0)
+                h = p_info.get('high', 0)
+                l = p_info.get('low', 0)
+                
+                if o <= 0 or pc <= 0:
+                    continue
+                
+                open_rise = (o - pc) / pc * 100
+                sp = self._strategy_params.get('首板打板', {})
+                hit_prob_yizi = sp.get('hit_probability_yizi', 0.0)
+                hit_prob_fast = sp.get('hit_probability_fast', 0.3)
+                hit_prob_normal = sp.get('hit_probability_normal', 0.5)
+                hit_prob_slow = sp.get('hit_probability_slow', 0.7)
+                
+                if o == c == h == l:
+                    hit_prob = hit_prob_yizi
+                elif open_rise >= 8:
+                    hit_prob = hit_prob_fast
+                elif open_rise >= 2:
+                    hit_prob = hit_prob_normal
+                else:
+                    hit_prob = hit_prob_slow
+                
+                if hit_prob > 0:
+                    seed_str = f"{code}_{trade_date}"
+                    hash_val = int(hashlib.md5(seed_str.encode()).hexdigest(), 16) % 1000 / 1000.0
+                    if hash_val > hit_prob:
+                        del target_shares[code]
+                        logger.info('backtest', f'[首板打板] {code} 成交概率{hit_prob*100:.0f}%→未成交(deterministic)')
+                    else:
+                        logger.info('backtest', f'[首板打板] {code} 成交概率{hit_prob*100:.0f}%→成交(deterministic)')
+                else:
+                    del target_shares[code]
+                    logger.info('backtest', f'[首板打板] {code} 一字板→不成交')
+        return target_shares
+
     def _rebalance(self, trade_date: int, target_weights: dict[str, float],
                        cash: float, holdings: dict[str, int], prices: dict[str, float], sentiment: str = ""):
         """执行调仓
@@ -3269,37 +3353,9 @@ class PortfolioBacktester:
         """
         records = []
 
-        # 计算当前总价值
-        # 【P1-6说明：用open价估值持仓计算总资产，再用策略对应买入价计算目标股数】
-        # 这是合理近似：总资产以开盘价估(调仓决策时刻)，买入以策略特定价执行
-        # 差异：涨停价买入时实际可买股数少于open价计算，仓位可能略低，保守偏安全
-        total_value = cash
-        for code, shares in holdings.items():
-            if shares > 0:
-                if code in prices and prices[code].get('open', 0) > 0:
-                    # 持仓用开盘价估值(调仓决策时刻)
-                    total_value += shares * prices[code]['open']
-                elif code in prices and prices[code].get('close', 0) > 0:
-                    # 回退：open不可用时用close
-                    total_value += shares * prices[code]['close']
-                else:
-                    # 【P0-1修复：停牌股用_last_valid_price估值】
-                    lvp = getattr(self, '_last_valid_price', {}).get(code, 0)
-                    if lvp > 0:
-                        total_value += shares * lvp
-
-        # 🔴 任务2:情绪周期仓位系数真正应用(P0!)
-        sentiment_multiplier = self._extract_position_multiplier(sentiment)
-
-        # 🔴 第2层:特殊时期过滤(新增!)
-        # 节假日前夕/重大会议/月末季末年末 自动降仓
-        special_period_filter = get_special_period_filter()
-        special_multiplier = special_period_filter.get_position_multiplier(str(trade_date))
-        active_periods = special_period_filter.get_active_periods(str(trade_date))
-
-        # ✅ 综合仓位系数 = 情绪系数 × 特殊时期系数
-        # 两个维度独立判断,取乘积就是最终仓位(最严格的生效)
-        position_multiplier = sentiment_multiplier * special_multiplier
+        # 【P1-7修复：调用提取的子方法】
+        total_value = self._calc_total_value(cash, holdings, prices)
+        position_multiplier, active_periods = self._calc_position_multiplier(sentiment, trade_date)
 
         # 计算目标持仓(用策略对应买入价计算仓位,而非开盘价)
         target_shares = {}  # {ts_code: target_shares}
@@ -3325,69 +3381,8 @@ class PortfolioBacktester:
             if shares > 0:
                 target_shares[code] = shares
 
-        # 【V3】首板打板成交概率模拟：涨停价排队买入，成交概率取决于封板类型
-        # 一字板(open=close=high=low且接近涨停价): 0%成交
-        # 秒板(open涨>8%): 10%成交
-        # 快速板(open涨2-8%): 30%成交
-        # 盘中板(open涨<2%): 50%成交
-        if target_shares:
-            _limit_up_codes = []
-            sinfo = getattr(self, 'stock_to_strategy', {})
-            for code in list(target_shares.keys()):
-                strategies = sinfo.get(code, [])
-                if isinstance(strategies, str):
-                    strategies = [strategies]
-                if '首板打板' in strategies:
-                    _limit_up_codes.append(code)
-            
-            if _limit_up_codes and len(prices) > 0:
-                import random
-                for code in _limit_up_codes:
-                    p_info = prices.get(code, {})
-                    o = p_info.get('open', 0)
-                    pc = p_info.get('pre_close', 0)
-                    c = p_info.get('close', 0)
-                    h = p_info.get('high', 0)
-                    l = p_info.get('low', 0)
-                    
-                    if o <= 0 or pc <= 0:
-                        continue
-                    
-                    open_rise = (o - pc) / pc * 100
-                    
-                    # 【P0-2修复】从策略参数读取成交概率，不再硬编码
-                    sp = self._strategy_params.get('首板打板', {})
-                    hit_prob_yizi = sp.get('hit_probability_yizi', 0.0)
-                    hit_prob_fast = sp.get('hit_probability_fast', 0.3)  # 秒板(open_rise>=8%)
-                    hit_prob_normal = sp.get('hit_probability_normal', 0.5)  # 快速板(open_rise>=2%)
-                    hit_prob_slow = sp.get('hit_probability_slow', 0.7)  # 盘中板
-                    
-                    # 判断封板类型
-                    if o == c == h == l:
-                        hit_prob = hit_prob_yizi  # 一字板
-                    elif open_rise >= 8:
-                        hit_prob = hit_prob_fast  # 秒板
-                    elif open_rise >= 2:
-                        hit_prob = hit_prob_normal  # 快速板
-                    else:
-                        hit_prob = hit_prob_slow  # 盘中板
-                    
-                    # 【P1修复】用确定性hash替代random,保证回测可复现
-                    # 规则: 用代码+日期的hash值模拟成交概率
-                    # 同一只股票同一交易日的hash固定→同参数结果一致
-                    if hit_prob > 0:
-                        import hashlib
-                        seed_str = f"{code}_{trade_date}"
-                        hash_val = int(hashlib.md5(seed_str.encode()).hexdigest(), 16) % 1000 / 1000.0
-                        if hash_val > hit_prob:
-                            del target_shares[code]  # 未成交，不买
-                            logger.info('backtest', f'[首板打板] {code} 成交概率{hit_prob*100:.0f}%→未成交(deterministic)')
-                        else:
-                            logger.info('backtest', f'[首板打板] {code} 成交概率{hit_prob*100:.0f}%→成交(deterministic)')
-                    else:
-                        # 一字板0%概率，直接不买
-                        del target_shares[code]
-                        logger.info('backtest', f'[首板打板] {code} 一字板→不成交')
+        # 【P1-7修复：调用提取的子方法】
+        target_shares = self._apply_limit_up_hit_probability(target_shares, prices, trade_date)
 
         # 先卖出:不在目标持仓中的股票全卖 + 持仓超过目标的股票减仓
         sell_codes = [code for code in holdings if code not in target_shares and holdings[code] > 0]

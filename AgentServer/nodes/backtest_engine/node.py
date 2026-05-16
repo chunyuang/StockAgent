@@ -60,11 +60,9 @@ class BacktestNode(BaseNode):
         self._running_tasks: Dict[str, asyncio.Task] = {}
 
         # 工作协程数(修改为1,避免重复执行同一个任务)
-        # 【P1-3说明：单worker是设计决策，非缺陷】
-        # 回测引擎是CPU密集型+内存密集型任务，并行执行会导致:
-        # 1. MongoDB连接池竞争  2. 内存翻倍(3714行引擎×N)  3. 因子数据缓存冲突
-        # 如需并行，建议部署多个BacktestNode实例而非增加worker数
-        self._worker_count = 1
+        # 【P1-3修复：worker数可配置，默认1（CPU密集型+内存密集型，并行有风险）】
+        # 可通过config.worker_count设置，建议只在多核+大内存环境下增加
+        self._worker_count = config.get('worker_count', 1)
 
         # 日志序号计数器，每个任务独立计数，解决日志乱序问题
         self._log_counters: Dict[str, int] = {}
