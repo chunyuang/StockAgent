@@ -47,6 +47,7 @@ from core.constants import C
 from core.managers import mongo_manager, redis_manager
 from core.utils.logger import logger
 from .factor_quality_checker import FactorQualityChecker, FactorQualityLevel
+from .models import RebalanceRecord, PortfolioSnapshot, RunState, RiskConfig
 
 # 【修复：PerformanceAnalyzer已弃用（API不匹配），移除import避免ModuleNotFoundError】
 # from real_trading.performance_analyzer import PerformanceAnalyzer
@@ -55,32 +56,6 @@ from .factor_engine import FactorEngine, log_memory_usage
 from ..strategy_defaults import GLOBAL_RISK, STRATEGY_DEFAULT_STOP_LOSS, STRATEGY_CONFIGS, merge_strategy_params, merge_strategy_risk_params
 from .universe import ExcludeRule, UniverseManager, UniverseType
 from .special_period_filter import get_special_period_filter
-
-
-@dataclass
-class RebalanceRecord:
-    """调仓记录"""
-    date: str
-    action: str  # "buy" | "sell"
-    ts_code: str
-    shares: int
-    price: float
-    amount: float
-    reason: str
-    strategy_name: str = ""  # 【修复新6：strategy_name独立字段，不需要从reason字符串replace提取】
-    sentiment: str = ""  # 当日情绪周期状态
-
-
-
-@dataclass
-class PortfolioSnapshot:
-    """组合快照"""
-    date: str
-    cash: float
-    holdings: dict[str, int]  # {ts_code: shares}
-    prices: dict[str, float]  # {ts_code: price}
-    market_value: float
-    total_value: float
 
 
 class PortfolioBacktester:
