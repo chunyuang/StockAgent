@@ -15,7 +15,7 @@ import { api } from '@/api/client'
 
 interface ScanStats { scans: number; signals_found: number; trades_executed: number; stop_losses: number; take_profits: number; stocks_scanned: number }
 interface ScannerStatus { is_running: boolean; scan_count: number; last_scan_time: string; active_signals: number; positions: number; stocks_scanned: number; stats: ScanStats; account_id: string; trade_mode: string; circuit_breaker_paused?: boolean; circuit_breaker?: { trading_paused: boolean; pause_reason: string }; account: { total_assets: number; available_cash: number; market_value: number; total_profit: number } }
-interface ScanSignal { ts_code: string; stock_name: string; strategy: string; strategy_name: string; signal_type: string; price: number; pct_chg: number; volume_ratio: number; turnover_rate: number; is_limit_up: boolean; limit_up_count: number; confidence: number; reason: string; scan_time: string; factors: Record<string, number>; decision_detail?: Record<string, any>; signal_status?: string }
+interface ScanSignal { ts_code: string; stock_name: string; strategy: string; strategy_name: string; signal_type: string; price: number; pct_chg: number; volume_ratio: number; turnover_rate: number; is_limit_up: boolean; limit_up_count: number; confidence: number; reason: string; scan_time: string; factors: Record<string, number>; decision_detail?: Record<string, any>; signal_status?: string; layer_trace?: Record<string, any>; created_at?: number }
 interface PositionInfo { ts_code: string; stock_name: string; strategy: string; shares: number; available_qty: number; cost_price: number; current_price: number; profit_pct: number; today_buy: number; stop_loss_pct?: number; take_profit_pct?: number }
 interface TimelineItem { time: string; action: string; ts_code: string; stock_name: string; strategy: string; shares: number; price: number; reason: string; profit_pct?: number; decision_detail?: Record<string, any> }
 interface StrategyConfig { id: string; name: string; enabled: boolean; params: Record<string, any>; riskParams: Record<string, any>; paramDescriptions: ParamDesc[]; riskDescriptions: ParamDesc[] }
@@ -81,7 +81,7 @@ async function quickSell(pos: PositionInfo) { if (pos.available_qty <= 0) { ElMe
 async function onManualCodeChange(code: string) { if (!code || code.length < 9) { manualQuote.value = null; return } try { const r = await api.get(`${scannerApi}/positions`); const p = (r?.data || []).find((x: any) => x.ts_code === code); if (p) { manualQuote.value = { price: p.current_price, cost: p.cost_price, name: p.stock_name }; if (!manualTrade.stock_name) manualTrade.stock_name = p.stock_name } else { const s = signals.value.find(x => x.ts_code === code); if (s) { manualQuote.value = { price: s.price, name: s.stock_name }; if (!manualTrade.stock_name) manualTrade.stock_name = s.stock_name } else manualQuote.value = null } } catch { manualQuote.value = null } }
 const executeManualTrade = async () => { if (!manualTrade.ts_code) return; try { const r = await api.post(`${scannerApi}/trade`, { ts_code: manualTrade.ts_code, stock_name: manualTrade.stock_name, side: manualTrade.side, quantity: manualTrade.quantity || 0, price: manualTrade.price || 0, order_type: 'market', strategy: 'manual', reason: '手动操作' }); if (r?.success) { ElMessage.success(`${r.data.side === 'buy' ? '买入' : '卖出'} ${r.data.ts_code} ${r.data.filled_qty}股@${r.data.filled_price}`); manualTrade.ts_code = ''; manualTrade.stock_name = ''; manualTrade.quantity = 0; manualTrade.price = 0; fetchAll(true) } else ElMessage.error('下单失败') } catch (e: any) { ElMessage.error('下单失败') } }
 async function fetchScanner() { try { const [sR, sigR, posR, tlR, ordR] = await Promise.all([api.get(`${scannerApi}/status`), api.get(`${scannerApi}/signals`), api.get(`${scannerApi}/positions`), api.get(`${scannerApi}/timeline`), api.get(`${scannerApi}/orders`)]); if (sR?.success) status.value = sR.data; if (sigR?.success) signals.value = sigR.data; if (posR?.success) positions.value = posR.data; if (tlR?.success) timeline.value = tlR.data; if (ordR?.success) orders.value = ordR.data || [] } catch (e) { console.error(e) } }
-async function startScanner() { await api.post(`${scannerApi}/start`, { account_id: 'default', trade_mode: tradeMode.value }); await fetchScanner() }
+async function startScanner() { await api.post(`${scannerApi}/start`, { account_id: 'default', trade_mode: dryRun.value ? 'dry_run' : tradeMode.value }); await fetchScanner() }
 async function stopScanner() { await api.post(`${scannerApi}/stop`); await fetchScanner() }
 async function manualScan() { loading.value = true; try { const r = await api.post(`${scannerApi}/scan-once`); if (r?.success) { const m = r.data?.message; if (m) ElMessage.warning(m); else ElMessage.success(`扫描完成: ${r.data?.signals || 0}信号, ${r.data?.positions || 0}持仓`) } else ElMessage.error('扫描失败') } catch (e: any) { ElMessage.error('扫描失败') } finally { loading.value = false; await fetchScanner() } }
 async function forceScan() { loading.value = true; try { const r = await api.post(`${scannerApi}/scan-once`, { force: true }); if (r?.success) { ElMessage.success(`强制扫描完成: ${r.data?.signals || 0}信号, ${r.data?.positions || 0}持仓`) } else ElMessage.error('强制扫描失败') } catch (e: any) { ElMessage.error('强制扫描失败') } finally { loading.value = false; await fetchScanner() } }
@@ -111,6 +111,19 @@ const compareData = ref<any[]>([])
 const compareVisible = ref(false)
 const compareLoading = ref(false)
 async function loadCompare() { compareLoading.value = true; try { const r = await api.get(`${scannerApi}/backtest-compare`); if (r?.success) { compareData.value = r.data || []; compareVisible.value = true } } catch { ElMessage.error('加载失败') } finally { compareLoading.value = false } }
+// 【调试增强】
+const dryRun = computed(() => status.value?.dry_run ?? false)
+const layerDebugVisible = ref(false)
+const layerDebugData = ref<any>(null)
+const layerDebugLoading = ref(false)
+const scanTraceVisible = ref(false)
+const scanTraceData = ref<any>(null)
+const scanTraceCode = ref('')
+async function toggleDryRun() { try { const r = await api.post(`${scannerApi}/debug/dry-run`); if (r?.success) { ElMessage.success(r.data.mode); fetchScanner() } } catch { ElMessage.error('切换失败') } }
+async function openLayerDebug() { layerDebugLoading.value = true; layerDebugVisible.value = true; try { const r = await api.get(`${scannerApi}/debug/layers`); if (r?.success) layerDebugData.value = r.data } catch { ElMessage.error('加载失败') } finally { layerDebugLoading.value = false } }
+async function openScanTrace(ts_code: string) { scanTraceCode.value = ts_code; scanTraceVisible.value = true; try { const r = await api.get(`${scannerApi}/debug/scan-trace/${ts_code}`); if (r?.success) scanTraceData.value = r.data } catch { ElMessage.error('加载失败') } }
+function formatLayerTrace(trace: Record<string, any>): string[] { if (!trace) return ['无trace']; const lines: string[] = []; for (const [layer, info] of Object.entries(trace)) { if (typeof info === 'object' && info !== null) { const applied = info.applied !== undefined ? (info.applied ? '✅' : '⏭️') : ''; const detail = info.detail || info.reason || ''; lines.push(`${applied} ${layer}: ${detail}`) } else { lines.push(`${layer}: ${info}`) } } return lines }
+function signalStatusTag(status?: string) { if (!status || status === 'new') return { text: '新', type: 'primary' }; if (status === 'executed') return { text: '已买', type: 'success' }; if (status === 'skipped') return { text: '跳过', type: 'warning' }; if (status === 'expired') return { text: '过期', type: 'info' }; if (status === 'filtered') return { text: '过滤', type: 'danger' }; return { text: status, type: 'info' } }
 </script>
 <template>
   <div class="mm">
@@ -119,6 +132,7 @@ async function loadCompare() { compareLoading.value = true; try { const r = awai
       <div class="hh-left">
         <div class="hh-status" :class="{ running: isRunning, stopped: !isRunning }"><span class="dot"></span><span>{{ isRunning ? '扫描中' : '已停止' }}</span></div>
         <ElTag size="small" :type="tradeMode === 'gm' ? 'warning' : 'info'">🔵仿真</ElTag>
+        <ElTag v-if="dryRun" type="warning" size="small">🔍调试</ElTag>
         <ElTag v-if="circuitBreakerPaused" type="danger" size="small">⚠️熔断</ElTag>
       </div>
       <div class="hh-account" v-if="status">
@@ -171,6 +185,8 @@ async function loadCompare() { compareLoading.value = true; try { const r = awai
         <ElButton size="small" type="warning" @click="forceScan" :loading="loading" :disabled="!isRunning" style="width:100%" title="忽略交易时间检查，消耗必盈额度">⚡ 强制扫描</ElButton>
           <ElButton size="small" @click="dailySettlement" :disabled="!isRunning" style="width:100%">📅 日结算(T+1)</ElButton>
           <ElButton size="small" @click="openTradeAudit" :disabled="!timeline.length" style="width:100%">🔍 审查全部交易</ElButton>
+          <ElButton size="small" @click="openLayerDebug" :loading="layerDebugLoading" style="width:100%">🧪 9层调试</ElButton>
+          <ElButton size="small" @click="toggleDryRun" style="width:100%">{{ dryRun ? '🔴 关闭调试' : '🔍 开启调试' }}</ElButton>
           <ElButton size="small" @click="loadCompare" :loading="compareLoading" style="width:100%">📊 回测对比</ElButton>
           <ElButton v-if="circuitBreakerPaused" size="small" type="danger" @click="resetCircuitBreaker" style="width:100%">🔓 重置熔断</ElButton>
           <ElButton size="small" type="warning" @click="resetAccount" style="width:100%">🗑️ 清仓重置</ElButton>
@@ -190,9 +206,9 @@ async function loadCompare() { compareLoading.value = true; try { const r = awai
         <div class="sl">
           <div v-if="!signals.length" class="empty">启动后扫描获取信号</div>
           <div v-for="sig in filteredSignals" :key="sig.ts_code + sig.strategy" class="sig-row">
-            <div class="sig-top"><span class="code">{{ sig.ts_code }}</span><span class="name">{{ sig.stock_name }}</span><ElTag size="small" :color="strategyMeta[sig.strategy]?.color || '#909399'" style="color:#fff;border:none">{{ sig.strategy_name }}</ElTag><ElTag v-if="sig.signal_status === 'executed'" size="small" type="success">已买入</ElTag><span :class="sig.pct_chg >= 0 ? 'up' : 'down'" style="margin-left:auto;font-weight:600">{{ sig.pct_chg >= 0 ? '+' : '' }}{{ sig.pct_chg.toFixed(1) }}%</span></div>
+            <div class="sig-top"><span class="code">{{ sig.ts_code }}</span><span class="name">{{ sig.stock_name }}</span><ElTag size="small" :color="strategyMeta[sig.strategy]?.color || '#909399'" style="color:#fff;border:none">{{ sig.strategy_name }}</ElTag><ElTag v-if="sig.signal_status === 'executed'" size="small" type="success">已买入</ElTag><ElTag v-if="sig.signal_status === 'skipped'" size="small" type="warning">跳过</ElTag><ElTag v-if="sig.signal_status === 'expired'" size="small" type="info">过期</ElTag><span :class="sig.pct_chg >= 0 ? 'up' : 'down'" style="margin-left:auto;font-weight:600">{{ sig.pct_chg >= 0 ? '+' : '' }}{{ sig.pct_chg.toFixed(1) }}%</span></div>
             <div class="sig-bot"><span v-if="sig.volume_ratio" class="factor">量比{{ sig.volume_ratio.toFixed(1) }}</span><span v-if="sig.turnover_rate" class="factor">换手{{ sig.turnover_rate.toFixed(1) }}%</span><span class="reason">{{ sig.reason }}</span></div>
-            <div class="sig-act"><ElButton size="small" type="danger" plain @click="quickBuy(sig)">🟢 买入{{ Math.floor((status?.account?.available_cash || 0) * 0.25 / sig.price / 100) * 100 > 0 ? ' ' + Math.floor((status?.account?.available_cash || 0) * 0.25 / sig.price / 100) * 100 + '股' : '' }}</ElButton><ElButton v-if="sig.decision_detail" size="small" type="info" plain @click="openTradeDetail(sig.ts_code)">🔍 决策</ElButton></div>
+            <div class="sig-act"><ElButton v-if="!dryRun && sig.signal_status === 'new'" size="small" type="danger" plain @click="quickBuy(sig)">🟢 买入{{ Math.floor((status?.account?.available_cash || 0) * 0.25 / sig.price / 100) * 100 > 0 ? ' ' + Math.floor((status?.account?.available_cash || 0) * 0.25 / sig.price / 100) * 100 + '股' : '' }}</ElButton><ElButton v-if="sig.decision_detail" size="small" type="info" plain @click="openTradeDetail(sig.ts_code)">🔍 决策</ElButton><ElButton v-if="sig.layer_trace" size="small" type="warning" plain @click="openScanTrace(sig.ts_code)">🧪 Trace</ElButton></div>
           </div>
         </div>
         <div class="st" style="margin-top:6px">🔥 涨跌停池 <div style="display:inline-flex;gap:2px;margin-left:6px"><ElTag size="small" :type="limitPoolTab==='limit_up'?'danger':'info'" style="cursor:pointer" @click="limitPoolTab='limit_up'">涨停{{ limitPools.limit_up.length }}</ElTag><ElTag size="small" :type="limitPoolTab==='limit_down'?'warning':'info'" style="cursor:pointer" @click="limitPoolTab='limit_down'">跌停{{ limitPools.limit_down.length }}</ElTag><ElTag size="small" :type="limitPoolTab==='broken'?'':'info'" style="cursor:pointer" @click="limitPoolTab='broken'">炸板{{ limitPools.broken.length }}</ElTag></div></div>
@@ -271,6 +287,71 @@ async function loadCompare() { compareLoading.value = true; try { const r = awai
         </div>
       </div>
       <div v-else class="empty">暂无对比数据（需先运行回测）</div>
+    </ElDialog>
+
+    <!-- 【调试增强】9层筛选调试弹窗 -->
+    <ElDialog v-model="layerDebugVisible" title="🧪 9层筛选管道调试" width="750px">
+      <div v-if="layerDebugData" class="layer-debug">
+        <div class="ld-header">
+          <ElTag :type="layerDebugData.dry_run ? 'warning' : 'success'" size="small">{{ layerDebugData.dry_run ? '🔍调试模式' : '正常交易' }}</ElTag>
+          <span>信号: {{ layerDebugData.total_signals }} | 已执行: {{ layerDebugData.executed_signals }} | 跳过: {{ layerDebugData.skipped_signals }} | 过期: {{ layerDebugData.expired_signals }}</span>
+        </div>
+        <div v-if="layerDebugData.pipeline_config" class="ld-pipeline">
+          <div class="ld-title">管道配置</div>
+          <div class="ld-layers">
+            <div v-for="(enabled, layer) in layerDebugData.pipeline_config.layer_enabled" :key="layer" class="ld-layer">
+              <span :class="enabled ? 'ld-on' : 'ld-off'">{{ enabled ? '✅' : '⏭️' }}</span>
+              <span class="ld-name">{{ layer }}</span>
+            </div>
+          </div>
+          <div class="ld-sentiment" v-if="layerDebugData.pipeline_config.sentiment">
+            情绪: {{ layerDebugData.pipeline_config.sentiment.score }} → {{ layerDebugData.pipeline_config.sentiment.period }} | 仓位系数: {{ (layerDebugData.pipeline_config.position_ratio * 100).toFixed(0) }}%
+          </div>
+        </div>
+        <div v-if="layerDebugData.signal_traces?.length" class="ld-traces">
+          <div class="ld-title">信号逐层Trace</div>
+          <div v-for="trace in layerDebugData.signal_traces" :key="trace.ts_code + trace.strategy" class="ld-trace-card">
+            <div class="ld-trace-top"><span class="code">{{ trace.ts_code }}</span><span class="name">{{ trace.stock_name }}</span><ElTag size="small" type="info">{{ trace.strategy }}</ElTag><ElTag size="small" :type="trace.signal_status === 'skipped' ? 'warning' : trace.signal_status === 'executed' ? 'success' : 'primary'">{{ trace.signal_status }}</ElTag></div>
+            <div class="ld-trace-layers">
+              <div v-for="(line, i) in formatLayerTrace(trace.layer_trace)" :key="i" class="ld-trace-line">{{ line }}</div>
+            </div>
+          </div>
+        </div>
+        <div v-else class="empty">暂无信号trace数据</div>
+      </div>
+      <div v-else class="empty">加载中...</div>
+    </ElDialog>
+
+    <!-- 【调试增强】单只股票扫描Trace弹窗 -->
+    <ElDialog v-model="scanTraceVisible" title="🧪 扫描Trace — {{ scanTraceCode }}" width="700px">
+      <div v-if="scanTraceData" class="scan-trace">
+        <div v-if="scanTraceData.status === 'not_found'" class="empty">{{ scanTraceData.message }}</div>
+        <div v-else>
+          <div class="st-header">
+            <span class="code">{{ scanTraceData.ts_code }}</span>
+            <span class="name">{{ scanTraceData.stock_name }}</span>
+            <ElTag size="small" :type="scanTraceData.signal_status === 'skipped' ? 'warning' : scanTraceData.signal_status === 'executed' ? 'success' : 'primary'">{{ scanTraceData.signal_status }}</ElTag>
+            <span :class="scanTraceData.pct_chg >= 0 ? 'up' : 'down'" style="font-weight:600">{{ scanTraceData.pct_chg >= 0 ? '+' : '' }}{{ scanTraceData.pct_chg?.toFixed(1) }}%</span>
+          </div>
+          <div class="st-reason">{{ scanTraceData.reason }}</div>
+          <div v-if="scanTraceData.age_seconds" class="st-age">信号年龄: {{ scanTraceData.age_seconds }}秒</div>
+          <div v-if="scanTraceData.layer_trace" class="st-trace">
+            <div class="st-title">逐层筛选Trace</div>
+            <div v-for="(line, i) in formatLayerTrace(scanTraceData.layer_trace)" :key="i" class="st-line">{{ line }}</div>
+          </div>
+          <div v-if="scanTraceData.decision_detail" class="st-detail">
+            <div class="st-title">决策详情</div>
+            <div v-for="(line, i) in formatDecisionDetail(scanTraceData.decision_detail)" :key="i" class="st-line">{{ line }}</div>
+          </div>
+          <div v-if="scanTraceData.factors" class="st-factors">
+            <div class="st-title">关键因子</div>
+            <div class="st-fg">
+              <div v-for="(v, k) in scanTraceData.factors" :key="k" class="st-fi"><span class="st-fl">{{ k }}</span><span class="st-fv">{{ typeof v === 'number' ? v.toFixed(2) : v }}</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div v-else class="empty">加载中...</div>
     </ElDialog>
   </div>
 </template>
@@ -420,4 +501,34 @@ async function loadCompare() { compareLoading.value = true; try { const r = awai
 
 /* 响应式 */
 @media (max-width: 1024px) { .mm-body { grid-template-columns: 1fr; } .mm-left, .mm-right { border: none; border-bottom: 1px solid #ebeef5; } }
+
+/* 【调试增强】9层调试弹窗 */
+.layer-debug { font-size: 13px; }
+.ld-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 12px; color: #606266; }
+.ld-title { font-size: 13px; font-weight: 600; color: #303133; margin-bottom: 6px; }
+.ld-pipeline { padding: 10px; background: #fafafa; border-radius: 8px; border: 1px solid #ebeef5; margin-bottom: 10px; }
+.ld-layers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-bottom: 6px; }
+.ld-layer { display: flex; align-items: center; gap: 4px; font-size: 11px; padding: 3px 6px; background: #fff; border-radius: 4px; border: 1px solid #ebeef5; }
+.ld-on { color: #67c23a; }
+.ld-off { color: #909399; }
+.ld-name { color: #606266; }
+.ld-sentiment { font-size: 12px; color: #409eff; padding: 4px 0; }
+.ld-traces { max-height: 400px; overflow-y: auto; }
+.ld-trace-card { padding: 8px 10px; margin-bottom: 6px; background: #fff; border-radius: 6px; border: 1px solid #ebeef5; }
+.ld-trace-top { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.ld-trace-layers { padding-left: 10px; }
+.ld-trace-line { font-size: 11px; color: #606266; padding: 1px 0; font-family: monospace; }
+
+/* 【调试增强】扫描Trace弹窗 */
+.scan-trace { font-size: 13px; }
+.st-header { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.st-reason { font-size: 12px; color: #606266; padding: 4px 6px; background: #fff; border-radius: 4px; border-left: 3px solid #409eff; margin-bottom: 6px; }
+.st-age { font-size: 11px; color: #909399; margin-bottom: 6px; }
+.st-trace, .st-detail, .st-factors { padding: 10px; background: #fafafa; border-radius: 8px; border: 1px solid #ebeef5; margin-bottom: 8px; }
+.st-title { font-size: 13px; font-weight: 600; color: #303133; margin-bottom: 4px; }
+.st-line { font-size: 11px; color: #606266; padding: 1px 0; font-family: monospace; }
+.st-fg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.st-fi { display: flex; flex-direction: column; padding: 3px 6px; background: #fff; border-radius: 4px; }
+.st-fl { font-size: 10px; color: #909399; }
+.st-fv { font-size: 13px; font-weight: 500; }
 </style>

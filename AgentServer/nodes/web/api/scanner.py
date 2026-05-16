@@ -60,7 +60,7 @@ def _get_scanner_instance():
 class ScannerStartRequest(BaseModel):
     account_id: str = "default"
     trade_date: Optional[str] = None
-    trade_mode: str = "simulated"  # simulated | gm
+    trade_mode: str = "simulated"  # simulated | gm | dry_run
     config: Dict[str, Any] = {}
 
 
@@ -103,6 +103,15 @@ async def get_scanner_status():
     status["market_status"] = market_status
     status["current_time"] = now.strftime("%H:%M:%S")
     status["is_trading_time"] = is_trading
+    status["dry_run"] = scanner._dry_run  # 【调试增强】dry_run状态
+    status["signal_stats"] = {  # 【调试增强】信号统计
+        "total": len(scanner._active_signals),
+        "new": len([s for s in scanner._active_signals if s.signal_status == "new"]),
+        "executed": len([s for s in scanner._active_signals if s.signal_status == "executed"]),
+        "skipped": len([s for s in scanner._active_signals if s.signal_status == "skipped"]),
+        "expired": len([s for s in scanner._active_signals if s.signal_status == "expired"]),
+        "filtered": len([s for s in scanner._active_signals if s.signal_status == "filtered"]),
+    }
     
     # 数据源状态
     ds_info = []
@@ -142,9 +151,7 @@ async def start_scanner(req: ScannerStartRequest):
     global _scanner_instance
 
     if _scanner_instance is None or (
-        req.trade_mode == 'gm' and _scanner_instance._trade_mode != 'gm'
-    ) or (
-        req.trade_mode == 'simulated' and _scanner_instance._trade_mode != 'simulated'
+        req.trade_mode != _scanner_instance._trade_mode
     ):
         from nodes.market_monitor.scanner import MarketScanner
         config = dict(req.config)
@@ -879,3 +886,203 @@ async def backtest_compare():
         return {"success": True, "data": compare}
     except Exception as e:
         return {"success": True, "data": [], "message": str(e)}
+
+
+# ==================== 调试增强 API ====================
+
+@router.get("/debug/layers")
+async def get_debug_layers():
+    """获取9层筛选管道的逐层调试信息
+    
+    返回每层的:
+    - 输入候选数
+    - 过滤后候选数
+    - 过滤原因(具体哪些股票被哪层过滤)
+    - 层开关状态
+    
+    用于前端可视化展示筛选过程
+    """
+    scanner = _get_scanner()
+    
+    # 收集所有信号的layer_trace
+    all_traces = []
+    for sig in scanner._active_signals:
+        if sig.layer_trace:
+            all_traces.append({
+                "ts_code": sig.ts_code,
+                "stock_name": sig.stock_name,
+                "strategy": sig.strategy_name,
+                "signal_status": sig.signal_status,
+                "layer_trace": sig.layer_trace,
+            })
+    
+    # 管道配置
+    pipeline_config = {}
+    if scanner._filter_pipeline:
+        pipeline_config = {
+            "layer_enabled": scanner._filter_pipeline._layer_enabled,
+            "sentiment": scanner._filter_pipeline.get_sentiment_info(),
+            "position_ratio": scanner._current_position_ratio,
+        }
+    
+    # 策略筛选层trace(来自_apply_strategies)
+    strategy_traces = []
+    for sig in scanner._active_signals:
+        if sig.layer_trace.get("L6_strategy"):
+            strategy_traces.append(sig.layer_trace["L6_strategy"])
+    
+    return {
+        "success": True,
+        "data": {
+            "signal_traces": all_traces,
+            "pipeline_config": pipeline_config,
+            "strategy_traces": strategy_traces,
+            "total_signals": len(scanner._active_signals),
+            "expired_signals": len([s for s in scanner._active_signals if s.signal_status == "expired"]),
+            "executed_signals": len([s for s in scanner._active_signals if s.signal_status == "executed"]),
+            "skipped_signals": len([s for s in scanner._active_signals if s.signal_status == "skipped"]),
+            "dry_run": scanner._dry_run,
+        }
+    }
+
+
+@router.get("/debug/scan-trace/{ts_code}")
+async def get_scan_trace(ts_code: str):
+    """获取指定股票的完整扫描+筛选trace
+    
+    从选股→9层筛选→执行, 每一步的详细记录
+    用于调试某只股票为什么被选中/被过滤
+    """
+    scanner = _get_scanner()
+    
+    # 从活跃信号中查找
+    signal = None
+    for sig in scanner._active_signals:
+        if sig.ts_code == ts_code:
+            signal = sig
+            break
+    
+    if not signal:
+        # 检查是否在持仓中(可能已执行)
+        for p in scanner._broker.get_positions() if scanner._broker else []:
+            if p.ts_code == ts_code:
+                return {
+                    "success": True,
+                    "data": {
+                        "ts_code": ts_code,
+                        "status": "executed",
+                        "message": f"已买入并持仓, 当前盈亏{p.profit_pct:+.1f}%",
+                        "position": scanner._position_to_dict(p) if hasattr(scanner, '_position_to_dict') else {},
+                    }
+                }
+        return {
+            "success": True,
+            "data": {
+                "ts_code": ts_code,
+                "status": "not_found",
+                "message": "不在活跃信号或持仓中",
+            }
+        }
+    
+    return {
+        "success": True,
+        "data": {
+            "ts_code": ts_code,
+            "stock_name": signal.stock_name,
+            "strategy": signal.strategy,
+            "strategy_name": signal.strategy_name,
+            "signal_status": signal.signal_status,
+            "price": signal.price,
+            "pct_chg": signal.pct_chg,
+            "reason": signal.reason,
+            "decision_detail": signal.decision_detail,
+            "layer_trace": signal.layer_trace,
+            "factors": signal.factors,
+            "created_at": signal.created_at,
+            "age_seconds": round(time.time() - signal.created_at, 1) if signal.created_at > 0 else None,
+        }
+    }
+
+
+@router.post("/debug/dry-run")
+async def toggle_dry_run():
+    """切换dry_run模式(只扫描不交易)
+    
+    用于调试:
+    - 开启: 扫描器只选股不下单, 信号标记为skipped
+    - 关闭: 恢复正常交易
+    
+    不影响已持仓的止损止盈检查
+    """
+    scanner = _get_scanner()
+    scanner._dry_run = not scanner._dry_run
+    mode = "dry_run(只扫描不交易)" if scanner._dry_run else "正常交易"
+    logger.info(f"[API] 模式切换: {mode}")
+    return {
+        "success": True,
+        "data": {
+            "dry_run": scanner._dry_run,
+            "mode": mode,
+        }
+    }
+
+
+@router.get("/debug/strategy-filter")
+async def get_strategy_filter_detail():
+    """获取策略筛选层的详细trace
+    
+    返回每个策略:
+    - 原始候选数(满足条件的)
+    - 过滤原因(哪些条件不满足)
+    - 最终候选数
+    
+    用于调试策略筛选条件是否合理
+    """
+    scanner = _get_scanner()
+    
+    # 从活跃信号的layer_trace中提取策略筛选信息
+    strategy_details = {}
+    for sig in scanner._active_signals:
+        l6 = sig.layer_trace.get("L6_strategy", {})
+        if l6:
+            strategy_key = l6.get("strategy", sig.strategy)
+            if strategy_key not in strategy_details:
+                strategy_details[strategy_key] = {
+                    "strategy": strategy_key,
+                    "strategy_name": l6.get("strategy_name", sig.strategy_name),
+                    "candidates_found": 0,
+                    "conditions_applied": l6.get("conditions_applied", []),
+                    "signals": [],
+                }
+            strategy_details[strategy_key]["candidates_found"] += 1
+            strategy_details[strategy_key]["signals"].append({
+                "ts_code": sig.ts_code,
+                "stock_name": sig.stock_name,
+                "pct_chg": sig.pct_chg,
+                "volume_ratio": sig.volume_ratio,
+                "turnover_rate": sig.turnover_rate,
+                "reason": sig.reason,
+            })
+    
+    # 策略配置
+    from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS
+    configs = {}
+    for key, cfg in STRATEGY_CONFIGS.items():
+        effective = scanner._get_effective_strategy_config(key)
+        configs[key] = {
+            "name": effective.get("name", ""),
+            "enabled": effective.get("enabled", True),
+            "params": effective.get("params", {}),
+            "riskParams": effective.get("riskParams", {}),
+        }
+    
+    return {
+        "success": True,
+        "data": {
+            "strategy_details": strategy_details,
+            "strategy_configs": configs,
+        }
+    }
+
+
+import time
