@@ -297,6 +297,9 @@ const submitBacktest = async () => {
         max_position: form.tradeParams.max_total_position,
         liquidity_threshold: form.globalFilter.min_daily_amount,
         max_position_per_stock: form.tradeParams.max_position_per_stock,
+        commission_rate: form.tradeParams.commission_rate ?? GLOBAL_RISK.commission_rate,
+        stamp_duty_rate: form.tradeParams.stamp_duty_rate ?? GLOBAL_RISK.stamp_duty_rate,
+        slippage_pct: form.tradeParams.slippage_pct ?? GLOBAL_RISK.slippage_pct,
         sentiment_cycle: form.sentimentCycle.enabled,
         auction_filter: form.auctionFilter.enabled,
         enable_stop_loss: form.tradeParams.enable_stop_loss ?? true,
@@ -313,6 +316,25 @@ const submitBacktest = async () => {
       enable_ma60_filter: form.globalFilter.enable_ma60_filter ?? true,
       enable_sector_concentration: form.globalFilter.enable_sector_concentration ?? true,
       exclude_st: form.globalFilter.exclude_st ?? true,
+      // 【P1-3/P1-4修复】透传细粒度配置到后端
+      forceEmpty: {
+        enabled: form.forceEmpty.enabled,
+        limit_down_count: form.forceEmpty.limit_down_count ?? 50,
+        limit_up_count: form.forceEmpty.limit_up_count ?? 10,
+        index_drop_pct: form.forceEmpty.index_drop_pct ?? 0.02,
+      },
+      sentimentCycle: {
+        enabled: form.sentimentCycle.enabled,
+      },
+      auctionFilter: {
+        enabled: form.auctionFilter.enabled,
+      },
+      globalFilter: {
+        exclude_st: form.globalFilter.exclude_st ?? true,
+        exclude_delisting: form.globalFilter.exclude_delisting ?? true,
+        exclude_new_stock_days: form.globalFilter.exclude_new_stock_days ?? 60,
+        min_turnover_rate: form.globalFilter.min_turnover_rate ?? 1.5,
+      },
     })
 
     if (!res || !res.task_id) {

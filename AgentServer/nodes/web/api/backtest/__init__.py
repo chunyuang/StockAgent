@@ -155,6 +155,10 @@ async def get_backtest_status(
             }
         raise HTTPException(status_code=404, detail="任务不存在")
 
+    # 【P2-10修复：MongoDB有记录则mock_tasks不再需要，清理防内存泄漏】
+    if task_id in mock_tasks:
+        del mock_tasks[task_id]
+
     # 【修复风险5：悬挂任务检测 - running超过10分钟且无新日志才标记failed，避免误杀长时间回测】
     if record.get("status") == "running":
         from datetime import timedelta
