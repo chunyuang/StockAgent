@@ -6,6 +6,8 @@ MongoDB Mock 工具
 """
 import pytest
 import mongomock
+import asyncio
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 from typing import Dict, List, Any, Optional
 
@@ -135,3 +137,55 @@ def mock_mongo_with_stock_data(mock_mongo):
     mock_mongo.seed_data("index_daily", index_data)
 
     return mock_mongo
+
+
+# ============================================================
+# 回测结果 fixture（第1层契约测试用）
+# 从MongoDB读取最近一次回测结果，供契约测试断言
+# ============================================================
+
+@pytest.fixture(scope="session")
+def backtest_result():
+    """从MongoDB读取最近一次回测结果
+
+    用法: pytest tests/test_backtest_contract.py --backtest-task=us_xxx
+    如果不指定task_id，自动找最近一条completed的任务
+    """
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+    # 从命令行参数获取task_id
+    task_id = None
+    for i, arg in enumerate(sys.argv):
+        if arg.startswith('--backtest-task='):
+            task_id = arg.split('=', 1)[1]
+            break
+
+    # 连接真实MongoDB读取结果
+    loop = asyncio.new_event_loop()
+    result = loop.run_until_complete(_fetch_result(task_id))
+    loop.close()
+    if result is None:
+        pytest.skip("没有可用的回测结果，请先运行一次回测")
+    return result
+
+
+async def _fetch_result(task_id=None):
+    from core.managers.mongo_manager import mongo_manager
+    await mongo_manager.initialize()
+
+    if task_id:
+        task = await mongo_manager.find_one('backtest_tasks', {'task_id': task_id})
+    else:
+        # 找最近一条completed的任务
+        tasks = await mongo_manager.find_many(
+            'backtest_tasks',
+            {'status': 'completed'},
+            sort=[('_id', -1)],
+            limit=1
+        )
+        task = tasks[0] if tasks else None
+
+    if task and task.get('result'):
+        return task['result']
+    return None
