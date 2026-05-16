@@ -331,7 +331,7 @@ async def manual_trade(req: ManualTradeRequest):
     
     if ok:
         scanner._timeline.append({
-            "time": __import__("datetime").datetime.now().strftime("%H:%M:%S"),
+            "time": datetime.now().strftime("%H:%M:%S"),
             "action": req.side,
             "ts_code": req.ts_code,
             "stock_name": req.stock_name or req.ts_code,
