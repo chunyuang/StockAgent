@@ -203,15 +203,21 @@ class MarketScanner:
     def get_positions(self) -> List[Dict]:
         if self._trade_mode == self.MODE_GM and self._gm_broker:
             return self._gm_broker.get_positions()
-        return [{
-            "ts_code": p.ts_code, "stock_name": p.stock_name,
-            "strategy": p.strategy, "shares": p.total_qty,
-            "available_qty": p.available_qty,
-            "cost_price": round(p.avg_cost, 2),
-            "current_price": round(p.current_price, 2),
-            "profit_pct": round(p.profit_pct, 2),
-            "today_buy": p.today_buy_qty,
-        } for p in self._broker.get_positions()]
+        result = []
+        for p in self._broker.get_positions():
+            risk = self._get_strategy_risk(p.strategy)
+            result.append({
+                "ts_code": p.ts_code, "stock_name": p.stock_name,
+                "strategy": p.strategy, "shares": p.total_qty,
+                "available_qty": p.available_qty,
+                "cost_price": round(p.avg_cost, 2),
+                "current_price": round(p.current_price, 2),
+                "profit_pct": round(p.profit_pct, 2),
+                "today_buy": p.today_buy_qty,
+                "stop_loss_pct": round(risk.get("stop_loss_pct", 0.03) * 100, 1),
+                "take_profit_pct": round(risk.get("take_profit_pct", 0.07) * 100, 1),
+            })
+        return result
 
     def get_timeline(self) -> List[Dict]:
         return list(self._timeline)
