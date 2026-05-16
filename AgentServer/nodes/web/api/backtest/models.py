@@ -23,7 +23,7 @@ class TaskStatus(str, Enum):
 
 
 class BacktestRequest(BaseModel):
-    """回测请求"""
+    """回测请求 (旧版单股回测，前端未使用)"""
     ts_code: str = Field(..., description="股票代码", pattern=r"^\d{6}\.(SH|SZ|BJ)$")
     stock_name: Optional[str] = Field(default=None, description="股票名称")
     start_date: str = Field(..., description="开始日期", pattern=r"^\d{8}$")
@@ -76,7 +76,7 @@ class FactorConfig(BaseModel):
 
 
 class FactorSelectionRequest(BaseModel):
-    """因子选股回测请求"""
+    """因子选股回测请求 (旧版，前端未使用)"""
     universe: str = Field(default="all_a", description="股票池类型")
     start_date: str = Field(..., description="开始日期", pattern=r"^\d{8}$")
     end_date: str = Field(..., description="结束日期", pattern=r"^\d{8}$")
@@ -128,7 +128,8 @@ class UltraShortParams(BaseModel):
     enable_take_profit: bool = Field(default=True, description="是否启用止盈")
     enable_ma60_filter: bool = Field(default=True, description="是否启用大盘MA60过滤")
     enable_sector_concentration: bool = Field(default=True, description="是否启用板块集中度过滤")
-    enable_force_empty: bool = Field(default=True, description="是否启用强制空仓规则")
+    # 【P2-2修复：enable_force_empty/sentiment_cycle/auction_filter只在UltraShortBacktestRequest顶层定义】
+    # 不在此处重复定义，避免三重定义混乱
     sentiment_cycle: bool = Field(default=True, description="是否启用情绪周期算法")
     auction_filter: bool = Field(default=True, description="是否启用竞价过滤规则")
     selected_strategies: List[Dict[str, Any]] = Field(default_factory=list, description="选中策略的完整配置（包含独立参数）")
@@ -164,6 +165,8 @@ class UltraShortBacktestRequest(BaseModel):
     initial_capital: Optional[float] = Field(default=1000000.0, ge=10000, le=100000000, description="初始资金，兼容前端字段名")
     params: UltraShortParams = Field(default_factory=UltraShortParams, description="全局策略参数配置")
     strategy_params: Dict[str, Dict[str, Any]] = Field(default_factory=dict, description="各策略独立参数配置，key为策略id，value为参数字典")
+    # 【P1-6修复：正式声明strategy_risk_params字段，确保参数传递路径明确】
+    strategy_risk_params: Dict[str, Dict[str, Any]] = Field(default_factory=dict, description="各策略风控参数配置，key为策略id，value为风控参数字典")
 
     enable_sentiment_cycle: bool = Field(default=True, description="启用情绪周期适配")
     enable_auction_filter: bool = Field(default=True, description="启用集合竞价过滤")
@@ -213,8 +216,7 @@ class UltraShortBacktestRequest(BaseModel):
             values['initial_cash'] = initial_capital
 
         # 兼容params里的enable字段
-        if hasattr(params, 'enable_force_empty'):
-            values['enable_force_empty'] = getattr(params, 'enable_force_empty', True)
+        # 【P2-2修复：enable_force_empty已从UltraShortParams移除，只从顶层读】
         if hasattr(params, 'sentiment_cycle'):
             values['enable_sentiment_cycle'] = getattr(params, 'sentiment_cycle', True)
         if hasattr(params, 'auction_filter'):

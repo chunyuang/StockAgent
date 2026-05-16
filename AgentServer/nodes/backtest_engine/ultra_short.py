@@ -14,7 +14,7 @@ from core.managers import mongo_manager, akshare_manager, redis_manager
 from core.utils.logger import logger
 
 from nodes.backtest_engine.factor_selection import PortfolioBacktester
-from nodes.backtest_engine.strategy_defaults import ALL_STRATEGIES as _ALL_STRATEGIES, GLOBAL_RISK
+from nodes.backtest_engine.strategy_defaults import ALL_STRATEGIES as _ALL_STRATEGIES, GLOBAL_RISK, STRATEGY_CONFIGS
 
 # 默认所有策略（兜底用）— 从单一来源读取
 ALL_STRATEGIES = _ALL_STRATEGIES
@@ -132,44 +132,54 @@ async def execute_ultra_short_backtest(
 
     for s in selected_strategies:
         strategy_name = s.get('name', s.get('id', '未知策略'))
+        strategy_id = s.get('id', '')
         await push_log_fn(task_id, "")
         await push_log_fn(task_id, "🎯 【%s】" % strategy_name)
         strategy_params_local = s.get('params', {})
         if "params" not in s:
             s["params"] = {}
         s["params"].update(strategy_params_local)
+        # 【P2-3修复：默认值从STRATEGY_CONFIGS读取，不再硬编码】
+        _defaults = STRATEGY_CONFIGS.get(strategy_id, {}).get("params", {})
         if strategy_name == '半路追涨':
-            min_rise = strategy_params_local.get('min_rise_pct', 0.03) * 100
-            max_rise = strategy_params_local.get('max_rise_pct', 0.05) * 100
-            volume_val = strategy_params_local.get('volume_threshold', strategy_params_local.get('min_volume_ratio', 1.5))
-            allow_after_10am = strategy_params_local.get('allow_after_10am', False)
+            min_rise = strategy_params_local.get('min_rise_pct', _defaults.get('min_rise_pct', 0.03)) * 100
+            max_rise = strategy_params_local.get('max_rise_pct', _defaults.get('max_rise_pct', 0.07)) * 100
+            volume_val = strategy_params_local.get('min_volume_ratio', _defaults.get('min_volume_ratio', 2.0))
+            allow_after_10am = strategy_params_local.get('allow_after_10am', _defaults.get('allow_after_10am', False))
             await push_log_fn(task_id, "  ├─ 最小涨幅: %.1f %%" % min_rise)
             await push_log_fn(task_id, "  ├─ 最大涨幅: %.1f %%" % max_rise)
-            await push_log_fn(task_id, "  ├─ 量比阈值: %.1f 倍 (应用到筛选逻辑)" % volume_val)
+            await push_log_fn(task_id, "  ├─ 量比阈值: %.1f 倍" % volume_val)
             await push_log_fn(task_id, "  └─ 允许10点后买入: %s" % ("是" if allow_after_10am else "否"))
             s["params"]["volume_threshold"] = volume_val
             s["params"]["min_volume_ratio"] = volume_val
         elif strategy_name == '首板打板':
-            min_seal = strategy_params_local.get('min_seal_amount', 5000)
-            max_limit_time = strategy_params_local.get('max_limit_up_time', '10:00')
-            min_cap = strategy_params_local.get('min_circulation_market_cap', 50)
-            max_cap = strategy_params_local.get('max_circulation_market_cap', 500)
-            max_blast = strategy_params_local.get('max_blast_count', 1)
-            require_hot = strategy_params_local.get('require_hot_sector', True)
-            await push_log_fn(task_id, "  ├─ 最小封单金额: %d 万元" % min_seal)
-            await push_log_fn(task_id, "  ├─ 最晚涨停时间: %s" % max_limit_time)
+            # 【P1-5修复：仅打印实际生效的参数，标注实盘专用参数】
+            min_cap = strategy_params_local.get('min_circulation_market_cap', _defaults.get('min_circulation_market_cap', 50))
+            max_cap = strategy_params_local.get('max_circulation_market_cap', _defaults.get('max_circulation_market_cap', 500))
+            opening_min = strategy_params_local.get('opening_pct_min', _defaults.get('opening_pct_min', -1.0))
+            opening_max = strategy_params_local.get('opening_pct_max', _defaults.get('opening_pct_max', 7.0))
+            hit_yizi = strategy_params_local.get('hit_probability_yizi', _defaults.get('hit_probability_yizi', 0.0))
+            hit_fast = strategy_params_local.get('hit_probability_fast', _defaults.get('hit_probability_fast', 0.3))
+            hit_normal = strategy_params_local.get('hit_probability_normal', _defaults.get('hit_probability_normal', 0.5))
+            hit_slow = strategy_params_local.get('hit_probability_slow', _defaults.get('hit_probability_slow', 0.7))
             await push_log_fn(task_id, "  ├─ 最小流通市值: %d 亿" % min_cap)
             await push_log_fn(task_id, "  ├─ 最大流通市值: %d 亿" % max_cap)
-            await push_log_fn(task_id, "  ├─ 最大开板次数: %d 次" % max_blast)
-            await push_log_fn(task_id, "  └─ 要求热门板块: %s" % ("是" if require_hot else "否"))
+            await push_log_fn(task_id, "  ├─ 竞价涨幅范围: %.1f%% ~ %.1f%%" % (opening_min, opening_max))
+            await push_log_fn(task_id, "  ├─ 成交概率: 一字%.0f%%/秒%.0f%%/快%.0f%%/慢%.0f%%" % (hit_yizi*100, hit_fast*100, hit_normal*100, hit_slow*100))
+            # 以下为实盘专用参数，日线回测无数据不生效
+            _seal = strategy_params_local.get('min_seal_amount', 5000)
+            _limit_time = strategy_params_local.get('max_limit_up_time', '10:00')
+            _blast = strategy_params_local.get('max_blast_count', 1)
+            _hot = strategy_params_local.get('require_hot_sector', True)
+            await push_log_fn(task_id, "  ├─ [实盘] 最小封单: %d万 / 最晚涨停: %s / 最大开板: %d次 / 热门板块: %s" % (_seal, _limit_time, _blast, "是" if _hot else "否"))
         elif strategy_name == '涨停开板':
-            min_consecutive = strategy_params_local.get('min_consecutive_limit', 2)
-            max_open_duration = strategy_params_local.get('max_open_duration', 5)
-            min_seal_after = strategy_params_local.get('min_seal_after_open', 3000)
-            min_turnover = strategy_params_local.get('min_turnover_rate', 0.15) * 100
-            opening_pct_min = strategy_params_local.get('opening_pct_min', -3.0)
-            opening_pct_max = strategy_params_local.get('opening_pct_max', 5.0)
-            min_volume_ratio = strategy_params_local.get('min_volume_ratio', 1.5)
+            min_consecutive = strategy_params_local.get('min_consecutive_limit', _defaults.get('min_consecutive_limit', 2))
+            max_open_duration = strategy_params_local.get('max_open_duration', _defaults.get('max_open_duration', 5))
+            min_seal_after = strategy_params_local.get('min_seal_after_open', _defaults.get('min_seal_after_open', 3000))
+            min_turnover = strategy_params_local.get('min_turnover_rate', _defaults.get('min_turnover_rate', 0.15)) * 100
+            opening_pct_min = strategy_params_local.get('opening_pct_min', _defaults.get('opening_pct_min', -3.0))
+            opening_pct_max = strategy_params_local.get('opening_pct_max', _defaults.get('opening_pct_max', 3.0))
+            min_volume_ratio = strategy_params_local.get('min_volume_ratio', _defaults.get('min_volume_ratio', 2.0))
             await push_log_fn(task_id, "  ├─ 最小连续涨停天数: %d 天" % min_consecutive)
             await push_log_fn(task_id, "  ├─ 最大开板时长: %d 分钟" % max_open_duration)
             await push_log_fn(task_id, "  ├─ 开板后最小封单: %d 万元" % min_seal_after)
@@ -177,13 +187,13 @@ async def execute_ultra_short_backtest(
             await push_log_fn(task_id, "  ├─ 竞价涨幅范围: %.1f%% ~ %.1f%%" % (opening_pct_min, opening_pct_max))
             await push_log_fn(task_id, "  └─ 最小量比: %.1f" % min_volume_ratio)
         elif strategy_name == '龙头低吸':
-            min_consecutive = strategy_params_local.get('min_consecutive_limit', 3)
-            min_correction = strategy_params_local.get('min_correction_pct', 0.15) * 100
-            max_correction = strategy_params_local.get('max_correction_pct', 0.3) * 100
-            correction_days_min = strategy_params_local.get('correction_days_min', 2)
-            correction_days_max = strategy_params_local.get('correction_days_max', 5)
-            support_level = strategy_params_local.get('support_level', 'ma5')
-            min_circ_cap = strategy_params_local.get('min_circulation_market_cap', 100)
+            min_consecutive = strategy_params_local.get('min_consecutive_limit', _defaults.get('min_consecutive_limit', 1))
+            min_correction = strategy_params_local.get('min_correction_pct', _defaults.get('min_correction_pct', 0.05)) * 100
+            max_correction = strategy_params_local.get('max_correction_pct', _defaults.get('max_correction_pct', 0.35)) * 100
+            correction_days_min = strategy_params_local.get('correction_days_min', _defaults.get('correction_days_min', 1))
+            correction_days_max = strategy_params_local.get('correction_days_max', _defaults.get('correction_days_max', 7))
+            support_level = strategy_params_local.get('support_level', _defaults.get('support_level', 'ma5'))
+            min_circ_cap = strategy_params_local.get('min_circulation_market_cap', _defaults.get('min_circulation_market_cap', 30))
             await push_log_fn(task_id, "  ├─ 最小连续涨停天数: %d 天" % min_consecutive)
             await push_log_fn(task_id, "  ├─ 最小流通市值: %d 亿" % min_circ_cap)
             await push_log_fn(task_id, "  ├─ 最小回调幅度: %.1f %%" % min_correction)
@@ -192,10 +202,10 @@ async def execute_ultra_short_backtest(
             await push_log_fn(task_id, "  ├─ 最大回调天数: %d 天" % correction_days_max)
             await push_log_fn(task_id, "  └─ 支撑位: %s" % support_level)
         elif strategy_name == '跌停翘板':
-            min_consecutive = strategy_params_local.get('min_consecutive_limit', 3)
-            min_qiao_amount = strategy_params_local.get('min_qiao_amount', 1000)
-            min_rise_after = strategy_params_local.get('min_rise_after_qiao', 0.03) * 100
-            require_high_sentiment = strategy_params_local.get('require_high_sentiment', True)
+            min_consecutive = strategy_params_local.get('min_consecutive_limit', _defaults.get('min_consecutive_limit', 2))
+            min_qiao_amount = strategy_params_local.get('min_qiao_amount', _defaults.get('min_qiao_amount', 1000))
+            min_rise_after = strategy_params_local.get('min_rise_after_qiao', _defaults.get('min_rise_after_qiao', 0.03)) * 100
+            require_high_sentiment = strategy_params_local.get('require_high_sentiment', _defaults.get('require_high_sentiment', False))
             await push_log_fn(task_id, "  ├─ 最小连续跌停天数: %d 天" % min_consecutive)
             await push_log_fn(task_id, "  ├─ 翘板最小金额: %d 万元" % min_qiao_amount)
             await push_log_fn(task_id, "  ├─ 翘板后最小涨幅: %.1f %%" % min_rise_after)
@@ -318,6 +328,9 @@ async def execute_ultra_short_backtest(
         "enable_take_profit": enable_take_profit,
         "enable_ma60_filter": enable_ma60_filter,
         "enable_sector_concentration": enable_sector_concentration,
+        # 【P1-3/P1-4修复：透传细粒度配置】
+        "force_empty_config": strategy_params.get("force_empty_config", {}),
+        "global_filter_config": strategy_params.get("global_filter_config", {}),
     }
     backtester = PortfolioBacktester()
 

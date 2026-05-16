@@ -76,7 +76,7 @@ export const STRATEGY_CONFIGS = {
       min_consecutive_limit: 2,
       max_open_duration: 5,
       min_seal_after_open: 3000,
-      min_turnover_rate: 0.15,
+      min_turnover_rate: 15.0,
       opening_pct_min: -3.0,
       opening_pct_max: 3.0,
       min_volume_ratio: 2.0,

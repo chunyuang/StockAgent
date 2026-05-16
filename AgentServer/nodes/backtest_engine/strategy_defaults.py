@@ -92,7 +92,7 @@ STRATEGY_CONFIGS = {
             "min_consecutive_limit": 2,                 # 最小连板数
             "max_open_duration": 5,                     # 最大开板时长(分钟)
             "min_seal_after_open": 3000,                # 开板后最小封单(万元)
-            "min_turnover_rate": 0.15,                  # 换手率
+            "min_turnover_rate": 15.0,                  # 换手率≥15%(统一为百分比形式)
             "opening_pct_min": -3.0,                    # 竞价涨幅下限%
             "opening_pct_max": 3.0,                     # 竞价涨幅上限%
             "min_volume_ratio": 2.0,                    # 量比≥2.0
