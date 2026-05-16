@@ -15,7 +15,7 @@ import { api } from '@/api/client'
 
 interface ScanStats { scans: number; signals_found: number; trades_executed: number; stop_losses: number; take_profits: number; stocks_scanned: number }
 interface ScannerStatus { is_running: boolean; scan_count: number; last_scan_time: string; active_signals: number; positions: number; stocks_scanned: number; stats: ScanStats; account_id: string; trade_mode: string; circuit_breaker_paused?: boolean; circuit_breaker?: { trading_paused: boolean; pause_reason: string }; account: { total_assets: number; available_cash: number; market_value: number; total_profit: number } }
-interface ScanSignal { ts_code: string; stock_name: string; strategy: string; strategy_name: string; signal_type: string; price: number; pct_chg: number; volume_ratio: number; turnover_rate: number; is_limit_up: boolean; limit_up_count: number; confidence: number; reason: string; scan_time: string; factors: Record<string, number>; decision_detail?: Record<string, any> }
+interface ScanSignal { ts_code: string; stock_name: string; strategy: string; strategy_name: string; signal_type: string; price: number; pct_chg: number; volume_ratio: number; turnover_rate: number; is_limit_up: boolean; limit_up_count: number; confidence: number; reason: string; scan_time: string; factors: Record<string, number>; decision_detail?: Record<string, any>; signal_status?: string }
 interface PositionInfo { ts_code: string; stock_name: string; strategy: string; shares: number; available_qty: number; cost_price: number; current_price: number; profit_pct: number; today_buy: number; stop_loss_pct?: number; take_profit_pct?: number }
 interface TimelineItem { time: string; action: string; ts_code: string; stock_name: string; strategy: string; shares: number; price: number; reason: string; profit_pct?: number; decision_detail?: Record<string, any> }
 interface StrategyConfig { id: string; name: string; enabled: boolean; params: Record<string, any>; riskParams: Record<string, any>; paramDescriptions: ParamDesc[]; riskDescriptions: ParamDesc[] }
@@ -177,9 +177,9 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
         <div class="sl">
           <div v-if="!signals.length" class="empty">启动后扫描获取信号</div>
           <div v-for="sig in filteredSignals" :key="sig.ts_code + sig.strategy" class="sig-row">
-            <div class="sig-top"><span class="code">{{ sig.ts_code }}</span><span class="name">{{ sig.stock_name }}</span><ElTag size="small" :color="strategyMeta[sig.strategy]?.color || '#909399'" style="color:#fff;border:none">{{ sig.strategy_name }}</ElTag><span :class="sig.pct_chg >= 0 ? 'up' : 'down'" style="margin-left:auto;font-weight:600">{{ sig.pct_chg >= 0 ? '+' : '' }}{{ sig.pct_chg.toFixed(1) }}%</span></div>
+            <div class="sig-top"><span class="code">{{ sig.ts_code }}</span><span class="name">{{ sig.stock_name }}</span><ElTag size="small" :color="strategyMeta[sig.strategy]?.color || '#909399'" style="color:#fff;border:none">{{ sig.strategy_name }}</ElTag><ElTag v-if="sig.signal_status === 'executed'" size="small" type="success">已买入</ElTag><span :class="sig.pct_chg >= 0 ? 'up' : 'down'" style="margin-left:auto;font-weight:600">{{ sig.pct_chg >= 0 ? '+' : '' }}{{ sig.pct_chg.toFixed(1) }}%</span></div>
             <div class="sig-bot"><span v-if="sig.volume_ratio" class="factor">量比{{ sig.volume_ratio.toFixed(1) }}</span><span v-if="sig.turnover_rate" class="factor">换手{{ sig.turnover_rate.toFixed(1) }}%</span><span class="reason">{{ sig.reason }}</span></div>
-            <div class="sig-act"><ElButton size="small" type="danger" plain @click="quickBuy(sig)">🟢 买入</ElButton><ElButton v-if="sig.decision_detail" size="small" type="info" plain @click="openTradeDetail(sig.ts_code)">🔍 决策</ElButton></div>
+            <div class="sig-act"><ElButton size="small" type="danger" plain @click="quickBuy(sig)">🟢 买入{{ Math.floor((status?.account?.available_cash || 0) * 0.25 / sig.price / 100) * 100 > 0 ? ' ' + Math.floor((status?.account?.available_cash || 0) * 0.25 / sig.price / 100) * 100 + '股' : '' }}</ElButton><ElButton v-if="sig.decision_detail" size="small" type="info" plain @click="openTradeDetail(sig.ts_code)">🔍 决策</ElButton></div>
           </div>
         </div>
         <div class="st" style="margin-top:6px">🔥 涨跌停池 <div style="display:inline-flex;gap:2px;margin-left:6px"><ElTag size="small" :type="limitPoolTab==='limit_up'?'danger':'info'" style="cursor:pointer" @click="limitPoolTab='limit_up'">涨停{{ limitPools.limit_up.length }}</ElTag><ElTag size="small" :type="limitPoolTab==='limit_down'?'warning':'info'" style="cursor:pointer" @click="limitPoolTab='limit_down'">跌停{{ limitPools.limit_down.length }}</ElTag><ElTag size="small" :type="limitPoolTab==='broken'?'':'info'" style="cursor:pointer" @click="limitPoolTab='broken'">炸板{{ limitPools.broken.length }}</ElTag></div></div>
@@ -194,11 +194,11 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
         <div class="st">📊 持仓监控 <ElBadge :value="positions.length" :max="99" style="margin-left:4px" /></div>
         <div class="sl">
           <div v-if="!positions.length" class="empty">暂无持仓</div>
-          <div v-for="pos in positions" :key="pos.ts_code" class="pos-card">
+          <div v-for="pos in [...positions].sort((a, b) => a.profit_pct - b.profit_pct)" :key="pos.ts_code" class="pos-card">
             <div class="pos-top"><span class="code">{{ pos.ts_code }}</span><span class="name">{{ pos.stock_name }}</span><ElTag size="small" :color="strategyMeta[pos.strategy]?.color || '#909399'" style="color:#fff;border:none;font-size:10px">{{ pos.strategy }}</ElTag><span :class="pos.profit_pct >= 0 ? 'up' : 'down'" class="pct">{{ pos.profit_pct >= 0 ? '+' : '' }}{{ pos.profit_pct.toFixed(1) }}%</span></div>
             <div class="pos-bar-w"><div class="pos-bar" :style="{ width: Math.min(Math.abs(pos.profit_pct) / 10 * 100, 100) + '%', background: pos.profit_pct >= 0 ? '#67c23a' : '#f56c6c' }"></div></div>
             <div class="pos-info"><span>{{ pos.shares }}股</span><span>成本{{ pos.cost_price.toFixed(2) }}</span><span>现价{{ pos.current_price.toFixed(2) }}</span><span v-if="pos.today_buy > 0" class="t1-tag">T+1</span></div>
-            <div class="pos-risk" v-if="pos.stop_loss_pct != null"><span class="rl stop">止损{{ pos.stop_loss_pct.toFixed(1) }}%</span><span class="rl profit">止盈{{ pos.take_profit_pct?.toFixed(1) || 7.0 }}%</span><span class="rd" :class="{ danger: pos.profit_pct - pos.stop_loss_pct < 2 }">距止损{{ (pos.profit_pct - pos.stop_loss_pct).toFixed(1) }}%</span></div>
+            <div class="pos-risk" v-if="pos.stop_loss_pct != null"><span class="rl stop">止损{{ pos.stop_loss_pct.toFixed(1) }}%</span><span class="rl stop-price">止损价{{ (pos.cost_price * (1 - pos.stop_loss_pct / 100)).toFixed(2) }}</span><span class="rl profit">止盈{{ pos.take_profit_pct?.toFixed(1) || 7.0 }}%</span><span class="rl profit-price">止盈价{{ (pos.cost_price * (1 + (pos.take_profit_pct || 7.0) / 100)).toFixed(2) }}</span><span class="rd" :class="{ danger: pos.profit_pct - pos.stop_loss_pct < 2 }">距止损{{ (pos.profit_pct - pos.stop_loss_pct).toFixed(1) }}%</span></div>
             <div class="pos-act"><ElButton size="small" type="danger" plain @click="quickSell(pos)" :disabled="pos.available_qty <= 0">🔴 卖出</ElButton><ElButton size="small" type="info" plain @click="openTradeDetail(pos.ts_code)">🔍 详情</ElButton></div>
           </div>
         </div>
@@ -324,13 +324,15 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
 .pos-top { display: flex; align-items: center; gap: 6px; }
 .pct { margin-left: auto; font-weight: 700; font-size: 14px; }
 .pos-bar-w { height: 3px; background: #ebeef5; border-radius: 2px; margin: 4px 0; }
-.pos-bar { height: 100%; border-radius: 2px; transition: width 0.3s; }
+.pos-bar { height: 100%; border-radius: 2px; transition: width 0.3s; background: linear-gradient(90deg, rgba(103,194,58,0.3), rgba(103,194,58,1)); }
 .pos-info { display: flex; gap: 8px; font-size: 11px; color: #606266; }
 .t1-tag { font-size: 10px; color: #e6a23c; background: #fdf6ec; padding: 1px 4px; border-radius: 3px; font-weight: 600; }
 .pos-risk { display: flex; gap: 6px; margin-top: 4px; font-size: 11px; align-items: center; }
 .rl { padding: 1px 5px; border-radius: 3px; font-weight: 500; }
 .rl.stop { color: #f56c6c; background: #fef0f0; }
+.rl.stop-price { color: #f56c6c; background: #fef0f0; font-weight: 700; }
 .rl.profit { color: #67c23a; background: #f0f9eb; }
+.rl.profit-price { color: #67c23a; background: #f0f9eb; font-weight: 700; }
 .rd { color: #909399; }
 .rd.danger { color: #f56c6c; font-weight: 600; animation: blink 1s infinite; }
 @keyframes blink { 50% { opacity: 0.5; } }

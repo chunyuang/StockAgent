@@ -529,6 +529,9 @@ async def get_daily_report():
                 )[:5],
             },
             "trades": today_trades,
+            "win_rate": round(stats.get("take_profits", 0) / max(stats.get("trades_executed", 1), 1) * 100, 1) if stats.get("trades_executed", 0) > 0 else 0,
+            "stop_loss_count": stats.get("stop_losses", 0),
+            "take_profit_count": stats.get("take_profits", 0),
             "risk": {
                 "circuit_breaker": cb.get("trading_paused", False),
                 "consecutive_losses": cb.get("consecutive_losses", 0),
