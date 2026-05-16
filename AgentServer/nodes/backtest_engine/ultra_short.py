@@ -39,7 +39,6 @@ Web API构建的task_info结构:
 
 import subprocess
 from datetime import datetime, timezone
-from typing import Dict, Any, List
 
 from core.constants import C
 from core.managers import mongo_manager, akshare_manager, redis_manager
@@ -108,13 +107,9 @@ async def execute_ultra_short_backtest(
     logger.info("INIT", f"初始资金：{initial_cash:,.0f} 元")
 
     # 解析选中策略名称
-    strategy_name_map = {
-        "halfway_chase": "半路追涨",
-        "first_limit_up": "首板打板",
-        "limit_up_open": "涨停开板",
-        "dragon_head": "龙头低吸",
-        "limit_down_qiao": "跌停翘板"
-    }
+    # 【N06修复：使用models.py中的共享映射，不再本地重复定义】
+    from nodes.web.api.backtest.models import strategy_name_map as _snm
+    strategy_name_map = _snm
     selected_strategy_names = [strategy_name_map.get(s, s) for s in strategies]
     logger.info("INIT", f"选中策略：【{'、'.join(selected_strategy_names)}】")
 
