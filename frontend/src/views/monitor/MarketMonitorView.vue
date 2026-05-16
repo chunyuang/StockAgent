@@ -104,6 +104,10 @@ const stratCollapsed = ref<Record<string, boolean>>({})
 function toggleStrat(id: string) { stratCollapsed.value[id] = !stratCollapsed.value[id] }
 async function dailySettlement() { try { const r = await api.post(`${scannerApi}/daily-settlement`); if (r?.success) { ElMessage.success(r.data?.message || '日结算完成'); await fetchScanner() } } catch (e: any) { ElMessage.error('日结算失败') } }
 async function resetAccount() { try { const r = await api.post(`${scannerApi}/reset`); if (r?.success) { ElMessage.success('账户已重置'); await fetchAll(true) } } catch (e: any) { ElMessage.error('重置失败') } }
+async function sellAllPositions() { try { const r = await api.post(`${scannerApi}/sell-all`); if (r?.success) { ElMessage.success(r.data?.message || '清仓完成'); await fetchAll(true) } } catch (e: any) { ElMessage.error('清仓失败') } }
+async function fetchWeeklyReport() { try { const r = await api.get(`${scannerApi}/weekly-report`); if (r?.success) return r.data } catch { return null } }
+async function exportTradeLog() { try { const r = await api.get(`${scannerApi}/trade-log?format=csv&days=30`); if (r?.success && r.data) { const blob = new Blob([r.data], { type: 'text/csv;charset=utf-8' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = r.filename || 'trade_log.csv'; a.click(); URL.revokeObjectURL(url); ElMessage.success('导出成功') } } catch { ElMessage.error('导出失败') } }
+async function saveSnapshot() { try { const r = await api.post(`${scannerApi}/snapshot`); if (r?.success) ElMessage.success('快照已保存') } catch { ElMessage.error('保存失败') } }
 async function resetCircuitBreaker() { try { const r = await api.post(`${scannerApi}/circuit-breaker/reset`); if (r?.success) { ElMessage.success('熔断已重置'); fetchAll(true) } } catch { ElMessage.error('重置失败') } }
 async function fetchLimitPools() { try { const r = await api.get(`${scannerApi}/limit-pools`); if (r?.success) limitPools.value = r.data } catch { } }
 async function fetchDailyReport() { try { const r = await api.get(`${scannerApi}/daily-report`); if (r?.success) dailyReport.value = r.data } catch { } }
@@ -125,7 +129,10 @@ async function loadHistory() { if (!historyDate.value) { ElMessage.warning('请�
 const compareData = ref<any[]>([])
 const compareVisible = ref(false)
 const compareLoading = ref(false)
+const weeklyReportData = ref<any>(null)
+const weeklyReportVisible = ref(false)
 async function loadCompare() { compareLoading.value = true; try { const r = await api.get(`${scannerApi}/backtest-compare`); if (r?.success) { compareData.value = r.data || []; compareVisible.value = true } } catch { ElMessage.error('加载失败') } finally { compareLoading.value = false } }
+async function openWeeklyReport() { try { const data = await fetchWeeklyReport(); if (data) { weeklyReportData.value = data; weeklyReportVisible.value = true } else ElMessage.warning('暂无周报数据') } catch { ElMessage.error('加载失败') } }
 // 【调试增强】
 const dryRun = computed(() => status.value?.dry_run ?? false)
 const layerDebugVisible = ref(false)
@@ -204,7 +211,11 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           <ElButton size="small" @click="toggleDryRun" style="width:100%">{{ dryRun ? '🔴 关闭调试' : '🔍 开启调试' }}</ElButton>
           <ElButton size="small" @click="loadCompare" :loading="compareLoading" style="width:100%">📊 回测对比</ElButton>
           <ElButton size="small" @click="fetchDailyReport(); dailyReportVisible = true" style="width:100%">📈 复盘报告</ElButton>
+          <ElButton size="small" @click="openWeeklyReport" style="width:100%">📊 周报</ElButton>
+          <ElButton size="small" @click="exportTradeLog" style="width:100%">📥 导出交易日志</ElButton>
+          <ElButton size="small" @click="saveSnapshot" style="width:100%">📸 保存快照</ElButton>
           <ElButton v-if="circuitBreakerPaused" size="small" type="danger" @click="resetCircuitBreaker" style="width:100%">🔓 重置熔断</ElButton>
+          <ElButton v-if="positions.length" size="small" type="danger" @click="sellAllPositions" style="width:100%">⚡ 一键清仓</ElButton>
           <ElButton size="small" type="warning" @click="resetAccount" style="width:100%">🗑️ 清仓重置</ElButton>
         </div>
         <div class="st" style="margin-top:10px">🔧 手动下单</div>
@@ -385,6 +396,17 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <div class="dr-sec" v-if="dailyReport.positions.strategy_summary"><div class="dr-t">📋 策略汇总</div><div v-for="(s, k) in dailyReport.positions.strategy_summary" class="dr-p"><span>{{ k }}</span><span>{{ s.count }}只</span><span :class="s.total_pnl >= 0 ? 'up' : 'down'">¥{{ s.total_pnl >= 0 ? '+' : '' }}{{ s.total_pnl.toFixed(0) }}</span></div></div>
       </div>
       <div v-else class="empty">暂无复盘数据</div>
+    </ElDialog>
+
+    <!-- 周报弹窗 -->
+    <ElDialog v-model="weeklyReportVisible" title="📊 周报 — 最近5个交易日" width="800px">
+      <div v-if="weeklyReportData" class="wr">
+        <div class="wr-sec"><div class="wr-t">💰 账户状态</div><div class="wr-g"><div class="wr-i"><span class="wr-l">总资产</span><span class="wr-v">{{ (weeklyReportData.account?.total_assets / 10000 || 0).toFixed(1) }}万</span></div><div class="wr-i"><span class="wr-l">累计盈亏</span><span class="wr-v" :class="weeklyReportData.account?.total_profit >= 0 ? 'up' : 'down'">{{ weeklyReportData.account?.total_profit >= 0 ? '+' : '' }}{{ (weeklyReportData.account?.total_profit || 0).toFixed(0) }}</span></div><div class="wr-i"><span class="wr-l">可用现金</span><span class="wr-v">{{ (weeklyReportData.account?.available_cash / 10000 || 0).toFixed(1) }}万</span></div></div></div>
+        <div class="wr-sec"><div class="wr-t">📈 交易统计</div><div class="wr-g"><div class="wr-i"><span class="wr-l">交易日</span><span class="wr-v">{{ weeklyReportData.totals?.trading_days || 0 }}天</span></div><div class="wr-i"><span class="wr-l">买入</span><span class="wr-v">{{ weeklyReportData.totals?.total_buys || 0 }}笔</span></div><div class="wr-i"><span class="wr-l">卖出</span><span class="wr-v">{{ weeklyReportData.totals?.total_sells || 0 }}笔</span></div><div class="wr-i"><span class="wr-l">净流入</span><span class="wr-v" :class="weeklyReportData.totals?.net_flow >= 0 ? 'up' : 'down'">{{ (weeklyReportData.totals?.net_flow || 0).toFixed(0) }}</span></div></div></div>
+        <div class="wr-sec" v-if="weeklyReportData.strategy_summary"><div class="wr-t">📋 策略汇总</div><div v-for="(s, k) in weeklyReportData.strategy_summary" class="wr-p"><span>{{ k }}</span><span>{{ s.trades }}笔</span><span :class="s.amount >= 0 ? 'up' : 'down'">¥{{ s.amount >= 0 ? '+' : '' }}{{ s.amount.toFixed(0) }}</span></div></div>
+        <div class="wr-sec" v-if="weeklyReportData.daily_stats"><div class="wr-t">📅 每日明细</div><div v-for="(stats, date) in weeklyReportData.daily_stats" class="wr-day"><span class="wr-date">{{ date }}</span><span>买{{ stats.buys }}卖{{ stats.sells }}</span><span :class="stats.sell_amount - stats.buy_amount >= 0 ? 'up' : 'down'">¥{{ (stats.sell_amount - stats.buy_amount).toFixed(0) }}</span></div></div>
+      </div>
+      <div v-else class="empty">暂无周报数据</div>
     </ElDialog>
   </div>
 </template>
@@ -578,4 +600,16 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .dr-l { font-size: 10px; color: #909399; }
 .dr-v { font-size: 13px; font-weight: 500; }
 .dr-p { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; border-bottom: 1px solid #f2f3f5; }
+
+/* 周报弹窗 */
+.wr { font-size: 13px; }
+.wr-sec { margin-bottom: 14px; padding: 10px; background: #fafafa; border-radius: 8px; border: 1px solid #ebeef5; }
+.wr-t { font-size: 14px; font-weight: 600; margin-bottom: 6px; color: #303133; }
+.wr-g { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 4px; }
+.wr-i { display: flex; flex-direction: column; gap: 1px; }
+.wr-l { font-size: 10px; color: #909399; }
+.wr-v { font-size: 14px; font-weight: 600; }
+.wr-p { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; border-bottom: 1px solid #f2f3f5; }
+.wr-day { display: flex; align-items: center; gap: 10px; padding: 4px 0; font-size: 12px; border-bottom: 1px solid #f2f3f5; }
+.wr-date { font-weight: 600; color: #303133; min-width: 80px; }
 </style>

@@ -79,6 +79,7 @@ class MarketScanner:
     MAX_POSITIONS = 10  # 最大持仓数
     MAX_POSITION_RATIO = 0.7  # 最大仓位比例
     SIGNAL_EXPIRE_SECONDS = 300  # 信号过期时间(秒): 5分钟后信号失效
+    SIGNAL_EXPIRE_ACTION = True   # 过期信号是否自动取消买入(后端强制)
 
     # 交易模式
     MODE_SIMULATED = "simulated"  # 内置仿真撮合
@@ -296,12 +297,7 @@ class MarketScanner:
         except Exception as e:
             logger.debug(f"[SCAN] 加载时间线失败(非关键): {e}")
 
-    def update_strategy_config(self, strategy_id: str, config: Dict):
-        """运行时更新策略配置(来自前端策略配置页)"""
-        if "strategy_overrides" not in self.config:
-            self.config["strategy_overrides"] = {}
-        self.config["strategy_overrides"][strategy_id] = config
-        logger.info(f"[SCANNER] 策略配置更新: {strategy_id} enabled={config.get('enabled')}")
+    # (update_strategy_config moved to end of class — see hot-update version)
 
     # ==================== 生命周期 ====================
 
@@ -1212,6 +1208,15 @@ class MarketScanner:
                     s.signal_status = "expired"
                     expired_keys.add(s.ts_code + "|" + s.strategy)
                     logger.debug(f"[SIGNAL] 过期: {s.ts_code} {s.strategy_name} ({now - s.created_at:.0f}s)")
+                    # 推送过期事件
+                    try:
+                        await self._publish_scanner_event("signal_expired", {
+                            "ts_code": s.ts_code,
+                            "strategy": s.strategy,
+                            "expired_after": round(now - s.created_at, 0),
+                        })
+                    except Exception:
+                        pass
         # 移除已过期且已执行的信号(保留expired状态供前端展示)
         self._active_signals = [s for s in self._active_signals
                                  if s.signal_status not in ("expired",) or s.created_at == 0]
@@ -1466,12 +1471,12 @@ class MarketScanner:
                     "decision_detail": {  # 【实盘审查增强】卖出决策详情
                         "sell_reason": reason,
                         "profit_pct": round(pos.profit_pct, 2),
-                        "cost_price": pos.cost_price,
+                        "cost_price": pos.avg_cost,
                         "sell_price": order.filled_price,
                         "current_price": pos.current_price,
-                        "stop_loss_pct": pos.stop_loss_pct,
-                        "take_profit_pct": pos.take_profit_pct,
-                        "hold_minutes": pos.hold_minutes,
+                        "stop_loss_pct": -risk.get("stop_loss_pct", 0.03) * 100,
+                        "take_profit_pct": risk.get("take_profit_pct", 0.07) * 100,
+                        "hold_minutes": 0,
                     },
                 })
                 if "止损" in reason:
@@ -1669,7 +1674,7 @@ class MarketScanner:
             collection = mongo_manager.db["scanner_timeline"]
             doc = {
                 "trade_date": trade_date,
-                "account_id": self._account_id,
+                "account_id": self.account_id,
                 "timeline": self._timeline,
                 "stats": dict(self._stats),
                 "saved_at": datetime.now().isoformat(),
@@ -1983,9 +1988,128 @@ class MarketScanner:
             "scan_time": s.scan_time, "factors": s.factors,
             "signal_status": s.signal_status,
             "created_at": s.created_at,
+            "expire_remaining": max(0, self.SIGNAL_EXPIRE_SECONDS - (time.time() - s.created_at)) if s.created_at > 0 else -1,
         }
         if s.decision_detail:
             d["decision_detail"] = s.decision_detail
         if s.layer_trace:
             d["layer_trace"] = s.layer_trace
         return d
+
+    def generate_summary_report(self) -> Dict[str, Any]:
+        """生成完整交易摘要报告(供API调用)
+        
+        包含:
+        - 账户概览(资产/现金/仓位/盈亏)
+        - 持仓详情(每只股票的成本/现价/盈亏/止损止盈)
+        - 今日交易统计(买入/卖出/胜率/盈亏比)
+        - 策略表现(每策略的交易数/胜率/盈亏)
+        - 风控状态(熔断/连续亏损/最大回撤)
+        - 信号统计(活跃/过期/执行/跳过)
+        """
+        if not self._broker:
+            return {"error": "Broker未初始化"}
+        
+        acct = self._broker.get_account()
+        positions = self._broker.get_positions()
+        
+        # === 账户概览 ===
+        account_summary = {
+            "total_assets": round(acct.total_assets, 2),
+            "available_cash": round(acct.available_cash, 2),
+            "market_value": round(acct.market_value, 2),
+            "total_profit": round(acct.total_profit, 2),
+            "position_ratio": round(acct.market_value / max(acct.total_assets, 1) * 100, 1),
+            "position_count": len(positions),
+        }
+        
+        # === 持仓详情 ===
+        position_details = []
+        for p in positions:
+            risk = self._get_strategy_risk(p.strategy)
+            sl_pct = risk.get("stop_loss_pct", 0.03) * 100
+            tp_pct = risk.get("take_profit_pct", 0.07) * 100
+            position_details.append({
+                "ts_code": p.ts_code,
+                "stock_name": p.stock_name,
+                "strategy": p.strategy,
+                "shares": p.total_qty,
+                "available_qty": p.available_qty,
+                "cost_price": round(p.avg_cost, 2),
+                "current_price": round(p.current_price, 2),
+                "profit_pct": round(p.profit_pct, 2),
+                "market_value": round(p.current_price * p.total_qty, 2),
+                "stop_loss_price": round(p.avg_cost * (1 - risk.get("stop_loss_pct", 0.03)), 2),
+                "take_profit_price": round(p.avg_cost * (1 + risk.get("take_profit_pct", 0.07)), 2),
+                "stop_loss_pct": round(sl_pct, 1),
+                "take_profit_pct": round(tp_pct, 1),
+                "distance_to_stop": round(p.profit_pct + sl_pct, 1),
+                "is_t1_locked": p.today_buy_qty > 0,
+            })
+        
+        # === 今日交易统计 ===
+        today_buys = [t for t in self._timeline if t.get("action") == "buy"]
+        today_sells = [t for t in self._timeline if t.get("action") == "sell"]
+        profitable_sells = [t for t in today_sells if t.get("profit_pct", 0) > 0]
+        losing_sells = [t for t in today_sells if t.get("profit_pct", 0) < 0]
+        
+        trade_stats = {
+            "total_trades": len(today_buys) + len(today_sells),
+            "buys": len(today_buys),
+            "sells": len(today_sells),
+            "win_trades": len(profitable_sells),
+            "loss_trades": len(losing_sells),
+            "win_rate": round(len(profitable_sells) / max(len(today_sells), 1) * 100, 1),
+            "avg_profit_pct": round(
+                sum(t.get("profit_pct", 0) for t in profitable_sells) / max(len(profitable_sells), 1), 2
+            ) if profitable_sells else 0,
+            "avg_loss_pct": round(
+                sum(t.get("profit_pct", 0) for t in losing_sells) / max(len(losing_sells), 1), 2
+            ) if losing_sells else 0,
+        }
+        
+        # === 策略表现 ===
+        strategy_performance = {}
+        for t in self._timeline:
+            strat = t.get("strategy", "unknown")
+            if strat not in strategy_performance:
+                strategy_performance[strat] = {"trades": 0, "wins": 0, "total_pnl": 0}
+            strategy_performance[strat]["trades"] += 1
+            if t.get("action") == "sell":
+                pnl = t.get("profit_pct", 0)
+                strategy_performance[strat]["total_pnl"] += pnl
+                if pnl > 0:
+                    strategy_performance[strat]["wins"] += 1
+        
+        # === 风控状态 ===
+        risk_status = {
+            "circuit_breaker_active": self._circuit_breaker.get("trading_paused", False),
+            "circuit_breaker_reason": self._circuit_breaker.get("pause_reason", ""),
+            "consecutive_losses": self._circuit_breaker.get("consecutive_losses", 0),
+            "today_trades": self._circuit_breaker.get("today_trades", 0),
+            "today_losses": self._circuit_breaker.get("today_losses", 0),
+            "dry_run": self._dry_run,
+        }
+        
+        # === 信号统计 ===
+        signal_stats = {
+            "total": len(self._active_signals),
+            "new": len([s for s in self._active_signals if s.signal_status == "new"]),
+            "executed": len([s for s in self._active_signals if s.signal_status == "executed"]),
+            "skipped": len([s for s in self._active_signals if s.signal_status == "skipped"]),
+            "expired": len([s for s in self._active_signals if s.signal_status == "expired"]),
+            "filtered": len([s for s in self._active_signals if s.signal_status == "filtered"]),
+        }
+        
+        return {
+            "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "account": account_summary,
+            "positions": position_details,
+            "trade_stats": trade_stats,
+            "strategy_performance": strategy_performance,
+            "risk_status": risk_status,
+            "signal_stats": signal_stats,
+            "scanner_stats": dict(self._stats),
+            "sentiment": self._current_sentiment,
+            "position_ratio": self._current_position_ratio,
+        }
