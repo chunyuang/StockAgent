@@ -1086,3 +1086,27 @@ async def get_strategy_filter_detail():
 
 
 import time
+
+
+@router.put("/debug/strategy-hot-update/{strategy_key}")
+async def strategy_hot_update(strategy_key: str, updates: Dict[str, Any] = {}):
+    """策略参数热更新(无需重启scanner)
+    
+    updates格式: {"params": {"min_rise_pct": 0.05}, "riskParams": {"stop_loss_pct": 0.03}, "enabled": True}
+    下次扫描时自动生效。
+    
+    注意: 仅影响内存配置, 不持久化到数据库。重启后恢复默认。
+    """
+    scanner = _get_scanner()
+    scanner.update_strategy_config(strategy_key, updates)
+    
+    # 返回更新后的配置
+    effective = scanner._get_effective_strategy_config(strategy_key)
+    return {
+        "success": True,
+        "data": {
+            "strategy_key": strategy_key,
+            "effective_config": effective,
+            "message": f"策略{strategy_key}参数已热更新, 下次扫描生效",
+        }
+    }

@@ -557,14 +557,20 @@ class MarketScanner:
     # ==================== 扫描循环 ====================
 
     async def _scan_loop(self, trade_date: str):
-        """主扫描循环(双层节奏)
+        """主扫描循环(双层节奏 + 智能刷新)
         
         全量扫描(5分钟): 涨停池+策略筛选 → 发现新信号
         持仓检查(30秒): 只查持仓股行情 → 止损止盈
         
+        【智能刷新】
+        - 交易时间(9:30-15:00): 正常5分钟全量+30秒持仓
+        - 盘前(9:00-9:30): 2分钟检查一次(竞价预选)
+        - 非交易时间: 5分钟检查一次(只检查持仓,不拉行情)
+        - 深夜(23:00-8:00): 30分钟检查一次(几乎不刷新)
+        
         必盈200次/天:
-        - 全量: 23次/轮 × 48轮(4h/5min) = 1104次 → 太多!
-        - 优化: 全量8轮(184次) + 持仓检查(不消耗必盈额度,用缓存)
+        - 全量: 23次/轮 × 8轮(4h/5min) = 184次 → 合理
+        - 持仓检查: 不消耗必盈额度(用东方财富缓存)
         """
         settled = False
         last_full_scan = 0  # 上次全量扫描时间
@@ -573,37 +579,53 @@ class MarketScanner:
             while self._is_running:
                 now = datetime.now()
                 ct = now.strftime("%H:%M")
+                h = now.hour
 
-                # 仅在交易时间扫描
+                # === 交易时间(9:30-15:00) ===
                 if "09:30" <= ct <= "15:00":
                     settled = False
-                    
                     elapsed = time.time() - last_full_scan
                     
                     if elapsed >= self.SCAN_INTERVAL:
-                        # === 全量扫描(5分钟) ===
                         await self.scan_once(trade_date)
                         last_full_scan = time.time()
                     else:
-                        # === 持仓检查(30秒) ===
                         await self._check_positions_quick(trade_date)
                         await asyncio.sleep(self.POSITION_CHECK_INTERVAL)
                         continue
-                        
+                
+                # === 盘前(9:00-9:30): 竞价预选 ===
+                elif "09:00" <= ct < "09:30":
+                    settled = False
+                    await self._premarket_auction(trade_date)
+                    await asyncio.sleep(120)  # 2分钟
+                    
+                # === 收盘后(15:05+): 自动结算 ===
                 elif ct >= "15:05" and not settled and self._broker:
-                    # 收盘后自动结算(T+1解锁)
                     self._broker.daily_settlement(trade_date)
                     settled = True
-                    # 持久化最终状态
                     try:
                         await self._broker.save_state()
                     except Exception:
                         pass
                     logger.info("[SCANNER] 收盘自动结算+持久化完成")
+                    # 保存timeline到MongoDB
+                    try:
+                        await self._save_timeline_to_mongo(trade_date)
+                    except Exception:
+                        pass
                     await asyncio.sleep(60)
+                    
+                # === 深夜(23:00-8:00): 极低频 ===
+                elif h >= 23 or h < 8:
+                    await asyncio.sleep(1800)  # 30分钟
+                    
+                # === 其他非交易时间: 低频持仓检查 ===
                 else:
-                    # 非交易时间, 降低频率
-                    await asyncio.sleep(60)
+                    # 只检查持仓(不拉行情), 5分钟
+                    if self._broker and self._broker.get_positions():
+                        await self._check_positions_quick(trade_date)
+                    await asyncio.sleep(300)  # 5分钟
 
         except asyncio.CancelledError:
             pass
@@ -1465,6 +1487,11 @@ class MarketScanner:
         
         东方财富3秒获取全市场5400只价格, 不消耗必盈额度。
         只从缓存提取持仓股价格, 然后检查止损止盈。
+        
+        【增强】
+        - 跳空止损: 当日open<止损价→open卖出(与回测一致)
+        - 跌停不可卖: 跌停股不执行卖出(挂单无法成交)
+        - dry_run模式: 不执行卖出, 只记录
         """
         if not self._broker:
             return
@@ -1507,22 +1534,42 @@ class MarketScanner:
             stop_loss_pct = -risk.get("stop_loss_pct", 0.03) * 100
             take_profit_pct = risk.get("take_profit_pct", 0.07) * 100
             
+            # 【增强】跳空止损: 获取当日open价
+            stop_loss_price = pos.avg_cost * (1 - risk.get("stop_loss_pct", 0.03))
+            open_price = self._get_open_price(pos.ts_code)  # 当日开盘价
+            
             if pos.profit_pct <= stop_loss_pct:
-                to_sell.append((pos, f"止损 {pos.profit_pct:.1f}%"))
+                # 【增强】跳空止损: open<止损价→用open卖出
+                if open_price and open_price < stop_loss_price:
+                    to_sell.append((pos, f"跳空止损 {pos.profit_pct:.1f}%", open_price))
+                else:
+                    to_sell.append((pos, f"止损 {pos.profit_pct:.1f}%", None))
             elif pos.profit_pct >= take_profit_pct:
-                to_sell.append((pos, f"止盈 {pos.profit_pct:.1f}%"))
+                to_sell.append((pos, f"止盈 {pos.profit_pct:.1f}%", None))
         
         # 执行卖出
-        for pos, reason in to_sell:
+        for pos, reason, force_price in to_sell:
             if pos.available_qty <= 0:
                 continue
-            self._broker.update_realtime(pos.ts_code, pos.current_price)
+            
+            # 【增强】跌停不可卖: 检查是否跌停
+            if self._is_limit_down(pos.ts_code):
+                logger.warning(f"[QUICK] 跌停不可卖: {pos.ts_code} {pos.stock_name}")
+                continue
+            
+            # 【增强】dry_run模式: 不执行卖出
+            if self._dry_run:
+                logger.info(f"[DRY-RUN] 跳过卖出 {pos.ts_code} {reason}")
+                continue
+            
+            sell_price = force_price if force_price else pos.current_price
+            self._broker.update_realtime(pos.ts_code, sell_price)
             ok, msg, order = self._broker.place_order(
                 ts_code=pos.ts_code,
                 stock_name=pos.stock_name,
                 side="sell",
                 quantity=pos.available_qty,
-                price=pos.current_price,
+                price=sell_price,
                 order_type="market",
                 strategy=pos.strategy,
                 reason=reason,
@@ -1553,6 +1600,32 @@ class MarketScanner:
             except Exception:
                 pass
 
+    def _get_open_price(self, ts_code: str) -> Optional[float]:
+        """获取当日开盘价(从实时缓存)"""
+        cached = (self._realtime_cache or {}).get(ts_code, {})
+        open_price = cached.get("open", 0)
+        if open_price and open_price > 0:
+            return open_price
+        # 回退: 东方财富缓存
+        if self._data_router:
+            eastmoney = self._data_router._sources.get("eastmoney")
+            if eastmoney and hasattr(eastmoney, '_snapshot_cache'):
+                snap = eastmoney._snapshot_cache.get(ts_code, {})
+                return snap.get("open", 0) or None
+        return None
+
+    def _is_limit_down(self, ts_code: str) -> bool:
+        """检查是否跌停(跌停不可卖)"""
+        cached = (self._realtime_cache or {}).get(ts_code, {})
+        pct = cached.get("pct_chg", 0)
+        # ST股跌停-5%, 普通-10%, 科创/创业板-20%
+        if ts_code.startswith(('688', '300')):
+            return pct <= -19.5  # -20%跌停
+        elif cached.get("is_st", False):
+            return pct <= -4.5  # -5%跌停
+        else:
+            return pct <= -9.5  # -10%跌停
+
     # ==================== 参数校验 ====================
 
     def _validate_live_params(self):
@@ -1580,10 +1653,56 @@ class MarketScanner:
         if warnings:
             for w in warnings:
                 logger.warning(f"[VALIDATE] ⚠️ {w}")
-        else:
-            logger.info("[VALIDATE] ✅ 实盘参数校验通过")
+
+    async def _save_timeline_to_mongo(self, trade_date: str):
+        """保存当日timeline到MongoDB(收盘后调用)"""
+        try:
+            from core.managers import mongo_manager
+            if not mongo_manager._client:
+                return
+            collection = mongo_manager.db["scanner_timeline"]
+            doc = {
+                "trade_date": trade_date,
+                "account_id": self._account_id,
+                "timeline": self._timeline,
+                "stats": dict(self._stats),
+                "saved_at": datetime.now().isoformat(),
+            }
+            await collection.replace_one(
+                {"trade_date": trade_date, "account_id": self._account_id},
+                doc,
+                upsert=True,
+            )
+            logger.info(f"[SCANNER] Timeline已保存到MongoDB: {trade_date} {len(self._timeline)}条")
+        except Exception as e:
+            logger.warning(f"[SCANNER] Timeline保存失败: {e}")
+
+    def update_strategy_config(self, strategy_key: str, updates: Dict[str, Any]):
+        """策略参数热更新(无需重启scanner)
         
-        return warnings
+        updates格式: {"params": {...}, "riskParams": {...}, "enabled": True}
+        下次扫描时自动生效(因为_get_effective_strategy_config读取strategy_overrides)
+        """
+        if "strategy_overrides" not in self.config:
+            self.config["strategy_overrides"] = {}
+        
+        existing = self.config["strategy_overrides"].get(strategy_key, {})
+        
+        if "params" in updates:
+            if "params" not in existing:
+                existing["params"] = {}
+            existing["params"].update(updates["params"])
+        
+        if "riskParams" in updates:
+            if "riskParams" not in existing:
+                existing["riskParams"] = {}
+            existing["riskParams"].update(updates["riskParams"])
+        
+        if "enabled" in updates:
+            existing["enabled"] = updates["enabled"]
+        
+        self.config["strategy_overrides"][strategy_key] = existing
+        logger.info(f"[SCANNER] 策略参数热更新: {strategy_key} → {existing}")
 
     # ==================== 盘中异动监控 ====================
 
