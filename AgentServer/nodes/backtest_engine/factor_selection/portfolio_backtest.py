@@ -46,6 +46,7 @@ from datetime import datetime as dt_now  # 【修复：避免局部from datetime
 from core.constants import C
 from core.managers import mongo_manager, redis_manager
 from core.utils.logger import logger
+from .factor_quality_checker import FactorQualityChecker, FactorQualityLevel
 
 # 【修复：PerformanceAnalyzer已弃用（API不匹配），移除import避免ModuleNotFoundError】
 # from real_trading.performance_analyzer import PerformanceAnalyzer
@@ -1250,27 +1251,47 @@ class PortfolioBacktester:
             run_state['peak_value'] = peak_value
             run_state['last_net_value'] = last_net_value
             return run_state
-        # 🔍 因子完整性检查:检查所有请求的因子是否都存在数据
-        missing_factors = []
-        for f in config["factors"]:
-            factor_name = f["name"]
-            if factor_name not in factor_df.columns:
-                missing_factors.append(factor_name)
-            else:
-                # 检查是否全为空
-                if factor_df[factor_name].isna().all():
-                    missing_factors.append(factor_name + "(全为空)")
-
-        if missing_factors:
-            await self.log(f"   ⚠️  【重要告警】检测到因子数据缺失,共 {len(missing_factors)} 个:")
-            # 每行显示 5 个因子,避免太长
-            for i in range(0, len(missing_factors), 5):
-                batch = missing_factors[i:i+5]
-                await self.log(f"      • {', '.join(batch)}")
-            await self.log(f"      🔍 原因可能是:")
-            await self.log(f"          1. 该日期未批量计算因子,需要先运行因子同步任务")
-            await self.log(f"          2. 全市场该因子数据不完整,部分日期缺失")
-            await self.log(f"      ⚠️  回测结果可能异常,建议先同步因子数据后重试")
+        # 🔍 因子数据质量检查（P3-9优化：增强检查，缺失核心因子时中止）
+        selected_strategies = config.get("selected_strategies", [])
+        enabled_strategy_names = [s.get("name", "") for s in selected_strategies] if selected_strategies else []
+        
+        quality_checker = FactorQualityChecker(strict_mode=False)
+        quality_report = quality_checker.check_factor_quality(
+            factor_df, config["factors"], enabled_strategy_names, str(trade_date)
+        )
+        
+        # 输出质量报告
+        for line in quality_checker.get_quality_summary(quality_report).split('\n'):
+            await self.log(f"   {line}")
+        
+        # 判断是否需要中止回测
+        should_abort, abort_reason = quality_checker.should_abort_backtest(quality_report)
+        if should_abort:
+            await self.log(f"   ❌ 【中止回测】{abort_reason}")
+            await self.log(f"   💡 建议：先运行因子同步任务补全数据后再重试")
+            await self._print_daily_summary(trade_date, len(holdings), cash)
+            last_net_value, peak_value = await self._record_daily_net_value(
+                trade_date, holdings, cash, last_net_value, peak_value,
+                net_value_series, daily_profit_list, drawdown_series, daily_cash_list,
+                last_prices=last_prices)
+            run_state['cash'] = cash
+            run_state['holdings'] = holdings
+            run_state['rebalance_records'] = rebalance_records
+            run_state['last_prices'] = last_prices
+            run_state['stock_names'] = stock_names
+            run_state['net_value_series'] = net_value_series
+            run_state['daily_profit_list'] = daily_profit_list
+            run_state['drawdown_series'] = drawdown_series
+            run_state['daily_cash_list'] = daily_cash_list
+            run_state['peak_value'] = peak_value
+            run_state['last_net_value'] = last_net_value
+            return run_state
+        
+        # 为缺失的因子应用默认值（避免后续计算出错）
+        if quality_report.missing_factors or quality_report.empty_factors:
+            all_missing = quality_report.missing_factors + quality_report.empty_factors
+            quality_checker.apply_factor_defaults(factor_df, all_missing)
+            await self.log(f"   🔧 已为 {len(all_missing)} 个缺失因子应用默认值")
 
         # ✅ 情绪周期映射: sentiment_period_in
         # 【P0-1修复】不再依赖factor_df中的sentiment_score(全为0.5填充值，std=0→跳过)

@@ -29,6 +29,7 @@ from .models import (
     strategy_name_map_reverse,
 )
 from .defaults import get_ultra_short_defaults
+from nodes.backtest_engine.validation.backtest_validator import BacktestValidator
 
 
 router = APIRouter(tags=["UltraShort"])  # 不设prefix，由父router提供/backtest前缀
@@ -60,6 +61,24 @@ async def submit_ultra_short_backtest(
         f"[{task_id}] Ultra short backtest from user {user_id}: "
         f"strategies={request.strategies}, {request.start_date} ~ {request.end_date}"
     )
+
+    # 【P3-36优化：参数校验，防止异常输入】
+    validator = BacktestValidator()
+    request_dict = request.dict()
+    is_valid, validation_errors = validator.validate_backtest_request(request_dict)
+    
+    if not is_valid:
+        error_summary = validator.get_error_summary(validation_errors)
+        logger.error(f"[{task_id}] 参数校验失败:\n{error_summary}")
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "参数校验失败",
+                "errors": [{"field": e.field, "message": e.message, "value": str(e.value)} for e in validation_errors]
+            }
+        )
+    
+    logger.info(f"[{task_id}] ✅ 参数校验通过")
 
     # 构建选中策略列表：100%原封不动使用前端提交的selected_strategies，不做任何修改
     selected_strategies = []
