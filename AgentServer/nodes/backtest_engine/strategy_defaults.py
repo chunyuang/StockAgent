@@ -26,6 +26,8 @@ GLOBAL_RISK = {
 
 # ============================================================
 # 策略级默认止损映射（当策略没有传riskParams时的兜底）
+# ⚠️ 【P2-9修复：此映射与STRATEGY_CONFIGS.riskParams.stop_loss_pct重复】
+#    优先使用STRATEGY_CONFIGS.riskParams，本映射仅作为merge_strategy_risk_params的兜底
 # ============================================================
 STRATEGY_DEFAULT_STOP_LOSS = {
     "半路追涨": 0.05,    # 与riskParams.stop_loss_pct一致

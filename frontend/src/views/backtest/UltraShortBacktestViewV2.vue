@@ -287,7 +287,6 @@ const submitBacktest = async () => {
       ts_codes: form.dataSource.ts_codes,
       adjust_type: form.dataSource.adjust_type,
       initial_cash: form.base.initial_cash,
-      initial_capital: form.base.initial_cash,
       rebalance_freq: "daily",
       params: {
         volume_threshold: form.globalFilter.min_turnover_rate,

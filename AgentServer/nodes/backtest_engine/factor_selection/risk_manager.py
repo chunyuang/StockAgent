@@ -1,11 +1,10 @@
 """
-风控管理模块
+风控管理模块（拆分Phase 5产物）
 
-负责所有风控相关的逻辑，包括：
-- 止损止盈参数获取
-- 滑点参数获取
-- 强制空仓判断
-- 止损止盈触发检查
+⚠️ 注意：本模块已从portfolio_backtest.py拆分出来，但尚未被主引擎引用。
+   portfolio_backtest.py仍使用内联的_get_sl_tp_for_code/check_force_empty等方法。
+   待Phase 6-8完成拆分后，本模块将被正式集成。
+   当前状态：独立可用，但未被调用。
 """
 
 from typing import Dict, List, Tuple

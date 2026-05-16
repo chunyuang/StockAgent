@@ -1,11 +1,10 @@
 """
-价格计算模块
+价格计算模块（拆分Phase 4产物）
 
-负责所有价格相关的计算，包括：
-- 批量获取价格数据
-- 涨跌停价格计算
-- 策略买入价计算
-- 股票名称查询
+⚠️ 注意：本模块已从portfolio_backtest.py拆分出来，但尚未被主引擎引用。
+   portfolio_backtest.py仍使用内联的_get_prices/_get_buy_price_for_stock等方法。
+   待Phase 6-8完成拆分后，本模块将被正式集成。
+   当前状态：独立可用，但未被调用。
 """
 
 from typing import Dict, List, Set, Tuple
