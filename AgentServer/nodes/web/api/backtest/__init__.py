@@ -419,6 +419,36 @@ async def cancel_backtest(
     return {"task_id": task_id, "status": "cancelled", "message": "任务已取消"}
 
 
+@router.delete("/history/{task_id}")
+async def delete_backtest_history(
+    task_id: str,
+    user_id: str = Depends(get_optional_user_id),
+) -> Dict[str, Any]:
+    """删除回测历史记录"""
+    # 清理mock_tasks缓存
+    if task_id in mock_tasks:
+        del mock_tasks[task_id]
+
+    # 查MongoDB
+    record = await mongo_manager.find_one(
+        "backtest_tasks",
+        {"task_id": task_id},
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    # 权限检查
+    if record.get("params", {}).get("user_id") and record["params"]["user_id"] != user_id:
+        raise HTTPException(status_code=403, detail="无权操作此任务")
+
+    # 删除
+    await mongo_manager.delete_one(
+        "backtest_tasks",
+        {"task_id": task_id},
+    )
+    return {"task_id": task_id, "status": "deleted", "message": "回测记录已删除"}
+
+
 # ==================== 因子选股回测 API ====================
 
 
