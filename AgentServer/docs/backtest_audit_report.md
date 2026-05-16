@@ -155,15 +155,17 @@
 | P1-2 | leader_buy_dip vs dragon_head | ✅ 已修复 | 80f72d5 |
 | P1-3 | forceEmpty细粒度参数未透传 | ✅ 已修复 | 4f2cd08 |
 | P1-4 | globalFilter参数未透传 | ✅ 已修复 | 4f2cd08 |
-| P1-5 | 首板打板死参数 | ⏳ 日志标注即可 | - |
-| P1-6 | strategy_risk_params未正式声明 | ⏳ 功能正常 | - |
+| P1-5 | 首板打板死参数 | ✅ 日志分离实盘/回测 | 5fd7601 |
+| P1-6 | strategy_risk_params未正式声明 | ✅ 已声明 | 5fd7601 |
 | P2-1 | 同P0-2 | ✅ 已修复 | 4f2cd08 |
-| P2-2 | enable_force_empty重复定义 | ⏳ 低优先 | - |
-| P2-3 | ultra_short.py默认值不一致 | ⏳ 兜底路径 | - |
-| P2-4 | API参数嵌套结构混乱 | ⏳ 低优先 | - |
-| P2-5 | BacktestConfig死代码 | ⏳ 可删 | - |
-| P2-6 | BacktestRequest/FactorSelectionRequest死代码 | ⏳ 可删 | - |
+| P2-2 | enable_force_empty重复定义 | ✅ 移除params层定义 | 5fd7601 |
+| P2-3 | ultra_short.py默认值不一致 | ✅ 全从STRATEGY_CONFIGS读 | 5fd7601 |
+| P2-4 | API参数嵌套结构混乱 | ✅ 添加文档注释 | 5fd7601 |
+| P2-5 | BacktestConfig死代码 | ✅ 标注为旧版 | 5fd7601 |
+| P2-6 | BacktestRequest/FactorSelectionRequest死代码 | ✅ 标注为旧版 | 5fd7601 |
 | P2-7 | commission_rate未透传 | ✅ 已修复 | 4f2cd08 |
-| P2-8 | min_turnover_rate单位不一致 | ⏳ 需统一 | - |
+| P2-8 | min_turnover_rate单位不一致 | ✅ 统一百分比 | 5fd7601 |
 | P2-9 | sync脚本不存在 | ✅ 已创建 | 4f2cd08 |
 | P2-10 | mock_tasks内存泄漏 | ✅ 已修复 | 4f2cd08 |
+
+**全部19项问题已处理完毕。** 14项代码修复 + 3项标注 + 1项文档化 + 1项此前已修
