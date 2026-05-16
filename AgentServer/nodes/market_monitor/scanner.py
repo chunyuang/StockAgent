@@ -222,6 +222,55 @@ class MarketScanner:
     def get_timeline(self) -> List[Dict]:
         return list(self._timeline)
 
+    async def _save_timeline(self):
+        """保存时间线到MongoDB(追加模式, 不删除历史)"""
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.db is None:
+                return
+            today = datetime.now().strftime("%Y%m%d")
+            if not self._timeline:
+                return
+            # 只保存今天的时间线
+            docs = []
+            for item in self._timeline:
+                doc = dict(item)
+                doc["account_id"] = self._broker.account.account_id if self._broker else "default"
+                doc["trade_date"] = today
+                # decision_detail可能很大, 但值得保存
+                docs.append(doc)
+            # 追加: 先查已有记录数, 只插入新增的
+            existing = await mongo_manager.db["scanner_timeline"].count_documents({
+                "account_id": docs[0]["account_id"], "trade_date": today
+            })
+            new_docs = docs[existing:]  # 只插入新增部分
+            if new_docs:
+                await mongo_manager.db["scanner_timeline"].insert_many(new_docs)
+                logger.info(f"[SCAN] 保存时间线: {len(new_docs)}条新增")
+        except Exception as e:
+            logger.info(f"[SCAN] 保存时间线失败(非关键): {e}")
+
+    async def _load_timeline(self):
+        """从MongoDB加载时间线(启动时恢复)"""
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.db is None:
+                return
+            today = datetime.now().strftime("%Y%m%d")
+            account_id = self._broker.account.account_id if self._broker else "default"
+            cursor = mongo_manager.db["scanner_timeline"].find(
+                {"account_id": account_id, "trade_date": today}
+            ).sort("_id", 1)  # 按插入顺序
+            async for doc in cursor:
+                doc.pop("_id", None)
+                doc.pop("account_id", None)
+                doc.pop("trade_date", None)
+                self._timeline.append(doc)
+            if self._timeline:
+                logger.info(f"[SCAN] 恢复时间线: {len(self._timeline)}条")
+        except Exception as e:
+            logger.debug(f"[SCAN] 加载时间线失败(非关键): {e}")
+
     def update_strategy_config(self, strategy_id: str, config: Dict):
         """运行时更新策略配置(来自前端策略配置页)"""
         if "strategy_overrides" not in self.config:
@@ -255,6 +304,8 @@ class MarketScanner:
 
         self._is_running = True
         self._task = asyncio.create_task(self._scan_loop(trade_date))
+        # 恢复今日时间线
+        await self._load_timeline()
         logger.info(f"[SCANNER] 启动, account={self.account_id}, date={trade_date}")
         return {"success": True, "message": "扫描器启动成功"}
 
@@ -601,6 +652,8 @@ class MarketScanner:
         try:
             saved = await self._broker.save_state()
             logger.info(f"[SCAN] save_state={saved} positions={len(self._broker.positions)} orders={len(self._broker.orders)}")
+            # 保存时间线到MongoDB
+            await self._save_timeline()
         except Exception as e:
             logger.warning(f"[SCAN] save_state失败: {e}")
 

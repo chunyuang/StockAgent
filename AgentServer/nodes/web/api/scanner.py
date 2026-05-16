@@ -3,6 +3,7 @@
 MarketScanner REST API
 超短量化市场扫描器的控制接口
 """
+import asyncio
 import logging
 import math
 from datetime import datetime
@@ -297,6 +298,11 @@ async def manual_trade(req: ManualTradeRequest):
             "price": order.filled_price,
             "reason": req.reason or "手动操作",
         })
+        # 异步保存时间线到MongoDB
+        try:
+            await scanner._save_timeline()
+        except Exception:
+            pass  # 非关键, 不影响交易
         scanner._stats["trades_executed"] += 1
     
     return {
