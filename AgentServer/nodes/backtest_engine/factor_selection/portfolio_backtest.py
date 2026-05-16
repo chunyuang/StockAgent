@@ -110,13 +110,6 @@ class PortfolioBacktester:
 
     # 【P1-5修复(第十一轮)：强制空仓阈值提升为类常量，避免两处分别定义不一致】
     FORCE_EMPTY_LIMIT_DOWN = 50   # 跌停超过此阈值触发强制空仓
-
-    # 【初始化所有实例属性,避免hasattr防御检查】
-    # 这些属性在_run_impl开始时赋值, 但如果提前返回会导致AttributeError
-    def __init__(self):
-        self._risk_config = {}
-        self._slippage_pct = 0.002
-        self._strategy_risk_params = {}
     FORCE_EMPTY_LIMIT_UP = 10    # 涨停低于此阈值触发强制空仓
 
     def __init__(self):
@@ -623,10 +616,12 @@ class PortfolioBacktester:
             # ==================== 🔴 强制空仓判断 ====================
             # 【修复#5:统一阈值 - 与日志打印使用同一阈值】
             # 【修复#33:enable_force_empty开关实际生效】
+            # 【P1-3修复：从config读取阈值，支持前端细粒度配置】
             enable_force_empty = config.get("enable_force_empty", True)
-            # 【P1-5：使用类常量】
-            FORCE_EMPTY_LIMIT_DOWN = self.FORCE_EMPTY_LIMIT_DOWN
-            FORCE_EMPTY_LIMIT_UP = self.FORCE_EMPTY_LIMIT_UP
+            # 前端可传force_empty_config覆盖默认阈值
+            force_empty_cfg = config.get("force_empty_config", {})
+            FORCE_EMPTY_LIMIT_DOWN = force_empty_cfg.get("limit_down_count", self.FORCE_EMPTY_LIMIT_DOWN)
+            FORCE_EMPTY_LIMIT_UP = force_empty_cfg.get("limit_up_count", self.FORCE_EMPTY_LIMIT_UP)
             force_empty_triggered = enable_force_empty and (
                 limit_down_count >= FORCE_EMPTY_LIMIT_DOWN or limit_up_count <= FORCE_EMPTY_LIMIT_UP
             )
@@ -774,7 +769,10 @@ class PortfolioBacktester:
         exclude_rules = [ExcludeRule(r) for r in config.get("exclude", [])]
         # 【Bug修复：默认排除ST股，即使前端没传exclude字段】
         if not any(r == ExcludeRule.ST for r in exclude_rules):
-            if config.get("exclude_st", True):  # 默认启用ST过滤
+            # 【P1-4修复：优先从global_filter_config读取exclude_st，兼容旧config路径】
+            global_filter_cfg = config.get("global_filter_config", {})
+            exclude_st = global_filter_cfg.get("exclude_st", config.get("exclude_st", True))
+            if exclude_st:
                 exclude_rules.append(ExcludeRule.ST)
 
         # 获取调仓日期 - 强制 daily,超短策略必须每日调仓
@@ -3088,8 +3086,10 @@ class PortfolioBacktester:
             min_volume_ratio = converted_params.get("min_volume_ratio") if converted_params.get("min_volume_ratio") is not None else 1.5
             min_turnover = converted_params.get("min_turnover_rate") if converted_params.get("min_turnover_rate") is not None else 3
             max_turnover = converted_params.get("max_turnover_rate") if converted_params.get("max_turnover_rate") is not None else 15
-            opening_pct_min = converted_params.get("opening_pct_min") if converted_params.get("opening_pct_min") is not None else 2.0
-            opening_pct_max = converted_params.get("opening_pct_max") if converted_params.get("opening_pct_max") is not None else 5.0
+            # 【P0-3修复：fallback从STRATEGY_CONFIGS读取，不硬编码】
+            _fl_defaults = STRATEGY_CONFIGS.get("first_limit_up", {}).get("params", {})
+            opening_pct_min = converted_params.get("opening_pct_min") if converted_params.get("opening_pct_min") is not None else _fl_defaults.get("opening_pct_min", -1.0)
+            opening_pct_max = converted_params.get("opening_pct_max") if converted_params.get("opening_pct_max") is not None else _fl_defaults.get("opening_pct_max", 7.0)
             return [
                 {"name": "first_limit_up", "target": 1, "label": "首次涨停(盘中封板)"},
                 {"name": "limit_up_yesterday", "target": 0, "label": "昨日未涨停(T-1预选)"},

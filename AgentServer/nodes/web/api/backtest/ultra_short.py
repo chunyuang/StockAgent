@@ -105,6 +105,13 @@ async def submit_ultra_short_backtest(
             return super().default(obj)
 
     # 构建初始 task_info
+    # 【P1-3/P1-4修复：透传forceEmpty/sentimentCycle/auctionFilter/globalFilter细粒度参数】
+    # 提取前端细粒度配置（从前端提交的原始body中读取，不经过Pydantic过滤）
+    force_empty_config = body.get("forceEmpty", {})
+    sentiment_cycle_config = body.get("sentimentCycle", {})
+    auction_filter_config = body.get("auctionFilter", {})
+    global_filter_config = body.get("globalFilter", {})
+
     task_info = {
         "task_id": task_id,
         "params": {
@@ -131,6 +138,19 @@ async def submit_ultra_short_backtest(
                 "enable_ma60_filter": request.params.enable_ma60_filter,
                 "enable_sector_concentration": request.params.enable_sector_concentration,
                 "selected_strategies": selected_strategies,
+                # 【P1-3修复】透传强制空仓细粒度阈值
+                "force_empty_config": {
+                    "limit_down_count": force_empty_config.get("limit_down_count", 50),
+                    "limit_up_count": force_empty_config.get("limit_up_count", 10),
+                    "index_drop_pct": force_empty_config.get("index_drop_pct", 0.02),
+                } if force_empty_config.get("enabled", True) else {},
+                # 【P1-4修复】透传全局筛选细粒度参数
+                "global_filter_config": {
+                    "exclude_st": global_filter_config.get("exclude_st", True),
+                    "exclude_delisting": global_filter_config.get("exclude_delisting", True),
+                    "exclude_new_stock_days": global_filter_config.get("exclude_new_stock_days", 60),
+                    "min_turnover_rate": global_filter_config.get("min_turnover_rate", 1.5),
+                },
             },
             "enable_force_empty": request.params.enable_force_empty,
             "enable_sentiment_cycle": request.params.sentiment_cycle,
