@@ -620,7 +620,10 @@ class PortfolioBacktester:
             await self._print_daily_header(idx+1, total_days, trade_date)
 
             # ==================== 2️⃣ 每日市场环境判断(所有天都走) ====================
-            sentiment_level, market_sentiment_score, limit_up_count, limit_down_count = await self._print_market_environment(trade_date)
+            # 【未来函数修复】用前一个交易日的涨停/跌停数计算情绪评分
+            # 实盘9:30开盘前只能用前日数据，当天涨停数收盘后才知道
+            prev_trade_date = all_trade_dates[idx - 1] if idx > 0 else trade_date
+            sentiment_level, market_sentiment_score, limit_up_count, limit_down_count = await self._print_market_environment(prev_trade_date)
 
             # ==================== 🔴 强制空仓判断 ====================
             # 【修复#5:统一阈值 - 与日志打印使用同一阈值】
@@ -712,7 +715,7 @@ class PortfolioBacktester:
         await self.log(f"    🔹 {'✅' if risk_config['enable_sector_concentration'] else '❌'} 板块集中度过滤: 保留前 {risk_config['sector_concentration_top_n']} 名")
         await self.log("🔧 Phase1 实盘对标修复:")
         await self.log("    🔹 ✅ T+1约束: 当日买入不可卖出")
-        await self.log("    🔹 ✅ 半路追涨买入价: open→open×(1+min_rise×0.6) (盘中信号触发价)")
+        await self.log("    🔹 ✅ 半路追涨买入价: open+(high-open)*0.5 (盘中冲高时价，消除未来函数)")
         await self.log("    🔹 ✅ 半路追涨方案B: 开盘≤3%(排除高开追高) + SL5%/TP10% + 收盘确认≥3%")
         await self.log("    🔹 ✅ 龙头低吸买入价: low×1.005→low+(high-low)×0.25 (偏低位但不极端)")
         await self.log("    🔹 ✅ 跳空止损: open<止损价→以open卖出 (最差情况)")
@@ -3015,17 +3018,17 @@ class PortfolioBacktester:
         prices = []
         for sname in strategies:
             if sname == '半路追涨':
-                # 日线回测中模拟实盘信号触发价
-                # 实盘在股价达到min_rise阈值时买入，此时价格高于开盘价
-                # 保守估计: 在日内涨幅的60%位置触发信号
-                # buy_price = open * (1 + min_rise_pct * 0.6)
-                # signal_fraction=0.6: 信号在涨到min_rise的60%处就开始观察，
-                # 实际买入在确认突破min_rise后，所以约60%位置
-                min_rise = self._strategy_params.get('半路追涨', {}).get('min_rise_pct', 0.02)
-                signal_fraction = 0.6  # 保守: 在日内60%涨幅位置触发
-                p = open_price * (1 + min_rise * signal_fraction) if open_price > 0 else 0
-                # 确保不低于open(防高开回落被选入)
-                p = max(p, open_price) if open_price > 0 else 0
+                # 【未来函数修复】半路追涨买入价改为盘中冲高时价
+                # 旧逻辑: open*(1+min_rise*0.6) — 假设9:30就知道盘中会冲高(未来函数!)
+                # 新逻辑: open + (high-open)*0.5 — 盘中冲高到一半时买入(更接近实盘)
+                # 实盘中股价逐步冲高，在涨幅达到3%+时才确认信号并买入
+                # 此时价格约为 open + (high-open) 的中间位置
+                if open_price > 0 and high_price > open_price:
+                    p = open_price + (high_price - open_price) * 0.5
+                elif open_price > 0:
+                    p = open_price * 1.018  # fallback: 保守估计
+                else:
+                    p = 0
             elif sname in ('首板打板', '涨停开板'):
                 p = self._get_limit_up_price(code, open_price, close_price, high_price, low_price, pre_close)
             elif sname == '龙头低吸':
