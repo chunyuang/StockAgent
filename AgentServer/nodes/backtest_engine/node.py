@@ -101,12 +101,25 @@ class BacktestNode(BaseNode):
     async def stop(self) -> None:
         """停止回测节点"""
         self.logger.info("Stopping Backtest Node...")
+        self._running = False
+
+        # 【P2-6修复：取消心跳任务】
+        if hasattr(self, '_heartbeat_task') and self._heartbeat_task and not self._heartbeat_task.done():
+            self._heartbeat_task.cancel()
+            try:
+                await self._heartbeat_task
+            except asyncio.CancelledError:
+                pass
 
         # 取消所有运行中的任务
         for task_id, task in self._running_tasks.items():
             if not task.done():
                 task.cancel()
                 self.logger.info(f"Cancelled task: {task_id}")
+
+        # 关闭所有JSONL文件句柄
+        for task_id in list(self._log_jsonl_files.keys()):
+            self._close_log_handles(task_id)
 
         await super().stop()
 
@@ -170,18 +183,16 @@ class BacktestNode(BaseNode):
 
                     # 更新任务状态
                     await self._update_task_result(task_id, "completed", result)
-                    # 关闭JSONL文件句柄
-                    self._close_log_handles(task_id)
 
                 except Exception as e:
                     self.logger.error(f"[Worker-{worker_id}] Task {task_id} failed: {e}")
                     traceback.print_exc()
                     await self._update_task_result(task_id, "failed", error=str(e))
-                    # 关闭JSONL文件句柄
-                    self._close_log_handles(task_id)
                     continue  # 【修复风险6：任务失败后continue而非return，避免worker永久退出】
 
                 finally:
+                    # 【P1-4修复：确保JSONL文件句柄在所有路径都被关闭】
+                    self._close_log_handles(task_id)
                     self._task_queue.task_done()
 
             except asyncio.CancelledError:

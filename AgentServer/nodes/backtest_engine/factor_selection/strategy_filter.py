@@ -1,12 +1,10 @@
 """
-策略筛选模块
+策略筛选模块（拆分Phase 3产物）
 
-负责构建各策略的筛选条件，包括：
-- 半路追涨
-- 首板打板
-- 涨停开板
-- 龙头低吸
-- 跌停翘板
+⚠️ 注意：本模块已从portfolio_backtest.py拆分出来，但尚未被主引擎引用。
+   portfolio_backtest.py仍使用内联的_build_strategy_filter_conditions方法。
+   待Phase 6-8完成拆分后，本模块将被正式集成。
+   当前状态：独立可用，但未被调用。
 """
 
 from typing import Dict, List, Any

@@ -3,6 +3,38 @@
 超短策略回测执行器
 
 从node.py拆分出的超短策略回测执行逻辑。
+
+【参数嵌套规范】
+═══════════════════════════════════════════════════════════════
+
+Web API构建的task_info结构:
+  task_info = {
+    "task_id": "us_xxx",
+    "params": {                    ← 顶层参数（策略/日期/开关/selected_strategies）
+      "strategies": [...],
+      "start_date": "20260105",
+      "end_date": "20260320",
+      "initial_cash": 1000000,
+      "enable_force_empty": true,    ← 功能开关（顶层）
+      "enable_sentiment_cycle": true,
+      "selected_strategies": [...],
+      "params": {                  ← 内层参数（全局风控/细粒度配置）
+        "stop_loss_pct": 0.03,
+        "commission_rate": 0.0003,
+        "force_empty_config": {...}, ← 细粒度配置对象
+        "global_filter_config": {...},
+        "selected_strategies": [...], ← 兼容：也可放在内层
+      }
+    }
+  }
+
+本文件读取规则:
+  req_params = params.get("params", {})  ← 整个params对象
+  strategies = req_params.get("strategies", [])  ← 从顶层读
+  enable_force_empty = req_params.get("enable_force_empty", True)  ← 从顶层读
+  strategy_params = req_params.get("params", {})  ← 从内层读
+
+═══════════════════════════════════════════════════════════════
 """
 
 import subprocess
@@ -49,14 +81,26 @@ async def execute_ultra_short_backtest(
     # 设置当前任务ID到日志工具类
     logger.set_task_id(task_id)
 
-    # 参数在params子对象中，因为web层调用时封装在params里
-    req_params = params.get("params", {})
+    # 【P0-2修复：统一参数读取路径】
+    # Web API构建: params = { strategies, start_date, ..., params: { stop_loss_pct, ... } }
+    # 顶层字段: strategies/start_date/end_date/initial_cash/enable_* /selected_strategies
+    # 内层字段: params.stop_loss_pct/commission_rate/force_empty_config/global_filter_config
+    req_params = params.get("params", {})  # 整个params对象
     strategies = req_params.get("strategies", [])
     start_date = req_params.get("start_date", "20260105")
     end_date = req_params.get("end_date", "20260320")
     initial_cash = req_params.get("initial_cash", 1000000)
-    strategy_params = req_params.get("params", {})
+    strategy_params = req_params.get("params", {})  # 内层全局风控参数
     period = req_params.get("period", "daily")
+    
+    # 功能开关：统一从顶层读取（Web API在params和params.params两处都传了，优先顶层）
+    enable_force_empty = req_params.get("enable_force_empty", req_params.get("params", {}).get("enable_force_empty", True))
+    enable_sentiment_cycle = req_params.get("enable_sentiment_cycle", req_params.get("params", {}).get("sentiment_cycle", True))
+    enable_auction_filter = req_params.get("enable_auction_filter", req_params.get("params", {}).get("auction_filter", True))
+    enable_stop_loss = req_params.get("enable_stop_loss", req_params.get("params", {}).get("enable_stop_loss", True))
+    enable_take_profit = req_params.get("enable_take_profit", req_params.get("params", {}).get("enable_take_profit", True))
+    enable_ma60_filter = req_params.get("enable_ma60_filter", req_params.get("params", {}).get("enable_ma60_filter", True))
+    enable_sector_concentration = req_params.get("enable_sector_concentration", req_params.get("params", {}).get("enable_sector_concentration", True))
 
     # 打印初始化阶段头部
     logger.success("INIT", "============== 回测任务启动 ==============")
@@ -77,14 +121,7 @@ async def execute_ultra_short_backtest(
     # 打印全局参数
     logger.info("INIT", f"全局参数：流动性门槛{strategy_params.get('liquidity_threshold', GLOBAL_RISK['liquidity_threshold'])}万/止损{strategy_params.get('stop_loss_pct', GLOBAL_RISK['stop_loss_pct'])*100}%/止盈{strategy_params.get('take_profit_pct', GLOBAL_RISK['take_profit_pct'])*100}%/最大持仓{strategy_params.get('max_hold_days', GLOBAL_RISK['max_hold_days'])}天/单票仓位{strategy_params.get('max_position_per_stock', GLOBAL_RISK['max_position_per_stock'])*100}%/总仓位{strategy_params.get('max_total_position', GLOBAL_RISK['max_total_position'])*100}%")
 
-    # 打印功能开关
-    enable_force_empty = req_params.get("enable_force_empty", True)
-    enable_sentiment_cycle = req_params.get("enable_sentiment_cycle", True)
-    enable_auction_filter = req_params.get("enable_auction_filter", True)
-    enable_stop_loss = req_params.get("enable_stop_loss", True)
-    enable_take_profit = req_params.get("enable_take_profit", True)
-    enable_ma60_filter = req_params.get("enable_ma60_filter", True)
-    enable_sector_concentration = req_params.get("enable_sector_concentration", True)
+    # 打印功能开关（已在上方统一读取，此处仅打印）
     logger.info("INIT", f"功能开关：强制空仓{'✅' if enable_force_empty else '❌'} / 情绪周期{'✅' if enable_sentiment_cycle else '❌'} / 竞价过滤{'✅' if enable_auction_filter else '❌'} / 止损{'✅' if enable_stop_loss else '❌'} / 止盈{'✅' if enable_take_profit else '❌'} / MA60过滤{'✅' if enable_ma60_filter else '❌'} / 板块集中度{'✅' if enable_sector_concentration else '❌'}")
 
     # 打印代码版本
@@ -139,7 +176,7 @@ async def execute_ultra_short_backtest(
         if "params" not in s:
             s["params"] = {}
         s["params"].update(strategy_params_local)
-        # 【P2-3修复：默认值从STRATEGY_CONFIGS读取，不再硬编码】
+        # 【P1-5修复：默认值统一从STRATEGY_CONFIGS读取，确保日志与筛选逻辑一致】
         _defaults = STRATEGY_CONFIGS.get(strategy_id, {}).get("params", {})
         if strategy_name == '半路追涨':
             min_rise = strategy_params_local.get('min_rise_pct', _defaults.get('min_rise_pct', 0.03)) * 100
@@ -516,23 +553,28 @@ async def execute_ultra_short_backtest(
 
 
 async def cleanup_old_backtest_tasks(mongo_manager, keep: int = 20):
-    """自动清理旧的回测任务结果,只保留最近N条"""
+    """自动清理旧的回测任务结果,只保留最近N条
+    
+    【P2-7修复：只清理已完成的任务，不删除正在运行的任务】
+    """
     try:
-        total = await mongo_manager.count_documents("backtest_tasks", {})
+        # 只统计已完成的任务（completed/failed），不统计running/queued
+        total = await mongo_manager.count_documents("backtest_tasks", {"status": {"$in": ["completed", "failed"]}})
         if total <= keep:
             return
-        # 找到要保留的task_id
+        # 找到要保留的task_id（只从已完成的任务中选择）
         docs = await mongo_manager.find_many(
             "backtest_tasks",
-            {},
+            {"status": {"$in": ["completed", "failed"]}},
             projection={"task_id": 1},
             sort=[("_id", -1)],
             limit=keep
         )
         keep_ids = [d["task_id"] for d in docs]
+        # 只删除已完成的旧任务，不删除正在运行的任务
         delete_result = await mongo_manager.delete_many(
             "backtest_tasks",
-            {"task_id": {"$nin": keep_ids}}
+            {"task_id": {"$nin": keep_ids}, "status": {"$in": ["completed", "failed"]}}
         )
         logger.info(f"[cleanup] 删除{delete_result}条旧回测结果, 保留{len(keep_ids)}条")
     except Exception as e:
