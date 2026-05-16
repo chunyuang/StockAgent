@@ -99,6 +99,7 @@ class MarketScanner:
         self._data_router: Optional[Any] = None  # DataSourceRouter实例
         self._daily_factors_df: Optional[pd.DataFrame] = None
         self._realtime_cache: Dict[str, Dict] = {}  # ts_code → 实时行情
+        self._prev_realtime_cache: Dict[str, Dict] = {}  # ts_code → 上轮实时行情(用于急速拉升检测)
         self._all_codes: List[str] = []  # 全市场代码
 
         # 撮合引擎: 根据模式选择
@@ -223,6 +224,8 @@ class MarketScanner:
         result = []
         for p in self._broker.get_positions():
             risk = self._get_strategy_risk(p.strategy)
+            sl_pct = risk.get("stop_loss_pct", 0.03) * 100
+            tp_pct = risk.get("take_profit_pct", 0.07) * 100
             result.append({
                 "ts_code": p.ts_code, "stock_name": p.stock_name,
                 "strategy": p.strategy, "shares": p.total_qty,
@@ -231,8 +234,10 @@ class MarketScanner:
                 "current_price": round(p.current_price, 2),
                 "profit_pct": round(p.profit_pct, 2),
                 "today_buy": p.today_buy_qty,
-                "stop_loss_pct": round(risk.get("stop_loss_pct", 0.03) * 100, 1),
-                "take_profit_pct": round(risk.get("take_profit_pct", 0.07) * 100, 1),
+                "stop_loss_pct": round(sl_pct, 1),
+                "take_profit_pct": round(tp_pct, 1),
+                "stop_loss_price": round(p.avg_cost * (1 - risk.get("stop_loss_pct", 0.03)), 2),
+                "take_profit_price": round(p.avg_cost * (1 + risk.get("take_profit_pct", 0.07)), 2),
             })
         return result
 
@@ -863,6 +868,7 @@ class MarketScanner:
         else:
             logger.warning("[REALTIME] 必盈不可用, 仅使用东方财富数据(无涨停池详情)")
 
+        self._prev_realtime_cache = dict(self._realtime_cache)  # 保存上轮快照(用于急速拉升检测)
         self._realtime_cache = realtime
         
         # 状态汇报
@@ -1669,7 +1675,7 @@ class MarketScanner:
                 "saved_at": datetime.now().isoformat(),
             }
             await collection.replace_one(
-                {"trade_date": trade_date, "account_id": self._account_id},
+                {"trade_date": trade_date, "account_id": self.account_id},
                 doc,
                 upsert=True,
             )
@@ -1769,10 +1775,11 @@ class MarketScanner:
                     continue
             
             # === 3. 急速拉升(5分钟内涨幅>3%) ===
-            # 需要对比缓存, 看最近价格变化
-            cached = self._realtime_cache.get(ts_code, {})
-            if cached.get("price", 0) > 0:
-                price_change_pct = (price - cached["price"]) / cached["price"] * 100
+            # 对比上轮扫描缓存的价格变化(真正的5分钟涨幅)
+            prev_cached = self._prev_realtime_cache.get(ts_code, {})
+            prev_price = prev_cached.get("price", 0)
+            if prev_price > 0 and price > 0:
+                price_change_pct = (price - prev_price) / prev_price * 100
                 if price_change_pct > 3 and not is_limit_up:
                     signals.append(ScanSignal(
                         ts_code=ts_code, stock_name=name,
@@ -1945,6 +1952,8 @@ class MarketScanner:
     def _position_to_dict(self, p) -> Dict:
         """Position对象转dict"""
         risk = self._get_strategy_risk(p.strategy)
+        sl_pct = risk.get("stop_loss_pct", 0.03) * 100
+        tp_pct = risk.get("take_profit_pct", 0.07) * 100
         return {
             "ts_code": p.ts_code, "stock_name": p.stock_name,
             "strategy": p.strategy, "shares": p.total_qty,
@@ -1953,8 +1962,10 @@ class MarketScanner:
             "current_price": round(p.current_price, 2),
             "profit_pct": round(p.profit_pct, 2),
             "today_buy": p.today_buy_qty,
-            "stop_loss_pct": round(risk.get("stop_loss_pct", 0.03) * 100, 1),
-            "take_profit_pct": round(risk.get("take_profit_pct", 0.07) * 100, 1),
+            "stop_loss_pct": round(sl_pct, 1),
+            "take_profit_pct": round(tp_pct, 1),
+            "stop_loss_price": round(p.avg_cost * (1 - risk.get("stop_loss_pct", 0.03)), 2),
+            "take_profit_price": round(p.avg_cost * (1 + risk.get("take_profit_pct", 0.07)), 2),
         }
 
     def _signal_to_dict(self, s: ScanSignal) -> Dict:
