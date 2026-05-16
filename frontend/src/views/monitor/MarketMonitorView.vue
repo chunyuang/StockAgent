@@ -82,6 +82,9 @@ async function fetchScanner() { try { const [sR, sigR, posR, tlR, ordR] = await 
 async function startScanner() { await api.post(`${scannerApi}/start`, { account_id: 'default', trade_mode: tradeMode.value }); await fetchScanner() }
 async function stopScanner() { await api.post(`${scannerApi}/stop`); await fetchScanner() }
 async function manualScan() { loading.value = true; try { const r = await api.post(`${scannerApi}/scan-once`); if (r?.success) { const m = r.data?.message; if (m) ElMessage.warning(m); else ElMessage.success(`扫描完成: ${r.data?.signals || 0}信号, ${r.data?.positions || 0}持仓`) } else ElMessage.error('扫描失败') } catch (e: any) { ElMessage.error('扫描失败') } finally { loading.value = false; await fetchScanner() } }
+async function forceScan() { loading.value = true; try { const r = await api.post(`${scannerApi}/scan-once`, { force: true }); if (r?.success) { ElMessage.success(`强制扫描完成: ${r.data?.signals || 0}信号, ${r.data?.positions || 0}持仓`) } else ElMessage.error('强制扫描失败') } catch (e: any) { ElMessage.error('强制扫描失败') } finally { loading.value = false; await fetchScanner() } }
+const stratCollapsed = ref<Record<string, boolean>>({})
+function toggleStrat(id: string) { stratCollapsed.value[id] = !stratCollapsed.value[id] }
 async function dailySettlement() { try { const r = await api.post(`${scannerApi}/daily-settlement`); if (r?.success) { ElMessage.success(r.data?.message || '日结算完成'); await fetchScanner() } } catch (e: any) { ElMessage.error('日结算失败') } }
 async function resetAccount() { try { const r = await api.post(`${scannerApi}/reset`); if (r?.success) { ElMessage.success('账户已重置'); await fetchAll(true) } } catch (e: any) { ElMessage.error('重置失败') } }
 async function resetCircuitBreaker() { try { const r = await api.post(`${scannerApi}/circuit-breaker/reset`); if (r?.success) { ElMessage.success('熔断已重置'); fetchAll(true) } } catch { ElMessage.error('重置失败') } }
@@ -143,14 +146,17 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
       <div class="mm-left">
         <div class="st">🎛️ 策略控制</div>
         <div v-for="s in strategies" :key="s.id" class="sc" :class="{ disabled: !s.enabled }">
-          <div class="sc-top"><span class="sc-icon">{{ strategyMeta[s.id]?.icon || '📋' }}</span><span class="sc-name">{{ s.name }}</span><ElSwitch :model-value="s.enabled" @change="(v: boolean) => toggleStrategy(s.id, v)" size="small" /></div>
-          <div class="sc-desc">{{ strategyMeta[s.id]?.desc || '' }}</div>
-          <div class="sc-params"><div v-for="p in s.paramDescriptions.slice(0, 3)" :key="p.key" class="pm"><span class="pk">{{ p.label }}</span><span class="pv">{{ p.displayValue }}{{ p.unit }}</span></div></div>
-          <ElButton size="small" text type="primary" @click="openEditDialog(s)">⚙️ 编辑</ElButton>
+          <div class="sc-top" @click="toggleStrat(s.id)" style="cursor:pointer"><span class="sc-icon">{{ strategyMeta[s.id]?.icon || '📋' }}</span><span class="sc-name">{{ s.name }}</span><ElSwitch :model-value="s.enabled" @change="(v: boolean) => toggleStrategy(s.id, v)" size="small" @click.stop /><span class="sc-arrow">{{ stratCollapsed[s.id] ? '▶' : '▼' }}</span></div>
+          <div v-if="!stratCollapsed[s.id]">
+            <div class="sc-desc">{{ strategyMeta[s.id]?.desc || '' }}</div>
+            <div class="sc-params"><div v-for="p in s.paramDescriptions.slice(0, 3)" :key="p.key" class="pm"><span class="pk">{{ p.label }}</span><span class="pv">{{ p.displayValue }}{{ p.unit }}</span></div></div>
+            <ElButton size="small" text type="primary" @click="openEditDialog(s)">⚙️ 编辑</ElButton>
+          </div>
         </div>
         <div class="st" style="margin-top:10px">⚡ 快捷操作</div>
         <div class="qa">
           <ElButton size="small" @click="manualScan" :loading="loading" :disabled="!isRunning" style="width:100%">📡 手动扫描</ElButton>
+        <ElButton size="small" type="warning" @click="forceScan" :loading="loading" :disabled="!isRunning" style="width:100%" title="忽略交易时间检查，消耗必盈额度">⚡ 强制扫描</ElButton>
           <ElButton size="small" @click="dailySettlement" :disabled="!isRunning" style="width:100%">📅 日结算(T+1)</ElButton>
           <ElButton size="small" @click="openTradeAudit" :disabled="!timeline.length" style="width:100%">🔍 审查全部交易</ElButton>
           <ElButton v-if="circuitBreakerPaused" size="small" type="danger" @click="resetCircuitBreaker" style="width:100%">🔓 重置熔断</ElButton>
@@ -280,6 +286,7 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
 .sc-top { display: flex; align-items: center; gap: 6px; }
 .sc-icon { font-size: 16px; }
 .sc-name { font-size: 13px; font-weight: 600; flex: 1; }
+.sc-arrow { font-size: 10px; color: #909399; margin-left: 4px; }
 .sc-desc { font-size: 11px; color: #909399; margin: 2px 0 4px 24px; }
 .sc-params { margin-left: 24px; }
 .pm { display: flex; justify-content: space-between; font-size: 11px; }
