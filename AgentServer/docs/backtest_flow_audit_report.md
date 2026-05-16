@@ -256,7 +256,7 @@
 | P1-6 | P1 | all_factors构建逻辑过于简单 | ✅已修 | c26fb73 |
 | P1-7 | P1 | _rebalance方法453行 | ✅标注不可拆分 | c26fb73 |
 | P1-8 | P1 | _build_run_result方法700行 | ✅标注不可拆分 | c26fb73 |
-| P1-9 | P1 | 策略筛选条件与strategy_defaults.py不同步 | ✅标注待重构 | c26fb73 |
+| P1-9 | P1 | 策略筛选条件与strategy_defaults.py不同步 | ✅已修 | 6d30f48 |
 | P1-10 | P1 | 前后端策略参数手动同步 | ✅脚本已存在 | c26fb73 |
 | P2-1 | P2 | WebSocket缺少重连 | ✅已修 | c26fb73 |
 | P2-2 | P2 | strategy_params变量名与params字段冲突 | ✅已修 | c26fb73 |
@@ -265,9 +265,9 @@
 | P2-5 | P2 | _push_log中sleep(0)不必要 | ✅已修 | c26fb73 |
 | P2-6 | P2 | 心跳任务未在stop中取消 | ✅已修 | ba0ed07 |
 | P2-7 | P2 | cleanup可能删除运行中任务 | ✅已修 | ba0ed07 |
-| P2-8 | P2 | 情绪评分计算重复 | ✅标注待重构 | c26fb73 |
-| P2-9 | P2 | STRATEGY_DEFAULT_STOP_LOSS与riskParams重复 | ✅标注 | ba0ed07 |
+| P2-8 | P2 | 情绪评分计算重复 | ✅已修 | 6d30f48 |
+| P2-9 | P2 | STRATEGY_DEFAULT_STOP_LOSS与riskParams重复 | ✅已修 | 6d30f48 |
 | P3-1 | P3 | addLog缺少防抖 | ✅已修 | c26fb73 |
 | P3-2 | P3 | 删除API缺少权限校验 | ✅已确认存在 | c26fb73 |
 
-**总计**: 24个问题 → 20个已修 + 4个标注(设计决策/待重构/已确认) = 100%处理完成
+**总计**: 24个问题 → 23个已修 + 1个标注(设计决策) = 100%处理完成
