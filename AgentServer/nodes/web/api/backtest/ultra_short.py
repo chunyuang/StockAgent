@@ -22,6 +22,7 @@ from .common import (
     mock_tasks,
     get_optional_user_id,
     oauth2_scheme_optional,
+    cleanup_expired_mock_tasks,
 )
 from .models import (
     BacktestTaskResponse,
@@ -199,6 +200,8 @@ async def submit_ultra_short_backtest(
     # - mock_tasks 仅用于临时缓存，status接口优先从MongoDB读取
     # - 删除虚假"WebSocket已连接"日志
     # - 参数日志只在回测引擎打印一次
+    # 【N03修复：写入前先清理过期缓存】
+    cleanup_expired_mock_tasks()
     mock_tasks[task_id] = {
         "task_id": task_id,
         "status": "queued",

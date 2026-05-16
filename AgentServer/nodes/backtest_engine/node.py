@@ -61,8 +61,8 @@ class BacktestNode(BaseNode):
 
         # 工作协程数(修改为1,避免重复执行同一个任务)
         # 【P1-3修复：worker数可配置，默认1（CPU密集型+内存密集型，并行有风险）】
-        # 可通过config.worker_count设置，建议只在多核+大内存环境下增加
-        self._worker_count = config.get('worker_count', 1)
+        # 从settings读取，建议只在多核+大内存环境下增加
+        self._worker_count = getattr(settings, 'backtest_worker_count', 1)
 
         # 日志序号计数器，每个任务独立计数，解决日志乱序问题
         self._log_counters: Dict[str, int] = {}
