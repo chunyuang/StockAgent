@@ -141,6 +141,29 @@
 | P2 | 10 | 默认值硬编码不一致、参数嵌套混乱、死代码、单位不统一、内存泄漏 |
 
 ### 最需优先修复的Top 3:
-1. **P0-1**: GLOBAL_RISK前后端不同步 — 影响所有用户的默认止损/止盈配置
-2. **P1-3+P1-4**: forceEmpty/GlobalFilter细粒度参数未透传 — 前端配置形同虚设
-3. **P1-2**: leader_buy_dip vs dragon_head策略ID分裂 — 旧脚本无法正确运行
+1. **P0-1**: ~~GLOBAL_RISK前后端不同步~~ ✅ 已修复(4f2cd08)
+2. **P1-3+P1-4**: ~~forceEmpty/GlobalFilter细粒度参数未透传~~ ✅ 已修复(4f2cd08)
+3. **P1-2**: ~~leader_buy_dip vs dragon_head策略ID分裂~~ ✅ 已修复(80f72d5)
+
+### 修复状态汇总
+| 编号 | 问题 | 状态 | 提交 |
+|------|------|------|------|
+| P0-1 | GLOBAL_RISK前后端不一致 | ✅ 已修复 | 4f2cd08 |
+| P0-2 | 重复__init__死代码 | ✅ 已修复 | 4f2cd08 |
+| P0-3 | opening_pct fallback硬编码 | ✅ 已修复 | 4f2cd08 |
+| P1-1 | 前端止损5%/止盈10%默认值 | ✅ 同P0-1 | 4f2cd08 |
+| P1-2 | leader_buy_dip vs dragon_head | ✅ 已修复 | 80f72d5 |
+| P1-3 | forceEmpty细粒度参数未透传 | ✅ 已修复 | 4f2cd08 |
+| P1-4 | globalFilter参数未透传 | ✅ 已修复 | 4f2cd08 |
+| P1-5 | 首板打板死参数 | ⏳ 日志标注即可 | - |
+| P1-6 | strategy_risk_params未正式声明 | ⏳ 功能正常 | - |
+| P2-1 | 同P0-2 | ✅ 已修复 | 4f2cd08 |
+| P2-2 | enable_force_empty重复定义 | ⏳ 低优先 | - |
+| P2-3 | ultra_short.py默认值不一致 | ⏳ 兜底路径 | - |
+| P2-4 | API参数嵌套结构混乱 | ⏳ 低优先 | - |
+| P2-5 | BacktestConfig死代码 | ⏳ 可删 | - |
+| P2-6 | BacktestRequest/FactorSelectionRequest死代码 | ⏳ 可删 | - |
+| P2-7 | commission_rate未透传 | ✅ 已修复 | 4f2cd08 |
+| P2-8 | min_turnover_rate单位不一致 | ⏳ 需统一 | - |
+| P2-9 | sync脚本不存在 | ✅ 已创建 | 4f2cd08 |
+| P2-10 | mock_tasks内存泄漏 | ✅ 已修复 | 4f2cd08 |
