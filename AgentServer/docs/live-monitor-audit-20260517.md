@@ -1,22 +1,24 @@
 # 实时监控功能全面审查报告
 
 ## 审查时间: 2026-05-17 03:00
+## 更新时间: 2026-05-17 03:30 (Phase 1+2+3完成)
 
 ## 一、当前架构概览
 
 ### 核心模块
 | 模块 | 文件 | 行数 | 状态 |
 |------|------|------|------|
-| MarketScanner | nodes/market_monitor/scanner.py | 1779 | ✅可用 |
+| MarketScanner | nodes/market_monitor/scanner.py | ~1800 | ✅可用+调试增强 |
 | LiveFilterPipeline | nodes/market_monitor/live_filter_pipeline.py | 502 | ✅可用 |
 | SimulatedBroker | nodes/market_monitor/broker.py | ~500 | ✅可用 |
-| Scanner API | nodes/web/api/scanner.py | 881 | ✅可用 |
+| Scanner API | nodes/web/api/scanner.py | ~1100 | ✅可用+4个调试API |
 | EastmoneyAdapter | src/data_sources/eastmoney_adapter.py | 502 | ✅可用 |
 | BiyingAdapter | src/data_sources/biying_adapter.py | 417 | ✅可用 |
 | DataSourceRouter | nodes/market_monitor/data_source_router.py | 303 | ✅可用 |
-| MarketMonitorView | frontend/src/views/monitor/MarketMonitorView.vue | 423 | ✅可用 |
-| LiveTradingView | frontend/src/views/trading/LiveTradingView.vue | 481 | ⚠️独立 |
-| DailyScheduler | nodes/scheduler/daily_scheduler.py | 832 | ⚠️与scanner重叠 |
+| MarketMonitorView | frontend/src/views/monitor/MarketMonitorView.vue | ~540 | ✅可用+调试面板 |
+| LiveTradingView | frontend/src/views/trading/LiveTradingView.vue | 481 | ⚠️已重定向到monitor |
+| DailyScheduler | nodes/scheduler/daily_scheduler.py | 832 | ✅已委托scanner |
+| real_trading/ | real_trading/ (21脚本) | 540KB | ⚠️已标记废弃 |
 
 ### 数据流
 ```
@@ -106,3 +108,49 @@
 - 风控规则可视化配置
 - 自动复盘报告
 - 信号评分系统
+
+## 四、已完成开发 (2026-05-17)
+
+### Phase 1: P0修复 + 调试基础 ✅
+- ✅ P0-1: `_publish_scanner_event`去掉@staticmethod
+- ✅ P0-2: `_signal_to_dict`改为实例方法(含layer_trace+signal_status)
+- ✅ P0-3: 删除重复`_position_to_dict`静态方法
+- ✅ dry_run模式: 只扫描不交易, 信号标记skipped
+- ✅ 信号过期机制: 5分钟过期, 自动清理
+- ✅ 9层逐层trace: layer_trace字段记录每层筛选输入/输出
+- ✅ ScanSignal新增: signal_status/created_at/layer_trace
+
+### Phase 2: 实盘增强 ✅
+- ✅ 跳空止损: 当日open<止损价→open卖出
+- ✅ 跌停不可卖: 跌停股不执行卖出
+- ✅ 智能刷新: 交易5分钟/盘前2分钟/非交易5分钟/深夜30分钟
+- ✅ 策略参数热更新: PUT /scanner/debug/strategy-hot-update/{key}
+- ✅ Timeline持久化: 收盘后保存到MongoDB
+
+### Phase 3: 整合清理 ✅
+- ✅ LiveTradingView → MarketMonitorView(重定向)
+- ✅ DailyScheduler已委托Scanner(信号+执行+行情)
+- ✅ real_trading/标记废弃(README_DEPRECATED.md)
+- ✅ 前端智能刷新(交易5秒/非交易60秒)
+
+### 新增API端点
+| 端点 | 方法 | 功能 |
+|------|------|------|
+| /scanner/debug/layers | GET | 9层筛选管道调试 |
+| /scanner/debug/scan-trace/{ts_code} | GET | 单只股票扫描trace |
+| /scanner/debug/dry-run | POST | 切换dry_run模式 |
+| /scanner/debug/strategy-filter | GET | 策略筛选层详细trace |
+| /scanner/debug/strategy-hot-update/{key} | PUT | 策略参数热更新 |
+
+### 前端新增功能
+- 9层调试弹窗(管道配置+信号逐层trace)
+- 单只股票扫描Trace弹窗(决策+因子+层trace)
+- dry_run标签+切换按钮
+- 信号状态标签(new/executed/skipped/expired/filtered)
+- 信号行Trace按钮
+- 智能刷新(交易时间5秒, 非交易60秒)
+
+### Git提交
+- d3e776a: Phase 1 — dry_run/信号过期/9层trace/前端调试面板
+- 038ace8: Phase 2 — 跳空止损/跌停不可卖/智能刷新/策略热更新
+- 017a3c0: Phase 3 — 前端智能刷新/real_trading废弃标记
