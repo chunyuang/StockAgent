@@ -9,6 +9,7 @@ MarketScanner — 超短量化市场扫描器
 - 信号→模拟执行→止损止盈
 """
 import asyncio
+import json
 import logging
 import time
 from datetime import datetime
@@ -1268,6 +1269,13 @@ class MarketScanner:
                 })
                 sig.signal_status = "executed"  # 标记信号已执行
                 self._stats["trades_executed"] += 1
+                # 推送信号+时间线到Redis(WebSocket实时推送)
+                await self._publish_scanner_event("signal", {
+                    "signals": [self._signal_to_dict(sig)],
+                })
+                await self._publish_scanner_event("timeline", {
+                    "item": self._timeline[-1],
+                })
                 logger.info(f"[EXEC] 买入 {sig.ts_code} {shares}股@{order.filled_price:.2f} ({sig.strategy_name})")
             else:
                 logger.warning(f"[EXEC] 买入被拒 {sig.ts_code}: {msg}")
@@ -1360,6 +1368,7 @@ class MarketScanner:
                     self._stats["stop_losses"] += 1
                 else:
                     self._stats["take_profits"] += 1
+                await self._publish_scanner_event("timeline", {"item": self._timeline[-1]})
                 logger.info(f"[RISK] {reason}: {pos.ts_code} {pos.available_qty}股@{order.filled_price:.2f}")
         
         # 止损止盈后持久化
@@ -1452,6 +1461,7 @@ class MarketScanner:
                     self._stats["stop_losses"] += 1
                 else:
                     self._stats["take_profits"] += 1
+                await self._publish_scanner_event("timeline", {"item": self._timeline[-1]})
                 logger.info(f"[QUICK] {reason}: {pos.ts_code} {pos.available_qty}股@{order.filled_price:.2f}")
         
         # 止损止盈后持久化
@@ -1710,6 +1720,32 @@ class MarketScanner:
             return None
 
     @staticmethod
+    async def _publish_scanner_event(self, event_type: str, data: Dict):
+        """推送scanner事件到Redis Pub/Sub(→WebSocket实时推送)"""
+        try:
+            from core.managers import redis_manager
+            if redis_manager._client:
+                channel = f"scanner:{event_type}"
+                data["timestamp"] = datetime.now().strftime("%H:%M:%S")
+                await redis_manager._client.publish(channel, json.dumps(data, ensure_ascii=False))
+        except Exception as e:
+            logger.debug(f"[PUSH] Redis推送失败(可忽略): {e}")
+
+    def _position_to_dict(self, p) -> Dict:
+        """Position对象转dict"""
+        risk = self._get_strategy_risk(p.strategy)
+        return {
+            "ts_code": p.ts_code, "stock_name": p.stock_name,
+            "strategy": p.strategy, "shares": p.total_qty,
+            "available_qty": p.available_qty,
+            "cost_price": round(p.avg_cost, 2),
+            "current_price": round(p.current_price, 2),
+            "profit_pct": round(p.profit_pct, 2),
+            "today_buy": p.today_buy_qty,
+            "stop_loss_pct": round(risk.get("stop_loss_pct", 0.03) * 100, 1),
+            "take_profit_pct": round(risk.get("take_profit_pct", 0.07) * 100, 1),
+        }
+
     def _signal_to_dict(s: ScanSignal) -> Dict:
         d = {
             "ts_code": s.ts_code, "stock_name": s.stock_name,

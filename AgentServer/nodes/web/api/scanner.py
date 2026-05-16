@@ -189,6 +189,41 @@ async def get_timeline():
     scanner = _get_scanner()
     return _sanitize({"success": True, "data": scanner.get_timeline()})
 
+@router.get("/timeline/history")
+async def get_timeline_history(date: str = None, days: int = 7):
+    """获取历史交易时间线
+    
+    Args:
+        date: 指定日期(YYYYMMDD), 不传则返回最近N天
+        days: 返回最近N天(默认7)
+    """
+    scanner = _get_scanner()
+    try:
+        from core.managers import mongo_manager
+        if mongo_manager.db is None:
+            return {"success": True, "data": []}
+        
+        account_id = scanner._broker.account.account_id if scanner._broker else "default"
+        
+        if date:
+            # 指定日期
+            query = {"account_id": account_id, "trade_date": date}
+        else:
+            # 最近N天
+            from datetime import datetime, timedelta
+            start_date = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
+            query = {"account_id": account_id, "trade_date": {"$gte": start_date}}
+        
+        items = []
+        async for doc in mongo_manager.db["scanner_timeline"].find(query).sort("_id", 1):
+            doc.pop("_id", None)
+            doc.pop("account_id", None)
+            items.append(doc)
+        
+        return {"success": True, "data": items, "count": len(items)}
+    except Exception as e:
+        return {"success": True, "data": [], "message": str(e)}
+
 
 @router.get("/account")
 async def get_account():
@@ -763,3 +798,84 @@ async def get_trade_audit():
             traded_stocks[p.ts_code]["status"] = f"持仓中 {p.profit_pct:+.1f}%"
     
     return {"success": True, "data": list(traded_stocks.values())}
+
+
+@router.get("/backtest-compare")
+async def backtest_compare():
+    """实盘vs回测对比
+    
+    返回各策略的回测指标和实盘指标对比
+    """
+    scanner = _get_scanner()
+    try:
+        from core.managers import mongo_manager
+        
+        # 获取实盘统计
+        stats = scanner._stats
+        cb = scanner._circuit_breaker
+        
+        # 获取各策略的实盘表现
+        live_performance = {}
+        if scanner._broker:
+            for pos in scanner._broker.get_positions():
+                key = pos.strategy or "unknown"
+                if key not in live_performance:
+                    live_performance[key] = {"trades": 0, "wins": 0, "total_pnl": 0, "positions": 0}
+                live_performance[key]["positions"] += 1
+                live_performance[key]["total_pnl"] += (pos.current_price - pos.avg_cost) * pos.total_qty
+        
+        # 从时间线统计各策略交易
+        for item in scanner._timeline:
+            strategy = item.get("strategy", "unknown")
+            if strategy not in live_performance:
+                live_performance[strategy] = {"trades": 0, "wins": 0, "total_pnl": 0, "positions": 0}
+            if item.get("action") == "buy":
+                live_performance[strategy]["trades"] += 1
+            elif item.get("action") == "sell":
+                pnl = item.get("profit_pct", 0)
+                if pnl > 0:
+                    live_performance[strategy]["wins"] += 1
+        
+        # 获取最近回测结果
+        backtest_results = {}
+        if mongo_manager.db is not None:
+            today = datetime.now().strftime("%Y%m%d")
+            async for doc in mongo_manager.db["backtest_results"].find(
+                {"status": "completed"},
+                {"_id": 0, "task_id": 1, "params.strategy_ids": 1, "result.summary": 1, "created_at": 1}
+            ).sort("created_at", -1).limit(5):
+                strategies = doc.get("params", {}).get("strategy_ids", [])
+                summary = doc.get("result", {}).get("summary", {})
+                for sid in strategies:
+                    if sid not in backtest_results:
+                        backtest_results[sid] = {
+                            "total_return": summary.get("total_return", 0),
+                            "win_rate": summary.get("win_rate", 0),
+                            "max_drawdown": summary.get("max_drawdown", 0),
+                            "sharpe": summary.get("sharpe_ratio", 0),
+                            "trades": summary.get("total_trades", 0),
+                            "task_id": doc.get("task_id", ""),
+                        }
+        
+        # 组装对比数据
+        compare = []
+        all_strategies = set(list(live_performance.keys()) + list(backtest_results.keys()))
+        for sid in all_strategies:
+            lp = live_performance.get(sid, {})
+            bt = backtest_results.get(sid, {})
+            compare.append({
+                "strategy": sid,
+                "live_trades": lp.get("trades", 0),
+                "live_win_rate": round(lp.get("wins", 0) / max(lp.get("trades", 1), 1) * 100, 1),
+                "live_pnl": round(lp.get("total_pnl", 0), 2),
+                "live_positions": lp.get("positions", 0),
+                "bt_return": round(bt.get("total_return", 0) * 100, 1),
+                "bt_win_rate": round(bt.get("win_rate", 0) * 100, 1),
+                "bt_drawdown": round(bt.get("max_drawdown", 0) * 100, 1),
+                "bt_sharpe": round(bt.get("sharpe", 0), 2),
+                "bt_trades": bt.get("trades", 0),
+            })
+        
+        return {"success": True, "data": compare}
+    except Exception as e:
+        return {"success": True, "data": [], "message": str(e)}

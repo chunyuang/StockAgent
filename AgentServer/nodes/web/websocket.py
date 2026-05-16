@@ -95,6 +95,12 @@ class ConnectionManager:
                 except Exception:
                     ws_set.discard(ws)
 
+    # Scanner 订阅者: user_id -> [websocket, ...]
+    def _scanner_subscribers(self) -> Dict[str, Set[WebSocket]]:
+        if not hasattr(self, '_scanner_subs'):
+            self._scanner_subs: Dict[str, Set[WebSocket]] = {}
+        return self._scanner_subs
+
     def subscribe_scheduler(self, user_id: str, websocket: WebSocket) -> None:
         """订阅调度器事件"""
         if user_id not in self._scheduler_subscribers:
@@ -105,6 +111,29 @@ class ConnectionManager:
         """取消订阅调度器事件"""
         if user_id in self._scheduler_subscribers:
             self._scheduler_subscribers[user_id].discard(websocket)
+
+    def subscribe_scanner(self, user_id: str, websocket: WebSocket) -> None:
+        """订阅scanner事件(信号/持仓/时间线)"""
+        subs = self._scanner_subscribers()
+        if user_id not in subs:
+            subs[user_id] = set()
+        subs[user_id].add(websocket)
+
+    def unsubscribe_scanner(self, user_id: str, websocket: WebSocket) -> None:
+        """取消订阅scanner"""
+        subs = self._scanner_subscribers()
+        if user_id in subs:
+            subs[user_id].discard(websocket)
+
+    async def broadcast_scanner_event(self, message: dict) -> None:
+        """广播scanner事件到所有订阅者"""
+        subs = self._scanner_subscribers()
+        for user_id, ws_set in list(subs.items()):
+            for ws in list(ws_set):
+                try:
+                    await ws.send_json(message)
+                except Exception:
+                    ws_set.discard(ws)
 
 
 manager = ConnectionManager()
@@ -190,6 +219,17 @@ async def websocket_endpoint(
             elif msg_type == "unsubscribe_scheduler":
                 # 取消订阅调度器事件
                 manager.unsubscribe_scheduler(user_id, websocket)
+
+            elif msg_type == "subscribe_scanner":
+                # 订阅scanner事件(信号/持仓/时间线)
+                manager.subscribe_scanner(user_id, websocket)
+                await websocket.send_json({
+                    "type": "subscribed_scanner",
+                })
+
+            elif msg_type == "unsubscribe_scanner":
+                # 取消订阅scanner
+                manager.unsubscribe_scanner(user_id, websocket)
 
     except WebSocketDisconnect:
         manager.disconnect(websocket, user_id)

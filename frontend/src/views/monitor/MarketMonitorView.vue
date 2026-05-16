@@ -24,6 +24,8 @@ interface GlobalRisk { stop_loss_pct: number; take_profit_pct: number; max_posit
 
 const loading = ref(false), autoRefresh = ref(true)
 let refreshTimer: any = null
+let ws: WebSocket | null = null
+let wsReconnectTimer: any = null
 const status = ref<ScannerStatus | null>(null)
 const signals = ref<ScanSignal[]>([])
 const positions = ref<PositionInfo[]>([])
@@ -97,8 +99,18 @@ async function toggleStrategy(sid: string, enabled: boolean) { try { await api.p
 function openEditDialog(strategy: StrategyConfig) { editingStrategy.value = strategy; editParams.value = { ...strategy.params }; editRiskParams.value = { ...strategy.riskParams }; editTab.value = 'params'; editDialogVisible.value = true }
 async function saveStrategy() { if (!editingStrategy.value) return; saving.value = true; try { await api.put(`${configApi}/strategies/${editingStrategy.value.id}`, { params: editParams.value, riskParams: editRiskParams.value }); await fetchStrategies(); editDialogVisible.value = false; ElMessage.success('已保存') } catch { ElMessage.error('保存失败') } finally { saving.value = false } }
 async function resetStrategy(sid: string) { try { await api.post(`${configApi}/reset/${sid}`); await fetchStrategies(); ElMessage.success('已重置') } catch { ElMessage.error('重置失败') } }
-onMounted(async () => { await Promise.all([fetchScanner(), fetchStrategies(), fetchDataSources()]); refreshTimer = setInterval(() => { if (!autoRefresh.value) return; const n = new Date(), h = n.getHours(), m = n.getMinutes(); const t = (h === 9 && m >= 30) || (h >= 10 && h < 15) || (h === 15 && m === 0); if (!t && Date.now() % 6 !== 0) return; fetchScanner() }, 5000) })
-onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
+onMounted(async () => { await Promise.all([fetchScanner(), fetchStrategies(), fetchDataSources()]); connectWS(); refreshTimer = setInterval(() => { if (!autoRefresh.value || ws?.readyState === WebSocket.OPEN) return; const n = new Date(), h = n.getHours(), m = n.getMinutes(); const t = (h === 9 && m >= 30) || (h >= 10 && h < 15) || (h === 15 && m === 0); if (!t && Date.now() % 6 !== 0) return; fetchScanner() }, 5000) })
+onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer); disconnectWS() })
+function connectWS() { try { const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'; ws = new WebSocket(`${proto}//${location.host}/ws`); ws.onopen = () => { ws?.send(JSON.stringify({ type: 'subscribe_scanner' })); }; ws.onmessage = (e) => { try { const d = JSON.parse(e.data); if (d.type === 'scanner_signal') { signals.value = d.signals?.length ? d.signals : signals.value; fetchScanner(); } else if (d.type === 'scanner_position') { positions.value = d.positions?.length ? d.positions : positions.value; } else if (d.type === 'scanner_timeline') { if (d.item) timeline.value = [...timeline.value, d.item]; fetchScanner(); } else if (d.type === 'scanner_status') { if (d.status) status.value = { ...status.value, ...d.status }; fetchScanner(); } } catch {} }; ws.onclose = () => { wsReconnectTimer = setTimeout(connectWS, 3000); }; ws.onerror = () => { ws?.close(); }; } catch {} }
+function disconnectWS() { if (wsReconnectTimer) clearTimeout(wsReconnectTimer); if (ws) { ws.close(); ws = null; } }
+const historyDate = ref('')
+const historyData = ref<any[]>([])
+const historyLoading = ref(false)
+async function loadHistory() { if (!historyDate.value) { ElMessage.warning('请选择日期'); return } historyLoading.value = true; try { const d = historyDate.value.replace(/-/g, ''); const r = await api.get(`${scannerApi}/timeline/history?date=${d}`); if (r?.success) { historyData.value = r.data || []; if (!historyData.value.length) ElMessage.info('该日无交易记录') } } catch { ElMessage.error('加载失败') } finally { historyLoading.value = false } }
+const compareData = ref<any[]>([])
+const compareVisible = ref(false)
+const compareLoading = ref(false)
+async function loadCompare() { compareLoading.value = true; try { const r = await api.get(`${scannerApi}/backtest-compare`); if (r?.success) { compareData.value = r.data || []; compareVisible.value = true } } catch { ElMessage.error('加载失败') } finally { compareLoading.value = false } }
 </script>
 <template>
   <div class="mm">
@@ -159,6 +171,7 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
         <ElButton size="small" type="warning" @click="forceScan" :loading="loading" :disabled="!isRunning" style="width:100%" title="忽略交易时间检查，消耗必盈额度">⚡ 强制扫描</ElButton>
           <ElButton size="small" @click="dailySettlement" :disabled="!isRunning" style="width:100%">📅 日结算(T+1)</ElButton>
           <ElButton size="small" @click="openTradeAudit" :disabled="!timeline.length" style="width:100%">🔍 审查全部交易</ElButton>
+          <ElButton size="small" @click="loadCompare" :loading="compareLoading" style="width:100%">📊 回测对比</ElButton>
           <ElButton v-if="circuitBreakerPaused" size="small" type="danger" @click="resetCircuitBreaker" style="width:100%">🔓 重置熔断</ElButton>
           <ElButton size="small" type="warning" @click="resetAccount" style="width:100%">🗑️ 清仓重置</ElButton>
         </div>
@@ -209,10 +222,11 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
 
     <!-- 底部时间线 -->
     <div v-if="isRunning || timeline.length" class="mm-footer">
-      <div class="st">⏱️ 交易时间线 ({{ timeline.length }}) <ElButton v-if="timeline.length" size="small" type="warning" @click="openTradeAudit" style="margin-left:6px">🔍 审查全部</ElButton></div>
+      <div class="st">⏱️ 交易时间线 ({{ timeline.length }}) <ElButton v-if="timeline.length" size="small" type="warning" @click="openTradeAudit" style="margin-left:6px">🔍 审查全部</ElButton> <div style="display:inline-flex;align-items:center;gap:4px;margin-left:8px"><input type="date" v-model="historyDate" style="font-size:11px;padding:2px 4px;border:1px solid #dcdfe6;border-radius:4px" /><ElButton size="small" @click="loadHistory" :loading="historyLoading" style="padding:2px 8px;font-size:11px">回放</ElButton><ElButton v-if="historyData.length" size="small" type="info" @click="historyData=[];historyDate=''" style="padding:2px 8px;font-size:11px">返回今日</ElButton></div></div>
       <div class="tl-scroll">
-        <div v-if="!timeline.length" class="empty">暂无交易</div>
-        <div v-for="(item, i) in timeline" :key="i" class="tl-row" @click="openTradeDetail(item.ts_code)" style="cursor:pointer"><span class="tl-time">{{ item.time }}</span><span class="tl-action" :class="item.action === 'buy' ? 'buy' : 'sell'">{{ item.action === 'buy' ? '买' : '卖' }}</span><span class="code">{{ item.ts_code }}</span><span class="name">{{ item.stock_name }}</span><span class="tl-detail">{{ item.shares }}股@{{ item.price.toFixed(2) }}</span><span v-if="item.profit_pct !== undefined" :class="item.profit_pct >= 0 ? 'up' : 'down'">{{ item.profit_pct >= 0 ? '+' : '' }}{{ item.profit_pct.toFixed(1) }}%</span><span class="tl-reason">{{ item.reason }}</span></div>
+        <div v-if="historyData.length" class="history-tag">📜 {{ historyDate }} 历史回放 ({{ historyData.length }}条)</div>
+        <div v-if="!historyData.length && !timeline.length" class="empty">暂无交易</div>
+        <div v-for="(item, i) in historyData.length ? historyData : timeline" :key="i" class="tl-row" @click="openTradeDetail(item.ts_code)" style="cursor:pointer"><span class="tl-time">{{ item.time }}</span><span class="tl-action" :class="item.action === 'buy' ? 'buy' : 'sell'">{{ item.action === 'buy' ? '买' : '卖' }}</span><span class="code">{{ item.ts_code }}</span><span class="name">{{ item.stock_name }}</span><span class="tl-detail">{{ item.shares }}股@{{ item.price.toFixed(2) }}</span><span v-if="item.profit_pct !== undefined" :class="item.profit_pct >= 0 ? 'up' : 'down'">{{ item.profit_pct >= 0 ? '+' : '' }}{{ item.profit_pct.toFixed(1) }}%</span><span class="tl-reason">{{ item.reason }}</span></div>
         <div v-if="orders.length" style="margin-top:6px;padding-top:6px;border-top:1px dashed #dcdfe6"><div style="font-size:12px;font-weight:600;color:#606266;margin-bottom:4px">📋 历史订单 ({{ orders.length }})</div><div v-for="o in orders.slice(0, 15)" :key="o.order_id" class="tl-row" @click="openTradeDetail(o.ts_code)" style="cursor:pointer"><span class="tl-time">{{ o.trade_date?.slice(-4) || '' }} {{ o.create_time }}</span><span class="tl-action" :class="o.side === 'buy' ? 'buy' : 'sell'">{{ o.side === 'buy' ? '买' : '卖' }}</span><span class="code">{{ o.ts_code }}</span><span class="name">{{ o.stock_name }}</span><span class="tl-detail">{{ o.filled_qty }}股@{{ o.filled_price?.toFixed(2) || '0.00' }}</span><span style="font-size:11px;color:#909399">{{ o.strategy }}</span></div></div>
       </div>
     </div>
@@ -240,6 +254,23 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
     <ElDialog v-model="tradeAuditVisible" title="🔍 全部交易审查" width="800px">
       <div v-if="tradeAuditData.length" class="al"><div class="ah"><span>股票</span><span>策略</span><span>买入</span><span>卖出</span><span>盈亏</span><span>状态</span></div><div v-for="t in tradeAuditData" :key="t.ts_code" class="ar" @click="openTradeDetail(t.ts_code); tradeAuditVisible = false"><span class="code">{{ t.ts_code }}</span><span><ElTag size="small" type="info">{{ t.strategy }}</ElTag></span><span>{{ t.buy_time }} {{ t.buy_price?.toFixed(2) }}</span><span>{{ t.sell_time || '-' }} {{ t.sell_price?.toFixed(2) || '-' }}</span><span :class="t.profit_pct !== null && t.profit_pct >= 0 ? 'up' : 'down'">{{ t.profit_pct !== null ? (t.profit_pct >= 0 ? '+' : '') + t.profit_pct.toFixed(2) + '%' : '-' }}</span><span style="font-size:11px;color:#909399">{{ t.status }}</span></div></div>
       <div v-else class="empty">暂无交易记录</div>
+    </ElDialog>
+    <!-- 回测对比弹窗 -->
+    <ElDialog v-model="compareVisible" title="📊 实盘 vs 回测对比" width="700px">
+      <div v-if="compareData.length" class="cl-table">
+        <div class="cl-h"><span>策略</span><span>实盘交易</span><span>实盘胜率</span><span>实盘盈亏</span><span>回测收益</span><span>回测胜率</span><span>回测回撤</span><span>回测夏普</span></div>
+        <div v-for="c in compareData" :key="c.strategy" class="cl-r">
+          <span class="code">{{ c.strategy }}</span>
+          <span>{{ c.live_trades }}笔</span>
+          <span :class="c.live_win_rate >= 50 ? 'up' : 'down'">{{ c.live_win_rate }}%</span>
+          <span :class="c.live_pnl >= 0 ? 'up' : 'down'">{{ c.live_pnl >= 0 ? '+' : '' }}{{ c.live_pnl.toFixed(0) }}</span>
+          <span :class="c.bt_return >= 0 ? 'up' : 'down'">{{ c.bt_return }}%</span>
+          <span>{{ c.bt_win_rate }}%</span>
+          <span style="color:#f56c6c">{{ c.bt_drawdown }}%</span>
+          <span>{{ c.bt_sharpe }}</span>
+        </div>
+      </div>
+      <div v-else class="empty">暂无对比数据（需先运行回测）</div>
     </ElDialog>
   </div>
 </template>
@@ -356,6 +387,7 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
 .tl-action.sell { color: #67c23a; }
 .tl-detail { font-size: 11px; color: #606266; }
 .tl-reason { font-size: 11px; color: #909399; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-tag { font-size: 12px; color: #409eff; background: #ecf5ff; padding: 4px 8px; border-radius: 4px; margin-bottom: 4px; font-weight: 600; }
 
 /* 通用 */
 .code { font-size: 12px; font-weight: 600; color: #303133; font-family: monospace; }
@@ -380,6 +412,11 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
 .ah { display: grid; grid-template-columns: 100px 80px 120px 120px 70px 80px; gap: 4px; padding: 6px 0; font-size: 12px; font-weight: 600; color: #909399; border-bottom: 1px solid #ebeef5; }
 .ar { display: grid; grid-template-columns: 100px 80px 120px 120px 70px 80px; gap: 4px; padding: 6px 0; font-size: 12px; align-items: center; border-bottom: 1px solid #f2f3f5; cursor: pointer; }
 .ar:hover { background: rgba(64,158,255,0.06); }
+
+/* 回测对比 */
+.cl-table { max-height: 400px; overflow-y: auto; }
+.cl-h { display: grid; grid-template-columns: 120px 70px 70px 80px 70px 70px 70px 60px; gap: 4px; padding: 6px 0; font-size: 12px; font-weight: 600; color: #909399; border-bottom: 1px solid #ebeef5; }
+.cl-r { display: grid; grid-template-columns: 120px 70px 70px 80px 70px 70px 70px 60px; gap: 4px; padding: 6px 0; font-size: 12px; align-items: center; border-bottom: 1px solid #f2f3f5; }
 
 /* 响应式 */
 @media (max-width: 1024px) { .mm-body { grid-template-columns: 1fr; } .mm-left, .mm-right { border: none; border-bottom: 1px solid #ebeef5; } }

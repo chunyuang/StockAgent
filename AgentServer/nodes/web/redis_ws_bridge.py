@@ -41,6 +41,12 @@ CHANNEL_BACKTEST_PROGRESS = "backtest:progress"
 CHANNEL_SCHEDULER_STATUS = "scheduler:status"
 CHANNEL_SCHEDULER_PHASE = "scheduler:phase"
 
+# Scanner 频道
+CHANNEL_SCANNER_SIGNAL = "scanner:signal"
+CHANNEL_SCANNER_POSITION = "scanner:position"
+CHANNEL_SCANNER_TIMELINE = "scanner:timeline"
+CHANNEL_SCANNER_STATUS = "scanner:status"
+
 
 # ==================== Redis Pub/Sub → WebSocket 桥接 ====================
 
@@ -92,8 +98,12 @@ class RedisWSBridge:
                 CHANNEL_BACKTEST_PROGRESS,
                 CHANNEL_SCHEDULER_STATUS,
                 CHANNEL_SCHEDULER_PHASE,
+                CHANNEL_SCANNER_SIGNAL,
+                CHANNEL_SCANNER_POSITION,
+                CHANNEL_SCANNER_TIMELINE,
+                CHANNEL_SCANNER_STATUS,
             )
-            logger.info(f"Subscribed to Redis channels: {CHANNEL_BACKTEST_LOGS}, {CHANNEL_BACKTEST_STATUS}, {CHANNEL_BACKTEST_PROGRESS}, {CHANNEL_SCHEDULER_STATUS}, {CHANNEL_SCHEDULER_PHASE}")
+            logger.info(f"Subscribed to Redis channels: backtest+scheduler+scanner")
         except Exception as e:
             logger.error(f"Failed to subscribe to Redis: {e}")
             # Redis订阅失败不阻塞启动，降级为仅MongoDB模式
@@ -174,6 +184,14 @@ class RedisWSBridge:
                     await self._handle_scheduler_status_message(data)
                 elif channel == CHANNEL_SCHEDULER_PHASE:
                     await self._handle_scheduler_phase_message(data)
+                elif channel == CHANNEL_SCANNER_SIGNAL:
+                    await self._handle_scanner_signal_message(data)
+                elif channel == CHANNEL_SCANNER_POSITION:
+                    await self._handle_scanner_position_message(data)
+                elif channel == CHANNEL_SCANNER_TIMELINE:
+                    await self._handle_scanner_timeline_message(data)
+                elif channel == CHANNEL_SCANNER_STATUS:
+                    await self._handle_scanner_status_message(data)
 
         except asyncio.CancelledError:
             pass
@@ -244,6 +262,40 @@ class RedisWSBridge:
     # MongoDB写入统一由BacktestNode._push_log()负责
     # async def _mongo_batch_writer(self) -> None: ... 已删除
     # async def _flush_batch(self, batch) -> None: ... 已删除
+
+    # ==================== Scanner 频道处理 ====================
+
+    async def _handle_scanner_signal_message(self, data: dict) -> None:
+        """处理scanner信号消息"""
+        await self._ws_manager.broadcast_scanner_event({
+            "type": "scanner_signal",
+            "signals": data.get("signals", []),
+            "timestamp": data.get("timestamp"),
+        })
+
+    async def _handle_scanner_position_message(self, data: dict) -> None:
+        """处理scanner持仓变更消息"""
+        await self._ws_manager.broadcast_scanner_event({
+            "type": "scanner_position",
+            "positions": data.get("positions", []),
+            "timestamp": data.get("timestamp"),
+        })
+
+    async def _handle_scanner_timeline_message(self, data: dict) -> None:
+        """处理scanner时间线消息"""
+        await self._ws_manager.broadcast_scanner_event({
+            "type": "scanner_timeline",
+            "item": data.get("item", {}),
+            "timestamp": data.get("timestamp"),
+        })
+
+    async def _handle_scanner_status_message(self, data: dict) -> None:
+        """处理scanner状态变更消息"""
+        await self._ws_manager.broadcast_scanner_event({
+            "type": "scanner_status",
+            "status": data.get("status", {}),
+            "timestamp": data.get("timestamp"),
+        })
 
     # ==================== WebSocket 重连日志补发 ====================
 
