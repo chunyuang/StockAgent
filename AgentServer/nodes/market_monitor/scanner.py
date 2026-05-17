@@ -13,7 +13,7 @@ import json
 import logging
 import time
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 
 import pandas as pd
@@ -225,8 +225,12 @@ class MarketScanner:
         result = []
         for p in self._broker.get_positions():
             risk = self._get_strategy_risk(p.strategy)
+            sl_price = self._calc_stop_loss_price(p, risk)
+            tp_price = self._calc_take_profit_price(p, risk)
             sl_pct = risk.get("stop_loss_pct", 0.03) * 100
             tp_pct = risk.get("take_profit_pct", 0.07) * 100
+            mv = round(p.current_price * p.total_qty, 2)
+            profit_amt = round((p.current_price - p.avg_cost) * p.total_qty, 2)
             result.append({
                 "ts_code": p.ts_code, "stock_name": p.stock_name,
                 "strategy": p.strategy, "shares": p.total_qty,
@@ -234,11 +238,14 @@ class MarketScanner:
                 "cost_price": round(p.avg_cost, 2),
                 "current_price": round(p.current_price, 2),
                 "profit_pct": round(p.profit_pct, 2),
+                "profit_amount": profit_amt,  # 【P1-2】盈亏金额
+                "market_value": mv,  # 【P1-2】持仓市值
                 "today_buy": p.today_buy_qty,
                 "stop_loss_pct": round(sl_pct, 1),
                 "take_profit_pct": round(tp_pct, 1),
-                "stop_loss_price": round(p.avg_cost * (1 - risk.get("stop_loss_pct", 0.03)), 2),
-                "take_profit_price": round(p.avg_cost * (1 + risk.get("take_profit_pct", 0.07)), 2),
+                "stop_loss_price": sl_price,
+                "take_profit_price": tp_price,
+                "distance_to_stop": round(p.profit_pct + sl_pct, 1),  # 【P1-2】距止损距离
             })
         return result
 
@@ -492,7 +499,7 @@ class MarketScanner:
                 strong_pool = await biying.get_strong_pool(today)
                 for item in strong_pool:
                     dm = item.get("dm", "")
-                    ts_code = self._dm_to_tscode(dm) if hasattr(self, '_dm_to_tscode') else f"{dm}.SZ" if dm else ""
+                    ts_code = self._short_to_ts_code(dm) if dm else ""
                     if ts_code:
                         strong_stocks.add(ts_code)
                 logger.info(f"[AUCTION] 今日强势股池: {len(strong_stocks)}只")
@@ -612,7 +619,7 @@ class MarketScanner:
                     logger.info("[SCANNER] 收盘自动结算+持久化完成")
                     # 保存timeline到MongoDB
                     try:
-                        await self._save_timeline_to_mongo(trade_date)
+                        await self._save_timeline()
                     except Exception:
                         pass
                     await asyncio.sleep(60)
@@ -1122,7 +1129,7 @@ class MarketScanner:
             trade_date=trade_date,
             candidates=candidates,
             positions=positions,
-            account={"cash": self._broker.cash if self._broker else 0},
+            account={"cash": self._broker.account.available_cash if self._broker else 0},
             realtime_data=realtime_data,
         )
 
@@ -1137,7 +1144,7 @@ class MarketScanner:
                 for p in self._broker.get_positions():
                     self._broker.sell(
                         ts_code=p.ts_code,
-                        shares=p.shares,
+                        shares=p.total_qty,
                         price=p.current_price,
                         reason=f"强制空仓: {result.force_empty_reason}",
                     )
@@ -1241,7 +1248,8 @@ class MarketScanner:
                         s.volume_ratio = sig.volume_ratio
                         s.turnover_rate = sig.turnover_rate
                         s.scan_time = sig.scan_time
-                        s.created_at = now  # 刷新过期时间
+                        # 不刷新created_at: 保留原始创建时间, 让信号正常过期
+                        # 如果需要续期, 用户可以手动买入
                         break
 
         if added:
@@ -1395,41 +1403,70 @@ class MarketScanner:
             else:
                 logger.warning(f"[EXEC] 买入被拒 {sig.ts_code}: {msg}")
 
-    # ==================== 持仓检查 ====================
+    # ==================== 公共止损止盈方法 ====================
 
-    async def _check_positions(self, realtime_data: Dict[str, Dict], trade_date: str):
-        """止损止盈检查(策略级风控参数 + 跳空止损)
+    def _calc_stop_loss_price(self, pos_or_cost, risk: Dict) -> float:
+        """统一止损价计算(小数形式)
         
-        与回测portfolio_backtest.py一致的止损逻辑:
-        1. 跳空止损: 当日开盘价<止损价 → 用开盘价卖出(不计止损价,因为跳空低开了)
-        2. 正常止损: 当前价触发止损 → 止损价卖出(回测用止损价,实盘用市价近似)
-        3. 止盈: 当前价触发止盈 → 市价卖出
+        Args:
+            pos_or_cost: Position对象或cost_price(float)
+            risk: 策略风控参数(小数形式: stop_loss_pct=0.03)
+        Returns:
+            止损价(float)
+        """
+        cost = pos_or_cost.avg_cost if hasattr(pos_or_cost, 'avg_cost') else pos_or_cost
+        sl_pct = risk.get("stop_loss_pct", 0.03)
+        # 防御: 百分比形式(>1)自动转小数
+        if sl_pct > 1:
+            sl_pct = sl_pct / 100
+        return round(cost * (1 - sl_pct), 2)
+
+    def _calc_take_profit_price(self, pos_or_cost, risk: Dict) -> float:
+        """统一止盈价计算(小数形式)
+        
+        Args:
+            pos_or_cost: Position对象或cost_price(float)
+            risk: 策略风控参数(小数形式: take_profit_pct=0.07)
+        Returns:
+            止盈价(float)
+        """
+        cost = pos_or_cost.avg_cost if hasattr(pos_or_cost, 'avg_cost') else pos_or_cost
+        tp_pct = risk.get("take_profit_pct", 0.07)
+        # 防御: 百分比形式(>1)自动转小数
+        if tp_pct > 1:
+            tp_pct = tp_pct / 100
+        return round(cost * (1 + tp_pct), 2)
+
+    def _check_stop_loss_take_profit(self, positions, realtime_data: Dict) -> List[Tuple]:
+        """公共止损止盈检查(提取重复逻辑)
+        
+        Returns: List of (pos, sell_reason, sell_price, risk_dict)
         """
         to_sell = []
-        for pos in self._broker.get_positions():
-            # 更新实时价格
-            rt = realtime_data.get(pos.ts_code, {})
-            if rt:
-                self._broker.update_realtime(pos.ts_code, rt.get("price", pos.current_price))
+        for pos in positions:
+            if pos.available_qty <= 0:
+                continue  # T+1: 今日买入不可卖
 
             # 获取策略级风控参数
             risk = self._get_strategy_risk(pos.strategy)
             stop_loss_pct = -risk.get("stop_loss_pct", 0.03) * 100   # 0.03→-3.0%
             take_profit_pct = risk.get("take_profit_pct", 0.07) * 100  # 0.07→7.0%
 
-            # 跳空止损检查(与回测一致)
-            # 当日open < 止损价 → 跳空低开, 用open卖出(不计止损价)
+            # 统一止损价计算
+            stop_loss_price = self._calc_stop_loss_price(pos, risk)
+            take_profit_price = self._calc_take_profit_price(pos, risk)
+
             sell_reason = None
             sell_price = pos.current_price  # 默认市价
-            
+
+            # 跳空止损检查(与回测一致)
+            # 当日open < 止损价 → 跳空低开, 用open卖出
+            rt = realtime_data.get(pos.ts_code, {})
+            today_open = rt.get("open", 0) if rt else self._get_open_price(pos.ts_code)
+
             if pos.profit_pct <= stop_loss_pct:
-                # 计算止损价: cost_price * (1 - stop_loss_pct/100)
-                stop_loss_price = pos.avg_cost * (1 + stop_loss_pct / 100)
-                
-                # 检查是否跳空低开(open < 止损价)
-                today_open = rt.get("open", 0)
-                if today_open > 0 and today_open < stop_loss_price:
-                    # 跳空止损: 用open卖出,不用止损价(因为已经跳空了)
+                if today_open and today_open > 0 and today_open < stop_loss_price:
+                    # 跳空止损: 用open卖出
                     sell_reason = f"跳空止损(开{today_open:.2f}<止损{stop_loss_price:.2f})"
                     sell_price = today_open
                 else:
@@ -1439,10 +1476,27 @@ class MarketScanner:
                 sell_reason = f"止盈 {pos.profit_pct:.1f}%"
 
             if sell_reason:
-                to_sell.append((pos, sell_reason, sell_price))
+                to_sell.append((pos, sell_reason, sell_price, risk))
+
+        return to_sell
+
+    # ==================== 持仓检查 ====================
+
+    async def _check_positions(self, realtime_data: Dict[str, Dict], trade_date: str):
+        """止损止盈检查(策略级风控参数 + 跳空止损)
+        
+        与回测portfolio_backtest.py一致的止损逻辑:
+        1. 跳空止损: 当日开盘价<止损价 → 用开盘价卖出
+        2. 正常止损: 当前价触发止损 → 市价卖出
+        3. 止盈: 当前价触发止盈 → 市价卖出
+        """
+        # 使用公共止损止盈检查方法
+        to_sell = self._check_stop_loss_take_profit(
+            self._broker.get_positions(), realtime_data
+        )
 
         # 执行卖出
-        for pos, reason, sell_price in to_sell:
+        for pos, reason, sell_price, risk in to_sell:
             if pos.available_qty <= 0:
                 continue  # T+1: 今日买入不可卖
 
@@ -1468,14 +1522,18 @@ class MarketScanner:
                     "price": order.filled_price,
                     "reason": reason,
                     "profit_pct": round(pos.profit_pct, 2),
-                    "decision_detail": {  # 【实盘审查增强】卖出决策详情
+                    "profit_amount": round((pos.current_price - pos.avg_cost) * pos.available_qty, 2),  # 【P1-3】盈亏金额
+                    "decision_detail": {  # 【实盘审查增强】卖出决策详情(使用正确的risk)
                         "sell_reason": reason,
                         "profit_pct": round(pos.profit_pct, 2),
+                        "profit_amount": round((pos.current_price - pos.avg_cost) * pos.available_qty, 2),
                         "cost_price": pos.avg_cost,
                         "sell_price": order.filled_price,
                         "current_price": pos.current_price,
-                        "stop_loss_pct": -risk.get("stop_loss_pct", 0.03) * 100,
-                        "take_profit_pct": risk.get("take_profit_pct", 0.07) * 100,
+                        "stop_loss_pct": round(-risk.get("stop_loss_pct", 0.03) * 100, 1),
+                        "take_profit_pct": round(risk.get("take_profit_pct", 0.07) * 100, 1),
+                        "stop_loss_price": self._calc_stop_loss_price(pos, risk),
+                        "take_profit_price": self._calc_take_profit_price(pos, risk),
                         "hold_minutes": 0,
                     },
                 })
@@ -1538,28 +1596,13 @@ class MarketScanner:
                     pre_close=cached.get("pre_close", 0),
                 )
         
-        # 检查止损止盈
-        to_sell = []
-        for pos in self._broker.get_positions():
-            risk = self._get_strategy_risk(pos.strategy)
-            stop_loss_pct = -risk.get("stop_loss_pct", 0.03) * 100
-            take_profit_pct = risk.get("take_profit_pct", 0.07) * 100
-            
-            # 【增强】跳空止损: 获取当日open价
-            stop_loss_price = pos.avg_cost * (1 - risk.get("stop_loss_pct", 0.03))
-            open_price = self._get_open_price(pos.ts_code)  # 当日开盘价
-            
-            if pos.profit_pct <= stop_loss_pct:
-                # 【增强】跳空止损: open<止损价→用open卖出
-                if open_price and open_price < stop_loss_price:
-                    to_sell.append((pos, f"跳空止损 {pos.profit_pct:.1f}%", open_price))
-                else:
-                    to_sell.append((pos, f"止损 {pos.profit_pct:.1f}%", None))
-            elif pos.profit_pct >= take_profit_pct:
-                to_sell.append((pos, f"止盈 {pos.profit_pct:.1f}%", None))
+        # 使用公共止损止盈检查方法
+        to_sell = self._check_stop_loss_take_profit(
+            self._broker.get_positions(), self._realtime_cache or {}
+        )
         
         # 执行卖出
-        for pos, reason, force_price in to_sell:
+        for pos, reason, force_price, risk in to_sell:
             if pos.available_qty <= 0:
                 continue
             
@@ -1596,6 +1639,7 @@ class MarketScanner:
                     "price": order.filled_price,
                     "reason": reason,
                     "profit_pct": round(pos.profit_pct, 2),
+                    "profit_amount": round((pos.current_price - pos.avg_cost) * pos.available_qty, 2),  # 【P1-3】盈亏金额
                 })
                 if "止损" in reason:
                     self._stats["stop_losses"] += 1
@@ -1620,8 +1664,8 @@ class MarketScanner:
         # 回退: 东方财富缓存
         if self._data_router:
             eastmoney = self._data_router._sources.get("eastmoney")
-            if eastmoney and hasattr(eastmoney, '_snapshot_cache'):
-                snap = eastmoney._snapshot_cache.get(ts_code, {})
+            if eastmoney and hasattr(eastmoney, '_cache'):
+                snap = eastmoney._cache.get(ts_code, {})
                 return snap.get("open", 0) or None
         return None
 
@@ -1664,29 +1708,6 @@ class MarketScanner:
         if warnings:
             for w in warnings:
                 logger.warning(f"[VALIDATE] ⚠️ {w}")
-
-    async def _save_timeline_to_mongo(self, trade_date: str):
-        """保存当日timeline到MongoDB(收盘后调用)"""
-        try:
-            from core.managers import mongo_manager
-            if not mongo_manager._client:
-                return
-            collection = mongo_manager.db["scanner_timeline"]
-            doc = {
-                "trade_date": trade_date,
-                "account_id": self.account_id,
-                "timeline": self._timeline,
-                "stats": dict(self._stats),
-                "saved_at": datetime.now().isoformat(),
-            }
-            await collection.replace_one(
-                {"trade_date": trade_date, "account_id": self.account_id},
-                doc,
-                upsert=True,
-            )
-            logger.info(f"[SCANNER] Timeline已保存到MongoDB: {trade_date} {len(self._timeline)}条")
-        except Exception as e:
-            logger.warning(f"[SCANNER] Timeline保存失败: {e}")
 
     def update_strategy_config(self, strategy_key: str, updates: Dict[str, Any]):
         """策略参数热更新(无需重启scanner)
@@ -1957,8 +1978,12 @@ class MarketScanner:
     def _position_to_dict(self, p) -> Dict:
         """Position对象转dict"""
         risk = self._get_strategy_risk(p.strategy)
+        sl_price = self._calc_stop_loss_price(p, risk)
+        tp_price = self._calc_take_profit_price(p, risk)
         sl_pct = risk.get("stop_loss_pct", 0.03) * 100
         tp_pct = risk.get("take_profit_pct", 0.07) * 100
+        mv = round(p.current_price * p.total_qty, 2)
+        profit_amt = round((p.current_price - p.avg_cost) * p.total_qty, 2)
         return {
             "ts_code": p.ts_code, "stock_name": p.stock_name,
             "strategy": p.strategy, "shares": p.total_qty,
@@ -1966,11 +1991,14 @@ class MarketScanner:
             "cost_price": round(p.avg_cost, 2),
             "current_price": round(p.current_price, 2),
             "profit_pct": round(p.profit_pct, 2),
+            "profit_amount": profit_amt,  # 【P1-2】盈亏金额
+            "market_value": mv,  # 【P1-2】持仓市值
             "today_buy": p.today_buy_qty,
             "stop_loss_pct": round(sl_pct, 1),
             "take_profit_pct": round(tp_pct, 1),
-            "stop_loss_price": round(p.avg_cost * (1 - risk.get("stop_loss_pct", 0.03)), 2),
-            "take_profit_price": round(p.avg_cost * (1 + risk.get("take_profit_pct", 0.07)), 2),
+            "stop_loss_price": sl_price,
+            "take_profit_price": tp_price,
+            "distance_to_stop": round(p.profit_pct + sl_pct, 1),  # 【P1-2】距止损距离
         }
 
     def _signal_to_dict(self, s: ScanSignal) -> Dict:
@@ -1989,12 +2017,40 @@ class MarketScanner:
             "signal_status": s.signal_status,
             "created_at": s.created_at,
             "expire_remaining": max(0, self.SIGNAL_EXPIRE_SECONDS - (time.time() - s.created_at)) if s.created_at > 0 else -1,
+            # 【P1-1】关键因子摘要(前端可直接展示)
+            "key_factors": self._extract_key_factors(s),
         }
         if s.decision_detail:
             d["decision_detail"] = s.decision_detail
         if s.layer_trace:
             d["layer_trace"] = s.layer_trace
         return d
+
+    def _extract_key_factors(self, s: ScanSignal) -> Dict[str, Any]:
+        """提取信号的关键因子摘要(前端卡片展示用)"""
+        factors = s.factors or {}
+        key = {}
+        # 流通市值(小盘股优先)
+        if factors.get("circ_mv"):
+            mv = factors["circ_mv"]
+            key["circ_mv"] = f"{mv/10000:.0f}亿" if mv >= 10000 else f"{mv/100:.0f}万"
+        # PE/PB(估值)
+        if factors.get("pe") and factors["pe"] > 0:
+            key["pe"] = f"PE{factors['pe']:.0f}"
+        if factors.get("pb") and factors["pb"] > 0:
+            key["pb"] = f"PB{factors['pb']:.1f}"
+        # 连板数
+        if s.limit_up_count > 0:
+            key["limit_count"] = f"{s.limit_up_count}连板"
+        # 封单资金(涨停信号)
+        if factors.get("fd_amount"):
+            key["fd_amount"] = f"封单{factors['fd_amount']/1000:.0f}万"
+        # 量比/换手(核心量能指标)
+        if s.volume_ratio > 0:
+            key["volume_ratio"] = f"量比{s.volume_ratio:.1f}"
+        if s.turnover_rate > 0:
+            key["turnover_rate"] = f"换手{s.turnover_rate:.1f}%"
+        return key
 
     def generate_summary_report(self) -> Dict[str, Any]:
         """生成完整交易摘要报告(供API调用)

@@ -119,6 +119,8 @@ class SimulatedBroker:
         self._limit_prices: Dict[str, Dict] = {}  # ts_code → {upper, lower}
         self._suspended: set = set()  # 停牌股
         self._mongo_db = None  # MongoDB句柄(懒初始化)
+        self._pending_save = False  # 标记有待保存的状态
+        self._last_save_time = 0  # 上次保存时间(节流用)
 
     # ==================== 持久化 ====================
 
@@ -550,15 +552,11 @@ class SimulatedBroker:
 
         # 持久化(异步, 不阻塞)
         try:
-            import asyncio
             loop = asyncio.get_running_loop()
             loop.create_task(self.save_state())
         except RuntimeError:
-            # 没有running loop, 尝试直接调用
-            try:
-                asyncio.run(self.save_state())
-            except Exception:
-                pass
+            # 没有running loop, 延迟保存(下次async上下文时save)
+            self._pending_save = True
         except Exception as e:
             logger.debug(f"[BROKER] 异步保存失败: {e}")
 

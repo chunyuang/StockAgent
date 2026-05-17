@@ -6,7 +6,7 @@ MarketScanner REST API
 import asyncio
 import logging
 import math
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -77,6 +77,67 @@ class ManualTradeRequest(BaseModel):
 
 # ==================== 状态 ====================
 
+@router.get("/all")
+async def get_all_scanner_data():
+    """一次性获取所有扫描器数据(减少前端HTTP开销)
+    
+    合并: status + signals + positions + timeline + orders
+    替代前端5次并发请求, 减少延迟和HTTP开销
+    """
+    scanner = _get_scanner()
+    
+    # 状态
+    status_resp = await get_scanner_status()
+    status_data = status_resp.get("data", {}) if isinstance(status_resp, dict) else {}
+    
+    # 信号
+    signals_data = scanner.get_signals()
+    
+    # 持仓
+    positions_data = scanner.get_positions()
+    
+    # 时间线
+    timeline_data = scanner.get_timeline()
+    
+    # 订单(最近20条)
+    orders_data = []
+    if scanner._broker:
+        try:
+            if await scanner._broker._ensure_mongo():
+                db = scanner._broker._mongo_db
+                docs = await db["broker_orders"].find(
+                    {"account_id": scanner._broker.account.account_id}
+                ).sort("create_time", -1).limit(20).to_list(20)
+                for d in docs:
+                    d.pop("_id", None)
+                    orders_data.append(d)
+        except Exception:
+            pass
+    
+    # 累计盈亏统计(从时间线计算)
+    total_profit_amount = 0
+    for item in timeline_data:
+        if item.get("action") == "sell" and item.get("profit_amount"):
+            total_profit_amount += item["profit_amount"]
+    
+    return _sanitize({
+        "success": True,
+        "data": {
+            "status": status_data,
+            "signals": signals_data,
+            "positions": positions_data,
+            "timeline": timeline_data,
+            "orders": orders_data,
+            "summary": {
+                "total_profit_amount": round(total_profit_amount, 2),
+                "today_trades": len([t for t in timeline_data if t.get("action") == "buy"]) + len([t for t in timeline_data if t.get("action") == "sell"]),
+                "today_buys": len([t for t in timeline_data if t.get("action") == "buy"]),
+                "today_sells": len([t for t in timeline_data if t.get("action") == "sell"]),
+            },
+        },
+    })
+
+
 @router.get("/status")
 async def get_scanner_status():
     """获取扫描器状态(含熔断状态、交易时间、数据源)"""
@@ -84,7 +145,6 @@ async def get_scanner_status():
     status = scanner.get_status()
     
     # 交易时间判断
-    from datetime import datetime
     now = datetime.now()
     ct = now.strftime("%H:%M")
     is_trading = ("09:15" <= ct <= "15:05")
@@ -217,7 +277,6 @@ async def get_timeline_history(date: str = None, days: int = 7):
             query = {"account_id": account_id, "trade_date": date}
         else:
             # 最近N天
-            from datetime import datetime, timedelta
             start_date = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
             query = {"account_id": account_id, "trade_date": {"$gte": start_date}}
         
@@ -401,7 +460,6 @@ async def scan_once(req: ScanOnceRequest = ScanOnceRequest()):
         force: 强制模式, 忽略交易时间检查(消耗必盈额度, 测试用)
     """
     scanner = _get_scanner()
-    from datetime import datetime
     trade_date = datetime.now().strftime("%Y%m%d")
     try:
         await scanner.scan_once(trade_date, force=req.force)
@@ -654,15 +712,20 @@ async def reset_account():
     scanner._scan_count = 0
     scanner._last_scan_time = ""
     
-    # 清除MongoDB
+    # 清除MongoDB(更彻底的清理)
     try:
         if await scanner._broker._ensure_mongo():
             db = scanner._broker._mongo_db
-            await db["broker_positions"].delete_many({})
-            await db["broker_orders"].delete_many({})
-            await db["broker_accounts"].delete_one({"account_id": scanner._broker.account.account_id})
-    except Exception:
-        pass
+            account_id = scanner._broker.account.account_id
+            await db["broker_positions"].delete_many({"account_id": account_id})
+            await db["broker_orders"].delete_many({"account_id": account_id})
+            await db["broker_accounts"].delete_many({"account_id": account_id})
+            # 【P0-5修复】清理timeline残留
+            await db["scanner_timeline"].delete_many({"account_id": account_id})
+            # 清理performance_snapshots残留
+            await db["performance_snapshots"].delete_many({"account_id": account_id})
+    except Exception as e:
+        logger.warning(f"[RESET] MongoDB清理失败(非关键): {e}")
     
     # 保存状态
     try:
@@ -1290,13 +1353,12 @@ async def get_weekly_report():
     
     try:
         from core.managers import mongo_manager
-        if not mongo_manager.db:
+        if mongo_manager.db is None:
             return {"success": True, "data": {}}
         
         account_id = scanner._broker.account.account_id
         
         # 获取最近5个交易日的订单
-        from datetime import timedelta
         start_date = (datetime.now() - timedelta(days=7)).strftime("%Y%m%d")
         
         daily_stats = {}
@@ -1389,11 +1451,10 @@ async def get_trade_log(days: int = 30, format: str = "json"):
     
     try:
         from core.managers import mongo_manager
-        if not mongo_manager.db:
+        if mongo_manager.db is None:
             return {"success": True, "data": []}
         
         account_id = scanner._broker.account.account_id
-        from datetime import timedelta
         start_date = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
         
         orders = []
@@ -1452,7 +1513,7 @@ async def save_performance_snapshot():
     
     try:
         from core.managers import mongo_manager
-        if not mongo_manager.db:
+        if mongo_manager.db is None:
             return {"success": True, "data": {}}
         
         acct = scanner._broker.get_account()
@@ -1497,10 +1558,9 @@ async def get_performance_history(days: int = 30):
     """获取历史性能快照(资产曲线)"""
     try:
         from core.managers import mongo_manager
-        if not mongo_manager.db:
+        if mongo_manager.db is None:
             return {"success": True, "data": []}
         
-        from datetime import timedelta
         start = (datetime.now() - timedelta(days=days)).isoformat()
         
         snapshots = []
