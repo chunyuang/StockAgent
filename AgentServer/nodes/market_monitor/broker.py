@@ -138,10 +138,10 @@ class SimulatedBroker:
             logger.warning(f"[BROKER] MongoDB连接失败: {e}")
             return False
 
-    async def save_state(self):
-        """持久化当前状态到MongoDB(带节流: 30秒内不重复保存)"""
+    async def save_state(self, force: bool = False):
+        """持久化当前状态到MongoDB(带节流: 30秒内不重复保存, force=True跳过节流)"""
         now = time.time()
-        if hasattr(self, '_last_save_time') and now - self._last_save_time < 30:
+        if not force and hasattr(self, '_last_save_time') and now - self._last_save_time < 30:
             logger.debug(f"[BROKER] save_state节流: {now - self._last_save_time:.0f}s < 30s")
             return True  # 节流: 30秒内不重复保存
         self._last_save_time = now
