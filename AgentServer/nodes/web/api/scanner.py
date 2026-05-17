@@ -226,11 +226,15 @@ async def start_scanner(req: ScannerStartRequest):
     return {"success": True, "data": result}
 
 
+class StopScannerRequest(BaseModel):
+    sell_all: bool = False  # 是否清仓所有持仓
+
+
 @router.post("/stop")
-async def stop_scanner():
-    """停止扫描"""
+async def stop_scanner(req: StopScannerRequest = StopScannerRequest()):
+    """停止扫描(可选清仓)"""
     scanner = _get_scanner()
-    result = await scanner.stop()
+    result = await scanner.stop(sell_all=req.sell_all)
     return {"success": True, "data": result}
 
 
@@ -582,15 +586,41 @@ async def get_daily_report():
         cb = scanner._circuit_breaker
         stats = scanner._stats
         
-        # 按策略汇总
+        # 按策略汇总(含胜率和收益)
         strategy_summary = {}
         for pos in positions:
             key = pos.strategy or "unknown"
             if key not in strategy_summary:
-                strategy_summary[key] = {"count": 0, "market_value": 0, "total_profit": 0}
+                strategy_summary[key] = {"count": 0, "market_value": 0, "total_profit": 0, "win_count": 0, "loss_count": 0}
             strategy_summary[key]["count"] += 1
             strategy_summary[key]["market_value"] += pos.current_price * pos.total_qty
-            strategy_summary[key]["total_profit"] += (pos.current_price - pos.avg_cost) * pos.total_qty
+            profit = (pos.current_price - pos.avg_cost) * pos.total_qty
+            strategy_summary[key]["total_profit"] += profit
+            if profit >= 0:
+                strategy_summary[key]["win_count"] += 1
+            else:
+                strategy_summary[key]["loss_count"] += 1
+        
+        # 从时间线统计已平仓策略表现
+        for item in scanner._timeline:
+            if item.get("action") == "sell" and item.get("strategy"):
+                key = item["strategy"]
+                if key not in strategy_summary:
+                    strategy_summary[key] = {"count": 0, "market_value": 0, "total_profit": 0, "win_count": 0, "loss_count": 0, "closed_profit": 0, "closed_count": 0}
+                if "closed_count" not in strategy_summary[key]:
+                    strategy_summary[key]["closed_count"] = 0
+                    strategy_summary[key]["closed_profit"] = 0
+                strategy_summary[key]["closed_count"] = strategy_summary[key].get("closed_count", 0) + 1
+                strategy_summary[key]["closed_profit"] = strategy_summary[key].get("closed_profit", 0) + item.get("profit_amount", 0)
+                if item.get("profit_pct", 0) >= 0:
+                    strategy_summary[key]["win_count"] = strategy_summary[key].get("win_count", 0) + 1
+                else:
+                    strategy_summary[key]["loss_count"] = strategy_summary[key].get("loss_count", 0) + 1
+        
+        # 计算策略胜率
+        for key in strategy_summary:
+            total = strategy_summary[key].get("win_count", 0) + strategy_summary[key].get("loss_count", 0)
+            strategy_summary[key]["win_rate"] = round(strategy_summary[key].get("win_count", 0) / max(total, 1) * 100, 1)
         
         # 从MongoDB获取今日订单统计
         today_trades = {"buy": 0, "sell": 0, "total_amount": 0}
@@ -1590,3 +1620,95 @@ async def get_summary_report():
     scanner = _get_scanner()
     report = scanner.generate_summary_report()
     return _sanitize({"success": True, "data": report})
+
+
+@router.get("/quote/{ts_code}")
+async def get_realtime_quote(ts_code: str):
+    """获取单只股票实时行情(用于手动下单自动填充)
+    
+    优先从scanner缓存获取, 缓存未命中则从东方财富/必盈获取
+    """
+    scanner = _get_scanner()
+    
+    # 1. 从scanner缓存获取
+    if scanner._realtime_cache:
+        rt = scanner._realtime_cache.get(ts_code, {})
+        if rt and rt.get("price", 0) > 0:
+            return _sanitize({
+                "success": True,
+                "data": {
+                    "ts_code": ts_code,
+                    "name": rt.get("name", ""),
+                    "price": rt.get("price", 0),
+                    "pct_chg": rt.get("pct_chg", 0),
+                    "volume_ratio": rt.get("volume_ratio", 0),
+                    "turnover_rate": rt.get("turnover_rate", 0),
+                    "source": "cache",
+                },
+            })
+    
+    # 2. 从broker缓存获取
+    if scanner._broker and scanner._broker._realtime_prices:
+        price = scanner._broker._realtime_prices.get(ts_code, 0)
+        if price > 0:
+            return _sanitize({
+                "success": True,
+                "data": {
+                    "ts_code": ts_code,
+                    "name": "",
+                    "price": price,
+                    "pct_chg": 0,
+                    "source": "broker_cache",
+                },
+            })
+    
+    # 3. 从东方财富获取
+    try:
+        from nodes.market_monitor.data_source_router import DataSourceRouter
+        router = DataSourceRouter()
+        em_data = await router.fetch_eastmoney_snapshot([ts_code])
+        if em_data and ts_code in em_data:
+            rt = em_data[ts_code]
+            return _sanitize({
+                "success": True,
+                "data": {
+                    "ts_code": ts_code,
+                    "name": rt.get("name", ""),
+                    "price": rt.get("price", 0),
+                    "pct_chg": rt.get("pct_chg", 0),
+                    "volume_ratio": rt.get("volume_ratio", 0),
+                    "turnover_rate": rt.get("turnover_rate", 0),
+                    "source": "eastmoney",
+                },
+            })
+    except Exception as e:
+        logger.warning(f"[QUOTE] 东方财富获取失败: {e}")
+    
+    # 4. 从必盈获取
+    try:
+        from nodes.market_monitor.data_source_router import DataSourceRouter
+        ds_router = DataSourceRouter()
+        biying = ds_router.get_biying()
+        if biying:
+            # 必盈用纯数字代码
+            dm = ts_code.split(".")[0]
+            quote = await biying.get_realtime_quote(dm)
+            if quote:
+                price = float(quote.get("close", 0) if isinstance(quote, dict) else getattr(quote, 'close', 0))
+                name = quote.get("name", "") if isinstance(quote, dict) else getattr(quote, 'name', '')
+                pct = float(quote.get("pct_chg", 0) if isinstance(quote, dict) else getattr(quote, 'pct_chg', 0))
+                if price > 0:
+                    return _sanitize({
+                        "success": True,
+                        "data": {
+                            "ts_code": ts_code,
+                            "name": name,
+                            "price": price,
+                            "pct_chg": pct,
+                            "source": "biying",
+                        },
+                    })
+    except Exception as e:
+        logger.warning(f"[QUOTE] 必盈获取失败: {e}")
+    
+    return {"success": False, "message": f"无法获取 {ts_code} 行情"}

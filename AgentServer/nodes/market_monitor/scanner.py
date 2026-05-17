@@ -327,6 +327,9 @@ class MarketScanner:
         # 实盘参数校验
         self._validate_live_params()
 
+        # 【P1-4】从MongoDB恢复策略参数覆盖
+        await self._load_strategy_overrides()
+
         # 盘前准备
         await self.premarket_prepare(trade_date)
 
@@ -337,8 +340,12 @@ class MarketScanner:
         logger.info(f"[SCANNER] 启动, account={self.account_id}, date={trade_date}")
         return {"success": True, "message": "扫描器启动成功"}
 
-    async def stop(self):
-        """停止扫描"""
+    async def stop(self, sell_all: bool = False):
+        """停止扫描
+        
+        Args:
+            sell_all: 是否清仓所有持仓(默认只停止扫描,保留持仓)
+        """
         self._is_running = False
         if self._task:
             self._task.cancel()
@@ -346,6 +353,56 @@ class MarketScanner:
                 await self._task
             except asyncio.CancelledError:
                 pass
+        
+        # 清仓选项
+        if sell_all and self._broker:
+            positions = self._broker.get_positions()
+            for pos in positions:
+                if pos.available_qty > 0:
+                    self._broker.update_realtime(pos.ts_code, pos.current_price)
+                    ok, msg, order = self._broker.place_order(
+                        ts_code=pos.ts_code,
+                        stock_name=pos.stock_name,
+                        side="sell",
+                        quantity=pos.available_qty,
+                        price=pos.current_price,
+                        order_type="market",
+                        strategy=pos.strategy,
+                        reason="停止清仓",
+                    )
+                    if ok:
+                        self._timeline.append({
+                            "time": datetime.now().strftime("%H:%M:%S"),
+                            "action": "sell",
+                            "ts_code": pos.ts_code,
+                            "stock_name": pos.stock_name,
+                            "strategy": pos.strategy,
+                            "shares": pos.available_qty,
+                            "price": order.filled_price,
+                            "reason": "停止清仓",
+                            "profit_pct": round(pos.profit_pct, 2),
+                            "profit_amount": round((pos.current_price - pos.avg_cost) * pos.available_qty, 2),
+                        })
+                        logger.info(f"[STOP] 清仓卖出 {pos.ts_code} {pos.available_qty}股@{order.filled_price:.2f}")
+            # 清仓后强制保存
+            try:
+                await self._broker.save_state(force=True)
+            except Exception:
+                pass
+        
+        # 强制保存当前状态(跳过节流)
+        if self._broker:
+            try:
+                await self._broker.save_state(force=True)
+            except Exception:
+                pass
+        
+        # 保存时间线到MongoDB
+        try:
+            await self._save_timeline()
+        except Exception:
+            pass
+        
         # 关闭数据源
         if self._data_router:
             try:
@@ -353,8 +410,8 @@ class MarketScanner:
             except Exception as e:
                 logger.warning(f"[SCANNER] 数据源关闭失败: {e}")
             self._data_router = None
-        logger.info("[SCANNER] 已停止")
-        return {"success": True, "message": "扫描器已停止"}
+        logger.info(f"[SCANNER] 已停止 (清仓={sell_all})")
+        return {"success": True, "message": f"扫描器已停止" + ("并清仓" if sell_all else "")}
 
     # ==================== 盘前准备 ====================
 
@@ -1270,26 +1327,19 @@ class MarketScanner:
                 except Exception:
                     pass  # 持久化失败不影响交易
             
-            # WebSocket推送(通过Redis PubSub)
+            # WebSocket推送(通过Redis PubSub) — 使用标准_publish_scanner_event
             try:
-                from core.managers import redis_manager
-                if redis_manager._client:
-                    import json
-                    await redis_manager._client.publish(
-                        "scanner:signals",
-                        json.dumps({
-                            "type": "new_signals",
-                            "time": scan_time,
-                            "count": len(added),
-                            "signals": [{
-                                "ts_code": s.ts_code,
-                                "name": s.stock_name,
-                                "strategy": s.strategy_name,
-                                "pct_chg": round(s.pct_chg, 1),
-                                "reason": s.reason,
-                            } for s in added[:10]],
-                        })
-                    )
+                await self._publish_scanner_event("signal", {
+                    "signals": [{
+                        "ts_code": s.ts_code,
+                        "name": s.stock_name,
+                        "strategy": s.strategy_name,
+                        "pct_chg": round(s.pct_chg, 1),
+                        "reason": s.reason,
+                    } for s in added[:10]],
+                    "count": len(added),
+                    "time": scan_time,
+                })
             except Exception:
                 pass  # 推送失败不影响交易
 
@@ -1337,7 +1387,7 @@ class MarketScanner:
 
         for sig in signals:
             # 熔断检查
-            if not self._check_circuit_breaker():
+            if not await self._check_circuit_breaker():
                 logger.info(f"[EXEC] 风控熔断, 跳过买入")
                 break
                 
@@ -1500,12 +1550,19 @@ class MarketScanner:
             if pos.available_qty <= 0:
                 continue  # T+1: 今日买入不可卖
 
+            # 【P1-7修复】在卖出前保存关键值(place_order会修改pos对象)
+            sell_qty = pos.available_qty
+            sell_profit_pct = pos.profit_pct
+            sell_profit_amount = (pos.current_price - pos.avg_cost) * sell_qty
+            sell_avg_cost = pos.avg_cost
+            sell_current_price = pos.current_price
+
             self._broker.update_realtime(pos.ts_code, pos.current_price)
             ok, msg, order = self._broker.place_order(
                 ts_code=pos.ts_code,
                 stock_name=pos.stock_name,
                 side="sell",
-                quantity=pos.available_qty,
+                quantity=sell_qty,
                 price=sell_price,
                 order_type="market",
                 strategy=pos.strategy,
@@ -1518,18 +1575,18 @@ class MarketScanner:
                     "ts_code": pos.ts_code,
                     "stock_name": pos.stock_name,
                     "strategy": pos.strategy,
-                    "shares": pos.available_qty,
+                    "shares": sell_qty,
                     "price": order.filled_price,
                     "reason": reason,
-                    "profit_pct": round(pos.profit_pct, 2),
-                    "profit_amount": round((pos.current_price - pos.avg_cost) * pos.available_qty, 2),  # 【P1-3】盈亏金额
+                    "profit_pct": round(sell_profit_pct, 2),
+                    "profit_amount": round(sell_profit_amount, 2),  # 【P1-7修复】用卖出前保存的值
                     "decision_detail": {  # 【实盘审查增强】卖出决策详情(使用正确的risk)
                         "sell_reason": reason,
-                        "profit_pct": round(pos.profit_pct, 2),
-                        "profit_amount": round((pos.current_price - pos.avg_cost) * pos.available_qty, 2),
-                        "cost_price": pos.avg_cost,
+                        "profit_pct": round(sell_profit_pct, 2),
+                        "profit_amount": round(sell_profit_amount, 2),
+                        "cost_price": sell_avg_cost,
                         "sell_price": order.filled_price,
-                        "current_price": pos.current_price,
+                        "current_price": sell_current_price,
                         "stop_loss_pct": round(-risk.get("stop_loss_pct", 0.03) * 100, 1),
                         "take_profit_pct": round(risk.get("take_profit_pct", 0.07) * 100, 1),
                         "stop_loss_price": self._calc_stop_loss_price(pos, risk),
@@ -1544,10 +1601,10 @@ class MarketScanner:
                 await self._publish_scanner_event("timeline", {"item": self._timeline[-1]})
                 logger.info(f"[RISK] {reason}: {pos.ts_code} {pos.available_qty}股@{order.filled_price:.2f}")
         
-        # 止损止盈后持久化
+        # 止损止盈后强制持久化(跳过节流)
         if to_sell and self._broker:
             try:
-                await self._broker.save_state()
+                await self._broker.save_state(force=True)
             except Exception:
                 pass
 
@@ -1570,7 +1627,7 @@ class MarketScanner:
             return
         
         # 风控熔断检查
-        if not self._check_circuit_breaker():
+        if not await self._check_circuit_breaker():
             return
         
         # 东方财富: 从缓存获取持仓股价格(0额外API)
@@ -1616,13 +1673,20 @@ class MarketScanner:
                 logger.info(f"[DRY-RUN] 跳过卖出 {pos.ts_code} {reason}")
                 continue
             
-            sell_price = force_price if force_price else pos.current_price
+            # 【P1-7修复】在卖出前保存关键值
+            sell_qty = pos.available_qty
+            sell_profit_pct = pos.profit_pct
+            sell_profit_amount = (pos.current_price - pos.avg_cost) * sell_qty
+            sell_avg_cost = pos.avg_cost
+            sell_current_price = pos.current_price
+            
+            sell_price = force_price if force_price else sell_current_price
             self._broker.update_realtime(pos.ts_code, sell_price)
             ok, msg, order = self._broker.place_order(
                 ts_code=pos.ts_code,
                 stock_name=pos.stock_name,
                 side="sell",
-                quantity=pos.available_qty,
+                quantity=sell_qty,
                 price=sell_price,
                 order_type="market",
                 strategy=pos.strategy,
@@ -1635,11 +1699,11 @@ class MarketScanner:
                     "ts_code": pos.ts_code,
                     "stock_name": pos.stock_name,
                     "strategy": pos.strategy,
-                    "shares": pos.available_qty,
+                    "shares": sell_qty,
                     "price": order.filled_price,
                     "reason": reason,
-                    "profit_pct": round(pos.profit_pct, 2),
-                    "profit_amount": round((pos.current_price - pos.avg_cost) * pos.available_qty, 2),  # 【P1-3】盈亏金额
+                    "profit_pct": round(sell_profit_pct, 2),
+                    "profit_amount": round(sell_profit_amount, 2),  # 【P1-7修复】用卖出前保存的值
                 })
                 if "止损" in reason:
                     self._stats["stop_losses"] += 1
@@ -1648,10 +1712,10 @@ class MarketScanner:
                 await self._publish_scanner_event("timeline", {"item": self._timeline[-1]})
                 logger.info(f"[QUICK] {reason}: {pos.ts_code} {pos.available_qty}股@{order.filled_price:.2f}")
         
-        # 止损止盈后持久化
+        # 止损止盈后强制持久化(跳过节流)
         if to_sell and self._broker:
             try:
-                await self._broker.save_state()
+                await self._broker.save_state(force=True)
             except Exception:
                 pass
 
@@ -1710,10 +1774,11 @@ class MarketScanner:
                 logger.warning(f"[VALIDATE] ⚠️ {w}")
 
     def update_strategy_config(self, strategy_key: str, updates: Dict[str, Any]):
-        """策略参数热更新(无需重启scanner)
+        """策略参数热更新(无需重启scanner) + 持久化到MongoDB
         
         updates格式: {"params": {...}, "riskParams": {...}, "enabled": True}
         下次扫描时自动生效(因为_get_effective_strategy_config读取strategy_overrides)
+        重启后从MongoDB恢复(不再丢失)
         """
         if "strategy_overrides" not in self.config:
             self.config["strategy_overrides"] = {}
@@ -1735,6 +1800,43 @@ class MarketScanner:
         
         self.config["strategy_overrides"][strategy_key] = existing
         logger.info(f"[SCANNER] 策略参数热更新: {strategy_key} → {existing}")
+        
+        # 【P1-4】持久化到MongoDB
+        try:
+            asyncio.ensure_future(self._persist_strategy_overrides())
+        except Exception:
+            logger.debug("[SCANNER] 策略参数持久化异步任务创建失败")
+    
+    async def _persist_strategy_overrides(self):
+        """将strategy_overrides持久化到MongoDB"""
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.db is None:
+                return
+            overrides = self.config.get("strategy_overrides", {})
+            await mongo_manager.db["scanner_config"].update_one(
+                {"_id": "strategy_overrides"},
+                {"$set": {"data": overrides, "updated_at": datetime.now().isoformat()}},
+                upsert=True,
+            )
+            logger.info(f"[SCANNER] 策略参数已持久化到MongoDB")
+        except Exception as e:
+            logger.warning(f"[SCANNER] 策略参数持久化失败(非关键): {e}")
+    
+    async def _load_strategy_overrides(self):
+        """从MongoDB恢复strategy_overrides"""
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.db is None:
+                return
+            doc = await mongo_manager.db["scanner_config"].find_one({"_id": "strategy_overrides"})
+            if doc and "data" in doc:
+                if "strategy_overrides" not in self.config:
+                    self.config["strategy_overrides"] = {}
+                self.config["strategy_overrides"].update(doc["data"])
+                logger.info(f"[SCANNER] 从MongoDB恢复策略参数: {len(doc['data'])}个策略")
+        except Exception as e:
+            logger.warning(f"[SCANNER] 策略参数恢复失败(非关键): {e}")
 
     # ==================== 盘中异动监控 ====================
 
@@ -1886,7 +1988,7 @@ class MarketScanner:
 
     # ==================== 风控熔断 ====================
 
-    def _check_circuit_breaker(self) -> bool:
+    async def _check_circuit_breaker(self) -> bool:
         """风控熔断检查
         
         规则:
@@ -1911,15 +2013,13 @@ class MarketScanner:
                     cb["trading_paused"] = True
                     cb["pause_reason"] = f"单日回撤{drawdown*100:.1f}%超限({cb['daily_max_drawdown']*100:.0f}%)"
                     logger.warning(f"[CIRCUIT] ⚠️ 熔断触发: {cb['pause_reason']}")
-                    # 主动推送熔断通知
+                    # 主动推送熔断通知(使用标准_publish_scanner_event)
                     try:
-                        import json
-                        from core.managers import redis_manager
-                        if redis_manager._client:
-                            asyncio.ensure_future(redis_manager._client.publish(
-                                "scanner:signals",
-                                json.dumps({"type": "circuit_breaker", "message": cb["pause_reason"], "trading_paused": True})
-                            ))
+                        await self._publish_scanner_event("status", {
+                            "circuit_breaker": True,
+                            "message": cb["pause_reason"],
+                            "trading_paused": True,
+                        })
                     except Exception:
                         pass
                     return False
