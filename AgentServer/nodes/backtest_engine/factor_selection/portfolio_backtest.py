@@ -2563,6 +2563,7 @@ class PortfolioBacktester:
                 "avg_profit_pct": avg_pnl,  # 平均盈亏百分比(单笔)
                 "trades_count": len(completed),
                 "max_drawdown": strategy_max_dd,
+                "profit_loss_ratio": round(wins_pnl / abs(losses_pnl), 2) if losses_pnl < 0 else 0.0,  # 策略级盈亏比
             }
 
         # 🔧 因子缺失告警：0交易策略加warning字段
