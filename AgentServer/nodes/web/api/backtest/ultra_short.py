@@ -421,17 +421,17 @@ async def submit_sweep_backtest(raw_request: Request, user_id: str = Depends(get
     if not sweep_param:
         raise HTTPException(status_code=400, detail="缺少扫描参数(sweep_param)")
     if sweep_start is None or sweep_end is None or sweep_step is None:
-        raise HTTPException(status_code=400, detail="sweep_start/sweep_end/sweep_step均为必填")
+        raise HTTPException(status_code=400, detail="扫描起始值/结束值/步长均为必填")
 
     try:
         sweep_start = float(sweep_start)
         sweep_end = float(sweep_end)
         sweep_step = float(sweep_step)
     except (ValueError, TypeError):
-        raise HTTPException(status_code=400, detail="sweep_start/sweep_end/sweep_step必须为数值")
+        raise HTTPException(status_code=400, detail="扫描起始值/结束值/步长必须为数值")
 
     if sweep_step == 0:
-        raise HTTPException(status_code=400, detail="sweep_step不能为0")
+        raise HTTPException(status_code=400, detail="扫描步长不能为0")
 
     # 生成扫描值列表
     sweep_values = []
