@@ -177,8 +177,8 @@ class BacktestValidator:
         """校验策略参数"""
         errors = []
         
-        strategies = request.get("strategies", [])
-        selected_strategies = request.get("selected_strategies", [])
+        strategies = request.get("strategies") or []
+        selected_strategies = request.get("selected_strategies") or []
         
         # 至少需要一个策略
         if not strategies and not selected_strategies:
