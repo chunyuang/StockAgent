@@ -144,7 +144,7 @@ async function startScanner() { await api.post(`${scannerApi}/start`, { account_
 async function stopScanner() { showConfirm('停止扫描', '确认停止扫描器？\n持仓将保留，可手动卖出。', async () => { await api.post(`${scannerApi}/stop`, { sell_all: false }); await fetchScanner() }) }
 async function manualScan() { loading.value = true; try { const r = await api.post(`${scannerApi}/scan-once`); if (r?.success) { const m = r.data?.message; if (m) ElMessage.warning(m); else ElMessage.success(`扫描完成: ${r.data?.signals || 0}信号, ${r.data?.positions || 0}持仓`) } else ElMessage.error('扫描失败') } catch (e: any) { ElMessage.error('扫描失败') } finally { loading.value = false; await fetchScanner() } }
 async function forceScan() { loading.value = true; try { const r = await api.post(`${scannerApi}/scan-once`, { force: true }); if (r?.success) { ElMessage.success(`强制扫描完成: ${r.data?.signals || 0}信号, ${r.data?.positions || 0}持仓`) } else ElMessage.error('强制扫描失败') } catch (e: any) { ElMessage.error('强制扫描失败') } finally { loading.value = false; await fetchScanner() } }
-const stratCollapsed = ref<Record<string, boolean>>({})
+const stratCollapsed = ref<Record<string, boolean>>({ halfway_chase: true, first_limit_up: true, dragon_head: true, limit_down_qiao: true, limit_up_open: true })
 function toggleStrat(id: string) { stratCollapsed.value[id] = !stratCollapsed.value[id] }
 async function dailySettlement() { try { const r = await api.post(`${scannerApi}/daily-settlement`); if (r?.success) { ElMessage.success(r.data?.message || '日结算完成'); await fetchScanner() } } catch (e: any) { ElMessage.error('日结算失败') } }
 async function resetAccount() { showConfirm('⚠️ 重置账户', '将清空所有持仓和交易记录，不可恢复！\n确认重置？', async () => { try { const r = await api.post(`${scannerApi}/reset`); if (r?.success) { ElMessage.success('账户已重置'); await fetchAll(true) } } catch (e: any) { ElMessage.error('重置失败') } }) }
@@ -404,7 +404,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <div v-if="layerDebugData.signal_traces?.length" class="ld-traces">
           <div class="ld-title">信号逐层Trace</div>
           <div v-for="trace in layerDebugData.signal_traces" :key="trace.ts_code + trace.strategy" class="ld-trace-card">
-            <div class="ld-trace-top"><span class="code">{{ trace.ts_code }}</span><span class="name">{{ trace.stock_name }}</span><ElTag size="small" type="info">{{ strategyCN(trace.strategy) }}</ElTag><ElTag size="small" :type="trace.signal_status === 'skipped' ? 'warning' : trace.signal_status === 'executed' ? 'success' : 'primary'">{{ trace.signal_status }}</ElTag></div>
+            <div class="ld-trace-top"><span class="code">{{ trace.ts_code }}</span><span class="name">{{ trace.stock_name }}</span><ElTag size="small" type="info">{{ strategyCN(trace.strategy) }}</ElTag><ElTag size="small" :type="signalStatusTag(trace.signal_status).type">{{ signalStatusTag(trace.signal_status).text }}</ElTag></div>
             <div class="ld-trace-layers">
               <div v-for="(line, i) in formatLayerTrace(trace.layer_trace)" :key="i" class="ld-trace-line">{{ line }}</div>
             </div>
@@ -423,7 +423,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           <div class="st-header">
             <span class="code">{{ scanTraceData.ts_code }}</span>
             <span class="name">{{ scanTraceData.stock_name }}</span>
-            <ElTag size="small" :type="scanTraceData.signal_status === 'skipped' ? 'warning' : scanTraceData.signal_status === 'executed' ? 'success' : 'primary'">{{ scanTraceData.signal_status }}</ElTag>
+            <ElTag size="small" :type="signalStatusTag(scanTraceData.signal_status).type">{{ signalStatusTag(scanTraceData.signal_status).text }}</ElTag>
             <span :class="scanTraceData.pct_chg >= 0 ? 'up' : 'down'" style="font-weight:600">{{ scanTraceData.pct_chg >= 0 ? '+' : '' }}{{ scanTraceData.pct_chg?.toFixed(1) }}%</span>
           </div>
           <div class="st-reason">{{ scanTraceData.reason }}</div>
