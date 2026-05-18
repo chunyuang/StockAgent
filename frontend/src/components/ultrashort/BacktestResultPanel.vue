@@ -183,7 +183,16 @@ const filteredTrades = computed(() => {
   return trades
 })
 
-// 可用策略列表(从交易中提取)
+// 策略中文名映射
+const STRATEGY_NAMES: Record<string, string> = {
+  halfway_chase: '🏃‍♂️ 半路追涨',
+  first_limit_up: '🥇 首板打板',
+  limit_up_open: '📈 涨停开板',
+  dragon_head: '🐲 龙头低吸',
+  limit_down_qiao: '💥 跌停翘板',
+}
+
+// 可用策略列表(从交易中提取,显示中文名)
 const availableStrategies = computed(() => {
   const strategies = new Set<string>()
   allTrades.value.forEach((t: any) => {
@@ -742,7 +751,7 @@ function exportTrades() {
           <div class="filter-bar">
             <ElInput v-model="searchTradeKeyword" placeholder="搜索代码/名称" size="small" style="width: 200px" clearable />
             <ElSelect v-model="filterStrategy" placeholder="策略筛选" size="small" style="width: 140px" clearable>
-              <ElOption v-for="s in availableStrategies" :key="s" :label="s" :value="s" />
+              <ElOption v-for="s in availableStrategies" :key="s" :label="STRATEGY_NAMES[s] || s" :value="s" />
             </ElSelect>
             <ElSelect v-model="filterProfit" placeholder="盈亏筛选" size="small" style="width: 120px" clearable>
               <ElOption label="盈利" value="profit" />
@@ -770,7 +779,9 @@ function exportTrades() {
                 <ElTableColumn label="名称" width="80">
                   <template #default="{ row }">{{ row.name || row.stock_name || row.ts_code }}</template>
                 </ElTableColumn>
-                <ElTableColumn prop="strategy" label="策略" width="100" />
+                <ElTableColumn label="策略" width="100">
+              <template #default="{ row }">{{ STRATEGY_NAMES[row.strategy] || row.strategy }}</template>
+            </ElTableColumn>
                 <ElTableColumn label="收益率" width="90">
                   <template #default="{ row }">
                     <span style="color: #67c23a">{{ fmtPct(row.profit_pct) }}</span>
@@ -786,7 +797,9 @@ function exportTrades() {
                 <ElTableColumn label="名称" width="80">
                   <template #default="{ row }">{{ row.name || row.stock_name || row.ts_code }}</template>
                 </ElTableColumn>
-                <ElTableColumn prop="strategy" label="策略" width="100" />
+                <ElTableColumn label="策略" width="100">
+              <template #default="{ row }">{{ STRATEGY_NAMES[row.strategy] || row.strategy }}</template>
+            </ElTableColumn>
                 <ElTableColumn label="收益率" width="90">
                   <template #default="{ row }">
                     <span style="color: #f56c6c">{{ fmtPct(row.profit_pct) }}</span>
@@ -808,7 +821,9 @@ function exportTrades() {
             <ElTableColumn label="名称" width="80">
               <template #default="{ row }">{{ row.name || row.stock_name || '-' }}</template>
             </ElTableColumn>
-            <ElTableColumn prop="strategy" label="策略" width="100" />
+            <ElTableColumn label="策略" width="100">
+              <template #default="{ row }">{{ STRATEGY_NAMES[row.strategy] || row.strategy }}</template>
+            </ElTableColumn>
             <ElTableColumn label="买入价" width="80">
               <template #default="{ row }">{{ row.buy_price?.toFixed(2) ?? '-' }}</template>
             </ElTableColumn>

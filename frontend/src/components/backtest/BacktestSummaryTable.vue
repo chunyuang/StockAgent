@@ -1,4 +1,11 @@
 <script setup lang="ts">
+const STRATEGY_NAMES: Record<string, string> = {
+  halfway_chase: '🏃‍♂️ 半路追涨',
+  first_limit_up: '🥇 首板打板',
+  limit_up_open: '📈 涨停开板',
+  dragon_head: '🐲 龙头低吸',
+  limit_down_qiao: '💥 跌停翘板',
+}
 /**
  * BacktestSummaryTable - 回测结果展示总结表格
  *
@@ -303,7 +310,9 @@ const handleExport = () => {
             <ElTableColumn label="名称" width="80">
               <template #default="{ row }">{{ row.name || row.stock_name || '--' }}</template>
             </ElTableColumn>
-            <ElTableColumn prop="strategy" label="策略" width="90" />
+            <ElTableColumn label="策略" width="90">
+            <template #default="{ row }">{{ STRATEGY_NAMES[row.strategy] || row.strategy }}</template>
+          </ElTableColumn>
             <ElTableColumn label="收益率" width="90">
               <template #default="{ row }">
                 <span style="color: #67c23a; font-weight: 600">
@@ -322,7 +331,9 @@ const handleExport = () => {
             <ElTableColumn label="名称" width="80">
               <template #default="{ row }">{{ row.name || row.stock_name || '--' }}</template>
             </ElTableColumn>
-            <ElTableColumn prop="strategy" label="策略" width="90" />
+            <ElTableColumn label="策略" width="90">
+            <template #default="{ row }">{{ STRATEGY_NAMES[row.strategy] || row.strategy }}</template>
+          </ElTableColumn>
             <ElTableColumn label="收益率" width="90">
               <template #default="{ row }">
                 <span style="color: #f56c6c; font-weight: 600">
@@ -394,7 +405,9 @@ const handleExport = () => {
         <ElTableColumn label="名称" width="80">
           <template #default="{ row }">{{ row.name || row.stock_name || '--' }}</template>
         </ElTableColumn>
-        <ElTableColumn prop="strategy" label="策略" width="90" />
+        <ElTableColumn label="策略" width="90">
+            <template #default="{ row }">{{ STRATEGY_NAMES[row.strategy] || row.strategy }}</template>
+          </ElTableColumn>
         <ElTableColumn prop="buy_price" label="买入价" width="90" align="right">
           <template #default="{ row }">
             {{ row.buy_price?.toFixed(2) || '--' }}
