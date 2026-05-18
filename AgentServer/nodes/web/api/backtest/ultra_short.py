@@ -15,7 +15,6 @@ from fastapi import APIRouter, HTTPException, Request, Depends, Query
 from pydantic import ValidationError
 
 from core.managers import mongo_manager
-from core.rpc import RPCClient
 from ..auth import get_current_user_id
 from .common import (
     logger,
@@ -32,9 +31,14 @@ from .models import (
 )
 from .defaults import get_ultra_short_defaults
 from nodes.backtest_engine.validation.backtest_validator import BacktestValidator
+from nodes.backtest_engine.node import BacktestNode
+import asyncio
 
 
 router = APIRouter(tags=["UltraShort"])  # 不设prefix，由父router提供/backtest前缀
+
+# 本地回测引擎实例（不启动RPC服务，仅用于执行回测逻辑）
+_backtest_node = BacktestNode()
 
 
 @router.post("/ultra-short", response_model=BacktestTaskResponse)
@@ -210,102 +214,78 @@ async def submit_ultra_short_backtest(
         "_created_at": time.time(),  # 【P2-3修复：添加TTL时间戳】
     }
 
-    # 保存任务信息到MongoDB（注意：MongoDB会原地修改task_info，添加_id: ObjectId(...)）
-    # 所以在保存到MongoDB之前，先深拷贝一份用于后续的RPC序列化，避免ObjectId导致序列化失败
-    task_info_for_rpc = copy.deepcopy(task_info)
-    await mongo_manager.insert_one("backtest_tasks", task_info)
+    # 保存任务信息到MongoDB
+    await mongo_manager.insert_one("backtest_tasks", copy.deepcopy(task_info))
 
-    # ====== 修复：使用broadcast_by_type替代不存在的call_submit_ultra_short ======
-    # 原BUG：RPCClient(backtest_host, backtest_port) 传参错误(TypeError)
-    #       + call_submit_ultra_short() 方法不存在(AttributeError)
-    #       + RPC失败时谎报status="running"
-    # 修复：RPCClient()无参构造 + broadcast_by_type + 失败抛HTTPException
-    rpc_client = RPCClient()
+    # ====== 本地异步执行（不依赖RPC，不需要独立backtest节点）======
+    # 历史问题：RPC方式需要额外启动backtest节点，序列化datetime/ObjectId容易出错
+    # 恢复4月11日用户验证OK的本地执行方案
+    mock_tasks[task_id]["status"] = "running"
+    mock_tasks[task_id]["progress"] = 5
 
-    try:
-        # 问题根源：
-        # 1. broadcast_by_type 内部添加 timestamp (datetime 对象) 导致 JSON 序列化失败
-        # 2. MongoDB insert_one 会原地修改 task_info，添加 _id: ObjectId(...)，导致无法序列化
-        # 解决方案：
-        # 1. 使用深拷贝的 task_info_for_rpc，避免 MongoDB 修改影响
-        # 2. 自定义 DateTimeEncoder 同时处理 datetime 和 ObjectId
-        # 3. 手动 JSON dump/load 预序列化，双重转换所有对象为可序列化类型
-        task_info_str = json.dumps(task_info_for_rpc, cls=DateTimeEncoder)
-        task_info_serialized = json.loads(task_info_str)
-        
-        results = await rpc_client.broadcast_by_type(
-            node_type="backtest",
-            method="run_ultra_short_backtest",
-            params=task_info_serialized,
-            timeout=60.0,  # 【修复#30】RPC超时从10s增加到60s，避免大数据量投递超时
-            source_node="web-node",
-        )
+    async def run_backtest_async():
+        """本地异步执行回测逻辑"""
+        try:
+            logger.info(f"[{task_id}] 开始本地执行回测逻辑")
 
-        if not results:
-            # 【修复#3：mock_logs格式统一，改成直接传空数组，真实日志由node统一格式
-            # 无可用回测节点 — 致命错误，抛503而非谎报running
-            mock_tasks[task_id] = {
-                "task_id": task_id,
-                "status": "failed",
-                "progress": 0,
-                "result": None
-            }
-            raise HTTPException(
-                status_code=503,
-                detail="No BacktestNode available. Please ensure backtest node is running."
-            )
+            # 执行真实回测（直接调用回测引擎核心函数）
+            from nodes.backtest_engine.ultra_short import execute_ultra_short_backtest
+            result = await execute_ultra_short_backtest(task_info, _backtest_node._push_log, _backtest_node.logger, task_id)
 
-        # 问题根源：broadcast_by_type 返回的结果中包含 datetime 对象，无法 JSON 序列化
-        # 手动提取可序列化字段，丢弃原始结果
-        success = False
-        error_msg = "Unknown error"
-        if len(results) > 0:
-            first_result = results[0]
-            if isinstance(first_result, dict):
-                success = bool(first_result.get("success", False))
-                if "error" in first_result:
-                    error_msg = str(first_result["error"])
-        
-        # 删除完整引用避免意外携带 datetime 对象
-        del results
-        
-        if not success:
-            logger.error(f"[{task_id}] RPC failed: {error_msg}")
-            # 【修复#3：mock_logs格式统一，改成直接传空数组，真实日志由node统一格式
-            mock_tasks[task_id] = {
-                "task_id": task_id,
-                "status": "failed",
-                "progress": 0,
-                "result": None
-            }
-            # 【修复#1：mock_tasks 任务完成删除残留，避免内存泄漏】
-            del mock_tasks[task_id]
-            raise HTTPException(status_code=500, detail=error_msg)
+            # 更新mock_tasks
+            if task_id in mock_tasks:
+                mock_tasks[task_id]["status"] = "completed"
+                mock_tasks[task_id]["progress"] = 100
+                mock_tasks[task_id]["result"] = result
 
-        logger.info(f"[{task_id}] 任务已成功投递到RPC回测节点")
-        # 【修复#3：mock_logs格式统一，改成直接传空数组，真实日志由node统一格式
-        mock_tasks[task_id] = {
-            "task_id": task_id,
-            "status": "running",
-            "progress": 10,
-            "result": None
-        }
+            # 写回MongoDB
+            try:
+                await mongo_manager.update_one(
+                    "backtest_tasks",
+                    {"task_id": task_id},
+                    {"$set": {"status": "completed", "progress": 100, "result": result, "completed_at": datetime.utcnow()}}
+                )
+            except Exception as e:
+                logger.warning(f"[{task_id}] 写回MongoDB失败: {e}")
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"[{task_id}] RPC投递异常: {e}")
-        error_msg = str(e)
-        # 【修复#3：mock_logs格式统一，改成直接传空数组，真实日志由node统一格式
-        mock_tasks[task_id] = {
-            "task_id": task_id,
-            "status": "failed",
-            "progress": 0,
-            "result": None
-        }
-        # 【修复#1：mock_tasks 任务完成删除残留，避免内存泄漏】
-        del mock_tasks[task_id]
-        raise HTTPException(status_code=500, detail=error_msg)
+            # 推送完成消息到前端
+            try:
+                from nodes.web.websocket import manager as ws_manager
+                await ws_manager.broadcast_task_update(task_id, {
+                    "type": "status",
+                    "status": "completed",
+                    "result": result
+                })
+            except Exception:
+                pass
+
+            logger.info(f"[{task_id}] 回测执行完成")
+
+        except Exception as e:
+            logger.exception(f"[{task_id}] 回测执行失败: {e}")
+            if task_id in mock_tasks:
+                mock_tasks[task_id]["status"] = "failed"
+                mock_tasks[task_id]["progress"] = 0
+            try:
+                await mongo_manager.update_one(
+                    "backtest_tasks",
+                    {"task_id": task_id},
+                    {"$set": {"status": "failed", "error": str(e), "completed_at": datetime.utcnow()}}
+                )
+            except Exception:
+                pass
+            try:
+                from nodes.web.websocket import manager as ws_manager
+                await ws_manager.broadcast_task_update(task_id, {
+                    "type": "status",
+                    "status": "failed",
+                    "error": str(e)
+                })
+            except Exception:
+                pass
+
+    # 启动异步回测任务（不阻塞HTTP请求）
+    asyncio.create_task(run_backtest_async())
 
     return BacktestTaskResponse(
         task_id=task_id,
