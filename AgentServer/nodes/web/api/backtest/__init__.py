@@ -95,14 +95,14 @@ async def submit_backtest(
         if not results:
             raise HTTPException(
                 status_code=503,
-                detail="No BacktestNode available. Please ensure backtest node is running."
+                detail="回测节点不可用，请确认回测服务是否正常运行。"
             )
 
         # 取第一个响应
         first_result = results[0]
 
         if not first_result.get("success"):
-            error_msg = first_result.get("error", "Unknown error")
+            error_msg = first_result.get("error", "未知错误")
             logger.error(f"[{task_id}] RPC failed: {error_msg}")
             raise HTTPException(status_code=500, detail=error_msg)
 
@@ -264,7 +264,7 @@ async def get_backtest_result(
             "data": {
                 "task_id": task_id,
                 "status": "failed",
-                "error": record.get("error", "Unknown error"),
+                "error": record.get("error", "未知错误"),
             }
         }
 
@@ -525,13 +525,13 @@ async def submit_factor_selection_backtest(
         if not results:
             raise HTTPException(
                 status_code=503,
-                detail="No BacktestNode available. Please ensure backtest node is running."
+                detail="回测节点不可用，请确认回测服务是否正常运行。"
             )
 
         first_result = results[0]
 
         if not first_result.get("success"):
-            error_msg = first_result.get("error", "Unknown error")
+            error_msg = first_result.get("error", "未知错误")
             logger.error(f"[{task_id}] RPC failed: {error_msg}")
             raise HTTPException(status_code=500, detail=error_msg)
 

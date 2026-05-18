@@ -38,7 +38,7 @@ const coreMetrics = computed(() => {
     items.push({ label: '基准收益', value: fmtPct(ret.benchmark_return_pct), color: colorSign(ret.benchmark_return_pct) })
   }
   if (ret.alpha_pct != null) {
-    items.push({ label: '超额收益(Alpha)', value: fmtPct(ret.alpha_pct), color: colorSign(ret.alpha_pct) })
+    items.push({ label: '超额收益', value: fmtPct(ret.alpha_pct), color: colorSign(ret.alpha_pct) })
   }
   return items
 })

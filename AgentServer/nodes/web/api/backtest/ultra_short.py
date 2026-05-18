@@ -59,7 +59,23 @@ async def submit_ultra_short_backtest(
         request = UltraShortBacktestRequest(**body)
     except ValidationError as e:
         logger.error(f"Validation error for ultra-short request: {e.errors()}")
-        raise HTTPException(status_code=422, detail=e.errors())
+        # 将Pydantic英文错误翻译为中文
+        cn_errors = []
+        for err in e.errors():
+            field = '.'.join(str(loc) for loc in err.get('loc', []))
+            msg = err.get('msg', '')
+            # 常见字段翻译
+            field_cn = {
+                'strategies': '策略列表', 'start_date': '开始日期', 'end_date': '结束日期',
+                'initial_cash': '初始资金', 'params.stop_loss_pct': '止损比例',
+                'params.take_profit_pct': '止盈比例', 'params.max_hold_days': '最大持仓天数',
+                'params.max_position_per_stock': '单票最大仓位', 'params.max_position': '总仓位上限',
+                'params.liquidity_threshold': '流动性门槛', 'params.volume_threshold': '量能阈值',
+                'params.commission_rate': '佣金率', 'params.stamp_duty_rate': '印花税率',
+                'params.slippage_pct': '滑点比例',
+            }.get(field, field)
+            cn_errors.append({"field": field, "field_cn": field_cn, "message": msg})
+        raise HTTPException(status_code=422, detail={"message": "参数校验失败", "errors": cn_errors})
 
     task_id = f"us_{uuid.uuid4().hex[:12]}"
 
@@ -442,9 +458,9 @@ async def submit_sweep_backtest(raw_request: Request, user_id: str = Depends(get
     try:
         request = UltraShortBacktestRequest(**body)
     except ValidationError as e:
-        raise HTTPException(status_code=422, detail=e.errors())
+        raise HTTPException(status_code=422, detail={"message": "参数校验失败", "errors": [{"field": str(err['loc']), "message": err['msg']} for err in e.errors()]})
 
-    # ---- 构建基础task_info（复用submit_ultra_short_backtest的逻辑）----
+    # ---- \u6784\u5efa\u57fa\u7840task_info\uff08\u590d\u7528submit_ultra_short_backtest\u7684\u903b\u8f91\uff09----
     selected_strategies = []
     selected_from_top = getattr(request, 'selected_strategies', None)
     selected_from_params = getattr(request.params, 'selected_strategies', None)

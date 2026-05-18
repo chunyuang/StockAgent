@@ -272,7 +272,7 @@ onMounted(loadHistory)
       </template>
       <ElTable :data="compareMetrics" size="small" border>
         <ElTableColumn prop="label" label="指标" width="100" />
-        <ElTableColumn v-for="item in compareItems" :key="item.task_id" :label="strategyNames(item.strategies)">
+        <ElTableColumn v-for="item in compareItems" :key="item.task_id" :label="strategyNames(item.strategies) + ' (' + formatDate(item.created_at).slice(2) + ')'">
           <template #default="{ row }">
             <span
               :class="{ 'best-value': isBestInCompare(row.key, item) }"

@@ -667,7 +667,7 @@ const riskMetrics = computed(() => {
     { name: '卡玛比率', value: (risk.calmar_ratio ?? result.calmar_ratio ?? 0).toFixed(2), desc: '年化收益/最大回撤' + ((result?.net_value_series?.length || 0) < 250 ? '（短期回测该值虚高）' : '') },
     { name: '索提诺比率', value: (risk.sortino_ratio ?? result.sortino_ratio ?? 0).toFixed(2), desc: '只考虑下行风险的夏普比率' },
     { name: '基准收益', value: fmtPct(ret.benchmark_return_pct), desc: '沪深300同期收益' },
-    { name: '超额收益(Alpha)', value: fmtPct(ret.alpha_pct), desc: '组合收益减去基准(沪深300)收益' },
+    { name: '超额收益', value: fmtPct(ret.alpha_pct), desc: '组合收益减去基准(沪深300)收益' },
   ]
 })
 
@@ -812,7 +812,9 @@ function exportTrades() {
             <VChart v-if="strategyCompareChartOption" :option="strategyCompareChartOption" autoresize style="height: 350px; width: 100%; margin-top: 16px" />
             <!-- 策略KPI对比表 -->
             <ElTable :data="Object.entries(result.strategy_results).map(([name, d]: any) => ({ name, ...d }))" size="small" border stripe style="margin-top: 12px">
-              <ElTableColumn prop="strategy_name" label="策略" width="120" />
+              <ElTableColumn label="策略名称" width="120">
+                <template #default="{ row }">{{ strategyDisplayName(row.name) }}</template>
+              </ElTableColumn>
               <ElTableColumn label="累计盈利" width="100">
                 <template #default="{ row }">
                   <span :style="{ color: row.total_return >= 0 ? '#67c23a' : '#f56c6c' }">{{ fmtPct(row.total_return) }}</span>
@@ -948,7 +950,7 @@ function exportTrades() {
             <ElTableColumn label="持仓天数" width="80" sortable>
               <template #default="{ row }">{{ row.hold_days ?? '-' }}</template>
             </ElTableColumn>
-            <ElTableColumn label="数量" width="70">
+            <ElTableColumn label="股数" width="70">
               <template #default="{ row }">{{ row.shares ?? '-' }}</template>
             </ElTableColumn>
             <!-- 任务3: 卖出原因列(中文翻译) -->
