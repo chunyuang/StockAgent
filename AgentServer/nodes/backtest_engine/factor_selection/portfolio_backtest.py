@@ -1102,7 +1102,7 @@ class PortfolioBacktester:
                             shares=shares,
                             price=price,
                             amount=net_amount,
-                            reason="force_empty_position",
+                            reason="强制空仓",
                             strategy_name=_fs_strategy,
                             sentiment=sentiment_level
                         ))
