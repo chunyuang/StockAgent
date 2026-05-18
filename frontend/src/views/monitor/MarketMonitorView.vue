@@ -22,7 +22,7 @@ interface StrategyConfig { id: string; name: string; enabled: boolean; params: R
 interface ParamDesc { key: string; label: string; value: any; displayValue: string; unit: string; min: number; max: number; step: number }
 interface GlobalRisk { stop_loss_pct: number; take_profit_pct: number; max_position_pct: number; max_positions: number }
 
-const loading = ref(false), autoRefresh = ref(true)
+const loading = ref(false), autoRefresh = ref(true), darkMode = ref(false)
 let refreshTimer: any = null
 let ws: WebSocket | null = null
 let wsReconnectTimer: any = null
@@ -211,7 +211,7 @@ function formatLayerTrace(trace: Record<string, any>): string[] { if (!trace) re
 function signalStatusTag(status?: string) { if (!status || status === 'new') return { text: '新', type: 'primary' }; if (status === 'executed') return { text: '已买', type: 'success' }; if (status === 'skipped') return { text: '跳过', type: 'warning' }; if (status === 'expired') return { text: '过期', type: 'info' }; if (status === 'filtered') return { text: '过滤', type: 'danger' }; return { text: status, type: 'info' } }
 </script>
 <template>
-  <div class="mm">
+  <div class="mm" :class="{ dark: darkMode }">
     <!-- 顶部状态栏 -->
     <div class="mm-header">
       <div class="hh-left">
@@ -236,6 +236,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <ElButton size="small" :loading="loading" @click="manualScan" :disabled="!isRunning">📡 扫描</ElButton>
         <ElButton size="small" @click="dailySettlement" :disabled="!isRunning">📅 日结算</ElButton>
         <ElSwitch v-model="autoRefresh" size="small" active-text="自动" inactive-text="" />
+        <span class="dark-toggle" @click="darkMode = !darkMode">{{ darkMode ? '☀️' : '🌙' }}</span>
       </div>
     </div>
 
@@ -259,10 +260,10 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
     <div v-else class="mm-body">
       <!-- 左列: 策略控制 -->
       <div class="mm-left">
-        <div class="st" @click="stratSectionCollapsed = !stratSectionCollapsed" style="cursor:pointer">🎛️ 策略控制 <span class="sc-arrow">{{ stratSectionCollapsed ? '▶' : '▼' }}</span></div>
+        <div class="st cp" @click="stratSectionCollapsed = !stratSectionCollapsed">🎛️ 策略控制 <span class="sc-arrow">{{ stratSectionCollapsed ? '▶' : '▼' }}</span></div>
         <template v-if="!stratSectionCollapsed">
         <div v-for="s in strategies" :key="s.id" class="sc" :class="{ disabled: !s.enabled }">
-          <div class="sc-top" @click="toggleStrat(s.id)" style="cursor:pointer"><span class="sc-icon">{{ strategyMeta[s.id]?.icon || '📋' }}</span><span class="sc-name">{{ s.name }}</span><ElSwitch :model-value="s.enabled" @change="(v: boolean) => toggleStrategy(s.id, v)" size="small" @click.stop /><span class="sc-arrow">{{ stratCollapsed[s.id] ? '▶' : '▼' }}</span></div>
+          <div class="sc-top cp" @click="toggleStrat(s.id)"><span class="sc-icon">{{ strategyMeta[s.id]?.icon || '📋' }}</span><span class="sc-name">{{ s.name }}</span><ElSwitch :model-value="s.enabled" @change="(v: boolean) => toggleStrategy(s.id, v)" size="small" @click.stop /><span class="sc-arrow">{{ stratCollapsed[s.id] ? '▶' : '▼' }}</span></div>
           <div v-if="!stratCollapsed[s.id]">
             <div class="sc-desc">{{ strategyMeta[s.id]?.desc || '' }}</div>
             <div class="sc-params"><div v-for="p in s.paramDescriptions.slice(0, 3)" :key="p.key" class="pm"><span class="pk">{{ p.label }}</span><span class="pv">{{ p.displayValue }}{{ p.unit }}</span></div></div>
@@ -270,29 +271,37 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           </div>
         </div>
         </template>
-        <div class="st" style="margin-top:10px;cursor:pointer" @click="qaSectionCollapsed = !qaSectionCollapsed">⚡ 快捷操作 <span class="sc-arrow">{{ qaSectionCollapsed ? '▶' : '▼' }}</span></div>
+        <div class="st mt-10 cp" @click="qaSectionCollapsed = !qaSectionCollapsed">⚡ 快捷操作 <span class="sc-arrow">{{ qaSectionCollapsed ? '▶' : '▼' }}</span></div>
         <div class="qa" v-if="!qaSectionCollapsed">
-          <ElButton size="small" @click="manualScan" :loading="loading" :disabled="!isRunning" style="width:100%">📡 手动扫描</ElButton>
-        <ElButton size="small" type="warning" @click="forceScan" :loading="loading" :disabled="!isRunning" style="width:100%" title="忽略交易时间检查，消耗必盈额度">⚡ 强制扫描</ElButton>
-          <ElButton size="small" @click="dailySettlement" :disabled="!isRunning" style="width:100%">📅 日结算(T+1)</ElButton>
-          <ElButton size="small" @click="openTradeAudit" :disabled="!timeline.length" style="width:100%">🔍 审查全部交易</ElButton>
-          <ElButton size="small" @click="openLayerDebug" :loading="layerDebugLoading" style="width:100%">🧪 9层调试</ElButton>
-          <ElButton size="small" @click="toggleDryRun" style="width:100%">{{ dryRun ? '🔴 关闭调试' : '🔍 开启调试' }}</ElButton>
-          <ElButton size="small" @click="loadCompare" :loading="compareLoading" style="width:100%">📊 回测对比</ElButton>
-          <ElButton size="small" @click="fetchDailyReport(); dailyReportVisible = true" style="width:100%">📈 复盘报告</ElButton>
-          <ElButton size="small" @click="openWeeklyReport" style="width:100%">📊 周报</ElButton>
-          <ElButton size="small" @click="exportTradeLog" style="width:100%">📥 导出交易日志</ElButton>
-          <ElButton size="small" @click="saveSnapshot" style="width:100%">📸 保存快照</ElButton>
-          <ElButton v-if="circuitBreakerPaused" size="small" type="danger" @click="resetCircuitBreaker" style="width:100%">🔓 重置熔断</ElButton>
-          <ElButton v-if="positions.length" size="small" type="danger" @click="sellAllPositions" style="width:100%">⚡ 一键清仓</ElButton>
-          <ElButton size="small" type="warning" @click="resetAccount" style="width:100%">🗑️ 清仓重置</ElButton>
+          <div class="qa-group"><div class="qa-label">扫描</div>
+          <ElButton size="small" @click="manualScan" :loading="loading" :disabled="!isRunning" class="w-full">📡 手动扫描</ElButton>
+        <ElButton size="small" type="warning" @click="forceScan" :loading="loading" :disabled="!isRunning" class="w-full" title="忽略交易时间检查，消耗必盈额度">⚡ 强制扫描</ElButton>
+          <ElButton size="small" @click="dailySettlement" :disabled="!isRunning" class="w-full">📅 日结算(T+1)</ElButton>
+          </div>
+          <div class="qa-group"><div class="qa-label">分析</div>
+          <ElButton size="small" @click="openTradeAudit" :disabled="!timeline.length" class="w-full">🔍 审查全部交易</ElButton>
+          <ElButton size="small" @click="openLayerDebug" :loading="layerDebugLoading" class="w-full">🧪 9层调试</ElButton>
+          <ElButton size="small" @click="loadCompare" :loading="compareLoading" class="w-full">📊 回测对比</ElButton>
+          <ElButton size="small" @click="fetchDailyReport(); dailyReportVisible = true" class="w-full">📈 复盘报告</ElButton>
+          <ElButton size="small" @click="openWeeklyReport" class="w-full">📊 周报</ElButton>
+          </div>
+          <div class="qa-group"><div class="qa-label">风控</div>
+          <ElButton size="small" @click="toggleDryRun" class="w-full">{{ dryRun ? '🔴 关闭调试' : '🔍 开启调试' }}</ElButton>
+          <ElButton v-if="circuitBreakerPaused" size="small" type="danger" @click="resetCircuitBreaker" class="w-full">🔓 重置熔断</ElButton>
+          <ElButton v-if="positions.length" size="small" type="danger" @click="sellAllPositions" class="w-full">⚡ 一键清仓</ElButton>
+          <ElButton size="small" type="warning" @click="resetAccount" class="w-full">🗑️ 清仓重置</ElButton>
+          </div>
+          <div class="qa-group"><div class="qa-label">导出</div>
+          <ElButton size="small" @click="exportTradeLog" class="w-full">📥 导出交易日志</ElButton>
+          <ElButton size="small" @click="saveSnapshot" class="w-full">📸 保存快照</ElButton>
+          </div>
         </div>
-        <div class="st" style="margin-top:10px">🔧 手动下单</div>
+        <div class="st mt-10">🔧 手动下单</div>
         <div class="mf">
           <ElInput v-model="manualTrade.ts_code" placeholder="代码 000001.SZ" size="small" @change="onManualCodeChange(manualTrade.ts_code)" />
           <div class="mf-row"><ElSelect v-model="manualTrade.side" size="small" style="width:70px"><ElOption label="买入" value="buy" /><ElOption label="卖出" value="sell" /></ElSelect><ElInputNumber v-model="manualTrade.quantity" :min="0" :step="100" placeholder="数量" size="small" style="flex:1" controls-position="right" /></div>
           <div class="mf-row"><ElInputNumber v-model="manualTrade.price" :min="0" :precision="2" :step="0.01" placeholder="价格(0=市价)" size="small" style="flex:1" controls-position="right" /><span v-if="manualQuote" class="mf-hint" @click="manualTrade.price = manualQuote.price">💰 填入现价</span></div>
-          <ElButton type="primary" size="small" :disabled="!manualTrade.ts_code" @click="executeManualTrade" style="width:100%">下单</ElButton>
+          <ElButton type="primary" size="small" :disabled="!manualTrade.ts_code" @click="executeManualTrade" class="w-full">下单</ElButton>
           <div v-if="manualQuote" class="mf-q">💡 现价: ¥{{ manualQuote.price?.toFixed(2) }} <span v-if="manualQuote.pct_chg" :class="manualQuote.pct_chg >= 0 ? 'up' : 'down'">{{ manualQuote.pct_chg >= 0 ? '+' : '' }}{{ manualQuote.pct_chg.toFixed(2) }}%</span></div>
         </div>
 
@@ -300,11 +309,11 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 
       <!-- 中列: 信号+行情 -->
       <div class="mm-center">
-        <div class="st">🎯 活跃信号 <div style="display:inline-flex;gap:2px;margin-left:6px"><ElTag v-for="f in [{k:'all',l:'全部'},{k:'halfway_chase',l:'半路'},{k:'first_limit_up',l:'首板'},{k:'limit_down_qiao',l:'跌停'},{k:'anomaly',l:'异动'}]" :key="f.k" size="small" :type="signalFilter===f.k?'primary':'info'" style="cursor:pointer" @click="signalFilter=f.k">{{ f.l }}</ElTag></div> <ElBadge :value="filteredSignals.length" :max="99" style="margin-left:4px" /></div>
+        <div class="st">🎯 活跃信号 <div style="display:inline-flex;gap:2px;margin-left:6px"><ElTag v-for="f in [{k:'all',l:'全部'},{k:'halfway_chase',l:'半路'},{k:'first_limit_up',l:'首板'},{k:'limit_down_qiao',l:'跌停'},{k:'anomaly',l:'异动'}]" :key="f.k" size="small" :type="signalFilter===f.k?'primary':'info'" class="cp" @click="signalFilter=f.k">{{ f.l }}</ElTag></div> <ElBadge :value="filteredSignals.length" :max="99" style="margin-left:4px" /></div>
         <div class="sl">
           <div v-if="!signals.length" class="empty">启动后扫描获取信号</div>
-          <div v-for="sig in filteredSignals" :key="sig.ts_code + sig.strategy" class="sig-row">
-            <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || '#909399'" style="color:#fff;border:none;min-width:52px;text-align:center">{{ sig.strategy_name }}</ElTag><ElTag v-if="sig.signal_status === 'executed'" size="small" type="success">已买</ElTag><ElTag v-if="sig.signal_status === 'skipped'" size="small" type="warning">跳过</ElTag><ElTag v-if="sig.signal_status === 'expired'" size="small" type="info">过期</ElTag><span class="code">{{ sig.ts_code }}</span><span class="name">{{ sig.stock_name }}</span><span v-if="sig.signal_status === 'new' && signalRemaining(sig) >= 0" class="expire-tag" :class="{ urgent: signalRemaining(sig) < 60000 }">⏱{{ formatRemaining(signalRemaining(sig)) }}</span><span v-if="sig.volume_ratio" class="factor">量比{{ sig.volume_ratio.toFixed(1) }}</span><span v-if="sig.turnover_rate" class="factor">换手{{ sig.turnover_rate.toFixed(1) }}%</span><template v-if="sig.key_factors"><span v-for="(v, k) in sig.key_factors" :key="k" class="factor kf">{{ v }}</span></template><span :class="sig.pct_chg >= 0 ? 'up' : 'down'" class="pct" style="margin-left:auto;font-weight:600">{{ sig.pct_chg >= 0 ? '+' : '' }}{{ sig.pct_chg.toFixed(1) }}%</span><ElButton v-if="!dryRun && sig.signal_status === 'new'" size="small" type="danger" plain @click="quickBuy(sig)" style="padding:1px 6px;font-size:11px">买</ElButton><ElButton v-if="sig.decision_detail" size="small" type="info" plain @click="openTradeDetail(sig.ts_code)" style="padding:1px 6px;font-size:11px">🔍</ElButton><ElButton v-if="sig.layer_trace" size="small" type="warning" plain @click="openScanTrace(sig.ts_code)" style="padding:1px 6px;font-size:11px">🧪</ElButton>
+          <div v-for="sig in filteredSignals" :key="sig.ts_code + sig.strategy" class="sig-row" :title="`${sig.ts_code} ${sig.stock_name} | ${sig.strategy_name} | 量比${sig.volume_ratio?.toFixed(1) || '-'} | 换手${sig.turnover_rate?.toFixed(1) || '-'}% | ${sig.reason}`">
+            <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || '#909399'" class="tag-solid" style="min-width:52px;text-align:center">{{ sig.strategy_name }}</ElTag><ElTag v-if="sig.signal_status === 'executed'" size="small" type="success">已买</ElTag><ElTag v-if="sig.signal_status === 'skipped'" size="small" type="warning">跳过</ElTag><ElTag v-if="sig.signal_status === 'expired'" size="small" type="info">过期</ElTag><span class="code">{{ sig.ts_code }}</span><span class="name">{{ sig.stock_name }}</span><span v-if="sig.signal_status === 'new' && signalRemaining(sig) >= 0" class="expire-tag" :class="{ urgent: signalRemaining(sig) < 60000 }">⏱{{ formatRemaining(signalRemaining(sig)) }}</span><span v-if="sig.volume_ratio" class="factor">量比{{ sig.volume_ratio.toFixed(1) }}</span><span v-if="sig.turnover_rate" class="factor">换手{{ sig.turnover_rate.toFixed(1) }}%</span><template v-if="sig.key_factors"><span v-for="(v, k) in sig.key_factors" :key="k" class="factor kf">{{ v }}</span></template><span :class="sig.pct_chg >= 0 ? 'up' : 'down'" class="pct ml-auto" style="font-weight:600">{{ sig.pct_chg >= 0 ? '+' : '' }}{{ sig.pct_chg.toFixed(1) }}%</span><ElButton v-if="!dryRun && sig.signal_status === 'new'" size="small" type="danger" plain @click="quickBuy(sig)" class="btn-xs">买</ElButton><ElButton v-if="sig.decision_detail" size="small" type="info" plain @click="openTradeDetail(sig.ts_code)" class="btn-xs">🔍</ElButton><ElButton v-if="sig.layer_trace" size="small" type="warning" plain @click="openScanTrace(sig.ts_code)" class="btn-xs">🧪</ElButton>
           </div>
         </div>
 
@@ -316,7 +325,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <div class="sl">
           <div v-if="!positions.length" class="empty">暂无持仓</div>
           <div v-for="pos in [...positions].sort((a, b) => a.profit_pct - b.profit_pct)" :key="pos.ts_code" class="pos-card">
-            <div class="pos-top"><ElTag size="small" :color="strategyMeta[pos.strategy]?.color || '#909399'" style="color:#fff;border:none;font-size:10px;min-width:48px;text-align:center">{{ pos.strategy_name || strategyCN(pos.strategy) }}</ElTag><span class="code">{{ pos.ts_code }}</span><span class="name">{{ pos.stock_name }}</span><span :class="pos.profit_pct >= 0 ? 'up' : 'down'" class="pct">{{ pos.profit_pct >= 0 ? '+' : '' }}{{ pos.profit_pct.toFixed(1) }}%</span><span v-if="pos.today_buy > 0" class="t1-tag">T+1</span><ElButton size="small" type="danger" plain @click="quickSell(pos)" :disabled="pos.available_qty <= 0" style="padding:1px 6px;font-size:11px;margin-left:auto">卖出</ElButton><ElButton size="small" type="info" plain @click="openTradeDetail(pos.ts_code)" style="padding:1px 6px;font-size:11px">详情</ElButton></div>
+            <div class="pos-top"><ElTag size="small" :color="strategyMeta[pos.strategy]?.color || '#909399'" class="tag-solid" style="font-size:10px;min-width:48px;text-align:center">{{ pos.strategy_name || strategyCN(pos.strategy) }}</ElTag><span class="code">{{ pos.ts_code }}</span><span class="name">{{ pos.stock_name }}</span><span :class="pos.profit_pct >= 0 ? 'up' : 'down'" class="pct">{{ pos.profit_pct >= 0 ? '+' : '' }}{{ pos.profit_pct.toFixed(1) }}%</span><span class="mini-bar"><span class="mini-bar-fill" :style="{ width: Math.min(Math.abs(pos.profit_pct) / 10 * 100, 100) + '%', background: pos.profit_pct >= 0 ? '#67c23a' : '#f56c6c' }"></span></span><span v-if="pos.today_buy > 0" class="t1-tag">T+1</span><ElButton size="small" type="danger" plain @click="quickSell(pos)" :disabled="pos.available_qty <= 0" class="btn-xs ml-auto">卖出</ElButton><ElButton size="small" type="info" plain @click="openTradeDetail(pos.ts_code)" class="btn-xs">详情</ElButton></div>
             <div class="pos-info"><span>{{ pos.shares }}股</span><span>成本{{ pos.cost_price.toFixed(2) }}</span><span>现价{{ pos.current_price.toFixed(2) }}</span><span v-if="pos.market_value" class="mv">市值{{ (pos.market_value / 10000).toFixed(1) }}万</span><span v-if="pos.profit_amount != null" :class="pos.profit_amount >= 0 ? 'up' : 'down'" class="pamt">{{ pos.profit_amount >= 0 ? '+' : '' }}¥{{ Math.abs(pos.profit_amount).toFixed(0) }}</span><span v-if="pos.stop_loss_pct != null" class="rl stop">止损{{ pos.stop_loss_pct.toFixed(1) }}% ¥{{ pos.stop_loss_price?.toFixed(2) || (pos.cost_price * (1 - pos.stop_loss_pct / 100)).toFixed(2) }}</span><span v-if="pos.take_profit_pct != null" class="rl profit">止盈{{ pos.take_profit_pct.toFixed(1) }}% ¥{{ pos.take_profit_price?.toFixed(2) || (pos.cost_price * (1 + (pos.take_profit_pct || 7.0) / 100)).toFixed(2) }}</span><span v-if="pos.stop_loss_pct != null" class="rd" :class="{ danger: pos.profit_pct + (pos.stop_loss_pct || 3) < 2 }">距止损{{ (pos.profit_pct + (pos.stop_loss_pct || 3)).toFixed(1) }}%</span></div>
           </div>
         </div>
@@ -328,21 +337,21 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
     <div v-if="isRunning || timeline.length" class="mm-footer">
       <div class="tl-header"><div class="st">⏱️ 交易时间线 ({{ timeline.length }}) <span v-if="cumulativePnl !== 0" :class="cumulativePnl >= 0 ? 'up' : 'down'" style="font-size:12px;margin-left:6px">累计{{ cumulativePnl >= 0 ? '+' : '' }}¥{{ cumulativePnl.toFixed(0) }}</span> <ElButton v-if="timeline.length" size="small" type="warning" @click="openTradeAudit" style="margin-left:6px">🔍 审查全部</ElButton> <div style="display:inline-flex;align-items:center;gap:4px;margin-left:8px"><ElDatePicker v-model="historyDate" type="date" placeholder="选择日期" size="small" value-format="YYYY-MM-DD" style="width:140px" :disabled-date="(d: Date) => d > new Date()" /><ElButton size="small" @click="loadHistory" :loading="historyLoading" style="padding:2px 8px;font-size:11px">回放</ElButton><ElButton v-if="historyData.length" size="small" type="info" @click="historyData=[];historyDate=''" style="padding:2px 8px;font-size:11px">返回今日</ElButton></div></div></div>
       <div class="tl-body">
-        <div class="tl-col">
+        <div class="tl-col" style="flex:3">
           <div v-if="historyData.length" class="history-tag">📜 {{ historyDate }} 历史回放 ({{ historyData.length }}条)</div>
           <div v-if="!historyData.length && !timeline.length" class="empty">暂无交易</div>
-          <div v-for="(item, i) in historyData.length ? historyData : timeline" :key="i" class="tl-row" @click="openTradeDetail(item.ts_code)" style="cursor:pointer"><span class="tl-time">{{ item.time }}</span><span class="tl-action" :class="item.action === 'buy' ? 'buy' : 'sell'">{{ item.action === 'buy' ? '买' : '卖' }}</span><span class="code">{{ item.ts_code }}</span><span class="name">{{ item.stock_name }}</span><span class="tl-detail">{{ item.shares }}股@{{ item.price.toFixed(2) }}</span><span v-if="item.profit_pct !== undefined" :class="item.profit_pct >= 0 ? 'up' : 'down'">{{ item.profit_pct >= 0 ? '+' : '' }}{{ item.profit_pct.toFixed(1) }}%</span><span v-if="item.profit_amount != null" :class="item.profit_amount >= 0 ? 'up' : 'down'" class="tl-amt">{{ item.profit_amount >= 0 ? '+' : '' }}¥{{ item.profit_amount.toFixed(0) }}</span></div>
+          <div v-for="(item, i) in historyData.length ? historyData : timeline" :key="i" class="tl-row cp" @click="openTradeDetail(item.ts_code)"><span class="tl-time">{{ item.time }}</span><span class="tl-action" :class="item.action === 'buy' ? 'buy' : 'sell'">{{ item.action === 'buy' ? '买' : '卖' }}</span><span class="code">{{ item.ts_code }}</span><span class="name">{{ item.stock_name }}</span><span class="tl-detail">{{ item.shares }}股@{{ item.price.toFixed(2) }}</span><span v-if="item.profit_pct !== undefined" :class="item.profit_pct >= 0 ? 'up' : 'down'">{{ item.profit_pct >= 0 ? '+' : '' }}{{ item.profit_pct.toFixed(1) }}%</span><span v-if="item.profit_amount != null" :class="item.profit_amount >= 0 ? 'up' : 'down'" class="tl-amt">{{ item.profit_amount >= 0 ? '+' : '' }}¥{{ item.profit_amount.toFixed(0) }}</span></div>
         </div>
-        <div class="tl-col" v-if="orders.length">
+        <div class="tl-col" v-if="orders.length" style="flex:2">
           <div class="st">📋 历史订单 ({{ orders.length }})</div>
-          <div v-for="o in orders.slice(0, 20)" :key="o.order_id" class="tl-row" @click="openTradeDetail(o.ts_code)" style="cursor:pointer"><span class="tl-time">{{ o.trade_date?.slice(-4) || '' }} {{ o.create_time }}</span><span class="tl-action" :class="o.side === 'buy' ? 'buy' : 'sell'">{{ o.side === 'buy' ? '买' : '卖' }}</span><span class="code">{{ o.ts_code }}</span><span class="name">{{ o.stock_name }}</span><span class="tl-detail">{{ o.filled_qty }}股@{{ o.filled_price?.toFixed(2) || '0.00' }}</span><span style="font-size:11px;color:#909399">{{ strategyCN(o.strategy) }}</span></div>
+          <div v-for="o in orders.slice(0, 20)" :key="o.order_id" class="tl-row cp" @click="openTradeDetail(o.ts_code)"><span class="tl-time">{{ o.trade_date?.slice(-4) || '' }} {{ o.create_time }}</span><span class="tl-action" :class="o.side === 'buy' ? 'buy' : 'sell'">{{ o.side === 'buy' ? '买' : '卖' }}</span><span class="code">{{ o.ts_code }}</span><span class="name">{{ o.stock_name }}</span><span class="tl-detail">{{ o.filled_qty }}股@{{ o.filled_price?.toFixed(2) || '0.00' }}</span><span style="font-size:11px;color:#909399">{{ strategyCN(o.strategy) }}</span></div>
         </div>
-        <div class="tl-col">
-          <div class="st">🔥 涨跌停池 <div style="display:inline-flex;gap:2px;margin-left:6px"><ElTag size="small" :type="limitPoolTab==='limit_up'?'danger':'info'" style="cursor:pointer" @click="limitPoolTab='limit_up'">涨停{{ limitPools.limit_up.length }}</ElTag><ElTag size="small" :type="limitPoolTab==='limit_down'?'warning':'info'" style="cursor:pointer" @click="limitPoolTab='limit_down'">跌停{{ limitPools.limit_down.length }}</ElTag><ElTag size="small" :type="limitPoolTab==='broken'?'':'info'" style="cursor:pointer" @click="limitPoolTab='broken'">炸板{{ limitPools.broken.length }}</ElTag></div></div>
+        <div class="tl-col" style="flex:2">
+          <div class="st">🔥 涨跌停池 <div style="display:inline-flex;gap:2px;margin-left:6px"><ElTag size="small" :type="limitPoolTab==='limit_up'?'danger':'info'" class="cp" @click="limitPoolTab='limit_up'">涨停{{ limitPools.limit_up.length }}</ElTag><ElTag size="small" :type="limitPoolTab==='limit_down'?'warning':'info'" class="cp" @click="limitPoolTab='limit_down'">跌停{{ limitPools.limit_down.length }}</ElTag><ElTag size="small" :type="limitPoolTab==='broken'?'':'info'" class="cp" @click="limitPoolTab='broken'">炸板{{ limitPools.broken.length }}</ElTag></div></div>
           <div v-if="!limitPools[limitPoolTab as keyof typeof limitPools]?.length" class="empty">暂无数据</div>
           <div v-for="item in (limitPools[limitPoolTab as keyof typeof limitPools] || []).slice(0, 20)" :key="item.ts_code" class="limit-row"><span class="code">{{ item.ts_code }}</span><span class="name">{{ item.name }}</span><span :class="item.pct_chg >= 0 ? 'up' : 'down'">{{ item.pct_chg >= 0 ? '+' : '' }}{{ item.pct_chg.toFixed(1) }}%</span><span v-if="item.limit_times" class="lb-tag">{{ item.limit_times }}连板</span><span v-if="item.fd_amount" class="fd-tag">封{{ item.fd_amount }}万</span></div>
         </div>
-        <div class="tl-col" style="max-height:none">
+        <div class="tl-col" style="flex:1;max-height:none">
           <div class="st">📈 今日统计</div>
           <div class="stats" v-if="status"><div class="si"><div class="sv">{{ status.stats.signals_found }}</div><div class="sl2">信号</div></div><div class="si"><div class="sv">{{ status.stats.trades_executed }}</div><div class="sl2">交易</div></div><div class="si"><div class="sv" style="color:#f56c6c">{{ status.stats.stop_losses }}</div><div class="sl2">止损</div></div><div class="si"><div class="sv" style="color:#67c23a">{{ status.stats.take_profits }}</div><div class="sl2">止盈</div></div></div>
         </div>
@@ -562,7 +571,8 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .pos-card { padding: 8px 10px; margin-bottom: 6px; background: #fff; border-radius: 6px; border: 1px solid #ebeef5; }
 .pos-card:hover { border-color: #409eff; }
 .pos-top { display: flex; align-items: center; gap: 6px; }
-.pct { margin-left: auto; font-weight: 700; font-size: 14px; }
+.pct { margin-left: auto; font-weight: 700; font-size: 14px; transition: transform 0.3s; }
+.pos-card:hover .pct { transform: scale(1.05); }
 .pos-info { display: flex; gap: 8px; font-size: 11px; color: #606266; }
 .t1-tag { font-size: 10px; color: #e6a23c; background: #fdf6ec; padding: 1px 4px; border-radius: 3px; font-weight: 600; }
 .rl { padding: 1px 5px; border-radius: 3px; font-weight: 500; }
@@ -698,4 +708,75 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .wr-p { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; border-bottom: 1px solid #f2f3f5; }
 .wr-day { display: flex; align-items: center; gap: 10px; padding: 4px 0; font-size: 12px; border-bottom: 1px solid #f2f3f5; }
 .wr-date { font-weight: 600; color: #303133; min-width: 80px; }
+
+/* === Extracted utility classes === */
+.w-full { width: 100%; }
+.ml-auto { margin-left: auto; }
+.mt-10 { margin-top: 10px; }
+.cp { cursor: pointer; }
+.btn-xs { padding: 1px 6px; font-size: 11px; }
+.tag-solid { color: #fff; border: none; }
+.fs-10 { font-size: 10px; }
+
+/* === Dark toggle button === */
+.dark-toggle { font-size: 16px; cursor: pointer; padding: 0 4px; user-select: none; }
+
+/* === Mini bar (PnL progress) === */
+.mini-bar { display: inline-block; width: 40px; height: 4px; background: #ebeef5; border-radius: 2px; vertical-align: middle; margin-left: 4px; }
+.mini-bar-fill { display: block; height: 100%; border-radius: 2px; transition: width 0.3s; }
+
+/* === Quick action groups === */
+.qa-group { margin-bottom: 2px; }
+.qa-label { font-size: 10px; color: #909399; margin-top: 4px; margin-bottom: 2px; padding-left: 2px; }
+
+/* ============================================ */
+/* === Dark Theme === */
+/* ============================================ */
+.mm.dark { background: #1a1a2e; }
+.mm.dark .mm-header { background: #16213e; border-color: #333; }
+.mm.dark .mm-left, .mm.dark .mm-right { background: #16213e; border-color: #333; }
+.mm.dark .st { color: #e0e0e0; }
+.mm.dark .sig-row, .mm.dark .pos-card, .mm.dark .sc { background: #1e1e2e; border-color: #333; }
+.mm.dark .sig-row:hover, .mm.dark .pos-card:hover { border-color: #409eff; }
+.mm.dark .sc:hover { border-color: #409eff; }
+.mm.dark .code { color: #e0e0e0; }
+.mm.dark .name { color: #aaa; }
+.mm.dark .factor { background: #2a2a3e; color: #aaa; }
+.mm.dark .pos-info { color: #aaa; }
+.mm.dark .mm-footer { background: #16213e; border-color: #333; }
+.mm.dark .tl-row:hover { background: #1e1e2e; }
+.mm.dark .tl-row { border-color: #2a2a3e; }
+.mm.dark .limit-row { border-color: #2a2a3e; }
+.mm.dark .si { background: #1e1e2e; }
+.mm.dark .sl2, .mm.dark .hl, .mm.dark .sc-arrow, .mm.dark .sc-desc, .mm.dark .pk, .mm.dark .reason { color: #888; }
+.mm.dark .rl.stop { background: #3a1a1a; }
+.mm.dark .rl.profit { background: #1a3a1a; }
+.mm.dark .lb-tag { background: #3a1a1a; }
+.mm.dark .fd-tag { background: #3a2a1a; }
+.mm.dark .guide-card { background: #1e1e2e; }
+.mm.dark .guide-title { color: #e0e0e0; }
+.mm.dark .empty { color: #555; }
+.mm.dark .expire-tag { background: #1a2a3a; }
+.mm.dark .expire-tag.urgent { background: #3a1a1a; }
+.mm.dark .history-tag { background: #1a2a3a; }
+.mm.dark .td-sec, .mm.dark .ld-pipeline, .mm.dark .st-trace { background: #1e1e2e; border-color: #333; }
+.mm.dark .td-t, .mm.dark .ld-title, .mm.dark .st-title { color: #e0e0e0; }
+.mm.dark .td-v, .mm.dark .td-r, .mm.dark .td-c { color: #ccc; }
+.mm.dark .ld-layer { background: #1e1e2e; border-color: #333; }
+.mm.dark .tl-col + .tl-col { border-color: #333; }
+.mm.dark .dr-sec, .mm.dark .wr-sec { background: #1e1e2e; border-color: #333; }
+.mm.dark .dr-t, .mm.dark .wr-t { color: #e0e0e0; }
+.mm.dark .t1-tag { background: #3a2a1a; }
+.mm.dark .ds-dot.ok { background: #1a3a1a; }
+.mm.dark .ds-dot.err { background: #3a1a1a; }
+.mm.dark .mini-bar { background: #333; }
+.mm.dark .mm-center { background: #1a1a2e; }
+.mm.dark .sv { color: #e0e0e0; }
+.mm.dark .pm .pv { color: #ccc; }
+.mm.dark .tl-time { color: #888; }
+.mm.dark .tl-detail { color: #ccc; }
+.mm.dark .ha .hl { color: #888; }
+.mm.dark .ha .hv { color: #e0e0e0; }
+.mm.dark .mf-q { color: #67c23a; }
+.mm.dark .mf-hint { color: #409eff; }
 </style>
