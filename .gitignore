@@ -120,3 +120,4 @@ local-databases/
 real_trading/*.json
 real_trading/*.log
 !real_trading/*.example.json
+backtest_verify_result.json

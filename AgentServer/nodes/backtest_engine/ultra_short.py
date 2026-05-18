@@ -533,8 +533,9 @@ async def execute_ultra_short_backtest(
             # 跳过未平仓交易(无sell_date或profit_pct为None)
             if not reason and trade.get("profit_pct") is None:
                 continue
-            if not reason:
-                reason = "other"
+            if not reason or reason == "持仓中":
+                # 未平仓交易不计入卖出原因统计
+                continue
             reason_str = str(reason)
             # 止损: 包含"止损"/"stop_loss"/"跳空止损"/"止损(X%)"
             if "止损" in reason_str or "stop_loss" in reason_str.lower():
@@ -551,6 +552,9 @@ async def execute_ultra_short_backtest(
             # 调仓: 包含"调仓"/"rebalance"/"减仓"
             elif "调仓" in reason_str or "rebalance" in reason_str.lower() or "减仓" in reason_str:
                 sell_reason_stats["rebalance"] += 1
+            # 持仓中: 未平仓交易
+            elif "持仓中" in reason_str:
+                pass  # 不计入卖出统计
             else:
                 sell_reason_stats["other"] += 1
 
