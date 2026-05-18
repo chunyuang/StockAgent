@@ -534,29 +534,35 @@ function onViewLogs(taskId: string) {
     </div>
 
     <!-- Tab内容：新建回测 -->
-    <div v-show="activeMainTab === 'config'">
-      <!-- 策略配置面板 -->
-      <StrategyConfigPanel
-        :form="form"
-        :backtestRunning="backtestState.running"
-        v-model:activeCollapse="activeCollapse"
-        @submit="submitBacktest"
-      />
+    <div v-show="activeMainTab === 'config'" class="config-layout">
+      <div class="config-left">
+        <!-- 策略配置面板 -->
+        <StrategyConfigPanel
+          :form="form"
+          :backtestRunning="backtestState.running"
+          v-model:activeCollapse="activeCollapse"
+          @submit="submitBacktest"
+        />
+      </div>
+      <div class="config-right">
+        <!-- 回测进度条 -->
+        <ElCard v-if="backtestState.running" class="progress-card" style="margin-bottom: 16px">
+          <ElProgress :percentage="backtestState.progress" :stroke-width="18" :text-inside="true" status="success" />
+        </ElCard>
 
-      <!-- 回测进度条 -->
-      <ElCard v-if="backtestState.running" class="progress-card" style="margin-bottom: 20px">
-        <ElProgress :percentage="backtestState.progress" :stroke-width="18" :text-inside="true" status="success" />
-      </ElCard>
+        <!-- 回测结果总结表格 -->
+        <BacktestSummaryTable v-if="backtestResult" :result="backtestResult" />
 
-      <!-- 回测结果总结表格 -->
-      <BacktestSummaryTable v-if="backtestResult" :result="backtestResult" />
+        <!-- 回测结果详细面板 -->
+        <BacktestResultPanel v-if="backtestResult" :result="backtestResult" :form="form" />
 
-      <!-- 回测结果详细面板 -->
-      <BacktestResultPanel v-if="backtestResult" :result="backtestResult" :form="form" />
+        <!-- 日志面板 -->
+        <AnsiLogPanel v-if="backtestState.running || backtestState.task_id" :task-id="backtestState.task_id" :task-status="backtestState.running ? 'running' : 'completed'" />
+      </div>
     </div>
 
     <!-- Tab内容：回测历史 -->
-    <div v-show="activeMainTab === 'history'">
+    <div v-show="activeMainTab === 'history'" class="tab-content-full">
       <BacktestHistoryPanel
         @view-result="onViewResult"
         @view-logs="onViewLogs"
@@ -565,37 +571,37 @@ function onViewLogs(taskId: string) {
     </div>
 
     <!-- Tab内容：数据状态 -->
-    <div v-show="activeMainTab === 'data'">
+    <div v-show="activeMainTab === 'data'" class="tab-content-full">
       <DataStatusPanel />
     </div>
 
     <!-- Tab内容：因子参考 -->
-    <div v-show="activeMainTab === 'factors'">
+    <div v-show="activeMainTab === 'factors'" class="tab-content-full">
       <FactorReferencePanel />
     </div>
-
-    <!-- 日志面板（跨Tab共享） -->
-    <AnsiLogPanel :task-id="backtestState.task_id" :task-status="backtestState.running ? 'running' : 'completed'" />
   </div>
 </template>
 
 <style scoped lang="scss">
 .ultra-short-v2-page {
   padding: 20px;
-  max-width: 1400px;
-  margin: 0 auto;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 .page-header {
-  margin-bottom: 20px;
+  margin-bottom: 16px;
+  flex-shrink: 0;
   .page-title {
-    font-size: 26px;
+    font-size: 24px;
     font-weight: 700;
     color: #303133;
-    margin: 0 0 8px 0;
+    margin: 0 0 6px 0;
   }
   .page-description {
     color: #606266;
     margin: 0;
+    font-size: 13px;
   }
 }
 
@@ -613,8 +619,9 @@ function onViewLogs(taskId: string) {
 .main-tabs {
   display: flex;
   gap: 0;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
   border-bottom: 2px solid #e4e7ed;
+  flex-shrink: 0;
 
   .tab-btn {
     padding: 10px 24px;
@@ -652,5 +659,26 @@ function onViewLogs(taskId: string) {
       color: #409eff;
     }
   }
+.config-layout {
+  display: flex;
+  gap: 20px;
+  flex: 1;
+  overflow: hidden;
+}
+.config-left {
+  width: 420px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.config-right {
+  flex: 1;
+  overflow-y: auto;
+  min-width: 0;
+}
+.tab-content-full {
+  flex: 1;
+  overflow-y: auto;
+}
 }
 </style>
