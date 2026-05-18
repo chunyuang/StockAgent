@@ -726,7 +726,12 @@ class MarketScanner:
         )
 
         # Step 3.6: 异动检测(从realtime_data检测, 不消耗额外API)
+        # 【安全修复】异动信号也必须经过9层筛选管道(特别是强制空仓检查)
         anomaly_signals = await self._detect_anomalies(realtime_data)
+        if anomaly_signals:
+            anomaly_signals = await self._apply_filter_pipeline(
+                anomaly_signals, trade_date, realtime_data
+            )
         new_signals.extend(anomaly_signals)
 
         # Step 4: 增量更新信号
