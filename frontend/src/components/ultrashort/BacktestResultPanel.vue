@@ -40,6 +40,7 @@ import {
   ElOption,
   ElEmpty,
   ElMessage,
+  ElTooltip,
 } from 'element-plus'
 import { Download } from '@element-plus/icons-vue'
 import { STRATEGY_NAMES } from '@/config/backtestConstants'
@@ -141,23 +142,48 @@ const monthlyTrades = computed(() => {
   }))
 })
 
-// 任务2: 月度收益柱状图
+// 任务2: 月度收益柱状图 + 累计收益折线(双Y轴)
 const monthlyReturnChartOption = computed(() => {
   if (!monthlyData.value.length) return null
   const months = monthlyData.value.map(d => d.month)
   const returns = monthlyData.value.map(d => d.return_pct)
+  // 计算累计收益线
+  const cumReturns: number[] = []
+  let cumVal = 0
+  for (const r of returns) {
+    cumVal += r
+    cumReturns.push(+cumVal.toFixed(2))
+  }
   return {
-    tooltip: { trigger: 'axis', formatter: (p: any) => `${p[0].axisValue}<br/>月度收益：${p[0].value}%` },
+    tooltip: { trigger: 'axis', formatter: (p: any) => {
+      let html = `${p[0].axisValue}<br/>`
+      for (const s of p) {
+        html += `${s.marker} ${s.seriesName}：${s.value}%<br/>`
+      }
+      return html
+    }},
+    legend: { data: ['月度收益', '累计收益'] },
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
     xAxis: { type: 'category', data: months },
-    yAxis: { type: 'value', axisLabel: { formatter: '{value}%' } },
-    series: [{
-      type: 'bar', data: returns,
-      itemStyle: {
-        color: (params: any) => parseFloat(params.value) >= 0 ? '#67c23a' : '#f56c6c'
+    yAxis: [
+      { type: 'value', name: '月度收益(%)', axisLabel: { formatter: '{value}%' } },
+      { type: 'value', name: '累计收益(%)', position: 'right', axisLabel: { formatter: '{value}%' } },
+    ],
+    series: [
+      {
+        name: '月度收益', type: 'bar', data: returns,
+        itemStyle: {
+          color: (params: any) => parseFloat(params.value) >= 0 ? '#67c23a' : '#f56c6c'
+        },
+        label: { show: true, position: 'top', formatter: '{c}%', fontSize: 11 },
       },
-      label: { show: true, position: 'top', formatter: '{c}%', fontSize: 11 },
-    }]
+      {
+        name: '累计收益', type: 'line', yAxisIndex: 1, data: cumReturns,
+        lineStyle: { color: '#409eff', width: 2 },
+        itemStyle: { color: '#409eff' },
+        smooth: true,
+      },
+    ]
   }
 })
 
@@ -289,7 +315,17 @@ const netValueChartOption = computed(() => {
   })
 
   return {
-    tooltip: { trigger: 'axis' },
+    tooltip: {
+      trigger: 'axis',
+      formatter: (params: any) => {
+        let html = `<b>${params[0].axisValue}</b><br/>`
+        for (const p of params) {
+          const unit = p.seriesName.includes('回撤') ? '%' : ''
+          html += `${p.marker} ${p.seriesName}：${p.value}${unit}<br/>`
+        }
+        return html
+      }
+    },
     legend: { data: ['策略净值', ...(benchmarkValues.length > 0 ? ['基准(沪深300)'] : []), '回撤(%)'] },
     grid: { left: '3%', right: '4%', bottom: '12%', containLabel: true },
     xAxis: { type: 'category', boundaryGap: false, data: dates },
@@ -356,10 +392,11 @@ const strategyCompareChartOption = computed(() => {
   const names = Object.keys(sr)
   if (names.length < 2) return null  // 只有一个策略时不需要对比
   const strategies = Object.values(sr) as any[]
+  const displayNames = names.map(n => strategyDisplayName(n))
   // total_return已是百分比, 直接用
   return {
     tooltip: { trigger: 'axis' },
-    legend: { data: names },
+    legend: { data: displayNames },
     radar: {
       indicator: [
         { name: '收益率(%)', max: Math.max(50, ...strategies.map(s => Math.abs(s.total_return ?? 0))) + 10 },
@@ -369,8 +406,8 @@ const strategyCompareChartOption = computed(() => {
     },
     series: [{
       type: 'radar',
-      data: strategies.map(s => ({
-        name: s.strategy_name || s.name || '未知',
+      data: strategies.map((s, i) => ({
+        name: displayNames[i],
         value: [
           s.total_return ?? 0,
           s.win_rate ?? 0,
@@ -450,12 +487,14 @@ const strategyBarChartOption = computed(() => {
   const names = Object.keys(sr)
   if (names.length === 0) return null
   const strategies = Object.values(sr) as any[]
+  // X轴用策略中文名
+  const displayNames = names.map(n => strategyDisplayName(n))
 
   return {
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
     legend: { data: ['累计盈利(%)', '胜率(%)'] },
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-    xAxis: { type: 'category', data: names },
+    xAxis: { type: 'category', data: displayNames },
     yAxis: [
       { type: 'value', name: '累计盈利(%)', axisLabel: { formatter: '{value}%' } },
       { type: 'value', name: '胜率(%)', max: 100, axisLabel: { formatter: '{value}%' } }
@@ -487,11 +526,12 @@ const strategyTradesChartOption = computed(() => {
   const names = Object.keys(sr)
   if (names.length === 0) return null
   const strategies = Object.values(sr) as any[]
+  const displayNames = names.map(n => strategyDisplayName(n))
 
   return {
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-    xAxis: { type: 'category', data: names },
+    xAxis: { type: 'category', data: displayNames },
     yAxis: { type: 'value', name: '笔数' },
     series: [
       {
@@ -667,7 +707,7 @@ function exportTrades() {
         </span>
       </div>
       <div class="kpi-chip">
-        <span class="kpi-label">年化收益{{ result?.net_value_series?.length < 250 ? ' *' : '' }}</span>
+        <span class="kpi-label">年化收益<template v-if="(result?.net_value_series?.length || 0) < 250"><ElTooltip content="回测期不足1年，年化收益存在放大效应，仅供参考" placement="top"><span class="annual-warn"> *</span></ElTooltip></template></span>
         <span class="kpi-value" :style="{ color: (result.annualized_return || 0) >= 0 ? '#67c23a' : '#f56c6c' }">
           {{ fmtPct(result.annualized_return) }}
         </span>
@@ -918,7 +958,6 @@ function exportTrades() {
                 <span v-else>{{ translateSellReason(row.sell_reason || row.reason) }}</span>
               </template>
             </ElTableColumn>
-            <ElTableColumn prop="sentiment" label="情绪" min-width="80" show-overflow-tooltip />
           </ElTable>
         </ElTabPane>
 
@@ -988,6 +1027,7 @@ export default { name: 'BacktestResultPanel' }
 }
 .kpi-label { font-size: 11px; color: #909399; font-weight: 500; }
 .kpi-value { font-size: 17px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.annual-warn { color: #e6a23c; cursor: help; font-weight: 700; }
 .chart-card { margin-bottom: 0; }
 .risk-grid {
   display: grid;
