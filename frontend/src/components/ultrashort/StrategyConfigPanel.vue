@@ -111,15 +111,15 @@ function onSweepParamChange() {
         </ElFormItem>
         <ElFormItem label="起始值">
           <ElInputNumber v-model="form.sweep.start" :min="0" :step="0.01" :precision="3" style="width: 150px" />
-          <span class="unit">{{ currentSweepUnit }}</span>
+          <span class="unit">{{ currentSweepParam ? (form.sweep.start * currentSweepParam.factor).toFixed(currentSweepParam.factor > 1 ? 0 : 1) + currentSweepParam.unit : '' }}</span>
         </ElFormItem>
         <ElFormItem label="结束值">
           <ElInputNumber v-model="form.sweep.end" :min="0" :step="0.01" :precision="3" style="width: 150px" />
-          <span class="unit">{{ currentSweepUnit }}</span>
+          <span class="unit">{{ currentSweepParam ? (form.sweep.end * currentSweepParam.factor).toFixed(currentSweepParam.factor > 1 ? 0 : 1) + currentSweepParam.unit : '' }}</span>
         </ElFormItem>
         <ElFormItem label="步长">
           <ElInputNumber v-model="form.sweep.step" :min="0.001" :step="0.01" :precision="3" style="width: 150px" />
-          <span class="unit">{{ currentSweepUnit }}</span>
+          <span class="unit">{{ currentSweepParam ? (form.sweep.step * currentSweepParam.factor).toFixed(currentSweepParam.factor > 1 ? 0 : 1) + currentSweepParam.unit : '' }}</span>
         </ElFormItem>
       </ElForm>
     </div>
