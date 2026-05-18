@@ -55,7 +55,91 @@ function fmtPct(val: number | undefined | null): string {
   return val.toFixed(2) + '%'
 }
 
-// 格式化金额(备用)
+// 任务3: 卖出原因百分比
+function sellReasonPct(key: string): string {
+  const stats = props.result?.sell_reason_stats
+  if (!stats) return '0'
+  const total = (Object.values(stats) as number[]).reduce((a, b) => a + b, 0)
+  if (total === 0) return '0'
+  return ((stats[key] / total) * 100).toFixed(0)
+}
+
+// 任务2: 月度收益数据(按月聚合,月度收益=该月内收益)
+const monthlyData = computed(() => {
+  const nvs = props.result?.net_value_series
+  if (!nvs || nvs.length === 0) return []
+  const monthMap = new Map<string, { start_value: number; end_value: number; start_date: string; end_date: string }>()
+  for (const d of nvs) {
+    const date = String(d.trade_date)
+    const monthKey = date.substring(0, 6) // "202601"
+    if (!monthMap.has(monthKey)) {
+      monthMap.set(monthKey, { start_value: d.net_value, end_value: d.net_value, start_date: date, end_date: date })
+    }
+    const m = monthMap.get(monthKey)!
+    m.end_value = d.net_value
+    m.end_date = date
+  }
+  return Array.from(monthMap.entries()).map(([month, data]) => ({
+    month: month.substring(0, 4) + '-' + month.substring(4),
+    return_pct: +((data.end_value - data.start_value) / data.start_value * 100).toFixed(2),
+    start_date: data.start_date,
+    end_date: data.end_date,
+  }))
+})
+
+// 任务2: 月度交易统计
+const monthlyTrades = computed(() => {
+  const trades = allTrades.value
+  if (!trades.length) return []
+  const monthMap = new Map<string, { total: number; wins: number }>()
+  for (const t of trades) {
+    const date = t.buy_date || t.date || ''
+    const monthKey = date.substring(0, 7) // "2026-01"
+    if (!monthKey || monthKey.length < 7) continue
+    if (!monthMap.has(monthKey)) monthMap.set(monthKey, { total: 0, wins: 0 })
+    const m = monthMap.get(monthKey)!
+    m.total++
+    if (t.profit_pct > 0) m.wins++
+  }
+  return Array.from(monthMap.entries()).map(([month, data]) => ({
+    month, trades: data.total, win_rate: data.total > 0 ? +(data.wins / data.total * 100).toFixed(1) : 0
+  }))
+})
+
+// 任务2: 月度收益柱状图
+const monthlyReturnChartOption = computed(() => {
+  if (!monthlyData.value.length) return null
+  const months = monthlyData.value.map(d => d.month)
+  const returns = monthlyData.value.map(d => d.return_pct)
+  return {
+    tooltip: { trigger: 'axis', formatter: (p: any) => `${p[0].axisValue}<br/>月度收益：${p[0].value}%` },
+    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+    xAxis: { type: 'category', data: months },
+    yAxis: { type: 'value', axisLabel: { formatter: '{value}%' } },
+    series: [{
+      type: 'bar', data: returns,
+      itemStyle: {
+        color: (params: any) => parseFloat(params.value) >= 0 ? '#67c23a' : '#f56c6c'
+      },
+      label: { show: true, position: 'top', formatter: '{c}%', fontSize: 11 },
+    }]
+  }
+})
+
+// 任务2: 合并月度数据(收益+交易统计)
+const monthlyMergedData = computed(() => {
+  const returns = monthlyData.value
+  const trades = monthlyTrades.value
+  const tradeMap = new Map(trades.map(t => [t.month, t]))
+  return returns.map(r => {
+    const t = tradeMap.get(r.month)
+    return {
+      ...r,
+      trades: t?.trades ?? 0,
+      win_rate: t?.win_rate ?? 0,
+    }
+  })
+})
 
 // 筛选变量
 const searchTradeKeyword = ref('')
@@ -564,7 +648,17 @@ function exportTrades() {
       </div>
     </div>
 
-    <!-- ========== 顶层大Tab：4个核心视图 ========== -->
+    <!-- 任务3: 卖出原因统计 -->
+    <div v-if="result?.sell_reason_stats" class="sell-reason-bar">
+      <span class="sell-reason-label">卖出分布:</span>
+      <span class="sell-reason-item stop-loss">🛑 止损{{ result.sell_reason_stats.stop_loss }}笔({{ sellReasonPct('stop_loss') }}%)</span>
+      <span class="sell-reason-item take-profit">🎯 止盈{{ result.sell_reason_stats.take_profit }}笔({{ sellReasonPct('take_profit') }}%)</span>
+      <span class="sell-reason-item max-hold">⏰ 到期{{ result.sell_reason_stats.max_hold }}笔({{ sellReasonPct('max_hold') }}%)</span>
+      <span class="sell-reason-item force-empty">⛔ 空仓{{ result.sell_reason_stats.force_empty }}笔({{ sellReasonPct('force_empty') }}%)</span>
+      <span v-if="result.sell_reason_stats.other > 0" class="sell-reason-item other">📌 其他{{ result.sell_reason_stats.other }}笔({{ sellReasonPct('other') }}%)</span>
+    </div>
+
+    <!-- ========== 顶层大Tab：5个核心视图 ========== -->
     <ElCard style="margin-top: 12px">
       <ElTabs v-model="activeMainTab" type="border-card">
 
@@ -733,11 +827,36 @@ function exportTrades() {
             <ElTableColumn label="数量" width="70">
               <template #default="{ row }">{{ row.shares ?? '-' }}</template>
             </ElTableColumn>
+            <!-- 任务3: 卖出原因列 -->
+            <ElTableColumn label="卖出原因" width="100">
+              <template #default="{ row }">{{ row.reason || row.sell_reason || '--' }}</template>
+            </ElTableColumn>
             <ElTableColumn prop="sentiment" label="情绪" min-width="120" show-overflow-tooltip />
           </ElTable>
         </ElTabPane>
 
-        <!-- Tab 4: 风险指标 -->
+        <!-- Tab 4: 月度归因 -->
+        <ElTabPane label="📅 月度归因" name="monthly">
+          <div v-if="monthlyData.length > 0">
+            <div style="font-size: 13px; font-weight: 600; margin-bottom: 4px">📊 月度收益分布</div>
+            <VChart v-if="monthlyReturnChartOption" :option="monthlyReturnChartOption" autoresize style="height: 350px; width: 100%" />
+            <ElTable :data="monthlyMergedData" size="small" border stripe style="margin-top: 16px">
+              <ElTableColumn prop="month" label="月份" width="100" />
+              <ElTableColumn label="月度收益" width="100" sortable>
+                <template #default="{ row }">
+                  <span :style="{ color: row.return_pct >= 0 ? '#67c23a' : '#f56c6c' }">{{ row.return_pct.toFixed(2) }}%</span>
+                </template>
+              </ElTableColumn>
+              <ElTableColumn prop="trades" label="交易笔数" width="100" sortable />
+              <ElTableColumn label="胜率" width="80">
+                <template #default="{ row }">{{ row.win_rate.toFixed(1) }}%</template>
+              </ElTableColumn>
+            </ElTable>
+          </div>
+          <ElEmpty v-else description="暂无月度数据" />
+        </ElTabPane>
+
+        <!-- Tab 5: 风险指标 -->
         <ElTabPane label="🛡️ 风险指标" name="risk">
           <div class="risk-grid">
             <div v-for="m in riskMetrics" :key="m.name" class="risk-item">
@@ -805,5 +924,30 @@ export default { name: 'BacktestResultPanel' }
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+.sell-reason-bar {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 16px;
+  margin-bottom: 16px;
+  background: #fafafa;
+  border-radius: 6px;
+  border: 1px solid #ebeef5;
+  font-size: 13px;
+  .sell-reason-label {
+    font-weight: 600;
+    color: #303133;
+  }
+  .sell-reason-item {
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: #f5f7fa;
+    &.stop-loss { color: #f56c6c; }
+    &.take-profit { color: #67c23a; }
+    &.max-hold { color: #e6a23c; }
+    &.force-empty { color: #909399; }
+    &.other { color: #409eff; }
+  }
 }
 </style>

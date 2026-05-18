@@ -80,6 +80,10 @@ async def execute_ultra_short_backtest(
     # 设置当前任务ID到日志工具类
     logger.set_task_id(task_id)
 
+    # 【任务3：回测耗时记录】记录开始时间
+    import time as _time
+    _start_time = _time.time()
+
     # 【P0-2修复：统一参数读取路径】
     # Web API构建: params = { strategies, start_date, ..., params: { stop_loss_pct, ... } }
     # 顶层字段: strategies/start_date/end_date/initial_cash/enable_* /selected_strategies
@@ -522,12 +526,37 @@ async def execute_ultra_short_backtest(
         perf["drawdown_series"] = drawdown_series
         perf["daily_profit"] = daily_profit
 
+        # 【任务2：卖出原因统计】
+        sell_reason_stats = {"stop_loss": 0, "take_profit": 0, "max_hold": 0, "force_empty": 0, "other": 0}
+        for trade in (merged_trades or raw_trades or []):
+            reason = trade.get("reason", trade.get("sell_reason", ""))
+            if not reason:
+                reason = "other"
+            reason_lower = str(reason).lower()
+            if "止损" in reason or "stop_loss" in reason_lower or "stop" in reason_lower:
+                sell_reason_stats["stop_loss"] += 1
+            elif "止盈" in reason or "take_profit" in reason_lower:
+                sell_reason_stats["take_profit"] += 1
+            elif "到期" in reason or "max_hold" in reason_lower or "持仓天数" in reason:
+                sell_reason_stats["max_hold"] += 1
+            elif "空仓" in reason or "force_empty" in reason_lower or "强制" in reason:
+                sell_reason_stats["force_empty"] += 1
+            else:
+                sell_reason_stats["other"] += 1
+
+        perf["sell_reason_stats"] = sell_reason_stats
+
+        # 【任务3：回测耗时记录】
+        perf["execution_time_ms"] = int((_time.time() - _start_time) * 1000)
+
         # 更新result顶层字段，确保前端多路径都能读取到正确值
         result['performance'] = [perf]
         result['win_rate'] = win_rate
         result['total_return'] = total_return
         result['max_drawdown'] = max_drawdown
         result['sharpe_ratio'] = sharpe_ratio
+        result['sell_reason_stats'] = sell_reason_stats
+        result['execution_time_ms'] = perf['execution_time_ms']
 
         # 注意：win_rate/total_return/max_drawdown 已是百分比形式（如5.0=5%），不需要再×100
         logger.success("RESULT", "多策略组合回测完成")

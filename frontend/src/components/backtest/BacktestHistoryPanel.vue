@@ -22,6 +22,11 @@ const loading = ref(false)
 const items = ref<BacktestHistoryItem[]>([])
 const total = ref(0)
 
+// 任务4: 历史对比
+const selectedForCompare = ref<string[]>([])
+const showCompare = ref(false)
+const compareItems = ref<BacktestHistoryItem[]>([])
+
 // 策略ID→中文名
 const strategyNameMap: Record<string, string> = {
   halfway_chase: '半路追涨',
@@ -129,6 +134,12 @@ function returnClass(val: number | null | undefined): string {
   return val >= 0 ? 'text-green-400' : 'text-red-400'
 }
 
+// 任务4: 对比功能
+function openCompare() {
+  compareItems.value = sortedItems.value.filter(i => selectedForCompare.value.includes(i.task_id))
+  showCompare.value = true
+}
+
 onMounted(loadHistory)
 </script>
 
@@ -136,9 +147,14 @@ onMounted(loadHistory)
   <div class="history-panel">
     <div class="history-header">
       <h3>📊 回测历史 ({{ total }}条)</h3>
-      <button class="refresh-btn" :disabled="loading" @click="loadHistory">
-        {{ loading ? '⏳ 加载中...' : '🔄 刷新' }}
-      </button>
+      <div class="header-actions">
+        <button class="compare-btn" :disabled="selectedForCompare.length < 2" @click="openCompare">
+          📊 对比 ({{ selectedForCompare.length }}/3)
+        </button>
+        <button class="refresh-btn" :disabled="loading" @click="loadHistory">
+          {{ loading ? '⏳ 加载中...' : '🔄 刷新' }}
+        </button>
+      </div>
     </div>
 
     <div v-if="sortedItems.length === 0 && !loading" class="empty-state">
@@ -150,6 +166,7 @@ onMounted(loadHistory)
       <table class="history-table">
         <thead>
           <tr>
+            <th class="check-cell">☑</th>
             <th @click="toggleSort('created_at')" :class="{ active: sortKey === 'created_at' }">
               时间 {{ sortKey === 'created_at' ? (sortDesc ? '↓' : '↑') : '' }}
             </th>
@@ -173,6 +190,9 @@ onMounted(loadHistory)
         </thead>
         <tbody>
           <tr v-for="item in sortedItems" :key="item.task_id">
+            <td class="check-cell">
+              <input type="checkbox" :value="item.task_id" v-model="selectedForCompare" :disabled="selectedForCompare.length >= 3 && !selectedForCompare.includes(item.task_id)" />
+            </td>
             <td class="date-cell">{{ formatDate(item.created_at) }}</td>
             <td class="range-cell">{{ item.start_date || '?' }} ~ {{ item.end_date || '?' }}</td>
             <td class="strat-cell" :title="strategyNames(item.strategies)">
@@ -192,6 +212,30 @@ onMounted(loadHistory)
               <button class="action-btn delete-btn" @click="handleDelete(item)" title="删除此记录">🗑️</button>
             </td>
           </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 任务4: 对比面板 -->
+    <div v-if="showCompare" class="compare-panel">
+      <div class="compare-header">
+        <h3>📊 回测对比</h3>
+        <button @click="showCompare = false; selectedForCompare = []">✕ 关闭</button>
+      </div>
+      <table class="compare-table">
+        <thead>
+          <tr>
+            <th>指标</th>
+            <th v-for="item in compareItems" :key="item.task_id">{{ strategyNames(item.strategies) }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>日期范围</td><td v-for="item in compareItems" :key="item.task_id">{{ item.start_date }}~{{ item.end_date }}</td></tr>
+          <tr><td>收益率</td><td v-for="item in compareItems" :key="item.task_id" :class="returnClass(item.total_return)">{{ formatReturn(item.total_return) }}</td></tr>
+          <tr><td>胜率</td><td v-for="item in compareItems" :key="item.task_id">{{ formatRate(item.win_rate) }}</td></tr>
+          <tr><td>夏普</td><td v-for="item in compareItems" :key="item.task_id">{{ formatSharpe(item.sharpe_ratio) }}</td></tr>
+          <tr><td>回撤</td><td v-for="item in compareItems" :key="item.task_id">{{ formatDrawdown(item.max_drawdown) }}</td></tr>
+          <tr><td>信号数</td><td v-for="item in compareItems" :key="item.task_id">{{ item.total_signals ?? '-' }}</td></tr>
         </tbody>
       </table>
     </div>
@@ -221,6 +265,12 @@ onMounted(loadHistory)
     font-weight: 600;
   }
 
+  .header-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
   .refresh-btn {
     background: #21262d;
     border: 1px solid #30363d;
@@ -232,6 +282,19 @@ onMounted(loadHistory)
 
     &:hover:not(:disabled) { background: #30363d; }
     &:disabled { opacity: 0.5; cursor: not-allowed; }
+  }
+
+  .compare-btn {
+    background: #21262d;
+    border: 1px solid #409eff;
+    border-radius: 4px;
+    color: #409eff;
+    cursor: pointer;
+    padding: 4px 12px;
+    font-size: 12px;
+
+    &:hover:not(:disabled) { background: #409eff20; }
+    &:disabled { opacity: 0.5; cursor: not-allowed; color: #484f58; border-color: #30363d; }
   }
 }
 
@@ -289,6 +352,17 @@ onMounted(loadHistory)
   .text-green-400 { color: #3fb950; }
   .text-red-400 { color: #f85149; }
 
+  .check-cell {
+    width: 40px;
+    text-align: center;
+    input[type="checkbox"] {
+      cursor: pointer;
+      width: 16px;
+      height: 16px;
+      accent-color: #409eff;
+    }
+  }
+
   .action-cell {
     display: flex;
     gap: 4px;
@@ -313,6 +387,59 @@ onMounted(loadHistory)
         &:hover { background: #da363320; }
       }
     }
+  }
+}
+
+.compare-panel {
+  margin: 16px;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  overflow: hidden;
+  .compare-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 16px;
+    background: #161b22;
+    border-bottom: 1px solid #30363d;
+    h3 {
+      margin: 0;
+      font-size: 14px;
+      color: #c9d1d9;
+    }
+    button {
+      background: #21262d;
+      border: 1px solid #30363d;
+      border-radius: 4px;
+      color: #c9d1d9;
+      cursor: pointer;
+      padding: 4px 10px;
+      font-size: 12px;
+      &:hover { background: #30363d; }
+    }
+  }
+  .compare-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    th {
+      padding: 8px 12px;
+      text-align: left;
+      color: #8b949e;
+      font-weight: 600;
+      border-bottom: 1px solid #30363d;
+      background: #161b22;
+    }
+    td {
+      padding: 8px 12px;
+      color: #c9d1d9;
+      border-bottom: 1px solid #21262d;
+    }
+    tr:hover td {
+      background: rgba(56, 139, 253, 0.04);
+    }
+    .text-green-400 { color: #3fb950; }
+    .text-red-400 { color: #f85149; }
   }
 }
 </style>

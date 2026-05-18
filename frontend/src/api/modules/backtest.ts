@@ -396,6 +396,33 @@ export async function deleteBacktestHistory(taskId: string): Promise<{ task_id: 
   return api.delete<{ task_id: string; status: string; message: string }>(`/backtest/history/${taskId}`)
 }
 
+// ==================== 参数扫描 API ====================
+
+export interface SweepResult {
+  sweep_param: string
+  sweep_values: number[]
+  results: Array<{
+    value: number
+    total_return: number
+    win_rate: number
+    max_drawdown: number
+    sharpe_ratio: number
+    total_trades: number
+  }>
+}
+
+/**
+ * 提交参数扫描回测
+ */
+export async function submitSweepBacktest(request: UltraShortBacktestRequest & {
+  sweep_param: string
+  sweep_start: number
+  sweep_end: number
+  sweep_step: number
+}): Promise<SweepResult> {
+  return api.post<SweepResult>('/backtest/ultra-short/sweep', request)
+}
+
 export default {
   submitBacktest,
   getBacktestStatus,
@@ -405,5 +432,6 @@ export default {
   getFactors,
   submitFactorSelection,
   submitUltraShort,
+  submitSweepBacktest,
   getUltraShortDefaults,
 }

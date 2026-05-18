@@ -378,3 +378,241 @@ async def get_ultra_short_history(
         "total": total,
         "items": items,
     }
+
+
+@router.post("/ultra-short/sweep")
+async def submit_sweep_backtest(raw_request: Request, user_id: str = Depends(get_optional_user_id)):
+    """
+    参数敏感性扫描回测
+    
+    对指定参数在给定范围内进行扫描，每组参数执行一次回测，汇总结果对比。
+    """
+    try:
+        body = await raw_request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    # 提取sweep参数
+    sweep_param = body.pop("sweep_param", None)
+    sweep_start = body.pop("sweep_start", None)
+    sweep_end = body.pop("sweep_end", None)
+    sweep_step = body.pop("sweep_step", None)
+
+    if not sweep_param:
+        raise HTTPException(status_code=400, detail="sweep_param is required")
+    if sweep_start is None or sweep_end is None or sweep_step is None:
+        raise HTTPException(status_code=400, detail="sweep_start, sweep_end, sweep_step are all required")
+
+    try:
+        sweep_start = float(sweep_start)
+        sweep_end = float(sweep_end)
+        sweep_step = float(sweep_step)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="sweep_start/sweep_end/sweep_step must be numbers")
+
+    if sweep_step == 0:
+        raise HTTPException(status_code=400, detail="sweep_step cannot be 0")
+
+    # 生成扫描值列表
+    sweep_values = []
+    if sweep_step > 0:
+        v = sweep_start
+        while v <= sweep_end + 1e-9:
+            sweep_values.append(round(v, 10))
+            v += sweep_step
+    else:
+        v = sweep_start
+        while v >= sweep_end - 1e-9:
+            sweep_values.append(round(v, 10))
+            v += sweep_step
+
+    if not sweep_values:
+        raise HTTPException(status_code=400, detail="No sweep values generated (check start/end/step)")
+
+    if len(sweep_values) > 50:
+        raise HTTPException(status_code=400, detail=f"Too many sweep values ({len(sweep_values)}), max 50")
+
+    logger.info(f"[sweep] param={sweep_param}, values={sweep_values}, user={user_id}")
+
+    # 解析基础请求参数（和ultra-short相同的验证流程）
+    try:
+        request = UltraShortBacktestRequest(**body)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.errors())
+
+    # ---- 构建基础task_info（复用submit_ultra_short_backtest的逻辑）----
+    selected_strategies = []
+    selected_from_top = getattr(request, 'selected_strategies', None)
+    selected_from_params = getattr(request.params, 'selected_strategies', None)
+    if selected_from_top and len(selected_from_top) > 0:
+        selected_strategies = selected_from_top
+    elif selected_from_params and len(selected_from_params) > 0:
+        selected_strategies = selected_from_params
+    else:
+        for s in request.strategies:
+            selected_strategies.append({
+                "id": s,
+                "name": strategy_name_map_reverse.get(s, s),
+                "params": {}
+            })
+
+    force_empty_config = body.get("forceEmpty", {})
+    global_filter_config = body.get("globalFilter", {})
+
+    base_task_info = {
+        "task_id": "",  # 会被每组覆盖
+        "params": {
+            "strategies": request.strategies,
+            "start_date": request.start_date,
+            "end_date": request.end_date,
+            "initial_cash": request.initial_cash,
+            "params": {
+                "liquidity_threshold": request.params.liquidity_threshold,
+                "volume_threshold": request.params.volume_threshold,
+                "stop_loss_pct": request.params.stop_loss_pct,
+                "take_profit_pct": request.params.take_profit_pct,
+                "max_hold_days": request.params.max_hold_days,
+                "max_position_per_stock": request.params.max_position_per_stock,
+                "max_position": request.params.max_position,
+                "commission_rate": request.params.commission_rate,
+                "stamp_duty_rate": request.params.stamp_duty_rate,
+                "slippage_pct": request.params.slippage_pct,
+                "enable_force_empty": request.enable_force_empty,
+                "sentiment_cycle": request.params.sentiment_cycle,
+                "auction_filter": request.params.auction_filter,
+                "enable_stop_loss": request.params.enable_stop_loss,
+                "enable_take_profit": request.params.enable_take_profit,
+                "enable_ma60_filter": request.params.enable_ma60_filter,
+                "enable_sector_concentration": request.params.enable_sector_concentration,
+                "selected_strategies": copy.deepcopy(selected_strategies),
+                "force_empty_config": {
+                    "limit_down_count": force_empty_config.get("limit_down_count", 50),
+                    "limit_up_count": force_empty_config.get("limit_up_count", 10),
+                    "index_drop_pct": force_empty_config.get("index_drop_pct", 0.02),
+                } if force_empty_config.get("enabled", True) else {},
+                "global_filter_config": {
+                    "exclude_st": global_filter_config.get("exclude_st", True),
+                    "exclude_delisting": global_filter_config.get("exclude_delisting", True),
+                    "exclude_new_stock_days": global_filter_config.get("exclude_new_stock_days", 60),
+                    "min_turnover_rate": global_filter_config.get("min_turnover_rate", 1.5),
+                },
+            },
+            "enable_force_empty": request.enable_force_empty,
+            "enable_sentiment_cycle": request.enable_sentiment_cycle,
+            "enable_auction_filter": request.enable_auction_filter,
+            "enable_stop_loss": request.params.enable_stop_loss,
+            "enable_take_profit": request.params.enable_take_profit,
+            "enable_ma60_filter": request.params.enable_ma60_filter,
+            "enable_sector_concentration": request.params.enable_sector_concentration,
+            "selected_strategies": copy.deepcopy(selected_strategies),
+        }
+    }
+
+    # ---- 参数映射：根据sweep_param修改对应位置 ----
+    def apply_sweep_param(task_info: dict, param_name: str, value: float) -> dict:
+        """将sweep参数值应用到task_info的对应位置，返回修改后的副本"""
+        info = copy.deepcopy(task_info)
+        inner_params = info["params"]["params"]
+        sel_strats = info["params"].get("selected_strategies", [])
+        inner_sel_strats = inner_params.get("selected_strategies", [])
+
+        if param_name == "stop_loss_pct":
+            inner_params["stop_loss_pct"] = value
+            # 同步到每个策略的riskParams
+            for s in sel_strats:
+                s.setdefault("riskParams", {})["stop_loss_pct"] = value
+            for s in inner_sel_strats:
+                s.setdefault("riskParams", {})["stop_loss_pct"] = value
+        elif param_name == "take_profit_pct":
+            inner_params["take_profit_pct"] = value
+            for s in sel_strats:
+                s.setdefault("riskParams", {})["take_profit_pct"] = value
+            for s in inner_sel_strats:
+                s.setdefault("riskParams", {})["take_profit_pct"] = value
+        elif param_name == "max_hold_days":
+            inner_params["max_hold_days"] = int(value)
+        elif param_name == "max_position_per_stock":
+            inner_params["max_position_per_stock"] = value
+        elif param_name == "max_position":
+            inner_params["max_position"] = value
+        elif param_name == "min_rise_pct":
+            # 修改halfway_chase策略的min_rise_pct
+            for s in sel_strats:
+                if s.get("id") == "halfway_chase":
+                    s.setdefault("params", {})["min_rise_pct"] = value
+            for s in inner_sel_strats:
+                if s.get("id") == "halfway_chase":
+                    s.setdefault("params", {})["min_rise_pct"] = value
+        elif param_name == "min_volume_ratio":
+            # 修改halfway_chase策略的min_volume_ratio
+            for s in sel_strats:
+                if s.get("id") == "halfway_chase":
+                    s.setdefault("params", {})["min_volume_ratio"] = value
+            for s in inner_sel_strats:
+                if s.get("id") == "halfway_chase":
+                    s.setdefault("params", {})["min_volume_ratio"] = value
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown sweep_param: {param_name}")
+
+        return info
+
+    # ---- 生成N组参数并执行回测 ----
+    from nodes.backtest_engine.ultra_short import execute_ultra_short_backtest
+
+    sweep_task_id = f"sw_{uuid.uuid4().hex[:8]}"
+    logger.info(f"[{sweep_task_id}] Starting sweep: param={sweep_param}, {len(sweep_values)} values")
+
+    # 注意：execute_ultra_short_backtest内部使用全局logger.set_task_id(),
+    # 并行执行会导致task_id互相覆盖，因此sweep必须串行执行
+    async def run_single_sweep(sweep_value: float, idx: int) -> dict:
+        """执行单组sweep回测"""
+        sub_task_id = f"sw_{uuid.uuid4().hex[:8]}_{idx}"
+        try:
+            task_info = apply_sweep_param(base_task_info, sweep_param, sweep_value)
+            task_info["task_id"] = sub_task_id
+            result = await execute_ultra_short_backtest(
+                task_info,
+                _backtest_node._push_log,
+                _backtest_node.logger,
+                sub_task_id,
+            )
+            # 提取关键指标
+            perf_list = result.get("performance", [])
+            perf = perf_list[0] if perf_list else {}
+            return {
+                "value": sweep_value,
+                "total_return": round(perf.get("total_return", 0.0), 2),
+                "win_rate": round(perf.get("win_rate", 0.0), 2),
+                "max_drawdown": round(perf.get("max_drawdown", 0.0), 2),
+                "sharpe_ratio": round(perf.get("sharpe_ratio", 0.0), 2),
+                "total_trades": perf.get("total_trades", 0),
+                "execution_time_ms": result.get("execution_time_ms", 0),
+                "sell_reason_stats": result.get("sell_reason_stats", {}),
+                "success": True,
+            }
+        except Exception as e:
+            logger.error(f"[{sweep_task_id}] sweep value={sweep_value} failed: {e}")
+            return {
+                "value": sweep_value,
+                "total_return": 0.0,
+                "win_rate": 0.0,
+                "max_drawdown": 0.0,
+                "sharpe_ratio": 0.0,
+                "total_trades": 0,
+                "execution_time_ms": 0,
+                "sell_reason_stats": {},
+                "success": False,
+                "error": str(e),
+            }
+
+    # 串行执行sweep回测（因logger全局状态限制，不可并行）
+    results = []
+    for i, v in enumerate(sweep_values):
+        r = await run_single_sweep(v, i)
+        results.append(r)
+
+    return {
+        "sweep_param": sweep_param,
+        "sweep_values": sweep_values,
+        "results": list(results),
+    }
