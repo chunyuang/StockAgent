@@ -233,8 +233,10 @@ onMounted(loadHistory)
           <tr><td>日期范围</td><td v-for="item in compareItems" :key="item.task_id">{{ item.start_date }}~{{ item.end_date }}</td></tr>
           <tr><td>收益率</td><td v-for="item in compareItems" :key="item.task_id" :class="returnClass(item.total_return)">{{ formatReturn(item.total_return) }}</td></tr>
           <tr><td>胜率</td><td v-for="item in compareItems" :key="item.task_id">{{ formatRate(item.win_rate) }}</td></tr>
-          <tr><td>夏普</td><td v-for="item in compareItems" :key="item.task_id">{{ formatSharpe(item.sharpe_ratio) }}</td></tr>
-          <tr><td>回撤</td><td v-for="item in compareItems" :key="item.task_id">{{ formatDrawdown(item.max_drawdown) }}</td></tr>
+          <tr><td>夏普比率</td><td v-for="item in compareItems" :key="item.task_id">{{ formatSharpe(item.sharpe_ratio) }}</td></tr>
+          <tr><td>最大回撤</td><td v-for="item in compareItems" :key="item.task_id">{{ formatDrawdown(item.max_drawdown) }}</td></tr>
+          <tr><td>交易笔数</td><td v-for="item in compareItems" :key="item.task_id">{{ item.total_trades ?? '-' }}</td></tr>
+          <tr><td>盈亏比</td><td v-for="item in compareItems" :key="item.task_id">{{ item.profit_loss_ratio?.toFixed(2) ?? '-' }}</td></tr>
           <tr><td>信号数</td><td v-for="item in compareItems" :key="item.task_id">{{ item.total_signals ?? '-' }}</td></tr>
         </tbody>
       </table>

@@ -651,8 +651,9 @@ function exportTrades() {
     <!-- 任务3: 卖出原因统计 -->
     <div v-if="result?.sell_reason_stats" class="sell-reason-bar">
       <span class="sell-reason-label">卖出分布:</span>
-      <span class="sell-reason-item stop-loss">🛑 止损{{ result.sell_reason_stats.stop_loss }}笔({{ sellReasonPct('stop_loss') }}%)</span>
       <span class="sell-reason-item take-profit">🎯 止盈{{ result.sell_reason_stats.take_profit }}笔({{ sellReasonPct('take_profit') }}%)</span>
+      <span class="sell-reason-item rebalance">🔄 调仓{{ result.sell_reason_stats.rebalance }}笔({{ sellReasonPct('rebalance') }}%)</span>
+      <span class="sell-reason-item stop-loss">🛑 止损{{ result.sell_reason_stats.stop_loss }}笔({{ sellReasonPct('stop_loss') }}%)</span>
       <span class="sell-reason-item max-hold">⏰ 到期{{ result.sell_reason_stats.max_hold }}笔({{ sellReasonPct('max_hold') }}%)</span>
       <span class="sell-reason-item force-empty">⛔ 空仓{{ result.sell_reason_stats.force_empty }}笔({{ sellReasonPct('force_empty') }}%)</span>
       <span v-if="result.sell_reason_stats.other > 0" class="sell-reason-item other">📌 其他{{ result.sell_reason_stats.other }}笔({{ sellReasonPct('other') }}%)</span>
@@ -943,6 +944,7 @@ export default { name: 'BacktestResultPanel' }
     padding: 2px 8px;
     border-radius: 4px;
     background: #f5f7fa;
+    &.rebalance { color: #409eff; }
     &.stop-loss { color: #f56c6c; }
     &.take-profit { color: #67c23a; }
     &.max-hold { color: #e6a23c; }

@@ -527,13 +527,13 @@ async def execute_ultra_short_backtest(
         perf["daily_profit"] = daily_profit
 
         # 【任务2：卖出原因统计】
-        sell_reason_stats = {"stop_loss": 0, "take_profit": 0, "max_hold": 0, "force_empty": 0, "other": 0}
+        sell_reason_stats = {"stop_loss": 0, "take_profit": 0, "max_hold": 0, "force_empty": 0, "rebalance": 0, "other": 0}
         for trade in (merged_trades or raw_trades or []):
             reason = trade.get("reason", trade.get("sell_reason", ""))
             if not reason:
                 reason = "other"
             reason_lower = str(reason).lower()
-            if "止损" in reason or "stop_loss" in reason_lower or "stop" in reason_lower:
+            if "止损" in reason or "stop_loss" in reason_lower or "跳空止损" in reason:
                 sell_reason_stats["stop_loss"] += 1
             elif "止盈" in reason or "take_profit" in reason_lower:
                 sell_reason_stats["take_profit"] += 1
@@ -541,6 +541,8 @@ async def execute_ultra_short_backtest(
                 sell_reason_stats["max_hold"] += 1
             elif "空仓" in reason or "force_empty" in reason_lower or "强制" in reason:
                 sell_reason_stats["force_empty"] += 1
+            elif "调仓" in reason or "rebalance" in reason_lower or "减仓" in reason:
+                sell_reason_stats["rebalance"] += 1
             else:
                 sell_reason_stats["other"] += 1
 
