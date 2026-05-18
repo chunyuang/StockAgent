@@ -598,7 +598,7 @@ async def execute_ultra_short_backtest(
 
     except Exception as e:
         _logger = node_logger or logger
-        _logger.error("BACKTEST", f"[{task_id}] Portfolio backtest failed: {e}")
+        _logger.error("BACKTEST", f"[{task_id}] 组合回测失败: {e}")
         import traceback
         tb_str = traceback.format_exc()
         _logger.error("BACKTEST", f"[{task_id}] Traceback:\n{tb_str}")
@@ -626,7 +626,7 @@ async def execute_ultra_short_backtest(
         try:
             import gc
             gc.collect()
-            logger.info(f"[{task_id}] GC completed, freed memory")
+            logger.info(f"[{task_id}] GC完成，已释放内存")
         except Exception:
             pass
 

@@ -55,10 +55,10 @@ async def submit_ultra_short_backtest(
     # 手动解析请求体，捕获详细验证错误
     try:
         body = await raw_request.json()
-        logger.info(f"[{uuid.uuid4().hex[:8]}] Ultra short request body: {body}")
+        logger.info(f"[{uuid.uuid4().hex[:8]}] 超短回测请求体: {body}")
         request = UltraShortBacktestRequest(**body)
     except ValidationError as e:
-        logger.error(f"Validation error for ultra-short request: {e.errors()}")
+        logger.error(f"超短回测请求校验失败: {e.errors()}")
         # 将Pydantic英文错误翻译为中文
         cn_errors = []
         for err in e.errors():
