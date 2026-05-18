@@ -2095,9 +2095,17 @@ class MarketScanner:
         tp_pct = risk.get("take_profit_pct", 0.07) * 100
         mv = round(p.current_price * p.total_qty, 2)
         profit_amt = round((p.current_price - p.avg_cost) * p.total_qty, 2)
+        # 策略中文名映射
+        strategy_cn = {
+            "halfway_chase": "半路追涨", "first_limit_up": "首板打板",
+            "dragon_head": "龙头低吸", "limit_down_qiao": "跌停翘板",
+            "limit_up_open": "涨停开板",
+            "anomaly_surge": "急速拉升", "anomaly_broken": "涨停炸板", "anomaly_strong": "强势涨停",
+            "manual": "手动操作",
+        }.get(p.strategy, p.strategy)
         return {
             "ts_code": p.ts_code, "stock_name": p.stock_name,
-            "strategy": p.strategy, "shares": p.total_qty,
+            "strategy": p.strategy, "strategy_name": strategy_cn, "shares": p.total_qty,
             "available_qty": p.available_qty,
             "cost_price": round(p.avg_cost, 2),
             "current_price": round(p.current_price, 2),
