@@ -307,11 +307,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
             <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || '#909399'" style="color:#fff;border:none;min-width:52px;text-align:center">{{ sig.strategy_name }}</ElTag><ElTag v-if="sig.signal_status === 'executed'" size="small" type="success">已买</ElTag><ElTag v-if="sig.signal_status === 'skipped'" size="small" type="warning">跳过</ElTag><ElTag v-if="sig.signal_status === 'expired'" size="small" type="info">过期</ElTag><span class="code">{{ sig.ts_code }}</span><span class="name">{{ sig.stock_name }}</span><span v-if="sig.signal_status === 'new' && signalRemaining(sig) >= 0" class="expire-tag" :class="{ urgent: signalRemaining(sig) < 60000 }">⏱{{ formatRemaining(signalRemaining(sig)) }}</span><span v-if="sig.volume_ratio" class="factor">量比{{ sig.volume_ratio.toFixed(1) }}</span><span v-if="sig.turnover_rate" class="factor">换手{{ sig.turnover_rate.toFixed(1) }}%</span><template v-if="sig.key_factors"><span v-for="(v, k) in sig.key_factors" :key="k" class="factor kf">{{ v }}</span></template><span :class="sig.pct_chg >= 0 ? 'up' : 'down'" class="pct" style="margin-left:auto;font-weight:600">{{ sig.pct_chg >= 0 ? '+' : '' }}{{ sig.pct_chg.toFixed(1) }}%</span><ElButton v-if="!dryRun && sig.signal_status === 'new'" size="small" type="danger" plain @click="quickBuy(sig)" style="padding:1px 6px;font-size:11px">买</ElButton><ElButton v-if="sig.decision_detail" size="small" type="info" plain @click="openTradeDetail(sig.ts_code)" style="padding:1px 6px;font-size:11px">🔍</ElButton><ElButton v-if="sig.layer_trace" size="small" type="warning" plain @click="openScanTrace(sig.ts_code)" style="padding:1px 6px;font-size:11px">🧪</ElButton>
           </div>
         </div>
-        <div class="st" style="margin-top:6px">🔥 涨跌停池 <div style="display:inline-flex;gap:2px;margin-left:6px"><ElTag size="small" :type="limitPoolTab==='limit_up'?'danger':'info'" style="cursor:pointer" @click="limitPoolTab='limit_up'">涨停{{ limitPools.limit_up.length }}</ElTag><ElTag size="small" :type="limitPoolTab==='limit_down'?'warning':'info'" style="cursor:pointer" @click="limitPoolTab='limit_down'">跌停{{ limitPools.limit_down.length }}</ElTag><ElTag size="small" :type="limitPoolTab==='broken'?'':'info'" style="cursor:pointer" @click="limitPoolTab='broken'">炸板{{ limitPools.broken.length }}</ElTag></div></div>
-        <div class="sl sl-sm">
-          <div v-if="!limitPools[limitPoolTab as keyof typeof limitPools]?.length" class="empty">暂无数据</div>
-          <div v-for="item in (limitPools[limitPoolTab as keyof typeof limitPools] || []).slice(0, 20)" :key="item.ts_code" class="limit-row"><span class="code">{{ item.ts_code }}</span><span class="name">{{ item.name }}</span><span :class="item.pct_chg >= 0 ? 'up' : 'down'">{{ item.pct_chg >= 0 ? '+' : '' }}{{ item.pct_chg.toFixed(1) }}%</span><span v-if="item.limit_times" class="lb-tag">{{ item.limit_times }}连板</span><span v-if="item.fd_amount" class="fd-tag">封{{ item.fd_amount }}万</span></div>
-        </div>
+
       </div>
 
       <!-- 右列: 持仓 -->
@@ -324,8 +320,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
             <div class="pos-info"><span>{{ pos.shares }}股</span><span>成本{{ pos.cost_price.toFixed(2) }}</span><span>现价{{ pos.current_price.toFixed(2) }}</span><span v-if="pos.market_value" class="mv">市值{{ (pos.market_value / 10000).toFixed(1) }}万</span><span v-if="pos.profit_amount != null" :class="pos.profit_amount >= 0 ? 'up' : 'down'" class="pamt">{{ pos.profit_amount >= 0 ? '+' : '' }}¥{{ Math.abs(pos.profit_amount).toFixed(0) }}</span><span v-if="pos.stop_loss_pct != null" class="rl stop">止损{{ pos.stop_loss_pct.toFixed(1) }}% ¥{{ pos.stop_loss_price?.toFixed(2) || (pos.cost_price * (1 - pos.stop_loss_pct / 100)).toFixed(2) }}</span><span v-if="pos.take_profit_pct != null" class="rl profit">止盈{{ pos.take_profit_pct.toFixed(1) }}% ¥{{ pos.take_profit_price?.toFixed(2) || (pos.cost_price * (1 + (pos.take_profit_pct || 7.0) / 100)).toFixed(2) }}</span><span v-if="pos.stop_loss_pct != null" class="rd" :class="{ danger: pos.profit_pct + (pos.stop_loss_pct || 3) < 2 }">距止损{{ (pos.profit_pct + (pos.stop_loss_pct || 3)).toFixed(1) }}%</span></div>
           </div>
         </div>
-        <div class="st" style="margin-top:6px">📈 今日统计</div>
-        <div class="stats" v-if="status"><div class="si"><div class="sv">{{ status.stats.signals_found }}</div><div class="sl2">信号</div></div><div class="si"><div class="sv">{{ status.stats.trades_executed }}</div><div class="sl2">交易</div></div><div class="si"><div class="sv" style="color:#f56c6c">{{ status.stats.stop_losses }}</div><div class="sl2">止损</div></div><div class="si"><div class="sv" style="color:#67c23a">{{ status.stats.take_profits }}</div><div class="sl2">止盈</div></div></div>
+
       </div>
     </div>
 
@@ -341,6 +336,15 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <div class="tl-col" v-if="orders.length">
           <div class="st">📋 历史订单 ({{ orders.length }})</div>
           <div v-for="o in orders.slice(0, 20)" :key="o.order_id" class="tl-row" @click="openTradeDetail(o.ts_code)" style="cursor:pointer"><span class="tl-time">{{ o.trade_date?.slice(-4) || '' }} {{ o.create_time }}</span><span class="tl-action" :class="o.side === 'buy' ? 'buy' : 'sell'">{{ o.side === 'buy' ? '买' : '卖' }}</span><span class="code">{{ o.ts_code }}</span><span class="name">{{ o.stock_name }}</span><span class="tl-detail">{{ o.filled_qty }}股@{{ o.filled_price?.toFixed(2) || '0.00' }}</span><span style="font-size:11px;color:#909399">{{ strategyCN(o.strategy) }}</span></div>
+        </div>
+        <div class="tl-col">
+          <div class="st">🔥 涨跌停池 <div style="display:inline-flex;gap:2px;margin-left:6px"><ElTag size="small" :type="limitPoolTab==='limit_up'?'danger':'info'" style="cursor:pointer" @click="limitPoolTab='limit_up'">涨停{{ limitPools.limit_up.length }}</ElTag><ElTag size="small" :type="limitPoolTab==='limit_down'?'warning':'info'" style="cursor:pointer" @click="limitPoolTab='limit_down'">跌停{{ limitPools.limit_down.length }}</ElTag><ElTag size="small" :type="limitPoolTab==='broken'?'':'info'" style="cursor:pointer" @click="limitPoolTab='broken'">炸板{{ limitPools.broken.length }}</ElTag></div></div>
+          <div v-if="!limitPools[limitPoolTab as keyof typeof limitPools]?.length" class="empty">暂无数据</div>
+          <div v-for="item in (limitPools[limitPoolTab as keyof typeof limitPools] || []).slice(0, 20)" :key="item.ts_code" class="limit-row"><span class="code">{{ item.ts_code }}</span><span class="name">{{ item.name }}</span><span :class="item.pct_chg >= 0 ? 'up' : 'down'">{{ item.pct_chg >= 0 ? '+' : '' }}{{ item.pct_chg.toFixed(1) }}%</span><span v-if="item.limit_times" class="lb-tag">{{ item.limit_times }}连板</span><span v-if="item.fd_amount" class="fd-tag">封{{ item.fd_amount }}万</span></div>
+        </div>
+        <div class="tl-col" style="max-height:none">
+          <div class="st">📈 今日统计</div>
+          <div class="stats" v-if="status"><div class="si"><div class="sv">{{ status.stats.signals_found }}</div><div class="sl2">信号</div></div><div class="si"><div class="sv">{{ status.stats.trades_executed }}</div><div class="sl2">交易</div></div><div class="si"><div class="sv" style="color:#f56c6c">{{ status.stats.stop_losses }}</div><div class="sl2">止损</div></div><div class="si"><div class="sv" style="color:#67c23a">{{ status.stats.take_profits }}</div><div class="sl2">止盈</div></div></div>
         </div>
       </div>
     </div>
