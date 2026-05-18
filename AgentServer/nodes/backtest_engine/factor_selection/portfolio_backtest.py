@@ -2556,6 +2556,10 @@ class PortfolioBacktester:
                     if dd > strategy_max_dd:
                         strategy_max_dd = dd
             
+            # 策略级盈亏比计算
+            strategy_wins_pnl = sum(t.get('profit_pct', 0) for t in completed if t.get('profit_pct', 0) > 0)
+            strategy_losses_pnl = sum(t.get('profit_pct', 0) for t in completed if t.get('profit_pct', 0) < 0)
+            
             strategy_results[sname] = {
                 "strategy_name": sname,
                 "win_rate": (wins / len(completed) * 100) if completed else 0,
@@ -2563,7 +2567,7 @@ class PortfolioBacktester:
                 "avg_profit_pct": avg_pnl,  # 平均盈亏百分比(单笔)
                 "trades_count": len(completed),
                 "max_drawdown": strategy_max_dd,
-                "profit_loss_ratio": round(wins_pnl / abs(losses_pnl), 2) if losses_pnl < 0 else 0.0,  # 策略级盈亏比
+                "profit_loss_ratio": round(strategy_wins_pnl / abs(strategy_losses_pnl), 2) if strategy_losses_pnl < 0 else (99.99 if strategy_wins_pnl > 0 else 0.0),  # 策略级盈亏比
             }
 
         # 🔧 因子缺失告警：0交易策略加warning字段
