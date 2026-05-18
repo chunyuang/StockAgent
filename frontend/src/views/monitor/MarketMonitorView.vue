@@ -75,6 +75,13 @@ const factorCN: Record<string, string> = {
   open_times: '开板次数', fd_amount: '封板资金', limit_times: '连板数',
 }
 const factorLabel = (k: string) => factorCN[k] || k
+const layerCN: Record<string, string> = {
+  L1_force_empty: 'L1 强制空仓', L2_special_period: 'L2 特殊时期',
+  L3_sentiment: 'L3 情绪周期', L4_premarket: 'L4 盘前预选',
+  L5_auction: 'L5 竞价过滤', L6_strategy: 'L6 策略量能',
+  L7_ranking: 'L7 综合排序', L8_position: 'L8 仓位控制',
+}
+const layerLabel = (k: string) => layerCN[k] || k
 const tradeMode = ref('simulated')
 const dataSources = ref<any[]>([])
 const brokers = ref<any[]>([])
@@ -112,7 +119,7 @@ async function openTradeDetail(ts_code: string) { try { const r = await api.get(
 async function openTradeAudit() { try { const r = await api.get(`${scannerApi}/trade-audit`); if (r?.success) { tradeAuditData.value = r.data; tradeAuditVisible.value = true } } catch (e: any) { ElMessage.error('获取审查失败') } }
 function formatDecisionDetail(detail: any): string[] {
   if (!detail) return ['无决策详情']; const lines: string[] = []
-  if (detail.filter_pipeline) { const fp = detail.filter_pipeline; lines.push('【9层筛选管道】'); for (const [l, a] of Object.entries(fp.layers_applied || {})) { lines.push(`  ${a ? '✅' : '⏭️'} ${l}: ${fp.layer_details?.[l] || (a ? '生效' : '跳过')}`) }; lines.push(`  仓位系数: ${fp.position_ratio || 'N/A'}`) }
+  if (detail.filter_pipeline) { const fp = detail.filter_pipeline; lines.push('【9层筛选管道】'); for (const [l, a] of Object.entries(fp.layers_applied || {})) { lines.push(`  ${a ? '✅' : '⏭️'} ${layerLabel(l)}: ${fp.layer_details?.[l] || (a ? '生效' : '跳过')}`) }; lines.push(`  仓位系数: ${fp.position_ratio || 'N/A'}`) }
   if (detail.factors) { lines.push('【关键因子】'); for (const [k, v] of Object.entries(detail.factors)) { if (v !== 0 && v !== null) lines.push(`  ${factorLabel(k)}: ${typeof v === 'number' ? v.toFixed(2) : v}`) } }
   if (detail.sell_reason) { lines.push('【卖出决策】'); lines.push(`  原因: ${detail.sell_reason}`); if (detail.profit_pct) lines.push(`  盈亏: ${detail.profit_pct.toFixed(2)}%`); if (detail.stop_loss_pct) lines.push(`  止损线: ${detail.stop_loss_pct}%`); if (detail.take_profit_pct) lines.push(`  止盈线: ${detail.take_profit_pct}%`) }
   return lines
@@ -198,7 +205,7 @@ const scanTraceCode = ref('')
 async function toggleDryRun() { try { const r = await api.post(`${scannerApi}/debug/dry-run`); if (r?.success) { ElMessage.success(r.data.mode); fetchScanner() } } catch { ElMessage.error('切换失败') } }
 async function openLayerDebug() { layerDebugLoading.value = true; layerDebugVisible.value = true; try { const r = await api.get(`${scannerApi}/debug/layers`); if (r?.success) layerDebugData.value = r.data } catch { ElMessage.error('加载失败') } finally { layerDebugLoading.value = false } }
 async function openScanTrace(ts_code: string) { scanTraceCode.value = ts_code; scanTraceVisible.value = true; try { const r = await api.get(`${scannerApi}/debug/scan-trace/${ts_code}`); if (r?.success) scanTraceData.value = r.data } catch { ElMessage.error('加载失败') } }
-function formatLayerTrace(trace: Record<string, any>): string[] { if (!trace) return ['无trace']; const lines: string[] = []; for (const [layer, info] of Object.entries(trace)) { if (typeof info === 'object' && info !== null) { const applied = info.applied !== undefined ? (info.applied ? '✅' : '⏭️') : ''; const detail = info.detail || info.reason || ''; lines.push(`${applied} ${layer}: ${detail}`) } else { lines.push(`${layer}: ${info}`) } } return lines }
+function formatLayerTrace(trace: Record<string, any>): string[] { if (!trace) return ['无trace']; const lines: string[] = []; for (const [layer, info] of Object.entries(trace)) { if (typeof info === 'object' && info !== null) { const applied = info.applied !== undefined ? (info.applied ? '✅' : '⏭️') : ''; const detail = info.detail || info.reason || ''; lines.push(`${applied} ${layerLabel(layer)}: ${detail}`) } else { lines.push(`${layerLabel(layer)}: ${info}`) } } return lines }
 function signalStatusTag(status?: string) { if (!status || status === 'new') return { text: '新', type: 'primary' }; if (status === 'executed') return { text: '已买', type: 'success' }; if (status === 'skipped') return { text: '跳过', type: 'warning' }; if (status === 'expired') return { text: '过期', type: 'info' }; if (status === 'filtered') return { text: '过滤', type: 'danger' }; return { text: status, type: 'info' } }
 </script>
 <template>
@@ -387,7 +394,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           <div class="ld-layers">
             <div v-for="(enabled, layer) in layerDebugData.pipeline_config.layer_enabled" :key="layer" class="ld-layer">
               <span :class="enabled ? 'ld-on' : 'ld-off'">{{ enabled ? '✅' : '⏭️' }}</span>
-              <span class="ld-name">{{ layer }}</span>
+              <span class="ld-name">{{ layerLabel(layer) }}</span>
             </div>
           </div>
           <div class="ld-sentiment" v-if="layerDebugData.pipeline_config.sentiment">
