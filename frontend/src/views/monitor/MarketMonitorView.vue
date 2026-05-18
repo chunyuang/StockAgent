@@ -22,7 +22,7 @@ interface StrategyConfig { id: string; name: string; enabled: boolean; params: R
 interface ParamDesc { key: string; label: string; value: any; displayValue: string; unit: string; min: number; max: number; step: number }
 interface GlobalRisk { stop_loss_pct: number; take_profit_pct: number; max_position_pct: number; max_positions: number }
 
-const loading = ref(false), autoRefresh = ref(true), darkMode = ref(false)
+const loading = ref(false), autoRefresh = ref(true), darkMode = ref(false), soundEnabled = ref(false)
 let refreshTimer: any = null
 let ws: WebSocket | null = null
 let wsReconnectTimer: any = null
@@ -95,7 +95,33 @@ const accountInfo = computed(() => status.value?.account ?? { total_assets: 0, a
 const positionRatio = computed(() => accountInfo.value.market_value > 0 ? (accountInfo.value.market_value / accountInfo.value.total_assets * 100).toFixed(1) : '0')
 const totalPnl = computed(() => accountInfo.value.total_profit)
 const circuitBreakerPaused = computed(() => status.value?.circuit_breaker?.trading_paused ?? false)
-const sortedPositions = computed(() => [...positions.value].sort((a, b) => a.profit_pct - b.profit_pct))
+const posSort = ref('profit')
+const sortedPositions = computed(() => {
+  const arr = [...positions.value]
+  switch(posSort.value) {
+    case 'profit': return arr.sort((a, b) => a.profit_pct - b.profit_pct)
+    case 'cost': return arr.sort((a, b) => b.market_value - a.market_value)
+    case 'strategy': return arr.sort((a, b) => (a.strategy || '').localeCompare(b.strategy || ''))
+    case 'time': return arr.sort((a, b) => (b.buy_time || '').localeCompare(a.buy_time || ''))
+    default: return arr
+  }
+})
+function playSignalSound() {
+  if (!soundEnabled.value) return
+  try {
+    const ctx = new AudioContext()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.frequency.value = 880
+    osc.type = 'sine'
+    gain.gain.value = 0.3
+    osc.start()
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3)
+    osc.stop(ctx.currentTime + 0.3)
+  } catch {}
+}
 function distanceToStopLoss(pos: PositionInfo): string { if (pos.stop_loss_price && pos.stop_loss_price > 0 && pos.current_price > 0) { const dist = ((pos.current_price - pos.stop_loss_price) / pos.current_price * 100); return dist.toFixed(1) + '%'; } const slPct = pos.stop_loss_pct ?? 3; return (pos.profit_pct + slPct).toFixed(1) + '%' }
 
 // 【P1-7】交易确认弹窗(含loading防重复)
@@ -138,7 +164,7 @@ async function onManualCodeChange(code: string) {
 }
 const executeManualTrade = async () => { if (!manualTrade.ts_code) return; const sideText = manualTrade.side === 'buy' ? '买入' : '卖出'; const amount = (manualTrade.quantity || 0) * (manualTrade.price || 0); showConfirm(`确认${sideText}`, `${manualTrade.stock_name || manualTrade.ts_code}\n${sideText} ${manualTrade.quantity || 0}股 × ¥${(manualTrade.price || 0).toFixed(2)} ≈ ¥${amount.toFixed(0)}`, async () => { try { const r = await api.post(`${scannerApi}/trade`, { ts_code: manualTrade.ts_code, stock_name: manualTrade.stock_name, side: manualTrade.side, quantity: manualTrade.quantity || 0, price: manualTrade.price || 0, order_type: 'market', strategy: 'manual', reason: '手动操作' }); if (r?.success) { ElMessage.success(`${r.data.side === 'buy' ? '买入' : '卖出'} ${r.data.ts_code} ${r.data.filled_qty}股@${r.data.filled_price}`); manualTrade.ts_code = ''; manualTrade.stock_name = ''; manualTrade.quantity = 0; manualTrade.price = 0; fetchAll(true) } else ElMessage.error('下单失败') } catch (e: any) { ElMessage.error('下单失败') } }) }
 const cumulativePnl = computed(() => { let total = 0; return timeline.value.filter(t => t.action === 'sell' && t.profit_amount != null).reduce((sum, t) => sum + (t.profit_amount || 0), 0) })
-async function fetchScanner() { try { const r = await api.get(`${scannerApi}/all`); if (r?.success) { const d = r.data; if (d.status) status.value = d.status; if (d.signals) signals.value = d.signals; if (d.positions) positions.value = d.positions; if (d.timeline) timeline.value = d.timeline; if (d.orders) orders.value = d.orders } } catch (e) { console.error(e) } }
+async function fetchScanner() { try { const r = await api.get(`${scannerApi}/all`); if (r?.success) { const d = r.data; if (d.signals && signals.value.length > 0 && d.signals.length > signals.value.length) { playSignalSound() } if (d.status) status.value = d.status; if (d.signals) signals.value = d.signals; if (d.positions) positions.value = d.positions; if (d.timeline) timeline.value = d.timeline; if (d.orders) orders.value = d.orders } } catch (e) { console.error(e) } }
 async function fetchScannerFull() { try { const [sR, sigR, posR, tlR, ordR] = await Promise.all([api.get(`${scannerApi}/status`), api.get(`${scannerApi}/signals`), api.get(`${scannerApi}/positions`), api.get(`${scannerApi}/timeline`), api.get(`${scannerApi}/orders`)]); if (sR?.success) status.value = sR.data; if (sigR?.success) signals.value = sigR.data; if (posR?.success) positions.value = posR.data; if (tlR?.success) timeline.value = tlR.data; if (ordR?.success) orders.value = ordR.data || [] } catch (e) { console.error(e) } }
 async function startScanner() { await api.post(`${scannerApi}/start`, { account_id: 'default', trade_mode: dryRun.value ? 'dry_run' : tradeMode.value }); await fetchScanner() }
 async function stopScanner() { showConfirm('停止扫描', '确认停止扫描器？\n持仓将保留，可手动卖出。', async () => { await api.post(`${scannerApi}/stop`, { sell_all: false }); await fetchScanner() }) }
@@ -235,6 +261,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <ElButton v-else type="danger" size="small" @click="stopScanner">⏹ 停止</ElButton>
         <ElButton size="small" :loading="loading" @click="manualScan" :disabled="!isRunning">📡 扫描</ElButton>
         <ElButton size="small" @click="dailySettlement" :disabled="!isRunning">📅 日结算</ElButton>
+        <ElSwitch v-model="soundEnabled" size="small" active-text="🔔" inactive-text="" />
         <ElSwitch v-model="autoRefresh" size="small" active-text="自动" inactive-text="" />
         <span class="dark-toggle" @click="darkMode = !darkMode">{{ darkMode ? '☀️' : '🌙' }}</span>
       </div>
@@ -321,10 +348,10 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 
       <!-- 右列: 持仓 -->
       <div class="mm-right">
-        <div class="st">📊 持仓监控 <ElBadge :value="positions.length" :max="99" style="margin-left:4px" /></div>
+        <div class="st">📊 持仓监控 <ElBadge :value="positions.length" :max="99" style="margin-left:4px" /><ElSelect v-model="posSort" size="small" style="width:80px;margin-left:auto"><ElOption label="盈亏" value="profit" /><ElOption label="市值" value="cost" /><ElOption label="策略" value="strategy" /><ElOption label="时间" value="time" /></ElSelect></div>
         <div class="sl">
           <div v-if="!positions.length" class="empty">暂无持仓</div>
-          <div v-for="pos in [...positions].sort((a, b) => a.profit_pct - b.profit_pct)" :key="pos.ts_code" class="pos-card">
+          <div v-for="pos in sortedPositions" :key="pos.ts_code" class="pos-card">
             <div class="pos-top"><ElTag size="small" :color="strategyMeta[pos.strategy]?.color || '#909399'" class="tag-solid" style="font-size:10px;min-width:48px;text-align:center">{{ pos.strategy_name || strategyCN(pos.strategy) }}</ElTag><span class="code">{{ pos.ts_code }}</span><span class="name">{{ pos.stock_name }}</span><span :class="pos.profit_pct >= 0 ? 'up' : 'down'" class="pct">{{ pos.profit_pct >= 0 ? '+' : '' }}{{ pos.profit_pct.toFixed(1) }}%</span><span class="mini-bar"><span class="mini-bar-fill" :style="{ width: Math.min(Math.abs(pos.profit_pct) / 10 * 100, 100) + '%', background: pos.profit_pct >= 0 ? '#67c23a' : '#f56c6c' }"></span></span><span v-if="pos.today_buy > 0" class="t1-tag">T+1</span><ElButton size="small" type="danger" plain @click="quickSell(pos)" :disabled="pos.available_qty <= 0" class="btn-xs ml-auto">卖出</ElButton><ElButton size="small" type="info" plain @click="openTradeDetail(pos.ts_code)" class="btn-xs">详情</ElButton></div>
             <div class="pos-info"><span>{{ pos.shares }}股</span><span>成本{{ pos.cost_price.toFixed(2) }}</span><span>现价{{ pos.current_price.toFixed(2) }}</span><span v-if="pos.market_value" class="mv">市值{{ (pos.market_value / 10000).toFixed(1) }}万</span><span v-if="pos.profit_amount != null" :class="pos.profit_amount >= 0 ? 'up' : 'down'" class="pamt">{{ pos.profit_amount >= 0 ? '+' : '' }}¥{{ Math.abs(pos.profit_amount).toFixed(0) }}</span><span v-if="pos.stop_loss_pct != null" class="rl stop">止损{{ pos.stop_loss_pct.toFixed(1) }}% ¥{{ pos.stop_loss_price?.toFixed(2) || (pos.cost_price * (1 - pos.stop_loss_pct / 100)).toFixed(2) }}</span><span v-if="pos.take_profit_pct != null" class="rl profit">止盈{{ pos.take_profit_pct.toFixed(1) }}% ¥{{ pos.take_profit_price?.toFixed(2) || (pos.cost_price * (1 + (pos.take_profit_pct || 7.0) / 100)).toFixed(2) }}</span><span v-if="pos.stop_loss_pct != null" class="rd" :class="{ danger: pos.profit_pct + (pos.stop_loss_pct || 3) < 2 }">距止损{{ (pos.profit_pct + (pos.stop_loss_pct || 3)).toFixed(1) }}%</span></div>
           </div>
@@ -651,7 +678,23 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .cl-r { display: grid; grid-template-columns: 120px 70px 70px 80px 70px 70px 70px 60px; gap: 4px; padding: 6px 0; font-size: 12px; align-items: center; border-bottom: 1px solid #f2f3f5; }
 
 /* 响应式 */
-@media (max-width: 1024px) { .mm-body { grid-template-columns: 1fr; } .mm-left, .mm-right { border: none; border-bottom: 1px solid #ebeef5; } }
+@media (max-width: 1400px) {
+  .mm-body { grid-template-columns: 200px 1fr 500px; }
+  .pos-info { flex-wrap: wrap; gap: 4px; }
+  .tl-body { flex-wrap: wrap; }
+  .tl-col { min-width: 200px; }
+}
+@media (max-width: 1024px) {
+  .mm-body { grid-template-columns: 1fr; }
+  .mm-left, .mm-right { border: none; border-bottom: 1px solid #ebeef5; }
+  .tl-body { flex-direction: column; }
+  .tl-col { max-height: 180px; }
+  .tl-col + .tl-col { border-left: none; padding-left: 0; border-top: 1px solid #ebeef5; padding-top: 8px; }
+}
+.mm.dark .tl-col + .tl-col { border-color: #333; }
+@media (max-width: 1024px) {
+  .mm.dark .tl-col + .tl-col { border-color: #333; }
+}
 
 /* 【调试增强】9层调试弹窗 */
 .layer-debug { font-size: 13px; }
