@@ -107,7 +107,7 @@ async function fetchTail() {
       }
     })
   } catch (e) {
-    console.error('Failed to fetch tail logs:', e)
+    console.error('获取实时日志失败:', e)
   }
 }
 
@@ -132,7 +132,7 @@ async function loadLogs() {
     filteredTotal.value = result.filtered_total
     loaded.value = true
   } catch (e) {
-    console.error('Failed to load logs:', e)
+    console.error('加载日志失败:', e)
     logs.value = []
   } finally {
     loading.value = false
@@ -154,7 +154,7 @@ async function reloadLogs() {
     logs.value = result.logs
     filteredTotal.value = result.filtered_total
   } catch (e) {
-    console.error('Failed to reload logs:', e)
+    console.error('重新加载日志失败:', e)
     logs.value = []
   } finally {
     loading.value = false
