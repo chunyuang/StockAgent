@@ -14,7 +14,6 @@ declare module 'vue' {
     DataStatusPanel: typeof import('./components/ultrashort/DataStatusPanel.vue')['default']
     ElButton: typeof import('element-plus/es')['ElButton']
     ElCard: typeof import('element-plus/es')['ElCard']
-    ElDatePicker: typeof import('element-plus/es')['ElDatePicker']
     ElEmpty: typeof import('element-plus/es')['ElEmpty']
     ElForm: typeof import('element-plus/es')['ElForm']
     ElFormItem: typeof import('element-plus/es')['ElFormItem']
