@@ -215,7 +215,9 @@ async def submit_ultra_short_backtest(
     }
 
     # 保存任务信息到MongoDB
-    await mongo_manager.insert_one("backtest_tasks", copy.deepcopy(task_info))
+    task_info_with_type = copy.deepcopy(task_info)
+    task_info_with_type["task_type"] = "ultra_short"  # 【P1-1修复：写入task_type，ultra-short/history查询依赖此字段】
+    await mongo_manager.insert_one("backtest_tasks", task_info_with_type)
 
     # ====== 本地异步执行（不依赖RPC，不需要独立backtest节点）======
     # 历史问题：RPC方式需要额外启动backtest节点，序列化datetime/ObjectId容易出错

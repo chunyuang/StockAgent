@@ -530,18 +530,26 @@ async def execute_ultra_short_backtest(
         sell_reason_stats = {"stop_loss": 0, "take_profit": 0, "max_hold": 0, "force_empty": 0, "rebalance": 0, "other": 0}
         for trade in (merged_trades or raw_trades or []):
             reason = trade.get("reason", trade.get("sell_reason", ""))
+            # 跳过未平仓交易(无sell_date或profit_pct为None)
+            if not reason and trade.get("profit_pct") is None:
+                continue
             if not reason:
                 reason = "other"
-            reason_lower = str(reason).lower()
-            if "止损" in reason or "stop_loss" in reason_lower or "跳空止损" in reason:
+            reason_str = str(reason)
+            # 止损: 包含"止损"/"stop_loss"/"跳空止损"/"止损(X%)"
+            if "止损" in reason_str or "stop_loss" in reason_str.lower():
                 sell_reason_stats["stop_loss"] += 1
-            elif "止盈" in reason or "take_profit" in reason_lower:
+            # 止盈: 包含"止盈"/"take_profit"/"止盈(X%)"
+            elif "止盈" in reason_str or "take_profit" in reason_str.lower():
                 sell_reason_stats["take_profit"] += 1
-            elif "到期" in reason or "max_hold" in reason_lower or "持仓天数" in reason:
+            # 到期: 包含"到期"/"max_hold"/"持仓天数"
+            elif "到期" in reason_str or "max_hold" in reason_str.lower() or "持仓天数" in reason_str:
                 sell_reason_stats["max_hold"] += 1
-            elif "空仓" in reason or "force_empty" in reason_lower or "强制" in reason:
+            # 空仓: 包含"空仓"/"force_empty"/"强制"/"force_empty_position"
+            elif "空仓" in reason_str or "force_empty" in reason_str.lower() or "强制" in reason_str:
                 sell_reason_stats["force_empty"] += 1
-            elif "调仓" in reason or "rebalance" in reason_lower or "减仓" in reason:
+            # 调仓: 包含"调仓"/"rebalance"/"减仓"
+            elif "调仓" in reason_str or "rebalance" in reason_str.lower() or "减仓" in reason_str:
                 sell_reason_stats["rebalance"] += 1
             else:
                 sell_reason_stats["other"] += 1
