@@ -57,6 +57,13 @@ function fmtPct(val: number | undefined | null): string {
   return val.toFixed(2) + '%'
 }
 
+// 策略中文名（去emoji版本，用于表格/选项等空间有限的场景）
+function strategyDisplayName(id: string): string {
+  const raw = STRATEGY_NAMES[id] || id
+  // 去掉开头的emoji+空格, 如 "🏃‍♂️ 半路追涨" → "半路追涨"
+  return raw.replace(/^[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{200D}\u{20E3}]+\s*/u, '').trim() || raw
+}
+
 // 卖出原因中文翻译
 function translateSellReason(reason: string): string {
   if (!reason) return '--'
@@ -69,6 +76,7 @@ function translateSellReason(reason: string): string {
     '跳空止损': '跳空止损',
     '冲高回落保护': '冲高回落',
     '次日高开即卖': '高开即卖',
+    'gap_down_stop': '跳空止损',
   }
   // 尝试精确匹配
   if (map[reason]) return map[reason]
@@ -76,6 +84,8 @@ function translateSellReason(reason: string): string {
   for (const [key, val] of Object.entries(map)) {
     if (reason.includes(key)) return val
   }
+  // 未平仓交易
+  if (!reason) return '持仓中'
   return reason
 }
 
@@ -613,7 +623,7 @@ const riskMetrics = computed(() => {
     { name: '盈亏比', value: (risk.profit_loss_ratio ?? result.profit_loss_ratio ?? 0).toFixed(2), desc: '平均盈利/平均亏损的比值' },
     { name: '最大回撤', value: fmtPct(risk.max_drawdown_pct ?? result.max_drawdown), desc: '净值从最高点到最低点的最大跌幅' },
     { name: '夏普比率', value: (risk.sharpe_ratio ?? result.sharpe_ratio ?? 0).toFixed(2), desc: '单位风险获得的超额收益' },
-    { name: '卡玛比率', value: (risk.calmar_ratio ?? result.calmar_ratio ?? 0).toFixed(2), desc: '年化收益/最大回撤' },
+    { name: '卡玛比率', value: (risk.calmar_ratio ?? result.calmar_ratio ?? 0).toFixed(2), desc: '年化收益/最大回撤' + ((result?.net_value_series?.length || 0) < 250 ? '（短期回测该值虚高）' : '') },
     { name: '索提诺比率', value: (risk.sortino_ratio ?? result.sortino_ratio ?? 0).toFixed(2), desc: '只考虑下行风险的夏普比率' },
     { name: '基准收益', value: fmtPct(ret.benchmark_return_pct), desc: '沪深300同期收益' },
     { name: 'Alpha', value: fmtPct(ret.alpha_pct), desc: '超额收益(组合-基准)' },
@@ -656,7 +666,7 @@ function exportTrades() {
         </span>
       </div>
       <div class="kpi-chip">
-        <span class="kpi-label">年化收益{{ backtestResult?.net_value_series?.length < 250 ? ' *' : '' }}</span>
+        <span class="kpi-label">年化收益{{ result?.net_value_series?.length < 250 ? ' *' : '' }}</span>
         <span class="kpi-value" :style="{ color: (result.annualized_return || 0) >= 0 ? '#67c23a' : '#f56c6c' }">
           {{ fmtPct(result.annualized_return) }}
         </span>
@@ -762,7 +772,7 @@ function exportTrades() {
             <!-- 策略KPI对比表 -->
             <ElTable :data="Object.entries(result.strategy_results).map(([name, d]: any) => ({ name, ...d }))" size="small" border stripe style="margin-top: 12px">
               <ElTableColumn prop="strategy_name" label="策略" width="120" />
-              <ElTableColumn label="收益率" width="100">
+              <ElTableColumn label="累计盈利" width="100">
                 <template #default="{ row }">
                   <span :style="{ color: row.total_return >= 0 ? '#67c23a' : '#f56c6c' }">{{ fmtPct(row.total_return) }}</span>
                 </template>
@@ -778,15 +788,14 @@ function exportTrades() {
               </ElTableColumn>
               <ElTableColumn label="单笔均利" width="100">
                 <template #default="{ row }">
-                  <span v-if="row.trades_count > 0">{{ fmtPct(row.avg_profit_pct) }}</span>
+                  <span v-if="row.trades_count > 0" :style="{ color: row.avg_profit_pct >= 0 ? '#67c23a' : '#f56c6c' }">{{ fmtPct(row.avg_profit_pct) }}</span>
                   <span v-else>-</span>
                 </template>
               </ElTableColumn>
-              <ElTableColumn label="状态" min-width="200">
+              <ElTableColumn label="盈亏比" width="80">
                 <template #default="{ row }">
-                  <span v-if="row.warning" style="color: #e6a23c; font-size: 12px">⚠️ {{ row.warning }}</span>
-                  <span v-else-if="row.trades_count > 0" style="color: #67c23a; font-size: 12px">✅ 正常</span>
-                  <span v-else style="color: #909399; font-size: 12px">无交易</span>
+                  <span v-if="row.profit_loss_ratio">{{ row.profit_loss_ratio.toFixed(2) }}</span>
+                  <span v-else>-</span>
                 </template>
               </ElTableColumn>
             </ElTable>
@@ -799,7 +808,7 @@ function exportTrades() {
           <div class="filter-bar">
             <ElInput v-model="searchTradeKeyword" placeholder="搜索代码/名称" size="small" style="width: 200px" clearable />
             <ElSelect v-model="filterStrategy" placeholder="策略筛选" size="small" style="width: 140px" clearable>
-              <ElOption v-for="s in availableStrategies" :key="s" :label="STRATEGY_NAMES[s] || s" :value="s" />
+              <ElOption v-for="s in availableStrategies" :key="s" :label="strategyDisplayName(s)" :value="s" />
             </ElSelect>
             <ElSelect v-model="filterProfit" placeholder="盈亏筛选" size="small" style="width: 120px" clearable>
               <ElOption label="盈利" value="profit" />
@@ -828,7 +837,7 @@ function exportTrades() {
                   <template #default="{ row }">{{ row.name || row.stock_name || row.ts_code }}</template>
                 </ElTableColumn>
                 <ElTableColumn label="策略" width="100">
-              <template #default="{ row }">{{ STRATEGY_NAMES[row.strategy] || row.strategy }}</template>
+              <template #default="{ row }">{{ strategyDisplayName(row.strategy) }}</template>
             </ElTableColumn>
                 <ElTableColumn label="收益率" width="90">
                   <template #default="{ row }">
@@ -846,7 +855,7 @@ function exportTrades() {
                   <template #default="{ row }">{{ row.name || row.stock_name || row.ts_code }}</template>
                 </ElTableColumn>
                 <ElTableColumn label="策略" width="100">
-              <template #default="{ row }">{{ STRATEGY_NAMES[row.strategy] || row.strategy }}</template>
+              <template #default="{ row }">{{ strategyDisplayName(row.strategy) }}</template>
             </ElTableColumn>
                 <ElTableColumn label="收益率" width="90">
                   <template #default="{ row }">
@@ -870,7 +879,7 @@ function exportTrades() {
               <template #default="{ row }">{{ row.name || row.stock_name || '-' }}</template>
             </ElTableColumn>
             <ElTableColumn label="策略" width="100">
-              <template #default="{ row }">{{ STRATEGY_NAMES[row.strategy] || row.strategy }}</template>
+              <template #default="{ row }">{{ strategyDisplayName(row.strategy) }}</template>
             </ElTableColumn>
             <ElTableColumn label="买入价" width="80">
               <template #default="{ row }">{{ row.buy_price?.toFixed(2) ?? '-' }}</template>

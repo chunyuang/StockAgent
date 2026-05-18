@@ -28,9 +28,9 @@ const selectedForCompare = ref<string[]>([])
 const showCompare = ref(false)
 const compareItems = ref<BacktestHistoryItem[]>([])
 
-// 策略ID→中文名 - 使用共享配置，去掉中文emoji版本
+// 策略ID→中文名 - 使用共享配置，robust地去emoji
 const strategyNameMap: Record<string, string> = Object.fromEntries(
-  Object.entries(STRATEGY_NAMES).map(([k, v]) => [k, v.replace(/^[\S]+\s*/, '')])
+  Object.entries(STRATEGY_NAMES).map(([k, v]) => [k, v.replace(/^[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{200D}\u{20E3}]+\s*/u, '').trim() || v])
 )
 
 // 排序
