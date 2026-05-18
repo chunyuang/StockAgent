@@ -42,6 +42,7 @@ import {
   ElMessage,
 } from 'element-plus'
 import { Download } from '@element-plus/icons-vue'
+import { STRATEGY_NAMES } from '@/config/backtestConstants'
 
 use([CanvasRenderer, LineChart, BarChart, PieChart, RadarChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent, DataZoomComponent])
 
@@ -206,15 +207,6 @@ const filteredTrades = computed(() => {
   return trades
 })
 
-// 策略中文名映射
-const STRATEGY_NAMES: Record<string, string> = {
-  halfway_chase: '🏃‍♂️ 半路追涨',
-  first_limit_up: '🥇 首板打板',
-  limit_up_open: '📈 涨停开板',
-  dragon_head: '🐲 龙头低吸',
-  limit_down_qiao: '💥 跌停翘板',
-}
-
 // 可用策略列表(从交易中提取,显示中文名)
 const availableStrategies = computed(() => {
   const strategies = new Set<string>()
@@ -359,9 +351,9 @@ const strategyCompareChartOption = computed(() => {
     legend: { data: names },
     radar: {
       indicator: [
-        { name: '收益率(%)', max: 100 },
+        { name: '收益率(%)', max: Math.max(50, ...strategies.map(s => Math.abs(s.total_return ?? 0))) + 10 },
         { name: '胜率(%)', max: 100 },
-        { name: '交易次数' }
+        { name: '盈亏比', max: Math.max(3, ...strategies.map(s => Math.abs(s.avg_profit_pct ?? 0))) + 1 }
       ]
     },
     series: [{
@@ -371,7 +363,7 @@ const strategyCompareChartOption = computed(() => {
         value: [
           s.total_return ?? 0,
           s.win_rate ?? 0,
-          s.trades_count ?? 0
+          Math.abs(s.avg_profit_pct ?? 0)
         ]
       }))
     }]
@@ -425,6 +417,7 @@ const factorContributionChartOption = computed(() => {
   const entries = Object.entries(result.factor_contribution)
   if (entries.length === 0) return null
   // factor_contribution值是小数(0.5=50%), ×100转百分比
+  // 注意: 这是交易笔数占比，非盈亏贡献
   return {
     tooltip: { trigger: 'item', formatter: '{b}: {c}%' },
     series: [{
@@ -584,7 +577,9 @@ const holdDaysChartOption = computed(() => {
   }
 })
 
-const monthlyProfitChartOption = computed(() => {
+// 月度收益: 统一使用 monthlyReturnChartOption (基于net_value_series计算)
+// 保留monthlyProfitChartOption仅作为调试参考
+const _monthlyProfitChartOption = computed(() => {
   const result = props.result
   if (!result?.monthly_profit) return null
   const entries = Object.entries(result.monthly_profit)
@@ -659,7 +654,7 @@ function exportTrades() {
         </span>
       </div>
       <div class="kpi-chip">
-        <span class="kpi-label">年化收益</span>
+        <span class="kpi-label">年化收益{{ backtestResult?.net_value_series?.length < 250 ? ' *' : '' }}</span>
         <span class="kpi-value" :style="{ color: (result.annualized_return || 0) >= 0 ? '#67c23a' : '#f56c6c' }">
           {{ fmtPct(result.annualized_return) }}
         </span>
@@ -742,12 +737,12 @@ function exportTrades() {
               <VChart v-if="radarChartOption" :option="radarChartOption" autoresize style="height: 400px; width: 100%" />
               <ElEmpty v-else description="暂无雷达数据" />
             </ElTabPane>
-            <ElTabPane label="因子贡献">
+            <ElTabPane label="交易占比" name="factor_contribution">
               <VChart v-if="factorContributionChartOption" :option="factorContributionChartOption" autoresize style="height: 400px; width: 100%" />
-              <ElEmpty v-else description="暂无因子数据" />
+              <ElEmpty v-else description="暂无交易占比数据" />
             </ElTabPane>
             <ElTabPane label="月度收益" name="monthly_profit">
-              <VChart v-if="monthlyProfitChartOption" :option="monthlyProfitChartOption" autoresize style="height: 350px; width: 100%" />
+              <VChart v-if="monthlyReturnChartOption" :option="monthlyReturnChartOption" autoresize style="height: 350px; width: 100%" />
               <ElEmpty v-else description="暂无月度数据" />
             </ElTabPane>
           </ElTabs>
@@ -906,9 +901,9 @@ function exportTrades() {
             </ElTableColumn>
             <!-- 任务3: 卖出原因列(中文翻译) -->
             <ElTableColumn label="卖出原因" width="100">
-              <template #default="{ row }">{{ translateSellReason(row.reason || row.sell_reason) }}</template>
+              <template #default="{ row }">{{ translateSellReason(row.sell_reason || row.reason) }}</template>
             </ElTableColumn>
-            <ElTableColumn prop="sentiment" label="情绪" min-width="120" show-overflow-tooltip />
+            <ElTableColumn label="情绪" min-width="80" show-overflow-tooltip />
           </ElTable>
         </ElTabPane>
 
