@@ -12,8 +12,9 @@
  * - monthly_profit值: 小数(-0.011=-1.11%), 需×100转百分比
  * - factor_contribution值: 小数(0.5=50%), 需×100转百分比
  * - merged_trades[].profit_pct: 已是百分比(-2.55=-2.55%), 不需×100
+ * - daily_profit(顶层): 已归一化(÷initial_cash), 与net_value_series一致
  * - metrics.risk.*_pct: 已是百分比, 直接用
- * - strategy_results: 只有win_rate/total_return/trades_count/total_pnl_pct, 无净值曲线
+ * - strategy_results: 只有win_rate/total_return/trades_count/avg_profit_pct, 无净值曲线
  */
 import { ref, computed } from 'vue'
 import { use } from 'echarts/core'
@@ -53,6 +54,28 @@ const props = defineProps<{
 function fmtPct(val: number | undefined | null): string {
   if (val == null || isNaN(val)) return '--'
   return val.toFixed(2) + '%'
+}
+
+// 卖出原因中文翻译
+function translateSellReason(reason: string): string {
+  if (!reason) return '--'
+  const map: Record<string, string> = {
+    'stop_loss': '止损', '止损': '止损',
+    'take_profit': '止盈', '止盈': '止盈',
+    'rebalance': '调仓', '调仓卖出': '调仓', '调仓调出': '调仓', '减仓': '调仓',
+    'force_empty_position': '强制空仓', 'force_empty': '强制空仓', '空仓': '强制空仓', '强制': '强制空仓',
+    'max_hold': '到期', '到期': '到期', '超时': '到期',
+    '跳空止损': '跳空止损',
+    '冲高回落保护': '冲高回落',
+    '次日高开即卖': '高开即卖',
+  }
+  // 尝试精确匹配
+  if (map[reason]) return map[reason]
+  // 尝试包含匹配
+  for (const [key, val] of Object.entries(map)) {
+    if (reason.includes(key)) return val
+  }
+  return reason
 }
 
 // 任务3: 卖出原因百分比
@@ -265,12 +288,13 @@ const netValueChartOption = computed(() => {
   return {
     tooltip: { trigger: 'axis' },
     legend: { data: ['策略净值', ...(benchmarkValues.length > 0 ? ['基准(沪深300)'] : []), '回撤(%)'] },
-    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+    grid: { left: '3%', right: '4%', bottom: '12%', containLabel: true },
     xAxis: { type: 'category', boundaryGap: false, data: dates },
     yAxis: [
       { type: 'value', name: '净值', min: Math.floor(minNV * 100) / 100 - 0.01 },
       { type: 'value', name: '回撤(%)', position: 'right' }
     ],
+    dataZoom: [{ type: 'inside' }, { type: 'slider', height: 20, bottom: 4 }],
     series,
   }
 })
@@ -284,10 +308,11 @@ const dailyProfitChartOption = computed(() => {
   const dates = nvs.map((d: any) => d.trade_date)
   const values = dp.map((v: any) => +((v) * 100).toFixed(4))
   return {
-    tooltip: { trigger: 'axis', formatter: (p: any) => `${p[0].axisValue}<br/>当日盈亏：${p[0].value}%` },
-    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+    tooltip: { trigger: 'axis', formatter: (p: any) => `${p[0].axisValue}<br/>日收益率：${p[0].value}%` },
+    grid: { left: '3%', right: '4%', bottom: '12%', containLabel: true },
     xAxis: { type: 'category', data: dates },
-    yAxis: { type: 'value', axisLabel: { formatter: '{value}%' } },
+    yAxis: { type: 'value', name: '日收益率(%)', axisLabel: { formatter: '{value}%' } },
+    dataZoom: [{ type: 'inside' }, { type: 'slider', height: 20, bottom: 4 }],
     series: [
       {
         type: 'bar', data: values,
@@ -740,7 +765,7 @@ function exportTrades() {
             <!-- 策略KPI对比表 -->
             <ElTable :data="Object.entries(result.strategy_results).map(([name, d]: any) => ({ name, ...d }))" size="small" border stripe style="margin-top: 12px">
               <ElTableColumn prop="strategy_name" label="策略" width="120" />
-              <ElTableColumn label="收益率" width="100">
+              <ElTableColumn label="累计盈利%" width="100">
                 <template #default="{ row }">
                   <span :style="{ color: row.total_return >= 0 ? '#67c23a' : '#f56c6c' }">{{ fmtPct(row.total_return) }}</span>
                 </template>
@@ -756,7 +781,7 @@ function exportTrades() {
               </ElTableColumn>
               <ElTableColumn label="单笔均利" width="100">
                 <template #default="{ row }">
-                  <span v-if="row.trades_count > 0">{{ fmtPct(row.trades_count > 0 ? row.total_return / row.trades_count : 0) }}</span>
+                  <span v-if="row.trades_count > 0">{{ fmtPct(row.avg_profit_pct) }}</span>
                   <span v-else>-</span>
                 </template>
               </ElTableColumn>
@@ -879,9 +904,9 @@ function exportTrades() {
             <ElTableColumn label="数量" width="70">
               <template #default="{ row }">{{ row.shares ?? '-' }}</template>
             </ElTableColumn>
-            <!-- 任务3: 卖出原因列 -->
+            <!-- 任务3: 卖出原因列(中文翻译) -->
             <ElTableColumn label="卖出原因" width="100">
-              <template #default="{ row }">{{ row.reason || row.sell_reason || '--' }}</template>
+              <template #default="{ row }">{{ translateSellReason(row.reason || row.sell_reason) }}</template>
             </ElTableColumn>
             <ElTableColumn prop="sentiment" label="情绪" min-width="120" show-overflow-tooltip />
           </ElTable>

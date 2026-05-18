@@ -185,6 +185,7 @@ onMounted(loadHistory)
               回撤 {{ sortKey === 'max_drawdown' ? (sortDesc ? '↓' : '↑') : '' }}
             </th>
             <th>信号</th>
+            <th>交易</th>
             <th>操作</th>
           </tr>
         </thead>
@@ -205,6 +206,7 @@ onMounted(loadHistory)
             <td class="num-cell">{{ formatSharpe(item.sharpe_ratio) }}</td>
             <td class="num-cell">{{ formatDrawdown(item.max_drawdown) }}</td>
             <td class="num-cell">{{ item.total_signals ?? '-' }}</td>
+            <td class="num-cell">{{ item.trades_count ?? item.total_trades ?? '-' }}</td>
             <td class="action-cell">
               <button class="action-btn" @click="emit('view-result', item)" title="查看结果">📊</button>
               <button class="action-btn" @click="emit('view-logs', item.task_id)" title="查看日志">📋</button>
