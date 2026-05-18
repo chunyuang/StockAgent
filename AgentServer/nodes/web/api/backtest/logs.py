@@ -30,7 +30,7 @@ async def get_backtest_logs(
 
     # 安全检查task_id，防止路径遍历
     if not task_id.replace('_', '').replace('-', '').isalnum():
-        raise HTTPException(status_code=400, detail="Invalid task_id")
+        raise HTTPException(status_code=400, detail="无效的任务ID")
 
     jsonl_path = os.path.join(LOG_DIR, f"{task_id}.jsonl")
 
@@ -39,7 +39,7 @@ async def get_backtest_logs(
         log_path = os.path.join(LOG_DIR, f"{task_id}.log")
         if os.path.exists(log_path):
             return await _parse_log_file(log_path, task_id, day, strategy, section, search, offset, limit, tail)
-        raise HTTPException(status_code=404, detail=f"No logs found for task {task_id}")
+        raise HTTPException(status_code=404, detail=f"任务 {task_id} 无日志记录")
 
     # 读取JSONL
     records = []
@@ -54,7 +54,7 @@ async def get_backtest_logs(
                 except json.JSONDecodeError:
                     continue
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to read log file: {e}")
+        raise HTTPException(status_code=500, detail=f"读取日志文件失败: {e}")
 
     # 筛选
     filtered = records
@@ -264,13 +264,13 @@ async def _parse_log_file(log_path: str, task_id: str, day: str, strategy: str,
 async def get_backtest_log_summary(task_id: str):
     """获取日志摘要 - 天数/策略/section分布（直接读文件，不调主API）"""
     if not task_id.replace('_', '').replace('-', '').isalnum():
-        raise HTTPException(status_code=400, detail="Invalid task_id")
+        raise HTTPException(status_code=400, detail="无效的任务ID")
 
     jsonl_path = os.path.join(LOG_DIR, f"{task_id}.jsonl")
     log_path = os.path.join(LOG_DIR, f"{task_id}.log")
 
     if not os.path.exists(jsonl_path) and not os.path.exists(log_path):
-        raise HTTPException(status_code=404, detail=f"No logs found for task {task_id}")
+        raise HTTPException(status_code=404, detail=f"任务 {task_id} 无日志记录")
 
     # 直接从JSONL读摘要，不调主API（避免limit=0与ge=1冲突）
     if os.path.exists(jsonl_path):
@@ -299,7 +299,7 @@ async def get_backtest_log_summary(task_id: str):
                     except json.JSONDecodeError:
                         total += 1
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to read log file: {e}")
+            raise HTTPException(status_code=500, detail=f"读取日志文件失败: {e}")
 
         days_info = [{"day": d, "date": dt} for d, dt in sorted(days_set.items())]
         return {
