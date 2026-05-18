@@ -11,6 +11,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { getUltraShortHistory, deleteBacktestHistory, type BacktestHistoryItem } from '@/api/modules/backtest'
 import { ElMessageBox, ElMessage } from 'element-plus'
+import { STRATEGY_NAMES } from '@/config/backtestConstants'
 
 const emit = defineEmits<{
   (e: 'view-result', task: BacktestHistoryItem): void
@@ -27,14 +28,10 @@ const selectedForCompare = ref<string[]>([])
 const showCompare = ref(false)
 const compareItems = ref<BacktestHistoryItem[]>([])
 
-// 策略ID→中文名
-const strategyNameMap: Record<string, string> = {
-  halfway_chase: '半路追涨',
-  first_limit_up: '首板打板',
-  limit_up_open: '涨停开板',
-  dragon_head: '龙头低吸',
-  limit_down_qiao: '跌停翘板',
-}
+// 策略ID→中文名 - 使用共享配置，去掉中文emoji版本
+const strategyNameMap: Record<string, string> = Object.fromEntries(
+  Object.entries(STRATEGY_NAMES).map(([k, v]) => [k, v.replace(/^[\S]+\s*/, '')])
+)
 
 // 排序
 const sortKey = ref<'created_at' | 'total_return' | 'win_rate' | 'sharpe_ratio' | 'max_drawdown'>('created_at')

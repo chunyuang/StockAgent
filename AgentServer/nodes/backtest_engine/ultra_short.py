@@ -572,6 +572,8 @@ async def execute_ultra_short_backtest(
         result['sortino_ratio'] = sortino_ratio
         result['profit_loss_ratio'] = profit_loss_ratio
         result['annualized_return'] = annualized_return
+        result['benchmark_return_pct'] = benchmark_return
+        result['alpha_pct'] = alpha
 
         # 注意：win_rate/total_return/max_drawdown 已是百分比形式（如5.0=5%），不需要再×100
         logger.success("RESULT", "多策略组合回测完成")
