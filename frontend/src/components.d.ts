@@ -25,8 +25,6 @@ declare module 'vue' {
     ElTabs: typeof import('element-plus/es')['ElTabs']
     FactorReferencePanel: typeof import('./components/ultrashort/FactorReferencePanel.vue')['default']
     LogLevelPanel: typeof import('./components/settings/LogLevelPanel.vue')['default']
-    PositionDetailTable: typeof import('./components/position/PositionDetailTable.vue')['default']
-    PositionSummaryCards: typeof import('./components/position/PositionSummaryCards.vue')['default']
     PushConfigPanel: typeof import('./components/settings/PushConfigPanel.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
