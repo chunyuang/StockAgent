@@ -1,11 +1,7 @@
 <script setup lang="ts">
-const STRATEGY_NAMES: Record<string, string> = {
-  halfway_chase: '🏃‍♂️ 半路追涨',
-  first_limit_up: '🥇 首板打板',
-  limit_up_open: '📈 涨停开板',
-  dragon_head: '🐲 龙头低吸',
-  limit_down_qiao: '💥 跌停翘板',
-}
+// STRATEGY_NAMES - imported from shared config
+import { STRATEGY_NAMES } from '@/config/backtestConstants'
+
 /**
  * BacktestSummaryTable - 回测结果展示总结表格
  *
@@ -66,9 +62,10 @@ const kpiMetrics = computed(() => {
   // metrics.returns 有 annual_return_pct/benchmark_return_pct/alpha_pct
   const risk = r.metrics?.risk || {}
   const ret = r.metrics?.returns || {}
+  const nvsLength = r.net_value_series?.length || 0
 
   addMetric('总收益率', fmtPct(r.total_return), r.total_return, colorBySign(r.total_return), '📈', '回测期间策略的总收益', 'total_return')
-  addMetric('年化收益率', fmtPct(r.annualized_return ?? ret.annual_return_pct), r.annualized_return ?? ret.annual_return_pct, colorBySign(r.annualized_return ?? ret.annual_return_pct), '📊', '折算为年度的收益率', 'annual_return')
+  addMetric('年化收益率', fmtPct(r.annualized_return ?? ret.annual_return_pct) + (nvsLength < 250 ? ' *' : ''), r.annualized_return ?? ret.annual_return_pct, colorBySign(r.annualized_return ?? ret.annual_return_pct), '📊', '折算为年度的收益率' + (nvsLength < 250 ? '（不足1年，仅供参考）' : ''), 'annual_return')
   addMetric('最大回撤', fmtPct(r.max_drawdown, true), r.max_drawdown, '#f56c6c', '📉', '净值从最高点到最低点的最大跌幅', 'max_drawdown')
   addMetric('夏普比率', fmtNum(r.sharpe_ratio), r.sharpe_ratio, r.sharpe_ratio >= 1 ? '#67c23a' : r.sharpe_ratio >= 0 ? '#e6a23c' : '#f56c6c', '⚖️', '单位风险获得的超额收益', 'sharpe_ratio')
   addMetric('胜率', fmtPct(r.win_rate), r.win_rate, r.win_rate >= 50 ? '#67c23a' : '#f56c6c', '🎯', '盈利交易占总交易的比例', 'win_rate')
@@ -118,9 +115,10 @@ const strategyCompareData = computed(() => {
     strategy_id: key as string,
     strategy_name: s.strategy_name || key,
     total_return: s.total_return,
-    total_pnl_pct: s.total_pnl_pct,
     win_rate: s.win_rate,
     trades_count: s.trades_count,
+    max_drawdown: s.max_drawdown,
+    avg_profit_pct: s.avg_profit_pct,
     total_trades: s.total_trades,
     avg_hold_days: s.avg_hold_days,
   }))
@@ -275,7 +273,7 @@ const handleExport = () => {
       </template>
       <ElTable :data="strategyCompareData" border size="small" stripe>
         <ElTableColumn prop="strategy_name" label="策略" min-width="120" fixed />
-        <ElTableColumn label="平均收益率" min-width="110" sortable>
+        <ElTableColumn label="累计收益率" min-width="110" sortable>
           <template #default="{ row }">
             <span :style="{ color: colorBySign(row.total_return), fontWeight: 600 }">
               {{ fmtPct(row.total_return) }}
@@ -290,11 +288,9 @@ const handleExport = () => {
           </template>
         </ElTableColumn>
         <ElTableColumn prop="trades_count" label="交易次数" min-width="90" sortable />
-        <ElTableColumn label="累计盈亏" min-width="100" sortable>
+        <ElTableColumn label="最大回撤" min-width="100" sortable>
           <template #default="{ row }">
-            <span :style="{ color: colorBySign(row.total_pnl_pct) }">
-              {{ fmtPct(row.total_pnl_pct) }}
-            </span>
+            <span style="color: #f56c6c">{{ fmtPct(row.max_drawdown) }}</span>
           </template>
         </ElTableColumn>
       </ElTable>

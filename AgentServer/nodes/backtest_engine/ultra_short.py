@@ -567,6 +567,11 @@ async def execute_ultra_short_backtest(
         result['sharpe_ratio'] = sharpe_ratio
         result['sell_reason_stats'] = sell_reason_stats
         result['execution_time_ms'] = perf['execution_time_ms']
+        # 同步metrics中的指标到顶层，确保前端多路径都能读取
+        result['calmar_ratio'] = calmar_ratio
+        result['sortino_ratio'] = sortino_ratio
+        result['profit_loss_ratio'] = profit_loss_ratio
+        result['annualized_return'] = annualized_return
 
         # 注意：win_rate/total_return/max_drawdown 已是百分比形式（如5.0=5%），不需要再×100
         logger.success("RESULT", "多策略组合回测完成")
