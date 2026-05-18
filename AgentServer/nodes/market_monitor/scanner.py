@@ -1391,6 +1391,12 @@ class MarketScanner:
         take_profit = self.config.get("take_profit", 7.0)
 
         for sig in signals:
+            # 【安全】异动信号只观察不自动买入(历史bug: 曾绕过强制空仓造成重大损失)
+            if "anomaly" in sig.strategy:
+                sig.signal_status = "skipped"
+                logger.info(f"[EXEC] 异动信号仅观察: {sig.ts_code} {sig.stock_name} ({sig.strategy_name})")
+                continue
+
             # 熔断检查
             if not await self._check_circuit_breaker():
                 logger.info(f"[EXEC] 风控熔断, 跳过买入")
