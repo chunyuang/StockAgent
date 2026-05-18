@@ -9,7 +9,7 @@ import {
   ElCard, ElButton, ElTag, ElEmpty, ElTable, ElTableColumn,
   ElSwitch, ElInputNumber, ElSlider, ElDescriptions, ElDescriptionsItem,
   ElTabs, ElTabPane, ElDialog, ElMessage, ElTooltip, ElBadge,
-  ElInput, ElSelect, ElOption,
+  ElInput, ElSelect, ElOption, ElDatePicker,
 } from 'element-plus'
 import { api } from '@/api/client'
 
@@ -119,7 +119,7 @@ async function openTradeDetail(ts_code: string) { try { const r = await api.get(
 async function openTradeAudit() { try { const r = await api.get(`${scannerApi}/trade-audit`); if (r?.success) { tradeAuditData.value = r.data; tradeAuditVisible.value = true } } catch (e: any) { ElMessage.error('获取审查失败') } }
 function formatDecisionDetail(detail: any): string[] {
   if (!detail) return ['无决策详情']; const lines: string[] = []
-  if (detail.filter_pipeline) { const fp = detail.filter_pipeline; lines.push('【9层筛选管道】'); for (const [l, a] of Object.entries(fp.layers_applied || {})) { lines.push(`  ${a ? '✅' : '⏭️'} ${layerLabel(l)}: ${fp.layer_details?.[l] || (a ? '生效' : '跳过')}`) }; lines.push(`  仓位系数: ${fp.position_ratio || 'N/A'}`) }
+  if (detail.filter_pipeline) { const fp = detail.filter_pipeline; lines.push('【9层筛选管道】'); for (const [l, a] of Object.entries(fp.layers_applied || {})) { lines.push(`  ${a ? '✅' : '⏭️'} ${layerLabel(l)}: ${fp.layer_details?.[l] || (a ? '生效' : '跳过')}`) }; lines.push(`  仓位系数: ${fp.position_ratio || '未知'}`) }
   if (detail.factors) { lines.push('【关键因子】'); for (const [k, v] of Object.entries(detail.factors)) { if (v !== 0 && v !== null) lines.push(`  ${factorLabel(k)}: ${typeof v === 'number' ? v.toFixed(2) : v}`) } }
   if (detail.sell_reason) { lines.push('【卖出决策】'); lines.push(`  原因: ${detail.sell_reason}`); if (detail.profit_pct) lines.push(`  盈亏: ${detail.profit_pct.toFixed(2)}%`); if (detail.stop_loss_pct) lines.push(`  止损线: ${detail.stop_loss_pct}%`); if (detail.take_profit_pct) lines.push(`  止盈线: ${detail.take_profit_pct}%`) }
   return lines
@@ -205,7 +205,7 @@ const scanTraceCode = ref('')
 async function toggleDryRun() { try { const r = await api.post(`${scannerApi}/debug/dry-run`); if (r?.success) { ElMessage.success(r.data.mode); fetchScanner() } } catch { ElMessage.error('切换失败') } }
 async function openLayerDebug() { layerDebugLoading.value = true; layerDebugVisible.value = true; try { const r = await api.get(`${scannerApi}/debug/layers`); if (r?.success) layerDebugData.value = r.data } catch { ElMessage.error('加载失败') } finally { layerDebugLoading.value = false } }
 async function openScanTrace(ts_code: string) { scanTraceCode.value = ts_code; scanTraceVisible.value = true; try { const r = await api.get(`${scannerApi}/debug/scan-trace/${ts_code}`); if (r?.success) scanTraceData.value = r.data } catch { ElMessage.error('加载失败') } }
-function formatLayerTrace(trace: Record<string, any>): string[] { if (!trace) return ['无trace']; const lines: string[] = []; for (const [layer, info] of Object.entries(trace)) { if (typeof info === 'object' && info !== null) { const applied = info.applied !== undefined ? (info.applied ? '✅' : '⏭️') : ''; const detail = info.detail || info.reason || ''; lines.push(`${applied} ${layerLabel(layer)}: ${detail}`) } else { lines.push(`${layerLabel(layer)}: ${info}`) } } return lines }
+function formatLayerTrace(trace: Record<string, any>): string[] { if (!trace) return ['无链路数据']; const lines: string[] = []; for (const [layer, info] of Object.entries(trace)) { if (typeof info === 'object' && info !== null) { const applied = info.applied !== undefined ? (info.applied ? '✅' : '⏭️') : ''; const detail = info.detail || info.reason || ''; lines.push(`${applied} ${layerLabel(layer)}: ${detail}`) } else { lines.push(`${layerLabel(layer)}: ${info}`) } } return lines }
 function signalStatusTag(status?: string) { if (!status || status === 'new') return { text: '新', type: 'primary' }; if (status === 'executed') return { text: '已买', type: 'success' }; if (status === 'skipped') return { text: '跳过', type: 'warning' }; if (status === 'expired') return { text: '过期', type: 'info' }; if (status === 'filtered') return { text: '过滤', type: 'danger' }; return { text: status, type: 'info' } }
 </script>
 <template>
@@ -301,7 +301,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           <div v-for="sig in filteredSignals" :key="sig.ts_code + sig.strategy" class="sig-row">
             <div class="sig-top"><span class="code">{{ sig.ts_code }}</span><span class="name">{{ sig.stock_name }}</span><ElTag size="small" :color="strategyMeta[sig.strategy]?.color || '#909399'" style="color:#fff;border:none">{{ sig.strategy_name }}</ElTag><ElTag v-if="sig.signal_status === 'executed'" size="small" type="success">已买入</ElTag><ElTag v-if="sig.signal_status === 'skipped'" size="small" type="warning">跳过</ElTag><ElTag v-if="sig.signal_status === 'expired'" size="small" type="info">过期</ElTag><span v-if="sig.signal_status === 'new' && signalRemaining(sig) >= 0" class="expire-tag" :class="{ urgent: signalRemaining(sig) < 60000 }">⏱ {{ formatRemaining(signalRemaining(sig)) }}</span><span :class="sig.pct_chg >= 0 ? 'up' : 'down'" style="margin-left:auto;font-weight:600">{{ sig.pct_chg >= 0 ? '+' : '' }}{{ sig.pct_chg.toFixed(1) }}%</span></div>
             <div class="sig-bot"><span v-if="sig.volume_ratio" class="factor">量比{{ sig.volume_ratio.toFixed(1) }}</span><span v-if="sig.turnover_rate" class="factor">换手{{ sig.turnover_rate.toFixed(1) }}%</span><template v-if="sig.key_factors"><span v-for="(v, k) in sig.key_factors" :key="k" class="factor kf">{{ v }}</span></template><span class="reason">{{ sig.reason }}</span></div>
-            <div class="sig-act"><ElButton v-if="!dryRun && sig.signal_status === 'new'" size="small" type="danger" plain @click="quickBuy(sig)">🟢 买入{{ Math.floor((status?.account?.available_cash || 0) * 0.25 / sig.price / 100) * 100 > 0 ? ' ' + Math.floor((status?.account?.available_cash || 0) * 0.25 / sig.price / 100) * 100 + '股' : '' }}</ElButton><ElButton v-if="sig.decision_detail" size="small" type="info" plain @click="openTradeDetail(sig.ts_code)">🔍 决策</ElButton><ElButton v-if="sig.layer_trace" size="small" type="warning" plain @click="openScanTrace(sig.ts_code)">🧪 Trace</ElButton></div>
+            <div class="sig-act"><ElButton v-if="!dryRun && sig.signal_status === 'new'" size="small" type="danger" plain @click="quickBuy(sig)">🟢 买入{{ Math.floor((status?.account?.available_cash || 0) * 0.25 / sig.price / 100) * 100 > 0 ? ' ' + Math.floor((status?.account?.available_cash || 0) * 0.25 / sig.price / 100) * 100 + '股' : '' }}</ElButton><ElButton v-if="sig.decision_detail" size="small" type="info" plain @click="openTradeDetail(sig.ts_code)">🔍 决策</ElButton><ElButton v-if="sig.layer_trace" size="small" type="warning" plain @click="openScanTrace(sig.ts_code)">🧪 链路</ElButton></div>
           </div>
         </div>
         <div class="st" style="margin-top:6px">🔥 涨跌停池 <div style="display:inline-flex;gap:2px;margin-left:6px"><ElTag size="small" :type="limitPoolTab==='limit_up'?'danger':'info'" style="cursor:pointer" @click="limitPoolTab='limit_up'">涨停{{ limitPools.limit_up.length }}</ElTag><ElTag size="small" :type="limitPoolTab==='limit_down'?'warning':'info'" style="cursor:pointer" @click="limitPoolTab='limit_down'">跌停{{ limitPools.limit_down.length }}</ElTag><ElTag size="small" :type="limitPoolTab==='broken'?'':'info'" style="cursor:pointer" @click="limitPoolTab='broken'">炸板{{ limitPools.broken.length }}</ElTag></div></div>
@@ -331,7 +331,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 
     <!-- 底部时间线 -->
     <div v-if="isRunning || timeline.length" class="mm-footer">
-      <div class="st">⏱️ 交易时间线 ({{ timeline.length }}) <span v-if="cumulativePnl !== 0" :class="cumulativePnl >= 0 ? 'up' : 'down'" style="font-size:12px;margin-left:6px">累计{{ cumulativePnl >= 0 ? '+' : '' }}¥{{ cumulativePnl.toFixed(0) }}</span> <ElButton v-if="timeline.length" size="small" type="warning" @click="openTradeAudit" style="margin-left:6px">🔍 审查全部</ElButton> <div style="display:inline-flex;align-items:center;gap:4px;margin-left:8px"><input type="date" v-model="historyDate" style="font-size:11px;padding:2px 4px;border:1px solid #dcdfe6;border-radius:4px" /><ElButton size="small" @click="loadHistory" :loading="historyLoading" style="padding:2px 8px;font-size:11px">回放</ElButton><ElButton v-if="historyData.length" size="small" type="info" @click="historyData=[];historyDate=''" style="padding:2px 8px;font-size:11px">返回今日</ElButton></div></div>
+      <div class="st">⏱️ 交易时间线 ({{ timeline.length }}) <span v-if="cumulativePnl !== 0" :class="cumulativePnl >= 0 ? 'up' : 'down'" style="font-size:12px;margin-left:6px">累计{{ cumulativePnl >= 0 ? '+' : '' }}¥{{ cumulativePnl.toFixed(0) }}</span> <ElButton v-if="timeline.length" size="small" type="warning" @click="openTradeAudit" style="margin-left:6px">🔍 审查全部</ElButton> <div style="display:inline-flex;align-items:center;gap:4px;margin-left:8px"><ElDatePicker v-model="historyDate" type="date" placeholder="选择日期" size="small" value-format="YYYY-MM-DD" style="width:140px" :disabled-date="(d: Date) => d > new Date()" /><ElButton size="small" @click="loadHistory" :loading="historyLoading" style="padding:2px 8px;font-size:11px">回放</ElButton><ElButton v-if="historyData.length" size="small" type="info" @click="historyData=[];historyDate=''" style="padding:2px 8px;font-size:11px">返回今日</ElButton></div></div>
       <div class="tl-scroll">
         <div v-if="historyData.length" class="history-tag">📜 {{ historyDate }} 历史回放 ({{ historyData.length }}条)</div>
         <div v-if="!historyData.length && !timeline.length" class="empty">暂无交易</div>
@@ -402,7 +402,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           </div>
         </div>
         <div v-if="layerDebugData.signal_traces?.length" class="ld-traces">
-          <div class="ld-title">信号逐层Trace</div>
+          <div class="ld-title">信号逐层链路</div>
           <div v-for="trace in layerDebugData.signal_traces" :key="trace.ts_code + trace.strategy" class="ld-trace-card">
             <div class="ld-trace-top"><span class="code">{{ trace.ts_code }}</span><span class="name">{{ trace.stock_name }}</span><ElTag size="small" type="info">{{ strategyCN(trace.strategy) }}</ElTag><ElTag size="small" :type="signalStatusTag(trace.signal_status).type">{{ signalStatusTag(trace.signal_status).text }}</ElTag></div>
             <div class="ld-trace-layers">
@@ -410,13 +410,13 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
             </div>
           </div>
         </div>
-        <div v-else class="empty">暂无信号trace数据</div>
+        <div v-else class="empty">暂无信号链路数据</div>
       </div>
       <div v-else class="empty">加载中...</div>
     </ElDialog>
 
-    <!-- 【调试增强】单只股票扫描Trace弹窗 -->
-    <ElDialog v-model="scanTraceVisible" title="🧪 扫描Trace — {{ scanTraceCode }}" width="700px">
+    <!-- 单只股票扫描链路弹窗 -->
+    <ElDialog v-model="scanTraceVisible" title="🧪 扫描链路 — {{ scanTraceCode }}" width="700px">
       <div v-if="scanTraceData" class="scan-trace">
         <div v-if="scanTraceData.status === 'not_found'" class="empty">{{ scanTraceData.message }}</div>
         <div v-else>
@@ -429,7 +429,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           <div class="st-reason">{{ scanTraceData.reason }}</div>
           <div v-if="scanTraceData.age_seconds" class="st-age">信号年龄: {{ scanTraceData.age_seconds }}秒</div>
           <div v-if="scanTraceData.layer_trace" class="st-trace">
-            <div class="st-title">逐层筛选Trace</div>
+            <div class="st-title">逐层筛选链路</div>
             <div v-for="(line, i) in formatLayerTrace(scanTraceData.layer_trace)" :key="i" class="st-line">{{ line }}</div>
           </div>
           <div v-if="scanTraceData.decision_detail" class="st-detail">
