@@ -5,9 +5,9 @@
  * 
  * 后端数据规范(必须遵守):
  * - total_return/win_rate/max_drawdown/annualized_return: 已是百分比(-1.11表示-1.11%)
- * - net_value_series[].net_value: 绝对金额(988861), 需÷initial_cash归一化
- * - net_value_series[].daily_profit: 绝对金额(-3386), 需÷initial_cash×100转百分比
- * - drawdown_series[].drawdown: 小数(0.003=0.3%), 需×100转百分比
+ * - net_value_series[].net_value: 已归一化(1.0起始), 直接使用
+ * - net_value_series[].daily_profit: 已归一化(÷initial_cash), 需×100转百分比
+ * - drawdown_series[].drawdown: 小数(0.0368=3.68%), 需×100转百分比
  * - position_series[].value: 小数(0.188=18.8%), 需×100转百分比
  * - monthly_profit值: 小数(-0.011=-1.11%), 需×100转百分比
  * - factor_contribution值: 小数(0.5=50%), 需×100转百分比
@@ -218,8 +218,8 @@ const netValueChartOption = computed(() => {
   const result = props.result
   if (!result?.net_value_series || result.net_value_series.length === 0) return null
   const initialCash = result.initial_cash || 1000000
-  // net_value是绝对金额, 归一化为净值(初始=1.0)
-  const netValues = result.net_value_series.map((d: any) => +(d.net_value / initialCash).toFixed(4))
+  // net_value已归一化(1.0起始), 直接使用
+  const netValues = result.net_value_series.map((d: any) => +(d.net_value).toFixed(4))
   // drawdown是小数(0.003=0.3%), ×100转百分比
   const drawdowns = result.drawdown_series?.map((d: any) => +(d.drawdown * 100).toFixed(4)) || []
   const dates = result.net_value_series.map((d: any) => d.trade_date)
@@ -279,11 +279,10 @@ const dailyProfitChartOption = computed(() => {
   const result = props.result
   const nvs = result?.net_value_series
   if (!nvs || nvs.length === 0) return null
-  // daily_profit是绝对金额, ÷initial_cash×100转百分比
-  const initial = result.initial_cash || 1000000
+  // daily_profit已归一化(÷initial_cash), 直接×100转百分比
   const dp = nvs.map((d: any) => d.daily_profit)
   const dates = nvs.map((d: any) => d.trade_date)
-  const values = dp.map((v: any) => +((v / initial) * 100).toFixed(4))
+  const values = dp.map((v: any) => +((v) * 100).toFixed(4))
   return {
     tooltip: { trigger: 'axis', formatter: (p: any) => `${p[0].axisValue}<br/>当日盈亏：${p[0].value}%` },
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
@@ -367,15 +366,22 @@ const radarChartOption = computed(() => {
     result.sharpe_ratio ?? 0,       // 夏普
     -(result.max_drawdown ?? 0)     // 回撤(取反,越大越好)
   ]
+  // 动态计算雷达图最大值, 避免硬编码截断
+  const maxReturn = Math.max(50, Math.ceil(Math.abs(result.total_return ?? 0) / 10) * 10 + 10)
+  const maxWR = 100
+  const maxPLR = Math.max(5, Math.ceil(Math.abs(risk.profit_loss_ratio ?? result.profit_loss_ratio ?? 0)) + 1)
+  const maxSharpe = Math.max(5, Math.ceil(Math.abs(result.sharpe_ratio ?? 0)) + 1)
+  const maxDDCtrl = Math.max(20, Math.ceil(Math.abs(-(result.max_drawdown ?? 0))) + 5)
+
   return {
     tooltip: { trigger: 'item' },
     radar: {
       indicator: [
-        { name: '收益率(%)', max: 50 },
-        { name: '胜率(%)', max: 100 },
-        { name: '盈亏比', max: 5 },
-        { name: '夏普比率', max: 5 },
-        { name: '回撤控制', max: 20 }
+        { name: '收益率(%)', max: maxReturn },
+        { name: '胜率(%)', max: maxWR },
+        { name: '盈亏比', max: maxPLR },
+        { name: '夏普比率', max: maxSharpe },
+        { name: '回撤控制', max: maxDDCtrl }
       ]
     },
     series: [{
@@ -655,17 +661,37 @@ function exportTrades() {
         <span class="kpi-label">信号数</span>
         <span class="kpi-value" style="color: #e6a23c">{{ result.total_signals || 0 }}</span>
       </div>
+      <div class="kpi-chip">
+        <span class="kpi-label">盈亏比</span>
+        <span class="kpi-value" :style="{ color: (result.profit_loss_ratio || 0) >= 2 ? '#67c23a' : '#e6a23c' }">
+          {{ (result.profit_loss_ratio || 0).toFixed(2) }}
+        </span>
+      </div>
     </div>
 
     <!-- 任务3: 卖出原因统计 -->
     <div v-if="result?.sell_reason_stats" class="sell-reason-bar">
-      <span class="sell-reason-label">卖出分布:</span>
-      <span class="sell-reason-item take-profit">🎯 止盈{{ result.sell_reason_stats.take_profit }}笔({{ sellReasonPct('take_profit') }}%)</span>
-      <span class="sell-reason-item rebalance">🔄 调仓{{ result.sell_reason_stats.rebalance }}笔({{ sellReasonPct('rebalance') }}%)</span>
-      <span class="sell-reason-item stop-loss">🛑 止损{{ result.sell_reason_stats.stop_loss }}笔({{ sellReasonPct('stop_loss') }}%)</span>
-      <span class="sell-reason-item max-hold">⏰ 到期{{ result.sell_reason_stats.max_hold }}笔({{ sellReasonPct('max_hold') }}%)</span>
-      <span class="sell-reason-item force-empty">⛔ 空仓{{ result.sell_reason_stats.force_empty }}笔({{ sellReasonPct('force_empty') }}%)</span>
-      <span v-if="result.sell_reason_stats.other > 0" class="sell-reason-item other">📌 其他{{ result.sell_reason_stats.other }}笔({{ sellReasonPct('other') }}%)</span>
+      <span class="sell-reason-label">卖出分布</span>
+      <div class="sell-reason-items">
+        <span v-if="result.sell_reason_stats.take_profit > 0" class="sell-reason-item take-profit">
+          <span class="reason-dot"></span>止盈{{ result.sell_reason_stats.take_profit }}笔({{ sellReasonPct('take_profit') }}%)
+        </span>
+        <span v-if="result.sell_reason_stats.rebalance > 0" class="sell-reason-item rebalance">
+          <span class="reason-dot"></span>调仓{{ result.sell_reason_stats.rebalance }}笔({{ sellReasonPct('rebalance') }}%)
+        </span>
+        <span v-if="result.sell_reason_stats.stop_loss > 0" class="sell-reason-item stop-loss">
+          <span class="reason-dot"></span>止损{{ result.sell_reason_stats.stop_loss }}笔({{ sellReasonPct('stop_loss') }}%)
+        </span>
+        <span v-if="result.sell_reason_stats.force_empty > 0" class="sell-reason-item force-empty">
+          <span class="reason-dot"></span>空仓{{ result.sell_reason_stats.force_empty }}笔({{ sellReasonPct('force_empty') }}%)
+        </span>
+        <span v-if="result.sell_reason_stats.max_hold > 0" class="sell-reason-item max-hold">
+          <span class="reason-dot"></span>到期{{ result.sell_reason_stats.max_hold }}笔({{ sellReasonPct('max_hold') }}%)
+        </span>
+        <span v-if="result.sell_reason_stats.other > 0" class="sell-reason-item other">
+          <span class="reason-dot"></span>其他{{ result.sell_reason_stats.other }}笔({{ sellReasonPct('other') }}%)
+        </span>
+      </div>
     </div>
 
     <!-- ========== 顶层大Tab：5个核心视图 ========== -->
@@ -695,8 +721,8 @@ function exportTrades() {
               <VChart v-if="factorContributionChartOption" :option="factorContributionChartOption" autoresize style="height: 400px; width: 100%" />
               <ElEmpty v-else description="暂无因子数据" />
             </ElTabPane>
-            <ElTabPane label="月度收益">
-              <VChart v-if="monthlyProfitChartOption" :option="monthlyProfitChartOption" autoresize style="height: 400px; width: 100%" />
+            <ElTabPane label="月度收益" name="monthly_profit">
+              <VChart v-if="monthlyProfitChartOption" :option="monthlyProfitChartOption" autoresize style="height: 350px; width: 100%" />
               <ElEmpty v-else description="暂无月度数据" />
             </ElTabPane>
           </ElTabs>
@@ -830,6 +856,16 @@ function exportTrades() {
             <ElTableColumn label="卖出价" width="80">
               <template #default="{ row }">{{ row.sell_price?.toFixed(2) ?? '-' }}</template>
             </ElTableColumn>
+            <ElTableColumn label="盈亏额" width="100" sortable>
+              <template #default="{ row }">
+                <template v-if="row.profit_pct != null && row.shares && row.buy_price">
+                  <span :style="{ color: row.profit_pct > 0 ? '#67c23a' : '#f56c6c' }">
+                    {{ ((row.sell_price || row.buy_price) * row.shares * row.profit_pct / 100).toFixed(0) }}
+                  </span>
+                </template>
+                <span v-else>-</span>
+              </template>
+            </ElTableColumn>
             <ElTableColumn label="收益率" width="90" sortable>
               <template #default="{ row }">
                 <span :style="{ color: row.profit_pct > 0 ? '#67c23a' : '#f56c6c' }">
@@ -897,7 +933,7 @@ export default { name: 'BacktestResultPanel' }
 }
 .kpi-strip {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   margin-bottom: 16px;
   flex-wrap: wrap;
 }
@@ -905,13 +941,18 @@ export default { name: 'BacktestResultPanel' }
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 10px 18px;
-  border-radius: 6px;
-  background: var(--el-fill-color-light);
-  min-width: 100px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #f8f9fa 0%, #fff 100%);
+  border: 1px solid #ebeef5;
+  min-width: 90px;
+  transition: box-shadow 0.2s;
+  &:hover {
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  }
 }
-.kpi-label { font-size: 12px; color: var(--el-text-color-secondary); }
-.kpi-value { font-size: 18px; font-weight: 700; margin-top: 2px; }
+.kpi-label { font-size: 11px; color: #909399; font-weight: 500; }
+.kpi-value { font-size: 17px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
 .chart-card { margin-bottom: 0; }
 .risk-grid {
   display: grid;
@@ -943,28 +984,46 @@ export default { name: 'BacktestResultPanel' }
 }
 .sell-reason-bar {
   display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  padding: 8px 16px;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 16px;
   margin-bottom: 16px;
   background: #fafafa;
-  border-radius: 6px;
+  border-radius: 8px;
   border: 1px solid #ebeef5;
   font-size: 13px;
   .sell-reason-label {
-    font-weight: 600;
+    font-weight: 700;
     color: #303133;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  .sell-reason-items {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
   }
   .sell-reason-item {
-    padding: 2px 8px;
-    border-radius: 4px;
-    background: #f5f7fa;
-    &.rebalance { color: #409eff; }
-    &.stop-loss { color: #f56c6c; }
-    &.take-profit { color: #67c23a; }
-    &.max-hold { color: #e6a23c; }
-    &.force-empty { color: #909399; }
-    &.other { color: #409eff; }
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    background: #fff;
+    border: 1px solid #ebeef5;
+    font-weight: 500;
+    .reason-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    &.take-profit { color: #67c23a; .reason-dot { background: #67c23a; } }
+    &.rebalance { color: #409eff; .reason-dot { background: #409eff; } }
+    &.stop-loss { color: #f56c6c; .reason-dot { background: #f56c6c; } }
+    &.max-hold { color: #e6a23c; .reason-dot { background: #e6a23c; } }
+    &.force-empty { color: #909399; .reason-dot { background: #909399; } }
+    &.other { color: #c0c4cc; .reason-dot { background: #c0c4cc; } }
   }
 }
 </style>
