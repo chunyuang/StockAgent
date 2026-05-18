@@ -449,16 +449,16 @@ const strategyBarChartOption = computed(() => {
 
   return {
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-    legend: { data: ['收益率(%)', '胜率(%)'] },
+    legend: { data: ['累计盈利(%)', '胜率(%)'] },
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
     xAxis: { type: 'category', data: names },
     yAxis: [
-      { type: 'value', name: '收益率(%)', axisLabel: { formatter: '{value}%' } },
+      { type: 'value', name: '累计盈利(%)', axisLabel: { formatter: '{value}%' } },
       { type: 'value', name: '胜率(%)', max: 100, axisLabel: { formatter: '{value}%' } }
     ],
     series: [
       {
-        name: '收益率(%)', type: 'bar',
+        name: '累计盈利(%)', type: 'bar',
         data: strategies.map(s => +(s.total_return ?? 0).toFixed(2)),
         itemStyle: {
           color: (params: any) => params.value >= 0 ? '#67c23a' : '#f56c6c'
@@ -774,9 +774,9 @@ function exportTrades() {
                 <template #default="{ row }">{{ fmtPct(row.win_rate) }}</template>
               </ElTableColumn>
               <ElTableColumn prop="trades_count" label="交易次数" width="80" />
-              <ElTableColumn label="总盈亏" width="100">
+              <ElTableColumn label="最大回撤" width="100">
                 <template #default="{ row }">
-                  <span :style="{ color: row.total_pnl_pct >= 0 ? '#67c23a' : '#f56c6c' }">{{ fmtPct(row.total_pnl_pct) }}</span>
+                  <span style="color: #f56c6c">{{ fmtPct(row.max_drawdown) }}</span>
                 </template>
               </ElTableColumn>
               <ElTableColumn label="单笔均利" width="100">
@@ -885,7 +885,7 @@ function exportTrades() {
               <template #default="{ row }">
                 <template v-if="row.profit_pct != null && row.shares && row.buy_price">
                   <span :style="{ color: row.profit_pct > 0 ? '#67c23a' : '#f56c6c' }">
-                    {{ ((row.sell_price || row.buy_price) * row.shares * row.profit_pct / 100).toFixed(0) }}
+                    {{ (row.buy_price * row.shares * row.profit_pct / 100).toFixed(0) }}
                   </span>
                 </template>
                 <span v-else>-</span>
