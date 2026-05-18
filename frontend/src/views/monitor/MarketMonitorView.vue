@@ -145,6 +145,8 @@ async function stopScanner() { showConfirm('停止扫描', '确认停止扫描�
 async function manualScan() { loading.value = true; try { const r = await api.post(`${scannerApi}/scan-once`); if (r?.success) { const m = r.data?.message; if (m) ElMessage.warning(m); else ElMessage.success(`扫描完成: ${r.data?.signals || 0}信号, ${r.data?.positions || 0}持仓`) } else ElMessage.error('扫描失败') } catch (e: any) { ElMessage.error('扫描失败') } finally { loading.value = false; await fetchScanner() } }
 async function forceScan() { loading.value = true; try { const r = await api.post(`${scannerApi}/scan-once`, { force: true }); if (r?.success) { ElMessage.success(`强制扫描完成: ${r.data?.signals || 0}信号, ${r.data?.positions || 0}持仓`) } else ElMessage.error('强制扫描失败') } catch (e: any) { ElMessage.error('强制扫描失败') } finally { loading.value = false; await fetchScanner() } }
 const stratCollapsed = ref<Record<string, boolean>>({ halfway_chase: true, first_limit_up: true, dragon_head: true, limit_down_qiao: true, limit_up_open: true })
+const stratSectionCollapsed = ref(true)
+const qaSectionCollapsed = ref(false)
 function toggleStrat(id: string) { stratCollapsed.value[id] = !stratCollapsed.value[id] }
 async function dailySettlement() { try { const r = await api.post(`${scannerApi}/daily-settlement`); if (r?.success) { ElMessage.success(r.data?.message || '日结算完成'); await fetchScanner() } } catch (e: any) { ElMessage.error('日结算失败') } }
 async function resetAccount() { showConfirm('⚠️ 重置账户', '将清空所有持仓和交易记录，不可恢复！\n确认重置？', async () => { try { const r = await api.post(`${scannerApi}/reset`); if (r?.success) { ElMessage.success('账户已重置'); await fetchAll(true) } } catch (e: any) { ElMessage.error('重置失败') } }) }
@@ -257,7 +259,8 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
     <div v-else class="mm-body">
       <!-- 左列: 策略控制 -->
       <div class="mm-left">
-        <div class="st">🎛️ 策略控制</div>
+        <div class="st" @click="stratSectionCollapsed = !stratSectionCollapsed" style="cursor:pointer">🎛️ 策略控制 <span class="sc-arrow">{{ stratSectionCollapsed ? '▶' : '▼' }}</span></div>
+        <template v-if="!stratSectionCollapsed">
         <div v-for="s in strategies" :key="s.id" class="sc" :class="{ disabled: !s.enabled }">
           <div class="sc-top" @click="toggleStrat(s.id)" style="cursor:pointer"><span class="sc-icon">{{ strategyMeta[s.id]?.icon || '📋' }}</span><span class="sc-name">{{ s.name }}</span><ElSwitch :model-value="s.enabled" @change="(v: boolean) => toggleStrategy(s.id, v)" size="small" @click.stop /><span class="sc-arrow">{{ stratCollapsed[s.id] ? '▶' : '▼' }}</span></div>
           <div v-if="!stratCollapsed[s.id]">
@@ -266,8 +269,9 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
             <ElButton size="small" text type="primary" @click="openEditDialog(s)">⚙️ 编辑</ElButton>
           </div>
         </div>
-        <div class="st" style="margin-top:10px">⚡ 快捷操作</div>
-        <div class="qa">
+        </template>
+        <div class="st" style="margin-top:10px;cursor:pointer" @click="qaSectionCollapsed = !qaSectionCollapsed">⚡ 快捷操作 <span class="sc-arrow">{{ qaSectionCollapsed ? '▶' : '▼' }}</span></div>
+        <div class="qa" v-if="!qaSectionCollapsed">
           <ElButton size="small" @click="manualScan" :loading="loading" :disabled="!isRunning" style="width:100%">📡 手动扫描</ElButton>
         <ElButton size="small" type="warning" @click="forceScan" :loading="loading" :disabled="!isRunning" style="width:100%" title="忽略交易时间检查，消耗必盈额度">⚡ 强制扫描</ElButton>
           <ElButton size="small" @click="dailySettlement" :disabled="!isRunning" style="width:100%">📅 日结算(T+1)</ElButton>
