@@ -7,10 +7,14 @@
  * - 查看结果、查看日志、复用参数
  * - 删除历史记录
  * - 状态/日期筛选
+ * - 多条记录对比
+ *
+ * V4: 统一Element Plus浅色主题，与整体界面风格一致
  */
 import { ref, onMounted, computed } from 'vue'
 import { getUltraShortHistory, deleteBacktestHistory, type BacktestHistoryItem } from '@/api/modules/backtest'
-import { ElMessageBox, ElMessage } from 'element-plus'
+import { ElTable, ElTableColumn, ElButton, ElTag, ElEmpty, ElMessageBox, ElMessage, ElCard } from 'element-plus'
+import { View, Document, RefreshRight, Delete } from '@element-plus/icons-vue'
 import { STRATEGY_NAMES } from '@/config/backtestConstants'
 
 const emit = defineEmits<{
@@ -42,7 +46,7 @@ function toggleSort(key: typeof sortKey.value) {
     sortDesc.value = !sortDesc.value
   } else {
     sortKey.value = key
-    sortDesc.value = key === 'created_at' ? true : false // 收益率默认降序
+    sortDesc.value = key === 'created_at' ? true : false
   }
 }
 
@@ -66,7 +70,7 @@ async function loadHistory() {
     items.value = result.items
     total.value = result.total
   } catch (e) {
-    console.error('Failed to load history:', e)
+    console.error('加载回测历史失败:', e)
   } finally {
     loading.value = false
   }
@@ -82,7 +86,7 @@ async function handleDelete(item: BacktestHistoryItem) {
       { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
     )
   } catch {
-    return // 取消
+    return
   }
   try {
     await deleteBacktestHistory(item.task_id)
@@ -126,15 +130,48 @@ function strategyNames(strategies: string[] | undefined): string {
   return names.slice(0, 3).join('、') + `等${names.length}个`
 }
 
-function returnClass(val: number | null | undefined): string {
-  if (val === null || val === undefined) return ''
-  return val >= 0 ? 'text-green-400' : 'text-red-400'
-}
-
 // 任务4: 对比功能
 function openCompare() {
   compareItems.value = sortedItems.value.filter(i => selectedForCompare.value.includes(i.task_id))
   showCompare.value = true
+}
+
+// 判断是否被选中用于对比
+function isCompareSelected(taskId: string): boolean {
+  return selectedForCompare.value.includes(taskId)
+}
+
+function toggleCompareSelect(taskId: string) {
+  if (selectedForCompare.value.includes(taskId)) {
+    selectedForCompare.value = selectedForCompare.value.filter(id => id !== taskId)
+  } else if (selectedForCompare.value.length < 3) {
+    selectedForCompare.value.push(taskId)
+  }
+}
+
+// 对比表指标
+const compareMetrics = [
+  { key: 'date_range', label: '日期范围', format: (item: BacktestHistoryItem) => `${item.start_date || '?'}~${item.end_date || '?'}` },
+  { key: 'total_return', label: '收益率', format: (item: BacktestHistoryItem) => formatReturn(item.total_return), classFn: (item: BacktestHistoryItem) => item.total_return != null && item.total_return >= 0 ? 'text-green' : 'text-red' },
+  { key: 'win_rate', label: '胜率', format: (item: BacktestHistoryItem) => formatRate(item.win_rate) },
+  { key: 'sharpe_ratio', label: '夏普比率', format: (item: BacktestHistoryItem) => formatSharpe(item.sharpe_ratio) },
+  { key: 'max_drawdown', label: '最大回撤', format: (item: BacktestHistoryItem) => formatDrawdown(item.max_drawdown), classFn: () => 'text-red' },
+  { key: 'trades_count', label: '交易笔数', format: (item: BacktestHistoryItem) => String(item.total_trades ?? item.trades_count ?? '-') },
+  { key: 'profit_loss_ratio', label: '盈亏比', format: (item: BacktestHistoryItem) => item.profit_loss_ratio?.toFixed(2) ?? '-' },
+  { key: 'total_signals', label: '信号数', format: (item: BacktestHistoryItem) => String(item.total_signals ?? '-') },
+]
+
+// 对比表中最优值高亮
+function isBestInCompare(metricKey: string, item: BacktestHistoryItem): boolean {
+  if (compareItems.value.length < 2) return false
+  const metric = compareMetrics.find(m => m.key === metricKey)
+  if (!metric) return false
+  const val = item[metricKey as keyof BacktestHistoryItem] as number | null | undefined
+  if (val == null) return false
+  const allVals = compareItems.value.map(i => i[metricKey as keyof BacktestHistoryItem] as number | null | undefined).filter(v => v != null) as number[]
+  if (allVals.length === 0) return false
+  if (metricKey === 'max_drawdown') return val === Math.min(...allVals) // 回撤越小越好
+  return val === Math.max(...allVals) // 其他指标越大越好
 }
 
 onMounted(loadHistory)
@@ -142,111 +179,121 @@ onMounted(loadHistory)
 
 <template>
   <div class="history-panel">
+    <!-- 头部 -->
     <div class="history-header">
       <h3>📊 回测历史 ({{ total }}条)</h3>
       <div class="header-actions">
-        <button class="compare-btn" :disabled="selectedForCompare.length < 2" @click="openCompare">
+        <ElButton size="small" :disabled="selectedForCompare.length < 2" @click="openCompare" type="primary" plain>
           📊 对比 ({{ selectedForCompare.length }}/3)
-        </button>
-        <button class="refresh-btn" :disabled="loading" @click="loadHistory">
-          {{ loading ? '⏳ 加载中...' : '🔄 刷新' }}
-        </button>
+        </ElButton>
+        <ElButton size="small" :loading="loading" @click="loadHistory" :icon="RefreshRight">
+          刷新
+        </ElButton>
       </div>
     </div>
 
-    <div v-if="sortedItems.length === 0 && !loading" class="empty-state">
-      <p>暂无回测记录</p>
-      <p class="hint">提交一次回测后，历史记录将出现在这里</p>
-    </div>
+    <!-- 空状态 -->
+    <ElEmpty v-if="sortedItems.length === 0 && !loading" description="暂无回测记录">
+      <template #description>
+        <p>暂无回测记录</p>
+        <p class="hint">提交一次回测后，历史记录将出现在这里</p>
+      </template>
+    </ElEmpty>
 
-    <div v-else class="history-table-wrap">
-      <table class="history-table">
-        <thead>
-          <tr>
-            <th class="check-cell">☑</th>
-            <th @click="toggleSort('created_at')" :class="{ active: sortKey === 'created_at' }">
-              时间 {{ sortKey === 'created_at' ? (sortDesc ? '↓' : '↑') : '' }}
-            </th>
-            <th>日期范围</th>
-            <th>策略</th>
-            <th @click="toggleSort('total_return')" :class="{ active: sortKey === 'total_return' }">
-              收益率 {{ sortKey === 'total_return' ? (sortDesc ? '↓' : '↑') : '' }}
-            </th>
-            <th @click="toggleSort('win_rate')" :class="{ active: sortKey === 'win_rate' }">
-              胜率 {{ sortKey === 'win_rate' ? (sortDesc ? '↓' : '↑') : '' }}
-            </th>
-            <th @click="toggleSort('sharpe_ratio')" :class="{ active: sortKey === 'sharpe_ratio' }">
-              夏普 {{ sortKey === 'sharpe_ratio' ? (sortDesc ? '↓' : '↑') : '' }}
-            </th>
-            <th @click="toggleSort('max_drawdown')" :class="{ active: sortKey === 'max_drawdown' }">
-              回撤 {{ sortKey === 'max_drawdown' ? (sortDesc ? '↓' : '↑') : '' }}
-            </th>
-            <th>信号</th>
-            <th>交易</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="item in sortedItems" :key="item.task_id">
-            <td class="check-cell">
-              <input type="checkbox" :value="item.task_id" v-model="selectedForCompare" :disabled="selectedForCompare.length >= 3 && !selectedForCompare.includes(item.task_id)" />
-            </td>
-            <td class="date-cell">{{ formatDate(item.created_at) }}</td>
-            <td class="range-cell">{{ item.start_date || '?' }} ~ {{ item.end_date || '?' }}</td>
-            <td class="strat-cell" :title="strategyNames(item.strategies)">
-              {{ strategyNames(item.strategies) }}
-            </td>
-            <td :class="['num-cell', returnClass(item.total_return)]">
-              {{ formatReturn(item.total_return) }}
-            </td>
-            <td class="num-cell">{{ formatRate(item.win_rate) }}</td>
-            <td class="num-cell">{{ formatSharpe(item.sharpe_ratio) }}</td>
-            <td class="num-cell">{{ formatDrawdown(item.max_drawdown) }}</td>
-            <td class="num-cell">{{ item.total_signals ?? '-' }}</td>
-            <td class="num-cell">{{ item.trades_count ?? item.total_trades ?? '-' }}</td>
-            <td class="action-cell">
-              <button class="action-btn" @click="emit('view-result', item)" title="查看结果">📊</button>
-              <button class="action-btn" @click="emit('view-logs', item.task_id)" title="查看日志">📋</button>
-              <button class="action-btn reuse-btn" @click="emit('reuse-params', item)" title="复用参数重跑">🔄</button>
-              <button class="action-btn delete-btn" @click="handleDelete(item)" title="删除此记录">🗑️</button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+    <!-- 历史列表 -->
+    <ElTable
+      v-else
+      :data="sortedItems"
+      v-loading="loading"
+      size="small"
+      border
+      stripe
+      style="width: 100%"
+      @row-click="(row: any) => toggleCompareSelect(row.task_id)"
+      :row-class-name="({ row }: any) => isCompareSelected(row.task_id) ? 'compare-selected-row' : ''"
+    >
+      <ElTableColumn type="selection" width="40" :selectable="() => selectedForCompare.length < 3 || true" />
+      <ElTableColumn label="时间" width="110" sortable sort-by="created_at">
+        <template #default="{ row }">
+          <span style="color: #909399; font-size: 12px">{{ formatDate(row.created_at) }}</span>
+        </template>
+      </ElTableColumn>
+      <ElTableColumn label="日期范围" width="160">
+        <template #default="{ row }">
+          <span style="font-family: monospace; font-size: 12px">{{ row.start_date || '?' }} ~ {{ row.end_date || '?' }}</span>
+        </template>
+      </ElTableColumn>
+      <ElTableColumn label="策略" min-width="120" show-overflow-tooltip>
+        <template #default="{ row }">
+          {{ strategyNames(row.strategies) }}
+        </template>
+      </ElTableColumn>
+      <ElTableColumn label="收益率" width="100" sortable sort-by="total_return">
+        <template #default="{ row }">
+          <span :style="{ color: row.total_return >= 0 ? '#67c23a' : '#f56c6c', fontWeight: 600 }">
+            {{ formatReturn(row.total_return) }}
+          </span>
+        </template>
+      </ElTableColumn>
+      <ElTableColumn label="胜率" width="80" sortable sort-by="win_rate">
+        <template #default="{ row }">{{ formatRate(row.win_rate) }}</template>
+      </ElTableColumn>
+      <ElTableColumn label="夏普" width="80" sortable sort-by="sharpe_ratio">
+        <template #default="{ row }">{{ formatSharpe(row.sharpe_ratio) }}</template>
+      </ElTableColumn>
+      <ElTableColumn label="回撤" width="90" sortable sort-by="max_drawdown">
+        <template #default="{ row }">
+          <span style="color: #f56c6c">{{ formatDrawdown(row.max_drawdown) }}</span>
+        </template>
+      </ElTableColumn>
+      <ElTableColumn label="信号" width="60" align="center">
+        <template #default="{ row }">{{ row.total_signals ?? '-' }}</template>
+      </ElTableColumn>
+      <ElTableColumn label="交易" width="60" align="center">
+        <template #default="{ row }">{{ row.trades_count ?? row.total_trades ?? '-' }}</template>
+      </ElTableColumn>
+      <ElTableColumn label="操作" width="160" fixed="right">
+        <template #default="{ row }">
+          <ElButton size="small" link type="primary" :icon="View" @click.stop="emit('view-result', row)">结果</ElButton>
+          <ElButton size="small" link type="info" :icon="Document" @click.stop="emit('view-logs', row.task_id)">日志</ElButton>
+          <ElButton size="small" link type="success" :icon="RefreshRight" @click.stop="emit('reuse-params', row)">复用</ElButton>
+          <ElButton size="small" link type="danger" :icon="Delete" @click.stop="handleDelete(row)">删除</ElButton>
+        </template>
+      </ElTableColumn>
+    </ElTable>
 
-    <!-- 任务4: 对比面板 -->
-    <div v-if="showCompare" class="compare-panel">
-      <div class="compare-header">
-        <h3>📊 回测对比</h3>
-        <button @click="showCompare = false; selectedForCompare = []">✕ 关闭</button>
-      </div>
-      <table class="compare-table">
-        <thead>
-          <tr>
-            <th>指标</th>
-            <th v-for="item in compareItems" :key="item.task_id">{{ strategyNames(item.strategies) }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr><td>日期范围</td><td v-for="item in compareItems" :key="item.task_id">{{ item.start_date }}~{{ item.end_date }}</td></tr>
-          <tr><td>收益率</td><td v-for="item in compareItems" :key="item.task_id" :class="returnClass(item.total_return)">{{ formatReturn(item.total_return) }}</td></tr>
-          <tr><td>胜率</td><td v-for="item in compareItems" :key="item.task_id">{{ formatRate(item.win_rate) }}</td></tr>
-          <tr><td>夏普比率</td><td v-for="item in compareItems" :key="item.task_id">{{ formatSharpe(item.sharpe_ratio) }}</td></tr>
-          <tr><td>最大回撤</td><td v-for="item in compareItems" :key="item.task_id">{{ formatDrawdown(item.max_drawdown) }}</td></tr>
-          <tr><td>交易笔数</td><td v-for="item in compareItems" :key="item.task_id">{{ item.total_trades ?? '-' }}</td></tr>
-          <tr><td>盈亏比</td><td v-for="item in compareItems" :key="item.task_id">{{ item.profit_loss_ratio?.toFixed(2) ?? '-' }}</td></tr>
-          <tr><td>信号数</td><td v-for="item in compareItems" :key="item.task_id">{{ item.total_signals ?? '-' }}</td></tr>
-        </tbody>
-      </table>
-    </div>
+    <!-- 对比面板 -->
+    <ElCard v-if="showCompare" shadow="hover" style="margin-top: 16px">
+      <template #header>
+        <div style="display: flex; justify-content: space-between; align-items: center">
+          <span style="font-weight: 600">📊 回测对比</span>
+          <ElButton size="small" @click="showCompare = false; selectedForCompare = []">关闭</ElButton>
+        </div>
+      </template>
+      <ElTable :data="compareMetrics" size="small" border>
+        <ElTableColumn prop="label" label="指标" width="100" />
+        <ElTableColumn v-for="item in compareItems" :key="item.task_id" :label="strategyNames(item.strategies)">
+          <template #default="{ row }">
+            <span
+              :class="{ 'best-value': isBestInCompare(row.key, item) }"
+              :style="{ color: row.classFn ? (row.classFn(item) === 'text-green' ? '#67c23a' : row.classFn(item) === 'text-red' ? '#f56c6c' : '') : '' }"
+            >
+              {{ row.format(item) }}
+            </span>
+          </template>
+        </ElTableColumn>
+      </ElTable>
+    </ElCard>
   </div>
 </template>
 
+<script lang="ts">
+export default { name: 'BacktestHistoryPanel' }
+</script>
+
 <style scoped lang="scss">
 .history-panel {
-  background: #0d1117;
-  border: 1px solid #30363d;
+  background: #fff;
   border-radius: 6px;
   overflow: hidden;
 }
@@ -256,13 +303,13 @@ onMounted(loadHistory)
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
-  background: #161b22;
-  border-bottom: 1px solid #30363d;
+  background: #fff;
+  border-bottom: 1px solid #ebeef5;
 
   h3 {
     margin: 0;
     font-size: 15px;
-    color: #c9d1d9;
+    color: #303133;
     font-weight: 600;
   }
 
@@ -271,176 +318,28 @@ onMounted(loadHistory)
     gap: 8px;
     align-items: center;
   }
-
-  .refresh-btn {
-    background: #21262d;
-    border: 1px solid #30363d;
-    border-radius: 4px;
-    color: #c9d1d9;
-    cursor: pointer;
-    padding: 4px 12px;
-    font-size: 12px;
-
-    &:hover:not(:disabled) { background: #30363d; }
-    &:disabled { opacity: 0.5; cursor: not-allowed; }
-  }
-
-  .compare-btn {
-    background: #21262d;
-    border: 1px solid #409eff;
-    border-radius: 4px;
-    color: #409eff;
-    cursor: pointer;
-    padding: 4px 12px;
-    font-size: 12px;
-
-    &:hover:not(:disabled) { background: #409eff20; }
-    &:disabled { opacity: 0.5; cursor: not-allowed; color: #484f58; border-color: #30363d; }
-  }
 }
 
-.empty-state {
-  padding: 40px;
-  text-align: center;
-  color: #484f58;
-
-  .hint {
-    font-size: 13px;
-    margin-top: 8px;
-  }
-}
-
-.history-table-wrap {
-  overflow-x: auto;
-}
-
-.history-table {
-  width: 100%;
-  border-collapse: collapse;
+.hint {
   font-size: 13px;
+  margin-top: 8px;
+  color: #909399;
+}
 
-  th {
-    padding: 10px 12px;
-    text-align: left;
-    color: #8b949e;
-    font-weight: 600;
-    font-size: 12px;
-    border-bottom: 1px solid #30363d;
-    cursor: pointer;
-    white-space: nowrap;
-    user-select: none;
+:deep(.compare-selected-row) {
+  background-color: #ecf5ff !important;
+}
 
-    &:hover { color: #c9d1d9; }
-    &.active { color: #58a6ff; }
-  }
-
-  td {
-    padding: 8px 12px;
-    color: #c9d1d9;
-    border-bottom: 1px solid #21262d;
-    white-space: nowrap;
-  }
-
-  tr:hover td {
-    background: rgba(56, 139, 253, 0.04);
-  }
-
-  .date-cell { color: #8b949e; font-size: 12px; }
-  .range-cell { font-family: monospace; font-size: 12px; }
-  .strat-cell { max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
-  .num-cell { font-family: monospace; font-size: 12px; }
-
-  .text-green-400 { color: #3fb950; }
-  .text-red-400 { color: #f85149; }
-
-  .check-cell {
-    width: 40px;
-    text-align: center;
-    input[type="checkbox"] {
-      cursor: pointer;
-      width: 16px;
-      height: 16px;
-      accent-color: #409eff;
-    }
-  }
-
-  .action-cell {
-    display: flex;
-    gap: 4px;
-
-    .action-btn {
-      background: #21262d;
-      border: 1px solid #30363d;
-      border-radius: 4px;
-      cursor: pointer;
-      padding: 2px 6px;
-      font-size: 13px;
-
-      &:hover { background: #30363d; }
-
-      &.reuse-btn {
-        border-color: #238636;
-        &:hover { background: #23863620; }
-      }
-
-      &.delete-btn {
-        border-color: #da3633;
-        &:hover { background: #da363320; }
-      }
-    }
+.best-value {
+  font-weight: 700;
+  position: relative;
+  &::after {
+    content: ' ★';
+    color: #e6a23c;
+    font-size: 11px;
   }
 }
 
-.compare-panel {
-  margin: 16px;
-  border: 1px solid #30363d;
-  border-radius: 6px;
-  overflow: hidden;
-  .compare-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 10px 16px;
-    background: #161b22;
-    border-bottom: 1px solid #30363d;
-    h3 {
-      margin: 0;
-      font-size: 14px;
-      color: #c9d1d9;
-    }
-    button {
-      background: #21262d;
-      border: 1px solid #30363d;
-      border-radius: 4px;
-      color: #c9d1d9;
-      cursor: pointer;
-      padding: 4px 10px;
-      font-size: 12px;
-      &:hover { background: #30363d; }
-    }
-  }
-  .compare-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13px;
-    th {
-      padding: 8px 12px;
-      text-align: left;
-      color: #8b949e;
-      font-weight: 600;
-      border-bottom: 1px solid #30363d;
-      background: #161b22;
-    }
-    td {
-      padding: 8px 12px;
-      color: #c9d1d9;
-      border-bottom: 1px solid #21262d;
-    }
-    tr:hover td {
-      background: rgba(56, 139, 253, 0.04);
-    }
-    .text-green-400 { color: #3fb950; }
-    .text-red-400 { color: #f85149; }
-  }
-}
+.text-green { color: #67c23a; }
+.text-red { color: #f56c6c; }
 </style>

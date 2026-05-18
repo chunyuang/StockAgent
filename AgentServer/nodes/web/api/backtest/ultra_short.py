@@ -394,7 +394,7 @@ async def submit_sweep_backtest(raw_request: Request, user_id: str = Depends(get
     try:
         body = await raw_request.json()
     except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON body")
+        raise HTTPException(status_code=400, detail="请求体格式错误")
 
     # 提取sweep参数
     sweep_param = body.pop("sweep_param", None)
@@ -403,19 +403,19 @@ async def submit_sweep_backtest(raw_request: Request, user_id: str = Depends(get
     sweep_step = body.pop("sweep_step", None)
 
     if not sweep_param:
-        raise HTTPException(status_code=400, detail="sweep_param is required")
+        raise HTTPException(status_code=400, detail="缺少扫描参数(sweep_param)")
     if sweep_start is None or sweep_end is None or sweep_step is None:
-        raise HTTPException(status_code=400, detail="sweep_start, sweep_end, sweep_step are all required")
+        raise HTTPException(status_code=400, detail="sweep_start/sweep_end/sweep_step均为必填")
 
     try:
         sweep_start = float(sweep_start)
         sweep_end = float(sweep_end)
         sweep_step = float(sweep_step)
     except (ValueError, TypeError):
-        raise HTTPException(status_code=400, detail="sweep_start/sweep_end/sweep_step must be numbers")
+        raise HTTPException(status_code=400, detail="sweep_start/sweep_end/sweep_step必须为数值")
 
     if sweep_step == 0:
-        raise HTTPException(status_code=400, detail="sweep_step cannot be 0")
+        raise HTTPException(status_code=400, detail="sweep_step不能为0")
 
     # 生成扫描值列表
     sweep_values = []
@@ -431,10 +431,10 @@ async def submit_sweep_backtest(raw_request: Request, user_id: str = Depends(get
             v += sweep_step
 
     if not sweep_values:
-        raise HTTPException(status_code=400, detail="No sweep values generated (check start/end/step)")
+        raise HTTPException(status_code=400, detail="扫描参数范围无效(检查start/end/step)")
 
     if len(sweep_values) > 50:
-        raise HTTPException(status_code=400, detail=f"Too many sweep values ({len(sweep_values)}), max 50")
+        raise HTTPException(status_code=400, detail=f"扫描值过多({len(sweep_values)}个)，最多50个")
 
     logger.info(f"[sweep] param={sweep_param}, values={sweep_values}, user={user_id}")
 
@@ -556,7 +556,7 @@ async def submit_sweep_backtest(raw_request: Request, user_id: str = Depends(get
                 if s.get("id") == "halfway_chase":
                     s.setdefault("params", {})["min_volume_ratio"] = value
         else:
-            raise HTTPException(status_code=400, detail=f"Unknown sweep_param: {param_name}")
+            raise HTTPException(status_code=400, detail=f"未知扫描参数: {param_name}")
 
         return info
 
