@@ -69,10 +69,12 @@ const circuitBreakerPaused = computed(() => status.value?.circuit_breaker?.tradi
 const sortedPositions = computed(() => [...positions.value].sort((a, b) => a.profit_pct - b.profit_pct))
 function distanceToStopLoss(pos: PositionInfo): string { if (pos.stop_loss_price && pos.stop_loss_price > 0 && pos.current_price > 0) { const dist = ((pos.current_price - pos.stop_loss_price) / pos.current_price * 100); return dist.toFixed(1) + '%'; } const slPct = pos.stop_loss_pct ?? 3; return (pos.profit_pct + slPct).toFixed(1) + '%' }
 
-// 【P1-7】交易确认弹窗
+// 【P1-7】交易确认弹窗(含loading防重复)
 const confirmVisible = ref(false)
+const confirmLoading = ref(false)
 const confirmData = reactive({ title: '', message: '', onConfirm: () => {} })
-function showConfirm(title: string, message: string, onConfirm: () => void) { confirmData.title = title; confirmData.message = message; confirmData.onConfirm = onConfirm; confirmVisible.value = true }
+function showConfirm(title: string, message: string, onConfirm: () => void) { confirmData.title = title; confirmData.message = message; confirmData.onConfirm = onConfirm; confirmVisible.value = true; confirmLoading.value = false }
+async function handleConfirm() { if (confirmLoading.value) return; confirmLoading.value = true; try { await confirmData.onConfirm() } finally { confirmLoading.value = false; confirmVisible.value = false } }
 
 // 【P1-6】复盘报告
 const dailyReportVisible = ref(false)
@@ -95,7 +97,16 @@ function formatDecisionDetail(detail: any): string[] {
 }
 async function quickBuy(sig: ScanSignal) { const a = status.value?.account; if (!a) { ElMessage.warning('请先启动'); return } const q = Math.floor(a.available_cash * 0.25 / sig.price / 100) * 100; if (q <= 0) { ElMessage.warning('资金不足'); return } showConfirm('确认买入', `${sig.stock_name} ${sig.ts_code}\n${sig.strategy_name} | 涨${sig.pct_chg >= 0 ? '+' : ''}${sig.pct_chg.toFixed(1)}%\n买入 ${q}股 × ¥${sig.price.toFixed(2)} ≈ ¥${(q * sig.price).toFixed(0)}`, async () => { try { const r = await api.post(`${scannerApi}/trade`, { ts_code: sig.ts_code, stock_name: sig.stock_name, side: 'buy', quantity: q, price: sig.price, order_type: 'market', strategy: sig.strategy, reason: sig.reason }); if (r?.success) { ElMessage.success(`买入${sig.stock_name} ${q}股@${r.data.filled_price?.toFixed(2)}`); fetchScanner() } else ElMessage.error(r?.data?.message || '失败') } catch (e: any) { ElMessage.error('买入失败') } }) }
 async function quickSell(pos: PositionInfo) { if (pos.available_qty <= 0) { ElMessage.warning('T+1限制'); return } showConfirm('确认卖出', `${pos.stock_name} ${pos.ts_code}\n${pos.profit_pct >= 0 ? '+' : ''}${pos.profit_pct.toFixed(1)}% | 卖出 ${pos.available_qty}股\n现价 ¥${pos.current_price.toFixed(2)} ≈ ¥${(pos.available_qty * pos.current_price).toFixed(0)}`, async () => { try { const r = await api.post(`${scannerApi}/trade`, { ts_code: pos.ts_code, stock_name: pos.stock_name, side: 'sell', quantity: pos.available_qty, price: pos.current_price, order_type: 'market', strategy: pos.strategy, reason: `手动卖出 ${pos.profit_pct >= 0 ? '+' : ''}${pos.profit_pct.toFixed(1)}%` }); if (r?.success) { ElMessage.success(`卖出${pos.stock_name} ${pos.available_qty}股@${r.data.filled_price?.toFixed(2)}`); fetchScanner() } else ElMessage.error(r?.data?.message || '失败') } catch (e: any) { ElMessage.error('卖出失败') } }) }
-async function onManualCodeChange(code: string) { if (!code || code.length < 9) { manualQuote.value = null; return } try { const r = await api.get(`${scannerApi}/positions`); const p = (r?.data || []).find((x: any) => x.ts_code === code); if (p) { manualQuote.value = { price: p.current_price, cost: p.cost_price, name: p.stock_name }; if (!manualTrade.stock_name) manualTrade.stock_name = p.stock_name } else { const s = signals.value.find(x => x.ts_code === code); if (s) { manualQuote.value = { price: s.price, name: s.stock_name }; if (!manualTrade.stock_name) manualTrade.stock_name = s.stock_name } else manualQuote.value = null } } catch { manualQuote.value = null } }
+async function onManualCodeChange(code: string) {
+  if (!code || code.length < 9) { manualQuote.value = null; return }
+  // 优先从持仓/信号缓存获取
+  const p = positions.value.find(x => x.ts_code === code)
+  if (p) { manualQuote.value = { price: p.current_price, cost: p.cost_price, name: p.stock_name }; manualTrade.price = p.current_price; if (!manualTrade.stock_name) manualTrade.stock_name = p.stock_name; return }
+  const s = signals.value.find(x => x.ts_code === code)
+  if (s) { manualQuote.value = { price: s.price, name: s.stock_name }; manualTrade.price = s.price; if (!manualTrade.stock_name) manualTrade.stock_name = s.stock_name; return }
+  // 缓存未命中则从quote API获取
+  try { const r = await api.get(`${scannerApi}/quote/${code}`); if (r?.success) { manualQuote.value = { price: r.data.price, name: r.data.name, pct_chg: r.data.pct_chg }; manualTrade.price = r.data.price; if (!manualTrade.stock_name) manualTrade.stock_name = r.data.name } else manualQuote.value = null } catch { manualQuote.value = null }
+}
 const executeManualTrade = async () => { if (!manualTrade.ts_code) return; const sideText = manualTrade.side === 'buy' ? '买入' : '卖出'; const amount = (manualTrade.quantity || 0) * (manualTrade.price || 0); showConfirm(`确认${sideText}`, `${manualTrade.stock_name || manualTrade.ts_code}\n${sideText} ${manualTrade.quantity || 0}股 × ¥${(manualTrade.price || 0).toFixed(2)} ≈ ¥${amount.toFixed(0)}`, async () => { try { const r = await api.post(`${scannerApi}/trade`, { ts_code: manualTrade.ts_code, stock_name: manualTrade.stock_name, side: manualTrade.side, quantity: manualTrade.quantity || 0, price: manualTrade.price || 0, order_type: 'market', strategy: 'manual', reason: '手动操作' }); if (r?.success) { ElMessage.success(`${r.data.side === 'buy' ? '买入' : '卖出'} ${r.data.ts_code} ${r.data.filled_qty}股@${r.data.filled_price}`); manualTrade.ts_code = ''; manualTrade.stock_name = ''; manualTrade.quantity = 0; manualTrade.price = 0; fetchAll(true) } else ElMessage.error('下单失败') } catch (e: any) { ElMessage.error('下单失败') } }) }
 const cumulativePnl = computed(() => { let total = 0; return timeline.value.filter(t => t.action === 'sell' && t.profit_amount != null).reduce((sum, t) => sum + (t.profit_amount || 0), 0) })
 async function fetchScanner() { try { const r = await api.get(`${scannerApi}/all`); if (r?.success) { const d = r.data; if (d.status) status.value = d.status; if (d.signals) signals.value = d.signals; if (d.positions) positions.value = d.positions; if (d.timeline) timeline.value = d.timeline; if (d.orders) orders.value = d.orders } } catch (e) { console.error(e) } }
@@ -120,7 +131,24 @@ async function fetchAll(force = false) { await Promise.all([fetchScanner(), fetc
 async function fetchStrategies() { try { const [sR, rR] = await Promise.all([api.get(`${configApi}/strategies`), api.get(`${configApi}/global-risk`)]); if (sR?.success) strategies.value = sR.data; if (rR?.success) globalRisk.value = rR.data } catch (e) { console.error(e) } }
 async function toggleStrategy(sid: string, enabled: boolean) { try { await api.put(`${configApi}/strategies/${sid}`, { enabled }); await fetchStrategies(); ElMessage.success(enabled ? '已启用' : '已停用') } catch { ElMessage.error('操作失败') } }
 function openEditDialog(strategy: StrategyConfig) { editingStrategy.value = strategy; editParams.value = { ...strategy.params }; editRiskParams.value = { ...strategy.riskParams }; editTab.value = 'params'; editDialogVisible.value = true }
-async function saveStrategy() { if (!editingStrategy.value) return; saving.value = true; try { await api.put(`${configApi}/strategies/${editingStrategy.value.id}`, { params: editParams.value, riskParams: editRiskParams.value }); await fetchStrategies(); editDialogVisible.value = false; ElMessage.success('已保存') } catch { ElMessage.error('保存失败') } finally { saving.value = false } }
+async function saveStrategy() {
+  if (!editingStrategy.value) return
+  // 【P1-9】参数校验
+  const strategy = editingStrategy.value
+  const allDescs = [...(strategy.paramDescriptions || []), ...(strategy.riskDescriptions || [])]
+  const allValues = { ...editParams.value, ...editRiskParams.value }
+  for (const desc of allDescs) {
+    const v = allValues[desc.key]
+    if (v !== undefined && (v < desc.min || v > desc.max)) {
+      ElMessage.warning(`${desc.label} 超出范围(${desc.min}~${desc.max}${desc.unit})，当前值: ${v}`)
+      return
+    }
+  }
+  saving.value = true
+  try { await api.put(`${configApi}/strategies/${strategy.id}`, { params: editParams.value, riskParams: editRiskParams.value }); await fetchStrategies(); editDialogVisible.value = false; ElMessage.success('已保存') }
+  catch { ElMessage.error('保存失败') }
+  finally { saving.value = false }
+}
 async function resetStrategy(sid: string) { try { await api.post(`${configApi}/reset/${sid}`); await fetchStrategies(); ElMessage.success('已重置') } catch { ElMessage.error('重置失败') } }
 onMounted(async () => { await Promise.all([fetchScanner(), fetchStrategies(), fetchDataSources()]); connectWS(); nowTimer = setInterval(() => { nowMs.value = Date.now() }, 1000); const getRefreshInterval = () => { const n = new Date(), h = n.getHours(), m = n.getMinutes(); const isTrading = (h === 9 && m >= 30) || (h >= 10 && h < 15) || (h === 15 && m === 0); return isTrading ? 5000 : 60000 }; refreshTimer = setInterval(() => { if (!autoRefresh.value || ws?.readyState === WebSocket.OPEN) return; fetchScannerFast() }, getRefreshInterval()) })
 onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer); if (nowTimer) clearInterval(nowTimer); disconnectWS() })
@@ -230,8 +258,9 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <div class="mf">
           <ElInput v-model="manualTrade.ts_code" placeholder="代码 000001.SZ" size="small" @change="onManualCodeChange(manualTrade.ts_code)" />
           <div class="mf-row"><ElSelect v-model="manualTrade.side" size="small" style="width:70px"><ElOption label="买入" value="buy" /><ElOption label="卖出" value="sell" /></ElSelect><ElInputNumber v-model="manualTrade.quantity" :min="0" :step="100" placeholder="数量" size="small" style="flex:1" controls-position="right" /></div>
+          <div class="mf-row"><ElInputNumber v-model="manualTrade.price" :min="0" :precision="2" :step="0.01" placeholder="价格(0=市价)" size="small" style="flex:1" controls-position="right" /><span v-if="manualQuote" class="mf-hint" @click="manualTrade.price = manualQuote.price">💰 填入现价</span></div>
           <ElButton type="primary" size="small" :disabled="!manualTrade.ts_code" @click="executeManualTrade" style="width:100%">下单</ElButton>
-          <div v-if="manualQuote" class="mf-q">💡 现价: ¥{{ manualQuote.price?.toFixed(2) }}</div>
+          <div v-if="manualQuote" class="mf-q">💡 现价: ¥{{ manualQuote.price?.toFixed(2) }} <span v-if="manualQuote.pct_chg" :class="manualQuote.pct_chg >= 0 ? 'up' : 'down'">{{ manualQuote.pct_chg >= 0 ? '+' : '' }}{{ manualQuote.pct_chg.toFixed(2) }}%</span></div>
         </div>
       </div>
 
@@ -391,7 +420,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
     <!-- 【P1-7】交易确认弹窗 -->
     <ElDialog v-model="confirmVisible" :title="confirmData.title" width="420px" :close-on-click-modal="false">
       <div style="font-size:14px;line-height:1.8;white-space:pre-line">{{ confirmData.message }}</div>
-      <template #footer><ElButton @click="confirmVisible = false">取消</ElButton><ElButton type="danger" @click="confirmVisible = false; confirmData.onConfirm()">确认执行</ElButton></template>
+      <template #footer><ElButton @click="confirmVisible = false" :disabled="confirmLoading">取消</ElButton><ElButton type="danger" :loading="confirmLoading" @click="handleConfirm">确认执行</ElButton></template>
     </ElDialog>
 
     <!-- 【P1-6】复盘报告弹窗 -->
@@ -475,6 +504,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .mf { display: flex; flex-direction: column; gap: 4px; }
 .mf-row { display: flex; gap: 4px; }
 .mf-q { font-size: 11px; color: #67c23a; padding: 2px 0; }
+.mf-hint { font-size: 11px; color: #409eff; cursor: pointer; padding: 0 4px; white-space: nowrap; }
 
 /* 信号列表 */
 .sl { overflow-y: auto; }

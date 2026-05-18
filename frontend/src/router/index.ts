@@ -26,21 +26,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '个股详情' },
       },
       {
-        path: 'live-trading',
-        redirect: '/monitor',
-      },
-
-      {
         path: 'monitor',
         name: 'MarketMonitor',
         component: () => import('@/views/monitor/MarketMonitorView.vue'),
         meta: { title: '市场监听' },
       },
 
-      {
-        path: 'live-trading',
-        redirect: '/monitor',
-      },
       {
         path: 'strategies',
         redirect: '/monitor',
