@@ -199,23 +199,22 @@ class BacktestValidator:
                 ))
         
         # 校验selected_strategies结构
-        if selected_strategies:
-            for s in selected_strategies:
-                if not isinstance(s, dict):
-                    errors.append(ValidationError(
-                        "selected_strategies",
-                        "策略配置应为字典",
-                        s
-                    ))
-                    continue
-                
-                strategy_id = s.get("id", "")
-                if strategy_id not in self.VALID_STRATEGY_IDS:
-                    errors.append(ValidationError(
-                        "selected_strategies",
-                        f"无效的策略ID: {strategy_id}",
-                        strategy_id
-                    ))
+        for s in selected_strategies:
+            if not isinstance(s, dict):
+                errors.append(ValidationError(
+                    "selected_strategies",
+                    "策略配置应为字典",
+                    s
+                ))
+                continue
+            
+            strategy_id = s.get("id", "")
+            if strategy_id not in self.VALID_STRATEGY_IDS:
+                errors.append(ValidationError(
+                    "selected_strategies",
+                    f"无效的策略ID: {strategy_id}",
+                    strategy_id
+                ))
             
             # 校验策略参数
             params = s.get("params", {})
