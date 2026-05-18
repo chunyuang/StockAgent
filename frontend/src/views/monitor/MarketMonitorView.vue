@@ -502,7 +502,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .sn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: #409eff; color: #fff; font-size: 12px; font-weight: 600; flex-shrink: 0; }
 
 /* 3列主布局 */
-.mm-body { flex: 1; display: grid; grid-template-columns: 240px 1fr 340px; gap: 0; overflow: hidden; }
+.mm-body { flex: 1; display: grid; grid-template-columns: 240px 1fr 600px; gap: 0; overflow: hidden; }
 .mm-left, .mm-center, .mm-right { overflow-y: auto; padding: 10px; }
 .mm-left { background: #fafbfc; border-right: 1px solid #ebeef5; }
 .mm-right { background: #fafbfc; border-left: 1px solid #ebeef5; }
