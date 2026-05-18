@@ -54,6 +54,27 @@ const strategyMeta: Record<string, { color: string; icon: string; desc: string; 
   anomaly_strong: { color: '#409eff', icon: '💪', desc: '强势涨停确认', cn: '强势涨停' },
 }
 const strategyCN = (s: string) => strategyMeta[s]?.cn || s
+const factorCN: Record<string, string> = {
+  pct_chg: '涨跌幅', volume_ratio: '量比', turnover_rate: '换手率',
+  circ_mv: '流通市值', total_mv: '总市值', float_mv: '流通市值',
+  ma5: 'MA5', ma10: 'MA10', ma20: 'MA20', ma60: 'MA60',
+  rsi_6: 'RSI6', rsi_12: 'RSI12', rsi_24: 'RSI24',
+  macd: 'MACD', macd_signal: 'MACD信号', macd_hist: 'MACD柱',
+  boll_upper: '布林上轨', boll_lower: '布林下轨', boll_mid: '布林中轨',
+  atr: 'ATR', momentum_1d: '1日动量',
+  is_limit_up: '涨停', is_limit_down: '跌停',
+  limit_up_count: '涨停次数', limit_up_yesterday: '昨日涨停',
+  limit_down_yesterday: '昨日跌停', first_limit_up: '首板',
+  opening_pct_chg: '竞价涨跌幅', open: '开盘价', high: '最高价',
+  low: '最低价', close: '收盘价', pre_close: '前收盘',
+  pe: 'PE', pb: 'PB', amplitude: '振幅',
+  fear_greed_index: '恐慌贪婪指数',
+  limit_up_open_amount: '涨停开板金额', limit_down_open_amount: '跌停开板金额',
+  pullback_pct: '回调幅度', pullback_days: '回调天数',
+  rise_after_limit_down: '跌停后涨幅',
+  open_times: '开板次数', fd_amount: '封板资金', limit_times: '连板数',
+}
+const factorLabel = (k: string) => factorCN[k] || k
 const tradeMode = ref('simulated')
 const dataSources = ref<any[]>([])
 const brokers = ref<any[]>([])
@@ -92,7 +113,7 @@ async function openTradeAudit() { try { const r = await api.get(`${scannerApi}/t
 function formatDecisionDetail(detail: any): string[] {
   if (!detail) return ['无决策详情']; const lines: string[] = []
   if (detail.filter_pipeline) { const fp = detail.filter_pipeline; lines.push('【9层筛选管道】'); for (const [l, a] of Object.entries(fp.layers_applied || {})) { lines.push(`  ${a ? '✅' : '⏭️'} ${l}: ${fp.layer_details?.[l] || (a ? '生效' : '跳过')}`) }; lines.push(`  仓位系数: ${fp.position_ratio || 'N/A'}`) }
-  if (detail.factors) { lines.push('【关键因子】'); for (const [k, v] of Object.entries(detail.factors)) { if (v !== 0 && v !== null) lines.push(`  ${k}: ${typeof v === 'number' ? v.toFixed(2) : v}`) } }
+  if (detail.factors) { lines.push('【关键因子】'); for (const [k, v] of Object.entries(detail.factors)) { if (v !== 0 && v !== null) lines.push(`  ${factorLabel(k)}: ${typeof v === 'number' ? v.toFixed(2) : v}`) } }
   if (detail.sell_reason) { lines.push('【卖出决策】'); lines.push(`  原因: ${detail.sell_reason}`); if (detail.profit_pct) lines.push(`  盈亏: ${detail.profit_pct.toFixed(2)}%`); if (detail.stop_loss_pct) lines.push(`  止损线: ${detail.stop_loss_pct}%`); if (detail.take_profit_pct) lines.push(`  止盈线: ${detail.take_profit_pct}%`) }
   return lines
 }
@@ -411,7 +432,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           <div v-if="scanTraceData.factors" class="st-factors">
             <div class="st-title">关键因子</div>
             <div class="st-fg">
-              <div v-for="(v, k) in scanTraceData.factors" :key="k" class="st-fi"><span class="st-fl">{{ k }}</span><span class="st-fv">{{ typeof v === 'number' ? v.toFixed(2) : v }}</span></div>
+              <div v-for="(v, k) in scanTraceData.factors" :key="k" class="st-fi"><span class="st-fl">{{ factorLabel(k) }}</span><span class="st-fv">{{ typeof v === 'number' ? v.toFixed(2) : v }}</span></div>
             </div>
           </div>
         </div>
