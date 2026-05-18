@@ -561,7 +561,7 @@ class PortfolioBacktester:
         except Exception as e:
             import traceback
             tb = traceback.format_exc()
-            logger.error('BACKTEST', f'run() unhandled exception: {e}\n{tb}')
+            logger.error('BACKTEST', f'run() 未处理异常: {e}\n{tb}')
             return {"error": f'run() unhandled exception: {e}'}
 
     async def _run_impl(self, config: dict) -> dict:

@@ -138,10 +138,10 @@ function onSweepParamChange() {
             <ElInput v-model="form.dataSource.ts_codes" placeholder="空为全市场，多只逗号分隔" style="width: 300px" />
           </ElFormItem>
           <ElFormItem label="开始日期">
-            <ElInput v-model="form.dataSource.start_date" placeholder="YYYYMMDD" />
+            <ElInput v-model="form.dataSource.start_date" placeholder="如20260105" />
           </ElFormItem>
           <ElFormItem label="结束日期">
-            <ElInput v-model="form.dataSource.end_date" placeholder="YYYYMMDD" />
+            <ElInput v-model="form.dataSource.end_date" placeholder="如20260320" />
           </ElFormItem>
         </ElForm>
       </ElCollapseItem>
@@ -477,9 +477,9 @@ function onSweepParamChange() {
             </ElFormItem>
             <ElFormItem label="支撑位" :disabled="!form.strategyConfigs.dragon_head.enabled">
               <ElSelect v-model="form.strategyConfigs.dragon_head.params.support_level" style="width: 150px" :disabled="!form.strategyConfigs.dragon_head.enabled">
-                <ElOption label="MA5" value="ma5" />
-                <ElOption label="MA10" value="ma10" />
-                <ElOption label="平台" value="platform" />
+                <ElOption label="5日均线" value="ma5" />
+                <ElOption label="10日均线" value="ma10" />
+                <ElOption label="平台支撑" value="platform" />
               </ElSelect>
             </ElFormItem>
           </div>
