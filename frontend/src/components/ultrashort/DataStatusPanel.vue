@@ -193,9 +193,9 @@ onMounted(fetchData)
     <ElCard v-if="status?.data_alignment?.date" style="margin-top: 12px">
       <template #header><span>🔗 数据对齐 ({{ fmtDate(status.data_alignment.date) }})</span></template>
       <div class="alignment-row">
-        <div class="align-block"><div class="align-label">stock_daily</div><div class="align-count">{{ status.data_alignment.stock_daily_count }}</div></div>
+        <div class="align-block"><div class="align-label">日线数据</div><div class="align-count">{{ status.data_alignment.stock_daily_count }}</div></div>
         <div class="align-vs"><div class="align-common">共同 {{ status.data_alignment.common }}</div><div class="align-arrow">⟷</div></div>
-        <div class="align-block"><div class="align-label">daily_basic</div><div class="align-count">{{ status.data_alignment.daily_basic_count }}</div></div>
+        <div class="align-block"><div class="align-label">日基础数据</div><div class="align-count">{{ status.data_alignment.daily_basic_count }}</div></div>
       </div>
       <div class="align-detail" v-if="status.data_alignment.only_in_basic > 0">
         <ElTag type="warning" size="small">日基础数据独有 {{ status.data_alignment.only_in_basic }} 只</ElTag>
