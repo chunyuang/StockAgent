@@ -315,11 +315,8 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <div class="sl">
           <div v-if="!positions.length" class="empty">暂无持仓</div>
           <div v-for="pos in [...positions].sort((a, b) => a.profit_pct - b.profit_pct)" :key="pos.ts_code" class="pos-card">
-            <div class="pos-top"><ElTag size="small" :color="strategyMeta[pos.strategy]?.color || '#909399'" style="color:#fff;border:none;font-size:10px;min-width:48px;text-align:center">{{ pos.strategy_name || strategyCN(pos.strategy) }}</ElTag><span class="code">{{ pos.ts_code }}</span><span class="name">{{ pos.stock_name }}</span><span :class="pos.profit_pct >= 0 ? 'up' : 'down'" class="pct">{{ pos.profit_pct >= 0 ? '+' : '' }}{{ pos.profit_pct.toFixed(1) }}%</span></div>
-            <div class="pos-bar-w"><div class="pos-bar" :style="{ width: Math.min(Math.abs(pos.profit_pct) / 10 * 100, 100) + '%', background: pos.profit_pct >= 0 ? '#67c23a' : '#f56c6c' }"></div></div>
-            <div class="pos-info"><span>{{ pos.shares }}股</span><span>成本{{ pos.cost_price.toFixed(2) }}</span><span>现价{{ pos.current_price.toFixed(2) }}</span><span v-if="pos.market_value" class="mv">市值{{ (pos.market_value / 10000).toFixed(1) }}万</span><span v-if="pos.profit_amount != null" :class="pos.profit_amount >= 0 ? 'up' : 'down'" class="pamt">{{ pos.profit_amount >= 0 ? '+' : '' }}¥{{ Math.abs(pos.profit_amount).toFixed(0) }}</span><span v-if="pos.today_buy > 0" class="t1-tag">T+1</span></div>
-            <div class="pos-risk" v-if="pos.stop_loss_pct != null"><span class="rl stop">止损{{ pos.stop_loss_pct.toFixed(1) }}%</span><span class="rl stop-price">¥{{ pos.stop_loss_price?.toFixed(2) || (pos.cost_price * (1 - pos.stop_loss_pct / 100)).toFixed(2) }}</span><span class="rl profit">止盈{{ pos.take_profit_pct?.toFixed(1) || 7.0 }}%</span><span class="rl profit-price">¥{{ pos.take_profit_price?.toFixed(2) || (pos.cost_price * (1 + (pos.take_profit_pct || 7.0) / 100)).toFixed(2) }}</span><span class="rd" :class="{ danger: pos.profit_pct + (pos.stop_loss_pct || 3) < 2 }">距止损{{ (pos.profit_pct + (pos.stop_loss_pct || 3)).toFixed(1) }}%</span></div>
-            <div class="pos-act"><ElButton size="small" type="danger" plain @click="quickSell(pos)" :disabled="pos.available_qty <= 0">🔴 卖出</ElButton><ElButton size="small" type="info" plain @click="openTradeDetail(pos.ts_code)">🔍 详情</ElButton></div>
+            <div class="pos-top"><ElTag size="small" :color="strategyMeta[pos.strategy]?.color || '#909399'" style="color:#fff;border:none;font-size:10px;min-width:48px;text-align:center">{{ pos.strategy_name || strategyCN(pos.strategy) }}</ElTag><span class="code">{{ pos.ts_code }}</span><span class="name">{{ pos.stock_name }}</span><span :class="pos.profit_pct >= 0 ? 'up' : 'down'" class="pct">{{ pos.profit_pct >= 0 ? '+' : '' }}{{ pos.profit_pct.toFixed(1) }}%</span><span v-if="pos.today_buy > 0" class="t1-tag">T+1</span><ElButton size="small" type="danger" plain @click="quickSell(pos)" :disabled="pos.available_qty <= 0" style="padding:1px 6px;font-size:11px;margin-left:auto">卖出</ElButton><ElButton size="small" type="info" plain @click="openTradeDetail(pos.ts_code)" style="padding:1px 6px;font-size:11px">详情</ElButton></div>
+            <div class="pos-info"><span>{{ pos.shares }}股</span><span>成本{{ pos.cost_price.toFixed(2) }}</span><span>现价{{ pos.current_price.toFixed(2) }}</span><span v-if="pos.market_value" class="mv">市值{{ (pos.market_value / 10000).toFixed(1) }}万</span><span v-if="pos.profit_amount != null" :class="pos.profit_amount >= 0 ? 'up' : 'down'" class="pamt">{{ pos.profit_amount >= 0 ? '+' : '' }}¥{{ Math.abs(pos.profit_amount).toFixed(0) }}</span><span v-if="pos.stop_loss_pct != null" class="rl stop">止损{{ pos.stop_loss_pct.toFixed(1) }}% ¥{{ pos.stop_loss_price?.toFixed(2) || (pos.cost_price * (1 - pos.stop_loss_pct / 100)).toFixed(2) }}</span><span v-if="pos.take_profit_pct != null" class="rl profit">止盈{{ pos.take_profit_pct.toFixed(1) }}% ¥{{ pos.take_profit_price?.toFixed(2) || (pos.cost_price * (1 + (pos.take_profit_pct || 7.0) / 100)).toFixed(2) }}</span><span v-if="pos.stop_loss_pct != null" class="rd" :class="{ danger: pos.profit_pct + (pos.stop_loss_pct || 3) < 2 }">距止损{{ (pos.profit_pct + (pos.stop_loss_pct || 3)).toFixed(1) }}%</span></div>
           </div>
         </div>
         <div class="st" style="margin-top:6px">📈 今日统计</div>
@@ -552,11 +549,8 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .pos-card:hover { border-color: #409eff; }
 .pos-top { display: flex; align-items: center; gap: 6px; }
 .pct { margin-left: auto; font-weight: 700; font-size: 14px; }
-.pos-bar-w { height: 3px; background: #ebeef5; border-radius: 2px; margin: 4px 0; }
-.pos-bar { height: 100%; border-radius: 2px; transition: width 0.3s; background: linear-gradient(90deg, rgba(103,194,58,0.3), rgba(103,194,58,1)); }
 .pos-info { display: flex; gap: 8px; font-size: 11px; color: #606266; }
 .t1-tag { font-size: 10px; color: #e6a23c; background: #fdf6ec; padding: 1px 4px; border-radius: 3px; font-weight: 600; }
-.pos-risk { display: flex; gap: 6px; margin-top: 4px; font-size: 11px; align-items: center; }
 .rl { padding: 1px 5px; border-radius: 3px; font-weight: 500; }
 .rl.stop { color: #f56c6c; background: #fef0f0; }
 .rl.stop-price { color: #f56c6c; background: #fef0f0; font-weight: 700; }
@@ -565,8 +559,6 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .rd { color: #909399; }
 .rd.danger { color: #f56c6c; font-weight: 600; animation: blink 1s infinite; }
 @keyframes blink { 50% { opacity: 0.5; } }
-.pos-act { display: flex; gap: 4px; margin-top: 6px; }
-.pos-act .el-button { padding: 3px 8px; font-size: 11px; }
 
 /* 统计 */
 .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
