@@ -608,7 +608,7 @@ const riskMetrics = computed(() => {
   const ret = result.metrics?.returns || {}
   return [
     { name: '波动率', value: fmtPct(risk.volatility_pct), desc: '收益率的标准差，衡量风险水平' },
-    { name: '信息比率', value: (risk.information_ratio ?? 0).toFixed(2), desc: '超额收益与跟踪误差的比值' },
+    { name: '信息比率', value: risk.information_ratio != null ? risk.information_ratio.toFixed(2) : 'N/A', desc: '超额收益与跟踪误差的比值（暂未计算）' },
     { name: '胜率', value: fmtPct(risk.win_rate_pct ?? result.win_rate), desc: '盈利交易占总交易的比例' },
     { name: '盈亏比', value: (risk.profit_loss_ratio ?? result.profit_loss_ratio ?? 0).toFixed(2), desc: '平均盈利/平均亏损的比值' },
     { name: '最大回撤', value: fmtPct(risk.max_drawdown_pct ?? result.max_drawdown), desc: '净值从最高点到最低点的最大跌幅' },
@@ -627,11 +627,13 @@ function exportTrades() {
     ElMessage.warning('暂无交易记录可导出')
     return
   }
-  const headers = ['买入日期', '股票代码', '股票名称', '策略', '买入价', '卖出价', '收益率(%)', '持仓天数']
+  const headers = ['买入日期', '卖出日期', '股票代码', '股票名称', '策略', '买入价', '卖出价', '收益率(%)', '盈亏额', '持仓天数', '卖出原因']
   const rows = trades.map((t: any) => [
-    t.buy_date || t.date || '', t.ts_code || '', t.name || t.stock_name || '',
-    t.strategy || '', t.buy_price ?? '', t.sell_price ?? '',
-    t.profit_pct != null ? t.profit_pct.toFixed(2) : '-', t.hold_days ?? 1
+    t.buy_date || t.date || '', t.sell_date || '', t.ts_code || '', t.name || t.stock_name || '',
+    STRATEGY_NAMES[t.strategy] || t.strategy || '', t.buy_price ?? '', t.sell_price ?? '',
+    t.profit_pct != null ? t.profit_pct.toFixed(2) : '-',
+    (t.profit_pct != null && t.shares && t.buy_price) ? (t.buy_price * t.shares * t.profit_pct / 100).toFixed(0) : '-',
+    t.hold_days ?? 1, translateSellReason(t.sell_reason || t.reason)
   ])
   const csvContent = [headers.join(','), ...rows.map((r: string[]) => r.join(','))].join('\n')
   const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' })
@@ -760,7 +762,7 @@ function exportTrades() {
             <!-- 策略KPI对比表 -->
             <ElTable :data="Object.entries(result.strategy_results).map(([name, d]: any) => ({ name, ...d }))" size="small" border stripe style="margin-top: 12px">
               <ElTableColumn prop="strategy_name" label="策略" width="120" />
-              <ElTableColumn label="累计盈利%" width="100">
+              <ElTableColumn label="收益率" width="100">
                 <template #default="{ row }">
                   <span :style="{ color: row.total_return >= 0 ? '#67c23a' : '#f56c6c' }">{{ fmtPct(row.total_return) }}</span>
                 </template>
@@ -876,11 +878,11 @@ function exportTrades() {
             <ElTableColumn label="卖出价" width="80">
               <template #default="{ row }">{{ row.sell_price?.toFixed(2) ?? '-' }}</template>
             </ElTableColumn>
-            <ElTableColumn label="盈亏额" width="100" sortable>
+            <ElTableColumn label="盈亏额" width="110" sortable>
               <template #default="{ row }">
                 <template v-if="row.profit_pct != null && row.shares && row.buy_price">
                   <span :style="{ color: row.profit_pct > 0 ? '#67c23a' : '#f56c6c' }">
-                    {{ (row.buy_price * row.shares * row.profit_pct / 100).toFixed(0) }}
+                    ¥{{ (row.buy_price * row.shares * row.profit_pct / 100).toFixed(0) }}
                   </span>
                 </template>
                 <span v-else>-</span>
@@ -903,7 +905,7 @@ function exportTrades() {
             <ElTableColumn label="卖出原因" width="100">
               <template #default="{ row }">{{ translateSellReason(row.sell_reason || row.reason) }}</template>
             </ElTableColumn>
-            <ElTableColumn label="情绪" min-width="80" show-overflow-tooltip />
+            <ElTableColumn prop="sentiment" label="情绪" min-width="80" show-overflow-tooltip />
           </ElTable>
         </ElTabPane>
 
