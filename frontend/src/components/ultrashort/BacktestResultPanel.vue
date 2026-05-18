@@ -66,7 +66,8 @@ function strategyDisplayName(id: string): string {
 
 // 卖出原因中文翻译
 function translateSellReason(reason: string): string {
-  if (!reason) return '--'
+  // 未平仓交易(空字符串或undefined)
+  if (!reason) return '持仓中'
   const map: Record<string, string> = {
     'stop_loss': '止损', '止损': '止损',
     'take_profit': '止盈', '止盈': '止盈',
@@ -77,6 +78,7 @@ function translateSellReason(reason: string): string {
     '冲高回落保护': '冲高回落',
     '次日高开即卖': '高开即卖',
     'gap_down_stop': '跳空止损',
+    '持仓中': '持仓中',
   }
   // 尝试精确匹配
   if (map[reason]) return map[reason]
@@ -84,8 +86,7 @@ function translateSellReason(reason: string): string {
   for (const [key, val] of Object.entries(map)) {
     if (reason.includes(key)) return val
   }
-  // 未平仓交易
-  if (!reason) return '持仓中'
+  // 未匹配, 返回原始值(可能是后端新增的卖出原因)
   return reason
 }
 
@@ -618,7 +619,7 @@ const riskMetrics = computed(() => {
   const ret = result.metrics?.returns || {}
   return [
     { name: '波动率', value: fmtPct(risk.volatility_pct), desc: '收益率的标准差，衡量风险水平' },
-    { name: '信息比率', value: risk.information_ratio != null ? risk.information_ratio.toFixed(2) : 'N/A', desc: '超额收益与跟踪误差的比值（暂未计算）' },
+    { name: '信息比率', value: risk.information_ratio != null ? risk.information_ratio.toFixed(2) : '暂未计算', desc: '超额收益与跟踪误差的比值' },
     { name: '胜率', value: fmtPct(risk.win_rate_pct ?? result.win_rate), desc: '盈利交易占总交易的比例' },
     { name: '盈亏比', value: (risk.profit_loss_ratio ?? result.profit_loss_ratio ?? 0).toFixed(2), desc: '平均盈利/平均亏损的比值' },
     { name: '最大回撤', value: fmtPct(risk.max_drawdown_pct ?? result.max_drawdown), desc: '净值从最高点到最低点的最大跌幅' },
@@ -626,7 +627,7 @@ const riskMetrics = computed(() => {
     { name: '卡玛比率', value: (risk.calmar_ratio ?? result.calmar_ratio ?? 0).toFixed(2), desc: '年化收益/最大回撤' + ((result?.net_value_series?.length || 0) < 250 ? '（短期回测该值虚高）' : '') },
     { name: '索提诺比率', value: (risk.sortino_ratio ?? result.sortino_ratio ?? 0).toFixed(2), desc: '只考虑下行风险的夏普比率' },
     { name: '基准收益', value: fmtPct(ret.benchmark_return_pct), desc: '沪深300同期收益' },
-    { name: 'Alpha', value: fmtPct(ret.alpha_pct), desc: '超额收益(组合-基准)' },
+    { name: '超额收益(Alpha)', value: fmtPct(ret.alpha_pct), desc: '组合收益减去基准(沪深300)收益' },
   ]
 })
 
@@ -814,7 +815,7 @@ function exportTrades() {
               <ElOption label="盈利" value="profit" />
               <ElOption label="亏损" value="loss" />
             </ElSelect>
-            <ElButton size="small" :icon="Download" @click="exportTrades">导出CSV</ElButton>
+            <ElButton size="small" :icon="Download" @click="exportTrades">导出表格</ElButton>
           </div>
           <!-- 盈亏分布+持仓时长小图 -->
           <div style="display: flex; gap: 16px; margin-bottom: 12px">
@@ -912,7 +913,10 @@ function exportTrades() {
             </ElTableColumn>
             <!-- 任务3: 卖出原因列(中文翻译) -->
             <ElTableColumn label="卖出原因" width="100">
-              <template #default="{ row }">{{ translateSellReason(row.sell_reason || row.reason) }}</template>
+              <template #default="{ row }">
+                <span v-if="translateSellReason(row.sell_reason || row.reason) === '持仓中'" style="color: #e6a23c; font-weight: 600">持仓中</span>
+                <span v-else>{{ translateSellReason(row.sell_reason || row.reason) }}</span>
+              </template>
             </ElTableColumn>
             <ElTableColumn prop="sentiment" label="情绪" min-width="80" show-overflow-tooltip />
           </ElTable>

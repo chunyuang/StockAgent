@@ -2145,6 +2145,7 @@ class PortfolioBacktester:
                 'shares': remaining_shares,
                 'profit_pct': None,  # 还未卖出
                 'hold_days': None,  # 还未卖出
+                'sell_reason': '持仓中',  # 还未卖出
             })
 
         # 初始化绩效指标（避免 UnboundLocalError 当0交易时）
