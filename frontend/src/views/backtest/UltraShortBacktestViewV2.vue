@@ -4,7 +4,7 @@
  * 主页面：状态管理 + 回测提交 + WebSocket/轮询
  * 子组件：StrategyConfigPanel / AnsiLogPanel / BacktestSummaryTable / BacktestResultPanel
  */
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import StrategyConfigPanel from '@/components/ultrashort/StrategyConfigPanel.vue'
 import AnsiLogPanel from '@/components/backtest/AnsiLogPanel.vue'
@@ -19,6 +19,27 @@ import { GLOBAL_RISK, STRATEGY_CONFIGS } from '@/config/strategyDefaults'
 // API
 import { backtestApi } from '@/api'
 import type { BacktestHistoryItem } from '@/api/modules/backtest'
+
+// ECharts for sweep chart
+import { use } from 'echarts/core'
+import { CanvasRenderer } from 'echarts/renderers'
+import { LineChart } from 'echarts/charts'
+import { TitleComponent, TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
+import VChart from 'vue-echarts'
+
+use([CanvasRenderer, LineChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent])
+
+// ==================== 参数扫描配置 ====================
+
+const SWEEP_PARAMS = [
+  { value: 'stop_loss_pct', label: '止损比例', unit: '%', factor: 100, min: 1, max: 20, step: 1 },
+  { value: 'take_profit_pct', label: '止盈比例', unit: '%', factor: 100, min: 1, max: 50, step: 1 },
+  { value: 'max_hold_days', label: '最大持仓天数', unit: '天', factor: 1, min: 1, max: 10, step: 1 },
+  { value: 'max_position_per_stock', label: '单票最大仓位', unit: '%', factor: 100, min: 5, max: 50, step: 5 },
+  { value: 'max_position', label: '总仓位上限', unit: '%', factor: 100, min: 10, max: 100, step: 10 },
+  { value: 'min_rise_pct', label: '半路追涨最小涨幅', unit: '%', factor: 100, min: 1, max: 10, step: 1 },
+  { value: 'min_volume_ratio', label: '最小量比', unit: '倍', factor: 1, min: 0.5, max: 5, step: 0.5 },
+]
 
 // ==================== 状态 ====================
 
@@ -75,6 +96,13 @@ const form = reactive({
     enable_take_profit: true,
   },
   strategies: ['halfway_chase', 'first_limit_up', 'dragon_head', 'limit_down_qiao'],
+  sweep: {
+    enabled: false,
+    param: 'stop_loss_pct',
+    start: 0.02,
+    end: 0.07,
+    step: 0.01,
+  },
   strategyConfigs: {
     halfway_chase: {
       enabled: STRATEGY_CONFIGS.halfway_chase.enabled, name: STRATEGY_CONFIGS.halfway_chase.name,
@@ -239,6 +267,15 @@ onMounted(async () => {
   } catch {}
 })
 
+// ==================== 任务5: 运行状态/耗时 ====================
+
+const backtestStartTime = ref<number>(0)
+const elapsedSeconds = ref(0)
+let elapsedTimer: ReturnType<typeof setInterval> | null = null
+
+const sweepResult = ref<any>(null)
+const sweepLoading = ref(false)
+
 // ==================== 方法 ====================
 
 const submitBacktest = async () => {
@@ -247,10 +284,16 @@ const submitBacktest = async () => {
     return
   }
 
+  // 任务5: 开始计时
+  backtestStartTime.value = Date.now()
+  elapsedSeconds.value = 0
+  elapsedTimer = setInterval(() => { elapsedSeconds.value = Math.floor((Date.now() - backtestStartTime.value) / 1000) }, 1000)
+
   backtestState.running = true
   backtestState.progress = 0
   logs.value = []
   backtestResult.value = null
+  sweepResult.value = null
 
   addLog('🚀 【实盘级】开始提交超短策略回测任务...')
   addLog(`📅 回测区间: ${form.dataSource.start_date} -> ${form.dataSource.end_date}`)
@@ -376,10 +419,12 @@ const submitBacktest = async () => {
       else if (data.type === 'result') {
         backtestResult.value = data.result
         backtestState.running = false
+        if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null }
         addLog('✅ 回测全部完成！')
         ElMessage.success('回测完成！')
         ws.close()
       } else if (data.type === 'error') {
+        if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null }
         addLog(`❌ 回测失败：${data.message}`)
         backtestState.running = false
         ElMessage.error(`回测失败：${data.message}`)
@@ -442,11 +487,146 @@ const submitBacktest = async () => {
       tryReconnect()
     }
   } catch (e: any) {
+    if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null }
     addLog(`❌ 提交回测任务失败：${e.message || '未知错误'}`)
     backtestState.running = false
     ElMessage.error(`提交回测失败：${e.message || '未知错误'}`)
   }
 }
+
+// ==================== 参数扫描提交 ====================
+
+const submitSweepBacktest = async () => {
+  if (backtestState.running || sweepLoading.value) {
+    ElMessage.warning('回测正在运行中')
+    return
+  }
+
+  sweepLoading.value = true
+  sweepResult.value = null
+
+  const strategyKeys = Object.keys(form.strategyConfigs) as (keyof typeof form.strategyConfigs)[]
+  const selected_strategies = form.strategies
+    .filter(id => strategyKeys.includes(id as keyof typeof form.strategyConfigs))
+    .map(id => {
+      const cfg = form.strategyConfigs[id as keyof typeof form.strategyConfigs]
+      return { id, name: cfg.name, enabled: cfg.enabled, params: { ...cfg.params }, riskParams: { ...cfg.riskParams } }
+    })
+  const strategyParamsMap: Record<string, any> = {}
+  for (const id of form.strategies) {
+    if (strategyKeys.includes(id as keyof typeof form.strategyConfigs)) {
+      strategyParamsMap[id] = { ...form.strategyConfigs[id as keyof typeof form.strategyConfigs].params }
+    }
+  }
+
+  try {
+    const res = await backtestApi.submitSweepBacktest({
+      strategies: form.strategies,
+      selected_strategies,
+      start_date: form.dataSource.start_date,
+      end_date: form.dataSource.end_date,
+      data_source: 'mongodb',
+      period: form.dataSource.period,
+      ts_codes: form.dataSource.ts_codes,
+      adjust_type: form.dataSource.adjust_type,
+      initial_cash: form.base.initial_cash,
+      rebalance_freq: 'daily',
+      params: {
+        volume_threshold: form.globalFilter.min_turnover_rate,
+        stop_loss_pct: form.tradeParams.base_stop_loss_pct,
+        take_profit_pct: form.tradeParams.base_take_profit_pct,
+        max_hold_days: form.tradeParams.max_hold_days,
+        max_position: form.tradeParams.max_total_position,
+        liquidity_threshold: form.globalFilter.min_daily_amount,
+        max_position_per_stock: form.tradeParams.max_position_per_stock,
+        commission_rate: form.tradeParams.commission_rate ?? GLOBAL_RISK.commission_rate,
+        stamp_duty_rate: form.tradeParams.stamp_duty_rate ?? GLOBAL_RISK.stamp_duty_rate,
+        slippage_pct: form.tradeParams.slippage_pct ?? GLOBAL_RISK.slippage_pct,
+        sentiment_cycle: form.sentimentCycle.enabled,
+        auction_filter: form.auctionFilter.enabled,
+        enable_stop_loss: form.tradeParams.enable_stop_loss ?? true,
+        enable_take_profit: form.tradeParams.enable_take_profit ?? true,
+        enable_ma60_filter: form.globalFilter.enable_ma60_filter ?? true,
+        enable_sector_concentration: form.globalFilter.enable_sector_concentration ?? true,
+      },
+      strategy_params: strategyParamsMap,
+      enable_force_empty: form.forceEmpty.enabled,
+      enable_sentiment_cycle: form.sentimentCycle.enabled,
+      enable_auction_filter: form.auctionFilter.enabled,
+      enable_stop_loss: form.tradeParams.enable_stop_loss ?? true,
+      enable_take_profit: form.tradeParams.enable_take_profit ?? true,
+      enable_ma60_filter: form.globalFilter.enable_ma60_filter ?? true,
+      enable_sector_concentration: form.globalFilter.enable_sector_concentration ?? true,
+      exclude_st: form.globalFilter.exclude_st ?? true,
+      forceEmpty: { enabled: form.forceEmpty.enabled, limit_down_count: form.forceEmpty.limit_down_count ?? 50, limit_up_count: form.forceEmpty.limit_up_count ?? 10, index_drop_pct: form.forceEmpty.index_drop_pct ?? 0.02 },
+      sentimentCycle: { enabled: form.sentimentCycle.enabled },
+      auctionFilter: { enabled: form.auctionFilter.enabled },
+      globalFilter: { exclude_st: form.globalFilter.exclude_st ?? true, exclude_delisting: form.globalFilter.exclude_delisting ?? true, exclude_new_stock_days: form.globalFilter.exclude_new_stock_days ?? 60, min_turnover_rate: form.globalFilter.min_turnover_rate ?? 1.5 },
+      sweep_param: form.sweep.param,
+      sweep_start: form.sweep.start,
+      sweep_end: form.sweep.end,
+      sweep_step: form.sweep.step,
+    })
+    sweepResult.value = res
+    ElMessage.success('参数扫描完成！')
+  } catch (e: any) {
+    ElMessage.error(`参数扫描失败：${e.message || '未知错误'}`)
+  } finally {
+    sweepLoading.value = false
+  }
+}
+
+// 扫描参数选择变更时，重置范围
+const currentSweepParam = computed(() => SWEEP_PARAMS.find(p => p.value === form.sweep.param))
+// Note: onSweepParamChange is in StrategyConfigPanel which has direct form access
+
+// 扫描结果折线图配置
+const sweepChartOption = computed(() => {
+  if (!sweepResult.value?.results?.length) return null
+  const r = sweepResult.value
+  const values = r.results.map((item: any) => {
+    const param = SWEEP_PARAMS.find((p: any) => p.value === r.sweep_param)
+    return param ? +(item.value * param.factor).toFixed(2) : item.value
+  })
+  return {
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['收益率(%)', '胜率(%)', '最大回撤(%)'] },
+    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+    xAxis: {
+      type: 'category',
+      data: values,
+      name: currentSweepParam.value?.label || r.sweep_param,
+    },
+    yAxis: [
+      { type: 'value', name: '收益率(%)', axisLabel: { formatter: '{value}%' } },
+      { type: 'value', name: '回撤(%)', axisLabel: { formatter: '{value}%' } },
+    ],
+    series: [
+      {
+        name: '收益率(%)', type: 'line',
+        data: r.results.map((item: any) => +(item.total_return).toFixed(2)),
+        lineStyle: { color: '#67c23a', width: 2 },
+        itemStyle: { color: '#67c23a' },
+      },
+      {
+        name: '胜率(%)', type: 'line',
+        data: r.results.map((item: any) => +(item.win_rate).toFixed(1)),
+        lineStyle: { color: '#409eff', width: 2 },
+        itemStyle: { color: '#409eff' },
+      },
+      {
+        name: '最大回撤(%)', type: 'line', yAxisIndex: 1,
+        data: r.results.map((item: any) => +(item.max_drawdown).toFixed(2)),
+        lineStyle: { color: '#f56c6c', width: 2, type: 'dashed' },
+        itemStyle: { color: '#f56c6c' },
+      },
+    ],
+  }
+})
+
+onUnmounted(() => {
+  if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null }
+})
 
 const addLog = (text: string) => {
   // 【P3-1修复：使用requestAnimationFrame防抖，避免高频日志导致DOM频繁更新】
@@ -539,12 +719,46 @@ function onViewLogs(taskId: string) {
         <!-- 策略配置面板 -->
         <StrategyConfigPanel
           :form="form"
-          :backtestRunning="backtestState.running"
+          :backtestRunning="backtestState.running || sweepLoading"
+          :sweepEnabled="form.sweep.enabled"
           v-model:activeCollapse="activeCollapse"
-          @submit="submitBacktest"
+          @submit="form.sweep.enabled ? submitSweepBacktest() : submitBacktest()"
         />
       </div>
       <div class="config-right">
+        <!-- 任务5: 运行状态/耗时 -->
+        <div v-if="backtestState.running" class="running-status">
+          ⏱ 已运行 {{ Math.floor(elapsedSeconds / 60) }}:{{ String(elapsedSeconds % 60).padStart(2, '0') }}
+          <span v-if="backtestState.progress > 0"> · 进度 {{ backtestState.progress }}%</span>
+        </div>
+        <div v-if="backtestResult?.execution_time_ms" class="execution-time">
+          ⏱ 回测耗时 {{ (backtestResult.execution_time_ms / 1000).toFixed(1) }}秒 · 覆盖 {{ backtestResult?.net_value_series?.length || 0 }} 个交易日
+        </div>
+
+        <!-- 参数扫描结果 -->
+        <ElCard v-if="sweepResult" style="margin-bottom: 16px">
+          <template #header><span>📊 参数扫描结果 - {{ currentSweepParam?.label || sweepResult.sweep_param }}</span></template>
+          <VChart v-if="sweepChartOption" :option="sweepChartOption" autoresize style="height: 400px; width: 100%" />
+          <ElTable v-if="sweepResult.results?.length" :data="sweepResult.results" size="small" border stripe style="margin-top: 12px">
+            <ElTableColumn label="参数值" width="100">
+              <template #default="{ row }">{{ currentSweepParam ? (row.value * currentSweepParam.factor).toFixed(2) + currentSweepParam.unit : row.value }}</template>
+            </ElTableColumn>
+            <ElTableColumn label="收益率" width="100">
+              <template #default="{ row }"><span :style="{ color: row.total_return >= 0 ? '#67c23a' : '#f56c6c' }">{{ row.total_return?.toFixed(2) }}%</span></template>
+            </ElTableColumn>
+            <ElTableColumn label="胜率" width="80">
+              <template #default="{ row }">{{ row.win_rate?.toFixed(1) }}%</template>
+            </ElTableColumn>
+            <ElTableColumn label="最大回撤" width="100">
+              <template #default="{ row }"><span style="color: #f56c6c">{{ row.max_drawdown?.toFixed(2) }}%</span></template>
+            </ElTableColumn>
+            <ElTableColumn label="夏普" width="80">
+              <template #default="{ row }">{{ row.sharpe_ratio?.toFixed(2) }}</template>
+            </ElTableColumn>
+            <ElTableColumn prop="total_trades" label="交易数" width="80" />
+          </ElTable>
+        </ElCard>
+
         <!-- 回测进度条 -->
         <ElCard v-if="backtestState.running" class="progress-card" style="margin-bottom: 16px">
           <ElProgress :percentage="backtestState.progress" :stroke-width="18" :text-inside="true" status="success" />
@@ -675,6 +889,28 @@ function onViewLogs(taskId: string) {
   flex: 1;
   overflow-y: auto;
   min-width: 0;
+}
+.running-status {
+  padding: 8px 16px;
+  background: linear-gradient(135deg, #e6f7ff 0%, #bae7ff 100%);
+  border-radius: 6px;
+  margin-bottom: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1890ff;
+  animation: pulse 2s infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+.execution-time {
+  padding: 6px 16px;
+  background: #f0f9eb;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: #67c23a;
 }
 .tab-content-full {
   flex: 1;

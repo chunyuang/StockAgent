@@ -19,9 +19,20 @@ import {
 } from 'element-plus'
 import { VideoPlay as Play } from '@element-plus/icons-vue'
 
+const SWEEP_PARAMS = [
+  { value: 'stop_loss_pct', label: '止损比例', unit: '%', factor: 100, min: 1, max: 20, step: 1 },
+  { value: 'take_profit_pct', label: '止盈比例', unit: '%', factor: 100, min: 1, max: 50, step: 1 },
+  { value: 'max_hold_days', label: '最大持仓天数', unit: '天', factor: 1, min: 1, max: 10, step: 1 },
+  { value: 'max_position_per_stock', label: '单票最大仓位', unit: '%', factor: 100, min: 5, max: 50, step: 5 },
+  { value: 'max_position', label: '总仓位上限', unit: '%', factor: 100, min: 10, max: 100, step: 10 },
+  { value: 'min_rise_pct', label: '半路追涨最小涨幅', unit: '%', factor: 100, min: 1, max: 10, step: 1 },
+  { value: 'min_volume_ratio', label: '最小量比', unit: '倍', factor: 1, min: 0.5, max: 5, step: 0.5 },
+]
+
 const props = defineProps<{
   form: any
   backtestRunning: boolean
+  sweepEnabled?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -57,6 +68,19 @@ function toggleStrategy(strategyId: string) {
     props.form.strategies = props.form.strategies.filter((k: string) => k !== strategyId)
   }
 }
+
+// 扫描参数辅助
+const currentSweepParam = computed(() => SWEEP_PARAMS.find(p => p.value === props.form.sweep.param))
+const currentSweepUnit = computed(() => currentSweepParam.value?.unit || '')
+
+function onSweepParamChange() {
+  const p = currentSweepParam.value
+  if (p) {
+    props.form.sweep.start = p.min / p.factor
+    props.form.sweep.end = p.max / p.factor
+    props.form.sweep.step = p.step / p.factor
+  }
+}
 </script>
 
 <template>
@@ -64,11 +88,41 @@ function toggleStrategy(strategyId: string) {
     <template #header>
       <div class="card-header">
         <span>⚙️ 回测配置</span>
-        <ElButton @click="emit('submit')" :icon="Play" type="success" :loading="backtestRunning" size="large">
-          {{ backtestRunning ? '回测中...' : '开始回测' }}
-        </ElButton>
+        <div class="header-actions">
+          <div class="sweep-toggle">
+            <span class="sweep-label">参数扫描</span>
+            <ElSwitch v-model="form.sweep.enabled" size="small" />
+          </div>
+          <ElButton @click="emit('submit')" :icon="Play" type="success" :loading="backtestRunning" size="large">
+            {{ backtestRunning ? (form.sweep.enabled ? '扫描中...' : '回测中...') : (form.sweep.enabled ? '开始扫描' : '开始回测') }}
+          </ElButton>
+        </div>
       </div>
     </template>
+
+    <!-- 参数扫描配置 -->
+    <div v-if="form.sweep.enabled" class="sweep-config">
+      <div class="sweep-config-title">🔬 参数扫描配置</div>
+      <ElForm label-width="120px" size="small">
+        <ElFormItem label="扫描参数">
+          <ElSelect v-model="form.sweep.param" @change="onSweepParamChange" style="width: 200px">
+            <ElOption v-for="p in SWEEP_PARAMS" :key="p.value" :label="p.label" :value="p.value" />
+          </ElSelect>
+        </ElFormItem>
+        <ElFormItem label="起始值">
+          <ElInputNumber v-model="form.sweep.start" :min="0" :step="0.01" :precision="3" style="width: 150px" />
+          <span class="unit">{{ currentSweepUnit }}</span>
+        </ElFormItem>
+        <ElFormItem label="结束值">
+          <ElInputNumber v-model="form.sweep.end" :min="0" :step="0.01" :precision="3" style="width: 150px" />
+          <span class="unit">{{ currentSweepUnit }}</span>
+        </ElFormItem>
+        <ElFormItem label="步长">
+          <ElInputNumber v-model="form.sweep.step" :min="0.001" :step="0.01" :precision="3" style="width: 150px" />
+          <span class="unit">{{ currentSweepUnit }}</span>
+        </ElFormItem>
+      </ElForm>
+    </div>
 
     <ElCollapse v-model="activeCollapse">
       <!-- 数据源配置 -->
@@ -516,6 +570,33 @@ export default { name: 'StrategyConfigPanel' }
     align-items: center;
     font-weight: 600;
     font-size: 16px;
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .sweep-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      .sweep-label {
+        font-size: 13px;
+        color: #606266;
+      }
+    }
+  }
+}
+.sweep-config {
+  padding: 12px 16px;
+  background: #f0f5ff;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  border: 1px dashed #409eff;
+  .sweep-config-title {
+    font-weight: 600;
+    font-size: 13px;
+    color: #409eff;
+    margin-bottom: 8px;
   }
 }
 .unit {
