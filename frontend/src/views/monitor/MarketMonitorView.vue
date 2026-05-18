@@ -295,6 +295,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           <ElButton type="primary" size="small" :disabled="!manualTrade.ts_code" @click="executeManualTrade" style="width:100%">下单</ElButton>
           <div v-if="manualQuote" class="mf-q">💡 现价: ¥{{ manualQuote.price?.toFixed(2) }} <span v-if="manualQuote.pct_chg" :class="manualQuote.pct_chg >= 0 ? 'up' : 'down'">{{ manualQuote.pct_chg >= 0 ? '+' : '' }}{{ manualQuote.pct_chg.toFixed(2) }}%</span></div>
         </div>
+
       </div>
 
       <!-- 中列: 信号+行情 -->
@@ -330,12 +331,17 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 
     <!-- 底部时间线 -->
     <div v-if="isRunning || timeline.length" class="mm-footer">
-      <div class="st">⏱️ 交易时间线 ({{ timeline.length }}) <span v-if="cumulativePnl !== 0" :class="cumulativePnl >= 0 ? 'up' : 'down'" style="font-size:12px;margin-left:6px">累计{{ cumulativePnl >= 0 ? '+' : '' }}¥{{ cumulativePnl.toFixed(0) }}</span> <ElButton v-if="timeline.length" size="small" type="warning" @click="openTradeAudit" style="margin-left:6px">🔍 审查全部</ElButton> <div style="display:inline-flex;align-items:center;gap:4px;margin-left:8px"><ElDatePicker v-model="historyDate" type="date" placeholder="选择日期" size="small" value-format="YYYY-MM-DD" style="width:140px" :disabled-date="(d: Date) => d > new Date()" /><ElButton size="small" @click="loadHistory" :loading="historyLoading" style="padding:2px 8px;font-size:11px">回放</ElButton><ElButton v-if="historyData.length" size="small" type="info" @click="historyData=[];historyDate=''" style="padding:2px 8px;font-size:11px">返回今日</ElButton></div></div>
-      <div class="tl-scroll">
-        <div v-if="historyData.length" class="history-tag">📜 {{ historyDate }} 历史回放 ({{ historyData.length }}条)</div>
-        <div v-if="!historyData.length && !timeline.length" class="empty">暂无交易</div>
-        <div v-for="(item, i) in historyData.length ? historyData : timeline" :key="i" class="tl-row" @click="openTradeDetail(item.ts_code)" style="cursor:pointer"><span class="tl-time">{{ item.time }}</span><span class="tl-action" :class="item.action === 'buy' ? 'buy' : 'sell'">{{ item.action === 'buy' ? '买' : '卖' }}</span><span class="code">{{ item.ts_code }}</span><span class="name">{{ item.stock_name }}</span><span class="tl-detail">{{ item.shares }}股@{{ item.price.toFixed(2) }}</span><span v-if="item.profit_pct !== undefined" :class="item.profit_pct >= 0 ? 'up' : 'down'">{{ item.profit_pct >= 0 ? '+' : '' }}{{ item.profit_pct.toFixed(1) }}%</span><span v-if="item.profit_amount != null" :class="item.profit_amount >= 0 ? 'up' : 'down'" class="tl-amt">{{ item.profit_amount >= 0 ? '+' : '' }}¥{{ item.profit_amount.toFixed(0) }}</span><span class="tl-reason">{{ item.reason }}</span></div>
-        <div v-if="orders.length" style="margin-top:6px;padding-top:6px;border-top:1px dashed #dcdfe6"><div style="font-size:12px;font-weight:600;color:#606266;margin-bottom:4px">📋 历史订单 ({{ orders.length }})</div><div v-for="o in orders.slice(0, 15)" :key="o.order_id" class="tl-row" @click="openTradeDetail(o.ts_code)" style="cursor:pointer"><span class="tl-time">{{ o.trade_date?.slice(-4) || '' }} {{ o.create_time }}</span><span class="tl-action" :class="o.side === 'buy' ? 'buy' : 'sell'">{{ o.side === 'buy' ? '买' : '卖' }}</span><span class="code">{{ o.ts_code }}</span><span class="name">{{ o.stock_name }}</span><span class="tl-detail">{{ o.filled_qty }}股@{{ o.filled_price?.toFixed(2) || '0.00' }}</span><span style="font-size:11px;color:#909399">{{ strategyCN(o.strategy) }}</span></div></div>
+      <div class="tl-header"><div class="st">⏱️ 交易时间线 ({{ timeline.length }}) <span v-if="cumulativePnl !== 0" :class="cumulativePnl >= 0 ? 'up' : 'down'" style="font-size:12px;margin-left:6px">累计{{ cumulativePnl >= 0 ? '+' : '' }}¥{{ cumulativePnl.toFixed(0) }}</span> <ElButton v-if="timeline.length" size="small" type="warning" @click="openTradeAudit" style="margin-left:6px">🔍 审查全部</ElButton> <div style="display:inline-flex;align-items:center;gap:4px;margin-left:8px"><ElDatePicker v-model="historyDate" type="date" placeholder="选择日期" size="small" value-format="YYYY-MM-DD" style="width:140px" :disabled-date="(d: Date) => d > new Date()" /><ElButton size="small" @click="loadHistory" :loading="historyLoading" style="padding:2px 8px;font-size:11px">回放</ElButton><ElButton v-if="historyData.length" size="small" type="info" @click="historyData=[];historyDate=''" style="padding:2px 8px;font-size:11px">返回今日</ElButton></div></div></div>
+      <div class="tl-body">
+        <div class="tl-col">
+          <div v-if="historyData.length" class="history-tag">📜 {{ historyDate }} 历史回放 ({{ historyData.length }}条)</div>
+          <div v-if="!historyData.length && !timeline.length" class="empty">暂无交易</div>
+          <div v-for="(item, i) in historyData.length ? historyData : timeline" :key="i" class="tl-row" @click="openTradeDetail(item.ts_code)" style="cursor:pointer"><span class="tl-time">{{ item.time }}</span><span class="tl-action" :class="item.action === 'buy' ? 'buy' : 'sell'">{{ item.action === 'buy' ? '买' : '卖' }}</span><span class="code">{{ item.ts_code }}</span><span class="name">{{ item.stock_name }}</span><span class="tl-detail">{{ item.shares }}股@{{ item.price.toFixed(2) }}</span><span v-if="item.profit_pct !== undefined" :class="item.profit_pct >= 0 ? 'up' : 'down'">{{ item.profit_pct >= 0 ? '+' : '' }}{{ item.profit_pct.toFixed(1) }}%</span><span v-if="item.profit_amount != null" :class="item.profit_amount >= 0 ? 'up' : 'down'" class="tl-amt">{{ item.profit_amount >= 0 ? '+' : '' }}¥{{ item.profit_amount.toFixed(0) }}</span></div>
+        </div>
+        <div class="tl-col" v-if="orders.length">
+          <div class="st">📋 历史订单 ({{ orders.length }})</div>
+          <div v-for="o in orders.slice(0, 20)" :key="o.order_id" class="tl-row" @click="openTradeDetail(o.ts_code)" style="cursor:pointer"><span class="tl-time">{{ o.trade_date?.slice(-4) || '' }} {{ o.create_time }}</span><span class="tl-action" :class="o.side === 'buy' ? 'buy' : 'sell'">{{ o.side === 'buy' ? '买' : '卖' }}</span><span class="code">{{ o.ts_code }}</span><span class="name">{{ o.stock_name }}</span><span class="tl-detail">{{ o.filled_qty }}股@{{ o.filled_price?.toFixed(2) || '0.00' }}</span><span style="font-size:11px;color:#909399">{{ strategyCN(o.strategy) }}</span></div>
+        </div>
       </div>
     </div>
 
@@ -571,8 +577,10 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .sl2 { font-size: 11px; color: #909399; }
 
 /* 底部时间线 */
-.mm-footer { flex-shrink: 0; max-height: 180px; border-top: 1px solid #ebeef5; padding: 6px 16px; background: #fff; }
-.tl-scroll { overflow-y: auto; max-height: 140px; }
+.mm-footer { flex-shrink: 0; border-top: 1px solid #ebeef5; padding: 6px 16px; background: #fff; }
+.tl-body { display: flex; gap: 16px; }
+.tl-col { flex: 1; overflow-y: auto; max-height: 260px; min-width: 0; }
+.tl-col + .tl-col { border-left: 1px solid #ebeef5; padding-left: 16px; }
 .tl-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: 12px; border-bottom: 1px solid #f9f9f9; cursor: pointer; }
 .tl-row:hover { background: #f5f7fa; }
 .tl-time { font-size: 11px; color: #909399; min-width: 50px; }
