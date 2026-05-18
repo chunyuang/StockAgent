@@ -198,11 +198,11 @@ onMounted(fetchData)
         <div class="align-block"><div class="align-label">daily_basic</div><div class="align-count">{{ status.data_alignment.daily_basic_count }}</div></div>
       </div>
       <div class="align-detail" v-if="status.data_alignment.only_in_basic > 0">
-        <ElTag type="warning" size="small">daily_basic独有 {{ status.data_alignment.only_in_basic }} 只</ElTag>
+        <ElTag type="warning" size="small">日基础数据独有 {{ status.data_alignment.only_in_basic }} 只</ElTag>
         <span class="align-samples">(停牌/非A股: {{ status.data_alignment.only_in_basic_samples.join(', ') }}...)</span>
       </div>
       <div class="align-detail" v-if="status.data_alignment.only_in_daily > 0">
-        <ElTag type="danger" size="small">stock_daily独有 {{ status.data_alignment.only_in_daily }} 只</ElTag>
+        <ElTag type="danger" size="small">日线数据独有 {{ status.data_alignment.only_in_daily }} 只</ElTag>
       </div>
     </ElCard>
 
