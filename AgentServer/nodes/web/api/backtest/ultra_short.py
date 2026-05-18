@@ -338,8 +338,9 @@ async def get_ultra_short_history(
             "started_at": 1, "params": 1, "result.total_return": 1,
             "result.win_rate": 1, "result.sharpe_ratio": 1, "result.max_drawdown": 1,
             "result.total_signals": 1, "result.completed_trades": 1,
+            "result.total_trades": 1, "result.profit_loss_ratio": 1,
             "result.initial_cash": 1, "result.final_value": 1,
-            "result.trades": 1,
+            "result.trades": 1, "result.merged_trades": 1,
             # 【P2-4修复：添加嵌套字段projection】
             "result.performance": 1, "result.strategies": 1,
             "result.summary": 1, "result.charts": 1,
@@ -357,22 +358,23 @@ async def get_ultra_short_history(
             "created_at": r.get("created_at", "").isoformat() if r.get("created_at") else None,
             "completed_at": r.get("completed_at", "").isoformat() if r.get("completed_at") else None,
             "started_at": r.get("started_at", "").isoformat() if r.get("started_at") else None,
-            # 参数(从内层params取)
-            "start_date": inner_params.get("start_date"),
-            "end_date": inner_params.get("end_date"),
-            "initial_cash": inner_params.get("initial_cash", 1000000),
-            "strategies": inner_params.get("strategies", []),
-            "strategy_params": inner_params.get("strategy_params", {}),
+            # 参数: start_date/strategies/initial_cash在params顶层, 风控在内层
+            "start_date": params.get("start_date") or inner_params.get("start_date"),
+            "end_date": params.get("end_date") or inner_params.get("end_date"),
+            "initial_cash": params.get("initial_cash") or inner_params.get("initial_cash", 1000000),
+            "strategies": params.get("strategies") or inner_params.get("strategies", []),
+            "strategy_params": inner_params,
             # 结果
             "total_return": result.get("total_return"),
             "win_rate": result.get("win_rate"),
             "sharpe_ratio": result.get("sharpe_ratio"),
             "max_drawdown": result.get("max_drawdown"),
             "total_signals": result.get("total_signals"),
+            "profit_loss_ratio": result.get("profit_loss_ratio"),
             "completed_trades": result.get("completed_trades"),
             "initial_cash_result": result.get("initial_cash"),
             "final_value": result.get("final_value"),
-            "trades_count": len(result.get("trades", [])),
+            "trades_count": result.get("total_trades") or len(result.get("merged_trades", [])) or len(result.get("trades", [])),
         }
         items.append(item)
 

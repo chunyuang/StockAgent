@@ -2511,7 +2511,10 @@ class PortfolioBacktester:
         result["stock_names"] = stock_names
         result["net_value_series"] = net_value_series
         result["drawdown_series"] = formatted_drawdown_series
-        result["daily_profit"] = daily_profit
+        # 【P0修复】daily_profit统一为归一化小数(÷initial_cash)，与net_value_series[].daily_profit一致
+        # 之前是绝对值(元)，前端如果从顶层读取会与net_value_series不一致
+        _dp_normalized = [p / self._initial_cash if self._initial_cash > 0 else 0.0 for p in daily_profit]
+        result["daily_profit"] = _dp_normalized
         result["benchmark_data"] = benchmark_data
 
         # 【P2-12：补全前端图表所需字段】
@@ -2556,8 +2559,8 @@ class PortfolioBacktester:
             strategy_results[sname] = {
                 "strategy_name": sname,
                 "win_rate": (wins / len(completed) * 100) if completed else 0,
-                "total_return": total_pnl,  # 【P1-2修复】total_return=总收益率(之前误用avg_pnl)
-                "avg_profit_pct": avg_pnl,  # 平均盈亏百分比
+                "total_return": total_pnl,  # 累计盈利百分比(profit_pct之和, 非组合收益率)
+                "avg_profit_pct": avg_pnl,  # 平均盈亏百分比(单笔)
                 "trades_count": len(completed),
                 "max_drawdown": strategy_max_dd,
             }
