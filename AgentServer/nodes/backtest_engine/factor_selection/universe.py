@@ -80,7 +80,7 @@ class UniverseManager:
         stocks = await self._get_tradable_stocks(trade_date)
 
         if not stocks:
-            logger.warn('UNIVERSE', f"No tradable stocks found for {trade_date}")
+            logger.warn('UNIVERSE', f"{trade_date} 无可交易股票")
             return set()
 
         logger.info(f"UNIVERSE: [{trade_date}] Base universe: {len(stocks)} stocks")
@@ -144,7 +144,7 @@ class UniverseManager:
         if now - self._cache_timestamp > self._CACHE_TTL_SECONDS:
             self._st_stocks_cache = None
             self._all_trade_dates_cache = None
-            logger.info("UNIVERSE: Cache expired (24h TTL), reloading...")
+            logger.info("UNIVERSE: 缓存已过期(24小时TTL), 重新加载...")
         
         # 【修复#24：ST股票查询缓存，ST名单不会每日变化，缓存一次永久有效】
         if self._st_stocks_cache is not None:
@@ -174,7 +174,7 @@ class UniverseManager:
         if now - UniverseManager._cache_timestamp > UniverseManager._CACHE_TTL_SECONDS:
             UniverseManager._all_trade_dates_cache = None
             UniverseManager._st_stocks_cache = None
-            logger.info("UNIVERSE: Cache expired (24h TTL), reloading...")
+            logger.info("UNIVERSE: 缓存已过期(24小时TTL), 重新加载...")
         
         if self._all_trade_dates_cache is None:
             await self._get_trade_dates_from_mongo("19900101", "21000101")
@@ -294,7 +294,7 @@ class UniverseManager:
         elif freq == "quarterly":
             result = self._filter_by_quarter(trade_dates)
         else:
-            logger.warn('UNIVERSE', f"Unknown freq '{freq}', using all trade dates")
+            logger.warn('UNIVERSE', f"未知频率'{freq}', 使用全部交易日")
             result = trade_dates
 
         logger.info(f"UNIVERSE: Filtered rebalance dates: {len(result)} (freq={freq})")
@@ -354,7 +354,7 @@ class UniverseManager:
             if now - UniverseManager._cache_timestamp > UniverseManager._CACHE_TTL_SECONDS:
                 UniverseManager._all_trade_dates_cache = None
                 UniverseManager._st_stocks_cache = None
-                logger.info("UNIVERSE: Cache expired (24h TTL), reloading...")
+                logger.info("UNIVERSE: 缓存已过期(24小时TTL), 重新加载...")
             
             # 🚀 优先从缓存读取，缓存命中直接返回，永远不需要再查询
             if UniverseManager._all_trade_dates_cache is not None:
@@ -376,7 +376,7 @@ class UniverseManager:
                     return [str(int(d)) for d in filtered]
                 
                 # 第一次查询：获取整个表中所有不同的交易日，存入缓存
-                logger.info("UNIVERSE: First query: getting all trade dates from MongoDB (this may take a while)...")
+                logger.info("UNIVERSE: 首次查询: 从MongoDB获取全部交易日(可能较慢)...")
                 pipeline = [
                     {"$group": {"_id": "$trade_date"}},
                     {"$sort": {"_id": 1}}
@@ -398,7 +398,7 @@ class UniverseManager:
                 # 🔴 强制统一转换成字符串格式，确保类型一致
                 return [str(int(d)) for d in filtered]
         except Exception as e:
-            logger.warn('UNIVERSE', f"Failed to get trade dates from MongoDB: {e}")
+            logger.warn('UNIVERSE', f"从MongoDB获取交易日失败: {e}")
             return []
 
     async def get_all_trade_dates(

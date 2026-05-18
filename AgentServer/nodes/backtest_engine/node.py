@@ -74,18 +74,18 @@ class BacktestNode(BaseNode):
 
     async def start(self) -> None:
         """启动回测节点"""
-        self.logger.info("Starting Backtest Node...")
+        self.logger.info("回测节点启动中...")
 
         # 初始化管理器
-        self.logger.info("Initializing managers...")
+        self.logger.info("初始化管理器...")
         await redis_manager.initialize()
         await mongo_manager.initialize()
         # Tushare初始化加异常保护,失败不影响运行
         try:
             await tushare_manager.initialize()
-            self.logger.info("Tushare manager initialized successfully")
+            self.logger.info("Tushare管理器初始化成功")
         except Exception as e:
-            self.logger.warning(f"Tushare manager initialize failed (ignored): {e}, will use AKShare only")
+            self.logger.warning(f"Tushare管理器初始化失败(已忽略): {e}, 将仅使用AKShare")
 
         # 启动 RPC 服务器
         await self._start_rpc_server()
@@ -97,12 +97,12 @@ class BacktestNode(BaseNode):
         self._running = True
         self._heartbeat_task = asyncio.create_task(self._start_heartbeat())
 
-        self.logger.info(f"Backtest Node started: {self.node_id}")
+        self.logger.info(f"回测节点已启动: {self.node_id}")
         self.logger.info(f"RPC listening on port {self._rpc_port}")
 
     async def stop(self) -> None:
         """停止回测节点"""
-        self.logger.info("Stopping Backtest Node...")
+        self.logger.info("回测节点停止中...")
         self._running = False
 
         # 【P2-6修复：取消心跳任务】
@@ -117,7 +117,7 @@ class BacktestNode(BaseNode):
         for task_id, task in self._running_tasks.items():
             if not task.done():
                 task.cancel()
-                self.logger.info(f"Cancelled task: {task_id}")
+                self.logger.info(f"已取消任务: {task_id}")
 
         # 关闭所有JSONL文件句柄
         for task_id in list(self._log_jsonl_files.keys()):
@@ -127,7 +127,7 @@ class BacktestNode(BaseNode):
 
     async def run(self) -> None:
         """节点主循环 - 保持节点运行"""
-        self.logger.info("Backtest Node is running, waiting for tasks...")
+        self.logger.info("回测节点运行中, 等待任务...")
 
         # 回测节点主要通过 RPC 接收任务,这里只需保持运行
         while self._running:
@@ -148,7 +148,7 @@ class BacktestNode(BaseNode):
         """启动工作协程"""
         for i in range(self._worker_count):
             asyncio.create_task(self._worker_loop(i))
-            self.logger.info(f"Started worker {i}")
+            self.logger.info(f"已启动工作线程 {i}")
 
     async def _worker_loop(self, worker_id: int) -> None:
         """工作协程循环"""
@@ -181,7 +181,7 @@ class BacktestNode(BaseNode):
                     else:
                         # 非ultra_short/factor_selection类型已废弃
                         result = {"error": f"不支持的回测类型: {task_type}，请使用 ultra_short"}
-                        self.logger.warning(f"Unsupported task_type: {task_type}, task_id: {task_id}")
+                        self.logger.warning(f"不支持的任务类型: {task_type}, 任务ID: {task_id}")
 
                     # 更新任务状态
                     await self._update_task_result(task_id, "completed", result)
@@ -212,7 +212,7 @@ class BacktestNode(BaseNode):
         """处理回测 RPC 请求"""
         task_id = params.get("task_id", f"bt_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}")
 
-        self.logger.info(f"Received backtest request: {task_id}")
+        self.logger.info(f"收到回测请求: {task_id}")
 
         # 记录任务
         await mongo_manager.update_one(
@@ -252,7 +252,7 @@ class BacktestNode(BaseNode):
         )
 
         if not record:
-            return {"success": False, "error": "Task not found"}
+            return {"success": False, "error": "任务不存在"}
 
         return {
             "success": True,
@@ -279,13 +279,13 @@ class BacktestNode(BaseNode):
         if result.modified_count > 0:
             return {"success": True, "task_id": task_id, "status": "cancelled"}
         else:
-            return {"success": False, "error": "Task cannot be cancelled (already running or completed)"}
+            return {"success": False, "error": "任务无法取消(已在运行或已完成)"}
 
     async def _handle_run_factor_selection(self, params: dict) -> dict:
         """处理因子选股回测 RPC 请求"""
         task_id = params.get("task_id", f"fs_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}")
 
-        self.logger.info(f"Received factor selection backtest request: {task_id}")
+        self.logger.info(f"收到因子选股回测请求: {task_id}")
 
         # 记录任务
         await mongo_manager.update_one(
@@ -319,7 +319,7 @@ class BacktestNode(BaseNode):
         """处理超短策略回测 RPC 请求"""
         task_id = params.get("task_id", f"us_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}")
 
-        self.logger.info(f"Received ultra short backtest request: {task_id}")
+        self.logger.info(f"收到超短回测请求: {task_id}")
 
         # 记录任务
         await mongo_manager.update_one(
@@ -474,7 +474,7 @@ class BacktestNode(BaseNode):
             f.write(json.dumps(record, ensure_ascii=False) + '\n')
             f.flush()
         except Exception as e:
-            self.logger.warning(f"Failed to write JSONL log: {e}")
+            self.logger.warning(f"写入JSONL日志失败: {e}")
 
         # 3. Redis仅推进度（不推日志文本）
         # 进度由ultra_short.py单独推送，此处不再重复publish
@@ -574,12 +574,12 @@ async def main():
         await node.start()
 
         # 保持运行
-        _logger.info("Backtest Node is running. Press Ctrl+C to stop.")
+        _logger.info("回测节点已启动, 按 Ctrl+C 停止")
         while True:
             await asyncio.sleep(3600)
 
     except KeyboardInterrupt:
-        _logger.info("Received shutdown signal")
+        _logger.info("收到关闭信号")
     finally:
         await node.stop()
 

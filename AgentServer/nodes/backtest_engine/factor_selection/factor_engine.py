@@ -192,14 +192,14 @@ class FactorEngine:
         factor_defs = [f for f in factor_defs if f is not None]
 
         if not factor_defs:
-            logger.warning("FACTOR_ENGINE: No valid factors found")
+            logger.warning("FACTOR_ENGINE: 未找到有效因子")
             return pd.DataFrame({"ts_code": stocks_list})
 
-        logger.debug(f"Loading data for {len(factor_defs)} factors...")
+        logger.debug(f"加载 {len(factor_defs)} 个因子数据...")
 
         # 2. 加载数据
         data = await self._load_all_data(stocks_list, trade_date, factor_defs, lookback_days)
-        logger.debug("Data loaded, computing factor values...")
+        logger.debug("数据加载完成, 计算因子值...")
 
         # 3. 计算每个因子（带Redis缓存，相同因子同一交易日直接命中缓存）
         factor_values = {}
@@ -472,7 +472,7 @@ class FactorEngine:
                 result[ts_code] = float(value)
 
             except Exception as e:
-                logger.debug(f"Failed to compute {factor_def.name} for {ts_code}: {e}")
+                logger.debug(f"因子 {factor_def.name} 计算失败({ts_code}): {e}")
                 continue
 
         return result

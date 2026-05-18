@@ -211,7 +211,7 @@ class PortfolioBacktester:
                 index_change = avg_r[0].get("avg_pct", 0.0)
         except Exception as e:
             # 回退到旧的简单阈值(全市场9.8%)
-            logger.warn('BACKTEST', f"Board-specific limit count failed, fallback: {e}")
+            logger.warn('BACKTEST', f"板块涨停数统计失败, 使用回退方案: {e}")
             fallback_pipeline = [
                 {"$match": {"trade_date": td}},
                 {"$group": {"_id": None,
@@ -1533,7 +1533,7 @@ class PortfolioBacktester:
                         await self.log(f"   🏢 板块集中度过滤: {len(all_candidates)} → {len(filtered_by_sector)} (每行业最多{sector_top_n}只)");
                         all_candidates = filtered_by_sector
             except Exception as e:
-                logger.warn('BACKTEST', f"Sector concentration filter failed: {e}")
+                logger.warn('BACKTEST', f"板块集中度过滤失败: {e}")
 
         # ==========================================
         # 【信号延迟模式核心逻辑】
@@ -1568,7 +1568,7 @@ class PortfolioBacktester:
                         await self.log(f"   📉 大盘跌破 MA60,整体仓位降低 50%")
             except Exception as e:
                 # 查询失败不影响继续执行
-                logger.warn('BACKTEST', f"Failed to check index MA60 for position adjustment: {e}")
+                logger.warn('BACKTEST', f"均线MA60仓位调整检查失败: {e}")
 
         # 当日选股当日执行
         execute_weights = today_target_weights
@@ -2945,7 +2945,7 @@ class PortfolioBacktester:
             weight = 1.0 / len(selected_codes) if len(selected_codes) > 0 else 0
             return dict.fromkeys(selected_codes, weight)
         else:
-            logger.warn('BACKTEST', f"weight_method='{weight_method}' not implemented, falling back to equal weight")
+            logger.warn('BACKTEST', f"权重方法'{weight_method}'未实现, 回退到等权重")
             weight = 1.0 / len(selected_codes) if len(selected_codes) > 0 else 0
             return dict.fromkeys(selected_codes, weight)
 
