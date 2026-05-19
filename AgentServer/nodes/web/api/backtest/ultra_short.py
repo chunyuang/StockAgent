@@ -441,8 +441,6 @@ async def submit_sweep_backtest(raw_request: Request, user_id: str = Depends(get
     else:
         n = int(round((sweep_start - sweep_end) / (-sweep_step))) + 1
         sweep_values = [round(sweep_start + i * sweep_step, 10) for i in range(n)]
-            sweep_values.append(round(v, 10))
-            v += sweep_step
 
     if not sweep_values:
         raise HTTPException(status_code=400, detail="扫描参数范围无效(检查start/end/step)")
