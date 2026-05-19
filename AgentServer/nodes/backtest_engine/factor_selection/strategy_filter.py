@@ -158,12 +158,14 @@ class StrategyFilter:
     def _build_limit_down_qiao_conditions(self, params: dict) -> list:
         """跌停翘板筛选条件"""
         min_turnover_qiao = params.get("min_turnover_rate", 10.0)
+        # 【P1-6修复(V15)】：从参数读取流通市值，与首板打板/龙头低吸一致(不再硬编码200000)
+        _min_circ = (params.get("min_circulation_market_cap", 20)) * 10000
         
         return [
             {"name": "limit_down_yesterday", "target": 1, "label": "昨日跌停"},
             {"name": "open_above_limit_down", "target": 1, "label": "开盘高于跌停价"},
-            {"name": "circ_mv", "target": 200000, "operator": ">=", 
-             "label": "流通市值≥20亿"},
+            {"name": "circ_mv", "target": _min_circ, "operator": ">=", 
+             "label": f"流通市值≥{_min_circ//10000}亿"},
             {"name": "turnover_rate", "target": min_turnover_qiao, "operator": ">=", 
              "label": f"换手率≥{min_turnover_qiao:.0f}%"},
         ]

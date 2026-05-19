@@ -1,9 +1,9 @@
 {
-  "total_return_pct": 70.11936701665842,
-  "annual_return_pct": 1437.2114588053994,
+  "total_return_pct": 70.11936701665846,
+  "annual_return_pct": 1437.2114588054014,
   "max_drawdown_pct": 3.001753825481132,
   "win_rate_pct": 69.23076923076923,
-  "sharpe_ratio": 8.812699595003453,
+  "sharpe_ratio": 8.812699595003451,
   "profit_loss_ratio": 2.171932862687148,
   "total_trades": 104,
   "total_signals": 105,
@@ -35,6 +35,6 @@
     "rebalance": 54,
     "other": 0
   },
-  "execution_time_ms": 14391,
-  "elapsed_s": 14.440105676651001
+  "execution_time_ms": 14374,
+  "elapsed_s": 14.423989534378052
 }
