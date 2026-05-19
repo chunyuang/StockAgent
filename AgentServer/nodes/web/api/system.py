@@ -1469,6 +1469,8 @@ async def sync_index() -> Dict[str, Any]:
                     results.append({"step": code, "success": False, "message": "akshare未安装"})
                 except Exception as e:
                     results.append({"step": code, "success": False, "message": f"AKShare失败: {str(e)[:200]}"})
+            except Exception as e:
+                results.append({"step": code, "success": False, "message": f"处理失败: {str(e)[:200]}"})
         
         client.close()
         
