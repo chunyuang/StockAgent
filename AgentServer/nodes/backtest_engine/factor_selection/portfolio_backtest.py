@@ -136,26 +136,31 @@ class PortfolioBacktester:
             sp = self._strategy_params.get(sname, {})
             _open_sell_pct = sp.get('next_day_open_sell_pct', 0.03)
             
-            # 跌停翘板: 高开≥3%且高开低收→冲高回落
+            # 跌停翘板: 高开且高开低收→冲高回落
+            # 【P1-6修复(V16)】：主阈值从3%→5%，跌停翘板波动大3%太常见会过早卖出
+            # 但如果高开在3%-5%之间且明显回落(跌幅>2%)，也触发保护
             if sname == '跌停翘板' and open_rise_from_cost >= _open_sell_pct:
-                if close_price < open_price:  # R1: 确认回落
-                    return open_price, f'冲高回落(开{open_price:.2f}涨{open_rise_from_cost*100:.1f}%)'
+                if close_price < open_price:
+                    if open_rise_from_cost >= 0.05:
+                        return open_price, '冲高回落'
+                    elif (open_price - close_price) / open_price >= 0.02:
+                        return open_price, '冲高回落'
             
             # 首板打板: 高开≥3%→直接卖出
             elif sname == '首板打板' and open_rise_from_cost >= _open_sell_pct:
-                return open_price, f'高开即卖(开{open_price:.2f}涨{open_rise_from_cost*100:.1f}%)'
+                return open_price, '高开即卖'
             
             # 半路追涨冲高回落: 高开≥5%且高开低收→冲高回落
             elif sname == '半路追涨' and open_rise_from_cost >= 0.05:
                 _hw_sell_pct = sp.get('next_day_open_sell_pct', 0.05)
                 if open_rise_from_cost >= _hw_sell_pct and close_price > 0 and close_price < open_price:
-                    return open_price, f'冲高回落(开{open_price:.2f}涨{open_rise_from_cost*100:.1f}%)'
+                    return open_price, '冲高回落'
             
             # 半路追涨利润保护: 收盘盈利≥2%且高开低收→保护利润
             elif sname == '半路追涨' and close_price > 0 and open_price > 0:
                 close_rise_from_cost = (close_price / cost - 1) if cost > 0 else 0
                 if close_rise_from_cost >= 0.02 and close_price < open_price:
-                    return close_price, f'利润保护(收{close_price:.2f}涨{close_rise_from_cost*100:.1f}%)'
+                    return close_price, '利润保护'
         
         return 0, ''
 
@@ -1137,9 +1142,8 @@ class PortfolioBacktester:
                             await self.log(f"   │  🔒 T+1限制: {code} 当日买入不可卖(强制空仓跳过)")
                             continue
                         price = prices_for_sell[code].get('open', 0) or prices_for_sell[code]['close']
-                        # 【P1-4修复】强制空仓卖出用open价(开盘看到极端行情立即卖出)
-                        # 原来用close=收盘才卖，延迟了1天。强制空仓是开盘决策，应用open
-                        # 【P0-1修复：停牌股close=0时用最后有效价，避免0元卖出丢失持仓价值】
+                        # 【P0-4修复(V16)】：强制空仓用open价(开盘看到极端行情立即卖出)
+                        # 但open=0(停牌)或close=0时回退到_last_valid_price，不卖0元
                         if price <= 0:
                             price = getattr(self, '_last_valid_price', {}).get(code, 0)
                         if price <= 0:
@@ -2001,6 +2005,20 @@ class PortfolioBacktester:
         await self.log(f"   └───────────────────────────────────────────────────────")
 
 
+        # ==================== 记录净值（每天必须执行）====================
+        # 【P0-1/P0-2修复(V16)：非调仓日也要记录净值+更新last_prices】
+        # 旧bug: 非调仓日未调用_record_daily_net_value → 非每日调仓模式下净值序列有空洞
+        # 旧bug: last_prices未更新 → 后续净值计算使用过期价格
+        # 修复: 用当天获取的_sl_tp_prices或_prices_for_display更新last_prices，并记录净值
+        if holdings and len(holdings) > 0:
+            # 用当天获取的价格更新last_prices（确保净值用当天价格计算）
+            if _prices_for_display:
+                last_prices = _prices_for_display
+        last_net_value, peak_value = await self._record_daily_net_value(
+            trade_date, holdings, cash, last_net_value, peak_value,
+            net_value_series, daily_profit_list, drawdown_series, daily_cash_list,
+            last_prices=last_prices)
+
         # ==================== 更新run_state ====================
         self._update_run_state(run_state,
             cash=cash, holdings=holdings, rebalance_records=rebalance_records,
@@ -2153,15 +2171,18 @@ class PortfolioBacktester:
                         try:
                             buy_d = int(first_buy.date) if first_buy.date else 0
                             sell_d = int(record.date) if record.date else 0
-                            # 简单用日历天数差(交易日更精确但开销大)
-                            hold_d = (sell_d - buy_d) // 10000 * 250 + \
-                                     ((sell_d % 10000) // 100 - (buy_d % 10000) // 100) * 20 + \
-                                     (sell_d % 100 - buy_d % 100)
-                            # 更简单: 直接用差值天数近似
-                            from datetime import datetime
-                            bd = datetime.strptime(str(buy_d), '%Y%m%d')
-                            sd = datetime.strptime(str(sell_d), '%Y%m%d')
-                            hold_d = (sd - bd).days
+                            # 【P1-3修复(V16)：持仓天数改用交易日计算，替代日历天数】
+                            # 日历天数含周末/节假日，3日历天可能只有1个交易日
+                            # 交易日计算: all_trade_dates中(buy_date, sell_date]之间的数量
+                            _all_td = run_state.get('all_trade_dates', [])
+                            if _all_td:
+                                hold_d = sum(1 for d in _all_td if buy_d < d <= sell_d)
+                            else:
+                                # fallback: 日历天数
+                                from datetime import datetime
+                                bd = datetime.strptime(str(buy_d), '%Y%m%d')
+                                sd = datetime.strptime(str(sell_d), '%Y%m%d')
+                                hold_d = (sd - bd).days
                         except:
                             hold_d = 1
 
@@ -2288,18 +2309,20 @@ class PortfolioBacktester:
 
         # 计算平均持仓天数
         average_hold_days = 0.0
-        # 【P2-1修复：变量重命名，避免completed_trades从int被遮蔽为list】
+        # 【P1-3修复(V16)：持仓天数改用交易日计算，替代日历天数】
         completed_trades_for_avg = [t for t in merged_trades if t.get('sell_date') and t.get('buy_date')]
         if len(completed_trades_for_avg) > 0:
             total_hold_days = 0
+            _all_td = run_state.get('all_trade_dates', [])
             for trade in completed_trades_for_avg:
                 buy_date_int = int(trade['buy_date'])
                 sell_date_int = int(trade['sell_date'])
-                # 计算持仓天数(简单相减,都是YYYYMMDD格式)
-                # 转换为datetime计算更准确
-                buy_dt = dt_now.strptime(str(buy_date_int), '%Y%m%d')
-                sell_dt = dt_now.strptime(str(sell_date_int), '%Y%m%d')
-                hold_days = (sell_dt - buy_dt).days
+                if _all_td:
+                    hold_days = sum(1 for d in _all_td if buy_date_int < d <= sell_date_int)
+                else:
+                    buy_dt = dt_now.strptime(str(buy_date_int), '%Y%m%d')
+                    sell_dt = dt_now.strptime(str(sell_date_int), '%Y%m%d')
+                    hold_days = (sell_dt - buy_dt).days
                 total_hold_days += hold_days
             average_hold_days = total_hold_days / len(completed_trades_for_avg)
 
@@ -2376,11 +2399,18 @@ class PortfolioBacktester:
                     profit_abs = sell_income - buy_cost - buy_comm - sell_comm - stamp
                     is_profit = "✅" if profit_pct > 0 else "❌"
                     # 计算持仓天数
+                    # 【P1-3修复(V16)：持仓天数改用交易日计算，替代日历天数】
                     if buy_date and sell_date:
                         try:
-                            buy_dt = dt_now.strptime(str(buy_date), '%Y%m%d')
-                            sell_dt = dt_now.strptime(str(sell_date), '%Y%m%d')
-                            hold_days = (sell_dt - buy_dt).days
+                            buy_d2 = int(buy_date)
+                            sell_d2 = int(sell_date)
+                            _all_td2 = run_state.get('all_trade_dates', [])
+                            if _all_td2:
+                                hold_days = sum(1 for d in _all_td2 if buy_d2 < d <= sell_d2)
+                            else:
+                                buy_dt = dt_now.strptime(str(buy_d2), '%Y%m%d')
+                                sell_dt = dt_now.strptime(str(sell_d2), '%Y%m%d')
+                                hold_days = (sell_dt - buy_dt).days
                         except (ValueError, TypeError):
                             hold_days = 0
 
@@ -3718,7 +3748,9 @@ class PortfolioBacktester:
             sell_price = close_price  # 默认收盘价
             sell_reason = '调仓卖出'
             if cost_basis > 0:
-                # 【P0-3修复(V14)】：用统一方法检查冲高回落/高开即卖/利润保护
+                # 【P0-3修复(V16)：冲高回落/高开即卖/利润保护reason统一为固定分类】
+                # 旧: reason含价格细节如"冲高回落(开40.05涨9.7%)" → 前端统计每条独立
+                # 新: reason固定分类"冲高回落"/"高开即卖"/"利润保护"，价格细节存入record备注
                 _strategies = getattr(self, 'stock_to_strategy', {}).get(ts_code, [])
                 if isinstance(_strategies, str): _strategies = [_strategies]
                 early_sell_price, early_sell_reason = self._check_early_sell_signals(
