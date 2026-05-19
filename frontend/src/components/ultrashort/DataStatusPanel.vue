@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { ElCard, ElEmpty, ElProgress, ElTable, ElTableColumn, ElTag, ElButton, ElMessage } from 'element-plus'
 import StrategyFactorPanel from './StrategyFactorPanel.vue'
 
@@ -22,6 +22,9 @@ interface DataStatus {
   strategy_availability: StrategyItem[]; action_items: ActionItem[]; data_alignment: DataAlignment
 }
 
+const props = defineProps<{
+  visible?: boolean
+}>()
 const loading = ref(false)
 const status = ref<DataStatus | null>(null)
 const error = ref('')
@@ -180,10 +183,12 @@ function priorityIcon(p: string) {
   return { done: '✅', info: '💤', high: '🔴', medium: '🟡', low: '🔵' }[p] || '⚪'
 }
 onMounted(fetchData)
+// 当面板变为可见时，如果还没有数据则加载
+watch(() => props.visible, (v) => { if (v && !status.value) fetchData() })
 </script>
 
 <template>
-  <div class="data-status-panel">
+  <div class="data-status-panel" v-loading="loading" element-loading-text="正在加载数据状态..." element-loading-background="rgba(255,255,255,0.7)">
     <!-- 顶部概览 -->
     <div class="status-header">
       <div class="health-gauge">

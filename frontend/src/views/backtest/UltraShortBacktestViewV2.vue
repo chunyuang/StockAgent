@@ -808,6 +808,7 @@ function onViewLogs(taskId: string) {
     <!-- Tab内容：回测历史 -->
     <div v-show="activeMainTab === 'history'" class="tab-content-full">
       <BacktestHistoryPanel
+        :visible="activeMainTab === 'history'"
         @view-result="onViewResult"
         @view-logs="onViewLogs"
         @reuse-params="onReuseParams"
@@ -816,7 +817,7 @@ function onViewLogs(taskId: string) {
 
     <!-- Tab内容：数据状态 -->
     <div v-show="activeMainTab === 'data'" class="tab-content-full">
-      <DataStatusPanel />
+      <DataStatusPanel :visible="activeMainTab === 'data'" />
     </div>
 
     <!-- Tab内容：因子参考 -->
