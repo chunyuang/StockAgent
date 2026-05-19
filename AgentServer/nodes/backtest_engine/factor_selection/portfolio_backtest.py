@@ -1554,7 +1554,7 @@ class PortfolioBacktester:
                 # 从 index_daily 查询上证指数(000001.SH)的均线数据
                 index_data = await mongo_manager.find_one(
                     C.INDEX_DAILY,
-                    {"ts_code": "000001.SH", "trade_date": trade_date},
+                    {"ts_code": "000001.SH", "trade_date": int(trade_date)},
                     {"close": 1, "ma60": 1},
                 )
                 if index_data and "close" in index_data and "ma60" in index_data:

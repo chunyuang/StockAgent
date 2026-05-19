@@ -89,21 +89,22 @@ async def execute_ultra_short_backtest(
     # 顶层字段: strategies/start_date/end_date/initial_cash/enable_* /selected_strategies
     # 内层字段: params.stop_loss_pct/commission_rate/force_empty_config/global_filter_config
     req_params = params.get("params", {})  # 整个params对象
-    strategies = req_params.get("strategies", [])
-    start_date = req_params.get("start_date", "20260105")
-    end_date = req_params.get("end_date", "20260320")
-    initial_cash = req_params.get("initial_cash", 1000000)
+    # 【P0修复(V10)：strategies优先从顶层读取，fallback到内层params.params】
+    strategies = params.get("strategies", req_params.get("strategies", []))
+    start_date = params.get("start_date", req_params.get("start_date", "20260105"))
+    end_date = params.get("end_date", req_params.get("end_date", "20260320"))
+    initial_cash = params.get("initial_cash", req_params.get("initial_cash", 1000000))
     strategy_params = req_params.get("params", {})  # 内层全局风控参数
     period = req_params.get("period", "daily")
     
     # 功能开关：统一从顶层读取（Web API在params和params.params两处都传了，优先顶层）
-    enable_force_empty = req_params.get("enable_force_empty", req_params.get("params", {}).get("enable_force_empty", True))
-    enable_sentiment_cycle = req_params.get("enable_sentiment_cycle", req_params.get("params", {}).get("sentiment_cycle", True))
-    enable_auction_filter = req_params.get("enable_auction_filter", req_params.get("params", {}).get("auction_filter", True))
-    enable_stop_loss = req_params.get("enable_stop_loss", req_params.get("params", {}).get("enable_stop_loss", True))
-    enable_take_profit = req_params.get("enable_take_profit", req_params.get("params", {}).get("enable_take_profit", True))
-    enable_ma60_filter = req_params.get("enable_ma60_filter", req_params.get("params", {}).get("enable_ma60_filter", True))
-    enable_sector_concentration = req_params.get("enable_sector_concentration", req_params.get("params", {}).get("enable_sector_concentration", True))
+    enable_force_empty = params.get("enable_force_empty", req_params.get("enable_force_empty", req_params.get("params", {}).get("enable_force_empty", True)))
+    enable_sentiment_cycle = params.get("enable_sentiment_cycle", req_params.get("enable_sentiment_cycle", req_params.get("params", {}).get("sentiment_cycle", True)))
+    enable_auction_filter = params.get("enable_auction_filter", req_params.get("enable_auction_filter", req_params.get("params", {}).get("auction_filter", True)))
+    enable_stop_loss = params.get("enable_stop_loss", req_params.get("enable_stop_loss", req_params.get("params", {}).get("enable_stop_loss", True)))
+    enable_take_profit = params.get("enable_take_profit", req_params.get("enable_take_profit", req_params.get("params", {}).get("enable_take_profit", True)))
+    enable_ma60_filter = params.get("enable_ma60_filter", req_params.get("enable_ma60_filter", req_params.get("params", {}).get("enable_ma60_filter", True)))
+    enable_sector_concentration = params.get("enable_sector_concentration", req_params.get("enable_sector_concentration", req_params.get("params", {}).get("enable_sector_concentration", True)))
 
     # 打印初始化阶段头部
     logger.success("INIT", "============== 回测任务启动 ==============")
@@ -148,7 +149,7 @@ async def execute_ultra_short_backtest(
         "status": "running"
     })
 
-    selected_strategies = req_params.get("selected_strategies", [])
+    selected_strategies = params.get("selected_strategies", req_params.get("selected_strategies", []))
     # 兜底：如果前端没传，用默认所有策略
     if not selected_strategies:
         selected_strategies = ALL_STRATEGIES
