@@ -1719,6 +1719,14 @@ class PortfolioBacktester:
                                 forced_sell_codes.append((code, f'高开即卖(开{open_p:.2f}涨{open_rise*100:.1f}%)'))
                                 early_sell = True
                                 break
+                            # 【V11-P1-2新增】半路追涨冲高回落保护
+                            elif sname == '半路追涨' and open_rise >= 0.05:
+                                _hw_sell_pct = sp.get('next_day_open_sell_pct', 0.05)
+                                if open_rise >= _hw_sell_pct and _close_p < open_p:
+                                    forced_sell_prices[code] = open_p
+                                    forced_sell_codes.append((code, f'冲高回落(开{open_p:.2f}涨{open_rise*100:.1f}%)'))
+                                    early_sell = True
+                                    break
                     if not early_sell:
                         if enable_sl and low_p <= stop_price:
                             if open_p <= stop_price:
@@ -1857,7 +1865,7 @@ class PortfolioBacktester:
                 # 跌停翘板: 次日高开3%且高开低收(冲高回落确认)即卖
                 # 首板打板: 次日高开3%即卖(落袋为安，不等待确认)
                 # 【R1优化(V9)：跌停翘板冲高回落增加close<open确认条件，避免高开继续涨时过早卖出】
-                close_p = p.get('close', p['high'])
+                close_p = p.get('close', 0)  # 【V11-P1-1修复】close=0时不用high作为fallback(high不可靠)
                 open_rise_from_cost = (open_p / cost - 1) if cost > 0 else 0
                 early_sell_triggered = False
                 if isinstance(strategies, list):
@@ -1877,6 +1885,16 @@ class PortfolioBacktester:
                             forced_sell_codes.append((code, f'高开即卖(开{open_p:.2f}涨{open_rise_from_cost*100:.1f}%)'))
                             early_sell_triggered = True
                             break
+                        # 【V11-P1-2新增】半路追涨冲高回落保护: 次日高开5%+且高开低收→冲高回落
+                        # 半路追涨次日高开5%+说明盘中已大幅冲高，如果收盘低于开盘说明回落确认
+                        # 门槛5%比跌停翘板的3%更高，因为半路追涨追的是3-7%涨幅，5%以上涨幅已有可观利润
+                        elif sname == '半路追涨' and open_rise_from_cost >= 0.05:
+                            _hw_sell_pct = sp.get('next_day_open_sell_pct', 0.05)
+                            if open_rise_from_cost >= _hw_sell_pct and close_p > 0 and close_p < open_p:
+                                forced_sell_prices[code] = open_p
+                                forced_sell_codes.append((code, f'冲高回落(开{open_p:.2f}涨{open_rise_from_cost*100:.1f}%)'))
+                                early_sell_triggered = True
+                                break
                 if not early_sell_triggered:
                     if enable_sl and low_p <= stop_price:
                         # 【Phase1-跳空止损】如果open直接跳空低于止损价，以open卖出(最差情况)
@@ -3703,6 +3721,14 @@ class PortfolioBacktester:
                             sell_reason = f'高开即卖(开{open_price:.2f}涨{open_rise_from_cost*100:.1f}%)'
                             early_sell_triggered = True
                             break
+                        # 【V11-P1-2新增】半路追涨冲高回落保护(与非调仓日对齐)
+                        elif _sname == '半路追涨' and open_rise_from_cost >= 0.05:
+                            _hw_sell_pct = _sp.get('next_day_open_sell_pct', 0.05)
+                            if open_rise_from_cost >= _hw_sell_pct and close_price < open_price:
+                                sell_price = open_price
+                                sell_reason = f'冲高回落(开{open_price:.2f}涨{open_rise_from_cost*100:.1f}%)'
+                                early_sell_triggered = True
+                                break
                 if not early_sell_triggered:
                     # 【P0-2修复：按策略获取止损止盈参数】
                     code_sl, code_tp = self._get_sl_tp_for_code(ts_code)
