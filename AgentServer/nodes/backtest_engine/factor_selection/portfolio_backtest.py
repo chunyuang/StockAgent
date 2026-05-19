@@ -3149,8 +3149,10 @@ class PortfolioBacktester:
                     p = open_price * 0.98
             elif sname == '跌停翘板':
                 # 跌停撬板买入价: 跌停价上方1-3%
-                # 保持现有逻辑(low*1.005)，因为翘板确实在低价区
-                p = low_price * 1.005 if low_price > 0 else open_price * 0.92
+                # 【P1-5修复(V15)】：翘板买入价从low*1.005→low*1.01
+                # low*1.005(0.5%溢价)过于保守，实盘翘板通常在跌停价上方1-3%成交
+                # low*1.01(1%溢价)更接近实盘翘板成交价，避免利润虚高
+                p = low_price * 1.01 if low_price > 0 else open_price * 0.92
             else:
                 p = open_price
             if p > 0:
@@ -3639,7 +3641,7 @@ class PortfolioBacktester:
         for code in codes_to_promote:
             sell_codes.append(code)
             del reduce_codes[code]
-        # 【修复P1-8：停牌股超时强卖 — close<=0的持仓连续持有>10天强制卖出(取最后有效价)】
+        # 【修复P1-8：停牌股超时强卖 — close<=0的持仓连续持有>10交易日强制卖出(取最后有效价)】
         suspend_sell_codes = []
         for code in list(holdings.keys()):
             if holdings.get(code, 0) > 0 and code in prices:
@@ -3649,12 +3651,19 @@ class PortfolioBacktester:
                     buy_date_raw = getattr(self, '_cost_basis_date', {}).get(code)
                     if buy_date_raw is not None:
                         try:
-                            # 【P0-E修复：用datetime计算天数差，替代%10000模运算（跨年必错）】
-                            buy_dt = dt_now.strptime(str(buy_date_raw), '%Y%m%d')
-                            trade_dt = dt_now.strptime(str(trade_date), '%Y%m%d')
-                            days_held = (trade_dt - buy_dt).days  # 日历天数
-                            # 超过15个日历天(≈10个交易日)停牌，强制卖出
-                            if days_held > 15:
+                            # 【P2-3修复(V15)：停牌超时也改用交易日计算，与P1-2超时强卖一致】
+                            buy_dt_int = int(str(buy_date_raw))
+                            trade_dt_int = int(str(trade_date))
+                            _all_td = getattr(self, '_all_trade_dates', [])
+                            if _all_td:
+                                trade_days_held = sum(1 for d in _all_td if buy_dt_int < d <= trade_dt_int)
+                            else:
+                                # fallback: 日历天数/1.5 ≈ 交易日
+                                bd = dt_now.strptime(str(buy_dt_int), '%Y%m%d')
+                                td = dt_now.strptime(str(trade_dt_int), '%Y%m%d')
+                                trade_days_held = int((td - bd).days / 1.5)
+                            # 超过10个交易日停牌，强制卖出
+                            if trade_days_held > 10:
                                 last_price = p.get('open', 0) or self._last_valid_price.get(code, 0) if True else 0
                                 if last_price > 0:
                                     suspend_sell_codes.append(code)
