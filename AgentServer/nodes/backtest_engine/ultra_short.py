@@ -556,6 +556,9 @@ async def execute_ultra_short_backtest(
             # 【V9修复：冲高回落/高开即卖归入take_profit(本质是止盈类操作)】
             elif "冲高回落" in reason_str or "高开即卖" in reason_str:
                 sell_reason_stats["take_profit"] += 1
+            # 【V11修复：利润保护归入take_profit(本质是止盈保护)】
+            elif "利润保护" in reason_str:
+                sell_reason_stats["take_profit"] += 1
             # 持仓中: 未平仓交易
             elif "持仓中" in reason_str:
                 pass  # 不计入卖出统计
