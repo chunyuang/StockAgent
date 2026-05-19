@@ -801,7 +801,7 @@ function onViewLogs(taskId: string) {
         <BacktestResultPanel v-if="backtestResult" :result="backtestResult" :form="form" />
 
         <!-- 日志面板 -->
-        <AnsiLogPanel v-if="backtestState.running || backtestState.task_id" :task-id="backtestState.task_id" :task-status="backtestState.running ? 'running' : 'completed'" :height="600" />
+        <AnsiLogPanel v-if="backtestState.running || backtestState.task_id" :task-id="backtestState.task_id" :task-status="backtestState.running ? 'running' : 'completed'" :height="700" />
       </div>
     </div>
 

@@ -27,7 +27,7 @@ const props = withDefaults(defineProps<{
   height?: number
 }>(), {
   title: '📝 回测日志',
-  height: 800,
+  height: 500,
 })
 
 // === 状态 ===
@@ -39,6 +39,7 @@ const days = ref<LogDay[]>([])
 const strategies = ref<string[]>([])
 const sections = ref<string[]>([])
 const filteredTotal = ref(0)
+const viewportHeight = ref(window.innerHeight)
 
 // === 筛选 ===
 const selectedDay = ref<string>('all')
@@ -223,11 +224,18 @@ onMounted(() => {
   if (props.taskId && props.taskStatus === 'running') {
     startLivePolling()
   }
+  // 监听窗口大小变化
+  window.addEventListener('resize', onResize)
 })
 
 onUnmounted(() => {
   stopLivePolling()
+  window.removeEventListener('resize', onResize)
 })
+
+function onResize() {
+  viewportHeight.value = window.innerHeight
+}
 
 // 暴露方法
 defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
@@ -332,7 +340,7 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
     <div
       ref="panelRef"
       class="ansi-log-panel"
-      :style="{ minHeight: height + 'px', maxHeight: '80vh' }"
+      :style="{ minHeight: height + 'px', maxHeight: Math.max(height, viewportHeight - 200) + 'px' }"
     >
       <div v-if="!loaded" class="log-empty">
         <template v-if="isLiveMode">等待日志...</template>
