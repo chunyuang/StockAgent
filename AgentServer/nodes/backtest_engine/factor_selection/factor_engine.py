@@ -167,14 +167,36 @@ class FactorEngine:
                 if col in result.columns:
                     result[col] = result[col].astype(float)
             
-            # 【Phase2】计算盘中可观测因子（替代pct_chg收盘涨幅，消除未来函数）
-            # intraday_max_rise_pct: 盘中最高价相对昨收的涨幅 (high - pre_close) / pre_close * 100
-            # intraday_open_rise_pct: 开盘价相对昨收的涨幅 (open - pre_close) / pre_close * 100
-            # 这两个因子用已有的high/open/pre_close列计算，无需额外数据源
-            # 【P1-7修复(V13)】：pre_close=0时用_get_prices中已缓存的_prev_day_close补充
-            # stock_daily_ak_full的pre_close字段经常为0(数据源不返回)，导致intraday因子为0
-            # 在回测模式下_get_prices已经维护了_prev_day_close，但factor_engine是独立调用
-            # 此处用fillna(0)确保筛选条件不会因NaN误杀正常股票
+            # 【P0-2修复(V14)】：pre_close=0时从MongoDB查前一日close替代
+            # stock_daily_ak_full的pre_close字段经常为0(数据源不返回)，导致intraday因子全0
+            # 半路追涨用intraday_max_rise_pct≥3%筛选时，大量正常股票被误杀
+            # 修复: 对pre_close=0的股票，查前一个交易日的close作为pre_close
+            if "pre_close" in result.columns:
+                zero_pre_close_mask = result["pre_close"] == 0
+                if zero_pre_close_mask.any():
+                    zero_codes = result.loc[zero_pre_close_mask, "ts_code"].tolist()
+                    if zero_codes:
+                        # 查找前一个交易日的close
+                        trade_date_int = int(trade_date)
+                        prev_dates = [d for d in sorted(
+                            await mongo_manager.db[C.STOCK_DAILY].distinct(
+                                "trade_date", {"trade_date": {"$lt": trade_date_int}}
+                            )
+                        ) if d < trade_date_int]
+                        if prev_dates:
+                            prev_date = prev_dates[-1]  # 最近的前一个交易日
+                            prev_docs = await mongo_manager.db[C.STOCK_DAILY].find(
+                                {"trade_date": prev_date, "ts_code": {"$in": zero_codes}},
+                                {"ts_code": 1, "close": 1, "_id": 0}
+                            ).to_list(length=len(zero_codes))
+                            prev_close_map = {d["ts_code"]: d.get("close", 0) for d in prev_docs if d.get("close", 0) > 0}
+                            for idx_row, row in result.loc[zero_pre_close_mask].iterrows():
+                                if row["ts_code"] in prev_close_map:
+                                    result.at[idx_row, "pre_close"] = prev_close_map[row["ts_code"]]
+                            fixed_count = sum(1 for c in zero_codes if c in prev_close_map)
+                            if fixed_count > 0:
+                                logger.debug(f"FACTOR_ENGINE: Fixed {fixed_count}/{len(zero_codes)} stocks with pre_close=0 using prev day close")
+
             if "high" in result.columns and "pre_close" in result.columns:
                 safe_pre_close = result["pre_close"].replace(0, np.nan)
                 result["intraday_max_rise_pct"] = (

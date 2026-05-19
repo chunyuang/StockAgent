@@ -94,6 +94,7 @@ class PortfolioBacktester:
         self.universe_mgr = UniverseManager()
         self.factor_engine = FactorEngine()
         self._stock_name_cache: dict[str, str] = {}
+        self._industry_map_cache: dict[str, str] = {}  # 【P1-3修复(V14)】板块映射缓存
         # 初始资金(用于计算累计收益)
         self._initial_cash: float = 1000000.0
         # 🔧 _run_impl中使用的属性,提前初始化避免hasattr检查
@@ -107,6 +108,56 @@ class PortfolioBacktester:
         self._prev_day_close = {}
         self._strategy_signal_stats = {}
         self.stock_to_strategy = {}
+
+    def _check_early_sell_signals(self, code: str, strategies: list, cost: float,
+                                         open_price: float, close_price: float) -> tuple:
+        """【P0-3修复(V14)】统一的冲高回落/高开即卖/利润保护检查
+        
+        三处重复逻辑(调仓日开头/非调仓日/rebalance内)提取为统一方法。
+        
+        Args:
+            code: 股票代码
+            strategies: 策略名列表
+            cost: 成本价
+            open_price: 开盘价
+            close_price: 收盘价
+            
+        Returns:
+            (sell_price, sell_reason) or (0, '') if no signal
+        """
+        if not isinstance(strategies, list) or not strategies:
+            return 0, ''
+        if cost <= 0:
+            return 0, ''
+            
+        open_rise_from_cost = (open_price / cost - 1) if cost > 0 else 0
+        
+        for sname in strategies:
+            sp = self._strategy_params.get(sname, {})
+            _open_sell_pct = sp.get('next_day_open_sell_pct', 0.03)
+            
+            # 跌停翘板: 高开≥3%且高开低收→冲高回落
+            if sname == '跌停翘板' and open_rise_from_cost >= _open_sell_pct:
+                if close_price < open_price:  # R1: 确认回落
+                    return open_price, f'冲高回落(开{open_price:.2f}涨{open_rise_from_cost*100:.1f}%)'
+            
+            # 首板打板: 高开≥3%→直接卖出
+            elif sname == '首板打板' and open_rise_from_cost >= _open_sell_pct:
+                return open_price, f'高开即卖(开{open_price:.2f}涨{open_rise_from_cost*100:.1f}%)'
+            
+            # 半路追涨冲高回落: 高开≥5%且高开低收→冲高回落
+            elif sname == '半路追涨' and open_rise_from_cost >= 0.05:
+                _hw_sell_pct = sp.get('next_day_open_sell_pct', 0.05)
+                if open_rise_from_cost >= _hw_sell_pct and close_price > 0 and close_price < open_price:
+                    return open_price, f'冲高回落(开{open_price:.2f}涨{open_rise_from_cost*100:.1f}%)'
+            
+            # 半路追涨利润保护: 收盘盈利≥2%且高开低收→保护利润
+            elif sname == '半路追涨' and close_price > 0 and open_price > 0:
+                close_rise_from_cost = (close_price / cost - 1) if cost > 0 else 0
+                if close_rise_from_cost >= 0.02 and close_price < open_price:
+                    return close_price, f'利润保护(收{close_price:.2f}涨{close_rise_from_cost*100:.1f}%)'
+        
+        return 0, ''
 
     def _update_run_state(self, run_state: dict, **kwargs) -> dict:
         """【P1-2修复(V12)】统一更新run_state，消除9处重复的逐字段赋值"""
@@ -1480,15 +1531,17 @@ class PortfolioBacktester:
             try:
                 sector_top_n = self._risk_config.get("sector_concentration_top_n", 3)
                 # 从stock_basic获取行业信息(factor_df无industry列)
-                industry_map = {}
-                if all_candidates:
+                industry_map = dict(self._industry_map_cache)  # 【P1-3修复(V14)】复用缓存
+                uncached_codes = [c for c in all_candidates if c not in industry_map]
+                if uncached_codes:
                     industry_docs = await mongo_manager.find_many(
                         C.STOCK_BASIC,
-                        {"ts_code": {"$in": list(all_candidates)}},
+                        {"ts_code": {"$in": uncached_codes}},
                         {"ts_code": 1, "industry": 1}
                     )
                     for d in industry_docs:
                         industry_map[d['ts_code']] = d.get('industry', 'unknown')
+                        self._industry_map_cache[d['ts_code']] = d.get('industry', 'unknown')  # 更新缓存
                 
                 if industry_map:
                     sector_counts = {}
