@@ -1732,46 +1732,14 @@ class PortfolioBacktester:
                     stop_price = cost * (1 - sl_pct)
                     tp_price = cost * (1 + tp_pct)
                     open_p = p.get('open', p['close'])
-                    # 冲高回落/高开即卖检查
-                    open_rise = (open_p / cost - 1) if cost > 0 else 0
-                    # 【P0-2修复(V13)】_close_p必须在循环前初始化，否则半路追涨分支引用时NameError
+                    # 【P0-3修复(V14)】：用统一方法检查冲高回落/高开即卖/利润保护
                     _close_p = p.get('close', 0)
-                    early_sell = False
-                    if isinstance(strategies, list):
-                        for sname in strategies:
-                            sp = self._strategy_params.get(sname, {})
-                            _open_sell_pct = sp.get('next_day_open_sell_pct', 0.03)
-                            if sname == '跌停翘板' and open_rise >= _open_sell_pct:
-                                # 【R1优化】冲高回落需确认: close < open(高开低收=确认回落)
-                                _close_p = _sl_tp_prices.get(code, {}).get('close', open_p)
-                                if _close_p < open_p:
-                                    forced_sell_prices[code] = open_p
-                                    forced_sell_codes.append((code, f'冲高回落(开{open_p:.2f}涨{open_rise*100:.1f}%)'))
-                                    early_sell = True
-                                    break
-                            elif sname == '首板打板' and open_rise >= _open_sell_pct:
-                                forced_sell_prices[code] = open_p
-                                forced_sell_codes.append((code, f'高开即卖(开{open_p:.2f}涨{open_rise*100:.1f}%)'))
-                                early_sell = True
-                                break
-                            # 【V11-P1-2新增】半路追涨冲高回落保护
-                            elif sname == '半路追涨' and open_rise >= 0.05:
-                                _hw_sell_pct = sp.get('next_day_open_sell_pct', 0.05)
-                                # 【P0-2修复(V13)】确保_close_p已更新
-                                _close_p = _sl_tp_prices.get(code, {}).get('close', open_p)
-                                if open_rise >= _hw_sell_pct and _close_p < open_p:
-                                    forced_sell_prices[code] = open_p
-                                    forced_sell_codes.append((code, f'冲高回落(开{open_p:.2f}涨{open_rise*100:.1f}%)'))
-                                    early_sell = True
-                                    break
-                            # 【V11优化】半路追涨利润保护(调仓日开头处)
-                            elif sname == '半路追涨' and _close_p > 0 and open_p > 0:
-                                close_rise = (_close_p / cost - 1) if cost > 0 else 0
-                                if close_rise >= 0.02 and _close_p < open_p:
-                                    forced_sell_prices[code] = _close_p
-                                    forced_sell_codes.append((code, f'利润保护(收{_close_p:.2f}涨{close_rise*100:.1f}%)'))
-                                    early_sell = True
-                                    break
+                    early_sell_price, early_sell_reason = self._check_early_sell_signals(
+                        code, strategies, cost, open_p, _close_p)
+                    early_sell = early_sell_price > 0
+                    if early_sell:
+                        forced_sell_prices[code] = early_sell_price
+                        forced_sell_codes.append((code, early_sell_reason))
                     if not early_sell:
                         if enable_sl and low_p <= stop_price:
                             if open_p <= stop_price:
@@ -1903,52 +1871,13 @@ class PortfolioBacktester:
                 open_p = p.get('open', p['close'])
                 stop_price = cost * (1 - sl_pct)
                 tp_price = cost * (1 + tp_pct)
-                # 【V3新增】策略级冲高回落保护/次日高开即卖
-                # 跌停翘板: 次日高开3%且高开低收(冲高回落确认)即卖
-                # 首板打板: 次日高开3%即卖(落袋为安，不等待确认)
-                # 【R1优化(V9)：跌停翘板冲高回落增加close<open确认条件，避免高开继续涨时过早卖出】
-                close_p = p.get('close', 0)  # 【V11-P1-1修复】close=0时不用high作为fallback(high不可靠)
-                open_rise_from_cost = (open_p / cost - 1) if cost > 0 else 0
-                early_sell_triggered = False
-                if isinstance(strategies, list):
-                    for sname in strategies:
-                        sp = self._strategy_params.get(sname, {})
-                        _open_sell_pct = sp.get('next_day_open_sell_pct', 0.03)
-                        if sname == '跌停翘板' and open_rise_from_cost >= _open_sell_pct:
-                            # 【R1优化】冲高回落需确认: close < open(高开低收=确认回落)
-                            # 如果高开且继续涨(close>=open)，不卖出，让利润奔跑
-                            if close_p < open_p:
-                                forced_sell_prices[code] = open_p
-                                forced_sell_codes.append((code, f'冲高回落(开{open_p:.2f}涨{open_rise_from_cost*100:.1f}%)'))
-                                early_sell_triggered = True
-                                break
-                        elif sname == '首板打板' and open_rise_from_cost >= _open_sell_pct:
-                            forced_sell_prices[code] = open_p
-                            forced_sell_codes.append((code, f'高开即卖(开{open_p:.2f}涨{open_rise_from_cost*100:.1f}%)'))
-                            early_sell_triggered = True
-                            break
-                        # 【V11-P1-2新增】半路追涨冲高回落保护: 次日高开5%+且高开低收→冲高回落
-                        # 半路追涨次日高开5%+说明盘中已大幅冲高，如果收盘低于开盘说明回落确认
-                        # 门槛5%比跌停翘板的3%更高，因为半路追涨追的是3-7%涨幅，5%以上涨幅已有可观利润
-                        elif sname == '半路追涨' and open_rise_from_cost >= 0.05:
-                            _hw_sell_pct = sp.get('next_day_open_sell_pct', 0.05)
-                            if open_rise_from_cost >= _hw_sell_pct and close_p > 0 and close_p < open_p:
-                                forced_sell_prices[code] = open_p
-                                forced_sell_codes.append((code, f'冲高回落(开{open_p:.2f}涨{open_rise_from_cost*100:.1f}%)'))
-                                early_sell_triggered = True
-                                break
-                        # 【V11优化】半路追涨利润保护: 收盘盈利>2%但冲高回落(close<open)→保护利润
-                        # 数据显示半路追涨65笔调仓卖出仅38%胜率，多数冲高后回落被调仓小亏卖出
-                        # 此机制在冲高回落时主动锁定利润，避免等到调仓日利润蒸发
-                        # 门槛: close盈利>=2%(比冲高回落的5%低很多，覆盖更广)且close<open(确认回落)
-                        # 卖出价=close(实际可成交价，比用open更保守更贴近实盘)
-                        elif sname == '半路追涨' and close_p > 0 and open_p > 0:
-                            close_rise_from_cost = (close_p / cost - 1) if cost > 0 else 0
-                            if close_rise_from_cost >= 0.02 and close_p < open_p:
-                                forced_sell_prices[code] = close_p
-                                forced_sell_codes.append((code, f'利润保护(收{close_p:.2f}涨{close_rise_from_cost*100:.1f}%)'))
-                                early_sell_triggered = True
-                                break
+                # 【P0-3修复(V14)】：用统一方法检查冲高回落/高开即卖/利润保护
+                early_sell_price, early_sell_reason = self._check_early_sell_signals(
+                    code, strategies, cost, open_p, close_p)
+                early_sell_triggered = early_sell_price > 0
+                if early_sell_triggered:
+                    forced_sell_prices[code] = early_sell_price
+                    forced_sell_codes.append((code, early_sell_reason))
                 if not early_sell_triggered:
                     if enable_sl and low_p <= stop_price:
                         # 【Phase1-跳空止损】如果open直接跳空低于止损价，以open卖出(最差情况)
@@ -3760,46 +3689,15 @@ class PortfolioBacktester:
             sell_price = close_price  # 默认收盘价
             sell_reason = '调仓卖出'
             if cost_basis > 0:
-                # 【V8新增：调仓日冲高回落/高开即卖保护(与非调仓日逻辑对齐)】
-                # 【R1优化(V9)：跌停翘板冲高回落增加close<open确认条件】
-                # 跌停翘板: 次日高开3%且高开低收→冲高回落确认→卖出
-                # 首板打板: 次日高开3%→直接卖出(落袋为安，不等待确认)
-                open_rise_from_cost = (open_price / cost_basis - 1) if cost_basis > 0 else 0
+                # 【P0-3修复(V14)】：用统一方法检查冲高回落/高开即卖/利润保护
                 _strategies = getattr(self, 'stock_to_strategy', {}).get(ts_code, [])
                 if isinstance(_strategies, str): _strategies = [_strategies]
-                early_sell_triggered = False
-                if isinstance(_strategies, list):
-                    for _sname in _strategies:
-                        _sp = self._strategy_params.get(_sname, {})
-                        _open_sell_pct = _sp.get('next_day_open_sell_pct', 0.03)
-                        if _sname == '跌停翘板' and open_rise_from_cost >= _open_sell_pct:
-                            # 【R1优化】冲高回落需确认: close < open(高开低收=确认回落)
-                            if close_price < open_price:
-                                sell_price = open_price
-                                sell_reason = f'冲高回落(开{open_price:.2f}涨{open_rise_from_cost*100:.1f}%)'
-                                early_sell_triggered = True
-                                break
-                        elif _sname == '首板打板' and open_rise_from_cost >= _open_sell_pct:
-                            sell_price = open_price
-                            sell_reason = f'高开即卖(开{open_price:.2f}涨{open_rise_from_cost*100:.1f}%)'
-                            early_sell_triggered = True
-                            break
-                        # 【V11-P1-2新增】半路追涨冲高回落保护(与非调仓日对齐)
-                        elif _sname == '半路追涨' and open_rise_from_cost >= 0.05:
-                            _hw_sell_pct = _sp.get('next_day_open_sell_pct', 0.05)
-                            if open_rise_from_cost >= _hw_sell_pct and close_price < open_price:
-                                sell_price = open_price
-                                sell_reason = f'冲高回落(开{open_price:.2f}涨{open_rise_from_cost*100:.1f}%)'
-                                early_sell_triggered = True
-                                break
-                        # 【V11优化】半路追涨利润保护(调仓日对齐)
-                        elif _sname == '半路追涨' and close_price > 0 and open_price > 0:
-                            close_rise_from_cost = (close_price / cost_basis - 1) if cost_basis > 0 else 0
-                            if close_rise_from_cost >= 0.02 and close_price < open_price:
-                                sell_price = close_price
-                                sell_reason = f'利润保护(收{close_price:.2f}涨{close_rise_from_cost*100:.1f}%)'
-                                early_sell_triggered = True
-                                break
+                early_sell_price, early_sell_reason = self._check_early_sell_signals(
+                    ts_code, _strategies, cost_basis, open_price, close_price)
+                early_sell_triggered = early_sell_price > 0
+                if early_sell_triggered:
+                    sell_price = early_sell_price
+                    sell_reason = early_sell_reason
                 if not early_sell_triggered:
                     # 【P0-2修复：按策略获取止损止盈参数】
                     code_sl, code_tp = self._get_sl_tp_for_code(ts_code)
