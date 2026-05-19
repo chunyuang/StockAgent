@@ -2435,13 +2435,14 @@ class PortfolioBacktester:
         
         # 【P0-3修复(V9)：盈亏比改用交易维度而非日收益维度】
         # 旧: 基于daily_profit_list(日收益)，10只持仓5涨5跌→只算1次盈利→虚高
-        # 新: 基于已平仓交易，avg_win_pct / avg_loss_pct → 正确反映策略选股能力
-        completed_trades_for_plr = [t for t in all_trades if hasattr(t, 'profit_pct') and t.profit_pct is not None]
-        win_trades = [t for t in completed_trades_for_plr if t.profit_pct > 0]
-        loss_trades = [t for t in completed_trades_for_plr if t.profit_pct < 0]
+        # 新: 基于已平仓交易(merged_trades)，avg_win_pct / avg_loss_pct → 正确反映策略选股能力
+        # 注意: all_trades是RebalanceRecord对象(无profit_pct)，merged_trades是dict(有profit_pct)
+        completed_trades_for_plr = [t for t in merged_trades if t.get('profit_pct') is not None and t.get('sell_reason', '') != '持仓中']
+        win_trades = [t for t in completed_trades_for_plr if t['profit_pct'] > 0]
+        loss_trades = [t for t in completed_trades_for_plr if t['profit_pct'] < 0]
         if win_trades and loss_trades:
-            avg_win = sum(t.profit_pct for t in win_trades) / len(win_trades)
-            avg_loss = abs(sum(t.profit_pct for t in loss_trades) / len(loss_trades))
+            avg_win = sum(t['profit_pct'] for t in win_trades) / len(win_trades)
+            avg_loss = abs(sum(t['profit_pct'] for t in loss_trades) / len(loss_trades))
             profit_loss_ratio = avg_win / avg_loss if avg_loss > 0.001 else 99.99
         elif win_trades:
             profit_loss_ratio = 99.99
