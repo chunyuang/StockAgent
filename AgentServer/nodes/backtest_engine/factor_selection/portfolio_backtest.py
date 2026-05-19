@@ -1107,6 +1107,8 @@ class PortfolioBacktester:
         last_prices = run_state['last_prices']
         all_trade_dates = run_state['all_trade_dates']
         rebalance_dates = run_state['rebalance_dates']
+        # 【P1-2修复(V15)】：存储为实例变量供_rebalance使用(超时强卖需计算交易日数)
+        self._all_trade_dates = all_trade_dates
         rebalance_set = run_state['rebalance_set']
         total_days = run_state['total_days']
         benchmark_data = run_state['benchmark_data']
@@ -1869,11 +1871,13 @@ class PortfolioBacktester:
                 low_p = p.get('low', p['close'])
                 high_p = p.get('high', p['close'])
                 open_p = p.get('open', p['close'])
+                _close_p = p.get('close', 0)
                 stop_price = cost * (1 - sl_pct)
                 tp_price = cost * (1 + tp_pct)
                 # 【P0-3修复(V14)】：用统一方法检查冲高回落/高开即卖/利润保护
+                # 【P0-1修复(V15)】：补上缺失的close_p变量定义，与调仓日分支保持一致
                 early_sell_price, early_sell_reason = self._check_early_sell_signals(
-                    code, strategies, cost, open_p, close_p)
+                    code, strategies, cost, open_p, _close_p)
                 early_sell_triggered = early_sell_price > 0
                 if early_sell_triggered:
                     forced_sell_prices[code] = early_sell_price
@@ -1891,6 +1895,9 @@ class PortfolioBacktester:
                         forced_sell_prices[code] = tp_price  # 止盈以止盈价卖出
                         forced_sell_codes.append((code, f'止盈({tp_pct*100:.0f}%)'))
                 # 【Bug修复：非调仓日也要检查max_hold_days超时】
+                # 【P1-2修复(V15)】：改用交易日计算超时，替代日历天数*1.5
+                # 旧逻辑: 日历天数>max_hold*1.5 → 周中买入3个日历天就超时(1.5*2=3),但只过了1个交易日
+                # 新逻辑: 统计all_trade_dates中[buy_date, trade_date]之间的交易日数
                 buy_date_raw = getattr(self, '_cost_basis_date', {}).get(code)
                 global_max_hold = self._risk_config.get('max_hold_days', 999)
                 strategy_max_hold = None
@@ -1903,15 +1910,23 @@ class PortfolioBacktester:
                 max_hold = strategy_max_hold if strategy_max_hold is not None else global_max_hold
                 if buy_date_raw is not None and max_hold < 999:
                     try:
-                        buy_dt = dt_now.strptime(str(buy_date_raw), '%Y%m%d')
-                        trade_dt = dt_now.strptime(str(trade_date), '%Y%m%d')
-                        calendar_days = (trade_dt - buy_dt).days
-                        if calendar_days > max_hold * 1.5:
+                        buy_dt_int = int(str(buy_date_raw))
+                        trade_dt_int = int(str(trade_date))
+                        _all_td = getattr(self, '_all_trade_dates', [])
+                        if _all_td:
+                            trade_days_held = sum(1 for d in _all_td if buy_dt_int < d <= trade_dt_int)
+                        else:
+                            bd = dt_now.strptime(str(buy_dt_int), '%Y%m%d')
+                            td = dt_now.strptime(str(trade_dt_int), '%Y%m%d')
+                            trade_days_held = int((td - bd).days / 1.5)
+                        if trade_days_held > max_hold:
                             if not any(c == code for c, _ in forced_sell_codes):
-                                forced_sell_codes.append((code, f'超时({calendar_days}日>{max_hold}交易日)'))
+                                forced_sell_codes.append((code, f'超时({trade_days_held}交易日>{max_hold}交易日)'))
                     except (ValueError, TypeError):
                         pass
             # 执行非调仓日强卖
+            # 【P1-1修复(V15)】：直接使用循环解包的reason，不再冗余查找forced_sell_codes
+            # 旧bug: L1929 next()重新查找，当同一code有多条目时可能返回错误reason
             for code, reason in forced_sell_codes:
                 shares = holdings.get(code, 0)
                 if shares <= 0:
@@ -1922,13 +1937,12 @@ class PortfolioBacktester:
                 sell_p = forced_sell_prices.get(code, p.get('close', 0))
                 if sell_p <= 0:
                     continue
-                slippage_pct = self._get_slippage_for_code(code)
                 # 【P1-2修复(V9)：止损不扣滑点(止损价已保守)，但止盈需扣滑点(实盘达不到理论止盈价)】
-                reason = next((r for c, r in forced_sell_codes if c == code), '')
+                # 冲高回落/高开即卖/利润保护也扣滑点(与rebalance中一致)
                 if '止损' in reason:
                     slippage_pct = 0  # 止损不扣滑点(止损价已含保守估计)
-                elif '止盈' in reason:
-                    slippage_pct = self._get_slippage_for_code(code)  # 止盈扣滑点(实盘难以精确止盈)
+                else:
+                    slippage_pct = self._get_slippage_for_code(code)  # 止盈/冲高回落/高开即卖/超时扣滑点
                 sell_price_adj = sell_p * (1 - slippage_pct)
                 gross_amount = shares * sell_price_adj
                 commission = max(gross_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
@@ -3553,8 +3567,9 @@ class PortfolioBacktester:
         if t1_blocked:
             logger.info(f"[T+1] 当日买入不可卖: {','.join(t1_blocked[:5])}{'...' if len(t1_blocked)>5 else ''}")
         # 【P1-1修复：超过max_hold_days的持仓强制卖出，即使仍在目标池中】
-        # max_hold_days语义是交易日天数，但日历天数≈交易日*1.5，用日历天数>max_hold_days*1.5判断
-        # 【P1-2修复(第十轮)：优先使用策略级max_hold_days，取最短的天数(最严格)】
+        # 【P1-2修复(V15)：改用交易日计算超时，替代日历天数*1.5】
+        # 旧逻辑: 日历天数>max_hold*1.5 → 周中买入易误触发
+        # 新逻辑: 统计all_trade_dates中的交易日数，精确不受周末/节假日影响
         global_max_hold = self._risk_config.get('max_hold_days', 999)
         over_hold_codes = []
         for code in list(holdings.keys()):
@@ -3574,11 +3589,16 @@ class PortfolioBacktester:
                 max_hold_days = strategy_max_hold if strategy_max_hold is not None else global_max_hold
                 if buy_date_raw is not None and max_hold_days < 999:
                     try:
-                        buy_dt = dt_now.strptime(str(buy_date_raw), '%Y%m%d')
-                        trade_dt = dt_now.strptime(str(trade_date), '%Y%m%d')
-                        calendar_days = (trade_dt - buy_dt).days
-                        # 日历天数 > 交易日*1.5 视为超时（周末2天+1交易日=3日历天≈1交易日）
-                        if calendar_days > max_hold_days * 1.5 and code not in sell_codes:
+                        buy_dt_int = int(str(buy_date_raw))
+                        trade_dt_int = int(str(trade_date))
+                        _all_td = getattr(self, '_all_trade_dates', [])
+                        if _all_td:
+                            trade_days_held = sum(1 for d in _all_td if buy_dt_int < d <= trade_dt_int)
+                        else:
+                            bd = dt_now.strptime(str(buy_dt_int), '%Y%m%d')
+                            td = dt_now.strptime(str(trade_dt_int), '%Y%m%d')
+                            trade_days_held = int((td - bd).days / 1.5)
+                        if trade_days_held > max_hold_days and code not in sell_codes:
                             over_hold_codes.append(code)
                     except (ValueError, TypeError):
                         pass

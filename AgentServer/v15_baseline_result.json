@@ -1,0 +1,40 @@
+{
+  "total_return_pct": 73.63764507512613,
+  "annual_return_pct": 1607.8679040319419,
+  "max_drawdown_pct": 3.0149788738196195,
+  "win_rate_pct": 70.1923076923077,
+  "sharpe_ratio": 9.030002679083994,
+  "profit_loss_ratio": 2.185118589550713,
+  "total_trades": 104,
+  "total_signals": 105,
+  "strategy_results": {
+    "半路追涨": {
+      "strategy_name": "半路追涨",
+      "win_rate": 66.23376623376623,
+      "total_return": 156.09727536914852,
+      "avg_profit_pct": 2.0272373424564742,
+      "trades_count": 77,
+      "max_drawdown": 13.186732362013188,
+      "profit_loss_ratio": 1.99
+    },
+    "跌停翘板": {
+      "strategy_name": "跌停翘板",
+      "win_rate": 81.48148148148148,
+      "total_return": 172.29667842622345,
+      "avg_profit_pct": 6.381358460230498,
+      "trades_count": 27,
+      "max_drawdown": 6.356654856437814,
+      "profit_loss_ratio": 1.77
+    }
+  },
+  "sell_reason_stats": {
+    "stop_loss": 5,
+    "take_profit": 36,
+    "max_hold": 0,
+    "force_empty": 9,
+    "rebalance": 54,
+    "other": 0
+  },
+  "execution_time_ms": 14440,
+  "elapsed_s": 14.488804340362549
+}
