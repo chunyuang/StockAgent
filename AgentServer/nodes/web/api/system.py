@@ -1040,10 +1040,11 @@ async def get_data_status() -> Dict[str, Any]:
         action_items = []
         today_int = int(datetime.now().strftime('%Y%m%d'))
         is_weekend = datetime.now().weekday() >= 5
+        now_hour = datetime.now().hour
+        is_trading_hours = not is_weekend and 9 <= now_hour <= 15
         latest_date = int(latest_daily_str) if len(latest_daily_str) == 8 else 0
         lag_days = 0
         if latest_date > 0 and not is_weekend:
-            # 简单估算滞后天数(工作日)
             from datetime import timedelta
             d = datetime.strptime(latest_daily_str, '%Y%m%d')
             bdays = 0
@@ -1053,7 +1054,7 @@ async def get_data_status() -> Dict[str, Any]:
                     bdays += 1
             lag_days = bdays
 
-        # 日线+基础指标补全(支持多天)
+        # === 必须做：日线+基础指标补全 ===
         if not is_weekend and latest_date > 0 and latest_date < today_int:
             if lag_days >= 2:
                 action_items.append({
@@ -1062,28 +1063,17 @@ async def get_data_status() -> Dict[str, Any]:
                     'api': 'POST /api/v1/system/sync-all',
                     'desc': f'日线滞后{lag_days}个工作日(最新={latest_daily_str}), 一键补全日线+PE/PB+因子',
                     'priority': 'high',
+                    'note': '需在交易时间(9:00-15:30)执行，非交易时间东方财富无当日数据',
                 })
             else:
-                action_items.append({
-                    'action': '补今日日线',
-                    'command': 'python3 eastmoney_daily_bar.py',
-                    'api': 'POST /api/v1/system/sync-daily-bar',
-                    'desc': f'最新日线={latest_daily_str}, 需补今日数据',
-                    'priority': 'high',
-                })
-                action_items.append({
-                    'action': '补今日PE/PB',
-                    'command': 'python3 eastmoney_daily_basic.py',
-                    'api': 'POST /api/v1/system/sync-daily-basic',
-                    'desc': '日线补完后运行',
-                    'priority': 'high',
-                })
+                # 滞后1天：只显示一键补全，不重复列出3个
                 action_items.append({
                     'action': '一键补全',
                     'command': '',
                     'api': 'POST /api/v1/system/sync-all',
-                    'desc': '日线+PE/PB+因子一步到位',
+                    'desc': f'日线滞后1天(最新={latest_daily_str}), 补全日线+PE/PB+因子',
                     'priority': 'high',
+                    'note': '需在交易时间(9:00-15:30)执行',
                 })
         elif not is_weekend and latest_date == today_int:
             action_items.append({
@@ -1106,9 +1096,10 @@ async def get_data_status() -> Dict[str, Any]:
                 'api': 'POST /api/v1/system/sync-all',
                 'desc': '数据库无日线数据, 需要先补全',
                 'priority': 'high',
+                'note': '首次补全会下载较长时间',
             })
 
-        # 指数日线/涨停池/跌停池滞后检测
+        # === 建议做：指数日线 ===
         index_latest = collections.get('index_daily', {}).get('date_range', {})
         index_end = index_latest.get('end') if index_latest else None
         if index_end and len(index_end) == 8 and int(index_end) < latest_date:
@@ -1118,16 +1109,19 @@ async def get_data_status() -> Dict[str, Any]:
                 'api': 'POST /api/v1/system/sync-index',
                 'desc': f'指数日线滞后(最新={index_end}, 日线已到{latest_daily_str})',
                 'priority': 'medium',
+                'note': '指数数据用于大盘MA60过滤,回测必须',
             })
 
+        # === 可忽略：涨停池/跌停池(仅实盘用) ===
         limit_latest = collections.get('limit_list', {}).get('date_range', {})
         limit_end = limit_latest.get('end') if limit_latest else None
         if limit_end and len(limit_end) == 8 and int(limit_end) < latest_date:
             action_items.append({
                 'action': '补涨停池数据',
                 'command': '',
-                'desc': f'涨停池滞后(最新={limit_end}, 日线已到{latest_daily_str})',
-                'priority': 'medium',
+                'desc': f'涨停池滞后(最新={limit_end}), 仅实盘首板打板策略使用',
+                'priority': 'low',
+                'note': '回测不依赖涨停池,可忽略',
             })
 
         down_latest = collections.get('limit_pool_down', {}).get('date_range', {})
@@ -1136,19 +1130,22 @@ async def get_data_status() -> Dict[str, Any]:
             action_items.append({
                 'action': '补跌停池数据',
                 'command': '',
-                'desc': f'跌停池滞后(最新={down_end}, 日线已到{latest_daily_str})',
-                'priority': 'medium',
+                'desc': f'跌停池滞后(最新={down_end}), 仅实盘跌停翘板策略使用',
+                'priority': 'low',
+                'note': '回测不依赖跌停池,可忽略',
             })
 
         # 检查因子是否需要补算
         if daily_coverage:
             latest = daily_coverage[-1]
-            if latest['groups'].get('technical', 100) < 90:
+            tech_cov = latest['groups'].get('technical', 100)
+            if tech_cov < 90:
                 action_items.append({
                     'action': '补算技术因子',
                     'command': '回测时自动计算(factor_auto_compute)',
-                    'desc': f'技术因子覆盖率{latest["groups"].get("technical", 0):.0f}%',
+                    'desc': f'技术因子覆盖率{tech_cov:.0f}%, 回测时自动补算',
                     'priority': 'medium',
+                    'note': '也可手动运行 lightweight_factor_fill.py',
                 })
 
         # ====== 数据对齐 ======
