@@ -58,17 +58,13 @@ async def health_check() -> Dict[str, Any]:
         checks["mongodb"] = {"status": "error", "message": f"MongoDB连接失败: {str(e)[:100]}"}
         overall = "error"
     
-    # 2. 回测引擎检查（端口50057）
+    # 2. 回测引擎检查（本地执行模式，不再需要独立端口50057）
     try:
-        reader, writer = await asyncio.wait_for(
-            asyncio.open_connection('localhost', 50057), timeout=3
-        )
-        writer.close()
-        await writer.wait_closed()
-        checks["backtest_node"] = {"status": "ok", "message": "回测节点端口50057可达"}
-    except Exception:
-        # 回测节点可能不需要单独端口（本地执行模式）
-        checks["backtest_node"] = {"status": "warning", "message": "回测节点端口50057不可达（本地执行模式可忽略）"}
+        from nodes.backtest_engine.factor_selection.portfolio_backtest import PortfolioBacktester
+        bt = PortfolioBacktester()
+        checks["backtest_node"] = {"status": "ok", "message": "回测引擎就绪（本地执行模式）"}
+    except Exception as e:
+        checks["backtest_node"] = {"status": "error", "message": f"回测引擎加载失败: {str(e)[:100]}"}
         if overall == "ok":
             overall = "warning"
     
