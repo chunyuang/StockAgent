@@ -78,6 +78,7 @@ function translateSellReason(reason: string): string {
     '跳空止损': '跳空止损',
     '冲高回落': '冲高回落',
     '高开即卖': '高开即卖',
+    '利润保护': '利润保护',
     'gap_down_stop': '跳空止损',
     '持仓中': '持仓中',
     '停牌超时强卖': '停牌强卖',
