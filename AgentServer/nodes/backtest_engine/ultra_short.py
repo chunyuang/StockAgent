@@ -94,8 +94,8 @@ async def execute_ultra_short_backtest(
     start_date = params.get("start_date", req_params.get("start_date", "20260105"))
     end_date = params.get("end_date", req_params.get("end_date", "20260320"))
     initial_cash = params.get("initial_cash", req_params.get("initial_cash", 1000000))
-    strategy_params = req_params.get("params", {})  # 内层全局风控参数
-    period = req_params.get("period", "daily")
+    strategy_params = params.get("params", req_params.get("params", {}))  # 优先从顶层读
+    period = params.get("period", req_params.get("period", "daily"))
     
     # 功能开关：统一从顶层读取（Web API在params和params.params两处都传了，优先顶层）
     enable_force_empty = params.get("enable_force_empty", req_params.get("enable_force_empty", req_params.get("params", {}).get("enable_force_empty", True)))
