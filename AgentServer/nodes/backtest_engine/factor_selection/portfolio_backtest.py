@@ -1476,6 +1476,8 @@ class PortfolioBacktester:
             
             if len(all_candidates) == 0:
                 await self.log(f"   ⚠️  竞价过滤后无候选，跳过调仓")
+                # 【P0修复：提前返回前必须调用日终汇总，否则日志缺失收盘信息】
+                await self._print_daily_summary(trade_date, len(holdings), cash)
                 run_state['cash'] = cash
                 run_state['holdings'] = holdings
                 run_state['rebalance_records'] = rebalance_records
@@ -2149,7 +2151,9 @@ class PortfolioBacktester:
             })
 
         # 初始化绩效指标（避免 UnboundLocalError 当0交易时）
-        max_drawdown = 0.0
+        # 【P0修复：max_drawdown提前从drawdown_series计算，避免中间日志输出0.00%】
+        raw_max_drawdown = max(drawdown_series) if drawdown_series else 0.0
+        max_drawdown = min(raw_max_drawdown, 1.0)  # 硬限制，防止异常值
         sharpe_ratio = 0.0
         profit_loss_ratio = 0.0
         strategy_name = "组合策略"
@@ -2361,11 +2365,7 @@ class PortfolioBacktester:
         # 净值曲线和每日盈亏已经在逐日回测循环中计算完成，这里直接使用
         # 删除了原来基于调仓日的简化估算，现在使用精确的逐日持仓市值计算
         
-        # 计算最大回撤（基于逐日净值，已经在循环中计算了 drawdown_series）
-        # 【P2-5修复：drawdown = (peak-current)/peak，理论范围[0,1]，超过1说明数据异常】
-        raw_max_drawdown = max(drawdown_series) if drawdown_series else 0.0
-        max_drawdown = min(raw_max_drawdown, 1.0)  # 硬限制，防止异常值
-        
+        # max_drawdown 已在上方从drawdown_series计算
         # 【P0-2修复：在max_drawdown正确计算后，重新计算return_drawdown_ratio】
         if max_drawdown > 0 and total_return != 0:
             return_drawdown_ratio = abs(total_return) / max_drawdown

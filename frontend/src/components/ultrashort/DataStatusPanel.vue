@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { ElCard, ElEmpty, ElProgress, ElTable, ElTableColumn, ElTag, ElButton } from 'element-plus'
+import { ElCard, ElEmpty, ElProgress, ElTable, ElTableColumn, ElTag, ElButton, ElMessage } from 'element-plus'
 import StrategyFactorPanel from './StrategyFactorPanel.vue'
 
 interface DailyCoverage { date: string; total: number; factor_rate: number; groups: Record<string, number> }
@@ -58,12 +58,11 @@ async function triggerSync(apiPath: string, actionName: string) {
       startPolling()
     } else {
       syncLoading.value = ''
-      // 用简单的alert替代ElMessage
-      alert(json.message || '同步启动失败')
+      ElMessage.error(json.message || '同步启动失败')
     }
   } catch (e: any) {
     syncLoading.value = ''
-    alert('请求失败: ' + e.message)
+    ElMessage.error('请求失败: ' + e.message)
   }
 }
 

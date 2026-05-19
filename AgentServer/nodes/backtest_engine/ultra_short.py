@@ -520,7 +520,7 @@ async def execute_ultra_short_backtest(
             if 'trade_date' not in trade_dict and 'date' in trade_dict:
                 trade_dict['trade_date'] = trade_dict['date']
             formatted_trades.append(trade_dict)
-        perf["trades"] = merged_trades if merged_trades else formatted_trades  # 优先用完整交易记录
+        perf["trades"] = merged_trades if merged_trades is not None else formatted_trades  # 优先用完整交易记录
         perf["merged_trades"] = merged_trades
         perf["net_value_series"] = net_value_series
         perf["drawdown_series"] = drawdown_series

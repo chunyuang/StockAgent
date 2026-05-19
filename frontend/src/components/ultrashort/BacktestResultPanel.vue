@@ -401,7 +401,7 @@ const strategyCompareChartOption = computed(() => {
       indicator: [
         { name: '收益率(%)', max: Math.max(50, ...strategies.map(s => Math.abs(s.total_return ?? 0))) + 10 },
         { name: '胜率(%)', max: 100 },
-        { name: '盈亏比', max: Math.max(3, ...strategies.map(s => Math.abs(s.avg_profit_pct ?? 0))) + 1 }
+        { name: '盈亏比', max: Math.max(3, ...strategies.map(s => Math.abs(s.profit_loss_ratio ?? 0))) + 1 }
       ]
     },
     series: [{
@@ -411,7 +411,7 @@ const strategyCompareChartOption = computed(() => {
         value: [
           s.total_return ?? 0,
           s.win_rate ?? 0,
-          Math.abs(s.avg_profit_pct ?? 0)
+          s.profit_loss_ratio ?? 0
         ]
       }))
     }]
@@ -453,7 +453,7 @@ const radarChartOption = computed(() => {
       type: 'radar',
       data: [{
         name: '组合绩效',
-        value: values.map(v => Math.abs(v).toFixed(2))
+        value: values.map(v => +Math.abs(v).toFixed(2))
       }]
     }]
   }

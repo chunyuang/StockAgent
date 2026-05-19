@@ -283,7 +283,7 @@ async def submit_ultra_short_backtest(
             logger.exception(f"[{task_id}] 回测执行失败: {e}")
             if task_id in mock_tasks:
                 mock_tasks[task_id]["status"] = "failed"
-                mock_tasks[task_id]["progress"] = 0
+                mock_tasks[task_id]["progress"] = 100  # 失败也是终态，进度应为100
             try:
                 await mongo_manager.update_one(
                     "backtest_tasks",
@@ -433,16 +433,14 @@ async def submit_sweep_backtest(raw_request: Request, user_id: str = Depends(get
     if sweep_step == 0:
         raise HTTPException(status_code=400, detail="扫描步长不能为0")
 
-    # 生成扫描值列表
+    # 生成扫描值列表(用整数步数避免浮点累加精度问题)
     sweep_values = []
     if sweep_step > 0:
-        v = sweep_start
-        while v <= sweep_end + 1e-9:
-            sweep_values.append(round(v, 10))
-            v += sweep_step
+        n = int(round((sweep_end - sweep_start) / sweep_step)) + 1
+        sweep_values = [round(sweep_start + i * sweep_step, 10) for i in range(n)]
     else:
-        v = sweep_start
-        while v >= sweep_end - 1e-9:
+        n = int(round((sweep_start - sweep_end) / (-sweep_step))) + 1
+        sweep_values = [round(sweep_start + i * sweep_step, 10) for i in range(n)]
             sweep_values.append(round(v, 10))
             v += sweep_step
 
