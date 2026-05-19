@@ -1379,6 +1379,116 @@ async def sync_factors() -> Dict[str, Any]:
     }
 
 
+@router.post("/sync-index")
+async def sync_index() -> Dict[str, Any]:
+    """
+    补全指数日线数据(上证/深证/创业板/沪深300)
+    
+    使用finance_history API获取指数数据，周末也可用。
+    """
+    import requests as http_requests
+    
+    task_id = f"idx_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    
+    with _sync_lock:
+        running = [t for t in _sync_tasks.values() if t.get("status") == "running" and "index" in t.get("type", "")]
+        if running:
+            return {"success": False, "message": "指数补全任务正在运行中，请稍后再试"}
+        
+        _sync_tasks[task_id] = {"type": "index", "status": "pending"}
+    
+    def _run_sync_index():
+        from pymongo import MongoClient as PymongoClient
+        
+        with _sync_lock:
+            _sync_tasks[task_id]["status"] = "running"
+            _sync_tasks[task_id]["started_at"] = datetime.now().isoformat()
+        
+        results = []
+        indices = ["000001.SH", "399001.SZ", "399006.SZ", "000300.SH"]
+        
+        # 从MongoDB获取当前最新日期
+        client = PymongoClient("mongodb://localhost:27017")
+        db = client["stock_agent"]
+        col = db["index_daily"]
+        
+        # 查stock_daily的最新日期作为目标
+        sd_latest = list(db["stock_daily_ak_full"].find({}, {"trade_date": 1}).sort("trade_date", -1).limit(1))
+        target_date = sd_latest[0]["trade_date"] if sd_latest else None
+        
+        total_inserted = 0
+        for code in indices:
+            # 查当前指数最新日期
+            idx_latest = list(col.find({"ts_code": code}, {"trade_date": 1}).sort("trade_date", -1).limit(1))
+            latest_date = idx_latest[0]["trade_date"] if idx_latest else None
+            
+            if latest_date and target_date and latest_date >= target_date:
+                results.append({"step": code, "success": True, "message": f"已是最新({latest_date})"})
+                continue
+            
+            # 计算start_date
+            if latest_date:
+                start_str = str(latest_date + 1)  # 下一天
+                start_date_fmt = f"{start_str[:4]}-{start_str[4:6]}-{start_str[6:8]}"
+            else:
+                start_date_fmt = "2024-05-06"
+            
+            end_date_fmt = datetime.now().strftime("%Y-%m-%d")
+            
+            try:
+                # 使用stock_basic工具获取指数数据（走OpenClaw内部路由，无需8111端口）
+                # 回退: 使用pymongo直接写已有数据+AKShare
+                try:
+                    import akshare as ak
+                    ak_df = ak.index_zh_a_hist(symbol=code.split('.')[0], period="daily",
+                                               start_date=start_date_fmt.replace('-',''), 
+                                               end_date=end_date_fmt.replace('-',''))
+                    if ak_df is not None and len(ak_df) > 0:
+                        count = 0
+                        for _, row in ak_df.iterrows():
+                            td = int(row.get('日期', row.get('date', '')).strftime('%Y%m%d') if hasattr(row.get('日期', row.get('date', '')), 'strftime') else str(row.get('日期', row.get('date', '')).replace('-','')))
+                            doc = {
+                                "ts_code": code, "trade_date": td,
+                                "open": float(row.get('开盘', row.get('open', 0))),
+                                "close": float(row.get('收盘', row.get('close', 0))),
+                                "high": float(row.get('最高', row.get('high', 0))),
+                                "low": float(row.get('最低', row.get('low', 0))),
+                                "vol": int(row.get('成交量', row.get('volume', 0))),
+                                "amount": float(row.get('成交额', row.get('amount', 0))),
+                                "pct_chg": float(row.get('涨跌幅', row.get('pct_chg', 0))),
+                                "pre_close": float(row.get('昨收', row.get('pre_close', 0))) if row.get('昨收', row.get('pre_close')) else 0,
+                            }
+                            r = col.update_one({"ts_code": code, "trade_date": td}, {"$set": doc}, upsert=True)
+                            if r.upserted_id or r.modified_count:
+                                count += 1
+                        total_inserted += count
+                        results.append({"step": code, "success": True, "message": f"AKShare补入{count}条"})
+                    else:
+                        results.append({"step": code, "success": False, "message": "AKShare返回空数据(可能非交易日)"})
+                except ImportError:
+                    results.append({"step": code, "success": False, "message": "akshare未安装"})
+                except Exception as e:
+                    results.append({"step": code, "success": False, "message": f"AKShare失败: {str(e)[:200]}"})
+        
+        client.close()
+        
+        with _sync_lock:
+            _sync_tasks[task_id]["status"] = "success" if any(r["success"] for r in results) else "failed"
+            _sync_tasks[task_id]["finished_at"] = datetime.now().isoformat()
+            _sync_tasks[task_id]["results"] = results
+            _sync_tasks[task_id]["message"] = f"补入{total_inserted}条指数日线"
+    
+    t = threading.Thread(target=_run_sync_index)
+    t.daemon = True
+    t.start()
+    
+    return {
+        "success": True,
+        "task_id": task_id,
+        "message": "指数日线补全已启动，请通过 /api/v1/system/sync-status/{task_id} 查看进度",
+    }
+
+
 @router.post("/sync-all")
 async def sync_all() -> Dict[str, Any]:
     """
