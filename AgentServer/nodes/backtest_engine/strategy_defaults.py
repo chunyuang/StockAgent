@@ -48,7 +48,7 @@ STRATEGY_CONFIGS = {
             "max_rise_pct": 0.07,           # 最大涨幅7%
             "min_volume_ratio": 2.0,        # 量比≥2.0
             "max_volume_ratio": 3.0,        # 量比≤3.0(>3过热回调,胜率反而下降)
-            "min_close_rise_pct": 0.03,     # 收盘涨幅≥3%(收盘确认:盘中涨但收不站的次日35%胜率,收住的84%)
+            "min_close_rise_pct": 0.05,     # 收盘涨幅≥5%(V14: 5%收盘确认,半路追涨胜率从40.5%→66.2%)
             "max_open_rise_pct": 0.03,      # 开盘涨幅≤3%(高开>3%追高胜率仅44%,低开冲高81.5%胜率)
             "allow_after_10am": False,      # 不允许10点后买入
         },
@@ -139,7 +139,7 @@ STRATEGY_CONFIGS = {
         },
         "riskParams": {
             "stop_loss_pct": 0.07,          # 止损7%
-            "take_profit_pct": 0.07,        # 止盈7%
+            "take_profit_pct": 0.10,        # 止盈10%(V14: 让利润奔跑,翘板股波动大7%太紧)
             "max_hold_days": 3,             # 最大持仓3天
             "slippage_pct": 0.003,          # 滑点0.3%(跌停后波动大)
         }
