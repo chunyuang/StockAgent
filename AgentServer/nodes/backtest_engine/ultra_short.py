@@ -552,6 +552,9 @@ async def execute_ultra_short_backtest(
             # 调仓: 包含"调仓"/"rebalance"/"减仓"
             elif "调仓" in reason_str or "rebalance" in reason_str.lower() or "减仓" in reason_str:
                 sell_reason_stats["rebalance"] += 1
+            # 【V9修复：冲高回落/高开即卖归入take_profit(本质是止盈类操作)】
+            elif "冲高回落" in reason_str or "高开即卖" in reason_str:
+                sell_reason_stats["take_profit"] += 1
             # 持仓中: 未平仓交易
             elif "持仓中" in reason_str:
                 pass  # 不计入卖出统计
