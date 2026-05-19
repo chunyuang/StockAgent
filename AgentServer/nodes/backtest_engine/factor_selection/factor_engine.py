@@ -176,15 +176,14 @@ class FactorEngine:
                 if zero_pre_close_mask.any():
                     zero_codes = result.loc[zero_pre_close_mask, "ts_code"].tolist()
                     if zero_codes:
-                        # 查找前一个交易日的close
+                        # 查找前一个交易日: 用max聚合替代distinct(快10x)
                         trade_date_int = int(trade_date)
-                        prev_dates = [d for d in sorted(
-                            await mongo_manager.db[C.STOCK_DAILY].distinct(
-                                "trade_date", {"trade_date": {"$lt": trade_date_int}}
-                            )
-                        ) if d < trade_date_int]
-                        if prev_dates:
-                            prev_date = prev_dates[-1]  # 最近的前一个交易日
+                        prev_date_doc = await mongo_manager.db[C.STOCK_DAILY].aggregate([
+                            {"$match": {"trade_date": {"$lt": trade_date_int}}},
+                            {"$group": {"_id": None, "max_date": {"$max": "$trade_date"}}}
+                        ]).to_list(length=1)
+                        if prev_date_doc and prev_date_doc[0].get("max_date"):
+                            prev_date = prev_date_doc[0]["max_date"]
                             prev_docs = await mongo_manager.db[C.STOCK_DAILY].find(
                                 {"trade_date": prev_date, "ts_code": {"$in": zero_codes}},
                                 {"ts_code": 1, "close": 1, "_id": 0}
