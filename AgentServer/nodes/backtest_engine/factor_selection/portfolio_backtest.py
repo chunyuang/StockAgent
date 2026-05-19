@@ -108,6 +108,19 @@ class PortfolioBacktester:
         self._strategy_signal_stats = {}
         self.stock_to_strategy = {}
 
+    def _update_run_state(self, run_state: dict, **kwargs) -> dict:
+        """【P1-2修复(V12)】统一更新run_state，消除9处重复的逐字段赋值"""
+        # 从kwargs更新，同时支持从局部变量批量更新
+        standard_keys = [
+            'cash', 'holdings', 'rebalance_records', 'last_prices', 'stock_names',
+            'net_value_series', 'daily_profit_list', 'drawdown_series', 'daily_cash_list',
+            'peak_value', 'last_net_value',
+        ]
+        for key in standard_keys:
+            if key in kwargs:
+                run_state[key] = kwargs[key]
+        return run_state
+
     # ==================== 🎯 【统一输出函数集】 One Function, One Format ====================
     # 所有日志输出必须走以下统一入口!绝对不允许直接调用 await self.log()!
     # ==================================================================================
@@ -1127,17 +1140,12 @@ class PortfolioBacktester:
                 net_value_series, daily_profit_list, drawdown_series, daily_cash_list,
                 last_prices=last_prices)
             # [重构] continue→return: 跳过当日剩余处理
-            run_state['cash'] = cash
-            run_state['holdings'] = holdings
-            run_state['rebalance_records'] = rebalance_records
-            run_state['last_prices'] = last_prices
-            run_state['stock_names'] = stock_names
-            run_state['net_value_series'] = net_value_series
-            run_state['daily_profit_list'] = daily_profit_list
-            run_state['drawdown_series'] = drawdown_series
-            run_state['daily_cash_list'] = daily_cash_list
-            run_state['peak_value'] = peak_value
-            run_state['last_net_value'] = last_net_value
+            self._update_run_state(run_state,
+                cash=cash, holdings=holdings, rebalance_records=rebalance_records,
+                last_prices=last_prices, stock_names=stock_names,
+                net_value_series=net_value_series, daily_profit_list=daily_profit_list,
+                drawdown_series=drawdown_series, daily_cash_list=daily_cash_list,
+                peak_value=peak_value, last_net_value=last_net_value)
             return run_state
 
         # ==================== 正常调仓流程 ====================
@@ -1187,17 +1195,12 @@ class PortfolioBacktester:
                 net_value_series, daily_profit_list, drawdown_series, daily_cash_list,
                 last_prices=last_prices)
             # [重构] continue→return: 跳过当日剩余处理
-            run_state['cash'] = cash
-            run_state['holdings'] = holdings
-            run_state['rebalance_records'] = rebalance_records
-            run_state['last_prices'] = last_prices
-            run_state['stock_names'] = stock_names
-            run_state['net_value_series'] = net_value_series
-            run_state['daily_profit_list'] = daily_profit_list
-            run_state['drawdown_series'] = drawdown_series
-            run_state['daily_cash_list'] = daily_cash_list
-            run_state['peak_value'] = peak_value
-            run_state['last_net_value'] = last_net_value
+            self._update_run_state(run_state,
+                cash=cash, holdings=holdings, rebalance_records=rebalance_records,
+                last_prices=last_prices, stock_names=stock_names,
+                net_value_series=net_value_series, daily_profit_list=daily_profit_list,
+                drawdown_series=drawdown_series, daily_cash_list=daily_cash_list,
+                peak_value=peak_value, last_net_value=last_net_value)
             return run_state
 
         ultra_short_factors = [
@@ -1245,17 +1248,12 @@ class PortfolioBacktester:
                 last_prices=last_prices)
             # [重构] continue→return: 跳过当日剩余处理
             # 【P0-3修复(第十一轮)：跳过后续逻辑，避免空DataFrame上无意义运算】
-            run_state['cash'] = cash
-            run_state['holdings'] = holdings
-            run_state['rebalance_records'] = rebalance_records
-            run_state['last_prices'] = last_prices
-            run_state['stock_names'] = stock_names
-            run_state['net_value_series'] = net_value_series
-            run_state['daily_profit_list'] = daily_profit_list
-            run_state['drawdown_series'] = drawdown_series
-            run_state['daily_cash_list'] = daily_cash_list
-            run_state['peak_value'] = peak_value
-            run_state['last_net_value'] = last_net_value
+            self._update_run_state(run_state,
+                cash=cash, holdings=holdings, rebalance_records=rebalance_records,
+                last_prices=last_prices, stock_names=stock_names,
+                net_value_series=net_value_series, daily_profit_list=daily_profit_list,
+                drawdown_series=drawdown_series, daily_cash_list=daily_cash_list,
+                peak_value=peak_value, last_net_value=last_net_value)
             return run_state
         # 🔍 因子数据质量检查（P3-9优化：增强检查，缺失核心因子时中止）
         selected_strategies = config.get("selected_strategies", [])
@@ -1280,17 +1278,12 @@ class PortfolioBacktester:
                 trade_date, holdings, cash, last_net_value, peak_value,
                 net_value_series, daily_profit_list, drawdown_series, daily_cash_list,
                 last_prices=last_prices)
-            run_state['cash'] = cash
-            run_state['holdings'] = holdings
-            run_state['rebalance_records'] = rebalance_records
-            run_state['last_prices'] = last_prices
-            run_state['stock_names'] = stock_names
-            run_state['net_value_series'] = net_value_series
-            run_state['daily_profit_list'] = daily_profit_list
-            run_state['drawdown_series'] = drawdown_series
-            run_state['daily_cash_list'] = daily_cash_list
-            run_state['peak_value'] = peak_value
-            run_state['last_net_value'] = last_net_value
+            self._update_run_state(run_state,
+                cash=cash, holdings=holdings, rebalance_records=rebalance_records,
+                last_prices=last_prices, stock_names=stock_names,
+                net_value_series=net_value_series, daily_profit_list=daily_profit_list,
+                drawdown_series=drawdown_series, daily_cash_list=daily_cash_list,
+                peak_value=peak_value, last_net_value=last_net_value)
             return run_state
         
         # 为缺失的因子应用默认值（避免后续计算出错）
@@ -1402,17 +1395,12 @@ class PortfolioBacktester:
                 net_value_series, daily_profit_list, drawdown_series, daily_cash_list,
                 last_prices=last_prices)
             # [重构] continue→return: 跳过当日剩余处理
-            run_state['cash'] = cash
-            run_state['holdings'] = holdings
-            run_state['rebalance_records'] = rebalance_records
-            run_state['last_prices'] = last_prices
-            run_state['stock_names'] = stock_names
-            run_state['net_value_series'] = net_value_series
-            run_state['daily_profit_list'] = daily_profit_list
-            run_state['drawdown_series'] = drawdown_series
-            run_state['daily_cash_list'] = daily_cash_list
-            run_state['peak_value'] = peak_value
-            run_state['last_net_value'] = last_net_value
+            self._update_run_state(run_state,
+                cash=cash, holdings=holdings, rebalance_records=rebalance_records,
+                last_prices=last_prices, stock_names=stock_names,
+                net_value_series=net_value_series, daily_profit_list=daily_profit_list,
+                drawdown_series=drawdown_series, daily_cash_list=daily_cash_list,
+                peak_value=peak_value, last_net_value=last_net_value)
             return run_state
 
         # 【竞价过滤】第5层筛选
@@ -1475,17 +1463,12 @@ class PortfolioBacktester:
                 await self.log(f"   ⚠️  竞价过滤后无候选，跳过调仓")
                 # 【P0修复：提前返回前必须调用日终汇总，否则日志缺失收盘信息】
                 await self._print_daily_summary(trade_date, len(holdings), cash)
-                run_state['cash'] = cash
-                run_state['holdings'] = holdings
-                run_state['rebalance_records'] = rebalance_records
-                run_state['last_prices'] = last_prices
-                run_state['stock_names'] = stock_names
-                run_state['net_value_series'] = net_value_series
-                run_state['daily_profit_list'] = daily_profit_list
-                run_state['drawdown_series'] = drawdown_series
-                run_state['daily_cash_list'] = daily_cash_list
-                run_state['peak_value'] = peak_value
-                run_state['last_net_value'] = last_net_value
+                self._update_run_state(run_state,
+                    cash=cash, holdings=holdings, rebalance_records=rebalance_records,
+                    last_prices=last_prices, stock_names=stock_names,
+                    net_value_series=net_value_series, daily_profit_list=daily_profit_list,
+                    drawdown_series=drawdown_series, daily_cash_list=daily_cash_list,
+                    peak_value=peak_value, last_net_value=last_net_value)
                 return run_state
 
         # 【P0-A修复：以下调仓逻辑必须与竞价过滤if平级，不能在if内部！】
@@ -1510,13 +1493,15 @@ class PortfolioBacktester:
                 if industry_map:
                     sector_counts = {}
                     filtered_by_sector = set()
-                    # 【P1-3修复(第十轮→第十一轮修正)：composite_score列不存在，改用pct_chg排序】
-                    # pct_chg是当日涨跌幅，正值越大=强势股，保留每行业最强N只
-                    if 'pct_chg' in factor_df.columns:
+                    # 【P1-3修复(V12)：用volume_ratio排序替代pct_chg，消除未来函数】
+                    # pct_chg是收盘涨跌幅(收盘后才知道)，实盘选股时无法使用
+                    # volume_ratio(量比)在开盘时已确定(基于前5日均量)，是可观测因子
+                    # 量比高=市场关注度高=更强势，在同一行业内优先选量比高的
+                    if 'volume_ratio' in factor_df.columns:
                         scored_candidates = []
                         for code in all_candidates:
                             row = factor_df[factor_df['ts_code'] == code]
-                            score = row['pct_chg'].iloc[0] if len(row) > 0 and not row['pct_chg'].isna().iloc[0] else 0
+                            score = row['volume_ratio'].iloc[0] if len(row) > 0 and not row['volume_ratio'].isna().iloc[0] else 0
                             scored_candidates.append((code, score))
                         scored_candidates.sort(key=lambda x: x[1], reverse=True)
                         sorted_candidates = [c[0] for c in scored_candidates]
@@ -1600,17 +1585,12 @@ class PortfolioBacktester:
                 net_value_series, daily_profit_list, drawdown_series, daily_cash_list,
                 last_prices=last_prices)
             # [重构] continue→return: 跳过当日剩余处理
-            run_state['cash'] = cash
-            run_state['holdings'] = holdings
-            run_state['rebalance_records'] = rebalance_records
-            run_state['last_prices'] = last_prices
-            run_state['stock_names'] = stock_names
-            run_state['net_value_series'] = net_value_series
-            run_state['daily_profit_list'] = daily_profit_list
-            run_state['drawdown_series'] = drawdown_series
-            run_state['daily_cash_list'] = daily_cash_list
-            run_state['peak_value'] = peak_value
-            run_state['last_net_value'] = last_net_value
+            self._update_run_state(run_state,
+                cash=cash, holdings=holdings, rebalance_records=rebalance_records,
+                last_prices=last_prices, stock_names=stock_names,
+                net_value_series=net_value_series, daily_profit_list=daily_profit_list,
+                drawdown_series=drawdown_series, daily_cash_list=daily_cash_list,
+                peak_value=peak_value, last_net_value=last_net_value)
             return run_state
 
         # 5. 执行调仓(用execute_weights, 可能是T-1日的选股结果)
@@ -1790,17 +1770,12 @@ class PortfolioBacktester:
         await self.log(f"═══════════════════════════════════════════════════════════════")
 
         # ==================== 更新run_state ====================
-        run_state['cash'] = cash
-        run_state['holdings'] = holdings
-        run_state['stock_names'] = stock_names
-        run_state['rebalance_records'] = rebalance_records
-        run_state['net_value_series'] = net_value_series
-        run_state['daily_profit_list'] = daily_profit_list
-        run_state['drawdown_series'] = drawdown_series
-        run_state['daily_cash_list'] = daily_cash_list
-        run_state['peak_value'] = peak_value
-        run_state['last_net_value'] = last_net_value
-        run_state['last_prices'] = last_prices
+        self._update_run_state(run_state,
+            cash=cash, holdings=holdings, stock_names=stock_names,
+            rebalance_records=rebalance_records, net_value_series=net_value_series,
+            daily_profit_list=daily_profit_list, drawdown_series=drawdown_series,
+            daily_cash_list=daily_cash_list, peak_value=peak_value,
+            last_net_value=last_net_value, last_prices=last_prices)
         return run_state
 
     async def _process_non_rebalance_day(self, trade_date, idx: int, run_state: dict,
@@ -2022,17 +1997,12 @@ class PortfolioBacktester:
 
 
         # ==================== 更新run_state ====================
-        run_state['cash'] = cash
-        run_state['holdings'] = holdings
-        run_state['rebalance_records'] = rebalance_records
-        run_state['last_prices'] = last_prices
-        run_state['stock_names'] = stock_names
-        run_state['net_value_series'] = net_value_series
-        run_state['daily_profit_list'] = daily_profit_list
-        run_state['drawdown_series'] = drawdown_series
-        run_state['daily_cash_list'] = daily_cash_list
-        run_state['peak_value'] = peak_value
-        run_state['last_net_value'] = last_net_value
+        self._update_run_state(run_state,
+            cash=cash, holdings=holdings, rebalance_records=rebalance_records,
+            last_prices=last_prices, stock_names=stock_names,
+            net_value_series=net_value_series, daily_profit_list=daily_profit_list,
+            drawdown_series=drawdown_series, daily_cash_list=daily_cash_list,
+            peak_value=peak_value, last_net_value=last_net_value)
         return run_state
 
     async def _build_run_result(self, run_state: dict) -> dict:
@@ -3148,16 +3118,16 @@ class PortfolioBacktester:
         for sname in strategies:
             if sname == '半路追涨':
                 # 【V11-P0-2修复：消除未来函数 — 旧逻辑open+(high-open)*0.5用了当天high】
-                # 问题：买入时不可能知道当日最高价，这是未来函数
-                # 新逻辑：基于open价和策略参数(min_rise_pct)推算买入价
-                # 实盘场景：9:30开盘后观察股价涨幅，达到3%+时确认信号并买入
-                # 此时价格 ≈ open × (1 + min_rise_pct × 0.7)
-                # 系数0.7含义：涨幅从0→min_rise过程中，在70%处确认并买入
-                # 比旧逻辑更保守但不含未来函数
+                # 【V12-P0-2修复：系数从0.7调整为0.8，平衡回测真实性和利润空间】
+                # 系数0.7: 买入价=open*1.021(涨幅1.05%处)，过于保守导致回测虚高
+                # 系数0.9: 买入价=open*1.027(涨幅2.7%处)，接近信号确认位但利润太薄
+                # 系数0.8: 买入价=open*1.024(涨幅2.4%处)，实盘可在接近3%时确认并买入
+                # 实盘场景：9:30开盘后观察股价涨幅，涨幅达2.4%时预判3%信号并买入
+                # 此时价格 ≈ open × (1 + min_rise_pct × 0.8)
                 _sp = getattr(self, '_strategy_params', {}).get(sname, {})
                 _min_rise = _sp.get('min_rise_pct', 0.03)
                 if open_price > 0:
-                    p = open_price * (1 + _min_rise * 0.7)
+                    p = open_price * (1 + _min_rise * 0.8)
                 else:
                     p = 0
             elif sname in ('首板打板', '涨停开板'):
@@ -3373,6 +3343,11 @@ class PortfolioBacktester:
                 {"name": "open_above_limit_down", "target": 1, "label": "开盘高于跌停价(不继续跌停)"},
                 {"name": "circ_mv", "target": 200000, "operator": ">=", "label": "流通市值≥20亿(排除小盘操纵)"},
                 {"name": "turnover_rate", "target": min_turnover_qiao, "operator": ">=", "label": f"换手率≥{min_turnover_qiao:.0f}%"},
+                # 【P0-3修复(V12→V12.1)】：翘板金额过滤改为target=0(跳过)
+                # limit_down_open_amount因子98%为0(数据质量问题)，无法可靠使用
+                # 设target=0后_print_single_strategy_filtering会自动跳过此条件
+                # 待因子数据完善后再启用
+                {"name": "limit_down_open_amount", "target": 0, "operator": ">=", "label": f"翘板金额(数据不全,暂不过滤)"},
                 # 【R3优化(V9)：跌停翘板增加pct_chg>0条件，只选今日收涨的股】
                 # 旧: 只要求"不继续跌停"，可选到涨0.x%但收跌的弱势股
                 # 新: 要求pct_chg>0(今日收涨)，确认有资金主动翘板
@@ -3861,20 +3836,22 @@ class PortfolioBacktester:
 
             # 更新持仓
             holdings[ts_code] = current_shares + delta
-            # 【记录买入成本,用于卖出时止损止盈判断】
-            # 【修复P1-7：增仓时更新cost_basis为加权平均价】
+            # 【P0-1修复(V12)：cost_basis应记录含滑点的实际成交价buy_price_adj】
+            # 旧bug: 记录的是模拟价price(如半路追涨open*1.021)，不含滑点
+            # 导致止损/止盈基于不含滑点的价格计算，触发阈值偏差
+            # 修复: 使用buy_price_adj(price*(1+slippage_pct))作为实际成本
             if not self._cost_basis:
                 self._cost_basis = {}
             if not self._cost_basis_date:
                 self._cost_basis_date = {}
             if current_shares > 0 and ts_code in self._cost_basis:
-                # 增仓：加权平均成本 = (旧成本*旧股数 + 新价*新股数) / 总股数
+                # 增仓：加权平均成本 = (旧成本*旧股数 + 新实际成本*新股数) / 总股数
                 old_cost = self._cost_basis[ts_code]
                 total_shares = current_shares + delta
-                self._cost_basis[ts_code] = (old_cost * current_shares + price * delta) / total_shares
+                self._cost_basis[ts_code] = (old_cost * current_shares + buy_price_adj * delta) / total_shares
                 # 【Bug修复：增仓时不更新买入日期，保留首次买入日期用于超时判断】
             else:
-                self._cost_basis[ts_code] = price  # 新买入：记录实际买入价(含策略差异化)
+                self._cost_basis[ts_code] = buy_price_adj  # 【P0-1修复】新买入：记录含滑点的实际成交价
                 self._cost_basis_date[ts_code] = trade_date  # 仅新买入时记录首次买入日期
 
             # 记录交易
