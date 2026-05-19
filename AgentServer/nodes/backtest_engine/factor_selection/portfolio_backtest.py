@@ -199,7 +199,7 @@ class PortfolioBacktester:
             # 回退到旧的简单阈值(全市场9.8%)
             logger.warn('BACKTEST', f"板块涨停数统计失败, 使用回退方案: {e}")
             fallback_pipeline = [
-                {"$match": {"trade_date": td}},
+                {"$match": {"trade_date": td}},  # td already converted to int above
                 {"$group": {"_id": None,
                     "limit_up_count": {"$sum": {"$cond": [{"$gte": ["$pct_chg", 9.8]}, 1, 0]}},
                     "limit_down_count": {"$sum": {"$cond": [{"$lte": ["$pct_chg", -9.8]}, 1, 0]}},
@@ -572,6 +572,9 @@ class PortfolioBacktester:
         total_days = run_state['total_days']
         
         for idx, trade_date in enumerate(all_trade_dates):
+            # 【P0修复(V10)：确保trade_date是int类型，universe可能返回string】
+            if isinstance(trade_date, str):
+                trade_date = int(trade_date)
             # 【P2-4：每日价格缓存，避免同一天多次查MongoDB】
             self._daily_price_cache = {}
             self._daily_price_cache_date = trade_date
@@ -790,13 +793,13 @@ class PortfolioBacktester:
             return {"error": "No trade dates found"}
 
         # 🔴 关键修复:统一日期类型为字符串,避免类型不匹配
-        # 确保 rebalance_dates 和 all_trade_dates 类型完全一致
-        all_trade_dates = [str(d) for d in all_trade_dates]
-        rebalance_dates = [str(d) for d in rebalance_dates]
+        # 确保 rebalance_dates 和 all_trade_dates 类型完全一致，用int匹配MongoDB存储格式
+        all_trade_dates = [int(d) for d in all_trade_dates]
+        rebalance_dates = [int(d) for d in rebalance_dates]
         rebalance_set = set(rebalance_dates)
 
         await self.log(f"📅 调仓日期: {len(rebalance_dates)} 天, 交易日: {len(all_trade_dates)} 天")
-        await self.log(f"📋 调仓日列表: {', '.join(rebalance_dates)}")
+        await self.log(f"📋 调仓日列表: {', '.join(str(d) for d in rebalance_dates)}")
 
         # 🔍 数据一致性校验:检查行情数据和因子数据日期范围是否一致
         await self.log("🔍 开始数据一致性校验...")
