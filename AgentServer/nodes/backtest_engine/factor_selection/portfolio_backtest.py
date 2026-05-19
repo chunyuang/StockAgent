@@ -156,6 +156,7 @@ class PortfolioBacktester:
 
         # 【V8优化：合并4次聚合为1次，减少MongoDB IO】
         # 一次聚合同时获取主板/创业板/科创板/北交所涨跌停+全市场平均涨跌幅
+        td = trade_date  # 别名简化
         combined_pipeline = [
             {"$match": {"trade_date": td}},
             {"$group": {"_id": None,
