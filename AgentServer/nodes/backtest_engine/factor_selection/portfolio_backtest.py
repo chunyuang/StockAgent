@@ -881,57 +881,64 @@ class PortfolioBacktester:
         if total_days > 100:
             await self.log(f"⚡ 大区间回测({total_days}天)，跳过因子预检测，运行时动态计算")
         else:
-            await self.log("🔍 因子完整性自动检测:检查 48 个预计算因子字段...")
-            # 小区间保留原有逻辑 - 简化版检测
-            REQUIRED_FACTOR_FIELDS = [
+            await self.log("🔍 因子完整性自动检测:检查核心策略因子...")
+            # 【P0-1修复(V9)：精简因子检测列表，仅检查回测核心策略必需的因子】
+            # 48个因子逐个count_documents太慢(48次MongoDB查询)，改为一次聚合检测
+            # 核心策略因子 = 筛选条件用到的因子(排除纯技术指标和盘中因子)
+            CORE_FACTOR_FIELDS = [
                 "first_limit_up", "limit_up_yesterday", "limit_up_count",
                 "turnover_rate", "volume_ratio", "circ_mv",
                 "opening_pct_chg", "limit_down_yesterday", "open_above_limit_down",
-                "rise_after_limit_down",
-                "open_below_limit", "amount_20d", "amplitude", "pct_chg", "vol", "amount",
+                "pct_chg", "vol", "amount",
                 "open", "high", "low", "close",
-                "ma5", "ma10", "ma20", "ma60", "ema12", "ema26",
-                "rsi_6", "rsi_12", "rsi_24", "macd", "macd_signal", "macd_hist",
-                "boll_upper", "boll_mid", "boll_lower", "atr", "natr", "trange",
-                "momentum_1d", "momentum_5d", "momentum_10d", "momentum_20d",
-                "volatility_5d", "volatility_10d", "volatility_20d",
-                "turnover_5d_avg", "turnover_20d_avg", "fear_greed_index",
-                # 已修复的因子：
-                "volume_increase", "market_leader", "hot_sector", "sentiment_score",
-                "intraday_max_rise_pct", "intraday_open_rise_pct",  # 从OHLCV推算，自动补算
-                "pullback_pct", "pullback_days", "pullback_ma5",  # 龙头低吸回调指标
-                # 注意：日线回测无法获取盘中因子，如：
-                # - limit_up_open_count (开板次数，盘中数据)
-                # - limit_up_open_amount (开板金额，盘中数据) 
-                # - limit_up_open_duration (开板时长，盘中数据)
-                # - limit_up_time (涨停时间，盘中数据)
-                # - limit_down_open_amount (跌停开板金额，盘中数据)
-                # - intraday_max_rise_pct (盘中最大涨幅，实时计算)
-                # - intraday_open_rise_pct (开盘涨幅，实时计算)
+                "intraday_max_rise_pct", "intraday_open_rise_pct",
+                "pullback_pct", "pullback_days",
             ]
-            actual_total = await mongo_manager.count_documents(
-                C.STOCK_DAILY, {"trade_date": {"$gte": start_dt, "$lte": end_dt}}
-            )
-            total_records = actual_total if actual_total > 0 else 1
-            # 逐字段检测(小区间数据量小，不会有内存问题)
+            # 【P0-1修复(V9)：用单次聚合替代48次count_documents，减少MongoDB查询从48次→1次】
+            sample_date_pipeline = [
+                {"$match": {"trade_date": {"$gte": start_dt, "$lte": end_dt}}},
+                {"$limit": 100},  # 只采样100条即可判断因子是否存在
+            ]
+            sample_docs = await mongo_manager.aggregate(C.STOCK_DAILY, sample_date_pipeline)
             missing_fields = []
-            for field in REQUIRED_FACTOR_FIELDS:
-                valid = await mongo_manager.count_documents(
-                    C.STOCK_DAILY, {"trade_date": {"$gte": start_dt, "$lte": end_dt}, field: {"$ne": None}}
-                )
-                if valid / total_records < 0.9:
-                    missing_fields.append(field)
+            if sample_docs:
+                sample_fields = set()
+                for doc in sample_docs:
+                    sample_fields.update(doc.keys())
+                for field in CORE_FACTOR_FIELDS:
+                    if field not in sample_fields:
+                        missing_fields.append(field)
+            # 对采样中存在的字段，进一步验证有效率(可能存在但全NaN)
+            if not missing_fields and sample_docs:
+                # 抽查3个关键字段的有效率
+                for check_field in ["opening_pct_chg", "intraday_max_rise_pct", "pullback_pct"]:
+                    if check_field in sample_fields:
+                        valid_in_sample = sum(1 for d in sample_docs if d.get(check_field) is not None and d.get(check_field) != 0)
+                        if valid_in_sample == 0:
+                            missing_fields.append(check_field)
             if missing_fields:
                 await self.log(f"   ⚠️ 缺失因子 ({len(missing_fields)}个): {', '.join(missing_fields[:10])}")
+                # 【P0-1修复(V9)：因子自动计算添加超时保护，避免阻塞回测主流程】
                 from .factor_auto_compute import auto_compute_factors
-                auto_result = await auto_compute_factors(
-                    missing_fields=missing_fields, start_date=start_dt, end_date=end_dt,
-                    push_log_fn=push_log, task_id=task_id or '',
-                )
+                import asyncio as _asyncio
+                try:
+                    auto_result = await _asyncio.wait_for(
+                        auto_compute_factors(
+                            missing_fields=missing_fields, start_date=start_dt, end_date=end_dt,
+                            push_log_fn=push_log, task_id=task_id or '',
+                        ),
+                        timeout=120  # 2分钟超时，避免因子计算卡死回测
+                    )
+                except _asyncio.TimeoutError:
+                    await self.log(f"   ⚠️ 因子自动计算超时(>2分钟)，跳过，将使用运行时动态计算")
+                    auto_result = {"computed": False}
+                except Exception as e:
+                    await self.log(f"   ⚠️ 因子自动计算异常: {e}，跳过")
+                    auto_result = {"computed": False}
                 if auto_result.get("computed"):
                     await self.log(f"   ✅ 因子自动计算成功！{auto_result.get('records_updated', 0):,} 条记录已更新")
             else:
-                await self.log("   ✅ 所有因子字段完整性检查通过!")
+                await self.log("   ✅ 核心策略因子完整性检查通过!")
         # ==================== 因子完整性检测结束 ====================
 
         # 加载基准数据
@@ -1213,6 +1220,7 @@ class PortfolioBacktester:
             {"name": "rise_after_limit_down"},
             {"name": "sentiment_score"},
             {"name": "opening_pct_chg"},  # 【修复：首板打板/涨停开板策略需要竞价涨幅因子】
+            {"name": "is_limit_up"},  # 【P2-6修复(V9)：涨停开板策略筛选is_limit_up=0(今日未封住)】
         ]
         if "factors" not in config:
             config["factors"] = []
@@ -1653,35 +1661,98 @@ class PortfolioBacktester:
             await self.log(f"   { '-' * 100}")
 
 
-        # ==================== 非调仓日输出 ====================
-        # ✅ 修复:非调仓日也要输出完整信息,让用户知道每天都在正常运行
-        # 【P1-5修复(第十轮)：非调仓日止损止盈检查，weekly/monthly调仓时避免延迟多日】
-        else:
-            # 【P1-5：非调仓日(无交易)止损止盈检查 - 委托给_process_non_rebalance_day】
-            run_state['cash'] = cash
-            run_state['holdings'] = holdings
-            run_state['rebalance_records'] = rebalance_records
-            run_state['last_prices'] = last_prices
-            run_state['stock_names'] = stock_names
-            run_state['net_value_series'] = net_value_series
-            run_state['daily_profit_list'] = daily_profit_list
-            run_state['drawdown_series'] = drawdown_series
-            run_state['daily_cash_list'] = daily_cash_list
-            run_state['peak_value'] = peak_value
-            run_state['last_net_value'] = last_net_value
-            run_state = await self._process_non_rebalance_day(
-                trade_date, idx, run_state, sentiment_level)
-            cash = run_state['cash']
-            holdings = run_state['holdings']
-            rebalance_records = run_state['rebalance_records']
-            last_prices = run_state['last_prices']
-            stock_names = run_state['stock_names']
-            net_value_series = run_state['net_value_series']
-            daily_profit_list = run_state['daily_profit_list']
-            drawdown_series = run_state['drawdown_series']
-            daily_cash_list = run_state['daily_cash_list']
-            peak_value = run_state['peak_value']
-            last_net_value = run_state['last_net_value']
+        # 【P0-2修复(V9)：调仓日无交易记录时，也要执行止损止盈检查，但不委托给_process_non_rebalance_day】
+        # 旧bug: else分支调用_process_non_rebalance_day导致: 1)日志不匹配 2)run_state可能被覆盖 3)冲高回落重复检查
+        if len(records) == 0 and holdings and len(holdings) > 0:
+            # 调仓日无交易，但需检查止损止盈(与_process_non_rebalance_day逻辑相同，但不走完整路径)
+            enable_sl = self._risk_config.get('enable_stop_loss', True)
+            enable_tp = self._risk_config.get('enable_take_profit', True)
+            if enable_sl or enable_tp:
+                _sl_tp_prices = await self._get_prices(set(holdings.keys()), trade_date)
+                forced_sell_codes = []
+                forced_sell_prices = {}
+                for code in list(holdings.keys()):
+                    if holdings.get(code, 0) <= 0:
+                        continue
+                    buy_dt = self._cost_basis_date.get(code)
+                    if buy_dt is not None and buy_dt == trade_date:
+                        continue
+                    p = _sl_tp_prices.get(code, {})
+                    cost = self._cost_basis.get(code, 0)
+                    if cost <= 0 or p.get('close', 0) <= 0:
+                        continue
+                    strategies = getattr(self, 'stock_to_strategy', {}).get(code, [])
+                    strategy_rp = getattr(self, '_strategy_risk_params', {})
+                    global_sl = self._risk_config.get('stop_loss_pct', GLOBAL_RISK['stop_loss_pct'])
+                    global_tp = self._risk_config.get('take_profit_pct', 0.07)
+                    if isinstance(strategies, list) and strategies:
+                        sl_pct = min(strategy_rp.get(s, {}).get('stop_loss_pct', global_sl) for s in strategies)
+                        tp_pct = max(strategy_rp.get(s, {}).get('take_profit_pct', global_tp) for s in strategies)
+                    else:
+                        sl_pct, tp_pct = global_sl, global_tp
+                    low_p = p.get('low', p['close'])
+                    high_p = p.get('high', p['close'])
+                    stop_price = cost * (1 - sl_pct)
+                    tp_price = cost * (1 + tp_pct)
+                    open_p = p.get('open', p['close'])
+                    # 冲高回落/高开即卖检查
+                    open_rise = (open_p / cost - 1) if cost > 0 else 0
+                    early_sell = False
+                    if isinstance(strategies, list):
+                        for sname in strategies:
+                            sp = self._strategy_params.get(sname, {})
+                            _open_sell_pct = sp.get('next_day_open_sell_pct', 0.03)
+                            if sname == '跌停翘板' and open_rise >= _open_sell_pct:
+                                # 【R1优化】冲高回落需确认: close < open(高开低收=确认回落)
+                                _close_p = _sl_tp_prices.get(code, {}).get('close', open_p)
+                                if _close_p < open_p:
+                                    forced_sell_prices[code] = open_p
+                                    forced_sell_codes.append((code, f'冲高回落(开{open_p:.2f}涨{open_rise*100:.1f}%)'))
+                                    early_sell = True
+                                    break
+                            elif sname == '首板打板' and open_rise >= _open_sell_pct:
+                                forced_sell_prices[code] = open_p
+                                forced_sell_codes.append((code, f'高开即卖(开{open_p:.2f}涨{open_rise*100:.1f}%)'))
+                                early_sell = True
+                                break
+                    if not early_sell:
+                        if enable_sl and low_p <= stop_price:
+                            if open_p <= stop_price:
+                                forced_sell_prices[code] = open_p
+                                forced_sell_codes.append((code, '跳空止损'))
+                            else:
+                                forced_sell_prices[code] = stop_price
+                                forced_sell_codes.append((code, f'止损({sl_pct*100:.0f}%)'))
+                        elif enable_tp and high_p >= tp_price:
+                            forced_sell_prices[code] = tp_price
+                            forced_sell_codes.append((code, f'止盈({tp_pct*100:.0f}%)'))
+                # 执行止损止盈卖出
+                for code, reason in forced_sell_codes:
+                    shares = holdings.get(code, 0)
+                    if shares <= 0:
+                        continue
+                    sell_p = forced_sell_prices.get(code, _sl_tp_prices.get(code, {}).get('close', 0))
+                    if sell_p <= 0:
+                        continue
+                    slippage_pct = 0 if '止损' in reason else self._get_slippage_for_code(code)  # 止损不扣滑点,止盈扣滑点
+                    sell_price_adj = sell_p * (1 - slippage_pct)
+                    gross_amount = shares * sell_price_adj
+                    commission = max(gross_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
+                    stamp_tax = gross_amount * self.STAMP_TAX
+                    net_amount = gross_amount - commission - stamp_tax
+                    cash += net_amount
+                    del holdings[code]
+                    if code in self._cost_basis:
+                        del self._cost_basis[code]
+                    if code in self._cost_basis_date:
+                        del self._cost_basis_date[code]
+                    _sell_strategy = self._get_strategy_for_stock(code)
+                    rebalance_records.append(RebalanceRecord(
+                        date=str(trade_date), action='sell', ts_code=code,
+                        shares=shares, price=sell_p, amount=net_amount,
+                        reason=reason, strategy_name=_sell_strategy, sentiment=''))
+                    await self.log(f"   │  ⚠️  调仓日止损止盈卖出: {code} {shares}股 @ {sell_p:.2f} ({reason})")
+                last_prices = _sl_tp_prices if forced_sell_codes else last_prices
         # 【P0修复：统一调用净值记录函数，避免continue跳过】
         last_net_value, peak_value = await self._record_daily_net_value(
             trade_date, holdings, cash, last_net_value, peak_value,
@@ -1779,20 +1850,24 @@ class PortfolioBacktester:
                 stop_price = cost * (1 - sl_pct)
                 tp_price = cost * (1 + tp_pct)
                 # 【V3新增】策略级冲高回落保护/次日高开即卖
-                # 跌停翘板: 次日高开3%即卖(冲高回落保护)
-                # 首板打板: 次日高开即卖(落袋为安)
+                # 跌停翘板: 次日高开3%且高开低收(冲高回落确认)即卖
+                # 首板打板: 次日高开3%即卖(落袋为安，不等待确认)
+                # 【R1优化(V9)：跌停翘板冲高回落增加close<open确认条件，避免高开继续涨时过早卖出】
+                close_p = p.get('close', p['high'])
                 open_rise_from_cost = (open_p / cost - 1) if cost > 0 else 0
                 early_sell_triggered = False
                 if isinstance(strategies, list):
                     for sname in strategies:
-                        # 【P1-6修复】从策略参数读取高开即卖阈值，不再硬编码0.03
                         sp = self._strategy_params.get(sname, {})
                         _open_sell_pct = sp.get('next_day_open_sell_pct', 0.03)
                         if sname == '跌停翘板' and open_rise_from_cost >= _open_sell_pct:
-                            forced_sell_prices[code] = open_p
-                            forced_sell_codes.append((code, f'冲高回落(开{open_p:.2f}涨{open_rise_from_cost*100:.1f}%)'))
-                            early_sell_triggered = True
-                            break
+                            # 【R1优化】冲高回落需确认: close < open(高开低收=确认回落)
+                            # 如果高开且继续涨(close>=open)，不卖出，让利润奔跑
+                            if close_p < open_p:
+                                forced_sell_prices[code] = open_p
+                                forced_sell_codes.append((code, f'冲高回落(开{open_p:.2f}涨{open_rise_from_cost*100:.1f}%)'))
+                                early_sell_triggered = True
+                                break
                         elif sname == '首板打板' and open_rise_from_cost >= _open_sell_pct:
                             forced_sell_prices[code] = open_p
                             forced_sell_codes.append((code, f'高开即卖(开{open_p:.2f}涨{open_rise_from_cost*100:.1f}%)'))
@@ -1843,10 +1918,12 @@ class PortfolioBacktester:
                 if sell_p <= 0:
                     continue
                 slippage_pct = self._get_slippage_for_code(code)
-                # 【P1-1修复】止损/止盈不扣滑点 — 止损价已含保守估计，再扣滑点会导致实际亏损超过止损线
+                # 【P1-2修复(V9)：止损不扣滑点(止损价已保守)，但止盈需扣滑点(实盘达不到理论止盈价)】
                 reason = next((r for c, r in forced_sell_codes if c == code), '')
-                if '止损' in reason or '止盈' in reason:
-                    slippage_pct = 0  # 止损止盈不扣滑点
+                if '止损' in reason:
+                    slippage_pct = 0  # 止损不扣滑点(止损价已含保守估计)
+                elif '止盈' in reason:
+                    slippage_pct = self._get_slippage_for_code(code)  # 止盈扣滑点(实盘难以精确止盈)
                 sell_price_adj = sell_p * (1 - slippage_pct)
                 gross_amount = shares * sell_price_adj
                 commission = max(gross_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
@@ -2355,10 +2432,20 @@ class PortfolioBacktester:
         if max_drawdown > 0 and total_return != 0:
             return_drawdown_ratio = abs(total_return) / max_drawdown
         
-        # 计算盈亏比：总盈利 / 总亏损（基于每日盈亏）
-        total_profit = sum(p for p in daily_profit_list if p > 0)
-        total_loss = sum(-p for p in daily_profit_list if p < 0)
-        profit_loss_ratio = total_profit / total_loss if total_loss > 0 else 0.0
+        # 【P0-3修复(V9)：盈亏比改用交易维度而非日收益维度】
+        # 旧: 基于daily_profit_list(日收益)，10只持仓5涨5跌→只算1次盈利→虚高
+        # 新: 基于已平仓交易，avg_win_pct / avg_loss_pct → 正确反映策略选股能力
+        completed_trades_for_plr = [t for t in all_trades if hasattr(t, 'profit_pct') and t.profit_pct is not None]
+        win_trades = [t for t in completed_trades_for_plr if t.profit_pct > 0]
+        loss_trades = [t for t in completed_trades_for_plr if t.profit_pct < 0]
+        if win_trades and loss_trades:
+            avg_win = sum(t.profit_pct for t in win_trades) / len(win_trades)
+            avg_loss = abs(sum(t.profit_pct for t in loss_trades) / len(loss_trades))
+            profit_loss_ratio = avg_win / avg_loss if avg_loss > 0.001 else 99.99
+        elif win_trades:
+            profit_loss_ratio = 99.99
+        else:
+            profit_loss_ratio = 0.0
         
         # 【修复#13：基于修复后的净值曲线正确计算夏普比率】
         # 夏普比率 = 平均日收益率 / 日收益率标准差 × sqrt(252)
@@ -2542,9 +2629,19 @@ class PortfolioBacktester:
                     if dd > strategy_max_dd:
                         strategy_max_dd = dd
             
-            # 策略级盈亏比计算
-            strategy_wins_pnl = sum(t.get('profit_pct', 0) for t in completed if t.get('profit_pct', 0) > 0)
-            strategy_losses_pnl = sum(t.get('profit_pct', 0) for t in completed if t.get('profit_pct', 0) < 0)
+            # 【P1-3修复(V9)：策略级盈亏比改用交易维度(与组合级PLR一致)】
+            # 旧: strategy_wins_pnl / abs(strategy_losses_pnl) → 基于盈亏金额，被大额交易扭曲
+            # 新: avg_win_pct / avg_loss_pct → 基于平均盈亏比，反映策略稳定性
+            strategy_win_trades = [t for t in completed if t.get('profit_pct', 0) > 0]
+            strategy_loss_trades = [t for t in completed if t.get('profit_pct', 0) < 0]
+            if strategy_win_trades and strategy_loss_trades:
+                avg_win = sum(t['profit_pct'] for t in strategy_win_trades) / len(strategy_win_trades)
+                avg_loss = abs(sum(t['profit_pct'] for t in strategy_loss_trades) / len(strategy_loss_trades))
+                strategy_plr = round(avg_win / avg_loss, 2) if avg_loss > 0.001 else 99.99
+            elif strategy_win_trades:
+                strategy_plr = 99.99
+            else:
+                strategy_plr = 0.0
             
             strategy_results[sname] = {
                 "strategy_name": sname,
@@ -2553,7 +2650,7 @@ class PortfolioBacktester:
                 "avg_profit_pct": avg_pnl,  # 平均盈亏百分比(单笔)
                 "trades_count": len(completed),
                 "max_drawdown": strategy_max_dd,
-                "profit_loss_ratio": round(strategy_wins_pnl / abs(strategy_losses_pnl), 2) if strategy_losses_pnl < 0 else (99.99 if strategy_wins_pnl > 0 else 0.0),  # 策略级盈亏比
+                "profit_loss_ratio": strategy_plr,
             }
 
         # 🔧 因子缺失告警：0交易策略加warning字段
@@ -2647,28 +2744,24 @@ class PortfolioBacktester:
 
     async def _load_benchmark_data(self, benchmark_code: str, start_date: int, end_date: int):
         """加载基准指数数据用于计算超额收益"""
-        # 【P1-1修复：基准数据应查index_daily集合，stock_daily_ak_full无指数数据】
-        # 先尝试从 index_daily 查询（指数专用集合）
-        # 注意：index_daily的trade_date可能是字符串，需要兼容两种类型
-        query_int = {
+        # 【P1-6修复(V9)：用$or同时查int和string格式的trade_date，减少MongoDB查询从7次→3次】
+        query_or = {
             "ts_code": benchmark_code,
-            "trade_date": {"$gte": start_date, "$lte": end_date}
+            "$or": [
+                {"trade_date": {"$gte": start_date, "$lte": end_date}},
+                {"trade_date": {"$gte": str(start_date), "$lte": str(end_date)}}
+            ]
         }
-        docs = await mongo_manager.find_many(C.INDEX_DAILY, query_int)
-        
-        # 如果int查询无结果，尝试字符串格式
-        if not docs:
-            query_str = {
-                "ts_code": benchmark_code,
-                "trade_date": {"$gte": str(start_date), "$lte": str(end_date)}
-            }
-            docs = await mongo_manager.find_many(C.INDEX_DAILY, query_str)
+        docs = await mongo_manager.find_many(C.INDEX_DAILY, query_or)
         
         # 如果指定代码查不到，尝试000001.SH(上证指数)
         if not docs and benchmark_code != "000001.SH":
             fallback_query = {
                 "ts_code": "000001.SH",
-                "trade_date": {"$gte": str(start_date), "$lte": str(end_date)}
+                "$or": [
+                    {"trade_date": {"$gte": start_date, "$lte": end_date}},
+                    {"trade_date": {"$gte": str(start_date), "$lte": str(end_date)}}
+                ]
             }
             docs = await mongo_manager.find_many(C.INDEX_DAILY, fallback_query)
             if docs:
@@ -2676,11 +2769,10 @@ class PortfolioBacktester:
         
         # 如果index_daily无数据，回退到stock_daily_ak_full（兼容旧数据）
         if not docs:
-            docs = await mongo_manager.find_many(C.STOCK_DAILY, query_int)
+            docs = await mongo_manager.find_many(C.STOCK_DAILY, query_or)
         
-        # 如果仍然无数据，用上证指数近似——查任意一只宽基ETF
+        # 如果仍然无数据，用宽基ETF近似
         if not docs:
-            # 尝试510050.SH(上证50ETF)或510300.SH(沪深300ETF)
             for fallback_code in ["510050.SH", "510300.SH", "510500.SH"]:
                 fallback_query = {
                     "ts_code": fallback_code,
@@ -2688,7 +2780,7 @@ class PortfolioBacktester:
                 }
                 docs = await mongo_manager.find_many(C.STOCK_DAILY, fallback_query)
                 if docs:
-                    self.log(f"   ⚠️ 基准数据回退使用 {fallback_code}(ETF)近似")
+                    await self.log(f"   ⚠️ 基准数据回退使用 {fallback_code}(ETF)近似")
                     break
         
         # 按日期排序（兼容int和string）
@@ -3236,9 +3328,10 @@ class PortfolioBacktester:
                 {"name": "open_above_limit_down", "target": 1, "label": "开盘高于跌停价(不继续跌停)"},
                 {"name": "circ_mv", "target": 200000, "operator": ">=", "label": "流通市值≥20亿(排除小盘操纵)"},
                 {"name": "turnover_rate", "target": min_turnover_qiao, "operator": ">=", "label": f"换手率≥{min_turnover_qiao:.0f}%"},
-                # 【放宽】去掉limit_down_open_amount和rise_after_limit_down条件
-                # 原因：日线数据无法准确计算盘中翘板，且这两个因子大部分为0
-                # 只保留基本条件：昨日跌停+今日不继续跌停+有换手率+有市值
+                # 【R3优化(V9)：跌停翘板增加pct_chg>0条件，只选今日收涨的股】
+                # 旧: 只要求"不继续跌停"，可选到涨0.x%但收跌的弱势股
+                # 新: 要求pct_chg>0(今日收涨)，确认有资金主动翘板
+                {"name": "pct_chg", "target": 0, "operator": ">", "label": "今日收涨(确认翘板资金)"},
                 {"name": "sentiment_period_in", "target": require_sentiment if require_high_sentiment else [], "operator": "in", "label": "情绪周期要求"},
             ]
         else:
@@ -3580,8 +3673,9 @@ class PortfolioBacktester:
             sell_reason = '调仓卖出'
             if cost_basis > 0:
                 # 【V8新增：调仓日冲高回落/高开即卖保护(与非调仓日逻辑对齐)】
-                # 跌停翘板: 次日高开3%即卖(冲高回落保护)
-                # 首板打板: 次日高开即卖(落袋为安)
+                # 【R1优化(V9)：跌停翘板冲高回落增加close<open确认条件】
+                # 跌停翘板: 次日高开3%且高开低收→冲高回落确认→卖出
+                # 首板打板: 次日高开3%→直接卖出(落袋为安，不等待确认)
                 open_rise_from_cost = (open_price / cost_basis - 1) if cost_basis > 0 else 0
                 _strategies = getattr(self, 'stock_to_strategy', {}).get(ts_code, [])
                 if isinstance(_strategies, str): _strategies = [_strategies]
@@ -3591,10 +3685,12 @@ class PortfolioBacktester:
                         _sp = self._strategy_params.get(_sname, {})
                         _open_sell_pct = _sp.get('next_day_open_sell_pct', 0.03)
                         if _sname == '跌停翘板' and open_rise_from_cost >= _open_sell_pct:
-                            sell_price = open_price
-                            sell_reason = f'冲高回落(开{open_price:.2f}涨{open_rise_from_cost*100:.1f}%)'
-                            early_sell_triggered = True
-                            break
+                            # 【R1优化】冲高回落需确认: close < open(高开低收=确认回落)
+                            if close_price < open_price:
+                                sell_price = open_price
+                                sell_reason = f'冲高回落(开{open_price:.2f}涨{open_rise_from_cost*100:.1f}%)'
+                                early_sell_triggered = True
+                                break
                         elif _sname == '首板打板' and open_rise_from_cost >= _open_sell_pct:
                             sell_price = open_price
                             sell_reason = f'高开即卖(开{open_price:.2f}涨{open_rise_from_cost*100:.1f}%)'
@@ -3619,12 +3715,11 @@ class PortfolioBacktester:
             price = sell_price
 
             # 计算卖出金额
-            # 【P1-1修复】止损/止盈卖出不扣滑点 — 止损价已含保守估计，再扣滑点会导致实际亏损超过止损线
-            # 调仓卖出仍扣滑点(模拟正常卖出时的市场摩擦)
-            if sell_reason.startswith('止损') or sell_reason.startswith('跳空止损') or sell_reason.startswith('止盈') or sell_reason.startswith('冲高回落') or sell_reason.startswith('高开即卖'):
-                slippage_pct = 0  # 止损止盈不扣滑点
+            # 【P1-2修复(V9)：止损不扣滑点(保守价)，但止盈/冲高回落/高开即卖需扣滑点(实盘难以精确卖出)】
+            if sell_reason.startswith('止损') or sell_reason.startswith('跳空止损'):
+                slippage_pct = 0  # 止损不扣滑点(止损价已含保守估计)
             else:
-                slippage_pct = self._get_slippage_for_code(ts_code)
+                slippage_pct = self._get_slippage_for_code(ts_code)  # 止盈/冲高回落/高开即卖/调仓卖出扣滑点
             sell_price_adj = price * (1 - slippage_pct)
             gross_amount = shares * sell_price_adj
             commission = max(gross_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
