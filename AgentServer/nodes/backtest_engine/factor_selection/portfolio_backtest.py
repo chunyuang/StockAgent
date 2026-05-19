@@ -154,61 +154,46 @@ class PortfolioBacktester:
         await self.log(f"   │ 🌡️ 当日市场环境判断")
         await self.log(f"   ├───────────────────────────────────────────────────────")
 
-        # 一次性聚合获取涨跌停数量和平均涨跌幅
-        # 【P2-3修复(第十轮)：区分板块涨跌停阈值】
-        # 主板: ±9.8%  创业板(300/301)/科创板(688): ±19.6%  北交所(8/4开头): ±29.8%
-        # 【修复新5：trade_date防御性检查，None时跳过避免异常】
-        if trade_date is None:
-            return 0, 0, 0
-        td = int(trade_date)
-        # 主板涨停/跌停(排除创业板/科创板/北交所的ts_code)
-        main_pipeline = [
-            {"$match": {"trade_date": td, "ts_code": {"$not": {"$regex": "^(30[01]|688|[84])"}}}},
-            {"$group": {"_id": None,
-                "up": {"$sum": {"$cond": [{"$gte": ["$pct_chg", 9.8]}, 1, 0]}},
-                "down": {"$sum": {"$cond": [{"$lte": ["$pct_chg", -9.8]}, 1, 0]}}
-            }}
-        ]
-        # 创业板+科创板涨停/跌停(20%板)
-        gem_pipeline = [
-            {"$match": {"trade_date": td, "ts_code": {"$regex": "^(30[01]|688)"}}},
-            {"$group": {"_id": None,
-                "up": {"$sum": {"$cond": [{"$gte": ["$pct_chg", 19.6]}, 1, 0]}},
-                "down": {"$sum": {"$cond": [{"$lte": ["$pct_chg", -19.6]}, 1, 0]}}
-            }}
-        ]
-        # 北交所涨停/跌停(30%板)
-        bse_pipeline = [
-            {"$match": {"trade_date": td, "ts_code": {"$regex": "^[84]"}}},
-            {"$group": {"_id": None,
-                "up": {"$sum": {"$cond": [{"$gte": ["$pct_chg", 29.8]}, 1, 0]}},
-                "down": {"$sum": {"$cond": [{"$lte": ["$pct_chg", -29.8]}, 1, 0]}}
-            }}
-        ]
-        # 平均涨跌幅用全市场
-        avg_pipeline = [
+        # 【V8优化：合并4次聚合为1次，减少MongoDB IO】
+        # 一次聚合同时获取主板/创业板/科创板/北交所涨跌停+全市场平均涨跌幅
+        combined_pipeline = [
             {"$match": {"trade_date": td}},
-            {"$group": {"_id": None, "avg_pct": {"$avg": "$pct_chg"}}}
+            {"$group": {"_id": None,
+                # 主板涨跌停(排除300/301/688/8/4开头的)
+                "main_up": {"$sum": {"$cond": [{"$and": [
+                    {"$not": {"$regexMatch": {"input": "$ts_code", "regex": "^(30[01]|688|[84])"}}},
+                    {"$gte": ["$pct_chg", 9.8]}]}, 1, 0]}},
+                "main_down": {"$sum": {"$cond": [{"$and": [
+                    {"$not": {"$regexMatch": {"input": "$ts_code", "regex": "^(30[01]|688|[84])"}}},
+                    {"$lte": ["$pct_chg", -9.8]}]}, 1, 0]}},
+                # 创业板+科创板涨跌停(20%板)
+                "gem_up": {"$sum": {"$cond": [{"$and": [
+                    {"$regexMatch": {"input": "$ts_code", "regex": "^(30[01]|688)"}},
+                    {"$gte": ["$pct_chg", 19.6]}]}, 1, 0]}},
+                "gem_down": {"$sum": {"$cond": [{"$and": [
+                    {"$regexMatch": {"input": "$ts_code", "regex": "^(30[01]|688)"}},
+                    {"$lte": ["$pct_chg", -19.6]}]}, 1, 0]}},
+                # 北交所涨跌停(30%板)
+                "bse_up": {"$sum": {"$cond": [{"$and": [
+                    {"$regexMatch": {"input": "$ts_code", "regex": "^[84]"}},
+                    {"$gte": ["$pct_chg", 29.8]}]}, 1, 0]}},
+                "bse_down": {"$sum": {"$cond": [{"$and": [
+                    {"$regexMatch": {"input": "$ts_code", "regex": "^[84]"}},
+                    {"$lte": ["$pct_chg", -29.8]}]}, 1, 0]}},
+                # 全市场平均涨跌幅
+                "avg_pct": {"$avg": "$pct_chg"}
+            }}
         ]
         limit_up_count = 0
         limit_down_count = 0
         index_change = 0.0
         try:
-            main_r = await mongo_manager.aggregate(C.STOCK_DAILY, main_pipeline)
-            gem_r = await mongo_manager.aggregate(C.STOCK_DAILY, gem_pipeline)
-            bse_r = await mongo_manager.aggregate(C.STOCK_DAILY, bse_pipeline)
-            avg_r = await mongo_manager.aggregate(C.STOCK_DAILY, avg_pipeline)
-            if main_r and len(main_r) > 0:
-                limit_up_count += main_r[0].get("up", 0)
-                limit_down_count += main_r[0].get("down", 0)
-            if gem_r and len(gem_r) > 0:
-                limit_up_count += gem_r[0].get("up", 0)
-                limit_down_count += gem_r[0].get("down", 0)
-            if bse_r and len(bse_r) > 0:
-                limit_up_count += bse_r[0].get("up", 0)
-                limit_down_count += bse_r[0].get("down", 0)
-            if avg_r and len(avg_r) > 0:
-                index_change = avg_r[0].get("avg_pct", 0.0)
+            combined_r = await mongo_manager.aggregate(C.STOCK_DAILY, combined_pipeline)
+            if combined_r and len(combined_r) > 0:
+                r = combined_r[0]
+                limit_up_count = r.get("main_up", 0) + r.get("gem_up", 0) + r.get("bse_up", 0)
+                limit_down_count = r.get("main_down", 0) + r.get("gem_down", 0) + r.get("bse_down", 0)
+                index_change = r.get("avg_pct", 0.0)
         except Exception as e:
             # 回退到旧的简单阈值(全市场9.8%)
             logger.warn('BACKTEST', f"板块涨停数统计失败, 使用回退方案: {e}")
@@ -1805,12 +1790,12 @@ class PortfolioBacktester:
                         _open_sell_pct = sp.get('next_day_open_sell_pct', 0.03)
                         if sname == '跌停翘板' and open_rise_from_cost >= _open_sell_pct:
                             forced_sell_prices[code] = open_p
-                            forced_sell_codes.append((code, f'冲高回落保护(开{open_p:.2f}涨{open_rise_from_cost*100:.1f}%)'))
+                            forced_sell_codes.append((code, f'冲高回落(开{open_p:.2f}涨{open_rise_from_cost*100:.1f}%)'))
                             early_sell_triggered = True
                             break
                         elif sname == '首板打板' and open_rise_from_cost >= _open_sell_pct:
                             forced_sell_prices[code] = open_p
-                            forced_sell_codes.append((code, f'次日高开即卖(开{open_p:.2f}涨{open_rise_from_cost*100:.1f}%)'))
+                            forced_sell_codes.append((code, f'高开即卖(开{open_p:.2f}涨{open_rise_from_cost*100:.1f}%)'))
                             early_sell_triggered = True
                             break
                 if not early_sell_triggered:
@@ -1818,13 +1803,13 @@ class PortfolioBacktester:
                         # 【Phase1-跳空止损】如果open直接跳空低于止损价，以open卖出(最差情况)
                         if open_p <= stop_price:
                             forced_sell_prices[code] = open_p  # 跳空低开，以open卖出
-                            forced_sell_codes.append((code, f'跳空止损(开{open_p:.2f}<止损{stop_price:.2f})'))
+                            forced_sell_codes.append((code, f'跳空止损'))
                         else:
                             forced_sell_prices[code] = stop_price  # 盘中跌破止损，以止损价卖出
-                            forced_sell_codes.append((code, '止损'))
+                            forced_sell_codes.append((code, f'止损({sl_pct*100:.0f}%)'))
                     elif enable_tp and high_p >= tp_price:
                         forced_sell_prices[code] = tp_price  # 止盈以止盈价卖出
-                        forced_sell_codes.append((code, '止盈'))
+                        forced_sell_codes.append((code, f'止盈({tp_pct*100:.0f}%)'))
                 # 【Bug修复：非调仓日也要检查max_hold_days超时】
                 buy_date_raw = getattr(self, '_cost_basis_date', {}).get(code)
                 global_max_hold = self._risk_config.get('max_hold_days', 999)
@@ -1877,10 +1862,10 @@ class PortfolioBacktester:
                 rebalance_records.append(RebalanceRecord(
                     date=str(trade_date), action='sell', ts_code=code,
                     shares=shares, price=sell_p, amount=net_amount,
-                    reason=f'非调仓日{reason}',
+                    reason=f'{reason}',
                     strategy_name=_nrt_strategy,
                     sentiment=''))
-                await self.log(f"   │  ⚠️  非调仓日{reason}卖出: {code} {shares}股 @ {sell_p:.2f}")
+                await self.log(f"   │  ⚠️  止损止盈卖出: {code} {shares}股 @ {sell_p:.2f} ({reason})")
             # 更新价格缓存供后续净值计算
             _prices_for_display = _sl_tp_prices
         else:
@@ -3594,27 +3579,49 @@ class PortfolioBacktester:
             sell_price = close_price  # 默认收盘价
             sell_reason = '调仓卖出'
             if cost_basis > 0:
-                # 【P0-2修复：按策略获取止损止盈参数】
-                code_sl, code_tp = self._get_sl_tp_for_code(ts_code)
-                stop_price = cost_basis * (1 - code_sl)
-                profit_price = cost_basis * (1 + code_tp)
-                if enable_stop_loss and low_price <= stop_price:
-                    # 【Phase1-跳空止损】open直接跳空低于止损价，以open卖出(最差情况)
-                    if open_price <= stop_price:
-                        sell_price = open_price
-                        sell_reason = f'跳空止损(开{open_price:.2f}<止损{stop_price:.2f})'
-                    else:
-                        sell_price = stop_price
-                        sell_reason = f'止损({code_sl*100:.0f}%)'
-                elif enable_take_profit and high_price >= profit_price:
-                    sell_price = profit_price
-                    sell_reason = f'止盈({code_tp*100:.0f}%)'
+                # 【V8新增：调仓日冲高回落/高开即卖保护(与非调仓日逻辑对齐)】
+                # 跌停翘板: 次日高开3%即卖(冲高回落保护)
+                # 首板打板: 次日高开即卖(落袋为安)
+                open_rise_from_cost = (open_price / cost_basis - 1) if cost_basis > 0 else 0
+                _strategies = getattr(self, 'stock_to_strategy', {}).get(ts_code, [])
+                if isinstance(_strategies, str): _strategies = [_strategies]
+                early_sell_triggered = False
+                if isinstance(_strategies, list):
+                    for _sname in _strategies:
+                        _sp = self._strategy_params.get(_sname, {})
+                        _open_sell_pct = _sp.get('next_day_open_sell_pct', 0.03)
+                        if _sname == '跌停翘板' and open_rise_from_cost >= _open_sell_pct:
+                            sell_price = open_price
+                            sell_reason = f'冲高回落(开{open_price:.2f}涨{open_rise_from_cost*100:.1f}%)'
+                            early_sell_triggered = True
+                            break
+                        elif _sname == '首板打板' and open_rise_from_cost >= _open_sell_pct:
+                            sell_price = open_price
+                            sell_reason = f'高开即卖(开{open_price:.2f}涨{open_rise_from_cost*100:.1f}%)'
+                            early_sell_triggered = True
+                            break
+                if not early_sell_triggered:
+                    # 【P0-2修复：按策略获取止损止盈参数】
+                    code_sl, code_tp = self._get_sl_tp_for_code(ts_code)
+                    stop_price = cost_basis * (1 - code_sl)
+                    profit_price = cost_basis * (1 + code_tp)
+                    if enable_stop_loss and low_price <= stop_price:
+                        # 【Phase1-跳空止损】open直接跳空低于止损价，以open卖出(最差情况)
+                        if open_price <= stop_price:
+                            sell_price = open_price
+                            sell_reason = f'跳空止损'
+                        else:
+                            sell_price = stop_price
+                            sell_reason = f'止损({code_sl*100:.0f}%)'
+                    elif enable_take_profit and high_price >= profit_price:
+                        sell_price = profit_price
+                        sell_reason = f'止盈({code_tp*100:.0f}%)'
             price = sell_price
 
             # 计算卖出金额
             # 【P1-1修复】止损/止盈卖出不扣滑点 — 止损价已含保守估计，再扣滑点会导致实际亏损超过止损线
             # 调仓卖出仍扣滑点(模拟正常卖出时的市场摩擦)
-            if sell_reason.startswith('止损') or sell_reason.startswith('跳空止损') or sell_reason.startswith('止盈'):
+            if sell_reason.startswith('止损') or sell_reason.startswith('跳空止损') or sell_reason.startswith('止盈') or sell_reason.startswith('冲高回落') or sell_reason.startswith('高开即卖'):
                 slippage_pct = 0  # 止损止盈不扣滑点
             else:
                 slippage_pct = self._get_slippage_for_code(ts_code)

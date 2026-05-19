@@ -76,16 +76,18 @@ function translateSellReason(reason: string): string {
     'force_empty_position': '强制空仓', 'force_empty': '强制空仓', '空仓': '强制空仓', '强制': '强制空仓',
     'max_hold': '到期', '到期': '到期', '超时': '到期',
     '跳空止损': '跳空止损',
-    '冲高回落保护': '冲高回落',
-    '次日高开即卖': '高开即卖',
+    '冲高回落': '冲高回落',
+    '高开即卖': '高开即卖',
     'gap_down_stop': '跳空止损',
     '持仓中': '持仓中',
+    '停牌超时强卖': '停牌强卖',
   }
   // 尝试精确匹配
   if (map[reason]) return map[reason]
-  // 尝试包含匹配
-  for (const [key, val] of Object.entries(map)) {
-    if (reason.includes(key)) return val
+  // 尝试包含匹配(从长到短排序,避免短key误匹配)
+  const sortedKeys = Object.keys(map).sort((a, b) => b.length - a.length)
+  for (const key of sortedKeys) {
+    if (reason.includes(key)) return map[key]
   }
   // 未匹配, 返回原始值(可能是后端新增的卖出原因)
   return reason
@@ -227,7 +229,13 @@ const allTrades = computed(() => {
 
 // 筛选后的交易记录
 const filteredTrades = computed(() => {
-  let trades = allTrades.value
+  let trades = [...allTrades.value]  // 浅拷贝，避免排序影响原数组
+  // 默认按buy_date降序(最新在前)
+  trades.sort((a: any, b: any) => {
+    const da = a.buy_date || a.date || ''
+    const db = b.buy_date || b.date || ''
+    return db.toString().localeCompare(da.toString())
+  })
   if (searchTradeKeyword.value) {
     const keyword = searchTradeKeyword.value.toLowerCase()
     trades = trades.filter((t: any) =>
@@ -424,19 +432,21 @@ const radarChartOption = computed(() => {
   if (!result) return null
   // 从顶层result取(已是百分比)
   const risk = result.metrics?.risk || {}
+  // 回撤控制: 用100-回撤值,越大越好(100=无回撤)
+  const ddControl = Math.max(0, 100 - Math.abs(result.max_drawdown ?? 0))
   const values = [
     result.total_return ?? 0,       // 收益率(%) 
     result.win_rate ?? 0,           // 胜率(%)
     risk.profit_loss_ratio ?? result.profit_loss_ratio ?? 0,  // 盈亏比
     result.sharpe_ratio ?? 0,       // 夏普
-    -(result.max_drawdown ?? 0)     // 回撤(取反,越大越好)
+    ddControl                        // 回撤控制(0-100,越大越好)
   ]
   // 动态计算雷达图最大值, 避免硬编码截断
   const maxReturn = Math.max(50, Math.ceil(Math.abs(result.total_return ?? 0) / 10) * 10 + 10)
   const maxWR = 100
   const maxPLR = Math.max(5, Math.ceil(Math.abs(risk.profit_loss_ratio ?? result.profit_loss_ratio ?? 0)) + 1)
   const maxSharpe = Math.max(5, Math.ceil(Math.abs(result.sharpe_ratio ?? 0)) + 1)
-  const maxDDCtrl = Math.max(20, Math.ceil(Math.abs(-(result.max_drawdown ?? 0))) + 5)
+  const maxDDCtrl = 100  // 回撤控制范围固定0-100
 
   return {
     tooltip: { trigger: 'item' },
