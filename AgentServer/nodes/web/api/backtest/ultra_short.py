@@ -355,6 +355,7 @@ async def get_ultra_short_history(
             "result.win_rate": 1, "result.sharpe_ratio": 1, "result.max_drawdown": 1,
             "result.total_signals": 1, "result.completed_trades": 1,
             "result.total_trades": 1, "result.profit_loss_ratio": 1,
+            "result.annualized_return": 1, "result.execution_time_ms": 1,
             "result.initial_cash": 1, "result.final_value": 1,
             "result.trades": 1, "result.merged_trades": 1,
             # 【P2-4修复：添加嵌套字段projection】
@@ -387,6 +388,8 @@ async def get_ultra_short_history(
             "max_drawdown": result.get("max_drawdown"),
             "total_signals": result.get("total_signals"),
             "profit_loss_ratio": result.get("profit_loss_ratio"),
+            "annualized_return": result.get("annualized_return"),
+            "execution_time_ms": result.get("execution_time_ms"),
             "completed_trades": result.get("completed_trades"),
             "initial_cash_result": result.get("initial_cash"),
             "final_value": result.get("final_value"),

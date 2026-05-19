@@ -138,6 +138,8 @@ export interface BacktestHistoryItem {
   trades_count?: number
   total_trades?: number | null
   profit_loss_ratio?: number | null
+  annualized_return?: number | null
+  execution_time_ms?: number | null
   // 单股回测字段
   ts_code?: string
   stock_name?: string
