@@ -150,6 +150,7 @@ STRATEGY_CONFIGS = {
 STRATEGY_IDS = list(STRATEGY_CONFIGS.keys())
 
 # 兜底策略列表（用于ultra_short.py，格式与前端提交的selected_strategies一致）
+# 【P1-5修复(V13)】：只包含enabled=True的策略，避免未启用策略(如涨停开板)被兜底选中
 ALL_STRATEGIES = [
     {
         "id": cfg["id"],
@@ -157,7 +158,7 @@ ALL_STRATEGIES = [
         "params": dict(cfg["params"]),
         "riskParams": dict(cfg["riskParams"]),
     }
-    for cfg in STRATEGY_CONFIGS.values()
+    for cfg in STRATEGY_CONFIGS.values() if cfg.get("enabled", True)
 ]
 
 
