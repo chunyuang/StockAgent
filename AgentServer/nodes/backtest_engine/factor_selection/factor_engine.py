@@ -267,8 +267,10 @@ class FactorEngine:
             result[factor_name] = result["ts_code"].map(values)
 
         # 【P0-4修复(V13)】：同回测模式，pre_close=0时fillna(0)避免NaN误杀
-        if "high" in result.columns and "pre_close" in result.columns:
+        # 【P1-3修复(V15)】：safe_pre_close定义提前到if块外，避免open分支引用未定义变量
+        if "pre_close" in result.columns:
             safe_pre_close = result["pre_close"].replace(0, np.nan)
+        if "high" in result.columns and "pre_close" in result.columns:
             result["intraday_max_rise_pct"] = (
                 (result["high"] - result["pre_close"]) / safe_pre_close * 100
             ).fillna(0)
