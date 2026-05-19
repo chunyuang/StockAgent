@@ -1975,15 +1975,18 @@ class PortfolioBacktester:
                 _prices_for_display = {}
         await self.log(f"")
         await self.log(f"   ┌───────────────────────────────────────────────────────")
-        await self.log(f"   │ i️  【调仓日无交易】当前持仓与目标一致,无需调仓")
+        # 【V13修复】日志区分非调仓日和调仓日无交易
+        if trade_date in rebalance_set:
+            await self.log(f"   │ ℹ️  【调仓日无交易】当前持仓与目标一致,无需调仓")
+        else:
+            await self.log(f"   │ ℹ️  【非调仓日】止损止盈检查+持仓监控")
         await self.log(f"   ├───────────────────────────────────────────────────────")
 
         # 【P0-C/P1-1修复(第十一轮)：复用上方已获取的价格，不重复查询】
+        # 【V13-P0-1修复】_prices_for_display已在方法开头初始化，此处不再需要try/except NameError
         if holdings and len(holdings) > 0:
-            # _prices_for_display 已在上方 SL/TP 或 else 分支中获取
-            try:
-                _prices_for_display
-            except NameError:
+            # _prices_for_display 已在上方 SL/TP 或 else 分支中赋值
+            if not _prices_for_display:
                 _prices_for_display = await self._get_prices(set(holdings.keys()), trade_date)
             await self.log(f"   │  📊 当前持仓 {len(holdings)} 只股票:")
             total_market_value = 0
