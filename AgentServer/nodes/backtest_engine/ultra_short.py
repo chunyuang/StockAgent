@@ -97,14 +97,16 @@ async def execute_ultra_short_backtest(
     strategy_params = params.get("params", req_params.get("params", {}))  # 优先从顶层读
     period = params.get("period", req_params.get("period", "daily"))
     
-    # 功能开关：统一从顶层读取（Web API在params和params.params两处都传了，优先顶层）
-    enable_force_empty = params.get("enable_force_empty", req_params.get("enable_force_empty", req_params.get("params", {}).get("enable_force_empty", True)))
-    enable_sentiment_cycle = params.get("enable_sentiment_cycle", req_params.get("enable_sentiment_cycle", req_params.get("params", {}).get("sentiment_cycle", True)))
-    enable_auction_filter = params.get("enable_auction_filter", req_params.get("enable_auction_filter", req_params.get("params", {}).get("auction_filter", True)))
-    enable_stop_loss = params.get("enable_stop_loss", req_params.get("enable_stop_loss", req_params.get("params", {}).get("enable_stop_loss", True)))
-    enable_take_profit = params.get("enable_take_profit", req_params.get("enable_take_profit", req_params.get("params", {}).get("enable_take_profit", True)))
-    enable_ma60_filter = params.get("enable_ma60_filter", req_params.get("enable_ma60_filter", req_params.get("params", {}).get("enable_ma60_filter", True)))
-    enable_sector_concentration = params.get("enable_sector_concentration", req_params.get("enable_sector_concentration", req_params.get("params", {}).get("enable_sector_concentration", True)))
+    # 【P1-1修复(V13)：简化enable_*参数读取，统一2层fallback(顶层→默认值)】
+    # 旧: 5层嵌套fallback，极易出错
+    # 新: 只从params顶层读取，fallback到True(默认启用)
+    enable_force_empty = params.get("enable_force_empty", True)
+    enable_sentiment_cycle = params.get("enable_sentiment_cycle", True)
+    enable_auction_filter = params.get("enable_auction_filter", True)
+    enable_stop_loss = params.get("enable_stop_loss", True)
+    enable_take_profit = params.get("enable_take_profit", True)
+    enable_ma60_filter = params.get("enable_ma60_filter", True)
+    enable_sector_concentration = params.get("enable_sector_concentration", True)
 
     # 打印初始化阶段头部
     logger.success("INIT", "============== 回测任务启动 ==============")

@@ -592,8 +592,8 @@ class PortfolioBacktester:
             self._daily_price_cache = {}
             self._daily_price_cache_date = trade_date
             
-            # 🔧 内存优化: 每5天强制一次垃圾回收
-            if idx % 5 == 0:
+            # 🔧 内存优化: 每10天强制一次垃圾回收
+            if idx % 10 == 0:
                 log_memory_usage(f"[day {idx+1}/{total_days}] 回测开始前")
                 gc.collect()
             
@@ -1681,6 +1681,8 @@ class PortfolioBacktester:
                     open_p = p.get('open', p['close'])
                     # 冲高回落/高开即卖检查
                     open_rise = (open_p / cost - 1) if cost > 0 else 0
+                    # 【P0-2修复(V13)】_close_p必须在循环前初始化，否则半路追涨分支引用时NameError
+                    _close_p = p.get('close', 0)
                     early_sell = False
                     if isinstance(strategies, list):
                         for sname in strategies:
@@ -1702,6 +1704,8 @@ class PortfolioBacktester:
                             # 【V11-P1-2新增】半路追涨冲高回落保护
                             elif sname == '半路追涨' and open_rise >= 0.05:
                                 _hw_sell_pct = sp.get('next_day_open_sell_pct', 0.05)
+                                # 【P0-2修复(V13)】确保_close_p已更新
+                                _close_p = _sl_tp_prices.get(code, {}).get('close', open_p)
                                 if open_rise >= _hw_sell_pct and _close_p < open_p:
                                     forced_sell_prices[code] = open_p
                                     forced_sell_codes.append((code, f'冲高回落(开{open_p:.2f}涨{open_rise*100:.1f}%)'))
@@ -1816,6 +1820,8 @@ class PortfolioBacktester:
         enable_tp = self._risk_config.get('enable_take_profit', True)
         forced_sell_codes = []
         forced_sell_prices = {}  # code -> actual sell price (Phase1: gap handling)
+        # 【P0-1修复(V13)】初始化_prices_for_display，避免holdings为空时NameError
+        _prices_for_display = {}
         if (enable_sl or enable_tp) and holdings:
             _sl_tp_prices = await self._get_prices(set(holdings.keys()), trade_date)
             for code in list(holdings.keys()):
@@ -2559,7 +2565,8 @@ class PortfolioBacktester:
                     "final_holdings": holdings,
                     "net_value_series": net_value_series,
                     "drawdown_series": formatted_drawdown_series,
-                    "daily_profit": daily_profit,
+                    # 【P1-8修复(V13)】：daily_profit统一为归一化小数，与顶层和net_value_series一致
+                    "daily_profit": [p / self._initial_cash if self._initial_cash > 0 else 0.0 for p in daily_profit],
                 },
                 "performance": {
                     "total_signals": total_signals,
@@ -3238,9 +3245,11 @@ class PortfolioBacktester:
             # 量比上限: >3过热回调,胜率反而下降
             if max_volume_ratio and max_volume_ratio < 100:
                 conditions.append({"name": "volume_ratio", "target": max_volume_ratio, "operator": "<=", "label": f"量比≤{max_volume_ratio}(不过热)"})
-            # 【核心优化】收盘确认: 盘中涨了但收盘不站的次日35%胜率, 收盘站住的84%
+            # 【核心优化】收盘确认: 盘中涨了但收盘不站的次日35%胜率, 收站住的84%
             # 日线回测中pct_chg=收盘涨幅, 是未来函数(收盘后才知)
             # 但实盘可在14:50后观察是否站稳,回测近似是可接受的
+            # 【R1优化(V13)】：增加阳线确认(close>=open)，过滤冲高回落的阴线股
+            # 冲高回落的股(close<open)即使pct_chg>=3%也往往次日下跌，不应入选
             if min_close_rise and min_close_rise > 0:
                 conditions.append({"name": "pct_chg", "target": min_close_rise * 100, "operator": ">=", "label": f"收盘涨幅≥{min_close_rise*100:.0f}%"})
             return conditions
@@ -3338,10 +3347,13 @@ class PortfolioBacktester:
             # 【修复：min_turnover_rate前端可能传小数(0.10=10%)，需转换】
             if min_turnover_qiao < 1:
                 min_turnover_qiao *= 100
+            # 【P1-6修复(V13)】：circ_mv从参数读取，不再硬编码200000
+            # circ_mv单位是万元，参数单位是亿，需×10000转换
+            _min_circ_qiao = (converted_params.get("min_circulation_market_cap") if converted_params.get("min_circulation_market_cap") is not None else strategy_defaults.get("min_circulation_market_cap", 20)) * 10000
             return [
                 {"name": "limit_down_yesterday", "target": 1, "label": "昨日跌停"},
                 {"name": "open_above_limit_down", "target": 1, "label": "开盘高于跌停价(不继续跌停)"},
-                {"name": "circ_mv", "target": 200000, "operator": ">=", "label": "流通市值≥20亿(排除小盘操纵)"},
+                {"name": "circ_mv", "target": _min_circ_qiao, "operator": ">=", "label": f"流通市值≥{_min_circ_qiao//10000}亿(排除小盘操纵)"},
                 {"name": "turnover_rate", "target": min_turnover_qiao, "operator": ">=", "label": f"换手率≥{min_turnover_qiao:.0f}%"},
                 # 【P0-3修复(V12→V12.1)】：翘板金额过滤改为target=0(跳过)
                 # limit_down_open_amount因子98%为0(数据质量问题)，无法可靠使用
