@@ -3109,15 +3109,17 @@ class PortfolioBacktester:
         prices = []
         for sname in strategies:
             if sname == '半路追涨':
-                # 【未来函数修复】半路追涨买入价改为盘中冲高时价
-                # 旧逻辑: open*(1+min_rise*0.6) — 假设9:30就知道盘中会冲高(未来函数!)
-                # 新逻辑: open + (high-open)*0.5 — 盘中冲高到一半时买入(更接近实盘)
-                # 实盘中股价逐步冲高，在涨幅达到3%+时才确认信号并买入
-                # 此时价格约为 open + (high-open) 的中间位置
-                if open_price > 0 and high_price > open_price:
-                    p = open_price + (high_price - open_price) * 0.5
-                elif open_price > 0:
-                    p = open_price * 1.018  # fallback: 保守估计
+                # 【V11-P0-2修复：消除未来函数 — 旧逻辑open+(high-open)*0.5用了当天high】
+                # 问题：买入时不可能知道当日最高价，这是未来函数
+                # 新逻辑：基于open价和策略参数(min_rise_pct)推算买入价
+                # 实盘场景：9:30开盘后观察股价涨幅，达到3%+时确认信号并买入
+                # 此时价格 ≈ open × (1 + min_rise_pct × 0.7)
+                # 系数0.7含义：涨幅从0→min_rise过程中，在70%处确认并买入
+                # 比旧逻辑更保守但不含未来函数
+                _sp = getattr(self, '_strategy_params', {}).get(sname, {})
+                _min_rise = _sp.get('min_rise_pct', 0.03)
+                if open_price > 0:
+                    p = open_price * (1 + _min_rise * 0.7)
                 else:
                     p = 0
             elif sname in ('首板打板', '涨停开板'):
