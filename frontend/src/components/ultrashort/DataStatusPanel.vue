@@ -164,6 +164,21 @@ const latestDateStr = computed(() => { const cov = status.value?.daily_coverage;
 
 function srcStatusColor(s: string) { return { ok: '#67c23a', limited: '#e6a23c', degraded: '#e6a23c', blocked: '#f56c6c', disabled: '#909399' }[s] || '#909399' }
 function srcStatusText(s: string) { return { ok: '✅可用', limited: '⚠️受限', degraded: '⚠️降级', blocked: '❌被封', disabled: '🚫停用' }[s] || s }
+
+// 今日待办分组
+const actionGroups = computed(() => {
+  const items = status.value?.action_items || []
+  const groups = [
+    { key: 'must', label: '🔴 必须做', items: items.filter(i => i.priority === 'high') },
+    { key: 'should', label: '🟡 建议做', items: items.filter(i => i.priority === 'medium') },
+    { key: 'optional', label: '💤 可忽略', items: items.filter(i => i.priority === 'low' || i.priority === 'info' || i.priority === 'done') },
+  ]
+  return groups
+})
+
+function priorityIcon(p: string) {
+  return { done: '✅', info: '💤', high: '🔴', medium: '🟡', low: '🔵' }[p] || '⚪'
+}
 onMounted(fetchData)
 </script>
 
@@ -193,26 +208,35 @@ onMounted(fetchData)
     <!-- P0: 今日待办 -->
     <ElCard v-if="status?.action_items?.length" style="margin-top: 12px">
       <template #header><span>📋 今日待办</span></template>
-      <div class="action-items">
-        <div v-for="(item, i) in status.action_items" :key="i" class="action-item" :class="'action-' + item.priority">
-          <span class="action-icon">{{ item.priority === 'done' ? '✅' : item.priority === 'info' ? '💤' : item.priority === 'high' ? '🔴' : '🟡' }}</span>
-          <div class="action-content">
-            <div class="action-top-row">
-              <span class="action-title">{{ item.action }}</span>
-              <ElButton
-                v-if="item.api && item.priority === 'high'"
-                size="small"
-                :type="item.action === '一键补全' ? 'primary' : 'default'"
-                :loading="syncLoading === item.action"
-                @click="triggerSync(parseApiPath(item.api)!, item.action)"
-              >
-                {{ item.action === '一键补全' ? '🚀 一键补全' : '▶ 执行' }}
-              </ElButton>
+      <!-- 按优先级分组 -->
+      <template v-for="group in actionGroups" :key="group.key">
+        <div v-if="group.items.length" class="action-group">
+          <div class="action-group-title" :class="'ag-' + group.key">
+            {{ group.label }}
+          </div>
+          <div class="action-items">
+            <div v-for="(item, i) in group.items" :key="i" class="action-item" :class="'action-' + item.priority">
+              <span class="action-icon">{{ priorityIcon(item.priority) }}</span>
+              <div class="action-content">
+                <div class="action-top-row">
+                  <span class="action-title">{{ item.action }}</span>
+                  <ElButton
+                    v-if="item.api && (item.priority === 'high' || item.priority === 'medium')"
+                    size="small"
+                    :type="item.priority === 'high' ? 'primary' : 'default'"
+                    :loading="syncLoading === item.action"
+                    @click="triggerSync(parseApiPath(item.api)!, item.action)"
+                  >
+                    {{ item.priority === 'high' ? '🚀 执行' : '▶ 执行' }}
+                  </ElButton>
+                </div>
+                <div class="action-desc">{{ item.desc }}</div>
+                <div v-if="item.note" class="action-note">💡 {{ item.note }}</div>
+              </div>
             </div>
-            <div class="action-desc">{{ item.desc }}</div>
           </div>
         </div>
-      </div>
+      </template>
       <!-- 同步进度 -->
       <div v-if="syncLoading || syncStatus" class="sync-progress" :class="{'sync-fail': syncStatus?.status === 'failed', 'sync-ok': syncStatus?.status === 'success'}">
         <div v-if="syncLoading" class="sync-running">⏳ 正在执行 {{ syncLoading }}...</div>
@@ -380,6 +404,16 @@ onMounted(fetchData)
 .action-title { font-weight: 600; font-size: 14px; }
 .action-top-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .action-desc { font-size: 12px; color: #909399; margin-top: 2px; }
+.action-note { font-size: 11px; color: #409eff; margin-top: 4px; padding: 4px 8px; background: #ecf5ff; border-radius: 4px; }
+
+/* 待办分组 */
+.action-group { margin-bottom: 8px; }
+.action-group:last-child { margin-bottom: 0; }
+.action-group-title { font-size: 13px; font-weight: 700; padding: 4px 0; margin-bottom: 4px; }
+.ag-must { color: #f56c6c; }
+.ag-should { color: #e6a23c; }
+.ag-optional { color: #909399; }
+.action-low { background: #f4f4f5; border-left: 3px solid #909399; }
 
 /* 同步进度 */
 .sync-progress { margin-top: 12px; padding: 10px 14px; border-radius: 6px; }

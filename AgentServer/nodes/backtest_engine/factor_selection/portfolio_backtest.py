@@ -1727,6 +1727,14 @@ class PortfolioBacktester:
                                     forced_sell_codes.append((code, f'冲高回落(开{open_p:.2f}涨{open_rise*100:.1f}%)'))
                                     early_sell = True
                                     break
+                            # 【V11优化】半路追涨利润保护(调仓日开头处)
+                            elif sname == '半路追涨' and _close_p > 0 and open_p > 0:
+                                close_rise = (_close_p / cost - 1) if cost > 0 else 0
+                                if close_rise >= 0.02 and _close_p < open_p:
+                                    forced_sell_prices[code] = _close_p
+                                    forced_sell_codes.append((code, f'利润保护(收{_close_p:.2f}涨{close_rise*100:.1f}%)'))
+                                    early_sell = True
+                                    break
                     if not early_sell:
                         if enable_sl and low_p <= stop_price:
                             if open_p <= stop_price:
@@ -1893,6 +1901,18 @@ class PortfolioBacktester:
                             if open_rise_from_cost >= _hw_sell_pct and close_p > 0 and close_p < open_p:
                                 forced_sell_prices[code] = open_p
                                 forced_sell_codes.append((code, f'冲高回落(开{open_p:.2f}涨{open_rise_from_cost*100:.1f}%)'))
+                                early_sell_triggered = True
+                                break
+                        # 【V11优化】半路追涨利润保护: 收盘盈利>2%但冲高回落(close<open)→保护利润
+                        # 数据显示半路追涨65笔调仓卖出仅38%胜率，多数冲高后回落被调仓小亏卖出
+                        # 此机制在冲高回落时主动锁定利润，避免等到调仓日利润蒸发
+                        # 门槛: close盈利>=2%(比冲高回落的5%低很多，覆盖更广)且close<open(确认回落)
+                        # 卖出价=close(实际可成交价，比用open更保守更贴近实盘)
+                        elif sname == '半路追涨' and close_p > 0 and open_p > 0:
+                            close_rise_from_cost = (close_p / cost - 1) if cost > 0 else 0
+                            if close_rise_from_cost >= 0.02 and close_p < open_p:
+                                forced_sell_prices[code] = close_p
+                                forced_sell_codes.append((code, f'利润保护(收{close_p:.2f}涨{close_rise_from_cost*100:.1f}%)'))
                                 early_sell_triggered = True
                                 break
                 if not early_sell_triggered:
@@ -3727,6 +3747,14 @@ class PortfolioBacktester:
                             if open_rise_from_cost >= _hw_sell_pct and close_price < open_price:
                                 sell_price = open_price
                                 sell_reason = f'冲高回落(开{open_price:.2f}涨{open_rise_from_cost*100:.1f}%)'
+                                early_sell_triggered = True
+                                break
+                        # 【V11优化】半路追涨利润保护(调仓日对齐)
+                        elif _sname == '半路追涨' and close_price > 0 and open_price > 0:
+                            close_rise_from_cost = (close_price / cost_basis - 1) if cost_basis > 0 else 0
+                            if close_rise_from_cost >= 0.02 and close_price < open_price:
+                                sell_price = close_price
+                                sell_reason = f'利润保护(收{close_price:.2f}涨{close_rise_from_cost*100:.1f}%)'
                                 early_sell_triggered = True
                                 break
                 if not early_sell_triggered:
