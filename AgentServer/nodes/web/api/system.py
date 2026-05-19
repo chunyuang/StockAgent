@@ -26,6 +26,113 @@ router = APIRouter(prefix="/system", tags=["系统状态和配置"])
 logger = logging.getLogger("api.system")
 
 
+# ==================== 健康检查 ====================
+
+
+@router.get("/health")
+async def health_check() -> Dict[str, Any]:
+    """
+    服务健康检查
+    
+    检查所有核心服务状态：后端API、回测引擎、MongoDB、前端Vite代理。
+    用于前端“一键服务检查”按钮。
+    """
+    import socket
+    import asyncio
+    import aiohttp
+    from datetime import datetime
+    
+    checks = {}
+    overall = "ok"
+    
+    # 1. MongoDB连接检查
+    try:
+        from core.managers import mongo_manager
+        db = mongo_manager.db
+        server_info = await asyncio.wait_for(db.command('ping'), timeout=5)
+        checks["mongodb"] = {
+            "status": "ok",
+            "message": f"MongoDB连接正常 (db={db.name})"
+        }
+    except Exception as e:
+        checks["mongodb"] = {"status": "error", "message": f"MongoDB连接失败: {str(e)[:100]}"}
+        overall = "error"
+    
+    # 2. 回测引擎检查（端口50057）
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection('localhost', 50057), timeout=3
+        )
+        writer.close()
+        await writer.wait_closed()
+        checks["backtest_node"] = {"status": "ok", "message": "回测节点端口50057可达"}
+    except Exception:
+        # 回测节点可能不需要单独端口（本地执行模式）
+        checks["backtest_node"] = {"status": "warning", "message": "回测节点端口50057不可达（本地执行模式可忽略）"}
+        if overall == "ok":
+            overall = "warning"
+    
+    # 3. 后端Web服务自检
+    checks["web_api"] = {"status": "ok", "message": f"Web API运行中 (pid={os.getpid()})"}
+    
+    # 4. 前端Vite代理检查
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection('localhost', 5174), timeout=3
+        )
+        writer.close()
+        await writer.wait_closed()
+        checks["frontend"] = {"status": "ok", "message": "前端Vite服务端口5174可达"}
+    except Exception:
+        checks["frontend"] = {"status": "warning", "message": "前端Vite服务端口5174不可达"}
+        if overall == "ok":
+            overall = "warning"
+    
+    # 5. 回测历史记录检查
+    try:
+        from core.managers import mongo_manager
+        count = await mongo_manager.count_documents("backtest_tasks", {})
+        checks["backtest_history"] = {"status": "ok", "message": f"历史回测记录: {count}条"}
+    except Exception as e:
+        checks["backtest_history"] = {"status": "error", "message": f"查询回测历史失败: {str(e)[:80]}"}
+        if overall == "ok":
+            overall = "error"
+    
+    # 6. 数据完整性检查
+    try:
+        from pymongo import MongoClient as SyncClient
+        from core.settings import settings as app_settings
+        client = SyncClient(app_settings.mongo.host, app_settings.mongo.port, serverSelectionTimeoutMS=3000)
+        db = client[app_settings.mongo.database]
+        daily_count = db.stock_daily_ak_full.count_documents({})
+        basic_count = db.daily_basic.count_documents({})
+        latest = list(db.stock_daily_ak_full.find({}, {'trade_date': 1}).sort('trade_date', -1).limit(1))
+        latest_date = str(latest[0]['trade_date']) if latest else '无数据'
+        client.close()
+        
+        data_msg = f"日线{daily_count//1000}K条, 基础{basic_count//1000}K条, 最新日期{latest_date}"
+        if daily_count > 0:
+            checks["data"] = {"status": "ok", "message": data_msg}
+        else:
+            checks["data"] = {"status": "error", "message": "stock_daily_ak_full无数据"}
+            overall = "error"
+    except Exception as e:
+        checks["data"] = {"status": "error", "message": f"数据检查失败: {str(e)[:80]}"}
+        if overall == "ok":
+            overall = "error"
+    
+    return {
+        "success": True,
+        "status": overall,
+        "checks": checks,
+        "timestamp": datetime.now().isoformat(),
+        "version": {
+            "commit": _GIT_COMMIT,
+            "branch": _GIT_BRANCH,
+        }
+    }
+
+
 # ==================== 数据模型 ====================
 
 class StrategyStat(BaseModel):
@@ -938,28 +1045,56 @@ async def get_data_status() -> Dict[str, Any]:
         today_int = int(datetime.now().strftime('%Y%m%d'))
         is_weekend = datetime.now().weekday() >= 5
         latest_date = int(latest_daily_str) if len(latest_daily_str) == 8 else 0
+        lag_days = 0
+        if latest_date > 0 and not is_weekend:
+            # 简单估算滞后天数(工作日)
+            from datetime import timedelta
+            d = datetime.strptime(latest_daily_str, '%Y%m%d')
+            bdays = 0
+            while d.date() < datetime.now().date():
+                d += timedelta(days=1)
+                if d.weekday() < 5:
+                    bdays += 1
+            lag_days = bdays
 
-        if not is_weekend and latest_date < today_int:
+        # 日线+基础指标补全(支持多天)
+        if not is_weekend and latest_date > 0 and latest_date < today_int:
+            if lag_days >= 2:
+                action_items.append({
+                    'action': f'补全{lag_days}天数据',
+                    'command': '',
+                    'api': 'POST /api/v1/system/sync-all',
+                    'desc': f'日线滞后{lag_days}个工作日(最新={latest_daily_str}), 一键补全日线+PE/PB+因子',
+                    'priority': 'high',
+                })
+            else:
+                action_items.append({
+                    'action': '补今日日线',
+                    'command': 'python3 eastmoney_daily_bar.py',
+                    'api': 'POST /api/v1/system/sync-daily-bar',
+                    'desc': f'最新日线={latest_daily_str}, 需补今日数据',
+                    'priority': 'high',
+                })
+                action_items.append({
+                    'action': '补今日PE/PB',
+                    'command': 'python3 eastmoney_daily_basic.py',
+                    'api': 'POST /api/v1/system/sync-daily-basic',
+                    'desc': '日线补完后运行',
+                    'priority': 'high',
+                })
+                action_items.append({
+                    'action': '一键补全',
+                    'command': '',
+                    'api': 'POST /api/v1/system/sync-all',
+                    'desc': '日线+PE/PB+因子一步到位',
+                    'priority': 'high',
+                })
+        elif not is_weekend and latest_date == today_int:
             action_items.append({
-                'action': '补今日日线',
-                'command': 'python3 eastmoney_daily_bar.py',
-                'api': 'POST /api/v1/system/sync-daily-bar',
-                'desc': f'最新日线={latest_daily_str}, 需补今日数据',
-                'priority': 'high',
-            })
-            action_items.append({
-                'action': '补今日PE/PB',
-                'command': 'python3 eastmoney_daily_basic.py',
-                'api': 'POST /api/v1/system/sync-daily-basic',
-                'desc': '日线补完后运行',
-                'priority': 'high',
-            })
-            action_items.append({
-                'action': '一键补全',
+                'action': '数据已是最新',
                 'command': '',
-                'api': 'POST /api/v1/system/sync-all',
-                'desc': '日线+PE/PB+因子一步到位',
-                'priority': 'high',
+                'desc': f'今日({latest_daily_str})数据已补全',
+                'priority': 'done',
             })
         elif is_weekend:
             action_items.append({
@@ -968,12 +1103,45 @@ async def get_data_status() -> Dict[str, Any]:
                 'desc': '非交易日, 无需补数据',
                 'priority': 'info',
             })
-        elif latest_date == today_int:
+        elif latest_date == 0:
             action_items.append({
-                'action': '数据已是最新',
+                'action': '一键补全',
                 'command': '',
-                'desc': f'今日({latest_daily_str})数据已补全',
-                'priority': 'done',
+                'api': 'POST /api/v1/system/sync-all',
+                'desc': '数据库无日线数据, 需要先补全',
+                'priority': 'high',
+            })
+
+        # 指数日线/涨停池/跌停池滞后检测
+        index_latest = collections.get('index_daily', {}).get('date_range', {})
+        index_end = index_latest.get('end') if index_latest else None
+        if index_end and len(index_end) == 8 and int(index_end) < latest_date:
+            action_items.append({
+                'action': '补指数日线',
+                'command': 'python3 akshare_index_daily.py',
+                'api': 'POST /api/v1/system/sync-index',
+                'desc': f'指数日线滞后(最新={index_end}, 日线已到{latest_daily_str})',
+                'priority': 'medium',
+            })
+
+        limit_latest = collections.get('limit_list', {}).get('date_range', {})
+        limit_end = limit_latest.get('end') if limit_latest else None
+        if limit_end and len(limit_end) == 8 and int(limit_end) < latest_date:
+            action_items.append({
+                'action': '补涨停池数据',
+                'command': '',
+                'desc': f'涨停池滞后(最新={limit_end}, 日线已到{latest_daily_str})',
+                'priority': 'medium',
+            })
+
+        down_latest = collections.get('limit_pool_down', {}).get('date_range', {})
+        down_end = down_latest.get('end') if down_latest else None
+        if down_end and len(down_end) == 8 and int(down_end) < latest_date:
+            action_items.append({
+                'action': '补跌停池数据',
+                'command': '',
+                'desc': f'跌停池滞后(最新={down_end}, 日线已到{latest_daily_str})',
+                'priority': 'medium',
             })
 
         # 检查因子是否需要补算
@@ -1104,12 +1272,24 @@ def _run_sync_script(script_name: str, task_id: str):
             capture_output=True, text=True, timeout=300,
             cwd=os.path.dirname(script_path),
         )
+        # 检查实际是否拉到数据(脚本可能exitcode=0但数据为0)
+        output = (result.stdout or '') + (result.stderr or '')
+        no_data = ('拉取 0 只' in output or '无数据' in output or '总数: 0' in output or '无法获取数据' in output)
+        if result.returncode != 0:
+            status = "failed"
+        elif no_data:
+            status = "failed"  # 数据源连接失败
+        else:
+            status = "success"
+        
         with _sync_lock:
-            _sync_tasks[task_id]["status"] = "success" if result.returncode == 0 else "failed"
+            _sync_tasks[task_id]["status"] = status
             _sync_tasks[task_id]["finished_at"] = datetime.now().isoformat()
             _sync_tasks[task_id]["returncode"] = result.returncode
             _sync_tasks[task_id]["stdout"] = result.stdout[-2000:] if result.stdout else ""
             _sync_tasks[task_id]["stderr"] = result.stderr[-2000:] if result.stderr else ""
+            if no_data:
+                _sync_tasks[task_id]["message"] = "数据源连接失败，未拉到数据(可能IP被封或非交易日)"
     except subprocess.TimeoutExpired:
         with _sync_lock:
             _sync_tasks[task_id]["status"] = "timeout"
@@ -1247,14 +1427,19 @@ async def sync_all() -> Dict[str, Any]:
                     capture_output=True, text=True, timeout=300,
                     cwd=os.path.dirname(script_path),
                 )
+                # 检查实际是否拉到数据(脚本可能exitcode=0但数据为0)
+                output = (r.stdout or '') + (r.stderr or '')
+                no_data = ('拉取 0 只' in output or '无数据' in output or '总数: 0' in output)
+                success = r.returncode == 0 and not no_data
                 results.append({
                     "step": step_name,
-                    "success": r.returncode == 0,
+                    "success": success,
+                    "message": "数据源连接失败,未拉到数据" if no_data else ("执行成功" if success else "执行失败"),
                     "stdout": r.stdout[-500:] if r.stdout else "",
                     "stderr": r.stderr[-500:] if r.stderr else "",
                 })
             except Exception as e:
-                results.append({"step": step_name, "success": False, "stderr": str(e)})
+                results.append({"step": step_name, "success": False, "message": str(e), "stderr": str(e)})
         
         with _sync_lock:
             _sync_tasks[task_id]["status"] = "success" if all(r["success"] for r in results) else "partial"

@@ -33,6 +33,7 @@ class BacktestValidator:
         "first_limit_up", 
         "limit_up_open",
         "dragon_head",
+        "leader_buy_dip",  # 龙头低吸 - 前端/实盘信号引擎别名
         "limit_down_qiao"
     }
     

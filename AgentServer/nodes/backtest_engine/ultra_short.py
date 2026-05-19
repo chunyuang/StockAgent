@@ -339,7 +339,7 @@ async def execute_ultra_short_backtest(
             all_factors.append({"name": "limit_up_count", "weight": weight_per_strategy, "target": min_consecutive})
             all_factors.append({"name": "limit_up_open_amount", "weight": weight_per_strategy, "target": min_seal_after})
             all_factors.append({"name": "turnover_rate_min", "weight": weight_per_strategy, "target": min_turnover})
-        elif strategy_id == "dragon_head":
+        elif strategy_id in ("dragon_head", "leader_buy_dip"):
             # 龙头低吸因子: 连板数+回调幅度+量比
             min_consecutive = sp.get("min_consecutive_limit", 1)
             min_correction = sp.get("min_correction_pct", 0.05)

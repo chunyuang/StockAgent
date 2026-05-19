@@ -437,3 +437,23 @@ export default {
   submitSweepBacktest,
   getUltraShortDefaults,
 }
+
+// ==================== 系统健康检查 ====================
+
+export interface HealthCheckResult {
+  success: boolean
+  status: 'ok' | 'warning' | 'error'
+  checks: Record<string, {
+    status: 'ok' | 'warning' | 'error'
+    message: string
+  }>
+  timestamp: string
+  version: { commit: string; branch: string }
+}
+
+/**
+ * 系统健康检查（一键服务检查）
+ */
+export async function systemHealthCheck(): Promise<HealthCheckResult> {
+  return api.get<HealthCheckResult>('/system/health')
+}
