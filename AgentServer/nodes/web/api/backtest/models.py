@@ -141,6 +141,7 @@ strategy_name_map: Dict[str, str] = {
     "首板打板": "first_limit_up",
     "涨停开板": "limit_up_open",
     "龙头低吸": "dragon_head",
+    "leader_buy_dip": "dragon_head",  # 龙头低吸别名映射
     "跌停翘板": "limit_down_qiao",
 }
 
@@ -197,6 +198,22 @@ class UltraShortBacktestRequest(BaseModel):
 
         # 兼容start_date/end_date在params里的情况
         params = values.get('params')
+        
+        # 【修复】策略ID别名统一：leader_buy_dip → dragon_head
+        # 回测引擎内部统一使用dragon_head，但实盘信号引擎和前端可能传入leader_buy_dip
+        strategies = values.get('strategies', [])
+        if strategies:
+            alias_map = {"leader_buy_dip": "dragon_head"}
+            values['strategies'] = [alias_map.get(s, s) for s in strategies]
+        # 同步strategy_params的key
+        strategy_params = values.get('strategy_params', {})
+        if strategy_params:
+            alias_map = {"leader_buy_dip": "dragon_head"}
+            values['strategy_params'] = {alias_map.get(k, k): v for k, v in strategy_params.items()}
+        strategy_risk_params = values.get('strategy_risk_params', {})
+        if strategy_risk_params:
+            alias_map = {"leader_buy_dip": "dragon_head"}
+            values['strategy_risk_params'] = {alias_map.get(k, k): v for k, v in strategy_risk_params.items()}
         if not values.get('start_date') and hasattr(params, 'start_date') and params.start_date:
             # 确保始终是字符串，避免datetime对象导致JSON序列化失败
             if isinstance(params.start_date, datetime):

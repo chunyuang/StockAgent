@@ -31,6 +31,7 @@ const total = ref(0)
 const selectedForCompare = ref<string[]>([])
 const showCompare = ref(false)
 const compareItems = ref<BacktestHistoryItem[]>([])
+const historyTableRef = ref<any>(null)
 
 // 策略ID→中文名 - 使用共享配置，robust地去emoji
 const strategyNameMap: Record<string, string> = Object.fromEntries(
@@ -131,22 +132,26 @@ function strategyNames(strategies: string[] | undefined): string {
 }
 
 // 任务4: 对比功能
+function onSelectionChange(rows: BacktestHistoryItem[]) {
+  // checkbox选中同步到selectedForCompare，最多3个
+  selectedForCompare.value = rows.slice(0, 3).map(r => r.task_id)
+}
+
 function openCompare() {
   compareItems.value = sortedItems.value.filter(i => selectedForCompare.value.includes(i.task_id))
   showCompare.value = true
 }
 
+function closeCompare() {
+  showCompare.value = false
+  selectedForCompare.value = []
+  // 清除ElTable的checkbox选中状态
+  historyTableRef.value?.clearSelection()
+}
+
 // 判断是否被选中用于对比
 function isCompareSelected(taskId: string): boolean {
   return selectedForCompare.value.includes(taskId)
-}
-
-function toggleCompareSelect(taskId: string) {
-  if (selectedForCompare.value.includes(taskId)) {
-    selectedForCompare.value = selectedForCompare.value.filter(id => id !== taskId)
-  } else if (selectedForCompare.value.length < 3) {
-    selectedForCompare.value.push(taskId)
-  }
 }
 
 // 对比表指标
@@ -203,16 +208,17 @@ onMounted(loadHistory)
     <!-- 历史列表 -->
     <ElTable
       v-else
+      ref="historyTableRef"
       :data="sortedItems"
       v-loading="loading"
       size="small"
       border
       stripe
       style="width: 100%"
-      @row-click="(row: any) => toggleCompareSelect(row.task_id)"
+      @selection-change="onSelectionChange"
       :row-class-name="({ row }: any) => isCompareSelected(row.task_id) ? 'compare-selected-row' : ''"
     >
-      <ElTableColumn type="selection" width="40" :selectable="() => selectedForCompare.length < 3 || true" />
+      <ElTableColumn type="selection" width="40" :selectable="(row: any) => selectedForCompare.length < 3 || selectedForCompare.includes(row.task_id)" />
       <ElTableColumn label="时间" width="110" sortable sort-by="created_at">
         <template #default="{ row }">
           <span style="color: #909399; font-size: 12px">{{ formatDate(row.created_at) }}</span>
@@ -267,7 +273,7 @@ onMounted(loadHistory)
       <template #header>
         <div style="display: flex; justify-content: space-between; align-items: center">
           <span style="font-weight: 600">📊 回测对比</span>
-          <ElButton size="small" @click="showCompare = false; selectedForCompare = []">关闭</ElButton>
+          <ElButton size="small" @click="closeCompare">关闭</ElButton>
         </div>
       </template>
       <ElTable :data="compareMetrics" size="small" border>

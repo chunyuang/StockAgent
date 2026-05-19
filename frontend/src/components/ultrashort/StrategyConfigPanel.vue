@@ -86,7 +86,7 @@ function onSweepParamChange() {
             <span class="sweep-label">参数扫描</span>
             <ElSwitch v-model="form.sweep.enabled" size="small" />
           </div>
-          <ElButton @click="emit('submit')" :icon="Play" type="success" :loading="backtestRunning" size="large">
+          <ElButton @click="emit('submit')" :icon="Play" type="success" :loading="backtestRunning" size="default">
             {{ backtestRunning ? (form.sweep.enabled ? '扫描中...' : '回测中...') : (form.sweep.enabled ? '开始扫描' : '开始回测') }}
           </ElButton>
         </div>
@@ -556,24 +556,26 @@ export default { name: 'StrategyConfigPanel' }
 
 <style scoped lang="scss">
 .config-card {
-  margin-bottom: 20px;
+  margin-bottom: 12px;
+  :deep(.el-card__header) { padding: 8px 16px; }
+  :deep(.el-card__body) { padding: 12px 16px; }
   .card-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     font-weight: 600;
-    font-size: 16px;
+    font-size: 14px;
     .header-actions {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
     }
     .sweep-toggle {
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 4px;
       .sweep-label {
-        font-size: 13px;
+        font-size: 12px;
         color: #606266;
       }
     }

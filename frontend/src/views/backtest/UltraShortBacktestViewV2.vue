@@ -4,7 +4,7 @@
  * 主页面：状态管理 + 回测提交 + WebSocket/轮询
  * 子组件：StrategyConfigPanel / AnsiLogPanel / BacktestSummaryTable / BacktestResultPanel
  */
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import StrategyConfigPanel from '@/components/ultrashort/StrategyConfigPanel.vue'
 import AnsiLogPanel from '@/components/backtest/AnsiLogPanel.vue'
@@ -15,6 +15,7 @@ import DataStatusPanel from '@/components/ultrashort/DataStatusPanel.vue'
 import FactorReferencePanel from '@/components/ultrashort/FactorReferencePanel.vue'
 
 import { GLOBAL_RISK, STRATEGY_CONFIGS } from '@/config/strategyDefaults'
+import { systemHealthCheck } from '@/api/modules/backtest'
 import { SWEEP_PARAMS, STRATEGY_NAMES } from '@/config/backtestConstants'
 
 // API
@@ -127,6 +128,7 @@ const form = reactive({
 })
 
 const activeCollapse = ref<string[]>([])
+const configCollapsed = ref(false)
 
 const backtestState = reactive({
   running: false,
@@ -269,8 +271,31 @@ let elapsedTimer: ReturnType<typeof setInterval> | null = null
 
 const sweepResult = ref<any>(null)
 const sweepLoading = ref(false)
+const healthLoading = ref(false)
+const healthStatus = ref<string>('')
+const healthDetail = ref<any>(null)
 
 // ==================== 方法 ====================
+
+// ==================== 一键服务检查 ====================
+const runHealthCheck = async () => {
+  healthLoading.value = true; healthStatus.value = ''; healthDetail.value = null
+  try {
+    const res = await systemHealthCheck()
+    healthDetail.value = res; healthStatus.value = res.status || 'ok'
+    if (res.status === 'ok') ElMessage.success('✅ 所有服务运行正常')
+    else if (res.status === 'warning') {
+      const w = Object.entries(res.checks||{}).filter(([_,v]:any)=>v.status==='warning').map(([k,v]:any)=>v.message).join('; ')
+      ElMessage.warning('⚠️ 部分服务异常: '+w)
+    } else {
+      const e2 = Object.entries(res.checks||{}).filter(([_,v]:any)=>v.status==='error').map(([k,v]:any)=>v.message).join('; ')
+      ElMessage.error('❌ 服务异常: '+e2)
+    }
+  } catch(e:any) {
+    healthStatus.value = 'error'
+    ElMessage.error(e.message==='Network Error'?'❌ 后端服务未运行！请先启动服务 (restart_all.sh)':'❌ 健康检查失败: '+e.message)
+  } finally { healthLoading.value = false }
+}
 
 const submitBacktest = async () => {
   if (backtestState.running) {
@@ -410,14 +435,14 @@ const submitBacktest = async () => {
       const data = JSON.parse(event.data)
       if (data.type === 'log') addLog(data.log)
       else if (data.type === 'progress') backtestState.progress = data.progress
-      else if (data.type === 'result') {
+      else if (data.type === 'result' || (data.type === 'status' && data.status === 'completed')) {
         backtestResult.value = data.result
         backtestState.running = false
         if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null }
         addLog('✅ 回测全部完成！')
         ElMessage.success('回测完成！')
         ws.close()
-      } else if (data.type === 'error') {
+      } else if (data.type === 'error' || (data.type === 'status' && data.status === 'failed')) {
         if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null }
         addLog(`❌ 回测失败：${data.message}`)
         backtestState.running = false
@@ -482,9 +507,24 @@ const submitBacktest = async () => {
     }
   } catch (e: any) {
     if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null }
-    addLog(`❌ 提交回测任务失败：${e.message || '未知错误'}`)
+    // 提取后端实际错误消息，而非axios默认消息
+    let errorMsg = e.message || '未知错误'
+    if (e.response?.data?.detail?.message) {
+      errorMsg = e.response.data.detail.message
+      if (e.response.data.detail.errors?.length) {
+        const details = e.response.data.detail.errors.map((err: any) => err.field_cn || err.field ? `${err.field_cn || err.field}: ${err.message}` : err.message).join('; ')
+        errorMsg += ` - ${details}`
+      }
+    } else if (e.response?.data?.message) {
+      errorMsg = e.response.data.message
+    } else if (e.message === 'Network Error') {
+      errorMsg = '网络连接失败，请检查后端服务是否运行'
+    } else if (e.message?.includes('status code')) {
+      errorMsg = `请求失败(${e.response?.status || '未知'})，请检查服务状态`
+    }
+    addLog(`❌ 提交回测任务失败：${errorMsg}`)
     backtestState.running = false
-    ElMessage.error(`提交回测失败：${e.message || '未知错误'}`)
+    ElMessage.error(`提交回测失败：${errorMsg}`)
   }
 }
 
@@ -564,7 +604,9 @@ const submitSweepBacktest = async () => {
     sweepResult.value = res
     ElMessage.success('参数扫描完成！')
   } catch (e: any) {
-    ElMessage.error(`参数扫描失败：${e.message || '未知错误'}`)
+    let errorMsg = e.response?.data?.detail?.message || e.response?.data?.message || e.message || '未知错误'
+    if (e.message === 'Network Error') errorMsg = '网络连接失败，请检查后端服务是否运行'
+    ElMessage.error(`参数扫描失败：${errorMsg}`)
   } finally {
     sweepLoading.value = false
   }
@@ -669,46 +711,47 @@ function onViewResult(task: BacktestHistoryItem) {
 
 /** 查看历史回测日志 */
 function onViewLogs(taskId: string) {
-  // 滚动到日志面板
+  // 切回配置Tab并滚动到日志面板
+  activeMainTab.value = 'config'
   backtestState.task_id = taskId
-  const logEl = document.querySelector('.ansi-log-card')
-  if (logEl) logEl.scrollIntoView({ behavior: 'smooth' })
+  nextTick(() => {
+    const logEl = document.querySelector('.ansi-log-card')
+    if (logEl) logEl.scrollIntoView({ behavior: 'smooth' })
+  })
 }
 </script>
 
 <template>
   <div class="ultra-short-v2-page">
-    <!-- 页面头部 -->
-    <div class="page-header">
-      <div>
-        <h1 class="page-title">超短策略回测系统 V3.0 ✅ 专业量化版</h1>
-        <p class="page-description">
-          4策略组合回测 | 参数扫描 | 月度归因 | 卖出原因分析 | 策略对比 | 东方财富数据源 | 实盘级风控<br/>
-          🚀 多策略组合 | 9层筛选管道 | 完整交易记录 | MongoDB数据引擎
-        </p>
+    <!-- Tab切换 + 操作按钮 -->
+    <div class="main-tabs-bar">
+      <div class="main-tabs">
+        <button :class="['tab-btn', activeMainTab === 'config' ? 'active' : '']" @click="activeMainTab = 'config'">
+          🎯 新建回测
+        </button>
+        <button :class="['tab-btn', activeMainTab === 'history' ? 'active' : '']" @click="activeMainTab = 'history'">
+          📊 回测历史
+          <span class="tab-badge">{{ historyCount }}</span>
+        </button>
+        <button :class="['tab-btn', activeMainTab === 'data' ? 'active' : '']" @click="activeMainTab = 'data'">
+          🗄️ 数据状态
+        </button>
+        <button :class="['tab-btn', activeMainTab === 'factors' ? 'active' : '']" @click="activeMainTab = 'factors'">
+          📊 因子参考
+        </button>
       </div>
-    </div>
-
-    <!-- 主Tab切换 -->
-    <div class="main-tabs">
-      <button :class="['tab-btn', activeMainTab === 'config' ? 'active' : '']" @click="activeMainTab = 'config'">
-        🎯 新建回测
-      </button>
-      <button :class="['tab-btn', activeMainTab === 'history' ? 'active' : '']" @click="activeMainTab = 'history'">
-        📊 回测历史
-        <span class="tab-badge">{{ historyCount }}</span>
-      </button>
-      <button :class="['tab-btn', activeMainTab === 'data' ? 'active' : '']" @click="activeMainTab = 'data'">
-        🗄️ 数据状态
-      </button>
-      <button :class="['tab-btn', activeMainTab === 'factors' ? 'active' : '']" @click="activeMainTab = 'factors'">
-        📊 因子参考
-      </button>
+      <ElButton :type="healthStatus==='ok'?'success':healthStatus==='error'?'danger':healthStatus==='warning'?'warning':'default'" :loading="healthLoading" @click="runHealthCheck" size="small">
+        {{ healthLoading ? '检查中...' : healthStatus==='ok' ? '✅ 服务正常' : healthStatus==='error' ? '❌ 服务异常' : '🔧 服务检查' }}
+      </ElButton>
     </div>
 
     <!-- Tab内容：新建回测 -->
     <div v-show="activeMainTab === 'config'" class="config-layout">
-      <div class="config-left">
+      <!-- 左侧收起/展开按钮 -->
+      <button class="config-toggle-btn" @click="configCollapsed = !configCollapsed" :title="configCollapsed ? '展开配置' : '收起配置'">
+        {{ configCollapsed ? '▶' : '◀' }}
+      </button>
+      <div class="config-left" v-show="!configCollapsed">
         <!-- 策略配置面板 -->
         <StrategyConfigPanel
           :form="form"
@@ -719,13 +762,12 @@ function onViewLogs(taskId: string) {
         />
       </div>
       <div class="config-right">
-        <!-- 任务5: 运行状态/耗时 -->
+        <!-- 运行状态/耗时 - 精简版 -->
         <div v-if="backtestState.running" class="running-status">
           ⏱ 已运行 {{ Math.floor(elapsedSeconds / 60) }}:{{ String(elapsedSeconds % 60).padStart(2, '0') }}
-          <span v-if="backtestState.progress > 0"> · 进度 {{ backtestState.progress }}%</span>
         </div>
         <div v-if="backtestResult?.execution_time_ms" class="execution-time">
-          ⏱ 回测耗时 {{ (backtestResult.execution_time_ms / 1000).toFixed(1) }}秒 · 覆盖 {{ backtestResult?.net_value_series?.length || 0 }} 个交易日
+          ⏱ 回测耗时 {{ (backtestResult.execution_time_ms / 1000).toFixed(1) }}秒 · {{ backtestResult?.net_value_series?.length || 0 }} 交易日
         </div>
 
         <!-- 参数扫描结果 -->
@@ -752,11 +794,6 @@ function onViewLogs(taskId: string) {
           </ElTable>
         </ElCard>
 
-        <!-- 回测进度条 -->
-        <ElCard v-if="backtestState.running" class="progress-card" style="margin-bottom: 16px">
-          <ElProgress :percentage="backtestState.progress" :stroke-width="18" :text-inside="true" status="success" />
-        </ElCard>
-
         <!-- 回测结果总结表格 -->
         <BacktestSummaryTable v-if="backtestResult" :result="backtestResult" />
 
@@ -764,7 +801,7 @@ function onViewLogs(taskId: string) {
         <BacktestResultPanel v-if="backtestResult" :result="backtestResult" :form="form" />
 
         <!-- 日志面板 -->
-        <AnsiLogPanel v-if="backtestState.running || backtestState.task_id" :task-id="backtestState.task_id" :task-status="backtestState.running ? 'running' : 'completed'" />
+        <AnsiLogPanel v-if="backtestState.running || backtestState.task_id" :task-id="backtestState.task_id" :task-status="backtestState.running ? 'running' : 'completed'" :height="600" />
       </div>
     </div>
 
@@ -796,50 +833,30 @@ function onViewLogs(taskId: string) {
   display: flex;
   flex-direction: column;
 }
-.page-header {
-  margin-bottom: 16px;
+.main-tabs-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  border-bottom: 1px solid #e4e7ed;
   flex-shrink: 0;
-  .page-title {
-    font-size: 24px;
-    font-weight: 700;
-    color: #303133;
-    margin: 0 0 6px 0;
-  }
-  .page-description {
-    color: #606266;
-    margin: 0;
-    font-size: 13px;
-  }
-}
-
-.history-toggle {
-  cursor: pointer;
-  padding: 10px 0;
-  color: #606266;
-  font-size: 14px;
-  font-weight: 600;
-  user-select: none;
-
-  &:hover { color: #409eff; }
 }
 
 .main-tabs {
   display: flex;
   gap: 0;
-  margin-bottom: 16px;
-  border-bottom: 2px solid #e4e7ed;
   flex-shrink: 0;
 
   .tab-btn {
-    padding: 10px 24px;
-    font-size: 15px;
+    padding: 6px 16px;
+    font-size: 13px;
     font-weight: 600;
     border: none;
     background: transparent;
     color: #909399;
     cursor: pointer;
     border-bottom: 2px solid transparent;
-    margin-bottom: -2px;
+    margin-bottom: -1px;
     transition: all 0.2s;
     position: relative;
 
@@ -870,20 +887,45 @@ function onViewLogs(taskId: string) {
 
 .config-layout {
   display: flex;
-  gap: 20px;
+  gap: 0;
   flex: 1;
   overflow: hidden;
+  position: relative;
+}
+.config-toggle-btn {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 10;
+  width: 20px;
+  height: 48px;
+  border: 1px solid #dcdfe6;
+  border-left: none;
+  border-radius: 0 6px 6px 0;
+  background: #fff;
+  color: #909399;
+  cursor: pointer;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  &:hover { background: #ecf5ff; color: #409eff; border-color: #b3d8ff; }
 }
 .config-left {
   width: 420px;
   flex-shrink: 0;
   overflow-y: auto;
   padding-right: 4px;
+  padding-left: 24px;
+  transition: width 0.3s;
 }
 .config-right {
   flex: 1;
   overflow-y: auto;
   min-width: 0;
+  padding-left: 8px;
 }
 .running-status {
   padding: 8px 16px;
@@ -911,4 +953,6 @@ function onViewLogs(taskId: string) {
   flex: 1;
   overflow-y: auto;
 }
+
+
 </style>

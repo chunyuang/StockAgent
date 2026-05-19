@@ -260,7 +260,22 @@ async def compute_opening_pct_chg(trade_dates: list[int]):
 
 
 async def main():
-    trade_dates = [20260512, 20260513, 20260514]
+    from pymongo import MongoClient
+    db = MongoClient('localhost', 27017)['stock_agent']
+    # 自动检测缺因子的日期(有日线但缺turnover_rate/ma5的)
+    all_dates = sorted(db['stock_daily_ak_full'].distinct('trade_date'))
+    # 只处理最近30天
+    recent_dates = [d for d in all_dates if d >= 20260420]
+    trade_dates = []
+    for td in recent_dates:
+        total = db['stock_daily_ak_full'].count_documents({'trade_date': td})
+        with_ma5 = db['stock_daily_ak_full'].count_documents({'trade_date': td, 'ma5': {'$gt': 0}})
+        if total > 0 and with_ma5 < total * 0.5:
+            trade_dates.append(td)
+    if not trade_dates:
+        print('所有日期的因子已完整，无需补算')
+        return
+    print(f'需补算因子的日期: {trade_dates}')
     
     print("=== Step 1: Sync basic factors from daily_basic ===")
     await fill_simple_factors(trade_dates)

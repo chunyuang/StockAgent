@@ -27,7 +27,7 @@ const props = withDefaults(defineProps<{
   height?: number
 }>(), {
   title: '📝 回测日志',
-  height: 500,
+  height: 800,
 })
 
 // === 状态 ===
@@ -332,7 +332,7 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
     <div
       ref="panelRef"
       class="ansi-log-panel"
-      :style="{ height: height + 'px' }"
+      :style="{ minHeight: height + 'px', maxHeight: '80vh' }"
     >
       <div v-if="!loaded" class="log-empty">
         <template v-if="isLiveMode">等待日志...</template>

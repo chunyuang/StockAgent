@@ -197,14 +197,28 @@ function handleAuthError(): void {
   })
 }
 
-function handleApiError(error: unknown): void {
+function handleApiError(error: unknown): string {
   let message = '请求失败'
   
   if (axios.isAxiosError(error) && error.response) {
     const { status, data } = error.response
     
+    // 尝试从响应中提取详细错误信息
+    const extractDetail = (d: any): string => {
+      if (!d) return ''
+      if (typeof d === 'string') return d
+      if (typeof d.detail === 'string') return d.detail
+      if (d.detail?.message) return d.detail.message
+      if (d.message) return d.message
+      // 处理校验错误列表
+      if (d.detail?.errors && Array.isArray(d.detail.errors)) {
+        return d.detail.errors.map((e: any) => e.field_cn || e.field ? `${e.field_cn || e.field}: ${e.message}` : e.message).join('; ')
+      }
+      return ''
+    }
+    
     const errorMessages: Record<number, string> = {
-      400: (data as { detail?: string })?.detail || '请求参数错误',
+      400: extractDetail(data) || '请求参数错误',
       401: '未授权，请登录',
       403: '没有权限访问',
       404: '请求的资源不存在',
@@ -226,6 +240,7 @@ function handleApiError(error: unknown): void {
   }
   
   ElMessage.error(message)
+  return message
 }
 
 // ==================== 请求方法封装 ====================

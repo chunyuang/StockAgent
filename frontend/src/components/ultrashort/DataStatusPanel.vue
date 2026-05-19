@@ -8,7 +8,7 @@ interface CollectionInfo { count: number; date_range: { start: string; end: stri
 interface DataSource { name: string; type: string; status: string; status_text: string; rate_limit: string; coverage: string; gotchas: string[]; scripts: string[] }
 interface RecommendedRange { start: string; end: string; factor_rate: string }
 interface StrategyItem { name: string; key: string; available: boolean; coverage: number; missing_factors: string[]; desc: string }
-interface ActionItem { action: string; command: string; desc: string; priority: string }
+interface ActionItem { action: string; command: string; desc: string; priority: string; api?: string }
 interface DataAlignment { date: string; stock_daily_count: number; daily_basic_count: number; common: number; only_in_basic: number; only_in_daily: number; only_in_basic_samples: string[] }
 interface HealthBreakdown { factor_score: number; factor_max: number; freshness_score: number; freshness_max: number; source_score: number; source_max: number }
 
@@ -26,6 +26,10 @@ const loading = ref(false)
 const status = ref<DataStatus | null>(null)
 const error = ref('')
 const factorDetailExpanded = ref(false)
+const syncLoading = ref<string>('')  // 正在同步的action名
+const syncTaskId = ref('')
+const syncStatus = ref<any>(null)
+const syncPollTimer = ref<any>(null)
 
 const collectionNames: Record<string, string> = {
   stock_daily_ak_full: '日线行情(OHLCV)', daily_basic: '基础指标(PE/PB/市值)',
@@ -40,6 +44,58 @@ async function fetchData() {
     const json = await res.json()
     if (json.success) { status.value = json.data } else { error.value = json.message || '查询失败' }
   } catch (e: any) { error.value = e.message } finally { loading.value = false }
+}
+
+// ===== 数据同步操作 =====
+async function triggerSync(apiPath: string, actionName: string) {
+  syncLoading.value = actionName
+  syncStatus.value = null
+  try {
+    const res = await fetch(apiPath, { method: 'POST' })
+    const json = await res.json()
+    if (json.success) {
+      syncTaskId.value = json.task_id
+      startPolling()
+    } else {
+      syncLoading.value = ''
+      // 用简单的alert替代ElMessage
+      alert(json.message || '同步启动失败')
+    }
+  } catch (e: any) {
+    syncLoading.value = ''
+    alert('请求失败: ' + e.message)
+  }
+}
+
+function startPolling() {
+  stopPolling()
+  syncPollTimer.value = setInterval(async () => {
+    if (!syncTaskId.value) { stopPolling(); return }
+    try {
+      const res = await fetch(`/api/v1/system/sync-status/${syncTaskId.value}`)
+      const json = await res.json()
+      if (json.success) {
+        syncStatus.value = json.data
+        if (json.data.status === 'success' || json.data.status === 'partial' || json.data.status === 'failed') {
+          syncLoading.value = ''
+          stopPolling()
+          // 强制刷新数据状态(重新拉取API)
+          await fetchData()
+        }
+      }
+    } catch { /* ignore poll errors */ }
+  }, 2000)
+}
+
+function stopPolling() {
+  if (syncPollTimer.value) { clearInterval(syncPollTimer.value); syncPollTimer.value = null }
+}
+
+function parseApiPath(api?: string): string | null {
+  if (!api) return null
+  // "POST /api/v1/system/sync-all" → "/api/v1/system/sync-all"
+  const parts = api.split(' ')
+  return parts.length > 1 ? parts[1] : api
 }
 
 function fmtDate(d: string) {
@@ -142,9 +198,33 @@ onMounted(fetchData)
         <div v-for="(item, i) in status.action_items" :key="i" class="action-item" :class="'action-' + item.priority">
           <span class="action-icon">{{ item.priority === 'done' ? '✅' : item.priority === 'info' ? '💤' : item.priority === 'high' ? '🔴' : '🟡' }}</span>
           <div class="action-content">
-            <div class="action-title">{{ item.action }}</div>
+            <div class="action-top-row">
+              <span class="action-title">{{ item.action }}</span>
+              <ElButton
+                v-if="item.api && item.priority === 'high'"
+                size="small"
+                :type="item.action === '一键补全' ? 'primary' : 'default'"
+                :loading="syncLoading === item.action"
+                @click="triggerSync(parseApiPath(item.api)!, item.action)"
+              >
+                {{ item.action === '一键补全' ? '🚀 一键补全' : '▶ 执行' }}
+              </ElButton>
+            </div>
             <div class="action-desc">{{ item.desc }}</div>
-            <code v-if="item.command" class="action-cmd">{{ item.command }}</code>
+          </div>
+        </div>
+      </div>
+      <!-- 同步进度 -->
+      <div v-if="syncLoading || syncStatus" class="sync-progress" :class="{'sync-fail': syncStatus?.status === 'failed', 'sync-ok': syncStatus?.status === 'success'}">
+        <div v-if="syncLoading" class="sync-running">⏳ 正在执行 {{ syncLoading }}...</div>
+        <div v-if="syncStatus" class="sync-detail">
+          <span>状态: <b>{{ syncStatus.status === 'running' ? '🔄 执行中' : syncStatus.status === 'success' ? '✅ 完成' : syncStatus.status === 'partial' ? '⚠️ 部分完成' : '❌ 失败' }}</b></span>
+          <span v-if="syncStatus.current_step">当前步骤: {{ syncStatus.current_step }}</span>
+          <span v-if="syncStatus.message" class="sync-msg">{{ syncStatus.message }}</span>
+          <div v-if="syncStatus.results" class="sync-steps">
+            <div v-for="(r, ri) in syncStatus.results" :key="ri" class="sync-step" :class="r.success ? 'step-ok' : 'step-fail'">
+              {{ r.step }}: {{ r.success ? '✅' : '❌' }} {{ r.message || '' }}
+            </div>
           </div>
         </div>
       </div>
@@ -299,8 +379,20 @@ onMounted(fetchData)
 .action-icon { font-size: 16px; margin-top: 1px; }
 .action-content { flex: 1; }
 .action-title { font-weight: 600; font-size: 14px; }
+.action-top-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .action-desc { font-size: 12px; color: #909399; margin-top: 2px; }
-.action-cmd { font-size: 11px; background: #f4f4f5; padding: 2px 8px; border-radius: 3px; margin-top: 4px; display: inline-block; }
+
+/* 同步进度 */
+.sync-progress { margin-top: 12px; padding: 10px 14px; border-radius: 6px; }
+.sync-ok { background: #f0f9eb; border: 1px solid #e1f3d8; }
+.sync-fail { background: #fef0f0; border: 1px solid #fde2e2; }
+.sync-running { color: #409eff; font-size: 13px; font-weight: 600; }
+.sync-detail { font-size: 12px; color: #606266; display: flex; flex-direction: column; gap: 4px; }
+.sync-msg { color: #f56c6c; font-weight: 600; }
+.sync-steps { display: flex; gap: 12px; margin-top: 4px; }
+.sync-step { font-size: 12px; padding: 2px 8px; border-radius: 4px; }
+.step-ok { background: #f0f9eb; color: #67c23a; }
+.step-fail { background: #fef0f0; color: #f56c6c; }
 .strategy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
 .strategy-card { padding: 10px 14px; border-radius: 8px; border: 1px solid #ebeef5; }
 .st-ok { border-color: #b3e19d; background: #f0f9eb; }
