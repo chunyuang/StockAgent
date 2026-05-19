@@ -10,11 +10,15 @@
  * 5. 对比模式优化：内联对比面板+雷达图式对比
  * 6. 行内mini进度条表示收益在全部记录中的分位
  */
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { getUltraShortHistory, deleteBacktestHistory, type BacktestHistoryItem } from '@/api/modules/backtest'
 import { ElTable, ElTableColumn, ElButton, ElTag, ElEmpty, ElMessageBox, ElMessage, ElCard, ElTooltip, ElProgress } from 'element-plus'
 import { View, Document, RefreshRight, Delete, TrendCharts, Timer } from '@element-plus/icons-vue'
 import { STRATEGY_NAMES } from '@/config/backtestConstants'
+
+const props = defineProps<{
+  visible?: boolean
+}>()
 
 const emit = defineEmits<{
   (e: 'view-result', task: BacktestHistoryItem): void
@@ -222,10 +226,12 @@ function isBestInCompare(metricKey: string, item: BacktestHistoryItem): boolean 
 }
 
 onMounted(loadHistory)
+// 当面板变为可见时，如果还没有数据则加载
+watch(() => props.visible, (v) => { if (v && items.value.length === 0) loadHistory() })
 </script>
 
 <template>
-  <div class="history-panel">
+  <div class="history-panel" v-loading="loading" element-loading-text="正在加载回测历史..." element-loading-background="rgba(255,255,255,0.7)">
     <!-- 汇总统计条 -->
     <div v-if="summary" class="summary-bar">
       <div class="summary-item">
