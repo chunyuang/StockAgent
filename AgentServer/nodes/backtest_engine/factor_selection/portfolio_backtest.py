@@ -160,6 +160,24 @@ class PortfolioBacktester:
                     if open_rise_from_cost >= 0.03 and close_rise_from_cost < 0:
                         return close_price, '利润保护'
 
+            # ===== 龙头低吸 =====
+            elif sname == '龙头低吸':
+                # 【P0-2修复(V27):龙头低吸添加冲高回落+利润保护,与半路追涨/跌停翘板对齐】
+                # 旧bug: 龙头低吸占交易量44%但没有冲高回落/利润保护,纯龙头低吸股高开低收时无保护
+                # 冲高回落: 高开≥3%且高开低收→以open价卖出
+                # 区间判断: open_rise>=5%直接触发; 3%-5%区间需回落≥1%才触发(与半路追涨一致)
+                _dragon_open_sell_pct = sp.get('next_day_open_sell_pct', 0.03)
+                if open_rise_from_cost >= _dragon_open_sell_pct and close_price > 0 and close_price < open_price:
+                    if open_rise_from_cost >= 0.05:
+                        return open_price, '冲高回落'
+                    elif (open_price - close_price) / open_price >= 0.01:
+                        return open_price, '冲高回落'
+                # 利润保护: 收盘盈利≥2%且高开低收→以close价卖出
+                if close_price > 0 and open_price > 0:
+                    close_rise_from_cost = (close_price / cost - 1) if cost > 0 else 0
+                    if close_rise_from_cost >= 0.02 and close_price < open_price:
+                        return close_price, '利润保护'
+
             # ===== 首板打板 =====
             elif sname == '首板打板':
                 # 高开≥3%→直接卖出
@@ -172,7 +190,15 @@ class PortfolioBacktester:
                 # 【P0-1修复(V23):使用next_day_open_sell_pct作为冲高回落阈值】
                 _hw_open_sell_pct = sp.get('next_day_open_sell_pct', 0.03)
                 if open_rise_from_cost >= _hw_open_sell_pct and close_price > 0 and close_price < open_price:
-                    return open_price, '冲高回落'
+                    # 【P0-1修复(V27):添加3%-5%区间判断,与跌停翘板对齐】
+                    # 旧bug: open_rise=3.1%且回落0.1%就触发冲高回落,过于激进
+                    # 新: open_rise>=5%直接触发; 3%-5%区间需回落≥1%才触发
+                    # 原因: 半路追涨股3%-5%的高开可能只是正常波动,小幅回落不应过早卖出
+                    # 只有真正冲高(≥5%)或显著回落(≥1%)才是卖出信号
+                    if open_rise_from_cost >= 0.05:
+                        return open_price, '冲高回落'
+                    elif (open_price - close_price) / open_price >= 0.01:
+                        return open_price, '冲高回落'
                 # 利润保护: 收盘盈利≥2%且高开低收→以close价卖出
                 # 【V25修复:从elif改为独立if,修复冲高回落未触发时利润保护也被跳过的bug】
                 # 场景: open_rise=3.5%, close_rise=2.5%, close<open
@@ -1807,7 +1833,7 @@ class PortfolioBacktester:
                     cost = self._cost_basis.get(code, 0)
                     if cost <= 0 or p.get('close', 0) <= 0:
                         continue
-                    strategies = getattr(self, 'stock_to_strategy', {}).get(code, [])
+                    strategies = self.stock_to_strategy.get(code, [])
                     strategy_rp = getattr(self, '_strategy_risk_params', {})
                     global_sl = self._risk_config.get('stop_loss_pct', GLOBAL_RISK['stop_loss_pct'])
                     global_tp = self._risk_config.get('take_profit_pct', 0.07)
@@ -1878,8 +1904,8 @@ class PortfolioBacktester:
                         continue
                     if code in forced_sell_codes_set:
                         continue  # 已在止损止盈中处理
-                    buy_date_raw = getattr(self, '_cost_basis_date', {}).get(code)
-                    strategies = getattr(self, 'stock_to_strategy', {}).get(code, [])
+                    buy_date_raw = self._cost_basis_date.get(code)
+                    strategies = self.stock_to_strategy.get(code, [])
                     strategy_rp = getattr(self, '_strategy_risk_params', {})
                     strategy_max_hold = None
                     if isinstance(strategies, list):
@@ -1998,15 +2024,15 @@ class PortfolioBacktester:
                 if holdings.get(code, 0) <= 0:
                     continue
                 # 【Phase1-T+1】当日买入的股票不可止损/止盈卖出(T+1限制)
-                buy_dt = getattr(self, '_cost_basis_date', {}).get(code)
+                buy_dt = self._cost_basis_date.get(code)
                 if buy_dt is not None and buy_dt == trade_date:
                     continue
                 p = _sl_tp_prices.get(code, {})
-                cost = getattr(self, '_cost_basis', {}).get(code, 0)
+                cost = self._cost_basis.get(code, 0)
                 if cost <= 0 or p.get('close', 0) <= 0:
                     continue
                 # 查找策略级参数
-                strategies = getattr(self, 'stock_to_strategy', {}).get(code, [])
+                strategies = self.stock_to_strategy.get(code, [])
                 strategy_rp = getattr(self, '_strategy_risk_params', {})
                 global_sl = self._risk_config.get('stop_loss_pct', GLOBAL_RISK['stop_loss_pct'])
                 global_tp = self._risk_config.get('take_profit_pct', 0.07)
@@ -2049,7 +2075,7 @@ class PortfolioBacktester:
                 # 【P1-2修复(V15)】:改用交易日计算超时,替代日历天数*1.5
                 # 旧逻辑: 日历天数>max_hold*1.5 → 周中买入3个日历天就超时(1.5*2=3),但只过了1个交易日
                 # 新逻辑: 统计all_trade_dates中[buy_date, trade_date]之间的交易日数
-                buy_date_raw = getattr(self, '_cost_basis_date', {}).get(code)
+                buy_date_raw = self._cost_basis_date.get(code)
                 global_max_hold = self._risk_config.get('max_hold_days', 999)
                 strategy_max_hold = None
                 if isinstance(strategies, list):
@@ -3119,7 +3145,7 @@ class PortfolioBacktester:
         """
         max_stocks = getattr(self, '_max_stocks', 3)
         strategy_weights = getattr(self, '_strategy_weights', {})
-        stock_strategy = getattr(self, 'stock_to_strategy', {})
+        stock_strategy = self.stock_to_strategy
 
         # 按策略分组候选
         strat_groups = {}  # strategy_name -> [(code, score)]
@@ -3255,7 +3281,7 @@ class PortfolioBacktester:
 
     def _get_strategy_for_stock(self, code: str) -> str:
         """【辅助函数】获取股票的策略名(支持多策略选同股,取第一个策略)"""
-        sinfo = getattr(self, 'stock_to_strategy', {}).get(code, '')
+        sinfo = self.stock_to_strategy.get(code, '')
         if isinstance(sinfo, list) and len(sinfo) > 0:
             return sinfo[0]  # 取第一个策略(最优先)
         return sinfo if isinstance(sinfo, str) else "策略选股"
@@ -3272,7 +3298,7 @@ class PortfolioBacktester:
 
         注意:这是对实盘价格的近似模拟,实际成交价可能有所不同
         """
-        sinfo = getattr(self, 'stock_to_strategy', {}).get(code, '')
+        sinfo = self.stock_to_strategy.get(code, '')
         strategies = sinfo if isinstance(sinfo, list) else [sinfo]
 
         prices = []
@@ -3328,14 +3354,10 @@ class PortfolioBacktester:
 
         if not prices:
             return open_price
-        # 【P1-4修复(V23):多策略选同股时取最高买入价,而非最低价】
+        # 【P1-4修复(V23):多策略选同股时取最高买入价,最保守估算】
         # 旧bug: 取min(prices)过于保守,导致成本低估,虚增利润
-        # 分析: 如果半路追涨(价=open*1.024)和跌停翘板(价=low*1.01)都选了同一股,
-        # min取跌停翘板价(通常更低),但实际买入应该以更高的确认价为准
         # 取max更保守(更高的成本),回测结果更真实
-        # 但考虑到有些策略买入价本身偏保守(如跌停翘板low*1.01),取max可能过高
-        # 折中方案: 取第一个策略的买入价(第一个策略=选股时优先级最高的策略)
-        return prices[0] if len(prices) == 1 else max(prices)
+        return max(prices)
 
     def _extract_position_multiplier(self, sentiment: str) -> float:
         """【辅助函数】从情绪等级字符串中提取仓位系数
@@ -3437,11 +3459,14 @@ class PortfolioBacktester:
                 {"name": "intraday_max_rise_pct", "target": min_rise_pct * 100, "operator": ">=", "label": f"盘中最高涨幅≥{min_rise_pct*100:.0f}%"},
                 {"name": "intraday_max_rise_pct", "target": max_rise_pct * 100, "operator": "<=", "label": f"盘中最高涨幅≤{max_rise_pct*100:.0f}%"},
                 {"name": "intraday_open_rise_pct", "target": max_open_rise * 100, "operator": "<=", "label": f"开盘涨幅≤{max_open_rise*100:.0f}%(排除高开追高)"},
-                {"name": "volume_ratio", "target": min_volume_ratio, "operator": ">=", "label": f"量比≥{min_volume_ratio}"},
+                # 【P1-4修复(V27):volume_ratio改用volume_ratio_prev(T-1日),消除未来函数】
+                # 实盘中量比开盘时可观测(基于前5日均量),但日线volume_ratio是全天数据
+                # volume_ratio_prev更严格保守,避免用T日全天量比做选股决策
+                {"name": "volume_ratio_prev", "target": min_volume_ratio, "operator": ">=", "label": f"量比≥{min_volume_ratio}"},
             ]
             # 量比上限: >3过热回调,胜率反而下降
             if max_volume_ratio and max_volume_ratio < 100:
-                conditions.append({"name": "volume_ratio", "target": max_volume_ratio, "operator": "<=", "label": f"量比≤{max_volume_ratio}(不过热)"})
+                conditions.append({"name": "volume_ratio_prev", "target": max_volume_ratio, "operator": "<=", "label": f"量比≤{max_volume_ratio}(不过热)"})
             # ⚠️【已知未来函数近似】: pct_chg是T日收盘数据，盘中不可知
             # 含义: "收盘确认站稳"——过滤冲高回落的假信号
             # 实测V25: close买入→收益226%→46%,胜率76%→42%,代价过大
@@ -3515,6 +3540,7 @@ class PortfolioBacktester:
             _min_vr = converted_params.get("min_volume_ratio") if converted_params.get("min_volume_ratio") is not None else strategy_defaults.get("min_volume_ratio", 0.5)
             _max_vr = converted_params.get("max_volume_ratio") if converted_params.get("max_volume_ratio") is not None else strategy_defaults.get("max_volume_ratio", 2.0)
             return [
+                # 【V18注意】circ_mv日间变化极小(<1%),用T日数据可接受
                 {"name": "circ_mv", "target": _min_circ_for_leader, "operator": ">=", "label": f"流通市值≥{_min_circ_for_leader//10000}亿(龙头)"},
                 {"name": "limit_up_count", "target": min_consecutive, "operator": ">=", "label": f"近5日至少{min_consecutive}板"},
                 # 【Bug修复】pullback_pct在MongoDB中存负数(如-0.15=回调15%)
@@ -3528,6 +3554,10 @@ class PortfolioBacktester:
                 # MA5支撑作为概念参考,不强制要求pullback_ma5=1
                 # 量比双限: VR<0.5极度冷门(几乎无成交), VR>2.0放量回调(抛压未止)
                 # 数据: VR<0.8胜率50.2%(抛压枯竭), VR 0.8-1.5胜率44.1%, VR 1.5-2.0胜率47.4%
+                # 【V27注意】龙头低吸volume_ratio保留T日数据,不用_prev
+                # 原因: 龙头低吸的信号是“缩量回调后T日开始放量”,T-1日还是缩量状态
+                # 用volume_ratio_prev会把“T日放量启动”的高胜率候选过滤掉(收益-90%)
+                # volume_ratio在盘中可观测(基于前5日均量推算),是准实时因子
                 {"name": "volume_ratio", "target": _min_vr, "operator": ">=", "label": f"量比≥{_min_vr}(保流动性)"},
                 {"name": "volume_ratio", "target": _max_vr, "operator": "<=", "label": f"量比≤{_max_vr}(缩量回调)"},
             ]
@@ -3552,10 +3582,16 @@ class PortfolioBacktester:
                 {"name": "limit_down_yesterday", "target": 1, "label": "昨日跌停"},
                 {"name": "open_above_limit_down", "target": 1, "label": "开盘高于跌停价(不继续跌停)"},
                 # 【V18注意】circ_mv用T日收盘价计算(理论上未来函数)，但日间变化极小(<1%)，可接受
-                {"name": "circ_mv", "target": _min_circ_qiao, "operator": ">=", "label": f"流通市值≥{_min_circ_qiao//10000}亿(排除小盘操纵)"},
+                # 【P1-2修复(V27):circ_mv改用circ_mv_prev(T-1日),严格消除未来函数】
+                # 实盘开盘时T日circ_mv未知,应使用T-1日数据更保守
+                # T-1日circ_mv与T日差异极小(<1%),对筛选结果影响微小
+                {"name": "circ_mv_prev", "target": _min_circ_qiao, "operator": ">=", "label": f"流通市值≥{_min_circ_qiao//10000}亿(排除小盘操纵)"},
                 # 【V18注意】turnover_rate是T日全天换手率(未来函数)，但跌停翘板要求换手率高是合理的
                 # 实盘中可通过开盘10分钟换手率推算，日线回测只能用全天数据近似
-                {"name": "turnover_rate", "target": min_turnover_qiao, "operator": ">=", "label": f"换手率≥{min_turnover_qiao:.0f}%"},
+                # 【P1-3修复(V27):turnover_rate改用turnover_rate_prev(T-1日),消除未来函数】
+                # 实盘开盘时T日turnover未知,用T-1日数据更保守
+                # 跌停翘板候选股通常前一日也有较高换手(翘板当天换手暴增)
+                {"name": "turnover_rate_prev", "target": min_turnover_qiao, "operator": ">=", "label": f"换手率≥{min_turnover_qiao:.0f}%"},
                 # 【P0-3修复(V12→V12.1)】:翘板金额过滤改为target=0(跳过)
                 # limit_down_open_amount因子98%为0(数据质量问题),无法可靠使用
                 # 设target=0后_print_single_strategy_filtering会自动跳过此条件
@@ -3577,7 +3613,7 @@ class PortfolioBacktester:
 
     def _get_sl_tp_for_code(self, code: str):
         """获取某只股票对应的策略级止损止盈参数"""
-        strategies = getattr(self, 'stock_to_strategy', {}).get(code, [])
+        strategies = self.stock_to_strategy.get(code, [])
         strategy_rp = getattr(self, '_strategy_risk_params', {})
         global_sl = self._risk_config.get('stop_loss_pct', GLOBAL_RISK['stop_loss_pct'])
         global_tp = self._risk_config.get('take_profit_pct', 0.07)
@@ -3590,7 +3626,7 @@ class PortfolioBacktester:
 
     def _get_slippage_for_code(self, code: str):
         """获取某只股票对应的策略级滑点"""
-        strategies = getattr(self, 'stock_to_strategy', {}).get(code, [])
+        strategies = self.stock_to_strategy.get(code, [])
         strategy_rp = getattr(self, '_strategy_risk_params', {})
         global_slippage = self._slippage_pct
         if isinstance(strategies, list) and strategies:
@@ -3631,7 +3667,7 @@ class PortfolioBacktester:
         Returns: 修改后的target_shares
         """
         _limit_up_codes = []
-        sinfo = getattr(self, 'stock_to_strategy', {})
+        sinfo = self.stock_to_strategy
         for code in list(target_shares.keys()):
             strategies = sinfo.get(code, [])
             if isinstance(strategies, str):
@@ -3755,11 +3791,11 @@ class PortfolioBacktester:
                 if holdings.get(code, 0) <= 0:
                     continue
                 # T+1: 当日买入不可止损卖出
-                buy_dt = getattr(self, '_cost_basis_date', {}).get(code)
+                buy_dt = self._cost_basis_date.get(code)
                 if buy_dt is not None and buy_dt == trade_date:
                     continue
                 p = prices.get(code, {})
-                cost = getattr(self, '_cost_basis', {}).get(code, 0)
+                cost = self._cost_basis.get(code, 0)
                 if cost <= 0 or not isinstance(p, dict) or p.get('close', 0) <= 0:
                     continue
                 code_sl, code_tp = self._get_sl_tp_for_code(code)
@@ -3772,7 +3808,7 @@ class PortfolioBacktester:
                 # 【P0-1修复(V17)】:目标池内持仓也要检查冲高回落/高开即卖/利润保护
                 # 旧bug: 只检查止损止盈,冲高回落等保护信号被跳过
                 # 导致:持仓股次日高开冲高回落,因仍在目标池而继续持有,利润回吐
-                _strategies = getattr(self, 'stock_to_strategy', {}).get(code, [])
+                _strategies = self.stock_to_strategy.get(code, [])
                 if isinstance(_strategies, str): _strategies = [_strategies]
                 early_sell_price, early_sell_reason = self._check_early_sell_signals(
                     code, _strategies, cost, open_p, _close_p)
@@ -3805,9 +3841,9 @@ class PortfolioBacktester:
         over_hold_codes = []
         for code in list(holdings.keys()):
             if holdings.get(code, 0) > 0:
-                buy_date_raw = getattr(self, '_cost_basis_date', {}).get(code)
+                buy_date_raw = self._cost_basis_date.get(code)
                 # 查找策略级max_hold_days
-                strategies = getattr(self, 'stock_to_strategy', {}).get(code, [])
+                strategies = self.stock_to_strategy.get(code, [])
                 strategy_rp = getattr(self, '_strategy_risk_params', {})
                 strategy_max_hold = None
                 if isinstance(strategies, list):
@@ -3869,10 +3905,10 @@ class PortfolioBacktester:
             high_p = p.get('high', p.get('close', 0))
             open_p = p.get('open', p.get('close', 0))
             _close_p = p.get('close', 0)
-            cost = getattr(self, '_cost_basis', {}).get(code, 0)
+            cost = self._cost_basis.get(code, 0)
             if cost > 0 and p.get('close', 0) > 0:
                 # 【P0-2修复(V17)】:减仓也要检查冲高回落/高开即卖/利润保护
-                _strategies = getattr(self, 'stock_to_strategy', {}).get(code, [])
+                _strategies = self.stock_to_strategy.get(code, [])
                 if isinstance(_strategies, str): _strategies = [_strategies]
                 early_sell_price, early_sell_reason = self._check_early_sell_signals(
                     code, _strategies, cost, open_p, _close_p)
@@ -3894,7 +3930,7 @@ class PortfolioBacktester:
                 p = prices[code]
                 if p.get('close', 0) <= 0:
                     # 【P0-1修复:从_cost_basis_date获取买入日期】
-                    buy_date_raw = getattr(self, '_cost_basis_date', {}).get(code)
+                    buy_date_raw = self._cost_basis_date.get(code)
                     if buy_date_raw is not None:
                         try:
                             # 【P2-3修复(V15):停牌超时也改用交易日计算,与P1-2超时强卖一致】
@@ -3910,7 +3946,7 @@ class PortfolioBacktester:
                                 trade_days_held = int((td - bd).days / 1.5)
                             # 【P2-2修复(V22):停牌超时阈值改用max(max_hold_days*3, 10),不再硬编码10天】
                             # 不同策略的max_hold_days不同(3/4天),固定10天对短持仓策略过长
-                            _strats = getattr(self, 'stock_to_strategy', {}).get(code, [])
+                            _strats = self.stock_to_strategy.get(code, [])
                             _strategy_rp = getattr(self, '_strategy_risk_params', {})
                             _strategy_max_hold = None
                             if isinstance(_strats, list):
@@ -3972,7 +4008,7 @@ class PortfolioBacktester:
                 continue
 
             # 判断盘中是否触发止损/止盈(基于实际买入成本)
-            cost_basis = getattr(self, '_cost_basis', {}).get(ts_code, open_price)  # 用实际买入价
+            cost_basis = self._cost_basis.get(ts_code, open_price)  # 用实际买入价
             sell_price = close_price  # 默认收盘价
             sell_reason = '调仓卖出'
             # 【P0-3修复(V23):如果sell_code_reasons已有明确的卖出原因,优先使用,避免重复判断】
@@ -4004,7 +4040,7 @@ class PortfolioBacktester:
                 # 【P0-3修复(V16):冲高回落/高开即卖/利润保护reason统一为固定分类】
                 # 旧: reason含价格细节如"冲高回落(开40.05涨9.7%)" → 前端统计每条独立
                 # 新: reason固定分类"冲高回落"/"高开即卖"/"利润保护",价格细节存入record备注
-                _strategies = getattr(self, 'stock_to_strategy', {}).get(ts_code, [])
+                _strategies = self.stock_to_strategy.get(ts_code, [])
                 if isinstance(_strategies, str): _strategies = [_strategies]
                 early_sell_price, early_sell_reason = self._check_early_sell_signals(
                     ts_code, _strategies, cost_basis, open_price, close_price)
