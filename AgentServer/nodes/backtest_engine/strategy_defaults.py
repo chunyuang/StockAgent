@@ -51,6 +51,7 @@ STRATEGY_CONFIGS = {
             "min_close_rise_pct": 0.05,     # 收盘涨幅≥5%(V14: 5%收盘确认,半路追涨胜率从40.5%→66.2%)
             "max_open_rise_pct": 0.03,      # 开盘涨幅≤3%(高开>3%追高胜率仅44%,低开冲高81.5%胜率)
             "allow_after_10am": False,      # 不允许10点后买入
+            "next_day_open_sell_pct": 0.03, # 次日高开≥3%冲高回落保护(与首板打板高开即卖阈值一致)
         },
         "riskParams": {
             "stop_loss_pct": 0.05,          # 止损5%(3%太紧,半路追涨波动大易被震出,回撤从12.8%升至16.2%)
@@ -75,7 +76,7 @@ STRATEGY_CONFIGS = {
             "hit_probability_fast": 0.3,                 # 秒板(开盘>8%)成交概率30%
             "hit_probability_normal": 0.5,               # 快速板(开盘2-8%)50%
             "hit_probability_slow": 0.7,                 # 盘中板(开盘<2%)70%
-            "next_day_open_sell_pct": 0.03,             # 次日高开3%即卖
+            "next_day_open_sell_pct": 0.03, # 次日高开≥3%即卖出(首板高开即卖)
         },
         "riskParams": {
             "stop_loss_pct": 0.04,          # 止损4%

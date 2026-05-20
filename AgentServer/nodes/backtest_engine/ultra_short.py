@@ -546,8 +546,8 @@ async def execute_ultra_short_backtest(
             # 止盈: 包含"止盈"/"take_profit"/"止盈(X%)"
             elif "止盈" in reason_str or "take_profit" in reason_str.lower():
                 sell_reason_stats["take_profit"] += 1
-            # 到期: 包含"到期"/"max_hold"/"持仓天数"/"超时"(超时=持仓超过max_hold_days)
-            elif "到期" in reason_str or "max_hold" in reason_str.lower() or "持仓天数" in reason_str or "超时" in reason_str:
+            # 到期: 包含"到期"/"max_hold"/"持仓天数"/"超时"/"停牌超时"(超时=持仓超过max_hold_days)
+            elif "到期" in reason_str or "max_hold" in reason_str.lower() or "持仓天数" in reason_str or "超时" in reason_str or "停牌" in reason_str:
                 sell_reason_stats["max_hold"] += 1
             # 空仓: 包含"空仓"/"force_empty"/"强制"/"force_empty_position"
             elif "空仓" in reason_str or "force_empty" in reason_str.lower() or "强制" in reason_str:

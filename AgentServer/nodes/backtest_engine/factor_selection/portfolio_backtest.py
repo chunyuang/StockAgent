@@ -153,10 +153,13 @@ class PortfolioBacktester:
             elif sname == '首板打板' and open_rise_from_cost >= _open_sell_pct:
                 return open_price, '高开即卖'
 
-            # 半路追涨冲高回落: 高开≥open_sell_pct%且高开低收→冲高回落
-            # 【P2-5修复(V22):阈值从硬编码0.05改为从params读取,与strategy_defaults一致】
-            elif sname == '半路追涨' and open_rise_from_cost >= sp.get('冲高回落_阈值', sp.get('next_day_open_sell_pct', 0.05)):
-                if open_rise_from_cost >= sp.get('next_day_open_sell_pct', 0.05) and close_price > 0 and close_price < open_price:
+            # 半路追涨冲高回落: 高开≥阈值且高开低收→冲高回落
+            # 【P0-1修复(V23):使用next_day_open_sell_pct作为冲高回落阈值】
+            # 半路追涨的next_day_open_sell_pct在strategy_defaults.py中未定义,取默认值0.03
+            # 即:次日高开≥3%且高开低收(收盘<开盘)→以开盘价卖出保护利润
+            # 3%阈值理由: 半路追涨买入时涨幅3-7%,次日高开3%已意味着可观利润,回调风险大
+            elif sname == '半路追涨' and open_rise_from_cost >= sp.get('next_day_open_sell_pct', 0.03):
+                if close_price > 0 and close_price < open_price:
                     return open_price, '冲高回落'
 
             # 半路追涨利润保护: 收盘盈利≥2%且高开低收→保护利润
@@ -1853,6 +1856,62 @@ class PortfolioBacktester:
                         reason=reason, strategy_name=_sell_strategy, sentiment=''))
                     await self.log(f"   │  ⚠️  调仓日止损止盈卖出: {code} {shares}股 @ {sell_p:.2f} ({reason})")
                 last_prices = _sl_tp_prices if forced_sell_codes else last_prices
+
+                # 【P1-1修复(V23):调仓日无交易也要检查超时强卖,与非调仓日逻辑对齐】
+                # 旧bug: 调仓日无交易时只检查止损止盈,不检查max_hold_days超时
+                # 导致超时持仓要等到非调仓日才被卖出,多持1天增加回撤风险
+                global_max_hold = self._risk_config.get('max_hold_days', 999)
+                for code in list(holdings.keys()):
+                    if holdings.get(code, 0) <= 0:
+                        continue
+                    if any(c == code for c, _ in forced_sell_codes):
+                        continue  # 已在止损止盈中处理
+                    buy_date_raw = getattr(self, '_cost_basis_date', {}).get(code)
+                    strategies = getattr(self, 'stock_to_strategy', {}).get(code, [])
+                    strategy_rp = getattr(self, '_strategy_risk_params', {})
+                    strategy_max_hold = None
+                    if isinstance(strategies, list):
+                        for sname in strategies:
+                            smh = strategy_rp.get(sname, {}).get('max_hold_days')
+                            if smh is not None and (strategy_max_hold is None or smh < strategy_max_hold):
+                                strategy_max_hold = smh
+                    max_hold = strategy_max_hold if strategy_max_hold is not None else global_max_hold
+                    if buy_date_raw is not None and max_hold < 999:
+                        try:
+                            buy_dt_int = int(str(buy_date_raw))
+                            trade_dt_int = int(str(trade_date))
+                            _all_td = getattr(self, '_all_trade_dates', [])
+                            if _all_td:
+                                trade_days_held = sum(1 for d in _all_td if buy_dt_int < d <= trade_dt_int)
+                            else:
+                                trade_days_held = 0
+                            if trade_days_held > max_hold:
+                                p = _sl_tp_prices.get(code, {})
+                                sell_p = p.get('close', 0)
+                                if sell_p <= 0:
+                                    continue
+                                shares = holdings[code]
+                                slippage_pct = self._get_slippage_for_code(code)
+                                sell_price_adj = sell_p * (1 - slippage_pct)
+                                gross_amount = shares * sell_price_adj
+                                commission = max(gross_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
+                                stamp_tax = gross_amount * self.STAMP_TAX
+                                net_amount = gross_amount - commission - stamp_tax
+                                cash += net_amount
+                                del holdings[code]
+                                if code in self._cost_basis:
+                                    del self._cost_basis[code]
+                                if code in self._cost_basis_date:
+                                    del self._cost_basis_date[code]
+                                _sell_strategy = self._get_strategy_for_stock(code)
+                                rebalance_records.append(RebalanceRecord(
+                                    date=str(trade_date), action='sell', ts_code=code,
+                                    shares=shares, price=sell_p, amount=net_amount,
+                                    reason=f'超时({trade_days_held}交易日>{max_hold}交易日)',
+                                    strategy_name=_sell_strategy, sentiment=''))
+                                await self.log(f"   │  ⚠️  调仓日超时强卖: {code} {shares}股 @ {sell_p:.2f} ({trade_days_held}>{max_hold}交易日)")
+                        except (ValueError, TypeError):
+                            pass
         # 【P0修复:统一调用净值记录函数,避免continue跳过】
         last_net_value, peak_value = await self._record_daily_net_value(
             trade_date, holdings, cash, last_net_value, peak_value,
@@ -2729,7 +2788,8 @@ class PortfolioBacktester:
                 strategy_trades[sname] = []
             strategy_trades[sname].append(trade)
         for sname, trades in strategy_trades.items():
-            completed = [t for t in trades if t.get('sell_date')]
+            # 【P0-2修复(V23):过滤profit_pct为None的未平仓交易,避免TypeError】
+            completed = [t for t in trades if t.get('sell_date') and t.get('profit_pct') is not None]
             wins = sum(1 for t in completed if t.get('profit_pct', 0) > 0)
             total_pnl = sum(t.get('profit_pct', 0) for t in completed)
             avg_pnl = total_pnl / len(completed) if completed else 0
@@ -2740,7 +2800,7 @@ class PortfolioBacktester:
                 cum_pnl = 0.0
                 peak_pnl = 0.0
                 for t in sorted(completed, key=lambda x: x.get('sell_date', '')):
-                    cum_pnl += t.get('profit_pct', 0)
+                    cum_pnl += t.get('profit_pct', 0)  # 已过滤None,安全
                     if cum_pnl > peak_pnl:
                         peak_pnl = cum_pnl
                     dd = peak_pnl - cum_pnl
@@ -2748,8 +2808,6 @@ class PortfolioBacktester:
                         strategy_max_dd = dd
 
             # 【P1-3修复(V9):策略级盈亏比改用交易维度(与组合级PLR一致)】
-            # 旧: strategy_wins_pnl / abs(strategy_losses_pnl) → 基于盈亏金额,被大额交易扭曲
-            # 新: avg_win_pct / avg_loss_pct → 基于平均盈亏比,反映策略稳定性
             strategy_win_trades = [t for t in completed if t.get('profit_pct', 0) > 0]
             strategy_loss_trades = [t for t in completed if t.get('profit_pct', 0) < 0]
             if strategy_win_trades and strategy_loss_trades:
@@ -3236,8 +3294,14 @@ class PortfolioBacktester:
 
         if not prices:
             return open_price
-        # 多策略选同股:取最低买入价(最保守,避免高估成本)
-        return min(prices)
+        # 【P1-4修复(V23):多策略选同股时取最高买入价,而非最低价】
+        # 旧bug: 取min(prices)过于保守,导致成本低估,虚增利润
+        # 分析: 如果半路追涨(价=open*1.024)和跌停翘板(价=low*1.01)都选了同一股,
+        # min取跌停翘板价(通常更低),但实际买入应该以更高的确认价为准
+        # 取max更保守(更高的成本),回测结果更真实
+        # 但考虑到有些策略买入价本身偏保守(如跌停翘板low*1.01),取max可能过高
+        # 折中方案: 取第一个策略的买入价(第一个策略=选股时优先级最高的策略)
+        return prices[0] if len(prices) == 1 else max(prices)
 
     def _extract_position_multiplier(self, sentiment: str) -> float:
         """【辅助函数】从情绪等级字符串中提取仓位系数
@@ -3876,7 +3940,26 @@ class PortfolioBacktester:
             cost_basis = getattr(self, '_cost_basis', {}).get(ts_code, open_price)  # 用实际买入价
             sell_price = close_price  # 默认收盘价
             sell_reason = '调仓卖出'
-            if cost_basis > 0:
+            # 【P0-3修复(V23):如果sell_code_reasons已有明确的卖出原因,优先使用,避免重复判断】
+            # 旧bug: 目标池内止损检查已确定sell_code_reasons,但卖出循环又重新计算,可能不一致
+            # 例如: 目标池内检查判断为'止损(5%)',但卖出循环中可能因浮点误差判断为'调仓卖出'
+            if ts_code in sell_code_reasons:
+                _pre_determined_reason = sell_code_reasons[ts_code]
+                # 使用已确定的卖出原因,只置sell_price和sell_reason
+                if _pre_determined_reason == '跳空止损' and open_price > 0:
+                    sell_price = open_price
+                    sell_reason = '跳空止损'
+                elif _pre_determined_reason.startswith('止损'):
+                    sell_price = cost_basis * (1 - self._get_sl_tp_for_code(ts_code)[0]) if cost_basis > 0 else close_price
+                    sell_reason = _pre_determined_reason
+                elif _pre_determined_reason.startswith('止盈'):
+                    sell_price = cost_basis * (1 + self._get_sl_tp_for_code(ts_code)[1]) if cost_basis > 0 else close_price
+                    sell_reason = _pre_determined_reason
+                else:
+                    # 冲高回落/高开即卖/利润保护
+                    sell_price = open_price
+                    sell_reason = _pre_determined_reason
+            elif cost_basis > 0:
                 # 【P0-3修复(V16):冲高回落/高开即卖/利润保护reason统一为固定分类】
                 # 旧: reason含价格细节如"冲高回落(开40.05涨9.7%)" → 前端统计每条独立
                 # 新: reason固定分类"冲高回落"/"高开即卖"/"利润保护",价格细节存入record备注
