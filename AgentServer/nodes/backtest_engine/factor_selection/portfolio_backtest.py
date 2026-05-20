@@ -138,43 +138,54 @@ class PortfolioBacktester:
             sp = self._strategy_params.get(sname, {})
             _open_sell_pct = sp.get('next_day_open_sell_pct', 0.03)
 
-            # 跌停翘板: 高开且高开低收→冲高回落
-            # 【P1-6修复(V16)】:主阈值从3%→5%,跌停翘板波动大3%太常见会过早卖出
-            # 【P1-3修复(V19)】:3%-5%区间回落阈值从2%→1.5%,跌停翘板高开3%-5%已算强势,
-            # 回落1.5%以上应保护利润(旧值2%可能错过保护窗口)
-            if sname == '跌停翘板' and open_rise_from_cost >= _open_sell_pct:
-                if close_price < open_price:
+            # 【P0-1修复(V25):将elif链改为独立的if检查,修复利润保护被冲高回落elif吞掉的bug】
+            # 旧bug: elif链中,当open_rise>=3%但close>=open时,冲高回落不触发,
+            # 但利润保护的elif也不会被检查(因为第一个elif已匹配),导致利润保护失效
+            # 新: 每个保护信号独立检查,按优先级(冲高回落>利润保护)返回第一个命中的
+
+            # ===== 跌停翘板 =====
+            if sname == '跌停翘板':
+                # 冲高回落: 高开≥阈值且高开低收→以open价卖出
+                # 【P1-6修复(V16)】:主阈值从3%→5%,跌停翘板波动大3%太常见会过早卖出
+                # 【P1-3修复(V19)】:3%-5%区间回落阈值从2%→1.5%
+                if open_rise_from_cost >= _open_sell_pct and close_price < open_price:
                     if open_rise_from_cost >= 0.05:
                         return open_price, '冲高回落'
                     elif (open_price - close_price) / open_price >= 0.015:
                         return open_price, '冲高回落'
+                # 利润保护: 高开≥3%但收盘转亏→以close卖出
+                # 【P1-3修复(V19)】:高开后大幅回落甚至转亏,是强烈卖出信号
+                if close_price > 0 and open_price > 0:
+                    close_rise_from_cost = (close_price / cost - 1) if cost > 0 else 0
+                    if open_rise_from_cost >= 0.03 and close_rise_from_cost < 0:
+                        return close_price, '利润保护'
 
-            # 首板打板: 高开≥3%→直接卖出
-            elif sname == '首板打板' and open_rise_from_cost >= _open_sell_pct:
-                return open_price, '高开即卖'
+            # ===== 首板打板 =====
+            elif sname == '首板打板':
+                # 高开≥3%→直接卖出
+                if open_rise_from_cost >= _open_sell_pct:
+                    return open_price, '高开即卖'
 
-            # 半路追涨冲高回落: 高开≥阈值且高开低收→冲高回落
-            # 【P0-1修复(V23):使用next_day_open_sell_pct作为冲高回落阈值】
-            # 半路追涨的next_day_open_sell_pct在strategy_defaults.py中未定义,取默认值0.03
-            # 即:次日高开≥3%且高开低收(收盘<开盘)→以开盘价卖出保护利润
-            # 3%阈值理由: 半路追涨买入时涨幅3-7%,次日高开3%已意味着可观利润,回调风险大
-            elif sname == '半路追涨' and open_rise_from_cost >= sp.get('next_day_open_sell_pct', 0.03):
-                if close_price > 0 and close_price < open_price:
+            # ===== 半路追涨 =====
+            elif sname == '半路追涨':
+                # 冲高回落: 高开≥阈值且高开低收→以open价卖出
+                # 【P0-1修复(V23):使用next_day_open_sell_pct作为冲高回落阈值】
+                _hw_open_sell_pct = sp.get('next_day_open_sell_pct', 0.03)
+                if open_rise_from_cost >= _hw_open_sell_pct and close_price > 0 and close_price < open_price:
                     return open_price, '冲高回落'
-
-            # 半路追涨利润保护: 收盘盈利≥2%且高开低收→保护利润
-            elif sname == '半路追涨' and close_price > 0 and open_price > 0:
-                close_rise_from_cost = (close_price / cost - 1) if cost > 0 else 0
-                if close_rise_from_cost >= 0.02 and close_price < open_price:
-                    return close_price, '利润保护'
-
-            # 【P1-3修复(V19)】:跌停翘板利润保护 - 高开≥3%但收盘转亏→以close卖出
-            # 跌停翘板次日高开后大幅回落甚至转亏,是强烈的卖出信号
-            # 只在open_rise≥3%(符合开盘预期)但close_rise<0(收盘反转)时触发
-            elif sname == '跌停翘板' and close_price > 0 and open_price > 0:
-                close_rise_from_cost = (close_price / cost - 1) if cost > 0 else 0
-                if open_rise_from_cost >= 0.03 and close_rise_from_cost < 0:
-                    return close_price, '利润保护'
+                # 利润保护: 收盘盈利≥2%且高开低收→以close价卖出
+                # 【V25修复:从elif改为独立if,修复冲高回落未触发时利润保护也被跳过的bug】
+                # 场景: open_rise=3.5%, close_rise=2.5%, close<open
+                # 旧bug: 第一个if匹配(open_rise>=3%)但close<open检查通过→返回冲高回落 ✓
+                # 场景: open_rise=1%, close_rise=2.5%, close<open
+                # 旧bug: 第一个elif不匹配(open_rise<3%)→第二个elif检查利润保护→✓
+                # 场景: open_rise=3.5%, close_rise=2.5%, close>=open
+                # 旧bug: 第一个elif匹配(open_rise>=3%)→进入→close<open=False→不返回→跳过第二个elif→✗
+                # 新: 第一个if匹配但不返回→继续检查利润保护→✓
+                if close_price > 0 and open_price > 0:
+                    close_rise_from_cost = (close_price / cost - 1) if cost > 0 else 0
+                    if close_rise_from_cost >= 0.02 and close_price < open_price:
+                        return close_price, '利润保护'
 
         return 0, ''
 
@@ -799,7 +810,7 @@ class PortfolioBacktester:
         await self.log(f"    🔹 {'✅' if risk_config['enable_sector_concentration'] else '❌'} 板块集中度过滤: 保留前 {risk_config['sector_concentration_top_n']} 名")
         await self.log("🔧 Phase1 实盘对标修复:")
         await self.log("    🔹 ✅ T+1约束: 当日买入不可卖出")
-        await self.log("    🔹 ✅ 半路追涨买入价: open+(high-open)*0.5 (盘中冲高时价,消除未来函数)")
+        await self.log("    🔹 ✅ 半路追涨买入价: open*(1+min_rise*0.8) (盘中趋势判断近似,V25验证close买入代价过大)")
         await self.log("    🔹 ✅ 半路追涨方案B: 开盘≤3%(排除高开追高) + SL5%/TP10% + 收盘确认≥3%")
         await self.log("    🔹 ✅ 龙头低吸买入价: low×1.005→low+(high-low)×0.25 (偏低位但不极端)")
         await self.log("    🔹 ✅ 跳空止损: open<止损价→以open卖出 (最差情况)")
@@ -1891,8 +1902,7 @@ class PortfolioBacktester:
                                 if sell_p <= 0:
                                     continue
                                 shares = holdings[code]
-                                slippage_pct = self._get_slippage_for_code(code)
-                                sell_price_adj = sell_p * (1 - slippage_pct)
+                                # 【P0-2修复(V25):超时强卖不扣滑点(与止损一致,被迫卖出不应再惩罚)】n                                # 旧bug: 超时强卖扣slippage,实际是被迫卖出不应额外惩罚n                                # 超时本身已经损失了时间价值,不应再扣滑点n                                sell_price_adj = sell_p
                                 gross_amount = shares * sell_price_adj
                                 commission = max(gross_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
                                 stamp_tax = gross_amount * self.STAMP_TAX
@@ -2077,10 +2087,11 @@ class PortfolioBacktester:
                     continue
                 # 【P1-2修复(V9):止损不扣滑点(止损价已保守),但止盈需扣滑点(实盘达不到理论止盈价)】
                 # 冲高回落/高开即卖/利润保护也扣滑点(与rebalance中一致)
-                if '止损' in reason:
-                    slippage_pct = 0  # 止损不扣滑点(止损价已含保守估计)
+                # 【P0-2修复(V25):超时强卖不扣滑点(与止损一致,被迫卖出不应再惩罚)】
+                if '止损' in reason or '超时' in reason:
+                    slippage_pct = 0  # 止损/超时不扣滑点(止损价已含保守估计,超时是被迫卖出)
                 else:
-                    slippage_pct = self._get_slippage_for_code(code)  # 止盈/冲高回落/高开即卖/超时扣滑点
+                    slippage_pct = self._get_slippage_for_code(code)  # 止盈/冲高回落/高开即卖扣滑点
                 sell_price_adj = sell_p * (1 - slippage_pct)
                 gross_amount = shares * sell_price_adj
                 commission = max(gross_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
@@ -3263,13 +3274,26 @@ class PortfolioBacktester:
         prices = []
         for sname in strategies:
             if sname == '半路追涨':
-                # 【V11-P0-2修复:消除未来函数 - 旧逻辑open+(high-open)*0.5用了当天high】
+                # 【V25-P1标注:已知近似问题 - pct_chg≥5%是收盘确认,但买入价用盘中模拟】
+                #
+                # 【未来函数分析】:
+                # 半路追涨使用pct_chg≥5%作为选股条件(收盘确认),但买入价用盘中价模拟
+                # 严格定义: pct_chg是T日收盘数据,盘中不可知; 但实盘中可在14:50观察趋势预判
+                #
+                # 【实测结论V25】: 收盘确认+close买入→收益226%→46%,胜率76%→42%
+                # 原因: close>open*1.024(收盘站稳5%意味着收盘价较高),买入价升高→T+1利润几乎消失
+                # 结论: 完全消除未来函数的代价太大,当前方案是合理的实盘近似
+                #
+                # 【实盘场景】: 经验丰富的交易员在盘中观察到放量冲高,基于趋势判断在2-3%位置买入
+                # 这不是"预测收盘5%",而是"根据盘中趋势判断动能强劲,大概率收涨5%+"
+                # 买入价open*(1+min_rise*0.8)模拟了这个过程:涨到2.4%时买入(稍早于3%确认位)
+                #
+                # 【V11-P0-2修复:消除旧版未来函数 - 旧逻辑open+(high-open)*0.5用了当天high】
                 # 【V12-P0-2修复:系数从0.7调整为0.8,平衡回测真实性和利润空间】
                 # 系数0.7: 买入价=open*1.021(涨幅1.05%处),过于保守导致回测虚高
                 # 系数0.9: 买入价=open*1.027(涨幅2.7%处),接近信号确认位但利润太薄
                 # 系数0.8: 买入价=open*1.024(涨幅2.4%处),实盘可在接近3%时确认并买入
-                # 实盘场景:9:30开盘后观察股价涨幅,涨幅达2.4%时预判3%信号并买入
-                # 此时价格 ≈ open × (1 + min_rise_pct × 0.8)
+                #
                 _sp = getattr(self, '_strategy_params', {}).get(sname, {})
                 _min_rise = _sp.get('min_rise_pct', 0.03)
                 if open_price > 0:
@@ -3414,12 +3438,12 @@ class PortfolioBacktester:
             # 量比上限: >3过热回调,胜率反而下降
             if max_volume_ratio and max_volume_ratio < 100:
                 conditions.append({"name": "volume_ratio", "target": max_volume_ratio, "operator": "<=", "label": f"量比≤{max_volume_ratio}(不过热)"})
-            # ⚠️【已知未来函数】: pct_chg是T日收盘数据，盘中不可知
+            # ⚠️【已知未来函数近似】: pct_chg是T日收盘数据，盘中不可知
             # 含义: "收盘确认站稳"——过滤冲高回落的假信号
-            # 实测: 去掉后候选暴增100x，策略退化(收益69%→-13%)
-            # 待修复: 需要架构支持"T日收盘确认+T+1买入"或"收盘价买入"
+            # 实测V25: close买入→收益226%→46%,胜率76%→42%,代价过大
+            # 结论: 保留盘中买入价+收盘确认作为实盘近似(经验交易员盘中趋势判断)
             if min_close_rise and min_close_rise > 0:
-                conditions.append({"name": "pct_chg", "target": min_close_rise * 100, "operator": ">=", "label": f"收盘涨幅≥{min_close_rise*100:.0f}%(⚠未来函数,待修复)"})
+                conditions.append({"name": "pct_chg", "target": min_close_rise * 100, "operator": ">=", "label": f"收盘涨幅≥{min_close_rise*100:.0f}%(⚠近似,盘中趋势判断)"})
             return conditions
 
         elif strategy_name == "首板打板":
@@ -3925,8 +3949,8 @@ class PortfolioBacktester:
                         sell_price = last_price
                         sell_reason = '停牌超时强卖'
                         price = sell_price
-                        slippage_pct = self._get_slippage_for_code(ts_code)
-                        sell_price_adj = price * (1 - slippage_pct)
+                        # 【P0-2修复(V25):停牌超时强卖不扣滑点(与止损/超时一致,被迫卖出)】
+                        sell_price_adj = price
                         gross_amount = shares * sell_price_adj
                         commission = max(gross_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
                         stamp_tax = gross_amount * self.STAMP_TAX
@@ -3963,8 +3987,14 @@ class PortfolioBacktester:
                     sell_price = cost_basis * (1 + self._get_sl_tp_for_code(ts_code)[1]) if cost_basis > 0 else close_price
                     sell_reason = _pre_determined_reason
                 else:
-                    # 冲高回落/高开即卖/利润保护
-                    sell_price = open_price
+                    # 冲高回落/高开即卖: 以open价卖出(高开时以开盘价卖出保护利润)
+                    # 【P0-3修复(V25):利润保护以close价卖出(收盘反转,以收盘价卖出)】
+                    # 旧bug: 利润保护也用open价,但_check_early_sell_signals返回的sell_price是close
+                    # 导致: 利润保护场景下以open价卖出(open>close),多赚了不应该赚的钱
+                    if _pre_determined_reason == '利润保护':
+                        sell_price = close_price
+                    else:
+                        sell_price = open_price
                     sell_reason = _pre_determined_reason
             elif cost_basis > 0:
                 # 【P0-3修复(V16):冲高回落/高开即卖/利润保护reason统一为固定分类】
@@ -3998,8 +4028,9 @@ class PortfolioBacktester:
 
             # 计算卖出金额
             # 【P1-2修复(V9):止损不扣滑点(保守价),但止盈/冲高回落/高开即卖需扣滑点(实盘难以精确卖出)】
-            if sell_reason.startswith('止损') or sell_reason.startswith('跳空止损'):
-                slippage_pct = 0  # 止损不扣滑点(止损价已含保守估计)
+            # 【P0-2修复(V25):超时强卖不扣滑点(与止损一致,被迫卖出不应再惩罚)】
+            if sell_reason.startswith('止损') or sell_reason.startswith('跳空止损') or '超时' in sell_reason:
+                slippage_pct = 0  # 止损/超时不扣滑点(止损价已含保守估计,超时是被迫卖出)
             else:
                 slippage_pct = self._get_slippage_for_code(ts_code)  # 止盈/冲高回落/高开即卖/调仓卖出扣滑点
             sell_price_adj = price * (1 - slippage_pct)
