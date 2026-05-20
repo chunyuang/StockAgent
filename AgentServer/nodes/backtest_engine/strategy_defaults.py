@@ -48,7 +48,7 @@ STRATEGY_CONFIGS = {
             "max_rise_pct": 0.07,           # 最大涨幅7%
             "min_volume_ratio": 2.0,        # 量比≥2.0
             "max_volume_ratio": 3.0,        # 量比≤3.0(>3过热回调,胜率反而下降)
-            "min_close_rise_pct": 0.05,     # 收盘涨幅≥5%(V14: 5%收盘确认,半路追涨胜率从40.5%→66.2%)
+            "min_close_rise_pct": 0.05,     # 收盘涨幅≥5%(⚠近似:盘中趋势判断+收盘确认,见V25未来函数分析)
             "max_open_rise_pct": 0.03,      # 开盘涨幅≤3%(高开>3%追高胜率仅44%,低开冲高81.5%胜率)
             "allow_after_10am": False,      # 不允许10点后买入
             "next_day_open_sell_pct": 0.03, # 次日高开≥3%冲高回落保护(与首板打板高开即卖阈值一致)
@@ -140,7 +140,7 @@ STRATEGY_CONFIGS = {
             "require_high_sentiment": False,             # 不要求高情绪
         },
         "riskParams": {
-            "stop_loss_pct": 0.07,          # 止损7%(跌停后波动大,5%太紧易被震出)
+            "stop_loss_pct": 0.05,          # 止损5%(V25:从7%→5%,回测验证:夏普+0.31/回撤-0.28%/盈亏比+0.02,收益微降0.38%但风控更严)
             "take_profit_pct": 0.20,        # 止盈20%(V21:从15%→20%,翘板股冲高利润空间大,15%仍截断部分利润;回测验证:15%→20%收益+6.4%/夏普+1.0/回撤-0.19%)
             "max_hold_days": 3,             # 最大持仓3天
             "slippage_pct": 0.003,          # 滑点0.3%(跌停后波动大)
