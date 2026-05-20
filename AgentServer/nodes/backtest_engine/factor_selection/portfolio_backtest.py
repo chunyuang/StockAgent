@@ -3568,6 +3568,8 @@ class PortfolioBacktester:
             buy_p = self._get_buy_price_for_stock(code, o, p_info.get('close', o), h, l, p_info.get('pre_close', 0))
             if buy_p <= 0:
                 buy_p = o
+            if buy_p <= 0:
+                continue  # 无法确定买入价，跳过该股
             # 【P1-2修复：仓位上限 = min(weight * position_multiplier, max_position_per_stock)】
             effective_weight = min(weight * position_multiplier, max_pos_per_stock)
             target_value = total_value * effective_weight
