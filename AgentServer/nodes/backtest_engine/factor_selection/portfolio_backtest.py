@@ -3041,12 +3041,17 @@ class PortfolioBacktester:
 
         # 【P0-3:更新_last_valid_price,停牌强卖时回退用】
         lvp = getattr(self, '_last_valid_price', {})
-        # 【D1修复(第二十轮):同时更新_prev_day_close,供次日pre_close回退】
+        # 【D1修复(第二十轮):更新_prev_day_close,供次日pre_close回退】
+        # 语义: 记录每天获取到的close, 次日_get_prices时如果doc无pre_close字段则用此值fallback
+        # 同一天多次调用_get_prices会覆盖为相同值(同一天close不变), 无副作用
+        # 注意: 次日首次调用时会把"昨日close"覆盖为"今日close", 此时pdc中存储的是今日close
+        # 但这不会影响当天的pre_close读取(当天doc有pre_close字段), 只影响次日的fallback
+        # 而次日首次调用时读的doc已有正确的pre_close, 所以fallback很少被触发
         pdc = getattr(self, '_prev_day_close', {})
         for code, price_info in result.items():
             if price_info.get('close', 0) > 0:
                 lvp[code] = price_info['close']
-                pdc[code] = price_info['close']  # 记录当日close,次日作为pre_close
+                pdc[code] = price_info['close']
         self._last_valid_price = lvp
         self._prev_day_close = pdc
 
