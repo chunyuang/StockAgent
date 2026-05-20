@@ -19,6 +19,9 @@ export const GLOBAL_RISK = {
   max_total_position: 0.7,
   liquidity_threshold: 500,
   volume_threshold: 1.5,
+  force_empty_limit_down: 80,
+  force_empty_limit_up: 10,
+  force_empty_index_drop_pct: 0.03,
 }
 
 // 策略配置 — 与后端 strategy_defaults.py STRATEGY_CONFIGS 完全对齐
@@ -32,13 +35,14 @@ export const STRATEGY_CONFIGS = {
       max_rise_pct: 0.07,
       min_volume_ratio: 2.0,
       max_volume_ratio: 3.0,
-      min_close_rise_pct: 0.03,
+      min_close_rise_pct: 0.05,
       max_open_rise_pct: 0.03,
       allow_after_10am: false,
+      next_day_open_sell_pct: 0.03,
     },
     riskParams: {
       stop_loss_pct: 0.05,
-      take_profit_pct: 0.1,
+      take_profit_pct: 0.12,
       max_hold_days: 3,
       slippage_pct: 0.002,
     },
@@ -46,7 +50,7 @@ export const STRATEGY_CONFIGS = {
   first_limit_up: {
     id: 'first_limit_up',
     name: '首板打板',
-    enabled: true,
+    enabled: false,
     params: {
       opening_pct_min: -1.0,
       opening_pct_max: 7.0,
@@ -102,10 +106,11 @@ export const STRATEGY_CONFIGS = {
       support_level: 'ma5',
       min_volume_ratio: 0.5,
       max_volume_ratio: 2.0,
+      next_day_open_sell_pct: 0.03,
     },
     riskParams: {
       stop_loss_pct: 0.05,
-      take_profit_pct: 0.06,
+      take_profit_pct: 0.15,
       max_hold_days: 4,
       slippage_pct: 0.002,
     },
@@ -116,14 +121,15 @@ export const STRATEGY_CONFIGS = {
     enabled: true,
     params: {
       min_consecutive_limit: 2,
+      min_turnover_rate: 10,
       min_qiao_amount: 1000,
       min_rise_after_qiao: 0.03,
       min_circulation_market_cap: 20,
       require_high_sentiment: false,
     },
     riskParams: {
-      stop_loss_pct: 0.07,
-      take_profit_pct: 0.07,
+      stop_loss_pct: 0.04,
+      take_profit_pct: 0.25,
       max_hold_days: 3,
       slippage_pct: 0.003,
     },
