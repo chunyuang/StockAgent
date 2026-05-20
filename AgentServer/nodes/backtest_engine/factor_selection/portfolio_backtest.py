@@ -4043,7 +4043,6 @@ class PortfolioBacktester:
             low_price = price_info.get('low', open_price)
             close_price = price_info.get('close', 0)
             strategy_name = self._get_strategy_for_stock(ts_code)
-            # 【P1-1修复:多策略选同股时取最低买入价】
             price = self._get_buy_price_for_stock(ts_code, open_price, close_price, high_price, low_price, price_info.get('pre_close', 0))
             if price <= 0:
                 price = open_price
