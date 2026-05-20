@@ -54,7 +54,7 @@ STRATEGY_CONFIGS = {
         },
         "riskParams": {
             "stop_loss_pct": 0.05,          # 止损5%(3%太紧,半路追涨波动大易被震出,回撤从12.8%升至16.2%)
-            "take_profit_pct": 0.10,        # 止盈10%(让利润奔跑,半路追涨收盘5-7%的次日均值+3.1%)
+            "take_profit_pct": 0.12,        # 止盈12%(V20:从10%→12%,半路追涨收盘5-7%的次日均值+3.1%,10%截断部分利润)
             "max_hold_days": 3,             # 最大持仓3天
             "slippage_pct": 0.002,          # 滑点0.2%
         }
@@ -138,8 +138,8 @@ STRATEGY_CONFIGS = {
             "require_high_sentiment": False,             # 不要求高情绪
         },
         "riskParams": {
-            "stop_loss_pct": 0.07,          # 止损7%
-            "take_profit_pct": 0.10,        # 止盈10%(V14: 让利润奔跑,翘板股波动大7%太紧)
+            "stop_loss_pct": 0.07,          # 止损7%(跌停后波动大,5%太紧易被震出)
+            "take_profit_pct": 0.15,        # 止盈15%(V20:从10%→15%,翘板股冲高回落利润远超10%,平均10.56%中位数更高,10%截断利润)
             "max_hold_days": 3,             # 最大持仓3天
             "slippage_pct": 0.003,          # 滑点0.3%(跌停后波动大)
         }
