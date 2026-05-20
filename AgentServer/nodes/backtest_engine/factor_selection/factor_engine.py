@@ -171,27 +171,30 @@ class FactorEngine:
             # stock_daily_ak_full的pre_close字段经常为0(数据源不返回)，导致intraday因子全0
             # 半路追涨用intraday_max_rise_pct≥3%筛选时，大量正常股票被误杀
             # 修复: 对pre_close=0的股票，查前一个交易日的close作为pre_close
+            # 【P1-5修复(V22):合并两次prev_date聚合查询为一次,避免重复计算】
+            # 旧: pre_close=0修复查一次prev_date, V18 _prev因子又查一次 → 同一聚合每天跑2次
+            # 新: 只查一次prev_date, pre_close修复和_prev因子共用
+            _prev_date_cached = None  # 缓存T-1日期,供pre_close修复和V18 _prev因子共用
+            trade_date_int = int(trade_date)
+
             if "pre_close" in result.columns:
                 zero_pre_close_mask = result["pre_close"] == 0
                 if zero_pre_close_mask.any():
                     zero_codes = result.loc[zero_pre_close_mask, "ts_code"].tolist()
                     if zero_codes:
                         # 查找前一个交易日: 用max聚合替代distinct(快10x)
-                        trade_date_int = int(trade_date)
                         prev_date_doc = await mongo_manager.db[C.STOCK_DAILY].aggregate([
                             {"$match": {"trade_date": {"$lt": trade_date_int}}},
                             {"$group": {"_id": None, "max_date": {"$max": "$trade_date"}}}
                         ]).to_list(length=1)
                         if prev_date_doc and prev_date_doc[0].get("max_date"):
-                            prev_date = prev_date_doc[0]["max_date"]
+                            _prev_date_cached = prev_date_doc[0]["max_date"]
                             prev_docs = await mongo_manager.db[C.STOCK_DAILY].find(
-                                {"trade_date": prev_date, "ts_code": {"$in": zero_codes}},
+                                {"trade_date": _prev_date_cached, "ts_code": {"$in": zero_codes}},
                                 {"ts_code": 1, "close": 1, "_id": 0}
                             ).to_list(length=len(zero_codes))
                             prev_close_map = {d["ts_code"]: d.get("close", 0) for d in prev_docs if d.get("close", 0) > 0}
                             # 【P2-1修复(V20)：用map替代iterrows，避免逐行赋值】
-                            # 旧: for idx_row, row in result.loc[zero_pre_close_mask].iterrows(): result.at[...] = ...
-                            # 新: 用ts_code列map，一次向量化赋值
                             if prev_close_map:
                                 fill_values = result.loc[zero_pre_close_mask, "ts_code"].map(prev_close_map)
                                 valid_fill = fill_values.dropna()
@@ -213,19 +216,18 @@ class FactorEngine:
                 ).fillna(0)
 
             # ========= 【V18未来函数修复】：查询T-1数据，生成_prev后缀因子 =========
-            # 核心问题：当前选股用T日收盘数据(pct_chg/volume_ratio/turnover_rate/circ_mv/first_limit_up)
-            # 这些数据在T日开盘时不可知，属于未来函数，导致回测收益虚高
-            # 修复：查询T-1日同股票数据，生成pct_chg_prev/volume_ratio_prev/turnover_rate_prev/circ_mv_prev
-            # 筛选条件改用_prev因子，消除未来函数
+            # 【P1-5修复(V22):复用_prev_date_cached,避免重复聚合查询】
             try:
-                trade_date_int = int(trade_date)
-                # 查找T-1交易日
-                prev_date_doc = await mongo_manager.db[C.STOCK_DAILY].aggregate([
-                    {"$match": {"trade_date": {"$lt": trade_date_int}}},
-                    {"$group": {"_id": None, "max_date": {"$max": "$trade_date"}}}
-                ]).to_list(length=1)
-                if prev_date_doc and prev_date_doc[0].get("max_date"):
-                    prev_date = prev_date_doc[0]["max_date"]
+                if _prev_date_cached is None:
+                    # 上面pre_close修复可能没查(无zero_pre_close或无结果),这里单独查
+                    prev_date_doc = await mongo_manager.db[C.STOCK_DAILY].aggregate([
+                        {"$match": {"trade_date": {"$lt": trade_date_int}}},
+                        {"$group": {"_id": None, "max_date": {"$max": "$trade_date"}}}
+                    ]).to_list(length=1)
+                    if prev_date_doc and prev_date_doc[0].get("max_date"):
+                        _prev_date_cached = prev_date_doc[0]["max_date"]
+                
+                if _prev_date_cached is not None:
                     codes_list = result["ts_code"].tolist() if len(result) > 0 else []
                     if codes_list:
                         # 从stock_daily_ak_full查T-1的pct_chg/volume_ratio/turnover_rate/circ_mv
@@ -234,7 +236,7 @@ class FactorEngine:
                             "circ_mv": 1, "first_limit_up": 1, "is_limit_up": 1,
                             "high": 1, "close": 1}
                         prev_docs = await mongo_manager.db[C.STOCK_DAILY].find(
-                            {"trade_date": prev_date, "ts_code": {"$in": codes_list}},
+                            {"trade_date": _prev_date_cached, "ts_code": {"$in": codes_list}},
                             prev_projection
                         ).to_list(length=len(codes_list))
                         if prev_docs:
@@ -245,7 +247,7 @@ class FactorEngine:
                                 if col in prev_df.columns:
                                     prev_map = dict(zip(prev_df["ts_code"], prev_df[col]))
                                     result[f"{col}_prev"] = result["ts_code"].map(prev_map).fillna(0)
-                            logger.info(f"FACTOR_ENGINE: [V18] 已查询T-1({prev_date})数据生成_prev因子，消除未来函数")
+                            logger.info(f"FACTOR_ENGINE: [V18] 已查询T-1({_prev_date_cached})数据生成_prev因子，消除未来函数")
             except Exception as e:
                 logger.warning(f"FACTOR_ENGINE: [V18] T-1数据查询失败: {e}, _prev因子将为0")
                 # fallback: 生成全0的_prev因子
