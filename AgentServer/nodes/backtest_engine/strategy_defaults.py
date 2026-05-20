@@ -133,6 +133,7 @@ STRATEGY_CONFIGS = {
         "enabled": True,
         "params": {
             "min_consecutive_limit": 2,                 # 最小连跌数
+            "min_turnover_rate": 10,              # 换手率≥10%(V24:提升为单一来源,消除_build_strategy_filter_conditions中的硬编码)
             "min_qiao_amount": 1000,                    # 翘板金额(万元)
             "min_rise_after_qiao": 0.03,                # 翘板后最小涨幅3%
             "min_circulation_market_cap": 20,            # 最小流通市值20亿(排除小盘操纵,V16:保持20亿,30亿过滤过多跌停翘板候选)

@@ -1974,6 +1974,7 @@ class PortfolioBacktester:
         enable_sl = self._risk_config.get('enable_stop_loss', True)
         enable_tp = self._risk_config.get('enable_take_profit', True)
         forced_sell_codes = []
+        forced_sell_codes_set = set()  # 【P1-6修复(V24)】:用set做去重检查,替代O(N)的any()遍历
         forced_sell_prices = {}  # code -> actual sell price (Phase1: gap handling)
         # 【P0-1修复(V13)】初始化_prices_for_display,避免holdings为空时NameError
         _prices_for_display = {}
@@ -2014,18 +2015,22 @@ class PortfolioBacktester:
                 if early_sell_triggered:
                     forced_sell_prices[code] = early_sell_price
                     forced_sell_codes.append((code, early_sell_reason))
+                    forced_sell_codes_set.add(code)
                 if not early_sell_triggered:
                     if enable_sl and low_p <= stop_price:
                         # 【Phase1-跳空止损】如果open直接跳空低于止损价,以open卖出(最差情况)
                         if open_p <= stop_price:
                             forced_sell_prices[code] = open_p  # 跳空低开,以open卖出
                             forced_sell_codes.append((code, f'跳空止损'))
+                            forced_sell_codes_set.add(code)
                         else:
                             forced_sell_prices[code] = stop_price  # 盘中跌破止损,以止损价卖出
                             forced_sell_codes.append((code, f'止损({sl_pct*100:.0f}%)'))
+                            forced_sell_codes_set.add(code)
                     elif enable_tp and high_p >= tp_price:
                         forced_sell_prices[code] = tp_price  # 止盈以止盈价卖出
                         forced_sell_codes.append((code, f'止盈({tp_pct*100:.0f}%)'))
+                        forced_sell_codes_set.add(code)
                 # 【Bug修复:非调仓日也要检查max_hold_days超时】
                 # 【P1-2修复(V15)】:改用交易日计算超时,替代日历天数*1.5
                 # 旧逻辑: 日历天数>max_hold*1.5 → 周中买入3个日历天就超时(1.5*2=3),但只过了1个交易日
@@ -2052,8 +2057,9 @@ class PortfolioBacktester:
                             td = dt_now.strptime(str(trade_dt_int), '%Y%m%d')
                             trade_days_held = int((td - bd).days / 1.5)
                         if trade_days_held > max_hold:
-                            if not any(c == code for c, _ in forced_sell_codes):
+                            if code not in forced_sell_codes_set:
                                 forced_sell_codes.append((code, f'超时({trade_days_held}交易日>{max_hold}交易日)'))
+                                forced_sell_codes_set.add(code)
                     except (ValueError, TypeError):
                         pass
             # 执行非调仓日强卖
@@ -3413,7 +3419,7 @@ class PortfolioBacktester:
             # 实测: 去掉后候选暴增100x，策略退化(收益69%→-13%)
             # 待修复: 需要架构支持"T日收盘确认+T+1买入"或"收盘价买入"
             if min_close_rise and min_close_rise > 0:
-                conditions.append({"name": "pct_chg", "target": min_close_rise * 100, "operator": ">=", "label": f"收盘涨幅≥{min_close_rise*100:.0f}%25(⚠️未来函数,待修复)"})
+                conditions.append({"name": "pct_chg", "target": min_close_rise * 100, "operator": ">=", "label": f"收盘涨幅≥{min_close_rise*100:.0f}%(⚠未来函数,待修复)"})
             return conditions
 
         elif strategy_name == "首板打板":
@@ -3506,7 +3512,8 @@ class PortfolioBacktester:
             min_rise_after = converted_params.get("min_rise_after_qiao") if converted_params.get("min_rise_after_qiao") is not None else strategy_defaults.get("min_rise_after_qiao", 0.03)
             require_high_sentiment = converted_params.get("require_high_sentiment") if converted_params.get("require_high_sentiment") is not None else strategy_defaults.get("require_high_sentiment", False)
             require_sentiment = converted_params.get("require_sentiment_period", ["rising", "chaos"])
-            min_turnover_qiao = converted_params.get("min_turnover_rate") if converted_params.get("min_turnover_rate") is not None else 10.0
+            # 【P0-1修复(V24):min_turnover_rate从STRATEGY_CONFIGS读取,不再硬编码】
+            min_turnover_qiao = converted_params.get("min_turnover_rate") if converted_params.get("min_turnover_rate") is not None else strategy_defaults.get("min_turnover_rate", 10.0)
             # 【修复:min_turnover_rate前端可能传小数(0.10=10%),需转换】
             if min_turnover_qiao < 1:
                 min_turnover_qiao *= 100
