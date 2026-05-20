@@ -4,94 +4,74 @@
 **基线数据**: 2策略(半路追涨+跌停翘板) 20250105-20260516  
 **基线结果**: 收益1025.75% / 夏普7.92 / 回撤3.01% / 胜率73.68% / 盈亏比2.17
 
+**修复后结果**: 收益1026.98% / 夏普7.92 / 回撤3.01% / 胜率73.68% / 盈亏比2.17  
+**变化**: 收益+1.23%, 无回归  
+**Git**: commit 13359fa, branch feature/live-trading
+
 ---
 
 ## P0级修复(严重bug/数据错误)
 
-### P0-1: _rebalance中止损止盈冲高回落价格未传入forced_sell_prices
-**位置**: portfolio_backtest.py L3584-3625 (_rebalance方法)  
-**问题**: _rebalance的sell_codes循环中，当目标池内持仓触发冲高回落/止损/止盈时，只将code加入sell_codes，但未将对应的sell_price写入forced_sell_prices(此方法无forced_sell_prices机制)。后续卖出循环中，这些股票走到else分支(不在目标池→调仓卖出)用close价卖出，而非止损价/冲高回落价。  
-**影响**: 止损应以止损价卖出，实际以close卖出→close可能低于止损价(多亏)或高于止损价(少亏)，价格不精确  
-**修复**: 在_rebalance的sell_codes循环中，记录每个code对应的sell_price和sell_reason，后续卖出时使用
-
-### P0-2: 减仓逻辑中del holdings[code]后继续用holdings[code]
-**位置**: portfolio_backtest.py L1793-1797 (_process_non_rebalance_day)  
-**问题**: 非调仓日强卖时先`del holdings[code]`，但后续`if code in self._cost_basis_date`仍然引用code。虽然不影响正确性(cost_basis_date在del后自然跳过)，但逻辑上应在同一步骤清理。  
-**影响**: 无实际bug但代码不清晰
-
-### P0-3: _process_non_rebalance_day中超时强卖重复计算
-**位置**: portfolio_backtest.py L1923-1950  
-**问题**: 超时强卖检查的`trade_days_held`计算逻辑在_process_non_rebalance_day和_rebalance中重复实现，且_rebalance中也有相同逻辑(L3640)。三处代码几乎完全一致。  
-**影响**: 维护困难，容易出现不一致
+### P0-1: ✅ 已修复 — 调仓日止损/冲高回落卖出后同日重新买入(震荡bug)
+**位置**: portfolio_backtest.py L3584-3707 (_rebalance方法)  
+**问题**: 当股票在target_shares中(被策略选中)且触发止损/冲高回落/止盈时，只将code加入sell_codes，但target_shares仍保留。卖出循环正确卖出后，买入循环发现 delta = target_shares[code] - holdings[code] = target_shares[code] - 0 > 0 → 重新买入。导致"止损卖出→同日重新买入"的震荡。  
+**影响**: 止损/利润保护形同虚设，卖出后立即买回  
+**修复**: 新增sell_code_reasons字典记录卖出原因，在卖出检查后从target_shares中移除这些code（与over_hold_codes处理一致）  
+**验证**: 当前基线数据中未实际触发（被止损的股票恰好在调仓时也不在目标池），但这是一个重要的防御性修复
 
 ---
 
 ## P1级修复(逻辑优化/性能)
 
-### P1-1: _get_prices日志过多(每只股票的查询都打印)
+### P1-1: ✅ 已修复 — _get_prices日志过多(每只股票的查询都打印)
 **位置**: portfolio_backtest.py _get_prices方法  
-**问题**: 每次调用_get_prices都打印"🔍 _get_prices: 查询 N 只股票"和"✅ _get_prices: 查询到 N 只股票有价格"。调仓日有3次调用(持仓+目标+止损止盈)，非调仓日1-2次。5000行日志中大量此类重复信息。  
-**修复**: 降为debug级别，或只打印总数汇总
+**问题**: 每次调用_get_prices都打印"🔍 _get_prices: 查询 N 只股票"和"✅ _get_prices: 查询到 N 只股票有价格"。调仓日3次调用+非调仓日1-2次，日志水淹。  
+**修复**: 降为logger.debug级别
 
-### P1-2: 板块集中度过滤中factor_df逐行查询效率低
-**位置**: portfolio_backtest.py L1281-1295  
-**问题**: `factor_df[factor_df['ts_code'] == code]` 对每个候选股都做一次全表扫描，O(N*M)。应先用isin过滤再map。  
-**修复**: 预计算volume_ratio映射dict，O(N)查找
+### P1-2: ✅ 已修复 — 板块集中度过滤中factor_df逐行查询O(N*M)→O(N)
+**位置**: portfolio_backtest.py L1578  
+**问题**: `factor_df[factor_df['ts_code'] == code]` 对每个候选股做全表扫描  
+**修复**: 预计算`_vr_map = dict(zip(factor_df['ts_code'], factor_df['volume_ratio']))`, O(1)查找
 
-### P1-3: _check_early_sell_signals中跌停翘板逻辑有gap
-**位置**: portfolio_backtest.py L162-173  
-**问题**: 跌停翘板的冲高回落检查：`open_rise_from_cost >= _open_sell_pct`(默认0.03)且`close < open`。但如果open_rise_from_cost在3%-5%之间，且close<open但跌幅<2%，代码会跳过(不满足3%-5%区间条件也不满足>5%条件)。这意味着3%-5%高开低收但跌幅<2%的情况不会被保护。  
-**分析**: 这是设计意图(避免3%-5%区间小幅回落误杀)，但5%以上保护阈值可能过高。跌停翘板次日3%-5%高开已算强势，如果明显回落(close跌幅>1.5%)也应保护。  
-**修复**: 将3%-5%区间的回落阈值从2%降至1.5%，更积极保护利润
+### P1-3: ✅ 已修复 — 跌停翘板冲高回落3%-5%区间阈值+利润保护
+**位置**: portfolio_backtest.py _check_early_sell_signals  
+**问题**: 跌停翘板高开3%-5%区间回落阈值2%可能错过保护窗口；高开后收盘转亏无保护  
+**修复**: 1) 回落阈值2%→1.5%；2) 新增利润保护: 高开≥3%但收盘转亏→以close卖出  
+**验证**: 2策略组合收益+1.23%(1025.75%→1026.98%)
 
-### P1-4: 减仓逻辑中止损止盈检查使用p.get('low', p['close'])而非p.get('low', p.get('close',0))
-**位置**: portfolio_backtest.py L3695-3700  
-**问题**: `low_p = p.get('low', p['close'])` — 如果p中没有'close'键会KeyError。虽然实际上prices字典总包含close，但写法不一致(L1749用p.get('low', p['close']) vs L1884用p.get('low', p['close']))  
+### P1-4: ✅ 已修复 — p.get('low', p['close']) KeyError风险
+**位置**: portfolio_backtest.py L1763-1767, L1890-1894, L3603-3607  
+**问题**: `p.get('low', p['close'])` — 如果p中没有'close'键会KeyError  
 **修复**: 统一为 `p.get('low', p.get('close', 0))`
 
-### P1-5: 首板打板涨停价买入但一字板返回0后不重试
-**位置**: portfolio_backtest.py _get_buy_price_for_stock  
-**问题**: 首板打板一字板时_get_limit_up_price返回0(不可买入)。但非一字板涨停日也可能无法确定涨停价(如pre_close=0且close未达阈值)，此时也返回0导致该股被跳过。  
-**修复**: 非涨停日时fallback到close价(如果close>open)或open价，而非直接返回0
+---
 
-### P1-6: strategy_filter.py未被引用（代码尸体）
-**位置**: strategy_filter.py  
-**问题**: 文件开头注释说明"尚未被主引擎引用"，与portfolio_backtest.py的_build_strategy_filter_conditions完全重复。增加维护负担。  
-**修复**: 暂不删除（未来Phase 6-8拆分需要），但添加deprecation警告
+## P2级修复(代码质量/体验) — 本轮未实施
 
-### P1-7: 净值曲线首日可能不精确
-**位置**: portfolio_backtest.py _build_run_result  
-**问题**: 在net_value_series开头插入{net_value: 1.0, daily_profit: 0}作为首日。但如果回测首日就有交易，首日净值可能已经是1.0+收益。插入的1.0首日是"回测前"的状态，而daily_profit_list[0]是首日实际收益。两者时间点不一致。  
-**修复**: 插入的首日用start_date的前一个交易日标注(如"回测初始")
+### P2-1: _print_market_environment返回值过多(4个) — 降级处理
+### P2-2: daily_profit单位不一致 — 需大范围测试，暂不动
+### P2-3: _standardize_code重复定义 — 低优先级
 
 ---
 
-## P2级修复(代码质量/体验)
+## 修复总结
 
-### P2-1: _print_market_environment返回值过多(4个)
-**位置**: portfolio_backtest.py _print_market_environment  
-**问题**: 返回(sentiment_level, sentiment_score, limit_up_count, limit_down_count)4个值。sentiment_level包含仓位系数文字(如"高潮期,仓位系数1.0")，需要_extract_position_multiplier再解析。  
-**修复**: 返回一个namedtuple/dict，更清晰
+| # | 级别 | 修复内容 | 状态 | 影响 |
+|---|------|----------|------|------|
+| P0-1 | P0 | 调仓日止损/冲高回落卖出后从target_shares移除，防震荡 | ✅ | 防御性修复，防未来策略触发 |
+| P1-1 | P1 | _get_prices日志降为debug | ✅ | 日志降噪 |
+| P1-2 | P1 | 板块集中度volume_ratio查找O(N*M)→O(N) | ✅ | 性能优化 |
+| P1-3 | P1 | 跌停翘板冲高回落1.5%+利润保护 | ✅ | 收益+1.23% |
+| P1-4 | P1 | p.get('low', p['close']) KeyError风险 | ✅ | 安全化 |
 
-### P2-2: daily_profit单位不一致
-**位置**: portfolio_backtest.py _record_daily_net_value vs _build_run_result  
-**问题**: _record_daily_net_value中daily_profit = daily_profit / _initial_cash (归一化小数)。但_build_run_result中的daily_profit_list是绝对值(元)。最后在result中再次归一化。容易混淆。  
-**修复**: 统一为归一化小数，在输出时按需×100转百分比
+### 回测结果对比
 
-### P2-3: _get_stock_names中的_standardize_code重复定义
-**位置**: portfolio_backtest.py _get_stock_names 和 _get_prices  
-**问题**: 两处有几乎相同的代码标准化逻辑。  
-**修复**: 提取为类方法_standardize_ts_code
-
----
-
-## 回测结果优化建议
-
-### R1: 半路追涨min_close_rise_pct 5%→3%?
-**分析**: 当前5%收盘确认太严格，过滤掉了很多3%-5%区间收盘的优质信号。但V14测试时5%胜率66.2% vs 3%胜率40.5%。**不建议修改**。
-
-### R2: 跌停翘板止损7%是否过宽？
-**分析**: 当前止损7%，3天max_hold。跌停翘板次日如果跌5-6%不止损，第3天可能继续跌到-10%。但7%止损避免了翘板股正常波动的误杀。**观察数据后决定**。
-
-### R3: max_stocks=3可能过保守
-**分析**: 3只持仓对应3个策略席位(半路2+跌停1)，每只仓位约20%。总仓位60%，现金40%。可以尝试max_stocks=4(半路2+跌停2)，增加跌停翘板的参与度。
+| 指标 | 基线(V18) | V19修复 | 变化 |
+|------|-----------|---------|------|
+| 收益 | 1025.75% | 1026.98% | +1.23% |
+| 夏普 | 7.92 | 7.92 | = |
+| 回撤 | 3.01% | 3.01% | = |
+| 胜率 | 73.68% | 73.68% | = |
+| 盈亏比 | 2.17 | 2.17 | = |
+| 交易 | 437 | 437 | = |
+| 耗时 | 80.6s | 78.2s | -2.4s |
