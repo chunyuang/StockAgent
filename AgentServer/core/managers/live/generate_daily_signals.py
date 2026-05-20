@@ -174,7 +174,7 @@ class RealTradingSignalGenerator:
         strategy_configs = {}
         allowed_strategies = set(sentiment_info.get("allowed_strategies", ["半路追涨", "首板打板", "龙头低吸", "跌停翘板"]))
         for sid, sname in [("halfway_chase", "半路追涨"), ("first_limit_up", "首板打板"),
-                           ("leader_buy_dip", "龙头低吸"), ("limit_down_qiao", "跌停翘板")]:
+                           ("dragon_head", "龙头低吸"), ("limit_down_qiao", "跌停翘板")]:
             if sname in allowed_strategies:
                 params = STRATEGY_CONFIGS.get(sid, {}).get("params", {})
                 conditions = self.backtester._build_strategy_filter_conditions(sname, params)
