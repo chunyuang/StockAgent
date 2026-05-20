@@ -13,9 +13,9 @@
    └─────────────────────────────────────────────────────────┘
 
 【回测模式说明】
-  • 本文件专用于历史回测，不包含实盘交易逻辑
+  • 本文件专用于历史回测,不包含实盘交易逻辑
   • 所有数据基于已收盘的日线数据
-  • 因子均为预计算，不依赖实时计算
+  • 因子均为预计算,不依赖实时计算
 
 【因子字段映射关系(两种模式输出完全一致)】
   • first_limit_up     → 首板标记 (0.0/1.0)
@@ -38,7 +38,8 @@
 
 import gc
 import math
-from datetime import datetime as dt_now  # 【修复：避免局部from datetime import datetime导致UnboundLocalError】
+import pandas as pd
+from datetime import datetime as dt_now  # 【修复:避免局部from datetime import datetime导致UnboundLocalError】
 
 from core.constants import C
 from core.managers import mongo_manager, redis_manager
@@ -46,7 +47,7 @@ from core.utils.logger import logger
 from .factor_quality_checker import FactorQualityChecker
 from .models import RebalanceRecord
 
-# 【修复：PerformanceAnalyzer已弃用（API不匹配），移除import避免ModuleNotFoundError】
+# 【修复:PerformanceAnalyzer已弃用(API不匹配),移除import避免ModuleNotFoundError】
 # from real_trading.performance_analyzer import PerformanceAnalyzer
 
 from .factor_engine import FactorEngine, log_memory_usage
@@ -72,7 +73,7 @@ class PortfolioBacktester:
     STAMP_TAX = 0.001          # 印花税 千1 (卖出)
     MIN_COMMISSION = 5         # 最低佣金 5元
 
-    # 【P2-3修复：策略买入时间常量，避免硬编码重复】
+    # 【P2-3修复:策略买入时间常量,避免硬编码重复】
     STRATEGY_BUY_TIMES = {
         '半路追涨': '10:00',
         '首板打板': '09:35',
@@ -81,8 +82,8 @@ class PortfolioBacktester:
         '跌停翘板': '10:30',
     }
 
-    # 【P1-5修复(第十一轮)：强制空仓阈值提升为类常量，避免两处分别定义不一致】
-    # 【P1-5修复】强制空仓阈值从strategy_defaults.py读取（单一来源）
+    # 【P1-5修复(第十一轮):强制空仓阈值提升为类常量,避免两处分别定义不一致】
+    # 【P1-5修复】强制空仓阈值从strategy_defaults.py读取(单一来源)
     FORCE_EMPTY_LIMIT_DOWN = GLOBAL_RISK.get("force_empty_limit_down", 50)
     FORCE_EMPTY_LIMIT_UP = GLOBAL_RISK.get("force_empty_limit_up", 10)
 
@@ -95,6 +96,7 @@ class PortfolioBacktester:
         self.factor_engine = FactorEngine()
         self._stock_name_cache: dict[str, str] = {}
         self._industry_map_cache: dict[str, str] = {}  # 【P1-3修复(V14)】板块映射缓存
+        self._ma60_cache: dict[int, float] = {}  # 【P0-1修复(V20)】MA60缓存{trade_date: ma60_value}
         # 初始资金(用于计算累计收益)
         self._initial_cash: float = 1000000.0
         # 🔧 _run_impl中使用的属性,提前初始化避免hasattr检查
@@ -112,16 +114,16 @@ class PortfolioBacktester:
     def _check_early_sell_signals(self, code: str, strategies: list, cost: float,
                                          open_price: float, close_price: float) -> tuple:
         """【P0-3修复(V14)】统一的冲高回落/高开即卖/利润保护检查
-        
+
         三处重复逻辑(调仓日开头/非调仓日/rebalance内)提取为统一方法。
-        
+
         Args:
             code: 股票代码
             strategies: 策略名列表
             cost: 成本价
             open_price: 开盘价
             close_price: 收盘价
-            
+
         Returns:
             (sell_price, sell_reason) or (0, '') if no signal
         """
@@ -129,16 +131,16 @@ class PortfolioBacktester:
             return 0, ''
         if cost <= 0:
             return 0, ''
-            
+
         open_rise_from_cost = (open_price / cost - 1) if cost > 0 else 0
-        
+
         for sname in strategies:
             sp = self._strategy_params.get(sname, {})
             _open_sell_pct = sp.get('next_day_open_sell_pct', 0.03)
-            
+
             # 跌停翘板: 高开且高开低收→冲高回落
-            # 【P1-6修复(V16)】：主阈值从3%→5%，跌停翘板波动大3%太常见会过早卖出
-            # 【P1-3修复(V19)】：3%-5%区间回落阈值从2%→1.5%，跌停翘板高开3%-5%已算强势，
+            # 【P1-6修复(V16)】:主阈值从3%→5%,跌停翘板波动大3%太常见会过早卖出
+            # 【P1-3修复(V19)】:3%-5%区间回落阈值从2%→1.5%,跌停翘板高开3%-5%已算强势,
             # 回落1.5%以上应保护利润(旧值2%可能错过保护窗口)
             if sname == '跌停翘板' and open_rise_from_cost >= _open_sell_pct:
                 if close_price < open_price:
@@ -146,36 +148,36 @@ class PortfolioBacktester:
                         return open_price, '冲高回落'
                     elif (open_price - close_price) / open_price >= 0.015:
                         return open_price, '冲高回落'
-            
+
             # 首板打板: 高开≥3%→直接卖出
             elif sname == '首板打板' and open_rise_from_cost >= _open_sell_pct:
                 return open_price, '高开即卖'
-            
+
             # 半路追涨冲高回落: 高开≥5%且高开低收→冲高回落
             elif sname == '半路追涨' and open_rise_from_cost >= 0.05:
                 _hw_sell_pct = sp.get('next_day_open_sell_pct', 0.05)
                 if open_rise_from_cost >= _hw_sell_pct and close_price > 0 and close_price < open_price:
                     return open_price, '冲高回落'
-            
+
             # 半路追涨利润保护: 收盘盈利≥2%且高开低收→保护利润
             elif sname == '半路追涨' and close_price > 0 and open_price > 0:
                 close_rise_from_cost = (close_price / cost - 1) if cost > 0 else 0
                 if close_rise_from_cost >= 0.02 and close_price < open_price:
                     return close_price, '利润保护'
-            
-            # 【P1-3修复(V19)】：跌停翘板利润保护 — 高开≥3%但收盘转亏→以close卖出
-            # 跌停翘板次日高开后大幅回落甚至转亏，是强烈的卖出信号
+
+            # 【P1-3修复(V19)】:跌停翘板利润保护 - 高开≥3%但收盘转亏→以close卖出
+            # 跌停翘板次日高开后大幅回落甚至转亏,是强烈的卖出信号
             # 只在open_rise≥3%(符合开盘预期)但close_rise<0(收盘反转)时触发
             elif sname == '跌停翘板' and close_price > 0 and open_price > 0:
                 close_rise_from_cost = (close_price / cost - 1) if cost > 0 else 0
                 if open_rise_from_cost >= 0.03 and close_rise_from_cost < 0:
                     return close_price, '利润保护'
-        
+
         return 0, ''
 
     def _update_run_state(self, run_state: dict, **kwargs) -> dict:
-        """【P1-2修复(V12)】统一更新run_state，消除9处重复的逐字段赋值"""
-        # 从kwargs更新，同时支持从局部变量批量更新
+        """【P1-2修复(V12)】统一更新run_state,消除9处重复的逐字段赋值"""
+        # 从kwargs更新,同时支持从局部变量批量更新
         standard_keys = [
             'cash', 'holdings', 'rebalance_records', 'last_prices', 'stock_names',
             'net_value_series', 'daily_profit_list', 'drawdown_series', 'daily_cash_list',
@@ -199,13 +201,13 @@ class PortfolioBacktester:
 
     @staticmethod
     def _calc_sentiment_score(limit_up_count: int, limit_down_count: int, index_change: float) -> tuple:
-        """【P2-8修复：情绪评分公共方法，消除重复计算】
-        
+        """【P2-8修复:情绪评分公共方法,消除重复计算】
+
         Args:
             limit_up_count: 涨停家数
             limit_down_count: 跌停家数
             index_change: 大盘涨跌幅(百分比)
-            
+
         Returns:
             (sentiment_score: int, sentiment_level: str)
         """
@@ -232,7 +234,7 @@ class PortfolioBacktester:
         await self.log(f"   │ 🌡️ 当日市场环境判断")
         await self.log(f"   ├───────────────────────────────────────────────────────")
 
-        # 【V8优化：合并4次聚合为1次，减少MongoDB IO】
+        # 【V8优化:合并4次聚合为1次,减少MongoDB IO】
         # 一次聚合同时获取主板/创业板/科创板/北交所涨跌停+全市场平均涨跌幅
         td = trade_date  # 别名简化
         combined_pipeline = [
@@ -290,7 +292,7 @@ class PortfolioBacktester:
                 limit_down_count = result[0].get("limit_down_count", 0)
                 index_change = result[0].get("avg_pct", 0.0)
 
-        # 【修复#5+P1-5：使用类常量，避免两处分别定义】
+        # 【修复#5+P1-5:使用类常量,避免两处分别定义】
         FORCE_EMPTY_LIMIT_DOWN = self.FORCE_EMPTY_LIMIT_DOWN
         FORCE_EMPTY_LIMIT_UP = self.FORCE_EMPTY_LIMIT_UP
 
@@ -307,17 +309,17 @@ class PortfolioBacktester:
         else:
             await self.log(f"   │     → 🟡 极端行情,谨慎交易")
 
-        # 【修复#22：统一情绪周期阈值，和因子映射保持一致】
-        # 情绪周期评分 → 阈值统一：
+        # 【修复#22:统一情绪周期阈值,和因子映射保持一致】
+        # 情绪周期评分 → 阈值统一:
         #  score ≥ 70 → 上升期 (rising)
         #  40 ≤ score < 70 → 混沌期 (chaos)
         #  score < 40 → 衰退期 (depression)
         #
-        # 【P2-5文档化】情绪评分公式：
+        # 【P2-5文档化】情绪评分公式:
         #   sentiment_score = (涨停数 - 跌停数) + 大盘涨跌幅*10 + 50
-        # 【P2-8修复：使用公共方法_calc_sentiment_score，消除重复】
+        # 【P2-8修复:使用公共方法_calc_sentiment_score,消除重复】
         sentiment_score, _base_level = self._calc_sentiment_score(limit_up_count, limit_down_count, index_change)
-        # 附加仓位系数信息（_print_market_environment专用）
+        # 附加仓位系数信息(_print_market_environment专用)
         if sentiment_score >= 70:
             sentiment_level = "高潮期,仓位系数1.0"
         elif sentiment_score >= 40:
@@ -358,10 +360,10 @@ class PortfolioBacktester:
         # 参数配置显示(根据不同策略格式化显示)
         await self.log(f"   │    📌 参数配置:")
         if strategy_name == "半路追涨":
-            # 【N02/N10修复：日志参数添加默认值fallback，避免None*100的TypeError】
+            # 【N02/N10修复:日志参数添加默认值fallback,避免None*100的TypeError】
             min_rise_pct = params.get("min_rise_pct") or STRATEGY_CONFIGS.get("halfway_chase", {}).get("params", {}).get("min_rise_pct", 0.03)
             max_rise_pct = params.get("max_rise_pct") or STRATEGY_CONFIGS.get("halfway_chase", {}).get("params", {}).get("max_rise_pct", 0.07)
-            # 【修复#4：默认值统一为2.0，和优化后的defaults.py保持一致】
+            # 【修复#4:默认值统一为2.0,和优化后的defaults.py保持一致】
             volume_threshold = params.get("volume_threshold", params.get("min_volume_ratio")) or 2.0
             min_volume_ratio = volume_threshold
             allow_after_10am = params.get("allow_after_10am") if params.get("allow_after_10am") is not None else False
@@ -379,7 +381,7 @@ class PortfolioBacktester:
             max_blast = params.get("max_blast_count") or 1
             require_hot = params.get("require_hot_sector") if params.get("require_hot_sector") is not None else True
             require_sentiment = params.get("require_sentiment_period", ["rising", "chaos"])
-            # 【N11修复：竞价涨幅从参数读取，不再硬编码】
+            # 【N11修复:竞价涨幅从参数读取,不再硬编码】
             opening_min = params.get("opening_pct_min") if params.get("opening_pct_min") is not None else STRATEGY_CONFIGS.get("first_limit_up", {}).get("params", {}).get("opening_pct_min", -1.0)
             opening_max = params.get("opening_pct_max") if params.get("opening_pct_max") is not None else STRATEGY_CONFIGS.get("first_limit_up", {}).get("params", {}).get("opening_pct_max", 7.0)
             await self.log(f"   │        • 竞价涨幅: {opening_min}% ~ {opening_max}%")
@@ -392,7 +394,7 @@ class PortfolioBacktester:
             await self.log(f"   │        • 要求热门板块: {'是' if require_hot else '否'}")
             await self.log(f"   │        • 情绪周期要求: {', '.join(require_sentiment)}")
         elif strategy_name == "涨停开板":
-            # 【N02/N08修复：日志参数添加默认值fallback，避免None的TypeError】
+            # 【N02/N08修复:日志参数添加默认值fallback,避免None的TypeError】
             min_consecutive = params.get("min_consecutive_limit") or STRATEGY_CONFIGS.get("limit_up_open", {}).get("params", {}).get("min_consecutive_limit", 2)
             _raw_turnover = params.get("min_turnover_rate") or STRATEGY_CONFIGS.get("limit_up_open", {}).get("params", {}).get("min_turnover_rate", 15.0)
             min_turnover = _raw_turnover * 100 if _raw_turnover < 1 else _raw_turnover
@@ -406,7 +408,7 @@ class PortfolioBacktester:
             await self.log(f"   │        • 换手率≥{min_turnover:.1f}%")
             await self.log(f"   │        • 情绪周期要求: {', '.join(require_sentiment)}")
         elif strategy_name == "龙头低吸":
-            # 【N02/N09修复：日志参数添加默认值fallback，避免None*100的TypeError】
+            # 【N02/N09修复:日志参数添加默认值fallback,避免None*100的TypeError】
             min_consecutive = params.get("min_consecutive_limit") or STRATEGY_CONFIGS.get("dragon_head", {}).get("params", {}).get("min_consecutive_limit", 1)
             min_correction = params.get("min_correction_pct") if params.get("min_correction_pct") is not None else STRATEGY_CONFIGS.get("dragon_head", {}).get("params", {}).get("min_correction_pct", 0.05)
             max_correction = params.get("max_correction_pct") if params.get("max_correction_pct") is not None else STRATEGY_CONFIGS.get("dragon_head", {}).get("params", {}).get("max_correction_pct", 0.35)
@@ -423,12 +425,12 @@ class PortfolioBacktester:
             # 【修复#47: min_qiao_amount单位统一为千元(与数据库limit_down_open_amount一致)】
             # 前端传10000(万元),数据库因子是千元,需*1000转换
             # 前端传万元,数据库因子千元,需*10转换
-            # 【P2-C修复：明确单位转换规则，消除魔法数字】
-            # 前端默认传万元(1000万元=10000)，数据库因子limit_down_open_amount存千元
-            # 规则：如果<100000(即<10万元千元单位)，说明传入的是万元单位，需×1000转千元
-            # 如果>=100000，说明已经是千元单位，无需转换
-            _raw_qiao = params.get("min_qiao_amount") or STRATEGY_CONFIGS["limit_down_qiao"]["params"]["min_qiao_amount"]  # 前端传入，单位万元
-            # 万元→千元: 1000万 × 1000 = 1000000千元；但前端传的是10000(万元)不是10000000
+            # 【P2-C修复:明确单位转换规则,消除魔法数字】
+            # 前端默认传万元(1000万元=10000),数据库因子limit_down_open_amount存千元
+            # 规则:如果<100000(即<10万元千元单位),说明传入的是万元单位,需×1000转千元
+            # 如果>=100000,说明已经是千元单位,无需转换
+            _raw_qiao = params.get("min_qiao_amount") or STRATEGY_CONFIGS["limit_down_qiao"]["params"]["min_qiao_amount"]  # 前端传入,单位万元
+            # 万元→千元: 1000万 × 1000 = 1000000千元;但前端传的是10000(万元)不是10000000
             # 实际: 前端传10000(万) → ×10 = 100000千元 ✓; 前端传100000(千) → 不转换 ✓
             min_qiao_amount = _raw_qiao * 10 if _raw_qiao < 100000 else _raw_qiao
             min_rise_after = params.get("min_rise_after_qiao") or STRATEGY_CONFIGS["limit_down_qiao"]["params"]["min_rise_after_qiao"]
@@ -453,7 +455,10 @@ class PortfolioBacktester:
         await self.log(f"   │ 🔍 【{strategy_name}】筛选过程:")
         await self.log(f"   ├───────────────────────────────────────────────────────")
 
-        current_df = factor_df.copy()
+        # 【P1-1修复(V20):避免factor_df.copy()深拷贝,改用布尔索引筛选】
+        # 旧: current_df = factor_df.copy() → 每个策略深拷贝~5000行×40列
+        # 新: 用布尔掩码逐步过滤,避免5次内存分配
+        current_mask = pd.Series(True, index=factor_df.index)
         strategy_conditions = strategy_configs.get(strategy_name, conditions)
 
         for idx_cond, cond in enumerate(strategy_conditions, 1):
@@ -462,8 +467,7 @@ class PortfolioBacktester:
             operator = cond.get("operator", ">=")
             label = cond.get("label", f"条件{idx_cond}")
 
-            # 【修复：target=0且operator为>=时，表示"不限制"，跳过此条件】
-            # 用于日线回测模式：封单金额等分时因子设为0表示不限制
+            # 【修复:target=0且operator为>=时,表示"不限制",跳过此条件】
             try:
                 if operator == ">=" and float(target_value) == 0 and factor_name not in ('first_limit_up', 'limit_up_yesterday', 'hot_sector', 'open_above_limit_down', 'limit_down_yesterday'):
                     await self.log(f"   │    ⚪ 条件{idx_cond}: {label} → 跳过(target=0表示不限制)")
@@ -471,43 +475,48 @@ class PortfolioBacktester:
             except (ValueError, TypeError):
                 pass
 
-            if factor_name not in current_df.columns:
+            if factor_name not in factor_df.columns:
                 await self.log(f"   │    ⚠️ 因子 {factor_name} 缺失,跳过此条件(不影响其他条件筛选)")
-                continue  # 【修复：因子缺失时跳过该条件而非终止整个策略筛选】
+                continue
 
-            # 【P0-2修复：因子列存在但值全NaN时，也应跳过该条件】
-            # NaN >= target 结果为False，会过滤掉所有股票，导致策略0候选
-            if current_df[factor_name].isna().all():
+            # 【P0-2修复:因子列存在但值全NaN时,也应跳过该条件】
+            col = factor_df[factor_name]
+            masked_col = col[current_mask]
+            if masked_col.isna().all():
                 await self.log(f"   │    ⚠️ 因子 {factor_name} 全部为空,跳过此条件(不影响其他条件筛选)")
                 continue
 
-            before_count = len(current_df)
+            before_count = current_mask.sum()
             try:
                 target_float = float(target_value)
-                current_df[factor_name] = current_df[factor_name].astype(float)
+                # 转换masked_col为float类型(避免object dtype比较问题)
+                masked_col = pd.to_numeric(masked_col, errors='coerce')
                 target_value = target_float
             except (ValueError, TypeError):
                 pass
 
+            # 【P1-1修复(V20):用布尔掩码替代DataFrame切片,避免深拷贝】
+            cond_mask = pd.Series(False, index=factor_df.index)
+            valid_idx = current_mask[current_mask].index  # 当前有效行的索引
             if operator == ">=":
-                current_df = current_df[current_df[factor_name] >= target_value]
+                cond_mask.loc[valid_idx] = masked_col >= target_value
             elif operator == "<=":
-                current_df = current_df[current_df[factor_name] <= target_value]
+                cond_mask.loc[valid_idx] = masked_col <= target_value
             elif operator == ">":
-                current_df = current_df[current_df[factor_name] > target_value]
+                cond_mask.loc[valid_idx] = masked_col > target_value
             elif operator == "<":
-                current_df = current_df[current_df[factor_name] < target_value]
+                cond_mask.loc[valid_idx] = masked_col < target_value
             elif operator == "==":
-                current_df = current_df[current_df[factor_name] == target_value]
-            elif operator == "in":  # ✅ 新增in操作符支持!
+                cond_mask.loc[valid_idx] = masked_col == target_value
+            elif operator == "in":
                 if isinstance(target_value, list) and len(target_value) == 0:
-                    # 🔧 BUG修复: 空列表不进行过滤,但仍然打印日志表明该条件已跳过
                     await self.log(f"   │    ⚪ 条件{idx_cond}: {label}")
                     await self.log(f"   │       → 跳过(空列表,不进行过滤)")
                     continue
-                current_df = current_df[current_df[factor_name].isin(target_value)]
+                cond_mask.loc[valid_idx] = masked_col.isin(target_value)
+            current_mask = current_mask & cond_mask
 
-            after_count = len(current_df)
+            after_count = current_mask.sum()
             filter_rate = ((before_count - after_count) / before_count * 100) if before_count > 0 else 0
 
             await self.log(f"   │    ✅ 条件{idx_cond}: {label}")
@@ -517,13 +526,14 @@ class PortfolioBacktester:
                 await self.log(f"   │    ⚠️  提前结束: 条件{idx_cond}【{label}】过滤后0只,建议调整参数")
                 break
 
-        candidate_count = len(current_df)
+        candidate_count = current_mask.sum()
+        candidate_codes = factor_df.loc[current_mask, "ts_code"].tolist() if candidate_count > 0 else []
         await self.log(f"   ├───────────────────────────────────────────────────────")
         await self.log(f"   │ 🎯 【{strategy_name}】最终候选: {candidate_count} 只")
         await self.log(f"   └───────────────────────────────────────────────────────")
         await self.log(f"")
 
-        return set(current_df["ts_code"].tolist())
+        return set(candidate_codes)
 
     async def _print_stock_pool_and_cleaning(self, trade_date: str, universe: set, st_count: int, new_stock_count: int, low_liquidity_count: int):
         """【统一入口!股票池获取+数据清洗打印必须调用!】"""
@@ -567,7 +577,7 @@ class PortfolioBacktester:
             peak_value = current_net_value
         drawdown = (peak_value - current_net_value) / peak_value if peak_value > 0 else 0
 
-        # 【修复】净值归一化：net_value 除以 initial_cash，前端期望首日净值=1.0
+        # 【修复】净值归一化:net_value 除以 initial_cash,前端期望首日净值=1.0
         _initial_cash = getattr(self, '_initial_cash', 0)
         if _initial_cash <= 0:
             _initial_cash = getattr(self, '_risk_config', {}).get('initial_cash', 1000000)
@@ -630,7 +640,7 @@ class PortfolioBacktester:
 
     async def _run_impl(self, config: dict) -> dict:
         """run()的实际实现 - 调度器
-        
+
         将原1717行的逻辑拆分为4个子方法:
         1. _init_run_config: 初始化配置和状态
         2. _process_rebalance_day: 调仓日处理
@@ -639,30 +649,30 @@ class PortfolioBacktester:
         """
         # 1. 初始化配置和运行状态
         run_state = await self._init_run_config(config)
-        
+
         # 【P0-1修复】检查_init_run_config是否返回错误dict
         if isinstance(run_state, dict) and 'error' in run_state:
-            return run_state  # 直接返回错误，避免KeyError
-        
+            return run_state  # 直接返回错误,避免KeyError
+
         # 2. 逐日回测主循环
         all_trade_dates = run_state['all_trade_dates']
         rebalance_set = run_state['rebalance_set']
         total_days = run_state['total_days']
-        
+
         for idx, trade_date in enumerate(all_trade_dates):
-            # 【P0修复(V10)：确保trade_date是int类型，universe可能返回string】
+            # 【P0修复(V10):确保trade_date是int类型,universe可能返回string】
             if isinstance(trade_date, str):
                 trade_date = int(trade_date)
-            # 【P2-4：每日价格缓存，避免同一天多次查MongoDB】
+            # 【P2-4:每日价格缓存,避免同一天多次查MongoDB】
             self._daily_price_cache = {}
             self._daily_price_cache_date = trade_date
-            
+
             # 🔧 内存优化: 每10天强制一次垃圾回收
             if idx % 10 == 0:
                 log_memory_usage(f"[day {idx+1}/{total_days}] 回测开始前")
                 gc.collect()
-            
-            # 推送进度到Redis（每10%推送一次）
+
+            # 推送进度到Redis(每10%推送一次)
             last_pushed_progress = run_state['last_pushed_progress']
             progress_pct = int(((idx + 1) / total_days) * 100)
             if progress_pct != last_pushed_progress and progress_pct % 10 == 0:
@@ -688,14 +698,14 @@ class PortfolioBacktester:
 
             # ==================== 2️⃣ 每日市场环境判断(所有天都走) ====================
             # 【未来函数修复】用前一个交易日的涨停/跌停数计算情绪评分
-            # 实盘9:30开盘前只能用前日数据，当天涨停数收盘后才知道
+            # 实盘9:30开盘前只能用前日数据,当天涨停数收盘后才知道
             prev_trade_date = all_trade_dates[idx - 1] if idx > 0 else trade_date
             sentiment_level, market_sentiment_score, limit_up_count, limit_down_count = await self._print_market_environment(prev_trade_date)
 
             # ==================== 🔴 强制空仓判断 ====================
             # 【修复#5:统一阈值 - 与日志打印使用同一阈值】
             # 【修复#33:enable_force_empty开关实际生效】
-            # 【P1-3修复：从config读取阈值，支持前端细粒度配置】
+            # 【P1-3修复:从config读取阈值,支持前端细粒度配置】
             enable_force_empty = config.get("enable_force_empty", True)
             # 前端可传force_empty_config覆盖默认阈值
             force_empty_cfg = config.get("force_empty_config", {})
@@ -724,7 +734,7 @@ class PortfolioBacktester:
 
     async def _init_run_config(self, config: dict) -> dict:
         """初始化回测运行配置
-        
+
         解析config、初始化self属性、加载universe/factor_engine/benchmark、因子完整性检测
         返回run_state dict包含所有运行时状态
         """
@@ -738,8 +748,8 @@ class PortfolioBacktester:
             if push_log and task_id:
                 await push_log(task_id, msg)
         self.log = log
-        
-        # 【修复#4：保存 task_id 实例变量，用于进度推送Redis】
+
+        # 【修复#4:保存 task_id 实例变量,用于进度推送Redis】
         self.task_id = task_id
 
         # 🔧 提前初始化所有实例属性,避免提前返回导致属性缺失
@@ -762,8 +772,8 @@ class PortfolioBacktester:
             "enable_auction_filter": config.get("enable_auction_filter", True),
             "enable_sentiment_cycle": config.get("enable_sentiment_cycle", True),
             "enable_force_empty": config.get("enable_force_empty", True),
-            # 【P1-1/P1-2修复：添加max_hold_days和max_position_per_stock到风控配置】
-            "max_hold_days": config.get("max_hold_days", 10),  # 默认10天（超短策略默认3天由ultra_short传入）
+            # 【P1-1/P1-2修复:添加max_hold_days和max_position_per_stock到风控配置】
+            "max_hold_days": config.get("max_hold_days", 10),  # 默认10天(超短策略默认3天由ultra_short传入)
             "max_position_per_stock": config.get("max_position_per_stock", config.get("max_position_percent", 1.0)),  # 默认不限制
         }
 
@@ -782,7 +792,7 @@ class PortfolioBacktester:
         await self.log(f"    🔹 {'✅' if risk_config['enable_sector_concentration'] else '❌'} 板块集中度过滤: 保留前 {risk_config['sector_concentration_top_n']} 名")
         await self.log("🔧 Phase1 实盘对标修复:")
         await self.log("    🔹 ✅ T+1约束: 当日买入不可卖出")
-        await self.log("    🔹 ✅ 半路追涨买入价: open+(high-open)*0.5 (盘中冲高时价，消除未来函数)")
+        await self.log("    🔹 ✅ 半路追涨买入价: open+(high-open)*0.5 (盘中冲高时价,消除未来函数)")
         await self.log("    🔹 ✅ 半路追涨方案B: 开盘≤3%(排除高开追高) + SL5%/TP10% + 收盘确认≥3%")
         await self.log("    🔹 ✅ 龙头低吸买入价: low×1.005→low+(high-low)×0.25 (偏低位但不极端)")
         await self.log("    🔹 ✅ 跳空止损: open<止损价→以open卖出 (最差情况)")
@@ -791,15 +801,15 @@ class PortfolioBacktester:
         # 保存风控配置到实例,后续使用
         self._risk_config = risk_config
 
-        # 【P0-2修复：构建策略级riskParams映射，策略级止损止盈优先于全局】
-        # 【P1-2修复(第十轮)：透传max_hold_days和slippage_pct到策略级风控】
+        # 【P0-2修复:构建策略级riskParams映射,策略级止损止盈优先于全局】
+        # 【P1-2修复(第十轮):透传max_hold_days和slippage_pct到策略级风控】
         selected_strategies = config.get("selected_strategies", [])
         self._strategy_risk_params = {}  # strategy_name -> {stop_loss_pct, take_profit_pct, max_hold_days, slippage_pct}
         self._strategy_params = {}  # strategy_name -> {min_rise_pct, min_volume_ratio, ...}
-        # 【V17修复：策略风控参数优先级】
+        # 【V17修复:策略风控参数优先级】
         # 前端riskParams > 全局risk_config > STRATEGY_CONFIGS.riskParams
-        # 旧bug: STRATEGY_CONFIGS.riskParams始终覆盖全局risk_config，导致用户设置SL/TP无效
-        # 新逻辑: 只有前端明确传riskParams时才覆盖全局设置，策略默认值不再自动覆盖
+        # 旧bug: STRATEGY_CONFIGS.riskParams始终覆盖全局risk_config,导致用户设置SL/TP无效
+        # 新逻辑: 只有前端明确传riskParams时才覆盖全局设置,策略默认值不再自动覆盖
         for s in selected_strategies:
             sname = s.get("name", "")
             sid = s.get("id", "")
@@ -830,8 +840,8 @@ class PortfolioBacktester:
             else:
                 # 没有前端riskParams → 使用策略默认值
                 # V17: 策略默认值不再无条件覆盖全局设置
-                # 如果全局risk_config与GLOBAL_RISK默认值不同，说明用户明确修改了，应优先使用
-                # 如果全局risk_config就是GLOBAL_RISK默认值，则使用策略默认值(策略更优)
+                # 如果全局risk_config与GLOBAL_RISK默认值不同,说明用户明确修改了,应优先使用
+                # 如果全局risk_config就是GLOBAL_RISK默认值,则使用策略默认值(策略更优)
                 user_overrode_sl = global_sl != GLOBAL_RISK.get("stop_loss_pct", 0.03)
                 user_overrode_tp = global_tp != GLOBAL_RISK.get("take_profit_pct", 0.07)
                 user_overrode_mhd = global_mhd != GLOBAL_RISK.get("max_hold_days", 3)
@@ -862,9 +872,9 @@ class PortfolioBacktester:
 
         # 解析排除规则
         exclude_rules = [ExcludeRule(r) for r in config.get("exclude", [])]
-        # 【Bug修复：默认排除ST股，即使前端没传exclude字段】
+        # 【Bug修复:默认排除ST股,即使前端没传exclude字段】
         if not any(r == ExcludeRule.ST for r in exclude_rules):
-            # 【P1-4修复：优先从global_filter_config读取exclude_st，兼容旧config路径】
+            # 【P1-4修复:优先从global_filter_config读取exclude_st,兼容旧config路径】
             global_filter_cfg = config.get("global_filter_config", {})
             exclude_st = global_filter_cfg.get("exclude_st", config.get("exclude_st", True))
             if exclude_st:
@@ -889,7 +899,7 @@ class PortfolioBacktester:
             return {"error": "No trade dates found"}
 
         # 🔴 关键修复:统一日期类型为字符串,避免类型不匹配
-        # 确保 rebalance_dates 和 all_trade_dates 类型完全一致，用int匹配MongoDB存储格式
+        # 确保 rebalance_dates 和 all_trade_dates 类型完全一致,用int匹配MongoDB存储格式
         all_trade_dates = [int(d) for d in all_trade_dates]
         rebalance_dates = [int(d) for d in rebalance_dates]
         rebalance_set = set(rebalance_dates)
@@ -923,7 +933,7 @@ class PortfolioBacktester:
         if max_factor_date and req_end > max_factor_date:
             warnings.append(f"⚠️ 因子数据最新日期 {max_factor_date},回测结束日期 {req_end},后{req_end - max_factor_date}天因子数据缺失")
 
-        # 🔧 数据完整性校验：检查回测区间内每天的股票数量是否一致
+        # 🔧 数据完整性校验:检查回测区间内每天的股票数量是否一致
         # 如果某天只有几十只(而非5000+),说明那天数据缺失
         daily_count_pipeline = [
             {"$match": {"trade_date": {"$gte": req_start, "$lte": req_end}}},
@@ -958,14 +968,14 @@ class PortfolioBacktester:
         future_factor_warnings = []
 
         # 检查日线回测中不可用的因子(如盘中实时数据)
-        # 回测基于已收盘日线数据，无法获取盘中实时数据
+        # 回测基于已收盘日线数据,无法获取盘中实时数据
         # 盘中因子如 limit_up_open_duration, limit_up_open_count 等在日线中不可用
 
         # 检查因子是否依赖盘中数据
         intraday_factors = ["limit_up_open_duration", "limit_up_open_count", "limit_up_open_amount", "limit_up_time"]
         for factor in intraday_factors:
             if factor in config.get("strategy_filters", {}):
-                future_factor_warnings.append(f"⚠️  因子 {factor} 依赖盘中数据，日线回测中不可用")
+                future_factor_warnings.append(f"⚠️  因子 {factor} 依赖盘中数据,日线回测中不可用")
 
         if future_factor_warnings:
             for warn in future_factor_warnings:
@@ -979,11 +989,11 @@ class PortfolioBacktester:
         end_dt = int(config["end_date"])
         total_days = len(await self.universe_mgr.get_rebalance_dates(start_dt, end_dt, "daily"))
         if total_days > 100:
-            await self.log(f"⚡ 大区间回测({total_days}天)，跳过因子预检测，运行时动态计算")
+            await self.log(f"⚡ 大区间回测({total_days}天),跳过因子预检测,运行时动态计算")
         else:
             await self.log("🔍 因子完整性自动检测:检查核心策略因子...")
-            # 【P0-1修复(V9)：精简因子检测列表，仅检查回测核心策略必需的因子】
-            # 48个因子逐个count_documents太慢(48次MongoDB查询)，改为一次聚合检测
+            # 【P0-1修复(V9):精简因子检测列表,仅检查回测核心策略必需的因子】
+            # 48个因子逐个count_documents太慢(48次MongoDB查询),改为一次聚合检测
             # 核心策略因子 = 筛选条件用到的因子(排除纯技术指标和盘中因子)
             CORE_FACTOR_FIELDS = [
                 "first_limit_up", "limit_up_yesterday", "limit_up_count",
@@ -994,7 +1004,7 @@ class PortfolioBacktester:
                 "intraday_max_rise_pct", "intraday_open_rise_pct",
                 "pullback_pct", "pullback_days",
             ]
-            # 【P0-1修复(V9)：用单次聚合替代48次count_documents，减少MongoDB查询从48次→1次】
+            # 【P0-1修复(V9):用单次聚合替代48次count_documents,减少MongoDB查询从48次→1次】
             sample_date_pipeline = [
                 {"$match": {"trade_date": {"$gte": start_dt, "$lte": end_dt}}},
                 {"$limit": 100},  # 只采样100条即可判断因子是否存在
@@ -1008,7 +1018,7 @@ class PortfolioBacktester:
                 for field in CORE_FACTOR_FIELDS:
                     if field not in sample_fields:
                         missing_fields.append(field)
-            # 对采样中存在的字段，进一步验证有效率(可能存在但全NaN)
+            # 对采样中存在的字段,进一步验证有效率(可能存在但全NaN)
             if not missing_fields and sample_docs:
                 # 抽查3个关键字段的有效率
                 for check_field in ["opening_pct_chg", "intraday_max_rise_pct", "pullback_pct"]:
@@ -1018,7 +1028,7 @@ class PortfolioBacktester:
                             missing_fields.append(check_field)
             if missing_fields:
                 await self.log(f"   ⚠️ 缺失因子 ({len(missing_fields)}个): {', '.join(missing_fields[:10])}")
-                # 【P0-1修复(V9)：因子自动计算添加超时保护，避免阻塞回测主流程】
+                # 【P0-1修复(V9):因子自动计算添加超时保护,避免阻塞回测主流程】
                 from .factor_auto_compute import auto_compute_factors
                 import asyncio as _asyncio
                 try:
@@ -1027,16 +1037,16 @@ class PortfolioBacktester:
                             missing_fields=missing_fields, start_date=start_dt, end_date=end_dt,
                             push_log_fn=push_log, task_id=task_id or '',
                         ),
-                        timeout=120  # 2分钟超时，避免因子计算卡死回测
+                        timeout=120  # 2分钟超时,避免因子计算卡死回测
                     )
                 except _asyncio.TimeoutError:
-                    await self.log(f"   ⚠️ 因子自动计算超时(>2分钟)，跳过，将使用运行时动态计算")
+                    await self.log(f"   ⚠️ 因子自动计算超时(>2分钟),跳过,将使用运行时动态计算")
                     auto_result = {"computed": False}
                 except Exception as e:
-                    await self.log(f"   ⚠️ 因子自动计算异常: {e}，跳过")
+                    await self.log(f"   ⚠️ 因子自动计算异常: {e},跳过")
                     auto_result = {"computed": False}
                 if auto_result.get("computed"):
-                    await self.log(f"   ✅ 因子自动计算成功！{auto_result.get('records_updated', 0):,} 条记录已更新")
+                    await self.log(f"   ✅ 因子自动计算成功!{auto_result.get('records_updated', 0):,} 条记录已更新")
             else:
                 await self.log("   ✅ 核心策略因子完整性检查通过!")
         # ==================== 因子完整性检测结束 ====================
@@ -1057,10 +1067,10 @@ class PortfolioBacktester:
         net_value_series = []  # 净值序列
         daily_profit_list = []  # 每日盈亏
         drawdown_series = []   # 回撤序列
-        daily_cash_list = []   # 【P1-3修复：每日现金占比(用于position_series)】
+        daily_cash_list = []   # 【P1-3修复:每日现金占比(用于position_series)】
         peak_value = initial_cash  # 净值峰值
         last_net_value = initial_cash  # 上一日净值
-        last_prices = {}  # 【修复：初始化last_prices，避免全强制空仓时NameError】
+        last_prices = {}  # 【修复:初始化last_prices,避免全强制空仓时NameError】
 
         # 逐日模拟: 当日信号当日执行(模拟盘中操作)
 
@@ -1069,7 +1079,7 @@ class PortfolioBacktester:
 
         await self.log(f"开始逐日回测,共 {total_days} 个交易日")
 
-        # 【修复#4：进度推送Redis频道，前端实时接收进度】
+        # 【修复#4:进度推送Redis频道,前端实时接收进度】
         # 每 10% 进度推送一次
         last_pushed_progress = -1
 
@@ -1111,7 +1121,7 @@ class PortfolioBacktester:
                                        sentiment_level: str, market_sentiment_score: int, limit_up_count: int, limit_down_count: int,
                                        force_empty_triggered: bool) -> dict:
         """调仓日处理: 股票池清洗、策略筛选、调仓执行、日志输出
-        
+
         Args:
             trade_date: 当前交易日
             idx: 当前天数索引
@@ -1120,7 +1130,7 @@ class PortfolioBacktester:
             limit_up_count: 涨停家数
             limit_down_count: 跌停家数
             force_empty_triggered: 是否触发强制空仓
-            
+
         Returns:
             更新后的run_state
         """
@@ -1139,7 +1149,7 @@ class PortfolioBacktester:
         last_prices = run_state['last_prices']
         all_trade_dates = run_state['all_trade_dates']
         rebalance_dates = run_state['rebalance_dates']
-        # 【P1-2修复(V15)】：存储为实例变量供_rebalance使用(超时强卖需计算交易日数)
+        # 【P1-2修复(V15)】:存储为实例变量供_rebalance使用(超时强卖需计算交易日数)
         self._all_trade_dates = all_trade_dates
         rebalance_set = run_state['rebalance_set']
         total_days = run_state['total_days']
@@ -1169,13 +1179,13 @@ class PortfolioBacktester:
                             await self.log(f"   │  🔒 T+1限制: {code} 当日买入不可卖(强制空仓跳过)")
                             continue
                         price = prices_for_sell[code].get('open', 0) or prices_for_sell[code]['close']
-                        # 【P0-4修复(V16)】：强制空仓用open价(开盘看到极端行情立即卖出)
-                        # 但open=0(停牌)或close=0时回退到_last_valid_price，不卖0元
+                        # 【P0-4修复(V16)】:强制空仓用open价(开盘看到极端行情立即卖出)
+                        # 但open=0(停牌)或close=0时回退到_last_valid_price,不卖0元
                         if price <= 0:
                             price = getattr(self, '_last_valid_price', {}).get(code, 0)
                         if price <= 0:
-                            # 无法获取有效价格，跳过该股不卖（保留持仓）
-                            await self.log(f"   │  ⚠️ {code}停牌且无有效价，跳过卖出")
+                            # 无法获取有效价格,跳过该股不卖(保留持仓)
+                            await self.log(f"   │  ⚠️ {code}停牌且无有效价,跳过卖出")
                             continue
                         shares = holdings[code]
                         slippage_pct = self._slippage_pct
@@ -1186,7 +1196,7 @@ class PortfolioBacktester:
                         net_amount = gross_amount - commission - stamp_tax
                         cash += net_amount
                         sell_count += 1
-                        # 【P1-3修复(第十二轮)：强制空仓卖出记录补上strategy_name】
+                        # 【P1-3修复(第十二轮):强制空仓卖出记录补上strategy_name】
                         _fs_strategy = self._get_strategy_for_stock(code)
                         rebalance_records.append(RebalanceRecord(
                             date=str(trade_date),
@@ -1200,7 +1210,7 @@ class PortfolioBacktester:
                             sentiment=sentiment_level
                         ))
                         holdings[code] = 0
-                # 【P1-7修复：强制空仓清仓时清理cost_basis】
+                # 【P1-7修复:强制空仓清仓时清理cost_basis】
                 if self._cost_basis:
                     for code in list(self._cost_basis.keys()):
                         if code not in holdings or holdings.get(code, 0) <= 0:
@@ -1218,7 +1228,7 @@ class PortfolioBacktester:
 
             # 【修复#6:强制空仓也输出每日收盘汇总,continue前加上】
             await self._print_daily_summary(trade_date, len(holdings), cash)
-            # 【P0修复：continue前记录净值】
+            # 【P0修复:continue前记录净值】
             last_net_value, peak_value = await self._record_daily_net_value(
                 trade_date, holdings, cash, last_net_value, peak_value,
                 net_value_series, daily_profit_list, drawdown_series, daily_cash_list,
@@ -1273,7 +1283,7 @@ class PortfolioBacktester:
         if not universe:
             await self.log(f"   ⚠️  当日无符合条件的股票,跳过调仓")
             await self._print_daily_summary(trade_date, len(holdings), cash)
-            # 【P0修复：continue前记录净值】
+            # 【P0修复:continue前记录净值】
             last_net_value, peak_value = await self._record_daily_net_value(
                 trade_date, holdings, cash, last_net_value, peak_value,
                 net_value_series, daily_profit_list, drawdown_series, daily_cash_list,
@@ -1310,8 +1320,8 @@ class PortfolioBacktester:
             {"name": "limit_down_open_amount"},
             {"name": "rise_after_limit_down"},
             {"name": "sentiment_score"},
-            {"name": "opening_pct_chg"},  # 【修复：首板打板/涨停开板策略需要竞价涨幅因子】
-            {"name": "is_limit_up"},  # 【P2-6修复(V9)：涨停开板策略筛选is_limit_up=0(今日未封住)】
+            {"name": "opening_pct_chg"},  # 【修复:首板打板/涨停开板策略需要竞价涨幅因子】
+            {"name": "is_limit_up"},  # 【P2-6修复(V9):涨停开板策略筛选is_limit_up=0(今日未封住)】
         ]
         if "factors" not in config:
             config["factors"] = []
@@ -1321,17 +1331,17 @@ class PortfolioBacktester:
             universe, trade_date, config["factors"]
         )
         await self.log(f"   ✅ 因子计算完成,共 {len(factor_df)} 条记录")
-        # 【P2-6：因子数据为空时告警】
+        # 【P2-6:因子数据为空时告警】
         if len(factor_df) == 0:
-            await self.log(f"   ⚠️  【重要告警】因子数据为空！该日期无任何股票数据，全天空仓")
+            await self.log(f"   ⚠️  【重要告警】因子数据为空!该日期无任何股票数据,全天空仓")
             await self._print_daily_summary(trade_date, len(holdings), cash)
-            # 【P0修复：continue前记录净值】
+            # 【P0修复:continue前记录净值】
             last_net_value, peak_value = await self._record_daily_net_value(
                 trade_date, holdings, cash, last_net_value, peak_value,
                 net_value_series, daily_profit_list, drawdown_series, daily_cash_list,
                 last_prices=last_prices)
             # [重构] continue→return: 跳过当日剩余处理
-            # 【P0-3修复(第十一轮)：跳过后续逻辑，避免空DataFrame上无意义运算】
+            # 【P0-3修复(第十一轮):跳过后续逻辑,避免空DataFrame上无意义运算】
             self._update_run_state(run_state,
                 cash=cash, holdings=holdings, rebalance_records=rebalance_records,
                 last_prices=last_prices, stock_names=stock_names,
@@ -1339,24 +1349,24 @@ class PortfolioBacktester:
                 drawdown_series=drawdown_series, daily_cash_list=daily_cash_list,
                 peak_value=peak_value, last_net_value=last_net_value)
             return run_state
-        # 🔍 因子数据质量检查（P3-9优化：增强检查，缺失核心因子时中止）
+        # 🔍 因子数据质量检查(P3-9优化:增强检查,缺失核心因子时中止)
         selected_strategies = config.get("selected_strategies", [])
         enabled_strategy_names = [s.get("name", "") for s in selected_strategies] if selected_strategies else []
-        
+
         quality_checker = FactorQualityChecker(strict_mode=False)
         quality_report = quality_checker.check_factor_quality(
             factor_df, config["factors"], enabled_strategy_names, str(trade_date)
         )
-        
+
         # 输出质量报告
         for line in quality_checker.get_quality_summary(quality_report).split('\n'):
             await self.log(f"   {line}")
-        
+
         # 判断是否需要中止回测
         should_abort, abort_reason = quality_checker.should_abort_backtest(quality_report)
         if should_abort:
             await self.log(f"   ❌ 【中止回测】{abort_reason}")
-            await self.log(f"   💡 建议：先运行因子同步任务补全数据后再重试")
+            await self.log(f"   💡 建议:先运行因子同步任务补全数据后再重试")
             await self._print_daily_summary(trade_date, len(holdings), cash)
             last_net_value, peak_value = await self._record_daily_net_value(
                 trade_date, holdings, cash, last_net_value, peak_value,
@@ -1369,20 +1379,20 @@ class PortfolioBacktester:
                 drawdown_series=drawdown_series, daily_cash_list=daily_cash_list,
                 peak_value=peak_value, last_net_value=last_net_value)
             return run_state
-        
-        # 为缺失的因子应用默认值（避免后续计算出错）
+
+        # 为缺失的因子应用默认值(避免后续计算出错)
         if quality_report.missing_factors or quality_report.empty_factors:
             all_missing = quality_report.missing_factors + quality_report.empty_factors
             quality_checker.apply_factor_defaults(factor_df, all_missing)
             await self.log(f"   🔧 已为 {len(all_missing)} 个缺失因子应用默认值")
 
         # ✅ 情绪周期映射: sentiment_period_in
-        # 【P0-1修复】不再依赖factor_df中的sentiment_score(全为0.5填充值，std=0→跳过)
-        # 改用市场级情绪评分(market_sentiment_score)，来自_print_market_environment的计算：
+        # 【P0-1修复】不再依赖factor_df中的sentiment_score(全为0.5填充值,std=0→跳过)
+        # 改用市场级情绪评分(market_sentiment_score),来自_print_market_environment的计算:
         #   sentiment_score = (涨停数 - 跌停数) + 大盘涨跌幅*10 + 50, 范围[0,100]
-        # 所有个股共享同一个市场情绪周期，这是正确语义：情绪是市场属性不是个股属性
+        # 所有个股共享同一个市场情绪周期,这是正确语义:情绪是市场属性不是个股属性
         if self._risk_config.get("enable_sentiment_cycle", True):
-            # 【P2-8修复：直接用market_sentiment_score映射，逻辑与_calc_sentiment_score一致】
+            # 【P2-8修复:直接用market_sentiment_score映射,逻辑与_calc_sentiment_score一致】
             if market_sentiment_score >= 70:
                 market_sentiment_period = 'rising'
             elif market_sentiment_score >= 40:
@@ -1392,7 +1402,7 @@ class PortfolioBacktester:
             factor_df['sentiment_period_in'] = market_sentiment_period
             await self.log(f"   ✅ 情绪周期计算完成(市场级): score={market_sentiment_score} → {market_sentiment_period}")
         else:
-            await self.log(f"   ℹ️  情绪周期算法已关闭，跳过情绪周期计算")
+            await self.log(f"   i️  情绪周期算法已关闭,跳过情绪周期计算")
 
         await self.log(f"   🎯 【{trade_date}】多策略联合筛选开始")
         await self.log(f"   ============================================================")
@@ -1400,7 +1410,7 @@ class PortfolioBacktester:
 
         all_candidates = set()
         # 【修复#45:记录每只股票来自哪个策略,用于调仓日志显示】
-        # 【P0-3修复：不清空持仓中股票的映射，否则次日卖出时找不到策略级止损参数】
+        # 【P0-3修复:不清空持仓中股票的映射,否则次日卖出时找不到策略级止损参数】
         # 只清空已不再持仓的股票映射(避免无限增长)
         if self.stock_to_strategy is None:
             self.stock_to_strategy = {}
@@ -1433,9 +1443,9 @@ class PortfolioBacktester:
             # params已在上方merge过默认值
             params = s.get("params", {})
 
-            # 【P2-B修复：删除重复的参数打印逻辑，统一走 _print_single_strategy_filtering】
-            # 之前这里有80行重复打印代码，与 _print_single_strategy_filtering 完全一致
-            # 且默认值不一致（如半路追涨max_rise_pct这里写0.05，_print_single写0.05，但ultra_short写0.07）
+            # 【P2-B修复:删除重复的参数打印逻辑,统一走 _print_single_strategy_filtering】
+            # 之前这里有80行重复打印代码,与 _print_single_strategy_filtering 完全一致
+            # 且默认值不一致(如半路追涨max_rise_pct这里写0.05,_print_single写0.05,但ultra_short写0.07)
 
             # 统一调用策略筛选+打印
             candidates = await self._print_single_strategy_filtering(
@@ -1447,7 +1457,7 @@ class PortfolioBacktester:
                 selected_strategy_names
             )
             all_candidates.update(candidates)
-            # 🔧 因子缺失告警：记录每个策略每天的候选数
+            # 🔧 因子缺失告警:记录每个策略每天的候选数
             # _strategy_signal_stats initialized in __init__
             if strategy_name not in self._strategy_signal_stats:
                 self._strategy_signal_stats[strategy_name] = {"total_days": 0, "signal_days": 0}
@@ -1455,7 +1465,7 @@ class PortfolioBacktester:
             if candidates:
                 self._strategy_signal_stats[strategy_name]["signal_days"] += 1
             # 【修复#45+P1-1:记录每只股票来自哪个策略,支持多策略选同股】
-            # 存策略列表(而非覆盖)，买入价取最低价(最保守)
+            # 存策略列表(而非覆盖),买入价取最低价(最保守)
             for code in candidates:
                 if code not in stock_to_strategy:
                     stock_to_strategy[code] = []
@@ -1471,9 +1481,9 @@ class PortfolioBacktester:
 
         if len(all_candidates) == 0:
             await self.log(f"   ⚠️  当日无符合条件的交易标的,跳过调仓")
-            # 【修复：当日无候选时，输出每日收盘汇总后continue到下一交易日】
+            # 【修复:当日无候选时,输出每日收盘汇总后continue到下一交易日】
             await self._print_daily_summary(trade_date, len(holdings), cash)
-            # 【P0修复：continue前记录净值】
+            # 【P0修复:continue前记录净值】
             last_net_value, peak_value = await self._record_daily_net_value(
                 trade_date, holdings, cash, last_net_value, peak_value,
                 net_value_series, daily_profit_list, drawdown_series, daily_cash_list,
@@ -1488,21 +1498,21 @@ class PortfolioBacktester:
             return run_state
 
         # 【竞价过滤】第5层筛选
-        # 规则: 排除极端竞价情况 — 大幅高开(>7%)或大幅低开(<-5%)
+        # 规则: 排除极端竞价情况 - 大幅高开(>7%)或大幅低开(<-5%)
         # ⚠️ 不可用opening_pct_chg要求0.5%~7%做近似!
         #   实测: 半路追涨76%候选的竞价涨幅在-2%~0.5%(低开盘中涨),0.5%门槛会杀掉核心候选
         # 正确做法: 只排除极端值,保留正常区间
         if self._risk_config.get("enable_auction_filter", True) and len(all_candidates) > 0:
             await self.log("")
-            await self.log(f"   📊 【竞价过滤】启用竞价过滤，当前 {len(all_candidates)} 个候选")
-            
+            await self.log(f"   📊 【竞价过滤】启用竞价过滤,当前 {len(all_candidates)} 个候选")
+
             # 从stock_bid_auction获取真实竞价数据
             auction_data = await mongo_manager.find_many(
                 "stock_bid_auction",
                 {"trade_date": int(trade_date)},
                 projection={"ts_code": 1, "auction_pct_chg": 1, "auction_volume": 1, "unmatched_volume": 1}
             )
-            
+
             if auction_data:
                 # ✅ 有真实竞价数据 → 用原始规则(0.5%~7% + 成交量>0 + 未匹配量>0)
                 auction_map = {x.get("ts_code", ""): x for x in auction_data if x.get("ts_code")}
@@ -1522,16 +1532,15 @@ class PortfolioBacktester:
                 await self.log(f"   ✅ 竞价过滤(真实数据)完成: {original_count} → {len(all_candidates)}")
             else:
                 # 无真实竞价数据 → 用opening_pct_chg做宽松过滤(仅排除极端值)
-                # 半路追涨候选76%在-2%~0.5%, 不可要求≥0.5%
-                # 只排除: 大幅高开>7%(追高风险大) 或 大幅低开<-5%(可能有风险)
+                # 【P1-5修复(V20):预构建ts_code→opening_pct映射,避免逐行O(N*M)查找】
+                if 'opening_pct_chg' in factor_df.columns:
+                    _opn_map = dict(zip(factor_df['ts_code'], factor_df['opening_pct_chg']))
+                else:
+                    _opn_map = {}
                 original_count = len(all_candidates)
                 filtered_candidates = []
                 for code in all_candidates:
-                    code_rows = factor_df[factor_df['ts_code'] == code]
-                    if code_rows.empty:
-                        filtered_candidates.append(code)
-                        continue
-                    opening_pct = code_rows.iloc[0].get('opening_pct_chg', None)
+                    opening_pct = _opn_map.get(code)
                     if opening_pct is None or (isinstance(opening_pct, float) and math.isnan(opening_pct)):
                         filtered_candidates.append(code)
                         continue
@@ -1542,10 +1551,10 @@ class PortfolioBacktester:
                         filtered_candidates.append(code)
                 all_candidates = set(filtered_candidates)
                 await self.log(f"   ✅ 竞价过滤(日线近似: 排除高开>7%/低开<-5%)完成: {original_count} → {len(all_candidates)}")
-            
+
             if len(all_candidates) == 0:
-                await self.log(f"   ⚠️  竞价过滤后无候选，跳过调仓")
-                # 【P0修复：提前返回前必须调用日终汇总，否则日志缺失收盘信息】
+                await self.log(f"   ⚠️  竞价过滤后无候选,跳过调仓")
+                # 【P0修复:提前返回前必须调用日终汇总,否则日志缺失收盘信息】
                 await self._print_daily_summary(trade_date, len(holdings), cash)
                 self._update_run_state(run_state,
                     cash=cash, holdings=holdings, rebalance_records=rebalance_records,
@@ -1555,11 +1564,11 @@ class PortfolioBacktester:
                     peak_value=peak_value, last_net_value=last_net_value)
                 return run_state
 
-        # 【P0-A修复：以下调仓逻辑必须与竞价过滤if平级，不能在if内部！】
-        # 否则 enable_auction_filter=False 时不执行任何调仓！
+        # 【P0-A修复:以下调仓逻辑必须与竞价过滤if平级,不能在if内部!】
+        # 否则 enable_auction_filter=False 时不执行任何调仓!
 
-        # 【P1-2修复：板块集中度过滤 — 同板块候选过多时只保留评分最高的N只】
-        # 之前只有开关和日志，从未实际执行过滤逻辑
+        # 【P1-2修复:板块集中度过滤 - 同板块候选过多时只保留评分最高的N只】
+        # 之前只有开关和日志,从未实际执行过滤逻辑
         if self._risk_config.get("enable_sector_concentration", True) and len(all_candidates) > 0:
             try:
                 sector_top_n = self._risk_config.get("sector_concentration_top_n", 3)
@@ -1575,16 +1584,16 @@ class PortfolioBacktester:
                     for d in industry_docs:
                         industry_map[d['ts_code']] = d.get('industry', 'unknown')
                         self._industry_map_cache[d['ts_code']] = d.get('industry', 'unknown')  # 更新缓存
-                
+
                 if industry_map:
                     sector_counts = {}
                     filtered_by_sector = set()
-                    # 【P1-3修复(V12)：用volume_ratio排序替代pct_chg，消除未来函数】
-                    # pct_chg是收盘涨跌幅(收盘后才知道)，实盘选股时无法使用
-                    # volume_ratio(量比)在开盘时已确定(基于前5日均量)，是可观测因子
-                    # 量比高=市场关注度高=更强势，在同一行业内优先选量比高的
+                    # 【P1-3修复(V12):用volume_ratio排序替代pct_chg,消除未来函数】
+                    # pct_chg是收盘涨跌幅(收盘后才知道),实盘选股时无法使用
+                    # volume_ratio(量比)在开盘时已确定(基于前5日均量),是可观测因子
+                    # 量比高=市场关注度高=更强势,在同一行业内优先选量比高的
                     if 'volume_ratio' in factor_df.columns:
-                        # 【P1-2修复(V19)：预计算volume_ratio映射，避免逐行O(N*M)扫描factor_df】
+                        # 【P1-2修复(V19):预计算volume_ratio映射,避免逐行O(N*M)扫描factor_df】
                         # 旧: 每个候选股做factor_df[factor_df['ts_code']==code]→全表扫描
                         # 新: 一次性构建ts_code→volume_ratio的dict→O(1)查找
                         _vr_map = dict(zip(factor_df['ts_code'], factor_df['volume_ratio']))
@@ -1599,7 +1608,7 @@ class PortfolioBacktester:
                         sorted_candidates = [c[0] for c in scored_candidates]
                     else:
                         sorted_candidates = sorted(all_candidates)
-                    # 按行业分组，每行业最多保留sector_top_n只(已按评分降序)
+                    # 按行业分组,每行业最多保留sector_top_n只(已按评分降序)
                     for code in sorted_candidates:
                         industry = industry_map.get(code, 'unknown')
                         sector_counts[industry] = sector_counts.get(industry, 0) + 1
@@ -1628,22 +1637,43 @@ class PortfolioBacktester:
         # 🔧 新增:大盘 MA60 过滤 - 大盘跌破 MA60 整体降低仓位 50%(可配置开关)
         if self._risk_config.get("enable_ma60_filter", True):
             try:
-                # 从 index_daily 查询上证指数(000001.SH)的均线数据
-                index_data = await mongo_manager.find_one(
-                    C.INDEX_DAILY,
-                    {"ts_code": "000001.SH", "trade_date": int(trade_date)},
-                    {"close": 1, "ma60": 1},
-                )
-                if index_data and "close" in index_data and "ma60" in index_data:
-                    close = index_data["close"]
-                    ma60 = index_data["ma60"]
-                    if close < ma60:
-                        # 跌破 MA60,整体降低仓位 50%
+                # 【P0-1修复(V20):INDEX_DAILY无ma60字段,改为从最近60个交易日close计算】
+                # 旧bug: 查index_daily的ma60字段→始终None→MA60过滤从不触发
+                # 新: 查询最近60个交易日的close,计算均值作为MA60
+                # 优化: 用缓存避免每日重复查询(只需查一次当天的close+前59天)
+                _trade_date_int = int(trade_date)
+                ma60 = self._ma60_cache.get(_trade_date_int)
+                current_close = None
+                if ma60 is None:
+                    index_close_docs = await mongo_manager.find_many(
+                        C.INDEX_DAILY,
+                        {"ts_code": "000001.SH", "trade_date": {"$lte": _trade_date_int}},
+                        {"close": 1, "trade_date": 1},
+                        sort=[("trade_date", -1)],
+                        limit=60
+                    )
+                    if index_close_docs and len(index_close_docs) >= 20:
+                        index_close_docs.sort(key=lambda x: x["trade_date"])
+                        close_list = [d["close"] for d in index_close_docs]
+                        ma60 = sum(close_list) / len(close_list)
+                        current_close = close_list[-1]
+                        self._ma60_cache[_trade_date_int] = ma60
+                if ma60 and current_close is None:
+                    # 缓存命中但需要当日close
+                    idx_doc = await mongo_manager.find_one(
+                        C.INDEX_DAILY,
+                        {"ts_code": "000001.SH", "trade_date": _trade_date_int},
+                        {"close": 1},
+                    )
+                    current_close = idx_doc["close"] if idx_doc else None
+                if ma60 and current_close:
+                    if current_close < ma60:
                         for code in today_target_weights:
                             today_target_weights[code] = today_target_weights[code] * 0.5
-                        await self.log(f"   📉 大盘跌破 MA60,整体仓位降低 50%")
+                        await self.log(f"   📉 大盘跌破 MA60({ma60:.0f}),当前{current_close:.0f},整体仓位降低 50%")
+                    else:
+                        logger.debug('BACKTEST', f'大盘站上 MA60({ma60:.0f}),当前{current_close:.0f}')
             except Exception as e:
-                # 查询失败不影响继续执行
                 logger.warn('BACKTEST', f"均线MA60仓位调整检查失败: {e}")
 
         # 当日选股当日执行
@@ -1671,7 +1701,7 @@ class PortfolioBacktester:
         # 如果没有任何股票获取到价格,跳过本次调仓
         if len(prices) == 0 and len(holdings) == 0:
             await self.log(f"   ⚠️  没有任何股票获取到当日价格,跳过调仓")
-            # 【P0修复：continue前记录净值】
+            # 【P0修复:continue前记录净值】
             last_net_value, peak_value = await self._record_daily_net_value(
                 trade_date, holdings, cash, last_net_value, peak_value,
                 net_value_series, daily_profit_list, drawdown_series, daily_cash_list,
@@ -1737,10 +1767,10 @@ class PortfolioBacktester:
             await self.log(f"   { '-' * 100}")
 
 
-        # 【P0-2修复(V9)：调仓日无交易记录时，也要执行止损止盈检查，但不委托给_process_non_rebalance_day】
+        # 【P0-2修复(V9):调仓日无交易记录时,也要执行止损止盈检查,但不委托给_process_non_rebalance_day】
         # 旧bug: else分支调用_process_non_rebalance_day导致: 1)日志不匹配 2)run_state可能被覆盖 3)冲高回落重复检查
         if len(records) == 0 and holdings and len(holdings) > 0:
-            # 调仓日无交易，但需检查止损止盈(与_process_non_rebalance_day逻辑相同，但不走完整路径)
+            # 调仓日无交易,但需检查止损止盈(与_process_non_rebalance_day逻辑相同,但不走完整路径)
             enable_sl = self._risk_config.get('enable_stop_loss', True)
             enable_tp = self._risk_config.get('enable_take_profit', True)
             if enable_sl or enable_tp:
@@ -1771,7 +1801,7 @@ class PortfolioBacktester:
                     stop_price = cost * (1 - sl_pct)
                     tp_price = cost * (1 + tp_pct)
                     open_p = p.get('open', p.get('close', 0))
-                    # 【P0-3修复(V14)】：用统一方法检查冲高回落/高开即卖/利润保护
+                    # 【P0-3修复(V14)】:用统一方法检查冲高回落/高开即卖/利润保护
                     _close_p = p.get('close', 0)
                     early_sell_price, early_sell_reason = self._check_early_sell_signals(
                         code, strategies, cost, open_p, _close_p)
@@ -1817,7 +1847,7 @@ class PortfolioBacktester:
                         reason=reason, strategy_name=_sell_strategy, sentiment=''))
                     await self.log(f"   │  ⚠️  调仓日止损止盈卖出: {code} {shares}股 @ {sell_p:.2f} ({reason})")
                 last_prices = _sl_tp_prices if forced_sell_codes else last_prices
-        # 【P0修复：统一调用净值记录函数，避免continue跳过】
+        # 【P0修复:统一调用净值记录函数,避免continue跳过】
         last_net_value, peak_value = await self._record_daily_net_value(
             trade_date, holdings, cash, last_net_value, peak_value,
             net_value_series, daily_profit_list, drawdown_series, daily_cash_list,
@@ -1825,8 +1855,8 @@ class PortfolioBacktester:
             rebalance_set=rebalance_set)
         # last_net_value已由_record_daily_net_value更新
 
-        # ==================== 每日收盘汇总（每天必须输出）====================
-        # 无论调仓日还是非调仓日，每天都要有完整的日志结尾
+        # ==================== 每日收盘汇总(每天必须输出)====================
+        # 无论调仓日还是非调仓日,每天都要有完整的日志结尾
         await self.log(f"")
         await self.log(f"═══════════════════════════════════════════════════════════════")
         await self.log(f"📅 【第 {idx+1}/{total_days} 天】处理完成: {trade_date}")
@@ -1845,15 +1875,15 @@ class PortfolioBacktester:
     async def _process_non_rebalance_day(self, trade_date, idx: int, run_state: dict,
                                             sentiment_level: str) -> dict:
         """非调仓日处理: 止损止盈检查、强制卖出、日志输出
-        
+
         当调仓日无交易时也走此路径,进行止损止盈检查和持仓显示
-        
+
         Args:
             trade_date: 当前交易日
             idx: 当前天数索引
             run_state: 运行时状态dict
             sentiment_level: 情绪等级
-            
+
         Returns:
             更新后的run_state
         """
@@ -1875,12 +1905,12 @@ class PortfolioBacktester:
         all_trade_dates = run_state['all_trade_dates']
         initial_cash = run_state['initial_cash']
 
-        # 【P1-5：非调仓日止损止盈检查 + 超时强卖检查】
+        # 【P1-5:非调仓日止损止盈检查 + 超时强卖检查】
         enable_sl = self._risk_config.get('enable_stop_loss', True)
         enable_tp = self._risk_config.get('enable_take_profit', True)
         forced_sell_codes = []
         forced_sell_prices = {}  # code -> actual sell price (Phase1: gap handling)
-        # 【P0-1修复(V13)】初始化_prices_for_display，避免holdings为空时NameError
+        # 【P0-1修复(V13)】初始化_prices_for_display,避免holdings为空时NameError
         _prices_for_display = {}
         if (enable_sl or enable_tp) and holdings:
             _sl_tp_prices = await self._get_prices(set(holdings.keys()), trade_date)
@@ -1911,8 +1941,8 @@ class PortfolioBacktester:
                 _close_p = p.get('close', 0)
                 stop_price = cost * (1 - sl_pct)
                 tp_price = cost * (1 + tp_pct)
-                # 【P0-3修复(V14)】：用统一方法检查冲高回落/高开即卖/利润保护
-                # 【P0-1修复(V15)】：补上缺失的close_p变量定义，与调仓日分支保持一致
+                # 【P0-3修复(V14)】:用统一方法检查冲高回落/高开即卖/利润保护
+                # 【P0-1修复(V15)】:补上缺失的close_p变量定义,与调仓日分支保持一致
                 early_sell_price, early_sell_reason = self._check_early_sell_signals(
                     code, strategies, cost, open_p, _close_p)
                 early_sell_triggered = early_sell_price > 0
@@ -1921,18 +1951,18 @@ class PortfolioBacktester:
                     forced_sell_codes.append((code, early_sell_reason))
                 if not early_sell_triggered:
                     if enable_sl and low_p <= stop_price:
-                        # 【Phase1-跳空止损】如果open直接跳空低于止损价，以open卖出(最差情况)
+                        # 【Phase1-跳空止损】如果open直接跳空低于止损价,以open卖出(最差情况)
                         if open_p <= stop_price:
-                            forced_sell_prices[code] = open_p  # 跳空低开，以open卖出
+                            forced_sell_prices[code] = open_p  # 跳空低开,以open卖出
                             forced_sell_codes.append((code, f'跳空止损'))
                         else:
-                            forced_sell_prices[code] = stop_price  # 盘中跌破止损，以止损价卖出
+                            forced_sell_prices[code] = stop_price  # 盘中跌破止损,以止损价卖出
                             forced_sell_codes.append((code, f'止损({sl_pct*100:.0f}%)'))
                     elif enable_tp and high_p >= tp_price:
                         forced_sell_prices[code] = tp_price  # 止盈以止盈价卖出
                         forced_sell_codes.append((code, f'止盈({tp_pct*100:.0f}%)'))
-                # 【Bug修复：非调仓日也要检查max_hold_days超时】
-                # 【P1-2修复(V15)】：改用交易日计算超时，替代日历天数*1.5
+                # 【Bug修复:非调仓日也要检查max_hold_days超时】
+                # 【P1-2修复(V15)】:改用交易日计算超时,替代日历天数*1.5
                 # 旧逻辑: 日历天数>max_hold*1.5 → 周中买入3个日历天就超时(1.5*2=3),但只过了1个交易日
                 # 新逻辑: 统计all_trade_dates中[buy_date, trade_date]之间的交易日数
                 buy_date_raw = getattr(self, '_cost_basis_date', {}).get(code)
@@ -1962,19 +1992,19 @@ class PortfolioBacktester:
                     except (ValueError, TypeError):
                         pass
             # 执行非调仓日强卖
-            # 【P1-1修复(V15)】：直接使用循环解包的reason，不再冗余查找forced_sell_codes
-            # 旧bug: L1929 next()重新查找，当同一code有多条目时可能返回错误reason
+            # 【P1-1修复(V15)】:直接使用循环解包的reason,不再冗余查找forced_sell_codes
+            # 旧bug: L1929 next()重新查找,当同一code有多条目时可能返回错误reason
             for code, reason in forced_sell_codes:
                 shares = holdings.get(code, 0)
                 if shares <= 0:
                     continue
                 p = _sl_tp_prices.get(code, {})
-                # 【Phase1-止损卖出价修复】不再一律用close，改用实际触发价格
+                # 【Phase1-止损卖出价修复】不再一律用close,改用实际触发价格
                 # 止损→止损价, 跳空止损→open价, 止盈→止盈价
                 sell_p = forced_sell_prices.get(code, p.get('close', 0))
                 if sell_p <= 0:
                     continue
-                # 【P1-2修复(V9)：止损不扣滑点(止损价已保守)，但止盈需扣滑点(实盘达不到理论止盈价)】
+                # 【P1-2修复(V9):止损不扣滑点(止损价已保守),但止盈需扣滑点(实盘达不到理论止盈价)】
                 # 冲高回落/高开即卖/利润保护也扣滑点(与rebalance中一致)
                 if '止损' in reason:
                     slippage_pct = 0  # 止损不扣滑点(止损价已含保守估计)
@@ -2010,13 +2040,13 @@ class PortfolioBacktester:
         await self.log(f"   ┌───────────────────────────────────────────────────────")
         # 【V13修复】日志区分非调仓日和调仓日无交易
         if trade_date in rebalance_set:
-            await self.log(f"   │ ℹ️  【调仓日无交易】当前持仓与目标一致,无需调仓")
+            await self.log(f"   │ i️  【调仓日无交易】当前持仓与目标一致,无需调仓")
         else:
-            await self.log(f"   │ ℹ️  【非调仓日】止损止盈检查+持仓监控")
+            await self.log(f"   │ i️  【非调仓日】止损止盈检查+持仓监控")
         await self.log(f"   ├───────────────────────────────────────────────────────")
 
-        # 【P0-C/P1-1修复(第十一轮)：复用上方已获取的价格，不重复查询】
-        # 【V13-P0-1修复】_prices_for_display已在方法开头初始化，此处不再需要try/except NameError
+        # 【P0-C/P1-1修复(第十一轮):复用上方已获取的价格,不重复查询】
+        # 【V13-P0-1修复】_prices_for_display已在方法开头初始化,此处不再需要try/except NameError
         if holdings and len(holdings) > 0:
             # _prices_for_display 已在上方 SL/TP 或 else 分支中赋值
             if not _prices_for_display:
@@ -2034,17 +2064,17 @@ class PortfolioBacktester:
             await self.log(f"   │  📊 当前无持仓")
             _prices_for_display = {}
 
-        await self.log(f"   │  💵 当前现金：{cash:,.2f} 元")
+        await self.log(f"   │  💵 当前现金:{cash:,.2f} 元")
         await self.log(f"   └───────────────────────────────────────────────────────")
 
 
-        # ==================== 记录净值（每天必须执行）====================
-        # 【P0-1/P0-2修复(V16)：非调仓日也要记录净值+更新last_prices】
+        # ==================== 记录净值(每天必须执行)====================
+        # 【P0-1/P0-2修复(V16):非调仓日也要记录净值+更新last_prices】
         # 旧bug: 非调仓日未调用_record_daily_net_value → 非每日调仓模式下净值序列有空洞
         # 旧bug: last_prices未更新 → 后续净值计算使用过期价格
-        # 修复: 用当天获取的_sl_tp_prices或_prices_for_display更新last_prices，并记录净值
+        # 修复: 用当天获取的_sl_tp_prices或_prices_for_display更新last_prices,并记录净值
         if holdings and len(holdings) > 0:
-            # 用当天获取的价格更新last_prices（确保净值用当天价格计算）
+            # 用当天获取的价格更新last_prices(确保净值用当天价格计算)
             if _prices_for_display:
                 last_prices = _prices_for_display
         last_net_value, peak_value = await self._record_daily_net_value(
@@ -2063,18 +2093,18 @@ class PortfolioBacktester:
 
     async def _build_run_result(self, run_state: dict) -> dict:
         """构建回测结果
-        
-        【P1-8说明：本方法700行，逻辑复杂但不可拆分】
-        原因：结果构建是纯计算，无状态依赖，但需要访问run_state的所有字段。
-        内部逻辑分为5段：1)绩效统计 2)交易记录 3)策略汇总 4)图表数据 5)元数据
-        每段独立计算，可拆分为5个私有方法，但保持_build_run_result作为唯一入口。
-        当前不拆分的原因：run_state是dict而非对象，拆分后参数传递更复杂。
+
+        【P1-8说明:本方法700行,逻辑复杂但不可拆分】
+        原因:结果构建是纯计算,无状态依赖,但需要访问run_state的所有字段。
+        内部逻辑分为5段:1)绩效统计 2)交易记录 3)策略汇总 4)图表数据 5)元数据
+        每段独立计算,可拆分为5个私有方法,但保持_build_run_result作为唯一入口。
+        当前不拆分的原因:run_state是dict而非对象,拆分后参数传递更复杂。
         """
         """构建回测结果: 合并交易记录、计算绩效指标、策略分解
-        
+
         Args:
             run_state: 运行时状态dict
-            
+
         Returns:
             最终回测结果dict
         """
@@ -2088,7 +2118,7 @@ class PortfolioBacktester:
         daily_profit_list = run_state['daily_profit_list']
         drawdown_series = run_state['drawdown_series']
         daily_cash_list = run_state['daily_cash_list']
-        # 【P1-3修复】在净值序列开头插入初始净值=1.0，确保前端首日显示1.0
+        # 【P1-3修复】在净值序列开头插入初始净值=1.0,确保前端首日显示1.0
         if net_value_series and net_value_series[0].get('net_value', 0) != 1.0:
             first_date = str(run_state['config'].get('start_date', ''))
             net_value_series.insert(0, {
@@ -2133,11 +2163,11 @@ class PortfolioBacktester:
         merged_trades = []
 
         # 收集所有买入记录,按code分组
-        # 【P0-3修复：buy_records改为FIFO队列，每次卖出扣除对应股数】
+        # 【P0-3修复:buy_records改为FIFO队列,每次卖出扣除对应股数】
         buy_records = {}  # code -> list of {record, remaining_shares}
         total_signals = 0
         winning_trades = 0
-        completed_trades = 0  # 【P1-4修复：完整交易数(非买入信号数)】
+        completed_trades = 0  # 【P1-4修复:完整交易数(非买入信号数)】
 
         for day_records in rebalance_records:
             records_list = day_records if isinstance(day_records, list) else [day_records]
@@ -2152,7 +2182,7 @@ class PortfolioBacktester:
         total_signals = sum(len(buys) for buys in buy_records.values())
 
         # 统计每个卖出是否盈利,同时合并完整交易
-        # 【P0-3修复：FIFO匹配 — 卖出时从buy_records中按顺序扣减】
+        # 【P0-3修复:FIFO匹配 - 卖出时从buy_records中按顺序扣减】
         for day_records in rebalance_records:
             records_list = day_records if isinstance(day_records, list) else [day_records]
             for record in records_list:
@@ -2161,13 +2191,13 @@ class PortfolioBacktester:
                     sells = buy_records[code]
                     if not sells:
                         continue
-                    
+
                     # 卖出时按FIFO匹配买入记录
                     sell_shares = record.shares
                     sell_cost = 0.0
                     sell_buy_shares = 0  # 匹配到的买入股数
                     first_buy = sells[0]['record']  # 最早买入记录
-                    
+
                     while sell_shares > 0 and sells:
                         entry = sells[0]
                         matched = min(sell_shares, entry['remaining'])
@@ -2180,7 +2210,7 @@ class PortfolioBacktester:
                         sell_shares -= matched
                         if entry['remaining'] <= 0:
                             sells.pop(0)  # 该买入记录已完全匹配
-                    
+
                     if sell_buy_shares > 0 and sell_cost > 0:
                         avg_cost = sell_cost / sell_buy_shares
                         net_sell_amount = record.amount
@@ -2189,7 +2219,7 @@ class PortfolioBacktester:
                             winning_trades += 1
                         completed_trades += 1
 
-                        # 【P1-1修复(第十轮)：stock_names改为update而非覆盖】
+                        # 【P1-1修复(第十轮):stock_names改为update而非覆盖】
                         stock_names.update(await self._get_stock_names([code]))
                         name = stock_names.get(code, code.split('.')[0])
 
@@ -2204,8 +2234,8 @@ class PortfolioBacktester:
                         try:
                             buy_d = int(first_buy.date) if first_buy.date else 0
                             sell_d = int(record.date) if record.date else 0
-                            # 【P1-3修复(V16)：持仓天数改用交易日计算，替代日历天数】
-                            # 日历天数含周末/节假日，3日历天可能只有1个交易日
+                            # 【P1-3修复(V16):持仓天数改用交易日计算,替代日历天数】
+                            # 日历天数含周末/节假日,3日历天可能只有1个交易日
                             # 交易日计算: all_trade_dates中(buy_date, sell_date]之间的数量
                             _all_td = run_state.get('all_trade_dates', [])
                             if _all_td:
@@ -2250,9 +2280,9 @@ class PortfolioBacktester:
             if remaining_shares <= 0:
                 continue
             # 还在持仓中,添加到明细
-            # 【P0-1修复(第十一轮)：使用当前code的首次买入记录，而非卖出循环遗留的first_buy】
+            # 【P0-1修复(第十一轮):使用当前code的首次买入记录,而非卖出循环遗留的first_buy】
             first_buy = buys[0]['record']  # 当前code最早的买入记录
-            # 【P1-1修复(第十轮)：stock_names改为update而非覆盖】
+            # 【P1-1修复(第十轮):stock_names改为update而非覆盖】
             stock_names.update(await self._get_stock_names([code]))
             name = stock_names.get(code, code.split('.')[0])
 
@@ -2283,24 +2313,24 @@ class PortfolioBacktester:
                 'sell_reason': '持仓中',  # 还未卖出
             })
 
-        # 初始化绩效指标（避免 UnboundLocalError 当0交易时）
-        # 【P0修复：max_drawdown提前从drawdown_series计算，避免中间日志输出0.00%】
+        # 初始化绩效指标(避免 UnboundLocalError 当0交易时)
+        # 【P0修复:max_drawdown提前从drawdown_series计算,避免中间日志输出0.00%】
         raw_max_drawdown = max(drawdown_series) if drawdown_series else 0.0
-        max_drawdown = min(raw_max_drawdown, 1.0)  # 硬限制，防止异常值
+        max_drawdown = min(raw_max_drawdown, 1.0)  # 硬限制,防止异常值
         sharpe_ratio = 0.0
         profit_loss_ratio = 0.0
         strategy_name = "组合策略"
 
         # 计算胜率
-        # 【P1-4修复：用完整交易数(completed_trades)而非买入信号数(total_signals)】
+        # 【P1-4修复:用完整交易数(completed_trades)而非买入信号数(total_signals)】
         win_rate = 0.0
         if completed_trades > 0:
             win_rate = winning_trades / completed_trades
             win_rate_percent = win_rate * 100
         else:
             win_rate_percent = 0.0
-        # 【修复#13：年化收益率使用真实交易天数而不是调仓日数】
-        # 交易天数 = 所有交易日数量，而不是仅仅调仓日数量
+        # 【修复#13:年化收益率使用真实交易天数而不是调仓日数】
+        # 交易天数 = 所有交易日数量,而不是仅仅调仓日数量
         trading_days = len(all_trade_dates)
         annual_return_reliable = trading_days >= 30  # 少于30天年化无参考意义
         if trading_days > 0:
@@ -2309,30 +2339,30 @@ class PortfolioBacktester:
         else:
             annualized_return = 0.0
 
-        # 【修复#26/#27：使用 PerformanceAnalyzer 重新计算所有绩效指标】
-        # 将merged_trades写入临时JSON文件，使用PerformanceAnalyzer计算
-        # 【修复：PerformanceAnalyzer API不匹配(file_path≠risk_free_rate, 无get_basic_stats方法)，
-        # 改为直接使用已计算的绩效指标，不再调用PerformanceAnalyzer】
-        # 原代码：analyzer = PerformanceAnalyzer(temp_file.name) → 传了文件路径给risk_free_rate参数，且无get_basic_stats方法
-        # 当有交易时，win_rate/max_drawdown/sharpe_ratio等已在上方正确计算，无需重复计算
+        # 【修复#26/#27:使用 PerformanceAnalyzer 重新计算所有绩效指标】
+        # 将merged_trades写入临时JSON文件,使用PerformanceAnalyzer计算
+        # 【修复:PerformanceAnalyzer API不匹配(file_path≠risk_free_rate, 无get_basic_stats方法),
+        # 改为直接使用已计算的绩效指标,不再调用PerformanceAnalyzer】
+        # 原代码:analyzer = PerformanceAnalyzer(temp_file.name) → 传了文件路径给risk_free_rate参数,且无get_basic_stats方法
+        # 当有交易时,win_rate/max_drawdown/sharpe_ratio等已在上方正确计算,无需重复计算
 
-        # 【P0-1修复(第十轮)：sortino_ratio/calmar_ratio/volatility在打印段之前初始化默认值】
+        # 【P0-1修复(第十轮):sortino_ratio/calmar_ratio/volatility在打印段之前初始化默认值】
         # 避免NameError崩溃(之前打印段引用这些变量时它们尚未赋值)
         sortino_ratio = 0.0
         calmar_ratio = 0.0
         volatility = 0.0
 
-        # 【第二十四轮修复：删除引用未定义daily_returns_list的重复计算块】
+        # 【第二十四轮修复:删除引用未定义daily_returns_list的重复计算块】
         # volatility/sortino_ratio/calmar_ratio 已在下方(daily_profit_list计算段)正确赋值
         # 此处仅保留Calmar(不依赖daily_returns_list)
         if max_drawdown > 0:
             calmar_ratio = annualized_return / max_drawdown
 
         # 统计盈利次数/亏损次数
-        # 【P0-1修复：losing_trades用completed_trades-winning_trades，而非total_signals-winning_trades】
-        # total_signals是买入信号数(含未卖出持仓)，winning_trades是已卖出盈利数，维度不一致
+        # 【P0-1修复:losing_trades用completed_trades-winning_trades,而非total_signals-winning_trades】
+        # total_signals是买入信号数(含未卖出持仓),winning_trades是已卖出盈利数,维度不一致
         losing_trades = completed_trades - winning_trades
-        # 【P1修复】total_trades只计已完成交易(有sell_date的)，不含未平仓
+        # 【P1修复】total_trades只计已完成交易(有sell_date的),不含未平仓
         total_trades = completed_trades
 
         # 计算收益回撤比 = 累计收益率 / 最大回撤(当最大回撤 > 0 时)
@@ -2342,7 +2372,7 @@ class PortfolioBacktester:
 
         # 计算平均持仓天数
         average_hold_days = 0.0
-        # 【P1-3修复(V16)：持仓天数改用交易日计算，替代日历天数】
+        # 【P1-3修复(V16):持仓天数改用交易日计算,替代日历天数】
         completed_trades_for_avg = [t for t in merged_trades if t.get('sell_date') and t.get('buy_date')]
         if len(completed_trades_for_avg) > 0:
             total_hold_days = 0
@@ -2432,7 +2462,7 @@ class PortfolioBacktester:
                     profit_abs = sell_income - buy_cost - buy_comm - sell_comm - stamp
                     is_profit = "✅" if profit_pct > 0 else "❌"
                     # 计算持仓天数
-                    # 【P1-3修复(V16)：持仓天数改用交易日计算，替代日历天数】
+                    # 【P1-3修复(V16):持仓天数改用交易日计算,替代日历天数】
                     if buy_date and sell_date:
                         try:
                             buy_d2 = int(buy_date)
@@ -2503,19 +2533,19 @@ class PortfolioBacktester:
             else:
                 all_trades_dict.append(record)
 
-        # 【修复#47/#48/#13：基于逐日净值计算绩效指标】
-        # 净值曲线和每日盈亏已经在逐日回测循环中计算完成，这里直接使用
-        # 删除了原来基于调仓日的简化估算，现在使用精确的逐日持仓市值计算
-        
+        # 【修复#47/#48/#13:基于逐日净值计算绩效指标】
+        # 净值曲线和每日盈亏已经在逐日回测循环中计算完成,这里直接使用
+        # 删除了原来基于调仓日的简化估算,现在使用精确的逐日持仓市值计算
+
         # max_drawdown 已在上方从drawdown_series计算
-        # 【P0-2修复：在max_drawdown正确计算后，重新计算return_drawdown_ratio】
+        # 【P0-2修复:在max_drawdown正确计算后,重新计算return_drawdown_ratio】
         if max_drawdown > 0 and total_return != 0:
             return_drawdown_ratio = abs(total_return) / max_drawdown
-        
-        # 【P0-3修复(V9)：盈亏比改用交易维度而非日收益维度】
-        # 旧: 基于daily_profit_list(日收益)，10只持仓5涨5跌→只算1次盈利→虚高
-        # 新: 基于已平仓交易(merged_trades)，avg_win_pct / avg_loss_pct → 正确反映策略选股能力
-        # 注意: all_trades是RebalanceRecord对象(无profit_pct)，merged_trades是dict(有profit_pct)
+
+        # 【P0-3修复(V9):盈亏比改用交易维度而非日收益维度】
+        # 旧: 基于daily_profit_list(日收益),10只持仓5涨5跌→只算1次盈利→虚高
+        # 新: 基于已平仓交易(merged_trades),avg_win_pct / avg_loss_pct → 正确反映策略选股能力
+        # 注意: all_trades是RebalanceRecord对象(无profit_pct),merged_trades是dict(有profit_pct)
         completed_trades_for_plr = [t for t in merged_trades if t.get('profit_pct') is not None and t.get('sell_reason', '') != '持仓中']
         win_trades = [t for t in completed_trades_for_plr if t['profit_pct'] > 0]
         loss_trades = [t for t in completed_trades_for_plr if t['profit_pct'] < 0]
@@ -2527,8 +2557,8 @@ class PortfolioBacktester:
             profit_loss_ratio = 99.99
         else:
             profit_loss_ratio = 0.0
-        
-        # 【修复#13：基于修复后的净值曲线正确计算夏普比率】
+
+        # 【修复#13:基于修复后的净值曲线正确计算夏普比率】
         # 夏普比率 = 平均日收益率 / 日收益率标准差 × sqrt(252)
         # 假设无风险利率为0
         sharpe_ratio = 0.0
@@ -2541,22 +2571,22 @@ class PortfolioBacktester:
                 if current_value > 0:
                     daily_returns.append(p / current_value)
                 current_value += p
-            
+
             # 计算平均日收益率和标准差
             if len(daily_returns) > 1:
                 avg_return = sum(daily_returns) / len(daily_returns)
                 variance = sum((r - avg_return) ** 2 for r in daily_returns) / (len(daily_returns) - 1)
                 std_return = math.sqrt(variance)
-                
+
                 # 年化波动率
                 volatility = std_return * math.sqrt(252)
-                
+
                 if std_return > 0:
-                    # 年化夏普比率（252个交易日，无风险利率3%）
+                    # 年化夏普比率(252个交易日,无风险利率3%)
                     daily_rf = 0.03 / 252
                     sharpe_ratio = (avg_return - daily_rf) / std_return * math.sqrt(252)
-                
-                # 【P1-7修复：索提诺比率（只考虑下行波动）】
+
+                # 【P1-7修复:索提诺比率(只考虑下行波动)】
                 downside_returns = [r for r in daily_returns if r < 0]
                 if len(downside_returns) > 1:
                     downside_variance = sum((r - sum(downside_returns) / len(downside_returns)) ** 2 for r in downside_returns) / (len(downside_returns) - 1)
@@ -2564,11 +2594,11 @@ class PortfolioBacktester:
                     if downside_std > 0:
                         daily_rf = 0.03 / 252
                         sortino_ratio = (avg_return - daily_rf) / downside_std * math.sqrt(252)
-        
-        # 【P1-7修复：卡玛比率 = 年化收益率 / 最大回撤】
+
+        # 【P1-7修复:卡玛比率 = 年化收益率 / 最大回撤】
         if max_drawdown > 0 and annualized_return != 0:
             calmar_ratio = annualized_return / max_drawdown
-        
+
         # 格式化 drawdown_series 为最终返回格式
         formatted_drawdown_series = []
         for i, point in enumerate(net_value_series):
@@ -2576,23 +2606,23 @@ class PortfolioBacktester:
                 "trade_date": point["trade_date"],
                 "drawdown": drawdown_series[i] if i < len(drawdown_series) else 0.0
             })
-        
-        # 提取 daily_profit 序列（用于兼容）
+
+        # 提取 daily_profit 序列(用于兼容)
         daily_profit = daily_profit_list.copy()
 
-        # 【修复#49/#31：统一后端输出格式适配前端BacktestResult结构
+        # 【修复#49/#31:统一后端输出格式适配前端BacktestResult结构
         # - final_value → final_equity (字段名对齐)
-        # - 百分比单位约定：所有_pct后缀字段和total_return/max_drawdown/win_rate等字段
+        # - 百分比单位约定:所有_pct后缀字段和total_return/max_drawdown/win_rate等字段
         #   均为百分比数值(如15.5表示15.5%),不是小数(0.155)
-        # - 此约定与ultra_short.py中读取时一致，前端亦按百分比展示
-        # 【修复#17：嵌套BacktestMetrics结构：returns/risk/trades/positions/performance/metadata
+        # - 此约定与ultra_short.py中读取时一致,前端亦按百分比展示
+        # 【修复#17:嵌套BacktestMetrics结构:returns/risk/trades/positions/performance/metadata
         result = {
             "success": True,
             "initial_cash": self._initial_cash,
             "final_cash": cash,
-            "final_equity": final_value,  # 【修复#49：字段名对齐 → final_equity】
+            "final_equity": final_value,  # 【修复#49:字段名对齐 → final_equity】
             "final_value": final_value,  # 保持向后兼容
-            "metrics": {  # 嵌套 BacktestMetrics 结构，字段名对齐前端TypeScript类型定义
+            "metrics": {  # 嵌套 BacktestMetrics 结构,字段名对齐前端TypeScript类型定义
                 "returns": {
                     "total_return_pct": total_return * 100,
                     "annual_return_pct": annualized_return * 100,
@@ -2607,9 +2637,9 @@ class PortfolioBacktester:
                     "max_drawdown_pct": max_drawdown * 100,
                     "win_rate_pct": win_rate * 100,
                     "sharpe_ratio": sharpe_ratio,
-                    "sortino_ratio": sortino_ratio,  # 【P1-7修复：新增索提诺比率】
-                    "calmar_ratio": calmar_ratio,    # 【P1-7修复：新增卡玛比率】
-                    "volatility_pct": volatility * 100,  # 【P1-7修复：新增年化波动率】
+                    "sortino_ratio": sortino_ratio,  # 【P1-7修复:新增索提诺比率】
+                    "calmar_ratio": calmar_ratio,    # 【P1-7修复:新增卡玛比率】
+                    "volatility_pct": volatility * 100,  # 【P1-7修复:新增年化波动率】
                     "profit_loss_ratio": profit_loss_ratio,
                     "return_drawdown_ratio": return_drawdown_ratio,
                     # 以下字段保持兼容旧代码
@@ -2627,7 +2657,7 @@ class PortfolioBacktester:
                     "final_holdings": holdings,
                     "net_value_series": net_value_series,
                     "drawdown_series": formatted_drawdown_series,
-                    # 【P1-8修复(V13)】：daily_profit统一为归一化小数，与顶层和net_value_series一致
+                    # 【P1-8修复(V13)】:daily_profit统一为归一化小数,与顶层和net_value_series一致
                     "daily_profit": [p / self._initial_cash if self._initial_cash > 0 else 0.0 for p in daily_profit],
                 },
                 "performance": {
@@ -2646,9 +2676,9 @@ class PortfolioBacktester:
             },
         }
 
-        # 【兼容层】顶层扁平字段供前端直接读取（如 result.win_rate）
-        # 实际数据源在 result.metrics 内，值相同，保持两边同步
-        # 前端BacktestResultPanel从顶层读取，勿删
+        # 【兼容层】顶层扁平字段供前端直接读取(如 result.win_rate)
+        # 实际数据源在 result.metrics 内,值相同,保持两边同步
+        # 前端BacktestResultPanel从顶层读取,勿删
         result["total_return"] = total_return * 100
         result["annualized_return"] = annualized_return * 100
         result["max_drawdown"] = max_drawdown * 100
@@ -2661,18 +2691,18 @@ class PortfolioBacktester:
         result["losing_trades"] = losing_trades
         result["average_hold_days"] = average_hold_days
         result["all_trades"] = all_trades_dict
-        result["merged_trades"] = merged_trades  # 完整交易记录(含买卖信息，给前端展示)
+        result["merged_trades"] = merged_trades  # 完整交易记录(含买卖信息,给前端展示)
         result["rebalance_records"] = rebalance_records_dict
         result["stock_names"] = stock_names
         result["net_value_series"] = net_value_series
         result["drawdown_series"] = formatted_drawdown_series
-        # 【P0修复】daily_profit统一为归一化小数(÷initial_cash)，与net_value_series[].daily_profit一致
-        # 之前是绝对值(元)，前端如果从顶层读取会与net_value_series不一致
+        # 【P0修复】daily_profit统一为归一化小数(÷initial_cash),与net_value_series[].daily_profit一致
+        # 之前是绝对值(元),前端如果从顶层读取会与net_value_series不一致
         _dp_normalized = [p / self._initial_cash if self._initial_cash > 0 else 0.0 for p in daily_profit]
         result["daily_profit"] = _dp_normalized
         result["benchmark_data"] = benchmark_data
 
-        # 【P2-12：补全前端图表所需字段】
+        # 【P2-12:补全前端图表所需字段】
         # 1. position_series: 每日仓位占比 [{date, value}]
         #    position = 1 - cash/equity (真实仓位比例)
         position_series = []
@@ -2697,7 +2727,7 @@ class PortfolioBacktester:
             wins = sum(1 for t in completed if t.get('profit_pct', 0) > 0)
             total_pnl = sum(t.get('profit_pct', 0) for t in completed)
             avg_pnl = total_pnl / len(completed) if completed else 0
-            
+
             # 【P2修复】计算策略级最大回撤(基于累计净值曲线)
             strategy_max_dd = 0.0
             if completed:
@@ -2710,10 +2740,10 @@ class PortfolioBacktester:
                     dd = peak_pnl - cum_pnl
                     if dd > strategy_max_dd:
                         strategy_max_dd = dd
-            
-            # 【P1-3修复(V9)：策略级盈亏比改用交易维度(与组合级PLR一致)】
-            # 旧: strategy_wins_pnl / abs(strategy_losses_pnl) → 基于盈亏金额，被大额交易扭曲
-            # 新: avg_win_pct / avg_loss_pct → 基于平均盈亏比，反映策略稳定性
+
+            # 【P1-3修复(V9):策略级盈亏比改用交易维度(与组合级PLR一致)】
+            # 旧: strategy_wins_pnl / abs(strategy_losses_pnl) → 基于盈亏金额,被大额交易扭曲
+            # 新: avg_win_pct / avg_loss_pct → 基于平均盈亏比,反映策略稳定性
             strategy_win_trades = [t for t in completed if t.get('profit_pct', 0) > 0]
             strategy_loss_trades = [t for t in completed if t.get('profit_pct', 0) < 0]
             if strategy_win_trades and strategy_loss_trades:
@@ -2724,7 +2754,7 @@ class PortfolioBacktester:
                 strategy_plr = 99.99
             else:
                 strategy_plr = 0.0
-            
+
             strategy_results[sname] = {
                 "strategy_name": sname,
                 "win_rate": (wins / len(completed) * 100) if completed else 0,
@@ -2735,7 +2765,7 @@ class PortfolioBacktester:
                 "profit_loss_ratio": strategy_plr,
             }
 
-        # 🔧 因子缺失告警：0交易策略加warning字段
+        # 🔧 因子缺失告警:0交易策略加warning字段
         # 先从selected_strategies补上0交易的策略(它们不在merged_trades里)
         signal_stats = getattr(self, '_strategy_signal_stats', {})
         all_strategy_names = set()
@@ -2747,7 +2777,7 @@ class PortfolioBacktester:
                 total_days = ss.get('total_days', 0)
                 signal_days = ss.get('signal_days', 0)
                 if total_days == 0:
-                    warning = "策略未启用或选股条件过于严格，回测期间从未触发筛选"
+                    warning = "策略未启用或选股条件过于严格,回测期间从未触发筛选"
                 elif signal_days == 0:
                     warning = f"回测{total_days}天均0候选→可能因子数据缺失(如limit_up_yesterday/volume_ratio为空)或选股条件过严"
                 else:
@@ -2765,7 +2795,7 @@ class PortfolioBacktester:
                 total_days = ss.get('total_days', 0)
                 signal_days = ss.get('signal_days', 0)
                 if total_days == 0:
-                    sdata["warning"] = "策略未启用或选股条件过于严格，回测期间从未触发筛选"
+                    sdata["warning"] = "策略未启用或选股条件过于严格,回测期间从未触发筛选"
                 elif signal_days == 0:
                     sdata["warning"] = f"回测{total_days}天均0候选→可能因子数据缺失(如limit_up_yesterday/volume_ratio为空)或选股条件过严"
                 else:
@@ -2774,8 +2804,8 @@ class PortfolioBacktester:
         result["strategy_results"] = strategy_results
 
         # 3. factor_contribution: 因子贡献 {策略名: 贡献比例}
-        # 【修复】按实际收益贡献(绝对值)分配，而非笔数等分
-        # 半路追涨110笔赚62% vs 涨停开板11笔亏3.9%，按笔数分配不合理
+        # 【修复】按实际收益贡献(绝对值)分配,而非笔数等分
+        # 半路追涨110笔赚62% vs 涨停开板11笔亏3.9%,按笔数分配不合理
         factor_contribution = {}
         total_pnl_abs = sum(abs(s.get("total_pnl_pct", 0)) for s in strategy_results.values())
         if total_pnl_abs > 0:
@@ -2805,7 +2835,7 @@ class PortfolioBacktester:
                     month_key = date_str[:6]  # "202601"
                     formatted_key = f"{month_key[:4]}-{month_key[4:]}"  # "2026-01"
                     if current_month is not None and month_key != current_month:
-                        # 月末，计算该月收益
+                        # 月末,计算该月收益
                         m_return = (current_value - monthly_start_value) / monthly_start_value if monthly_start_value > 0 else 0
                         formatted_prev = f"{current_month[:4]}-{current_month[4:]}"
                         monthly_profit[formatted_prev] = m_return
@@ -2819,14 +2849,14 @@ class PortfolioBacktester:
                 monthly_profit[formatted_last] = m_return
         result["monthly_profit"] = monthly_profit
 
-        # 兼容层标注：年化收益可靠性
+        # 兼容层标注:年化收益可靠性
         result["annual_return_reliable"] = annual_return_reliable
 
         return result
 
     async def _load_benchmark_data(self, benchmark_code: str, start_date: int, end_date: int):
         """加载基准指数数据用于计算超额收益"""
-        # 【P1-6修复(V9)：用$or同时查int和string格式的trade_date，减少MongoDB查询从7次→3次】
+        # 【P1-6修复(V9):用$or同时查int和string格式的trade_date,减少MongoDB查询从7次→3次】
         query_or = {
             "ts_code": benchmark_code,
             "$or": [
@@ -2835,8 +2865,8 @@ class PortfolioBacktester:
             ]
         }
         docs = await mongo_manager.find_many(C.INDEX_DAILY, query_or)
-        
-        # 如果指定代码查不到，尝试000001.SH(上证指数)
+
+        # 如果指定代码查不到,尝试000001.SH(上证指数)
         if not docs and benchmark_code != "000001.SH":
             fallback_query = {
                 "ts_code": "000001.SH",
@@ -2847,13 +2877,13 @@ class PortfolioBacktester:
             }
             docs = await mongo_manager.find_many(C.INDEX_DAILY, fallback_query)
             if docs:
-                await self.log(f"   ⚠️ 基准数据回退: {benchmark_code}无数据，使用000001.SH(上证指数)")
-        
-        # 如果index_daily无数据，回退到stock_daily_ak_full（兼容旧数据）
+                await self.log(f"   ⚠️ 基准数据回退: {benchmark_code}无数据,使用000001.SH(上证指数)")
+
+        # 如果index_daily无数据,回退到stock_daily_ak_full(兼容旧数据)
         if not docs:
             docs = await mongo_manager.find_many(C.STOCK_DAILY, query_or)
-        
-        # 如果仍然无数据，用宽基ETF近似
+
+        # 如果仍然无数据,用宽基ETF近似
         if not docs:
             for fallback_code in ["510050.SH", "510300.SH", "510500.SH"]:
                 fallback_query = {
@@ -2864,14 +2894,14 @@ class PortfolioBacktester:
                 if docs:
                     await self.log(f"   ⚠️ 基准数据回退使用 {fallback_code}(ETF)近似")
                     break
-        
-        # 按日期排序（兼容int和string）
+
+        # 按日期排序(兼容int和string)
         docs.sort(key=lambda x: int(x["trade_date"]) if isinstance(x["trade_date"], str) else x["trade_date"])
         benchmark_data = []
         for i, doc in enumerate(docs):
             td = int(doc["trade_date"]) if isinstance(doc["trade_date"], str) else doc["trade_date"]
             close = doc["close"]
-            # 【P0修复】pct_chg: 优先用文档值，否则从前一天close计算
+            # 【P0修复】pct_chg: 优先用文档值,否则从前一天close计算
             pct_chg = doc.get("pct_chg")
             if pct_chg is None or pct_chg == 0:
                 if i > 0 and benchmark_data[i-1]["close"] > 0:
@@ -2887,12 +2917,12 @@ class PortfolioBacktester:
 
     async def _get_prices(self, ts_codes: set[str], trade_date):
         """批量获取指定股票在指定日期的开盘价和收盘价
-        【P2-4优化：使用每日价格缓存，同一天只查一次MongoDB】
+        【P2-4优化:使用每日价格缓存,同一天只查一次MongoDB】
 
         Returns:
             dict: {ts_code: {"open": open_price, "close": close_price}}
         """
-        # 【P2-4：每日价格缓存】同一天只查一次MongoDB，后续调用直接从缓存取
+        # 【P2-4:每日价格缓存】同一天只查一次MongoDB,后续调用直接从缓存取
         cache = getattr(self, '_daily_price_cache', {})
         cache_date = getattr(self, '_daily_price_cache_date', None)
         if cache and cache_date == trade_date:
@@ -2907,7 +2937,7 @@ class PortfolioBacktester:
                 elif code_str.startswith('6') or code_str.startswith('5') or code_str.startswith('9'):
                     std_code = f"{code_str}.SH"
                 elif code_str.startswith('8') or code_str.startswith('4'):
-                    std_code = f"{code_str}.BJ"  # 【P2-5：北交所用.BJ】
+                    std_code = f"{code_str}.BJ"  # 【P2-5:北交所用.BJ】
                 else:
                     std_code = f"{code_str}.SZ"
                 if std_code in cache:
@@ -2922,7 +2952,7 @@ class PortfolioBacktester:
             # 只查缺失的股票
             ts_codes = missing
         else:
-            # 新的一天，重置缓存
+            # 新的一天,重置缓存
             self._daily_price_cache = {}
             self._daily_price_cache_date = trade_date
             cache = self._daily_price_cache
@@ -2959,7 +2989,7 @@ class PortfolioBacktester:
             "ts_code": {"$in": list(ts_codes_set)},
         }
 
-        # 【P1-1修复(V19)：_get_prices日志降级为debug，避免每日3-5次调用水淹日志】
+        # 【P1-1修复(V19):_get_prices日志降级为debug,避免每日3-5次调用水淹日志】
         logger.debug('backtest', f'[_get_prices] 查询 {len(ts_codes_standard)} 只股票,日期: {trade_date}')
 
         docs = await mongo_manager.find_many(C.STOCK_DAILY, query)
@@ -2993,7 +3023,7 @@ class PortfolioBacktester:
                     "high": doc.get("high", doc["close"]),
                     "low": doc.get("low", doc["close"]),
                     "close": doc["close"],
-                    # 【D1修复(第二十轮)：pre_close补充逻辑】
+                    # 【D1修复(第二十轮):pre_close补充逻辑】
                     # stock_daily_ak_full无pre_close字段(前复权数据Tushare不返回)
                     # 优先用MongoDB的pre_close→回退到前一交易日close(_prev_day_close)
                     "pre_close": doc.get("pre_close") or self._prev_day_close.get(matched_key, None)
@@ -3001,22 +3031,22 @@ class PortfolioBacktester:
                 matched += 1
 
 
-        # 【P1-1修复(V19)：_get_prices日志降级为debug】
+        # 【P1-1修复(V19):_get_prices日志降级为debug】
         logger.debug('backtest', f'[_get_prices] 查询到 {len(result)}/{len(ts_codes_standard)} 只股票有价格')
 
-        # 【P2-4：存入每日价格缓存】
+        # 【P2-4:存入每日价格缓存】
         cache = getattr(self, '_daily_price_cache', {})
         cache.update(result)
         self._daily_price_cache = cache
 
-        # 【P0-3：更新_last_valid_price，停牌强卖时回退用】
+        # 【P0-3:更新_last_valid_price,停牌强卖时回退用】
         lvp = getattr(self, '_last_valid_price', {})
-        # 【D1修复(第二十轮)：同时更新_prev_day_close，供次日pre_close回退】
+        # 【D1修复(第二十轮):同时更新_prev_day_close,供次日pre_close回退】
         pdc = getattr(self, '_prev_day_close', {})
         for code, price_info in result.items():
             if price_info.get('close', 0) > 0:
                 lvp[code] = price_info['close']
-                pdc[code] = price_info['close']  # 记录当日close，次日作为pre_close
+                pdc[code] = price_info['close']  # 记录当日close,次日作为pre_close
         self._last_valid_price = lvp
         self._prev_day_close = pdc
 
@@ -3024,7 +3054,7 @@ class PortfolioBacktester:
 
     def _compute_weights(self, candidates: list[str], factor_df, weight_method: str) -> dict[str, float]:
         """计算目标权重 - 根据权重方法分配权重
-        
+
         【V3】策略席位制: 按strategy_weights分配max_stocks席位
         例: max_stocks=3, weights={半路:0.7, 首板:0.1, 龙头:0.1, 跌停:0.1}
         → 半路: ceil(3*0.7)=3, 首板: max(1,ceil(3*0.1))=1 → 总4(>3时按权重比缩减)
@@ -3032,44 +3062,43 @@ class PortfolioBacktester:
         max_stocks = getattr(self, '_max_stocks', 3)
         strategy_weights = getattr(self, '_strategy_weights', {})
         stock_strategy = getattr(self, 'stock_to_strategy', {})
-        
+
         # 按策略分组候选
         strat_groups = {}  # strategy_name -> [(code, score)]
+        # 【P1-2修复(V20)：预构建ts_code→score映射，避免逐行O(N*M)查找factor_df】
+        _score_map = {}
+        if factor_df is not None and len(factor_df) > 0:
+            if 'composite_score' in factor_df.columns:
+                _score_map = dict(zip(factor_df['ts_code'], factor_df['composite_score'].fillna(0)))
+            elif 'pct_chg' in factor_df.columns:
+                _score_map = dict(zip(factor_df['ts_code'], factor_df['pct_chg'].fillna(0)))
         for code in candidates:
             strategies = stock_strategy.get(code, [])
             if isinstance(strategies, str): strategies = [strategies]
             
-            # 计算分数
-            row_score = 0
-            if factor_df is not None and len(factor_df) > 0:
-                row = factor_df[factor_df['ts_code'] == code]
-                if len(row) > 0:
-                    if 'composite_score' in row.columns and not row['composite_score'].isna().iloc[0]:
-                        row_score = float(row['composite_score'].iloc[0])
-                    elif 'pct_chg' in row.columns and not row['pct_chg'].isna().iloc[0]:
-                        row_score = float(row['pct_chg'].iloc[0])
-            
+            row_score = _score_map.get(code, 0)
+
             # 归入每个策略组(一只股可属多个策略)
             for sname in strategies:
                 if sname not in strat_groups:
                     strat_groups[sname] = []
                 strat_groups[sname].append((code, row_score))
-        
+
         # 按strategy_weights分配席位
         import math
         total_seats = max_stocks
         selected_codes = []
-        
+
         if strategy_weights:
             # 计算每个策略的席位数
             seats = {}
             for sname, w in strategy_weights.items():
                 seats[sname] = max(1, math.ceil(total_seats * w))  # 至少1席
-            
-            # 如果总席位>max_stocks，按权重比缩减
+
+            # 如果总席位>max_stocks,按权重比缩减
             total_allocated = sum(seats.values())
             if total_allocated > total_seats:
-                # 按权重从大到小分配，直到用完
+                # 按权重从大到小分配,直到用完
                 sorted_strats = sorted(seats.keys(), key=lambda s: strategy_weights.get(s, 0), reverse=True)
                 remaining = total_seats
                 seats = {}
@@ -3089,7 +3118,7 @@ class PortfolioBacktester:
             # 无权重配置时等分
             n_strats = len(strat_groups) or 1
             seats = {s: max(1, total_seats // n_strats) for s in strat_groups}
-        
+
         # 每个策略组内按分数排序取前N
         used_codes = set()
         for sname, group in strat_groups.items():
@@ -3101,7 +3130,7 @@ class PortfolioBacktester:
                     selected_codes.append(code)
                     used_codes.add(code)
                     count += 1
-        
+
         if weight_method == "equal":
             weight = 1.0 / len(selected_codes) if len(selected_codes) > 0 else 0
             return dict.fromkeys(selected_codes, weight)
@@ -3129,42 +3158,42 @@ class PortfolioBacktester:
                              high_price: float, low_price: float, pre_close: float = 0) -> float:
         """【辅助函数】计算涨停价买入价
 
-        逻辑：
-        1. 一字涨停板(open=close=high=low)：open本身就是涨停价
-        2. 非一字板涨停(收盘涨幅>=阈值)：close即涨停价
-        3. 非涨停日(高开未封板等)：用pre_close*(1+涨停幅度)估算，不超过high
+        逻辑:
+        1. 一字涨停板(open=close=high=low):open本身就是涨停价
+        2. 非一字板涨停(收盘涨幅>=阈值):close即涨停价
+        3. 非涨停日(高开未封板等):用pre_close*(1+涨停幅度)估算,不超过high
 
-        【P0-2修复】涨停判断改用pre_close(昨收)，原来用open导致高开涨停误判
+        【P0-2修复】涨停判断改用pre_close(昨收),原来用open导致高开涨停误判
         """
         limit_pct = self._get_limit_pct(ts_code)
-        # 判断阈值：涨停幅度-0.5%容差(避免浮点误差)
+        # 判断阈值:涨停幅度-0.5%容差(避免浮点误差)
         threshold = limit_pct - 0.005
 
         if open_price <= 0:
             return 0
 
-        # 一字涨停板：四价相同，open本身就是涨停价
-        # 【修复】一字板无法买入(全天封死涨停，排单买不进)，返回0跳过
+        # 一字涨停板:四价相同,open本身就是涨停价
+        # 【修复】一字板无法买入(全天封死涨停,排单买不进),返回0跳过
         if (open_price == close_price == high_price == low_price) and open_price > 0:
             return 0  # 一字板不可买入
 
-        # 非一字板涨停：【P0-2修复】用pre_close判断是否涨停
+        # 非一字板涨停:【P0-2修复】用pre_close判断是否涨停
         if pre_close > 0:
             pct_from_pre_close = (close_price - pre_close) / pre_close
             if pct_from_pre_close >= threshold:
                 return close_price
         else:
-            # 回退：无pre_close时用open近似(兼容旧数据)
+            # 回退:无pre_close时用open近似(兼容旧数据)
             pct_from_open = (close_price - open_price) / open_price
             if pct_from_open >= threshold:
                 return close_price
 
-        # 非涨停日：用昨收*(1+涨停幅度)估算涨停价，不超过high
+        # 非涨停日:用昨收*(1+涨停幅度)估算涨停价,不超过high
         base_price = pre_close if pre_close > 0 else open_price
         return min(base_price * (1 + limit_pct), high_price)
 
     def _get_strategy_for_stock(self, code: str) -> str:
-        """【辅助函数】获取股票的策略名(支持多策略选同股，取第一个策略)"""
+        """【辅助函数】获取股票的策略名(支持多策略选同股,取第一个策略)"""
         sinfo = getattr(self, 'stock_to_strategy', {}).get(code, '')
         if isinstance(sinfo, list) and len(sinfo) > 0:
             return sinfo[0]  # 取第一个策略(最优先)
@@ -3172,15 +3201,15 @@ class PortfolioBacktester:
 
     def _get_buy_price_for_stock(self, code: str, open_price: float, close_price: float,
                                   high_price: float, low_price: float, pre_close: float = 0) -> float:
-        """【辅助函数】计算买入价(多策略选同股时取最低买入价，最保守)
+        """【辅助函数】计算买入价(多策略选同股时取最低买入价,最保守)
 
         【日线回测买入价模拟】:
-        - 回测基于日线数据，无法精确模拟盘中价格
+        - 回测基于日线数据,无法精确模拟盘中价格
         - 半路追涨: open*(1+min_rise*0.6) 模拟涨到阈值后追入
         - 龙头低吸: 日内偏低位但不极端的位置
         - 跌停翘板: 跌停价附近小幅上涨
-        
-        注意：这是对实盘价格的近似模拟，实际成交价可能有所不同
+
+        注意:这是对实盘价格的近似模拟,实际成交价可能有所不同
         """
         sinfo = getattr(self, 'stock_to_strategy', {}).get(code, '')
         strategies = sinfo if isinstance(sinfo, list) else [sinfo]
@@ -3188,12 +3217,12 @@ class PortfolioBacktester:
         prices = []
         for sname in strategies:
             if sname == '半路追涨':
-                # 【V11-P0-2修复：消除未来函数 — 旧逻辑open+(high-open)*0.5用了当天high】
-                # 【V12-P0-2修复：系数从0.7调整为0.8，平衡回测真实性和利润空间】
-                # 系数0.7: 买入价=open*1.021(涨幅1.05%处)，过于保守导致回测虚高
-                # 系数0.9: 买入价=open*1.027(涨幅2.7%处)，接近信号确认位但利润太薄
-                # 系数0.8: 买入价=open*1.024(涨幅2.4%处)，实盘可在接近3%时确认并买入
-                # 实盘场景：9:30开盘后观察股价涨幅，涨幅达2.4%时预判3%信号并买入
+                # 【V11-P0-2修复:消除未来函数 - 旧逻辑open+(high-open)*0.5用了当天high】
+                # 【V12-P0-2修复:系数从0.7调整为0.8,平衡回测真实性和利润空间】
+                # 系数0.7: 买入价=open*1.021(涨幅1.05%处),过于保守导致回测虚高
+                # 系数0.9: 买入价=open*1.027(涨幅2.7%处),接近信号确认位但利润太薄
+                # 系数0.8: 买入价=open*1.024(涨幅2.4%处),实盘可在接近3%时确认并买入
+                # 实盘场景:9:30开盘后观察股价涨幅,涨幅达2.4%时预判3%信号并买入
                 # 此时价格 ≈ open × (1 + min_rise_pct × 0.8)
                 _sp = getattr(self, '_strategy_params', {}).get(sname, {})
                 _min_rise = _sp.get('min_rise_pct', 0.03)
@@ -3214,9 +3243,9 @@ class PortfolioBacktester:
                     p = open_price * 0.98
             elif sname == '跌停翘板':
                 # 跌停撬板买入价: 跌停价上方1-3%
-                # 【P1-5修复(V15)】：翘板买入价从low*1.005→low*1.01
-                # low*1.005(0.5%溢价)过于保守，实盘翘板通常在跌停价上方1-3%成交
-                # low*1.01(1%溢价)更接近实盘翘板成交价，避免利润虚高
+                # 【P1-5修复(V15)】:翘板买入价从low*1.005→low*1.01
+                # low*1.005(0.5%溢价)过于保守,实盘翘板通常在跌停价上方1-3%成交
+                # low*1.01(1%溢价)更接近实盘翘板成交价,避免利润虚高
                 p = low_price * 1.01 if low_price > 0 else open_price * 0.92
             else:
                 p = open_price
@@ -3225,7 +3254,7 @@ class PortfolioBacktester:
 
         if not prices:
             return open_price
-        # 多策略选同股：取最低买入价(最保守，避免高估成本)
+        # 多策略选同股:取最低买入价(最保守,避免高估成本)
         return min(prices)
 
     def _extract_position_multiplier(self, sentiment: str) -> float:
@@ -3250,8 +3279,8 @@ class PortfolioBacktester:
         return 1.0
 
     # ==================== 【修复#7:统一策略筛选条件构建方法】 ====================
-    # 【P1-9修复：策略中文名→ID映射，用于从STRATEGY_CONFIGS读取默认值】
-    # 【P1-7修复】删除硬编码的_STRATEGY_NAME_TO_ID，从STRATEGY_CONFIGS动态生成
+    # 【P1-9修复:策略中文名→ID映射,用于从STRATEGY_CONFIGS读取默认值】
+    # 【P1-7修复】删除硬编码的_STRATEGY_NAME_TO_ID,从STRATEGY_CONFIGS动态生成
     @property
     def _strategy_name_to_id(self):
         """从strategy_defaults.py动态生成策略名→ID映射"""
@@ -3259,13 +3288,13 @@ class PortfolioBacktester:
 
     def _build_strategy_filter_conditions(self, strategy_name: str, params: dict) -> list:
         """【统一入口】构建单个策略的因子筛选条件
-        
-        【P1-9说明：筛选条件应从strategy_defaults.py动态生成】
-        当前实现硬编码了条件，与strategy_defaults.py的params可能不同步。
-        理想方案：从STRATEGY_CONFIGS[strategy_id].params读取参数，动态生成条件。
-        但当前params的字段名与筛选条件的字段名不完全对应（如min_rise_pct vs rise_pct），
-        需要一个映射层。此修复涉及重构，暂不执行，仅标注。
-        
+
+        【P1-9说明:筛选条件应从strategy_defaults.py动态生成】
+        当前实现硬编码了条件,与strategy_defaults.py的params可能不同步。
+        理想方案:从STRATEGY_CONFIGS[strategy_id].params读取参数,动态生成条件。
+        但当前params的字段名与筛选条件的字段名不完全对应(如min_rise_pct vs rise_pct),
+        需要一个映射层。此修复涉及重构,暂不执行,仅标注。
+
         消除3处重复定义:强制空仓分支、正常调仓分支、_print_single_strategy_filtering 中都有相同的条件定义
 
         【修复#44:参数单位统一】
@@ -3289,7 +3318,7 @@ class PortfolioBacktester:
             else:
                 converted_params[k] = v
 
-        # 【P1-9修复：从STRATEGY_CONFIGS读取默认值，不再硬编码】
+        # 【P1-9修复:从STRATEGY_CONFIGS读取默认值,不再硬编码】
         strategy_id = self._strategy_name_to_id.get(strategy_name, "")
         strategy_defaults = STRATEGY_CONFIGS.get(strategy_id, {}).get("params", {})
 
@@ -3314,26 +3343,26 @@ class PortfolioBacktester:
             # 【核心优化】收盘确认: 盘中涨了但收盘不站的次日35%胜率, 收站住的84%
             # 日线回测中pct_chg=收盘涨幅, 是未来函数(收盘后才知)
             # 但实盘可在14:50后观察是否站稳,回测近似是可接受的
-            # 【R1优化(V13)】：增加阳线确认(close>=open)，过滤冲高回落的阴线股
-            # 冲高回落的股(close<open)即使pct_chg>=3%也往往次日下跌，不应入选
+            # 【R1优化(V13)】:增加阳线确认(close>=open),过滤冲高回落的阴线股
+            # 冲高回落的股(close<open)即使pct_chg>=3%也往往次日下跌,不应入选
             if min_close_rise and min_close_rise > 0:
                 conditions.append({"name": "pct_chg", "target": min_close_rise * 100, "operator": ">=", "label": f"收盘涨幅≥{min_close_rise*100:.0f}%"})
             return conditions
         elif strategy_name == "首板打板":
-            # 【V3改造】首板打板：T-1预选 + T日竞价确认 + 盘中封板
-            # 核心变化：
-            # 1. 去掉limit_up_open_count/hot_sector/limit_up_time（数据全0）
-            # 2. 去掉limit_up_open_amount（日线无法计算盘中封单）
-            # 3. 用first_limit_up=1作为T日盘中封板确认（日线可推断）
-            # 4. 保留opening_pct_chg作为竞价筛选（9:25可观测）
-            # 5. 成交概率在_rebalance中模拟（一字板0%/秒板10%/快速板30%/盘中板50%）
-            # 【P1-9修复：circ_mv单位是万元，参数单位是亿，需×10000转换】
+            # 【V3改造】首板打板:T-1预选 + T日竞价确认 + 盘中封板
+            # 核心变化:
+            # 1. 去掉limit_up_open_count/hot_sector/limit_up_time(数据全0)
+            # 2. 去掉limit_up_open_amount(日线无法计算盘中封单)
+            # 3. 用first_limit_up=1作为T日盘中封板确认(日线可推断)
+            # 4. 保留opening_pct_chg作为竞价筛选(9:25可观测)
+            # 5. 成交概率在_rebalance中模拟(一字板0%/秒板10%/快速板30%/盘中板50%)
+            # 【P1-9修复:circ_mv单位是万元,参数单位是亿,需×10000转换】
             min_circ_mv = (converted_params.get("min_circulation_market_cap") if converted_params.get("min_circulation_market_cap") is not None else strategy_defaults.get("min_circulation_market_cap", 50)) * 10000
             max_circ_mv = (converted_params.get("max_circulation_market_cap") if converted_params.get("max_circulation_market_cap") is not None else strategy_defaults.get("max_circulation_market_cap", 500)) * 10000
             min_volume_ratio = converted_params.get("min_volume_ratio") if converted_params.get("min_volume_ratio") is not None else strategy_defaults.get("min_volume_ratio", 1.5)
             min_turnover = converted_params.get("min_turnover_rate") if converted_params.get("min_turnover_rate") is not None else strategy_defaults.get("min_turnover_rate", 3)
             max_turnover = converted_params.get("max_turnover_rate") if converted_params.get("max_turnover_rate") is not None else strategy_defaults.get("max_turnover_rate", 15)
-            # 【P0-3修复：从STRATEGY_CONFIGS读取fallback，不硬编码】
+            # 【P0-3修复:从STRATEGY_CONFIGS读取fallback,不硬编码】
             opening_pct_min = converted_params.get("opening_pct_min") if converted_params.get("opening_pct_min") is not None else strategy_defaults.get("opening_pct_min", -1.0)
             opening_pct_max = converted_params.get("opening_pct_max") if converted_params.get("opening_pct_max") is not None else strategy_defaults.get("opening_pct_max", 7.0)
             return [
@@ -3355,7 +3384,7 @@ class PortfolioBacktester:
             min_volume_ratio = converted_params.get("min_volume_ratio") if converted_params.get("min_volume_ratio") is not None else strategy_defaults.get("min_volume_ratio", 2.0)
             require_sentiment = converted_params.get("require_sentiment_period", ["rising"])
             # 【日线模式修复】涨停开板的盘中数据(limit_up_open_duration/limit_up_open_amount/limit_up_time)
-            # 在日线回测中全为0，无法区分。改为日线可观测条件：
+            # 在日线回测中全为0,无法区分。改为日线可观测条件:
             # - limit_up_yesterday=1: 昨日涨停(连板候选)
             # - is_limit_up=0: 今日未封住(开板)
             # - pct_chg>=0: 今日仍有涨幅(非大跌)
@@ -3370,16 +3399,16 @@ class PortfolioBacktester:
                 {"name": "sentiment_period_in", "target": require_sentiment, "operator": "in", "label": "情绪周期要求"},
             ]
         elif strategy_name == "龙头低吸":
-            # 【P1-9修复：默认值从STRATEGY_CONFIGS读取】
+            # 【P1-9修复:默认值从STRATEGY_CONFIGS读取】
             min_consecutive = converted_params.get("min_consecutive_limit") if converted_params.get("min_consecutive_limit") is not None else strategy_defaults.get("min_consecutive_limit", 1)
             min_correction = converted_params.get("min_correction_pct") if converted_params.get("min_correction_pct") is not None else strategy_defaults.get("min_correction_pct", 0.05)
             max_correction = converted_params.get("max_correction_pct") if converted_params.get("max_correction_pct") is not None else strategy_defaults.get("max_correction_pct", 0.35)
             correction_days_min = converted_params.get("correction_days_min") if converted_params.get("correction_days_min") is not None else strategy_defaults.get("correction_days_min", 1)
             correction_days_max = converted_params.get("correction_days_max") if converted_params.get("correction_days_max") is not None else strategy_defaults.get("correction_days_max", 7)
             support_level = converted_params.get("support_level") if converted_params.get("support_level") is not None else strategy_defaults.get("support_level", "ma5")
-            # 【P0-3修复(第十轮)：market_leader因子在MongoDB中全0，无法用于龙头筛选】
-            # 替代方案：用circ_mv(流通市值)识别龙头股——大市值更可能是龙头
-            # 【注意】circ_mv单位是万元，参数单位是亿，需×10000转换
+            # 【P0-3修复(第十轮):market_leader因子在MongoDB中全0,无法用于龙头筛选】
+            # 替代方案:用circ_mv(流通市值)识别龙头股--大市值更可能是龙头
+            # 【注意】circ_mv单位是万元,参数单位是亿,需×10000转换
             _min_circ_for_leader = (converted_params.get("min_circulation_market_cap") if converted_params.get("min_circulation_market_cap") is not None else strategy_defaults.get("min_circulation_market_cap", 30)) * 10000
             _min_vr = converted_params.get("min_volume_ratio") if converted_params.get("min_volume_ratio") is not None else strategy_defaults.get("min_volume_ratio", 0.5)
             _max_vr = converted_params.get("max_volume_ratio") if converted_params.get("max_volume_ratio") is not None else strategy_defaults.get("max_volume_ratio", 2.0)
@@ -3388,20 +3417,20 @@ class PortfolioBacktester:
                 {"name": "limit_up_count", "target": min_consecutive, "operator": ">=", "label": f"近5日至少{min_consecutive}板"},
                 # 【Bug修复】pullback_pct在MongoDB中存负数(如-0.15=回调15%)
                 # close < high_peak → pullback_pct < 0 → 回调时是负值
-                # 所以：回调≥5% → pullback_pct <= -0.05, 回调≤35% → pullback_pct >= -0.35
+                # 所以:回调≥5% → pullback_pct <= -0.05, 回调≤35% → pullback_pct >= -0.35
                 {"name": "pullback_pct", "target": -max_correction, "operator": ">=", "label": f"回调≤{max_correction*100:.0f}%(不超跌)"},
                 {"name": "pullback_pct", "target": -min_correction, "operator": "<=", "label": f"回调≥{min_correction*100:.0f}%"},
                 {"name": "pullback_days", "target": correction_days_min, "operator": ">=", "label": "最小回调天数"},
                 {"name": "pullback_days", "target": correction_days_max, "operator": "<=", "label": "最大回调天数"},
-                # 【V3】去掉pullback_ma5硬性条件(数据质量差，15→0只) 
-                # MA5支撑作为概念参考，不强制要求pullback_ma5=1
+                # 【V3】去掉pullback_ma5硬性条件(数据质量差,15→0只)
+                # MA5支撑作为概念参考,不强制要求pullback_ma5=1
                 # 量比双限: VR<0.5极度冷门(几乎无成交), VR>2.0放量回调(抛压未止)
                 # 数据: VR<0.8胜率50.2%(抛压枯竭), VR 0.8-1.5胜率44.1%, VR 1.5-2.0胜率47.4%
                 {"name": "volume_ratio", "target": _min_vr, "operator": ">=", "label": f"量比≥{_min_vr}(保流动性)"},
                 {"name": "volume_ratio", "target": _max_vr, "operator": "<=", "label": f"量比≤{_max_vr}(缩量回调)"},
             ]
         elif strategy_name == "跌停翘板":
-            # 【P1-9修复：默认值从STRATEGY_CONFIGS读取】
+            # 【P1-9修复:默认值从STRATEGY_CONFIGS读取】
             min_consecutive = converted_params.get("min_consecutive_limit") if converted_params.get("min_consecutive_limit") is not None else strategy_defaults.get("min_consecutive_limit", 2)
             # 【修复#47: min_qiao_amount单位统一为千元(与数据库limit_down_open_amount一致)】
             _raw_qiao = converted_params.get("min_qiao_amount") if converted_params.get("min_qiao_amount") is not None else strategy_defaults.get("min_qiao_amount", 1000)
@@ -3410,25 +3439,25 @@ class PortfolioBacktester:
             require_high_sentiment = converted_params.get("require_high_sentiment") if converted_params.get("require_high_sentiment") is not None else strategy_defaults.get("require_high_sentiment", False)
             require_sentiment = converted_params.get("require_sentiment_period", ["rising", "chaos"])
             min_turnover_qiao = converted_params.get("min_turnover_rate") if converted_params.get("min_turnover_rate") is not None else 10.0
-            # 【修复：min_turnover_rate前端可能传小数(0.10=10%)，需转换】
+            # 【修复:min_turnover_rate前端可能传小数(0.10=10%),需转换】
             if min_turnover_qiao < 1:
                 min_turnover_qiao *= 100
-            # 【P1-6修复(V13)】：circ_mv从参数读取，不再硬编码200000
-            # circ_mv单位是万元，参数单位是亿，需×10000转换
+            # 【P1-6修复(V13)】:circ_mv从参数读取,不再硬编码200000
+            # circ_mv单位是万元,参数单位是亿,需×10000转换
             _min_circ_qiao = (converted_params.get("min_circulation_market_cap") if converted_params.get("min_circulation_market_cap") is not None else strategy_defaults.get("min_circulation_market_cap", 20)) * 10000
             return [
                 {"name": "limit_down_yesterday", "target": 1, "label": "昨日跌停"},
                 {"name": "open_above_limit_down", "target": 1, "label": "开盘高于跌停价(不继续跌停)"},
                 {"name": "circ_mv", "target": _min_circ_qiao, "operator": ">=", "label": f"流通市值≥{_min_circ_qiao//10000}亿(排除小盘操纵)"},
                 {"name": "turnover_rate", "target": min_turnover_qiao, "operator": ">=", "label": f"换手率≥{min_turnover_qiao:.0f}%"},
-                # 【P0-3修复(V12→V12.1)】：翘板金额过滤改为target=0(跳过)
-                # limit_down_open_amount因子98%为0(数据质量问题)，无法可靠使用
+                # 【P0-3修复(V12→V12.1)】:翘板金额过滤改为target=0(跳过)
+                # limit_down_open_amount因子98%为0(数据质量问题),无法可靠使用
                 # 设target=0后_print_single_strategy_filtering会自动跳过此条件
                 # 待因子数据完善后再启用
                 {"name": "limit_down_open_amount", "target": 0, "operator": ">=", "label": f"翘板金额(数据不全,暂不过滤)"},
-                # 【R3优化(V9)：跌停翘板增加pct_chg>0条件，只选今日收涨的股】
-                # 旧: 只要求"不继续跌停"，可选到涨0.x%但收跌的弱势股
-                # 新: 要求pct_chg>0(今日收涨)，确认有资金主动翘板
+                # 【R3优化(V9):跌停翘板增加pct_chg>0条件,只选今日收涨的股】
+                # 旧: 只要求"不继续跌停",可选到涨0.x%但收跌的弱势股
+                # 新: 要求pct_chg>0(今日收涨),确认有资金主动翘板
                 {"name": "pct_chg", "target": 0, "operator": ">", "label": "今日收涨(确认翘板资金)"},
                 {"name": "sentiment_period_in", "target": require_sentiment if require_high_sentiment else [], "operator": "in", "label": "情绪周期要求"},
             ]
@@ -3441,7 +3470,7 @@ class PortfolioBacktester:
         strategy_rp = getattr(self, '_strategy_risk_params', {})
         global_sl = self._risk_config.get('stop_loss_pct', GLOBAL_RISK['stop_loss_pct'])
         global_tp = self._risk_config.get('take_profit_pct', 0.07)
-        # 【P0-3修复：按策略获取止损止盈参数】
+        # 【P0-3修复:按策略获取止损止盈参数】
         if isinstance(strategies, list) and strategies:
             sl = min(strategy_rp.get(s, {}).get('stop_loss_pct', global_sl) for s in strategies)
             tp = max(strategy_rp.get(s, {}).get('take_profit_pct', global_tp) for s in strategies)
@@ -3458,7 +3487,7 @@ class PortfolioBacktester:
         return global_slippage
 
     def _calc_total_value(self, cash: float, holdings: dict, prices: dict) -> float:
-        """【P1-7修复：提取持仓总价值计算为独立方法】
+        """【P1-7修复:提取持仓总价值计算为独立方法】
         用open价估值持仓计算总资产(调仓决策时刻)
         """
         total_value = cash
@@ -3475,7 +3504,7 @@ class PortfolioBacktester:
         return total_value
 
     def _calc_position_multiplier(self, sentiment: str, trade_date: int) -> tuple:
-        """【P1-7修复：提取综合仓位系数计算为独立方法】
+        """【P1-7修复:提取综合仓位系数计算为独立方法】
         Returns: (position_multiplier, active_periods)
         """
         sentiment_multiplier = self._extract_position_multiplier(sentiment)
@@ -3486,7 +3515,7 @@ class PortfolioBacktester:
         return position_multiplier, active_periods
 
     def _apply_limit_up_hit_probability(self, target_shares: dict, prices: dict, trade_date: int) -> dict:
-        """【P1-7修复：提取首板打板成交概率模拟为独立方法】
+        """【P1-7修复:提取首板打板成交概率模拟为独立方法】
         一字板0%/秒板30%/快速板50%/盘中板70%, 用确定性hash保证可复现
         Returns: 修改后的target_shares
         """
@@ -3498,7 +3527,7 @@ class PortfolioBacktester:
                 strategies = [strategies]
             if '首板打板' in strategies:
                 _limit_up_codes.append(code)
-        
+
         if _limit_up_codes and len(prices) > 0:
             import hashlib
             for code in _limit_up_codes:
@@ -3508,17 +3537,17 @@ class PortfolioBacktester:
                 c = p_info.get('close', 0)
                 h = p_info.get('high', 0)
                 l = p_info.get('low', 0)
-                
+
                 if o <= 0 or pc <= 0:
                     continue
-                
+
                 open_rise = (o - pc) / pc * 100
                 sp = self._strategy_params.get('首板打板', {})
                 hit_prob_yizi = sp.get('hit_probability_yizi', 0.0)
                 hit_prob_fast = sp.get('hit_probability_fast', 0.3)
                 hit_prob_normal = sp.get('hit_probability_normal', 0.5)
                 hit_prob_slow = sp.get('hit_probability_slow', 0.7)
-                
+
                 if o == c == h == l:
                     hit_prob = hit_prob_yizi
                 elif open_rise >= 8:
@@ -3527,7 +3556,7 @@ class PortfolioBacktester:
                     hit_prob = hit_prob_normal
                 else:
                     hit_prob = hit_prob_slow
-                
+
                 if hit_prob > 0:
                     seed_str = f"{code}_{trade_date}"
                     hash_val = int(hashlib.md5(seed_str.encode()).hexdigest(), 16) % 1000 / 1000.0
@@ -3544,12 +3573,12 @@ class PortfolioBacktester:
     def _rebalance(self, trade_date: int, target_weights: dict[str, float],
                        cash: float, holdings: dict[str, int], prices: dict[str, float], sentiment: str = ""):
         """执行调仓
-        
-        【P1-7说明：本方法453行，逻辑复杂但不可拆分】
-        原因：调仓是单次原子操作，拆分会导致状态传递复杂化。
-        内部逻辑分为4段：1)卖出决策 2)买入决策 3)止损止盈 4)强制空仓
-        每段依赖前一段的状态更新，拆分后需要6+个中间状态变量。
-        如需拆分，建议将4段提取为私有方法，但保持_rebalance作为唯一入口。
+
+        【P1-7说明:本方法453行,逻辑复杂但不可拆分】
+        原因:调仓是单次原子操作,拆分会导致状态传递复杂化。
+        内部逻辑分为4段:1)卖出决策 2)买入决策 3)止损止盈 4)强制空仓
+        每段依赖前一段的状态更新,拆分后需要6+个中间状态变量。
+        如需拆分,建议将4段提取为私有方法,但保持_rebalance作为唯一入口。
 
         Args:
             trade_date: 当前调仓日期
@@ -3564,13 +3593,13 @@ class PortfolioBacktester:
         """
         records = []
 
-        # 【P1-7修复：调用提取的子方法】
+        # 【P1-7修复:调用提取的子方法】
         total_value = self._calc_total_value(cash, holdings, prices)
         position_multiplier, active_periods = self._calc_position_multiplier(sentiment, trade_date)
 
         # 计算目标持仓(用策略对应买入价计算仓位,而非开盘价)
         target_shares = {}  # {ts_code: target_shares}
-        # 【P1-2修复：max_position_per_stock 单票仓位上限】
+        # 【P1-2修复:max_position_per_stock 单票仓位上限】
         max_pos_per_stock = self._risk_config.get('max_position_per_stock', 1.0)
         for code, weight in target_weights.items():
             if code not in prices:
@@ -3581,32 +3610,32 @@ class PortfolioBacktester:
             o = p_info.get('open', 0)
             h = p_info.get('high', o)
             l = p_info.get('low', o)
-            # 【P1-1修复：多策略选同股时取最低买入价】
+            # 【P1-1修复:多策略选同股时取最低买入价】
             buy_p = self._get_buy_price_for_stock(code, o, p_info.get('close', o), h, l, p_info.get('pre_close', 0))
             if buy_p <= 0:
                 buy_p = o
             if buy_p <= 0:
-                continue  # 无法确定买入价，跳过该股
-            # 【P1-2修复：仓位上限 = min(weight * position_multiplier, max_position_per_stock)】
+                continue  # 无法确定买入价,跳过该股
+            # 【P1-2修复:仓位上限 = min(weight * position_multiplier, max_position_per_stock)】
             effective_weight = min(weight * position_multiplier, max_pos_per_stock)
             target_value = total_value * effective_weight
             shares = int(int(target_value / buy_p) / 100) * 100
             if shares > 0:
                 target_shares[code] = shares
 
-        # 【P1-7修复：调用提取的子方法】
+        # 【P1-7修复:调用提取的子方法】
         target_shares = self._apply_limit_up_hit_probability(target_shares, prices, trade_date)
 
         # 先卖出:不在目标持仓中的股票全卖 + 持仓超过目标的股票减仓
         sell_codes = [code for code in holdings if code not in target_shares and holdings[code] > 0]
-        # 【P0-1修复(V19)：调仓日止损/冲高回落卖出的股票也要从target_shares中移除】
+        # 【P0-1修复(V19):调仓日止损/冲高回落卖出的股票也要从target_shares中移除】
         # 否则卖出后买入循环会重新买入(震荡bug: 止损卖出→同日重新买入)
-        # 旧bug: 止损/冲高回落/高开即卖只是将code加入sell_codes，但target_shares仍保留
+        # 旧bug: 止损/冲高回落/高开即卖只是将code加入sell_codes,但target_shares仍保留
         # 导致buy循环中 delta = target_shares[code] - holdings[code] = target_shares[code] - 0 > 0 → 重新买入
         sell_code_reasons = {}  # code -> sell_reason (用于日志)
-        # 【P0-4修复：调仓日止损检查 — 即使股票仍在目标池中，如果触发止损也要卖出】
-        # 之前bug: 止损只对"不在目标池"的股票生效，导致16笔交易亏损>3%止损线却未触发
-        # 注意：_rebalance是同步方法，不能使用await，复用已有的prices参数
+        # 【P0-4修复:调仓日止损检查 - 即使股票仍在目标池中,如果触发止损也要卖出】
+        # 之前bug: 止损只对"不在目标池"的股票生效,导致16笔交易亏损>3%止损线却未触发
+        # 注意:_rebalance是同步方法,不能使用await,复用已有的prices参数
         enable_stop_loss = self._risk_config.get('enable_stop_loss', True)
         enable_take_profit = self._risk_config.get('enable_take_profit', True)
         if (enable_stop_loss or enable_take_profit) and holdings:
@@ -3629,9 +3658,9 @@ class PortfolioBacktester:
                 high_p = p.get('high', p.get('close', 0))
                 open_p = p.get('open', p.get('close', 0))
                 _close_p = p.get('close', 0)
-                # 【P0-1修复(V17)】：目标池内持仓也要检查冲高回落/高开即卖/利润保护
-                # 旧bug: 只检查止损止盈，冲高回落等保护信号被跳过
-                # 导致：持仓股次日高开冲高回落，因仍在目标池而继续持有，利润回吐
+                # 【P0-1修复(V17)】:目标池内持仓也要检查冲高回落/高开即卖/利润保护
+                # 旧bug: 只检查止损止盈,冲高回落等保护信号被跳过
+                # 导致:持仓股次日高开冲高回落,因仍在目标池而继续持有,利润回吐
                 _strategies = getattr(self, 'stock_to_strategy', {}).get(code, [])
                 if isinstance(_strategies, str): _strategies = [_strategies]
                 early_sell_price, early_sell_reason = self._check_early_sell_signals(
@@ -3657,10 +3686,10 @@ class PortfolioBacktester:
                 sell_codes.remove(code)
         if t1_blocked:
             logger.info(f"[T+1] 当日买入不可卖: {','.join(t1_blocked[:5])}{'...' if len(t1_blocked)>5 else ''}")
-        # 【P1-1修复：超过max_hold_days的持仓强制卖出，即使仍在目标池中】
-        # 【P1-2修复(V15)：改用交易日计算超时，替代日历天数*1.5】
+        # 【P1-1修复:超过max_hold_days的持仓强制卖出,即使仍在目标池中】
+        # 【P1-2修复(V15):改用交易日计算超时,替代日历天数*1.5】
         # 旧逻辑: 日历天数>max_hold*1.5 → 周中买入易误触发
-        # 新逻辑: 统计all_trade_dates中的交易日数，精确不受周末/节假日影响
+        # 新逻辑: 统计all_trade_dates中的交易日数,精确不受周末/节假日影响
         global_max_hold = self._risk_config.get('max_hold_days', 999)
         over_hold_codes = []
         for code in list(holdings.keys()):
@@ -3696,31 +3725,31 @@ class PortfolioBacktester:
         sell_codes.extend(over_hold_codes)
         # 【Phase1-T+1】超时强卖也要递守T+1(正常不应出现:昨日买的今天不触超时)
         sell_codes = [c for c in sell_codes if self._cost_basis_date.get(c) != trade_date]
-        # 【P1-4修复(第十一轮)：去重，避免超时强卖股重复卖出】
+        # 【P1-4修复(第十一轮):去重,避免超时强卖股重复卖出】
         sell_codes = list(set(sell_codes))
-        # 【P1-4修复(第十轮)：超时强卖的股票当天不应被重新买入，从目标池中排除】
+        # 【P1-4修复(第十轮):超时强卖的股票当天不应被重新买入,从目标池中排除】
         for code in over_hold_codes:
             if code in target_shares:
                 del target_shares[code]
-        # 【P0-1修复(V19)：止损/冲高回落/高开即卖/止盈卖出的股票，也不应被重新买入】
-        # 旧bug: 这些股票只在sell_codes中，但target_shares仍保留→卖出后买入循环重新买入
-        # 导致: 止损卖出某股→同日重新买入(震荡)，利润保护/冲高回落形同虚设
+        # 【P0-1修复(V19):止损/冲高回落/高开即卖/止盈卖出的股票,也不应被重新买入】
+        # 旧bug: 这些股票只在sell_codes中,但target_shares仍保留→卖出后买入循环重新买入
+        # 导致: 止损卖出某股→同日重新买入(震荡),利润保护/冲高回落形同虚设
         for code in sell_code_reasons:
             if code in target_shares:
                 del target_shares[code]
-                logger.info('backtest', f'[{sell_code_reasons[code]}] {code} 从目标池移除，防止同日重新买入')
-        # 【修复P1-6：减仓逻辑 — 持仓超过目标时卖出差额】
+                logger.info('backtest', f'[{sell_code_reasons[code]}] {code} 从目标池移除,防止同日重新买入')
+        # 【修复P1-6:减仓逻辑 - 持仓超过目标时卖出差额】
         reduce_codes = {code: holdings[code] - target_shares[code] for code in holdings
                         if code in target_shares and holdings.get(code, 0) > target_shares[code]}
         # 【Phase1-T+1】当日买入的股票不可减仓(减仓=部分卖出)
         reduce_codes = {code: delta for code, delta in reduce_codes.items()
                         if self._cost_basis_date.get(code) != trade_date}
-        # 【P1-4修复：减仓前检查止损止盈 — 已触发止损的减仓股改为全卖】
+        # 【P1-4修复:减仓前检查止损止盈 - 已触发止损的减仓股改为全卖】
         enable_sl = self._risk_config.get('enable_stop_loss', True)
         enable_tp = self._risk_config.get('enable_take_profit', True)
-        # 【P0-2修复：按策略查找策略级止损止盈参数，优先于全局参数】
-        # 【P1-2修复(第十一轮)：_get_sl_tp_for_code和_get_slippage_for_code已提升为实例方法】
-        # 原局部函数定义已删除，直接调用 self.self._get_sl_tp_for_code(code) / self._get_slippage_for_code(code)
+        # 【P0-2修复:按策略查找策略级止损止盈参数,优先于全局参数】
+        # 【P1-2修复(第十一轮):_get_sl_tp_for_code和_get_slippage_for_code已提升为实例方法】
+        # 原局部函数定义已删除,直接调用 self.self._get_sl_tp_for_code(code) / self._get_slippage_for_code(code)
 
         codes_to_promote = []  # 从reduce_codes升级到sell_codes的股票
         for code in list(reduce_codes.keys()):
@@ -3731,33 +3760,33 @@ class PortfolioBacktester:
             _close_p = p.get('close', 0)
             cost = getattr(self, '_cost_basis', {}).get(code, 0)
             if cost > 0 and p.get('close', 0) > 0:
-                # 【P0-2修复(V17)】：减仓也要检查冲高回落/高开即卖/利润保护
+                # 【P0-2修复(V17)】:减仓也要检查冲高回落/高开即卖/利润保护
                 _strategies = getattr(self, 'stock_to_strategy', {}).get(code, [])
                 if isinstance(_strategies, str): _strategies = [_strategies]
                 early_sell_price, early_sell_reason = self._check_early_sell_signals(
                     code, _strategies, cost, open_p, _close_p)
                 if early_sell_price > 0:
-                    codes_to_promote.append(code)  # 冲高回落等保护信号，应全卖
+                    codes_to_promote.append(code)  # 冲高回落等保护信号,应全卖
                 else:
                     code_sl, code_tp = self._get_sl_tp_for_code(code)
                     if enable_sl and low_p <= cost * (1 - code_sl):
-                        codes_to_promote.append(code)  # 触发止损，应全卖
+                        codes_to_promote.append(code)  # 触发止损,应全卖
                     elif enable_tp and high_p >= cost * (1 + code_tp):
-                        codes_to_promote.append(code)  # 触发止盈，应全卖
+                        codes_to_promote.append(code)  # 触发止盈,应全卖
         for code in codes_to_promote:
             sell_codes.append(code)
             del reduce_codes[code]
-        # 【修复P1-8：停牌股超时强卖 — close<=0的持仓连续持有>10交易日强制卖出(取最后有效价)】
+        # 【修复P1-8:停牌股超时强卖 - close<=0的持仓连续持有>10交易日强制卖出(取最后有效价)】
         suspend_sell_codes = []
         for code in list(holdings.keys()):
             if holdings.get(code, 0) > 0 and code in prices:
                 p = prices[code]
                 if p.get('close', 0) <= 0:
-                    # 【P0-1修复：从_cost_basis_date获取买入日期】
+                    # 【P0-1修复:从_cost_basis_date获取买入日期】
                     buy_date_raw = getattr(self, '_cost_basis_date', {}).get(code)
                     if buy_date_raw is not None:
                         try:
-                            # 【P2-3修复(V15)：停牌超时也改用交易日计算，与P1-2超时强卖一致】
+                            # 【P2-3修复(V15):停牌超时也改用交易日计算,与P1-2超时强卖一致】
                             buy_dt_int = int(str(buy_date_raw))
                             trade_dt_int = int(str(trade_date))
                             _all_td = getattr(self, '_all_trade_dates', [])
@@ -3768,7 +3797,7 @@ class PortfolioBacktester:
                                 bd = dt_now.strptime(str(buy_dt_int), '%Y%m%d')
                                 td = dt_now.strptime(str(trade_dt_int), '%Y%m%d')
                                 trade_days_held = int((td - bd).days / 1.5)
-                            # 超过10个交易日停牌，强制卖出
+                            # 超过10个交易日停牌,强制卖出
                             if trade_days_held > 10:
                                 last_price = p.get('open', 0) or self._last_valid_price.get(code, 0) if True else 0
                                 if last_price > 0:
@@ -3782,7 +3811,7 @@ class PortfolioBacktester:
         # 其他:收盘卖出 → 用close
         enable_stop_loss = self._risk_config.get('enable_stop_loss', True)
         enable_take_profit = self._risk_config.get('enable_take_profit', True)
-        # 【P0-2修复：默认全局参数，卖出循环中按code覆盖】
+        # 【P0-2修复:默认全局参数,卖出循环中按code覆盖】
         global_sl = self._risk_config.get('stop_loss_pct', GLOBAL_RISK['stop_loss_pct'])
         global_tp = self._risk_config.get('take_profit_pct', 0.07)
         for ts_code in sell_codes:
@@ -3793,11 +3822,11 @@ class PortfolioBacktester:
             low_price = price_info.get('low', close_price)
             open_price = price_info.get('open', close_price)
             if close_price <= 0 or shares <= 0:
-                # 【修复P1-8：停牌股close=0时尝试用最后有效价卖出】
+                # 【修复P1-8:停牌股close=0时尝试用最后有效价卖出】
                 if ts_code in suspend_sell_codes:
                     last_price = price_info.get('open', 0) or getattr(self, '_last_valid_price', {}).get(ts_code, 0)
                     if last_price > 0 and shares > 0:
-                        # 停牌超时强卖，用最后有效价
+                        # 停牌超时强卖,用最后有效价
                         sell_price = last_price
                         sell_reason = '停牌超时强卖'
                         price = sell_price
@@ -3824,9 +3853,9 @@ class PortfolioBacktester:
             sell_price = close_price  # 默认收盘价
             sell_reason = '调仓卖出'
             if cost_basis > 0:
-                # 【P0-3修复(V16)：冲高回落/高开即卖/利润保护reason统一为固定分类】
+                # 【P0-3修复(V16):冲高回落/高开即卖/利润保护reason统一为固定分类】
                 # 旧: reason含价格细节如"冲高回落(开40.05涨9.7%)" → 前端统计每条独立
-                # 新: reason固定分类"冲高回落"/"高开即卖"/"利润保护"，价格细节存入record备注
+                # 新: reason固定分类"冲高回落"/"高开即卖"/"利润保护",价格细节存入record备注
                 _strategies = getattr(self, 'stock_to_strategy', {}).get(ts_code, [])
                 if isinstance(_strategies, str): _strategies = [_strategies]
                 early_sell_price, early_sell_reason = self._check_early_sell_signals(
@@ -3836,12 +3865,12 @@ class PortfolioBacktester:
                     sell_price = early_sell_price
                     sell_reason = early_sell_reason
                 if not early_sell_triggered:
-                    # 【P0-2修复：按策略获取止损止盈参数】
+                    # 【P0-2修复:按策略获取止损止盈参数】
                     code_sl, code_tp = self._get_sl_tp_for_code(ts_code)
                     stop_price = cost_basis * (1 - code_sl)
                     profit_price = cost_basis * (1 + code_tp)
                     if enable_stop_loss and low_price <= stop_price:
-                        # 【Phase1-跳空止损】open直接跳空低于止损价，以open卖出(最差情况)
+                        # 【Phase1-跳空止损】open直接跳空低于止损价,以open卖出(最差情况)
                         if open_price <= stop_price:
                             sell_price = open_price
                             sell_reason = f'跳空止损'
@@ -3854,7 +3883,7 @@ class PortfolioBacktester:
             price = sell_price
 
             # 计算卖出金额
-            # 【P1-2修复(V9)：止损不扣滑点(保守价)，但止盈/冲高回落/高开即卖需扣滑点(实盘难以精确卖出)】
+            # 【P1-2修复(V9):止损不扣滑点(保守价),但止盈/冲高回落/高开即卖需扣滑点(实盘难以精确卖出)】
             if sell_reason.startswith('止损') or sell_reason.startswith('跳空止损'):
                 slippage_pct = 0  # 止损不扣滑点(止损价已含保守估计)
             else:
@@ -3894,7 +3923,7 @@ class PortfolioBacktester:
         for ts_code, target_count in target_shares.items():
             current_shares = holdings.get(ts_code, 0)
             delta = target_count - current_shares
-            reduce_reason = None  # 【P1-5修复：每次循环重置，避免泄漏到后续股票】
+            reduce_reason = None  # 【P1-5修复:每次循环重置,避免泄漏到后续股票】
 
             if delta <= 0:
                 continue  # 不需要买入
@@ -3907,7 +3936,7 @@ class PortfolioBacktester:
             low_price = price_info.get('low', open_price)
             close_price = price_info.get('close', 0)
             strategy_name = self._get_strategy_for_stock(ts_code)
-            # 【P1-1修复：多策略选同股时取最低买入价】
+            # 【P1-1修复:多策略选同股时取最低买入价】
             price = self._get_buy_price_for_stock(ts_code, open_price, close_price, high_price, low_price, price_info.get('pre_close', 0))
             if price <= 0:
                 price = open_price
@@ -3928,7 +3957,7 @@ class PortfolioBacktester:
                 delta = int(int(delta * ratio) / 100) * 100
                 if delta <= 0:
                     continue
-                # 【修复新7：现金缩减买入信息附加到reason字段，后续日志显示】
+                # 【修复新7:现金缩减买入信息附加到reason字段,后续日志显示】
                 reduce_reason = f"现金不足缩减{ratio*100:.1f}%"
                 gross_amount = delta * buy_price_adj
                 commission = max(gross_amount * self.BUY_COMMISSION, self.MIN_COMMISSION)
@@ -3939,27 +3968,27 @@ class PortfolioBacktester:
 
             # 更新持仓
             holdings[ts_code] = current_shares + delta
-            # 【P0-1修复(V12)：cost_basis应记录含滑点的实际成交价buy_price_adj】
-            # 旧bug: 记录的是模拟价price(如半路追涨open*1.021)，不含滑点
-            # 导致止损/止盈基于不含滑点的价格计算，触发阈值偏差
+            # 【P0-1修复(V12):cost_basis应记录含滑点的实际成交价buy_price_adj】
+            # 旧bug: 记录的是模拟价price(如半路追涨open*1.021),不含滑点
+            # 导致止损/止盈基于不含滑点的价格计算,触发阈值偏差
             # 修复: 使用buy_price_adj(price*(1+slippage_pct))作为实际成本
             if not self._cost_basis:
                 self._cost_basis = {}
             if not self._cost_basis_date:
                 self._cost_basis_date = {}
             if current_shares > 0 and ts_code in self._cost_basis:
-                # 增仓：加权平均成本 = (旧成本*旧股数 + 新实际成本*新股数) / 总股数
+                # 增仓:加权平均成本 = (旧成本*旧股数 + 新实际成本*新股数) / 总股数
                 old_cost = self._cost_basis[ts_code]
                 total_shares = current_shares + delta
                 self._cost_basis[ts_code] = (old_cost * current_shares + buy_price_adj * delta) / total_shares
-                # 【Bug修复：增仓时不更新买入日期，保留首次买入日期用于超时判断】
+                # 【Bug修复:增仓时不更新买入日期,保留首次买入日期用于超时判断】
             else:
-                self._cost_basis[ts_code] = buy_price_adj  # 【P0-1修复】新买入：记录含滑点的实际成交价
+                self._cost_basis[ts_code] = buy_price_adj  # 【P0-1修复】新买入:记录含滑点的实际成交价
                 self._cost_basis_date[ts_code] = trade_date  # 仅新买入时记录首次买入日期
 
             # 记录交易
-            strategy_name = self._get_strategy_for_stock(ts_code)  # 【P1-1修复：支持多策略列表】
-            # 【修复新7：如果有现金缩减信息附加到reason】
+            strategy_name = self._get_strategy_for_stock(ts_code)  # 【P1-1修复:支持多策略列表】
+            # 【修复新7:如果有现金缩减信息附加到reason】
             final_reason = "rebalance"
             if reduce_reason:
                 final_reason = f"rebalance ({reduce_reason})"
@@ -3971,11 +4000,11 @@ class PortfolioBacktester:
                 price=price,
                 amount=-total_cost,
                 reason=final_reason,
-                strategy_name=strategy_name,  # 【修复新6：存独立字段】
+                strategy_name=strategy_name,  # 【修复新6:存独立字段】
                 sentiment=sentiment
             ))
 
-        # 【修复P1-6：减仓逻辑 — 卖出超过目标的部分】
+        # 【修复P1-6:减仓逻辑 - 卖出超过目标的部分】
         for ts_code, reduce_shares in reduce_codes.items():
             if reduce_shares <= 0:
                 continue
@@ -3986,7 +4015,7 @@ class PortfolioBacktester:
             close_price = price_info.get('close', 0)
             if close_price <= 0:
                 continue  # 停牌股不处理减仓
-            # 减仓用收盘价(不做止损止盈判断，减仓是调仓行为)
+            # 减仓用收盘价(不做止损止盈判断,减仓是调仓行为)
             sell_price = close_price
             sell_reason = '减仓'
             slippage_pct = self._get_slippage_for_code(ts_code)
@@ -4001,7 +4030,7 @@ class PortfolioBacktester:
                 date=str(trade_date), action="sell", ts_code=ts_code,
                 shares=reduce_shares, price=sell_price, amount=net_amount,
                 reason=sell_reason, sentiment=sentiment))
-            # 减仓后如果清零，删除cost_basis；部分减仓时保留(成本不变)
+            # 减仓后如果清零,删除cost_basis;部分减仓时保留(成本不变)
             if holdings[ts_code] <= 0 and ts_code in self._cost_basis:
                 del self._cost_basis[ts_code]
                 if ts_code in self._cost_basis_date:
@@ -4017,7 +4046,7 @@ class PortfolioBacktester:
         result = {}
         need_query = []
 
-        # 【P1-D修复：代码标准化逻辑与_get_prices保持一致】
+        # 【P1-D修复:代码标准化逻辑与_get_prices保持一致】
         # 数据库 stock_basic 存储格式: 600000.SH / 000001.SZ / 830001.BJ
         # 与 stock_daily_ak_full 的 ts_code 格式完全一致
         def _standardize_code(code_str: str) -> str:
