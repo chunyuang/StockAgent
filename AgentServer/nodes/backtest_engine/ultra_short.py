@@ -317,8 +317,8 @@ async def execute_ultra_short_backtest(
         if strategy_id == "halfway_chase":
             # 半路追涨因子: 量比+涨幅+收盘确认
             min_volume = sp.get("min_volume_ratio", 2.0)
-            min_rise = sp.get("min_rise_pct", 0.03)
-            min_close_rise = sp.get("min_close_rise_pct", 0.03)
+            min_rise = sp.get("min_rise_pct", _defaults.get('min_rise_pct', 0.03))
+            min_close_rise = sp.get("min_close_rise_pct", _defaults.get('min_close_rise_pct', 0.05))
             all_factors.append({"name": "volume_increase", "weight": weight_per_strategy, "target": min_volume})
             all_factors.append({"name": "rise_pct", "weight": weight_per_strategy, "target": min_rise})
             all_factors.append({"name": "close_rise_pct", "weight": weight_per_strategy, "target": min_close_rise})

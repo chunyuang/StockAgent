@@ -787,8 +787,10 @@ class PortfolioBacktester:
         selected_strategies = config.get("selected_strategies", [])
         self._strategy_risk_params = {}  # strategy_name -> {stop_loss_pct, take_profit_pct, max_hold_days, slippage_pct}
         self._strategy_params = {}  # strategy_name -> {min_rise_pct, min_volume_ratio, ...}
-        # 【策略级默认风控】日线回测买入价=次日open，首板/涨停策略买入价接近涨停价
-        # 【P2-9修复：从STRATEGY_CONFIGS.riskParams读取默认止损，不再使用STRATEGY_DEFAULT_STOP_LOSS】
+        # 【V17修复：策略风控参数优先级】
+        # 前端riskParams > 全局risk_config > STRATEGY_CONFIGS.riskParams
+        # 旧bug: STRATEGY_CONFIGS.riskParams始终覆盖全局risk_config，导致用户设置SL/TP无效
+        # 新逻辑: 只有前端明确传riskParams时才覆盖全局设置，策略默认值不再自动覆盖
         for s in selected_strategies:
             sname = s.get("name", "")
             sid = s.get("id", "")
@@ -796,25 +798,41 @@ class PortfolioBacktester:
             if sp:
                 self._strategy_params[sname] = sp
             rp = s.get("riskParams", {})
-            # 优先级：前端riskParams > STRATEGY_CONFIGS.riskParams > 全局risk_config
             strategy_cfg = STRATEGY_CONFIGS.get(sid, {})
             strategy_default_rp = strategy_cfg.get("riskParams", {})
-            strategy_default_sl = strategy_default_rp.get("stop_loss_pct", risk_config["stop_loss_pct"])
+            # 全局risk_config值(用户设置的)
+            global_sl = risk_config["stop_loss_pct"]
+            global_tp = risk_config["take_profit_pct"]
+            global_mhd = risk_config.get("max_hold_days", 3)
+            global_slippage = config.get("slippage_pct", 0.002)
+            # 策略默认值(STRATEGY_CONFIGS中的)
+            strategy_default_sl = strategy_default_rp.get("stop_loss_pct", global_sl)
+            strategy_default_tp = strategy_default_rp.get("take_profit_pct", global_tp)
+            strategy_default_mhd = strategy_default_rp.get("max_hold_days", global_mhd)
+            strategy_default_slippage = strategy_default_rp.get("slippage_pct", global_slippage)
             if rp:
+                # 前端明确传了riskParams → 最高优先级
                 self._strategy_risk_params[sname] = {
                     "stop_loss_pct": rp.get("stop_loss_pct", strategy_default_sl),
-                    "take_profit_pct": rp.get("take_profit_pct", strategy_default_rp.get("take_profit_pct", risk_config["take_profit_pct"])),
-                    "max_hold_days": rp.get("max_hold_days", strategy_default_rp.get("max_hold_days", risk_config.get("max_hold_days", 3))),
-                    "slippage_pct": rp.get("slippage_pct", strategy_default_rp.get("slippage_pct", config.get("slippage_pct", 0.002))),
+                    "take_profit_pct": rp.get("take_profit_pct", strategy_default_tp),
+                    "max_hold_days": rp.get("max_hold_days", strategy_default_mhd),
+                    "slippage_pct": rp.get("slippage_pct", strategy_default_slippage),
                 }
             else:
-                # 没有前端传riskParams时，使用策略级默认风控
+                # 没有前端riskParams → 使用策略默认值
+                # V17: 策略默认值不再无条件覆盖全局设置
+                # 如果全局risk_config与GLOBAL_RISK默认值不同，说明用户明确修改了，应优先使用
+                # 如果全局risk_config就是GLOBAL_RISK默认值，则使用策略默认值(策略更优)
+                user_overrode_sl = global_sl != GLOBAL_RISK.get("stop_loss_pct", 0.03)
+                user_overrode_tp = global_tp != GLOBAL_RISK.get("take_profit_pct", 0.07)
+                user_overrode_mhd = global_mhd != GLOBAL_RISK.get("max_hold_days", 3)
                 self._strategy_risk_params[sname] = {
-                    "stop_loss_pct": strategy_default_sl,
-                    "take_profit_pct": strategy_default_rp.get("take_profit_pct", risk_config["take_profit_pct"]),
-                    "max_hold_days": strategy_default_rp.get("max_hold_days", risk_config.get("max_hold_days", 3)),
-                    "slippage_pct": strategy_default_rp.get("slippage_pct", config.get("slippage_pct", 0.002)),
+                    "stop_loss_pct": global_sl if user_overrode_sl else strategy_default_sl,
+                    "take_profit_pct": global_tp if user_overrode_tp else strategy_default_tp,
+                    "max_hold_days": global_mhd if user_overrode_mhd else strategy_default_mhd,
+                    "slippage_pct": strategy_default_slippage,
                 }
+                logger.info('backtest', f'[V17] {sname}: SL={global_sl if user_overrode_sl else strategy_default_sl} TP={global_tp if user_overrode_tp else strategy_default_tp} (user_overrode_sl={user_overrode_sl} global_sl={global_sl} strategy_default_sl={strategy_default_sl})')
 
         # 初始化
         initial_cash = config.get("initial_cash", 1000000)
@@ -3263,7 +3281,7 @@ class PortfolioBacktester:
             max_rise_pct = converted_params.get("max_rise_pct") if converted_params.get("max_rise_pct") is not None else strategy_defaults.get("max_rise_pct", 0.07)
             min_volume_ratio = converted_params.get("min_volume_ratio") if converted_params.get("min_volume_ratio") is not None else strategy_defaults.get("min_volume_ratio", 2.0)
             max_volume_ratio = converted_params.get("max_volume_ratio") if converted_params.get("max_volume_ratio") is not None else strategy_defaults.get("max_volume_ratio", 3.0)
-            min_close_rise = converted_params.get("min_close_rise_pct") if converted_params.get("min_close_rise_pct") is not None else strategy_defaults.get("min_close_rise_pct", 0.03)
+            min_close_rise = converted_params.get("min_close_rise_pct") if converted_params.get("min_close_rise_pct") is not None else strategy_defaults.get("min_close_rise_pct", 0.05)
             max_open_rise = converted_params.get("max_open_rise_pct") if converted_params.get("max_open_rise_pct") is not None else strategy_defaults.get("max_open_rise_pct", 0.03)
             # 【方案B优化】开盘涨幅上限: 高开>3%追高胜率仅44%, 低开冲高81.5%胜率
             # 核心逻辑: 低开/平开→盘中放量冲高→收盘站稳→次日惯性上涨
@@ -3585,7 +3603,18 @@ class PortfolioBacktester:
                 tp_price = cost * (1 + code_tp)
                 low_p = p.get('low', p['close'])
                 high_p = p.get('high', p['close'])
-                if enable_stop_loss and low_p <= stop_price:
+                open_p = p.get('open', p['close'])
+                _close_p = p.get('close', 0)
+                # 【P0-1修复(V17)】：目标池内持仓也要检查冲高回落/高开即卖/利润保护
+                # 旧bug: 只检查止损止盈，冲高回落等保护信号被跳过
+                # 导致：持仓股次日高开冲高回落，因仍在目标池而继续持有，利润回吐
+                _strategies = getattr(self, 'stock_to_strategy', {}).get(code, [])
+                if isinstance(_strategies, str): _strategies = [_strategies]
+                early_sell_price, early_sell_reason = self._check_early_sell_signals(
+                    code, _strategies, cost, open_p, _close_p)
+                if early_sell_price > 0:
+                    sell_codes.append(code)
+                elif enable_stop_loss and low_p <= stop_price:
                     sell_codes.append(code)
                 elif enable_take_profit and high_p >= tp_price:
                     sell_codes.append(code)
@@ -3659,15 +3688,25 @@ class PortfolioBacktester:
         codes_to_promote = []  # 从reduce_codes升级到sell_codes的股票
         for code in list(reduce_codes.keys()):
             p = prices.get(code, {})
-            low_p = p.get('low', 0)
-            high_p = p.get('high', 0)
+            low_p = p.get('low', p.get('close', 0))
+            high_p = p.get('high', p.get('close', 0))
+            open_p = p.get('open', p.get('close', 0))
+            _close_p = p.get('close', 0)
             cost = getattr(self, '_cost_basis', {}).get(code, 0)
             if cost > 0 and p.get('close', 0) > 0:
-                code_sl, code_tp = self._get_sl_tp_for_code(code)  # 【P0-2修复：按策略获取参数】
-                if enable_sl and low_p <= cost * (1 - code_sl):
-                    codes_to_promote.append(code)  # 触发止损，应全卖
-                elif enable_tp and high_p >= cost * (1 + code_tp):
-                    codes_to_promote.append(code)  # 触发止盈，应全卖
+                # 【P0-2修复(V17)】：减仓也要检查冲高回落/高开即卖/利润保护
+                _strategies = getattr(self, 'stock_to_strategy', {}).get(code, [])
+                if isinstance(_strategies, str): _strategies = [_strategies]
+                early_sell_price, early_sell_reason = self._check_early_sell_signals(
+                    code, _strategies, cost, open_p, _close_p)
+                if early_sell_price > 0:
+                    codes_to_promote.append(code)  # 冲高回落等保护信号，应全卖
+                else:
+                    code_sl, code_tp = self._get_sl_tp_for_code(code)
+                    if enable_sl and low_p <= cost * (1 - code_sl):
+                        codes_to_promote.append(code)  # 触发止损，应全卖
+                    elif enable_tp and high_p >= cost * (1 + code_tp):
+                        codes_to_promote.append(code)  # 触发止盈，应全卖
         for code in codes_to_promote:
             sell_codes.append(code)
             del reduce_codes[code]

@@ -3,7 +3,9 @@
 **审查日期**: 2026-05-20
 **审查范围**: portfolio_backtest.py (3963行) + factor_engine.py (631行) + strategy_defaults.py + strategy_filter.py + ultra_short.py
 **基线版本**: commit a6d5b21 (V15)
+**V16版本**: commit 94fd153
 **基线结果**: 2策略(半路追涨+跌停翘板) 收益70.12% 夏普8.81 回撤3.00% 胜率69.23% 104笔
+**V16结果**: 收益69.92% 夏普8.79 回撤3.01% 胜率69.23% 104笔 (-0.2%收益, 无回归)
 
 ---
 
