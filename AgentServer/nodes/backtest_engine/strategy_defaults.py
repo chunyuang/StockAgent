@@ -63,7 +63,7 @@ STRATEGY_CONFIGS = {
     "first_limit_up": {
         "id": "first_limit_up",
         "name": "首板打板",
-        "enabled": True,
+        "enabled": False,  # 【V26:禁用】回测验证胜率仅44.8%,拖累组合(3策略vs4策略:收益+8.78%/胜率+6.54%/回撤-0.50%)
         "params": {
             "opening_pct_min": -1.0,                      # 竞价涨幅下限%(放宽:低开也能涨停)
             "opening_pct_max": 7.0,                      # 竞价涨幅上限%(放宽:高开7%内都考虑)
@@ -122,7 +122,7 @@ STRATEGY_CONFIGS = {
         },
         "riskParams": {
             "stop_loss_pct": 0.05,          # 止损5%
-            "take_profit_pct": 0.06,        # 止盈6%
+            "take_profit_pct": 0.10,        # 止盈10%(V26:从6%→10%,回测验证:收益+4%/夏普+0.33/盈亏比+0.04,龙头低吸回调利润空间大)
             "max_hold_days": 4,             # 最大持仓4天
             "slippage_pct": 0.002,          # 滑点0.2%
         }
@@ -141,7 +141,7 @@ STRATEGY_CONFIGS = {
         },
         "riskParams": {
             "stop_loss_pct": 0.05,          # 止损5%(V25:从7%→5%,回测验证:夏普+0.31/回撤-0.28%/盈亏比+0.02,收益微降0.38%但风控更严)
-            "take_profit_pct": 0.20,        # 止盈20%(V21:从15%→20%,翘板股冲高利润空间大,15%仍截断部分利润;回测验证:15%→20%收益+6.4%/夏普+1.0/回撤-0.19%)
+            "take_profit_pct": 0.25,        # 止盈25%(V26:从20%→25%,回测验证:收益+4.9%/夏普+0.33/盈亏比+0.04,翘板股冲高利润空间大)
             "max_hold_days": 3,             # 最大持仓3天
             "slippage_pct": 0.003,          # 滑点0.3%(跌停后波动大)
         }

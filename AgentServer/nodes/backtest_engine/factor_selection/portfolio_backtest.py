@@ -1871,11 +1871,12 @@ class PortfolioBacktester:
                 # 【P1-1修复(V23):调仓日无交易也要检查超时强卖,与非调仓日逻辑对齐】
                 # 旧bug: 调仓日无交易时只检查止损止盈,不检查max_hold_days超时
                 # 导致超时持仓要等到非调仓日才被卖出,多持1天增加回撤风险
+                forced_sell_codes_set = set(c for c, _ in forced_sell_codes)  # 【P1-1修复(V26):用set做去重检查,与V24非调仓日一致】
                 global_max_hold = self._risk_config.get('max_hold_days', 999)
                 for code in list(holdings.keys()):
                     if holdings.get(code, 0) <= 0:
                         continue
-                    if any(c == code for c, _ in forced_sell_codes):
+                    if code in forced_sell_codes_set:
                         continue  # 已在止损止盈中处理
                     buy_date_raw = getattr(self, '_cost_basis_date', {}).get(code)
                     strategies = getattr(self, 'stock_to_strategy', {}).get(code, [])
@@ -1902,7 +1903,10 @@ class PortfolioBacktester:
                                 if sell_p <= 0:
                                     continue
                                 shares = holdings[code]
-                                # 【P0-2修复(V25):超时强卖不扣滑点(与止损一致,被迫卖出不应再惩罚)】n                                # 旧bug: 超时强卖扣slippage,实际是被迫卖出不应额外惩罚n                                # 超时本身已经损失了时间价值,不应再扣滑点n                                sell_price_adj = sell_p
+                                # 【P0-2修复(V25):超时强卖不扣滑点(与止损一致,被迫卖出不应再惩罚)】
+                                # 旧bug: 超时强卖扣slippage,实际是被迫卖出不应额外惩罚
+                                # 超时本身已经损失了时间价值,不应再扣滑点
+                                sell_price_adj = sell_p
                                 gross_amount = shares * sell_price_adj
                                 commission = max(gross_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
                                 stamp_tax = gross_amount * self.STAMP_TAX
