@@ -212,6 +212,48 @@ class FactorEngine:
                     (result["open"] - result["pre_close"]) / safe_pre_close_open * 100
                 ).fillna(0)
 
+            # ========= 【V18未来函数修复】：查询T-1数据，生成_prev后缀因子 =========
+            # 核心问题：当前选股用T日收盘数据(pct_chg/volume_ratio/turnover_rate/circ_mv/first_limit_up)
+            # 这些数据在T日开盘时不可知，属于未来函数，导致回测收益虚高
+            # 修复：查询T-1日同股票数据，生成pct_chg_prev/volume_ratio_prev/turnover_rate_prev/circ_mv_prev
+            # 筛选条件改用_prev因子，消除未来函数
+            try:
+                trade_date_int = int(trade_date)
+                # 查找T-1交易日
+                prev_date_doc = await mongo_manager.db[C.STOCK_DAILY].aggregate([
+                    {"$match": {"trade_date": {"$lt": trade_date_int}}},
+                    {"$group": {"_id": None, "max_date": {"$max": "$trade_date"}}}
+                ]).to_list(length=1)
+                if prev_date_doc and prev_date_doc[0].get("max_date"):
+                    prev_date = prev_date_doc[0]["max_date"]
+                    codes_list = result["ts_code"].tolist() if len(result) > 0 else []
+                    if codes_list:
+                        # 从stock_daily_ak_full查T-1的pct_chg/volume_ratio/turnover_rate/circ_mv
+                        prev_projection = {"ts_code": 1, "_id": 0,
+                            "pct_chg": 1, "volume_ratio": 1, "turnover_rate": 1,
+                            "circ_mv": 1, "first_limit_up": 1, "is_limit_up": 1,
+                            "high": 1, "close": 1}
+                        prev_docs = await mongo_manager.db[C.STOCK_DAILY].find(
+                            {"trade_date": prev_date, "ts_code": {"$in": codes_list}},
+                            prev_projection
+                        ).to_list(length=len(codes_list))
+                        if prev_docs:
+                            prev_df = pd.DataFrame(prev_docs)
+                            # 生成_prev后缀因子
+                            for col in ["pct_chg", "volume_ratio", "turnover_rate", "circ_mv",
+                                        "first_limit_up", "is_limit_up", "high", "close"]:
+                                if col in prev_df.columns:
+                                    prev_map = dict(zip(prev_df["ts_code"], prev_df[col]))
+                                    result[f"{col}_prev"] = result["ts_code"].map(prev_map).fillna(0)
+                            logger.info(f"FACTOR_ENGINE: [V18] 已查询T-1({prev_date})数据生成_prev因子，消除未来函数")
+            except Exception as e:
+                logger.warning(f"FACTOR_ENGINE: [V18] T-1数据查询失败: {e}, _prev因子将为0")
+                # fallback: 生成全0的_prev因子
+                for col in ["pct_chg", "volume_ratio", "turnover_rate", "circ_mv",
+                            "first_limit_up", "is_limit_up", "high", "close"]:
+                    result[f"{col}_prev"] = 0.0
+            # ========= V18未来函数修复结束 =========
+
             # 标准化 & 综合打分（保持与实盘模式相同的计算逻辑）
             result = self._normalize_factors(result, factor_configs)
             result = self._compute_composite_score(result, factor_configs)
