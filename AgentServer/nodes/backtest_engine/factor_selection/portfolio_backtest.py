@@ -138,12 +138,13 @@ class PortfolioBacktester:
             
             # 跌停翘板: 高开且高开低收→冲高回落
             # 【P1-6修复(V16)】：主阈值从3%→5%，跌停翘板波动大3%太常见会过早卖出
-            # 但如果高开在3%-5%之间且明显回落(跌幅>2%)，也触发保护
+            # 【P1-3修复(V19)】：3%-5%区间回落阈值从2%→1.5%，跌停翘板高开3%-5%已算强势，
+            # 回落1.5%以上应保护利润(旧值2%可能错过保护窗口)
             if sname == '跌停翘板' and open_rise_from_cost >= _open_sell_pct:
                 if close_price < open_price:
                     if open_rise_from_cost >= 0.05:
                         return open_price, '冲高回落'
-                    elif (open_price - close_price) / open_price >= 0.02:
+                    elif (open_price - close_price) / open_price >= 0.015:
                         return open_price, '冲高回落'
             
             # 首板打板: 高开≥3%→直接卖出
@@ -160,6 +161,14 @@ class PortfolioBacktester:
             elif sname == '半路追涨' and close_price > 0 and open_price > 0:
                 close_rise_from_cost = (close_price / cost - 1) if cost > 0 else 0
                 if close_rise_from_cost >= 0.02 and close_price < open_price:
+                    return close_price, '利润保护'
+            
+            # 【P1-3修复(V19)】：跌停翘板利润保护 — 高开≥3%但收盘转亏→以close卖出
+            # 跌停翘板次日高开后大幅回落甚至转亏，是强烈的卖出信号
+            # 只在open_rise≥3%(符合开盘预期)但close_rise<0(收盘反转)时触发
+            elif sname == '跌停翘板' and close_price > 0 and open_price > 0:
+                close_rise_from_cost = (close_price / cost - 1) if cost > 0 else 0
+                if open_rise_from_cost >= 0.03 and close_rise_from_cost < 0:
                     return close_price, '利润保护'
         
         return 0, ''
@@ -1575,11 +1584,17 @@ class PortfolioBacktester:
                     # volume_ratio(量比)在开盘时已确定(基于前5日均量)，是可观测因子
                     # 量比高=市场关注度高=更强势，在同一行业内优先选量比高的
                     if 'volume_ratio' in factor_df.columns:
+                        # 【P1-2修复(V19)：预计算volume_ratio映射，避免逐行O(N*M)扫描factor_df】
+                        # 旧: 每个候选股做factor_df[factor_df['ts_code']==code]→全表扫描
+                        # 新: 一次性构建ts_code→volume_ratio的dict→O(1)查找
+                        _vr_map = dict(zip(factor_df['ts_code'], factor_df['volume_ratio']))
                         scored_candidates = []
                         for code in all_candidates:
-                            row = factor_df[factor_df['ts_code'] == code]
-                            score = row['volume_ratio'].iloc[0] if len(row) > 0 and not row['volume_ratio'].isna().iloc[0] else 0
-                            scored_candidates.append((code, score))
+                            score = _vr_map.get(code, 0)
+                            if isinstance(score, float) and not math.isnan(score):
+                                scored_candidates.append((code, score))
+                            else:
+                                scored_candidates.append((code, 0))
                         scored_candidates.sort(key=lambda x: x[1], reverse=True)
                         sorted_candidates = [c[0] for c in scored_candidates]
                     else:
@@ -1751,11 +1766,11 @@ class PortfolioBacktester:
                         tp_pct = max(strategy_rp.get(s, {}).get('take_profit_pct', global_tp) for s in strategies)
                     else:
                         sl_pct, tp_pct = global_sl, global_tp
-                    low_p = p.get('low', p['close'])
-                    high_p = p.get('high', p['close'])
+                    low_p = p.get('low', p.get('close', 0))
+                    high_p = p.get('high', p.get('close', 0))
                     stop_price = cost * (1 - sl_pct)
                     tp_price = cost * (1 + tp_pct)
-                    open_p = p.get('open', p['close'])
+                    open_p = p.get('open', p.get('close', 0))
                     # 【P0-3修复(V14)】：用统一方法检查冲高回落/高开即卖/利润保护
                     _close_p = p.get('close', 0)
                     early_sell_price, early_sell_reason = self._check_early_sell_signals(
@@ -1890,9 +1905,9 @@ class PortfolioBacktester:
                     tp_pct = max(strategy_rp.get(s, {}).get('take_profit_pct', global_tp) for s in strategies)
                 else:
                     sl_pct, tp_pct = global_sl, global_tp
-                low_p = p.get('low', p['close'])
-                high_p = p.get('high', p['close'])
-                open_p = p.get('open', p['close'])
+                low_p = p.get('low', p.get('close', 0))
+                high_p = p.get('high', p.get('close', 0))
+                open_p = p.get('open', p.get('close', 0))
                 _close_p = p.get('close', 0)
                 stop_price = cost * (1 - sl_pct)
                 tp_price = cost * (1 + tp_pct)
@@ -2944,7 +2959,8 @@ class PortfolioBacktester:
             "ts_code": {"$in": list(ts_codes_set)},
         }
 
-        await self.log(f"            🔍 _get_prices: 查询 {len(ts_codes_standard)} 只股票,日期: {trade_date}, 直接使用$in过滤")
+        # 【P1-1修复(V19)：_get_prices日志降级为debug，避免每日3-5次调用水淹日志】
+        logger.debug('backtest', f'[_get_prices] 查询 {len(ts_codes_standard)} 只股票,日期: {trade_date}')
 
         docs = await mongo_manager.find_many(C.STOCK_DAILY, query)
         result = {}
@@ -2985,7 +3001,8 @@ class PortfolioBacktester:
                 matched += 1
 
 
-        await self.log(f"            ✅ _get_prices: 查询到 {len(result)} 只股票有价格")
+        # 【P1-1修复(V19)：_get_prices日志降级为debug】
+        logger.debug('backtest', f'[_get_prices] 查询到 {len(result)}/{len(ts_codes_standard)} 只股票有价格')
 
         # 【P2-4：存入每日价格缓存】
         cache = getattr(self, '_daily_price_cache', {})
@@ -3582,6 +3599,11 @@ class PortfolioBacktester:
 
         # 先卖出:不在目标持仓中的股票全卖 + 持仓超过目标的股票减仓
         sell_codes = [code for code in holdings if code not in target_shares and holdings[code] > 0]
+        # 【P0-1修复(V19)：调仓日止损/冲高回落卖出的股票也要从target_shares中移除】
+        # 否则卖出后买入循环会重新买入(震荡bug: 止损卖出→同日重新买入)
+        # 旧bug: 止损/冲高回落/高开即卖只是将code加入sell_codes，但target_shares仍保留
+        # 导致buy循环中 delta = target_shares[code] - holdings[code] = target_shares[code] - 0 > 0 → 重新买入
+        sell_code_reasons = {}  # code -> sell_reason (用于日志)
         # 【P0-4修复：调仓日止损检查 — 即使股票仍在目标池中，如果触发止损也要卖出】
         # 之前bug: 止损只对"不在目标池"的股票生效，导致16笔交易亏损>3%止损线却未触发
         # 注意：_rebalance是同步方法，不能使用await，复用已有的prices参数
@@ -3603,9 +3625,9 @@ class PortfolioBacktester:
                 code_sl, code_tp = self._get_sl_tp_for_code(code)
                 stop_price = cost * (1 - code_sl)
                 tp_price = cost * (1 + code_tp)
-                low_p = p.get('low', p['close'])
-                high_p = p.get('high', p['close'])
-                open_p = p.get('open', p['close'])
+                low_p = p.get('low', p.get('close', 0))
+                high_p = p.get('high', p.get('close', 0))
+                open_p = p.get('open', p.get('close', 0))
                 _close_p = p.get('close', 0)
                 # 【P0-1修复(V17)】：目标池内持仓也要检查冲高回落/高开即卖/利润保护
                 # 旧bug: 只检查止损止盈，冲高回落等保护信号被跳过
@@ -3616,10 +3638,16 @@ class PortfolioBacktester:
                     code, _strategies, cost, open_p, _close_p)
                 if early_sell_price > 0:
                     sell_codes.append(code)
+                    sell_code_reasons[code] = early_sell_reason
                 elif enable_stop_loss and low_p <= stop_price:
                     sell_codes.append(code)
+                    if open_p <= stop_price:
+                        sell_code_reasons[code] = '跳空止损'
+                    else:
+                        sell_code_reasons[code] = f'止损({code_sl*100:.0f}%)'
                 elif enable_take_profit and high_p >= tp_price:
                     sell_codes.append(code)
+                    sell_code_reasons[code] = f'止盈({code_tp*100:.0f}%)'
         # 【Phase1-T+1】排除当日买入的股票(T+1: 当日买入不可卖出)
         t1_blocked = []
         for code in list(sell_codes):
@@ -3674,6 +3702,13 @@ class PortfolioBacktester:
         for code in over_hold_codes:
             if code in target_shares:
                 del target_shares[code]
+        # 【P0-1修复(V19)：止损/冲高回落/高开即卖/止盈卖出的股票，也不应被重新买入】
+        # 旧bug: 这些股票只在sell_codes中，但target_shares仍保留→卖出后买入循环重新买入
+        # 导致: 止损卖出某股→同日重新买入(震荡)，利润保护/冲高回落形同虚设
+        for code in sell_code_reasons:
+            if code in target_shares:
+                del target_shares[code]
+                logger.info('backtest', f'[{sell_code_reasons[code]}] {code} 从目标池移除，防止同日重新买入')
         # 【修复P1-6：减仓逻辑 — 持仓超过目标时卖出差额】
         reduce_codes = {code: holdings[code] - target_shares[code] for code in holdings
                         if code in target_shares and holdings.get(code, 0) > target_shares[code]}
