@@ -189,9 +189,14 @@ class FactorEngine:
                                 {"ts_code": 1, "close": 1, "_id": 0}
                             ).to_list(length=len(zero_codes))
                             prev_close_map = {d["ts_code"]: d.get("close", 0) for d in prev_docs if d.get("close", 0) > 0}
-                            for idx_row, row in result.loc[zero_pre_close_mask].iterrows():
-                                if row["ts_code"] in prev_close_map:
-                                    result.at[idx_row, "pre_close"] = prev_close_map[row["ts_code"]]
+                            # 【P2-1修复(V20)：用map替代iterrows，避免逐行赋值】
+                            # 旧: for idx_row, row in result.loc[zero_pre_close_mask].iterrows(): result.at[...] = ...
+                            # 新: 用ts_code列map，一次向量化赋值
+                            if prev_close_map:
+                                fill_values = result.loc[zero_pre_close_mask, "ts_code"].map(prev_close_map)
+                                valid_fill = fill_values.dropna()
+                                if len(valid_fill) > 0:
+                                    result.loc[valid_fill.index, "pre_close"] = valid_fill
                             fixed_count = sum(1 for c in zero_codes if c in prev_close_map)
                             if fixed_count > 0:
                                 logger.debug(f"FACTOR_ENGINE: Fixed {fixed_count}/{len(zero_codes)} stocks with pre_close=0 using prev day close")
