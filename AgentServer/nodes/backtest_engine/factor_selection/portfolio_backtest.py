@@ -2915,6 +2915,22 @@ class PortfolioBacktester:
             })
         return benchmark_data
 
+    @staticmethod
+    def _standardize_ts_code(code_str: str) -> str:
+        """【P2-3修复(V21):提取ts_code标准化为共享方法,消除_get_prices和_get_stock_names中的重复代码】
+        数据库存储格式: 600000.SH / 000001.SZ / 830001.BJ
+        规则: 6/5/9开头→.SH, 8/4开头→.BJ, 其他→.SZ
+        """
+        code_str = str(code_str).strip()
+        if code_str.endswith('.SH') or code_str.endswith('.SZ') or code_str.endswith('.BJ'):
+            return code_str
+        if code_str.startswith('6') or code_str.startswith('5') or code_str.startswith('9'):
+            return f"{code_str}.SH"
+        elif code_str.startswith('8') or code_str.startswith('4'):
+            return f"{code_str}.BJ"
+        else:
+            return f"{code_str}.SZ"
+
     async def _get_prices(self, ts_codes: set[str], trade_date):
         """批量获取指定股票在指定日期的开盘价和收盘价
         【P2-4优化:使用每日价格缓存,同一天只查一次MongoDB】
@@ -2930,23 +2946,14 @@ class PortfolioBacktester:
             result = {}
             missing = set()
             for code in ts_codes:
-                code_str = str(code).strip()
-                # 标准化代码
-                if code_str.endswith('.SH') or code_str.endswith('.SZ') or code_str.endswith('.BJ'):
-                    std_code = code_str
-                elif code_str.startswith('6') or code_str.startswith('5') or code_str.startswith('9'):
-                    std_code = f"{code_str}.SH"
-                elif code_str.startswith('8') or code_str.startswith('4'):
-                    std_code = f"{code_str}.BJ"  # 【P2-5:北交所用.BJ】
-                else:
-                    std_code = f"{code_str}.SZ"
+                std_code = self._standardize_ts_code(code)
                 if std_code in cache:
                     result[std_code] = cache[std_code]
-                elif code_str in cache:
-                    result[code_str] = cache[code_str]
+                elif str(code).strip() in cache:
+                    result[str(code).strip()] = cache[str(code).strip()]
                 else:
-                    missing.add(code_str)
                     missing.add(std_code)
+                    missing.add(str(code).strip())
             if not missing:
                 return result
             # 只查缺失的股票
@@ -2956,25 +2963,8 @@ class PortfolioBacktester:
             self._daily_price_cache = {}
             self._daily_price_cache_date = trade_date
             cache = self._daily_price_cache
-        # 自动格式标准化:兼容两种输入格式
-        # 数据库中 ts_code 带后缀(.SH/.SZ),所以无论输入什么都转换为带后缀格式
-        ts_codes_standard = []
-        for code in ts_codes:
-            code_str = str(code).strip()
-            if code_str.endswith(".SH") or code_str.endswith(".SZ") or code_str.endswith(".BJ"):
-                # 输入已经带后缀,直接使用(匹配数据库)
-                ts_codes_standard.append(code_str)
-            else:
-                # 输入不带后缀,根据代码开头自动补全后缀
-                # - 6/5/9 开头 → .SH(上交所)
-                # - 8/4 开头 → .BJ(北交所) 【P2-5修复】
-                # - 其他 → .SZ(深交所)
-                if code_str.startswith('6') or code_str.startswith('5') or code_str.startswith('9'):
-                    ts_codes_standard.append(f"{code_str}.SH")
-                elif code_str.startswith('8') or code_str.startswith('4'):
-                    ts_codes_standard.append(f"{code_str}.BJ")
-                else:
-                    ts_codes_standard.append(f"{code_str}.SZ")
+        # 【P2-3修复(V21):用共享方法_standardize_ts_code替代重复的标准化逻辑】
+        ts_codes_standard = [self._standardize_ts_code(code) for code in ts_codes]
 
         # 【修复#42:使用$in+ts_code过滤替代全表扫描】
         # 原逻辑:先查当天所有股票(5000+条)到内存,再过滤 → O(N)全表扫描 + 内存浪费
@@ -3070,13 +3060,16 @@ class PortfolioBacktester:
 
         # 按策略分组候选
         strat_groups = {}  # strategy_name -> [(code, score)]
-        # 【P1-2修复(V20)：预构建ts_code→score映射，避免逐行O(N*M)查找factor_df】
+        # 【P1-2修复(V21):_compute_weights排序改用volume_ratio替代pct_chg,消除未来函数】
+        # pct_chg是收盘涨跌幅(收盘后才知),实盘选股时无法使用
+        # volume_ratio(量比)基于前5日均量,开盘时已确定,是可观测因子
+        # 量比高=市场关注度高=更强势,在同一席位内优先选量比高的
         _score_map = {}
         if factor_df is not None and len(factor_df) > 0:
             if 'composite_score' in factor_df.columns:
                 _score_map = dict(zip(factor_df['ts_code'], factor_df['composite_score'].fillna(0)))
-            elif 'pct_chg' in factor_df.columns:
-                _score_map = dict(zip(factor_df['ts_code'], factor_df['pct_chg'].fillna(0)))
+            elif 'volume_ratio' in factor_df.columns:
+                _score_map = dict(zip(factor_df['ts_code'], factor_df['volume_ratio'].fillna(0)))
         for code in candidates:
             strategies = stock_strategy.get(code, [])
             if isinstance(strategies, str): strategies = [strategies]
@@ -4051,25 +4044,9 @@ class PortfolioBacktester:
         result = {}
         need_query = []
 
-        # 【P1-D修复:代码标准化逻辑与_get_prices保持一致】
-        # 数据库 stock_basic 存储格式: 600000.SH / 000001.SZ / 830001.BJ
-        # 与 stock_daily_ak_full 的 ts_code 格式完全一致
-        def _standardize_code(code_str: str) -> str:
-            """标准化股票代码为数据库格式: NNNNNN.EX"""
-            code_str = str(code_str).strip()
-            # 已经是标准格式
-            if code_str.endswith('.SH') or code_str.endswith('.SZ') or code_str.endswith('.BJ'):
-                return code_str
-            # 无后缀:根据代码开头自动补全
-            if code_str.startswith('6') or code_str.startswith('5') or code_str.startswith('9'):
-                return f"{code_str}.SH"
-            elif code_str.startswith('8') or code_str.startswith('4'):
-                return f"{code_str}.BJ"  # 北交所
-            else:
-                return f"{code_str}.SZ"
-
+        # 【P2-3修复(V21):用共享方法_standardize_ts_code替代局部_standardize_code】
         for ts_code in ts_codes:
-            standard_code = _standardize_code(ts_code)
+            standard_code = self._standardize_ts_code(ts_code)
 
             if standard_code in self._stock_name_cache:
                 result[ts_code] = self._stock_name_cache[standard_code]
@@ -4091,7 +4068,7 @@ class PortfolioBacktester:
 
         # 构建结果,返回给调用方使用原始 ts_code 作为 key
         for ts_code in ts_codes:
-            standard_code = _standardize_code(ts_code)
+            standard_code = self._standardize_ts_code(ts_code)
 
             if standard_code in self._stock_name_cache:
                 result[ts_code] = self._stock_name_cache[standard_code]
