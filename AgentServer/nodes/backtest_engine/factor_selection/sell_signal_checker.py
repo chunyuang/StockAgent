@@ -1,16 +1,18 @@
 """
-统一卖出信号检查器 + 滑点规则表
+统一卖出信号检查器 + 滑点规则表 + 买入价计算表
 
 解决的问题:
 1. V10-V28中冲高回落/利润保护/止损/止盈的elif链bug反复出现
 2. 滑点扣/不扣规则散落在5+处,新增卖出原因容易遗漏
 3. 每个策略单独写卖出检查代码,加新策略需复制粘贴
 4. 卖出后target_shares未移除导致重新买入(震荡bug)
+5. 买入价计算elif链,加新策略需复制粘贴
 
 设计原则:
 - 卖出信号用优先级队列,不存在elif跳过问题
 - 滑点规则集中定义,新增卖出原因只需加一行
-- 策略卖出参数从strategy_defaults.py读取,不硬编码
+- 买入价计算用策略注册表,不需要elif链
+- 策略卖出/买入参数从strategy_defaults.py读取,不硬编码
 - 所有卖出检查的入口统一,消除3处重复逻辑
 
 版本: V29
@@ -574,3 +576,103 @@ class PositionManager:
     def is_t1_blocked(self, code):
         """检查是否T+1限制"""
         return code in self.t1_blocked
+
+
+# ============================================================
+# 买入价计算表 — 新增策略只需注册一个计算函数
+# ============================================================
+
+# 策略买入价计算函数签名:
+#   calc_buy_price(code, open_price, close_price, high_price, low_price, pre_close, strategy_params) -> float
+# 返回0表示无法计算
+
+
+def calc_buy_price_halfway_chase(code, open_price, close_price, high_price, low_price, pre_close, params):
+    """半路追涨买入价: open*(1+min_rise*0.8)
+
+    模拟盘中涨到2.4%位置时买入(略早于3%确认位)。
+
+    未来函数说明(V25):
+    pct_chg≥5%是收盘确认,但买入价用盘中模拟。严格定义是未来函数,
+    但实测收盘确认+close买入收益从226%→46%,代价太大,保留盘中近似。
+    """
+    min_rise = params.get('min_rise_pct', 0.03)
+    if open_price > 0:
+        return open_price * (1 + min_rise * 0.8)
+    return 0
+
+
+def calc_buy_price_first_limit_up(code, open_price, close_price, high_price, low_price, pre_close, params):
+    """首板打板/涨停开板买入价: 委托给_get_limit_up_price(需要外部方法)"""
+    # 打板价计算依赖self._get_limit_up_price,无法纯函数化
+    # 返回特殊标记,由portfolio_backtest.py处理
+    return -1  # 特殊标记:需要调用_get_limit_up_price
+
+
+def calc_buy_price_dragon_head(code, open_price, close_price, high_price, low_price, pre_close, params):
+    """龙头低吸买入价: low + (high-low)*0.20
+
+    模拟日内偏低位置但不极端的低吸。
+    系数0.20(V28): 低点上方20%,振幅5%→买入+1.00%,保守真实。
+    """
+    if low_price > 0 and high_price > low_price:
+        return low_price + (high_price - low_price) * 0.20
+    elif low_price > 0:
+        return low_price * 1.01
+    else:
+        return open_price * 0.98 if open_price > 0 else 0
+
+
+def calc_buy_price_limit_down_qiao(code, open_price, close_price, high_price, low_price, pre_close, params):
+    """跌停翘板买入价: low*1.01
+
+    跌停价上方1%溢价,模拟翘板成交价(V15:从0.5%→1%)。
+    """
+    if low_price > 0:
+        return low_price * 1.01
+    return open_price * 0.92 if open_price > 0 else 0
+
+
+def calc_buy_price_default(code, open_price, close_price, high_price, low_price, pre_close, params):
+    """默认买入价: open"""
+    return open_price
+
+
+# 策略→买入价计算函数映射
+STRATEGY_BUY_PRICE = {
+    '半路追涨': calc_buy_price_halfway_chase,
+    '首板打板': calc_buy_price_first_limit_up,
+    '涨停开板': calc_buy_price_first_limit_up,
+    '龙头低吸': calc_buy_price_dragon_head,
+    '跌停翘板': calc_buy_price_limit_down_qiao,
+}
+
+# 买入价计算参数(可被strategy_params覆盖)
+DEFAULT_BUY_PRICE_PARAMS = {
+    '半路追涨': {'min_rise_pct': 0.03},
+}
+
+
+def get_buy_price_for_strategy(strategy_name, code, open_price, close_price,
+                                high_price, low_price, pre_close=0, strategy_params=None):
+    """统一买入价计算入口
+
+    替代portfolio_backtest.py中_get_buy_price_for_stock的if/elif链。
+    新增策略只需在STRATEGY_BUY_PRICE中注册一个计算函数。
+
+    Args:
+        strategy_name: 策略名称
+        code: 股票代码
+        open_price: 开盘价
+        close_price: 收盘价
+        high_price: 最高价
+        low_price: 最低价
+        pre_close: 前收盘价
+        strategy_params: 策略参数(可选)
+
+    Returns:
+        float: 买入价(0=无法计算, -1=需要调用_get_limit_up_price)
+    """
+    calc_fn = STRATEGY_BUY_PRICE.get(strategy_name, calc_buy_price_default)
+    params = strategy_params or DEFAULT_BUY_PRICE_PARAMS.get(strategy_name, {})
+    return calc_fn(code, open_price, close_price, high_price, low_price, pre_close, params)
