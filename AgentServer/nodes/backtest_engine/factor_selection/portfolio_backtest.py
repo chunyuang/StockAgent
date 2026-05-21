@@ -52,7 +52,7 @@ from .models import RebalanceRecord
 
 from .factor_engine import FactorEngine, log_memory_usage
 from ..strategy_defaults import GLOBAL_RISK, STRATEGY_CONFIGS, merge_strategy_params
-from .sell_signal_checker import SellSignalChecker, should_apply_slippage
+from .sell_signal_checker import SellSignalChecker, should_apply_slippage, get_buy_price_for_strategy
 from .universe import ExcludeRule, UniverseManager, UniverseType
 from .special_period_filter import get_special_period_filter
 
@@ -149,6 +149,157 @@ class PortfolioBacktester:
                 self._risk_config, self._slippage_pct)
 
         return self._sell_checker.check_early_sell(code, strategies, cost, open_price, close_price)
+
+    async def _check_and_execute_forced_sells(self, trade_date, holdings, _sl_tp_prices,
+                                                    forced_sell_codes, forced_sell_prices,
+                                                    forced_sell_codes_set, check_timeout=True):
+        """统一的止损止盈/冲高回落/超时检查+执行
+
+        【V29重构】合并调仓日无交易和非调仓日的重复卖出逻辑。
+        两处代码~150行几乎完全相同,现统一为一个方法。
+
+        Args:
+            trade_date: 交易日
+            holdings: 当前持仓dict
+            _sl_tp_prices: 价格数据dict
+            forced_sell_codes: 已有强制卖出列表(可能已有其他原因)
+            forced_sell_prices: 已有卖出价dict
+            forced_sell_codes_set: 已有强制卖出set(去重)
+            check_timeout: 是否检查超时强卖(调仓日无交易=是)
+
+        Returns:
+            (forced_sell_codes, forced_sell_prices, forced_sell_codes_set) 更新后
+        """
+        enable_sl = self._risk_config.get('enable_stop_loss', True)
+        enable_tp = self._risk_config.get('enable_take_profit', True)
+
+        for code in list(holdings.keys()):
+            if holdings.get(code, 0) <= 0:
+                continue
+            # T+1: 当日买入不可止损/止盈卖出
+            buy_dt = self._cost_basis_date.get(code)
+            if buy_dt is not None and buy_dt == trade_date:
+                continue
+            p = _sl_tp_prices.get(code, {})
+            cost = self._cost_basis.get(code, 0)
+            if cost <= 0 or p.get('close', 0) <= 0:
+                continue
+
+            strategies = self.stock_to_strategy.get(code, [])
+
+            # === 1. 冲高回落/利润保护/高开即卖 ===
+            open_p = p.get('open', p.get('close', 0))
+            _close_p = p.get('close', 0)
+            early_sell_price, early_sell_reason = self._check_early_sell_signals(
+                code, strategies, cost, open_p, _close_p)
+            if early_sell_price > 0:
+                forced_sell_prices[code] = early_sell_price
+                forced_sell_codes.append((code, early_sell_reason))
+                forced_sell_codes_set.add(code)
+
+            # === 2. 止损/止盈 ===
+            if code not in forced_sell_codes_set:
+                sl_pct, tp_pct = self._get_sl_tp_for_code(code)
+                low_p = p.get('low', p.get('close', 0))
+                high_p = p.get('high', p.get('close', 0))
+                stop_price = cost * (1 - sl_pct)
+                tp_price = cost * (1 + tp_pct)
+                if enable_sl and low_p <= stop_price:
+                    if open_p <= stop_price:
+                        forced_sell_prices[code] = open_p
+                        forced_sell_codes.append((code, '跳空止损'))
+                    else:
+                        forced_sell_prices[code] = stop_price
+                        forced_sell_codes.append((code, f'止损({sl_pct*100:.0f}%)'))
+                    forced_sell_codes_set.add(code)
+                elif enable_tp and high_p >= tp_price:
+                    forced_sell_prices[code] = tp_price
+                    forced_sell_codes.append((code, f'止盈({tp_pct*100:.0f}%)'))
+                    forced_sell_codes_set.add(code)
+
+            # === 3. 超时强卖 ===
+            if check_timeout and code not in forced_sell_codes_set:
+                buy_date_raw = self._cost_basis_date.get(code)
+                max_hold = self._get_max_hold_for_code(code)
+                if buy_date_raw is not None and max_hold < 999:
+                    try:
+                        buy_dt_int = int(str(buy_date_raw))
+                        trade_dt_int = int(str(trade_date))
+                        _all_td = getattr(self, '_all_trade_dates', [])
+                        if _all_td:
+                            trade_days_held = sum(1 for d in _all_td if buy_dt_int < d <= trade_dt_int)
+                        else:
+                            trade_days_held = 0
+                        if trade_days_held > max_hold:
+                            sell_p = _close_p
+                            if sell_p > 0:
+                                forced_sell_prices[code] = sell_p
+                                forced_sell_codes.append((code, f'超时({trade_days_held}交易日>{max_hold}交易日)'))
+                                forced_sell_codes_set.add(code)
+                    except (ValueError, TypeError):
+                        pass
+
+        return forced_sell_codes, forced_sell_prices, forced_sell_codes_set
+
+    async def _execute_forced_sells(self, trade_date, holdings, cash, forced_sell_codes,
+                                      forced_sell_prices, _sl_tp_prices, rebalance_records, log_prefix=''):
+        """执行强制卖出(止损止盈/冲高回落/超时)
+
+        【V29重构】合并调仓日无交易和非调仓日的卖出执行逻辑。
+
+        Args:
+            trade_date: 交易日
+            holdings: 当前持仓dict
+            cash: 当前现金
+            forced_sell_codes: [(code, reason)]
+            forced_sell_prices: {code: sell_price}
+            _sl_tp_prices: 价格数据dict
+            rebalance_records: 交易记录列表
+            log_prefix: 日志前缀
+
+        Returns:
+            cash (更新后)
+        """
+        for code, reason in forced_sell_codes:
+            shares = holdings.get(code, 0)
+            if shares <= 0:
+                continue
+            sell_p = forced_sell_prices.get(code, _sl_tp_prices.get(code, {}).get('close', 0))
+            if sell_p <= 0:
+                continue
+            # 【V29:统一滑点规则】
+            slippage_pct = 0 if not should_apply_slippage(reason) else self._get_slippage_for_code(code)
+            sell_price_adj = sell_p * (1 - slippage_pct)
+            gross_amount = shares * sell_price_adj
+            commission = max(gross_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
+            stamp_tax = gross_amount * self.STAMP_TAX
+            net_amount = gross_amount - commission - stamp_tax
+            cash += net_amount
+            del holdings[code]
+            if code in self._cost_basis:
+                del self._cost_basis[code]
+            if code in self._cost_basis_date:
+                del self._cost_basis_date[code]
+            _sell_strategy = self._get_strategy_for_stock(code)
+            rebalance_records.append(RebalanceRecord(
+                date=str(trade_date), action='sell', ts_code=code,
+                shares=shares, price=sell_p, amount=net_amount,
+                reason=reason, strategy_name=_sell_strategy, sentiment=''))
+            await self.log(f"   │  ⚠️  {log_prefix}强制卖出: {code} {shares}股 @ {sell_p:.2f} ({reason})")
+        return cash
+
+    def _get_max_hold_for_code(self, code):
+        """获取股票对应的最大持仓天数"""
+        strategies = self.stock_to_strategy.get(code, [])
+        strategy_rp = getattr(self, '_strategy_risk_params', {})
+        global_max_hold = self._risk_config.get('max_hold_days', 999)
+        strategy_max_hold = None
+        if isinstance(strategies, list):
+            for sname in strategies:
+                smh = strategy_rp.get(sname, {}).get('max_hold_days')
+                if smh is not None and (strategy_max_hold is None or smh < strategy_max_hold):
+                    strategy_max_hold = smh
+        return strategy_max_hold if strategy_max_hold is not None else global_max_hold
 
     def _update_run_state(self, run_state: dict, **kwargs) -> dict:
         """【P1-2修复(V12)】统一更新run_state,消除9处重复的逐字段赋值"""
@@ -1167,8 +1318,8 @@ class PortfolioBacktester:
                             await self.log(f"   │  ⚠️ {code}停牌且无有效价,跳过卖出")
                             continue
                         shares = holdings[code]
-                        slippage_pct = 0  # 【V29:should_apply_slippage('强制空仓')=False】
-                        sell_price_adj = price  # 强制空仓不扣滑点
+                        slippage_pct = 0  # 【V29:should_apply_slippage('强制空仓')=False,此处已确认是强制空仓场景】
+                        sell_price_adj = price
                         gross_amount = shares * sell_price_adj
                         commission = max(gross_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
                         stamp_tax = gross_amount * self.STAMP_TAX
@@ -1748,145 +1899,27 @@ class PortfolioBacktester:
             await self.log(f"   { '-' * 100}")
 
 
-        # 【P0-2修复(V9):调仓日无交易记录时,也要执行止损止盈检查,但不委托给_process_non_rebalance_day】
-        # 旧bug: else分支调用_process_non_rebalance_day导致: 1)日志不匹配 2)run_state可能被覆盖 3)冲高回落重复检查
+        # 【V29重构:调仓日无交易时,委托给统一方法检查止损止盈/冲高回落/超时】
         if len(records) == 0 and holdings and len(holdings) > 0:
-            # 调仓日无交易,但需检查止损止盈(与_process_non_rebalance_day逻辑相同,但不走完整路径)
             enable_sl = self._risk_config.get('enable_stop_loss', True)
             enable_tp = self._risk_config.get('enable_take_profit', True)
             if enable_sl or enable_tp:
                 _sl_tp_prices = await self._get_prices(set(holdings.keys()), trade_date)
                 forced_sell_codes = []
                 forced_sell_prices = {}
-                for code in list(holdings.keys()):
-                    if holdings.get(code, 0) <= 0:
-                        continue
-                    buy_dt = self._cost_basis_date.get(code)
-                    if buy_dt is not None and buy_dt == trade_date:
-                        continue
-                    p = _sl_tp_prices.get(code, {})
-                    cost = self._cost_basis.get(code, 0)
-                    if cost <= 0 or p.get('close', 0) <= 0:
-                        continue
-                    strategies = self.stock_to_strategy.get(code, [])
-                    strategy_rp = getattr(self, '_strategy_risk_params', {})
-                    global_sl = self._risk_config.get('stop_loss_pct', GLOBAL_RISK['stop_loss_pct'])
-                    global_tp = self._risk_config.get('take_profit_pct', 0.07)
-                    if isinstance(strategies, list) and strategies:
-                        sl_pct = min(strategy_rp.get(s, {}).get('stop_loss_pct', global_sl) for s in strategies)
-                        tp_pct = max(strategy_rp.get(s, {}).get('take_profit_pct', global_tp) for s in strategies)
-                    else:
-                        sl_pct, tp_pct = global_sl, global_tp
-                    low_p = p.get('low', p.get('close', 0))
-                    high_p = p.get('high', p.get('close', 0))
-                    stop_price = cost * (1 - sl_pct)
-                    tp_price = cost * (1 + tp_pct)
-                    open_p = p.get('open', p.get('close', 0))
-                    # 【P0-3修复(V14)】:用统一方法检查冲高回落/高开即卖/利润保护
-                    _close_p = p.get('close', 0)
-                    early_sell_price, early_sell_reason = self._check_early_sell_signals(
-                        code, strategies, cost, open_p, _close_p)
-                    early_sell = early_sell_price > 0
-                    if early_sell:
-                        forced_sell_prices[code] = early_sell_price
-                        forced_sell_codes.append((code, early_sell_reason))
-                    if not early_sell:
-                        if enable_sl and low_p <= stop_price:
-                            if open_p <= stop_price:
-                                forced_sell_prices[code] = open_p
-                                forced_sell_codes.append((code, '跳空止损'))
-                            else:
-                                forced_sell_prices[code] = stop_price
-                                forced_sell_codes.append((code, f'止损({sl_pct*100:.0f}%)'))
-                        elif enable_tp and high_p >= tp_price:
-                            forced_sell_prices[code] = tp_price
-                            forced_sell_codes.append((code, f'止盈({tp_pct*100:.0f}%)'))
-                # 执行止损止盈卖出
-                for code, reason in forced_sell_codes:
-                    shares = holdings.get(code, 0)
-                    if shares <= 0:
-                        continue
-                    sell_p = forced_sell_prices.get(code, _sl_tp_prices.get(code, {}).get('close', 0))
-                    if sell_p <= 0:
-                        continue
-                    slippage_pct = 0 if not should_apply_slippage(reason) else self._get_slippage_for_code(code)  # 【V29:统一滑点规则】
-                    sell_price_adj = sell_p * (1 - slippage_pct)
-                    gross_amount = shares * sell_price_adj
-                    commission = max(gross_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
-                    stamp_tax = gross_amount * self.STAMP_TAX
-                    net_amount = gross_amount - commission - stamp_tax
-                    cash += net_amount
-                    del holdings[code]
-                    if code in self._cost_basis:
-                        del self._cost_basis[code]
-                    if code in self._cost_basis_date:
-                        del self._cost_basis_date[code]
-                    _sell_strategy = self._get_strategy_for_stock(code)
-                    rebalance_records.append(RebalanceRecord(
-                        date=str(trade_date), action='sell', ts_code=code,
-                        shares=shares, price=sell_p, amount=net_amount,
-                        reason=reason, strategy_name=_sell_strategy, sentiment=''))
-                    await self.log(f"   │  ⚠️  调仓日止损止盈卖出: {code} {shares}股 @ {sell_p:.2f} ({reason})")
+                forced_sell_codes_set = set()
+                # 统一检查:冲高回落/利润保护/止损/止盈/超时
+                forced_sell_codes, forced_sell_prices, forced_sell_codes_set = \
+                    await self._check_and_execute_forced_sells(
+                        trade_date, holdings, _sl_tp_prices,
+                        forced_sell_codes, forced_sell_prices, forced_sell_codes_set,
+                        check_timeout=True)
+                # 统一执行卖出
+                cash = await self._execute_forced_sells(
+                    trade_date, holdings, cash, forced_sell_codes,
+                    forced_sell_prices, _sl_tp_prices, rebalance_records,
+                    log_prefix='调仓日')
                 last_prices = _sl_tp_prices if forced_sell_codes else last_prices
-
-                # 【P1-1修复(V23):调仓日无交易也要检查超时强卖,与非调仓日逻辑对齐】
-                # 旧bug: 调仓日无交易时只检查止损止盈,不检查max_hold_days超时
-                # 导致超时持仓要等到非调仓日才被卖出,多持1天增加回撤风险
-                forced_sell_codes_set = set(c for c, _ in forced_sell_codes)  # 【P1-1修复(V26):用set做去重检查,与V24非调仓日一致】
-                global_max_hold = self._risk_config.get('max_hold_days', 999)
-                for code in list(holdings.keys()):
-                    if holdings.get(code, 0) <= 0:
-                        continue
-                    if code in forced_sell_codes_set:
-                        continue  # 已在止损止盈中处理
-                    buy_date_raw = self._cost_basis_date.get(code)
-                    strategies = self.stock_to_strategy.get(code, [])
-                    strategy_rp = getattr(self, '_strategy_risk_params', {})
-                    strategy_max_hold = None
-                    if isinstance(strategies, list):
-                        for sname in strategies:
-                            smh = strategy_rp.get(sname, {}).get('max_hold_days')
-                            if smh is not None and (strategy_max_hold is None or smh < strategy_max_hold):
-                                strategy_max_hold = smh
-                    max_hold = strategy_max_hold if strategy_max_hold is not None else global_max_hold
-                    if buy_date_raw is not None and max_hold < 999:
-                        try:
-                            buy_dt_int = int(str(buy_date_raw))
-                            trade_dt_int = int(str(trade_date))
-                            _all_td = getattr(self, '_all_trade_dates', [])
-                            if _all_td:
-                                trade_days_held = sum(1 for d in _all_td if buy_dt_int < d <= trade_dt_int)
-                            else:
-                                trade_days_held = 0
-                            if trade_days_held > max_hold:
-                                p = _sl_tp_prices.get(code, {})
-                                sell_p = p.get('close', 0)
-                                if sell_p <= 0:
-                                    continue
-                                shares = holdings[code]
-                                # 【P0-2修复(V25):超时强卖不扣滑点(与止损一致,被迫卖出不应再惩罚)】
-                                # 旧bug: 超时强卖扣slippage,实际是被迫卖出不应额外惩罚
-                                # 超时本身已经损失了时间价值,不应再扣滑点
-                                sell_price_adj = sell_p
-                                gross_amount = shares * sell_price_adj
-                                commission = max(gross_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
-                                stamp_tax = gross_amount * self.STAMP_TAX
-                                net_amount = gross_amount - commission - stamp_tax
-                                cash += net_amount
-                                del holdings[code]
-                                if code in self._cost_basis:
-                                    del self._cost_basis[code]
-                                if code in self._cost_basis_date:
-                                    del self._cost_basis_date[code]
-                                _sell_strategy = self._get_strategy_for_stock(code)
-                                rebalance_records.append(RebalanceRecord(
-                                    date=str(trade_date), action='sell', ts_code=code,
-                                    shares=shares, price=sell_p, amount=net_amount,
-                                    reason=f'超时({trade_days_held}交易日>{max_hold}交易日)',
-                                    strategy_name=_sell_strategy, sentiment=''))
-                                await self.log(f"   │  ⚠️  调仓日超时强卖: {code} {shares}股 @ {sell_p:.2f} ({trade_days_held}>{max_hold}交易日)")
-                        except (ValueError, TypeError):
-                            pass
         # 【P0修复:统一调用净值记录函数,避免continue跳过】
         last_net_value, peak_value = await self._record_daily_net_value(
             trade_date, holdings, cash, last_net_value, peak_value,
@@ -1945,137 +1978,26 @@ class PortfolioBacktester:
         all_trade_dates = run_state['all_trade_dates']
         initial_cash = run_state['initial_cash']
 
-        # 【P1-5:非调仓日止损止盈检查 + 超时强卖检查】
+        # 【V29重构:非调仓日止损止盈+超时检查,委托给统一方法】
         enable_sl = self._risk_config.get('enable_stop_loss', True)
         enable_tp = self._risk_config.get('enable_take_profit', True)
         forced_sell_codes = []
-        forced_sell_codes_set = set()  # 【P1-6修复(V24)】:用set做去重检查,替代O(N)的any()遍历
-        forced_sell_prices = {}  # code -> actual sell price (Phase1: gap handling)
-        # 【P0-1修复(V13)】初始化_prices_for_display,避免holdings为空时NameError
+        forced_sell_codes_set = set()
+        forced_sell_prices = {}
         _prices_for_display = {}
         if (enable_sl or enable_tp) and holdings:
             _sl_tp_prices = await self._get_prices(set(holdings.keys()), trade_date)
-            for code in list(holdings.keys()):
-                if holdings.get(code, 0) <= 0:
-                    continue
-                # 【Phase1-T+1】当日买入的股票不可止损/止盈卖出(T+1限制)
-                buy_dt = self._cost_basis_date.get(code)
-                if buy_dt is not None and buy_dt == trade_date:
-                    continue
-                p = _sl_tp_prices.get(code, {})
-                cost = self._cost_basis.get(code, 0)
-                if cost <= 0 or p.get('close', 0) <= 0:
-                    continue
-                # 查找策略级参数
-                strategies = self.stock_to_strategy.get(code, [])
-                strategy_rp = getattr(self, '_strategy_risk_params', {})
-                global_sl = self._risk_config.get('stop_loss_pct', GLOBAL_RISK['stop_loss_pct'])
-                global_tp = self._risk_config.get('take_profit_pct', 0.07)
-                if isinstance(strategies, list) and strategies:
-                    sl_pct = min(strategy_rp.get(s, {}).get('stop_loss_pct', global_sl) for s in strategies)
-                    tp_pct = max(strategy_rp.get(s, {}).get('take_profit_pct', global_tp) for s in strategies)
-                else:
-                    sl_pct, tp_pct = global_sl, global_tp
-                low_p = p.get('low', p.get('close', 0))
-                high_p = p.get('high', p.get('close', 0))
-                open_p = p.get('open', p.get('close', 0))
-                _close_p = p.get('close', 0)
-                stop_price = cost * (1 - sl_pct)
-                tp_price = cost * (1 + tp_pct)
-                # 【P0-3修复(V14)】:用统一方法检查冲高回落/高开即卖/利润保护
-                # 【P0-1修复(V15)】:补上缺失的close_p变量定义,与调仓日分支保持一致
-                early_sell_price, early_sell_reason = self._check_early_sell_signals(
-                    code, strategies, cost, open_p, _close_p)
-                early_sell_triggered = early_sell_price > 0
-                if early_sell_triggered:
-                    forced_sell_prices[code] = early_sell_price
-                    forced_sell_codes.append((code, early_sell_reason))
-                    forced_sell_codes_set.add(code)
-                if not early_sell_triggered:
-                    if enable_sl and low_p <= stop_price:
-                        # 【Phase1-跳空止损】如果open直接跳空低于止损价,以open卖出(最差情况)
-                        if open_p <= stop_price:
-                            forced_sell_prices[code] = open_p  # 跳空低开,以open卖出
-                            forced_sell_codes.append((code, f'跳空止损'))
-                            forced_sell_codes_set.add(code)
-                        else:
-                            forced_sell_prices[code] = stop_price  # 盘中跌破止损,以止损价卖出
-                            forced_sell_codes.append((code, f'止损({sl_pct*100:.0f}%)'))
-                            forced_sell_codes_set.add(code)
-                    elif enable_tp and high_p >= tp_price:
-                        forced_sell_prices[code] = tp_price  # 止盈以止盈价卖出
-                        forced_sell_codes.append((code, f'止盈({tp_pct*100:.0f}%)'))
-                        forced_sell_codes_set.add(code)
-                # 【Bug修复:非调仓日也要检查max_hold_days超时】
-                # 【P1-2修复(V15)】:改用交易日计算超时,替代日历天数*1.5
-                # 旧逻辑: 日历天数>max_hold*1.5 → 周中买入3个日历天就超时(1.5*2=3),但只过了1个交易日
-                # 新逻辑: 统计all_trade_dates中[buy_date, trade_date]之间的交易日数
-                buy_date_raw = self._cost_basis_date.get(code)
-                global_max_hold = self._risk_config.get('max_hold_days', 999)
-                strategy_max_hold = None
-                if isinstance(strategies, list):
-                    for sname in strategies:
-                        smh = strategy_rp.get(sname, {}).get('max_hold_days')
-                        if smh is not None:
-                            if strategy_max_hold is None or smh < strategy_max_hold:
-                                strategy_max_hold = smh
-                max_hold = strategy_max_hold if strategy_max_hold is not None else global_max_hold
-                if buy_date_raw is not None and max_hold < 999:
-                    try:
-                        buy_dt_int = int(str(buy_date_raw))
-                        trade_dt_int = int(str(trade_date))
-                        _all_td = getattr(self, '_all_trade_dates', [])
-                        if _all_td:
-                            trade_days_held = sum(1 for d in _all_td if buy_dt_int < d <= trade_dt_int)
-                        else:
-                            bd = dt_now.strptime(str(buy_dt_int), '%Y%m%d')
-                            td = dt_now.strptime(str(trade_dt_int), '%Y%m%d')
-                            trade_days_held = int((td - bd).days / 1.5)
-                        if trade_days_held > max_hold:
-                            if code not in forced_sell_codes_set:
-                                forced_sell_codes.append((code, f'超时({trade_days_held}交易日>{max_hold}交易日)'))
-                                forced_sell_codes_set.add(code)
-                    except (ValueError, TypeError):
-                        pass
-            # 执行非调仓日强卖
-            # 【P1-1修复(V15)】:直接使用循环解包的reason,不再冗余查找forced_sell_codes
-            # 旧bug: L1929 next()重新查找,当同一code有多条目时可能返回错误reason
-            for code, reason in forced_sell_codes:
-                shares = holdings.get(code, 0)
-                if shares <= 0:
-                    continue
-                p = _sl_tp_prices.get(code, {})
-                # 【Phase1-止损卖出价修复】不再一律用close,改用实际触发价格
-                # 止损→止损价, 跳空止损→open价, 止盈→止盈价
-                sell_p = forced_sell_prices.get(code, p.get('close', 0))
-                if sell_p <= 0:
-                    continue
-                # 【P1-2修复(V9):止损不扣滑点(止损价已保守),但止盈需扣滑点(实盘达不到理论止盈价)】
-                # 【V29:统一滑点规则,替代if/elif判断】
-                if not should_apply_slippage(reason):
-                    slippage_pct = 0  # 止损/超时/强制空仓/停牌强卖不扣滑点
-                else:
-                    slippage_pct = self._get_slippage_for_code(code)  # 止盈/冲高回落/高开即卖扣滑点
-                sell_price_adj = sell_p * (1 - slippage_pct)
-                gross_amount = shares * sell_price_adj
-                commission = max(gross_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
-                stamp_tax = gross_amount * self.STAMP_TAX
-                net_amount = gross_amount - commission - stamp_tax
-                cash += net_amount
-                del holdings[code]
-                if code in self._cost_basis:
-                    del self._cost_basis[code]
-                if code in self._cost_basis_date:
-                    del self._cost_basis_date[code]
-                _nrt_strategy = self._get_strategy_for_stock(code)
-                rebalance_records.append(RebalanceRecord(
-                    date=str(trade_date), action='sell', ts_code=code,
-                    shares=shares, price=sell_p, amount=net_amount,
-                    reason=f'{reason}',
-                    strategy_name=_nrt_strategy,
-                    sentiment=''))
-                await self.log(f"   │  ⚠️  止损止盈卖出: {code} {shares}股 @ {sell_p:.2f} ({reason})")
-            # 更新价格缓存供后续净值计算
+            # 统一检查:冲高回落/利润保护/止损/止盈/超时
+            forced_sell_codes, forced_sell_prices, forced_sell_codes_set = \
+                await self._check_and_execute_forced_sells(
+                    trade_date, holdings, _sl_tp_prices,
+                    forced_sell_codes, forced_sell_prices, forced_sell_codes_set,
+                    check_timeout=True)
+            # 统一执行卖出
+            cash = await self._execute_forced_sells(
+                trade_date, holdings, cash, forced_sell_codes,
+                forced_sell_prices, _sl_tp_prices, rebalance_records,
+                log_prefix='非调仓日')
             _prices_for_display = _sl_tp_prices
         else:
             if holdings and len(holdings) > 0:
@@ -3222,13 +3144,16 @@ class PortfolioBacktester:
 
     def _get_buy_price_for_stock(self, code: str, open_price: float, close_price: float,
                                   high_price: float, low_price: float, pre_close: float = 0) -> float:
-        """【辅助函数】计算买入价(多策略选同股时取最低买入价,最保守)
+        """计算买入价(多策略选同股时取最高买入价,最保守估算)
 
-        【日线回测买入价模拟】:
-        - 回测基于日线数据,无法精确模拟盘中价格
-        - 半路追涨: open*(1+min_rise*0.6) 模拟涨到阈值后追入
-        - 龙头低吸: 日内偏低位但不极端的位置
-        - 跌停翘板: 跌停价附近小幅上涨
+        【V29重构】委托给sell_signal_checker.get_buy_price_for_strategy,
+        消除if/elif策略链。新增策略只需在STRATEGY_BUY_PRICE中注册。
+
+        历史bug追踪:
+        - V11: open+(high-open)*0.5用了当天high(未来函数) → open*(1+min_rise*0.8)
+        - V12: 系数从0.7→0.8,平衡回测真实性和利润空间
+        - V23: 多策略选同股取min→max(更保守估算)
+        - V28: 龙头低吸系数0.25→0.20
 
         注意:这是对实盘价格的近似模拟,实际成交价可能有所不同
         """
@@ -3237,62 +3162,18 @@ class PortfolioBacktester:
 
         prices = []
         for sname in strategies:
-            if sname == '半路追涨':
-                # 【V25-P1标注:已知近似问题 - pct_chg≥5%是收盘确认,但买入价用盘中模拟】
-                #
-                # 【未来函数分析】:
-                # 半路追涨使用pct_chg≥5%作为选股条件(收盘确认),但买入价用盘中价模拟
-                # 严格定义: pct_chg是T日收盘数据,盘中不可知; 但实盘中可在14:50观察趋势预判
-                #
-                # 【实测结论V25】: 收盘确认+close买入→收益226%→46%,胜率76%→42%
-                # 原因: close>open*1.024(收盘站稳5%意味着收盘价较高),买入价升高→T+1利润几乎消失
-                # 结论: 完全消除未来函数的代价太大,当前方案是合理的实盘近似
-                #
-                # 【实盘场景】: 经验丰富的交易员在盘中观察到放量冲高,基于趋势判断在2-3%位置买入
-                # 这不是"预测收盘5%",而是"根据盘中趋势判断动能强劲,大概率收涨5%+"
-                # 买入价open*(1+min_rise*0.8)模拟了这个过程:涨到2.4%时买入(稍早于3%确认位)
-                #
-                # 【V11-P0-2修复:消除旧版未来函数 - 旧逻辑open+(high-open)*0.5用了当天high】
-                # 【V12-P0-2修复:系数从0.7调整为0.8,平衡回测真实性和利润空间】
-                # 系数0.7: 买入价=open*1.021(涨幅1.05%处),过于保守导致回测虚高
-                # 系数0.9: 买入价=open*1.027(涨幅2.7%处),接近信号确认位但利润太薄
-                # 系数0.8: 买入价=open*1.024(涨幅2.4%处),实盘可在接近3%时确认并买入
-                #
-                _sp = getattr(self, '_strategy_params', {}).get(sname, {})
-                _min_rise = _sp.get('min_rise_pct', 0.03)
-                if open_price > 0:
-                    p = open_price * (1 + _min_rise * 0.8)
-                else:
-                    p = 0
-            elif sname in ('首板打板', '涨停开板'):
+            sp = getattr(self, '_strategy_params', {}).get(sname, {})
+            p = get_buy_price_for_strategy(sname, code, open_price, close_price,
+                                           high_price, low_price, pre_close, sp)
+            # 特殊处理: 首板打板/涨停开板需要调用_get_limit_up_price
+            if p == -1:
                 p = self._get_limit_up_price(code, open_price, close_price, high_price, low_price, pre_close)
-            elif sname == '龙头低吸':
-                # 【Phase1-修复】low价偏乐观(不可能精确抄底)
-                # 【P1-1修复(V28):系数从0.25→0.20,更偏低,模拟更精确的低吸】
-                # 0.25: 低点上方25%位置(振幅5%→买入+1.25%)
-                # 0.20: 低点上方20%位置(振幅5%→买入+1.00%),更保守真实
-                if low_price > 0 and high_price > low_price:
-                    p = low_price + (high_price - low_price) * 0.20
-                elif low_price > 0:
-                    p = low_price * 1.01
-                else:
-                    p = open_price * 0.98
-            elif sname == '跌停翘板':
-                # 跌停撬板买入价: 跌停价上方1-3%
-                # 【P1-5修复(V15)】:翘板买入价从low*1.005→low*1.01
-                # low*1.005(0.5%溢价)过于保守,实盘翘板通常在跌停价上方1-3%成交
-                # low*1.01(1%溢价)更接近实盘翘板成交价,避免利润虚高
-                p = low_price * 1.01 if low_price > 0 else open_price * 0.92
-            else:
-                p = open_price
             if p > 0:
                 prices.append(p)
 
         if not prices:
             return open_price
         # 【P1-4修复(V23):多策略选同股时取最高买入价,最保守估算】
-        # 旧bug: 取min(prices)过于保守,导致成本低估,虚增利润
-        # 取max更保守(更高的成本),回测结果更真实
         return max(prices)
 
     def _extract_position_multiplier(self, sentiment: str) -> float:
@@ -4004,12 +3885,8 @@ class PortfolioBacktester:
             price = sell_price
 
             # 计算卖出金额
-            # 【P1-2修复(V9):止损不扣滑点(保守价),但止盈/冲高回落/高开即卖需扣滑点(实盘难以精确卖出)】
-            # 【V29:统一滑点规则,替代startsswith判断】
-            if not should_apply_slippage(sell_reason):
-                slippage_pct = 0  # 止损/跳空止损/超时/强制空仓/停牌强卖不扣滑点
-            else:
-                slippage_pct = self._get_slippage_for_code(ts_code)  # 冲高回落/利润保护/止盈/调仓卖出扣滑点
+            # 【V29:统一滑点规则】
+            slippage_pct = 0 if not should_apply_slippage(sell_reason) else self._get_slippage_for_code(ts_code)
             sell_price_adj = price * (1 - slippage_pct)
             gross_amount = shares * sell_price_adj
             commission = max(gross_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
