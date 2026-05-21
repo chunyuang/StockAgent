@@ -139,6 +139,7 @@ STRATEGY_CONFIGS = {
             "min_rise_after_qiao": 0.03,                # 翘板后最小涨幅3%
             "min_circulation_market_cap": 20,            # 最小流通市值20亿(排除小盘操纵,V16:保持20亿,30亿过滤过多跌停翘板候选)
             "require_high_sentiment": False,             # 不要求高情绪
+            "next_day_open_sell_pct": 0.03,          # 次日高开≥3%冲高回落保护(与半路追涨/龙头低吸一致)
         },
         "riskParams": {
             "stop_loss_pct": 0.04,          # 止损4%(V27:从5%→4%,回测验证:收益+1.8%/夏普+0.15/盈亏比+0.04,跌停撬板波动大但4%足够止损)
