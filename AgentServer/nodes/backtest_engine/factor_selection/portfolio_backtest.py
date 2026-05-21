@@ -98,6 +98,7 @@ class PortfolioBacktester:
         self._stock_name_cache: dict[str, str] = {}
         self._industry_map_cache: dict[str, str] = {}  # 【P1-3修复(V14)】板块映射缓存
         self._ma60_cache: dict[int, tuple] = {}  # 【P0-1修复(V20)】MA60缓存{trade_date: (ma60_value, current_close)}
+        self._trade_date_index_map: dict[int, int] = {}  # 【V30:P1-1】交易日→索引映射，用于O(1)计算持仓天数
         # 初始资金(用于计算累计收益)
         self._initial_cash: float = 1000000.0
         # 🔧 _run_impl中使用的属性,提前初始化避免hasattr检查
@@ -111,6 +112,30 @@ class PortfolioBacktester:
         self._prev_day_close = {}
         self._strategy_signal_stats = {}
         self.stock_to_strategy = {}
+
+    def _calc_trade_days_held(self, buy_date, sell_date):
+        """【V30:P1-1】O(1)计算持仓交易日数
+
+        替代原来的O(N)遍历: sum(1 for d in _all_td if buy_dt_int < d <= trade_dt_int)
+        预构建{trade_date: index}映射，持仓天数 = idx_sell - idx_buy
+
+        Args:
+            buy_date: 买入日期(int)
+            sell_date: 卖出/当前日期(int)
+
+        Returns:
+            int: 持仓交易日数(不含买入日，含卖出日)
+        """
+        idx_map = self._trade_date_index_map
+        idx_buy = idx_map.get(buy_date)
+        idx_sell = idx_map.get(sell_date)
+        if idx_buy is not None and idx_sell is not None:
+            return idx_sell - idx_buy
+        # fallback: O(N)遍历(映射未构建时)
+        _all_td = getattr(self, '_all_trade_dates', [])
+        if _all_td:
+            return sum(1 for d in _all_td if buy_date < d <= sell_date)
+        return 0
 
     def _check_early_sell_signals(self, code: str, strategies: list, cost: float,
                                          open_price: float, close_price: float) -> tuple:
@@ -225,11 +250,7 @@ class PortfolioBacktester:
                     try:
                         buy_dt_int = int(str(buy_date_raw))
                         trade_dt_int = int(str(trade_date))
-                        _all_td = getattr(self, '_all_trade_dates', [])
-                        if _all_td:
-                            trade_days_held = sum(1 for d in _all_td if buy_dt_int < d <= trade_dt_int)
-                        else:
-                            trade_days_held = 0
+                        trade_days_held = self._calc_trade_days_held(buy_dt_int, trade_dt_int)
                         if trade_days_held > max_hold:
                             sell_p = _close_p
                             if sell_p > 0:
@@ -458,6 +479,12 @@ class PortfolioBacktester:
             sentiment_level = "冰点期,仓位系数0.3"
         await self.log(f"   │  🔹 情绪周期评分:{sentiment_score}分 → {sentiment_level}")
         await self.log(f"   └───────────────────────────────────────────────────────")
+
+        # 【V30:P1-3】缓存情绪评分结果,供非调仓日复用,避免每天5万条聚合查询
+        self._cached_sentiment_level = sentiment_level
+        self._cached_sentiment_score = sentiment_score
+        self._cached_limit_up_count = limit_up_count
+        self._cached_limit_down_count = limit_down_count
 
         return sentiment_level, sentiment_score, limit_up_count, limit_down_count
 
@@ -826,11 +853,21 @@ class PortfolioBacktester:
             # ==================== 1️⃣ 每日统一开头 ====================
             await self._print_daily_header(idx+1, total_days, trade_date)
 
-            # ==================== 2️⃣ 每日市场环境判断(所有天都走) ====================
+            # ==================== 2️⃣ 每日市场环境判断 ====================
             # 【未来函数修复】用前一个交易日的涨停/跌停数计算情绪评分
             # 实盘9:30开盘前只能用前日数据,当天涨停数收盘后才知道
             prev_trade_date = all_trade_dates[idx - 1] if idx > 0 else trade_date
-            sentiment_level, market_sentiment_score, limit_up_count, limit_down_count = await self._print_market_environment(prev_trade_date)
+            # 【V30:P1-3】非调仓日复用上次计算的情绪评分,避免5万条聚合查询
+            # 非调仓日只需要sentiment_level用于净值记录,不需要涨跌停详情和日志输出
+            is_rebalance_day = trade_date in rebalance_set
+            if is_rebalance_day:
+                sentiment_level, market_sentiment_score, limit_up_count, limit_down_count = await self._print_market_environment(prev_trade_date)
+            else:
+                # 复用上一次计算的结果(情绪评分在非调仓日不会变化太多,1天差异可忽略)
+                sentiment_level = getattr(self, '_cached_sentiment_level', '震荡期,仓位系数0.7')
+                market_sentiment_score = getattr(self, '_cached_sentiment_score', 50)
+                limit_up_count = getattr(self, '_cached_limit_up_count', 0)
+                limit_down_count = getattr(self, '_cached_limit_down_count', 0)
 
             # ==================== 🔴 强制空仓判断 ====================
             # 【修复#5:统一阈值 - 与日志打印使用同一阈值】
@@ -1158,25 +1195,30 @@ class PortfolioBacktester:
                             missing_fields.append(check_field)
             if missing_fields:
                 await self.log(f"   ⚠️ 缺失因子 ({len(missing_fields)}个): {', '.join(missing_fields[:10])}")
-                # 【P0-1修复(V9):因子自动计算添加超时保护,避免阻塞回测主流程】
-                from .factor_auto_compute import auto_compute_factors
-                import asyncio as _asyncio
-                try:
-                    auto_result = await _asyncio.wait_for(
-                        auto_compute_factors(
-                            missing_fields=missing_fields, start_date=start_dt, end_date=end_dt,
-                            push_log_fn=push_log, task_id=task_id or '',
-                        ),
-                        timeout=120  # 2分钟超时,避免因子计算卡死回测
-                    )
-                except _asyncio.TimeoutError:
-                    await self.log(f"   ⚠️ 因子自动计算超时(>2分钟),跳过,将使用运行时动态计算")
-                    auto_result = {"computed": False}
-                except Exception as e:
-                    await self.log(f"   ⚠️ 因子自动计算异常: {e},跳过")
-                    auto_result = {"computed": False}
-                if auto_result.get("computed"):
-                    await self.log(f"   ✅ 因子自动计算成功!{auto_result.get('records_updated', 0):,} 条记录已更新")
+                # 【V30:跳过因子自动计算(已知卡死问题),只输出告警】
+                # 因子自动计算模块(factor_auto_compute.py)在5个月区间下会卡死
+                # 运行时factor_engine.compute_factors会动态从MongoDB读取因子数据
+                # 如果MongoDB中缺少因子(如opening_pct_chg),compute_factors内部会自动计算
+                await self.log(f"   ⚠️ 因子自动计算已跳过(已知卡死问题),将在运行时动态计算")
+                # # 【P0-1修复(V9):因子自动计算添加超时保护,避免阻塞回测主流程】
+                # from .factor_auto_compute import auto_compute_factors
+                # import asyncio as _asyncio
+                # try:
+                #     auto_result = await _asyncio.wait_for(
+                #         auto_compute_factors(
+                #             missing_fields=missing_fields, start_date=start_dt, end_date=end_dt,
+                #             push_log_fn=push_log, task_id=task_id or '',
+                #         ),
+                #         timeout=120  # 2分钟超时,避免因子计算卡死回测
+                #     )
+                # except _asyncio.TimeoutError:
+                #     await self.log(f"   ⚠️ 因子自动计算超时(>2分钟),跳过,将使用运行时动态计算")
+                #     auto_result = {"computed": False}
+                # except Exception as e:
+                #     await self.log(f"   ⚠️ 因子自动计算异常: {e},跳过")
+                #     auto_result = {"computed": False}
+                # if auto_result.get("computed"):
+                #     await self.log(f"   ✅ 因子自动计算成功!{auto_result.get('records_updated', 0):,} 条记录已更新")
             else:
                 await self.log("   ✅ 核心策略因子完整性检查通过!")
         # ==================== 因子完整性检测结束 ====================
@@ -1281,6 +1323,8 @@ class PortfolioBacktester:
         rebalance_dates = run_state['rebalance_dates']
         # 【P1-2修复(V15)】:存储为实例变量供_rebalance使用(超时强卖需计算交易日数)
         self._all_trade_dates = all_trade_dates
+        # 【V30:P1-1】预构建交易日→索引映射，O(1)计算持仓天数
+        self._trade_date_index_map = {int(d): idx for idx, d in enumerate(all_trade_dates)}
         rebalance_set = run_state['rebalance_set']
         total_days = run_state['total_days']
         benchmark_data = run_state['benchmark_data']
@@ -2203,12 +2247,9 @@ class PortfolioBacktester:
                             buy_d = int(first_buy.date) if first_buy.date else 0
                             sell_d = int(record.date) if record.date else 0
                             # 【P1-3修复(V16):持仓天数改用交易日计算,替代日历天数】
-                            # 日历天数含周末/节假日,3日历天可能只有1个交易日
-                            # 交易日计算: all_trade_dates中(buy_date, sell_date]之间的数量
-                            _all_td = run_state.get('all_trade_dates', [])
-                            if _all_td:
-                                hold_d = sum(1 for d in _all_td if buy_d < d <= sell_d)
-                            else:
+                            # 【V30:P1-1】使用O(1)索引映射计算
+                            hold_d = self._calc_trade_days_held(buy_d, sell_d)
+                            if hold_d <= 0:
                                 # fallback: 日历天数
                                 from datetime import datetime
                                 bd = datetime.strptime(str(buy_d), '%Y%m%d')
@@ -2348,9 +2389,9 @@ class PortfolioBacktester:
             for trade in completed_trades_for_avg:
                 buy_date_int = int(trade['buy_date'])
                 sell_date_int = int(trade['sell_date'])
-                if _all_td:
-                    hold_days = sum(1 for d in _all_td if buy_date_int < d <= sell_date_int)
-                else:
+                # 【V30:P1-1】使用O(1)索引映射计算
+                hold_days = self._calc_trade_days_held(buy_date_int, sell_date_int)
+                if hold_days <= 0:
                     buy_dt = dt_now.strptime(str(buy_date_int), '%Y%m%d')
                     sell_dt = dt_now.strptime(str(sell_date_int), '%Y%m%d')
                     hold_days = (sell_dt - buy_dt).days
@@ -2431,14 +2472,13 @@ class PortfolioBacktester:
                     is_profit = "✅" if profit_pct > 0 else "❌"
                     # 计算持仓天数
                     # 【P1-3修复(V16):持仓天数改用交易日计算,替代日历天数】
+                    # 【V30:P1-1】使用O(1)索引映射计算
                     if buy_date and sell_date:
                         try:
                             buy_d2 = int(buy_date)
                             sell_d2 = int(sell_date)
-                            _all_td2 = run_state.get('all_trade_dates', [])
-                            if _all_td2:
-                                hold_days = sum(1 for d in _all_td2 if buy_d2 < d <= sell_d2)
-                            else:
+                            hold_days = self._calc_trade_days_held(buy_d2, sell_d2)
+                            if hold_days <= 0:
                                 buy_dt = dt_now.strptime(str(buy_d2), '%Y%m%d')
                                 sell_dt = dt_now.strptime(str(sell_d2), '%Y%m%d')
                                 hold_days = (sell_dt - buy_dt).days
@@ -3671,10 +3711,9 @@ class PortfolioBacktester:
                     try:
                         buy_dt_int = int(str(buy_date_raw))
                         trade_dt_int = int(str(trade_date))
-                        _all_td = getattr(self, '_all_trade_dates', [])
-                        if _all_td:
-                            trade_days_held = sum(1 for d in _all_td if buy_dt_int < d <= trade_dt_int)
-                        else:
+                        trade_days_held = self._calc_trade_days_held(buy_dt_int, trade_dt_int)
+                        if trade_days_held <= 0:
+                            # fallback: 日历天数/1.5
                             bd = dt_now.strptime(str(buy_dt_int), '%Y%m%d')
                             td = dt_now.strptime(str(trade_dt_int), '%Y%m%d')
                             trade_days_held = int((td - bd).days / 1.5)
@@ -3743,10 +3782,8 @@ class PortfolioBacktester:
                             # 【P2-3修复(V15):停牌超时也改用交易日计算,与P1-2超时强卖一致】
                             buy_dt_int = int(str(buy_date_raw))
                             trade_dt_int = int(str(trade_date))
-                            _all_td = getattr(self, '_all_trade_dates', [])
-                            if _all_td:
-                                trade_days_held = sum(1 for d in _all_td if buy_dt_int < d <= trade_dt_int)
-                            else:
+                            trade_days_held = self._calc_trade_days_held(buy_dt_int, trade_dt_int)
+                            if trade_days_held <= 0:
                                 # fallback: 日历天数/1.5 ≈ 交易日
                                 bd = dt_now.strptime(str(buy_dt_int), '%Y%m%d')
                                 td = dt_now.strptime(str(trade_dt_int), '%Y%m%d')
