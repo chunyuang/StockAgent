@@ -62,6 +62,34 @@ class FactorEngine:
     4. 综合打分
     """
 
+    # 【V30:P1-4】交易日→前一日映射缓存,避免每天做$group聚合全表扫描
+    # 回测时由portfolio_backtest在_run_impl中调用set_trade_dates()设置
+    _trade_date_list: list[int] = []
+    _prev_date_cache: dict[int, int] = {}  # {trade_date: prev_trade_date}
+
+    @classmethod
+    def set_trade_dates(cls, all_trade_dates: list):
+        """【V30:P1-4】设置交易日列表,构建prev_date缓存
+
+        在回测开始时由portfolio_backtest调用一次,避免每次compute_factors
+        都做$group聚合查询(2000万条记录全表扫描,耗时1-2秒/次)
+        """
+        cls._trade_date_list = [int(d) for d in all_trade_dates]
+        cls._prev_date_cache = {}
+        for i in range(1, len(cls._trade_date_list)):
+            cls._prev_date_cache[cls._trade_date_list[i]] = cls._trade_date_list[i - 1]
+        # 注意: 列表第一个日期(idx=0)没有prev_date,查询时会回退到MongoDB聚合
+        # 这是预期行为: 只有第一个交易日需要回退,后续99%的日期都命中缓存
+
+    @classmethod
+    def get_prev_trade_date(cls, trade_date: int) -> int | None:
+        """【V30:P1-4】O(1)查找前一个交易日
+
+        替代MongoDB $group聚合: {trade_date: {$lt: trade_date}} → $max
+        如果缓存未命中,返回None让调用方回退到MongoDB聚合查询
+        """
+        return cls._prev_date_cache.get(int(trade_date))
+
     async def compute_factors(
         self,
         stocks: set[str],
@@ -182,13 +210,17 @@ class FactorEngine:
                 if zero_pre_close_mask.any():
                     zero_codes = result.loc[zero_pre_close_mask, "ts_code"].tolist()
                     if zero_codes:
-                        # 查找前一个交易日: 用max聚合替代distinct(快10x)
-                        prev_date_doc = await mongo_manager.db[C.STOCK_DAILY].aggregate([
-                            {"$match": {"trade_date": {"$lt": trade_date_int}}},
-                            {"$group": {"_id": None, "max_date": {"$max": "$trade_date"}}}
-                        ]).to_list(length=1)
-                        if prev_date_doc and prev_date_doc[0].get("max_date"):
-                            _prev_date_cached = prev_date_doc[0]["max_date"]
+                        # 【V30:P1-4】用O(1)缓存查找替代$group聚合全表扫描
+                        _prev_date_cached = self.get_prev_trade_date(trade_date_int)
+                        if _prev_date_cached is None:
+                            # fallback: $group聚合(仅缓存未命中时)
+                            prev_date_doc = await mongo_manager.db[C.STOCK_DAILY].aggregate([
+                                {"$match": {"trade_date": {"$lt": trade_date_int}}},
+                                {"$group": {"_id": None, "max_date": {"$max": "$trade_date"}}}
+                            ]).to_list(length=1)
+                            if prev_date_doc and prev_date_doc[0].get("max_date"):
+                                _prev_date_cached = prev_date_doc[0]["max_date"]
+                        if _prev_date_cached is not None:
                             prev_docs = await mongo_manager.db[C.STOCK_DAILY].find(
                                 {"trade_date": _prev_date_cached, "ts_code": {"$in": zero_codes}},
                                 {"ts_code": 1, "close": 1, "_id": 0}
@@ -220,12 +252,16 @@ class FactorEngine:
             try:
                 if _prev_date_cached is None:
                     # 上面pre_close修复可能没查(无zero_pre_close或无结果),这里单独查
-                    prev_date_doc = await mongo_manager.db[C.STOCK_DAILY].aggregate([
-                        {"$match": {"trade_date": {"$lt": trade_date_int}}},
-                        {"$group": {"_id": None, "max_date": {"$max": "$trade_date"}}}
-                    ]).to_list(length=1)
-                    if prev_date_doc and prev_date_doc[0].get("max_date"):
-                        _prev_date_cached = prev_date_doc[0]["max_date"]
+                    # 【V30:P1-4】用O(1)缓存查找替代$group聚合全表扫描
+                    _prev_date_cached = self.get_prev_trade_date(trade_date_int)
+                    if _prev_date_cached is None:
+                        # fallback: $group聚合(仅缓存未命中时,如回测第一天)
+                        prev_date_doc = await mongo_manager.db[C.STOCK_DAILY].aggregate([
+                            {"$match": {"trade_date": {"$lt": trade_date_int}}},
+                            {"$group": {"_id": None, "max_date": {"$max": "$trade_date"}}}
+                        ]).to_list(length=1)
+                        if prev_date_doc and prev_date_doc[0].get("max_date"):
+                            _prev_date_cached = prev_date_doc[0]["max_date"]
                 
                 if _prev_date_cached is not None:
                     codes_list = result["ts_code"].tolist() if len(result) > 0 else []
