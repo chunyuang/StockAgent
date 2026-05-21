@@ -2139,18 +2139,13 @@ class PortfolioBacktester:
         daily_profit_list = run_state['daily_profit_list']
         drawdown_series = run_state['drawdown_series']
         daily_cash_list = run_state['daily_cash_list']
-        # 【P1-3修复】在净值序列开头插入初始净值=1.0,确保前端首日显示1.0
-        if net_value_series and net_value_series[0].get('net_value', 0) != 1.0:
-            first_date = str(run_state['config'].get('start_date', ''))
-            net_value_series.insert(0, {
-                "trade_date": first_date,
-                "net_value": 1.0,
-                "daily_profit": 0.0,
-                "drawdown": 0.0
-            })
-            daily_profit_list.insert(0, 0.0)
-            drawdown_series.insert(0, 0.0)
-            daily_cash_list.insert(0, 1.0)
+        # 【V32:P1-1修复】移除insert(0, ...)到计算段之后
+        # 旧bug: insert(0,0.0)导致daily_profit_list比all_trade_dates多1条,
+        # monthly_profit计算中daily_profit_list[i]与all_trade_dates[i]错位1天,
+        # 第1天被分配0利润,最后1天利润丢失
+        # 修复: 先用原始数据完成所有计算,再为前端显示插入初始值
+        _need_initial_insert = net_value_series and net_value_series[0].get('net_value', 0) != 1.0
+        # _need_initial_insert稍后在计算完成后用于插入
         peak_value = run_state['peak_value']
         last_net_value = run_state['last_net_value']
         last_prices = run_state['last_prices']
@@ -2880,6 +2875,34 @@ class PortfolioBacktester:
 
         # 兼容层标注:年化收益可靠性
         result["annual_return_reliable"] = annual_return_reliable
+
+        # 【V32:P1-1修复】计算完成后为前端显示插入初始净值=1.0
+        # 所有计算(monthly_profit/sharpe/sortino/position_series)已完成,
+        # 现在安全地插入初始值,不影响计算结果
+        if _need_initial_insert:
+            first_date = str(run_state['config'].get('start_date', ''))
+            net_value_series.insert(0, {
+                "trade_date": first_date,
+                "net_value": 1.0,
+                "daily_profit": 0.0,
+                "drawdown": 0.0
+            })
+            daily_profit_list.insert(0, 0.0)
+            drawdown_series.insert(0, 0.0)
+            daily_cash_list.insert(0, 1.0)
+            # 更新result中已写入的列表引用(同一对象,insert自动反映)
+            # daily_profit已归一化写入result,需重新计算
+            _dp_normalized = [p / self._initial_cash if self._initial_cash > 0 else 0.0 for p in daily_profit_list]
+            result["daily_profit"] = _dp_normalized
+            # position_series需重建(多了一个初始条目)
+            position_series = []
+            for i, nv in enumerate(net_value_series):
+                if i < len(daily_cash_list):
+                    pos_val = max(0.0, 1.0 - daily_cash_list[i])
+                else:
+                    pos_val = 0.0
+                position_series.append({"date": nv.get("trade_date", ""), "value": pos_val})
+            result["position_series"] = position_series
 
         return result
 
