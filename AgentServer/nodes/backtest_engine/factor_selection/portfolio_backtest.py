@@ -2597,9 +2597,12 @@ class PortfolioBacktester:
                     sharpe_ratio = (avg_return - daily_rf) / std_return * math.sqrt(252)
 
                 # 【P1-7修复:索提诺比率(只考虑下行波动)】
+                # 【V30修复】标准索提诺比率:下行标准差相对于0(不是下行收益的均值)
+                # 旧: downside_variance = sum((r - avg_downside) ** 2) / N
+                # 新: downside_variance = sum(r ** 2) / N (目标收益率=0,只惩罚亏损)
                 downside_returns = [r for r in daily_returns if r < 0]
-                if len(downside_returns) > 1:
-                    downside_variance = sum((r - sum(downside_returns) / len(downside_returns)) ** 2 for r in downside_returns) / (len(downside_returns) - 1)
+                if len(downside_returns) > 0:
+                    downside_variance = sum(r ** 2 for r in downside_returns) / len(daily_returns)
                     downside_std = math.sqrt(downside_variance)
                     if downside_std > 0:
                         daily_rf = 0.03 / 252
