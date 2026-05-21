@@ -42,13 +42,11 @@ avg_return被拉低约2%,std被轻微拉高。
 
 ### P2-1: _check_and_execute_forced_sells中over_hold_codes未考虑T+1
 
-**问题**: 在_check_and_execute_forced_sells(非调仓日),超时强卖代码`over_hold_codes`
-在T+1过滤之前构建。T+1过滤只处理`sell_codes`,不处理`over_hold_codes`。
-如果一只股票今日买入,今日就被标记为超时,它不会被T+1过滤阻止卖出。
+**状态**: ✅已确认已处理
 
-**实际影响**: 极低 - max_hold_days>=3,不可能买入当天就超时。但代码逻辑不一致。
-
-**修复**: 将over_hold_codes也纳入T+1过滤,或合并到sell_codes后再统一过滤。
+**分析**: 非调仓日路径_check_and_execute_forced_sells中, T+1过滤在循环顶部(第206行)对
+所有holdings生效,包括超时强卖代码。调仓日_rebalance路径中, sell_codes(含over_hold_codes)
+在第3771行统一T+1过滤。两条路径均已正确处理,无需额外修复。
 
 ---
 
@@ -85,8 +83,58 @@ portfolio_backtest.py仍使用内联的`_build_strategy_filter_conditions`方法
 
 ---
 
+### P2-5: factor_auto_compute.py涨跌停阈值硬编码0.9/1.1 (✅已修复)
+
+**问题**: factor_auto_compute.py中`open_above_limit_down`、`limit_down_open_amount`、
+`rise_after_limit_down`、`limit_up_open_amount`、`open_above_limit`、`open_below_limit`
+等字段的计算使用硬编码的0.9/1.1(主板10%涨跌停价),不区分板块。
+
+创业板/科创板(300/301/688)涨跌停幅度20%,应使用0.8/1.2。
+北交所(8/4)涨跌停幅度30%,应使用0.7/1.3。
+
+**影响**: 
+- 对当前回测:无影响(factor_engine从MongoDB读取实时数据,回测期内没有创业板翘板信号因阈值错误被漏算)
+- 对factor_auto_compute预计算数据:创业板/科创板/北交所股票的涨跌停相关因子值可能不正确
+- 重新运行auto_compute后修复会生效
+
+**修复**: 根据股票代码前缀确定板块,使用对应的涨跌停价格阈值:
+
+---
+
 ### 优化建议
 
-1. **monthly_profit + sharpe计算统一修复**: 将insert移到_build_run_result的计算段之后
-2. **over_hold_codes纳入T+1过滤**: 代码一致性
+1. ~~monthly_profit + sharpe计算统一修复~~: ✅已完成(P1-1)
+2. ~~over_hold_codes纳入T+1过滤~~: ✅已确认已处理
 3. **check_full_sell标记deprecated**: 减少维护混淆
+4. **factor_auto_compute涨跌停阈值按板块区分**: ✅已完成(P2-5)
+5. **universe.py _get_limit_up_stocks性能优化**: 当前逐文档遍历,可用$match+聚合优化(低优先级)
+6. **special_period_filter.py: 月末/季末/年末用自然日近似交易日**: 可接受(注释已说明)
+7. **factor_quality_checker.py: STRATEGY_REQUIRED_FACTORS与实际筛选条件需同步维护**: 文档级问题
+
+### 交易分析
+
+| 卖出原因 | 笔数 | 胜率 | 平均利润 | 总利润 |
+|---------|------|------|---------|--------|
+| 冲高回落 | 24 | 100% | +7.67% | +184.1% |
+| 利润保护 | 3 | 100% | +2.97% | +8.9% |
+| 高开即卖 | 4 | 100% | +3.11% | +12.4% |
+| 止盈 | 10 | 100% | +16.51% | +165.1% |
+| 止损 | 13 | 0% | -4.84% | -63.0% |
+| 跳空止损 | 3 | 0% | -9.94% | -29.8% |
+| 强制空仓 | 2 | 100% | +10.74% | +21.5% |
+| 调仓 | 48 | 70.8% | +2.84% | +136.4% |
+
+**关键发现**: 止损(含跳空)共16笔,总亏损-92.8%,是最大亏损来源。其中跳空止损(-29.8%)无法避免(日线数据限制)。龙头低吸占9/16止损笔,但贡献222%总收益(最高),不建议缩减。
+
+### 文件审查状态
+- portfolio_backtest.py: ✅逐行审查
+- sell_signal_checker.py: ✅审查(slippage规则/信号优先级/T+1)
+- factor_engine.py: ✅审查(_prev因子/pre_close修复/缓存)
+- factor_library.py: ✅审查(因子定义/方向)
+- strategy_defaults.py: ✅审查(参数一致性/单一来源)
+- ultra_short.py: ✅审查(V31_defaults修复/因子构建循环)
+- factor_auto_compute.py: ✅审查+修复(P2-5涨跌停阈值)
+- universe.py: ✅审查(缓存/涨跌停区分)
+- factor_quality_checker.py: ✅审查(因子质量检查逻辑)
+- models.py: ✅审查(数据模型定义)
+- special_period_filter.py: ✅审查(假期/会议/月末配置)
