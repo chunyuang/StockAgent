@@ -81,6 +81,104 @@ def should_apply_slippage(reason: str) -> bool:
 # market_data: dict with keys: open, close, high, low, pre_close
 # params: dict with strategy-specific sell parameters
 
+def resolve_sell_price_and_reason(reason, cost_basis, open_price, close_price, code_sl, code_tp):
+    """根据卖出原因确定卖出价
+
+    【V29提取】统一_rebalance卖出循环和_check_early_sell_signals中的price映射。
+    冲高回落/高开即卖 → open价
+    利润保护 → close价
+    跳空止损 → open价
+    止损 → 止损价
+    止盈 → 止盈价
+    调仓卖出 → close价
+
+    Args:
+        reason: 卖出原因
+        cost_basis: 成本价
+        open_price: 开盘价
+        close_price: 收盘价
+        code_sl: 止损比例
+        code_tp: 止盈比例
+
+    Returns:
+        (sell_price, sell_reason)
+    """
+    if reason == '跳空止损' and open_price > 0:
+        return open_price, '跳空止损'
+    elif reason.startswith('止损'):
+        sell_price = cost_basis * (1 - code_sl) if cost_basis > 0 else close_price
+        return sell_price, reason
+    elif reason.startswith('止盈'):
+        sell_price = cost_basis * (1 + code_tp) if cost_basis > 0 else close_price
+        return sell_price, reason
+    elif reason == '利润保护':
+        return close_price, reason
+    elif reason in ('冲高回落', '高开即卖'):
+        return open_price, reason
+    else:
+        # 其他已知原因(超时等)或未知原因,默认close
+        return close_price, reason
+
+
+# ============================================================
+# 未来函数因子标记系统 — 实盘模式降级
+# ============================================================
+# T_day: 盘中可用(如量比、盘中涨幅等)
+# T_close: 需收盘确认(如pct_chg, 涨跌停确认等)
+# T_prev: 用前日值(已解决的降级方案)
+
+FACTOR_AVAILABILITY = {
+    'volume_ratio':       'T_day',     # ✅ 盘中可用
+    'intraday_max_rise_pct': 'T_day',  # ✅ 盘中high计算
+    'intraday_open_rise_pct': 'T_day', # ✅ 竞价数据
+    'limit_down_yesterday': 'T_prev',  # ✅ T-1数据
+    'pct_chg':            'T_close',   # ⚠️ 需收盘确认(V18已知未来函数)
+    'pct_chg_prev':       'T_prev',    # ✅ 用前日值
+    'circ_mv':            'T_prev',    # ✅ 用前日值(V27已修复)
+    'turnover_rate':      'T_prev',    # ✅ 用前日值(V27已修复)
+    'is_limit_up':        'T_close',   # ⚠️ 需收盘确认
+    'is_limit_down':      'T_close',   # ⚠️ 需收盘确认
+}
+
+# 实盘降级映射: T_close → T_prev替代因子
+LIVE_DOWNGRADE_MAP = {
+    'pct_chg': 'pct_chg_prev',
+    'circ_mv': 'circ_mv',       # 已是_prev
+    'turnover_rate': 'turnover_rate',  # 已是_prev
+}
+
+
+def get_factor_value(factor_name, factor_data, live_trading_mode=False):
+    """获取因子值,实盘模式自动降级
+
+    Args:
+        factor_name: 因子名称
+        factor_data: dict或Series, 包含因子值
+        live_trading_mode: 是否实盘模式
+
+    Returns:
+        因子值(实盘模式下降级为_prev版本)
+    """
+    if not live_trading_mode:
+        # 回测模式: 直接用原值
+        return factor_data.get(factor_name) if isinstance(factor_data, dict) else getattr(factor_data, factor_name, None)
+
+    # 实盘模式: T_close因子降级为_prev
+    availability = FACTOR_AVAILABILITY.get(factor_name, 'T_day')
+    if availability == 'T_close':
+        downgraded = LIVE_DOWNGRADE_MAP.get(factor_name)
+        if downgraded:
+            if isinstance(factor_data, dict):
+                return factor_data.get(downgraded)
+            else:
+                return getattr(factor_data, downgraded, None)
+
+    # T_day或T_prev: 直接返回
+    if isinstance(factor_data, dict):
+        return factor_data.get(factor_name)
+    return getattr(factor_data, factor_name, None)
+
+
 class SellSignal:
     """卖出信号定义"""
     def __init__(self, name, priority, check_fn):
