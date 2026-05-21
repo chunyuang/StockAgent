@@ -314,6 +314,8 @@ async def execute_ultra_short_backtest(
         strategy_id = strategy.get('id', strategy.get('name', 'unknown'))
         strategy_weights[strategy_name] = weight_per_strategy
         sp = strategy.get("params", {})
+        # 【V31修复:在因子构建循环中重新获取_defaults,避免引用上一个循环的残留值】
+        _defaults = STRATEGY_CONFIGS.get(strategy_id, {}).get("params", {})
         if strategy_id == "halfway_chase":
             # 半路追涨因子: 量比+涨幅+收盘确认
             min_volume = sp.get("min_volume_ratio", 2.0)
