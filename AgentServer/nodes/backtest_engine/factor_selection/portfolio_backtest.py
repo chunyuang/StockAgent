@@ -172,10 +172,15 @@ class PortfolioBacktester:
                         return open_price, '冲高回落'
                     elif (open_price - close_price) / open_price >= 0.01:
                         return open_price, '冲高回落'
-                # 利润保护: 收盘盈利≥2%且高开低收→以close价卖出
+                # 利润保护: 高开≥2%但收盘回落→以close价卖出
+                # 【P0-1修复(V28):增加open_rise_from_cost>=0.02条件,与半路追涨对齐】
+                # 旧bug: 只检查close_rise>=2%且close<open,但低开场景下:
+                #   open_rise=-2%(低开), close_rise=2.5%(收红), close<open→误触发利润保护
+                #   这不是"利润保护"语义(冲高后回落),而是"低开收红"的正常波动
+                # 新: 利润保护必须open_rise>=2%(高开),且close<open(冲高回落)
                 if close_price > 0 and open_price > 0:
                     close_rise_from_cost = (close_price / cost - 1) if cost > 0 else 0
-                    if close_rise_from_cost >= 0.02 and close_price < open_price:
+                    if close_rise_from_cost >= 0.02 and close_price < open_price and open_rise_from_cost >= 0.02:
                         return close_price, '利润保护'
 
             # ===== 首板打板 =====
@@ -201,16 +206,14 @@ class PortfolioBacktester:
                         return open_price, '冲高回落'
                 # 利润保护: 收盘盈利≥2%且高开低收→以close价卖出
                 # 【V25修复:从elif改为独立if,修复冲高回落未触发时利润保护也被跳过的bug】
-                # 场景: open_rise=3.5%, close_rise=2.5%, close<open
-                # 旧bug: 第一个if匹配(open_rise>=3%)但close<open检查通过→返回冲高回落 ✓
-                # 场景: open_rise=1%, close_rise=2.5%, close<open
-                # 旧bug: 第一个elif不匹配(open_rise<3%)→第二个elif检查利润保护→✓
-                # 场景: open_rise=3.5%, close_rise=2.5%, close>=open
-                # 旧bug: 第一个elif匹配(open_rise>=3%)→进入→close<open=False→不返回→跳过第二个elif→✗
-                # 新: 第一个if匹配但不返回→继续检查利润保护→✓
+                # 【P0-2修复(V28):增加open_rise_from_cost>=0.02条件,与龙头低吸对齐】
+                # 旧bug: 只检查close_rise>=2%且close<open,但低开场景下:
+                #   open_rise=-2%(低开), close_rise=2.5%(收红), close<open→误触发
+                #   "利润保护"语义是"冲高后回落保护利润",必须是高开场景
+                # 新: 利润保护必须open_rise>=2%(高开),且close<open(冲高回落)
                 if close_price > 0 and open_price > 0:
                     close_rise_from_cost = (close_price / cost - 1) if cost > 0 else 0
-                    if close_rise_from_cost >= 0.02 and close_price < open_price:
+                    if close_rise_from_cost >= 0.02 and close_price < open_price and open_rise_from_cost >= 0.02:
                         return close_price, '利润保护'
 
         return 0, ''
@@ -3334,9 +3337,11 @@ class PortfolioBacktester:
                 p = self._get_limit_up_price(code, open_price, close_price, high_price, low_price, pre_close)
             elif sname == '龙头低吸':
                 # 【Phase1-修复】low价偏乐观(不可能精确抄底)
-                # 改为: low上方25%位置(日内偏低但不极端)
+                # 【P1-1修复(V28):系数从0.25→0.20,更偏低,模拟更精确的低吸】
+                # 0.25: 低点上方25%位置(振幅5%→买入+1.25%)
+                # 0.20: 低点上方20%位置(振幅5%→买入+1.00%),更保守真实
                 if low_price > 0 and high_price > low_price:
-                    p = low_price + (high_price - low_price) * 0.25
+                    p = low_price + (high_price - low_price) * 0.20
                 elif low_price > 0:
                     p = low_price * 1.01
                 else:
@@ -3497,7 +3502,7 @@ class PortfolioBacktester:
                 {"name": "limit_up_yesterday", "target": 0, "label": "昨日未涨停(T-1预选)"},
                 {"name": "opening_pct_chg", "target": opening_pct_min, "operator": ">=", "label": f"竞价涨幅≥{opening_pct_min}%"},
                 {"name": "opening_pct_chg", "target": opening_pct_max, "operator": "<=", "label": f"竞价涨幅≤{opening_pct_max}%"},
-                {"name": "volume_ratio", "target": min_volume_ratio, "operator": ">=", "label": f"量比≥{min_volume_ratio}"},
+                {"name": "volume_ratio_prev", "target": min_volume_ratio, "operator": ">=", "label": f"量比≥{min_volume_ratio}"},
                 {"name": "turnover_rate", "target": min_turnover, "operator": ">=", "label": f"换手率≥{min_turnover}%"},
                 {"name": "turnover_rate", "target": max_turnover, "operator": "<=", "label": f"换手率≤{max_turnover}%"},
                 {"name": "circ_mv", "target": min_circ_mv, "operator": ">=", "label": f"流通市值≥{min_circ_mv//10000}亿"},
@@ -3521,7 +3526,8 @@ class PortfolioBacktester:
                 {"name": "limit_up_yesterday", "target": 1, "operator": "==", "label": "昨日涨停(连板候选)"},
                 {"name": "is_limit_up", "target": 0, "operator": "==", "label": "今日未封住(开板)"},
                 {"name": "intraday_max_rise_pct", "target": 0, "operator": ">=", "label": "盘中最高涨幅≥0%(非大跌)"},
-                {"name": "volume_ratio", "target": min_volume_ratio, "operator": ">=", "label": f"量比≥{min_volume_ratio}"},
+                # 【P1-2修复(V28):volume_ratio→volume_ratio_prev,消除未来函数,与半路追涨/首板打板对齐】
+                {"name": "volume_ratio_prev", "target": min_volume_ratio, "operator": ">=", "label": f"量比≥{min_volume_ratio}"},
                 {"name": "turnover_rate", "target": min_turnover, "operator": ">=", "label": f"换手率≥{min_turnover}%"},
                 {"name": "sentiment_period_in", "target": require_sentiment, "operator": "in", "label": "情绪周期要求"},
             ]
