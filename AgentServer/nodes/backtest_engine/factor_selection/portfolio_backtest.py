@@ -1325,6 +1325,8 @@ class PortfolioBacktester:
         self._all_trade_dates = all_trade_dates
         # 【V30:P1-1】预构建交易日→索引映射，O(1)计算持仓天数
         self._trade_date_index_map = {int(d): idx for idx, d in enumerate(all_trade_dates)}
+        # 【V30:P1-4】设置交易日列表给FactorEngine,避免每次compute_factors做$group聚合
+        self.factor_engine.set_trade_dates(all_trade_dates)
         rebalance_set = run_state['rebalance_set']
         total_days = run_state['total_days']
         benchmark_data = run_state['benchmark_data']
