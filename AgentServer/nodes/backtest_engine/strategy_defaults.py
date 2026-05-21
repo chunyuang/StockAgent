@@ -22,10 +22,10 @@ GLOBAL_RISK = {
     "max_total_position": 0.7,      # 总仓位上限70%
     "liquidity_threshold": 500,     # 流动性门槛(万元)
     "volume_threshold": 1.5,        # 量能放大倍数(首板打板等用)
-    # 【P1-5修复】强制空仓阈值集中到单一来源
-    "force_empty_limit_down": 80,   # 跌停≥80只触发强制空仓(V21:50→80,50只过严在1月频繁误触,空仓7天损失15.4%收益)
+    "force_empty_limit_down": 80,   # 跌停≥80只触发强制空仓
     "force_empty_limit_up": 10,     # 涨停≤10只触发强制空仓
     "force_empty_index_drop_pct": 0.03,  # 大盘跌幅≥3%触发强制空仓
+    "live_trading_mode": False,     # 【V29:实盘模式开关】True时pct_chg等T日因子降级为_prev
 }
 
 # ============================================================

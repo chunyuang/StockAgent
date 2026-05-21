@@ -52,7 +52,7 @@ from .models import RebalanceRecord
 
 from .factor_engine import FactorEngine, log_memory_usage
 from ..strategy_defaults import GLOBAL_RISK, STRATEGY_CONFIGS, merge_strategy_params
-from .sell_signal_checker import SellSignalChecker, should_apply_slippage, get_buy_price_for_strategy
+from .sell_signal_checker import SellSignalChecker, should_apply_slippage, get_buy_price_for_strategy, PositionManager, resolve_sell_price_and_reason
 from .universe import ExcludeRule, UniverseManager, UniverseType
 from .special_period_filter import get_special_period_filter
 
@@ -3593,11 +3593,11 @@ class PortfolioBacktester:
 
         # 先卖出:不在目标持仓中的股票全卖 + 持仓超过目标的股票减仓
         sell_codes = [code for code in holdings if code not in target_shares and holdings[code] > 0]
-        # 【P0-1修复(V19):调仓日止损/冲高回落卖出的股票也要从target_shares中移除】
-        # 否则卖出后买入循环会重新买入(震荡bug: 止损卖出→同日重新买入)
-        # 旧bug: 止损/冲高回落/高开即卖只是将code加入sell_codes,但target_shares仍保留
-        # 导致buy循环中 delta = target_shares[code] - holdings[code] = target_shares[code] - 0 > 0 → 重新买入
-        sell_code_reasons = {}  # code -> sell_reason (用于日志)
+        # 【V29:PositionManager统一管理sell_codes/target_shares,结构性消除震荡bug】
+        # 旧bug(V19/V24/V26): 止损/冲高回落只加sell_codes,但target_shares保留→卖出后重新买入
+        # PositionManager.mark_sold()同时: 1)加入sell_code_reasons 2)从target_shares移除
+        pos_mgr = PositionManager(holdings, target_shares)
+
         # 【P0-4修复:调仓日止损检查 - 即使股票仍在目标池中,如果触发止损也要卖出】
         # 之前bug: 止损只对"不在目标池"的股票生效,导致16笔交易亏损>3%止损线却未触发
         # 注意:_rebalance是同步方法,不能使用await,复用已有的prices参数
@@ -3623,25 +3623,20 @@ class PortfolioBacktester:
                 high_p = p.get('high', p.get('close', 0))
                 open_p = p.get('open', p.get('close', 0))
                 _close_p = p.get('close', 0)
-                # 【P0-1修复(V17)】:目标池内持仓也要检查冲高回落/高开即卖/利润保护
-                # 旧bug: 只检查止损止盈,冲高回落等保护信号被跳过
-                # 导致:持仓股次日高开冲高回落,因仍在目标池而继续持有,利润回吐
                 _strategies = self.stock_to_strategy.get(code, [])
                 if isinstance(_strategies, str): _strategies = [_strategies]
                 early_sell_price, early_sell_reason = self._check_early_sell_signals(
                     code, _strategies, cost, open_p, _close_p)
                 if early_sell_price > 0:
                     sell_codes.append(code)
-                    sell_code_reasons[code] = early_sell_reason
+                    pos_mgr.mark_sold(code, early_sell_reason)  # V29:统一管理
                 elif enable_stop_loss and low_p <= stop_price:
                     sell_codes.append(code)
-                    if open_p <= stop_price:
-                        sell_code_reasons[code] = '跳空止损'
-                    else:
-                        sell_code_reasons[code] = f'止损({code_sl*100:.0f}%)'
+                    reason = '跳空止损' if open_p <= stop_price else f'止损({code_sl*100:.0f}%)'
+                    pos_mgr.mark_sold(code, reason)
                 elif enable_take_profit and high_p >= tp_price:
                     sell_codes.append(code)
-                    sell_code_reasons[code] = f'止盈({code_tp*100:.0f}%)'
+                    pos_mgr.mark_sold(code, f'止盈({code_tp*100:.0f}%)')
         # 【Phase1-T+1】排除当日买入的股票(T+1: 当日买入不可卖出)
         t1_blocked = []
         for code in list(sell_codes):
@@ -3692,17 +3687,11 @@ class PortfolioBacktester:
         sell_codes = [c for c in sell_codes if self._cost_basis_date.get(c) != trade_date]
         # 【P1-4修复(第十一轮):去重,避免超时强卖股重复卖出】
         sell_codes = list(set(sell_codes))
-        # 【P1-4修复(第十轮):超时强卖的股票当天不应被重新买入,从目标池中排除】
+        # 【V29:超时强卖的股票当天不应被重新买入,由PositionManager管理target_shares】
         for code in over_hold_codes:
-            if code in target_shares:
-                del target_shares[code]
-        # 【P0-1修复(V19):止损/冲高回落/高开即卖/止盈卖出的股票,也不应被重新买入】
-        # 旧bug: 这些股票只在sell_codes中,但target_shares仍保留→卖出后买入循环重新买入
-        # 导致: 止损卖出某股→同日重新买入(震荡),利润保护/冲高回落形同虚设
-        for code in sell_code_reasons:
-            if code in target_shares:
-                del target_shares[code]
-                logger.info('backtest', f'[{sell_code_reasons[code]}] {code} 从目标池移除,防止同日重新买入')
+            pos_mgr.mark_sold(code, f'超时')
+        # 【V29:止损/冲高回落/高开即卖/止盈的股票,也由PositionManager管理】
+        # PositionManager.mark_sold()已自动从target_shares移除,不需额外的del循环
         # 【修复P1-6:减仓逻辑 - 持仓超过目标时卖出差额】
         reduce_codes = {code: holdings[code] - target_shares[code] for code in holdings
                         if code in target_shares and holdings.get(code, 0) > target_shares[code]}
@@ -3829,31 +3818,13 @@ class PortfolioBacktester:
             cost_basis = self._cost_basis.get(ts_code, open_price)  # 用实际买入价
             sell_price = close_price  # 默认收盘价
             sell_reason = '调仓卖出'
-            # 【P0-3修复(V23):如果sell_code_reasons已有明确的卖出原因,优先使用,避免重复判断】
-            # 旧bug: 目标池内止损检查已确定sell_code_reasons,但卖出循环又重新计算,可能不一致
-            # 例如: 目标池内检查判断为'止损(5%)',但卖出循环中可能因浮点误差判断为'调仓卖出'
-            if ts_code in sell_code_reasons:
-                _pre_determined_reason = sell_code_reasons[ts_code]
-                # 使用已确定的卖出原因,只置sell_price和sell_reason
-                if _pre_determined_reason == '跳空止损' and open_price > 0:
-                    sell_price = open_price
-                    sell_reason = '跳空止损'
-                elif _pre_determined_reason.startswith('止损'):
-                    sell_price = cost_basis * (1 - self._get_sl_tp_for_code(ts_code)[0]) if cost_basis > 0 else close_price
-                    sell_reason = _pre_determined_reason
-                elif _pre_determined_reason.startswith('止盈'):
-                    sell_price = cost_basis * (1 + self._get_sl_tp_for_code(ts_code)[1]) if cost_basis > 0 else close_price
-                    sell_reason = _pre_determined_reason
-                else:
-                    # 冲高回落/高开即卖: 以open价卖出(高开时以开盘价卖出保护利润)
-                    # 【P0-3修复(V25):利润保护以close价卖出(收盘反转,以收盘价卖出)】
-                    # 旧bug: 利润保护也用open价,但_check_early_sell_signals返回的sell_price是close
-                    # 导致: 利润保护场景下以open价卖出(open>close),多赚了不应该赚的钱
-                    if _pre_determined_reason == '利润保护':
-                        sell_price = close_price
-                    else:
-                        sell_price = open_price
-                    sell_reason = _pre_determined_reason
+            # 【V29:PositionManager记录的卖出原因优先使用,避免重复判断】
+            if pos_mgr.should_sell(ts_code):
+                _pre_determined_reason = pos_mgr.get_sell_reason(ts_code)
+                # 【V29:统一卖出价映射,替代if/elif链】
+                code_sl, code_tp = self._get_sl_tp_for_code(ts_code)
+                sell_price, sell_reason = resolve_sell_price_and_reason(
+                    _pre_determined_reason, cost_basis, open_price, close_price, code_sl, code_tp)
             elif cost_basis > 0:
                 # 【P0-3修复(V16):冲高回落/高开即卖/利润保护reason统一为固定分类】
                 # 旧: reason含价格细节如"冲高回落(开40.05涨9.7%)" → 前端统计每条独立
