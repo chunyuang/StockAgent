@@ -3790,6 +3790,7 @@ class PortfolioBacktester:
         # 原局部函数定义已删除,直接调用 self.self._get_sl_tp_for_code(code) / self._get_slippage_for_code(code)
 
         codes_to_promote = []  # 从reduce_codes升级到sell_codes的股票
+        codes_to_promote_reasons = {}  # code -> sell_reason(冲高回落/止损/止盈)
         for code in list(reduce_codes.keys()):
             p = prices.get(code, {})
             low_p = p.get('low', p.get('close', 0))
@@ -3804,15 +3805,26 @@ class PortfolioBacktester:
                 early_sell_price, early_sell_reason = self._check_early_sell_signals(
                     code, _strategies, cost, open_p, _close_p)
                 if early_sell_price > 0:
-                    codes_to_promote.append(code)  # 冲高回落等保护信号,应全卖
+                    codes_to_promote.append(code)
+                    codes_to_promote_reasons[code] = early_sell_reason  # 记录具体reason
                 else:
                     code_sl, code_tp = self._get_sl_tp_for_code(code)
                     if enable_sl and low_p <= cost * (1 - code_sl):
-                        codes_to_promote.append(code)  # 触发止损,应全卖
+                        codes_to_promote.append(code)
+                        # 【V33修复:记录止损具体reason(跳空止损/正常止损),避免卖出循环重复判断】
+                        if open_p <= cost * (1 - code_sl):
+                            codes_to_promote_reasons[code] = '跳空止损'
+                        else:
+                            codes_to_promote_reasons[code] = f'止损({code_sl*100:.0f}%)'
                     elif enable_tp and high_p >= cost * (1 + code_tp):
-                        codes_to_promote.append(code)  # 触发止盈,应全卖
+                        codes_to_promote.append(code)
+                        codes_to_promote_reasons[code] = f'止盈({code_tp*100:.0f}%)'
         for code in codes_to_promote:
             sell_codes.append(code)
+            # 【V33修复:promote的股票必须调用pos_mgr.mark_sold()记录reason】
+            # 旧bug: 没有mark_sold→卖出循环走默认reason→重新判断可能得到不同结果
+            _promote_reason = codes_to_promote_reasons.get(code, '调仓卖出')
+            pos_mgr.mark_sold(code, _promote_reason)
             del reduce_codes[code]
         # 【修复P1-8:停牌股超时强卖 - close<=0的持仓连续持有>10交易日强制卖出(取最后有效价)】
         suspend_sell_codes = []
