@@ -251,11 +251,14 @@ class PortfolioBacktester:
                         buy_dt_int = int(str(buy_date_raw))
                         trade_dt_int = int(str(trade_date))
                         trade_days_held = self._calc_trade_days_held(buy_dt_int, trade_dt_int)
-                        if trade_days_held > max_hold:
+                        if trade_days_held >= max_hold:
+                            # 【V31修复:>=替代>,max_hold_days=3时第3天即触发超时(不是第4天)】
+                            # 旧: trade_days_held(3) > max_hold(3)=False→多持1天
+                            # 新: trade_days_held(3) >= max_hold(3)=True→第3天超时卖出
                             sell_p = _close_p
                             if sell_p > 0:
                                 forced_sell_prices[code] = sell_p
-                                forced_sell_codes.append((code, f'超时({trade_days_held}交易日>{max_hold}交易日)'))
+                                forced_sell_codes.append((code, f'超时({trade_days_held}交易日≥{max_hold}交易日)'))
                                 forced_sell_codes_set.add(code)
                     except (ValueError, TypeError):
                         pass
@@ -1324,9 +1327,13 @@ class PortfolioBacktester:
         # 【P1-2修复(V15)】:存储为实例变量供_rebalance使用(超时强卖需计算交易日数)
         self._all_trade_dates = all_trade_dates
         # 【V30:P1-1】预构建交易日→索引映射，O(1)计算持仓天数
-        self._trade_date_index_map = {int(d): idx for idx, d in enumerate(all_trade_dates)}
+        # 【V31:只在映射为空时构建,避免每个交易日重复构建O(N)映射】
+        if not self._trade_date_index_map:
+            self._trade_date_index_map = {int(d): idx for idx, d in enumerate(all_trade_dates)}
         # 【V30:P1-4】设置交易日列表给FactorEngine,避免每次compute_factors做$group聚合
-        self.factor_engine.set_trade_dates(all_trade_dates)
+        # 【V31:只在缓存为空时构建,避免每个交易日重复构建O(N)缓存】
+        if not self.factor_engine._prev_date_cache:
+            self.factor_engine.set_trade_dates(all_trade_dates)
         rebalance_set = run_state['rebalance_set']
         total_days = run_state['total_days']
         benchmark_data = run_state['benchmark_data']
@@ -2606,11 +2613,21 @@ class PortfolioBacktester:
                     downside_std = math.sqrt(downside_variance)
                     if downside_std > 0:
                         daily_rf = 0.03 / 252
-                        sortino_ratio = (avg_return - daily_rf) / downside_std * math.sqrt(252)
+                        raw_sortino = (avg_return - daily_rf) / downside_std * math.sqrt(252)
+                        # 【V31修复:Sortino上限保护】短期回测下行波动极低导致Sortino失真
+                        # 上限:Sortino通常<Sharpe*5,超过200视为不可靠
+                        sortino_ratio = min(raw_sortino, 200.0)
+                        if raw_sortino > 200.0:
+                            logger.debug('backtest', f'Sortino={raw_sortino:.1f}超过200上限,下行波动过低')
 
-        # 【P1-7修复:卡玛比率 = 年化收益率 / 最大回撤】
+        # 【V31修复:Calmar比率上限保护】短期回测年化收益极高导致Calmar失真
+        # 例:51天121%收益→年化5030%/0.0277回撤=1816,无参考意义
+        # 上限:与Sharpe同量级(Calmar通常<Sharpe*3),超过100视为不可靠
         if max_drawdown > 0 and annualized_return != 0:
-            calmar_ratio = annualized_return / max_drawdown
+            raw_calmar = annualized_return / max_drawdown
+            calmar_ratio = min(raw_calmar, 100.0)
+            if raw_calmar > 100.0:
+                logger.debug('backtest', f'Calmar={raw_calmar:.1f}超过100上限,回测周期{trading_days}天过短')
 
         # 格式化 drawdown_series 为最终返回格式
         formatted_drawdown_series = []
@@ -2797,7 +2814,7 @@ class PortfolioBacktester:
                 strategy_results[sname] = {
                     "strategy_name": sname,
                     "win_rate": 0, "total_return": 0,
-                    "trades_count": 0, "total_pnl_pct": 0,
+                    "trades_count": 0, "total_return": 0,
                     "warning": warning,
                 }
 
@@ -2819,10 +2836,10 @@ class PortfolioBacktester:
         # 【修复】按实际收益贡献(绝对值)分配,而非笔数等分
         # 半路追涨110笔赚62% vs 涨停开板11笔亏3.9%,按笔数分配不合理
         factor_contribution = {}
-        total_pnl_abs = sum(abs(s.get("total_pnl_pct", 0)) for s in strategy_results.values())
+        total_pnl_abs = sum(abs(s.get("total_return", 0)) for s in strategy_results.values())
         if total_pnl_abs > 0:
             for name, s in strategy_results.items():
-                factor_contribution[name] = abs(s.get("total_pnl_pct", 0)) / total_pnl_abs
+                factor_contribution[name] = abs(s.get("total_return", 0)) / total_pnl_abs
         else:
             # 无收益时按笔数比例分配
             total_trades_count = sum(s.get("trades_count", 0) for s in strategy_results.values())
@@ -3475,15 +3492,25 @@ class PortfolioBacktester:
             return []
 
     def _get_sl_tp_for_code(self, code: str):
-        """获取某只股票对应的策略级止损止盈参数"""
+        """获取某只股票对应的策略级止损止盈参数
+
+        止损:取min(最严格,风险管理不受策略选择影响)
+        止盈:取第一个策略(买入策略)的TP,不用max
+        【V31修复:TP取max导致龙头低吸+跌停翘板同股时止盈线被错误提升到25%】
+        旧: max(0.15, 0.25) = 0.25 → 龙头低吸止盈线虚高
+        新: 取买入策略(第一个)的TP → 龙头低吸0.15,跌停翘板0.25,各取所需
+        """
         strategies = self.stock_to_strategy.get(code, [])
         strategy_rp = getattr(self, '_strategy_risk_params', {})
         global_sl = self._risk_config.get('stop_loss_pct', GLOBAL_RISK['stop_loss_pct'])
         global_tp = self._risk_config.get('take_profit_pct', 0.07)
-        # 【P0-3修复:按策略获取止损止盈参数】
         if isinstance(strategies, list) and strategies:
+            # 止损:取min(最严格,不管哪个策略买入都应尽早止损)
             sl = min(strategy_rp.get(s, {}).get('stop_loss_pct', global_sl) for s in strategies)
-            tp = max(strategy_rp.get(s, {}).get('take_profit_pct', global_tp) for s in strategies)
+            # 止盈:取买入策略(第一个)的TP,不用max
+            # 原因:不同策略止盈逻辑不同,龙头低吸15% vs 跌停翘板25%
+            # max会虚增龙头低吸止盈线到25%,错过15%-25%区间的高位卖出
+            tp = strategy_rp.get(strategies[0], {}).get('take_profit_pct', global_tp)
             return sl, tp
         return global_sl, global_tp
 
@@ -3700,18 +3727,7 @@ class PortfolioBacktester:
         for code in list(holdings.keys()):
             if holdings.get(code, 0) > 0:
                 buy_date_raw = self._cost_basis_date.get(code)
-                # 查找策略级max_hold_days
-                strategies = self.stock_to_strategy.get(code, [])
-                strategy_rp = getattr(self, '_strategy_risk_params', {})
-                strategy_max_hold = None
-                if isinstance(strategies, list):
-                    for sname in strategies:
-                        rp = strategy_rp.get(sname, {})
-                        smh = rp.get('max_hold_days')
-                        if smh is not None:
-                            if strategy_max_hold is None or smh < strategy_max_hold:
-                                strategy_max_hold = smh
-                max_hold_days = strategy_max_hold if strategy_max_hold is not None else global_max_hold
+                max_hold_days = self._get_max_hold_for_code(code)  # 【V31:使用共享方法,消除重复逻辑】
                 if buy_date_raw is not None and max_hold_days < 999:
                     try:
                         buy_dt_int = int(str(buy_date_raw))
@@ -3722,7 +3738,8 @@ class PortfolioBacktester:
                             bd = dt_now.strptime(str(buy_dt_int), '%Y%m%d')
                             td = dt_now.strptime(str(trade_dt_int), '%Y%m%d')
                             trade_days_held = int((td - bd).days / 1.5)
-                        if trade_days_held > max_hold_days and code not in sell_codes:
+                        if trade_days_held >= max_hold_days and code not in sell_codes:
+                            # 【V31修复:>=替代>,max_hold_days=3时第3天即触发超时】
                             over_hold_codes.append(code)
                     except (ValueError, TypeError):
                         pass
@@ -3795,19 +3812,11 @@ class PortfolioBacktester:
                                 trade_days_held = int((td - bd).days / 1.5)
                             # 【P2-2修复(V22):停牌超时阈值改用max(max_hold_days*3, 10),不再硬编码10天】
                             # 不同策略的max_hold_days不同(3/4天),固定10天对短持仓策略过长
-                            _strats = self.stock_to_strategy.get(code, [])
-                            _strategy_rp = getattr(self, '_strategy_risk_params', {})
-                            _strategy_max_hold = None
-                            if isinstance(_strats, list):
-                                for _sn in _strats:
-                                    _smh = _strategy_rp.get(_sn, {}).get('max_hold_days')
-                                    if _smh is not None and (_strategy_max_hold is None or _smh < _strategy_max_hold):
-                                        _strategy_max_hold = _smh
-                            _global_mhd = self._risk_config.get('max_hold_days', 3)
-                            _effective_mhd = _strategy_max_hold if _strategy_max_hold is not None else _global_mhd
+                            # 【V31:使用共享方法_get_max_hold_for_code,消除重复逻辑】
+                            _effective_mhd = self._get_max_hold_for_code(code)
                             _suspend_threshold = max(_effective_mhd * 3, 10)  # 最少10天缓冲
                             if trade_days_held > _suspend_threshold:
-                                last_price = p.get('open', 0) or self._last_valid_price.get(code, 0) if True else 0
+                                last_price = p.get('open', 0) or self._last_valid_price.get(code, 0)
                                 if last_price > 0:
                                     suspend_sell_codes.append(code)
                         except (ValueError, TypeError):

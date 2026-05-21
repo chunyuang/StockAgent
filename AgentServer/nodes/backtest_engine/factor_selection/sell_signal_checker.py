@@ -348,10 +348,11 @@ def check_timeout(holding, market_data, params):
     if max_hold_days >= 999:  # 未设置上限
         return None
 
-    if trade_days_held > max_hold_days:
+    if trade_days_held >= max_hold_days:
+        # 【V31修复:>=替代>,max_hold_days=3时第3天即触发超时】
         close_price = market_data.get('close', 0)
         if close_price > 0:
-            return (close_price, f'超时({trade_days_held}交易日>{max_hold_days}交易日)')
+            return (close_price, f'超时({trade_days_held}交易日≥{max_hold_days}交易日)')
 
     return None
 
