@@ -3688,9 +3688,10 @@ class PortfolioBacktester:
 
         # 先卖出:不在目标持仓中的股票全卖 + 持仓超过目标的股票减仓
         sell_codes = [code for code in holdings if code not in target_shares and holdings[code] > 0]
-        # 【V29:PositionManager统一管理sell_codes/target_shares,结构性消除震荡bug】
-        # 旧bug(V19/V24/V26): 止损/冲高回落只加sell_codes,但target_shares保留→卖出后重新买入
-        # PositionManager.mark_sold()同时: 1)加入sell_code_reasons 2)从target_shares移除
+        # 【V33关键修复:pos_mgr接管target_shares的所有修改权】
+        # 旧bug(V29宣称修复但未完全修复): PositionManager复制了target_shares, mark_sold只修改pos_mgr.target_shares
+        # 但买入循环仍遍历原始局部target_shares→冲高回落/止损卖出后同日重新买入(震荡bug)
+        # 修复: 买入循环改用pos_mgr.target_shares, 确保mark_sold删除的股不会被重新买入
         pos_mgr = PositionManager(holdings, target_shares)
 
         # 【P0-4修复:调仓日止损检查 - 即使股票仍在目标池中,如果触发止损也要卖出】
@@ -3777,8 +3778,9 @@ class PortfolioBacktester:
         # 【V29:止损/冲高回落/高开即卖/止盈的股票,也由PositionManager管理】
         # PositionManager.mark_sold()已自动从target_shares移除,不需额外的del循环
         # 【修复P1-6:减仓逻辑 - 持仓超过目标时卖出差额】
-        reduce_codes = {code: holdings[code] - target_shares[code] for code in holdings
-                        if code in target_shares and holdings.get(code, 0) > target_shares[code]}
+        # 【V33:使用pos_mgr.target_shares,与买入循环一致】
+        reduce_codes = {code: holdings[code] - pos_mgr.target_shares[code] for code in holdings
+                        if code in pos_mgr.target_shares and holdings.get(code, 0) > pos_mgr.target_shares[code]}
         # 【Phase1-T+1】当日买入的股票不可减仓(减仓=部分卖出)
         reduce_codes = {code: delta for code, delta in reduce_codes.items()
                         if self._cost_basis_date.get(code) != trade_date}
@@ -3976,7 +3978,10 @@ class PortfolioBacktester:
                     del self._cost_basis_date[ts_code]
 
         # 再买入:目标持仓中需要增加的股票
-        for ts_code, target_count in target_shares.items():
+        # 【V33关键修复:使用pos_mgr.target_shares而非局部target_shares】
+        # pos_mgr.mark_sold()会从pos_mgr.target_shares删除冲高回落/止损/止盈的股
+        # 如果遍历局部target_shares,这些股会被重新买入→震荡bug
+        for ts_code, target_count in pos_mgr.target_shares.items():
             current_shares = holdings.get(ts_code, 0)
             delta = target_count - current_shares
             reduce_reason = None  # 【P1-5修复:每次循环重置,避免泄漏到后续股票】
