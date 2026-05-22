@@ -65,6 +65,9 @@ from paper_trading import PaperTradingEngine
 from performance_analyzer import PerformanceAnalyzer
 from pre_buy_risk_check import PreBuyRiskChecker
 
+# 从 strategy_defaults 导入唯一参数来源
+from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK
+
 # 可选导入（MongoDB依赖模块，不存在时降级）
 try:
     from nodes.web.portfolio_tracker import portfolio_tracker, PortfolioTracker
@@ -140,14 +143,16 @@ class DailyScheduler:
     }
 
     def __init__(self, account_id: str = None, config: Dict = None):
+        # 从 strategy_defaults.py 读取全局风控参数，不再硬编码
+        global_risk = GLOBAL_RISK
         self.config = {
             "initial_cash": 1_000_000,
-            "max_position": 0.7,
-            "max_position_per_stock": 0.2,
-            "slippage": 0.002,
-            "stop_loss_pct": 0.02,
-            "take_profit_pct": 0.07,
-            "max_hold_days": 3,
+            "max_position": global_risk["max_total_position"],  # 0.7
+            "max_position_per_stock": global_risk["max_position_per_stock"],  # 0.2
+            "slippage": global_risk["slippage_pct"],  # 0.002
+            "stop_loss_pct": global_risk["stop_loss_pct"],  # 0.03
+            "take_profit_pct": global_risk["take_profit_pct"],  # 0.07
+            "max_hold_days": global_risk["max_hold_days"],  # 3
             "top_n": 5,
             "report_output_dir": os.path.join(os.path.dirname(__file__), "daily_reports"),
             "push_notifications": True,

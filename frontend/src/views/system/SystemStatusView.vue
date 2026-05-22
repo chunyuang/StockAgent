@@ -360,12 +360,12 @@ onMounted(() => {
   .page-title {
     font-size: 26px;
     font-weight: 700;
-    color: #303133;
+    color: var(--text-primary);
     margin: 0 0 8px 0;
   }
   
   .page-description {
-    color: #606266;
+    color: var(--text-secondary);
     margin: 0;
   }
 }
@@ -392,12 +392,12 @@ onMounted(() => {
 
 .unit {
   margin-left: 8px;
-  color: #909399;
+  color: var(--text-tertiary);
 }
 
 .desc {
   margin-left: 12px;
-  color: #606266;
+  color: var(--text-secondary);
   font-size: 13px;
 }
 

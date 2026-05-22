@@ -191,8 +191,7 @@ class BacktestNode(BaseNode):
                     traceback.print_exc()
                     await self._update_task_result(task_id, "failed", error=str(e))
                     continue  # 【修复风险6：任务失败后continue而非return，避免worker永久退出】
-                    # 【P1-1 修复：任务失败时也要清理文件句柄，避免资源泄漏】
-                    self._close_log_handles(task_id)
+                    # 注意: _close_log_handles 在finally块中统一调用，此处不再重复
 
                 finally:
                     # 【P1-1 修复：确保 JSONL 文件句柄在所有路径都被关闭】

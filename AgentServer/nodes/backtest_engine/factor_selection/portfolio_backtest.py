@@ -521,24 +521,24 @@ class PortfolioBacktester:
         await self.log(f"   │    📌 参数配置:")
         if strategy_name == "半路追涨":
             # 【N02/N10修复:日志参数添加默认值fallback,避免None*100的TypeError】
-            min_rise_pct = params.get("min_rise_pct") or STRATEGY_CONFIGS.get("halfway_chase", {}).get("params", {}).get("min_rise_pct", 0.03)
-            max_rise_pct = params.get("max_rise_pct") or STRATEGY_CONFIGS.get("halfway_chase", {}).get("params", {}).get("max_rise_pct", 0.07)
+            min_rise_pct = params.get("min_rise_pct") if params.get("min_rise_pct") is not None else STRATEGY_CONFIGS.get("halfway_chase", {}).get("params", {}).get("min_rise_pct", 0.03)
+            max_rise_pct = params.get("max_rise_pct") if params.get("max_rise_pct") is not None else STRATEGY_CONFIGS.get("halfway_chase", {}).get("params", {}).get("max_rise_pct", 0.07)
             # 【修复#4:默认值统一为2.0,和优化后的defaults.py保持一致】
-            volume_threshold = params.get("volume_threshold", params.get("min_volume_ratio")) or 2.0
+            volume_threshold = params.get("volume_threshold", params.get("min_volume_ratio")) if params.get("volume_threshold", params.get("min_volume_ratio")) is not None else 2.0
             min_volume_ratio = volume_threshold
             allow_after_10am = params.get("allow_after_10am") if params.get("allow_after_10am") is not None else False
             await self.log(f"   │        • 量比阈值: {volume_threshold}倍")
             await self.log(f"   │        • 涨幅区间: {min_rise_pct*100:.1f}% ~ {max_rise_pct*100:.1f}%")
             await self.log(f"   │        • 允许10点后买入: {'是' if allow_after_10am else '否'}")
         elif strategy_name == "首板打板":
-            min_seal_amount = params.get("min_seal_amount") or STRATEGY_CONFIGS.get("first_limit_up", {}).get("params", {}).get("min_seal_amount", 5000)
-            max_limit_time = params.get("max_limit_up_time") or "10:00"
-            min_circ_mv = params.get("min_circulation_market_cap") or STRATEGY_CONFIGS.get("first_limit_up", {}).get("params", {}).get("min_circulation_market_cap", 50)
-            max_circ_mv = params.get("max_circulation_market_cap") or STRATEGY_CONFIGS.get("first_limit_up", {}).get("params", {}).get("max_circulation_market_cap", 500)
-            min_volume_ratio = params.get("min_volume_ratio") or STRATEGY_CONFIGS.get("first_limit_up", {}).get("params", {}).get("min_volume_ratio", 1.5)
-            min_turnover = params.get("min_turnover_rate") or STRATEGY_CONFIGS.get("first_limit_up", {}).get("params", {}).get("min_turnover_rate", 3)
-            max_turnover = params.get("max_turnover_rate") or STRATEGY_CONFIGS.get("first_limit_up", {}).get("params", {}).get("max_turnover_rate", 15)
-            max_blast = params.get("max_blast_count") or 1
+            min_seal_amount = params.get("min_seal_amount") if params.get("min_seal_amount") is not None else STRATEGY_CONFIGS.get("first_limit_up", {}).get("params", {}).get("min_seal_amount", 5000)
+            max_limit_time = params.get("max_limit_up_time") if params.get("max_limit_up_time") is not None else "10:00"
+            min_circ_mv = params.get("min_circulation_market_cap") if params.get("min_circulation_market_cap") is not None else STRATEGY_CONFIGS.get("first_limit_up", {}).get("params", {}).get("min_circulation_market_cap", 50)
+            max_circ_mv = params.get("max_circulation_market_cap") if params.get("max_circulation_market_cap") is not None else STRATEGY_CONFIGS.get("first_limit_up", {}).get("params", {}).get("max_circulation_market_cap", 500)
+            min_volume_ratio = params.get("min_volume_ratio") if params.get("min_volume_ratio") is not None else STRATEGY_CONFIGS.get("first_limit_up", {}).get("params", {}).get("min_volume_ratio", 1.5)
+            min_turnover = params.get("min_turnover_rate") if params.get("min_turnover_rate") is not None else STRATEGY_CONFIGS.get("first_limit_up", {}).get("params", {}).get("min_turnover_rate", 3)
+            max_turnover = params.get("max_turnover_rate") if params.get("max_turnover_rate") is not None else STRATEGY_CONFIGS.get("first_limit_up", {}).get("params", {}).get("max_turnover_rate", 15)
+            max_blast = params.get("max_blast_count") if params.get("max_blast_count") is not None else 1
             require_hot = params.get("require_hot_sector") if params.get("require_hot_sector") is not None else True
             require_sentiment = params.get("require_sentiment_period", ["rising", "chaos"])
             # 【N11修复:竞价涨幅从参数读取,不再硬编码】
@@ -555,10 +555,10 @@ class PortfolioBacktester:
             await self.log(f"   │        • 情绪周期要求: {', '.join(require_sentiment)}")
         elif strategy_name == "涨停开板":
             # 【N02/N08修复:日志参数添加默认值fallback,避免None的TypeError】
-            min_consecutive = params.get("min_consecutive_limit") or STRATEGY_CONFIGS.get("limit_up_open", {}).get("params", {}).get("min_consecutive_limit", 2)
-            _raw_turnover = params.get("min_turnover_rate") or STRATEGY_CONFIGS.get("limit_up_open", {}).get("params", {}).get("min_turnover_rate", 15.0)
+            min_consecutive = params.get("min_consecutive_limit") if params.get("min_consecutive_limit") is not None else STRATEGY_CONFIGS.get("limit_up_open", {}).get("params", {}).get("min_consecutive_limit", 2)
+            _raw_turnover = params.get("min_turnover_rate") if params.get("min_turnover_rate") is not None else STRATEGY_CONFIGS.get("limit_up_open", {}).get("params", {}).get("min_turnover_rate", 15.0)
             min_turnover = _raw_turnover * 100 if _raw_turnover < 1 else _raw_turnover
-            min_volume_ratio = params.get("min_volume_ratio") or STRATEGY_CONFIGS.get("limit_up_open", {}).get("params", {}).get("min_volume_ratio", 2.0)
+            min_volume_ratio = params.get("min_volume_ratio") if params.get("min_volume_ratio") is not None else STRATEGY_CONFIGS.get("limit_up_open", {}).get("params", {}).get("min_volume_ratio", 2.0)
             require_sentiment = params.get("require_sentiment_period", ["rising"])
             # 【日线模式修复】涨停开板不再依赖盘中数据
             await self.log(f"   │        • 昨日涨停 + 今日未封住")
@@ -569,12 +569,12 @@ class PortfolioBacktester:
             await self.log(f"   │        • 情绪周期要求: {', '.join(require_sentiment)}")
         elif strategy_name == "龙头低吸":
             # 【N02/N09修复:日志参数添加默认值fallback,避免None*100的TypeError】
-            min_consecutive = params.get("min_consecutive_limit") or STRATEGY_CONFIGS.get("dragon_head", {}).get("params", {}).get("min_consecutive_limit", 1)
+            min_consecutive = params.get("min_consecutive_limit") if params.get("min_consecutive_limit") is not None else STRATEGY_CONFIGS.get("dragon_head", {}).get("params", {}).get("min_consecutive_limit", 1)
             min_correction = params.get("min_correction_pct") if params.get("min_correction_pct") is not None else STRATEGY_CONFIGS.get("dragon_head", {}).get("params", {}).get("min_correction_pct", 0.05)
             max_correction = params.get("max_correction_pct") if params.get("max_correction_pct") is not None else STRATEGY_CONFIGS.get("dragon_head", {}).get("params", {}).get("max_correction_pct", 0.35)
-            correction_days_min = params.get("correction_days_min") or STRATEGY_CONFIGS.get("dragon_head", {}).get("params", {}).get("correction_days_min", 1)
-            correction_days_max = params.get("correction_days_max") or STRATEGY_CONFIGS.get("dragon_head", {}).get("params", {}).get("correction_days_max", 7)
-            support_level = params.get("support_level") or STRATEGY_CONFIGS.get("dragon_head", {}).get("params", {}).get("support_level", "ma5")
+            correction_days_min = params.get("correction_days_min") if params.get("correction_days_min") is not None else STRATEGY_CONFIGS.get("dragon_head", {}).get("params", {}).get("correction_days_min", 1)
+            correction_days_max = params.get("correction_days_max") if params.get("correction_days_max") is not None else STRATEGY_CONFIGS.get("dragon_head", {}).get("params", {}).get("correction_days_max", 7)
+            support_level = params.get("support_level") if params.get("support_level") is not None else STRATEGY_CONFIGS.get("dragon_head", {}).get("params", {}).get("support_level", "ma5")
             await self.log(f"   │        • 最小连续涨停: {min_consecutive}天")
             await self.log(f"   │        • 回调幅度: {min_correction*100:.1f}% ~ {max_correction*100:.1f}%")
             await self.log(f"   │        • 回调天数: {correction_days_min} ~ {correction_days_max}天")
@@ -589,14 +589,14 @@ class PortfolioBacktester:
             # 前端默认传万元(1000万元=10000),数据库因子limit_down_open_amount存千元
             # 规则:如果<100000(即<10万元千元单位),说明传入的是万元单位,需×1000转千元
             # 如果>=100000,说明已经是千元单位,无需转换
-            _raw_qiao = params.get("min_qiao_amount") or STRATEGY_CONFIGS["limit_down_qiao"]["params"]["min_qiao_amount"]  # 前端传入,单位万元
+            _raw_qiao = params.get("min_qiao_amount") if params.get("min_qiao_amount") is not None else STRATEGY_CONFIGS["limit_down_qiao"]["params"]["min_qiao_amount"]
             # 万元→千元: 1000万 × 1000 = 1000000千元;但前端传的是10000(万元)不是10000000
             # 实际: 前端传10000(万) → ×10 = 100000千元 ✓; 前端传100000(千) → 不转换 ✓
             min_qiao_amount = _raw_qiao * 10 if _raw_qiao < 100000 else _raw_qiao
-            min_rise_after = params.get("min_rise_after_qiao") or STRATEGY_CONFIGS["limit_down_qiao"]["params"]["min_rise_after_qiao"]
+            min_rise_after = params.get("min_rise_after_qiao") if params.get("min_rise_after_qiao") is not None else STRATEGY_CONFIGS["limit_down_qiao"]["params"]["min_rise_after_qiao"]
             require_high_sentiment = params.get("require_high_sentiment") if params.get("require_high_sentiment") is not None else STRATEGY_CONFIGS["limit_down_qiao"]["params"]["require_high_sentiment"]
             await self.log(f"   │        • 最小连续跌停: {min_consecutive}天")
-            _raw_turnover_qiao = params.get('min_turnover_rate') or STRATEGY_CONFIGS["limit_down_qiao"]["params"].get('min_turnover_rate', 10.0)
+            _raw_turnover_qiao = params.get('min_turnover_rate') if params.get('min_turnover_rate') is not None else STRATEGY_CONFIGS["limit_down_qiao"]["params"].get('min_turnover_rate', 10.0)
             _turnover_display = _raw_turnover_qiao * 100 if _raw_turnover_qiao < 1 else _raw_turnover_qiao
             await self.log(f"   │        • 换手率要求: ≥ {_turnover_display:.0f}%")
             await self.log(f"   │        • 最小翘板金额: {_raw_qiao}万元={min_qiao_amount}千元")
@@ -2615,14 +2615,14 @@ class PortfolioBacktester:
                         if raw_sortino > 200.0:
                             logger.debug('backtest', f'Sortino={raw_sortino:.1f}超过200上限,下行波动过低')
 
-        # 【V31修复:Calmar比率上限保护】短期回测年化收益极高导致Calmar失真
-        # 例:51天121%收益→年化5030%/0.0277回撤=1816,无参考意义
-        # 上限:与Sharpe同量级(Calmar通常<Sharpe*3),超过100视为不可靠
+        # 【V40修复:Calmar比率上限从100→200】
+        # V31设100上限是为防短期年化膨胀，但3个月回测141.7的Calmar是有意义的真实值
+        # Calmar通常2-5x Sharpe，基线Sharpe=14.09, Calmar应允许到200
         if max_drawdown > 0 and annualized_return != 0:
             raw_calmar = annualized_return / max_drawdown
-            calmar_ratio = min(raw_calmar, 100.0)
-            if raw_calmar > 100.0:
-                logger.debug('backtest', f'Calmar={raw_calmar:.1f}超过100上限,回测周期{trading_days}天过短')
+            calmar_ratio = min(raw_calmar, 200.0)
+            if raw_calmar > 200.0:
+                logger.debug('backtest', f'Calmar={raw_calmar:.1f}超过200上限,回测周期{trading_days}天过短')
 
         # 格式化 drawdown_series 为最终返回格式
         formatted_drawdown_series = []

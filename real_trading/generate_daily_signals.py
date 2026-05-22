@@ -16,7 +16,8 @@ from datetime import datetime, timedelta
 from typing import List, Dict
 
 from core.managers import mongo_manager
-from nodes.backtest_engine.factor_selection.portfolio_backtest import PortfolioBacktester, STRATEGY_CONFIGS
+from nodes.backtest_engine.factor_selection.portfolio_backtest import PortfolioBacktester
+from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK, merge_strategy_params, merge_strategy_risk_params
 from nodes.backtest_engine.factor_selection.universe import UniverseManager, UniverseType, ExcludeRule
 from nodes.backtest_engine.factor_selection.strategy_filter import filter_stocks_by_strategies
 
@@ -38,31 +39,25 @@ class RealTradingSignalGenerator:
         """初始化信号生成器
         
         Args:
-            config: 可选配置覆盖，支持的字段：
-                - initial_cash: 初始资金，默认100万
-                - max_position: 最大总仓位，默认0.7（70%）
-                - max_position_per_stock: 单票最大仓位，默认0.2（20%）
-                - max_hold_days: 最大持仓天数，默认3
-                - stop_loss_pct: 止损比例，默认0.05（5%）
-                - take_profit_pct: 止盈比例，默认0.1（10%）
-                - liquidity_threshold: 成交额门槛，默认500万
-                - volume_threshold: 量能放大倍数，默认1.5
-                - top_n: 最多选N只标的，默认5
+            config: 可选配置覆盖
+                ⚠️ 策略参数(止损/止盈/持仓天数等)统一从strategy_defaults.py读取，不再硬编码
         """
+        # 从 strategy_defaults.py 读取全局风控参数作为默认值
+        global_risk = GLOBAL_RISK
         self.default_config = {
             "initial_cash": 1000000,
-            "max_position": 0.7,          # 总仓位上限70%，留30%现金防风险
-            "max_position_per_stock": 0.2, # 单票最大仓位20%，分散风险
-            "max_hold_days": 3,            # 超短核心：最多持仓3天
-            "stop_loss_pct": 0.02,         # 止损2%，超短必须严格止损
-            "take_profit_pct": 0.07,       # 止盈7%，超短快进快出
-            "liquidity_threshold": 5000000, # 500万成交额门槛，避免流动性陷阱
-            "volume_threshold": 1.5,       # 量能放大1.5倍
-            "slippage": 0.002,             # 滑点0.2%，超短打板滑点较大
+            "max_position": global_risk["max_total_position"],  # 0.7
+            "max_position_per_stock": global_risk["max_position_per_stock"],  # 0.2
+            "max_hold_days": global_risk["max_hold_days"],  # 3
+            "stop_loss_pct": global_risk["stop_loss_pct"],  # 0.03
+            "take_profit_pct": global_risk["take_profit_pct"],  # 0.07
+            "liquidity_threshold": global_risk["liquidity_threshold"] * 10000,  # 万元→元
+            "volume_threshold": global_risk["volume_threshold"],  # 1.5
+            "slippage": global_risk["slippage_pct"],  # 0.002
             "enable_force_empty": True,
             "enable_sentiment_cycle": True,
             "enable_auction_filter": True,
-            "top_n": 5,  # 最多选5只
+            "top_n": 5,
         }
         self.config = {**self.default_config, **(config or {})}
         # 只传递PortfolioBacktester接受的初始化参数
@@ -158,11 +153,18 @@ class RealTradingSignalGenerator:
         # 6. 策略条件筛选（与回测引擎一致）
         # 策略条件筛选（与回测引擎一致，已在顶部导入）
         
-        # 构建策略配置：用默认参数构建筛选条件
+        # 策略ID→中文名映射，与strategy_defaults.py STRATEGY_CONFIGS键名对齐
+        # ⚠️ 旧代码用"leader_buy_dip"是错误的，正确应为"dragon_head"
+        self._strategy_id_name_map = {
+            "halfway_chase": "半路追涨",
+            "first_limit_up": "首板打板",
+            "dragon_head": "龙头低吸",
+            "limit_down_qiao": "跌停翘板",
+        }
+
         strategy_configs = {}
-        allowed_strategies = set(sentiment_info.get("allowed_strategies", ["半路追涨", "首板打板", "龙头低吸", "跌停翘板"]))
-        for sid, sname in [("halfway_chase", "半路追涨"), ("first_limit_up", "首板打板"),
-                           ("leader_buy_dip", "龙头低吸"), ("limit_down_qiao", "跌停翘板")]:
+        allowed_strategies = set(sentiment_info.get("allowed_strategies", list(self._strategy_id_name_map.values())))
+        for sid, sname in self._strategy_id_name_map.items():
             if sname in allowed_strategies:
                 params = STRATEGY_CONFIGS.get(sid, {}).get("params", {})
                 conditions = self.backtester._build_strategy_filter_conditions(sname, params)

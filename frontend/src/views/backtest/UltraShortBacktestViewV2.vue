@@ -839,7 +839,7 @@ function onViewLogs(taskId: string) {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 12px;
-  border-bottom: 1px solid #e4e7ed;
+  border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
 }
 
@@ -854,24 +854,24 @@ function onViewLogs(taskId: string) {
     font-weight: 600;
     border: none;
     background: transparent;
-    color: #909399;
+    color: var(--text-tertiary);
     cursor: pointer;
     border-bottom: 2px solid transparent;
     margin-bottom: -1px;
     transition: all 0.2s;
     position: relative;
 
-    &:hover { color: #409eff; }
+    &:hover { color: var(--primary-500); }
 
     &.active {
-      color: #409eff;
-      border-bottom-color: #409eff;
+      color: var(--primary-500);
+      border-bottom-color: var(--primary-500);
     }
 
     .tab-badge {
       display: inline-block;
-      background: #e4e7ed;
-      color: #909399;
+      background: var(--bg-muted);
+      color: var(--text-tertiary);
       font-size: 11px;
       padding: 1px 6px;
       border-radius: 10px;
@@ -880,8 +880,8 @@ function onViewLogs(taskId: string) {
     }
 
     &.active .tab-badge {
-      background: #ecf5ff;
-      color: #409eff;
+      background: var(--primary-50);
+      color: var(--primary-500);
     }
   }
 }
@@ -901,18 +901,18 @@ function onViewLogs(taskId: string) {
   z-index: 10;
   width: 20px;
   height: 48px;
-  border: 1px solid #dcdfe6;
+  border: 1px solid var(--border-default);
   border-left: none;
   border-radius: 0 6px 6px 0;
-  background: #fff;
-  color: #909399;
+  background: var(--bg-elevated);
+  color: var(--text-tertiary);
   cursor: pointer;
   font-size: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 0.2s;
-  &:hover { background: #ecf5ff; color: #409eff; border-color: #b3d8ff; }
+  &:hover { background: var(--primary-50); color: var(--primary-500); border-color: var(--primary-200); }
 }
 .config-left {
   width: 420px;
@@ -930,12 +930,13 @@ function onViewLogs(taskId: string) {
 }
 .running-status {
   padding: 8px 16px;
-  background: linear-gradient(135deg, #e6f7ff 0%, #bae7ff 100%);
+  background: var(--info-bg);
+  border: 1px solid var(--primary-200);
   border-radius: 6px;
   margin-bottom: 12px;
   font-size: 14px;
   font-weight: 600;
-  color: #1890ff;
+  color: var(--primary-500);
   animation: pulse 2s infinite;
 }
 @keyframes pulse {
@@ -944,11 +945,11 @@ function onViewLogs(taskId: string) {
 }
 .execution-time {
   padding: 6px 16px;
-  background: #f0f9eb;
+  background: var(--success-bg);
   border-radius: 6px;
   margin-bottom: 12px;
   font-size: 13px;
-  color: #67c23a;
+  color: var(--success);
 }
 .tab-content-full {
   flex: 1;

@@ -1,10 +1,11 @@
 """
 策略筛选模块（拆分Phase 3产物）
 
-⚠️ 注意：本模块已从portfolio_backtest.py拆分出来，但尚未被主引擎引用。
-   portfolio_backtest.py仍使用内联的_build_strategy_filter_conditions方法。
-   待Phase 6-8完成拆分后，本模块将被正式集成。
-   当前状态：独立可用，但未被调用。
+⚠️ 注意：本模块已过时，不再维护。
+   portfolio_backtest.py的内联 _build_strategy_filter_conditions 方法是权威实现。
+   该内联版本已使用 is not None 模式修复参数读取，并从 STRATEGY_CONFIGS 读取默认值。
+   本文件使用旧式 or 模式和 circ_mv/turnover_rate(T日而非_prev)，与主引擎不一致。
+   不要使用本模块。如需重构，请基于内联版本抽取。
 """
 
 from typing import Dict, List, Any
