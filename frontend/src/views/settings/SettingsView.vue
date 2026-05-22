@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useUserStore } from '@/stores/user'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElTabs, ElTabPane, ElForm, ElFormItem, ElRadioGroup, ElRadio, ElSwitch, ElButton } from 'element-plus'
 
 // 子组件
 import PushConfigPanel from '@/components/settings/PushConfigPanel.vue'
@@ -35,45 +35,45 @@ async function savePreferences() {
   <div class="settings-view">
     <h1>设置</h1>
     
-    <el-tabs v-model="activeTab" class="settings-tabs">
+    <ElTabs v-model="activeTab" class="settings-tabs">
       <!-- 偏好设置 -->
-      <el-tab-pane label="偏好设置" name="preferences">
+      <ElTabPane label="偏好设置" name="preferences">
         <div class="settings-section card">
-          <el-form label-width="100px" size="large">
-            <el-form-item label="主题">
-              <el-radio-group v-model="preferences.theme">
-                <el-radio value="light">浅色</el-radio>
-                <el-radio value="dark">深色</el-radio>
-              </el-radio-group>
-            </el-form-item>
+          <ElForm label-width="100px" size="large">
+            <ElFormItem label="主题">
+              <ElRadioGroup v-model="preferences.theme">
+                <ElRadio value="light">浅色</ElRadio>
+                <ElRadio value="dark">深色</ElRadio>
+              </ElRadioGroup>
+            </ElFormItem>
             
-            <el-form-item label="消息通知">
-              <el-switch v-model="preferences.notification_enabled" />
-            </el-form-item>
+            <ElFormItem label="消息通知">
+              <ElSwitch v-model="preferences.notification_enabled" />
+            </ElFormItem>
             
-            <el-form-item>
-              <el-button type="primary" :loading="prefSaving" @click="savePreferences">
+            <ElFormItem>
+              <ElButton type="primary" :loading="prefSaving" @click="savePreferences">
                 保存设置
-              </el-button>
-            </el-form-item>
-          </el-form>
+              </ElButton>
+            </ElFormItem>
+          </ElForm>
         </div>
-      </el-tab-pane>
+      </ElTabPane>
 
       <!-- 推送配置 -->
-      <el-tab-pane label="推送配置" name="push">
+      <ElTabPane label="推送配置" name="push">
         <div class="settings-section card">
           <PushConfigPanel />
         </div>
       </el-tab-pane>
 
       <!-- 日志级别 -->
-      <el-tab-pane label="日志级别" name="logging">
+      <ElTabPane label="日志级别" name="logging">
         <div class="settings-section card">
           <LogLevelPanel />
         </div>
       </el-tab-pane>
-    </el-tabs>
+    </ElTabs>
   </div>
 </template>
 

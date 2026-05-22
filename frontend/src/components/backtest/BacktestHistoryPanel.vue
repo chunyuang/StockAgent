@@ -453,7 +453,7 @@ export default { name: 'BacktestHistoryPanel' }
 
 <style scoped lang="scss">
 .history-panel {
-  background: #fff;
+  background: var(--bg-elevated);
   border-radius: 6px;
   overflow: hidden;
 }
@@ -464,8 +464,8 @@ export default { name: 'BacktestHistoryPanel' }
   align-items: center;
   gap: 16px;
   padding: 12px 20px;
-  background: linear-gradient(135deg, #f0f9eb 0%, #f5f7fa 50%, #fef0f0 100%);
-  border-bottom: 1px solid #ebeef5;
+  background: var(--bg-muted);
+  border-bottom: 1px solid var(--border-default);
   flex-wrap: wrap;
 }
 .summary-item {
@@ -476,17 +476,17 @@ export default { name: 'BacktestHistoryPanel' }
 }
 .summary-label {
   font-size: 11px;
-  color: #909399;
+  color: var(--text-tertiary);
 }
 .summary-value {
   font-size: 16px;
   font-weight: 700;
-  color: #303133;
+  color: var(--text-primary);
 }
 .summary-divider {
   width: 1px;
   height: 28px;
-  background: #dcdfe6;
+  background: var(--border-default);
 }
 
 .history-header {
@@ -494,13 +494,13 @@ export default { name: 'BacktestHistoryPanel' }
   justify-content: space-between;
   align-items: center;
   padding: 10px 16px;
-  background: #fff;
-  border-bottom: 1px solid #ebeef5;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-default);
 
   h3 {
     margin: 0;
     font-size: 15px;
-    color: #303133;
+    color: var(--text-primary);
     font-weight: 600;
   }
 
@@ -520,7 +520,7 @@ export default { name: 'BacktestHistoryPanel' }
 /* Mini进度条（收益率分位） */
 .mini-bar {
   height: 3px;
-  background: #ebeef5;
+  background: var(--border-default);
   border-radius: 2px;
   overflow: hidden;
 }
@@ -531,7 +531,7 @@ export default { name: 'BacktestHistoryPanel' }
 }
 
 :deep(.compare-selected-row) {
-  background-color: #ecf5ff !important;
+  background-color: var(--primary-50) !important;
 }
 
 .best-value {

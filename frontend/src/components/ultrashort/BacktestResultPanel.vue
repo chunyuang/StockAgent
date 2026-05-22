@@ -323,9 +323,19 @@ const netValueChartOption = computed(() => {
     areaStyle: { color: 'rgba(245,108,108,0.1)' }
   })
 
+  const isDark = document.documentElement.classList.contains('dark')
+  const axisLabelColor = isDark ? '#94A3B8' : '#64748b'
+  const gridLineColor = isDark ? 'rgba(255,255,255,0.03)' : '#f1f5f9'
+  const tooltipBg = isDark ? 'rgba(18,18,26,0.98)' : 'rgba(255,255,255,0.96)'
+  const tooltipBorder = isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0'
+  const tooltipText = isDark ? '#fff' : '#1e293b'
+
   return {
     tooltip: {
       trigger: 'axis',
+      backgroundColor: tooltipBg,
+      borderColor: tooltipBorder,
+      textStyle: { color: tooltipText },
       formatter: (params: any) => {
         let html = `<b>${params[0].axisValue}</b><br/>`
         for (const p of params) {
@@ -335,12 +345,12 @@ const netValueChartOption = computed(() => {
         return html
       }
     },
-    legend: { data: ['策略净值', ...(benchmarkValues.length > 0 ? ['基准(沪深300)'] : []), '回撤(%)'] },
+    legend: { data: ['策略净值', ...(benchmarkValues.length > 0 ? ['基准(沪深300)'] : []), '回撤(%)'], textStyle: { color: axisLabelColor } },
     grid: { left: '3%', right: '4%', bottom: '12%', containLabel: true },
-    xAxis: { type: 'category', boundaryGap: false, data: dates },
+    xAxis: { type: 'category', boundaryGap: false, data: dates, axisLine: { lineStyle: { color: gridLineColor } }, axisLabel: { color: axisLabelColor }, splitLine: { lineStyle: { color: gridLineColor } } },
     yAxis: [
-      { type: 'value', name: '净值', min: Math.floor(minNV * 100) / 100 - 0.01 },
-      { type: 'value', name: '回撤(%)', position: 'right' }
+      { type: 'value', name: '净值', min: Math.floor(minNV * 100) / 100 - 0.01, axisLabel: { color: axisLabelColor }, splitLine: { lineStyle: { color: gridLineColor } } },
+      { type: 'value', name: '回撤(%)', position: 'right', axisLabel: { color: axisLabelColor }, splitLine: { show: false } }
     ],
     dataZoom: [{ type: 'inside' }, { type: 'slider', height: 20, bottom: 4 }],
     series,
@@ -355,11 +365,17 @@ const dailyProfitChartOption = computed(() => {
   const dp = nvs.map((d: any) => d.daily_profit)
   const dates = nvs.map((d: any) => d.trade_date)
   const values = dp.map((v: any) => +((v) * 100).toFixed(4))
+  const isDark = document.documentElement.classList.contains('dark')
+  const axisLabelColor = isDark ? '#94A3B8' : '#64748b'
+  const gridLineColor = isDark ? 'rgba(255,255,255,0.03)' : '#f1f5f9'
+  const tooltipBg = isDark ? 'rgba(18,18,26,0.98)' : 'rgba(255,255,255,0.96)'
+  const tooltipBorder = isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0'
+  const tooltipText = isDark ? '#fff' : '#1e293b'
   return {
-    tooltip: { trigger: 'axis', formatter: (p: any) => `${p[0].axisValue}<br/>日收益率：${p[0].value}%` },
+    tooltip: { trigger: 'axis', backgroundColor: tooltipBg, borderColor: tooltipBorder, textStyle: { color: tooltipText }, formatter: (p: any) => `${p[0].axisValue}<br/>日收益率：${p[0].value}%` },
     grid: { left: '3%', right: '4%', bottom: '12%', containLabel: true },
-    xAxis: { type: 'category', data: dates },
-    yAxis: { type: 'value', name: '日收益率(%)', axisLabel: { formatter: '{value}%' } },
+    xAxis: { type: 'category', data: dates, axisLabel: { color: axisLabelColor }, axisLine: { lineStyle: { color: gridLineColor } }, splitLine: { lineStyle: { color: gridLineColor } } },
+    yAxis: { type: 'value', name: '日收益率(%)', axisLabel: { formatter: '{value}%', color: axisLabelColor }, splitLine: { lineStyle: { color: gridLineColor } } },
     dataZoom: [{ type: 'inside' }, { type: 'slider', height: 20, bottom: 4 }],
     series: [
       {
@@ -378,11 +394,17 @@ const positionChartOption = computed(() => {
   // value是小数(0.188=18.8%), ×100转百分比
   const values = result.position_series.map((d: any) => +(d.value * 100).toFixed(2))
   const dates = result.position_series.map((d: any) => d.date)
+  const isDark = document.documentElement.classList.contains('dark')
+  const axisLabelColor = isDark ? '#94A3B8' : '#64748b'
+  const gridLineColor = isDark ? 'rgba(255,255,255,0.03)' : '#f1f5f9'
+  const tooltipBg = isDark ? 'rgba(18,18,26,0.98)' : 'rgba(255,255,255,0.96)'
+  const tooltipBorder = isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0'
+  const tooltipText = isDark ? '#fff' : '#1e293b'
   return {
-    tooltip: { trigger: 'axis', formatter: (p: any) => `${p[0].axisValue}<br/>仓位：${p[0].value}%` },
+    tooltip: { trigger: 'axis', backgroundColor: tooltipBg, borderColor: tooltipBorder, textStyle: { color: tooltipText }, formatter: (p: any) => `${p[0].axisValue}<br/>仓位：${p[0].value}%` },
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-    xAxis: { type: 'category', boundaryGap: false, data: dates },
-    yAxis: { type: 'value', max: 100, axisLabel: { formatter: '{value}%' } },
+    xAxis: { type: 'category', boundaryGap: false, data: dates, axisLabel: { color: axisLabelColor }, axisLine: { lineStyle: { color: gridLineColor } } },
+    yAxis: { type: 'value', max: 100, axisLabel: { formatter: '{value}%', color: axisLabelColor }, splitLine: { lineStyle: { color: gridLineColor } } },
     series: [
       {
         name: '仓位', type: 'line', data: values, smooth: true,
@@ -1030,15 +1052,16 @@ export default { name: 'BacktestResultPanel' }
   align-items: center;
   padding: 10px 16px;
   border-radius: 8px;
-  background: linear-gradient(135deg, #f8f9fa 0%, #fff 100%);
-  border: 1px solid #ebeef5;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
   min-width: 90px;
-  transition: box-shadow 0.2s;
+  transition: box-shadow 0.2s, border-color 0.2s;
   &:hover {
-    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    box-shadow: var(--shadow-sm);
+    border-color: var(--border-hover);
   }
 }
-.kpi-label { font-size: 11px; color: #909399; font-weight: 500; }
+.kpi-label { font-size: 11px; color: var(--text-tertiary); font-weight: 500; }
 .kpi-value { font-size: 17px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
 .annual-warn { color: #e6a23c; cursor: help; font-weight: 700; }
 .chart-card { margin-bottom: 0; }
@@ -1052,9 +1075,9 @@ export default { name: 'BacktestResultPanel' }
   border-radius: 4px;
   background: var(--el-fill-color-lighter);
 }
-.risk-name { font-weight: 600; font-size: 13px; }
-.risk-value { margin-left: 8px; font-size: 14px; color: var(--el-color-primary); }
-.risk-desc { display: block; font-size: 11px; color: var(--el-text-color-placeholder); margin-top: 2px; }
+.risk-name { font-weight: 600; font-size: 13px; color: var(--text-primary); }
+.risk-value { margin-left: 8px; font-size: 14px; color: var(--primary-500); }
+.risk-desc { display: block; font-size: 11px; color: var(--text-muted); margin-top: 2px; }
 .top5-row {
   display: flex;
   gap: 16px;
@@ -1076,13 +1099,13 @@ export default { name: 'BacktestResultPanel' }
   gap: 16px;
   padding: 10px 16px;
   margin-bottom: 16px;
-  background: #fafafa;
+  background: var(--bg-muted);
   border-radius: 8px;
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--border-default);
   font-size: 13px;
   .sell-reason-label {
     font-weight: 700;
-    color: #303133;
+    color: var(--text-primary);
     font-size: 14px;
     flex-shrink: 0;
   }
@@ -1097,8 +1120,8 @@ export default { name: 'BacktestResultPanel' }
     gap: 4px;
     padding: 3px 10px;
     border-radius: 12px;
-    background: #fff;
-    border: 1px solid #ebeef5;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
     font-weight: 500;
     .reason-dot {
       display: inline-block;

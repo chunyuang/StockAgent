@@ -162,10 +162,10 @@ function colorSign(val: number | null | undefined): string {
 .disclaimer {
   margin-top: 8px;
   padding: 8px 12px;
-  background: #fdf6ec;
-  border: 1px solid #faecd8;
+  background: var(--warning-bg);
+  border: 1px solid var(--border-default);
   border-radius: 4px;
   font-size: 12px;
-  color: #e6a23c;
+  color: var(--warning);
 }
 </style>

@@ -583,20 +583,20 @@ export default { name: 'StrategyConfigPanel' }
 }
 .sweep-config {
   padding: 12px 16px;
-  background: #f0f5ff;
+  background: var(--info-bg);
   border-radius: 6px;
   margin-bottom: 12px;
-  border: 1px dashed #409eff;
+  border: 1px dashed var(--primary-400);
   .sweep-config-title {
     font-weight: 600;
     font-size: 13px;
-    color: #409eff;
+    color: var(--primary-500);
     margin-bottom: 8px;
   }
 }
 .unit {
   margin-left: 8px;
-  color: #909399;
+  color: var(--text-tertiary);
 }
 .risk-params-section {
   margin-top: 16px;
@@ -605,10 +605,10 @@ export default { name: 'StrategyConfigPanel' }
   .risk-params-title {
     font-weight: 600;
     font-size: 13px;
-    color: var(--el-color-primary);
+    color: var(--primary-500);
     margin-bottom: 8px;
     padding-left: 4px;
-    border-left: 3px solid var(--el-color-warning);
+    border-left: 3px solid var(--warning);
     line-height: 1;
   }
 }
@@ -616,13 +616,14 @@ export default { name: 'StrategyConfigPanel' }
   white-space: nowrap !important;
   overflow-x: auto !important;
   padding-right: 40px !important;
+  color: var(--text-primary);
 }
 :deep(.el-collapse-item__header::-webkit-scrollbar) { height: 4px; }
-:deep(.el-collapse-item__header::-webkit-scrollbar-thumb) { background-color: #dcdfe6; border-radius: 2px; }
+:deep(.el-collapse-item__header::-webkit-scrollbar-thumb) { background-color: var(--border-muted); border-radius: 2px; }
 :deep(.el-collapse-item__arrow) {
   position: absolute;
   right: 15px;
-  background: #fff;
+  background: var(--bg-elevated);
   padding-left: 10px;
 }
 </style>
