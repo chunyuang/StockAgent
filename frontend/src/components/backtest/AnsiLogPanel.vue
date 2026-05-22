@@ -527,6 +527,7 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
     gap: 8px;
     align-items: center;
     flex-wrap: wrap;
+    min-width: 0;
 
     .filter-select {
       background: #0d1117;
@@ -550,7 +551,8 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
       padding: 4px 10px;
       color: #c9d1d9;
       font-size: 12px;
-      width: 150px;
+      width: min(150px, 40%);
+      min-width: 100px;
       outline: none;
 
       &:focus {
