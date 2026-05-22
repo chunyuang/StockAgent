@@ -210,9 +210,19 @@ class PaperTradingEngine:
         # 扣除资金
         account.current_balance -= total_payment
         
-        # 添加持仓
-        stop_loss_price = actual_buy_price * 0.95
-        take_profit_price = actual_buy_price * 1.1
+        # 【V40修复:止损止盈从strategy_defaults策略维度读取，与回测保持一致】
+        # 不同策略有不同的风控参数，不再硬编码5%/10%
+        from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK
+        strategy_config = STRATEGY_CONFIGS.get(strategy, {})
+        strategy_risk = strategy_config.get("riskParams", {})
+        global_risk = GLOBAL_RISK
+        
+        sl_pct = strategy_risk.get("stop_loss_pct", global_risk["stop_loss_pct"])  # 默认3%
+        tp_pct = strategy_risk.get("take_profit_pct", global_risk["take_profit_pct"])  # 默认7%
+        max_hold = strategy_risk.get("max_hold_days", global_risk["max_hold_days"])  # 默认3天
+        
+        stop_loss_price = actual_buy_price * (1 - sl_pct)
+        take_profit_price = actual_buy_price * (1 + tp_pct)
         
         pos = Position(
             ts_code=ts_code,
@@ -223,6 +233,7 @@ class PaperTradingEngine:
             total_cost=total_cost,
             stop_loss_price=stop_loss_price,
             take_profit_price=take_profit_price,
+            max_hold_days=max_hold,
             strategy=strategy
         )
         

@@ -184,8 +184,8 @@ class PositionManager:
         便捷方法：根据信号数据自动计算买入价、数量、止损止盈价。
         - 默认买入价 = 收盘价 × 1.01（应对高开）
         - 默认买入金额 = 1万元（100股整数倍）
-        - 默认止损 = 买入价 × 0.95（5%）
-        - 默认止盈 = 买入价 × 1.1（10%）
+        - 默认止损 = 买入价 × (1 - 策略止损百分比)
+        - 默认止盈 = 买入价 × (1 + 策略止盈百分比)
         
         Args:
             signal: 选股信号字典，需包含 ts_code/name/close/date 等字段
@@ -205,8 +205,17 @@ class PositionManager:
                 shares = 100
         
         total_cost = buy_price * shares
-        stop_loss_price = buy_price * 0.95  # 默认止损5%
-        take_profit_price = buy_price * 1.1  # 默认止盈10%
+        # 【V40修复:止损止盈从strategy_defaults策略维度读取，与回测保持一致】
+        from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK
+        strategy_id = signal.get("strategy", "")
+        strategy_config = STRATEGY_CONFIGS.get(strategy_id, {})
+        strategy_risk = strategy_config.get("riskParams", {})
+        sl_pct = strategy_risk.get("stop_loss_pct", GLOBAL_RISK["stop_loss_pct"])  # 默认3%
+        tp_pct = strategy_risk.get("take_profit_pct", GLOBAL_RISK["take_profit_pct"])  # 默认7%
+        max_hold = strategy_risk.get("max_hold_days", GLOBAL_RISK["max_hold_days"])  # 默认3天
+        
+        stop_loss_price = buy_price * (1 - sl_pct)
+        take_profit_price = buy_price * (1 + tp_pct)
         
         position = Position(
             ts_code=signal["ts_code"],
@@ -217,6 +226,7 @@ class PositionManager:
             total_cost=total_cost,
             stop_loss_price=stop_loss_price,
             take_profit_price=take_profit_price,
+            max_hold_days=max_hold,
             strategy=signal.get("strategy", "未知"),
             notes=f"信号日期：{signal.get('date', datetime.now().strftime('%Y%m%d'))}"
         )
@@ -528,6 +538,8 @@ if __name__ == "__main__":
             logger.error("参数错误：需要 --ts-code、--name、--buy-price、--shares")
             sys.exit(1)
         
+        from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+        
         pos = Position(
             ts_code=args.ts_code,
             name=args.name,
@@ -535,8 +547,8 @@ if __name__ == "__main__":
             buy_price=args.buy_price,
             shares=args.shares,
             total_cost=args.buy_price * args.shares,
-            stop_loss_price=args.buy_price * 0.95,
-            take_profit_price=args.buy_price * 1.1
+            stop_loss_price=args.buy_price * (1 - GLOBAL_RISK["stop_loss_pct"]),
+            take_profit_price=args.buy_price * (1 + GLOBAL_RISK["take_profit_pct"])
         )
         manager.add_position(pos)
     
