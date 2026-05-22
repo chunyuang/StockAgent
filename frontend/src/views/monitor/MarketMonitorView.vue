@@ -522,20 +522,20 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
   </div>
 </template>
 <style scoped lang="scss">
-.mm { height: 100%; display: flex; flex-direction: column; background: #f5f7fa; overflow: hidden; }
+.mm { height: 100%; display: flex; flex-direction: column; background: #f5f7fa; overflow: hidden; min-width: 0; }
 /* 顶部状态栏 */
-.mm-header { display: flex; align-items: center; gap: 12px; padding: 8px 16px; background: #fff; border-bottom: 1px solid #ebeef5; flex-shrink: 0; }
-.hh-left { display: flex; align-items: center; gap: 6px; }
+.mm-header { display: flex; align-items: center; gap: 12px; padding: 8px 16px; background: #fff; border-bottom: 1px solid #ebeef5; flex-shrink: 0; flex-wrap: wrap; min-width: 0; }
+.hh-left { display: flex; align-items: center; gap: 6px; flex-shrink: 0; flex-wrap: wrap; }
 .hh-status { display: flex; align-items: center; gap: 5px; font-weight: 600; font-size: 13px; }
 .hh-status .dot { width: 8px; height: 8px; border-radius: 50%; }
 .hh-status.running .dot { background: #67c23a; animation: pulse 1.5s infinite; }
 .hh-status.stopped .dot { background: #909399; }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
-.hh-account { display: flex; gap: 14px; flex: 1; }
-.ha { display: flex; flex-direction: column; }
+.hh-account { display: flex; gap: 14px; flex: 1 1 auto; min-width: 0; flex-wrap: wrap; }
+.ha { display: flex; flex-direction: column; min-width: 0; }
 .hl { font-size: 10px; color: #909399; }
 .hv { font-size: 13px; font-weight: 600; }
-.hh-actions { display: flex; align-items: center; gap: 6px; }
+.hh-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; flex-wrap: wrap; }
 .up { color: #f56c6c; }
 .down { color: #67c23a; }
 
@@ -549,8 +549,8 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .sn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: #409eff; color: #fff; font-size: 12px; font-weight: 600; flex-shrink: 0; }
 
 /* 3列主布局 */
-.mm-body { flex: 1; display: grid; grid-template-columns: 240px 1fr 900px; gap: 0; overflow: hidden; }
-.mm-left, .mm-center, .mm-right { overflow-y: auto; padding: 10px; }
+.mm-body { flex: 1; display: grid; grid-template-columns: minmax(180px, 2fr) minmax(200px, 3fr) minmax(300px, 5fr); gap: 0; overflow: hidden; min-width: 0; }
+.mm-left, .mm-center, .mm-right { overflow-y: auto; padding: 10px; min-width: 0; min-height: 0; }
 .mm-left { background: #fafbfc; border-right: 1px solid #ebeef5; }
 .mm-right { background: #fafbfc; border-left: 1px solid #ebeef5; }
 
@@ -558,49 +558,49 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .st { font-size: 13px; font-weight: 600; color: #303133; margin-bottom: 8px; display: flex; align-items: center; }
 
 /* 策略卡片 */
-.sc { padding: 8px 10px; margin-bottom: 6px; background: #fff; border-radius: 6px; border: 1px solid #ebeef5; transition: border-color 0.2s; }
+.sc { padding: 8px 10px; margin-bottom: 6px; background: #fff; border-radius: 6px; border: 1px solid #ebeef5; transition: border-color 0.2s; min-width: 0; }
 .sc:hover { border-color: #c0c4cc; }
 .sc.disabled { opacity: 0.5; }
-.sc-top { display: flex; align-items: center; gap: 6px; }
+.sc-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
 .sc-icon { font-size: 16px; }
-.sc-name { font-size: 13px; font-weight: 600; flex: 1; }
+.sc-name { font-size: 13px; font-weight: 600; flex: 1 1 auto; min-width: 0; }
 .sc-arrow { font-size: 10px; color: #909399; margin-left: 4px; }
-.sc-desc { font-size: 11px; color: #909399; margin: 2px 0 4px 24px; }
-.sc-params { margin-left: 24px; }
-.pm { display: flex; justify-content: space-between; font-size: 11px; }
-.pk { color: #909399; }
-.pv { color: #606266; font-weight: 500; }
+.sc-desc { font-size: 11px; color: #909399; margin: 2px 0 4px 24px; overflow-wrap: break-word; }
+.sc-params { margin-left: 24px; min-width: 0; }
+.pm { display: flex; justify-content: space-between; font-size: 11px; gap: 4px; min-width: 0; }
+.pk { color: #909399; white-space: nowrap; }
+.pv { color: #606266; font-weight: 500; overflow-wrap: break-word; }
 
 /* 快捷操作 */
-.qa { display: flex; flex-direction: column; gap: 4px; }
+.qa { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 
 /* 手动下单 */
-.mf { display: flex; flex-direction: column; gap: 4px; }
-.mf-row { display: flex; gap: 4px; }
+.mf { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.mf-row { display: flex; gap: 4px; min-width: 0; flex-wrap: wrap; }
 .mf-q { font-size: 11px; color: #67c23a; padding: 2px 0; }
 .mf-hint { font-size: 11px; color: #409eff; cursor: pointer; padding: 0 4px; white-space: nowrap; }
 
 /* 信号列表 */
-.sl { overflow-y: auto; }
+.sl { overflow-y: auto; min-width: 0; }
 .sl-sm { max-height: 200px; }
-.sig-row { display: flex; align-items: center; gap: 5px; padding: 4px 8px; margin-bottom: 2px; background: #fff; border-radius: 4px; border: 1px solid #ebeef5; font-size: 12px; }
+.sig-row { display: flex; align-items: center; gap: 5px; padding: 4px 8px; margin-bottom: 2px; background: #fff; border-radius: 4px; border: 1px solid #ebeef5; font-size: 12px; flex-wrap: wrap; min-width: 0; }
 .sig-row:hover { border-color: #409eff; }
-.factor { font-size: 11px; color: #909399; background: #f4f4f5; padding: 1px 4px; border-radius: 3px; }
-.reason { font-size: 11px; color: #909399; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
+.factor { font-size: 11px; color: #909399; background: #f4f4f5; padding: 1px 4px; border-radius: 3px; white-space: nowrap; }
+.reason { font-size: 11px; color: #909399; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; min-width: 0; }
 .sig-row .el-button { padding: 1px 6px; font-size: 11px; }
 
 /* 涨停池 */
-.limit-row { display: flex; align-items: center; gap: 6px; padding: 3px 8px; font-size: 12px; border-bottom: 1px solid #f2f3f5; }
+.limit-row { display: flex; align-items: center; gap: 6px; padding: 3px 8px; font-size: 12px; border-bottom: 1px solid #f2f3f5; flex-wrap: wrap; min-width: 0; }
 .lb-tag { font-size: 10px; color: #f56c6c; background: #fef0f0; padding: 1px 4px; border-radius: 3px; }
 .fd-tag { font-size: 10px; color: #e6a23c; background: #fdf6ec; padding: 1px 4px; border-radius: 3px; }
 
 /* 持仓卡片 */
-.pos-card { padding: 8px 10px; margin-bottom: 6px; background: #fff; border-radius: 6px; border: 1px solid #ebeef5; }
+.pos-card { padding: 8px 10px; margin-bottom: 6px; background: #fff; border-radius: 6px; border: 1px solid #ebeef5; min-width: 0; }
 .pos-card:hover { border-color: #409eff; }
-.pos-top { display: flex; align-items: center; gap: 6px; }
+.pos-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
 .pct { margin-left: auto; font-weight: 700; font-size: 14px; transition: transform 0.3s; }
 .pos-card:hover .pct { transform: scale(1.05); }
-.pos-info { display: flex; gap: 8px; font-size: 11px; color: #606266; }
+.pos-info { display: flex; gap: 8px; font-size: 11px; color: #606266; flex-wrap: wrap; min-width: 0; }
 .t1-tag { font-size: 10px; color: #e6a23c; background: #fdf6ec; padding: 1px 4px; border-radius: 3px; font-weight: 600; }
 .rl { padding: 1px 5px; border-radius: 3px; font-weight: 500; }
 .rl.stop { color: #f56c6c; background: #fef0f0; }
@@ -612,24 +612,24 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 @keyframes blink { 50% { opacity: 0.5; } }
 
 /* 统计 */
-.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
-.si { text-align: center; padding: 6px; background: #fff; border-radius: 6px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(60px, 1fr)); gap: 6px; }
+.si { text-align: center; padding: 6px; background: #fff; border-radius: 6px; min-width: 0; }
 .sv { font-size: 18px; font-weight: 700; }
 .sl2 { font-size: 11px; color: #909399; }
 
 /* 底部时间线 */
-.mm-footer { flex-shrink: 0; border-top: 1px solid #ebeef5; padding: 6px 16px; background: #fff; }
-.tl-body { display: flex; gap: 16px; }
-.tl-col { flex: 1; overflow-y: auto; max-height: 260px; min-width: 0; }
+.mm-footer { flex-shrink: 0; border-top: 1px solid #ebeef5; padding: 6px 16px; background: #fff; min-width: 0; }
+.tl-body { display: flex; gap: 16px; flex-wrap: wrap; min-width: 0; }
+.tl-col { flex: 1 1 200px; overflow-y: auto; max-height: 260px; min-width: 0; }
 .tl-col + .tl-col { border-left: 1px solid #ebeef5; padding-left: 16px; }
-.tl-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: 12px; border-bottom: 1px solid #f9f9f9; cursor: pointer; }
+.tl-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: 12px; border-bottom: 1px solid #f9f9f9; cursor: pointer; flex-wrap: wrap; min-width: 0; }
 .tl-row:hover { background: #f5f7fa; }
-.tl-time { font-size: 11px; color: #909399; min-width: 50px; }
+.tl-time { font-size: 11px; color: #909399; min-width: 40px; }
 .tl-action { font-size: 11px; font-weight: 600; min-width: 20px; }
 .tl-action.buy { color: #f56c6c; }
 .tl-action.sell { color: #67c23a; }
 .tl-detail { font-size: 11px; color: #606266; }
-.tl-reason { font-size: 11px; color: #909399; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl-reason { font-size: 11px; color: #909399; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .history-tag { font-size: 12px; color: #409eff; background: #ecf5ff; padding: 4px 8px; border-radius: 4px; margin-bottom: 4px; font-weight: 600; }
 
 /* 通用 */
@@ -655,10 +655,10 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 
 /* 交易详情弹窗 */
 .td { font-size: 13px; }
-.td-sec { margin-bottom: 14px; padding: 10px; background: #fafafa; border-radius: 8px; border: 1px solid #ebeef5; }
+.td-sec { margin-bottom: 14px; padding: 10px; background: #fafafa; border-radius: 8px; border: 1px solid #ebeef5; min-width: 0; }
 .td-t { font-size: 14px; font-weight: 600; margin-bottom: 6px; color: #303133; }
-.td-g { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 4px; }
-.td-i { display: flex; flex-direction: column; gap: 1px; }
+.td-g { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 6px; margin-bottom: 4px; }
+.td-i { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .td-l { font-size: 10px; color: #909399; }
 .td-v { font-size: 13px; font-weight: 500; }
 .td-r { font-size: 12px; color: #606266; margin: 4px 0; padding: 4px 6px; background: #fff; border-radius: 4px; border-left: 3px solid #409eff; }
@@ -668,21 +668,21 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 
 /* 审查弹窗 */
 .al { max-height: 500px; overflow-y: auto; }
-.ah { display: grid; grid-template-columns: 100px 80px 120px 120px 70px 80px; gap: 4px; padding: 6px 0; font-size: 12px; font-weight: 600; color: #909399; border-bottom: 1px solid #ebeef5; }
-.ar { display: grid; grid-template-columns: 100px 80px 120px 120px 70px 80px; gap: 4px; padding: 6px 0; font-size: 12px; align-items: center; border-bottom: 1px solid #f2f3f5; cursor: pointer; }
+.ah { display: grid; grid-template-columns: minmax(60px, 1fr) minmax(50px, 1fr) minmax(80px, 1.2fr) minmax(80px, 1.2fr) minmax(50px, 1fr) minmax(50px, 1fr); gap: 4px; padding: 6px 0; font-size: 12px; font-weight: 600; color: #909399; border-bottom: 1px solid #ebeef5; }
+.ar { display: grid; grid-template-columns: minmax(60px, 1fr) minmax(50px, 1fr) minmax(80px, 1.2fr) minmax(80px, 1.2fr) minmax(50px, 1fr) minmax(50px, 1fr); gap: 4px; padding: 6px 0; font-size: 12px; align-items: center; border-bottom: 1px solid #f2f3f5; cursor: pointer; overflow: hidden; }
 .ar:hover { background: rgba(64,158,255,0.06); }
 
 /* 回测对比 */
 .cl-table { max-height: 400px; overflow-y: auto; }
-.cl-h { display: grid; grid-template-columns: 120px 70px 70px 80px 70px 70px 70px 60px; gap: 4px; padding: 6px 0; font-size: 12px; font-weight: 600; color: #909399; border-bottom: 1px solid #ebeef5; }
-.cl-r { display: grid; grid-template-columns: 120px 70px 70px 80px 70px 70px 70px 60px; gap: 4px; padding: 6px 0; font-size: 12px; align-items: center; border-bottom: 1px solid #f2f3f5; }
+.cl-h { display: grid; grid-template-columns: repeat(8, minmax(50px, 1fr)); gap: 4px; padding: 6px 0; font-size: 12px; font-weight: 600; color: #909399; border-bottom: 1px solid #ebeef5; }
+.cl-r { display: grid; grid-template-columns: repeat(8, minmax(50px, 1fr)); gap: 4px; padding: 6px 0; font-size: 12px; align-items: center; border-bottom: 1px solid #f2f3f5; overflow: hidden; }
 
 /* 响应式 */
 @media (max-width: 1400px) {
-  .mm-body { grid-template-columns: 200px 1fr 500px; }
+  .mm-body { grid-template-columns: minmax(160px, 2fr) minmax(180px, 3fr) minmax(280px, 4fr); }
   .pos-info { flex-wrap: wrap; gap: 4px; }
   .tl-body { flex-wrap: wrap; }
-  .tl-col { min-width: 200px; }
+  .tl-col { min-width: 180px; }
 }
 @media (max-width: 1024px) {
   .mm-body { grid-template-columns: 1fr; }
@@ -701,7 +701,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .ld-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 12px; color: #606266; }
 .ld-title { font-size: 13px; font-weight: 600; color: #303133; margin-bottom: 6px; }
 .ld-pipeline { padding: 10px; background: #fafafa; border-radius: 8px; border: 1px solid #ebeef5; margin-bottom: 10px; }
-.ld-layers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-bottom: 6px; }
+.ld-layers { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 4px; margin-bottom: 6px; }
 .ld-layer { display: flex; align-items: center; gap: 4px; font-size: 11px; padding: 3px 6px; background: #fff; border-radius: 4px; border: 1px solid #ebeef5; }
 .ld-on { color: #67c23a; }
 .ld-off { color: #909399; }
@@ -721,7 +721,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .st-trace, .st-detail, .st-factors { padding: 10px; background: #fafafa; border-radius: 8px; border: 1px solid #ebeef5; margin-bottom: 8px; }
 .st-title { font-size: 13px; font-weight: 600; color: #303133; margin-bottom: 4px; }
 .st-line { font-size: 11px; color: #606266; padding: 1px 0; font-family: monospace; }
-.st-fg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.st-fg { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 4px; }
 .st-fi { display: flex; flex-direction: column; padding: 3px 6px; background: #fff; border-radius: 4px; }
 .st-fl { font-size: 10px; color: #909399; }
 .st-fv { font-size: 13px; font-weight: 500; }
@@ -734,8 +734,8 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .dr { font-size: 13px; }
 .dr-sec { margin-bottom: 14px; padding: 10px; background: #fafafa; border-radius: 8px; border: 1px solid #ebeef5; }
 .dr-t { font-size: 14px; font-weight: 600; margin-bottom: 6px; color: #303133; }
-.dr-g { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 4px; }
-.dr-i { display: flex; flex-direction: column; gap: 1px; }
+.dr-g { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 6px; margin-bottom: 4px; }
+.dr-i { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .dr-l { font-size: 10px; color: #909399; }
 .dr-v { font-size: 13px; font-weight: 500; }
 .dr-p { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; border-bottom: 1px solid #f2f3f5; }
@@ -744,8 +744,8 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .wr { font-size: 13px; }
 .wr-sec { margin-bottom: 14px; padding: 10px; background: #fafafa; border-radius: 8px; border: 1px solid #ebeef5; }
 .wr-t { font-size: 14px; font-weight: 600; margin-bottom: 6px; color: #303133; }
-.wr-g { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 4px; }
-.wr-i { display: flex; flex-direction: column; gap: 1px; }
+.wr-g { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 6px; margin-bottom: 4px; }
+.wr-i { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .wr-l { font-size: 10px; color: #909399; }
 .wr-v { font-size: 14px; font-weight: 600; }
 .wr-p { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; border-bottom: 1px solid #f2f3f5; }

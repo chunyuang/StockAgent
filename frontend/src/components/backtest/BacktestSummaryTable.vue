@@ -155,9 +155,13 @@ function colorSign(val: number | null | undefined): string {
     align-items: center;
     font-weight: 600;
     font-size: 15px;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-width: 0;
     .meta-tags {
       display: flex;
       gap: 6px;
+      flex-wrap: wrap;
     }
   }
 }

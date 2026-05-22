@@ -269,6 +269,7 @@ function toggleStrategy(id: string) {
 .s-header {
   display: flex; align-items: center; gap: 8px; padding: 12px 16px;
   cursor: pointer; border-left: 4px solid; background: #fafafa;
+  flex-wrap: wrap; min-width: 0;
   &:hover { background: #f0f2f5; }
 }
 .s-emoji { font-size: 20px; }
@@ -285,14 +286,15 @@ function toggleStrategy(id: string) {
 
 .factor-table {
   width: 100%; border: 1px solid #ebeef5; border-radius: 6px; overflow: hidden;
+  overflow-x: auto;
 }
 .ft-header { display: flex; background: #f5f7fa; font-size: 12px; font-weight: 600; color: #909399; }
 .ft-row { display: flex; border-top: 1px solid #ebeef5; &:hover { background: #fafcff; } }
 .ft-col { padding: 6px 10px; font-size: 12px; }
-.ft-name-col { width: 170px; font-family: 'SF Mono', monospace; color: #409eff; }
-.ft-label-col { width: 110px; color: #303133; }
-.ft-cond-col { flex: 1; color: #e6a23c; font-weight: 500; }
-.ft-src-col { width: 120px; color: #909399; font-size: 11px; }
+.ft-name-col { flex: 0 0 min(170px, 30%); font-family: 'SF Mono', monospace; color: #409eff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ft-label-col { flex: 0 0 min(110px, 20%); color: #303133; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ft-cond-col { flex: 1 1 auto; color: #e6a23c; font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ft-src-col { flex: 0 0 min(120px, 18%); color: #909399; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .risk-tags { display: flex; gap: 6px; flex-wrap: wrap; }
 .risk-tag {
