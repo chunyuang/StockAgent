@@ -349,24 +349,26 @@ onMounted(() => {
 
 <style scoped lang="scss">
 .system-status-page {
-  padding: 20px;
+  padding: 16px;
   max-width: 1400px;
   margin: 0 auto;
+  min-width: 0;
 }
 
 .page-header {
-  margin-bottom: 20px;
+  margin-bottom: 16px;
   
   .page-title {
-    font-size: 26px;
+    font-size: 20px;
     font-weight: 700;
-    color: var(--text-primary);
-    margin: 0 0 8px 0;
+    color: #303133;
+    margin: 0 0 4px 0;
   }
   
   .page-description {
-    color: var(--text-secondary);
+    color: #606266;
     margin: 0;
+    font-size: 13px;
   }
 }
 
@@ -392,12 +394,12 @@ onMounted(() => {
 
 .unit {
   margin-left: 8px;
-  color: var(--text-tertiary);
+  color: #909399;
 }
 
 .desc {
   margin-left: 12px;
-  color: var(--text-secondary);
+  color: #606266;
   font-size: 13px;
 }
 
