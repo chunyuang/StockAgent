@@ -65,14 +65,14 @@ async function savePreferences() {
         <div class="settings-section card">
           <PushConfigPanel />
         </div>
-      </el-tab-pane>
+      </ElTabPane>
 
       <!-- 日志级别 -->
       <ElTabPane label="日志级别" name="logging">
         <div class="settings-section card">
           <LogLevelPanel />
         </div>
-      </el-tab-pane>
+      </ElTabPane>
     </ElTabs>
   </div>
 </template>
