@@ -570,8 +570,8 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
   overflow-y: auto;
   padding: 10px 14px;
   font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', 'Courier New', monospace;
-  font-size: 12.5px;
-  line-height: 1.6;
+  font-size: 13px;
+  line-height: 1.65;
   color: #c9d1d9;
   background: #0d1117;
   scroll-behavior: smooth;

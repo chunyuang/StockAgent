@@ -192,34 +192,25 @@ function toggleTheme(): void {
   z-index: 100;
   
   .logo {
-    height: 60px;
+    height: 56px;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 12px;
+    gap: 10px;
     padding: 0 16px;
     border-bottom: 1px solid var(--sidebar-border);
     
-    .logo-img {
-      width: 32px;
-      height: 32px;
-    }
+    .logo-img { width: 28px; height: 28px; }
     
     .logo-text {
-      font-size: 18px;
+      font-size: 16px;
       font-weight: 700;
       color: white;
       white-space: nowrap;
+      letter-spacing: -0.3px;
     }
     
-    &.collapsed {
-      padding: 0;
-      
-      .logo-img {
-        width: 28px;
-        height: 28px;
-      }
-    }
+    &.collapsed { padding: 0; .logo-img { width: 24px; height: 24px; } }
   }
   
   .sidebar-menu {
@@ -230,19 +221,14 @@ function toggleTheme(): void {
     
     :deep(.el-menu-item) {
       color: var(--sidebar-text);
-      font-size: 13px; /* 调整菜单字体大小 */
-      height: 44px; /* 调小菜单项高度 */
-      line-height: 44px;
+      font-size: 13px;
+      height: 42px;
+      line-height: 42px;
+      margin: 2px 8px;
+      border-radius: 8px;
       
-      &:hover {
-        background: var(--sidebar-hover-bg);
-        color: var(--sidebar-text-active);
-      }
-      
-      &.is-active {
-        background: var(--sidebar-active-bg);
-        color: var(--sidebar-text-active);
-      }
+      &:hover { background: var(--sidebar-hover-bg); color: var(--sidebar-text-active); }
+      &.is-active { background: var(--sidebar-active-bg); color: var(--sidebar-text-active); }
     }
     
     :deep(.menu-title-wrapper) {
@@ -271,7 +257,7 @@ function toggleTheme(): void {
   }
   
   .collapse-btn {
-    height: 48px;
+    height: 44px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -280,10 +266,7 @@ function toggleTheme(): void {
     transition: all 0.3s;
     border-top: 1px solid var(--sidebar-border);
     
-    &:hover {
-      color: var(--sidebar-text-active);
-      background: var(--sidebar-hover-bg);
-    }
+    &:hover { color: var(--sidebar-text-active); background: var(--sidebar-hover-bg); }
   }
 }
 
@@ -303,6 +286,7 @@ function toggleTheme(): void {
   align-items: center;
   justify-content: space-between;
   padding: 0 24px;
+  height: 52px;
   position: sticky;
   top: 0;
   z-index: 50;
@@ -311,7 +295,7 @@ function toggleTheme(): void {
   .header-left {
     .page-title {
       margin: 0;
-      font-size: 18px;
+      font-size: 16px;
       font-weight: 600;
       color: var(--text-primary);
     }
@@ -320,11 +304,11 @@ function toggleTheme(): void {
   .header-right {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 12px;
     
     .theme-toggle {
-      width: 36px;
-      height: 36px;
+      width: 32px;
+      height: 32px;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -334,41 +318,14 @@ function toggleTheme(): void {
       cursor: pointer;
       transition: all var(--transition-fast);
       
-      .theme-icon {
-        width: 18px;
-        height: 18px;
-        color: var(--text-secondary);
-        transition: color var(--transition-fast);
-      }
+      .theme-icon { width: 16px; height: 16px; color: var(--text-secondary); transition: color var(--transition-fast); }
       
-      &:hover {
-        background: var(--bg-hover);
-        border-color: var(--primary-400);
-        
-        .theme-icon {
-          color: var(--primary-500);
-        }
-      }
+      &:hover { background: var(--bg-hover); border-color: var(--primary-400); .theme-icon { color: var(--primary-500); } }
     }
     
-    .notification {
-      cursor: pointer;
-      color: var(--text-secondary);
-      
-      &:hover {
-        color: var(--primary-500);
-      }
-    }
+    .notification { cursor: pointer; color: var(--text-secondary); &:hover { color: var(--primary-500); } }
     
-    .header-icon {
-      cursor: pointer;
-      color: var(--text-secondary);
-      transition: color var(--transition-fast);
-      
-      &:hover {
-        color: var(--text-primary);
-      }
-    }
+    .header-icon { cursor: pointer; color: var(--text-secondary); transition: color var(--transition-fast); &:hover { color: var(--text-primary); } }
   }
 }
 
@@ -380,19 +337,16 @@ function toggleTheme(): void {
   transition: background-color var(--transition-normal);
 }
 
+/* Responsive: narrow screens auto-collapse sidebar */
+@media (max-width: 900px) {
+  .sidebar { width: 64px !important; }
+  .sidebar .logo-text { display: none; }
+  .main-container { margin-left: 64px !important; }
+}
+
 // 主题图标切换动画
 .theme-icon-enter-active,
-.theme-icon-leave-active {
-  transition: all 0.2s ease;
-}
-
-.theme-icon-enter-from {
-  opacity: 0;
-  transform: rotate(-90deg) scale(0.8);
-}
-
-.theme-icon-leave-to {
-  opacity: 0;
-  transform: rotate(90deg) scale(0.8);
-}
+.theme-icon-leave-active { transition: all 0.2s ease; }
+.theme-icon-enter-from { opacity: 0; transform: rotate(-90deg) scale(0.8); }
+.theme-icon-leave-to { opacity: 0; transform: rotate(90deg) scale(0.8); }
 </style>

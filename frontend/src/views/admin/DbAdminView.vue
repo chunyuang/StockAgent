@@ -495,24 +495,26 @@ onMounted(() => {
 
 <style scoped lang="scss">
 .db-admin-page {
-  padding: 20px;
+  padding: 16px;
   max-width: 1400px;
   margin: 0 auto;
+  min-width: 0;
 }
 
 .page-header {
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 
   .page-title {
-    font-size: 26px;
+    font-size: 20px;
     font-weight: 700;
     color: #303133;
-    margin: 0 0 8px 0;
+    margin: 0 0 4px 0;
   }
 
   .page-description {
     color: #606266;
     margin: 0;
+    font-size: 13px;
   }
 }
 
@@ -534,20 +536,21 @@ onMounted(() => {
 
 .actions-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 20px;
+  min-width: 0;
 
   > div {
     h4 {
       margin: 0 0 8px 0;
-      font-size: 16px;
+      font-size: 15px;
       color: #303133;
     }
 
     p {
       margin: 0 0 16px 0;
       color: #606266;
-      font-size: 14px;
+      font-size: 13px;
     }
   }
 }
@@ -569,17 +572,17 @@ onMounted(() => {
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: 16px;
 
   .stats-item {
     .stats-label {
-      font-size: 13px;
+      font-size: 12px;
       color: #909399;
       margin-bottom: 4px;
     }
     .stats-value {
-      font-size: 16px;
+      font-size: 15px;
       font-weight: 600;
       color: #303133;
     }
