@@ -79,13 +79,15 @@ async function savePreferences() {
 
 <style lang="scss" scoped>
 .settings-view {
-  max-width: 800px;
+  max-width: 900px;
   margin: 0 auto;
+  padding: 16px;
+  min-width: 0;
   
   h1 {
-    font-size: 24px;
+    font-size: 20px;
     font-weight: 600;
-    margin-bottom: 24px;
+    margin-bottom: 20px;
   }
 }
 
