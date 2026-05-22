@@ -44,7 +44,6 @@ import {
 } from 'element-plus'
 import { Download } from '@element-plus/icons-vue'
 import { STRATEGY_NAMES } from '@/config/backtestConstants'
-import { GLOBAL_RISK } from '@/config/strategyDefaults'
 
 use([CanvasRenderer, LineChart, BarChart, PieChart, RadarChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent, DataZoomComponent])
 
@@ -52,9 +51,6 @@ const props = defineProps<{
   result: any
   form: any
 }>()
-
-// 持仓保护阈值(从GLOBAL_RISK读取,动态显示)
-const holdProtPct = computed(() => GLOBAL_RISK.hold_protection_threshold || 0.05)
 
 // 格式化百分比(后端已是百分比形式,直接加%)
 function fmtPct(val: number | undefined | null): string {
@@ -83,7 +79,6 @@ function translateSellReason(reason: string): string {
     '冲高回落': '冲高回落',
     '高开即卖': '高开即卖',
     '利润保护': '利润保护',
-    '利润锁定': '利润锁定',
     'gap_down_stop': '跳空止损',
     '持仓中': '持仓中',
     '停牌超时强卖': '停牌强卖',
@@ -97,20 +92,6 @@ function translateSellReason(reason: string): string {
   }
   // 未匹配, 返回原始值(可能是后端新增的卖出原因)
   return reason
-}
-
-// 【V38:卖出原因颜色】止盈/保护性=绿, 止损/跳空=红, 调仓=灰, 强制=橙
-function sellReasonColor(reason: string): string {
-  if (!reason) return '#e6a23c' // 持仓中
-  const green = ['止盈', '利润保护', '利润锁定', '冲高回落', '高开即卖']
-  const red = ['止损', '跳空止损']
-  const orange = ['强制空仓', '到期', '停牌']
-  const gray = ['调仓', '减仓']
-  for (const k of green) if (reason.includes(k)) return '#67c23a'
-  for (const k of red) if (reason.includes(k)) return '#f56c6c'
-  for (const k of orange) if (reason.includes(k)) return '#e6a23c'
-  for (const k of gray) if (reason.includes(k)) return '#909399'
-  return '#606266' // 默认
 }
 
 // 任务3: 卖出原因百分比
@@ -169,12 +150,12 @@ const monthlyReturnChartOption = computed(() => {
   if (!monthlyData.value.length) return null
   const months = monthlyData.value.map(d => d.month)
   const returns = monthlyData.value.map(d => d.return_pct)
-  // 计算累计收益线（连乘，非简单加法）
+  // 计算累计收益线
   const cumReturns: number[] = []
-  let cumVal = 1.0
+  let cumVal = 0
   for (const r of returns) {
-    cumVal *= (1 + r / 100)
-    cumReturns.push(+((cumVal - 1) * 100).toFixed(2))
+    cumVal += r
+    cumReturns.push(+cumVal.toFixed(2))
   }
   return {
     tooltip: { trigger: 'axis', formatter: (p: any) => {
@@ -342,19 +323,9 @@ const netValueChartOption = computed(() => {
     areaStyle: { color: 'rgba(245,108,108,0.1)' }
   })
 
-  const isDark = document.documentElement.classList.contains('dark')
-  const axisLabelColor = isDark ? '#94A3B8' : '#64748b'
-  const gridLineColor = isDark ? 'rgba(255,255,255,0.03)' : '#f1f5f9'
-  const tooltipBg = isDark ? 'rgba(18,18,26,0.98)' : 'rgba(255,255,255,0.96)'
-  const tooltipBorder = isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0'
-  const tooltipText = isDark ? '#fff' : '#1e293b'
-
   return {
     tooltip: {
       trigger: 'axis',
-      backgroundColor: tooltipBg,
-      borderColor: tooltipBorder,
-      textStyle: { color: tooltipText },
       formatter: (params: any) => {
         let html = `<b>${params[0].axisValue}</b><br/>`
         for (const p of params) {
@@ -364,12 +335,12 @@ const netValueChartOption = computed(() => {
         return html
       }
     },
-    legend: { data: ['策略净值', ...(benchmarkValues.length > 0 ? ['基准(沪深300)'] : []), '回撤(%)'], textStyle: { color: axisLabelColor } },
+    legend: { data: ['策略净值', ...(benchmarkValues.length > 0 ? ['基准(沪深300)'] : []), '回撤(%)'] },
     grid: { left: '3%', right: '4%', bottom: '12%', containLabel: true },
-    xAxis: { type: 'category', boundaryGap: false, data: dates, axisLine: { lineStyle: { color: gridLineColor } }, axisLabel: { color: axisLabelColor }, splitLine: { lineStyle: { color: gridLineColor } } },
+    xAxis: { type: 'category', boundaryGap: false, data: dates },
     yAxis: [
-      { type: 'value', name: '净值', min: Math.floor(minNV * 100) / 100 - 0.01, axisLabel: { color: axisLabelColor }, splitLine: { lineStyle: { color: gridLineColor } } },
-      { type: 'value', name: '回撤(%)', position: 'right', axisLabel: { color: axisLabelColor }, splitLine: { show: false } }
+      { type: 'value', name: '净值', min: Math.floor(minNV * 100) / 100 - 0.01 },
+      { type: 'value', name: '回撤(%)', position: 'right' }
     ],
     dataZoom: [{ type: 'inside' }, { type: 'slider', height: 20, bottom: 4 }],
     series,
@@ -384,17 +355,11 @@ const dailyProfitChartOption = computed(() => {
   const dp = nvs.map((d: any) => d.daily_profit)
   const dates = nvs.map((d: any) => d.trade_date)
   const values = dp.map((v: any) => +((v) * 100).toFixed(4))
-  const isDark = document.documentElement.classList.contains('dark')
-  const axisLabelColor = isDark ? '#94A3B8' : '#64748b'
-  const gridLineColor = isDark ? 'rgba(255,255,255,0.03)' : '#f1f5f9'
-  const tooltipBg = isDark ? 'rgba(18,18,26,0.98)' : 'rgba(255,255,255,0.96)'
-  const tooltipBorder = isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0'
-  const tooltipText = isDark ? '#fff' : '#1e293b'
   return {
-    tooltip: { trigger: 'axis', backgroundColor: tooltipBg, borderColor: tooltipBorder, textStyle: { color: tooltipText }, formatter: (p: any) => `${p[0].axisValue}<br/>日收益率：${p[0].value}%` },
+    tooltip: { trigger: 'axis', formatter: (p: any) => `${p[0].axisValue}<br/>日收益率：${p[0].value}%` },
     grid: { left: '3%', right: '4%', bottom: '12%', containLabel: true },
-    xAxis: { type: 'category', data: dates, axisLabel: { color: axisLabelColor }, axisLine: { lineStyle: { color: gridLineColor } }, splitLine: { lineStyle: { color: gridLineColor } } },
-    yAxis: { type: 'value', name: '日收益率(%)', axisLabel: { formatter: '{value}%', color: axisLabelColor }, splitLine: { lineStyle: { color: gridLineColor } } },
+    xAxis: { type: 'category', data: dates },
+    yAxis: { type: 'value', name: '日收益率(%)', axisLabel: { formatter: '{value}%' } },
     dataZoom: [{ type: 'inside' }, { type: 'slider', height: 20, bottom: 4 }],
     series: [
       {
@@ -413,17 +378,11 @@ const positionChartOption = computed(() => {
   // value是小数(0.188=18.8%), ×100转百分比
   const values = result.position_series.map((d: any) => +(d.value * 100).toFixed(2))
   const dates = result.position_series.map((d: any) => d.date)
-  const isDark = document.documentElement.classList.contains('dark')
-  const axisLabelColor = isDark ? '#94A3B8' : '#64748b'
-  const gridLineColor = isDark ? 'rgba(255,255,255,0.03)' : '#f1f5f9'
-  const tooltipBg = isDark ? 'rgba(18,18,26,0.98)' : 'rgba(255,255,255,0.96)'
-  const tooltipBorder = isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0'
-  const tooltipText = isDark ? '#fff' : '#1e293b'
   return {
-    tooltip: { trigger: 'axis', backgroundColor: tooltipBg, borderColor: tooltipBorder, textStyle: { color: tooltipText }, formatter: (p: any) => `${p[0].axisValue}<br/>仓位：${p[0].value}%` },
+    tooltip: { trigger: 'axis', formatter: (p: any) => `${p[0].axisValue}<br/>仓位：${p[0].value}%` },
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-    xAxis: { type: 'category', boundaryGap: false, data: dates, axisLabel: { color: axisLabelColor }, axisLine: { lineStyle: { color: gridLineColor } } },
-    yAxis: { type: 'value', max: 100, axisLabel: { formatter: '{value}%', color: axisLabelColor }, splitLine: { lineStyle: { color: gridLineColor } } },
+    xAxis: { type: 'category', boundaryGap: false, data: dates },
+    yAxis: { type: 'value', max: 100, axisLabel: { formatter: '{value}%' } },
     series: [
       {
         name: '仓位', type: 'line', data: values, smooth: true,
@@ -792,32 +751,6 @@ function exportTrades() {
           {{ (result.profit_loss_ratio || 0).toFixed(2) }}
         </span>
       </div>
-      <div class="kpi-chip" v-if="result.sharpe_ratio != null">
-        <span class="kpi-label">索提诺</span>
-        <span class="kpi-value" :style="{ color: (result.sortino_ratio || 0) >= 2 ? '#67c23a' : '#e6a23c' }">
-          {{ (result.sortino_ratio || 0).toFixed(2) }}
-        </span>
-      </div>
-      <div class="kpi-chip" v-if="result.calmar_ratio != null">
-        <span class="kpi-label">卡玛</span>
-        <span class="kpi-value" :style="{ color: (result.calmar_ratio || 0) >= 1 ? '#67c23a' : '#e6a23c' }">
-          {{ (result.calmar_ratio || 0).toFixed(2) }}
-        </span>
-      </div>
-      <div class="kpi-chip" v-if="result.metrics?.returns?.benchmark_return_pct != null">
-        <span class="kpi-label">超额收益</span>
-        <span class="kpi-value" :style="{ color: (result.metrics?.returns?.alpha_pct || 0) >= 0 ? '#67c23a' : '#f56c6c' }">
-          {{ fmtPct(result.metrics?.returns?.alpha_pct) }}
-        </span>
-      </div>
-    </div>
-
-    <!-- 任务2.5: 持仓保护统计 -->
-    <div v-if="result?.sell_reason_stats" class="hold-protection-info" style="margin-top: 8px; display: flex; align-items: center; gap: 12px; font-size: 12px; color: #909399">
-      <span>🔒 持仓保护: 盈利≥{{ Math.round(holdProtPct * 100) }}%+阳线不调仓卖出</span>
-      <span v-if="result.sell_reason_stats.profit_lock > 0">| 利润锁{{ result.sell_reason_stats.profit_lock }}笔</span>
-      <span v-if="result.sell_reason_stats.profit_protect > 0">| 利润保{{ result.sell_reason_stats.profit_protect }}笔</span>
-      <span v-if="result.sell_reason_stats.pullback > 0">| 冲高回{{ result.sell_reason_stats.pullback }}笔</span>
     </div>
 
     <!-- 任务3: 卖出原因统计 -->
@@ -826,15 +759,6 @@ function exportTrades() {
       <div class="sell-reason-items">
         <span v-if="result.sell_reason_stats.take_profit > 0" class="sell-reason-item take-profit">
           <span class="reason-dot"></span>止盈{{ result.sell_reason_stats.take_profit }}笔({{ sellReasonPct('take_profit') }}%)
-        </span>
-        <span v-if="result.sell_reason_stats.profit_lock > 0" class="sell-reason-item profit-lock">
-          <span class="reason-dot"></span>利润锁{{ result.sell_reason_stats.profit_lock }}笔({{ sellReasonPct('profit_lock') }}%)
-        </span>
-        <span v-if="result.sell_reason_stats.profit_protect > 0" class="sell-reason-item profit-lock">
-          <span class="reason-dot"></span>利润保{{ result.sell_reason_stats.profit_protect }}笔({{ sellReasonPct('profit_protect') }}%)
-        </span>
-        <span v-if="result.sell_reason_stats.pullback > 0" class="sell-reason-item profit-lock">
-          <span class="reason-dot"></span>冲高回{{ result.sell_reason_stats.pullback }}笔({{ sellReasonPct('pullback') }}%)
         </span>
         <span v-if="result.sell_reason_stats.rebalance > 0" class="sell-reason-item rebalance">
           <span class="reason-dot"></span>调仓{{ result.sell_reason_stats.rebalance }}笔({{ sellReasonPct('rebalance') }}%)
@@ -902,15 +826,15 @@ function exportTrades() {
               <ElTableColumn label="策略名称" width="120">
                 <template #default="{ row }">{{ strategyDisplayName(row.name) }}</template>
               </ElTableColumn>
-              <ElTableColumn label="累计盈利" width="100" sortable>
+              <ElTableColumn label="累计盈利" width="100">
                 <template #default="{ row }">
                   <span :style="{ color: row.total_return >= 0 ? '#67c23a' : '#f56c6c' }">{{ fmtPct(row.total_return) }}</span>
                 </template>
               </ElTableColumn>
-              <ElTableColumn label="胜率" width="80" sortable>
+              <ElTableColumn label="胜率" width="80">
                 <template #default="{ row }">{{ fmtPct(row.win_rate) }}</template>
               </ElTableColumn>
-              <ElTableColumn prop="trades_count" label="交易次数" width="80" sortable />
+              <ElTableColumn prop="trades_count" label="交易次数" width="80" />
               <ElTableColumn label="最大回撤" width="100">
                 <template #default="{ row }">
                   <span style="color: #f56c6c">{{ fmtPct(row.max_drawdown) }}</span>
@@ -1040,11 +964,11 @@ function exportTrades() {
             <ElTableColumn label="股数" width="70">
               <template #default="{ row }">{{ row.shares ?? '-' }}</template>
             </ElTableColumn>
-            <!-- 任务3: 卖出原因列(中文翻译+颜色标签) -->
+            <!-- 任务3: 卖出原因列(中文翻译) -->
             <ElTableColumn label="卖出原因" width="100">
               <template #default="{ row }">
                 <span v-if="translateSellReason(row.sell_reason || row.reason) === '持仓中'" style="color: #e6a23c; font-weight: 600">持仓中</span>
-                <span v-else :style="{ color: sellReasonColor(row.sell_reason || row.reason) }">{{ translateSellReason(row.sell_reason || row.reason) }}</span>
+                <span v-else>{{ translateSellReason(row.sell_reason || row.reason) }}</span>
               </template>
             </ElTableColumn>
           </ElTable>
@@ -1099,6 +1023,7 @@ export default { name: 'BacktestResultPanel' }
   gap: 8px;
   margin-bottom: 16px;
   flex-wrap: wrap;
+  min-width: 0;
 }
 .kpi-chip {
   display: flex;
@@ -1106,22 +1031,22 @@ export default { name: 'BacktestResultPanel' }
   align-items: center;
   padding: 10px 16px;
   border-radius: 8px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-default);
-  min-width: 90px;
-  transition: box-shadow 0.2s, border-color 0.2s;
+  background: linear-gradient(135deg, #f8f9fa 0%, #fff 100%);
+  border: 1px solid #ebeef5;
+  min-width: min(90px, 20%);
+  flex: 1 1 auto;
+  transition: box-shadow 0.2s;
   &:hover {
-    box-shadow: var(--shadow-sm);
-    border-color: var(--border-hover);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
   }
 }
-.kpi-label { font-size: 11px; color: var(--text-tertiary); font-weight: 500; }
+.kpi-label { font-size: 11px; color: #909399; font-weight: 500; }
 .kpi-value { font-size: 17px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
 .annual-warn { color: #e6a23c; cursor: help; font-weight: 700; }
 .chart-card { margin-bottom: 0; }
 .risk-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
   gap: 12px;
 }
 .risk-item {
@@ -1129,23 +1054,30 @@ export default { name: 'BacktestResultPanel' }
   border-radius: 4px;
   background: var(--el-fill-color-lighter);
 }
-.risk-name { font-weight: 600; font-size: 13px; color: var(--text-primary); }
-.risk-value { margin-left: 8px; font-size: 14px; color: var(--primary-500); }
-.risk-desc { display: block; font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.risk-name { font-weight: 600; font-size: 13px; }
+.risk-value { margin-left: 8px; font-size: 14px; color: var(--el-color-primary); }
+.risk-desc { display: block; font-size: 11px; color: var(--el-text-color-placeholder); margin-top: 2px; }
 .top5-row {
   display: flex;
   gap: 16px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
-.top5-card { flex: 1; }
+.top5-card { flex: 1 1 min(280px, 100%); min-width: 0; }
 .filter-bar {
   display: flex;
   gap: 8px;
   margin-bottom: 12px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
 }
 .sell-reason-bar {
   display: flex;
@@ -1153,13 +1085,15 @@ export default { name: 'BacktestResultPanel' }
   gap: 16px;
   padding: 10px 16px;
   margin-bottom: 16px;
-  background: var(--bg-muted);
+  background: #fafafa;
   border-radius: 8px;
-  border: 1px solid var(--border-default);
+  border: 1px solid #ebeef5;
   font-size: 13px;
+  flex-wrap: wrap;
+  min-width: 0;
   .sell-reason-label {
     font-weight: 700;
-    color: var(--text-primary);
+    color: #303133;
     font-size: 14px;
     flex-shrink: 0;
   }
@@ -1174,8 +1108,8 @@ export default { name: 'BacktestResultPanel' }
     gap: 4px;
     padding: 3px 10px;
     border-radius: 12px;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border-default);
+    background: #fff;
+    border: 1px solid #ebeef5;
     font-weight: 500;
     .reason-dot {
       display: inline-block;
@@ -1184,7 +1118,6 @@ export default { name: 'BacktestResultPanel' }
       border-radius: 50%;
     }
     &.take-profit { color: #67c23a; .reason-dot { background: #67c23a; } }
-    &.profit-lock { color: #9b59b6; .reason-dot { background: #9b59b6; } }
     &.rebalance { color: #409eff; .reason-dot { background: #409eff; } }
     &.stop-loss { color: #f56c6c; .reason-dot { background: #f56c6c; } }
     &.max-hold { color: #e6a23c; .reason-dot { background: #e6a23c; } }
