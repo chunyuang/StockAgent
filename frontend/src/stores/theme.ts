@@ -140,7 +140,7 @@ export const useThemeStore = defineStore('theme', () => {
     if (stored === 'light' || stored === 'dark' || stored === 'system') {
       return stored
     }
-    return 'light' // 默认浅色模式
+    return 'dark' // 默认深色模式(金融数据长时间查看更舒适)
   }
   
   function getSystemPreference(): boolean {
