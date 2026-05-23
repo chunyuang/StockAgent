@@ -181,8 +181,9 @@ function formatDuration(ms: number | null | undefined): string {
 function strategyNames(strategies: string[] | undefined): string {
   if (!strategies || strategies.length === 0) return '-'
   const names = strategies.map(s => strategyNameMap[s] || s)
-  if (names.length <= 2) return names.join(' + ')
-  return names.slice(0, 2).join(' + ') + ` +${names.length - 2}`
+  // V42: 显示全部策略名,不再用+N截断(用户反馈+1不友好)
+  // 短名直接用空格+连接, 长名(>4字)用逗号分隔
+  return names.join(' + ')
 }
 
 // 对比
