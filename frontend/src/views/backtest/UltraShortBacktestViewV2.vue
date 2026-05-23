@@ -949,6 +949,7 @@ function onViewLogs(taskId: string) {
 .tab-content-full {
   flex: 1;
   overflow-y: auto;
+  padding-bottom: 40px;
 }
 
 .empty-result {
