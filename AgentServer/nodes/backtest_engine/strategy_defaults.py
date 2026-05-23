@@ -57,7 +57,7 @@ STRATEGY_CONFIGS = {
             "next_day_open_sell_pct": 0.03, # 次日高开≥3%冲高回落保护(与首板打板高开即卖阈值一致)
         },
         "riskParams": {
-            "stop_loss_pct": 0.05,          # 止损5%(保持5%,实测最优)
+            "stop_loss_pct": 0.04,          # 止损4%(V33:从5%→4%,半路追涨avg_loss=-2.0%说明5%太宽,4%更精准截断)
             "take_profit_pct": 0.12,        # 止盈12%(V20:从10%→12%,12%比15%多捕获1-2笔快止盈)
             "max_hold_days": 3,             # 最大持仓3天
             "slippage_pct": 0.002,          # 滑点0.2%
@@ -70,21 +70,21 @@ STRATEGY_CONFIGS = {
         "params": {
             "opening_pct_min": -1.0,                      # 竞价涨幅下限%(放宽:低开也能涨停)
             "opening_pct_max": 7.0,                      # 竞价涨幅上限%(放宽:高开7%内都考虑)
-            "min_volume_ratio": 1.5,                     # 量比≥1.5
-            "min_turnover_rate": 3,                      # 换手率≥3%
+            "min_volume_ratio": 1.5,                     # 量比≥1.5(保持1.5,2.0过严导致信号暴降)
+            "min_turnover_rate": 5,                      # 换手率≥5%(V33:从3→5,换手太低=股性不活,过滤低质量涨停)
             "max_turnover_rate": 15,                     # 换手率≤15%
-            "min_circulation_market_cap": 50,            # 最小流通市值(亿)
+            "min_circulation_market_cap": 50,            # 最小流通市值50亿(保持50,80过严)
             "max_circulation_market_cap": 500,           # 最大流通市值(亿)
             "hit_probability_yizi": 0.0,                # 一字板成交概率0%
-            "hit_probability_fast": 0.3,                 # 秒板(开盘>8%)成交概率30%
-            "hit_probability_normal": 0.5,               # 快速板(开盘2-8%)50%
-            "hit_probability_slow": 0.7,                 # 盘中板(开盘<2%)70%
+            "hit_probability_fast": 0.2,                 # 秒板(开盘>8%)成交概率20%(V33:30%→20%,秒板次日低开率高)
+            "hit_probability_normal": 0.4,               # 快速板(开盘2-8%)40%(V33:50%→40%,更保守)
+            "hit_probability_slow": 0.6,                 # 盘中板(开盘<2%)60%(V33:70%→60%,更保守)
             "next_day_open_sell_pct": 0.03, # 次日高开≥3%即卖出(首板高开即卖)
         },
         "riskParams": {
-            "stop_loss_pct": 0.04,          # 止损4%
-            "take_profit_pct": 0.12,        # 止盈12%
-            "max_hold_days": 3,             # 最大持仓3天
+            "stop_loss_pct": 0.04,          # 止损4%(保持4%,3%过紧导致更多止损触发)
+            "take_profit_pct": 0.10,        # 止盈10%(V33:从12%→10%,首板avg_win仅4.3%,10%更实际)
+            "max_hold_days": 2,             # 最大持仓2天(V33:3→2,首板次日未兑现即退出)
             "slippage_pct": 0.005,          # 滑点0.5%(打板场景)
         }
     },
