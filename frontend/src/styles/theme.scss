@@ -137,38 +137,38 @@
 // ==================== Dark Mode ====================
 
 html.dark {
-  // ========== 背景色系 (深蓝灰层级,类似IDE暗色主题) ==========
-  --bg-base: #141c2e;           // 底层背景 - 深蓝灰(不是纯黑,眼睛更舒适)
-  --bg-elevated: #1a2332;       // 卡片背景 - 比底层亮一阶
-  --bg-surface: #1e2a3a;        // 内容表面 - 再亮一阶
-  --bg-muted: #16213e;          // 次要背景/表头
-  --bg-subtle: #243447;         // 更浅的背景
-  --bg-inset: #141c2e;          // 嵌入区域
-  --bg-card: #1a2332;           // 卡片背景
-  --bg-secondary: #16213e;      // 次级背景
-  --bg-tertiary: #243447;       // 三级背景
+  // ========== 背景色系 (中深灰蓝,类似macOS暗色/GitHub Dark) ==========
+  --bg-base: #1b2230;           // 底层背景
+  --bg-elevated: #222d3d;       // 卡片背景
+  --bg-surface: #283547;        // 内容表面
+  --bg-muted: #1e2838;          // 次要背景/表头
+  --bg-subtle: #303e50;         // 更浅的背景
+  --bg-inset: #1b2230;          // 嵌入区域
+  --bg-card: #222d3d;           // 卡片背景
+  --bg-secondary: #1e2838;      // 次级背景
+  --bg-tertiary: #303e50;       // 三级背景
   
-  // 交互背景 - 从透明到微亮的渐变
-  --bg-hover: rgba(99, 179, 237, 0.06);
-  --bg-active: rgba(99, 179, 237, 0.10);
-  --bg-selected: rgba(59, 130, 246, 0.15);
+  // 交互背景
+  --bg-hover: rgba(99, 179, 237, 0.08);
+  --bg-active: rgba(99, 179, 237, 0.12);
+  --bg-selected: rgba(59, 130, 246, 0.16);
 
-  // ========== 文字色系 (对比度层级) ==========
-  --text-primary: #e2e8f0;      // 亮白灰 - 标题/重要内容(不是纯白,更柔和)
-  --text-secondary: #a0aec0;    // 中灰 - 正文
-  --text-tertiary: #718096;     // 次要信息
-  --text-muted: #5a6577;        // 时间、背景水印
-  --text-placeholder: #4a5568;  // 占位符
-  --text-inverse: #141c2e;      // 反色文字
+  // ========== 文字色系 ==========
+  --text-primary: #e8ecf1;      // 标题
+  --text-secondary: #b0b8c4;    // 正文
+  --text-tertiary: #8492a6;     // 次要
+  --text-muted: #636e80;        // 时间水印
+  --text-placeholder: #4e5969;  // 占位符
+  --text-inverse: #1b2230;      // 反色
 
-  // ========== 边框色系 (用边框代替阴影) ==========
-  --border-default: rgba(255, 255, 255, 0.08);  // 卡片边框
-  --border-light: rgba(255, 255, 255, 0.05);    // 轻量边框
-  --border-muted: rgba(255, 255, 255, 0.12);    // 更明显的边框
+  // ========== 边框色系 ==========
+  --border-default: rgba(255, 255, 255, 0.10);
+  --border-light: rgba(255, 255, 255, 0.06);
+  --border-muted: rgba(255, 255, 255, 0.14);
   --border-focus: #3b82f6;
-  --border-hover: rgba(255, 255, 255, 0.15);
+  --border-hover: rgba(255, 255, 255, 0.18);
 
-  // ========== 阴影系统 (暗色模式取消投影，用边框代替) ==========
+  // ========== 阴影系统 ==========
   --shadow-xs: none;
   --shadow-sm: none;
   --shadow-md: none;
@@ -177,24 +177,25 @@ html.dark {
   --shadow-glow: 0 0 20px rgba(59, 130, 246, 0.15);
   --shadow-card: none;
 
-  // ========== 涨跌色 (柔和红/翡翠绿) ==========
-  --stock-up: #F23645;          // 柔和红
-  --stock-up-bg: rgba(242, 54, 69, 0.12);
-  --stock-up-light: rgba(242, 54, 69, 0.18);
-  --stock-down: #089981;        // 翡翠绿
-  --stock-down-bg: rgba(8, 153, 129, 0.12);
-  --stock-down-light: rgba(8, 153, 129, 0.18);
-  --stock-flat: #64748B;
-  --stock-flat-bg: rgba(100, 116, 139, 0.1);
+  // ========== 涨跌色 (降低饱和度,不刺眼) ==========
+  --stock-up: #e05565;          // 柔和红
+  --stock-up-bg: rgba(224, 85, 101, 0.10);
+  --stock-up-light: rgba(224, 85, 101, 0.16);
+  --stock-down: #3db39e;        // 柔和绿
+  --stock-down-bg: rgba(61, 179, 158, 0.10);
+  --stock-down-light: rgba(61, 179, 158, 0.16);
+  --stock-flat: #8492a6;
+  --stock-flat-bg: rgba(132, 146, 166, 0.08);
 
-  // ========== 功能色 ==========
-  --success: #10B981;
-  --success-bg: rgba(16, 185, 129, 0.12);
-  --warning: #F59E0B;
-  --warning-bg: rgba(245, 158, 11, 0.12);
-  --error: #EF4444;
-  --error-bg: rgba(239, 68, 68, 0.12);
-  --info: #3B82F6;
+  // ========== 功能色 (降低饱和度) ==========
+  --success: #4db8a4;
+  --success-bg: rgba(77, 184, 164, 0.10);
+  --warning: #d4a03c;
+  --warning-bg: rgba(212, 160, 60, 0.10);
+  --error: #d46060;
+  --error-bg: rgba(212, 96, 96, 0.10);
+  --info: #5b9cf5;
+  --info-bg: rgba(91, 156, 245, 0.10);
   --info-bg: rgba(59, 130, 246, 0.12);
 
   // ========== 渐变 ==========

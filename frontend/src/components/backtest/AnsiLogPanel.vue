@@ -399,10 +399,10 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
 
 <style scoped lang="scss">
 .ansi-log-card {
-  border: 1px solid #30363d;
+  border: 1px solid var(--border-default, #30363d);
   border-radius: 6px;
   overflow: hidden;
-  background: #0d1117;
+  background: var(--bg-code, #0d1117);
 }
 
 .log-card-header {

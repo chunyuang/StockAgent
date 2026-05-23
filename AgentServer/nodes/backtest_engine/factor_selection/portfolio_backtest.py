@@ -74,6 +74,12 @@ class PortfolioBacktester:
     STAMP_TAX = 0.001          # 印花税 千1 (卖出)
     MIN_COMMISSION = 5         # 最低佣金 5元
 
+    # 【V33:回测-实盘一致性标志】
+    # 当live_trading_mode=True时,T_close因子自动降级为T_prev,消除未来函数
+    # 回测模式始终为False(使用完整因子),实盘模式始终为True(只使用可用因子)
+    # 此标志通过strategy_defaults.GLOBAL_RISK["live_trading_mode"]单一来源控制
+    LIVE_TRADING_MODE = GLOBAL_RISK.get("live_trading_mode", False)
+
     # 【P2-3修复:策略买入时间常量,避免硬编码重复】
     STRATEGY_BUY_TIMES = {
         '半路追涨': '10:00',

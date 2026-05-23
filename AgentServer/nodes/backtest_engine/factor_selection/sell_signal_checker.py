@@ -467,6 +467,9 @@ class SellSignalChecker:
         result = checker.check_early_sell(code, strategies, cost, open_price, close_price)
         result = checker.check_full_sell(code, strategies, cost, market_data, trade_days_held)
         slippage_pct = checker.apply_slippage(sell_reason, code)
+
+    ⚠️ check_full_sell() is DEPRECATED (V33 review: never called in portfolio_backtest.py).
+    All sell checks go through check_early_sell + inline SL/TP in _rebalance/_check_and_execute_forced_sells.
     """
 
     def __init__(self, strategy_params, strategy_risk_params, risk_config, global_slippage=0.002):

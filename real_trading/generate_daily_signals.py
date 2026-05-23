@@ -60,16 +60,29 @@ class RealTradingSignalGenerator:
             "top_n": 5,
         }
         self.config = {**self.default_config, **(config or {})}
-        # 只传递PortfolioBacktester接受的初始化参数
-        self.backtester = PortfolioBacktester(
-            source="ak",
-            slippage=self.config.get("slippage", 0.001),
-            max_position=self.config.get("max_position", 0.7)
-        )
+        # PortfolioBacktester.__init__()不接受任何参数(V33审查确认)
+        # 策略参数通过_risk_config和_strategy_risk_params传递
+        self.backtester = PortfolioBacktester()
         # 补充回测引擎缺少的实盘配置属性（通过_risk_config传递，避免直接设属性）
         if hasattr(self.backtester, '_risk_config') and isinstance(self.backtester._risk_config, dict):
             self.backtester._risk_config["enable_sentiment_cycle"] = self.config.get("enable_sentiment_cycle", True)
             self.backtester._risk_config["enable_force_empty"] = self.config.get("enable_force_empty", True)
+            self.backtester._risk_config["enable_stop_loss"] = True
+            self.backtester._risk_config["enable_take_profit"] = True
+            self.backtester._risk_config["enable_ma60_filter"] = True
+            self.backtester._risk_config["enable_sector_concentration"] = True
+            self.backtester._risk_config["enable_auction_filter"] = True
+            self.backtester._risk_config["stop_loss_pct"] = self.config.get("stop_loss_pct", GLOBAL_RISK["stop_loss_pct"])
+            self.backtester._risk_config["take_profit_pct"] = self.config.get("take_profit_pct", GLOBAL_RISK["take_profit_pct"])
+            self.backtester._risk_config["max_hold_days"] = self.config.get("max_hold_days", GLOBAL_RISK["max_hold_days"])
+            self.backtester._risk_config["max_position_per_stock"] = self.config.get("max_position_per_stock", GLOBAL_RISK["max_position_per_stock"])
+            # 策略级风控参数(从STRATEGY_CONFIGS读取,单一来源)
+            self.backtester._strategy_risk_params = {}
+            self.backtester._strategy_params = {}
+            for sid, scfg in STRATEGY_CONFIGS.items():
+                sname = scfg["name"]
+                self.backtester._strategy_risk_params[sname] = dict(scfg.get("riskParams", {}))
+                self.backtester._strategy_params[sname] = dict(scfg.get("params", {}))
         else:
             # fallback: 直接设属性（PortfolioBacktester无__slots__，支持动态属性）
             self.backtester.enable_sentiment_cycle = self.config.get("enable_sentiment_cycle", True)
