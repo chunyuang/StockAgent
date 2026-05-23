@@ -726,6 +726,7 @@ function onViewLogs(taskId: string) {
     <!-- Tab切换 + 操作按钮 -->
     <div class="main-tabs-bar">
       <div class="main-tabs">
+        <span class="page-title-inline">超短策略回测</span>
         <button :class="['tab-btn', activeMainTab === 'config' ? 'active' : '']" @click="activeMainTab = 'config'">
           🎯 配置
         </button>
@@ -939,6 +940,15 @@ function onViewLogs(taskId: string) {
   background: var(--bg-elevated);
   border-radius: 8px;
   border: 1px dashed var(--border-default);
+}
+
+.page-title-inline {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-right: 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .running-status {

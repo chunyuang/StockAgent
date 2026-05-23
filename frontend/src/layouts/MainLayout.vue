@@ -140,7 +140,7 @@ function toggleTheme(): void {
       <!-- 顶部栏 -->
       <ElHeader class="header">
         <div class="header-left">
-          <h2 class="page-title">{{ $route.meta.title }}</h2>
+          <h2 v-if="!$route.meta.hideTitle" class="page-title">{{ $route.meta.title }}</h2>
         </div>
         
         <div class="header-right">
