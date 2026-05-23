@@ -774,6 +774,24 @@ function exportTrades() {
           {{ (result.profit_loss_ratio || 0).toFixed(2) }}
         </span>
       </div>
+      <div class="kpi-chip" v-if="result.sharpe_ratio != null">
+        <span class="kpi-label">索提诺</span>
+        <span class="kpi-value" :style="{ color: (result.sortino_ratio || 0) >= 2 ? '#67c23a' : '#e6a23c' }">
+          {{ (result.sortino_ratio || 0).toFixed(2) }}
+        </span>
+      </div>
+      <div class="kpi-chip" v-if="result.calmar_ratio != null">
+        <span class="kpi-label">卡玛</span>
+        <span class="kpi-value" :style="{ color: (result.calmar_ratio || 0) >= 1 ? '#67c23a' : '#e6a23c' }">
+          {{ (result.calmar_ratio || 0).toFixed(2) }}
+        </span>
+      </div>
+      <div class="kpi-chip" v-if="result.metrics?.returns?.benchmark_return_pct != null">
+        <span class="kpi-label">超额收益</span>
+        <span class="kpi-value" :style="{ color: (result.metrics?.returns?.alpha_pct || 0) >= 0 ? '#67c23a' : '#f56c6c' }">
+          {{ fmtPct(result.metrics?.returns?.alpha_pct) }}
+        </span>
+      </div>
     </div>
 
     <!-- 任务3: 卖出原因统计 -->

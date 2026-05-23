@@ -33,6 +33,8 @@ const coreMetrics = computed(() => {
     { label: '盈亏比', value: fmtNum(risk.profit_loss_ratio ?? r.profit_loss_ratio), color: (risk.profit_loss_ratio ?? r.profit_loss_ratio ?? 0) >= 2 ? '#67c23a' : '#e6a23c' },
     { label: '交易笔数', value: String(r.total_trades ?? 0), color: '#409eff' },
     { label: '信号数', value: String(r.total_signals ?? 0), color: '#909399' },
+    { label: '索提诺', value: fmtNum(risk.sortino_ratio ?? r.sortino_ratio), color: (risk.sortino_ratio ?? r.sortino_ratio ?? 0) >= 2 ? '#67c23a' : '#e6a23c' },
+    { label: '卡玛', value: fmtNum(risk.calmar_ratio ?? r.calmar_ratio), color: (risk.calmar_ratio ?? r.calmar_ratio ?? 0) >= 1 ? '#67c23a' : '#e6a23c' },
   ]
   if (ret.benchmark_return_pct != null) {
     items.push({ label: '基准收益', value: fmtPct(ret.benchmark_return_pct), color: colorSign(ret.benchmark_return_pct) })
