@@ -3472,10 +3472,10 @@ class PortfolioBacktester:
                 {"name": "opening_pct_chg", "target": opening_pct_min, "operator": ">=", "label": f"竞价涨幅≥{opening_pct_min}%"},
                 {"name": "opening_pct_chg", "target": opening_pct_max, "operator": "<=", "label": f"竞价涨幅≤{opening_pct_max}%"},
                 {"name": "volume_ratio_prev", "target": min_volume_ratio, "operator": ">=", "label": f"量比≥{min_volume_ratio}"},
-                {"name": "turnover_rate", "target": min_turnover, "operator": ">=", "label": f"换手率≥{min_turnover}%"},
-                {"name": "turnover_rate", "target": max_turnover, "operator": "<=", "label": f"换手率≤{max_turnover}%"},
-                {"name": "circ_mv", "target": min_circ_mv, "operator": ">=", "label": f"流通市值≥{min_circ_mv//10000}亿"},
-                {"name": "circ_mv", "target": max_circ_mv, "operator": "<=", "label": f"流通市值≤{max_circ_mv//10000}亿"},
+                {"name": "turnover_rate_prev", "target": min_turnover, "operator": ">=", "label": f"换手率≥{min_turnover}%"},
+                {"name": "turnover_rate_prev", "target": max_turnover, "operator": "<=", "label": f"换手率≤{max_turnover}%"},
+                {"name": "circ_mv_prev", "target": min_circ_mv, "operator": ">=", "label": f"流通市值≥{min_circ_mv//10000}亿"},
+                {"name": "circ_mv_prev", "target": max_circ_mv, "operator": "<=", "label": f"流通市值≤{max_circ_mv//10000}亿"},
             ]
         elif strategy_name == "涨停开板":
             min_consecutive = converted_params.get("min_consecutive_limit") if converted_params.get("min_consecutive_limit") is not None else strategy_defaults.get("min_consecutive_limit", 2)
@@ -3497,7 +3497,7 @@ class PortfolioBacktester:
                 {"name": "intraday_max_rise_pct", "target": 0, "operator": ">=", "label": "盘中最高涨幅≥0%(非大跌)"},
                 # 【P1-2修复(V28):volume_ratio→volume_ratio_prev,消除未来函数,与半路追涨/首板打板对齐】
                 {"name": "volume_ratio_prev", "target": min_volume_ratio, "operator": ">=", "label": f"量比≥{min_volume_ratio}"},
-                {"name": "turnover_rate", "target": min_turnover, "operator": ">=", "label": f"换手率≥{min_turnover}%"},
+                {"name": "turnover_rate_prev", "target": min_turnover, "operator": ">=", "label": f"换手率≥{min_turnover}%"},
                 {"name": "sentiment_period_in", "target": require_sentiment, "operator": "in", "label": "情绪周期要求"},
             ]
         elif strategy_name == "龙头低吸":
@@ -3515,8 +3515,9 @@ class PortfolioBacktester:
             _min_vr = converted_params.get("min_volume_ratio") if converted_params.get("min_volume_ratio") is not None else strategy_defaults.get("min_volume_ratio", 0.5)
             _max_vr = converted_params.get("max_volume_ratio") if converted_params.get("max_volume_ratio") is not None else strategy_defaults.get("max_volume_ratio", 2.0)
             return [
-                # 【V18注意】circ_mv日间变化极小(<1%),用T日数据可接受
-                {"name": "circ_mv", "target": _min_circ_for_leader, "operator": ">=", "label": f"流通市值≥{_min_circ_for_leader//10000}亿(龙头)"},
+                # 【V35修复:circ_mv改用circ_mv_prev(T-1日),消除未来函数,与其他策略一致】
+                # circ_mv日间变化极小(<1%),用_prev对筛选结果影响微小
+                {"name": "circ_mv_prev", "target": _min_circ_for_leader, "operator": ">=", "label": f"流通市值≥{_min_circ_for_leader//10000}亿(龙头)"},
                 {"name": "limit_up_count", "target": min_consecutive, "operator": ">=", "label": f"近5日至少{min_consecutive}板"},
                 # 【Bug修复】pullback_pct在MongoDB中存负数(如-0.15=回调15%)
                 # close < high_peak → pullback_pct < 0 → 回调时是负值
@@ -3529,10 +3530,11 @@ class PortfolioBacktester:
                 # MA5支撑作为概念参考,不强制要求pullback_ma5=1
                 # 量比双限: VR<0.5极度冷门(几乎无成交), VR>2.0放量回调(抛压未止)
                 # 数据: VR<0.8胜率50.2%(抛压枯竭), VR 0.8-1.5胜率44.1%, VR 1.5-2.0胜率47.4%
-                # 【V27注意】龙头低吸volume_ratio保留T日数据,不用_prev
+                # 【V27/V35注意】龙头低吸volume_ratio保留T日数据,不用_prev
                 # 原因: 龙头低吸的信号是“缩量回调后T日开始放量”,T-1日还是缩量状态
                 # 用volume_ratio_prev会把“T日放量启动”的高胜率候选过滤掉(收益-90%)
                 # volume_ratio在盘中可观测(基于前5日均量推算),是准实时因子
+                # ⚠️ 已知未来函数近似: T日VR全天值在盘中不完全可知,但盘中实时VR可近似
                 {"name": "volume_ratio", "target": _min_vr, "operator": ">=", "label": f"量比≥{_min_vr}(保流动性)"},
                 {"name": "volume_ratio", "target": _max_vr, "operator": "<=", "label": f"量比≤{_max_vr}(缩量回调)"},
             ]
@@ -3818,10 +3820,14 @@ class PortfolioBacktester:
         # 逻辑:如果持仓盈利≥5%且当日收阳线,即使不在目标池中也不因调仓卖出
         # 原因:调仓卖出会错过后续大涨(如龙头低吸盈利8%被调仓卖,次日冲高15%)
         # 保护性卖出(冲高回落/利润保护/止损/止盈)仍然正常触发
+        # 【V35修复:已触发止损/冲高回落/利润保护的股不受保护,避免保护阻止止损】
         hold_protection_pct = self._risk_config.get('hold_protection_threshold', 0.05)
+        _mark_sold_codes = set(pos_mgr.sell_code_reasons.keys())  # 已有保护性卖出reason的股
         if hold_protection_pct > 0:
             protected_codes = []
             for code in list(sell_codes):
+                if code in _mark_sold_codes:
+                    continue  # V35:已有卖出reason(止损/冲高回落等)的股不受保护
                 if code not in holdings or holdings.get(code, 0) <= 0:
                     continue
                 cost = self._cost_basis.get(code, 0)
@@ -3831,7 +3837,14 @@ class PortfolioBacktester:
                 if cost > 0 and close_p > 0:
                     profit_pct = (close_p / cost - 1)
                     is_yang_line = close_p >= open_p  # 收阳线
-                    if profit_pct >= hold_protection_pct and is_yang_line:
+                    # V35:增加止损检查——即使盈利+阳线,如果low已跌破止损价,不应保护
+                    should_still_protect = True
+                    if enable_stop_loss:
+                        code_sl, _ = self._get_sl_tp_for_code(code)
+                        low_p = p.get('low', close_p)
+                        if low_p <= cost * (1 - code_sl):
+                            should_still_protect = False  # 盘中已触发止损,不保护
+                    if profit_pct >= hold_protection_pct and is_yang_line and should_still_protect:
                         protected_codes.append(code)
             for code in protected_codes:
                 sell_codes.remove(code)

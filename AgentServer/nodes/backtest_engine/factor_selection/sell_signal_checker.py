@@ -447,7 +447,7 @@ STRATEGY_PULLBACK_PARAMS = {
     },
     '龙头低吸': {
         'pullback_high_threshold': 0.05,
-        'pullback_mid_fallback_pct': 0.01,
+        'pullback_mid_fallback_pct': 0.015,  # V35:从0.01→0.015,龙头低吸回调幅度大,0.01太敏感导致过早卖出
     },
 }
 
