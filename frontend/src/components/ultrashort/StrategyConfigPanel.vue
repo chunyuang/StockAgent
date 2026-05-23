@@ -42,11 +42,81 @@ const forceEmptyTitle = computed(() => `⚠️ 强制空仓 ${props.form.forceEm
 const sentimentCycleTitle = computed(() => `🧠 情绪周期 ${props.form.sentimentCycle.enabled ? '✅' : '❌'} (涨停${props.form.sentimentCycle.weight_limit_up}, 跌停${props.form.sentimentCycle.weight_limit_down}, 炸板率${props.form.sentimentCycle.weight_blast_rate}, 涨跌差${props.form.sentimentCycle.weight_rise_fall_diff}, 北向${props.form.sentimentCycle.weight_north_inflow})`)
 const auctionFilterTitle = computed(() => `⏰ 竞价过滤 ${props.form.auctionFilter.enabled ? '✅' : '❌'} (涨幅${(props.form.auctionFilter.min_auction_pct * 100).toFixed(1)}%~${(props.form.auctionFilter.max_auction_pct * 100).toFixed(1)}%, 成交额≥${props.form.auctionFilter.min_auction_amount}万, 量比≥${props.form.auctionFilter.min_auction_volume_ratio}, 未匹配量正: ${props.form.auctionFilter.min_unmatched_volume_positive ? '✅' : '❌'})`)
 
-const halfwayChaseTitle = computed(() => `🏃‍♂️ 半路追涨策略 ${props.form.strategyConfigs.halfway_chase.enabled ? '✅' : '❌'} (涨幅${(props.form.strategyConfigs.halfway_chase.params.min_rise_pct * 100).toFixed(1)}%~${(props.form.strategyConfigs.halfway_chase.params.max_rise_pct * 100).toFixed(1)}%, 量比${props.form.strategyConfigs.halfway_chase.params.min_volume_ratio}~${props.form.strategyConfigs.halfway_chase.params.max_volume_ratio}, 止损${(props.form.strategyConfigs.halfway_chase.riskParams.stop_loss_pct * 100).toFixed(0)}%/止盈${(props.form.strategyConfigs.halfway_chase.riskParams.take_profit_pct * 100).toFixed(0)}%)`)
-const firstLimitUpTitle = computed(() => `🥇 首板打板策略 ${props.form.strategyConfigs.first_limit_up.enabled ? '✅' : '❌'} (开盘${props.form.strategyConfigs.first_limit_up.params.opening_pct_min}%~${props.form.strategyConfigs.first_limit_up.params.opening_pct_max}%, 量比≥${props.form.strategyConfigs.first_limit_up.params.min_volume_ratio}, 换手${props.form.strategyConfigs.first_limit_up.params.min_turnover_rate}%~${props.form.strategyConfigs.first_limit_up.params.max_turnover_rate}%, 流通市值${props.form.strategyConfigs.first_limit_up.params.min_circulation_market_cap}~${props.form.strategyConfigs.first_limit_up.params.max_circulation_market_cap}亿, 止损${(props.form.strategyConfigs.first_limit_up.riskParams.stop_loss_pct * 100).toFixed(0)}%/止盈${(props.form.strategyConfigs.first_limit_up.riskParams.take_profit_pct * 100).toFixed(0)}%)`)
-const limitUpOpenTitle = computed(() => `📈 涨停开板策略 ${props.form.strategyConfigs.limit_up_open.enabled ? '✅' : '❌'} (连板≥${props.form.strategyConfigs.limit_up_open.params.min_consecutive_limit}板, 开板≤${props.form.strategyConfigs.limit_up_open.params.max_open_duration}分钟, 止损${(props.form.strategyConfigs.limit_up_open.riskParams.stop_loss_pct * 100).toFixed(0)}%/止盈${(props.form.strategyConfigs.limit_up_open.riskParams.take_profit_pct * 100).toFixed(0)}%)`)
-const dragonHeadTitle = computed(() => `🐲 龙头低吸策略 ${props.form.strategyConfigs.dragon_head.enabled ? '✅' : '❌'} (连板≥${props.form.strategyConfigs.dragon_head.params.min_consecutive_limit}板, 回调${(props.form.strategyConfigs.dragon_head.params.min_correction_pct * 100).toFixed(0)}%~${(props.form.strategyConfigs.dragon_head.params.max_correction_pct * 100).toFixed(0)}%, 止损${(props.form.strategyConfigs.dragon_head.riskParams.stop_loss_pct * 100).toFixed(0)}%/止盈${(props.form.strategyConfigs.dragon_head.riskParams.take_profit_pct * 100).toFixed(0)}%)`)
-const limitDownQiaoTitle = computed(() => `💥 跌停翘板策略 ${props.form.strategyConfigs.limit_down_qiao.enabled ? '✅' : '❌'} (连板≥${props.form.strategyConfigs.limit_down_qiao.params.min_consecutive_limit}板, 翘板金额≥${props.form.strategyConfigs.limit_down_qiao.params.min_qiao_amount}万, 止损${(props.form.strategyConfigs.limit_down_qiao.riskParams.stop_loss_pct * 100).toFixed(0)}%/止盈${(props.form.strategyConfigs.limit_down_qiao.riskParams.take_profit_pct * 100).toFixed(0)}%)`)
+const halfwayChaseTitle = computed(() => `🏃‍♂️ 半路追涨 ${props.form.strategyConfigs.halfway_chase.enabled ? '✅' : '❌'}`)
+const firstLimitUpTitle = computed(() => `🥇 首板打板 ${props.form.strategyConfigs.first_limit_up.enabled ? '✅' : '❌'}`)
+const limitUpOpenTitle = computed(() => `📈 涨停开板 ${props.form.strategyConfigs.limit_up_open.enabled ? '✅' : '❌'}`)
+const dragonHeadTitle = computed(() => `🐲 龙头低吸 ${props.form.strategyConfigs.dragon_head.enabled ? '✅' : '❌'}`)
+const limitDownQiaoTitle = computed(() => `💥 跌停翘板 ${props.form.strategyConfigs.limit_down_qiao.enabled ? '✅' : '❌'}`)
+
+// ============ 右侧描述 ============
+const sectionDescriptions: Record<string, { title: string; desc: string; tips?: string[] }> = {
+  dataSource: {
+    title: '🔌 数据源配置',
+    desc: '定义回测的数据来源，包括K线周期、复权方式和股票池范围。',
+    tips: ['日线适合隔日交易策略，1分钟适合盘中策略', '前复权可消除分红除权影响，回测更准确', '股票池留空则覆盖全市场A股']
+  },
+  baseConfig: {
+    title: '📅 基础配置',
+    desc: '回测的时间范围和初始资金设置。',
+    tips: ['建议选择3个月以上区间，样本量足够', '初始资金影响仓位管理，建议≥100万']
+  },
+  tradeParams: {
+    title: '💹 交易参数',
+    desc: '全局交易规则，包括止损止盈、仓位管理和交易成本。策略级风控参数可覆盖这些默认值。',
+    tips: ['止损3%~5%为超短常见范围', '总仓位70%留30%现金应对加仓', '滑点2‰模拟涨停排队的真实成交偏差', '佣金万3+印花税千1为典型交易成本']
+  },
+  globalFilter: {
+    title: '🔍 全局筛选',
+    desc: '全策略共用的股票过滤规则，不满足条件的股票不会进入任何策略的候选池。',
+    tips: ['剔除ST避免退市风险股', '次新股≥60天排除上市初期不稳定波动', '成交额≥5000万确保流动性', '换手率≥3%排除无人关注的僵尸股']
+  },
+  forceEmpty: {
+    title: '⚠️ 强制空仓',
+    desc: '市场极端情况下的保护机制。当大盘大跌、跌停家数激增时，强制卖出所有持仓。',
+    tips: ['大盘跌≥2%+跌停≥50只 → 极端恐慌信号', '触发后次日不会再买入，直到情绪恢复', '建议保持开启，避免系统性暴跌风险']
+  },
+  sentimentCycle: {
+    title: '🧠 情绪周期',
+    desc: '通过多维度指标量化市场情绪，影响各策略的信号强度和仓位分配。',
+    tips: ['涨停/跌停家数反映多空力量对比', '炸板率反映打板封板质量', '北向资金反映外资流向偏好', '权重之和无需为1，各自独立缩放']
+  },
+  auctionFilter: {
+    title: '⏰ 竞价过滤',
+    desc: '在集合竞价阶段对候选股进行预筛选，过滤竞价表现不佳的标的。',
+    tips: ['竞价涨幅2%~8%为宜，过高可能开盘即巅峰', '未匹配量为正说明买盘强于卖盘', '竞价量比≥2说明市场关注度高']
+  },
+  halfway_chase: {
+    title: '🏃‍♂️ 半路追涨策略',
+    desc: '在盘中股票已经上涨但尚未涨停时追入，博弈后续继续冲高甚至封板。适合强势市场的顺势交易。',
+    tips: ['核心参数：涨幅3%~7%的强势股', '量比1.5~3.0确认放量而非缩量上涨', '收盘涨幅≥2%确认非冲高回落', '开盘涨幅≤5%排除竞价已过热的票', '平均收益偏弱(+1.97%)，注意风控']
+  },
+  first_limit_up: {
+    title: '🥇 首板打板策略',
+    desc: '在股票首次涨停时排队买入，博弈次日高开溢价。回测中模拟了不同涨停速度的实际成交概率。',
+    tips: ['成交概率是核心：一字板5%、秒板30%、快板60%、慢板80%', '流通市值20~100亿为最佳区间', '换手率5%~15%量价配合最佳', '次日高开≥3%自动止盈（高开即卖）', '止损4%为打板策略的底线']
+  },
+  limit_up_open: {
+    title: '📈 涨停开板策略',
+    desc: '连板股盘中开板后回封时买入，博弈回封后次日继续高开。需要连板基础确保龙头地位。',
+    tips: ['最少2连板以上，确保不是杂毛股', '开板≤10分钟即回封，说明主力坚决', '回封后封单≥1万手确认抛压已消化', '止损4%严格控制开板后继续下跌风险']
+  },
+  dragon_head: {
+    title: '🐲 龙头低吸策略',
+    desc: '在龙头股回调到支撑位时低吸买入，博弈龙头二波启动。适合市场分歧后的再次一致。',
+    tips: ['核心：连板龙头+缩量回调到5/10日均线', '回调5%~35%为健康调整区间', '量比0.5~2.0确认缩量而非放量下跌', '支撑位选5日均线适合强势回调', '止损5%给龙头更大的波动空间']
+  },
+  limit_down_qiao: {
+    title: '💥 跌停翘板策略',
+    desc: '在跌停板被大资金撬开时追入，博弈翘板后的大幅反弹。高风险高回报，需配合情绪周期。',
+    tips: ['连跌1天以上才有足够恐慌释放', '翘板金额≥5000万确认大资金介入', '翘板后涨幅≥3%确认反转力度', '建议开启高情绪周期要求（市场强势时翘板成功率高）', '止损4%+止盈25%：高赔率策略']
+  }
+}
+
+const activeDescription = computed(() => {
+  if (!activeCollapse.value.length) return null
+  const last = activeCollapse.value[activeCollapse.value.length - 1]
+  return sectionDescriptions[last] || null
+})
 
 // 折叠面板
 const activeCollapse = defineModel<string[]>('activeCollapse', { default: [] })
@@ -77,7 +147,10 @@ function onSweepParamChange() {
 </script>
 
 <template>
-  <ElCard class="config-card">
+  <div class="config-layout-v2">
+    <!-- 左侧：配置表单 -->
+    <div class="config-left">
+    <ElCard class="config-card">
     <template #header>
       <div class="card-header">
         <span>⚙️ 回测配置</span>
@@ -548,6 +621,26 @@ function onSweepParamChange() {
       </ElCollapseItem>
     </ElCollapse>
   </ElCard>
+    </div>
+    <!-- 右侧：参数说明 -->
+    <div class="config-right">
+      <div v-if="activeDescription" class="desc-panel">
+        <div class="desc-title">{{ activeDescription.title }}</div>
+        <div class="desc-text">{{ activeDescription.desc }}</div>
+        <div v-if="activeDescription.tips?.length" class="desc-tips">
+          <div class="desc-tips-title">💡 参数建议</div>
+          <div v-for="(tip, i) in activeDescription.tips" :key="i" class="desc-tip-item">
+            <span class="desc-tip-dot">•</span> {{ tip }}
+          </div>
+        </div>
+      </div>
+      <div v-else class="desc-panel desc-empty">
+        <div class="desc-empty-icon">📖</div>
+        <div class="desc-empty-text">展开左侧任意配置项</div>
+        <div class="desc-empty-sub">查看参数说明和调优建议</div>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script lang="ts">
@@ -555,6 +648,83 @@ export default { name: 'StrategyConfigPanel' }
 </script>
 
 <style scoped lang="scss">
+.config-layout-v2 {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+.config-left {
+  flex: 1;
+  min-width: 0;
+}
+.config-right {
+  width: 280px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 60px;
+}
+.desc-panel {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  padding: 20px;
+  transition: all 0.3s;
+}
+.desc-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--primary-200);
+}
+.desc-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin-bottom: 14px;
+}
+.desc-tips {
+  background: var(--primary-50);
+  border: 1px solid var(--primary-100);
+  border-radius: 6px;
+  padding: 12px;
+}
+.desc-tips-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary-500);
+  margin-bottom: 8px;
+}
+.desc-tip-item {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  padding-left: 4px;
+}
+.desc-tip-dot {
+  color: var(--primary-400);
+  margin-right: 4px;
+}
+.desc-empty {
+  text-align: center;
+  padding: 40px 20px;
+}
+.desc-empty-icon {
+  font-size: 36px;
+  margin-bottom: 10px;
+}
+.desc-empty-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.desc-empty-sub {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
 .config-card {
   margin-bottom: 12px;
   :deep(.el-card__header) { padding: 8px 16px; }
