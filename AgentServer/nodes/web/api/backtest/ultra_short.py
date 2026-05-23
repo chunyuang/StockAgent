@@ -188,10 +188,11 @@ async def submit_ultra_short_backtest(
                 "enable_sector_concentration": request.params.enable_sector_concentration,
                 "selected_strategies": selected_strategies,
                 # 【P1-3修复】透传强制空仓细粒度阈值
+                # 【V44修复】index_drop_pct fallback从0.02→0.03,与strategy_defaults.py对齐
                 "force_empty_config": {
                     "limit_down_count": force_empty_config.get("limit_down_count", 80),
                     "limit_up_count": force_empty_config.get("limit_up_count", 10),
-                    "index_drop_pct": force_empty_config.get("index_drop_pct", 0.02),
+                    "index_drop_pct": force_empty_config.get("index_drop_pct", 0.03),
                 } if force_empty_config.get("enabled", True) else {},
                 # 【P1-4修复】透传全局筛选细粒度参数
                 "global_filter_config": {
@@ -504,10 +505,11 @@ async def submit_sweep_backtest(raw_request: Request, user_id: str = Depends(get
                 "enable_ma60_filter": request.params.enable_ma60_filter,
                 "enable_sector_concentration": request.params.enable_sector_concentration,
                 "selected_strategies": copy.deepcopy(selected_strategies),
+                # 【V44修复】index_drop_pct fallback从0.02→0.03,与strategy_defaults.py对齐
                 "force_empty_config": {
                     "limit_down_count": force_empty_config.get("limit_down_count", 80),
                     "limit_up_count": force_empty_config.get("limit_up_count", 10),
-                    "index_drop_pct": force_empty_config.get("index_drop_pct", 0.02),
+                    "index_drop_pct": force_empty_config.get("index_drop_pct", 0.03),
                 } if force_empty_config.get("enabled", True) else {},
                 "global_filter_config": {
                     "exclude_st": global_filter_config.get("exclude_st", True),
@@ -570,6 +572,28 @@ async def submit_sweep_backtest(raw_request: Request, user_id: str = Depends(get
             for s in inner_sel_strats:
                 if s.get("id") == "halfway_chase":
                     s.setdefault("params", {})["min_volume_ratio"] = value
+        elif param_name == "next_day_open_sell_pct":
+            # 所有策略的次日高开即卖阈值
+            for s in sel_strats:
+                s.setdefault("params", {})["next_day_open_sell_pct"] = value
+            for s in inner_sel_strats:
+                s.setdefault("params", {})["next_day_open_sell_pct"] = value
+        elif param_name == "hit_probability_normal":
+            # 首板打板快板成交概率
+            for s in sel_strats:
+                if s.get("id") == "first_limit_up":
+                    s.setdefault("params", {})["hit_probability_normal"] = value
+            for s in inner_sel_strats:
+                if s.get("id") == "first_limit_up":
+                    s.setdefault("params", {})["hit_probability_normal"] = value
+        elif param_name == "pullback_mid_fallback_pct":
+            # 跌停翘板冲高回落阈值
+            for s in sel_strats:
+                if s.get("id") == "limit_down_qiao":
+                    s.setdefault("params", {})["pullback_mid_fallback_pct"] = value
+            for s in inner_sel_strats:
+                if s.get("id") == "limit_down_qiao":
+                    s.setdefault("params", {})["pullback_mid_fallback_pct"] = value
         else:
             raise HTTPException(status_code=400, detail=f"未知扫描参数: {param_name}")
 
