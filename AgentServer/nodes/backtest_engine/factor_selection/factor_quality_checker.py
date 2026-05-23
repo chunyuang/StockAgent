@@ -101,10 +101,17 @@ class FactorQualityChecker:
         missing_factors = []
         empty_factors = []
         low_quality_factors = []
+        defaulted_factors = []  # 有默认值的缺失因子(盘中因子,日线模式不可用)
         
         # 检查每个因子
         for f in requested_factors:
             factor_name = f["name"]
+            
+            # 有默认值的因子: 不算"缺失",单独归类
+            if factor_name in self.FACTOR_DEFAULTS:
+                if factor_name not in factor_df.columns or (factor_name in factor_df.columns and factor_df[factor_name].isna().all()):
+                    defaulted_factors.append(factor_name)
+                continue
             
             # 检查是否存在
             if factor_name not in factor_df.columns:
@@ -138,11 +145,14 @@ class FactorQualityChecker:
                 strategy_missing[strategy] = missing
         
         # 判断质量等级
-        if core_missing or (missing_count / total > 0.3):
+        if core_missing or (missing_count / max(total, 1) > 0.3):
             level = FactorQualityLevel.ERROR
             msg = f"严重数据缺失: {len(core_missing)} 个核心因子缺失"
             if strategy_missing:
                 msg += f", {len(strategy_missing)} 个策略必需因子缺失"
+        elif defaulted_factors and not missing_count:
+            level = FactorQualityLevel.GOOD  # 只有默认值因子缺失=正常
+            msg = f"因子数据完整, {len(defaulted_factors)} 个盘中因子使用默认值(日线模式)"
         elif missing_count > 0 or low_quality_factors:
             level = FactorQualityLevel.WARNING
             msg = f"部分数据缺失: {missing_count} 个因子缺失, {len(low_quality_factors)} 个质量较差"
