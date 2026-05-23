@@ -27,6 +27,7 @@
 SLIPPAGE_RULES = {
     '冲高回落': True,      # 主动保护:高开时以open卖出,扣滑点模拟实盘偏差
     '利润保护': True,      # 主动保护:冲高回落后以close卖出,扣滑点
+    '利润锁定': True,      # 主动保护(V42新增):盘中冲高后大幅回撤以close卖出,扣滑点
     '高开即卖': True,      # 主动保护:以open卖出,扣滑点
     '止盈':     True,      # 主动止盈:扣滑点(实盘难以精确止盈价成交)
     '止损':     False,     # 被迫卖出:止损价已含保守估计,不额外扣
@@ -113,6 +114,8 @@ def resolve_sell_price_and_reason(reason, cost_basis, open_price, close_price, c
         return sell_price, reason
     elif reason == '利润保护':
         return close_price, reason
+    elif reason == '利润锁定':
+        return close_price, reason  # V42:盘中冲高后大幅回撤,以close价卖出
     elif reason in ('冲高回落', '高开即卖'):
         return open_price, reason
     else:
@@ -271,6 +274,45 @@ def check_profit_protect(holding, market_data, params):
     return None
 
 
+def check_intraday_profit_lock(holding, market_data, params):
+    """【V42新增】盘中利润锁定: 涨幅≥6%但从高点回撤≥2.5%→以close价卖出
+
+    场景: 持仓盘中冲高8%+但收盘回落到5%,虽然未触发止盈但利润大量回吐。
+    此信号在利润保护之上、止盈之下,保护"冲高后大幅回落但仍有利润"的场景。
+
+    逻辑: 必须同时满足:
+    1. high_rise >= min_high_rise (盘中冲高足够,默认6%)
+    2. close < high 且 (high-close)/high >= pullback_pct (从高点回撤足够,默认2.5%)
+    3. close_rise >= min_profit (收盘仍有利润,默认2%)
+
+    注意: 此信号与止盈不冲突——止盈是high触达止盈价(无论收盘如何),
+    利润锁定是high远离止盈价但close回吐太多利润。
+    """
+    open_price = market_data.get('open', 0)
+    close_price = market_data.get('close', 0)
+    high_price = market_data.get('high', 0)
+    cost = holding.get('cost', 0)
+
+    if cost <= 0 or close_price <= 0 or high_price <= 0:
+        return None
+
+    high_rise = (high_price / cost - 1)
+    close_rise = (close_price / cost - 1)
+
+    # 参数
+    min_high_rise = params.get('intraday_lock_min_high_rise', 0.06)  # 盘中冲高≥6%
+    pullback_pct = params.get('intraday_lock_pullback_pct', 0.025)     # 从高点回撤≥2.5%
+    min_profit = params.get('intraday_lock_min_profit', 0.02)         # 收盘仍≥2%利润
+
+    # 必须冲高足够 + 从高点回撤 + 收盘仍有利润
+    if high_rise >= min_high_rise and close_price < high_price:
+        intraday_pullback = (high_price - close_price) / high_price
+        if intraday_pullback >= pullback_pct and close_rise >= min_profit:
+            return (close_price, '利润锁定')
+
+    return None
+
+
 def check_high_open_sell(holding, market_data, params):
     """高开即卖检查(首板打板专用): 高开≥阈值→以open价卖出
 
@@ -383,6 +425,14 @@ STRATEGY_SELL_SIGNALS = {
     '首板打板': [
         SellSignal('高开即卖', 1, check_high_open_sell),
     ],
+}
+
+# 【V42:盘中利润锁定信号——仅在check_full_sell中使用,需要high_price】
+INTRADAY_PROFIT_LOCK_SIGNALS = {
+    '半路追涨': SellSignal('利润锁定', 2, check_intraday_profit_lock),  # 利润保护之后、止盈之前
+    '跌停翘板': SellSignal('利润锁定', 2, check_intraday_profit_lock),
+    '龙头低吸': SellSignal('利润锁定', 2, check_intraday_profit_lock),
+    '首板打板': SellSignal('利润锁定', 2, check_intraday_profit_lock),
 }
 
 # 策略级冲高回落参数差异
@@ -531,6 +581,14 @@ class SellSignalChecker:
                     if best_early_result is None:
                         best_early_result = result
                     break  # 该策略只返回最高优先级信号
+
+            # 【V42:盘中利润锁定——需要high_price,仅在check_full_sell中使用】
+            # 逻辑: 盘中冲高≥8%但从高点回撤≥3%→以close价卖出(利润保护与止盈之间的缓冲层)
+            lock_signal = INTRADAY_PROFIT_LOCK_SIGNALS.get(strategy_name)
+            if lock_signal:
+                result = lock_signal.check(holding, market_data, params)
+                if result and (best_early_result is None):
+                    best_early_result = result
 
         if best_early_result:
             return best_early_result

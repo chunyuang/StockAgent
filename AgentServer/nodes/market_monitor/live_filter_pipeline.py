@@ -63,7 +63,6 @@ class LiveFilterPipeline:
     # 策略优先级（同时多策略选中同一股票时，按优先级取）
     STRATEGY_PRIORITY = {
         "dragon_head": 1,         # 龙头低吸最高优先
-        "dragon_head": 1,
         "limit_down_qiao": 2,     # 跌停翘板
         "first_limit_up": 3,      # 首板打板
         "halfway_chase": 4,       # 半路追涨

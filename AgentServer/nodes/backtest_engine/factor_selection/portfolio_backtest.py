@@ -257,6 +257,26 @@ class PortfolioBacktester:
                     forced_sell_codes.append((code, f'止盈({tp_pct*100:.0f}%)'))
                     forced_sell_codes_set.add(code)
 
+            # === 2.5 盘中利润锁定(V42) ===
+            # 盘中冲高≥6%但从高点回撤≥2.5%→以close价卖出
+            # 此信号在止盈之下(止盈价未触达但利润已大幅回吐),保护利润不被完全回撤
+            if code not in forced_sell_codes_set:
+                high_p = p.get('high', p.get('close', 0))
+                _close_p = p.get('close', 0)
+                if high_p > 0 and _close_p > 0 and cost > 0:
+                    high_rise = (high_p / cost - 1)
+                    close_rise = (_close_p / cost - 1)
+                    # 参数: 盘中冲高≥6%, 从高点回撤≥2.5%, 收盘仍≥2%利润
+                    lock_min_high = 0.06
+                    lock_pullback = 0.025
+                    lock_min_profit = 0.02
+                    if high_rise >= lock_min_high and _close_p < high_p:
+                        intraday_pullback = (high_p - _close_p) / high_p
+                        if intraday_pullback >= lock_pullback and close_rise >= lock_min_profit:
+                            forced_sell_prices[code] = _close_p
+                            forced_sell_codes.append((code, '利润锁定'))
+                            forced_sell_codes_set.add(code)
+
             # === 3. 超时强卖 ===
             if check_timeout and code not in forced_sell_codes_set:
                 buy_date_raw = self._cost_basis_date.get(code)
