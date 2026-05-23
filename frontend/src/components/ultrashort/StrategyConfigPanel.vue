@@ -44,7 +44,7 @@ const auctionFilterTitle = computed(() => `⏰ 竞价过滤 ${props.form.auction
 
 const halfwayChaseTitle = computed(() => `🏃\u200d♂️ 半路追涨策略 ${props.form.strategyConfigs.halfway_chase.enabled ? '\u2705' : '\u274c'} (涨幅${(props.form.strategyConfigs.halfway_chase.params.min_rise_pct * 100).toFixed(1)}%~${(props.form.strategyConfigs.halfway_chase.params.max_rise_pct * 100).toFixed(1)}%, 量比${props.form.strategyConfigs.halfway_chase.params.min_volume_ratio}~${props.form.strategyConfigs.halfway_chase.params.max_volume_ratio}, 收盘涨幅≥${(props.form.strategyConfigs.halfway_chase.params.min_close_rise_pct * 100).toFixed(1)}%, 开盘≤${(props.form.strategyConfigs.halfway_chase.params.max_open_rise_pct * 100).toFixed(1)}%, 止损${(props.form.strategyConfigs.halfway_chase.riskParams.stop_loss_pct * 100).toFixed(0)}%/止盈${(props.form.strategyConfigs.halfway_chase.riskParams.take_profit_pct * 100).toFixed(0)}%)`)
 const firstLimitUpTitle = computed(() => `🥇 首板打板策略 ${props.form.strategyConfigs.first_limit_up.enabled ? '✅' : '❌'} (开盘${props.form.strategyConfigs.first_limit_up.params.opening_pct_min}%~${props.form.strategyConfigs.first_limit_up.params.opening_pct_max}%, 量比≥${props.form.strategyConfigs.first_limit_up.params.min_volume_ratio}, 换手${props.form.strategyConfigs.first_limit_up.params.min_turnover_rate}%~${props.form.strategyConfigs.first_limit_up.params.max_turnover_rate}%, 流通市值${props.form.strategyConfigs.first_limit_up.params.min_circulation_market_cap}~${props.form.strategyConfigs.first_limit_up.params.max_circulation_market_cap}亿, 止损${(props.form.strategyConfigs.first_limit_up.riskParams.stop_loss_pct * 100).toFixed(0)}%/止盈${(props.form.strategyConfigs.first_limit_up.riskParams.take_profit_pct * 100).toFixed(0)}%)`)
-const limitUpOpenTitle = computed(() => `📈 涨停开板策略 ${props.form.strategyConfigs.limit_up_open.enabled ? '\u2705' : '\u274c'} (连板≥${props.form.strategyConfigs.limit_up_open.params.min_consecutive_limit}板, 开板≤${props.form.strategyConfigs.limit_up_open.params.max_open_duration}分钟, 回封封单≥${props.form.strategyConfigs.limit_up_open.params.min_qiao_hands / 10000}万手, 止损${(props.form.strategyConfigs.limit_up_open.riskParams.stop_loss_pct * 100).toFixed(0)}%/止盈${(props.form.strategyConfigs.limit_up_open.riskParams.take_profit_pct * 100).toFixed(0)}%)`)
+const limitUpOpenTitle = computed(() => `📈 涨停开板策略 ${props.form.strategyConfigs.limit_up_open.enabled ? '\u2705' : '\u274c'} (连板≥${props.form.strategyConfigs.limit_up_open.params.min_consecutive_limit}板, 开板≤${props.form.strategyConfigs.limit_up_open.params.max_open_duration}分钟, 封单≥${props.form.strategyConfigs.limit_up_open.params.min_seal_after_open}万, 止损${(props.form.strategyConfigs.limit_up_open.riskParams.stop_loss_pct * 100).toFixed(0)}%/止盈${(props.form.strategyConfigs.limit_up_open.riskParams.take_profit_pct * 100).toFixed(0)}%)`)
 const dragonHeadTitle = computed(() => `🐲 龙头低吸策略 ${props.form.strategyConfigs.dragon_head.enabled ? '\u2705' : '\u274c'} (连板≥${props.form.strategyConfigs.dragon_head.params.min_consecutive_limit}板, 回调${(props.form.strategyConfigs.dragon_head.params.min_correction_pct * 100).toFixed(0)}%~${(props.form.strategyConfigs.dragon_head.params.max_correction_pct * 100).toFixed(0)}%, 量比${props.form.strategyConfigs.dragon_head.params.min_volume_ratio}~${props.form.strategyConfigs.dragon_head.params.max_volume_ratio}, 回调${props.form.strategyConfigs.dragon_head.params.correction_days_min}~${props.form.strategyConfigs.dragon_head.params.correction_days_max}天, 止损${(props.form.strategyConfigs.dragon_head.riskParams.stop_loss_pct * 100).toFixed(0)}%/止盈${(props.form.strategyConfigs.dragon_head.riskParams.take_profit_pct * 100).toFixed(0)}%)`)
 const limitDownQiaoTitle = computed(() => `💥 跌停翘板策略 ${props.form.strategyConfigs.limit_down_qiao.enabled ? '\u2705' : '\u274c'} (连跌≥${props.form.strategyConfigs.limit_down_qiao.params.min_consecutive_limit}天, 翘板金额≥${props.form.strategyConfigs.limit_down_qiao.params.min_qiao_amount}万, 翘板后涨幅≥${(props.form.strategyConfigs.limit_down_qiao.params.min_rise_after_qiao * 100).toFixed(0)}%, 流通市值≥${props.form.strategyConfigs.limit_down_qiao.params.min_circulation_market_cap}亿, 止损${(props.form.strategyConfigs.limit_down_qiao.riskParams.stop_loss_pct * 100).toFixed(0)}%/止盈${(props.form.strategyConfigs.limit_down_qiao.riskParams.take_profit_pct * 100).toFixed(0)}%)`)
 
@@ -127,7 +127,7 @@ const configMode = ref<'edit' | 'flow'>('edit')
 // Toggle 辅助
 function toggleStrategy(strategyId: string) {
   const cfg = props.form.strategyConfigs[strategyId]
-  cfg.enabled = !cfg.enabled
+  // v-model already toggled enabled, just sync strategies array
   if (cfg.enabled) {
     if (!props.form.strategies.includes(strategyId)) props.form.strategies.push(strategyId)
   } else {
@@ -1310,9 +1310,9 @@ export default { name: 'StrategyConfigPanel' }
   padding-right: 40px !important;
   color: var(--text-primary);
   border-bottom: 2px solid var(--border-default) !important;
-  font-size: 13px;
-  line-height: 1.4;
-  min-height: 40px;
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 44px;
   height: auto !important;
 }
 :deep(.el-collapse-item__header::-webkit-scrollbar) { height: 4px; }
