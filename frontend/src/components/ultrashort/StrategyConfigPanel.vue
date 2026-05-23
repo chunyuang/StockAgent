@@ -1040,23 +1040,45 @@ export default { name: 'StrategyConfigPanel' }
 /* 展开区域左右布局 */
 .collapse-content {
   display: flex;
-  gap: 20px;
-  align-items: flex-start;
+  gap: 0;
+  align-items: stretch;
+  position: relative;
 }
 .collapse-content-left {
   flex: 1;
   min-width: 0;
+  padding-right: 16px;
 }
 .collapse-content-right {
-  width: 260px;
+  width: 270px;
   flex-shrink: 0;
-  position: sticky;
-  top: 0;
-  align-self: center;
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding-left: 24px;
+  &::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 10%;
+    bottom: 10%;
+    width: 1px;
+    background: var(--border-default);
+  }
+  &::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    width: 12px;
+    height: 1px;
+    background: var(--primary-300);
+  }
 }
 .desc-panel {
   background: var(--bg-muted);
   border: 1px solid var(--border-default);
+  border-left: 3px solid var(--primary-400);
   border-radius: 6px;
   padding: 14px 16px;
 }
