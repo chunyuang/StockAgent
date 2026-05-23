@@ -282,7 +282,9 @@ class FactorEngine:
                                         "first_limit_up", "is_limit_up", "high", "close"]:
                                 if col in prev_df.columns:
                                     prev_map = dict(zip(prev_df["ts_code"], prev_df[col]))
-                                    result[f"{col}_prev"] = result["ts_code"].map(prev_map).fillna(0)
+                                    result[f"{col}_prev"] = result["ts_code"].map(prev_map)
+                                    # V33:不再fillna(0)!旧:fillna(0)导致新股_prev=0被>=条件误杀
+                                    # 新:NaN不参与pandas比较,筛选条件自动跳过缺失值
                             logger.info(f"FACTOR_ENGINE: [V18] 已查询T-1({_prev_date_cached})数据生成_prev因子，消除未来函数")
             except Exception as e:
                 logger.warning(f"FACTOR_ENGINE: [V18] T-1数据查询失败: {e}, _prev因子将为0")
