@@ -1536,6 +1536,35 @@ class MarketScanner:
             elif pos.profit_pct >= take_profit_pct:
                 sell_reason = f"止盈 {pos.profit_pct:.1f}%"
 
+            # 【V42:冲高回落/利润保护/利润锁定——与回测sell_signal_checker对齐】
+            # 实盘优势: 盘中可观测实时open/current_price, 无未来函数问题
+            if not sell_reason and pos.avg_cost > 0:
+                open_rise = (today_open / pos.avg_cost - 1) if today_open > 0 else 0
+                close_rise = pos.profit_pct / 100  # 小数形式
+                next_day_sell_pct = risk.get("next_day_open_sell_pct", 0.03)
+
+                # 冲高回落: 高开≥3%且高开低收(current<open)
+                if open_rise >= next_day_sell_pct and pos.current_price < today_open:
+                    # 高开≥5%直接触发, 3%-5%需回落≥1%
+                    if open_rise >= 0.05:
+                        sell_reason = f"冲高回落(开涨{open_rise*100:.1f}%)"
+                        sell_price = today_open  # 以open卖出
+                    elif (today_open - pos.current_price) / today_open >= 0.01:
+                        sell_reason = f"冲高回落(开涨{open_rise*100:.1f}%回落)"
+                        sell_price = today_open
+
+                # 利润保护: 高开≥2%+收盘≥2%+高开低收
+                if not sell_reason and open_rise >= 0.02 and close_rise >= 0.02 and pos.current_price < today_open:
+                    sell_reason = f"利润保护(收涨{close_rise*100:.1f}%)"
+                    sell_price = pos.current_price  # 以close卖出
+
+                # 高开即卖(首板打板专用): 高开≥3%
+                if not sell_reason and open_rise >= next_day_sell_pct:
+                    strategy_name = getattr(pos, 'strategy', '')
+                    if strategy_name in ('first_limit_up', '首板打板'):
+                        sell_reason = f"高开即卖(开涨{open_rise*100:.1f}%)"
+                        sell_price = today_open
+
             if sell_reason:
                 to_sell.append((pos, sell_reason, sell_price, risk))
 
