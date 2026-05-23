@@ -137,36 +137,36 @@
 // ==================== Dark Mode ====================
 
 html.dark {
-  // ========== 背景色系 (深度层级) ==========
-  --bg-base: #0A0A0F;           // 底层背景 - 近纯黑，深邃
-  --bg-elevated: #12121A;       // 卡片背景 - 比底层亮一阶
-  --bg-surface: #16161F;        // 内容表面 - 再亮一阶
-  --bg-muted: #1C1C26;          // 次要背景
-  --bg-subtle: #252530;         // 更浅的背景
-  --bg-inset: #0A0A0F;          // 嵌入区域
-  --bg-card: #12121A;           // 卡片背景
-  --bg-secondary: #1C1C26;      // 次级背景
-  --bg-tertiary: #252530;       // 三级背景
+  // ========== 背景色系 (深蓝灰层级,类似IDE暗色主题) ==========
+  --bg-base: #141c2e;           // 底层背景 - 深蓝灰(不是纯黑,眼睛更舒适)
+  --bg-elevated: #1a2332;       // 卡片背景 - 比底层亮一阶
+  --bg-surface: #1e2a3a;        // 内容表面 - 再亮一阶
+  --bg-muted: #16213e;          // 次要背景/表头
+  --bg-subtle: #243447;         // 更浅的背景
+  --bg-inset: #141c2e;          // 嵌入区域
+  --bg-card: #1a2332;           // 卡片背景
+  --bg-secondary: #16213e;      // 次级背景
+  --bg-tertiary: #243447;       // 三级背景
   
   // 交互背景 - 从透明到微亮的渐变
-  --bg-hover: rgba(255, 255, 255, 0.03);
-  --bg-active: rgba(255, 255, 255, 0.06);
-  --bg-selected: rgba(59, 130, 246, 0.12);
+  --bg-hover: rgba(99, 179, 237, 0.06);
+  --bg-active: rgba(99, 179, 237, 0.10);
+  --bg-selected: rgba(59, 130, 246, 0.15);
 
   // ========== 文字色系 (对比度层级) ==========
-  --text-primary: #FFFFFF;      // 纯白 - 标题/重要内容
-  --text-secondary: #94A3B8;    // 中灰 - 正文
-  --text-tertiary: #64748B;     // 次要信息
-  --text-muted: #475569;        // 时间、背景水印
-  --text-placeholder: #374151;  // 占位符
-  --text-inverse: #0A0A0F;      // 反色文字
+  --text-primary: #e2e8f0;      // 亮白灰 - 标题/重要内容(不是纯白,更柔和)
+  --text-secondary: #a0aec0;    // 中灰 - 正文
+  --text-tertiary: #718096;     // 次要信息
+  --text-muted: #5a6577;        // 时间、背景水印
+  --text-placeholder: #4a5568;  // 占位符
+  --text-inverse: #141c2e;      // 反色文字
 
   // ========== 边框色系 (用边框代替阴影) ==========
-  --border-default: rgba(255, 255, 255, 0.05);  // 卡片边框
-  --border-light: rgba(255, 255, 255, 0.03);    // 轻量边框
-  --border-muted: rgba(255, 255, 255, 0.08);    // 更明显的边框
+  --border-default: rgba(255, 255, 255, 0.08);  // 卡片边框
+  --border-light: rgba(255, 255, 255, 0.05);    // 轻量边框
+  --border-muted: rgba(255, 255, 255, 0.12);    // 更明显的边框
   --border-focus: #3b82f6;
-  --border-hover: rgba(255, 255, 255, 0.1);
+  --border-hover: rgba(255, 255, 255, 0.15);
 
   // ========== 阴影系统 (暗色模式取消投影，用边框代替) ==========
   --shadow-xs: none;
@@ -203,25 +203,25 @@ html.dark {
   --gradient-card: linear-gradient(180deg, rgba(18,18,26,0.95) 0%, rgba(10,10,15,0.9) 100%);
   --gradient-sidebar: linear-gradient(180deg, #0A0A0F 0%, #12121A 100%);
 
-  // ========== 侧边栏 (深色一体化) ==========
-  --sidebar-bg: linear-gradient(180deg, #0A0A0F 0%, #12121A 100%);
-  --sidebar-text: rgba(255, 255, 255, 0.5);
-  --sidebar-text-active: #ffffff;
-  --sidebar-hover-bg: rgba(255, 255, 255, 0.04);
+  // ========== 侧边栏 (深蓝灰一体化) ==========
+  --sidebar-bg: linear-gradient(180deg, #0f1724 0%, #141c2e 100%);
+  --sidebar-text: rgba(255, 255, 255, 0.55);
+  --sidebar-text-active: #e2e8f0;
+  --sidebar-hover-bg: rgba(99, 179, 237, 0.08);
   --sidebar-active-bg: var(--primary-600);
-  --sidebar-border: rgba(255, 255, 255, 0.05);
+  --sidebar-border: rgba(255, 255, 255, 0.06);
 
   // ========== 顶部栏 ==========
-  --header-bg: #12121A;
-  --header-border: rgba(255, 255, 255, 0.05);
+  --header-bg: #1a2332;
+  --header-border: rgba(255, 255, 255, 0.08);
 
   // ========== 图表 (网格线若隐若现) ==========
   --chart-bg: transparent;
-  --chart-grid: rgba(255, 255, 255, 0.03);   // 极低透明度
-  --chart-axis: #64748B;
-  --chart-tooltip-bg: rgba(18, 18, 26, 0.98);
-  --chart-tooltip-border: rgba(255, 255, 255, 0.08);
-  --chart-tooltip-text: #FFFFFF;
+  --chart-grid: rgba(255, 255, 255, 0.05);
+  --chart-axis: #718096;
+  --chart-tooltip-bg: rgba(26, 35, 50, 0.98);
+  --chart-tooltip-border: rgba(255, 255, 255, 0.10);
+  --chart-tooltip-text: #e2e8f0;
 }
 
 // ==================== 通用样式 ====================
