@@ -260,16 +260,17 @@ class PortfolioBacktester:
             # === 2.5 盘中利润锁定(V42) ===
             # 盘中冲高≥6%但从高点回撤≥2.5%→以close价卖出
             # 此信号在止盈之下(止盈价未触达但利润已大幅回吐),保护利润不被完全回撤
+            # 【V46:参数从strategy_defaults读取,不再硬编码】
             if code not in forced_sell_codes_set:
                 high_p = p.get('high', p.get('close', 0))
                 _close_p = p.get('close', 0)
                 if high_p > 0 and _close_p > 0 and cost > 0:
                     high_rise = (high_p / cost - 1)
                     close_rise = (_close_p / cost - 1)
-                    # 参数: 盘中冲高≥6%, 从高点回撤≥2.5%, 收盘仍≥2%利润
-                    lock_min_high = 0.06
-                    lock_pullback = 0.025
-                    lock_min_profit = 0.02
+                    # 从GLOBAL_RISK读取,与strategy_defaults统一管理
+                    lock_min_high = self._risk_config.get('intraday_lock_min_high_rise', 0.06)
+                    lock_pullback = self._risk_config.get('intraday_lock_pullback_pct', 0.025)
+                    lock_min_profit = self._risk_config.get('intraday_lock_min_profit', 0.02)
                     if high_rise >= lock_min_high and _close_p < high_p:
                         intraday_pullback = (high_p - _close_p) / high_p
                         if intraday_pullback >= lock_pullback and close_rise >= lock_min_profit:
@@ -3472,7 +3473,7 @@ class PortfolioBacktester:
             ]
         elif strategy_name == "涨停开板":
             min_consecutive = converted_params.get("min_consecutive_limit") if converted_params.get("min_consecutive_limit") is not None else strategy_defaults.get("min_consecutive_limit", 2)
-            max_consecutive = converted_params.get("max_consecutive_limit", 4)
+            max_consecutive = converted_params.get("max_consecutive_limit") if converted_params.get("max_consecutive_limit") is not None else strategy_defaults.get("max_consecutive_limit", 4)
             _raw_turnover = converted_params.get("min_turnover_rate")
             min_turnover = _raw_turnover if _raw_turnover is not None else strategy_defaults.get("min_turnover_rate", 15.0)
             min_volume_ratio = converted_params.get("min_volume_ratio") if converted_params.get("min_volume_ratio") is not None else strategy_defaults.get("min_volume_ratio", 2.0)

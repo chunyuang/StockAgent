@@ -25,6 +25,9 @@ GLOBAL_RISK = {
     "force_empty_limit_down": 80,   # 跌停≥80只触发强制空仓
     "force_empty_limit_up": 10,     # 涨停≤10只触发强制空仓
     "force_empty_index_drop_pct": 0.03,  # 大盘跌幅≥3%触发强制空仓
+    "intraday_lock_min_high_rise": 0.06,  # 盘中利润锁定:冲高≥6%
+    "intraday_lock_pullback_pct": 0.025,  # 盘中利润锁定:从高点回撤≥2.5%
+    "intraday_lock_min_profit": 0.02,     # 盘中利润锁定:收盘仍≥2%利润
     "live_trading_mode": False,     # 【V29:实盘模式开关】True时pct_chg等T日因子降级为_prev
 }
 
@@ -91,6 +94,7 @@ STRATEGY_CONFIGS = {
         "enabled": False,  # 默认关闭：胜率<30%
         "params": {
             "min_consecutive_limit": 2,                 # 最小连板数
+            "max_consecutive_limit": 4,                 # 最大连板数(4板以上风险大)
             "max_open_duration": 5,                     # 最大开板时长(分钟)
             "min_seal_after_open": 3000,                # 开板后最小封单(万元)
             "min_turnover_rate": 15.0,                  # 换手率≥15%(统一为百分比形式)
