@@ -63,7 +63,7 @@ STRATEGY_CONFIGS = {
     "first_limit_up": {
         "id": "first_limit_up",
         "name": "首板打板",
-        "enabled": False,  # 【V26:禁用】回测验证胜率仅44.8%,拖累组合(3策略vs4策略:收益+8.78%/胜率+6.54%/回撤-0.50%)
+        "enabled": True,  # 首板打板策略，配合成交概率模拟
         "params": {
             "opening_pct_min": -1.0,                      # 竞价涨幅下限%(放宽:低开也能涨停)
             "opening_pct_max": 7.0,                      # 竞价涨幅上限%(放宽:高开7%内都考虑)
