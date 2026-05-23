@@ -192,26 +192,47 @@ function onSweepParamChange() {
 
     <!-- 参数扫描配置 -->
     <div v-if="form.sweep.enabled" class="sweep-config">
-      <div class="sweep-config-title">🔬 参数扫描配置</div>
-      <ElForm label-width="120px" size="small">
-        <ElFormItem label="扫描参数">
-          <ElSelect v-model="form.sweep.param" @change="onSweepParamChange" style="width: 200px">
-            <ElOption v-for="p in SWEEP_PARAMS" :key="p.value" :label="p.label" :value="p.value" />
-          </ElSelect>
-        </ElFormItem>
-        <ElFormItem label="起始值">
-          <ElInputNumber v-model="form.sweep.start" :min="0" :step="0.01" :precision="3" style="width: 150px" />
-          <span class="unit">{{ currentSweepParam ? (form.sweep.start * currentSweepParam.factor).toFixed(currentSweepParam.factor > 1 ? 0 : 1) + currentSweepParam.unit : '' }}</span>
-        </ElFormItem>
-        <ElFormItem label="结束值">
-          <ElInputNumber v-model="form.sweep.end" :min="0" :step="0.01" :precision="3" style="width: 150px" />
-          <span class="unit">{{ currentSweepParam ? (form.sweep.end * currentSweepParam.factor).toFixed(currentSweepParam.factor > 1 ? 0 : 1) + currentSweepParam.unit : '' }}</span>
-        </ElFormItem>
-        <ElFormItem label="步长">
-          <ElInputNumber v-model="form.sweep.step" :min="0.001" :step="0.01" :precision="3" style="width: 150px" />
-          <span class="unit">{{ currentSweepParam ? (form.sweep.step * currentSweepParam.factor).toFixed(currentSweepParam.factor > 1 ? 0 : 1) + currentSweepParam.unit : '' }}</span>
-        </ElFormItem>
-      </ElForm>
+      <div class="sweep-config-layout">
+        <div class="sweep-config-left">
+          <div class="sweep-config-title">🔬 参数扫描配置</div>
+          <ElForm label-width="120px" size="small">
+            <ElFormItem label="扫描参数">
+              <ElSelect v-model="form.sweep.param" @change="onSweepParamChange" style="width: 200px">
+                <ElOption v-for="p in SWEEP_PARAMS" :key="p.value" :label="p.label" :value="p.value" />
+              </ElSelect>
+            </ElFormItem>
+            <ElFormItem label="起始值">
+              <ElInputNumber v-model="form.sweep.start" :min="0" :step="0.01" :precision="3" style="width: 150px" />
+              <span class="unit">{{ currentSweepParam ? (form.sweep.start * currentSweepParam.factor).toFixed(currentSweepParam.factor > 1 ? 0 : 1) + currentSweepParam.unit : '' }}</span>
+            </ElFormItem>
+            <ElFormItem label="结束值">
+              <ElInputNumber v-model="form.sweep.end" :min="0" :step="0.01" :precision="3" style="width: 150px" />
+              <span class="unit">{{ currentSweepParam ? (form.sweep.end * currentSweepParam.factor).toFixed(currentSweepParam.factor > 1 ? 0 : 1) + currentSweepParam.unit : '' }}</span>
+            </ElFormItem>
+            <ElFormItem label="步长">
+              <ElInputNumber v-model="form.sweep.step" :min="0.001" :step="0.01" :precision="3" style="width: 150px" />
+              <span class="unit">{{ currentSweepParam ? (form.sweep.step * currentSweepParam.factor).toFixed(currentSweepParam.factor > 1 ? 0 : 1) + currentSweepParam.unit : '' }}</span>
+            </ElFormItem>
+          </ElForm>
+        </div>
+        <div class="sweep-config-right">
+          <div class="desc-panel-title">🔬 参数扫描说明</div>
+          <div class="desc-panel-text">对选定参数在指定范围内按步长遍历，每个值独立跑一次完整回测，最终对比不同参数值下的收益/胜率/回撤，找到最优参数组合。</div>
+          <div class="desc-panel-tips-title">📊 可扫描参数</div>
+          <div class="desc-panel-tip">止损比例 — 测试不同止损宽度对收益和胜率的影响，范围1%~20%</div>
+          <div class="desc-panel-tip">止盈比例 — 测试不同止盈目标对最终收益的影响，范围1%~50%</div>
+          <div class="desc-panel-tip">最大持仓天数 — 测试持股时长与收益的关系，范围1~10天</div>
+          <div class="desc-panel-tip">单票最大仓位 — 测试集中度对风险收益的影响，范围5%~50%</div>
+          <div class="desc-panel-tip">总仓位上限 — 测试仓位管理对整体表现的影响，范围10%~100%</div>
+          <div class="desc-panel-tip">半路追涨最小涨幅 — 优化追涨入场的最佳涨幅阈值</div>
+          <div class="desc-panel-tip">最小量比 — 优化放量确认的最佳量比阈值</div>
+          <div class="desc-panel-tips-title">💡 使用建议</div>
+          <div class="desc-panel-tip">步长不宜过小，否则扫描次数过多耗时很长</div>
+          <div class="desc-panel-tip">止损扫描步长建议1%，止盈步长建议5%</div>
+          <div class="desc-panel-tip">先粗扫确定大致范围，再细扫精确定位最优值</div>
+          <div class="desc-panel-tip">扫描结果会生成参数-收益对比图表，直观展示最优区间</div>
+        </div>
+      </div>
     </div>
 
     <ElCollapse v-model="activeCollapse">
@@ -1270,9 +1291,21 @@ export default { name: 'StrategyConfigPanel' }
   border-radius: 6px;
   margin-bottom: 12px;
   border: 1px dashed var(--primary-400);
+  .sweep-config-layout {
+    display: flex;
+    gap: 24px;
+    align-items: flex-start;
+  }
+  .sweep-config-left {
+    flex: 0 0 380px;
+  }
+  .sweep-config-right {
+    flex: 1;
+    min-width: 0;
+  }
   .sweep-config-title {
     font-weight: 600;
-    font-size: 13px;
+    font-size: 14px;
     color: var(--primary-500);
     margin-bottom: 8px;
   }
