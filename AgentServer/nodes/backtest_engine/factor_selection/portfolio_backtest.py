@@ -1461,7 +1461,7 @@ class PortfolioBacktester:
                             strategy_name=_fs_strategy,
                             sentiment=sentiment_level
                         ))
-                        holdings[code] = 0
+                        holdings.pop(code, None)
                 # 【P1-7修复:强制空仓清仓时清理cost_basis】
                 if self._cost_basis:
                     for code in list(self._cost_basis.keys()):
@@ -3814,6 +3814,30 @@ class PortfolioBacktester:
                 sell_codes.remove(code)
         if t1_blocked:
             logger.info(f"[T+1] 当日买入不可卖: {','.join(t1_blocked[:5])}{'...' if len(t1_blocked)>5 else ''}")
+        # 【V34:持仓保护 - 盈利股不让调仓随意卖出,让止盈/保护性卖出自然退出】
+        # 逻辑:如果持仓盈利≥5%且当日收阳线,即使不在目标池中也不因调仓卖出
+        # 原因:调仓卖出会错过后续大涨(如龙头低吸盈利8%被调仓卖,次日冲高15%)
+        # 保护性卖出(冲高回落/利润保护/止损/止盈)仍然正常触发
+        hold_protection_pct = self._risk_config.get('hold_protection_threshold', 0.05)
+        if hold_protection_pct > 0:
+            protected_codes = []
+            for code in list(sell_codes):
+                if code not in holdings or holdings.get(code, 0) <= 0:
+                    continue
+                cost = self._cost_basis.get(code, 0)
+                p = prices.get(code, {})
+                close_p = p.get('close', 0)
+                open_p = p.get('open', close_p)
+                if cost > 0 and close_p > 0:
+                    profit_pct = (close_p / cost - 1)
+                    is_yang_line = close_p >= open_p  # 收阳线
+                    if profit_pct >= hold_protection_pct and is_yang_line:
+                        protected_codes.append(code)
+            for code in protected_codes:
+                sell_codes.remove(code)
+            if protected_codes:
+                logger.debug('backtest', f"[持仓保护] 盈利+阳线,不调仓卖出: {','.join(protected_codes[:5])}")
+
         # 【P1-1修复:超过max_hold_days的持仓强制卖出,即使仍在目标池中】
         # 【P1-2修复(V15):改用交易日计算超时,替代日历天数*1.5】
         # 旧逻辑: 日历天数>max_hold*1.5 → 周中买入易误触发
@@ -3967,11 +3991,11 @@ class PortfolioBacktester:
                             date=str(trade_date), action="sell", ts_code=ts_code,
                             shares=shares, price=price, amount=net_amount,
                             reason=sell_reason, sentiment=sentiment))
-                        holdings[ts_code] = 0
+                        holdings.pop(ts_code, None)
                         if ts_code in self._cost_basis:
                             del self._cost_basis[ts_code]
-                            if ts_code in self._cost_basis_date:
-                                del self._cost_basis_date[ts_code]
+                        if ts_code in self._cost_basis_date:
+                            del self._cost_basis_date[ts_code]
                 continue
 
             # 判断盘中是否触发止损/止盈(基于实际买入成本)
@@ -4041,13 +4065,14 @@ class PortfolioBacktester:
                 sentiment=sentiment
             ))
 
-            # 清空持仓
-            holdings[ts_code] = 0
+            # 清空持仓并彻底删除key(不要保留shares=0的残留)
+            # 旧bug: holdings[ts_code]=0 保留key → 后续遍历仍需检查shares>0
             # 清理买入成本记录
+            del holdings[ts_code]
             if ts_code in self._cost_basis:
                 del self._cost_basis[ts_code]
-                if ts_code in self._cost_basis_date:
-                    del self._cost_basis_date[ts_code]
+            if ts_code in self._cost_basis_date:
+                del self._cost_basis_date[ts_code]
 
         # 再买入:目标持仓中需要增加的股票
         # 【V33关键修复:使用pos_mgr.target_shares而非局部target_shares】
@@ -4157,14 +4182,17 @@ class PortfolioBacktester:
             stamp_tax = gross_amount * self.STAMP_TAX
             net_amount = gross_amount - commission - stamp_tax
             cash += net_amount
-            holdings[ts_code] = shares - reduce_shares
+            new_shares = shares - reduce_shares
             records.append(RebalanceRecord(
                 date=str(trade_date), action="sell", ts_code=ts_code,
                 shares=reduce_shares, price=sell_price, amount=net_amount,
                 reason=sell_reason, sentiment=sentiment))
-            # 减仓后如果清零,删除cost_basis;部分减仓时保留(成本不变)
-            if holdings[ts_code] <= 0 and ts_code in self._cost_basis:
-                del self._cost_basis[ts_code]
+            if new_shares > 0:
+                holdings[ts_code] = new_shares
+            else:
+                holdings.pop(ts_code, None)
+                if ts_code in self._cost_basis:
+                    del self._cost_basis[ts_code]
                 if ts_code in self._cost_basis_date:
                     del self._cost_basis_date[ts_code]
 
