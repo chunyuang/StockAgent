@@ -5,6 +5,7 @@
  * 子组件：StrategyConfigPanel / AnsiLogPanel / BacktestSummaryTable / BacktestResultPanel
  */
 import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import StrategyConfigPanel from '@/components/ultrashort/StrategyConfigPanel.vue'
 import AnsiLogPanel from '@/components/backtest/AnsiLogPanel.vue'
@@ -677,7 +678,15 @@ const addLog = (text: string) => {
 
 // ==================== 历史回测操作 ====================
 
-const activeMainTab = ref<'config' | 'history' | 'data' | 'factors'>('config')
+const activeMainTab = ref<'config' | 'result' | 'history' | 'data' | 'factors'>('config')
+
+const router = useRouter()
+const isDark = ref(document.documentElement.classList.contains('dark'))
+function togglePageTheme() {
+  document.documentElement.classList.toggle('dark')
+  isDark.value = document.documentElement.classList.contains('dark')
+  localStorage.setItem('theme', isDark.value ? 'dark' : 'light')
+}
 const historyCount = ref(0)
 
 /** 从历史回测复用参数 */
@@ -728,27 +737,33 @@ function onViewLogs(taskId: string) {
       <div class="main-tabs">
         <span class="page-title-inline">超短策略回测</span>
         <button :class="['tab-btn', activeMainTab === 'config' ? 'active' : '']" @click="activeMainTab = 'config'">
-          🎯 配置
+          🎯 回测配置
         </button>
         <button :class="['tab-btn', activeMainTab === 'result' ? 'active' : '']" @click="activeMainTab = 'result'">
-          📈 结果
+          📈 日志与结果
           <span v-if="backtestResult" class="tab-badge-success">✓</span>
           <span v-else-if="backtestState.running" class="tab-badge-running">运行中</span>
         </button>
         <button :class="['tab-btn', activeMainTab === 'history' ? 'active' : '']" @click="activeMainTab = 'history'">
-          📋 历史
+          📋 回测历史
           <span class="tab-badge">{{ historyCount }}</span>
         </button>
         <button :class="['tab-btn', activeMainTab === 'data' ? 'active' : '']" @click="activeMainTab = 'data'">
-          🗄️ 数据
+          🗄️ 数据状态
         </button>
         <button :class="['tab-btn', activeMainTab === 'factors' ? 'active' : '']" @click="activeMainTab = 'factors'">
-          🔬 因子
+          🔬 因子参考
         </button>
       </div>
-      <ElButton :type="healthStatus==='ok'?'success':healthStatus==='error'?'danger':healthStatus==='warning'?'warning':'default'" :loading="healthLoading" @click="runHealthCheck" size="small">
-        {{ healthLoading ? '检查中...' : healthStatus==='ok' ? '✅ 服务正常' : healthStatus==='error' ? '❌ 服务异常' : '🔧 服务检查' }}
-      </ElButton>
+      <div class="header-right-inline">
+        <ElButton :type="healthStatus==='ok'?'success':healthStatus==='error'?'danger':healthStatus==='warning'?'warning':'default'" :loading="healthLoading" @click="runHealthCheck" size="small">
+          {{ healthLoading ? '检查中...' : healthStatus==='ok' ? '✅ 正常' : healthStatus==='error' ? '❌ 异常' : '🔧 检查' }}
+        </ElButton>
+        <button class="icon-btn" @click="togglePageTheme" :title="isDark ? '浅色模式' : '深色模式'">
+          {{ isDark ? '☀️' : '🌙' }}
+        </button>
+        <button class="icon-btn" @click="router.push('/settings')" title="设置">⚙️</button>
+      </div>
     </div>
 
     <!-- Tab内容：回测配置（全屏独立标签页） -->
@@ -949,6 +964,31 @@ function onViewLogs(taskId: string) {
   margin-right: 12px;
   white-space: nowrap;
   flex-shrink: 0;
+}
+
+.header-right-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+
+  .icon-btn {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-muted);
+    border: 1px solid var(--border-default);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 15px;
+    transition: all 0.2s;
+    &:hover {
+      background: var(--bg-hover);
+      border-color: var(--primary-200);
+    }
+  }
 }
 
 .running-status {
