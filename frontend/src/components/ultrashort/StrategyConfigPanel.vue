@@ -1048,10 +1048,11 @@ export default { name: 'StrategyConfigPanel' }
   flex: 1;
   min-width: 0;
   padding-right: 16px;
+  max-width: 50%;
 }
 .collapse-content-right {
-  width: 270px;
-  flex-shrink: 0;
+  flex: 1;
+  min-width: 0;
   position: relative;
   display: flex;
   align-items: center;
