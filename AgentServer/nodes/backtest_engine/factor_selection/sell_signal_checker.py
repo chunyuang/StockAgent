@@ -512,7 +512,10 @@ class SellSignalChecker:
             'cost': cost,
         }
 
-        # 按优先级检查所有信号
+        # 【V41优化:遍历所有策略的保护性信号,取最先触发的(而非只看第一个策略)】
+        # 旧: 只检查第一个策略就break,多策略同股时可能漏掉更严格的保护信号
+        # 新: 遍历所有策略的early_signals,取最先触发的
+        best_early_result = None
         for strategy_name in strategies:
             params = self._get_sell_params(strategy_name)
             if trade_days_held is not None:
@@ -525,30 +528,42 @@ class SellSignalChecker:
             for signal in early_signals:
                 result = signal.check(holding, market_data, params)
                 if result:
-                    return result
+                    if best_early_result is None:
+                        best_early_result = result
+                    break  # 该策略只返回最高优先级信号
 
-            # 2. 止损
+        if best_early_result:
+            return best_early_result
+
+        # 2. 止损/止盈/超时 — 取所有策略中最严格(止损取min,止盈取max)
+        for strategy_name in strategies:
+            params = self._get_sell_params(strategy_name)
+            if trade_days_held is not None:
+                max_hold = params.get('max_hold_days', 999)
+                params['trade_days_held'] = trade_days_held
+                params['max_hold_days'] = max_hold
+
+            # 止损
             enable_sl = self._risk_config.get('enable_stop_loss', True)
             if enable_sl:
                 result = check_stop_loss(holding, market_data, params)
                 if result:
                     return result
 
-            # 3. 止盈
+            # 止盈
             enable_tp = self._risk_config.get('enable_take_profit', True)
             if enable_tp:
                 result = check_take_profit(holding, market_data, params)
                 if result:
                     return result
 
-            # 4. 超时
+            # 超时
             if trade_days_held is not None:
                 result = check_timeout(holding, market_data, params)
                 if result:
                     return result
 
-            # 只需要检查第一个匹配策略的信号(多策略取最严格)
-            break
+            break  # 止损止盈参数已用min/max取最严格,只需检查一次
 
         return 0, ''
 

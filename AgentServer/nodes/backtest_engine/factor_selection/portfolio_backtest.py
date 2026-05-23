@@ -215,8 +215,23 @@ class PortfolioBacktester:
             # === 1. 冲高回落/利润保护/高开即卖 ===
             open_p = p.get('open', p.get('close', 0))
             _close_p = p.get('close', 0)
+
             early_sell_price, early_sell_reason = self._check_early_sell_signals(
                 code, strategies, cost, open_p, _close_p)
+            # 【V41修正:利润保护(close价卖出)且盘中触止损时,止损优先】
+            # 冲高回落/高开即卖 → 以open卖出,发生在开盘,先于盘中止损,不覆盖
+            # 利润保护 → 以close卖出,如果盘中low跌破止损,止损更保守应优先
+            if early_sell_price > 0 and enable_sl and early_sell_reason == '利润保护':
+                sl_pct, _ = self._get_sl_tp_for_code(code)
+                stop_price = cost * (1 - sl_pct)
+                low_p = p.get('low', p.get('close', 0))
+                if low_p <= stop_price:
+                    if open_p <= stop_price:
+                        early_sell_price = open_p
+                        early_sell_reason = '跳空止损'
+                    else:
+                        early_sell_price = stop_price
+                        early_sell_reason = f'止损({sl_pct*100:.0f}%)'
             if early_sell_price > 0:
                 forced_sell_prices[code] = early_sell_price
                 forced_sell_codes.append((code, early_sell_reason))
@@ -225,10 +240,10 @@ class PortfolioBacktester:
             # === 2. 止损/止盈 ===
             if code not in forced_sell_codes_set:
                 sl_pct, tp_pct = self._get_sl_tp_for_code(code)
-                low_p = p.get('low', p.get('close', 0))
-                high_p = p.get('high', p.get('close', 0))
                 stop_price = cost * (1 - sl_pct)
                 tp_price = cost * (1 + tp_pct)
+                low_p = p.get('low', p.get('close', 0))
+                high_p = p.get('high', p.get('close', 0))
                 if enable_sl and low_p <= stop_price:
                     if open_p <= stop_price:
                         forced_sell_prices[code] = open_p
@@ -2572,17 +2587,19 @@ class PortfolioBacktester:
 
         # 【修复#13:基于修复后的净值曲线正确计算夏普比率】
         # 夏普比率 = 平均日收益率 / 日收益率标准差 × sqrt(252)
-        # 假设无风险利率为0
+        # 【V41优化:用净值序列直接计算日收益率,避免daily_profit累积误差】
+        # 旧: daily_returns = profit / current_value + 累加, 累积误差导致夏普失真
+        # 新: daily_returns = (nv[i]/nv[i-1]) - 1, 直接从净值序列计算,更精确
         sharpe_ratio = 0.0
         # sortino_ratio/calmar_ratio/volatility 已在上方初始化(打印段需引用)
-        if len(daily_profit_list) > 1 and last_net_value > 0:
-            # 计算日收益率序列
+        if len(net_value_series) > 1 and last_net_value > 0:
+            # V41: 直接从净值序列计算日收益率
             daily_returns = []
-            current_value = self._initial_cash
-            for p in daily_profit_list:
-                if current_value > 0:
-                    daily_returns.append(p / current_value)
-                current_value += p
+            for i in range(1, len(net_value_series)):
+                prev_nv = net_value_series[i-1].get('net_value', self._initial_cash)
+                curr_nv = net_value_series[i].get('net_value', self._initial_cash)
+                if prev_nv > 0:
+                    daily_returns.append((curr_nv / prev_nv) - 1)
 
             # 计算平均日收益率和标准差
             if len(daily_returns) > 1:
@@ -2599,9 +2616,6 @@ class PortfolioBacktester:
                     sharpe_ratio = (avg_return - daily_rf) / std_return * math.sqrt(252)
 
                 # 【P1-7修复:索提诺比率(只考虑下行波动)】
-                # 【V30修复】标准索提诺比率:下行标准差相对于0(不是下行收益的均值)
-                # 旧: downside_variance = sum((r - avg_downside) ** 2) / N
-                # 新: downside_variance = sum(r ** 2) / N (目标收益率=0,只惩罚亏损)
                 downside_returns = [r for r in daily_returns if r < 0]
                 if len(downside_returns) > 0:
                     downside_variance = sum(r ** 2 for r in downside_returns) / len(daily_returns)
@@ -2609,17 +2623,21 @@ class PortfolioBacktester:
                     if downside_std > 0:
                         daily_rf = 0.03 / 252
                         raw_sortino = (avg_return - daily_rf) / downside_std * math.sqrt(252)
-                        # 【V31修复:Sortino上限保护】短期回测下行波动极低导致Sortino失真
-                        # 上限:Sortino通常<Sharpe*5,超过200视为不可靠
                         sortino_ratio = min(raw_sortino, 200.0)
                         if raw_sortino > 200.0:
                             logger.debug('backtest', f'Sortino={raw_sortino:.1f}超过200上限,下行波动过低')
 
-        # 【V40修复:Calmar比率上限从100→200】
-        # V31设100上限是为防短期年化膨胀，但3个月回测141.7的Calmar是有意义的真实值
-        # Calmar通常2-5x Sharpe，基线Sharpe=14.09, Calmar应允许到200
-        if max_drawdown > 0 and annualized_return != 0:
-            raw_calmar = annualized_return / max_drawdown
+        # 【V41修复:Calmar使用回测周期年化,短期回测自动收敛】
+        # 旧: annualized_return / max_drawdown, 49天回测年化膨胀→Calmar失真
+        # 新: 用total_return/trading_days算实际日化收益,乘252年化,短期自动收敛
+        if max_drawdown > 0:
+            if trading_days > 0:
+                # V41: 用真实收益率/实际天数年化,避免复利膨胀
+                daily_return = total_return / trading_days if trading_days > 0 else 0
+                annualized_by_period = daily_return * 252
+                raw_calmar = annualized_by_period / max_drawdown
+            else:
+                raw_calmar = annualized_return / max_drawdown
             calmar_ratio = min(raw_calmar, 200.0)
             if raw_calmar > 200.0:
                 logger.debug('backtest', f'Calmar={raw_calmar:.1f}超过200上限,回测周期{trading_days}天过短')
