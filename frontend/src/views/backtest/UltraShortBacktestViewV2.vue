@@ -727,22 +727,22 @@ function onViewLogs(taskId: string) {
     <div class="main-tabs-bar">
       <div class="main-tabs">
         <button :class="['tab-btn', activeMainTab === 'config' ? 'active' : '']" @click="activeMainTab = 'config'">
-          🎯 回测配置
+          🎯 配置
         </button>
         <button :class="['tab-btn', activeMainTab === 'result' ? 'active' : '']" @click="activeMainTab = 'result'">
-          📊 日志与结果
+          📈 结果
           <span v-if="backtestResult" class="tab-badge-success">✓</span>
           <span v-else-if="backtestState.running" class="tab-badge-running">运行中</span>
         </button>
         <button :class="['tab-btn', activeMainTab === 'history' ? 'active' : '']" @click="activeMainTab = 'history'">
-          📋 回测历史
+          📋 历史
           <span class="tab-badge">{{ historyCount }}</span>
         </button>
         <button :class="['tab-btn', activeMainTab === 'data' ? 'active' : '']" @click="activeMainTab = 'data'">
-          🗄️ 数据状态
+          🗄️ 数据
         </button>
         <button :class="['tab-btn', activeMainTab === 'factors' ? 'active' : '']" @click="activeMainTab = 'factors'">
-          📊 因子参考
+          🔬 因子
         </button>
       </div>
       <ElButton :type="healthStatus==='ok'?'success':healthStatus==='error'?'danger':healthStatus==='warning'?'warning':'default'" :loading="healthLoading" @click="runHealthCheck" size="small">
