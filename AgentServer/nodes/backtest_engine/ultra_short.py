@@ -302,10 +302,13 @@ async def execute_ultra_short_backtest(
     # L3情绪周期: sentiment_score → 由引擎内部计算
     # L4盘前预选: ST/退市/低流动性 → 由universe_mgr处理
     # L5竞价过滤: opening_pct → 由引擎内部处理
-    # L6策略量能: 以下因子需显式添加
-    # L7综合排序: 策略优先级 → strategy_weights
-    # L8仓位控制: 情绪×特殊×单票上限 → 由引擎内部处理
-    all_factors = []
+    # L6策略量能: portfolio_backtest.py内部已定义正确的因子列表(ultra_short_factors)
+    # 以下仅用于策略权重配置(strategy_weights)和日志展示，不再添加到all_factors
+    # 【V44修复】旧代码将策略参数名(如volume_increase/rise_pct/opening_pct_min)当作因子名添加
+    # 导致因子质量检查器报"缺失28个因子"+"核心因子缺失: opening_pct_chg"中止回测
+    # 原因: 这些不是MongoDB中的实际因子字段名,只是策略参数的别名
+    # portfolio_backtest.py的ultra_short_factors已包含所有正确的因子名
+    all_factors = []  # 不再添加假因子名,由portfolio_backtest.py的ultra_short_factors统一管理
     strategy_weights = {}
     weight_per_strategy = 1.0 / len(selected_strategies)
 
@@ -313,56 +316,7 @@ async def execute_ultra_short_backtest(
         strategy_name = strategy.get('name', strategy.get('id', '未知策略'))
         strategy_id = strategy.get('id', strategy.get('name', 'unknown'))
         strategy_weights[strategy_name] = weight_per_strategy
-        sp = strategy.get("params", {})
-        # 【V31修复:在因子构建循环中重新获取_defaults,避免引用上一个循环的残留值】
-        _defaults = STRATEGY_CONFIGS.get(strategy_id, {}).get("params", {})
-        if strategy_id == "halfway_chase":
-            # 半路追涨因子: 量比+涨幅+收盘确认
-            min_volume = sp.get("min_volume_ratio", 2.0)
-            min_rise = sp.get("min_rise_pct", _defaults.get('min_rise_pct', 0.03))
-            min_close_rise = sp.get("min_close_rise_pct", _defaults.get('min_close_rise_pct', 0.05))
-            all_factors.append({"name": "volume_increase", "weight": weight_per_strategy, "target": min_volume})
-            all_factors.append({"name": "rise_pct", "weight": weight_per_strategy, "target": min_rise})
-            all_factors.append({"name": "close_rise_pct", "weight": weight_per_strategy, "target": min_close_rise})
-        elif strategy_id == "first_limit_up":
-            # 首板打板因子: 封单金额+竞价涨幅+换手率+流通市值
-            min_seal = sp.get("min_seal_amount", 5000)
-            opening_min = sp.get("opening_pct_min", -1.0)
-            opening_max = sp.get("opening_pct_max", 7.0)
-            min_turnover = sp.get("min_turnover_rate", 3)
-            max_turnover = sp.get("max_turnover_rate", 15)
-            all_factors.append({"name": "limit_up_amount", "weight": weight_per_strategy, "target": min_seal})
-            all_factors.append({"name": "opening_pct_min", "weight": weight_per_strategy, "target": opening_min})
-            all_factors.append({"name": "opening_pct_max", "weight": weight_per_strategy, "target": opening_max})
-            all_factors.append({"name": "turnover_rate_min", "weight": weight_per_strategy, "target": min_turnover})
-            all_factors.append({"name": "turnover_rate_max", "weight": weight_per_strategy, "target": max_turnover})
-        elif strategy_id == "limit_up_open":
-            # 涨停开板因子: 连板数+开板时长+封单+换手率
-            min_consecutive = sp.get("min_consecutive_limit", 2)
-            min_seal_after = sp.get("min_seal_after_open", 3000)
-            min_turnover = sp.get("min_turnover_rate", 15.0)
-            all_factors.append({"name": "limit_up_count", "weight": weight_per_strategy, "target": min_consecutive})
-            all_factors.append({"name": "limit_up_open_amount", "weight": weight_per_strategy, "target": min_seal_after})
-            all_factors.append({"name": "turnover_rate_min", "weight": weight_per_strategy, "target": min_turnover})
-        elif strategy_id in ("dragon_head", "leader_buy_dip"):
-            # 龙头低吸因子: 连板数+回调幅度+量比
-            min_consecutive = sp.get("min_consecutive_limit", 1)
-            min_correction = sp.get("min_correction_pct", 0.05)
-            max_correction = sp.get("max_correction_pct", 0.35)
-            min_volume = sp.get("min_volume_ratio", 0.5)
-            all_factors.append({"name": "market_leader", "weight": weight_per_strategy, "target": 1})
-            all_factors.append({"name": "consecutive_limit", "weight": weight_per_strategy, "target": min_consecutive})
-            all_factors.append({"name": "correction_pct_min", "weight": weight_per_strategy, "target": min_correction})
-            all_factors.append({"name": "correction_pct_max", "weight": weight_per_strategy, "target": max_correction})
-            all_factors.append({"name": "volume_ratio_min", "weight": weight_per_strategy, "target": min_volume})
-        elif strategy_id == "limit_down_qiao":
-            # 跌停翘板因子: 连跌数+翘板金额+翘板后涨幅
-            min_consecutive = sp.get("min_consecutive_limit", 2)
-            min_qiao_amount = sp.get("min_qiao_amount", 1000)
-            min_rise_after = sp.get("min_rise_after_qiao", 0.03)
-            all_factors.append({"name": "limit_down_count", "weight": weight_per_strategy, "target": min_consecutive})
-            all_factors.append({"name": "qiao_amount", "weight": weight_per_strategy, "target": min_qiao_amount})
-            all_factors.append({"name": "rise_after_qiao", "weight": weight_per_strategy, "target": min_rise_after})
+        # 因子列表由portfolio_backtest.py的ultra_short_factors统一管理,此处不再重复添加
 
     await push_log_fn(task_id, "")
     await push_log_fn(task_id, "=" * 60)
