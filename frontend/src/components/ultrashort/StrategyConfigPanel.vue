@@ -88,7 +88,7 @@ const sectionDescriptions: Record<string, { title: string; desc: string; tips?: 
   forceEmpty: {
     title: '⚠️ 强制空仓',
     desc: '市场极端情况下的保护机制。当大盘大跌、跌停家数激增时，强制卖出所有持仓。',
-    tips: ['大盘跌≥2%+跌停≥50只 → 极端恐慌信号', '触发后次日不会再买入，直到情绪恢复', '建议保持开启，避免系统性暴跌风险']
+    tips: ['大盘跌≥3%+跌停≥80只 → 极端恐慌信号', '触发后次日不会再买入，直到情绪恢复', '建议保持开启，避免系统性暴跌风险']
   },
   sentimentCycle: {
     title: '🧠 情绪周期',
@@ -103,12 +103,12 @@ const sectionDescriptions: Record<string, { title: string; desc: string; tips?: 
   halfway_chase: {
     title: '🏃‍♂️ 半路追涨策略',
     desc: '在盘中股票已经上涨但尚未涨停时追入，博弈后续继续冲高甚至封板。适合强势市场的顺势交易。',
-    tips: ['核心参数：涨幅3%~7%的强势股', '量比1.5~3.0确认放量而非缩量上涨', '收盘涨幅≥2%确认非冲高回落', '开盘涨幅≤5%排除竞价已过热的票', '平均收益偏弱(+1.97%)，注意风控']
+    tips: ['核心参数：涨幅3%~7%的强势股', '量比2.0~3.0确认放量而非缩量上涨', '收盘涨幅≥5%确认非冲高回落(关键过滤)', '开盘涨幅≤3%排除竞价已过热的票', '平均收益偏弱(+1.97%)，注意风控']
   },
   first_limit_up: {
     title: '🥇 首板打板策略',
     desc: '在股票首次涨停时排队买入，博弈次日高开溢价。回测中模拟了不同涨停速度的实际成交概率。',
-    tips: ['成交概率是核心：一字板5%、秒板30%、快板60%、慢板80%', '流通市值20~100亿为最佳区间', '换手率5%~15%量价配合最佳', '次日高开≥3%自动止盈（高开即卖）', '止损4%为打板策略的底线']
+    tips: ['成交概率是核心：一字板0%、秒板30%、快板50%、慢板70%', '流通市值50~500亿为最佳区间', '换手率3%~15%量价配合最佳', '次日高开≥3%自动止盈（高开即卖）', '止损4%为打板策略的底线']
   },
   limit_up_open: {
     title: '📈 涨停开板策略',
@@ -118,12 +118,12 @@ const sectionDescriptions: Record<string, { title: string; desc: string; tips?: 
   dragon_head: {
     title: '🐲 龙头低吸策略',
     desc: '在龙头股回调到支撑位时低吸买入，博弈龙头二波启动。适合市场分歧后的再次一致。',
-    tips: ['核心：连板龙头+缩量回调到5/10日均线', '回调5%~35%为健康调整区间', '量比0.5~2.0确认缩量而非放量下跌', '支撑位选5日均线适合强势回调', '止损5%给龙头更大的波动空间']
+    tips: ['核心：连板龙头+缩量回调到5/10日均线', '回调5%~35%为健康调整区间', '量比0.5~2.0确认缩量而非放量下跌', '支撑位选5日均线适合强势回调', '止损5%/止盈15%给龙头更大的波动空间']
   },
   limit_down_qiao: {
     title: '💥 跌停翘板策略',
     desc: '在跌停板被大资金撬开时追入，博弈翘板后的大幅反弹。高风险高回报，需配合情绪周期。',
-    tips: ['连跌1天以上才有足够恐慌释放', '翘板金额≥5000万确认大资金介入', '翘板后涨幅≥3%确认反转力度', '建议开启高情绪周期要求（市场强势时翘板成功率高）', '止损4%+止盈25%：高赔率策略']
+    tips: ['连跌1天以上才有足够恐慌释放', '翘板金额≥1000万确认大资金介入', '翘板后涨幅≥3%确认反转力度', '市场强势时翘板成功率高', '止损4%+止盈20%：高赔率策略']
   }
 }
 
@@ -429,7 +429,7 @@ function onSweepParamChange() {
             <div class="desc-panel-text">市场极端情况下的保护机制。当大盘大跌+跌停家数激增时，强制卖出所有持仓，避免系统性暴跌。</div>
             <div class="desc-panel-tips">
               <div class="desc-panel-tips-title">💡 调优建议</div>
-              <div class="desc-panel-tip">大盘跌≥2%+跌停≥50只→极端恐慌信号</div>
+              <div class="desc-panel-tip">大盘跌≥3%+跌停≥80只→极端恐慌信号</div>
               <div class="desc-panel-tip">触发后次日不会再买入，直到情绪恢复</div>
               <div class="desc-panel-tip">建议保持开启，避免系统性暴跌风险</div>
               <div class="desc-panel-tip">涨停家数阈值<30只，多方力量枯竭</div>
@@ -581,13 +581,13 @@ function onSweepParamChange() {
         <div class="collapse-content-right">
           <div class="desc-panel">
             <div class="desc-panel-title">🏃‍♂️ 半路追涨策略</div>
-            <div class="desc-panel-text">在盘中股票已经上涨但尚未涨停时追入，博弈后续继续冲高甚至封板。核心逻辑：放量上攻的强势股在盘中确认后跟进，适合强势市场的顺势交易。关键过滤：收盘涨幅≥2%确认非冲高回落，开盘涨幅≤5%排除竞价已过热，量比1.5~3.0确认放量而非缩量上涨。⚠️平均收益偏弱(+1.97%)，注意风控。</div>
+            <div class="desc-panel-text">在盘中股票已经上涨但尚未涨停时追入，博弈后续继续冲高甚至封板。核心逻辑：放量上攻的强势股在盘中确认后跟进，适合强势市场的顺势交易。关键过滤：收盘涨幅≥5%确认非冲高回落，开盘涨幅≤3%排除竞价已过热，量比2.0~3.0确认放量而非缩量上涨。⚠️平均收益偏弱(+1.97%)，注意风控。</div>
             <div class="desc-panel-tips">
               <div class="desc-panel-tips-title">💡 调优建议</div>
               <div class="desc-panel-tip">核心参数：涨幅3%~7%的强势股，过高风险大</div>
               <div class="desc-panel-tip">量比1.5~3.0确认放量而非缩量上涨</div>
-              <div class="desc-panel-tip">收盘涨幅≥2%确认非冲高回落(关键过滤)</div>
-              <div class="desc-panel-tip">开盘涨幅≤5%排除竞价已过热的票</div>
+              <div class="desc-panel-tip">收盘涨幅≥5%确认非冲高回落(关键过滤)</div>
+              <div class="desc-panel-tip">开盘涨幅≤3%排除竞价已过热的票</div>
               <div class="desc-panel-tip">允许10点后买入可捕捉午盘强势股</div>
               <div class="desc-panel-tip">⚠️ 平均收益偏弱(+1.97%)，注意风控</div>
             </div>
@@ -884,14 +884,14 @@ function onSweepParamChange() {
         <div class="collapse-content-right">
           <div class="desc-panel">
             <div class="desc-panel-title">💥 跌停翘板策略</div>
-            <div class="desc-panel-text">在跌停板被大资金撬开时追入，博弈翘板后的大幅反弹。高风险高回报：翘板失败可能继续跌停，翘板成功反弹空间可观。连跌1天以上才有足够恐慌释放，翘板金额≥5000万确认大资金介入，翘板后涨幅≥3%确认反转力度。建议配合情绪周期，市场强势时翘板成功率高。</div>
+            <div class="desc-panel-text">在跌停板被大资金撬开时追入，博弈翘板后的大幅反弹。高风险高回报：翘板失败可能继续跌停，翘板成功反弹空间可观。连跌2天以上才有足够恐慌释放，翘板金额≥1000万确认大资金介入，翘板后涨幅≥3%确认反转力度。建议配合情绪周期，市场强势时翘板成功率高。</div>
             <div class="desc-panel-tips">
               <div class="desc-panel-tips-title">💡 调优建议</div>
               <div class="desc-panel-tip">连跌1天以上才有足够恐慌释放</div>
-              <div class="desc-panel-tip">翘板金额≥5000万确认大资金介入</div>
+              <div class="desc-panel-tip">翘板金额≥1000万确认大资金介入</div>
               <div class="desc-panel-tip">翘板后涨幅≥3%确认反转力度</div>
               <div class="desc-panel-tip">建议开启高情绪周期要求（市场强势时翘板成功率高）</div>
-              <div class="desc-panel-tip">止损4%+止盈25%：高赔率策略</div>
+              <div class="desc-panel-tip">止损4%+止盈20%：高赔率策略</div>
             </div>
           </div>
         </div>
