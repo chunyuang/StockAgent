@@ -42,11 +42,11 @@ const forceEmptyTitle = computed(() => `⚠️ 强制空仓 ${props.form.forceEm
 const sentimentCycleTitle = computed(() => `🧠 情绪周期 ${props.form.sentimentCycle.enabled ? '✅' : '❌'} (涨停${props.form.sentimentCycle.weight_limit_up}, 跌停${props.form.sentimentCycle.weight_limit_down}, 炸板率${props.form.sentimentCycle.weight_blast_rate}, 涨跌差${props.form.sentimentCycle.weight_rise_fall_diff}, 北向${props.form.sentimentCycle.weight_north_inflow})`)
 const auctionFilterTitle = computed(() => `⏰ 竞价过滤 ${props.form.auctionFilter.enabled ? '✅' : '❌'} (涨幅${(props.form.auctionFilter.min_auction_pct * 100).toFixed(1)}%~${(props.form.auctionFilter.max_auction_pct * 100).toFixed(1)}%, 成交额≥${props.form.auctionFilter.min_auction_amount}万, 量比≥${props.form.auctionFilter.min_auction_volume_ratio}, 未匹配量正: ${props.form.auctionFilter.min_unmatched_volume_positive ? '✅' : '❌'})`)
 
-const halfwayChaseTitle = computed(() => `🏃‍♂️ 半路追涨 ${props.form.strategyConfigs.halfway_chase.enabled ? '✅' : '❌'}`)
-const firstLimitUpTitle = computed(() => `🥇 首板打板 ${props.form.strategyConfigs.first_limit_up.enabled ? '✅' : '❌'}`)
-const limitUpOpenTitle = computed(() => `📈 涨停开板 ${props.form.strategyConfigs.limit_up_open.enabled ? '✅' : '❌'}`)
-const dragonHeadTitle = computed(() => `🐲 龙头低吸 ${props.form.strategyConfigs.dragon_head.enabled ? '✅' : '❌'}`)
-const limitDownQiaoTitle = computed(() => `💥 跌停翘板 ${props.form.strategyConfigs.limit_down_qiao.enabled ? '✅' : '❌'}`)
+const halfwayChaseTitle = computed(() => `🏃‍♂️ 半路追涨策略 ${props.form.strategyConfigs.halfway_chase.enabled ? '✅' : '❌'} (涨幅${(props.form.strategyConfigs.halfway_chase.params.min_rise_pct * 100).toFixed(1)}%~${(props.form.strategyConfigs.halfway_chase.params.max_rise_pct * 100).toFixed(1)}%, 量比${props.form.strategyConfigs.halfway_chase.params.min_volume_ratio}~${props.form.strategyConfigs.halfway_chase.params.max_volume_ratio}, 止损${(props.form.strategyConfigs.halfway_chase.riskParams.stop_loss_pct * 100).toFixed(0)}%/止盈${(props.form.strategyConfigs.halfway_chase.riskParams.take_profit_pct * 100).toFixed(0)}%)`)
+const firstLimitUpTitle = computed(() => `🥇 首板打板策略 ${props.form.strategyConfigs.first_limit_up.enabled ? '✅' : '❌'} (开盘${props.form.strategyConfigs.first_limit_up.params.opening_pct_min}%~${props.form.strategyConfigs.first_limit_up.params.opening_pct_max}%, 量比≥${props.form.strategyConfigs.first_limit_up.params.min_volume_ratio}, 换手${props.form.strategyConfigs.first_limit_up.params.min_turnover_rate}%~${props.form.strategyConfigs.first_limit_up.params.max_turnover_rate}%, 流通市值${props.form.strategyConfigs.first_limit_up.params.min_circulation_market_cap}~${props.form.strategyConfigs.first_limit_up.params.max_circulation_market_cap}亿, 止损${(props.form.strategyConfigs.first_limit_up.riskParams.stop_loss_pct * 100).toFixed(0)}%/止盈${(props.form.strategyConfigs.first_limit_up.riskParams.take_profit_pct * 100).toFixed(0)}%)`)
+const limitUpOpenTitle = computed(() => `📈 涨停开板策略 ${props.form.strategyConfigs.limit_up_open.enabled ? '✅' : '❌'} (连板≥${props.form.strategyConfigs.limit_up_open.params.min_consecutive_limit}板, 开板≤${props.form.strategyConfigs.limit_up_open.params.max_open_duration}分钟, 止损${(props.form.strategyConfigs.limit_up_open.riskParams.stop_loss_pct * 100).toFixed(0)}%/止盈${(props.form.strategyConfigs.limit_up_open.riskParams.take_profit_pct * 100).toFixed(0)}%)`)
+const dragonHeadTitle = computed(() => `🐲 龙头低吸策略 ${props.form.strategyConfigs.dragon_head.enabled ? '✅' : '❌'} (连板≥${props.form.strategyConfigs.dragon_head.params.min_consecutive_limit}板, 回调${(props.form.strategyConfigs.dragon_head.params.min_correction_pct * 100).toFixed(0)}%~${(props.form.strategyConfigs.dragon_head.params.max_correction_pct * 100).toFixed(0)}%, 止损${(props.form.strategyConfigs.dragon_head.riskParams.stop_loss_pct * 100).toFixed(0)}%/止盈${(props.form.strategyConfigs.dragon_head.riskParams.take_profit_pct * 100).toFixed(0)}%)`)
+const limitDownQiaoTitle = computed(() => `💥 跌停翘板策略 ${props.form.strategyConfigs.limit_down_qiao.enabled ? '✅' : '❌'} (连板≥${props.form.strategyConfigs.limit_down_qiao.params.min_consecutive_limit}板, 翘板金额≥${props.form.strategyConfigs.limit_down_qiao.params.min_qiao_amount}万, 止损${(props.form.strategyConfigs.limit_down_qiao.riskParams.stop_loss_pct * 100).toFixed(0)}%/止盈${(props.form.strategyConfigs.limit_down_qiao.riskParams.take_profit_pct * 100).toFixed(0)}%)`)
 
 // ============ 右侧描述 ============
 const sectionDescriptions: Record<string, { title: string; desc: string; tips?: string[] }> = {
@@ -121,6 +121,9 @@ const activeDescription = computed(() => {
 // 折叠面板
 const activeCollapse = defineModel<string[]>('activeCollapse', { default: [] })
 
+// 模式切换
+const configMode = ref<'edit' | 'flow'>('edit')
+
 // Toggle 辅助
 function toggleStrategy(strategyId: string) {
   const cfg = props.form.strategyConfigs[strategyId]
@@ -148,8 +151,14 @@ function onSweepParamChange() {
 
 <template>
   <div class="config-layout-v2">
-    <!-- 左侧：配置表单 -->
-    <div class="config-left">
+    <!-- 模式切换 -->
+    <div class="mode-switcher">
+      <button :class="['mode-btn', configMode === 'edit' ? 'active' : '']" @click="configMode = 'edit'">🎯 参数配置</button>
+      <button :class="['mode-btn', configMode === 'flow' ? 'active' : '']" @click="configMode = 'flow'">🔄 执行流程</button>
+    </div>
+
+    <!-- 编辑模式 -->
+    <template v-if="configMode === 'edit'">
     <ElCard class="config-card">
     <template #header>
       <div class="card-header">
@@ -194,6 +203,7 @@ function onSweepParamChange() {
       <!-- 数据源配置 -->
       <ElCollapseItem name="dataSource">
         <template #title><span>{{ dataSourceTitle }}</span></template>
+        <div class="section-desc"><span class="desc-badge">说明</span> 定义回测的数据来源，包括K线周期、复权方式和股票池范围。日线适合隔日交易，前复权可消除除权影响。</div>
         <ElForm label-width="120px">
           <ElFormItem label="周期">
             <ElSelect v-model="form.dataSource.period" style="width: 150px">
@@ -222,6 +232,7 @@ function onSweepParamChange() {
       <!-- 基础配置 -->
       <ElCollapseItem name="baseConfig">
         <template #title><span>{{ baseConfigTitle }}</span></template>
+        <div class="section-desc"><span class="desc-badge">说明</span> 回测的时间范围和初始资金。建议选择3个月以上区间确保样本量充足。</div>
         <ElForm label-width="120px">
           <ElFormItem label="初始资金">
             <ElInputNumber v-model="form.base.initial_cash" :min="100000" :max="1000000000" style="width: 200px" prefix="¥" />
@@ -232,6 +243,7 @@ function onSweepParamChange() {
       <!-- 交易参数 -->
       <ElCollapseItem name="tradeParams">
         <template #title><span>{{ tradeParamsTitle }}</span></template>
+        <div class="section-desc"><span class="desc-badge">说明</span> 全局交易规则，策略级风控参数可覆盖默认值。止损3%~5%为超短常见范围，总仓位70%留30%现金。</div>
         <ElForm label-width="120px">
           <ElFormItem label="基础止损">
             <ElInputNumber v-model="form.tradeParams.base_stop_loss_pct" :min="0" :max="1" :step="0.001" style="width: 150px" />
@@ -271,6 +283,7 @@ function onSweepParamChange() {
       <!-- 全局筛选 -->
       <ElCollapseItem name="globalFilter">
         <template #title><span>{{ globalFilterTitle }}</span></template>
+        <div class="section-desc"><span class="desc-badge">说明</span> 全策略共用的股票过滤规则。成交额≥5000万确保流动性，换手率≥3%排除僵尸股。</div>
         <ElForm label-width="160px">
           <ElFormItem label="剔除ST/*ST"><ElSwitch v-model="form.globalFilter.exclude_st" /></ElFormItem>
           <ElFormItem label="剔除退市股"><ElSwitch v-model="form.globalFilter.exclude_delisting" /></ElFormItem>
@@ -292,6 +305,7 @@ function onSweepParamChange() {
       <!-- 强制空仓 -->
       <ElCollapseItem name="forceEmpty">
         <template #title><span>{{ forceEmptyTitle }}</span></template>
+        <div class="section-desc"><span class="desc-badge">说明</span> 极端行情保护机制。大盘暴跌+跌停潮时强制清仓，建议保持开启。</div>
         <ElForm label-width="160px">
           <ElFormItem label="启用强制空仓"><ElSwitch v-model="form.forceEmpty.enabled" /></ElFormItem>
           <ElFormItem label="大盘跌幅≥" :disabled="!form.forceEmpty.enabled">
@@ -312,6 +326,7 @@ function onSweepParamChange() {
       <!-- 情绪周期 -->
       <ElCollapseItem name="sentimentCycle">
         <template #title><span>{{ sentimentCycleTitle }}</span></template>
+        <div class="section-desc"><span class="desc-badge">说明</span> 量化市场情绪影响仓位和信号强度。涨停/跌停家数反映多空力量，权重各自独立缩放。</div>
         <ElForm label-width="160px">
           <ElFormItem label="启用情绪周期"><ElSwitch v-model="form.sentimentCycle.enabled" /></ElFormItem>
           <ElFormItem label="涨停家数权重" :disabled="!form.sentimentCycle.enabled">
@@ -335,6 +350,7 @@ function onSweepParamChange() {
       <!-- 竞价过滤 -->
       <ElCollapseItem name="auctionFilter">
         <template #title><span>{{ auctionFilterTitle }}</span></template>
+        <div class="section-desc"><span class="desc-badge">说明</span> 集合竞价阶段预筛选。竞价涨幅2%~8%为宜，未匹配量为正说明买盘强。</div>
         <ElForm label-width="160px">
           <ElFormItem label="启用竞价过滤"><ElSwitch v-model="form.auctionFilter.enabled" /></ElFormItem>
           <ElFormItem label="最低竞价涨幅" :disabled="!form.auctionFilter.enabled">
@@ -362,6 +378,7 @@ function onSweepParamChange() {
       <!-- 半路追涨 -->
       <ElCollapseItem name="halfway_chase">
         <template #title><span>{{ halfwayChaseTitle }}</span></template>
+        <div class="section-desc"><span class="desc-badge">说明</span> 盘中涨幅3%~7%的强势股追入，博弈后续冲高。收盘涨幅≥2%确认非冲高回落，开盘涨幅≤5%排除竞价过热。</div>
         <ElForm label-width="160px">
           <ElFormItem label="启用策略"><ElSwitch v-model="form.strategyConfigs.halfway_chase.enabled" @change="() => toggleStrategy('halfway_chase')" /></ElFormItem>
           <div :disabled="!form.strategyConfigs.halfway_chase.enabled" class="grid grid-cols-2 gap-4">
@@ -411,6 +428,7 @@ function onSweepParamChange() {
       <!-- 首板打板 -->
       <ElCollapseItem name="first_limit_up">
         <template #title><span>{{ firstLimitUpTitle }}</span></template>
+        <div class="section-desc"><span class="desc-badge">说明</span> 涨停排队买入博弈次日溢价。成交概率是核心：一字板5%、秒板30%、快板60%、慢板80%。次日高开≥3%自动止盈。</div>
         <ElForm label-width="160px">
           <ElFormItem label="启用策略"><ElSwitch v-model="form.strategyConfigs.first_limit_up.enabled" @change="() => toggleStrategy('first_limit_up')" /></ElFormItem>
           <div :disabled="!form.strategyConfigs.first_limit_up.enabled" class="grid grid-cols-2 gap-4">
@@ -481,6 +499,7 @@ function onSweepParamChange() {
       <!-- 涨停开板 -->
       <ElCollapseItem name="limit_up_open">
         <template #title><span>{{ limitUpOpenTitle }}</span></template>
+        <div class="section-desc"><span class="desc-badge">说明</span> 连板股开板回封时买入。最少2连板确保龙头地位，开板≤10分钟回封说明主力坚决。</div>
         <ElForm label-width="160px">
           <ElFormItem label="启用策略"><ElSwitch v-model="form.strategyConfigs.limit_up_open.enabled" @change="() => toggleStrategy('limit_up_open')" /></ElFormItem>
           <div :disabled="!form.strategyConfigs.limit_up_open.enabled" class="grid grid-cols-2 gap-4">
@@ -521,6 +540,7 @@ function onSweepParamChange() {
       <!-- 龙头低吸 -->
       <ElCollapseItem name="dragon_head">
         <template #title><span>{{ dragonHeadTitle }}</span></template>
+        <div class="section-desc"><span class="desc-badge">说明</span> 龙头股缩量回调到支撑位低吸，博弈二波启动。回调5%~35%为健康区间，量比0.5~2.0确认缩量。</div>
         <ElForm label-width="160px">
           <ElFormItem label="启用策略"><ElSwitch v-model="form.strategyConfigs.dragon_head.enabled" @change="() => toggleStrategy('dragon_head')" /></ElFormItem>
           <div :disabled="!form.strategyConfigs.dragon_head.enabled" class="grid grid-cols-2 gap-4">
@@ -580,6 +600,7 @@ function onSweepParamChange() {
       <!-- 跌停翘板 -->
       <ElCollapseItem name="limit_down_qiao">
         <template #title><span>{{ limitDownQiaoTitle }}</span></template>
+        <div class="section-desc"><span class="desc-badge">说明</span> 跌停板被撬开时追入博弈反弹，高风险高回报。翘板金额≥5000万确认大资金介入，建议配合情绪周期使用。</div>
         <ElForm label-width="160px">
           <ElFormItem label="启用策略"><ElSwitch v-model="form.strategyConfigs.limit_down_qiao.enabled" @change="() => toggleStrategy('limit_down_qiao')" /></ElFormItem>
           <div :disabled="!form.strategyConfigs.limit_down_qiao.enabled" class="grid grid-cols-2 gap-4">
@@ -621,25 +642,160 @@ function onSweepParamChange() {
       </ElCollapseItem>
     </ElCollapse>
   </ElCard>
-    </div>
-    <!-- 右侧：参数说明 -->
-    <div class="config-right">
-      <div v-if="activeDescription" class="desc-panel">
-        <div class="desc-title">{{ activeDescription.title }}</div>
-        <div class="desc-text">{{ activeDescription.desc }}</div>
-        <div v-if="activeDescription.tips?.length" class="desc-tips">
-          <div class="desc-tips-title">💡 参数建议</div>
-          <div v-for="(tip, i) in activeDescription.tips" :key="i" class="desc-tip-item">
-            <span class="desc-tip-dot">•</span> {{ tip }}
+    </template>
+
+    <!-- 执行流程模式 -->
+    <template v-if="configMode === 'flow'">
+      <ElCard class="config-card">
+        <template #header>
+          <div class="card-header">
+            <span>🔄 策略执行流程</span>
+            <div class="header-actions">
+              <ElButton @click="emit('submit')" :icon="Play" type="success" :loading="backtestRunning" size="default">
+                {{ backtestRunning ? '回测中...' : '开始回测' }}
+              </ElButton>
+            </div>
+          </div>
+        </template>
+        <div class="flow-container">
+          <!-- 1. 数据源 -->
+          <div class="flow-step">
+            <div class="flow-step-header">
+              <div class="flow-step-num">1</div>
+              <div class="flow-step-title">🔌 数据源加载</div>
+              <div class="flow-step-badge">{{ form.dataSource.period === 'daily' ? '日线' : '1分钟' }} · {{ form.dataSource.adjust_type === 'qfq' ? '前复权' : '不复权' }} · {{ form.dataSource.ts_codes || '全市场' }}</div>
+            </div>
+            <div class="flow-step-body">
+              <div class="flow-desc">从MongoDB加载K线数据，应用全局筛选过滤不合格股票</div>
+              <div class="flow-detail">
+                <span>📅 {{ form.dataSource.start_date }} ~ {{ form.dataSource.end_date }}</span>
+                <span>💰 初始资金 ¥{{ (form.base.initial_cash / 10000).toFixed(0) }}万</span>
+              </div>
+            </div>
+          </div>
+          <div class="flow-arrow">↓</div>
+
+          <!-- 2. 全局筛选 -->
+          <div class="flow-step">
+            <div class="flow-step-header">
+              <div class="flow-step-num">2</div>
+              <div class="flow-step-title">🔍 全局筛选</div>
+              <div class="flow-step-badge">{{ form.globalFilter.exclude_st ? '剔除ST' : '' }} {{ form.globalFilter.exclude_delisting ? '剔除退市' : '' }} 成交额≥{{ form.globalFilter.min_daily_amount }}万</div>
+            </div>
+            <div class="flow-step-body">
+              <div class="flow-desc">过滤ST、退市、次新股、低成交额、低换手率股票，剩余进入策略候选池</div>
+              <div class="flow-detail">
+                <span>次新股<{{ form.globalFilter.exclude_new_stock_days }}天</span>
+                <span>换手率≥{{ form.globalFilter.min_turnover_rate }}%</span>
+              </div>
+            </div>
+          </div>
+          <div class="flow-arrow">↓</div>
+
+          <!-- 3. 情绪周期 -->
+          <div class="flow-step" :class="{ 'flow-disabled': !form.sentimentCycle.enabled }">
+            <div class="flow-step-header">
+              <div class="flow-step-num">3</div>
+              <div class="flow-step-title">🧠 情绪周期 {{ form.sentimentCycle.enabled ? '' : '(未启用)' }}</div>
+              <div class="flow-step-badge">涨停{{ form.sentimentCycle.weight_limit_up }} 跌停{{ form.sentimentCycle.weight_limit_down }}</div>
+            </div>
+            <div class="flow-step-body">
+              <div class="flow-desc">计算当日市场情绪得分，影响各策略的信号强度和仓位分配</div>
+            </div>
+          </div>
+          <div class="flow-arrow">↓</div>
+
+          <!-- 4. 竞价过滤 -->
+          <div class="flow-step" :class="{ 'flow-disabled': !form.auctionFilter.enabled }">
+            <div class="flow-step-header">
+              <div class="flow-step-num">4</div>
+              <div class="flow-step-title">⏰ 竞价过滤 {{ form.auctionFilter.enabled ? '' : '(未启用)' }}</div>
+              <div class="flow-step-badge">涨幅{{ (form.auctionFilter.min_auction_pct * 100).toFixed(1) }}%~{{ (form.auctionFilter.max_auction_pct * 100).toFixed(1) }}%</div>
+            </div>
+            <div class="flow-step-body">
+              <div class="flow-desc">在集合竞价阶段预筛选，过滤竞价表现不佳的标的</div>
+            </div>
+          </div>
+          <div class="flow-arrow">↓</div>
+
+          <!-- 5. 策略信号 -->
+          <div class="flow-step flow-step-group">
+            <div class="flow-step-header">
+              <div class="flow-step-num">5</div>
+              <div class="flow-step-title">📊 策略信号生成</div>
+              <div class="flow-step-badge">{{ form.strategies.length }}个策略</div>
+            </div>
+            <div class="flow-step-body">
+              <div class="flow-strategies">
+                <div v-if="form.strategyConfigs.halfway_chase.enabled" class="flow-strategy-item">
+                  <span class="flow-strategy-name">🏃‍♂️ 半路追涨</span>
+                  <span class="flow-strategy-detail">涨幅{{ (form.strategyConfigs.halfway_chase.params.min_rise_pct * 100).toFixed(1) }}%~{{ (form.strategyConfigs.halfway_chase.params.max_rise_pct * 100).toFixed(1) }}% → 止损{{ (form.strategyConfigs.halfway_chase.riskParams.stop_loss_pct * 100).toFixed(0) }}%/止盈{{ (form.strategyConfigs.halfway_chase.riskParams.take_profit_pct * 100).toFixed(0) }}%</span>
+                </div>
+                <div v-if="form.strategyConfigs.first_limit_up.enabled" class="flow-strategy-item">
+                  <span class="flow-strategy-name">🥇 首板打板</span>
+                  <span class="flow-strategy-detail">涨停排队买入(一字5%/秒板30%/快板60%/慢板80%) → 止损{{ (form.strategyConfigs.first_limit_up.riskParams.stop_loss_pct * 100).toFixed(0) }}%/止盈{{ (form.strategyConfigs.first_limit_up.riskParams.take_profit_pct * 100).toFixed(0) }}%</span>
+                </div>
+                <div v-if="form.strategyConfigs.limit_up_open.enabled" class="flow-strategy-item">
+                  <span class="flow-strategy-name">📈 涨停开板</span>
+                  <span class="flow-strategy-detail">连板≥{{ form.strategyConfigs.limit_up_open.params.min_consecutive_limit }}板回封 → 止损{{ (form.strategyConfigs.limit_up_open.riskParams.stop_loss_pct * 100).toFixed(0) }}%/止盈{{ (form.strategyConfigs.limit_up_open.riskParams.take_profit_pct * 100).toFixed(0) }}%</span>
+                </div>
+                <div v-if="form.strategyConfigs.dragon_head.enabled" class="flow-strategy-item">
+                  <span class="flow-strategy-name">🐲 龙头低吸</span>
+                  <span class="flow-strategy-detail">连板≥{{ form.strategyConfigs.dragon_head.params.min_consecutive_limit }}板回调{{ (form.strategyConfigs.dragon_head.params.min_correction_pct * 100).toFixed(0) }}%~{{ (form.strategyConfigs.dragon_head.params.max_correction_pct * 100).toFixed(0) }}% → 止损{{ (form.strategyConfigs.dragon_head.riskParams.stop_loss_pct * 100).toFixed(0) }}%/止盈{{ (form.strategyConfigs.dragon_head.riskParams.take_profit_pct * 100).toFixed(0) }}%</span>
+                </div>
+                <div v-if="form.strategyConfigs.limit_down_qiao.enabled" class="flow-strategy-item">
+                  <span class="flow-strategy-name">💥 跌停翘板</span>
+                  <span class="flow-strategy-detail">连跌≥{{ form.strategyConfigs.limit_down_qiao.params.min_consecutive_limit }}天翘板≥{{ form.strategyConfigs.limit_down_qiao.params.min_qiao_amount }}万 → 止损{{ (form.strategyConfigs.limit_down_qiao.riskParams.stop_loss_pct * 100).toFixed(0) }}%/止盈{{ (form.strategyConfigs.limit_down_qiao.riskParams.take_profit_pct * 100).toFixed(0) }}%</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="flow-arrow">↓</div>
+
+          <!-- 6. 风控 -->
+          <div class="flow-step">
+            <div class="flow-step-header">
+              <div class="flow-step-num">6</div>
+              <div class="flow-step-title">🛡️ 风控与仓位管理</div>
+              <div class="flow-step-badge">总仓{{ (form.tradeParams.max_total_position * 100).toFixed(0) }}% 单票{{ (form.tradeParams.max_position_per_stock * 100).toFixed(0) }}%</div>
+            </div>
+            <div class="flow-step-body">
+              <div class="flow-desc">按信号强弱分配仓位，受总仓位/单票仓位上限约束</div>
+              <div class="flow-detail">
+                <span>持仓≤{{ form.tradeParams.max_hold_days }}天</span>
+                <span>佣金{{ (form.tradeParams.commission_rate * 1000).toFixed(1) }}‰ + 印花税{{ (form.tradeParams.stamp_duty_rate * 1000).toFixed(0) }}‰ + 滑点{{ (form.tradeParams.slippage_pct * 1000).toFixed(1) }}‰</span>
+              </div>
+            </div>
+          </div>
+          <div class="flow-arrow">↓</div>
+
+          <!-- 7. 强制空仓 -->
+          <div class="flow-step" :class="{ 'flow-disabled': !form.forceEmpty.enabled }">
+            <div class="flow-step-header">
+              <div class="flow-step-num">7</div>
+              <div class="flow-step-title">⚠️ 强制空仓 {{ form.forceEmpty.enabled ? '' : '(未启用)' }}</div>
+              <div class="flow-step-badge">跌幅≥{{ (form.forceEmpty.index_drop_pct * 100).toFixed(1) }}% 跌停≥{{ form.forceEmpty.limit_down_count }}只</div>
+            </div>
+            <div class="flow-step-body">
+              <div class="flow-desc">极端行情时清仓所有持仓，触发后次日不买入直到情绪恢复</div>
+            </div>
+          </div>
+          <div class="flow-arrow">↓</div>
+
+          <!-- 8. 卖出 -->
+          <div class="flow-step">
+            <div class="flow-step-header">
+              <div class="flow-step-num">8</div>
+              <div class="flow-step-title">📤 卖出与结算</div>
+              <div class="flow-step-badge">止损{{ (form.tradeParams.base_stop_loss_pct * 100).toFixed(1) }}%/止盈{{ (form.tradeParams.base_take_profit_pct * 100).toFixed(1) }}%/持仓{{ form.tradeParams.max_hold_days }}天</div>
+            </div>
+            <div class="flow-step-body">
+              <div class="flow-desc">触发卖出条件时卖出：止损/止盈/冲高回落/利润保护/利润锁定/最大持仓天数/高开即卖/调仓/强制空仓</div>
+            </div>
           </div>
         </div>
-      </div>
-      <div v-else class="desc-panel desc-empty">
-        <div class="desc-empty-icon">📖</div>
-        <div class="desc-empty-text">展开左侧任意配置项</div>
-        <div class="desc-empty-sub">查看参数说明和调优建议</div>
-      </div>
-    </div>
+      </ElCard>
+    </template>
   </div>
 </template>
 
@@ -650,79 +806,150 @@ export default { name: 'StrategyConfigPanel' }
 <style scoped lang="scss">
 .config-layout-v2 {
   display: flex;
-  gap: 16px;
-  align-items: flex-start;
+  flex-direction: column;
+  gap: 0;
 }
-.config-left {
-  flex: 1;
-  min-width: 0;
+
+/* 模式切换 */
+.mode-switcher {
+  display: flex;
+  gap: 0;
+  margin-bottom: 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  overflow: hidden;
+  width: fit-content;
 }
-.config-right {
-  width: 280px;
-  flex-shrink: 0;
-  position: sticky;
-  top: 60px;
+.mode-btn {
+  padding: 7px 20px;
+  font-size: 13px;
+  font-weight: 600;
+  border: none;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  &:hover { background: var(--bg-hover); }
+  &.active {
+    background: var(--primary-500);
+    color: #fff;
+  }
 }
-.desc-panel {
+
+/* 内嵌说明 */
+.section-desc {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  line-height: 1.5;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  background: var(--bg-muted);
+  border-radius: 4px;
+  border-left: 3px solid var(--primary-300);
+}
+.desc-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary-500);
+  margin-right: 6px;
+  padding: 1px 5px;
+  background: var(--primary-50);
+  border-radius: 3px;
+}
+
+/* 执行流程 */
+.flow-container {
+  padding: 8px 0;
+}
+.flow-step {
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
   border-radius: 8px;
-  padding: 20px;
-  transition: all 0.3s;
+  padding: 14px 18px;
+  transition: all 0.2s;
+  &.flow-disabled {
+    opacity: 0.45;
+    border-style: dashed;
+  }
+  &:hover { border-color: var(--primary-300); }
 }
-.desc-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text-primary);
-  margin-bottom: 10px;
-  padding-bottom: 8px;
-  border-bottom: 2px solid var(--primary-200);
-}
-.desc-text {
-  font-size: 13px;
-  color: var(--text-secondary);
-  line-height: 1.6;
-  margin-bottom: 14px;
-}
-.desc-tips {
-  background: var(--primary-50);
-  border: 1px solid var(--primary-100);
-  border-radius: 6px;
-  padding: 12px;
-}
-.desc-tips-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--primary-500);
+.flow-step-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin-bottom: 8px;
 }
-.desc-tip-item {
-  font-size: 12px;
-  color: var(--text-secondary);
-  line-height: 1.6;
-  padding-left: 4px;
+.flow-step-num {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary-500);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 700;
+  flex-shrink: 0;
 }
-.desc-tip-dot {
-  color: var(--primary-400);
-  margin-right: 4px;
-}
-.desc-empty {
-  text-align: center;
-  padding: 40px 20px;
-}
-.desc-empty-icon {
-  font-size: 36px;
-  margin-bottom: 10px;
-}
-.desc-empty-text {
+.flow-step-title {
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: 4px;
+  color: var(--text-primary);
 }
-.desc-empty-sub {
-  font-size: 12px;
+.flow-step-badge {
+  font-size: 11px;
   color: var(--text-tertiary);
+  background: var(--bg-muted);
+  padding: 2px 8px;
+  border-radius: 10px;
+  margin-left: auto;
+}
+.flow-step-body {
+  padding-left: 36px;
+}
+.flow-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.flow-detail {
+  display: flex;
+  gap: 16px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+}
+.flow-arrow {
+  text-align: center;
+  color: var(--primary-300);
+  font-size: 18px;
+  font-weight: 700;
+  padding: 4px 0;
+  line-height: 1;
+}
+.flow-strategies {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.flow-strategy-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  padding: 6px 10px;
+  background: var(--bg-muted);
+  border-radius: 4px;
+}
+.flow-strategy-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+.flow-strategy-detail {
+  color: var(--text-secondary);
 }
 
 .config-card {
@@ -782,11 +1009,16 @@ export default { name: 'StrategyConfigPanel' }
     line-height: 1;
   }
 }
+:deep(.el-collapse) {
+  border-top: 2px solid var(--border-default) !important;
+}
 :deep(.el-collapse-item__header) {
   white-space: nowrap !important;
   overflow-x: auto !important;
   padding-right: 40px !important;
   color: var(--text-primary);
+  border-bottom: 2px solid var(--border-default) !important;
+  font-size: 13px;
 }
 :deep(.el-collapse-item__header::-webkit-scrollbar) { height: 4px; }
 :deep(.el-collapse-item__header::-webkit-scrollbar-thumb) { background-color: var(--border-muted); border-radius: 2px; }
