@@ -518,12 +518,31 @@ function onSweepParamChange() {
               <ElSwitch v-model="form.strategyConfigs.halfway_chase.params.allow_after_10am" :disabled="!form.strategyConfigs.halfway_chase.enabled" />
             </ElFormItem>
           </div>
+                  <!-- 策略风控参数 -->
+          <div class="risk-params-section">
+            <div class="risk-params-title">💹 策略风控（可覆盖全局默认值）</div>
+            <div class="risk-params-desc">本策略专属的风控参数，优先级高于全局交易参数。半路追涨冲高回落概率大，止损宜严格；止盈12%锁定日内强势收益。</div>
+            <div :disabled="!form.strategyConfigs.halfway_chase.enabled" class="grid grid-cols-2 gap-4">
+              <ElFormItem label="止损比例" :disabled="!form.strategyConfigs.halfway_chase.enabled">
+                <ElInputNumber v-model="form.strategyConfigs.halfway_chase.riskParams.stop_loss_pct" :min="0.005" :max="0.15" :step="0.005" :precision="3" style="width: 130px" :disabled="!form.strategyConfigs.halfway_chase.enabled" /><span class="unit">{{ (form.strategyConfigs.halfway_chase.riskParams.stop_loss_pct * 100).toFixed(1) }}%</span>
+              </ElFormItem>
+              <ElFormItem label="止盈比例" :disabled="!form.strategyConfigs.halfway_chase.enabled">
+                <ElInputNumber v-model="form.strategyConfigs.halfway_chase.riskParams.take_profit_pct" :min="0.01" :max="0.5" :step="0.01" :precision="3" style="width: 130px" :disabled="!form.strategyConfigs.halfway_chase.enabled" /><span class="unit">{{ (form.strategyConfigs.halfway_chase.riskParams.take_profit_pct * 100).toFixed(1) }}%</span>
+              </ElFormItem>
+              <ElFormItem label="最大持仓天数" :disabled="!form.strategyConfigs.halfway_chase.enabled">
+                <ElInputNumber v-model="form.strategyConfigs.halfway_chase.riskParams.max_hold_days" :min="1" :max="10" style="width: 130px" :disabled="!form.strategyConfigs.halfway_chase.enabled" /><span class="unit">天</span>
+              </ElFormItem>
+              <ElFormItem label="滑点比例" :disabled="!form.strategyConfigs.halfway_chase.enabled">
+                <ElInputNumber v-model="form.strategyConfigs.halfway_chase.riskParams.slippage_pct" :min="0" :max="0.01" :step="0.001" :precision="3" style="width: 130px" :disabled="!form.strategyConfigs.halfway_chase.enabled" /><span class="unit">{{ (form.strategyConfigs.halfway_chase.riskParams.slippage_pct * 1000).toFixed(1) }}‰</span>
+              </ElFormItem>
+            </div>
+          </div>
         </ElForm>
         </div>
         <div class="collapse-content-right">
           <div class="desc-panel">
             <div class="desc-panel-title">🏃‍♂️ 半路追涨策略</div>
-            <div class="desc-panel-text">在盘中股票已经上涨但尚未涨停时追入，博弈后续继续冲高甚至封板。适合强势市场的顺势交易，需配合量能确认。</div>
+            <div class="desc-panel-text">在盘中股票已经上涨但尚未涨停时追入，博弈后续继续冲高甚至封板。核心逻辑：放量上攻的强势股在盘中确认后跟进，适合强势市场的顺势交易。关键过滤：收盘涨幅≥2%确认非冲高回落，开盘涨幅≤5%排除竞价已过热，量比1.5~3.0确认放量而非缩量上涨。⚠️平均收益偏弱(+1.97%)，注意风控。</div>
             <div class="desc-panel-tips">
               <div class="desc-panel-tips-title">💡 调优建议</div>
               <div class="desc-panel-tip">核心参数：涨幅3%~7%的强势股，过高风险大</div>
@@ -589,12 +608,31 @@ function onSweepParamChange() {
               </ElFormItem>
             </div>
           </div>
+                  <!-- 策略风控参数 -->
+          <div class="risk-params-section">
+            <div class="risk-params-title">💹 策略风控（可覆盖全局默认值）</div>
+            <div class="risk-params-desc">打板失败后下跌速度快，止损4%为底线。次日高开即卖机制优于固定止盈，滑点5‰模拟涨停排队成交偏差。</div>
+            <div :disabled="!form.strategyConfigs.first_limit_up.enabled" class="grid grid-cols-2 gap-4">
+              <ElFormItem label="止损比例" :disabled="!form.strategyConfigs.first_limit_up.enabled">
+                <ElInputNumber v-model="form.strategyConfigs.first_limit_up.riskParams.stop_loss_pct" :min="0.005" :max="0.15" :step="0.005" :precision="3" style="width: 130px" :disabled="!form.strategyConfigs.first_limit_up.enabled" /><span class="unit">{{ (form.strategyConfigs.first_limit_up.riskParams.stop_loss_pct * 100).toFixed(1) }}%</span>
+              </ElFormItem>
+              <ElFormItem label="止盈比例" :disabled="!form.strategyConfigs.first_limit_up.enabled">
+                <ElInputNumber v-model="form.strategyConfigs.first_limit_up.riskParams.take_profit_pct" :min="0.01" :max="0.5" :step="0.01" :precision="3" style="width: 130px" :disabled="!form.strategyConfigs.first_limit_up.enabled" /><span class="unit">{{ (form.strategyConfigs.first_limit_up.riskParams.take_profit_pct * 100).toFixed(1) }}%</span>
+              </ElFormItem>
+              <ElFormItem label="最大持仓天数" :disabled="!form.strategyConfigs.first_limit_up.enabled">
+                <ElInputNumber v-model="form.strategyConfigs.first_limit_up.riskParams.max_hold_days" :min="1" :max="10" style="width: 130px" :disabled="!form.strategyConfigs.first_limit_up.enabled" /><span class="unit">天</span>
+              </ElFormItem>
+              <ElFormItem label="滑点比例" :disabled="!form.strategyConfigs.first_limit_up.enabled">
+                <ElInputNumber v-model="form.strategyConfigs.first_limit_up.riskParams.slippage_pct" :min="0" :max="0.01" :step="0.001" :precision="3" style="width: 130px" :disabled="!form.strategyConfigs.first_limit_up.enabled" /><span class="unit">{{ (form.strategyConfigs.first_limit_up.riskParams.slippage_pct * 1000).toFixed(1) }}‰</span>
+              </ElFormItem>
+            </div>
+          </div>
         </ElForm>
         </div>
         <div class="collapse-content-right">
           <div class="desc-panel">
             <div class="desc-panel-title">🥇 首板打板策略</div>
-            <div class="desc-panel-text">在股票首次涨停时排队买入，博弈次日高开溢价。回测中模拟了不同涨停速度的实际成交概率，成交概率是核心差异。</div>
+            <div class="desc-panel-text">在股票首次涨停时排队买入，博弈次日高开溢价。成交概率是核心差异：回测模拟了一字板5%/秒板30%/快板60%/慢板80%的实际成交概率。次日高开≥3%自动止盈（高开即卖机制），流通市值20~100亿为最佳区间，换手率5%~15%量价配合最佳。</div>
             <div class="desc-panel-tips">
               <div class="desc-panel-tips-title">💡 调优建议</div>
               <div class="desc-panel-tip">成交概率是核心：一字板5%/秒板30%/快板60%/慢板80%</div>
@@ -630,12 +668,31 @@ function onSweepParamChange() {
               <ElInputNumber v-model="form.strategyConfigs.limit_up_open.params.min_turnover_rate" :min="0" :max="1" :step="0.01" style="width: 150px" :disabled="!form.strategyConfigs.limit_up_open.enabled" /><span class="unit">%</span>
             </ElFormItem>
           </div>
+                  <!-- 策略风控参数 -->
+          <div class="risk-params-section">
+            <div class="risk-params-title">💹 策略风控（可覆盖全局默认值）</div>
+            <div class="risk-params-desc">开板回封失败则次日大概率低开，止损4%严格控制风险。回封成功后次日溢价较高，止盈15%锁定利润。</div>
+            <div :disabled="!form.strategyConfigs.limit_up_open.enabled" class="grid grid-cols-2 gap-4">
+              <ElFormItem label="止损比例" :disabled="!form.strategyConfigs.limit_up_open.enabled">
+                <ElInputNumber v-model="form.strategyConfigs.limit_up_open.riskParams.stop_loss_pct" :min="0.005" :max="0.15" :step="0.005" :precision="3" style="width: 130px" :disabled="!form.strategyConfigs.limit_up_open.enabled" /><span class="unit">{{ (form.strategyConfigs.limit_up_open.riskParams.stop_loss_pct * 100).toFixed(1) }}%</span>
+              </ElFormItem>
+              <ElFormItem label="止盈比例" :disabled="!form.strategyConfigs.limit_up_open.enabled">
+                <ElInputNumber v-model="form.strategyConfigs.limit_up_open.riskParams.take_profit_pct" :min="0.01" :max="0.5" :step="0.01" :precision="3" style="width: 130px" :disabled="!form.strategyConfigs.limit_up_open.enabled" /><span class="unit">{{ (form.strategyConfigs.limit_up_open.riskParams.take_profit_pct * 100).toFixed(1) }}%</span>
+              </ElFormItem>
+              <ElFormItem label="最大持仓天数" :disabled="!form.strategyConfigs.limit_up_open.enabled">
+                <ElInputNumber v-model="form.strategyConfigs.limit_up_open.riskParams.max_hold_days" :min="1" :max="10" style="width: 130px" :disabled="!form.strategyConfigs.limit_up_open.enabled" /><span class="unit">天</span>
+              </ElFormItem>
+              <ElFormItem label="滑点比例" :disabled="!form.strategyConfigs.limit_up_open.enabled">
+                <ElInputNumber v-model="form.strategyConfigs.limit_up_open.riskParams.slippage_pct" :min="0" :max="0.01" :step="0.001" :precision="3" style="width: 130px" :disabled="!form.strategyConfigs.limit_up_open.enabled" /><span class="unit">{{ (form.strategyConfigs.limit_up_open.riskParams.slippage_pct * 1000).toFixed(1) }}‰</span>
+              </ElFormItem>
+            </div>
+          </div>
         </ElForm>
         </div>
         <div class="collapse-content-right">
           <div class="desc-panel">
             <div class="desc-panel-title">📈 涨停开板策略</div>
-            <div class="desc-panel-text">连板股盘中开板后回封时买入，博弈回封后次日继续高开。需要连板基础确保龙头地位，开板时间短说明主力坚决。</div>
+            <div class="desc-panel-text">连板股盘中开板后回封时买入，博弈回封后次日继续高开。最少2连板以上确保龙头地位，开板≤10分钟即回封说明主力坚决。回封后封单≥1万手确认抛压已消化。此策略对连板数和回封速度要求严格，是高确定性策略。</div>
             <div class="desc-panel-tips">
               <div class="desc-panel-tips-title">💡 调优建议</div>
               <div class="desc-panel-tip">最少2连板以上，确保不是杂毛股</div>
@@ -689,12 +746,31 @@ function onSweepParamChange() {
               </ElSelect>
             </ElFormItem>
           </div>
+                  <!-- 策略风控参数 -->
+          <div class="risk-params-section">
+            <div class="risk-params-title">💹 策略风控（可覆盖全局默认值）</div>
+            <div class="risk-params-desc">龙头股波动较大，止损5%给予更宽的调整空间。低吸后若启动二波涨幅可观，止盈15%平衡收益与回撤风险。</div>
+            <div :disabled="!form.strategyConfigs.dragon_head.enabled" class="grid grid-cols-2 gap-4">
+              <ElFormItem label="止损比例" :disabled="!form.strategyConfigs.dragon_head.enabled">
+                <ElInputNumber v-model="form.strategyConfigs.dragon_head.riskParams.stop_loss_pct" :min="0.005" :max="0.15" :step="0.005" :precision="3" style="width: 130px" :disabled="!form.strategyConfigs.dragon_head.enabled" /><span class="unit">{{ (form.strategyConfigs.dragon_head.riskParams.stop_loss_pct * 100).toFixed(1) }}%</span>
+              </ElFormItem>
+              <ElFormItem label="止盈比例" :disabled="!form.strategyConfigs.dragon_head.enabled">
+                <ElInputNumber v-model="form.strategyConfigs.dragon_head.riskParams.take_profit_pct" :min="0.01" :max="0.5" :step="0.01" :precision="3" style="width: 130px" :disabled="!form.strategyConfigs.dragon_head.enabled" /><span class="unit">{{ (form.strategyConfigs.dragon_head.riskParams.take_profit_pct * 100).toFixed(1) }}%</span>
+              </ElFormItem>
+              <ElFormItem label="最大持仓天数" :disabled="!form.strategyConfigs.dragon_head.enabled">
+                <ElInputNumber v-model="form.strategyConfigs.dragon_head.riskParams.max_hold_days" :min="1" :max="10" style="width: 130px" :disabled="!form.strategyConfigs.dragon_head.enabled" /><span class="unit">天</span>
+              </ElFormItem>
+              <ElFormItem label="滑点比例" :disabled="!form.strategyConfigs.dragon_head.enabled">
+                <ElInputNumber v-model="form.strategyConfigs.dragon_head.riskParams.slippage_pct" :min="0" :max="0.01" :step="0.001" :precision="3" style="width: 130px" :disabled="!form.strategyConfigs.dragon_head.enabled" /><span class="unit">{{ (form.strategyConfigs.dragon_head.riskParams.slippage_pct * 1000).toFixed(1) }}‰</span>
+              </ElFormItem>
+            </div>
+          </div>
         </ElForm>
         </div>
         <div class="collapse-content-right">
           <div class="desc-panel">
             <div class="desc-panel-title">🐲 龙头低吸策略</div>
-            <div class="desc-panel-text">在龙头股回调到支撑位时低吸买入，博弈龙头二波启动。适合市场分歧后的再次一致，需要连板基础确认龙头地位。</div>
+            <div class="desc-panel-text">在龙头股回调到支撑位时低吸买入，博弈龙头二波启动。核心：连板龙头+缩量回调到5/10日均线。回调5%~35%为健康调整区间，量比0.5~2.0确认缩量而非放量下跌。适合市场分歧后的再次一致，是低吸高赔率策略。止损5%给予龙头更大的波动空间。</div>
             <div class="desc-panel-tips">
               <div class="desc-panel-tips-title">💡 调优建议</div>
               <div class="desc-panel-tip">核心：连板龙头+缩量回调到5/10日均线</div>
@@ -733,12 +809,31 @@ function onSweepParamChange() {
               <ElSwitch v-model="form.strategyConfigs.limit_down_qiao.params.require_high_sentiment" :disabled="!form.strategyConfigs.limit_down_qiao.enabled" />
             </ElFormItem>
           </div>
+                  <!-- 策略风控参数 -->
+          <div class="risk-params-section">
+            <div class="risk-params-title">💹 策略风控（可覆盖全局默认值）</div>
+            <div class="risk-params-desc">跌停翘板是高风险高回报策略，翘板失败继续跌停概率大，止损4%严格控损。翘板成功后反弹空间大，止盈25%追求高赔率。</div>
+            <div :disabled="!form.strategyConfigs.limit_down_qiao.enabled" class="grid grid-cols-2 gap-4">
+              <ElFormItem label="止损比例" :disabled="!form.strategyConfigs.limit_down_qiao.enabled">
+                <ElInputNumber v-model="form.strategyConfigs.limit_down_qiao.riskParams.stop_loss_pct" :min="0.005" :max="0.15" :step="0.005" :precision="3" style="width: 130px" :disabled="!form.strategyConfigs.limit_down_qiao.enabled" /><span class="unit">{{ (form.strategyConfigs.limit_down_qiao.riskParams.stop_loss_pct * 100).toFixed(1) }}%</span>
+              </ElFormItem>
+              <ElFormItem label="止盈比例" :disabled="!form.strategyConfigs.limit_down_qiao.enabled">
+                <ElInputNumber v-model="form.strategyConfigs.limit_down_qiao.riskParams.take_profit_pct" :min="0.01" :max="0.5" :step="0.01" :precision="3" style="width: 130px" :disabled="!form.strategyConfigs.limit_down_qiao.enabled" /><span class="unit">{{ (form.strategyConfigs.limit_down_qiao.riskParams.take_profit_pct * 100).toFixed(1) }}%</span>
+              </ElFormItem>
+              <ElFormItem label="最大持仓天数" :disabled="!form.strategyConfigs.limit_down_qiao.enabled">
+                <ElInputNumber v-model="form.strategyConfigs.limit_down_qiao.riskParams.max_hold_days" :min="1" :max="10" style="width: 130px" :disabled="!form.strategyConfigs.limit_down_qiao.enabled" /><span class="unit">天</span>
+              </ElFormItem>
+              <ElFormItem label="滑点比例" :disabled="!form.strategyConfigs.limit_down_qiao.enabled">
+                <ElInputNumber v-model="form.strategyConfigs.limit_down_qiao.riskParams.slippage_pct" :min="0" :max="0.01" :step="0.001" :precision="3" style="width: 130px" :disabled="!form.strategyConfigs.limit_down_qiao.enabled" /><span class="unit">{{ (form.strategyConfigs.limit_down_qiao.riskParams.slippage_pct * 1000).toFixed(1) }}‰</span>
+              </ElFormItem>
+            </div>
+          </div>
         </ElForm>
         </div>
         <div class="collapse-content-right">
           <div class="desc-panel">
             <div class="desc-panel-title">💥 跌停翘板策略</div>
-            <div class="desc-panel-text">在跌停板被大资金撬开时追入，博弈翘板后的大幅反弹。高风险高回报，需配合情绪周期使用，市场强势时翘板成功率高。</div>
+            <div class="desc-panel-text">在跌停板被大资金撬开时追入，博弈翘板后的大幅反弹。高风险高回报：翘板失败可能继续跌停，翘板成功反弹空间可观。连跌1天以上才有足够恐慌释放，翘板金额≥5000万确认大资金介入，翘板后涨幅≥3%确认反转力度。建议配合情绪周期，市场强势时翘板成功率高。</div>
             <div class="desc-panel-tips">
               <div class="desc-panel-tips-title">💡 调优建议</div>
               <div class="desc-panel-tip">连跌1天以上才有足够恐慌释放</div>
@@ -751,117 +846,6 @@ function onSweepParamChange() {
         </div>
         </div>
       </ElCollapseItem>
-
-      <!-- 策略风控覆盖（独立面板） -->
-      <ElCollapseItem name="strategyRiskOverride">
-        <template #title><span>🛡️ 策略风控覆盖 (各策略可覆盖全局止损/止盈/持仓天数/滑点)</span></template>
-        <div class="collapse-content">
-        <div class="collapse-content-left">
-        <ElForm label-width="120px" size="small">
-          <div class="risk-override-group">
-            <div class="risk-override-header">🏃‍♂️ 半路追涨 <ElSwitch v-model="form.strategyConfigs.halfway_chase.enabled" size="small" @change="() => toggleStrategy('halfway_chase')" /></div>
-            <div :disabled="!form.strategyConfigs.halfway_chase.enabled" class="grid grid-cols-2 gap-4">
-              <ElFormItem label="止损" :disabled="!form.strategyConfigs.halfway_chase.enabled">
-                <ElInputNumber v-model="form.strategyConfigs.halfway_chase.riskParams.stop_loss_pct" :min="0.005" :max="0.15" :step="0.005" :precision="3" style="width: 120px" :disabled="!form.strategyConfigs.halfway_chase.enabled" /><span class="unit">{{ (form.strategyConfigs.halfway_chase.riskParams.stop_loss_pct * 100).toFixed(1) }}%</span>
-              </ElFormItem>
-              <ElFormItem label="止盈" :disabled="!form.strategyConfigs.halfway_chase.enabled">
-                <ElInputNumber v-model="form.strategyConfigs.halfway_chase.riskParams.take_profit_pct" :min="0.01" :max="0.5" :step="0.01" :precision="3" style="width: 120px" :disabled="!form.strategyConfigs.halfway_chase.enabled" /><span class="unit">{{ (form.strategyConfigs.halfway_chase.riskParams.take_profit_pct * 100).toFixed(1) }}%</span>
-              </ElFormItem>
-              <ElFormItem label="持仓" :disabled="!form.strategyConfigs.halfway_chase.enabled">
-                <ElInputNumber v-model="form.strategyConfigs.halfway_chase.riskParams.max_hold_days" :min="1" :max="10" style="width: 120px" :disabled="!form.strategyConfigs.halfway_chase.enabled" /><span class="unit">天</span>
-              </ElFormItem>
-              <ElFormItem label="滑点" :disabled="!form.strategyConfigs.halfway_chase.enabled">
-                <ElInputNumber v-model="form.strategyConfigs.halfway_chase.riskParams.slippage_pct" :min="0" :max="0.01" :step="0.001" :precision="3" style="width: 120px" :disabled="!form.strategyConfigs.halfway_chase.enabled" /><span class="unit">{{ (form.strategyConfigs.halfway_chase.riskParams.slippage_pct * 1000).toFixed(1) }}‰</span>
-              </ElFormItem>
-            </div>
-          </div>
-          <div class="risk-override-group">
-            <div class="risk-override-header">🥇 首板打板 <ElSwitch v-model="form.strategyConfigs.first_limit_up.enabled" size="small" @change="() => toggleStrategy('first_limit_up')" /></div>
-            <div :disabled="!form.strategyConfigs.first_limit_up.enabled" class="grid grid-cols-2 gap-4">
-              <ElFormItem label="止损" :disabled="!form.strategyConfigs.first_limit_up.enabled">
-                <ElInputNumber v-model="form.strategyConfigs.first_limit_up.riskParams.stop_loss_pct" :min="0.005" :max="0.15" :step="0.005" :precision="3" style="width: 120px" :disabled="!form.strategyConfigs.first_limit_up.enabled" /><span class="unit">{{ (form.strategyConfigs.first_limit_up.riskParams.stop_loss_pct * 100).toFixed(1) }}%</span>
-              </ElFormItem>
-              <ElFormItem label="止盈" :disabled="!form.strategyConfigs.first_limit_up.enabled">
-                <ElInputNumber v-model="form.strategyConfigs.first_limit_up.riskParams.take_profit_pct" :min="0.01" :max="0.5" :step="0.01" :precision="3" style="width: 120px" :disabled="!form.strategyConfigs.first_limit_up.enabled" /><span class="unit">{{ (form.strategyConfigs.first_limit_up.riskParams.take_profit_pct * 100).toFixed(1) }}%</span>
-              </ElFormItem>
-              <ElFormItem label="持仓" :disabled="!form.strategyConfigs.first_limit_up.enabled">
-                <ElInputNumber v-model="form.strategyConfigs.first_limit_up.riskParams.max_hold_days" :min="1" :max="10" style="width: 120px" :disabled="!form.strategyConfigs.first_limit_up.enabled" /><span class="unit">天</span>
-              </ElFormItem>
-              <ElFormItem label="滑点" :disabled="!form.strategyConfigs.first_limit_up.enabled">
-                <ElInputNumber v-model="form.strategyConfigs.first_limit_up.riskParams.slippage_pct" :min="0" :max="0.01" :step="0.001" :precision="3" style="width: 120px" :disabled="!form.strategyConfigs.first_limit_up.enabled" /><span class="unit">{{ (form.strategyConfigs.first_limit_up.riskParams.slippage_pct * 1000).toFixed(1) }}‰</span>
-              </ElFormItem>
-            </div>
-          </div>
-          <div class="risk-override-group">
-            <div class="risk-override-header">📈 涨停开板 <ElSwitch v-model="form.strategyConfigs.limit_up_open.enabled" size="small" @change="() => toggleStrategy('limit_up_open')" /></div>
-            <div :disabled="!form.strategyConfigs.limit_up_open.enabled" class="grid grid-cols-2 gap-4">
-              <ElFormItem label="止损" :disabled="!form.strategyConfigs.limit_up_open.enabled">
-                <ElInputNumber v-model="form.strategyConfigs.limit_up_open.riskParams.stop_loss_pct" :min="0.005" :max="0.15" :step="0.005" :precision="3" style="width: 120px" :disabled="!form.strategyConfigs.limit_up_open.enabled" /><span class="unit">{{ (form.strategyConfigs.limit_up_open.riskParams.stop_loss_pct * 100).toFixed(1) }}%</span>
-              </ElFormItem>
-              <ElFormItem label="止盈" :disabled="!form.strategyConfigs.limit_up_open.enabled">
-                <ElInputNumber v-model="form.strategyConfigs.limit_up_open.riskParams.take_profit_pct" :min="0.01" :max="0.5" :step="0.01" :precision="3" style="width: 120px" :disabled="!form.strategyConfigs.limit_up_open.enabled" /><span class="unit">{{ (form.strategyConfigs.limit_up_open.riskParams.take_profit_pct * 100).toFixed(1) }}%</span>
-              </ElFormItem>
-              <ElFormItem label="持仓" :disabled="!form.strategyConfigs.limit_up_open.enabled">
-                <ElInputNumber v-model="form.strategyConfigs.limit_up_open.riskParams.max_hold_days" :min="1" :max="10" style="width: 120px" :disabled="!form.strategyConfigs.limit_up_open.enabled" /><span class="unit">天</span>
-              </ElFormItem>
-              <ElFormItem label="滑点" :disabled="!form.strategyConfigs.limit_up_open.enabled">
-                <ElInputNumber v-model="form.strategyConfigs.limit_up_open.riskParams.slippage_pct" :min="0" :max="0.01" :step="0.001" :precision="3" style="width: 120px" :disabled="!form.strategyConfigs.limit_up_open.enabled" /><span class="unit">{{ (form.strategyConfigs.limit_up_open.riskParams.slippage_pct * 1000).toFixed(1) }}‰</span>
-              </ElFormItem>
-            </div>
-          </div>
-          <div class="risk-override-group">
-            <div class="risk-override-header">🐲 龙头低吸 <ElSwitch v-model="form.strategyConfigs.dragon_head.enabled" size="small" @change="() => toggleStrategy('dragon_head')" /></div>
-            <div :disabled="!form.strategyConfigs.dragon_head.enabled" class="grid grid-cols-2 gap-4">
-              <ElFormItem label="止损" :disabled="!form.strategyConfigs.dragon_head.enabled">
-                <ElInputNumber v-model="form.strategyConfigs.dragon_head.riskParams.stop_loss_pct" :min="0.005" :max="0.15" :step="0.005" :precision="3" style="width: 120px" :disabled="!form.strategyConfigs.dragon_head.enabled" /><span class="unit">{{ (form.strategyConfigs.dragon_head.riskParams.stop_loss_pct * 100).toFixed(1) }}%</span>
-              </ElFormItem>
-              <ElFormItem label="止盈" :disabled="!form.strategyConfigs.dragon_head.enabled">
-                <ElInputNumber v-model="form.strategyConfigs.dragon_head.riskParams.take_profit_pct" :min="0.01" :max="0.5" :step="0.01" :precision="3" style="width: 120px" :disabled="!form.strategyConfigs.dragon_head.enabled" /><span class="unit">{{ (form.strategyConfigs.dragon_head.riskParams.take_profit_pct * 100).toFixed(1) }}%</span>
-              </ElFormItem>
-              <ElFormItem label="持仓" :disabled="!form.strategyConfigs.dragon_head.enabled">
-                <ElInputNumber v-model="form.strategyConfigs.dragon_head.riskParams.max_hold_days" :min="1" :max="10" style="width: 120px" :disabled="!form.strategyConfigs.dragon_head.enabled" /><span class="unit">天</span>
-              </ElFormItem>
-              <ElFormItem label="滑点" :disabled="!form.strategyConfigs.dragon_head.enabled">
-                <ElInputNumber v-model="form.strategyConfigs.dragon_head.riskParams.slippage_pct" :min="0" :max="0.01" :step="0.001" :precision="3" style="width: 120px" :disabled="!form.strategyConfigs.dragon_head.enabled" /><span class="unit">{{ (form.strategyConfigs.dragon_head.riskParams.slippage_pct * 1000).toFixed(1) }}‰</span>
-              </ElFormItem>
-            </div>
-          </div>
-          <div class="risk-override-group">
-            <div class="risk-override-header">💥 跌停翘板 <ElSwitch v-model="form.strategyConfigs.limit_down_qiao.enabled" size="small" @change="() => toggleStrategy('limit_down_qiao')" /></div>
-            <div :disabled="!form.strategyConfigs.limit_down_qiao.enabled" class="grid grid-cols-2 gap-4">
-              <ElFormItem label="止损" :disabled="!form.strategyConfigs.limit_down_qiao.enabled">
-                <ElInputNumber v-model="form.strategyConfigs.limit_down_qiao.riskParams.stop_loss_pct" :min="0.005" :max="0.15" :step="0.005" :precision="3" style="width: 120px" :disabled="!form.strategyConfigs.limit_down_qiao.enabled" /><span class="unit">{{ (form.strategyConfigs.limit_down_qiao.riskParams.stop_loss_pct * 100).toFixed(1) }}%</span>
-              </ElFormItem>
-              <ElFormItem label="止盈" :disabled="!form.strategyConfigs.limit_down_qiao.enabled">
-                <ElInputNumber v-model="form.strategyConfigs.limit_down_qiao.riskParams.take_profit_pct" :min="0.01" :max="0.5" :step="0.01" :precision="3" style="width: 120px" :disabled="!form.strategyConfigs.limit_down_qiao.enabled" /><span class="unit">{{ (form.strategyConfigs.limit_down_qiao.riskParams.take_profit_pct * 100).toFixed(1) }}%</span>
-              </ElFormItem>
-              <ElFormItem label="持仓" :disabled="!form.strategyConfigs.limit_down_qiao.enabled">
-                <ElInputNumber v-model="form.strategyConfigs.limit_down_qiao.riskParams.max_hold_days" :min="1" :max="10" style="width: 120px" :disabled="!form.strategyConfigs.limit_down_qiao.enabled" /><span class="unit">天</span>
-              </ElFormItem>
-              <ElFormItem label="滑点" :disabled="!form.strategyConfigs.limit_down_qiao.enabled">
-                <ElInputNumber v-model="form.strategyConfigs.limit_down_qiao.riskParams.slippage_pct" :min="0" :max="0.01" :step="0.001" :precision="3" style="width: 120px" :disabled="!form.strategyConfigs.limit_down_qiao.enabled" /><span class="unit">{{ (form.strategyConfigs.limit_down_qiao.riskParams.slippage_pct * 1000).toFixed(1) }}‰</span>
-              </ElFormItem>
-            </div>
-          </div>
-        </ElForm>
-        </div>
-        <div class="collapse-content-right">
-          <div class="desc-panel">
-            <div class="desc-panel-title">🛡️ 策略风控覆盖</div>
-            <div class="desc-panel-text">每个策略可以独立覆盖全局的止损/止盈/持仓天数/滑点参数。未覆盖的参数使用上方「交易参数」中的全局默认值。</div>
-            <div class="desc-panel-tips">
-              <div class="desc-panel-tips-title">💡 调优建议</div>
-              <div class="desc-panel-tip">打板策略止损4%(封板失败下跌快)</div>
-              <div class="desc-panel-tip">龙头低吸止损5%(给龙头更大波动空间)</div>
-              <div class="desc-panel-tip">跌停翘板止盈25%(高赔率策略需要高止盈)</div>
-              <div class="desc-panel-tip">打板滑点5‰(涨停排队实际成交偏差大)</div>
-              <div class="desc-panel-tip">默认持仓1天(超短策略T+1卖出为主)</div>
-            </div>
-          </div>
-        </div>
-        </div>
-      </ElCollapseItem>
-
     </ElCollapse>
   </ElCard>
     </template>
@@ -1105,16 +1089,16 @@ export default { name: 'StrategyConfigPanel' }
   padding: 14px 16px;
 }
 .desc-panel-title {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--text-primary);
   margin-bottom: 10px;
 }
 .desc-panel-text {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text-secondary);
-  line-height: 1.7;
-  margin-bottom: 10px;
+  line-height: 1.8;
+  margin-bottom: 12px;
 }
 .desc-panel-tips {
   border-top: 1px solid var(--border-default);
@@ -1122,15 +1106,15 @@ export default { name: 'StrategyConfigPanel' }
   margin-top: 2px;
 }
 .desc-panel-tips-title {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--primary-500);
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 .desc-panel-tip {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-secondary);
-  line-height: 1.7;
+  line-height: 1.8;
   padding-left: 10px;
   position: relative;
   &::before {
@@ -1285,15 +1269,22 @@ export default { name: 'StrategyConfigPanel' }
 .risk-params-section {
   margin-top: 16px;
   padding-top: 12px;
-  border-top: 1px dashed #e4e7ed;
+  border-top: 2px solid var(--border-default);
   .risk-params-title {
     font-weight: 600;
     font-size: 13px;
     color: var(--primary-500);
-    margin-bottom: 8px;
-    padding-left: 4px;
+    margin-bottom: 4px;
+    padding-left: 6px;
     border-left: 3px solid var(--warning);
     line-height: 1;
+  }
+  .risk-params-desc {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    line-height: 1.6;
+    margin-bottom: 10px;
+    padding-left: 9px;
   }
 }
 .risk-override-group {
