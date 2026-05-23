@@ -689,7 +689,7 @@ function onReuseParams(task: BacktestHistoryItem) {
     form.strategies = [...task.strategies]
   }
   activeMainTab.value = 'config'  // 切回配置Tab
-  ElMessage.success('已复用参数到表单，修改后点击提交')
+  ElMessage.success('已复用参数到配置页，修改后点击提交')
 }
 
 /** 查看历史回测结果 */
@@ -699,7 +699,7 @@ function onViewResult(task: BacktestHistoryItem) {
     if (result) {
       backtestResult.value = result
       backtestState.task_id = task.task_id
-      activeMainTab.value = 'config'  // 切到配置Tab看结果
+      activeMainTab.value = 'result'  // 切到日志与结果Tab看结果
       ElMessage.success('已加载历史回测结果')
     } else {
       ElMessage.warning('该回测无结果数据')
@@ -711,8 +711,8 @@ function onViewResult(task: BacktestHistoryItem) {
 
 /** 查看历史回测日志 */
 function onViewLogs(taskId: string) {
-  // 切回配置Tab并滚动到日志面板
-  activeMainTab.value = 'config'
+  // 切到日志与结果Tab
+  activeMainTab.value = 'result'
   backtestState.task_id = taskId
   nextTick(() => {
     const logEl = document.querySelector('.ansi-log-card')
@@ -727,10 +727,15 @@ function onViewLogs(taskId: string) {
     <div class="main-tabs-bar">
       <div class="main-tabs">
         <button :class="['tab-btn', activeMainTab === 'config' ? 'active' : '']" @click="activeMainTab = 'config'">
-          🎯 新建回测
+          🎯 回测配置
+        </button>
+        <button :class="['tab-btn', activeMainTab === 'result' ? 'active' : '']" @click="activeMainTab = 'result'">
+          📊 日志与结果
+          <span v-if="backtestResult" class="tab-badge-success">✓</span>
+          <span v-else-if="backtestState.running" class="tab-badge-running">运行中</span>
         </button>
         <button :class="['tab-btn', activeMainTab === 'history' ? 'active' : '']" @click="activeMainTab = 'history'">
-          📊 回测历史
+          📋 回测历史
           <span class="tab-badge">{{ historyCount }}</span>
         </button>
         <button :class="['tab-btn', activeMainTab === 'data' ? 'active' : '']" @click="activeMainTab = 'data'">
@@ -745,64 +750,80 @@ function onViewLogs(taskId: string) {
       </ElButton>
     </div>
 
-    <!-- Tab内容：新建回测 -->
-    <div v-show="activeMainTab === 'config'" class="config-layout">
-      <!-- 左侧收起/展开按钮 -->
-      <button class="config-toggle-btn" @click="configCollapsed = !configCollapsed" :title="configCollapsed ? '展开配置' : '收起配置'">
-        {{ configCollapsed ? '▶' : '◀' }}
-      </button>
-      <div class="config-left" v-show="!configCollapsed">
-        <!-- 策略配置面板 -->
-        <StrategyConfigPanel
-          :form="form"
-          :backtestRunning="backtestState.running || sweepLoading"
-          :sweepEnabled="form.sweep.enabled"
-          v-model:activeCollapse="activeCollapse"
-          @submit="form.sweep.enabled ? submitSweepBacktest() : submitBacktest()"
-        />
+    <!-- Tab内容：回测配置（全屏独立标签页） -->
+    <div v-show="activeMainTab === 'config'" class="tab-content-full">
+      <!-- 运行状态/耗时 -->
+      <div v-if="backtestState.running" class="running-status">
+        ⏱ 已运行 {{ Math.floor(elapsedSeconds / 60) }}:{{ String(elapsedSeconds % 60).padStart(2, '0') }} · 回测运行中，完成后自动切换到「日志与结果」
       </div>
-      <div class="config-right">
-        <!-- 运行状态/耗时 - 精简版 -->
-        <div v-if="backtestState.running" class="running-status">
-          ⏱ 已运行 {{ Math.floor(elapsedSeconds / 60) }}:{{ String(elapsedSeconds % 60).padStart(2, '0') }}
-        </div>
-        <div v-if="backtestResult?.execution_time_ms" class="execution-time">
-          ⏱ 回测耗时 {{ (backtestResult.execution_time_ms / 1000).toFixed(1) }}秒 · {{ backtestResult?.net_value_series?.length || 0 }} 交易日
-        </div>
-
-        <!-- 参数扫描结果 -->
-        <ElCard v-if="sweepResult" style="margin-bottom: 16px">
-          <template #header><span>📊 参数扫描结果 - {{ currentSweepParam?.label || sweepResult.sweep_param }}</span></template>
-          <VChart v-if="sweepChartOption" :option="sweepChartOption" autoresize style="height: 400px; width: 100%" />
-          <ElTable v-if="sweepResult.results?.length" :data="sweepResult.results" size="small" border stripe style="margin-top: 12px">
-            <ElTableColumn label="参数值" width="100">
-              <template #default="{ row }">{{ currentSweepParam ? (row.value * currentSweepParam.factor).toFixed(2) + currentSweepParam.unit : row.value }}</template>
-            </ElTableColumn>
-            <ElTableColumn label="收益率" width="100">
-              <template #default="{ row }"><span :style="{ color: row.total_return >= 0 ? '#67c23a' : '#f56c6c' }">{{ row.total_return?.toFixed(2) }}%</span></template>
-            </ElTableColumn>
-            <ElTableColumn label="胜率" width="80">
-              <template #default="{ row }">{{ row.win_rate?.toFixed(1) }}%</template>
-            </ElTableColumn>
-            <ElTableColumn label="最大回撤" width="100">
-              <template #default="{ row }"><span style="color: #f56c6c">{{ row.max_drawdown?.toFixed(2) }}%</span></template>
-            </ElTableColumn>
-            <ElTableColumn label="夏普" width="80">
-              <template #default="{ row }">{{ row.sharpe_ratio?.toFixed(2) }}</template>
-            </ElTableColumn>
-            <ElTableColumn prop="total_trades" label="交易数" width="80" />
-          </ElTable>
-        </ElCard>
-
-        <!-- 回测结果总结表格 -->
-        <BacktestSummaryTable v-if="backtestResult" :result="backtestResult" />
-
-        <!-- 回测结果详细面板 -->
-        <BacktestResultPanel v-if="backtestResult" :result="backtestResult" :form="form" />
-
-        <!-- 日志面板 -->
-        <AnsiLogPanel v-if="backtestState.running || backtestState.task_id" :task-id="backtestState.task_id" :task-status="backtestState.running ? 'running' : 'completed'" :height="700" />
+      <div v-if="backtestResult?.execution_time_ms" class="execution-time">
+        ⏱ 上次回测耗时 {{ (backtestResult.execution_time_ms / 1000).toFixed(1) }}秒 · {{ backtestResult?.net_value_series?.length || 0 }} 交易日
+        <ElButton size="small" type="primary" link @click="activeMainTab = 'result'">📊 查看结果 →</ElButton>
       </div>
+
+      <!-- 策略配置面板 - 全屏展示 -->
+      <StrategyConfigPanel
+        :form="form"
+        :backtestRunning="backtestState.running || sweepLoading"
+        :sweepEnabled="form.sweep.enabled"
+        v-model:activeCollapse="activeCollapse"
+        @submit="() => { form.sweep.enabled ? submitSweepBacktest() : submitBacktest() }"
+      />
+    </div>
+
+    <!-- Tab内容：回测日志与结果（全屏独立标签页） -->
+    <div v-show="activeMainTab === 'result'" class="tab-content-full">
+      <!-- 运行状态/耗时 -->
+      <div v-if="backtestState.running" class="running-status">
+        ⏱ 已运行 {{ Math.floor(elapsedSeconds / 60) }}:{{ String(elapsedSeconds % 60).padStart(2, '0') }} · 回测运行中...
+      </div>
+      <div v-if="backtestResult?.execution_time_ms" class="execution-time">
+        ⏱ 回测耗时 {{ (backtestResult.execution_time_ms / 1000).toFixed(1) }}秒 · {{ backtestResult?.net_value_series?.length || 0 }} 交易日
+        <ElButton size="small" type="primary" link @click="activeMainTab = 'config'">🎯 修改配置 →</ElButton>
+      </div>
+
+      <!-- 无结果时的空状态 -->
+      <div v-if="!backtestState.running && !backtestResult && !backtestState.task_id" class="empty-result">
+        <div style="text-align:center;padding:80px 0;color:var(--text-tertiary)">
+          <div style="font-size:48px;margin-bottom:16px">📊</div>
+          <div style="font-size:16px;font-weight:600;margin-bottom:8px">暂无回测结果</div>
+          <div style="font-size:13px">请先在「回测配置」标签页中配置并提交回测</div>
+          <ElButton type="primary" style="margin-top:16px" @click="activeMainTab = 'config'">前往配置 →</ElButton>
+        </div>
+      </div>
+
+      <!-- 参数扫描结果 -->
+      <ElCard v-if="sweepResult" style="margin-bottom: 16px">
+        <template #header><span>📊 参数扫描结果 - {{ currentSweepParam?.label || sweepResult.sweep_param }}</span></template>
+        <VChart v-if="sweepChartOption" :option="sweepChartOption" autoresize style="height: 400px; width: 100%" />
+        <ElTable v-if="sweepResult.results?.length" :data="sweepResult.results" size="small" border stripe style="margin-top: 12px">
+          <ElTableColumn label="参数值" width="100">
+            <template #default="{ row }">{{ currentSweepParam ? (row.value * currentSweepParam.factor).toFixed(2) + currentSweepParam.unit : row.value }}</template>
+          </ElTableColumn>
+          <ElTableColumn label="收益率" width="100">
+            <template #default="{ row }"><span :style="{ color: row.total_return >= 0 ? '#67c23a' : '#f56c6c' }">{{ row.total_return?.toFixed(2) }}%</span></template>
+          </ElTableColumn>
+          <ElTableColumn label="胜率" width="80">
+            <template #default="{ row }">{{ row.win_rate?.toFixed(1) }}%</template>
+          </ElTableColumn>
+          <ElTableColumn label="最大回撤" width="100">
+            <template #default="{ row }"><span style="color: #f56c6c">{{ row.max_drawdown?.toFixed(2) }}%</span></template>
+          </ElTableColumn>
+          <ElTableColumn label="夏普" width="80">
+            <template #default="{ row }">{{ row.sharpe_ratio?.toFixed(2) }}</template>
+          </ElTableColumn>
+          <ElTableColumn prop="total_trades" label="交易数" width="80" />
+        </ElTable>
+      </ElCard>
+
+      <!-- 回测结果总结表格 -->
+      <BacktestSummaryTable v-if="backtestResult" :result="backtestResult" />
+
+      <!-- 回测结果详细面板 -->
+      <BacktestResultPanel v-if="backtestResult" :result="backtestResult" :form="form" />
+
+      <!-- 日志面板 -->
+      <AnsiLogPanel v-if="backtestState.running || backtestState.task_id" :task-id="backtestState.task_id" :task-status="backtestState.running ? 'running' : 'completed'" :height="700" />
     </div>
 
     <!-- Tab内容：回测历史 -->
@@ -883,51 +904,43 @@ function onViewLogs(taskId: string) {
       background: var(--primary-50);
       color: var(--primary-500);
     }
+
+    .tab-badge-success {
+      display: inline-block;
+      background: #f0f9eb;
+      color: #67c23a;
+      font-size: 11px;
+      padding: 1px 6px;
+      border-radius: 10px;
+      margin-left: 6px;
+      font-weight: 700;
+    }
+
+    .tab-badge-running {
+      display: inline-block;
+      background: var(--primary-50);
+      color: var(--primary-500);
+      font-size: 11px;
+      padding: 1px 6px;
+      border-radius: 10px;
+      margin-left: 6px;
+      font-weight: 500;
+      animation: pulse 2s infinite;
+    }
   }
 }
 
-.config-layout {
-  display: flex;
-  gap: 0;
+.tab-content-full {
   flex: 1;
-  overflow: hidden;
-  position: relative;
+  overflow-y: auto;
 }
-.config-toggle-btn {
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 10;
-  width: 20px;
-  height: 48px;
-  border: 1px solid var(--border-default);
-  border-left: none;
-  border-radius: 0 6px 6px 0;
+
+.empty-result {
   background: var(--bg-elevated);
-  color: var(--text-tertiary);
-  cursor: pointer;
-  font-size: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s;
-  &:hover { background: var(--primary-50); color: var(--primary-500); border-color: var(--primary-200); }
+  border-radius: 8px;
+  border: 1px dashed var(--border-default);
 }
-.config-left {
-  width: 420px;
-  flex-shrink: 0;
-  overflow-y: auto;
-  padding-right: 4px;
-  padding-left: 24px;
-  transition: width 0.3s;
-}
-.config-right {
-  flex: 1;
-  overflow-y: auto;
-  min-width: 0;
-  padding-left: 8px;
-}
+
 .running-status {
   padding: 8px 16px;
   background: var(--info-bg);
@@ -950,10 +963,6 @@ function onViewLogs(taskId: string) {
   margin-bottom: 12px;
   font-size: 13px;
   color: var(--success);
-}
-.tab-content-full {
-  flex: 1;
-  overflow-y: auto;
 }
 
 
