@@ -121,7 +121,7 @@ async def execute_ultra_short_backtest(
     logger.info("INIT", f"选中策略：【{'、'.join(selected_strategy_names)}】")
 
     # 打印全局参数
-    logger.info("INIT", f"全局参数：流动性门槛{strategy_params.get('liquidity_threshold', GLOBAL_RISK['liquidity_threshold'])}万/止损{strategy_params.get('stop_loss_pct', GLOBAL_RISK['stop_loss_pct'])*100}%/止盈{strategy_params.get('take_profit_pct', GLOBAL_RISK['take_profit_pct'])*100}%/最大持仓{strategy_params.get('max_hold_days', GLOBAL_RISK['max_hold_days'])}天/单票仓位{strategy_params.get('max_position_per_stock', GLOBAL_RISK['max_position_per_stock'])*100}%/总仓位{strategy_params.get('max_total_position', GLOBAL_RISK['max_total_position'])*100}%")
+    logger.info("INIT", f"全局参数：流动性门槛{strategy_params.get('liquidity_threshold', GLOBAL_RISK['liquidity_threshold'])}万/止损{strategy_params.get('stop_loss_pct', GLOBAL_RISK['stop_loss_pct'])*100}%/止盈{strategy_params.get('take_profit_pct', GLOBAL_RISK['take_profit_pct'])*100}%/最大持仓{strategy_params.get('max_hold_days', GLOBAL_RISK['max_hold_days'])}天/单票仓位{strategy_params.get('max_position_per_stock', GLOBAL_RISK['max_position_per_stock'])*100}%/总仓位{strategy_params.get('max_position', strategy_params.get('max_total_position', GLOBAL_RISK['max_total_position']))*100}%")
 
     # 打印功能开关（已在上方统一读取，此处仅打印）
     logger.info("INIT", f"功能开关：强制空仓{'✅' if enable_force_empty else '❌'} / 情绪周期{'✅' if enable_sentiment_cycle else '❌'} / 竞价过滤{'✅' if enable_auction_filter else '❌'} / 止损{'✅' if enable_stop_loss else '❌'} / 止盈{'✅' if enable_take_profit else '❌'} / MA60过滤{'✅' if enable_ma60_filter else '❌'} / 板块集中度{'✅' if enable_sector_concentration else '❌'}")
@@ -161,7 +161,7 @@ async def execute_ultra_short_backtest(
     await push_log_fn(task_id, "📋 === 🔧 全局公共参数 ===")
     await push_log_fn(task_id, "├─ 流动性门槛: %s 万元" % strategy_params.get('liquidity_threshold', GLOBAL_RISK['liquidity_threshold']))
     await push_log_fn(task_id, "├─ 单票最大仓位: %.1f %%" % (strategy_params.get('max_position_per_stock', GLOBAL_RISK['max_position_per_stock'])*100))
-    await push_log_fn(task_id, "├─ 总仓位上限: %.1f %%" % (strategy_params.get('max_total_position', GLOBAL_RISK['max_total_position'])*100))
+    await push_log_fn(task_id, "├─ 总仓位上限: %.1f %%" % (strategy_params.get('max_position', strategy_params.get('max_total_position', GLOBAL_RISK['max_total_position']))*100))
     await push_log_fn(task_id, "├─ 止损比例: %.1f %%" % (strategy_params.get('stop_loss_pct', GLOBAL_RISK['stop_loss_pct'])*100))
     await push_log_fn(task_id, "├─ 止盈比例: %.1f %%" % (strategy_params.get('take_profit_pct', GLOBAL_RISK['take_profit_pct'])*100))
     await push_log_fn(task_id, "├─ 最大持仓天数: %d 天" % strategy_params.get('max_hold_days', GLOBAL_RISK['max_hold_days']))

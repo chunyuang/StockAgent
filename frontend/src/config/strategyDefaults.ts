@@ -22,6 +22,7 @@ export const GLOBAL_RISK = {
   force_empty_limit_down: 80,
   force_empty_limit_up: 10,
   force_empty_index_drop_pct: 0.03,
+  live_trading_mode: false,
 }
 
 // 策略配置 — 与后端 strategy_defaults.py STRATEGY_CONFIGS 完全对齐
@@ -126,10 +127,12 @@ export const STRATEGY_CONFIGS = {
       min_rise_after_qiao: 0.03,
       min_circulation_market_cap: 20,
       require_high_sentiment: false,
+      next_day_open_sell_pct: 0.03,
+      pullback_mid_fallback_pct: 0.015,
     },
     riskParams: {
       stop_loss_pct: 0.04,
-      take_profit_pct: 0.25,
+      take_profit_pct: 0.2,
       max_hold_days: 3,
       slippage_pct: 0.003,
     },

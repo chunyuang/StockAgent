@@ -189,7 +189,7 @@ async def submit_ultra_short_backtest(
                 "selected_strategies": selected_strategies,
                 # 【P1-3修复】透传强制空仓细粒度阈值
                 "force_empty_config": {
-                    "limit_down_count": force_empty_config.get("limit_down_count", 50),
+                    "limit_down_count": force_empty_config.get("limit_down_count", 80),
                     "limit_up_count": force_empty_config.get("limit_up_count", 10),
                     "index_drop_pct": force_empty_config.get("index_drop_pct", 0.02),
                 } if force_empty_config.get("enabled", True) else {},
@@ -505,7 +505,7 @@ async def submit_sweep_backtest(raw_request: Request, user_id: str = Depends(get
                 "enable_sector_concentration": request.params.enable_sector_concentration,
                 "selected_strategies": copy.deepcopy(selected_strategies),
                 "force_empty_config": {
-                    "limit_down_count": force_empty_config.get("limit_down_count", 50),
+                    "limit_down_count": force_empty_config.get("limit_down_count", 80),
                     "limit_up_count": force_empty_config.get("limit_up_count", 10),
                     "index_drop_pct": force_empty_config.get("index_drop_pct", 0.02),
                 } if force_empty_config.get("enabled", True) else {},

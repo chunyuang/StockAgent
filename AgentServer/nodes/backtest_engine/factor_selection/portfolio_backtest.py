@@ -85,7 +85,7 @@ class PortfolioBacktester:
 
     # 【P1-5修复(第十一轮):强制空仓阈值提升为类常量,避免两处分别定义不一致】
     # 【P1-5修复】强制空仓阈值从strategy_defaults.py读取(单一来源)
-    FORCE_EMPTY_LIMIT_DOWN = GLOBAL_RISK.get("force_empty_limit_down", 50)
+    FORCE_EMPTY_LIMIT_DOWN = GLOBAL_RISK.get("force_empty_limit_down", 80)
     FORCE_EMPTY_LIMIT_UP = GLOBAL_RISK.get("force_empty_limit_up", 10)
 
     def __init__(self):
