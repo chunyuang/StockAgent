@@ -867,7 +867,7 @@ function onViewLogs(taskId: string) {
 <style scoped lang="scss">
 .ultra-short-v2-page {
   padding: 20px;
-  height: 100vh;
+  min-height: 100vh;
   display: flex;
   flex-direction: column;
 }
@@ -948,8 +948,7 @@ function onViewLogs(taskId: string) {
 
 .tab-content-full {
   flex: 1;
-  overflow-y: auto;
-  padding-bottom: 40px;
+  padding-bottom: 60px;
 }
 
 .empty-result {
