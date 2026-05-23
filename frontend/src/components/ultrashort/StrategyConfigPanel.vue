@@ -203,7 +203,8 @@ function onSweepParamChange() {
       <!-- 数据源配置 -->
       <ElCollapseItem name="dataSource">
         <template #title><span>{{ dataSourceTitle }}</span></template>
-        <div class="section-desc"><span class="desc-badge">说明</span> 定义回测的数据来源，包括K线周期、复权方式和股票池范围。日线适合隔日交易，前复权可消除除权影响。</div>
+        <div class="collapse-content">
+        <div class="collapse-content-left">
         <ElForm label-width="120px">
           <ElFormItem label="周期">
             <ElSelect v-model="form.dataSource.period" style="width: 150px">
@@ -227,23 +228,54 @@ function onSweepParamChange() {
             <ElInput v-model="form.dataSource.end_date" placeholder="如20260320" />
           </ElFormItem>
         </ElForm>
+        </div>
+        <div class="collapse-content-right">
+          <div class="desc-panel">
+            <div class="desc-panel-title">🔌 数据源配置</div>
+            <div class="desc-panel-text">定义回测的数据来源。日线适合隔日交易策略，1分钟K线适合盘中策略。前复权可消除分红除权影响，回测更准确。</div>
+            <div class="desc-panel-tips">
+              <div class="desc-panel-tips-title">💡 调优建议</div>
+              <div class="desc-panel-tip">日线回测最常用，1分钟数据量大计算慢</div>
+              <div class="desc-panel-tip">前复权可消除除权缺口，避免假信号</div>
+              <div class="desc-panel-tip">股票池留空=全市场A股(剔除筛选后)</div>
+              <div class="desc-panel-tip">建议区间≥3个月，样本量足够统计显著</div>
+            </div>
+          </div>
+        </div>
+        </div>
       </ElCollapseItem>
 
       <!-- 基础配置 -->
       <ElCollapseItem name="baseConfig">
         <template #title><span>{{ baseConfigTitle }}</span></template>
-        <div class="section-desc"><span class="desc-badge">说明</span> 回测的时间范围和初始资金。建议选择3个月以上区间确保样本量充足。</div>
+        <div class="collapse-content">
+        <div class="collapse-content-left">
         <ElForm label-width="120px">
           <ElFormItem label="初始资金">
             <ElInputNumber v-model="form.base.initial_cash" :min="100000" :max="1000000000" style="width: 200px" prefix="¥" />
           </ElFormItem>
         </ElForm>
+        </div>
+        <div class="collapse-content-right">
+          <div class="desc-panel">
+            <div class="desc-panel-title">📅 基础配置</div>
+            <div class="desc-panel-text">回测的时间范围和初始资金。时间范围决定样本量，初始资金影响仓位管理。</div>
+            <div class="desc-panel-tips">
+              <div class="desc-panel-tips-title">💡 调优建议</div>
+              <div class="desc-panel-tip">建议区间≥3个月确保统计显著性</div>
+              <div class="desc-panel-tip">初始资金≥100万，太低影响单票仓位分配</div>
+              <div class="desc-panel-tip">避免牛市区间回测（幸存者偏差）</div>
+            </div>
+          </div>
+        </div>
+        </div>
       </ElCollapseItem>
 
       <!-- 交易参数 -->
       <ElCollapseItem name="tradeParams">
         <template #title><span>{{ tradeParamsTitle }}</span></template>
-        <div class="section-desc"><span class="desc-badge">说明</span> 全局交易规则，策略级风控参数可覆盖默认值。止损3%~5%为超短常见范围，总仓位70%留30%现金。</div>
+        <div class="collapse-content">
+        <div class="collapse-content-left">
         <ElForm label-width="120px">
           <ElFormItem label="基础止损">
             <ElInputNumber v-model="form.tradeParams.base_stop_loss_pct" :min="0" :max="1" :step="0.001" style="width: 150px" />
@@ -278,12 +310,29 @@ function onSweepParamChange() {
             <span class="unit">‰</span>
           </ElFormItem>
         </ElForm>
-      </ElCollapseItem>
+        </div>
+        <div class="collapse-content-right">
+          <div class="desc-panel">
+            <div class="desc-panel-title">💹 交易参数</div>
+            <div class="desc-panel-text">全局交易规则，策略级风控参数可覆盖默认值。止损止盈决定盈亏比，仓位管理控制风险敞口。</div>
+            <div class="desc-panel-tips">
+              <div class="desc-panel-tips-title">💡 调优建议</div>
+              <div class="desc-panel-tip">止损3%~5%为超短常见范围，太小容易被震出</div>
+              <div class="desc-panel-tip">总仓位70%留30%现金应对加仓机会</div>
+              <div class="desc-panel-tip">滑点2‰模拟涨停排队的真实成交偏差</div>
+              <div class="desc-panel-tip">佣金万3+印花税千1为典型交易成本</div>
+              <div class="desc-panel-tip">单票仓位25%可持仓4只，分散风险</div>
+            </div>
+          </div>
+        </div>
+        </div>
+            </ElCollapseItem>
 
       <!-- 全局筛选 -->
       <ElCollapseItem name="globalFilter">
         <template #title><span>{{ globalFilterTitle }}</span></template>
-        <div class="section-desc"><span class="desc-badge">说明</span> 全策略共用的股票过滤规则。成交额≥5000万确保流动性，换手率≥3%排除僵尸股。</div>
+        <div class="collapse-content">
+        <div class="collapse-content-left">
         <ElForm label-width="160px">
           <ElFormItem label="剔除ST/*ST"><ElSwitch v-model="form.globalFilter.exclude_st" /></ElFormItem>
           <ElFormItem label="剔除退市股"><ElSwitch v-model="form.globalFilter.exclude_delisting" /></ElFormItem>
@@ -300,12 +349,28 @@ function onSweepParamChange() {
             <span class="unit">%</span>
           </ElFormItem>
         </ElForm>
-      </ElCollapseItem>
+        </div>
+        <div class="collapse-content-right">
+          <div class="desc-panel">
+            <div class="desc-panel-title">🔍 全局筛选</div>
+            <div class="desc-panel-text">全策略共用的股票过滤规则，不满足条件的股票不会进入任何策略的候选池。是第一道质量关卡。</div>
+            <div class="desc-panel-tips">
+              <div class="desc-panel-tips-title">💡 调优建议</div>
+              <div class="desc-panel-tip">剔除ST避免退市风险股，建议开启</div>
+              <div class="desc-panel-tip">次新股≥60天排除上市初期不稳定波动</div>
+              <div class="desc-panel-tip">成交额≥5000万确保流动性，避免卖出困难</div>
+              <div class="desc-panel-tip">换手率≥3%排除无人关注的僵尸股</div>
+            </div>
+          </div>
+        </div>
+        </div>
+            </ElCollapseItem>
 
       <!-- 强制空仓 -->
       <ElCollapseItem name="forceEmpty">
         <template #title><span>{{ forceEmptyTitle }}</span></template>
-        <div class="section-desc"><span class="desc-badge">说明</span> 极端行情保护机制。大盘暴跌+跌停潮时强制清仓，建议保持开启。</div>
+        <div class="collapse-content">
+        <div class="collapse-content-left">
         <ElForm label-width="160px">
           <ElFormItem label="启用强制空仓"><ElSwitch v-model="form.forceEmpty.enabled" /></ElFormItem>
           <ElFormItem label="大盘跌幅≥" :disabled="!form.forceEmpty.enabled">
@@ -321,12 +386,28 @@ function onSweepParamChange() {
             <span class="unit">只</span>
           </ElFormItem>
         </ElForm>
-      </ElCollapseItem>
+        </div>
+        <div class="collapse-content-right">
+          <div class="desc-panel">
+            <div class="desc-panel-title">⚠️ 强制空仓</div>
+            <div class="desc-panel-text">市场极端情况下的保护机制。当大盘大跌+跌停家数激增时，强制卖出所有持仓，避免系统性暴跌。</div>
+            <div class="desc-panel-tips">
+              <div class="desc-panel-tips-title">💡 调优建议</div>
+              <div class="desc-panel-tip">大盘跌≥2%+跌停≥50只→极端恐慌信号</div>
+              <div class="desc-panel-tip">触发后次日不会再买入，直到情绪恢复</div>
+              <div class="desc-panel-tip">建议保持开启，避免系统性暴跌风险</div>
+              <div class="desc-panel-tip">涨停家数阈值<30只，多方力量枯竭</div>
+            </div>
+          </div>
+        </div>
+        </div>
+            </ElCollapseItem>
 
       <!-- 情绪周期 -->
       <ElCollapseItem name="sentimentCycle">
         <template #title><span>{{ sentimentCycleTitle }}</span></template>
-        <div class="section-desc"><span class="desc-badge">说明</span> 量化市场情绪影响仓位和信号强度。涨停/跌停家数反映多空力量，权重各自独立缩放。</div>
+        <div class="collapse-content">
+        <div class="collapse-content-left">
         <ElForm label-width="160px">
           <ElFormItem label="启用情绪周期"><ElSwitch v-model="form.sentimentCycle.enabled" /></ElFormItem>
           <ElFormItem label="涨停家数权重" :disabled="!form.sentimentCycle.enabled">
@@ -345,12 +426,29 @@ function onSweepParamChange() {
             <ElInputNumber v-model="form.sentimentCycle.weight_north_inflow" :min="0" :max="1" :step="0.01" :disabled="!form.sentimentCycle.enabled" style="width: 150px" />
           </ElFormItem>
         </ElForm>
-      </ElCollapseItem>
+        </div>
+        <div class="collapse-content-right">
+          <div class="desc-panel">
+            <div class="desc-panel-title">🧠 情绪周期</div>
+            <div class="desc-panel-text">通过多维度指标量化市场情绪，影响各策略的信号强度和仓位分配。情绪得分0~1，高分=强势市场。</div>
+            <div class="desc-panel-tips">
+              <div class="desc-panel-tips-title">💡 调优建议</div>
+              <div class="desc-panel-tip">涨停/跌停家数反映多空力量对比</div>
+              <div class="desc-panel-tip">炸板率反映打板封板质量，高炸板=弱市</div>
+              <div class="desc-panel-tip">北向资金反映外资流向偏好</div>
+              <div class="desc-panel-tip">权重之和无需为1，各自独立缩放</div>
+              <div class="desc-panel-tip">跌停翘板策略建议要求高情绪周期</div>
+            </div>
+          </div>
+        </div>
+        </div>
+            </ElCollapseItem>
 
       <!-- 竞价过滤 -->
       <ElCollapseItem name="auctionFilter">
         <template #title><span>{{ auctionFilterTitle }}</span></template>
-        <div class="section-desc"><span class="desc-badge">说明</span> 集合竞价阶段预筛选。竞价涨幅2%~8%为宜，未匹配量为正说明买盘强。</div>
+        <div class="collapse-content">
+        <div class="collapse-content-left">
         <ElForm label-width="160px">
           <ElFormItem label="启用竞价过滤"><ElSwitch v-model="form.auctionFilter.enabled" /></ElFormItem>
           <ElFormItem label="最低竞价涨幅" :disabled="!form.auctionFilter.enabled">
@@ -373,12 +471,28 @@ function onSweepParamChange() {
             <span class="unit">倍</span>
           </ElFormItem>
         </ElForm>
-      </ElCollapseItem>
+        </div>
+        <div class="collapse-content-right">
+          <div class="desc-panel">
+            <div class="desc-panel-title">⏰ 竞价过滤</div>
+            <div class="desc-panel-text">在集合竞价阶段对候选股进行预筛选，过滤竞价表现不佳的标的。是盘中策略的第一道关卡。</div>
+            <div class="desc-panel-tips">
+              <div class="desc-panel-tips-title">💡 调优建议</div>
+              <div class="desc-panel-tip">竞价涨幅2%~8%为宜，过高可能开盘即巅峰</div>
+              <div class="desc-panel-tip">未匹配量为正说明买盘强于卖盘</div>
+              <div class="desc-panel-tip">竞价量比≥2说明市场关注度高</div>
+              <div class="desc-panel-tip">竞价成交额≥1000万排除冷门股</div>
+            </div>
+          </div>
+        </div>
+        </div>
+            </ElCollapseItem>
 
       <!-- 半路追涨 -->
       <ElCollapseItem name="halfway_chase">
         <template #title><span>{{ halfwayChaseTitle }}</span></template>
-        <div class="section-desc"><span class="desc-badge">说明</span> 盘中涨幅3%~7%的强势股追入，博弈后续冲高。收盘涨幅≥2%确认非冲高回落，开盘涨幅≤5%排除竞价过热。</div>
+        <div class="collapse-content">
+        <div class="collapse-content-left">
         <ElForm label-width="160px">
           <ElFormItem label="启用策略"><ElSwitch v-model="form.strategyConfigs.halfway_chase.enabled" @change="() => toggleStrategy('halfway_chase')" /></ElFormItem>
           <div :disabled="!form.strategyConfigs.halfway_chase.enabled" class="grid grid-cols-2 gap-4">
@@ -423,12 +537,30 @@ function onSweepParamChange() {
             </div>
           </div>
         </ElForm>
-      </ElCollapseItem>
+        </div>
+        <div class="collapse-content-right">
+          <div class="desc-panel">
+            <div class="desc-panel-title">🏃‍♂️ 半路追涨策略</div>
+            <div class="desc-panel-text">在盘中股票已经上涨但尚未涨停时追入，博弈后续继续冲高甚至封板。适合强势市场的顺势交易，需配合量能确认。</div>
+            <div class="desc-panel-tips">
+              <div class="desc-panel-tips-title">💡 调优建议</div>
+              <div class="desc-panel-tip">核心参数：涨幅3%~7%的强势股，过高风险大</div>
+              <div class="desc-panel-tip">量比1.5~3.0确认放量而非缩量上涨</div>
+              <div class="desc-panel-tip">收盘涨幅≥2%确认非冲高回落(关键过滤)</div>
+              <div class="desc-panel-tip">开盘涨幅≤5%排除竞价已过热的票</div>
+              <div class="desc-panel-tip">允许10点后买入可捕捉午盘强势股</div>
+              <div class="desc-panel-tip">⚠️ 平均收益偏弱(+1.97%)，注意风控</div>
+            </div>
+          </div>
+        </div>
+        </div>
+            </ElCollapseItem>
 
       <!-- 首板打板 -->
       <ElCollapseItem name="first_limit_up">
         <template #title><span>{{ firstLimitUpTitle }}</span></template>
-        <div class="section-desc"><span class="desc-badge">说明</span> 涨停排队买入博弈次日溢价。成交概率是核心：一字板5%、秒板30%、快板60%、慢板80%。次日高开≥3%自动止盈。</div>
+        <div class="collapse-content">
+        <div class="collapse-content-left">
         <ElForm label-width="160px">
           <ElFormItem label="启用策略"><ElSwitch v-model="form.strategyConfigs.first_limit_up.enabled" @change="() => toggleStrategy('first_limit_up')" /></ElFormItem>
           <div :disabled="!form.strategyConfigs.first_limit_up.enabled" class="grid grid-cols-2 gap-4">
@@ -494,12 +626,30 @@ function onSweepParamChange() {
             </div>
           </div>
         </ElForm>
-      </ElCollapseItem>
+        </div>
+        <div class="collapse-content-right">
+          <div class="desc-panel">
+            <div class="desc-panel-title">🥇 首板打板策略</div>
+            <div class="desc-panel-text">在股票首次涨停时排队买入，博弈次日高开溢价。回测中模拟了不同涨停速度的实际成交概率，成交概率是核心差异。</div>
+            <div class="desc-panel-tips">
+              <div class="desc-panel-tips-title">💡 调优建议</div>
+              <div class="desc-panel-tip">成交概率是核心：一字板5%/秒板30%/快板60%/慢板80%</div>
+              <div class="desc-panel-tip">流通市值20~100亿为最佳区间</div>
+              <div class="desc-panel-tip">换手率5%~15%量价配合最佳</div>
+              <div class="desc-panel-tip">次日高开≥3%自动止盈（高开即卖）</div>
+              <div class="desc-panel-tip">止损4%为打板策略的底线</div>
+              <div class="desc-panel-tip">竞价涨幅-2%~5%排除一字板和低开股</div>
+            </div>
+          </div>
+        </div>
+        </div>
+            </ElCollapseItem>
 
       <!-- 涨停开板 -->
       <ElCollapseItem name="limit_up_open">
         <template #title><span>{{ limitUpOpenTitle }}</span></template>
-        <div class="section-desc"><span class="desc-badge">说明</span> 连板股开板回封时买入。最少2连板确保龙头地位，开板≤10分钟回封说明主力坚决。</div>
+        <div class="collapse-content">
+        <div class="collapse-content-left">
         <ElForm label-width="160px">
           <ElFormItem label="启用策略"><ElSwitch v-model="form.strategyConfigs.limit_up_open.enabled" @change="() => toggleStrategy('limit_up_open')" /></ElFormItem>
           <div :disabled="!form.strategyConfigs.limit_up_open.enabled" class="grid grid-cols-2 gap-4">
@@ -535,12 +685,29 @@ function onSweepParamChange() {
             </div>
           </div>
         </ElForm>
-      </ElCollapseItem>
+        </div>
+        <div class="collapse-content-right">
+          <div class="desc-panel">
+            <div class="desc-panel-title">📈 涨停开板策略</div>
+            <div class="desc-panel-text">连板股盘中开板后回封时买入，博弈回封后次日继续高开。需要连板基础确保龙头地位，开板时间短说明主力坚决。</div>
+            <div class="desc-panel-tips">
+              <div class="desc-panel-tips-title">💡 调优建议</div>
+              <div class="desc-panel-tip">最少2连板以上，确保不是杂毛股</div>
+              <div class="desc-panel-tip">开板≤10分钟即回封，说明主力坚决</div>
+              <div class="desc-panel-tip">回封后封单≥1万手确认抛压已消化</div>
+              <div class="desc-panel-tip">止损4%严格控制开板后继续下跌风险</div>
+              <div class="desc-panel-tip">开板时间>10分钟的股回封概率低</div>
+            </div>
+          </div>
+        </div>
+        </div>
+            </ElCollapseItem>
 
       <!-- 龙头低吸 -->
       <ElCollapseItem name="dragon_head">
         <template #title><span>{{ dragonHeadTitle }}</span></template>
-        <div class="section-desc"><span class="desc-badge">说明</span> 龙头股缩量回调到支撑位低吸，博弈二波启动。回调5%~35%为健康区间，量比0.5~2.0确认缩量。</div>
+        <div class="collapse-content">
+        <div class="collapse-content-left">
         <ElForm label-width="160px">
           <ElFormItem label="启用策略"><ElSwitch v-model="form.strategyConfigs.dragon_head.enabled" @change="() => toggleStrategy('dragon_head')" /></ElFormItem>
           <div :disabled="!form.strategyConfigs.dragon_head.enabled" class="grid grid-cols-2 gap-4">
@@ -595,12 +762,30 @@ function onSweepParamChange() {
             </div>
           </div>
         </ElForm>
-      </ElCollapseItem>
+        </div>
+        <div class="collapse-content-right">
+          <div class="desc-panel">
+            <div class="desc-panel-title">🐲 龙头低吸策略</div>
+            <div class="desc-panel-text">在龙头股回调到支撑位时低吸买入，博弈龙头二波启动。适合市场分歧后的再次一致，需要连板基础确认龙头地位。</div>
+            <div class="desc-panel-tips">
+              <div class="desc-panel-tips-title">💡 调优建议</div>
+              <div class="desc-panel-tip">核心：连板龙头+缩量回调到5/10日均线</div>
+              <div class="desc-panel-tip">回调5%~35%为健康调整区间</div>
+              <div class="desc-panel-tip">量比0.5~2.0确认缩量而非放量下跌</div>
+              <div class="desc-panel-tip">支撑位选5日均线适合强势回调</div>
+              <div class="desc-panel-tip">止损5%给龙头更大的波动空间</div>
+              <div class="desc-panel-tip">回调天数1~7天，太久趋势已走坏</div>
+            </div>
+          </div>
+        </div>
+        </div>
+            </ElCollapseItem>
 
       <!-- 跌停翘板 -->
       <ElCollapseItem name="limit_down_qiao">
         <template #title><span>{{ limitDownQiaoTitle }}</span></template>
-        <div class="section-desc"><span class="desc-badge">说明</span> 跌停板被撬开时追入博弈反弹，高风险高回报。翘板金额≥5000万确认大资金介入，建议配合情绪周期使用。</div>
+        <div class="collapse-content">
+        <div class="collapse-content-left">
         <ElForm label-width="160px">
           <ElFormItem label="启用策略"><ElSwitch v-model="form.strategyConfigs.limit_down_qiao.enabled" @change="() => toggleStrategy('limit_down_qiao')" /></ElFormItem>
           <div :disabled="!form.strategyConfigs.limit_down_qiao.enabled" class="grid grid-cols-2 gap-4">
@@ -639,6 +824,22 @@ function onSweepParamChange() {
             </div>
           </div>
         </ElForm>
+        </div>
+        <div class="collapse-content-right">
+          <div class="desc-panel">
+            <div class="desc-panel-title">💥 跌停翘板策略</div>
+            <div class="desc-panel-text">在跌停板被大资金撬开时追入，博弈翘板后的大幅反弹。高风险高回报，需配合情绪周期使用，市场强势时翘板成功率高。</div>
+            <div class="desc-panel-tips">
+              <div class="desc-panel-tips-title">💡 调优建议</div>
+              <div class="desc-panel-tip">连跌1天以上才有足够恐慌释放</div>
+              <div class="desc-panel-tip">翘板金额≥5000万确认大资金介入</div>
+              <div class="desc-panel-tip">翘板后涨幅≥3%确认反转力度</div>
+              <div class="desc-panel-tip">建议开启高情绪周期要求（市场强势时翘板成功率高）</div>
+              <div class="desc-panel-tip">止损4%+止盈25%：高赔率策略</div>
+            </div>
+          </div>
+        </div>
+        </div>
       </ElCollapseItem>
     </ElCollapse>
   </ElCard>
@@ -836,26 +1037,67 @@ export default { name: 'StrategyConfigPanel' }
   }
 }
 
-/* 内嵌说明 */
-.section-desc {
-  font-size: 12px;
-  color: var(--text-tertiary);
-  line-height: 1.5;
-  padding: 8px 12px;
-  margin-bottom: 10px;
-  background: var(--bg-muted);
-  border-radius: 4px;
-  border-left: 3px solid var(--primary-300);
+/* 展开区域左右布局 */
+.collapse-content {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
 }
-.desc-badge {
-  display: inline-block;
+.collapse-content-left {
+  flex: 1;
+  min-width: 0;
+}
+.collapse-content-right {
+  width: 240px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+}
+.desc-panel {
+  background: var(--bg-muted);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  padding: 14px 16px;
+}
+.desc-panel-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+.desc-panel-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.7;
+  margin-bottom: 10px;
+}
+.desc-panel-tips {
+  border-top: 1px solid var(--border-default);
+  padding-top: 8px;
+  margin-top: 2px;
+}
+.desc-panel-tips-title {
   font-size: 11px;
   font-weight: 600;
   color: var(--primary-500);
-  margin-right: 6px;
-  padding: 1px 5px;
-  background: var(--primary-50);
-  border-radius: 3px;
+  margin-bottom: 6px;
+}
+.desc-panel-tip {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  line-height: 1.7;
+  padding-left: 8px;
+  position: relative;
+  &::before {
+    content: '•';
+    position: absolute;
+    left: 0;
+    color: var(--primary-400);
+  }
+}
+
+.section-desc {
+  display: none;
 }
 
 /* 执行流程 */
