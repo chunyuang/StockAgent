@@ -50,7 +50,7 @@ export const STRATEGY_CONFIGS = {
   first_limit_up: {
     id: 'first_limit_up',
     name: '首板打板',
-    enabled: false,
+    enabled: true,
     params: {
       opening_pct_min: -1.0,
       opening_pct_max: 7.0,
