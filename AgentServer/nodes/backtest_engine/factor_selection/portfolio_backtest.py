@@ -409,10 +409,12 @@ class PortfolioBacktester:
         """【统一入口!每日市场环境判断必须调用!】
 
         Returns:
-            tuple: (sentiment_level, limit_up_count, limit_down_count)
+            tuple: (sentiment_level, market_sentiment_score, limit_up_count, limit_down_count, index_change)
                 sentiment_level: 情绪等级字符串
+                market_sentiment_score: 情绪评分(0-100)
                 limit_up_count: 涨停家数
                 limit_down_count: 跌停家数
+                index_change: 大盘平均涨跌幅(百分比)
         """
         await self.log(f"")
         await self.log(f"   ┌───────────────────────────────────────────────────────")
@@ -486,10 +488,16 @@ class PortfolioBacktester:
         FORCE_EMPTY_LIMIT_UP = self.FORCE_EMPTY_LIMIT_UP
 
         await self.log(f"   │  🔹 涨跌停统计: 涨停{limit_up_count}只, 跌停{limit_down_count}只")
-        if limit_down_count >= FORCE_EMPTY_LIMIT_DOWN or limit_up_count <= FORCE_EMPTY_LIMIT_UP:
-            await self.log(f"   │     → 🔴 触发强制空仓 (跌停≥{FORCE_EMPTY_LIMIT_DOWN}只 或 涨停≤{FORCE_EMPTY_LIMIT_UP}只)")
+        # 【V44:强制空仓条件包含大盘跌幅,日志也需更新】
+        _force_empty_index_drop_pct = GLOBAL_RISK.get("force_empty_index_drop_pct", 0.03)
+        _index_drop_triggered = index_change is not None and abs(index_change) >= _force_empty_index_drop_pct * 100 and index_change < 0
+        if limit_down_count >= FORCE_EMPTY_LIMIT_DOWN or limit_up_count <= FORCE_EMPTY_LIMIT_UP or _index_drop_triggered:
+            _trigger_detail = f'跌停≥{FORCE_EMPTY_LIMIT_DOWN}只' if limit_down_count >= FORCE_EMPTY_LIMIT_DOWN else \
+                f'涨停≤{FORCE_EMPTY_LIMIT_UP}只' if limit_up_count <= FORCE_EMPTY_LIMIT_UP else \
+                f'大盘跌幅≥{_force_empty_index_drop_pct*100:.0f}%'
+            await self.log(f"   │     → 🔴 触发强制空仓 ({_trigger_detail})")
         else:
-            await self.log(f"   │     → 🟢 不触发强制空仓 (跌停<{FORCE_EMPTY_LIMIT_DOWN}只 且 涨停>{FORCE_EMPTY_LIMIT_UP}只)")
+            await self.log(f"   │     → 🟢 不触发强制空仓 (跌停<{FORCE_EMPTY_LIMIT_DOWN}只 且 涨停>{FORCE_EMPTY_LIMIT_UP}只 且 大盘跌幅<{_force_empty_index_drop_pct*100:.0f}%)")
         await self.log(f"   │  🔹 大盘平均涨跌幅: {'+' if index_change and index_change >= 0 else ''}{index_change:.2f}%")
         if index_change is None:
             index_change = 0.0
@@ -524,7 +532,10 @@ class PortfolioBacktester:
         self._cached_limit_up_count = limit_up_count
         self._cached_limit_down_count = limit_down_count
 
-        return sentiment_level, sentiment_score, limit_up_count, limit_down_count
+        # 【V44:缓存index_change供非调仓日复用,强制空仓大盘跌幅条件需要】
+        self._cached_index_change = index_change
+
+        return sentiment_level, sentiment_score, limit_up_count, limit_down_count, index_change
 
     async def _print_single_strategy_filtering(self, strategy_name: str, params: dict, conditions: list, factor_df, strategy_configs: dict, all_selected_strategies: list):
         """【统一入口!所有策略筛选打印必须调用!One Function, One Format!】
@@ -899,13 +910,14 @@ class PortfolioBacktester:
             # 非调仓日只需要sentiment_level用于净值记录,不需要涨跌停详情和日志输出
             is_rebalance_day = trade_date in rebalance_set
             if is_rebalance_day:
-                sentiment_level, market_sentiment_score, limit_up_count, limit_down_count = await self._print_market_environment(prev_trade_date)
+                sentiment_level, market_sentiment_score, limit_up_count, limit_down_count, index_change = await self._print_market_environment(prev_trade_date)
             else:
                 # 复用上一次计算的结果(情绪评分在非调仓日不会变化太多,1天差异可忽略)
                 sentiment_level = getattr(self, '_cached_sentiment_level', '震荡期,仓位系数0.7')
                 market_sentiment_score = getattr(self, '_cached_sentiment_score', 50)
                 limit_up_count = getattr(self, '_cached_limit_up_count', 0)
                 limit_down_count = getattr(self, '_cached_limit_down_count', 0)
+                index_change = getattr(self, '_cached_index_change', 0.0)
 
             # ==================== 🔴 强制空仓判断 ====================
             # 【修复#5:统一阈值 - 与日志打印使用同一阈值】
@@ -916,11 +928,26 @@ class PortfolioBacktester:
             force_empty_cfg = config.get("force_empty_config", {})
             FORCE_EMPTY_LIMIT_DOWN = force_empty_cfg.get("limit_down_count", self.FORCE_EMPTY_LIMIT_DOWN)
             FORCE_EMPTY_LIMIT_UP = force_empty_cfg.get("limit_up_count", self.FORCE_EMPTY_LIMIT_UP)
+            # 【V44修复:强制空仓加入大盘跌幅条件】
+            # 旧bug: strategy_defaults.py定义了force_empty_index_drop_pct=0.03(大盘跌幅≥3%触发),API层也传入index_drop_pct
+            # 但回测引擎完全忽略index_change,只看涨跌停数→极端暴跌日可能不触发强制空仓
+            # 修复: 读取index_drop_pct阈值,当大盘跌幅超过阈值时也触发强制空仓
+            force_empty_index_drop_pct = force_empty_cfg.get(
+                "index_drop_pct", GLOBAL_RISK.get("force_empty_index_drop_pct", 0.03))
+            # index_change是百分比(如-3.5表示跌3.5%),force_empty_index_drop_pct是小数(如0.03表示3%)
+            # 注意: index_change可能来自缓存(getattr默认0.0),需处理None
+            _index_drop_triggered = False
+            if index_change is not None and abs(index_change) >= force_empty_index_drop_pct * 100 and index_change < 0:
+                _index_drop_triggered = True
             force_empty_triggered = enable_force_empty and (
                 limit_down_count >= FORCE_EMPTY_LIMIT_DOWN or limit_up_count <= FORCE_EMPTY_LIMIT_UP
+                or _index_drop_triggered
             )
             if force_empty_triggered:
-                await self.log(f"   ⚠️  强制空仓开关已启用,市场触发空仓条件,直接清仓")
+                _trigger_reason = '跌停数≥{}'.format(FORCE_EMPTY_LIMIT_DOWN) if limit_down_count >= FORCE_EMPTY_LIMIT_DOWN else \
+                    '涨停数≤{}'.format(FORCE_EMPTY_LIMIT_UP) if limit_up_count <= FORCE_EMPTY_LIMIT_UP else \
+                    '大盘跌幅≥{:.0f}%'.format(force_empty_index_drop_pct * 100)
+                await self.log(f"   ⚠️  强制空仓开关已启用,市场触发空仓条件({ _trigger_reason}),直接清仓")
             elif not enable_force_empty:
                 await self.log(f"   i️  强制空仓开关已关闭,不检查空仓条件")
 

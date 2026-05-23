@@ -1010,6 +1010,7 @@ function onSweepParamChange() {
                     <div class="flow-cond">③ 收盘涨幅 ≥ {{ (form.strategyConfigs.halfway_chase.params.min_close_rise_pct * 100).toFixed(1) }}%?</div>
                     <div class="flow-cond">④ 开盘涨幅 ≤ {{ (form.strategyConfigs.halfway_chase.params.max_open_rise_pct * 100).toFixed(1) }}%?</div>
                     <div class="flow-cond">⑤ {{ form.strategyConfigs.halfway_chase.params.allow_after_10am ? '允许' : '不允许' }}10点后买入</div>
+                    <div class="flow-cond flow-cond-branch">→ 次日高开 ≥ {{ (form.strategyConfigs.halfway_chase.params.next_day_open_sell_pct * 100).toFixed(0) }}% → 冲高回落保护</div>
                     <div class="flow-cond flow-cond-accept">✅ 全部满足 → 产生买入信号</div>
                     <div class="flow-cond flow-cond-reject">❌ 任一不满足 → 跳过</div>
                   </div>
@@ -1054,6 +1055,7 @@ function onSweepParamChange() {
                     <div class="flow-cond">③ 量比 {{ form.strategyConfigs.dragon_head.params.min_volume_ratio }} ~ {{ form.strategyConfigs.dragon_head.params.max_volume_ratio }}(缩量回调)?</div>
                     <div class="flow-cond">④ 回调天数 {{ form.strategyConfigs.dragon_head.params.correction_days_min }} ~ {{ form.strategyConfigs.dragon_head.params.correction_days_max }}天?</div>
                     <div class="flow-cond flow-cond-branch">→ 触发均线支撑: 5日/10日均线附近</div>
+                    <div class="flow-cond flow-cond-branch">→ 次日高开 ≥ {{ (form.strategyConfigs.dragon_head.params.next_day_open_sell_pct * 100).toFixed(0) }}% → 冲高回落保护</div>
                     <div class="flow-cond flow-cond-accept">✅ 全部满足 → 低吸买入</div>
                   </div>
                 </div>
@@ -1067,6 +1069,8 @@ function onSweepParamChange() {
                     <div class="flow-cond">③ 翘板后涨幅 ≥ {{ (form.strategyConfigs.limit_down_qiao.params.min_rise_after_qiao * 100).toFixed(0) }}%(确认反转)?</div>
                     <div class="flow-cond">④ 流通市值 ≥ {{ form.strategyConfigs.limit_down_qiao.params.min_circulation_market_cap }}亿?</div>
                     <div class="flow-cond">⑤ {{ form.strategyConfigs.limit_down_qiao.params.require_high_sentiment ? '要求高情绪周期(得分≥60)' : '不限情绪周期' }}</div>
+                    <div class="flow-cond flow-cond-branch">→ 次日高开 ≥ {{ (form.strategyConfigs.limit_down_qiao.params.next_day_open_sell_pct * 100).toFixed(0) }}% → 冲高回落保护</div>
+                    <div class="flow-cond flow-cond-branch">→ 盘中回落 ≥ {{ (form.strategyConfigs.limit_down_qiao.params.pullback_mid_fallback_pct * 100).toFixed(1) }}% → 利润保护触发</div>
                     <div class="flow-cond flow-cond-accept">✅ 全部满足 → 翘板时追入</div>
                     <div class="flow-cond flow-cond-reject">❌ 翘板失败继续跌停 → 次日止损</div>
                   </div>
@@ -1127,10 +1131,10 @@ function onSweepParamChange() {
                 <div class="flow-cond flow-cond-priority">🔴 P1 强制空仓 — 极端行情触发，无条件清仓</div>
                 <div class="flow-cond flow-cond-priority">🟠 P2 止损 — 跌幅 ≥ 策略止损%(策略级覆盖 > 全局默认)</div>
                 <div class="flow-cond flow-cond-priority">🟡 P3 最大持仓天数 — 持仓 > 策略max_hold_days天 → 卖出</div>
-                <div class="flow-cond flow-cond-priority">🟢 P4 高开即卖 — 次日高开 ≥ 阈值(首板打板特有)</div>
-                <div class="flow-cond flow-cond-priority">🔵 P5 利润保护 — 盈利回撤超过一定比例 → 锁定部分利润</div>
+                <div class="flow-cond flow-cond-priority">🟢 P4 高开即卖 — 次日高开 ≥ 阈值(3%+) → 开盘卖出(半路/首板/龙头/跌停翘板通用)</div>
+                <div class="flow-cond flow-cond-priority">🔵 P5 利润保护 — 盈利后冲高回落超阈值(pullback_mid_fallback_pct) → 锁定部分利润</div>
                 <div class="flow-cond flow-cond-priority">🟣 P6 止盈 — 涨幅 ≥ 策略止盈% → 卖出</div>
-                <div class="flow-cond flow-cond-priority">⚪ P7 冲高回落 — 盘中冲高后回落超阈值 → 卖出</div>
+                <div class="flow-cond flow-cond-priority">⚪ P7 利润锁定(V42新增) — 盘中大幅冲高后回撤 → 保护性卖出(不扣滑点)</div>
                 <div class="flow-cond">未触发任何条件 → 继续持有</div>
               </div>
               <div class="flow-detail" style="margin-top:8px">

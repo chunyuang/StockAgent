@@ -251,6 +251,14 @@ class BacktestValidator:
                         f"最小涨幅({min_rise})不能大于最大涨幅({max_rise})",
                         f"{min_rise}~{max_rise}"
                     ))
+            # 校验next_day_open_sell_pct范围
+            ndos = params.get("next_day_open_sell_pct")
+            if ndos is not None and (ndos < 0 or ndos > 0.1):
+                errors.append(ValidationError(
+                    "halfway_chase.params.next_day_open_sell_pct",
+                    f"次日高开即卖阈值应在0%~10%之间",
+                    ndos
+                ))
         
         elif strategy_id == "first_limit_up":
             min_cap = params.get("min_circulation_market_cap")
@@ -262,6 +270,84 @@ class BacktestValidator:
                         f"最小市值({min_cap})不能大于最大市值({max_cap})",
                         f"{min_cap}~{max_cap}"
                     ))
+            # 校验成交概率
+            for prob_key in ["hit_probability_yizi", "hit_probability_fast", "hit_probability_normal", "hit_probability_slow"]:
+                prob = params.get(prob_key)
+                if prob is not None and (prob < 0 or prob > 1):
+                    errors.append(ValidationError(
+                        f"first_limit_up.params.{prob_key}",
+                        f"成交概率应在0~1之间",
+                        prob
+                    ))
+            # 校验换手率范围
+            min_tr = params.get("min_turnover_rate")
+            max_tr = params.get("max_turnover_rate")
+            if min_tr is not None and max_tr is not None:
+                if min_tr > max_tr:
+                    errors.append(ValidationError(
+                        "first_limit_up.params",
+                        f"最小换手率({min_tr})不能大于最大换手率({max_tr})",
+                        f"{min_tr}~{max_tr}"
+                    ))
+            ndos = params.get("next_day_open_sell_pct")
+            if ndos is not None and (ndos < 0 or ndos > 0.1):
+                errors.append(ValidationError(
+                    "first_limit_up.params.next_day_open_sell_pct",
+                    f"次日高开即卖阈值应在0%~10%之间",
+                    ndos
+                ))
+        
+        elif strategy_id == "limit_up_open":
+            # 校验min_turnover_rate(百分比模式，应≥1)
+            min_tr = params.get("min_turnover_rate")
+            if min_tr is not None and min_tr < 1 and min_tr > 0:
+                errors.append(ValidationError(
+                    "limit_up_open.params.min_turnover_rate",
+                    f"换手率应使用百分比模式(如15表示15%)，当前值{min_tr}可能是小数模式",
+                    min_tr
+                ))
+        
+        elif strategy_id == "dragon_head":
+            min_corr = params.get("min_correction_pct")
+            max_corr = params.get("max_correction_pct")
+            if min_corr is not None and max_corr is not None:
+                if min_corr > max_corr:
+                    errors.append(ValidationError(
+                        "dragon_head.params",
+                        f"最小回调({min_corr})不能大于最大回调({max_corr})",
+                        f"{min_corr}~{max_corr}"
+                    ))
+            ndos = params.get("next_day_open_sell_pct")
+            if ndos is not None and (ndos < 0 or ndos > 0.1):
+                errors.append(ValidationError(
+                    "dragon_head.params.next_day_open_sell_pct",
+                    f"次日高开即卖阈值应在0%~10%之间",
+                    ndos
+                ))
+        
+        elif strategy_id == "limit_down_qiao":
+            # 校验min_turnover_rate(百分比模式)
+            min_tr = params.get("min_turnover_rate")
+            if min_tr is not None and min_tr < 1 and min_tr > 0:
+                errors.append(ValidationError(
+                    "limit_down_qiao.params.min_turnover_rate",
+                    f"换手率应使用百分比模式(如10表示10%)，当前值{min_tr}可能是小数模式",
+                    min_tr
+                ))
+            ndos = params.get("next_day_open_sell_pct")
+            if ndos is not None and (ndos < 0 or ndos > 0.1):
+                errors.append(ValidationError(
+                    "limit_down_qiao.params.next_day_open_sell_pct",
+                    f"次日高开即卖阈值应在0%~10%之间",
+                    ndos
+                ))
+            pb = params.get("pullback_mid_fallback_pct")
+            if pb is not None and (pb < 0 or pb > 0.05):
+                errors.append(ValidationError(
+                    "limit_down_qiao.params.pullback_mid_fallback_pct",
+                    f"冲高回落阈值应在0%~5%之间",
+                    pb
+                ))
         
         return errors
     

@@ -14,11 +14,19 @@ export const STRATEGY_NAMES: Record<string, string> = {
 
 /** 参数扫描参数配置 */
 export const SWEEP_PARAMS = [
+  // 全局风控参数
   { value: 'stop_loss_pct', label: '止损比例', unit: '%', factor: 100, min: 1, max: 20, step: 1 },
   { value: 'take_profit_pct', label: '止盈比例', unit: '%', factor: 100, min: 1, max: 50, step: 1 },
   { value: 'max_hold_days', label: '最大持仓天数', unit: '天', factor: 1, min: 1, max: 10, step: 1 },
   { value: 'max_position_per_stock', label: '单票最大仓位', unit: '%', factor: 100, min: 5, max: 50, step: 5 },
   { value: 'max_position', label: '总仓位上限', unit: '%', factor: 100, min: 10, max: 100, step: 10 },
-  { value: 'min_rise_pct', label: '半路追涨最小涨幅', unit: '%', factor: 100, min: 1, max: 10, step: 1 },
+  // 半路追涨策略参数
+  { value: 'min_rise_pct', label: '半路追涨·最小涨幅', unit: '%', factor: 100, min: 1, max: 10, step: 1 },
   { value: 'min_volume_ratio', label: '最小量比', unit: '倍', factor: 1, min: 0.5, max: 5, step: 0.5 },
+  // 次日高开即卖(所有策略共享)
+  { value: 'next_day_open_sell_pct', label: '次日高开即卖', unit: '%', factor: 100, min: 1, max: 10, step: 1 },
+  // 首板打板策略参数
+  { value: 'hit_probability_normal', label: '首板打板·快板成交率', unit: '%', factor: 100, min: 10, max: 90, step: 10 },
+  // 跌停翘板策略参数
+  { value: 'pullback_mid_fallback_pct', label: '跌停翘板·冲高回落阈值', unit: '%', factor: 100, min: 0.5, max: 5, step: 0.5 },
 ]
