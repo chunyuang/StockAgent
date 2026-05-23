@@ -44,7 +44,7 @@ const auctionFilterTitle = computed(() => `⏰ 竞价过滤 ${props.form.auction
 
 const halfwayChaseTitle = computed(() => {
   const p = props.form.strategyConfigs.halfway_chase.params, r = props.form.strategyConfigs.halfway_chase.riskParams
-  return `🏃‍♂️ 半路追涨策略 ${props.form.strategyConfigs.halfway_chase.enabled ? '✅' : '❌'} (涨幅${(p.min_rise_pct * 100).toFixed(1)}%~${(p.max_rise_pct * 100).toFixed(1)}%, 量比${p.min_volume_ratio}~${p.max_volume_ratio}, 收盘≥${(p.min_close_rise_pct * 100).toFixed(1)}%, 开盘≤${(p.max_open_rise_pct * 100).toFixed(1)}%, ${p.allow_after_10am ? '10点后可买' : '10点前'}, 止损${(r.stop_loss_pct * 100).toFixed(0)}%/止盈${(r.take_profit_pct * 100).toFixed(0)}%, 持仓${r.max_hold_days}天, 滑点${(r.slippage_pct * 1000).toFixed(1)}‰)`
+  return `🏃‍♂️ 半路追涨策略 ${props.form.strategyConfigs.halfway_chase.enabled ? '✅' : '❌'} (涨幅${(p.min_rise_pct * 100).toFixed(1)}%~${(p.max_rise_pct * 100).toFixed(1)}%, 量比${p.min_volume_ratio}~${p.max_volume_ratio}, 收盘≥${(p.min_close_rise_pct * 100).toFixed(1)}%, 开盘≤${(p.max_open_rise_pct * 100).toFixed(1)}%, ${p.allow_after_10am ? '10点后可买' : '10点前'}, 次日高开≥${(p.next_day_open_sell_pct * 100).toFixed(0)}%卖, 止损${(r.stop_loss_pct * 100).toFixed(0)}%/止盈${(r.take_profit_pct * 100).toFixed(0)}%, 持仓${r.max_hold_days}天, 滑点${(r.slippage_pct * 1000).toFixed(1)}‰)`
 })
 const firstLimitUpTitle = computed(() => {
   const p = props.form.strategyConfigs.first_limit_up.params, r = props.form.strategyConfigs.first_limit_up.riskParams
@@ -56,11 +56,11 @@ const limitUpOpenTitle = computed(() => {
 })
 const dragonHeadTitle = computed(() => {
   const p = props.form.strategyConfigs.dragon_head.params, r = props.form.strategyConfigs.dragon_head.riskParams
-  return `🐲 龙头低吸策略 ${props.form.strategyConfigs.dragon_head.enabled ? '✅' : '❌'} (连板≥${p.min_consecutive_limit}板, 回调${(p.min_correction_pct * 100).toFixed(0)}%~${(p.max_correction_pct * 100).toFixed(0)}%, 量比${p.min_volume_ratio}~${p.max_volume_ratio}, 回调${p.correction_days_min}~${p.correction_days_max}天, 止损${(r.stop_loss_pct * 100).toFixed(0)}%/止盈${(r.take_profit_pct * 100).toFixed(0)}%, 持仓${r.max_hold_days}天, 滑点${(r.slippage_pct * 1000).toFixed(1)}‰)`
+  return `🐲 龙头低吸策略 ${props.form.strategyConfigs.dragon_head.enabled ? '✅' : '❌'} (连板≥${p.min_consecutive_limit}板, 回调${(p.min_correction_pct * 100).toFixed(0)}%~${(p.max_correction_pct * 100).toFixed(0)}%, 量比${p.min_volume_ratio}~${p.max_volume_ratio}, 回调${p.correction_days_min}~${p.correction_days_max}天, 次日高开≥${(p.next_day_open_sell_pct * 100).toFixed(0)}%卖, 止损${(r.stop_loss_pct * 100).toFixed(0)}%/止盈${(r.take_profit_pct * 100).toFixed(0)}%, 持仓${r.max_hold_days}天, 滑点${(r.slippage_pct * 1000).toFixed(1)}‰)`
 })
 const limitDownQiaoTitle = computed(() => {
   const p = props.form.strategyConfigs.limit_down_qiao.params, r = props.form.strategyConfigs.limit_down_qiao.riskParams
-  return `💥 跌停翘板策略 ${props.form.strategyConfigs.limit_down_qiao.enabled ? '✅' : '❌'} (连跌≥${p.min_consecutive_limit}天, 翘板≥${p.min_qiao_amount}万, 翘板后涨幅≥${(p.min_rise_after_qiao * 100).toFixed(0)}%, 流通市值≥${p.min_circulation_market_cap}亿, ${p.require_high_sentiment ? '要求高情绪' : '不限情绪'}, 止损${(r.stop_loss_pct * 100).toFixed(0)}%/止盈${(r.take_profit_pct * 100).toFixed(0)}%, 持仓${r.max_hold_days}天, 滑点${(r.slippage_pct * 1000).toFixed(1)}‰)`
+  return `💥 跌停翘板策略 ${props.form.strategyConfigs.limit_down_qiao.enabled ? '✅' : '❌'} (连跌≥${p.min_consecutive_limit}天, 换手≥${p.min_turnover_rate}%, 翘板≥${p.min_qiao_amount}万, 翘板后涨幅≥${(p.min_rise_after_qiao * 100).toFixed(0)}%, 流通市值≥${p.min_circulation_market_cap}亿, ${p.require_high_sentiment ? '要求高情绪' : '不限情绪'}, 次日高开≥${(p.next_day_open_sell_pct * 100).toFixed(0)}%卖, 回落≥${(p.pullback_mid_fallback_pct * 100).toFixed(1)}%保护, 止损${(r.stop_loss_pct * 100).toFixed(0)}%/止盈${(r.take_profit_pct * 100).toFixed(0)}%, 持仓${r.max_hold_days}天, 滑点${(r.slippage_pct * 1000).toFixed(1)}‰)`
 })
 
 // ============ 右侧描述 ============
@@ -553,6 +553,9 @@ function onSweepParamChange() {
             <ElFormItem label="允许10点后买入" :disabled="!form.strategyConfigs.halfway_chase.enabled">
               <ElSwitch v-model="form.strategyConfigs.halfway_chase.params.allow_after_10am" :disabled="!form.strategyConfigs.halfway_chase.enabled" />
             </ElFormItem>
+            <ElFormItem label="次日高开即卖≥" :disabled="!form.strategyConfigs.halfway_chase.enabled">
+              <ElInputNumber v-model="form.strategyConfigs.halfway_chase.params.next_day_open_sell_pct" :min="0" :max="0.1" :step="0.005" style="width: 150px" :disabled="!form.strategyConfigs.halfway_chase.enabled" /><span class="unit">({{ (form.strategyConfigs.halfway_chase.params.next_day_open_sell_pct * 100).toFixed(0) }}%)</span>
+            </ElFormItem>
           </div>
                   <!-- 策略风控参数 -->
           <div class="risk-params-section">
@@ -701,7 +704,7 @@ function onSweepParamChange() {
               <ElInputNumber v-model="form.strategyConfigs.limit_up_open.params.min_seal_after_open" :min="1000" :max="100000" style="width: 150px" :disabled="!form.strategyConfigs.limit_up_open.enabled" /><span class="unit">万元</span>
             </ElFormItem>
             <ElFormItem label="最低换手率" :disabled="!form.strategyConfigs.limit_up_open.enabled">
-              <ElInputNumber v-model="form.strategyConfigs.limit_up_open.params.min_turnover_rate" :min="0" :max="1" :step="0.01" style="width: 150px" :disabled="!form.strategyConfigs.limit_up_open.enabled" /><span class="unit">%</span>
+              <ElInputNumber v-model="form.strategyConfigs.limit_up_open.params.min_turnover_rate" :min="1" :max="50" style="width: 150px" :disabled="!form.strategyConfigs.limit_up_open.enabled" /><span class="unit">%</span>
             </ElFormItem>
           </div>
                   <!-- 策略风控参数 -->
@@ -781,6 +784,9 @@ function onSweepParamChange() {
                 <ElOption label="平台支撑" value="platform" />
               </ElSelect>
             </ElFormItem>
+            <ElFormItem label="次日高开即卖≥" :disabled="!form.strategyConfigs.dragon_head.enabled">
+              <ElInputNumber v-model="form.strategyConfigs.dragon_head.params.next_day_open_sell_pct" :min="0" :max="0.1" :step="0.005" style="width: 150px" :disabled="!form.strategyConfigs.dragon_head.enabled" /><span class="unit">({{ (form.strategyConfigs.dragon_head.params.next_day_open_sell_pct * 100).toFixed(0) }}%)</span>
+            </ElFormItem>
           </div>
                   <!-- 策略风控参数 -->
           <div class="risk-params-section">
@@ -844,11 +850,20 @@ function onSweepParamChange() {
             <ElFormItem label="要求高情绪周期" :disabled="!form.strategyConfigs.limit_down_qiao.enabled">
               <ElSwitch v-model="form.strategyConfigs.limit_down_qiao.params.require_high_sentiment" :disabled="!form.strategyConfigs.limit_down_qiao.enabled" />
             </ElFormItem>
+            <ElFormItem label="最低换手率" :disabled="!form.strategyConfigs.limit_down_qiao.enabled">
+              <ElInputNumber v-model="form.strategyConfigs.limit_down_qiao.params.min_turnover_rate" :min="1" :max="50" style="width: 150px" :disabled="!form.strategyConfigs.limit_down_qiao.enabled" /><span class="unit">%</span>
+            </ElFormItem>
+            <ElFormItem label="次日高开即卖≥" :disabled="!form.strategyConfigs.limit_down_qiao.enabled">
+              <ElInputNumber v-model="form.strategyConfigs.limit_down_qiao.params.next_day_open_sell_pct" :min="0" :max="0.1" :step="0.005" style="width: 150px" :disabled="!form.strategyConfigs.limit_down_qiao.enabled" /><span class="unit">({{ (form.strategyConfigs.limit_down_qiao.params.next_day_open_sell_pct * 100).toFixed(0) }}%)</span>
+            </ElFormItem>
+            <ElFormItem label="冲高回落阈值" :disabled="!form.strategyConfigs.limit_down_qiao.enabled">
+              <ElInputNumber v-model="form.strategyConfigs.limit_down_qiao.params.pullback_mid_fallback_pct" :min="0" :max="0.05" :step="0.005" style="width: 150px" :disabled="!form.strategyConfigs.limit_down_qiao.enabled" /><span class="unit">({{ (form.strategyConfigs.limit_down_qiao.params.pullback_mid_fallback_pct * 100).toFixed(1) }}%)</span>
+            </ElFormItem>
           </div>
                   <!-- 策略风控参数 -->
           <div class="risk-params-section">
             <div class="risk-params-title">💹 策略风控（可覆盖全局默认值）</div>
-            <div class="risk-params-desc">跌停翘板是高风险高回报策略，翘板失败继续跌停概率大，止损4%严格控损。翘板成功后反弹空间大，止盈25%追求高赔率。</div>
+            <div class="risk-params-desc">跌停翘板是高风险高回报策略，翘板失败继续跌停概率大，止损4%严格控损。翘板成功后反弹空间大，止盈20%平衡赔率与利润兑现。</div>
             <div :disabled="!form.strategyConfigs.limit_down_qiao.enabled" class="grid grid-cols-2 gap-4">
               <ElFormItem label="止损比例" :disabled="!form.strategyConfigs.limit_down_qiao.enabled">
                 <ElInputNumber v-model="form.strategyConfigs.limit_down_qiao.riskParams.stop_loss_pct" :min="0.005" :max="0.15" :step="0.005" :precision="3" style="width: 130px" :disabled="!form.strategyConfigs.limit_down_qiao.enabled" /><span class="unit">({{ (form.strategyConfigs.limit_down_qiao.riskParams.stop_loss_pct  * 100).toFixed(1) }}%)</span>
