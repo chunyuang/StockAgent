@@ -353,7 +353,7 @@ const submitBacktest = async () => {
       initial_cash: form.base.initial_cash,
       rebalance_freq: "daily",
       params: {
-        volume_threshold: form.globalFilter.min_turnover_rate,
+        volume_threshold: 1.5,  // 量比阈值,与GLOBAL_RISK.volume_threshold一致(非换手率)
         stop_loss_pct: form.tradeParams.base_stop_loss_pct,
         take_profit_pct: form.tradeParams.base_take_profit_pct,
         max_hold_days: form.tradeParams.max_hold_days,
@@ -442,6 +442,7 @@ const submitBacktest = async () => {
         if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null }
         addLog('✅ 回测全部完成！')
         ElMessage.success('回测完成！')
+        activeMainTab.value = 'result'  // 自动切换到结果Tab
         ws.close()
       } else if (data.type === 'error' || (data.type === 'status' && data.status === 'failed')) {
         if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null }
@@ -473,6 +474,7 @@ const submitBacktest = async () => {
                 const resultRes = await backtestApi.getBacktestResult(backtestState.task_id)
                 backtestResult.value = resultRes.data.result
                 backtestState.running = false
+                activeMainTab.value = 'result'  // 自动切换到结果Tab
                 ElMessage.success('回测完成！')
                 clearInterval(pollInterval)
               } else if (data.status === 'failed') {
@@ -567,7 +569,7 @@ const submitSweepBacktest = async () => {
       initial_cash: form.base.initial_cash,
       rebalance_freq: 'daily',
       params: {
-        volume_threshold: form.globalFilter.min_turnover_rate,
+        volume_threshold: 1.5,  // 量比阈值,与GLOBAL_RISK.volume_threshold一致(非换手率)
         stop_loss_pct: form.tradeParams.base_stop_loss_pct,
         take_profit_pct: form.tradeParams.base_take_profit_pct,
         max_hold_days: form.tradeParams.max_hold_days,

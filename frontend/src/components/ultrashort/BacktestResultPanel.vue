@@ -151,12 +151,12 @@ const monthlyReturnChartOption = computed(() => {
   if (!monthlyData.value.length) return null
   const months = monthlyData.value.map(d => d.month)
   const returns = monthlyData.value.map(d => d.return_pct)
-  // 计算累计收益线
+  // 计算累计收益线（连乘，非简单加法）
   const cumReturns: number[] = []
-  let cumVal = 0
+  let cumVal = 1.0
   for (const r of returns) {
-    cumVal += r
-    cumReturns.push(+cumVal.toFixed(2))
+    cumVal *= (1 + r / 100)
+    cumReturns.push(+((cumVal - 1) * 100).toFixed(2))
   }
   return {
     tooltip: { trigger: 'axis', formatter: (p: any) => {
