@@ -40,6 +40,8 @@ const strategies = ref<string[]>([])
 const sections = ref<string[]>([])
 const filteredTotal = ref(0)
 const viewportHeight = ref(window.innerHeight)
+const autoScrollEnabled = ref(true)  // 用户可手动关闭自动滚动
+const userScrolledUp = ref(false)    // 用户向上滚动时暂停自动滚
 
 // === 筛选 ===
 const selectedDay = ref<string>('all')
@@ -101,12 +103,8 @@ async function fetchTail() {
     filteredTotal.value = result.filtered_total
     loaded.value = true
 
-    // 自动滚到底
-    nextTick(() => {
-      if (panelRef.value) {
-        panelRef.value.scrollTop = panelRef.value.scrollHeight
-      }
-    })
+    // 自动滚到底（如果用户没有主动向上滚动）
+    scrollToBottom()
   } catch (e) {
     console.error('获取实时日志失败:', e)
   }
@@ -132,6 +130,8 @@ async function loadLogs() {
     sections.value = result.sections
     filteredTotal.value = result.filtered_total
     loaded.value = true
+    // 完整加载后自动滚到底
+    nextTick(() => scrollToBottom())
   } catch (e) {
     console.error('加载日志失败:', e)
     logs.value = []
@@ -194,6 +194,38 @@ function levelClass(level: string): string {
 }
 
 /** 滚动到底部 */
+
+/** 可靠地滚动到底部 */
+function scrollToBottom() {
+  if (!autoScrollEnabled.value || userScrolledUp.value) return
+  nextTick(() => {
+    const el = panelRef.value
+    if (el) {
+      el.scrollTop = el.scrollHeight
+    }
+  })
+}
+
+/** 用户手动滚动时检测是否在底部 */
+function onPanelScroll() {
+  const el = panelRef.value
+  if (!el) return
+  // 距离底部50px以内视为"在底部"
+  const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50
+  userScrolledUp.value = !nearBottom
+}
+
+/** 用户点击"滚到底部"按钮 */
+function scrollToBottomManual() {
+  userScrolledUp.value = false
+  autoScrollEnabled.value = true
+  nextTick(() => {
+    const el = panelRef.value
+    if (el) {
+      el.scrollTop = el.scrollHeight
+    }
+  })
+}
 
 // 任务状态变化 → 自动切换实时/完成模式
 watch(() => props.taskStatus, (status) => {
@@ -340,7 +372,8 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
     <div
       ref="panelRef"
       class="ansi-log-panel"
-      :style="{ minHeight: height + 'px', maxHeight: Math.max(height, viewportHeight - 200) + 'px' }"
+      :style="{ minHeight: height + 'px', maxHeight: Math.max(height, viewportHeight - 120) + 'px' }"
+      @scroll="onPanelScroll"
     >
       <div v-if="!loaded" class="log-empty">
         <template v-if="isLiveMode">等待日志...</template>
@@ -356,6 +389,10 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
         :class="['log-line', levelClass(item.level)]"
         v-html="item.html"
       />
+      <!-- 滚到底部悬浮按钮 -->
+      <div v-if="userScrolledUp && loaded" class="scroll-bottom-btn" @click="scrollToBottomManual">
+        ⬇ 最新
+      </div>
     </div>
   </div>
 </template>
@@ -580,6 +617,31 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
     color: #484f58;
     text-align: center;
     padding: 40px 0;
+  }
+
+  .scroll-bottom-btn {
+    position: sticky;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1f6feb;
+    color: #fff;
+    padding: 5px 16px;
+    border-radius: 16px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: center;
+    width: fit-content;
+    margin: 8px auto 0;
+    opacity: 0.92;
+    transition: opacity 0.2s;
+    z-index: 10;
+
+    &:hover {
+      opacity: 1;
+      background: #388bfd;
+    }
   }
 }
 </style>
