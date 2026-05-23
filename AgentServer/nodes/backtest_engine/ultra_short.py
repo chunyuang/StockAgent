@@ -532,7 +532,7 @@ async def execute_ultra_short_backtest(
         perf["daily_profit"] = daily_profit
 
         # 【任务2：卖出原因统计】
-        sell_reason_stats = {"stop_loss": 0, "take_profit": 0, "max_hold": 0, "force_empty": 0, "rebalance": 0, "other": 0}
+        sell_reason_stats = {"stop_loss": 0, "take_profit": 0, "max_hold": 0, "force_empty": 0, "rebalance": 0, "profit_lock": 0, "other": 0}
         for trade in (merged_trades or raw_trades or []):
             reason = trade.get("reason", trade.get("sell_reason", ""))
             # 跳过未平仓交易(无sell_date或profit_pct为None)
@@ -548,21 +548,18 @@ async def execute_ultra_short_backtest(
             # 止盈: 包含"止盈"/"take_profit"/"止盈(X%)"
             elif "止盈" in reason_str or "take_profit" in reason_str.lower():
                 sell_reason_stats["take_profit"] += 1
-            # 到期: 包含"到期"/"max_hold"/"持仓天数"/"超时"/"停牌超时"(超时=持仓超过max_hold_days)
+            # 【V42:利润锁定/冲高回落/高开即卖/利润保护→归入profit_lock(主动保护性卖出)】
+            elif "冲高回落" in reason_str or "高开即卖" in reason_str or "利润保护" in reason_str or "利润锁定" in reason_str:
+                sell_reason_stats["profit_lock"] += 1
+            # 到期: 包含"到期"/"max_hold"/"持仓天数"/"超时"/"停牌超时"
             elif "到期" in reason_str or "max_hold" in reason_str.lower() or "持仓天数" in reason_str or "超时" in reason_str or "停牌" in reason_str:
                 sell_reason_stats["max_hold"] += 1
-            # 空仓: 包含"空仓"/"force_empty"/"强制"/"force_empty_position"
+            # 空仓: 包含"空仓"/"force_empty"/"强制"
             elif "空仓" in reason_str or "force_empty" in reason_str.lower() or "强制" in reason_str:
                 sell_reason_stats["force_empty"] += 1
             # 调仓: 包含"调仓"/"rebalance"/"减仓"
             elif "调仓" in reason_str or "rebalance" in reason_str.lower() or "减仓" in reason_str:
                 sell_reason_stats["rebalance"] += 1
-            # 【V9修复：冲高回落/高开即卖归入take_profit(本质是止盈类操作)】
-            elif "冲高回落" in reason_str or "高开即卖" in reason_str:
-                sell_reason_stats["take_profit"] += 1
-            # 【V11修复：利润保护归入take_profit(本质是止盈保护)】
-            elif "利润保护" in reason_str:
-                sell_reason_stats["take_profit"] += 1
             # 持仓中: 未平仓交易
             elif "持仓中" in reason_str:
                 pass  # 不计入卖出统计

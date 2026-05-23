@@ -79,6 +79,7 @@ function translateSellReason(reason: string): string {
     '冲高回落': '冲高回落',
     '高开即卖': '高开即卖',
     '利润保护': '利润保护',
+    '利润锁定': '利润锁定',
     'gap_down_stop': '跳空止损',
     '持仓中': '持仓中',
     '停牌超时强卖': '停牌强卖',
@@ -781,6 +782,9 @@ function exportTrades() {
       <div class="sell-reason-items">
         <span v-if="result.sell_reason_stats.take_profit > 0" class="sell-reason-item take-profit">
           <span class="reason-dot"></span>止盈{{ result.sell_reason_stats.take_profit }}笔({{ sellReasonPct('take_profit') }}%)
+        </span>
+        <span v-if="result.sell_reason_stats.profit_lock > 0" class="sell-reason-item rebalance">
+          <span class="reason-dot"></span>利润锁{{ result.sell_reason_stats.profit_lock }}笔({{ sellReasonPct('profit_lock') }}%)
         </span>
         <span v-if="result.sell_reason_stats.rebalance > 0" class="sell-reason-item rebalance">
           <span class="reason-dot"></span>调仓{{ result.sell_reason_stats.rebalance }}笔({{ sellReasonPct('rebalance') }}%)
