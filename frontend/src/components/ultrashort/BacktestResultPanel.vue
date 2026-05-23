@@ -783,7 +783,7 @@ function exportTrades() {
         <span v-if="result.sell_reason_stats.take_profit > 0" class="sell-reason-item take-profit">
           <span class="reason-dot"></span>止盈{{ result.sell_reason_stats.take_profit }}笔({{ sellReasonPct('take_profit') }}%)
         </span>
-        <span v-if="result.sell_reason_stats.profit_lock > 0" class="sell-reason-item rebalance">
+        <span v-if="result.sell_reason_stats.profit_lock > 0" class="sell-reason-item profit-lock">
           <span class="reason-dot"></span>利润锁{{ result.sell_reason_stats.profit_lock }}笔({{ sellReasonPct('profit_lock') }}%)
         </span>
         <span v-if="result.sell_reason_stats.rebalance > 0" class="sell-reason-item rebalance">
@@ -1134,6 +1134,7 @@ export default { name: 'BacktestResultPanel' }
       border-radius: 50%;
     }
     &.take-profit { color: #67c23a; .reason-dot { background: #67c23a; } }
+    &.profit-lock { color: #9b59b6; .reason-dot { background: #9b59b6; } }
     &.rebalance { color: #409eff; .reason-dot { background: #409eff; } }
     &.stop-loss { color: #f56c6c; .reason-dot { background: #f56c6c; } }
     &.max-hold { color: #e6a23c; .reason-dot { background: #e6a23c; } }
