@@ -245,59 +245,60 @@ function qIcon(q: Quality) {
 .factor-ref-v3 { padding: 0; }
 
 .stat-bar {
-  display: flex; gap: 14px; padding: 8px 12px; background: #f5f7fa; border-radius: 6px; margin-bottom: 12px;
-  flex-wrap: wrap; align-items: center;
-}
-.stat-item { font-size: 13px; color: #606266;
-  b { margin-left: 2px; }
-  &.accent b { color: #409eff; }
-  &.prev b { color: #9b59b6; }
-  &.warn b { color: #e6a23c; }
-  &.bad b { color: #f56c6c; }
+  display: flex; gap: 14px; padding: 8px 12px; background: var(--bg-muted); border-radius: 6px; margin-bottom: 12px;
+  flex-wrap: wrap; align-items: center; color: var(--text-tertiary);
+  b { margin-left: 2px; color: var(--text-primary); }
+  .stat-item { font-size: 13px;
+    &.accent b { color: var(--primary-400); }
+    &.prev b { color: #b794f4; }
+    &.warn b { color: var(--warning); }
+    &.bad b { color: var(--error); }
+  }
 }
 
 .filter-bar {
   display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap;
 }
-.toggle-label { display: flex; align-items: center; gap: 4px; font-size: 13px; color: #606266; cursor: pointer; }
-.result-hint { font-size: 12px; color: #909399; }
+.toggle-label { display: flex; align-items: center; gap: 4px; font-size: 13px; color: var(--text-tertiary); cursor: pointer; }
+.result-hint { font-size: 12px; color: var(--text-muted); }
 
 /* 分类块 */
 .cat-section { margin-bottom: 16px; }
 .cat-header {
   display: flex; align-items: center; gap: 6px; margin-bottom: 6px;
-  padding: 4px 8px; background: #fafafa; border-radius: 4px; border-left: 3px solid #409eff;
+  padding: 5px 8px; background: var(--bg-muted); border-radius: 4px; border-left: 3px solid var(--primary-400);
 }
 .cat-icon { font-size: 14px; }
-.cat-name { font-weight: 600; font-size: 13px; color: #303133; }
-.cat-count { font-size: 11px; color: #909399; background: #f0f2f5; padding: 0 6px; border-radius: 8px; }
+.cat-name { font-weight: 700; font-size: 13px; color: var(--text-primary); }
+.cat-count { font-size: 11px; color: var(--text-muted); background: var(--bg-subtle); padding: 0 6px; border-radius: 8px; }
 
-/* 紧凑表格 */
+/* 表格(跟随全局主题CSS变量) */
 .f-table {
   width: 100%; border-collapse: collapse; font-size: 12px;
-  th { text-align: left; color: #909399; font-weight: 500; padding: 4px 8px; border-bottom: 1px solid #ebeef5; background: #fafafa; }
-  td { padding: 5px 8px; border-bottom: 1px solid #f5f5f5; vertical-align: top; }
-  tr:hover td { background: #f8fbff; }
-  tr.row-prev td { background: #f9f5ff; }
-  tr.row-prev:hover td { background: #f0e8ff; }
-  tr.row-warn td { background: #fffbf0; }
-  tr.row-bad td { background: #fff5f5; }
-  tr.row-nodaily td { opacity: 0.6; }
+  background: var(--bg-elevated);
+  th { text-align: left; color: var(--text-tertiary); font-weight: 600; padding: 6px 8px; border-bottom: 2px solid var(--border-muted); background: var(--bg-muted); }
+  td { padding: 6px 8px; border-bottom: 1.5px solid var(--border-default); vertical-align: top; color: var(--text-secondary); background: var(--bg-elevated); }
+  tr:hover td { background: var(--bg-hover); }
+  tr.row-prev td { background: rgba(139, 92, 246, 0.06); }
+  tr.row-prev:hover td { background: rgba(139, 92, 246, 0.12); }
+  tr.row-warn td { background: var(--warning-bg); }
+  tr.row-bad td { background: var(--error-bg); }
+  tr.row-nodaily td { opacity: 0.55; }
 }
 
 .col-name { width: 170px; }
-.col-name code { font-family: 'SF Mono', 'Fira Code', Consolas, monospace; color: #409eff; font-size: 12px; font-weight: 500; }
-.col-desc { color: #606266; line-height: 1.5; }
+.col-name code { font-family: 'SF Mono', 'Fira Code', Consolas, monospace; color: var(--primary-400); font-size: 12px; font-weight: 600; }
+.col-desc { color: var(--text-secondary); line-height: 1.5; }
 .col-cond { width: 180px; }
-.col-src { width: 100px; color: #909399; font-size: 11px;
-  &.src-warn { color: #e6a23c; }
-  &.src-bad { color: #f56c6c; }
+.col-src { width: 100px; color: var(--text-muted); font-size: 11px;
+  &.src-warn { color: var(--warning); }
+  &.src-bad { color: var(--error); }
 }
 .col-q { width: 30px; text-align: center; }
 
-.no-use { color: #dcdfe6; }
+.no-use { color: var(--text-muted); }
 .badge-nodaily {
-  display: inline-block; font-size: 10px; color: #f56c6c; background: #fef0f0;
+  display: inline-block; font-size: 10px; color: var(--error); background: var(--error-bg);
   padding: 0 4px; border-radius: 3px; margin-left: 4px; vertical-align: middle;
 }
 </style>
