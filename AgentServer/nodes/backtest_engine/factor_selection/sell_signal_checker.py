@@ -663,7 +663,7 @@ class SellSignalChecker:
 
         if isinstance(strategies, list) and strategies:
             sl = min(self._strategy_risk_params.get(s, {}).get('stop_loss_pct', global_sl) for s in strategies)
-            tp = max(self._strategy_risk_params.get(s, {}).get('take_profit_pct', global_tp) for s in strategies)
+            tp = min(self._strategy_risk_params.get(s, {}).get('take_profit_pct', global_tp) for s in strategies)
             return sl, tp
         return global_sl, global_tp
 
