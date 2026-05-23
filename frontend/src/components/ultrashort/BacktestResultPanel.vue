@@ -794,6 +794,14 @@ function exportTrades() {
       </div>
     </div>
 
+    <!-- 任务2.5: 持仓保护统计 -->
+    <div v-if="result?.sell_reason_stats" class="hold-protection-info" style="margin-top: 8px; display: flex; align-items: center; gap: 12px; font-size: 12px; color: #909399">
+      <span>🔒 持仓保护: 盈利≥5%+阳线不调仓卖出</span>
+      <span v-if="result.sell_reason_stats.profit_lock > 0">| 利润锁{{ result.sell_reason_stats.profit_lock }}笔</span>
+      <span v-if="result.sell_reason_stats.profit_protect > 0">| 利润保{{ result.sell_reason_stats.profit_protect }}笔</span>
+      <span v-if="result.sell_reason_stats.pullback > 0">| 冲高回{{ result.sell_reason_stats.pullback }}笔</span>
+    </div>
+
     <!-- 任务3: 卖出原因统计 -->
     <div v-if="result?.sell_reason_stats" class="sell-reason-bar">
       <span class="sell-reason-label">卖出分布</span>
@@ -803,6 +811,12 @@ function exportTrades() {
         </span>
         <span v-if="result.sell_reason_stats.profit_lock > 0" class="sell-reason-item profit-lock">
           <span class="reason-dot"></span>利润锁{{ result.sell_reason_stats.profit_lock }}笔({{ sellReasonPct('profit_lock') }}%)
+        </span>
+        <span v-if="result.sell_reason_stats.profit_protect > 0" class="sell-reason-item profit-lock">
+          <span class="reason-dot"></span>利润保{{ result.sell_reason_stats.profit_protect }}笔({{ sellReasonPct('profit_protect') }}%)
+        </span>
+        <span v-if="result.sell_reason_stats.pullback > 0" class="sell-reason-item profit-lock">
+          <span class="reason-dot"></span>冲高回{{ result.sell_reason_stats.pullback }}笔({{ sellReasonPct('pullback') }}%)
         </span>
         <span v-if="result.sell_reason_stats.rebalance > 0" class="sell-reason-item rebalance">
           <span class="reason-dot"></span>调仓{{ result.sell_reason_stats.rebalance }}笔({{ sellReasonPct('rebalance') }}%)
