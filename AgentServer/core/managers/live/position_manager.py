@@ -394,8 +394,13 @@ class PositionManager:
             
             # 检查止损
             if low <= pos.stop_loss_price:
-                alert["alerts"].append(f"🔴 触发止损：最低价{low:.2f} ≤ 止损价{pos.stop_loss_price:.2f}，建议立即卖出")
-                alert["level"] = "danger"
+                # 【V47:区分跳空止损(用open)和正常止损(用止损价),与回测一致】
+                if open_price <= pos.stop_loss_price and open_price > 0:
+                    alert["alerts"].append(f"🔴 跳空止损：开盘{open_price:.2f}≤止损价{pos.stop_loss_price:.2f}，建议以开盘价卖出")
+                    alert["level"] = "danger"
+                else:
+                    alert["alerts"].append(f"🔴 触发止损：最低价{low:.2f} ≤ 止损价{pos.stop_loss_price:.2f}，建议以止损价卖出")
+                    alert["level"] = "danger"
             elif current_price <= pos.stop_loss_price * 1.05:
                 alert["alerts"].append(f"🟡 接近止损：当前价{current_price:.2f} 接近止损价{pos.stop_loss_price:.2f}，注意风险")
                 alert["level"] = "warning"
