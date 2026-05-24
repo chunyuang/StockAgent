@@ -2951,25 +2951,48 @@ class PortfolioBacktester:
         result["factor_contribution"] = factor_contribution
 
         # 4. monthly_profit: 月度收益 {"2026-01": 收益率, ...}
+        # 【V47修复:改用net_value_series计算,避免daily_profit_list浮点累加误差】
         monthly_profit = {}
-        if daily_profit_list and all_trade_dates:
+        if net_value_series and len(net_value_series) > 0:
+            current_month = None
+            month_start_nv = None  # 月初净值
+            for nv_point in net_value_series:
+                nv = nv_point.get('net_value', 1.0)
+                trade_date_nv = nv_point.get('trade_date', 0)
+                date_str = str(trade_date_nv)
+                month_key = date_str[:6]  # "202601"
+                formatted_key = f"{month_key[:4]}-{month_key[4:]}"  # "2026-01"
+                if current_month is not None and month_key != current_month:
+                    # 月末,计算该月收益
+                    m_return = (nv - month_start_nv) / month_start_nv if month_start_nv and month_start_nv > 0 else 0
+                    formatted_prev = f"{current_month[:4]}-{current_month[4:]}"
+                    monthly_profit[formatted_prev] = m_return
+                    month_start_nv = nv
+                elif month_start_nv is None:
+                    month_start_nv = nv
+                current_month = month_key
+            # 最后一月
+            if current_month and month_start_nv is not None:
+                m_return = (nv - month_start_nv) / month_start_nv if month_start_nv > 0 else 0
+                formatted_last = f"{current_month[:4]}-{current_month[4:]}"
+                monthly_profit[formatted_last] = m_return
+        elif daily_profit_list and all_trade_dates:
+            # Fallback: 旧行法(仅当net_value_series不可用时)
             current_value = self._initial_cash
             monthly_start_value = current_value
             current_month = None
             for i, profit in enumerate(daily_profit_list):
                 if i < len(all_trade_dates):
                     date_str = str(all_trade_dates[i])
-                    month_key = date_str[:6]  # "202601"
-                    formatted_key = f"{month_key[:4]}-{month_key[4:]}"  # "2026-01"
+                    month_key = date_str[:6]
+                    formatted_key = f"{month_key[:4]}-{month_key[4:]}"
                     if current_month is not None and month_key != current_month:
-                        # 月末,计算该月收益
                         m_return = (current_value - monthly_start_value) / monthly_start_value if monthly_start_value > 0 else 0
                         formatted_prev = f"{current_month[:4]}-{current_month[4:]}"
                         monthly_profit[formatted_prev] = m_return
                         monthly_start_value = current_value
                     current_month = month_key
                 current_value += profit
-            # 最后一月
             if current_month:
                 m_return = (current_value - monthly_start_value) / monthly_start_value if monthly_start_value > 0 else 0
                 formatted_last = f"{current_month[:4]}-{current_month[4:]}"
@@ -3879,7 +3902,9 @@ class PortfolioBacktester:
                         low_p = p.get('low', close_p)
                         if low_p <= cost * (1 - code_sl):
                             should_still_protect = False  # 盘中已触发止损,不保护
-                    if profit_pct >= hold_protection_pct and is_yang_line and should_still_protect:
+                    # 【V47修复:一字涨停不受保护(涨停开板风险大)】
+                    is_yizi = (open_p == close_p == p.get('high', 0) == p.get('low', 0)) and open_p > 0
+                    if profit_pct >= hold_protection_pct and is_yang_line and should_still_protect and not is_yizi:
                         protected_codes.append(code)
             for code in protected_codes:
                 sell_codes.remove(code)
