@@ -80,7 +80,6 @@ class SignalGenerator:
         all_signals = []
         
         # 加载当日行情数据
-        # TODO: 加载当日/最近行情数据，预处理
         market_data = await self._load_market_data(trade_date)
         
         # 运行所有策略

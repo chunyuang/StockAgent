@@ -244,13 +244,20 @@ class PreBuyRiskChecker:
             return True, "市场环境过滤已禁用", {"enabled": False}
         
         try:
-            # TODO: 从实际数据源获取指数数据
-            # 这里使用模拟数据，实际应从 tushare/akshare 获取
-            index_code = self.config["reference_index"]
-            
-            # 模拟获取今日指数跌幅
-            # 实际实现：从market_data_cache读取或从API获取
-            today_drop = self.market_data.get(f"{index_code}_today_drop", 0.01)  # 模拟1%跌幅
+            # 从MongoDB获取指数当日涨跌幅
+            from core.managers.mongo_manager import mongo_manager
+            try:
+                if not mongo_manager.client:
+                    asyncio.get_event_loop().run_until_complete(mongo_manager.initialize())
+                index_doc = mongo_manager.db.stock_daily_ak_full.find_one(
+                    {'ts_code': index_code, 'trade_date': {'$gte': int(datetime.now().strftime('%Y%m%d')) - 100}},
+                    sort=[('trade_date', -1)],
+                    projection={'pct_chg': 1}
+                )
+                today_drop = abs(index_doc.get('pct_chg', 0) / 100) if index_doc and index_doc.get('pct_chg') else self.market_data.get(f"{index_code}_today_drop", 0.01)
+            except Exception as e:
+                logger.warning(f"risk_checker获取指数数据失败: {e}, 使用缓存")
+                today_drop = self.market_data.get(f"{index_code}_today_drop", 0.01)
             
             details = {
                 "index_code": index_code,
@@ -350,14 +357,27 @@ class PreBuyRiskChecker:
             if is_st:
                 return False, f"个股风险过高，{ts_code}为ST股票，已被排除", {"is_st": True}
         
-        # TODO: 从实际数据源获取股票基本信息（市值、波动率等）
-        # 这里使用模拟数据，实际应从数据库获取
-        stock_info = self.stock_risk_cache.get(ts_code, {
-            "market_cap": 50,  # 模拟50亿市值
-            "volatility_20d": 0.15,  # 模拟20日波动率15%
-            "limit_up_days": 0,  # 连续涨停天数
-            "limit_down_days": 0  # 连续跌停天数
-        })
+        # 从MongoDB获取股票基本信息（市值、波动率等）
+        from core.managers.mongo_manager import mongo_manager
+        stock_info = self.stock_risk_cache.get(ts_code, {})
+        if not stock_info.get('market_cap'):
+            try:
+                if not mongo_manager.client:
+                    import asyncio; asyncio.get_event_loop().run_until_complete(mongo_manager.initialize())
+                basic = mongo_manager.db.daily_basic.find_one(
+                    {'ts_code': ts_code},
+                    sort=[('trade_date', -1)],
+                    projection={'circ_mv': 1, 'turnover_rate': 1}
+                )
+                if basic:
+                    stock_info['market_cap'] = basic.get('circ_mv', 50) or 50  # 流通市值(亿元)
+                    stock_info['volatility_20d'] = 0.15  # TODO: 需从历史波动率计算
+            except Exception as e:
+                logger.warning(f"risk_checker获取股票基本信息失败: {e}")
+                stock_info.setdefault('market_cap', 50)
+                stock_info.setdefault('volatility_20d', 0.15)
+        stock_info.setdefault('limit_up_days', 0)
+        stock_info.setdefault('limit_down_days', 0)
         
         details = {
             "ts_code": ts_code,

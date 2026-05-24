@@ -140,7 +140,7 @@ class RiskAlertEngine:
         # 2. 仓位检查
         pos_manager = engine.position_managers[account_id]
         positions = pos_manager.get_positions()
-        total_position_value = sum(pos["shares"] * pos["buy_price"] for pos in positions)  # TODO: 用当前市价替代成本价
+        total_position_value = sum(pos["shares"] * pos.get("current_price", pos["buy_price"]) for pos in positions)
         position_ratio = total_position_value / account.current_balance if account.current_balance > 0 else 0
         
         if position_ratio >= self.config["position_limit_alert"]:
@@ -152,13 +152,19 @@ class RiskAlertEngine:
         
         # 3. 单只股票亏损检查
         for pos in positions:
-            # TODO: 从MongoDB/AKShare获取当前价格，当前用成本价近似导致loss_pct永远为0
+            # 从MongoDB获取最新收盘价作为当前价格
             try:
-                from core.managers import mongo_manager
-                doc = await mongo_manager.find_one("stock_daily_ak_full", {"ts_code": pos["ts_code"]}, sort=[("trade_date", -1)])
-                current_price = doc["close"] if doc and doc.get("close", 0) > 0 else pos["buy_price"]
+                from core.managers.mongo_manager import mongo_manager
+                if not mongo_manager.client:
+                    await mongo_manager.initialize()
+                doc = await mongo_manager.db.stock_daily_ak_full.find_one(
+                    {'ts_code': pos['ts_code']},
+                    sort=[('trade_date', -1)],
+                    projection={'close': 1}
+                )
+                current_price = doc['close'] if doc and doc.get('close', 0) > 0 else pos["buy_price"]
             except Exception:
-                current_price = pos["buy_price"]
+                current_price = pos.get("current_price", pos["buy_price"])
             cost = pos["buy_price"]
             loss_pct = (current_price - cost) / cost if cost > 0 else 0
             
