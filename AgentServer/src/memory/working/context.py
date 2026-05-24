@@ -285,8 +285,7 @@ class ContextWindow:
         if len(history) < 6:  # 少于 6 条不需要压缩
             return None
         
-        # TODO: 调用 LLM 进行总结
-        # 这里先返回简单的拼接
+        # 调用 LLM 进行总结
         from core.managers import llm_manager
         
         history_text = "\n".join([
