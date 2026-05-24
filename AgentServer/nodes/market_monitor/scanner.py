@@ -62,8 +62,8 @@ class PositionStatus:
     cost_price: float = 0.0
     current_price: float = 0.0
     profit_pct: float = 0.0
-    stop_loss_pct: float = -3.0   # 百分比形式(与broker.profit_pct一致), -3.0表示-3%
-    take_profit_pct: float = 7.0   # 百分比形式, 7.0表示7%
+    stop_loss_pct: float = -3.0   # 默认-3%(策略级覆盖:半路-4%/龙头-3%/跌停-5%,从STRATEGY_CONFIGS读取)
+    take_profit_pct: float = 7.0   # 默认7%(策略级覆盖:半路12%/龙头30%/跌停20%,从STRATEGY_CONFIGS读取)
     hold_minutes: int = 0
     should_sell: bool = False
     sell_reason: str = ""
