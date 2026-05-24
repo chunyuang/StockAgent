@@ -113,6 +113,40 @@
   --sidebar-width: 220px;
   --sidebar-collapsed-width: 64px;
   
+  // ========== Element Plus 全局变量覆盖 (亮色) ==========
+  --el-bg-color: #ffffff;
+  --el-bg-color-page: #f8f9fa;
+  --el-bg-color-overlay: #ffffff;
+  --el-text-color-primary: #0f172a;
+  --el-text-color-regular: #475569;
+  --el-text-color-secondary: #64748b;
+  --el-text-color-placeholder: #94a3b8;
+  --el-text-color-disabled: #c0c4cc;
+  --el-border-color: #e2e8f0;
+  --el-border-color-light: #f1f5f9;
+  --el-border-color-lighter: #f8fafc;
+  --el-border-color-dark: #cbd5e1;
+  --el-fill-color: #f1f5f9;
+  --el-fill-color-light: #f8fafc;
+  --el-fill-color-lighter: #ffffff;
+  --el-fill-color-blank: #ffffff;
+  --el-fill-color-dark: #e2e8f0;
+  --el-mask-color: rgba(0, 0, 0, 0.5);
+  --el-color-primary: #3b82f6;
+  --el-color-primary-light-3: #60a5fa;
+  --el-color-primary-light-5: #93c5fd;
+  --el-color-primary-light-7: #bfdbfe;
+  --el-color-primary-light-8: #dbeafe;
+  --el-color-primary-light-9: #eff6ff;
+  --el-color-primary-dark-2: #2563eb;
+  --el-collapse-header-bg-color: #f8fafc;
+  --el-collapse-content-bg-color: #ffffff;
+  --el-collapse-header-text-color: #0f172a;
+  --el-collapse-header-height: 48px;
+  --el-disabled-bg-color: #f5f7fa;
+  --el-disabled-text-color: #c0c4cc;
+  --el-disabled-border-color: #e4e7ed;
+
   // ========== 侧边栏 (亮色模式用浅色) ==========
   --sidebar-bg: linear-gradient(180deg, #f0f4f8 0%, #e8edf3 100%);
   --sidebar-text: #475569;
@@ -203,6 +237,40 @@ html.dark {
   --gradient-hero: linear-gradient(135deg, #1a2336 0%, #1e3a8a 100%);
   --gradient-card: linear-gradient(180deg, rgba(35,43,59,0.95) 0%, rgba(30,38,52,0.9) 100%);
   --gradient-sidebar: linear-gradient(180deg, #1a2336 0%, #1e2940 100%);
+
+  // ========== Element Plus 全局变量覆盖 (暗色) ==========
+  --el-bg-color: #1a2332;
+  --el-bg-color-page: #232b3b;
+  --el-bg-color-overlay: #2a3447;
+  --el-text-color-primary: #e2e8f0;
+  --el-text-color-regular: #b0b8c4;
+  --el-text-color-secondary: #8492a6;
+  --el-text-color-placeholder: #4e5969;
+  --el-text-color-disabled: #4e5969;
+  --el-border-color: rgba(255, 255, 255, 0.10);
+  --el-border-color-light: rgba(255, 255, 255, 0.06);
+  --el-border-color-lighter: rgba(255, 255, 255, 0.04);
+  --el-border-color-dark: rgba(255, 255, 255, 0.14);
+  --el-fill-color: #263040;
+  --el-fill-color-light: #232b3b;
+  --el-fill-color-lighter: #1f2738;
+  --el-fill-color-blank: #1a2332;
+  --el-fill-color-dark: #303d52;
+  --el-mask-color: rgba(0, 0, 0, 0.7);
+  --el-color-primary: #5b9cf5;
+  --el-color-primary-light-3: #7db4f7;
+  --el-color-primary-light-5: #9ec8f9;
+  --el-color-primary-light-7: #c0dcfb;
+  --el-color-primary-light-8: #d1e6fc;
+  --el-color-primary-light-9: #e8f2fe;
+  --el-color-primary-dark-2: #4a8ce4;
+  --el-collapse-header-bg-color: #232b3b;
+  --el-collapse-content-bg-color: #2a3447;
+  --el-collapse-header-text-color: #e2e8f0;
+  --el-collapse-header-height: 48px;
+  --el-disabled-bg-color: #1f2738;
+  --el-disabled-text-color: #4e5969;
+  --el-disabled-border-color: rgba(255, 255, 255, 0.06);
 
   // ========== 侧边栏 (与主背景协调) ==========
   --sidebar-bg: linear-gradient(180deg, #1a2336 0%, #1e2940 100%);
