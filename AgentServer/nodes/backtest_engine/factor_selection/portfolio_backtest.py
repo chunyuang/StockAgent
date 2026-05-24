@@ -625,7 +625,7 @@ class PortfolioBacktester:
             # 【N02/N09修复:日志参数添加默认值fallback,避免None*100的TypeError】
             min_consecutive = params.get("min_consecutive_limit") if params.get("min_consecutive_limit") is not None else STRATEGY_CONFIGS.get("dragon_head", {}).get("params", {}).get("min_consecutive_limit", 1)
             min_correction = params.get("min_correction_pct") if params.get("min_correction_pct") is not None else STRATEGY_CONFIGS.get("dragon_head", {}).get("params", {}).get("min_correction_pct", 0.05)
-            max_correction = params.get("max_correction_pct") if params.get("max_correction_pct") is not None else STRATEGY_CONFIGS.get("dragon_head", {}).get("params", {}).get("max_correction_pct", 0.35)
+            max_correction = params.get("max_correction_pct") if params.get("max_correction_pct") is not None else STRATEGY_CONFIGS.get("dragon_head", {}).get("params", {}).get("max_correction_pct", 0.20)
             correction_days_min = params.get("correction_days_min") if params.get("correction_days_min") is not None else STRATEGY_CONFIGS.get("dragon_head", {}).get("params", {}).get("correction_days_min", 1)
             correction_days_max = params.get("correction_days_max") if params.get("correction_days_max") is not None else STRATEGY_CONFIGS.get("dragon_head", {}).get("params", {}).get("correction_days_max", 7)
             support_level = params.get("support_level") if params.get("support_level") is not None else STRATEGY_CONFIGS.get("dragon_head", {}).get("params", {}).get("support_level", "ma5")
@@ -1723,6 +1723,14 @@ class PortfolioBacktester:
             # 【P2-B修复:删除重复的参数打印逻辑,统一走 _print_single_strategy_filtering】
             # 之前这里有80行重复打印代码,与 _print_single_strategy_filtering 完全一致
             # 且默认值不一致(如半路追涨max_rise_pct这里写0.05,_print_single写0.05,但ultra_short写0.07)
+
+            # 【V36:半路追涨冰点期过滤】情绪score<40时跳过,3笔0%胜率-12.5%→0笔冰点亏损
+            if strategy_name == "半路追涨" and market_sentiment_score is not None and market_sentiment_score < 40:
+                await self.log(f"   ❄️ 【半路追涨】冰点期(情绪{market_sentiment_score}分<40),跳过")
+                if strategy_name not in self._strategy_signal_stats:
+                    self._strategy_signal_stats[strategy_name] = {"total_days": 0, "signal_days": 0}
+                self._strategy_signal_stats[strategy_name]["total_days"] += 1
+                continue
 
             # 统一调用策略筛选+打印
             candidates = await self._print_single_strategy_filtering(
@@ -3529,7 +3537,7 @@ class PortfolioBacktester:
             # 【P1-9修复:默认值从STRATEGY_CONFIGS读取】
             min_consecutive = converted_params.get("min_consecutive_limit") if converted_params.get("min_consecutive_limit") is not None else strategy_defaults.get("min_consecutive_limit", 1)
             min_correction = converted_params.get("min_correction_pct") if converted_params.get("min_correction_pct") is not None else strategy_defaults.get("min_correction_pct", 0.05)
-            max_correction = converted_params.get("max_correction_pct") if converted_params.get("max_correction_pct") is not None else strategy_defaults.get("max_correction_pct", 0.35)
+            max_correction = converted_params.get("max_correction_pct") if converted_params.get("max_correction_pct") is not None else strategy_defaults.get("max_correction_pct", 0.20)
             correction_days_min = converted_params.get("correction_days_min") if converted_params.get("correction_days_min") is not None else strategy_defaults.get("correction_days_min", 1)
             correction_days_max = converted_params.get("correction_days_max") if converted_params.get("correction_days_max") is not None else strategy_defaults.get("correction_days_max", 7)
             support_level = converted_params.get("support_level") if converted_params.get("support_level") is not None else strategy_defaults.get("support_level", "ma5")

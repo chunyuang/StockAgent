@@ -44,7 +44,7 @@ def build_baseline_params():
                         "next_day_open_sell_pct": 0.03,
                     },
                     "riskParams": {
-                        "stop_loss_pct": 0.05,
+                        "stop_loss_pct": 0.04,
                         "take_profit_pct": 0.12,
                         "max_hold_days": 3,
                         "slippage_pct": 0.002,
@@ -56,7 +56,7 @@ def build_baseline_params():
                         "min_consecutive_limit": 1,
                         "min_circulation_market_cap": 30,
                         "min_correction_pct": 0.05,
-                        "max_correction_pct": 0.35,
+                        "max_correction_pct": 0.20,
                         "correction_days_min": 1,
                         "correction_days_max": 7,
                         "min_volume_ratio": 0.5,
@@ -64,8 +64,8 @@ def build_baseline_params():
                         "next_day_open_sell_pct": 0.03,
                     },
                     "riskParams": {
-                        "stop_loss_pct": 0.05,
-                        "take_profit_pct": 0.15,
+                        "stop_loss_pct": 0.04,
+                        "take_profit_pct": 0.30,
                         "max_hold_days": 4,
                         "slippage_pct": 0.002,
                     }
@@ -82,8 +82,8 @@ def build_baseline_params():
                         "next_day_open_sell_pct": 0.03,
                     },
                     "riskParams": {
-                        "stop_loss_pct": 0.04,
-                        "take_profit_pct": 0.25,
+                        "stop_loss_pct": 0.05,
+                        "take_profit_pct": 0.20,
                         "max_hold_days": 3,
                         "slippage_pct": 0.003,
                     }
