@@ -402,7 +402,7 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
   border: 1px solid var(--border-default, #30363d);
   border-radius: 6px;
   overflow: hidden;
-  background: var(--bg-code, #0d1117);
+  background: var(--bg-code, #1e2940);
 }
 
 .log-card-header {
@@ -410,7 +410,7 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
   justify-content: space-between;
   align-items: center;
   padding: 10px 16px;
-  background: #161b22;
+  background: #263040;
   border-bottom: 1px solid #30363d;
 
   .log-title {
@@ -460,7 +460,7 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
     }
 
     .log-tail-btn {
-      background: #21262d;
+      background: #364458;
       border: 1px solid #f85149;
       border-radius: 4px;
       color: #f85149;
@@ -489,7 +489,7 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
 }
 
 .log-filter-bar {
-  background: #161b22;
+  background: #263040;
   border-bottom: 1px solid #30363d;
   padding: 8px 16px;
 
@@ -500,7 +500,7 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
     flex-wrap: wrap;
 
     .day-tab {
-      background: #21262d;
+      background: #364458;
       border: 1px solid #30363d;
       border-radius: 4px;
       color: #8b949e;
@@ -530,7 +530,7 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
     min-width: 0;
 
     .filter-select {
-      background: #0d1117;
+      background: #1e2940;
       border: 1px solid #30363d;
       border-radius: 4px;
       padding: 4px 8px;
@@ -545,7 +545,7 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
     }
 
     .log-search {
-      background: #0d1117;
+      background: #1e2940;
       border: 1px solid #30363d;
       border-radius: 4px;
       padding: 4px 10px;
@@ -573,7 +573,7 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
   font-size: 13px;
   line-height: 1.65;
   color: #c9d1d9;
-  background: #0d1117;
+  background: #1e2940;
   scroll-behavior: smooth;
 
   &::-webkit-scrollbar {
@@ -581,7 +581,7 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
   }
 
   &::-webkit-scrollbar-track {
-    background: #0d1117;
+    background: #1e2940;
   }
 
   &::-webkit-scrollbar-thumb {
