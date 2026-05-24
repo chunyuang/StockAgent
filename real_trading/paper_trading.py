@@ -198,8 +198,19 @@ class PaperTradingEngine:
         if account.status != "active":
             return {"success": False, "msg": f"账户{account_id}已关闭"}
         
+        # 【V38-fix:滑点从策略级参数读取,首板打板0.5%vs其他0.2%】
+        # 如果调用方未指定slippage(默认0.002),则尝试从策略配置读取
+        _effective_slippage = slippage
+        if strategy and strategy != "未知":
+            from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK as _GR
+            _NAME_TO_ID = {cfg["name"]: sid for sid, cfg in STRATEGY_CONFIGS.items()}
+            _sid = _NAME_TO_ID.get(strategy, "")
+            _scfg = STRATEGY_CONFIGS.get(_sid, {})
+            _strategy_slippage = _scfg.get("riskParams", {}).get("slippage_pct", _GR.get("slippage_pct", 0.002))
+            _effective_slippage = _strategy_slippage
+        
         # 计算实际成交价（滑点）
-        actual_buy_price = buy_price * (1 + slippage)
+        actual_buy_price = buy_price * (1 + _effective_slippage)
         total_cost = actual_buy_price * shares
         commission = max(total_cost * 0.0003, 5)  # 佣金万3，最低5元（对齐前端和回测配置）
         total_payment = total_cost + commission
@@ -284,8 +295,19 @@ class PaperTradingEngine:
         if not target_pos:
             return {"success": False, "msg": f"持仓中不存在{ts_code}"}
         
+        # 【V38-fix:卖出滑点也从策略级参数读取】
+        _effective_slippage = slippage
+        _strategy = target_pos.get('strategy', '')
+        if _strategy and _strategy != "未知":
+            from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK as _GR
+            _NAME_TO_ID = {cfg["name"]: sid for sid, cfg in STRATEGY_CONFIGS.items()}
+            _sid = _NAME_TO_ID.get(_strategy, "")
+            _scfg = STRATEGY_CONFIGS.get(_sid, {})
+            _strategy_slippage = _scfg.get("riskParams", {}).get("slippage_pct", _GR.get("slippage_pct", 0.002))
+            _effective_slippage = _strategy_slippage
+        
         # 计算实际成交价（滑点）
-        actual_sell_price = sell_price * (1 - slippage)
+        actual_sell_price = sell_price * (1 - _effective_slippage)
         total_income = actual_sell_price * target_pos["shares"]
         commission = max(total_income * 0.0003, 5)  # 佣金万3，最低5元（对齐前端和回测配置）
         stamp_tax = total_income * 0.001  # 印花税千1
