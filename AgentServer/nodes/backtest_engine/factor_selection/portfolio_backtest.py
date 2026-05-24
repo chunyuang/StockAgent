@@ -3848,7 +3848,7 @@ class PortfolioBacktester:
         # 原因:调仓卖出会错过后续大涨(如龙头低吸盈利8%被调仓卖,次日冲高15%)
         # 保护性卖出(冲高回落/利润保护/止损/止盈)仍然正常触发
         # 【V35修复:已触发止损/冲高回落/利润保护的股不受保护,避免保护阻止止损】
-        hold_protection_pct = self._risk_config.get('hold_protection_threshold', GLOBAL_RISK.get('hold_protection_threshold', 0.06))
+        hold_protection_pct = self._risk_config.get('hold_protection_threshold', GLOBAL_RISK.get('hold_protection_threshold', 0.05))
         _mark_sold_codes = set(pos_mgr.sell_code_reasons.keys())  # 已有保护性卖出reason的股
         if hold_protection_pct > 0:
             protected_codes = []

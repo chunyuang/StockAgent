@@ -25,7 +25,7 @@ export const GLOBAL_RISK = {
   intraday_lock_min_high_rise: 0.06,
   intraday_lock_pullback_pct: 0.025,
   intraday_lock_min_profit: 0.02,
-  hold_protection_threshold: 0.06,
+  hold_protection_threshold: 0.05,
   live_trading_mode: false,
 }
 

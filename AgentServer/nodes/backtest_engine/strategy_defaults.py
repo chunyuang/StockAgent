@@ -28,7 +28,7 @@ GLOBAL_RISK = {
     "intraday_lock_min_high_rise": 0.06,  # 盘中利润锁定:冲高≥6%
     "intraday_lock_pullback_pct": 0.025,  # 盘中利润锁定:从高点回撤≥2.5%
     "intraday_lock_min_profit": 0.02,     # 盘中利润锁定:收盘仍≥2%利润
-    "hold_protection_threshold": 0.06,     # 【V37优化:持仓保护】盈利≥6%+阳线时不因调仓卖出(V35:5%过于保护微盈利股,V36:8%太宽松错过5-8%的持续上涨,6%为折中值)
+    "hold_protection_threshold": 0.05,     # 【V38:恢复V35值5%】单策略测试5%=6%无差异,但多策略时5%保护5-6%盈利股不被调仓卖出(半路追涨胜率68%→62%差距主因)
     "live_trading_mode": False,     # 【V29:实盘模式开关】True时pct_chg等T日因子降级为_prev
 }
 
