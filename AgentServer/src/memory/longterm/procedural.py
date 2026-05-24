@@ -861,8 +861,34 @@ class ProceduralStore:
         
         # 检查匹配的模式
         for pattern in entry_patterns:
-            # TODO: 实现条件匹配逻辑
-            # 这里简化处理，实际应该解析 pattern.conditions 并与 market_data 匹配
+            # 条件匹配: 解析 pattern.conditions 与 market_data 比对
+            matched = True
+            if pattern.conditions and market_data:
+                for cond in pattern.conditions:
+                    # 条件格式: "key operator value" (如 "volume_ratio > 2.0", "pct_chg < -5")
+                    parts = cond.strip().split()
+                    if len(parts) >= 3:
+                        key, op, val_str = parts[0], parts[1], parts[2]
+                        try:
+                            val = float(val_str)
+                            actual = market_data.get(key)
+                            if actual is None:
+                                matched = False
+                                break
+                            if op == ">" and not (actual > val):
+                                matched = False; break
+                            elif op == ">=" and not (actual >= val):
+                                matched = False; break
+                            elif op == "<" and not (actual < val):
+                                matched = False; break
+                            elif op == "<=" and not (actual <= val):
+                                matched = False; break
+                            elif op == "==" and not (abs(actual - val) < 1e-9):
+                                matched = False; break
+                        except (ValueError, TypeError):
+                            pass  # 无法解析的条件跳过
+            if not matched:
+                continue
             suggestions["matched_patterns"].append({
                 "name": pattern.name,
                 "success_rate": pattern.success_rate,
