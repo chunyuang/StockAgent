@@ -76,8 +76,8 @@ class RealTradingSignalGenerator:
             self.backtester._risk_config["take_profit_pct"] = self.config.get("take_profit_pct", GLOBAL_RISK["take_profit_pct"])
             self.backtester._risk_config["max_hold_days"] = self.config.get("max_hold_days", GLOBAL_RISK["max_hold_days"])
             self.backtester._risk_config["max_position_per_stock"] = self.config.get("max_position_per_stock", GLOBAL_RISK["max_position_per_stock"])
-            # 【V34:持仓保护】【V36:阈值从0.05→0.08在strategy_defaults中已修改,这里自动跟随】
-            self.backtester._risk_config["hold_protection_threshold"] = GLOBAL_RISK.get("hold_protection_threshold", 0.08)
+            # 【V34:持仓保护】【V37:阈值0.06,在strategy_defaults中已修改,这里自动跟随】
+            self.backtester._risk_config["hold_protection_threshold"] = GLOBAL_RISK.get("hold_protection_threshold", 0.06)
             self.backtester._risk_config["intraday_lock_min_high_rise"] = GLOBAL_RISK.get("intraday_lock_min_high_rise", 0.06)
             self.backtester._risk_config["intraday_lock_pullback_pct"] = GLOBAL_RISK.get("intraday_lock_pullback_pct", 0.025)
             self.backtester._risk_config["intraday_lock_min_profit"] = GLOBAL_RISK.get("intraday_lock_min_profit", 0.02)
@@ -260,8 +260,17 @@ class RealTradingSignalGenerator:
     async def _auction_filter(self, universe: List[str], trade_date: str) -> List[str]:
         """竞价阶段过滤
         
-        从MongoDB获取集合竞价数据，过滤掉不符合竞价特征的标的：
-        - 竞价涨幅必须在0.5%~7%之间（排除一字涨停和低开）
+        【V37修复:与回测引擎对齐,只排除极端竞价,不过度过滤】
+        回测竞价过滤阈值: 高开>7%/低开<-5% 排除,0.5%-7%范围过于严格会排除:
+        - 跌停翘板候选(竞价通常-5%~0%,低开反弹策略)
+        - 半路追涨部分低开冲高候选(竞价0%附近)
+        
+        实盘应与回测保持一致:
+        - 排除极端高开(>7%): 冲高回落概率极高
+        - 排除极端低开(<-5%): 风险过大
+        - 保留-5%~7%范围: 让后续策略筛选决定
+        
+        仍保留基本过滤:
         - 竞价成交量 > 0（排除无成交的）
         - 未匹配量 > 0（排除无买盘的）
         
@@ -297,12 +306,14 @@ class RealTradingSignalGenerator:
             if ts_code not in auction_map:
                 continue
             auction = auction_map[ts_code]
-            # 竞价过滤规则 - 使用get防止KeyError
+            # 【V37:与回测对齐,排除极端竞价(>7%/<-5%)】
+            # 旧: 0.5%~7% 过于严格,排除跌停翘板等低开策略候选
+            # 新: -5%~7% 与回测一致,具体策略由后续筛选决定
             auction_pct = auction.get("auction_pct_chg", 0)
             auction_vol = auction.get("auction_volume", 0)
             unmatched_vol = auction.get("unmatched_volume", 0)
-            if not (0.5 <= auction_pct <= 7):
-                continue
+            if auction_pct > 7 or auction_pct < -5:
+                continue  # 排除极端竞价
             if auction_vol <= 0:
                 continue
             if unmatched_vol <= 0:
