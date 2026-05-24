@@ -462,10 +462,34 @@ class RealTradingSignalGenerator:
         per_stock_value = total_value / min(len(signals), self.config["top_n"])
         
         for idx, stock in enumerate(signals, 1):
-            buy_price = stock["close"] * 1.01  # 预计买入价格（比收盘价高1%，应对高开）
+            # 【V38-fix:实盘买入价与回测STRATEGY_BUY_PRICE对齐】
+            # 旧: buy_price = close * 1.01 (统一1%溢价,不合理)
+            # 新: 根据策略使用不同的买入价预估
+            strategy_name = stock.get('strategy', '')
+            open_p = stock.get('open', stock['close'])  # 无open时用close
+            high_p = stock.get('high', stock['close'])
+            low_p = stock.get('low', stock['close'])
+            pre_close = stock.get('pre_close', stock['close'])
+            
+            from nodes.backtest_engine.factor_selection.sell_signal_checker import get_buy_price_for_strategy, STRATEGY_BUY_PRICE
+            _calc = STRATEGY_BUY_PRICE.get(strategy_name)
+            if _calc and _calc.__name__ != 'calc_buy_price_first_limit_up':
+                # 非打板策略: 用回测引擎的买入价公式
+                buy_price = _calc(stock['ts_code'], open_p, stock['close'], high_p, low_p, pre_close, {})
+                if buy_price <= 0:
+                    buy_price = stock['close'] * 1.01  # fallback
+            else:
+                # 打板策略或其他: 用收盘价+1%预估
+                buy_price = stock['close'] * 1.01
             buy_shares = int(per_stock_value / buy_price / 100) * 100
-            stop_loss_pct = self.config["stop_loss_pct"] * sentiment_info.get("stop_loss_adjust", 1.0)
-            take_profit_pct = self.config["take_profit_pct"] * sentiment_info.get("take_profit_adjust", 1.0)
+            # 【V38-fix:止损止盈从策略级参数读取,与回测对齐】
+            # 旧: 统一用全局stop_loss/take_profit
+            # 新: 不同策略有不同的止损止盈(首板4%/10%, 其他4%/12%等)
+            _NAME_TO_ID = {cfg["name"]: sid for sid, cfg in STRATEGY_CONFIGS.items()}
+            _sid = _NAME_TO_ID.get(strategy_name, "")
+            _srisk = STRATEGY_CONFIGS.get(_sid, {}).get("riskParams", {})
+            stop_loss_pct = _srisk.get("stop_loss_pct", self.config["stop_loss_pct"]) * sentiment_info.get("stop_loss_adjust", 1.0)
+            take_profit_pct = _srisk.get("take_profit_pct", self.config["take_profit_pct"]) * sentiment_info.get("take_profit_adjust", 1.0)
             stop_loss_price = buy_price * (1 - stop_loss_pct)
             take_profit_price = buy_price * (1 + take_profit_pct)
             
