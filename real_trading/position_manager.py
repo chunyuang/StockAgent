@@ -369,7 +369,7 @@ class PositionManager:
             daily_data = await mongo_manager.find_many(
                 "stock_daily_ak_full",
                 {"ts_code": {"$in": ts_codes}, "trade_date": int(current_date)},
-                projection={"ts_code": 1, "close": 1, "pct_chg": 1, "high": 1, "low": 1}
+                projection={"ts_code": 1, "close": 1, "pct_chg": 1, "high": 1, "low": 1, "open": 1, "pre_close": 1}
             )
             if daily_data:
                 price_map = {x.get("ts_code", ""): x for x in daily_data if x.get("ts_code")}
@@ -398,6 +398,7 @@ class PositionManager:
                 continue
             high = daily.get("high", current_price) if isinstance(daily, dict) else current_price
             low = daily.get("low", current_price) if isinstance(daily, dict) else current_price
+            open_p = daily.get("open", current_price) if isinstance(daily, dict) else current_price
             pct_chg = daily.get("pct_chg", 0) if isinstance(daily, dict) else 0
             
             alert = {
@@ -430,6 +431,30 @@ class PositionManager:
             elif current_price >= pos.take_profit_price * 0.95:
                 alert["alerts"].append(f"🟡 接近止盈：当前价{current_price:.2f} 接近止盈价{pos.take_profit_price:.2f}，注意落袋为安")
                 alert["level"] = "warning"
+            
+            # 【V48:回测-实盘对齐 - 新增冲高回落/利润保护/利润锁定检查】
+            # 之前实盘只有止损/止盈/超期,缺少回测中的3个保护性卖出信号
+            # 这些信号在回测中占比40%(冲高回落28+利润保护12=40笔),实盘不检查会严重偏离
+            _cost = pos.buy_price
+            if _cost > 0 and open_p > 0:
+                open_rise = (open_p / _cost - 1)
+                close_rise = (current_price / _cost - 1)
+                
+                # 冲高回落: 高开≥3%且高开低收→以open价卖出
+                if open_rise >= 0.03 and current_price < open_p:
+                    alert["alerts"].append(f"🔴 冲高回落：开盘涨{open_rise*100:.1f}%但收盘回落，建议以开盘价{open_p:.2f}卖出")
+                    alert["level"] = "danger"
+                # 利润保护: 高开≥2%+收盘涨≥2%+高开低收→以close价卖出
+                elif close_rise >= 0.02 and open_rise >= 0.02 and current_price < open_p:
+                    alert["alerts"].append(f"🟡 利润保护：收盘涨{close_rise*100:.1f}%但冲高回落，建议止盈")
+                    alert["level"] = "success"
+                # 利润锁定: 盘中冲高≥5%但回撤≥2%且收盘仍≥2%利润
+                elif high > 0 and current_price < high:
+                    high_rise = (high / _cost - 1)
+                    intraday_pullback = (high - current_price) / high
+                    if high_rise >= 0.05 and intraday_pullback >= 0.02 and close_rise >= 0.02:
+                        alert["alerts"].append(f"🟡 利润锁定：盘中涨{high_rise*100:.1f}%但回撤{intraday_pullback*100:.1f}%，建议锁定利润")
+                        alert["level"] = "success"
             
             if alert["alerts"]:
                 alerts.append(alert)
