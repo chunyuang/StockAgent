@@ -422,19 +422,19 @@ watch(() => props.visible, (v) => { if (v && !status.value) fetchData() })
 
 /* 同步进度 */
 .sync-progress { margin-top: 12px; padding: 10px 14px; border-radius: 6px; }
-.sync-ok { background: #f0f9eb; border: 1px solid #e1f3d8; }
-.sync-fail { background: #fef0f0; border: 1px solid #fde2e2; }
+.sync-ok { background: var(--success-bg); border: 1px solid var(--success-bg); }
+.sync-fail { background: var(--error-bg); border: 1px solid var(--error-bg); }
 .sync-running { color: var(--primary-500); font-size: 13px; font-weight: 600; }
 .sync-detail { font-size: 12px; color: var(--text-secondary); display: flex; flex-direction: column; gap: 4px; }
 .sync-msg { color: #f56c6c; font-weight: 600; }
 .sync-steps { display: flex; gap: 12px; margin-top: 4px; }
 .sync-step { font-size: 12px; padding: 2px 8px; border-radius: 4px; }
-.step-ok { background: #f0f9eb; color: #67c23a; }
-.step-fail { background: #fef0f0; color: #f56c6c; }
+.step-ok { background: var(--success-bg); color: var(--success); }
+.step-fail { background: var(--error-bg); color: var(--error); }
 .strategy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr)); gap: 10px; }
 .strategy-card { padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border-default); }
-.st-ok { border-color: #b3e19d; background: #f0f9eb; }
-.st-blocked { border-color: #e6a23c; background: #fdf6ec; }
+.st-ok { border-color: var(--success); background: var(--success-bg); }
+.st-blocked { border-color: var(--warning); background: var(--warning-bg); }
 .st-header { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
 .st-icon { font-size: 16px; }
 .st-name { font-weight: 700; font-size: 14px; flex: 1; }

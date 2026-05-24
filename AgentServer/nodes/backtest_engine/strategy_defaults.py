@@ -25,8 +25,8 @@ GLOBAL_RISK = {
     "force_empty_limit_down": 80,   # 跌停≥80只触发强制空仓
     "force_empty_limit_up": 10,     # 涨停≤10只触发强制空仓
     "force_empty_index_drop_pct": 0.03,  # 大盘跌幅≥3%触发强制空仓
-    "intraday_lock_min_high_rise": 0.06,  # 盘中利润锁定:冲高≥6%
-    "intraday_lock_pullback_pct": 0.025,  # 盘中利润锁定:从高点回撤≥2.5%
+    "intraday_lock_min_high_rise": 0.05,  # 盘中利润锁定:冲高≥5%(V47:从6%→5%,捕获更多中等冲高回落场景,此前0触发)
+    "intraday_lock_pullback_pct": 0.02,    # 盘中利润锁定:从高点回撤≥2%(V47:从2.5%→2%,更早锁住利润,此前0触发)
     "intraday_lock_min_profit": 0.02,     # 盘中利润锁定:收盘仍≥2%利润
     "hold_protection_threshold": 0.05,     # 【V38:恢复V35值5%】单策略测试5%=6%无差异,但多策略时5%保护5-6%盈利股不被调仓卖出(半路追涨胜率68%→62%差距主因)
     "live_trading_mode": False,     # 【V29:实盘模式开关】True时pct_chg等T日因子降级为_prev
@@ -129,7 +129,7 @@ STRATEGY_CONFIGS = {
         "riskParams": {
             "stop_loss_pct": 0.03,          # 止损3%(V45:从4%→3%,龙头低吸是缩量回调买入,止损应最紧,3月验证+4.11%收益/夏普+0.28/回撤-0.20%/盈亏比+0.39)
             "take_profit_pct": 0.30,          # 止盈30%(V38:从15%→30%,回测验证+15.68%收益/夏普+0.05,仅1笔触发30%止盈,其余由冲高回落/利润保护在更高价位退出,30%作为极端行情安全网)
-            "max_hold_days": 5,             # 最大持仓5天(V45:从4→5,给龙头更多时间反弹,3月验证+4.11%收益)
+            "max_hold_days": 7,             # 最大持仓7天(V47:从5→7,龙头低吸捕捉大趋势,51.69%和33.55%的超时退出说明5天太短截断大牛)
             "slippage_pct": 0.002,          # 滑点0.2%
         }
     },
