@@ -117,6 +117,7 @@ class SimulatedBroker:
         self.orders: List[Order] = []
         self._realtime_prices: Dict[str, float] = {}
         self._limit_prices: Dict[str, Dict] = {}  # ts_code → {upper, lower}
+        self._stock_names: Dict[str, str] = {}  # ts_code → stock_name (ST判断用)
         self._suspended: set = set()  # 停牌股
         self._mongo_db = None  # MongoDB句柄(懒初始化)
         self._pending_save = False  # 标记有待保存的状态
@@ -330,8 +331,10 @@ class SimulatedBroker:
         else:
             ratio = 0.10
 
-        # ST股: ±5% (从stock_name判断)
-        # TODO: 后续传入is_st标志
+        # ST股: ±5% (从持仓stock_name或实时行情判断)
+        stock_name = self._stock_names.get(ts_code, '')
+        if 'ST' in stock_name or '*ST' in stock_name:
+            ratio = 0.05
 
         upper = round(pre_close * (1 + ratio), 2)
         lower = round(pre_close * (1 - ratio), 2)
@@ -400,6 +403,13 @@ class SimulatedBroker:
         Args:
             ts_code: 股票代码
             stock_name: 股票名称
+        """
+        # 记录stock_name用于ST判断
+        if stock_name:
+            self._stock_names[ts_code] = stock_name
+
+        """
+        Args:
             side: buy/sell
             quantity: 委托数量(股)
             price: 委托价格(市价单=0)
