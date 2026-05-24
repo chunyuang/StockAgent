@@ -30,7 +30,7 @@ const strategies: StrategyFactor[] = [
     id: 'halfway_chase',
     name: '半路追涨',
     emoji: '🚀',
-    color: '#409eff',
+    color: 'var(--el-color-primary)',
     desc: '盘中上涨3%~7%时追入，次日冲高卖出。核心逻辑：强势股盘中启动→趋势延续→短线获利。',
     entrySignal: '盘中涨幅3%~7% + 量能放大 + MA60上方',
     entryFactors: [
@@ -54,7 +54,7 @@ const strategies: StrategyFactor[] = [
     id: 'first_limit_up',
     name: '首板打板',
     emoji: '🎯',
-    color: '#f56c6c',
+    color: 'var(--stock-up)',
     desc: '首次涨停封板时买入，赌次日继续涨。核心逻辑：首板封板=最强多头信号→次日溢价。',
     entrySignal: '首次涨停(非连板) + 竞价达标 + 流动性足够',
     entryFactors: [
@@ -79,7 +79,7 @@ const strategies: StrategyFactor[] = [
     id: 'dragon_head',
     name: '龙头低吸',
     emoji: '🐉',
-    color: '#e6a23c',
+    color: 'var(--el-color-warning)',
     desc: '前期龙头回调5%~35%后低吸，赌反弹。核心逻辑：龙头回调≠转势→恐慌消化→反弹修复。',
     entrySignal: '5日涨停≥1次 + 回调5%~35% + 回调1~7天 + 量比0.5~2.0',
     entryFactors: [
@@ -104,7 +104,7 @@ const strategies: StrategyFactor[] = [
     id: 'limit_down_qiao',
     name: '跌停翘板',
     emoji: '🔨',
-    color: '#909399',
+    color: 'var(--text-tertiary)',
     desc: '昨日跌停+今日翘板(低开高走)买入，赌超跌反弹。核心逻辑：恐慌过度→翘板资金介入→反弹修复。',
     entrySignal: '昨日跌停 + 今日低开后翻红 + 翘板量能 + 流通市值≥20亿',
     entryFactors: [
@@ -233,7 +233,7 @@ function toggleStrategy(id: string) {
 .strategy-factor-panel { padding: 0; }
 
 .section-title {
-  font-size: 16px; font-weight: 700; color: #303133; margin-bottom: 12px;
+  font-size: 16px; font-weight: 700; color: var(--text-primary); margin-bottom: 12px;
   padding-bottom: 8px; border-bottom: 2px solid var(--primary-500);
 }
 
@@ -258,7 +258,7 @@ function toggleStrategy(id: string) {
   border-radius: 3px; font-family: 'SF Mono', monospace;
 }
 .flow-when { font-size: 11px; color: var(--text-secondary); margin-top: 3px; line-height: 1.5; background: var(--bg-elevated); padding: 3px 8px; border-radius: 4px; }
-.flow-arrow { color: #c0c4cc; font-size: 18px; align-self: center; }
+.flow-arrow { color: var(--text-quaternary, var(--text-muted)); font-size: 18px; align-self: center; }
 
 // 策略卡片
 .strategy-cards { display: flex; flex-direction: column; gap: 8px; }
@@ -270,7 +270,7 @@ function toggleStrategy(id: string) {
   display: flex; align-items: center; gap: 8px; padding: 12px 16px;
   cursor: pointer; border-left: 4px solid; background: var(--bg-elevated);
   flex-wrap: wrap; min-width: 0;
-  &:hover { background: #f0f2f5; }
+  &:hover { background: var(--bg-muted); }
 }
 .s-emoji { font-size: 20px; }
 .s-name { font-weight: 700; font-size: 16px; }
@@ -281,7 +281,7 @@ function toggleStrategy(id: string) {
 .s-desc-full { font-size: 13px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 16px; padding: 8px 12px; background: var(--bg-muted); border-radius: 6px; }
 
 .s-section { margin-bottom: 14px; }
-.s-section-title { font-weight: 600; font-size: 13px; color: #303133; margin-bottom: 8px; }
+.s-section-title { font-weight: 600; font-size: 13px; color: var(--text-primary); margin-bottom: 8px; }
 .s-sub { font-size: 12px; color: var(--text-secondary); }
 
 .factor-table {
@@ -292,14 +292,14 @@ function toggleStrategy(id: string) {
 .ft-row { display: flex; border-top: 1px solid var(--border-default); &:hover { background: var(--bg-elevated); } }
 .ft-col { padding: 6px 10px; font-size: 12px; }
 .ft-name-col { flex: 0 0 min(170px, 30%); font-family: 'SF Mono', monospace; color: var(--primary-500); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ft-label-col { flex: 0 0 min(110px, 20%); color: #303133; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ft-cond-col { flex: 1 1 auto; color: #e6a23c; font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ft-label-col { flex: 0 0 min(110px, 20%); color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ft-cond-col { flex: 1 1 auto; color: var(--el-color-warning); font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ft-src-col { flex: 0 0 min(120px, 18%); color: var(--text-tertiary); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .risk-tags { display: flex; gap: 6px; flex-wrap: wrap; }
 .risk-tag {
-  font-size: 11px; background: #fef0f0; color: #f56c6c; padding: 2px 8px;
-  border-radius: 4px; border: 1px solid #fde2e2;
+  font-size: 11px; background: var(--stock-up-bg); color: var(--stock-up); padding: 2px 8px;
+  border-radius: 4px; border: 1px solid var(--stock-up-bg);
 }
 
 .flow-steps { display: flex; flex-direction: column; gap: 6px; }

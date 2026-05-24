@@ -177,3 +177,47 @@ class StrategyFilter:
         if isinstance(strategies, list) and strategies:
             return strategies[0] if len(strategies) == 1 else strategies[0]
         return ""
+
+    def filter(self, factor_df, strategy_configs: dict) -> dict:
+        """对因子DataFrame按多策略筛选,返回 {策略名: [ts_code列表]}
+        
+        Args:
+            factor_df: 因子DataFrame,必须包含ts_code列
+            strategy_configs: {策略名: [条件列表]}, 每个条件是 {name, target, operator, label}
+        
+        Returns:
+            {策略名: [ts_code列表]}
+        """
+        import pandas as pd
+        results = {}
+        if factor_df is None or len(factor_df) == 0:
+            return results
+        for sname, conditions in strategy_configs.items():
+            if not conditions:
+                continue
+            mask = pd.Series([True] * len(factor_df), index=factor_df.index)
+            for cond in conditions:
+                col = cond.get('name', '')
+                target = cond.get('target', 0)
+                operator = cond.get('operator', '==')
+                if col not in factor_df.columns:
+                    mask[:] = False
+                    break
+                col_vals = factor_df[col]
+                if operator == '>=':
+                    mask &= (col_vals >= target)
+                elif operator == '<=':
+                    mask &= (col_vals <= target)
+                elif operator == '>':
+                    mask &= (col_vals > target)
+                elif operator == '<':
+                    mask &= (col_vals < target)
+                elif operator == '==':
+                    mask &= (col_vals == target)
+                elif operator == 'in':
+                    # target is a list
+                    if isinstance(target, (list, tuple, set)):
+                        mask &= col_vals.isin(target)
+            matched = factor_df[mask]['ts_code'].tolist() if mask.any() else []
+            results[sname] = matched
+        return results

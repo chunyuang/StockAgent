@@ -235,7 +235,7 @@ watch(() => props.visible, (v) => { if (v && !items.value.length) loadHistory() 
 
         <!-- 策略标签行 - 完整显示所有策略 -->
         <div class="bt-strategies">
-          <ElTag v-for="sid in (item.strategies || [])" :key="sid" size="small" effect="plain" :color="strategyTag(sid).color" style="color:#fff;border:none;font-weight:600">
+          <ElTag v-for="sid in (item.strategies || [])" :key="sid" size="small" effect="plain" :color="strategyTag(sid).color" style="color:var(--text-inverse);border:none;font-weight:600">
             {{ strategyTag(sid).name }}
           </ElTag>
           <span v-if="!item.strategies?.length" class="bt-no-strat">未指定策略</span>
@@ -311,7 +311,7 @@ watch(() => props.visible, (v) => { if (v && !items.value.length) loadHistory() 
             <td class="td-date">{{ formatDate(item.created_at) }}</td>
             <td class="td-mono">{{ item.start_date || '?' }} ~ {{ item.end_date || '?' }}</td>
             <td class="td-strategies">
-              <ElTag v-for="sid in (item.strategies || []).slice(0, 3)" :key="sid" size="small" effect="plain" :color="strategyTag(sid).color" style="color:#fff;border:none;font-weight:600;margin:1px 2px">
+              <ElTag v-for="sid in (item.strategies || []).slice(0, 3)" :key="sid" size="small" effect="plain" :color="strategyTag(sid).color" style="color:var(--text-inverse);border:none;font-weight:600;margin:1px 2px">
                 {{ strategyTag(sid).name }}
               </ElTag>
               <span v-if="(item.strategies?.length ?? 0) > 3" class="more-tag">+{{ (item.strategies?.length ?? 0) - 3 }}</span>
@@ -407,8 +407,8 @@ export default { name: 'BacktestHistoryPanel' }
   padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border-default); background: var(--bg-elevated);
   transition: all 0.2s; cursor: pointer;
   &:hover { box-shadow: var(--shadow-md); border-color: var(--border-hover); }
-  &.bt-selected { border-color: var(--primary-500); background: var(--bg-active); box-shadow: 0 0 0 1px #409eff; }
-  &.bt-failed { border-left: 3px solid #f56c6c; }
+  &.bt-selected { border-color: var(--primary-500); background: var(--bg-active); box-shadow: 0 0 0 1px var(--el-color-primary); }
+  &.bt-failed { border-left: 3px solid var(--error); }
 }
 
 /* 卡片顶行 */
@@ -436,7 +436,7 @@ export default { name: 'BacktestHistoryPanel' }
 .mini-bar-fill { height: 100%; border-radius: 2px; transition: width 0.3s ease; }
 
 /* 操作 */
-.bt-actions { display: flex; gap: 4px; flex-wrap: wrap; padding-top: 6px; border-top: 1px solid #f2f3f5; }
+.bt-actions { display: flex; gap: 4px; flex-wrap: wrap; padding-top: 6px; border-top: 1px solid var(--border-light); }
 
 /* ===== 表格视图 ===== */
 .table-view { overflow-x: auto; padding: 0; }
@@ -464,6 +464,6 @@ export default { name: 'BacktestHistoryPanel' }
   th { background: var(--bg-elevated); font-weight: 600; }
   .cmp-label { text-align: left; font-weight: 600; color: var(--text-secondary); background: var(--bg-elevated); }
   .best-val { font-weight: 700; }
-  .best-val::after { content: ' ★'; color: #e6a23c; font-size: 11px; }
+  .best-val::after { content: ' ★'; color: var(--warning); font-size: 11px; }
 }
 </style>

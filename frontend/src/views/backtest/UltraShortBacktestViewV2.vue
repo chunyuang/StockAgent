@@ -641,20 +641,20 @@ const sweepChartOption = computed(() => {
       {
         name: '收益率(%)', type: 'line',
         data: r.results.map((item: any) => +(item.total_return).toFixed(2)),
-        lineStyle: { color: '#67c23a', width: 2 },
-        itemStyle: { color: '#67c23a' },
+        lineStyle: { color: 'var(--stock-down)', width: 2 },
+        itemStyle: { color: 'var(--stock-down)' },
       },
       {
         name: '胜率(%)', type: 'line',
         data: r.results.map((item: any) => +(item.win_rate).toFixed(1)),
-        lineStyle: { color: '#409eff', width: 2 },
-        itemStyle: { color: '#409eff' },
+        lineStyle: { color: 'var(--el-color-primary)', width: 2 },
+        itemStyle: { color: 'var(--el-color-primary)' },
       },
       {
         name: '最大回撤(%)', type: 'line', yAxisIndex: 1,
         data: r.results.map((item: any) => +(item.max_drawdown).toFixed(2)),
-        lineStyle: { color: '#f56c6c', width: 2, type: 'dashed' },
-        itemStyle: { color: '#f56c6c' },
+        lineStyle: { color: 'var(--stock-up)', width: 2, type: 'dashed' },
+        itemStyle: { color: 'var(--stock-up)' },
       },
     ],
   }
@@ -779,13 +779,13 @@ function onViewLogs(taskId: string) {
               <template #default="{ row }">{{ currentSweepParam ? (row.value * currentSweepParam.factor).toFixed(2) + currentSweepParam.unit : row.value }}</template>
             </ElTableColumn>
             <ElTableColumn label="收益率" width="100">
-              <template #default="{ row }"><span :style="{ color: row.total_return >= 0 ? '#67c23a' : '#f56c6c' }">{{ row.total_return?.toFixed(2) }}%</span></template>
+              <template #default="{ row }"><span :style="{ color: row.total_return >= 0 ? 'var(--stock-down)' : 'var(--stock-up)' }">{{ row.total_return?.toFixed(2) }}%</span></template>
             </ElTableColumn>
             <ElTableColumn label="胜率" width="80">
               <template #default="{ row }">{{ row.win_rate?.toFixed(1) }}%</template>
             </ElTableColumn>
             <ElTableColumn label="最大回撤" width="100">
-              <template #default="{ row }"><span style="color: #f56c6c">{{ row.max_drawdown?.toFixed(2) }}%</span></template>
+              <template #default="{ row }"><span style="color: var(--stock-up)">{{ row.max_drawdown?.toFixed(2) }}%</span></template>
             </ElTableColumn>
             <ElTableColumn label="夏普" width="80">
               <template #default="{ row }">{{ row.sharpe_ratio?.toFixed(2) }}</template>
@@ -954,12 +954,12 @@ function onViewLogs(taskId: string) {
 }
 .running-status {
   padding: 10px 20px;
-  background: linear-gradient(135deg, #e6f7ff 0%, #bae7ff 100%);
+  background: linear-gradient(135deg, var(--info-bg) 0%, rgba(91,156,245,0.15) 100%);
   border-radius: 8px;
   margin-bottom: 12px;
   font-size: 14px;
   font-weight: 600;
-  color: #1890ff;
+  color: var(--el-color-primary);
   animation: pulse 2s infinite;
   display: flex;
   align-items: center;
@@ -971,11 +971,11 @@ function onViewLogs(taskId: string) {
 }
 .execution-time {
   padding: 8px 20px;
-  background: #f0f9eb;
+  background: var(--stock-down-bg);
   border-radius: 8px;
   margin-bottom: 12px;
   font-size: 13px;
-  color: #67c23a;
+  color: var(--stock-down);
   display: flex;
   align-items: center;
   gap: 8px;
