@@ -75,7 +75,6 @@ class SimTradingEngine:
             
             # 获取最新价格
             if not price:
-                # TODO: 从行情接口获取最新价格
                 price = await self._get_latest_price(ts_code)
                 if not price:
                     return False, "无法获取最新价格", {}
