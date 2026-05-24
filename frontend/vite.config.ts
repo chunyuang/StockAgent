@@ -40,12 +40,12 @@ export default defineConfig({
     proxy: {
       // API 代理
       '/api': {
-        target: 'http://localhost:8000',
+        target: 'http://localhost:8765',
         changeOrigin: true,
       },
       // WebSocket 代理
       '/ws': {
-        target: 'ws://localhost:8000',
+        target: 'ws://localhost:8765',
         ws: true,
         changeOrigin: true,
       },
