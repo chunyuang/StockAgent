@@ -509,18 +509,21 @@ class PreBuyRiskChecker:
         profit_pct = (sell_price - buy_price) / buy_price if buy_price > 0 else 0
         details["profit_pct"] = profit_pct
         
-        # 止损触发：亏损超过5%应果断止损
-        if profit_pct < -0.05:
+        # 止损触发：从strategy_defaults读取策略级止损线
+        from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+        sl_pct = GLOBAL_RISK["stop_loss_pct"]  # 全局默认3%,策略级覆盖由position_manager处理
+        if profit_pct < -sl_pct:
             return RiskCheckResult(
                 allowed=True,
-                reason=f"止损卖出：{ts_code}亏损{profit_pct*100:.2f}%，超过5%止损线，建议立即卖出",
+                reason=f"止损卖出：{ts_code}亏损{profit_pct*100:.2f}%，超过{sl_pct*100:.0f}%止损线，建议立即卖出",
                 risk_level="high",
                 details=details,
                 timestamp=timestamp
             )
         
         # 止盈提醒
-        if profit_pct > 0.10:
+        tp_pct = GLOBAL_RISK["take_profit_pct"]  # 全局默认7%
+        if profit_pct > tp_pct:
             details["take_profit_hint"] = True
         
         # 正常卖出
