@@ -505,13 +505,10 @@ function formatAmount(val?: number): string {
 </template>
 
 <style lang="scss" scoped>
-// ==================== 专业金融配色 ====================
+// ==================== 专业金融配色 (使用CSS变量，支持暗色模式) ====================
 
-$color-up: #f23645;
-$color-down: #089981;
-$color-flat: #64748b;
-$color-primary: #3b82f6;
-$color-ai: linear-gradient(135deg, #8b5cf6, #6366f1);
+// 注意: 涨跌色和主色通过CSS变量引用，自动跟随主题
+// AI分析按钮渐变色保留硬编码(品牌色)
 
 // ==================== 页面布局 ====================
 
@@ -573,8 +570,8 @@ $color-ai: linear-gradient(135deg, #8b5cf6, #6366f1);
   svg { width: 18px; height: 18px; }
   
   &:hover {
-    color: $color-primary;
-    border-color: $color-primary;
+    color: var(--el-color-primary);
+    border-color: var(--el-color-primary);
   }
 }
 
@@ -595,17 +592,17 @@ $color-ai: linear-gradient(135deg, #8b5cf6, #6366f1);
   svg { width: 16px; height: 16px; }
   
   &:hover {
-    background: rgba(#f59e0b, 0.1);
-    border-color: #f59e0b;
-    color: #f59e0b;
+    background: var(--warning-bg);
+    border-color: var(--warning);
+    color: var(--warning);
   }
   
   &.is-active {
-    background: rgba(#f59e0b, 0.1);
-    border-color: #f59e0b;
-    color: #f59e0b;
+    background: var(--warning-bg);
+    border-color: var(--warning);
+    color: var(--warning);
     
-    svg { color: #f59e0b; }
+    svg { color: var(--warning); }
   }
 }
 
@@ -615,10 +612,10 @@ $color-ai: linear-gradient(135deg, #8b5cf6, #6366f1);
   align-items: center;
   gap: 8px;
   padding: 10px 22px;
-  background: $color-ai;
+  background: linear-gradient(135deg, #8b5cf6, #6366f1);
   border: none;
   border-radius: 10px;
-  color: #fff;
+  color: var(--text-inverse);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
@@ -659,7 +656,7 @@ $color-ai: linear-gradient(135deg, #8b5cf6, #6366f1);
   border: 1px solid var(--border-light);
   padding: 24px 28px;
   margin-bottom: 20px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--shadow-card);
 }
 
 .header-top {
@@ -711,8 +708,8 @@ $color-ai: linear-gradient(135deg, #8b5cf6, #6366f1);
   border-radius: 6px;
   
   &.tag-industry {
-    background: rgba($color-primary, 0.1);
-    color: $color-primary;
+    background: var(--info-bg);
+    color: var(--el-color-primary);
   }
   
   &.tag-area {
@@ -731,20 +728,20 @@ $color-ai: linear-gradient(135deg, #8b5cf6, #6366f1);
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
-  background: rgba($color-primary, 0.1);
-  border: 1px solid rgba($color-primary, 0.2);
-  color: $color-primary;
+  background: var(--info-bg);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  color: var(--el-color-primary);
   
   svg { width: 14px; height: 14px; }
   
   &:hover:not(:disabled) {
-    background: rgba($color-primary, 0.15);
+    background: var(--bg-active);
   }
   
   &.subscribed {
-    background: rgba($color-down, 0.1);
-    border-color: rgba($color-down, 0.2);
-    color: $color-down;
+    background: var(--stock-down-bg);
+    border-color: rgba(8, 153, 129, 0.2);
+    color: var(--stock-down);
     cursor: default;
   }
 }
@@ -754,13 +751,13 @@ $color-ai: linear-gradient(135deg, #8b5cf6, #6366f1);
   text-align: right;
   
   &.price-up {
-    .price-value, .change-value, .change-icon { color: $color-up; }
+    .price-value, .change-value, .change-icon { color: var(--stock-up); }
   }
   &.price-down {
-    .price-value, .change-value, .change-icon { color: $color-down; }
+    .price-value, .change-value, .change-icon { color: var(--stock-down); }
   }
   &.price-flat {
-    .price-value, .change-value { color: $color-flat; }
+    .price-value, .change-value { color: var(--stock-flat); }
   }
 }
 
@@ -819,8 +816,8 @@ $color-ai: linear-gradient(135deg, #8b5cf6, #6366f1);
     font-family: var(--font-mono);
     color: var(--text-primary);
     
-    &.price-up { color: $color-up; }
-    &.price-down { color: $color-down; }
+    &.price-up { color: var(--stock-up); }
+    &.price-down { color: var(--stock-down); }
   }
 }
 
@@ -838,7 +835,7 @@ $color-ai: linear-gradient(135deg, #8b5cf6, #6366f1);
   border: 1px solid var(--border-light);
   overflow: hidden;
   margin-bottom: 20px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--shadow-card);
 }
 
 .chart-header {
@@ -891,8 +888,8 @@ $color-ai: linear-gradient(135deg, #8b5cf6, #6366f1);
   }
   
   &.active {
-    background: $color-primary;
-    color: #fff;
+    background: var(--el-color-primary);
+    color: var(--text-inverse);
   }
 }
 
@@ -959,7 +956,7 @@ $color-ai: linear-gradient(135deg, #8b5cf6, #6366f1);
   
   &:hover {
     transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+    box-shadow: var(--shadow-lg);
     border-color: var(--border-color);
   }
 }
@@ -976,18 +973,18 @@ $color-ai: linear-gradient(135deg, #8b5cf6, #6366f1);
   svg { width: 24px; height: 24px; }
   
   &.history {
-    background: linear-gradient(135deg, rgba(#8b5cf6, 0.15), rgba(#6366f1, 0.1));
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(99, 102, 241, 0.1));
     color: #8b5cf6;
   }
   
   &.news {
-    background: linear-gradient(135deg, rgba(#f59e0b, 0.15), rgba(#f97316, 0.1));
-    color: #f59e0b;
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(249, 115, 22, 0.1));
+    color: var(--warning);
   }
   
   &.finance {
-    background: linear-gradient(135deg, rgba($color-down, 0.15), rgba(#10b981, 0.1));
-    color: $color-down;
+    background: linear-gradient(135deg, rgba(8, 153, 129, 0.15), rgba(16, 185, 129, 0.1));
+    color: var(--stock-down);
   }
 }
 
@@ -1130,17 +1127,17 @@ $color-ai: linear-gradient(135deg, #8b5cf6, #6366f1);
 
 .btn-confirm {
   padding: 10px 24px;
-  background: $color-primary;
+  background: var(--el-color-primary);
   border: none;
   border-radius: 10px;
   font-size: 14px;
   font-weight: 500;
-  color: #fff;
+  color: var(--text-inverse);
   cursor: pointer;
   transition: all 0.2s;
   
   &:hover:not(:disabled) {
-    background: #2563eb;
+    background: var(--primary-600);
   }
   
   &:disabled {
