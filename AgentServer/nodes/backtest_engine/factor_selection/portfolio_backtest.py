@@ -3904,9 +3904,6 @@ class PortfolioBacktester:
         for code, (best_price, best_reason) in _sell_code_details.items():
             if best_reason != '调仓卖出' and code in sell_codes:
                 pos_mgr.mark_sold(code, best_reason)
-                # 同时记录best_price供卖出循环使用
-                self._sell_code_best_price = getattr(self, '_sell_code_best_price', {})
-                self._sell_code_best_price[code] = best_price
 
         # 【P0-4修复:调仓日止损检查 - 即使股票仍在目标池中,如果触发止损也要卖出】
         # 之前bug: 止损只对"不在目标池"的股票生效,导致16笔交易亏损>3%止损线却未触发
