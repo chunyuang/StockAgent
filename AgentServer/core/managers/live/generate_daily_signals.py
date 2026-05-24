@@ -77,6 +77,15 @@ class RealTradingSignalGenerator:
             "top_n": 5,  # 最多选5只
         }
         self.config = {**self.default_config, **(config or {})}
+        # 【V47:加载策略级风控参数,与回测strategy_defaults对齐】
+        self._strategy_risk_params = {}
+        for sid, sconf in STRATEGY_CONFIGS.items():
+            params = sconf.get("params", {})
+            self._strategy_risk_params[sid] = {
+                "stop_loss_pct": params.get("stop_loss_pct", self.config["stop_loss_pct"]),
+                "take_profit_pct": params.get("take_profit_pct", self.config["take_profit_pct"]),
+                "max_hold_days": params.get("max_hold_days", self.config["max_hold_days"]),
+            }
         # 只传递PortfolioBacktester接受的初始化参数
         self.backtester = PortfolioBacktester(
             source="ak",
@@ -445,16 +454,18 @@ class RealTradingSignalGenerator:
         for idx, stock in enumerate(signals, 1):
             buy_price = stock["close"] * 1.01  # 预计买入价格（比收盘价高1%，应对高开）
             buy_shares = int(per_stock_value / buy_price / 100) * 100
-            stop_loss_pct = self.config["stop_loss_pct"] * sentiment_info.get("stop_loss_adjust", 1.0)
-            take_profit_pct = self.config["take_profit_pct"] * sentiment_info.get("take_profit_adjust", 1.0)
+            # 【V47修复:用策略级参数,与回测/实盘对齐,移除情绪调整(回测无此参数)】
+            _srisk = self._strategy_risk_params.get(stock['strategy'], {})
+            stop_loss_pct = _srisk.get('stop_loss_pct', self.config['stop_loss_pct'])
+            take_profit_pct = _srisk.get('take_profit_pct', self.config['take_profit_pct'])
             stop_loss_price = buy_price * (1 - stop_loss_pct)
             take_profit_price = buy_price * (1 + take_profit_pct)
             
             plan.append(f"{idx}. **{stock['name']}({stock['ts_code']})**")
             plan.append(f"   策略：{stock['strategy']} | 行业：{stock['industry']}")
             plan.append(f"   建议买入价：≤{buy_price:.2f} | 仓位：{buy_shares}股（约{per_stock_value:.0f}元）")
-            plan.append(f"   止损价：{stop_loss_price:.2f}（跌幅{self.config['stop_loss_pct'] * sentiment_info['stop_loss_adjust'] * 100:.1f}%）")
-            plan.append(f"   止盈价：{take_profit_price:.2f}（涨幅{self.config['take_profit_pct'] * sentiment_info['take_profit_adjust'] * 100:.1f}%）")
+            plan.append(f"   止损价：{stop_loss_price:.2f}（跌幅{stop_loss_pct*100:.1f}%）")
+            plan.append(f"   止盈价：{take_profit_price:.2f}（涨幅{take_profit_pct*100:.1f}%）")
             if stock["has_lhb"]:
                 plan.append(f"   🎉 今日上榜龙虎榜，净买入{stock['lhb_net_buy']/10000:.1f}万，上榜原因：{stock['lhb_reason']}")
             plan.append("")

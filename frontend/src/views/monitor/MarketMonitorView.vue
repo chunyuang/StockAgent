@@ -4,7 +4,7 @@
  * 左: 策略控制+快捷操作 / 中: 信号+行情 / 右: 持仓+统计
  * 底: 时间线 / 顶: 状态栏
  */
-import { ref, computed, onMounted, onUnmounted, reactive } from 'vue'
+import { ref, computed, onMounted, onUnmounted, reactive, watch } from 'vue'
 import {
   ElCard, ElButton, ElTag, ElEmpty, ElTable, ElTableColumn,
   ElSwitch, ElInputNumber, ElSlider, ElDescriptions, ElDescriptionsItem,
@@ -22,7 +22,8 @@ interface StrategyConfig { id: string; name: string; enabled: boolean; params: R
 interface ParamDesc { key: string; label: string; value: any; displayValue: string; unit: string; min: number; max: number; step: number }
 interface GlobalRisk { stop_loss_pct: number; take_profit_pct: number; max_position_pct: number; max_positions: number }
 
-const loading = ref(false), autoRefresh = ref(true), darkMode = ref(false), soundEnabled = ref(false)
+const loading = ref(false), autoRefresh = ref(true), darkMode = ref(document.documentElement.classList.contains('dark')), soundEnabled = ref(false)
+watch(darkMode, (v) => { document.documentElement.classList.toggle('dark', v) })
 let refreshTimer: any = null
 let ws: WebSocket | null = null
 let wsReconnectTimer: any = null
@@ -352,7 +353,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <div class="sl">
           <div v-if="!positions.length" class="empty">暂无持仓</div>
           <div v-for="pos in sortedPositions" :key="pos.ts_code" class="pos-card">
-            <div class="pos-top"><ElTag size="small" :color="strategyMeta[pos.strategy]?.color || '#909399'" class="tag-solid" style="font-size:10px;min-width:48px;text-align:center">{{ pos.strategy_name || strategyCN(pos.strategy) }}</ElTag><span class="code">{{ pos.ts_code }}</span><span class="name">{{ pos.stock_name }}</span><span :class="pos.profit_pct >= 0 ? 'up' : 'down'" class="pct">{{ pos.profit_pct >= 0 ? '+' : '' }}{{ pos.profit_pct.toFixed(1) }}%</span><span class="mini-bar"><span class="mini-bar-fill" :style="{ width: Math.min(Math.abs(pos.profit_pct) / 10 * 100, 100) + '%', background: pos.profit_pct >= 0 ? '#67c23a' : '#f56c6c' }"></span></span><span v-if="pos.today_buy > 0" class="t1-tag">T+1</span><ElButton size="small" type="danger" plain @click="quickSell(pos)" :disabled="pos.available_qty <= 0" class="btn-xs ml-auto">卖出</ElButton><ElButton size="small" type="info" plain @click="openTradeDetail(pos.ts_code)" class="btn-xs">详情</ElButton></div>
+            <div class="pos-top"><ElTag size="small" :color="strategyMeta[pos.strategy]?.color || '#909399'" class="tag-solid" style="font-size:10px;min-width:48px;text-align:center">{{ pos.strategy_name || strategyCN(pos.strategy) }}</ElTag><span class="code">{{ pos.ts_code }}</span><span class="name">{{ pos.stock_name }}</span><span :class="pos.profit_pct >= 0 ? 'up' : 'down'" class="pct">{{ pos.profit_pct >= 0 ? '+' : '' }}{{ pos.profit_pct.toFixed(1) }}%</span><span class="mini-bar"><span class="mini-bar-fill" :style="{ width: Math.min(Math.abs(pos.profit_pct) / 10 * 100, 100) + '%' }" :class="pos.profit_pct >= 0 ? 'bar-up' : 'bar-down'"></span></span><span v-if="pos.today_buy > 0" class="t1-tag">T+1</span><ElButton size="small" type="danger" plain @click="quickSell(pos)" :disabled="pos.available_qty <= 0" class="btn-xs ml-auto">卖出</ElButton><ElButton size="small" type="info" plain @click="openTradeDetail(pos.ts_code)" class="btn-xs">详情</ElButton></div>
             <div class="pos-info"><span>{{ pos.shares }}股</span><span>成本{{ pos.cost_price.toFixed(2) }}</span><span>现价{{ pos.current_price.toFixed(2) }}</span><span v-if="pos.market_value" class="mv">市值{{ (pos.market_value / 10000).toFixed(1) }}万</span><span v-if="pos.profit_amount != null" :class="pos.profit_amount >= 0 ? 'up' : 'down'" class="pamt">{{ pos.profit_amount >= 0 ? '+' : '' }}¥{{ Math.abs(pos.profit_amount).toFixed(0) }}</span><span v-if="pos.stop_loss_pct != null" class="rl stop">止损{{ pos.stop_loss_pct.toFixed(1) }}% ¥{{ pos.stop_loss_price?.toFixed(2) || (pos.cost_price * (1 - pos.stop_loss_pct / 100)).toFixed(2) }}</span><span v-if="pos.take_profit_pct != null" class="rl profit">止盈{{ pos.take_profit_pct.toFixed(1) }}% ¥{{ pos.take_profit_price?.toFixed(2) || (pos.cost_price * (1 + (pos.take_profit_pct || 7.0) / 100)).toFixed(2) }}</span><span v-if="pos.stop_loss_pct != null" class="rd" :class="{ danger: pos.profit_pct + (pos.stop_loss_pct || 3) < 2 }">距止损{{ (pos.profit_pct + (pos.stop_loss_pct || 3)).toFixed(1) }}%</span></div>
           </div>
         </div>
@@ -371,7 +372,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         </div>
         <div class="tl-col" v-if="orders.length" style="flex:2">
           <div class="st">📋 历史订单 ({{ orders.length }})</div>
-          <div v-for="o in orders.slice(0, 20)" :key="o.order_id" class="tl-row cp" @click="openTradeDetail(o.ts_code)"><span class="tl-time">{{ o.trade_date?.slice(-4) || '' }} {{ o.create_time }}</span><span class="tl-action" :class="o.side === 'buy' ? 'buy' : 'sell'">{{ o.side === 'buy' ? '买' : '卖' }}</span><span class="code">{{ o.ts_code }}</span><span class="name">{{ o.stock_name }}</span><span class="tl-detail">{{ o.filled_qty }}股@{{ o.filled_price?.toFixed(2) || '0.00' }}</span><span style="font-size:11px;color:#909399">{{ strategyCN(o.strategy) }}</span></div>
+          <div v-for="o in orders.slice(0, 20)" :key="o.order_id" class="tl-row cp" @click="openTradeDetail(o.ts_code)"><span class="tl-time">{{ o.trade_date?.slice(-4) || '' }} {{ o.create_time }}</span><span class="tl-action" :class="o.side === 'buy' ? 'buy' : 'sell'">{{ o.side === 'buy' ? '买' : '卖' }}</span><span class="code">{{ o.ts_code }}</span><span class="name">{{ o.stock_name }}</span><span class="tl-detail">{{ o.filled_qty }}股@{{ o.filled_price?.toFixed(2) || '0.00' }}</span><span class="text-tertiary-sm">{{ strategyCN(o.strategy) }}</span></div>
         </div>
         <div class="tl-col" style="flex:2">
           <div class="st">🔥 涨跌停池 <div style="display:inline-flex;gap:2px;margin-left:6px"><ElTag size="small" :type="limitPoolTab==='limit_up'?'danger':'info'" class="cp" @click="limitPoolTab='limit_up'">涨停{{ limitPools.limit_up.length }}</ElTag><ElTag size="small" :type="limitPoolTab==='limit_down'?'warning':'info'" class="cp" @click="limitPoolTab='limit_down'">跌停{{ limitPools.limit_down.length }}</ElTag><ElTag size="small" :type="limitPoolTab==='broken'?'':'info'" class="cp" @click="limitPoolTab='broken'">炸板{{ limitPools.broken.length }}</ElTag></div></div>
@@ -380,7 +381,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         </div>
         <div class="tl-col" style="flex:1;max-height:none">
           <div class="st">📈 今日统计</div>
-          <div class="stats" v-if="status"><div class="si"><div class="sv">{{ status.stats.signals_found }}</div><div class="sl2">信号</div></div><div class="si"><div class="sv">{{ status.stats.trades_executed }}</div><div class="sl2">交易</div></div><div class="si"><div class="sv" style="color:#f56c6c">{{ status.stats.stop_losses }}</div><div class="sl2">止损</div></div><div class="si"><div class="sv" style="color:#67c23a">{{ status.stats.take_profits }}</div><div class="sl2">止盈</div></div></div>
+          <div class="stats" v-if="status"><div class="si"><div class="sv">{{ status.stats.signals_found }}</div><div class="sl2">信号</div></div><div class="si"><div class="sv">{{ status.stats.trades_executed }}</div><div class="sl2">交易</div></div><div class="si"><div class="sv text-stock-up">{{ status.stats.stop_losses }}</div><div class="sl2">止损</div></div><div class="si"><div class="sv text-stock-down">{{ status.stats.take_profits }}</div><div class="sl2">止盈</div></div></div>
         </div>
       </div>
     </div>
@@ -388,8 +389,8 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
     <!-- 策略编辑弹窗 -->
     <ElDialog v-model="editDialogVisible" :title="`编辑 ${editingStrategy?.name}`" width="560px" :close-on-click-modal="false">
       <ElTabs v-model="editTab">
-        <ElTabPane label="选股参数" name="params"><div v-for="p in editingStrategy?.paramDescriptions || []" :key="p.key" style="margin-bottom:12px"><div style="font-size:13px;margin-bottom:4px">{{ p.label }} <span style="color:#909399">({{ p.min }}~{{ p.max }}{{ p.unit }})</span></div><ElSlider v-model="editParams[p.key]" :min="p.min" :max="p.max" :step="p.step" show-input size="small" /></div></ElTabPane>
-        <ElTabPane label="风控参数" name="risk"><div v-for="p in editingStrategy?.riskDescriptions || []" :key="p.key" style="margin-bottom:12px"><div style="font-size:13px;margin-bottom:4px">{{ p.label }} <span style="color:#909399">({{ p.min }}~{{ p.max }}{{ p.unit }})</span></div><ElSlider v-model="editRiskParams[p.key]" :min="p.min" :max="p.max" :step="p.step" show-input size="small" /></div></ElTabPane>
+        <ElTabPane label="选股参数" name="params"><div v-for="p in editingStrategy?.paramDescriptions || []" :key="p.key" style="margin-bottom:12px"><div style="font-size:13px;margin-bottom:4px">{{ p.label }} <span class="text-tertiary">({{ p.min }}~{{ p.max }}{{ p.unit }})</span></div><ElSlider v-model="editParams[p.key]" :min="p.min" :max="p.max" :step="p.step" show-input size="small" /></div></ElTabPane>
+        <ElTabPane label="风控参数" name="risk"><div v-for="p in editingStrategy?.riskDescriptions || []" :key="p.key" style="margin-bottom:12px"><div style="font-size:13px;margin-bottom:4px">{{ p.label }} <span class="text-tertiary">({{ p.min }}~{{ p.max }}{{ p.unit }})</span></div><ElSlider v-model="editRiskParams[p.key]" :min="p.min" :max="p.max" :step="p.step" show-input size="small" /></div></ElTabPane>
       </ElTabs>
       <template #footer><ElButton @click="editDialogVisible = false">取消</ElButton><ElButton type="primary" :loading="saving" @click="saveStrategy">保存</ElButton></template>
     </ElDialog>
@@ -406,7 +407,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 
     <!-- 审查弹窗 -->
     <ElDialog v-model="tradeAuditVisible" title="🔍 全部交易审查" width="800px">
-      <div v-if="tradeAuditData.length" class="al"><div class="ah"><span>股票</span><span>策略</span><span>买入</span><span>卖出</span><span>盈亏</span><span>状态</span></div><div v-for="t in tradeAuditData" :key="t.ts_code" class="ar" @click="openTradeDetail(t.ts_code); tradeAuditVisible = false"><span class="code">{{ t.ts_code }}</span><span><ElTag size="small" type="info">{{ strategyCN(t.strategy) }}</ElTag></span><span>{{ t.buy_time }} {{ t.buy_price?.toFixed(2) }}</span><span>{{ t.sell_time || '-' }} {{ t.sell_price?.toFixed(2) || '-' }}</span><span :class="t.profit_pct !== null && t.profit_pct >= 0 ? 'up' : 'down'">{{ t.profit_pct !== null ? (t.profit_pct >= 0 ? '+' : '') + t.profit_pct.toFixed(2) + '%' : '-' }}</span><span style="font-size:11px;color:#909399">{{ t.status }}</span></div></div>
+      <div v-if="tradeAuditData.length" class="al"><div class="ah"><span>股票</span><span>策略</span><span>买入</span><span>卖出</span><span>盈亏</span><span>状态</span></div><div v-for="t in tradeAuditData" :key="t.ts_code" class="ar" @click="openTradeDetail(t.ts_code); tradeAuditVisible = false"><span class="code">{{ t.ts_code }}</span><span><ElTag size="small" type="info">{{ strategyCN(t.strategy) }}</ElTag></span><span>{{ t.buy_time }} {{ t.buy_price?.toFixed(2) }}</span><span>{{ t.sell_time || '-' }} {{ t.sell_price?.toFixed(2) || '-' }}</span><span :class="t.profit_pct !== null && t.profit_pct >= 0 ? 'up' : 'down'">{{ t.profit_pct !== null ? (t.profit_pct >= 0 ? '+' : '') + t.profit_pct.toFixed(2) + '%' : '-' }}</span><span class="text-tertiary-sm">{{ t.status }}</span></div></div>
       <div v-else class="empty">暂无交易记录</div>
     </ElDialog>
     <!-- 回测对比弹窗 -->
@@ -420,7 +421,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           <span :class="c.live_pnl >= 0 ? 'up' : 'down'">{{ c.live_pnl >= 0 ? '+' : '' }}{{ c.live_pnl.toFixed(0) }}</span>
           <span :class="c.bt_return >= 0 ? 'up' : 'down'">{{ c.bt_return }}%</span>
           <span>{{ c.bt_win_rate }}%</span>
-          <span style="color:#f56c6c">{{ c.bt_drawdown }}%</span>
+          <span class="text-stock-up">{{ c.bt_drawdown }}%</span>
           <span>{{ c.bt_sharpe }}</span>
         </div>
       </div>
@@ -501,7 +502,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
     <ElDialog v-model="dailyReportVisible" title="📈 每日复盘报告" width="750px">
       <div v-if="dailyReport" class="dr">
         <div class="dr-sec"><div class="dr-t">💰 账户概览</div><div class="dr-g"><div class="dr-i"><span class="dr-l">总资产</span><span class="dr-v">{{ (dailyReport.account.total_assets / 10000).toFixed(1) }}万</span></div><div class="dr-i"><span class="dr-l">可用</span><span class="dr-v">{{ (dailyReport.account.available_cash / 10000).toFixed(1) }}万</span></div><div class="dr-i"><span class="dr-l">仓位</span><span class="dr-v">{{ dailyReport.account.position_ratio }}%</span></div><div class="dr-i"><span class="dr-l">今日盈亏</span><span class="dr-v" :class="dailyReport.account.today_profit >= 0 ? 'up' : 'down'">{{ dailyReport.account.today_profit >= 0 ? '+' : '' }}{{ dailyReport.account.today_profit.toFixed(0) }}</span></div></div></div>
-        <div class="dr-sec"><div class="dr-t">📊 持仓概况</div><div class="dr-g"><div class="dr-i"><span class="dr-l">持仓数</span><span class="dr-v">{{ dailyReport.positions.count }}</span></div><div class="dr-i"><span class="dr-l">止损</span><span class="dr-v" style="color:#f56c6c">{{ dailyReport.stop_loss_count }}</span></div><div class="dr-i"><span class="dr-l">止盈</span><span class="dr-v" style="color:#67c23a">{{ dailyReport.take_profit_count }}</span></div><div class="dr-i"><span class="dr-l">胜率</span><span class="dr-v">{{ dailyReport.win_rate }}%</span></div></div></div>
+        <div class="dr-sec"><div class="dr-t">📊 持仓概况</div><div class="dr-g"><div class="dr-i"><span class="dr-l">持仓数</span><span class="dr-v">{{ dailyReport.positions.count }}</span></div><div class="dr-i"><span class="dr-l">止损</span><span class="dr-v text-stock-up">{{ dailyReport.stop_loss_count }}</span></div><div class="dr-i"><span class="dr-l">止盈</span><span class="dr-v text-stock-down">{{ dailyReport.take_profit_count }}</span></div><div class="dr-i"><span class="dr-l">胜率</span><span class="dr-v">{{ dailyReport.win_rate }}%</span></div></div></div>
         <div class="dr-sec" v-if="dailyReport.positions.top_profit?.length"><div class="dr-t">🏆 最赚</div><div v-for="p in dailyReport.positions.top_profit" class="dr-p"><span class="code">{{ p.ts_code }}</span><span>{{ p.name }}</span><span class="up">+{{ p.pct }}%</span></div></div>
         <div class="dr-sec" v-if="dailyReport.positions.top_loss?.length"><div class="dr-t">💀 最亏</div><div v-for="p in dailyReport.positions.top_loss" class="dr-p"><span class="code">{{ p.ts_code }}</span><span>{{ p.name }}</span><span class="down">{{ p.pct }}%</span></div></div>
         <div class="dr-sec" v-if="dailyReport.positions.strategy_summary"><div class="dr-t">📋 策略汇总</div><div v-for="(s, k) in dailyReport.positions.strategy_summary" class="dr-p"><span>{{ strategyCN(k) }}</span><span>{{ s.count }}只</span><span :class="s.total_pnl >= 0 ? 'up' : 'down'">¥{{ s.total_pnl >= 0 ? '+' : '' }}{{ s.total_pnl.toFixed(0) }}</span></div></div>
@@ -522,54 +523,54 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
   </div>
 </template>
 <style scoped lang="scss">
-.mm { height: 100%; display: flex; flex-direction: column; background: #f5f7fa; overflow: hidden; min-width: 0; }
+.mm { height: 100%; display: flex; flex-direction: column; background: var(--bg-base); overflow: hidden; min-width: 0; }
 /* 顶部状态栏 */
-.mm-header { display: flex; align-items: center; gap: 12px; padding: 8px 16px; background: #fff; border-bottom: 1px solid #ebeef5; flex-shrink: 0; flex-wrap: wrap; min-width: 0; }
+.mm-header { display: flex; align-items: center; gap: 12px; padding: 8px 16px; background: var(--bg-elevated); border-bottom: 1px solid var(--border-default); flex-shrink: 0; flex-wrap: wrap; min-width: 0; }
 .hh-left { display: flex; align-items: center; gap: 6px; flex-shrink: 0; flex-wrap: wrap; }
 .hh-status { display: flex; align-items: center; gap: 5px; font-weight: 600; font-size: 13px; }
 .hh-status .dot { width: 8px; height: 8px; border-radius: 50%; }
-.hh-status.running .dot { background: #67c23a; animation: pulse 1.5s infinite; }
-.hh-status.stopped .dot { background: #909399; }
+.hh-status.running .dot { background: var(--stock-down); animation: pulse 1.5s infinite; }
+.hh-status.stopped .dot { background: var(--text-tertiary); }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
 .hh-account { display: flex; gap: 14px; flex: 1 1 auto; min-width: 0; flex-wrap: wrap; }
 .ha { display: flex; flex-direction: column; min-width: 0; }
-.hl { font-size: 10px; color: #909399; }
+.hl { font-size: 10px; color: var(--text-tertiary); }
 .hv { font-size: 13px; font-weight: 600; }
 .hh-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; flex-wrap: wrap; }
-.up { color: #f56c6c; }
-.down { color: #67c23a; }
+.up { color: var(--stock-up); }
+.down { color: var(--stock-down); }
 
 /* 引导页 */
 .mm-guide { flex: 1; display: flex; align-items: center; justify-content: center; }
-.guide-card { text-align: center; padding: 40px; background: #fff; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+.guide-card { text-align: center; padding: 40px; background: var(--bg-elevated); border-radius: 12px; box-shadow: var(--shadow-md); }
 .guide-icon { font-size: 48px; margin-bottom: 12px; }
 .guide-title { font-size: 20px; font-weight: 600; margin-bottom: 20px; }
 .guide-steps { text-align: left; display: inline-block; }
 .guide-step { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 14px; }
-.sn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: #409eff; color: #fff; font-size: 12px; font-weight: 600; flex-shrink: 0; }
+.sn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: var(--el-color-primary); color: var(--text-inverse); font-size: 12px; font-weight: 600; flex-shrink: 0; }
 
 /* 3列主布局 */
 .mm-body { flex: 1; display: grid; grid-template-columns: minmax(180px, 2fr) minmax(200px, 3fr) minmax(300px, 5fr); gap: 0; overflow: hidden; min-width: 0; }
 .mm-left, .mm-center, .mm-right { overflow-y: auto; padding: 10px; min-width: 0; min-height: 0; }
-.mm-left { background: #fafbfc; border-right: 1px solid #ebeef5; }
-.mm-right { background: #fafbfc; border-left: 1px solid #ebeef5; }
+.mm-left { background: var(--bg-secondary); border-right: 1px solid var(--border-default); }
+.mm-right { background: var(--bg-secondary); border-left: 1px solid var(--border-default); }
 
 /* 区域标题 */
-.st { font-size: 13px; font-weight: 600; color: #303133; margin-bottom: 8px; display: flex; align-items: center; }
+.st { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; display: flex; align-items: center; }
 
 /* 策略卡片 */
-.sc { padding: 8px 10px; margin-bottom: 6px; background: #fff; border-radius: 6px; border: 1px solid #ebeef5; transition: border-color 0.2s; min-width: 0; }
-.sc:hover { border-color: #c0c4cc; }
+.sc { padding: 8px 10px; margin-bottom: 6px; background: var(--bg-elevated); border-radius: 6px; border: 1px solid var(--border-default); transition: border-color 0.2s; min-width: 0; }
+.sc:hover { border-color: var(--text-muted); }
 .sc.disabled { opacity: 0.5; }
 .sc-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
 .sc-icon { font-size: 16px; }
 .sc-name { font-size: 13px; font-weight: 600; flex: 1 1 auto; min-width: 0; }
-.sc-arrow { font-size: 10px; color: #909399; margin-left: 4px; }
-.sc-desc { font-size: 11px; color: #909399; margin: 2px 0 4px 24px; overflow-wrap: break-word; }
+.sc-arrow { font-size: 10px; color: var(--text-tertiary); margin-left: 4px; }
+.sc-desc { font-size: 11px; color: var(--text-tertiary); margin: 2px 0 4px 24px; overflow-wrap: break-word; }
 .sc-params { margin-left: 24px; min-width: 0; }
 .pm { display: flex; justify-content: space-between; font-size: 11px; gap: 4px; min-width: 0; }
-.pk { color: #909399; white-space: nowrap; }
-.pv { color: #606266; font-weight: 500; overflow-wrap: break-word; }
+.pk { color: var(--text-tertiary); white-space: nowrap; }
+.pv { color: var(--text-secondary); font-weight: 500; overflow-wrap: break-word; }
 
 /* 快捷操作 */
 .qa { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -577,105 +578,105 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 /* 手动下单 */
 .mf { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .mf-row { display: flex; gap: 4px; min-width: 0; flex-wrap: wrap; }
-.mf-q { font-size: 11px; color: #67c23a; padding: 2px 0; }
-.mf-hint { font-size: 11px; color: #409eff; cursor: pointer; padding: 0 4px; white-space: nowrap; }
+.mf-q { font-size: 11px; color: var(--stock-down); padding: 2px 0; }
+.mf-hint { font-size: 11px; color: var(--el-color-primary); cursor: pointer; padding: 0 4px; white-space: nowrap; }
 
 /* 信号列表 */
 .sl { overflow-y: auto; min-width: 0; }
 .sl-sm { max-height: 200px; }
-.sig-row { display: flex; align-items: center; gap: 5px; padding: 4px 8px; margin-bottom: 2px; background: #fff; border-radius: 4px; border: 1px solid #ebeef5; font-size: 12px; flex-wrap: wrap; min-width: 0; }
-.sig-row:hover { border-color: #409eff; }
-.factor { font-size: 11px; color: #909399; background: #f4f4f5; padding: 1px 4px; border-radius: 3px; white-space: nowrap; }
-.reason { font-size: 11px; color: #909399; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; min-width: 0; }
+.sig-row { display: flex; align-items: center; gap: 5px; padding: 4px 8px; margin-bottom: 2px; background: var(--bg-elevated); border-radius: 4px; border: 1px solid var(--border-default); font-size: 12px; flex-wrap: wrap; min-width: 0; }
+.sig-row:hover { border-color: var(--el-color-primary); }
+.factor { font-size: 11px; color: var(--text-tertiary); background: var(--bg-tertiary); padding: 1px 4px; border-radius: 3px; white-space: nowrap; }
+.reason { font-size: 11px; color: var(--text-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; min-width: 0; }
 .sig-row .el-button { padding: 1px 6px; font-size: 11px; }
 
 /* 涨停池 */
-.limit-row { display: flex; align-items: center; gap: 6px; padding: 3px 8px; font-size: 12px; border-bottom: 1px solid #f2f3f5; flex-wrap: wrap; min-width: 0; }
-.lb-tag { font-size: 10px; color: #f56c6c; background: #fef0f0; padding: 1px 4px; border-radius: 3px; }
-.fd-tag { font-size: 10px; color: #e6a23c; background: #fdf6ec; padding: 1px 4px; border-radius: 3px; }
+.limit-row { display: flex; align-items: center; gap: 6px; padding: 3px 8px; font-size: 12px; border-bottom: 1px solid var(--border-light); flex-wrap: wrap; min-width: 0; }
+.lb-tag { font-size: 10px; color: var(--stock-up); background: var(--stock-up-bg); padding: 1px 4px; border-radius: 3px; }
+.fd-tag { font-size: 10px; color: var(--el-color-warning); background: var(--warning-bg); padding: 1px 4px; border-radius: 3px; }
 
 /* 持仓卡片 */
-.pos-card { padding: 8px 10px; margin-bottom: 6px; background: #fff; border-radius: 6px; border: 1px solid #ebeef5; min-width: 0; }
-.pos-card:hover { border-color: #409eff; }
+.pos-card { padding: 8px 10px; margin-bottom: 6px; background: var(--bg-elevated); border-radius: 6px; border: 1px solid var(--border-default); min-width: 0; }
+.pos-card:hover { border-color: var(--el-color-primary); }
 .pos-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
 .pct { margin-left: auto; font-weight: 700; font-size: 14px; transition: transform 0.3s; }
 .pos-card:hover .pct { transform: scale(1.05); }
-.pos-info { display: flex; gap: 8px; font-size: 11px; color: #606266; flex-wrap: wrap; min-width: 0; }
-.t1-tag { font-size: 10px; color: #e6a23c; background: #fdf6ec; padding: 1px 4px; border-radius: 3px; font-weight: 600; }
+.pos-info { display: flex; gap: 8px; font-size: 11px; color: var(--text-secondary); flex-wrap: wrap; min-width: 0; }
+.t1-tag { font-size: 10px; color: var(--el-color-warning); background: var(--warning-bg); padding: 1px 4px; border-radius: 3px; font-weight: 600; }
 .rl { padding: 1px 5px; border-radius: 3px; font-weight: 500; }
-.rl.stop { color: #f56c6c; background: #fef0f0; }
-.rl.stop-price { color: #f56c6c; background: #fef0f0; font-weight: 700; }
-.rl.profit { color: #67c23a; background: #f0f9eb; }
-.rl.profit-price { color: #67c23a; background: #f0f9eb; font-weight: 700; }
-.rd { color: #909399; }
-.rd.danger { color: #f56c6c; font-weight: 600; animation: blink 1s infinite; }
+.rl.stop { color: var(--stock-up); background: var(--stock-up-bg); }
+.rl.stop-price { color: var(--stock-up); background: var(--stock-up-bg); font-weight: 700; }
+.rl.profit { color: var(--stock-down); background: var(--stock-down-bg); }
+.rl.profit-price { color: var(--stock-down); background: var(--stock-down-bg); font-weight: 700; }
+.rd { color: var(--text-tertiary); }
+.rd.danger { color: var(--stock-up); font-weight: 600; animation: blink 1s infinite; }
 @keyframes blink { 50% { opacity: 0.5; } }
 
 /* 统计 */
 .stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(60px, 1fr)); gap: 6px; }
-.si { text-align: center; padding: 6px; background: #fff; border-radius: 6px; min-width: 0; }
+.si { text-align: center; padding: 6px; background: var(--bg-elevated); border-radius: 6px; min-width: 0; }
 .sv { font-size: 18px; font-weight: 700; }
-.sl2 { font-size: 11px; color: #909399; }
+.sl2 { font-size: 11px; color: var(--text-tertiary); }
 
 /* 底部时间线 */
-.mm-footer { flex-shrink: 0; border-top: 1px solid #ebeef5; padding: 6px 16px; background: #fff; min-width: 0; }
+.mm-footer { flex-shrink: 0; border-top: 1px solid var(--border-default); padding: 6px 16px; background: var(--bg-elevated); min-width: 0; }
 .tl-body { display: flex; gap: 16px; flex-wrap: wrap; min-width: 0; }
 .tl-col { flex: 1 1 200px; overflow-y: auto; max-height: 260px; min-width: 0; }
-.tl-col + .tl-col { border-left: 1px solid #ebeef5; padding-left: 16px; }
-.tl-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: 12px; border-bottom: 1px solid #f9f9f9; cursor: pointer; flex-wrap: wrap; min-width: 0; }
-.tl-row:hover { background: #f5f7fa; }
-.tl-time { font-size: 11px; color: #909399; min-width: 40px; }
+.tl-col + .tl-col { border-left: 1px solid var(--border-default); padding-left: 16px; }
+.tl-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: 12px; border-bottom: 1px solid var(--border-light); cursor: pointer; flex-wrap: wrap; min-width: 0; }
+.tl-row:hover { background: var(--bg-base); }
+.tl-time { font-size: 11px; color: var(--text-tertiary); min-width: 40px; }
 .tl-action { font-size: 11px; font-weight: 600; min-width: 20px; }
-.tl-action.buy { color: #f56c6c; }
-.tl-action.sell { color: #67c23a; }
-.tl-detail { font-size: 11px; color: #606266; }
-.tl-reason { font-size: 11px; color: #909399; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.history-tag { font-size: 12px; color: #409eff; background: #ecf5ff; padding: 4px 8px; border-radius: 4px; margin-bottom: 4px; font-weight: 600; }
+.tl-action.buy { color: var(--stock-up); }
+.tl-action.sell { color: var(--stock-down); }
+.tl-detail { font-size: 11px; color: var(--text-secondary); }
+.tl-reason { font-size: 11px; color: var(--text-tertiary); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.history-tag { font-size: 12px; color: var(--el-color-primary); background: var(--info-bg); padding: 4px 8px; border-radius: 4px; margin-bottom: 4px; font-weight: 600; }
 
 /* 通用 */
-.code { font-size: 12px; font-weight: 600; color: #303133; font-family: monospace; }
-.name { font-size: 12px; color: #606266; }
-.empty { text-align: center; color: #c0c4cc; font-size: 12px; padding: 20px 0; }
+.code { font-size: 12px; font-weight: 600; color: var(--text-primary); font-family: monospace; }
+.name { font-size: 12px; color: var(--text-secondary); }
+.empty { text-align: center; color: var(--text-muted); font-size: 12px; padding: 20px 0; }
 
 /* 【P1-1】关键因子标签 */
-.kf { color: #e6a23c; background: #fdf6ec; font-weight: 600; }
+.kf { color: var(--el-color-warning); background: var(--warning-bg); font-weight: 600; }
 
 /* 【P1-2】持仓市值和盈亏金额 */
-.mv { color: #909399; font-size: 11px; }
+.mv { color: var(--text-tertiary); font-size: 11px; }
 .pamt { font-weight: 700; font-size: 12px; }
 
 /* 【P1-5】数据源健康指示器 */
 .ds-indicator { display: inline-flex; gap: 4px; margin-left: 4px; }
 .ds-dot { font-size: 10px; padding: 1px 4px; border-radius: 3px; font-weight: 600; cursor: help; }
-.ds-dot.ok { color: #67c23a; background: #f0f9eb; }
-.ds-dot.err { color: #f56c6c; background: #fef0f0; }
+.ds-dot.ok { color: var(--stock-down); background: var(--stock-down-bg); }
+.ds-dot.err { color: var(--stock-up); background: var(--stock-up-bg); }
 
 /* 【P1-3】时间线盈亏金额 */
 .tl-amt { font-size: 11px; font-weight: 700; min-width: 50px; text-align: right; }
 
 /* 交易详情弹窗 */
 .td { font-size: 13px; }
-.td-sec { margin-bottom: 14px; padding: 10px; background: #fafafa; border-radius: 8px; border: 1px solid #ebeef5; min-width: 0; }
-.td-t { font-size: 14px; font-weight: 600; margin-bottom: 6px; color: #303133; }
+.td-sec { margin-bottom: 14px; padding: 10px; background: var(--bg-muted); border-radius: 8px; border: 1px solid var(--border-default); min-width: 0; }
+.td-t { font-size: 14px; font-weight: 600; margin-bottom: 6px; color: var(--text-primary); }
 .td-g { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 6px; margin-bottom: 4px; }
 .td-i { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.td-l { font-size: 10px; color: #909399; }
+.td-l { font-size: 10px; color: var(--text-tertiary); }
 .td-v { font-size: 13px; font-weight: 500; }
-.td-r { font-size: 12px; color: #606266; margin: 4px 0; padding: 4px 6px; background: #fff; border-radius: 4px; border-left: 3px solid #409eff; }
-.td-c { font-size: 12px; font-weight: 600; color: #606266; margin-top: 4px; }
-.cl { font-size: 11px; color: #606266; padding: 1px 0 1px 10px; font-family: monospace; }
-.td-e { color: #c0c4cc; font-size: 12px; }
+.td-r { font-size: 12px; color: var(--text-secondary); margin: 4px 0; padding: 4px 6px; background: var(--bg-elevated); border-radius: 4px; border-left: 3px solid var(--el-color-primary); }
+.td-c { font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-top: 4px; }
+.cl { font-size: 11px; color: var(--text-secondary); padding: 1px 0 1px 10px; font-family: monospace; }
+.td-e { color: var(--text-muted); font-size: 12px; }
 
 /* 审查弹窗 */
 .al { max-height: 500px; overflow-y: auto; }
-.ah { display: grid; grid-template-columns: minmax(60px, 1fr) minmax(50px, 1fr) minmax(80px, 1.2fr) minmax(80px, 1.2fr) minmax(50px, 1fr) minmax(50px, 1fr); gap: 4px; padding: 6px 0; font-size: 12px; font-weight: 600; color: #909399; border-bottom: 1px solid #ebeef5; }
-.ar { display: grid; grid-template-columns: minmax(60px, 1fr) minmax(50px, 1fr) minmax(80px, 1.2fr) minmax(80px, 1.2fr) minmax(50px, 1fr) minmax(50px, 1fr); gap: 4px; padding: 6px 0; font-size: 12px; align-items: center; border-bottom: 1px solid #f2f3f5; cursor: pointer; overflow: hidden; }
-.ar:hover { background: rgba(64,158,255,0.06); }
+.ah { display: grid; grid-template-columns: minmax(60px, 1fr) minmax(50px, 1fr) minmax(80px, 1.2fr) minmax(80px, 1.2fr) minmax(50px, 1fr) minmax(50px, 1fr); gap: 4px; padding: 6px 0; font-size: 12px; font-weight: 600; color: var(--text-tertiary); border-bottom: 1px solid var(--border-default); }
+.ar { display: grid; grid-template-columns: minmax(60px, 1fr) minmax(50px, 1fr) minmax(80px, 1.2fr) minmax(80px, 1.2fr) minmax(50px, 1fr) minmax(50px, 1fr); gap: 4px; padding: 6px 0; font-size: 12px; align-items: center; border-bottom: 1px solid var(--border-light); cursor: pointer; overflow: hidden; }
+.ar:hover { background: var(--bg-hover); }
 
 /* 回测对比 */
 .cl-table { max-height: 400px; overflow-y: auto; }
-.cl-h { display: grid; grid-template-columns: repeat(8, minmax(50px, 1fr)); gap: 4px; padding: 6px 0; font-size: 12px; font-weight: 600; color: #909399; border-bottom: 1px solid #ebeef5; }
-.cl-r { display: grid; grid-template-columns: repeat(8, minmax(50px, 1fr)); gap: 4px; padding: 6px 0; font-size: 12px; align-items: center; border-bottom: 1px solid #f2f3f5; overflow: hidden; }
+.cl-h { display: grid; grid-template-columns: repeat(8, minmax(50px, 1fr)); gap: 4px; padding: 6px 0; font-size: 12px; font-weight: 600; color: var(--text-tertiary); border-bottom: 1px solid var(--border-default); }
+.cl-r { display: grid; grid-template-columns: repeat(8, minmax(50px, 1fr)); gap: 4px; padding: 6px 0; font-size: 12px; align-items: center; border-bottom: 1px solid var(--border-light); overflow: hidden; }
 
 /* 响应式 */
 @media (max-width: 1400px) {
@@ -686,71 +687,69 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 }
 @media (max-width: 1024px) {
   .mm-body { grid-template-columns: 1fr; }
-  .mm-left, .mm-right { border: none; border-bottom: 1px solid #ebeef5; }
+  .mm-left, .mm-right { border: none; border-bottom: 1px solid var(--border-default); }
   .tl-body { flex-direction: column; }
   .tl-col { max-height: 180px; }
-  .tl-col + .tl-col { border-left: none; padding-left: 0; border-top: 1px solid #ebeef5; padding-top: 8px; }
+  .tl-col + .tl-col { border-left: none; padding-left: 0; border-top: 1px solid var(--border-default); padding-top: 8px; }
 }
-.mm.dark .tl-col + .tl-col { border-color: #333; }
 @media (max-width: 1024px) {
-  .mm.dark .tl-col + .tl-col { border-color: #333; }
-}
+  }
 
 /* 【调试增强】9层调试弹窗 */
 .layer-debug { font-size: 13px; }
-.ld-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 12px; color: #606266; }
-.ld-title { font-size: 13px; font-weight: 600; color: #303133; margin-bottom: 6px; }
-.ld-pipeline { padding: 10px; background: #fafafa; border-radius: 8px; border: 1px solid #ebeef5; margin-bottom: 10px; }
+.ld-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 12px; color: var(--text-secondary); }
+.ld-title { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; }
+.ld-pipeline { padding: 10px; background: var(--bg-muted); border-radius: 8px; border: 1px solid var(--border-default); margin-bottom: 10px; }
 .ld-layers { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 4px; margin-bottom: 6px; }
-.ld-layer { display: flex; align-items: center; gap: 4px; font-size: 11px; padding: 3px 6px; background: #fff; border-radius: 4px; border: 1px solid #ebeef5; }
-.ld-on { color: #67c23a; }
-.ld-off { color: #909399; }
-.ld-name { color: #606266; }
-.ld-sentiment { font-size: 12px; color: #409eff; padding: 4px 0; }
+.ld-layer { display: flex; align-items: center; gap: 4px; font-size: 11px; padding: 3px 6px; background: var(--bg-elevated); border-radius: 4px; border: 1px solid var(--border-default); }
+.ld-on { color: var(--stock-down); }
+.ld-off { color: var(--text-tertiary); }
+.ld-name { color: var(--text-secondary); }
+.ld-sentiment { font-size: 12px; color: var(--el-color-primary); padding: 4px 0; }
 .ld-traces { max-height: 400px; overflow-y: auto; }
-.ld-trace-card { padding: 8px 10px; margin-bottom: 6px; background: #fff; border-radius: 6px; border: 1px solid #ebeef5; }
+.ld-trace-card { padding: 8px 10px; margin-bottom: 6px; background: var(--bg-elevated); border-radius: 6px; border: 1px solid var(--border-default); }
 .ld-trace-top { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
 .ld-trace-layers { padding-left: 10px; }
-.ld-trace-line { font-size: 11px; color: #606266; padding: 1px 0; font-family: monospace; }
+.ld-trace-line { font-size: 11px; color: var(--text-secondary); padding: 1px 0; font-family: monospace; }
 
 /* 【调试增强】扫描Trace弹窗 */
 .scan-trace { font-size: 13px; }
 .st-header { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
-.st-reason { font-size: 12px; color: #606266; padding: 4px 6px; background: #fff; border-radius: 4px; border-left: 3px solid #409eff; margin-bottom: 6px; }
-.st-age { font-size: 11px; color: #909399; margin-bottom: 6px; }
-.st-trace, .st-detail, .st-factors { padding: 10px; background: #fafafa; border-radius: 8px; border: 1px solid #ebeef5; margin-bottom: 8px; }
-.st-title { font-size: 13px; font-weight: 600; color: #303133; margin-bottom: 4px; }
-.st-line { font-size: 11px; color: #606266; padding: 1px 0; font-family: monospace; }
+.st-reason { font-size: 12px; color: var(--text-secondary); padding: 4px 6px; background: var(--bg-elevated); border-radius: 4px; border-left: 3px solid var(--el-color-primary); margin-bottom: 6px; }
+.st-age { font-size: 11px; color: var(--text-tertiary); margin-bottom: 6px; }
+.st-trace, .st-detail, .st-factors { padding: 10px; background: var(--bg-muted); border-radius: 8px; border: 1px solid var(--border-default); margin-bottom: 8px; }
+.st-title { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+.st-line { font-size: 11px; color: var(--text-secondary); padding: 1px 0; font-family: monospace; }
 .st-fg { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 4px; }
-.st-fi { display: flex; flex-direction: column; padding: 3px 6px; background: #fff; border-radius: 4px; }
-.st-fl { font-size: 10px; color: #909399; }
+.st-fi { display: flex; flex-direction: column; padding: 3px 6px; background: var(--bg-elevated); border-radius: 4px; }
+.st-fl { font-size: 10px; color: var(--text-tertiary); }
 .st-fv { font-size: 13px; font-weight: 500; }
 
 /* 【P1-4】信号过期倒计时 */
-.expire-tag { font-size: 11px; color: #409eff; background: #ecf5ff; padding: 1px 5px; border-radius: 3px; font-weight: 600; }
-.expire-tag.urgent { color: #f56c6c; background: #fef0f0; animation: blink 1s infinite; }
+.expire-tag { font-size: 11px; color: var(--el-color-primary); background: var(--info-bg); padding: 1px 5px; border-radius: 3px; font-weight: 600; }
+.expire-tag.urgent { color: var(--stock-up); background: var(--stock-up-bg); animation: blink 1s infinite; }
 
 /* 【P1-6】复盘报告弹窗 */
 .dr { font-size: 13px; }
-.dr-sec { margin-bottom: 14px; padding: 10px; background: #fafafa; border-radius: 8px; border: 1px solid #ebeef5; }
-.dr-t { font-size: 14px; font-weight: 600; margin-bottom: 6px; color: #303133; }
+.dr-sec { margin-bottom: 14px; padding: 10px; background: var(--bg-muted); border-radius: 8px; border: 1px solid var(--border-default); }
+.dr-t { font-size: 14px; font-weight: 600; margin-bottom: 6px; color: var(--text-primary); }
 .dr-g { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 6px; margin-bottom: 4px; }
 .dr-i { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.dr-l { font-size: 10px; color: #909399; }
+.dr-l { font-size: 10px; color: var(--text-tertiary); }
 .dr-v { font-size: 13px; font-weight: 500; }
-.dr-p { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; border-bottom: 1px solid #f2f3f5; }
+.dr-p { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; border-bottom: 1px solid var(--border-light); }
 
 /* 周报弹窗 */
 .wr { font-size: 13px; }
-.wr-sec { margin-bottom: 14px; padding: 10px; background: #fafafa; border-radius: 8px; border: 1px solid #ebeef5; }
-.wr-t { font-size: 14px; font-weight: 600; margin-bottom: 6px; color: #303133; }
+.wr-sec { margin-bottom: 14px; padding: 10px; background: var(--bg-muted); border-radius: 8px; border: 1px solid var(--border-default); }
+.wr-t { font-size: 14px; font-weight: 600; margin-bottom: 6px; color: var(--text-primary); }
 .wr-g { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 6px; margin-bottom: 4px; }
 .wr-i { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.wr-l { font-size: 10px; color: #909399; }
+.wr-l { font-size: 10px; color: var(--text-tertiary); }
 .wr-v { font-size: 14px; font-weight: 600; }
-.wr-p { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; border-bottom: 1px solid #f2f3f5; }
-.wr-day { display: flex; align-items: center; gap: 10px; padding: 4px 0; font-size: 12px; border-bottom: 1px solid #f2f3f5; }
-.wr-date { font-weight: 600; color: #303133; min-width: 80px; }
+.wr-p { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; border-bottom: 1px solid var(--border-light); }
+.wr-day { display: flex; align-items: center; gap: 10px; padding: 4px 0; font-size: 12px; border-bottom: 1px solid var(--border-light); }
+.wr-date { font-weight: 600; color: var(--text-primary); min-width: 80px; }
 
 /* === Extracted utility classes === */
 .w-full { width: 100%; }
@@ -758,68 +757,30 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .mt-10 { margin-top: 10px; }
 .cp { cursor: pointer; }
 .btn-xs { padding: 1px 6px; font-size: 11px; }
-.tag-solid { color: #fff; border: none; }
+.tag-solid { color: var(--text-inverse); border: none; }
 .fs-10 { font-size: 10px; }
 
 /* === Dark toggle button === */
 .dark-toggle { font-size: 16px; cursor: pointer; padding: 0 4px; user-select: none; }
 
 /* === Mini bar (PnL progress) === */
-.mini-bar { display: inline-block; width: 40px; height: 4px; background: #ebeef5; border-radius: 2px; vertical-align: middle; margin-left: 4px; }
+.mini-bar { display: inline-block; width: 40px; height: 4px; background: var(--border-default); border-radius: 2px; vertical-align: middle; margin-left: 4px; }
 .mini-bar-fill { display: block; height: 100%; border-radius: 2px; transition: width 0.3s; }
 
 /* === Quick action groups === */
 .qa-group { margin-bottom: 2px; }
-.qa-label { font-size: 10px; color: #909399; margin-top: 4px; margin-bottom: 2px; padding-left: 2px; }
+.qa-label { font-size: 10px; color: var(--text-tertiary); margin-top: 4px; margin-bottom: 2px; padding-left: 2px; }
+
+
+/* === Utility classes for inline style replacement === */
+.text-stock-up { color: var(--stock-up) !important; }
+.text-stock-down { color: var(--stock-down) !important; }
+.text-tertiary { color: var(--text-tertiary); }
+.text-tertiary-sm { font-size: 11px; color: var(--text-tertiary); }
+
+/* === Mini bar fill variants === */
+.mini-bar-fill.bar-up { background: var(--stock-up) !important; }
+.mini-bar-fill.bar-down { background: var(--stock-down) !important; }
 
 /* ============================================ */
-/* === Dark Theme === */
-/* ============================================ */
-.mm.dark { background: #232b3b; }
-.mm.dark .mm-header { background: #263040; border-color: #333; }
-.mm.dark .mm-left, .mm.dark .mm-right { background: #263040; border-color: #333; }
-.mm.dark .st { color: #e0e0e0; }
-.mm.dark .sig-row, .mm.dark .pos-card, .mm.dark .sc { background: #2a3447; border-color: #333; }
-.mm.dark .sig-row:hover, .mm.dark .pos-card:hover { border-color: #409eff; }
-.mm.dark .sc:hover { border-color: #409eff; }
-.mm.dark .code { color: #e0e0e0; }
-.mm.dark .name { color: #aaa; }
-.mm.dark .factor { background: #364458; color: #aaa; }
-.mm.dark .pos-info { color: #aaa; }
-.mm.dark .mm-footer { background: #263040; border-color: #333; }
-.mm.dark .tl-row:hover { background: #2a3447; }
-.mm.dark .tl-row { border-color: #364458; }
-.mm.dark .limit-row { border-color: #364458; }
-.mm.dark .si { background: #2a3447; }
-.mm.dark .sl2, .mm.dark .hl, .mm.dark .sc-arrow, .mm.dark .sc-desc, .mm.dark .pk, .mm.dark .reason { color: #888; }
-.mm.dark .rl.stop { background: #3a2020; }
-.mm.dark .rl.profit { background: #1e3a2e; }
-.mm.dark .lb-tag { background: #3a2020; }
-.mm.dark .fd-tag { background: #3a3020; }
-.mm.dark .guide-card { background: #2a3447; }
-.mm.dark .guide-title { color: #e0e0e0; }
-.mm.dark .empty { color: #555; }
-.mm.dark .expire-tag { background: #263040; }
-.mm.dark .expire-tag.urgent { background: #3a2020; }
-.mm.dark .history-tag { background: #263040; }
-.mm.dark .td-sec, .mm.dark .ld-pipeline, .mm.dark .st-trace { background: #2a3447; border-color: #333; }
-.mm.dark .td-t, .mm.dark .ld-title, .mm.dark .st-title { color: #e0e0e0; }
-.mm.dark .td-v, .mm.dark .td-r, .mm.dark .td-c { color: #ccc; }
-.mm.dark .ld-layer { background: #2a3447; border-color: #333; }
-.mm.dark .tl-col + .tl-col { border-color: #333; }
-.mm.dark .dr-sec, .mm.dark .wr-sec { background: #2a3447; border-color: #333; }
-.mm.dark .dr-t, .mm.dark .wr-t { color: #e0e0e0; }
-.mm.dark .t1-tag { background: #3a3020; }
-.mm.dark .ds-dot.ok { background: #1e3a2e; }
-.mm.dark .ds-dot.err { background: #3a2020; }
-.mm.dark .mini-bar { background: #333; }
-.mm.dark .mm-center { background: #232b3b; }
-.mm.dark .sv { color: #e0e0e0; }
-.mm.dark .pm .pv { color: #ccc; }
-.mm.dark .tl-time { color: #888; }
-.mm.dark .tl-detail { color: #ccc; }
-.mm.dark .ha .hl { color: #888; }
-.mm.dark .ha .hv { color: #e0e0e0; }
-.mm.dark .mf-q { color: #67c23a; }
-.mm.dark .mf-hint { color: #409eff; }
 </style>
