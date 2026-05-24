@@ -88,7 +88,7 @@
   --gradient-primary: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 50%, #60a5fa 100%);
   --gradient-hero: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
   --gradient-card: linear-gradient(180deg, rgba(255,255,255,0.9) 0%, rgba(248,250,252,0.8) 100%);
-  --gradient-sidebar: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
+  --gradient-sidebar: linear-gradient(180deg, #f0f4f8 0%, #e8edf3 100%);
 
   // ========== 圆角 ==========
   --radius-xs: 4px;
@@ -113,13 +113,13 @@
   --sidebar-width: 220px;
   --sidebar-collapsed-width: 64px;
   
-  // ========== 侧边栏 ==========
-  --sidebar-bg: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
-  --sidebar-text: rgba(255, 255, 255, 0.7);
-  --sidebar-text-active: #ffffff;
-  --sidebar-hover-bg: rgba(255, 255, 255, 0.1);
-  --sidebar-active-bg: var(--primary-500);
-  --sidebar-border: rgba(255, 255, 255, 0.1);
+  // ========== 侧边栏 (亮色模式用浅色) ==========
+  --sidebar-bg: linear-gradient(180deg, #f0f4f8 0%, #e8edf3 100%);
+  --sidebar-text: #475569;
+  --sidebar-text-active: #1e40af;
+  --sidebar-hover-bg: rgba(59, 130, 246, 0.08);
+  --sidebar-active-bg: rgba(59, 130, 246, 0.12);
+  --sidebar-border: #e2e8f0;
 
   // ========== 顶部栏 ==========
   --header-bg: #ffffff;
