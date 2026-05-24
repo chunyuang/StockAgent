@@ -3958,12 +3958,10 @@ class PortfolioBacktester:
                                 sell_codes.append(code)
                                 pos_mgr.mark_sold(code, '利润锁定')
         # 【Phase1-T+1】排除当日买入的股票(T+1: 当日买入不可卖出)
-        t1_blocked = []
-        for code in list(sell_codes):
-            buy_dt = self._cost_basis_date.get(code)
-            if buy_dt is not None and buy_dt == trade_date:
-                t1_blocked.append(code)
-                sell_codes.remove(code)
+        # 【V49-P0-3修复:改用列表推导替代循环内remove,避免O(n²)和跳过元素bug】
+        t1_blocked = [code for code in sell_codes
+                      if self._cost_basis_date.get(code) is not None and self._cost_basis_date.get(code) == trade_date]
+        sell_codes = [code for code in sell_codes if code not in set(t1_blocked)]
         if t1_blocked:
             logger.info(f"[T+1] 当日买入不可卖: {','.join(t1_blocked[:5])}{'...' if len(t1_blocked)>5 else ''}")
         # 【V34:持仓保护 - 盈利股不让调仓随意卖出,让止盈/保护性卖出自然退出】
@@ -3998,8 +3996,9 @@ class PortfolioBacktester:
                     is_yizi = (open_p == close_p == p.get('high', 0) == p.get('low', 0)) and open_p > 0
                     if profit_pct >= hold_protection_pct and is_yang_line and should_still_protect and not is_yizi:
                         protected_codes.append(code)
-            for code in protected_codes:
-                sell_codes.remove(code)
+            # 【V49-P0-3修复:改用集合过滤替代循环内remove,避免O(n²)和跳过元素bug】
+            _protected_set = set(protected_codes)
+            sell_codes = [code for code in sell_codes if code not in _protected_set]
             if protected_codes:
                 logger.debug('backtest', f"[持仓保护] 盈利+阳线,不调仓卖出: {','.join(protected_codes[:5])}")
 
@@ -4124,8 +4123,9 @@ class PortfolioBacktester:
         # 止损:盘中最低价触发 → 用low近似
         # 止盈:盘中最高价触发 → 用high近似
         # 其他:收盘卖出 → 用close
-        enable_stop_loss = self._risk_config.get('enable_stop_loss', True)
-        enable_take_profit = self._risk_config.get('enable_take_profit', True)
+        # 【V49-P0-4修复:删除重复声明的enable_stop_loss/enable_take_profit(已在3850行声明)】
+        # 旧bug: 4126行重复声明enable_stop_loss,与3850行同变量名但相隔276行,易混淆
+        # enable_stop_loss/enable_take_profit 已在上方(V48d处)声明,此处无需重复
         # 【P0-2修复:默认全局参数,卖出循环中按code覆盖】
         global_sl = self._risk_config.get('stop_loss_pct', GLOBAL_RISK['stop_loss_pct'])
         global_tp = self._risk_config.get('take_profit_pct', 0.07)
