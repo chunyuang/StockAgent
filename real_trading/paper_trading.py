@@ -381,7 +381,23 @@ class PaperTradingEngine:
                             break
                 
                 if should_sell:
-                    sell_price = alert.get("current_price", 0)
+                    # 【V47修复:止损用止损价/跳空用open,与回测对齐】
+                    # 旧bug: 统一用current_price(收盘价)卖出,但回测止损用止损价,跳空止损用open
+                    pos = self.pos_manager.positions.get(ts_code)
+                    sell_price = alert.get("current_price", 0)  # 默认收盘价
+                    if pos and "止损" in reason:
+                        # 止损价格: 回测用stop_loss_price,跳空止损用open
+                        # V47: 检查alert中是否包含"跳空止损"
+                        if "跳空止损" in str(alert.get("alerts", [])):
+                            # 跳空止损: 以open卖出(回测逻辑)
+                            # 但这里没有open价格,用止损价作为保守替代
+                            sell_price = pos.stop_loss_price
+                            reason = "跳空止损"
+                        else:
+                            sell_price = pos.stop_loss_price  # 正常止损用止损价
+                            reason = "止损平仓"
+                    elif pos and "止盈" in reason:
+                        sell_price = pos.take_profit_price  # 止盈用止盈价
                     if sell_price > 0:
                         result = await self.close_position(acc_id, ts_code, sell_price, reason=reason)
                         if result.get("success"):

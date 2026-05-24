@@ -83,7 +83,7 @@ STRATEGY_CONFIGS = {
             "next_day_open_sell_pct": 0.03, # 次日高开≥3%即卖出(首板高开即卖)
         },
         "riskParams": {
-            "stop_loss_pct": 0.04,          # 止损4%(保持4%,3%过紧导致更多止损触发)
+            "stop_loss_pct": 0.04,          # 止损4%(首板打板跳空止损是开盘直接跌破,止损比例不影响跳空止损触发)
             "take_profit_pct": 0.10,        # 止盈10%(V33:从12%→10%,首板avg_win仅4.3%,10%更实际)
             "max_hold_days": 2,             # 最大持仓2天(V33:3→2,首板次日未兑现即退出)
             "slippage_pct": 0.005,          # 滑点0.5%(打板场景)
