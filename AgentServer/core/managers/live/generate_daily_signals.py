@@ -54,9 +54,9 @@ class RealTradingSignalGenerator:
                 - initial_cash: 初始资金，默认100万
                 - max_position: 最大总仓位，默认0.7（70%）
                 - max_position_per_stock: 单票最大仓位，默认0.2（20%）
-                - max_hold_days: 最大持仓天数，默认3
-                - stop_loss_pct: 止损比例，默认0.05（5%）
-                - take_profit_pct: 止盈比例，默认0.1（10%）
+                - max_hold_days: 最大持仓天数，默认3（策略级覆盖：半路追涨3/龙头低吸5/跌停翘板3）
+                - stop_loss_pct: 全局止损比例，默认0.03（策略级覆盖：半路追涨4%/龙头低吸3%/跌停翘板5%）
+                - take_profit_pct: 全局止盈比例，默认0.07（策略级覆盖：半路追涨12%/龙头低吸30%/跌停翘板20%）
                 - liquidity_threshold: 成交额门槛，默认500万
                 - volume_threshold: 量能放大倍数，默认1.5
                 - top_n: 最多选N只标的，默认5
@@ -65,10 +65,10 @@ class RealTradingSignalGenerator:
             "initial_cash": 1000000,
             "max_position": 0.7,          # 总仓位上限70%，留30%现金防风险
             "max_position_per_stock": 0.2, # 单票最大仓位20%，分散风险
-            "max_hold_days": 3,            # 超短核心：最多持仓3天
-            "stop_loss_pct": 0.02,         # 止损2%，超短必须严格止损
-            "take_profit_pct": 0.07,       # 止盈7%，超短快进快出
-            "liquidity_threshold": 5000000, # 500万成交额门槛，避免流动性陷阱
+            "max_hold_days": 3,            # 全局默认3天（策略级：半路3/龙头5/跌停3）
+            "stop_loss_pct": 0.03,         # 全局止损3%（策略级：半路4%/龙头3%/跌停5%，从strategy_defaults读取）
+            "take_profit_pct": 0.07,       # 全局止盈7%（策略级：半路12%/龙头30%/跌停20%，从strategy_defaults读取）
+            "liquidity_threshold": 500,  # 500万元成交额门槛（与回测GLOBAL_RISK.liquidity_threshold对齐）
             "volume_threshold": 1.5,       # 量能放大1.5倍
             "slippage": 0.002,             # 滑点0.2%，超短打板滑点较大
             "enable_force_empty": True,
