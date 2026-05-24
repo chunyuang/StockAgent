@@ -29,4 +29,9 @@ export const SWEEP_PARAMS = [
   { value: 'hit_probability_normal', label: '首板打板·快板成交率', unit: '%', factor: 100, min: 10, max: 90, step: 10 },
   // 跌停翘板策略参数
   { value: 'pullback_mid_fallback_pct', label: '跌停翘板·冲高回落阈值', unit: '%', factor: 100, min: 0.5, max: 5, step: 0.5 },
+  // V48: 利润锁定参数
+  { value: 'intraday_lock_min_high_rise', label: '利润锁定·盘中冲高', unit: '%', factor: 100, min: 3, max: 10, step: 1 },
+  { value: 'intraday_lock_pullback_pct', label: '利润锁定·回撤阈值', unit: '%', factor: 100, min: 1, max: 5, step: 0.5 },
+  { value: 'intraday_lock_min_profit', label: '利润锁定·最小利润', unit: '%', factor: 100, min: 1, max: 5, step: 0.5 },
+  { value: 'hold_protection_threshold', label: '持仓保护阈值', unit: '%', factor: 100, min: 3, max: 10, step: 1 },
 ]
