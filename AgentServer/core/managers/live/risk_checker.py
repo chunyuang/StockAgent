@@ -509,10 +509,40 @@ class PreBuyRiskChecker:
         
         # 5. 涨跌停板检查
         limit_check_details = {"ts_code": ts_code, "buy_price": buy_price}
-        # TODO: 接入实时行情判断当前是否涨停/跌停
-        # 涨停板无法买入，跌停板次日谨慎
+        try:
+            from core.managers.mongo_manager import mongo_manager
+            if not mongo_manager.client:
+                import asyncio; asyncio.get_event_loop().run_until_complete(mongo_manager.initialize())
+            latest = mongo_manager.db.stock_daily_ak_full.find_one(
+                {'ts_code': ts_code},
+                sort=[('trade_date', -1)],
+                projection={'close': 1, 'pre_close': 1, 'pct_chg': 1}
+            )
+            if latest and latest.get('pre_close', 0) > 0:
+                close = latest.get('close', 0)
+                pre_close = latest.get('pre_close', 0)
+                pct = latest.get('pct_chg', 0)
+                # 判断涨跌停(主板≥9.8%, 创业板/科创板≥19.8%)
+                is_limit_up = pct >= 9.8 if not ts_code.startswith(('300', '688')) else pct >= 19.8
+                is_limit_down = pct <= -9.8 if not ts_code.startswith(('300', '688')) else pct <= -19.8
+                limit_check_details['close'] = close
+                limit_check_details['pct_chg'] = pct
+                limit_check_details['is_limit_up'] = is_limit_up
+                limit_check_details['is_limit_down'] = is_limit_down
+                if is_limit_up:
+                    return RiskCheckResult(
+                        allowed=False,
+                        reason=f"涨停板: {ts_code}涨幅{pct:.2f}%，无法买入",
+                        risk_level="high",
+                        details=details,
+                        timestamp=timestamp
+                    )
+                if is_limit_down:
+                    all_reasons.append(f"跌停板警告: {ts_code}跌幅{pct:.2f}%，次日谨慎")
+                    details["limit_down_caution"] = True
+        except Exception as e:
+            logger.warning(f"risk_checker涨跌停检查失败: {e}")
         details["limit_board_check"] = limit_check_details
-        all_reasons.append("涨跌停板: 检查通过（待接入实时行情）")
         
         # 全部检查通过
         return RiskCheckResult(

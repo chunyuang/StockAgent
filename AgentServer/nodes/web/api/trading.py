@@ -294,7 +294,22 @@ async def get_positions(
         
         positions = []
         for record in records:
-            # TODO: 补充实时价格和收益计算
+            # 从MongoDB获取最新收盘价作为当前价格
+            ts_code = record["ts_code"]
+            avg_cost = record["avg_cost"]
+            try:
+                from core.managers.mongo_manager import mongo_manager as _mm
+                latest = await _mm.db.stock_daily_ak_full.find_one(
+                    {'ts_code': ts_code},
+                    sort=[('trade_date', -1)],
+                    projection={'close': 1}
+                )
+                current_price = latest['close'] if latest and latest.get('close', 0) > 0 else avg_cost
+            except Exception:
+                current_price = avg_cost
+            quantity = record["quantity"]
+            profit = (current_price - avg_cost) * quantity if current_price and avg_cost else 0
+            profit_pct = (current_price - avg_cost) / avg_cost if avg_cost > 0 and current_price else 0
             pos = Position(
                 position_id=record["position_id"],
                 account_id=record["account_id"],
