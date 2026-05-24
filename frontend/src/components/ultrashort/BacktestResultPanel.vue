@@ -99,6 +99,20 @@ function translateSellReason(reason: string): string {
   return reason
 }
 
+// 【V38:卖出原因颜色】止盈/保护性=绿, 止损/跳空=红, 调仓=灰, 强制=橙
+function sellReasonColor(reason: string): string {
+  if (!reason) return '#e6a23c' // 持仓中
+  const green = ['止盈', '利润保护', '利润锁定', '冲高回落', '高开即卖']
+  const red = ['止损', '跳空止损']
+  const orange = ['强制空仓', '到期', '停牌']
+  const gray = ['调仓', '减仓']
+  for (const k of green) if (reason.includes(k)) return '#67c23a'
+  for (const k of red) if (reason.includes(k)) return '#f56c6c'
+  for (const k of orange) if (reason.includes(k)) return '#e6a23c'
+  for (const k of gray) if (reason.includes(k)) return '#909399'
+  return '#606266' // 默认
+}
+
 // 任务3: 卖出原因百分比
 function sellReasonPct(key: string): string {
   const stats = props.result?.sell_reason_stats
@@ -1026,11 +1040,11 @@ function exportTrades() {
             <ElTableColumn label="股数" width="70">
               <template #default="{ row }">{{ row.shares ?? '-' }}</template>
             </ElTableColumn>
-            <!-- 任务3: 卖出原因列(中文翻译) -->
+            <!-- 任务3: 卖出原因列(中文翻译+颜色标签) -->
             <ElTableColumn label="卖出原因" width="100">
               <template #default="{ row }">
                 <span v-if="translateSellReason(row.sell_reason || row.reason) === '持仓中'" style="color: #e6a23c; font-weight: 600">持仓中</span>
-                <span v-else>{{ translateSellReason(row.sell_reason || row.reason) }}</span>
+                <span v-else :style="{ color: sellReasonColor(row.sell_reason || row.reason) }">{{ translateSellReason(row.sell_reason || row.reason) }}</span>
               </template>
             </ElTableColumn>
           </ElTable>
