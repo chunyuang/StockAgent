@@ -137,16 +137,16 @@
 // ==================== Dark Mode ====================
 
 html.dark {
-  // ========== 背景色系 (中深灰蓝,类似macOS暗色/GitHub Dark) ==========
-  --bg-base: #1b2230;           // 底层背景
-  --bg-elevated: #222d3d;       // 卡片背景
-  --bg-surface: #283547;        // 内容表面
-  --bg-muted: #1e2838;          // 次要背景/表头
-  --bg-subtle: #303e50;         // 更浅的背景
-  --bg-inset: #1b2230;          // 嵌入区域
-  --bg-card: #222d3d;           // 卡片背景
-  --bg-secondary: #1e2838;      // 次级背景
-  --bg-tertiary: #303e50;       // 三级背景
+  // ========== 背景色系 (中灰蓝,类似VS Code Dark+/Notion暗色) ==========
+  --bg-base: #232b3b;           // 底层背景
+  --bg-elevated: #2a3447;       // 卡片背景
+  --bg-surface: #303d52;        // 内容表面
+  --bg-muted: #263040;          // 次要背景/表头
+  --bg-subtle: #364458;         // 更浅的背景
+  --bg-inset: #232b3b;          // 嵌入区域
+  --bg-card: #2a3447;           // 卡片背景
+  --bg-secondary: #263040;      // 次级背景
+  --bg-tertiary: #364458;       // 三级背景
   
   // 交互背景
   --bg-hover: rgba(99, 179, 237, 0.08);
@@ -200,12 +200,12 @@ html.dark {
 
   // ========== 渐变 ==========
   --gradient-primary: linear-gradient(135deg, #1e40af 0%, #3b82f6 50%, #60a5fa 100%);
-  --gradient-hero: linear-gradient(135deg, #0A0A0F 0%, #1e3a8a 100%);
-  --gradient-card: linear-gradient(180deg, rgba(18,18,26,0.95) 0%, rgba(10,10,15,0.9) 100%);
-  --gradient-sidebar: linear-gradient(180deg, #0A0A0F 0%, #12121A 100%);
+  --gradient-hero: linear-gradient(135deg, #1a2336 0%, #1e3a8a 100%);
+  --gradient-card: linear-gradient(180deg, rgba(35,43,59,0.95) 0%, rgba(30,38,52,0.9) 100%);
+  --gradient-sidebar: linear-gradient(180deg, #1a2336 0%, #1e2940 100%);
 
-  // ========== 侧边栏 (深蓝灰一体化) ==========
-  --sidebar-bg: linear-gradient(180deg, #0f1724 0%, #141c2e 100%);
+  // ========== 侧边栏 (与主背景协调) ==========
+  --sidebar-bg: linear-gradient(180deg, #1a2336 0%, #1e2940 100%);
   --sidebar-text: rgba(255, 255, 255, 0.55);
   --sidebar-text-active: #e2e8f0;
   --sidebar-hover-bg: rgba(99, 179, 237, 0.08);
@@ -213,8 +213,8 @@ html.dark {
   --sidebar-border: rgba(255, 255, 255, 0.06);
 
   // ========== 顶部栏 ==========
-  --header-bg: #1a2332;
-  --header-border: rgba(255, 255, 255, 0.08);
+  --header-bg: #263040;
+  --header-border: rgba(255, 255, 255, 0.10);
 
   // ========== 图表 (网格线若隐若现) ==========
   --chart-bg: transparent;
