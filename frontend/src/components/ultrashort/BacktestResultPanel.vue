@@ -773,6 +773,16 @@ function exportTrades() {
         <span v-if="result.sell_reason_stats.max_hold > 0" class="sell-reason-item max-hold">
           <span class="reason-dot"></span>到期{{ result.sell_reason_stats.max_hold }}笔({{ sellReasonPct('max_hold') }}%)
         </span>
+        <!-- V48: 新增冲高回落/利润保护/利润锁定在卖出原因栏 -->
+        <span v-if="result.sell_reason_stats.pullback > 0" class="sell-reason-item pullback">
+          <span class="reason-dot"></span>冲高回落{{ result.sell_reason_stats.pullback }}笔({{ sellReasonPct('pullback') }}%)
+        </span>
+        <span v-if="result.sell_reason_stats.profit_protect > 0" class="sell-reason-item profit-protect">
+          <span class="reason-dot"></span>利润保护{{ result.sell_reason_stats.profit_protect }}笔({{ sellReasonPct('profit_protect') }}%)
+        </span>
+        <span v-if="result.sell_reason_stats.profit_lock > 0" class="sell-reason-item profit-lock">
+          <span class="reason-dot"></span>利润锁定{{ result.sell_reason_stats.profit_lock }}笔({{ sellReasonPct('profit_lock') }}%)
+        </span>
         <span v-if="result.sell_reason_stats.other > 0" class="sell-reason-item other">
           <span class="reason-dot"></span>其他{{ result.sell_reason_stats.other }}笔({{ sellReasonPct('other') }}%)
         </span>
@@ -1122,6 +1132,9 @@ export default { name: 'BacktestResultPanel' }
     &.rebalance { color: var(--primary-500); .reason-dot { background: var(--primary-500); } }
     &.stop-loss { color: var(--stock-up); .reason-dot { background: var(--stock-up); } }
     &.max-hold { color: var(--el-color-warning); .reason-dot { background: var(--el-color-warning); } }
+    &.pullback { color: #f59e0b; .reason-dot { background: #f59e0b; } }
+    &.profit-protect { color: #8b5cf6; .reason-dot { background: #8b5cf6; } }
+    &.profit-lock { color: #6366f1; .reason-dot { background: #6366f1; } }
     &.force-empty { color: var(--text-tertiary); .reason-dot { background: var(--text-tertiary); } }
     &.other { color: var(--text-muted); .reason-dot { background: var(--text-muted); } }
   }
