@@ -3674,10 +3674,9 @@ class PortfolioBacktester:
         return position_multiplier, active_periods
 
     def _apply_limit_up_hit_probability(self, target_shares: dict, prices: dict, trade_date: int) -> dict:
-        """【V36优化:首板打板成交概率模拟】
+        """【V37:首板打板成交概率模拟】
         一字板0%/秒板20%/快速板45%/盘中板65%, 用确定性hash保证可复现
-        V36调整: 从0/30/50/70→0/20/45/65,更接近实际打板成交率
-        原参数过于保守导致回测打板策略收益偏低
+        V37调整: 从0/25/50/70→0/20/45/65,更保守避免过多低质量成交
         Returns: 修改后的target_shares
         """
         _limit_up_codes = []
@@ -3706,9 +3705,9 @@ class PortfolioBacktester:
                 sp = self._strategy_params.get('首板打板', {})
                 # 【V36:从strategy_defaults读取,默认值与STRATEGY_CONFIGS同步】
                 hit_prob_yizi = sp.get('hit_probability_yizi', 0.0)
-                hit_prob_fast = sp.get('hit_probability_fast', 0.25)
-                hit_prob_normal = sp.get('hit_probability_normal', 0.50)
-                hit_prob_slow = sp.get('hit_probability_slow', 0.70)
+                hit_prob_fast = sp.get('hit_probability_fast', 0.20)
+                hit_prob_normal = sp.get('hit_probability_normal', 0.45)
+                hit_prob_slow = sp.get('hit_probability_slow', 0.65)
 
                 if o == c == h == l:
                     hit_prob = hit_prob_yizi
