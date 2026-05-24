@@ -1821,14 +1821,16 @@ class PortfolioBacktester:
                     if opening_pct is None or (isinstance(opening_pct, float) and math.isnan(opening_pct)):
                         filtered_candidates.append(code)
                         continue
-                    # 【V36优化:收窄竞价过滤阈值】5-7%高开区间冲高回落概率>60%
-                    # 旧: 高开>7%/低开<-5% → 新: 高开>5%/低开<-3%
-                    if opening_pct > 5 or opening_pct < -3:
+                    # 【V37修复:恢复V35竞价过滤阈值,V36收窄导致收益暴降40.5%】
+                    # V36问题: 低开<-3%排除跌停翘板核心候选(开盘-3%~-9%)
+                    # V36问题: 高开>5%排除5-7%高开好信号(冲高回落保护可覆盖)
+                    # V35原阈值: 高开>7%/低开<-5% 是经过回测验证的最优值
+                    if opening_pct > 7 or opening_pct < -5:
                         pass  # 排除极端竞价
                     else:
                         filtered_candidates.append(code)
                 all_candidates = set(filtered_candidates)
-                await self.log(f"   ✅ 竞价过滤(日线近似: 排除高开>5%/低开<-3%)完成: {original_count} → {len(all_candidates)}")
+                await self.log(f"   ✅ 竞价过滤(日线近似: 排除高开>7%/低开<-5%)完成: {original_count} → {len(all_candidates)}")
 
             if len(all_candidates) == 0:
                 await self.log(f"   ⚠️  竞价过滤后无候选,跳过调仓")
@@ -3847,7 +3849,7 @@ class PortfolioBacktester:
         # 原因:调仓卖出会错过后续大涨(如龙头低吸盈利8%被调仓卖,次日冲高15%)
         # 保护性卖出(冲高回落/利润保护/止损/止盈)仍然正常触发
         # 【V35修复:已触发止损/冲高回落/利润保护的股不受保护,避免保护阻止止损】
-        hold_protection_pct = self._risk_config.get('hold_protection_threshold', GLOBAL_RISK.get('hold_protection_threshold', 0.08))
+        hold_protection_pct = self._risk_config.get('hold_protection_threshold', GLOBAL_RISK.get('hold_protection_threshold', 0.06))
         _mark_sold_codes = set(pos_mgr.sell_code_reasons.keys())  # 已有保护性卖出reason的股
         if hold_protection_pct > 0:
             protected_codes = []
