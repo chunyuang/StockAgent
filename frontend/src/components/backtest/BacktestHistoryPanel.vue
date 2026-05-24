@@ -363,23 +363,23 @@ export default { name: 'BacktestHistoryPanel' }
 </script>
 
 <style scoped lang="scss">
-.history-panel { background: #fff; border-radius: 8px; overflow: hidden; min-width: 0; }
+.history-panel { background: var(--bg-elevated); border-radius: 8px; overflow: hidden; min-width: 0; }
 
 /* 汇总统计条 */
 .summary-bar {
   display: flex; align-items: center; gap: 12px; padding: 10px 16px;
   background: linear-gradient(135deg, #f0f9eb 0%, #f5f7fa 50%, #fef0f0 100%);
-  border-bottom: 1px solid #ebeef5; flex-wrap: wrap; min-width: 0;
+  border-bottom: 1px solid var(--border-default); flex-wrap: wrap; min-width: 0;
 }
 .sm-item { display: flex; flex-direction: column; align-items: center; gap: 1px; }
 .sm-val { font-size: 14px; font-weight: 700; color: #303133; }
-.sm-lbl { font-size: 10px; color: #909399; }
-.sm-div { width: 1px; height: 24px; background: #dcdfe6; flex-shrink: 0; }
+.sm-lbl { font-size: 10px; color: var(--text-tertiary); }
+.sm-div { width: 1px; height: 24px; background: var(--border-muted); flex-shrink: 0; }
 
 /* 头部 */
 .history-header {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 10px 16px; background: #fff; border-bottom: 1px solid #ebeef5;
+  padding: 10px 16px; background: var(--bg-elevated); border-bottom: 1px solid var(--border-default);
   flex-wrap: wrap; gap: 8px; min-width: 0;
   h3 { margin: 0; font-size: 15px; color: #303133; font-weight: 600; }
   .hh-left { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -390,11 +390,11 @@ export default { name: 'BacktestHistoryPanel' }
 /* 排序栏 */
 .sort-bar {
   display: flex; align-items: center; gap: 6px; padding: 6px 16px;
-  background: #fafbfc; border-bottom: 1px solid #ebeef5; flex-wrap: wrap; min-width: 0;
-  .sort-label { font-size: 12px; color: #909399; white-space: nowrap; }
+  background: var(--bg-elevated); border-bottom: 1px solid var(--border-default); flex-wrap: wrap; min-width: 0;
+  .sort-label { font-size: 12px; color: var(--text-tertiary); white-space: nowrap; }
 }
 
-.hint { font-size: 13px; margin-top: 8px; color: #909399; }
+.hint { font-size: 13px; margin-top: 8px; color: var(--text-tertiary); }
 
 /* ===== 卡片视图 ===== */
 .card-list {
@@ -404,19 +404,19 @@ export default { name: 'BacktestHistoryPanel' }
   max-height: calc(100vh - 280px); overflow-y: auto;
 }
 .bt-card {
-  padding: 12px 14px; border-radius: 8px; border: 1px solid #ebeef5; background: #fff;
+  padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border-default); background: var(--bg-elevated);
   transition: all 0.2s; cursor: pointer;
   &:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.08); border-color: #c0c4cc; }
-  &.bt-selected { border-color: #409eff; background: #ecf5ff; box-shadow: 0 0 0 1px #409eff; }
+  &.bt-selected { border-color: var(--primary-500); background: var(--bg-active); box-shadow: 0 0 0 1px #409eff; }
   &.bt-failed { border-left: 3px solid #f56c6c; }
 }
 
 /* 卡片顶行 */
 .bt-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 4px; min-width: 0; }
 .bt-top-left, .bt-top-right { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.bt-date { font-family: monospace; font-size: 12px; color: #606266; font-weight: 500; }
-.bt-created { font-size: 11px; color: #909399; }
-.bt-duration { font-size: 11px; color: #909399; }
+.bt-date { font-family: monospace; font-size: 12px; color: var(--text-secondary); font-weight: 500; }
+.bt-created { font-size: 11px; color: var(--text-tertiary); }
+.bt-duration { font-size: 11px; color: var(--text-tertiary); }
 
 /* 策略标签 */
 .bt-strategies { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; min-width: 0; }
@@ -430,9 +430,9 @@ export default { name: 'BacktestHistoryPanel' }
 .bt-metric { display: flex; flex-direction: column; align-items: center; gap: 1px; }
 .bt-metric-main { /* 收益列稍大 */ }
 .bt-m-val { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.bt-m-lbl { font-size: 10px; color: #909399; }
+.bt-m-lbl { font-size: 10px; color: var(--text-tertiary); }
 
-.mini-bar { height: 3px; background: #ebeef5; border-radius: 2px; overflow: hidden; width: 100%; margin-top: 2px; }
+.mini-bar { height: 3px; background: var(--border-default); border-radius: 2px; overflow: hidden; width: 100%; margin-top: 2px; }
 .mini-bar-fill { height: 100%; border-radius: 2px; transition: width 0.3s ease; }
 
 /* 操作 */
@@ -442,27 +442,27 @@ export default { name: 'BacktestHistoryPanel' }
 .table-view { overflow-x: auto; padding: 0; }
 .bt-table {
   width: 100%; border-collapse: collapse; font-size: 12px;
-  th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #ebeef5; white-space: nowrap; }
-  th { background: #fafbfc; font-weight: 600; color: #606266; cursor: pointer; user-select: none;
-    &:hover { color: #409eff; }
-    &.active { color: #409eff; }
+  th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border-default); white-space: nowrap; }
+  th { background: var(--bg-elevated); font-weight: 600; color: var(--text-secondary); cursor: pointer; user-select: none;
+    &:hover { color: var(--primary-500); }
+    &.active { color: var(--primary-500); }
   }
-  tr:hover td { background: #f5f7fa; }
-  tr.bt-selected td { background: #ecf5ff; }
-  .td-date { color: #909399; }
-  .td-mono { font-family: monospace; color: #606266; }
+  tr:hover td { background: var(--bg-muted); }
+  tr.bt-selected td { background: var(--bg-active); }
+  .td-date { color: var(--text-tertiary); }
+  .td-mono { font-family: monospace; color: var(--text-secondary); }
   .td-strategies { white-space: normal; min-width: 120px; }
   .td-actions { white-space: nowrap; }
-  .more-tag { font-size: 11px; color: #909399; margin-left: 2px; }
+  .more-tag { font-size: 11px; color: var(--text-tertiary); margin-left: 2px; }
 }
 
 /* 对比 */
 .compare-grid { overflow-x: auto; }
 .cmp-table {
   width: 100%; border-collapse: collapse; font-size: 13px;
-  th, td { padding: 8px 14px; text-align: center; border: 1px solid #ebeef5; }
-  th { background: #fafbfc; font-weight: 600; }
-  .cmp-label { text-align: left; font-weight: 600; color: #606266; background: #fafbfc; }
+  th, td { padding: 8px 14px; text-align: center; border: 1px solid var(--border-default); }
+  th { background: var(--bg-elevated); font-weight: 600; }
+  .cmp-label { text-align: left; font-weight: 600; color: var(--text-secondary); background: var(--bg-elevated); }
   .best-val { font-weight: 700; }
   .best-val::after { content: ' ★'; color: #e6a23c; font-size: 11px; }
 }
