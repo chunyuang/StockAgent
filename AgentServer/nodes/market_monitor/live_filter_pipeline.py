@@ -54,10 +54,8 @@ class LiveFilterPipeline:
 
     # 特殊时期配置
     SPECIAL_PERIODS = {
-        # 月末最后2个交易日降仓
+        # 月末最后2个交易日降仓（回退用，正式逻辑走SpecialPeriodFilter）
         "month_end": {"days_before": 2, "position_ratio": 0.3},
-        # 重要会议期间降仓
-        "conference": {"position_ratio": 0.5},
     }
 
     # 策略优先级（同时多策略选中同一股票时，按优先级取）
@@ -258,22 +256,32 @@ class LiveFilterPipeline:
         """
         特殊时期检测 → 仓位系数
 
-        实盘适配: 可接入日历API判断节假日/会议，回测用hardcode日期表
+        复用回测引擎的SpecialPeriodFilter，与回测逻辑完全对齐。
+        优先级：年末 > 季末 > 月末 > 重大会议 > 节假日前夕
         """
-        td = datetime.strptime(trade_date, "%Y%m%d")
-        day = td.day
-        weekday = td.weekday()
-
-        # 月末: 最后2个交易日（简化用日期>=28判断）
-        if day >= 28:
-            return self.SPECIAL_PERIODS["month_end"]["position_ratio"], "月末降仓"
-
-        # 周五: 降低仓位（周末不确定性）
-        if weekday == 4:  # Friday
-            return 0.7, "周五降仓"
-
-        # TODO: 可扩展接入节假日日历、重要会议日程
-        return 1.0, "正常"
+        try:
+            from nodes.backtest_engine.factor_selection.special_period_filter import get_special_period_filter
+            sp_filter = get_special_period_filter()
+            ratio = sp_filter.get_position_multiplier(trade_date)
+            if ratio < 1.0:
+                # 找出生效的特殊时期名称
+                active = sp_filter.get_active_periods(trade_date)
+                if active:
+                    names = ", ".join(p.name for p in active)
+                    return ratio, names
+                return ratio, "特殊时期降仓"
+            return 1.0, "正常"
+        except Exception as e:
+            logger.warning(f"[L2] SpecialPeriodFilter异常: {e}, 回退简单判断")
+            td = datetime.strptime(trade_date, "%Y%m%d")
+            day = td.day
+            weekday = td.weekday()
+            # 简单回退逻辑
+            if day >= 28:
+                return 0.3, "月末降仓"
+            if weekday == 4:
+                return 0.7, "周五降仓"
+            return 1.0, "正常"
 
     # ========================================================================
     # L3: 情绪周期

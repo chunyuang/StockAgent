@@ -371,7 +371,27 @@ class PreBuyRiskChecker:
                 )
                 if basic:
                     stock_info['market_cap'] = basic.get('circ_mv', 50) or 50  # 流通市值(亿元)
-                    stock_info['volatility_20d'] = 0.15  # TODO: 需从历史波动率计算
+                    # 计算20日波动率: 最近20个交易日pct_chg的标准差
+                    try:
+                        recent = list(mongo_manager.db.stock_daily_ak_full.find(
+                            {'ts_code': ts_code, 'pct_chg': {'$ne': None}},
+                            sort=[('trade_date', -1)],
+                            projection={'pct_chg': 1},
+                            limit=20
+                        ))
+                        if len(recent) >= 10:  # 至少10个交易日才有意义
+                            import math
+                            pcts = [abs(r['pct_chg']) / 100 for r in recent if r.get('pct_chg') is not None]
+                            if pcts:
+                                mean_p = sum(pcts) / len(pcts)
+                                var_p = sum((p - mean_p) ** 2 for p in pcts) / len(pcts)
+                                stock_info['volatility_20d'] = math.sqrt(var_p)
+                            else:
+                                stock_info['volatility_20d'] = 0.15
+                        else:
+                            stock_info['volatility_20d'] = 0.15  # 数据不足用默认值
+                    except Exception:
+                        stock_info['volatility_20d'] = 0.15
             except Exception as e:
                 logger.warning(f"risk_checker获取股票基本信息失败: {e}")
                 stock_info.setdefault('market_cap', 50)
