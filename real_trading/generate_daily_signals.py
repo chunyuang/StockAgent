@@ -76,8 +76,8 @@ class RealTradingSignalGenerator:
             self.backtester._risk_config["take_profit_pct"] = self.config.get("take_profit_pct", GLOBAL_RISK["take_profit_pct"])
             self.backtester._risk_config["max_hold_days"] = self.config.get("max_hold_days", GLOBAL_RISK["max_hold_days"])
             self.backtester._risk_config["max_position_per_stock"] = self.config.get("max_position_per_stock", GLOBAL_RISK["max_position_per_stock"])
-            # 【V34:持仓保护】盈利股不让调仓随意卖出,让止盈/保护性卖出自然退出
-            self.backtester._risk_config["hold_protection_threshold"] = GLOBAL_RISK.get("hold_protection_threshold", 0.05)
+            # 【V34:持仓保护】【V36:阈值从0.05→0.08在strategy_defaults中已修改,这里自动跟随】
+            self.backtester._risk_config["hold_protection_threshold"] = GLOBAL_RISK.get("hold_protection_threshold", 0.08)
             self.backtester._risk_config["intraday_lock_min_high_rise"] = GLOBAL_RISK.get("intraday_lock_min_high_rise", 0.06)
             self.backtester._risk_config["intraday_lock_pullback_pct"] = GLOBAL_RISK.get("intraday_lock_pullback_pct", 0.025)
             self.backtester._risk_config["intraday_lock_min_profit"] = GLOBAL_RISK.get("intraday_lock_min_profit", 0.02)

@@ -884,15 +884,15 @@ function exportTrades() {
               <ElTableColumn label="策略名称" width="120">
                 <template #default="{ row }">{{ strategyDisplayName(row.name) }}</template>
               </ElTableColumn>
-              <ElTableColumn label="累计盈利" width="100">
+              <ElTableColumn label="累计盈利" width="100" sortable>
                 <template #default="{ row }">
                   <span :style="{ color: row.total_return >= 0 ? '#67c23a' : '#f56c6c' }">{{ fmtPct(row.total_return) }}</span>
                 </template>
               </ElTableColumn>
-              <ElTableColumn label="胜率" width="80">
+              <ElTableColumn label="胜率" width="80" sortable>
                 <template #default="{ row }">{{ fmtPct(row.win_rate) }}</template>
               </ElTableColumn>
-              <ElTableColumn prop="trades_count" label="交易次数" width="80" />
+              <ElTableColumn prop="trades_count" label="交易次数" width="80" sortable />
               <ElTableColumn label="最大回撤" width="100">
                 <template #default="{ row }">
                   <span style="color: #f56c6c">{{ fmtPct(row.max_drawdown) }}</span>
