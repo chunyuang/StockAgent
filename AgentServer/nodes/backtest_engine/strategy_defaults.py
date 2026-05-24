@@ -28,7 +28,7 @@ GLOBAL_RISK = {
     "intraday_lock_min_high_rise": 0.06,  # 盘中利润锁定:冲高≥6%
     "intraday_lock_pullback_pct": 0.025,  # 盘中利润锁定:从高点回撤≥2.5%
     "intraday_lock_min_profit": 0.02,     # 盘中利润锁定:收盘仍≥2%利润
-    "hold_protection_threshold": 0.08,     # 【V36优化:持仓保护】盈利≥8%+阳线时不因调仓卖出(5%过低保护了微盈利股反而降低收益)
+    "hold_protection_threshold": 0.06,     # 【V37优化:持仓保护】盈利≥6%+阳线时不因调仓卖出(V35:5%过于保护微盈利股,V36:8%太宽松错过5-8%的持续上涨,6%为折中值)
     "live_trading_mode": False,     # 【V29:实盘模式开关】True时pct_chg等T日因子降级为_prev
 }
 
@@ -77,9 +77,9 @@ STRATEGY_CONFIGS = {
             "min_circulation_market_cap": 50,            # 最小流通市值50亿(保持50,80过严)
             "max_circulation_market_cap": 500,           # 最大流通市值(亿)
             "hit_probability_yizi": 0.0,                # 一字板成交概率0%(不可能买入)
-            "hit_probability_fast": 0.25,                # 秒板(开盘>8%)成交概率25%(V36:20%→25%,适度上调)
-            "hit_probability_normal": 0.50,              # 快速板(开盘2-8%)50%(V36:40%→50%,恢复到合理水平)
-            "hit_probability_slow": 0.70,                # 盘中板(开盘<2%)70%(V36:60%→70%,盘中封板成交率高)
+            "hit_probability_fast": 0.20,                 # 秒板(开盘>8%)成交概率20%(V37:恢复20%,V36上调25%未带来显著改善且可能导致过多低质量成交)
+            "hit_probability_normal": 0.45,              # 快速板(开盘2-8%)45%(V37:恢复45%,折中值)
+            "hit_probability_slow": 0.65,                # 盘中板(开盘<2%)65%(V37:恢复65%,折中值)
             "next_day_open_sell_pct": 0.03, # 次日高开≥3%即卖出(首板高开即卖)
         },
         "riskParams": {
