@@ -512,7 +512,7 @@ onMounted(() => {
   }
 
   .page-description {
-    color: #606266;
+    color: var(--text-secondary);
     margin: 0;
     font-size: 13px;
   }
@@ -549,7 +549,7 @@ onMounted(() => {
 
     p {
       margin: 0 0 16px 0;
-      color: #606266;
+      color: var(--text-secondary);
       font-size: 13px;
     }
   }
@@ -559,7 +559,7 @@ onMounted(() => {
   margin-bottom: 20px;
 
   .result-json {
-    background: #f5f7fa;
+    background: var(--bg-muted);
     padding: 16px;
     border-radius: 4px;
     font-family: 'Courier New', monospace;
@@ -578,7 +578,7 @@ onMounted(() => {
   .stats-item {
     .stats-label {
       font-size: 12px;
-      color: #909399;
+      color: var(--text-tertiary);
       margin-bottom: 4px;
     }
     .stats-value {

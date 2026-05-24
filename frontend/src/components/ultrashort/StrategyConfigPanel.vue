@@ -560,7 +560,7 @@ export default { name: 'StrategyConfigPanel' }
   border: none;
   box-shadow: none;
   background: transparent;
-  :deep(.el-card__header) { padding: 10px 16px; background: transparent; border-bottom: 1px solid #ebeef5; }
+  :deep(.el-card__header) { padding: 10px 16px; background: transparent; border-bottom: 1px solid var(--border-default); }
   :deep(.el-card__body) { padding: 12px 16px; }
   .card-header {
     display: flex;
@@ -584,7 +584,7 @@ export default { name: 'StrategyConfigPanel' }
       flex-wrap: wrap;
       .sweep-label {
         font-size: 12px;
-        color: #606266;
+        color: var(--text-secondary);
         white-space: nowrap;
       }
     }
@@ -592,26 +592,26 @@ export default { name: 'StrategyConfigPanel' }
 }
 .sweep-config {
   padding: 14px 18px;
-  background: linear-gradient(135deg, #f0f5ff 0%, #e6f7ff 100%);
+  background: linear-gradient(135deg, var(--primary-50) 0%, var(--primary-100) 100%);
   border-radius: 8px;
   margin-bottom: 14px;
-  border: 1px dashed #409eff;
+  border: 1px dashed var(--primary-300);
   .sweep-config-title {
     font-weight: 700;
     font-size: 13px;
-    color: #409eff;
+    color: var(--primary-500);
     margin-bottom: 10px;
   }
 }
 .unit {
   margin-left: 8px;
-  color: #909399;
+  color: var(--text-tertiary);
   font-size: 12px;
 }
 .risk-params-section {
   margin-top: 16px;
   padding-top: 14px;
-  border-top: 1px dashed #e4e7ed;
+  border-top: 1px dashed var(--border-default);
   .risk-params-title {
     font-weight: 700;
     font-size: 13px;
@@ -631,17 +631,17 @@ export default { name: 'StrategyConfigPanel' }
   padding-right: 40px !important;
   font-weight: 600;
   font-size: 13px;
-  background: #fafafa;
+  background: var(--bg-elevated);
   border-radius: 6px;
   margin-bottom: 4px;
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--border-default);
   height: 40px;
   line-height: 40px;
 }
 :deep(.el-collapse-item__header.is-active) {
-  background: #ecf5ff;
-  border-color: #b3d8ff;
-  color: #409eff;
+  background: var(--bg-active);
+  border-color: var(--primary-200);
+  color: var(--primary-500);
 }
 :deep(.el-collapse-item__wrap) {
   border: none;
@@ -651,11 +651,11 @@ export default { name: 'StrategyConfigPanel' }
   padding: 12px 8px 16px;
 }
 :deep(.el-collapse-item__header::-webkit-scrollbar) { height: 4px; }
-:deep(.el-collapse-item__header::-webkit-scrollbar-thumb) { background-color: #dcdfe6; border-radius: 2px; }
+:deep(.el-collapse-item__header::-webkit-scrollbar-thumb) { background-color: var(--border-muted); border-radius: 2px; }
 :deep(.el-collapse-item__arrow) {
   position: absolute;
   right: 15px;
-  background: #fff;
+  background: var(--bg-elevated);
   padding-left: 10px;
 }
 :deep(.el-form-item) {
@@ -663,7 +663,7 @@ export default { name: 'StrategyConfigPanel' }
 }
 :deep(.el-form-item__label) {
   font-size: 13px;
-  color: #606266;
+  color: var(--text-secondary);
 }
 :deep(.el-input-number) {
   width: 160px;

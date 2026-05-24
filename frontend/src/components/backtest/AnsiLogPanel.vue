@@ -443,7 +443,7 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
       background: #238636;
       border: 1px solid #2ea043;
       border-radius: 4px;
-      color: #fff;
+      color: var(--bg-elevated);
       cursor: pointer;
       padding: 4px 12px;
       font-size: 12px;
@@ -476,7 +476,7 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
 
       &.active {
         background: #f85149;
-        color: #fff;
+        color: var(--bg-elevated);
       }
     }
 
@@ -517,7 +517,7 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
       &.active {
         background: #1f6feb;
         border-color: #1f6feb;
-        color: #fff;
+        color: var(--bg-elevated);
       }
     }
   }
@@ -627,7 +627,7 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
     left: 50%;
     transform: translateX(-50%);
     background: #1f6feb;
-    color: #fff;
+    color: var(--bg-elevated);
     padding: 5px 16px;
     border-radius: 16px;
     font-size: 12px;

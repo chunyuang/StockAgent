@@ -234,7 +234,7 @@ function toggleStrategy(id: string) {
 
 .section-title {
   font-size: 16px; font-weight: 700; color: #303133; margin-bottom: 12px;
-  padding-bottom: 8px; border-bottom: 2px solid #409eff;
+  padding-bottom: 8px; border-bottom: 2px solid var(--primary-500);
 }
 
 // 9层筛选流程
@@ -245,56 +245,56 @@ function toggleStrategy(id: string) {
   display: flex; align-items: flex-start; gap: 10px;
 }
 .flow-num {
-  width: 28px; height: 28px; border-radius: 50%; background: #409eff; color: #fff;
+  width: 28px; height: 28px; border-radius: 50%; background: var(--primary-500); color: var(--bg-elevated);
   display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700;
   flex-shrink: 0; margin-top: 2px;
 }
 .flow-content { flex: 1; }
 .flow-name { font-weight: 600; font-size: 14px; }
-.flow-desc { font-size: 12px; color: #909399; margin-top: 1px; }
+.flow-desc { font-size: 12px; color: var(--text-tertiary); margin-top: 1px; }
 .flow-factors { margin-top: 4px; display: flex; gap: 4px; flex-wrap: wrap; }
 .factor-tag {
-  font-size: 11px; background: #ecf5ff; color: #409eff; padding: 1px 6px;
+  font-size: 11px; background: var(--bg-active); color: var(--primary-500); padding: 1px 6px;
   border-radius: 3px; font-family: 'SF Mono', monospace;
 }
-.flow-when { font-size: 11px; color: #606266; margin-top: 3px; line-height: 1.5; background: #fafafa; padding: 3px 8px; border-radius: 4px; }
+.flow-when { font-size: 11px; color: var(--text-secondary); margin-top: 3px; line-height: 1.5; background: var(--bg-elevated); padding: 3px 8px; border-radius: 4px; }
 .flow-arrow { color: #c0c4cc; font-size: 18px; align-self: center; }
 
 // 策略卡片
 .strategy-cards { display: flex; flex-direction: column; gap: 8px; }
 .s-card {
-  border: 1px solid #ebeef5; border-radius: 8px; overflow: hidden; transition: all 0.2s;
-  &.expanded { border-color: #409eff; box-shadow: 0 2px 12px rgba(64,158,255,0.1); }
+  border: 1px solid var(--border-default); border-radius: 8px; overflow: hidden; transition: all 0.2s;
+  &.expanded { border-color: var(--primary-500); box-shadow: 0 2px 12px rgba(64,158,255,0.1); }
 }
 .s-header {
   display: flex; align-items: center; gap: 8px; padding: 12px 16px;
-  cursor: pointer; border-left: 4px solid; background: #fafafa;
+  cursor: pointer; border-left: 4px solid; background: var(--bg-elevated);
   flex-wrap: wrap; min-width: 0;
   &:hover { background: #f0f2f5; }
 }
 .s-emoji { font-size: 20px; }
 .s-name { font-weight: 700; font-size: 16px; }
-.s-desc-inline { font-size: 12px; color: #909399; flex: 1; }
-.s-expand { font-size: 12px; color: #909399; }
+.s-desc-inline { font-size: 12px; color: var(--text-tertiary); flex: 1; }
+.s-expand { font-size: 12px; color: var(--text-tertiary); }
 
-.s-body { padding: 16px; border-top: 1px solid #ebeef5; }
-.s-desc-full { font-size: 13px; color: #606266; line-height: 1.6; margin-bottom: 16px; padding: 8px 12px; background: #f5f7fa; border-radius: 6px; }
+.s-body { padding: 16px; border-top: 1px solid var(--border-default); }
+.s-desc-full { font-size: 13px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 16px; padding: 8px 12px; background: var(--bg-muted); border-radius: 6px; }
 
 .s-section { margin-bottom: 14px; }
 .s-section-title { font-weight: 600; font-size: 13px; color: #303133; margin-bottom: 8px; }
-.s-sub { font-size: 12px; color: #606266; }
+.s-sub { font-size: 12px; color: var(--text-secondary); }
 
 .factor-table {
-  width: 100%; border: 1px solid #ebeef5; border-radius: 6px; overflow: hidden;
+  width: 100%; border: 1px solid var(--border-default); border-radius: 6px; overflow: hidden;
   overflow-x: auto;
 }
-.ft-header { display: flex; background: #f5f7fa; font-size: 12px; font-weight: 600; color: #909399; }
-.ft-row { display: flex; border-top: 1px solid #ebeef5; &:hover { background: #fafcff; } }
+.ft-header { display: flex; background: var(--bg-muted); font-size: 12px; font-weight: 600; color: var(--text-tertiary); }
+.ft-row { display: flex; border-top: 1px solid var(--border-default); &:hover { background: var(--bg-elevated); } }
 .ft-col { padding: 6px 10px; font-size: 12px; }
-.ft-name-col { flex: 0 0 min(170px, 30%); font-family: 'SF Mono', monospace; color: #409eff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ft-name-col { flex: 0 0 min(170px, 30%); font-family: 'SF Mono', monospace; color: var(--primary-500); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ft-label-col { flex: 0 0 min(110px, 20%); color: #303133; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ft-cond-col { flex: 1 1 auto; color: #e6a23c; font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ft-src-col { flex: 0 0 min(120px, 18%); color: #909399; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ft-src-col { flex: 0 0 min(120px, 18%); color: var(--text-tertiary); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .risk-tags { display: flex; gap: 6px; flex-wrap: wrap; }
 .risk-tag {
@@ -305,9 +305,9 @@ function toggleStrategy(id: string) {
 .flow-steps { display: flex; flex-direction: column; gap: 6px; }
 .flow-step-item { display: flex; align-items: flex-start; gap: 8px; }
 .step-num {
-  width: 20px; height: 20px; border-radius: 50%; background: #ecf5ff; color: #409eff;
+  width: 20px; height: 20px; border-radius: 50%; background: var(--bg-active); color: var(--primary-500);
   display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600;
   flex-shrink: 0;
 }
-.step-text { font-size: 12px; color: #606266; line-height: 1.5; }
+.step-text { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
 </style>
