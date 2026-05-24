@@ -44,6 +44,7 @@ import {
 } from 'element-plus'
 import { Download } from '@element-plus/icons-vue'
 import { STRATEGY_NAMES } from '@/config/backtestConstants'
+import { GLOBAL_RISK } from '@/config/strategyDefaults'
 
 use([CanvasRenderer, LineChart, BarChart, PieChart, RadarChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent, DataZoomComponent])
 
@@ -51,6 +52,9 @@ const props = defineProps<{
   result: any
   form: any
 }>()
+
+// 持仓保护阈值(从GLOBAL_RISK读取,动态显示)
+const holdProtPct = computed(() => GLOBAL_RISK.hold_protection_threshold || 0.05)
 
 // 格式化百分比(后端已是百分比形式,直接加%)
 function fmtPct(val: number | undefined | null): string {
@@ -796,7 +800,7 @@ function exportTrades() {
 
     <!-- 任务2.5: 持仓保护统计 -->
     <div v-if="result?.sell_reason_stats" class="hold-protection-info" style="margin-top: 8px; display: flex; align-items: center; gap: 12px; font-size: 12px; color: #909399">
-      <span>🔒 持仓保护: 盈利≥5%+阳线不调仓卖出</span>
+      <span>🔒 持仓保护: 盈利≥{{ Math.round(holdProtPct * 100) }}%+阳线不调仓卖出</span>
       <span v-if="result.sell_reason_stats.profit_lock > 0">| 利润锁{{ result.sell_reason_stats.profit_lock }}笔</span>
       <span v-if="result.sell_reason_stats.profit_protect > 0">| 利润保{{ result.sell_reason_stats.profit_protect }}笔</span>
       <span v-if="result.sell_reason_stats.pullback > 0">| 冲高回{{ result.sell_reason_stats.pullback }}笔</span>
