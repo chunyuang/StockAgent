@@ -1032,7 +1032,7 @@ export default { name: 'BacktestResultPanel' }
   padding: 10px 16px;
   border-radius: 8px;
   background: linear-gradient(135deg, #f8f9fa 0%, #fff 100%);
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--border-default);
   min-width: min(90px, 20%);
   flex: 1 1 auto;
   transition: box-shadow 0.2s;
@@ -1040,7 +1040,7 @@ export default { name: 'BacktestResultPanel' }
     box-shadow: 0 2px 8px rgba(0,0,0,0.06);
   }
 }
-.kpi-label { font-size: 11px; color: #909399; font-weight: 500; }
+.kpi-label { font-size: 11px; color: var(--text-tertiary); font-weight: 500; }
 .kpi-value { font-size: 17px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
 .annual-warn { color: #e6a23c; cursor: help; font-weight: 700; }
 .chart-card { margin-bottom: 0; }
@@ -1085,9 +1085,9 @@ export default { name: 'BacktestResultPanel' }
   gap: 16px;
   padding: 10px 16px;
   margin-bottom: 16px;
-  background: #fafafa;
+  background: var(--bg-elevated);
   border-radius: 8px;
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--border-default);
   font-size: 13px;
   flex-wrap: wrap;
   min-width: 0;
@@ -1108,8 +1108,8 @@ export default { name: 'BacktestResultPanel' }
     gap: 4px;
     padding: 3px 10px;
     border-radius: 12px;
-    background: #fff;
-    border: 1px solid #ebeef5;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
     font-weight: 500;
     .reason-dot {
       display: inline-block;
@@ -1118,10 +1118,10 @@ export default { name: 'BacktestResultPanel' }
       border-radius: 50%;
     }
     &.take-profit { color: #67c23a; .reason-dot { background: #67c23a; } }
-    &.rebalance { color: #409eff; .reason-dot { background: #409eff; } }
+    &.rebalance { color: var(--primary-500); .reason-dot { background: var(--primary-500); } }
     &.stop-loss { color: #f56c6c; .reason-dot { background: #f56c6c; } }
     &.max-hold { color: #e6a23c; .reason-dot { background: #e6a23c; } }
-    &.force-empty { color: #909399; .reason-dot { background: #909399; } }
+    &.force-empty { color: var(--text-tertiary); .reason-dot { background: var(--text-tertiary); } }
     &.other { color: #c0c4cc; .reason-dot { background: #c0c4cc; } }
   }
 }

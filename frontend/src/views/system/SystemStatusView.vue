@@ -366,7 +366,7 @@ onMounted(() => {
   }
   
   .page-description {
-    color: #606266;
+    color: var(--text-secondary);
     margin: 0;
     font-size: 13px;
   }
@@ -394,12 +394,12 @@ onMounted(() => {
 
 .unit {
   margin-left: 8px;
-  color: #909399;
+  color: var(--text-tertiary);
 }
 
 .desc {
   margin-left: 12px;
-  color: #606266;
+  color: var(--text-secondary);
   font-size: 13px;
 }
 

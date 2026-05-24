@@ -835,20 +835,20 @@ function onViewLogs(taskId: string) {
   flex-direction: column;
   min-width: 0;
   overflow: hidden;
-  background: #f5f7fa;
+  background: var(--bg-muted);
 }
 .main-tabs-bar {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 12px;
-  border-bottom: 2px solid #e4e7ed;
+  border-bottom: 2px solid var(--border-default);
   flex-shrink: 0;
   flex-wrap: wrap;
   gap: 8px;
   min-width: 0;
   padding-bottom: 0;
-  background: #fff;
+  background: var(--bg-elevated);
   border-radius: 8px 8px 0 0;
   padding: 10px 16px 0;
 }
@@ -866,7 +866,7 @@ function onViewLogs(taskId: string) {
     font-weight: 600;
     border: none;
     background: transparent;
-    color: #909399;
+    color: var(--text-tertiary);
     cursor: pointer;
     border-bottom: 2px solid transparent;
     margin-bottom: -2px;
@@ -875,18 +875,18 @@ function onViewLogs(taskId: string) {
     white-space: nowrap;
     border-radius: 6px 6px 0 0;
 
-    &:hover { color: #409eff; background: #f5f7fa; }
+    &:hover { color: var(--primary-500); background: var(--bg-muted); }
 
     &.active {
-      color: #409eff;
-      border-bottom-color: #409eff;
-      background: #ecf5ff;
+      color: var(--primary-500);
+      border-bottom-color: var(--primary-500);
+      background: var(--bg-active);
     }
 
     .tab-badge {
       display: inline-block;
-      background: #e4e7ed;
-      color: #909399;
+      background: var(--border-default);
+      color: var(--text-tertiary);
       font-size: 11px;
       padding: 1px 6px;
       border-radius: 10px;
@@ -895,8 +895,8 @@ function onViewLogs(taskId: string) {
     }
 
     &.active .tab-badge {
-      background: #ecf5ff;
-      color: #409eff;
+      background: var(--bg-active);
+      color: var(--primary-500);
     }
   }
 }
@@ -908,9 +908,9 @@ function onViewLogs(taskId: string) {
   overflow: hidden;
   position: relative;
   min-width: 0;
-  background: #fff;
+  background: var(--bg-elevated);
   border-radius: 0 0 8px 8px;
-  border: 1px solid #e4e7ed;
+  border: 1px solid var(--border-default);
   border-top: none;
 }
 .config-toggle-btn {
@@ -921,11 +921,11 @@ function onViewLogs(taskId: string) {
   z-index: 10;
   width: 24px;
   height: 56px;
-  border: 1px solid #dcdfe6;
+  border: 1px solid var(--border-muted);
   border-left: none;
   border-radius: 0 8px 8px 0;
-  background: #fff;
-  color: #909399;
+  background: var(--bg-elevated);
+  color: var(--text-tertiary);
   cursor: pointer;
   font-size: 12px;
   display: flex;
@@ -933,7 +933,7 @@ function onViewLogs(taskId: string) {
   justify-content: center;
   transition: all 0.2s;
   box-shadow: 2px 0 6px rgba(0,0,0,0.05);
-  &:hover { background: #ecf5ff; color: #409eff; border-color: #b3d8ff; }
+  &:hover { background: var(--bg-active); color: var(--primary-500); border-color: var(--primary-200); }
 }
 .config-left {
   width: clamp(340px, 35vw, 520px);
@@ -943,8 +943,8 @@ function onViewLogs(taskId: string) {
   padding: 12px 12px 12px 28px;
   transition: width 0.3s;
   min-width: 0;
-  border-right: 1px solid #ebeef5;
-  background: #fafbfc;
+  border-right: 1px solid var(--border-default);
+  background: var(--bg-elevated);
 }
 .config-right {
   flex: 1;
@@ -996,7 +996,7 @@ function onViewLogs(taskId: string) {
     max-height: 50vh;
     padding: 12px;
     border-right: none;
-    border-bottom: 1px solid #ebeef5;
+    border-bottom: 1px solid var(--border-default);
   }
   .config-right { padding: 12px; }
   .config-toggle-btn { display: none; }
