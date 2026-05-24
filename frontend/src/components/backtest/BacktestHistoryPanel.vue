@@ -368,11 +368,11 @@ export default { name: 'BacktestHistoryPanel' }
 /* 汇总统计条 */
 .summary-bar {
   display: flex; align-items: center; gap: 12px; padding: 10px 16px;
-  background: linear-gradient(135deg, #f0f9eb 0%, #f5f7fa 50%, #fef0f0 100%);
+  background: linear-gradient(135deg, var(--success-bg) 0%, var(--bg-muted) 50%, var(--error-bg) 100%);
   border-bottom: 1px solid var(--border-default); flex-wrap: wrap; min-width: 0;
 }
 .sm-item { display: flex; flex-direction: column; align-items: center; gap: 1px; }
-.sm-val { font-size: 14px; font-weight: 700; color: #303133; }
+.sm-val { font-size: 14px; font-weight: 700; color: var(--text-primary); }
 .sm-lbl { font-size: 10px; color: var(--text-tertiary); }
 .sm-div { width: 1px; height: 24px; background: var(--border-muted); flex-shrink: 0; }
 
@@ -381,7 +381,7 @@ export default { name: 'BacktestHistoryPanel' }
   display: flex; justify-content: space-between; align-items: center;
   padding: 10px 16px; background: var(--bg-elevated); border-bottom: 1px solid var(--border-default);
   flex-wrap: wrap; gap: 8px; min-width: 0;
-  h3 { margin: 0; font-size: 15px; color: #303133; font-weight: 600; }
+  h3 { margin: 0; font-size: 15px; color: var(--text-primary); font-weight: 600; }
   .hh-left { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
   .view-toggle { display: flex; gap: 0; }
   .header-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -406,7 +406,7 @@ export default { name: 'BacktestHistoryPanel' }
 .bt-card {
   padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border-default); background: var(--bg-elevated);
   transition: all 0.2s; cursor: pointer;
-  &:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.08); border-color: #c0c4cc; }
+  &:hover { box-shadow: var(--shadow-md); border-color: var(--border-hover); }
   &.bt-selected { border-color: var(--primary-500); background: var(--bg-active); box-shadow: 0 0 0 1px #409eff; }
   &.bt-failed { border-left: 3px solid #f56c6c; }
 }
@@ -420,12 +420,12 @@ export default { name: 'BacktestHistoryPanel' }
 
 /* 策略标签 */
 .bt-strategies { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; min-width: 0; }
-.bt-no-strat { font-size: 12px; color: #c0c4cc; }
+.bt-no-strat { font-size: 12px; color: var(--text-muted); }
 
 /* 指标 */
 .bt-metrics {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
-  gap: 6px; margin-bottom: 8px; padding: 8px; background: #f9fafb; border-radius: 6px;
+  gap: 6px; margin-bottom: 8px; padding: 8px; background: var(--bg-muted); border-radius: 6px;
 }
 .bt-metric { display: flex; flex-direction: column; align-items: center; gap: 1px; }
 .bt-metric-main { /* 收益列稍大 */ }
