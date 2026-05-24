@@ -203,8 +203,19 @@ class PositionManager:
                 shares = 100
         
         total_cost = buy_price * shares
-        stop_loss_price = buy_price * 0.95  # 默认止损5%
-        take_profit_price = buy_price * 1.1  # 默认止盈10%
+        # 【V35修复:旧版硬编码5%/10%,现从strategy_defaults策略维度读取,与回测保持一致】
+        from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK
+        strategy_name = signal.get("strategy", "")
+        _NAME_TO_ID = {cfg["name"]: sid for sid, cfg in STRATEGY_CONFIGS.items()}
+        strategy_id = _NAME_TO_ID.get(strategy_name, "")
+        strategy_config = STRATEGY_CONFIGS.get(strategy_id, {})
+        strategy_risk = strategy_config.get("riskParams", {})
+        sl_pct = strategy_risk.get("stop_loss_pct", GLOBAL_RISK["stop_loss_pct"])
+        tp_pct = strategy_risk.get("take_profit_pct", GLOBAL_RISK["take_profit_pct"])
+        max_hold = strategy_risk.get("max_hold_days", GLOBAL_RISK["max_hold_days"])
+        
+        stop_loss_price = buy_price * (1 - sl_pct)
+        take_profit_price = buy_price * (1 + tp_pct)
         
         position = Position(
             ts_code=signal["ts_code"],

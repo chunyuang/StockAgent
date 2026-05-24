@@ -211,9 +211,12 @@ class PaperTradingEngine:
         account.current_balance -= total_payment
         
         # 【V40修复:止损止盈从strategy_defaults策略维度读取，与回测保持一致】
+        # 【V35修复:strategy参数是中文名(如"龙头低吸"),但STRATEGY_CONFIGS的key是英文ID(如"dragon_head")】
         # 不同策略有不同的风控参数，不再硬编码5%/10%
         from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK
-        strategy_config = STRATEGY_CONFIGS.get(strategy, {})
+        _NAME_TO_ID = {cfg["name"]: sid for sid, cfg in STRATEGY_CONFIGS.items()}
+        strategy_id = _NAME_TO_ID.get(strategy, "")  # 中文名→英文ID
+        strategy_config = STRATEGY_CONFIGS.get(strategy_id, {})
         strategy_risk = strategy_config.get("riskParams", {})
         global_risk = GLOBAL_RISK
         
