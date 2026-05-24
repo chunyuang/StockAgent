@@ -118,7 +118,7 @@ STRATEGY_CONFIGS = {
             "min_consecutive_limit": 1,                 # 最小连板数(1板即可:数据50.5%wr>2板42.2%>3板39.4%)
             "min_circulation_market_cap": 30,           # 最小流通市值30亿
             "min_correction_pct": 0.05,                 # 最小回调5%
-            "max_correction_pct": 0.35,                 # 最大回调35%
+            "max_correction_pct": 0.20,                 # 最大回调20%(V34:从35%→20%,止损股平均回调-14%而盈利股-9%,3月验证+7.16%/+1.02夏普)
             "correction_days_min": 1,                   # 回调天数下限
             "correction_days_max": 7,                   # 回调天数上限
             "support_level": "ma5",                     # 支撑位参考
@@ -127,8 +127,8 @@ STRATEGY_CONFIGS = {
             "next_day_open_sell_pct": 0.03,           # 次日高开≥3%冲高回落保护(V27:与半路追涨/跌停撬板一致)
         },
         "riskParams": {
-            "stop_loss_pct": 0.05,          # 止损5%
-            "take_profit_pct": 0.15,        # 止盈15%(V27:从10%→15%,回测验证:收益+9.49%/夏普+0.84/盈亏比+0.07,龙头低吸回调利润空间大,10%截断过多利润)
+            "stop_loss_pct": 0.04,          # 止损4%(V39:从5%→4%,龙头低吸是缩量回调买入,止损应更紧,组合优化+1.80%收益)
+            "take_profit_pct": 0.30,          # 止盈30%(V38:从15%→30%,回测验证+15.68%收益/夏普+0.05,仅1笔触发30%止盈,其余由冲高回落/利润保护在更高价位退出,30%作为极端行情安全网)
             "max_hold_days": 4,             # 最大持仓4天
             "slippage_pct": 0.002,          # 滑点0.2%
         }
@@ -148,7 +148,7 @@ STRATEGY_CONFIGS = {
             "pullback_mid_fallback_pct": 0.015,     # 回落≥1.5%触发(跌停翘板波动大)
         },
         "riskParams": {
-            "stop_loss_pct": 0.04,          # 止损4%(V27:从5%→4%,回测验证:收益+1.8%/夏普+0.15/盈亏比+0.04,跌停撬板波动大但4%足够止损)
+            "stop_loss_pct": 0.05,          # 止损5%(V39:从4%→5%,跌停翘板是极端波动股,止损应更宽,组合优化+1.80%收益)
             "take_profit_pct": 0.20,        # 止盈20%(V42:从25%→20%,回测验证止盈25%仅2笔avg+24.43%,20%多捕获1-2笔更快止盈减少利润回吐)
             "max_hold_days": 3,             # 最大持仓3天
             "slippage_pct": 0.003,          # 滑点0.3%(跌停后波动大)

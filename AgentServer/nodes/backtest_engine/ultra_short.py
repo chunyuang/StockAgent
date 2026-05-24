@@ -228,7 +228,7 @@ async def execute_ultra_short_backtest(
         elif strategy_name == '龙头低吸':
             min_consecutive = strategy_params_local.get('min_consecutive_limit', _defaults.get('min_consecutive_limit', 1))
             min_correction = strategy_params_local.get('min_correction_pct', _defaults.get('min_correction_pct', 0.05)) * 100
-            max_correction = strategy_params_local.get('max_correction_pct', _defaults.get('max_correction_pct', 0.35)) * 100
+            max_correction = strategy_params_local.get('max_correction_pct', _defaults.get('max_correction_pct', 0.20)) * 100
             correction_days_min = strategy_params_local.get('correction_days_min', _defaults.get('correction_days_min', 1))
             correction_days_max = strategy_params_local.get('correction_days_max', _defaults.get('correction_days_max', 7))
             support_level = strategy_params_local.get('support_level', _defaults.get('support_level', 'ma5'))
