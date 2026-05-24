@@ -121,7 +121,7 @@ const heatmapOption = computed(() => {
     xAxis: { type: 'category', data: groups.map(g => groupLabels[g]), splitArea: { show: true }, axisLabel: { fontSize: 11 } },
     yAxis: { type: 'category', data: yLabels, axisLabel: { fontSize: 10 } },
     visualMap: { min: 0, max: 100, inRange: { color: ['var(--stock-up)', 'var(--el-color-warning)', '#f5da55', '#95d475', 'var(--stock-down)'] }, orient: 'horizontal', left: 'center', bottom: 0, itemWidth: 12, itemHeight: 100, text: ['100%', '0%'], textStyle: { fontSize: 10 } },
-    series: [{ type: 'heatmap', data, label: { show: true, formatter: (p: any) => p.data[2] > 0 ? `${p.data[2]}` : '', fontSize: 9, color: '#333' }, itemStyle: { borderWidth: 1, borderColor: 'var(--bg-elevated)' } }]
+    series: [{ type: 'heatmap', data, label: { show: true, formatter: (p: any) => p.data[2] > 0 ? `${p.data[2]}` : '', fontSize: 9, color: 'var(--text-primary)' }, itemStyle: { borderWidth: 1, borderColor: 'var(--bg-elevated)' } }]
   }
 })
 
@@ -446,7 +446,7 @@ watch(() => props.visible, (v) => { if (v && !status.value) fetchData() })
 .align-count { font-size: 22px; font-weight: 700; }
 .align-vs { text-align: center; }
 .align-common { font-size: 12px; color: var(--stock-down); font-weight: 600; }
-.align-arrow { font-size: 20px; color: #c0c4cc; }
+.align-arrow { font-size: 20px; color: var(--text-quaternary, var(--text-muted)); }
 .align-detail { margin-top: 8px; display: flex; align-items: center; gap: 6px; }
 .align-samples { font-size: 11px; color: var(--text-tertiary); }
 .factor-detail-grid { display: flex; flex-direction: column; gap: 2px; }
