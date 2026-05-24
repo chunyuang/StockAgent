@@ -1031,7 +1031,7 @@ export default { name: 'BacktestResultPanel' }
   align-items: center;
   padding: 10px 16px;
   border-radius: 8px;
-  background: linear-gradient(135deg, #f8f9fa 0%, #fff 100%);
+  background: linear-gradient(135deg, var(--bg-muted) 0%, var(--el-fill-color-blank) 100%);
   border: 1px solid var(--border-default);
   min-width: min(90px, 20%);
   flex: 1 1 auto;
@@ -1093,7 +1093,7 @@ export default { name: 'BacktestResultPanel' }
   min-width: 0;
   .sell-reason-label {
     font-weight: 700;
-    color: #303133;
+    color: var(--text-primary);
     font-size: 14px;
     flex-shrink: 0;
   }
@@ -1122,7 +1122,7 @@ export default { name: 'BacktestResultPanel' }
     &.stop-loss { color: #f56c6c; .reason-dot { background: #f56c6c; } }
     &.max-hold { color: #e6a23c; .reason-dot { background: #e6a23c; } }
     &.force-empty { color: var(--text-tertiary); .reason-dot { background: var(--text-tertiary); } }
-    &.other { color: #c0c4cc; .reason-dot { background: #c0c4cc; } }
+    &.other { color: var(--text-muted); .reason-dot { background: var(--text-muted); } }
   }
 }
 </style>

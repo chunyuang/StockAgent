@@ -210,6 +210,9 @@ def check_pullback(holding, market_data, params):
     - next_day_open_sell_pct: 高开阈值(默认3%)
     - pullback_high_threshold: 高开直接触发阈值(默认5%)
     - pullback_mid_fallback_pct: 中间区间回落触发阈值(默认1%或1.5%)
+    - pullback_profit_lock_threshold: 利润超过此值时不触发冲高回落(默认None=不限制)
+      V47: 当持仓利润已经很高(如8%+)时,冲高回落以open价卖出会损失后续涨幅,
+      让利润锁定/超时以close价或更高价退出更优。
 
     策略差异:
     - 跌停翘板: 中间区间3%-5%回落≥1.5%触发
@@ -224,6 +227,13 @@ def check_pullback(holding, market_data, params):
 
     open_rise = (open_price / cost - 1)
     threshold = params.get('next_day_open_sell_pct', 0.03)
+
+    # 【V47:利润保护阈值——利润超过阈值时不触发冲高回落,让利润锁定/超时处理】
+    # 原因: 51.69%和33.55%的超时退出说明冲高回落过早截断大牛
+    # 高利润时冲高回落以open价卖出损失大,利润锁定以close价卖出更优
+    profit_lock_threshold = params.get('pullback_profit_lock_threshold', None)
+    if profit_lock_threshold is not None and open_rise >= profit_lock_threshold:
+        return None  # 利润已超阈值,不触发冲高回落,让后续利润锁定/超时处理
 
     # 必须高开≥阈值 且 高开低收(close < open)
     if open_rise < threshold or close_price >= open_price:
@@ -447,7 +457,8 @@ STRATEGY_PULLBACK_PARAMS = {
     },
     '龙头低吸': {
         'pullback_high_threshold': 0.05,
-        'pullback_mid_fallback_pct': 0.015,  # V35:从0.01→0.015,龙头低吸回调幅度大,0.01太敏感导致过早卖出
+        'pullback_mid_fallback_pct': 0.015,  # V47:从0.015保持,龙头低吸波动大,0.01太敏感
+        'pullback_profit_lock_threshold': 0.08,  # V47:利润≥8%时,冲高回落不再触发,让利润锁定/超时自然退出(51.69%超时退出说明冲高回落过早截断大牛)
     },
 }
 

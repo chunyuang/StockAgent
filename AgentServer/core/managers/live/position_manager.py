@@ -2,6 +2,7 @@
 """
 实盘持仓管理模块
 功能：记录持仓、自动检查止损止盈、持仓超期提醒、强制平仓提醒
+V47: 新增冲高回落/利润保护/利润锁定/高开即卖信号(与回测对齐)
 """
 import sys
 import logging
@@ -14,6 +15,10 @@ import asyncio
 from datetime import datetime
 from typing import List, Dict
 from dataclasses import dataclass, asdict
+
+# V47: 引入卖出信号检查器(与回测共享)
+from nodes.backtest_engine.factor_selection.sell_signal_checker import SellSignalChecker
+from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK
 
 @dataclass
 class Position:
@@ -336,7 +341,7 @@ class PositionManager:
             daily_data = await mongo_manager.find_many(
                 "stock_daily_ak_full",
                 {"ts_code": {"$in": ts_codes}, "trade_date": int(current_date)},
-                projection={"ts_code": 1, "close": 1, "pct_chg": 1, "high": 1, "low": 1}
+                projection={"ts_code": 1, "open": 1, "close": 1, "pct_chg": 1, "high": 1, "low": 1}
             )
             if daily_data:
                 price_map = {x.get("ts_code", ""): x for x in daily_data if x.get("ts_code")}
@@ -377,6 +382,11 @@ class PositionManager:
                 "alerts": []
             }
             
+            # V47: 冲高回落/利润保护/高开即卖/利润锁定检查(与回测对齐)
+            # 回测引擎每日开盘时通过SellSignalChecker检查,实盘也必须检查
+            open_price = daily.get("open", current_price) if isinstance(daily, dict) else current_price
+            self._check_early_sell_signals(pos, open_price, current_price, high, low, alert)
+            
             # 检查强制平仓
             if pos.should_force_close(current_date):
                 alert["alerts"].append(f"⚠️  持仓超期：已持有{alert['hold_days']}天，超过{pos.max_hold_days}天上限，建议强制平仓")
@@ -407,6 +417,81 @@ class PositionManager:
                 logger.info(f"✅ {pos.name}({ts_code})：当前盈利{alert['profit_pct']:.2f}%，持仓{alert['hold_days']}天，正常")
         
         return alerts
+    
+    def _check_early_sell_signals(self, pos, open_price: float, close_price: float, 
+                                    high_price: float, low_price: float, alert: Dict):
+        """V47: 冲高回落/利润保护/高开即卖/利润锁定检查(与回测SellSignalChecker对齐)
+        
+        回测引擎每日开盘时通过SellSignalChecker检查4类保护性卖出信号,
+        实盘此前缺失这些检查,导致实盘利润回吐远大于回测。
+        
+        检查顺序(与回测_check_and_execute_forced_sells一致):
+        1. 冲高回落/利润保护/高开即卖 (open+close数据)
+        2. 利润锁定 (high+close数据)
+        
+        Args:
+            pos: Position持仓对象
+            open_price: 开盘价
+            close_price: 收盘价
+            high_price: 最高价
+            low_price: 最低价
+            alert: 告警dict(直接追加alerts)
+        """
+        try:
+            # 构建策略参数(从STRATEGY_CONFIGS读取,与回测一致)
+            strategy_name = pos.strategy or "龙头低吸"
+            strategy_id = None
+            for sid, cfg in STRATEGY_CONFIGS.items():
+                if cfg.get('name') == strategy_name:
+                    strategy_id = sid
+                    break
+            
+            strategy_params = {}
+            strategy_risk_params = {}
+            if strategy_id:
+                cfg = STRATEGY_CONFIGS.get(strategy_id, {})
+                strategy_params = dict(cfg.get('params', {}))
+                strategy_risk_params = dict(cfg.get('riskParams', {}))
+            
+            # 创建checker
+            checker = SellSignalChecker(
+                {strategy_name: strategy_params},
+                {strategy_name: strategy_risk_params},
+                GLOBAL_RISK
+            )
+            
+            # 1. 冲高回落/利润保护/高开即卖
+            early_sell_price, early_sell_reason = checker.check_early_sell(
+                pos.ts_code, [strategy_name], pos.buy_price, open_price, close_price)
+            
+            if early_sell_price > 0:
+                alert["alerts"].append(
+                    f"⚡ {early_sell_reason}: 开盘{open_price:.2f} 收盘{close_price:.2f} "
+                    f"成本{pos.buy_price:.2f}, 建议以{early_sell_price:.2f}卖出"
+                )
+                if alert.get("level", "info") not in ("danger",):
+                    alert["level"] = "warning"
+                return  # 早盘信号已触发,不检查利润锁定
+            
+            # 2. 利润锁定(盘中冲高但从高点大幅回撤)
+            if high_price > 0 and close_price > 0 and pos.buy_price > 0:
+                high_rise = (high_price / pos.buy_price - 1)
+                close_rise = (close_price / pos.buy_price - 1)
+                lock_min_high = GLOBAL_RISK.get('intraday_lock_min_high_rise', 0.05)
+                lock_pullback = GLOBAL_RISK.get('intraday_lock_pullback_pct', 0.02)
+                lock_min_profit = GLOBAL_RISK.get('intraday_lock_min_profit', 0.02)
+                
+                if high_rise >= lock_min_high and close_price < high_price:
+                    intraday_pullback = (high_price - close_price) / high_price
+                    if intraday_pullback >= lock_pullback and close_rise >= lock_min_profit:
+                        alert["alerts"].append(
+                            f"🔒 利润锁定: 盘中冲高{high_rise*100:.1f}%回撤{intraday_pullback*100:.1f}%"
+                            f"收盘{close_rise*100:.1f}%, 建议以{close_price:.2f}卖出"
+                        )
+                        if alert.get("level", "info") not in ("danger",):
+                            alert["level"] = "warning"
+        except Exception as e:
+            logger.warning(f"⚠️ {pos.ts_code} 卖出信号检查失败: {e}")
     
     def get_positions(self) -> List[Dict]:
         """获取所有持仓"""
