@@ -3841,18 +3841,77 @@ class PortfolioBacktester:
         target_shares = self._apply_limit_up_hit_probability(target_shares, prices, trade_date)
 
         # 先卖出:不在目标持仓中的股票全卖 + 持仓超过目标的股票减仓
-        sell_codes = [code for code in holdings if code not in target_shares and holdings[code] > 0]
+        sell_codes_raw = [code for code in holdings if code not in target_shares and holdings[code] > 0]
+        # 【V48d:P0修复:不在目标池的股票也要检查止损/冲高回落,取更优卖出价】
+        # Bug: 301141.SZ cost=87.87, sl=85.23, low=84.49<sl→应该止损@85.23而不是调仓@84.59
+        # 同理: 冲高回落以open价卖出>调仓卖出以close价→应选更优价
+        # 修复: 对sell_codes中的股票也检查止损/冲高回落,记录更优卖出价格和原因
+        # 先读取风控开关,后续_rebalance止损检查也要用
+        enable_stop_loss = self._risk_config.get('enable_stop_loss', True)
+        enable_take_profit = self._risk_config.get('enable_take_profit', True)
+        _sell_code_details = {}  # {code: (sell_price, sell_reason)}
+        for code in sell_codes_raw:
+            if holdings.get(code, 0) <= 0:
+                continue
+            buy_dt = self._cost_basis_date.get(code)
+            if buy_dt is not None and buy_dt == trade_date:
+                _sell_code_details[code] = (None, '调仓卖出')  # T+1限制
+                continue
+            p = prices.get(code, {})
+            cost = self._cost_basis.get(code, 0)
+            if cost <= 0 or not isinstance(p, dict) or p.get('close', 0) <= 0:
+                _sell_code_details[code] = (None, '调仓卖出')
+                continue
+            close_p = p.get('close', 0)
+            open_p = p.get('open', close_p)
+            low_p = p.get('low', close_p)
+            high_p = p.get('high', close_p)
+            code_sl, code_tp = self._get_sl_tp_for_code(code)
+            stop_price = cost * (1 - code_sl)
+            tp_price = cost * (1 + code_tp)
+            _strategies = self.stock_to_strategy.get(code, [])
+            if isinstance(_strategies, str): _strategies = [_strategies]
+            best_price = close_p  # 默认调仓卖出用close
+            best_reason = '调仓卖出'
+            # 1. 冲高回落/利润保护/高开即卖(优先级高,以open价卖出)
+            early_sell_price, early_sell_reason = self._check_early_sell_signals(
+                code, _strategies, cost, open_p, close_p)
+            if early_sell_price > 0 and early_sell_price > best_price:
+                best_price = early_sell_price
+                best_reason = early_sell_reason
+            # 2. 止损: 如果low<=stop_price, 以止损价卖出(优于收盘价当收盘更差时)
+            if enable_stop_loss and low_p <= stop_price:
+                sl_sell_price = open_p if open_p <= stop_price else stop_price
+                if sl_sell_price > best_price:
+                    best_price = sl_sell_price
+                    best_reason = '跳空止损' if open_p <= stop_price else f'止损({code_sl*100:.0f}%)'
+            # 3. 止盈: 如果high>=tp_price, 以止盈价卖出(优于收盘价当收盘更差时)
+            if enable_take_profit and high_p >= tp_price:
+                if tp_price > best_price:
+                    best_price = tp_price
+                    best_reason = f'止盈({code_tp*100:.0f}%)'
+            _sell_code_details[code] = (best_price, best_reason)
+        
+        sell_codes = sell_codes_raw
         # 【V33关键修复:pos_mgr接管target_shares的所有修改权】
         # 旧bug(V29宣称修复但未完全修复): PositionManager复制了target_shares, mark_sold只修改pos_mgr.target_shares
         # 但买入循环仍遍历原始局部target_shares→冲高回落/止损卖出后同日重新买入(震荡bug)
         # 修复: 买入循环改用pos_mgr.target_shares, 确保mark_sold删除的股不会被重新买入
         pos_mgr = PositionManager(holdings, target_shares)
 
+        # 【V48d:将_sell_code_details中更好的卖出原因标记到pos_mgr】
+        # 这样卖出循环会使用更优的卖出价(止损价>close价/冲高回落open价>close价)
+        for code, (best_price, best_reason) in _sell_code_details.items():
+            if best_reason != '调仓卖出' and code in sell_codes:
+                pos_mgr.mark_sold(code, best_reason)
+                # 同时记录best_price供卖出循环使用
+                self._sell_code_best_price = getattr(self, '_sell_code_best_price', {})
+                self._sell_code_best_price[code] = best_price
+
         # 【P0-4修复:调仓日止损检查 - 即使股票仍在目标池中,如果触发止损也要卖出】
         # 之前bug: 止损只对"不在目标池"的股票生效,导致16笔交易亏损>3%止损线却未触发
         # 注意:_rebalance是同步方法,不能使用await,复用已有的prices参数
-        enable_stop_loss = self._risk_config.get('enable_stop_loss', True)
-        enable_take_profit = self._risk_config.get('enable_take_profit', True)
+        # enable_stop_loss/enable_take_profit已在上方V48d处定义
         if (enable_stop_loss or enable_take_profit) and holdings:
             _sl_tp_codes = set(holdings.keys()) - set(sell_codes)  # 还在目标池中的持仓
             for code in list(_sl_tp_codes):
