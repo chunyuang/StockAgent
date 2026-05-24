@@ -2235,15 +2235,13 @@ class PortfolioBacktester:
         return run_state
 
     async def _build_run_result(self, run_state: dict) -> dict:
-        """构建回测结果
+        """构建回测结果: 合并交易记录、计算绩效指标、策略分解
 
         【P1-8说明:本方法700行,逻辑复杂但不可拆分】
         原因:结果构建是纯计算,无状态依赖,但需要访问run_state的所有字段。
         内部逻辑分为5段:1)绩效统计 2)交易记录 3)策略汇总 4)图表数据 5)元数据
         每段独立计算,可拆分为5个私有方法,但保持_build_run_result作为唯一入口。
         当前不拆分的原因:run_state是dict而非对象,拆分后参数传递更复杂。
-        """
-        """构建回测结果: 合并交易记录、计算绩效指标、策略分解
 
         Args:
             run_state: 运行时状态dict
@@ -2745,9 +2743,9 @@ class PortfolioBacktester:
                 raw_calmar = annualized_by_period / max_drawdown
             else:
                 raw_calmar = annualized_return / max_drawdown
-            calmar_ratio = min(raw_calmar, 200.0)
-            if raw_calmar > 200.0:
-                logger.debug('backtest', f'Calmar={raw_calmar:.1f}超过200上限,回测周期{trading_days}天过短')
+            calmar_ratio = min(raw_calmar, 1000.0)  # 【V49-P1-1:上限从200→1000,200太低遮盖真实值,3个月回测md<5%时calmar天然>200】
+            if raw_calmar > 1000.0:
+                logger.debug('backtest', f'Calmar={raw_calmar:.1f}超过1000上限,回测周期{trading_days}天过短')
 
         # 格式化 drawdown_series 为最终返回格式
         formatted_drawdown_series = []
@@ -3293,12 +3291,16 @@ class PortfolioBacktester:
         else:
             # 无权重配置时等分
             n_strats = len(strat_groups) or 1
-            seats = {s: max(1, total_seats // n_strats) for s in strat_groups}
+            # 【V49-P0-2:按策略名排序确保确定性】
+            seats = {s: max(1, total_seats // n_strats) for s in sorted(strat_groups.keys())}
 
         # 每个策略组内按分数排序取前N
+        # 【V49-P0-2:按策略名排序确保确定性,避免dict迭代顺序不确定导致±3%回测结果波动】
         used_codes = set()
-        for sname, group in strat_groups.items():
-            group.sort(key=lambda x: x[1], reverse=True)
+        for sname in sorted(strat_groups.keys()):
+            group = strat_groups[sname]
+            # 分数相同则按code排序,确保完全确定性
+            group.sort(key=lambda x: (x[1], x[0]), reverse=True)
             n = seats.get(sname, 1)
             count = 0
             for code, score in group:
@@ -3890,6 +3892,21 @@ class PortfolioBacktester:
                 if tp_price > best_price:
                     best_price = tp_price
                     best_reason = f'止盈({code_tp*100:.0f}%)'
+            # 【V49-P0-3:利润锁定检查——不在目标池的股票也检查盘中冲高回撤】
+            # 此前只在目标池内股票的调仓止损检查中检查利润锁定(V48),不在目标池的股票遗漏
+            # 场景: 持仓冲高6%+但收盘回撤3%+,收盘仍盈利3%,以利润锁定close价>调仓卖出close价
+            if best_reason == '调仓卖出' and high_p > 0 and close_p > 0 and cost > 0:
+                lock_min_high = self._risk_config.get('intraday_lock_min_high_rise', GLOBAL_RISK.get('intraday_lock_min_high_rise', 0.05))
+                lock_pullback = self._risk_config.get('intraday_lock_pullback_pct', GLOBAL_RISK.get('intraday_lock_pullback_pct', 0.02))
+                lock_min_profit = self._risk_config.get('intraday_lock_min_profit', GLOBAL_RISK.get('intraday_lock_min_profit', 0.02))
+                high_rise = (high_p / cost - 1)
+                close_rise = (close_p / cost - 1)
+                if high_rise >= lock_min_high and close_p < high_p:
+                    intraday_pullback = (high_p - close_p) / high_p
+                    if intraday_pullback >= lock_pullback and close_rise >= lock_min_profit:
+                        # 利润锁定以close价卖出,和调仓卖出相同价格,但原因更准确
+                        # 不改变best_price(close=close),只更新原因用于统计
+                        best_reason = '利润锁定'
             _sell_code_details[code] = (best_price, best_reason)
         
         sell_codes = sell_codes_raw

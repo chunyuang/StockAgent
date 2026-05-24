@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'AgentServer'))
 
 from core.managers import mongo_manager
 from nodes.backtest_engine.factor_selection import PortfolioBacktester
-from nodes.backtest_engine.strategy_defaults import ALL_STRATEGIES, STRATEGY_CONFIGS
+from nodes.backtest_engine.strategy_defaults import ALL_STRATEGIES, STRATEGY_CONFIGS, GLOBAL_RISK
 
 
 async def run_backtest():
@@ -50,11 +50,11 @@ async def run_backtest():
         "weight_method": "equal",
         "commission_rate": 0.0003,
         "stamp_duty_rate": 0.001,
-        "slippage_pct": 0.002,
-        "stop_loss_pct": 0.03,
-        "take_profit_pct": 0.07,
-        "max_hold_days": 3,
-        "max_position_per_stock": 0.2,
+        "slippage_pct": GLOBAL_RISK["slippage_pct"],
+        "stop_loss_pct": GLOBAL_RISK["stop_loss_pct"],
+        "take_profit_pct": GLOBAL_RISK["take_profit_pct"],
+        "max_hold_days": GLOBAL_RISK["max_hold_days"],
+        "max_position_per_stock": GLOBAL_RISK["max_position_per_stock"],  # 【V49:对齐GLOBAL_RISK 0.35,旧值0.20导致资金闲置】
         "enable_auction_filter": True,
         "enable_sentiment_cycle": True,
         "enable_force_empty": True,
