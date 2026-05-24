@@ -373,11 +373,25 @@ class PaperTradingEngine:
                             should_sell = True
                             reason = "超期强制平仓"
                             break
+                        # 【V48:冲高回落也是danger级别,以open价卖出】
+                        elif "冲高回落" in a:
+                            should_sell = True
+                            reason = "冲高回落"
+                            break
                 elif alert["level"] == "success":
                     for a in alert["alerts"]:
                         if "止盈" in a:
                             should_sell = True
                             reason = "止盈平仓"
+                            break
+                        # 【V48:利润保护/利润锁定也是success级别,以close价卖出】
+                        elif "利润保护" in a:
+                            should_sell = True
+                            reason = "利润保护"
+                            break
+                        elif "利润锁定" in a:
+                            should_sell = True
+                            reason = "利润锁定"
                             break
                 
                 if should_sell:
@@ -389,8 +403,6 @@ class PaperTradingEngine:
                         # 止损价格: 回测用stop_loss_price,跳空止损用open
                         # V47: 检查alert中是否包含"跳空止损"
                         if "跳空止损" in str(alert.get("alerts", [])):
-                            # 跳空止损: 以open卖出(回测逻辑)
-                            # 但这里没有open价格,用止损价作为保守替代
                             sell_price = pos.stop_loss_price
                             reason = "跳空止损"
                         else:
@@ -398,6 +410,15 @@ class PaperTradingEngine:
                             reason = "止损平仓"
                     elif pos and "止盈" in reason:
                         sell_price = pos.take_profit_price  # 止盈用止盈价
+                    # 【V48:冲高回落用open价(如果可用)】
+                    elif pos and reason == "冲高回落":
+                        # 回测冲高回落以open价卖出,实盘有open数据则用open
+                        open_p = alert.get("open", 0)
+                        if open_p > 0:
+                            sell_price = open_p
+                        # 否则fallback到close(保守)
+                    # 【V48:利润保护/利润锁定用close价(默认)】
+                    # 无需特殊处理,sell_price已默认close
                     if sell_price > 0:
                         result = await self.close_position(acc_id, ts_code, sell_price, reason=reason)
                         if result.get("success"):
