@@ -114,14 +114,14 @@ const heatmapOption = computed(() => {
   const yLabels = cov.map(c => `${c.date.slice(4,6)}/${c.date.slice(6,8)}`)
   cov.forEach((c, yi) => { groups.forEach((g, xi) => { data.push([xi, yi, c.groups[g] || 0]) }) })
   const needZoom = yLabels.length > 15
-  const dataZoomY = needZoom ? [{ type: 'slider', yAxisIndex: 0, startValue: Math.max(0, yLabels.length - 30), endValue: yLabels.length - 1, right: 0, width: 16, top: 10, bottom: 30, borderColor: '#ddd', fillerColor: 'rgba(64,158,255,0.15)', handleStyle: { color: '#409eff' }, labelFormatter: (v: number) => yLabels[v] || '' }] : []
+  const dataZoomY = needZoom ? [{ type: 'slider', yAxisIndex: 0, startValue: Math.max(0, yLabels.length - 30), endValue: yLabels.length - 1, right: 0, width: 16, top: 10, bottom: 30, borderColor: 'var(--border-default)', fillerColor: 'var(--info-bg)', handleStyle: { color: 'var(--el-color-primary)' }, labelFormatter: (v: number) => yLabels[v] || '' }] : []
   return {
     tooltip: { formatter: (p: any) => { const c = cov[p.data[1]]; const g = groups[p.data[0]]; return `${fmtDate(c.date)} ${groupLabels[g]}<br/>覆盖率: ${p.data[2]}%<br/>股票数: ${c.total}` } },
     grid: { left: 60, right: needZoom ? 36 : 30, top: 10, bottom: 30 }, dataZoom: dataZoomY,
     xAxis: { type: 'category', data: groups.map(g => groupLabels[g]), splitArea: { show: true }, axisLabel: { fontSize: 11 } },
     yAxis: { type: 'category', data: yLabels, axisLabel: { fontSize: 10 } },
-    visualMap: { min: 0, max: 100, inRange: { color: ['#f56c6c', '#e6a23c', '#f5da55', '#95d475', '#67c23a'] }, orient: 'horizontal', left: 'center', bottom: 0, itemWidth: 12, itemHeight: 100, text: ['100%', '0%'], textStyle: { fontSize: 10 } },
-    series: [{ type: 'heatmap', data, label: { show: true, formatter: (p: any) => p.data[2] > 0 ? `${p.data[2]}` : '', fontSize: 9, color: '#333' }, itemStyle: { borderWidth: 1, borderColor: '#fff' } }]
+    visualMap: { min: 0, max: 100, inRange: { color: ['var(--stock-up)', 'var(--el-color-warning)', '#f5da55', '#95d475', 'var(--stock-down)'] }, orient: 'horizontal', left: 'center', bottom: 0, itemWidth: 12, itemHeight: 100, text: ['100%', '0%'], textStyle: { fontSize: 10 } },
+    series: [{ type: 'heatmap', data, label: { show: true, formatter: (p: any) => p.data[2] > 0 ? `${p.data[2]}` : '', fontSize: 9, color: '#333' }, itemStyle: { borderWidth: 1, borderColor: 'var(--bg-elevated)' } }]
   }
 })
 
@@ -133,14 +133,14 @@ const stockCountOption = computed(() => {
   return {
     tooltip: { trigger: 'axis' }, grid: { left: 50, right: 20, top: 20, bottom: 60 },
     dataZoom: [
-      { type: 'slider', xAxisIndex: 0, start: startPercent, end: 100, height: 20, bottom: 8, borderColor: '#ddd', fillerColor: 'rgba(64,158,255,0.15)', handleStyle: { color: '#409eff' }, labelFormatter: (v: number) => { const idx = Math.round(v / 100 * (cov.length - 1)); return cov[idx] ? `${cov[idx].date.slice(4,6)}/${cov[idx].date.slice(6,8)}` : '' } },
+      { type: 'slider', xAxisIndex: 0, start: startPercent, end: 100, height: 20, bottom: 8, borderColor: 'var(--border-default)', fillerColor: 'var(--info-bg)', handleStyle: { color: 'var(--el-color-primary)' }, labelFormatter: (v: number) => { const idx = Math.round(v / 100 * (cov.length - 1)); return cov[idx] ? `${cov[idx].date.slice(4,6)}/${cov[idx].date.slice(6,8)}` : '' } },
       { type: 'inside', xAxisIndex: 0 }
     ],
     xAxis: { type: 'category', data: cov.map(c => `${c.date.slice(4,6)}/${c.date.slice(6,8)}`), axisLabel: { fontSize: 10, rotate: 30 } },
     yAxis: [{ type: 'value', name: '股票数', min: 0, axisLabel: { fontSize: 10 } }, { type: 'value', name: '覆盖率%', min: 0, max: 100, axisLabel: { fontSize: 10 } }],
     series: [
-      { name: '股票数', type: 'bar', data: cov.map(c => c.total), itemStyle: { color: '#409eff' }, barMaxWidth: 20 },
-      { name: '因子覆盖率', type: 'line', yAxisIndex: 1, data: cov.map(c => c.factor_rate), itemStyle: { color: '#67c23a' }, lineStyle: { width: 2 }, areaStyle: { color: 'rgba(103,194,58,0.1)' } }
+      { name: '股票数', type: 'bar', data: cov.map(c => c.total), itemStyle: { color: 'var(--el-color-primary)' }, barMaxWidth: 20 },
+      { name: '因子覆盖率', type: 'line', yAxisIndex: 1, data: cov.map(c => c.factor_rate), itemStyle: { color: 'var(--stock-down)' }, lineStyle: { width: 2 }, areaStyle: { color: 'rgba(103,194,58,0.1)' } }
     ]
   }
 })
@@ -151,7 +151,7 @@ const collectionRows = computed(() => {
 })
 
 const healthScore = computed(() => status.value?.health_score || 0)
-const healthStatus = computed(() => { const s = healthScore.value; if (s >= 80) return { text: '健康', color: '#67c23a' }; if (s >= 50) return { text: '部分可用', color: '#e6a23c' }; return { text: '需补数据', color: '#f56c6c' } })
+const healthStatus = computed(() => { const s = healthScore.value; if (s >= 80) return { text: '健康', color: 'var(--stock-down)' }; if (s >= 50) return { text: '部分可用', color: 'var(--el-color-warning)' }; return { text: '需补数据', color: 'var(--stock-up)' } })
 const diagnosis = computed(() => { if (!status.value?.diagnostics) return []; return status.value.diagnostics.map(d => ({ level: d.level, text: d.message })) })
 
 const factorDetailRows = computed(() => {
@@ -165,7 +165,7 @@ const factorDetailRows = computed(() => {
 
 const latestDateStr = computed(() => { const cov = status.value?.daily_coverage; return cov?.length ? fmtDate(cov[cov.length - 1]?.date || '') : '' })
 
-function srcStatusColor(s: string) { return { ok: '#67c23a', limited: '#e6a23c', degraded: '#e6a23c', blocked: '#f56c6c', disabled: '#909399' }[s] || '#909399' }
+function srcStatusColor(s: string) { return { ok: 'var(--stock-down)', limited: 'var(--el-color-warning)', degraded: 'var(--el-color-warning)', blocked: 'var(--stock-up)', disabled: 'var(--text-tertiary)' }[s] || 'var(--text-tertiary)' }
 function srcStatusText(s: string) { return { ok: '✅可用', limited: '⚠️受限', degraded: '⚠️降级', blocked: '❌被封', disabled: '🚫停用' }[s] || s }
 
 // 今日待办分组
@@ -204,9 +204,9 @@ watch(() => props.visible, (v) => { if (v && !status.value) fetchData() })
         <div class="s-card"><div class="s-label">交易日天数</div><div class="s-value">{{ status?.daily_coverage?.length || 0 }}</div></div>
       </div>
       <div class="health-breakdown" v-if="status?.health_breakdown">
-        <div class="hb-item"><span class="hb-label">因子完整</span><div class="hb-bar"><div class="hb-fill" :style="{ width: (status.health_breakdown.factor_score / status.health_breakdown.factor_max * 100) + '%', background: '#67c23a' }"></div></div><span class="hb-val">{{ status.health_breakdown.factor_score }}/{{ status.health_breakdown.factor_max }}</span></div>
-        <div class="hb-item"><span class="hb-label">数据新鲜</span><div class="hb-bar"><div class="hb-fill" :style="{ width: (status.health_breakdown.freshness_score / status.health_breakdown.freshness_max * 100) + '%', background: '#409eff' }"></div></div><span class="hb-val">{{ status.health_breakdown.freshness_score }}/{{ status.health_breakdown.freshness_max }}</span></div>
-        <div class="hb-item"><span class="hb-label">数据源</span><div class="hb-bar"><div class="hb-fill" :style="{ width: (status.health_breakdown.source_score / status.health_breakdown.source_max * 100) + '%', background: '#e6a23c' }"></div></div><span class="hb-val">{{ status.health_breakdown.source_score }}/{{ status.health_breakdown.source_max }}</span></div>
+        <div class="hb-item"><span class="hb-label">因子完整</span><div class="hb-bar"><div class="hb-fill" :style="{ width: (status.health_breakdown.factor_score / status.health_breakdown.factor_max * 100) + '%', background: 'var(--stock-down)' }"></div></div><span class="hb-val">{{ status.health_breakdown.factor_score }}/{{ status.health_breakdown.factor_max }}</span></div>
+        <div class="hb-item"><span class="hb-label">数据新鲜</span><div class="hb-bar"><div class="hb-fill" :style="{ width: (status.health_breakdown.freshness_score / status.health_breakdown.freshness_max * 100) + '%', background: 'var(--el-color-primary)' }"></div></div><span class="hb-val">{{ status.health_breakdown.freshness_score }}/{{ status.health_breakdown.freshness_max }}</span></div>
+        <div class="hb-item"><span class="hb-label">数据源</span><div class="hb-bar"><div class="hb-fill" :style="{ width: (status.health_breakdown.source_score / status.health_breakdown.source_max * 100) + '%', background: 'var(--el-color-warning)' }"></div></div><span class="hb-val">{{ status.health_breakdown.source_score }}/{{ status.health_breakdown.source_max }}</span></div>
       </div>
     </div>
 
@@ -294,7 +294,7 @@ watch(() => props.visible, (v) => { if (v && !status.value) fetchData() })
     </ElCard>
     <ElCard v-else style="margin-top: 12px">
       <template #header><span>🎯 推荐回测区间</span></template>
-      <div style="color: #e6a23c; font-size: 13px">当前无因子覆盖率≥70%的连续区间，请检查数据补全情况。</div>
+      <div style="color: var(--el-color-warning); font-size: 13px">当前无因子覆盖率≥70%的连续区间，请检查数据补全情况。</div>
     </ElCard>
 
     <!-- P1: 数据对齐 -->
@@ -324,7 +324,7 @@ watch(() => props.visible, (v) => { if (v && !status.value) fetchData() })
         <ElTableColumn label="日期区间" min-width="220">
           <template #default="{ row }">
             <span v-if="row.hasDate" style="font-family: monospace; font-size: 13px">{{ fmtDate(row.dateStart) }} ~ {{ fmtDate(row.dateEnd) }}</span>
-            <span v-else style="color: #909399">-</span>
+            <span v-else style="color: var(--text-tertiary)">-</span>
           </template>
         </ElTableColumn>
         <ElTableColumn label="状态" width="80">
@@ -346,7 +346,7 @@ watch(() => props.visible, (v) => { if (v && !status.value) fetchData() })
       <template #header>
         <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" @click="factorDetailExpanded = !factorDetailExpanded">
           <span>📊 因子详情 ({{ latestDateStr }})</span>
-          <span style="font-size: 12px; color: #909399">{{ factorDetailExpanded ? '收起 ▲' : '展开 ▼' }}</span>
+          <span style="font-size: 12px; color: var(--text-tertiary)">{{ factorDetailExpanded ? '收起 ▲' : '展开 ▼' }}</span>
         </div>
       </template>
       <div v-if="factorDetailExpanded && factorDetailRows.length" class="factor-detail-grid">
@@ -354,12 +354,12 @@ watch(() => props.visible, (v) => { if (v && !status.value) fetchData() })
           <div v-if="i === 0 || row.group !== factorDetailRows[i-1].group" class="fd-group-header">{{ row.group }}</div>
           <div class="fd-row">
             <span class="fd-name">{{ row.name }}</span>
-            <div class="fd-bar-wrap"><div class="fd-bar" :style="{ width: row.coverage + '%', background: row.status === 'ok' ? '#67c23a' : row.status === 'warning' ? '#e6a23c' : '#f56c6c' }"></div></div>
-            <span class="fd-pct" :style="{ color: row.status === 'ok' ? '#67c23a' : row.status === 'warning' ? '#e6a23c' : '#f56c6c' }">{{ row.coverage }}%</span>
+            <div class="fd-bar-wrap"><div class="fd-bar" :style="{ width: row.coverage + '%', background: row.status === 'ok' ? 'var(--stock-down)' : row.status === 'warning' ? 'var(--el-color-warning)' : 'var(--stock-up)' }"></div></div>
+            <span class="fd-pct" :style="{ color: row.status === 'ok' ? 'var(--stock-down)' : row.status === 'warning' ? 'var(--el-color-warning)' : 'var(--stock-up)' }">{{ row.coverage }}%</span>
           </div>
         </template>
       </div>
-      <div v-else-if="!factorDetailExpanded" style="color: #909399; font-size: 13px; text-align: center; padding: 4px 0">点击展开查看每个因子的覆盖率</div>
+      <div v-else-if="!factorDetailExpanded" style="color: var(--text-tertiary); font-size: 13px; text-align: center; padding: 4px 0">点击展开查看每个因子的覆盖率</div>
     </ElCard>
 
     <!-- 数据源 -->
@@ -400,9 +400,9 @@ watch(() => props.visible, (v) => { if (v && !status.value) fetchData() })
 .hb-val { font-size: 11px; color: var(--text-secondary); width: 36px; }
 .action-items { display: flex; flex-direction: column; gap: 8px; }
 .action-item { display: flex; align-items: flex-start; gap: 10px; padding: 8px 12px; border-radius: 6px; }
-.action-high { background: #fff5f5; border-left: 3px solid #f56c6c; }
-.action-medium { background: #fdf6ec; border-left: 3px solid #e6a23c; }
-.action-done { background: #f0f9eb; border-left: 3px solid #67c23a; }
+.action-high { background: var(--stock-up-bg); border-left: 3px solid var(--stock-up); }
+.action-medium { background: var(--warning-bg); border-left: 3px solid var(--el-color-warning); }
+.action-done { background: var(--stock-down-bg); border-left: 3px solid var(--stock-down); }
 .action-info { background: var(--bg-muted); border-left: 3px solid var(--text-tertiary); }
 .action-icon { font-size: 16px; margin-top: 1px; }
 .action-content { flex: 1; }
@@ -415,8 +415,8 @@ watch(() => props.visible, (v) => { if (v && !status.value) fetchData() })
 .action-group { margin-bottom: 8px; }
 .action-group:last-child { margin-bottom: 0; }
 .action-group-title { font-size: 13px; font-weight: 700; padding: 4px 0; margin-bottom: 4px; }
-.ag-must { color: #f56c6c; }
-.ag-should { color: #e6a23c; }
+.ag-must { color: var(--stock-up); }
+.ag-should { color: var(--el-color-warning); }
 .ag-optional { color: var(--text-tertiary); }
 .action-low { background: var(--bg-muted); border-left: 3px solid var(--text-tertiary); }
 
@@ -426,7 +426,7 @@ watch(() => props.visible, (v) => { if (v && !status.value) fetchData() })
 .sync-fail { background: var(--error-bg); border: 1px solid var(--error-bg); }
 .sync-running { color: var(--primary-500); font-size: 13px; font-weight: 600; }
 .sync-detail { font-size: 12px; color: var(--text-secondary); display: flex; flex-direction: column; gap: 4px; }
-.sync-msg { color: #f56c6c; font-weight: 600; }
+.sync-msg { color: var(--stock-up); font-weight: 600; }
 .sync-steps { display: flex; gap: 12px; margin-top: 4px; }
 .sync-step { font-size: 12px; padding: 2px 8px; border-radius: 4px; }
 .step-ok { background: var(--success-bg); color: var(--success); }
@@ -439,13 +439,13 @@ watch(() => props.visible, (v) => { if (v && !status.value) fetchData() })
 .st-icon { font-size: 16px; }
 .st-name { font-weight: 700; font-size: 14px; flex: 1; }
 .st-desc { font-size: 11px; color: var(--text-tertiary); }
-.st-missing { font-size: 11px; color: #e6a23c; margin-top: 4px; }
+.st-missing { font-size: 11px; color: var(--el-color-warning); margin-top: 4px; }
 .alignment-row { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 12px 0; flex-wrap: wrap; min-width: 0; }
 .align-block { text-align: center; min-width: 100px; }
 .align-label { font-size: 12px; color: var(--text-tertiary); }
 .align-count { font-size: 22px; font-weight: 700; }
 .align-vs { text-align: center; }
-.align-common { font-size: 12px; color: #67c23a; font-weight: 600; }
+.align-common { font-size: 12px; color: var(--stock-down); font-weight: 600; }
 .align-arrow { font-size: 20px; color: #c0c4cc; }
 .align-detail { margin-top: 8px; display: flex; align-items: center; gap: 6px; }
 .align-samples { font-size: 11px; color: var(--text-tertiary); }
@@ -457,27 +457,27 @@ watch(() => props.visible, (v) => { if (v && !status.value) fetchData() })
 .fd-bar-wrap { flex: 1; height: 6px; background: var(--border-default); border-radius: 3px; overflow: hidden; }
 .fd-bar { height: 100%; border-radius: 3px; transition: width 0.3s; }
 .fd-pct { font-size: 11px; width: 40px; text-align: right; font-weight: 600; }
-.diagnosis-box { margin-top: 12px; padding: 12px 16px; background: #fef0f0; border-radius: 6px; border-left: 4px solid #f56c6c; }
+.diagnosis-box { margin-top: 12px; padding: 12px 16px; background: var(--stock-up-bg); border-radius: 6px; border-left: 4px solid var(--stock-up); }
 .diag-title { font-weight: 600; font-size: 14px; margin-bottom: 6px; }
 .diag-item { font-size: 13px; color: var(--text-secondary); margin-bottom: 4px; padding-left: 8px; }
-.diag-warn { color: #8a6d3b; }
+.diag-warn { color: var(--text-secondary); }
 .recommended-ranges { display: flex; gap: 12px; flex-wrap: wrap; }
-.range-card { display: flex; align-items: center; gap: 10px; padding: 10px 18px; border-radius: 6px; background: #f0f9eb; border: 1px solid #e1f3d8; }
+.range-card { display: flex; align-items: center; gap: 10px; padding: 10px 18px; border-radius: 6px; background: var(--stock-down-bg); border: 1px solid var(--stock-down-bg); }
 .range-dates { font-size: 15px; font-weight: 600; font-family: monospace; }
 .source-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 12px; }
 .source-card { padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border-default); background: var(--bg-elevated); transition: border-color 0.2s;
-  &.src-blocked { border-color: #f56c6c; background: #fff5f5; }
+  &.src-blocked { border-color: var(--stock-up); background: var(--stock-up-bg); }
   &.src-disabled { border-color: var(--border-muted); opacity: 0.6; }
-  &.src-ok { border-color: #b3e19d; }
-  &.src-limited, &.src-degraded { border-color: #e6a23c; background: #fdf6ec; } }
+  &.src-ok { border-color: var(--stock-down); }
+  &.src-limited, &.src-degraded { border-color: var(--el-color-warning); background: var(--warning-bg); } }
 .src-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
 .src-name { font-weight: 700; font-size: 14px; }
 .src-status { font-size: 12px; font-weight: 600; }
 .src-type { font-size: 12px; color: var(--text-tertiary); margin-bottom: 6px; }
 .src-detail { font-size: 12px; color: var(--text-secondary); margin-bottom: 3px; line-height: 1.5; }
 .src-gotchas { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border-default); }
-.src-gotchas-title { font-size: 12px; font-weight: 600; color: #e6a23c; margin-bottom: 2px; }
-.src-gotcha { font-size: 11px; color: #8a6d3b; line-height: 1.6; }
+.src-gotchas-title { font-size: 12px; font-weight: 600; color: var(--el-color-warning); margin-bottom: 2px; }
+.src-gotcha { font-size: 11px; color: var(--text-secondary); line-height: 1.6; }
 .src-scripts { margin-top: 6px; }
 .src-scripts-label { font-size: 11px; color: var(--text-tertiary); }
 .src-script { font-size: 11px; background: var(--bg-muted); padding: 1px 5px; border-radius: 3px; margin-right: 4px; }

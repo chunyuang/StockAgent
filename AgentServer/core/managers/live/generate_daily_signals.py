@@ -30,7 +30,7 @@ from typing import List, Dict
 from core.managers import mongo_manager
 from nodes.backtest_engine.factor_selection.portfolio_backtest import PortfolioBacktester, STRATEGY_CONFIGS
 from nodes.backtest_engine.factor_selection.universe import UniverseManager, UniverseType, ExcludeRule
-from nodes.backtest_engine.factor_selection.strategy_filter import filter_stocks_by_strategies
+from nodes.backtest_engine.factor_selection.strategy_filter import StrategyFilter
 
 class RealTradingSignalGenerator:
     """实盘信号生成器
@@ -189,8 +189,9 @@ class RealTradingSignalGenerator:
                 conditions = self.backtester._build_strategy_filter_conditions(sname, params)
                 strategy_configs[sname] = conditions
         
-        # 策略筛选
-        strategy_results = filter_stocks_by_strategies(factor_df, strategy_configs)
+        # 策略筛选(使用StrategyFilter)
+        sf = StrategyFilter()
+        strategy_results = sf.filter(factor_df, strategy_configs)
         
         # 合并所有策略的候选，记录每只股票来自哪个策略
         all_candidates = set()

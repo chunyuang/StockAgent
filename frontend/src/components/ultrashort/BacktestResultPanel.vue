@@ -176,14 +176,14 @@ const monthlyReturnChartOption = computed(() => {
       {
         name: '月度收益', type: 'bar', data: returns,
         itemStyle: {
-          color: (params: any) => parseFloat(params.value) >= 0 ? '#67c23a' : '#f56c6c'
+          color: (params: any) => parseFloat(params.value) >= 0 ? 'var(--stock-down)' : 'var(--stock-up)'
         },
         label: { show: true, position: 'top', formatter: '{c}%', fontSize: 11 },
       },
       {
         name: '累计收益', type: 'line', yAxisIndex: 1, data: cumReturns,
-        lineStyle: { color: '#409eff', width: 2 },
-        itemStyle: { color: '#409eff' },
+        lineStyle: { color: 'var(--el-color-primary)', width: 2 },
+        itemStyle: { color: 'var(--el-color-primary)' },
         smooth: true,
       },
     ]
@@ -307,20 +307,20 @@ const netValueChartOption = computed(() => {
     {
       name: '策略净值', type: 'line', data: netValues, smooth: true,
       lineStyle: { width: 2 },
-      areaStyle: { color: 'rgba(64,158,255,0.1)' }
+      areaStyle: { color: 'var(--info-bg)' }
     },
   ]
   if (benchmarkValues.length > 0) {
     series.push({
       name: '基准(沪深300)', type: 'line', data: benchmarkValues, smooth: true,
-      lineStyle: { width: 1.5, type: 'dashed', color: '#e6a23c' },
-      itemStyle: { color: '#e6a23c' },
+      lineStyle: { width: 1.5, type: 'dashed', color: 'var(--el-color-warning)' },
+      itemStyle: { color: 'var(--el-color-warning)' },
     })
   }
   series.push({
     name: '回撤(%)', type: 'line', yAxisIndex: 1, data: drawdowns,
-    color: '#f56c6c', lineStyle: { width: 1.5, type: 'dashed' },
-    areaStyle: { color: 'rgba(245,108,108,0.1)' }
+    color: 'var(--stock-up)', lineStyle: { width: 1.5, type: 'dashed' },
+    areaStyle: { color: 'var(--stock-up-bg)' }
   })
 
   return {
@@ -365,7 +365,7 @@ const dailyProfitChartOption = computed(() => {
       {
         type: 'bar', data: values,
         itemStyle: {
-          color: (params: any) => params.value >= 0 ? '#67c23a' : '#f56c6c'
+          color: (params: any) => params.value >= 0 ? 'var(--stock-down)' : 'var(--stock-up)'
         }
       }
     ]
@@ -386,8 +386,8 @@ const positionChartOption = computed(() => {
     series: [
       {
         name: '仓位', type: 'line', data: values, smooth: true,
-        areaStyle: { color: 'rgba(103,194,58,0.15)' },
-        lineStyle: { color: '#67c23a' }
+        areaStyle: { color: 'var(--stock-down-bg)' },
+        lineStyle: { color: 'var(--stock-down)' }
       }
     ]
   }
@@ -515,14 +515,14 @@ const strategyBarChartOption = computed(() => {
         name: '累计盈利(%)', type: 'bar',
         data: strategies.map(s => +(s.total_return ?? 0).toFixed(2)),
         itemStyle: {
-          color: (params: any) => params.value >= 0 ? '#67c23a' : '#f56c6c'
+          color: (params: any) => params.value >= 0 ? 'var(--stock-down)' : 'var(--stock-up)'
         },
         label: { show: true, position: 'top', formatter: '{c}%', fontSize: 11 }
       },
       {
         name: '胜率(%)', type: 'bar', yAxisIndex: 1,
         data: strategies.map(s => +(s.win_rate ?? 0).toFixed(1)),
-        itemStyle: { color: '#409eff' },
+        itemStyle: { color: 'var(--el-color-primary)' },
         label: { show: true, position: 'top', formatter: '{c}%', fontSize: 11 }
       }
     ]
@@ -548,7 +548,7 @@ const strategyTradesChartOption = computed(() => {
       {
         name: '交易笔数', type: 'bar',
         data: strategies.map(s => s.trades_count ?? 0),
-        itemStyle: { color: '#e6a23c' },
+        itemStyle: { color: 'var(--el-color-warning)' },
         label: { show: true, position: 'top', fontSize: 12 }
       }
     ]
@@ -584,7 +584,7 @@ const profitDistChartOption = computed(() => {
       itemStyle: {
         color: (params: any) => {
           const idx = params.dataIndex
-          return idx < 3 ? '#f56c6c' : idx === 3 ? '#e6a23c' : '#67c23a'
+          return idx < 3 ? 'var(--stock-up)' : idx === 3 ? 'var(--el-color-warning)' : 'var(--stock-down)'
         }
       },
       label: { show: true, position: 'top', fontSize: 12 }
@@ -627,13 +627,13 @@ const holdDaysChartOption = computed(() => {
     series: [
       {
         name: '交易笔数', type: 'bar', data: values,
-        itemStyle: { color: '#409eff' },
+        itemStyle: { color: 'var(--el-color-primary)' },
         label: { show: true, position: 'top', fontSize: 12 }
       },
       {
         name: '胜率(%)', type: 'line', yAxisIndex: 1, data: winRateByDay,
-        lineStyle: { color: '#67c23a', width: 2 },
-        itemStyle: { color: '#67c23a' }
+        lineStyle: { color: 'var(--stock-down)', width: 2 },
+        itemStyle: { color: 'var(--stock-down)' }
       }
     ]
   }
@@ -656,7 +656,7 @@ const _monthlyProfitChartOption = computed(() => {
       type: 'bar',
       data: entries.map(([_, v]) => +((v as number) * 100).toFixed(2)),
       itemStyle: {
-        color: (params: any) => parseFloat(params.value) >= 0 ? '#67c23a' : '#f56c6c'
+        color: (params: any) => parseFloat(params.value) >= 0 ? 'var(--stock-down)' : 'var(--stock-up)'
       }
     }]
   }
@@ -713,41 +713,41 @@ function exportTrades() {
     <div class="kpi-strip">
       <div class="kpi-chip">
         <span class="kpi-label">累计收益</span>
-        <span class="kpi-value" :style="{ color: (result.total_return || 0) >= 0 ? '#67c23a' : '#f56c6c' }">
+        <span class="kpi-value" :style="{ color: (result.total_return || 0) >= 0 ? 'var(--stock-down)' : 'var(--stock-up)' }">
           {{ fmtPct(result.total_return) }}
         </span>
       </div>
       <div class="kpi-chip">
         <span class="kpi-label">年化收益<template v-if="(result?.net_value_series?.length || 0) < 250"><ElTooltip content="回测期不足1年，年化收益存在放大效应，仅供参考" placement="top"><span class="annual-warn"> *</span></ElTooltip></template></span>
-        <span class="kpi-value" :style="{ color: (result.annualized_return || 0) >= 0 ? '#67c23a' : '#f56c6c' }">
+        <span class="kpi-value" :style="{ color: (result.annualized_return || 0) >= 0 ? 'var(--stock-down)' : 'var(--stock-up)' }">
           {{ fmtPct(result.annualized_return) }}
         </span>
       </div>
       <div class="kpi-chip">
         <span class="kpi-label">最大回撤</span>
-        <span class="kpi-value" style="color: #f56c6c">{{ fmtPct(result.max_drawdown) }}</span>
+        <span class="kpi-value" style="color: var(--stock-up)">{{ fmtPct(result.max_drawdown) }}</span>
       </div>
       <div class="kpi-chip">
         <span class="kpi-label">夏普比率</span>
-        <span class="kpi-value" style="color: #409eff">{{ (result.sharpe_ratio || 0).toFixed(2) }}</span>
+        <span class="kpi-value" style="color: var(--el-color-primary)">{{ (result.sharpe_ratio || 0).toFixed(2) }}</span>
       </div>
       <div class="kpi-chip">
         <span class="kpi-label">胜率</span>
-        <span class="kpi-value" :style="{ color: (result.win_rate || 0) >= 50 ? '#67c23a' : '#f56c6c' }">
+        <span class="kpi-value" :style="{ color: (result.win_rate || 0) >= 50 ? 'var(--stock-down)' : 'var(--stock-up)' }">
           {{ fmtPct(result.win_rate) }}
         </span>
       </div>
       <div class="kpi-chip">
         <span class="kpi-label">交易笔数</span>
-        <span class="kpi-value" style="color: #409eff">{{ result.total_trades || 0 }}</span>
+        <span class="kpi-value" style="color: var(--el-color-primary)">{{ result.total_trades || 0 }}</span>
       </div>
       <div class="kpi-chip">
         <span class="kpi-label">信号数</span>
-        <span class="kpi-value" style="color: #e6a23c">{{ result.total_signals || 0 }}</span>
+        <span class="kpi-value" style="color: var(--el-color-warning)">{{ result.total_signals || 0 }}</span>
       </div>
       <div class="kpi-chip">
         <span class="kpi-label">盈亏比</span>
-        <span class="kpi-value" :style="{ color: (result.profit_loss_ratio || 0) >= 2 ? '#67c23a' : '#e6a23c' }">
+        <span class="kpi-value" :style="{ color: (result.profit_loss_ratio || 0) >= 2 ? 'var(--stock-down)' : 'var(--el-color-warning)' }">
           {{ (result.profit_loss_ratio || 0).toFixed(2) }}
         </span>
       </div>
@@ -828,7 +828,7 @@ function exportTrades() {
               </ElTableColumn>
               <ElTableColumn label="累计盈利" width="100">
                 <template #default="{ row }">
-                  <span :style="{ color: row.total_return >= 0 ? '#67c23a' : '#f56c6c' }">{{ fmtPct(row.total_return) }}</span>
+                  <span :style="{ color: row.total_return >= 0 ? 'var(--stock-down)' : 'var(--stock-up)' }">{{ fmtPct(row.total_return) }}</span>
                 </template>
               </ElTableColumn>
               <ElTableColumn label="胜率" width="80">
@@ -837,12 +837,12 @@ function exportTrades() {
               <ElTableColumn prop="trades_count" label="交易次数" width="80" />
               <ElTableColumn label="最大回撤" width="100">
                 <template #default="{ row }">
-                  <span style="color: #f56c6c">{{ fmtPct(row.max_drawdown) }}</span>
+                  <span style="color: var(--stock-up)">{{ fmtPct(row.max_drawdown) }}</span>
                 </template>
               </ElTableColumn>
               <ElTableColumn label="单笔均利" width="100">
                 <template #default="{ row }">
-                  <span v-if="row.trades_count > 0" :style="{ color: row.avg_profit_pct >= 0 ? '#67c23a' : '#f56c6c' }">{{ fmtPct(row.avg_profit_pct) }}</span>
+                  <span v-if="row.trades_count > 0" :style="{ color: row.avg_profit_pct >= 0 ? 'var(--stock-down)' : 'var(--stock-up)' }">{{ fmtPct(row.avg_profit_pct) }}</span>
                   <span v-else>-</span>
                 </template>
               </ElTableColumn>
@@ -884,7 +884,7 @@ function exportTrades() {
           <!-- 盈亏TOP5 -->
           <div class="top5-row" style="margin-bottom: 12px">
             <div class="top5-card">
-              <div style="font-size: 13px; font-weight: 600; color: #67c23a; margin-bottom: 4px">🏆 盈利TOP5</div>
+              <div style="font-size: 13px; font-weight: 600; color: var(--stock-down); margin-bottom: 4px">🏆 盈利TOP5</div>
               <ElTable v-if="profitTop5.length > 0" :data="profitTop5" size="small" border>
                 <ElTableColumn prop="ts_code" label="代码" width="100" />
                 <ElTableColumn label="名称" width="80">
@@ -895,14 +895,14 @@ function exportTrades() {
             </ElTableColumn>
                 <ElTableColumn label="收益率" width="90">
                   <template #default="{ row }">
-                    <span style="color: #67c23a">{{ fmtPct(row.profit_pct) }}</span>
+                    <span style="color: var(--stock-down)">{{ fmtPct(row.profit_pct) }}</span>
                   </template>
                 </ElTableColumn>
               </ElTable>
               <ElEmpty v-else description="无盈利交易" :image-size="40" />
             </div>
             <div class="top5-card">
-              <div style="font-size: 13px; font-weight: 600; color: #f56c6c; margin-bottom: 4px">💥 亏损TOP5</div>
+              <div style="font-size: 13px; font-weight: 600; color: var(--stock-up); margin-bottom: 4px">💥 亏损TOP5</div>
               <ElTable v-if="lossTop5.length > 0" :data="lossTop5" size="small" border>
                 <ElTableColumn prop="ts_code" label="代码" width="100" />
                 <ElTableColumn label="名称" width="80">
@@ -913,7 +913,7 @@ function exportTrades() {
             </ElTableColumn>
                 <ElTableColumn label="收益率" width="90">
                   <template #default="{ row }">
-                    <span style="color: #f56c6c">{{ fmtPct(row.profit_pct) }}</span>
+                    <span style="color: var(--stock-up)">{{ fmtPct(row.profit_pct) }}</span>
                   </template>
                 </ElTableColumn>
               </ElTable>
@@ -944,7 +944,7 @@ function exportTrades() {
             <ElTableColumn label="盈亏额" width="110" sortable>
               <template #default="{ row }">
                 <template v-if="row.profit_pct != null && row.shares && row.buy_price">
-                  <span :style="{ color: row.profit_pct > 0 ? '#67c23a' : '#f56c6c' }">
+                  <span :style="{ color: row.profit_pct > 0 ? 'var(--stock-down)' : 'var(--stock-up)' }">
                     ¥{{ (row.buy_price * row.shares * row.profit_pct / 100).toFixed(0) }}
                   </span>
                 </template>
@@ -953,7 +953,7 @@ function exportTrades() {
             </ElTableColumn>
             <ElTableColumn label="收益率" width="90" sortable>
               <template #default="{ row }">
-                <span :style="{ color: row.profit_pct > 0 ? '#67c23a' : '#f56c6c' }">
+                <span :style="{ color: row.profit_pct > 0 ? 'var(--stock-down)' : 'var(--stock-up)' }">
                   {{ fmtPct(row.profit_pct) }}
                 </span>
               </template>
@@ -967,7 +967,7 @@ function exportTrades() {
             <!-- 任务3: 卖出原因列(中文翻译) -->
             <ElTableColumn label="卖出原因" width="100">
               <template #default="{ row }">
-                <span v-if="translateSellReason(row.sell_reason || row.reason) === '持仓中'" style="color: #e6a23c; font-weight: 600">持仓中</span>
+                <span v-if="translateSellReason(row.sell_reason || row.reason) === '持仓中'" style="color: var(--el-color-warning); font-weight: 600">持仓中</span>
                 <span v-else>{{ translateSellReason(row.sell_reason || row.reason) }}</span>
               </template>
             </ElTableColumn>
@@ -983,7 +983,7 @@ function exportTrades() {
               <ElTableColumn prop="month" label="月份" width="100" />
               <ElTableColumn label="月度收益" width="100" sortable>
                 <template #default="{ row }">
-                  <span :style="{ color: row.return_pct >= 0 ? '#67c23a' : '#f56c6c' }">{{ row.return_pct.toFixed(2) }}%</span>
+                  <span :style="{ color: row.return_pct >= 0 ? 'var(--stock-down)' : 'var(--stock-up)' }">{{ row.return_pct.toFixed(2) }}%</span>
                 </template>
               </ElTableColumn>
               <ElTableColumn prop="trades" label="交易笔数" width="100" sortable />
@@ -1042,7 +1042,7 @@ export default { name: 'BacktestResultPanel' }
 }
 .kpi-label { font-size: 11px; color: var(--text-tertiary); font-weight: 500; }
 .kpi-value { font-size: 17px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
-.annual-warn { color: #e6a23c; cursor: help; font-weight: 700; }
+.annual-warn { color: var(--el-color-warning); cursor: help; font-weight: 700; }
 .chart-card { margin-bottom: 0; }
 .risk-grid {
   display: grid;
@@ -1117,10 +1117,10 @@ export default { name: 'BacktestResultPanel' }
       height: 8px;
       border-radius: 50%;
     }
-    &.take-profit { color: #67c23a; .reason-dot { background: #67c23a; } }
+    &.take-profit { color: var(--stock-down); .reason-dot { background: var(--stock-down); } }
     &.rebalance { color: var(--primary-500); .reason-dot { background: var(--primary-500); } }
-    &.stop-loss { color: #f56c6c; .reason-dot { background: #f56c6c; } }
-    &.max-hold { color: #e6a23c; .reason-dot { background: #e6a23c; } }
+    &.stop-loss { color: var(--stock-up); .reason-dot { background: var(--stock-up); } }
+    &.max-hold { color: var(--el-color-warning); .reason-dot { background: var(--el-color-warning); } }
     &.force-empty { color: var(--text-tertiary); .reason-dot { background: var(--text-tertiary); } }
     &.other { color: var(--text-muted); .reason-dot { background: var(--text-muted); } }
   }

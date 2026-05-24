@@ -507,7 +507,7 @@ onMounted(() => {
   .page-title {
     font-size: 20px;
     font-weight: 700;
-    color: #303133;
+    color: var(--text-primary);
     margin: 0 0 4px 0;
   }
 
@@ -584,7 +584,7 @@ onMounted(() => {
     .stats-value {
       font-size: 15px;
       font-weight: 600;
-      color: #303133;
+      color: var(--text-primary);
     }
   }
 }
