@@ -50,19 +50,44 @@ class Position:
     notes: str = ""
     
     def hold_days(self, current_date: str = None) -> int:
-        """计算持仓天数（自然日）
+        """计算持仓天数（交易日）
+        
+        【V35修复:使用交易日而非自然日,与回测引擎_calc_trade_days_held()保持一致】
+        自然日计算会导致:周五买入→周一hold_days=3(自然日)→误触发超时(实际仅1个交易日)
         
         Args:
             current_date: 计算基准日期（YYYYMMDD），默认取当天
         
         Returns:
-            int: 持仓天数，= current_date - buy_date
+            int: 持仓交易日天数
         """
         if not current_date:
             current_date = datetime.now().strftime("%Y%m%d")
-        buy_dt = datetime.strptime(self.buy_date, "%Y%m%d")
-        current_dt = datetime.strptime(current_date, "%Y%m%d")
-        return (current_dt - buy_dt).days
+        try:
+            # 优先使用交易日历计算(与回测一致)
+            from core.managers import mongo_manager
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # 如果在async上下文中,用自然日/1.5近似
+                    buy_dt = datetime.strptime(self.buy_date, "%Y%m%d")
+                    current_dt = datetime.strptime(current_date, "%Y%m%d")
+                    natural_days = (current_dt - buy_dt).days
+                    return max(0, int(natural_days / 1.5))  # 周末/节假日近似
+            except RuntimeError:
+                pass
+            # 同步上下文:查MongoDB交易日历
+            trade_dates = asyncio.get_event_loop().run_until_complete(
+                mongo_manager.distinct("stock_daily_ak_full", "trade_date",
+                    {"trade_date": {"$gte": int(self.buy_date), "$lte": int(current_date)}})
+            )
+            return max(0, len(trade_dates) - 1)  # 买入日算第0天
+        except Exception as e:
+            logger.debug(f"交易日计算失败,fallback自然日/1.5: {e}")
+            buy_dt = datetime.strptime(self.buy_date, "%Y%m%d")
+            current_dt = datetime.strptime(current_date, "%Y%m%d")
+            return max(0, int((current_dt - buy_dt).days / 1.5))  # 周末/节假日近似
     
     def should_force_close(self, current_date: str = None) -> bool:
         """是否应该强制平仓（持仓超期）
@@ -206,8 +231,15 @@ class PositionManager:
         
         total_cost = buy_price * shares
         # 【V40修复:止损止盈从strategy_defaults策略维度读取，与回测保持一致】
+        # 【V35修复:signal中strategy字段是中文名(如"龙头低吸"),但STRATEGY_CONFIGS的key是英文ID(如"dragon_head")】
+        # 需要通过中文名→英文ID反向映射来正确查找策略参数
         from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK
-        strategy_id = signal.get("strategy", "")
+        strategy_name = signal.get("strategy", "")  # 中文名如"龙头低吸"
+        # 建立中文名→英文ID映射
+        _NAME_TO_ID = {cfg["name"]: sid for sid, cfg in STRATEGY_CONFIGS.items()}
+        strategy_id = _NAME_TO_ID.get(strategy_name, "")  # "龙头低吸" → "dragon_head"
+        if not strategy_id:
+            logger.warning(f"⚠️ 策略名\"{strategy_name}\"未在STRATEGY_CONFIGS中找到,使用全局默认风控参数")
         strategy_config = STRATEGY_CONFIGS.get(strategy_id, {})
         strategy_risk = strategy_config.get("riskParams", {})
         sl_pct = strategy_risk.get("stop_loss_pct", GLOBAL_RISK["stop_loss_pct"])  # 默认3%

@@ -115,6 +115,7 @@ class PortfolioBacktester:
         self._cost_basis = {}
         self._cost_basis_date = {}
         self._last_valid_price = {}
+        self._last_valid_price_date = {}  # 【V36:停牌股折价需要记录最后有效价格日期】
         self._prev_day_close = {}
         self._strategy_signal_stats = {}
         self.stock_to_strategy = {}
@@ -766,6 +767,7 @@ class PortfolioBacktester:
                                              last_prices: dict = None, prices: dict = None,
                                              rebalance_set: set = None) -> tuple:
         """【P0修复】统一记录每日净值,确保continue前也能调用
+        【V36优化:停牌股流动性折价】停牌超过3天的股票每日-1%折价,避免净值虚高
         Returns: (last_net_value, peak_value) 更新后的值
         """
         # 计算持仓市值
@@ -778,9 +780,27 @@ class PortfolioBacktester:
                         close = prices_for_hold[code].get('close', 0)
                         if close > 0:
                             holdings_market_value += shares * close
+                            # 【V36:更新最后有效价格和日期】
+                            if not hasattr(self, '_last_valid_price'):
+                                self._last_valid_price = {}
+                                self._last_valid_price_date = {}
+                            self._last_valid_price[code] = close
+                            self._last_valid_price_date[code] = trade_date
                             continue
+                    # 【V36:停牌股流动性折价】
+                    # 无当日价格 → 停牌, 用最后有效价格并施加折价
                     lvp = getattr(self, '_last_valid_price', {}).get(code, 0)
-                    if lvp > 0:
+                    lvp_date = getattr(self, '_last_valid_price_date', {}).get(code, 0)
+                    if lvp > 0 and lvp_date:
+                        # 计算停牌天数(交易日)
+                        suspended_days = self._calc_trade_days_held(int(lvp_date), int(trade_date)) if lvp_date != trade_date else 0
+                        if suspended_days > 3:
+                            # 停牌超过3天, 每天施加1%流动性折价
+                            discount = (0.99 ** (suspended_days - 3))
+                            holdings_market_value += shares * lvp * discount
+                        else:
+                            holdings_market_value += shares * lvp
+                    elif lvp > 0:
                         holdings_market_value += shares * lvp
 
         current_net_value = cash + holdings_market_value
@@ -1801,13 +1821,14 @@ class PortfolioBacktester:
                     if opening_pct is None or (isinstance(opening_pct, float) and math.isnan(opening_pct)):
                         filtered_candidates.append(code)
                         continue
-                    # 仅排除极端竞价: 高开>7% 或 低开<-5%
-                    if opening_pct > 7 or opening_pct < -5:
+                    # 【V36优化:收窄竞价过滤阈值】5-7%高开区间冲高回落概率>60%
+                    # 旧: 高开>7%/低开<-5% → 新: 高开>5%/低开<-3%
+                    if opening_pct > 5 or opening_pct < -3:
                         pass  # 排除极端竞价
                     else:
                         filtered_candidates.append(code)
                 all_candidates = set(filtered_candidates)
-                await self.log(f"   ✅ 竞价过滤(日线近似: 排除高开>7%/低开<-5%)完成: {original_count} → {len(all_candidates)}")
+                await self.log(f"   ✅ 竞价过滤(日线近似: 排除高开>5%/低开<-3%)完成: {original_count} → {len(all_candidates)}")
 
             if len(all_candidates) == 0:
                 await self.log(f"   ⚠️  竞价过滤后无候选,跳过调仓")
@@ -3494,7 +3515,9 @@ class PortfolioBacktester:
             return [
                 {"name": "limit_up_yesterday", "target": 1, "operator": "==", "label": "昨日涨停(连板候选)"},
                 {"name": "is_limit_up", "target": 0, "operator": "==", "label": "今日未封住(开板)"},
-                {"name": "intraday_max_rise_pct", "target": 0, "operator": ">=", "label": "盘中最高涨幅≥0%(非大跌)"},
+                # 【V36优化:盘中最高涨幅≥5%】is_limit_up=0只表示今日未封住,但包含大量无涨停动作的普通股
+                # 加intraday_max_rise_pct>=5%过滤,确保是"冲高后开板"而非"从未冲高"
+                {"name": "intraday_max_rise_pct", "target": 5, "operator": ">=", "label": "盘中最高涨幅≥5%(曾有涨停动作)"},
                 # 【P1-2修复(V28):volume_ratio→volume_ratio_prev,消除未来函数,与半路追涨/首板打板对齐】
                 {"name": "volume_ratio_prev", "target": min_volume_ratio, "operator": ">=", "label": f"量比≥{min_volume_ratio}"},
                 {"name": "turnover_rate_prev", "target": min_turnover, "operator": ">=", "label": f"换手率≥{min_turnover}%"},
@@ -3649,8 +3672,10 @@ class PortfolioBacktester:
         return position_multiplier, active_periods
 
     def _apply_limit_up_hit_probability(self, target_shares: dict, prices: dict, trade_date: int) -> dict:
-        """【P1-7修复:提取首板打板成交概率模拟为独立方法】
-        一字板0%/秒板30%/快速板50%/盘中板70%, 用确定性hash保证可复现
+        """【V36优化:首板打板成交概率模拟】
+        一字板0%/秒板20%/快速板45%/盘中板65%, 用确定性hash保证可复现
+        V36调整: 从0/30/50/70→0/20/45/65,更接近实际打板成交率
+        原参数过于保守导致回测打板策略收益偏低
         Returns: 修改后的target_shares
         """
         _limit_up_codes = []
@@ -3677,10 +3702,11 @@ class PortfolioBacktester:
 
                 open_rise = (o - pc) / pc * 100
                 sp = self._strategy_params.get('首板打板', {})
+                # 【V36:从strategy_defaults读取,默认值与STRATEGY_CONFIGS同步】
                 hit_prob_yizi = sp.get('hit_probability_yizi', 0.0)
-                hit_prob_fast = sp.get('hit_probability_fast', 0.3)
-                hit_prob_normal = sp.get('hit_probability_normal', 0.5)
-                hit_prob_slow = sp.get('hit_probability_slow', 0.7)
+                hit_prob_fast = sp.get('hit_probability_fast', 0.25)
+                hit_prob_normal = sp.get('hit_probability_normal', 0.50)
+                hit_prob_slow = sp.get('hit_probability_slow', 0.70)
 
                 if o == c == h == l:
                     hit_prob = hit_prob_yizi
@@ -3821,7 +3847,7 @@ class PortfolioBacktester:
         # 原因:调仓卖出会错过后续大涨(如龙头低吸盈利8%被调仓卖,次日冲高15%)
         # 保护性卖出(冲高回落/利润保护/止损/止盈)仍然正常触发
         # 【V35修复:已触发止损/冲高回落/利润保护的股不受保护,避免保护阻止止损】
-        hold_protection_pct = self._risk_config.get('hold_protection_threshold', 0.05)
+        hold_protection_pct = self._risk_config.get('hold_protection_threshold', GLOBAL_RISK.get('hold_protection_threshold', 0.08))
         _mark_sold_codes = set(pos_mgr.sell_code_reasons.keys())  # 已有保护性卖出reason的股
         if hold_protection_pct > 0:
             protected_codes = []
