@@ -64,9 +64,9 @@ def build_baseline_params():
                         "next_day_open_sell_pct": 0.03,
                     },
                     "riskParams": {
-                        "stop_loss_pct": 0.04,
+                        "stop_loss_pct": 0.03,
                         "take_profit_pct": 0.30,
-                        "max_hold_days": 4,
+                        "max_hold_days": 5,
                         "slippage_pct": 0.002,
                     }
                 },
