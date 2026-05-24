@@ -677,7 +677,10 @@ class SellSignalChecker:
 
         if isinstance(strategies, list) and strategies:
             sl = min(self._strategy_risk_params.get(s, {}).get('stop_loss_pct', global_sl) for s in strategies)
-            tp = min(self._strategy_risk_params.get(s, {}).get('take_profit_pct', global_tp) for s in strategies)
+            # 【V47修复:TP取买入策略(第一个),与portfolio_backtest._get_sl_tp_for_code一致】
+            # 旧: tp=min → 龙头低吸+跌停翘板同股时止盈取min=15%,偏低
+            # 新: tp=strategies[0] → 取买入策略的TP,更准确
+            tp = self._strategy_risk_params.get(strategies[0], {}).get('take_profit_pct', global_tp)
             return sl, tp
         return global_sl, global_tp
 
