@@ -11,6 +11,12 @@
 5. 分布特征：收益偏度、峰度、VaR、CVaR
 6. 分策略绩效归因
 """
+
+# ⚠️ DEPRECATED: 此模块无外部引用，仅被同目录其他模块内部引用。
+# 审查日期: 2026-05-26
+# 如需使用，请先确认是否有更合适的替代方案。
+# 完整调用关系见 core/managers/live/__init__.py
+
 import sys
 import logging
 

@@ -1,7 +1,11 @@
 """
-涨跌幅阈值策略
+涨跌幅阈值策略 — ⚠️ 已废弃
 
-当股票涨跌幅超过设定阈值时触发预警。
+此策略已被 MarketScanner 复用回测 _build_strategy_filter_conditions 取代。
+Scanner 的半路追涨策略直接复用回测逻辑(含 pct_chg≥5% + volume_ratio≥2.0 + 情绪过滤)。
+
+迁移: nodes/market_monitor/scanner.py → _apply_strategies()
+废弃时间: 2026-05-26
 """
 
 from typing import List, Dict, Optional

@@ -1,13 +1,19 @@
 """
-回撤控制模块
+回撤控制模块 — ⚠️ 已废弃
 
-复利的核心在于控制回撤，严格的回撤控制机制：
-1. 总最大回撤限制 → 总回撤超过阈值 → 强制停止交易
-2. 单日最大亏损限制 → 单日回撤超过 → 当日不再开新仓
-3. 连续亏损限制 → 连续 N 笔亏损 → 降低仓位
-4. 月度亏损限制 → 月度亏损超过 → 本月剩余时间停止交易
-5. 动态仓位调整 → 根据最近回撤调整仓位大小
+此模块已被 MarketScanner 的 circuit_breaker 取代。
+
+Scanner 的风控更完善:
+- 单日最大回撤5% (与回测GLOBAL_RISK对齐)
+- 连续亏损3次熔断
+- 风控熔断自动暂停交易
+- LiveFilterPipeline L1 强制空仓(与回测对齐)
+
+迁移: nodes/market_monitor/scanner.py → _circuit_breaker + _check_circuit_breaker()
+废弃时间: 2026-05-26
 """
+
+复利的核心在于控制回撤
 
 import logging
 from datetime import datetime, timedelta
