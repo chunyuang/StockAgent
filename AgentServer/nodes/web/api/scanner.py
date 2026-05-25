@@ -1712,3 +1712,59 @@ async def get_realtime_quote(ts_code: str):
         logger.warning(f"[QUOTE] 必盈获取失败: {e}")
     
     return {"success": False, "message": f"无法获取 {ts_code} 行情"}
+
+# ==================== 【V50.1】扫描链路追踪 ====================
+
+@router.get("/scan-traces")
+async def get_scan_traces(date: str = None, limit: int = 10):
+    """获取扫描链路追踪记录
+    
+    返回每次扫描的完整选股→过滤→执行全流程
+    用于复盘：查看每层筛选淘汰了多少候选、为什么淘汰
+    
+    Args:
+        date: 指定日期(YYYYMMDD), 不传则返回最近N次
+        limit: 返回最近N次扫描(默认10)
+    """
+    try:
+        from core.managers import mongo_manager
+        if mongo_manager.db is None:
+            return {"success": True, "data": [], "message": "MongoDB未连接"}
+        
+        query = {}
+        if date:
+            query["trade_date"] = date
+        
+        docs = []
+        async for doc in mongo_manager.db["scan_traces"].find(query).sort("_id", -1).limit(limit):
+            doc.pop("_id", None)
+            docs.append(doc)
+        
+        return {"success": True, "data": docs, "count": len(docs)}
+    except Exception as e:
+        return {"success": True, "data": [], "message": str(e)}
+
+
+@router.get("/scan-traces/{scan_id}")
+async def get_scan_trace_detail(scan_id: str):
+    """获取单次扫描的详细追踪
+    
+    返回该次扫描的完整候选链路：
+    - 每个候选在各层的通过/拒绝状态
+    - 被淘汰的候选在哪个环节、什么原因被淘汰
+    - 通过的候选最终执行的交易
+    """
+    try:
+        from core.managers import mongo_manager
+        from bson import ObjectId
+        if mongo_manager.db is None:
+            return {"success": True, "data": None}
+        
+        doc = await mongo_manager.db["scan_traces"].find_one({"_id": ObjectId(scan_id)})
+        if doc:
+            doc.pop("_id", None)
+        
+        return {"success": True, "data": doc}
+    except Exception as e:
+        return {"success": True, "data": None, "message": str(e)}
+
