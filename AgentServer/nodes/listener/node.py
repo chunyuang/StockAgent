@@ -126,14 +126,21 @@ class ListenerNode(BaseNode):
                 self.set_trace_id(trace_id)
                 
                 # 检查是否为交易时间
-                # if self._config.silent_outside_trading:
-                #     is_trading = await self._is_trading_time()
-                #     if not is_trading:
-                #         self.logger.debug("Outside trading hours, sleeping...")
-                #         await asyncio.sleep(self._poll_interval)
-                #         continue
+                # 【V50:恢复交易时间检查,节省API消耗】
+                # 非交易时间(8:00-23:00之外)完全静默
+                if self._config.silent_outside_trading:
+                    is_trading = await self._is_trading_time()
+                    if not is_trading:
+                        now_hour = datetime.now().hour
+                        if now_hour < 8 or now_hour >= 23:
+                            # 深夜完全静默, 5分钟轮询
+                            await asyncio.sleep(self._poll_interval * 5)
+                        else:
+                            # 日间非交易时间, 正常轮询(但API会返回空数据)
+                            await asyncio.sleep(self._poll_interval)
+                        continue
                 
-                # 执行轮询 - 强制执行，用于测试 fallback 逻辑
+                # 执行轮询
                 await self._poll_cycle(trace_id)
                 
             except Exception as e:

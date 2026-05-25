@@ -177,10 +177,23 @@ class EmotionCycleManager:
         return result
     
     async def _get_max_continuation_limit(self, trade_date: str, limit_up_count: int) -> int:
-        """获取当日最高连板高度"""
-        # 需要统计每只股票的连续涨停天数
-        # 简化版：根据涨停数量估算，最高连板数
-        # 完整版本需要每日连板高度表，这里简化处理
+        """获取当日最高连板高度
+        
+        【V50:从MongoDB limit_list读取真实连板数据,不再用估算】
+        """
+        try:
+            # 尝试从limit_list集合读取(有limit_times字段)
+            pipeline = [
+                {"$match": {"trade_date": int(trade_date), "is_limit_up": True}},
+                {"$group": {"_id": None, "max_limit": {"$max": "$limit_times"}}}
+            ]
+            result = await mongo_manager.aggregate(C.LIMIT_LIST, pipeline)
+            if result and result[0].get("max_limit"):
+                return result[0]["max_limit"]
+        except Exception as e:
+            logger.debug(f"[EMOTION] limit_list聚合失败, fallback估算: {e}")
+        
+        # Fallback: 根据涨停数量估算(简化版)
         return max(1, min(10, limit_up_count // 5 + 1))
     
     async def _get_up_down_counts(self, trade_date: str) -> tuple[int, int]:
@@ -193,14 +206,26 @@ class EmotionCycleManager:
         return up_count, down_count
     
     async def _calculate_zt_premium(self, trade_date: str) -> float:
-        """计算昨日涨停今日平均溢价率"""
-        # 获取昨日涨停股票今日表现
-        from datetime import datetime, timedelta
+        """计算昨日涨停今日平均溢价率
         
-        # 计算昨日
-        # 简化：实际应该交易日历，这里简单减一天
-        date_obj = datetime(int(trade_date[:4]), int(trade_date[4:6]), int(trade_date[6:8]))
-        yesterday = (date_obj - timedelta(days=1)).strftime("%Y%m%d")
+        【V50:使用交易日历而非简单减一天,避免周末/节假日错误】
+        """
+        # 获取前一个交易日
+        try:
+            prev_trade_date_doc = await mongo_manager.find_one(
+                C.STOCK_DAILY,
+                {"trade_date": {"$lt": int(trade_date)}},
+                sort=[("trade_date", -1)],
+                projection={"trade_date": 1},
+            )
+            if not prev_trade_date_doc:
+                return 0.0
+            yesterday = str(prev_trade_date_doc["trade_date"])
+        except Exception:
+            # Fallback: 简单减一天
+            from datetime import timedelta
+            date_obj = datetime(int(trade_date[:4]), int(trade_date[4:6]), int(trade_date[6:8]))
+            yesterday = (date_obj - timedelta(days=1)).strftime("%Y%m%d")
         
         # 查询昨日涨停
         yesterday_zt = await mongo_manager.find_many(

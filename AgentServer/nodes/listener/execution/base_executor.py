@@ -163,18 +163,18 @@ class BaseExecutor(ABC):
     ) -> float:
         """计算佣金
         
-        A股标准佣金计算:
-        - 买入: 佣金万2，最低5元
-        - 卖出: 佣金万2 + 印花税千1
+        A股标准佣金计算(与回测portfolio_backtest.py对齐):
+        - 买入: 佣金万3(含规费), 最低5元
+        - 卖出: 佣金万3(含规费) + 印花税千1
         """
         amount = price * shares
-        commission = amount * 0.0002  # 万2
+        commission = amount * 0.0003  # 万3(与回测BUY_COMMISSION/SELL_COMMISSION一致)
         
         if commission < 5 and amount > 0:
             commission = 5.0
             
         if direction == OrderDirection.SELL:
-            # 印花税 千1
+            # 印花税 千1(与回测STAMP_TAX一致)
             commission += amount * 0.001
             
         return commission
