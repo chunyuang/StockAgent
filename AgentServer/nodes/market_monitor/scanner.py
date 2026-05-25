@@ -148,7 +148,7 @@ class MarketScanner:
                 "enable_premarket_filter": True,
                 "enable_auction_filter": True,
                 "max_total_position": 0.7,
-                "max_position_per_stock": 0.2,
+                "max_position_per_stock": 0.35,  # 【V50:与回测V49对齐,从0.20→0.35提升资金利用率】
                 "max_candidates_per_scan": 10,
             }
         )
