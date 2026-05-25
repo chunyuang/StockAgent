@@ -86,12 +86,14 @@ class SimulatorExecutor(BaseExecutor):
         
         if direction == OrderDirection.BUY:
             # 买入
-            total_cost = amount + commission
-            if self._cash < total_cost:
+            # 【V50修复:佣金已单独扣除,不应再包含在total_cost中,否则重复扣款】
+            buy_cost = amount  # 股票成本(不含佣金,佣金已扣)
+            if self._cash < buy_cost:
                 self.logger.warning(
-                    f"[BUY] {ts_code}: Insufficient cash, need {total_cost:.2f}, cash {self._cash:.2f}"
+                    f"[BUY] {ts_code}: Insufficient cash, need {buy_cost:.2f}, cash {self._cash:.2f}"
                 )
-                # 不添加佣金回退，模拟已经扣了
+                # 退回已扣佣金
+                self._cash += commission
                 return None
             
             # 更新持仓
@@ -99,8 +101,9 @@ class SimulatorExecutor(BaseExecutor):
                 # 加仓，计算平均成本
                 pos = self._positions[ts_code]
                 total_shares = pos.shares + shares
-                total_cost = pos.shares * pos.cost_price + total_cost
-                new_cost = total_cost / total_shares
+                # 【V50修复:加仓成本用shares*pos.cost_price(非pos.shares,因为可能部分卖出)】
+                total_cost_basis = pos.shares * pos.cost_price + buy_cost + commission
+                new_cost = total_cost_basis / total_shares
                 pos.shares = total_shares
                 pos.cost_price = new_cost
             else:
@@ -108,7 +111,7 @@ class SimulatorExecutor(BaseExecutor):
                 pos = Position(
                     ts_code=ts_code,
                     shares=shares,
-                    cost_price=(amount + commission) / shares,
+                    cost_price=(amount + commission) / shares,  # 含佣金的成本价
                     buy_date=datetime.now(),
                     strategy=strategy,
                 )
@@ -120,8 +123,8 @@ class SimulatorExecutor(BaseExecutor):
                 pos.stop_loss = price * (1 - strategy_sl)
                 self._positions[ts_code] = pos
             
-            # 扣除现金
-            self._cash -= total_cost
+            # 扣除现金(股票金额, 佣金已扣)
+            self._cash -= buy_cost
             
         else:
             # 卖出
@@ -135,8 +138,10 @@ class SimulatorExecutor(BaseExecutor):
                     f"[SELL] {ts_code}: share mismatch, have {pos.shares}, selling {shares}"
                 )
             
-            # 计算盈利
-            profit = amount - (pos.shares * pos.cost_price) - commission
+            # 计算盈利(含佣金)
+            # 【V50修复:卖出盈利=卖出金额-买入成本-佣金,用shares而非pos.shares(因为可能部分卖出)】
+            buy_cost_basis = shares * pos.cost_price
+            profit = amount - buy_cost_basis - commission
             self._total_profit += profit
             self._cash += amount - commission
             
@@ -269,7 +274,7 @@ class SimulatorExecutor(BaseExecutor):
     async def calculate_max_shares(
         self,
         price: float,
-        max_pct: float = 0.2,
+        max_pct: float = 0.35,  # 【V50:与回测V49对齐,0.20→0.35】
         emotion_multiplier: float = 1.0,
     ) -> int:
         """
@@ -277,7 +282,7 @@ class SimulatorExecutor(BaseExecutor):
         
         Args:
             price: 当前价格
-            max_pct: 最大仓位占比 (0-1)，默认单票 20%
+            max_pct: 最大仓位占比 (0-1)，默认单票 35%
             emotion_multiplier: 情绪周期仓位乘数 (0-1)
         
         Returns:
@@ -287,8 +292,8 @@ class SimulatorExecutor(BaseExecutor):
         available = account.available_cash
         max_amount = available * max_pct * emotion_multiplier
         
-        # 佣金预估
-        commission_estimate = max_amount * 0.0002
+        # 佣金预估(万3)
+        commission_estimate = max_amount * 0.0003
         max_amount -= commission_estimate
         
         # 100股整数倍

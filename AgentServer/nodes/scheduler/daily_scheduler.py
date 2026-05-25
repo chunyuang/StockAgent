@@ -625,8 +625,13 @@ class DailyScheduler:
             return None
 
     async def _check_stop_loss_take_profit(self, trade_date: str) -> List[Dict]:
-        """止损止盈检查(模拟盘)"""
+        """止损止盈检查(模拟盘)
+        
+        【V50:从strategy_defaults读取策略级风控参数,不再硬编码-3%/+7%】
+        """
         from nodes.listener.execution.simulator_executor import SimulatorExecutor
+        from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK, STRATEGY_CONFIGS
+        _NAME_TO_ID = {cfg["name"]: sid for sid, cfg in STRATEGY_CONFIGS.items()}
         
         if not self._executor:
             self._executor = SimulatorExecutor(initial_cash=1000000.0)
@@ -639,8 +644,14 @@ class DailyScheduler:
         positions = await self._executor.get_position()
         
         for pos in positions:
-            # 止损: -3% (默认)
-            if pos.profit_pct <= -3.0:
+            # 【V50:策略级风控参数】
+            strategy_id = _NAME_TO_ID.get(pos.strategy, "")
+            strategy_risk = STRATEGY_CONFIGS.get(strategy_id, {}).get("riskParams", {})
+            sl_pct = strategy_risk.get("stop_loss_pct", GLOBAL_RISK["stop_loss_pct"]) * 100
+            tp_pct = strategy_risk.get("take_profit_pct", GLOBAL_RISK["take_profit_pct"]) * 100
+            
+            # 止损
+            if pos.profit_pct <= -sl_pct:
                 try:
                     await self._executor.send_order(
                         ts_code=pos.ts_code,
@@ -658,8 +669,8 @@ class DailyScheduler:
                 except Exception as e:
                     logger.error(f"[RISK] 止损卖出失败 {pos.ts_code}: {e}")
             
-            # 止盈: +7% (默认)
-            elif pos.profit_pct >= 7.0:
+            # 止盈
+            elif pos.profit_pct >= tp_pct:
                 try:
                     await self._executor.send_order(
                         ts_code=pos.ts_code,
@@ -696,7 +707,11 @@ class DailyScheduler:
         positions = await self._executor.get_position()
         
         if account:
-            daily_return = (account.total_asset - 1000000) / 1000000 * 100  # 相对初始资金
+            # 【V50:修复daily_return计算——用today的starting_asset而非硬编码1000000】
+            daily_start = getattr(self, '_daily_start_asset', 1000000.0)
+            if daily_start <= 0:
+                daily_start = 1000000.0
+            daily_return = (account.total_asset - daily_start) / daily_start * 100
             return {
                 "daily_return": f"{daily_return:.2f}%",
                 "total_assets": f"{account.total_asset:,.0f}",
