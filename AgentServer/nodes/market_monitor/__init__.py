@@ -6,6 +6,7 @@ from .signal_dispatcher import SignalDispatcher, DispatchSignal, SignalPriority
 from .risk_watchdog import RiskWatchdog, HealthStatus
 from .execution_quality import PreTradeChecker, SlippageModel, FillSimulator
 from .strategy_param_center import StrategyParamCenter, param_center
+from .scanner_daemon import ScannerDaemon, ScannerDaemonConfig, ScannerState, ScannerDaemonMixin
 
 __all__ = [
     "MarketScanner", "ScanSignal", "PositionStatus",
@@ -14,4 +15,5 @@ __all__ = [
     "RiskWatchdog", "HealthStatus",
     "PreTradeChecker", "SlippageModel", "FillSimulator",
     "StrategyParamCenter", "param_center",
+    "ScannerDaemon", "ScannerDaemonConfig", "ScannerState", "ScannerDaemonMixin",
 ]
