@@ -35,7 +35,6 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-@dataclass
 class CandidateTrace:
     """单个候选在各层的追踪记录"""
     ts_code: str
