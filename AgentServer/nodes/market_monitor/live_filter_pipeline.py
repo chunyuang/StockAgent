@@ -49,7 +49,7 @@ class LiveFilterPipeline:
     """实盘9层筛选管道"""
 
     # 强制空仓阈值（与回测portfolio_backtest.py一致）
-    FORCE_EMPTY_LIMIT_DOWN = 50   # 跌停≥50只
+    FORCE_EMPTY_LIMIT_DOWN = 80   # 【V50:跌停≥80只,与回测GLOBAL_RISK.force_empty_limit_down对齐(原50)】
     FORCE_EMPTY_LIMIT_UP = 10     # 涨停≤10只
 
     # 特殊时期配置

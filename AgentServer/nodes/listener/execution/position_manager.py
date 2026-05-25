@@ -304,6 +304,14 @@ class PositionManager:
         # 从strategy_defaults读取参数
         from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK, STRATEGY_CONFIGS
         _NAME_TO_ID = {cfg["name"]: sid for sid, cfg in STRATEGY_CONFIGS.items()}
+        # 【V50:listener策略名→回测策略ID映射】
+        _LISTENER_TO_BACKTEST = {
+            "first_board": "first_limit_up",     # 首板打板
+            "leading_dragon": "dragon_head",      # 龙头低吸
+            "price_change": "halfway_chase",       # 半路追涨
+            "limit_open": "limit_up_open",         # 涨停开板(也覆盖跌停翘板)
+            "limit_down_qiao": "limit_down_qiao",   # 跌停翘板
+        }
         
         # 【V50:获取当日open价用于冲高回落/跳空止损判断】
         from datetime import date as date_type
@@ -326,7 +334,9 @@ class PositionManager:
                 continue
             
             # 获取策略级风控参数(与回测对齐)
-            strategy_id = _NAME_TO_ID.get(position.strategy, "")
+            # 【V50:优先查listener映射,再查中文名,再直接查ID】
+            mapped_strategy = _LISTENER_TO_BACKTEST.get(position.strategy, position.strategy)
+            strategy_id = _NAME_TO_ID.get(mapped_strategy, mapped_strategy)
             strategy_risk = STRATEGY_CONFIGS.get(strategy_id, {}).get("riskParams", {})
             sl_pct = strategy_risk.get("stop_loss_pct", GLOBAL_RISK["stop_loss_pct"])
             tp_pct = strategy_risk.get("take_profit_pct", GLOBAL_RISK["take_profit_pct"])

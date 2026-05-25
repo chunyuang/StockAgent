@@ -208,7 +208,7 @@ class EmotionCycleManager:
     async def _calculate_zt_premium(self, trade_date: str) -> float:
         """计算昨日涨停今日平均溢价率
         
-        【V50:使用交易日历而非简单减一天,避免周末/节假日错误】
+        【V50:使用交易日历+批量查询,避免N+1问题】
         """
         # 获取前一个交易日
         try:
@@ -222,7 +222,6 @@ class EmotionCycleManager:
                 return 0.0
             yesterday = str(prev_trade_date_doc["trade_date"])
         except Exception:
-            # Fallback: 简单减一天
             from datetime import timedelta
             date_obj = datetime(int(trade_date[:4]), int(trade_date[4:6]), int(trade_date[6:8]))
             yesterday = (date_obj - timedelta(days=1)).strftime("%Y%m%d")
@@ -237,19 +236,22 @@ class EmotionCycleManager:
         if not yesterday_zt:
             return 0.0
         
-        # 获取今日收盘价和昨日收盘价
+        # 【V50:批量查询替代逐只查询,从N+1次DB调用降为2次】
+        zt_codes = [doc["ts_code"] for doc in yesterday_zt]
+        today_data_list = await mongo_manager.find_many(
+            C.STOCK_DAILY,
+            {"ts_code": {"$in": zt_codes}, "trade_date": int(trade_date)},
+            projection={"ts_code": 1, "close": 1, "pre_close": 1},
+        )
+        
+        # 计算平均溢价
         total_premium = 0.0
         count = 0
-        
-        for doc in yesterday_zt:
-            ts_code = doc["ts_code"]
-            today_data = await mongo_manager.find_one(
-                C.STOCK_DAILY,
-                {"ts_code": ts_code, "trade_date": int(trade_date)},
-                projection={"close": 1, "pre_close": 1},
-            )
-            if today_data and "close" in today_data and "pre_close" in today_data:
-                premium = (today_data["close"] - today_data["pre_close"]) / today_data["pre_close"] * 100
+        for doc in today_data_list:
+            close = doc.get("close", 0)
+            pre_close = doc.get("pre_close", 0)
+            if close > 0 and pre_close > 0:
+                premium = (close - pre_close) / pre_close * 100
                 total_premium += premium
                 count += 1
         

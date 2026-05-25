@@ -118,7 +118,11 @@ class SimulatorExecutor(BaseExecutor):
                 # 【V50: 止损从strategy_defaults读取, 与回测对齐】
                 from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK, STRATEGY_CONFIGS
                 _NAME_TO_ID = {cfg["name"]: sid for sid, cfg in STRATEGY_CONFIGS.items()}
-                strategy_id = _NAME_TO_ID.get(strategy, "")
+                # listener策略名映射
+                _LISTENER_MAP = {"first_board": "first_limit_up", "leading_dragon": "dragon_head",
+                                 "price_change": "halfway_chase", "limit_open": "limit_up_open"}
+                mapped = _LISTENER_MAP.get(strategy, strategy)
+                strategy_id = _NAME_TO_ID.get(mapped, mapped)
                 strategy_sl = STRATEGY_CONFIGS.get(strategy_id, {}).get("riskParams", {}).get("stop_loss_pct", GLOBAL_RISK["stop_loss_pct"])
                 pos.stop_loss = price * (1 - strategy_sl)
                 self._positions[ts_code] = pos
