@@ -8,7 +8,7 @@
 
 ## 审查结论
 
-### 发现问题 22个, 修复 21个 (P0×11 + P1×10 + P2×7, 仅P2-5待扩展)
+### 发现问题 24个, 修复 24个 (P0×11 + P1×10 + P2×9, 全部完成)
 
 | 优先级 | 编号 | 问题 | 文件 | 状态 |
 |--------|------|------|------|------|
@@ -37,7 +37,9 @@
 | **P2** | P2-2 | drawdown_controller monthly_reset无人调用→scanner premarket集成 | scanner.py | ✅修复 |
 | **P2** | P2-3 | listener→scanner策略名称映射不一致→添加映射表 | position_manager/simulator | ✅修复 |
 | **P2** | P2-4 | broker SLIPPAGE_RATE 0.1%偏低→0.2%与回测对齐 | broker.py | ✅修复 |
-| **P2** | P2-5 | limit_open策略不支持跌停翘板(只检测开板) | limit_open.py | ⏳待扩展 |
+| **P2** | P2-8 | base.py _is_st_stock "S"模式太宽→移除 | base.py | ✅修复 |
+| **P2** | P2-9 | live_filter_pipeline L3情绪层独立计算→统一用emotion_cycle | live_filter_pipeline.py | ✅修复 |
+| **P2** | P2-5 | limit_open不支持跌停翘板→确认已完整支持 | limit_open.py | ✅已确认 |
 | **P2** | P2-6 | scanner默认止损-5%→-3%对齐GLOBAL_RISK | scanner.py | ✅修复 |
 | **P2** | P2-7 | live_filter_pipeline强制空仓阈值50→80对齐回测 | live_filter_pipeline.py | ✅修复 |
 
