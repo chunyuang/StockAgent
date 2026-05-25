@@ -283,6 +283,55 @@ class MarketScanner:
         except Exception as e:
             logger.info(f"[SCAN] 保存时间线失败(非关键): {e}")
 
+    async def _save_scan_traces(self, filter_result):
+        """【V50.1】保存扫描链路追踪到MongoDB
+        
+        记录每层筛选的完整候选状态, 用于复盘选股全流程
+        """
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.db is None:
+                return
+            if not filter_result or not filter_result.trace_candidates:
+                return
+            
+            today = datetime.now().strftime("%Y%m%d")
+            trace_doc = {
+                "trade_date": today,
+                "scan_time": datetime.now().isoformat(),
+                "account_id": self._broker.account.account_id if self._broker else "default",
+                "summary": {},
+                "candidates": [],
+            }
+            
+            # 汇总
+            for layer, stats in filter_result.trace_summary.items():
+                trace_doc["summary"][layer] = dict(stats)
+            trace_doc["summary"]["total_candidates"] = len(filter_result.trace_candidates)
+            trace_doc["summary"]["passed"] = len([t for t in filter_result.trace_candidates if t.final_status == "passed"])
+            trace_doc["summary"]["rejected"] = len([t for t in filter_result.trace_candidates if t.final_status == "rejected"])
+            
+            # 逐候选明细
+            for t in filter_result.trace_candidates:
+                trace_doc["candidates"].append({
+                    "ts_code": t.ts_code,
+                    "stock_name": t.stock_name,
+                    "strategy": t.strategy,
+                    "strategy_name": t.strategy_name,
+                    "price": t.price,
+                    "pct_chg": t.pct_chg,
+                    "final_status": t.final_status,
+                    "rejection_layer": t.final_rejection_layer,
+                    "rejection_reason": t.final_rejection_reason,
+                    "layer_results": t.layer_results,
+                })
+            
+            await mongo_manager.db["scan_traces"].insert_one(trace_doc)
+            logger.info(f"[SCAN] 保存链路追踪: {trace_doc['summary']['total_candidates']}候选, "
+                       f"{trace_doc['summary']['passed']}通过/{trace_doc['summary']['rejected']}拒绝")
+        except Exception as e:
+            logger.warning(f"[SCAN] 保存链路追踪失败(非关键): {e}")
+
     async def _load_timeline(self):
         """从MongoDB加载时间线(启动时恢复)"""
         try:
@@ -1212,6 +1261,9 @@ class MarketScanner:
         # 日志
         for layer, detail in result.layer_details.items():
             logger.info(f"[FILTER] {layer}: {detail}")
+
+        # 【V50.1】保存完整链路追踪到MongoDB(含被淘汰候选)
+        await self._save_scan_traces(result)
 
         # 强制空仓 → 清所有持仓
         if result.action == "empty":
