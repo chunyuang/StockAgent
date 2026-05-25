@@ -165,6 +165,33 @@ class MarketScanner:
             "stocks_scanned": 0,
         }
 
+        # 【V51:统一信号分发器+参数中心+风控看门狗】
+        from nodes.market_monitor.signal_dispatcher import (
+            SignalDispatcher, redis_channel_handler, feishu_channel_handler, log_channel_handler
+        )
+        self._signal_dispatcher = SignalDispatcher(scanner=self)
+        self._signal_dispatcher.register_channel("log", log_channel_handler)
+        self._signal_dispatcher.register_channel("redis", redis_channel_handler)
+        # 飞书通道延迟注册(notification_manager可能未初始化)
+        self._feishu_registered = False
+
+        # 参数中心
+        from nodes.market_monitor.strategy_param_center import param_center
+        self._param_center = param_center
+
+        # 风控看门狗
+        from nodes.market_monitor.risk_watchdog import RiskWatchdog
+        self._risk_watchdog = RiskWatchdog(scanner=self)
+        self._risk_watchdog.register_alert_channel(self._signal_dispatcher.dispatch)
+
+        # 执行质量检查
+        from nodes.market_monitor.execution_quality import PreTradeChecker, SlippageModel
+        self._pre_trade_checker = PreTradeChecker(broker=self._broker, config={
+            "max_position_per_stock": 0.35,
+            "max_total_position": 0.70,
+        })
+        self._slippage_model = SlippageModel
+
         # 风控熔断
         self._circuit_breaker = {
             "daily_start_assets": initial_cash,  # 今日开盘资产
@@ -214,6 +241,9 @@ class MarketScanner:
                 "position_ratio": self._current_position_ratio,
                 "sentiment": self._current_sentiment,
             },
+            # 【V51:看门狗+分发器状态】
+            "risk_watchdog": self._risk_watchdog.get_status() if hasattr(self, '_risk_watchdog') else {},
+            "signal_dispatcher": self._signal_dispatcher.get_stats() if hasattr(self, '_signal_dispatcher') else {},
         }
 
     def get_signals(self) -> List[Dict]:
@@ -818,6 +848,11 @@ class MarketScanner:
         self._last_scan_time = scan_time
         self._stats["scans"] += 1
         self._stats["stocks_scanned"] = len(realtime_data)
+
+        # 【V51:看门狗心跳】
+        if hasattr(self, '_risk_watchdog'):
+            self._risk_watchdog.update_heartbeat()
+        self._last_scan_duration_ms = elapsed * 1000  # 看门狗用
 
         logger.info(f"[SCAN #{self._scan_count}] 完成: "
                      f"{len(realtime_data)}只 | {len(self._active_signals)}信号 | "
@@ -1520,6 +1555,33 @@ class MarketScanner:
 
             # 更新实时价格到broker
             self._broker.update_realtime(sig.ts_code, sig.price)
+
+            # 【V51:下单前执行质量检查】
+            if self._pre_trade_checker:
+                self._pre_trade_checker._broker = self._broker  # 更新broker引用
+                ok_pre, pre_reason = self._pre_trade_checker.check_buy(
+                    ts_code=sig.ts_code,
+                    price=sig.price,
+                    quantity=shares,
+                    stock_name=sig.stock_name,
+                    strategy=sig.strategy,
+                )
+                if not ok_pre:
+                    self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                        sig.strategy_name, f"执行质量检查拒绝: {pre_reason}", sig)
+                    logger.info(f"[EXEC] 买入被拒: {sig.ts_code} {pre_reason}")
+                    continue
+
+            # 【V51:滑点估算】
+            daily_vol = self._realtime_cache.get(sig.ts_code, {}).get("volume", 0)
+            slippage = self._slippage_model.estimate(
+                price=sig.price, quantity=shares,
+                daily_volume=daily_vol * 100 if daily_vol else 0,  # 万手→股
+                side="buy", reason=sig.reason,
+            )
+            adjusted_price = self._slippage_model.apply_slippage(sig.price, slippage)
+            if abs(slippage) > 0.001:
+                logger.info(f"[EXEC] 滑点调整: {sig.ts_code} {sig.price:.2f}→{adjusted_price:.2f} (slippage={slippage*100:.3f}%)")
 
             ok, msg, order = self._broker.place_order(
                 ts_code=sig.ts_code,
