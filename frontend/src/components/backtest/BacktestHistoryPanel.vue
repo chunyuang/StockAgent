@@ -42,11 +42,11 @@ const strategyNameMap: Record<string, string> = Object.fromEntries(
 
 // 策略颜色映射
 const strategyColors: Record<string, string> = {
-  halfway_chase: '#e6a23c',
-  first_limit_up: '#f56c6c',
-  dragon_head: '#409eff',
-  limit_down_qiao: '#67c23a',
-  limit_up_open: '#909399',
+  halfway_chase: 'var(--warning)',
+  first_limit_up: 'var(--stock-up)',
+  dragon_head: 'var(--el-color-primary)',
+  limit_down_qiao: 'var(--stock-down)',
+  limit_up_open: 'var(--text-tertiary)',
 }
 
 // ==================== 汇总统计 ====================
@@ -79,12 +79,12 @@ function returnPercentile(val: number | null | undefined): number {
 }
 
 function returnColor(val: number | null | undefined): string {
-  if (val == null) return '#c0c4cc'
-  if (val >= 30) return '#2d8a4e'
-  if (val >= 10) return '#67c23a'
-  if (val >= 0) return '#95d475'
-  if (val >= -10) return '#f89898'
-  return '#f56c6c'
+  if (val == null) return 'var(--text-muted)'
+  if (val >= 30) return 'var(--stock-down)'
+  if (val >= 10) return 'var(--stock-down-light)'
+  if (val >= 0) return 'var(--stock-down-bg)'
+  if (val >= -10) return 'var(--stock-up-light)'
+  return 'var(--stock-up)'
 }
 
 // 排序
@@ -179,7 +179,7 @@ watch(() => props.visible, (v) => { if (v && !items.value.length) loadHistory() 
       <div class="sm-div" />
       <div class="sm-item"><span class="sm-val">{{ formatSharpe(summary.avgSharpe) }}</span><span class="sm-lbl">均夏普</span></div>
       <div class="sm-div" />
-      <div class="sm-item"><span class="sm-val" :style="{ color: summary.profitCount / summary.count > 0.5 ? '#67c23a' : '#f56c6c' }">{{ (summary.profitCount / summary.count * 100).toFixed(0) }}%</span><span class="sm-lbl">盈利率</span></div>
+      <div class="sm-item"><span class="sm-val" :style="{ color: summary.profitCount / summary.count > 0.5 ? 'var(--stock-down)' : 'var(--stock-up)' }">{{ (summary.profitCount / summary.count * 100).toFixed(0) }}%</span><span class="sm-lbl">盈利率</span></div>
     </div>
 
     <!-- 头部 -->
@@ -252,15 +252,15 @@ watch(() => props.visible, (v) => { if (v && !items.value.length) loadHistory() 
             </div>
           </div>
           <div class="bt-metric">
-            <span class="bt-m-val" :style="{ color: (item.win_rate ?? 0) >= 50 ? '#67c23a' : '#e6a23c' }">{{ formatRate(item.win_rate) }}</span>
+            <span class="bt-m-val" :style="{ color: (item.win_rate ?? 0) >= 50 ? 'var(--stock-down)' : 'var(--warning)' }">{{ formatRate(item.win_rate) }}</span>
             <span class="bt-m-lbl">胜率</span>
           </div>
           <div class="bt-metric">
-            <span class="bt-m-val" :style="{ color: (item.sharpe_ratio ?? 0) >= 2 ? '#67c23a' : (item.sharpe_ratio ?? 0) >= 1 ? '#e6a23c' : '#f56c6c' }">{{ formatSharpe(item.sharpe_ratio) }}</span>
+            <span class="bt-m-val" :style="{ color: (item.sharpe_ratio ?? 0) >= 2 ? 'var(--stock-down)' : (item.sharpe_ratio ?? 0) >= 1 ? 'var(--warning)' : 'var(--stock-up)' }">{{ formatSharpe(item.sharpe_ratio) }}</span>
             <span class="bt-m-lbl">夏普</span>
           </div>
           <div class="bt-metric">
-            <span class="bt-m-val" :style="{ color: (item.max_drawdown ?? 0) <= 5 ? '#67c23a' : (item.max_drawdown ?? 0) <= 10 ? '#e6a23c' : '#f56c6c' }">{{ formatDrawdown(item.max_drawdown) }}</span>
+            <span class="bt-m-val" :style="{ color: (item.max_drawdown ?? 0) <= 5 ? 'var(--stock-down)' : (item.max_drawdown ?? 0) <= 10 ? 'var(--warning)' : 'var(--stock-up)' }">{{ formatDrawdown(item.max_drawdown) }}</span>
             <span class="bt-m-lbl">回撤</span>
           </div>
           <div class="bt-metric">
@@ -317,9 +317,9 @@ watch(() => props.visible, (v) => { if (v && !items.value.length) loadHistory() 
               <span v-if="(item.strategies?.length ?? 0) > 3" class="more-tag">+{{ (item.strategies?.length ?? 0) - 3 }}</span>
             </td>
             <td :style="{ color: returnColor(item.total_return), fontWeight: 700 }">{{ formatReturn(item.total_return) }}</td>
-            <td :style="{ color: (item.win_rate ?? 0) >= 50 ? '#67c23a' : '#e6a23c' }">{{ formatRate(item.win_rate) }}</td>
-            <td :style="{ color: (item.sharpe_ratio ?? 0) >= 2 ? '#67c23a' : (item.sharpe_ratio ?? 0) >= 1 ? '#e6a23c' : '#f56c6c' }">{{ formatSharpe(item.sharpe_ratio) }}</td>
-            <td :style="{ color: (item.max_drawdown ?? 0) <= 5 ? '#67c23a' : (item.max_drawdown ?? 0) <= 10 ? '#e6a23c' : '#f56c6c' }">{{ formatDrawdown(item.max_drawdown) }}</td>
+            <td :style="{ color: (item.win_rate ?? 0) >= 50 ? 'var(--stock-down)' : 'var(--warning)' }">{{ formatRate(item.win_rate) }}</td>
+            <td :style="{ color: (item.sharpe_ratio ?? 0) >= 2 ? 'var(--stock-down)' : (item.sharpe_ratio ?? 0) >= 1 ? 'var(--warning)' : 'var(--stock-up)' }">{{ formatSharpe(item.sharpe_ratio) }}</td>
+            <td :style="{ color: (item.max_drawdown ?? 0) <= 5 ? 'var(--stock-down)' : (item.max_drawdown ?? 0) <= 10 ? 'var(--warning)' : 'var(--stock-up)' }">{{ formatDrawdown(item.max_drawdown) }}</td>
             <td>{{ item.profit_loss_ratio?.toFixed(2) ?? '-' }}</td>
             <td>{{ item.trades_count ?? item.total_trades ?? '-' }}</td>
             <td class="td-actions">
@@ -347,7 +347,7 @@ watch(() => props.visible, (v) => { if (v && !items.value.length) loadHistory() 
           <tbody>
             <tr v-for="m in compareMetrics" :key="m.key">
               <td class="cmp-label">{{ m.label }}</td>
-              <td v-for="ci in compareItems" :key="ci.task_id" :class="{ 'best-val': isBestInCompare(m.key, ci) }" :style="{ color: m.classFn ? (m.classFn(ci) === 'text-green' ? '#67c23a' : m.classFn(ci) === 'text-red' ? '#f56c6c' : '') : '' }">
+              <td v-for="ci in compareItems" :key="ci.task_id" :class="{ 'best-val': isBestInCompare(m.key, ci) }" :style="{ color: m.classFn ? (m.classFn(ci) === 'text-green' ? 'var(--stock-down)' : m.classFn(ci) === 'text-red' ? 'var(--stock-up)' : '') : '' }">
                 {{ m.format(ci) }}
               </td>
             </tr>
