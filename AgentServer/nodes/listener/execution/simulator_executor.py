@@ -61,6 +61,9 @@ class SimulatorExecutor(BaseExecutor):
         commission = self.calculate_commission(direction, price, shares)
         amount = price * shares
         
+        # 【V50: 佣金万3(含规费)+印花税千1, 与回测/portfolio_backtest对齐】
+        # BUY_COMMISSION=0.0003, SELL_COMMISSION=0.0003, STAMP_TAX=0.001, MIN_COMMISSION=5
+        
         order_id = str(uuid.uuid4())
         order = Order(
             order_id=order_id,
@@ -109,8 +112,12 @@ class SimulatorExecutor(BaseExecutor):
                     buy_date=datetime.now(),
                     strategy=strategy,
                 )
-                # 计算止损：-5% 为止损
-                pos.stop_loss = price * 0.95
+                # 【V50: 止损从strategy_defaults读取, 与回测对齐】
+                from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK, STRATEGY_CONFIGS
+                _NAME_TO_ID = {cfg["name"]: sid for sid, cfg in STRATEGY_CONFIGS.items()}
+                strategy_id = _NAME_TO_ID.get(strategy, "")
+                strategy_sl = STRATEGY_CONFIGS.get(strategy_id, {}).get("riskParams", {}).get("stop_loss_pct", GLOBAL_RISK["stop_loss_pct"])
+                pos.stop_loss = price * (1 - strategy_sl)
                 self._positions[ts_code] = pos
             
             # 扣除现金

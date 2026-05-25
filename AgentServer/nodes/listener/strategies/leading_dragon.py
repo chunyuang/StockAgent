@@ -97,16 +97,10 @@ class LeadingDragonStrategy(BaseStrategy):
             # 2. 换手率达标
             sufficient_turnover = turnover >= min_turnover
             
-            # 3. 检查连板高度（需要结合昨日数据）
-            # 从prev snapshot获取昨日是否涨停
-            prev_limit = previous_snapshot.limit_stocks.get(ts_code) if previous_snapshot else None
-            was_limit_up_yesterday = prev_limit is not None and prev_limit.get('up_limit', 0) > 0
-            
-            # 统计连板高度（简单版：连续两天涨停即满足最低要求）
-            # 完整连板统计需要历史数据，这里框架支持订阅配置最低连板
-            height = 1
-            if was_limit_up_yesterday:
-                height += 1
+            # 3. 检查连板高度（从limit_stocks数据获取）
+            # 【V50:从limit_info读取limit_times(连板数),不再只看2天】
+            limit_times = limit_info.get('limit_times', 1)  # 连板高度(默认1=首板)
+            height = max(1, limit_times)
             
             if height < min_height:
                 continue

@@ -93,7 +93,7 @@ class SimulatedBroker:
     """仿真撮合引擎 — 模拟真实交易所规则"""
 
     # 费用
-    COMMISSION_RATE = 0.0002   # 佣金万2
+    COMMISSION_RATE = 0.0003   # 【V50:佣金万3(含规费),与回测BUY_COMMISSION/SELL_COMMISSION对齐】
     STAMP_DUTY_RATE = 0.001    # 印花税千1(仅卖出)
     MIN_COMMISSION = 5.0       # 最低佣金5元
     SLIPPAGE_RATE = 0.001      # 滑点0.1%
