@@ -363,15 +363,12 @@ class PaperTradingEngine:
         """每日结算：检查持仓止损止盈，更新账户收益"""
         accounts = [account_id] if account_id else list(self.accounts.keys())
         
-        # 【V50:T+1约束——清空昨日T+1锁定(新的一天可以卖昨日买入的)】
-        # 保留当日买入的锁定(格式 account_id:ts_code)
+        # 【V50:T+1约束——清除过期的T+1锁定(前一日买入的今日可卖)】
+        # T+1规则: 当日买入不可当日卖出, 次日可卖
+        # daily_settlement 在每日盘后调用, 清除所有T+1锁定(因为次日可以卖)
+        # 当日新买入的锁定在 place_order 中添加, 会在下一次 daily_settlement 时清除
         if hasattr(self, '_t1_blocked'):
-            today_str = datetime.now().strftime("%Y%m%d")
-            # 只保留当日买入的, 清除过期的
-            self._t1_blocked = {
-                k for k in self._t1_blocked 
-                if k.split(':')[0] in accounts  # 只清相关账户
-            }
+            self._t1_blocked.clear()  # 盘后结算, 次日所有持仓可卖
         
         for acc_id in accounts:
             if self.accounts[acc_id].status != "active":
