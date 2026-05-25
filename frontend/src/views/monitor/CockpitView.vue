@@ -386,7 +386,7 @@ onUnmounted(() => {
 .mode-badge { padding: 2px 10px; border-radius: 4px; font-weight: bold; color: var(--text-primary); font-size: 12px; }
 .asset-info { font-size: 13px; color: var(--text-tertiary); }
 .asset-info b { color: var(--text-primary); }
-.divider { color: #444; margin: 0 4px; }
+.divider { color: var(--text-quaternary, var(--text-tertiary)); margin: 0 4px; }
 .profit { color: var(--stock-down); }
 .loss { color: var(--stock-up); }
 .emergency-btn { animation: pulse 2s infinite; }
@@ -394,8 +394,8 @@ onUnmounted(() => {
 
 /* 三列主体 */
 .main-grid { display: grid; grid-template-columns: 240px 1fr 280px; gap: 12px; padding: 12px; flex: 1; overflow: hidden; }
-.panel { background: #16213e; border-radius: 8px; padding: 12px; border: 1px solid var(--border-default); overflow-y: auto; }
-.panel-title { font-size: 14px; font-weight: bold; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #2a2a4a; }
+.panel { background: var(--bg-elevated); border-radius: 8px; padding: 12px; border: 1px solid var(--border-default); overflow-y: auto; }
+.panel-title { font-size: 14px; font-weight: bold; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border-default); }
 
 /* 风控仪表盘 */
 .risk-item { margin-bottom: 16px; }
@@ -446,8 +446,20 @@ onUnmounted(() => {
 .pos-pnl { font-weight: bold; }
 .pos-more { text-align: center; color: var(--text-muted); font-size: 11px; padding: 4px; }
 
-/* 时间线 */
-.timeline-bar { display: flex; align-items: center; gap: 12px; padding: 8px 16px; background: #16213e; border-top: 1px solid var(--border-default); }
+/* 响应式 */
+@media (max-width: 900px) {
+  .main-grid { grid-template-columns: 1fr; }
+  .cockpit { padding: 8px; }
+  .top-bar { flex-wrap: wrap; gap: 8px; }
+  .asset-info { font-size: 12px; }
+}
+
+@media (max-width: 640px) {
+  .main-grid { grid-template-columns: 1fr; gap: 8px; padding: 8px; }
+  .panel { padding: 8px; }
+  .total-pnl { font-size: 22px; }
+  .signal-card { padding: 6px 8px; }
+}
 .timeline-label { font-weight: bold; font-size: 12px; white-space: nowrap; }
 .timeline-scroll { display: flex; gap: 12px; overflow-x: auto; flex: 1; }
 .tl-item { white-space: nowrap; font-size: 12px; color: var(--text-tertiary); }

@@ -220,11 +220,11 @@ onMounted(() => {
 
 <style scoped>
 .signal-trace-panel {
-  background: var(--card-bg, #fff);
+  background: var(--bg-elevated, #fff);
   border-radius: 8px;
   padding: 16px;
   margin-bottom: 16px;
-  border: 1px solid var(--border-color, #e4e7ed);
+  border: 1px solid var(--border-default, #e4e7ed);
 }
 
 .panel-header {
@@ -239,7 +239,6 @@ onMounted(() => {
   font-size: 16px;
   color: var(--text-primary, #303133);
 }
-
 .header-actions {
   display: flex;
   gap: 8px;
@@ -278,7 +277,7 @@ onMounted(() => {
 .bar-track {
   flex: 1;
   height: 20px;
-  background: var(--bg-color, #f5f7fa);
+  background: var(--bg-muted, #f5f7fa);
   border-radius: 3px;
   display: flex;
   overflow: hidden;
@@ -323,7 +322,7 @@ onMounted(() => {
   margin: 4px 0;
   border-radius: 6px;
   border-left: 3px solid transparent;
-  background: var(--bg-color, #fafafa);
+  background: var(--bg-muted, #fafafa);
 }
 
 .candidate-card.rejected {
@@ -352,8 +351,8 @@ onMounted(() => {
   color: var(--text-secondary, #909399);
 }
 
-.up { color: #f56c6c; font-size: 12px; }
-.down { color: #67c23a; font-size: 12px; }
+.up { color: var(--stock-up, #f56c6c); font-size: 12px; }
+.down { color: var(--stock-down, #67c23a); font-size: 12px; }
 .price { font-size: 12px; color: var(--text-regular, #606266); }
 
 .candidate-rejection {
@@ -386,13 +385,13 @@ onMounted(() => {
 }
 
 .layer-badge.passed {
-  background: #e1f3d8;
-  color: #67c23a;
+  background: var(--stock-down-bg, #e1f3d8);
+  color: var(--stock-down, #67c23a);
 }
 
 .layer-badge.failed {
-  background: #fde2e2;
-  color: #f56c6c;
+  background: var(--stock-up-bg, #fde2e2);
+  color: var(--stock-up, #f56c6c);
 }
 
 .empty-hint {
