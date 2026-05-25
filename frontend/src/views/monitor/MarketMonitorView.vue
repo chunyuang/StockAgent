@@ -12,6 +12,7 @@ import {
   ElInput, ElSelect, ElOption, ElDatePicker,
 } from 'element-plus'
 import { api } from '@/api/client'
+import SignalTracePanel from './SignalTracePanel.vue'
 
 interface ScanStats { scans: number; signals_found: number; trades_executed: number; stop_losses: number; take_profits: number; stocks_scanned: number }
 interface ScannerStatus { is_running: boolean; scan_count: number; last_scan_time: string; active_signals: number; positions: number; stocks_scanned: number; stats: ScanStats; account_id: string; trade_mode: string; dry_run?: boolean; circuit_breaker_paused?: boolean; circuit_breaker?: { trading_paused: boolean; pause_reason: string }; account: { total_assets: number; available_cash: number; market_value: number; total_profit: number }; data_sources?: Array<{ name: string; available: boolean; stocks: number; calls: number; limit: number; note: string }> }
@@ -521,6 +522,9 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
       <div v-else class="empty">暂无周报数据</div>
     </ElDialog>
   </div>
+
+    <!-- 【V50.1】信号链路追踪面板 -->
+    <SignalTracePanel />
 </template>
 <style scoped lang="scss">
 .mm { height: 100%; display: flex; flex-direction: column; background: var(--bg-base); overflow: hidden; min-width: 0; }
