@@ -419,6 +419,20 @@ class MarketScanner:
         """盘前: 加载全市场代码 + 预加载日级因子"""
         logger.info(f"[SCANNER] 盘前准备 {trade_date}")
 
+        # 【V50:重置每日风控状态——daily_start_assets/熔断计数器】
+        if self._broker:
+            try:
+                acct = self._broker.get_account()
+                if acct:
+                    self._circuit_breaker["daily_start_assets"] = acct.total_assets
+                    self._circuit_breaker["today_trades"] = 0
+                    self._circuit_breaker["today_losses"] = 0
+                    self._circuit_breaker["trading_paused"] = False
+                    self._circuit_breaker["pause_reason"] = ""
+                    logger.info(f"[SCANNER] 每日风控重置: start_asset={acct.total_assets:.2f}")
+            except Exception as e:
+                logger.warning(f"[SCANNER] 每日风控重置失败: {e}")
+
         # 1. 获取全市场代码
         await self._load_stock_list()
 
@@ -1387,7 +1401,7 @@ class MarketScanner:
                 logger.info(f"[DRY-RUN] 跳过买入 {sig.ts_code} {sig.stock_name} ({sig.strategy_name})")
             return
 
-        stop_loss = self.config.get("stop_loss", -5.0)
+        stop_loss = self.config.get("stop_loss", -3.0)  # 【V50:默认-3%对齐GLOBAL_RISK,原-5%过低】
         take_profit = self.config.get("take_profit", 7.0)
 
         for sig in signals:
