@@ -28,13 +28,13 @@ const coreMetrics = computed(() => {
     { label: '累计收益', value: fmtPct(r.total_return), color: colorSign(r.total_return) },
     { label: '年化收益', value: fmtPct(r.annualized_return) + (nvsLen < 250 ? ' ⚠️' : ''), color: colorSign(r.annualized_return) },
     { label: '最大回撤', value: fmtPct(r.max_drawdown), color: '#f56c6c' },
-    { label: '夏普比率', value: fmtNum(r.sharpe_ratio), color: r.sharpe_ratio >= 1 ? '#67c23a' : '#e6a23c' },
-    { label: '胜率', value: fmtPct(r.win_rate), color: r.win_rate >= 50 ? '#67c23a' : '#f56c6c' },
-    { label: '盈亏比', value: fmtNum(risk.profit_loss_ratio ?? r.profit_loss_ratio), color: (risk.profit_loss_ratio ?? r.profit_loss_ratio ?? 0) >= 2 ? '#67c23a' : '#e6a23c' },
-    { label: '交易笔数', value: String(r.total_trades ?? 0), color: '#409eff' },
-    { label: '信号数', value: String(r.total_signals ?? 0), color: '#909399' },
-    { label: '索提诺', value: fmtNum(risk.sortino_ratio ?? r.sortino_ratio), color: (risk.sortino_ratio ?? r.sortino_ratio ?? 0) >= 2 ? '#67c23a' : '#e6a23c' },
-    { label: '卡玛', value: fmtNum(risk.calmar_ratio ?? r.calmar_ratio), color: (risk.calmar_ratio ?? r.calmar_ratio ?? 0) >= 1 ? '#67c23a' : '#e6a23c' },
+    { label: '夏普比率', value: fmtNum(r.sharpe_ratio), color: r.sharpe_ratio >= 1 ? 'var(--stock-down)' : 'var(--warning)' },
+    { label: '胜率', value: fmtPct(r.win_rate), color: r.win_rate >= 50 ? 'var(--stock-down)' : 'var(--stock-up)' },
+    { label: '盈亏比', value: fmtNum(risk.profit_loss_ratio ?? r.profit_loss_ratio), color: (risk.profit_loss_ratio ?? r.profit_loss_ratio ?? 0) >= 2 ? 'var(--stock-down)' : 'var(--warning)' },
+    { label: '交易笔数', value: String(r.total_trades ?? 0), color: 'var(--el-color-primary)' },
+    { label: '信号数', value: String(r.total_signals ?? 0), color: 'var(--text-tertiary)' },
+    { label: '索提诺', value: fmtNum(risk.sortino_ratio ?? r.sortino_ratio), color: (risk.sortino_ratio ?? r.sortino_ratio ?? 0) >= 2 ? 'var(--stock-down)' : 'var(--warning)' },
+    { label: '卡玛', value: fmtNum(risk.calmar_ratio ?? r.calmar_ratio), color: (risk.calmar_ratio ?? r.calmar_ratio ?? 0) >= 1 ? 'var(--stock-down)' : 'var(--warning)' },
   ]
   if (ret.benchmark_return_pct != null) {
     items.push({ label: '基准收益', value: fmtPct(ret.benchmark_return_pct), color: colorSign(ret.benchmark_return_pct) })
@@ -83,8 +83,8 @@ function fmtNum(val: number | null | undefined): string {
 }
 
 function colorSign(val: number | null | undefined): string {
-  if (val == null) return '#909399'
-  return val >= 0 ? '#67c23a' : '#f56c6c'
+  if (val == null) return 'var(--text-muted)'
+  return val >= 0 ? 'var(--stock-down)' : 'var(--stock-up)'
 }
 </script>
 
@@ -125,13 +125,13 @@ function colorSign(val: number | null | undefined): string {
         </ElTableColumn>
         <ElTableColumn label="胜率" min-width="80">
           <template #default="{ row }">
-            <span :style="{ color: row.win_rate >= 50 ? '#67c23a' : '#f56c6c' }">{{ fmtPct(row.win_rate) }}</span>
+            <span :style="{ color: row.win_rate >= 50 ? 'var(--stock-down)' : 'var(--stock-up)' }">{{ fmtPct(row.win_rate) }}</span>
           </template>
         </ElTableColumn>
         <ElTableColumn prop="trades_count" label="交易" width="70" align="center" />
         <ElTableColumn label="最大回撤" min-width="90">
           <template #default="{ row }">
-            <span style="color: #f56c6c">{{ fmtPct(row.max_drawdown) }}</span>
+            <span style="color: var(--stock-up)">{{ fmtPct(row.max_drawdown) }}</span>
           </template>
         </ElTableColumn>
       </ElTable>

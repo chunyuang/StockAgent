@@ -1816,11 +1816,15 @@ class MarketScanner:
             
             # 【增强】跌停不可卖: 检查是否跌停
             if self._is_limit_down(pos.ts_code):
+                self._add_timeline_log("blocked", pos.ts_code, pos.stock_name,
+                    pos.strategy, f"跌停不可卖(触发{reason}但跌停挂单无法成交)", None)
                 logger.warning(f"[QUICK] 跌停不可卖: {pos.ts_code} {pos.stock_name}")
                 continue
             
             # 【增强】dry_run模式: 不执行卖出
             if self._dry_run:
+                self._add_timeline_log("blocked", pos.ts_code, pos.stock_name,
+                    pos.strategy, f"调试模式跳过卖出({reason})", None)
                 logger.info(f"[DRY-RUN] 跳过卖出 {pos.ts_code} {reason}")
                 continue
             
