@@ -370,7 +370,7 @@ class TradingService:
             logger.error(f"❌ 卖出失败：{e}")
             return {"success": False, "msg": str(e)}
     
-    def auto_trade_by_signal(self, signals: List[Dict], max_position: float = 0.7, max_single_position: float = 0.2) -> List[Dict]:
+    def auto_trade_by_signal(self, signals: List[Dict], max_position: float = None, max_single_position: float = None) -> List[Dict]:
         """根据信号自动调仓
         
         策略：先卖出不在新信号中的旧持仓，再买入新信号标的。
@@ -381,12 +381,23 @@ class TradingService:
         
         Args:
             signals: 选股信号列表，每个信号需包含 ts_code
-            max_position: 最大总仓位比例，默认0.7（70%）
-            max_single_position: 单票最大仓位比例，默认0.2（20%）
+            max_position: 最大总仓位比例，默认从strategy_defaults读取(0.7)
+            max_single_position: 单票最大仓位比例，默认从strategy_defaults读取(0.35)
         
         Returns:
             List[Dict]: 交易结果列表
         """
+        # 【V53:从strategy_defaults读取默认值，不再硬编码0.2】
+        try:
+            from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+            if max_position is None:
+                max_position = GLOBAL_RISK.get('max_total_position', 0.7)
+            if max_single_position is None:
+                max_single_position = GLOBAL_RISK.get('max_position_per_stock', 0.35)
+        except ImportError:
+            max_position = max_position or 0.7
+            max_single_position = max_single_position or 0.35
+        
         if not self.connected:
             return []
         

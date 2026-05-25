@@ -198,7 +198,7 @@ class RiskAlertEngine:
         
         return alerts
     
-    def run_daily_check(self, account_id: str = None):
+    async def run_daily_check(self, account_id: str = None):
         """每日盘后风险检查（入口方法）
         
         检查指定账户或所有活跃账户的风险，加上市场风险检查。
@@ -218,15 +218,15 @@ class RiskAlertEngine:
             engine = PaperTradingEngine()
             for acc_id, acc in engine.accounts.items():
                 if acc.status == "active":
-                    alerts.extend(self.check_account_risk(acc_id))
+                    alerts.extend(await self.check_account_risk(acc_id))
         else:
-            alerts.extend(self.check_account_risk(account_id))
+            alerts.extend(await self.check_account_risk(account_id))
         
         # 检查市场风险
         alerts.extend(self.check_market_risk())
         
         if not alerts:
-            logger.error("✅ 今日风控检查通过，无异常")
+            logger.info("✅ 今日风控检查通过，无异常")
         
         return alerts
 

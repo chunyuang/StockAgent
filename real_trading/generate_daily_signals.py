@@ -47,7 +47,7 @@ class RealTradingSignalGenerator:
         self.default_config = {
             "initial_cash": 1000000,
             "max_position": global_risk["max_total_position"],  # 0.7
-            "max_position_per_stock": global_risk["max_position_per_stock"],  # 0.2
+            "max_position_per_stock": global_risk["max_position_per_stock"],  # 0.35(3只均分=33%,留2%buffer)
             "max_hold_days": global_risk["max_hold_days"],  # 3
             "stop_loss_pct": global_risk["stop_loss_pct"],  # 0.03
             "take_profit_pct": global_risk["take_profit_pct"],  # 0.07

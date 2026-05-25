@@ -410,13 +410,13 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
   justify-content: space-between;
   align-items: center;
   padding: 10px 16px;
-  background: #263040;
-  border-bottom: 1px solid #30363d;
+  background: var(--bg-code-header, #263040);
+  border-bottom: 1px solid var(--border-default, #30363d);
 
   .log-title {
     font-weight: 600;
     font-size: 14px;
-    color: #c9d1d9;
+    color: var(--text-code, #c9d1d9);
     display: flex;
     align-items: center;
     gap: 8px;
@@ -425,7 +425,7 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
   .live-indicator {
     font-size: 11px;
     font-weight: 500;
-    color: #f85149;
+    color: var(--stock-up, #f85149);
     animation: pulse-live 1.5s infinite;
   }
 
@@ -440,8 +440,8 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
     gap: 8px;
 
     .log-load-btn {
-      background: #238636;
-      border: 1px solid #2ea043;
+      background: var(--stock-down, #238636);
+      border: 1px solid var(--stock-down-hover, #2ea043);
       border-radius: 4px;
       color: var(--bg-elevated);
       cursor: pointer;
@@ -450,7 +450,7 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
       font-weight: 500;
 
       &:hover:not(:disabled) {
-        background: #2ea043;
+        background: var(--stock-down-hover, #2ea043);
       }
 
       &:disabled {
@@ -460,10 +460,10 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
     }
 
     .log-tail-btn {
-      background: #364458;
-      border: 1px solid #f85149;
+      background: var(--bg-code-surface, #364458);
+      border: 1px solid var(--stock-up, #f85149);
       border-radius: 4px;
-      color: #f85149;
+      color: var(--stock-up, #f85149);
       cursor: pointer;
       padding: 4px 10px;
       font-size: 12px;
@@ -471,17 +471,17 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
       white-space: nowrap;
 
       &:hover:not(:disabled) {
-        background: #f8514920;
+        background: var(--stock-up-bg, #f8514920);
       }
 
       &.active {
-        background: #f85149;
+        background: var(--stock-up, #f85149);
         color: var(--bg-elevated);
       }
     }
 
     .log-count {
-      color: #8b949e;
+      color: var(--text-quaternary, #8b949e);
       font-size: 12px;
       white-space: nowrap;
     }
@@ -489,8 +489,8 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
 }
 
 .log-filter-bar {
-  background: #263040;
-  border-bottom: 1px solid #30363d;
+  background: var(--bg-code-header, #263040);
+  border-bottom: 1px solid var(--border-default, #30363d);
   padding: 8px 16px;
 
   .day-tabs {
@@ -500,23 +500,23 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
     flex-wrap: wrap;
 
     .day-tab {
-      background: #364458;
-      border: 1px solid #30363d;
+      background: var(--bg-code-surface, #364458);
+      border: 1px solid var(--border-default, #30363d);
       border-radius: 4px;
-      color: #8b949e;
+      color: var(--text-quaternary, #8b949e);
       cursor: pointer;
       padding: 3px 10px;
       font-size: 11px;
       white-space: nowrap;
 
       &:hover {
-        background: #30363d;
-        color: #c9d1d9;
+        background: var(--border-default, #30363d);
+        color: var(--text-code, #c9d1d9);
       }
 
       &.active {
-        background: #1f6feb;
-        border-color: #1f6feb;
+        background: var(--el-color-primary, #1f6feb);
+        border-color: var(--el-color-primary, #1f6feb);
         color: var(--bg-elevated);
       }
     }
@@ -530,37 +530,37 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
     min-width: 0;
 
     .filter-select {
-      background: #1e2940;
-      border: 1px solid #30363d;
+      background: var(--bg-code, #1e2940);
+      border: 1px solid var(--border-default, #30363d);
       border-radius: 4px;
       padding: 4px 8px;
-      color: #c9d1d9;
+      color: var(--text-code, #c9d1d9);
       font-size: 12px;
       outline: none;
       cursor: pointer;
 
       &:focus {
-        border-color: #58a6ff;
+        border-color: var(--el-color-primary-light-3, #58a6ff);
       }
     }
 
     .log-search {
-      background: #1e2940;
-      border: 1px solid #30363d;
+      background: var(--bg-code, #1e2940);
+      border: 1px solid var(--border-default, #30363d);
       border-radius: 4px;
       padding: 4px 10px;
-      color: #c9d1d9;
+      color: var(--text-code, #c9d1d9);
       font-size: 12px;
       width: min(150px, 40%);
       min-width: 100px;
       outline: none;
 
       &:focus {
-        border-color: #58a6ff;
+        border-color: var(--el-color-primary-light-3, #58a6ff);
       }
 
       &::placeholder {
-        color: #484f58;
+        color: var(--text-quinary, #484f58);
       }
     }
   }
@@ -572,8 +572,8 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
   font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', 'Courier New', monospace;
   font-size: 13px;
   line-height: 1.65;
-  color: #c9d1d9;
-  background: #1e2940;
+  color: var(--text-code, #c9d1d9);
+  background: var(--bg-code, #1e2940);
   scroll-behavior: smooth;
 
   &::-webkit-scrollbar {
@@ -581,15 +581,15 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
   }
 
   &::-webkit-scrollbar-track {
-    background: #1e2940;
+    background: var(--bg-code, #1e2940);
   }
 
   &::-webkit-scrollbar-thumb {
-    background: #30363d;
+    background: var(--border-default, #30363d);
     border-radius: 4px;
 
     &:hover {
-      background: #484f58;
+      background: var(--text-quinary, #484f58);
     }
   }
 
@@ -616,7 +616,7 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
   }
 
   .log-empty {
-    color: #484f58;
+    color: var(--text-quinary, #484f58);
     text-align: center;
     padding: 40px 0;
   }
@@ -626,7 +626,7 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
     bottom: 8px;
     left: 50%;
     transform: translateX(-50%);
-    background: #1f6feb;
+    background: var(--el-color-primary, #1f6feb);
     color: var(--bg-elevated);
     padding: 5px 16px;
     border-radius: 16px;
@@ -642,7 +642,7 @@ defineExpose({ loadLogs, reloadLogs, startLivePolling, stopLivePolling })
 
     &:hover {
       opacity: 1;
-      background: #388bfd;
+      background: var(--el-color-primary-light-3, #388bfd);
     }
   }
 }
