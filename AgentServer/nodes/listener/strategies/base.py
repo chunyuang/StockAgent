@@ -107,8 +107,8 @@ class BaseStrategy(ABC):
         if not name:
             return False
         
-        # ST 股票名称特征
-        st_patterns = ["ST", "*ST", "S*ST", "SST", "S"]
+        # ST 股票名称特征(不包含单独"S"——太宽,会误伤三一重工等拼音S开头股票)
+        st_patterns = ["*ST", "ST", "S*ST", "SST"]
         name_upper = name.upper()
         
         for pattern in st_patterns:
