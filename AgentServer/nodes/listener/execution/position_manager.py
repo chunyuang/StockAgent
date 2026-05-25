@@ -1,19 +1,18 @@
 """
-持仓管理器
+持仓管理器 — ⚠️ 已废弃
 
-整合:
-- 信号接收（来自策略）
-- 情绪周期动态仓位调整
-- 严格单票/总仓位限制
-- **回撤控制** ✅ 完整回撤控制机制
-- 加仓/减仓策略
-- 每日止损检查，自动卖出止损
-- 交易记录持久化
+此模块已被 MarketScanner + SimulatedBroker 取代。
 
-完整逻辑:
-1. 收到买入信号 → 检查回撤控制 → 情绪仓位乘数 → 单票仓位限制 → 总仓位限制 → 执行买入 → 设置止损
-2. 每日检查止损 → 跌破止损自动卖出 → 更新回撤统计
-3. 情绪+回撤双重仓位调整
+Scanner 的持仓管理更完善:
+- SimulatedBroker (broker.py): 完整撮合引擎(T+1/涨跌停/停牌/滑点/佣金)
+- MarketScanner._check_positions(): 策略级止损止盈(复用回测STRATEGY_CONFIGS)
+- MarketScanner._execute_signals(): PositionSizer(按策略强度分配仓位)
+- LiveFilterPipeline L8: 情绪×特殊×仓位上限
+
+迁移: nodes/market_monitor/scanner.py + broker.py
+废弃时间: 2026-05-26
+
+⚠️ DailyScheduler 仍引用此模块的 SimulatorExecutor，待迁移后可移除
 """
 
 import asyncio

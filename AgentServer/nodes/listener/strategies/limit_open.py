@@ -1,7 +1,11 @@
 """
-涨跌停打开策略
+涨停停打开策略 — ⚠️ 已废弃
 
-检测涨停/跌停股票开板的情况。
+此策略已被 MarketScanner 的异动检测功能取代。
+Scanner 复用回测的 _build_strategy_filter_conditions，确保实盘与回测对齐。
+
+迁移: nodes/market_monitor/scanner.py → _detect_anomalies()
+废弃时间: 2026-05-26
 """
 
 from typing import List, Optional

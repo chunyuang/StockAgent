@@ -11,6 +11,12 @@
 5. 风控检查结果
 6. 次日交易计划
 """
+
+# ⚠️ DEPRECATED: 此模块无外部引用，仅被同目录其他模块内部引用。
+# 审查日期: 2026-05-26
+# 如需使用，请先确认是否有更合适的替代方案。
+# 完整调用关系见 core/managers/live/__init__.py
+
 import sys
 import logging
 
