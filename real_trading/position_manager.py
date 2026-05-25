@@ -417,10 +417,15 @@ class PositionManager:
                 alert["alerts"].append(f"⚠️  持仓超期：已持有{alert['hold_days']}天，超过{pos.max_hold_days}天上限，建议强制平仓")
                 alert["level"] = "danger"
             
-            # 检查止损
+            # 检查止损【V50:区分跳空止损vs正常止损,与回测sell_signal_checker对齐】
+            # 回测: open<=stop_price → 跳空止损(以open卖出), low<=stop_price → 正常止损(以stop_price卖出)
             if low <= pos.stop_loss_price:
-                alert["alerts"].append(f"🔴 触发止损：最低价{low:.2f} ≤ 止损价{pos.stop_loss_price:.2f}，建议立即卖出")
-                alert["level"] = "danger"
+                if open_p <= pos.stop_loss_price and open_p > 0:
+                    alert["alerts"].append(f"🔴 跳空止损：开盘价{open_p:.2f}直接跳空低于止损价{pos.stop_loss_price:.2f}，建议以开盘价卖出")
+                    alert["level"] = "danger"
+                else:
+                    alert["alerts"].append(f"🔴 触发止损：最低价{low:.2f} ≤ 止损价{pos.stop_loss_price:.2f}，建议以止损价卖出")
+                    alert["level"] = "danger"
             elif current_price <= pos.stop_loss_price * 1.05:
                 alert["alerts"].append(f"🟡 接近止损：当前价{current_price:.2f} 接近止损价{pos.stop_loss_price:.2f}，注意风险")
                 alert["level"] = "warning"
@@ -443,7 +448,7 @@ class PositionManager:
                  '龙头低吸': 'dragon_head', '跌停翘板': 'limit_down_qiao',
                  '涨停开板': 'limit_up_open'}.get(_strategy, ''), {})
             _strategy_params = _strategy_cfg.get('params', {})
-            _pullback_threshold = _strategy_params.get('next_day_open_sell_pct', GLOBAL_RISK.get('intraday_lock_min_high_rise', 0.03))
+            _pullback_threshold = _strategy_params.get('next_day_open_sell_pct', GLOBAL_RISK.get('next_day_open_sell_pct', 0.03))
             _pullback_mid_fallback = _strategy_params.get('pullback_mid_fallback_pct', 0.01)
             _pullback_high = _strategy_params.get('pullback_high_threshold', 0.05)
             _lock_min_high = GLOBAL_RISK.get('intraday_lock_min_high_rise', 0.05)
@@ -454,10 +459,21 @@ class PositionManager:
                 open_rise = (open_p / _cost - 1)
                 close_rise = (current_price / _cost - 1)
                 
+                # 【V50:高开即卖——首板打板专用,高开≥next_day_open_sell_pct直接卖出】
+                # 回测: SellSignalChecker.check_high_open_sell(), 首板打板策略独有
+                # 实盘: 当策略是首板打板且高开≥阈值时触发
+                if _strategy == '首板打板' and open_rise >= _pullback_threshold:
+                    alert["alerts"].append(f"🔴 高开即卖：首板打板开盘涨{open_rise*100:.1f}%≥{_pullback_threshold*100:.0f}%，建议以开盘价{open_p:.2f}卖出")
+                    alert["level"] = "danger"
                 # 冲高回落: 高开≥阈值且高开低收→以open价卖出
-                if open_rise >= _pullback_threshold and current_price < open_p:
+                elif open_rise >= _pullback_threshold and current_price < open_p:
+                    # 【V50:龙头低吸冲高回落利润保护——利润≥8%时不触发,让利润锁定/超时处理】
+                    # 回测: STRATEGY_PULLBACK_PARAMS['龙头低吸']['pullback_profit_lock_threshold']=0.08
+                    _pullback_profit_lock = _strategy_params.get('pullback_profit_lock_threshold', None)
+                    if _pullback_profit_lock is not None and open_rise >= _pullback_profit_lock:
+                        pass  # 利润已高,不触发冲高回落
                     # 高开≥5%直接触发, 3%-5%需回落≥阈值
-                    if open_rise >= _pullback_high:
+                    elif open_rise >= _pullback_high:
                         alert["alerts"].append(f"🔴 冲高回落：开盘涨{open_rise*100:.1f}%但收盘回落，建议以开盘价{open_p:.2f}卖出")
                         alert["level"] = "danger"
                     else:

@@ -788,7 +788,12 @@ class DailyScheduler:
         return {"date": trade_date, "force_empty": False, "signals": [], "trading_plan": "未找到信号文件，保持空仓"}
 
     def _step_compute_rebalance(self, signal_data: Dict) -> Dict:
-        """Step: 计算调仓操作"""
+        """Step: 计算调仓操作
+        
+        【V50:新增持仓保护——盈利≥5%的持仓不被调仓卖出,与回测hold_protection_threshold对齐】
+        回测逻辑: _rebalance中盈利≥hold_protection_threshold(5%)的股票只能由保护性信号(冲高回落/止损/止盈等)
+        自然退出,不被调仓卖出。实盘应保持一致。
+        """
         signals = signal_data.get("signals", [])
         signal_codes = {s.get("ts_code") for s in signals} if signals else set()
 
@@ -796,9 +801,23 @@ class DailyScheduler:
         current_positions = pos_manager.get_positions()
         position_codes = {p["ts_code"] for p in current_positions}
 
-        to_sell = [p for p in current_positions if p["ts_code"] not in signal_codes]
-        to_buy = [s for s in signals if s.get("ts_code") not in position_codes]
-        to_hold = [p for p in current_positions if p["ts_code"] in signal_codes]
+        # 【V50:持仓保护——盈利≥hold_protection_threshold的持仓不调出】
+        hold_protection_threshold = GLOBAL_RISK.get('hold_protection_threshold', 0.05)
+        to_sell = []
+        to_hold = []
+        for p in current_positions:
+            if p["ts_code"] in signal_codes:
+                to_hold.append(p)
+            else:
+                # 检查持仓保护: 盈利≥阈值时不调仓卖出
+                profit_pct = (p.get("current_price", 0) or p.get("buy_price", 0) - p["buy_price"]) / p["buy_price"] if p["buy_price"] > 0 else 0
+                if profit_pct >= hold_protection_threshold:
+                    logger.info(f"🛡️ 持仓保护：{p['name']}({p['ts_code']}) 盈利{profit_pct*100:.1f}%≥{hold_protection_threshold*100:.0f}%，不调出")
+                    to_hold.append(p)  # 盈利保护，保留
+                else:
+                    to_sell.append(p)
+        
+        to_buy = [s for s in signals if s.get("ts_code") not in {p["ts_code"] for p in to_hold}]
 
         # 计算买入金额分配
         account = self.engine.accounts[self.account_id]
