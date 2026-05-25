@@ -35,6 +35,22 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+@dataclass
+class CandidateTrace:
+    """单个候选在各层的追踪记录"""
+    ts_code: str
+    stock_name: str
+    strategy: str
+    strategy_name: str
+    price: float = 0.0
+    pct_chg: float = 0.0
+    layer_results: Dict[str, Any] = field(default_factory=dict)  # {layer: {passed, reason, score}}
+    final_status: str = "pending"  # pending/passed/rejected
+    final_rejection_layer: str = ""
+    final_rejection_reason: str = ""
+
+
+@dataclass
 class FilterResult:
     """9层筛选结果"""
     action: str = "trade"           # trade/hold/empty
@@ -43,6 +59,9 @@ class FilterResult:
     layers_applied: Dict[str, bool] = field(default_factory=dict)  # 各层是否生效
     layer_details: Dict[str, str] = field(default_factory=dict)    # 各层日志
     force_empty_reason: str = ""    # 强制空仓原因
+    # 【V50.1】信号链路追踪: 记录每层每个候选的通过/拒绝状态
+    trace_candidates: List[CandidateTrace] = field(default_factory=list)
+    trace_summary: Dict[str, Dict] = field(default_factory=dict)  # {layer: {passed: N, rejected: N}}
 
 
 class LiveFilterPipeline:
@@ -114,6 +133,9 @@ class LiveFilterPipeline:
         result = FilterResult(candidates=list(candidates))
         ratio = 1.0  # 仓位系数
 
+        # 【V50.1】初始化全量候选追踪
+        self._init_traces(result, candidates)
+
         # ---- L1: 强制空仓 ----
         if self._layer_enabled["L1_force_empty"]:
             force_empty, reason = await self._check_force_empty(trade_date, realtime_data)
@@ -124,9 +146,18 @@ class LiveFilterPipeline:
                 result.position_ratio = 0.0
                 result.candidates = []
                 result.layer_details["L1_force_empty"] = f"⚠️ 强制空仓: {reason}"
+                # 记录所有候选被L1拒绝
+                for t in result.trace_candidates:
+                    t.layer_results["L1_force_empty"] = {"passed": False, "reason": f"强制空仓: {reason}"}
+                    t.final_status = "rejected"
+                    t.final_rejection_layer = "L1_force_empty"
+                    t.final_rejection_reason = f"强制空仓: {reason}"
+                self._build_trace_summary(result)
                 logger.warning(f"[L1] 强制空仓: {reason}")
                 return result
             result.layer_details["L1_force_empty"] = "✅ 不触发"
+            for t in result.trace_candidates:
+                t.layer_results["L1_force_empty"] = {"passed": True}
 
         # ---- L2: 特殊时期 ----
         if self._layer_enabled["L2_special_period"]:
@@ -148,37 +179,49 @@ class LiveFilterPipeline:
                 f"情绪={score:.0f}→{period}, 仓位系数={sentiment_ratio:.0%}"
             )
 
-        # ---- L4: 盘前预选 ----
+        # ---- L4: 盘前预选（记录淘汰明细）----
         if self._layer_enabled["L4_premarket"]:
-            before = len(result.candidates)
+            before_ids = {c["ts_code"] for c in result.candidates}
             result.candidates = self._premarket_filter(result.candidates)
+            after_ids = {c["ts_code"] for c in result.candidates}
+            dropped = before_ids - after_ids
             result.layers_applied["L4_premarket"] = True
+            self._record_layer_drop(result, "L4_premarket", dropped,
+                                    lambda c: self._premarket_reject_reason(c))
             result.layer_details["L4_premarket"] = (
-                f"过滤: {before}→{len(result.candidates)} (排除ST/次新/低流动)"
+                f"过滤: {len(before_ids)}→{len(after_ids)} (排除ST/次新/低流动: {len(dropped)}只)"
             )
 
-        # ---- L5: 竞价过滤 ----
+        # ---- L5: 竞价过滤（记录淘汰明细）----
         if self._layer_enabled["L5_auction"]:
-            before = len(result.candidates)
+            before_ids = {c["ts_code"] for c in result.candidates}
             result.candidates = await self._auction_filter(
                 result.candidates, trade_date, realtime_data
             )
+            after_ids = {c["ts_code"] for c in result.candidates}
+            dropped = before_ids - after_ids
             result.layers_applied["L5_auction"] = True
+            self._record_layer_drop(result, "L5_auction", dropped,
+                                    lambda c: "极端竞价(高开>7%或低开<-5%)")
             result.layer_details["L5_auction"] = (
-                f"过滤: {before}→{len(result.candidates)} (排除极端竞价)"
+                f"过滤: {len(before_ids)}→{len(after_ids)} (排除极端竞价: {len(dropped)}只)"
             )
 
         # ---- L6: 策略量能 ---- (已由scanner._apply_strategies完成)
         result.layers_applied["L6_strategy"] = True
         result.layer_details["L6_strategy"] = f"✅ 复用回测筛选 ({len(result.candidates)}个候选)"
 
-        # ---- L7: 综合排序 ----
+        # ---- L7: 综合排序（记录去重淘汰）----
         if self._layer_enabled["L7_ranking"]:
-            before = len(result.candidates)
+            before_ids = {c["ts_code"] for c in result.candidates}
             result.candidates = self._rank_and_dedup(result.candidates)
+            after_ids = {c["ts_code"] for c in result.candidates}
+            dropped = before_ids - after_ids
             result.layers_applied["L7_ranking"] = True
+            self._record_layer_drop(result, "L7_ranking", dropped,
+                                    lambda c: "去重/排序靠后被截断")
             result.layer_details["L7_ranking"] = (
-                f"排序去重: {before}→{len(result.candidates)}"
+                f"排序去重: {len(before_ids)}→{len(after_ids)} (截断: {len(dropped)}只)"
             )
 
         # ---- L8: 仓位控制 ----
@@ -192,7 +235,81 @@ class LiveFilterPipeline:
             f"单票上限{max_per_stock:.0%}"
         )
 
+        # 【V50.1】最终标记通过 + 构建汇总
+        passed_ids = {c["ts_code"] for c in result.candidates}
+        for t in result.trace_candidates:
+            if t.final_status == "pending":
+                if t.ts_code in passed_ids:
+                    t.final_status = "passed"
+                else:
+                    t.final_status = "rejected"
+                    t.final_rejection_layer = t.final_rejection_layer or "unknown"
+        self._build_trace_summary(result)
+
         return result
+
+    # ========================================================================
+    # 【V50.1】候选追踪辅助方法
+    # ========================================================================
+
+    def _init_traces(self, result, candidates):
+        """初始化全量候选追踪"""
+        result.trace_candidates = []
+        for c in candidates:
+            result.trace_candidates.append(CandidateTrace(
+                ts_code=c.get("ts_code", ""),
+                stock_name=c.get("stock_name", ""),
+                strategy=c.get("strategy", ""),
+                strategy_name=c.get("strategy_name", ""),
+                price=c.get("price", 0),
+                pct_chg=c.get("pct_chg", 0),
+            ))
+
+    def _record_layer_drop(self, result, layer, dropped_ids, reason_fn):
+        """记录某层被淘汰的候选"""
+        if not dropped_ids:
+            for t in result.trace_candidates:
+                if t.final_status != "rejected":
+                    t.layer_results[layer] = {"passed": True}
+            return
+        all_candidates = {c["ts_code"]: c for c in result.candidates}
+        for t in result.trace_candidates:
+            if t.ts_code in dropped_ids and t.final_status != "rejected":
+                original = all_candidates.get(t.ts_code, {})
+                reason = reason_fn(original)
+                t.layer_results[layer] = {"passed": False, "reason": reason}
+                t.final_status = "rejected"
+                t.final_rejection_layer = layer
+                t.final_rejection_reason = reason
+            elif t.final_status != "rejected":
+                t.layer_results[layer] = {"passed": True}
+
+    def _premarket_reject_reason(self, c):
+        """分析盘前预选淘汰原因"""
+        name = c.get("stock_name", "")
+        if "ST" in name.upper():
+            return f"ST股: {name}"
+        ts_code = c.get("ts_code", "")
+        vol = c.get("volume", 0)
+        if vol == 0:
+            return f"次新/退市(无行情): {ts_code}"
+        if isinstance(vol, (int, float)) and vol < 500:
+            return f"流动性不足(日成交{vol:.0f}万<500万)"
+        return f"未知原因"
+
+    def _build_trace_summary(self, result):
+        """构建追踪汇总"""
+        layers = ["L1_force_empty", "L2_special_period", "L3_sentiment",
+                   "L4_premarket", "L5_auction", "L6_strategy",
+                   "L7_ranking", "L8_position"]
+        for layer in layers:
+            passed = sum(1 for t in result.trace_candidates
+                        if t.layer_results.get(layer, {}).get("passed", False))
+            rejected = sum(1 for t in result.trace_candidates
+                          if t.layer_results.get(layer, {}).get("passed") is False)
+            result.trace_summary[layer] = {
+                "total": passed + rejected, "passed": passed, "rejected": rejected
+            }
 
     # ========================================================================
     # L1: 强制空仓
