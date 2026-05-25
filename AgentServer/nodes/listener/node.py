@@ -1,10 +1,18 @@
 """
-Listener 节点
+Listener 节点 — ⚠️ 已废弃，请使用 MarketScanner
 
-负责:
-- 实时行情监听 (60秒轮询)
-- 策略触发检测
-- 企业微信预警推送
+此节点已被 MarketScanner (nodes/market_monitor/scanner.py) 取代。
+
+废弃原因:
+1. 4个策略(涨停开板/半路追涨/龙头战法/首板打板)与回测V45的3个策略(半路追涨/龙头低吸/跌停翘板)不一致
+2. MarketScanner 直接复用回测 _build_strategy_filter_conditions
+3. MarketScanner 的9层筛选管道更完善
+4. 数据源: Listener用Tushare(有限流) vs Scanner用东方财富(免费无限)
+
+迁移指引: 见 nodes/listener/__init__.py
+
+保留: 此文件暂时保留，因 main.py 仍引用 ListenerNode。
+实际生产应使用 NODE_TYPE=web → WebNode 内置的 Scanner REST API。
 """
 
 import asyncio

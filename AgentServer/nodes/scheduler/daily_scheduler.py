@@ -628,8 +628,10 @@ class DailyScheduler:
         """止损止盈检查(模拟盘)
         
         【V50:从strategy_defaults读取策略级风控参数,不再硬编码-3%/+7%】
+        
+        ⚠️ 此方法仍使用已废弃的 SimulatorExecutor，待迁移到 MarketScanner._check_positions()
         """
-        from nodes.listener.execution.simulator_executor import SimulatorExecutor
+        from nodes.listener.execution.simulator_executor import SimulatorExecutor  # DEPRECATED
         from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK, STRATEGY_CONFIGS
         _NAME_TO_ID = {cfg["name"]: sid for sid, cfg in STRATEGY_CONFIGS.items()}
         
@@ -807,6 +809,15 @@ class DailyScheduler:
             logger.warning(f"[EXEC] scanner不可用: {e}, 回退到本地执行")
 
         # 回退: scanner不可用时用本地SimulatorExecutor
+        # ⚠️ DEPRECATED: SimulatorExecutor 已废弃，此回退路径将在后续版本移除
+        # 迁移: 确保 scanner 可用，或改用 SimulatedBroker(nodes/market_monitor/broker.py)
+        import warnings
+        warnings.warn(
+            "SimulatorExecutor 已废弃，建议确保 MarketScanner 可用。"
+            "详见 nodes/listener/execution/simulator_executor.py",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         from nodes.listener.execution.simulator_executor import SimulatorExecutor
         
         if not self._executor:

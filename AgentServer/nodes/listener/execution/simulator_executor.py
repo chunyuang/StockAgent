@@ -1,12 +1,20 @@
 """
-模拟交易执行器
+模拟交易执行器 — ⚠️ 已废弃
 
-用于模拟交易，验证策略信号，不连接真实券商。
-特点:
-- 内存模拟持仓，方便每日复盘
-- 支持止损检查、仓位管理
-- 支持情绪周期仓位调整
-- 记录所有交易，方便回测
+此模块已被 SimulatedBroker (nodes/market_monitor/broker.py) 取代。
+
+SimulatedBroker 更完善:
+- 完整撮合引擎(T+1/涨跌停限制/停牌/滑点)
+- 佣金: 万3(含规费)+印花税千1(与回测对齐)
+- MongoDB持久化(崩溃恢复)
+- 策略级止损从 strategy_defaults 读取(与回测对齐)
+
+⚠️ DailyScheduler 仍引用此文件(SimulatorExecutor)，待迁移后可移除。
+迁移指引:
+- DailyScheduler 的 _check_stop_loss_take_profit() → 改用 MarketScanner._check_positions()
+- DailyScheduler 的 _executor → 改用 SimulatedBroker
+
+废弃时间: 2026-05-26
 """
 
 import uuid

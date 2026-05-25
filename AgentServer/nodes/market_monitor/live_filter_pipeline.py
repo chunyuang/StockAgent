@@ -16,6 +16,11 @@
   L7 综合排序 — 策略优先级+候选去重
   L8 仓位控制 — 情绪×特殊×单票上限
   L9 买入执行 — T+1/跳空止损/成交概率
+     ⚠️ L9 实际由 MarketScanner 实现，不在本文件中:
+     - 买入: scanner._execute_signals() → SimulatedBroker.place_order()
+     - 止损: scanner._check_positions() → 策略级SL/TP(复用STRATEGY_CONFIGS)
+     - T+1: SimulatedBroker 内置 today_buy_qty 追踪
+     - 跳空止损: _check_positions_quick() 当日open<止损价→open卖出
 
 用法:
     pipeline = LiveFilterPipeline(scanner)

@@ -67,6 +67,8 @@ def main():
         node = InferenceNode(max_concurrent_tasks=max_tasks)
     
     elif node_type == NodeType.LISTENER:
+        print("⚠️  Listener 节点已废弃，建议使用 MarketScanner (Web 节点内置)")
+        print("   详见 nodes/listener/__init__.py 迁移指引")
         from nodes.listener.node import ListenerNode
         node = ListenerNode()
     
