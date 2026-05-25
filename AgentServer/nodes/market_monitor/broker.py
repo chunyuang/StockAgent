@@ -7,7 +7,7 @@ SimulatedBroker — 仿真撮合引擎
 - 涨跌停价格限制(不可市价买入涨停股/卖出跌停股)
 - 停牌股不可交易
 - 100股整手交易
-- 手续费: 佣金万2+印花税千1(卖出)
+- 手续费: 佣金万3(含规费)+印花税千1(卖出)
 - 滑点: ±0.1%
 - 撮合: 限价单 → 当日VWAP成交, 市价单 → 最新价
 
@@ -96,7 +96,7 @@ class SimulatedBroker:
     COMMISSION_RATE = 0.0003   # 【V50:佣金万3(含规费),与回测BUY_COMMISSION/SELL_COMMISSION对齐】
     STAMP_DUTY_RATE = 0.001    # 印花税千1(仅卖出)
     MIN_COMMISSION = 5.0       # 最低佣金5元
-    SLIPPAGE_RATE = 0.001      # 滑点0.1%
+    SLIPPAGE_RATE = 0.002      # 【V50:滑点0.2%,与回测strategy_defaults对齐(原0.1%偏低)】
 
     # 限制
     LOT_SIZE = 100             # 整手
