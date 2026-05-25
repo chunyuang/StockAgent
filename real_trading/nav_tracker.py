@@ -148,7 +148,7 @@ class NavTracker:
     
     # ============ 核心方法：每日更新净值 ============
     
-    def update_daily_nav(self, trade_date: str = None) -> NavRecord:
+    async def update_daily_nav(self, trade_date: str = None) -> NavRecord:
         """每日盘后更新净值
         
         计算流程：
@@ -175,7 +175,26 @@ class NavTracker:
         
         # 计算持仓市值
         positions = self.pos_manager.get_positions()
-        market_value = sum(p["shares"] * p.get("current_price", p["buy_price"]) for p in positions)
+        # 【V53:从MongoDB获取收盘价计算市值,不再用buy_price导致PnL永远为0】
+        market_value = 0
+        try:
+            from core.managers import mongo_manager
+            ts_codes = [p["ts_code"] for p in positions]
+            if ts_codes:
+                daily_data = await mongo_manager.find_many(
+                    "stock_daily_ak_full",
+                    {"ts_code": {"$in": ts_codes}, "trade_date": int(trade_date)},
+                    projection={"ts_code": 1, "close": 1}
+                )
+                price_map = {d.get("ts_code", ""): d.get("close", 0) for d in (daily_data or []) if d.get("close", 0) > 0}
+                for p in positions:
+                    current_price = price_map.get(p["ts_code"], 0) or p["buy_price"]
+                    market_value += p["shares"] * current_price
+            else:
+                market_value = 0
+        except Exception as e:
+            logger.warning(f"获取行情数据失败, fallback到成本价: {e}")
+            market_value = sum(p["shares"] * p["buy_price"] for p in positions)
         
         # 计算总权益
         total_equity = self.account.current_balance + market_value
