@@ -640,6 +640,42 @@ const holdDaysChartOption = computed(() => {
   }
 })
 
+// 卖出原因饼图
+const sellReasonPieOption = computed(() => {
+  const stats = props.result?.sell_reason_stats
+  if (!stats) return null
+  const colorMap: Record<string, string> = {
+    take_profit: 'var(--stock-down)',
+    rebalance: 'var(--primary-500)',
+    stop_loss: 'var(--stock-up)',
+    pullback: '#f59e0b',
+    profit_protect: '#8b5cf6',
+    profit_lock: '#6366f1',
+    force_empty: 'var(--text-tertiary)',
+    max_hold: 'var(--warning)',
+    other: 'var(--text-muted)'
+  }
+  const nameMap: Record<string, string> = {
+    take_profit: '止盈', rebalance: '调仓', stop_loss: '止损',
+    pullback: '冲高回落', profit_protect: '利润保护', profit_lock: '利润锁定',
+    force_empty: '强制空仓', max_hold: '到期', other: '其他'
+  }
+  const data = Object.entries(stats)
+    .filter(([_, v]) => v > 0)
+    .map(([k, v]) => ({ name: nameMap[k] || k, value: v, itemStyle: { color: colorMap[k] || 'var(--text-muted)' } }))
+  if (data.length === 0) return null
+  return {
+    tooltip: { trigger: 'item', formatter: '{b}: {c}笔 ({d}%)' },
+    legend: { bottom: 0, textStyle: { color: 'var(--text-secondary)' } },
+    series: [{
+      type: 'pie', radius: ['35%', '65%'],
+      label: { formatter: '{b}\n{c}笔', fontSize: 12, color: 'var(--text-secondary)' },
+      data,
+      emphasis: { itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: 'rgba(0,0,0,0.2)' } }
+    }]
+  }
+})
+
 // 月度收益: 统一使用 monthlyReturnChartOption (基于net_value_series计算)
 // 保留monthlyProfitChartOption仅作为调试参考
 const _monthlyProfitChartOption = computed(() => {
@@ -815,6 +851,10 @@ function exportTrades() {
             <ElTabPane label="交易占比" name="factor_contribution">
               <VChart v-if="factorContributionChartOption" :option="factorContributionChartOption" autoresize style="height: 400px; width: 100%" />
               <ElEmpty v-else description="暂无交易占比数据" />
+            </ElTabPane>
+            <ElTabPane label="卖出原因" name="sell_reason_pie">
+              <VChart v-if="sellReasonPieOption" :option="sellReasonPieOption" autoresize style="height: 400px; width: 100%" />
+              <ElEmpty v-else description="暂无卖出原因数据" />
             </ElTabPane>
             <ElTabPane label="月度收益" name="monthly_profit">
               <VChart v-if="monthlyReturnChartOption" :option="monthlyReturnChartOption" autoresize style="height: 350px; width: 100%" />

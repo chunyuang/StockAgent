@@ -313,8 +313,20 @@ class PaperTradingEngine:
             _strategy_slippage = _scfg.get("riskParams", {}).get("slippage_pct", _GR.get("slippage_pct", 0.002))
             _effective_slippage = _strategy_slippage
         
-        # 计算实际成交价（滑点）
-        actual_sell_price = sell_price * (1 - _effective_slippage)
+        # 【V52:止盈/冲高回落/利润保护等卖出滑点规则与回测SLIPPAGE_RULES对齐】
+        # 回测: 止盈不扣滑点(V49), 冲高回落/利润保护/利润锁定扣滑点, 止损/跳空止损不扣
+        # 实盘: 根据reason复用SLIPPAGE_RULES表
+        _apply_slippage = True  # 默认扣滑点
+        try:
+            from nodes.backtest_engine.factor_selection.sell_signal_checker import should_apply_slippage
+            _apply_slippage = should_apply_slippage(reason)
+        except ImportError:
+            pass  # fallback: 默认扣滑点
+        
+        if _apply_slippage:
+            actual_sell_price = sell_price * (1 - _effective_slippage)
+        else:
+            actual_sell_price = sell_price  # 止盈/止损/跳空止损等不扣滑点
         total_income = actual_sell_price * target_pos["shares"]
         commission = max(total_income * 0.0003, 5)  # 佣金万3，最低5元（对齐前端和回测配置）
         stamp_tax = total_income * 0.001  # 印花税千1
