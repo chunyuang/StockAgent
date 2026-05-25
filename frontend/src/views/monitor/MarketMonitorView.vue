@@ -259,6 +259,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <div class="ha"><span class="hl">可用</span><span class="hv">{{ (accountInfo.available_cash / 10000).toFixed(1) }}万</span></div>
         <div class="ha"><span class="hl">仓位</span><span class="hv">{{ positionRatio }}%</span></div>
         <div class="ha"><span class="hl">盈亏</span><span class="hv" :class="totalPnl >= 0 ? 'up' : 'down'">{{ totalPnl >= 0 ? '+' : '' }}{{ totalPnl.toFixed(0) }}</span></div>
+        <div class="ha" v-if="status?.signal_stats"><span class="hl">情绪</span><span class="hv">{{ status.signal_stats.filtered || 0 }}过滤</span></div>
       </div>
       <div class="hh-actions">
         <ElButton v-if="!isRunning" type="success" size="small" @click="startScanner">▶ 启动</ElButton>
@@ -371,7 +372,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <div class="tl-col" style="flex:3">
           <div v-if="historyData.length" class="history-tag">📜 {{ historyDate }} 历史回放 ({{ historyData.length }}条)</div>
           <div v-if="!historyData.length && !timeline.length" class="empty">暂无交易</div>
-          <div v-for="(item, i) in historyData.length ? historyData : timeline" :key="i" class="tl-row cp" @click="item.action !== 'blocked' && openTradeDetail(item.ts_code)"><span class="tl-time">{{ item.time }}</span><span class="tl-action" :class="item.action === 'buy' ? 'buy' : item.action === 'sell' ? 'sell' : 'blocked'">{{ item.action === 'buy' ? '买' : item.action === 'sell' ? '卖' : '⛔' }}</span><span class="code">{{ item.ts_code }}</span><span class="name">{{ item.stock_name }}</span><span v-if="item.action === 'blocked'" class="tl-blocked-reason">{{ item.reason }}</span><template v-else><span class="tl-detail">{{ item.shares }}股@{{ item.price.toFixed(2) }}</span><span v-if="item.profit_pct !== undefined" :class="item.profit_pct >= 0 ? 'up' : 'down'">{{ item.profit_pct >= 0 ? '+' : '' }}{{ item.profit_pct.toFixed(1) }}%</span><span v-if="item.profit_amount != null" :class="item.profit_amount >= 0 ? 'up' : 'down'" class="tl-amt">{{ item.profit_amount >= 0 ? '+' : '' }}¥{{ item.profit_amount.toFixed(0) }}</span></template></div>
+          <div v-for="(item, i) in historyData.length ? historyData : timeline" :key="i" class="tl-row cp" @click="item.action !== 'blocked' && openTradeDetail(item.ts_code)"><span class="tl-time">{{ item.time }}</span><span class="tl-action" :class="item.action === 'buy' ? 'buy' : item.action === 'sell' ? 'sell' : 'blocked'">{{ item.action === 'buy' ? '买' : item.action === 'sell' ? '卖' : '⛔' }}</span><span class="code">{{ item.ts_code }}</span><span class="name">{{ item.stock_name }}</span><span v-if="item.action === 'blocked'" class="tl-blocked-reason">{{ item.reason }}</span><template v-else><span v-if="item.strategy" class="tl-strat">{{ strategyCN(item.strategy) }}</span><span class="tl-detail">{{ item.shares }}股@{{ item.price.toFixed(2) }}</span><span v-if="item.profit_pct !== undefined" :class="item.profit_pct >= 0 ? 'up' : 'down'">{{ item.profit_pct >= 0 ? '+' : '' }}{{ item.profit_pct.toFixed(1) }}%</span><span v-if="item.profit_amount != null" :class="item.profit_amount >= 0 ? 'up' : 'down'" class="tl-amt">{{ item.profit_amount >= 0 ? '+' : '' }}¥{{ item.profit_amount.toFixed(0) }}</span></template></div>
         </div>
         <div class="tl-col" v-if="orders.length" style="flex:2">
           <div class="st">📋 历史订单 ({{ orders.length }})</div>
@@ -398,12 +399,89 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
       <template #footer><ElButton @click="editDialogVisible = false">取消</ElButton><ElButton type="primary" :loading="saving" @click="saveStrategy">保存</ElButton></template>
     </ElDialog>
 
-    <!-- 交易详情弹窗 -->
-    <ElDialog v-model="tradeDetailVisible" :title="`🔍 交易审查 — ${tradeDetailData?.ts_code || ''}`" width="680px">
-      <div v-if="tradeDetailData" class="td">
-        <div class="td-sec"><div class="td-t">📥 买入决策</div><template v-if="tradeDetailData.buy"><div class="td-g"><div class="td-i"><span class="td-l">时间</span><span class="td-v">{{ tradeDetailData.buy.time }}</span></div><div class="td-i"><span class="td-l">价格</span><span class="td-v">{{ tradeDetailData.buy.price?.toFixed(2) }}</span></div><div class="td-i"><span class="td-l">数量</span><span class="td-v">{{ tradeDetailData.buy.shares }}股</span></div><div class="td-i"><span class="td-l">策略</span><span class="td-v">{{ strategyCN(tradeDetailData.buy.strategy) }}</span></div></div><div class="td-r">原因: {{ tradeDetailData.buy.reason }}</div><template v-if="tradeDetailData.buy.decision_detail"><div class="td-c">决策链路:</div><div v-for="(line, i) in formatDecisionDetail(tradeDetailData.buy.decision_detail)" :key="i" class="cl">{{ line }}</div></template></template><div v-else class="td-e">无买入记录</div></div>
-        <div class="td-sec"><div class="td-t">📤 卖出决策</div><template v-if="tradeDetailData.sell"><div class="td-g"><div class="td-i"><span class="td-l">时间</span><span class="td-v">{{ tradeDetailData.sell.time }}</span></div><div class="td-i"><span class="td-l">价格</span><span class="td-v">{{ tradeDetailData.sell.price?.toFixed(2) }}</span></div><div class="td-i"><span class="td-l">盈亏</span><span class="td-v" :class="tradeDetailData.sell.profit_pct >= 0 ? 'up' : 'down'">{{ tradeDetailData.sell.profit_pct >= 0 ? '+' : '' }}{{ tradeDetailData.sell.profit_pct?.toFixed(2) }}%</span></div></div><div class="td-r">原因: {{ tradeDetailData.sell.reason }}</div><template v-if="tradeDetailData.sell.decision_detail"><div class="td-c">决策链路:</div><div v-for="(line, i) in formatDecisionDetail(tradeDetailData.sell.decision_detail)" :key="i" class="cl">{{ line }}</div></template></template><div v-else class="td-e">无卖出记录</div></div>
-        <div class="td-sec" v-if="tradeDetailData.position"><div class="td-t">📊 当前持仓</div><div class="td-g"><div class="td-i"><span class="td-l">持仓</span><span class="td-v">{{ tradeDetailData.position.shares }}股</span></div><div class="td-i"><span class="td-l">成本</span><span class="td-v">{{ tradeDetailData.position.cost_price?.toFixed(2) }}</span></div><div class="td-i"><span class="td-l">现价</span><span class="td-v">{{ tradeDetailData.position.current_price?.toFixed(2) }}</span></div><div class="td-i"><span class="td-l">盈亏</span><span class="td-v" :class="tradeDetailData.position.profit_pct >= 0 ? 'up' : 'down'">{{ tradeDetailData.position.profit_pct >= 0 ? '+' : '' }}{{ tradeDetailData.position.profit_pct?.toFixed(2) }}%</span></div></div></div>
+    <!-- 交易详情弹窗 — 结构化卡片 -->
+    <ElDialog v-model="tradeDetailVisible" :title="`🔍 交易审查 — ${tradeDetailData?.ts_code || ''} ${tradeDetailData?.buy?.stock_name || tradeDetailData?.sell?.stock_name || ''}`" width="780px">
+      <div v-if="tradeDetailData" class="td2">
+        <!-- 买入决策 -->
+        <div class="td2-sec"><div class="td2-title">📥 买入决策</div>
+          <template v-if="tradeDetailData.buy">
+            <div class="td2-grid">
+              <div class="td2-card"><div class="td2-label">⏰ 时间</div><div class="td2-val">{{ tradeDetailData.buy.time }}</div></div>
+              <div class="td2-card"><div class="td2-label">💰 价格</div><div class="td2-val">¥{{ tradeDetailData.buy.price?.toFixed(2) }}</div></div>
+              <div class="td2-card"><div class="td2-label">📊 数量</div><div class="td2-val">{{ tradeDetailData.buy.shares }}股</div></div>
+              <div class="td2-card"><div class="td2-label">🎯 策略</div><div class="td2-val"><ElTag size="small" :color="strategyMeta[tradeDetailData.buy.strategy]?.color || '#909399'" class="tag-solid">{{ strategyCN(tradeDetailData.buy.strategy) }}</ElTag></div></div>
+            </div>
+            <div class="td2-reason">📋 选股原因: {{ tradeDetailData.buy.reason }}</div>
+            <template v-if="tradeDetailData.buy.decision_detail">
+              <div class="td2-chain">
+                <template v-if="tradeDetailData.buy.decision_detail.filter_pipeline">
+                  <div class="td2-chain-title">🔍 9层筛选管道</div>
+                  <div class="td2-pipeline">
+                    <div v-for="(applied, layer) in tradeDetailData.buy.decision_detail.filter_pipeline.layers_applied || {}" :key="layer" class="td2-pipe-step" :class="{ passed: applied }">
+                      <span class="td2-pipe-icon">{{ applied ? '✅' : '⏭️' }}</span>
+                      <span class="td2-pipe-name">{{ layerLabel(layer) }}</span>
+                      <span class="td2-pipe-detail">{{ tradeDetailData.buy.decision_detail.filter_pipeline.layer_details?.[layer] || (applied ? '通过' : '跳过') }}</span>
+                    </div>
+                  </div>
+                </template>
+                <template v-if="tradeDetailData.buy.decision_detail.execution">
+                  <div class="td2-chain-title">⚡ 执行决策</div>
+                  <div class="td2-grid">
+                    <div class="td2-card sm"><div class="td2-label">仓位比例</div><div class="td2-val">{{ ((tradeDetailData.buy.decision_detail.execution.position_ratio || 0) * 100).toFixed(0) }}%</div></div>
+                    <div class="td2-card sm"><div class="td2-label">可用资金</div><div class="td2-val">¥{{ (tradeDetailData.buy.decision_detail.execution.available_cash || 0).toFixed(0) }}</div></div>
+                    <div class="td2-card sm"><div class="td2-label">买入金额</div><div class="td2-val">¥{{ (tradeDetailData.buy.decision_detail.execution.total_cost || 0).toFixed(0) }}</div></div>
+                    <div class="td2-card sm"><div class="td2-label">成交价</div><div class="td2-val">¥{{ (tradeDetailData.buy.decision_detail.execution.filled_price || 0).toFixed(2) }}</div></div>
+                    <div class="td2-card sm" v-if="tradeDetailData.buy.decision_detail.execution.sentiment"><div class="td2-label">情绪</div><div class="td2-val">{{ tradeDetailData.buy.decision_detail.execution.sentiment.score?.toFixed(0) }}→{{ tradeDetailData.buy.decision_detail.execution.sentiment.period }}</div></div>
+                    <div class="td2-card sm" v-if="tradeDetailData.buy.decision_detail.execution.circuit_breaker"><div class="td2-label">熔断</div><div class="td2-val" :class="tradeDetailData.buy.decision_detail.execution.circuit_breaker.paused ? 'down' : ''">{{ tradeDetailData.buy.decision_detail.execution.circuit_breaker.paused ? '⛔暂停' : '✅正常' }}</div></div>
+                  </div>
+                </template>
+                <template v-if="tradeDetailData.buy.decision_detail.factors && Object.values(tradeDetailData.buy.decision_detail.factors).some(v => v !== 0 && v !== null)">
+                  <div class="td2-chain-title">📈 关键因子</div>
+                  <div class="td2-factors">
+                    <div v-for="(v, k) in tradeDetailData.buy.decision_detail.factors" :key="k" v-show="v !== 0 && v !== null" class="td2-factor"><span class="td2-fk">{{ factorLabel(k) }}</span><span class="td2-fv">{{ typeof v === 'number' ? v.toFixed(2) : v }}</span></div>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </template>
+          <div v-else class="td2-empty">暂无买入记录</div>
+        </div>
+        <!-- 卖出决策 -->
+        <div class="td2-sec"><div class="td2-title">📤 卖出决策</div>
+          <template v-if="tradeDetailData.sell">
+            <div class="td2-grid">
+              <div class="td2-card"><div class="td2-label">⏰ 时间</div><div class="td2-val">{{ tradeDetailData.sell.time }}</div></div>
+              <div class="td2-card"><div class="td2-label">💰 价格</div><div class="td2-val">¥{{ tradeDetailData.sell.price?.toFixed(2) }}</div></div>
+              <div class="td2-card"><div class="td2-label">📊 盈亏</div><div class="td2-val" :class="tradeDetailData.sell.profit_pct >= 0 ? 'up' : 'down'">{{ tradeDetailData.sell.profit_pct >= 0 ? '+' : '' }}{{ tradeDetailData.sell.profit_pct?.toFixed(2) }}%</div></div>
+              <div class="td2-card"><div class="td2-label">💵 盈亏额</div><div class="td2-val" :class="(tradeDetailData.sell.profit_amount || 0) >= 0 ? 'up' : 'down'">¥{{ (tradeDetailData.sell.profit_amount || 0).toFixed(0) }}</div></div>
+            </div>
+            <div class="td2-reason">📋 卖出原因: {{ tradeDetailData.sell.reason }}</div>
+            <template v-if="tradeDetailData.sell.decision_detail">
+              <div class="td2-chain">
+                <div class="td2-grid">
+                  <div class="td2-card sm" v-if="tradeDetailData.sell.decision_detail.cost_price"><div class="td2-label">成本价</div><div class="td2-val">¥{{ tradeDetailData.sell.decision_detail.cost_price?.toFixed(2) }}</div></div>
+                  <div class="td2-card sm" v-if="tradeDetailData.sell.decision_detail.current_price"><div class="td2-label">卖出价</div><div class="td2-val">¥{{ tradeDetailData.sell.decision_detail.current_price?.toFixed(2) }}</div></div>
+                  <div class="td2-card sm" v-if="tradeDetailData.sell.decision_detail.stop_loss_pct"><div class="td2-label">止损线</div><div class="td2-val text-stock-up">{{ tradeDetailData.sell.decision_detail.stop_loss_pct }}%</div></div>
+                  <div class="td2-card sm" v-if="tradeDetailData.sell.decision_detail.take_profit_pct"><div class="td2-label">止盈线</div><div class="td2-val text-stock-down">{{ tradeDetailData.sell.decision_detail.take_profit_pct }}%</div></div>
+                  <div class="td2-card sm" v-if="tradeDetailData.sell.decision_detail.stop_loss_price"><div class="td2-label">止损价</div><div class="td2-val text-stock-up">¥{{ tradeDetailData.sell.decision_detail.stop_loss_price?.toFixed(2) }}</div></div>
+                  <div class="td2-card sm" v-if="tradeDetailData.sell.decision_detail.take_profit_price"><div class="td2-label">止盈价</div><div class="td2-val text-stock-down">¥{{ tradeDetailData.sell.decision_detail.take_profit_price?.toFixed(2) }}</div></div>
+                </div>
+              </div>
+            </template>
+          </template>
+          <div v-else class="td2-empty">暂无卖出记录</div>
+        </div>
+        <!-- 当前持仓 -->
+        <div class="td2-sec" v-if="tradeDetailData.position"><div class="td2-title">📊 当前持仓</div>
+          <div class="td2-grid">
+            <div class="td2-card"><div class="td2-label">持仓</div><div class="td2-val">{{ tradeDetailData.position.shares }}股</div></div>
+            <div class="td2-card"><div class="td2-label">成本</div><div class="td2-val">¥{{ tradeDetailData.position.cost_price?.toFixed(2) }}</div></div>
+            <div class="td2-card"><div class="td2-label">现价</div><div class="td2-val">¥{{ tradeDetailData.position.current_price?.toFixed(2) }}</div></div>
+            <div class="td2-card"><div class="td2-label">盈亏</div><div class="td2-val" :class="tradeDetailData.position.profit_pct >= 0 ? 'up' : 'down'">{{ tradeDetailData.position.profit_pct >= 0 ? '+' : '' }}{{ tradeDetailData.position.profit_pct?.toFixed(2) }}%</div></div>
+            <div class="td2-card" v-if="tradeDetailData.position.stop_loss_pct"><div class="td2-label">止损</div><div class="td2-val text-stock-up">{{ tradeDetailData.position.stop_loss_pct?.toFixed(1) }}%</div></div>
+            <div class="td2-card" v-if="tradeDetailData.position.take_profit_pct"><div class="td2-label">止盈</div><div class="td2-val text-stock-down">{{ tradeDetailData.position.take_profit_pct?.toFixed(1) }}%</div></div>
+          </div>
+        </div>
       </div>
       <div v-else class="empty">无数据</div>
     </ElDialog>
@@ -636,6 +714,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .tl-action.buy { color: var(--stock-up); }
 .tl-action.sell { color: var(--stock-down); }
 .tl-action.blocked { color: var(--text-tertiary, #909399); font-size: 11px; }
+.tl-strat { font-size: 10px; color: var(--el-color-primary); background: var(--bg-tertiary, #f0f2f5); padding: 1px 5px; border-radius: 3px; white-space: nowrap; }
 .tl-blocked-reason { font-size: 12px; color: var(--text-tertiary, #909399); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 300px; }
 .tl-detail { font-size: 11px; color: var(--text-secondary); }
 .tl-reason { font-size: 11px; color: var(--text-tertiary); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
@@ -791,4 +870,28 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .mini-bar-fill.bar-down { background: var(--stock-down) !important; }
 
 /* ============================================ */
+
+/* 【V50.1】交易详情弹窗-结构化卡片 */
+.td2 { font-size: 13px; }
+.td2-sec { margin-bottom: 16px; padding: 12px; background: var(--bg-secondary, #f5f7fa); border-radius: 8px; }
+.td2-title { font-size: 14px; font-weight: 600; margin-bottom: 10px; color: var(--text-primary, #303133); }
+.td2-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.td2-card { padding: 8px 10px; background: var(--bg-elevated, #fff); border-radius: 6px; border: 1px solid var(--border-default, #e4e7ed); }
+.td2-card.sm { padding: 6px 8px; }
+.td2-label { font-size: 11px; color: var(--text-tertiary, #909399); margin-bottom: 2px; }
+.td2-val { font-size: 14px; font-weight: 600; color: var(--text-primary, #303133); }
+.td2-reason { padding: 8px 10px; margin: 8px 0; background: var(--bg-elevated, #fff); border-radius: 6px; border-left: 3px solid var(--el-color-primary); font-size: 13px; color: var(--text-secondary, #606266); }
+.td2-chain { margin-top: 8px; }
+.td2-chain-title { font-size: 12px; font-weight: 600; color: var(--text-secondary, #606266); margin: 8px 0 6px; padding-left: 4px; border-left: 2px solid var(--el-color-primary); }
+.td2-pipeline { display: flex; flex-direction: column; gap: 3px; }
+.td2-pipe-step { display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: var(--bg-elevated, #fff); border-radius: 4px; font-size: 12px; }
+.td2-pipe-step.passed { border-left: 2px solid #67c23a; }
+.td2-pipe-icon { font-size: 12px; flex-shrink: 0; }
+.td2-pipe-name { font-weight: 500; min-width: 100px; color: var(--text-primary, #303133); }
+.td2-pipe-detail { color: var(--text-tertiary, #909399); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.td2-factors { display: flex; flex-wrap: wrap; gap: 6px; }
+.td2-factor { padding: 4px 8px; background: var(--bg-elevated, #fff); border-radius: 4px; font-size: 12px; }
+.td2-fk { color: var(--text-tertiary, #909399); margin-right: 4px; }
+.td2-fv { font-weight: 500; color: var(--text-primary, #303133); }
+.td2-empty { text-align: center; padding: 16px; color: var(--text-tertiary, #909399); font-size: 13px; }
 </style>
