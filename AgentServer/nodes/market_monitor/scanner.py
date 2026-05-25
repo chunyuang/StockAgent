@@ -1429,6 +1429,19 @@ class MarketScanner:
         except Exception as e:
             logger.debug(f"[PUSH] 推送失败(可忽略): {e}")
 
+    def _add_timeline_log(self, action, ts_code, stock_name, strategy, reason, sig):
+        """【V50.1】添加执行日志到时间线(含blocked状态)"""
+        self._timeline.append({
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "action": action,
+            "ts_code": ts_code,
+            "stock_name": stock_name,
+            "strategy": strategy,
+            "reason": reason,
+            "decision_detail": getattr(sig, "decision_detail", {}),
+            "layer_trace": getattr(sig, "layer_trace", {}),
+        })
+
     async def _execute_signals(self, signals: List[ScanSignal]):
         """执行信号(SimulatedBroker撮合)
         
@@ -1450,6 +1463,8 @@ class MarketScanner:
                     "would_buy_shares": self._calc_would_buy_shares(sig),
                     "would_buy_amount": round(sig.price * self._calc_would_buy_shares(sig), 2),
                 }
+                self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                    sig.strategy_name, "调试模式, 未实际下单", sig)
                 logger.info(f"[DRY-RUN] 跳过买入 {sig.ts_code} {sig.stock_name} ({sig.strategy_name})")
             return
 
@@ -1460,19 +1475,27 @@ class MarketScanner:
             # 【安全】异动信号只观察不自动买入(历史bug: 曾绕过强制空仓造成重大损失)
             if "anomaly" in sig.strategy:
                 sig.signal_status = "skipped"
+                self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                    sig.strategy_name, "异动信号, 仅观察不自动交易", sig)
                 logger.info(f"[EXEC] 异动信号仅观察: {sig.ts_code} {sig.stock_name} ({sig.strategy_name})")
                 continue
 
             # 熔断检查
             if not await self._check_circuit_breaker():
+                self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                    sig.strategy_name, "风控熔断中, 暂停买入", sig)
                 logger.info(f"[EXEC] 风控熔断, 跳过买入")
                 break
                 
             if len(self._broker.get_positions()) >= self.MAX_POSITIONS:
+                self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                    sig.strategy_name, f"已达最大持仓{self.MAX_POSITIONS}只", sig)
                 logger.info(f"[EXEC] 已达最大持仓{self.MAX_POSITIONS}, 跳过")
                 break
 
             if sig.price <= 0:
+                self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                    sig.strategy_name, f"价格异常(price={sig.price})", sig)
                 continue
 
             # === PositionSizer: 按策略和信号强度分配仓位 ===
@@ -1485,10 +1508,14 @@ class MarketScanner:
             if sig.ts_code.startswith('688'):
                 shares = int(max_amount / sig.price / 200) * 200
                 if shares <= 0 and max_amount > 0:
+                    self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                        sig.strategy_name, f"科创板资金不足200股(需≥{sig.price*200:.0f}元, 可用{max_amount:.0f}元)", sig)
                     logger.info(f"[EXEC] {sig.ts_code} 科创板资金不足200股(需≥{sig.price*200:.0f}元, 可用{max_amount:.0f}元)")
                     continue
                 
             if shares <= 0:
+                self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                    sig.strategy_name, f"资金不足({max_amount:.0f}元<{sig.price*100:.0f}元)", sig)
                 continue
 
             # 更新实时价格到broker
@@ -1515,11 +1542,11 @@ class MarketScanner:
                     "shares": shares,
                     "price": order.filled_price,
                     "reason": sig.reason,
-                    "decision_detail": sig.decision_detail,  # 【实盘审查增强】
+                    "decision_detail": sig.decision_detail,
                 })
-                sig.signal_status = "executed"  # 标记信号已执行
+                sig.signal_status = "executed"
                 self._stats["trades_executed"] += 1
-                # 推送信号+时间线到Redis(WebSocket实时推送)
+                # 推送信号+时间线到Redis
                 await self._publish_scanner_event("signal", {
                     "signals": [self._signal_to_dict(sig)],
                 })
@@ -1528,6 +1555,8 @@ class MarketScanner:
                 })
                 logger.info(f"[EXEC] 买入 {sig.ts_code} {shares}股@{order.filled_price:.2f} ({sig.strategy_name})")
             else:
+                self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                    sig.strategy_name, f"下单失败: {msg}", sig)
                 logger.warning(f"[EXEC] 买入被拒 {sig.ts_code}: {msg}")
 
     # ==================== 公共止损止盈方法 ====================
