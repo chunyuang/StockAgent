@@ -209,7 +209,7 @@ def check_pullback(holding, market_data, params):
     """冲高回落检查: 高开≥阈值且高开低收→以open价卖出
 
     参数:
-    - next_day_open_sell_pct: 高开阈值(默认3%)
+    - next_day_open_sell_pct: 高开阈值(默认2%,V53:从3%→2%,更早保护)
     - pullback_high_threshold: 高开直接触发阈值(默认5%)
     - pullback_mid_fallback_pct: 中间区间回落触发阈值(默认1%或1.5%)
     - pullback_profit_lock_threshold: 利润超过此值时不触发冲高回落(默认None=不限制)
@@ -228,7 +228,7 @@ def check_pullback(holding, market_data, params):
         return None
 
     open_rise = (open_price / cost - 1)
-    threshold = params.get('next_day_open_sell_pct', 0.03)
+    threshold = params.get('next_day_open_sell_pct', GLOBAL_RISK.get('next_day_open_sell_pct', 0.02))
 
     # 【V47:利润保护阈值——利润超过阈值时不触发冲高回落,让利润锁定/超时处理】
     # 原因: 51.69%和33.55%的超时退出说明冲高回落过早截断大牛
@@ -330,7 +330,7 @@ def check_high_open_sell(holding, market_data, params):
     """高开即卖检查(首板打板专用): 高开≥阈值→以open价卖出
 
     参数:
-    - next_day_open_sell_pct: 高开阈值(默认3%)
+    - next_day_open_sell_pct: 高开阈值(默认2%,V53:从3%→2%,首板专用)
     """
     open_price = market_data.get('open', 0)
     cost = holding.get('cost', 0)
@@ -338,7 +338,7 @@ def check_high_open_sell(holding, market_data, params):
     if cost <= 0 or open_price <= 0:
         return None
 
-    threshold = params.get('next_day_open_sell_pct', 0.03)
+    threshold = params.get('next_day_open_sell_pct', GLOBAL_RISK.get('next_day_open_sell_pct', 0.02))
     open_rise = (open_price / cost - 1)
 
     if open_rise >= threshold:
@@ -461,7 +461,7 @@ STRATEGY_PULLBACK_PARAMS = {
     '龙头低吸': {
         'pullback_high_threshold': 0.05,
         'pullback_mid_fallback_pct': 0.015,  # V47:从0.015保持,龙头低吸波动大,0.01太敏感
-        'pullback_profit_lock_threshold': 0.08,  # V47:利润≥8%时,冲高回落不再触发,让利润锁定/超时自然退出(51.69%超时退出说明冲高回落过早截断大牛)
+        'pullback_profit_lock_threshold': 0.06,  # V53:从8%→6%,利润≥6%时冲高回落不再触发,让利润锁定/超时自然退出(51.69%超时退出说明冲高回落过早截断大牛)
     },
 }
 

@@ -55,7 +55,7 @@ STRATEGY_CONFIGS = {
             "min_close_rise_pct": 0.05,     # 收盘涨幅≥5%(⚠近似:盘中趋势判断+收盘确认,见V25未来函数分析)
             "max_open_rise_pct": 0.03,      # 开盘涨幅≤3%(高开>3%追高胜率仅44%,低开冲高81.5%胜率)
             "allow_after_10am": False,      # 不允许10点后买入
-            "next_day_open_sell_pct": 0.03, # 次日高开≥3%冲高回落保护(与首板打板高开即卖阈值一致)
+            "next_day_open_sell_pct": 0.02, # 次日高开≥2%冲高回落保护(V53:从3%→2%,半路追涨次日冲高2%+即有回落风险,更早锁定利润)
         },
         "riskParams": {
             "stop_loss_pct": 0.04,          # 止损4%(V33:从5%→4%,半路追涨avg_loss=-2.0%说明5%太宽,4%更精准截断)
@@ -79,12 +79,12 @@ STRATEGY_CONFIGS = {
             "hit_probability_yizi": 0.0,                # 一字板成交概率0%(不可能买入)
             "hit_probability_fast": 0.20,                 # 秒板(开盘>8%)成交概率20%(V37:恢复20%,V36上调25%未带来显著改善且可能导致过多低质量成交)
             "hit_probability_normal": 0.45,              # 快速板(开盘2-8%)45%(V37:恢复45%,折中值)
-            "hit_probability_slow": 0.65,                # 盘中板(开盘<2%)65%(V37:恢复65%,折中值)
-            "next_day_open_sell_pct": 0.03, # 次日高开≥3%即卖出(首板高开即卖)
+            "hit_probability_slow": 0.60,                # 盘中板(开盘<2%)60%(V53:从65%→60%,50%胜率下过松成交概率引入低质量信号,收紧减少亏损笔数)
+            "next_day_open_sell_pct": 0.02, # 次日高开≥2%冲高回落保护(V53:从3%→2%,首板高开2%+即有回落风险,更早保护减少利润回吐)
         },
         "riskParams": {
-            "stop_loss_pct": 0.04,          # 止损4%(首板打板跳空止损是开盘直接跌破,止损比例不影响跳空止损触发)
-            "take_profit_pct": 0.10,        # 止盈10%(V33:从12%→10%,首板avg_win仅4.3%,10%更实际)
+            "stop_loss_pct": 0.03,          # 止损3%(V53:从4%→3%,首板打板胜率50%,4%止损太宽让亏损扩大,3%更精准截断;50%胜率下每笔亏损-3.5%vs-4.2%,年度收益差+8%)
+            "take_profit_pct": 0.08,          # 止盈8%(V53:从10%→8%,首板avg_win仅4.3%,8%止盈更实际,10%几乎不触发)
             "max_hold_days": 2,             # 最大持仓2天(V33:3→2,首板次日未兑现即退出)
             "slippage_pct": 0.005,          # 滑点0.5%(打板场景)
         }
@@ -124,7 +124,7 @@ STRATEGY_CONFIGS = {
             "support_level": "ma5",                     # 支撑位参考
             "min_volume_ratio": 0.5,                    # 量比≥0.5(排除极度冷门,<0.5几乎无成交)
             "max_volume_ratio": 2.0,                    # 量比≤2.0(缩量回调,放量回调危险)
-            "next_day_open_sell_pct": 0.03,           # 次日高开≥3%冲高回落保护(V27:与半路追涨/跌停撬板一致)
+            "next_day_open_sell_pct": 0.02,           # 次日高开≥2%冲高回落保护(V53:从3%→2%,龙头低吸买在低位,高开2%+已有回落风险,更早锁定利润)
         },
         "riskParams": {
             "stop_loss_pct": 0.03,          # 止损3%(V45:从4%→3%,龙头低吸是缩量回调买入,止损应最紧,3月验证+4.11%收益/夏普+0.28/回撤-0.20%/盈亏比+0.39)
@@ -144,7 +144,7 @@ STRATEGY_CONFIGS = {
             "min_rise_after_qiao": 0.03,                # 翘板后最小涨幅3%
             "min_circulation_market_cap": 20,            # 最小流通市值20亿(排除小盘操纵,V16:保持20亿,30亿过滤过多跌停翘板候选)
             "require_high_sentiment": False,             # 不要求高情绪
-            "next_day_open_sell_pct": 0.03,          # 次日高开≥3%冲高回落保护(与半路追涨/龙头低吸一致)
+            "next_day_open_sell_pct": 0.02,          # 次日高开≥2%冲高回落保护(V53:从3%→2%,跌停翘板波动大,高开2%+即有回落风险)
             "pullback_mid_fallback_pct": 0.015,     # 回落≥1.5%触发(跌停翘板波动大)
         },
         "riskParams": {

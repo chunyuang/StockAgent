@@ -148,7 +148,7 @@ class DailyScheduler:
         self.config = {
             "initial_cash": 1_000_000,
             "max_position": global_risk["max_total_position"],  # 0.7
-            "max_position_per_stock": global_risk["max_position_per_stock"],  # 0.2
+            "max_position_per_stock": global_risk["max_position_per_stock"],  # 0.35(3只均分=33%,留2%buffer)
             "slippage": global_risk["slippage_pct"],  # 0.002
             "stop_loss_pct": global_risk["stop_loss_pct"],  # 0.03
             "take_profit_pct": global_risk["take_profit_pct"],  # 0.07
@@ -810,7 +810,8 @@ class DailyScheduler:
                 to_hold.append(p)
             else:
                 # 检查持仓保护: 盈利≥阈值时不调仓卖出
-                profit_pct = (p.get("current_price", 0) or p.get("buy_price", 0) - p["buy_price"]) / p["buy_price"] if p["buy_price"] > 0 else 0
+                _current_price = p.get("current_price") or p.get("last_price") or p["buy_price"]
+                profit_pct = (_current_price - p["buy_price"]) / p["buy_price"] if p["buy_price"] > 0 else 0
                 if profit_pct >= hold_protection_threshold:
                     logger.info(f"🛡️ 持仓保护：{p['name']}({p['ts_code']}) 盈利{profit_pct*100:.1f}%≥{hold_protection_threshold*100:.0f}%，不调出")
                     to_hold.append(p)  # 盈利保护，保留
