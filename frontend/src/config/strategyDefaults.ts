@@ -5,6 +5,9 @@
  * 请勿手动修改！修改策略参数请改后端 strategy_defaults.py，然后重新运行同步脚本。
  * 
  * 同步命令: cd AgentServer && python3 scripts/sync_strategy_defaults.py
+ * 
+ * 【V49:手动同步后端V47+V48修改 - max_position_per_stock 0.20→0.35, intraday_lock参数对齐,
+ *  龙头低吸SL/TP/MHD对齐, 龙头低吸max_correction_pct对齐, 跌停翘板SL对齐】
  */
 
 // 全局风控参数 — 与后端 strategy_defaults.py GLOBAL_RISK 完全一致
@@ -15,15 +18,15 @@ export const GLOBAL_RISK = {
   slippage_pct: 0.002,
   commission_rate: 0.0003,
   stamp_duty_rate: 0.001,
-  max_position_per_stock: 0.2,
+  max_position_per_stock: 0.35,    // V47c: 0.20→0.35 (3只均分=33%,留2%buffer)
   max_total_position: 0.7,
   liquidity_threshold: 500,
   volume_threshold: 1.5,
   force_empty_limit_down: 80,
   force_empty_limit_up: 10,
   force_empty_index_drop_pct: 0.03,
-  intraday_lock_min_high_rise: 0.06,
-  intraday_lock_pullback_pct: 0.025,
+  intraday_lock_min_high_rise: 0.05,   // V47: 0.06→0.05
+  intraday_lock_pullback_pct: 0.02,    // V47: 0.025→0.02
   intraday_lock_min_profit: 0.02,
   hold_protection_threshold: 0.05,
   live_trading_mode: false,
@@ -65,14 +68,14 @@ export const STRATEGY_CONFIGS = {
       min_circulation_market_cap: 50,
       max_circulation_market_cap: 500,
       hit_probability_yizi: 0.0,
-      hit_probability_fast: 0.2,
+      hit_probability_fast: 0.20,
       hit_probability_normal: 0.45,
       hit_probability_slow: 0.65,
       next_day_open_sell_pct: 0.03,
     },
     riskParams: {
       stop_loss_pct: 0.04,
-      take_profit_pct: 0.1,
+      take_profit_pct: 0.10,
       max_hold_days: 2,
       slippage_pct: 0.005,
     },
@@ -106,7 +109,7 @@ export const STRATEGY_CONFIGS = {
       min_consecutive_limit: 1,
       min_circulation_market_cap: 30,
       min_correction_pct: 0.05,
-      max_correction_pct: 0.35,
+      max_correction_pct: 0.20,     // V34: 0.35→0.20
       correction_days_min: 1,
       correction_days_max: 7,
       support_level: 'ma5',
@@ -115,9 +118,9 @@ export const STRATEGY_CONFIGS = {
       next_day_open_sell_pct: 0.03,
     },
     riskParams: {
-      stop_loss_pct: 0.05,
-      take_profit_pct: 0.15,
-      max_hold_days: 4,
+      stop_loss_pct: 0.03,     // V45: 0.04→0.03
+      take_profit_pct: 0.30,   // V38: 0.15→0.30
+      max_hold_days: 7,        // V47: 5→7
       slippage_pct: 0.002,
     },
   },
@@ -136,8 +139,8 @@ export const STRATEGY_CONFIGS = {
       pullback_mid_fallback_pct: 0.015,
     },
     riskParams: {
-      stop_loss_pct: 0.04,
-      take_profit_pct: 0.2,
+      stop_loss_pct: 0.05,     // V39: 0.04→0.05
+      take_profit_pct: 0.20,   // V42: 0.25→0.20
       max_hold_days: 3,
       slippage_pct: 0.003,
     },

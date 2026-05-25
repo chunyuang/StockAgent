@@ -254,6 +254,13 @@ class PaperTradingEngine:
         pos_manager = self.position_managers[account_id]
         pos_manager.add_position(pos)
         
+        # 【V50:T+1约束——当日买入不可当日卖出,与回测引擎对齐】
+        # 回测: PositionManager.block_t1(code) 阻止同日卖出
+        # 实盘: 记录当日买入的股票, daily_settlement中跳过
+        if not hasattr(self, '_t1_blocked'):
+            self._t1_blocked = set()  # account_id -> set of ts_codes
+        self._t1_blocked.add(f"{account_id}:{ts_code}")
+        
         # 更新账户收益
         self._update_account_performance(account_id)
         self._save_accounts()
@@ -344,6 +351,16 @@ class PaperTradingEngine:
         """每日结算：检查持仓止损止盈，更新账户收益"""
         accounts = [account_id] if account_id else list(self.accounts.keys())
         
+        # 【V50:T+1约束——清空昨日T+1锁定(新的一天可以卖昨日买入的)】
+        # 保留当日买入的锁定(格式 account_id:ts_code)
+        if hasattr(self, '_t1_blocked'):
+            today_str = datetime.now().strftime("%Y%m%d")
+            # 只保留当日买入的, 清除过期的
+            self._t1_blocked = {
+                k for k in self._t1_blocked 
+                if k.split(':')[0] in accounts  # 只清相关账户
+            }
+        
         for acc_id in accounts:
             if self.accounts[acc_id].status != "active":
                 continue
@@ -358,6 +375,12 @@ class PaperTradingEngine:
             for alert in alerts:
                 ts_code = alert["ts_code"]
                 if ts_code in sell_codes:
+                    continue
+                
+                # 【V50:T+1约束——当日买入不可当日卖出】
+                # 回测引擎PositionManager.block_t1(code), 实盘通过_t1_blocked集合检查
+                if hasattr(self, '_t1_blocked') and f"{acc_id}:{ts_code}" in self._t1_blocked:
+                    logger.info(f"⏭️ T+1约束：{ts_code} 今日买入不可卖出，跳过")
                     continue
                 
                 should_sell = False
@@ -397,7 +420,7 @@ class PaperTradingEngine:
                 if should_sell:
                     # 【V47修复:止损用止损价/跳空用open,与回测对齐】
                     # 旧bug: 统一用current_price(收盘价)卖出,但回测止损用止损价,跳空止损用open
-                    pos = self.pos_manager.positions.get(ts_code)
+                    pos = self.position_managers[acc_id].positions.get(ts_code)
                     sell_price = alert.get("current_price", 0)  # 默认收盘价
                     if pos and "止损" in reason:
                         # 止损价格: 回测用stop_loss_price,跳空止损用open
