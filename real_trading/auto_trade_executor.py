@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """
-自动交易执行器
-每日盘后读取信号，自动执行模拟交易
+自动交易执行器 (⚠️ V52已废弃)
+
+此模块调用PaperTradingEngine已不存在的buy()/sell()方法。
+请使用DailyScheduler代替,它提供完整的盘前/盘中/盘后调度流程。
+保留此文件仅供参考,不应用于生产环境。
 """
 import sys
 import logging

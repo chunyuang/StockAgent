@@ -13,6 +13,7 @@ import {
 } from 'element-plus'
 import { api } from '@/api/client'
 import SignalTracePanel from './SignalTracePanel.vue'
+import { useThemeStore } from '@/stores/theme'
 
 interface ScanStats { scans: number; signals_found: number; trades_executed: number; stop_losses: number; take_profits: number; stocks_scanned: number }
 interface ScannerStatus { is_running: boolean; scan_count: number; last_scan_time: string; active_signals: number; positions: number; stocks_scanned: number; stats: ScanStats; account_id: string; trade_mode: string; dry_run?: boolean; circuit_breaker_paused?: boolean; circuit_breaker?: { trading_paused: boolean; pause_reason: string }; account: { total_assets: number; available_cash: number; market_value: number; total_profit: number }; data_sources?: Array<{ name: string; available: boolean; stocks: number; calls: number; limit: number; note: string }> }
@@ -23,8 +24,9 @@ interface StrategyConfig { id: string; name: string; enabled: boolean; params: R
 interface ParamDesc { key: string; label: string; value: any; displayValue: string; unit: string; min: number; max: number; step: number }
 interface GlobalRisk { stop_loss_pct: number; take_profit_pct: number; max_position_pct: number; max_positions: number }
 
-const loading = ref(false), autoRefresh = ref(true), darkMode = ref(document.documentElement.classList.contains('dark')), soundEnabled = ref(false)
-watch(darkMode, (v) => { document.documentElement.classList.toggle('dark', v) })
+const loading = ref(false), autoRefresh = ref(true), soundEnabled = ref(false)
+const themeStore = useThemeStore()
+watch(() => themeStore.isDark, () => { /* theme changes auto-propagate via CSS vars */ })
 let refreshTimer: any = null
 let ws: WebSocket | null = null
 let wsReconnectTimer: any = null
@@ -242,7 +244,7 @@ function formatLayerTrace(trace: Record<string, any>): string[] { if (!trace) re
 function signalStatusTag(status?: string) { if (!status || status === 'new') return { text: '新', type: 'primary' }; if (status === 'executed') return { text: '已买', type: 'success' }; if (status === 'skipped') return { text: '跳过', type: 'warning' }; if (status === 'expired') return { text: '过期', type: 'info' }; if (status === 'filtered') return { text: '过滤', type: 'danger' }; return { text: status, type: 'info' } }
 </script>
 <template>
-  <div class="mm" :class="{ dark: darkMode }">
+  <div class="mm" :class="{ dark: themeStore.isDark }">
     <!-- 顶部状态栏 -->
     <div class="mm-header">
       <div class="hh-left">
@@ -270,7 +272,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <ElButton size="small" @click="dailySettlement" :disabled="!isRunning">📅 日结算</ElButton>
         <ElSwitch v-model="soundEnabled" size="small" active-text="🔔" inactive-text="" />
         <ElSwitch v-model="autoRefresh" size="small" active-text="自动" inactive-text="" />
-        <span class="dark-toggle" @click="darkMode = !darkMode">{{ darkMode ? '☀️' : '🌙' }}</span>
+        <span class="dark-toggle" @click="themeStore.toggleTheme()">{{ themeStore.isDark ? '☀️' : '🌙' }}</span>
       </div>
     </div>
 

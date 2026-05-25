@@ -106,12 +106,12 @@ const pipelineLabels: Record<string, string> = { L1_force_empty: '强制空仓',
 // 盈亏曲线
 const pnlOption = computed(() => ({
   grid: { top: 10, right: 10, bottom: 20, left: 50 },
-  xAxis: { type: 'category', data: pnlHistory.value.map(p => p.time), axisLabel: { color: '#aaa', fontSize: 10 } },
-  yAxis: { type: 'value', axisLabel: { color: '#aaa', fontSize: 10 }, splitLine: { lineStyle: { color: '#2a2a4a' } } },
+  xAxis: { type: 'category', data: pnlHistory.value.map(p => p.time), axisLabel: { color: 'var(--text-tertiary)', fontSize: 10 } },
+  yAxis: { type: 'value', axisLabel: { color: 'var(--text-tertiary)', fontSize: 10 }, splitLine: { lineStyle: { color: 'var(--border-light)' } } },
   series: [{
     type: 'line', data: pnlHistory.value.map(p => p.value), smooth: true,
-    lineStyle: { color: '#00d4aa', width: 2 },
-    areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(0,212,170,0.3)' }, { offset: 1, color: 'rgba(0,212,170,0)' }] } },
+    lineStyle: { color: 'var(--stock-down)', width: 2 },
+    areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'var(--stock-down-bg)' }, { offset: 1, color: 'rgba(0,0,0,0)' }] } },
   }],
   backgroundColor: 'transparent',
 }))
@@ -377,78 +377,78 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.cockpit { display: flex; flex-direction: column; height: 100vh; background: #1a1a2e; color: #e0e0e0; font-size: 13px; }
+.cockpit { display: flex; flex-direction: column; height: 100vh; background: var(--bg-base); color: var(--text-secondary); font-size: 13px; }
 
 /* 顶部状态栏 */
-.top-bar { display: flex; justify-content: space-between; align-items: center; padding: 8px 16px; background: #16213e; border-bottom: 1px solid #2a2a4a; }
+.top-bar { display: flex; justify-content: space-between; align-items: center; padding: 8px 16px; background: var(--bg-elevated); border-bottom: 1px solid var(--border-default); }
 .top-left { display: flex; align-items: center; gap: 12px; }
 .top-right { display: flex; gap: 8px; }
-.mode-badge { padding: 2px 10px; border-radius: 4px; font-weight: bold; color: #fff; font-size: 12px; }
-.asset-info { font-size: 13px; color: #bbb; }
-.asset-info b { color: #fff; }
+.mode-badge { padding: 2px 10px; border-radius: 4px; font-weight: bold; color: var(--text-primary); font-size: 12px; }
+.asset-info { font-size: 13px; color: var(--text-tertiary); }
+.asset-info b { color: var(--text-primary); }
 .divider { color: #444; margin: 0 4px; }
-.profit { color: #00d4aa; }
-.loss { color: #ff4757; }
+.profit { color: var(--stock-down); }
+.loss { color: var(--stock-up); }
 .emergency-btn { animation: pulse 2s infinite; }
 @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(245,108,108,0.4); } 50% { box-shadow: 0 0 0 6px rgba(245,108,108,0); } }
 
 /* 三列主体 */
 .main-grid { display: grid; grid-template-columns: 240px 1fr 280px; gap: 12px; padding: 12px; flex: 1; overflow: hidden; }
-.panel { background: #16213e; border-radius: 8px; padding: 12px; border: 1px solid #2a2a4a; overflow-y: auto; }
+.panel { background: #16213e; border-radius: 8px; padding: 12px; border: 1px solid var(--border-default); overflow-y: auto; }
 .panel-title { font-size: 14px; font-weight: bold; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #2a2a4a; }
 
 /* 风控仪表盘 */
 .risk-item { margin-bottom: 16px; }
-.risk-label { font-size: 12px; color: #888; margin-bottom: 4px; }
-.risk-threshold { font-size: 11px; color: #666; margin-top: 2px; }
+.risk-label { font-size: 12px; color: var(--text-tertiary); margin-bottom: 4px; }
+.risk-threshold { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
 .loss-boxes { display: flex; gap: 6px; align-items: center; }
-.loss-box { font-size: 18px; color: #333; transition: color 0.3s; }
+.loss-box { font-size: 18px; color: var(--border-default); transition: color 0.3s; }
 .loss-box.filled { color: #f56c6c; }
-.loss-count { font-size: 12px; color: #888; margin-left: 8px; }
+.loss-count { font-size: 12px; color: var(--text-tertiary); margin-left: 8px; }
 .circuit-status { font-size: 14px; font-weight: bold; }
 .circuit-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; animation: blink 1.5s infinite; }
 .circuit-status.critical .circuit-dot { animation: blink 0.5s infinite; }
 @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 .strategy-health-item { display: flex; justify-content: space-between; padding: 3px 0; font-size: 12px; }
-.watchdog-details { margin-top: 12px; padding-top: 8px; border-top: 1px solid #2a2a4a; }
+.watchdog-details { margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--border-default); }
 .watchdog-item { display: flex; justify-content: space-between; font-size: 11px; padding: 2px 0; }
 .wd-name { color: #888; }
 
 /* 核心实时区 */
 .signal-list { flex: 1; }
-.signal-card { background: #1a1a3e; border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; border-left: 3px solid #409eff; }
+.signal-card { background: var(--bg-muted); border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; border-left: 3px solid var(--primary-500); }
 .sig-header { display: flex; align-items: center; gap: 6px; }
 .sig-icon { font-size: 16px; }
 .sig-strategy { font-weight: bold; font-size: 13px; }
-.sig-code { color: #aaa; font-size: 12px; }
+.sig-code { color: var(--text-tertiary); font-size: 12px; }
 .sig-pct { font-weight: bold; margin-left: auto; }
 .sig-countdown { font-size: 11px; color: #e6a23c; }
-.sig-reason { font-size: 11px; color: #888; margin-top: 4px; }
+.sig-reason { font-size: 11px; color: var(--text-tertiary); margin-top: 4px; }
 .no-signals { padding: 20px 0; }
 
 /* 9层管道 */
-.pipeline-viz { margin-top: 12px; padding-top: 12px; border-top: 1px solid #2a2a4a; }
+.pipeline-viz { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-default); }
 .pipeline-title { font-size: 13px; font-weight: bold; margin-bottom: 8px; }
 .pipeline-flow { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
-.pipe-node { background: #1a2a3e; padding: 3px 8px; border-radius: 4px; font-size: 11px; }
-.pipe-label { color: #aaa; margin-right: 4px; }
+.pipe-node { background: var(--bg-muted); padding: 3px 8px; border-radius: 4px; font-size: 11px; }
+.pipe-label { color: var(--text-tertiary); margin-right: 4px; }
 .pipe-status { font-size: 10px; }
-.pipe-arrow { color: #444; font-size: 12px; }
+.pipe-arrow { color: var(--text-muted); font-size: 12px; }
 
 /* 持仓盈亏 */
 .pnl-chart { margin-bottom: 8px; }
 .total-pnl { text-align: center; font-size: 28px; font-weight: bold; margin: 8px 0; }
 .fund-info { margin: 8px 0; }
-.fund-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; color: #aaa; }
-.pos-list { margin-top: 12px; padding-top: 8px; border-top: 1px solid #2a2a4a; }
+.fund-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; color: var(--text-tertiary); }
+.pos-list { margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--border-default); }
 .pos-item { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; }
-.pos-code { color: #bbb; }
+.pos-code { color: var(--text-tertiary); }
 .pos-pnl { font-weight: bold; }
-.pos-more { text-align: center; color: #666; font-size: 11px; padding: 4px; }
+.pos-more { text-align: center; color: var(--text-muted); font-size: 11px; padding: 4px; }
 
 /* 时间线 */
-.timeline-bar { display: flex; align-items: center; gap: 12px; padding: 8px 16px; background: #16213e; border-top: 1px solid #2a2a4a; }
+.timeline-bar { display: flex; align-items: center; gap: 12px; padding: 8px 16px; background: #16213e; border-top: 1px solid var(--border-default); }
 .timeline-label { font-weight: bold; font-size: 12px; white-space: nowrap; }
 .timeline-scroll { display: flex; gap: 12px; overflow-x: auto; flex: 1; }
-.tl-item { white-space: nowrap; font-size: 12px; color: #aaa; }
+.tl-item { white-space: nowrap; font-size: 12px; color: var(--text-tertiary); }
 </style>
