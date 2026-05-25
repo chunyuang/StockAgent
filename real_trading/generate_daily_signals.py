@@ -488,16 +488,16 @@ class RealTradingSignalGenerator:
             _NAME_TO_ID = {cfg["name"]: sid for sid, cfg in STRATEGY_CONFIGS.items()}
             _sid = _NAME_TO_ID.get(strategy_name, "")
             _srisk = STRATEGY_CONFIGS.get(_sid, {}).get("riskParams", {})
-            stop_loss_pct = _srisk.get("stop_loss_pct", self.config["stop_loss_pct"]) * sentiment_info.get("stop_loss_adjust", 1.0)
-            take_profit_pct = _srisk.get("take_profit_pct", self.config["take_profit_pct"]) * sentiment_info.get("take_profit_adjust", 1.0)
+            stop_loss_pct = _srisk.get("stop_loss_pct", self.config["stop_loss_pct"])
+            take_profit_pct = _srisk.get("take_profit_pct", self.config["take_profit_pct"])
             stop_loss_price = buy_price * (1 - stop_loss_pct)
             take_profit_price = buy_price * (1 + take_profit_pct)
             
             plan.append(f"{idx}. **{stock['name']}({stock['ts_code']})**")
             plan.append(f"   策略：{stock['strategy']} | 行业：{stock['industry']}")
             plan.append(f"   建议买入价：≤{buy_price:.2f} | 仓位：{buy_shares}股（约{per_stock_value:.0f}元）")
-            plan.append(f"   止损价：{stop_loss_price:.2f}（跌幅{self.config['stop_loss_pct'] * sentiment_info['stop_loss_adjust'] * 100:.1f}%）")
-            plan.append(f"   止盈价：{take_profit_price:.2f}（涨幅{self.config['take_profit_pct'] * sentiment_info['take_profit_adjust'] * 100:.1f}%）")
+            plan.append(f"   止损价：{stop_loss_price:.2f}（跌幅{stop_loss_pct * 100:.1f}%）")
+            plan.append(f"   止盈价：{take_profit_price:.2f}（涨幅{take_profit_pct * 100:.1f}%）")
             if stock["has_lhb"]:
                 plan.append(f"   🎉 今日上榜龙虎榜，净买入{stock['lhb_net_buy']/10000:.1f}万，上榜原因：{stock['lhb_reason']}")
             plan.append("")
