@@ -1542,7 +1542,23 @@ class MarketScanner:
                     "shares": shares,
                     "price": order.filled_price,
                     "reason": sig.reason,
-                    "decision_detail": sig.decision_detail,
+                    "decision_detail": {
+                        **sig.decision_detail,
+                        "execution": {
+                            "position_ratio": position_ratio,
+                            "available_cash": round(acct.available_cash, 2),
+                            "max_amount": round(max_amount, 2),
+                            "shares": shares,
+                            "filled_price": order.filled_price,
+                            "total_cost": round(order.filled_price * shares, 2),
+                            "circuit_breaker": {
+                                "paused": self._circuit_breaker.get("trading_paused", False),
+                                "consecutive_losses": self._circuit_breaker.get("consecutive_losses", 0),
+                            },
+                            "sentiment": self._current_sentiment if hasattr(self, '_current_sentiment') else {},
+                            "position_count_before": len(self._broker.get_positions()),
+                        },
+                    },
                 })
                 sig.signal_status = "executed"
                 self._stats["trades_executed"] += 1
