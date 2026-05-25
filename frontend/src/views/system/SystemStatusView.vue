@@ -361,7 +361,7 @@ onMounted(() => {
   .page-title {
     font-size: 20px;
     font-weight: 700;
-    color: #303133;
+    color: var(--text-primary);
     margin: 0 0 4px 0;
   }
   
@@ -404,12 +404,12 @@ onMounted(() => {
 }
 
 .positive {
-  color: #67c23a;
+  color: var(--stock-down);
   font-weight: 600;
 }
 
 .negative {
-  color: #f56c6c;
+  color: var(--stock-up);
   font-weight: 500;
 }
 

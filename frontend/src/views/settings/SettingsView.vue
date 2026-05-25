@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useUserStore } from '@/stores/user'
+import { useThemeStore } from '@/stores/theme'
 import { ElMessage, ElTabs, ElTabPane, ElForm, ElFormItem, ElRadioGroup, ElRadio, ElSwitch, ElButton } from 'element-plus'
 
 // 子组件
@@ -8,21 +9,32 @@ import PushConfigPanel from '@/components/settings/PushConfigPanel.vue'
 import LogLevelPanel from '@/components/settings/LogLevelPanel.vue'
 
 const userStore = useUserStore()
+const themeStore = useThemeStore()
 
 // 活跃标签页
 const activeTab = ref('preferences')
 
-// 偏好设置
+// 偏好设置 - 与主题存储同步
 const preferences = ref({
-  theme: (userStore.preferences as any)?.theme || 'light',
+  theme: themeStore.mode === 'system' ? 'system' : (themeStore.isDark ? 'dark' : 'light'),
   notification_enabled: (userStore.preferences as any)?.notification_enabled ?? true,
 })
+
+// 同步主题变化
+watch(() => themeStore.isDark, (isDark) => {
+  if (preferences.value.theme !== 'system') {
+    preferences.value.theme = isDark ? 'dark' : 'light'
+  }
+})
+
 const prefSaving = ref(false)
 
 // 保存偏好设置
 async function savePreferences() {
   prefSaving.value = true
   try {
+    // 同步主题到 themeStore
+    themeStore.setTheme(preferences.value.theme as 'light' | 'dark' | 'system')
     await userStore.updatePreferences(preferences.value)
     ElMessage.success('设置已保存')
   } finally {
@@ -44,6 +56,7 @@ async function savePreferences() {
               <ElRadioGroup v-model="preferences.theme">
                 <ElRadio value="light">浅色</ElRadio>
                 <ElRadio value="dark">深色</ElRadio>
+                <ElRadio value="system">跟随系统</ElRadio>
               </ElRadioGroup>
             </ElFormItem>
             

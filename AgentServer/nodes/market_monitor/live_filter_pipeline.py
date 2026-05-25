@@ -325,11 +325,17 @@ class LiveFilterPipeline:
         """
         检查是否触发强制空仓
 
+        与回测portfolio_backtest.py完全对齐的3个条件:
+        1. 跌停≥80只 → 强制空仓
+        2. 涨停≤10只且跌停>0 → 强制空仓
+        3. 大盘跌幅≥3% → 强制空仓 (V44回测修复, V52实盘补齐)
+
         实盘优势: 可用必盈涨停池/跌停池获取实时数据，比回测更精确
         回测用MongoDB日线统计涨停数（收盘后），实盘盘中即可判断
         """
         limit_up_count = 0
         limit_down_count = 0
+        index_drop_pct = 0.0  # 大盘跌幅
 
         # 优先用实时行情统计
         if realtime_data:
@@ -340,6 +346,11 @@ class LiveFilterPipeline:
                         limit_up_count += 1
                     elif pct <= -9.5:
                         limit_down_count += 1
+            # 【V52补齐:从实时数据获取上证指数跌幅】
+            # 上证指数代码: 000001.SH, 实时数据中可能有index数据
+            sh_index = realtime_data.get("000001.SH", {})
+            if sh_index and isinstance(sh_index.get("pct_chg"), (int, float)):
+                index_drop_pct = -sh_index["pct_chg"] / 100  # 正数=下跌
         else:
             # 无实时数据时从MongoDB取前日数据
             try:
@@ -357,15 +368,32 @@ class LiveFilterPipeline:
                             limit_up_count += 1
                         elif pct <= -9.5:
                             limit_down_count += 1
+                # 【V52补齐:从MongoDB获取上证指数跌幅】
+                idx_doc = await mongo_manager.db["stock_daily_ak_full"].find_one(
+                    {"ts_code": "000001.SH", "trade_date": int(prev_date or trade_date)},
+                    {"pct_chg": 1, "_id": 0}
+                )
+                if idx_doc and isinstance(idx_doc.get("pct_chg"), (int, float)):
+                    index_drop_pct = -idx_doc["pct_chg"] / 100
             except Exception as e:
                 logger.warning(f"[L1] 获取涨跌停数失败: {e}")
                 return False, ""  # 数据不足不触发
 
-        # 判断
+        # 【V52:从strategy_defaults读取阈值,与回测对齐】
+        try:
+            from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+            index_drop_threshold = GLOBAL_RISK.get("force_empty_index_drop_pct", 0.03)
+        except ImportError:
+            index_drop_threshold = 0.03
+
+        # 判断(3个条件,与回测完全对齐)
         if limit_down_count >= self.FORCE_EMPTY_LIMIT_DOWN:
             return True, f"跌停{limit_down_count}只≥{self.FORCE_EMPTY_LIMIT_DOWN}"
         if limit_up_count <= self.FORCE_EMPTY_LIMIT_UP and limit_down_count > 0:
             return True, f"涨停{limit_up_count}只≤{self.FORCE_EMPTY_LIMIT_UP}且跌停{limit_down_count}只"
+        # 【V52补齐:大盘跌幅条件,与回测V44对齐】
+        if index_drop_pct >= index_drop_threshold:
+            return True, f"大盘跌幅{index_drop_pct*100:.1f}%≥{index_drop_threshold*100:.0f}%"
 
         return False, ""
 
