@@ -2,6 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { strategyApi, type Strategy } from '@/api'
+import { ArrowLeft } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -97,15 +98,6 @@ async function runStrategy() {
   </div>
 </template>
 
-<script lang="ts">
-import { ArrowLeft } from '@element-plus/icons-vue'
-export default {
-  data() {
-    return { ArrowLeft }
-  }
-}
-</script>
-
 <style lang="scss" scoped>
 .strategy-detail-view {
   max-width: 800px;
@@ -145,7 +137,7 @@ export default {
   
   .meta-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
     gap: 20px;
     
     .meta-item {
@@ -157,6 +149,14 @@ export default {
       }
     }
   }
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .strategy-detail-view { padding: 12px; }
+  .info-section { padding: 16px; }
+  .info-section h2 { font-size: 20px; }
+  .meta-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 12px; }
 }
 
 .stock-pool-section,
