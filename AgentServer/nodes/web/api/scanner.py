@@ -8,7 +8,7 @@ import logging
 import math
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 
@@ -1768,3 +1768,138 @@ async def get_scan_trace_detail(scan_id: str):
     except Exception as e:
         return {"success": True, "data": None, "message": str(e)}
 
+
+
+# ==================== V51: 风控看门狗 + 紧急平仓 + 参数中心 ====================
+
+@router.get("/health")
+async def get_scanner_health():
+    """获取风控看门狗健康状态
+    
+    返回:
+    - overall_status: healthy/degraded/critical/dead
+    - checks: 各项检查结果(心跳/信号产出/回撤/持仓/行情延迟)
+    """
+    try:
+        scanner = _get_scanner_instance()
+        if not scanner:
+            return {"success": True, "health": {"overall_status": "dead", "message": "Scanner未运行"}}
+        
+        watchdog = getattr(scanner, '_risk_watchdog', None)
+        if not watchdog:
+            return {"success": True, "health": {"overall_status": "unknown", "message": "看门狗未初始化"}}
+        
+        return {"success": True, "health": watchdog.get_status()}
+    except Exception as e:
+        return {"success": True, "health": {"overall_status": "error", "message": str(e)}}
+
+
+@router.post("/emergency-liquidate")
+async def emergency_liquidate(request: Request):
+    """🚨 紧急平仓 — 独立于Scanner主循环, 直连Broker执行
+    
+    用途: GUI红色按钮 / API紧急调用
+    安全: 需要确认参数 reason
+    """
+    try:
+        body = await request.json()
+        reason = body.get("reason", "API手动触发")
+        
+        scanner = _get_scanner_instance()
+        if not scanner:
+            return {"success": False, "message": "Scanner未运行"}
+        
+        watchdog = getattr(scanner, '_risk_watchdog', None)
+        if not watchdog:
+            return {"success": False, "message": "看门狗未初始化"}
+        
+        result = await watchdog.emergency_liquidate(reason)
+        
+        logger.critical(f"[API] 🚨 紧急平仓: reason={reason}, result={result}")
+        
+        return {"success": result.get("success", False), "data": result}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@router.get("/params/{strategy_id}")
+async def get_strategy_params(strategy_id: str):
+    """获取策略参数(从参数中心读取)"""
+    try:
+        from nodes.market_monitor.strategy_param_center import param_center
+        params = await param_center.get_strategy_params(strategy_id)
+        if not params:
+            return {"success": True, "data": {}, "message": f"策略{strategy_id}无参数"}
+        return {"success": True, "data": params}
+    except Exception as e:
+        return {"success": True, "data": {}, "message": str(e)}
+
+
+@router.get("/params")
+async def get_all_strategy_params():
+    """获取所有策略参数"""
+    try:
+        from nodes.market_monitor.strategy_param_center import param_center
+        params = await param_center.get_all_params()
+        return {"success": True, "data": params, "count": len(params)}
+    except Exception as e:
+        return {"success": True, "data": {}, "message": str(e)}
+
+
+@router.put("/params/{strategy_id}")
+async def update_strategy_params(strategy_id: str, request: Request):
+    """更新策略参数(热更新,无需重启Scanner)
+    
+    修改后自动推送到Scanner, 回测和实盘共用同一参数源。
+    """
+    try:
+        body = await request.json()
+        updates = body.get("params", {})
+        comment = body.get("comment", "")
+        updated_by = body.get("updated_by", "api")
+        
+        if not updates:
+            return {"success": False, "message": "无参数更新"}
+        
+        from nodes.market_monitor.strategy_param_center import param_center
+        
+        # 注册Scanner热更新回调(如果还没注册)
+        scanner = _get_scanner_instance()
+        if scanner and not param_center._on_update:
+            param_center.set_on_update_callback(scanner.update_strategy_config)
+        
+        ok = await param_center.update_strategy_params(
+            strategy_id, updates, updated_by=updated_by, comment=comment
+        )
+        
+        if ok:
+            return {"success": True, "message": f"策略{strategy_id}参数已更新(热更新)"}
+        else:
+            return {"success": False, "message": "更新失败"}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@router.get("/params/{strategy_id}/history")
+async def get_params_history(strategy_id: str, limit: int = 20):
+    """获取策略参数修改历史"""
+    try:
+        from nodes.market_monitor.strategy_param_center import param_center
+        history = await param_center.get_params_history(strategy_id, limit)
+        return {"success": True, "data": history, "count": len(history)}
+    except Exception as e:
+        return {"success": True, "data": [], "message": str(e)}
+
+
+@router.post("/params/{strategy_id}/reset")
+async def reset_strategy_params(strategy_id: str):
+    """重置策略参数为默认值"""
+    try:
+        from nodes.market_monitor.strategy_param_center import param_center
+        ok = await param_center.reset_to_defaults(strategy_id)
+        if ok:
+            return {"success": True, "message": f"策略{strategy_id}参数已重置为默认值"}
+        else:
+            return {"success": False, "message": "重置失败"}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
