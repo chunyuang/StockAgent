@@ -292,69 +292,43 @@ class LiveFilterPipeline:
     ) -> Tuple[float, float, str]:
         """
         计算市场情绪 → 仓位系数
-
-        与回测一致的计算方法:
-          sentiment_score = (涨停数 - 跌停数) + 大盘涨幅×10 + 50
-          rising(>70): 仓位100%, chaos(40-70): 70%, depression(<40): 30%
-
-        实盘优势: 可盘中实时计算（回测只能收盘后算）
+        
+        【V50:统一使用emotion_cycle_manager,不再自己计算】
+        原问题：live_filter_pipeline与emotion_cycle.py各自计算情绪,
+        公式不同(简化vs五维评分)、阈值不同、仓位乘数不同,
+        导致实盘行为不一致。
         """
-        limit_up = 0
-        limit_down = 0
-        avg_pct = 0.0
-
+        from ..listener.strategies.emotion_cycle import emotion_cycle_manager
+        
+        # 构建limit_stocks dict供emotion_cycle使用
+        limit_stocks = {}
         if realtime_data and len(realtime_data) > 100:
-            # 用实时行情（盘中有足够数据时）
-            pcts = []
             for code, data in realtime_data.items():
                 pct = data.get("pct_chg", 0)
                 if isinstance(pct, (int, float)):
-                    pcts.append(pct)
                     if pct >= 9.5:
-                        limit_up += 1
+                        limit_stocks[code] = {"limit_type": "U"}
                     elif pct <= -9.5:
-                        limit_down += 1
-            avg_pct = sum(pcts) / len(pcts) if pcts else 0
-        else:
-            # 用前日MongoDB数据
-            try:
-                from core.managers import mongo_manager
-                await mongo_manager.initialize()
-                prev_date = await self._get_prev_trade_date(trade_date)
-                if prev_date:
-                    pipeline = [
-                        {"$match": {"trade_date": int(prev_date)}},
-                        {"$group": {
-                            "_id": None,
-                            "avg_pct": {"$avg": "$pct_chg"},
-                            "limit_up": {"$sum": {"$cond": [{"$gte": ["$pct_chg", 9.5]}, 1, 0]}},
-                            "limit_down": {"$sum": {"$cond": [{"$lte": ["$pct_chg", -9.5]}, 1, 0]}},
-                        }}
-                    ]
-                    async for doc in mongo_manager.db["stock_daily_ak_full"].aggregate(pipeline):
-                        limit_up = doc.get("limit_up", 0)
-                        limit_down = doc.get("limit_down", 0)
-                        avg_pct = doc.get("avg_pct", 0) or 0
-            except Exception as e:
-                logger.warning(f"[L3] 情绪计算失败: {e}")
+                        limit_stocks[code] = {"limit_type": "D"}
+        
+        try:
+            emotion = await emotion_cycle_manager.calculate_daily_emotion(
+                trade_date, limit_stocks
+            )
+            score = emotion.score
+            phase = emotion.phase.value
+            ratio = emotion.position_multiplier
+        except Exception as e:
+            logger.warning(f"[L3] emotion_cycle调用失败, fallback简化计算: {e}")
+            # Fallback: 简化计算
+            limit_up = sum(1 for v in limit_stocks.values() if v.get("limit_type") == "U")
+            limit_down = sum(1 for v in limit_stocks.values() if v.get("limit_type") == "D")
+            score = (limit_up - limit_down) + 50
+            score = max(0, min(100, score))
+            phase = "rising" if score > 70 else ("chaos" if score >= 40 else "bearish")
+            ratio = 1.0 if score > 70 else (0.5 if score >= 40 else 0.25)
 
-        # 计算情绪评分（与回测portfolio_backtest.py一致）
-        score = (limit_up - limit_down) + avg_pct * 10 + 50
-        score = max(0, min(100, score))
-
-        # 情绪周期
-        if score > 70:
-            period = "rising"
-            ratio = 1.0
-        elif score >= 40:
-            period = "chaos"
-            ratio = 0.7
-        else:
-            period = "depression"
-            ratio = 0.3
-
-        return ratio, score, period
-
+        return ratio, score, phase
     # ========================================================================
     # L4: 盘前预选
     # ========================================================================
