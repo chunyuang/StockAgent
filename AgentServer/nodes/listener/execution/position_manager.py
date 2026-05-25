@@ -305,6 +305,22 @@ class PositionManager:
         from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK, STRATEGY_CONFIGS
         _NAME_TO_ID = {cfg["name"]: sid for sid, cfg in STRATEGY_CONFIGS.items()}
         
+        # 【V50:获取当日open价用于冲高回落/跳空止损判断】
+        from datetime import date as date_type
+        today_str = date_type.today().strftime("%Y%m%d")
+        ts_codes = [p.ts_code for p in positions if p.current_price > 0]
+        open_price_map: Dict[str, float] = {}
+        if ts_codes:
+            try:
+                daily_data = await mongo_manager.find_many(
+                    C.STOCK_DAILY,
+                    {"ts_code": {"$in": ts_codes}, "trade_date": int(today_str)},
+                    projection={"ts_code": 1, "open": 1},
+                )
+                open_price_map = {r["ts_code"]: r["open"] for r in daily_data if r.get("open", 0) > 0}
+            except Exception as e:
+                logger.debug(f"[SELL_CHECK] 获取open价失败: {e}")
+        
         for position in positions:
             if position.current_price <= 0:
                 continue
@@ -324,17 +340,40 @@ class PositionManager:
             sell_reason = ""
             sell_price = 0.0
             
+            # 获取当日open价
+            today_open = open_price_map.get(position.ts_code, 0)
+            
             # --- 1. 冲高回落: 高开≥3%且高开低收 → 以open卖出 ---
-            # 需要当日open价(从executor或MongoDB获取)
-            # 简化: 用current_price和cost_price计算
-            open_rise = (position.current_price / position.cost_price - 1) if position.cost_price > 0 else 0
-            # 完整实现需要open价格,这里用近似逻辑
-            # TODO: 需要从MongoDB获取当日open价才能精确判断
+            if today_open > 0 and position.cost_price > 0:
+                open_rise = (today_open / position.cost_price - 1)
+                next_day_sell_pct = strategy_risk.get("next_day_open_sell_pct", GLOBAL_RISK.get("next_day_open_sell_pct", 0.03))
+                
+                # 冲高回落: 高开≥3%且current<open(高开低收)
+                if open_rise >= next_day_sell_pct and position.current_price < today_open:
+                    # 高开≥5%直接触发, 3%-5%需回落≥1%
+                    if open_rise >= 0.05:
+                        sell_reason = f'冲高回落(开涨{open_rise*100:.1f}%)'
+                        sell_price = today_open  # 以open卖出
+                    elif (today_open - position.current_price) / today_open >= 0.01:
+                        sell_reason = f'冲高回落(开涨{open_rise*100:.1f}%回落)'
+                        sell_price = today_open
+                
+                # 利润保护: 高开≥2%+收盘≥2%+高开低收
+                if not sell_reason and open_rise >= 0.02 and position.profit_pct / 100 >= 0.02 and position.current_price < today_open:
+                    sell_reason = f'利润保护(收涨{position.profit_pct:.1f}%)'
+                    sell_price = position.current_price
+                
+                # 【V50:首板打板高开即卖】高开≥3%(next_day_open_sell_pct)直接以open卖出
+                if not sell_reason and open_rise >= next_day_sell_pct:
+                    strategy_name = position.strategy
+                    if strategy_name in ('first_limit_up', '首板打板', 'first_board'):
+                        sell_reason = f'高开即卖(开涨{open_rise*100:.1f}%)'
+                        sell_price = today_open
             
             # --- 2. 跳空止损: open低于止损价 ---
-            if position.current_price <= stop_price and stop_price > 0:
+            if today_open > 0 and today_open <= stop_price and stop_price > 0:
                 sell_reason = f'跳空止损({sl_pct*100:.0f}%)'
-                sell_price = position.current_price  # 简化:以current_price代open
+                sell_price = today_open  # 以open卖出(与回测对齐)
             
             # --- 3. 止损: 跌破止损价 ---
             elif position.stop_loss > 0 and position.current_price <= position.stop_loss:
