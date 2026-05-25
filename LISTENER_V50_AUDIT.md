@@ -8,7 +8,7 @@
 
 ## 审查结论
 
-### 发现问题 22个, 修复 17个
+### 发现问题 22个, 修复 21个 (P0×11 + P1×10 + P2×7, 仅P2-5待扩展)
 
 | 优先级 | 编号 | 问题 | 文件 | 状态 |
 |--------|------|------|------|------|
@@ -33,11 +33,13 @@
 | **P1** | P1-8 | 佣金预估万2→万3 | simulator_executor.py | ✅修复 |
 | **P1** | P1-9 | daily_scheduler止损止盈硬编码-3%/+7%→读strategy_defaults | daily_scheduler.py | ✅修复 |
 | **P1** | P1-10 | daily_scheduler daily_return硬编码1000000→用daily_start_asset | daily_scheduler.py | ✅修复 |
-| **P2** | P2-1 | emotion_cycle ZT溢价: 逐只查询MongoDB效率低→批量查询 | emotion_cycle.py | ⏳待优化 |
-| **P2** | P2-2 | drawdown_controller monthly_reset无人调用→需scheduler集成 | drawdown_control.py | ⏳待集成 |
-| **P2** | P2-3 | listener→scanner策略名称映射不一致 | 跨模块 | ⏳待统一 |
-| **P2** | P2-4 | broker SLIPPAGE_RATE 0.1%可能偏低→实盘建议0.2% | broker.py | ⏳待确认 |
+| **P2** | P2-1 | emotion_cycle ZT溢价: 逐只查询MongoDB效率低→批量查询 | emotion_cycle.py | ✅修复 |
+| **P2** | P2-2 | drawdown_controller monthly_reset无人调用→scanner premarket集成 | scanner.py | ✅修复 |
+| **P2** | P2-3 | listener→scanner策略名称映射不一致→添加映射表 | position_manager/simulator | ✅修复 |
+| **P2** | P2-4 | broker SLIPPAGE_RATE 0.1%偏低→0.2%与回测对齐 | broker.py | ✅修复 |
 | **P2** | P2-5 | limit_open策略不支持跌停翘板(只检测开板) | limit_open.py | ⏳待扩展 |
+| **P2** | P2-6 | scanner默认止损-5%→-3%对齐GLOBAL_RISK | scanner.py | ✅修复 |
+| **P2** | P2-7 | live_filter_pipeline强制空仓阈值50→80对齐回测 | live_filter_pipeline.py | ✅修复 |
 
 ## 改动文件清单
 
@@ -47,11 +49,12 @@
 | `listener/execution/base_executor.py` | 佣金万2→万3 | 1501089 |
 | `listener/execution/simulator_executor.py` | 买入扣款修复+卖出盈利修复+止损从strategy_defaults+max_pct→0.35+佣金预估万3 | 1501089, 7aa030a |
 | `listener/node.py` | 交易时间检查恢复 | 1501089 |
-| `listener/strategies/emotion_cycle.py` | 连板高度真实读取+ZT溢价交易日历 | 1501089 |
+| `listener/strategies/emotion_cycle.py` | 连板高度真实读取+ZT溢价交易日历+批量查询 | 1501089, 3d75a08 |
 | `listener/strategies/leading_dragon.py` | 连板高度从limit_times读取 | 1501089 |
-| `market_monitor/broker.py` | 佣金万2→万3 | 1501089 |
-| `market_monitor/scanner.py` | max_position_per_stock 0.2→0.35 | 1501089 |
+| `market_monitor/broker.py` | 佣金万2→万3+滑点0.1%→0.2%+注释更新 | 1501089, 3d75a08 |
+| `market_monitor/scanner.py` | max_position_per_stock 0.2→0.35+风控重置+默认止损-3% | 1501089, 3d75a08 |
 | `scheduler/daily_scheduler.py` | 止损止盈从strategy_defaults+daily_return修复 | 7aa030a |
+| `market_monitor/live_filter_pipeline.py` | 强制空仓阈值50→80对齐回测 | 3d75a08 |
 
 ## 回测验证
 
