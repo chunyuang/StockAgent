@@ -31,6 +31,7 @@ let wsReconnectTimer: any = null
 const status = ref<ScannerStatus | null>(null)
 const signals = ref<ScanSignal[]>([])
 const positions = ref<PositionInfo[]>([])
+const signalTraceVisible = ref(false)
 const timeline = ref<TimelineItem[]>([])
 const orders = ref<any[]>([])
 const limitPools = ref<{limit_up: any[], limit_down: any[], broken: any[]}>({limit_up: [], limit_down: [], broken: []})
@@ -262,6 +263,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <div class="ha" v-if="status?.signal_stats"><span class="hl">情绪</span><span class="hv">{{ status.signal_stats.filtered || 0 }}过滤</span></div>
       </div>
       <div class="hh-actions">
+        <ElButton size="small" @click="signalTraceVisible = !signalTraceVisible" :type="signalTraceVisible ? 'primary' : 'info'" plain>🧪 链路追踪</ElButton>
         <ElButton v-if="!isRunning" type="success" size="small" @click="startScanner">▶ 启动</ElButton>
         <ElButton v-else type="danger" size="small" @click="stopScanner">⏹ 停止</ElButton>
         <ElButton size="small" :loading="loading" @click="manualScan" :disabled="!isRunning">📡 扫描</ElButton>
@@ -601,10 +603,12 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
       </div>
       <div v-else class="empty">暂无周报数据</div>
     </ElDialog>
-  </div>
+    <!-- 【V50.1】信号链路追踪面板(可收起) -->
+    <div v-if="signalTraceVisible" class="mm-trace">
+      <SignalTracePanel />
+    </div>
 
-    <!-- 【V50.1】信号链路追踪面板 -->
-    <SignalTracePanel />
+  </div>
 </template>
 <style scoped lang="scss">
 .mm { height: 100%; display: flex; flex-direction: column; background: var(--bg-base); overflow: hidden; min-width: 0; }
@@ -634,6 +638,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .sn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: var(--el-color-primary); color: var(--text-inverse); font-size: 12px; font-weight: 600; flex-shrink: 0; }
 
 /* 3列主布局 */
+.mm-trace { flex-shrink: 0; max-height: 45vh; overflow-y: auto; border-top: 1px solid var(--border-default); background: var(--bg-elevated); }
 .mm-body { flex: 1; display: grid; grid-template-columns: minmax(180px, 2fr) minmax(200px, 3fr) minmax(300px, 5fr); gap: 0; overflow: hidden; min-width: 0; }
 .mm-left, .mm-center, .mm-right { overflow-y: auto; padding: 10px; min-width: 0; min-height: 0; }
 .mm-left { background: var(--bg-secondary); border-right: 1px solid var(--border-default); }
