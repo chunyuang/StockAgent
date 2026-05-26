@@ -990,9 +990,23 @@ class MarketScanner:
             except Exception as e:
                 logger.warning(f"[REALTIME] 东方财富获取失败: {e}, 将依赖必盈")
 
-        # === 2. 必盈涨停池: 封板资金/连板/炸板次数 (3次API, 涨停池独有数据) ===
+        # === 2. 必赢涨停池: 封板资金/连板/炸板次数 (3次API, 涨停池独有数据) ===
+        # 回放模式: 用MongoDB涨停池数据代替必赢API
         limit_up_count = 0
-        if biying:
+        if self._replay_mode and self._replay_provider:
+            replay_date = self._replay_date or datetime.now().strftime("%Y%m%d")
+            pools = self._replay_provider.get_limit_pools(replay_date)
+            for item in pools.get('limit_up', []):
+                ts_code = item.get('ts_code', '')
+                if ts_code in realtime:
+                    realtime[ts_code].update({
+                        "is_limit_up": True,
+                        "limit_times": item.get("limit_times", 0),
+                        "fd_amount": item.get("fd_amount", 0),
+                    })
+            limit_up_count = len(pools.get('limit_up', []))
+            logger.info(f"[REPLAY] 涨停池: {limit_up_count}只, 跌停池: {len(pools.get('limit_down', []))}只")
+        elif biying:
             try:
                 limit_ups = await biying.get_limit_up_pool(today)
                 for item in limit_ups:
