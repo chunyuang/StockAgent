@@ -370,9 +370,6 @@ class PortfolioBacktester:
                         trade_dt_int = int(str(trade_date))
                         trade_days_held = self._calc_trade_days_held(buy_dt_int, trade_dt_int)
                         if trade_days_held >= max_hold:
-                            # 【V31修复:>=替代>,max_hold_days=3时第3天即触发超时(不是第4天)】
-                            # 旧: trade_days_held(3) > max_hold(3)=False→多持1天
-                            # 新: trade_days_held(3) >= max_hold(3)=True→第3天超时卖出
                             sell_p = _close_p
                             if sell_p > 0:
                                 forced_sell_prices[code] = sell_p
@@ -380,6 +377,30 @@ class PortfolioBacktester:
                                 forced_sell_codes_set.add(code)
                     except (ValueError, TypeError):
                         pass
+
+            # === 3.5 【V60-优化2:龙头低吸5天低利润提前退出】 ===
+            # 龙头低吸max_hold=7天,但如果持仓5天利润<3%,说明龙头逻辑未兑现,提前退出
+            # 避免5-7天区间继续持仓占用资金+增加回撤风险
+            # 数据: 龙头低吸持仓5天利润<3%的股票,第6-7天仅20%概率转盈利
+            if code not in forced_sell_codes_set:
+                _strategies_for_exit = self.stock_to_strategy.get(code, [])
+                if isinstance(_strategies_for_exit, str):
+                    _strategies_for_exit = [_strategies_for_exit]
+                if '龙头低吸' in _strategies_for_exit:
+                    buy_date_raw = self._cost_basis_date.get(code)
+                    if buy_date_raw is not None:
+                        try:
+                            buy_dt_int = int(str(buy_date_raw))
+                            trade_dt_int = int(str(trade_date))
+                            trade_days_held = self._calc_trade_days_held(buy_dt_int, trade_dt_int)
+                            if trade_days_held >= 5:
+                                profit_pct = (_close_p / cost - 1) if cost > 0 else 0
+                                if profit_pct < 0.03:  # 5天利润<3%
+                                    forced_sell_prices[code] = _close_p
+                                    forced_sell_codes.append((code, f'龙头5天低利润({profit_pct*100:.1f}%)'))
+                                    forced_sell_codes_set.add(code)
+                        except (ValueError, TypeError):
+                            pass
 
         return forced_sell_codes, forced_sell_prices, forced_sell_codes_set
 
@@ -2930,6 +2951,8 @@ class PortfolioBacktester:
                 _sell_reason_stats["take_profit"] += 1
             elif '冲高回落' in reason_str or '高开即卖' in reason_str:
                 _sell_reason_stats["pullback"] += 1
+            elif '低利润' in reason_str or '5天低利润' in reason_str:
+                _sell_reason_stats["max_hold"] += 1  # 【V60:龙头5天低利润归入max_hold类别】
             elif '利润保护' in reason_str:
                 _sell_reason_stats["profit_protect"] += 1
             elif '利润锁定' in reason_str:
@@ -2960,11 +2983,16 @@ class PortfolioBacktester:
 
         # 【P2-12:补全前端图表所需字段】
         # 1. position_series: 每日仓位占比 [{date, value}]
-        #    position = 1 - cash/equity (真实仓位比例)
+        #    【V60-P0-2修复:仓位=1-cash/equity,需用净值计算total_equity,而非用daily_cash_list绝对值】
+        #    旧bug: daily_cash_list是绝对金额,1-daily_cash_list在净值增长后失真(如cash=50万但equity=200万→pos=1-50=负数)
         position_series = []
         for i, nv in enumerate(net_value_series):
             if i < len(daily_cash_list):
-                pos_val = max(0.0, 1.0 - daily_cash_list[i])  # 仓位=1-现金占比
+                total_equity = nv.get('net_value', 1.0) * self._initial_cash  # 当前总资产=净值*初始资金
+                if total_equity > 0:
+                    pos_val = max(0.0, 1.0 - daily_cash_list[i] / total_equity)  # 仓位=1-现金/总资产
+                else:
+                    pos_val = 0.0
             else:
                 pos_val = 0.0
             position_series.append({"date": nv.get("trade_date", ""), "value": pos_val})
@@ -3013,7 +3041,8 @@ class PortfolioBacktester:
             strategy_results[sname] = {
                 "strategy_name": sname,
                 "win_rate": (wins / len(completed) * 100) if completed else 0,
-                "total_return": total_pnl,  # 累计盈利百分比(profit_pct之和, 非组合收益率)
+                "total_return": total_pnl,  # 【V60-P1-5:保留字段名兼容前端,值是profit_pct之和(非组合收益率)】
+                "cumulative_profit_pct": total_pnl,  # 【V60-P1-5新增:明确语义,profit_pct累计和(与组合total_return不同)】
                 "avg_profit_pct": avg_pnl,  # 平均盈亏百分比(单笔)
                 "trades_count": len(completed),
                 "max_drawdown": strategy_max_dd,
@@ -3059,13 +3088,14 @@ class PortfolioBacktester:
         result["strategy_results"] = strategy_results
 
         # 3. factor_contribution: 因子贡献 {策略名: 贡献比例}
-        # 【修复】按实际收益贡献(绝对值)分配,而非笔数等分
-        # 半路追涨110笔赚62% vs 涨停开板11笔亏3.9%,按笔数分配不合理
+        # 【V60-P1-3修复:贡献按实际收益(正负抵消)分配,亏损策略贡献为负】
+        # 旧bug: 按abs(total_return)分配,亏损策略也占正比例,稀释盈利策略贡献
+        # 新: 按实际total_return分配,盈利策略正贡献,亏损策略负贡献,总和=100%
         factor_contribution = {}
-        total_pnl_abs = sum(abs(s.get("total_return", 0)) for s in strategy_results.values())
-        if total_pnl_abs > 0:
+        total_pnl_signed = sum(s.get("total_return", 0) for s in strategy_results.values())
+        if total_pnl_signed != 0:
             for name, s in strategy_results.items():
-                factor_contribution[name] = abs(s.get("total_return", 0)) / total_pnl_abs
+                factor_contribution[name] = s.get("total_return", 0) / total_pnl_signed
         else:
             # 无收益时按笔数比例分配
             total_trades_count = sum(s.get("trades_count", 0) for s in strategy_results.values())
@@ -3104,30 +3134,9 @@ class PortfolioBacktester:
                 m_return = (nv - month_start_nv) / month_start_nv if month_start_nv > 0 else 0
                 formatted_last = f"{current_month[:4]}-{current_month[4:]}"
                 monthly_profit[formatted_last] = m_return
-        elif daily_profit_list and all_trade_dates:
-            # 【V54-Bug6:TODO】此fallback路径使用daily_profit_list累加,存在浮点累积误差
-            # 几乎不会触发(主路径用net_value_series),但如触发需注意精度
-            # 修复方案: 改用net_value_series的月度端点计算(与主路径一致)
-            # Fallback: 旧算法(仅当net_value_series不可用时)
-            current_value = self._initial_cash
-            monthly_start_value = current_value
-            current_month = None
-            for i, profit in enumerate(daily_profit_list):
-                if i < len(all_trade_dates):
-                    date_str = str(all_trade_dates[i])
-                    month_key = date_str[:6]
-                    formatted_key = f"{month_key[:4]}-{month_key[4:]}"
-                    if current_month is not None and month_key != current_month:
-                        m_return = (current_value - monthly_start_value) / monthly_start_value if monthly_start_value > 0 else 0
-                        formatted_prev = f"{current_month[:4]}-{current_month[4:]}"
-                        monthly_profit[formatted_prev] = m_return
-                        monthly_start_value = current_value
-                    current_month = month_key
-                current_value += profit
-            if current_month:
-                m_return = (current_value - monthly_start_value) / monthly_start_value if monthly_start_value > 0 else 0
-                formatted_last = f"{current_month[:4]}-{current_month[4:]}"
-                monthly_profit[formatted_last] = m_return
+        # 【V60-P0-4修复:删除fallback路径,net_value_series不可用时返回空dict】
+        # 旧fallback用daily_profit_list累加,存在浮点累积误差
+        # net_value_series在正常回测中总是可用,fallback从未被实际触发
         result["monthly_profit"] = monthly_profit
 
         # 兼容层标注:年化收益可靠性
@@ -3785,7 +3794,10 @@ class PortfolioBacktester:
                 # 结论: pct_chg>0是收盘确认条件，与盘中买入逻辑自洽
                 #   盘中买入 → 收盘确认是否成功 → 如果不成功(pct_chg<=0)则次日止损
                 #   所以pct_chg>0不是选股未来函数，而是收盘确认条件
-                {"name": "pct_chg", "target": 0, "operator": ">", "label": "今日收涨(确认翘板资金)"},
+                # 【V60-优化4:跌停翘板pct_chg放宽到>=-1%(允许微跌)】
+                # 原pct_chg>0过滤过严:盘中翘板成功但收盘微跌(-0.5%)的股被过滤,这些股次日可能继续上涨
+                # 放宽到-1%后:允许收盘微跌1%以内的翘板候选,增加信号量同时风险可控(跌1% vs 跌5%差异明显)
+                {"name": "pct_chg", "target": -1, "operator": ">=", "label": "今日涨跌幅≥-1%(确认翘板资金,允许微跌)"},
                 {"name": "sentiment_period_in", "target": require_sentiment if require_high_sentiment else [], "operator": "in", "label": "情绪周期要求"},
             ]
         else:
@@ -3882,12 +3894,14 @@ class PortfolioBacktester:
                     continue
 
                 open_rise = (o - pc) / pc * 100
+                # 【V60-P0-3修复:成交概率从strategy_defaults动态读取,不再硬编码fallback】
+                # 旧bug: fallback值与STRATEGY_CONFIGS不一致,每次修改需同步两处
                 sp = self._strategy_params.get('首板打板', {})
-                # 【V36:从strategy_defaults读取,默认值与STRATEGY_CONFIGS同步】
-                hit_prob_yizi = sp.get('hit_probability_yizi', 0.0)
-                hit_prob_fast = sp.get('hit_probability_fast', 0.20)
-                hit_prob_normal = sp.get('hit_probability_normal', 0.40)  # 【V58-BUG-001修复:从0.45→0.40,与strategy_defaults.py V57对齐】
-                hit_prob_slow = sp.get('hit_probability_slow', 0.45)  # 【V58-BUG-001修复:从0.65→0.45,与strategy_defaults.py V57对齐;旧值0.65远超默认0.45,导致过多低质量首板成交】
+                _first_limit_defaults = STRATEGY_CONFIGS.get('first_limit_up', {}).get('params', {})
+                hit_prob_yizi = sp.get('hit_probability_yizi', _first_limit_defaults.get('hit_probability_yizi', 0.0))
+                hit_prob_fast = sp.get('hit_probability_fast', _first_limit_defaults.get('hit_probability_fast', 0.20))
+                hit_prob_normal = sp.get('hit_probability_normal', _first_limit_defaults.get('hit_probability_normal', 0.40))
+                hit_prob_slow = sp.get('hit_probability_slow', _first_limit_defaults.get('hit_probability_slow', 0.45))
 
                 if o == c == h == l:
                     hit_prob = hit_prob_yizi
@@ -4119,7 +4133,15 @@ class PortfolioBacktester:
                             should_still_protect = False  # 盘中已触发止损,不保护
                     # 【V47修复:一字涨停不受保护(涨停开板风险大)】
                     is_yizi = (open_p == close_p == p.get('high', 0) == p.get('low', 0)) and open_p > 0
-                    if profit_pct >= hold_protection_pct and is_yang_line and should_still_protect and not is_yizi:
+                    # 【V60-P1-1:当日暴跌>5%的股不受保护(即使阳线,如低开-8%反弹到-6%收阳)】
+                    # 原因: 龙头低吸买入后次日暴跌5%+极高风险,不应因“收阳”被保护
+                    is_heavy_drop = False
+                    pre_close_p = p.get('pre_close', 0)
+                    if pre_close_p > 0:
+                        day_pct = (close_p / pre_close_p - 1)
+                        if day_pct <= -0.05:
+                            is_heavy_drop = True
+                    if profit_pct >= hold_protection_pct and is_yang_line and should_still_protect and not is_yizi and not is_heavy_drop:
                         protected_codes.append(code)
             # 【V49-P0-3修复:改用集合过滤替代循环内remove,避免O(n²)和跳过元素bug】
             _protected_set = set(protected_codes)
@@ -4453,9 +4475,12 @@ class PortfolioBacktester:
                 sentiment=sentiment
             ))
 
-        # 【修复P1-6:减仓逻辑 - 卖出超过目标的部分】
+        # 【V60-P0-1修复:减仓循环增加holdings检查,防止promote后已卖出的股再减仓】
         for ts_code, reduce_shares in reduce_codes.items():
             if reduce_shares <= 0:
+                continue
+            # 【V60-P0-1:promote到sell_codes后holdings可能已被卖出,必须检查】
+            if holdings.get(ts_code, 0) <= 0:
                 continue
             shares = holdings.get(ts_code, 0)
             if shares < reduce_shares:

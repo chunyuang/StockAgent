@@ -486,15 +486,19 @@ class RealTradingSignalGenerator:
                 buy_price = _calc(stock['ts_code'], open_p, stock['close'], high_p, low_p, pre_close, {})
                 if buy_price <= 0:
                     buy_price = stock['close'] * 1.01  # fallback
+            elif strategy_name == '首板打板':
+                # 【V60:打板策略用涨停价(委托价=涨停价),与回测_get_limit_up_price对齐】
+                up_limit = stock.get('up_limit', 0)
+                buy_price = up_limit if up_limit > 0 else stock['close'] * 1.01  # 打板用涨停价
             else:
-                # 打板策略或其他: 用收盘价+1%预估
+                # 其他策略fallback: 用收盘价+1%预估
                 buy_price = stock['close'] * 1.01
             buy_shares = int(per_stock_value / buy_price / 100) * 100
             # 【V38-fix:止损止盈从策略级参数读取,与回测对齐】
             # 旧: 统一用全局stop_loss/take_profit
             # 新: 不同策略有不同的止损止盈(首板4%/10%, 其他4%/12%等)
-            _NAME_TO_ID = {cfg["name"]: sid for sid, cfg in STRATEGY_CONFIGS.items()}
-            _sid = _NAME_TO_ID.get(strategy_name, "")
+            from nodes.backtest_engine.strategy_defaults import STRATEGY_NAME_TO_ID
+            _sid = STRATEGY_NAME_TO_ID.get(strategy_name, "")
             _srisk = STRATEGY_CONFIGS.get(_sid, {}).get("riskParams", {})
             stop_loss_pct = _srisk.get("stop_loss_pct", self.config["stop_loss_pct"])
             take_profit_pct = _srisk.get("take_profit_pct", self.config["take_profit_pct"])

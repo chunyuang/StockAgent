@@ -234,11 +234,10 @@ class PositionManager:
         # 【V40修复:止损止盈从strategy_defaults策略维度读取，与回测保持一致】
         # 【V35修复:signal中strategy字段是中文名(如"龙头低吸"),但STRATEGY_CONFIGS的key是英文ID(如"dragon_head")】
         # 需要通过中文名→英文ID反向映射来正确查找策略参数
-        from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK
+        from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK, STRATEGY_NAME_TO_ID
         strategy_name = signal.get("strategy", "")  # 中文名如"龙头低吸"
-        # 建立中文名→英文ID映射
-        _NAME_TO_ID = {cfg["name"]: sid for sid, cfg in STRATEGY_CONFIGS.items()}
-        strategy_id = _NAME_TO_ID.get(strategy_name, "")  # "龙头低吸" → "dragon_head"
+        # 【V60:使用strategy_defaults统一映射,不再重复构建】
+        strategy_id = STRATEGY_NAME_TO_ID.get(strategy_name, "")  # "龙头低吸" → "dragon_head"
         if not strategy_id:
             logger.warning(f"⚠️ 策略名\"{strategy_name}\"未在STRATEGY_CONFIGS中找到,使用全局默认风控参数")
         strategy_config = STRATEGY_CONFIGS.get(strategy_id, {})
@@ -423,6 +422,7 @@ class PositionManager:
                 if open_p <= pos.stop_loss_price and open_p > 0:
                     alert["alerts"].append(f"🔴 跳空止损：开盘价{open_p:.2f}直接跳空低于止损价{pos.stop_loss_price:.2f}，建议以开盘价卖出")
                     alert["level"] = "danger"
+                    alert["open"] = open_p  # 【V60:传递开盘价给上层,跳空止损应用open价卖出】
                 else:
                     alert["alerts"].append(f"🔴 触发止损：最低价{low:.2f} ≤ 止损价{pos.stop_loss_price:.2f}，建议以止损价卖出")
                     alert["level"] = "danger"
