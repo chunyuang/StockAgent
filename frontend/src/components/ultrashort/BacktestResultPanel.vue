@@ -776,13 +776,14 @@ function exportTrades() {
       </div>
       <div class="kpi-chip">
         <span class="kpi-label">年化收益<template v-if="(result?.net_value_series?.length || 0) < 250"><ElTooltip content="回测期不足1年，年化收益存在放大效应，仅供参考" placement="top"><span class="annual-warn"> *</span></ElTooltip></template></span>
+        <!-- 【V63:UI增强】KPI chip增加趋势小图标 -->
         <span class="kpi-value" :style="{ color: (result.annualized_return || 0) >= 0 ? 'var(--stock-down)' : 'var(--stock-up)' }">
-          {{ fmtPct(result.annualized_return) }}
+          {{ (result.annualized_return || 0) >= 0 ? '↑' : '↓' }} {{ fmtPct(result.annualized_return) }}
         </span>
       </div>
       <div class="kpi-chip">
         <span class="kpi-label">最大回撤</span>
-        <span class="kpi-value" style="color: var(--stock-up)">{{ fmtPct(result.max_drawdown) }}</span>
+        <span class="kpi-value" style="color: var(--stock-up)">↓ {{ fmtPct(result.max_drawdown) }}</span>
       </div>
       <div class="kpi-chip">
         <span class="kpi-label">夏普比率</span>
@@ -790,8 +791,9 @@ function exportTrades() {
       </div>
       <div class="kpi-chip">
         <span class="kpi-label">胜率</span>
+        <!-- 【V63:UI增强】胜率KPI增加趋势小图标 -->
         <span class="kpi-value" :style="{ color: (result.win_rate || 0) >= 50 ? 'var(--stock-down)' : 'var(--stock-up)' }">
-          {{ fmtPct(result.win_rate) }}
+          {{ (result.win_rate || 0) >= 50 ? '↑' : '↓' }} {{ fmtPct(result.win_rate) }}
         </span>
       </div>
       <div class="kpi-chip">
@@ -991,9 +993,8 @@ function exportTrades() {
               <ElEmpty v-else description="无亏损交易" :image-size="40" />
             </div>
           </div>
-          <!-- 交易记录表格 -->
-          <!-- 【V63修复:P1-9】交易记录分页: filteredTrades→pagedTrades -->
-          <ElTable :data="pagedTrades" size="small" border stripe max-height="500">
+          <ElTable :data="pagedTrades" size="small" border stripe max-height="500"
+            :row-class-name="(data: any) => data.row?.profit_pct > 0 ? 'trade-profit' : data.row?.profit_pct < 0 ? 'trade-loss' : ''">
             <ElTableColumn label="买入日" width="100" sortable>
               <template #default="{ row }">{{ row.buy_date || row.date }}</template>
             </ElTableColumn>
@@ -1216,5 +1217,11 @@ export default { name: 'BacktestResultPanel' }
     &.force-empty { color: var(--text-tertiary); .reason-dot { background: var(--text-tertiary); } }
     &.other { color: var(--text-muted); .reason-dot { background: var(--text-muted); } }
   }
+}
+/* 【V63:UI增强】交易记录表格行hover高亮+涨跌色 */
+:deep(.el-table) {
+  .el-table__row:hover > td { background-color: var(--el-fill-color-light) !important; }
+  .trade-profit td { background: rgba(103,194,58,0.04) !important; }
+  .trade-loss td { background: rgba(245,108,108,0.04) !important; }
 }
 </style>

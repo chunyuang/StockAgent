@@ -516,7 +516,7 @@ class RealTradingSignalGenerator:
         
         plan.append("#### 交易纪律：")
         plan.append("1. 严格执行止损，触及止损价立即卖出，不得抱有幻想")
-        plan.append("2. 单票仓位不得超过20%，总仓位不得超过上限")
+        plan.append(f"2. 单票仓位不得超过{GLOBAL_RISK['max_position_per_stock']*100:.0f}%，总仓位不得超过{GLOBAL_RISK['max_total_position']*100:.0f}%")
         plan.append(f"3. 所有持仓最多持有{self.config['max_hold_days']}天，到期强制卖出")
         plan.append("4. 优先买排名靠前的标的，开盘不及预期直接放弃")
         

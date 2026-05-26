@@ -48,7 +48,7 @@ const activeMenu = computed(() => {
   if (path === '/' || path.startsWith('/ultra-short')) return '/'
   if (path.startsWith('/live-trading')) return '/monitor'
   if (path.startsWith('/stock')) return '/'
-  if (path.startsWith('/strategies')) return '/monitor'
+  if (path.startsWith('/strategies')) return '/strategies'
   if (path.startsWith('/system') || path.startsWith('/admin') || path.startsWith('/settings')) return '/system/status'
   return path
 })
@@ -61,6 +61,7 @@ const menuItems = [
   { path: '/', icon: DataAnalysis, title: '策略回测' },
   { path: '/cockpit', icon: Monitor, title: '🚀 驾驶舱' },
   { path: '/monitor', icon: Monitor, title: '市场监听' },
+  { path: '/strategies', icon: DataLine, title: '策略管理' },
   { path: '/system/status', icon: DataLine, title: '系统管理' },
 ]
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { ElCard, ElEmpty, ElProgress, ElTable, ElTableColumn, ElTag, ElButton, ElMessage } from 'element-plus'
 import StrategyFactorPanel from './StrategyFactorPanel.vue'
 
@@ -183,6 +183,7 @@ function priorityIcon(p: string) {
   return { done: '✅', info: '💤', high: '🔴', medium: '🟡', low: '🔵' }[p] || '⚪'
 }
 onMounted(fetchData)
+onUnmounted(() => { stopPolling() })
 // 当面板变为可见时，如果还没有数据则加载
 watch(() => props.visible, (v) => { if (v && !status.value) fetchData() })
 </script>
