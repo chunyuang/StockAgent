@@ -28,6 +28,12 @@ from core.managers.live.paper_trading_compat import PaperTradingEngine, PaperAcc
 from position_manager import PositionManager
 
 
+# 【V61修复:定义缺失的路径常量,从real_trading/nav_tracker.py同步】
+import os as _os
+_PROJECT_ROOT = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..', '..', '..'))
+REAL_TRACING_DIR = _os.path.join(_PROJECT_ROOT, 'real_trading')
+
+
 # ============ 数据模型 ============
 
 @dataclass

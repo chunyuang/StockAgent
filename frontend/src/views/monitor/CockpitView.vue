@@ -659,7 +659,7 @@ onUnmounted(() => {
         <ElButton :type="isRunning ? 'danger' : 'success'" size="small" @click="toggleScanner" :loading="loading">
           {{ isRunning ? '停止' : '启动' }}
         </ElButton>
-        <ElButton type="danger" size="small" class="emergency-btn" @click="emergencyLiquidate" :disabled="!isRunning">
+        <ElButton type="danger" size="small" class="emergency-btn" @click="emergencyLiquidate" :disabled="positions.length === 0">
           🚨 紧急平仓
         </ElButton>
       </div>

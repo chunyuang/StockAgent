@@ -246,6 +246,7 @@ class PreBuyRiskChecker:
         try:
             # 从MongoDB获取指数当日涨跌幅
             from core.managers.mongo_manager import mongo_manager
+            index_code = self.config["reference_index"]  # 【V61修复:index_code未定义,应从config读取】
             try:
                 if not mongo_manager.client:
                     asyncio.get_event_loop().run_until_complete(mongo_manager.initialize())
