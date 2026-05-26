@@ -53,10 +53,42 @@ class Position:
     strategy: str = "未知"
     notes: str = ""
     
+    # 【V63-P1-6:预加载交易日历缓存,避免每次hold_days()都查MongoDB】
+    _trade_dates_cache = None  # sorted list of int trade_dates
+    _trade_dates_loaded = False
+    
+    @classmethod
+    def _ensure_trade_dates_cache(cls):
+        """加载交易日历到内存缓存(首次调用时加载,之后复用)"""
+        if cls._trade_dates_loaded:
+            return
+        cls._trade_dates_loaded = True
+        try:
+            import asyncio
+            from core.managers import mongo_manager
+            async def _load():
+                await mongo_manager.initialize()
+                dates = await mongo_manager.distinct(
+                    "stock_daily_ak_full", "trade_date", {})
+                return sorted(dates)
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # 在async上下文中无法run_until_complete,降级
+                    logger.debug("hold_days: async loop running, skip cache load")
+                    return
+                dates = loop.run_until_complete(_load())
+                cls._trade_dates_cache = dates
+                logger.info(f"✅ 交易日历缓存已加载: {len(dates)}个交易日")
+            except RuntimeError:
+                pass
+        except Exception as e:
+            logger.debug(f"交易日历缓存加载失败: {e}")
+    
     def hold_days(self, current_date: str = None) -> int:
         """计算持仓天数（交易日）
         
-        【V35修复:使用交易日而非自然日,与回测引擎_calc_trade_days_held()保持一致】
+        【V63-P1-6:优先使用内存缓存的交易日历,降级为自然日/1.5近似】
         自然日计算会导致:周五买入→周一hold_days=3(自然日)→误触发超时(实际仅1个交易日)
         
         Args:
@@ -67,31 +99,26 @@ class Position:
         """
         if not current_date:
             current_date = datetime.now().strftime("%Y%m%d")
+        
+        # 【V63-P1-6:使用内存缓存的交易日历,O(1)查找而非MongoDB查询】
+        self._ensure_trade_dates_cache()
+        if self._trade_dates_cache is not None:
+            buy_int = int(self.buy_date)
+            current_int = int(current_date)
+            # 二分查找区间内的交易日数
+            import bisect
+            left = bisect.bisect_left(self._trade_dates_cache, buy_int)
+            right = bisect.bisect_right(self._trade_dates_cache, current_int)
+            # 买入日算第0天,所以交易日数-1
+            return max(0, right - left - 1)
+        
+        # 降级:自然日/1.5近似
         try:
-            # 优先使用交易日历计算(与回测一致)
-            from core.managers import mongo_manager
-            import asyncio
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    # 如果在async上下文中,用自然日/1.5近似
-                    buy_dt = datetime.strptime(self.buy_date, "%Y%m%d")
-                    current_dt = datetime.strptime(current_date, "%Y%m%d")
-                    natural_days = (current_dt - buy_dt).days
-                    return max(0, int(natural_days / 1.5))  # 周末/节假日近似
-            except RuntimeError:
-                pass
-            # 同步上下文:查MongoDB交易日历
-            trade_dates = asyncio.get_event_loop().run_until_complete(
-                mongo_manager.distinct("stock_daily_ak_full", "trade_date",
-                    {"trade_date": {"$gte": int(self.buy_date), "$lte": int(current_date)}})
-            )
-            return max(0, len(trade_dates) - 1)  # 买入日算第0天
-        except Exception as e:
-            logger.debug(f"交易日计算失败,fallback自然日/1.5: {e}")
             buy_dt = datetime.strptime(self.buy_date, "%Y%m%d")
             current_dt = datetime.strptime(current_date, "%Y%m%d")
-            return max(0, int((current_dt - buy_dt).days / 1.5))  # 周末/节假日近似
+            return max(0, int((current_dt - buy_dt).days / 1.5))
+        except (ValueError, TypeError):
+            return 0
     
     def should_force_close(self, current_date: str = None) -> bool:
         """是否应该强制平仓（持仓超期）

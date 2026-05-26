@@ -41,6 +41,7 @@ import {
   ElEmpty,
   ElMessage,
   ElTooltip,
+  ElPagination,
 } from 'element-plus'
 import { Download } from '@element-plus/icons-vue'
 import { STRATEGY_NAMES } from '@/config/backtestConstants'
@@ -990,7 +991,8 @@ function exportTrades() {
             </div>
           </div>
           <!-- 交易记录表格 -->
-          <ElTable :data="filteredTrades" size="small" border stripe max-height="500">
+          <!-- 【V63修复:P1-9】交易记录分页: filteredTrades→pagedTrades -->
+          <ElTable :data="pagedTrades" size="small" border stripe max-height="500">
             <ElTableColumn label="买入日" width="100" sortable>
               <template #default="{ row }">{{ row.buy_date || row.date }}</template>
             </ElTableColumn>
@@ -1041,6 +1043,16 @@ function exportTrades() {
               </template>
             </ElTableColumn>
           </ElTable>
+          <!-- 【V63修复:P1-9】交易记录分页控件 -->
+          <ElPagination
+            v-if="filteredTrades.length > tradePageSize"
+            v-model:current-page="tradeCurrentPage"
+            v-model:page-size="tradePageSize"
+            :page-sizes="[10, 20, 50, 100]"
+            :total="filteredTrades.length"
+            layout="total, sizes, prev, pager, next"
+            style="margin-top: 12px; justify-content: center"
+          />
         </ElTabPane>
 
         <!-- Tab 4: 月度归因 -->
@@ -1094,10 +1106,11 @@ export default { name: 'BacktestResultPanel' }
   margin-top: 16px;
 }
 .kpi-strip {
-  display: flex;
+  /* 【V63修复:P2-1】KPI strip使用CSS Grid避免换行不美观 */
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
   gap: 8px;
   margin-bottom: 16px;
-  flex-wrap: wrap;
   min-width: 0;
 }
 .kpi-chip {

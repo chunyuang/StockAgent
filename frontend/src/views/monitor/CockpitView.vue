@@ -59,6 +59,8 @@ const buyingSignal = ref<string | null>(null)
 let refreshTimer: any = null
 let ws: WebSocket | null = null
 let wsReconnectTimer: any = null
+// 【V63修复:P1-15】WebSocket连接状态指示器
+const wsConnected = ref(false)
 const nowMs = ref(Date.now())
 let nowTimer: any = null
 
@@ -683,6 +685,9 @@ onUnmounted(() => {
           🚨 紧急平仓
         </ElButton>
       </div>
+      <!-- 【V63修复:P1-15】WebSocket连接状态指示器 -->
+      <span v-if="!wsConnected" class="ws-status disconnected" title="WebSocket断开，数据可能延迟">📡 断开</span>
+      <span v-else class="ws-status connected" title="WebSocket已连接">📡</span>
     </div>
 
     <!-- ===== 三列主体 ===== -->
@@ -1135,6 +1140,11 @@ onUnmounted(() => {
 @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(245,108,108,0.4); } 50% { box-shadow: 0 0 0 6px rgba(245,108,108,0); } }
 
 /* 三列主体 */
+/* 【V63修复:P1-15】WebSocket连接状态指示器 */
+.ws-status { font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 3px; }
+.ws-status.connected { color: var(--stock-down); }
+.ws-status.disconnected { color: var(--stock-up); background: var(--stock-up-bg); animation: blink 1.5s infinite; }
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 .main-grid { display: grid; grid-template-columns: 240px 1fr 280px; gap: 12px; padding: 12px; flex: 1; overflow: hidden; }
 .panel { background: var(--bg-elevated); border-radius: 8px; padding: 12px; border: 1px solid var(--border-default); overflow-y: auto; }
 .panel-title { font-size: 14px; font-weight: bold; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border-default); }
