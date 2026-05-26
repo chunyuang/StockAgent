@@ -86,6 +86,8 @@ function translateSellReason(reason: string): string {
     'gap_down_stop': '跳空止损',
     '持仓中': '持仓中',
     '停牌超时强卖': '停牌强卖',
+    '龙头5天低利润': '龙头5日低利',  // 【V60:龙头低吸5天利润<3%提前退出】
+    '低利润': '低利退出',
   }
   // 尝试精确匹配
   if (map[reason]) return map[reason]
