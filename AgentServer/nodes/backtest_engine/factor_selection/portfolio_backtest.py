@@ -2839,6 +2839,38 @@ class PortfolioBacktester:
         result["losing_trades"] = losing_trades
         result["average_hold_days"] = average_hold_days
         result["all_trades"] = all_trades_dict
+        # 【V55修复:sell_reason_stats直接在portfolio_backtest中计算,不再依赖ultra_short后处理】
+        # 旧bug: ultra_short.py设置result['sell_reason_stats']和result['performance'],
+        # 但MongoDB存储时这些字段丢失(可能是序列化/覆盖问题)
+        # 修复: 直接在portfolio_backtest的result中计算,确保数据不丢失
+        _sell_reason_stats = {"stop_loss": 0, "take_profit": 0, "max_hold": 0, "force_empty": 0, "rebalance": 0, "profit_lock": 0, "profit_protect": 0, "pullback": 0, "other": 0}
+        for trade in merged_trades:
+            reason = trade.get('sell_reason', '')
+            if not reason or reason == '持仓中':
+                continue
+            reason_str = str(reason)
+            if '止损' in reason_str or 'stop_loss' in reason_str.lower():
+                _sell_reason_stats["stop_loss"] += 1
+            elif '止盈' in reason_str or 'take_profit' in reason_str.lower():
+                _sell_reason_stats["take_profit"] += 1
+            elif '冲高回落' in reason_str or '高开即卖' in reason_str:
+                _sell_reason_stats["pullback"] += 1
+            elif '利润保护' in reason_str:
+                _sell_reason_stats["profit_protect"] += 1
+            elif '利润锁定' in reason_str:
+                _sell_reason_stats["profit_lock"] += 1
+            elif '到期' in reason_str or 'max_hold' in reason_str.lower() or '持仓天数' in reason_str or '超时' in reason_str or '停牌' in reason_str:
+                _sell_reason_stats["max_hold"] += 1
+            elif '空仓' in reason_str or 'force_empty' in reason_str.lower() or '强制' in reason_str:
+                _sell_reason_stats["force_empty"] += 1
+            elif '调仓' in reason_str or 'rebalance' in reason_str.lower() or '减仓' in reason_str:
+                _sell_reason_stats["rebalance"] += 1
+            elif '持仓中' in reason_str:
+                pass
+            else:
+                _sell_reason_stats["other"] += 1
+        result["sell_reason_stats"] = _sell_reason_stats
+
         result["merged_trades"] = merged_trades  # 完整交易记录(含买卖信息,给前端展示)
         result["rebalance_records"] = rebalance_records_dict
         result["stock_names"] = stock_names
