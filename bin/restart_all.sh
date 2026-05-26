@@ -221,7 +221,7 @@ echo -e "${YELLOW}🚀 开始一键重启所有服务...${NC}"
 echo -e "${YELLOW}============================================${NC}"
 
 # 1. 强制清理所有占用端口的进程
-echo -e "${YELLOW}🔧 1/6 强制清理所有占用端口的进程...${NC}"
+echo -e "${YELLOW}🔧 1/7 强制清理所有占用端口的进程...${NC}"
 pkill -9 -f "AgentServer/main.py" 2>/dev/null || true
 pkill -9 -f "vite\|node.*frontend" 2>/dev/null || true
 sleep 2
@@ -250,7 +250,7 @@ done
 sleep 2
 
 # 2. 严格检查所有端口是否完全释放
-echo -e "${YELLOW}🔍 2/6 严格检查所有端口是否完全释放...${NC}"
+echo -e "${YELLOW}🔍 2/7 严格检查所有端口是否完全释放...${NC}"
 all_free=1
 for entry in "${ports[@]}"; do
   port=$(echo "$entry" | cut -d: -f1)
@@ -317,7 +317,7 @@ else
 fi
 
 # 4. 启动回测节点
-echo -e "${YELLOW}⚙️  4/6 启动回测节点...${NC}"
+echo -e "${YELLOW}⚙️  4/7 启动回测节点...${NC}"
 # PYTHONPATH already set
 export NODE_TYPE=backtest
 cd "${PROJECT_ROOT}/AgentServer"
@@ -338,8 +338,19 @@ else
   exit 1
 fi
 
-# 5. 启动前端Vite开发服务
-echo -e "${YELLOW}🎨 5/6 启动前端Vite开发服务...${NC}"
+# 5. 构建前端 + 同步到Backend静态目录
+echo -e "${YELLOW}🎨 5/7 构建前端 + 同步dist到Backend...${NC}"
+cd "${PROJECT_ROOT}/frontend"
+npm run build > "${PROJECT_ROOT}/logs/frontend_build.log" 2>&1
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}✅ 前端build成功，dist已同步到AgentServer/static/${NC}"
+else
+  echo -e "${RED}❌ 前端build失败！查看日志: tail -f ${PROJECT_ROOT}/logs/frontend_build.log${NC}"
+  echo -e "${YELLOW}⚠️  继续启动（Vite dev server可用，但Backend静态页可能显示旧版）${NC}"
+fi
+
+# 6. 启动前端Vite开发服务
+echo -e "${YELLOW}🎨 6/7 启动前端Vite开发服务...${NC}"
 cd "${PROJECT_ROOT}/frontend"
 nohup npm run dev -- --port 5174 --host 0.0.0.0 > "${PROJECT_ROOT}/logs/frontend.log" 2>&1 &
 frontend_pid=$!
@@ -358,13 +369,15 @@ else
   # 前端不是必须的，不退出
 fi
 
-# 6. 完成输出
+# 7. 完成输出
 echo -e "${YELLOW}============================================${NC}"
 echo -e "${GREEN}✅ 所有服务启动成功！${NC}"
 echo -e "${GREEN}👉 Web服务: 端口 8000 (PID $web_pid)${NC}"
 echo -e "${GREEN}👉 回测引擎: 端口 50057 (PID $backtest_pid)${NC}"
 echo -e "${GREEN}👉 前端: 端口 5174 (PID $frontend_pid)${NC}"
+echo -e "${GREEN}👉 前端build: dist → AgentServer/static/ 已同步${NC}"
 echo -e "${GREEN}👉 前端访问地址: http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'localhost'):5174/ultra-short-v2${NC}"
+echo -e "${GREEN}👉 Backend静态页: http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'localhost'):8000/ultra-short-v2${NC}"
 echo -e "${GREEN}👉 数据库管理页面: http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'localhost'):5174/admin/db${NC}"
 echo -e "${GREEN}👉 当前分支: $(git rev-parse --abbrev-ref HEAD)${NC}"
 echo -e "${YELLOW}============================================${NC}"
