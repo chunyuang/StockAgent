@@ -89,6 +89,11 @@ class PortfolioBacktester:
         '跌停翘板': '10:30',
     }
 
+    # 【V58-BUG-004修复:强制空仓T+1遗留跟踪】
+    # 当强制空仓日有当日买入的股票(受T+1限制无法卖出)时,
+    # 记录到_pending_force_sell,次日优先强制卖出(避免继续持仓扩大亏损)
+    _pending_force_sell: set = set()
+
     # 【P1-5修复(第十一轮):强制空仓阈值提升为类常量,避免两处分别定义不一致】
     # 【P1-5修复】强制空仓阈值从strategy_defaults.py读取(单一来源)
     FORCE_EMPTY_LIMIT_DOWN = GLOBAL_RISK.get("force_empty_limit_down", 80)
@@ -251,6 +256,23 @@ class PortfolioBacktester:
         enable_sl = self._risk_config.get('enable_stop_loss', True)
         enable_tp = self._risk_config.get('enable_take_profit', True)
 
+        # 【V58-BUG-004修复:处理前一日强制空仓T+1跳过的遗留股票】
+        # 这些股票在前一天因T+1限制无法卖出,今天必须优先清仓
+        if hasattr(self, '_pending_force_sell') and self._pending_force_sell:
+            _to_sell_now = set()
+            for _pf_code in list(self._pending_force_sell):
+                if _pf_code in holdings and holdings.get(_pf_code, 0) > 0:
+                    _pf_p = _sl_tp_prices.get(_pf_code, {})
+                    _pf_price = _pf_p.get('open', _pf_p.get('close', 0))
+                    if _pf_price > 0 and _pf_code not in forced_sell_codes_set:
+                        forced_sell_prices[_pf_code] = _pf_price
+                        forced_sell_codes.append((_pf_code, '强制空仓(延后)'))
+                        forced_sell_codes_set.add(_pf_code)
+                        _to_sell_now.add(_pf_code)
+            self._pending_force_sell -= _to_sell_now  # 清理已处理的
+            if _to_sell_now:
+                await self.log(f"   ⚠️ 前日强制空仓T+1遗留清仓: {','.join(_to_sell_now)}")
+
         for code in list(holdings.keys()):
             if holdings.get(code, 0) <= 0:
                 continue
@@ -284,7 +306,7 @@ class PortfolioBacktester:
                         early_sell_reason = '跳空止损'
                     else:
                         early_sell_price = stop_price
-                        early_sell_reason = f'止损({sl_pct*100:.0f}%)'
+                        early_sell_reason = f'止损({sl_pct*100:.1f}%)'
 
             # 【V48:冲高回落 vs 利润锁定优先级优化】
             # 冲高回落以open价卖,利润锁定以close价卖
@@ -314,11 +336,11 @@ class PortfolioBacktester:
                         forced_sell_codes.append((code, '跳空止损'))
                     else:
                         forced_sell_prices[code] = stop_price
-                        forced_sell_codes.append((code, f'止损({sl_pct*100:.0f}%)'))
+                        forced_sell_codes.append((code, f'止损({sl_pct*100:.1f}%)'))
                     forced_sell_codes_set.add(code)
                 elif enable_tp and high_p >= tp_price:
                     forced_sell_prices[code] = tp_price
-                    forced_sell_codes.append((code, f'止盈({tp_pct*100:.0f}%)'))
+                    forced_sell_codes.append((code, f'止盈({tp_pct*100:.1f}%)'))
                     forced_sell_codes_set.add(code)
 
             # === 2.5 盘中利润锁定(V42) ===
@@ -1503,10 +1525,12 @@ class PortfolioBacktester:
                 sell_count = 0
                 for code in list(holdings.keys()):
                     if holdings[code] > 0 and code in prices_for_sell:
-                        # 【Phase1-T+1】强制空仓也要递守T+1: 当日买入不可卖
+                        # 【Phase1-T+1】强制空仓也要遵守T+1: 当日买入不可卖
                         buy_dt = self._cost_basis_date.get(code)
                         if buy_dt is not None and buy_dt == trade_date:
-                            await self.log(f"   │  🔒 T+1限制: {code} 当日买入不可卖(强制空仓跳过)")
+                            # 【V58-BUG-004修复:记录T+1跳过的股票,次日优先强制卖出】
+                            self._pending_force_sell.add(code)
+                            await self.log(f"   │  🔒 T+1限制: {code} 当日买入不可卖(已记录次日优先清仓)")
                             continue
                         price = prices_for_sell[code].get('open', 0) or prices_for_sell[code]['close']
                         # 【P0-4修复(V16)】:强制空仓用open价(开盘看到极端行情立即卖出)
@@ -3973,12 +3997,12 @@ class PortfolioBacktester:
                 sl_sell_price = open_p if open_p <= stop_price else stop_price
                 if sl_sell_price > best_price:
                     best_price = sl_sell_price
-                    best_reason = '跳空止损' if open_p <= stop_price else f'止损({code_sl*100:.0f}%)'
+                    best_reason = '跳空止损' if open_p <= stop_price else f'止损({code_sl*100:.1f}%)'
             # 3. 止盈: 如果high>=tp_price, 以止盈价卖出(优于收盘价当收盘更差时)
             if enable_take_profit and high_p >= tp_price:
                 if tp_price > best_price:
                     best_price = tp_price
-                    best_reason = f'止盈({code_tp*100:.0f}%)'
+                    best_reason = f'止盈({code_tp*100:.1f}%)'
             # 【V49-P0-3:利润锁定检查——不在目标池的股票也检查盘中冲高回撤】
             # 【V55-BUG-001修复:提取为_check_intraday_profit_lock方法,消除重复代码】
             if best_reason == '调仓卖出' and high_p > 0 and close_p > 0 and cost > 0:
@@ -4032,11 +4056,11 @@ class PortfolioBacktester:
                     pos_mgr.mark_sold(code, early_sell_reason)  # V29:统一管理
                 elif enable_stop_loss and low_p <= stop_price:
                     sell_codes.append(code)
-                    reason = '跳空止损' if open_p <= stop_price else f'止损({code_sl*100:.0f}%)'
+                    reason = '跳空止损' if open_p <= stop_price else f'止损({code_sl*100:.1f}%)'
                     pos_mgr.mark_sold(code, reason)
                 elif enable_take_profit and high_p >= tp_price:
                     sell_codes.append(code)
-                    pos_mgr.mark_sold(code, f'止盈({code_tp*100:.0f}%)')
+                    pos_mgr.mark_sold(code, f'止盈({code_tp*100:.1f}%)')
                 # 【V48:调仓日也检查利润锁定——此前只在_check_and_execute_forced_sells中检查】
                 # 【V55-BUG-001修复:提取为_check_intraday_profit_lock方法,消除重复代码】
                 elif code not in sell_codes:
@@ -4166,10 +4190,10 @@ class PortfolioBacktester:
                         if open_p <= cost * (1 - code_sl):
                             codes_to_promote_reasons[code] = '跳空止损'
                         else:
-                            codes_to_promote_reasons[code] = f'止损({code_sl*100:.0f}%)'
+                            codes_to_promote_reasons[code] = f'止损({code_sl*100:.1f}%)'
                     elif enable_tp and high_p >= cost * (1 + code_tp):
                         codes_to_promote.append(code)
-                        codes_to_promote_reasons[code] = f'止盈({code_tp*100:.0f}%)'
+                        codes_to_promote_reasons[code] = f'止盈({code_tp*100:.1f}%)'
         for code in codes_to_promote:
             sell_codes.append(code)
             # 【V33修复:promote的股票必须调用pos_mgr.mark_sold()记录reason】
@@ -4287,10 +4311,10 @@ class PortfolioBacktester:
                             sell_reason = f'跳空止损'
                         else:
                             sell_price = stop_price
-                            sell_reason = f'止损({code_sl*100:.0f}%)'
+                            sell_reason = f'止损({code_sl*100:.1f}%)'
                     elif enable_take_profit and high_price >= profit_price:
                         sell_price = profit_price
-                        sell_reason = f'止盈({code_tp*100:.0f}%)'
+                        sell_reason = f'止盈({code_tp*100:.1f}%)'
             price = sell_price
 
             # 计算卖出金额

@@ -1935,6 +1935,59 @@ async def emergency_liquidate(request: Request):
         return {"success": False, "message": str(e)}
 
 
+@router.put("/position-risk/{ts_code}")
+async def adjust_position_risk(ts_code: str, request: Request):
+    """调整单票止损止盈参数
+    
+    覆盖策略默认值，仅对该持仓生效。
+    """
+    try:
+        body = await request.json()
+        scanner = _get_scanner_instance()
+        if not scanner:
+            return {"success": False, "message": "Scanner未运行"}
+        
+        # 找到该持仓
+        pos = None
+        for p in scanner._broker.get_positions():
+            if p.ts_code == ts_code:
+                pos = p
+                break
+        
+        if not pos:
+            return {"success": False, "message": f"未找到持仓 {ts_code}"}
+        
+        # 更新风控覆盖
+        overrides = scanner._position_risk_overrides  # Dict[str, Dict]
+        if not hasattr(scanner, '_position_risk_overrides'):
+            scanner._position_risk_overrides = {}
+            overrides = scanner._position_risk_overrides
+        
+        if ts_code not in overrides:
+            overrides[ts_code] = {}
+        
+        if 'stop_loss_pct' in body:
+            overrides[ts_code]['stop_loss_pct'] = float(body['stop_loss_pct'])
+        if 'take_profit_pct' in body:
+            overrides[ts_code]['take_profit_pct'] = float(body['take_profit_pct'])
+        
+        # 持久化到MongoDB
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.db:
+                await mongo_manager.db["position_risk_overrides"].replace_one(
+                    {"ts_code": ts_code},
+                    {"ts_code": ts_code, **overrides[ts_code], "updated_at": datetime.now().isoformat()},
+                    upsert=True
+                )
+        except Exception:
+            pass
+        
+        return {"success": True, "data": {"ts_code": ts_code, **overrides[ts_code]}}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
 @router.get("/params/{strategy_id}")
 async def get_strategy_params(strategy_id: str):
     """获取策略参数(从参数中心读取)"""

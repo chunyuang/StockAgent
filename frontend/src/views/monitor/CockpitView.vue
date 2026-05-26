@@ -11,7 +11,7 @@
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import {
-  ElButton, ElTag, ElProgress,
+  ElButton, ElTag, ElProgress, ElInputNumber,
   ElEmpty,
   ElMessage, ElMessageBox, ElDialog, ElSelect, ElOption,
 } from 'element-plus'
@@ -338,13 +338,22 @@ async function toggleScanner() {
 const posDetailVisible = ref(false)
 const posDetailData = ref<any>(null)
 const posDetailLoading = ref(false)
+const posRiskSL = ref(3.0)
+const posRiskTP = ref(7.0)
+const posRiskSaving = ref(false)
 async function openPositionDetail(pos: PositionInfo) {
   posDetailLoading.value = true
   posDetailVisible.value = true
   try {
     const r = await api.get(`${scannerApi}/trade-detail/${pos.ts_code}`)
-    if (r?.success) posDetailData.value = r.data
+    if (r?.success) {
+      posDetailData.value = r.data
+      posRiskSL.value = r.data.position?.stop_loss_pct || 3.0
+      posRiskTP.value = r.data.position?.take_profit_pct || 7.0
+    }
     else posDetailData.value = { ts_code: pos.ts_code, position: { shares: pos.available_qty, cost_price: pos.avg_cost, current_price: pos.current_price, profit_pct: pos.profit_pct, strategy: pos.strategy, stop_loss_pct: pos.stop_loss_pct, take_profit_pct: pos.take_profit_pct } }
+    posRiskSL.value = posDetailData.value?.position?.stop_loss_pct || 3.0
+    posRiskTP.value = posDetailData.value?.position?.take_profit_pct || 7.0
   } catch { posDetailData.value = null } finally { posDetailLoading.value = false }
 }
 
@@ -491,6 +500,27 @@ async function quickBuySignal(sig: ScanSignal) {
     }
   } catch { /* cancelled */ }
   buyingSignal.value = null
+}
+
+// 单票风控保存
+async function savePosRisk() {
+  if (!posDetailData.value?.ts_code) return
+  posRiskSaving.value = true
+  try {
+    const r = await api.put(`${scannerApi}/position-risk/${posDetailData.value.ts_code}`, {
+      stop_loss_pct: posRiskSL.value / 100, // UI用百分比，API用小数
+      take_profit_pct: posRiskTP.value / 100,
+    })
+    if (r?.success) {
+      ElMessage.success(`${posDetailData.value.ts_code} 风控已更新: 止损${posRiskSL.value}%/止盈${posRiskTP.value}%`)
+      posDetailData.value.position.stop_loss_pct = posRiskSL.value
+      posDetailData.value.position.take_profit_pct = posRiskTP.value
+      await fetchAll()
+    } else {
+      ElMessage.error(r?.message || '更新失败')
+    }
+  } catch (e) { ElMessage.error('保存失败') }
+  finally { posRiskSaving.value = false }
 }
 
 // 参数热更新
@@ -930,8 +960,19 @@ onUnmounted(() => {
             <div class="pd-cell"><span class="pd-cl">成本</span><span class="pd-cv">¥{{ posDetailData.position.cost_price?.toFixed(2) }}</span></div>
             <div class="pd-cell"><span class="pd-cl">现价</span><span class="pd-cv">¥{{ posDetailData.position.current_price?.toFixed(2) }}</span></div>
             <div class="pd-cell"><span class="pd-cl">盈亏</span><span class="pd-cv" :class="posDetailData.position.profit_pct >= 0 ? 'profit' : 'loss'">{{ formatPct(posDetailData.position.profit_pct) }}</span></div>
-            <div class="pd-cell"><span class="pd-cl" style="color:var(--stock-up)">止损</span><span class="pd-cv">{{ posDetailData.position.stop_loss_pct }}%</span></div>
-            <div class="pd-cell"><span class="pd-cl" style="color:var(--stock-down)">止盈</span><span class="pd-cv">{{ posDetailData.position.take_profit_pct }}%</span></div>
+          </div>
+          <!-- 风控调整 -->
+          <div class="pd-risk-adj">
+            <div class="pd-risk-row">
+              <span class="pd-cl" style="color:var(--stock-up)">止损</span>
+              <ElInputNumber v-model="posRiskSL" size="small" :min="0.5" :max="20" :step="0.5" :precision="1" style="width:90px" />
+              <span class="pd-unit">%</span>
+              <span class="pd-cl" style="color:var(--stock-down)">止盈</span>
+              <ElInputNumber v-model="posRiskTP" size="small" :min="1" :max="50" :step="1" :precision="1" style="width:90px" />
+              <span class="pd-unit">%</span>
+              <ElButton size="small" type="primary" @click="savePosRisk" :loading="posRiskSaving">保存</ElButton>
+            </div>
+            <div class="pd-risk-hint">修改后仅对该持仓生效，不影响策略全局参数</div>
           </div>
         </div>
         <!-- 买入详情 -->
@@ -1186,4 +1227,8 @@ onUnmounted(() => {
 .pd-lv { color: var(--text-primary); word-break: break-all; }
 .pd-order-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; }
 .pd-order-reason { color: var(--text-muted); font-size: 11px; }
+.pd-risk-adj { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border-default); }
+.pd-risk-row { display: flex; align-items: center; gap: 8px; }
+.pd-unit { font-size: 12px; color: var(--text-muted); }
+.pd-risk-hint { font-size: 11px; color: var(--text-muted); margin-top: 6px; }
 </style>

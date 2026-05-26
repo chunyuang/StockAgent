@@ -1754,6 +1754,12 @@ class MarketScanner:
 
             # 获取策略级风控参数
             risk = self._get_strategy_risk(pos.strategy)
+            # 单票风控覆盖(用户手动调整)
+            pos_overrides = getattr(self, '_position_risk_overrides', {}).get(pos.ts_code, {})
+            if 'stop_loss_pct' in pos_overrides:
+                risk['stop_loss_pct'] = pos_overrides['stop_loss_pct']
+            if 'take_profit_pct' in pos_overrides:
+                risk['take_profit_pct'] = pos_overrides['take_profit_pct']
             stop_loss_pct = -risk.get("stop_loss_pct", 0.03) * 100   # 0.03→-3.0%
             take_profit_pct = risk.get("take_profit_pct", 0.07) * 100  # 0.07→7.0%
 
