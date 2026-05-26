@@ -104,7 +104,18 @@ def _extract_core_conclusion(analysis: str, max_len: int = 50) -> str:
 
 
 def _log_with_trace(logger: logging.Logger, trace_id: str, node: str, message: str, level: str = "info"):
-    """带 trace_id 的结构化日志"""
+    """带 trace_id 的结构化日志
+    
+    生产环境：默认只记录info及以上级别，跳过冗长的DEBUG详细数据打印。
+    开启详细日志：设置环境变量 STOCK_ANALYSIS_DEBUG=1
+    """
+    # 生产环境过滤：跳过超长DEBUG数据打印（完整数据/用户提示词/原始响应等）
+    _debug_verbose = os.environ.get("STOCK_ANALYSIS_DEBUG", "0") == "1"
+    if not _debug_verbose and len(message) > 200:
+        # 截断超长消息，只保留前200字符+省略标记
+        log_msg = f"[{node}] trace_id={trace_id} | {message[:200]}...[truncated, set STOCK_ANALYSIS_DEBUG=1 for full]"
+        getattr(logger, level)(log_msg)
+        return
     log_msg = f"[{node}] trace_id={trace_id} | {message}"
     getattr(logger, level)(log_msg)
 

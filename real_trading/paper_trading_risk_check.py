@@ -204,21 +204,28 @@ class PaperTradingEngineWithRisk:
                 "rejection": rejection
             }
         
-        # 4. 通过风控检查，执行交易（这里简化处理，实际应调用原PaperTradingEngine的交易逻辑）
+        # 4. 通过风控检查，调用PaperTradingEngine执行交易
         logger.info(f"✅ 风控检查通过，允许交易")
         logger.info(f"📊 股票: {name}({ts_code}) 数量: {shares}")
         
-        # TODO: 这里应该调用原有的buy_stock逻辑
-        # 实际集成时需要：
-        # 1. 保留原PaperTradingEngine类
-        # 2. 或将风控检查集成到原有的place_order方法中
-        # 3. 避免重复实现交易逻辑
-        
-        # 模拟返回成功（仅用于演示）
-        return {
-            "success": True,
-            "msg": "下单成功(风控检查已通过)"
-        }
+        try:
+            from paper_trading import PaperTradingEngine
+            engine = PaperTradingEngine()
+            result = engine.place_order(
+                account_id=account_id,
+                ts_code=ts_code,
+                direction="buy",
+                price=buy_price,
+                shares=shares,
+                reason=f"风控通过-{name}"
+            )
+            return result
+        except Exception as e:
+            logger.error(f"❌ 下单执行异常: {e}")
+            return {
+                "success": False,
+                "msg": f"下单执行异常: {e}"
+            }
     
     def _get_initial_balance(self, account_id: str) -> float:
         """获取账户初始余额

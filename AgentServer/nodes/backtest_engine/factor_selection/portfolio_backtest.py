@@ -3033,27 +3033,29 @@ class PortfolioBacktester:
                 formatted_last = f"{current_month[:4]}-{current_month[4:]}"
                 monthly_profit[formatted_last] = m_return
         elif daily_profit_list and all_trade_dates:
-            # 【V54-Bug6:TODO】此fallback路径使用daily_profit_list累加,存在浮点累积误差
-            # 几乎不会触发(主路径用net_value_series),但如触发需注意精度
-            # 修复方案: 改用net_value_series的月度端点计算(与主路径一致)
-            # Fallback: 旧算法(仅当net_value_series不可用时)
-            current_value = self._initial_cash
-            monthly_start_value = current_value
+            # 【V56修复:用net_value端点计算月度收益，消除浮点累积误差】
+            # 从daily_profit_list重建net_value，然后用月度端点计算（与主路径一致）
+            net_values = [self._initial_cash]
+            for profit in daily_profit_list:
+                net_values.append(net_values[-1] + profit)
+            # net_values[i]对应all_trade_dates[i-1]之后的净值
             current_month = None
-            for i, profit in enumerate(daily_profit_list):
-                if i < len(all_trade_dates):
-                    date_str = str(all_trade_dates[i])
-                    month_key = date_str[:6]
-                    formatted_key = f"{month_key[:4]}-{month_key[4:]}"
-                    if current_month is not None and month_key != current_month:
-                        m_return = (current_value - monthly_start_value) / monthly_start_value if monthly_start_value > 0 else 0
-                        formatted_prev = f"{current_month[:4]}-{current_month[4:]}"
-                        monthly_profit[formatted_prev] = m_return
-                        monthly_start_value = current_value
-                    current_month = month_key
-                current_value += profit
+            month_start_nv = self._initial_cash
+            for i, trade_date in enumerate(all_trade_dates):
+                nv = net_values[i + 1]  # 第i天后的净值
+                date_str = str(trade_date)
+                month_key = date_str[:6]
+                formatted_key = f"{month_key[:4]}-{month_key[4:]}"
+                if current_month is not None and month_key != current_month:
+                    m_return = (nv - month_start_nv) / month_start_nv if month_start_nv > 0 else 0
+                    formatted_prev = f"{current_month[:4]}-{current_month[4:]}"
+                    monthly_profit[formatted_prev] = m_return
+                    month_start_nv = nv
+                elif month_start_nv == self._initial_cash and current_month is None:
+                    month_start_nv = nv
+                current_month = month_key
             if current_month:
-                m_return = (current_value - monthly_start_value) / monthly_start_value if monthly_start_value > 0 else 0
+                m_return = (nv - month_start_nv) / month_start_nv if month_start_nv > 0 else 0
                 formatted_last = f"{current_month[:4]}-{current_month[4:]}"
                 monthly_profit[formatted_last] = m_return
         result["monthly_profit"] = monthly_profit

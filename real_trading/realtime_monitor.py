@@ -248,8 +248,17 @@ class RealTimeMonitor:
                 
                 # 假设目标买入价保存在target_stocks的字典中，这里简化处理
                 # 实际使用时可以配置每个目标的买入价
+                # 目标股票配置: dict格式包含买入价/止损价/止盈价等
                 if isinstance(target, dict):
-                    pass  # TODO: implement target dict logic
+                    target_price = target.get("buy_price", 0)
+                    if target_price > 0 and current_price <= target_price * 1.02:
+                        alert_key = f"target_buy_{code}"
+                        if self._should_alert(alert_key):
+                            alerts.append({
+                                "level": "info",
+                                "title": f"🎯 目标股买入提醒：{name}",
+                                "content": f"{name}({target}) 当前价{current_price:.2f}，接近目标买入价{target_price:.2f}，当前涨幅{pct_chg:.2f}%"
+                            })
                 else:
                     # 简单提醒达到预设的涨幅区间
                     if 0.5 <= pct_chg <= 3:
