@@ -79,15 +79,12 @@ const todayPnl = computed(() => {
       ? new Date(item.time).toLocaleDateString('zh-CN')
       : today
     if (itemDate !== today) continue
-    // 【V59修复:P0-2】优先使用profit_amount字段,避免手动计算误差
+    // 【V63修复:P0-1】删除fallback分支: costAmt = shares * price / (1 + profit_pct / 100)
+    // 该公式数学推导错误(假设profit_pct是买入到卖出的总收益率,但实际可能是其他含义)
+    // 如需计算已实现盈亏,应从持仓记录取cost_price,而非反推
     if (item.action === 'sell') {
       if (item.profit_amount != null) {
         realized += item.profit_amount
-      } else if (item.profit_pct != null && item.shares > 0 && item.price > 0) {
-        // fallback: profit_pct是百分比(如10.5),反推盈亏额
-        // 盈亏额 = profit_pct/100 * 买入金额, 买入金额 = shares * price / (1+profit_pct/100)
-        const costAmt = item.shares * item.price / (1 + item.profit_pct / 100)
-        realized += costAmt * (item.profit_pct / 100)
       }
     }
   }
@@ -472,9 +469,20 @@ async function onModeChange(mode: string) {
       } catch { selectedMode.value = tradeMode.value; return }
     }
     await ElMessageBox.confirm(
-      `确认切换到 ${modeLabel(mode)} 模式？${mode === 'gm' ? '\n🚨🚨🚨 实盘模式警告 🚨🚨🚨\n将使用真实资金进行交易！请确认您已充分了解风险！' : ''}${mode === 'paper' ? '\n📝 模拟盘模式：使用虚拟资金' : ''}${replayDate ? '\n📅 回放日期: ' + replayDate : ''}`,
+      `确认切换到 ${modeLabel(mode)} 模式？${mode === 'gm' ? '\n\n🚨🚨🚨 实盘模式警告 🚨🚨🚨\n将使用真实资金进行交易！\n此操作可能导致真实财务损失！\n请确认您已充分了解风险！\n\n输入确认码 "LIVE" 以继续' : ''}${mode === 'paper' ? '\n📝 模拟盘模式：使用虚拟资金' : ''}${replayDate ? '\n📅 回放日期: ' + replayDate : ''}`,
       '模式切换',
-      { confirmButtonText: mode === 'gm' ? '我确认,切换实盘' : '确认切换', cancelButtonText: '取消', type: mode === 'gm' ? 'error' : 'info' }
+      {
+        confirmButtonText: mode === 'gm' ? '我确认,切换实盘' : '确认切换',
+        cancelButtonText: '取消',
+        type: mode === 'gm' ? 'error' : 'info',
+        // 【V63修复:P0-5】实盘模式增加二次确认(输入确认码)
+        ...(mode === 'gm' ? {
+          inputPattern: /^LIVE$/,
+          inputErrorMessage: '请输入 LIVE 确认切换实盘模式',
+          showInput: true,
+          inputPlaceholder: '输入 LIVE 确认'
+        } : {})
+      }
     )
     selectedMode.value = mode
     if (isRunning.value) {
@@ -668,7 +676,7 @@ onUnmounted(() => {
         <ElButton :type="isRunning ? 'danger' : 'success'" size="small" @click="toggleScanner" :loading="loading">
           {{ isRunning ? '停止' : '启动' }}
         </ElButton>
-        <ElButton type="danger" size="small" class="emergency-btn" @click="emergencyLiquidate" :disabled="positions.length === 0">
+        <ElButton type="danger" size="small" class="emergency-btn-v2" @click="emergencyLiquidate" :disabled="positions.length === 0">
           🚨 紧急平仓
         </ElButton>
       </div>

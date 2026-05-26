@@ -128,6 +128,9 @@ class PortfolioBacktester:
         self.stock_to_strategy = {}
         # 【V59-P1-1修复:实例化_pending_force_sell,防止类级变量跨回测污染】
         self._pending_force_sell: set = set()
+        # 【V63-P0-4:强制空仓冷却期跟踪】记录强制空仓后的冷却截止交易日索引
+        # 冷却期内position_multiplier上限0.5,防止强制空仓次日立即满仓
+        self._force_empty_cooldown_until_idx: int = -1  # 交易日索引, -1=无冷却
 
     def _calc_trade_days_held(self, buy_date, sell_date):
         """【V30:P1-1】O(1)计算持仓交易日数
@@ -1131,7 +1134,7 @@ class PortfolioBacktester:
             "enable_force_empty": config.get("enable_force_empty", True),
             # 【P1-1/P1-2修复:添加max_hold_days和max_position_per_stock到风控配置】
             "max_hold_days": config.get("max_hold_days", 10),  # 默认10天(超短策略默认3天由ultra_short传入)
-            "max_position_per_stock": config.get("max_position_per_stock", config.get("max_position_percent", 1.0)),  # 默认不限制
+            "max_position_per_stock": config.get("max_position_per_stock", config.get("max_position_percent", GLOBAL_RISK.get("max_position_per_stock", 0.35))),  # 【V63-P1-6:默认0.35,与GLOBAL_RISK对齐,旧值1.0无限制】
         }
 
         # 【V48修复:将GLOBAL_RISK中的利润锁定/持仓保护参数写入risk_config】
@@ -1608,6 +1611,18 @@ class PortfolioBacktester:
 
             await self.log(f"   │  ⏭️  强制空仓规则生效,不开新仓")
             await self.log(f"   └───────────────────────────────────────────────────────")
+
+            # 【V63-P0-4:设置强制空仓冷却期——强制空仓后N天内position_multiplier上限0.5】
+            # 冷却期内仓位不超过50%,防止次日立即满仓继续遭遇暴跌
+            cooldown_days = GLOBAL_RISK.get('force_empty_cooldown_days', 2)
+            current_idx = self._trade_date_index_map.get(trade_date, -1)
+            if current_idx >= 0 and cooldown_days > 0:
+                # 找到冷却期后的第一个交易日索引
+                target_idx = current_idx
+                for _ in range(cooldown_days):
+                    target_idx += 1
+                self._force_empty_cooldown_until_idx = target_idx
+                await self.log(f"   │  🧊 冷却期: 后{cooldown_days}个交易日仓位上限50%")
 
             # 【修复#6:强制空仓也输出每日收盘汇总,continue前加上】
             await self._print_daily_summary(trade_date, len(holdings), cash)
@@ -3068,9 +3083,9 @@ class PortfolioBacktester:
                 strategy_results[sname] = {
                     "strategy_name": sname,
                     "win_rate": 0, "total_return": 0,
-                    "trades_count": 0, "total_return": 0,
+                    "trades_count": 0,
                     "warning": warning,
-                }
+                }  # 【V63-P1-8:删除重复的total_return key】
 
         for sname, sdata in strategy_results.items():
             if sdata.get("trades_count", 0) == 0 and "warning" not in sdata:
@@ -3379,7 +3394,6 @@ class PortfolioBacktester:
                 strat_groups[sname].append((code, row_score))
 
         # 按strategy_weights分配席位
-        import math
         total_seats = max_stocks
         selected_codes = []
 
@@ -3863,6 +3877,16 @@ class PortfolioBacktester:
         special_multiplier = special_period_filter.get_position_multiplier(str(trade_date))
         active_periods = special_period_filter.get_active_periods(str(trade_date))
         position_multiplier = sentiment_multiplier * special_multiplier
+
+        # 【V63-P0-4:强制空仓冷却期检查——冷却期内position_multiplier上限0.5】
+        # 强制空仓后N天内,仓位不超过50%,防止次日立即满仓继续遭遇暴跌
+        cooldown_until_idx = getattr(self, '_force_empty_cooldown_until_idx', -1)
+        if cooldown_until_idx > 0:
+            current_idx = self._trade_date_index_map.get(trade_date, -1)
+            if current_idx >= 0 and current_idx <= cooldown_until_idx:
+                position_multiplier = min(position_multiplier, 0.5)
+                logger.info('backtest', f'[冷却期] 强制空仓后{current_idx}/{cooldown_until_idx}, 仓位上限50%')
+
         return position_multiplier, active_periods
 
     def _apply_limit_up_hit_probability(self, target_shares: dict, prices: dict, trade_date: int) -> dict:
@@ -3996,7 +4020,9 @@ class PortfolioBacktester:
                 continue
             buy_dt = self._cost_basis_date.get(code)
             if buy_dt is not None and buy_dt == trade_date:
-                _sell_code_details[code] = (None, '调仓卖出')  # T+1限制
+                # 【V63-P0-5修复:T+1限制的股票不加入_sell_code_details,避免sell_price=None】
+                # 旧bug: T+1限制股设为(None, '调仓卖出'),后续遍历_sell_code_details时best_price=None
+                # 但T+1股会被sell_codes过滤排除,根本不会被卖出,所以不应进入details
                 continue
             p = prices.get(code, {})
             cost = self._cost_basis.get(code, 0)

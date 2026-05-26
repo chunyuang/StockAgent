@@ -16,7 +16,10 @@ import asyncio
 from datetime import datetime
 from typing import List, Dict
 from dataclasses import dataclass, asdict
-from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK, STRATEGY_CONFIGS
+from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK, STRATEGY_CONFIGS, STRATEGY_NAME_TO_ID
+
+# V63: 引入卖出信号检查器(与回测共享),与live/position_manager.py对齐
+from nodes.backtest_engine.factor_selection.sell_signal_checker import SellSignalChecker
 
 @dataclass
 class Position:
@@ -415,16 +418,18 @@ class PositionManager:
             if pos.should_force_close(current_date):
                 alert["alerts"].append(f"⚠️  持仓超期：已持有{alert['hold_days']}天，超过{pos.max_hold_days}天上限，建议强制平仓")
                 alert["level"] = "danger"
-            
-            # 【V60:龙头低吸5天低利润提前退出,与回测_check_and_execute_forced_sells对齐】
+
+            # 【V63-P0-5:龙头5天低利润提前退出,与回测_check_and_execute_forced_sells对齐】
+            # 统一:在止损前检查,同时支持中文名和英文ID(与live/position_manager.py对齐)
             # 回测: 龙头低吸持仓5天利润<3%时提前退出,避免5-7天区间继续持仓占用资金+增加回撤
-            # 实盘: 同样逻辑,持仓5天利润<3%时发出danger级别告警
-            if _strategy == '龙头低吸' and alert['hold_days'] >= 5 and not alert.get('level'):
+            _strategy = pos.strategy or '未知'
+            _strategy_id = STRATEGY_NAME_TO_ID.get(_strategy, '')  # 中文名→英文ID
+            if _strategy_id == 'dragon_head' and alert['hold_days'] >= 5 and not alert.get('level'):
                 profit_pct = pos.current_profit_pct(current_price)
                 if profit_pct < 3.0:  # 5天利润<3%
                     alert["alerts"].append(f"⚠️ 龙头5天低利润：持仓{alert['hold_days']}天收益仅{profit_pct:.1f}%，建议提前退出")
                     alert["level"] = "danger"
-            
+
             # 检查止损【V50:区分跳空止损vs正常止损,与回测sell_signal_checker对齐】
             # 回测: open<=stop_price → 跳空止损(以open卖出), low<=stop_price → 正常止损(以stop_price卖出)
             if low <= pos.stop_loss_price:
@@ -438,7 +443,7 @@ class PositionManager:
             elif current_price <= pos.stop_loss_price * 1.05:
                 alert["alerts"].append(f"🟡 接近止损：当前价{current_price:.2f} 接近止损价{pos.stop_loss_price:.2f}，注意风险")
                 alert["level"] = "warning"
-            
+
             # 检查止盈
             if high >= pos.take_profit_price:
                 alert["alerts"].append(f"🟢 触发止盈：最高价{high:.2f} ≥ 止盈价{pos.take_profit_price:.2f}，建议止盈")
@@ -446,67 +451,12 @@ class PositionManager:
             elif current_price >= pos.take_profit_price * 0.95:
                 alert["alerts"].append(f"🟡 接近止盈：当前价{current_price:.2f} 接近止盈价{pos.take_profit_price:.2f}，注意落袋为安")
                 alert["level"] = "warning"
-            
-            # 【V49:从strategy_defaults读取阈值,不再硬编码,确保回测-实盘一致性】
-            # 旧:硬编码3%/2%/5%/2%等,与回测SellSignalChecker的策略级参数不同
-            # 新:从GLOBAL_RISK读取默认值,策略级参数可通过STRATEGY_CONFIGS获取
-            _cost = pos.buy_price
-            _strategy = pos.strategy or '未知'
-            # 【V60:使用strategy_defaults统一映射,不再重复构建】
-            _strategy_cfg = STRATEGY_CONFIGS.get(STRATEGY_NAME_TO_ID.get(_strategy, ''), {})
-            _strategy_params = _strategy_cfg.get('params', {})
-            _pullback_threshold = _strategy_params.get('next_day_open_sell_pct', GLOBAL_RISK.get('next_day_open_sell_pct', 0.02))  # V62-P0: fallback从0.03→0.02,与V53对齐
-            _pullback_mid_fallback = _strategy_params.get('pullback_mid_fallback_pct', 0.01)
-            _pullback_high = _strategy_params.get('pullback_high_threshold', 0.05)
-            _lock_min_high = GLOBAL_RISK.get('intraday_lock_min_high_rise', 0.05)   # V59: 回调V57水平(0.04→0.05)
-            _lock_pullback = GLOBAL_RISK.get('intraday_lock_pullback_pct', 0.02)   # V59: 回调V57水平(0.015→0.02)
-            _lock_min_profit = GLOBAL_RISK.get('intraday_lock_min_profit', 0.02)
-            # 【V58对齐:读取策略级利润锁定参数,与回测_check_intraday_profit_lock一致】
-            _strategy_risk_params = _strategy_cfg.get('riskParams', {})
-            if 'intraday_lock_min_high_rise' in _strategy_risk_params:
-                _lock_min_high = _strategy_risk_params['intraday_lock_min_high_rise']
-            if 'intraday_lock_pullback_pct' in _strategy_risk_params:
-                _lock_pullback = _strategy_risk_params['intraday_lock_pullback_pct']
-            if 'intraday_lock_min_profit' in _strategy_risk_params:
-                _lock_min_profit = _strategy_risk_params['intraday_lock_min_profit']
 
-            # 【V62-P0修复:使用回测SellSignalChecker统一卖出判断,消除实盘-回测不一致】
-            # 旧: 内联if-elif链实现冲高回落/利润保护/利润锁定,与回测逻辑不同步
-            # 新: 调用SellSignalChecker.check_early_sell(),与回测完全一致
-            from nodes.backtest_engine.factor_selection.sell_signal_checker import SellSignalChecker
-            _checker = SellSignalChecker(
-                strategy_params={_strategy: _strategy_params},
-                strategy_risk_params={_strategy: _strategy_risk_params},
-                risk_config=dict(GLOBAL_RISK)
-            )
-            market_data = {
-                'open': open_p,
-                'close': current_price,
-                'high': high,
-                'low': low if low > 0 else current_price,
-                'pre_close': pre_close if pre_close > 0 else current_price,
-            }
-            early_result = _checker.check_early_sell(ts_code, [_strategy], _cost, open_p, current_price)
-            if early_result and early_result.get('sell_price', 0) > 0:
-                _reason_cn = {
-                    '冲高回落': '🔴 冲高回落',
-                    '利润保护': '🟡 利润保护',
-                    '高开即卖': '🔴 高开即卖',
-                    '利润锁定': '🟡 利润锁定',
-                }.get(early_result['reason'], f"🟡 {early_result['reason']}")
-                _detail = f"{_reason_cn}：建议以{early_result['sell_price']:.2f}卖出(原因:{early_result['reason']})"
-                alert["alerts"].append(_detail)
-                alert["level"] = "danger" if '🔴' in _reason_cn else "success"
-
-            # 利润锁定: 盘中冲高≥阈值但回撤≥阈值且收盘仍≥2%利润(从SellSignalChecker未覆盖的盘中数据补充)
-            # check_early_sell只检查open和close,high数据需要额外检查利润锁定
-            if not alert["alerts"] and high > 0 and current_price < high and _cost > 0:
-                high_rise = (high / _cost - 1)
-                close_rise = (current_price / _cost - 1)
-                intraday_pullback = (high - current_price) / high
-                if high_rise >= _lock_min_high and intraday_pullback >= _lock_pullback and close_rise >= _lock_min_profit:
-                    alert["alerts"].append(f"🟡 利润锁定：盘中涨{high_rise*100:.1f}%但回撤{intraday_pullback*100:.1f}%，建议锁定利润")
-                    alert["level"] = "success"
+            # 【V63-P0-1:使用回测SellSignalChecker统一卖出判断,消除实盘-回测不一致】
+            # 旧(V62): 调用SellSignalChecker但返回值处理有bug(tuple当dict)且market_data未传入high/low
+            # 新(V63): 重构为与live/position_manager.py一致的_check_early_sell_signals方法
+            # 将冲高回落/利润保护/高开即卖/利润锁定统一到独立方法中
+            self._check_early_sell_signals(pos, open_p, current_price, high, low, alert)
             
             if alert["alerts"]:
                 alerts.append(alert)
@@ -518,6 +468,97 @@ class PositionManager:
         
         return alerts
     
+    def _check_early_sell_signals(self, pos, open_price: float, close_price: float,
+                                    high_price: float, low_price: float, alert: Dict):
+        """V63: 冲高回落/利润保护/高开即卖/利润锁定检查(与回测SellSignalChecker对齐)
+
+        【V63-P0-1:与live/position_manager.py的_check_early_sell_signals统一实现】
+        - 调用回测SellSignalChecker.check_early_sell(),返回tuple(sell_price, reason)
+        - 旧V62代码将tuple当dict处理导致运行时错误,现已修复
+        - 告警级别: 冲高回落/高开即卖=danger, 利润保护/利润锁定=success(与paper_trading.py处理一致)
+        - live/版本利润保护/利润锁定用warning级别(V63-P0-4:应改为success)
+
+        Args:
+            pos: Position持仓对象
+            open_price: 开盘价
+            close_price: 收盘价
+            high_price: 最高价
+            low_price: 最低价
+            alert: 告警dict(直接追加alerts)
+        """
+        try:
+            # 构建策略参数(从STRATEGY_CONFIGS读取,与回测一致)
+            strategy_name = pos.strategy or "龙头低吸"
+            strategy_id = STRATEGY_NAME_TO_ID.get(strategy_name, '')  # 【V63:统一使用STRATEGY_NAME_TO_ID映射】
+
+            strategy_params = {}
+            strategy_risk_params = {}
+            if strategy_id:
+                cfg = STRATEGY_CONFIGS.get(strategy_id, {})
+                strategy_params = dict(cfg.get('params', {}))
+                strategy_risk_params = dict(cfg.get('riskParams', {}))
+
+            # 【V63-P1-1:合并STRATEGY_PULLBACK_PARAMS到strategy_params】
+            # 旧: strategy_params只有params,不含pullback_profit_lock_threshold等冲高回落参数
+            # 新: pullback参数已在V55-LIVE-009中直接内嵌到STRATEGY_CONFIGS.params,无需额外合并
+            # 验证: STRATEGY_CONFIGS各策略params已包含pullback_mid_fallback_pct/pullback_high_threshold/pullback_profit_lock_threshold
+
+            # 创建checker
+            checker = SellSignalChecker(
+                {strategy_name: strategy_params},
+                {strategy_name: strategy_risk_params},
+                GLOBAL_RISK
+            )
+
+            # 1. 冲高回落/利润保护/高开即卖
+            # 【V63修复:check_early_sell返回tuple(sell_price, reason),不是dict】
+            early_sell_price, early_sell_reason = checker.check_early_sell(
+                pos.ts_code, [strategy_name], pos.buy_price, open_price, close_price)
+
+            if early_sell_price > 0:
+                # 【V63-P0-4:告警级别与paper_trading.py处理逻辑对齐】
+                # 冲高回落/高开即卖 → danger(会亏损,需紧急处理)
+                # 利润保护/利润锁定 → success(仍在盈利,落袋为安)
+                # 旧live/版本利润保护/利润锁定用warning,但paper_trading.py只处理success级别的利润保护/利润锁定
+                _is_danger = early_sell_reason in ('冲高回落', '高开即卖')
+                alert["alerts"].append(
+                    f"⚡ {early_sell_reason}: 开盘{open_price:.2f} 收盘{close_price:.2f} "
+                    f"成本{pos.buy_price:.2f}, 建议以{early_sell_price:.2f}卖出"
+                )
+                if not alert.get("level"):
+                    alert["level"] = "danger" if _is_danger else "success"
+                return  # 早盘信号已触发,不检查利润锁定
+
+            # 2. 利润锁定(盘中冲高但从高点大幅回撤)
+            if high_price > 0 and close_price > 0 and pos.buy_price > 0:
+                high_rise = (high_price / pos.buy_price - 1)
+                close_rise = (close_price / pos.buy_price - 1)
+                # 利润锁定参数: 优先策略级, 回退全局
+                lock_min_high = GLOBAL_RISK.get('intraday_lock_min_high_rise', 0.05)
+                lock_pullback = GLOBAL_RISK.get('intraday_lock_pullback_pct', 0.02)
+                lock_min_profit = GLOBAL_RISK.get('intraday_lock_min_profit', 0.02)
+                # 【V63:策略级参数覆盖,与live/position_manager.py对齐】
+                if strategy_risk_params:
+                    if 'intraday_lock_min_high_rise' in strategy_risk_params:
+                        lock_min_high = strategy_risk_params['intraday_lock_min_high_rise']
+                    if 'intraday_lock_pullback_pct' in strategy_risk_params:
+                        lock_pullback = strategy_risk_params['intraday_lock_pullback_pct']
+                    if 'intraday_lock_min_profit' in strategy_risk_params:
+                        lock_min_profit = strategy_risk_params['intraday_lock_min_profit']
+
+                if high_rise >= lock_min_high and close_price < high_price:
+                    intraday_pullback = (high_price - close_price) / high_price
+                    if intraday_pullback >= lock_pullback and close_rise >= lock_min_profit:
+                        alert["alerts"].append(
+                            f"🔒 利润锁定: 盘中冲高{high_rise*100:.1f}%回撤{intraday_pullback*100:.1f}%"
+                            f"收盘{close_rise*100:.1f}%, 建议以{close_price:.2f}卖出"
+                        )
+                        # 【V63-P0-4:利润锁定用success级别,与paper_trading.py处理一致】
+                        if not alert.get("level"):
+                            alert["level"] = "success"
+        except Exception as e:
+            logger.warning(f"⚠️ {pos.ts_code} 卖出信号检查失败: {e}")
+
     def get_positions(self) -> List[Dict]:
         """获取所有持仓"""
         result = []
