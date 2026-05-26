@@ -91,6 +91,9 @@ class MarketScanner:
         self.account_id = account_id
         self.config = config or {}
 
+        # 单票风控覆盖(用户手动调整止损止盈)
+        self._position_risk_overrides: Dict[str, Dict] = {}
+
         # 状态
         self._is_running = False
         self._task: Optional[asyncio.Task] = None
