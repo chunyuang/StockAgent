@@ -406,6 +406,9 @@ class RealTradingSignalGenerator:
                 "strategy": self._get_strategy_for_stock(ts_code, daily if isinstance(daily, dict) else {}),
             })
         
+        # 【V59:过滤策略为"跳过"的股票(如pct_chg<-7%的暴跌股)】
+        details = [d for d in details if d.get("strategy") != "跳过"]
+        
         return details
     
     def _get_strategy_for_stock(self, ts_code: str, daily_data: Dict) -> str:
@@ -431,8 +434,13 @@ class RealTradingSignalGenerator:
             return "首板打板"
         elif pct_chg >= 5:
             return "半路追涨"
-        else:
+        elif pct_chg >= -7:
+            # 【V59对齐:与回测龙头低吸pct_chg≥-7%过滤器一致】
+            # 当日暴跌>7%的股票不应低吸(追空风险极高,次日跳空止损概率大)
             return "龙头低吸"
+        else:
+            # pct_chg < -7%: 当日暴跌,回测已排除,实盘也排除
+            return "跳过"  # 标记为跳过,上层不生成信号
     
     def _generate_trading_plan(self, signals: List[Dict], sentiment_info: Dict) -> str:
         """生成Markdown格式交易计划

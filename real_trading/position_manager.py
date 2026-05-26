@@ -476,7 +476,7 @@ class PositionManager:
                 # 冲高回落: 高开≥阈值且高开低收→以open价卖出
                 elif open_rise >= _pullback_threshold and current_price < open_p:
                     # 【V50:龙头低吸冲高回落利润保护——利润≥8%时不触发,让利润锁定/超时处理】
-                    # 回测: STRATEGY_PULLBACK_PARAMS['龙头低吸']['pullback_profit_lock_threshold']=0.08
+                    # 回测: STRATEGY_PULLBACK_PARAMS['龙头低吸']['pullback_profit_lock_threshold']=0.06
                     _pullback_profit_lock = _strategy_params.get('pullback_profit_lock_threshold', None)
                     if _pullback_profit_lock is not None and open_rise >= _pullback_profit_lock:
                         pass  # 利润已高,不触发冲高回落

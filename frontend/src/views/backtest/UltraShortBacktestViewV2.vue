@@ -817,7 +817,7 @@ function onViewLogs(taskId: string) {
       <BacktestSummaryTable v-if="backtestResult" :result="backtestResult" />
 
       <!-- 日志面板(放在结果前面，回测时更方便查看) -->
-      <AnsiLogPanel v-if="backtestState.running || backtestState.task_id" :task-id="backtestState.task_id" :task-status="backtestState.running ? 'running' : 'completed'" :height="900" />
+      <AnsiLogPanel v-if="backtestState.running || backtestState.task_id" :task-id="backtestState.task_id" :task-status="backtestState.running ? 'running' : 'completed'" :height="600" />
 
       <!-- 回测结果详细面板 -->
       <BacktestResultPanel v-if="backtestResult" :result="backtestResult" :form="form" :task-id="backtestState.task_id" :task-status="backtestState.running ? 'running' : 'completed'" />

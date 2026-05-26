@@ -124,7 +124,7 @@ const monthlyData = computed(() => {
   }
   return Array.from(monthMap.entries()).map(([month, data]) => ({
     month: month.substring(0, 4) + '-' + month.substring(4),
-    return_pct: +((data.end_value - data.start_value) / data.start_value * 100).toFixed(2),
+    return_pct: data.start_value > 0 ? +((data.end_value - data.start_value) / data.start_value * 100).toFixed(2) : 0,
     start_date: data.start_date,
     end_date: data.end_date,
   }))
@@ -283,8 +283,10 @@ const netValueChartOption = computed(() => {
   const result = props.result
   if (!result?.net_value_series || result.net_value_series.length === 0) return null
   const initialCash = result.initial_cash || 1000000
-  // net_value已归一化(1.0起始), 直接使用
-  const netValues = result.net_value_series.map((d: any) => +(d.net_value).toFixed(4))
+  // net_value已归一化(1.0起始), 直接使用(过滤null/NaN)
+  const netValues = result.net_value_series
+    .filter((d: any) => d.net_value != null && !isNaN(d.net_value))
+    .map((d: any) => +(d.net_value).toFixed(4))
   // drawdown是小数(0.003=0.3%), ×100转百分比
   const drawdowns = result.drawdown_series?.map((d: any) => +(d.drawdown * 100).toFixed(4)) || []
   const dates = result.net_value_series.map((d: any) => d.trade_date)
@@ -298,7 +300,7 @@ const netValueChartOption = computed(() => {
     let cumBench = 1.0
     benchmarkValues = dates.map((d: string) => {
       const pct = bdMap.get(String(d))
-      if (pct != null && !isNaN(pct)) {
+      if (pct != null && typeof pct === 'number' && !isNaN(pct)) {
         cumBench *= (1 + pct / 100)
       }
       return +cumBench.toFixed(4)
