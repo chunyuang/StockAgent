@@ -307,6 +307,7 @@ class MarketScanner:
                 "stop_loss_price": sl_price,
                 "take_profit_price": tp_price,
                 "distance_to_stop": round(p.profit_pct + sl_pct, 1),  # 【P1-2】距止损距离
+                "buy_date": p.buy_date,
             })
         return result
 
@@ -804,7 +805,7 @@ class MarketScanner:
                     await self._premarket_auction(trade_date)
                     await asyncio.sleep(120)  # 2分钟
                     
-                # === 收盘后(15:05+): 自动结算 ===
+                # === 收盘后(15:05+): 自动结算+报告 ===
                 elif ct >= "15:05" and not settled and self._broker:
                     self._broker.daily_settlement(trade_date)
                     settled = True
@@ -818,6 +819,16 @@ class MarketScanner:
                         await self._save_timeline()
                     except Exception:
                         pass
+                    # 保存绩效快照(供净值曲线使用)
+                    try:
+                        await self._save_performance_snapshot(trade_date)
+                    except Exception as e:
+                        logger.warning(f"[SCANNER] 保存绩效快照失败: {e}")
+                    # 推送结算报告到飞书
+                    try:
+                        await self._push_daily_summary(trade_date)
+                    except Exception as e:
+                        logger.warning(f"[SCANNER] 推送日报失败: {e}")
                     await asyncio.sleep(60)
                     
                 # === 深夜(23:00-8:00): 极低频 ===
@@ -1589,6 +1600,15 @@ class MarketScanner:
                 logger.info(f"[EXEC] 异动信号仅观察: {sig.ts_code} {sig.stock_name} ({sig.strategy_name})")
                 continue
 
+            # 【去重】同票已有持仓则跳过(不同策略推荐同一只股不重复买入)
+            existing = self._broker.get_positions()
+            if any(p.ts_code == sig.ts_code for p in existing):
+                sig.signal_status = "skipped"
+                self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                    sig.strategy_name, "已有持仓, 跳过", sig)
+                logger.info(f"[EXEC] {sig.ts_code} 已有持仓, 跳过")
+                continue
+
             # 熔断检查
             if not await self._check_circuit_breaker():
                 self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
@@ -1826,17 +1846,62 @@ class MarketScanner:
     # ==================== 持仓检查 ====================
 
     async def _check_positions(self, realtime_data: Dict[str, Dict], trade_date: str):
-        """止损止盈检查(策略级风控参数 + 跳空止损)
+        """止损止盈+超时强卖检查
         
-        与回测portfolio_backtest.py一致的止损逻辑:
+        与回测portfolio_backtest.py一致的卖出逻辑:
         1. 跳空止损: 当日开盘价<止损价 → 用开盘价卖出
         2. 正常止损: 当前价触发止损 → 市价卖出
         3. 止盈: 当前价触发止盈 → 市价卖出
+        4. 冲高回落/利润保护/高开即卖
+        5. 超时强卖: 持仓天数≥max_hold_days → 市价卖出
+        6. 移动止损: 盈利超过阈值后,止损线上移保护利润
         """
         # 使用公共止损止盈检查方法
         to_sell = self._check_stop_loss_take_profit(
             self._broker.get_positions(), realtime_data
         )
+
+        # === 超时强卖(与回测对齐) ===
+        from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+        for pos in self._broker.get_positions():
+            if pos.available_qty <= 0 or not pos.buy_date:
+                continue
+            risk = self._get_strategy_risk(pos.strategy)
+            max_hold = risk.get("max_hold_days", GLOBAL_RISK.get("max_hold_days", 999))
+            if max_hold >= 999:
+                continue
+            try:
+                buy_dt = int(pos.buy_date)
+                cur_dt = int(trade_date)
+                # 简单计算交易日差(含首尾)
+                from nodes.backtest_engine.factor_selection.portfolio_backtest import PortfolioBacktester
+                bt = PortfolioBacktester()
+                days_held = bt._calc_trade_days_held(buy_dt, cur_dt)
+                if days_held >= max_hold:
+                    # 检查是否已经在to_sell里
+                    already = any(p.ts_code == pos.ts_code for p, _, _, _ in to_sell)
+                    if not already:
+                        to_sell.append((pos, f"超时({days_held}日≥{max_hold}日)", pos.current_price, risk))
+                        logger.info(f"[TIMEOUT] {pos.ts_code} 持仓{days_held}日≥{max_hold}日, 强制卖出")
+            except (ValueError, TypeError):
+                pass
+
+        # === 移动止损(盈利保护) ===
+        for pos in self._broker.get_positions():
+            if pos.available_qty <= 0:
+                continue
+            risk = self._get_strategy_risk(pos.strategy)
+            # 单票覆盖
+            pos_overrides = getattr(self, '_position_risk_overrides', {}).get(pos.ts_code, {})
+            sl_pct = pos_overrides.get('stop_loss_pct', risk.get('stop_loss_pct', 0.03))
+            # 盈利超过2倍止损时, 止损线上移到成本价(保本出局)
+            if pos.profit_pct / 100 > sl_pct * 2:  # 盈利>2倍止损线
+                # 检查是否已经在to_sell(不要覆盖已有止损)
+                already = any(p.ts_code == pos.ts_code for p, _, _, _ in to_sell)
+                if not already and pos.profit_pct <= 0:
+                    # 盈利回撤到0以下, 但原本止损线在-3%, 现在应该保本出局
+                    to_sell.append((pos, f"移动止损(盈利回撤至{pos.profit_pct:.1f}%)", pos.current_price, risk))
+                    logger.info(f"[TRAILING] {pos.ts_code} 盈利回撤至{pos.profit_pct:.1f}%, 移动止损触发")
 
         # 执行卖出
         for pos, reason, sell_price, risk in to_sell:
@@ -2574,3 +2639,68 @@ class MarketScanner:
             "sentiment": self._current_sentiment,
             "position_ratio": self._current_position_ratio,
         }
+
+
+    # ==================== 收盘报告 ====================
+
+    async def _save_performance_snapshot(self, trade_date: str):
+        """保存绩效快照到MongoDB(供净值曲线使用)"""
+        from core.managers import mongo_manager
+        if not mongo_manager.db:
+            return
+        acct = self._broker.get_account()
+        positions = self._broker.get_positions()
+        total_profit = acct.total_profit
+        net_value = acct.total_assets / 1_000_000  # 初始100万
+        peak = max(getattr(self, "_nav_peak", 1.0), net_value)
+        self._nav_peak = peak
+        drawdown_pct = (net_value / peak - 1) * 100 if peak > 0 else 0
+
+        doc = {
+            "timestamp": datetime.now().isoformat(),
+            "date": trade_date,
+            "total_assets": acct.total_assets,
+            "available_cash": acct.available_cash,
+            "market_value": acct.market_value,
+            "total_profit": total_profit,
+            "net_value": net_value,
+            "drawdown_pct": drawdown_pct,
+            "position_count": len(positions),
+            "position_ratio": sum(p.current_price * p.total_qty for p in positions) / acct.total_assets * 100 if acct.total_assets > 0 else 0,
+        }
+        await mongo_manager.db["performance_snapshots"].insert_one(doc)
+        logger.info(f"[SNAPSHOT] 绩效快照已保存: 净值={net_value:.4f} 回撤={drawdown_pct:.1f}%")
+
+    async def _push_daily_summary(self, trade_date: str):
+        """推送每日结算摘要(飞书/webhook)"""
+        acct = self._broker.get_account()
+        positions = self._broker.get_positions()
+        # 今日买卖统计
+        buys = [t for t in self._timeline if t.get("action") == "buy"]
+        sells = [t for t in self._timeline if t.get("action") == "sell"]
+        wins = [t for t in sells if t.get("profit_pct", 0) > 0]
+        losses = [t for t in sells if t.get("profit_pct", 0) <= 0]
+        profit_sign = '+' if acct.total_profit >= 0 else ''
+        win_rate = f"{len(wins)/len(sells)*100:.0f}%" if sells else "-"
+        pos_value = sum(p.current_price * p.total_qty for p in positions)
+        pos_ratio = pos_value / acct.total_assets * 100 if acct.total_assets > 0 else 0
+
+        summary = (
+            f"📊 每日结算 {trade_date}\n"
+            f"💰 总资产: ¥{acct.total_assets:,.0f} | 盈亏: {profit_sign}¥{acct.total_profit:,.0f}\n"
+            f"📈 买入: {len(buys)}笔 | 卖出: {len(sells)}笔\n"
+            f"✅ 盈利: {len(wins)}笔 | ❌ 亏损: {len(losses)}笔\n"
+            f"📊 胜率: {win_rate}\n"
+            f"📂 持仓: {len(positions)}只 | 仓位: {pos_ratio:.0f}%"
+        )
+
+        # 推送到飞书(如果有webhook)
+        try:
+            from core.managers.signal_dispatcher import SignalDispatcher
+            dispatcher = SignalDispatcher.get_instance()
+            if dispatcher:
+                await dispatcher.push_message(summary, channel="feishu")
+        except Exception:
+            pass
+        logger.info(f"[DAILY] {summary}")
+
