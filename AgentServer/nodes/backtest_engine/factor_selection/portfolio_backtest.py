@@ -182,8 +182,8 @@ class PortfolioBacktester:
 
         return self._sell_checker.check_early_sell(code, strategies, cost, open_price, close_price)
 
-    def _check_intraday_profit_lock(self, cost: float, high_price: float, close_price: float) -> bool:
-        """【V55-BUG-001修复:提取利润锁定检查为独立方法,消除4处重复代码】
+    def _check_intraday_profit_lock(self, cost: float, high_price: float, close_price: float, code: str = None) -> bool:
+        """【V58优化:增加code参数,读取策略级利润锁定参数,与sell_signal_checker保持一致】
         
         检查逻辑: 盘中冲高≥min_high_rise 且 从高点回撤≥pullback_pct 且 收盘仍≥min_profit
         
@@ -191,6 +191,7 @@ class PortfolioBacktester:
             cost: 成本价
             high_price: 盘中最高价
             close_price: 收盘价
+            code: 股票代码(可选,用于读取策略级参数)
             
         Returns:
             True=触发利润锁定, False=不触发
@@ -199,9 +200,28 @@ class PortfolioBacktester:
             return False
         high_rise = (high_price / cost - 1)
         close_rise = (close_price / cost - 1)
-        lock_min_high = self._risk_config.get('intraday_lock_min_high_rise', GLOBAL_RISK.get('intraday_lock_min_high_rise', 0.05))
-        lock_pullback = self._risk_config.get('intraday_lock_pullback_pct', GLOBAL_RISK.get('intraday_lock_pullback_pct', 0.015))  # 【V55-BUG-007修复:fallback与V56 strategy_defaults 0.015对齐,旧值0.02】
+        # 【V58优化:尝试从策略级参数读取,fallbaack到risk_config再fallbaack到GLOBAL_RISK】
+        lock_min_high = self._risk_config.get('intraday_lock_min_high_rise', GLOBAL_RISK.get('intraday_lock_min_high_rise', 0.04))
+        lock_pullback = self._risk_config.get('intraday_lock_pullback_pct', GLOBAL_RISK.get('intraday_lock_pullback_pct', 0.015))
         lock_min_profit = self._risk_config.get('intraday_lock_min_profit', GLOBAL_RISK.get('intraday_lock_min_profit', 0.02))
+        # 【V58-优化:如果有code,检查策略级STRATEGY_PULLBACK_PARAMS和INTRADAY_PROFIT_LOCK_SIGNALS参数】
+        # sell_signal_checker.check_intraday_profit_lock会读策略级参数,这里也要保持一致
+        if code and hasattr(self, 'stock_to_strategy'):
+            _strategies = self.stock_to_strategy.get(code, [])
+            if isinstance(_strategies, list) and _strategies:
+                from nodes.backtest_engine.factor_selection.sell_signal_checker import STRATEGY_PULLBACK_PARAMS
+                _merged_params = {}
+                for sname in _strategies:
+                    _sp = STRATEGY_PULLBACK_PARAMS.get(sname, {})
+                    _srp = self._strategy_risk_params.get(sname, {})
+                    _merged_params.update(_sp)
+                    _merged_params.update(_srp)
+                if 'intraday_lock_min_high_rise' in _merged_params:
+                    lock_min_high = _merged_params['intraday_lock_min_high_rise']
+                if 'intraday_lock_pullback_pct' in _merged_params:
+                    lock_pullback = _merged_params['intraday_lock_pullback_pct']
+                if 'intraday_lock_min_profit' in _merged_params:
+                    lock_min_profit = _merged_params['intraday_lock_min_profit']
         if high_rise >= lock_min_high and close_price < high_price:
             intraday_pullback = (high_price - close_price) / high_price
             if intraday_pullback >= lock_pullback and close_rise >= lock_min_profit:
@@ -309,7 +329,7 @@ class PortfolioBacktester:
                 high_p = p.get('high', p.get('close', 0))
                 _close_p = p.get('close', 0)
                 if high_p > 0 and _close_p > 0 and cost > 0:
-                    if self._check_intraday_profit_lock(cost, high_p, _close_p):
+                    if self._check_intraday_profit_lock(cost, high_p, _close_p, code):
                         forced_sell_prices[code] = _close_p
                         forced_sell_codes.append((code, '利润锁定'))
                         forced_sell_codes_set.add(code)
@@ -3828,8 +3848,8 @@ class PortfolioBacktester:
                 # 【V36:从strategy_defaults读取,默认值与STRATEGY_CONFIGS同步】
                 hit_prob_yizi = sp.get('hit_probability_yizi', 0.0)
                 hit_prob_fast = sp.get('hit_probability_fast', 0.20)
-                hit_prob_normal = sp.get('hit_probability_normal', 0.45)
-                hit_prob_slow = sp.get('hit_probability_slow', 0.65)
+                hit_prob_normal = sp.get('hit_probability_normal', 0.40)  # 【V58-BUG-001修复:从0.45→0.40,与strategy_defaults.py V57对齐】
+                hit_prob_slow = sp.get('hit_probability_slow', 0.45)  # 【V58-BUG-001修复:从0.65→0.45,与strategy_defaults.py V57对齐;旧值0.65远超默认0.45,导致过多低质量首板成交】
 
                 if o == c == h == l:
                     hit_prob = hit_prob_yizi
@@ -3962,7 +3982,7 @@ class PortfolioBacktester:
             # 【V49-P0-3:利润锁定检查——不在目标池的股票也检查盘中冲高回撤】
             # 【V55-BUG-001修复:提取为_check_intraday_profit_lock方法,消除重复代码】
             if best_reason == '调仓卖出' and high_p > 0 and close_p > 0 and cost > 0:
-                if self._check_intraday_profit_lock(cost, high_p, close_p):
+                if self._check_intraday_profit_lock(cost, high_p, close_p, code):
                     best_reason = '利润锁定'
             _sell_code_details[code] = (best_price, best_reason)
         
@@ -4021,7 +4041,7 @@ class PortfolioBacktester:
                 # 【V55-BUG-001修复:提取为_check_intraday_profit_lock方法,消除重复代码】
                 elif code not in sell_codes:
                     if high_p > 0 and _close_p > 0 and cost > 0:
-                        if self._check_intraday_profit_lock(cost, high_p, _close_p):
+                        if self._check_intraday_profit_lock(cost, high_p, _close_p, code):
                             sell_codes.append(code)
                             pos_mgr.mark_sold(code, '利润锁定')
         # 【Phase1-T+1】排除当日买入的股票(T+1: 当日买入不可卖出)
