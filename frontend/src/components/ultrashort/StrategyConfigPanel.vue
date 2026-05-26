@@ -174,11 +174,11 @@ function onSweepParamChange() {
           </ElFormItem>
           <ElFormItem label="单票最大仓位">
             <ElInputNumber v-model="form.tradeParams.max_position_per_stock" :min="0" :max="1" :step="0.05" style="width: 150px" />
-            <span class="unit">%</span>
+            <span class="unit">= {{ (form.tradeParams.max_position_per_stock * 100).toFixed(0) }}%</span>
           </ElFormItem>
           <ElFormItem label="总仓位上限">
             <ElInputNumber v-model="form.tradeParams.max_total_position" :min="0" :max="1" :step="0.05" style="width: 150px" />
-            <span class="unit">%</span>
+            <span class="unit">= {{ (form.tradeParams.max_total_position * 100).toFixed(0) }}%</span>
           </ElFormItem>
           <ElFormItem label="佣金费率">
             <ElInputNumber v-model="form.tradeParams.commission_rate" :min="0" :max="0.01" :step="0.00001" style="width: 150px" />

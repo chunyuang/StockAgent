@@ -262,6 +262,14 @@ const filteredTrades = computed(() => {
   return trades
 })
 
+// 【V63修复:P1-9】交易记录分页
+const tradeCurrentPage = ref(1)
+const tradePageSize = ref(20)
+const pagedTrades = computed(() => {
+  const start = (tradeCurrentPage.value - 1) * tradePageSize.value
+  return filteredTrades.value.slice(start, start + tradePageSize.value)
+})
+
 // 可用策略列表(从交易中提取,显示中文名)
 const availableStrategies = computed(() => {
   const strategies = new Set<string>()

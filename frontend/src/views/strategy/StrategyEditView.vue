@@ -3,6 +3,17 @@ import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { strategyApi, stockApi, type StockBasic } from '@/api'
 import { ElMessage } from 'element-plus'
+// 【V63修复:P0-2】显式import所有Element Plus组件(原来用全局名el-xxx,与其他组件不一致)
+import {
+  ElButton,
+  ElForm,
+  ElFormItem,
+  ElInput,
+  ElSlider,
+  ElSwitch,
+  ElTag,
+  ElSkeleton,
+} from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 
 const route = useRoute()
