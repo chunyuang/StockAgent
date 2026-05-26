@@ -75,6 +75,7 @@ class Position:
     profit_pct: float = 0.0
     today_buy_qty: int = 0  # 今日买入(不可卖)
     strategy: str = ""
+    buy_date: str = ""       # 买入日期(YYYYMMDD)，用于超时强卖
 
 
 @dataclass
@@ -657,6 +658,7 @@ class SimulatedBroker:
                 current_price=fill_price,
                 today_buy_qty=order.quantity,
                 strategy=order.strategy,
+                buy_date=order.trade_date,
             )
 
     def _execute_sell(self, order: Order, fill_price: float, total_cost: float):

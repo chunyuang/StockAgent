@@ -179,8 +179,17 @@ class LiveFilterPipeline:
             self._sentiment_score = score
             self._sentiment_period = period
             ratio *= sentiment_ratio
+            # 策略级情绪过滤: 冰点期(<40)暂停半路追涨(与回测V36对齐)
+            if score < 40:
+                before_count = len(result.candidates)
+                result.candidates = [c for c in result.candidates
+                                     if c.get("strategy") != "halfway_chase"]
+                dropped_count = before_count - len(result.candidates)
+                if dropped_count > 0:
+                    logger.info(f"[L3] 冰点期(情绪={score:.0f}), 过滤半路追涨{dropped_count}只")
             result.layer_details["L3_sentiment"] = (
                 f"情绪={score:.0f}→{period}, 仓位系数={sentiment_ratio:.0%}"
+                + (f", 过滤半路追涨" if score < 40 else "")
             )
 
         # ---- L4: 盘前预选（记录淘汰明细）----

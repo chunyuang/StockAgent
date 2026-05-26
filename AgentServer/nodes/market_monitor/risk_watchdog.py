@@ -173,6 +173,21 @@ class RiskWatchdog:
         for name, check in checks.items():
             if check.status in (HealthStatus.DEGRADED, HealthStatus.CRITICAL, HealthStatus.DEAD):
                 await self._send_alert_if_needed(name, check)
+        
+        # 【自动自愈】心跳DEAD超过3分钟 → 自动重启Scanner
+        hb_check = checks.get("heartbeat")
+        if hb_check and hb_check.status == HealthStatus.DEAD:
+            elapsed = time.time() - self._state.scanner_heartbeat if self._state.scanner_heartbeat > 0 else 999
+            if elapsed > 180 and hasattr(self, '_scanner') and self._scanner:
+                logger.warning(f"[WATCHDOG] Scanner心跳超时{elapsed:.0f}s, 尝试自动重启...")
+                try:
+                    self._scanner._is_running = False  # 停止旧循环
+                    await asyncio.sleep(2)
+                    trade_date = datetime.now().strftime("%Y%m%d")
+                    await self._scanner.start(trade_date)
+                    logger.info("[WATCHDOG] Scanner自动重启成功")
+                except Exception as e:
+                    logger.error(f"[WATCHDOG] Scanner自动重启失败: {e}")
     
     # ==================== 具体检查 ====================
     
