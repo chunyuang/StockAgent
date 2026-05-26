@@ -2577,6 +2577,7 @@ class PortfolioBacktester:
         # 交易天数 = 所有交易日数量,而不是仅仅调仓日数量
         trading_days = len(all_trade_dates)
         annual_return_reliable = trading_days >= 30  # 少于30天年化无参考意义
+        sharpe_reliable = trading_days >= 60  # 【V65】少于60天Sharpe统计无意义(sqrt(252)放大短期低波动导致虚高)
         if trading_days > 0:
             # 复利年化: (1 + total_return) ^ (252 / trading_days) - 1
             annualized_return = ((1 + total_return) ** (252 / trading_days)) - 1
@@ -2894,6 +2895,7 @@ class PortfolioBacktester:
                     "total_return_pct": total_return * 100,
                     "annual_return_pct": annualized_return * 100,
                     "annual_return_reliable": annual_return_reliable,  # 少于30天年化无参考意义
+                    "sharpe_reliable": sharpe_reliable,  # 【V65】少于60天Sharpe无统计意义
                     "benchmark_return_pct": (benchmark_data[-1]["close"] / benchmark_data[0]["close"] - 1) * 100 if benchmark_data and len(benchmark_data) >= 2 and benchmark_data[0].get("close", 0) > 0 else 0.0,
                     "alpha_pct": total_return * 100 - ((benchmark_data[-1]["close"] / benchmark_data[0]["close"] - 1) * 100 if benchmark_data and len(benchmark_data) >= 2 and benchmark_data[0].get("close", 0) > 0 else 0.0),
                     # 以下字段保持兼容旧代码
@@ -2963,13 +2965,16 @@ class PortfolioBacktester:
         # 但当ultra_short.py中merged_trades从performance_data读取为空时,
         # 覆盖为全零dict,导致前端显示空统计
         # 修复: 直接在portfolio_backtest的result中计算,确保数据不丢失
-        _sell_reason_stats = {"stop_loss": 0, "take_profit": 0, "max_hold": 0, "force_empty": 0, "rebalance": 0, "profit_lock": 0, "profit_protect": 0, "pullback": 0, "halt": 0, "other": 0}
+        _sell_reason_stats = {"stop_loss": 0, "gap_stop_loss": 0, "take_profit": 0, "max_hold": 0, "force_empty": 0, "rebalance": 0, "profit_lock": 0, "profit_protect": 0, "pullback": 0, "halt": 0, "other": 0}
+        # 【V65:拆分跳空止损为独立类别,便于区分正常止损vs跳空误杀】
         for trade in merged_trades:
             reason = trade.get('sell_reason', '')
             if not reason or reason == '持仓中':
                 continue
             reason_str = str(reason)
-            if '止损' in reason_str or 'stop_loss' in reason_str.lower():
+            if '跳空止损' in reason_str:
+                _sell_reason_stats["gap_stop_loss"] += 1  # 【V65:跳空低开止损,独立统计】
+            elif '止损' in reason_str or 'stop_loss' in reason_str.lower():
                 _sell_reason_stats["stop_loss"] += 1
             elif '止盈' in reason_str or 'take_profit' in reason_str.lower():
                 _sell_reason_stats["take_profit"] += 1
@@ -3162,6 +3167,7 @@ class PortfolioBacktester:
 
         # 兼容层标注:年化收益可靠性
         result["annual_return_reliable"] = annual_return_reliable
+        result["sharpe_reliable"] = sharpe_reliable
 
         # 【V32:P1-1修复】计算完成后为前端显示插入初始净值=1.0
         # 所有计算(monthly_profit/sharpe/sortino/position_series)已完成,

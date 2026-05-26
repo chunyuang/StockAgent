@@ -13,6 +13,7 @@
 - monthly_stats/{account_id}_monthly.json — 月度收益统计
 """
 import sys
+import asyncio
 import logging
 
 logger = logging.getLogger(__name__)
@@ -618,7 +619,7 @@ def main():
     tracker = NavTracker(args.account)
     
     if args.action == "update":
-        tracker.update_daily_nav(args.date)
+        asyncio.run(tracker.update_daily_nav(args.date))
     
     elif args.action == "report":
         report = tracker.generate_report(args.date, args.output_dir)

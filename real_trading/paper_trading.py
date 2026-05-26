@@ -201,7 +201,7 @@ class PaperTradingEngine:
         return result
     
     async def place_order(self, account_id: str, ts_code: str, name: str, buy_price: float, shares: int, 
-                         strategy: str = "未知", slippage: float = 0.002) -> Dict:
+                         strategy: str = "未知", slippage: float = None) -> Dict:
         """模拟买入下单
         
         完整模拟实盘买入流程：滑点计算 → 佣金计算 → 余额检查 → 扣款 → 建仓
@@ -227,14 +227,17 @@ class PaperTradingEngine:
             return {"success": False, "msg": f"账户{account_id}已关闭"}
         
         # 【V38-fix:滑点从策略级参数读取,首板打板0.5%vs其他0.2%】
-        # 如果调用方未指定slippage(默认0.002),则尝试从策略配置读取
-        _effective_slippage = slippage
-        if strategy and strategy != "未知":
+        # 【V65修复】如果调用方未指定slippage(默认None),则从策略配置读取
+        # 旧bug: 默认0.002会覆盖策略级滑点(首板0.5%/跌停翘板0.3%),改为None时才读取策略级
+        if slippage is not None:
+            _effective_slippage = slippage
+        elif strategy and strategy != "未知":
             from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK as _GR, STRATEGY_NAME_TO_ID
             _sid = STRATEGY_NAME_TO_ID.get(strategy, "")
             _scfg = STRATEGY_CONFIGS.get(_sid, {})
-            _strategy_slippage = _scfg.get("riskParams", {}).get("slippage_pct", _GR.get("slippage_pct", 0.002))
-            _effective_slippage = _strategy_slippage
+            _effective_slippage = _scfg.get("riskParams", {}).get("slippage_pct", _GR.get("slippage_pct", 0.002))
+        else:
+            _effective_slippage = 0.002
         
         # 计算实际成交价（滑点）
         actual_buy_price = buy_price * (1 + _effective_slippage)
@@ -298,7 +301,7 @@ class PaperTradingEngine:
         }
     
     async def close_position(self, account_id: str, ts_code: str, sell_price: float, 
-                           reason: str = "手动平仓", slippage: float = 0.002) -> Dict:
+                           reason: str = "手动平仓", slippage: float = None) -> Dict:
         """模拟卖出平仓
         
         完整模拟实盘卖出流程：滑点计算 → 佣金+印花税 → 回款 → 平仓记录
@@ -329,14 +332,18 @@ class PaperTradingEngine:
             return {"success": False, "msg": f"持仓中不存在{ts_code}"}
         
         # 【V38-fix:卖出滑点也从策略级参数读取】
-        _effective_slippage = slippage
-        _strategy = target_pos.get('strategy', '')
-        if _strategy and _strategy != "未知":
-            from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK as _GR, STRATEGY_NAME_TO_ID
-            _sid = STRATEGY_NAME_TO_ID.get(_strategy, "")
-            _scfg = STRATEGY_CONFIGS.get(_sid, {})
-            _strategy_slippage = _scfg.get("riskParams", {}).get("slippage_pct", _GR.get("slippage_pct", 0.002))
-            _effective_slippage = _strategy_slippage
+        # 【V65修复】close_position的slippage逻辑与place_order对齐: None时从策略级读取
+        if slippage is not None:
+            _effective_slippage = slippage
+        else:
+            _strategy = target_pos.get('strategy', '')
+            if _strategy and _strategy != "未知":
+                from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK as _GR, STRATEGY_NAME_TO_ID
+                _sid = STRATEGY_NAME_TO_ID.get(_strategy, "")
+                _scfg = STRATEGY_CONFIGS.get(_sid, {})
+                _effective_slippage = _scfg.get("riskParams", {}).get("slippage_pct", _GR.get("slippage_pct", 0.002))
+            else:
+                _effective_slippage = 0.002
         
         # 【V52:止盈/冲高回落/利润保护等卖出滑点规则与回测SLIPPAGE_RULES对齐】
         # 回测: 止盈不扣滑点(V49), 冲高回落/利润保护/利润锁定扣滑点, 止损/跳空止损不扣

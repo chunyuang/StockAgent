@@ -417,6 +417,7 @@ class RealTradingSignalGenerator:
         简单规则：
         - 涨停板附近 → '首板打板'
         - 涨幅≥5%但未涨停 → '半路追涨'
+        - 曾触及跌停但翻红 → '跌停翘板'  【V65修复:跌停翘板分类缺失】
         - 其他 → '龙头低吸'
         
         Args:
@@ -428,12 +429,19 @@ class RealTradingSignalGenerator:
         """
         pct_chg = daily_data.get("pct_chg", 0)
         limit_up = daily_data.get("up_limit", 0)
+        limit_down = daily_data.get("down_limit", 0)
         close = daily_data.get("close", 0)
+        open_price = daily_data.get("open", 0)
+        low = daily_data.get("low", 0)
         
         if abs(pct_chg - 10) < 0.5 and abs(close - limit_up) < 0.01:
             return "首板打板"
         elif pct_chg >= 5:
             return "半路追涨"
+        elif low > 0 and limit_down > 0 and low <= limit_down * 1.005 and close > open_price:
+            # 【V65修复】跌停翘板: 当日最低价触及跌停线(+0.5%容差)且收盘翻红(收>开)
+            # 这类股票使用5%/20%/3天的跌停翘板风控参数,否则会被错分为龙头低吸
+            return "跌停翘板"
         elif pct_chg >= -7:
             # 【V59对齐:与回测龙头低吸pct_chg≥-7%过滤器一致】
             # 当日暴跌>7%的股票不应低吸(追空风险极高,次日跳空止损概率大)
