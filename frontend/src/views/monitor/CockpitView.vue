@@ -192,17 +192,24 @@ function getSignalLayerResult(layer: string): { passed: boolean; reason?: string
 }
 
 // 盈亏曲线
-const pnlOption = computed(() => ({
-  grid: { top: 10, right: 10, bottom: 20, left: 50 },
-  xAxis: { type: 'category', data: pnlHistory.value.map(p => p.time), axisLabel: { color: 'var(--text-tertiary)', fontSize: 10 } },
-  yAxis: { type: 'value', axisLabel: { color: 'var(--text-tertiary)', fontSize: 10 }, splitLine: { lineStyle: { color: 'var(--border-light)' } } },
-  series: [{
-    type: 'line', data: pnlHistory.value.map(p => p.value), smooth: true,
-    lineStyle: { color: 'var(--stock-down)', width: 2 },
-    areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'var(--stock-down-bg)' }, { offset: 1, color: 'rgba(0,0,0,0)' }] } },
-  }],
-  backgroundColor: 'transparent',
-}))
+const perfData = ref<Array<{time:string,net_value:number,drawdown:number}>>([]) // 历史绩效
+const pnlOption = computed(() => {
+  const source = perfData.value.length > 0 ? perfData.value : pnlHistory.value.map(p => ({ time: p.time, net_value: p.value / 1000000 + 1, drawdown: 0 }))
+  return {
+    grid: { top: 10, right: 10, bottom: 20, left: 50 },
+    tooltip: { trigger: 'axis' as const, formatter: (p: any) => `${p[0].axisValue}<br/>净值: ${(p[0].value).toFixed(4)}${p[1] ? '<br/>回撤: ' + p[1].value.toFixed(2) + '%' : ''}` },
+    xAxis: { type: 'category', data: source.map(p => p.time), axisLabel: { color: 'var(--text-tertiary)', fontSize: 10 } },
+    yAxis: [
+      { type: 'value', axisLabel: { color: 'var(--text-tertiary)', fontSize: 10 }, splitLine: { lineStyle: { color: 'var(--border-light)' } } },
+      { type: 'value', position: 'right', axisLabel: { color: 'var(--stock-up)', fontSize: 9, formatter: '{value}%' }, splitLine: { show: false } },
+    ],
+    series: [
+      { type: 'line', data: source.map(p => p.net_value), smooth: true, lineStyle: { color: 'var(--stock-down)', width: 2 }, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'var(--stock-down-bg)' }, { offset: 1, color: 'rgba(0,0,0,0)' }] } } },
+      ...(perfData.value.length > 0 ? [{ type: 'bar' as const, yAxisIndex: 1, data: source.map(p => p.drawdown), itemStyle: { color: 'rgba(103,194,58,0.3)' }, barWidth: 3 }] : []),
+    ],
+    backgroundColor: 'transparent',
+  }
+})
 
 // ============ API ============
 async function fetchAll() {
@@ -227,6 +234,42 @@ async function fetchHealth() {
   try {
     const r = await api.get(`${scannerApi}/health`)
     if (r?.success) health.value = r.health || null
+  } catch (e) { /* ignore */ }
+}
+
+async function fetchPerformanceHistory() {
+  try {
+    // 先尝试MongoDB快照
+    const r = await api.get(`${scannerApi}/performance-history?days=30`)
+    const p = parseResponse(r)
+    if (p.success && p.data?.length > 0) {
+      perfData.value = p.data.map((s: any) => ({
+        time: (s.timestamp || s.date || '').substring(5, 16),
+        net_value: s.net_value || s.total_assets / 1000000,
+        drawdown: s.drawdown_pct || 0,
+      }))
+      return
+    }
+    // fallback: 从timeline构建
+    const tl = await api.get(`${scannerApi}/timeline/history?days=30`)
+    const tp = parseResponse(tl)
+    if (tp.success && tp.data?.length > 0) {
+      let nav = 1.0
+      let peak = 1.0
+      const events: typeof perfData.value = []
+      for (const item of tp.data) {
+        const profitAmount = item.profit_amount || 0
+        nav *= (1 + profitAmount / (1000000 * nav))
+        peak = Math.max(peak, nav)
+        const dd = nav < peak ? (nav / peak - 1) * 100 : 0
+        events.push({
+          time: (item.date || item.time || '').substring(0, 16),
+          net_value: nav,
+          drawdown: dd,
+        })
+      }
+      perfData.value = events
+    }
   } catch (e) { /* ignore */ }
 }
 
@@ -289,6 +332,20 @@ async function toggleScanner() {
     await fetchAll()
   } catch { /* cancelled or error */ }
   loading.value = false
+}
+
+// 持仓详情弹窗
+const posDetailVisible = ref(false)
+const posDetailData = ref<any>(null)
+const posDetailLoading = ref(false)
+async function openPositionDetail(pos: PositionInfo) {
+  posDetailLoading.value = true
+  posDetailVisible.value = true
+  try {
+    const r = await api.get(`${scannerApi}/trade-detail/${pos.ts_code}`)
+    if (r?.success) posDetailData.value = r.data
+    else posDetailData.value = { ts_code: pos.ts_code, position: { shares: pos.available_qty, cost_price: pos.avg_cost, current_price: pos.current_price, profit_pct: pos.profit_pct, strategy: pos.strategy, stop_loss_pct: pos.stop_loss_pct, take_profit_pct: pos.take_profit_pct } }
+  } catch { posDetailData.value = null } finally { posDetailLoading.value = false }
 }
 
 // 熔断操作
@@ -393,13 +450,29 @@ async function onModeChange(mode: string) {
   } catch { /* cancelled */ }
 }
 
-// 快捷买入信号
+// 快捷买入信号(增强确认)
 async function quickBuySignal(sig: ScanSignal) {
   const key = sig.ts_code + sig.strategy
   buyingSignal.value = key
   try {
+    // 获取策略参数
+    const paramR = await api.get(`${scannerApi}/params/${sig.strategy}`)
+    const sp = paramR?.success ? paramR.data : null
+    const slPct = sp?.stop_loss_pct ? (sp.stop_loss_pct * 100).toFixed(1) : '3.0'
+    const tpPct = sp?.take_profit_pct ? (sp.take_profit_pct * 100).toFixed(1) : '7.0'
+    const holdDays = sp?.max_hold_days || '?'
+    // 预估仓位
+    const availCash = account.value.available_cash
+    const posRatio = { halfway_chase: 0.25, first_limit_up: 0.25, dragon_head: 0.15, limit_down_qiao: 0.15 }[sig.strategy] || 0.20
+    const estAmount = availCash * posRatio
+    const estShares = sig.price > 0 ? Math.floor(estAmount / sig.price / 100) * 100 : 0
+
     await ElMessageBox.confirm(
-      `确认买入 ${sig.ts_code} ${sig.stock_name}？\n策略: ${strategyCN(sig.strategy)}\n价格: ¥${sig.price?.toFixed(2)}\n涨幅: ${formatPct(sig.pct_chg)}`,
+      `确认买入 ${sig.ts_code} ${sig.stock_name}？\n\n`
+      + `📊 策略: ${strategyIcon(sig.strategy)} ${strategyCN(sig.strategy)}\n`
+      + `💰 价格: ¥${sig.price?.toFixed(2)} | 涨幅: ${formatPct(sig.pct_chg)}\n\n`
+      + `📐 预估仓位: ${estShares}股 ≈ ¥${(estShares * sig.price).toFixed(0)} (${(posRatio*100).toFixed(0)}%可用)\n`
+      + `🛡️ 风控: 止损${slPct}% / 止盈${tpPct}% / 持有${holdDays}天`,
       '快捷买入',
       { confirmButtonText: '确认买入', cancelButtonText: '取消', type: 'info' }
     )
@@ -411,10 +484,10 @@ async function quickBuySignal(sig: ScanSignal) {
       action: 'buy',
     })
     if (r?.success) {
-      ElMessage.success(`买入委托已发送: ${sig.ts_code}`)
+      ElMessage.success(`买入成功: ${sig.ts_code} ${r.data?.filled_qty}股@¥${r.data?.filled_price?.toFixed(2)}`)
       await fetchAll()
     } else {
-      ElMessage.error(r?.message || '买入失败')
+      ElMessage.error(r?.data?.message || r?.message || '买入失败')
     }
   } catch { /* cancelled */ }
   buyingSignal.value = null
@@ -471,7 +544,7 @@ function connectWS() {
 
 // ============ 生命周期 ============
 onMounted(() => {
-  fetchAll(); fetchHealth(); fetchScanTraces(); fetchLimitPools(); fetchStrategyParams()
+  fetchAll(); fetchHealth(); fetchScanTraces(); fetchLimitPools(); fetchStrategyParams(); fetchPerformanceHistory()
   refreshTimer = setInterval(() => {
     if (autoRefresh.value) {
       fetchAll(); fetchHealth(); fetchScanTraces(); fetchLimitPools()
@@ -839,6 +912,67 @@ onUnmounted(() => {
         </span>
       </div>
     </div>
+
+    <!-- 持仓详情弹窗 -->
+    <ElDialog v-model="posDetailVisible" title="📊 持仓详情" width="560px" :append-to-body="true">
+      <div v-if="posDetailLoading" style="text-align:center;padding:40px">加载中...</div>
+      <div v-else-if="posDetailData" class="pos-detail">
+        <!-- 基础信息 -->
+        <div class="pd-header">
+          <div class="pd-title">{{ posDetailData.ts_code }}</div>
+          <ElTag v-if="posDetailData.position?.strategy" :color="strategyColor(posDetailData.position.strategy)" effect="dark" style="color:#fff;border:none">{{ strategyIcon(posDetailData.position.strategy) }} {{ strategyCN(posDetailData.position.strategy) }}</ElTag>
+        </div>
+        <!-- 当前状态 -->
+        <div v-if="posDetailData.position" class="pd-section">
+          <div class="pd-stitle">📈 当前持仓</div>
+          <div class="pd-grid">
+            <div class="pd-cell"><span class="pd-cl">持仓</span><span class="pd-cv">{{ posDetailData.position.shares }}股</span></div>
+            <div class="pd-cell"><span class="pd-cl">成本</span><span class="pd-cv">¥{{ posDetailData.position.cost_price?.toFixed(2) }}</span></div>
+            <div class="pd-cell"><span class="pd-cl">现价</span><span class="pd-cv">¥{{ posDetailData.position.current_price?.toFixed(2) }}</span></div>
+            <div class="pd-cell"><span class="pd-cl">盈亏</span><span class="pd-cv" :class="posDetailData.position.profit_pct >= 0 ? 'profit' : 'loss'">{{ formatPct(posDetailData.position.profit_pct) }}</span></div>
+            <div class="pd-cell"><span class="pd-cl" style="color:var(--stock-up)">止损</span><span class="pd-cv">{{ posDetailData.position.stop_loss_pct }}%</span></div>
+            <div class="pd-cell"><span class="pd-cl" style="color:var(--stock-down)">止盈</span><span class="pd-cv">{{ posDetailData.position.take_profit_pct }}%</span></div>
+          </div>
+        </div>
+        <!-- 买入详情 -->
+        <div v-if="posDetailData.buy" class="pd-section">
+          <div class="pd-stitle">🟢 买入</div>
+          <div class="pd-grid">
+            <div class="pd-cell"><span class="pd-cl">时间</span><span class="pd-cv">{{ posDetailData.buy.time }}</span></div>
+            <div class="pd-cell"><span class="pd-cl">价格</span><span class="pd-cv">¥{{ posDetailData.buy.price?.toFixed(2) }}</span></div>
+            <div class="pd-cell"><span class="pd-cl">数量</span><span class="pd-cv">{{ posDetailData.buy.shares }}股</span></div>
+            <div class="pd-cell"><span class="pd-cl">原因</span><span class="pd-cv">{{ posDetailData.buy.reason }}</span></div>
+          </div>
+          <!-- 9层决策链路 -->
+          <div v-if="posDetailData.buy.decision_detail" class="pd-layers">
+            <div v-for="(val, key) in posDetailData.buy.decision_detail" :key="key" class="pd-layer-row">
+              <span class="pd-lk">{{ key }}</span>
+              <span class="pd-lv">{{ typeof val === 'object' ? JSON.stringify(val) : val }}</span>
+            </div>
+          </div>
+        </div>
+        <!-- 卖出详情 -->
+        <div v-if="posDetailData.sell" class="pd-section">
+          <div class="pd-stitle">🔴 卖出</div>
+          <div class="pd-grid">
+            <div class="pd-cell"><span class="pd-cl">时间</span><span class="pd-cv">{{ posDetailData.sell.time }}</span></div>
+            <div class="pd-cell"><span class="pd-cl">价格</span><span class="pd-cv">¥{{ posDetailData.sell.price?.toFixed(2) }}</span></div>
+            <div class="pd-cell"><span class="pd-cl">原因</span><span class="pd-cv">{{ posDetailData.sell.reason }}</span></div>
+            <div class="pd-cell"><span class="pd-cl">盈亏</span><span class="pd-cv" :class="posDetailData.sell.profit_pct >= 0 ? 'profit' : 'loss'">{{ formatPct(posDetailData.sell.profit_pct) }}</span></div>
+          </div>
+        </div>
+        <!-- 订单历史 -->
+        <div v-if="posDetailData.orders?.length" class="pd-section">
+          <div class="pd-stitle">📋 订单历史</div>
+          <div v-for="o in posDetailData.orders" :key="o.order_id" class="pd-order-row">
+            <ElTag size="small" :type="o.side === 'buy' ? 'danger' : 'success'">{{ o.side === 'buy' ? '买' : '卖' }}</ElTag>
+            <span>{{ o.quantity }}股@¥{{ o.filled_price?.toFixed(2) }}</span>
+            <span class="pd-order-reason">{{ o.reason }}</span>
+          </div>
+        </div>
+      </div>
+      <div v-else style="text-align:center;padding:20px;color:var(--text-muted)">无数据</div>
+    </ElDialog>
   </div>
 </template>
 
@@ -1033,4 +1167,23 @@ onUnmounted(() => {
   .signal-card { padding: 6px 8px; }
   .limit-pool-cards { flex-wrap: wrap; }
 }
+
+/* 持仓详情弹窗 */
+.pos-detail { font-size: 13px; }
+.pd-header { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+.pd-title { font-size: 18px; font-weight: bold; }
+.pd-section { margin-bottom: 16px; padding: 12px; background: var(--bg-muted); border-radius: 8px; }
+.pd-stitle { font-size: 14px; font-weight: bold; margin-bottom: 8px; }
+.pd-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.pd-cell { display: flex; flex-direction: column; gap: 2px; }
+.pd-cl { font-size: 11px; color: var(--text-muted); }
+.pd-cv { font-size: 13px; font-weight: 500; }
+.pd-cv.profit { color: var(--stock-down, #f56c6c); }
+.pd-cv.loss { color: var(--stock-up, #67c23a); }
+.pd-layers { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-default); }
+.pd-layer-row { display: flex; gap: 8px; padding: 2px 0; font-size: 11px; }
+.pd-lk { color: var(--text-muted); min-width: 80px; }
+.pd-lv { color: var(--text-primary); word-break: break-all; }
+.pd-order-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; }
+.pd-order-reason { color: var(--text-muted); font-size: 11px; }
 </style>
