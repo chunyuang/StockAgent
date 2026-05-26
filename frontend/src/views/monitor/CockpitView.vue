@@ -28,7 +28,7 @@ import {
 interface HealthCheck { name: string; status: string; value: string; threshold: string; message: string }
 interface HealthInfo { overall_status: string; checks: Record<string, HealthCheck>; alert_count: number }
 interface ScanSignal { ts_code: string; stock_name: string; strategy: string; strategy_name: string; price: number; pct_chg: number; reason: string; signal_status?: string; created_at?: number }
-interface PositionInfo { ts_code: string; stock_name: string; strategy: string; shares: number; available_qty: number; cost_price: number; current_price: number; profit_pct: number; profit_amount?: number; market_value?: number; stop_loss_pct?: number; take_profit_pct?: number; stop_loss_price?: number; take_profit_price?: number; distance_to_stop?: number }
+interface PositionInfo { ts_code: string; stock_name: string; strategy: string; shares: number; available_qty: number; cost_price: number; current_price: number; profit_pct: number; profit_amount?: number; market_value?: number; stop_loss_pct?: number; take_profit_pct?: number; stop_loss_price?: number; take_profit_price?: number; distance_to_stop?: number; trailing_stop?: { high_price: number; trailing_stop_pct: number; activated: boolean; stop_price: number; activated_at?: string }; risk_level?: string; effective_stop_price?: number }
 interface AccountInfo { total_assets: number; available_cash: number; market_value: number; total_profit: number }
 interface TimelineItem { time: string; action: string; ts_code: string; stock_name: string; strategy: string; shares: number; price: number; reason: string; profit_pct?: number }
 interface ScanTraceCandidate { ts_code: string; stock_name: string; strategy: string; strategy_name: string; price: number; pct_chg: number; final_status: string; rejection_layer?: string; rejection_reason?: string; layer_results?: Record<string, { passed: boolean; reason?: string }> }
@@ -387,6 +387,20 @@ function riskBarClass(pos: PositionInfo): string {
   if (distToStop < 1) return 'danger'
   if (distToStop < 2) return 'warning'
   return 'safe'
+}
+// 【V59:追踪止损在进度条上的位置】
+function trailBarPos(pos: PositionInfo): number {
+  if (!pos.trailing_stop?.activated || !pos.stop_loss_pct || !pos.take_profit_pct) return 0
+  const slPct = Math.abs(pos.stop_loss_pct)
+  const tpPct = pos.take_profit_pct
+  const trailPct = pos.trailing_stop.trailing_stop_pct * 100
+  // 追踪止损距止损线的比例
+  const distFromSL = slPct - trailPct  // 如: SL=3%, trail=2%, 距离=1%
+  const range = slPct + tpPct
+  const posOnBar = (slPct - trailPct + slPct) / range * 100  // 归一化到0-100
+  // 简化: 从成本价看, 追踪止损价=(1-trailPct/100)*high_price, 在bar上的相对位置
+  // 用profit_pct反推: 如果high使profit=X%, trail触发在X%-trailPct%
+  return Math.max(5, Math.min(95, 50)) // 简化: 追踪止损在中间偏上
 }
 
 // 持仓快捷卖出
@@ -832,6 +846,7 @@ onUnmounted(() => {
             <div class="pos-main">
               <div class="pos-left">
                 <span class="pos-code" @click="openPositionDetail(pos)">{{ pos.ts_code }}</span>
+                <span v-if="pos.risk_level && pos.risk_level !== 'normal'" class="pos-risk-dot" :class="pos.risk_level" :title="pos.risk_level === 'critical' ? '触及止损区(5秒检查)' : '接近止损(10秒检查)'"></span>
                 <span class="pos-name">{{ pos.stock_name }}</span>
                 <ElTag size="small" :color="strategyColor(pos.strategy)" effect="dark" style="font-size:10px;border:none;color:#fff">{{ strategyIcon(pos.strategy) }}</ElTag>
               </div>
@@ -848,13 +863,26 @@ onUnmounted(() => {
                 <div class="risk-fill" :style="{ width: riskBarWidth(pos) + '%' }" :class="riskBarClass(pos)"></div>
                 <div class="risk-marker" :style="{ left: '0%' }" title="止损">SL</div>
                 <div class="risk-marker-tp" :style="{ left: '100%' }" title="止盈">TP</div>
+                <!-- 追踪止损标记 -->
+                <div v-if="pos.trailing_stop?.activated" class="risk-marker-trail" 
+                  :style="{ left: trailBarPos(pos) + '%' }" 
+                  :title="`追踪止损${(pos.trailing_stop.trailing_stop_pct*100).toFixed(0)}%`">
+                  📍
+                </div>
               </div>
               <div class="risk-labels">
                 <span class="rl-sl">止损{{ pos.stop_loss_pct }}%</span>
+                <span v-if="pos.trailing_stop?.activated" class="rl-trail">
+                  📍{{ (pos.trailing_stop.trailing_stop_pct*100).toFixed(0) }}%
+                </span>
                 <span class="rl-dist" :class="pos.profit_pct + (pos.stop_loss_pct||3) < 1 ? 'danger' : ''">
                   距止损{{ (pos.profit_pct + (pos.stop_loss_pct||3)).toFixed(1) }}%
                 </span>
                 <span class="rl-tp">止盈{{ pos.take_profit_pct }}%</span>
+              </div>
+              <!-- 风险等级标记 -->
+              <div v-if="pos.risk_level && pos.risk_level !== 'normal'" class="risk-level-tag" :class="pos.risk_level">
+                {{ pos.risk_level === 'critical' ? '🔴紧急' : '🟡预警' }}
               </div>
             </div>
           </div>
@@ -1138,6 +1166,9 @@ onUnmounted(() => {
 .pos-right { display: flex; align-items: center; gap: 6px; }
 .pos-code { color: var(--text-primary); font-size: 12px; font-weight: 500; cursor: pointer; }
 .pos-code:hover { text-decoration: underline; }
+.pos-risk-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-left: 3px; vertical-align: middle; }
+.pos-risk-dot.warning { background: #e6a23c; }
+.pos-risk-dot.critical { background: #f56c6c; animation: risk-pulse 1s infinite; }
 .pos-name { color: var(--text-tertiary); font-size: 11px; }
 .pos-pnl { font-weight: bold; font-size: 13px; }
 .pos-pnl.profit { color: var(--stock-down, #f56c6c); }
@@ -1155,6 +1186,11 @@ onUnmounted(() => {
 .rl-tp { color: var(--stock-down, #f56c6c); }
 .rl-dist { color: var(--text-muted); }
 .rl-dist.danger { color: #f56c6c; font-weight: bold; }
+.risk-marker-trail { position: absolute; top: -3px; transform: translateX(-50%); font-size: 9px; z-index: 2; filter: drop-shadow(0 0 2px rgba(255,200,0,0.6)); }
+.rl-trail { color: #e6a23c; font-weight: bold; }
+.risk-level-tag { display: inline-block; font-size: 10px; padding: 0 4px; border-radius: 3px; margin-top: 2px; font-weight: bold; }
+.risk-level-tag.critical { background: rgba(245,108,108,0.2); color: #f56c6c; animation: risk-pulse 1s infinite; }
+.risk-level-tag.warning { background: rgba(230,162,60,0.2); color: #e6a23c; }
 @keyframes risk-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
 .pos-risk-line { display: flex; gap: 8px; font-size: 10px; margin-top: 2px; }
 .pos-sl { color: var(--stock-up); }

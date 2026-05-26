@@ -25,10 +25,10 @@ GLOBAL_RISK = {
     "force_empty_limit_down": 80,   # 跌停≥80只触发强制空仓
     "force_empty_limit_up": 10,     # 涨停≤10只触发强制空仓
     "force_empty_index_drop_pct": 0.03,  # 大盘跌幅≥3%触发强制空仓
-    "intraday_lock_min_high_rise": 0.04,  # 盘中利润锁定:冲高≥4%(V57:从5%→4%,更早触发利润锁定;V55基线6.48%回撤偏高,需要更积极的利润保护)
-    "intraday_lock_pullback_pct": 0.015,    # 盘中利润锁定:从高点回撤≥1.5%(V57:从2%→1.5%,更早锁住利润,减少利润回吐;与冲高回落mid_fallback=1.5%对齐)
-    "intraday_lock_min_profit": 0.02,     # 盘中利润锁定:收盘仍≥2%利润
-    "hold_protection_threshold": 0.04,     # 【V57:从5%→4%】V55基线回撤6.48%偏高;4%只保护真正盈利股,减少回撤;5%过宽让微利股也受保护增加了调仓难度
+    "intraday_lock_min_high_rise": 0.05,  # 盘中利润锁定:冲高≥5%(V59:从4%→5%,减少过早锁定;V58回撤5.06% vs V57回撤3.09%,根因是4%+1.5%组合过早触发利润锁定,导致盈利股过早退出+现金闲置→回撤增大)
+    "intraday_lock_pullback_pct": 0.02,    # 盘中利润锁定:从高点回撤≥2%(V59:从1.5%→2%,减少误触发;1.5%在超短线正常波动内,大量盈利股被过早锁定退出)
+    "intraday_lock_min_profit": 0.02,     # 盘中利润锁定:收盘仍≥2%利润(保持不变)
+    "hold_protection_threshold": 0.05,     # 【V59:从4%→5%】V58回撤5.06%根因之一:4%保护阈值过窄,盈利4-5%的股票失去保护被调仓卖出,但它们可能正在上涨中,卖出后反弹→回撤增大
     "live_trading_mode": False,     # 【V29:实盘模式开关】True时pct_chg等T日因子降级为_prev
 }
 
@@ -64,6 +64,7 @@ STRATEGY_CONFIGS = {
             "take_profit_pct": 0.12,        # 止盈12%(V20:从10%→12%,12%比15%多捕获1-2笔快止盈)
             "max_hold_days": 3,             # 最大持仓3天
             "slippage_pct": 0.002,          # 滑点0.2%
+            "trailing_stop_pct": 0.02,       # 追踪止损2%(盈利>=2%后激活,从最高价回撤2%触发,锁住大部分利润)
         }
     },
     "first_limit_up": {
@@ -89,6 +90,7 @@ STRATEGY_CONFIGS = {
             "take_profit_pct": 0.08,          # 止盈8%(V53:从10%→8%,首板avg_win仅4.3%,8%止盈更实际,10%几乎不触发)
             "max_hold_days": 2,             # 最大持仓2天(V33:3→2,首板次日未兑现即退出)
             "slippage_pct": 0.005,          # 滑点0.5%(打板场景)
+            "trailing_stop_pct": 0.02,       # 追踪止损2%(首板高开多,盈利2%后激活,快速锁利)
         }
     },
     "limit_up_open": {
@@ -136,6 +138,7 @@ STRATEGY_CONFIGS = {
             "take_profit_pct": 0.30,          # 止盈30%(V38:从15%→30%,回测验证+15.68%收益/夏普+0.05,仅1笔触发30%止盈,其余由冲高回落/利润保护在更高价位退出,30%作为极端行情安全网)
             "max_hold_days": 7,             # 最大持仓7天(V47:从5→7,龙头低吸捕捉大趋势,51.69%和33.55%的超时退出说明5天太短截断大牛)
             "slippage_pct": 0.002,          # 滑点0.2%
+            "trailing_stop_pct": 0.03,       # 追踪止损3%(龙头低吸波动较大,给3%空间避免被震出)
         }
     },
     "limit_down_qiao": {
@@ -158,6 +161,7 @@ STRATEGY_CONFIGS = {
             "take_profit_pct": 0.20,        # 止盈20%(V42:从25%→20%,回测验证止盈25%仅2笔avg+24.43%,20%多捕获1-2笔更快止盈减少利润回吐)
             "max_hold_days": 3,             # 最大持仓3天
             "slippage_pct": 0.003,          # 滑点0.3%(跌停后波动大)
+            "trailing_stop_pct": 0.04,       # 追踪止损4%(跌停翘板波动极大,4%空间避免被震出)
         }
     },
 }

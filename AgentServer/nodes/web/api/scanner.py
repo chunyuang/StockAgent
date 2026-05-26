@@ -2069,3 +2069,132 @@ async def reset_strategy_params(strategy_id: str):
             return {"success": False, "message": "重置失败"}
     except Exception as e:
         return {"success": False, "message": str(e)}
+
+
+# ==================== V59:执行质量 & 追踪止损 API ====================
+
+@router.get("/execution-quality")
+async def get_execution_quality():
+    """获取执行质量统计
+    
+    对标真实量化: 执行质量是衡量量化系统水平的关键指标
+    - 滑点: 实际成交价vs预期价的偏差
+    - 止损响应: 信号触发到实际成交的时间
+    - 成交率: 下单成功率vs拒绝率
+    """
+    try:
+        scanner = _get_scanner_instance()
+        if not scanner:
+            return {"success": False, "message": "Scanner未运行"}
+        
+        stats = getattr(scanner, '_execution_stats', {})
+        trailing = getattr(scanner, '_trailing_stops', {})
+        risk_levels = getattr(scanner, '_position_risk_levels', {})
+        
+        return {
+            "success": True,
+            "data": {
+                "execution_stats": stats,
+                "trailing_stops_active": {k: v for k, v in trailing.items() if v.get("activated")},
+                "risk_levels": risk_levels,
+                "smart_check_interval": scanner._get_smart_check_interval() if hasattr(scanner, '_get_smart_check_interval') else 30,
+            }
+        }
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@router.put("/trailing-stop/{ts_code}")
+async def set_trailing_stop(ts_code: str, request: Request):
+    """设置/修改单票追踪止损
+    
+    body: {
+        "trailing_stop_pct": 0.03,  // 追踪止损比例(3%)
+        "activated": true           // 是否激活
+    }
+    """
+    try:
+        scanner = _get_scanner_instance()
+        if not scanner:
+            return {"success": False, "message": "Scanner未运行"}
+        
+        body = await request.json()
+        trailing = getattr(scanner, '_trailing_stops', {})
+        
+        if ts_code not in trailing:
+            # 没有追踪止损记录, 需要初始化
+            positions = scanner._broker.get_positions() if scanner._broker else []
+            pos = next((p for p in positions if p.ts_code == ts_code), None)
+            if not pos:
+                return {"success": False, "message": f"未找到持仓 {ts_code}"}
+            trailing[ts_code] = {
+                "high_price": pos.current_price,
+                "trailing_stop_pct": body.get("trailing_stop_pct", 0.03),
+                "activated": body.get("activated", True),
+                "stop_price": 0.0,
+            }
+        else:
+            if "trailing_stop_pct" in body:
+                trailing[ts_code]["trailing_stop_pct"] = float(body["trailing_stop_pct"])
+            if "activated" in body:
+                trailing[ts_code]["activated"] = bool(body["activated"])
+        
+        # 重新计算止损价
+        if trailing[ts_code].get("activated"):
+            high = trailing[ts_code].get("high_price", 0)
+            pct = trailing[ts_code].get("trailing_stop_pct", 0.03)
+            trailing[ts_code]["stop_price"] = high * (1 - pct)
+        
+        return {
+            "success": True,
+            "data": {"ts_code": ts_code, **trailing[ts_code]}
+        }
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@router.get("/position-risk-levels")
+async def get_position_risk_levels():
+    """获取持仓风险等级分布
+    
+    对标真实量化: 风险分级是实时监控的核心
+    - normal: 安全, 30秒检查
+    - warning: 距止损<1%, 10秒检查
+    - critical: 已触及止损区, 5秒检查
+    """
+    try:
+        scanner = _get_scanner_instance()
+        if not scanner:
+            return {"success": False, "message": "Scanner未运行"}
+        
+        risk_levels = getattr(scanner, '_position_risk_levels', {})
+        trailing = getattr(scanner, '_trailing_stops', {})
+        positions = scanner.get_positions() if hasattr(scanner, 'get_positions') else []
+        
+        # 按风险等级分组
+        grouped = {"normal": [], "warning": [], "critical": []}
+        for pos in positions:
+            ts_code = pos.get("ts_code", "")
+            level = risk_levels.get(ts_code, "normal")
+            info = {
+                **pos,
+                "risk_level": level,
+                "trailing_stop": trailing.get(ts_code),
+            }
+            grouped.setdefault(level, []).append(info)
+        
+        return {
+            "success": True,
+            "data": {
+                "levels": grouped,
+                "summary": {
+                    "total": len(positions),
+                    "normal": len(grouped.get("normal", [])),
+                    "warning": len(grouped.get("warning", [])),
+                    "critical": len(grouped.get("critical", [])),
+                },
+                "check_interval": scanner._get_smart_check_interval() if hasattr(scanner, '_get_smart_check_interval') else 30,
+            }
+        }
+    except Exception as e:
+        return {"success": False, "message": str(e)}

@@ -196,7 +196,7 @@ async def execute_ultra_short_backtest(
             min_cap = strategy_params_local.get('min_circulation_market_cap', _defaults.get('min_circulation_market_cap', 50))
             max_cap = strategy_params_local.get('max_circulation_market_cap', _defaults.get('max_circulation_market_cap', 500))
             opening_min = strategy_params_local.get('opening_pct_min', _defaults.get('opening_pct_min', -1.0))
-            opening_max = strategy_params_local.get('opening_pct_max', _defaults.get('opening_pct_max', 7.0))
+            opening_max = strategy_params_local.get('opening_pct_max', _defaults.get('opening_pct_max', 5.0))
             hit_yizi = strategy_params_local.get('hit_probability_yizi', _defaults.get('hit_probability_yizi', 0.0))
             hit_fast = strategy_params_local.get('hit_probability_fast', _defaults.get('hit_probability_fast', 0.20))  # 【V55-BUG-015修复:0.3→0.20,与V56 strategy_defaults对齐】
             hit_normal = strategy_params_local.get('hit_probability_normal', _defaults.get('hit_probability_normal', 0.45))  # 【V55-BUG-015修复:0.5→0.45,与V56 strategy_defaults对齐】
