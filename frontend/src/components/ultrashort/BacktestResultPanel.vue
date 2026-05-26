@@ -76,7 +76,7 @@ function translateSellReason(reason: string): string {
     'stop_loss': '止损', '止损': '止损',
     'take_profit': '止盈', '止盈': '止盈',
     'rebalance': '调仓', '调仓卖出': '调仓', '调仓调出': '调仓', '减仓': '调仓',
-    'force_empty_position': '强制空仓', 'force_empty': '强制空仓', '空仓': '强制空仓', '强制': '强制空仓',
+    'force_empty_position': '强制空仓', 'force_empty': '强制空仓', '空仓': '强制空仓', '强制': '强制空仓', '强制空仓(延后)': '强空T+1',
     'max_hold': '到期', '到期': '到期', '超时': '到期',
     '跳空止损': '跳空止损',
     '冲高回落': '冲高回落',
