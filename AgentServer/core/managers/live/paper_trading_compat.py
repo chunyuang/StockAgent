@@ -74,5 +74,8 @@ class PaperAccount:
     def __init__(self, account_id: str, name: str = "", initial_cash: float = 1_000_000):
         self.account_id = account_id
         self.name = name or account_id
-        self.initial_cash = initial_cash
+        # 【V61修复:补充nav_tracker引用的属性,否则AttributeError】
+        self.initial_balance = initial_cash
+        self.current_balance = initial_cash
+        self.status = "active"
         self.engine = PaperTradingEngine(account_id, initial_cash)

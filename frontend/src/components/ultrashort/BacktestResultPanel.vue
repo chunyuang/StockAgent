@@ -57,7 +57,7 @@ const props = defineProps<{
 
 // 格式化百分比(后端已是百分比形式,直接加%)
 function fmtPct(val: number | undefined | null): string {
-  if (val == null || isNaN(val)) return '--'
+  if (val == null || isNaN(val) || !isFinite(val)) return '--'  // 【V61:增加Infinity保护】
   return val.toFixed(2) + '%'
 }
 
@@ -157,11 +157,14 @@ const monthlyReturnChartOption = computed(() => {
   const months = monthlyData.value.map(d => d.month)
   const returns = monthlyData.value.map(d => d.return_pct)
   // 计算累计收益线
+  // 【V61-P0-3修复:累计收益用净值连乘而非简单加和,避免长期偏差】
+  // 旧bug: cumVal += r → 简单加和不等于复合收益(月+10%+月+10%=20%而非21%)
+  // 新: cumVal *= (1 + r/100) → 复合计算,然后转回百分比
   const cumReturns: number[] = []
-  let cumVal = 0
+  let cumVal = 1.0  // 初始净值1.0
   for (const r of returns) {
-    cumVal += r
-    cumReturns.push(+cumVal.toFixed(2))
+    cumVal *= (1 + r / 100)  // 月度收益百分比→小数
+    cumReturns.push(+((cumVal - 1) * 100).toFixed(2))  // 转回百分比
   }
   return {
     tooltip: { trigger: 'axis', formatter: (p: any) => {
@@ -739,7 +742,7 @@ function exportTrades() {
     STRATEGY_NAMES[t.strategy] || t.strategy || '', t.buy_price ?? '', t.sell_price ?? '',
     t.profit_pct != null ? t.profit_pct.toFixed(2) : '-',
     (t.profit_pct != null && t.shares && t.buy_price) ? (t.buy_price * t.shares * t.profit_pct / 100).toFixed(0) : '-',
-    t.hold_days ?? 1, translateSellReason(t.sell_reason || t.reason)
+    t.hold_days ?? 1, `"${translateSellReason(t.sell_reason || t.reason)}"`  // 【V61-P1-5:引号包裹中文卖出原因,防CSV逗号错位】
   ])
   const csvContent = [headers.join(','), ...rows.map((r: string[]) => r.join(','))].join('\n')
   const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' })

@@ -209,8 +209,16 @@ class SignalPusher:
                     if confidence is not None:
                         content.append(f"- 置信度：**{confidence:.0%}**")
                     content.append(f"- 收盘价：**{stock['close']:.2f}** | 涨跌幅：**{stock['pct_chg']:.2f}%**")
-                    content.append(f"- 建议买入价：≤**{stock['close'] * 1.01:.2f}**")
-                    content.append(f"- 止损价：**{stock['close'] * 0.95:.2f}** | 止盈价：**{stock['close'] * 1.1:.2f}**")
+                    # 【V61:从strategy_defaults读取策略级止损止盈,不再硬编码5%/10%】
+                    from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS as _SC, GLOBAL_RISK as _GR, STRATEGY_NAME_TO_ID as _SNI
+                    _sid = _SNI.get(stock.get('strategy', ''), '')
+                    _rp = _SC.get(_sid, {}).get('riskParams', {})
+                    _sl_pct = _rp.get('stop_loss_pct', _GR['stop_loss_pct'])
+                    _tp_pct = _rp.get('take_profit_pct', _GR['take_profit_pct'])
+                    _slippage = _rp.get('slippage_pct', _GR['slippage_pct'])
+                    _buy_price = stock['close'] * (1 + _slippage)  # 含滑点的买入价
+                    content.append(f"- 建议买入价：≤**{_buy_price:.2f}**")
+                    content.append(f"- 止损价：**{_buy_price * (1 - _sl_pct):.2f}**(-{_sl_pct*100:.0f}%) | 止盈价：**{_buy_price * (1 + _tp_pct):.2f}**(+{_tp_pct*100:.0f}%)")
                     # 推荐理由（可选字段）
                     reason = stock.get('reason') or stock.get('recommend_reason')
                     if reason:
@@ -224,7 +232,9 @@ class SignalPusher:
             content.append("")
             content.append("### ⚠️ 交易纪律")
             content.append("1. 严格执行止损，触及止损价立即卖出")
-            content.append("2. 单票仓位不超过20%，总仓位不超过上限")
+            # 【V61:从strategy_defaults读取仓位限制,不再硬编码20%】
+            from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK as _GR2
+            content.append(f"2. 单票仓位不超过{_GR2['max_position_per_stock']*100:.0f}%，总仓位不超过{_GR2['max_total_position']*100:.0f}%")
             content.append("3. 持仓最多持有3天，到期强制卖出")
             content.append("")
             content.append(f"*生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*")

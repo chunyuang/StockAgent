@@ -53,19 +53,44 @@ class Position:
     notes: str = ""
     
     def hold_days(self, current_date: str = None) -> int:
-        """计算持仓天数（自然日）
+        """计算持仓天数（交易日）
+        
+        【V61修复:使用交易日而非自然日,与回测引擎_calc_trade_days_held()保持一致】
+        自然日计算会导致:周五买入→周一hold_days=3(自然日)→误触发超时(实际仅1个交易日)
         
         Args:
             current_date: 计算基准日期（YYYYMMDD），默认取当天
         
         Returns:
-            int: 持仓天数，= current_date - buy_date
+            int: 持仓交易日天数
         """
         if not current_date:
             current_date = datetime.now().strftime("%Y%m%d")
-        buy_dt = datetime.strptime(self.buy_date, "%Y%m%d")
-        current_dt = datetime.strptime(current_date, "%Y%m%d")
-        return (current_dt - buy_dt).days
+        try:
+            # 优先使用交易日历计算(与回测一致)
+            from core.managers import mongo_manager
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # 如果在async上下文中,用自然日/1.5近似
+                    buy_dt = datetime.strptime(self.buy_date, "%Y%m%d")
+                    current_dt = datetime.strptime(current_date, "%Y%m%d")
+                    natural_days = (current_dt - buy_dt).days
+                    return max(0, int(natural_days / 1.5))  # 周末/节假日近似
+            except RuntimeError:
+                pass
+            # 同步上下文:查MongoDB交易日历
+            trade_dates = asyncio.get_event_loop().run_until_complete(
+                mongo_manager.distinct("stock_daily_ak_full", "trade_date",
+                    {"trade_date": {"$gte": int(self.buy_date), "$lte": int(current_date)}})
+            )
+            return max(0, len(trade_dates) - 1)  # 买入日算第0天
+        except Exception as e:
+            logger.debug(f"交易日计算失败,fallback自然日/1.5: {e}")
+            buy_dt = datetime.strptime(self.buy_date, "%Y%m%d")
+            current_dt = datetime.strptime(current_date, "%Y%m%d")
+            return max(0, int((current_dt - buy_dt).days / 1.5))  # 周末/节假日近似
     
     def should_force_close(self, current_date: str = None) -> bool:
         """是否应该强制平仓（持仓超期）
@@ -187,8 +212,8 @@ class PositionManager:
         便捷方法：根据信号数据自动计算买入价、数量、止损止盈价。
         - 默认买入价 = 收盘价 × 1.01（应对高开）
         - 默认买入金额 = 1万元（100股整数倍）
-        - 默认止损 = 买入价 × 0.95（5%）
-        - 默认止盈 = 买入价 × 1.1（10%）
+        - 默认止损 = 买入价 × (1 - 策略止损百分比)
+        - 默认止盈 = 买入价 × (1 + 策略止盈百分比)
         
         Args:
             signal: 选股信号字典，需包含 ts_code/name/close/date 等字段
@@ -392,6 +417,22 @@ class PositionManager:
                 alert["alerts"].append(f"⚠️  持仓超期：已持有{alert['hold_days']}天，超过{pos.max_hold_days}天上限，建议强制平仓")
                 alert["level"] = "danger"
             
+            # 【V61:龙头低吸5天低利润提前退出,与回测_check_and_execute_forced_sells对齐】
+            # 回测: 龙头低吸持仓5天利润<3%时提前退出,避免5-7天区间继续持仓占用资金+增加回撤
+            # 实盘: 同样逻辑,持仓5天利润<3%时发出danger级别告警
+            if not alert.get('level'):
+                _strategy = pos.strategy or '未知'
+                _strategy_id = None
+                for sid, cfg in STRATEGY_CONFIGS.items():
+                    if cfg.get('name') == _strategy:
+                        _strategy_id = sid
+                        break
+                if _strategy_id == 'dragon_head' and alert['hold_days'] >= 5:
+                    profit_pct = pos.current_profit_pct(current_price)
+                    if profit_pct < 3.0:  # 5天利润<3%
+                        alert["alerts"].append(f"⚠️ 龙头5天低利润：持仓{alert['hold_days']}天收益仅{profit_pct:.1f}%，建议提前退出")
+                        alert["level"] = "danger"
+            
             # 检查止损
             if low <= pos.stop_loss_price:
                 # 【V47:区分跳空止损(用open)和正常止损(用止损价),与回测一致】
@@ -482,9 +523,18 @@ class PositionManager:
             if high_price > 0 and close_price > 0 and pos.buy_price > 0:
                 high_rise = (high_price / pos.buy_price - 1)
                 close_rise = (close_price / pos.buy_price - 1)
+                # 利润锁定参数: 优先策略级, 回退全局
                 lock_min_high = GLOBAL_RISK.get('intraday_lock_min_high_rise', 0.05)
                 lock_pullback = GLOBAL_RISK.get('intraday_lock_pullback_pct', 0.02)
                 lock_min_profit = GLOBAL_RISK.get('intraday_lock_min_profit', 0.02)
+                # 【V61:策略级参数覆盖,与real_trading/position_manager对齐】
+                if strategy_risk_params:
+                    if 'intraday_lock_min_high_rise' in strategy_risk_params:
+                        lock_min_high = strategy_risk_params['intraday_lock_min_high_rise']
+                    if 'intraday_lock_pullback_pct' in strategy_risk_params:
+                        lock_pullback = strategy_risk_params['intraday_lock_pullback_pct']
+                    if 'intraday_lock_min_profit' in strategy_risk_params:
+                        lock_min_profit = strategy_risk_params['intraday_lock_min_profit']
                 
                 if high_rise >= lock_min_high and close_price < high_price:
                     intraday_pullback = (high_price - close_price) / high_price
@@ -627,6 +677,8 @@ if __name__ == "__main__":
             logger.error("参数错误：需要 --ts-code、--name、--buy-price、--shares")
             sys.exit(1)
         
+        from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+        
         pos = Position(
             ts_code=args.ts_code,
             name=args.name,
@@ -634,8 +686,8 @@ if __name__ == "__main__":
             buy_price=args.buy_price,
             shares=args.shares,
             total_cost=args.buy_price * args.shares,
-            stop_loss_price=args.buy_price * 0.95,
-            take_profit_price=args.buy_price * 1.1
+            stop_loss_price=args.buy_price * (1 - GLOBAL_RISK["stop_loss_pct"]),
+            take_profit_price=args.buy_price * (1 + GLOBAL_RISK["take_profit_pct"])
         )
         manager.add_position(pos)
     

@@ -210,9 +210,11 @@ class PortfolioBacktester:
         high_rise = (high_price / cost - 1)
         close_rise = (close_price / cost - 1)
         # 【V58优化:尝试从策略级参数读取,fallbaack到risk_config再fallbaack到GLOBAL_RISK】
-        lock_min_high = self._risk_config.get('intraday_lock_min_high_rise', GLOBAL_RISK.get('intraday_lock_min_high_rise', 0.04))
-        lock_pullback = self._risk_config.get('intraday_lock_pullback_pct', GLOBAL_RISK.get('intraday_lock_pullback_pct', 0.015))
-        lock_min_profit = self._risk_config.get('intraday_lock_min_profit', GLOBAL_RISK.get('intraday_lock_min_profit', 0.02))
+        # 【V61修复:移除硬编码fallback值,只从GLOBAL_RISK读取(单一来源原则)】
+        # 旧bug: fallback 0.04/0.015 与V59更新的GLOBAL_RISK 0.05/0.02不一致
+        lock_min_high = self._risk_config.get('intraday_lock_min_high_rise', GLOBAL_RISK.get('intraday_lock_min_high_rise'))
+        lock_pullback = self._risk_config.get('intraday_lock_pullback_pct', GLOBAL_RISK.get('intraday_lock_pullback_pct'))
+        lock_min_profit = self._risk_config.get('intraday_lock_min_profit', GLOBAL_RISK.get('intraday_lock_min_profit'))
         # 【V58-优化:如果有code,检查策略级STRATEGY_PULLBACK_PARAMS和INTRADAY_PROFIT_LOCK_SIGNALS参数】
         # sell_signal_checker.check_intraday_profit_lock会读策略级参数,这里也要保持一致
         if code and hasattr(self, 'stock_to_strategy'):
@@ -3161,10 +3163,15 @@ class PortfolioBacktester:
             _dp_normalized = [p / self._initial_cash if self._initial_cash > 0 else 0.0 for p in daily_profit_list]
             result["daily_profit"] = _dp_normalized
             # position_series需重建(多了一个初始条目)
+            # 【V61修复:使用与V60-P0-2相同的公式,用净值计算total_equity】
             position_series = []
             for i, nv in enumerate(net_value_series):
                 if i < len(daily_cash_list):
-                    pos_val = max(0.0, 1.0 - daily_cash_list[i])
+                    total_equity = nv.get('net_value', 1.0) * self._initial_cash
+                    if total_equity > 0:
+                        pos_val = max(0.0, 1.0 - daily_cash_list[i] / total_equity)
+                    else:
+                        pos_val = 0.0
                 else:
                     pos_val = 0.0
                 position_series.append({"date": nv.get("trade_date", ""), "value": pos_val})
@@ -4108,7 +4115,8 @@ class PortfolioBacktester:
         # 原因:调仓卖出会错过后续大涨(如龙头低吸盈利8%被调仓卖,次日冲高15%)
         # 保护性卖出(冲高回落/利润保护/止损/止盈)仍然正常触发
         # 【V35修复:已触发止损/冲高回落/利润保护的股不受保护,避免保护阻止止损】
-        hold_protection_pct = self._risk_config.get('hold_protection_threshold', GLOBAL_RISK.get('hold_protection_threshold', 0.04))
+        # 【V61修复:移除硬编码fallback 0.04,只从GLOBAL_RISK读取(单一来源原则)】
+        hold_protection_pct = self._risk_config.get('hold_protection_threshold', GLOBAL_RISK.get('hold_protection_threshold'))
         _mark_sold_codes = set(pos_mgr.sell_code_reasons.keys())  # 已有保护性卖出reason的股
         if hold_protection_pct > 0:
             protected_codes = []
@@ -4153,7 +4161,7 @@ class PortfolioBacktester:
         # 【P1-2修复(V15):改用交易日计算超时,替代日历天数*1.5】
         # 旧逻辑: 日历天数>max_hold*1.5 → 周中买入易误触发
         # 新逻辑: 统计all_trade_dates中的交易日数,精确不受周末/节假日影响
-        global_max_hold = self._risk_config.get('max_hold_days', 999)
+        # 【V61:移除未使用的global_max_hold变量,超时判断统一用_get_max_hold_for_code】
         over_hold_codes = []
         for code in list(holdings.keys()):
             if holdings.get(code, 0) > 0:
