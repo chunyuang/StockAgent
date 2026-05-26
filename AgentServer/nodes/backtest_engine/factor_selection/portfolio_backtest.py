@@ -2746,7 +2746,7 @@ class PortfolioBacktester:
             # 【V55:Calmar上限改为合理值,短回测期(<120天)标注虚高】
             # 旧bug: 上限1000遮盖了异常值,短回测期md<5%时calmar轻松>1000
             # 改为: 上限=回测天数/252*100 (年化约100=合理上限),但最低50
-            calmar_cap = max(50, (trade_days_count / 252) * 100) if trade_days_count > 0 else 100
+            calmar_cap = max(50, (trading_days / 252) * 100) if trading_days > 0 else 100
             calmar_ratio = min(raw_calmar, calmar_cap)
             if raw_calmar > 1000.0:
                 logger.debug('backtest', f'Calmar={raw_calmar:.1f}超过1000上限,回测周期{trading_days}天过短')
