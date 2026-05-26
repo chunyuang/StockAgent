@@ -102,7 +102,14 @@ async function handleSubmit() {
   submitting.value = true
   try {
     if (isEdit.value) {
-      // 更新策略（这里需要后端支持 PUT 接口）
+      // 【V61-P1-1修复:调用实际API更新策略,不再假装成功】
+      await strategyApi.updateStrategy(strategyId.value!, {
+        name: formData.value.name,
+        description: formData.value.description || undefined,
+        stock_pool: formData.value.stock_pool,
+        weights: formData.value.weights,
+        alert_enabled: formData.value.alert_enabled,
+      })
       ElMessage.success('策略更新成功')
     } else {
       const response = await strategyApi.createStrategy({
