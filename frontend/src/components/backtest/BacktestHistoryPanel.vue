@@ -14,6 +14,14 @@ import { getUltraShortHistory, deleteBacktestHistory, type BacktestHistoryItem }
 import { ElButton, ElTag, ElEmpty, ElMessageBox, ElMessage, ElCard, ElTooltip, ElSwitch } from 'element-plus'
 import { View, Document, RefreshRight, Delete, TrendCharts, Timer, Grid, List } from '@element-plus/icons-vue'
 import { STRATEGY_NAMES } from '@/config/backtestConstants'
+// 【V63修复:P1-11】对比面板增加收益柱状图
+import { use } from 'echarts/core'
+import { CanvasRenderer } from 'echarts/renderers'
+import { BarChart } from 'echarts/charts'
+import { TitleComponent, TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
+import VChart from 'vue-echarts'
+
+use([CanvasRenderer, BarChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent])
 
 const props = defineProps<{
   visible?: boolean
@@ -159,6 +167,30 @@ function isBestInCompare(metricKey: string, item: BacktestHistoryItem): boolean 
   if (metricKey === 'max_drawdown') return val === Math.min(...allVals)
   return val === Math.max(...allVals)
 }
+
+// 【V63修复:P1-11】对比面板收益柱状图
+const compareChartOption = computed(() => {
+  if (compareItems.value.length < 2) return null
+  const names = compareItems.value.map(ci => strategyNames(ci.strategies) + ' (' + formatDate(ci.created_at).slice(5) + ')')
+  const returns = compareItems.value.map(ci => ci.total_return ?? 0)
+  const winRates = compareItems.value.map(ci => ci.win_rate ?? 0)
+  const sharpes = compareItems.value.map(ci => ci.sharpe_ratio ?? 0)
+  return {
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['收益率(%)', '胜率(%)', '夏普'] },
+    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+    xAxis: { type: 'category', data: names },
+    yAxis: [
+      { type: 'value', name: '%', position: 'left' },
+      { type: 'value', name: '夏普', position: 'right' }
+    ],
+    series: [
+      { name: '收益率(%)', type: 'bar', data: returns, itemStyle: { color: '#67c23a' } },
+      { name: '胜率(%)', type: 'bar', data: winRates, itemStyle: { color: '#409eff' } },
+      { name: '夏普', type: 'bar', yAxisIndex: 1, data: sharpes, itemStyle: { color: '#e6a23c' } },
+    ]
+  }
+})
 
 onMounted(loadHistory)
 watch(() => props.visible, (v) => { if (v && !items.value.length) loadHistory() })
@@ -342,6 +374,8 @@ watch(() => props.visible, (v) => { if (v && !items.value.length) loadHistory() 
         </div>
       </template>
       <div class="compare-grid">
+        <!-- 【V63修复:P1-11】对比面板增加收益柱状图 -->
+        <VChart v-if="compareChartOption" :option="compareChartOption" autoresize style="height: 280px; width: 100%; margin-bottom: 12px" />
         <table class="cmp-table">
           <thead><tr><th>指标</th><th v-for="ci in compareItems" :key="ci.task_id">{{ strategyNames(ci.strategies) }} ({{ formatDate(ci.created_at).slice(5) }})</th></tr></thead>
           <tbody>

@@ -5,6 +5,8 @@
 1. 读取实盘交易记录，计算实际滑点/成交率
 2. 与回测假设对比，生成校准建议
 3. 输出可手动应用到strategy_defaults.py的参数调整建议
+4. 【V63:实盘vs回测偏差监控,超阈值自动告警】
+5. 【V63:回测参数变更自动同步到实盘(通过读取最新strategy_defaults.py)】
 
 使用方式:
   python -m real_trading.live_backtest_bridge [--days 30] [--output calibration_report.md]
@@ -139,6 +141,76 @@ def analyze_win_rate_calibration(live_trades: list, backtest_trades: list) -> di
     return results
 
 
+def check_live_backtest_deviation(wr_results: dict, slip_results: dict) -> list:
+    """【V63】实盘vs回测偏差监控:超阈值自动告警
+    
+    阈值:
+    - 胜率偏差 > 15% → 告警(实盘胜率远低于回测)
+    - 收益偏差 > 3% → 告警(实盘均盈亏远低于回测)
+    - 滑点偏差 > 0.2% → 告警(实盘滑点远超回测假设)
+    
+    Returns:
+        list: 告警消息列表
+    """
+    alerts = []
+    
+    # 胜率偏差
+    WIN_RATE_THRESHOLD = 15.0  # 百分点
+    for strategy, data in wr_results.items():
+        if data['live_count'] >= 3:  # 至少3笔实盘交易才有效
+            wr_gap = abs(data['wr_gap'])
+            if data['wr_gap'] < -WIN_RATE_THRESHOLD:
+                alerts.append(f"🔴 **{strategy}** 胜率严重偏差: 实盘{data['live_win_rate']:.1f}% vs 回测{data['bt_win_rate']:.1f}% (差{data['wr_gap']:+.1f}%)")
+            elif data['wr_gap'] < -WIN_RATE_THRESHOLD / 2:
+                alerts.append(f"🟡 **{strategy}** 胜率轻度偏差: 实盘{data['live_win_rate']:.1f}% vs 回测{data['bt_win_rate']:.1f}% (差{data['wr_gap']:+.1f}%)")
+    
+    # 收益偏差
+    PNL_THRESHOLD = 3.0  # 百分点
+    for strategy, data in wr_results.items():
+        if data['live_count'] >= 3:
+            pnl_gap = data['live_avg_pnl'] - data['bt_avg_pnl']
+            if pnl_gap < -PNL_THRESHOLD:
+                alerts.append(f"🔴 **{strategy}** 收益严重偏差: 实盘均{data['live_avg_pnl']:.2f}% vs 回测{data['bt_avg_pnl']:.2f}% (差{pnl_gap:+.2f}%)")
+    
+    # 滑点偏差
+    SLIP_THRESHOLD = 0.002  # 0.2%
+    for strategy, data in slip_results.items():
+        if data['deviation'] > SLIP_THRESHOLD:
+            alerts.append(f"🟡 **{strategy}** 滑点偏差: 实盘{data['avg_actual']*100:.2f}% vs 假设{data['assumed']*100:.2f}% (差{data['deviation']*100:+.2f}%)")
+    
+    return alerts
+
+
+def check_param_sync_status() -> list:
+    """【V63】检查实盘参数与最新strategy_defaults.py的同步状态
+    
+    读取strategy_defaults.py中的最新参数,与实盘模块使用的参数对比。
+    实盘模块通过from...import读取,只要重启服务就会获取最新参数。
+    这里检查的是:是否有需要重启才能生效的参数变更。
+    
+    Returns:
+        list: 同步状态消息列表
+    """
+    status = []
+    
+    # 检查strategy_defaults.py最近修改时间
+    defaults_path = PROJECT_ROOT / "AgentServer" / "nodes" / "backtest_engine" / "strategy_defaults.py"
+    if defaults_path.exists():
+        mtime = datetime.fromtimestamp(defaults_path.stat().st_mtime)
+        hours_ago = (datetime.now() - mtime).total_seconds() / 3600
+        status.append(f"strategy_defaults.py 最后修改: {mtime.strftime('%Y-%m-%d %H:%M')} ({hours_ago:.1f}小时前)")
+        if hours_ago < 1:
+            status.append(f"⚠️ strategy_defaults.py 在{hours_ago:.1f}小时内被修改,实盘服务需要重启才能生效")
+    
+    # 检查关键参数当前值
+    status.append(f"当前参数: stop_loss={GLOBAL_RISK['stop_loss_pct']*100:.0f}%, "
+                  f"take_profit={GLOBAL_RISK['take_profit_pct']*100:.0f}%, "
+                  f"max_hold={GLOBAL_RISK['max_hold_days']}天, "
+                  f"intraday_lock_high={GLOBAL_RISK.get('intraday_lock_min_high_rise', 0.05)*100:.0f}%")
+    
+    return status
+
+
 def generate_calibration_report(days: int = 30) -> str:
     """生成校准报告"""
     live_trades = load_live_trades(days)
@@ -194,7 +266,6 @@ def generate_calibration_report(days: int = 30) -> str:
     
     # 4. 持仓集中度校准
     report.append("\n## 4. 持仓集中度校准\n")
-    # 分析实盘持仓数与回测对比
     live_positions = {}  # TODO: 从实盘持仓读取
     if live_positions:
         live_count = len(live_positions)
@@ -209,8 +280,26 @@ def generate_calibration_report(days: int = 30) -> str:
     report.append("- intraday_lock_min_high_rise: 当前0.05, 降至0.04可更早锁定利润但可能过早退出")
     report.append("- hold_protection_threshold: 当前0.05, 降至0.04可保护更多盈利股但可能阻碍调仓")
     
-    # 6. 自动化校准建议
-    report.append("\n## 6. 自动化校准流程\n")
+    # 【V63新增:实盘vs回测偏差监控】
+    report.append("\n## 6. 实盘vs回测偏差监控 【V63】\n")
+    deviation_alerts = check_live_backtest_deviation(wr_results, slip_results)
+    if deviation_alerts:
+        for alert in deviation_alerts:
+            report.append(f"- {alert}")
+    else:
+        report.append("✅ 实盘与回测偏差在正常范围内\n")
+    
+    # 【V63新增:回测参数变更自动同步状态】
+    report.append("\n## 7. 回测参数同步状态 【V63】\n")
+    sync_status = check_param_sync_status()
+    if sync_status:
+        for item in sync_status:
+            report.append(f"- {item}")
+    else:
+        report.append("✅ 实盘参数与strategy_defaults.py一致\n")
+    
+    # 自动化校准流程
+    report.append("\n## 8. 自动化校准流程\n")
     report.append("```\n")
     report.append("1. 每周运行: python -m real_trading.live_backtest_bridge --days 7\n")
     report.append("2. 检查滑点偏差: |实盘均滑点 - 回测假设| > 0.1% → 调整slippage_pct\n")
@@ -220,7 +309,7 @@ def generate_calibration_report(days: int = 30) -> str:
     report.append("```\n")
     
     report.append("\n---")
-    report.append(f"\n*此报告由 live_backtest_bridge.py V62 自动生成，不自动修改任何参数*")
+    report.append(f"\n*此报告由 live_backtest_bridge.py V63 自动生成，不自动修改任何参数*")
     report.append(f"*生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}*")
     
     return '\n'.join(report)

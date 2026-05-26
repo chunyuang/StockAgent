@@ -35,9 +35,9 @@ const emit = defineEmits<{
 
 // 动态标题计算
 const dataSourceTitle = computed(() => `🔌 数据源配置 (${props.form.dataSource.period === 'daily' ? '日线' : '1分钟'}, ${props.form.dataSource.adjust_type === 'qfq' ? '前复权' : '不复权'}, 股票池: ${props.form.dataSource.ts_codes || '全市场'})`)
-const baseConfigTitle = computed(() => `📅 基础配置 (${props.form.dataSource.start_date}~${props.form.dataSource.end_date}, 初始资金¥${(props.form.base.initial_cash / 10000).toFixed(0)}万)`)
-const tradeParamsTitle = computed(() => `💹 交易参数 (止损${(props.form.tradeParams.base_stop_loss_pct * 100).toFixed(1)}%, 止盈${(props.form.tradeParams.base_take_profit_pct * 100).toFixed(1)}%, 持仓${props.form.tradeParams.max_hold_days}天, 总仓${(props.form.tradeParams.max_total_position * 100).toFixed(0)}%, 单票${(props.form.tradeParams.max_position_per_stock * 100).toFixed(0)}%, 佣金${(props.form.tradeParams.commission_rate * 1000).toFixed(1)}‰, 印花税${(props.form.tradeParams.stamp_duty_rate * 1000).toFixed(0)}‰, 滑点${(props.form.tradeParams.slippage_pct * 1000).toFixed(1)}‰)`)
-const globalFilterTitle = computed(() => `🔍 全局筛选 (剔除ST: ${props.form.globalFilter.exclude_st ? '✅' : '❌'}, 剔除退市: ${props.form.globalFilter.exclude_delisting ? '✅' : '❌'}, 次新股≥${props.form.globalFilter.exclude_new_stock_days}天, 成交额≥${props.form.globalFilter.min_daily_amount}万, 换手率≥${props.form.globalFilter.min_turnover_rate}%)`)
+const baseConfigTitle = computed(() => `📅 基础配置`)
+const tradeParamsTitle = computed(() => `💹 交易参数`)
+const globalFilterTitle = computed(() => `🔍 全局筛选`)
 const forceEmptyTitle = computed(() => `⚠️ 强制空仓 ${props.form.forceEmpty.enabled ? '✅' : '❌'} (跌幅≥${(props.form.forceEmpty.index_drop_pct * 100).toFixed(1)}%, 跌停≥${props.form.forceEmpty.limit_down_count}只, 涨停<${props.form.forceEmpty.limit_up_count}只)`)
 const sentimentCycleTitle = computed(() => `🧠 情绪周期 ${props.form.sentimentCycle.enabled ? '✅' : '❌'} (涨停${props.form.sentimentCycle.weight_limit_up}, 跌停${props.form.sentimentCycle.weight_limit_down}, 炸板率${props.form.sentimentCycle.weight_blast_rate}, 涨跌差${props.form.sentimentCycle.weight_rise_fall_diff}, 北向${props.form.sentimentCycle.weight_north_inflow})`)
 const auctionFilterTitle = computed(() => `⏰ 竞价过滤 ${props.form.auctionFilter.enabled ? '✅' : '❌'} (涨幅${(props.form.auctionFilter.min_auction_pct * 100).toFixed(1)}%~${(props.form.auctionFilter.max_auction_pct * 100).toFixed(1)}%, 成交额≥${props.form.auctionFilter.min_auction_amount}万, 量比≥${props.form.auctionFilter.min_auction_volume_ratio}, 未匹配量正: ${props.form.auctionFilter.min_unmatched_volume_positive ? '✅' : '❌'})`)
@@ -673,5 +673,21 @@ export default { name: 'StrategyConfigPanel' }
 }
 :deep(.el-switch) {
   margin-right: 4px;
+}
+/* 【V63修复:P1-10】移动端适配 */
+@media (max-width: 768px) {
+  .config-panel :deep(.el-form-item__label) {
+    width: 100px !important;
+    font-size: 12px;
+  }
+  .config-panel :deep(.el-input-number) {
+    width: 120px;
+  }
+  .config-panel :deep(.el-select) {
+    width: 140px;
+  }
+  .config-panel :deep(.el-collapse-item__header) {
+    font-size: 13px;
+  }
 }
 </style>
