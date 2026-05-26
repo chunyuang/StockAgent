@@ -291,6 +291,58 @@ async function toggleScanner() {
   loading.value = false
 }
 
+// 熔断操作
+async function toggleCircuitBreaker(action: 'pause' | 'reset') {
+  try {
+    const label = action === 'pause' ? '暂停交易' : '恢复交易'
+    await ElMessageBox.confirm(
+      `确认${label}？${action === 'pause' ? '\n暂停后不会自动买入新信号，但持仓止损止盈仍正常执行。' : '\n恢复后信号将正常执行买入。'}`,
+      label,
+      { confirmButtonText: '确认', cancelButtonText: '取消', type: action === 'pause' ? 'warning' : 'info' }
+    )
+    const r = await api.post(`${scannerApi}/circuit-breaker/${action}`)
+    if (r?.success) ElMessage.success(`${label}成功`)
+    else ElMessage.error(r?.message || '操作失败')
+    await fetchAll()
+    await fetchHealth()
+  } catch { /* cancelled */ }
+}
+
+// 持仓风控辅助
+function riskBarWidth(pos: PositionInfo): number {
+  const slPct = Math.abs(pos.stop_loss_pct || 3)
+  const tpPct = pos.take_profit_pct || 7
+  const range = slPct + tpPct
+  const current = pos.profit_pct + slPct // 从止损线算起
+  return Math.max(0, Math.min(100, current / range * 100))
+}
+function riskBarClass(pos: PositionInfo): string {
+  const distToStop = pos.profit_pct + (pos.stop_loss_pct || 3)
+  if (distToStop < 1) return 'danger'
+  if (distToStop < 2) return 'warning'
+  return 'safe'
+}
+
+// 持仓快捷卖出
+async function quickSell(pos: PositionInfo) {
+  try {
+    await ElMessageBox.confirm(
+      `确认卖出？\n${pos.stock_name} ${pos.ts_code}\n盈亏: ${formatPct(pos.profit_pct)} | 数量: ${pos.available_qty}股\n现价: ¥${pos.current_price.toFixed(2)}`,
+      '卖出确认',
+      { confirmButtonText: '确认卖出', cancelButtonText: '取消', type: pos.profit_pct < 0 ? 'warning' : 'info' }
+    )
+    const r = await api.post(`${scannerApi}/trade`, {
+      ts_code: pos.ts_code, stock_name: pos.stock_name,
+      side: 'sell', quantity: pos.available_qty, price: pos.current_price,
+      order_type: 'market', strategy: pos.strategy,
+      reason: `手动卖出 ${formatPct(pos.profit_pct)}`
+    })
+    if (r?.success) ElMessage.success(`已卖出 ${pos.stock_name} ${pos.available_qty}股@${r.data?.filled_price?.toFixed(2)}`)
+    else ElMessage.error(r?.data?.message || '卖出失败')
+    await fetchAll()
+  } catch { /* cancelled */ }
+}
+
 async function emergencyLiquidate() {
   try {
     await ElMessageBox.confirm('⚠️ 确认紧急平仓？所有持仓将以市价卖出！', '🚨 紧急平仓', { confirmButtonText: '确认平仓', cancelButtonText: '取消', type: 'error' })
@@ -502,6 +554,10 @@ onUnmounted(() => {
             <span class="circuit-dot" :style="{ background: healthColor }"></span>
             {{ { healthy: '🟢 正常', degraded: '🟡 预警', critical: '🔴 熔断', dead: '⚫ 失联', unknown: '⚪ 未知' }[healthStatus] || '⚪ 未知' }}
           </div>
+          <div v-if="isRunning" class="circuit-actions">
+            <button v-if="healthStatus !== 'critical'" class="circuit-btn pause" @click="toggleCircuitBreaker('pause')" title="暂停交易">⏸ 暂停</button>
+            <button v-else class="circuit-btn resume" @click="toggleCircuitBreaker('reset')" title="恢复交易">▶ 恢复</button>
+          </div>
         </div>
 
         <!-- 策略健康 — 从API获取 -->
@@ -667,21 +723,39 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <!-- 持仓列表(紧凑+风险线) -->
+        <!-- 持仓列表(紧凑+风险线+操作) -->
         <div class="pos-list">
-          <div v-for="pos in positions.slice(0, 5)" :key="pos.ts_code" class="pos-item">
+          <div v-for="pos in positions.slice(0, 8)" :key="pos.ts_code" class="pos-item">
             <div class="pos-main">
-              <span class="pos-code">{{ pos.ts_code }} {{ pos.stock_name }}</span>
-              <span class="pos-pnl" :class="pos.profit_pct >= 0 ? 'profit' : 'loss'">
-                {{ formatPct(pos.profit_pct) }}
-              </span>
+              <div class="pos-left">
+                <span class="pos-code" @click="openPositionDetail(pos)">{{ pos.ts_code }}</span>
+                <span class="pos-name">{{ pos.stock_name }}</span>
+                <ElTag size="small" :color="strategyColor(pos.strategy)" effect="dark" style="font-size:10px;border:none;color:#fff">{{ strategyIcon(pos.strategy) }}</ElTag>
+              </div>
+              <div class="pos-right">
+                <span class="pos-pnl" :class="pos.profit_pct >= 0 ? 'profit' : 'loss'">
+                  {{ formatPct(pos.profit_pct) }}
+                </span>
+                <button class="pos-sell-btn" @click="quickSell(pos)" title="卖出">卖</button>
+              </div>
             </div>
-            <div v-if="pos.stop_loss_price || pos.take_profit_price" class="pos-risk-line">
-              <span v-if="pos.stop_loss_price" class="pos-sl">止损 ¥{{ pos.stop_loss_price.toFixed(2) }}</span>
-              <span v-if="pos.take_profit_price" class="pos-tp">止盈 ¥{{ pos.take_profit_price.toFixed(2) }}</span>
+            <!-- 风险进度条 -->
+            <div v-if="pos.stop_loss_pct" class="pos-risk-bar">
+              <div class="risk-track">
+                <div class="risk-fill" :style="{ width: riskBarWidth(pos) + '%' }" :class="riskBarClass(pos)"></div>
+                <div class="risk-marker" :style="{ left: '0%' }" title="止损">SL</div>
+                <div class="risk-marker-tp" :style="{ left: '100%' }" title="止盈">TP</div>
+              </div>
+              <div class="risk-labels">
+                <span class="rl-sl">止损{{ pos.stop_loss_pct }}%</span>
+                <span class="rl-dist" :class="pos.profit_pct + (pos.stop_loss_pct||3) < 1 ? 'danger' : ''">
+                  距止损{{ (pos.profit_pct + (pos.stop_loss_pct||3)).toFixed(1) }}%
+                </span>
+                <span class="rl-tp">止盈{{ pos.take_profit_pct }}%</span>
+              </div>
             </div>
           </div>
-          <div v-if="positions.length > 5" class="pos-more">... 共{{ positions.length }}只</div>
+          <div v-if="positions.length > 8" class="pos-more">... 共{{ positions.length }}只</div>
         </div>
 
         <!-- 涨跌停池快览 -->
@@ -801,6 +875,12 @@ onUnmounted(() => {
 .circuit-status { font-size: 14px; font-weight: bold; }
 .circuit-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; animation: blink 1.5s infinite; }
 .circuit-status.critical .circuit-dot { animation: blink 0.5s infinite; }
+.circuit-actions { margin-top: 6px; display: flex; gap: 6px; }
+.circuit-btn { font-size: 11px; padding: 2px 10px; border-radius: 4px; cursor: pointer; border: 1px solid; }
+.circuit-btn.pause { border-color: #e6a23c; color: #e6a23c; background: transparent; }
+.circuit-btn.pause:hover { background: #e6a23c; color: #fff; }
+.circuit-btn.resume { border-color: #67c23a; color: #67c23a; background: transparent; }
+.circuit-btn.resume:hover { background: #67c23a; color: #fff; }
 @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 .strategy-health-item { display: flex; justify-content: space-between; padding: 3px 0; font-size: 12px; }
 .watchdog-details { margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--border-default); }
@@ -869,14 +949,38 @@ onUnmounted(() => {
 /* 持仓盈亏 */
 .pnl-chart { margin-bottom: 8px; }
 .total-pnl { text-align: center; font-size: 28px; font-weight: bold; margin: 8px 0; }
+.total-pnl.profit { color: var(--stock-down, #f56c6c); }
+.total-pnl.loss { color: var(--stock-up, #67c23a); }
 .today-pnl { text-align: center; font-size: 14px; font-weight: bold; margin-bottom: 8px; }
+.today-pnl.profit { color: var(--stock-down, #f56c6c); }
+.today-pnl.loss { color: var(--stock-up, #67c23a); }
 .fund-info { margin: 8px 0; }
 .fund-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; color: var(--text-tertiary); }
 .pos-list { margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--border-default); }
-.pos-item { padding: 4px 0; }
-.pos-main { display: flex; justify-content: space-between; font-size: 12px; }
-.pos-code { color: var(--text-tertiary); }
-.pos-pnl { font-weight: bold; }
+.pos-item { padding: 6px 0; border-bottom: 1px solid var(--border-light, var(--border-default)); }
+.pos-main { display: flex; justify-content: space-between; align-items: center; font-size: 12px; }
+.pos-left { display: flex; align-items: center; gap: 4px; }
+.pos-right { display: flex; align-items: center; gap: 6px; }
+.pos-code { color: var(--text-primary); font-size: 12px; font-weight: 500; cursor: pointer; }
+.pos-code:hover { text-decoration: underline; }
+.pos-name { color: var(--text-tertiary); font-size: 11px; }
+.pos-pnl { font-weight: bold; font-size: 13px; }
+.pos-pnl.profit { color: var(--stock-down, #f56c6c); }
+.pos-pnl.loss { color: var(--stock-up, #67c23a); }
+.pos-sell-btn { font-size: 10px; padding: 1px 6px; border-radius: 3px; border: 1px solid var(--stock-up, #67c23a); color: var(--stock-up, #67c23a); background: transparent; cursor: pointer; line-height: 1.4; }
+.pos-sell-btn:hover { background: var(--stock-up, #67c23a); color: #fff; }
+.pos-risk-bar { margin-top: 3px; }
+.risk-track { height: 4px; background: var(--bg-muted); border-radius: 2px; position: relative; overflow: hidden; }
+.risk-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
+.risk-fill.safe { background: linear-gradient(90deg, #e6a23c, #67c23a); }
+.risk-fill.warning { background: linear-gradient(90deg, #e6a23c, #f56c6c); }
+.risk-fill.danger { background: #f56c6c; animation: risk-pulse 1s infinite; }
+.risk-labels { display: flex; justify-content: space-between; font-size: 10px; margin-top: 1px; }
+.rl-sl { color: var(--stock-up, #67c23a); }
+.rl-tp { color: var(--stock-down, #f56c6c); }
+.rl-dist { color: var(--text-muted); }
+.rl-dist.danger { color: #f56c6c; font-weight: bold; }
+@keyframes risk-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
 .pos-risk-line { display: flex; gap: 8px; font-size: 10px; margin-top: 2px; }
 .pos-sl { color: var(--stock-up); }
 .pos-tp { color: var(--stock-down); }
