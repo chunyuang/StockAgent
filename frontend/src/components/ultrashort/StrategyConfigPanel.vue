@@ -330,6 +330,9 @@ function onSweepParamChange() {
               <ElFormItem label="滑点比例" :disabled="!form.strategyConfigs.halfway_chase.enabled">
                 <ElInputNumber v-model="form.strategyConfigs.halfway_chase.riskParams.slippage_pct" :min="0" :max="0.01" :step="0.001" :precision="3" style="width: 150px" :disabled="!form.strategyConfigs.halfway_chase.enabled" /><span class="unit">{{ (form.strategyConfigs.halfway_chase.riskParams.slippage_pct * 1000).toFixed(1) }}‰</span>
               </ElFormItem>
+              <ElFormItem v-if="form.strategyConfigs.halfway_chase.riskParams.trailing_stop_pct != null" label="追踪止损" :disabled="!form.strategyConfigs.halfway_chase.enabled">
+                <ElInputNumber v-model="form.strategyConfigs.halfway_chase.riskParams.trailing_stop_pct" :min="0" :max="0.05" :step="0.005" :precision="3" style="width: 150px" :disabled="!form.strategyConfigs.halfway_chase.enabled" /><span class="unit">{{ (form.strategyConfigs.halfway_chase.riskParams.trailing_stop_pct * 100).toFixed(1) }}%</span>
+              </ElFormItem>
             </div>
           </div>
         </ElForm>
@@ -363,7 +366,7 @@ function onSweepParamChange() {
               <ElInputNumber v-model="form.strategyConfigs.first_limit_up.params.max_circulation_market_cap" :min="50" :max="2000" :step="10" style="width: 150px" :disabled="!form.strategyConfigs.first_limit_up.enabled" /><span class="unit">亿</span>
             </ElFormItem>
             <ElFormItem label="次日高开即卖≥" :disabled="!form.strategyConfigs.first_limit_up.enabled">
-              <ElInputNumber v-model="form.strategyConfigs.first_limit_up.params.next_day_open_sell_pct" :min="0" :max="0.1" :step="0.005" style="width: 150px" :disabled="!form.strategyConfigs.first_limit_up.enabled" /><span class="unit">%</span>
+              <ElInputNumber v-model="form.strategyConfigs.first_limit_up.params.next_day_open_sell_pct" :min="0" :max="0.1" :step="0.005" style="width: 150px" :disabled="!form.strategyConfigs.first_limit_up.enabled" /><span class="unit">{{ (form.strategyConfigs.first_limit_up.params.next_day_open_sell_pct * 100).toFixed(1) }}%</span>
             </ElFormItem>
           </div>
           <!-- 成交概率配置 -->
