@@ -151,10 +151,8 @@ def create_app() -> FastAPI:
             if "." not in path.split("/")[-1]:
                 # 返回index.html让前端路由处理
                 from starlette.responses import FileResponse
-                # 优先使用frontend/dist（开发时直接生效），fallback到AgentServer/static
+                # 前端SPA fallback: 返回index.html让前端路由处理
                 static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../../frontend/dist")
-                if not os.path.exists(os.path.join(static_dir, "index.html")):
-                    static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../static")
                 index_path = os.path.join(static_dir, "index.html")
                 if os.path.exists(index_path):
                     return FileResponse(index_path, media_type="text/html")
@@ -227,10 +225,8 @@ def create_app() -> FastAPI:
     # WebSocket 路由
     app.include_router(websocket_router)
     
-    # 静态文件挂载 - 优先frontend/dist（build后自动生效），fallback到AgentServer/static
+    # 静态文件挂载 - 统一读 frontend/dist/
     static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../../frontend/dist")
-    if not os.path.exists(os.path.join(static_dir, "index.html")):
-        static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../static")
     if os.path.exists(static_dir):
         app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
     
