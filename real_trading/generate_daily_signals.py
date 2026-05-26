@@ -78,8 +78,8 @@ class RealTradingSignalGenerator:
             self.backtester._risk_config["max_position_per_stock"] = self.config.get("max_position_per_stock", GLOBAL_RISK["max_position_per_stock"])
             # 【V34:持仓保护】【V37:阈值0.06,在strategy_defaults中已修改,这里自动跟随】
             self.backtester._risk_config["hold_protection_threshold"] = GLOBAL_RISK.get("hold_protection_threshold", 0.05)
-            self.backtester._risk_config["intraday_lock_min_high_rise"] = GLOBAL_RISK.get("intraday_lock_min_high_rise", 0.05)
-            self.backtester._risk_config["intraday_lock_pullback_pct"] = GLOBAL_RISK.get("intraday_lock_pullback_pct", 0.02)
+            self.backtester._risk_config["intraday_lock_min_high_rise"] = GLOBAL_RISK.get("intraday_lock_min_high_rise", 0.04)
+            self.backtester._risk_config["intraday_lock_pullback_pct"] = GLOBAL_RISK.get("intraday_lock_pullback_pct", 0.015)
             self.backtester._risk_config["intraday_lock_min_profit"] = GLOBAL_RISK.get("intraday_lock_min_profit", 0.02)
             # 策略级风控参数(从STRATEGY_CONFIGS读取,单一来源)
             self.backtester._strategy_risk_params = {}

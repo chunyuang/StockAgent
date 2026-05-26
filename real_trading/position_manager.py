@@ -451,9 +451,17 @@ class PositionManager:
             _pullback_threshold = _strategy_params.get('next_day_open_sell_pct', GLOBAL_RISK.get('next_day_open_sell_pct', 0.03))
             _pullback_mid_fallback = _strategy_params.get('pullback_mid_fallback_pct', 0.01)
             _pullback_high = _strategy_params.get('pullback_high_threshold', 0.05)
-            _lock_min_high = GLOBAL_RISK.get('intraday_lock_min_high_rise', 0.05)
-            _lock_pullback = GLOBAL_RISK.get('intraday_lock_pullback_pct', 0.02)
+            _lock_min_high = GLOBAL_RISK.get('intraday_lock_min_high_rise', 0.04)
+            _lock_pullback = GLOBAL_RISK.get('intraday_lock_pullback_pct', 0.015)
             _lock_min_profit = GLOBAL_RISK.get('intraday_lock_min_profit', 0.02)
+            # 【V58对齐:读取策略级利润锁定参数,与回测_check_intraday_profit_lock一致】
+            _strategy_risk_params = _strategy_cfg.get('riskParams', {})
+            if 'intraday_lock_min_high_rise' in _strategy_risk_params:
+                _lock_min_high = _strategy_risk_params['intraday_lock_min_high_rise']
+            if 'intraday_lock_pullback_pct' in _strategy_risk_params:
+                _lock_pullback = _strategy_risk_params['intraday_lock_pullback_pct']
+            if 'intraday_lock_min_profit' in _strategy_risk_params:
+                _lock_min_profit = _strategy_risk_params['intraday_lock_min_profit']
 
             if _cost > 0 and open_p > 0:
                 open_rise = (open_p / _cost - 1)
