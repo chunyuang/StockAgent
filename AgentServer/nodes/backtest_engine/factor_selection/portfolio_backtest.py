@@ -278,25 +278,15 @@ class PortfolioBacktester:
             # === 2.5 盘中利润锁定(V42) ===
             # 盘中冲高≥6%但从高点回撤≥2.5%→以close价卖出
             # 此信号在止盈之下(止盈价未触达但利润已大幅回吐),保护利润不被完全回撤
-            # 【V46:参数从strategy_defaults读取,不再硬编码】
+            # 【V55-BUG-001修复:提取为_check_intraday_profit_lock方法,消除重复代码】
             if code not in forced_sell_codes_set:
                 high_p = p.get('high', p.get('close', 0))
                 _close_p = p.get('close', 0)
                 if high_p > 0 and _close_p > 0 and cost > 0:
-                    high_rise = (high_p / cost - 1)
-                    close_rise = (_close_p / cost - 1)
-                    # 【V48修复:fallback从硬编码0.06/0.025改为GLOBAL_RISK值0.05/0.02】
-                    # 旧bug: _risk_config从未设置intraday_lock参数,.get()fallback到0.06/0.025→V47从未生效
-                    # 新: _init_run_config已将GLOBAL_RISK值写入risk_config,此处fallback只是安全网
-                    lock_min_high = self._risk_config.get('intraday_lock_min_high_rise', GLOBAL_RISK.get('intraday_lock_min_high_rise', 0.05))
-                    lock_pullback = self._risk_config.get('intraday_lock_pullback_pct', GLOBAL_RISK.get('intraday_lock_pullback_pct', 0.02))
-                    lock_min_profit = self._risk_config.get('intraday_lock_min_profit', GLOBAL_RISK.get('intraday_lock_min_profit', 0.02))
-                    if high_rise >= lock_min_high and _close_p < high_p:
-                        intraday_pullback = (high_p - _close_p) / high_p
-                        if intraday_pullback >= lock_pullback and close_rise >= lock_min_profit:
-                            forced_sell_prices[code] = _close_p
-                            forced_sell_codes.append((code, '利润锁定'))
-                            forced_sell_codes_set.add(code)
+                    if self._check_intraday_profit_lock(cost, high_p, _close_p):
+                        forced_sell_prices[code] = _close_p
+                        forced_sell_codes.append((code, '利润锁定'))
+                        forced_sell_codes_set.add(code)
 
             # === 3. 超时强卖 ===
             if check_timeout and code not in forced_sell_codes_set:

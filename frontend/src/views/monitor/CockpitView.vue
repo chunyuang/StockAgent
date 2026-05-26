@@ -222,14 +222,15 @@ async function fetchAll() {
   try {
     const r = await api.get(`${scannerApi}/all`)
     if (r?.success) {
-      status.value = r.status
-      signals.value = r.signals || []
-      positions.value = r.positions || []
-      timeline.value = r.timeline || []
+      const d = r.data || r  // 兼容两种返回格式
+      status.value = d.status || {}
+      signals.value = d.signals || []
+      positions.value = d.positions || []
+      timeline.value = d.timeline || []
       // 同步data_sources
-      if (r.status?.data_sources) dataSources.value = r.status.data_sources
+      if (d.status?.data_sources) dataSources.value = d.status.data_sources
       // 同步trade_mode
-      if (r.status?.trade_mode) selectedMode.value = r.status.trade_mode
+      if (d.status?.trade_mode) selectedMode.value = d.status.trade_mode
       // 更新盈亏曲线
       const pnl = account.value.total_profit
       pnlHistory.value.push({ time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }), value: pnl })
@@ -241,7 +242,7 @@ async function fetchAll() {
 async function fetchHealth() {
   try {
     const r = await api.get(`${scannerApi}/health`)
-    if (r?.success) health.value = r.health
+    if (r?.success) health.value = r.health || r.data?.health || null
   } catch (e) { /* ignore */ }
 }
 
@@ -255,14 +256,14 @@ async function fetchScanTraces() {
 async function fetchLimitPools() {
   try {
     const r = await api.get(`${scannerApi}/limit-pools`)
-    if (r?.success) limitPools.value = r.data || { limit_up: [], limit_down: [], broken: [] }
+    if (r?.success) limitPools.value = r.data?.limit_up ? r.data : (r.limit_up ? r : { limit_up: [], limit_down: [], broken: [] })
   } catch (e) { /* ignore */ }
 }
 
 async function fetchStrategyParams() {
   try {
     const r = await api.get(`${scannerApi}/params`)
-    if (r?.success) strategyParams.value = r.data || {}
+    if (r?.success) strategyParams.value = r.data || r.params || {}
   } catch (e) { /* ignore */ }
 }
 
