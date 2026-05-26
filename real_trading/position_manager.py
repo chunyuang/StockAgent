@@ -416,6 +416,15 @@ class PositionManager:
                 alert["alerts"].append(f"⚠️  持仓超期：已持有{alert['hold_days']}天，超过{pos.max_hold_days}天上限，建议强制平仓")
                 alert["level"] = "danger"
             
+            # 【V60:龙头低吸5天低利润提前退出,与回测_check_and_execute_forced_sells对齐】
+            # 回测: 龙头低吸持仓5天利润<3%时提前退出,避免5-7天区间继续持仓占用资金+增加回撤
+            # 实盘: 同样逻辑,持仓5天利润<3%时发出danger级别告警
+            if _strategy == '龙头低吸' and alert['hold_days'] >= 5 and not alert.get('level'):
+                profit_pct = pos.current_profit_pct(current_price)
+                if profit_pct < 3.0:  # 5天利润<3%
+                    alert["alerts"].append(f"⚠️ 龙头5天低利润：持仓{alert['hold_days']}天收益仅{profit_pct:.1f}%，建议提前退出")
+                    alert["level"] = "danger"
+            
             # 检查止损【V50:区分跳空止损vs正常止损,与回测sell_signal_checker对齐】
             # 回测: open<=stop_price → 跳空止损(以open卖出), low<=stop_price → 正常止损(以stop_price卖出)
             if low <= pos.stop_loss_price:
@@ -443,10 +452,8 @@ class PositionManager:
             # 新:从GLOBAL_RISK读取默认值,策略级参数可通过STRATEGY_CONFIGS获取
             _cost = pos.buy_price
             _strategy = pos.strategy or '未知'
-            _strategy_cfg = STRATEGY_CONFIGS.get(
-                {'半路追涨': 'halfway_chase', '首板打板': 'first_limit_up',
-                 '龙头低吸': 'dragon_head', '跌停翘板': 'limit_down_qiao',
-                 '涨停开板': 'limit_up_open'}.get(_strategy, ''), {})
+            # 【V60:使用strategy_defaults统一映射,不再重复构建】
+            _strategy_cfg = STRATEGY_CONFIGS.get(STRATEGY_NAME_TO_ID.get(_strategy, ''), {})
             _strategy_params = _strategy_cfg.get('params', {})
             _pullback_threshold = _strategy_params.get('next_day_open_sell_pct', GLOBAL_RISK.get('next_day_open_sell_pct', 0.03))
             _pullback_mid_fallback = _strategy_params.get('pullback_mid_fallback_pct', 0.01)
