@@ -49,10 +49,14 @@ class ReplayDataProvider:
 
         logger.info(f"[REPLAY] 加载 {trade_date} 历史数据...")
 
+        # trade_date可能是字符串或整数, 兼容处理
+        td_int = int(trade_date) if isinstance(trade_date, str) else trade_date
+        td_str = str(trade_date)
+
         # 1. 日线数据
         daily_col = self.db['stock_daily_ak_full']
         daily_data = {}
-        for doc in daily_col.find({'trade_date': trade_date}):
+        for doc in daily_col.find({'trade_date': td_int}):
             code = doc.get('ts_code', '')
             if not code:
                 continue
@@ -69,7 +73,7 @@ class ReplayDataProvider:
 
         # 2. daily_basic补充PE/PB/换手率/流通市值
         basic_col = self.db['daily_basic']
-        for doc in basic_col.find({'trade_date': trade_date}):
+        for doc in basic_col.find({'trade_date': td_int}):
             code = doc.get('ts_code', '')
             if code in daily_data:
                 daily_data[code].update({
@@ -81,12 +85,12 @@ class ReplayDataProvider:
                 })
 
         # 3. 涨停池/跌停池
-        limit_up_col = self.db.get('limit_pool_up')
-        limit_down_col = self.db.get('limit_pool_down')
-
         limit_up_list = []
-        if limit_up_col:
-            for doc in limit_up_col.find({'trade_date': trade_date}):
+        limit_down_list = []
+        
+        if 'limit_pool_up' in self.db.list_collection_names():
+            limit_up_col = self.db['limit_pool_up']
+            for doc in limit_up_col.find({'trade_date': td_int}):
                 code = doc.get('ts_code', '')
                 item = {
                     'ts_code': code,
@@ -99,9 +103,9 @@ class ReplayDataProvider:
                 }
                 limit_up_list.append(item)
 
-        limit_down_list = []
-        if limit_down_col:
-            for doc in limit_down_col.find({'trade_date': trade_date}):
+        if 'limit_pool_down' in self.db.list_collection_names():
+            limit_down_col = self.db['limit_pool_down']
+            for doc in limit_down_col.find({'trade_date': td_int}):
                 code = doc.get('ts_code', '')
                 item = {
                     'ts_code': code,
@@ -122,14 +126,14 @@ class ReplayDataProvider:
         # 取前5天数据
         prev_vols = {}  # ts_code -> [vol1, vol2, ...]
         # 简化：用trade_cal找前5个交易日
-        cal_col = self.db.get('trade_cal')
-        if cal_col:
-            prev_dates = []
-            for doc in cal_col.find({'is_open': 1, 'cal_date': {'$lt': trade_date}}).sort('cal_date', -1).limit(5):
+        prev_dates = []
+        if 'trade_cal' in self.db.list_collection_names():
+            cal_col = self.db['trade_cal']
+            for doc in cal_col.find({'is_open': 1, 'cal_date': {'$lt': td_int}}).sort('cal_date', -1).limit(5):
                 prev_dates.append(doc['cal_date'])
 
             if prev_dates:
-                for doc in daily_col.find({'trade_date': {'$in': prev_dates}}):
+                for doc in daily_col.find({'trade_date': {'$in': [int(d) for d in prev_dates]}}):
                     code = doc.get('ts_code', '')
                     if code not in prev_vols:
                         prev_vols[code] = []
