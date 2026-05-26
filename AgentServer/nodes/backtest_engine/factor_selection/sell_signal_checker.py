@@ -455,10 +455,12 @@ STRATEGY_PULLBACK_PARAMS = {
     '半路追涨': {
         'pullback_high_threshold': 0.05,
         'pullback_mid_fallback_pct': 0.01,
+        'pullback_profit_lock_threshold': 0.08,  # V65:半路追涨利润≥8%时不触发冲高回落,让利润锁定/超时处理;基线+14.79%被冲高回落截断,8%以上应让利润跑
     },
     '跌停翘板': {
         'pullback_high_threshold': 0.05,
         'pullback_mid_fallback_pct': 0.015,  # 跌停翘板波动大,回落阈值更宽松
+        'pullback_profit_lock_threshold': 0.10,  # V65:跌停翘板利润≥10%时不触发冲高回落;基线+11.92%被截断,跌停翘板波动极大,高利润应让利润跑
     },
     '龙头低吸': {
         'pullback_high_threshold': 0.05,

@@ -63,6 +63,7 @@ STRATEGY_CONFIGS = {
             "next_day_open_sell_pct": 0.02, # 次日高开≥2%冲高回落保护(V53:从3%→2%,半路追涨次日冲高2%+即有回落风险,更早锁定利润)
             "pullback_mid_fallback_pct": 0.01,          # 冲高回落mid_fallback=1%(V55-LIVE-009:补充缺失参数,与回测STRATEGY_PULLBACK_PARAMS对齐)
             "pullback_high_threshold": 0.05,             # 冲高回落直接触发阈值=5%(V55-LIVE-009:补充缺失参数,与回测STRATEGY_PULLBACK_PARAMS对齐)
+            "pullback_profit_lock_threshold": 0.08,     # V65:半路追涨利润≥8%时不触发冲高回落,让利润锁定/超时处理;与回测STRATEGY_PULLBACK_PARAMS对齐
         },
         "riskParams": {
             "stop_loss_pct": 0.03,          # 止损3%(V64:保持3%,3.5%虽减少跳空误杀但盈亏比从2.70→2.58,总体收益微降;3%仍是半路追涨最优止损)
@@ -139,7 +140,7 @@ STRATEGY_CONFIGS = {
             "pullback_high_threshold": 0.05,             # 冲高回落直接触发阈值=5%(V55-LIVE-009:补充缺失参数,与回测STRATEGY_PULLBACK_PARAMS对齐)
         },
         "riskParams": {
-            "stop_loss_pct": 0.03,          # 止损3%(V45:从4%→3%,龙头低吸是缩量回调买入,止损应最紧,3月验证+4.11%收益/夏普+0.28/回撤-0.20%/盈亏比+0.39)
+            "stop_loss_pct": 0.035,         # 止损3.5%(V65:从3%→3.5%,V64基线6笔止损中3笔龙头低吸被误杀,后续2天分别反弹+3.8%/+12.4%/+9.4%,3%对龙头低吸的缩量回调买入过窄,3.5%给予更多波动空间减少误杀)
             "take_profit_pct": 0.30,          # 止盈30%(V38:从15%→30%,回测验证+15.68%收益/夏普+0.05,仅1笔触发30%止盈,其余由冲高回落/利润保护在更高价位退出,30%作为极端行情安全网)
             "max_hold_days": 7,             # 最大持仓7天(V47:从5→7,龙头低吸捕捉大趋势,51.69%和33.55%的超时退出说明5天太短截断大牛)
             "slippage_pct": 0.002,          # 滑点0.2%
@@ -160,6 +161,7 @@ STRATEGY_CONFIGS = {
             "next_day_open_sell_pct": 0.02,          # 次日高开≥2%冲高回落保护(V53:从3%→2%,跌停翘板波动大,高开2%+即有回落风险)
             "pullback_mid_fallback_pct": 0.015,     # 回落≥1.5%触发(跌停翘板波动大)
             "pullback_high_threshold": 0.05,             # 冲高回落直接触发阈值=5%(V55-LIVE-009:补充缺失参数,与回测STRATEGY_PULLBACK_PARAMS对齐)
+            "pullback_profit_lock_threshold": 0.10,     # V65:跌停翘板利润≥10%时不触发冲高回落;与回测STRATEGY_PULLBACK_PARAMS对齐
         },
         "riskParams": {
             "stop_loss_pct": 0.05,          # 止损5%(V39:从4%→5%,跌停翘板是极端波动股,止损应更宽,组合优化+1.80%收益)
