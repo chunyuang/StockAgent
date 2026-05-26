@@ -99,7 +99,13 @@ function formatRemaining(ms: number): string {
   return `${Math.floor(s / 60)}m${s % 60}s`
 }
 
-// 9层筛选管道
+// 信号详情弹窗
+const signalDetail = ref<ScanSignal | null>(null)
+const signalDetailVisible = ref(false)
+function showSignalDetail(sig: ScanSignal) {
+  signalDetail.value = sig
+  signalDetailVisible.value = true
+}
 const pipelineLayers = ['L1_force_empty', 'L2_special_period', 'L3_sentiment', 'L4_premarket', 'L5_auction', 'L6_strategy', 'L7_ranking', 'L8_position']
 const pipelineLabels: Record<string, string> = { L1_force_empty: '强制空仓', L2_special_period: '特殊时期', L3_sentiment: '情绪周期', L4_premarket: '盘前预选', L5_auction: '竞价过滤', L6_strategy: '策略量能', L7_ranking: '综合排序', L8_position: '仓位控制' }
 
@@ -144,14 +150,22 @@ async function toggleScanner() {
   loading.value = true
   try {
     if (isRunning.value) {
+      await ElMessageBox.confirm('确认停止扫描器？持仓将保留。', '停止扫描', { confirmButtonText: '确认停止', cancelButtonText: '取消', type: 'warning' })
       await api.post(`${scannerApi}/stop`)
       ElMessage.success('扫描器已停止')
     } else {
+      // 二次确认并显示当前账户摘要
+      const acc = account.value
+      await ElMessageBox.confirm(
+        `确认启动扫描器？\n模式: ${tradeModeLabel.text}\n可用资金: ¥${(acc.available_cash / 10000).toFixed(1)}万\n当前持仓: ${positions.value.length}只`,
+        '启动扫描',
+        { confirmButtonText: '确认启动', cancelButtonText: '取消', type: 'info' }
+      )
       await api.post(`${scannerApi}/start`, { trade_mode: tradeMode.value })
       ElMessage.success('扫描器已启动')
     }
     await fetchAll()
-  } catch { ElMessage.error('操作失败') }
+  } catch { /* cancelled or error */ }
   loading.value = false
 }
 
@@ -289,7 +303,7 @@ onUnmounted(() => {
           <div v-if="signals.length === 0" class="no-signals">
             <ElEmpty description="暂无信号" :image-size="60" />
           </div>
-          <div v-for="sig in signals.slice(0, 10)" :key="sig.ts_code + sig.strategy" class="signal-card" :style="{ borderLeftColor: strategyColor(sig.strategy) }">
+          <div v-for="sig in signals.slice(0, 10)" :key="sig.ts_code + sig.strategy" class="signal-card" :style="{ borderLeftColor: strategyColor(sig.strategy) }" @click="showSignalDetail(sig)">
             <div class="sig-header">
               <span class="sig-icon">{{ strategyIcon(sig.strategy) }}</span>
               <span class="sig-strategy" :style="{ color: strategyColor(sig.strategy) }">{{ sig.strategy_name }}</span>
@@ -356,6 +370,25 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+
+    <!-- ===== 信号详情弹窗 ===== -->
+    <ElDialog v-model="signalDetailVisible" :title="signalDetail ? `${signalDetail.ts_code} ${signalDetail.stock_name}` : ''" width="480px" destroy-on-close>
+      <div v-if="signalDetail" class="sig-detail">
+        <div class="sig-detail-row"><span class="sig-detail-label">策略</span><span :style="{ color: strategyColor(signalDetail.strategy) }">{{ strategyIcon(signalDetail.strategy) }} {{ signalDetail.strategy_name }}</span></div>
+        <div class="sig-detail-row"><span class="sig-detail-label">价格</span><span>¥{{ signalDetail.price?.toFixed(2) }}</span></div>
+        <div class="sig-detail-row"><span class="sig-detail-label">涨幅</span><span :class="signalDetail.pct_chg >= 0 ? 'profit' : 'loss'">{{ signalDetail.pct_chg >= 0 ? '+' : '' }}{{ signalDetail.pct_chg?.toFixed(2) }}%</span></div>
+        <div class="sig-detail-row"><span class="sig-detail-label">原因</span><span>{{ signalDetail.reason }}</span></div>
+        <div class="sig-detail-pipeline">
+          <div class="sig-detail-pipeline-title">9层筛选管道通过详情</div>
+          <div class="pipeline-flow">
+            <template v-for="(layer, i) in pipelineLayers" :key="layer">
+              <div class="pipe-node"><span class="pipe-label">{{ pipelineLabels[layer] }}</span><span class="pipe-status">✅</span></div>
+              <span v-if="i < pipelineLayers.length - 1" class="pipe-arrow">→</span>
+            </template>
+          </div>
+        </div>
+      </div>
+    </ElDialog>
 
     <!-- ===== 底部时间线 ===== -->
     <div class="timeline-bar">
@@ -463,4 +496,11 @@ onUnmounted(() => {
 .timeline-label { font-weight: bold; font-size: 12px; white-space: nowrap; }
 .timeline-scroll { display: flex; gap: 12px; overflow-x: auto; flex: 1; }
 .tl-item { white-space: nowrap; font-size: 12px; color: var(--text-tertiary); }
+
+/* 信号详情弹窗 */
+.sig-detail { font-size: 13px; }
+.sig-detail-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border-default); }
+.sig-detail-label { color: var(--text-tertiary); min-width: 60px; }
+.sig-detail-pipeline { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border-default); }
+.sig-detail-pipeline-title { font-weight: bold; margin-bottom: 8px; font-size: 13px; }
 </style>

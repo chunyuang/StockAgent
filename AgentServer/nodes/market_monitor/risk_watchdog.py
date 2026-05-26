@@ -152,6 +152,9 @@ class RiskWatchdog:
         # 5. 行情延迟检查(如果Scanner有数据)
         checks["market_latency"] = self._check_market_latency()
         
+        # 【V54:数据源可用性检查】
+        checks["data_source"] = self._check_data_source()
+        
         # 更新状态
         self._state.checks = checks
         
@@ -438,6 +441,51 @@ class RiskWatchdog:
             last_check_time=now,
         )
     
+    def _check_data_source(self) -> HealthCheck:
+        """【V54:检查数据源可用性(东财/必盈连接状态)"""
+        now = time.time()
+        
+        if not self._scanner:
+            return HealthCheck(
+                name="data_source", status=HealthStatus.HEALTHY,
+                value="N/A", threshold="东财可用",
+                message="Scanner未关联",
+                last_check_time=now,
+            )
+        
+        issues = []
+        # 检查东财连接: 最后一次scan是否成功获取行情
+        cache_size = len(getattr(self._scanner, '_realtime_cache', {}))
+        if cache_size == 0 and self._scanner._is_running:
+            # 正在运行但行情缓存为空 = 东财可能断流
+            elapsed = time.time() - self._state.scanner_heartbeat
+            if elapsed > 60:  # 超过60秒没有行情
+                issues.append("东财行情缓存为空")
+        
+        # 检查必盈额度(如果有)
+        data_router = getattr(self._scanner, '_data_router', None)
+        if data_router and hasattr(data_router, 'bingying_remaining'):
+            remaining = data_router.bingying_remaining
+            if remaining is not None and remaining < 20:
+                issues.append(f"必盈额度不足({remaining}次)")
+        
+        if issues:
+            return HealthCheck(
+                name="data_source", status=HealthStatus.DEGRADED,
+                value=", ".join(issues),
+                threshold="东财可用+必盈>20次",
+                message=f"⚠️ 数据源异常: {', '.join(issues)}",
+                last_check_time=now,
+            )
+        
+        return HealthCheck(
+            name="data_source", status=HealthStatus.HEALTHY,
+            value=f"东财缓存{cache_size}只",
+            threshold="东财可用",
+            message="正常",
+            last_check_time=now,
+        )
+
     # ==================== 告警与紧急操作 ====================
     
     async def _send_alert_if_needed(self, check_name: str, check: HealthCheck) -> None:
