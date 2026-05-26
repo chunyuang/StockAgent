@@ -343,10 +343,10 @@ echo -e "${YELLOW}🎨 5/7 构建前端 + 同步dist到Backend...${NC}"
 cd "${PROJECT_ROOT}/frontend"
 npm run build > "${PROJECT_ROOT}/logs/frontend_build.log" 2>&1
 if [ $? -eq 0 ]; then
-  echo -e "${GREEN}✅ 前端build成功，dist已同步到AgentServer/static/${NC}"
+  echo -e "${GREEN}✅ 前端build成功，dist已就绪${NC}"
 else
   echo -e "${RED}❌ 前端build失败！查看日志: tail -f ${PROJECT_ROOT}/logs/frontend_build.log${NC}"
-  echo -e "${YELLOW}⚠️  继续启动（Vite dev server可用，但Backend静态页可能显示旧版）${NC}"
+  echo -e "${YELLOW}⚠️  继续启动（Vite dev server可用，但Backend静态页不可用）${NC}"
 fi
 
 # 6. 启动前端Vite开发服务
@@ -375,7 +375,7 @@ echo -e "${GREEN}✅ 所有服务启动成功！${NC}"
 echo -e "${GREEN}👉 Web服务: 端口 8000 (PID $web_pid)${NC}"
 echo -e "${GREEN}👉 回测引擎: 端口 50057 (PID $backtest_pid)${NC}"
 echo -e "${GREEN}👉 前端: 端口 5174 (PID $frontend_pid)${NC}"
-echo -e "${GREEN}👉 前端build: dist → AgentServer/static/ 已同步${NC}"
+echo -e "${GREEN}👉 前端build: frontend/dist/ 已就绪${NC}"
 echo -e "${GREEN}👉 前端访问地址: http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'localhost'):5174/ultra-short-v2${NC}"
 echo -e "${GREEN}👉 Backend静态页: http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'localhost'):8000/ultra-short-v2${NC}"
 echo -e "${GREEN}👉 数据库管理页面: http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'localhost'):5174/admin/db${NC}"
