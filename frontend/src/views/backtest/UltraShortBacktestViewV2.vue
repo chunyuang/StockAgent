@@ -169,9 +169,21 @@ function parseIni(content: string): Record<string, any> {
   return result
 }
 
+// ==================== 键盘快捷键 ====================
+// 【V63修复:P2-14】Ctrl+Enter提交回测, Esc关闭弹窗
+function onGlobalKeydown(e: KeyboardEvent) {
+  if (e.ctrlKey && e.key === 'Enter') {
+    e.preventDefault()
+    if (form.sweep.enabled) submitSweepBacktest()
+    else submitBacktest()
+  }
+}
+
 // ==================== 生命周期 ====================
 
 onMounted(async () => {
+  // 【V63修复:P2-14】键盘快捷键: Ctrl+Enter提交回测, Esc关闭弹窗
+  document.addEventListener('keydown', onGlobalKeydown)
   let loaded = false
 
   // 1. 尝试从 config.ini 加载
@@ -664,6 +676,7 @@ const sweepChartOption = computed(() => {
 
 onUnmounted(() => {
   if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null }
+  document.removeEventListener('keydown', onGlobalKeydown)
 })
 
 const addLog = (text: string) => {

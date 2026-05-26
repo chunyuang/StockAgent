@@ -769,8 +769,9 @@ function exportTrades() {
     <div class="kpi-strip">
       <div class="kpi-chip">
         <span class="kpi-label">累计收益</span>
+        <!-- 【V63:UI增强】KPI chip增加趋势小图标 -->
         <span class="kpi-value" :style="{ color: (result.total_return || 0) >= 0 ? 'var(--stock-down)' : 'var(--stock-up)' }">
-          {{ fmtPct(result.total_return) }}
+          {{ (result.total_return || 0) >= 0 ? '↑' : '↓' }} {{ fmtPct(result.total_return) }}
         </span>
       </div>
       <div class="kpi-chip">
