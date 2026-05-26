@@ -1521,12 +1521,14 @@ class PortfolioBacktester:
                         ))
                         holdings.pop(code, None)
                 # 【P1-7修复:强制空仓清仓时清理cost_basis】
+                # 【V55-BUG-006修复:同时清理stock_to_strategy,避免强制空仓日残留脏数据】
                 if self._cost_basis:
                     for code in list(self._cost_basis.keys()):
                         if code not in holdings or holdings.get(code, 0) <= 0:
                             del self._cost_basis[code]
                             if code in self._cost_basis_date:
                                 del self._cost_basis_date[code]
+                            self.stock_to_strategy.pop(code, None)
                 holdings = {code: shares for code, shares in holdings.items() if shares > 0}
                 await self.log(f"   │  ✅ 已执行强制清仓,卖出 {sell_count} 只持仓")
                 await self.log(f"   │  💵 清仓后现金:{cash:,.2f} 元")
@@ -2674,12 +2676,20 @@ class PortfolioBacktester:
                     rebalance_records_dict.append(day_records)
 
         # 转换 all_trades 也为字典
+        # 【V55-BUG-004修复:卖出记录添加sell_price/buy_price映射,与merged_trades一致】
         all_trades_dict = []
         for record in all_trades:
             if hasattr(record, '__dict__'):
-                all_trades_dict.append(record.__dict__)
+                d = dict(record.__dict__)
             else:
-                all_trades_dict.append(record)
+                d = record if isinstance(record, dict) else {}
+            # 卖出记录添加sell_price映射(price→sell_price)
+            if d.get('action') == 'sell' and 'sell_price' not in d and 'price' in d:
+                d['sell_price'] = d['price']
+            # 买入记录添加buy_price映射(price→buy_price)
+            if d.get('action') == 'buy' and 'buy_price' not in d and 'price' in d:
+                d['buy_price'] = d['price']
+            all_trades_dict.append(d)
 
         # 【修复#47/#48/#13:基于逐日净值计算绩效指标】
         # 净值曲线和每日盈亏已经在逐日回测循环中计算完成,这里直接使用
