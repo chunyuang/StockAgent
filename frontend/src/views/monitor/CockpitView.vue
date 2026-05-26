@@ -3,17 +3,17 @@
  * CockpitView — 驾驶舱视图 (交易员视角)
  * 
  * 布局: 
- * 顶: 状态栏(模式+资产+紧急平仓)
- * 左: 风控仪表盘
+ * 顶: 状态栏(模式切换+资产+紧急平仓)
+ * 左: 风控仪表盘 + 数据源状态 + 参数热更新
  * 中: 核心实时区(信号+9层管道)
- * 右: 持仓盈亏波动
+ * 右: 持仓盈亏波动 + 涨跌停池
  * 底: 时间线
  */
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import {
   ElCard, ElButton, ElTag, ElProgress, ElBadge, ElTooltip,
   ElEmpty, ElTable, ElTableColumn, ElTabs, ElTabPane,
-  ElMessage, ElMessageBox, ElDialog,
+  ElMessage, ElMessageBox, ElDialog, ElSelect, ElOption, ElInputNumber, ElCollapse, ElCollapseItem,
 } from 'element-plus'
 import { api } from '@/api/client'
 
@@ -24,6 +24,11 @@ interface ScanSignal { ts_code: string; stock_name: string; strategy: string; st
 interface PositionInfo { ts_code: string; stock_name: string; strategy: string; shares: number; available_qty: number; cost_price: number; current_price: number; profit_pct: number; profit_amount?: number; market_value?: number; stop_loss_pct?: number; take_profit_pct?: number; stop_loss_price?: number; take_profit_price?: number; distance_to_stop?: number }
 interface AccountInfo { total_assets: number; available_cash: number; market_value: number; total_profit: number }
 interface TimelineItem { time: string; action: string; ts_code: string; stock_name: string; strategy: string; shares: number; price: number; reason: string; profit_pct?: number }
+interface ScanTraceCandidate { ts_code: string; stock_name: string; strategy: string; strategy_name: string; price: number; pct_chg: number; final_status: string; rejection_layer?: string; rejection_reason?: string; layer_results?: Record<string, { passed: boolean; reason?: string }> }
+interface ScanTrace { trade_date: string; scan_time: string; summary: Record<string, any>; candidates: ScanTraceCandidate[] }
+interface LimitPools { limit_up: any[]; limit_down: any[]; broken: any[] }
+interface DataSourceInfo { name: string; available: boolean; stocks: number; calls: number; limit: number; note: string }
+interface StrategyParams { [key: string]: any }
 
 // ============ 状态 ============
 const scannerApi = '/scanner'
@@ -33,8 +38,16 @@ const signals = ref<ScanSignal[]>([])
 const positions = ref<PositionInfo[]>([])
 const timeline = ref<TimelineItem[]>([])
 const pnlHistory = ref<{time: string, value: number}[]>([])
+const scanTraces = ref<ScanTrace[]>([])
+const limitPools = ref<LimitPools>({ limit_up: [], limit_down: [], broken: [] })
+const dataSources = ref<DataSourceInfo[]>([])
+const strategyParams = ref<Record<string, StrategyParams>>({})
+const paramExpanded = ref(false)
+const editingParam = ref<string | null>(null)
+const paramEdits = ref<Record<string, any>>({})
 const loading = ref(false)
 const autoRefresh = ref(true)
+const selectedMode = ref('simulated')
 let refreshTimer: any = null
 let ws: WebSocket | null = null
 let wsReconnectTimer: any = null
@@ -86,6 +99,73 @@ const consecutiveLosses = computed(() => {
   return cb?.consecutive_losses ?? 0
 })
 
+// 策略健康 - 从health checks动态获取
+const strategyHealthList = computed(() => {
+  const checks = health.value?.checks
+  if (!checks) {
+    // fallback: 没有health数据时使用策略元数据
+    return Object.entries(strategyMeta).map(([key, meta]) => ({
+      key, name: meta.cn, icon: meta.icon, status: 'unknown', color: '#909399'
+    }))
+  }
+  // 从checks中提取策略相关状态
+  const result: { key: string; name: string; icon: string; status: string; color: string }[] = []
+  for (const [key, meta] of Object.entries(strategyMeta)) {
+    // 尝试匹配 checks 中的策略相关项
+    const checkKey = Object.keys(checks).find(k => k.includes(key) || key.includes(k))
+    const check = checkKey ? checks[checkKey] : null
+    result.push({
+      key,
+      name: meta.cn,
+      icon: meta.icon,
+      status: check?.status || 'unknown',
+      color: check?.status === 'healthy' ? '#67c23a' : check?.status === 'degraded' ? '#e6a23c' : check?.status === 'critical' ? '#f56c6c' : '#909399'
+    })
+  }
+  return result
+})
+
+function strategyHealthIcon(status: string): string {
+  const m: Record<string, string> = { healthy: '✅', degraded: '⚠️', critical: '🔴', dead: '⚫', unknown: '❓' }
+  return m[status] || '❓'
+}
+
+// 9层管道 — 接入ScanTrace API
+const pipelineLayers = ['L1_force_empty', 'L2_special_period', 'L3_sentiment', 'L4_premarket', 'L5_auction', 'L6_strategy', 'L7_ranking', 'L8_position', 'L9_execute']
+const pipelineLabels: Record<string, string> = {
+  L1_force_empty: '强制空仓', L2_special_period: '特殊时期', L3_sentiment: '情绪周期',
+  L4_premarket: '盘前预选', L5_auction: '竞价过滤', L6_strategy: '策略量能',
+  L7_ranking: '综合排序', L8_position: '仓位控制', L9_execute: '执行确认'
+}
+
+// 获取最近scan trace的summary作为管道状态
+const pipelineSummary = computed(() => {
+  if (!scanTraces.value.length) return null
+  return scanTraces.value[0]?.summary || null
+})
+
+// 管道层级的通过/拒绝数量
+function pipelineLayerStats(layer: string): { passed: number; rejected: number; total: number } {
+  const summary = pipelineSummary.value
+  if (!summary || !summary[layer]) return { passed: 0, rejected: 0, total: 0 }
+  const s = summary[layer]
+  return { passed: s.passed ?? s.keep ?? 0, rejected: s.rejected ?? s.filtered ?? 0, total: s.total ?? s.input ?? 0 }
+}
+
+function pipelineLayerStatus(layer: string): 'pass' | 'filter' | 'idle' {
+  const stats = pipelineLayerStats(layer)
+  if (stats.total === 0) return 'idle'
+  if (stats.rejected > 0) return 'filter'
+  return 'pass'
+}
+
+// 涨跌停池统计
+const limitPoolStats = computed(() => ({
+  limitUp: limitPools.value.limit_up?.length ?? 0,
+  limitDown: limitPools.value.limit_down?.length ?? 0,
+  broken: limitPools.value.broken?.length ?? 0,
+}))
+
 // 信号过期倒计时
 const SIGNAL_EXPIRE_MS = 300000
 function signalRemaining(sig: ScanSignal): number {
@@ -102,12 +182,27 @@ function formatRemaining(ms: number): string {
 // 信号详情弹窗
 const signalDetail = ref<ScanSignal | null>(null)
 const signalDetailVisible = ref(false)
+const signalDetailTrace = ref<ScanTraceCandidate | null>(null)
+
 function showSignalDetail(sig: ScanSignal) {
   signalDetail.value = sig
   signalDetailVisible.value = true
+  // 从scanTraces中查找该信号的trace数据
+  signalDetailTrace.value = null
+  for (const trace of scanTraces.value) {
+    const candidate = trace.candidates?.find(c => c.ts_code === sig.ts_code && c.strategy === sig.strategy)
+    if (candidate) {
+      signalDetailTrace.value = candidate
+      break
+    }
+  }
 }
-const pipelineLayers = ['L1_force_empty', 'L2_special_period', 'L3_sentiment', 'L4_premarket', 'L5_auction', 'L6_strategy', 'L7_ranking', 'L8_position']
-const pipelineLabels: Record<string, string> = { L1_force_empty: '强制空仓', L2_special_period: '特殊时期', L3_sentiment: '情绪周期', L4_premarket: '盘前预选', L5_auction: '竞价过滤', L6_strategy: '策略量能', L7_ranking: '综合排序', L8_position: '仓位控制' }
+
+// 获取信号在特定层的trace状态
+function getSignalLayerResult(layer: string): { passed: boolean; reason?: string } | null {
+  if (!signalDetailTrace.value?.layer_results) return null
+  return signalDetailTrace.value.layer_results[layer] || null
+}
 
 // 盈亏曲线
 const pnlOption = computed(() => ({
@@ -131,6 +226,10 @@ async function fetchAll() {
       signals.value = r.signals || []
       positions.value = r.positions || []
       timeline.value = r.timeline || []
+      // 同步data_sources
+      if (r.status?.data_sources) dataSources.value = r.status.data_sources
+      // 同步trade_mode
+      if (r.status?.trade_mode) selectedMode.value = r.status.trade_mode
       // 更新盈亏曲线
       const pnl = account.value.total_profit
       pnlHistory.value.push({ time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }), value: pnl })
@@ -138,10 +237,32 @@ async function fetchAll() {
     }
   } catch (e) { /* ignore */ }
 }
+
 async function fetchHealth() {
   try {
     const r = await api.get(`${scannerApi}/health`)
     if (r?.success) health.value = r.health
+  } catch (e) { /* ignore */ }
+}
+
+async function fetchScanTraces() {
+  try {
+    const r = await api.get(`${scannerApi}/scan-traces?limit=3`)
+    if (r?.success) scanTraces.value = r.data || []
+  } catch (e) { /* ignore */ }
+}
+
+async function fetchLimitPools() {
+  try {
+    const r = await api.get(`${scannerApi}/limit-pools`)
+    if (r?.success) limitPools.value = r.data || { limit_up: [], limit_down: [], broken: [] }
+  } catch (e) { /* ignore */ }
+}
+
+async function fetchStrategyParams() {
+  try {
+    const r = await api.get(`${scannerApi}/params`)
+    if (r?.success) strategyParams.value = r.data || {}
   } catch (e) { /* ignore */ }
 }
 
@@ -154,14 +275,14 @@ async function toggleScanner() {
       await api.post(`${scannerApi}/stop`)
       ElMessage.success('扫描器已停止')
     } else {
-      // 二次确认并显示当前账户摘要
       const acc = account.value
+      const modeLabels: Record<string, string> = { simulated: '模拟', gm: '掘金', dry_run: '调试' }
       await ElMessageBox.confirm(
-        `确认启动扫描器？\n模式: ${tradeModeLabel.text}\n可用资金: ¥${(acc.available_cash / 10000).toFixed(1)}万\n当前持仓: ${positions.value.length}只`,
+        `确认启动扫描器？\n模式: ${modeLabels[selectedMode.value] || selectedMode.value}\n可用资金: ¥${(acc.available_cash / 10000).toFixed(1)}万\n当前持仓: ${positions.value.length}只`,
         '启动扫描',
         { confirmButtonText: '确认启动', cancelButtonText: '取消', type: 'info' }
       )
-      await api.post(`${scannerApi}/start`, { trade_mode: tradeMode.value })
+      await api.post(`${scannerApi}/start`, { trade_mode: selectedMode.value })
       ElMessage.success('扫描器已启动')
     }
     await fetchAll()
@@ -179,6 +300,62 @@ async function emergencyLiquidate() {
     await fetchAll()
   } catch { /* cancelled */ }
   loading.value = false
+}
+
+// 模式切换
+async function onModeChange(mode: string) {
+  if (mode === tradeMode.value) return
+  const modeLabels: Record<string, string> = { simulated: '模拟', gm: '掘金实盘', dry_run: '调试' }
+  try {
+    await ElMessageBox.confirm(
+      `确认切换到 ${modeLabels[mode] || mode} 模式？${mode === 'gm' ? '\n⚠️ 掘金模式将进行实盘交易！' : ''}`,
+      '模式切换',
+      { confirmButtonText: '确认切换', cancelButtonText: '取消', type: mode === 'gm' ? 'warning' : 'info' }
+    )
+    selectedMode.value = mode
+    if (isRunning.value) {
+      // 如果正在运行，先停再启
+      await api.post(`${scannerApi}/stop`)
+      await api.post(`${scannerApi}/start`, { trade_mode: mode })
+      ElMessage.success(`已切换到${modeLabels[mode]}模式并重启`)
+      await fetchAll()
+    } else {
+      ElMessage.success(`模式已切换到${modeLabels[mode]}，启动时生效`)
+    }
+  } catch { /* cancelled */ }
+}
+
+// 参数热更新
+async function saveParam(strategyId: string) {
+  const updates = paramEdits.value[strategyId]
+  if (!updates || Object.keys(updates).length === 0) return
+  try {
+    const r = await api.put(`${scannerApi}/params/${strategyId}`, { params: updates, updated_by: 'cockpit' })
+    if (r?.success) {
+      ElMessage.success(`${strategyCN(strategyId)}参数已更新`)
+      paramEdits.value[strategyId] = {}
+      editingParam.value = null
+      await fetchStrategyParams()
+    } else {
+      ElMessage.error(r?.message || '更新失败')
+    }
+  } catch (e: any) {
+    ElMessage.error('参数更新失败: ' + (e.message || e))
+  }
+}
+
+function startEditParam(strategyId: string) {
+  editingParam.value = strategyId
+  if (!paramEdits.value[strategyId]) paramEdits.value[strategyId] = {}
+  // 初始化编辑值
+  const params = strategyParams.value[strategyId]
+  if (params) {
+    paramEdits.value[strategyId] = { ...params }
+  }
+}
+
+function cancelEditParam() {
+  editingParam.value = null
 }
 
 // ============ WebSocket ============
@@ -200,8 +377,13 @@ function connectWS() {
 
 // ============ 生命周期 ============
 onMounted(() => {
-  fetchAll(); fetchHealth()
-  refreshTimer = setInterval(() => { if (autoRefresh.value) { fetchAll(); fetchHealth() } }, 5000)
+  fetchAll(); fetchHealth(); fetchScanTraces(); fetchLimitPools(); fetchStrategyParams()
+  refreshTimer = setInterval(() => {
+    if (autoRefresh.value) {
+      fetchAll(); fetchHealth(); fetchScanTraces(); fetchLimitPools()
+      if (paramExpanded.value) fetchStrategyParams()
+    }
+  }, 5000)
   nowTimer = setInterval(() => { nowMs.value = Date.now() }, 1000)
   connectWS()
 })
@@ -216,6 +398,12 @@ onUnmounted(() => {
     <!-- ===== 顶部状态栏 ===== -->
     <div class="top-bar">
       <div class="top-left">
+        <!-- 模式切换下拉 -->
+        <ElSelect v-model="selectedMode" size="small" class="mode-select" @change="onModeChange">
+          <ElOption label="🟢 模拟" value="simulated" />
+          <ElOption label="🔵 掘金" value="gm" />
+          <ElOption label="🟡 调试" value="dry_run" />
+        </ElSelect>
         <span class="mode-badge" :style="{ background: tradeModeLabel.color }">{{ tradeModeLabel.text }}</span>
         <span class="asset-info">
           资产 <b>¥{{ (account.total_assets / 10000).toFixed(1) }}万</b>
@@ -274,13 +462,28 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <!-- 策略健康 -->
+        <!-- 策略健康 — 从API获取 -->
         <div class="risk-item">
           <div class="risk-label">策略健康</div>
           <div class="strategy-health-list">
-            <div v-for="meta in strategyMeta" :key="meta.cn" class="strategy-health-item">
-              <span>{{ meta.icon }} {{ meta.cn }}</span>
-              <ElTag size="small" type="info">✅</ElTag>
+            <div v-for="item in strategyHealthList" :key="item.key" class="strategy-health-item">
+              <span>{{ item.icon }} {{ item.name }}</span>
+              <ElTag size="small" :type="item.status === 'healthy' ? 'success' : item.status === 'degraded' ? 'warning' : item.status === 'critical' ? 'danger' : 'info'">
+                {{ strategyHealthIcon(item.status) }}
+              </ElTag>
+            </div>
+          </div>
+        </div>
+
+        <!-- 数据源状态 -->
+        <div class="risk-item" v-if="dataSources.length > 0">
+          <div class="risk-label">数据源</div>
+          <div class="ds-list">
+            <div v-for="ds in dataSources" :key="ds.name" class="ds-item">
+              <span class="ds-dot" :class="{ online: ds.available, offline: !ds.available }"></span>
+              <span class="ds-name">{{ ds.name }}</span>
+              <span class="ds-info">{{ ds.available ? `${ds.stocks}只` : '离线' }}</span>
+              <span v-if="ds.limit > 0" class="ds-calls">{{ ds.calls }}/{{ ds.limit }}</span>
             </div>
           </div>
         </div>
@@ -290,6 +493,44 @@ onUnmounted(() => {
           <div v-for="(check, name) in health.checks" :key="name" class="watchdog-item">
             <span class="wd-name">{{ name }}</span>
             <span class="wd-status" :class="check.status">{{ { healthy: '✅', degraded: '⚠️', critical: '🔴', dead: '⚫' }[check.status] || '❓' }}</span>
+          </div>
+        </div>
+
+        <!-- ⚙️ 参数热更新面板 -->
+        <div class="param-section">
+          <div class="param-toggle" @click="paramExpanded = !paramExpanded">
+            <span>⚙️ 参数中心</span>
+            <span class="param-arrow" :class="{ expanded: paramExpanded }">▼</span>
+          </div>
+          <div v-if="paramExpanded" class="param-panel">
+            <div v-if="Object.keys(strategyParams).length === 0" class="param-empty">
+              暂无参数数据
+            </div>
+            <div v-for="(params, sid) in strategyParams" :key="sid" class="param-strategy">
+              <div class="param-strategy-header">
+                <span :style="{ color: strategyColor(sid) }">{{ strategyIcon(sid) }} {{ strategyCN(sid) }}</span>
+                <span v-if="editingParam !== sid" class="param-edit-btn" @click="startEditParam(sid)">✏️</span>
+                <span v-else class="param-action-btns">
+                  <span class="param-save-btn" @click="saveParam(sid)">💾</span>
+                  <span class="param-cancel-btn" @click="cancelEditParam">✖</span>
+                </span>
+              </div>
+              <div class="param-fields">
+                <div v-for="(val, key) in params" :key="key" class="param-field">
+                  <span class="param-key">{{ key }}</span>
+                  <span v-if="editingParam === sid" class="param-value-edit">
+                    <input
+                      type="number"
+                      step="any"
+                      :value="paramEdits[sid]?.[key] ?? val"
+                      @input="(e: any) => { if (!paramEdits[sid]) paramEdits[sid] = {}; paramEdits[sid][key] = parseFloat(e.target.value) || 0 }"
+                      class="param-input"
+                    />
+                  </span>
+                  <span v-else class="param-value">{{ typeof val === 'number' ? (Number.isInteger(val) ? val : val.toFixed(4)) : val }}</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -317,14 +558,27 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <!-- 9层管道可视化 -->
+        <!-- 9层管道可视化 — 接入ScanTrace -->
         <div class="pipeline-viz">
-          <div class="pipeline-title">9层筛选管道</div>
+          <div class="pipeline-title">
+            9层筛选管道
+            <span v-if="pipelineSummary" class="pipeline-summary-badge">
+              最近: {{ scanTraces[0]?.trade_date }} {{ scanTraces[0]?.scan_time?.substring(11, 19) || '' }}
+            </span>
+          </div>
           <div class="pipeline-flow">
             <template v-for="(layer, i) in pipelineLayers" :key="layer">
-              <div class="pipe-node">
+              <div class="pipe-node" :class="pipelineLayerStatus(layer)">
                 <span class="pipe-label">{{ pipelineLabels[layer] || layer }}</span>
-                <span class="pipe-status">✅</span>
+                <span class="pipe-status">
+                  <template v-if="pipelineSummary">
+                    <template v-if="pipelineLayerStatus(layer) === 'idle'">—</template>
+                    <template v-else>
+                      ✅<span class="pipe-stat">{{ pipelineLayerStats(layer).passed }}/{{ pipelineLayerStats(layer).total }}</span>
+                    </template>
+                  </template>
+                  <template v-else>✅</template>
+                </span>
               </div>
               <span v-if="i < pipelineLayers.length - 1" class="pipe-arrow">→</span>
             </template>
@@ -368,23 +622,67 @@ onUnmounted(() => {
           </div>
           <div v-if="positions.length > 5" class="pos-more">... 共{{ positions.length }}只</div>
         </div>
+
+        <!-- 涨跌停池快览 -->
+        <div class="limit-pool-section">
+          <div class="limit-pool-title">🔥 涨跌停池</div>
+          <div class="limit-pool-cards">
+            <div class="lp-card lp-up">
+              <div class="lp-num">{{ limitPoolStats.limitUp }}</div>
+              <div class="lp-label">涨停</div>
+            </div>
+            <div class="lp-card lp-down">
+              <div class="lp-num">{{ limitPoolStats.limitDown }}</div>
+              <div class="lp-label">跌停</div>
+            </div>
+            <div class="lp-card lp-broken">
+              <div class="lp-num">{{ limitPoolStats.broken }}</div>
+              <div class="lp-label">炸板</div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
     <!-- ===== 信号详情弹窗 ===== -->
-    <ElDialog v-model="signalDetailVisible" :title="signalDetail ? `${signalDetail.ts_code} ${signalDetail.stock_name}` : ''" width="480px" destroy-on-close>
+    <ElDialog v-model="signalDetailVisible" :title="signalDetail ? `${signalDetail.ts_code} ${signalDetail.stock_name}` : ''" width="520px" destroy-on-close>
       <div v-if="signalDetail" class="sig-detail">
         <div class="sig-detail-row"><span class="sig-detail-label">策略</span><span :style="{ color: strategyColor(signalDetail.strategy) }">{{ strategyIcon(signalDetail.strategy) }} {{ signalDetail.strategy_name }}</span></div>
         <div class="sig-detail-row"><span class="sig-detail-label">价格</span><span>¥{{ signalDetail.price?.toFixed(2) }}</span></div>
         <div class="sig-detail-row"><span class="sig-detail-label">涨幅</span><span :class="signalDetail.pct_chg >= 0 ? 'profit' : 'loss'">{{ signalDetail.pct_chg >= 0 ? '+' : '' }}{{ signalDetail.pct_chg?.toFixed(2) }}%</span></div>
         <div class="sig-detail-row"><span class="sig-detail-label">原因</span><span>{{ signalDetail.reason }}</span></div>
+        <div v-if="signalDetailTrace" class="sig-detail-row">
+          <span class="sig-detail-label">最终状态</span>
+          <span :class="signalDetailTrace.final_status === 'passed' ? 'profit' : 'loss'">
+            {{ signalDetailTrace.final_status === 'passed' ? '✅ 通过' : '❌ ' + (signalDetailTrace.rejection_layer || '拒绝') }}
+          </span>
+        </div>
+        <div v-if="signalDetailTrace?.rejection_reason" class="sig-detail-row">
+          <span class="sig-detail-label">拒绝原因</span>
+          <span class="loss">{{ signalDetailTrace.rejection_reason }}</span>
+        </div>
         <div class="sig-detail-pipeline">
           <div class="sig-detail-pipeline-title">9层筛选管道通过详情</div>
           <div class="pipeline-flow">
             <template v-for="(layer, i) in pipelineLayers" :key="layer">
-              <div class="pipe-node"><span class="pipe-label">{{ pipelineLabels[layer] }}</span><span class="pipe-status">✅</span></div>
+              <div class="pipe-node" :class="getSignalLayerResult(layer)?.passed ? 'pass' : getSignalLayerResult(layer) === null ? 'idle' : 'filter'">
+                <span class="pipe-label">{{ pipelineLabels[layer] }}</span>
+                <span class="pipe-status">
+                  <template v-if="getSignalLayerResult(layer) === null">✅</template>
+                  <template v-else-if="getSignalLayerResult(layer)!.passed">✅</template>
+                  <template v-else>❌</template>
+                </span>
+              </div>
               <span v-if="i < pipelineLayers.length - 1" class="pipe-arrow">→</span>
             </template>
+          </div>
+          <!-- Layer detail table -->
+          <div v-if="signalDetailTrace?.layer_results" class="layer-detail-list">
+            <div v-for="(lr, layerKey) in signalDetailTrace.layer_results" :key="layerKey" class="layer-detail-item">
+              <span class="ld-layer">{{ pipelineLabels[layerKey] || layerKey }}</span>
+              <span :class="lr.passed ? 'profit' : 'loss'">{{ lr.passed ? '✅ 通过' : '❌ 拦截' }}</span>
+              <span v-if="lr.reason" class="ld-reason">{{ lr.reason }}</span>
+            </div>
           </div>
         </div>
       </div>
@@ -416,6 +714,7 @@ onUnmounted(() => {
 .top-bar { display: flex; justify-content: space-between; align-items: center; padding: 8px 16px; background: var(--bg-elevated); border-bottom: 1px solid var(--border-default); }
 .top-left { display: flex; align-items: center; gap: 12px; }
 .top-right { display: flex; gap: 8px; }
+.mode-select { width: 110px; }
 .mode-badge { padding: 2px 10px; border-radius: 4px; font-weight: bold; color: var(--text-primary); font-size: 12px; }
 .asset-info { font-size: 13px; color: var(--text-tertiary); }
 .asset-info b { color: var(--text-primary); }
@@ -447,9 +746,41 @@ onUnmounted(() => {
 .watchdog-item { display: flex; justify-content: space-between; font-size: 11px; padding: 2px 0; }
 .wd-name { color: #888; }
 
+/* 数据源状态 */
+.ds-list { display: flex; flex-direction: column; gap: 4px; }
+.ds-item { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.ds-dot { width: 8px; height: 8px; border-radius: 50%; }
+.ds-dot.online { background: #67c23a; }
+.ds-dot.offline { background: #f56c6c; }
+.ds-name { color: var(--text-secondary); min-width: 40px; }
+.ds-info { color: var(--text-tertiary); }
+.ds-calls { color: var(--text-muted); font-size: 11px; margin-left: auto; }
+
+/* 参数热更新面板 */
+.param-section { margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--border-default); }
+.param-toggle { display: flex; justify-content: space-between; align-items: center; cursor: pointer; font-size: 13px; font-weight: bold; padding: 4px 0; }
+.param-toggle:hover { color: var(--text-primary); }
+.param-arrow { font-size: 10px; transition: transform 0.2s; }
+.param-arrow.expanded { transform: rotate(180deg); }
+.param-panel { margin-top: 8px; max-height: 300px; overflow-y: auto; }
+.param-empty { color: var(--text-muted); font-size: 12px; text-align: center; padding: 12px; }
+.param-strategy { margin-bottom: 10px; padding: 6px; background: var(--bg-muted); border-radius: 4px; }
+.param-strategy-header { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: bold; margin-bottom: 4px; }
+.param-edit-btn, .param-save-btn, .param-cancel-btn { cursor: pointer; font-size: 14px; padding: 0 4px; }
+.param-save-btn { color: #67c23a; }
+.param-cancel-btn { color: #f56c6c; }
+.param-action-btns { display: flex; gap: 4px; }
+.param-fields { display: flex; flex-direction: column; gap: 2px; }
+.param-field { display: flex; justify-content: space-between; font-size: 11px; padding: 1px 0; }
+.param-key { color: var(--text-tertiary); }
+.param-value { color: var(--text-secondary); font-family: monospace; }
+.param-value-edit { flex: 1; max-width: 80px; }
+.param-input { width: 100%; font-size: 11px; padding: 2px 4px; border: 1px solid var(--border-default); border-radius: 3px; background: var(--bg-base); color: var(--text-primary); font-family: monospace; }
+
 /* 核心实时区 */
 .signal-list { flex: 1; }
-.signal-card { background: var(--bg-muted); border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; border-left: 3px solid var(--primary-500); }
+.signal-card { background: var(--bg-muted); border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; border-left: 3px solid var(--primary-500); cursor: pointer; }
+.signal-card:hover { background: var(--bg-hover, rgba(255,255,255,0.05)); }
 .sig-header { display: flex; align-items: center; gap: 6px; }
 .sig-icon { font-size: 16px; }
 .sig-strategy { font-weight: bold; font-size: 13px; }
@@ -461,11 +792,16 @@ onUnmounted(() => {
 
 /* 9层管道 */
 .pipeline-viz { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-default); }
-.pipeline-title { font-size: 13px; font-weight: bold; margin-bottom: 8px; }
+.pipeline-title { font-size: 13px; font-weight: bold; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+.pipeline-summary-badge { font-size: 11px; font-weight: normal; color: var(--text-muted); background: var(--bg-muted); padding: 2px 6px; border-radius: 3px; }
 .pipeline-flow { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .pipe-node { background: var(--bg-muted); padding: 3px 8px; border-radius: 4px; font-size: 11px; }
+.pipe-node.filter { background: rgba(245,108,108,0.1); border: 1px solid rgba(245,108,108,0.3); }
+.pipe-node.pass { background: rgba(103,194,58,0.1); border: 1px solid rgba(103,194,58,0.3); }
+.pipe-node.idle { opacity: 0.5; }
 .pipe-label { color: var(--text-tertiary); margin-right: 4px; }
 .pipe-status { font-size: 10px; }
+.pipe-stat { color: var(--text-muted); font-size: 10px; margin-left: 2px; }
 .pipe-arrow { color: var(--text-muted); font-size: 12px; }
 
 /* 持仓盈亏 */
@@ -479,23 +815,19 @@ onUnmounted(() => {
 .pos-pnl { font-weight: bold; }
 .pos-more { text-align: center; color: var(--text-muted); font-size: 11px; padding: 4px; }
 
-/* 响应式 */
-@media (max-width: 900px) {
-  .main-grid { grid-template-columns: 1fr; }
-  .cockpit { padding: 8px; }
-  .top-bar { flex-wrap: wrap; gap: 8px; }
-  .asset-info { font-size: 12px; }
-}
-
-@media (max-width: 640px) {
-  .main-grid { grid-template-columns: 1fr; gap: 8px; padding: 8px; }
-  .panel { padding: 8px; }
-  .total-pnl { font-size: 22px; }
-  .signal-card { padding: 6px 8px; }
-}
-.timeline-label { font-weight: bold; font-size: 12px; white-space: nowrap; }
-.timeline-scroll { display: flex; gap: 12px; overflow-x: auto; flex: 1; }
-.tl-item { white-space: nowrap; font-size: 12px; color: var(--text-tertiary); }
+/* 涨跌停池 */
+.limit-pool-section { margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--border-default); }
+.limit-pool-title { font-size: 13px; font-weight: bold; margin-bottom: 8px; }
+.limit-pool-cards { display: flex; gap: 8px; }
+.lp-card { flex: 1; text-align: center; padding: 8px 4px; border-radius: 6px; }
+.lp-card.lp-up { background: rgba(245,108,108,0.1); border: 1px solid rgba(245,108,108,0.2); }
+.lp-card.lp-down { background: rgba(103,194,58,0.1); border: 1px solid rgba(103,194,58,0.2); }
+.lp-card.lp-broken { background: rgba(230,162,60,0.1); border: 1px solid rgba(230,162,60,0.2); }
+.lp-num { font-size: 22px; font-weight: bold; }
+.lp-up .lp-num { color: #f56c6c; }
+.lp-down .lp-num { color: #67c23a; }
+.lp-broken .lp-num { color: #e6a23c; }
+.lp-label { font-size: 11px; color: var(--text-tertiary); margin-top: 2px; }
 
 /* 信号详情弹窗 */
 .sig-detail { font-size: 13px; }
@@ -503,4 +835,31 @@ onUnmounted(() => {
 .sig-detail-label { color: var(--text-tertiary); min-width: 60px; }
 .sig-detail-pipeline { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border-default); }
 .sig-detail-pipeline-title { font-weight: bold; margin-bottom: 8px; font-size: 13px; }
+.layer-detail-list { margin-top: 8px; }
+.layer-detail-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; border-bottom: 1px dashed var(--border-light, var(--border-default)); }
+.ld-layer { min-width: 70px; color: var(--text-tertiary); }
+.ld-reason { color: var(--text-muted); font-size: 11px; }
+
+/* 底部时间线 */
+.timeline-bar { display: flex; align-items: center; gap: 12px; padding: 8px 16px; background: var(--bg-elevated); border-top: 1px solid var(--border-default); }
+.timeline-label { font-weight: bold; font-size: 12px; white-space: nowrap; }
+.timeline-scroll { display: flex; gap: 12px; overflow-x: auto; flex: 1; }
+.tl-item { white-space: nowrap; font-size: 12px; color: var(--text-tertiary); }
+
+/* 响应式 */
+@media (max-width: 900px) {
+  .main-grid { grid-template-columns: 1fr; }
+  .cockpit { padding: 8px; }
+  .top-bar { flex-wrap: wrap; gap: 8px; }
+  .asset-info { font-size: 12px; }
+  .mode-select { width: 90px; }
+}
+
+@media (max-width: 640px) {
+  .main-grid { grid-template-columns: 1fr; gap: 8px; padding: 8px; }
+  .panel { padding: 8px; }
+  .total-pnl { font-size: 22px; }
+  .signal-card { padding: 6px 8px; }
+  .limit-pool-cards { flex-wrap: wrap; }
+}
 </style>
