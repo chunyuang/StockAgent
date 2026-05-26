@@ -137,8 +137,14 @@ def create_app() -> FastAPI:
     # SPA Fallback 中间件 - 非API/非静态文件请求返回index.html
     @app.middleware("http")
     async def spa_fallback_middleware(request: Request, call_next):
-        """处理前端SPA路由：非API请求且不是静态文件时返回index.html"""
+        """处理前端SPA路由 + 防止浏览器缓存旧页面"""
         response = await call_next(request)
+        # HTML文件不缓存（确保用户总能拿到最新build）
+        # JS/CSS带hash文件名，自然缓存没问题
+        if request.url.path == "/" or request.url.path.endswith(".html"):
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
         if response.status_code == 404 and not request.url.path.startswith("/api/"):
             # 检查是否是前端路由（无文件扩展名）
             path = request.url.path
