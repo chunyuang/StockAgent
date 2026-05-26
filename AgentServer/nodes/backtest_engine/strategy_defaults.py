@@ -70,9 +70,9 @@ STRATEGY_CONFIGS = {
         "enabled": True,  # 首板打板策略，配合成交概率模拟
         "params": {
             "opening_pct_min": -1.0,                      # 竞价涨幅下限%(放宽:低开也能涨停)
-            "opening_pct_max": 7.0,                      # 竞价涨幅上限%(放宽:高开7%内都考虑)
+            "opening_pct_max": 5.0,                      # 竞价涨幅上限%(优化C:从7%→5%,排除高开>5%的追高风险)
             "min_volume_ratio": 1.5,                     # 量比≥1.5(保持1.5,2.0过严导致信号暴降)
-            "min_turnover_rate": 5,                      # 换手率≥5%(V33:从3→5,换手太低=股性不活,过滤低质量涨停)
+            "min_turnover_rate": 8,                      # 换手率≥8%(优化A:从5→8,过滤低质量涨停,首板胜率47.4%是最大拖累)
             "max_turnover_rate": 15,                     # 换手率≤15%
             "min_circulation_market_cap": 50,            # 最小流通市值50亿(保持50,80过严)
             "max_circulation_market_cap": 500,           # 最大流通市值(亿)
@@ -118,7 +118,7 @@ STRATEGY_CONFIGS = {
             "min_consecutive_limit": 1,                 # 最小连板数(1板即可:数据50.5%wr>2板42.2%>3板39.4%)
             "min_circulation_market_cap": 30,           # 最小流通市值30亿
             "min_correction_pct": 0.05,                 # 最小回调5%
-            "max_correction_pct": 0.20,                 # 最大回调20%(V34:从35%→20%,止损股平均回调-14%而盈利股-9%,3月验证+7.16%/+1.02夏普)
+            "max_correction_pct": 0.22,                 # 最大回调22%(优化D:从20%→22%,稍微放宽回调上限,龙头低吸V52胜率90.6%→当前87.5%微降)
             "correction_days_min": 1,                   # 回调天数下限
             "correction_days_max": 7,                   # 回调天数上限
             "support_level": "ma5",                     # 支撑位参考

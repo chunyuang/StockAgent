@@ -2670,9 +2670,8 @@ class PortfolioBacktester:
         # 删除了原来基于调仓日的简化估算,现在使用精确的逐日持仓市值计算
 
         # max_drawdown 已在上方从drawdown_series计算
-        # 【P0-2修复:在max_drawdown正确计算后,重新计算return_drawdown_ratio】
-        if max_drawdown > 0 and total_return != 0:
-            return_drawdown_ratio = abs(total_return) / max_drawdown
+        # 【V54-Bug3修复:删除重复的return_drawdown_ratio计算,上方2502行已用同一max_drawdown计算】
+        # return_drawdown_ratio = abs(total_return) / max_drawdown  # 此处与2502行逻辑完全相同,已删除
 
         # 【P0-3修复(V9):盈亏比改用交易维度而非日收益维度】
         # 旧: 基于daily_profit_list(日收益),10只持仓5涨5跌→只算1次盈利→虚高
@@ -2721,9 +2720,11 @@ class PortfolioBacktester:
                     sharpe_ratio = (avg_return - daily_rf) / std_return * math.sqrt(252)
 
                 # 【P1-7修复:索提诺比率(只考虑下行波动)】
+                # 【V54-Bug1修复:Sortino分母用len(downside_returns)而非len(daily_returns)】
+                # 标准定义: 下行偏差 = sqrt(sum(min(r,0)^2) / N_downside), N=len(downside_returns)
                 downside_returns = [r for r in daily_returns if r < 0]
                 if len(downside_returns) > 0:
-                    downside_variance = sum(r ** 2 for r in downside_returns) / len(daily_returns)
+                    downside_variance = sum(r ** 2 for r in downside_returns) / len(downside_returns)
                     downside_std = math.sqrt(downside_variance)
                     if downside_std > 0:
                         daily_rf = 0.03 / 252
@@ -2732,15 +2733,14 @@ class PortfolioBacktester:
                         if raw_sortino > 200.0:
                             logger.debug('backtest', f'Sortino={raw_sortino:.1f}超过200上限,下行波动过低')
 
-        # 【V41修复:Calmar使用回测周期年化,短期回测自动收敛】
-        # 旧: annualized_return / max_drawdown, 49天回测年化膨胀→Calmar失真
-        # 新: 用total_return/trading_days算实际日化收益,乘252年化,短期自动收敛
+        # 【V54-Bug4修复:Calmar使用复利年化,简单年化对短回测期(60天)会膨胀】
+        # 旧: daily_return = total_return / trading_days * 252 (简单年化,短回测膨胀)
+        # 新: (1+total_return)^(252/trading_days) - 1 (复利年化,与annualized_return一致)
         if max_drawdown > 0:
             if trading_days > 0:
-                # V41: 用真实收益率/实际天数年化,避免复利膨胀
-                daily_return = total_return / trading_days if trading_days > 0 else 0
-                annualized_by_period = daily_return * 252
-                raw_calmar = annualized_by_period / max_drawdown
+                # V54: 复利年化,与annualized_return(2470行)计算方式一致
+                annualized_for_calmar = ((1 + total_return) ** (252 / trading_days)) - 1
+                raw_calmar = annualized_for_calmar / max_drawdown
             else:
                 raw_calmar = annualized_return / max_drawdown
             calmar_ratio = min(raw_calmar, 1000.0)  # 【V49-P1-1:上限从200→1000,200太低遮盖真实值,3个月回测md<5%时calmar天然>200】
@@ -2997,7 +2997,10 @@ class PortfolioBacktester:
                 formatted_last = f"{current_month[:4]}-{current_month[4:]}"
                 monthly_profit[formatted_last] = m_return
         elif daily_profit_list and all_trade_dates:
-            # Fallback: 旧行法(仅当net_value_series不可用时)
+            # 【V54-Bug6:TODO】此fallback路径使用daily_profit_list累加,存在浮点累积误差
+            # 几乎不会触发(主路径用net_value_series),但如触发需注意精度
+            # 修复方案: 改用net_value_series的月度端点计算(与主路径一致)
+            # Fallback: 旧算法(仅当net_value_series不可用时)
             current_value = self._initial_cash
             monthly_start_value = current_value
             current_month = None
@@ -3351,9 +3354,11 @@ class PortfolioBacktester:
             return 0
 
         # 一字涨停板:四价相同,open本身就是涨停价
-        # 【修复】一字板无法买入(全天封死涨停,排单买不进),返回0跳过
+        # 【V54-Bug5修复:返回close_price而非0,让上层_get_buy_price_for_stock通过hit_probability=0正确处理】
+        # 旧bug: 返回0→_get_buy_price_for_stock得到0→跳过买入→首板打板hit_probability_yizi=0逻辑从未执行
+        # 新: 返回close_price,上层通过hit_probability决定是否成交,逻辑完整
         if (open_price == close_price == high_price == low_price) and open_price > 0:
-            return 0  # 一字板不可买入
+            return close_price  # 一字板返回涨停价,由上层hit_probability处理成交概率
 
         # 非一字板涨停:【P0-2修复】用pre_close判断是否涨停
         if pre_close > 0:
@@ -4047,8 +4052,10 @@ class PortfolioBacktester:
         sell_codes.extend(over_hold_codes)
         # 【Phase1-T+1】超时强卖也要递守T+1(正常不应出现:昨日买的今天不触超时)
         sell_codes = [c for c in sell_codes if self._cost_basis_date.get(c) != trade_date]
-        # 【P1-4修复(第十一轮):去重,避免超时强卖股重复卖出】
-        sell_codes = list(set(sell_codes))
+        # 【V54-Bug7修复:sell_codes去重改用dict.fromkeys保持插入顺序,避免set打乱卖出日志顺序】
+        # 旧: list(set(sell_codes)) — set无序,每次运行卖出日志顺序不一致
+        # 新: list(dict.fromkeys(sell_codes)) — 保持首次出现的顺序,日志稳定
+        sell_codes = list(dict.fromkeys(sell_codes))
         # 【V29:超时强卖的股票当天不应被重新买入,由PositionManager管理target_shares】
         for code in over_hold_codes:
             pos_mgr.mark_sold(code, f'超时')

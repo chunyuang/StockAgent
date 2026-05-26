@@ -59,6 +59,7 @@ const activeTaskCount = computed(() => taskStore.activeTaskCount)
 
 const menuItems = [
   { path: '/', icon: DataAnalysis, title: '策略回测' },
+  { path: '/cockpit', icon: Monitor, title: '🚀 驾驶舱' },
   { path: '/monitor', icon: Monitor, title: '市场监听' },
   { path: '/system/status', icon: DataLine, title: '系统管理' },
 ]
