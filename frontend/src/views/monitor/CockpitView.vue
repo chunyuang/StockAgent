@@ -9,13 +9,20 @@
  * 右: 持仓盈亏波动 + 涨跌停池
  * 底: 时间线
  */
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import {
-  ElCard, ElButton, ElTag, ElProgress, ElBadge, ElTooltip,
-  ElEmpty, ElTable, ElTableColumn, ElTabs, ElTabPane,
-  ElMessage, ElMessageBox, ElDialog, ElSelect, ElOption, ElInputNumber, ElCollapse, ElCollapseItem,
+  ElButton, ElTag, ElProgress,
+  ElEmpty,
+  ElMessage, ElMessageBox, ElDialog, ElSelect, ElOption,
 } from 'element-plus'
 import { api } from '@/api/client'
+import {
+  strategyMeta, strategyCN, strategyColor, strategyIcon,
+  pipelineLayers, pipelineLabels,
+  modeMeta, modeLabel,
+  parseResponse, signalRemaining, formatRemaining,
+  formatMoney, formatPct,
+} from '@/utils/scanner'
 
 // ============ 类型 ============
 interface HealthCheck { name: string; status: string; value: string; threshold: string; message: string }
@@ -48,39 +55,43 @@ const paramEdits = ref<Record<string, any>>({})
 const loading = ref(false)
 const autoRefresh = ref(true)
 const selectedMode = ref('simulated')
+const buyingSignal = ref<string | null>(null)
 let refreshTimer: any = null
 let ws: WebSocket | null = null
 let wsReconnectTimer: any = null
 const nowMs = ref(Date.now())
 let nowTimer: any = null
 
-// ============ 策略元数据 ============
-const strategyMeta: Record<string, { color: string; icon: string; cn: string }> = {
-  halfway_chase: { color: '#e6a23c', icon: '🚀', cn: '半路追涨' },
-  first_limit_up: { color: '#f56c6c', icon: '🔥', cn: '首板打板' },
-  dragon_head: { color: '#409eff', icon: '🐉', cn: '龙头低吸' },
-  limit_down_qiao: { color: '#67c23a', icon: '💪', cn: '跌停翘板' },
-  anomaly_surge: { color: '#e6a23c', icon: '⚡', cn: '急速拉升' },
-  anomaly_broken: { color: '#f56c6c', icon: '💔', cn: '涨停炸板' },
-  anomaly_strong: { color: '#409eff', icon: '💪', cn: '强势涨停' },
-}
-const strategyCN = (s: string) => strategyMeta[s]?.cn || s
-const strategyColor = (s: string) => strategyMeta[s]?.color || '#909399'
-const strategyIcon = (s: string) => strategyMeta[s]?.icon || '📊'
-
 // ============ 计算 ============
 const account = computed<AccountInfo>(() => status.value?.account ?? { total_assets: 0, available_cash: 0, market_value: 0, total_profit: 0 })
 const positionRatio = computed(() => account.value.market_value > 0 ? (account.value.market_value / account.value.total_assets * 100).toFixed(1) : '0')
 const isRunning = computed(() => status.value?.is_running ?? false)
 const tradeMode = computed(() => status.value?.trade_mode ?? 'simulated')
-const tradeModeLabel = computed(() => {
-  const m: Record<string, { text: string; color: string }> = {
-    simulated: { text: '模拟', color: '#67c23a' },
-    gm: { text: '掘金', color: '#409eff' },
-    dry_run: { text: '调试', color: '#e6a23c' },
-    replay: { text: '回放', color: '#9b59b6' },
+const tradeModeLabel = computed(() => modeMeta[tradeMode.value] || { text: tradeMode.value, color: '#909399' })
+
+// 今日盈亏 — 从 timeline + 持仓浮盈计算
+const todayPnl = computed(() => {
+  const today = new Date().toLocaleDateString('zh-CN')
+  let realized = 0
+  for (const item of timeline.value) {
+    if (!item.time) continue
+    const itemDate = item.time.includes('-')
+      ? new Date(item.time).toLocaleDateString('zh-CN')
+      : today
+    if (itemDate !== today) continue
+    if (item.action === 'sell' && item.profit_pct != null && item.price > 0) {
+      realized += item.profit_pct / 100 * item.shares * item.price / (1 + item.profit_pct / 100)
+    }
   }
-  return m[tradeMode.value] || { text: tradeMode.value, color: '#909399' }
+  // 加上持仓浮盈
+  let floating = 0
+  for (const pos of positions.value) {
+    if (pos.profit_amount != null) floating += pos.profit_amount
+    else if (pos.profit_pct != null && pos.cost_price > 0) {
+      floating += (pos.current_price - pos.cost_price) * pos.shares
+    }
+  }
+  return realized + floating
 })
 
 // 风控仪表盘
@@ -104,15 +115,12 @@ const consecutiveLosses = computed(() => {
 const strategyHealthList = computed(() => {
   const checks = health.value?.checks
   if (!checks) {
-    // fallback: 没有health数据时使用策略元数据
     return Object.entries(strategyMeta).map(([key, meta]) => ({
       key, name: meta.cn, icon: meta.icon, status: 'unknown', color: '#909399'
     }))
   }
-  // 从checks中提取策略相关状态
   const result: { key: string; name: string; icon: string; status: string; color: string }[] = []
   for (const [key, meta] of Object.entries(strategyMeta)) {
-    // 尝试匹配 checks 中的策略相关项
     const checkKey = Object.keys(checks).find(k => k.includes(key) || key.includes(k))
     const check = checkKey ? checks[checkKey] : null
     result.push({
@@ -129,14 +137,6 @@ const strategyHealthList = computed(() => {
 function strategyHealthIcon(status: string): string {
   const m: Record<string, string> = { healthy: '✅', degraded: '⚠️', critical: '🔴', dead: '⚫', unknown: '❓' }
   return m[status] || '❓'
-}
-
-// 9层管道 — 接入ScanTrace API
-const pipelineLayers = ['L1_force_empty', 'L2_special_period', 'L3_sentiment', 'L4_premarket', 'L5_auction', 'L6_strategy', 'L7_ranking', 'L8_position', 'L9_execute']
-const pipelineLabels: Record<string, string> = {
-  L1_force_empty: '强制空仓', L2_special_period: '特殊时期', L3_sentiment: '情绪周期',
-  L4_premarket: '盘前预选', L5_auction: '竞价过滤', L6_strategy: '策略量能',
-  L7_ranking: '综合排序', L8_position: '仓位控制', L9_execute: '执行确认'
 }
 
 // 获取最近scan trace的summary作为管道状态
@@ -167,19 +167,6 @@ const limitPoolStats = computed(() => ({
   broken: limitPools.value.broken?.length ?? 0,
 }))
 
-// 信号过期倒计时
-const SIGNAL_EXPIRE_MS = 300000
-function signalRemaining(sig: ScanSignal): number {
-  if (!sig.created_at || sig.created_at <= 0) return -1
-  return Math.max(0, SIGNAL_EXPIRE_MS - (nowMs.value / 1000 - sig.created_at) * 1000)
-}
-function formatRemaining(ms: number): string {
-  if (ms < 0) return ''
-  const s = Math.floor(ms / 1000)
-  if (s < 60) return `${s}s`
-  return `${Math.floor(s / 60)}m${s % 60}s`
-}
-
 // 信号详情弹窗
 const signalDetail = ref<ScanSignal | null>(null)
 const signalDetailVisible = ref(false)
@@ -188,7 +175,6 @@ const signalDetailTrace = ref<ScanTraceCandidate | null>(null)
 function showSignalDetail(sig: ScanSignal) {
   signalDetail.value = sig
   signalDetailVisible.value = true
-  // 从scanTraces中查找该信号的trace数据
   signalDetailTrace.value = null
   for (const trace of scanTraces.value) {
     const candidate = trace.candidates?.find(c => c.ts_code === sig.ts_code && c.strategy === sig.strategy)
@@ -222,17 +208,14 @@ const pnlOption = computed(() => ({
 async function fetchAll() {
   try {
     const r = await api.get(`${scannerApi}/all`)
-    if (r?.success) {
-      const d = r.data || r  // 兼容两种返回格式
-      status.value = d.status || {}
-      signals.value = d.signals || []
-      positions.value = d.positions || []
-      timeline.value = d.timeline || []
-      // 同步data_sources
-      if (d.status?.data_sources) dataSources.value = d.status.data_sources
-      // 同步trade_mode
-      if (d.status?.trade_mode) selectedMode.value = d.status.trade_mode
-      // 更新盈亏曲线
+    const { success, data } = parseResponse(r)
+    if (success) {
+      status.value = data.status || {}
+      signals.value = data.signals || []
+      positions.value = data.positions || []
+      timeline.value = data.timeline || []
+      if (data.status?.data_sources) dataSources.value = data.status.data_sources
+      if (data.status?.trade_mode) selectedMode.value = data.status.trade_mode
       const pnl = account.value.total_profit
       pnlHistory.value.push({ time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }), value: pnl })
       if (pnlHistory.value.length > 60) pnlHistory.value = pnlHistory.value.slice(-60)
@@ -243,7 +226,7 @@ async function fetchAll() {
 async function fetchHealth() {
   try {
     const r = await api.get(`${scannerApi}/health`)
-    if (r?.success) health.value = r.health || r.data?.health || null
+    if (r?.success) health.value = r.health || null
   } catch (e) { /* ignore */ }
 }
 
@@ -257,14 +240,14 @@ async function fetchScanTraces() {
 async function fetchLimitPools() {
   try {
     const r = await api.get(`${scannerApi}/limit-pools`)
-    if (r?.success) limitPools.value = r.data?.limit_up ? r.data : (r.limit_up ? r : { limit_up: [], limit_down: [], broken: [] })
+    if (r?.success) limitPools.value = r.data || { limit_up: [], limit_down: [], broken: [] }
   } catch (e) { /* ignore */ }
 }
 
 async function fetchStrategyParams() {
   try {
     const r = await api.get(`${scannerApi}/params`)
-    if (r?.success) strategyParams.value = r.data || r.params || {}
+    if (r?.success) strategyParams.value = r.data || {}
   } catch (e) { /* ignore */ }
 }
 
@@ -278,13 +261,11 @@ async function toggleScanner() {
       ElMessage.success('扫描器已停止')
     } else {
       const acc = account.value
-      const modeLabels: Record<string, string> = { simulated: '模拟', gm: '掘金', dry_run: '调试', replay: '回放' }
-      // 回放模式需要指定日期
       let replayDate = ''
       if (selectedMode.value === 'replay') {
         const today = new Date()
         const defaultDate = new Date(today)
-        defaultDate.setDate(today.getDate() - 1) // 默认昨天
+        defaultDate.setDate(today.getDate() - 1)
         const dateStr = defaultDate.toISOString().slice(0, 10).replace(/-/g, '')
         try {
           const { value } = await ElMessageBox.prompt(
@@ -293,10 +274,10 @@ async function toggleScanner() {
             { confirmButtonText: '确认', cancelButtonText: '取消', inputValue: dateStr, inputPattern: /^\d{8}$/, inputErrorMessage: '请输入8位日期' }
           )
           replayDate = value
-        } catch { return }  // 取消
+        } catch { return }
       }
       await ElMessageBox.confirm(
-        `确认启动扫描器？\n模式: ${modeLabels[selectedMode.value] || selectedMode.value}${replayDate ? ' (日期: ' + replayDate + ')' : ''}\n可用资金: ¥${(acc.available_cash / 10000).toFixed(1)}万\n当前持仓: ${positions.value.length}只`,
+        `确认启动扫描器？\n模式: ${modeLabel(selectedMode.value)}${replayDate ? ' (日期: ' + replayDate + ')' : ''}\n可用资金: ${formatMoney(acc.available_cash)}\n当前持仓: ${positions.value.length}只`,
         '启动扫描',
         { confirmButtonText: '确认启动', cancelButtonText: '取消', type: 'info' }
       )
@@ -325,9 +306,7 @@ async function emergencyLiquidate() {
 // 模式切换
 async function onModeChange(mode: string) {
   if (mode === tradeMode.value) return
-  const modeLabels: Record<string, string> = { simulated: '模拟', gm: '掘金实盘', dry_run: '调试', replay: '回放' }
   try {
-    // 回放模式需要输入日期
     let replayDate = ''
     if (mode === 'replay') {
       const today = new Date()
@@ -341,26 +320,52 @@ async function onModeChange(mode: string) {
           { confirmButtonText: '确认', cancelButtonText: '取消', inputValue: dateStr, inputPattern: /^\d{8}$/, inputErrorMessage: '请输入8位日期' }
         )
         replayDate = value
-      } catch { selectedMode.value = tradeMode.value; return }  // 取消回原
+      } catch { selectedMode.value = tradeMode.value; return }
     }
     await ElMessageBox.confirm(
-      `确认切换到 ${modeLabels[mode] || mode} 模式？${mode === 'gm' ? '\n⚠️ 掘金模式将进行实盘交易！' : ''}${replayDate ? '\n📅 回放日期: ' + replayDate : ''}`,
+      `确认切换到 ${modeLabel(mode)} 模式？${mode === 'gm' ? '\n⚠️ 掘金模式将进行实盘交易！' : ''}${replayDate ? '\n📅 回放日期: ' + replayDate : ''}`,
       '模式切换',
       { confirmButtonText: '确认切换', cancelButtonText: '取消', type: mode === 'gm' ? 'warning' : 'info' }
     )
     selectedMode.value = mode
     if (isRunning.value) {
-      // 如果正在运行，先停再启
       await api.post(`${scannerApi}/stop`)
       const payload: Record<string, string> = { trade_mode: mode }
       if (replayDate) payload.replay_date = replayDate
       await api.post(`${scannerApi}/start`, payload)
-      ElMessage.success(`已切换到${modeLabels[mode]}模式并重启`)
+      ElMessage.success(`已切换到${modeLabel(mode)}模式并重启`)
       await fetchAll()
     } else {
-      ElMessage.success(`模式已切换到${modeLabels[mode]}，启动时生效`)
+      ElMessage.success(`模式已切换到${modeLabel(mode)}，启动时生效`)
     }
   } catch { /* cancelled */ }
+}
+
+// 快捷买入信号
+async function quickBuySignal(sig: ScanSignal) {
+  const key = sig.ts_code + sig.strategy
+  buyingSignal.value = key
+  try {
+    await ElMessageBox.confirm(
+      `确认买入 ${sig.ts_code} ${sig.stock_name}？\n策略: ${strategyCN(sig.strategy)}\n价格: ¥${sig.price?.toFixed(2)}\n涨幅: ${formatPct(sig.pct_chg)}`,
+      '快捷买入',
+      { confirmButtonText: '确认买入', cancelButtonText: '取消', type: 'info' }
+    )
+    const r = await api.post(`${scannerApi}/trade`, {
+      ts_code: sig.ts_code,
+      stock_name: sig.stock_name,
+      strategy: sig.strategy,
+      price: sig.price,
+      action: 'buy',
+    })
+    if (r?.success) {
+      ElMessage.success(`买入委托已发送: ${sig.ts_code}`)
+      await fetchAll()
+    } else {
+      ElMessage.error(r?.message || '买入失败')
+    }
+  } catch { /* cancelled */ }
+  buyingSignal.value = null
 }
 
 // 参数热更新
@@ -385,7 +390,6 @@ async function saveParam(strategyId: string) {
 function startEditParam(strategyId: string) {
   editingParam.value = strategyId
   if (!paramEdits.value[strategyId]) paramEdits.value[strategyId] = {}
-  // 初始化编辑值
   const params = strategyParams.value[strategyId]
   if (params) {
     paramEdits.value[strategyId] = { ...params }
@@ -438,20 +442,19 @@ onUnmounted(() => {
       <div class="top-left">
         <!-- 模式切换下拉 -->
         <ElSelect v-model="selectedMode" size="small" class="mode-select" @change="onModeChange">
-          <ElOption label="🟢 模拟" value="simulated" />
-          <ElOption label="🔵 掘金" value="gm" />
-          <ElOption label="🟡 调试" value="dry_run" />
-          <ElOption label="🔄 回放" value="replay" />
+          <ElOption v-for="(m, key) in modeMeta" :key="key" :label="`${m.emoji} ${m.text}`" :value="key" />
         </ElSelect>
         <span class="mode-badge" :style="{ background: tradeModeLabel.color }">{{ tradeModeLabel.text }}</span>
         <span class="asset-info">
-          资产 <b>¥{{ (account.total_assets / 10000).toFixed(1) }}万</b>
+          资产 <b>{{ formatMoney(account.total_assets) }}</b>
           <span class="divider">|</span>
-          可用 <b>¥{{ (account.available_cash / 10000).toFixed(1) }}万</b>
+          可用 <b>{{ formatMoney(account.available_cash) }}</b>
           <span class="divider">|</span>
           仓位 <b>{{ positionRatio }}%</b>
           <span class="divider">|</span>
           盈亏 <b :class="account.total_profit >= 0 ? 'profit' : 'loss'">{{ account.total_profit >= 0 ? '+' : '' }}¥{{ account.total_profit.toFixed(0) }}</b>
+          <span class="divider">|</span>
+          今日 <b :class="todayPnl >= 0 ? 'profit' : 'loss'">{{ todayPnl >= 0 ? '+' : '' }}¥{{ todayPnl.toFixed(0) }}</b>
         </span>
       </div>
       <div class="top-right">
@@ -589,9 +592,17 @@ onUnmounted(() => {
               <span class="sig-strategy" :style="{ color: strategyColor(sig.strategy) }">{{ sig.strategy_name }}</span>
               <span class="sig-code">{{ sig.ts_code }} {{ sig.stock_name }}</span>
               <span class="sig-pct" :class="sig.pct_chg >= 0 ? 'profit' : 'loss'">
-                {{ sig.pct_chg >= 0 ? '+' : '' }}{{ sig.pct_chg.toFixed(1) }}%
+                {{ formatPct(sig.pct_chg) }}
               </span>
-              <span v-if="signalRemaining(sig) >= 0" class="sig-countdown">⏱{{ formatRemaining(signalRemaining(sig)) }}</span>
+              <span v-if="signalRemaining(sig.created_at || 0, nowMs) >= 0" class="sig-countdown">⏱{{ formatRemaining(signalRemaining(sig.created_at || 0, nowMs)) }}</span>
+              <ElButton 
+                class="sig-buy-btn" 
+                size="small" 
+                type="success" 
+                plain
+                :loading="buyingSignal === sig.ts_code + sig.strategy"
+                @click.stop="quickBuySignal(sig)"
+              >买入</ElButton>
             </div>
             <div class="sig-reason">{{ sig.reason }}</div>
           </div>
@@ -639,25 +650,36 @@ onUnmounted(() => {
           {{ account.total_profit >= 0 ? '+' : '' }}¥{{ account.total_profit.toFixed(0) }}
         </div>
 
+        <!-- 今日盈亏 -->
+        <div class="today-pnl" :class="todayPnl >= 0 ? 'profit' : 'loss'">
+          今日 {{ todayPnl >= 0 ? '+' : '' }}¥{{ todayPnl.toFixed(0) }}
+        </div>
+
         <!-- 资金信息 -->
         <div class="fund-info">
           <div class="fund-row">
             <span>可用资金</span>
-            <span>¥{{ (account.available_cash / 10000).toFixed(1) }}万</span>
+            <span>{{ formatMoney(account.available_cash) }}</span>
           </div>
           <div class="fund-row">
             <span>占用保证金</span>
-            <span>¥{{ (account.market_value / 10000).toFixed(1) }}万</span>
+            <span>{{ formatMoney(account.market_value) }}</span>
           </div>
         </div>
 
-        <!-- 持仓列表(紧凑) -->
+        <!-- 持仓列表(紧凑+风险线) -->
         <div class="pos-list">
           <div v-for="pos in positions.slice(0, 5)" :key="pos.ts_code" class="pos-item">
-            <span class="pos-code">{{ pos.ts_code }} {{ pos.stock_name }}</span>
-            <span class="pos-pnl" :class="pos.profit_pct >= 0 ? 'profit' : 'loss'">
-              {{ pos.profit_pct >= 0 ? '+' : '' }}{{ pos.profit_pct.toFixed(1) }}%
-            </span>
+            <div class="pos-main">
+              <span class="pos-code">{{ pos.ts_code }} {{ pos.stock_name }}</span>
+              <span class="pos-pnl" :class="pos.profit_pct >= 0 ? 'profit' : 'loss'">
+                {{ formatPct(pos.profit_pct) }}
+              </span>
+            </div>
+            <div v-if="pos.stop_loss_price || pos.take_profit_price" class="pos-risk-line">
+              <span v-if="pos.stop_loss_price" class="pos-sl">止损 ¥{{ pos.stop_loss_price.toFixed(2) }}</span>
+              <span v-if="pos.take_profit_price" class="pos-tp">止盈 ¥{{ pos.take_profit_price.toFixed(2) }}</span>
+            </div>
           </div>
           <div v-if="positions.length > 5" class="pos-more">... 共{{ positions.length }}只</div>
         </div>
@@ -688,7 +710,7 @@ onUnmounted(() => {
       <div v-if="signalDetail" class="sig-detail">
         <div class="sig-detail-row"><span class="sig-detail-label">策略</span><span :style="{ color: strategyColor(signalDetail.strategy) }">{{ strategyIcon(signalDetail.strategy) }} {{ signalDetail.strategy_name }}</span></div>
         <div class="sig-detail-row"><span class="sig-detail-label">价格</span><span>¥{{ signalDetail.price?.toFixed(2) }}</span></div>
-        <div class="sig-detail-row"><span class="sig-detail-label">涨幅</span><span :class="signalDetail.pct_chg >= 0 ? 'profit' : 'loss'">{{ signalDetail.pct_chg >= 0 ? '+' : '' }}{{ signalDetail.pct_chg?.toFixed(2) }}%</span></div>
+        <div class="sig-detail-row"><span class="sig-detail-label">涨幅</span><span :class="signalDetail.pct_chg >= 0 ? 'profit' : 'loss'">{{ formatPct(signalDetail.pct_chg) }}</span></div>
         <div class="sig-detail-row"><span class="sig-detail-label">原因</span><span>{{ signalDetail.reason }}</span></div>
         <div v-if="signalDetailTrace" class="sig-detail-row">
           <span class="sig-detail-label">最终状态</span>
@@ -738,7 +760,7 @@ onUnmounted(() => {
           </ElTag>
           {{ item.ts_code }} {{ item.stock_name }}
           <span v-if="item.profit_pct != null" :class="item.profit_pct >= 0 ? 'profit' : 'loss'">
-            {{ item.profit_pct >= 0 ? '+' : '' }}{{ item.profit_pct.toFixed(1) }}%
+            {{ formatPct(item.profit_pct) }}
           </span>
         </span>
       </div>
@@ -826,6 +848,7 @@ onUnmounted(() => {
 .sig-code { color: var(--text-tertiary); font-size: 12px; }
 .sig-pct { font-weight: bold; margin-left: auto; }
 .sig-countdown { font-size: 11px; color: #e6a23c; }
+.sig-buy-btn { margin-left: 4px; padding: 2px 8px; font-size: 11px; }
 .sig-reason { font-size: 11px; color: var(--text-tertiary); margin-top: 4px; }
 .no-signals { padding: 20px 0; }
 
@@ -846,12 +869,17 @@ onUnmounted(() => {
 /* 持仓盈亏 */
 .pnl-chart { margin-bottom: 8px; }
 .total-pnl { text-align: center; font-size: 28px; font-weight: bold; margin: 8px 0; }
+.today-pnl { text-align: center; font-size: 14px; font-weight: bold; margin-bottom: 8px; }
 .fund-info { margin: 8px 0; }
 .fund-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; color: var(--text-tertiary); }
 .pos-list { margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--border-default); }
-.pos-item { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; }
+.pos-item { padding: 4px 0; }
+.pos-main { display: flex; justify-content: space-between; font-size: 12px; }
 .pos-code { color: var(--text-tertiary); }
 .pos-pnl { font-weight: bold; }
+.pos-risk-line { display: flex; gap: 8px; font-size: 10px; margin-top: 2px; }
+.pos-sl { color: var(--stock-up); }
+.pos-tp { color: var(--stock-down); }
 .pos-more { text-align: center; color: var(--text-muted); font-size: 11px; padding: 4px; }
 
 /* 涨跌停池 */

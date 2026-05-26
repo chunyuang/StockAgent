@@ -6,14 +6,21 @@
  */
 import { ref, computed, onMounted, onUnmounted, reactive, watch } from 'vue'
 import {
-  ElCard, ElButton, ElTag, ElEmpty, ElTable, ElTableColumn,
-  ElSwitch, ElInputNumber, ElSlider, ElDescriptions, ElDescriptionsItem,
-  ElTabs, ElTabPane, ElDialog, ElMessage, ElTooltip, ElBadge,
+  ElButton, ElTag, ElEmpty,
+  ElSwitch, ElInputNumber, ElSlider,
+  ElTabs, ElTabPane, ElDialog, ElMessage, ElBadge,
   ElInput, ElSelect, ElOption, ElDatePicker,
 } from 'element-plus'
 import { api } from '@/api/client'
 import SignalTracePanel from './SignalTracePanel.vue'
 import { useThemeStore } from '@/stores/theme'
+import {
+  strategyMeta, strategyCN,
+  pipelineLabels,
+  modeMeta,
+  factorLabel,
+  parseResponse, signalRemaining as _signalRemaining, formatRemaining,
+} from '@/utils/scanner'
 
 interface ScanStats { scans: number; signals_found: number; trades_executed: number; stop_losses: number; take_profits: number; stocks_scanned: number }
 interface ScannerStatus { is_running: boolean; scan_count: number; last_scan_time: string; active_signals: number; positions: number; stocks_scanned: number; stats: ScanStats; account_id: string; trade_mode: string; dry_run?: boolean; circuit_breaker_paused?: boolean; circuit_breaker?: { trading_paused: boolean; pause_reason: string }; account: { total_assets: number; available_cash: number; market_value: number; total_profit: number }; data_sources?: Array<{ name: string; available: boolean; stocks: number; calls: number; limit: number; note: string }> }
@@ -49,46 +56,11 @@ const editParams = ref<Record<string, any>>({})
 const editRiskParams = ref<Record<string, any>>({})
 const saving = ref(false)
 const scannerApi = '/scanner', configApi = '/strategy-config'
-const strategyMeta: Record<string, { color: string; icon: string; desc: string; cn: string }> = {
-  halfway_chase: { color: '#e6a23c', icon: '🚀', desc: '盘中冲高2-7%+量能放大', cn: '半路追涨' },
-  first_limit_up: { color: '#f56c6c', icon: '🔥', desc: '首板涨停封板强', cn: '首板打板' },
-  dragon_head: { color: '#409eff', icon: '🐉', desc: '连板龙头回调低吸', cn: '龙头低吸' },
-  limit_down_qiao: { color: '#67c23a', icon: '💪', desc: '跌停撬板反弹', cn: '跌停翘板' },
-  limit_up_open: { color: '#909399', icon: '🔓', desc: '涨停炸板回封', cn: '涨停开板' },
-  anomaly_surge: { color: '#e6a23c', icon: '⚡', desc: '5分钟急速拉升', cn: '急速拉升' },
-  anomaly_broken: { color: '#f56c6c', icon: '💔', desc: '涨停炸板', cn: '涨停炸板' },
-  anomaly_strong: { color: '#409eff', icon: '💪', desc: '强势涨停确认', cn: '强势涨停' },
-}
-const strategyCN = (s: string) => strategyMeta[s]?.cn || s
-const factorCN: Record<string, string> = {
-  pct_chg: '涨跌幅', volume_ratio: '量比', turnover_rate: '换手率',
-  circ_mv: '流通市值', total_mv: '总市值', float_mv: '流通市值',
-  ma5: 'MA5', ma10: 'MA10', ma20: 'MA20', ma60: 'MA60',
-  rsi_6: 'RSI6', rsi_12: 'RSI12', rsi_24: 'RSI24',
-  macd: 'MACD', macd_signal: 'MACD信号', macd_hist: 'MACD柱',
-  boll_upper: '布林上轨', boll_lower: '布林下轨', boll_mid: '布林中轨',
-  atr: 'ATR', momentum_1d: '1日动量',
-  is_limit_up: '涨停', is_limit_down: '跌停',
-  limit_up_count: '涨停次数', limit_up_yesterday: '昨日涨停',
-  limit_down_yesterday: '昨日跌停', first_limit_up: '首板',
-  opening_pct_chg: '竞价涨跌幅', open: '开盘价', high: '最高价',
-  low: '最低价', close: '收盘价', pre_close: '前收盘',
-  pe: 'PE', pb: 'PB', amplitude: '振幅',
-  fear_greed_index: '恐慌贪婪指数',
-  limit_up_open_amount: '涨停开板金额', limit_down_open_amount: '跌停开板金额',
-  pullback_pct: '回调幅度', pullback_days: '回调天数',
-  rise_after_limit_down: '跌停后涨幅',
-  open_times: '开板次数', fd_amount: '封板资金', limit_times: '连板数',
-}
-const factorLabel = (k: string) => factorCN[k] || k
-const layerCN: Record<string, string> = {
-  L1_force_empty: 'L1 强制空仓', L2_special_period: 'L2 特殊时期',
-  L3_sentiment: 'L3 情绪周期', L4_premarket: 'L4 盘前预选',
-  L5_auction: 'L5 竞价过滤', L6_strategy: 'L6 策略量能',
-  L7_ranking: 'L7 综合排序', L8_position: 'L8 仓位控制',
-}
-const layerLabel = (k: string) => layerCN[k] || k
-const tradeMode = ref('simulated')
+// Wrappers for shared constants (adapted for template usage)
+const layerLabel = (k: string) => { const label = pipelineLabels[k]; if (!label) return k; const prefix = k.split('_')[0]; return prefix + ' ' + label }
+const sigRemaining = (sig: ScanSignal) => _signalRemaining(sig.created_at || 0, nowMs.value)
+// factorCN, factorLabel imported from @/utils/scanner
+// layerLabel uses pipelineLabels from @/utils/scanner (see wrapper above)
 const dataSources = ref<any[]>([])
 const brokers = ref<any[]>([])
 const healthData = ref<HealthData | null>(null)
@@ -146,9 +118,11 @@ const dailyReportVisible = ref(false)
 // 【P1-4】信号过期倒计时
 const nowMs = ref(Date.now())
 let nowTimer: any = null
-const SIGNAL_EXPIRE_MS = 300000 // 5分钟
-function signalRemaining(sig: ScanSignal): number { if (!sig.created_at || sig.created_at <= 0) return -1; const remain = SIGNAL_EXPIRE_MS - (nowMs.value / 1000 - sig.created_at) * 1000; return Math.max(0, remain) }
-function formatRemaining(ms: number): string { if (ms < 0) return ''; const s = Math.floor(ms / 1000); if (s < 60) return `${s}s`; return `${Math.floor(s / 60)}m${s % 60}s` }
+// signalRemaining/formatRemaining/SIGNAL_EXPIRE_MS imported from @/utils/scanner
+const tradeMode = ref('simulated')
+const replayDate = ref('')
+const replayDateVisible = ref(false)
+const replayDateInput = ref('')
 
 async function openTradeDetail(ts_code: string) { try { const r = await api.get(`${scannerApi}/trade-detail/${ts_code}`); if (r?.success) { tradeDetailData.value = r.data; tradeDetailVisible.value = true } } catch (e: any) { ElMessage.error('获取详情失败') } }
 async function openTradeAudit() { try { const r = await api.get(`${scannerApi}/trade-audit`); if (r?.success) { tradeAuditData.value = r.data; tradeAuditVisible.value = true } } catch (e: any) { ElMessage.error('获取审查失败') } }
@@ -175,12 +149,19 @@ async function onManualCodeChange(code: string) {
 }
 const executeManualTrade = async () => { if (!manualTrade.ts_code) return; const sideText = manualTrade.side === 'buy' ? '买入' : '卖出'; const amount = (manualTrade.quantity || 0) * (manualTrade.price || 0); showConfirm(`确认${sideText}`, `${manualTrade.stock_name || manualTrade.ts_code}\n${sideText} ${manualTrade.quantity || 0}股 × ¥${(manualTrade.price || 0).toFixed(2)} ≈ ¥${amount.toFixed(0)}`, async () => { try { const r = await api.post(`${scannerApi}/trade`, { ts_code: manualTrade.ts_code, stock_name: manualTrade.stock_name, side: manualTrade.side, quantity: manualTrade.quantity || 0, price: manualTrade.price || 0, order_type: 'market', strategy: 'manual', reason: '手动操作' }); if (r?.success) { ElMessage.success(`${r.data.side === 'buy' ? '买入' : '卖出'} ${r.data.ts_code} ${r.data.filled_qty}股@${r.data.filled_price}`); manualTrade.ts_code = ''; manualTrade.stock_name = ''; manualTrade.quantity = 0; manualTrade.price = 0; fetchAll(true) } else ElMessage.error('下单失败') } catch (e: any) { ElMessage.error('下单失败') } }) }
 const cumulativePnl = computed(() => { let total = 0; return timeline.value.filter(t => t.action === 'sell' && t.profit_amount != null).reduce((sum, t) => sum + (t.profit_amount || 0), 0) })
-async function fetchScanner() { try { const r = await api.get(`${scannerApi}/all`); if (r?.success) { const d = r.data; if (d.signals && signals.value.length > 0 && d.signals.length > signals.value.length) { playSignalSound() } if (d.status) status.value = d.status; if (d.signals) signals.value = d.signals; if (d.positions) positions.value = d.positions; if (d.timeline) timeline.value = d.timeline; if (d.orders) orders.value = d.orders } fetchLimitPools() } catch (e) { console.error(e) } }
-async function fetchScannerFull() { try { const [sR, sigR, posR, tlR, ordR] = await Promise.all([api.get(`${scannerApi}/status`), api.get(`${scannerApi}/signals`), api.get(`${scannerApi}/positions`), api.get(`${scannerApi}/timeline`), api.get(`${scannerApi}/orders`)]); if (sR?.success) status.value = sR.data; if (sigR?.success) signals.value = sigR.data; if (posR?.success) positions.value = posR.data; if (tlR?.success) timeline.value = tlR.data; if (ordR?.success) orders.value = ordR.data || [] } catch (e) { console.error(e) } }
-async function startScanner() { await api.post(`${scannerApi}/start`, { account_id: 'default', trade_mode: dryRun.value ? 'dry_run' : tradeMode.value }); await fetchScanner() }
+async function fetchScanner() { try { const r = await api.get(`${scannerApi}/all`); const p = parseResponse(r); if (p.success) { const d = p.data; if (d.signals && signals.value.length > 0 && d.signals.length > signals.value.length) { playSignalSound() } if (d.status) status.value = d.status; if (d.signals) signals.value = d.signals; if (d.positions) positions.value = d.positions; if (d.timeline) timeline.value = d.timeline; if (d.orders) orders.value = d.orders } fetchLimitPools() } catch (e) { console.error(e) } }
+async function fetchScannerFull() { try { const [sR, sigR, posR, tlR, ordR] = await Promise.all([api.get(`${scannerApi}/status`), api.get(`${scannerApi}/signals`), api.get(`${scannerApi}/positions`), api.get(`${scannerApi}/timeline`), api.get(`${scannerApi}/orders`)]); const sP = parseResponse(sR), sigP = parseResponse(sigR), posP = parseResponse(posR), tlP = parseResponse(tlR), ordP = parseResponse(ordR); if (sP.success) status.value = sP.data; if (sigP.success) signals.value = sigP.data; if (posP.success) positions.value = posP.data; if (tlP.success) timeline.value = tlP.data; if (ordP.success) orders.value = ordP.data || [] } catch (e) { console.error(e) } }
+async function startScanner() {
+  const payload: Record<string, any> = { account_id: 'default', trade_mode: tradeMode.value }
+  if (tradeMode.value === 'replay') {
+    if (!replayDate.value) { ElMessage.warning('请先选择回放日期'); return }
+    payload.replay_date = replayDate.value
+  }
+  await api.post(`${scannerApi}/start`, payload); await fetchScanner()
+}
 async function stopScanner() { showConfirm('停止扫描', '确认停止扫描器？\n持仓将保留，可手动卖出。', async () => { await api.post(`${scannerApi}/stop`, { sell_all: false }); await fetchScanner() }) }
-async function manualScan() { loading.value = true; try { const r = await api.post(`${scannerApi}/scan-once`); if (r?.success) { const m = r.data?.message; if (m) ElMessage.warning(m); else ElMessage.success(`扫描完成: ${r.data?.signals || 0}信号, ${r.data?.positions || 0}持仓`) } else ElMessage.error('扫描失败') } catch (e: any) { ElMessage.error('扫描失败') } finally { loading.value = false; await fetchScanner() } }
-async function forceScan() { loading.value = true; try { const r = await api.post(`${scannerApi}/scan-once`, { force: true }); if (r?.success) { ElMessage.success(`强制扫描完成: ${r.data?.signals || 0}信号, ${r.data?.positions || 0}持仓`) } else ElMessage.error('强制扫描失败') } catch (e: any) { ElMessage.error('强制扫描失败') } finally { loading.value = false; await fetchScanner() } }
+async function manualScan() { loading.value = true; try { const payload: Record<string, any> = {}; if (tradeMode.value === 'replay' && replayDate.value) payload.replay_date = replayDate.value; const r = await api.post(`${scannerApi}/scan-once`, payload); if (r?.success) { const m = r.data?.message; if (m) ElMessage.warning(m); else ElMessage.success(`扫描完成: ${r.data?.signals || 0}信号, ${r.data?.positions || 0}持仓`) } else ElMessage.error('扫描失败') } catch (e: any) { ElMessage.error('扫描失败') } finally { loading.value = false; await fetchScanner() } }
+async function forceScan() { loading.value = true; try { const payload: Record<string, any> = { force: true }; if (tradeMode.value === 'replay' && replayDate.value) payload.replay_date = replayDate.value; const r = await api.post(`${scannerApi}/scan-once`, payload); if (r?.success) { ElMessage.success(`强制扫描完成: ${r.data?.signals || 0}信号, ${r.data?.positions || 0}持仓`) } else ElMessage.error('强制扫描失败') } catch (e: any) { ElMessage.error('强制扫描失败') } finally { loading.value = false; await fetchScanner() } }
 const stratCollapsed = ref<Record<string, boolean>>({ halfway_chase: true, first_limit_up: true, dragon_head: true, limit_down_qiao: true, limit_up_open: true })
 const stratSectionCollapsed = ref(true)
 const qaSectionCollapsed = ref(false)
@@ -195,7 +176,7 @@ async function resetCircuitBreaker() { try { const r = await api.post(`${scanner
 async function fetchLimitPools() { try { const r = await api.get(`${scannerApi}/limit-pools`); if (r?.success) limitPools.value = r.data } catch { } }
 async function fetchDailyReport() { try { const r = await api.get(`${scannerApi}/daily-report`); if (r?.success) dailyReport.value = r.data } catch { } }
 async function fetchDataSources() { try { const [sR, bR] = await Promise.all([api.get('/datasource/sources'), api.get('/datasource/brokers')]); if (sR?.success) dataSources.value = sR.data || []; if (bR?.success) brokers.value = bR.data || [] } catch { } }
-async function fetchHealth() { try { const r = await api.get(`${scannerApi}/health`); if (r?.success) healthData.value = r.data } catch { } }
+async function fetchHealth() { try { const r = await api.get(`${scannerApi}/health`); if (r?.success) healthData.value = r.health || r.data?.health || r.data } catch { } }
 async function emergencyLiquidate() { showConfirm('🚨 紧急平仓', '将立即以市价卖出所有持仓！\n此操作不可撤销！\n\n确认紧急平仓？', async () => { emergencyLiquidating.value = true; try { const r = await api.post(`${scannerApi}/emergency-liquidate`); if (r?.success) { ElMessage.success(r.data?.message || '紧急平仓完成'); await fetchAll(true) } else ElMessage.error(r?.data?.message || '平仓失败') } catch { ElMessage.error('紧急平仓失败') } finally { emergencyLiquidating.value = false } }) }
 async function fetchAll(force = false) { await Promise.all([fetchScanner(), fetchStrategies(), fetchDataSources(), fetchLimitPools(), fetchDailyReport(), fetchHealth()]) }
 async function fetchStrategies() { try { const [sR, rR] = await Promise.all([api.get(`${configApi}/strategies`), api.get(`${configApi}/global-risk`)]); if (sR?.success) strategies.value = sR.data; if (rR?.success) globalRisk.value = rR.data } catch (e) { console.error(e) } }
@@ -236,7 +217,23 @@ const weeklyReportVisible = ref(false)
 async function loadCompare() { compareLoading.value = true; try { const r = await api.get(`${scannerApi}/backtest-compare`); if (r?.success) { compareData.value = r.data || []; compareVisible.value = true } } catch { ElMessage.error('加载失败') } finally { compareLoading.value = false } }
 async function openWeeklyReport() { try { const data = await fetchWeeklyReport(); if (data) { weeklyReportData.value = data; weeklyReportVisible.value = true } else ElMessage.warning('暂无周报数据') } catch { ElMessage.error('加载失败') } }
 // 【调试增强】
-const dryRun = computed(() => status.value?.dry_run ?? false)
+const dryRun = computed(() => tradeMode.value === 'dry_run' || (status.value?.dry_run ?? false))
+function onModeChange(mode: string) {
+  if (mode === 'replay') {
+    replayDateInput.value = ''
+    replayDateVisible.value = true
+  }
+}
+async function confirmReplay() {
+  if (!replayDateInput.value) { ElMessage.warning('请选择回放日期'); return }
+  replayDate.value = replayDateInput.value.replace(/-/g, '')
+  replayDateVisible.value = false
+  ElMessage.success(`回放模式: ${replayDateInput.value}`)
+}
+function cancelReplay() {
+  replayDateVisible.value = false
+  tradeMode.value = 'simulated'
+}
 const layerDebugVisible = ref(false)
 const layerDebugData = ref<any>(null)
 const layerDebugLoading = ref(false)
@@ -297,8 +294,10 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
     <div class="mm-header">
       <div class="hh-left">
         <div class="hh-status" :class="{ running: isRunning, stopped: !isRunning }"><span class="dot"></span><span>{{ isRunning ? '扫描中' : '已停止' }}</span></div>
-        <ElTag size="small" :type="tradeMode === 'gm' ? 'warning' : 'info'">🔵仿真</ElTag>
-        <ElTag v-if="dryRun" type="warning" size="small">🔍调试</ElTag>
+        <ElSelect v-model="tradeMode" size="small" style="width:110px" @change="onModeChange">
+          <ElOption v-for="(m, key) in modeMeta" :key="key" :value="key" :label="m.emoji + ' ' + m.text" />
+        </ElSelect>
+        <ElTag v-if="tradeMode === 'replay' && replayDate" type="warning" size="small">🔄 {{ replayDateInput }}</ElTag>
         <ElTag v-if="circuitBreakerPaused" type="danger" size="small">⚠️熔断</ElTag>
         <!-- 【P1-5】数据源健康指示 -->
         <div v-if="status?.data_sources?.length" class="ds-indicator">
@@ -397,7 +396,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <div class="sl">
           <div v-if="!signals.length" class="empty">启动后扫描获取信号</div>
           <div v-for="sig in filteredSignals" :key="sig.ts_code + sig.strategy" class="sig-row" :title="`${sig.ts_code} ${sig.stock_name} | ${sig.strategy_name} | 量比${sig.volume_ratio?.toFixed(1) || '-'} | 换手${sig.turnover_rate?.toFixed(1) || '-'}% | ${sig.reason}`">
-            <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || '#909399'" class="tag-solid" style="min-width:52px;text-align:center">{{ sig.strategy_name }}</ElTag><ElTag v-if="sig.signal_status === 'executed'" size="small" type="success">已买</ElTag><ElTag v-if="sig.signal_status === 'skipped'" size="small" type="warning">跳过</ElTag><ElTag v-if="sig.signal_status === 'expired'" size="small" type="info">过期</ElTag><span class="code">{{ sig.ts_code }}</span><span class="name">{{ sig.stock_name }}</span><span v-if="sig.signal_status === 'new' && signalRemaining(sig) >= 0" class="expire-tag" :class="{ urgent: signalRemaining(sig) < 60000 }">⏱{{ formatRemaining(signalRemaining(sig)) }}</span><span v-if="sig.volume_ratio" class="factor">量比{{ sig.volume_ratio.toFixed(1) }}</span><span v-if="sig.turnover_rate" class="factor">换手{{ sig.turnover_rate.toFixed(1) }}%</span><template v-if="sig.key_factors"><span v-for="(v, k) in sig.key_factors" :key="k" class="factor kf">{{ v }}</span></template><span :class="sig.pct_chg >= 0 ? 'up' : 'down'" class="pct ml-auto" style="font-weight:600">{{ sig.pct_chg >= 0 ? '+' : '' }}{{ sig.pct_chg.toFixed(1) }}%</span><ElButton v-if="!dryRun && sig.signal_status === 'new'" size="small" type="danger" plain @click="quickBuy(sig)" class="btn-xs">买</ElButton><ElButton v-if="sig.decision_detail" size="small" type="info" plain @click="openTradeDetail(sig.ts_code)" class="btn-xs">🔍</ElButton><ElButton v-if="sig.layer_trace" size="small" type="warning" plain @click="openScanTrace(sig.ts_code)" class="btn-xs">🧪</ElButton>
+            <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || '#909399'" class="tag-solid" style="min-width:52px;text-align:center">{{ sig.strategy_name }}</ElTag><ElTag v-if="sig.signal_status === 'executed'" size="small" type="success">已买</ElTag><ElTag v-if="sig.signal_status === 'skipped'" size="small" type="warning">跳过</ElTag><ElTag v-if="sig.signal_status === 'expired'" size="small" type="info">过期</ElTag><span class="code">{{ sig.ts_code }}</span><span class="name">{{ sig.stock_name }}</span><span v-if="sig.signal_status === 'new' && sigRemaining(sig) >= 0" class="expire-tag" :class="{ urgent: sigRemaining(sig) < 60000 }">⏱{{ formatRemaining(sigRemaining(sig)) }}</span><span v-if="sig.volume_ratio" class="factor">量比{{ sig.volume_ratio.toFixed(1) }}</span><span v-if="sig.turnover_rate" class="factor">换手{{ sig.turnover_rate.toFixed(1) }}%</span><template v-if="sig.key_factors"><span v-for="(v, k) in sig.key_factors" :key="k" class="factor kf">{{ v }}</span></template><span :class="sig.pct_chg >= 0 ? 'up' : 'down'" class="pct ml-auto" style="font-weight:600">{{ sig.pct_chg >= 0 ? '+' : '' }}{{ sig.pct_chg.toFixed(1) }}%</span><ElButton v-if="!dryRun && sig.signal_status === 'new'" size="small" type="danger" plain @click="quickBuy(sig)" class="btn-xs">买</ElButton><ElButton v-if="sig.decision_detail" size="small" type="info" plain @click="openTradeDetail(sig.ts_code)" class="btn-xs">🔍</ElButton><ElButton v-if="sig.layer_trace" size="small" type="warning" plain @click="openScanTrace(sig.ts_code)" class="btn-xs">🧪</ElButton>
           </div>
         </div>
 
@@ -625,6 +624,13 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
       </div>
       <div v-else class="empty">加载中...</div>
     </ElDialog>
+    <!-- 回放日期弹窗 -->
+    <ElDialog v-model="replayDateVisible" title="🔄 回放模式" width="380px" :close-on-click-modal="false">
+      <div style="margin-bottom:12px;font-size:14px">选择要回放的交易日期，将使用历史数据重放扫描：</div>
+      <ElDatePicker v-model="replayDateInput" type="date" placeholder="选择回放日期" value-format="YYYY-MM-DD" style="width:100%" :disabled-date="(d: Date) => d > new Date()" />
+      <template #footer><ElButton @click="cancelReplay">取消</ElButton><ElButton type="primary" @click="confirmReplay" :disabled="!replayDateInput">确认回放</ElButton></template>
+    </ElDialog>
+
     <!-- 【P1-7】交易确认弹窗 -->
     <ElDialog v-model="confirmVisible" :title="confirmData.title" width="420px" :close-on-click-modal="false">
       <div style="font-size:14px;line-height:1.8;white-space:pre-line">{{ confirmData.message }}</div>

@@ -1786,20 +1786,125 @@ async def get_scanner_health():
     
     返回:
     - overall_status: healthy/degraded/critical/dead
-    - checks: 各项检查结果(心跳/信号产出/回撤/持仓/行情延迟)
+    - checks: 各项检查结果(心跳/信号产出/回撤/持仓/行情延迟/策略)
+    - circuit_breaker: 熔断状态
+    - risk_metrics: 风控指标(日回撤/持仓比/连续亏损)
     """
     try:
         scanner = _get_scanner_instance()
         if not scanner:
-            return {"success": True, "health": {"overall_status": "dead", "message": "Scanner未运行"}}
+            return {"success": True, "health": {
+                "overall_status": "dead", "message": "Scanner未运行",
+                "checks": {}, "circuit_breaker": {"trading_paused": False},
+                "risk_metrics": {"daily_drawdown_pct": 0, "max_drawdown_pct": 5, "position_ratio": 0}
+            }}
         
+        # 基础状态
         watchdog = getattr(scanner, '_risk_watchdog', None)
-        if not watchdog:
-            return {"success": True, "health": {"overall_status": "unknown", "message": "看门狗未初始化"}}
+        watchdog_status = watchdog.get_status() if watchdog else {
+            "overall_status": "unknown", "checks": {}, "uptime_seconds": 0,
+            "scanner_heartbeat_age": -1, "alert_count": 0
+        }
         
-        return {"success": True, "health": watchdog.get_status()}
+        # 补充scanner级别的checks(策略+数据源)
+        checks = watchdog_status.get("checks", {})
+        
+        # 策略状态 — 基于信号产出
+        for strategy_key in ["halfway_chase", "first_limit_up", "dragon_head", "limit_down_qiao"]:
+            strategy_signals = [s for s in scanner._active_signals if s.strategy == strategy_key]
+            total_signals = getattr(scanner, '_scan_count', 0)
+            if total_signals > 0 and len(strategy_signals) > 0:
+                checks[strategy_key] = {
+                    "status": "healthy",
+                    "value": f"{len(strategy_signals)}个活跃信号",
+                    "threshold": ">0",
+                    "message": "策略正常产出信号"
+                }
+            elif total_signals > 0:
+                checks[strategy_key] = {
+                    "status": "unknown",
+                    "value": "无信号",
+                    "threshold": ">0",
+                    "message": "当前无信号(可能正常)"
+                }
+            else:
+                checks[strategy_key] = {
+                    "status": "unknown",
+                    "value": "未扫描",
+                    "threshold": ">0",
+                    "message": "尚未执行扫描"
+                }
+        
+        # 数据源状态
+        data_router = getattr(scanner, '_data_router', None)
+        ds_list = []
+        if data_router:
+            for name, src in data_router._sources.items():
+                status_info = src.get_status() if hasattr(src, 'get_status') else {}
+                ds_list.append({
+                    "name": name,
+                    "available": status_info.get('available', True),
+                    "stocks": status_info.get('cached_stocks', 0),
+                    "calls": status_info.get('api_calls_today', 0),
+                    "limit": status_info.get('api_limit', 0),
+                })
+                checks[f"datasource_{name}"] = {
+                    "status": "healthy" if status_info.get('available', True) else "critical",
+                    "value": f"{status_info.get('cached_stocks', 0)}只",
+                    "threshold": "在线",
+                    "message": status_info.get('note', '')
+                }
+        
+        # 风控指标
+        broker = scanner._broker
+        acc = broker.account if broker else None
+        total_assets = acc.total_assets if acc else 0
+        market_value = acc.market_value if acc else 0
+        daily_profit = acc.today_profit if acc else 0
+        positions = broker.positions if broker else {}
+        daily_drawdown = abs(min(0, daily_profit / total_assets * 100)) if total_assets > 0 else 0
+        position_ratio = market_value / total_assets if total_assets > 0 else 0
+        
+        # 熔断状态
+        cb = getattr(scanner, '_circuit_breaker', None) or {}
+        consecutive_losses = cb.get('consecutive_losses', 0) if isinstance(cb, dict) else 0
+        trading_paused = cb.get('trading_paused', False) if isinstance(cb, dict) else False
+        
+        risk_metrics = {
+            "daily_drawdown_pct": round(daily_drawdown, 2),
+            "max_drawdown_pct": 5.0,
+            "position_ratio": round(position_ratio, 3),
+            "consecutive_losses": consecutive_losses,
+            "max_consecutive_losses": 3,
+        }
+        
+        circuit_breaker = {
+            "trading_paused": trading_paused,
+            "pause_reason": cb.get('pause_reason', '') if isinstance(cb, dict) else '',
+            "consecutive_losses": consecutive_losses,
+            "max_consecutive_losses": 3,
+        }
+        
+        # 综合状态判断
+        overall = watchdog_status.get('overall_status', 'unknown')
+        if daily_drawdown >= 5 or trading_paused:
+            overall = 'critical'
+        elif daily_drawdown >= 3 or consecutive_losses >= 2:
+            overall = 'degraded'
+        
+        return {
+            "success": True, 
+            "health": {
+                **watchdog_status,
+                "overall_status": overall,
+                "checks": checks,
+                "circuit_breaker": circuit_breaker,
+                "risk_metrics": risk_metrics,
+                "data_sources": ds_list,
+            }
+        }
     except Exception as e:
-        return {"success": True, "health": {"overall_status": "error", "message": str(e)}}
+        return {"success": True, "health": {"overall_status": "error", "message": str(e), "checks": {}}}
 
 
 @router.post("/emergency-liquidate")
