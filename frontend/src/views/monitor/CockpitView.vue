@@ -78,6 +78,7 @@ const tradeModeLabel = computed(() => {
     simulated: { text: '模拟', color: '#67c23a' },
     gm: { text: '掘金', color: '#409eff' },
     dry_run: { text: '调试', color: '#e6a23c' },
+    replay: { text: '回放', color: '#9b59b6' },
   }
   return m[tradeMode.value] || { text: tradeMode.value, color: '#909399' }
 })
@@ -277,13 +278,31 @@ async function toggleScanner() {
       ElMessage.success('扫描器已停止')
     } else {
       const acc = account.value
-      const modeLabels: Record<string, string> = { simulated: '模拟', gm: '掘金', dry_run: '调试' }
+      const modeLabels: Record<string, string> = { simulated: '模拟', gm: '掘金', dry_run: '调试', replay: '回放' }
+      // 回放模式需要指定日期
+      let replayDate = ''
+      if (selectedMode.value === 'replay') {
+        const today = new Date()
+        const defaultDate = new Date(today)
+        defaultDate.setDate(today.getDate() - 1) // 默认昨天
+        const dateStr = defaultDate.toISOString().slice(0, 10).replace(/-/g, '')
+        try {
+          const { value } = await ElMessageBox.prompt(
+            '输入回放日期(YYYYMMDD格式)，将使用该日历史数据模拟实时行情',
+            '🔄 回放模式',
+            { confirmButtonText: '确认', cancelButtonText: '取消', inputValue: dateStr, inputPattern: /^\d{8}$/, inputErrorMessage: '请输入8位日期' }
+          )
+          replayDate = value
+        } catch { return }  // 取消
+      }
       await ElMessageBox.confirm(
-        `确认启动扫描器？\n模式: ${modeLabels[selectedMode.value] || selectedMode.value}\n可用资金: ¥${(acc.available_cash / 10000).toFixed(1)}万\n当前持仓: ${positions.value.length}只`,
+        `确认启动扫描器？\n模式: ${modeLabels[selectedMode.value] || selectedMode.value}${replayDate ? ' (日期: ' + replayDate + ')' : ''}\n可用资金: ¥${(acc.available_cash / 10000).toFixed(1)}万\n当前持仓: ${positions.value.length}只`,
         '启动扫描',
         { confirmButtonText: '确认启动', cancelButtonText: '取消', type: 'info' }
       )
-      await api.post(`${scannerApi}/start`, { trade_mode: selectedMode.value })
+      const payload: Record<string, string> = { trade_mode: selectedMode.value }
+      if (replayDate) payload.replay_date = replayDate
+      await api.post(`${scannerApi}/start`, payload)
       ElMessage.success('扫描器已启动')
     }
     await fetchAll()
@@ -404,6 +423,7 @@ onUnmounted(() => {
           <ElOption label="🟢 模拟" value="simulated" />
           <ElOption label="🔵 掘金" value="gm" />
           <ElOption label="🟡 调试" value="dry_run" />
+          <ElOption label="🔄 回放" value="replay" />
         </ElSelect>
         <span class="mode-badge" :style="{ background: tradeModeLabel.color }">{{ tradeModeLabel.text }}</span>
         <span class="asset-info">
