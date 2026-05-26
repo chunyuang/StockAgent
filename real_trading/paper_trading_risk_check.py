@@ -39,11 +39,19 @@ class PaperTradingEngineWithRisk:
         self.data_file = os.path.join(os.path.dirname(__file__), data_file)
         
         # 初始化风控检查器
+        # 【V64:从strategy_defaults读取风控阈值,确保与回测强制空仓参数对齐】
+        try:
+            from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK as _GR
+            _default_index_drop = _GR.get("force_empty_index_drop_pct", 0.03)
+            _default_daily_dd = _GR.get("stop_loss_pct", 0.03)
+        except ImportError:
+            _default_index_drop = 0.03
+            _default_daily_dd = 0.03
         self.risk_checker = PreBuyRiskChecker(config={
             "market_filter_enabled": True,      # 启用市场环境过滤
             "reference_index": "sh000001",       # 上证指数
-            "max_index_drop": 0.03,             # 指数最大跌幅3%
-            "daily_max_drawdown": 0.03,       # 日内最大回撤3%
+            "max_index_drop": _default_index_drop,  # 指数最大跌幅(与strategy_defaults对齐)
+            "daily_max_drawdown": _default_daily_dd, # 日内最大回撤(与止损对齐)
             "consecutive_loss_limit": 3,         # 连续亏损3次暂停
             "consecutive_loss_pause_days": 1,    # 暂停1天
             "exclude_st_stocks": True,          # 排除ST股票

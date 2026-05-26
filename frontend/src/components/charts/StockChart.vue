@@ -12,6 +12,7 @@ import {
   DataZoomComponent,
 } from 'echarts/components'
 import { useThemeStore } from '@/stores'
+import { ElEmpty } from 'element-plus'
 import type { StockDaily } from '@/api'
 
 // 注册 ECharts 组件
@@ -79,11 +80,11 @@ const option = computed(() => {
   // K线数据 [开, 收, 低, 高]
   const klineData = sortedData.map((d) => [d.open, d.close, d.low, d.high])
   
-  // 成交量
+  // 成交量（A股规则：收>前收=涨=红，否则跌=绿）
   const volumes = sortedData.map((d) => ({
     value: d.vol,
     itemStyle: {
-      color: d.close >= d.open ? colors.upColor : colors.downColor,
+      color: d.pre_close != null && d.close >= d.pre_close ? colors.upColor : colors.downColor,
     },
   }))
   
@@ -343,7 +344,7 @@ function calculateMA(data: StockDaily[], period: number): (number | '-')[] {
 <template>
   <div class="stock-chart">
     <VChart v-if="data.length > 0" :option="option" autoresize />
-    <el-empty v-else description="暂无K线数据" />
+    <ElEmpty v-else description="暂无K线数据" />
   </div>
 </template>
 

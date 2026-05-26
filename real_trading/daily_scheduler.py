@@ -549,7 +549,7 @@ class DailyScheduler:
 
         # Step 2: 更新净值
         try:
-            nav_record = self.nav_tracker.update_daily_nav(trade_date)
+            nav_record = await self.nav_tracker.update_daily_nav(trade_date)
             steps.append({
                 "step": "更新净值", "status": "success",
                 "nav": nav_record.nav, "daily_return": nav_record.daily_return,
@@ -824,7 +824,7 @@ class DailyScheduler:
         account = self.engine.accounts[self.account_id]
         sell_proceeds = sum(p["total_cost"] for p in to_sell)
         investable = account.current_balance + sell_proceeds
-        position_limit = signal_data.get("sentiment", {}).get("position_limit", 0.7)
+        position_limit = signal_data.get("sentiment", {}).get("position_limit", GLOBAL_RISK.get('max_total_position', 0.75))
 
         for sig in to_buy:
             buy_price = sig.get("price", sig.get("close", 0))

@@ -235,7 +235,10 @@ class SignalPusher:
             # 【V61:从strategy_defaults读取仓位限制,不再硬编码20%】
             from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK as _GR2
             content.append(f"2. 单票仓位不超过{_GR2['max_position_per_stock']*100:.0f}%，总仓位不超过{_GR2['max_total_position']*100:.0f}%")
-            content.append("3. 持仓最多持有3天，到期强制卖出")
+            # 【V64:不同策略有不同持仓期限,不再硬编码3天】
+            from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS as _SC2
+            _max_hold = max(cfg.get('riskParams', {}).get('max_hold_days', 3) for cfg in _SC2.values() if cfg.get('enabled', True))
+            content.append(f"3. 不同策略持仓期限不同(2-7天)，最长{_max_hold}天，到期强制卖出")
             content.append("")
             content.append(f"*生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*")
         

@@ -143,7 +143,8 @@ class RiskAlertEngine:
         pos_manager = engine.position_managers[account_id]
         positions = pos_manager.get_positions()
         total_position_value = sum(pos["shares"] * pos["buy_price"] for pos in positions)  # TODO: 用当前市价替代成本价
-        position_ratio = total_position_value / account.current_balance if account.current_balance > 0 else 0
+        total_equity = account.current_balance + total_position_value
+        position_ratio = total_position_value / total_equity if total_equity > 0 else 0
         
         if position_ratio >= self.config["position_limit_alert"]:
             alerts.append({
