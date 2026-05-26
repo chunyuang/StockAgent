@@ -18,11 +18,29 @@ interface StrategyFactor {
   flowSteps: string[]         // 交易流程
 }
 
+import { STRATEGY_CONFIGS, GLOBAL_RISK } from '@/config/strategyDefaults'
+
 interface FactorItem {
   name: string
   label: string
   condition: string
   source: string
+}
+
+// 从 strategyDefaults.ts 动态生成风控参数描述，确保与后端一致
+function riskDesc(id: string): string[] {
+  const cfg = STRATEGY_CONFIGS[id as keyof typeof STRATEGY_CONFIGS]
+  const risk = cfg?.riskParams
+  if (!risk) return []
+  const sl = (risk.stop_loss_pct * 100).toFixed(0)
+  const tp = (risk.take_profit_pct * 100).toFixed(0)
+  const hold = String(risk.max_hold_days)
+  const lines = [`stop_loss_pct=${sl}%`, `take_profit_pct=${tp}%`, `max_hold_days=${hold}`]
+  if (id === 'first_limit_up') {
+    const p = cfg?.params as any
+    lines.push(`成交概率(一字${(p?.hit_probability_yizi*100).toFixed(0)}%/快板${(p?.hit_probability_fast*100).toFixed(0)}%/正常${(p?.hit_probability_normal*100).toFixed(0)}%/慢板${(p?.hit_probability_slow*100).toFixed(0)}%)`)
+  }
+  return lines
 }
 
 const strategies: StrategyFactor[] = [
@@ -39,15 +57,15 @@ const strategies: StrategyFactor[] = [
       { name: 'volume_ratio', label: '量比', condition: '≥ 1.5', source: 'factor_auto_compute' },
       { name: 'ma60', label: '60日均线', condition: '收盘>MA60 (趋势过滤)', source: 'factor_auto_compute' },
     ],
-    exitSignal: '次日高开≥3%即卖 / 止损5% / 止盈10% / 持仓3天',
+    exitSignal: `次日高开≥3%即卖 / 止损${(STRATEGY_CONFIGS.halfway_chase.riskParams.stop_loss_pct*100).toFixed(0)}% / 止盈${(STRATEGY_CONFIGS.halfway_chase.riskParams.take_profit_pct*100).toFixed(0)}% / 持仓${STRATEGY_CONFIGS.halfway_chase.riskParams.max_hold_days}天`,
     exitFactors: ['open (次日开盘价)', 'close (止损/止盈参考)'],
-    riskFactors: ['stop_loss_pct=5%', 'take_profit_pct=12%', 'max_hold_days=3'],
+    riskFactors: riskDesc('halfway_chase'),
     flowSteps: [
       '9:25 竞价过滤：排除极端高开(>7%)/低开(<-5%)',
       '9:30-14:50 盘中监控：intraday_max_rise_pct达3%~7%',
       '触发买入：按 open×(1+涨幅×0.6) 成交(模拟追高)',
       '次日：高开≥3%→开盘卖出(落袋为安)',
-      '次日：未达标→止损5%/止盈10%/3天超时卖出',
+      '次日：未达标→止损4%/止盈12%/3天超时卖出',
     ],
   },
   {
@@ -64,15 +82,15 @@ const strategies: StrategyFactor[] = [
       { name: 'volume_ratio', label: '量比', condition: '≥1.5', source: 'factor_auto_compute' },
       { name: 'circ_mv', label: '流通市值', condition: '5亿~200亿', source: '东方财富' },
     ],
-    exitSignal: '次日高开≥3%即卖 / 止损4% / 止盈12% / 持仓3天',
+    exitSignal: `次日高开≥3%即卖 / 止损${(STRATEGY_CONFIGS.first_limit_up.riskParams.stop_loss_pct*100).toFixed(0)}% / 止盈${(STRATEGY_CONFIGS.first_limit_up.riskParams.take_profit_pct*100).toFixed(0)}% / 持仓${STRATEGY_CONFIGS.first_limit_up.riskParams.max_hold_days}天`,
     exitFactors: ['open (次日)', 'close'],
-    riskFactors: ['stop_loss_pct=4%', 'take_profit_pct=12%', 'max_hold_days=3', '成交概率(秒板0.3/快板0.5/慢板0.7)'],
+    riskFactors: riskDesc('first_limit_up'),
     flowSteps: [
       '9:25 竞价检查：opening_pct_chg≥2%',
       '9:30 涨停确认：first_limit_up=1 且 limit_up_yesterday=0',
-      '封板买入：根据封板速度计算成交概率(0.3/0.5/0.7)',
-      '一字板=0%(买不到) / 秒板30% / 快板50% / 慢板70%',
-      '次日：高开≥3%→开盘卖出 / 止损4%/止盈12%/3天超时',
+      '封板买入：根据封板速度计算成交概率(一字0%/快板20%/正常45%/慢板60%)',
+      '一字板=0%(买不到) / 快板20% / 正常板45% / 慢板60%',
+      '次日：高开≥3%→开盘卖出 / 止损3%/止盈8%/2天超时',
     ],
   },
   {
@@ -89,15 +107,15 @@ const strategies: StrategyFactor[] = [
       { name: 'volume_ratio', label: '量比', condition: '0.5~2.0 (缩量回调)', source: 'factor_auto_compute' },
       { name: 'circ_mv', label: '流通市值', condition: '≥30亿', source: '东方财富' },
     ],
-    exitSignal: '止损5% / 止盈15% / 持仓4天 / 次日高开≥3%即卖',
+    exitSignal: `止损${(STRATEGY_CONFIGS.dragon_head.riskParams.stop_loss_pct*100).toFixed(0)}% / 止盈${(STRATEGY_CONFIGS.dragon_head.riskParams.take_profit_pct*100).toFixed(0)}% / 持仓${STRATEGY_CONFIGS.dragon_head.riskParams.max_hold_days}天 / 次日高开≥3%即卖`,
     exitFactors: ['open (次日)', 'close'],
-    riskFactors: ['stop_loss_pct=5%', 'take_profit_pct=15%', 'max_hold_days=4'],
+    riskFactors: riskDesc('dragon_head'),
     flowSteps: [
       '扫描全市场：limit_up_count≥1 (近5日1次涨停=龙头)',
       '回调检测：pullback_pct在-35%~-5%之间 + pullback_days 1~7天',
       '量能确认：volume_ratio 0.5~2.0 (缩量回调)',
       '买入：按 low+(high-low)×0.25 成交(模拟低吸)',
-      '卖出：止损5% / 止盈15% / 4天超时 / 次日高开≥3%即卖',
+      '卖出：止损3% / 止盈30% / 7天超时 / 次日高开≥3%即卖',
     ],
   },
   {
@@ -114,15 +132,15 @@ const strategies: StrategyFactor[] = [
       { name: 'turnover_rate', label: '换手率', condition: '≥3% (流动性)', source: '东方财富' },
       { name: 'sentiment_period_in', label: '情绪周期', condition: 'rising/chaos (非恐慌)', source: '市场级计算' },
     ],
-    exitSignal: '次日高开≥3%即卖 / 止损4% / 止盈20% / 持仓3天 / 冲高回落≥1.5%保护',
+    exitSignal: `次日高开≥3%即卖 / 止损${(STRATEGY_CONFIGS.limit_down_qiao.riskParams.stop_loss_pct*100).toFixed(0)}% / 止盈${(STRATEGY_CONFIGS.limit_down_qiao.riskParams.take_profit_pct*100).toFixed(0)}% / 持仓${STRATEGY_CONFIGS.limit_down_qiao.riskParams.max_hold_days}天 / 冲高回落≥1.5%保护`,
     exitFactors: ['open (次日)', 'close'],
-    riskFactors: ['stop_loss_pct=4%', 'take_profit_pct=20%', 'max_hold_days=3', 'min_circ_mv≥20亿'],
+    riskFactors: riskDesc('limit_down_qiao'),
     flowSteps: [
       '筛选：limit_down_yesterday=1 (昨日跌停)',
       '翘板确认：open_above_limit_down=1 (今日低开但高于跌停价)',
       '市值过滤：circ_mv≥20亿 (排除微盘操纵股)',
       '买入：按 open×1.005 成交(模拟翘板买入)',
-      '次日：高开≥3%→开盘卖出 / 止损4%/止盈20%/3天超时/冲高回落1.5%保护',
+      '次日：高开≥3%→开盘卖出 / 止损5%/止盈20%/3天超时/冲高回落1.5%保护',
     ],
   },
 ]
