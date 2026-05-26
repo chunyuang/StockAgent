@@ -79,15 +79,23 @@ const todayPnl = computed(() => {
       ? new Date(item.time).toLocaleDateString('zh-CN')
       : today
     if (itemDate !== today) continue
-    if (item.action === 'sell' && item.profit_pct != null && item.price > 0) {
-      realized += item.profit_pct / 100 * item.shares * item.price / (1 + item.profit_pct / 100)
+    // 【V59修复:P0-2】优先使用profit_amount字段,避免手动计算误差
+    if (item.action === 'sell') {
+      if (item.profit_amount != null) {
+        realized += item.profit_amount
+      } else if (item.profit_pct != null && item.shares > 0 && item.price > 0) {
+        // fallback: profit_pct是百分比(如10.5),反推盈亏额
+        // 盈亏额 = profit_pct/100 * 买入金额, 买入金额 = shares * price / (1+profit_pct/100)
+        const costAmt = item.shares * item.price / (1 + item.profit_pct / 100)
+        realized += costAmt * (item.profit_pct / 100)
+      }
     }
   }
   // 加上持仓浮盈
   let floating = 0
   for (const pos of positions.value) {
     if (pos.profit_amount != null) floating += pos.profit_amount
-    else if (pos.profit_pct != null && pos.cost_price > 0) {
+    else if (pos.cost_price > 0 && pos.current_price > 0) {
       floating += (pos.current_price - pos.cost_price) * pos.shares
     }
   }
@@ -351,7 +359,7 @@ async function openPositionDetail(pos: PositionInfo) {
       posRiskSL.value = r.data.position?.stop_loss_pct || 3.0
       posRiskTP.value = r.data.position?.take_profit_pct || 7.0
     }
-    else posDetailData.value = { ts_code: pos.ts_code, position: { shares: pos.available_qty, cost_price: pos.avg_cost, current_price: pos.current_price, profit_pct: pos.profit_pct, strategy: pos.strategy, stop_loss_pct: pos.stop_loss_pct, take_profit_pct: pos.take_profit_pct } }
+    else posDetailData.value = { ts_code: pos.ts_code, position: { shares: pos.available_qty, cost_price: pos.cost_price || pos.avg_cost, current_price: pos.current_price, profit_pct: pos.profit_pct, strategy: pos.strategy, stop_loss_pct: pos.stop_loss_pct, take_profit_pct: pos.take_profit_pct } }
     posRiskSL.value = posDetailData.value?.position?.stop_loss_pct || 3.0
     posRiskTP.value = posDetailData.value?.position?.take_profit_pct || 7.0
   } catch { posDetailData.value = null } finally { posDetailLoading.value = false }
@@ -481,8 +489,10 @@ async function quickBuySignal(sig: ScanSignal) {
     // 获取策略参数
     const paramR = await api.get(`${scannerApi}/params/${sig.strategy}`)
     const sp = paramR?.success ? paramR.data : null
-    const slPct = sp?.stop_loss_pct ? (sp.stop_loss_pct * 100).toFixed(1) : '3.0'
-    const tpPct = sp?.take_profit_pct ? (sp.take_profit_pct * 100).toFixed(1) : '7.0'
+    // 【V59修复:P0-1】scanner /params返回小数(0.03/0.07),/positions返回百分比(3.0/7.0)
+    // 如果值<1说明是小数需×100;如果>=1说明已是百分比
+    const slPct = sp?.stop_loss_pct ? (sp.stop_loss_pct < 1 ? (sp.stop_loss_pct * 100).toFixed(1) : sp.stop_loss_pct.toFixed(1)) : '3.0'
+    const tpPct = sp?.take_profit_pct ? (sp.take_profit_pct < 1 ? (sp.take_profit_pct * 100).toFixed(1) : sp.take_profit_pct.toFixed(1)) : '7.0'
     const holdDays = sp?.max_hold_days || '?'
     // 预估仓位
     const availCash = account.value.available_cash
@@ -529,6 +539,12 @@ async function savePosRisk() {
       ElMessage.success(`${posDetailData.value.ts_code} 风控已更新: 止损${posRiskSL.value}%/止盈${posRiskTP.value}%`)
       posDetailData.value.position.stop_loss_pct = posRiskSL.value
       posDetailData.value.position.take_profit_pct = posRiskTP.value
+      // 【V59修复:P1-1】同步positions列表中风控参数,避免fetchAll延迟
+      const idx = positions.value.findIndex(p => p.ts_code === posDetailData.value.ts_code)
+      if (idx >= 0) {
+        positions.value[idx].stop_loss_pct = posRiskSL.value
+        positions.value[idx].take_profit_pct = posRiskTP.value
+      }
       await fetchAll()
     } else {
       ElMessage.error(r?.message || '更新失败')
@@ -589,17 +605,30 @@ function connectWS() {
 // ============ 生命周期 ============
 onMounted(() => {
   fetchAll(); fetchHealth(); fetchScanTraces(); fetchLimitPools(); fetchStrategyParams(); fetchPerformanceHistory()
-  refreshTimer = setInterval(() => {
-    if (autoRefresh.value) {
-      fetchAll(); fetchHealth(); fetchScanTraces(); fetchLimitPools()
-      if (paramExpanded.value) fetchStrategyParams()
-    }
-  }, 5000)
+  // 【V59优化:P2-5】交易时间5秒刷新,盘后30秒,页面不可见时暂停
+  const getInterval = () => {
+    if (document.visibilityState !== 'visible') return 30000
+    const h = new Date().getHours(), m = new Date().getMinutes()
+    const inSession = (h === 9 && m >= 30) || (h >= 10 && h < 15)
+    return inSession ? 5000 : 30000
+  }
+  const scheduleRefresh = () => {
+    clearTimeout(refreshTimer)
+    refreshTimer = setTimeout(() => {
+      if (autoRefresh.value) {
+        fetchAll(); fetchHealth(); fetchScanTraces(); fetchLimitPools()
+        if (paramExpanded.value) fetchStrategyParams()
+      }
+      scheduleRefresh()
+    }, getInterval())
+  }
+  scheduleRefresh()
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') scheduleRefresh() })
   nowTimer = setInterval(() => { nowMs.value = Date.now() }, 1000)
   connectWS()
 })
 onUnmounted(() => {
-  clearInterval(refreshTimer); clearInterval(nowTimer); clearTimeout(wsReconnectTimer)
+  clearTimeout(refreshTimer); clearInterval(nowTimer); clearTimeout(wsReconnectTimer)
   ws?.close()
 })
 </script>
@@ -1229,6 +1258,11 @@ onUnmounted(() => {
 .tl-item { white-space: nowrap; font-size: 12px; color: var(--text-tertiary); }
 
 /* 响应式 */
+@media (max-width: 1200px) {
+  .main-grid { grid-template-columns: 1fr 1fr; }
+  .right-panel { grid-column: 1 / -1; }
+}
+
 @media (max-width: 900px) {
   .main-grid { grid-template-columns: 1fr; }
   .cockpit { padding: 8px; }
