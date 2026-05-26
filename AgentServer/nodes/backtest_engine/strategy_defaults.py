@@ -174,6 +174,11 @@ ALL_STRATEGIES = [
     for cfg in STRATEGY_CONFIGS.values() if cfg.get("enabled", True)
 ]
 
+# 【V55:统一策略ID↔名称映射,避免散落多处】
+# 旧问题: paper_trading/position_manager/generate_daily_signals各自独立维护映射,易遗漏
+STRATEGY_ID_TO_NAME = {sid: cfg["name"] for sid, cfg in STRATEGY_CONFIGS.items()}
+STRATEGY_NAME_TO_ID = {cfg["name"]: sid for sid, cfg in STRATEGY_CONFIGS.items()}
+
 
 def merge_strategy_params(strategy_id: str, user_params: dict) -> dict:
     """合并用户传入的策略参数与默认值

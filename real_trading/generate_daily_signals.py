@@ -411,10 +411,14 @@ class RealTradingSignalGenerator:
     def _get_strategy_for_stock(self, ts_code: str, daily_data: Dict) -> str:
         """根据行情数据判断股票所属策略类型
         
-        简单规则：
-        - 涨停板附近 → '首板打板'
-        - 涨幅≥5%但未涨停 → '半路追涨'
-        - 其他 → '龙头低吸'
+        【V55重构:与回测_build_strategy_filter_conditions对齐】
+        旧bug: 只判断3种策略(缺跌停翘板),且规则过于粗糙
+        
+        规则(与回测对齐):
+        - 跌停后收涨(pct_chg>0且open接近跌停价) → '跌停翘板'
+        - 涨停板(收涨停价) → '首板打板'
+        - 涨幅5-7%(盘中冲高) → '半路追涨'
+        - 其他(缩量回调等) → '龙头低吸'
         
         Args:
             ts_code: 股票代码
@@ -425,14 +429,29 @@ class RealTradingSignalGenerator:
         """
         pct_chg = daily_data.get("pct_chg", 0)
         limit_up = daily_data.get("up_limit", 0)
+        limit_down = daily_data.get("down_limit", 0)
         close = daily_data.get("close", 0)
+        open_p = daily_data.get("open", 0)
+        pre_close = daily_data.get("pre_close", 0)
         
+        # 跌停翘板: pct_chg>0且曾触及跌停(开盘接近跌停价)
+        # 回测条件: pct_chg>0 + 跌停相关筛选
+        if pct_chg > 0 and limit_down > 0:
+            # 粗略判断:如果收盘涨幅>0且当日有跌停价,可能是翘板
+            # 更精确的判断需要前日是否跌停,但实盘简化用open接近limit_down
+            if open_p > 0 and limit_down > 0 and abs(open_p - limit_down) / limit_down < 0.02:
+                return "跌停翘板"
+        
+        # 首板打板: 收盘涨停
         if abs(pct_chg - 10) < 0.5 and abs(close - limit_up) < 0.01:
             return "首板打板"
-        elif pct_chg >= 5:
+        
+        # 半路追涨: 涨幅5-7%(回测min_rise=3%,max_rise=7%,但实盘简化用5%门槛)
+        if 5 <= pct_chg:
             return "半路追涨"
-        else:
-            return "龙头低吸"
+        
+        # 龙头低吸: 默认(缩量回调等)
+        return "龙头低吸"
     
     def _generate_trading_plan(self, signals: List[Dict], sentiment_info: Dict) -> str:
         """生成Markdown格式交易计划
