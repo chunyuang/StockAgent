@@ -2985,16 +2985,13 @@ class PortfolioBacktester:
 
         # 【P2-12:补全前端图表所需字段】
         # 1. position_series: 每日仓位占比 [{date, value}]
-        #    【V60-P0-2修复:仓位=1-cash/equity,需用净值计算total_equity,而非用daily_cash_list绝对值】
-        #    旧bug: daily_cash_list是绝对金额,1-daily_cash_list在净值增长后失真(如cash=50万但equity=200万→pos=1-50=负数)
+        #    【V62-P0修复:position=1-cash_ratio,daily_cash_list[i]已是cash/current_net_value(现金占比)】
+        #    旧bug(V60): 1-daily_cash_list[i]/total_equity → 多除了total_equity导致值≈1.0
+        #    推导: daily_cash_list[i]=cash/current_nv, 所以position=1-daily_cash_list[i]即仓位占比
         position_series = []
         for i, nv in enumerate(net_value_series):
             if i < len(daily_cash_list):
-                total_equity = nv.get('net_value', 1.0) * self._initial_cash  # 当前总资产=净值*初始资金
-                if total_equity > 0:
-                    pos_val = max(0.0, 1.0 - daily_cash_list[i] / total_equity)  # 仓位=1-现金/总资产
-                else:
-                    pos_val = 0.0
+                pos_val = max(0.0, min(1.0, 1.0 - daily_cash_list[i]))  # 仓位=1-现金占比
             else:
                 pos_val = 0.0
             position_series.append({"date": nv.get("trade_date", ""), "value": pos_val})
@@ -3163,15 +3160,11 @@ class PortfolioBacktester:
             _dp_normalized = [p / self._initial_cash if self._initial_cash > 0 else 0.0 for p in daily_profit_list]
             result["daily_profit"] = _dp_normalized
             # position_series需重建(多了一个初始条目)
-            # 【V61修复:使用与V60-P0-2相同的公式,用净值计算total_equity】
+            # 【V62-P0修复:同上,position=1-daily_cash_list[i](现金占比)】
             position_series = []
             for i, nv in enumerate(net_value_series):
                 if i < len(daily_cash_list):
-                    total_equity = nv.get('net_value', 1.0) * self._initial_cash
-                    if total_equity > 0:
-                        pos_val = max(0.0, 1.0 - daily_cash_list[i] / total_equity)
-                    else:
-                        pos_val = 0.0
+                    pos_val = max(0.0, min(1.0, 1.0 - daily_cash_list[i]))  # 仓位=1-现金占比
                 else:
                     pos_val = 0.0
                 position_series.append({"date": nv.get("trade_date", ""), "value": pos_val})
