@@ -329,7 +329,7 @@ async def execute_ultra_short_backtest(
         "start_date": start_date,
         "end_date": end_date,
         "initial_cash": initial_cash,
-        "max_position_percent": strategy_params.get("max_position_per_stock", 0.2),
+        "max_position_percent": strategy_params.get("max_position_per_stock", GLOBAL_RISK.get("max_position_per_stock", 0.35)),
         "liquidity_threshold": strategy_params.get("liquidity_threshold", 500),
         "data_collection": C.STOCK_DAILY if period == "daily" else C.STOCK_1MIN,
         "universe_mgr": universe_mgr,
@@ -354,7 +354,7 @@ async def execute_ultra_short_backtest(
         "take_profit_pct": strategy_params.get("take_profit_pct", GLOBAL_RISK["take_profit_pct"]),
         # 【P1-1/P1-2修复：传递max_hold_days和max_position_per_stock到回测引擎】
         "max_hold_days": strategy_params.get("max_hold_days", 3),
-        "max_position_per_stock": strategy_params.get("max_position_per_stock", 0.2),
+        "max_position_per_stock": strategy_params.get("max_position_per_stock", GLOBAL_RISK.get("max_position_per_stock", 0.35)),
         # 【修复#7：传递功能开关配置】
         "enable_auction_filter": enable_auction_filter,
         "enable_sentiment_cycle": enable_sentiment_cycle,

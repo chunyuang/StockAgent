@@ -59,7 +59,7 @@ const form = reactive({
   forceEmpty: {
     enabled: true,
     index_drop_pct: 0.03,
-    limit_down_count: 50,
+    limit_down_count: 80,  // 【V65修复】与GLOBAL_RISK.force_empty_limit_down=80对齐(旧值50)
     limit_up_count: 10,
   },
   sentimentCycle: {
@@ -393,9 +393,9 @@ const submitBacktest = async () => {
       // 【P1-3/P1-4修复】透传细粒度配置到后端
       forceEmpty: {
         enabled: form.forceEmpty.enabled,
-        limit_down_count: form.forceEmpty.limit_down_count ?? 50,
+        limit_down_count: form.forceEmpty.limit_down_count ?? 80,
         limit_up_count: form.forceEmpty.limit_up_count ?? 10,
-        index_drop_pct: form.forceEmpty.index_drop_pct ?? 0.02,
+        index_drop_pct: form.forceEmpty.index_drop_pct ?? 0.03,  // 【V65修复】0.02→0.03,与GLOBAL_RISK对齐
       },
       sentimentCycle: {
         enabled: form.sentimentCycle.enabled,
@@ -606,7 +606,7 @@ const submitSweepBacktest = async () => {
       enable_ma60_filter: form.globalFilter.enable_ma60_filter ?? true,
       enable_sector_concentration: form.globalFilter.enable_sector_concentration ?? true,
       exclude_st: form.globalFilter.exclude_st ?? true,
-      forceEmpty: { enabled: form.forceEmpty.enabled, limit_down_count: form.forceEmpty.limit_down_count ?? 50, limit_up_count: form.forceEmpty.limit_up_count ?? 10, index_drop_pct: form.forceEmpty.index_drop_pct ?? 0.02 },
+      forceEmpty: { enabled: form.forceEmpty.enabled, limit_down_count: form.forceEmpty.limit_down_count ?? 80, limit_up_count: form.forceEmpty.limit_up_count ?? 10, index_drop_pct: form.forceEmpty.index_drop_pct ?? 0.03 },  // 【V65修复】limit_down 50→80, index_drop_pct 0.02→0.03
       sentimentCycle: { enabled: form.sentimentCycle.enabled },
       auctionFilter: { enabled: form.auctionFilter.enabled },
       globalFilter: { exclude_st: form.globalFilter.exclude_st ?? true, exclude_delisting: form.globalFilter.exclude_delisting ?? true, exclude_new_stock_days: form.globalFilter.exclude_new_stock_days ?? 60, min_turnover_rate: form.globalFilter.min_turnover_rate ?? 1.5 },

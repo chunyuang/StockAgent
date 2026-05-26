@@ -302,7 +302,11 @@ const netValueChartOption = computed(() => {
     .filter((d: any) => d.net_value != null && !isNaN(d.net_value))
     .map((d: any) => +(d.net_value).toFixed(4))
   // drawdown是小数(0.003=0.3%), ×100转百分比
-  const drawdowns = result.drawdown_series?.map((d: any) => +(d.drawdown * 100).toFixed(4)) || []
+  // 【V65防御】如果drawdown>1则认为已是百分比,不再×100(避免双重×100)
+  const drawdowns = result.drawdown_series?.map((d: any) => {
+    const dd = d.drawdown ?? 0
+    return +(dd > 1 ? dd : dd * 100).toFixed(4)
+  }) || []
   const dates = result.net_value_series.map((d: any) => d.trade_date)
 
   // 🔧 Bug1修复: 计算基准净值线(从benchmark_data累乘pct_chg)
@@ -372,9 +376,11 @@ const dailyProfitChartOption = computed(() => {
   const nvs = result?.net_value_series
   if (!nvs || nvs.length === 0) return null
   // daily_profit已归一化(÷initial_cash), 直接×100转百分比
+  // 【V65防御】如果值绝对值着遍>1则认为已是百分比,不再×100
   const dp = nvs.map((d: any) => d.daily_profit)
   const dates = nvs.map((d: any) => d.trade_date)
-  const values = dp.map((v: any) => +((v) * 100).toFixed(4))
+  const needMul100 = dp.length > 0 && dp.every((v: any) => Math.abs(v) <= 1)  // 小数格式
+  const values = dp.map((v: any) => +(needMul100 ? v * 100 : v).toFixed(4))
   return {
     tooltip: { trigger: 'axis', formatter: (p: any) => `${p[0].axisValue}<br/>日收益率：${p[0].value}%` },
     grid: { left: '3%', right: '4%', bottom: '12%', containLabel: true },
@@ -730,7 +736,7 @@ const riskMetrics = computed(() => {
     { name: '胜率', value: fmtPct(risk.win_rate_pct ?? result.win_rate), desc: '盈利交易占总交易的比例' },
     { name: '盈亏比', value: (risk.profit_loss_ratio ?? result.profit_loss_ratio ?? 0).toFixed(2), desc: '平均盈利/平均亏损的比值' },
     { name: '最大回撤', value: fmtPct(risk.max_drawdown_pct ?? result.max_drawdown), desc: '净值从最高点到最低点的最大跌幅' },
-    { name: '夏普比率', value: (risk.sharpe_ratio ?? result.sharpe_ratio ?? 0).toFixed(2), desc: '单位风险获得的超额收益' },
+    { name: '夏普比率', value: (risk.sharpe_ratio ?? result.sharpe_ratio ?? 0).toFixed(2) + (result.sharpe_reliable === false ? '⚠️' : ''), desc: '单位风险获得的超额收益' + (result.sharpe_reliable === false ? '（短期回测Sharpe虚高，<60天仅供参考）' : '') },
     { name: '卡玛比率', value: (risk.calmar_ratio ?? result.calmar_ratio ?? 0).toFixed(2), desc: '年化收益/最大回撤' + ((result?.net_value_series?.length || 0) < 250 ? '（短期回测该值虚高）' : '') },
     { name: '索提诺比率', value: (risk.sortino_ratio ?? result.sortino_ratio ?? 0).toFixed(2), desc: '只考虑下行风险的夏普比率' },
     { name: '基准收益', value: fmtPct(ret.benchmark_return_pct), desc: '沪深300同期收益' },
@@ -824,6 +830,9 @@ function exportTrades() {
         </span>
         <span v-if="result.sell_reason_stats.stop_loss > 0" class="sell-reason-item stop-loss">
           <span class="reason-dot"></span>止损{{ result.sell_reason_stats.stop_loss }}笔({{ sellReasonPct('stop_loss') }}%)
+        </span>
+        <span v-if="result.sell_reason_stats.gap_stop_loss > 0" class="sell-reason-item stop-loss">
+          <span class="reason-dot"></span>跳空止损{{ result.sell_reason_stats.gap_stop_loss }}笔({{ sellReasonPct('gap_stop_loss') }}%)
         </span>
         <span v-if="result.sell_reason_stats.force_empty > 0" class="sell-reason-item force-empty">
           <span class="reason-dot"></span>空仓{{ result.sell_reason_stats.force_empty }}笔({{ sellReasonPct('force_empty') }}%)

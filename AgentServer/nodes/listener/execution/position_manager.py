@@ -340,7 +340,7 @@ class PositionManager:
             sl_pct = strategy_risk.get("stop_loss_pct", GLOBAL_RISK["stop_loss_pct"])
             tp_pct = strategy_risk.get("take_profit_pct", GLOBAL_RISK["take_profit_pct"])
             max_hold = strategy_risk.get("max_hold_days", GLOBAL_RISK["max_hold_days"])
-            next_day_open_sell_pct = strategy_risk.get("next_day_open_sell_pct", 0.03)
+            next_day_open_sell_pct = strategy_risk.get("next_day_open_sell_pct", 0.02)  # 【V65修复】0.03→0.02,与strategy_defaults各策略对齐(V53已从3%→2%)
             
             # 止损价/止盈价
             stop_price = position.cost_price * (1 - sl_pct)
@@ -355,7 +355,7 @@ class PositionManager:
             # --- 1. 冲高回落: 高开≥3%且高开低收 → 以open卖出 ---
             if today_open > 0 and position.cost_price > 0:
                 open_rise = (today_open / position.cost_price - 1)
-                next_day_sell_pct = strategy_risk.get("next_day_open_sell_pct", GLOBAL_RISK.get("next_day_open_sell_pct", 0.03))
+                next_day_sell_pct = strategy_risk.get("next_day_open_sell_pct", GLOBAL_RISK.get("next_day_open_sell_pct", 0.02))  # 【V65修复】fallback 0.03→0.02
                 
                 # 冲高回落: 高开≥3%且current<open(高开低收)
                 if open_rise >= next_day_sell_pct and position.current_price < today_open:
