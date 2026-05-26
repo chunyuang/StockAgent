@@ -44,12 +44,15 @@ import {
 } from 'element-plus'
 import { Download } from '@element-plus/icons-vue'
 import { STRATEGY_NAMES } from '@/config/backtestConstants'
+import AnsiLogPanel from '@/components/backtest/AnsiLogPanel.vue'
 
 use([CanvasRenderer, LineChart, BarChart, PieChart, RadarChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent, DataZoomComponent])
 
 const props = defineProps<{
   result: any
   form: any
+  taskId?: string
+  taskStatus?: string
 }>()
 
 // 格式化百分比(后端已是百分比形式,直接加%)
@@ -1055,6 +1058,12 @@ function exportTrades() {
               <span class="risk-desc">{{ m.desc }}</span>
             </div>
           </div>
+        </ElTabPane>
+
+        <!-- Tab 6: 运行日志 -->
+        <ElTabPane label="📋 运行日志" name="logs">
+          <AnsiLogPanel v-if="props.taskId" :task-id="props.taskId" :task-status="props.taskStatus || 'completed'" :height="600" />
+          <ElEmpty v-else description="暂无日志" />
         </ElTabPane>
 
       </ElTabs>
