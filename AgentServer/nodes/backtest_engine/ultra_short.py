@@ -486,7 +486,8 @@ async def execute_ultra_short_backtest(
         perf["daily_profit"] = daily_profit
 
         # 【任务2：卖出原因统计】
-        sell_reason_stats = {"stop_loss": 0, "take_profit": 0, "max_hold": 0, "force_empty": 0, "rebalance": 0, "profit_lock": 0, "profit_protect": 0, "pullback": 0, "other": 0}
+        # 【V55-统一:与portfolio_backtest.py的分类完全一致，增加halt类别】
+        sell_reason_stats = {"stop_loss": 0, "take_profit": 0, "max_hold": 0, "force_empty": 0, "rebalance": 0, "profit_lock": 0, "profit_protect": 0, "pullback": 0, "halt": 0, "other": 0}
         for trade in (merged_trades or raw_trades or []):
             reason = trade.get("reason", trade.get("sell_reason", ""))
             # 跳过未平仓交易(无sell_date或profit_pct为None)
@@ -509,8 +510,11 @@ async def execute_ultra_short_backtest(
                 sell_reason_stats["profit_protect"] += 1
             elif "利润锁定" in reason_str:
                 sell_reason_stats["profit_lock"] += 1
-            # 到期: 包含"到期"/"max_hold"/"持仓天数"/"超时"/"停牌超时"
-            elif "到期" in reason_str or "max_hold" in reason_str.lower() or "持仓天数" in reason_str or "超时" in reason_str or "停牌" in reason_str:
+            # 【V55-统一:停牌独立类别，不再归入max_hold】
+            elif "停牌" in reason_str:
+                sell_reason_stats["halt"] += 1
+            # 到期: 包含"到期"/"max_hold"/"持仓天数"/"超时"(不含停牌)
+            elif "到期" in reason_str or "max_hold" in reason_str.lower() or "持仓天数" in reason_str or "超时" in reason_str:
                 sell_reason_stats["max_hold"] += 1
             # 空仓: 包含"空仓"/"force_empty"/"强制"
             elif "空仓" in reason_str or "force_empty" in reason_str.lower() or "强制" in reason_str:
@@ -535,6 +539,18 @@ async def execute_ultra_short_backtest(
         result['total_return'] = total_return
         result['max_drawdown'] = max_drawdown
         result['sharpe_ratio'] = sharpe_ratio
+        # 【V55-Bug5修复:sell_reason_stats优先使用portfolio_backtest.py的计算结果】
+        # 旧bug: ultra_short.py的sell_reason_stats计算会覆盖portfolio_backtest.py的正确值
+        # portfolio_backtest._build_run_result在L2877设置了result['sell_reason_stats']
+        # 但这里ultra_short.py用自己计算的sell_reason_stats覆盖了它
+        # 当ultra_short.py中merged_trades为空时(从performance_data读取失败)，
+        # 覆盖为全零dict，导致前端显示空统计
+        # 修复: 优先使用portfolio_backtest.py的计算结果(更可靠，数据源更直接)
+        _pb_sell_reason_stats = result.get('sell_reason_stats', {})
+        if _pb_sell_reason_stats and any(v > 0 for v in _pb_sell_reason_stats.values() if isinstance(v, (int, float))):
+            # portfolio_backtest.py的结果非空且非全零，使用它(更可靠)
+            sell_reason_stats = _pb_sell_reason_stats
+            perf["sell_reason_stats"] = sell_reason_stats
         result['sell_reason_stats'] = sell_reason_stats
         result['execution_time_ms'] = perf['execution_time_ms']
         # 同步metrics中的指标到顶层，确保前端多路径都能读取
