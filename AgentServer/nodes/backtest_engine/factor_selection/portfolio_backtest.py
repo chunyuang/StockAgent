@@ -92,7 +92,9 @@ class PortfolioBacktester:
     # 【V58-BUG-004修复:强制空仓T+1遗留跟踪】
     # 当强制空仓日有当日买入的股票(受T+1限制无法卖出)时,
     # 记录到_pending_force_sell,次日优先强制卖出(避免继续持仓扩大亏损)
-    _pending_force_sell: set = set()
+    # 【V59-P1-1修复:从类级变量移至__init__实例化,防止跨回测数据污染】
+    # 旧: _pending_force_sell: set = set() — 类级注解,Python回退到类字典并原地修改
+    # 新: 在__init__中 self._pending_force_sell = set() — 每次回测独立
 
     # 【P1-5修复(第十一轮):强制空仓阈值提升为类常量,避免两处分别定义不一致】
     # 【P1-5修复】强制空仓阈值从strategy_defaults.py读取(单一来源)
@@ -124,6 +126,8 @@ class PortfolioBacktester:
         self._prev_day_close = {}
         self._strategy_signal_stats = {}
         self.stock_to_strategy = {}
+        # 【V59-P1-1修复:实例化_pending_force_sell,防止类级变量跨回测污染】
+        self._pending_force_sell: set = set()
 
     def _calc_trade_days_held(self, buy_date, sell_date):
         """【V30:P1-1】O(1)计算持仓交易日数
@@ -3663,6 +3667,10 @@ class PortfolioBacktester:
                 {"name": "turnover_rate_prev", "target": max_turnover, "operator": "<=", "label": f"换手率≤{max_turnover}%"},
                 {"name": "circ_mv_prev", "target": min_circ_mv, "operator": ">=", "label": f"流通市值≥{min_circ_mv//10000}亿"},
                 {"name": "circ_mv_prev", "target": max_circ_mv, "operator": "<=", "label": f"流通市值≤{max_circ_mv//10000}亿"},
+                # 【V59优化:排除前日大跌股(跳空风险)】
+                # 【V59优化:首板打板排除竞价大幅低开股】
+                # 竞价低开>-3%的股票封板概率低,且次日跳空止损风险高
+                {"name": "opening_pct_chg", "target": -3, "operator": ">=", "label": "竞价跌幅<3%(排除低开股)"},
             ]
         elif strategy_name == "涨停开板":
             min_consecutive = converted_params.get("min_consecutive_limit") if converted_params.get("min_consecutive_limit") is not None else strategy_defaults.get("min_consecutive_limit", 2)
@@ -3726,6 +3734,12 @@ class PortfolioBacktester:
                 # ⚠️ 已知未来函数近似: T日VR全天值在盘中不完全可知,但盘中实时VR可近似
                 {"name": "volume_ratio", "target": _min_vr, "operator": ">=", "label": f"量比≥{_min_vr}(保流动性)"},
                 {"name": "volume_ratio", "target": _max_vr, "operator": "<=", "label": f"量比≤{_max_vr}(缩量回调)"},
+                # 【V59优化:排除当日大幅低开股(跳空风险极高)】
+                # 数据: 7笔跳空止损占亏损40%, 600151.SH当日跌-8.64%开盘已破位
+                # opening_pct_chg是9:25竞价数据(非未来函数),可用作实时过滤
+                # 如果竞价低开>-5%,说明市场对该股极度看空,跳空止损概率极高
+                # ⚠️ 注意: 龙头低吸是14:00买入(盘中),竞价时已可知开盘价
+                {"name": "opening_pct_chg", "target": -5, "operator": ">=", "label": "竞价跌幅<5%(排除大幅低开,降低跳空风险)"},
             ]
         elif strategy_name == "跌停翘板":
             # 【P1-9修复:默认值从STRATEGY_CONFIGS读取】
