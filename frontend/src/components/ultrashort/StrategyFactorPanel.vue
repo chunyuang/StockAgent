@@ -18,7 +18,7 @@ interface StrategyFactor {
   flowSteps: string[]         // 交易流程
 }
 
-import { STRATEGY_CONFIGS, GLOBAL_RISK } from '@/config/strategyDefaults'
+import { STRATEGY_CONFIGS } from '@/config/strategyDefaults'
 
 interface FactorItem {
   name: string

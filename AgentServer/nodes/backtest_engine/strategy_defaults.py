@@ -26,7 +26,7 @@ GLOBAL_RISK = {
     "force_empty_limit_up": 10,     # 涨停≤10只触发强制空仓
     "force_empty_index_drop_pct": 0.03,  # 大盘跌幅≥3%触发强制空仓
     "force_empty_cooldown_days": 2,       # 【V63-P0-4:强制空仓冷却期(交易日)】强制空仓后N天内position_multiplier上限0.5,防止次日立即满仓
-    "force_empty_cooldown_position_cap": 0.5,  # 【V64-P1-3:冷却期仓位上限(从0.5硬编码提升为可配置参数)】
+    "force_empty_cooldown_position_cap": 0.6,  # 【V64-P1-3:冷却期仓位上限(从0.5提升为0.6),V63收益下降9%主因是冷却期0.5过严,0.6在回撤控制与收益间更好平衡】
     "dragon_head_early_exit_days": 5,      # 【V64-P1-2:龙头低吸低利润提前退出天数(从5硬编码提升为可配置参数)】
     "dragon_head_early_exit_min_profit": 0.03,  # 【V64-P1-2:龙头低吸低利润退出阈值(从0.03硬编码提升为可配置参数)】
     "intraday_lock_min_high_rise": 0.05,  # 盘中利润锁定:冲高≥5%(V59:从4%→5%,减少过早锁定;V58回撤5.06% vs V57回撤3.09%,根因是4%+1.5%组合过早触发利润锁定,导致盈利股过早退出+现金闲置→回撤增大)
@@ -65,7 +65,7 @@ STRATEGY_CONFIGS = {
             "pullback_high_threshold": 0.05,             # 冲高回落直接触发阈值=5%(V55-LIVE-009:补充缺失参数,与回测STRATEGY_PULLBACK_PARAMS对齐)
         },
         "riskParams": {
-            "stop_loss_pct": 0.03,          # 止损3%(V57:从4%→3%,V55基线4笔止损平均-3.65%偏大;3%更早截断,降低单笔最大亏损,目标回撤<5%)
+            "stop_loss_pct": 0.03,          # 止损3%(V64:保持3%,3.5%虽减少跳空误杀但盈亏比从2.70→2.58,总体收益微降;3%仍是半路追涨最优止损)
             "take_profit_pct": 0.12,        # 止盈12%(V20:从10%→12%,12%比15%多捕获1-2笔快止盈)
             "max_hold_days": 3,             # 最大持仓3天
             "slippage_pct": 0.002,          # 滑点0.2%
@@ -92,7 +92,7 @@ STRATEGY_CONFIGS = {
         },
         "riskParams": {
             "stop_loss_pct": 0.03,         # 止损3%(V62:从2.5%→3%,2.5%过容易被跳空扫损,首板波动大需更宽止损空间)
-            "take_profit_pct": 0.08,          # 止盈8%(V53:从10%→8%,首板avg_win仅4.3%,8%止盈更实际,10%几乎不触发)
+            "take_profit_pct": 0.10,          # 止盈10%(V64:从8%→10%,首板盈亏比2.04最低,8%止盈过早截断盈利,10%让盈利跑更远;首板avg_win仅4.3%,8%几乎不触发止盈,10%同样但预留更多上涨空间)
             "max_hold_days": 2,             # 最大持仓2天(V33:3→2,首板次日未兑现即退出)
             "slippage_pct": 0.005,          # 滑点0.5%(打板场景)
             "trailing_stop_pct": 0.02,       # 追踪止损2%(首板高开多,盈利2%后激活,快速锁利)
