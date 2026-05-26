@@ -25,6 +25,7 @@ GLOBAL_RISK = {
     "force_empty_limit_down": 80,   # 跌停≥80只触发强制空仓
     "force_empty_limit_up": 10,     # 涨停≤10只触发强制空仓
     "force_empty_index_drop_pct": 0.03,  # 大盘跌幅≥3%触发强制空仓
+    "force_empty_cooldown_days": 2,       # 【V63-P0-4:强制空仓冷却期(交易日)】强制空仓后N天内position_multiplier上限0.5,防止次日立即满仓
     "intraday_lock_min_high_rise": 0.05,  # 盘中利润锁定:冲高≥5%(V59:从4%→5%,减少过早锁定;V58回撤5.06% vs V57回撤3.09%,根因是4%+1.5%组合过早触发利润锁定,导致盈利股过早退出+现金闲置→回撤增大)
     "intraday_lock_pullback_pct": 0.02,    # 盘中利润锁定:从高点回撤≥2%(V59:从1.5%→2%,减少误触发;1.5%在超短线正常波动内,大量盈利股被过早锁定退出)
     "intraday_lock_min_profit": 0.02,     # 盘中利润锁定:收盘仍≥2%利润(保持不变)

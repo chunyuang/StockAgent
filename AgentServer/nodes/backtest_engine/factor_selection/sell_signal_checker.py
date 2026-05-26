@@ -645,27 +645,17 @@ class SellSignalChecker:
         return 0, ''
 
     def apply_slippage(self, reason, code=None, fallback_slippage=None):
-        """判断卖出原因是否需要扣滑点
+        """【V63-修复P0-3:此方法已删除,保留签名但直接委托给should_apply_slippage+_get_slippage_for_code】
 
-        统一入口,替代portfolio_backtest.py中5+处散落的if/else判断。
-
-        Args:
-            reason: 卖出原因
-            code: 股票代码(可选,用于获取策略级滑点比例)
-            fallback_slippage: 兜底滑点比例
-
-        Returns:
-            slippage_pct: 实际滑点比例(0表示不扣)
+        旧bug: 此方法策略级滑点逻辑未完成(代码块为空,只有注释没有逻辑),
+        且portfolio_backtest.py中已有完整的should_apply_slippage()+_get_slippage_for_code()实现。
+        调用方应直接使用: should_apply_slippage(reason) 判断是否扣滑点 + _get_slippage_for_code(code) 获取滑点比例
         """
+        # 委托: 先判断是否需要扣滑点
         if not should_apply_slippage(reason):
             return 0
-
-        # 获取策略级滑点
-        if code:
-            strategies = self._strategy_risk_params  # 简化:外部可传入
-            # 这里需要stock_to_strategy映射,由调用方提供
-            # 如果不提供,使用全局滑点
-
+        # 获取滑点比例: 优先使用传入的fallback,否则使用全局默认值
+        # 注意: 策略级滑点应由调用方通过_get_slippage_for_code(code)获取并作为fallback_slippage传入
         return fallback_slippage if fallback_slippage is not None else self._global_slippage
 
     def get_sl_tp_for_strategies(self, strategies):
@@ -681,12 +671,12 @@ class SellSignalChecker:
         global_tp = self._risk_config.get('take_profit_pct', 0.07)
 
         if isinstance(strategies, list) and strategies:
+            # 【V63-P0-2修复:SL取min(最严格),TP取strategies[0](买入策略),与portfolio_backtest._get_sl_tp_for_code对齐】
+            # 旧bug: get_sl_tp_for_strategies中TP取min(所有策略),而_get_sl_tp_for_code取strategies[0]
+            # 结果: 两处TP不一致,如果check_full_sell被调用会使用错误的TP值
+            # 统一为strategies[0]: 买入策略决定止盈线,避免龙头低吸+跌停翘板同股时止盈线被错误压缩
             sl = min(self._strategy_risk_params.get(s, {}).get('stop_loss_pct', global_sl) for s in strategies)
-            # 【V47修复说明:TP取min(最严格)而非strategies[0](买入策略)
-            # portfolio_backtest._get_sl_tp_for_code用strategies[0],但check_full_sell是DEPRECATED
-            # 保持min与portfolio_backtest超时强卖/调仓卖出的TP判断一致(都取min)
-            # 如果未来启用check_full_sell,需与_get_sl_tp_for_code对齐为strategies[0]
-            tp = min(self._strategy_risk_params.get(s, {}).get('take_profit_pct', global_tp) for s in strategies)
+            tp = self._strategy_risk_params.get(strategies[0], {}).get('take_profit_pct', global_tp)
             return sl, tp
         return global_sl, global_tp
 
