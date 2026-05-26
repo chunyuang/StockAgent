@@ -173,6 +173,13 @@ async function fetchWeeklyReport() { try { const r = await api.get(`${scannerApi
 async function exportTradeLog() { try { const r = await api.get(`${scannerApi}/trade-log?format=csv&days=30`); if (r?.success && r.data) { const blob = new Blob([r.data], { type: 'text/csv;charset=utf-8' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = r.filename || 'trade_log.csv'; a.click(); URL.revokeObjectURL(url); ElMessage.success('导出成功') } } catch { ElMessage.error('导出失败') } }
 async function saveSnapshot() { try { const r = await api.post(`${scannerApi}/snapshot`); if (r?.success) ElMessage.success('快照已保存') } catch { ElMessage.error('保存失败') } }
 async function resetCircuitBreaker() { try { const r = await api.post(`${scannerApi}/circuit-breaker/reset`); if (r?.success) { ElMessage.success('熔断已重置'); fetchAll(true) } } catch { ElMessage.error('重置失败') } }
+async function pauseCircuitBreaker() {
+  try {
+    await ElMessageBox.confirm('确认暂停交易？\n暂停后不会自动买入新信号，但持仓止损止盈仍正常执行。', '暂停交易', { confirmButtonText: '确认', cancelButtonText: '取消', type: 'warning' })
+    const r = await api.post(`${scannerApi}/circuit-breaker/pause`)
+    if (r?.success) { ElMessage.success('已暂停'); fetchAll(true) } else ElMessage.error('操作失败')
+  } catch { /* cancelled */ }
+}
 async function fetchLimitPools() { try { const r = await api.get(`${scannerApi}/limit-pools`); if (r?.success) limitPools.value = r.data } catch { } }
 async function fetchDailyReport() { try { const r = await api.get(`${scannerApi}/daily-report`); if (r?.success) dailyReport.value = r.data } catch { } }
 async function fetchDataSources() { try { const [sR, bR] = await Promise.all([api.get('/datasource/sources'), api.get('/datasource/brokers')]); if (sR?.success) dataSources.value = sR.data || []; if (bR?.success) brokers.value = bR.data || [] } catch { } }
@@ -299,6 +306,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         </ElSelect>
         <ElTag v-if="tradeMode === 'replay' && replayDate" type="warning" size="small">🔄 {{ replayDateInput }}</ElTag>
         <ElTag v-if="circuitBreakerPaused" type="danger" size="small">⚠️熔断</ElTag>
+        <button v-if="isRunning && !circuitBreakerPaused" class="cb-pause-btn" @click="pauseCircuitBreaker" title="暂停买入">⏸</button>
         <!-- 【P1-5】数据源健康指示 -->
         <div v-if="status?.data_sources?.length" class="ds-indicator">
           <span v-for="ds in status.data_sources" :key="ds.name" class="ds-dot" :class="{ ok: ds.available, err: !ds.available }" :title="`${ds.name}: ${ds.available ? '可用' : '不可用'} ${ds.stocks || 0}只 ${ds.calls}/${ds.limit}次`">{{ ds.name === 'eastmoney' ? '东财' : ds.name === 'biying' ? '必盈' : ds.name }}</span>
@@ -409,7 +417,11 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           <div v-if="!positions.length" class="empty">暂无持仓</div>
           <div v-for="pos in sortedPositions" :key="pos.ts_code" class="pos-card">
             <div class="pos-top"><ElTag size="small" :color="strategyMeta[pos.strategy]?.color || '#909399'" class="tag-solid" style="font-size:10px;min-width:48px;text-align:center">{{ pos.strategy_name || strategyCN(pos.strategy) }}</ElTag><span class="code">{{ pos.ts_code }}</span><span class="name">{{ pos.stock_name }}</span><span :class="pos.profit_pct >= 0 ? 'up' : 'down'" class="pct">{{ pos.profit_pct >= 0 ? '+' : '' }}{{ pos.profit_pct.toFixed(1) }}%</span><span class="mini-bar"><span class="mini-bar-fill" :style="{ width: Math.min(Math.abs(pos.profit_pct) / 10 * 100, 100) + '%' }" :class="pos.profit_pct >= 0 ? 'bar-up' : 'bar-down'"></span></span><span v-if="pos.today_buy > 0" class="t1-tag">T+1</span><ElButton size="small" type="danger" plain @click="quickSell(pos)" :disabled="pos.available_qty <= 0" class="btn-xs ml-auto">卖出</ElButton><ElButton size="small" type="info" plain @click="openTradeDetail(pos.ts_code)" class="btn-xs">详情</ElButton></div>
-            <div class="pos-info"><span>{{ pos.shares }}股</span><span>成本{{ pos.cost_price.toFixed(2) }}</span><span>现价{{ pos.current_price.toFixed(2) }}</span><span v-if="pos.market_value" class="mv">市值{{ (pos.market_value / 10000).toFixed(1) }}万</span><span v-if="pos.profit_amount != null" :class="pos.profit_amount >= 0 ? 'up' : 'down'" class="pamt">{{ pos.profit_amount >= 0 ? '+' : '' }}¥{{ Math.abs(pos.profit_amount).toFixed(0) }}</span><span v-if="pos.stop_loss_pct != null" class="rl stop">止损{{ pos.stop_loss_pct.toFixed(1) }}% ¥{{ pos.stop_loss_price?.toFixed(2) || (pos.cost_price * (1 - pos.stop_loss_pct / 100)).toFixed(2) }}</span><span v-if="pos.take_profit_pct != null" class="rl profit">止盈{{ pos.take_profit_pct.toFixed(1) }}% ¥{{ pos.take_profit_price?.toFixed(2) || (pos.cost_price * (1 + (pos.take_profit_pct || 7.0) / 100)).toFixed(2) }}</span><span v-if="pos.stop_loss_pct != null" class="rd" :class="{ danger: pos.profit_pct + (pos.stop_loss_pct || 3) < 2 }">距止损{{ (pos.profit_pct + (pos.stop_loss_pct || 3)).toFixed(1) }}%</span></div>
+            <div class="pos-info"><span>{{ pos.shares }}股</span><span>成本{{ pos.cost_price.toFixed(2) }}</span><span>现价{{ pos.current_price.toFixed(2) }}</span><span v-if="pos.market_value" class="mv">市值{{ (pos.market_value / 10000).toFixed(1) }}万</span><span v-if="pos.profit_amount != null" :class="pos.profit_amount >= 0 ? 'up' : 'down'" class="pamt">{{ pos.profit_amount >= 0 ? '+' : '' }}¥{{ Math.abs(pos.profit_amount).toFixed(0) }}</span></div>
+            <div v-if="pos.stop_loss_pct != null" class="pos-risk-row">
+              <div class="risk-track"><div class="risk-fill" :style="{ width: Math.max(0, Math.min(100, (pos.profit_pct + pos.stop_loss_pct) / (pos.stop_loss_pct + (pos.take_profit_pct || 7)) * 100)) + '%' }" :class="pos.profit_pct + pos.stop_loss_pct < 1 ? 'danger' : pos.profit_pct + pos.stop_loss_pct < 2 ? 'warning' : 'safe'"></div></div>
+              <div class="risk-labels-row"><span class="rl stop">止损{{ pos.stop_loss_pct.toFixed(1) }}%</span><span class="rd" :class="{ danger: pos.profit_pct + pos.stop_loss_pct < 2 }">距止损{{ (pos.profit_pct + pos.stop_loss_pct).toFixed(1) }}%</span><span class="rl profit">止盈{{ (pos.take_profit_pct || 7).toFixed(1) }}%</span></div>
+            </div>
           </div>
         </div>
 
@@ -670,6 +682,8 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .mm { height: 100%; display: flex; flex-direction: column; background: var(--bg-base); overflow: hidden; min-width: 0; }
 /* 顶部状态栏 */
 .mm-header { display: flex; align-items: center; gap: 12px; padding: 8px 16px; background: var(--bg-elevated); border-bottom: 1px solid var(--border-default); flex-shrink: 0; flex-wrap: wrap; min-width: 0; }
+.cb-pause-btn { font-size: 12px; padding: 2px 8px; border-radius: 4px; border: 1px solid #e6a23c; color: #e6a23c; background: transparent; cursor: pointer; }
+.cb-pause-btn:hover { background: #e6a23c; color: #fff; }
 .hh-left { display: flex; align-items: center; gap: 6px; flex-shrink: 0; flex-wrap: wrap; }
 .hh-status { display: flex; align-items: center; gap: 5px; font-weight: 600; font-size: 13px; }
 .hh-status .dot { width: 8px; height: 8px; border-radius: 50%; }
@@ -747,6 +761,14 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .pct { margin-left: auto; font-weight: 700; font-size: 14px; transition: transform 0.3s; }
 .pos-card:hover .pct { transform: scale(1.05); }
 .pos-info { display: flex; gap: 8px; font-size: 11px; color: var(--text-secondary); flex-wrap: wrap; min-width: 0; }
+.pos-risk-row { margin-top: 4px; }
+.risk-track { height: 4px; background: var(--bg-muted); border-radius: 2px; overflow: hidden; }
+.risk-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
+.risk-fill.safe { background: linear-gradient(90deg, #e6a23c, #67c23a); }
+.risk-fill.warning { background: linear-gradient(90deg, #e6a23c, #f56c6c); }
+.risk-fill.danger { background: #f56c6c; animation: risk-pulse 1s infinite; }
+.risk-labels-row { display: flex; justify-content: space-between; font-size: 10px; margin-top: 2px; }
+@keyframes risk-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
 .t1-tag { font-size: 10px; color: var(--el-color-warning); background: var(--warning-bg); padding: 1px 4px; border-radius: 3px; font-weight: 600; }
 .rl { padding: 1px 5px; border-radius: 3px; font-weight: 500; }
 .rl.stop { color: var(--stock-up); background: var(--stock-up-bg); }
