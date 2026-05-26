@@ -667,8 +667,8 @@ class SellSignalChecker:
         Returns:
             (stop_loss_pct, take_profit_pct)
         """
-        global_sl = self._risk_config.get('stop_loss_pct', 0.03)
-        global_tp = self._risk_config.get('take_profit_pct', 0.07)
+        global_sl = self._risk_config.get('stop_loss_pct', GLOBAL_RISK.get('stop_loss_pct', 0.03))
+        global_tp = self._risk_config.get('take_profit_pct', GLOBAL_RISK.get('take_profit_pct', 0.07))
 
         if isinstance(strategies, list) and strategies:
             # 【V63-P0-2修复:SL取min(最严格),TP取strategies[0](买入策略),与portfolio_backtest._get_sl_tp_for_code对齐】
