@@ -109,5 +109,6 @@ export function formatMoney(v: number): string {
 }
 
 export function formatPct(v: number): string {
+  if (v == null || isNaN(v)) return '--'
   return `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`
 }
