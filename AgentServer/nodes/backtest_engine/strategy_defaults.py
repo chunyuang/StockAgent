@@ -18,7 +18,7 @@ GLOBAL_RISK = {
     "slippage_pct": 0.002,          # 全局默认滑点0.2%
     "commission_rate": 0.0003,      # 综合佣金率万3
     "stamp_duty_rate": 0.001,       # 印花税率千1
-    "max_position_per_stock": 0.35,  # 单票最大仓位35%(3只均分=33%,留2%buffer,避免资金闲置)
+    "max_position_per_stock": 0.35,  # 单票最大仓位35%(V62:保持35%,但增加持仓分散度,单日新买入≤4只,防止单日6只同暴跌)
     "max_total_position": 0.7,      # 总仓位上限70%
     "liquidity_threshold": 500,     # 流动性门槛(万元)
     "volume_threshold": 1.5,        # 量能放大倍数(首板打板等用)
@@ -86,7 +86,7 @@ STRATEGY_CONFIGS = {
             "next_day_open_sell_pct": 0.02, # 次日高开≥2%冲高回落保护(V53:从3%→2%,首板高开2%+即有回落风险,更早保护减少利润回吐)
         },
         "riskParams": {
-            "stop_loss_pct": 0.025,         # 止损2.5%(V57:从3%→2.5%,跳空止损-8.95%是最大回撤来源;2.5%更早截断,跳空时亏损从-6%降至-3%左右)
+            "stop_loss_pct": 0.03,         # 止损3%(V62:从2.5%→3%,2.5%过容易被跳空扫损,首板波动大需更宽止损空间)
             "take_profit_pct": 0.08,          # 止盈8%(V53:从10%→8%,首板avg_win仅4.3%,8%止盈更实际,10%几乎不触发)
             "max_hold_days": 2,             # 最大持仓2天(V33:3→2,首板次日未兑现即退出)
             "slippage_pct": 0.005,          # 滑点0.5%(打板场景)

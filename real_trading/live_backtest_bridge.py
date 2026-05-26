@@ -192,7 +192,36 @@ def generate_calibration_report(days: int = 30) -> str:
         if data['live_count'] >= 5 and data['wr_gap'] < -15:
             report.append(f"- **{strategy}**: 实盘胜率({data['live_win_rate']:.1f}%)远低于回测({data['bt_win_rate']:.1f}%), 建议检查选股条件是否过松")
     
-    report.append("\n---\n*此报告由 live_backtest_bridge.py 自动生成，不自动修改任何参数*")
+    # 4. 持仓集中度校准
+    report.append("\n## 4. 持仓集中度校准\n")
+    # 分析实盘持仓数与回测对比
+    live_positions = {}  # TODO: 从实盘持仓读取
+    if live_positions:
+        live_count = len(live_positions)
+        report.append(f"实盘当前持仓: {live_count}只")
+    else:
+        report.append("暂无实盘持仓数据\n")
+    
+    # 5. 回测参数敏感性
+    report.append("\n## 5. 回测参数敏感性\n")
+    report.append("以下参数调整可能影响回测表现(仅供参考):\n")
+    report.append("- max_position_per_stock: 当前0.35, 降至0.30可降低集中度风险但减少总收益")
+    report.append("- intraday_lock_min_high_rise: 当前0.05, 降至0.04可更早锁定利润但可能过早退出")
+    report.append("- hold_protection_threshold: 当前0.05, 降至0.04可保护更多盈利股但可能阻碍调仓")
+    
+    # 6. 自动化校准建议
+    report.append("\n## 6. 自动化校准流程\n")
+    report.append("```\n")
+    report.append("1. 每周运行: python -m real_trading.live_backtest_bridge --days 7\n")
+    report.append("2. 检查滑点偏差: |实盘均滑点 - 回测假设| > 0.1% → 调整slippage_pct\n")
+    report.append("3. 检查胜率偏差: 实盘胜率 < 回测胜率-15% → 检查选股条件\n")
+    report.append("4. 修改参数: 只修改strategy_defaults.py, 不修改其他文件\n")
+    report.append("5. 验证: 修改后运行回测,确认回测指标不退化\n")
+    report.append("```\n")
+    
+    report.append("\n---")
+    report.append(f"\n*此报告由 live_backtest_bridge.py V62 自动生成，不自动修改任何参数*")
+    report.append(f"*生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}*")
     
     return '\n'.join(report)
 
