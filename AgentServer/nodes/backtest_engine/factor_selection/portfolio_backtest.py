@@ -182,6 +182,32 @@ class PortfolioBacktester:
 
         return self._sell_checker.check_early_sell(code, strategies, cost, open_price, close_price)
 
+    def _check_intraday_profit_lock(self, cost: float, high_price: float, close_price: float) -> bool:
+        """【V55-BUG-001修复:提取利润锁定检查为独立方法,消除4处重复代码】
+        
+        检查逻辑: 盘中冲高≥min_high_rise 且 从高点回撤≥pullback_pct 且 收盘仍≥min_profit
+        
+        Args:
+            cost: 成本价
+            high_price: 盘中最高价
+            close_price: 收盘价
+            
+        Returns:
+            True=触发利润锁定, False=不触发
+        """
+        if cost <= 0 or high_price <= 0 or close_price <= 0 or close_price >= high_price:
+            return False
+        high_rise = (high_price / cost - 1)
+        close_rise = (close_price / cost - 1)
+        lock_min_high = self._risk_config.get('intraday_lock_min_high_rise', GLOBAL_RISK.get('intraday_lock_min_high_rise', 0.05))
+        lock_pullback = self._risk_config.get('intraday_lock_pullback_pct', GLOBAL_RISK.get('intraday_lock_pullback_pct', 0.015))  # 【V55-BUG-007修复:fallback与V56 strategy_defaults 0.015对齐,旧值0.02】
+        lock_min_profit = self._risk_config.get('intraday_lock_min_profit', GLOBAL_RISK.get('intraday_lock_min_profit', 0.02))
+        if high_rise >= lock_min_high and close_price < high_price:
+            intraday_pullback = (high_price - close_price) / high_price
+            if intraday_pullback >= lock_pullback and close_rise >= lock_min_profit:
+                return True
+        return False
+
     async def _check_and_execute_forced_sells(self, trade_date, holdings, _sl_tp_prices,
                                                     forced_sell_codes, forced_sell_prices,
                                                     forced_sell_codes_set, check_timeout=True):
@@ -3695,6 +3721,34 @@ class PortfolioBacktester:
             return max(strategy_rp.get(s, {}).get('slippage_pct', global_slippage) for s in strategies)
         return global_slippage
 
+    def _check_intraday_profit_lock(self, cost: float, high: float, close: float) -> bool:
+        """【V55-BUG-001修复:提取盘中利润锁定检查为独立方法,消除重复代码】
+        
+        判断是否触发盘中利润锁定:冲高后回撤,保护利润
+        条件: 冲高>=intraday_lock_min_high_rise AND 从高点回撤>=intraday_lock_pullback_pct AND 收盘仍有利润>=intraday_lock_min_profit
+        
+        Args:
+            cost: 成本价(含滑点)
+            high: 当日最高价
+            close: 当日收盘价
+            
+        Returns:
+            bool: 是否触发利润锁定
+        """
+        from ..strategy_defaults import GLOBAL_RISK
+        lock_min_high = self._risk_config.get('intraday_lock_min_high_rise', GLOBAL_RISK.get('intraday_lock_min_high_rise', 0.04))
+        lock_pullback = self._risk_config.get('intraday_lock_pullback_pct', GLOBAL_RISK.get('intraday_lock_pullback_pct', 0.015))
+        lock_min_profit = self._risk_config.get('intraday_lock_min_profit', GLOBAL_RISK.get('intraday_lock_min_profit', 0.02))
+        
+        if cost <= 0 or high <= 0 or close <= 0:
+            return False
+        
+        high_rise = (high - cost) / cost  # 冲高幅度
+        pullback = (high - close) / high  # 从高点回撤比例
+        profit = (close - cost) / cost    # 收盘利润
+        
+        return high_rise >= lock_min_high and pullback >= lock_pullback and profit >= lock_min_profit
+
     def _calc_total_value(self, cash: float, holdings: dict, prices: dict) -> float:
         """【P1-7修复:提取持仓总价值计算为独立方法】
         用open价估值持仓计算总资产(调仓决策时刻)
@@ -3888,20 +3942,10 @@ class PortfolioBacktester:
                     best_price = tp_price
                     best_reason = f'止盈({code_tp*100:.0f}%)'
             # 【V49-P0-3:利润锁定检查——不在目标池的股票也检查盘中冲高回撤】
-            # 此前只在目标池内股票的调仓止损检查中检查利润锁定(V48),不在目标池的股票遗漏
-            # 场景: 持仓冲高6%+但收盘回撤3%+,收盘仍盈利3%,以利润锁定close价>调仓卖出close价
+            # 【V55-BUG-001修复:提取为_check_intraday_profit_lock方法,消除重复代码】
             if best_reason == '调仓卖出' and high_p > 0 and close_p > 0 and cost > 0:
-                lock_min_high = self._risk_config.get('intraday_lock_min_high_rise', GLOBAL_RISK.get('intraday_lock_min_high_rise', 0.05))
-                lock_pullback = self._risk_config.get('intraday_lock_pullback_pct', GLOBAL_RISK.get('intraday_lock_pullback_pct', 0.02))
-                lock_min_profit = self._risk_config.get('intraday_lock_min_profit', GLOBAL_RISK.get('intraday_lock_min_profit', 0.02))
-                high_rise = (high_p / cost - 1)
-                close_rise = (close_p / cost - 1)
-                if high_rise >= lock_min_high and close_p < high_p:
-                    intraday_pullback = (high_p - close_p) / high_p
-                    if intraday_pullback >= lock_pullback and close_rise >= lock_min_profit:
-                        # 利润锁定以close价卖出,和调仓卖出相同价格,但原因更准确
-                        # 不改变best_price(close=close),只更新原因用于统计
-                        best_reason = '利润锁定'
+                if self._check_intraday_profit_lock(cost, high_p, close_p):
+                    best_reason = '利润锁定'
             _sell_code_details[code] = (best_price, best_reason)
         
         sell_codes = sell_codes_raw
@@ -3956,19 +4000,12 @@ class PortfolioBacktester:
                     sell_codes.append(code)
                     pos_mgr.mark_sold(code, f'止盈({code_tp*100:.0f}%)')
                 # 【V48:调仓日也检查利润锁定——此前只在_check_and_execute_forced_sells中检查】
-                # 场景: 股票仍在目标池中,盘中冲高5%+但收盘回撤2%+,虽在目标池但利润应锁定
+                # 【V55-BUG-001修复:提取为_check_intraday_profit_lock方法,消除重复代码】
                 elif code not in sell_codes:
-                    lock_min_high = self._risk_config.get('intraday_lock_min_high_rise', GLOBAL_RISK.get('intraday_lock_min_high_rise', 0.05))
-                    lock_pullback = self._risk_config.get('intraday_lock_pullback_pct', GLOBAL_RISK.get('intraday_lock_pullback_pct', 0.02))
-                    lock_min_profit = self._risk_config.get('intraday_lock_min_profit', GLOBAL_RISK.get('intraday_lock_min_profit', 0.02))
                     if high_p > 0 and _close_p > 0 and cost > 0:
-                        high_rise = (high_p / cost - 1)
-                        close_rise = (_close_p / cost - 1)
-                        if high_rise >= lock_min_high and _close_p < high_p:
-                            intraday_pullback = (high_p - _close_p) / high_p
-                            if intraday_pullback >= lock_pullback and close_rise >= lock_min_profit:
-                                sell_codes.append(code)
-                                pos_mgr.mark_sold(code, '利润锁定')
+                        if self._check_intraday_profit_lock(cost, high_p, _close_p):
+                            sell_codes.append(code)
+                            pos_mgr.mark_sold(code, '利润锁定')
         # 【Phase1-T+1】排除当日买入的股票(T+1: 当日买入不可卖出)
         # 【V49-P0-3修复:改用列表推导替代循环内remove,避免O(n²)和跳过元素bug】
         t1_blocked = [code for code in sell_codes
@@ -3981,7 +4018,7 @@ class PortfolioBacktester:
         # 原因:调仓卖出会错过后续大涨(如龙头低吸盈利8%被调仓卖,次日冲高15%)
         # 保护性卖出(冲高回落/利润保护/止损/止盈)仍然正常触发
         # 【V35修复:已触发止损/冲高回落/利润保护的股不受保护,避免保护阻止止损】
-        hold_protection_pct = self._risk_config.get('hold_protection_threshold', GLOBAL_RISK.get('hold_protection_threshold', 0.05))
+        hold_protection_pct = self._risk_config.get('hold_protection_threshold', GLOBAL_RISK.get('hold_protection_threshold', 0.04))
         _mark_sold_codes = set(pos_mgr.sell_code_reasons.keys())  # 已有保护性卖出reason的股
         if hold_protection_pct > 0:
             protected_codes = []

@@ -314,7 +314,7 @@ def check_intraday_profit_lock(holding, market_data, params):
     # 参数 — 【V48:fallback对齐strategy_defaults GLOBAL_RISK值】
     # 旧bug: 硬编码0.06/0.025,与V47修改(0.05/0.02)不一致,导致利润锁定从未触发
     min_high_rise = params.get('intraday_lock_min_high_rise', GLOBAL_RISK.get('intraday_lock_min_high_rise', 0.05))  # 盘中冲高≥5%(V47:从6%→5%)
-    pullback_pct = params.get('intraday_lock_pullback_pct', GLOBAL_RISK.get('intraday_lock_pullback_pct', 0.02))     # 从高点回撤≥2%(V47:从2.5%→2%)
+    pullback_pct = params.get('intraday_lock_pullback_pct', GLOBAL_RISK.get('intraday_lock_pullback_pct', 0.015))     # 从高点回撤≥1.5%(V56:从2%→1.5%,与strategy_defaults对齐)
     min_profit = params.get('intraday_lock_min_profit', GLOBAL_RISK.get('intraday_lock_min_profit', 0.02))         # 收盘仍≥2%利润
 
     # 必须冲高足够 + 从高点回撤 + 收盘仍有利润
