@@ -38,14 +38,14 @@ export default defineConfig({
     port: 5174,
     host: true,
     proxy: {
-      // API 代理
+      // API 代理 — 指向Web节点(8000)，开发时Vite(5174)代理API请求
       '/api': {
-        target: 'http://localhost:8765',
+        target: 'http://localhost:8000',
         changeOrigin: true,
       },
       // WebSocket 代理
       '/ws': {
-        target: 'ws://localhost:8765',
+        target: 'ws://localhost:8000',
         ws: true,
         changeOrigin: true,
       },
