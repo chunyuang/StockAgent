@@ -62,8 +62,12 @@
 ## 三、执行顺序
 
 1. ✅ 诊断完成
-2. 🔜 P0-1: 废弃Listener
-3. 🔜 P0-2: 整合live/
-4. 🔜 P0-3: 紧急平仓
-5. 🔜 P1-1: 参数中心
-6. 🔜 P1-2: GUI重构
+2. ✅ P0-1: 废弃Listener — main.py阻止启动, emotion_cycle迁移到market_monitor/
+3. ✅ P0-2: 整合live/ — 8个死模块移入_deprecated/, 活跃模块保留(signal_pusher/risk_checker)
+4. ✅ P0-3: 紧急平仓 — RiskWatchdog.emergency_liquidate + API + GUI红色按钮(均已存在)
+5. ✅ P1-1: 参数中心 — _get_effective_strategy_config优先从ParamCenter读取
+6. ✅ P1-2: GUI重构 — 驾驶舱路由+侧边栏+模式切换确认+信号详情弹窗+9层管道可视化
+7. ✅ P2-1: 分级行情 — TieredScanner接入Scanner(配置开关use_tiered_scanner)
+8. ✅ P2-2: 健康检查 — RiskWatchdog新增data_source检查(东财缓存+必盈额度)
+
+### Git: ec7db02 + b2da4b8
