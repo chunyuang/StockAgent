@@ -325,10 +325,26 @@ async function emergencyLiquidate() {
 // 模式切换
 async function onModeChange(mode: string) {
   if (mode === tradeMode.value) return
-  const modeLabels: Record<string, string> = { simulated: '模拟', gm: '掘金实盘', dry_run: '调试' }
+  const modeLabels: Record<string, string> = { simulated: '模拟', gm: '掘金实盘', dry_run: '调试', replay: '回放' }
   try {
+    // 回放模式需要输入日期
+    let replayDate = ''
+    if (mode === 'replay') {
+      const today = new Date()
+      const defaultDate = new Date(today)
+      defaultDate.setDate(today.getDate() - 1)
+      const dateStr = defaultDate.toISOString().slice(0, 10).replace(/-/g, '')
+      try {
+        const { value } = await ElMessageBox.prompt(
+          '输入回放日期(YYYYMMDD)',
+          '🔄 回放模式',
+          { confirmButtonText: '确认', cancelButtonText: '取消', inputValue: dateStr, inputPattern: /^\d{8}$/, inputErrorMessage: '请输入8位日期' }
+        )
+        replayDate = value
+      } catch { selectedMode.value = tradeMode.value; return }  // 取消回原
+    }
     await ElMessageBox.confirm(
-      `确认切换到 ${modeLabels[mode] || mode} 模式？${mode === 'gm' ? '\n⚠️ 掘金模式将进行实盘交易！' : ''}`,
+      `确认切换到 ${modeLabels[mode] || mode} 模式？${mode === 'gm' ? '\n⚠️ 掘金模式将进行实盘交易！' : ''}${replayDate ? '\n📅 回放日期: ' + replayDate : ''}`,
       '模式切换',
       { confirmButtonText: '确认切换', cancelButtonText: '取消', type: mode === 'gm' ? 'warning' : 'info' }
     )
@@ -336,7 +352,9 @@ async function onModeChange(mode: string) {
     if (isRunning.value) {
       // 如果正在运行，先停再启
       await api.post(`${scannerApi}/stop`)
-      await api.post(`${scannerApi}/start`, { trade_mode: mode })
+      const payload: Record<string, string> = { trade_mode: mode }
+      if (replayDate) payload.replay_date = replayDate
+      await api.post(`${scannerApi}/start`, payload)
       ElMessage.success(`已切换到${modeLabels[mode]}模式并重启`)
       await fetchAll()
     } else {
