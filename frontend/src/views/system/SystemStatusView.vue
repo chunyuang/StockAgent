@@ -81,12 +81,11 @@ const fetchRiskConfig = async () => {
       const data = result.data as any
       if (data) {
         riskControlConfig.enable_enhanced_stop_loss = data.enable_stop_loss ?? true
-        // 【V59修复】stop_loss_pct可能来自不同API,小数(0.03)或百分比(3.0)
-        const slVal = data.stop_loss_pct ?? 0.08
-        riskControlConfig.enhanced_stop_loss_pct = slVal < 1 ? slVal : slVal / 100
+        // 【V63修复:P1-12】与后端约定: stop_loss_pct统一为小数(0.03=3%),去掉heuristics
+        // 后端已确认所有API返回小数格式,无需再判断<1还是>1
+        riskControlConfig.enhanced_stop_loss_pct = data.stop_loss_pct ?? 0.08
         riskControlConfig.enable_dynamic_take_profit = data.enable_take_profit ?? true
-        const tpVal = data.take_profit_pct ?? 0.10
-        riskControlConfig.dynamic_take_profit_pct = tpVal < 1 ? tpVal : tpVal / 100
+        riskControlConfig.dynamic_take_profit_pct = data.take_profit_pct ?? 0.10
         riskControlConfig.enable_ma60_filter = data.enable_ma60_filter ?? true
         riskControlConfig.enable_sector_concentration_filter = data.enable_sector_concentration ?? true
         riskControlConfig.max_sector_stocks = data.sector_concentration_top_n ?? 3
