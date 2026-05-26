@@ -392,15 +392,18 @@ class PortfolioBacktester:
                 if isinstance(_strategies_for_exit, str):
                     _strategies_for_exit = [_strategies_for_exit]
                 if '龙头低吸' in _strategies_for_exit:
+                    # 【V64-P1-2:从GLOBAL_RISK读取参数,消除硬编码5和0.03】
+                    _early_exit_days = self._risk_config.get('dragon_head_early_exit_days', GLOBAL_RISK.get('dragon_head_early_exit_days', 5))
+                    _early_exit_min_profit = self._risk_config.get('dragon_head_early_exit_min_profit', GLOBAL_RISK.get('dragon_head_early_exit_min_profit', 0.03))
                     buy_date_raw = self._cost_basis_date.get(code)
                     if buy_date_raw is not None:
                         try:
                             buy_dt_int = int(str(buy_date_raw))
                             trade_dt_int = int(str(trade_date))
                             trade_days_held = self._calc_trade_days_held(buy_dt_int, trade_dt_int)
-                            if trade_days_held >= 5:
+                            if trade_days_held >= _early_exit_days:
                                 profit_pct = (_close_p / cost - 1) if cost > 0 else 0
-                                if profit_pct < 0.03:  # 5天利润<3%
+                                if profit_pct < _early_exit_min_profit:
                                     forced_sell_prices[code] = _close_p
                                     forced_sell_codes.append((code, f'龙头5天低利润({profit_pct*100:.1f}%)'))
                                     forced_sell_codes_set.add(code)
@@ -2831,8 +2834,8 @@ class PortfolioBacktester:
                 volatility = std_return * math.sqrt(252)
 
                 if std_return > 0:
-                    # 年化夏普比率(252个交易日,无风险利率3%)
-                    daily_rf = 0.03 / 252
+                    # 年化夏普比率(252个交易日,无风险利率从GLOBAL_RISK读取)
+                    daily_rf = GLOBAL_RISK.get('risk_free_rate', 0.03) / 252
                     sharpe_ratio = (avg_return - daily_rf) / std_return * math.sqrt(252)
 
                 # 【P1-7修复:索提诺比率(只考虑下行波动)】
@@ -2843,7 +2846,7 @@ class PortfolioBacktester:
                     downside_variance = sum(r ** 2 for r in downside_returns) / len(downside_returns)
                     downside_std = math.sqrt(downside_variance)
                     if downside_std > 0:
-                        daily_rf = 0.03 / 252
+                        daily_rf = GLOBAL_RISK.get('risk_free_rate', 0.03) / 252
                         raw_sortino = (avg_return - daily_rf) / downside_std * math.sqrt(252)
                         sortino_ratio = min(raw_sortino, 200.0)
                         if raw_sortino > 200.0:
@@ -3833,7 +3836,7 @@ class PortfolioBacktester:
         strategies = self.stock_to_strategy.get(code, [])
         strategy_rp = getattr(self, '_strategy_risk_params', {})
         global_sl = self._risk_config.get('stop_loss_pct', GLOBAL_RISK['stop_loss_pct'])
-        global_tp = self._risk_config.get('take_profit_pct', 0.07)
+        global_tp = self._risk_config.get('take_profit_pct', GLOBAL_RISK.get('take_profit_pct', 0.07))
         if isinstance(strategies, list) and strategies:
             # 止损:取min(最严格,不管哪个策略买入都应尽早止损)
             sl = min(strategy_rp.get(s, {}).get('stop_loss_pct', global_sl) for s in strategies)
@@ -3888,8 +3891,9 @@ class PortfolioBacktester:
         if cooldown_until_idx > 0:
             current_idx = self._trade_date_index_map.get(trade_date, -1)
             if current_idx >= 0 and current_idx <= cooldown_until_idx:
-                position_multiplier = min(position_multiplier, 0.5)
-                logger.info('backtest', f'[冷却期] 强制空仓后{current_idx}/{cooldown_until_idx}, 仓位上限50%')
+                _cooldown_cap = self._risk_config.get('force_empty_cooldown_position_cap', GLOBAL_RISK.get('force_empty_cooldown_position_cap', 0.5))
+                position_multiplier = min(position_multiplier, _cooldown_cap)
+                logger.info('backtest', f'[冷却期] 强制空仓后{current_idx}/{cooldown_until_idx}, 仓位上限{_cooldown_cap*100:.0f}%')
 
         return position_multiplier, active_periods
 
@@ -4308,7 +4312,7 @@ class PortfolioBacktester:
         # enable_stop_loss/enable_take_profit 已在上方(V48d处)声明,此处无需重复
         # 【P0-2修复:默认全局参数,卖出循环中按code覆盖】
         global_sl = self._risk_config.get('stop_loss_pct', GLOBAL_RISK['stop_loss_pct'])
-        global_tp = self._risk_config.get('take_profit_pct', 0.07)
+        global_tp = self._risk_config.get('take_profit_pct', GLOBAL_RISK.get('take_profit_pct', 0.07))
         for ts_code in sell_codes:
             shares = holdings[ts_code]
             price_info = prices.get(ts_code, {})
