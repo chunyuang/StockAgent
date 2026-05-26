@@ -1145,6 +1145,7 @@ onUnmounted(() => {
 .ws-status.connected { color: var(--stock-down); }
 .ws-status.disconnected { color: var(--stock-up); background: var(--stock-up-bg); animation: blink 1.5s infinite; }
 @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+@keyframes data-flow { 0% { left: -100%; } 100% { left: 200%; } }
 .main-grid { display: grid; grid-template-columns: 240px 1fr 280px; gap: 12px; padding: 12px; flex: 1; overflow: hidden; }
 .panel { background: var(--bg-elevated); border-radius: 8px; padding: 12px; border: 1px solid var(--border-default); overflow-y: auto; }
 .panel-title { font-size: 14px; font-weight: bold; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border-default); }
@@ -1222,8 +1223,11 @@ onUnmounted(() => {
 .pipeline-title { font-size: 13px; font-weight: bold; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
 .pipeline-summary-badge { font-size: 11px; font-weight: normal; color: var(--text-muted); background: var(--bg-muted); padding: 2px 6px; border-radius: 3px; }
 .pipeline-flow { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
-.pipe-node { background: var(--bg-muted); padding: 3px 8px; border-radius: 4px; font-size: 11px; }
+/* 【V63:UI增强】管道节点添加数据流动感 */
+.pipe-node { background: var(--bg-muted); padding: 3px 8px; border-radius: 4px; font-size: 11px; transition: all 0.3s ease; position: relative; overflow: hidden; }
+.pipe-node::after { content: ''; position: absolute; top: 0; left: -100%; width: 50%; height: 100%; background: linear-gradient(90deg, transparent, rgba(103,194,58,0.15), transparent); animation: data-flow 3s ease-in-out infinite; }
 .pipe-node.filter { background: rgba(245,108,108,0.1); border: 1px solid rgba(245,108,108,0.3); }
+.pipe-node.filter::after { background: linear-gradient(90deg, transparent, rgba(245,108,108,0.1), transparent); }
 .pipe-node.pass { background: rgba(103,194,58,0.1); border: 1px solid rgba(103,194,58,0.3); }
 .pipe-node.idle { opacity: 0.5; }
 .pipe-label { color: var(--text-tertiary); margin-right: 4px; }
