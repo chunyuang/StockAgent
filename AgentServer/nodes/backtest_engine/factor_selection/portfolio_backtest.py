@@ -2855,6 +2855,40 @@ class PortfolioBacktester:
         result["losing_trades"] = losing_trades
         result["average_hold_days"] = average_hold_days
         result["all_trades"] = all_trades_dict
+        # 【V55-Bug5修复:sell_reason_stats在portfolio_backtest中直接计算,不再依赖ultra_short后处理】
+        # 旧bug: ultra_short.py设置result['sell_reason_stats']和result['performance'],
+        # 但当ultra_short.py中merged_trades从performance_data读取为空时,
+        # 覆盖为全零dict,导致前端显示空统计
+        # 修复: 直接在portfolio_backtest的result中计算,确保数据不丢失
+        _sell_reason_stats = {"stop_loss": 0, "take_profit": 0, "max_hold": 0, "force_empty": 0, "rebalance": 0, "profit_lock": 0, "profit_protect": 0, "pullback": 0, "halt": 0, "other": 0}
+        for trade in merged_trades:
+            reason = trade.get('sell_reason', '')
+            if not reason or reason == '持仓中':
+                continue
+            reason_str = str(reason)
+            if '止损' in reason_str or 'stop_loss' in reason_str.lower():
+                _sell_reason_stats["stop_loss"] += 1
+            elif '止盈' in reason_str or 'take_profit' in reason_str.lower():
+                _sell_reason_stats["take_profit"] += 1
+            elif '冲高回落' in reason_str or '高开即卖' in reason_str:
+                _sell_reason_stats["pullback"] += 1
+            elif '利润保护' in reason_str:
+                _sell_reason_stats["profit_protect"] += 1
+            elif '利润锁定' in reason_str:
+                _sell_reason_stats["profit_lock"] += 1
+            elif '停牌' in reason_str:
+                _sell_reason_stats["halt"] += 1
+            elif '到期' in reason_str or 'max_hold' in reason_str.lower() or '持仓天数' in reason_str or '超时' in reason_str:
+                _sell_reason_stats["max_hold"] += 1
+            elif '空仓' in reason_str or 'force_empty' in reason_str.lower() or '强制' in reason_str:
+                _sell_reason_stats["force_empty"] += 1
+            elif '调仓' in reason_str or 'rebalance' in reason_str.lower() or '减仓' in reason_str:
+                _sell_reason_stats["rebalance"] += 1
+            elif '持仓中' in reason_str:
+                pass
+            else:
+                _sell_reason_stats["other"] += 1
+        result["sell_reason_stats"] = _sell_reason_stats
         result["merged_trades"] = merged_trades  # 完整交易记录(含买卖信息,给前端展示)
         result["rebalance_records"] = rebalance_records_dict
         result["stock_names"] = stock_names
@@ -3721,33 +3755,7 @@ class PortfolioBacktester:
             return max(strategy_rp.get(s, {}).get('slippage_pct', global_slippage) for s in strategies)
         return global_slippage
 
-    def _check_intraday_profit_lock(self, cost: float, high: float, close: float) -> bool:
-        """【V55-BUG-001修复:提取盘中利润锁定检查为独立方法,消除重复代码】
-        
-        判断是否触发盘中利润锁定:冲高后回撤,保护利润
-        条件: 冲高>=intraday_lock_min_high_rise AND 从高点回撤>=intraday_lock_pullback_pct AND 收盘仍有利润>=intraday_lock_min_profit
-        
-        Args:
-            cost: 成本价(含滑点)
-            high: 当日最高价
-            close: 当日收盘价
-            
-        Returns:
-            bool: 是否触发利润锁定
-        """
-        from ..strategy_defaults import GLOBAL_RISK
-        lock_min_high = self._risk_config.get('intraday_lock_min_high_rise', GLOBAL_RISK.get('intraday_lock_min_high_rise', 0.04))
-        lock_pullback = self._risk_config.get('intraday_lock_pullback_pct', GLOBAL_RISK.get('intraday_lock_pullback_pct', 0.015))
-        lock_min_profit = self._risk_config.get('intraday_lock_min_profit', GLOBAL_RISK.get('intraday_lock_min_profit', 0.02))
-        
-        if cost <= 0 or high <= 0 or close <= 0:
-            return False
-        
-        high_rise = (high - cost) / cost  # 冲高幅度
-        pullback = (high - close) / high  # 从高点回撤比例
-        profit = (close - cost) / cost    # 收盘利润
-        
-        return high_rise >= lock_min_high and pullback >= lock_pullback and profit >= lock_min_profit
+
 
     def _calc_total_value(self, cash: float, holdings: dict, prices: dict) -> float:
         """【P1-7修复:提取持仓总价值计算为独立方法】
