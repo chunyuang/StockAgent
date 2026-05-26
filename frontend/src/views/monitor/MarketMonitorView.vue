@@ -23,6 +23,7 @@ interface TimelineItem { time: string; action: string; ts_code: string; stock_na
 interface StrategyConfig { id: string; name: string; enabled: boolean; params: Record<string, any>; riskParams: Record<string, any>; paramDescriptions: ParamDesc[]; riskDescriptions: ParamDesc[] }
 interface ParamDesc { key: string; label: string; value: any; displayValue: string; unit: string; min: number; max: number; step: number }
 interface GlobalRisk { stop_loss_pct: number; take_profit_pct: number; max_position_pct: number; max_positions: number }
+interface HealthData { overall_status: 'healthy' | 'warning' | 'critical'; circuit_breaker: { trading_paused: boolean; pause_reason: string; consecutive_losses: number; max_consecutive_losses: number }; risk_metrics: { daily_drawdown_pct: number; max_drawdown_pct: number; position_ratio: number }; data_sources: Array<{ name: string; available: boolean; last_check: string }> }
 
 const loading = ref(false), autoRefresh = ref(true), soundEnabled = ref(false)
 const themeStore = useThemeStore()
@@ -90,6 +91,9 @@ const layerLabel = (k: string) => layerCN[k] || k
 const tradeMode = ref('simulated')
 const dataSources = ref<any[]>([])
 const brokers = ref<any[]>([])
+const healthData = ref<HealthData | null>(null)
+const riskBarCollapsed = ref(true)
+const emergencyLiquidating = ref(false)
 const signalFilter = ref('all')
 const filteredSignals = computed(() => { if (signalFilter.value === 'all') return signals.value; if (signalFilter.value === 'anomaly') return signals.value.filter(s => s.strategy.startsWith('anomaly_')); return signals.value.filter(s => s.strategy === signalFilter.value) })
 const tradeDetailVisible = ref(false), tradeDetailData = ref<any>(null), tradeAuditData = ref<any[]>([]), tradeAuditVisible = ref(false)
@@ -191,7 +195,9 @@ async function resetCircuitBreaker() { try { const r = await api.post(`${scanner
 async function fetchLimitPools() { try { const r = await api.get(`${scannerApi}/limit-pools`); if (r?.success) limitPools.value = r.data } catch { } }
 async function fetchDailyReport() { try { const r = await api.get(`${scannerApi}/daily-report`); if (r?.success) dailyReport.value = r.data } catch { } }
 async function fetchDataSources() { try { const [sR, bR] = await Promise.all([api.get('/datasource/sources'), api.get('/datasource/brokers')]); if (sR?.success) dataSources.value = sR.data || []; if (bR?.success) brokers.value = bR.data || [] } catch { } }
-async function fetchAll(force = false) { await Promise.all([fetchScanner(), fetchStrategies(), fetchDataSources(), fetchLimitPools(), fetchDailyReport()]) }
+async function fetchHealth() { try { const r = await api.get(`${scannerApi}/health`); if (r?.success) healthData.value = r.data } catch { } }
+async function emergencyLiquidate() { showConfirm('🚨 紧急平仓', '将立即以市价卖出所有持仓！\n此操作不可撤销！\n\n确认紧急平仓？', async () => { emergencyLiquidating.value = true; try { const r = await api.post(`${scannerApi}/emergency-liquidate`); if (r?.success) { ElMessage.success(r.data?.message || '紧急平仓完成'); await fetchAll(true) } else ElMessage.error(r?.data?.message || '平仓失败') } catch { ElMessage.error('紧急平仓失败') } finally { emergencyLiquidating.value = false } }) }
+async function fetchAll(force = false) { await Promise.all([fetchScanner(), fetchStrategies(), fetchDataSources(), fetchLimitPools(), fetchDailyReport(), fetchHealth()]) }
 async function fetchStrategies() { try { const [sR, rR] = await Promise.all([api.get(`${configApi}/strategies`), api.get(`${configApi}/global-risk`)]); if (sR?.success) strategies.value = sR.data; if (rR?.success) globalRisk.value = rR.data } catch (e) { console.error(e) } }
 async function toggleStrategy(sid: string, enabled: boolean) { try { await api.put(`${configApi}/strategies/${sid}`, { enabled }); await fetchStrategies(); ElMessage.success(enabled ? '已启用' : '已停用') } catch { ElMessage.error('操作失败') } }
 function openEditDialog(strategy: StrategyConfig) { editingStrategy.value = strategy; editParams.value = { ...strategy.params }; editRiskParams.value = { ...strategy.riskParams }; editTab.value = 'params'; editDialogVisible.value = true }
@@ -214,7 +220,7 @@ async function saveStrategy() {
   finally { saving.value = false }
 }
 async function resetStrategy(sid: string) { try { await api.post(`${configApi}/reset/${sid}`); await fetchStrategies(); ElMessage.success('已重置') } catch { ElMessage.error('重置失败') } }
-onMounted(async () => { await Promise.all([fetchScanner(), fetchStrategies(), fetchDataSources(), fetchLimitPools()]); connectWS(); nowTimer = setInterval(() => { nowMs.value = Date.now() }, 1000); const getRefreshInterval = () => { const n = new Date(), h = n.getHours(), m = n.getMinutes(); const isTrading = (h === 9 && m >= 30) || (h >= 10 && h < 15) || (h === 15 && m === 0); return isTrading ? 5000 : 60000 }; refreshTimer = setInterval(() => { if (!autoRefresh.value || ws?.readyState === WebSocket.OPEN) return; fetchScannerFast() }, getRefreshInterval()) })
+onMounted(async () => { await Promise.all([fetchScanner(), fetchStrategies(), fetchDataSources(), fetchLimitPools(), fetchHealth()]); connectWS(); nowTimer = setInterval(() => { nowMs.value = Date.now() }, 1000); const getRefreshInterval = () => { const n = new Date(), h = n.getHours(), m = n.getMinutes(); const isTrading = (h === 9 && m >= 30) || (h >= 10 && h < 15) || (h === 15 && m === 0); return isTrading ? 5000 : 60000 }; refreshTimer = setInterval(() => { if (!autoRefresh.value || ws?.readyState === WebSocket.OPEN) return; fetchScannerFast(); fetchHealth() }, getRefreshInterval()) })
 onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer); if (nowTimer) clearInterval(nowTimer); disconnectWS() })
 function connectWS() { try { const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'; ws = new WebSocket(`${proto}//${location.host}/ws`); let wsDebounceTimer: any = null; const wsDebouncedFetch = () => { if (wsDebounceTimer) clearTimeout(wsDebounceTimer); wsDebounceTimer = setTimeout(fetchScanner, 500); }; ws.onopen = () => { ws?.send(JSON.stringify({ type: 'subscribe_scanner' })); }; ws.onmessage = (e) => { try { const d = JSON.parse(e.data); if (d.type === 'scanner_signal') { signals.value = d.signals?.length ? d.signals : signals.value; wsDebouncedFetch(); } else if (d.type === 'scanner_position') { positions.value = d.positions?.length ? d.positions : positions.value; } else if (d.type === 'scanner_timeline') { if (d.item) timeline.value = [...timeline.value, d.item]; wsDebouncedFetch(); } else if (d.type === 'scanner_status') { if (d.status) status.value = { ...status.value, ...d.status }; wsDebouncedFetch(); } } catch {} }; ws.onclose = () => { wsReconnectTimer = setTimeout(connectWS, 3000); }; ws.onerror = () => { ws?.close(); }; } catch {} }
 function disconnectWS() { if (wsReconnectTimer) clearTimeout(wsReconnectTimer); if (ws) { ws.close(); ws = null; } }
@@ -245,6 +251,48 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 </script>
 <template>
   <div class="mm" :class="{ dark: themeStore.isDark }">
+    <!-- 风控状态栏 -->
+    <div class="risk-bar" :class="{ critical: healthData?.overall_status === 'critical', warning: healthData?.overall_status === 'warning' }">
+      <div class="rb-main cp" @click="riskBarCollapsed = !riskBarCollapsed">
+        <div class="rb-left">
+          <span class="rb-light" :class="healthData?.overall_status === 'healthy' ? 'ok' : healthData?.overall_status === 'warning' ? 'warn' : healthData?.overall_status === 'critical' ? 'crit' : 'unknown'">{{ healthData?.overall_status === 'healthy' ? '🟢' : healthData?.overall_status === 'warning' ? '🟡' : healthData?.overall_status === 'critical' ? '🔴' : '⚪' }}</span>
+          <span class="rb-label">风控</span>
+          <span v-if="healthData?.risk_metrics" class="rb-metric">
+            <span class="rb-ml">回撤</span>
+            <span class="rb-progress"><span class="rb-progress-fill" :style="{ width: Math.min(Math.abs(healthData.risk_metrics.daily_drawdown_pct || 0) / (healthData.risk_metrics.max_drawdown_pct || 5) * 100, 100) + '%' }" :class="Math.abs(healthData.risk_metrics.daily_drawdown_pct || 0) > (healthData.risk_metrics.max_drawdown_pct || 5) * 0.7 ? 'danger' : ''"></span></span>
+            <span class="rb-mv">{{ Math.abs(healthData.risk_metrics.daily_drawdown_pct || 0).toFixed(1) }}%</span>
+          </span>
+          <span v-if="healthData?.circuit_breaker" class="rb-metric">
+            <span class="rb-ml">连亏</span>
+            <span class="rb-mv" :class="healthData.circuit_breaker.consecutive_losses >= (healthData.circuit_breaker.max_consecutive_losses - 1) ? 'down' : ''">{{ healthData.circuit_breaker.consecutive_losses }}/{{ healthData.circuit_breaker.max_consecutive_losses }}</span>
+          </span>
+          <span class="rb-arrow">{{ riskBarCollapsed ? '▶' : '▼' }}</span>
+        </div>
+        <div class="rb-right">
+          <div v-if="healthData?.data_sources?.length" class="rb-ds">
+            <span v-for="ds in healthData.data_sources" :key="ds.name" class="rb-ds-dot" :class="ds.available ? 'ok' : 'err'" :title="`${ds.name}: ${ds.available ? '可用' : '不可用'}`">●</span>
+          </div>
+          <button class="emergency-btn" :class="{ active: isRunning && !emergencyLiquidating, disabled: !isRunning || emergencyLiquidating }" @click.stop="isRunning && !emergencyLiquidating && emergencyLiquidate()" :disabled="!isRunning || emergencyLiquidating">
+            <span class="emergency-text">{{ emergencyLiquidating ? '平仓中...' : '🚨 紧急平仓' }}</span>
+          </button>
+        </div>
+      </div>
+      <div v-if="!riskBarCollapsed" class="rb-detail">
+        <div class="rb-detail-grid">
+          <div class="rb-di"><span class="rb-dl">整体状态</span><span class="rb-dv" :class="healthData?.overall_status === 'healthy' ? 'ok' : healthData?.overall_status === 'warning' ? 'warn' : healthData?.overall_status === 'critical' ? 'crit' : ''">{{ healthData?.overall_status === 'healthy' ? '正常' : healthData?.overall_status === 'warning' ? '预警' : healthData?.overall_status === 'critical' ? '熔断' : '未知' }}</span></div>
+          <div class="rb-di" v-if="healthData?.circuit_breaker"><span class="rb-dl">熔断原因</span><span class="rb-dv">{{ healthData.circuit_breaker.pause_reason || '-' }}</span></div>
+          <div class="rb-di" v-if="healthData?.risk_metrics"><span class="rb-dl">日回撤</span><span class="rb-dv down">{{ (healthData.risk_metrics.daily_drawdown_pct || 0).toFixed(2) }}%</span></div>
+          <div class="rb-di" v-if="healthData?.risk_metrics"><span class="rb-dl">最大回撤限制</span><span class="rb-dv">{{ (healthData.risk_metrics.max_drawdown_pct || 0).toFixed(1) }}%</span></div>
+          <div class="rb-di" v-if="healthData?.circuit_breaker"><span class="rb-dl">连续亏损</span><span class="rb-dv" :class="healthData.circuit_breaker.consecutive_losses >= (healthData.circuit_breaker.max_consecutive_losses - 1) ? 'down' : ''">{{ healthData.circuit_breaker.consecutive_losses }}次</span></div>
+          <div class="rb-di" v-if="healthData?.risk_metrics"><span class="rb-dl">仓位比例</span><span class="rb-dv">{{ ((healthData.risk_metrics.position_ratio || 0) * 100).toFixed(0) }}%</span></div>
+        </div>
+        <div v-if="healthData?.data_sources?.length" class="rb-ds-detail">
+          <span class="rb-dl">数据源</span>
+          <span v-for="ds in healthData.data_sources" :key="ds.name" class="rb-ds-item" :class="ds.available ? 'ok' : 'err'">{{ ds.name }} {{ ds.available ? '✅' : '❌' }}</span>
+        </div>
+      </div>
+    </div>
+
     <!-- 顶部状态栏 -->
     <div class="mm-header">
       <div class="hh-left">
@@ -901,4 +949,47 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .td2-fk { color: var(--text-tertiary, #909399); margin-right: 4px; }
 .td2-fv { font-weight: 500; color: var(--text-primary, #303133); }
 .td2-empty { text-align: center; padding: 16px; color: var(--text-tertiary, #909399); font-size: 13px; }
+
+/* 风控状态栏 */
+.risk-bar { background: var(--bg-elevated); border-bottom: 1px solid var(--border-default); flex-shrink: 0; transition: background 0.3s; }
+.risk-bar.critical { background: rgba(245, 108, 108, 0.12); border-bottom-color: var(--stock-up); }
+.risk-bar.warning { background: rgba(230, 162, 60, 0.08); border-bottom-color: var(--el-color-warning); }
+.rb-main { display: flex; align-items: center; justify-content: space-between; padding: 6px 16px; gap: 12px; flex-wrap: wrap; }
+.rb-left { display: flex; align-items: center; gap: 8px; }
+.rb-right { display: flex; align-items: center; gap: 8px; }
+.rb-light { font-size: 14px; line-height: 1; }
+.rb-label { font-size: 12px; font-weight: 600; color: var(--text-primary); }
+.rb-metric { display: flex; align-items: center; gap: 4px; font-size: 11px; }
+.rb-ml { color: var(--text-tertiary); }
+.rb-mv { font-weight: 600; color: var(--text-secondary); }
+.rb-progress { display: inline-block; width: 60px; height: 6px; background: var(--border-default); border-radius: 3px; overflow: hidden; vertical-align: middle; }
+.rb-progress-fill { display: block; height: 100%; background: var(--stock-down); border-radius: 3px; transition: width 0.3s; }
+.rb-progress-fill.danger { background: var(--stock-up); }
+.rb-arrow { font-size: 10px; color: var(--text-tertiary); margin-left: 4px; }
+.rb-ds { display: flex; gap: 4px; }
+.rb-ds-dot { font-size: 10px; }
+.rb-ds-dot.ok { color: var(--stock-down); }
+.rb-ds-dot.err { color: var(--stock-up); }
+
+/* 紧急平仓按钮 */
+.emergency-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; padding: 4px 14px; border: 2px solid #f56c6c; border-radius: 6px; background: transparent; cursor: pointer; font-size: 12px; font-weight: 700; color: #f56c6c; transition: all 0.2s; }
+.emergency-btn.active { animation: emergency-pulse 1.5s infinite; }
+.emergency-btn.disabled { opacity: 0.4; cursor: not-allowed; animation: none; }
+.emergency-btn:not(.disabled):hover { background: #f56c6c; color: #fff; }
+.emergency-text { white-space: nowrap; }
+@keyframes emergency-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(245, 108, 108, 0.5); } 50% { box-shadow: 0 0 0 8px rgba(245, 108, 108, 0); } }
+
+/* 风控详情 */
+.rb-detail { padding: 8px 16px 10px; border-top: 1px solid var(--border-light); }
+.rb-detail-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 6px; margin-bottom: 6px; }
+.rb-di { display: flex; flex-direction: column; gap: 1px; }
+.rb-dl { font-size: 10px; color: var(--text-tertiary); }
+.rb-dv { font-size: 13px; font-weight: 600; color: var(--text-secondary); }
+.rb-dv.ok { color: var(--stock-down); }
+.rb-dv.warn { color: var(--el-color-warning); }
+.rb-dv.crit { color: var(--stock-up); }
+.rb-ds-detail { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 11px; }
+.rb-ds-item { padding: 1px 6px; border-radius: 3px; font-weight: 500; }
+.rb-ds-item.ok { color: var(--stock-down); background: var(--stock-down-bg); }
+.rb-ds-item.err { color: var(--stock-up); background: var(--stock-up-bg); }
 </style>
