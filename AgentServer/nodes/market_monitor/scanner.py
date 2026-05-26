@@ -767,6 +767,15 @@ class MarketScanner:
         settled = False
         last_full_scan = 0  # 上次全量扫描时间
 
+        # 回放模式: 不受交易时间限制, 持续扫描
+        if self._replay_mode:
+            logger.info(f"[REPLAY] 回放循环启动, 日期={self._replay_date}")
+            while self._is_running:
+                trade_date = self._replay_date or datetime.now().strftime("%Y%m%d")
+                await self.scan_once(trade_date, force=True)
+                await asyncio.sleep(self.SCAN_INTERVAL)  # 5分钟间隔
+            return
+
         try:
             while self._is_running:
                 now = datetime.now()
