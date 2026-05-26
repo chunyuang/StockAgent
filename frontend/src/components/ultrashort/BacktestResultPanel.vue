@@ -703,6 +703,29 @@ const _monthlyProfitChartOption = computed(() => {
 })
 
 // 风险指标: 优先从metrics.risk取, 兜底从result顶层取
+// 【V55:未来函数风险检测】
+const usedStrategies = computed(() => {
+  const result = props.result
+  if (!result) return []
+  // 从merged_trades或strategy_results中提取使用的策略
+  const strategies = new Set<string>()
+  if (result.merged_trades) {
+    result.merged_trades.forEach((t: any) => {
+      if (t.strategy) strategies.add(t.strategy)
+    })
+  }
+  if (result.strategy_results) {
+    Object.keys(result.strategy_results).forEach(k => strategies.add(k))
+  }
+  return Array.from(strategies)
+})
+
+const hasLookaheadRisk = computed(() => {
+  // 半路追涨、跌停翘板、龙头低吸存在未来函数风险
+  const riskyStrategies = ['halfway_chase', 'limit_down_qiao', 'dragon_head']
+  return usedStrategies.value.some(s => riskyStrategies.includes(s))
+})
+
 const riskMetrics = computed(() => {
   const result = props.result
   if (!result) return []
@@ -1051,6 +1074,16 @@ function exportTrades() {
 
         <!-- Tab 5: 风险指标 -->
         <ElTabPane label="🛡️ 风险指标" name="risk">
+          <!-- 【V55:未来函数风险警告】 -->
+          <div v-if="hasLookaheadRisk" class="lookahead-warning">
+            <div class="lookahead-title">⚠️ 未来函数风险提示</div>
+            <div class="lookahead-desc">部分策略使用了T日收盘确认数据作为T日买入条件，实盘性能可能低于回测：</div>
+            <ul class="lookahead-list">
+              <li v-if="usedStrategies.includes('halfway_chase')"><b>半路追涨</b>：pct_chg≥5%为T日收盘确认（V25对照：去后收益-48%）</li>
+              <li v-if="usedStrategies.includes('limit_down_qiao')"><b>跌停翘板</b>：pct_chg>0为T日收盘确认（只选成功翘板案例）</li>
+              <li v-if="usedStrategies.includes('dragon_head')"><b>龙头低吸</b>：volume_ratio用T日全天数据（盘中可近似）</li>
+            </ul>
+          </div>
           <div class="risk-grid">
             <div v-for="m in riskMetrics" :key="m.name" class="risk-item">
               <span class="risk-name">{{ m.name }}</span>
@@ -1117,6 +1150,32 @@ export default { name: 'BacktestResultPanel' }
 .risk-name { font-weight: 600; font-size: 13px; }
 .risk-value { margin-left: 8px; font-size: 14px; color: var(--el-color-primary); }
 .risk-desc { display: block; font-size: 11px; color: var(--el-text-color-placeholder); margin-top: 2px; }
+/* V55: 未来函数风险警告样式 */
+.lookahead-warning {
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  border-radius: 8px;
+  background: rgba(var(--el-color-warning-rgb, 230,162,60), 0.08);
+  border: 1px solid rgba(var(--el-color-warning-rgb, 230,162,60), 0.3);
+}
+.lookahead-title {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--el-color-warning);
+  margin-bottom: 6px;
+}
+.lookahead-desc {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin-bottom: 8px;
+}
+.lookahead-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--el-text-color-regular);
+  li { margin-bottom: 4px; }
+}
 .top5-row {
   display: flex;
   gap: 16px;
