@@ -472,9 +472,9 @@ async function onModeChange(mode: string) {
       } catch { selectedMode.value = tradeMode.value; return }
     }
     await ElMessageBox.confirm(
-      `确认切换到 ${modeLabel(mode)} 模式？${mode === 'gm' ? '\n⚠️ 掘金模式将进行实盘交易！' : ''}${replayDate ? '\n📅 回放日期: ' + replayDate : ''}`,
+      `确认切换到 ${modeLabel(mode)} 模式？${mode === 'gm' ? '\n🚨🚨🚨 实盘模式警告 🚨🚨🚨\n将使用真实资金进行交易！请确认您已充分了解风险！' : ''}${mode === 'paper' ? '\n📝 模拟盘模式：使用虚拟资金' : ''}${replayDate ? '\n📅 回放日期: ' + replayDate : ''}`,
       '模式切换',
-      { confirmButtonText: '确认切换', cancelButtonText: '取消', type: mode === 'gm' ? 'warning' : 'info' }
+      { confirmButtonText: mode === 'gm' ? '我确认,切换实盘' : '确认切换', cancelButtonText: '取消', type: mode === 'gm' ? 'error' : 'info' }
     )
     selectedMode.value = mode
     if (isRunning.value) {

@@ -161,12 +161,12 @@ function onSweepParamChange() {
         <template #title><span>{{ tradeParamsTitle }}</span></template>
         <ElForm label-width="120px">
           <ElFormItem label="基础止损">
-            <ElInputNumber v-model="form.tradeParams.base_stop_loss_pct" :min="0" :max="1" :step="0.001" style="width: 150px" />
-            <span class="unit">%</span>
+            <ElInputNumber v-model="form.tradeParams.base_stop_loss_pct" :min="0" :max="1" :step="0.005" :precision="3" style="width: 150px" />
+            <span class="unit">= {{ (form.tradeParams.base_stop_loss_pct * 100).toFixed(1) }}%</span>
           </ElFormItem>
           <ElFormItem label="基础止盈">
-            <ElInputNumber v-model="form.tradeParams.base_take_profit_pct" :min="0" :max="1" :step="0.001" style="width: 150px" />
-            <span class="unit">%</span>
+            <ElInputNumber v-model="form.tradeParams.base_take_profit_pct" :min="0" :max="1" :step="0.01" :precision="2" style="width: 150px" />
+            <span class="unit">= {{ (form.tradeParams.base_take_profit_pct * 100).toFixed(1) }}%</span>
           </ElFormItem>
           <ElFormItem label="最大持仓天数">
             <ElInputNumber v-model="form.tradeParams.max_hold_days" :min="1" :max="10" style="width: 150px" />
