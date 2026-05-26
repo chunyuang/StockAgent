@@ -60,7 +60,8 @@ def _get_scanner_instance():
 class ScannerStartRequest(BaseModel):
     account_id: str = "default"
     trade_date: Optional[str] = None
-    trade_mode: str = "simulated"  # simulated | gm | dry_run
+    trade_mode: str = "simulated"  # simulated | gm | dry_run | replay
+    replay_date: Optional[str] = None  # 回放模式指定日期, 如 "20260526"
     config: Dict[str, Any] = {}
 
 
@@ -216,6 +217,8 @@ async def start_scanner(req: ScannerStartRequest):
         from nodes.market_monitor.scanner import MarketScanner
         config = dict(req.config)
         config["trade_mode"] = req.trade_mode
+        if req.replay_date:
+            config["replay_date"] = req.replay_date
         if req.trade_mode == 'gm':
             config.setdefault("gm_token", "")
             config.setdefault("gm_strategy_id", "")
@@ -454,6 +457,7 @@ async def pause_circuit_breaker(req: PauseRequest = None):
 
 class ScanOnceRequest(BaseModel):
     force: bool = False
+    replay_date: Optional[str] = None  # 回放日期, 设置后使用历史数据
 
 
 @router.post("/scan-once")
@@ -464,9 +468,13 @@ async def scan_once(req: ScanOnceRequest = ScanOnceRequest()):
         force: 强制模式, 忽略交易时间检查(消耗必盈额度, 测试用)
     """
     scanner = _get_scanner()
-    trade_date = datetime.now().strftime("%Y%m%d")
+    # 回放模式: 自动force并设置replay_date
+    if req.replay_date and scanner._replay_provider:
+        scanner._replay_date = req.replay_date
+    force = req.force or scanner._replay_mode
+    trade_date = scanner._replay_date or datetime.now().strftime("%Y%m%d")
     try:
-        await scanner.scan_once(trade_date, force=req.force)
+        await scanner.scan_once(trade_date, force=force)
     except Exception as e:
         logger.error(f"[API] scan_once失败: {e}")
         return {

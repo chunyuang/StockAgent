@@ -19,11 +19,15 @@ class RebalanceRecord:
     action: str  # "buy" | "sell"
     ts_code: str  # 股票代码 (如 000001.SZ)
     shares: int  # 股数
-    price: float  # 成交价
+    price: float  # 成交价(含滑点, V55-Bug3修复:统一为实际成交价)
     amount: float  # 成交金额（买入为负，卖出为正）
     reason: str  # 交易原因
     strategy_name: str = ""  # 策略名称（独立字段，不从reason提取）
     sentiment: str = ""  # 当日情绪周期状态
+    # 【V55-Bug3修复:新增raw_price字段,记录不含滑点的原始价格】
+    # 旧bug: price不含滑点但amount含滑点+佣金,两者不一致
+    # 修复: price改为含滑点的实际成交价,raw_price保存原始价格(用于分析)
+    raw_price: float = 0.0  # 不含滑点的原始价格(0表示未设置,兼容旧数据)
 
 
 @dataclass
