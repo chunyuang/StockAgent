@@ -1135,6 +1135,8 @@ class PortfolioBacktester:
             # 【P1-1/P1-2修复:添加max_hold_days和max_position_per_stock到风控配置】
             "max_hold_days": config.get("max_hold_days", 10),  # 默认10天(超短策略默认3天由ultra_short传入)
             "max_position_per_stock": config.get("max_position_per_stock", config.get("max_position_percent", GLOBAL_RISK.get("max_position_per_stock", 0.35))),  # 【V63-P1-6:默认0.35,与GLOBAL_RISK对齐,旧值1.0无限制】
+            "max_total_position": config.get("max_total_position", GLOBAL_RISK.get("max_total_position", 0.75)),  # 【V63:总仓位上限,与GLOBAL_RISK对齐】
+            "force_empty_cooldown_days": config.get("force_empty_cooldown_days", GLOBAL_RISK.get("force_empty_cooldown_days", 2)),  # 【V63-P0-4:强制空仓冷却期】
         }
 
         # 【V48修复:将GLOBAL_RISK中的利润锁定/持仓保护参数写入risk_config】
@@ -1157,6 +1159,8 @@ class PortfolioBacktester:
         await self.log(f"    🔹 {'✅' if risk_config['enable_take_profit'] else '❌'} 动态止盈: {risk_config['take_profit_pct'] * 100:.1f}%")
         await self.log(f"    🔹 📅 最大持仓天数: {risk_config['max_hold_days']}")
         await self.log(f"    🔹 📊 单票最大仓位: {risk_config['max_position_per_stock'] * 100:.0f}%")
+        await self.log(f"    🔹 📊 总仓位上限: {GLOBAL_RISK.get('max_total_position', 0.75) * 100:.0f}%")  # 【V63:日志输出max_total_position】
+        await self.log(f"    🔹 📊 强制空仓冷却期: {GLOBAL_RISK.get('force_empty_cooldown_days', 2)}个交易日")  # 【V63-P0-4:日志输出冷却期】
         await self.log(f"    🔹 {'✅' if risk_config['enable_ma60_filter'] else '❌'} 大盘MA60过滤")
         await self.log(f"    🔹 {'✅' if risk_config['enable_sector_concentration'] else '❌'} 板块集中度过滤: 保留前 {risk_config['sector_concentration_top_n']} 名")
         await self.log("🔧 Phase1 实盘对标修复:")
@@ -1614,7 +1618,7 @@ class PortfolioBacktester:
 
             # 【V63-P0-4:设置强制空仓冷却期——强制空仓后N天内position_multiplier上限0.5】
             # 冷却期内仓位不超过50%,防止次日立即满仓继续遭遇暴跌
-            cooldown_days = GLOBAL_RISK.get('force_empty_cooldown_days', 2)
+            cooldown_days = self._risk_config.get('force_empty_cooldown_days', GLOBAL_RISK.get('force_empty_cooldown_days', 2))
             current_idx = self._trade_date_index_map.get(trade_date, -1)
             if current_idx >= 0 and cooldown_days > 0:
                 # 找到冷却期后的第一个交易日索引

@@ -606,6 +606,9 @@ function cancelEditParam() {
 function connectWS() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
   ws = new WebSocket(`${proto}://${location.host}/ws`)
+  // 【V63修复:P1-15】WS连接状态追踪
+  wsConnected.value = false
+  ws.onopen = () => { wsConnected.value = true }
   ws.onmessage = (e) => {
     try {
       const data = JSON.parse(e.data)
@@ -615,8 +618,8 @@ function connectWS() {
       if (data.type === 'scanner_timeline' && data.data) timeline.value.unshift(data.data)
     } catch { /* ignore */ }
   }
-  ws.onclose = () => { wsReconnectTimer = setTimeout(connectWS, 5000) }
-  ws.onerror = () => { ws?.close() }
+  ws.onclose = () => { wsReconnectTimer = setTimeout(connectWS, 5000); wsConnected.value = false }
+  ws.onerror = () => { ws?.close(); wsConnected.value = false }
 }
 
 // ============ 生命周期 ============
@@ -839,14 +842,12 @@ onUnmounted(() => {
             <template v-for="(layer, i) in pipelineLayers" :key="layer">
               <div class="pipe-node" :class="pipelineLayerStatus(layer)">
                 <span class="pipe-label">{{ pipelineLabels[layer] || layer }}</span>
+                <!-- 【V63修复:P1-13】管道层标注输入→输出 -->
+                <span v-if="pipelineSummary && pipelineLayerStatus(layer) !== 'idle'" class="pipe-io">
+                  {{ pipelineLayerStats(layer).total }}→{{ pipelineLayerStats(layer).passed }}
+                </span>
                 <span class="pipe-status">
-                  <template v-if="pipelineSummary">
-                    <template v-if="pipelineLayerStatus(layer) === 'idle'">—</template>
-                    <template v-else>
-                      ✅<span class="pipe-stat">{{ pipelineLayerStats(layer).passed }}/{{ pipelineLayerStats(layer).total }}</span>
-                    </template>
-                  </template>
-                  <template v-else>✅</template>
+                  <template v-if="!pipelineSummary || pipelineLayerStatus(layer) === 'idle'">✅</template>
                 </span>
               </div>
               <span v-if="i < pipelineLayers.length - 1" class="pipe-arrow">→</span>
@@ -1106,6 +1107,31 @@ onUnmounted(() => {
 .profit { color: var(--stock-down); }
 .loss { color: var(--stock-up); }
 .emergency-btn { animation: pulse 2s infinite; }
+/* 【V63修复:P1-8】紧急平仓按钮增大+红底白字+闪烁动画 */
+.emergency-btn-v2 {
+  font-size: 14px !important;
+  font-weight: 800 !important;
+  padding: 8px 18px !important;
+  background: #f56c6c !important;
+  color: #fff !important;
+  border: 2px solid #c45656 !important;
+  animation: emergency-flash 1.2s ease-in-out infinite !important;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+}
+.emergency-btn-v2:disabled {
+  background: #fab6b6 !important;
+  color: #fff !important;
+  border-color: #fab6b6 !important;
+  animation: none !important;
+}
+.emergency-btn-v2:not(:disabled):hover {
+  background: #dd4a4a !important;
+  transform: scale(1.05);
+}
+@keyframes emergency-flash {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245,108,108,0.7); }
+  50% { box-shadow: 0 0 0 8px rgba(245,108,108,0); }
+}
 @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(245,108,108,0.4); } 50% { box-shadow: 0 0 0 6px rgba(245,108,108,0); } }
 
 /* 三列主体 */
@@ -1193,6 +1219,8 @@ onUnmounted(() => {
 .pipe-label { color: var(--text-tertiary); margin-right: 4px; }
 .pipe-status { font-size: 10px; }
 .pipe-stat { color: var(--text-muted); font-size: 10px; margin-left: 2px; }
+/* 【V63修复:P1-13】管道层输入→输出标注样式 */
+.pipe-io { color: var(--text-primary); font-size: 11px; font-weight: 700; margin-left: 4px; background: var(--bg-muted); padding: 1px 4px; border-radius: 2px; }
 .pipe-arrow { color: var(--text-muted); font-size: 12px; }
 
 /* 持仓盈亏 */
