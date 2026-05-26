@@ -202,9 +202,8 @@ class PaperTradingEngine:
         # 如果调用方未指定slippage(默认0.002),则尝试从策略配置读取
         _effective_slippage = slippage
         if strategy and strategy != "未知":
-            from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK as _GR
-            _NAME_TO_ID = {cfg["name"]: sid for sid, cfg in STRATEGY_CONFIGS.items()}
-            _sid = _NAME_TO_ID.get(strategy, "")
+            from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK as _GR, STRATEGY_NAME_TO_ID
+            _sid = STRATEGY_NAME_TO_ID.get(strategy, "")
             _scfg = STRATEGY_CONFIGS.get(_sid, {})
             _strategy_slippage = _scfg.get("riskParams", {}).get("slippage_pct", _GR.get("slippage_pct", 0.002))
             _effective_slippage = _strategy_slippage
@@ -224,9 +223,8 @@ class PaperTradingEngine:
         # 【V40修复:止损止盈从strategy_defaults策略维度读取，与回测保持一致】
         # 【V35修复:strategy参数是中文名(如"龙头低吸"),但STRATEGY_CONFIGS的key是英文ID(如"dragon_head")】
         # 不同策略有不同的风控参数，不再硬编码5%/10%
-        from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK
-        _NAME_TO_ID = {cfg["name"]: sid for sid, cfg in STRATEGY_CONFIGS.items()}
-        strategy_id = _NAME_TO_ID.get(strategy, "")  # 中文名→英文ID
+        from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK, STRATEGY_NAME_TO_ID
+        strategy_id = STRATEGY_NAME_TO_ID.get(strategy, "")  # 中文名→英文ID
         strategy_config = STRATEGY_CONFIGS.get(strategy_id, {})
         strategy_risk = strategy_config.get("riskParams", {})
         global_risk = GLOBAL_RISK
@@ -306,9 +304,8 @@ class PaperTradingEngine:
         _effective_slippage = slippage
         _strategy = target_pos.get('strategy', '')
         if _strategy and _strategy != "未知":
-            from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK as _GR
-            _NAME_TO_ID = {cfg["name"]: sid for sid, cfg in STRATEGY_CONFIGS.items()}
-            _sid = _NAME_TO_ID.get(_strategy, "")
+            from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK as _GR, STRATEGY_NAME_TO_ID
+            _sid = STRATEGY_NAME_TO_ID.get(_strategy, "")
             _scfg = STRATEGY_CONFIGS.get(_sid, {})
             _strategy_slippage = _scfg.get("riskParams", {}).get("slippage_pct", _GR.get("slippage_pct", 0.002))
             _effective_slippage = _strategy_slippage
@@ -433,9 +430,10 @@ class PaperTradingEngine:
                     sell_price = alert.get("current_price", 0)  # 默认收盘价
                     if pos and "止损" in reason:
                         # 止损价格: 回测用stop_loss_price,跳空止损用open
-                        # V47: 检查alert中是否包含"跳空止损"
+                        # 【V60修复:跳空止损用open价(与回测resolve_sell_price_and_reason对齐)】
                         if "跳空止损" in str(alert.get("alerts", [])):
-                            sell_price = pos.stop_loss_price
+                            open_p = alert.get("open", 0)
+                            sell_price = open_p if open_p > 0 else pos.stop_loss_price  # ✅ 跳空用open,fallback止损价
                             reason = "跳空止损"
                         else:
                             sell_price = pos.stop_loss_price  # 正常止损用止损价

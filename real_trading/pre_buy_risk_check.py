@@ -73,11 +73,19 @@ class PreBuyRiskChecker:
                 - min_market_cap: 最小市值阈值，单位亿元（默认30）
                 - max_volatility: 最大波动率阈值（默认0.20）
         """
+        # 【V60:从strategy_defaults读取风控阈值,确保与回测强制空仓参数对齐】
+        try:
+            from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK as _GR
+            _default_index_drop = _GR.get("force_empty_index_drop_pct", 0.03)
+            _default_daily_dd = _GR.get("stop_loss_pct", 0.03)  # 日内回撤与止损对齐
+        except ImportError:
+            _default_index_drop = 0.03
+            _default_daily_dd = 0.03
         self.default_config = {
             "market_filter_enabled": True,        # 启用市场环境过滤
             "reference_index": "sh000001",       # 参考指数：上证指数
-            "max_index_drop": 0.03,             # 指数最大跌幅3%
-            "daily_max_drawdown": 0.03,         # 单日最大回撤3%
+            "max_index_drop": _default_index_drop,  # 指数最大跌幅(与strategy_defaults对齐)
+            "daily_max_drawdown": _default_daily_dd, # 单日最大回撤(与止损对齐)
             "consecutive_loss_limit": 3,         # 连续亏损3次熔断
             "consecutive_loss_pause_days": 1,    # 熔断后暂停天数
             "exclude_st_stocks": True,           # 排除ST股票
@@ -514,8 +522,8 @@ class PreBuyRiskChecker:
         # 止损触发：亏损超过策略级止损线应果断止损
         # 【V52:从策略级参数读取止损阈值,不再硬编码5%】
         try:
-            from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK
-            _NAME_TO_ID = {cfg["name"]: sid for sid, cfg in STRATEGY_CONFIGS.items()}
+            from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK, STRATEGY_NAME_TO_ID
+            # _NAME_TO_ID no longer needed - using STRATEGY_NAME_TO_ID from strategy_defaults
             _max_sl = max(cfg.get("riskParams", {}).get("stop_loss_pct", GLOBAL_RISK["stop_loss_pct"]) 
                          for cfg in STRATEGY_CONFIGS.values() if cfg.get("enabled", True))
             sl_threshold = _max_sl  # 取最宽止损线作为通用检查(5%)
