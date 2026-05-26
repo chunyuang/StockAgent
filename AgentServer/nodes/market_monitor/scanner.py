@@ -85,6 +85,7 @@ class MarketScanner:
     MODE_SIMULATED = "simulated"  # 内置仿真撮合
     MODE_GM = "gm"                # 掘金量化
     MODE_DRY_RUN = "dry_run"      # 调试模式: 只扫描不交易
+    MODE_REPLAY = "replay"        # 回放模式: 用历史数据模拟实时行情
 
     def __init__(self, account_id: str = "default", config: Dict = None):
         self.account_id = account_id
@@ -111,6 +112,11 @@ class MarketScanner:
         # 【调试增强】dry_run模式: 只扫描不交易
         self._dry_run = (trade_mode == self.MODE_DRY_RUN)
 
+        # 【回放模式】用MongoDB历史数据模拟实时行情
+        self._replay_mode = (trade_mode == self.MODE_REPLAY)
+        self._replay_date = self.config.get("replay_date", None)
+        self._replay_provider = None
+
         if trade_mode == self.MODE_GM:
             # 掘金模式
             from nodes.market_monitor.gm_broker import GmBroker
@@ -128,6 +134,19 @@ class MarketScanner:
             self._broker = SimulatedBroker(account_id=account_id, initial_cash=initial_cash)
             self._gm_broker = None
             logger.info(f"[SCANNER] 交易模式: 🔍调试模式(只扫描不交易)")
+        elif self._replay_mode:
+            # 回放模式: 用历史数据模拟实时行情
+            self._broker = SimulatedBroker(account_id=account_id, initial_cash=initial_cash)
+            self._gm_broker = None
+            try:
+                from nodes.market_monitor.replay_provider import ReplayDataProvider
+                self._replay_provider = ReplayDataProvider()
+                if self._replay_date:
+                    # 预加载数据
+                    self._replay_provider.get_replay_data(self._replay_date)
+            except Exception as e:
+                logger.error(f"[SCANNER] 回放数据加载失败: {e}")
+            logger.info(f"[SCANNER] 交易模式: 🔄回放模式(日期={self._replay_date or '自动'})")
         else:
             # 内置仿真模式
             self._broker = SimulatedBroker(account_id=account_id, initial_cash=initial_cash)
@@ -928,6 +947,13 @@ class MarketScanner:
         # === 获取数据源 ===
         eastmoney = self._data_router._sources.get("eastmoney")
         biying = self._data_router._sources.get("biying")
+        
+        # === 回放模式: 直接返回历史数据 ===
+        if self._replay_mode and self._replay_provider:
+            replay_date = self._replay_date or datetime.now().strftime("%Y%m%d")
+            replay_data = self._replay_provider.get_realtime(replay_date)
+            logger.info(f"[REPLAY] 返回 {len(replay_data)} 只股票的模拟行情(日期={replay_date})")
+            return replay_data
         
         # 非交易时间检查: 盘中才有实时数据
         now = datetime.now()
