@@ -402,7 +402,10 @@ const positionChartOption = computed(() => {
   const result = props.result
   if (!result?.position_series || result.position_series.length === 0) return null
   // value是小数(0.188=18.8%), ×100转百分比
-  const values = result.position_series.map((d: any) => +(d.value * 100).toFixed(2))
+  // 【V65防御】position_series.value可能是小数(0.188)或百分比(18.8)
+  const psv = result.position_series
+  const psNeedMul100 = psv.length > 0 && psv.every((d: any) => Math.abs(d.value) <= 1)
+  const values = psv.map((d: any) => +(psNeedMul100 ? d.value * 100 : d.value).toFixed(2))
   const dates = result.position_series.map((d: any) => d.date)
   return {
     tooltip: { trigger: 'axis', formatter: (p: any) => `${p[0].axisValue}<br/>仓位：${p[0].value}%` },
@@ -709,6 +712,8 @@ const _monthlyProfitChartOption = computed(() => {
   const entries = Object.entries(result.monthly_profit)
   if (entries.length === 0) return null
   // monthly_profit值是小数(-0.011=-1.11%), ×100转百分比
+  // 【V65防御】如果值绝对值>1则认为已是百分比
+  const mpNeedMul100 = entries.length > 0 && entries.every(([_, v]) => Math.abs(v as number) <= 1)
   return {
     tooltip: { trigger: 'axis', formatter: '{b}<br/>收益：{c}%' },
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
@@ -716,7 +721,7 @@ const _monthlyProfitChartOption = computed(() => {
     yAxis: { type: 'value', axisLabel: { formatter: '{value}%' } },
     series: [{
       type: 'bar',
-      data: entries.map(([_, v]) => +((v as number) * 100).toFixed(2)),
+      data: entries.map(([_, v]) => +((mpNeedMul100 ? (v as number) * 100 : v as number)).toFixed(2)),
       itemStyle: {
         color: (params: any) => parseFloat(params.value) >= 0 ? 'var(--stock-down)' : 'var(--stock-up)'
       }

@@ -297,7 +297,8 @@ class PaperTradingEngine:
         return {
             "success": True,
             "msg": f"下单成功：{name}({ts_code}) {shares}股，成交价{actual_buy_price:.2f}元，总成本{total_payment:.2f}元",
-            "position": asdict(pos)
+            "position": asdict(pos),
+            "slippage_actual_pct": _effective_slippage,  # 【V65】记录实际滑点,供live_backtest_bridge分析
         }
     
     async def close_position(self, account_id: str, ts_code: str, sell_price: float, 

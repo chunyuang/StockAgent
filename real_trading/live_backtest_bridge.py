@@ -77,8 +77,11 @@ def analyze_slippage_calibration(live_trades: list) -> dict:
     
     for t in live_trades:
         strategy = t.get('strategy', '未知')
-        if t.get('action') == 'buy' and t.get('slippage_pct') is not None:
-            by_strategy[strategy].append(t.get('slippage_pct', 0))
+        # 【V65修复】兼容多种交易记录格式: action字段或buy_date/sell_date推断
+        is_buy = t.get('action') == 'buy' or (t.get('buy_date') and not t.get('sell_date'))
+        slippage = t.get('slippage_pct') or t.get('slippage_actual_pct')  # 兼容两种字段名
+        if is_buy and slippage is not None:
+            by_strategy[strategy].append(float(slippage))
     
     results = {}
     for strategy, slippages in by_strategy.items():
