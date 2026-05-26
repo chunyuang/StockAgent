@@ -434,8 +434,15 @@ class PaperTradingEngine:
                     if pos and "止损" in reason:
                         # 止损价格: 回测用stop_loss_price,跳空止损用open
                         # V47: 检查alert中是否包含"跳空止损"
+                        # 【V55修复:跳空止损应用open价而非stop_loss_price】
+                        # 旧bug: 跳空止损和正常止损都取pos.stop_loss_price,但回测跳空止损用open价
+                        # 跳空止损=open<stop_loss_price,应以open卖出(实际可卖价)
                         if "跳空止损" in str(alert.get("alerts", [])):
-                            sell_price = pos.stop_loss_price
+                            open_p = alert.get("open", 0)
+                            if open_p > 0:
+                                sell_price = open_p  # 跳空止损用open价(与回测对齐)
+                            else:
+                                sell_price = pos.stop_loss_price  # fallback
                             reason = "跳空止损"
                         else:
                             sell_price = pos.stop_loss_price  # 正常止损用止损价

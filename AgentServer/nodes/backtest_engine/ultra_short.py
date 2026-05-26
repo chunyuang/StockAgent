@@ -197,10 +197,12 @@ async def execute_ultra_short_backtest(
             max_cap = strategy_params_local.get('max_circulation_market_cap', _defaults.get('max_circulation_market_cap', 500))
             opening_min = strategy_params_local.get('opening_pct_min', _defaults.get('opening_pct_min', -1.0))
             opening_max = strategy_params_local.get('opening_pct_max', _defaults.get('opening_pct_max', 7.0))
+            # 【V55修复:hit_probability fallback统一从STRATEGY_CONFIGS读取】
+            # 旧bug: fallback硬编码0.3/0.5/0.7,与STRATEGY_CONFIGS V53的0.20/0.45/0.60不一致
             hit_yizi = strategy_params_local.get('hit_probability_yizi', _defaults.get('hit_probability_yizi', 0.0))
-            hit_fast = strategy_params_local.get('hit_probability_fast', _defaults.get('hit_probability_fast', 0.3))
-            hit_normal = strategy_params_local.get('hit_probability_normal', _defaults.get('hit_probability_normal', 0.5))
-            hit_slow = strategy_params_local.get('hit_probability_slow', _defaults.get('hit_probability_slow', 0.7))
+            hit_fast = strategy_params_local.get('hit_probability_fast', _defaults.get('hit_probability_fast', 0.20))
+            hit_normal = strategy_params_local.get('hit_probability_normal', _defaults.get('hit_probability_normal', 0.45))
+            hit_slow = strategy_params_local.get('hit_probability_slow', _defaults.get('hit_probability_slow', 0.60))
             await push_log_fn(task_id, "  ├─ 最小流通市值: %d 亿" % min_cap)
             await push_log_fn(task_id, "  ├─ 最大流通市值: %d 亿" % max_cap)
             await push_log_fn(task_id, "  ├─ 竞价涨幅范围: %.1f%% ~ %.1f%%" % (opening_min, opening_max))
@@ -478,6 +480,13 @@ async def execute_ultra_short_backtest(
                 trade_dict['profit'] = 0.0
             if 'trade_date' not in trade_dict and 'date' in trade_dict:
                 trade_dict['trade_date'] = trade_dict['date']
+            # 【V55-Bug4修复:卖出记录添加sell_price映射】
+            # 旧bug: RebalanceRecord序列化后只有price字段,前端期望sell_price字段
+            if trade_dict.get('action') == 'sell' and 'sell_price' not in trade_dict and 'price' in trade_dict:
+                trade_dict['sell_price'] = trade_dict['price']
+            # 买入记录添加buy_price映射
+            if trade_dict.get('action') == 'buy' and 'buy_price' not in trade_dict and 'price' in trade_dict:
+                trade_dict['buy_price'] = trade_dict['price']
             formatted_trades.append(trade_dict)
         perf["trades"] = merged_trades if merged_trades is not None else formatted_trades  # 优先用完整交易记录
         perf["merged_trades"] = merged_trades

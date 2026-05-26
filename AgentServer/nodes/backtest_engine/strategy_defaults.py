@@ -56,6 +56,7 @@ STRATEGY_CONFIGS = {
             "max_open_rise_pct": 0.03,      # 开盘涨幅≤3%(高开>3%追高胜率仅44%,低开冲高81.5%胜率)
             "allow_after_10am": False,      # 不允许10点后买入
             "next_day_open_sell_pct": 0.02, # 次日高开≥2%冲高回落保护(V53:从3%→2%,半路追涨次日冲高2%+即有回落风险,更早锁定利润)
+            "pullback_mid_fallback_pct": 0.01,          # 冲高回落mid_fallback=1%(V55:补充缺失参数,与回测STRATEGY_PULLBACK_PARAMS对齐)
         },
         "riskParams": {
             "stop_loss_pct": 0.04,          # 止损4%(V33:从5%→4%,半路追涨avg_loss=-2.0%说明5%太宽,4%更精准截断)
@@ -125,6 +126,8 @@ STRATEGY_CONFIGS = {
             "min_volume_ratio": 0.5,                    # 量比≥0.5(排除极度冷门,<0.5几乎无成交)
             "max_volume_ratio": 2.0,                    # 量比≤2.0(缩量回调,放量回调危险)
             "next_day_open_sell_pct": 0.02,           # 次日高开≥2%冲高回落保护(V53:从3%→2%,龙头低吸买在低位,高开2%+已有回落风险,更早锁定利润)
+            "pullback_mid_fallback_pct": 0.015,         # 冲高回落mid_fallback=1.5%(V55:补充缺失参数,与回测STRATEGY_PULLBACK_PARAMS对齐,龙头波动大)
+            "pullback_profit_lock_threshold": 0.06,       # 冲高回落利润保护≥6%(V55:补充缺失参数,利润≥6%时不触发冲高回落,让利润锁定/超时自然退出;与回测INTRADAY_PROFIT_LOCK_SIGNALS对齐)
         },
         "riskParams": {
             "stop_loss_pct": 0.03,          # 止损3%(V45:从4%→3%,龙头低吸是缩量回调买入,止损应最紧,3月验证+4.11%收益/夏普+0.28/回撤-0.20%/盈亏比+0.39)

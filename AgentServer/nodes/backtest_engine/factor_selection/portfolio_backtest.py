@@ -3796,10 +3796,13 @@ class PortfolioBacktester:
                 open_rise = (o - pc) / pc * 100
                 sp = self._strategy_params.get('首板打板', {})
                 # 【V36:从strategy_defaults读取,默认值与STRATEGY_CONFIGS同步】
-                hit_prob_yizi = sp.get('hit_probability_yizi', 0.0)
-                hit_prob_fast = sp.get('hit_probability_fast', 0.20)
-                hit_prob_normal = sp.get('hit_probability_normal', 0.45)
-                hit_prob_slow = sp.get('hit_probability_slow', 0.65)
+                # 【V55-Bug5修复:hit_probability fallback统一从STRATEGY_CONFIGS读取,不再硬编码】
+                # 旧bug: fallback硬编码0.20/0.45/0.65,与V53 STRATEGY_CONFIGS的0.20/0.45/0.60不一致
+                _flu_defaults = STRATEGY_CONFIGS.get('first_limit_up', {}).get('params', {})
+                hit_prob_yizi = sp.get('hit_probability_yizi', _flu_defaults.get('hit_probability_yizi', 0.0))
+                hit_prob_fast = sp.get('hit_probability_fast', _flu_defaults.get('hit_probability_fast', 0.20))
+                hit_prob_normal = sp.get('hit_probability_normal', _flu_defaults.get('hit_probability_normal', 0.45))
+                hit_prob_slow = sp.get('hit_probability_slow', _flu_defaults.get('hit_probability_slow', 0.60))
 
                 if o == c == h == l:
                     hit_prob = hit_prob_yizi
