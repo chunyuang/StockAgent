@@ -31,6 +31,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/monitor/MarketMonitorView.vue'),
         meta: { title: '市场监听' },
       },
+      {
+        path: 'cockpit',
+        name: 'Cockpit',
+        component: () => import('@/views/monitor/CockpitView.vue'),
+        meta: { title: '驾驶舱' },
+      },
 
       {
         path: 'strategies',

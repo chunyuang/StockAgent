@@ -447,7 +447,11 @@ class LiveFilterPipeline:
         公式不同(简化vs五维评分)、阈值不同、仓位乘数不同,
         导致实盘行为不一致。
         """
-        from ..listener.strategies.emotion_cycle import emotion_cycle_manager
+        # 兼容: 优先从market_monitor导入, fallback到listener(旧路径)
+        try:
+            from .emotion_cycle import emotion_cycle_manager
+        except ImportError:
+            from ..listener.strategies.emotion_cycle import emotion_cycle_manager
         
         # 构建limit_stocks dict供emotion_cycle使用
         limit_stocks = {}

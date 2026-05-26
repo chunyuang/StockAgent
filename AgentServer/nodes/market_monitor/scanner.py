@@ -184,6 +184,14 @@ class MarketScanner:
         self._risk_watchdog = RiskWatchdog(scanner=self)
         self._risk_watchdog.register_alert_channel(self._signal_dispatcher.dispatch)
 
+        # 【V54:分级行情扫描器】
+        self._use_tiered = self.config.get("use_tiered_scanner", False)  # 默认关闭, 显式启用
+        self._tiered_scanner = None
+        if self._use_tiered:
+            from nodes.market_monitor.tiered_scanner import TieredScanner
+            self._tiered_scanner = TieredScanner(scanner=self)
+            logger.info("[SCANNER] 分级行情: L1(5min全市场) → L2(30s候选池) → L3(5s持仓)")
+
         # 执行质量检查
         from nodes.market_monitor.execution_quality import PreTradeChecker, SlippageModel
         self._pre_trade_checker = PreTradeChecker(broker=self._broker, config={
@@ -244,6 +252,7 @@ class MarketScanner:
             # 【V51:看门狗+分发器状态】
             "risk_watchdog": self._risk_watchdog.get_status() if hasattr(self, '_risk_watchdog') else {},
             "signal_dispatcher": self._signal_dispatcher.get_stats() if hasattr(self, '_signal_dispatcher') else {},
+            "tiered_scanner": self._tiered_scanner.get_status() if self._tiered_scanner else {},
         }
 
     def get_signals(self) -> List[Dict]:
@@ -414,6 +423,9 @@ class MarketScanner:
 
         self._is_running = True
         self._task = asyncio.create_task(self._scan_loop(trade_date))
+        # 【V54:启动分级行情扫描器】
+        if self._tiered_scanner:
+            await self._tiered_scanner.start(trade_date)
         # 恢复今日时间线
         await self._load_timeline()
         logger.info(f"[SCANNER] 启动, account={self.account_id}, date={trade_date}")
@@ -431,7 +443,10 @@ class MarketScanner:
             try:
                 await self._task
             except asyncio.CancelledError:
-                pass
+                    pass
+        # 【V54:停止分级行情扫描器】
+        if self._tiered_scanner:
+            await self._tiered_scanner.stop()
         
         # 清仓选项
         if sell_all and self._broker:
@@ -1126,7 +1141,14 @@ class MarketScanner:
     # ==================== 策略筛选 ====================
 
     def _get_effective_strategy_config(self, strategy_key: str) -> Dict:
-        """获取策略有效配置(默认+前端覆盖)"""
+        """获取策略有效配置(ParamCenter > 前端覆盖 > strategy_defaults)"""
+        # 优先级1: ParamCenter(MongoDB, 支持热更新)
+        if hasattr(self, '_param_center') and self._param_center._initialized:
+            pc_params = self._param_center._cache.get(strategy_key)
+            if pc_params:
+                return pc_params  # ParamCenter已包含完整配置
+        
+        # 优先级2: strategy_defaults + 前端覆盖
         from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS
         base = dict(STRATEGY_CONFIGS.get(strategy_key, {}))
         overrides = self.config.get("strategy_overrides", {}).get(strategy_key)
