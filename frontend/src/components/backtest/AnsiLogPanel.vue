@@ -9,6 +9,8 @@
  */
 import { ref, watch, nextTick, computed, onMounted, onUnmounted } from 'vue'
 import { getBacktestLogs, type BacktestLogRecord } from '@/api/modules/backtest'
+// 【V63修复:P1-5】使用ansiToHtml渲染ANSI颜色码
+import { ansiToHtml, hasAnsi } from '@/utils/ansiToHtml'
 
 interface LogDay {
   day: number
@@ -175,10 +177,11 @@ function onSearchInput() {
 const renderedLogs = computed(() => {
   return logs.value.map(log => {
     const text = log.text || ''
-    const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    // 【V63修复:P1-5】ANSI颜色码渲染：检测到ANSI码时用ansiToHtml转换,否则纯文本转义
+    const html = hasAnsi(text) ? ansiToHtml(text) : text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     return {
       key: `${log.seq}-${log.day}`,
-      html: escaped,
+      html,
       level: log.level,
       section: log.section,
     }

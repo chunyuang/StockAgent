@@ -77,6 +77,13 @@ class PaperTradingEngine:
         
         # 初始化风控检查器
         self.risk_checker = PreBuyRiskChecker()
+        
+        # 【V63-P1-5:T+1阻塞集持久化到JSON,重启后恢复】
+        # 旧: _t1_blocked仅在内存中,服务重启后丢失,可能导致新买入的股票在重启后被立即卖出
+        # 新: 持久化到t1_blocked.json,启动时加载
+        self._t1_blocked: set = set()  # "account_id:ts_code" format
+        self._t1_blocked_file = os.path.join(os.path.dirname(__file__), "t1_blocked.json")
+        self._load_t1_blocked()
     
     def _load_accounts(self):
         """加载模拟账户数据"""
@@ -102,6 +109,27 @@ class PaperTradingEngine:
                 self.accounts = {}
         else:
             logger.info("ℹ️  无历史模拟账户，初始化空")
+    
+    def _load_t1_blocked(self):
+        """【V63-P1-5】加载T+1阻塞集(持久化)"""
+        if os.path.exists(self._t1_blocked_file):
+            try:
+                with open(self._t1_blocked_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, list):
+                    self._t1_blocked = set(data)
+                    if self._t1_blocked:
+                        logger.info(f"✅ 加载T+1阻塞集: {len(self._t1_blocked)}条记录")
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(f"⚠️ 加载T+1阻塞集失败: {e}")
+    
+    def _save_t1_blocked(self):
+        """【V63-P1-5】保存T+1阻塞集(持久化)"""
+        try:
+            with open(self._t1_blocked_file, "w", encoding="utf-8") as f:
+                json.dump(list(self._t1_blocked), f, ensure_ascii=False)
+        except (OSError, TypeError) as e:
+            logger.error(f"❌ 保存T+1阻塞集失败: {e}")
     
     def _save_accounts(self):
         """保存账户数据"""
@@ -255,9 +283,9 @@ class PaperTradingEngine:
         # 【V50:T+1约束——当日买入不可当日卖出,与回测引擎对齐】
         # 回测: PositionManager.block_t1(code) 阻止同日卖出
         # 实盘: 记录当日买入的股票, daily_settlement中跳过
-        if not hasattr(self, '_t1_blocked'):
-            self._t1_blocked = set()  # account_id -> set of ts_codes
+        # 【V63-P1-5:T+1阻塞集持久化,重启后不丢失】
         self._t1_blocked.add(f"{account_id}:{ts_code}")
+        self._save_t1_blocked()
         
         # 更新账户收益
         self._update_account_performance(account_id)
@@ -364,8 +392,10 @@ class PaperTradingEngine:
         # T+1规则: 当日买入不可当日卖出, 次日可卖
         # daily_settlement 在每日盘后调用, 清除所有T+1锁定(因为次日可以卖)
         # 当日新买入的锁定在 place_order 中添加, 会在下一次 daily_settlement 时清除
-        if hasattr(self, '_t1_blocked'):
-            self._t1_blocked.clear()  # 盘后结算, 次日所有持仓可卖
+        # 【V63-P1-5:持久化清除,重启后不丢失】
+        if self._t1_blocked:
+            self._t1_blocked.clear()
+            self._save_t1_blocked()
         
         for acc_id in accounts:
             if self.accounts[acc_id].status != "active":
@@ -385,7 +415,8 @@ class PaperTradingEngine:
                 
                 # 【V50:T+1约束——当日买入不可当日卖出】
                 # 回测引擎PositionManager.block_t1(code), 实盘通过_t1_blocked集合检查
-                if hasattr(self, '_t1_blocked') and f"{acc_id}:{ts_code}" in self._t1_blocked:
+                # 【V63-P1-5:使用持久化的_t1_blocked集合】
+                if f"{acc_id}:{ts_code}" in self._t1_blocked:
                     logger.info(f"⏭️ T+1约束：{ts_code} 今日买入不可卖出，跳过")
                     continue
                 
