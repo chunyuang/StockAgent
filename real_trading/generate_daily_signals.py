@@ -213,7 +213,7 @@ class RealTradingSignalGenerator:
             top_codes = list(all_candidates)[:self.config["top_n"]]
         
         # 8. 获取股票详细信息
-        stock_details = await self._get_stock_details(top_codes, trade_date)
+        stock_details = await self._get_stock_details(top_codes, trade_date, stock_strategy_map)
         
         # 9. 生成交易计划
         trading_plan = self._generate_trading_plan(stock_details, sentiment_info)
@@ -322,7 +322,7 @@ class RealTradingSignalGenerator:
         
         return filtered
     
-    async def _get_stock_details(self, ts_codes: List[str], trade_date: str) -> List[Dict]:
+    async def _get_stock_details(self, ts_codes: List[str], trade_date: str, stock_strategy_map: Dict = None) -> List[Dict]:
         """获取股票详细信息，合并日线/基础/龙虎榜数据
         
         从MongoDB三张表聚合数据：
@@ -403,7 +403,7 @@ class RealTradingSignalGenerator:
                 "has_lhb": ts_code in lhb_map,
                 "lhb_net_buy": lhb.get("net_buy_amount", 0) if isinstance(lhb, dict) else 0,
                 "lhb_reason": lhb.get("reason", "") if isinstance(lhb, dict) else "",
-                "strategy": self._get_strategy_for_stock(ts_code, daily if isinstance(daily, dict) else {}),
+                "strategy": (stock_strategy_map or {}).get(ts_code, [self._get_strategy_for_stock(ts_code, daily if isinstance(daily, dict) else {})])[0] if (stock_strategy_map or {}).get(ts_code) else self._get_strategy_for_stock(ts_code, daily if isinstance(daily, dict) else {}),
             })
         
         return details
