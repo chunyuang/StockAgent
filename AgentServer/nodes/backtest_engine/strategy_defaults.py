@@ -19,7 +19,7 @@ GLOBAL_RISK = {
     "commission_rate": 0.0003,      # 综合佣金率万3
     "stamp_duty_rate": 0.001,       # 印花税率千1
     "max_position_per_stock": 0.35,  # 单票最大仓位35%(V62:保持35%,但增加持仓分散度,单日新买入≤4只,防止单日6只同暴跌)
-    "max_total_position": 0.7,      # 总仓位上限70%
+    "max_total_position": 0.75,      # 总仓位上限75%(V62:从70%→75%,70%过严导致2月收益下降113%;75%在3/28回撤场景下仍能降低集中度)
     "liquidity_threshold": 500,     # 流动性门槛(万元)
     "volume_threshold": 1.5,        # 量能放大倍数(首板打板等用)
     "force_empty_limit_down": 80,   # 跌停≥80只触发强制空仓

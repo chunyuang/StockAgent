@@ -455,7 +455,7 @@ class PositionManager:
             # 【V60:使用strategy_defaults统一映射,不再重复构建】
             _strategy_cfg = STRATEGY_CONFIGS.get(STRATEGY_NAME_TO_ID.get(_strategy, ''), {})
             _strategy_params = _strategy_cfg.get('params', {})
-            _pullback_threshold = _strategy_params.get('next_day_open_sell_pct', GLOBAL_RISK.get('next_day_open_sell_pct', 0.03))
+            _pullback_threshold = _strategy_params.get('next_day_open_sell_pct', GLOBAL_RISK.get('next_day_open_sell_pct', 0.02))  # V62-P0: fallback从0.03→0.02,与V53对齐
             _pullback_mid_fallback = _strategy_params.get('pullback_mid_fallback_pct', 0.01)
             _pullback_high = _strategy_params.get('pullback_high_threshold', 0.05)
             _lock_min_high = GLOBAL_RISK.get('intraday_lock_min_high_rise', 0.05)   # V59: 回调V57水平(0.04→0.05)
@@ -470,43 +470,43 @@ class PositionManager:
             if 'intraday_lock_min_profit' in _strategy_risk_params:
                 _lock_min_profit = _strategy_risk_params['intraday_lock_min_profit']
 
-            if _cost > 0 and open_p > 0:
-                open_rise = (open_p / _cost - 1)
+            # 【V62-P0修复:使用回测SellSignalChecker统一卖出判断,消除实盘-回测不一致】
+            # 旧: 内联if-elif链实现冲高回落/利润保护/利润锁定,与回测逻辑不同步
+            # 新: 调用SellSignalChecker.check_early_sell(),与回测完全一致
+            from nodes.backtest_engine.factor_selection.sell_signal_checker import SellSignalChecker
+            _checker = SellSignalChecker(
+                strategy_params={_strategy: _strategy_params},
+                strategy_risk_params={_strategy: _strategy_risk_params},
+                risk_config=dict(GLOBAL_RISK)
+            )
+            market_data = {
+                'open': open_p,
+                'close': current_price,
+                'high': high,
+                'low': low if low > 0 else current_price,
+                'pre_close': pre_close if pre_close > 0 else current_price,
+            }
+            early_result = _checker.check_early_sell(ts_code, [_strategy], _cost, open_p, current_price)
+            if early_result and early_result.get('sell_price', 0) > 0:
+                _reason_cn = {
+                    '冲高回落': '🔴 冲高回落',
+                    '利润保护': '🟡 利润保护',
+                    '高开即卖': '🔴 高开即卖',
+                    '利润锁定': '🟡 利润锁定',
+                }.get(early_result['reason'], f"🟡 {early_result['reason']}")
+                _detail = f"{_reason_cn}：建议以{early_result['sell_price']:.2f}卖出(原因:{early_result['reason']})"
+                alert["alerts"].append(_detail)
+                alert["level"] = "danger" if '🔴' in _reason_cn else "success"
+
+            # 利润锁定: 盘中冲高≥阈值但回撤≥阈值且收盘仍≥2%利润(从SellSignalChecker未覆盖的盘中数据补充)
+            # check_early_sell只检查open和close,high数据需要额外检查利润锁定
+            if not alert["alerts"] and high > 0 and current_price < high and _cost > 0:
+                high_rise = (high / _cost - 1)
                 close_rise = (current_price / _cost - 1)
-                
-                # 【V50:高开即卖——首板打板专用,高开≥next_day_open_sell_pct直接卖出】
-                # 回测: SellSignalChecker.check_high_open_sell(), 首板打板策略独有
-                # 实盘: 当策略是首板打板且高开≥阈值时触发
-                if _strategy == '首板打板' and open_rise >= _pullback_threshold:
-                    alert["alerts"].append(f"🔴 高开即卖：首板打板开盘涨{open_rise*100:.1f}%≥{_pullback_threshold*100:.0f}%，建议以开盘价{open_p:.2f}卖出")
-                    alert["level"] = "danger"
-                # 冲高回落: 高开≥阈值且高开低收→以open价卖出
-                elif open_rise >= _pullback_threshold and current_price < open_p:
-                    # 【V50:龙头低吸冲高回落利润保护——利润≥8%时不触发,让利润锁定/超时处理】
-                    # 回测: STRATEGY_PULLBACK_PARAMS['龙头低吸']['pullback_profit_lock_threshold']=0.06
-                    _pullback_profit_lock = _strategy_params.get('pullback_profit_lock_threshold', None)
-                    if _pullback_profit_lock is not None and open_rise >= _pullback_profit_lock:
-                        pass  # 利润已高,不触发冲高回落
-                    # 高开≥5%直接触发, 3%-5%需回落≥阈值
-                    elif open_rise >= _pullback_high:
-                        alert["alerts"].append(f"🔴 冲高回落：开盘涨{open_rise*100:.1f}%但收盘回落，建议以开盘价{open_p:.2f}卖出")
-                        alert["level"] = "danger"
-                    else:
-                        pullback_pct = (open_p - current_price) / open_p
-                        if pullback_pct >= _pullback_mid_fallback:
-                            alert["alerts"].append(f"🔴 冲高回落：开盘涨{open_rise*100:.1f}%且回落{pullback_pct*100:.1f}%，建议以开盘价{open_p:.2f}卖出")
-                            alert["level"] = "danger"
-                # 利润保护: 高开≥2%+收盘涨≥2%+高开低收→以close价卖出
-                elif close_rise >= 0.02 and open_rise >= 0.02 and current_price < open_p:
-                    alert["alerts"].append(f"🟡 利润保护：收盘涨{close_rise*100:.1f}%但冲高回落，建议止盈")
+                intraday_pullback = (high - current_price) / high
+                if high_rise >= _lock_min_high and intraday_pullback >= _lock_pullback and close_rise >= _lock_min_profit:
+                    alert["alerts"].append(f"🟡 利润锁定：盘中涨{high_rise*100:.1f}%但回撤{intraday_pullback*100:.1f}%，建议锁定利润")
                     alert["level"] = "success"
-                # 利润锁定: 盘中冲高≥阈值但回撤≥阈值且收盘仍≥2%利润
-                elif high > 0 and current_price < high:
-                    high_rise = (high / _cost - 1)
-                    intraday_pullback = (high - current_price) / high
-                    if high_rise >= _lock_min_high and intraday_pullback >= _lock_pullback and close_rise >= _lock_min_profit:
-                        alert["alerts"].append(f"🟡 利润锁定：盘中涨{high_rise*100:.1f}%但回撤{intraday_pullback*100:.1f}%，建议锁定利润")
-                        alert["level"] = "success"
             
             if alert["alerts"]:
                 alerts.append(alert)

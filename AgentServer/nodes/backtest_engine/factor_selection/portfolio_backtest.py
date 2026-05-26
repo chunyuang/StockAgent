@@ -4393,6 +4393,13 @@ class PortfolioBacktester:
         # 【V33关键修复:使用pos_mgr.target_shares而非局部target_shares】
         # pos_mgr.mark_sold()会从pos_mgr.target_shares删除冲高回落/止损/止盈的股
         # 如果遍历局部target_shares,这些股会被重新买入→震荡bug
+        # 【V62-P0修复:执行max_total_position限制,防止单日过度集中(3/28同日6只暴跌根因)】
+        max_total_pos = self._risk_config.get('max_total_position', GLOBAL_RISK.get('max_total_position', 0.7))
+        current_holdings_value = sum(holdings.get(code, 0) * prices.get(code, {}).get('close', 0)
+                                    for code in holdings if code in prices and prices.get(code, {}).get('close', 0) > 0)
+        current_total_equity = cash + current_holdings_value
+        max_position_value = current_total_equity * max_total_pos  # 最大可持仓金额
+        available_buy_budget = max(0, max_position_value - current_holdings_value)  # 可用买入预算
         for ts_code, target_count in pos_mgr.target_shares.items():
             current_shares = holdings.get(ts_code, 0)
             delta = target_count - current_shares
@@ -4422,6 +4429,19 @@ class PortfolioBacktester:
             commission = max(gross_amount * self.BUY_COMMISSION, self.MIN_COMMISSION)
             total_cost = gross_amount + commission
 
+            # 【V62-P0:总仓位限制——如果超出可用买入预算,按比例缩减】
+            if available_buy_budget < total_cost and available_buy_budget > 0:
+                ratio = available_buy_budget / total_cost
+                delta = int(int(delta * ratio) / 100) * 100
+                if delta <= 0:
+                    continue
+                reduce_reason = f"仓位上限缩减{ratio*100:.1f}%"
+                gross_amount = delta * buy_price_adj
+                commission = max(gross_amount * self.BUY_COMMISSION, self.MIN_COMMISSION)
+                total_cost = gross_amount + commission
+            elif available_buy_budget <= 0:
+                continue  # 总仓位已满,跳过买入
+
             if cash < total_cost:
                 # 现金不足,按比例缩减
                 original_delta = delta
@@ -4437,6 +4457,8 @@ class PortfolioBacktester:
 
             # 更新现金
             cash -= total_cost
+            # 【V62-P0:更新可用买入预算】
+            available_buy_budget -= total_cost
 
             # 更新持仓
             holdings[ts_code] = current_shares + delta
