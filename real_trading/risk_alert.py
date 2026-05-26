@@ -139,10 +139,26 @@ class RiskAlertEngine:
                 "level": "warning"
             })
         
-        # 2. 仓位检查
+        # 2. 仓位检查 — 从MongoDB获取最新收盘价计算持仓市值
         pos_manager = engine.position_managers[account_id]
         positions = pos_manager.get_positions()
-        total_position_value = sum(pos["shares"] * pos["buy_price"] for pos in positions)  # TODO: 用当前市价替代成本价
+        total_position_value = 0
+        try:
+            from core.managers import mongo_manager
+            if not mongo_manager._initialized:
+                await mongo_manager.initialize()
+            for pos in positions:
+                doc = await mongo_manager.find_one(
+                    "stock_daily_ak_full",
+                    {"ts_code": pos["ts_code"]},
+                    projection={"close": 1},
+                    sort=[("trade_date", -1)],
+                )
+                market_price = doc["close"] if doc and doc.get("close", 0) > 0 else pos["buy_price"]
+                total_position_value += pos["shares"] * market_price
+        except Exception as e:
+            logger.warning(f"⚠️ 获取持仓市价失败，fallback到成本价: {e}")
+            total_position_value = sum(pos["shares"] * pos["buy_price"] for pos in positions)
         position_ratio = total_position_value / account.current_balance if account.current_balance > 0 else 0
         
         if position_ratio >= self.config["position_limit_alert"]:
@@ -154,10 +170,16 @@ class RiskAlertEngine:
         
         # 3. 单只股票亏损检查
         for pos in positions:
-            # TODO: 从MongoDB/AKShare获取当前价格，当前用成本价近似导致loss_pct永远为0
+            # 从MongoDB获取最新收盘价
             try:
                 from core.managers import mongo_manager
-                doc = await mongo_manager.find_one("stock_daily_ak_full", {"ts_code": pos["ts_code"]}, sort=[("trade_date", -1)])
+                if not mongo_manager._initialized:
+                    await mongo_manager.initialize()
+                doc = await mongo_manager.find_one(
+                    "stock_daily_ak_full",
+                    {"ts_code": pos["ts_code"]},
+                    sort=[("trade_date", -1)],
+                )
                 current_price = doc["close"] if doc and doc.get("close", 0) > 0 else pos["buy_price"]
             except Exception:
                 current_price = pos["buy_price"]

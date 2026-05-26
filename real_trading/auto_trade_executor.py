@@ -5,6 +5,10 @@
 此模块调用PaperTradingEngine已不存在的buy()/sell()方法。
 请使用DailyScheduler代替,它提供完整的盘前/盘中/盘后调度流程。
 保留此文件仅供参考,不应用于生产环境。
+
+V56修复：
+- 信号文件路径改为绝对路径
+- 添加废弃警告，避免误用
 """
 import sys
 import logging
@@ -40,7 +44,8 @@ async def execute_daily_trades(date: str = None, account_id: str = None):
         date = datetime.now().strftime("%Y%m%d")
     
     # 1. 读取当日信号
-    signal_file = f"./signals/{date}.json"  # FIXME: 相对路径，应在项目根目录下使用绝对路径，如 os.path.join(PROJECT_ROOT, 'signals', f'{date}.json')
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    signal_file = os.path.join(project_root, "signals", f"{date}.json")
     if not os.path.exists(signal_file):
         logger.error(f"❌ 未找到{date}的信号文件")
         return False

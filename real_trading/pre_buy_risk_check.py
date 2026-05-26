@@ -246,13 +246,30 @@ class PreBuyRiskChecker:
             return True, "市场环境过滤已禁用", {"enabled": False}
         
         try:
-            # TODO: 从实际数据源获取指数数据
-            # 这里使用模拟数据，实际应从 tushare/akshare 获取
+            # 从MongoDB获取最新指数数据
             index_code = self.config["reference_index"]
+            # 上证指数在index_daily集合中: ts_code=000001.SH
+            index_ts_code = index_code.upper().replace("sh", "").replace("sz", "")
+            if "000001" in index_ts_code:
+                index_ts_code = "000001.SH"  # 上证指数
             
-            # 模拟获取今日指数跌幅
-            # 实际实现：从market_data_cache读取或从API获取
-            today_drop = self.market_data.get(f"{index_code}_today_drop", 0.01)  # 模拟1%跌幅
+            from core.managers import mongo_manager
+            if not mongo_manager._initialized:
+                await mongo_manager.initialize()
+            doc = await mongo_manager.find_one(
+                "index_daily",
+                {"ts_code": index_ts_code},
+                sort=[("trade_date", -1)],
+            )
+            
+            if doc and doc.get("pct_chg") is not None:
+                today_drop = abs(doc["pct_chg"] / 100)  # pct_chg是百分比，转小数
+                if doc["pct_chg"] > 0:
+                    today_drop = 0  # 涨的情况不算跌幅
+            else:
+                # fallback: 从缓存读
+                today_drop = self.market_data.get(f"{index_code}_today_drop", 0)
+                logger.warning(f"⚠️ MongoDB无指数数据，使用缓存跌幅: {today_drop}")
             
             details = {
                 "index_code": index_code,
@@ -352,14 +369,52 @@ class PreBuyRiskChecker:
             if is_st:
                 return False, f"个股风险过高，{ts_code}为ST股票，已被排除", {"is_st": True}
         
-        # TODO: 从实际数据源获取股票基本信息（市值、波动率等）
-        # 这里使用模拟数据，实际应从数据库获取
-        stock_info = self.stock_risk_cache.get(ts_code, {
-            "market_cap": 50,  # 模拟50亿市值
-            "volatility_20d": 0.15,  # 模拟20日波动率15%
-            "limit_up_days": 0,  # 连续涨停天数
-            "limit_down_days": 0  # 连续跌停天数
-        })
+        # 从MongoDB获取股票基本信息（市值、波动率等）
+        try:
+            from core.managers import mongo_manager
+            if not mongo_manager._initialized:
+                await mongo_manager.initialize()
+            
+            # 从daily_basic获取流通市值
+            basic_doc = await mongo_manager.find_one(
+                "daily_basic",
+                {"ts_code": ts_code},
+                sort=[("trade_date", -1)],
+            )
+            
+            # 从stock_daily_ak_full获取近20日数据计算波动率
+            cursor = mongo_manager.db["stock_daily_ak_full"].find(
+                {"ts_code": ts_code}
+            ).sort("trade_date", -1).limit(20)
+            recent_data = await cursor.to_list(length=20) if hasattr(cursor, 'to_list') else list(cursor)
+            
+            market_cap = 0
+            volatility_20d = 0
+            
+            if basic_doc:
+                # circ_mv单位是万元，转亿元
+                market_cap = basic_doc.get("circ_mv", 0) / 10000 if basic_doc.get("circ_mv") else 0
+            
+            if len(recent_data) >= 10:
+                import numpy as np
+                returns = [d.get("pct_chg", 0) / 100 for d in reversed(recent_data) if d.get("pct_chg") is not None]
+                if len(returns) >= 10:
+                    volatility_20d = float(np.std(returns)) * (252 ** 0.5)  # 年化波动率
+            
+            stock_info = {
+                "market_cap": market_cap,
+                "volatility_20d": volatility_20d,
+                "limit_up_days": 0,
+                "limit_down_days": 0
+            }
+        except Exception as e:
+            logger.warning(f"⚠️ 获取股票基本信息失败: {e}")
+            stock_info = self.stock_risk_cache.get(ts_code, {
+                "market_cap": 0,
+                "volatility_20d": 0,
+                "limit_up_days": 0,
+                "limit_down_days": 0
+            })
         
         details = {
             "ts_code": ts_code,
@@ -469,12 +524,34 @@ class PreBuyRiskChecker:
                 timestamp=timestamp
             )
         
-        # 5. 涨跌停板检查
+        # 涨跌停检查：从MongoDB获取最近收盘数据判断
         limit_check_details = {"ts_code": ts_code, "buy_price": buy_price}
-        # TODO: 接入实时行情判断当前是否涨停/跌停
-        # 涨停板无法买入，跌停板次日谨慎
-        details["limit_board_check"] = limit_check_details
-        all_reasons.append("涨跌停板: 检查通过（待接入实时行情）")
+        try:
+            from core.managers import mongo_manager
+            if not mongo_manager._initialized:
+                await mongo_manager.initialize()
+            doc = await mongo_manager.find_one(
+                "stock_daily_ak_full",
+                {"ts_code": ts_code},
+                sort=[("trade_date", -1)],
+            )
+            if doc:
+                pct = doc.get("pct_chg", 0)
+                if pct is not None and pct >= 9.9:  # 涨停(含科创/北交20%的情况在strategy_defaults处理)
+                    limit_check_details["limit_up"] = True
+                    all_reasons.append(f"涨跌停板: {ts_code}最近收盘涨{pct:.2f}%，疑似涨停，谨慎买入")
+                elif pct is not None and pct <= -9.9:
+                    limit_check_details["limit_down"] = True
+                    all_reasons.append(f"涨跌停板: {ts_code}最近收盘跌{pct:.2f}%，疑似跌停，谨慎买入")
+                else:
+                    limit_check_details["limit_up"] = False
+                    limit_check_details["limit_down"] = False
+                    all_reasons.append("涨跌停板: 检查通过")
+            else:
+                all_reasons.append("涨跌停板: 无数据，跳过")
+        except Exception as e:
+            logger.warning(f"⚠️ 涨跌停检查异常: {e}")
+            all_reasons.append("涨跌停板: 检查异常，跳过")
         
         # 全部检查通过
         return RiskCheckResult(
