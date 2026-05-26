@@ -2408,7 +2408,7 @@ class PortfolioBacktester:
                             'buy_price': avg_cost,
                             'sell_date': record.date,
                             'sell_time': '收盘',
-                            'sell_price': record.price,
+                            'sell_price': record.amount / record.shares if record.shares > 0 else record.price,  # 【V55-BUG-003修复:用净金额/股数(含滑点佣金印花税),与buy_price一致;旧值record.price不含滑点导致前端利润率与profit_pct不匹配】
                             'sell_reason': record.reason,  # 【修复】记录卖出原因(止损/止盈/调仓/强制空仓等)
                             'shares': sell_buy_shares,
                             'profit_pct': profit,
