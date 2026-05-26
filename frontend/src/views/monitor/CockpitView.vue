@@ -406,9 +406,18 @@ function trailBarPos(pos: PositionInfo): number {
   const distFromSL = slPct - trailPct  // 如: SL=3%, trail=2%, 距离=1%
   const range = slPct + tpPct
   const posOnBar = (slPct - trailPct + slPct) / range * 100  // 归一化到0-100
-  // 简化: 从成本价看, 追踪止损价=(1-trailPct/100)*high_price, 在bar上的相对位置
-  // 用profit_pct反推: 如果high使profit=X%, trail触发在X%-trailPct%
-  return Math.max(5, Math.min(95, 50)) // 简化: 追踪止损在中间偏上
+  // 【V61-P2-10修复:正确计算追踪止损在风险条上的位置】
+  // 逻辑: 用当前profit_pct反推追踪止损的相对位置
+  // profit_pct=0时追踪止损在止损端,profit_pct=take_profit时在止盈端
+  const currentPnl = pos.profit_pct ?? 0
+  if (range > 0) {
+    // 追踪止损价位: 从当前最高利润回撤trailPct%
+    // 在风险条上: 越接近止盈端=越安全,越接近止损端=越危险
+    const trailTriggerPnl = currentPnl - trailPct  // 追踪止损触发时的利润
+    const posOnBar = ((trailTriggerPnl + slPct) / range) * 100
+    return Math.max(5, Math.min(95, posOnBar))
+  }
+  return Math.max(5, Math.min(95, 50))  // fallback
 }
 
 // 持仓快捷卖出
