@@ -359,7 +359,7 @@ def check_stop_loss(holding, market_data, params):
     open_price = market_data.get('open', 0)
     low_price = market_data.get('low', 0)
     cost = holding.get('cost', 0)
-    stop_loss_pct = params.get('stop_loss_pct', 0.05)
+    stop_loss_pct = params.get('stop_loss_pct', GLOBAL_RISK.get('stop_loss_pct', 0.03))
 
     if cost <= 0 or low_price <= 0:
         return None
@@ -382,7 +382,7 @@ def check_take_profit(holding, market_data, params):
     """
     high_price = market_data.get('high', 0)
     cost = holding.get('cost', 0)
-    take_profit_pct = params.get('take_profit_pct', 0.12)
+    take_profit_pct = params.get('take_profit_pct', GLOBAL_RISK.get('take_profit_pct', 0.07))
 
     if cost <= 0 or high_price <= 0:
         return None
