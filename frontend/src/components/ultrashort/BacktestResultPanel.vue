@@ -676,9 +676,9 @@ const sellReasonPieOption = computed(() => {
     take_profit: 'var(--stock-down)',
     rebalance: 'var(--primary-500)',
     stop_loss: 'var(--stock-up)',
-    pullback: '#f59e0b',
-    profit_protect: '#8b5cf6',
-    profit_lock: '#6366f1',
+    pullback: 'var(--warning)',
+    profit_protect: 'var(--el-color-primary-light-3)',
+    profit_lock: 'var(--el-color-primary)',
     force_empty: 'var(--text-tertiary)',
     max_hold: 'var(--warning)',
     other: 'var(--text-muted)'
@@ -1225,9 +1225,9 @@ export default { name: 'BacktestResultPanel' }
     &.rebalance { color: var(--primary-500); .reason-dot { background: var(--primary-500); } }
     &.stop-loss { color: var(--stock-up); .reason-dot { background: var(--stock-up); } }
     &.max-hold { color: var(--el-color-warning); .reason-dot { background: var(--el-color-warning); } }
-    &.pullback { color: #f59e0b; .reason-dot { background: #f59e0b; } }
-    &.profit-protect { color: #8b5cf6; .reason-dot { background: #8b5cf6; } }
-    &.profit-lock { color: #6366f1; .reason-dot { background: #6366f1; } }
+    &.pullback { color: var(--warning); .reason-dot { background: var(--warning); } }
+    &.profit-protect { color: var(--el-color-primary-light-3); .reason-dot { background: var(--el-color-primary-light-3); } }
+    &.profit-lock { color: var(--el-color-primary); .reason-dot { background: var(--el-color-primary); } }
     &.force-empty { color: var(--text-tertiary); .reason-dot { background: var(--text-tertiary); } }
     &.other { color: var(--text-muted); .reason-dot { background: var(--text-muted); } }
   }

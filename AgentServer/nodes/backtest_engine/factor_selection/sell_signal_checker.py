@@ -504,14 +504,18 @@ class SellSignalChecker:
         self._global_slippage = global_slippage
 
     def _get_sell_params(self, strategy_name):
-        """获取策略的卖出参数(合并默认值+策略级差异)"""
+        """获取策略的卖出参数(合并默认值+策略级差异)
+        
+        合并优先级(后覆盖前): risk_params > pullback_params > base_params
+        这样pullback_params会覆盖base_params中同名key,确保V65等调优生效
+        """
         base_params = self._strategy_params.get(strategy_name, {})
         pullback_params = STRATEGY_PULLBACK_PARAMS.get(strategy_name, {})
         risk_params = self._strategy_risk_params.get(strategy_name, {})
 
         merged = {}
-        merged.update(pullback_params)  # 策略级冲高回落差异
         merged.update(base_params)      # 策略参数(含next_day_open_sell_pct)
+        merged.update(pullback_params)  # 策略级冲高回落差异(覆盖base_params中同名key)
         merged.update(risk_params)      # 风控参数(含stop_loss/take_profit)
         return merged
 

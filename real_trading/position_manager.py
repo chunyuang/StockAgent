@@ -447,13 +447,14 @@ class PositionManager:
                 alert["level"] = "danger"
 
             # 【V63-P0-5:龙头5天低利润提前退出,与回测_check_and_execute_forced_sells对齐】
-            # 统一:在止损前检查,同时支持中文名和英文ID(与live/position_manager.py对齐)
-            # 回测: 龙头低吸持仓5天利润<3%时提前退出,避免5-7天区间继续持仓占用资金+增加回撤
+            # 【V66-P1-1:从GLOBAL_RISK读取阈值,不再硬编码5天/3%】
             _strategy = pos.strategy or '未知'
             _strategy_id = STRATEGY_NAME_TO_ID.get(_strategy, '')  # 中文名→英文ID
-            if _strategy_id == 'dragon_head' and alert['hold_days'] >= 5 and not alert.get('level'):
+            _early_exit_days = GLOBAL_RISK.get('dragon_head_early_exit_days', 5)
+            _early_exit_min_profit = GLOBAL_RISK.get('dragon_head_early_exit_min_profit', 0.03)
+            if _strategy_id == 'dragon_head' and alert['hold_days'] >= _early_exit_days and not alert.get('level'):
                 profit_pct = pos.current_profit_pct(current_price)
-                if profit_pct < 3.0:  # 5天利润<3%
+                if profit_pct < _early_exit_min_profit * 100:  # GLOBAL_RISK存小数(0.03), profit_pct是百分比
                     alert["alerts"].append(f"⚠️ 龙头5天低利润：持仓{alert['hold_days']}天收益仅{profit_pct:.1f}%，建议提前退出")
                     alert["level"] = "danger"
 
@@ -587,7 +588,10 @@ class PositionManager:
             logger.warning(f"⚠️ {pos.ts_code} 卖出信号检查失败: {e}")
 
     def get_positions(self) -> List[Dict]:
-        """获取所有持仓"""
+        """获取所有持仓（不含实时价格，buy_price作为current_price fallback）
+        
+        注意：返回的dict不含current_price，如需实时价格请使用get_positions_with_prices()
+        """
         result = []
         for pos in self.positions.values():
             result.append({
@@ -604,6 +608,77 @@ class PositionManager:
                 "notes": pos.notes
             })
         return result
+    
+    async def get_positions_with_prices(self, trade_date: str = None) -> List[Dict]:
+        """【V66-P0-1修复】获取所有持仓（含实时收盘价）
+        
+        从MongoDB获取最新收盘价填充current_price字段，解决以下问题：
+        - paper_trading._update_account_performance: 净值计算需要真实市价
+        - daily_scheduler._step_compute_rebalance: 持仓保护需要真实盈亏
+        - daily_scheduler._step_execute_trades: 卖出价需要真实市价
+        - risk_alert.check_account_risk: 仓位比例需要真实市价
+        
+        Args:
+            trade_date: 交易日期(YYYYMMDD)，None则获取最新交易日数据
+        
+        Returns:
+            List[Dict]: 持仓列表，每个dict包含current_price字段
+        """
+        if not trade_date:
+            trade_date = datetime.now().strftime("%Y%m%d")
+        
+        # 先获取基础持仓数据
+        positions = self.get_positions()
+        if not positions:
+            return positions
+        
+        # 从MongoDB批量获取最新收盘价
+        price_map = {}
+        try:
+            from core.managers import mongo_manager
+            ts_codes = [p["ts_code"] for p in positions]
+            
+            # 先尝试当日数据
+            daily_data = await mongo_manager.find_many(
+                "stock_daily_ak_full",
+                {"ts_code": {"$in": ts_codes}, "trade_date": int(trade_date)},
+                projection={"ts_code": 1, "close": 1, "pct_chg": 1, "high": 1, "low": 1, "open": 1}
+            )
+            
+            if daily_data:
+                price_map = {x.get("ts_code", ""): x for x in daily_data if x.get("ts_code") and x.get("close", 0) > 0}
+            
+            # 对当日无数据的，获取最近交易日数据
+            missing_codes = [c for c in ts_codes if c not in price_map]
+            if missing_codes:
+                for code in missing_codes:
+                    try:
+                        doc = await mongo_manager.find_one(
+                            "stock_daily_ak_full",
+                            {"ts_code": code},
+                            projection={"ts_code": 1, "close": 1, "trade_date": 1},
+                            sort=[("trade_date", -1)]
+                        )
+                        if doc and doc.get("close", 0) > 0:
+                            price_map[code] = doc
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.warning(f"获取持仓实时价格失败, fallback到buy_price: {e}")
+        
+        # 填充current_price
+        for pos in positions:
+            daily = price_map.get(pos["ts_code"], {})
+            pos["current_price"] = daily.get("close", 0) if isinstance(daily, dict) else 0
+            if pos["current_price"] <= 0:
+                pos["current_price"] = pos["buy_price"]  # fallback到成本价
+            # 额外填充行情数据(供上层使用)
+            pos["pct_chg"] = daily.get("pct_chg", 0) if isinstance(daily, dict) else 0
+            pos["high"] = daily.get("high", 0) if isinstance(daily, dict) else 0
+            pos["low"] = daily.get("low", 0) if isinstance(daily, dict) else 0
+            pos["open"] = daily.get("open", 0) if isinstance(daily, dict) else 0
+        
+        return positions
     
     def get_trade_history(self, limit: int = 100) -> List[Dict]:
         """获取交易历史"""

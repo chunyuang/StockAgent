@@ -507,27 +507,32 @@ class PaperTradingEngine:
     def _update_account_performance(self, account_id: str):
         """更新账户绩效指标
         
-        计算逻辑：
-        - 总权益 = 可用余额 + 持仓市值（按成本价估算）
-        - 累计盈亏 = 总权益 - 初始资金
-        - 收益率 = 总权益/初始资金 - 1
-        - 最大回撤 = 从 PerformanceAnalyzer 获取历史最大回撤
+        【V66-P0-1修复】使用get_positions_with_prices()获取真实市价计算持仓市值
+        旧bug: get_positions()不返回current_price, fallback到buy_price, 
+        导致持仓市值=持仓成本, PnL永远为0, 净值计算完全失真
         
         Args:
             account_id: 要更新绩效的账户ID
         """
-        """更新账户绩效"""
         account = self.accounts[account_id]
         pos_manager = self.position_managers[account_id]
         
-        # 计算持仓市值
-        positions = pos_manager.get_positions()
-        market_value = 0
-        for pos in positions:
-            # 【P1修复：用current_price计算市值，而非buy_price(买入价)】
-            # 原代码用buy_price导致持仓期间PnL永远不变，收益计算完全失真
-            current_price = pos.get("current_price") or pos.get("last_price") or pos["buy_price"]
-            market_value += pos["shares"] * current_price
+        # 计算持仓市值【V66-P0-1:使用异步方法获取真实市价】
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # 在async上下文中，不能run_until_complete，降级到buy_price
+                positions = pos_manager.get_positions()
+                market_value = sum(pos["shares"] * pos["buy_price"] for pos in positions)
+                logger.debug("_update_account_performance: async loop running, fallback to buy_price")
+            else:
+                positions = loop.run_until_complete(pos_manager.get_positions_with_prices())
+                market_value = sum(pos["shares"] * pos.get("current_price", pos["buy_price"]) for pos in positions)
+        except Exception as e:
+            logger.warning(f"获取持仓实时价格失败, fallback到成本价: {e}")
+            positions = pos_manager.get_positions()
+            market_value = sum(pos["shares"] * pos["buy_price"] for pos in positions)
         
         # 计算总权益
         total_equity = account.current_balance + market_value

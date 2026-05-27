@@ -48,13 +48,19 @@ const strategyNameMap: Record<string, string> = Object.fromEntries(
   Object.entries(STRATEGY_NAMES).map(([k, v]) => [k, v.replace(/^[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{200D}\u{20E3}]+\s*/u, '').trim() || v])
 )
 
-// 策略颜色映射
+// 策略颜色映射(暗色模式安全)
 const strategyColors: Record<string, string> = {
   halfway_chase: 'var(--warning)',
   first_limit_up: 'var(--stock-up)',
   dragon_head: 'var(--el-color-primary)',
   limit_down_qiao: 'var(--stock-down)',
   limit_up_open: 'var(--text-tertiary)',
+}
+
+// 【V66修复:P0-5】暗色模式下策略标签文字颜色适配
+function strategyTagTextColor(bgColor: string): string {
+  // 在暗色模式下使用亮色文字以确保对比度
+  return 'var(--text-primary)';
 }
 
 // ==================== 汇总统计 ====================
@@ -267,7 +273,7 @@ watch(() => props.visible, (v) => { if (v && !items.value.length) loadHistory() 
 
         <!-- 策略标签行 - 完整显示所有策略 -->
         <div class="bt-strategies">
-          <ElTag v-for="sid in (item.strategies || [])" :key="sid" size="small" effect="plain" :color="strategyTag(sid).color" style="color:var(--text-inverse);border:none;font-weight:600">
+          <ElTag v-for="sid in (item.strategies || [])" :key="sid" size="small" effect="plain" :color="strategyTag(sid).color" :style="{ color: strategyTagTextColor(strategyTag(sid).color), border: 'none', fontWeight: 600 }">
             {{ strategyTag(sid).name }}
           </ElTag>
           <span v-if="!item.strategies?.length" class="bt-no-strat">未指定策略</span>
@@ -343,7 +349,7 @@ watch(() => props.visible, (v) => { if (v && !items.value.length) loadHistory() 
             <td class="td-date">{{ formatDate(item.created_at) }}</td>
             <td class="td-mono">{{ item.start_date || '?' }} ~ {{ item.end_date || '?' }}</td>
             <td class="td-strategies">
-              <ElTag v-for="sid in (item.strategies || []).slice(0, 3)" :key="sid" size="small" effect="plain" :color="strategyTag(sid).color" style="color:var(--text-inverse);border:none;font-weight:600;margin:1px 2px">
+              <ElTag v-for="sid in (item.strategies || []).slice(0, 3)" :key="sid" size="small" effect="plain" :color="strategyTag(sid).color" :style="{ color: strategyTagTextColor(strategyTag(sid).color), border: 'none', fontWeight: 600, margin: '1px 2px' }">
                 {{ strategyTag(sid).name }}
               </ElTag>
               <span v-if="(item.strategies?.length ?? 0) > 3" class="more-tag">+{{ (item.strategies?.length ?? 0) - 3 }}</span>

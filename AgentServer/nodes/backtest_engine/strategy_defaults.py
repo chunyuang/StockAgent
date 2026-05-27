@@ -61,7 +61,7 @@ STRATEGY_CONFIGS = {
             "max_open_rise_pct": 0.03,      # 开盘涨幅≤3%(高开>3%追高胜率仅44%,低开冲高81.5%胜率)
             "allow_after_10am": False,      # 不允许10点后买入
             "next_day_open_sell_pct": 0.02, # 次日高开≥2%冲高回落保护(V53:从3%→2%,半路追涨次日冲高2%+即有回落风险,更早锁定利润)
-            "pullback_mid_fallback_pct": 0.01,          # 冲高回落mid_fallback=1%(V55-LIVE-009:补充缺失参数,与回测STRATEGY_PULLBACK_PARAMS对齐)
+            "pullback_mid_fallback_pct": 0.015,          # 冲高回落mid_fallback=1.5%(V65:1%→1.5%,日内1%波动即触发过敏感,正常回落不应误判;与回测STRATEGY_PULLBACK_PARAMS对齐)
             "pullback_high_threshold": 0.05,             # 冲高回落直接触发阈值=5%(V55-LIVE-009:补充缺失参数,与回测STRATEGY_PULLBACK_PARAMS对齐)
             "pullback_profit_lock_threshold": 0.08,     # V65:半路追涨利润≥8%时不触发冲高回落,让利润锁定/超时处理;与回测STRATEGY_PULLBACK_PARAMS对齐
         },
