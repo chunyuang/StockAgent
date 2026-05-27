@@ -297,10 +297,10 @@ const runHealthCheck = async () => {
     healthDetail.value = res; healthStatus.value = res.status || 'ok'
     if (res.status === 'ok') ElMessage.success('✅ 所有服务运行正常')
     else if (res.status === 'warning') {
-      const w = Object.entries(res.checks||{}).filter(([_,v]:any)=>v.status==='warning').map(([k,v]:any)=>v.message).join('; ')
+      const w = Object.entries(res.checks||{}).filter(([_,v]:any)=>v.status==='warning').map(([_k,v]:any)=>v.message).join('; ')
       ElMessage.warning('⚠️ 部分服务异常: '+w)
     } else {
-      const e2 = Object.entries(res.checks||{}).filter(([_,v]:any)=>v.status==='error').map(([k,v]:any)=>v.message).join('; ')
+      const e2 = Object.entries(res.checks||{}).filter(([_,v]:any)=>v.status==='error').map(([_k,v]:any)=>v.message).join('; ')
       ElMessage.error('❌ 服务异常: '+e2)
     }
   } catch(e:any) {
