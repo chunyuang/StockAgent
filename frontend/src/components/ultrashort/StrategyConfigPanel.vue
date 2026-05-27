@@ -170,6 +170,10 @@ function onSweepParamChange() {
             <button :class="['mode-btn', configMode === 'flow' ? 'active' : '']" @click="configMode = 'flow'">🔄 执行流程</button>
             <button :class="['mode-btn', configMode === 'sweep' ? 'active' : '']" @click="configMode = 'sweep'; form.sweep.enabled = true">🔬 参数优化</button>
           </div>
+          <div v-if="configMode === 'edit'" class="collapse-actions">
+            <button class="ca-btn" @click="activeCollapse = [...allCollapseKeys]">📂 展开全部</button>
+            <button class="ca-btn" @click="activeCollapse = []">📁 折叠全部</button>
+          </div>
           <ElButton @click="emit('submit')" :icon="Play" type="success" :loading="backtestRunning" size="default">
             {{ backtestRunning ? '运行中...' : '开始运行' }}
           </ElButton>
@@ -1566,6 +1570,23 @@ export default { name: 'StrategyConfigPanel' }
   width: 10px;
   height: 2px;
   background: var(--primary-300);
+}
+
+
+.collapse-actions {
+  display: flex;
+  gap: 4px;
+}
+.ca-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  &:hover { background: var(--bg-hover); color: var(--primary-500); border-color: var(--primary-300); }
 }
 
 </style>

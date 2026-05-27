@@ -1192,10 +1192,10 @@ function onViewLogs(_taskId: string) {
 
 
 /* 复盘报告 */
-.review-report { max-width: 900px; margin: 0 auto; }
+.review-report { max-width: 100%; }
 .review-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 10px;
   margin-bottom: 20px;
 }
@@ -1226,7 +1226,7 @@ function onViewLogs(_taskId: string) {
 
 .review-strategy-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 8px;
 }
 .review-strategy-card {
