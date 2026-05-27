@@ -42,11 +42,11 @@ const forceEmptyTitle = computed(() => `⚠️ 强制空仓 ${props.form.forceEm
 const sentimentCycleTitle = computed(() => `🧠 情绪周期 ${props.form.sentimentCycle.enabled ? '✅' : '❌'} (涨停${props.form.sentimentCycle.weight_limit_up}, 跌停${props.form.sentimentCycle.weight_limit_down}, 炸板率${props.form.sentimentCycle.weight_blast_rate}, 涨跌差${props.form.sentimentCycle.weight_rise_fall_diff}, 北向${props.form.sentimentCycle.weight_north_inflow})`)
 const auctionFilterTitle = computed(() => `⏰ 竞价过滤 ${props.form.auctionFilter.enabled ? '✅' : '❌'} (涨幅${(props.form.auctionFilter.min_auction_pct * 100).toFixed(1)}%~${(props.form.auctionFilter.max_auction_pct * 100).toFixed(1)}%, 成交额≥${props.form.auctionFilter.min_auction_amount}万, 量比≥${props.form.auctionFilter.min_auction_volume_ratio}, 未匹配量正: ${props.form.auctionFilter.min_unmatched_volume_positive ? '✅' : '❌'})`)
 
-const halfwayChaseTitle = computed(() => `🏃‍♂️ 半路追涨策略 ${props.form.strategyConfigs.halfway_chase.enabled ? '✅' : '❌'} (涨幅${(props.form.strategyConfigs.halfway_chase.params.min_rise_pct * 100).toFixed(1)}%~${(props.form.strategyConfigs.halfway_chase.params.max_rise_pct * 100).toFixed(1)}%, 量比${props.form.strategyConfigs.halfway_chase.params.min_volume_ratio}~${props.form.strategyConfigs.halfway_chase.params.max_volume_ratio}, 收盘≥${(props.form.strategyConfigs.halfway_chase.params.min_close_rise_pct * 100).toFixed(1)}%, 开盘≤${(props.form.strategyConfigs.halfway_chase.params.max_open_rise_pct * 100).toFixed(1)}%, ${props.form.strategyConfigs.halfway_chase.params.allow_after_10am ? '可10点后' : '仅10点前'}, 追踪止损${(props.form.strategyConfigs.halfway_chase.riskParams.trailing_stop_pct * 100).toFixed(1)}%, 止损${(props.form.strategyConfigs.halfway_chase.riskParams.stop_loss_pct * 100).toFixed(1)}%/止盈${(props.form.strategyConfigs.halfway_chase.riskParams.take_profit_pct * 100).toFixed(1)}%, 持仓${props.form.strategyConfigs.halfway_chase.riskParams.max_hold_days}天, 滑点${(props.form.strategyConfigs.halfway_chase.riskParams.slippage_pct * 1000).toFixed(1)}‰)`)
-const firstLimitUpTitle = computed(() => `🥇 首板打板策略 ${props.form.strategyConfigs.first_limit_up.enabled ? '✅' : '❌'} (竞价${(props.form.strategyConfigs.first_limit_up.params.opening_pct_min * 100).toFixed(0)}%~${(props.form.strategyConfigs.first_limit_up.params.opening_pct_max * 100).toFixed(0)}%, 量比≥${props.form.strategyConfigs.first_limit_up.params.min_volume_ratio}, 换手${props.form.strategyConfigs.first_limit_up.params.min_turnover_rate}%~${props.form.strategyConfigs.first_limit_up.params.max_turnover_rate}%, 流通市值${props.form.strategyConfigs.first_limit_up.params.min_circulation_market_cap}~${props.form.strategyConfigs.first_limit_up.params.max_circulation_market_cap}亿, 成交概率: 一字${(props.form.strategyConfigs.first_limit_up.params.hit_probability_yizi * 100).toFixed(0)}%/秒板${(props.form.strategyConfigs.first_limit_up.params.hit_probability_fast * 100).toFixed(0)}%/快板${(props.form.strategyConfigs.first_limit_up.params.hit_probability_normal * 100).toFixed(0)}%/慢板${(props.form.strategyConfigs.first_limit_up.params.hit_probability_slow * 100).toFixed(0)}%, 次日高开≥${(props.form.strategyConfigs.first_limit_up.params.next_day_open_sell_pct * 100).toFixed(0)}%卖, 止损${(props.form.strategyConfigs.first_limit_up.riskParams.stop_loss_pct * 100).toFixed(1)}%/止盈${(props.form.strategyConfigs.first_limit_up.riskParams.take_profit_pct * 100).toFixed(1)}%, 持仓${props.form.strategyConfigs.first_limit_up.riskParams.max_hold_days}天, 滑点${(props.form.strategyConfigs.first_limit_up.riskParams.slippage_pct * 1000).toFixed(1)}‰)`)
-const limitUpOpenTitle = computed(() => `📈 涨停开板策略 ${props.form.strategyConfigs.limit_up_open.enabled ? '✅' : '❌'} (连板≥${props.form.strategyConfigs.limit_up_open.params.min_consecutive_limit}板, 开板≤${props.form.strategyConfigs.limit_up_open.params.max_open_duration}分钟, 回封封单≥${props.form.strategyConfigs.limit_up_open.params.min_seal_orders}万手, 换手≥${props.form.strategyConfigs.limit_up_open.params.min_turnover_rate}%, 止损${(props.form.strategyConfigs.limit_up_open.riskParams.stop_loss_pct * 100).toFixed(1)}%/止盈${(props.form.strategyConfigs.limit_up_open.riskParams.take_profit_pct * 100).toFixed(1)}%, 持仓${props.form.strategyConfigs.limit_up_open.riskParams.max_hold_days}天, 滑点${(props.form.strategyConfigs.limit_up_open.riskParams.slippage_pct * 1000).toFixed(1)}‰)`)
-const dragonHeadTitle = computed(() => `🐲 龙头低吸策略 ${props.form.strategyConfigs.dragon_head.enabled ? '✅' : '❌'} (连板≥${props.form.strategyConfigs.dragon_head.params.min_consecutive_limit}板, 流通市值≥${props.form.strategyConfigs.dragon_head.params.min_circulation_market_cap}亿, 回调${(props.form.strategyConfigs.dragon_head.params.min_correction_pct * 100).toFixed(0)}%~${(props.form.strategyConfigs.dragon_head.params.max_correction_pct * 100).toFixed(0)}%共${props.form.strategyConfigs.dragon_head.params.correction_days_min}~${props.form.strategyConfigs.dragon_head.params.correction_days_max}天, 量比${props.form.strategyConfigs.dragon_head.params.min_volume_ratio}~${props.form.strategyConfigs.dragon_head.params.max_volume_ratio}, 支撑${props.form.strategyConfigs.dragon_head.params.support_level === 'ma5' ? 'MA5' : props.form.strategyConfigs.dragon_head.params.support_level === 'ma10' ? 'MA10' : '平台'}, 止损${(props.form.strategyConfigs.dragon_head.riskParams.stop_loss_pct * 100).toFixed(1)}%/止盈${(props.form.strategyConfigs.dragon_head.riskParams.take_profit_pct * 100).toFixed(1)}%, 持仓${props.form.strategyConfigs.dragon_head.riskParams.max_hold_days}天, 滑点${(props.form.strategyConfigs.dragon_head.riskParams.slippage_pct * 1000).toFixed(1)}‰)`)
-const limitDownQiaoTitle = computed(() => `💥 跌停翘板策略 ${props.form.strategyConfigs.limit_down_qiao.enabled ? '✅' : '❌'} (连跌≥${props.form.strategyConfigs.limit_down_qiao.params.min_consecutive_limit}天, 翘板≥${props.form.strategyConfigs.limit_down_qiao.params.min_qiao_amount}万, 翘板后涨≥${(props.form.strategyConfigs.limit_down_qiao.params.min_rise_after_qiao * 100).toFixed(0)}%, 流通市值≥${props.form.strategyConfigs.limit_down_qiao.params.min_circulation_market_cap}亿, ${props.form.strategyConfigs.limit_down_qiao.params.require_high_sentiment ? '需高情绪' : '不限情绪'}, 止损${(props.form.strategyConfigs.limit_down_qiao.riskParams.stop_loss_pct * 100).toFixed(1)}%/止盈${(props.form.strategyConfigs.limit_down_qiao.riskParams.take_profit_pct * 100).toFixed(1)}%, 持仓${props.form.strategyConfigs.limit_down_qiao.riskParams.max_hold_days}天, 滑点${(props.form.strategyConfigs.limit_down_qiao.riskParams.slippage_pct * 1000).toFixed(1)}‰)`)
+const halfwayChaseTitle = computed(() => `🏃‍♂️ 半路追涨策略 (涨幅${(props.form.strategyConfigs.halfway_chase.params.min_rise_pct * 100).toFixed(1)}%~${(props.form.strategyConfigs.halfway_chase.params.max_rise_pct * 100).toFixed(1)}%, 量比${props.form.strategyConfigs.halfway_chase.params.min_volume_ratio}~${props.form.strategyConfigs.halfway_chase.params.max_volume_ratio}, 收盘≥${(props.form.strategyConfigs.halfway_chase.params.min_close_rise_pct * 100).toFixed(1)}%, 开盘≤${(props.form.strategyConfigs.halfway_chase.params.max_open_rise_pct * 100).toFixed(1)}%, ${props.form.strategyConfigs.halfway_chase.params.allow_after_10am ? '可10点后' : '仅10点前'}, 追踪止损${(props.form.strategyConfigs.halfway_chase.riskParams.trailing_stop_pct * 100).toFixed(1)}%, 止损${(props.form.strategyConfigs.halfway_chase.riskParams.stop_loss_pct * 100).toFixed(1)}%/止盈${(props.form.strategyConfigs.halfway_chase.riskParams.take_profit_pct * 100).toFixed(1)}%, 持仓${props.form.strategyConfigs.halfway_chase.riskParams.max_hold_days}天, 滑点${(props.form.strategyConfigs.halfway_chase.riskParams.slippage_pct * 1000).toFixed(1)}‰)`)
+const firstLimitUpTitle = computed(() => `🥇 首板打板策略 (竞价${(props.form.strategyConfigs.first_limit_up.params.opening_pct_min * 100).toFixed(0)}%~${(props.form.strategyConfigs.first_limit_up.params.opening_pct_max * 100).toFixed(0)}%, 量比≥${props.form.strategyConfigs.first_limit_up.params.min_volume_ratio}, 换手${props.form.strategyConfigs.first_limit_up.params.min_turnover_rate}%~${props.form.strategyConfigs.first_limit_up.params.max_turnover_rate}%, 流通市值${props.form.strategyConfigs.first_limit_up.params.min_circulation_market_cap}~${props.form.strategyConfigs.first_limit_up.params.max_circulation_market_cap}亿, 成交概率: 一字${(props.form.strategyConfigs.first_limit_up.params.hit_probability_yizi * 100).toFixed(0)}%/秒板${(props.form.strategyConfigs.first_limit_up.params.hit_probability_fast * 100).toFixed(0)}%/快板${(props.form.strategyConfigs.first_limit_up.params.hit_probability_normal * 100).toFixed(0)}%/慢板${(props.form.strategyConfigs.first_limit_up.params.hit_probability_slow * 100).toFixed(0)}%, 次日高开≥${(props.form.strategyConfigs.first_limit_up.params.next_day_open_sell_pct * 100).toFixed(0)}%卖, 止损${(props.form.strategyConfigs.first_limit_up.riskParams.stop_loss_pct * 100).toFixed(1)}%/止盈${(props.form.strategyConfigs.first_limit_up.riskParams.take_profit_pct * 100).toFixed(1)}%, 持仓${props.form.strategyConfigs.first_limit_up.riskParams.max_hold_days}天, 滑点${(props.form.strategyConfigs.first_limit_up.riskParams.slippage_pct * 1000).toFixed(1)}‰)`)
+const limitUpOpenTitle = computed(() => `📈 涨停开板策略 (连板≥${props.form.strategyConfigs.limit_up_open.params.min_consecutive_limit}板, 开板≤${props.form.strategyConfigs.limit_up_open.params.max_open_duration}分钟, 回封封单≥${props.form.strategyConfigs.limit_up_open.params.min_seal_orders}万手, 换手≥${props.form.strategyConfigs.limit_up_open.params.min_turnover_rate}%, 止损${(props.form.strategyConfigs.limit_up_open.riskParams.stop_loss_pct * 100).toFixed(1)}%/止盈${(props.form.strategyConfigs.limit_up_open.riskParams.take_profit_pct * 100).toFixed(1)}%, 持仓${props.form.strategyConfigs.limit_up_open.riskParams.max_hold_days}天, 滑点${(props.form.strategyConfigs.limit_up_open.riskParams.slippage_pct * 1000).toFixed(1)}‰)`)
+const dragonHeadTitle = computed(() => `🐲 龙头低吸策略 (连板≥${props.form.strategyConfigs.dragon_head.params.min_consecutive_limit}板, 流通市值≥${props.form.strategyConfigs.dragon_head.params.min_circulation_market_cap}亿, 回调${(props.form.strategyConfigs.dragon_head.params.min_correction_pct * 100).toFixed(0)}%~${(props.form.strategyConfigs.dragon_head.params.max_correction_pct * 100).toFixed(0)}%共${props.form.strategyConfigs.dragon_head.params.correction_days_min}~${props.form.strategyConfigs.dragon_head.params.correction_days_max}天, 量比${props.form.strategyConfigs.dragon_head.params.min_volume_ratio}~${props.form.strategyConfigs.dragon_head.params.max_volume_ratio}, 支撑${props.form.strategyConfigs.dragon_head.params.support_level === 'ma5' ? 'MA5' : props.form.strategyConfigs.dragon_head.params.support_level === 'ma10' ? 'MA10' : '平台'}, 止损${(props.form.strategyConfigs.dragon_head.riskParams.stop_loss_pct * 100).toFixed(1)}%/止盈${(props.form.strategyConfigs.dragon_head.riskParams.take_profit_pct * 100).toFixed(1)}%, 持仓${props.form.strategyConfigs.dragon_head.riskParams.max_hold_days}天, 滑点${(props.form.strategyConfigs.dragon_head.riskParams.slippage_pct * 1000).toFixed(1)}‰)`)
+const limitDownQiaoTitle = computed(() => `💥 跌停翘板策略 (连跌≥${props.form.strategyConfigs.limit_down_qiao.params.min_consecutive_limit}天, 翘板≥${props.form.strategyConfigs.limit_down_qiao.params.min_qiao_amount}万, 翘板后涨≥${(props.form.strategyConfigs.limit_down_qiao.params.min_rise_after_qiao * 100).toFixed(0)}%, 流通市值≥${props.form.strategyConfigs.limit_down_qiao.params.min_circulation_market_cap}亿, ${props.form.strategyConfigs.limit_down_qiao.params.require_high_sentiment ? '需高情绪' : '不限情绪'}, 止损${(props.form.strategyConfigs.limit_down_qiao.riskParams.stop_loss_pct * 100).toFixed(1)}%/止盈${(props.form.strategyConfigs.limit_down_qiao.riskParams.take_profit_pct * 100).toFixed(1)}%, 持仓${props.form.strategyConfigs.limit_down_qiao.riskParams.max_hold_days}天, 滑点${(props.form.strategyConfigs.limit_down_qiao.riskParams.slippage_pct * 1000).toFixed(1)}‰)`)
 
 // ============ 策略/配置描述 ============
 const sectionDescriptions: Record<string, { title: string; desc: string; tips?: string[] }> = {
@@ -435,7 +435,7 @@ function onSweepParamChange() {
 
       <!-- 半路追涨 -->
       <ElCollapseItem name="halfway_chase">
-        <template #title><span>{{ halfwayChaseTitle }}</span></template>
+        <template #title><span class="strategy-toggle" :class="{ on: form.strategyConfigs.halfway_chase.enabled }" @click.stop="() => { form.strategyConfigs.halfway_chase.enabled = !form.strategyConfigs.halfway_chase.enabled; toggleStrategy('halfway_chase') }">{{ form.strategyConfigs.halfway_chase.enabled ? "✅" : "❌" }}</span> {{ halfwayChaseTitle }}</template>
         <div class="item-layout"><div class="item-left">
         <ElForm label-width="160px">
           <ElFormItem label="启用策略"><ElSwitch v-model="form.strategyConfigs.halfway_chase.enabled" @change="() => toggleStrategy('halfway_chase')" /></ElFormItem>
@@ -499,7 +499,7 @@ function onSweepParamChange() {
 
       <!-- 首板打板 -->
       <ElCollapseItem name="first_limit_up">
-        <template #title><span>{{ firstLimitUpTitle }}</span></template>
+        <template #title><span class="strategy-toggle" :class="{ on: form.strategyConfigs.first_limit_up.enabled }" @click.stop="() => { form.strategyConfigs.first_limit_up.enabled = !form.strategyConfigs.first_limit_up.enabled; toggleStrategy('first_limit_up') }">{{ form.strategyConfigs.first_limit_up.enabled ? "✅" : "❌" }}</span> {{ firstLimitUpTitle }}</template>
         <div class="item-layout"><div class="item-left">
         <ElForm label-width="160px">
           <ElFormItem label="启用策略"><ElSwitch v-model="form.strategyConfigs.first_limit_up.enabled" @change="() => toggleStrategy('first_limit_up')" /></ElFormItem>
@@ -581,7 +581,7 @@ function onSweepParamChange() {
 
       <!-- 涨停开板 -->
       <ElCollapseItem name="limit_up_open">
-        <template #title><span>{{ limitUpOpenTitle }}</span></template>
+        <template #title><span class="strategy-toggle" :class="{ on: form.strategyConfigs.limit_up_open.enabled }" @click.stop="() => { form.strategyConfigs.limit_up_open.enabled = !form.strategyConfigs.limit_up_open.enabled; toggleStrategy('limit_up_open') }">{{ form.strategyConfigs.limit_up_open.enabled ? "✅" : "❌" }}</span> {{ limitUpOpenTitle }}</template>
         <div class="item-layout"><div class="item-left">
         <ElForm label-width="160px">
           <ElFormItem label="启用策略"><ElSwitch v-model="form.strategyConfigs.limit_up_open.enabled" @change="() => toggleStrategy('limit_up_open')" /></ElFormItem>
@@ -633,7 +633,7 @@ function onSweepParamChange() {
 
       <!-- 龙头低吸 -->
       <ElCollapseItem name="dragon_head">
-        <template #title><span>{{ dragonHeadTitle }}</span></template>
+        <template #title><span class="strategy-toggle" :class="{ on: form.strategyConfigs.dragon_head.enabled }" @click.stop="() => { form.strategyConfigs.dragon_head.enabled = !form.strategyConfigs.dragon_head.enabled; toggleStrategy('dragon_head') }">{{ form.strategyConfigs.dragon_head.enabled ? "✅" : "❌" }}</span> {{ dragonHeadTitle }}</template>
         <div class="item-layout"><div class="item-left">
         <ElForm label-width="160px">
           <ElFormItem label="启用策略"><ElSwitch v-model="form.strategyConfigs.dragon_head.enabled" @change="() => toggleStrategy('dragon_head')" /></ElFormItem>
@@ -704,7 +704,7 @@ function onSweepParamChange() {
 
       <!-- 跌停翘板 -->
       <ElCollapseItem name="limit_down_qiao">
-        <template #title><span>{{ limitDownQiaoTitle }}</span></template>
+        <template #title><span class="strategy-toggle" :class="{ on: form.strategyConfigs.limit_down_qiao.enabled }" @click.stop="() => { form.strategyConfigs.limit_down_qiao.enabled = !form.strategyConfigs.limit_down_qiao.enabled; toggleStrategy('limit_down_qiao') }">{{ form.strategyConfigs.limit_down_qiao.enabled ? "✅" : "❌" }}</span> {{ limitDownQiaoTitle }}</template>
         <div class="item-layout"><div class="item-left">
         <ElForm label-width="160px">
           <ElFormItem label="启用策略"><ElSwitch v-model="form.strategyConfigs.limit_down_qiao.enabled" @change="() => toggleStrategy('limit_down_qiao')" /></ElFormItem>
@@ -1586,6 +1586,22 @@ export default { name: 'StrategyConfigPanel' }
   cursor: pointer;
   transition: all 0.2s;
   &:hover { background: var(--bg-hover); color: var(--primary-500); border-color: var(--primary-300); }
+}
+
+
+.strategy-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: all 0.2s;
+  user-select: none;
+  &:hover { background: var(--bg-hover); transform: scale(1.15); }
+  &.on { color: var(--stock-down); }
+  &:not(.on) { color: var(--stock-up); opacity: 0.7; }
 }
 
 </style>
