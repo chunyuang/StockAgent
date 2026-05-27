@@ -193,10 +193,9 @@ function onSweepParamChange() {
             <button :class="['mode-btn', configMode === 'flow' ? 'active' : '']" @click="configMode = 'flow'">🔄 执行流程</button>
             <button :class="['mode-btn', configMode === 'sweep' ? 'active' : '']" @click="configMode = 'sweep'; form.sweep.enabled = true">🔬 参数优化</button>
           </div>
-          <div v-if="configMode === 'edit'" class="collapse-actions">
-            <button class="ca-btn" @click="activeCollapse = [...allCollapseKeys]">📂 展开全部</button>
-            <button class="ca-btn" @click="activeCollapse = []">📁 折叠全部</button>
-          </div>
+          <button v-if="configMode === 'edit'" class="ca-btn" @click="activeCollapse = activeCollapse.length >= allCollapseKeys.length ? [] : [...allCollapseKeys]">
+            {{ activeCollapse.length >= allCollapseKeys.length ? '📁 折叠全部' : '📂 展开全部' }}
+          </button>
           <ElButton @click="emit('submit')" :icon="Play" type="success" :loading="backtestRunning" size="default">
             {{ backtestRunning ? '运行中...' : '开始运行' }}
           </ElButton>
