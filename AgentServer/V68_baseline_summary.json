@@ -1,0 +1,68 @@
+{
+  "total_return_pct": 315.0990566007232,
+  "alpha_pct": 311.95931525443433,
+  "max_drawdown_pct": 3.4479448112454376,
+  "sharpe_ratio": 14.103073832348583,
+  "sortino_ratio": 27.366474080521755,
+  "calmar_ratio": 1000.0,
+  "volatility_pct": 47.718821482479825,
+  "win_rate_pct": 82.90598290598291,
+  "profit_loss_ratio": 3.046561762645013,
+  "total_trades": 117,
+  "elapsed": 23.209953784942627,
+  "strategy_results": {
+    "\u8dcc\u505c\u7fd8\u677f": {
+      "strategy_name": "\u8dcc\u505c\u7fd8\u677f",
+      "win_rate": 82.75862068965517,
+      "total_return": 317.79917617765597,
+      "cumulative_profit_pct": 317.79917617765597,
+      "avg_profit_pct": 10.958592281988137,
+      "trades_count": 29,
+      "max_drawdown": 10.303908827351734,
+      "profit_loss_ratio": 3.42
+    },
+    "\u9f99\u5934\u4f4e\u5438": {
+      "strategy_name": "\u9f99\u5934\u4f4e\u5438",
+      "win_rate": 93.54838709677419,
+      "total_return": 306.8897367427067,
+      "cumulative_profit_pct": 306.8897367427067,
+      "avg_profit_pct": 9.899668927184088,
+      "trades_count": 31,
+      "max_drawdown": 3.654353693891867,
+      "profit_loss_ratio": 2.96
+    },
+    "\u534a\u8def\u8ffd\u6da8": {
+      "strategy_name": "\u534a\u8def\u8ffd\u6da8",
+      "win_rate": 79.54545454545455,
+      "total_return": 162.80260892420074,
+      "cumulative_profit_pct": 162.80260892420074,
+      "avg_profit_pct": 3.700059293731835,
+      "trades_count": 44,
+      "max_drawdown": 3.673327826516129,
+      "profit_loss_ratio": 2.59
+    },
+    "\u9996\u677f\u6253\u677f": {
+      "strategy_name": "\u9996\u677f\u6253\u677f",
+      "win_rate": 69.23076923076923,
+      "total_return": 66.96707007648085,
+      "cumulative_profit_pct": 66.96707007648085,
+      "avg_profit_pct": 5.15131308280622,
+      "trades_count": 13,
+      "max_drawdown": 5.5753750758645495,
+      "profit_loss_ratio": 2.28
+    }
+  },
+  "sell_reason_stats": {
+    "stop_loss": 9,
+    "gap_stop_loss": 3,
+    "take_profit": 21,
+    "max_hold": 3,
+    "force_empty": 1,
+    "rebalance": 15,
+    "profit_lock": 34,
+    "profit_protect": 3,
+    "pullback": 28,
+    "halt": 0,
+    "other": 0
+  }
+}
