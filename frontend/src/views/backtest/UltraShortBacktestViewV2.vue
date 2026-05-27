@@ -448,6 +448,7 @@ const submitBacktest = async () => {
       if (data.type === 'log') addLog(data.log)
       else if (data.type === 'progress') backtestState.progress = data.progress
       else if (data.type === 'result' || (data.type === 'status' && data.status === 'completed')) {
+        console.log('[BacktestWS] result received, net_value_series length:', data.result?.net_value_series?.length, 'keys:', Object.keys(data.result || {}).slice(0, 10))
         backtestResult.value = data.result
         backtestState.running = false
         activeMainTab.value = 'result'  // 自动切换到结果Tab
