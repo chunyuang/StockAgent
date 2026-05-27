@@ -133,10 +133,9 @@ watch(configMode, (mode) => {
   }
 })
 
-// Toggle 辅助
+// Toggle 辅助 - v-model已自动切换enabled，这里只同步strategies数组
 function toggleStrategy(strategyId: string) {
   const cfg = props.form.strategyConfigs[strategyId]
-  cfg.enabled = !cfg.enabled
   if (cfg.enabled) {
     if (!props.form.strategies.includes(strategyId)) props.form.strategies.push(strategyId)
   } else {
