@@ -3955,8 +3955,8 @@ class PortfolioBacktester:
                 _first_limit_defaults = STRATEGY_CONFIGS.get('first_limit_up', {}).get('params', {})
                 hit_prob_yizi = sp.get('hit_probability_yizi', _first_limit_defaults.get('hit_probability_yizi', 0.0))
                 hit_prob_fast = sp.get('hit_probability_fast', _first_limit_defaults.get('hit_probability_fast', 0.20))
-                hit_prob_normal = sp.get('hit_probability_normal', _first_limit_defaults.get('hit_probability_normal', STRATEGY_CONFIGS.get('first_limit_up', {}).get('params', {}).get('hit_probability_normal', 0.40)))
-                hit_prob_slow = sp.get('hit_probability_slow', _first_limit_defaults.get('hit_probability_slow', STRATEGY_CONFIGS.get('first_limit_up', {}).get('params', {}).get('hit_probability_slow', 0.50)))
+                hit_prob_normal = sp.get('hit_probability_normal', _first_limit_defaults.get('hit_probability_normal', 0.40))
+                hit_prob_slow = sp.get('hit_probability_slow', _first_limit_defaults.get('hit_probability_slow', 0.45))  # V70:从0.50→0.45,与strategy_defaults对齐(首板slow成交概率优化)
 
                 if o == c == h == l:
                     hit_prob = hit_prob_yizi
