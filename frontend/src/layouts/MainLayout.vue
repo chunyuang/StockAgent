@@ -250,7 +250,7 @@ function toggleTheme(): void {
       padding: 0 5px;
       font-size: 11px;
       font-weight: 600;
-      color: #fff;
+      color: var(--text-inverse);
       background: var(--error);
       border-radius: 9px;
       margin-left: 8px;
