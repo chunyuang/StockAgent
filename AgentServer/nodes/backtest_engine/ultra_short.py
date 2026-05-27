@@ -199,8 +199,8 @@ async def execute_ultra_short_backtest(
             opening_max = strategy_params_local.get('opening_pct_max', _defaults.get('opening_pct_max', 5.0))
             hit_yizi = strategy_params_local.get('hit_probability_yizi', _defaults.get('hit_probability_yizi', 0.0))
             hit_fast = strategy_params_local.get('hit_probability_fast', _defaults.get('hit_probability_fast', 0.20))  # 【V55-BUG-015修复:0.3→0.20,与V56 strategy_defaults对齐】
-            hit_normal = strategy_params_local.get('hit_probability_normal', _defaults.get('hit_probability_normal', 0.40))  # 【V64-P0-3修复:0.45→0.40,与strategy_defaults first_limit_up.hit_probability_normal对齐】
-            hit_slow = strategy_params_local.get('hit_probability_slow', _defaults.get('hit_probability_slow', 0.45))  # V70:从0.50→0.45,与strategy_defaults对齐(首板slow成交概率优化)
+            hit_normal = strategy_params_local.get('hit_probability_normal', _defaults.get('hit_probability_normal', 0.45))  # 【V72:0.40→0.45,与strategy_defaults first_limit_up.hit_probability_normal对齐】
+            hit_slow = strategy_params_local.get('hit_probability_slow', _defaults.get('hit_probability_slow', 0.55))  # V72:从0.45→0.55,与strategy_defaults first_limit_up.hit_probability_slow对齐
             await push_log_fn(task_id, "  ├─ 最小流通市值: %d 亿" % min_cap)
             await push_log_fn(task_id, "  ├─ 最大流通市值: %d 亿" % max_cap)
             await push_log_fn(task_id, "  ├─ 竞价涨幅范围: %.1f%% ~ %.1f%%" % (opening_min, opening_max))
