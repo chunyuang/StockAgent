@@ -197,3 +197,41 @@
 | performance_analyzer.py | ~400 | ✅ 逐行 | 0 | 0 | 1 |
 | strategy_optimizer.py | ~350 | ✅ 审查 | 0 | 0 | 1 |
 | **合计** | **~5300** | | **3** | **9** | **12** |
+
+---
+
+## V66修复进度 (2026-05-27 更新)
+
+### ✅ 已修复 (P0×3 + P1×8 + P2×1 = 12项)
+
+| ID | 修复内容 | Commit |
+|---|---|---|
+| P0-1 | get_positions_with_prices() + daily_scheduler改用await | fd37c01 |
+| P0-2 | live_backtest_bridge sell_date字段 + 兼容多格式 | fd37c01 |
+| P0-3 | realtime_monitor告警阈值从GLOBAL_RISK读取 | fd37c01 |
+| P1-1 | position_manager龙头5天/3%从GLOBAL_RISK读取 | 51e472a |
+| P1-2 | 交易计划显示各策略实际max_hold_days | fd37c01 |
+| P1-3 | paper_trading_risk_check slippage=None从策略读取 | fd37c01 |
+| P1-4 | _get_initial_balance返回initial_balance | fd37c01 |
+| P1-5 | risk_alert仓位用市价而非成本价 | fd37c01 |
+| P1-6 | risk_alert find_one(sort)→find_many(limit=1) | fd37c01 |
+| P1-7 | signal_pusher async push + asyncio.sleep | fd37c01 |
+| P1-8 | trade_gateway async get_realtime_quote | fd37c01 |
+| P2-6 | risk_alert _send_alert subprocess.run替代os.system | fd37c01 |
+
+### ❌ 未修复 (P1×1 + P2×11 = 12项)
+
+| ID | 问题 | 原因 |
+|---|---|---|
+| P1-9 | pre_buy_risk_check模拟数据 | 需接入真实数据源,改动范围大 |
+| P2-1 | position_manager hold_days run_until_complete | 需重构为async,调用链影响大 |
+| P2-2 | nav_tracker路径复杂 | 功能正常,低优先级 |
+| P2-3 | signal_pusher函数内import | lazy import避免循环依赖,刻意设计 |
+| P2-4 | generate_daily_signals _strategy_id_name_map | 低频调用,性能影响可忽略 |
+| P2-5 | generate_daily_signals节假日逻辑 | 边缘场景,功能基本正确 |
+| P2-7 | risk_alert check_market_risk空实现 | 框架预留,有realtime_monitor替代 |
+| P2-8 | paper_trading_risk_check SimpleNamespace | 类型安全改进,不影响功能 |
+| P2-9 | auto_trade_executor废弃代码 | 不影响运行,清理可后续做 |
+| P2-10 | trade_gateway买卖价0.5%偏移硬编码 | 低优,功能正确 |
+| P2-11 | performance_analyzer balance从0开始 | 回撤计算偏差小 |
+| P2-12 | strategy_optimizer参数名不一致 | 废弃模块 |
