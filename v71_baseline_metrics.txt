@@ -1,0 +1,7 @@
+total_return=310.4938576960756
+max_drawdown=1.8809266133518736
+sharpe_ratio=11.352616077088042
+win_rate=82.11382113821138
+profit_loss_ratio=3.1276477286284754
+total_trades=123
+alpha=None
