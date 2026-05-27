@@ -4,12 +4,13 @@
  * 左: 策略控制+快捷操作 / 中: 信号+行情 / 右: 持仓+统计
  * 底: 时间线 / 顶: 状态栏
  */
-import { ref, computed, onMounted, onUnmounted, reactive, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, reactive, watch, nextTick } from 'vue'
 import {
   ElButton, ElTag, ElEmpty,
   ElSwitch, ElInputNumber, ElSlider,
   ElTabs, ElTabPane, ElDialog, ElMessage, ElBadge,
   ElInput, ElSelect, ElOption, ElDatePicker,
+  ElMessageBox,
 } from 'element-plus'
 import { api } from '@/api/client'
 import SignalTracePanel from './SignalTracePanel.vue'
@@ -20,12 +21,14 @@ import {
   modeMeta,
   factorLabel,
   parseResponse, signalRemaining as _signalRemaining, formatRemaining,
+  normalizePct, formatSlTp,
 } from '@/utils/scanner'
+import VChart from 'vue-echarts'
 
 interface ScanStats { scans: number; signals_found: number; trades_executed: number; stop_losses: number; take_profits: number; stocks_scanned: number }
 interface ScannerStatus { is_running: boolean; scan_count: number; last_scan_time: string; active_signals: number; positions: number; stocks_scanned: number; stats: ScanStats; account_id: string; trade_mode: string; dry_run?: boolean; circuit_breaker_paused?: boolean; circuit_breaker?: { trading_paused: boolean; pause_reason: string }; account: { total_assets: number; available_cash: number; market_value: number; total_profit: number }; data_sources?: Array<{ name: string; available: boolean; stocks: number; calls: number; limit: number; note: string }> }
 interface ScanSignal { ts_code: string; stock_name: string; strategy: string; strategy_name: string; signal_type: string; price: number; pct_chg: number; volume_ratio: number; turnover_rate: number; is_limit_up: boolean; limit_up_count: number; confidence: number; reason: string; scan_time: string; factors: Record<string, number>; key_factors?: Record<string, string>; decision_detail?: Record<string, any>; signal_status?: string; layer_trace?: Record<string, any>; created_at?: number }
-interface PositionInfo { ts_code: string; stock_name: string; strategy: string; strategy_name?: string; shares: number; available_qty: number; cost_price: number; current_price: number; profit_pct: number; profit_amount?: number; market_value?: number; today_buy: number; stop_loss_pct?: number; take_profit_pct?: number; stop_loss_price?: number; take_profit_price?: number; distance_to_stop?: number }
+interface PositionInfo { ts_code: string; stock_name: string; strategy: string; strategy_name?: string; shares: number; available_qty: number; cost_price: number; current_price: number; profit_pct: number; profit_amount?: number; market_value?: number; today_buy: number; stop_loss_pct?: number; take_profit_pct?: number; stop_loss_price?: number; take_profit_price?: number; distance_to_stop?: number; risk_level?: string; trailing_stop?: { high_price: number; trailing_stop_pct: number; activated: boolean; stop_price: number; activated_at?: string }; effective_stop_price?: number }
 interface TimelineItem { time: string; action: string; ts_code: string; stock_name: string; strategy: string; shares: number; price: number; reason: string; profit_pct?: number; profit_amount?: number; decision_detail?: Record<string, any> }
 interface StrategyConfig { id: string; name: string; enabled: boolean; params: Record<string, any>; riskParams: Record<string, any>; paramDescriptions: ParamDesc[]; riskDescriptions: ParamDesc[] }
 interface ParamDesc { key: string; label: string; value: any; displayValue: string; unit: string; min: number; max: number; step: number }
@@ -73,6 +76,25 @@ const emergencyLiquidating = ref(false)
 const signalFilter = ref('all')
 const filteredSignals = computed(() => { if (signalFilter.value === 'all') return signals.value; if (signalFilter.value === 'anomaly') return signals.value.filter(s => s.strategy.startsWith('anomaly_')); return signals.value.filter(s => s.strategy === signalFilter.value) })
 const tradeDetailVisible = ref(false), tradeDetailData = ref<any>(null), tradeAuditData = ref<any[]>([]), tradeAuditVisible = ref(false)
+// 追踪止损编辑
+const trailEditPct = ref(3)
+const trailSaving = ref(false)
+async function setTrailingStop(ts_code: string, activated: boolean) {
+  trailSaving.value = true
+  try {
+    const r = await api.put(`${scannerApi}/trailing-stop/${ts_code}`, { trailing_stop_pct: trailEditPct.value / 100, activated })
+    const p = parseResponse(r)
+    if (p.success) {
+      ElMessage.success(activated ? '追踪止损已激活' : '追踪止损已停用')
+      // 刷新持仓和详情
+      await fetchScanner()
+      if (tradeDetailData.value?.ts_code === ts_code) {
+        const dr = await api.get(`${scannerApi}/trade-detail/${ts_code}`)
+        if (dr?.success) tradeDetailData.value = dr.data
+      }
+    } else ElMessage.warning(p.data?.message || '操作失败')
+  } catch { ElMessage.error('操作失败') } finally { trailSaving.value = false }
+}
 const manualTrade = reactive({ ts_code: '', stock_name: '', side: 'buy', quantity: 0, price: 0 })
 const manualQuote = ref<any>(null)
 const isRunning = computed(() => status.value?.is_running ?? false)
@@ -107,7 +129,7 @@ function playSignalSound() {
     osc.stop(ctx.currentTime + 0.3)
   } catch {}
 }
-function distanceToStopLoss(pos: PositionInfo): string { if (pos.stop_loss_price && pos.stop_loss_price > 0 && pos.current_price > 0) { const dist = ((pos.current_price - pos.stop_loss_price) / pos.current_price * 100); return dist.toFixed(1) + '%'; } const slPct = pos.stop_loss_pct ?? 3; return (pos.profit_pct + slPct).toFixed(1) + '%' }
+function distanceToStopLoss(pos: PositionInfo): string { if (pos.stop_loss_price && pos.stop_loss_price > 0 && pos.current_price > 0) { const dist = ((pos.current_price - pos.stop_loss_price) / pos.current_price * 100); return dist.toFixed(1) + '%'; } const slPct = normalizePct(pos.stop_loss_pct, 3); return (pos.profit_pct + slPct).toFixed(1) + '%' }
 
 // 【P1-7】交易确认弹窗(含loading防重复)
 const confirmVisible = ref(false)
@@ -118,6 +140,55 @@ async function handleConfirm() { if (confirmLoading.value) return; confirmLoadin
 
 // 【P1-6】复盘报告
 const dailyReportVisible = ref(false)
+// 盈亏曲线
+const pnlHistory = ref<{time: string, value: number}[]>([])
+const perfData = ref<Array<{time:string,net_value:number,drawdown:number}>>([])
+function updatePnlHistory() {
+  const pnl = totalPnl.value
+  if (pnl === 0 && pnlHistory.value.length === 0) return
+  pnlHistory.value.push({ time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }), value: pnl })
+  if (pnlHistory.value.length > 60) pnlHistory.value = pnlHistory.value.slice(-60)
+}
+async function fetchPerformanceHistory() {
+  try {
+    const r = await api.get(`${scannerApi}/performance-history?days=30`)
+    const p = parseResponse(r)
+    if (p.success && p.data?.length > 0) {
+      perfData.value = p.data.map((s: any) => ({ time: (s.timestamp || s.date || '').substring(5, 16), net_value: s.net_value || s.total_assets / 1000000, drawdown: s.drawdown_pct || 0 }))
+      return
+    }
+    // fallback: from timeline
+    const tl = await api.get(`${scannerApi}/timeline/history?days=30`)
+    const tp = parseResponse(tl)
+    if (tp.success && tp.data?.length > 0) {
+      let nav = 1.0, peak = 1.0
+      perfData.value = tp.data.map((item: any) => {
+        const profitAmount = item.profit_amount || 0
+        nav *= (1 + profitAmount / (1000000 * nav))
+        peak = Math.max(peak, nav)
+        const dd = nav < peak ? (nav / peak - 1) * 100 : 0
+        return { time: (item.date || item.time || '').substring(0, 16), net_value: nav, drawdown: dd }
+      })
+    }
+  } catch { /* ignore */ }
+}
+const pnlOption = computed(() => {
+  const source = perfData.value.length > 0 ? perfData.value : pnlHistory.value.map(p => ({ time: p.time, net_value: p.value / 1000000 + 1, drawdown: 0 }))
+  return {
+    grid: { top: 10, right: 10, bottom: 20, left: 50 },
+    tooltip: { trigger: 'axis' as const, formatter: (p: any) => `${p[0].axisValue}<br/>净值: ${p[0].value.toFixed(4)}${p[1] ? '<br/>回撤: ' + p[1].value.toFixed(2) + '%' : ''}` },
+    xAxis: { type: 'category', data: source.map(p => p.time), axisLabel: { color: 'var(--text-tertiary)', fontSize: 10 } },
+    yAxis: [
+      { type: 'value', axisLabel: { color: 'var(--text-tertiary)', fontSize: 10 }, splitLine: { lineStyle: { color: 'var(--border-light)' } } },
+      { type: 'value', position: 'right', axisLabel: { color: 'var(--stock-up)', fontSize: 9, formatter: '{value}%' }, splitLine: { show: false } },
+    ],
+    series: [
+      { type: 'line', data: source.map(p => p.net_value), smooth: true, lineStyle: { color: 'var(--stock-down)', width: 2 }, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'var(--stock-down-bg)' }, { offset: 1, color: 'rgba(0,0,0,0)' }] } } },
+      ...(perfData.value.length > 0 ? [{ type: 'bar' as const, yAxisIndex: 1, data: source.map(p => p.drawdown), itemStyle: { color: 'rgba(103,194,58,0.3)' }, barWidth: 3 }] : []),
+    ],
+    backgroundColor: 'transparent',
+  }
+})
 
 // 【P1-4】信号过期倒计时
 const nowMs = ref(Date.now())
@@ -153,7 +224,7 @@ async function onManualCodeChange(code: string) {
 }
 const executeManualTrade = async () => { if (!manualTrade.ts_code) return; const sideText = manualTrade.side === 'buy' ? '买入' : '卖出'; const amount = (manualTrade.quantity || 0) * (manualTrade.price || 0); showConfirm(`确认${sideText}`, `${manualTrade.stock_name || manualTrade.ts_code}\n${sideText} ${manualTrade.quantity || 0}股 × ¥${(manualTrade.price || 0).toFixed(2)} ≈ ¥${amount.toFixed(0)}`, async () => { try { const r = await api.post(`${scannerApi}/trade`, { ts_code: manualTrade.ts_code, stock_name: manualTrade.stock_name, side: manualTrade.side, quantity: manualTrade.quantity || 0, price: manualTrade.price || 0, order_type: 'market', strategy: 'manual', reason: '手动操作' }); const p = parseResponse(r); if (p.success) { ElMessage.success(`${p.data.side === 'buy' ? '买入' : '卖出'} ${p.data.ts_code} ${p.data.filled_qty}股@${p.data.filled_price}`); manualTrade.ts_code = ''; manualTrade.stock_name = ''; manualTrade.quantity = 0; manualTrade.price = 0; fetchAll(true) } else ElMessage.error('下单失败') } catch (e: any) { ElMessage.error('下单失败') } }) }
 const cumulativePnl = computed(() => { let total = 0; return timeline.value.filter(t => t.action === 'sell' && t.profit_amount != null).reduce((sum, t) => sum + (t.profit_amount || 0), 0) })
-async function fetchScanner() { try { const r = await api.get(`${scannerApi}/all`); const p = parseResponse(r); if (p.success) { const d = p.data; if (d.signals && signals.value.length > 0 && d.signals.length > signals.value.length) { playSignalSound() } if (d.status) status.value = d.status; if (d.signals) signals.value = d.signals; if (d.positions) positions.value = d.positions; if (d.timeline) timeline.value = d.timeline; if (d.orders) orders.value = d.orders } fetchLimitPools() } catch (e) { console.error(e) } }
+async function fetchScanner() { try { const r = await api.get(`${scannerApi}/all`); const p = parseResponse(r); if (p.success) { const d = p.data; if (d.signals && signals.value.length > 0 && d.signals.length > signals.value.length) { playSignalSound() } if (d.status) status.value = d.status; if (d.signals) signals.value = d.signals; if (d.positions) positions.value = d.positions; if (d.timeline) timeline.value = d.timeline; if (d.orders) orders.value = d.orders } fetchLimitPools(); updatePnlHistory() } catch (e) { console.error(e) } }
 async function fetchScannerFull() { try { const [sR, sigR, posR, tlR, ordR] = await Promise.all([api.get(`${scannerApi}/status`), api.get(`${scannerApi}/signals`), api.get(`${scannerApi}/positions`), api.get(`${scannerApi}/timeline`), api.get(`${scannerApi}/orders`)]); const sP = parseResponse(sR), sigP = parseResponse(sigR), posP = parseResponse(posR), tlP = parseResponse(tlR), ordP = parseResponse(ordR); if (sP.success) status.value = sP.data; if (sigP.success) signals.value = sigP.data; if (posP.success) positions.value = posP.data; if (tlP.success) timeline.value = tlP.data; if (ordP.success) orders.value = ordP.data || [] } catch (e) { console.error(e) } }
 async function startScanner() {
   const payload: Record<string, any> = { account_id: 'default', trade_mode: tradeMode.value }
@@ -169,6 +240,7 @@ async function forceScan() { loading.value = true; try { const payload: Record<s
 const stratCollapsed = ref<Record<string, boolean>>({ halfway_chase: true, first_limit_up: true, dragon_head: true, limit_down_qiao: true, limit_up_open: true })
 const stratSectionCollapsed = ref(true)
 const qaSectionCollapsed = ref(false)
+const timelineCollapsed = ref(true)
 function toggleStrat(id: string) { stratCollapsed.value[id] = !stratCollapsed.value[id] }
 async function dailySettlement() { try { const r = await api.post(`${scannerApi}/daily-settlement`); const p = parseResponse(r); if (p.success) { ElMessage.success(p.data?.message || '日结算完成'); await fetchScanner() } } catch (e: any) { ElMessage.error('日结算失败') } }
 async function resetAccount() { showConfirm('⚠️ 重置账户', '将清空所有持仓和交易记录，不可恢复！\n确认重置？', async () => { try { const r = await api.post(`${scannerApi}/reset`); const p = parseResponse(r); if (p.success) { ElMessage.success('账户已重置'); await fetchAll(true) } } catch (e: any) { ElMessage.error('重置失败') } }) }
@@ -189,7 +261,7 @@ async function fetchDailyReport() { try { const r = await api.get(`${scannerApi}
 async function fetchDataSources() { try { const [sR, bR] = await Promise.all([api.get('/datasource/sources'), api.get('/datasource/brokers')]); const sP = parseResponse(sR), bP = parseResponse(bR); if (sP.success) dataSources.value = sP.data || []; if (bP.success) brokers.value = bP.data || [] } catch { } }
 async function fetchHealth() { try { const r = await api.get(`${scannerApi}/health`); const p = parseResponse(r); if (p.success) healthData.value = p.data } catch { } }
 async function emergencyLiquidate() { showConfirm('🚨 紧急平仓', '将立即以市价卖出所有持仓！\n此操作不可撤销！\n\n确认紧急平仓？', async () => { emergencyLiquidating.value = true; try { const r = await api.post(`${scannerApi}/emergency-liquidate`); const p = parseResponse(r); if (p.success) { ElMessage.success(p.data?.message || '紧急平仓完成'); await fetchAll(true) } else ElMessage.error('平仓失败') } catch { ElMessage.error('紧急平仓失败') } finally { emergencyLiquidating.value = false } }) }
-async function fetchAll(force = false) { await Promise.all([fetchScanner(), fetchStrategies(), fetchDataSources(), fetchLimitPools(), fetchDailyReport(), fetchHealth()]) }
+async function fetchAll(force = false) { await Promise.all([fetchScanner(), fetchStrategies(), fetchHealth()]); fetchLimitPools(); fetchDataSources(); }
 async function fetchStrategies() { try { const [sR, rR] = await Promise.all([api.get(`${configApi}/strategies`), api.get(`${configApi}/global-risk`)]); if (sR?.success) strategies.value = sR.data; if (rR?.success) globalRisk.value = rR.data } catch (e) { console.error(e) } }
 async function toggleStrategy(sid: string, enabled: boolean) { try { await api.put(`${configApi}/strategies/${sid}`, { enabled }); await fetchStrategies(); ElMessage.success(enabled ? '已启用' : '已停用') } catch { ElMessage.error('操作失败') } }
 function openEditDialog(strategy: StrategyConfig) { editingStrategy.value = strategy; editParams.value = { ...strategy.params }; editRiskParams.value = { ...strategy.riskParams }; editTab.value = 'params'; editDialogVisible.value = true }
@@ -212,10 +284,10 @@ async function saveStrategy() {
   finally { saving.value = false }
 }
 async function resetStrategy(sid: string) { try { await api.post(`${configApi}/reset/${sid}`); await fetchStrategies(); ElMessage.success('已重置') } catch { ElMessage.error('重置失败') } }
-onMounted(async () => { await Promise.all([fetchScanner(), fetchStrategies(), fetchDataSources(), fetchLimitPools(), fetchHealth()]); connectWS(); nowTimer = setInterval(() => { nowMs.value = Date.now() }, 1000); const getRefreshInterval = () => { const n = new Date(), h = n.getHours(), m = n.getMinutes(); const isTrading = (h === 9 && m >= 30) || (h >= 10 && h < 15) || (h === 15 && m === 0); return isTrading ? 5000 : 60000 }; refreshTimer = setInterval(() => { if (!autoRefresh.value || ws?.readyState === WebSocket.OPEN) return; fetchScannerFast(); fetchHealth() }, getRefreshInterval()) })
+onMounted(async () => { await Promise.all([fetchScanner(), fetchStrategies(), fetchHealth()]); fetchLimitPools(); fetchDataSources(); fetchPerformanceHistory(); connectWS(); nowTimer = setInterval(() => { nowMs.value = Date.now() }, 1000); const getRefreshInterval = () => { const n = new Date(), h = n.getHours(), m = n.getMinutes(); const isTrading = (h === 9 && m >= 30) || (h >= 10 && h < 15) || (h === 15 && m === 0); return isTrading ? 5000 : 60000 }; refreshTimer = setInterval(() => { if (!autoRefresh.value || ws?.readyState === WebSocket.OPEN) return; fetchScanner(); fetchHealth() }, getRefreshInterval()) })
 onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer); if (nowTimer) clearInterval(nowTimer); disconnectWS() })
 function connectWS() { try { const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'; ws = new WebSocket(`${proto}//${location.host}/ws`); let wsDebounceTimer: any = null; const wsDebouncedFetch = () => { if (wsDebounceTimer) clearTimeout(wsDebounceTimer); wsDebounceTimer = setTimeout(fetchScanner, 500); }; ws.onopen = () => { ws?.send(JSON.stringify({ type: 'subscribe_scanner' })); }; ws.onmessage = (e) => { try { const d = JSON.parse(e.data); if (d.type === 'scanner_signal') { signals.value = d.signals?.length ? d.signals : signals.value; wsDebouncedFetch(); } else if (d.type === 'scanner_position') { positions.value = d.positions?.length ? d.positions : positions.value; } else if (d.type === 'scanner_timeline') { if (d.item) timeline.value = [...timeline.value, d.item]; wsDebouncedFetch(); } else if (d.type === 'scanner_status') { if (d.status) status.value = { ...status.value, ...d.status }; wsDebouncedFetch(); } } catch {} }; ws.onclose = () => { wsReconnectTimer = setTimeout(connectWS, 3000); }; ws.onerror = () => { ws?.close(); }; } catch {} }
-function disconnectWS() { if (wsDebounceTimer) clearTimeout(wsDebounceTimer); if (wsReconnectTimer) clearTimeout(wsReconnectTimer); if (ws) { ws.close(); ws = null; } }
+function disconnectWS() { if (wsReconnectTimer) clearTimeout(wsReconnectTimer); if (ws) { ws.close(); ws = null; } }
 const historyDate = ref('')
 const historyData = ref<any[]>([])
 const historyLoading = ref(false)
@@ -233,6 +305,26 @@ function onModeChange(mode: string) {
   if (mode === 'replay') {
     replayDateInput.value = ''
     replayDateVisible.value = true
+    return
+  }
+  // 实盘模式切换需要输入确认码
+  if (mode === 'gm') {
+    ElMessageBox.prompt(
+      '⚠️ 即将切换到实盘交易模式，真实资金将参与交易！\n\n请输入 LIVE 确认切换',
+      '实盘模式确认',
+      {
+        confirmButtonText: '确认切换',
+        cancelButtonText: '取消',
+        inputPattern: /^LIVE$/,
+        inputErrorMessage: '请输入 LIVE 确认',
+        type: 'warning',
+      }
+    ).then(() => {
+      ElMessage.success('已切换到实盘模式')
+    }).catch(() => {
+      // 用户取消，恢复原模式
+      nextTick(() => { tradeMode.value = status.value?.trade_mode || 'simulated' })
+    })
   }
 }
 async function confirmReplay() {
@@ -368,28 +460,26 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         </template>
         <div class="st mt-10 cp" @click="qaSectionCollapsed = !qaSectionCollapsed">⚡ 快捷操作 <span class="sc-arrow">{{ qaSectionCollapsed ? '▶' : '▼' }}</span></div>
         <div class="qa" v-if="!qaSectionCollapsed">
-          <div class="qa-group"><div class="qa-label">扫描</div>
-          <ElButton size="small" @click="manualScan" :loading="loading" :disabled="!isRunning" class="w-full">📡 手动扫描</ElButton>
-        <ElButton size="small" type="warning" @click="forceScan" :loading="loading" :disabled="!isRunning" class="w-full" title="忽略交易时间检查，消耗必盈额度">⚡ 强制扫描</ElButton>
-          <ElButton size="small" @click="dailySettlement" :disabled="!isRunning" class="w-full">📅 日结算(T+1)</ElButton>
+          <div class="qa-group"><div class="qa-label">常用</div>
+          <div class="qa-row2"><ElButton size="small" @click="manualScan" :loading="loading" :disabled="!isRunning">📡 扫描</ElButton><ElButton size="small" type="warning" @click="forceScan" :loading="loading" :disabled="!isRunning" title="忽略交易时间，消耗必盈额度">⚡ 强扫</ElButton><ElButton size="small" @click="dailySettlement" :disabled="!isRunning">📅 日结</ElButton></div>
+          <div class="qa-row2"><ElButton size="small" @click="openTradeAudit" :disabled="!timeline.length">🔍 审查</ElButton><ElButton size="small" @click="fetchDailyReport(); dailyReportVisible = true">📈 复盘</ElButton><ElButton v-if="circuitBreakerPaused" size="small" type="danger" @click="resetCircuitBreaker">🔓 解熔断</ElButton></div>
           </div>
-          <div class="qa-group"><div class="qa-label">分析</div>
-          <ElButton size="small" @click="openTradeAudit" :disabled="!timeline.length" class="w-full">🔍 审查全部交易</ElButton>
+          <details class="qa-more"><summary class="qa-more-toggle">更多操作 ▾</summary>
+          <div class="qa-group" style="margin-top:6px"><div class="qa-label">分析</div>
           <ElButton size="small" @click="openLayerDebug" :loading="layerDebugLoading" class="w-full">🧪 9层调试</ElButton>
           <ElButton size="small" @click="loadCompare" :loading="compareLoading" class="w-full">📊 回测对比</ElButton>
-          <ElButton size="small" @click="fetchDailyReport(); dailyReportVisible = true" class="w-full">📈 复盘报告</ElButton>
           <ElButton size="small" @click="openWeeklyReport" class="w-full">📊 周报</ElButton>
           </div>
           <div class="qa-group"><div class="qa-label">风控</div>
           <ElButton size="small" @click="toggleDryRun" class="w-full">{{ dryRun ? '🔴 关闭调试' : '🔍 开启调试' }}</ElButton>
           <ElButton v-if="circuitBreakerPaused" size="small" type="danger" @click="resetCircuitBreaker" class="w-full">🔓 重置熔断</ElButton>
-          <ElButton v-if="positions.length" size="small" type="danger" @click="sellAllPositions" class="w-full">⚡ 一键清仓</ElButton>
           <ElButton size="small" type="warning" @click="resetAccount" class="w-full">🗑️ 清仓重置</ElButton>
           </div>
           <div class="qa-group"><div class="qa-label">导出</div>
-          <ElButton size="small" @click="exportTradeLog" class="w-full">📥 导出交易日志</ElButton>
+          <ElButton size="small" @click="exportTradeLog" class="w-full">📥 导出日志</ElButton>
           <ElButton size="small" @click="saveSnapshot" class="w-full">📸 保存快照</ElButton>
           </div>
+          </details>
         </div>
         <div class="st mt-10">🔧 手动下单</div>
         <div class="mf">
@@ -407,8 +497,8 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <div class="st">🎯 活跃信号 <div style="display:inline-flex;gap:2px;margin-left:6px"><ElTag v-for="f in [{k:'all',l:'全部'},{k:'halfway_chase',l:'半路'},{k:'first_limit_up',l:'首板'},{k:'limit_down_qiao',l:'跌停'},{k:'anomaly',l:'异动'}]" :key="f.k" size="small" :type="signalFilter===f.k?'primary':'info'" class="cp" @click="signalFilter=f.k">{{ f.l }}</ElTag></div> <ElBadge :value="filteredSignals.length" :max="99" style="margin-left:4px" /></div>
         <div class="sl">
           <div v-if="!signals.length" class="empty">启动后扫描获取信号</div>
-          <div v-for="sig in filteredSignals" :key="sig.ts_code + sig.strategy" class="sig-row" :title="`${sig.ts_code} ${sig.stock_name} | ${sig.strategy_name} | 量比${sig.volume_ratio?.toFixed(1) || '-'} | 换手${sig.turnover_rate?.toFixed(1) || '-'}% | ${sig.reason}`">
-            <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="min-width:52px;text-align:center">{{ sig.strategy_name }}</ElTag><ElTag v-if="sig.signal_status === 'executed'" size="small" type="success">已买</ElTag><ElTag v-if="sig.signal_status === 'skipped'" size="small" type="warning">跳过</ElTag><ElTag v-if="sig.signal_status === 'expired'" size="small" type="info">过期</ElTag><span class="code">{{ sig.ts_code }}</span><span class="name">{{ sig.stock_name }}</span><span v-if="sig.signal_status === 'new' && sigRemaining(sig) >= 0" class="expire-tag" :class="{ urgent: sigRemaining(sig) < 60000 }">⏱{{ formatRemaining(sigRemaining(sig)) }}</span><span v-if="sig.volume_ratio" class="factor">量比{{ sig.volume_ratio.toFixed(1) }}</span><span v-if="sig.turnover_rate" class="factor">换手{{ sig.turnover_rate.toFixed(1) }}%</span><template v-if="sig.key_factors"><span v-for="(v, k) in sig.key_factors" :key="k" class="factor kf">{{ v }}</span></template><span :class="sig.pct_chg >= 0 ? 'up' : 'down'" class="pct ml-auto" style="font-weight:600">{{ sig.pct_chg >= 0 ? '+' : '' }}{{ sig.pct_chg.toFixed(1) }}%</span><ElButton v-if="!dryRun && sig.signal_status === 'new'" size="small" type="danger" plain @click="quickBuy(sig)" class="btn-xs">买</ElButton><ElButton v-if="sig.decision_detail" size="small" type="info" plain @click="openTradeDetail(sig.ts_code)" class="btn-xs">🔍</ElButton><ElButton v-if="sig.layer_trace" size="small" type="warning" plain @click="openScanTrace(sig.ts_code)" class="btn-xs">🧪</ElButton>
+          <div v-for="sig in filteredSignals" :key="sig.ts_code + sig.strategy" class="sig-row" :title="`${sig.ts_code} ${sig.stock_name}\n策略: ${sig.strategy_name}\n量比: ${sig.volume_ratio?.toFixed(1) || '-'}\n换手: ${sig.turnover_rate?.toFixed(1) || '-'}%\n${sig.reason}`">
+            <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="min-width:52px;text-align:center">{{ sig.strategy_name }}</ElTag><ElTag v-if="sig.signal_status === 'executed'" size="small" type="success">已买</ElTag><ElTag v-if="sig.signal_status === 'skipped'" size="small" type="warning">跳过</ElTag><ElTag v-if="sig.signal_status === 'expired'" size="small" type="info">过期</ElTag><span class="code">{{ sig.ts_code }}</span><span class="name">{{ sig.stock_name }}</span><span v-if="sig.signal_status === 'new' && sigRemaining(sig) >= 0" class="expire-tag" :class="{ urgent: sigRemaining(sig) < 60000 }">⏱{{ formatRemaining(sigRemaining(sig)) }}</span><span :class="sig.pct_chg >= 0 ? 'up' : 'down'" class="pct ml-auto" style="font-weight:600">{{ sig.pct_chg >= 0 ? '+' : '' }}{{ sig.pct_chg.toFixed(1) }}%</span><ElButton v-if="!dryRun && sig.signal_status === 'new'" size="small" type="danger" plain @click="quickBuy(sig)" class="btn-xs">买</ElButton><ElButton v-if="sig.decision_detail" size="small" type="info" plain @click="openTradeDetail(sig.ts_code)" class="btn-xs">🔍</ElButton><ElButton v-if="sig.layer_trace" size="small" type="warning" plain @click="openScanTrace(sig.ts_code)" class="btn-xs">🧪</ElButton>
           </div>
         </div>
 
@@ -421,21 +511,34 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           <div v-if="!positions.length" class="empty">暂无持仓</div>
           <div v-for="pos in sortedPositions" :key="pos.ts_code" class="pos-card">
             <div class="pos-top"><ElTag size="small" :color="strategyMeta[pos.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="font-size:10px;min-width:48px;text-align:center">{{ pos.strategy_name || strategyCN(pos.strategy) }}</ElTag><span class="code">{{ pos.ts_code }}</span><span class="name">{{ pos.stock_name }}</span><span :class="pos.profit_pct >= 0 ? 'up' : 'down'" class="pct">{{ pos.profit_pct >= 0 ? '+' : '' }}{{ pos.profit_pct.toFixed(1) }}%</span><span class="mini-bar"><span class="mini-bar-fill" :style="{ width: Math.min(Math.abs(pos.profit_pct) / 10 * 100, 100) + '%' }" :class="pos.profit_pct >= 0 ? 'bar-up' : 'bar-down'"></span></span><span v-if="pos.today_buy > 0" class="t1-tag">T+1</span><ElButton size="small" type="danger" plain @click="quickSell(pos)" :disabled="pos.available_qty <= 0" class="btn-xs ml-auto">卖出</ElButton><ElButton size="small" type="info" plain @click="openTradeDetail(pos.ts_code)" class="btn-xs">详情</ElButton></div>
-            <div class="pos-info"><span>{{ pos.shares }}股</span><span>成本{{ pos.cost_price.toFixed(2) }}</span><span>现价{{ pos.current_price.toFixed(2) }}</span><span v-if="pos.market_value" class="mv">市值{{ (pos.market_value / 10000).toFixed(1) }}万</span><span v-if="pos.profit_amount != null" :class="pos.profit_amount >= 0 ? 'up' : 'down'" class="pamt">{{ pos.profit_amount >= 0 ? '+' : '' }}¥{{ Math.abs(pos.profit_amount).toFixed(0) }}</span></div>
+            <div class="pos-info"><span>{{ pos.shares }}股</span><span>成本¥{{ pos.cost_price.toFixed(2) }}</span><span>现价¥{{ pos.current_price.toFixed(2) }}</span><span v-if="pos.market_value" class="mv">市值{{ (pos.market_value / 10000).toFixed(1) }}万</span><span v-if="pos.profit_amount != null" :class="pos.profit_amount >= 0 ? 'up' : 'down'" class="pamt">{{ pos.profit_amount >= 0 ? '+' : '' }}¥{{ Math.abs(pos.profit_amount).toFixed(0) }}</span></div>
+            <div class="pos-prices-row">
+              <span v-if="pos.stop_loss_price" class="pp-sl">止损¥{{ pos.stop_loss_price.toFixed(2) }}</span>
+              <span v-if="pos.take_profit_price" class="pp-tp">止盈¥{{ pos.take_profit_price.toFixed(2) }}</span>
+              <span v-if="pos.trailing_stop?.activated" class="pp-trail">📍追踪¥{{ pos.trailing_stop.stop_price?.toFixed(2) }}({{ (pos.trailing_stop.trailing_stop_pct * 100).toFixed(0) }}%)</span>
+              <span v-if="pos.risk_level && pos.risk_level !== 'normal'" class="pp-risk" :class="pos.risk_level">{{ {high:'🔴高风险',elevated:'🟡较高',low:'🟢低风险'}[pos.risk_level] || pos.risk_level }}</span>
+            </div>
             <div v-if="pos.stop_loss_pct != null" class="pos-risk-row">
-              <div class="risk-track"><div class="risk-fill" :style="{ width: Math.max(0, Math.min(100, (pos.profit_pct + pos.stop_loss_pct) / (pos.stop_loss_pct + (pos.take_profit_pct || 7)) * 100)) + '%' }" :class="pos.profit_pct + pos.stop_loss_pct < 1 ? 'danger' : pos.profit_pct + pos.stop_loss_pct < 2 ? 'warning' : 'safe'"></div></div>
-              <div class="risk-labels-row"><span class="rl stop">止损{{ pos.stop_loss_pct.toFixed(1) }}%</span><span class="rd" :class="{ danger: pos.profit_pct + pos.stop_loss_pct < 2 }">距止损{{ (pos.profit_pct + pos.stop_loss_pct).toFixed(1) }}%</span><span class="rl profit">止盈{{ (pos.take_profit_pct || 7).toFixed(1) }}%</span></div>
+              <div class="risk-track"><div class="risk-fill" :style="{ width: Math.max(0, Math.min(100, (pos.profit_pct + normalizePct(pos.stop_loss_pct, 3)) / (normalizePct(pos.stop_loss_pct, 3) + normalizePct(pos.take_profit_pct, 7)) * 100)) + '%' }" :class="pos.profit_pct + normalizePct(pos.stop_loss_pct, 3) < 1 ? 'danger' : pos.profit_pct + normalizePct(pos.stop_loss_pct, 3) < 2 ? 'warning' : 'safe'"></div></div>
+              <div class="risk-labels-row"><span class="rl stop">止损{{ formatSlTp(pos.stop_loss_pct, 3) }}</span><span v-if="pos.trailing_stop?.activated" class="rl trail">📍{{ (pos.trailing_stop.trailing_stop_pct * 100).toFixed(0) }}%</span><span class="rd" :class="{ danger: pos.profit_pct + normalizePct(pos.stop_loss_pct, 3) < 2 }">距止损{{ (pos.profit_pct + normalizePct(pos.stop_loss_pct, 3)).toFixed(1) }}%</span><span class="rl profit">止盈{{ formatSlTp(pos.take_profit_pct, 7) }}</span></div>
             </div>
           </div>
         </div>
+
+        <!-- 盈亏曲线 -->
+        <div class="st" style="margin-top:8px">📈 盈亏曲线</div>
+        <div v-if="perfData.length || pnlHistory.length" class="pnl-chart-wrap">
+          <VChart :option="pnlOption" autoresize style="height:140px;width:100%" />
+        </div>
+        <div v-else class="empty" style="padding:12px 0">启动后自动生成</div>
 
       </div>
     </div>
 
     <!-- 底部时间线 -->
     <div v-if="isRunning || timeline.length" class="mm-footer">
-      <div class="tl-header"><div class="st">⏱️ 交易时间线 ({{ timeline.length }}) <span v-if="cumulativePnl !== 0" :class="cumulativePnl >= 0 ? 'up' : 'down'" style="font-size:12px;margin-left:6px">累计{{ cumulativePnl >= 0 ? '+' : '' }}¥{{ cumulativePnl.toFixed(0) }}</span> <ElButton v-if="timeline.length" size="small" type="warning" @click="openTradeAudit" style="margin-left:6px">🔍 审查全部</ElButton> <div style="display:inline-flex;align-items:center;gap:4px;margin-left:8px"><ElDatePicker v-model="historyDate" type="date" placeholder="选择日期" size="small" value-format="YYYY-MM-DD" style="width:140px" :disabled-date="(d: Date) => d > new Date()" /><ElButton size="small" @click="loadHistory" :loading="historyLoading" style="padding:2px 8px;font-size:11px">回放</ElButton><ElButton v-if="historyData.length" size="small" type="info" @click="historyData=[];historyDate=''" style="padding:2px 8px;font-size:11px">返回今日</ElButton></div></div></div>
-      <div class="tl-body">
+      <div class="tl-header"><div class="st cp" @click="timelineCollapsed = !timelineCollapsed">⏱️ 交易时间线 ({{ timeline.length }}) <span v-if="cumulativePnl !== 0" :class="cumulativePnl >= 0 ? 'up' : 'down'" style="font-size:12px;margin-left:6px">累计{{ cumulativePnl >= 0 ? '+' : '' }}¥{{ cumulativePnl.toFixed(0) }}</span> <span class="sc-arrow">{{ timelineCollapsed ? '▶' : '▼' }}</span></div> <ElButton v-if="timeline.length" size="small" type="warning" @click="openTradeAudit" style="margin-left:6px">🔍 审查</ElButton> <div style="display:inline-flex;align-items:center;gap:4px;margin-left:8px"><ElDatePicker v-model="historyDate" type="date" placeholder="日期" size="small" value-format="YYYY-MM-DD" style="width:130px" :disabled-date="(d: Date) => d > new Date()" /><ElButton size="small" @click="loadHistory" :loading="historyLoading" style="padding:2px 8px;font-size:11px">回放</ElButton><ElButton v-if="historyData.length" size="small" type="info" @click="historyData=[];historyDate=''" style="padding:2px 8px;font-size:11px">返回</ElButton></div></div>
+      <div v-if="!timelineCollapsed" class="tl-body">
         <div class="tl-col" style="flex:3">
           <div v-if="historyData.length" class="history-tag">📜 {{ historyDate }} 历史回放 ({{ historyData.length }}条)</div>
           <div v-if="!historyData.length && !timeline.length" class="empty">暂无交易</div>
@@ -460,8 +563,8 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
     <!-- 策略编辑弹窗 -->
     <ElDialog v-model="editDialogVisible" :title="`编辑 ${editingStrategy?.name}`" width="560px" :close-on-click-modal="false">
       <ElTabs v-model="editTab">
-        <ElTabPane label="选股参数" name="params"><div v-for="p in editingStrategy?.paramDescriptions || []" :key="p.key" style="margin-bottom:12px"><div style="font-size:13px;margin-bottom:4px">{{ p.label }} <span class="text-tertiary">({{ p.min }}~{{ p.max }}{{ p.unit }})</span></div><ElSlider v-model="editParams[p.key]" :min="p.min" :max="p.max" :step="p.step" show-input size="small" /></div></ElTabPane>
-        <ElTabPane label="风控参数" name="risk"><div v-for="p in editingStrategy?.riskDescriptions || []" :key="p.key" style="margin-bottom:12px"><div style="font-size:13px;margin-bottom:4px">{{ p.label }} <span class="text-tertiary">({{ p.min }}~{{ p.max }}{{ p.unit }})</span></div><ElSlider v-model="editRiskParams[p.key]" :min="p.min" :max="p.max" :step="p.step" show-input size="small" /></div></ElTabPane>
+        <ElTabPane label="选股参数" name="params"><div v-for="p in editingStrategy?.paramDescriptions || []" :key="p.key" style="margin-bottom:12px"><div style="font-size:13px;margin-bottom:4px">{{ p.label }} <span class="text-tertiary">({{ p.min }}~{{ p.max }}{{ p.unit }})</span></div><ElInputNumber v-model="editParams[p.key]" :min="p.min" :max="p.max" :step="p.step" :precision="p.step < 1 ? 2 : 1" size="small" controls-position="right" style="width:160px" /></div></ElTabPane>
+        <ElTabPane label="风控参数" name="risk"><div v-for="p in editingStrategy?.riskDescriptions || []" :key="p.key" style="margin-bottom:12px"><div style="font-size:13px;margin-bottom:4px">{{ p.label }} <span class="text-tertiary">({{ p.min }}~{{ p.max }}{{ p.unit }})</span></div><ElInputNumber v-model="editRiskParams[p.key]" :min="p.min" :max="p.max" :step="p.step" :precision="p.step < 1 ? 2 : 1" size="small" controls-position="right" style="width:160px" /></div></ElTabPane>
       </ElTabs>
       <template #footer><ElButton @click="editDialogVisible = false">取消</ElButton><ElButton type="primary" :loading="saving" @click="saveStrategy">保存</ElButton></template>
     </ElDialog>
@@ -545,8 +648,34 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
             <div class="td2-card"><div class="td2-label">成本</div><div class="td2-val">¥{{ tradeDetailData.position.cost_price?.toFixed(2) }}</div></div>
             <div class="td2-card"><div class="td2-label">现价</div><div class="td2-val">¥{{ tradeDetailData.position.current_price?.toFixed(2) }}</div></div>
             <div class="td2-card"><div class="td2-label">盈亏</div><div class="td2-val" :class="tradeDetailData.position.profit_pct >= 0 ? 'up' : 'down'">{{ tradeDetailData.position.profit_pct >= 0 ? '+' : '' }}{{ tradeDetailData.position.profit_pct?.toFixed(2) }}%</div></div>
-            <div class="td2-card" v-if="tradeDetailData.position.stop_loss_pct"><div class="td2-label">止损</div><div class="td2-val text-stock-up">{{ tradeDetailData.position.stop_loss_pct?.toFixed(1) }}%</div></div>
-            <div class="td2-card" v-if="tradeDetailData.position.take_profit_pct"><div class="td2-label">止盈</div><div class="td2-val text-stock-down">{{ tradeDetailData.position.take_profit_pct?.toFixed(1) }}%</div></div>
+            <div class="td2-card" v-if="tradeDetailData.position.stop_loss_pct"><div class="td2-label">止损</div><div class="td2-val text-stock-up">{{ formatSlTp(tradeDetailData.position.stop_loss_pct, 3) }}</div></div>
+            <div class="td2-card" v-if="tradeDetailData.position.take_profit_pct"><div class="td2-label">止盈</div><div class="td2-val text-stock-down">{{ formatSlTp(tradeDetailData.position.take_profit_pct, 7) }}</div></div>
+            <div class="td2-card" v-if="tradeDetailData.position.stop_loss_price"><div class="td2-label">止损价</div><div class="td2-val text-stock-up">¥{{ tradeDetailData.position.stop_loss_price?.toFixed(2) }}</div></div>
+            <div class="td2-card" v-if="tradeDetailData.position.take_profit_price"><div class="td2-label">止盈价</div><div class="td2-val text-stock-down">¥{{ tradeDetailData.position.take_profit_price?.toFixed(2) }}</div></div>
+          </div>
+          <!-- 追踪止损 -->
+          <div v-if="tradeDetailData.position.trailing_stop" class="td2-trail-section">
+            <div class="td2-chain-title">📍 追踪止损</div>
+            <div class="td2-grid">
+              <div class="td2-card sm"><div class="td2-label">状态</div><div class="td2-val" :class="tradeDetailData.position.trailing_stop.activated ? 'up' : ''">{{ tradeDetailData.position.trailing_stop.activated ? '✅已激活' : '⏸未激活' }}</div></div>
+              <div class="td2-card sm"><div class="td2-label">比例</div><div class="td2-val">{{ (tradeDetailData.position.trailing_stop.trailing_stop_pct * 100).toFixed(1) }}%</div></div>
+              <div class="td2-card sm"><div class="td2-label">最高价</div><div class="td2-val">¥{{ tradeDetailData.position.trailing_stop.high_price?.toFixed(2) }}</div></div>
+              <div class="td2-card sm"><div class="td2-label">止损价</div><div class="td2-val text-stock-up">¥{{ tradeDetailData.position.trailing_stop.stop_price?.toFixed(2) }}</div></div>
+            </div>
+            <div class="td2-trail-ctrl">
+              <ElInputNumber v-model="trailEditPct" :min="1" :max="20" :step="0.5" :precision="1" size="small" style="width:110px" />
+              <span style="font-size:12px;color:var(--text-tertiary)">%回撤</span>
+              <ElButton size="small" type="primary" @click="setTrailingStop(tradeDetailData.ts_code, true)" :loading="trailSaving">激活</ElButton>
+              <ElButton v-if="tradeDetailData.position.trailing_stop.activated" size="small" @click="setTrailingStop(tradeDetailData.ts_code, false)" :loading="trailSaving">停用</ElButton>
+            </div>
+          </div>
+          <div v-else class="td2-trail-section">
+            <div class="td2-chain-title">📍 追踪止损</div>
+            <div class="td2-trail-ctrl">
+              <ElInputNumber v-model="trailEditPct" :min="1" :max="20" :step="0.5" :precision="1" size="small" style="width:110px" />
+              <span style="font-size:12px;color:var(--text-tertiary)">%回撤</span>
+              <ElButton size="small" type="primary" @click="setTrailingStop(tradeDetailData.ts_code, true)" :loading="trailSaving">激活追踪止损</ElButton>
+            </div>
           </div>
         </div>
       </div>
@@ -1024,4 +1153,30 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .rb-ds-item { padding: 1px 6px; border-radius: 3px; font-weight: 500; }
 .rb-ds-item.ok { color: var(--stock-down); background: var(--stock-down-bg); }
 .rb-ds-item.err { color: var(--stock-up); background: var(--stock-up-bg); }
+
+/* P1: 持仓价格行 */
+.pos-prices-row { display: flex; align-items: center; gap: 8px; padding: 2px 0; font-size: 11px; flex-wrap: wrap; }
+.pp-sl { color: var(--stock-up); }
+.pp-tp { color: var(--stock-down); }
+.pp-trail { color: var(--el-color-warning); }
+.pp-risk { font-weight: 600; }
+.pp-risk.high { color: var(--stock-up); }
+.pp-risk.elevated { color: var(--el-color-warning); }
+.pp-risk.low { color: var(--stock-down); }
+.risk-labels-row .rl.trail { color: var(--el-color-warning); font-size: 10px; }
+
+/* P1: 快捷操作常用行 */
+.qa-row2 { display: flex; gap: 4px; margin-bottom: 4px; }
+.qa-row2 .ElButton, .qa-row2 > button { flex: 1; }
+.qa-more { margin-top: 6px; }
+.qa-more-toggle { cursor: pointer; font-size: 12px; color: var(--text-tertiary); padding: 4px 0; user-select: none; }
+.qa-more-toggle:hover { color: var(--text-primary); }
+.qa-more[open] .qa-more-toggle { color: var(--text-primary); margin-bottom: 4px; }
+
+/* P1: 追踪止损区域 */
+.td2-trail-section { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border-default); }
+.td2-trail-ctrl { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+
+/* 盈亏曲线 */
+.pnl-chart-wrap { background: var(--bg-elevated); border-radius: 6px; padding: 4px; margin-top: 4px; }
 </style>

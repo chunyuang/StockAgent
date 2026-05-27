@@ -22,6 +22,7 @@ import {
   modeMeta, modeLabel,
   parseResponse, signalRemaining, formatRemaining,
   formatMoney, formatPct,
+  normalizePct, formatSlTp,
 } from '@/utils/scanner'
 
 // ============ 类型 ============
@@ -348,6 +349,19 @@ const posDetailLoading = ref(false)
 const posRiskSL = ref(3.0)
 const posRiskTP = ref(7.0)
 const posRiskSaving = ref(false)
+const cockpitTrailPct = ref(3)
+const cockpitTrailSaving = ref(false)
+async function setCockpitTrailingStop(ts_code: string, activated: boolean) {
+  cockpitTrailSaving.value = true
+  try {
+    const r = await api.put(`${scannerApi}/trailing-stop/${ts_code}`, { trailing_stop_pct: cockpitTrailPct.value / 100, activated })
+    const p = parseResponse(r)
+    if (p.success) {
+      ElMessage.success(activated ? '追踪止损已激活' : '追踪止损已停用')
+      await fetchAll()
+    } else ElMessage.warning(p.data?.message || '操作失败')
+  } catch { ElMessage.error('操作失败') } finally { cockpitTrailSaving.value = false }
+}
 async function openPositionDetail(pos: PositionInfo) {
   posDetailLoading.value = true
   posDetailVisible.value = true
@@ -355,12 +369,12 @@ async function openPositionDetail(pos: PositionInfo) {
     const r = await api.get(`${scannerApi}/trade-detail/${pos.ts_code}`)
     if (r?.success) {
       posDetailData.value = r.data
-      posRiskSL.value = r.data.position?.stop_loss_pct || 3.0
-      posRiskTP.value = r.data.position?.take_profit_pct || 7.0
+      posRiskSL.value = normalizePct(r.data.position?.stop_loss_pct, 3)
+      posRiskTP.value = normalizePct(r.data.position?.take_profit_pct, 7)
     }
     else posDetailData.value = { ts_code: pos.ts_code, position: { shares: pos.available_qty, cost_price: pos.cost_price || pos.avg_cost, current_price: pos.current_price, profit_pct: pos.profit_pct, strategy: pos.strategy, stop_loss_pct: pos.stop_loss_pct, take_profit_pct: pos.take_profit_pct } }
-    posRiskSL.value = posDetailData.value?.position?.stop_loss_pct || 3.0
-    posRiskTP.value = posDetailData.value?.position?.take_profit_pct || 7.0
+    posRiskSL.value = normalizePct(posDetailData.value?.position?.stop_loss_pct, 3)
+    posRiskTP.value = normalizePct(posDetailData.value?.position?.take_profit_pct, 7)
   } catch { posDetailData.value = null } finally { posDetailLoading.value = false }
 }
 
@@ -383,14 +397,15 @@ async function toggleCircuitBreaker(action: 'pause' | 'reset') {
 
 // 持仓风控辅助
 function riskBarWidth(pos: PositionInfo): number {
-  const slPct = Math.abs(pos.stop_loss_pct || 3)
-  const tpPct = pos.take_profit_pct || 7
+  const slPct = normalizePct(pos.stop_loss_pct, 3)
+  const tpPct = normalizePct(pos.take_profit_pct, 7)
   const range = slPct + tpPct
   const current = pos.profit_pct + slPct // 从止损线算起
   return Math.max(0, Math.min(100, current / range * 100))
 }
 function riskBarClass(pos: PositionInfo): string {
-  const distToStop = pos.profit_pct + (pos.stop_loss_pct || 3)
+  const slPct = normalizePct(pos.stop_loss_pct, 3)
+  const distToStop = pos.profit_pct + slPct
   if (distToStop < 1) return 'danger'
   if (distToStop < 2) return 'warning'
   return 'safe'
@@ -398,25 +413,17 @@ function riskBarClass(pos: PositionInfo): string {
 // 【V59:追踪止损在进度条上的位置】
 function trailBarPos(pos: PositionInfo): number {
   if (!pos.trailing_stop?.activated || !pos.stop_loss_pct || !pos.take_profit_pct) return 0
-  const slPct = Math.abs(pos.stop_loss_pct)
-  const tpPct = pos.take_profit_pct
+  const slPct = normalizePct(pos.stop_loss_pct, 3)
+  const tpPct = normalizePct(pos.take_profit_pct, 7)
   const trailPct = pos.trailing_stop.trailing_stop_pct * 100
-  // 追踪止损距止损线的比例
-  const distFromSL = slPct - trailPct  // 如: SL=3%, trail=2%, 距离=1%
   const range = slPct + tpPct
-  const posOnBar = (slPct - trailPct + slPct) / range * 100  // 归一化到0-100
-  // 【V61-P2-10修复:正确计算追踪止损在风险条上的位置】
-  // 逻辑: 用当前profit_pct反推追踪止损的相对位置
-  // profit_pct=0时追踪止损在止损端,profit_pct=take_profit时在止盈端
+  if (range <= 0) return 50
+  // 【V61-P2-10修复:用当前profit_pct反推追踪止损在风险条上的位置】
+  // profit_pct=0时在止损端,profit_pct=take_profit时在止盈端
   const currentPnl = pos.profit_pct ?? 0
-  if (range > 0) {
-    // 追踪止损价位: 从当前最高利润回撤trailPct%
-    // 在风险条上: 越接近止盈端=越安全,越接近止损端=越危险
-    const trailTriggerPnl = currentPnl - trailPct  // 追踪止损触发时的利润
-    const posOnBar = ((trailTriggerPnl + slPct) / range) * 100
-    return Math.max(5, Math.min(95, posOnBar))
-  }
-  return Math.max(5, Math.min(95, 50))  // fallback
+  const trailTriggerPnl = currentPnl - trailPct  // 追踪止损触发时的利润
+  const posOnBar = ((trailTriggerPnl + slPct) / range) * 100
+  return Math.max(5, Math.min(95, posOnBar))
 }
 
 // 持仓快捷卖出
@@ -510,8 +517,8 @@ async function quickBuySignal(sig: ScanSignal) {
     const sp = paramR?.success ? paramR.data : null
     // 【V59修复:P0-1】scanner /params返回小数(0.03/0.07),/positions返回百分比(3.0/7.0)
     // 如果值<1说明是小数需×100;如果>=1说明已是百分比
-    const slPct = sp?.stop_loss_pct ? (sp.stop_loss_pct < 1 ? (sp.stop_loss_pct * 100).toFixed(1) : sp.stop_loss_pct.toFixed(1)) : '3.0'
-    const tpPct = sp?.take_profit_pct ? (sp.take_profit_pct < 1 ? (sp.take_profit_pct * 100).toFixed(1) : sp.take_profit_pct.toFixed(1)) : '7.0'
+    const slPct = formatSlTp(sp?.stop_loss_pct, 3)
+    const tpPct = formatSlTp(sp?.take_profit_pct, 7)
     const holdDays = sp?.max_hold_days || '?'
     // 预估仓位
     const availCash = account.value.available_cash
@@ -923,14 +930,14 @@ onUnmounted(() => {
                 </div>
               </div>
               <div class="risk-labels">
-                <span class="rl-sl">止损{{ pos.stop_loss_pct }}%</span>
+                <span class="rl-sl">止损{{ formatSlTp(pos.stop_loss_pct, 3) }}</span>
                 <span v-if="pos.trailing_stop?.activated" class="rl-trail">
                   📍{{ (pos.trailing_stop.trailing_stop_pct*100).toFixed(0) }}%
                 </span>
-                <span class="rl-dist" :class="pos.profit_pct + (pos.stop_loss_pct||3) < 1 ? 'danger' : ''">
-                  距止损{{ (pos.profit_pct + (pos.stop_loss_pct||3)).toFixed(1) }}%
+                <span class="rl-dist" :class="pos.profit_pct + normalizePct(pos.stop_loss_pct, 3) < 1 ? 'danger' : ''">
+                  距止损{{ (pos.profit_pct + normalizePct(pos.stop_loss_pct, 3)).toFixed(1) }}%
                 </span>
-                <span class="rl-tp">止盈{{ pos.take_profit_pct }}%</span>
+                <span class="rl-tp">止盈{{ formatSlTp(pos.take_profit_pct, 7) }}</span>
               </div>
               <!-- 风险等级标记 -->
               <div v-if="pos.risk_level && pos.risk_level !== 'normal'" class="risk-level-tag" :class="pos.risk_level">
@@ -1053,6 +1060,22 @@ onUnmounted(() => {
               <ElButton size="small" type="primary" @click="savePosRisk" :loading="posRiskSaving">保存</ElButton>
             </div>
             <div class="pd-risk-hint">修改后仅对该持仓生效，不影响策略全局参数</div>
+            <!-- 追踪止损 -->
+            <div style="margin-top:10px;padding-top:8px;border-top:1px dashed var(--border-default)">
+              <div class="pd-risk-row">
+                <span class="pd-cl">📍追踪止损</span>
+                <template v-if="posDetailData.position?.trailing_stop?.activated">
+                  <span class="pd-cv" style="color:var(--el-color-warning)">{{ (posDetailData.position.trailing_stop.trailing_stop_pct * 100).toFixed(1) }}%</span>
+                  <span class="pd-cv text-stock-up">¥{{ posDetailData.position.trailing_stop.stop_price?.toFixed(2) }}</span>
+                  <ElButton size="small" @click="setCockpitTrailingStop(posDetailData.ts_code, false)" :loading="cockpitTrailSaving">停用</ElButton>
+                </template>
+                <template v-else>
+                  <ElInputNumber v-model="cockpitTrailPct" size="small" :min="1" :max="20" :step="0.5" :precision="1" style="width:90px" />
+                  <span class="pd-unit">%回撤</span>
+                  <ElButton size="small" type="primary" @click="setCockpitTrailingStop(posDetailData.ts_code, true)" :loading="cockpitTrailSaving">激活</ElButton>
+                </template>
+              </div>
+            </div>
           </div>
         </div>
         <!-- 买入详情 -->

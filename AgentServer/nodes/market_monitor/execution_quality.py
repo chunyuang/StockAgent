@@ -189,9 +189,11 @@ class PreTradeChecker:
             return False
         prices = getattr(self._broker, '_realtime_prices', {})
         info = prices.get(ts_code, {})
-        if info.get("price", 0) <= 0:
-            return True
-        return False
+        if isinstance(info, (int, float)):
+            return info <= 0
+        if isinstance(info, dict):
+            return info.get("price", 0) <= 0
+        return True
 
 
 class SlippageModel:

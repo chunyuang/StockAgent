@@ -48,6 +48,76 @@ const limitUpOpenTitle = computed(() => `📈 涨停开板策略 ${props.form.st
 const dragonHeadTitle = computed(() => `🐲 龙头低吸策略 ${props.form.strategyConfigs.dragon_head.enabled ? '✅' : '❌'} (连板≥${props.form.strategyConfigs.dragon_head.params.min_consecutive_limit}板, 回调${(props.form.strategyConfigs.dragon_head.params.min_correction_pct * 100).toFixed(1)}%~${(props.form.strategyConfigs.dragon_head.params.max_correction_pct * 100).toFixed(1)}%, 止损${(props.form.strategyConfigs.dragon_head.riskParams.stop_loss_pct * 100).toFixed(1)}%/止盈${(props.form.strategyConfigs.dragon_head.riskParams.take_profit_pct * 100).toFixed(1)}%)`)
 const limitDownQiaoTitle = computed(() => `💥 跌停翘板策略 ${props.form.strategyConfigs.limit_down_qiao.enabled ? '✅' : '❌'} (连板≥${props.form.strategyConfigs.limit_down_qiao.params.min_consecutive_limit}板, 翘板金额≥${props.form.strategyConfigs.limit_down_qiao.params.min_qiao_amount}万, 止损${(props.form.strategyConfigs.limit_down_qiao.riskParams.stop_loss_pct * 100).toFixed(1)}%/止盈${(props.form.strategyConfigs.limit_down_qiao.riskParams.take_profit_pct * 100).toFixed(1)}%)`)
 
+// ============ 策略/配置描述 ============
+const sectionDescriptions: Record<string, { title: string; desc: string; tips?: string[] }> = {
+  dataSource: {
+    title: '🔌 数据源配置',
+    desc: '定义回测的数据来源，包括K线周期、复权方式和股票池范围。',
+    tips: ['日线适合隔日交易策略，1分钟适合盘中策略', '前复权可消除分红除权影响，回测更准确', '股票池留空则覆盖全市场A股']
+  },
+  baseConfig: {
+    title: '📅 基础配置',
+    desc: '回测的时间范围和初始资金设置。',
+    tips: ['建议选择3个月以上区间，样本量足够', '初始资金影响仓位管理，建议≥100万']
+  },
+  tradeParams: {
+    title: '💹 交易参数',
+    desc: '全局交易规则，包括止损止盈、仓位管理和交易成本。策略级风控参数可覆盖这些默认值。',
+    tips: ['止损3%~5%为超短常见范围', '总仓位70%留30%现金应对加仓', '滑点2‰模拟涨停排队的真实成交偏差', '佣金万3+印花税千1为典型交易成本']
+  },
+  globalFilter: {
+    title: '🔍 全局筛选',
+    desc: '全策略共用的股票过滤规则，不满足条件的股票不会进入任何策略的候选池。',
+    tips: ['剔除ST避免退市风险股', '次新股≥60天排除上市初期不稳定波动', '成交额≥5000万确保流动性', '换手率≥3%排除无人关注的僵尸股']
+  },
+  forceEmpty: {
+    title: '⚠️ 强制空仓',
+    desc: '市场极端情况下的保护机制。当大盘大跌、跌停家数激增时，强制卖出所有持仓。',
+    tips: ['大盘跌≥2%+跌停≥50只 → 极端恐慌信号', '触发后次日不会再买入，直到情绪恢复', '建议保持开启，避免系统性暴跌风险']
+  },
+  sentimentCycle: {
+    title: '🧠 情绪周期',
+    desc: '通过多维度指标量化市场情绪，影响各策略的信号强度和仓位分配。',
+    tips: ['涨停/跌停家数反映多空力量对比', '炸板率反映打板封板质量', '北向资金反映外资流向偏好', '权重之和无需为1，各自独立缩放']
+  },
+  auctionFilter: {
+    title: '⏰ 竞价过滤',
+    desc: '在集合竞价阶段对候选股进行预筛选，过滤竞价表现不佳的标的。',
+    tips: ['竞价涨幅2%~8%为宜，过高可能开盘即巅峰', '未匹配量为正说明买盘强于卖盘', '竞价量比≥2说明市场关注度高']
+  },
+  halfway_chase: {
+    title: '🏃♂️ 半路追涨策略',
+    desc: '在盘中股票已经上涨但尚未涨停时追入，博弈后续继续冲高甚至封板。适合强势市场的顺势交易。',
+    tips: ['核心参数：涨幅3%~7%的强势股', '量比1.5~3.0确认放量而非缩量上涨', '收盘涨幅≥2%确认非冲高回落', '开盘涨幅≤5%排除竞价已过热的票', '平均收益偏弱(+1.97%)，注意风控']
+  },
+  first_limit_up: {
+    title: '🥇 首板打板策略',
+    desc: '在股票首次涨停时排队买入，博弈次日高开溢价。回测中模拟了不同涨停速度的实际成交概率。',
+    tips: ['成交概率是核心：一字板5%、秒板30%、快板60%、慢板80%', '流通市值20~100亿为最佳区间', '换手率5%~15%量价配合最佳', '次日高开≥3%自动止盈（高开即卖）', '止损4%为打板策略的底线']
+  },
+  limit_up_open: {
+    title: '📈 涨停开板策略',
+    desc: '连板股盘中开板后回封时买入，博弈回封后次日继续高开。需要连板基础确保龙头地位。',
+    tips: ['最少2连板以上，确保不是杂毛股', '开板≤10分钟即回封，说明主力坚决', '回封后封单≥1万手确认抛压已消化', '止损4%严格控制开板后继续下跌风险']
+  },
+  dragon_head: {
+    title: '🐲 龙头低吸策略',
+    desc: '在龙头股回调到支撑位时低吸买入，博弈龙头二波启动。适合市场分歧后的再次一致。',
+    tips: ['核心：连板龙头+缩量回调到5/10日均线', '回调5%~35%为健康调整区间', '量比0.5~2.0确认缩量而非放量下跌', '支撑位选5日均线适合强势回调', '止损5%给龙头更大的波动空间']
+  },
+  limit_down_qiao: {
+    title: '💥 跌停翘板策略',
+    desc: '在跌停板被大资金撬开时追入，博弈翘板后的大幅反弹。高风险高回报，需配合情绪周期。',
+    tips: ['连跌1天以上才有足够恐慌释放', '翘板金额≥5000万确认大资金介入', '翘板后涨幅≥3%确认反转力度', '建议开启高情绪周期要求（市场强势时翘板成功率高）', '止损4%+止盈25%：高赔率策略']
+  }
+}
+
+const activeDescription = computed(() => {
+  if (!activeCollapse.value.length) return null
+  const last = activeCollapse.value[activeCollapse.value.length - 1]
+  return sectionDescriptions[last] || null
+})
+
 // 折叠面板
 const activeCollapse = defineModel<string[]>('activeCollapse', { default: [] })
 
@@ -77,6 +147,8 @@ function onSweepParamChange() {
 </script>
 
 <template>
+  <div class="config-layout-v2">
+    <div class="config-left">
   <ElCard class="config-card">
     <template #header>
       <div class="card-header">
@@ -95,26 +167,47 @@ function onSweepParamChange() {
 
     <!-- 参数扫描配置 -->
     <div v-if="form.sweep.enabled" class="sweep-config">
-      <div class="sweep-config-title">🔬 参数扫描配置</div>
-      <ElForm label-width="120px" size="small">
-        <ElFormItem label="扫描参数">
-          <ElSelect v-model="form.sweep.param" @change="onSweepParamChange" style="width: 200px">
-            <ElOption v-for="p in SWEEP_PARAMS" :key="p.value" :label="p.label" :value="p.value" />
-          </ElSelect>
-        </ElFormItem>
-        <ElFormItem label="起始值">
-          <ElInputNumber v-model="form.sweep.start" :min="0" :step="0.01" :precision="3" style="width: 150px" />
-          <span class="unit">{{ currentSweepParam ? (form.sweep.start * currentSweepParam.factor).toFixed(currentSweepParam.factor > 1 ? 0 : 1) + currentSweepParam.unit : '' }}</span>
-        </ElFormItem>
-        <ElFormItem label="结束值">
-          <ElInputNumber v-model="form.sweep.end" :min="0" :step="0.01" :precision="3" style="width: 150px" />
-          <span class="unit">{{ currentSweepParam ? (form.sweep.end * currentSweepParam.factor).toFixed(currentSweepParam.factor > 1 ? 0 : 1) + currentSweepParam.unit : '' }}</span>
-        </ElFormItem>
-        <ElFormItem label="步长">
-          <ElInputNumber v-model="form.sweep.step" :min="0.001" :step="0.01" :precision="3" style="width: 150px" />
-          <span class="unit">{{ currentSweepParam ? (form.sweep.step * currentSweepParam.factor).toFixed(currentSweepParam.factor > 1 ? 0 : 1) + currentSweepParam.unit : '' }}</span>
-        </ElFormItem>
-      </ElForm>
+      <div class="sweep-config-layout">
+        <div class="sweep-config-left">
+          <div class="sweep-config-title">🔬 参数扫描配置</div>
+          <ElForm label-width="120px" size="small">
+            <ElFormItem label="扫描参数">
+              <ElSelect v-model="form.sweep.param" @change="onSweepParamChange" style="width: 200px">
+                <ElOption v-for="p in SWEEP_PARAMS" :key="p.value" :label="p.label" :value="p.value" />
+              </ElSelect>
+            </ElFormItem>
+            <ElFormItem label="起始值">
+              <ElInputNumber v-model="form.sweep.start" :min="0" :step="0.01" :precision="3" style="width: 150px" />
+              <span class="unit">{{ currentSweepParam ? (form.sweep.start * currentSweepParam.factor).toFixed(currentSweepParam.factor > 1 ? 0 : 1) + currentSweepParam.unit : '' }}</span>
+            </ElFormItem>
+            <ElFormItem label="结束值">
+              <ElInputNumber v-model="form.sweep.end" :min="0" :step="0.01" :precision="3" style="width: 150px" />
+              <span class="unit">{{ currentSweepParam ? (form.sweep.end * currentSweepParam.factor).toFixed(currentSweepParam.factor > 1 ? 0 : 1) + currentSweepParam.unit : '' }}</span>
+            </ElFormItem>
+            <ElFormItem label="步长">
+              <ElInputNumber v-model="form.sweep.step" :min="0.001" :step="0.01" :precision="3" style="width: 150px" />
+              <span class="unit">{{ currentSweepParam ? (form.sweep.step * currentSweepParam.factor).toFixed(currentSweepParam.factor > 1 ? 0 : 1) + currentSweepParam.unit : '' }}</span>
+            </ElFormItem>
+          </ElForm>
+        </div>
+        <div class="sweep-config-right">
+          <div class="desc-panel-title">🔬 参数扫描说明</div>
+          <div class="desc-panel-text">对选定参数在指定范围内按步长遍历，每个值独立跑一次完整回测，最终对比不同参数值下的收益/胜率/回撤，找到最优参数组合。</div>
+          <div class="desc-panel-tips-title">📊 可扫描参数</div>
+          <div class="desc-panel-tip">止损比例 — 测试不同止损宽度对收益和胜率的影响，范围1%~20%</div>
+          <div class="desc-panel-tip">止盈比例 — 测试不同止盈目标对最终收益的影响，范围1%~50%</div>
+          <div class="desc-panel-tip">最大持仓天数 — 测试持股时长与收益的关系，范围1~10天</div>
+          <div class="desc-panel-tip">单票最大仓位 — 测试集中度对风险收益的影响，范围5%~50%</div>
+          <div class="desc-panel-tip">总仓位上限 — 测试仓位管理对整体表现的影响，范围10%~100%</div>
+          <div class="desc-panel-tip">半路追涨最小涨幅 — 优化追涨入场的最佳涨幅阈值</div>
+          <div class="desc-panel-tip">最小量比 — 优化放量确认的最佳量比阈值</div>
+          <div class="desc-panel-tips-title">💡 使用建议</div>
+          <div class="desc-panel-tip">步长不宜过小，否则扫描次数过多耗时很长</div>
+          <div class="desc-panel-tip">止损扫描步长建议1%，止盈步长建议5%</div>
+          <div class="desc-panel-tip">先粗扫确定大致范围，再细扫精确定位最优值</div>
+          <div class="desc-panel-tip">扫描结果会生成参数-收益对比图表，直观展示最优区间</div>
+        </div>
+      </div>
     </div>
 
     <ElCollapse v-model="activeCollapse">
@@ -551,6 +644,26 @@ function onSweepParamChange() {
       </ElCollapseItem>
     </ElCollapse>
   </ElCard>
+    </div>
+    <!-- 右侧描述面板 -->
+    <div class="config-right">
+      <div v-if="activeDescription" class="desc-panel">
+        <div class="desc-title">{{ activeDescription.title }}</div>
+        <div class="desc-text">{{ activeDescription.desc }}</div>
+        <div v-if="activeDescription.tips?.length" class="desc-tips">
+          <div class="desc-tips-title">💡 参数建议</div>
+          <div v-for="(tip, i) in activeDescription.tips" :key="i" class="desc-tip-item">
+            <span class="desc-tip-dot">•</span> {{ tip }}
+          </div>
+        </div>
+      </div>
+      <div v-else class="desc-panel desc-empty">
+        <div class="desc-empty-icon">📖</div>
+        <div class="desc-empty-text">展开左侧任意配置项</div>
+        <div class="desc-empty-sub">查看参数说明和调优建议</div>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script lang="ts">
@@ -605,6 +718,131 @@ export default { name: 'StrategyConfigPanel' }
     color: var(--primary-500);
     margin-bottom: 10px;
   }
+}
+
+/* 左右两栏布局 */
+.config-layout-v2 {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+.config-left {
+  flex: 1;
+  min-width: 0;
+}
+.config-right {
+  width: 280px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 60px;
+}
+
+/* 右侧描述面板 */
+.desc-panel {
+  background: var(--bg-elevated, #fff);
+  border: 1px solid var(--border-default, #e4e7ed);
+  border-radius: 8px;
+  padding: 20px;
+  transition: all 0.3s;
+}
+.desc-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary, #303133);
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--el-color-primary-light-3, #79bbff);
+}
+.desc-text {
+  font-size: 13px;
+  color: var(--text-secondary, #606266);
+  line-height: 1.6;
+  margin-bottom: 14px;
+}
+.desc-tips {
+  background: var(--el-color-primary-light-9, #ecf5ff);
+  border: 1px solid var(--el-color-primary-light-7, #c6e2ff);
+  border-radius: 6px;
+  padding: 12px;
+}
+.desc-tips-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--el-color-primary, #409eff);
+  margin-bottom: 8px;
+}
+.desc-tip-item {
+  font-size: 12px;
+  color: var(--text-secondary, #606266);
+  line-height: 1.6;
+  margin-bottom: 4px;
+}
+.desc-tip-dot {
+  color: var(--el-color-primary, #409eff);
+  margin-right: 4px;
+}
+.desc-empty {
+  text-align: center;
+  padding: 40px 20px;
+}
+.desc-empty-icon {
+  font-size: 36px;
+  margin-bottom: 12px;
+}
+.desc-empty-text {
+  font-size: 14px;
+  color: var(--text-secondary, #606266);
+  margin-bottom: 6px;
+}
+.desc-empty-sub {
+  font-size: 12px;
+  color: var(--text-tertiary, #909399);
+}
+
+/* 参数扫描左右布局 */
+.sweep-config-layout {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+.sweep-config-left {
+  flex: 1;
+  min-width: 0;
+}
+.sweep-config-right {
+  width: 260px;
+  flex-shrink: 0;
+  background: var(--bg-elevated, #fff);
+  border: 1px solid var(--border-default, #e4e7ed);
+  border-radius: 8px;
+  padding: 16px;
+}
+.desc-panel-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary, #303133);
+  margin-bottom: 10px;
+}
+.desc-panel-text {
+  font-size: 13px;
+  color: var(--text-secondary, #606266);
+  line-height: 1.6;
+  margin-bottom: 12px;
+}
+.desc-panel-tips-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--el-color-primary, #409eff);
+  margin-bottom: 8px;
+  margin-top: 10px;
+}
+.desc-panel-tip {
+  font-size: 12px;
+  color: var(--text-secondary, #606266);
+  line-height: 1.6;
+  margin-bottom: 4px;
+  padding-left: 8px;
+  border-left: 2px solid var(--el-color-primary-light-7, #c6e2ff);
 }
 .unit {
   margin-left: 8px;
@@ -679,6 +917,21 @@ export default { name: 'StrategyConfigPanel' }
 }
 /* 【V63修复:P1-10】移动端适配 */
 @media (max-width: 768px) {
+  .config-layout-v2 {
+    flex-direction: column;
+  }
+  .config-right {
+    width: 100%;
+    position: static;
+    margin-top: 12px;
+  }
+  .sweep-config-layout {
+    flex-direction: column;
+  }
+  .sweep-config-right {
+    width: 100%;
+    margin-top: 12px;
+  }
   .config-panel :deep(.el-form-item__label) {
     width: 100px !important;
     font-size: 12px;

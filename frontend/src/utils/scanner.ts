@@ -112,3 +112,18 @@ export function formatPct(v: number): string {
   if (v == null || isNaN(v)) return '--'
   return `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`
 }
+
+// ============ 止损止盈格式化 ============
+// 后端 /scanner/positions 返回百分比格式 (3.0 = 3%)
+// 后端 /strategy-config 和 /scanner/params 内部存储小数 (0.03 = 3%)
+// 此函数统一将任意格式转为百分比数值
+export function normalizePct(v: number | undefined, fallback: number = 3): number {
+  if (v == null || isNaN(v)) return fallback
+  // 小于1认为是小数格式(0.03)，大于1认为是百分比格式(3.0)
+  return v < 1 ? v * 100 : v
+}
+
+// 格式化止损止盈百分比显示 (始终输出如 "3.0%")
+export function formatSlTp(v: number | undefined, fallback: number = 3): string {
+  return normalizePct(v, fallback).toFixed(1) + '%'
+}
