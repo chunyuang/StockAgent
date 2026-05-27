@@ -322,7 +322,7 @@ const netValueChartOption = computed(() => {
 
   // drawdown: 优先从net_value_series中直接取(每项已有drawdown字段)
   // 回退到drawdown_series按日期对齐(兼容旧数据)
-  // drawdown是小数(0.003=0.3%), ×100转百分比
+  // drawdown是小数(0.003=0.3%), ×100转百分比, 取负值显示在0线下方
   // 【V65防御】如果drawdown>1则认为已是百分比,不再×100(避免双重×100)
   const hasDrawdownInNV = filteredNV.length > 0 && filteredNV[0].drawdown != null
   let drawdowns: number[]
@@ -330,7 +330,8 @@ const netValueChartOption = computed(() => {
     // 直接从net_value_series取drawdown, 无需日期对齐
     drawdowns = filteredNV.map((d: any) => {
       const dd = d.drawdown ?? 0
-      return +(dd > 1 ? dd : dd * 100).toFixed(4)
+      // 取负值, 使回撤在0线下方显示(0.0368 → -3.68%)
+      return +((dd > 1 ? -dd : -dd * 100)).toFixed(4)
     })
   } else {
     // 兼容旧数据: 从drawdown_series按日期对齐
@@ -341,7 +342,7 @@ const netValueChartOption = computed(() => {
         // 日期统一为8位数字字符串再格式化,确保与dates格式匹配
         const rawDate = String(d.trade_date).padStart(8, '0')
         const fmtDate = `${rawDate.substring(0,4)}-${rawDate.substring(4,6)}-${rawDate.substring(6,8)}`
-        ddMap.set(fmtDate, +(dd > 1 ? dd : dd * 100).toFixed(4))
+        ddMap.set(fmtDate, +((dd > 1 ? -dd : -dd * 100)).toFixed(4))
       }
     }
     drawdowns = dates.map((d: string) => ddMap.get(d) ?? 0)
@@ -382,7 +383,9 @@ const netValueChartOption = computed(() => {
   series.push({
     name: '回撤(%)', type: 'line', yAxisIndex: 1, data: drawdowns,
     color: 'var(--stock-up)', lineStyle: { width: 1.5, type: 'dashed' },
-    areaStyle: { color: 'var(--stock-up-bg)' }
+    areaStyle: { color: 'var(--stock-up-bg)' },
+    // 回撤为负值, 填充区域从0线向下
+    markLine: { silent: true, symbol: 'none', data: [{ yAxis: 0, lineStyle: { color: 'var(--border-default)', width: 1, type: 'solid' } }] }
   })
 
   return {
@@ -391,8 +394,11 @@ const netValueChartOption = computed(() => {
       formatter: (params: any) => {
         let html = `<b>${params[0].axisValue}</b><br/>`
         for (const p of params) {
-          const unit = p.seriesName.includes('回撤') ? '%' : ''
-          html += `${p.marker} ${p.seriesName}：${p.value}${unit}<br/>`
+          if (p.seriesName.includes('回撤')) {
+            html += `${p.marker} ${p.seriesName}：${Math.abs(p.value)}%<br/>`
+          } else {
+            html += `${p.marker} ${p.seriesName}：${p.value}<br/>`
+          }
         }
         return html
       }
@@ -402,7 +408,7 @@ const netValueChartOption = computed(() => {
     xAxis: { type: 'category', boundaryGap: false, data: dates },
     yAxis: [
       { type: 'value', name: '净值', min: Math.floor(minNV * 100) / 100 - 0.01 },
-      { type: 'value', name: '回撤(%)', position: 'right' }
+      { type: 'value', name: '回撤(%)', position: 'right', max: 0, splitLine: { show: false } }
     ],
     dataZoom: [{ type: 'inside' }, { type: 'slider', height: 20, bottom: 4 }],
     series,

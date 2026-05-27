@@ -849,50 +849,32 @@ function onViewLogs(_taskId: string) {
 
 <template>
   <div class="ultra-short-v2-page">
-    <!-- 页面头部栏(与市场监听统一格式) -->
+    <!-- 页面头部栏(标题+指标+Tab+操作, 单行, 与市场监听统一格式) -->
     <div class="page-header-bar">
       <div class="ph-left">
         <span class="ph-title">📈 超短策略回测</span>
-        <span class="ph-sep">|</span>
+        <span v-if="backtestResult" class="ph-sep">|</span>
         <span v-if="backtestResult" class="ph-metric up">收益 {{ backtestResult.total_return?.toFixed(1) }}%</span>
         <span v-if="backtestResult" class="ph-metric">胜率 {{ backtestResult.win_rate?.toFixed(1) }}%</span>
         <span v-if="backtestResult" class="ph-metric down">回撤 {{ backtestResult.max_drawdown?.toFixed(2) }}%</span>
         <span v-if="backtestResult" class="ph-metric">夏普 {{ backtestResult.sharpe_ratio?.toFixed(2) }}</span>
         <span v-if="backtestResult" class="ph-metric">{{ backtestResult.merged_trades?.length || backtestResult.all_trades?.length || 0 }}笔</span>
         <span v-if="backtestState.running" class="ph-running">⏱ 运行中</span>
+        <span class="ph-sep">|</span>
+        <div class="ph-tabs">
+          <button :class="['tab-btn', activeMainTab === 'config' ? 'active' : '']" @click="activeMainTab = 'config'">🎯 配置</button>
+          <button :class="['tab-btn', activeMainTab === 'result' ? 'active' : '']" @click="activeMainTab = 'result'">📈 结果<span v-if="backtestResult" class="tab-badge-success">✓</span><span v-else-if="backtestState.running" class="tab-badge-running">运行中</span></button>
+          <button :class="['tab-btn', activeMainTab === 'report' ? 'active' : '']" @click="activeMainTab = 'report'">📋 复盘</button>
+          <button :class="['tab-btn', activeMainTab === 'history' ? 'active' : '']" @click="activeMainTab = 'history'">📋 历史<span class="tab-badge">{{ historyCount }}</span></button>
+          <button :class="['tab-btn', activeMainTab === 'data' ? 'active' : '']" @click="activeMainTab = 'data'">🗄️ 数据</button>
+          <button :class="['tab-btn', activeMainTab === 'factors' ? 'active' : '']" @click="activeMainTab = 'factors'">📊 因子</button>
+        </div>
       </div>
       <div class="ph-right">
         <ElButton :type="healthStatus==='ok'?'success':healthStatus==='error'?'danger':healthStatus==='warning'?'warning':'default'" :loading="healthLoading" @click="runHealthCheck" size="small">
           {{ healthLoading ? '检查中...' : healthStatus==='ok' ? '✅ 服务正常' : healthStatus==='error' ? '❌ 服务异常' : '🔧 服务检查' }}
         </ElButton>
         <span class="ph-theme-toggle" @click="themeStore.toggleTheme()" :title="themeStore.isDark ? '切换浅色' : '切换深色'">{{ themeStore.isDark ? '☀️' : '🌙' }}</span>
-      </div>
-    </div>
-
-    <!-- Tab切换 -->
-    <div class="main-tabs-bar">
-      <div class="main-tabs">
-        <button :class="['tab-btn', activeMainTab === 'config' ? 'active' : '']" @click="activeMainTab = 'config'">
-          🎯 回测配置
-        </button>
-        <button :class="['tab-btn', activeMainTab === 'result' ? 'active' : '']" @click="activeMainTab = 'result'">
-          📈 日志与结果
-          <span v-if="backtestResult" class="tab-badge-success">✓</span>
-          <span v-else-if="backtestState.running" class="tab-badge-running">运行中</span>
-        </button>
-        <button :class="['tab-btn', activeMainTab === 'report' ? 'active' : '']" @click="activeMainTab = 'report'">
-          📋 复盘报告
-        </button>
-        <button :class="['tab-btn', activeMainTab === 'history' ? 'active' : '']" @click="activeMainTab = 'history'">
-          📋 回测历史
-          <span class="tab-badge">{{ historyCount }}</span>
-        </button>
-        <button :class="['tab-btn', activeMainTab === 'data' ? 'active' : '']" @click="activeMainTab = 'data'">
-          🗄️ 数据状态
-        </button>
-        <button :class="['tab-btn', activeMainTab === 'factors' ? 'active' : '']" @click="activeMainTab = 'factors'">
-          📊 因子参考
-        </button>
       </div>
     </div>
 
@@ -1108,13 +1090,13 @@ function onViewLogs(_taskId: string) {
   background: var(--bg-muted);
 }
 
-/* 页面头部栏 — 与市场监听 mm-header 格式统一 */
+/* 页面头部栏 — 标题+指标+Tab+操作 单行, 与市场监听 mm-header 格式统一 */
 .page-header-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px 16px;
+  padding: 6px 16px;
   background: var(--bg-elevated);
   border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
@@ -1155,6 +1137,30 @@ function onViewLogs(_taskId: string) {
     animation: pulse 1.5s infinite;
   }
 
+  /* 内嵌Tab按钮 */
+  .ph-tabs {
+    display: flex;
+    gap: 2px;
+    background: var(--bg-muted);
+    border-radius: 6px;
+    padding: 2px;
+  }
+
+  .ph-tabs .tab-btn {
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    border: none;
+    background: transparent;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .ph-tabs .tab-btn:hover { color: var(--primary-500); background: var(--bg-elevated); }
+  .ph-tabs .tab-btn.active { color: var(--primary-500); background: var(--bg-elevated); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+
   .ph-right {
     display: flex;
     align-items: center;
@@ -1172,19 +1178,8 @@ function onViewLogs(_taskId: string) {
   }
 }
 
-.main-tabs-bar {
-  display: flex;
-  justify-content: flex-start;
-  align-items: center;
-  border-bottom: 2px solid var(--border-default);
-  flex-shrink: 0;
-  flex-wrap: wrap;
-  gap: 0;
-  min-width: 0;
-  padding-bottom: 0;
-  background: var(--bg-elevated);
-  padding: 0 16px;
-}
+/* Legacy: keep main-tabs-bar class for any remaining references but hidden */
+.main-tabs-bar { display: none; }
 
 .main-tabs {
   display: flex;
