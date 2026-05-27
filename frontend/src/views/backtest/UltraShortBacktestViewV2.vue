@@ -695,6 +695,18 @@ const addLog = (text: string) => {
 
 const activeMainTab = ref<'config' | 'result' | 'report' | 'history' | 'data' | 'factors'>('config')
 // ============ 复盘报告 ============
+function translateSellReason(reason: string): string {
+  if (!reason) return '未知'
+  const map: Record<string, string> = {
+    'stop_loss': '止损', 'gap_stop_loss': '跳空止损', 'gap_down_stop': '跳空止损',
+    'take_profit': '止盈', 'max_hold': '到期', 'force_empty': '强制空仓',
+    'force_empty_position': '强制空仓', 'rebalance': '调仓', 'profit_lock': '利润锁定',
+    'profit_protect': '利润保护', 'pullback': '冲高回落', 'halt': '涨跌停',
+    'other': '其他',
+  }
+  return map[reason] || reason
+}
+
 const reviewReport = computed(() => {
   const r = backtestResult.value
   if (!r) return null
@@ -989,7 +1001,7 @@ function onViewLogs(_taskId: string) {
           <div class="rs-title">📤 卖出原因分布</div>
           <div class="review-sell-bars">
             <div v-for="[reason, count] in reviewReport.sellReasonEntries" :key="reason" class="review-sell-bar">
-              <span class="rsb-label">{{ reason }}</span>
+              <span class="rsb-label">{{ translateSellReason(reason) }}</span>
               <div class="rsb-track">
                 <div class="rsb-fill" :style="{ width: Math.min(100, (count / reviewReport.totalTrades) * 100 * 2) + '%' }"></div>
               </div>
@@ -997,7 +1009,7 @@ function onViewLogs(_taskId: string) {
             </div>
           </div>
           <div v-if="reviewReport.topSellReason" class="rs-summary">
-            最常见卖出原因: <strong>{{ reviewReport.topSellReason }}</strong> ({{ reviewReport.topSellCount }}次)
+            最常见卖出原因: <strong>{{ translateSellReason(reviewReport.topSellReason) }}</strong> ({{ reviewReport.topSellCount }}次)
           </div>
         </div>
 
