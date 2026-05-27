@@ -43,6 +43,48 @@ const selectedForCompare = ref<string[]>([])
 const showCompare = ref(false)
 const compareItems = ref<BacktestHistoryItem[]>([])
 
+// 多选删除
+const deleteMode = ref(false)
+const selectedForDelete = ref<Set<string>>(new Set())
+
+function toggleDeleteMode() {
+  deleteMode.value = !deleteMode.value
+  if (!deleteMode.value) selectedForDelete.value.clear()
+}
+
+function toggleDeleteSelect(taskId: string) {
+  if (selectedForDelete.value.has(taskId)) selectedForDelete.value.delete(taskId)
+  else selectedForDelete.value.add(taskId)
+}
+
+function selectAllForDelete() {
+  if (selectedForDelete.value.size === sortedItems.value.length) {
+    selectedForDelete.value.clear()
+  } else {
+    selectedForDelete.value = new Set(sortedItems.value.map(i => i.task_id))
+  }
+}
+
+async function batchDelete() {
+  const count = selectedForDelete.value.size
+  if (count === 0) return
+  try {
+    await ElMessageBox.confirm(`确定删除选中的 ${count} 条回测记录？此操作不可恢复。`, '批量删除确认', { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' })
+  } catch { return }
+  loading.value = true
+  let success = 0, fail = 0
+  for (const taskId of selectedForDelete.value) {
+    try { await deleteBacktestHistory(taskId); success++ }
+    catch { fail++ }
+  }
+  selectedForDelete.value.clear()
+  deleteMode.value = false
+  loading.value = false
+  if (fail === 0) ElMessage.success(`已删除 ${success} 条记录`)
+  else ElMessage.warning(`成功 ${success} 条，失败 ${fail} 条`)
+  await loadHistory()
+}
+
 // 策略ID→中文名
 const strategyNameMap: Record<string, string> = Object.fromEntries(
   Object.entries(STRATEGY_NAMES).map(([k, v]) => [k, v.replace(/^[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{200D}\u{20E3}]+\s*/u, '').trim() || v])
@@ -235,6 +277,12 @@ watch(() => props.visible, (v) => { if (v && !items.value.length) loadHistory() 
           📊 对比 ({{ selectedForCompare.length }}/3)
         </ElButton>
         <ElButton size="small" :loading="loading" @click="loadHistory" :icon="RefreshRight">刷新</ElButton>
+        <ElButton size="small" :type="deleteMode ? 'danger' : 'default'" @click="toggleDeleteMode" plain>{{ deleteMode ? '取消多选' : '🗑️ 多选删除' }}</ElButton>
+      </div>
+      <div v-if="deleteMode" class="delete-bar">
+        <ElButton size="small" @click="selectAllForDelete" plain>{{ selectedForDelete.size === sortedItems.length ? '取消全选' : '全选' }}</ElButton>
+        <span class="db-count">已选 <strong>{{ selectedForDelete.size }}</strong> 条</span>
+        <ElButton size="small" type="danger" :disabled="selectedForDelete.size === 0" @click="batchDelete">🗑️ 删除选中</ElButton>
       </div>
     </div>
 
@@ -256,11 +304,12 @@ watch(() => props.visible, (v) => { if (v && !items.value.length) loadHistory() 
 
     <!-- ===== 卡片视图 ===== -->
     <div v-if="sortedItems.length && viewMode === 'card'" class="card-list">
-      <div v-for="item in sortedItems" :key="item.task_id" class="bt-card" :class="{ 'bt-selected': isCompareSelected(item.task_id), 'bt-failed': item.status === 'failed' }" @click="toggleCompare(item.task_id)">
+      <div v-for="item in sortedItems" :key="item.task_id" class="bt-card" :class="{ 'bt-selected': deleteMode ? selectedForDelete.has(item.task_id) : isCompareSelected(item.task_id), 'bt-failed': item.status === 'failed', 'bt-delete-selected': deleteMode && selectedForDelete.has(item.task_id) }" @click="deleteMode ? toggleDeleteSelect(item.task_id) : toggleCompare(item.task_id)">
 
         <!-- 卡片顶行: 状态 + 日期 + 耗时 -->
         <div class="bt-top">
           <div class="bt-top-left">
+            <span v-if="deleteMode" class="delete-check" :class="{ checked: selectedForDelete.has(item.task_id) }">☑</span>
             <ElTag v-if="item.status === 'failed'" type="danger" size="small" effect="dark">失败</ElTag>
             <ElTag v-else-if="item.status === 'running'" type="warning" size="small" effect="dark">运行</ElTag>
             <ElTag v-else type="success" size="small" effect="plain">完成</ElTag>
@@ -327,6 +376,9 @@ watch(() => props.visible, (v) => { if (v && !items.value.length) loadHistory() 
       <table class="bt-table">
         <thead>
           <tr>
+            <th v-if="deleteMode" class="th-check">
+              <span class="delete-check" :class="{ checked: selectedForDelete.size === sortedItems.length && sortedItems.length > 0 }" @click="selectAllForDelete">☑</span>
+            </th>
             <th>状态</th>
             <th @click="toggleSort('created_at')" :class="{ active: sortKey === 'created_at' }">时间 {{ sortKey === 'created_at' ? (sortDesc ? '↓' : '↑') : '' }}</th>
             <th>日期范围</th>
@@ -341,7 +393,10 @@ watch(() => props.visible, (v) => { if (v && !items.value.length) loadHistory() 
           </tr>
         </thead>
         <tbody>
-          <tr v-for="item in sortedItems" :key="item.task_id" :class="{ 'bt-selected': isCompareSelected(item.task_id) }" @click="toggleCompare(item.task_id)">
+          <tr v-for="item in sortedItems" :key="item.task_id" :class="{ 'bt-selected': deleteMode ? selectedForDelete.has(item.task_id) : isCompareSelected(item.task_id) }" @click="deleteMode ? toggleDeleteSelect(item.task_id) : toggleCompare(item.task_id)">
+            <td v-if="deleteMode" class="td-check">
+              <span class="delete-check" :class="{ checked: selectedForDelete.has(item.task_id) }">☑</span>
+            </td>
             <td>
               <ElTag v-if="item.status === 'failed'" type="danger" size="small" effect="dark">失败</ElTag>
               <ElTag v-else-if="item.status === 'running'" type="warning" size="small" effect="dark">运行</ElTag>
@@ -506,4 +561,44 @@ export default { name: 'BacktestHistoryPanel' }
   .best-val { font-weight: 700; }
   .best-val::after { content: ' ★'; color: var(--warning); font-size: 11px; }
 }
+
+/* 多选删除 */
+.delete-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(245, 108, 108, 0.08);
+  border: 1px solid rgba(245, 108, 108, 0.2);
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+.db-count { font-size: 13px; color: var(--text-secondary); }
+.delete-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--border-default);
+  border-radius: 4px;
+  color: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s;
+  user-select: none;
+  &.checked {
+    background: var(--el-color-danger);
+    border-color: var(--el-color-danger);
+    color: #fff;
+  }
+  &:hover { border-color: var(--el-color-danger); }
+}
+.bt-delete-selected {
+  outline: 2px solid var(--el-color-danger);
+  outline-offset: -2px;
+  background: rgba(245, 108, 108, 0.04) !important;
+}
+.th-check, .td-check { width: 40px; text-align: center; }
+
 </style>
