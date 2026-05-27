@@ -271,6 +271,21 @@ onMounted(async () => {
     if (res.ok) {
       const data = await res.json()
       historyCount.value = data.total || 0
+      // 自动加载最近一次回测结果，避免打开时空白
+      if (data.items?.length && !backtestResult.value) {
+        const latest = data.items[0]
+        if (latest.status === 'completed' && latest.task_id) {
+          try {
+            const rRes = await backtestApi.getBacktestResult(latest.task_id)
+            const result = rRes?.data?.result
+            if (result) {
+              backtestResult.value = result
+              backtestState.task_id = latest.task_id
+              addLog(`📋 已自动加载最近回测结果 (${latest.start_date || '?'}~${latest.end_date || '?'})`)
+            }
+          } catch (e) { console.warn('自动加载最近回测结果失败', e) }
+        }
+      }
     }
   } catch {}
 })
