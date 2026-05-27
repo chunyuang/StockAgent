@@ -3,7 +3,7 @@
  * StrategyConfigPanel - 超短回测策略配置面板
  * 包含数据源、基础配置、交易参数、全局筛选、强制空仓、情绪周期、竞价过滤、5个策略配置
  */
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import {
   ElCard,
   ElForm,
@@ -119,6 +119,9 @@ const activeDescription = computed(() => {
 })
 
 // 折叠面板
+// 配置/流程模式切换
+const configMode = ref<'edit' | 'flow'>('edit')
+
 const activeCollapse = defineModel<string[]>('activeCollapse', { default: [] })
 
 // Toggle 辅助
@@ -153,6 +156,10 @@ function onSweepParamChange() {
       <div class="card-header">
         <span>⚙️ 回测配置</span>
         <div class="header-actions">
+          <div class="mode-switcher">
+            <button :class="['mode-btn', configMode === 'edit' ? 'active' : '']" @click="configMode = 'edit'">🎯 参数配置</button>
+            <button :class="['mode-btn', configMode === 'flow' ? 'active' : '']" @click="configMode = 'flow'">🔄 执行流程</button>
+          </div>
           <div class="sweep-toggle">
             <span class="sweep-label">参数扫描</span>
             <ElSwitch v-model="form.sweep.enabled" size="small" />
@@ -209,7 +216,7 @@ function onSweepParamChange() {
       </div>
     </div>
 
-    <ElCollapse v-model="activeCollapse">
+    <ElCollapse v-if="configMode === 'edit'" v-model="activeCollapse">
       <!-- 数据源配置 -->
       <ElCollapseItem name="dataSource">
         <template #title><span>{{ dataSourceTitle }}</span></template>
@@ -787,6 +794,246 @@ function onSweepParamChange() {
       </ElCollapseItem>
     </ElCollapse>
   </ElCard>
+
+    <!-- 执行流程模式 -->
+    <div v-if="configMode === 'flow'" class="flow-container">
+
+      <!-- 1. 数据源 -->
+      <div class="flow-step">
+        <div class="flow-step-header">
+          <div class="flow-step-num">1</div>
+          <div class="flow-step-title">🔌 数据源加载</div>
+          <div class="flow-step-badge">{{ form.dataSource.period === 'daily' ? '日线' : '1分钟' }} · {{ form.dataSource.adjust_type === 'qfq' ? '前复权' : '不复权' }}</div>
+        </div>
+        <div class="flow-step-body">
+          <div class="flow-desc">从MongoDB加载K线数据，日期范围 {{ form.dataSource.start_date || '默认' }} ~ {{ form.dataSource.end_date || '默认' }}，初始资金 ¥{{ (form.base.initial_cash / 10000).toFixed(0) }}万</div>
+          <div class="flow-logic">
+            <div class="flow-cond">IF 股票代码在 ts_codes 白名单 → 加载</div>
+            <div class="flow-cond">ELSE IF ts_codes 为空 → 加载全市场</div>
+            <div class="flow-cond">数据字段: OHLCV + 涨停价/跌停价 + 换手率 + 流通市值</div>
+          </div>
+        </div>
+      </div>
+      <div class="flow-arrow">▼</div>
+
+      <!-- 2. 全局筛选 -->
+      <div class="flow-step">
+        <div class="flow-step-header">
+          <div class="flow-step-num">2</div>
+          <div class="flow-step-title">🔍 全局筛选（逐条过滤）</div>
+          <div class="flow-step-badge">输出: 候选股票池</div>
+        </div>
+        <div class="flow-step-body">
+          <div class="flow-logic">
+            <div class="flow-cond flow-cond-reject">❌ ST股 → 剔除{{ form.globalFilter.exclude_st ? '✓' : '✗' }}</div>
+            <div class="flow-cond flow-cond-reject">❌ 退市股 → 剔除{{ form.globalFilter.exclude_delisting ? '✓' : '✗' }}</div>
+            <div class="flow-cond flow-cond-reject">❌ 次新股(上市 < {{ form.globalFilter.exclude_new_stock_days }}天) → 剔除</div>
+            <div class="flow-cond flow-cond-reject">❌ 日成交额 < {{ form.globalFilter.min_daily_amount }}万 → 剔除</div>
+            <div class="flow-cond flow-cond-reject">❌ 换手率 < {{ form.globalFilter.min_turnover_rate }}% → 剔除</div>
+            <div class="flow-cond flow-cond-accept">✅ 通过全部筛选 → 进入候选池</div>
+          </div>
+        </div>
+      </div>
+      <div class="flow-arrow">▼</div>
+
+      <!-- 3. 情绪周期 -->
+      <div class="flow-step" :class="{ 'flow-disabled': !form.sentimentCycle.enabled }">
+        <div class="flow-step-header">
+          <div class="flow-step-num">3</div>
+          <div class="flow-step-title">🧠 情绪周期判断 {{ form.sentimentCycle.enabled ? '' : '(未启用→跳过)' }}</div>
+          <div class="flow-step-badge">得分0~100</div>
+        </div>
+        <div class="flow-step-body">
+          <div class="flow-logic">
+            <div class="flow-cond">计算: 涨停数×{{ form.sentimentCycle.weight_limit_up }} + 跌停数×{{ form.sentimentCycle.weight_limit_down }} + ... → 情绪得分</div>
+            <div class="flow-cond flow-cond-branch">IF 得分 ≥ 70 → 🟢 强势(信号加强，仓位放宽)</div>
+            <div class="flow-cond flow-cond-branch">IF 30 ≤ 得分 < 70 → 🟡 震荡(标准信号，标准仓位)</div>
+            <div class="flow-cond flow-cond-branch">IF 得分 < 30 → 🔴 弱势(信号减弱，仓位收紧)</div>
+          </div>
+        </div>
+      </div>
+      <div class="flow-arrow">▼</div>
+
+      <!-- 4. 竞价过滤 -->
+      <div class="flow-step" :class="{ 'flow-disabled': !form.auctionFilter.enabled }">
+        <div class="flow-step-header">
+          <div class="flow-step-num">4</div>
+          <div class="flow-step-title">⏰ 集合竞价预筛 {{ form.auctionFilter.enabled ? '' : '(未启用→跳过)' }}</div>
+          <div class="flow-step-badge">9:15~9:25</div>
+        </div>
+        <div class="flow-step-body">
+          <div class="flow-logic">
+            <div class="flow-cond">竞价涨幅: {{ (form.auctionFilter.min_auction_pct * 100).toFixed(1) }}% ~ {{ (form.auctionFilter.max_auction_pct * 100).toFixed(1) }}%</div>
+            <div class="flow-cond flow-cond-branch">IF 竞价涨幅在范围内 → 进入盘中监控</div>
+            <div class="flow-cond flow-cond-reject">ELSE → 剔除</div>
+          </div>
+        </div>
+      </div>
+      <div class="flow-arrow">▼</div>
+
+      <!-- 5. 策略信号生成 -->
+      <div class="flow-step flow-step-group">
+        <div class="flow-step-header">
+          <div class="flow-step-num">5</div>
+          <div class="flow-step-title">📊 策略信号生成（逐股遍历候选池）</div>
+          <div class="flow-step-badge">{{ form.strategies.length }}个策略并行</div>
+        </div>
+        <div class="flow-step-body">
+          <div class="flow-desc">对候选池中每只股票，依次用已启用的策略判断是否产生买入信号</div>
+          <div class="flow-strategies">
+
+            <div v-if="form.strategyConfigs.halfway_chase.enabled" class="flow-strategy-card">
+              <div class="flow-strategy-header">🏃‍♂️ 半路追涨</div>
+              <div class="flow-logic">
+                <div class="flow-cond">① 实时涨幅 {{ (form.strategyConfigs.halfway_chase.params.min_rise_pct * 100).toFixed(1) }}% ~ {{ (form.strategyConfigs.halfway_chase.params.max_rise_pct * 100).toFixed(1) }}%?</div>
+                <div class="flow-cond">② 量比 {{ form.strategyConfigs.halfway_chase.params.min_volume_ratio }} ~ {{ form.strategyConfigs.halfway_chase.params.max_volume_ratio }}?</div>
+                <div class="flow-cond">③ 收盘涨幅 ≥ {{ (form.strategyConfigs.halfway_chase.params.min_close_rise_pct * 100).toFixed(1) }}%?</div>
+                <div class="flow-cond">④ 开盘涨幅 ≤ {{ (form.strategyConfigs.halfway_chase.params.max_open_rise_pct * 100).toFixed(1) }}%?</div>
+                <div class="flow-cond">⑤ {{ form.strategyConfigs.halfway_chase.params.allow_after_10am ? '允许' : '不允许' }}10点后买入</div>
+                <div class="flow-cond flow-cond-accept">✅ 全部满足 → 产生买入信号</div>
+                <div class="flow-cond flow-cond-reject">❌ 任一不满足 → 跳过</div>
+              </div>
+            </div>
+
+            <div v-if="form.strategyConfigs.first_limit_up.enabled" class="flow-strategy-card">
+              <div class="flow-strategy-header">🥇 首板打板</div>
+              <div class="flow-logic">
+                <div class="flow-cond">① 首次涨停(非连板)?</div>
+                <div class="flow-cond">② 开盘涨幅 {{ form.strategyConfigs.first_limit_up.params.opening_pct_min }}% ~ {{ form.strategyConfigs.first_limit_up.params.opening_pct_max }}%?</div>
+                <div class="flow-cond">③ 量比 ≥ {{ form.strategyConfigs.first_limit_up.params.min_volume_ratio }}?</div>
+                <div class="flow-cond">④ 换手率 {{ form.strategyConfigs.first_limit_up.params.min_turnover_rate }}% ~ {{ form.strategyConfigs.first_limit_up.params.max_turnover_rate }}%?</div>
+                <div class="flow-cond">⑤ 流通市值 {{ form.strategyConfigs.first_limit_up.params.min_circulation_market_cap }} ~ {{ form.strategyConfigs.first_limit_up.params.max_circulation_market_cap }}亿?</div>
+                <div class="flow-cond flow-cond-branch">→ 成交概率: 一字{{ (form.strategyConfigs.first_limit_up.params.hit_probability_yizi * 100).toFixed(0) }}% / 秒板{{ (form.strategyConfigs.first_limit_up.params.hit_probability_fast * 100).toFixed(0) }}% / 快板{{ (form.strategyConfigs.first_limit_up.params.hit_probability_normal * 100).toFixed(0) }}% / 慢板{{ (form.strategyConfigs.first_limit_up.params.hit_probability_slow * 100).toFixed(0) }}%</div>
+                <div class="flow-cond flow-cond-branch">→ 次日高开 ≥ {{ (form.strategyConfigs.first_limit_up.params.next_day_open_sell_pct * 100).toFixed(0) }}% → 自动卖出</div>
+                <div class="flow-cond flow-cond-accept">✅ 全部满足 → 按概率决定是否成交</div>
+              </div>
+            </div>
+
+            <div v-if="form.strategyConfigs.limit_up_open.enabled" class="flow-strategy-card">
+              <div class="flow-strategy-header">📈 涨停开板回封</div>
+              <div class="flow-logic">
+                <div class="flow-cond">① 连板数 ≥ {{ form.strategyConfigs.limit_up_open.params.min_consecutive_limit }}板?</div>
+                <div class="flow-cond">② 盘中开板时长 ≤ {{ form.strategyConfigs.limit_up_open.params.max_open_duration }}分钟?</div>
+                <div class="flow-cond">③ 回封后封单 ≥ {{ form.strategyConfigs.limit_up_open.params.min_seal_orders }}万手?</div>
+                <div class="flow-cond">④ 换手率 ≥ {{ form.strategyConfigs.limit_up_open.params.min_turnover_rate }}%?</div>
+                <div class="flow-cond flow-cond-accept">✅ 全部满足 → 开板时买入，等回封确认</div>
+                <div class="flow-cond flow-cond-reject">❌ 超时未回封 → 放弃/次日止损</div>
+              </div>
+            </div>
+
+            <div v-if="form.strategyConfigs.dragon_head.enabled" class="flow-strategy-card">
+              <div class="flow-strategy-header">🐲 龙头低吸</div>
+              <div class="flow-logic">
+                <div class="flow-cond">① 连板数 ≥ {{ form.strategyConfigs.dragon_head.params.min_consecutive_limit }}板(确认龙头)?</div>
+                <div class="flow-cond">② 回调幅度 {{ (form.strategyConfigs.dragon_head.params.min_correction_pct * 100).toFixed(0) }}% ~ {{ (form.strategyConfigs.dragon_head.params.max_correction_pct * 100).toFixed(0) }}%?</div>
+                <div class="flow-cond">③ 量比 {{ form.strategyConfigs.dragon_head.params.min_volume_ratio }} ~ {{ form.strategyConfigs.dragon_head.params.max_volume_ratio }}(缩量回调)?</div>
+                <div class="flow-cond">④ 回调天数 {{ form.strategyConfigs.dragon_head.params.correction_days_min }} ~ {{ form.strategyConfigs.dragon_head.params.correction_days_max }}天?</div>
+                <div class="flow-cond flow-cond-branch">→ 触发均线支撑: {{ form.strategyConfigs.dragon_head.params.support_level === 'ma5' ? '5日均线' : form.strategyConfigs.dragon_head.params.support_level === 'ma10' ? '10日均线' : '平台支撑' }}</div>
+                <div class="flow-cond flow-cond-accept">✅ 全部满足 → 低吸买入</div>
+              </div>
+            </div>
+
+            <div v-if="form.strategyConfigs.limit_down_qiao.enabled" class="flow-strategy-card">
+              <div class="flow-strategy-header">💥 跌停翘板</div>
+              <div class="flow-logic">
+                <div class="flow-cond">① 连续跌停 ≥ {{ form.strategyConfigs.limit_down_qiao.params.min_consecutive_limit }}天?</div>
+                <div class="flow-cond">② 翘板金额 ≥ {{ form.strategyConfigs.limit_down_qiao.params.min_qiao_amount }}万?</div>
+                <div class="flow-cond">③ 翘板后涨幅 ≥ {{ (form.strategyConfigs.limit_down_qiao.params.min_rise_after_qiao * 100).toFixed(0) }}%(确认反转)?</div>
+                <div class="flow-cond">④ 流通市值 ≥ {{ form.strategyConfigs.limit_down_qiao.params.min_circulation_market_cap }}亿?</div>
+                <div class="flow-cond">⑤ {{ form.strategyConfigs.limit_down_qiao.params.require_high_sentiment ? '要求高情绪周期(得分≥60)' : '不限情绪周期' }}</div>
+                <div class="flow-cond flow-cond-accept">✅ 全部满足 → 翘板时追入</div>
+                <div class="flow-cond flow-cond-reject">❌ 翘板失败继续跌停 → 次日止损</div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+      <div class="flow-arrow">▼</div>
+
+      <!-- 6. 风控与仓位 -->
+      <div class="flow-step">
+        <div class="flow-step-header">
+          <div class="flow-step-num">6</div>
+          <div class="flow-step-title">🛡️ 风控与仓位管理</div>
+          <div class="flow-step-badge">逐信号判断</div>
+        </div>
+        <div class="flow-step-body">
+          <div class="flow-logic">
+            <div class="flow-cond flow-cond-branch">① 当前总仓位 + 本次仓位 ≤ {{ (form.tradeParams.max_total_position * 100).toFixed(0) }}%?</div>
+            <div class="flow-cond flow-cond-branch">② 单票仓位 ≤ {{ (form.tradeParams.max_position_per_stock * 100).toFixed(0) }}%?</div>
+            <div class="flow-cond flow-cond-branch">③ 同一股票不同策略信号 → 取信号最强的策略</div>
+            <div class="flow-cond flow-cond-accept">✅ 通过 → 执行买入</div>
+            <div class="flow-cond flow-cond-reject">❌ 超限 → 缩减仓位或放弃</div>
+            <div class="flow-cond">交易成本: 佣金{{ (form.tradeParams.commission_rate * 1000).toFixed(1) }}‰ + 印花税{{ (form.tradeParams.stamp_duty_rate * 1000).toFixed(0) }}‰ + 滑点{{ (form.tradeParams.slippage_pct * 1000).toFixed(1) }}‰</div>
+          </div>
+        </div>
+      </div>
+      <div class="flow-arrow">▼</div>
+
+      <!-- 7. 强制空仓 -->
+      <div class="flow-step" :class="{ 'flow-disabled': !form.forceEmpty.enabled }">
+        <div class="flow-step-header">
+          <div class="flow-step-num">7</div>
+          <div class="flow-step-title">⚠️ 强制空仓 {{ form.forceEmpty.enabled ? '' : '(未启用→跳过)' }}</div>
+          <div class="flow-step-badge">极端行情</div>
+        </div>
+        <div class="flow-step-body">
+          <div class="flow-logic">
+            <div class="flow-cond flow-cond-branch">IF 指数跌幅 ≥ {{ (form.forceEmpty.index_drop_pct * 100).toFixed(1) }}% → 触发</div>
+            <div class="flow-cond flow-cond-branch">IF 跌停数 ≥ {{ form.forceEmpty.limit_down_count }}只 → 触发</div>
+            <div class="flow-cond flow-cond-accept">→ 清仓所有持仓，次日不买入，等待情绪恢复</div>
+          </div>
+        </div>
+      </div>
+      <div class="flow-arrow">▼</div>
+
+      <!-- 8. 卖出决策 -->
+      <div class="flow-step flow-step-group">
+        <div class="flow-step-header">
+          <div class="flow-step-num">8</div>
+          <div class="flow-step-title">📤 卖出决策（按优先级逐条判断）</div>
+          <div class="flow-step-badge">每日盘后/盘中</div>
+        </div>
+        <div class="flow-step-body">
+          <div class="flow-desc">对每笔持仓，按以下优先级依次判断，触发任一即卖出：</div>
+          <div class="flow-logic">
+            <div class="flow-cond flow-cond-priority">🔴 P1 强制空仓 — 极端行情触发，无条件清仓</div>
+            <div class="flow-cond flow-cond-priority">🟠 P2 止损 — 跌幅 ≥ 策略止损%(策略级覆盖 > 全局默认)</div>
+            <div class="flow-cond flow-cond-priority">🟡 P3 最大持仓天数 — 持仓 > 策略max_hold_days天 → 卖出</div>
+            <div class="flow-cond flow-cond-priority">🟢 P4 高开即卖 — 次日高开 ≥ 阈值(首板打板特有)</div>
+            <div class="flow-cond flow-cond-priority">🔵 P5 利润保护 — 盈利回撤超过一定比例 → 锁定部分利润</div>
+            <div class="flow-cond flow-cond-priority">🟣 P6 止盈 — 涨幅 ≥ 策略止盈% → 卖出</div>
+            <div class="flow-cond flow-cond-priority">⚪ P7 冲高回落 — 盘中冲高后回落超阈值 → 卖出</div>
+            <div class="flow-cond">未触发任何条件 → 继续持有</div>
+          </div>
+          <div class="flow-detail" style="margin-top:8px">
+            <span>策略级风控优先于全局默认值</span>
+            <span>卖出后资金回到可用余额，次日可重新分配</span>
+          </div>
+        </div>
+      </div>
+      <div class="flow-arrow">▼</div>
+
+      <!-- 9. 结算 -->
+      <div class="flow-step">
+        <div class="flow-step-header">
+          <div class="flow-step-num">9</div>
+          <div class="flow-step-title">💰 日终结算</div>
+          <div class="flow-step-badge">记录交易日志</div>
+        </div>
+        <div class="flow-step-body">
+          <div class="flow-logic">
+            <div class="flow-cond">① 更新持仓成本/浮盈/浮亏</div>
+            <div class="flow-cond">② 记录当日买卖交易到日志</div>
+            <div class="flow-cond">③ 计算当日净值/累计收益/回撤</div>
+            <div class="flow-cond">④ 进入下一交易日，回到步骤2</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
 </div>
 </template>
 
@@ -1088,4 +1335,74 @@ export default { name: 'StrategyConfigPanel' }
     font-size: 13px;
   }
 }
+
+/* 模式切换 */
+.mode-switcher {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  overflow: hidden;
+  width: fit-content;
+}
+.mode-btn {
+  padding: 7px 20px;
+  font-size: 13px;
+  font-weight: 600;
+  border: none;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  &:hover { background: var(--bg-hover); }
+  &.active {
+    background: var(--primary-500);
+    color: #fff;
+  }
+}
+
+/* 执行流程模式 */
+.flow-container { padding: 8px 0; }
+.flow-step {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  padding: 14px 18px;
+  transition: all 0.2s;
+  &.flow-disabled { opacity: 0.45; border-style: dashed; }
+  &:hover { border-color: var(--primary-300); }
+  &.flow-step-group {
+    border-color: var(--primary-200);
+    border-width: 2px;
+  }
+}
+.flow-step-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.flow-step-num {
+  width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--primary-500); color: #fff;
+  border-radius: 50%; font-size: 14px; font-weight: 700; flex-shrink: 0;
+}
+.flow-step-title { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+.flow-step-badge {
+  font-size: 12px; color: var(--text-tertiary); background: var(--bg-muted);
+  padding: 2px 10px; border-radius: 10px; margin-left: auto; white-space: nowrap;
+}
+.flow-step-body { padding-left: 38px; }
+.flow-desc { font-size: 13px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 6px; }
+.flow-logic { display: flex; flex-direction: column; gap: 4px; }
+.flow-cond {
+  font-size: 13px; color: var(--text-secondary); line-height: 1.6;
+  padding: 3px 10px; border-radius: 4px; background: var(--bg-muted);
+  &.flow-cond-reject { border-left: 3px solid #f56c6c; color: #f56c6c; background: rgba(245, 108, 108, 0.06); }
+  &.flow-cond-accept { border-left: 3px solid #67c23a; color: #67c23a; background: rgba(103, 194, 58, 0.06); }
+  &.flow-cond-branch { border-left: 3px solid #409eff; color: #409eff; background: rgba(64, 158, 255, 0.06); }
+  &.flow-cond-priority { font-weight: 500; padding: 4px 10px; }
+}
+.flow-detail { display: flex; gap: 16px; font-size: 12px; color: var(--text-tertiary); margin-top: 6px; }
+.flow-arrow { text-align: center; color: var(--primary-300); font-size: 16px; font-weight: 700; padding: 3px 0; line-height: 1; }
+.flow-strategies { display: flex; flex-direction: column; gap: 12px; }
+.flow-strategy-card { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 6px; padding: 10px 14px; }
+.flow-strategy-header { font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid var(--border-default); }
+
 </style>
