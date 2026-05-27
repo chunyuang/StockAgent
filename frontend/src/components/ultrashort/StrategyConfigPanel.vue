@@ -49,66 +49,90 @@ const dragonHeadTitle = computed(() => `🐲 龙头低吸策略 (连板≥${prop
 const limitDownQiaoTitle = computed(() => `💥 跌停翘板策略 (连跌≥${props.form.strategyConfigs.limit_down_qiao.params.min_consecutive_limit}天, 翘板≥${props.form.strategyConfigs.limit_down_qiao.params.min_qiao_amount}万, 翘板后涨≥${(props.form.strategyConfigs.limit_down_qiao.params.min_rise_after_qiao * 100).toFixed(0)}%, 流通市值≥${props.form.strategyConfigs.limit_down_qiao.params.min_circulation_market_cap}亿, ${props.form.strategyConfigs.limit_down_qiao.params.require_high_sentiment ? '需高情绪' : '不限情绪'}, 止损${(props.form.strategyConfigs.limit_down_qiao.riskParams.stop_loss_pct * 100).toFixed(1)}%/止盈${(props.form.strategyConfigs.limit_down_qiao.riskParams.take_profit_pct * 100).toFixed(1)}%, 持仓${props.form.strategyConfigs.limit_down_qiao.riskParams.max_hold_days}天, 滑点${(props.form.strategyConfigs.limit_down_qiao.riskParams.slippage_pct * 1000).toFixed(1)}‰)`)
 
 // ============ 策略/配置描述 ============
-const sectionDescriptions: Record<string, { title: string; desc: string; tips?: string[] }> = {
+const sectionDescriptions: Record<string, { title: string; desc: string; tips?: string[]; analysis?: string[]; risk?: string[] }> = {
   dataSource: {
     title: '🔌 数据源配置',
     desc: '定义回测的数据来源，包括K线周期、复权方式和股票池范围。',
-    tips: ['日线适合隔日交易策略，1分钟适合盘中策略', '前复权可消除分红除权影响，回测更准确', '股票池留空则覆盖全市场A股']
+    tips: ['日线适合隔日交易策略，1分钟适合盘中策略', '前复权可消除分红除权影响，回测更准确', '股票池留空则覆盖全市场A股'],
+    analysis: ['日线回测使用每日OHLCV快照，无法模拟盘中买卖时点，实际成交价可能有偏差', '前复权是回测标准做法——不复权会在除权日产生虚假缺口', '全市场回测约4000+股票，每日筛选耗时约2~5秒'],
+    risk: ['日线数据无法还原集合竞价和盘中信号触发的精确时点', '1分钟数据量巨大，回测速度会显著下降']
   },
   baseConfig: {
     title: '📅 基础配置',
-    desc: '回测的时间范围和初始资金设置。',
-    tips: ['建议选择3个月以上区间，样本量足够', '初始资金影响仓位管理，建议≥100万']
+    desc: '回测的时间范围和初始资金设置。直接影响回测的样本量和统计可信度。',
+    tips: ['建议选择3个月以上区间，样本量足够', '初始资金影响仓位管理，建议≥100万'],
+    analysis: ['3个月约有60个交易日，产生30~100笔交易才有统计意义', '初始资金太小（<50万）会导致单票仓位过大、分散不足', '初始资金太大（>5000万）会导致流动性问题——小盘股无法容纳大资金'],
+    risk: ['短区间回测（<1个月）结果偶然性大，不可作为策略优劣的判断依据', '牛市区间回测收益会系统性偏高，建议跨牛熊验证']
   },
   tradeParams: {
     title: '💹 交易参数',
     desc: '全局交易规则，包括止损止盈、仓位管理和交易成本。策略级风控参数可覆盖这些默认值。',
-    tips: ['止损3%~5%为超短常见范围', '总仓位70%留30%现金应对加仓', '滑点2‰模拟涨停排队的真实成交偏差', '佣金万3+印花税千1为典型交易成本']
+    tips: ['止损3%~5%为超短常见范围', '总仓位70%留30%现金应对加仓', '滑点2‰模拟涨停排队的真实成交偏差', '佣金万3+印花税千1为典型交易成本'],
+    analysis: ['止损过小（<2%）容易被正常波动震出；过大（>8%）则单笔亏损不可接受', '止盈7%是超短平衡点——实际收益来自多次小盈+偶尔大盈，而非单笔暴利', '总仓位70%是经验值：留30%现金既可加仓也能心理承受回撤', '滑点2‰~5‰模拟的是涨停板排队的实际成交偏差，对首板打板尤其重要'],
+    risk: ['止损和止盈同时关闭等于无风控，回测收益会虚高', '佣金和印花税设为0会导致收益虚高约1%~3%', '滑点为0在打板策略中严重失真——实际成交率远低于模拟']
   },
   globalFilter: {
     title: '🔍 全局筛选',
-    desc: '全策略共用的股票过滤规则，不满足条件的股票不会进入任何策略的候选池。',
-    tips: ['剔除ST避免退市风险股', '次新股≥60天排除上市初期不稳定波动', '成交额≥5000万确保流动性', '换手率≥3%排除无人关注的僵尸股']
+    desc: '全策略共用的股票过滤规则，不满足条件的股票不会进入任何策略的候选池。是回测质量的第一道防线。',
+    tips: ['剔除ST避免退市风险股', '次新股≥60天排除上市初期不稳定波动', '成交额≥5000万确保流动性', '换手率≥3%排除无人关注的僵尸股'],
+    analysis: ['成交额门槛是最关键的筛选：太低（<500万）会纳入大量无法实际交易的垃圾股；太高（>2亿）会错过中小盘机会', '换手率筛选和成交额筛选有重叠——低换手率的股票通常成交额也低', '次新股60天是经验值，上市初期的涨跌停机制不同（首日无涨跌幅），会干扰回测'],
+    risk: ['过滤条件过严会大幅减少候选股数量，导致交易次数不足', '不过滤ST和退市股会导致回测中出现实际无法买入的标的']
   },
   forceEmpty: {
     title: '⚠️ 强制空仓',
-    desc: '市场极端情况下的保护机制。当大盘大跌、跌停家数激增时，强制卖出所有持仓。',
-    tips: ['大盘跌≥2%+跌停≥50只 → 极端恐慌信号', '触发后次日不会再买入，直到情绪恢复', '建议保持开启，避免系统性暴跌风险']
+    desc: '市场极端情况下的保护机制。当大盘大跌、跌停家数激增时，强制卖出所有持仓并暂停新买入。',
+    tips: ['大盘跌≥3%+跌停≥80只 → 极端恐慌信号', '涨停<10只说明市场几乎没有赚钱效应', '触发后次日不会再买入，直到情绪恢复', '建议保持开启，避免系统性暴跌风险'],
+    analysis: ['强制空仓本质上是一种市场择时——在系统性风险时离场，比任何个股止损都有效', '参数敏感度：index_drop_pct从2%→3%，触发频率大幅降低；跌停数从50→80，只在真正恐慌时触发', '实际回测中，2024年初和2025年初的暴跌行情，强制空仓能避免20%~40%的回撤'],
+    risk: ['参数过敏感（跌幅1%+跌停20只）会频繁触发空仓，错过反弹机会', '参数过迟钝（跌幅5%+跌停200只）可能永远不触发，失去保护作用']
   },
   sentimentCycle: {
     title: '🧠 情绪周期',
-    desc: '通过多维度指标量化市场情绪，影响各策略的信号强度和仓位分配。',
-    tips: ['涨停/跌停家数反映多空力量对比', '炸板率反映打板封板质量', '北向资金反映外资流向偏好', '权重之和无需为1，各自独立缩放']
+    desc: '通过涨停/跌停家数、炸板率、涨跌比、北向资金等多维度指标量化市场情绪，影响各策略的信号强度和仓位分配。',
+    tips: ['涨停/跌停家数反映多空力量对比', '炸板率反映打板封板质量', '北向资金反映外资流向偏好', '权重之和无需为1，各自独立缩放'],
+    analysis: ['情绪得分0~100，>70为强势（可积极操作），30~70为震荡（需谨慎），<30为弱势（应减少仓位）', '权重调节的实质：提高某项权重意味着该指标对情绪的边际影响更大', '情绪周期的核心价值不是预测，而是仓位管理——弱势时自动降低仓位比手动止损更有效'],
+    risk: ['情绪指标是滞后指标——大跌当日情绪已经恶化，卖出时可能已是低点', '北向数据有延迟，实盘中可能无法及时获取']
   },
   auctionFilter: {
     title: '⏰ 竞价过滤',
-    desc: '在集合竞价阶段对候选股进行预筛选，过滤竞价表现不佳的标的。',
-    tips: ['竞价涨幅2%~8%为宜，过高可能开盘即巅峰', '未匹配量为正说明买盘强于卖盘', '竞价量比≥2说明市场关注度高']
+    desc: '在集合竞价阶段对候选股进行预筛选。日线回测中此功能有限（无法获取真实竞价数据），但在实盘信号中至关重要。',
+    tips: ['竞价涨幅0.5%~7%为宜，过高可能开盘即巅峰', '未匹配量为正说明买盘强于卖盘', '竞价量比≥1.5说明市场关注度高'],
+    analysis: ['日线回测中竞价过滤主要用开盘价近似竞价涨幅，精度有限', '实盘中竞价过滤是减少假信号的关键——大量涨停候选在竞价阶段就已经可以看出端倪', '此功能在回测中影响较小，但在实盘信号引擎中是核心筛选层'],
+    risk: ['日线回测中竞价过滤的模拟精度不高，参数调整对回测结果影响有限', '过度依赖竞价过滤可能错过低开后快速拉升的标的']
   },
   halfway_chase: {
     title: '🏃♂️ 半路追涨策略',
-    desc: '在盘中股票已经上涨但尚未涨停时追入，博弈后续继续冲高甚至封板。适合强势市场的顺势交易。',
-    tips: ['核心参数：涨幅3%~7%的强势股', '量比1.5~3.0确认放量而非缩量上涨', '收盘涨幅≥2%确认非冲高回落', '开盘涨幅≤5%排除竞价已过热的票', '平均收益偏弱(+1.97%)，注意风控']
+    desc: '在盘中股票已经上涨但尚未涨停时追入，博弈后续继续冲高甚至封板。适合强势市场的顺势交易。历史回测中平均单笔收益偏低，需严格控制止损。',
+    tips: ['核心参数：涨幅3%~7%的强势股', '量比1.5~3.0确认放量而非缩量上涨', '收盘涨幅≥2%确认非冲高回落', '开盘涨幅≤5%排除竞价已过热的票'],
+    analysis: ['半路追涨的胜率通常在35%~50%之间，依赖盈亏比而非胜率盈利', '涨幅区间3%~7%是经验甜蜜点：<3%动能不足，>7%追高风险大', '量比是最重要的过滤条件——缩量上涨大概率是诱多，放量才是真突破', '收盘涨幅确认是防止"冲高回落"的关键：盘中涨7%收盘跌2%是最常见的陷阱'],
+    risk: ['该策略在弱势市场中表现很差——冲高回落概率大幅增加', '平均收益在各策略中最低，建议控制仓位占比不超过20%', '追涨被套后的止损执行力是盈亏关键——拖延止损会导致小亏变大亏']
   },
   first_limit_up: {
     title: '🥇 首板打板策略',
-    desc: '在股票首次涨停时排队买入，博弈次日高开溢价。回测中模拟了不同涨停速度的实际成交概率。',
-    tips: ['成交概率是核心：一字板5%、秒板30%、快板60%、慢板80%', '流通市值20~100亿为最佳区间', '换手率5%~15%量价配合最佳', '次日高开≥3%自动止盈（高开即卖）', '止损4%为打板策略的底线']
+    desc: '在股票首次涨停时排队买入，博弈次日高开溢价。回测中模拟了不同涨停速度的实际成交概率——这是该策略的核心差异点。',
+    tips: ['成交概率是核心：一字板0%、秒板20%、快板40%、慢板50%', '流通市值20~100亿为最佳区间', '换手率5%~15%量价配合最佳', '次日高开≥3%自动止盈（高开即卖）'],
+    analysis: ['成交概率是回测与现实的最大差距：实盘中一字板和秒板几乎不可能买到，快板50%已是乐观估计', '流通市值筛选的本质：小市值弹性大但操纵性强，大市值稳健但溢价低', '换手率5%~15%区间是"有量有价"——低于5%可能无量涨停（买不到），高于15%可能分歧太大', '次日高开即卖是最重要的止盈逻辑：首板次日平均溢价约2%~4%，高开不卖可能回吐全部利润'],
+    risk: ['打板被套是最大风险——涨停当日买入次日低开止损，单笔亏损可达5%~8%', '慢板（10:00后涨停）质量较差，封板不牢固，次日低开概率高', '连板股首板的溢价远高于首板首板的溢价——可配合连板数筛选']
   },
   limit_up_open: {
     title: '📈 涨停开板策略',
-    desc: '连板股盘中开板后回封时买入，博弈回封后次日继续高开。需要连板基础确保龙头地位。',
-    tips: ['最少2连板以上，确保不是杂毛股', '开板≤10分钟即回封，说明主力坚决', '回封后封单≥1万手确认抛压已消化', '止损4%严格控制开板后继续下跌风险']
+    desc: '连板股盘中开板后回封时买入，博弈回封后次日继续高开。需要连板基础确保龙头地位。属于高风险高赔率策略。',
+    tips: ['最少2连板以上，确保不是杂毛股', '开板≤10分钟即回封，说明主力坚决', '回封后封单≥1万手确认抛压已消化', '止损4%严格控制开板后继续下跌风险'],
+    analysis: ['连板数是质量保证：2连板以上说明资金已经形成共识，开板更多是洗盘而非出货', '开板时长是关键：<5分钟回封说明主力做多意愿极强；>30分钟回封说明分歧严重', '回封后封单量是"信心指标"——封单越大，次日高开概率越高', '该策略在牛市中暴利（龙头开板后经常连续再涨2~3板），但在熊市中灾难性亏损'],
+    risk: ['回封失败（开板后未再封住）是最大风险——当日浮亏可达5%以上', '该策略交易频率很低（月均1~3次），单笔影响极大', '必须在强势市场操作——弱势市场连板股开板后继续下跌概率>70%']
   },
   dragon_head: {
     title: '🐲 龙头低吸策略',
-    desc: '在龙头股回调到支撑位时低吸买入，博弈龙头二波启动。适合市场分歧后的再次一致。',
-    tips: ['核心：连板龙头+缩量回调到5/10日均线', '回调5%~35%为健康调整区间', '量比0.5~2.0确认缩量而非放量下跌', '支撑位选5日均线适合强势回调', '止损5%给龙头更大的波动空间']
+    desc: '在龙头股回调到支撑位时低吸买入，博弈龙头二波启动。历史回测中胜率最高、收益最稳定的策略，适合作为主力仓位。',
+    tips: ['核心：连板龙头+缩量回调到5/10日均线', '回调5%~22%为健康调整区间', '量比0.5~2.0确认缩量而非放量下跌', '支撑位选5日均线适合强势回调'],
+    analysis: ['这是回测中表现最稳健的策略——胜率60%~100%，年化收益可达100%+', '回调幅度5%~22%是"黄金坑"区间：<5%回调不够深，>22%可能趋势反转', '缩量是低吸的核心前提：放量下跌是出货，缩量下跌是洗盘', 'MA5支撑适合1~3天快速回调，MA10适合3~5天回调，平台支撑适合5~7天横盘', '连板数1板以上即可——真正的龙头从首板开始就有资金记忆'],
+    risk: ['龙头识别错误是最大风险——杂毛股回调不会反弹', '止损5%给龙头较大空间，但如果判断错误亏损也更大', '该策略持仓天数较长（3~7天），期间可能遇到系统性风险']
   },
   limit_down_qiao: {
     title: '💥 跌停翘板策略',
-    desc: '在跌停板被大资金撬开时追入，博弈翘板后的大幅反弹。高风险高回报，需配合情绪周期。',
-    tips: ['连跌1天以上才有足够恐慌释放', '翘板金额≥5000万确认大资金介入', '翘板后涨幅≥3%确认反转力度', '建议开启高情绪周期要求（市场强势时翘板成功率高）', '止损4%+止盈25%：高赔率策略']
+    desc: '在跌停板被大资金撬开时追入，博弈翘板后的大幅反弹。高风险高回报策略，历史回测中赔率最高但胜率波动大。',
+    tips: ['连跌2天以上才有足够恐慌释放', '翘板金额≥1000万确认大资金介入', '翘板后涨幅≥3%确认反转力度', '止损5%+止盈20%：高赔率策略'],
+    analysis: ['翘板本质是逆向操作：在市场最恐慌时买入，需要极强的心理素质', '翘板金额是最核心的确认指标：<500万可能是散户行为，>1000万才是机构或游资', '翘板后涨幅3%以上说明反转力度足够——仅从跌停翘到平盘不算成功', '连跌天数越多，翘板成功后的反弹幅度越大（恐慌释放更充分）', '该策略和情绪周期高度相关——强势市场翘板成功率>60%，弱势市场<30%'],
+    risk: ['翘板失败（翘开后再次跌停）是最大风险——当日亏损可达10%以上', '该策略单笔盈亏波动极大，必须控制单票仓位不超过10%', '不建议在弱势市场使用——跌停翘板失败后继续跌停是常见走势']
   }
 }
 
@@ -217,6 +241,14 @@ function onSweepParamChange() {
               <span class="desc-tip-dot">•</span> {{ tip }}
             </div>
           </div>
+          <div v-if="sectionDescriptions.dataSource.analysis?.length" class="desc-analysis">
+            <div class="desc-analysis-title">📊 深度分析</div>
+            <div v-for="(a, i) in sectionDescriptions.dataSource.analysis" :key="'a'+i" class="desc-analysis-item">{{ a }}</div>
+          </div>
+          <div v-if="sectionDescriptions.dataSource.risk?.length" class="desc-risk">
+            <div class="desc-risk-title">⚠️ 风险提示</div>
+            <div v-for="(r, i) in sectionDescriptions.dataSource.risk" :key="'r'+i" class="desc-risk-item">{{ r }}</div>
+          </div>
         </div>
         </div>
       </ElCollapseItem>
@@ -238,6 +270,14 @@ function onSweepParamChange() {
             <div v-for="(tip, i) in sectionDescriptions.baseConfig.tips" :key="i" class="desc-tip-item">
               <span class="desc-tip-dot">•</span> {{ tip }}
             </div>
+          </div>
+          <div v-if="sectionDescriptions.baseConfig.analysis?.length" class="desc-analysis">
+            <div class="desc-analysis-title">📊 深度分析</div>
+            <div v-for="(a, i) in sectionDescriptions.baseConfig.analysis" :key="'a'+i" class="desc-analysis-item">{{ a }}</div>
+          </div>
+          <div v-if="sectionDescriptions.baseConfig.risk?.length" class="desc-risk">
+            <div class="desc-risk-title">⚠️ 风险提示</div>
+            <div v-for="(r, i) in sectionDescriptions.baseConfig.risk" :key="'r'+i" class="desc-risk-item">{{ r }}</div>
           </div>
         </div>
         </div>
@@ -290,6 +330,14 @@ function onSweepParamChange() {
               <span class="desc-tip-dot">•</span> {{ tip }}
             </div>
           </div>
+          <div v-if="sectionDescriptions.tradeParams.analysis?.length" class="desc-analysis">
+            <div class="desc-analysis-title">📊 深度分析</div>
+            <div v-for="(a, i) in sectionDescriptions.tradeParams.analysis" :key="'a'+i" class="desc-analysis-item">{{ a }}</div>
+          </div>
+          <div v-if="sectionDescriptions.tradeParams.risk?.length" class="desc-risk">
+            <div class="desc-risk-title">⚠️ 风险提示</div>
+            <div v-for="(r, i) in sectionDescriptions.tradeParams.risk" :key="'r'+i" class="desc-risk-item">{{ r }}</div>
+          </div>
         </div>
         </div>
       </ElCollapseItem>
@@ -323,6 +371,14 @@ function onSweepParamChange() {
               <span class="desc-tip-dot">•</span> {{ tip }}
             </div>
           </div>
+          <div v-if="sectionDescriptions.globalFilter.analysis?.length" class="desc-analysis">
+            <div class="desc-analysis-title">📊 深度分析</div>
+            <div v-for="(a, i) in sectionDescriptions.globalFilter.analysis" :key="'a'+i" class="desc-analysis-item">{{ a }}</div>
+          </div>
+          <div v-if="sectionDescriptions.globalFilter.risk?.length" class="desc-risk">
+            <div class="desc-risk-title">⚠️ 风险提示</div>
+            <div v-for="(r, i) in sectionDescriptions.globalFilter.risk" :key="'r'+i" class="desc-risk-item">{{ r }}</div>
+          </div>
         </div>
         </div>
       </ElCollapseItem>
@@ -354,6 +410,14 @@ function onSweepParamChange() {
             <div v-for="(tip, i) in sectionDescriptions.forceEmpty.tips" :key="i" class="desc-tip-item">
               <span class="desc-tip-dot">•</span> {{ tip }}
             </div>
+          </div>
+          <div v-if="sectionDescriptions.forceEmpty.analysis?.length" class="desc-analysis">
+            <div class="desc-analysis-title">📊 深度分析</div>
+            <div v-for="(a, i) in sectionDescriptions.forceEmpty.analysis" :key="'a'+i" class="desc-analysis-item">{{ a }}</div>
+          </div>
+          <div v-if="sectionDescriptions.forceEmpty.risk?.length" class="desc-risk">
+            <div class="desc-risk-title">⚠️ 风险提示</div>
+            <div v-for="(r, i) in sectionDescriptions.forceEmpty.risk" :key="'r'+i" class="desc-risk-item">{{ r }}</div>
           </div>
         </div>
         </div>
@@ -389,6 +453,14 @@ function onSweepParamChange() {
             <div v-for="(tip, i) in sectionDescriptions.sentimentCycle.tips" :key="i" class="desc-tip-item">
               <span class="desc-tip-dot">•</span> {{ tip }}
             </div>
+          </div>
+          <div v-if="sectionDescriptions.sentimentCycle.analysis?.length" class="desc-analysis">
+            <div class="desc-analysis-title">📊 深度分析</div>
+            <div v-for="(a, i) in sectionDescriptions.sentimentCycle.analysis" :key="'a'+i" class="desc-analysis-item">{{ a }}</div>
+          </div>
+          <div v-if="sectionDescriptions.sentimentCycle.risk?.length" class="desc-risk">
+            <div class="desc-risk-title">⚠️ 风险提示</div>
+            <div v-for="(r, i) in sectionDescriptions.sentimentCycle.risk" :key="'r'+i" class="desc-risk-item">{{ r }}</div>
           </div>
         </div>
         </div>
@@ -428,6 +500,14 @@ function onSweepParamChange() {
             <div v-for="(tip, i) in sectionDescriptions.auctionFilter.tips" :key="i" class="desc-tip-item">
               <span class="desc-tip-dot">•</span> {{ tip }}
             </div>
+          </div>
+          <div v-if="sectionDescriptions.auctionFilter.analysis?.length" class="desc-analysis">
+            <div class="desc-analysis-title">📊 深度分析</div>
+            <div v-for="(a, i) in sectionDescriptions.auctionFilter.analysis" :key="'a'+i" class="desc-analysis-item">{{ a }}</div>
+          </div>
+          <div v-if="sectionDescriptions.auctionFilter.risk?.length" class="desc-risk">
+            <div class="desc-risk-title">⚠️ 风险提示</div>
+            <div v-for="(r, i) in sectionDescriptions.auctionFilter.risk" :key="'r'+i" class="desc-risk-item">{{ r }}</div>
           </div>
         </div>
         </div>
@@ -492,6 +572,14 @@ function onSweepParamChange() {
             <div v-for="(tip, i) in sectionDescriptions.halfway_chase.tips" :key="i" class="desc-tip-item">
               <span class="desc-tip-dot">•</span> {{ tip }}
             </div>
+          </div>
+          <div v-if="sectionDescriptions.halfway_chase.analysis?.length" class="desc-analysis">
+            <div class="desc-analysis-title">📊 深度分析</div>
+            <div v-for="(a, i) in sectionDescriptions.halfway_chase.analysis" :key="'a'+i" class="desc-analysis-item">{{ a }}</div>
+          </div>
+          <div v-if="sectionDescriptions.halfway_chase.risk?.length" class="desc-risk">
+            <div class="desc-risk-title">⚠️ 风险提示</div>
+            <div v-for="(r, i) in sectionDescriptions.halfway_chase.risk" :key="'r'+i" class="desc-risk-item">{{ r }}</div>
           </div>
         </div>
         </div>
@@ -575,6 +663,14 @@ function onSweepParamChange() {
               <span class="desc-tip-dot">•</span> {{ tip }}
             </div>
           </div>
+          <div v-if="sectionDescriptions.first_limit_up.analysis?.length" class="desc-analysis">
+            <div class="desc-analysis-title">📊 深度分析</div>
+            <div v-for="(a, i) in sectionDescriptions.first_limit_up.analysis" :key="'a'+i" class="desc-analysis-item">{{ a }}</div>
+          </div>
+          <div v-if="sectionDescriptions.first_limit_up.risk?.length" class="desc-risk">
+            <div class="desc-risk-title">⚠️ 风险提示</div>
+            <div v-for="(r, i) in sectionDescriptions.first_limit_up.risk" :key="'r'+i" class="desc-risk-item">{{ r }}</div>
+          </div>
         </div>
         </div>
       </ElCollapseItem>
@@ -626,6 +722,14 @@ function onSweepParamChange() {
             <div v-for="(tip, i) in sectionDescriptions.limit_up_open.tips" :key="i" class="desc-tip-item">
               <span class="desc-tip-dot">•</span> {{ tip }}
             </div>
+          </div>
+          <div v-if="sectionDescriptions.limit_up_open.analysis?.length" class="desc-analysis">
+            <div class="desc-analysis-title">📊 深度分析</div>
+            <div v-for="(a, i) in sectionDescriptions.limit_up_open.analysis" :key="'a'+i" class="desc-analysis-item">{{ a }}</div>
+          </div>
+          <div v-if="sectionDescriptions.limit_up_open.risk?.length" class="desc-risk">
+            <div class="desc-risk-title">⚠️ 风险提示</div>
+            <div v-for="(r, i) in sectionDescriptions.limit_up_open.risk" :key="'r'+i" class="desc-risk-item">{{ r }}</div>
           </div>
         </div>
         </div>
@@ -698,6 +802,14 @@ function onSweepParamChange() {
               <span class="desc-tip-dot">•</span> {{ tip }}
             </div>
           </div>
+          <div v-if="sectionDescriptions.dragon_head.analysis?.length" class="desc-analysis">
+            <div class="desc-analysis-title">📊 深度分析</div>
+            <div v-for="(a, i) in sectionDescriptions.dragon_head.analysis" :key="'a'+i" class="desc-analysis-item">{{ a }}</div>
+          </div>
+          <div v-if="sectionDescriptions.dragon_head.risk?.length" class="desc-risk">
+            <div class="desc-risk-title">⚠️ 风险提示</div>
+            <div v-for="(r, i) in sectionDescriptions.dragon_head.risk" :key="'r'+i" class="desc-risk-item">{{ r }}</div>
+          </div>
         </div>
         </div>
       </ElCollapseItem>
@@ -752,6 +864,14 @@ function onSweepParamChange() {
             <div v-for="(tip, i) in sectionDescriptions.limit_down_qiao.tips" :key="i" class="desc-tip-item">
               <span class="desc-tip-dot">•</span> {{ tip }}
             </div>
+          </div>
+          <div v-if="sectionDescriptions.limit_down_qiao.analysis?.length" class="desc-analysis">
+            <div class="desc-analysis-title">📊 深度分析</div>
+            <div v-for="(a, i) in sectionDescriptions.limit_down_qiao.analysis" :key="'a'+i" class="desc-analysis-item">{{ a }}</div>
+          </div>
+          <div v-if="sectionDescriptions.limit_down_qiao.risk?.length" class="desc-risk">
+            <div class="desc-risk-title">⚠️ 风险提示</div>
+            <div v-for="(r, i) in sectionDescriptions.limit_down_qiao.risk" :key="'r'+i" class="desc-risk-item">{{ r }}</div>
           </div>
         </div>
         </div>
@@ -1603,5 +1723,14 @@ export default { name: 'StrategyConfigPanel' }
   &.on { color: var(--stock-down); }
   &:not(.on) { color: var(--stock-up); opacity: 0.7; }
 }
+
+
+.desc-analysis { margin-top: 12px; }
+.desc-analysis-title { font-size: 13px; font-weight: 700; color: var(--el-color-primary); margin-bottom: 6px; }
+.desc-analysis-item { font-size: 12px; color: var(--text-secondary); line-height: 1.7; padding: 3px 0 3px 12px; border-left: 2px solid var(--el-color-primary-light-5); margin-bottom: 4px; }
+
+.desc-risk { margin-top: 10px; }
+.desc-risk-title { font-size: 13px; font-weight: 700; color: var(--stock-up); margin-bottom: 6px; }
+.desc-risk-item { font-size: 12px; color: var(--stock-up); opacity: 0.85; line-height: 1.7; padding: 3px 0 3px 12px; border-left: 2px solid var(--stock-up-light); margin-bottom: 4px; }
 
 </style>
