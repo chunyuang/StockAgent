@@ -10,6 +10,7 @@ export const STRATEGY_NAMES: Record<string, string> = {
   limit_up_open: '📈 涨停开板',
   dragon_head: '🐲 龙头低吸',
   limit_down_qiao: '💥 跌停翘板',
+  leader_buy_dip: '🐲 龙头低吸',
 }
 
 /** 参数扫描参数配置 */

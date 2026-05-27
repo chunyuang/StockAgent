@@ -84,7 +84,12 @@ function translateSellReason(reason: string): string {
     '高开即卖': '高开即卖',
     '利润保护': '利润保护',
     '利润锁定': '利润锁定',  // 【V48:新增利润锁定卖出原因】
+    'profit_lock': '利润锁定',
+    'profit_protect': '利润保护',
+    'pullback': '冲高回落',
+    'halt': '涨跌停',
     'gap_down_stop': '跳空止损',
+    'gap_stop_loss': '跳空止损',
     '持仓中': '持仓中',
     '停牌超时强卖': '停牌强卖',
     '龙头5天低利润': '龙头5日低利',  // 【V60:龙头低吸5天利润<3%提前退出】
