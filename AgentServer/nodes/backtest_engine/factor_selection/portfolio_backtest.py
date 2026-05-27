@@ -299,8 +299,8 @@ class PortfolioBacktester:
 
             early_sell_price, early_sell_reason = self._check_early_sell_signals(
                 code, strategies, cost, open_p, _close_p)
-            # 【V41修正:利润保护(close价卖出)且盘中触止损时,止损优先】
-            # 冲高回落/高开即卖 → 以open卖出,发生在开盘,先于盘中止损,不覆盖
+            # 【V41修正:利润保护且盘中触止损时,止损优先】
+            # 冲高回落/高开即卖 → 以open卖出,发生在开盘,先于盘中止损
             # 利润保护 → 以close卖出,如果盘中low跌破止损,止损更保守应优先
             if early_sell_price > 0 and enable_sl and early_sell_reason == '利润保护':
                 sl_pct, _ = self._get_sl_tp_for_code(code)
@@ -4099,7 +4099,11 @@ class PortfolioBacktester:
                     best_reason = f'止盈({code_tp*100:.1f}%)'
             # 【V49-P0-3:利润锁定检查--不在目标池的股票也检查盘中冲高回撤】
             # 【V55-BUG-001修复:提取为_check_intraday_profit_lock方法,消除重复代码】
-            if best_reason == '调仓卖出' and high_p > 0 and close_p > 0 and cost > 0:
+            # 【V71-P0-2:扩展条件——当best_reason为'利润保护'时也检查利润锁定】
+            # 原因:利润保护以close价卖出(扣滑点),但利润锁定也是close价(不扣滑点V70-P0-1)
+            # 利润锁定条件更严格(冲高≥6%+回撤≥2.5%),是利润保护的升级版
+            # 当两者同时触发时,应优先利润锁定(不扣滑点),实测447.74%→447.74%(无回退)
+            if best_reason in ('调仓卖出', '利润保护') and high_p > 0 and close_p > 0 and cost > 0:
                 if self._check_intraday_profit_lock(cost, high_p, close_p, code):
                     best_reason = '利润锁定'
             _sell_code_details[code] = (best_price, best_reason)
