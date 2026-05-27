@@ -35,9 +35,9 @@ const emit = defineEmits<{
 
 // 动态标题计算
 const dataSourceTitle = computed(() => `🔌 数据源配置 (${props.form.dataSource.period === 'daily' ? '日线' : '1分钟'}, ${props.form.dataSource.adjust_type === 'qfq' ? '前复权' : '不复权'}, 股票池: ${props.form.dataSource.ts_codes || '全市场'})`)
-const baseConfigTitle = computed(() => `📅 基础配置`)
-const tradeParamsTitle = computed(() => `💹 交易参数`)
-const globalFilterTitle = computed(() => `🔍 全局筛选`)
+const baseConfigTitle = computed(() => `📅 基础配置 (初始资金¥${(props.form.base.initial_cash / 10000).toFixed(0)}万)`)
+const tradeParamsTitle = computed(() => `💹 交易参数 (止损${(props.form.tradeParams.base_stop_loss_pct * 100).toFixed(1)}%/止盈${(props.form.tradeParams.base_take_profit_pct * 100).toFixed(1)}%, 持仓${props.form.tradeParams.max_hold_days}天, 单票${(props.form.tradeParams.max_position_per_stock * 100).toFixed(0)}%, 总仓位${(props.form.tradeParams.max_total_position * 100).toFixed(0)}%, 滑点${(props.form.tradeParams.slippage_pct * 1000).toFixed(1)}\u2030)`)
+const globalFilterTitle = computed(() => `🔍 全局筛选 (${props.form.globalFilter.exclude_st ? '剔ST' : '含ST'}, ${props.form.globalFilter.exclude_delisting ? '剔退市' : '含退市'}, 次新<${props.form.globalFilter.exclude_new_stock_days}天, 成交额≥${props.form.globalFilter.min_daily_amount}万, 换手≥${props.form.globalFilter.min_turnover_rate}%)`)
 const forceEmptyTitle = computed(() => `⚠️ 强制空仓 ${props.form.forceEmpty.enabled ? '✅' : '❌'} (跌幅≥${(props.form.forceEmpty.index_drop_pct * 100).toFixed(1)}%, 跌停≥${props.form.forceEmpty.limit_down_count}只, 涨停<${props.form.forceEmpty.limit_up_count}只)`)
 const sentimentCycleTitle = computed(() => `🧠 情绪周期 ${props.form.sentimentCycle.enabled ? '✅' : '❌'} (涨停${props.form.sentimentCycle.weight_limit_up}, 跌停${props.form.sentimentCycle.weight_limit_down}, 炸板率${props.form.sentimentCycle.weight_blast_rate}, 涨跌差${props.form.sentimentCycle.weight_rise_fall_diff}, 北向${props.form.sentimentCycle.weight_north_inflow})`)
 const auctionFilterTitle = computed(() => `⏰ 竞价过滤 ${props.form.auctionFilter.enabled ? '✅' : '❌'} (涨幅${(props.form.auctionFilter.min_auction_pct * 100).toFixed(1)}%~${(props.form.auctionFilter.max_auction_pct * 100).toFixed(1)}%, 成交额≥${props.form.auctionFilter.min_auction_amount}万, 量比≥${props.form.auctionFilter.min_auction_volume_ratio}, 未匹配量正: ${props.form.auctionFilter.min_unmatched_volume_positive ? '✅' : '❌'})`)
@@ -657,10 +657,10 @@ function onSweepParamChange() {
           </div>
         </div>
       </div>
-      <div v-else class="desc-panel desc-empty">
-        <div class="desc-empty-icon">📖</div>
-        <div class="desc-empty-text">展开左侧任意配置项</div>
-        <div class="desc-empty-sub">查看参数说明和调优建议</div>
+      <div v-else class="desc-panel">
+        <div class="desc-panel-title">📖 配置说明</div>
+        <div class="desc-panel-text">点击左侧折叠标题展开配置项，右侧将显示对应的参数说明和调优建议。</div>
+        
       </div>
     </div>
   </div>
@@ -722,6 +722,7 @@ export default { name: 'StrategyConfigPanel' }
 
 /* 左右两栏布局 */
 .config-layout-v2 {
+  min-height: calc(100vh - 180px);
   display: flex;
   gap: 16px;
   align-items: flex-start;
@@ -734,6 +735,8 @@ export default { name: 'StrategyConfigPanel' }
   width: 280px;
   flex-shrink: 0;
   position: sticky;
+  max-height: calc(100vh - 180px);
+  overflow-y: auto;
   top: 60px;
 }
 
@@ -918,6 +921,7 @@ export default { name: 'StrategyConfigPanel' }
 /* 【V63修复:P1-10】移动端适配 */
 @media (max-width: 768px) {
   .config-layout-v2 {
+  min-height: calc(100vh - 180px);
     flex-direction: column;
   }
   .config-right {
