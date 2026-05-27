@@ -120,7 +120,7 @@ const activeDescription = computed(() => {
 
 // 折叠面板
 // 配置/流程模式切换
-const configMode = ref<'edit' | 'flow'>('edit')
+const configMode = ref<'edit' | 'flow' | 'sweep'>('edit')
 
 const activeCollapse = defineModel<string[]>('activeCollapse', { default: [] })
 
@@ -157,15 +157,12 @@ function onSweepParamChange() {
         <span>⚙️ 回测配置</span>
         <div class="header-actions">
           <div class="mode-switcher">
-            <button :class="['mode-btn', configMode === 'edit' ? 'active' : '']" @click="configMode = 'edit'">🎯 参数配置</button>
+            <button :class="['mode-btn', configMode === 'edit' ? 'active' : '']" @click="configMode = 'edit'; form.sweep.enabled = false">🎯 参数配置</button>
             <button :class="['mode-btn', configMode === 'flow' ? 'active' : '']" @click="configMode = 'flow'">🔄 执行流程</button>
-          </div>
-          <div class="sweep-toggle">
-            <span class="sweep-label">参数扫描</span>
-            <ElSwitch v-model="form.sweep.enabled" size="small" />
+            <button :class="['mode-btn', configMode === 'sweep' ? 'active' : '']" @click="configMode = 'sweep'; form.sweep.enabled = true">🔬 参数优化</button>
           </div>
           <ElButton @click="emit('submit')" :icon="Play" type="success" :loading="backtestRunning" size="default">
-            {{ backtestRunning ? (form.sweep.enabled ? '扫描中...' : '回测中...') : (form.sweep.enabled ? '开始扫描' : '开始回测') }}
+            {{ backtestRunning ? '运行中...' : '开始运行' }}
           </ElButton>
         </div>
       </div>
@@ -1404,5 +1401,65 @@ export default { name: 'StrategyConfigPanel' }
 .flow-strategies { display: flex; flex-direction: column; gap: 12px; }
 .flow-strategy-card { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 6px; padding: 10px 14px; }
 .flow-strategy-header { font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid var(--border-default); }
+
+
+/* 参数优化模式 */
+.sweep-hero {
+  text-align: center;
+  padding: 24px 16px;
+  background: linear-gradient(135deg, var(--bg-elevated) 0%, var(--bg-active, rgba(64,158,255,0.05)) 100%);
+  border-radius: 12px;
+  margin-bottom: 20px;
+}
+.sweep-hero-title { font-size: 20px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px; }
+.sweep-hero-desc { font-size: 14px; color: var(--text-secondary); line-height: 1.6; max-width: 600px; margin: 0 auto; }
+
+.sweep-param-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+  margin-bottom: 24px;
+}
+.sweep-param-card {
+  padding: 12px 14px;
+  background: var(--bg-elevated);
+  border: 2px solid var(--border-default);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  &:hover { border-color: var(--primary-300); transform: translateY(-1px); }
+  &.active {
+    border-color: var(--primary-500);
+    background: var(--bg-active, rgba(64,158,255,0.08));
+    box-shadow: 0 0 0 1px var(--primary-500);
+  }
+}
+.sweep-param-name { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+.sweep-param-range { font-size: 12px; color: var(--primary-500); margin-bottom: 2px; }
+.sweep-param-step { font-size: 11px; color: var(--text-tertiary); }
+
+.sweep-range-config {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+.sweep-range-title { font-size: 15px; font-weight: 600; color: var(--text-primary); margin-bottom: 16px; }
+.sweep-range-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.sweep-range-item { display: flex; align-items: center; gap: 6px; }
+.sweep-range-label { font-size: 13px; color: var(--text-secondary); white-space: nowrap; }
+.sweep-range-unit { font-size: 12px; color: var(--text-tertiary); white-space: nowrap; }
+.sweep-range-sep { font-size: 18px; color: var(--primary-300); font-weight: 700; }
+.sweep-range-info { margin-top: 12px; font-size: 13px; color: var(--text-secondary); text-align: center; }
+
+.sweep-tips {
+  background: var(--el-color-primary-light-9, #ecf5ff);
+  border: 1px solid var(--el-color-primary-light-7, #c6e2ff);
+  border-radius: 8px;
+  padding: 14px 18px;
+}
+.sweep-tips-title { font-size: 13px; font-weight: 600; color: var(--primary-500); margin-bottom: 6px; }
+.sweep-tip { font-size: 12px; color: var(--text-secondary); line-height: 1.8; }
 
 </style>
