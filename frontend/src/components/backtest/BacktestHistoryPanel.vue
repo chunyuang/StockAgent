@@ -53,6 +53,7 @@ const strategyColors: Record<string, string> = {
   halfway_chase: 'var(--warning)',
   first_limit_up: 'var(--stock-up)',
   dragon_head: 'var(--el-color-primary)',
+  leader_buy_dip: 'var(--el-color-primary)',
   limit_down_qiao: 'var(--stock-down)',
   limit_up_open: 'var(--text-tertiary)',
 }
@@ -349,10 +350,9 @@ watch(() => props.visible, (v) => { if (v && !items.value.length) loadHistory() 
             <td class="td-date">{{ formatDate(item.created_at) }}</td>
             <td class="td-mono">{{ item.start_date || '?' }} ~ {{ item.end_date || '?' }}</td>
             <td class="td-strategies">
-              <ElTag v-for="sid in (item.strategies || []).slice(0, 3)" :key="sid" size="small" effect="plain" :color="strategyTag(sid).color" :style="{ color: strategyTagTextColor(strategyTag(sid).color), border: 'none', fontWeight: 600, margin: '1px 2px' }">
+              <ElTag v-for="sid in (item.strategies || [])" :key="sid" size="small" effect="plain" :color="strategyTag(sid).color" :style="{ color: strategyTagTextColor(strategyTag(sid).color), border: 'none', fontWeight: 600, margin: '1px 2px' }">
                 {{ strategyTag(sid).name }}
               </ElTag>
-              <span v-if="(item.strategies?.length ?? 0) > 3" class="more-tag">+{{ (item.strategies?.length ?? 0) - 3 }}</span>
             </td>
             <td :style="{ color: returnColor(item.total_return), fontWeight: 700 }">{{ formatReturn(item.total_return) }}</td>
             <td :style="{ color: (item.win_rate ?? 0) >= 50 ? 'var(--stock-down)' : 'var(--warning)' }">{{ formatRate(item.win_rate) }}</td>
@@ -491,7 +491,7 @@ export default { name: 'BacktestHistoryPanel' }
   tr.bt-selected td { background: var(--bg-active); }
   .td-date { color: var(--text-tertiary); }
   .td-mono { font-family: monospace; color: var(--text-secondary); }
-  .td-strategies { white-space: normal; min-width: 120px; }
+  .td-strategies { white-space: normal; min-width: 120px; max-width: 220px; }
   .td-actions { white-space: nowrap; }
   .more-tag { font-size: 11px; color: var(--text-tertiary); margin-left: 2px; }
 }
