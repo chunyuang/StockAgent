@@ -725,7 +725,7 @@ function onViewResult(task: BacktestHistoryItem) {
 }
 
 /** 查看历史回测日志 */
-function onViewLogs(taskId: string) {
+function onViewLogs(_taskId: string) {
   // 切到日志与结果Tab
   activeMainTab.value = 'result'
 }
