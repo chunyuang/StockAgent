@@ -64,7 +64,7 @@ function toggleStrategy(strategyId: string) {
 
 // 扫描参数辅助
 const currentSweepParam = computed(() => SWEEP_PARAMS.find(p => p.value === props.form.sweep.param))
-const currentSweepUnit = computed(() => currentSweepParam.value?.unit || '')
+const _currentSweepUnit = computed(() => currentSweepParam.value?.unit || '') // 备用
 
 function onSweepParamChange() {
   const p = currentSweepParam.value
