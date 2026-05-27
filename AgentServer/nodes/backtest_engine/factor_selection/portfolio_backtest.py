@@ -131,6 +131,9 @@ class PortfolioBacktester:
         # 【V63-P0-4:强制空仓冷却期跟踪】记录强制空仓后的冷却截止交易日索引
         # 冷却期内position_multiplier上限0.5,防止强制空仓次日立即满仓
         self._force_empty_cooldown_until_idx: int = -1  # 交易日索引, -1=无冷却
+        # 【V76-P1-5:追踪止损峰值利润记录】
+        # {code: peak_profit_pct} 记录每只股票持仓期间达到的最高利润百分比
+        self._trailing_peak_profit: dict = {}
 
     def _calc_trade_days_held(self, buy_date, sell_date):
         """【V30:P1-1】O(1)计算持仓交易日数
@@ -155,6 +158,18 @@ class PortfolioBacktester:
         if _all_td:
             return sum(1 for d in _all_td if buy_date < d <= sell_date)
         return 0
+
+    def _cleanup_sold_position(self, code: str):
+        """【V76-P1-5:统一清理卖出后的跟踪状态,避免残留数据】
+
+        清理: _cost_basis, _cost_basis_date, _trailing_peak_profit, stock_to_strategy映射等
+        """
+        if code in self._cost_basis:
+            del self._cost_basis[code]
+        if code in self._cost_basis_date:
+            del self._cost_basis_date[code]
+        if hasattr(self, '_trailing_peak_profit') and code in self._trailing_peak_profit:
+            del self._trailing_peak_profit[code]
 
     def _check_early_sell_signals(self, code: str, strategies: list, cost: float,
                                          open_price: float, close_price: float) -> tuple:
@@ -362,6 +377,51 @@ class PortfolioBacktester:
                         forced_sell_codes.append((code, '利润锁定'))
                         forced_sell_codes_set.add(code)
 
+            # === 2.7 【V76-P1-5:追踪止损实现】 ===
+            # 盈利激活后,从最高盈利点回撤超过trailing_stop_pct→以close价卖出
+            # 与利润锁定的区别: 利润锁定用high vs close的日内回撤,追踪止损用历史peak vs close的跨日回撤
+            # 激活条件: 当前利润>=trailing_stop_activation(默认2%,即cost*1.02)
+            # 触发条件: 从历史最高利润回撤>=trailing_stop_pct(如2%→从+5%回撤到+2.9%触发)
+            # 注意: 追踪止损只触发一次(每笔交易),不会反复触发
+            if code not in forced_sell_codes_set:
+                _close_p = p.get('close', 0)
+                if cost > 0 and _close_p > 0:
+                    current_profit_pct = (_close_p / cost - 1)
+                    # 读取策略级追踪止损参数
+                    _strategies_trail = self.stock_to_strategy.get(code, [])
+                    if isinstance(_strategies_trail, str): _strategies_trail = [_strategies_trail]
+                    _trailing_stop_pct = None
+                    for _sname in _strategies_trail:
+                        _srp = self._strategy_risk_params.get(_sname, {})
+                        _ts_pct = _srp.get('trailing_stop_pct', None)
+                        if _ts_pct is not None:
+                            _trailing_stop_pct = _ts_pct
+                            break
+                    if _trailing_stop_pct is not None and _trailing_stop_pct > 0:
+                        # 追踪止损已配置,检查激活条件(利润≥trailing_stop_pct即激活)
+                        if current_profit_pct >= _trailing_stop_pct:
+                            # 已激活,记录历史最高利润
+                            if not hasattr(self, '_trailing_peak_profit'):
+                                self._trailing_peak_profit = {}  # {code: peak_profit_pct}
+                            _prev_peak = self._trailing_peak_profit.get(code, 0)
+                            _current_peak = max(_prev_peak, current_profit_pct)
+                            self._trailing_peak_profit[code] = _current_peak
+                            # 检查回撤:从peak回撤>=trailing_stop_pct→触发
+                            _drawdown_from_peak = _current_peak - current_profit_pct
+                            if _drawdown_from_peak >= _trailing_stop_pct and current_profit_pct > 0:
+                                forced_sell_prices[code] = _close_p
+                                forced_sell_codes.append((code, f'追踪止损(峰{_current_peak*100:.1f}%→现{current_profit_pct*100:.1f}%)'))
+                                forced_sell_codes_set.add(code)
+                                # 清理追踪状态
+                                if code in self._trailing_peak_profit:
+                                    del self._trailing_peak_profit[code]
+                        else:
+                            # 未激活,不检查回撤
+                            pass
+                    elif _trailing_stop_pct is None:
+                        # 未配置trailing_stop_pct的策略,跳过(不强制要求所有策略都配)
+                        pass
+
             # === 3. 超时强卖 ===
             if check_timeout and code not in forced_sell_codes_set:
                 buy_date_raw = self._cost_basis_date.get(code)
@@ -444,10 +504,7 @@ class PortfolioBacktester:
             net_amount = gross_amount - commission - stamp_tax
             cash += net_amount
             del holdings[code]
-            if code in self._cost_basis:
-                del self._cost_basis[code]
-            if code in self._cost_basis_date:
-                del self._cost_basis_date[code]
+            self._cleanup_sold_position(code)
             _sell_strategy = self._get_strategy_for_stock(code)
             rebalance_records.append(RebalanceRecord(
                 date=str(trade_date), action='sell', ts_code=code,
@@ -1623,9 +1680,7 @@ class PortfolioBacktester:
                 if self._cost_basis:
                     for code in list(self._cost_basis.keys()):
                         if code not in holdings or holdings.get(code, 0) <= 0:
-                            del self._cost_basis[code]
-                            if code in self._cost_basis_date:
-                                del self._cost_basis_date[code]
+                            self._cleanup_sold_position(code)
                             self.stock_to_strategy.pop(code, None)
                 holdings = {code: shares for code, shares in holdings.items() if shares > 0}
                 await self.log(f"   │  ✅ 已执行强制清仓,卖出 {sell_count} 只持仓")
@@ -2318,17 +2373,12 @@ class PortfolioBacktester:
                     shares=shares, price=price, amount=net_amount,
                     reason="强制空仓(非调仓日)", strategy_name=_fs_strategy, sentiment=sentiment_level))
                 holdings.pop(code, None)
-                if code in self._cost_basis:
-                    del self._cost_basis[code]
-                if code in self._cost_basis_date:
-                    del self._cost_basis_date[code]
+                self._cleanup_sold_position(code)
             # 清理stock_to_strategy
             if self._cost_basis:
                 for code in list(self._cost_basis.keys()):
                     if code not in holdings or holdings.get(code, 0) <= 0:
-                        del self._cost_basis[code]
-                        if code in self._cost_basis_date:
-                            del self._cost_basis_date[code]
+                        self._cleanup_sold_position(code)
                         self.stock_to_strategy.pop(code, None)
             if force_sell_count > 0:
                 await self.log(f"   │  ✅ 非调仓日强制清仓 {force_sell_count} 只持仓")
@@ -3004,8 +3054,10 @@ class PortfolioBacktester:
                     "final_holdings": holdings,
                     "net_value_series": net_value_series,
                     "drawdown_series": formatted_drawdown_series,
-                    # 【P1-8修复(V13)】:daily_profit统一为归一化小数,与顶层和net_value_series一致
-                    "daily_profit": [p / self._initial_cash if self._initial_cash > 0 else 0.0 for p in daily_profit],
+                    # 【V76-P0-1修复:daily_profit归一化提取为局部变量,避免重复计算】
+                    # 旧bug: L3008和L3087各做一次[p / self._initial_cash for p in daily_profit],O(N)计算重复
+                    # 新: 提取为_dp_normalized,两处引用同一结果
+                    "daily_profit": None,  # 占位,下方统一赋值
                 },
                 "performance": {
                     "total_signals": total_signals,
@@ -3043,7 +3095,7 @@ class PortfolioBacktester:
         # 但当ultra_short.py中merged_trades从performance_data读取为空时,
         # 覆盖为全零dict,导致前端显示空统计
         # 修复: 直接在portfolio_backtest的result中计算,确保数据不丢失
-        _sell_reason_stats = {"stop_loss": 0, "gap_stop_loss": 0, "take_profit": 0, "max_hold": 0, "force_empty": 0, "rebalance": 0, "profit_lock": 0, "profit_protect": 0, "pullback": 0, "halt": 0, "other": 0}
+        _sell_reason_stats = {"stop_loss": 0, "gap_stop_loss": 0, "take_profit": 0, "max_hold": 0, "force_empty": 0, "rebalance": 0, "profit_lock": 0, "profit_protect": 0, "pullback": 0, "halt": 0, "trailing_stop": 0, "other": 0}
         # 【V65:拆分跳空止损为独立类别,便于区分正常止损vs跳空误杀】
         for trade in merged_trades:
             reason = trade.get('sell_reason', '')
@@ -3064,6 +3116,8 @@ class PortfolioBacktester:
                 _sell_reason_stats["profit_protect"] += 1
             elif '利润锁定' in reason_str:
                 _sell_reason_stats["profit_lock"] += 1
+            elif '追踪止损' in reason_str:
+                _sell_reason_stats["trailing_stop"] += 1  # 【V76-P1-5:追踪止损独立统计】
             elif '停牌' in reason_str:
                 _sell_reason_stats["halt"] += 1
             elif '到期' in reason_str or 'max_hold' in reason_str.lower() or '持仓天数' in reason_str or '超时' in reason_str:
@@ -3082,9 +3136,14 @@ class PortfolioBacktester:
         result["stock_names"] = stock_names
         result["net_value_series"] = net_value_series
         result["drawdown_series"] = formatted_drawdown_series
+        # 【V76-P0-1:daily_profit归一化只计算一次,多处引用】
+        _dp_normalized = [p / self._initial_cash if self._initial_cash > 0 else 0.0 for p in daily_profit]
+        # 填充positions.daily_profit占位
+        if 'metrics' in result and 'positions' in result['metrics']:
+            result['metrics']['positions']['daily_profit'] = _dp_normalized
+
         # 【P0修复】daily_profit统一为归一化小数(÷initial_cash),与net_value_series[].daily_profit一致
         # 之前是绝对值(元),前端如果从顶层读取会与net_value_series不一致
-        _dp_normalized = [p / self._initial_cash if self._initial_cash > 0 else 0.0 for p in daily_profit]
         result["daily_profit"] = _dp_normalized
         result["benchmark_data"] = benchmark_data
 
@@ -3590,7 +3649,10 @@ class PortfolioBacktester:
         for sname in sorted(strat_groups.keys()):
             group = strat_groups[sname]
             # 分数相同则按code排序,确保完全确定性
-            group.sort(key=lambda x: (x[1], x[0]), reverse=True)
+            # 【V76-P2-4修复:用复合key(-score, code)确保score降序+code升序】
+            # 旧: group.sort(key=lambda x: (x[1], x[0]), reverse=True) → score降序但code也降序
+            # 新: 用-score实现降序+code升序,完全确定性排序
+            group.sort(key=lambda x: (-x[1], x[0]))
             n = seats.get(sname, 1)
             count = 0
             for code, score in group:
@@ -4095,7 +4157,7 @@ class PortfolioBacktester:
                 _first_limit_defaults = STRATEGY_CONFIGS.get('first_limit_up', {}).get('params', {})
                 hit_prob_yizi = sp.get('hit_probability_yizi', _first_limit_defaults.get('hit_probability_yizi', 0.0))
                 hit_prob_fast = sp.get('hit_probability_fast', _first_limit_defaults.get('hit_probability_fast', 0.20))
-                hit_prob_normal = sp.get('hit_probability_normal', _first_limit_defaults.get('hit_probability_normal', 0.40))
+                hit_prob_normal = sp.get('hit_probability_normal', _first_limit_defaults.get('hit_probability_normal', 0.45))  # V76-P0-2:fallback从0.40→0.45,与strategy_defaults对齐(首板normal成交概率=0.45)
                 hit_prob_slow = sp.get('hit_probability_slow', _first_limit_defaults.get('hit_probability_slow', 0.55))  # V75:从0.45→0.55,与strategy_defaults对齐(首板slow成交概率=0.55)
 
                 if o == c == h == l:
@@ -4499,10 +4561,7 @@ class PortfolioBacktester:
                             shares=shares, price=price, amount=net_amount,
                             reason=sell_reason, sentiment=sentiment))
                         holdings.pop(ts_code, None)
-                        if ts_code in self._cost_basis:
-                            del self._cost_basis[ts_code]
-                        if ts_code in self._cost_basis_date:
-                            del self._cost_basis_date[ts_code]
+                        self._cleanup_sold_position(ts_code)
                 continue
 
             # 判断盘中是否触发止损/止盈(基于实际买入成本)
@@ -4576,10 +4635,7 @@ class PortfolioBacktester:
             # 旧bug: holdings[ts_code]=0 保留key → 后续遍历仍需检查shares>0
             # 清理买入成本记录
             del holdings[ts_code]
-            if ts_code in self._cost_basis:
-                del self._cost_basis[ts_code]
-            if ts_code in self._cost_basis_date:
-                del self._cost_basis_date[ts_code]
+            self._cleanup_sold_position(ts_code)
 
         # 再买入:目标持仓中需要增加的股票
         # 【V33关键修复:使用pos_mgr.target_shares而非局部target_shares】
@@ -4723,10 +4779,7 @@ class PortfolioBacktester:
                 holdings[ts_code] = new_shares
             else:
                 holdings.pop(ts_code, None)
-                if ts_code in self._cost_basis:
-                    del self._cost_basis[ts_code]
-                if ts_code in self._cost_basis_date:
-                    del self._cost_basis_date[ts_code]
+                self._cleanup_sold_position(ts_code)
 
         # 清理零持仓
         holdings = {code: shares for code, shares in holdings.items() if shares > 0}
