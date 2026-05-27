@@ -168,10 +168,15 @@ class FactorEngine:
                     db_df = pd.DataFrame(db_docs)
                     # 用daily_basic精确值覆盖stock_daily_ak_full近似值
                     # 只覆盖非NaN值，避免daily_basic缺失时丢失stock_daily的数据
+                    # 【V76-P1-4:排除pre_close字段,避免覆盖stock_daily的pre_close修复结果】
+                    # 旧bug: daily_basic的pre_close可能为0,覆盖了factor_engine刚修复的pre_close(prev day close)
+                    _exclude_from_merge = {'pre_close'}  # 这些字段不从daily_basic覆盖
                     if len(result) > 0 and len(db_df) > 0:
                         db_df = db_df.set_index("ts_code")
                         result = result.set_index("ts_code")
                         for col in needed_db_fields:
+                            if col in _exclude_from_merge:
+                                continue  # 【V76-P1-4:跳过pre_close,不覆盖stock_daily的值】
                             if col in db_df.columns and col in result.columns:
                                 # 【P2-1修复(V12)：用pandas update()替代逐行赋值，性能提升100x】
                                 # 旧: for idx in common_idx: result.loc[idx, col] = db_df.loc[idx, col]
