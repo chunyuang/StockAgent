@@ -37,6 +37,30 @@ class SpecialPeriodFilter:
     # 注意：新增年份时需在此追加配置
     DEFAULT_CONFIG = [
         # ========== 节假日前夕 ==========
+        # 2025年清明（4月4日，节前2天降仓）
+        SpecialPeriod(
+            name="2025年清明前夕",
+            period_type="holiday",
+            position_ratio=0.6,  # 6成仓位
+            start_date="20250401",
+            end_date="20250403"
+        ),
+        # 2025年五一（5月1-5日，节前3天降仓）
+        SpecialPeriod(
+            name="2025年五一前夕",
+            period_type="holiday",
+            position_ratio=0.5,  # 5成仓位
+            start_date="20250425",
+            end_date="20250430"
+        ),
+        # 2026年清明（4月5日，节前2天降仓）
+        SpecialPeriod(
+            name="2026年清明前夕",
+            period_type="holiday",
+            position_ratio=0.6,  # 6成仓位
+            start_date="20260330",
+            end_date="20260402"
+        ),
         # 2025年春节（1月28日-2月4日，节前7天降仓）
         # 【P1-4修复(V12)：补充2025年春节配置，回测2025年数据时也会降仓】
         SpecialPeriod(

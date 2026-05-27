@@ -34,7 +34,8 @@ class BacktestValidator:
         "limit_up_open",
         "dragon_head",
         "leader_buy_dip",  # 龙头低吸 - 前端/实盘信号引擎别名
-        "limit_down_qiao"
+        "limit_down_qiao",
+        "limit_down_bounce",  # 跌停翘板 - 前端/实盘信号引擎别名(V70:补全)
     }
     
     # 参数范围限制
