@@ -121,6 +121,7 @@ const activeDescription = computed(() => {
 // 折叠面板
 // 配置/流程模式切换
 const configMode = ref<'edit' | 'flow' | 'sweep'>('edit')
+const flowView = ref<'list' | 'graph'>('graph')
 
 const activeCollapse = defineModel<string[]>('activeCollapse', { default: [] })
 
@@ -756,7 +757,11 @@ function onSweepParamChange() {
   </ElCard>
 
     <!-- 执行流程模式 -->
-    <div v-if="configMode === 'flow'" class="flow-container">
+    <div v-if="configMode === 'flow'" :class="['flow-container', flowView]">
+      <div class="flow-view-switch">
+        <button :class="['fv-btn', flowView === 'list' ? 'active' : '']" @click="flowView = 'list'">📋 列表</button>
+        <button :class="['fv-btn', flowView === 'graph' ? 'active' : '']" @click="flowView = 'graph'">🔀 图形</button>
+      </div>
 
       <!-- 1. 数据源 -->
       <div class="flow-step">
@@ -1446,4 +1451,121 @@ export default { name: 'StrategyConfigPanel' }
 .sweep-collapse .item-layout {
   gap: 0;
 }
+
+/* 流程视图切换 */
+.flow-view-switch {
+  display: flex;
+  gap: 0;
+  margin-bottom: 16px;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  overflow: hidden;
+  width: fit-content;
+}
+.fv-btn {
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  border: none;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  &:hover { background: var(--bg-hover); }
+  &.active { background: var(--primary-500); color: #fff; }
+}
+
+/* ===== 图形模式 ===== */
+.flow-container.graph {
+  position: relative;
+  padding-left: 40px;
+}
+.flow-container.graph::before {
+  content: '';
+  position: absolute;
+  left: 18px;
+  top: 70px;
+  bottom: 30px;
+  width: 3px;
+  background: linear-gradient(180deg, var(--primary-500) 0%, var(--primary-200) 100%);
+  border-radius: 2px;
+}
+.flow-container.graph .flow-step {
+  position: relative;
+  margin-left: 20px;
+  padding-left: 24px;
+  border-left: none;
+}
+.flow-container.graph .flow-step::before {
+  content: '';
+  position: absolute;
+  left: -24px;
+  top: 18px;
+  width: 16px;
+  height: 3px;
+  background: var(--primary-300);
+}
+.flow-container.graph .flow-step-header {
+  position: relative;
+}
+.flow-container.graph .flow-step-num {
+  position: absolute;
+  left: -62px;
+  top: 0;
+  z-index: 1;
+  box-shadow: 0 0 0 3px var(--bg-elevated), 0 2px 8px rgba(0,0,0,0.15);
+}
+.flow-container.graph .flow-arrow {
+  display: none;
+}
+.flow-container.graph .flow-step-group {
+  border-left: 3px solid var(--primary-400);
+  padding-left: 20px;
+}
+.flow-container.graph .flow-step-group::before {
+  display: none;
+}
+.flow-container.graph .flow-strategies {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+.flow-container.graph .flow-strategy-card {
+  border-left: 4px solid var(--primary-300);
+  transition: all 0.2s;
+  &:hover { border-left-color: var(--primary-500); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+}
+.flow-container.graph .flow-cond {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.flow-container.graph .flow-cond::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.flow-container.graph .flow-cond-reject::before { background: #f56c6c; }
+.flow-container.graph .flow-cond-accept::before { background: #67c23a; }
+.flow-container.graph .flow-cond-branch::before { background: #409eff; }
+.flow-container.graph .flow-cond-priority::before { background: var(--primary-500); }
+
+/* 卖出决策优先级竖线 */
+.flow-container.graph .flow-cond-priority {
+  position: relative;
+  padding-left: 20px;
+}
+.flow-container.graph .flow-cond-priority::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 50%;
+  width: 10px;
+  height: 2px;
+  background: var(--primary-300);
+}
+
 </style>
