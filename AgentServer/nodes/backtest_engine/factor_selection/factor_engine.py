@@ -287,11 +287,14 @@ class FactorEngine:
                                     # 新:NaN不参与pandas比较,筛选条件自动跳过缺失值
                             logger.info(f"FACTOR_ENGINE: [V18] 已查询T-1({_prev_date_cached})数据生成_prev因子，消除未来函数")
             except Exception as e:
-                logger.warning(f"FACTOR_ENGINE: [V18] T-1数据查询失败: {e}, _prev因子将为0")
-                # fallback: 生成全0的_prev因子
+                logger.warning(f"FACTOR_ENGINE: [V18] T-1数据查询失败: {e}, _prev因子将为NaN(非0)")
+                # 【V70-P1-2修复:fallback生成NaN而非0,与正常查询失败的_prev处理一致】
+                # 旧bug: fallback生成0.0,0值被pandas比较>=条件通过(如volume_ratio_prev>=1.5→0>=1.5=False正确,但pct_chg_prev>=0.03→0>=0.03=False也正确)
+                # 但0值在某些场景下被误用:如first_limit_up_prev=0被当做"非涨停"处理,逻辑正确但语义上0≠NaN
+                # NaN在pandas比较中始终返回False,更安全:筛选条件自动跳过缺失值
                 for col in ["pct_chg", "volume_ratio", "turnover_rate", "circ_mv",
                             "first_limit_up", "is_limit_up", "high", "close"]:
-                    result[f"{col}_prev"] = 0.0
+                    result[f"{col}_prev"] = float('nan')
             # ========= V18未来函数修复结束 =========
 
             # 标准化 & 综合打分（保持与实盘模式相同的计算逻辑）
