@@ -38,9 +38,9 @@ const dataSourceTitle = computed(() => `🔌 数据源配置 (${props.form.dataS
 const baseConfigTitle = computed(() => `📅 基础配置 (初始资金¥${(props.form.base.initial_cash / 10000).toFixed(0)}万)`)
 const tradeParamsTitle = computed(() => `💹 交易参数 (止损${(props.form.tradeParams.base_stop_loss_pct * 100).toFixed(1)}%/止盈${(props.form.tradeParams.base_take_profit_pct * 100).toFixed(1)}%, 持仓${props.form.tradeParams.max_hold_days}天, 单票${(props.form.tradeParams.max_position_per_stock * 100).toFixed(0)}%, 总仓位${(props.form.tradeParams.max_total_position * 100).toFixed(0)}%, 佣金${(props.form.tradeParams.commission_rate * 10000).toFixed(1)}‱, 印花税${(props.form.tradeParams.stamp_duty_rate * 10000).toFixed(1)}‱, 滑点${(props.form.tradeParams.slippage_pct * 1000).toFixed(1)}‰)`)
 const globalFilterTitle = computed(() => `🔍 全局筛选 (${props.form.globalFilter.exclude_st ? '剔ST' : '含ST'}, ${props.form.globalFilter.exclude_delisting ? '剔退市' : '含退市'}, 次新<${props.form.globalFilter.exclude_new_stock_days}天, 成交额≥${props.form.globalFilter.min_daily_amount}万, 换手≥${props.form.globalFilter.min_turnover_rate}%)`)
-const forceEmptyTitle = computed(() => `⚠️ 强制空仓 ${props.form.forceEmpty.enabled ? '✅' : '❌'} (跌幅≥${(props.form.forceEmpty.index_drop_pct * 100).toFixed(1)}%, 跌停≥${props.form.forceEmpty.limit_down_count}只, 涨停<${props.form.forceEmpty.limit_up_count}只)`)
-const sentimentCycleTitle = computed(() => `🧠 情绪周期 ${props.form.sentimentCycle.enabled ? '✅' : '❌'} (涨停${props.form.sentimentCycle.weight_limit_up}, 跌停${props.form.sentimentCycle.weight_limit_down}, 炸板率${props.form.sentimentCycle.weight_blast_rate}, 涨跌差${props.form.sentimentCycle.weight_rise_fall_diff}, 北向${props.form.sentimentCycle.weight_north_inflow})`)
-const auctionFilterTitle = computed(() => `⏰ 竞价过滤 ${props.form.auctionFilter.enabled ? '✅' : '❌'} (涨幅${(props.form.auctionFilter.min_auction_pct * 100).toFixed(1)}%~${(props.form.auctionFilter.max_auction_pct * 100).toFixed(1)}%, 成交额≥${props.form.auctionFilter.min_auction_amount}万, 量比≥${props.form.auctionFilter.min_auction_volume_ratio}, 未匹配量正: ${props.form.auctionFilter.min_unmatched_volume_positive ? '✅' : '❌'})`)
+const forceEmptyTitle = computed(() => `⚠️ 强制空仓 (跌幅≥${(props.form.forceEmpty.index_drop_pct * 100).toFixed(1)}%, 跌停≥${props.form.forceEmpty.limit_down_count}只, 涨停<${props.form.forceEmpty.limit_up_count}只)`)
+const sentimentCycleTitle = computed(() => `🧠 情绪周期 (涨停${props.form.sentimentCycle.weight_limit_up}, 跌停${props.form.sentimentCycle.weight_limit_down}, 炸板率${props.form.sentimentCycle.weight_blast_rate}, 涨跌差${props.form.sentimentCycle.weight_rise_fall_diff}, 北向${props.form.sentimentCycle.weight_north_inflow})`)
+const auctionFilterTitle = computed(() => `⏰ 竞价过滤 (涨幅${(props.form.auctionFilter.min_auction_pct * 100).toFixed(1)}%~${(props.form.auctionFilter.max_auction_pct * 100).toFixed(1)}%, 成交额≥${props.form.auctionFilter.min_auction_amount}万, 量比≥${props.form.auctionFilter.min_auction_volume_ratio}, 未匹配量正: ${props.form.auctionFilter.min_unmatched_volume_positive ? '✅' : '❌'})`)
 
 const halfwayChaseTitle = computed(() => `🏃‍♂️ 半路追涨策略 (涨幅${(props.form.strategyConfigs.halfway_chase.params.min_rise_pct * 100).toFixed(1)}%~${(props.form.strategyConfigs.halfway_chase.params.max_rise_pct * 100).toFixed(1)}%, 量比${props.form.strategyConfigs.halfway_chase.params.min_volume_ratio}~${props.form.strategyConfigs.halfway_chase.params.max_volume_ratio}, 收盘≥${(props.form.strategyConfigs.halfway_chase.params.min_close_rise_pct * 100).toFixed(1)}%, 开盘≤${(props.form.strategyConfigs.halfway_chase.params.max_open_rise_pct * 100).toFixed(1)}%, ${props.form.strategyConfigs.halfway_chase.params.allow_after_10am ? '可10点后' : '仅10点前'}, 追踪止损${(props.form.strategyConfigs.halfway_chase.riskParams.trailing_stop_pct * 100).toFixed(1)}%, 止损${(props.form.strategyConfigs.halfway_chase.riskParams.stop_loss_pct * 100).toFixed(1)}%/止盈${(props.form.strategyConfigs.halfway_chase.riskParams.take_profit_pct * 100).toFixed(1)}%, 持仓${props.form.strategyConfigs.halfway_chase.riskParams.max_hold_days}天, 滑点${(props.form.strategyConfigs.halfway_chase.riskParams.slippage_pct * 1000).toFixed(1)}‰)`)
 const firstLimitUpTitle = computed(() => `🥇 首板打板策略 (竞价${(props.form.strategyConfigs.first_limit_up.params.opening_pct_min * 100).toFixed(0)}%~${(props.form.strategyConfigs.first_limit_up.params.opening_pct_max * 100).toFixed(0)}%, 量比≥${props.form.strategyConfigs.first_limit_up.params.min_volume_ratio}, 换手${props.form.strategyConfigs.first_limit_up.params.min_turnover_rate}%~${props.form.strategyConfigs.first_limit_up.params.max_turnover_rate}%, 流通市值${props.form.strategyConfigs.first_limit_up.params.min_circulation_market_cap}~${props.form.strategyConfigs.first_limit_up.params.max_circulation_market_cap}亿, 成交概率: 一字${(props.form.strategyConfigs.first_limit_up.params.hit_probability_yizi * 100).toFixed(0)}%/秒板${(props.form.strategyConfigs.first_limit_up.params.hit_probability_fast * 100).toFixed(0)}%/快板${(props.form.strategyConfigs.first_limit_up.params.hit_probability_normal * 100).toFixed(0)}%/慢板${(props.form.strategyConfigs.first_limit_up.params.hit_probability_slow * 100).toFixed(0)}%, 次日高开≥${(props.form.strategyConfigs.first_limit_up.params.next_day_open_sell_pct * 100).toFixed(0)}%卖, 止损${(props.form.strategyConfigs.first_limit_up.riskParams.stop_loss_pct * 100).toFixed(1)}%/止盈${(props.form.strategyConfigs.first_limit_up.riskParams.take_profit_pct * 100).toFixed(1)}%, 持仓${props.form.strategyConfigs.first_limit_up.riskParams.max_hold_days}天, 滑点${(props.form.strategyConfigs.first_limit_up.riskParams.slippage_pct * 1000).toFixed(1)}‰)`)
@@ -329,7 +329,7 @@ function onSweepParamChange() {
 
       <!-- 强制空仓 -->
       <ElCollapseItem name="forceEmpty">
-        <template #title><span>{{ forceEmptyTitle }}</span></template>
+        <template #title><span class="strategy-toggle" :class="{ on: form.forceEmpty.enabled }" @click.stop="form.forceEmpty.enabled = !form.forceEmpty.enabled">{{ form.forceEmpty.enabled ? "✅" : "❌" }}</span> {{ forceEmptyTitle }}</template>
         <div class="item-layout"><div class="item-left">
         <ElForm label-width="160px">
           <ElFormItem label="启用强制空仓"><ElSwitch v-model="form.forceEmpty.enabled" /></ElFormItem>
@@ -361,7 +361,7 @@ function onSweepParamChange() {
 
       <!-- 情绪周期 -->
       <ElCollapseItem name="sentimentCycle">
-        <template #title><span>{{ sentimentCycleTitle }}</span></template>
+        <template #title><span class="strategy-toggle" :class="{ on: form.sentimentCycle.enabled }" @click.stop="form.sentimentCycle.enabled = !form.sentimentCycle.enabled">{{ form.sentimentCycle.enabled ? "✅" : "❌" }}</span> {{ sentimentCycleTitle }}</template>
         <div class="item-layout"><div class="item-left">
         <ElForm label-width="160px">
           <ElFormItem label="启用情绪周期"><ElSwitch v-model="form.sentimentCycle.enabled" /></ElFormItem>
@@ -396,7 +396,7 @@ function onSweepParamChange() {
 
       <!-- 竞价过滤 -->
       <ElCollapseItem name="auctionFilter">
-        <template #title><span>{{ auctionFilterTitle }}</span></template>
+        <template #title><span class="strategy-toggle" :class="{ on: form.auctionFilter.enabled }" @click.stop="form.auctionFilter.enabled = !form.auctionFilter.enabled">{{ form.auctionFilter.enabled ? "✅" : "❌" }}</span> {{ auctionFilterTitle }}</template>
         <div class="item-layout"><div class="item-left">
         <ElForm label-width="160px">
           <ElFormItem label="启用竞价过滤"><ElSwitch v-model="form.auctionFilter.enabled" /></ElFormItem>
