@@ -52,7 +52,7 @@ from .models import RebalanceRecord
 
 from .factor_engine import FactorEngine, log_memory_usage
 from ..strategy_defaults import GLOBAL_RISK, STRATEGY_CONFIGS, merge_strategy_params
-from .sell_signal_checker import SellSignalChecker, should_apply_slippage, get_buy_price_for_strategy, PositionManager, resolve_sell_price_and_reason
+from .sell_signal_checker import SellSignalChecker, should_apply_slippage, get_buy_price_for_strategy, PositionManager, resolve_sell_price_and_reason, STRATEGY_PULLBACK_PARAMS as _STRATEGY_PULLBACK_PARAMS_CACHED
 from .universe import ExcludeRule, UniverseManager, UniverseType
 from .special_period_filter import get_special_period_filter
 
@@ -212,21 +212,18 @@ class PortfolioBacktester:
             return False
         high_rise = (high_price / cost - 1)
         close_rise = (close_price / cost - 1)
-        # 【V58优化:尝试从策略级参数读取,fallbaack到risk_config再fallbaack到GLOBAL_RISK】
         # 【V61修复:移除硬编码fallback值,只从GLOBAL_RISK读取(单一来源原则)】
-        # 旧bug: fallback 0.04/0.015 与V59更新的GLOBAL_RISK 0.05/0.02不一致
         lock_min_high = self._risk_config.get('intraday_lock_min_high_rise', GLOBAL_RISK.get('intraday_lock_min_high_rise'))
         lock_pullback = self._risk_config.get('intraday_lock_pullback_pct', GLOBAL_RISK.get('intraday_lock_pullback_pct'))
         lock_min_profit = self._risk_config.get('intraday_lock_min_profit', GLOBAL_RISK.get('intraday_lock_min_profit'))
-        # 【V58-优化:如果有code,检查策略级STRATEGY_PULLBACK_PARAMS和INTRADAY_PROFIT_LOCK_SIGNALS参数】
-        # sell_signal_checker.check_intraday_profit_lock会读策略级参数,这里也要保持一致
+        # 【V58-优化:如果有code,检查策略级参数(缓存STRATEGY_PULLBACK_PARAMS避免重复import)】
+        # 【V67-P1:将import移至文件顶部,避免每次调用都import(每次import需查找sys.modules)】
         if code and hasattr(self, 'stock_to_strategy'):
             _strategies = self.stock_to_strategy.get(code, [])
             if isinstance(_strategies, list) and _strategies:
-                from nodes.backtest_engine.factor_selection.sell_signal_checker import STRATEGY_PULLBACK_PARAMS
                 _merged_params = {}
                 for sname in _strategies:
-                    _sp = STRATEGY_PULLBACK_PARAMS.get(sname, {})
+                    _sp = _STRATEGY_PULLBACK_PARAMS_CACHED.get(sname, {})
                     _srp = self._strategy_risk_params.get(sname, {})
                     _merged_params.update(_sp)
                     _merged_params.update(_srp)
