@@ -1047,7 +1047,7 @@ class PortfolioBacktester:
                 sentiment_level, market_sentiment_score, limit_up_count, limit_down_count, index_change = await self._print_market_environment(prev_trade_date)
             else:
                 # 复用上一次计算的结果(情绪评分在非调仓日不会变化太多,1天差异可忽略)
-                sentiment_level = getattr(self, '_cached_sentiment_level', '震荡期,仓位系数0.5')  # 【V66】fallback用中间值,4级时多数情况是震荡/分化
+                sentiment_level = getattr(self, '_cached_sentiment_level', '分化期,仓位系数0.7')  # 【V69: fallback用分化期0.7(4级中更安全的中间值,旧值震荡期0.5偏低)】
                 market_sentiment_score = getattr(self, '_cached_sentiment_score', 50)
                 limit_up_count = getattr(self, '_cached_limit_up_count', 0)
                 limit_down_count = getattr(self, '_cached_limit_down_count', 0)
@@ -3575,11 +3575,13 @@ class PortfolioBacktester:
         if not sentiment or "仓位系数" not in sentiment:
             return 1.0
         try:
-            # 从 "高潮期,仓位系数1.0" 中提取 "1.0"
-            idx = sentiment.find("仓位系数")
-            if idx != -1:
-                num_str = sentiment[idx + 4:].strip()
-                return float(num_str)
+            import re
+            # 【V69修复:用正则替代字符串切片,更稳健】
+            # 旧: sentiment[idx+4:].strip() → "1.0abc" 等异常格式会解析错误
+            # 新: re搜索浮点数,只提取第一个合法数字
+            match = re.search(r'仓位系数([0-9]*\.?[0-9]+)', sentiment)
+            if match:
+                return float(match.group(1))
         except (ValueError, IndexError):
             pass
         return 1.0
@@ -3591,6 +3593,18 @@ class PortfolioBacktester:
     def _strategy_name_to_id(self):
         """从strategy_defaults.py动态生成策略名→ID映射"""
         return {cfg['name']: sid for sid, cfg in STRATEGY_CONFIGS.items()}
+
+    @staticmethod
+    def _param_or_default(converted_params: dict, key: str, strategy_defaults: dict, default):
+        """【V69提取:统一参数取值逻辑,消除6-8次重复的xxx if xxx is not None else yyy模式】
+
+        优先级: converted_params[key] > strategy_defaults[key] > default
+        None被视为未设置,不覆盖默认值
+        """
+        val = converted_params.get(key)
+        if val is not None:
+            return val
+        return strategy_defaults.get(key, default)
 
     def _build_strategy_filter_conditions(self, strategy_name: str, params: dict) -> list:
         """【统一入口】构建单个策略的因子筛选条件
@@ -3629,12 +3643,12 @@ class PortfolioBacktester:
         strategy_defaults = STRATEGY_CONFIGS.get(strategy_id, {}).get("params", {})
 
         if strategy_name == "半路追涨":
-            min_rise_pct = converted_params.get("min_rise_pct") if converted_params.get("min_rise_pct") is not None else strategy_defaults.get("min_rise_pct", 0.03)
-            max_rise_pct = converted_params.get("max_rise_pct") if converted_params.get("max_rise_pct") is not None else strategy_defaults.get("max_rise_pct", 0.07)
-            min_volume_ratio = converted_params.get("min_volume_ratio") if converted_params.get("min_volume_ratio") is not None else strategy_defaults.get("min_volume_ratio", 2.0)
-            max_volume_ratio = converted_params.get("max_volume_ratio") if converted_params.get("max_volume_ratio") is not None else strategy_defaults.get("max_volume_ratio", 3.0)
-            min_close_rise = converted_params.get("min_close_rise_pct") if converted_params.get("min_close_rise_pct") is not None else strategy_defaults.get("min_close_rise_pct", 0.05)
-            max_open_rise = converted_params.get("max_open_rise_pct") if converted_params.get("max_open_rise_pct") is not None else strategy_defaults.get("max_open_rise_pct", 0.03)
+            min_rise_pct = self._param_or_default(converted_params, "min_rise_pct", strategy_defaults, 0.03)
+            max_rise_pct = self._param_or_default(converted_params, "max_rise_pct", strategy_defaults, 0.07)
+            min_volume_ratio = self._param_or_default(converted_params, "min_volume_ratio", strategy_defaults, 2.0)
+            max_volume_ratio = self._param_or_default(converted_params, "max_volume_ratio", strategy_defaults, 3.0)
+            min_close_rise = self._param_or_default(converted_params, "min_close_rise_pct", strategy_defaults, 0.05)
+            max_open_rise = self._param_or_default(converted_params, "max_open_rise_pct", strategy_defaults, 0.03)
             # 【方案B优化】开盘涨幅上限: 高开>3%追高胜率仅44%, 低开冲高81.5%胜率
             # 核心逻辑: 低开/平开→盘中放量冲高→收盘站稳→次日惯性上涨
             # 【V18未来函数审查】：半路追涨因子时间点分析
@@ -3688,14 +3702,14 @@ class PortfolioBacktester:
             # 4. 保留opening_pct_chg作为竞价筛选(9:25可观测)
             # 5. 成交概率在_rebalance中模拟(一字板0%/秒板10%/快速板30%/盘中板50%)
             # 【P1-9修复:circ_mv单位是万元,参数单位是亿,需×10000转换】
-            min_circ_mv = (converted_params.get("min_circulation_market_cap") if converted_params.get("min_circulation_market_cap") is not None else strategy_defaults.get("min_circulation_market_cap", 50)) * 10000
-            max_circ_mv = (converted_params.get("max_circulation_market_cap") if converted_params.get("max_circulation_market_cap") is not None else strategy_defaults.get("max_circulation_market_cap", 500)) * 10000
-            min_volume_ratio = converted_params.get("min_volume_ratio") if converted_params.get("min_volume_ratio") is not None else strategy_defaults.get("min_volume_ratio", 1.5)
-            min_turnover = converted_params.get("min_turnover_rate") if converted_params.get("min_turnover_rate") is not None else strategy_defaults.get("min_turnover_rate", 8)  # V66: fallback 3→8, 与STRATEGY_CONFIGS对齐
-            max_turnover = converted_params.get("max_turnover_rate") if converted_params.get("max_turnover_rate") is not None else strategy_defaults.get("max_turnover_rate", 15)
+            min_circ_mv = self._param_or_default(converted_params, "min_circulation_market_cap", strategy_defaults, 50) * 10000
+            max_circ_mv = self._param_or_default(converted_params, "max_circulation_market_cap", strategy_defaults, 500) * 10000
+            min_volume_ratio = self._param_or_default(converted_params, "min_volume_ratio", strategy_defaults, 1.5)
+            min_turnover = self._param_or_default(converted_params, "min_turnover_rate", strategy_defaults, 8)
+            max_turnover = self._param_or_default(converted_params, "max_turnover_rate", strategy_defaults, 15)
             # 【P0-3修复:从STRATEGY_CONFIGS读取fallback,不硬编码】
-            opening_pct_min = converted_params.get("opening_pct_min") if converted_params.get("opening_pct_min") is not None else strategy_defaults.get("opening_pct_min", -1.0)
-            opening_pct_max = converted_params.get("opening_pct_max") if converted_params.get("opening_pct_max") is not None else strategy_defaults.get("opening_pct_max", 5.0)  # V66: fallback 7→5, 与strategy_defaults对齐
+            opening_pct_min = self._param_or_default(converted_params, "opening_pct_min", strategy_defaults, -1.0)
+            opening_pct_max = self._param_or_default(converted_params, "opening_pct_max", strategy_defaults, 5.0)
             return [
                 {"name": "first_limit_up", "target": 1, "label": "首次涨停(盘中封板)"},
                 {"name": "limit_up_yesterday", "target": 0, "label": "昨日未涨停(T-1预选)"},
@@ -3712,11 +3726,11 @@ class PortfolioBacktester:
                 {"name": "opening_pct_chg", "target": -3, "operator": ">=", "label": "竞价跌幅<3%(排除低开股)"},
             ]
         elif strategy_name == "涨停开板":
-            min_consecutive = converted_params.get("min_consecutive_limit") if converted_params.get("min_consecutive_limit") is not None else strategy_defaults.get("min_consecutive_limit", 2)
-            max_consecutive = converted_params.get("max_consecutive_limit") if converted_params.get("max_consecutive_limit") is not None else strategy_defaults.get("max_consecutive_limit", 4)
+            min_consecutive = self._param_or_default(converted_params, "min_consecutive_limit", strategy_defaults, 2)
+            max_consecutive = self._param_or_default(converted_params, "max_consecutive_limit", strategy_defaults, 4)
             _raw_turnover = converted_params.get("min_turnover_rate")
             min_turnover = _raw_turnover if _raw_turnover is not None else strategy_defaults.get("min_turnover_rate", 15.0)
-            min_volume_ratio = converted_params.get("min_volume_ratio") if converted_params.get("min_volume_ratio") is not None else strategy_defaults.get("min_volume_ratio", 2.0)
+            min_volume_ratio = self._param_or_default(converted_params, "min_volume_ratio", strategy_defaults, 2.0)
             require_sentiment = converted_params.get("require_sentiment_period", ["rising"])
             # 【日线模式修复】涨停开板的盘中数据(limit_up_open_duration/limit_up_open_amount/limit_up_time)
             # 在日线回测中全为0,无法区分。改为日线可观测条件:
@@ -3738,18 +3752,18 @@ class PortfolioBacktester:
             ]
         elif strategy_name == "龙头低吸":
             # 【P1-9修复:默认值从STRATEGY_CONFIGS读取】
-            min_consecutive = converted_params.get("min_consecutive_limit") if converted_params.get("min_consecutive_limit") is not None else strategy_defaults.get("min_consecutive_limit", 1)
-            min_correction = converted_params.get("min_correction_pct") if converted_params.get("min_correction_pct") is not None else strategy_defaults.get("min_correction_pct", 0.05)
-            max_correction = converted_params.get("max_correction_pct") if converted_params.get("max_correction_pct") is not None else strategy_defaults.get("max_correction_pct", 0.20)
-            correction_days_min = converted_params.get("correction_days_min") if converted_params.get("correction_days_min") is not None else strategy_defaults.get("correction_days_min", 1)
-            correction_days_max = converted_params.get("correction_days_max") if converted_params.get("correction_days_max") is not None else strategy_defaults.get("correction_days_max", 7)
-            support_level = converted_params.get("support_level") if converted_params.get("support_level") is not None else strategy_defaults.get("support_level", "ma5")
+            min_consecutive = self._param_or_default(converted_params, "min_consecutive_limit", strategy_defaults, 1)
+            min_correction = self._param_or_default(converted_params, "min_correction_pct", strategy_defaults, 0.05)
+            max_correction = self._param_or_default(converted_params, "max_correction_pct", strategy_defaults, 0.20)
+            correction_days_min = self._param_or_default(converted_params, "correction_days_min", strategy_defaults, 1)
+            correction_days_max = self._param_or_default(converted_params, "correction_days_max", strategy_defaults, 7)
+            support_level = self._param_or_default(converted_params, "support_level", strategy_defaults, "ma5")
             # 【P0-3修复(第十轮):market_leader因子在MongoDB中全0,无法用于龙头筛选】
             # 替代方案:用circ_mv(流通市值)识别龙头股--大市值更可能是龙头
             # 【注意】circ_mv单位是万元,参数单位是亿,需×10000转换
-            _min_circ_for_leader = (converted_params.get("min_circulation_market_cap") if converted_params.get("min_circulation_market_cap") is not None else strategy_defaults.get("min_circulation_market_cap", 30)) * 10000
-            _min_vr = converted_params.get("min_volume_ratio") if converted_params.get("min_volume_ratio") is not None else strategy_defaults.get("min_volume_ratio", 0.5)
-            _max_vr = converted_params.get("max_volume_ratio") if converted_params.get("max_volume_ratio") is not None else strategy_defaults.get("max_volume_ratio", 2.0)
+            _min_circ_for_leader = self._param_or_default(converted_params, "min_circulation_market_cap", strategy_defaults, 30) * 10000
+            _min_vr = self._param_or_default(converted_params, "min_volume_ratio", strategy_defaults, 0.5)
+            _max_vr = self._param_or_default(converted_params, "max_volume_ratio", strategy_defaults, 2.0)
             return [
                 # 【V35修复:circ_mv改用circ_mv_prev(T-1日),消除未来函数,与其他策略一致】
                 # circ_mv日间变化极小(<1%),用_prev对筛选结果影响微小
@@ -3782,21 +3796,21 @@ class PortfolioBacktester:
             ]
         elif strategy_name == "跌停翘板":
             # 【P1-9修复:默认值从STRATEGY_CONFIGS读取】
-            min_consecutive = converted_params.get("min_consecutive_limit") if converted_params.get("min_consecutive_limit") is not None else strategy_defaults.get("min_consecutive_limit", 2)
+            min_consecutive = self._param_or_default(converted_params, "min_consecutive_limit", strategy_defaults, 2)
             # 【修复#47: min_qiao_amount单位统一为千元(与数据库limit_down_open_amount一致)】
-            _raw_qiao = converted_params.get("min_qiao_amount") if converted_params.get("min_qiao_amount") is not None else strategy_defaults.get("min_qiao_amount", 1000)
+            _raw_qiao = self._param_or_default(converted_params, "min_qiao_amount", strategy_defaults, 1000)
             min_qiao_amount = _raw_qiao * 10 if _raw_qiao < 100000 else _raw_qiao
-            min_rise_after = converted_params.get("min_rise_after_qiao") if converted_params.get("min_rise_after_qiao") is not None else strategy_defaults.get("min_rise_after_qiao", 0.03)
-            require_high_sentiment = converted_params.get("require_high_sentiment") if converted_params.get("require_high_sentiment") is not None else strategy_defaults.get("require_high_sentiment", False)
+            min_rise_after = self._param_or_default(converted_params, "min_rise_after_qiao", strategy_defaults, 0.03)
+            require_high_sentiment = self._param_or_default(converted_params, "require_high_sentiment", strategy_defaults, False)
             require_sentiment = converted_params.get("require_sentiment_period", ["rising", "chaos"])
             # 【P0-1修复(V24):min_turnover_rate从STRATEGY_CONFIGS读取,不再硬编码】
-            min_turnover_qiao = converted_params.get("min_turnover_rate") if converted_params.get("min_turnover_rate") is not None else strategy_defaults.get("min_turnover_rate", 10.0)
+            min_turnover_qiao = self._param_or_default(converted_params, "min_turnover_rate", strategy_defaults, 10.0)
             # 【修复:min_turnover_rate前端可能传小数(0.10=10%),需转换】
             if min_turnover_qiao < 1:
                 min_turnover_qiao *= 100
             # 【P1-6修复(V13)】:circ_mv从参数读取,不再硬编码200000
             # circ_mv单位是万元,参数单位是亿,需×10000转换
-            _min_circ_qiao = (converted_params.get("min_circulation_market_cap") if converted_params.get("min_circulation_market_cap") is not None else strategy_defaults.get("min_circulation_market_cap", 20)) * 10000
+            _min_circ_qiao = self._param_or_default(converted_params, "min_circulation_market_cap", strategy_defaults, 20) * 10000
             return [
                 {"name": "limit_down_yesterday", "target": 1, "label": "昨日跌停"},
                 {"name": "open_above_limit_down", "target": 1, "label": "开盘高于跌停价(不继续跌停)"},
