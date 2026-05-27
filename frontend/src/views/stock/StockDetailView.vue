@@ -974,7 +974,7 @@ function formatAmount(val?: number): string {
   
   &.history {
     background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(99, 102, 241, 0.1));
-    color: #8b5cf6;
+    color: var(--el-color-primary-light-3, #8b5cf6);
   }
   
   &.news {
