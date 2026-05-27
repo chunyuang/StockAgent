@@ -176,7 +176,7 @@ function onSweepParamChange() {
       </div>
     </template>
 
-        <ElCollapse v-if="configMode === 'edit' || configMode === 'sweep'" v-model="activeCollapse" :class="{ 'sweep-collapse': configMode === 'sweep' }">
+        <ElCollapse v-if="configMode === 'edit'" v-model="activeCollapse" :class="{ 'sweep-collapse': configMode === 'sweep' }">
       <!-- 数据源配置 -->
       <ElCollapseItem name="dataSource">
         <template #title><span>{{ dataSourceTitle }}</span></template>
