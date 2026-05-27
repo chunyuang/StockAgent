@@ -6,6 +6,7 @@
  */
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useThemeStore } from '@/stores'
 import StrategyConfigPanel from '@/components/ultrashort/StrategyConfigPanel.vue'
 import AnsiLogPanel from '@/components/backtest/AnsiLogPanel.vue'
 import BacktestSummaryTable from '@/components/backtest/BacktestSummaryTable.vue'
@@ -37,6 +38,8 @@ use([CanvasRenderer, LineChart, TitleComponent, TooltipComponent, LegendComponen
 // STRATEGY_NAMES - imported from shared config
 
 // ==================== 状态 ====================
+
+const themeStore = useThemeStore()
 
 const form = reactive({
   dataSource: {
@@ -846,7 +849,27 @@ function onViewLogs(_taskId: string) {
 
 <template>
   <div class="ultra-short-v2-page">
-    <!-- Tab切换 + 操作按钮 -->
+    <!-- 页面头部栏(与市场监听统一格式) -->
+    <div class="page-header-bar">
+      <div class="ph-left">
+        <span class="ph-title">📈 超短策略回测</span>
+        <span class="ph-sep">|</span>
+        <span v-if="backtestResult" class="ph-metric up">收益 {{ backtestResult.total_return?.toFixed(1) }}%</span>
+        <span v-if="backtestResult" class="ph-metric">胜率 {{ backtestResult.win_rate?.toFixed(1) }}%</span>
+        <span v-if="backtestResult" class="ph-metric down">回撤 {{ backtestResult.max_drawdown?.toFixed(2) }}%</span>
+        <span v-if="backtestResult" class="ph-metric">夏普 {{ backtestResult.sharpe_ratio?.toFixed(2) }}</span>
+        <span v-if="backtestResult" class="ph-metric">{{ backtestResult.merged_trades?.length || backtestResult.all_trades?.length || 0 }}笔</span>
+        <span v-if="backtestState.running" class="ph-running">⏱ 运行中</span>
+      </div>
+      <div class="ph-right">
+        <ElButton :type="healthStatus==='ok'?'success':healthStatus==='error'?'danger':healthStatus==='warning'?'warning':'default'" :loading="healthLoading" @click="runHealthCheck" size="small">
+          {{ healthLoading ? '检查中...' : healthStatus==='ok' ? '✅ 服务正常' : healthStatus==='error' ? '❌ 服务异常' : '🔧 服务检查' }}
+        </ElButton>
+        <span class="ph-theme-toggle" @click="themeStore.toggleTheme()" :title="themeStore.isDark ? '切换浅色' : '切换深色'">{{ themeStore.isDark ? '☀️' : '🌙' }}</span>
+      </div>
+    </div>
+
+    <!-- Tab切换 -->
     <div class="main-tabs-bar">
       <div class="main-tabs">
         <button :class="['tab-btn', activeMainTab === 'config' ? 'active' : '']" @click="activeMainTab = 'config'">
@@ -871,9 +894,6 @@ function onViewLogs(_taskId: string) {
           📊 因子参考
         </button>
       </div>
-      <ElButton :type="healthStatus==='ok'?'success':healthStatus==='error'?'danger':healthStatus==='warning'?'warning':'default'" :loading="healthLoading" @click="runHealthCheck" size="small">
-        {{ healthLoading ? '检查中...' : healthStatus==='ok' ? '✅ 服务正常' : healthStatus==='error' ? '❌ 服务异常' : '🔧 服务检查' }}
-      </ElButton>
     </div>
 
     <!-- Tab内容：回测配置（全屏独立标签页） -->
@@ -1079,7 +1099,7 @@ function onViewLogs(_taskId: string) {
 
 <style scoped lang="scss">
 .ultra-short-v2-page {
-  padding: 16px;
+  padding: 0;
   height: 100vh;
   display: flex;
   flex-direction: column;
@@ -1087,20 +1107,83 @@ function onViewLogs(_taskId: string) {
   overflow: hidden;
   background: var(--bg-muted);
 }
+
+/* 页面头部栏 — 与市场监听 mm-header 格式统一 */
+.page-header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-default);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  min-width: 0;
+
+  .ph-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+
+  .ph-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-primary);
+    white-space: nowrap;
+  }
+
+  .ph-sep {
+    color: var(--border-default);
+    font-weight: 300;
+  }
+
+  .ph-metric {
+    font-size: 12px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+  .ph-metric.up { color: var(--stock-down, #f5222d); }
+  .ph-metric.down { color: var(--stock-up, #52c41a); }
+
+  .ph-running {
+    font-size: 12px;
+    color: var(--warning, #f59e0b);
+    animation: pulse 1.5s infinite;
+  }
+
+  .ph-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .ph-theme-toggle {
+    cursor: pointer;
+    font-size: 18px;
+    padding: 4px;
+    border-radius: 6px;
+    transition: background 0.2s;
+    &:hover { background: var(--bg-muted); }
+  }
+}
+
 .main-tabs-bar {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: center;
-  margin-bottom: 12px;
   border-bottom: 2px solid var(--border-default);
   flex-shrink: 0;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 0;
   min-width: 0;
   padding-bottom: 0;
   background: var(--bg-elevated);
-  border-radius: 8px 8px 0 0;
-  padding: 10px 16px 0;
+  padding: 0 16px;
 }
 
 .main-tabs {
@@ -1224,16 +1307,11 @@ function onViewLogs(_taskId: string) {
   align-items: center;
   gap: 8px;
 }
-.tab-content-full {
-  flex: 1;
-  overflow-y: auto;
-  min-width: 0;
-  padding: 12px 16px;
-}
 
-/* Responsive: narrow screens */
 @media (max-width: 1000px) {
-  .ultra-short-v2-page { padding: 8px; }
+  .ultra-short-v2-page { }
+  .page-header-bar { padding: 6px 10px; }
+  .ph-metric { display: none; }
 }
 
 
