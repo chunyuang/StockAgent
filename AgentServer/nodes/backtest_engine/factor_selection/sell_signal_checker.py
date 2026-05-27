@@ -267,6 +267,11 @@ def check_profit_protect(holding, market_data, params):
     1. open_rise >= min_open_rise (高开,不是低开)
     2. close_rise >= min_close_rise (收盘有利润)
     3. close < open (高开低收,冲高回落形态)
+
+    【V71分析:虽然close<open时open>close,以open卖出更优,但改为open后
+    利润保护会在_sell_code_details中先于利润锁定触发,导致本应利润锁定的
+    交易(高利润close价)被标记为利润保护(open价),利润锁定检查被跳过。
+    实测447.74%→435.15%(-12.59%),因此保持close价不变。】
     """
     open_price = market_data.get('open', 0)
     close_price = market_data.get('close', 0)
