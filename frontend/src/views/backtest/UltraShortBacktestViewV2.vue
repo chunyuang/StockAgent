@@ -862,7 +862,7 @@ function onViewLogs(_taskId: string) {
     </div>
 
     <!-- Tab内容：回测配置（全屏独立标签页） -->
-    <div v-show="activeMainTab === 'config'" class="tab-content-full">
+    <div v-if="activeMainTab === 'config'" class="tab-content-full">
       <!-- 运行状态/耗时 -->
       <div v-if="backtestState.running" class="running-status">
         ⏱ 已运行 {{ Math.floor(elapsedSeconds / 60) }}:{{ String(elapsedSeconds % 60).padStart(2, '0') }} · 回测运行中，完成后自动切换到「日志与结果」
@@ -883,7 +883,7 @@ function onViewLogs(_taskId: string) {
     </div>
 
     <!-- Tab内容：日志与结果（全屏独立标签页） -->
-    <div v-show="activeMainTab === 'result'" class="tab-content-full">
+    <div v-if="activeMainTab === 'result'" class="tab-content-full">
       <!-- 运行状态/耗时 -->
       <div v-if="backtestState.running" class="running-status">
         ⏱ 已运行 {{ Math.floor(elapsedSeconds / 60) }}:{{ String(elapsedSeconds % 60).padStart(2, '0') }} · 回测运行中...
@@ -940,7 +940,7 @@ function onViewLogs(_taskId: string) {
     <!-- Tab内容：回测历史 -->
     
     <!-- 复盘报告 -->
-    <div v-show="activeMainTab === 'report'" class="tab-content-full">
+    <div v-if="activeMainTab === 'report'" class="tab-content-full">
       <div v-if="!backtestResult" class="empty-result">
         <div class="empty-hint">
           <div class="empty-icon">📋</div>
@@ -1041,7 +1041,7 @@ function onViewLogs(_taskId: string) {
       </div>
     </div>
 
-    <div v-show="activeMainTab === 'history'" class="tab-content-full">
+    <div v-if="activeMainTab === 'history'" class="tab-content-full">
       <BacktestHistoryPanel
         :visible="activeMainTab === 'history'"
         @view-result="onViewResult"
@@ -1051,12 +1051,12 @@ function onViewLogs(_taskId: string) {
     </div>
 
     <!-- Tab内容：数据状态 -->
-    <div v-show="activeMainTab === 'data'" class="tab-content-full">
+    <div v-if="activeMainTab === 'data'" class="tab-content-full">
       <DataStatusPanel :visible="activeMainTab === 'data'" />
     </div>
 
     <!-- Tab内容：因子参考 -->
-    <div v-show="activeMainTab === 'factors'" class="tab-content-full">
+    <div v-if="activeMainTab === 'factors'" class="tab-content-full">
       <FactorReferencePanel />
     </div>
   </div>
