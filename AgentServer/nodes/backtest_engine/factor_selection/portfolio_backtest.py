@@ -903,7 +903,10 @@ class PortfolioBacktester:
                         suspended_days = self._calc_trade_days_held(int(lvp_date), int(trade_date)) if lvp_date != trade_date else 0
                         if suspended_days > 3:
                             # 停牌超过3天, 每天施加1%流动性折价
-                            discount = (0.99 ** (suspended_days - 3))
+                            # 【V75-P0-3:添加折价下限,最低0.7(30%折价),防止长期停牌净值虚低】
+                            # 旧bug: 停牌60天折价0.99^57=0.56,净值可能显著偏低
+                            # 实际停牌股通常有重大事项(重组/并购),复牌后涨跌不确定,30%折价已足够保守
+                            discount = max(0.70, 0.99 ** (suspended_days - 3))
                             holdings_market_value += shares * lvp * discount
                         else:
                             holdings_market_value += shares * lvp
@@ -1092,8 +1095,10 @@ class PortfolioBacktester:
                     sentiment_level, market_sentiment_score, limit_up_count, limit_down_count,
                     force_empty_triggered)
             else:
+                # 【V75-P1-3:非调仓日也传入force_empty_triggered,极端行情下止损+强制清仓】
                 run_state = await self._process_non_rebalance_day(
-                    trade_date, idx, run_state, sentiment_level)
+                    trade_date, idx, run_state, sentiment_level,
+                    force_empty_triggered=force_empty_triggered)
 
         # 3. 构建最终结果
         return await self._build_run_result(run_state)
@@ -2244,7 +2249,7 @@ class PortfolioBacktester:
         return run_state
 
     async def _process_non_rebalance_day(self, trade_date, idx: int, run_state: dict,
-                                            sentiment_level: str) -> dict:
+                                            sentiment_level: str, force_empty_triggered: bool = False) -> dict:
         """非调仓日处理: 止损止盈检查、强制卖出、日志输出
 
         当调仓日无交易时也走此路径,进行止损止盈检查和持仓显示
@@ -2254,6 +2259,7 @@ class PortfolioBacktester:
             idx: 当前天数索引
             run_state: 运行时状态dict
             sentiment_level: 情绪等级
+            force_empty_triggered: 是否触发强制空仓(V75:非调仓日也检查)
 
         Returns:
             更新后的run_state
@@ -2275,6 +2281,66 @@ class PortfolioBacktester:
         stock_names = run_state['stock_names']
         all_trade_dates = run_state['all_trade_dates']
         initial_cash = run_state['initial_cash']
+
+        # 【V75-P1-3:非调仓日也执行强制空仓(极端行情下清仓)】
+        # 旧bug: 非调仓日完全忽略force_empty_triggered,极端暴跌日如果之前是调仓日后的非调仓日,
+        # 强制空仓条件已触发但无法执行,导致持仓继续亏损
+        if force_empty_triggered and holdings and len(holdings) > 0:
+            await self.log(f"   🔴 【非调仓日强制空仓】极端行情触发,执行清仓")
+            prices_for_force_sell = await self._get_prices(set(holdings.keys()), trade_date)
+            force_sell_count = 0
+            for code in list(holdings.keys()):
+                if holdings[code] <= 0:
+                    continue
+                # T+1限制
+                buy_dt = self._cost_basis_date.get(code)
+                if buy_dt is not None and buy_dt == trade_date:
+                    self._pending_force_sell.add(code)
+                    await self.log(f"   │  🔒 T+1限制: {code} 当日买入不可卖(已记录次日优先清仓)")
+                    continue
+                p_info = prices_for_force_sell.get(code, {})
+                price = p_info.get('open', 0) or p_info.get('close', 0)
+                if price <= 0:
+                    price = getattr(self, '_last_valid_price', {}).get(code, 0)
+                if price <= 0:
+                    continue
+                shares = holdings[code]
+                sell_price_adj = price  # 强制空仓不扣滑点
+                gross_amount = shares * sell_price_adj
+                commission = max(gross_amount * self.SELL_COMMISSION, self.MIN_COMMISSION)
+                stamp_tax = gross_amount * self.STAMP_TAX
+                net_amount = gross_amount - commission - stamp_tax
+                cash += net_amount
+                force_sell_count += 1
+                _fs_strategy = self._get_strategy_for_stock(code)
+                rebalance_records.append(RebalanceRecord(
+                    date=str(trade_date), action="sell", ts_code=code,
+                    shares=shares, price=price, amount=net_amount,
+                    reason="强制空仓(非调仓日)", strategy_name=_fs_strategy, sentiment=sentiment_level))
+                holdings.pop(code, None)
+                if code in self._cost_basis:
+                    del self._cost_basis[code]
+                if code in self._cost_basis_date:
+                    del self._cost_basis_date[code]
+            # 清理stock_to_strategy
+            if self._cost_basis:
+                for code in list(self._cost_basis.keys()):
+                    if code not in holdings or holdings.get(code, 0) <= 0:
+                        del self._cost_basis[code]
+                        if code in self._cost_basis_date:
+                            del self._cost_basis_date[code]
+                        self.stock_to_strategy.pop(code, None)
+            if force_sell_count > 0:
+                await self.log(f"   │  ✅ 非调仓日强制清仓 {force_sell_count} 只持仓")
+            # 设置冷却期
+            cooldown_days = self._risk_config.get('force_empty_cooldown_days', GLOBAL_RISK.get('force_empty_cooldown_days', 2))
+            current_idx = self._trade_date_index_map.get(trade_date, -1)
+            if current_idx >= 0 and cooldown_days > 0:
+                target_idx = current_idx
+                for _ in range(cooldown_days):
+                    target_idx += 1
+                self._force_empty_cooldown_until_idx = target_idx
+                await self.log(f"   │  🧊 冷却期: 后{cooldown_days}个交易日仓位上限50%")
 
         # 【V29重构:非调仓日止损止盈+超时检查,委托给统一方法】
         enable_sl = self._risk_config.get('enable_stop_loss', True)
@@ -3037,6 +3103,13 @@ class PortfolioBacktester:
         result["position_series"] = position_series
 
         # 2. strategy_results: 各策略独立绩效 {策略名: {win_rate, total_return, trades_count}}
+        # 【V75-P0-2:策略级真实收益率计算】
+        # 旧bug: total_return = sum(profit_pct), 这是单笔盈亏%的算术和,语义混乱
+        #   如龙头低吸82笔, profit_pct之和=672.82%, 但实际不是6.7倍收益
+        #   因为profit_pct是每笔(卖出-买入)/买入, 不是按资金比例加权的策略收益率
+        # 修复: 增加strategy_return_pct = 按资金比例加权的策略级收益率
+        #   = sum(每笔profit_pct * 仓位权重) / sum(仓位权重) * 100
+        #   这样不同策略的收益率可比, 且与组合total_return语义一致
         strategy_results = {}
         strategy_trades = {}
         for trade in merged_trades:
@@ -3076,11 +3149,27 @@ class PortfolioBacktester:
             else:
                 strategy_plr = 0.0
 
+            # 【V75-P0-2:计算策略级真实收益率(按仓位加权)】
+            # 仓位权重 = 买入金额 / initial_cash (每笔的仓位占比)
+            # 策略收益率 = sum(profit_pct * weight) / sum(weight) * 100
+            # 这样不同策略的收益率可比,且与组合total_return语义一致
+            _weighted_pnl_num = 0.0  # sum(profit_pct * weight)
+            _weighted_pnl_den = 0.0  # sum(weight)
+            for t in completed:
+                _buy_price = t.get('buy_price', 0)
+                _shares = t.get('shares', 0)
+                if _buy_price > 0 and _shares > 0:
+                    _trade_value = _buy_price * _shares
+                    _weight = _trade_value / self._initial_cash if self._initial_cash > 0 else 0
+                    _weighted_pnl_num += t.get('profit_pct', 0) * _weight
+                    _weighted_pnl_den += _weight
+            strategy_return_pct = (_weighted_pnl_num / _weighted_pnl_den * 100) if _weighted_pnl_den > 0 else total_pnl
+
             strategy_results[sname] = {
                 "strategy_name": sname,
                 "win_rate": (wins / len(completed) * 100) if completed else 0,
-                "total_return": total_pnl,  # 【V60-P1-5:保留字段名兼容前端,值是profit_pct之和(非组合收益率)】
-                "cumulative_profit_pct": total_pnl,  # 【V60-P1-5新增:明确语义,profit_pct累计和(与组合total_return不同)】
+                "total_return": strategy_return_pct,  # 【V75-P0-2:改为策略级真实收益率(按仓位加权)】
+                "cumulative_profit_pct": total_pnl,  # 保留:单笔profit_pct之和(历史兼容)
                 "avg_profit_pct": avg_pnl,  # 平均盈亏百分比(单笔)
                 "trades_count": len(completed),
                 "max_drawdown": strategy_max_dd,
@@ -3168,14 +3257,56 @@ class PortfolioBacktester:
                     month_start_nv = nv
                 current_month = month_key
             # 最后一月
+            # 【V75-P2-3:用net_value_series[-1]替代循环外nv变量,避免空循环时nv未定义】
             if current_month and month_start_nv is not None:
-                m_return = (nv - month_start_nv) / month_start_nv if month_start_nv > 0 else 0
+                last_nv = net_value_series[-1].get('net_value', 1.0) if net_value_series else 1.0
+                m_return = (last_nv - month_start_nv) / month_start_nv if month_start_nv > 0 else 0
                 formatted_last = f"{current_month[:4]}-{current_month[4:]}"
                 monthly_profit[formatted_last] = m_return
         # 【V60-P0-4修复:删除fallback路径,net_value_series不可用时返回空dict】
         # 旧fallback用daily_profit_list累加,存在浮点累积误差
         # net_value_series在正常回测中总是可用,fallback从未被实际触发
         result["monthly_profit"] = monthly_profit
+
+        # 【V75-P2-2:补充关键风险指标】
+        # 1. 最大连续亏损天数(交易维度)
+        max_consecutive_losses = 0
+        current_loss_streak = 0
+        for trade in sorted(merged_trades, key=lambda t: t.get('sell_date', '')):
+            if trade.get('profit_pct') is not None and trade.get('sell_reason', '') != '持仓中':
+                if trade['profit_pct'] < 0:
+                    current_loss_streak += 1
+                    max_consecutive_losses = max(max_consecutive_losses, current_loss_streak)
+                else:
+                    current_loss_streak = 0
+        # 2. 最大单日亏损%(从net_value_series计算,更准确)
+        max_single_day_loss = 0.0
+        if len(net_value_series) > 1:
+            for i in range(1, len(net_value_series)):
+                prev_nv = net_value_series[i-1].get('net_value', 1.0)
+                curr_nv = net_value_series[i].get('net_value', 1.0)
+                if prev_nv > 0:
+                    day_return = (curr_nv - prev_nv) / prev_nv * 100  # 日收益率%
+                    if day_return < 0 and abs(day_return) > max_single_day_loss:
+                        max_single_day_loss = abs(day_return)
+        # 3. 单笔最大亏损金额(从merged_trades)
+        max_single_trade_loss_amount = 0.0
+        max_single_trade_loss_pct = 0.0
+        for trade in merged_trades:
+            if trade.get('profit_pct') is not None and trade['profit_pct'] < 0:
+                if abs(trade['profit_pct']) > abs(max_single_trade_loss_pct):
+                    max_single_trade_loss_pct = trade['profit_pct']
+                    # 计算亏损金额
+                    _buy_p = trade.get('buy_price', 0)
+                    _sell_p = trade.get('sell_price', 0)
+                    _shares = trade.get('shares', 0)
+                    if _buy_p > 0 and _sell_p > 0 and _shares > 0:
+                        max_single_trade_loss_amount = (_sell_p - _buy_p) * _shares
+
+        result["max_consecutive_losses"] = max_consecutive_losses
+        result["max_single_day_loss_pct"] = max_single_day_loss
+        result["max_single_trade_loss_pct"] = max_single_trade_loss_pct
+        result["max_single_trade_loss_amount"] = max_single_trade_loss_amount
 
         # 兼容层标注:年化收益可靠性
         result["annual_return_reliable"] = annual_return_reliable
@@ -3965,7 +4096,7 @@ class PortfolioBacktester:
                 hit_prob_yizi = sp.get('hit_probability_yizi', _first_limit_defaults.get('hit_probability_yizi', 0.0))
                 hit_prob_fast = sp.get('hit_probability_fast', _first_limit_defaults.get('hit_probability_fast', 0.20))
                 hit_prob_normal = sp.get('hit_probability_normal', _first_limit_defaults.get('hit_probability_normal', 0.40))
-                hit_prob_slow = sp.get('hit_probability_slow', _first_limit_defaults.get('hit_probability_slow', 0.45))  # V70:从0.50→0.45,与strategy_defaults对齐(首板slow成交概率优化)
+                hit_prob_slow = sp.get('hit_probability_slow', _first_limit_defaults.get('hit_probability_slow', 0.55))  # V75:从0.45→0.55,与strategy_defaults对齐(首板slow成交概率=0.55)
 
                 if o == c == h == l:
                     hit_prob = hit_prob_yizi
@@ -4286,34 +4417,12 @@ class PortfolioBacktester:
 
         codes_to_promote = []  # 从reduce_codes升级到sell_codes的股票
         codes_to_promote_reasons = {}  # code -> sell_reason(冲高回落/止损/止盈)
-        for code in list(reduce_codes.keys()):
-            p = prices.get(code, {})
-            low_p = p.get('low', p.get('close', 0))
-            high_p = p.get('high', p.get('close', 0))
-            open_p = p.get('open', p.get('close', 0))
-            _close_p = p.get('close', 0)
-            cost = self._cost_basis.get(code, 0)
-            if cost > 0 and p.get('close', 0) > 0:
-                # 【P0-2修复(V17)】:减仓也要检查冲高回落/高开即卖/利润保护
-                _strategies = self.stock_to_strategy.get(code, [])
-                if isinstance(_strategies, str): _strategies = [_strategies]
-                early_sell_price, early_sell_reason = self._check_early_sell_signals(
-                    code, _strategies, cost, open_p, _close_p)
-                if early_sell_price > 0:
-                    codes_to_promote.append(code)
-                    codes_to_promote_reasons[code] = early_sell_reason  # 记录具体reason
-                else:
-                    code_sl, code_tp = self._get_sl_tp_for_code(code)
-                    if enable_sl and low_p <= cost * (1 - code_sl):
-                        codes_to_promote.append(code)
-                        # 【V33修复:记录止损具体reason(跳空止损/正常止损),避免卖出循环重复判断】
-                        if open_p <= cost * (1 - code_sl):
-                            codes_to_promote_reasons[code] = '跳空止损'
-                        else:
-                            codes_to_promote_reasons[code] = f'止损({code_sl*100:.1f}%)'
-                    elif enable_tp and high_p >= cost * (1 + code_tp):
-                        codes_to_promote.append(code)
-                        codes_to_promote_reasons[code] = f'止盈({code_tp*100:.1f}%)'
+        # 【V75-P1-2:用统一方法检查减仓股的卖出信号,消除重复代码】
+        _promote_signals = self._check_sell_signal_for_holdings(
+            set(reduce_codes.keys()), holdings, prices, trade_date, enable_sl, enable_tp)
+        for code, reason in _promote_signals.items():
+            codes_to_promote.append(code)
+            codes_to_promote_reasons[code] = reason
         for code in codes_to_promote:
             sell_codes.append(code)
             # 【V33修复:promote的股票必须调用pos_mgr.mark_sold()记录reason】
@@ -4623,6 +4732,70 @@ class PortfolioBacktester:
         holdings = {code: shares for code, shares in holdings.items() if shares > 0}
 
         return cash, holdings, records
+
+    def _check_sell_signal_for_holdings(self, codes: set, holdings: dict, prices: dict,
+                                           trade_date: int, enable_sl: bool, enable_tp: bool) -> dict:
+        """【V75-P1-2提取】统一检查持仓股的卖出信号(冲高回落/止损/止盈)
+
+        合并_rebalance中sell_codes检查和reduce_codes检查的重复逻辑。
+
+        Args:
+            codes: 需要检查的股票代码集合
+            holdings: 当前持仓dict
+            prices: 价格数据dict
+            trade_date: 交易日
+            enable_sl: 是否启用止损
+            enable_tp: 是否启用止盈
+
+        Returns:
+            {code: sell_reason} 触发卖出信号的股票及原因
+        """
+        result = {}
+        for code in codes:
+            if holdings.get(code, 0) <= 0:
+                continue
+            # T+1: 当日买入不可卖出
+            buy_dt = self._cost_basis_date.get(code)
+            if buy_dt is not None and buy_dt == trade_date:
+                continue
+            p = prices.get(code, {})
+            cost = self._cost_basis.get(code, 0)
+            if cost <= 0 or not isinstance(p, dict) or p.get('close', 0) <= 0:
+                continue
+            open_p = p.get('open', p.get('close', 0))
+            _close_p = p.get('close', 0)
+            low_p = p.get('low', _close_p)
+            high_p = p.get('high', _close_p)
+
+            # 1. 冲高回落/利润保护/高开即卖
+            _strategies = self.stock_to_strategy.get(code, [])
+            if isinstance(_strategies, str): _strategies = [_strategies]
+            early_sell_price, early_sell_reason = self._check_early_sell_signals(
+                code, _strategies, cost, open_p, _close_p)
+            if early_sell_price > 0:
+                result[code] = early_sell_reason
+                continue
+
+            # 2. 止损
+            code_sl, code_tp = self._get_sl_tp_for_code(code)
+            stop_price = cost * (1 - code_sl)
+            if enable_sl and low_p <= stop_price:
+                if open_p <= stop_price:
+                    result[code] = '跳空止损'
+                else:
+                    result[code] = f'止损({code_sl*100:.1f}%)'
+                continue
+
+            # 3. 止盈
+            if enable_tp and high_p >= cost * (1 + code_tp):
+                result[code] = f'止盈({code_tp*100:.1f}%)'
+                continue
+
+            # 4. 利润锁定
+            if high_p > 0 and _close_p > 0 and cost > 0:
+                if self._check_intraday_profit_lock(cost, high_p, _close_p, code):
+                    result[code] = '利润锁定'
+        return result
 
     async def _get_stock_names(self, ts_codes: list[str]):
         """批量获取股票名称,使用缓存减少查询"""
