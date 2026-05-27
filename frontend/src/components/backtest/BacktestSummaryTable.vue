@@ -31,11 +31,10 @@ const coreMetrics = computed(() => {
   if (!r) return []
   const risk = r.metrics?.risk || {}
   const ret = r.metrics?.returns || {}
-  const nvsLen = r.net_value_series?.length || 0
   const items = [
     { label: '累计收益', value: fmtPct(r.total_return), color: colorSign(r.total_return) },
     { label: '年化收益', value: fmtPct(r.annualized_return), color: colorSign(r.annualized_return) },
-    { label: '最大回撤', value: fmtPct(r.max_drawdown), color: '#f56c6c' },
+    { label: '最大回撤', value: fmtPct(r.max_drawdown), color: 'var(--stock-up)' },
     { label: '夏普比率', value: fmtNum(r.sharpe_ratio), color: r.sharpe_ratio >= 1 ? 'var(--stock-down)' : 'var(--warning)' },
     { label: '胜率', value: fmtPct(r.win_rate), color: r.win_rate >= 50 ? 'var(--stock-down)' : 'var(--stock-up)' },
     { label: '盈亏比', value: fmtNum(risk.profit_loss_ratio ?? r.profit_loss_ratio), color: (risk.profit_loss_ratio ?? r.profit_loss_ratio ?? 0) >= 2 ? 'var(--stock-down)' : 'var(--warning)' },
@@ -92,7 +91,7 @@ const netValueMiniOption = computed(() => {
   const ddSeries = r.drawdown_series || []
   const ddMap = new Map(ddSeries.map((d: any) => [String(d.trade_date || d.date), d.drawdown ?? 0]))
   const drawdowns = nvs.map((d: any) => {
-    const dd = ddMap.get(String(d.trade_date)) ?? 0
+    const dd: number = (ddMap.get(String(d.trade_date)) ?? 0) as number
     return +(dd > 1 ? dd : dd * 100).toFixed(4)
   })
   return {

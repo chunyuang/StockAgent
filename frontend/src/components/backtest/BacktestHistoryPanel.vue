@@ -11,8 +11,8 @@
  */
 import { ref, onMounted, computed, watch } from 'vue'
 import { getUltraShortHistory, deleteBacktestHistory, type BacktestHistoryItem } from '@/api/modules/backtest'
-import { ElButton, ElTag, ElEmpty, ElMessageBox, ElMessage, ElCard, ElTooltip, ElSwitch } from 'element-plus'
-import { View, Document, RefreshRight, Delete, TrendCharts, Timer, Grid, List } from '@element-plus/icons-vue'
+import { ElButton, ElTag, ElEmpty, ElMessageBox, ElMessage, ElCard } from 'element-plus'
+import { View, Document, RefreshRight, Delete, Grid, List } from '@element-plus/icons-vue'
 import { STRATEGY_NAMES } from '@/config/backtestConstants'
 // 【V63修复:P1-11】对比面板增加收益柱状图
 import { use } from 'echarts/core'
@@ -58,7 +58,7 @@ const strategyColors: Record<string, string> = {
 }
 
 // 【V66修复:P0-5】暗色模式下策略标签文字颜色适配
-function strategyTagTextColor(bgColor: string): string {
+function strategyTagTextColor(_bgColor: string): string {
   // 在暗色模式下使用亮色文字以确保对比度
   return 'var(--text-primary)';
 }
@@ -142,7 +142,7 @@ function formatDrawdown(val: number | null | undefined): string { if (val == nul
 function formatDate(iso: string | null): string { if (!iso) return '-'; return iso.slice(0, 10) }
 function formatDuration(ms: number | null | undefined): string { if (ms == null) return '-'; if (ms < 1000) return `${ms}ms`; const s = Math.round(ms / 1000); if (s < 60) return `${s}秒`; return `${Math.floor(s/60)}分${s%60}秒` }
 function strategyNames(strategies: string[] | undefined): string { if (!strategies || !strategies.length) return '-'; return strategies.map(s => strategyNameMap[s] || s).join('、') }
-function strategyTag(sid: string) { return { name: strategyNameMap[sid] || sid, color: strategyColors[sid] || '#909399' } }
+function strategyTag(sid: string) { return { name: strategyNameMap[sid] || sid, color: strategyColors[sid] || 'var(--text-tertiary)' } }
 
 // 对比
 function toggleCompare(taskId: string) {
@@ -191,9 +191,9 @@ const compareChartOption = computed(() => {
       { type: 'value', name: '夏普', position: 'right' }
     ],
     series: [
-      { name: '收益率(%)', type: 'bar', data: returns, itemStyle: { color: '#67c23a' } },
-      { name: '胜率(%)', type: 'bar', data: winRates, itemStyle: { color: '#409eff' } },
-      { name: '夏普', type: 'bar', yAxisIndex: 1, data: sharpes, itemStyle: { color: '#e6a23c' } },
+      { name: '收益率(%)', type: 'bar', data: returns, itemStyle: { color: 'var(--success)' } },
+      { name: '胜率(%)', type: 'bar', data: winRates, itemStyle: { color: 'var(--el-color-primary)' } },
+      { name: '夏普', type: 'bar', yAxisIndex: 1, data: sharpes, itemStyle: { color: 'var(--warning)' } },
     ]
   }
 })

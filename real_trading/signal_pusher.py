@@ -62,10 +62,12 @@ class SignalPusher:
         # 推送间隔控制
         self._last_push_time: float = 0.0  # 上次推送时间戳
     
-    def push(self, signal_data: Dict) -> bool:
+    async def push(self, signal_data: Dict) -> bool:
         """推送信号到所有已配置的渠道
         
         顺序推送：飞书→企业微信→钉钉→邮件。单个渠道失败不影响其他渠道。
+        
+        【V66-P1-7:改为async def,内部用asyncio.sleep替代time.sleep】
         
         Args:
             signal_data: 信号数据字典，由 RealTradingSignalGenerator.generate_signals() 生成
@@ -106,7 +108,9 @@ class SignalPusher:
         if elapsed < min_interval and self._last_push_time > 0:
             wait_time = min_interval - elapsed
             logger.info(f"⏳ 推送间隔不足({elapsed:.1f}s < {min_interval}s)，等待{wait_time:.1f}s...")
-            time.sleep(wait_time)
+            # 【V66-P1-7:asyncio.sleep替代time.sleep,避免阻塞事件循环】
+            import asyncio
+            await asyncio.sleep(wait_time)
         
         logger.info(f"📤 开始推送{signal_data['date']}信号...")
         self._last_push_time = time.time()

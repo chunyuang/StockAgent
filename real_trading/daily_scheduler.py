@@ -804,12 +804,9 @@ class DailyScheduler:
         # 【V66-P0-1:获取带实时价格的持仓数据】
         import asyncio
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                current_positions = pos_manager.get_positions()  # fallback
-            else:
-                current_positions = loop.run_until_complete(pos_manager.get_positions_with_prices())
-        except Exception:
+            current_positions = await pos_manager.get_positions_with_prices(trade_date=signal_data.get('trade_date', ''))
+        except Exception as e:
+            logger.warning(f"获取带价格持仓失败, fallback到基础版: {e}")
             current_positions = pos_manager.get_positions()
         
         position_codes = {p["ts_code"] for p in current_positions}

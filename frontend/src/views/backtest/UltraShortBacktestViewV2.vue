@@ -4,7 +4,7 @@
  * 主页面：状态管理 + 回测提交 + WebSocket/轮询
  * 子组件：StrategyConfigPanel / AnsiLogPanel / BacktestSummaryTable / BacktestResultPanel
  */
-import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import StrategyConfigPanel from '@/components/ultrashort/StrategyConfigPanel.vue'
 import AnsiLogPanel from '@/components/backtest/AnsiLogPanel.vue'
@@ -16,7 +16,7 @@ import FactorReferencePanel from '@/components/ultrashort/FactorReferencePanel.v
 
 import { GLOBAL_RISK, STRATEGY_CONFIGS } from '@/config/strategyDefaults'
 import { systemHealthCheck } from '@/api/modules/backtest'
-import { SWEEP_PARAMS, STRATEGY_NAMES } from '@/config/backtestConstants'
+import { SWEEP_PARAMS } from '@/config/backtestConstants'
 
 // API
 import { backtestApi } from '@/api'
@@ -128,7 +128,7 @@ const form = reactive({
 })
 
 const activeCollapse = ref<string[]>([])
-const configCollapsed = ref(false)
+const _configCollapsed = ref(false) // 备用
 
 const backtestState = reactive({
   running: false,

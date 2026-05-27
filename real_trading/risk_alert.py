@@ -98,8 +98,16 @@ class RiskAlertEngine:
         # 发送到飞书
         if "feishu" in self.config["alert_channels"]:
             logger.info(f"📤 发送风控告警：{title}")
-            # 调用系统消息推送
-            os.system(f'/root/.openclaw/bin/openclaw message send --message "{alert_message}" --channel feishu')
+            # 【V66-P2-6:用subprocess替代os.system,避免shell注入风险】
+            import subprocess
+            try:
+                subprocess.run(
+                    ["/root/.openclaw/bin/openclaw", "message", "send",
+                     "--message", alert_message, "--channel", "feishu"],
+                    timeout=10, capture_output=True
+                )
+            except Exception as e:
+                logger.error(f"⚠️ 飞书告警发送失败: {e}")
         
         # 记录历史
         self.alert_history.append({
@@ -142,7 +150,11 @@ class RiskAlertEngine:
         # 2. 仓位检查
         pos_manager = engine.position_managers[account_id]
         positions = pos_manager.get_positions()
-        total_position_value = sum(pos["shares"] * pos["buy_price"] for pos in positions)  # TODO: 用当前市价替代成本价
+        # 【V66-P1-5:用current_price(市价)替代buy_price(成本价)计算仓位】
+        total_position_value = 0
+        for pos in positions:
+            price = pos.get("current_price") or pos.get("last_price") or pos["buy_price"]
+            total_position_value += pos["shares"] * price
         total_equity = account.current_balance + total_position_value
         position_ratio = total_position_value / total_equity if total_equity > 0 else 0
         
@@ -156,10 +168,18 @@ class RiskAlertEngine:
         # 3. 单只股票亏损检查
         for pos in positions:
             # TODO: 从MongoDB/AKShare获取当前价格，当前用成本价近似导致loss_pct永远为0
+            # 【V66-P1-5+P1-6:用市价+find_many替代find_one(sort)】
             try:
                 from core.managers import mongo_manager
-                doc = await mongo_manager.find_one("stock_daily_ak_full", {"ts_code": pos["ts_code"]}, sort=[("trade_date", -1)])
-                current_price = doc["close"] if doc and doc.get("close", 0) > 0 else pos["buy_price"]
+                docs = await mongo_manager.find_many(
+                    "stock_daily_ak_full", 
+                    {"ts_code": pos["ts_code"]}, 
+                    projection={"close": 1, "trade_date": 1}, 
+                    sort=[("trade_date", -1)], 
+                    limit=1
+                )
+                doc = docs[0] if docs else None
+                current_price = doc["close"] if doc and doc.get("close", 0) > 0 else pos.get("current_price", pos["buy_price"])
             except Exception:
                 current_price = pos["buy_price"]
             cost = pos["buy_price"]

@@ -23,15 +23,29 @@ class RealTimeMonitor:
     """盘中实时监控器"""
     
     def __init__(self, config: Dict = None):
+        # 【V66-P0-3:告警阈值从strategy_defaults读取,保持告警→强制空仓逻辑递进】
+        try:
+            from AgentServer.nodes.backtest_engine.strategy_defaults import GLOBAL_RISK, STRATEGY_CONFIGS
+            _index_drop_alert = GLOBAL_RISK.get('force_empty_index_drop_pct', 0.03) * 0.5  # 预警线=强制空仓线×50%
+            _limit_down_alert = int(GLOBAL_RISK.get('force_empty_limit_down', 80) * 0.5)  # 预警线=强制空仓线×50%
+            # 持仓跌幅预警: 取各策略SL的最大值×80%,这样任何策略接近止损都会预警
+            _strategy_sls = [cfg.get('riskParams', {}).get('stop_loss_pct', GLOBAL_RISK.get('stop_loss_pct', 0.03)) 
+                             for cfg in STRATEGY_CONFIGS.values()]
+            _position_drop_alert = max(_strategy_sls) * 0.8 * 100  # 转百分比,如0.05*0.8*100=4.0%
+        except Exception:
+            _index_drop_alert = 1.5
+            _limit_down_alert = 40
+            _position_drop_alert = 2.4  # GLOBAL_RISK.stop_loss_pct(0.03)*0.8*100
+        
         self.default_config = {
             "check_interval": 30,  # 检查间隔，秒
             "enable_stock_monitor": True,
             "enable_market_monitor": True,
             "enable_position_monitor": True,
             "alert_threshold": {
-                "index_drop": 1.5,  # 大盘跌幅≥1.5%预警
-                "limit_down_count": 30,  # 跌停家数≥30预警
-                "position_drop": 3,  # 持仓跌幅≥3%预警
+                "index_drop": _index_drop_alert,  # 大盘跌幅预警(从GLOBAL_RISK派生)
+                "limit_down_count": _limit_down_alert,  # 跌停家数预警(从GLOBAL_RISK派生)
+                "position_drop": _position_drop_alert,  # 持仓跌幅预警(从策略级SL派生)
                 "target_reach_buy_price": 0.5,  # 目标股达到买入价±0.5%提醒
             },
             "push_config": {},  # 推送配置
@@ -304,7 +318,7 @@ class RealTimeMonitor:
         }
         
         try:
-            self.pusher.push(signal_data)
+            await self.pusher.push(signal_data)
             logger.info(f"✅ 推送{len(alerts)}条提醒")
         except Exception as e:
             logger.error(f"❌ 推送提醒失败: {e}")

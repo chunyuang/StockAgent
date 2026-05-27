@@ -544,7 +544,7 @@ onMounted(() => {
     h4 {
       margin: 0 0 8px 0;
       font-size: 15px;
-      color: #303133;
+      color: var(--text-primary);
     }
 
     p {

@@ -296,7 +296,6 @@ const lossTop5 = computed(() => {
 const netValueChartOption = computed(() => {
   const result = props.result
   if (!result?.net_value_series || result.net_value_series.length === 0) return null
-  const initialCash = result.initial_cash || 1000000
   // net_value已归一化(1.0起始), 直接使用(过滤null/NaN)
   const netValues = result.net_value_series
     .filter((d: any) => d.net_value != null && !isNaN(d.net_value))
@@ -689,8 +688,8 @@ const sellReasonPieOption = computed(() => {
     force_empty: '强制空仓', max_hold: '到期', other: '其他'
   }
   const data = Object.entries(stats)
-    .filter(([_, v]) => v > 0)
-    .map(([k, v]) => ({ name: nameMap[k] || k, value: v, itemStyle: { color: colorMap[k] || 'var(--text-muted)' } }))
+    .filter(([_, v]: [string, any]) => v > 0)
+    .map(([k, v]: [string, any]) => ({ name: nameMap[k] || k, value: v, itemStyle: { color: colorMap[k] || 'var(--text-muted)' } }))
   if (data.length === 0) return null
   return {
     tooltip: { trigger: 'item', formatter: '{b}: {c}笔 ({d}%)' },
@@ -706,6 +705,7 @@ const sellReasonPieOption = computed(() => {
 
 // 月度收益: 统一使用 monthlyReturnChartOption (基于net_value_series计算)
 // 保留monthlyProfitChartOption仅作为调试参考
+// @ts-expect-error -- 保留作为调试参考，monthlyReturnChartOption是生产版本
 const _monthlyProfitChartOption = computed(() => {
   const result = props.result
   if (!result?.monthly_profit) return null

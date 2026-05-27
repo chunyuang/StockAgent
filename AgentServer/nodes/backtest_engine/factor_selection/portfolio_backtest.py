@@ -700,14 +700,14 @@ class PortfolioBacktester:
             min_circ_mv = params.get("min_circulation_market_cap") if params.get("min_circulation_market_cap") is not None else STRATEGY_CONFIGS.get("first_limit_up", {}).get("params", {}).get("min_circulation_market_cap", 50)
             max_circ_mv = params.get("max_circulation_market_cap") if params.get("max_circulation_market_cap") is not None else STRATEGY_CONFIGS.get("first_limit_up", {}).get("params", {}).get("max_circulation_market_cap", 500)
             min_volume_ratio = params.get("min_volume_ratio") if params.get("min_volume_ratio") is not None else STRATEGY_CONFIGS.get("first_limit_up", {}).get("params", {}).get("min_volume_ratio", 1.5)
-            min_turnover = params.get("min_turnover_rate") if params.get("min_turnover_rate") is not None else STRATEGY_CONFIGS.get("first_limit_up", {}).get("params", {}).get("min_turnover_rate", 3)
+            min_turnover = params.get("min_turnover_rate") if params.get("min_turnover_rate") is not None else STRATEGY_CONFIGS.get("first_limit_up", {}).get("params", {}).get("min_turnover_rate", 8)  # V66: fallback 3→8, 与strategy_defaults对齐
             max_turnover = params.get("max_turnover_rate") if params.get("max_turnover_rate") is not None else STRATEGY_CONFIGS.get("first_limit_up", {}).get("params", {}).get("max_turnover_rate", 15)
             max_blast = params.get("max_blast_count") if params.get("max_blast_count") is not None else 1
             require_hot = params.get("require_hot_sector") if params.get("require_hot_sector") is not None else True
             require_sentiment = params.get("require_sentiment_period", ["rising", "chaos"])
             # 【N11修复:竞价涨幅从参数读取,不再硬编码】
             opening_min = params.get("opening_pct_min") if params.get("opening_pct_min") is not None else STRATEGY_CONFIGS.get("first_limit_up", {}).get("params", {}).get("opening_pct_min", -1.0)
-            opening_max = params.get("opening_pct_max") if params.get("opening_pct_max") is not None else STRATEGY_CONFIGS.get("first_limit_up", {}).get("params", {}).get("opening_pct_max", 7.0)
+            opening_max = params.get("opening_pct_max") if params.get("opening_pct_max") is not None else STRATEGY_CONFIGS.get("first_limit_up", {}).get("params", {}).get("opening_pct_max", 5.0)  # V66: fallback 7→5, 与strategy_defaults对齐
             await self.log(f"   │        • 竞价涨幅: {opening_min}% ~ {opening_max}%")
             await self.log(f"   │        • 量比要求: ≥ {min_volume_ratio}")
             await self.log(f"   │        • 换手率: {min_turnover}% ~ {max_turnover}%")
@@ -3694,11 +3694,11 @@ class PortfolioBacktester:
             min_circ_mv = (converted_params.get("min_circulation_market_cap") if converted_params.get("min_circulation_market_cap") is not None else strategy_defaults.get("min_circulation_market_cap", 50)) * 10000
             max_circ_mv = (converted_params.get("max_circulation_market_cap") if converted_params.get("max_circulation_market_cap") is not None else strategy_defaults.get("max_circulation_market_cap", 500)) * 10000
             min_volume_ratio = converted_params.get("min_volume_ratio") if converted_params.get("min_volume_ratio") is not None else strategy_defaults.get("min_volume_ratio", 1.5)
-            min_turnover = converted_params.get("min_turnover_rate") if converted_params.get("min_turnover_rate") is not None else strategy_defaults.get("min_turnover_rate", 3)
+            min_turnover = converted_params.get("min_turnover_rate") if converted_params.get("min_turnover_rate") is not None else strategy_defaults.get("min_turnover_rate", 8)  # V66: fallback 3→8, 与STRATEGY_CONFIGS对齐
             max_turnover = converted_params.get("max_turnover_rate") if converted_params.get("max_turnover_rate") is not None else strategy_defaults.get("max_turnover_rate", 15)
             # 【P0-3修复:从STRATEGY_CONFIGS读取fallback,不硬编码】
             opening_pct_min = converted_params.get("opening_pct_min") if converted_params.get("opening_pct_min") is not None else strategy_defaults.get("opening_pct_min", -1.0)
-            opening_pct_max = converted_params.get("opening_pct_max") if converted_params.get("opening_pct_max") is not None else strategy_defaults.get("opening_pct_max", 7.0)
+            opening_pct_max = converted_params.get("opening_pct_max") if converted_params.get("opening_pct_max") is not None else strategy_defaults.get("opening_pct_max", 5.0)  # V66: fallback 7→5, 与strategy_defaults对齐
             return [
                 {"name": "first_limit_up", "target": 1, "label": "首次涨停(盘中封板)"},
                 {"name": "limit_up_yesterday", "target": 0, "label": "昨日未涨停(T-1预选)"},

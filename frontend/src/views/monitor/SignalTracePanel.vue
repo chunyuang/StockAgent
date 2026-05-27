@@ -19,8 +19,8 @@
     <div v-if="currentTrace" class="pipeline-flow">
       <div class="flow-header">
         候选总数: <strong>{{ currentTrace.summary?.total_candidates || 0 }}</strong>
-        → 通过: <strong style="color:#67c23a">{{ currentTrace.summary?.passed || 0 }}</strong>
-        → 拒绝: <strong style="color:#f56c6c">{{ currentTrace.summary?.rejected || 0 }}</strong>
+        → 通过: <strong style="color:var(--success)">{{ currentTrace.summary?.passed || 0 }}</strong>
+        → 拒绝: <strong style="color:var(--stock-up)">{{ currentTrace.summary?.rejected || 0 }}</strong>
         <el-tag size="small" style="margin-left:8px">仓位系数: {{ ((currentTrace.summary?.L8_position?.ratio || 1) * 100).toFixed(0) }}%</el-tag>
       </div>
 
@@ -44,8 +44,8 @@
             </div>
           </div>
           <div class="bar-detail">
-            <span style="color:#67c23a">{{ layer.passed }}</span>
-            <span v-if="layer.rejected > 0" style="color:#f56c6c;margin-left:4px">→{{ layer.rejected }}</span>
+            <span style="color:var(--success)">{{ layer.passed }}</span>
+            <span v-if="layer.rejected > 0" style="color:var(--stock-up);margin-left:4px">→{{ layer.rejected }}</span>
           </div>
         </div>
       </div>
@@ -221,11 +221,11 @@ onMounted(() => {
 
 <style scoped>
 .signal-trace-panel {
-  background: var(--bg-elevated, #fff);
+  background: var(--bg-elevated);
   border-radius: 8px;
   padding: 16px;
   margin-bottom: 16px;
-  border: 1px solid var(--border-default, #e4e7ed);
+  border: 1px solid var(--border-default, var(--border-default));
 }
 
 .panel-header {
@@ -238,7 +238,7 @@ onMounted(() => {
 .panel-header h3 {
   margin: 0;
   font-size: 16px;
-  color: var(--text-primary, #303133);
+  color: var(--text-primary, var(--text-primary));
 }
 .header-actions {
   display: flex;
@@ -252,7 +252,7 @@ onMounted(() => {
 .flow-header {
   margin-bottom: 12px;
   font-size: 14px;
-  color: var(--text-regular, #606266);
+  color: var(--text-regular, var(--text-secondary));
 }
 
 .pipeline-bars {
@@ -270,7 +270,7 @@ onMounted(() => {
 .bar-label {
   width: 100px;
   font-size: 12px;
-  color: var(--text-secondary, #909399);
+  color: var(--text-secondary, var(--text-tertiary));
   text-align: right;
   flex-shrink: 0;
 }
@@ -278,14 +278,14 @@ onMounted(() => {
 .bar-track {
   flex: 1;
   height: 20px;
-  background: var(--bg-muted, #f5f7fa);
+  background: var(--bg-muted, var(--bg-secondary));
   border-radius: 3px;
   display: flex;
   overflow: hidden;
 }
 
 .bar-passed {
-  background: #67c23a;
+  background: var(--success);
   height: 100%;
   display: flex;
   align-items: center;
@@ -297,7 +297,7 @@ onMounted(() => {
 }
 
 .bar-rejected {
-  background: #f56c6c;
+  background: var(--stock-up);
   height: 100%;
   display: flex;
   align-items: center;
@@ -327,11 +327,11 @@ onMounted(() => {
 }
 
 .candidate-card.rejected {
-  border-left-color: #f56c6c;
+  border-left-color: var(--stock-up);
 }
 
 .candidate-card.passed {
-  border-left-color: #67c23a;
+  border-left-color: var(--success);
 }
 
 .candidate-header {
@@ -344,22 +344,22 @@ onMounted(() => {
 .candidate-name {
   font-weight: 600;
   font-size: 14px;
-  color: var(--text-primary, #303133);
+  color: var(--text-primary, var(--text-primary));
 }
 
 .candidate-code {
   font-size: 12px;
-  color: var(--text-secondary, #909399);
+  color: var(--text-secondary, var(--text-tertiary));
 }
 
-.up { color: var(--stock-up, #f56c6c); font-size: 12px; }
-.down { color: var(--stock-down, #67c23a); font-size: 12px; }
-.price { font-size: 12px; color: var(--text-regular, #606266); }
+.up { color: var(--stock-up, var(--stock-up)); font-size: 12px; }
+.down { color: var(--stock-down, var(--success)); font-size: 12px; }
+.price { font-size: 12px; color: var(--text-regular, var(--text-secondary)); }
 
 .candidate-rejection {
   margin-top: 6px;
   font-size: 13px;
-  color: var(--text-regular, #606266);
+  color: var(--text-regular, var(--text-secondary));
 }
 
 .rejection-layer {
@@ -368,7 +368,7 @@ onMounted(() => {
 }
 
 .rejection-reason {
-  color: var(--text-secondary, #909399);
+  color: var(--text-secondary, var(--text-tertiary));
 }
 
 .candidate-layers {
@@ -387,28 +387,28 @@ onMounted(() => {
 
 .layer-badge.passed {
   background: var(--stock-down-bg, #e1f3d8);
-  color: var(--stock-down, #67c23a);
+  color: var(--stock-down, var(--success));
 }
 
 .layer-badge.failed {
   background: var(--stock-up-bg, #fde2e2);
-  color: var(--stock-up, #f56c6c);
+  color: var(--stock-up, var(--stock-up));
 }
 
 .empty-hint {
   text-align: center;
   padding: 24px;
-  color: var(--text-secondary, #909399);
+  color: var(--text-secondary, var(--text-tertiary));
 }
 
 .empty-state {
   text-align: center;
   padding: 40px;
-  color: var(--text-secondary, #909399);
+  color: var(--text-secondary, var(--text-tertiary));
 }
 
 .empty-state .hint {
   font-size: 13px;
-  color: var(--text-placeholder, #c0c4cc);
+  color: var(--text-placeholder, var(--text-placeholder));
 }
 </style>
