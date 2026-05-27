@@ -986,6 +986,63 @@ function onSweepParamChange() {
 
     </div>
 
+    <!-- 参数优化模式 -->
+    <div v-if="configMode === 'sweep'" class="sweep-mode">
+      <div class="sweep-hero">
+        <div class="sweep-hero-title">🔬 参数优化</div>
+        <div class="sweep-hero-desc">选择一个参数，系统自动在指定范围内逐步回测，对比不同参数值下的收益/胜率/回撤，找到最优值</div>
+      </div>
+
+      <!-- 参数卡片选择 -->
+      <div class="sweep-param-grid">
+        <div
+          v-for="p in SWEEP_PARAMS"
+          :key="p.value"
+          :class="['sweep-param-card', form.sweep.param === p.value ? 'active' : '']"
+          @click="form.sweep.param = p.value; onSweepParamChange()"
+        >
+          <div class="sweep-param-name">{{ p.label }}</div>
+          <div class="sweep-param-range">{{ p.min }}~{{ p.max }}{{ p.unit }}</div>
+          <div class="sweep-param-step">步长 {{ p.step }}{{ p.unit }}</div>
+        </div>
+      </div>
+
+      <!-- 范围配置 -->
+      <div v-if="currentSweepParam" class="sweep-range-config">
+        <div class="sweep-range-title">📐 扫描范围: {{ currentSweepParam.label }}</div>
+        <div class="sweep-range-row">
+          <div class="sweep-range-item">
+            <span class="sweep-range-label">起始值</span>
+            <ElInputNumber v-model="form.sweep.start" :min="0" :step="0.01" :precision="3" size="large" />
+            <span class="sweep-range-unit">{{ (form.sweep.start * currentSweepParam.factor).toFixed(currentSweepParam.factor > 1 ? 0 : 1) }}{{ currentSweepParam.unit }}</span>
+          </div>
+          <div class="sweep-range-sep">→</div>
+          <div class="sweep-range-item">
+            <span class="sweep-range-label">结束值</span>
+            <ElInputNumber v-model="form.sweep.end" :min="0" :step="0.01" :precision="3" size="large" />
+            <span class="sweep-range-unit">{{ (form.sweep.end * currentSweepParam.factor).toFixed(currentSweepParam.factor > 1 ? 0 : 1) }}{{ currentSweepParam.unit }}</span>
+          </div>
+          <div class="sweep-range-sep">×</div>
+          <div class="sweep-range-item">
+            <span class="sweep-range-label">步长</span>
+            <ElInputNumber v-model="form.sweep.step" :min="0.001" :step="0.01" :precision="3" size="large" />
+            <span class="sweep-range-unit">{{ (form.sweep.step * currentSweepParam.factor).toFixed(currentSweepParam.factor > 1 ? 0 : 1) }}{{ currentSweepParam.unit }}</span>
+          </div>
+        </div>
+        <div class="sweep-range-info">
+          共 <strong>{{ Math.ceil((form.sweep.end - form.sweep.start) / form.sweep.step) + 1 }}</strong> 次回测
+        </div>
+      </div>
+
+      <!-- 使用建议 -->
+      <div class="sweep-tips">
+        <div class="sweep-tips-title">💡 使用建议</div>
+        <div class="sweep-tip">• 先粗扫（大步长）确定大致范围，再细扫（小步长）精确定位</div>
+        <div class="sweep-tip">• 止损步长建议1%，止盈步长建议5%</div>
+        <div class="sweep-tip">• 扫描结果会生成参数-收益对比图表</div>
+      </div>
+    </div>
+
 </div>
 </template>
 
