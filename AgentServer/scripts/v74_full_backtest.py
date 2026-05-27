@@ -96,12 +96,12 @@ async def main():
     # 策略级结果
     sr = result.get('strategy_results', {})
     for sname, sdata in sr.items():
-        sm = sdata.get('metrics', {})
-        s_returns = sm.get('returns', {})
-        s_risk = sm.get('risk', {})
-        s_trades = sm.get('trades', {})
         sname_display = sdata.get('strategy_name', sname)
-        print(f"  [{sname_display}] 收益{s_returns.get('total_return_pct',0):.2f}% 胜率{s_risk.get('win_rate_pct',0):.1f}% 笔{s_trades.get('total_trades',0)}")
+        s_wr = sdata.get('win_rate', 0)
+        s_tr = sdata.get('total_return', sdata.get('cumulative_profit_pct', 0))
+        s_tc = sdata.get('trades_count', 0)
+        s_mdd = sdata.get('max_drawdown', 0)
+        print(f"  [{sname_display}] 收益{s_tr:.2f}% 胜率{s_wr:.1f}% 笔{s_tc} 回撤{s_mdd:.2f}%")
 
     # 卖出原因统计
     sell_stats = result.get('sell_reason_stats', {})
@@ -125,13 +125,13 @@ async def main():
         "sell_reason_stats": sell_stats,
     }
     for sname, sdata in sr.items():
-        sm = sdata.get('metrics', {})
         summary["strategy_results"][sname] = {
             "strategy_name": sdata.get('strategy_name', sname),
-            "win_rate": sm.get('risk', {}).get('win_rate_pct', 0),
-            "total_return": sm.get('returns', {}).get('total_return_pct', 0),
-            "trades_count": sm.get('trades', {}).get('total_trades', 0),
-            "max_drawdown": sm.get('risk', {}).get('max_drawdown_pct', 0),
+            "win_rate": sdata.get('win_rate', 0),
+            "total_return": sdata.get('total_return', sdata.get('cumulative_profit_pct', 0)),
+            "trades_count": sdata.get('trades_count', 0),
+            "max_drawdown": sdata.get('max_drawdown', 0),
+            "profit_loss_ratio": sdata.get('profit_loss_ratio', 0),
         }
 
     out_path = os.path.join(BASE, 'V74_baseline_summary.json')
