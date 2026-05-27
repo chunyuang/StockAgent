@@ -291,7 +291,7 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   font-size: 11px;
-  color: #fff;
+  color: var(--text-inverse);
   min-width: 24px;
   transition: width 0.3s;
 }
@@ -303,7 +303,7 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   font-size: 11px;
-  color: #fff;
+  color: var(--text-inverse);
   min-width: 24px;
   transition: width 0.3s;
 }
