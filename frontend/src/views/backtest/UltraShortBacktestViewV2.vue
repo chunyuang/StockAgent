@@ -879,10 +879,10 @@ function onViewLogs(_taskId: string) {
     <!-- Tab内容：回测配置（全屏独立标签页） -->
     <div :class="['tab-content-full', { 'tab-hidden': activeMainTab !== 'config' }]">
       <!-- 运行状态/耗时 -->
-      <div v-if="backtestState.running" class="running-status">
+      <div :class="{ 'tab-hidden': !backtestState.running }" class="running-status">
         ⏱ 已运行 {{ Math.floor(elapsedSeconds / 60) }}:{{ String(elapsedSeconds % 60).padStart(2, '0') }} · 回测运行中，完成后自动切换到「日志与结果」
       </div>
-      <div v-if="backtestResult?.execution_time_ms" class="execution-time">
+      <div :class="{ 'tab-hidden': !backtestResult?.execution_time_ms }" class="execution-time">
         ⏱ 上次回测耗时 {{ (backtestResult.execution_time_ms / 1000).toFixed(1) }}秒 · {{ backtestResult?.net_value_series?.length || 0 }} 交易日
         <ElButton size="small" type="primary" link @click="activeMainTab = 'result'">📈 查看结果 →</ElButton>
       </div>
@@ -900,16 +900,16 @@ function onViewLogs(_taskId: string) {
     <!-- Tab内容：日志与结果（全屏独立标签页） -->
     <div :class="['tab-content-full', { 'tab-hidden': activeMainTab !== 'result' }]">
       <!-- 运行状态/耗时 -->
-      <div v-if="backtestState.running" class="running-status">
+      <div :class="{ 'tab-hidden': !backtestState.running }" class="running-status">
         ⏱ 已运行 {{ Math.floor(elapsedSeconds / 60) }}:{{ String(elapsedSeconds % 60).padStart(2, '0') }} · 回测运行中...
       </div>
-      <div v-if="backtestResult?.execution_time_ms" class="execution-time">
+      <div :class="{ 'tab-hidden': !backtestResult?.execution_time_ms }" class="execution-time">
         ⏱ 回测耗时 {{ (backtestResult.execution_time_ms / 1000).toFixed(1) }}秒 · {{ backtestResult?.net_value_series?.length || 0 }} 交易日
         <ElButton size="small" type="primary" link @click="activeMainTab = 'config'">🎯 修改配置 →</ElButton>
       </div>
 
       <!-- 无结果时的空状态 -->
-      <div v-if="!backtestState.running && !backtestResult && !backtestState.task_id" class="empty-result">
+      <div :class="{ 'tab-hidden': backtestState.running || backtestResult || backtestState.task_id }" class="empty-result">
         <div class="empty-hint">
           <div class="empty-icon">📈</div>
           <div class="empty-title">暂无回测结果</div>
@@ -943,20 +943,20 @@ function onViewLogs(_taskId: string) {
       </ElCard>
 
       <!-- 回测结果总结表格 -->
-      <BacktestSummaryTable v-if="backtestResult" :result="backtestResult" />
+      <BacktestSummaryTable :class="{ 'tab-hidden': !backtestResult }" :result="backtestResult" />
 
       <!-- 日志面板(放在结果前面，回测时更方便查看) -->
-      <AnsiLogPanel v-if="backtestState.running || backtestState.task_id" :task-id="backtestState.task_id" :task-status="backtestState.running ? 'running' : 'completed'" :height="600" />
+      <AnsiLogPanel :class="{ 'tab-hidden': !backtestState.running && !backtestState.task_id }" :task-id="backtestState.task_id" :task-status="backtestState.running ? 'running' : 'completed'" :height="600" />
 
       <!-- 回测结果详细面板 -->
-      <BacktestResultPanel v-if="backtestResult" :result="backtestResult" :form="form" :task-id="backtestState.task_id" :task-status="backtestState.running ? 'running' : 'completed'" />
+      <BacktestResultPanel :class="{ 'tab-hidden': !backtestResult }" :result="backtestResult" :form="form" :task-id="backtestState.task_id" :task-status="backtestState.running ? 'running' : 'completed'" />
     </div>
 
     <!-- Tab内容：回测历史 -->
     
     <!-- 复盘报告 -->
     <div :class="['tab-content-full', { 'tab-hidden': activeMainTab !== 'report' }]">
-      <div v-if="!backtestResult" class="empty-result">
+      <div :class="{ 'tab-hidden': backtestResult }" class="empty-result">
         <div class="empty-hint">
           <div class="empty-icon">📋</div>
           <div class="empty-title">暂无复盘数据</div>
@@ -964,7 +964,7 @@ function onViewLogs(_taskId: string) {
         </div>
       </div>
 
-      <div v-if="reviewReport" class="review-report">
+      <div :class="{ 'tab-hidden': !reviewReport }" class="review-report">
         <!-- 核心指标卡 -->
         <div class="review-cards">
           <div class="review-card" :class="reviewReport.totalReturn >= 0 ? 'positive' : 'negative'">
