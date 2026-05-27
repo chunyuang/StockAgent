@@ -858,6 +858,7 @@ export default { name: 'StrategyConfigPanel' }
 .item-left {
   flex: 1;
   min-width: 0;
+  max-width: 55%;
 }
 .item-right {
   width: 240px;
