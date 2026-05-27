@@ -69,6 +69,12 @@ function strategyDisplayName(id: string): string {
   return raw.replace(/^[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{200D}\u{20E3}]+\s*/u, '').trim() || raw
 }
 
+// 日期格式化: 20250101 → 2025-01-01
+function fmtDate(raw: any): string {
+  const s = String(raw)
+  return s.length === 8 ? `${s.substring(0,4)}-${s.substring(4,6)}-${s.substring(6,8)}` : s
+}
+
 // 卖出原因中文翻译
 function translateSellReason(reason: string): string {
   // 未平仓交易(空字符串或undefined)
@@ -307,11 +313,19 @@ const netValueChartOption = computed(() => {
     .map((d: any) => +(d.net_value).toFixed(4))
   // drawdown是小数(0.003=0.3%), ×100转百分比
   // 【V65防御】如果drawdown>1则认为已是百分比,不再×100(避免双重×100)
-  const drawdowns = result.drawdown_series?.map((d: any) => {
-    const dd = d.drawdown ?? 0
-    return +(dd > 1 ? dd : dd * 100).toFixed(4)
-  }) || []
-  const dates = result.net_value_series.map((d: any) => d.trade_date)
+  // 【BUG修复】drawdown_series可能比net_value_series少第一条(首日无回撤),需要按日期对齐
+  const ddMap = new Map<string, number>()
+  if (result.drawdown_series) {
+    for (const d of result.drawdown_series) {
+      const dd = d.drawdown ?? 0
+      ddMap.set(String(d.trade_date), +(dd > 1 ? dd : dd * 100).toFixed(4))
+    }
+  }
+  const drawdowns = dates.map((d: string) => ddMap.get(String(d)) ?? 0)
+  const dates = result.net_value_series.map((d: any) => {
+    const raw = String(d.trade_date)
+    return raw.length === 8 ? `${raw.substring(0,4)}-${raw.substring(4,6)}-${raw.substring(6,8)}` : raw
+  })
 
   // 🔧 Bug1修复: 计算基准净值线(从benchmark_data累乘pct_chg)
   const benchmarkData = result.benchmark_data || []
@@ -382,7 +396,7 @@ const dailyProfitChartOption = computed(() => {
   // daily_profit已归一化(÷initial_cash), 直接×100转百分比
   // 【V65防御】如果值绝对值着遍>1则认为已是百分比,不再×100
   const dp = nvs.map((d: any) => d.daily_profit)
-  const dates = nvs.map((d: any) => d.trade_date)
+  const dates = nvs.map((d: any) => fmtDate(d.trade_date))
   const needMul100 = dp.length > 0 && dp.every((v: any) => Math.abs(v) <= 1)  // 小数格式
   const values = dp.map((v: any) => +(needMul100 ? v * 100 : v).toFixed(4))
   return {
@@ -410,7 +424,7 @@ const positionChartOption = computed(() => {
   const psv = result.position_series
   const psNeedMul100 = psv.length > 0 && psv.every((d: any) => Math.abs(d.value) <= 1)
   const values = psv.map((d: any) => +(psNeedMul100 ? d.value * 100 : d.value).toFixed(2))
-  const dates = result.position_series.map((d: any) => d.date)
+  const dates = result.position_series.map((d: any) => fmtDate(d.date))
   return {
     tooltip: { trigger: 'axis', formatter: (p: any) => `${p[0].axisValue}<br/>仓位：${p[0].value}%` },
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
