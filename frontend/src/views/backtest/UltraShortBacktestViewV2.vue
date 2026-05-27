@@ -692,7 +692,77 @@ const addLog = (text: string) => {
 
 // ==================== 历史回测操作 ====================
 
-const activeMainTab = ref<'config' | 'result' | 'history' | 'data' | 'factors'>('config')
+const activeMainTab = ref<'config' | 'result' | 'report' | 'history' | 'data' | 'factors'>('config')
+// ============ 复盘报告 ============
+const reviewReport = computed(() => {
+  const r = backtestResult.value
+  if (!r) return null
+
+  const days = r.net_value_series?.length || 0
+  const totalReturn = r.total_return ?? 0
+  const annualReturn = r.annualized_return ?? 0
+  const maxDD = r.max_drawdown ?? 0
+  const winRate = r.win_rate ?? 0
+  const sharpe = r.sharpe_ratio ?? 0
+  const calmar = r.calmar_ratio ?? 0
+  const profitLossRatio = r.profit_loss_ratio ?? 0
+  const totalTrades = r.total_trades ?? 0
+  const totalSignals = r.total_signals ?? 0
+
+  // 策略表现
+  const strategyResults = r.strategy_results || {}
+  const strategyEntries = Object.entries(strategyResults) as [string, any][]
+
+  // 卖出原因统计
+  const sellReasons = r.sell_reason_stats || {}
+  const sellReasonEntries = Object.entries(sellReasons) as [string, any][]
+
+  // 月度收益
+  const monthlyProfit = r.monthly_profit || []
+
+  // 诊断
+  const diagnostics: string[] = []
+  if (totalReturn < 0) diagnostics.push('整体收益为负，建议检查策略逻辑或调整参数范围')
+  if (maxDD > 30) diagnostics.push('最大回撤超过30%，风控需要加强——考虑降低仓位或收紧止损')
+  if (winRate < 40 && totalTrades > 20) diagnostics.push('胜率低于40%但交易数足够，考虑优化入场条件减少无效信号')
+  if (sharpe < 0.5) diagnostics.push('夏普比率低于0.5，风险调整后收益不佳，需改善盈亏比')
+  if (totalTrades < 10 && days > 60) diagnostics.push('交易次数过少(<' + 10 + ')，可能条件过严，考虑放宽筛选')
+  if (profitLossRatio < 1 && winRate < 50) diagnostics.push('胜率<50%且盈亏比<1，这是双重不利——需改善出场策略')
+  if (totalSignals > totalTrades * 3) diagnostics.push('信号数远大于成交数，成交概率可能偏低，检查涨停排队逻辑')
+
+  // 亮点
+  const highlights: string[] = []
+  if (totalReturn > 20) highlights.push('收益率' + totalReturn.toFixed(1) + '%，表现优秀')
+  if (maxDD < 10) highlights.push('最大回撤仅' + maxDD.toFixed(1) + '%，风控稳健')
+  if (sharpe > 1.5) highlights.push('夏普比率' + sharpe.toFixed(2) + '，风险收益比极佳')
+  if (winRate > 60) highlights.push('胜率' + winRate.toFixed(1) + '%，信号质量高')
+  if (profitLossRatio > 2) highlights.push('盈亏比' + profitLossRatio.toFixed(2) + '，盈利交易幅度大')
+
+  // 最优/最差策略
+  let bestStrategy = '', worstStrategy = ''
+  let bestReturn = -Infinity, worstReturn = Infinity
+  for (const [name, data] of strategyEntries) {
+    const ret = data.total_return ?? 0
+    if (ret > bestReturn) { bestReturn = ret; bestStrategy = name }
+    if (ret < worstReturn) { worstReturn = ret; worstStrategy = name }
+  }
+
+  // 最常见卖出原因
+  let topSellReason = '', topSellCount = 0
+  for (const [reason, count] of sellReasonEntries) {
+    if ((count as number) > topSellCount) { topSellCount = count as number; topSellReason = reason }
+  }
+
+  return {
+    days, totalReturn, annualReturn, maxDD, winRate, sharpe, calmar,
+    profitLossRatio, totalTrades, totalSignals,
+    diagnostics, highlights,
+    strategyEntries, sellReasonEntries, monthlyProfit,
+    bestStrategy, bestReturn, worstStrategy, worstReturn,
+    topSellReason, topSellCount
+  }
+})
+
 const historyCount = ref(0)
 
 /** 从历史回测复用参数 */
@@ -837,6 +907,109 @@ function onViewLogs(_taskId: string) {
     </div>
 
     <!-- Tab内容：回测历史 -->
+    
+    <!-- 复盘报告 -->
+    <div v-show="activeMainTab === 'report'" class="tab-content-full">
+      <div v-if="!backtestResult" class="empty-result">
+        <div class="empty-hint">
+          <div class="empty-icon">📋</div>
+          <div class="empty-title">暂无复盘数据</div>
+          <div class="empty-desc">请先运行一次回测</div>
+        </div>
+      </div>
+
+      <div v-if="reviewReport" class="review-report">
+        <!-- 核心指标卡 -->
+        <div class="review-cards">
+          <div class="review-card" :class="reviewReport.totalReturn >= 0 ? 'positive' : 'negative'">
+            <div class="rc-label">总收益</div>
+            <div class="rc-value">{{ reviewReport.totalReturn.toFixed(1) }}%</div>
+          </div>
+          <div class="review-card">
+            <div class="rc-label">年化收益</div>
+            <div class="rc-value">{{ reviewReport.annualReturn.toFixed(1) }}%</div>
+          </div>
+          <div class="review-card negative">
+            <div class="rc-label">最大回撤</div>
+            <div class="rc-value">-{{ reviewReport.maxDD.toFixed(1) }}%</div>
+          </div>
+          <div class="review-card">
+            <div class="rc-label">夏普比率</div>
+            <div class="rc-value">{{ reviewReport.sharpe.toFixed(2) }}</div>
+          </div>
+          <div class="review-card">
+            <div class="rc-label">胜率</div>
+            <div class="rc-value">{{ reviewReport.winRate.toFixed(1) }}%</div>
+          </div>
+          <div class="review-card">
+            <div class="rc-label">盈亏比</div>
+            <div class="rc-value">{{ reviewReport.profitLossRatio.toFixed(2) }}</div>
+          </div>
+        </div>
+
+        <!-- 亮点 -->
+        <div v-if="reviewReport.highlights.length" class="review-section review-highlights">
+          <div class="rs-title">🌟 亮点</div>
+          <div v-for="h in reviewReport.highlights" :key="h" class="rs-item highlight">{{ h }}</div>
+        </div>
+
+        <!-- 诊断 -->
+        <div v-if="reviewReport.diagnostics.length" class="review-section review-diagnostics">
+          <div class="rs-title">⚠️ 诊断建议</div>
+          <div v-for="d in reviewReport.diagnostics" :key="d" class="rs-item diagnostic">{{ d }}</div>
+        </div>
+
+        <!-- 策略表现 -->
+        <div v-if="reviewReport.strategyEntries.length" class="review-section">
+          <div class="rs-title">📊 策略表现对比</div>
+          <div class="review-strategy-grid">
+            <div v-for="[name, data] in reviewReport.strategyEntries" :key="name" class="review-strategy-card" :class="(data.total_return ?? 0) >= 0 ? 'positive' : 'negative'">
+              <div class="rsc-name">{{ name }}</div>
+              <div class="rsc-stats">
+                <span>收益 {{ (data.total_return ?? 0).toFixed(1) }}%</span>
+                <span>胜率 {{ (data.win_rate ?? 0).toFixed(1) }}%</span>
+                <span>{{ data.trades_count ?? 0 }}笔</span>
+              </div>
+            </div>
+          </div>
+          <div v-if="reviewReport.bestStrategy" class="rs-summary">
+            最优策略: <strong>{{ reviewReport.bestStrategy }}</strong> ({{ reviewReport.bestReturn.toFixed(1) }}%)
+            <span v-if="reviewReport.worstStrategy && reviewReport.worstStrategy !== reviewReport.bestStrategy">
+              · 最差: {{ reviewReport.worstStrategy }} ({{ reviewReport.worstReturn.toFixed(1) }}%)
+            </span>
+          </div>
+        </div>
+
+        <!-- 卖出原因 -->
+        <div v-if="reviewReport.sellReasonEntries.length" class="review-section">
+          <div class="rs-title">📤 卖出原因分布</div>
+          <div class="review-sell-bars">
+            <div v-for="[reason, count] in reviewReport.sellReasonEntries" :key="reason" class="review-sell-bar">
+              <span class="rsb-label">{{ reason }}</span>
+              <div class="rsb-track">
+                <div class="rsb-fill" :style="{ width: Math.min(100, (count / reviewReport.totalTrades) * 100 * 2) + '%' }"></div>
+              </div>
+              <span class="rsb-count">{{ count }}次</span>
+            </div>
+          </div>
+          <div v-if="reviewReport.topSellReason" class="rs-summary">
+            最常见卖出原因: <strong>{{ reviewReport.topSellReason }}</strong> ({{ reviewReport.topSellCount }}次)
+          </div>
+        </div>
+
+        <!-- 概览 -->
+        <div class="review-section">
+          <div class="rs-title">📝 回测概览</div>
+          <div class="review-overview">
+            回测区间 {{ reviewReport.days }} 个交易日，共产生 {{ reviewReport.totalSignals }} 个信号，成交 {{ reviewReport.totalTrades }} 笔交易。
+            总收益率 {{ reviewReport.totalReturn.toFixed(1) }}%，年化 {{ reviewReport.annualReturn.toFixed(1) }}%。
+            最大回撤 {{ reviewReport.maxDD.toFixed(1) }}%，夏普比率 {{ reviewReport.sharpe.toFixed(2) }}，卡尔玛比率 {{ reviewReport.calmar.toFixed(2) }}。
+            胜率 {{ reviewReport.winRate.toFixed(1) }}%，盈亏比 {{ reviewReport.profitLossRatio.toFixed(2) }}。
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div v-show="activeMainTab === 'history'" class="tab-content-full">
       <BacktestHistoryPanel
         :visible="activeMainTab === 'history'"
@@ -1013,5 +1186,63 @@ function onViewLogs(_taskId: string) {
   .ultra-short-v2-page { padding: 8px; }
 }
 
+
+
+/* 复盘报告 */
+.review-report { max-width: 900px; margin: 0 auto; }
+.review-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.review-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  padding: 14px;
+  text-align: center;
+  &.positive { border-left: 4px solid var(--stock-down, #f56c6c); }
+  &.negative { border-left: 4px solid var(--stock-up, #67c23a); }
+}
+.rc-label { font-size: 12px; color: var(--text-tertiary); margin-bottom: 4px; }
+.rc-value { font-size: 20px; font-weight: 700; color: var(--text-primary); }
+
+.review-section {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin-bottom: 12px;
+}
+.rs-title { font-size: 15px; font-weight: 700; color: var(--text-primary); margin-bottom: 10px; }
+.rs-item { font-size: 13px; line-height: 1.8; padding: 4px 12px; border-radius: 4px; margin-bottom: 4px; }
+.rs-item.highlight { background: rgba(103, 194, 58, 0.08); color: #67c23a; border-left: 3px solid #67c23a; }
+.rs-item.diagnostic { background: rgba(245, 158, 11, 0.08); color: #b45309; border-left: 3px solid #f59e0b; }
+.rs-summary { font-size: 13px; color: var(--text-secondary); margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-default); }
+
+.review-strategy-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+}
+.review-strategy-card {
+  padding: 10px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border-default);
+  &.positive { background: rgba(103, 194, 58, 0.04); }
+  &.negative { background: rgba(245, 108, 108, 0.04); }
+}
+.rsc-name { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+.rsc-stats { font-size: 12px; color: var(--text-secondary); display: flex; gap: 12px; }
+
+.review-sell-bars { display: flex; flex-direction: column; gap: 6px; }
+.review-sell-bar { display: flex; align-items: center; gap: 10px; }
+.rsb-label { font-size: 12px; color: var(--text-secondary); width: 100px; flex-shrink: 0; }
+.rsb-track { flex: 1; height: 16px; background: var(--bg-muted); border-radius: 4px; overflow: hidden; }
+.rsb-fill { height: 100%; background: var(--primary-400); border-radius: 4px; transition: width 0.3s; }
+.rsb-count { font-size: 12px; color: var(--text-tertiary); width: 50px; }
+
+.review-overview { font-size: 14px; color: var(--text-secondary); line-height: 1.8; }
 
 </style>
