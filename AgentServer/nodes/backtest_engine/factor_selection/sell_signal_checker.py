@@ -466,6 +466,7 @@ STRATEGY_PULLBACK_PARAMS = {
         'pullback_high_threshold': 0.05,
         'pullback_mid_fallback_pct': 0.015,  # V47:从0.015保持,龙头低吸波动大,0.01太敏感
         'pullback_profit_lock_threshold': 0.06,  # V53:从8%→6%,利润≥6%时冲高回落不再触发,让利润锁定/超时自然退出(51.69%超时退出说明冲高回落过早截断大牛)
+        'stop_loss_pct': 0.03,  # V68:同步strategy_defaults,3.5%→3%
     },
 }
 
