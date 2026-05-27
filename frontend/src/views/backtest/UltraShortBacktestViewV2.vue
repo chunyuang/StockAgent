@@ -814,6 +814,9 @@ function onViewLogs(_taskId: string) {
           <span v-if="backtestResult" class="tab-badge-success">✓</span>
           <span v-else-if="backtestState.running" class="tab-badge-running">运行中</span>
         </button>
+        <button :class="['tab-btn', activeMainTab === 'report' ? 'active' : '']" @click="activeMainTab = 'report'">
+          📋 复盘报告
+        </button>
         <button :class="['tab-btn', activeMainTab === 'history' ? 'active' : '']" @click="activeMainTab = 'history'">
           📋 回测历史
           <span class="tab-badge">{{ historyCount }}</span>
