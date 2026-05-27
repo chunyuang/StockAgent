@@ -1003,8 +1003,8 @@ export default { name: 'StrategyConfigPanel' }
   border: none;
 }
 :deep(.el-collapse-item__header) {
-  white-space: nowrap !important;
-  overflow-x: auto !important;
+  white-space: normal !important;
+  overflow: visible !important;
   padding-right: 40px !important;
   font-weight: 600;
   font-size: 13px;
@@ -1012,8 +1012,10 @@ export default { name: 'StrategyConfigPanel' }
   border-radius: 6px;
   margin-bottom: 4px;
   border: 1px solid var(--border-default);
-  height: 40px;
-  line-height: 40px;
+  min-height: 40px;
+  line-height: 1.5;
+  padding-top: 8px;
+  padding-bottom: 8px;
 }
 :deep(.el-collapse-item__header.is-active) {
   background: var(--bg-active);
