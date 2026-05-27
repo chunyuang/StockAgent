@@ -1,0 +1,54 @@
+{
+  "total_return_pct": 1005576.3659876022,
+  "alpha_pct": 1005569.7467568336,
+  "max_drawdown_pct": 9.651299199010262,
+  "sharpe_ratio": 11.287952382770092,
+  "sortino_ratio": 17.47490804826914,
+  "win_rate_pct": 72.67508610792193,
+  "profit_loss_ratio": 2.7588296165160915,
+  "total_trades": 871,
+  "elapsed": 180.73787784576416,
+  "strategy_results": {
+    "半路追涨": {
+      "strategy_name": "半路追涨",
+      "win_rate": 0,
+      "total_return": 0,
+      "trades_count": 0,
+      "max_drawdown": 0
+    },
+    "首板打板": {
+      "strategy_name": "首板打板",
+      "win_rate": 0,
+      "total_return": 0,
+      "trades_count": 0,
+      "max_drawdown": 0
+    },
+    "跌停翘板": {
+      "strategy_name": "跌停翘板",
+      "win_rate": 0,
+      "total_return": 0,
+      "trades_count": 0,
+      "max_drawdown": 0
+    },
+    "龙头低吸": {
+      "strategy_name": "龙头低吸",
+      "win_rate": 0,
+      "total_return": 0,
+      "trades_count": 0,
+      "max_drawdown": 0
+    }
+  },
+  "sell_reason_stats": {
+    "stop_loss": 110,
+    "gap_stop_loss": 26,
+    "take_profit": 95,
+    "max_hold": 16,
+    "force_empty": 32,
+    "rebalance": 176,
+    "profit_lock": 203,
+    "profit_protect": 19,
+    "pullback": 194,
+    "halt": 0,
+    "other": 0
+  }
+}
