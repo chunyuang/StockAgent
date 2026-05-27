@@ -248,7 +248,7 @@ def check_pullback(holding, market_data, params):
         return (open_price, '冲高回落')
 
     # 3%-5%区间: 需回落≥阈值才触发
-    mid_fallback = params.get('pullback_mid_fallback_pct', 0.01)
+    mid_fallback = params.get('pullback_mid_fallback_pct', 0.015)  # V72:从0.01→0.015,与STRATEGY_PULLBACK_PARAMS对齐(所有策略均为1.5%)
     pullback_pct = (open_price - close_price) / open_price
     if pullback_pct >= mid_fallback:
         return (open_price, '冲高回落')
