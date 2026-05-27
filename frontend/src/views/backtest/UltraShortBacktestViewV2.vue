@@ -709,6 +709,21 @@ const addLog = (text: string) => {
 // ==================== 历史回测操作 ====================
 
 const activeMainTab = ref<'config' | 'result' | 'report' | 'history' | 'data' | 'factors'>('config')
+
+// 【BUG修复】watch activeMainTab 直接操作DOM确保面板切换可靠
+// Vue的v-show/:class绑定在Vite HMR后可能失效，用watch+DOM操作保障
+const tabPanelMap: Record<string, number> = { config: 0, result: 1, report: 2, history: 3, data: 4, factors: 5 }
+watch(activeMainTab, (newTab) => {
+  const panels = document.querySelectorAll('.tab-content-full')
+  const targetIdx = tabPanelMap[newTab]
+  panels.forEach((p, i) => {
+    if (i === targetIdx) {
+      p.classList.remove('tab-hidden')
+    } else {
+      p.classList.add('tab-hidden')
+    }
+  })
+}, { flush: 'post' })
 // ============ 复盘报告 ============
 function translateSellReason(reason: string): string {
   if (!reason) return '未知'
@@ -862,7 +877,7 @@ function onViewLogs(_taskId: string) {
     </div>
 
     <!-- Tab内容：回测配置（全屏独立标签页） -->
-    <div v-show="activeMainTab === 'config'" class="tab-content-full">
+    <div :class="['tab-content-full', { 'tab-hidden': activeMainTab !== 'config' }]">
       <!-- 运行状态/耗时 -->
       <div v-if="backtestState.running" class="running-status">
         ⏱ 已运行 {{ Math.floor(elapsedSeconds / 60) }}:{{ String(elapsedSeconds % 60).padStart(2, '0') }} · 回测运行中，完成后自动切换到「日志与结果」
@@ -883,7 +898,7 @@ function onViewLogs(_taskId: string) {
     </div>
 
     <!-- Tab内容：日志与结果（全屏独立标签页） -->
-    <div v-show="activeMainTab === 'result'" class="tab-content-full">
+    <div :class="['tab-content-full', { 'tab-hidden': activeMainTab !== 'result' }]">
       <!-- 运行状态/耗时 -->
       <div v-if="backtestState.running" class="running-status">
         ⏱ 已运行 {{ Math.floor(elapsedSeconds / 60) }}:{{ String(elapsedSeconds % 60).padStart(2, '0') }} · 回测运行中...
@@ -940,7 +955,7 @@ function onViewLogs(_taskId: string) {
     <!-- Tab内容：回测历史 -->
     
     <!-- 复盘报告 -->
-    <div v-show="activeMainTab === 'report'" class="tab-content-full">
+    <div :class="['tab-content-full', { 'tab-hidden': activeMainTab !== 'report' }]">
       <div v-if="!backtestResult" class="empty-result">
         <div class="empty-hint">
           <div class="empty-icon">📋</div>
@@ -1041,7 +1056,7 @@ function onViewLogs(_taskId: string) {
       </div>
     </div>
 
-    <div v-show="activeMainTab === 'history'" class="tab-content-full">
+    <div :class="['tab-content-full', { 'tab-hidden': activeMainTab !== 'history' }]">
       <BacktestHistoryPanel
         :visible="activeMainTab === 'history'"
         @view-result="onViewResult"
@@ -1051,12 +1066,12 @@ function onViewLogs(_taskId: string) {
     </div>
 
     <!-- Tab内容：数据状态 -->
-    <div v-show="activeMainTab === 'data'" class="tab-content-full">
+    <div :class="['tab-content-full', { 'tab-hidden': activeMainTab !== 'data' }]">
       <DataStatusPanel :visible="activeMainTab === 'data'" />
     </div>
 
     <!-- Tab内容：因子参考 -->
-    <div v-show="activeMainTab === 'factors'" class="tab-content-full">
+    <div :class="['tab-content-full', { 'tab-hidden': activeMainTab !== 'factors' }]">
       <FactorReferencePanel />
     </div>
   </div>
@@ -1193,6 +1208,10 @@ function onViewLogs(_taskId: string) {
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.7; }
+}
+
+.tab-hidden {
+  display: none !important;
 }
 .execution-time {
   padding: 8px 20px;
