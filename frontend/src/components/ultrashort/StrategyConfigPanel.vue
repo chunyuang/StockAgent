@@ -3,7 +3,7 @@
  * StrategyConfigPanel - 超短回测策略配置面板
  * 包含数据源、基础配置、交易参数、全局筛选、强制空仓、情绪周期、竞价过滤、5个策略配置
  */
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import {
   ElCard,
   ElForm,
@@ -124,6 +124,14 @@ const configMode = ref<'edit' | 'flow' | 'sweep'>('edit')
 
 const activeCollapse = defineModel<string[]>('activeCollapse', { default: [] })
 
+// 切换到sweep模式时自动展开所有折叠项
+const allCollapseKeys = ['dataSource', 'baseConfig', 'tradeParams', 'globalFilter', 'forceEmpty', 'sentimentCycle', 'auctionFilter', 'halfway_chase', 'first_limit_up', 'limit_up_open', 'dragon_head', 'limit_down_qiao']
+watch(configMode, (mode) => {
+  if (mode === 'sweep') {
+    activeCollapse.value = [...allCollapseKeys]
+  }
+})
+
 // Toggle 辅助
 function toggleStrategy(strategyId: string) {
   const cfg = props.form.strategyConfigs[strategyId]
@@ -168,7 +176,7 @@ function onSweepParamChange() {
       </div>
     </template>
 
-        <ElCollapse v-if="configMode === 'edit'" v-model="activeCollapse">
+        <ElCollapse v-if="configMode === 'edit' || configMode === 'sweep'" v-model="activeCollapse" :class="{ 'sweep-collapse': configMode === 'sweep' }">
       <!-- 数据源配置 -->
       <ElCollapseItem name="dataSource">
         <template #title><span>{{ dataSourceTitle }}</span></template>
@@ -1426,4 +1434,16 @@ export default { name: 'StrategyConfigPanel' }
 .sweep-tips-title { font-size: 13px; font-weight: 600; color: var(--primary-500); margin-bottom: 6px; }
 .sweep-tip { font-size: 12px; color: var(--text-secondary); line-height: 1.8; }
 
+
+
+/* sweep模式下折叠面板: 隐藏右侧描述, 左侧全宽 */
+.sweep-collapse .item-right {
+  display: none;
+}
+.sweep-collapse .item-left {
+  max-width: 100%;
+}
+.sweep-collapse .item-layout {
+  gap: 0;
+}
 </style>
