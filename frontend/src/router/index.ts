@@ -33,25 +33,11 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'cockpit',
-        name: 'Cockpit',
-        component: () => import('@/views/monitor/CockpitView.vue'),
-        meta: { title: '驾驶舱' },
+        redirect: '/monitor',
       },
 
       {
         path: 'strategies',
-        redirect: '/monitor',
-      },
-      {
-        path: 'strategies/new',
-        redirect: '/monitor',
-      },
-      {
-        path: 'strategies/:id',
-        redirect: '/monitor',
-      },
-      {
-        path: 'strategies/:id/edit',
         redirect: '/monitor',
       },
       {

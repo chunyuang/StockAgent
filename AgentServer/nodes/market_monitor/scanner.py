@@ -753,6 +753,7 @@ class MarketScanner:
                 name = item.get("name", "") if isinstance(item, dict) else getattr(item, 'name', "")
                 pct = item.get("pct_chg", 0) if isinstance(item, dict) else getattr(item, 'pct_chg', 0)
                 fd = item.get("fd_amount", 0) if isinstance(item, dict) else getattr(item, 'fd_amount', 0)
+                fd = float(fd or 0)
                 open_times = item.get("open_times", 0) if isinstance(item, dict) else getattr(item, 'open_times', 0)
                 
                 if not ts_code:
@@ -1332,9 +1333,9 @@ class MarketScanner:
                     continue  # 已持仓, 跳过
 
                 # 构造详细reason
-                pct = row.get('pct_chg', 0)
-                vr = row.get('volume_ratio', 0)
-                tr = row.get('turnover_rate', 0)
+                pct = float(row.get('pct_chg') or 0)
+                vr = float(row.get('volume_ratio') or 0)
+                tr = float(row.get('turnover_rate') or 0)
                 is_lu = bool(row.get('is_limit_up', 0))
                 lbc = int(row.get('limit_up_count', 0))
                 
@@ -1355,9 +1356,9 @@ class MarketScanner:
                     strategy=strategy_key,
                     strategy_name=strategy_name,
                     price=row.get("close", 0) or row.get("price", 0),
-                    pct_chg=row.get("pct_chg", 0),
-                    volume_ratio=row.get("volume_ratio", 0),
-                    turnover_rate=row.get("turnover_rate", 0),
+                    pct_chg=float(row.get('pct_chg') or 0),
+                    volume_ratio=float(row.get('volume_ratio') or 0),
+                    turnover_rate=float(row.get('turnover_rate') or 0),
                     is_limit_up=bool(row.get("is_limit_up", 0)),
                     limit_up_count=int(row.get("limit_up_count", 0)),
                     reason=reason,
@@ -1586,7 +1587,7 @@ class MarketScanner:
             pusher = SignalPusher(self.config.get("push", {}))
             lines = [f"🎯 **实时信号** ({datetime.now().strftime('%H:%M:%S')})"]
             for sig in signals[:10]:
-                pct = f"+{sig.pct_chg:.1f}%" if sig.pct_chg > 0 else f"{sig.pct_chg:.1f}%"
+                pct = f"+{sig.pct_chg:.1f}%" if sig.pct_chg and sig.pct_chg > 0 else f"{sig.pct_chg or 0:.1f}%"
                 lines.append(f"- {sig.ts_code} {sig.stock_name} | {sig.strategy_name} | {pct}")
             if len(signals) > 10:
                 lines.append(f"... 共{len(signals)}个")
