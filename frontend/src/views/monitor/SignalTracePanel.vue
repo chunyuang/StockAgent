@@ -323,7 +323,7 @@ onMounted(() => {
   margin: 4px 0;
   border-radius: 6px;
   border-left: 3px solid transparent;
-  background: var(--bg-muted, #fafafa);
+  background: var(--bg-muted);
 }
 
 .candidate-card.rejected {
@@ -386,12 +386,12 @@ onMounted(() => {
 }
 
 .layer-badge.passed {
-  background: var(--stock-down-bg, #e1f3d8);
+  background: var(--stock-down-bg);
   color: var(--stock-down, var(--success));
 }
 
 .layer-badge.failed {
-  background: var(--stock-up-bg, #fde2e2);
+  background: var(--stock-up-bg);
   color: var(--stock-up, var(--stock-up));
 }
 
