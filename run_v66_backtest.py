@@ -1,9 +1,10 @@
 """V66回测验证 - 4级情绪仓位 + 参数对齐"""
 import asyncio, json, sys
 sys.path.insert(0, '.')
+sys.path.insert(0, 'AgentServer')
 
 async def main():
-    from AgentServer.nodes.backtest_engine.factor_selection.portfolio_backtest import PortfolioBacktester
+    from nodes.backtest_engine.factor_selection.portfolio_backtest import PortfolioBacktester
     
     bt = PortfolioBacktester(
         start_date="20250101",
@@ -18,7 +19,6 @@ async def main():
     )
     result = await bt.run()
     
-    # 输出结果
     print("\n" + "="*60)
     print("V66 回测结果 (2025Q1) - 4级情绪仓位 + 参数对齐")
     print("="*60)
@@ -32,14 +32,12 @@ async def main():
     print(f"盈亏比: {result.get('profit_loss_ratio', 0):.2f}")
     print(f"交易笔数: {result.get('total_trades', 0)}")
     
-    # 策略分解
     strategy_results = result.get('strategy_results', {})
     if strategy_results:
         print("\n策略分解:")
         for sname, sdata in strategy_results.items():
             print(f"  {sname}: {sdata.get('total_trades',0)}笔 胜率{sdata.get('win_rate',0):.1f}% 收益{sdata.get('total_return',0):.2f}% 盈亏比{sdata.get('profit_loss_ratio',0):.2f}")
     
-    # 月度收益
     monthly = result.get('monthly_returns', {})
     if monthly:
         print("\n月度收益:")
