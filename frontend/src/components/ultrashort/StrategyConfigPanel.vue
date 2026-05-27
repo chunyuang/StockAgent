@@ -42,11 +42,11 @@ const forceEmptyTitle = computed(() => `⚠️ 强制空仓 ${props.form.forceEm
 const sentimentCycleTitle = computed(() => `🧠 情绪周期 ${props.form.sentimentCycle.enabled ? '✅' : '❌'} (涨停${props.form.sentimentCycle.weight_limit_up}, 跌停${props.form.sentimentCycle.weight_limit_down}, 炸板率${props.form.sentimentCycle.weight_blast_rate}, 涨跌差${props.form.sentimentCycle.weight_rise_fall_diff}, 北向${props.form.sentimentCycle.weight_north_inflow})`)
 const auctionFilterTitle = computed(() => `⏰ 竞价过滤 ${props.form.auctionFilter.enabled ? '✅' : '❌'} (涨幅${(props.form.auctionFilter.min_auction_pct * 100).toFixed(1)}%~${(props.form.auctionFilter.max_auction_pct * 100).toFixed(1)}%, 成交额≥${props.form.auctionFilter.min_auction_amount}万, 量比≥${props.form.auctionFilter.min_auction_volume_ratio}, 未匹配量正: ${props.form.auctionFilter.min_unmatched_volume_positive ? '✅' : '❌'})`)
 
-const halfwayChaseTitle = computed(() => `🏃‍♂️ 半路追涨策略 ${props.form.strategyConfigs.halfway_chase.enabled ? '✅' : '❌'} (涨幅${(props.form.strategyConfigs.halfway_chase.params.min_rise_pct * 100).toFixed(1)}%~${(props.form.strategyConfigs.halfway_chase.params.max_rise_pct * 100).toFixed(1)}%, 量比${props.form.strategyConfigs.halfway_chase.params.min_volume_ratio}~${props.form.strategyConfigs.halfway_chase.params.max_volume_ratio}, 止损${(props.form.strategyConfigs.halfway_chase.riskParams.stop_loss_pct * 100).toFixed(1)}%/止盈${(props.form.strategyConfigs.halfway_chase.riskParams.take_profit_pct * 100).toFixed(1)}%)`)
-const firstLimitUpTitle = computed(() => `🥇 首板打板策略 ${props.form.strategyConfigs.first_limit_up.enabled ? '✅' : '❌'} (开盘${props.form.strategyConfigs.first_limit_up.params.opening_pct_min}%~${props.form.strategyConfigs.first_limit_up.params.opening_pct_max}%, 量比≥${props.form.strategyConfigs.first_limit_up.params.min_volume_ratio}, 换手${props.form.strategyConfigs.first_limit_up.params.min_turnover_rate}%~${props.form.strategyConfigs.first_limit_up.params.max_turnover_rate}%, 流通市值${props.form.strategyConfigs.first_limit_up.params.min_circulation_market_cap}~${props.form.strategyConfigs.first_limit_up.params.max_circulation_market_cap}亿, 止损${(props.form.strategyConfigs.first_limit_up.riskParams.stop_loss_pct * 100).toFixed(1)}%/止盈${(props.form.strategyConfigs.first_limit_up.riskParams.take_profit_pct * 100).toFixed(1)}%)`)
-const limitUpOpenTitle = computed(() => `📈 涨停开板策略 ${props.form.strategyConfigs.limit_up_open.enabled ? '✅' : '❌'} (连板≥${props.form.strategyConfigs.limit_up_open.params.min_consecutive_limit}板, 开板≤${props.form.strategyConfigs.limit_up_open.params.max_open_duration}分钟, 止损${(props.form.strategyConfigs.limit_up_open.riskParams.stop_loss_pct * 100).toFixed(1)}%/止盈${(props.form.strategyConfigs.limit_up_open.riskParams.take_profit_pct * 100).toFixed(1)}%)`)
-const dragonHeadTitle = computed(() => `🐲 龙头低吸策略 ${props.form.strategyConfigs.dragon_head.enabled ? '✅' : '❌'} (连板≥${props.form.strategyConfigs.dragon_head.params.min_consecutive_limit}板, 回调${(props.form.strategyConfigs.dragon_head.params.min_correction_pct * 100).toFixed(1)}%~${(props.form.strategyConfigs.dragon_head.params.max_correction_pct * 100).toFixed(1)}%, 止损${(props.form.strategyConfigs.dragon_head.riskParams.stop_loss_pct * 100).toFixed(1)}%/止盈${(props.form.strategyConfigs.dragon_head.riskParams.take_profit_pct * 100).toFixed(1)}%)`)
-const limitDownQiaoTitle = computed(() => `💥 跌停翘板策略 ${props.form.strategyConfigs.limit_down_qiao.enabled ? '✅' : '❌'} (连板≥${props.form.strategyConfigs.limit_down_qiao.params.min_consecutive_limit}板, 翘板金额≥${props.form.strategyConfigs.limit_down_qiao.params.min_qiao_amount}万, 止损${(props.form.strategyConfigs.limit_down_qiao.riskParams.stop_loss_pct * 100).toFixed(1)}%/止盈${(props.form.strategyConfigs.limit_down_qiao.riskParams.take_profit_pct * 100).toFixed(1)}%)`)
+const halfwayChaseTitle = computed(() => `🏃‍♂️ 半路追涨策略 ${props.form.strategyConfigs.halfway_chase.enabled ? '✅' : '❌'} (涨幅${(props.form.strategyConfigs.halfway_chase.params.min_rise_pct * 100).toFixed(1)}%~${(props.form.strategyConfigs.halfway_chase.params.max_rise_pct * 100).toFixed(1)}%, 量比${props.form.strategyConfigs.halfway_chase.params.min_volume_ratio}~${props.form.strategyConfigs.halfway_chase.params.max_volume_ratio}, 收盘≥${(props.form.strategyConfigs.halfway_chase.params.min_close_rise_pct * 100).toFixed(1)}%, 开盘≤${(props.form.strategyConfigs.halfway_chase.params.max_open_rise_pct * 100).toFixed(1)}%, ${props.form.strategyConfigs.halfway_chase.params.allow_after_10am ? '可10点后' : '仅10点前'}, 止损${(props.form.strategyConfigs.halfway_chase.riskParams.stop_loss_pct * 100).toFixed(1)}%/止盈${(props.form.strategyConfigs.halfway_chase.riskParams.take_profit_pct * 100).toFixed(1)}%, 持仓${props.form.strategyConfigs.halfway_chase.riskParams.max_hold_days}天)`)
+const firstLimitUpTitle = computed(() => `🥇 首板打板策略 ${props.form.strategyConfigs.first_limit_up.enabled ? '✅' : '❌'} (竞价${(props.form.strategyConfigs.first_limit_up.params.opening_pct_min * 100).toFixed(0)}%~${(props.form.strategyConfigs.first_limit_up.params.opening_pct_max * 100).toFixed(0)}%, 量比≥${props.form.strategyConfigs.first_limit_up.params.min_volume_ratio}, 换手${props.form.strategyConfigs.first_limit_up.params.min_turnover_rate}%~${props.form.strategyConfigs.first_limit_up.params.max_turnover_rate}%, 流通市值${props.form.strategyConfigs.first_limit_up.params.min_circulation_market_cap}~${props.form.strategyConfigs.first_limit_up.params.max_circulation_market_cap}亿, 次日高开≥${(props.form.strategyConfigs.first_limit_up.params.next_day_open_sell_pct * 100).toFixed(0)}%卖, 止损${(props.form.strategyConfigs.first_limit_up.riskParams.stop_loss_pct * 100).toFixed(1)}%/止盈${(props.form.strategyConfigs.first_limit_up.riskParams.take_profit_pct * 100).toFixed(1)}%)`)
+const limitUpOpenTitle = computed(() => `📈 涨停开板策略 ${props.form.strategyConfigs.limit_up_open.enabled ? '✅' : '❌'} (连板≥${props.form.strategyConfigs.limit_up_open.params.min_consecutive_limit}板, 开板≤${props.form.strategyConfigs.limit_up_open.params.max_open_duration}分钟, 回封封单≥${props.form.strategyConfigs.limit_up_open.params.min_seal_orders}万手, 换手≥${props.form.strategyConfigs.limit_up_open.params.min_turnover_rate}%, 止损${(props.form.strategyConfigs.limit_up_open.riskParams.stop_loss_pct * 100).toFixed(1)}%/止盈${(props.form.strategyConfigs.limit_up_open.riskParams.take_profit_pct * 100).toFixed(1)}%, 持仓${props.form.strategyConfigs.limit_up_open.riskParams.max_hold_days}天)`)
+const dragonHeadTitle = computed(() => `🐲 龙头低吸策略 ${props.form.strategyConfigs.dragon_head.enabled ? '✅' : '❌'} (连板≥${props.form.strategyConfigs.dragon_head.params.min_consecutive_limit}板, 流通市值≥${props.form.strategyConfigs.dragon_head.params.min_circulation_market_cap}亿, 回调${(props.form.strategyConfigs.dragon_head.params.min_correction_pct * 100).toFixed(0)}%~${(props.form.strategyConfigs.dragon_head.params.max_correction_pct * 100).toFixed(0)}%共${props.form.strategyConfigs.dragon_head.params.correction_days_min}~${props.form.strategyConfigs.dragon_head.params.correction_days_max}天, 量比${props.form.strategyConfigs.dragon_head.params.min_volume_ratio}~${props.form.strategyConfigs.dragon_head.params.max_volume_ratio}, 支撑${props.form.strategyConfigs.dragon_head.params.support_level === 'ma5' ? 'MA5' : props.form.strategyConfigs.dragon_head.params.support_level === 'ma10' ? 'MA10' : '平台'}, 止损${(props.form.strategyConfigs.dragon_head.riskParams.stop_loss_pct * 100).toFixed(1)}%/止盈${(props.form.strategyConfigs.dragon_head.riskParams.take_profit_pct * 100).toFixed(1)}%)`)
+const limitDownQiaoTitle = computed(() => `💥 跌停翘板策略 ${props.form.strategyConfigs.limit_down_qiao.enabled ? '✅' : '❌'} (连跌≥${props.form.strategyConfigs.limit_down_qiao.params.min_consecutive_limit}天, 翘板≥${props.form.strategyConfigs.limit_down_qiao.params.min_qiao_amount}万, 翘板后涨≥${(props.form.strategyConfigs.limit_down_qiao.params.min_rise_after_qiao * 100).toFixed(0)}%, 流通市值≥${props.form.strategyConfigs.limit_down_qiao.params.min_circulation_market_cap}亿, ${props.form.strategyConfigs.limit_down_qiao.params.require_high_sentiment ? '需高情绪' : '不限情绪'}, 止损${(props.form.strategyConfigs.limit_down_qiao.riskParams.stop_loss_pct * 100).toFixed(1)}%/止盈${(props.form.strategyConfigs.limit_down_qiao.riskParams.take_profit_pct * 100).toFixed(1)}%, 持仓${props.form.strategyConfigs.limit_down_qiao.riskParams.max_hold_days}天)`)
 
 // ============ 策略/配置描述 ============
 const sectionDescriptions: Record<string, { title: string; desc: string; tips?: string[] }> = {
@@ -148,7 +148,6 @@ function onSweepParamChange() {
 
 <template>
   <div class="config-layout-v2">
-    <div class="config-left">
   <ElCard class="config-card">
     <template #header>
       <div class="card-header">
@@ -214,6 +213,7 @@ function onSweepParamChange() {
       <!-- 数据源配置 -->
       <ElCollapseItem name="dataSource">
         <template #title><span>{{ dataSourceTitle }}</span></template>
+        <div class="item-layout"><div class="item-left">
         <ElForm label-width="120px">
           <ElFormItem label="周期">
             <ElSelect v-model="form.dataSource.period" style="width: 150px">
@@ -237,21 +237,45 @@ function onSweepParamChange() {
             <ElInput v-model="form.dataSource.end_date" placeholder="如20260320" />
           </ElFormItem>
         </ElForm>
+              </div><div class="item-right" v-if="sectionDescriptions.dataSource">
+          <div class="desc-title">{{ sectionDescriptions.dataSource.title }}</div>
+          <div class="desc-text">{{ sectionDescriptions.dataSource.desc }}</div>
+          <div v-if="sectionDescriptions.dataSource.tips?.length" class="desc-tips">
+            <div class="desc-tips-title">💡 参数建议</div>
+            <div v-for="(tip, i) in sectionDescriptions.dataSource.tips" :key="i" class="desc-tip-item">
+              <span class="desc-tip-dot">•</span> {{ tip }}
+            </div>
+          </div>
+        </div>
+        </div>
       </ElCollapseItem>
 
       <!-- 基础配置 -->
       <ElCollapseItem name="baseConfig">
         <template #title><span>{{ baseConfigTitle }}</span></template>
+        <div class="item-layout"><div class="item-left">
         <ElForm label-width="120px">
           <ElFormItem label="初始资金">
             <ElInputNumber v-model="form.base.initial_cash" :min="100000" :max="1000000000" style="width: 200px" prefix="¥" />
           </ElFormItem>
         </ElForm>
+              </div><div class="item-right" v-if="sectionDescriptions.baseConfig">
+          <div class="desc-title">{{ sectionDescriptions.baseConfig.title }}</div>
+          <div class="desc-text">{{ sectionDescriptions.baseConfig.desc }}</div>
+          <div v-if="sectionDescriptions.baseConfig.tips?.length" class="desc-tips">
+            <div class="desc-tips-title">💡 参数建议</div>
+            <div v-for="(tip, i) in sectionDescriptions.baseConfig.tips" :key="i" class="desc-tip-item">
+              <span class="desc-tip-dot">•</span> {{ tip }}
+            </div>
+          </div>
+        </div>
+        </div>
       </ElCollapseItem>
 
       <!-- 交易参数 -->
       <ElCollapseItem name="tradeParams">
         <template #title><span>{{ tradeParamsTitle }}</span></template>
+        <div class="item-layout"><div class="item-left">
         <ElForm label-width="120px">
           <ElFormItem label="基础止损">
             <ElInputNumber v-model="form.tradeParams.base_stop_loss_pct" :min="0" :max="1" :step="0.005" :precision="3" style="width: 150px" />
@@ -286,11 +310,23 @@ function onSweepParamChange() {
             <span class="unit">‰</span>
           </ElFormItem>
         </ElForm>
+              </div><div class="item-right" v-if="sectionDescriptions.tradeParams">
+          <div class="desc-title">{{ sectionDescriptions.tradeParams.title }}</div>
+          <div class="desc-text">{{ sectionDescriptions.tradeParams.desc }}</div>
+          <div v-if="sectionDescriptions.tradeParams.tips?.length" class="desc-tips">
+            <div class="desc-tips-title">💡 参数建议</div>
+            <div v-for="(tip, i) in sectionDescriptions.tradeParams.tips" :key="i" class="desc-tip-item">
+              <span class="desc-tip-dot">•</span> {{ tip }}
+            </div>
+          </div>
+        </div>
+        </div>
       </ElCollapseItem>
 
       <!-- 全局筛选 -->
       <ElCollapseItem name="globalFilter">
         <template #title><span>{{ globalFilterTitle }}</span></template>
+        <div class="item-layout"><div class="item-left">
         <ElForm label-width="160px">
           <ElFormItem label="剔除ST/*ST"><ElSwitch v-model="form.globalFilter.exclude_st" /></ElFormItem>
           <ElFormItem label="剔除退市股"><ElSwitch v-model="form.globalFilter.exclude_delisting" /></ElFormItem>
@@ -307,11 +343,23 @@ function onSweepParamChange() {
             <span class="unit">%</span>
           </ElFormItem>
         </ElForm>
+              </div><div class="item-right" v-if="sectionDescriptions.globalFilter">
+          <div class="desc-title">{{ sectionDescriptions.globalFilter.title }}</div>
+          <div class="desc-text">{{ sectionDescriptions.globalFilter.desc }}</div>
+          <div v-if="sectionDescriptions.globalFilter.tips?.length" class="desc-tips">
+            <div class="desc-tips-title">💡 参数建议</div>
+            <div v-for="(tip, i) in sectionDescriptions.globalFilter.tips" :key="i" class="desc-tip-item">
+              <span class="desc-tip-dot">•</span> {{ tip }}
+            </div>
+          </div>
+        </div>
+        </div>
       </ElCollapseItem>
 
       <!-- 强制空仓 -->
       <ElCollapseItem name="forceEmpty">
         <template #title><span>{{ forceEmptyTitle }}</span></template>
+        <div class="item-layout"><div class="item-left">
         <ElForm label-width="160px">
           <ElFormItem label="启用强制空仓"><ElSwitch v-model="form.forceEmpty.enabled" /></ElFormItem>
           <ElFormItem label="大盘跌幅≥" :disabled="!form.forceEmpty.enabled">
@@ -327,11 +375,23 @@ function onSweepParamChange() {
             <span class="unit">只</span>
           </ElFormItem>
         </ElForm>
+              </div><div class="item-right" v-if="sectionDescriptions.forceEmpty">
+          <div class="desc-title">{{ sectionDescriptions.forceEmpty.title }}</div>
+          <div class="desc-text">{{ sectionDescriptions.forceEmpty.desc }}</div>
+          <div v-if="sectionDescriptions.forceEmpty.tips?.length" class="desc-tips">
+            <div class="desc-tips-title">💡 参数建议</div>
+            <div v-for="(tip, i) in sectionDescriptions.forceEmpty.tips" :key="i" class="desc-tip-item">
+              <span class="desc-tip-dot">•</span> {{ tip }}
+            </div>
+          </div>
+        </div>
+        </div>
       </ElCollapseItem>
 
       <!-- 情绪周期 -->
       <ElCollapseItem name="sentimentCycle">
         <template #title><span>{{ sentimentCycleTitle }}</span></template>
+        <div class="item-layout"><div class="item-left">
         <ElForm label-width="160px">
           <ElFormItem label="启用情绪周期"><ElSwitch v-model="form.sentimentCycle.enabled" /></ElFormItem>
           <ElFormItem label="涨停家数权重" :disabled="!form.sentimentCycle.enabled">
@@ -350,11 +410,23 @@ function onSweepParamChange() {
             <ElInputNumber v-model="form.sentimentCycle.weight_north_inflow" :min="0" :max="1" :step="0.01" :disabled="!form.sentimentCycle.enabled" style="width: 150px" />
           </ElFormItem>
         </ElForm>
+              </div><div class="item-right" v-if="sectionDescriptions.sentimentCycle">
+          <div class="desc-title">{{ sectionDescriptions.sentimentCycle.title }}</div>
+          <div class="desc-text">{{ sectionDescriptions.sentimentCycle.desc }}</div>
+          <div v-if="sectionDescriptions.sentimentCycle.tips?.length" class="desc-tips">
+            <div class="desc-tips-title">💡 参数建议</div>
+            <div v-for="(tip, i) in sectionDescriptions.sentimentCycle.tips" :key="i" class="desc-tip-item">
+              <span class="desc-tip-dot">•</span> {{ tip }}
+            </div>
+          </div>
+        </div>
+        </div>
       </ElCollapseItem>
 
       <!-- 竞价过滤 -->
       <ElCollapseItem name="auctionFilter">
         <template #title><span>{{ auctionFilterTitle }}</span></template>
+        <div class="item-layout"><div class="item-left">
         <ElForm label-width="160px">
           <ElFormItem label="启用竞价过滤"><ElSwitch v-model="form.auctionFilter.enabled" /></ElFormItem>
           <ElFormItem label="最低竞价涨幅" :disabled="!form.auctionFilter.enabled">
@@ -377,11 +449,23 @@ function onSweepParamChange() {
             <span class="unit">倍</span>
           </ElFormItem>
         </ElForm>
+              </div><div class="item-right" v-if="sectionDescriptions.auctionFilter">
+          <div class="desc-title">{{ sectionDescriptions.auctionFilter.title }}</div>
+          <div class="desc-text">{{ sectionDescriptions.auctionFilter.desc }}</div>
+          <div v-if="sectionDescriptions.auctionFilter.tips?.length" class="desc-tips">
+            <div class="desc-tips-title">💡 参数建议</div>
+            <div v-for="(tip, i) in sectionDescriptions.auctionFilter.tips" :key="i" class="desc-tip-item">
+              <span class="desc-tip-dot">•</span> {{ tip }}
+            </div>
+          </div>
+        </div>
+        </div>
       </ElCollapseItem>
 
       <!-- 半路追涨 -->
       <ElCollapseItem name="halfway_chase">
         <template #title><span>{{ halfwayChaseTitle }}</span></template>
+        <div class="item-layout"><div class="item-left">
         <ElForm label-width="160px">
           <ElFormItem label="启用策略"><ElSwitch v-model="form.strategyConfigs.halfway_chase.enabled" @change="() => toggleStrategy('halfway_chase')" /></ElFormItem>
           <div :disabled="!form.strategyConfigs.halfway_chase.enabled" class="grid grid-cols-2 gap-4">
@@ -429,11 +513,23 @@ function onSweepParamChange() {
             </div>
           </div>
         </ElForm>
+              </div><div class="item-right" v-if="sectionDescriptions.halfway_chase">
+          <div class="desc-title">{{ sectionDescriptions.halfway_chase.title }}</div>
+          <div class="desc-text">{{ sectionDescriptions.halfway_chase.desc }}</div>
+          <div v-if="sectionDescriptions.halfway_chase.tips?.length" class="desc-tips">
+            <div class="desc-tips-title">💡 参数建议</div>
+            <div v-for="(tip, i) in sectionDescriptions.halfway_chase.tips" :key="i" class="desc-tip-item">
+              <span class="desc-tip-dot">•</span> {{ tip }}
+            </div>
+          </div>
+        </div>
+        </div>
       </ElCollapseItem>
 
       <!-- 首板打板 -->
       <ElCollapseItem name="first_limit_up">
         <template #title><span>{{ firstLimitUpTitle }}</span></template>
+        <div class="item-layout"><div class="item-left">
         <ElForm label-width="160px">
           <ElFormItem label="启用策略"><ElSwitch v-model="form.strategyConfigs.first_limit_up.enabled" @change="() => toggleStrategy('first_limit_up')" /></ElFormItem>
           <div :disabled="!form.strategyConfigs.first_limit_up.enabled" class="grid grid-cols-2 gap-4">
@@ -499,11 +595,23 @@ function onSweepParamChange() {
             </div>
           </div>
         </ElForm>
+              </div><div class="item-right" v-if="sectionDescriptions.first_limit_up">
+          <div class="desc-title">{{ sectionDescriptions.first_limit_up.title }}</div>
+          <div class="desc-text">{{ sectionDescriptions.first_limit_up.desc }}</div>
+          <div v-if="sectionDescriptions.first_limit_up.tips?.length" class="desc-tips">
+            <div class="desc-tips-title">💡 参数建议</div>
+            <div v-for="(tip, i) in sectionDescriptions.first_limit_up.tips" :key="i" class="desc-tip-item">
+              <span class="desc-tip-dot">•</span> {{ tip }}
+            </div>
+          </div>
+        </div>
+        </div>
       </ElCollapseItem>
 
       <!-- 涨停开板 -->
       <ElCollapseItem name="limit_up_open">
         <template #title><span>{{ limitUpOpenTitle }}</span></template>
+        <div class="item-layout"><div class="item-left">
         <ElForm label-width="160px">
           <ElFormItem label="启用策略"><ElSwitch v-model="form.strategyConfigs.limit_up_open.enabled" @change="() => toggleStrategy('limit_up_open')" /></ElFormItem>
           <div :disabled="!form.strategyConfigs.limit_up_open.enabled" class="grid grid-cols-2 gap-4">
@@ -539,11 +647,23 @@ function onSweepParamChange() {
             </div>
           </div>
         </ElForm>
+              </div><div class="item-right" v-if="sectionDescriptions.limit_up_open">
+          <div class="desc-title">{{ sectionDescriptions.limit_up_open.title }}</div>
+          <div class="desc-text">{{ sectionDescriptions.limit_up_open.desc }}</div>
+          <div v-if="sectionDescriptions.limit_up_open.tips?.length" class="desc-tips">
+            <div class="desc-tips-title">💡 参数建议</div>
+            <div v-for="(tip, i) in sectionDescriptions.limit_up_open.tips" :key="i" class="desc-tip-item">
+              <span class="desc-tip-dot">•</span> {{ tip }}
+            </div>
+          </div>
+        </div>
+        </div>
       </ElCollapseItem>
 
       <!-- 龙头低吸 -->
       <ElCollapseItem name="dragon_head">
         <template #title><span>{{ dragonHeadTitle }}</span></template>
+        <div class="item-layout"><div class="item-left">
         <ElForm label-width="160px">
           <ElFormItem label="启用策略"><ElSwitch v-model="form.strategyConfigs.dragon_head.enabled" @change="() => toggleStrategy('dragon_head')" /></ElFormItem>
           <div :disabled="!form.strategyConfigs.dragon_head.enabled" class="grid grid-cols-2 gap-4">
@@ -598,11 +718,23 @@ function onSweepParamChange() {
             </div>
           </div>
         </ElForm>
+              </div><div class="item-right" v-if="sectionDescriptions.dragon_head">
+          <div class="desc-title">{{ sectionDescriptions.dragon_head.title }}</div>
+          <div class="desc-text">{{ sectionDescriptions.dragon_head.desc }}</div>
+          <div v-if="sectionDescriptions.dragon_head.tips?.length" class="desc-tips">
+            <div class="desc-tips-title">💡 参数建议</div>
+            <div v-for="(tip, i) in sectionDescriptions.dragon_head.tips" :key="i" class="desc-tip-item">
+              <span class="desc-tip-dot">•</span> {{ tip }}
+            </div>
+          </div>
+        </div>
+        </div>
       </ElCollapseItem>
 
       <!-- 跌停翘板 -->
       <ElCollapseItem name="limit_down_qiao">
         <template #title><span>{{ limitDownQiaoTitle }}</span></template>
+        <div class="item-layout"><div class="item-left">
         <ElForm label-width="160px">
           <ElFormItem label="启用策略"><ElSwitch v-model="form.strategyConfigs.limit_down_qiao.enabled" @change="() => toggleStrategy('limit_down_qiao')" /></ElFormItem>
           <div :disabled="!form.strategyConfigs.limit_down_qiao.enabled" class="grid grid-cols-2 gap-4">
@@ -641,29 +773,21 @@ function onSweepParamChange() {
             </div>
           </div>
         </ElForm>
+              </div><div class="item-right" v-if="sectionDescriptions.limit_down_qiao">
+          <div class="desc-title">{{ sectionDescriptions.limit_down_qiao.title }}</div>
+          <div class="desc-text">{{ sectionDescriptions.limit_down_qiao.desc }}</div>
+          <div v-if="sectionDescriptions.limit_down_qiao.tips?.length" class="desc-tips">
+            <div class="desc-tips-title">💡 参数建议</div>
+            <div v-for="(tip, i) in sectionDescriptions.limit_down_qiao.tips" :key="i" class="desc-tip-item">
+              <span class="desc-tip-dot">•</span> {{ tip }}
+            </div>
+          </div>
+        </div>
+        </div>
       </ElCollapseItem>
     </ElCollapse>
   </ElCard>
-    </div>
-    <!-- 右侧描述面板 -->
-    <div class="config-right">
-      <div v-if="activeDescription" class="desc-panel">
-        <div class="desc-title">{{ activeDescription.title }}</div>
-        <div class="desc-text">{{ activeDescription.desc }}</div>
-        <div v-if="activeDescription.tips?.length" class="desc-tips">
-          <div class="desc-tips-title">💡 参数建议</div>
-          <div v-for="(tip, i) in activeDescription.tips" :key="i" class="desc-tip-item">
-            <span class="desc-tip-dot">•</span> {{ tip }}
-          </div>
-        </div>
-      </div>
-      <div v-else class="desc-panel">
-        <div class="desc-panel-title">📖 配置说明</div>
-        <div class="desc-panel-text">点击左侧折叠标题展开配置项，右侧将显示对应的参数说明和调优建议。</div>
-        
-      </div>
-    </div>
-  </div>
+</div>
 </template>
 
 <script lang="ts">
@@ -723,21 +847,29 @@ export default { name: 'StrategyConfigPanel' }
 /* 左右两栏布局 */
 .config-layout-v2 {
   min-height: calc(100vh - 180px);
+}
+
+/* 折叠项内部左右布局 */
+.item-layout {
   display: flex;
   gap: 16px;
   align-items: flex-start;
 }
-.config-left {
+.item-left {
   flex: 1;
   min-width: 0;
 }
-.config-right {
-  width: 280px;
+.item-right {
+  width: 240px;
   flex-shrink: 0;
   position: sticky;
-  max-height: calc(100vh - 180px);
-  overflow-y: auto;
   top: 60px;
+  max-height: calc(100vh - 200px);
+  overflow-y: auto;
+  background: var(--bg-elevated, #fff);
+  border: 1px solid var(--border-default, #e4e7ed);
+  border-radius: 8px;
+  padding: 16px;
 }
 
 /* 右侧描述面板 */
@@ -924,7 +1056,10 @@ export default { name: 'StrategyConfigPanel' }
   min-height: calc(100vh - 180px);
     flex-direction: column;
   }
-  .config-right {
+  .item-layout {
+    flex-direction: column;
+  }
+  .item-right {
     width: 100%;
     position: static;
     margin-top: 12px;
