@@ -629,10 +629,16 @@ class PortfolioBacktester:
         # 【P2-8修复:使用公共方法_calc_sentiment_score,消除重复】
         sentiment_score, _base_level = self._calc_sentiment_score(limit_up_count, limit_down_count, index_change)
         # 附加仓位系数信息(_print_market_environment专用)
+        # 【V66:4级情绪仓位——与实盘emotion_cycle对齐,减少震荡期跨度过大问题】
+        # 实盘4级: RISING=1.0 / DIFFERENTIATION=0.5 / CHAOS=0.25 / BEARISH=0.0
+        # 回测4级: 高潮≥70=1.0 / 分化55-70=0.7 / 震荡40-55=0.5 / 冰点<40=0.3
+        # V65问题: 震荡期(40-70)用0.5跨度过大,收益-50%但回撤仅-1%
         if sentiment_score >= 70:
             sentiment_level = "高潮期,仓位系数1.0"
+        elif sentiment_score >= 55:
+            sentiment_level = "分化期,仓位系数0.7"  # V66:拆分震荡期上半为分化期0.7
         elif sentiment_score >= 40:
-            sentiment_level = "震荡期,仓位系数0.5"  # 【V65修复】0.7→0.5,与实盘live_filter_pipeline对齐(回测过于乐观导致实盘偏差)
+            sentiment_level = "震荡期,仓位系数0.5"  # V66:震荡期下半保持0.5(实盘CHAOS=0.25对应)
         else:
             sentiment_level = "冰点期,仓位系数0.3"
         await self.log(f"   │  🔹 情绪周期评分:{sentiment_score}分 → {sentiment_level}")
@@ -1044,7 +1050,7 @@ class PortfolioBacktester:
                 sentiment_level, market_sentiment_score, limit_up_count, limit_down_count, index_change = await self._print_market_environment(prev_trade_date)
             else:
                 # 复用上一次计算的结果(情绪评分在非调仓日不会变化太多,1天差异可忽略)
-                sentiment_level = getattr(self, '_cached_sentiment_level', '震荡期,仓位系数0.5')  # 【V65修复】fallback同步改为0.5
+                sentiment_level = getattr(self, '_cached_sentiment_level', '震荡期,仓位系数0.5')  # 【V66】fallback用中间值,4级时多数情况是震荡/分化
                 market_sentiment_score = getattr(self, '_cached_sentiment_score', 50)
                 limit_up_count = getattr(self, '_cached_limit_up_count', 0)
                 limit_down_count = getattr(self, '_cached_limit_down_count', 0)

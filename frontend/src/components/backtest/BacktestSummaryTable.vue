@@ -12,6 +12,14 @@
 import { computed } from 'vue'
 import { ElCard, ElDescriptions, ElDescriptionsItem, ElTable, ElTableColumn, ElTag } from 'element-plus'
 import { STRATEGY_NAMES } from '@/config/backtestConstants'
+// 【V66:UI增强】添加净值曲线缩略图
+import { use } from 'echarts/core'
+import { CanvasRenderer } from 'echarts/renderers'
+import { LineChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent } from 'echarts/components'
+import VChart from 'vue-echarts'
+
+use([CanvasRenderer, LineChart, GridComponent, TooltipComponent])
 
 const props = defineProps<{
   result: any
@@ -26,7 +34,7 @@ const coreMetrics = computed(() => {
   const nvsLen = r.net_value_series?.length || 0
   const items = [
     { label: '累计收益', value: fmtPct(r.total_return), color: colorSign(r.total_return) },
-    { label: '年化收益', value: fmtPct(r.annualized_return) + (nvsLen < 250 ? ' ⚠️' : ''), color: colorSign(r.annualized_return) },
+    { label: '年化收益', value: fmtPct(r.annualized_return), color: colorSign(r.annualized_return) },
     { label: '最大回撤', value: fmtPct(r.max_drawdown), color: '#f56c6c' },
     { label: '夏普比率', value: fmtNum(r.sharpe_ratio), color: r.sharpe_ratio >= 1 ? 'var(--stock-down)' : 'var(--warning)' },
     { label: '胜率', value: fmtPct(r.win_rate), color: r.win_rate >= 50 ? 'var(--stock-down)' : 'var(--stock-up)' },
@@ -72,6 +80,42 @@ const metaInfo = computed(() => {
   }
 })
 
+/** 【V66:UI增强】净值+回撤缩略图 */
+const netValueMiniOption = computed(() => {
+  const r = props.result
+  if (!r?.net_value_series || r.net_value_series.length === 0) return null
+  const nvs = r.net_value_series.filter((d: any) => d.net_value != null && !isNaN(d.net_value))
+  if (nvs.length < 2) return null
+  const dates = nvs.map((d: any) => String(d.trade_date).slice(4)) // MM/DD
+  const values = nvs.map((d: any) => +(d.net_value).toFixed(4))
+  // drawdown
+  const ddSeries = r.drawdown_series || []
+  const ddMap = new Map(ddSeries.map((d: any) => [String(d.trade_date || d.date), d.drawdown ?? 0]))
+  const drawdowns = nvs.map((d: any) => {
+    const dd = ddMap.get(String(d.trade_date)) ?? 0
+    return +(dd > 1 ? dd : dd * 100).toFixed(4)
+  })
+  return {
+    tooltip: { trigger: 'axis', textStyle: { fontSize: 11 }, formatter: (p: any) => {
+      let html = `${p[0].axisValue}<br/>`
+      for (const s of p) {
+        html += `${s.marker} ${s.seriesName}: ${s.value}${s.seriesName.includes('回撤') ? '%' : ''}<br/>`
+      }
+      return html
+    }},
+    grid: { left: 40, right: 40, top: 20, bottom: 30 },
+    xAxis: { type: 'category', data: dates, axisLabel: { fontSize: 9, color: 'var(--text-muted)', interval: Math.floor(dates.length / 5) }, axisLine: { lineStyle: { color: 'var(--border-default)' } } },
+    yAxis: [
+      { type: 'value', name: '净值', axisLabel: { fontSize: 9, color: 'var(--text-muted)' }, splitLine: { lineStyle: { color: 'var(--border-light)' } }, nameTextStyle: { fontSize: 9, color: 'var(--text-muted)' } },
+      { type: 'value', name: '回撤%', position: 'right', axisLabel: { fontSize: 9, color: 'var(--text-muted)' }, splitLine: { show: false }, nameTextStyle: { fontSize: 9, color: 'var(--text-muted)' } },
+    ],
+    series: [
+      { name: '净值', type: 'line', data: values, smooth: true, lineStyle: { width: 2, color: 'var(--el-color-primary)' }, itemStyle: { color: 'var(--el-color-primary)' }, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'var(--info-bg)' }, { offset: 1, color: 'transparent' }] } }, showSymbol: false },
+      { name: '回撤(%)', type: 'line', yAxisIndex: 1, data: drawdowns, lineStyle: { width: 1, type: 'dashed', color: 'var(--stock-up)' }, itemStyle: { color: 'var(--stock-up)' }, areaStyle: { color: 'var(--stock-up-bg)' }, showSymbol: false },
+    ],
+  }
+})
+
 function fmtPct(val: number | null | undefined): string {
   if (val == null || isNaN(val)) return '--'
   return val.toFixed(2) + '%'
@@ -90,6 +134,12 @@ function colorSign(val: number | null | undefined): string {
 
 <template>
   <div class="backtest-summary-compact" v-if="result">
+    <!-- 【V66:UI增强】净值+回撤缩略图 -->
+    <ElCard v-if="netValueMiniOption" shadow="hover" class="summary-card" style="margin-bottom: 12px">
+      <template #header><span>📈 净值曲线 & 回撤</span></template>
+      <VChart :option="netValueMiniOption" autoresize style="height: 240px; width: 100%" />
+    </ElCard>
+
     <!-- 核心指标 Descriptions -->
     <ElCard shadow="hover" class="summary-card">
       <template #header>

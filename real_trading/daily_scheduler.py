@@ -793,12 +793,25 @@ class DailyScheduler:
         【V50:新增持仓保护——盈利≥5%的持仓不被调仓卖出,与回测hold_protection_threshold对齐】
         回测逻辑: _rebalance中盈利≥hold_protection_threshold(5%)的股票只能由保护性信号(冲高回落/止损/止盈等)
         自然退出,不被调仓卖出。实盘应保持一致。
+        
+        【V66-P0-1修复:使用get_positions_with_prices()获取真实盈亏,持仓保护终于生效】
+        旧bug: get_positions()不含current_price, profit_pct永远为0, hold_protection永远不触发
         """
         signals = signal_data.get("signals", [])
         signal_codes = {s.get("ts_code") for s in signals} if signals else set()
 
         pos_manager = self.engine.position_managers[self.account_id]
-        current_positions = pos_manager.get_positions()
+        # 【V66-P0-1:获取带实时价格的持仓数据】
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                current_positions = pos_manager.get_positions()  # fallback
+            else:
+                current_positions = loop.run_until_complete(pos_manager.get_positions_with_prices())
+        except Exception:
+            current_positions = pos_manager.get_positions()
+        
         position_codes = {p["ts_code"] for p in current_positions}
 
         # 【V50:持仓保护——盈利≥hold_protection_threshold的持仓不调出】
@@ -809,11 +822,11 @@ class DailyScheduler:
             if p["ts_code"] in signal_codes:
                 to_hold.append(p)
             else:
-                # 检查持仓保护: 盈利≥阈值时不调仓卖出
-                _current_price = p.get("current_price") or p.get("last_price") or p["buy_price"]
+                # 【V66-P0-1:使用current_price计算真实盈亏】
+                _current_price = p.get("current_price", 0) or p["buy_price"]
                 profit_pct = (_current_price - p["buy_price"]) / p["buy_price"] if p["buy_price"] > 0 else 0
                 if profit_pct >= hold_protection_threshold:
-                    logger.info(f"🛡️ 持仓保护：{p['name']}({p['ts_code']}) 盈利{profit_pct*100:.1f}%≥{hold_protection_threshold*100:.0f}%，不调出")
+                    logger.info(f"🛡️ 持仓保护：{p.get('name','')}({p['ts_code']}) 盈利{profit_pct*100:.1f}%≥{hold_protection_threshold*100:.0f}%，不调出")
                     to_hold.append(p)  # 盈利保护，保留
                 else:
                     to_sell.append(p)
@@ -843,12 +856,15 @@ class DailyScheduler:
         # 卖出
         for pos in rebalance_ops.get("to_sell", []):
             try:
-                sell_price = pos.get("current_price", 0) or pos.get("buy_price", 0)
+                # 【V66-P0-1:优先使用current_price(真实市价)而非buy_price(成本价)】
+                sell_price = pos.get("current_price", 0) or 0
+                if sell_price <= 0:
+                    sell_price = pos.get("buy_price", 0)
                 if sell_price <= 0:
                     # 尝试从MongoDB获取收盘价
                     try:
                         from core.managers import mongo_manager
-                        doc = await mongo_manager.find_one("stock_daily_ak_full", {"ts_code": pos["ts_code"], "trade_date": trade_date})
+                        doc = await mongo_manager.find_one("stock_daily_ak_full", {"ts_code": pos["ts_code"], "trade_date": int(trade_date)})
                         if doc and doc.get("close", 0) > 0:
                             sell_price = doc["close"]
                     except Exception:

@@ -43,7 +43,8 @@ def load_live_trades(days: int = 30) -> list:
     
     # 过滤最近N天
     cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
-    recent = [t for t in all_trades if str(t.get('date', '')) >= cutoff]
+    # 【V66-P0-2修复】兼容trade_history.json格式: 字段为sell_date而非date
+    recent = [t for t in all_trades if str(t.get('sell_date', t.get('date', ''))) >= cutoff]
     return recent
 
 
