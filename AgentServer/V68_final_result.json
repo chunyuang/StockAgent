@@ -7011,7 +7011,7 @@
       "start_date": "20250105",
       "end_date": "20250331",
       "strategy_name": "龙头低吸",
-      "generated_at": "2026-05-28T00:31:28.301245"
+      "generated_at": "2026-05-28T00:41:46.034053"
     }
   },
   "total_return": 315.51940942876837,
@@ -20710,10 +20710,10 @@
         "halt": 0,
         "other": 0
       },
-      "execution_time_ms": 22387
+      "execution_time_ms": 21358
     }
   ],
-  "execution_time_ms": 22387,
+  "execution_time_ms": 21358,
   "calmar_ratio": 1000.0,
   "sortino_ratio": 27.349637262421325,
   "benchmark_return_pct": 3.1397413462888712,
