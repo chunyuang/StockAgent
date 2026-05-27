@@ -63,6 +63,11 @@ class FactorQualityChecker:
         "sentiment_score": 50,  # 中性情绪
     }
     
+    # 【V74-P0-1:可动态计算的因子 - 缺失时由factor_engine从已有字段补算,不应中止回测】
+    # opening_pct_chg = (open - pre_close) / pre_close * 100
+    # pullback_pct/pullback_days = 从历史涨停数据计算(设0则龙头低吸跳过该股)
+    COMPUTABLE_FACTORS = {"opening_pct_chg", "pullback_pct", "pullback_days"}
+    
     def __init__(self, strict_mode: bool = False):
         """
         Args:
@@ -184,6 +189,10 @@ class FactorQualityChecker:
     def should_abort_backtest(self, report: FactorQualityReport) -> Tuple[bool, str]:
         """判断是否应该中止回测
         
+        【V74-P0-1修复:可动态计算的因子(COMPUTABLE_FACTORS)缺失时不应中止回测】
+        这些因子由factor_engine从已有字段(open/pre_close等)动态补算,
+        缺失只是表示MongoDB未预存储,不代表数据不可用。
+        
         Args:
             report: 因子质量报告
             
@@ -195,9 +204,16 @@ class FactorQualityChecker:
                 return True, f"严格模式下检测到严重数据缺失: {report.message}"
             else:
                 # 非严格模式下，仅当中止核心因子缺失时才中止
-                core_missing = set(report.missing_factors + report.empty_factors) & self.CORE_FACTORS
+                all_missing = set(report.missing_factors + report.empty_factors)
+                # 【V74-P0-1:排除可动态计算的因子,它们由factor_engine补算,不应导致中止】
+                core_missing = (self.CORE_FACTORS & all_missing) - self.COMPUTABLE_FACTORS
                 if core_missing:
                     return True, f"核心因子缺失: {', '.join(core_missing)}"
+                # 可计算因子缺失时仅警告,不中止
+                computable_missing = self.COMPUTABLE_FACTORS & all_missing
+                if computable_missing:
+                    # 不中止,但日志已由check_factor_quality输出
+                    pass
         
         return False, ""
     

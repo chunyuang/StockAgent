@@ -247,6 +247,30 @@ class FactorEngine:
                     (result["open"] - result["pre_close"]) / safe_pre_close_open * 100
                 ).fillna(0)
 
+            # ========= 【V74-P0-2:动态补算缺失因子】=========
+            # 以下因子在MongoDB早期数据中可能缺失,但可从已有字段计算:
+            # 1. opening_pct_chg = (open - pre_close) / pre_close * 100
+            # 2. pullback_pct/pullback_days需要历史涨停数据(龙头低吸专用)
+            # 当MongoDB字段缺失时,factor_df不会有该列→FactorQualityChecker中止回测
+            # 修复:检查并补算,确保因子始终存在(即使值为0/NaN也不应导致回测中止)
+            if "opening_pct_chg" not in result.columns or result.get("opening_pct_chg", pd.Series(dtype=float)).isna().all():
+                if "open" in result.columns and "pre_close" in result.columns:
+                    safe_pc = result["pre_close"].replace(0, np.nan)
+                    result["opening_pct_chg"] = ((result["open"] - result["pre_close"]) / safe_pc * 100).fillna(0)
+                    logger.debug(f"FACTOR_ENGINE: [V74] opening_pct_chg从open/pre_close动态补算")
+                else:
+                    result["opening_pct_chg"] = 0.0
+                    logger.debug(f"FACTOR_ENGINE: [V74] opening_pct_chg无法计算(缺open/pre_close),设为0")
+
+            if "pullback_pct" not in result.columns:
+                result["pullback_pct"] = 0.0
+                logger.debug(f"FACTOR_ENGINE: [V74] pullback_pct缺失,设为0(龙头低吸将跳过无回调数据股)")
+
+            if "pullback_days" not in result.columns:
+                result["pullback_days"] = 0.0
+                logger.debug(f"FACTOR_ENGINE: [V74] pullback_days缺失,设为0(龙头低吸将跳过无回调数据股)")
+            # ========= V74动态补算结束 =========
+
             # ========= 【V18未来函数修复】：查询T-1数据，生成_prev后缀因子 =========
             # 【P1-5修复(V22):复用_prev_date_cached,避免重复聚合查询】
             try:
