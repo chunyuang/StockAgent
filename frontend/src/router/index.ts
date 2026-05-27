@@ -17,7 +17,7 @@ const routes: RouteRecordRaw[] = [
         path: '',
         name: 'UltraShortBacktestV2',
         component: () => import('@/views/backtest/UltraShortBacktestViewV2.vue'),
-        meta: { title: '超短策略回测', hideTitle: true },
+        meta: { title: '超短策略回测' },
       },
       {
         path: 'stock/:code',

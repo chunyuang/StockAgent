@@ -307,25 +307,45 @@ const lossTop5 = computed(() => {
 const netValueChartOption = computed(() => {
   const result = props.result
   if (!result?.net_value_series || result.net_value_series.length === 0) return null
-  // net_value已归一化(1.0起始), 直接使用(过滤null/NaN)
-  const netValues = result.net_value_series
+  // 日期轴(先定义,供drawdowns使用)
+  const dates = result.net_value_series
     .filter((d: any) => d.net_value != null && !isNaN(d.net_value))
-    .map((d: any) => +(d.net_value).toFixed(4))
+    .map((d: any) => {
+      const raw = String(d.trade_date)
+      return raw.length === 8 ? `${raw.substring(0,4)}-${raw.substring(4,6)}-${raw.substring(6,8)}` : raw
+    })
+
+  // net_value已归一化(1.0起始), 直接使用(过滤null/NaN)
+  const filteredNV = result.net_value_series
+    .filter((d: any) => d.net_value != null && !isNaN(d.net_value))
+  const netValues = filteredNV.map((d: any) => +(d.net_value).toFixed(4))
+
+  // drawdown: 优先从net_value_series中直接取(每项已有drawdown字段)
+  // 回退到drawdown_series按日期对齐(兼容旧数据)
   // drawdown是小数(0.003=0.3%), ×100转百分比
   // 【V65防御】如果drawdown>1则认为已是百分比,不再×100(避免双重×100)
-  // 【BUG修复】drawdown_series可能比net_value_series少第一条(首日无回撤),需要按日期对齐
-  const ddMap = new Map<string, number>()
-  if (result.drawdown_series) {
-    for (const d of result.drawdown_series) {
+  const hasDrawdownInNV = filteredNV.length > 0 && filteredNV[0].drawdown != null
+  let drawdowns: number[]
+  if (hasDrawdownInNV) {
+    // 直接从net_value_series取drawdown, 无需日期对齐
+    drawdowns = filteredNV.map((d: any) => {
       const dd = d.drawdown ?? 0
-      ddMap.set(String(d.trade_date), +(dd > 1 ? dd : dd * 100).toFixed(4))
+      return +(dd > 1 ? dd : dd * 100).toFixed(4)
+    })
+  } else {
+    // 兼容旧数据: 从drawdown_series按日期对齐
+    const ddMap = new Map<string, number>()
+    if (result.drawdown_series) {
+      for (const d of result.drawdown_series) {
+        const dd = d.drawdown ?? 0
+        // 日期统一为8位数字字符串再格式化,确保与dates格式匹配
+        const rawDate = String(d.trade_date).padStart(8, '0')
+        const fmtDate = `${rawDate.substring(0,4)}-${rawDate.substring(4,6)}-${rawDate.substring(6,8)}`
+        ddMap.set(fmtDate, +(dd > 1 ? dd : dd * 100).toFixed(4))
+      }
     }
+    drawdowns = dates.map((d: string) => ddMap.get(d) ?? 0)
   }
-  const drawdowns = dates.map((d: string) => ddMap.get(String(d)) ?? 0)
-  const dates = result.net_value_series.map((d: any) => {
-    const raw = String(d.trade_date)
-    return raw.length === 8 ? `${raw.substring(0,4)}-${raw.substring(4,6)}-${raw.substring(6,8)}` : raw
-  })
 
   // 🔧 Bug1修复: 计算基准净值线(从benchmark_data累乘pct_chg)
   const benchmarkData = result.benchmark_data || []
