@@ -17,6 +17,12 @@ from datetime import datetime
 
 from pre_buy_risk_check import PreBuyRiskChecker, RiskCheckResult
 
+# 【V66-P1-3:策略名称映射,用于从GLOBAL_RISK读取策略级参数】
+try:
+    from AgentServer.nodes.backtest_engine.strategy_defaults import STRATEGY_NAME_TO_ID
+except ImportError:
+    STRATEGY_NAME_TO_ID = {}
+
 
 class PaperTradingEngineWithRisk:
     """
@@ -149,13 +155,22 @@ class PaperTradingEngineWithRisk:
     
     async def place_order_with_risk_check(self, account_id: str, ts_code: str, name: str, 
                                     buy_price: float, shares: int, 
-                                    strategy: str = "未知", slippage: float = 0.002) -> Dict:
+                                    strategy: str = "未知", slippage: float = None) -> Dict:
         """
         带风控检查的买入下单方法
         
         Args:
             同 PaperTradingEngine.place_order 参数
+            slippage: 滑点百分比, None则从策略级参数读取(V66-P1-3)
         """
+        # 【V66-P1-3:slippage从策略级参数读取,不再硬编码0.002】
+        if slippage is None:
+            try:
+                from AgentServer.nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+                strategy_id = STRATEGY_NAME_TO_ID.get(strategy, '')
+                slippage = GLOBAL_RISK.get('slippage_pct', {}).get(strategy_id, 0.002)
+            except Exception:
+                slippage = 0.002  # 最终fallback
         # 1. 检查账户是否存在
         if account_id not in self.accounts:
             return {
@@ -231,14 +246,15 @@ class PaperTradingEngineWithRisk:
     def _get_initial_balance(self, account_id: str) -> float:
         """获取账户初始余额
         
-        这里简化处理，实际应该从账户信息中获取
+        【V66-P1-4修复:返回initial_balance而非current_balance】
+        current_balance会随交易变化,用其作为回撤分母会低估回撤率
         """
         if account_id not in self.accounts:
             return 100000.0
         
         account = self.accounts[account_id]
-        # 返回当前余额作为初始余额的估算
-        return account.current_balance
+        # 优先用initial_balance,不存在则用current_balance作为fallback
+        return getattr(account, 'initial_balance', account.current_balance)
     
     def get_rejection_list(self, account_id: str = None, limit: int = 50, 
                          start_date: str = None, end_date: str = None) -> List[Dict]:

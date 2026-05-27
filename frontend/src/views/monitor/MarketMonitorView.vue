@@ -408,7 +408,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <div class="sl">
           <div v-if="!signals.length" class="empty">启动后扫描获取信号</div>
           <div v-for="sig in filteredSignals" :key="sig.ts_code + sig.strategy" class="sig-row" :title="`${sig.ts_code} ${sig.stock_name} | ${sig.strategy_name} | 量比${sig.volume_ratio?.toFixed(1) || '-'} | 换手${sig.turnover_rate?.toFixed(1) || '-'}% | ${sig.reason}`">
-            <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || '#909399'" class="tag-solid" style="min-width:52px;text-align:center">{{ sig.strategy_name }}</ElTag><ElTag v-if="sig.signal_status === 'executed'" size="small" type="success">已买</ElTag><ElTag v-if="sig.signal_status === 'skipped'" size="small" type="warning">跳过</ElTag><ElTag v-if="sig.signal_status === 'expired'" size="small" type="info">过期</ElTag><span class="code">{{ sig.ts_code }}</span><span class="name">{{ sig.stock_name }}</span><span v-if="sig.signal_status === 'new' && sigRemaining(sig) >= 0" class="expire-tag" :class="{ urgent: sigRemaining(sig) < 60000 }">⏱{{ formatRemaining(sigRemaining(sig)) }}</span><span v-if="sig.volume_ratio" class="factor">量比{{ sig.volume_ratio.toFixed(1) }}</span><span v-if="sig.turnover_rate" class="factor">换手{{ sig.turnover_rate.toFixed(1) }}%</span><template v-if="sig.key_factors"><span v-for="(v, k) in sig.key_factors" :key="k" class="factor kf">{{ v }}</span></template><span :class="sig.pct_chg >= 0 ? 'up' : 'down'" class="pct ml-auto" style="font-weight:600">{{ sig.pct_chg >= 0 ? '+' : '' }}{{ sig.pct_chg.toFixed(1) }}%</span><ElButton v-if="!dryRun && sig.signal_status === 'new'" size="small" type="danger" plain @click="quickBuy(sig)" class="btn-xs">买</ElButton><ElButton v-if="sig.decision_detail" size="small" type="info" plain @click="openTradeDetail(sig.ts_code)" class="btn-xs">🔍</ElButton><ElButton v-if="sig.layer_trace" size="small" type="warning" plain @click="openScanTrace(sig.ts_code)" class="btn-xs">🧪</ElButton>
+            <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="min-width:52px;text-align:center">{{ sig.strategy_name }}</ElTag><ElTag v-if="sig.signal_status === 'executed'" size="small" type="success">已买</ElTag><ElTag v-if="sig.signal_status === 'skipped'" size="small" type="warning">跳过</ElTag><ElTag v-if="sig.signal_status === 'expired'" size="small" type="info">过期</ElTag><span class="code">{{ sig.ts_code }}</span><span class="name">{{ sig.stock_name }}</span><span v-if="sig.signal_status === 'new' && sigRemaining(sig) >= 0" class="expire-tag" :class="{ urgent: sigRemaining(sig) < 60000 }">⏱{{ formatRemaining(sigRemaining(sig)) }}</span><span v-if="sig.volume_ratio" class="factor">量比{{ sig.volume_ratio.toFixed(1) }}</span><span v-if="sig.turnover_rate" class="factor">换手{{ sig.turnover_rate.toFixed(1) }}%</span><template v-if="sig.key_factors"><span v-for="(v, k) in sig.key_factors" :key="k" class="factor kf">{{ v }}</span></template><span :class="sig.pct_chg >= 0 ? 'up' : 'down'" class="pct ml-auto" style="font-weight:600">{{ sig.pct_chg >= 0 ? '+' : '' }}{{ sig.pct_chg.toFixed(1) }}%</span><ElButton v-if="!dryRun && sig.signal_status === 'new'" size="small" type="danger" plain @click="quickBuy(sig)" class="btn-xs">买</ElButton><ElButton v-if="sig.decision_detail" size="small" type="info" plain @click="openTradeDetail(sig.ts_code)" class="btn-xs">🔍</ElButton><ElButton v-if="sig.layer_trace" size="small" type="warning" plain @click="openScanTrace(sig.ts_code)" class="btn-xs">🧪</ElButton>
           </div>
         </div>
 
@@ -420,7 +420,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <div class="sl">
           <div v-if="!positions.length" class="empty">暂无持仓</div>
           <div v-for="pos in sortedPositions" :key="pos.ts_code" class="pos-card">
-            <div class="pos-top"><ElTag size="small" :color="strategyMeta[pos.strategy]?.color || '#909399'" class="tag-solid" style="font-size:10px;min-width:48px;text-align:center">{{ pos.strategy_name || strategyCN(pos.strategy) }}</ElTag><span class="code">{{ pos.ts_code }}</span><span class="name">{{ pos.stock_name }}</span><span :class="pos.profit_pct >= 0 ? 'up' : 'down'" class="pct">{{ pos.profit_pct >= 0 ? '+' : '' }}{{ pos.profit_pct.toFixed(1) }}%</span><span class="mini-bar"><span class="mini-bar-fill" :style="{ width: Math.min(Math.abs(pos.profit_pct) / 10 * 100, 100) + '%' }" :class="pos.profit_pct >= 0 ? 'bar-up' : 'bar-down'"></span></span><span v-if="pos.today_buy > 0" class="t1-tag">T+1</span><ElButton size="small" type="danger" plain @click="quickSell(pos)" :disabled="pos.available_qty <= 0" class="btn-xs ml-auto">卖出</ElButton><ElButton size="small" type="info" plain @click="openTradeDetail(pos.ts_code)" class="btn-xs">详情</ElButton></div>
+            <div class="pos-top"><ElTag size="small" :color="strategyMeta[pos.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="font-size:10px;min-width:48px;text-align:center">{{ pos.strategy_name || strategyCN(pos.strategy) }}</ElTag><span class="code">{{ pos.ts_code }}</span><span class="name">{{ pos.stock_name }}</span><span :class="pos.profit_pct >= 0 ? 'up' : 'down'" class="pct">{{ pos.profit_pct >= 0 ? '+' : '' }}{{ pos.profit_pct.toFixed(1) }}%</span><span class="mini-bar"><span class="mini-bar-fill" :style="{ width: Math.min(Math.abs(pos.profit_pct) / 10 * 100, 100) + '%' }" :class="pos.profit_pct >= 0 ? 'bar-up' : 'bar-down'"></span></span><span v-if="pos.today_buy > 0" class="t1-tag">T+1</span><ElButton size="small" type="danger" plain @click="quickSell(pos)" :disabled="pos.available_qty <= 0" class="btn-xs ml-auto">卖出</ElButton><ElButton size="small" type="info" plain @click="openTradeDetail(pos.ts_code)" class="btn-xs">详情</ElButton></div>
             <div class="pos-info"><span>{{ pos.shares }}股</span><span>成本{{ pos.cost_price.toFixed(2) }}</span><span>现价{{ pos.current_price.toFixed(2) }}</span><span v-if="pos.market_value" class="mv">市值{{ (pos.market_value / 10000).toFixed(1) }}万</span><span v-if="pos.profit_amount != null" :class="pos.profit_amount >= 0 ? 'up' : 'down'" class="pamt">{{ pos.profit_amount >= 0 ? '+' : '' }}¥{{ Math.abs(pos.profit_amount).toFixed(0) }}</span></div>
             <div v-if="pos.stop_loss_pct != null" class="pos-risk-row">
               <div class="risk-track"><div class="risk-fill" :style="{ width: Math.max(0, Math.min(100, (pos.profit_pct + pos.stop_loss_pct) / (pos.stop_loss_pct + (pos.take_profit_pct || 7)) * 100)) + '%' }" :class="pos.profit_pct + pos.stop_loss_pct < 1 ? 'danger' : pos.profit_pct + pos.stop_loss_pct < 2 ? 'warning' : 'safe'"></div></div>
@@ -476,7 +476,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
               <div class="td2-card"><div class="td2-label">⏰ 时间</div><div class="td2-val">{{ tradeDetailData.buy.time }}</div></div>
               <div class="td2-card"><div class="td2-label">💰 价格</div><div class="td2-val">¥{{ tradeDetailData.buy.price?.toFixed(2) }}</div></div>
               <div class="td2-card"><div class="td2-label">📊 数量</div><div class="td2-val">{{ tradeDetailData.buy.shares }}股</div></div>
-              <div class="td2-card"><div class="td2-label">🎯 策略</div><div class="td2-val"><ElTag size="small" :color="strategyMeta[tradeDetailData.buy.strategy]?.color || '#909399'" class="tag-solid">{{ strategyCN(tradeDetailData.buy.strategy) }}</ElTag></div></div>
+              <div class="td2-card"><div class="td2-label">🎯 策略</div><div class="td2-val"><ElTag size="small" :color="strategyMeta[tradeDetailData.buy.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(tradeDetailData.buy.strategy) }}</ElTag></div></div>
             </div>
             <div class="td2-reason">📋 选股原因: {{ tradeDetailData.buy.reason }}</div>
             <template v-if="tradeDetailData.buy.decision_detail">
@@ -686,8 +686,8 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .mm { height: 100%; display: flex; flex-direction: column; background: var(--bg-base); overflow: hidden; min-width: 0; }
 /* 顶部状态栏 */
 .mm-header { display: flex; align-items: center; gap: 12px; padding: 8px 16px; background: var(--bg-elevated); border-bottom: 1px solid var(--border-default); flex-shrink: 0; flex-wrap: wrap; min-width: 0; }
-.cb-pause-btn { font-size: 12px; padding: 2px 8px; border-radius: 4px; border: 1px solid #e6a23c; color: #e6a23c; background: transparent; cursor: pointer; }
-.cb-pause-btn:hover { background: #e6a23c; color: #fff; }
+.cb-pause-btn { font-size: 12px; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--warning); color: var(--warning); background: transparent; cursor: pointer; }
+.cb-pause-btn:hover { background: var(--warning); color: var(--text-inverse); }
 .hh-left { display: flex; align-items: center; gap: 6px; flex-shrink: 0; flex-wrap: wrap; }
 .hh-status { display: flex; align-items: center; gap: 5px; font-weight: 600; font-size: 13px; }
 .hh-status .dot { width: 8px; height: 8px; border-radius: 50%; }
@@ -768,9 +768,9 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .pos-risk-row { margin-top: 4px; }
 .risk-track { height: 4px; background: var(--bg-muted); border-radius: 2px; overflow: hidden; }
 .risk-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
-.risk-fill.safe { background: linear-gradient(90deg, #e6a23c, #67c23a); }
-.risk-fill.warning { background: linear-gradient(90deg, #e6a23c, #f56c6c); }
-.risk-fill.danger { background: #f56c6c; animation: risk-pulse 1s infinite; }
+.risk-fill.safe { background: linear-gradient(90deg, var(--warning), var(--success)); }
+.risk-fill.warning { background: linear-gradient(90deg, var(--warning), var(--stock-up)); }
+.risk-fill.danger { background: var(--stock-up); animation: risk-pulse 1s infinite; }
 .risk-labels-row { display: flex; justify-content: space-between; font-size: 10px; margin-top: 2px; }
 @keyframes risk-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
 .t1-tag { font-size: 10px; color: var(--el-color-warning); background: var(--warning-bg); padding: 1px 4px; border-radius: 3px; font-weight: 600; }
@@ -800,9 +800,9 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .tl-action { font-size: 11px; font-weight: 600; min-width: 20px; }
 .tl-action.buy { color: var(--stock-up); }
 .tl-action.sell { color: var(--stock-down); }
-.tl-action.blocked { color: var(--text-tertiary, #909399); font-size: 11px; }
-.tl-strat { font-size: 10px; color: var(--el-color-primary); background: var(--bg-tertiary, #f0f2f5); padding: 1px 5px; border-radius: 3px; white-space: nowrap; }
-.tl-blocked-reason { font-size: 12px; color: var(--text-tertiary, #909399); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 300px; }
+.tl-action.blocked { color: var(--text-tertiary, var(--text-tertiary)); font-size: 11px; }
+.tl-strat { font-size: 10px; color: var(--el-color-primary); background: var(--bg-tertiary); padding: 1px 5px; border-radius: 3px; white-space: nowrap; }
+.tl-blocked-reason { font-size: 12px; color: var(--text-tertiary, var(--text-tertiary)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 300px; }
 .tl-detail { font-size: 11px; color: var(--text-secondary); }
 .tl-reason { font-size: 11px; color: var(--text-tertiary); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .history-tag { font-size: 12px; color: var(--el-color-primary); background: var(--info-bg); padding: 4px 8px; border-radius: 4px; margin-bottom: 4px; font-weight: 600; }
@@ -960,27 +960,27 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 
 /* 【V50.1】交易详情弹窗-结构化卡片 */
 .td2 { font-size: 13px; }
-.td2-sec { margin-bottom: 16px; padding: 12px; background: var(--bg-secondary, #f5f7fa); border-radius: 8px; }
-.td2-title { font-size: 14px; font-weight: 600; margin-bottom: 10px; color: var(--text-primary, #303133); }
+.td2-sec { margin-bottom: 16px; padding: 12px; background: var(--bg-secondary); border-radius: 8px; }
+.td2-title { font-size: 14px; font-weight: 600; margin-bottom: 10px; color: var(--text-primary, var(--text-primary)); }
 .td2-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
-.td2-card { padding: 8px 10px; background: var(--bg-elevated, #fff); border-radius: 6px; border: 1px solid var(--border-default, #e4e7ed); }
+.td2-card { padding: 8px 10px; background: var(--bg-elevated, var(--text-inverse)); border-radius: 6px; border: 1px solid var(--border-default); }
 .td2-card.sm { padding: 6px 8px; }
-.td2-label { font-size: 11px; color: var(--text-tertiary, #909399); margin-bottom: 2px; }
-.td2-val { font-size: 14px; font-weight: 600; color: var(--text-primary, #303133); }
-.td2-reason { padding: 8px 10px; margin: 8px 0; background: var(--bg-elevated, #fff); border-radius: 6px; border-left: 3px solid var(--el-color-primary); font-size: 13px; color: var(--text-secondary, #606266); }
+.td2-label { font-size: 11px; color: var(--text-tertiary, var(--text-tertiary)); margin-bottom: 2px; }
+.td2-val { font-size: 14px; font-weight: 600; color: var(--text-primary, var(--text-primary)); }
+.td2-reason { padding: 8px 10px; margin: 8px 0; background: var(--bg-elevated, var(--text-inverse)); border-radius: 6px; border-left: 3px solid var(--el-color-primary); font-size: 13px; color: var(--text-secondary, var(--text-secondary)); }
 .td2-chain { margin-top: 8px; }
-.td2-chain-title { font-size: 12px; font-weight: 600; color: var(--text-secondary, #606266); margin: 8px 0 6px; padding-left: 4px; border-left: 2px solid var(--el-color-primary); }
+.td2-chain-title { font-size: 12px; font-weight: 600; color: var(--text-secondary, var(--text-secondary)); margin: 8px 0 6px; padding-left: 4px; border-left: 2px solid var(--el-color-primary); }
 .td2-pipeline { display: flex; flex-direction: column; gap: 3px; }
-.td2-pipe-step { display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: var(--bg-elevated, #fff); border-radius: 4px; font-size: 12px; }
-.td2-pipe-step.passed { border-left: 2px solid #67c23a; }
+.td2-pipe-step { display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: var(--bg-elevated, var(--text-inverse)); border-radius: 4px; font-size: 12px; }
+.td2-pipe-step.passed { border-left: 2px solid var(--success); }
 .td2-pipe-icon { font-size: 12px; flex-shrink: 0; }
-.td2-pipe-name { font-weight: 500; min-width: 100px; color: var(--text-primary, #303133); }
-.td2-pipe-detail { color: var(--text-tertiary, #909399); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.td2-pipe-name { font-weight: 500; min-width: 100px; color: var(--text-primary, var(--text-primary)); }
+.td2-pipe-detail { color: var(--text-tertiary, var(--text-tertiary)); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .td2-factors { display: flex; flex-wrap: wrap; gap: 6px; }
-.td2-factor { padding: 4px 8px; background: var(--bg-elevated, #fff); border-radius: 4px; font-size: 12px; }
-.td2-fk { color: var(--text-tertiary, #909399); margin-right: 4px; }
-.td2-fv { font-weight: 500; color: var(--text-primary, #303133); }
-.td2-empty { text-align: center; padding: 16px; color: var(--text-tertiary, #909399); font-size: 13px; }
+.td2-factor { padding: 4px 8px; background: var(--bg-elevated, var(--text-inverse)); border-radius: 4px; font-size: 12px; }
+.td2-fk { color: var(--text-tertiary, var(--text-tertiary)); margin-right: 4px; }
+.td2-fv { font-weight: 500; color: var(--text-primary, var(--text-primary)); }
+.td2-empty { text-align: center; padding: 16px; color: var(--text-tertiary, var(--text-tertiary)); font-size: 13px; }
 
 /* 风控状态栏 */
 .risk-bar { background: var(--bg-elevated); border-bottom: 1px solid var(--border-default); flex-shrink: 0; transition: background 0.3s; }
@@ -1004,10 +1004,10 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .rb-ds-dot.err { color: var(--stock-up); }
 
 /* 紧急平仓按钮 */
-.emergency-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; padding: 4px 14px; border: 2px solid #f56c6c; border-radius: 6px; background: transparent; cursor: pointer; font-size: 12px; font-weight: 700; color: #f56c6c; transition: all 0.2s; }
+.emergency-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; padding: 4px 14px; border: 2px solid var(--stock-up); border-radius: 6px; background: transparent; cursor: pointer; font-size: 12px; font-weight: 700; color: var(--stock-up); transition: all 0.2s; }
 .emergency-btn.active { animation: emergency-pulse 1.5s infinite; }
 .emergency-btn.disabled { opacity: 0.4; cursor: not-allowed; animation: none; }
-.emergency-btn:not(.disabled):hover { background: #f56c6c; color: #fff; }
+.emergency-btn:not(.disabled):hover { background: var(--stock-up); color: var(--text-inverse); }
 .emergency-text { white-space: nowrap; }
 @keyframes emergency-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(245, 108, 108, 0.5); } 50% { box-shadow: 0 0 0 8px rgba(245, 108, 108, 0); } }
 

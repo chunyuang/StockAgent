@@ -73,14 +73,29 @@ def load_backtest_trades(task_id: str = None) -> list:
 
 
 def analyze_slippage_calibration(live_trades: list) -> dict:
-    """分析实盘滑点，与回测假设对比"""
+    """分析实盘滑点，与回测假设对比
+    
+    【V66-P0-2修复:兼容trade_history.json的实际字段结构】
+    旧bug: 用t.get('action')=='buy'判断买入侧，但trade_history.json没有action字段
+    新: 兼容多种格式:
+      - paper_trading.place_order记录: 有slippage_actual_pct字段
+      - trade_history.json: 有buy_date/sell_date/profit_pct等,无action/slippage字段
+    """
     by_strategy = defaultdict(list)
     
     for t in live_trades:
         strategy = t.get('strategy', '未知')
-        # 【V65修复】兼容多种交易记录格式: action字段或buy_date/sell_date推断
-        is_buy = t.get('action') == 'buy' or (t.get('buy_date') and not t.get('sell_date'))
-        slippage = t.get('slippage_pct') or t.get('slippage_actual_pct')  # 兼容两种字段名
+        # 兼容多种格式判断买入侧记录:
+        # 1. 有action字段且action=='buy'(理想格式)
+        # 2. 有buy_date但无sell_date(未平仓记录)
+        # 3. 有slippage_actual_pct字段的记录(paper_trading V65返回值)
+        is_buy = (
+            t.get('action') == 'buy' or
+            (t.get('buy_date') and not t.get('sell_date')) or
+            ('slippage_actual_pct' in t)
+        )
+        # 滑点值: 优先slippage_actual_pct(paper_trading V65记录), 其次slippage_pct
+        slippage = t.get('slippage_actual_pct') or t.get('slippage_pct')
         if is_buy and slippage is not None:
             by_strategy[strategy].append(float(slippage))
     
@@ -108,11 +123,17 @@ def analyze_slippage_calibration(live_trades: list) -> dict:
 
 
 def analyze_win_rate_calibration(live_trades: list, backtest_trades: list) -> dict:
-    """对比实盘和回测的胜率/盈亏比"""
+    """对比实盘和回测的胜率/盈亏比
+    
+    【V66-P0-2修复:兼容trade_history.json的实际字段结构】
+    旧bug: 用action=='sell'判断卖出侧,但trade_history.json无action字段
+    新: 用sell_date存在且profit_pct有值判断已平仓记录
+    """
     # 实盘胜率
     live_by_strategy = defaultdict(list)
     for t in live_trades:
-        if t.get('action') == 'sell' and t.get('profit_pct') is not None:
+        # 【V66:用sell_date+profit_pct判断已平仓记录,兼容无action字段的trade_history.json】
+        if t.get('sell_date') and t.get('profit_pct') is not None:
             strategy = t.get('strategy', '未知')
             live_by_strategy[strategy].append(t['profit_pct'])
     

@@ -69,7 +69,7 @@ const account = computed<AccountInfo>(() => status.value?.account ?? { total_ass
 const positionRatio = computed(() => account.value.market_value > 0 ? (account.value.market_value / account.value.total_assets * 100).toFixed(1) : '0')
 const isRunning = computed(() => status.value?.is_running ?? false)
 const tradeMode = computed(() => status.value?.trade_mode ?? 'simulated')
-const tradeModeLabel = computed(() => modeMeta[tradeMode.value] || { text: tradeMode.value, color: '#909399' })
+const tradeModeLabel = computed(() => modeMeta[tradeMode.value] || { text: tradeMode.value, color: 'var(--text-tertiary)' })
 
 // 今日盈亏 — 从 timeline + 持仓浮盈计算
 const todayPnl = computed(() => {
@@ -104,8 +104,8 @@ const todayPnl = computed(() => {
 // 风控仪表盘
 const healthStatus = computed(() => health.value?.overall_status ?? 'unknown')
 const healthColor = computed(() => {
-  const c: Record<string, string> = { healthy: '#67c23a', degraded: '#e6a23c', critical: '#f56c6c', dead: '#303133' }
-  return c[healthStatus.value] || '#909399'
+  const c: Record<string, string> = { healthy: 'var(--success)', degraded: 'var(--warning)', critical: 'var(--stock-up)', dead: 'var(--text-primary)' }
+  return c[healthStatus.value] || 'var(--text-tertiary)'
 })
 const dailyDrawdown = computed(() => {
   const dd = health.value?.checks?.drawdown
@@ -123,7 +123,7 @@ const strategyHealthList = computed(() => {
   const checks = health.value?.checks
   if (!checks) {
     return Object.entries(strategyMeta).map(([key, meta]) => ({
-      key, name: meta.cn, icon: meta.icon, status: 'unknown', color: '#909399'
+      key, name: meta.cn, icon: meta.icon, status: 'unknown', color: 'var(--text-tertiary)'
     }))
   }
   const result: { key: string; name: string; icon: string; status: string; color: string }[] = []
@@ -135,7 +135,7 @@ const strategyHealthList = computed(() => {
       name: meta.cn,
       icon: meta.icon,
       status: check?.status || 'unknown',
-      color: check?.status === 'healthy' ? '#67c23a' : check?.status === 'degraded' ? '#e6a23c' : check?.status === 'critical' ? '#f56c6c' : '#909399'
+      color: check?.status === 'healthy' ? 'var(--success)' : check?.status === 'degraded' ? 'var(--warning)' : check?.status === 'critical' ? 'var(--stock-up)' : 'var(--text-tertiary)'
     })
   }
   return result
@@ -702,7 +702,7 @@ onUnmounted(() => {
           <div class="risk-label">日回撤</div>
           <ElProgress 
             :percentage="Math.min(100, dailyDrawdown.value / dailyDrawdown.threshold * 100)" 
-            :color="dailyDrawdown.value < 2 ? '#67c23a' : dailyDrawdown.value < 4 ? '#e6a23c' : '#f56c6c'"
+            :color="dailyDrawdown.value < 2 ? 'var(--success)' : dailyDrawdown.value < 4 ? 'var(--warning)' : 'var(--stock-up)'"
             :stroke-width="12"
             :format="() => `${dailyDrawdown.value.toFixed(1)}%`"
           />
@@ -900,7 +900,7 @@ onUnmounted(() => {
                 <span class="pos-code" @click="openPositionDetail(pos)">{{ pos.ts_code }}</span>
                 <span v-if="pos.risk_level && pos.risk_level !== 'normal'" class="pos-risk-dot" :class="pos.risk_level" :title="pos.risk_level === 'critical' ? '触及止损区(5秒检查)' : '接近止损(10秒检查)'"></span>
                 <span class="pos-name">{{ pos.stock_name }}</span>
-                <ElTag size="small" :color="strategyColor(pos.strategy)" effect="dark" style="font-size:10px;border:none;color:#fff">{{ strategyIcon(pos.strategy) }}</ElTag>
+                <ElTag size="small" :color="strategyColor(pos.strategy)" effect="dark" style="font-size:10px;border:none;color:var(--text-inverse)">{{ strategyIcon(pos.strategy) }}</ElTag>
               </div>
               <div class="pos-right">
                 <span class="pos-pnl" :class="pos.profit_pct >= 0 ? 'profit' : 'loss'">
@@ -1030,7 +1030,7 @@ onUnmounted(() => {
         <!-- 基础信息 -->
         <div class="pd-header">
           <div class="pd-title">{{ posDetailData.ts_code }}</div>
-          <ElTag v-if="posDetailData.position?.strategy" :color="strategyColor(posDetailData.position.strategy)" effect="dark" style="color:#fff;border:none">{{ strategyIcon(posDetailData.position.strategy) }} {{ strategyCN(posDetailData.position.strategy) }}</ElTag>
+          <ElTag v-if="posDetailData.position?.strategy" :color="strategyColor(posDetailData.position.strategy)" effect="dark" style="color:var(--text-inverse);border:none">{{ strategyIcon(posDetailData.position.strategy) }} {{ strategyCN(posDetailData.position.strategy) }}</ElTag>
         </div>
         <!-- 当前状态 -->
         <div v-if="posDetailData.position" class="pd-section">
@@ -1117,20 +1117,20 @@ onUnmounted(() => {
   font-size: 14px !important;
   font-weight: 800 !important;
   padding: 8px 18px !important;
-  background: #f56c6c !important;
-  color: #fff !important;
-  border: 2px solid #c45656 !important;
+  background: var(--stock-up) !important;
+  color: var(--text-inverse) !important;
+  border: 2px solid var(--stock-up) !important;
   animation: emergency-flash 1.2s ease-in-out infinite !important;
   text-shadow: 0 1px 2px rgba(0,0,0,0.3);
 }
 .emergency-btn-v2:disabled {
-  background: #fab6b6 !important;
-  color: #fff !important;
-  border-color: #fab6b6 !important;
+  background: rgba(242,54,69,0.4) !important;
+  color: var(--text-inverse) !important;
+  border-color: rgba(242,54,69,0.4) !important;
   animation: none !important;
 }
 .emergency-btn-v2:not(:disabled):hover {
-  background: #dd4a4a !important;
+  background: var(--stock-up) !important;
   transform: scale(1.05);
 }
 @keyframes emergency-flash {
@@ -1156,29 +1156,29 @@ onUnmounted(() => {
 .risk-threshold { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
 .loss-boxes { display: flex; gap: 6px; align-items: center; }
 .loss-box { font-size: 18px; color: var(--border-default); transition: color 0.3s; }
-.loss-box.filled { color: #f56c6c; }
+.loss-box.filled { color: var(--stock-up); }
 .loss-count { font-size: 12px; color: var(--text-tertiary); margin-left: 8px; }
 .circuit-status { font-size: 14px; font-weight: bold; }
 .circuit-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; animation: blink 1.5s infinite; }
 .circuit-status.critical .circuit-dot { animation: blink 0.5s infinite; }
 .circuit-actions { margin-top: 6px; display: flex; gap: 6px; }
 .circuit-btn { font-size: 11px; padding: 2px 10px; border-radius: 4px; cursor: pointer; border: 1px solid; }
-.circuit-btn.pause { border-color: #e6a23c; color: #e6a23c; background: transparent; }
-.circuit-btn.pause:hover { background: #e6a23c; color: #fff; }
-.circuit-btn.resume { border-color: #67c23a; color: #67c23a; background: transparent; }
-.circuit-btn.resume:hover { background: #67c23a; color: #fff; }
+.circuit-btn.pause { border-color: var(--warning); color: var(--warning); background: transparent; }
+.circuit-btn.pause:hover { background: var(--warning); color: var(--text-inverse); }
+.circuit-btn.resume { border-color: var(--success); color: var(--success); background: transparent; }
+.circuit-btn.resume:hover { background: var(--success); color: var(--text-inverse); }
 @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 .strategy-health-item { display: flex; justify-content: space-between; padding: 3px 0; font-size: 12px; }
 .watchdog-details { margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--border-default); }
 .watchdog-item { display: flex; justify-content: space-between; font-size: 11px; padding: 2px 0; }
-.wd-name { color: #888; }
+.wd-name { color: var(--text-muted); }
 
 /* 数据源状态 */
 .ds-list { display: flex; flex-direction: column; gap: 4px; }
 .ds-item { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .ds-dot { width: 8px; height: 8px; border-radius: 50%; }
-.ds-dot.online { background: #67c23a; }
-.ds-dot.offline { background: #f56c6c; }
+.ds-dot.online { background: var(--success); }
+.ds-dot.offline { background: var(--stock-up); }
 .ds-name { color: var(--text-secondary); min-width: 40px; }
 .ds-info { color: var(--text-tertiary); }
 .ds-calls { color: var(--text-muted); font-size: 11px; margin-left: auto; }
@@ -1194,8 +1194,8 @@ onUnmounted(() => {
 .param-strategy { margin-bottom: 10px; padding: 6px; background: var(--bg-muted); border-radius: 4px; }
 .param-strategy-header { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: bold; margin-bottom: 4px; }
 .param-edit-btn, .param-save-btn, .param-cancel-btn { cursor: pointer; font-size: 14px; padding: 0 4px; }
-.param-save-btn { color: #67c23a; }
-.param-cancel-btn { color: #f56c6c; }
+.param-save-btn { color: var(--success); }
+.param-cancel-btn { color: var(--stock-up); }
 .param-action-btns { display: flex; gap: 4px; }
 .param-fields { display: flex; flex-direction: column; gap: 2px; }
 .param-field { display: flex; justify-content: space-between; font-size: 11px; padding: 1px 0; }
@@ -1213,7 +1213,7 @@ onUnmounted(() => {
 .sig-strategy { font-weight: bold; font-size: 13px; }
 .sig-code { color: var(--text-tertiary); font-size: 12px; }
 .sig-pct { font-weight: bold; margin-left: auto; }
-.sig-countdown { font-size: 11px; color: #e6a23c; }
+.sig-countdown { font-size: 11px; color: var(--warning); }
 .sig-buy-btn { margin-left: 4px; padding: 2px 8px; font-size: 11px; }
 .sig-reason { font-size: 11px; color: var(--text-tertiary); margin-top: 4px; }
 .no-signals { padding: 20px 0; }
@@ -1240,11 +1240,11 @@ onUnmounted(() => {
 /* 持仓盈亏 */
 .pnl-chart { margin-bottom: 8px; }
 .total-pnl { text-align: center; font-size: 28px; font-weight: bold; margin: 8px 0; }
-.total-pnl.profit { color: var(--stock-down, #f56c6c); }
-.total-pnl.loss { color: var(--stock-up, #67c23a); }
+.total-pnl.profit { color: var(--stock-down, var(--stock-up)); }
+.total-pnl.loss { color: var(--stock-up, var(--success)); }
 .today-pnl { text-align: center; font-size: 14px; font-weight: bold; margin-bottom: 8px; }
-.today-pnl.profit { color: var(--stock-down, #f56c6c); }
-.today-pnl.loss { color: var(--stock-up, #67c23a); }
+.today-pnl.profit { color: var(--stock-down, var(--stock-up)); }
+.today-pnl.loss { color: var(--stock-up, var(--success)); }
 .fund-info { margin: 8px 0; }
 .fund-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; color: var(--text-tertiary); }
 .pos-list { margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--border-default); }
@@ -1255,30 +1255,30 @@ onUnmounted(() => {
 .pos-code { color: var(--text-primary); font-size: 12px; font-weight: 500; cursor: pointer; }
 .pos-code:hover { text-decoration: underline; }
 .pos-risk-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-left: 3px; vertical-align: middle; }
-.pos-risk-dot.warning { background: #e6a23c; }
-.pos-risk-dot.critical { background: #f56c6c; animation: risk-pulse 1s infinite; }
+.pos-risk-dot.warning { background: var(--warning); }
+.pos-risk-dot.critical { background: var(--stock-up); animation: risk-pulse 1s infinite; }
 .pos-name { color: var(--text-tertiary); font-size: 11px; }
 .pos-pnl { font-weight: bold; font-size: 13px; }
-.pos-pnl.profit { color: var(--stock-down, #f56c6c); }
-.pos-pnl.loss { color: var(--stock-up, #67c23a); }
-.pos-sell-btn { font-size: 10px; padding: 1px 6px; border-radius: 3px; border: 1px solid var(--stock-up, #67c23a); color: var(--stock-up, #67c23a); background: transparent; cursor: pointer; line-height: 1.4; }
-.pos-sell-btn:hover { background: var(--stock-up, #67c23a); color: #fff; }
+.pos-pnl.profit { color: var(--stock-down, var(--stock-up)); }
+.pos-pnl.loss { color: var(--stock-up, var(--success)); }
+.pos-sell-btn { font-size: 10px; padding: 1px 6px; border-radius: 3px; border: 1px solid var(--stock-up, var(--success)); color: var(--stock-up, var(--success)); background: transparent; cursor: pointer; line-height: 1.4; }
+.pos-sell-btn:hover { background: var(--stock-up, var(--success)); color: var(--text-inverse); }
 .pos-risk-bar { margin-top: 3px; }
 .risk-track { height: 4px; background: var(--bg-muted); border-radius: 2px; position: relative; overflow: hidden; }
 .risk-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
-.risk-fill.safe { background: linear-gradient(90deg, #e6a23c, #67c23a); }
-.risk-fill.warning { background: linear-gradient(90deg, #e6a23c, #f56c6c); }
-.risk-fill.danger { background: #f56c6c; animation: risk-pulse 1s infinite; }
+.risk-fill.safe { background: linear-gradient(90deg, var(--warning), var(--success)); }
+.risk-fill.warning { background: linear-gradient(90deg, var(--warning), var(--stock-up)); }
+.risk-fill.danger { background: var(--stock-up); animation: risk-pulse 1s infinite; }
 .risk-labels { display: flex; justify-content: space-between; font-size: 10px; margin-top: 1px; }
-.rl-sl { color: var(--stock-up, #67c23a); }
-.rl-tp { color: var(--stock-down, #f56c6c); }
+.rl-sl { color: var(--stock-up, var(--success)); }
+.rl-tp { color: var(--stock-down, var(--stock-up)); }
 .rl-dist { color: var(--text-muted); }
-.rl-dist.danger { color: #f56c6c; font-weight: bold; }
+.rl-dist.danger { color: var(--stock-up); font-weight: bold; }
 .risk-marker-trail { position: absolute; top: -3px; transform: translateX(-50%); font-size: 9px; z-index: 2; filter: drop-shadow(0 0 2px rgba(255,200,0,0.6)); }
-.rl-trail { color: #e6a23c; font-weight: bold; }
+.rl-trail { color: var(--warning); font-weight: bold; }
 .risk-level-tag { display: inline-block; font-size: 10px; padding: 0 4px; border-radius: 3px; margin-top: 2px; font-weight: bold; }
-.risk-level-tag.critical { background: rgba(245,108,108,0.2); color: #f56c6c; animation: risk-pulse 1s infinite; }
-.risk-level-tag.warning { background: rgba(230,162,60,0.2); color: #e6a23c; }
+.risk-level-tag.critical { background: rgba(245,108,108,0.2); color: var(--stock-up); animation: risk-pulse 1s infinite; }
+.risk-level-tag.warning { background: rgba(230,162,60,0.2); color: var(--warning); }
 @keyframes risk-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
 .pos-risk-line { display: flex; gap: 8px; font-size: 10px; margin-top: 2px; }
 .pos-sl { color: var(--stock-up); }
@@ -1294,9 +1294,9 @@ onUnmounted(() => {
 .lp-card.lp-down { background: rgba(103,194,58,0.1); border: 1px solid rgba(103,194,58,0.2); }
 .lp-card.lp-broken { background: rgba(230,162,60,0.1); border: 1px solid rgba(230,162,60,0.2); }
 .lp-num { font-size: 22px; font-weight: bold; }
-.lp-up .lp-num { color: #f56c6c; }
-.lp-down .lp-num { color: #67c23a; }
-.lp-broken .lp-num { color: #e6a23c; }
+.lp-up .lp-num { color: var(--stock-up); }
+.lp-down .lp-num { color: var(--success); }
+.lp-broken .lp-num { color: var(--warning); }
 .lp-label { font-size: 11px; color: var(--text-tertiary); margin-top: 2px; }
 
 /* 信号详情弹窗 */
@@ -1348,8 +1348,8 @@ onUnmounted(() => {
 .pd-cell { display: flex; flex-direction: column; gap: 2px; }
 .pd-cl { font-size: 11px; color: var(--text-muted); }
 .pd-cv { font-size: 13px; font-weight: 500; }
-.pd-cv.profit { color: var(--stock-down, #f56c6c); }
-.pd-cv.loss { color: var(--stock-up, #67c23a); }
+.pd-cv.profit { color: var(--stock-down, var(--stock-up)); }
+.pd-cv.loss { color: var(--stock-up, var(--success)); }
 .pd-layers { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-default); }
 .pd-layer-row { display: flex; gap: 8px; padding: 2px 0; font-size: 11px; }
 .pd-lk { color: var(--text-muted); min-width: 80px; }

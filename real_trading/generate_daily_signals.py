@@ -525,7 +525,8 @@ class RealTradingSignalGenerator:
         plan.append("#### 交易纪律：")
         plan.append("1. 严格执行止损，触及止损价立即卖出，不得抱有幻想")
         plan.append(f"2. 单票仓位不得超过{GLOBAL_RISK['max_position_per_stock']*100:.0f}%，总仓位不得超过{GLOBAL_RISK['max_total_position']*100:.0f}%")
-        plan.append(f"3. 所有持仓最多持有{self.config['max_hold_days']}天，到期强制卖出")
+        # 【V66-P1-2:显示实际max_hold_days而非硬编码3天】
+        plan.append(f"3. 各策略持仓期限不同(半路追涨{GLOBAL_RISK.get('mid_chase',{}).get('max_hold_days',3)}天/龙头低吸{GLOBAL_RISK.get('dragon_head',{}).get('max_hold_days',5)}天/跌停翘板{GLOBAL_RISK.get('limit_up_reversal',{}).get('max_hold_days',3)}天)，到期或触发卖出信号时卖出")
         plan.append("4. 优先买排名靠前的标的，开盘不及预期直接放弃")
         
         return "\n".join(plan)

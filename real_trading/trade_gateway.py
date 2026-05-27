@@ -82,7 +82,7 @@ class BaseTradeGateway(ABC):
         pass
     
     @abstractmethod
-    def get_realtime_quote(self, ts_code: str) -> Dict:
+    async def get_realtime_quote(self, ts_code: str) -> Dict:
         """获取实时行情"""
         pass
 
@@ -235,21 +235,19 @@ class SimulatedGateway(BaseTradeGateway):
         # 模拟返回所有订单
         return list(self.orders.values())
     
-    def get_realtime_quote(self, ts_code: str) -> Dict:
+    async def get_realtime_quote(self, ts_code: str) -> Dict:
         if not self.connected:
             raise Exception("网关未连接")
         
-        # 【P1修复：从MongoDB获取最近交易日行情，替代硬编码假数据】
+        # 【V66-P1-8:改为async,直接await替代run_until_complete】
         try:
-            import asyncio
             from core.managers import mongo_manager
-            loop = asyncio.get_event_loop()
-            doc = loop.run_until_complete(mongo_manager.find_one(
+            doc = await mongo_manager.find_one(
                 "stock_daily_ak_full",
                 {"ts_code": ts_code},
                 projection={"ts_code": 1, "trade_date": 1, "close": 1, "open": 1, "high": 1, "low": 1, "vol": 1, "amount": 1, "pct_chg": 1},
                 sort=[("trade_date", -1)],
-            ))
+            )
             if doc and doc.get("close", 0) > 0:
                 return {
                     "ts_code": ts_code,
@@ -370,7 +368,7 @@ class TradingService:
             logger.error(f"❌ 卖出失败：{e}")
             return {"success": False, "msg": str(e)}
     
-    def auto_trade_by_signal(self, signals: List[Dict], max_position: float = None, max_single_position: float = None) -> List[Dict]:
+    async def auto_trade_by_signal(self, signals: List[Dict], max_position: float = None, max_single_position: float = None) -> List[Dict]:
         """根据信号自动调仓
         
         策略：先卖出不在新信号中的旧持仓，再买入新信号标的。
@@ -412,7 +410,7 @@ class TradingService:
             if ts_code not in [s["ts_code"] for s in signals]:
                 pos = current_positions[ts_code]
                 # 获取最新价格
-                quote = self.gateway.get_realtime_quote(ts_code)
+                quote = await self.gateway.get_realtime_quote(ts_code)
                 sell_price = quote["price"] * 0.995  # 市价略低保证成交
                 result = self.sell(ts_code, sell_price, pos["shares"], "market")
                 results.append(result)
@@ -427,7 +425,7 @@ class TradingService:
                 continue  # 已经持仓的跳过
             
             # 计算可买数量
-            quote = self.gateway.get_realtime_quote(ts_code)
+            quote = await self.gateway.get_realtime_quote(ts_code)
             buy_price = quote["price"] * 1.005  # 市价略高保证成交
             max_buy_shares = int(min(available_balance, max_per_stock) / buy_price / 100) * 100
             

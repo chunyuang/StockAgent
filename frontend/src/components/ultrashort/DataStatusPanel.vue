@@ -1,14 +1,22 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { ElCard, ElEmpty, ElProgress, ElTable, ElTableColumn, ElTag, ElButton, ElMessage } from 'element-plus'
+import { ElCard, ElProgress, ElTable, ElTableColumn, ElTag, ElButton, ElMessage } from 'element-plus'
 import StrategyFactorPanel from './StrategyFactorPanel.vue'
+// 【V66:UI增强】数据可视化图表
+import { use } from 'echarts/core'
+import { CanvasRenderer } from 'echarts/renderers'
+import { HeatmapChart, BarChart, LineChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent, VisualMapComponent, DataZoomComponent } from 'echarts/components'
+import VChart from 'vue-echarts'
+
+use([CanvasRenderer, HeatmapChart, BarChart, LineChart, GridComponent, TooltipComponent, VisualMapComponent, DataZoomComponent])
 
 interface DailyCoverage { date: string; total: number; factor_rate: number; groups: Record<string, number> }
 interface CollectionInfo { count: number; date_range: { start: string; end: string } | null; error?: string }
 interface DataSource { name: string; type: string; status: string; status_text: string; rate_limit: string; coverage: string; gotchas: string[]; scripts: string[] }
 interface RecommendedRange { start: string; end: string; factor_rate: string }
 interface StrategyItem { name: string; key: string; available: boolean; coverage: number; missing_factors: string[]; desc: string }
-interface ActionItem { action: string; command: string; desc: string; priority: string; api?: string }
+interface ActionItem { action: string; command: string; desc: string; priority: string; api?: string; note?: string }
 interface DataAlignment { date: string; stock_daily_count: number; daily_basic_count: number; common: number; only_in_basic: number; only_in_daily: number; only_in_basic_samples: string[] }
 interface HealthBreakdown { factor_score: number; factor_max: number; freshness_score: number; freshness_max: number; source_score: number; source_max: number }
 
@@ -273,6 +281,18 @@ watch(() => props.visible, (v) => { if (v && !status.value) fetchData() })
           <div v-if="st.missing_factors.length" class="st-missing">缺少: {{ st.missing_factors.join(', ') }}</div>
         </div>
       </div>
+    </ElCard>
+
+    <!-- 【V66:UI增强】因子覆盖热力图 -->
+    <ElCard v-if="heatmapOption" style="margin-top: 12px">
+      <template #header><span>🗺️ 因子覆盖热力图</span></template>
+      <VChart :option="heatmapOption" autoresize style="height: 260px; width: 100%" />
+    </ElCard>
+
+    <!-- 【V66:UI增强】股票数&覆盖率趋势 -->
+    <ElCard v-if="stockCountOption" style="margin-top: 12px">
+      <template #header><span>📊 每日股票数 & 因子覆盖率</span></template>
+      <VChart :option="stockCountOption" autoresize style="height: 240px; width: 100%" />
     </ElCard>
 
     <!-- 问题诊断 -->

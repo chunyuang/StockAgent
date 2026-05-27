@@ -3,8 +3,8 @@
  * 因子参考面板 V2 — 按分类卡片展示，带搜索/筛选/展开折叠
  */
 import { ref, computed } from 'vue'
-import { ElInput, ElTag, ElSelect, ElOption, ElCollapse, ElCollapseItem, ElTooltip, ElEmpty } from 'element-plus'
-import { Search, Warning, CircleCheck, DataLine, TrendCharts, Cpu } from '@element-plus/icons-vue'
+import { ElInput, ElTag, ElSelect, ElOption, ElCollapse, ElCollapseItem, ElEmpty } from 'element-plus'
+import { Search } from '@element-plus/icons-vue'
 
 interface FactorDef {
   name: string

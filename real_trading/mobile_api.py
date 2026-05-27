@@ -142,7 +142,7 @@ async def test_push(config: PushConfig, api_key: str = Depends(get_api_key)):
     }
     
     try:
-        success = pusher.push(test_signal)
+        success = await pusher.push(test_signal)
         if success:
             return {"code": 0, "msg": "推送测试成功"}
         else:
