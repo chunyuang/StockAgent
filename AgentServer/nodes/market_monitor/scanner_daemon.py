@@ -781,6 +781,8 @@ class ScannerDaemon:
                         f"Not restarting."
                     )
                     self._state = ScannerState.ERROR
+                    # 【Phase4.4:重启3次失败→飞书紧急告警+可选紧急减仓】
+                    await self._send_emergency_alert("Scanner重启{0}次失败,已停止自动重启!".format(self._restart_count))
                     break
 
                 self._restart_count += 1
@@ -823,6 +825,45 @@ class ScannerDaemon:
             "last_health_ts": self._last_health_ts,
             "config": asdict(self.config),
         }
+    
+    # ==================== Phase4.4: 紧急告警 ====================
+    
+    async def _send_emergency_alert(self, message: str):
+        """重启3次失败→飞书紧急告警+可选紧急减仓"""
+        logger.critical(f"[DAEMON_ALERT] {message}")
+        
+        # 1. 飞书告警
+        try:
+            from core.managers.live.signal_pusher import SignalPusher
+            pusher = SignalPusher()
+            pusher.push_signal(f"🚨 **紧急告警**\n{message}\n\n请立即检查Scanner状态!")
+            logger.info("[DAEMON_ALERT] 飞书告警已发送")
+        except Exception as e:
+            logger.warning(f"[DAEMON_ALERT] 飞书告警失败: {e}")
+        
+        # 2. 可选紧急减仓(如果scanner对象可用)
+        try:
+            from nodes.web.api.scanner import _get_scanner_instance
+            scanner = _get_scanner_instance()
+            if scanner and scanner._broker:
+                positions = scanner._broker.get_positions()
+                if positions:
+                    # 减仓50%(保留利润最高的)
+                    sorted_pos = sorted(positions, key=lambda p: p.profit_pct, reverse=True)
+                    keep_count = max(1, len(sorted_pos) // 2)
+                    sell_positions = sorted_pos[keep_count:]
+                    if sell_positions:
+                        for pos in sell_positions:
+                            if pos.available_qty > 0 and not scanner._is_limit_down(pos.ts_code):
+                                scanner._broker.place_order(
+                                    ts_code=pos.ts_code, stock_name=pos.stock_name,
+                                    side="sell", quantity=pos.available_qty,
+                                    price=pos.current_price, order_type="market",
+                                    strategy=pos.strategy, reason="daemon_emergency_reduce",
+                                )
+                        logger.warning(f"[DAEMON_ALERT] 紧急减仓{len(sell_positions)}只")
+        except Exception as e:
+            logger.warning(f"[DAEMON_ALERT] 紧急减仓失败: {e}")
 
 
 # ---------------------------------------------------------------------------
