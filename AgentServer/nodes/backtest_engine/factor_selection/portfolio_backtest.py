@@ -160,9 +160,9 @@ class PortfolioBacktester:
         return 0
 
     def _cleanup_sold_position(self, code: str):
-        """【V76-P1-5:统一清理卖出后的跟踪状态,避免残留数据】
+        """【V77-P0-1:统一清理卖出后的跟踪状态,避免残留数据】
 
-        清理: _cost_basis, _cost_basis_date, _trailing_peak_profit, stock_to_strategy映射等
+        清理: _cost_basis, _cost_basis_date, _trailing_peak_profit, stock_to_strategy映射, _prev_day_close等
         """
         if code in self._cost_basis:
             del self._cost_basis[code]
@@ -170,6 +170,12 @@ class PortfolioBacktester:
             del self._cost_basis_date[code]
         if hasattr(self, '_trailing_peak_profit') and code in self._trailing_peak_profit:
             del self._trailing_peak_profit[code]
+        # 【V77-P0-1:清理stock_to_strategy残留,避免已卖出股票的策略映射泄漏到后续选股】
+        if hasattr(self, 'stock_to_strategy') and code in self.stock_to_strategy:
+            del self.stock_to_strategy[code]
+        # 【V77-P0-1:清理_prev_day_close残留】
+        if hasattr(self, '_prev_day_close') and code in self._prev_day_close:
+            del self._prev_day_close[code]
 
     def _check_early_sell_signals(self, code: str, strategies: list, cost: float,
                                          open_price: float, close_price: float) -> tuple:
@@ -339,6 +345,16 @@ class PortfolioBacktester:
             # 唯一例外: 冲高回落有pullback_profit_lock_threshold(V47龙头低吸8%),
             # 此时冲高回落被跳过,利润锁定可以正常触发
 
+            # 【V77-P0-3:利润保护被利润锁定替代——避免0.2%滑点损失】
+            # 利润保护以close价卖出(扣滑点0.2%),利润锁定也以close价卖出(不扣滑点V70-P0-1)
+            # 当利润保护触发(close<open+profit>=2%)且盘中冲高≥6%+回撤≥2.5%时,利润锁定更优
+            # 因为利润锁定条件更严格(冲高≥6%+回撤≥2.5%),是利润保护的升级版,且不扣滑点
+            if early_sell_price > 0 and early_sell_reason == '利润保护':
+                high_p = p.get('high', 0)
+                if high_p > 0 and _close_p > 0 and cost > 0:
+                    if self._check_intraday_profit_lock(cost, high_p, _close_p, code):
+                        early_sell_reason = '利润锁定'  # 替换为利润锁定(不扣滑点)
+
             if early_sell_price > 0:
                 forced_sell_prices[code] = early_sell_price
                 forced_sell_codes.append((code, early_sell_reason))
@@ -364,25 +380,15 @@ class PortfolioBacktester:
                     forced_sell_codes.append((code, f'止盈({tp_pct*100:.1f}%)'))
                     forced_sell_codes_set.add(code)
 
-            # === 2.5 盘中利润锁定(V42) ===
-            # 盘中冲高≥6%但从高点回撤≥2.5%→以close价卖出
-            # 此信号在止盈之下(止盈价未触达但利润已大幅回吐),保护利润不被完全回撤
-            # 【V55-BUG-001修复:提取为_check_intraday_profit_lock方法,消除重复代码】
-            if code not in forced_sell_codes_set:
-                high_p = p.get('high', p.get('close', 0))
-                _close_p = p.get('close', 0)
-                if high_p > 0 and _close_p > 0 and cost > 0:
-                    if self._check_intraday_profit_lock(cost, high_p, _close_p, code):
-                        forced_sell_prices[code] = _close_p
-                        forced_sell_codes.append((code, '利润锁定'))
-                        forced_sell_codes_set.add(code)
-
-            # === 2.7 【V76-P1-5:追踪止损实现】 ===
-            # 盈利激活后,从最高盈利点回撤超过trailing_stop_pct→以close价卖出
-            # 与利润锁定的区别: 利润锁定用high vs close的日内回撤,追踪止损用历史peak vs close的跨日回撤
-            # 激活条件: 当前利润>=trailing_stop_activation(默认2%,即cost*1.02)
-            # 触发条件: 从历史最高利润回撤>=trailing_stop_pct(如2%→从+5%回撤到+2.9%触发)
-            # 注意: 追踪止损只触发一次(每笔交易),不会反复触发
+            # === 2.5 【V77-P0-2:追踪止损——多日持仓优先使用跨日回撤】 ===
+            # 盈利激活后,从历史最高利润回撤>=trailing_stop_pct→以close价卖出
+            # 与利润锁定的区别: 利润锁定用high vs close的日内回撤,追踪止损用历史peak close vs current close的跨日回撤
+            # 【V77关键修复:原V76实现追踪止损0次触发(死代码)】
+            # 原因: 追踪止损在利润锁定之后检查,而利润锁定总是先触发(条件重叠)
+            # 修复: 追踪止损移到利润锁定之前,增加hold_days>1条件:
+            #   - hold_days=1: 只用利润锁定(日内机制,当天买当天卖就足够)
+            #   - hold_days>1: 优先用追踪止损(跨日机制,更精确的峰值跟踪)
+            #   - 每天都更新peak,确保跨日peak跟踪正确
             if code not in forced_sell_codes_set:
                 _close_p = p.get('close', 0)
                 if cost > 0 and _close_p > 0:
@@ -398,29 +404,44 @@ class PortfolioBacktester:
                             _trailing_stop_pct = _ts_pct
                             break
                     if _trailing_stop_pct is not None and _trailing_stop_pct > 0:
-                        # 追踪止损已配置,检查激活条件(利润≥trailing_stop_pct即激活)
+                        # 更新peak: 只要当前利润>=激活阈值就更新(不管hold_days)
                         if current_profit_pct >= _trailing_stop_pct:
-                            # 已激活,记录历史最高利润
                             if not hasattr(self, '_trailing_peak_profit'):
-                                self._trailing_peak_profit = {}  # {code: peak_profit_pct}
+                                self._trailing_peak_profit = {}
                             _prev_peak = self._trailing_peak_profit.get(code, 0)
-                            _current_peak = max(_prev_peak, current_profit_pct)
-                            self._trailing_peak_profit[code] = _current_peak
-                            # 检查回撤:从peak回撤>=trailing_stop_pct→触发
+                            self._trailing_peak_profit[code] = max(_prev_peak, current_profit_pct)
+                        # 多日持仓: 检查追踪止损触发条件
+                        _buy_date_ts = self._cost_basis_date.get(code)
+                        _is_multi_day = False
+                        if _buy_date_ts is not None:
+                            try:
+                                _hold_d = self._calc_trade_days_held(int(str(_buy_date_ts)), int(str(trade_date)))
+                                _is_multi_day = _hold_d > 1
+                            except (ValueError, TypeError):
+                                pass
+                        if _is_multi_day and code in getattr(self, '_trailing_peak_profit', {}):
+                            _current_peak = self._trailing_peak_profit[code]
                             _drawdown_from_peak = _current_peak - current_profit_pct
                             if _drawdown_from_peak >= _trailing_stop_pct and current_profit_pct > 0:
                                 forced_sell_prices[code] = _close_p
                                 forced_sell_codes.append((code, f'追踪止损(峰{_current_peak*100:.1f}%→现{current_profit_pct*100:.1f}%)'))
                                 forced_sell_codes_set.add(code)
-                                # 清理追踪状态
                                 if code in self._trailing_peak_profit:
                                     del self._trailing_peak_profit[code]
-                        else:
-                            # 未激活,不检查回撤
-                            pass
-                    elif _trailing_stop_pct is None:
-                        # 未配置trailing_stop_pct的策略,跳过(不强制要求所有策略都配)
-                        pass
+
+            # === 2.6 盘中利润锁定(V42) ===
+            # 盘中冲高≥6%但从高点回撤≥2.5%→以close价卖出
+            # 此信号在止盈之下(止盈价未触达但利润已大幅回吐),保护利润不被完全回撤
+            # 【V77:移到追踪止损之后,单日持仓用利润锁定,多日持仓优先用追踪止损】
+            # 【V55-BUG-001修复:提取为_check_intraday_profit_lock方法,消除重复代码】
+            if code not in forced_sell_codes_set:
+                high_p = p.get('high', p.get('close', 0))
+                _close_p = p.get('close', 0)
+                if high_p > 0 and _close_p > 0 and cost > 0:
+                    if self._check_intraday_profit_lock(cost, high_p, _close_p, code):
+                        forced_sell_prices[code] = _close_p
+                        forced_sell_codes.append((code, '利润锁定'))
+                        forced_sell_codes_set.add(code)
 
             # === 3. 超时强卖 ===
             if check_timeout and code not in forced_sell_codes_set:
@@ -4342,6 +4363,11 @@ class PortfolioBacktester:
                 if isinstance(_strategies, str): _strategies = [_strategies]
                 early_sell_price, early_sell_reason = self._check_early_sell_signals(
                     code, _strategies, cost, open_p, _close_p)
+                # 【V77-P0-3:利润保护被利润锁定替代——避免0.2%滑点损失】
+                if early_sell_price > 0 and early_sell_reason == '利润保护':
+                    if high_p > 0 and _close_p > 0 and cost > 0:
+                        if self._check_intraday_profit_lock(cost, high_p, _close_p, code):
+                            early_sell_reason = '利润锁定'
                 if early_sell_price > 0:
                     sell_codes.append(code)
                     pos_mgr.mark_sold(code, early_sell_reason)  # V29:统一管理
@@ -4583,6 +4609,11 @@ class PortfolioBacktester:
                 if isinstance(_strategies, str): _strategies = [_strategies]
                 early_sell_price, early_sell_reason = self._check_early_sell_signals(
                     ts_code, _strategies, cost_basis, open_price, close_price)
+                # 【V77-P0-3:利润保护被利润锁定替代——避免0.2%滑点损失】
+                if early_sell_price > 0 and early_sell_reason == '利润保护':
+                    if high_price > 0 and close_price > 0 and cost_basis > 0:
+                        if self._check_intraday_profit_lock(cost_basis, high_price, close_price, ts_code):
+                            early_sell_reason = '利润锁定'
                 early_sell_triggered = early_sell_price > 0
                 if early_sell_triggered:
                     sell_price = early_sell_price
@@ -4825,6 +4856,11 @@ class PortfolioBacktester:
             if isinstance(_strategies, str): _strategies = [_strategies]
             early_sell_price, early_sell_reason = self._check_early_sell_signals(
                 code, _strategies, cost, open_p, _close_p)
+            # 【V77-P0-3:利润保护被利润锁定替代——避免0.2%滑点损失】
+            if early_sell_price > 0 and early_sell_reason == '利润保护':
+                if high_p > 0 and _close_p > 0 and cost > 0:
+                    if self._check_intraday_profit_lock(cost, high_p, _close_p, code):
+                        early_sell_reason = '利润锁定'
             if early_sell_price > 0:
                 result[code] = early_sell_reason
                 continue
