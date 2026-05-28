@@ -125,6 +125,12 @@ class MarketScanner:
         self._last_snapshot_save: float = 0.0
         self._snapshot_dirty: bool = False
 
+        # 交易日(由start()设置, _handle_emotion_phase_change等使用)
+        self._trade_date: str = ""
+
+        # 净值峰值(绩效快照用)
+        self._nav_peak: float = 1.0
+
         # 【Phase1.2:风控独立线程】
         self._risk_thread = None
         self._risk_running = False
@@ -437,6 +443,7 @@ class MarketScanner:
 
         if not trade_date:
             trade_date = datetime.now().strftime("%Y%m%d")
+        self._trade_date = trade_date
 
         # 实盘参数校验
         self._validate_live_params()
@@ -1526,243 +1533,71 @@ class MarketScanner:
         else:
             return pct <= -9.5
     def _validate_live_params(self):
-        """实盘参数校验
-        
-        检查回测参数是否合理, 避免用不切实际的参数跑实盘。
-        """
-        warnings = []
-        
-        # 1. 滑点检查
-        if self._broker and hasattr(self._broker, 'SLIPPAGE_RATE'):
-            if self._broker.SLIPPAGE_RATE < 0.001:
-                warnings.append(f"滑点{self._broker.SLIPPAGE_RATE*100:.2f}%过低, 实盘建议≥0.1%")
-        
-        # 2. 仓位上限
-        if self._broker and hasattr(self._broker, 'MAX_TOTAL_RATIO'):
-            if self._broker.MAX_TOTAL_RATIO > 0.8:
-                warnings.append(f"总仓位上限{self._broker.MAX_TOTAL_RATIO*100:.0f}%过高, 实盘建议≤70%")
-        
-        # 3. 止损检查
-        risk = self._get_strategy_risk("default")
-        if risk.get("stop_loss_pct", 0.03) < 0.02:
-            warnings.append("止损<2%过紧, 实盘容易被震出")
-        
-        if warnings:
-            for w in warnings:
-                logger.warning(f"[VALIDATE] ⚠️ {w}")
+        """实盘参数校验 — 委托给StrategyParamCenter"""
+        try:
+            from nodes.market_monitor.strategy_param_center import StrategyParamCenter
+            StrategyParamCenter.validate_live_params(self._broker, self._get_strategy_risk)
+        except ImportError:
+            pass  # fallback: 不校验
 
     def update_strategy_config(self, strategy_key: str, updates: Dict[str, Any]):
-        """策略参数热更新(无需重启scanner) + 持久化到MongoDB
-        
-        updates格式: {"params": {...}, "riskParams": {...}, "enabled": True}
-        下次扫描时自动生效(因为_get_effective_strategy_config读取strategy_overrides)
-        重启后从MongoDB恢复(不再丢失)
-        """
-        if "strategy_overrides" not in self.config:
-            self.config["strategy_overrides"] = {}
-        
-        existing = self.config["strategy_overrides"].get(strategy_key, {})
-        
-        if "params" in updates:
-            if "params" not in existing:
-                existing["params"] = {}
-            existing["params"].update(updates["params"])
-        
-        if "riskParams" in updates:
-            if "riskParams" not in existing:
-                existing["riskParams"] = {}
-            existing["riskParams"].update(updates["riskParams"])
-        
-        if "enabled" in updates:
-            existing["enabled"] = updates["enabled"]
-        
-        self.config["strategy_overrides"][strategy_key] = existing
-        logger.info(f"[SCANNER] 策略参数热更新: {strategy_key} → {existing}")
-        
-        # 【P1-4】持久化到MongoDB
+        """策略参数热更新(无需重启scanner) + 持久化到MongoDB — 委托给StrategyParamCenter"""
         try:
-            asyncio.ensure_future(self._persist_strategy_overrides())
-        except Exception:
-            logger.debug("[SCANNER] 策略参数持久化异步任务创建失败")
-    
+            from nodes.market_monitor.strategy_param_center import StrategyParamCenter
+            StrategyParamCenter.update_scanner_config(self.config, strategy_key, updates)
+            logger.info(f"[SCANNER] 策略参数热更新: {strategy_key}")
+            # 持久化到MongoDB
+            try:
+                asyncio.ensure_future(self._persist_strategy_overrides())
+            except Exception:
+                pass
+        except ImportError:
+            pass
+
     async def _persist_strategy_overrides(self):
-        """将strategy_overrides持久化到MongoDB"""
+        """将strategy_overrides持久化到MongoDB — 委托给StrategyParamCenter"""
         try:
-            from core.managers import mongo_manager
-            if mongo_manager.db is None:
-                return
-            overrides = self.config.get("strategy_overrides", {})
-            await mongo_manager.db["scanner_config"].update_one(
-                {"_id": "strategy_overrides"},
-                {"$set": {"data": overrides, "updated_at": datetime.now().isoformat()}},
-                upsert=True,
-            )
-            logger.info(f"[SCANNER] 策略参数已持久化到MongoDB")
-        except Exception as e:
-            logger.warning(f"[SCANNER] 策略参数持久化失败(非关键): {e}")
-    
+            from nodes.market_monitor.strategy_param_center import StrategyParamCenter
+            await StrategyParamCenter.persist_scanner_overrides(self.config)
+        except ImportError:
+            pass
+
     async def _load_strategy_overrides(self):
-        """从MongoDB恢复strategy_overrides"""
+        """从MongoDB恢复strategy_overrides — 委托给StrategyParamCenter"""
         try:
-            from core.managers import mongo_manager
-            if mongo_manager.db is None:
-                return
-            doc = await mongo_manager.db["scanner_config"].find_one({"_id": "strategy_overrides"})
-            if doc and "data" in doc:
+            from nodes.market_monitor.strategy_param_center import StrategyParamCenter
+            data = await StrategyParamCenter.load_scanner_overrides()
+            if data:
                 if "strategy_overrides" not in self.config:
                     self.config["strategy_overrides"] = {}
-                self.config["strategy_overrides"].update(doc["data"])
-                logger.info(f"[SCANNER] 从MongoDB恢复策略参数: {len(doc['data'])}个策略")
-        except Exception as e:
-            logger.warning(f"[SCANNER] 策略参数恢复失败(非关键): {e}")
+                self.config["strategy_overrides"].update(data)
+                logger.info(f"[SCANNER] 从MongoDB恢复策略参数: {len(data)}个策略")
+        except ImportError:
+            pass
 
     # ==================== 盘中异动监控 ====================
 
     async def _detect_anomalies(self, realtime_data: Dict[str, Dict]) -> List[ScanSignal]:
-        """盘中异动检测
-        
-        检测类型:
-        1. 急速拉升: 5分钟内涨幅>3%
-        2. 跌停打开: 跌停后打开(撬板机会)
-        3. 量比突变: 量比>5(资金异动)
-        4. 封板松动: 涨停后炸板(炸板股池)
-        
-        不消耗额外必盈额度, 从已有的realtime_data里检测
-        """
-        signals = []
-        
-        for ts_code, rt in realtime_data.items():
-            key = ts_code + "|anomaly"
-            if key in {s.ts_code + "|" + s.strategy for s in self._active_signals}:
-                continue  # 已有信号, 跳过
-                
-            pct_chg = rt.get("pct_chg", 0)
-            is_limit_up = rt.get("is_limit_up", False)
-            is_limit_down = rt.get("is_limit_down", False)
-            is_broken = rt.get("is_broken_board", False)
-            open_times = rt.get("open_times", 0)
-            limit_times = rt.get("limit_times", 0)
-            name = rt.get("name", "")
-            price = rt.get("price", 0)
-            turnover = rt.get("turnover_rate", 0)
-            fd_amount = rt.get("fd_amount", 0)
-            
-            # === 1. 跌停撬板(从必盈跌停/炸板池检测) ===
-            if is_broken and not is_limit_down:
-                # 炸板股: 涨停后打开 → 可能是炸板回封或龙头分歧
-                if pct_chg > 5 and open_times <= 2:
-                    signals.append(ScanSignal(
-                        ts_code=ts_code, stock_name=name,
-                        strategy="anomaly_broken", strategy_name="涨停炸板",
-                        signal_type="buy", price=price,
-                        pct_chg=pct_chg, volume_ratio=0,
-                        turnover_rate=turnover,
-                        is_limit_up=False,
-                        reason=f"涨停炸板2次内 涨{pct_chg:.1f}%",
-                    ))
-                    continue
-            
-            # === 2. 量比突变(从涨停池里的换手率/封单判断) ===
-            if is_limit_up:
-                # 涨停股: 封单缩小+换手率高 → 可能开板
-                if turnover > 10 and fd_amount < 50000 and limit_times >= 2:
-                    # 高换手+封单小+连板 → 可能开板, 观望
-                    pass
-                elif fd_amount > 100000 and open_times == 0:
-                    # 大封单+无炸板 → 强势涨停, 次日溢价
-                    signals.append(ScanSignal(
-                        ts_code=ts_code, stock_name=name,
-                        strategy="anomaly_strong", strategy_name="强势涨停",
-                        signal_type="buy", price=price,
-                        pct_chg=pct_chg, volume_ratio=0,
-                        turnover_rate=turnover, is_limit_up=True,
-                        reason=f"连板{limit_times} 封单{fd_amount/1000:.0f}万 无炸板",
-                    ))
-                    continue
-            
-            # === 3. 急速拉升(5分钟内涨幅>3%) ===
-            # 对比上轮扫描缓存的价格变化(真正的5分钟涨幅)
-            prev_cached = self._prev_realtime_cache.get(ts_code, {})
-            prev_price = prev_cached.get("price", 0)
-            if prev_price > 0 and price > 0:
-                price_change_pct = (price - prev_price) / prev_price * 100
-                if price_change_pct > 3 and not is_limit_up:
-                    signals.append(ScanSignal(
-                        ts_code=ts_code, stock_name=name,
-                        strategy="anomaly_surge", strategy_name="急速拉升",
-                        signal_type="buy", price=price,
-                        pct_chg=pct_chg, volume_ratio=0,
-                        turnover_rate=turnover, is_limit_up=False,
-                        reason=f"5分钟涨{price_change_pct:.1f}%",
-                    ))
-                    continue
-        
-        if signals:
-            logger.info(f"[ANOMALY] 异动检测: {len(signals)}只")
-        
-        return signals
+        """盘中异动检测 — 委托给StrategyScorer【Phase3.1提取】"""
+        if self._strategy_scorer:
+            return self._strategy_scorer.detect_anomalies(
+                realtime_data, self._active_signals, self._prev_realtime_cache
+            )
+        return []
 
     # ==================== 仓位管理 ====================
 
     def _calc_would_buy_shares(self, signal: ScanSignal) -> int:
-        """计算dry_run模式下会买入多少股(不实际下单)"""
-        if not self._broker or signal.price <= 0:
-            return 0
-        acct = self._broker.get_account()
-        position_ratio = self._calc_position_ratio(signal)
-        max_amount = acct.available_cash * position_ratio
-        lot = 200 if signal.ts_code.startswith('688') else 100
-        shares = int(max_amount / signal.price / lot) * lot
-        return shares
+        """计算dry_run模式下会买入多少股(不实际下单) — 委托给PositionManager"""
+        if self._position_manager:
+            return self._position_manager.calc_would_buy_shares(signal)
+        return 0
 
     def _calc_position_ratio(self, signal: ScanSignal) -> float:
-        """根据信号特征计算仓位比例
-        
-        逻辑:
-        - 涨停+连板≥2 → 重仓40% (确定性高)
-        - 涨停+首板 → 中仓25% (有确定性)
-        - 半路追涨 → 中仓25% (主力策略)
-        - 跌停翘板 → 轻仓15% (高风险)
-        - 龙头低吸 → 轻仓15% (高风险)
-        
-        总仓位限制: 单票≤总资产15%, 总仓位≤70%
-        """
-        strategy = signal.strategy or ""
-        
-        # 策略级仓位
-        if "涨停" in strategy or "limit_up" in strategy:
-            # 连板股重仓
-            if signal.is_limit_up and getattr(signal, 'limit_times', 0) >= 2:
-                ratio = 0.40
-            else:
-                ratio = 0.25
-        elif "半路" in strategy or "mid_chase" in strategy:
-            ratio = 0.25
-        elif "跌停" in strategy or "limit_down" in strategy:
-            ratio = 0.15
-        elif "龙头" in strategy or "leader" in strategy:
-            ratio = 0.15
-        elif "anomaly" in strategy:
-            ratio = 0.10  # 异动信号: 观察仓, 轻仓试探
-        else:
-            ratio = 0.20  # 默认
-        
-        # 动态调整: 持仓多时减仓
-        if self._broker:
-            acct = self._broker.get_account()
-            if acct.total_assets > 0:
-                current_ratio = acct.market_value / acct.total_assets
-                if current_ratio > 0.5:
-                    ratio *= 0.7  # 已半仓, 减量
-                if current_ratio > 0.65:
-                    ratio *= 0.5  # 接近满仓, 减半
-        
-        # 情绪仓位系数: 9层筛选L3情绪周期/L2特殊时期的仓位调整
-        pipeline_ratio = getattr(self, '_current_position_ratio', None)
-        if pipeline_ratio is not None and pipeline_ratio < 1.0:
-            ratio *= pipeline_ratio  # 情绪低迷/特殊时期降仓
-        
-        return ratio
+        """仓位比例计算 — 委托给PositionManager"""
+        if self._position_manager:
+            return self._position_manager.calc_position_ratio(signal)
+        return 0.2
 
     # ==================== 风控熔断 ====================
 
@@ -1868,7 +1703,7 @@ class MarketScanner:
         positions = self._broker.get_positions()
         total_profit = acct.total_profit
         net_value = acct.total_assets / 1_000_000  # 初始100万
-        peak = max(getattr(self, "_nav_peak", 1.0), net_value)
+        peak = max(self._nav_peak, net_value)
         self._nav_peak = peak
         drawdown_pct = (net_value / peak - 1) * 100 if peak > 0 else 0
 
