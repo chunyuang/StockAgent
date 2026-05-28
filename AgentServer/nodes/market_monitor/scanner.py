@@ -504,6 +504,16 @@ class MarketScanner:
 
         # 盘前准备
         await self.premarket_prepare(trade_date)
+        
+        # 【Phase3.4:审计日志TTL索引(90天自动过期)】
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.db:
+                await mongo_manager.db["audit_log"].create_index(
+                    "timestamp", expireAfterSeconds=7776000  # 90天
+                )
+        except Exception:
+            pass
 
         self._is_running = True
         self._task = asyncio.create_task(self._scan_loop(trade_date))
@@ -1987,6 +1997,31 @@ class MarketScanner:
             "decision_detail": getattr(sig, "decision_detail", {}),
             "layer_trace": getattr(sig, "layer_trace", {}),
         })
+        # 【Phase3.4:审计日志】异步写入append-only集合
+        asyncio.create_task(self._write_audit_log(action, ts_code, stock_name, strategy, reason))
+    
+    async def _write_audit_log(self, action: str, ts_code: str, stock_name: str, 
+                                strategy: str, reason: str):
+        """写入审计日志(append-only, TTL 90天)"""
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.db is None:
+                return
+            await mongo_manager.db["audit_log"].insert_one({
+                "timestamp": datetime.now().isoformat(),
+                "account_id": self.account_id,
+                "action": action,
+                "ts_code": ts_code,
+                "stock_name": stock_name,
+                "strategy": strategy,
+                "reason": reason,
+                "sentiment": self._current_sentiment.get("period", ""),
+                "position_ratio": self._current_position_ratio,
+                "sell_logic_mode": self.SELL_LOGIC_MODE,
+            })
+        except Exception:
+            pass  # 审计日志失败不应影响主流程
+
 
     async def _execute_signals(self, signals: List[ScanSignal]):
         """执行信号(SimulatedBroker撮合)
