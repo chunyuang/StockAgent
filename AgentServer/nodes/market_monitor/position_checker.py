@@ -205,9 +205,10 @@ class PositionChecker:
     async def _check_positions_checker(self, realtime_data: Dict[str, Dict], trade_date: str):
         """checker卖出逻辑(复用回测SellSignalChecker)"""
         scanner = self._scanner
-        
+
         try:
             from nodes.backtest_engine.factor_selection.sell_signal_checker import SellSignalChecker
+            from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK
         except ImportError:
             logger.warning("[CHECKER] SellSignalChecker不可用, 回退legacy")
             return await self._check_positions_legacy(realtime_data, trade_date)
@@ -216,8 +217,15 @@ class PositionChecker:
         if not positions:
             return
 
+        # 构造SellSignalChecker所需的参数
+        strategy_params = {}
+        strategy_risk_params = {}
+        for strategy_key, cfg in STRATEGY_CONFIGS.items():
+            strategy_params[strategy_key] = cfg.get("params", {})
+            strategy_risk_params[strategy_key] = cfg.get("riskParams", {})
+
+        checker = SellSignalChecker(strategy_params, strategy_risk_params, dict(GLOBAL_RISK))
         to_sell = []
-        checker = SellSignalChecker()
 
         for pos in positions:
             if pos.available_qty <= 0:
@@ -226,35 +234,46 @@ class PositionChecker:
             if not rt or rt.get("price", 0) <= 0:
                 continue
 
-            risk = scanner._get_strategy_risk(pos.strategy)
+            # 传入trailing_stop_state(状态留在Scanner, checker只做判断)
+            trailing_state = self.trailing_stops.get(pos.ts_code)
+
+            # 计算持仓天数(超时检查需要)
+            trade_days_held = None
+            if pos.buy_date:
+                try:
+                    from nodes.backtest_engine.factor_selection.portfolio_backtest import PortfolioBacktester
+                    bt = PortfolioBacktester()
+                    trade_days_held = bt._calc_trade_days_held(int(pos.buy_date), int(trade_date))
+                except (ValueError, TypeError):
+                    pass
+
             result = checker.check_realtime_sell(
-                ts_code=pos.ts_code,
-                buy_price=pos.avg_cost,
-                current_price=rt.get("price", 0),
-                buy_date=pos.buy_date,
-                trade_date=trade_date,
-                strategy=pos.strategy,
-                risk_params=risk,
-                high_today=rt.get("high", 0),
-                low_today=rt.get("low", 0),
-                open_today=rt.get("open", 0),
-                pre_close=rt.get("pre_close", 0),
+                position=pos,
+                realtime_price=rt.get("price", 0),
+                high_price=rt.get("high", 0),
+                open_price=rt.get("open", 0),
+                trailing_stop_state=trailing_state,
+                trade_days_held=trade_days_held,
             )
 
-            if result.should_sell:
-                to_sell.append((pos, result.reason, rt.get("price", 0), risk))
+            if result:
+                reason = result.get('reason', 'unknown')
+                sell_price = result.get('price', rt.get("price", 0))
+                risk = scanner._get_strategy_risk(pos.strategy)
+                to_sell.append((pos, reason, sell_price, risk))
 
         await self._execute_sell_list(to_sell, trade_date, source="checker")
-        
+
         for pos, reason, _, _ in to_sell:
             self.trailing_stops.pop(pos.ts_code, None)
             self.position_risk_levels.pop(pos.ts_code, None)
-        
+
         if to_sell and self.broker:
             try:
                 await self.broker.save_state(force=True)
             except Exception:
                 pass
+            await scanner._save_runtime_snapshot(force=True)
     
     # ==================== Compare模式 ====================
     
@@ -268,29 +287,40 @@ class PositionChecker:
         )
         legacy_codes = {p.ts_code for p, _, _, _ in legacy_sell}
 
-        # Checker
+        # Checker(使用正确的API签名)
+        checker_codes = set()
         try:
             from nodes.backtest_engine.factor_selection.sell_signal_checker import SellSignalChecker
-            checker = SellSignalChecker()
-            checker_codes = set()
+            from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK
+
+            strategy_params = {}
+            strategy_risk_params = {}
+            for strategy_key, cfg in STRATEGY_CONFIGS.items():
+                strategy_params[strategy_key] = cfg.get("params", {})
+                strategy_risk_params[strategy_key] = cfg.get("riskParams", {})
+
+            checker = SellSignalChecker(strategy_params, strategy_risk_params, dict(GLOBAL_RISK))
             for pos in self.broker.get_positions():
                 if pos.available_qty <= 0:
                     continue
                 rt = realtime_data.get(pos.ts_code, {})
                 if not rt or rt.get("price", 0) <= 0:
                     continue
-                risk = scanner._get_strategy_risk(pos.strategy)
+
+                trailing_state = self.trailing_stops.get(pos.ts_code)
                 result = checker.check_realtime_sell(
-                    ts_code=pos.ts_code, buy_price=pos.avg_cost,
-                    current_price=rt.get("price", 0), buy_date=pos.buy_date,
-                    trade_date=trade_date, strategy=pos.strategy,
-                    risk_params=risk, high_today=rt.get("high", 0),
-                    low_today=rt.get("low", 0), open_today=rt.get("open", 0),
-                    pre_close=rt.get("pre_close", 0),
+                    position=pos,
+                    realtime_price=rt.get("price", 0),
+                    high_price=rt.get("high", 0),
+                    open_price=rt.get("open", 0),
+                    trailing_stop_state=trailing_state,
                 )
-                if result.should_sell:
+                if result:
                     checker_codes.add(pos.ts_code)
         except ImportError:
+            checker_codes = set()
+        except Exception as e:
+            logger.debug(f"[COMPARE] checker执行异常: {e}")
             checker_codes = set()
 
         # 记录差异
