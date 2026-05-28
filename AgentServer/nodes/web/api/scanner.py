@@ -1865,6 +1865,43 @@ async def get_scanner_health():
         daily_drawdown = abs(min(0, daily_profit / total_assets * 100)) if total_assets > 0 else 0
         position_ratio = market_value / total_assets if total_assets > 0 else 0
         
+        # 【Phase4.3:数据新鲜度+扫描延迟】
+        import time as _time
+        scan_lag = _time.time() - getattr(scanner, '_last_scan_ts', 0) if hasattr(scanner, '_last_scan_ts') else 999
+        risk_check_lag = _time.time() - getattr(scanner, '_last_risk_check_ts', 0) if hasattr(scanner, '_last_risk_check_ts') else 999
+        quote_staleness = getattr(scanner, '_last_scan_duration_ms', 0) / 1000 if hasattr(scanner, '_last_scan_duration_ms') else 0
+        
+        # 数据新鲜度标记(3s绿/5s黄/>5s红)
+        data_freshness = "green" if scan_lag < 60 and risk_check_lag < 5 else (
+            "yellow" if scan_lag < 120 and risk_check_lag < 30 else "red")
+        
+        # 健康分数(0-100)
+        health_score = 100
+        warnings = []
+        if scan_lag > 60:
+            health_score -= 20
+            warnings.append(f"扫描延迟{scan_lag:.0f}秒")
+        if risk_check_lag > 5:
+            health_score -= 30
+            warnings.append(f"风控延迟{risk_check_lag:.0f}秒")
+        if daily_drawdown >= 3:
+            health_score -= 20
+            warnings.append(f"日回撤{daily_drawdown:.1f}%")
+        if consecutive_losses >= 2:
+            health_score -= 15
+            warnings.append(f"连续亏损{consecutive_losses}次")
+        # 行情降级
+        qm = getattr(scanner, '_quote_manager', None)
+        if qm and qm.degrade_level > 0:
+            health_score -= 10
+            warnings.append(f"行情降级{qm.degrade_desc}")
+        # 跌停挂起
+        pending_sells = getattr(scanner, '_pending_sells', {})
+        if pending_sells:
+            health_score -= 5
+            warnings.append(f"{len(pending_sells)}只跌停挂起")
+        health_score = max(0, health_score)
+        
         # 熔断状态
         cb = getattr(scanner, '_circuit_breaker', None) or {}
         consecutive_losses = cb.get('consecutive_losses', 0) if isinstance(cb, dict) else 0
@@ -1901,6 +1938,13 @@ async def get_scanner_health():
                 "circuit_breaker": circuit_breaker,
                 "risk_metrics": risk_metrics,
                 "data_sources": ds_list,
+                # 【Phase4.3:新增字段】
+                "health_score": health_score,
+                "data_freshness": data_freshness,
+                "scan_lag_seconds": round(scan_lag, 1),
+                "risk_check_lag_seconds": round(risk_check_lag, 1),
+                "warnings": warnings,
+                "is_healthy": scan_lag < 60 and risk_check_lag < 5 and daily_drawdown < 3 and not trading_paused,
             }
         }
     except Exception as e:

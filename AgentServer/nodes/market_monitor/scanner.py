@@ -1120,6 +1120,7 @@ class MarketScanner:
 
                 # ── 每1秒: 止损检查(用缓存数据, 零成本) ──
                 self._check_stop_loss_only(realtime_data)
+                self._last_risk_check_ts = time.time()  # 【Phase4.3】
 
                 # ── 每30秒: 完整quick check(东财缓存, 零额度) ──
                 if tick % 30 == 0 and self._loop and not self._loop.is_closed():
@@ -1324,6 +1325,7 @@ class MarketScanner:
         if hasattr(self, '_risk_watchdog'):
             self._risk_watchdog.update_heartbeat()
         self._last_scan_duration_ms = elapsed * 1000  # 看门狗用
+        self._last_scan_ts = time.time()  # 【Phase4.3:健康度用】
 
         logger.info(f"[SCAN #{self._scan_count}] 完成: "
                      f"{len(realtime_data)}只 | {len(self._active_signals)}信号 | "
