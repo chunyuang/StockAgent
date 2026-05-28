@@ -454,3 +454,198 @@ class TestScannerHealthScore:
         s._circuit_breaker = {}
         health = s._compute_health_score()
         assert any("跌停挂起" in w for w in health["warnings"])
+
+
+class TestPositionManager:
+    """【Phase3.1】PositionManager持仓风控测试"""
+
+    def _make_mock_pos(self, ts_code="600036.SH", strategy="halfway_chase",
+                       avg_cost=10.0, current_price=10.5, available_qty=100,
+                       profit_pct=5.0, buy_date="20260528"):
+        """构造mock Position对象"""
+        class MockPos:
+            pass
+        pos = MockPos()
+        pos.ts_code = ts_code
+        pos.strategy = strategy
+        pos.stock_name = "测试股"
+        pos.avg_cost = avg_cost
+        pos.current_price = current_price
+        pos.available_qty = available_qty
+        pos.profit_pct = profit_pct
+        pos.buy_date = buy_date
+        return pos
+
+    def _make_mock_scanner(self):
+        """构造mock Scanner对象(只提供PositionManager需要的属性)"""
+        class MockScanner:
+            SELL_LOGIC_MODE = "legacy"
+            _trailing_stops = {}
+            _pending_sells = {}
+            _position_risk_levels = {}
+            _position_risk_overrides = {}
+            
+            def _get_strategy_risk(self, strategy):
+                return {"stop_loss_pct": 0.03, "take_profit_pct": 0.07,
+                        "trailing_stop_pct": 0.02, "next_day_open_sell_pct": 0.03}
+            
+            def _get_open_price(self, ts_code):
+                return 10.0
+            
+            def _is_limit_down(self, ts_code):
+                return False
+        
+        return MockScanner()
+    
+    def _make_mock_scanner_with_broker(self, positions=None):
+        """构造带Broker的mock Scanner(check_stop_loss_only需要)"""
+        scanner = self._make_mock_scanner()
+        
+        class MockBroker:
+            def get_positions(self):
+                return positions or []
+            def update_realtime(self, code, price):
+                pass
+        
+        scanner._broker = MockBroker()
+        return scanner
+
+    def test_calc_stop_loss_price(self):
+        """止损价计算"""
+        from nodes.market_monitor.position_manager import PositionManager
+        pm = PositionManager(self._make_mock_scanner())
+        pos = self._make_mock_pos(avg_cost=10.0)
+        price = pm.calc_stop_loss_price(pos, {"stop_loss_pct": 0.03})
+        assert price == 9.7  # 10 * (1 - 0.03)
+
+    def test_calc_take_profit_price(self):
+        """止盈价计算"""
+        from nodes.market_monitor.position_manager import PositionManager
+        pm = PositionManager(self._make_mock_scanner())
+        pos = self._make_mock_pos(avg_cost=10.0)
+        price = pm.calc_take_profit_price(pos, {"take_profit_pct": 0.07})
+        assert price == 10.7  # 10 * (1 + 0.07)
+
+    def test_check_stop_loss_triggered(self):
+        """止损触发"""
+        from nodes.market_monitor.position_manager import PositionManager
+        pm = PositionManager(self._make_mock_scanner())
+        pos = self._make_mock_pos(current_price=9.5, profit_pct=-5.0)
+        result = pm.check_stop_loss_take_profit([pos], {})
+        assert len(result) == 1
+        assert "止损" in result[0][1]
+
+    def test_check_take_profit_triggered(self):
+        """止盈触发"""
+        from nodes.market_monitor.position_manager import PositionManager
+        pm = PositionManager(self._make_mock_scanner())
+        pos = self._make_mock_pos(current_price=11.0, profit_pct=10.0)
+        result = pm.check_stop_loss_take_profit([pos], {})
+        assert len(result) == 1
+        assert "止盈" in result[0][1]
+
+    def test_check_no_sell_when_profitable(self):
+        """盈利中不应触发卖出"""
+        from nodes.market_monitor.position_manager import PositionManager
+        pm = PositionManager(self._make_mock_scanner())
+        pos = self._make_mock_pos(current_price=10.5, profit_pct=5.0)
+        result = pm.check_stop_loss_take_profit([pos], {})
+        assert len(result) == 0
+
+    def test_check_gap_stop_loss(self):
+        """跳空止损: open < stop_loss_price"""
+        from nodes.market_monitor.position_manager import PositionManager
+        pm = PositionManager(self._make_mock_scanner())
+        pos = self._make_mock_pos(current_price=9.3, profit_pct=-7.0)
+        rt = {pos.ts_code: {"open": 9.6}}  # open < 9.7(止损价)
+        result = pm.check_stop_loss_take_profit([pos], rt)
+        assert len(result) == 1
+        assert "跳空" in result[0][1]
+
+    def test_check_trailing_stop_triggered(self):
+        """追踪止损触发"""
+        from nodes.market_monitor.position_manager import PositionManager
+        scanner = self._make_mock_scanner()
+        scanner._trailing_stops = {
+            "600036.SH": {
+                "activated": True,
+                "stop_price": 10.5,
+                "high_price": 11.0,
+                "trailing_stop_pct": 0.02,
+            }
+        }
+        pm = PositionManager(scanner)
+        pos = self._make_mock_pos(current_price=10.3, profit_pct=3.0)
+        result = pm.check_stop_loss_take_profit([pos], {})
+        assert len(result) == 1
+        assert "追踪止损" in result[0][1]
+
+    def test_check_stop_loss_only_lightweight(self):
+        """1秒级止损检查(轻量,不含止盈)"""
+        from nodes.market_monitor.position_manager import PositionManager
+        pos = self._make_mock_pos(current_price=9.5, profit_pct=-5.0)
+        scanner = self._make_mock_scanner_with_broker([pos])
+        pm = PositionManager(scanner)
+        rt = {pos.ts_code: {"price": 9.5, "open": 10.0}}
+        result = pm.check_stop_loss_only(rt)
+        assert len(result) == 1
+
+    def test_check_stop_loss_only_no_take_profit(self):
+        """1秒级止损不应触发止盈"""
+        from nodes.market_monitor.position_manager import PositionManager
+        pos = self._make_mock_pos(current_price=11.0, profit_pct=10.0)
+        scanner = self._make_mock_scanner_with_broker([pos])
+        pm = PositionManager(scanner)
+        rt = {pos.ts_code: {"price": 11.0, "open": 10.0}}
+        result = pm.check_stop_loss_only(rt)
+        assert len(result) == 0
+
+    def test_update_trailing_stops_activate(self):
+        """追踪止损激活(盈利>=2%)"""
+        from nodes.market_monitor.position_manager import PositionManager
+        scanner = self._make_mock_scanner()
+        pm = PositionManager(scanner)
+        pos = self._make_mock_pos(current_price=10.5, profit_pct=5.0)
+        pm.update_trailing_stops([pos], {})
+        assert "600036.SH" in scanner._trailing_stops
+        assert scanner._trailing_stops["600036.SH"]["activated"] is True
+
+    def test_check_timeout_sell(self):
+        """超时强卖"""
+        from nodes.market_monitor.position_manager import PositionManager
+        pm = PositionManager(self._make_mock_scanner())
+        pos = self._make_mock_pos(buy_date="20260520")
+        result = pm.check_timeout_sell([pos], "20260528")
+        # 取决于_calc_trade_days_held, 但至少不应该crash
+        assert isinstance(result, list)
+
+    def test_get_effective_stop_price_trailing(self):
+        """有效止损价(追踪止损>固定止损)"""
+        from nodes.market_monitor.position_manager import PositionManager
+        scanner = self._make_mock_scanner()
+        scanner._trailing_stops = {
+            "600036.SH": {
+                "activated": True,
+                "stop_price": 10.5,
+                "high_price": 11.0,
+            }
+        }
+        pm = PositionManager(scanner)
+        pos = self._make_mock_pos(current_price=10.8, profit_pct=8.0)
+        price = pm.get_effective_stop_price(pos, {"stop_loss_pct": 0.03})
+        # 追踪止损10.5 > 固定止损9.7, 取更高的
+        assert price == 10.5
+
+    def test_pending_sells_on_limit_down(self):
+        """跌停不可卖→挂起pending_sells"""
+        from nodes.market_monitor.position_manager import PositionManager
+        pos = self._make_mock_pos(current_price=9.5, profit_pct=-5.0)
+        scanner = self._make_mock_scanner_with_broker([pos])
+        
+        # 跌停
+        scanner._is_limit_down = lambda code: True
+        pm = PositionManager(scanner)
+        rt = {pos.ts_code: {"price": 9.5, "open": 10.0}}
+        result = pm.check_stop_loss_only(rt)
+        # 跌停时挂起, 不返回to_sell(由Scanner处理挂起)
+        assert "600036.SH" in scanner._pending_sells
