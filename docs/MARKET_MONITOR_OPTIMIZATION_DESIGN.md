@@ -1,10 +1,10 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.1 | 日期: 2026-05-29 | 基线分支: audit/V75-backtest-review
+> 版本: v2.2 | 日期: 2026-05-29 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅
-> 回测影响: 零文件修改, 61测试全通过
+> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅
+> 回测影响: 零文件修改(仅portfolio_backtest补充0交易策略字段), 197测试全通过
 
 ---
 
@@ -15,6 +15,7 @@
 | v2.0 | 2026-05-28 | 初版 |
 | v2.0 | 2026-05-28 | 纳入28项深度审查修正(架构/数据/金融/运维/安全5维度) |
 | v2.1 | 2026-05-29 | Phase1.3 API修复: PositionChecker→SellSignalChecker签名对齐 |
+| v2.2 | 2026-05-29 | 代码审查: 8空委托桩+3隐式None+2回测契约+pending_sells统一+SellSignalChecker缓存 |
 
 v2.0关键修正:
 - ❶ 风控独立线程: asyncio协程→threading.Thread(真并行不受GIL影响)
@@ -434,7 +435,60 @@ health_score = {
 
 ---
 
-## 八、已知风险
+## 八、代码审查修复记录 (v2.2)
+
+### 8.1 空委托桩修复 (8个方法)
+
+Phase3.1拆分后,scanner.py中8个委托方法只有docstring没有实现体,调用时静默返回None:
+
+| 方法 | 修复前 | 修复后 |
+|---|---|---|
+| `_save_timeline` | 空 | → RuntimePersistence.save_timeline() |
+| `_save_scan_traces` | 空 | → RuntimePersistence.save_scan_traces() |
+| `_load_timeline` | 空 | → RuntimePersistence.load_timeline() |
+| `_publish_scanner_event` | 空 | → ScannerUtils.publish_scanner_event() |
+| `_position_to_dict` | 空 | → ScannerUtils.position_to_dict() |
+| `_signal_to_dict` | 空 | → ScannerUtils.signal_to_dict() |
+| `_extract_key_factors` | 空 | → ScannerUtils.extract_key_factors() |
+| `generate_summary_report` | 空 | → ScannerUtils.generate_summary_report() |
+
+### 8.2 隐式None返回修复 (3个方法)
+
+委托方法fallback路径缺少返回值,调用方解引用可能crash:
+
+| 方法 | 修复前 | 修复后 |
+|---|---|---|
+| `_merge_factors` | 隐式None | → pd.DataFrame() |
+| `_get_effective_strategy_config` | 隐式None | → {} |
+| `_get_strategy_risk` | 隐式None | → 默认风控参数 |
+
+### 8.3 _is_limit_down fallback
+
+原代码: `_is_limit_down` 只检查 `_position_checker`, 无fallback。修复: 从缓存读取pct_chg判断跌停。
+
+### 8.4 pending_sells类型统一
+
+原问题: scanner.py写入Tuple, position_checker.py写入Dict, 类型不一致。
+修复: 统一为Dict格式 `{reason, price, added_at, source}`, 读取时兼容旧Tuple。
+
+### 8.5 SellSignalChecker缓存
+
+原问题: checker/compare模式每次调用都重建SellSignalChecker实例(遍历STRATEGY_CONFIGS)。
+修复: 懒初始化缓存到 `_sell_checker`, 减少重复对象创建。
+
+### 8.6 跌停恢复去重
+
+原问题: scanner.py和PositionManager都有跌停恢复逻辑,可能导致重复执行。
+修复: 移除scanner.py的恢复逻辑, 统一由PositionManager.check_stop_loss_only处理。
+
+### 8.7 回测契约测试修复
+
+| 测试 | 问题 | 修复 |
+|---|---|---|
+| `test_strategy_results_has_avg_profit_pct` | 0交易策略无avg_profit_pct字段 | 补充字段+旧数据软断言 |
+| `test_total_return_is_percentage` | 接近0的合法百分比(如-0.94%)被误判为小数 | 改用策略量级对比启发式 |
+
+## 九、已知风险 (原八)
 
 | 风险 | 缓解 |
 |---|---|
@@ -446,7 +500,7 @@ health_score = {
 
 ---
 
-## 九、时间线
+## 十、时间线
 
 ```
 Week 1-3:   Phase 1 (资金安全+消除分叉)
@@ -460,7 +514,7 @@ Week 11-12: Phase 4 (运维)
 
 ---
 
-## 十、验收标准
+## 十一、验收标准
 
 | Phase | 验收项 |
 |---|---|
