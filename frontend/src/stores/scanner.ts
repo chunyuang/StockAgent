@@ -6,7 +6,7 @@
 
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { scannerApi } from '@/api'
+import { api } from '@/api/client'
 
 export type DataFreshness = 'green' | 'yellow' | 'red'
 
@@ -219,8 +219,8 @@ export const useScannerStore = defineStore('scanner', () => {
   async function refreshFromApi() {
     try {
       const [statusRes, healthRes] = await Promise.allSettled([
-        scannerApi.getStatus(),
-        scannerApi.getHealth(),
+        api.get('/scanner/status'),
+        api.get('/scanner/health'),
       ])
 
       if (statusRes.status === 'fulfilled' && statusRes.value?.success) {
@@ -247,7 +247,7 @@ export const useScannerStore = defineStore('scanner', () => {
   /** 启动Scanner */
   async function start() {
     try {
-      await scannerApi.start()
+      await api.post('/scanner/start')
       isRunning.value = true
       await refreshFromApi()
     } catch (e) {
@@ -258,7 +258,7 @@ export const useScannerStore = defineStore('scanner', () => {
   /** 停止Scanner */
   async function stop(sellAll = false) {
     try {
-      await scannerApi.stop(sellAll)
+      await api.post(`/scanner/stop?sell_all=${sellAll}`)
       isRunning.value = false
       await refreshFromApi()
     } catch (e) {

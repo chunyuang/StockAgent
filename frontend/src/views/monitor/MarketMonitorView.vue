@@ -288,7 +288,39 @@ async function saveStrategy() {
 async function resetStrategy(sid: string) { try { await api.post(`${configApi}/reset/${sid}`); await fetchStrategies(); ElMessage.success('已重置') } catch { ElMessage.error('重置失败') } }
 onMounted(async () => { await Promise.all([fetchScanner(), fetchStrategies(), fetchHealth()]); fetchLimitPools(); fetchDataSources(); fetchPerformanceHistory(); connectWS(); nowTimer = setInterval(() => { nowMs.value = Date.now() }, 1000); const getRefreshInterval = () => { const n = new Date(), h = n.getHours(), m = n.getMinutes(); const isTrading = (h === 9 && m >= 30) || (h >= 10 && h < 15) || (h === 15 && m === 0); return isTrading ? 5000 : 60000 }; refreshTimer = setInterval(() => { if (!autoRefresh.value || ws?.readyState === WebSocket.OPEN) return; fetchScanner(); fetchHealth() }, getRefreshInterval()) })
 onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer); if (nowTimer) clearInterval(nowTimer); disconnectWS() })
-function connectWS() { try { const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'; ws = new WebSocket(`${proto}//${location.host}/ws`); let wsDebounceTimer: any = null; const wsDebouncedFetch = () => { if (wsDebounceTimer) clearTimeout(wsDebounceTimer); wsDebounceTimer = setTimeout(fetchScanner, 500); }; ws.onopen = () => { ws?.send(JSON.stringify({ type: 'subscribe_scanner' })); scannerStore.isWsConnected = true; }; ws.onmessage = (e) => { try { const d = JSON.parse(e.data); // 【Phase4.1:通过Scanner Store分发WS数据】 if (d.type === 'scanner_signal') { scannerStore.updateFromWs('signal', { item: d.signals?.[0] || d.item }); signals.value = d.signals?.length ? d.signals : signals.value; wsDebouncedFetch(); } else if (d.type === 'scanner_position') { scannerStore.updateFromWs('position', { positions: d.positions, account: d.account }); positions.value = d.positions?.length ? d.positions : positions.value; } else if (d.type === 'scanner_timeline') { scannerStore.updateFromWs('timeline', { item: d.item }); if (d.item) timeline.value = [...timeline.value, d.item]; wsDebouncedFetch(); } else if (d.type === 'scanner_status') { scannerStore.updateFromWs('status', d.status || d); if (d.status) status.value = { ...status.value, ...d.status }; wsDebouncedFetch(); } } catch {} }; ws.onclose = () => { scannerStore.isWsConnected = false; wsReconnectTimer = setTimeout(connectWS, 3000); }; ws.onerror = () => { ws?.close(); }; } catch {} }
+function connectWS() {
+  try {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
+    ws = new WebSocket(`${proto}//${location.host}/ws`)
+    let wsDebounceTimer: any = null
+    const wsDebouncedFetch = () => { if (wsDebounceTimer) clearTimeout(wsDebounceTimer); wsDebounceTimer = setTimeout(fetchScanner, 500) }
+    ws.onopen = () => { ws?.send(JSON.stringify({ type: 'subscribe_scanner' })); scannerStore.isWsConnected = true }
+    ws.onmessage = (e) => {
+      try {
+        const d = JSON.parse(e.data)
+        // 【Phase4.1:通过Scanner Store分发WS数据】
+        if (d.type === 'scanner_signal') {
+          scannerStore.updateFromWs('signal', { item: d.signals?.[0] || d.item })
+          signals.value = d.signals?.length ? d.signals : signals.value
+          wsDebouncedFetch()
+        } else if (d.type === 'scanner_position') {
+          scannerStore.updateFromWs('position', { positions: d.positions, account: d.account })
+          positions.value = d.positions?.length ? d.positions : positions.value
+        } else if (d.type === 'scanner_timeline') {
+          scannerStore.updateFromWs('timeline', { item: d.item })
+          if (d.item) timeline.value = [...timeline.value, d.item]
+          wsDebouncedFetch()
+        } else if (d.type === 'scanner_status') {
+          scannerStore.updateFromWs('status', d.status || d)
+          if (d.status) status.value = { ...status.value, ...d.status }
+          wsDebouncedFetch()
+        }
+      } catch {}
+    }
+    ws.onclose = () => { scannerStore.isWsConnected = false; wsReconnectTimer = setTimeout(connectWS, 3000) }
+    ws.onerror = () => { ws?.close() }
+  } catch {}
+}
 function disconnectWS() { if (wsReconnectTimer) clearTimeout(wsReconnectTimer); if (ws) { ws.close(); ws = null; } }
 const historyDate = ref('')
 const historyData = ref<any[]>([])
