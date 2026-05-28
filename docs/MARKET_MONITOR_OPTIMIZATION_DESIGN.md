@@ -1,10 +1,10 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.3 | 日期: 2026-05-29 | 基线分支: audit/V75-backtest-review
+> 版本: v2.4 | 日期: 2026-05-29 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
 > 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅
-> 回测影响: 零文件修改(仅portfolio_backtest补充0交易策略字段), 199测试全通过
+> 回测影响: 零文件修改(仅portfolio_backtest补充0交易策略字段), 65测试全通过
 
 ---
 
@@ -17,6 +17,7 @@
 | v2.1 | 2026-05-29 | Phase1.3 API修复: PositionChecker→SellSignalChecker签名对齐 |
 | v2.2 | 2026-05-29 | 代码审查: 8空委托桩+3隐式None+2回测契约+pending_sells统一+SellSignalChecker缓存 |
 | v2.3 | 2026-05-29 | 线程安全: _state_lock保护共享状态+SELL_PRIORITY排序+2并发测试 |
+| v2.4 | 2026-05-29 | 深度审查: 情绪调仓委托修复+风控卖出加锁+compare补trade_days_held+2回归测试 |
 
 v2.0关键修正:
 - ❶ 风控独立线程: asyncio协程→threading.Thread(真并行不受GIL影响)
@@ -558,3 +559,30 @@ Week 11-12: Phase 4 (运维)
 | 4 | WS断线3秒重连 + 健康度评分(绿/黄/红) + Daemon3次失败有告警 |
 
 **回退基线**: `git checkout v2.8.0-backtest-ui-v2`
+
+---
+
+## 十二、深度审查修复记录 (v2.4)
+
+### 12.1 情绪调仓委托修复 (🔴 严重)
+
+**问题**: `_handle_emotion_phase_change` 调用 `self._execute_sell_list()` 但 MarketScanner 无此方法,运行时会抛 AttributeError 导致情绪调仓完全失效。
+
+**修复**: 改为委托 `self._position_checker._execute_sell_list(batch, trade_date, source="emotion")`, 与其他卖出路径保持一致。
+
+### 12.2 风控卖出状态清理加锁 (🔴 严重)
+
+**问题**: `_execute_risk_sell` 中 `self._trailing_stops.pop()` 和 `self._position_risk_levels.pop()` 未加 `_state_lock` 保护,与风控线程存在竞态条件。
+
+**修复**: 在 `_execute_risk_sell` 卖出成功后的状态清理中加入 `with self._state_lock:` 块。
+
+### 12.3 Compare模式补trade_days_held (🟡 中等)
+
+**问题**: `_check_positions_compare` 调用 `checker.check_realtime_sell()` 时缺少 `trade_days_held` 参数,而 `_check_positions_checker` 有传,导致 compare 模式与 checker 模式可能产生超时强卖的误差异。
+
+**修复**: 在 compare 模式中补充与 checker 模式一致的 `trade_days_held` 计算逻辑。
+
+### 12.4 回归测试 (2个新增)
+
+- `test_emotion_delegates_to_position_checker`: 验证情绪调仓委托到 PositionChecker
+- `test_trailing_stops_cleanup_uses_lock`: 验证源码中 _execute_risk_sell 的 trailing_stops.pop 受 _state_lock 保护

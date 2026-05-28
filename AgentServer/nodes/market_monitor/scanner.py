@@ -978,9 +978,10 @@ class MarketScanner:
                 "profit_amount": round(sell_profit_amount, 2),
             })
             self._stats["stop_losses"] += 1
-            # 清理追踪止损
-            self._trailing_stops.pop(pos.ts_code, None)
-            self._position_risk_levels.pop(pos.ts_code, None)
+            # 清理追踪止损(线程安全)
+            with self._state_lock:
+                self._trailing_stops.pop(pos.ts_code, None)
+                self._position_risk_levels.pop(pos.ts_code, None)
             await self._publish_scanner_event("timeline", {"item": self._timeline[-1]})
             logger.info(f"[RISK_THREAD] {reason}: {pos.ts_code} {quantity}股@{order.filled_price:.2f}")
             # 持久化
@@ -1372,9 +1373,12 @@ class MarketScanner:
         
         # 分批执行(max_per_round=2, 间隔0.5秒)
         batch_size = 2
+        trade_date = self._trade_date or datetime.now().strftime("%Y%m%d")
         for i in range(0, len(to_sell), batch_size):
             batch = to_sell[i:i+batch_size]
-            await self._execute_sell_list(batch, self._trade_date or datetime.now().strftime("%Y%m%d"))
+            # 委托给PositionChecker执行卖出(跌停挂起+broker下单)
+            if self._position_checker:
+                await self._position_checker._execute_sell_list(batch, trade_date, source="emotion")
             if i + batch_size < len(to_sell):
                 await asyncio.sleep(0.5)
         
