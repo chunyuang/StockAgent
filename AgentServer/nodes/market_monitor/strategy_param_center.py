@@ -151,6 +151,12 @@ class StrategyParamCenter:
             # 获取当前参数
             current = await self.get_strategy_params(strategy_id)
             
+            # 【Phase2.3:危险参数告警】
+            danger_warnings = self.check_dangerous_params(strategy_id, updates)
+            if danger_warnings:
+                for w in danger_warnings:
+                    logger.warning(f"[PARAMS] {w}")
+            
             # 深度合并updates到current
             merged = self._deep_merge(current, updates)
             merged["strategy_id"] = strategy_id
@@ -324,6 +330,104 @@ class StrategyParamCenter:
             else:
                 result[key] = deepcopy(value)
         return result
+
+    # ==================== Phase2.3: 参数补全+漂移检测+危险参数告警 ====================
+
+    async def ensure_complete(self) -> int:
+        """启动时确保MongoDB参数完整,缺失的从strategy_defaults.py补全
+        
+        Returns: 补全的策略数量
+        """
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.db is None:
+                return 0
+            
+            defaults = self._get_all_defaults()
+            patched = 0
+            
+            for strategy_id, config in defaults.items():
+                existing = await mongo_manager.db[self.COLLECTION].find_one(
+                    {"strategy_id": strategy_id}
+                )
+                if not existing:
+                    # 完全缺失 → 导入
+                    config["strategy_id"] = strategy_id
+                    config["updated_at"] = datetime.now().isoformat()
+                    config["updated_by"] = "ensure_complete"
+                    await mongo_manager.db[self.COLLECTION].insert_one(config)
+                    self._cache[strategy_id] = config
+                    patched += 1
+                    logger.info(f"[PARAMS] 补全新策略: {strategy_id}")
+                else:
+                    # 检测新字段(strategy_defaults新增但MongoDB没有的)
+                    new_fields = set(config.keys()) - set(existing.keys()) - {"_id"}
+                    if new_fields:
+                        update_fields = {k: config[k] for k in new_fields}
+                        await mongo_manager.db[self.COLLECTION].update_one(
+                            {"strategy_id": strategy_id},
+                            {"$set": update_fields}
+                        )
+                        # 更新缓存
+                        for k, v in update_fields.items():
+                            self._cache.get(strategy_id, {})[k] = v
+                        patched += 1
+                        logger.info(f"[PARAMS] 补全新字段: {strategy_id} +{new_fields}")
+            
+            return patched
+        except Exception as e:
+            logger.error(f"[PARAMS] ensure_complete失败: {e}")
+            return 0
+
+    async def detect_drift(self) -> list:
+        """检测MongoDB与strategy_defaults.py的差异(漂移)"""
+        drifts = []
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.db is None:
+                return drifts
+            
+            defaults = self._get_all_defaults()
+            for strategy_id, config in defaults.items():
+                existing = await mongo_manager.db[self.COLLECTION].find_one(
+                    {"strategy_id": strategy_id}
+                )
+                if existing:
+                    for k, v in config.items():
+                        if k in existing and existing[k] != v:
+                            drifts.append({
+                                "strategy": strategy_id,
+                                "key": k,
+                                "mongodb_value": existing[k],
+                                "defaults_value": v,
+                            })
+        except Exception as e:
+            logger.error(f"[PARAMS] detect_drift失败: {e}")
+        return drifts
+
+    def _get_all_defaults(self) -> Dict:
+        """获取strategy_defaults.py的全部参数"""
+        try:
+            from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS
+            return deepcopy(STRATEGY_CONFIGS)
+        except ImportError:
+            return {}
+
+    def check_dangerous_params(self, strategy_id: str, updates: Dict) -> list:
+        """检查危险参数变更(超出合理范围)"""
+        DANGEROUS_RANGES = {
+            'stop_loss_pct': (0.01, 0.10),   # 1%-10%合理
+            'take_profit_pct': (0.03, 0.50), # 3%-50%合理
+            'max_hold_days': (1, 30),         # 1-30天合理
+            'trailing_stop_pct': (0.01, 0.10),
+        }
+        warnings = []
+        for key, value in updates.items():
+            if key in DANGEROUS_RANGES:
+                lo, hi = DANGEROUS_RANGES[key]
+                if not isinstance(value, (int, float)) or not (lo <= value <= hi):
+                    warnings.append(f"⚠️ {strategy_id}.{key}={value} 超出合理范围({lo}-{hi})")
+        return warnings
 
 
 # 全局单例
