@@ -3,7 +3,8 @@
 > 版本: v2.1 | 日期: 2026-05-29 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2.2✅ 2.3✅ | Phase3.1✅ 3.2✅ 3.4✅ | Phase4.3✅ 4.4✅
+> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅
+> 回测影响: 零文件修改, 61测试全通过
 
 ---
 
