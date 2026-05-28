@@ -1862,11 +1862,17 @@ class MarketScanner:
                 }
 
         # 存储仓位系数和情绪信息(供execute_signals使用)
+        old_phase = self._current_sentiment.get("period", "")
         self._current_position_ratio = result.position_ratio
         self._current_sentiment = self._filter_pipeline.get_sentiment_info()
+        new_phase = self._current_sentiment.get("period", "")
 
         logger.info(f"[FILTER] 筛选完成: {len(signals)}→{len(filtered_signals)}个信号, "
                      f"仓位系数={result.position_ratio:.0%}")
+        
+        # 【Phase2.4:情绪phase变化→动态调仓】
+        if old_phase and old_phase != new_phase:
+            await self._handle_emotion_phase_change(old_phase, new_phase)
 
         return filtered_signals
 
@@ -2733,6 +2739,99 @@ class MarketScanner:
             except Exception:
                 pass
             await self._save_runtime_snapshot(force=True)
+
+    # ==================== Phase2.4: 情绪动态调仓 ====================
+
+    # 情绪phase降级 → 减仓规则
+    EMOTION_DOWNGRADE_RULES = {
+        # (from_phase, to_phase) → {action, min_profit_pct_to_keep}
+        ("rising", "differentiation"): {"action": "reduce", "keep_ratio": 0.7, "desc": "高潮→分化: 减仓30%"},
+        ("rising", "chaos"):          {"action": "reduce", "keep_ratio": 0.5, "desc": "高潮→震荡: 减仓50%"},
+        ("rising", "bearish"):        {"action": "clear_low_profit", "min_profit": 0.03, "desc": "高潮→冰点: 低利润(<3%)清仓"},
+        ("differentiation", "chaos"):  {"action": "reduce", "keep_ratio": 0.7, "desc": "分化→震荡: 减仓30%"},
+        ("differentiation", "bearish"): {"action": "clear_low_profit", "min_profit": 0.03, "desc": "分化→冰点: 低利润(<3%)清仓"},
+        ("chaos", "bearish"):         {"action": "clear_low_profit", "min_profit": 0.02, "desc": "震荡→冰点: 低利润(<2%)清仓"},
+    }
+
+    async def _handle_emotion_phase_change(self, old_phase: str, new_phase: str):
+        """情绪phase变化时的动态调仓
+        
+        规则: phase降级时减仓/清仓低利润, 升级时不做操作(自然加仓)
+        分批执行: max_per_round=2, 间隔0.5秒(避免冲击)
+        """
+        key = (old_phase, new_phase)
+        rule = self.EMOTION_DOWNGRADE_RULES.get(key)
+        if not rule:
+            # phase升级(如chaos→rising)或不支持的组合 → 不做操作
+            logger.info(f"[EMOTION] phase变化 {old_phase}→{new_phase}, 无需调仓")
+            return
+        
+        logger.warning(f"[EMOTION] phase降级 {old_phase}→{new_phase}: {rule['desc']}")
+        
+        if not self._broker:
+            return
+        
+        positions = self._broker.get_positions()
+        if not positions:
+            return
+        
+        to_sell = []
+        
+        if rule["action"] == "reduce":
+            # 按比例减仓(低利润优先)
+            keep_ratio = rule["keep_ratio"]
+            sorted_pos = sorted(positions, key=lambda p: p.profit_pct)  # 利润从低到高
+            total_count = len(sorted_pos)
+            target_count = max(1, int(total_count * keep_ratio))
+            sell_count = total_count - target_count
+            
+            for pos in sorted_pos[:sell_count]:
+                if pos.available_qty <= 0:
+                    continue
+                if self._is_limit_down(pos.ts_code):
+                    self._pending_sells[pos.ts_code] = (f"情绪降级({old_phase}→{new_phase})", pos.current_price)
+                    continue
+                to_sell.append((pos, f"情绪降级({rule['desc']})", pos.current_price, 
+                               self._get_strategy_risk(pos.strategy)))
+        
+        elif rule["action"] == "clear_low_profit":
+            # 清仓低利润持仓
+            min_profit = rule.get("min_profit", 0.03)
+            for pos in positions:
+                if pos.available_qty <= 0:
+                    continue
+                if pos.profit_pct < min_profit * 100:  # profit_pct是百分比
+                    if self._is_limit_down(pos.ts_code):
+                        self._pending_sells[pos.ts_code] = (f"情绪清仓({old_phase}→{new_phase})", pos.current_price)
+                        continue
+                    to_sell.append((pos, f"情绪清仓({rule['desc']}, 利润{pos.profit_pct:.1f}%<{min_profit*100:.0f}%)", 
+                                   pos.current_price, self._get_strategy_risk(pos.strategy)))
+        
+        if not to_sell:
+            logger.info(f"[EMOTION] phase降级无需调仓(无符合条件持仓)")
+            return
+        
+        # 分批执行(max_per_round=2, 间隔0.5秒)
+        batch_size = 2
+        for i in range(0, len(to_sell), batch_size):
+            batch = to_sell[i:i+batch_size]
+            await self._execute_sell_list(batch, self._trade_date or datetime.now().strftime("%Y%m%d"))
+            if i + batch_size < len(to_sell):
+                await asyncio.sleep(0.5)
+        
+        logger.warning(f"[EMOTION] 调仓完成: 卖出{len(to_sell)}只, {rule['desc']}")
+        
+        # 推送事件
+        await self._publish_scanner_event("timeline", {
+            "item": {
+                "time": datetime.now().strftime("%H:%M:%S"),
+                "action": "emotion_rebalance",
+                "reason": rule['desc'],
+                "old_phase": old_phase,
+                "new_phase": new_phase,
+                "sold_count": len(to_sell),
+            }
+        })
 
     # ==================== V59:智能持仓检查频率 ====================
 
