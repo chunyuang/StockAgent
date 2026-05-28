@@ -126,6 +126,12 @@ class MarketScanner:
         # "legacy"  = Scanner内嵌(旧)
         # "checker" = sell_signal_checker(新)
         # "compare" = 两者都跑,只执行旧逻辑,记录差异(灰度)
+        
+        # 【Phase2.2:行情降级状态】
+        self._quote_degrade_level = 0   # 0=正常, 1=东财降级, 2=日线缓存
+        self._quote_fail_count = 0     # 连续失败次数
+        self._quote_last_recover_check = 0  # 上次恢复检查时间
+        self._quote_staleness = 0      # 行情陈旧度(秒)
 
         # 【V59:执行质量统计】
         self._execution_stats = {
@@ -322,6 +328,10 @@ class MarketScanner:
             "position_risk_levels": dict(self._position_risk_levels),
             "execution_stats": dict(self._execution_stats),
             "smart_check_interval": self._get_smart_check_interval() if self._is_running else None,
+            # 【Phase2.2:行情降级状态】
+            "quote_degrade_level": self._quote_degrade_level,
+            "quote_degrade_desc": ["正常", "东财降级", "日线缓存"][self._quote_degrade_level],
+            "sell_logic_mode": self.SELL_LOGIC_MODE,
         }
 
     def get_signals(self) -> List[Dict]:
@@ -1383,6 +1393,7 @@ class MarketScanner:
         today = datetime.now().strftime("%Y-%m-%d")
 
         # === 1. 东方财富: 全市场5400只实时行情 (1次请求, 3秒, 0必盈额度) ===
+        # 【Phase2.2:行情降级+自动恢复】
         if eastmoney:
             try:
                 em_data = await eastmoney.get_all_realtime(force_refresh=True)
@@ -1403,8 +1414,18 @@ class MarketScanner:
                         "amplitude": item.get("amplitude"),
                     }
                 logger.info(f"[REALTIME] 东方财富: {len(em_data)}只全市场快照")
+                # 成功 → 重置失败计数, 尝试恢复降级
+                self._quote_fail_count = 0
+                if self._quote_degrade_level > 0:
+                    self._quote_degrade_level = 0
+                    logger.info("[QUOTE] 行情恢复正常, 降级已恢复")
             except Exception as e:
-                logger.warning(f"[REALTIME] 东方财富获取失败: {e}, 将依赖必盈")
+                self._quote_fail_count += 1
+                if self._quote_fail_count >= 3 and self._quote_degrade_level == 0:
+                    self._quote_degrade_level = 1
+                    logger.warning(f"[QUOTE] 东方财富连续3次失败,降级到level 1: {e}")
+                else:
+                    logger.warning(f"[REALTIME] 东方财富获取失败({self._quote_fail_count}次): {e}")
 
         # === 2. 必赢涨停池: 封板资金/连板/炸板次数 (3次API, 涨停池独有数据) ===
         # 回放模式: 用MongoDB涨停池数据代替必赢API
