@@ -1220,6 +1220,29 @@ async def get_data_status() -> Dict[str, Any]:
         return {"success": False, "message": str(e)}
 
 
+def _get_frontend_version() -> Dict[str, str]:
+    """【Phase4.2】获取前端构建版本"""
+    try:
+        import os
+        static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "static")
+        index_html = os.path.join(static_dir, "index.html")
+        if os.path.exists(index_html):
+            mtime = os.path.getmtime(index_html)
+            from datetime import datetime as _dt
+            build_time = _dt.fromtimestamp(mtime).isoformat()
+            return {"status": "built", "build_time": build_time, "path": "static/"}
+        # 检查frontend/dist/
+        dist_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "frontend", "dist")
+        dist_html = os.path.join(dist_dir, "index.html")
+        if os.path.exists(dist_html):
+            mtime = os.path.getmtime(dist_html)
+            from datetime import datetime as _dt
+            build_time = _dt.fromtimestamp(mtime).isoformat()
+            return {"status": "dev", "build_time": build_time, "path": "frontend/dist/"}
+        return {"status": "not_found"}
+    except Exception:
+        return {"status": "error"}
+
 @router.get("/version")
 async def get_version() -> Dict[str, Any]:
     """
@@ -1236,6 +1259,8 @@ async def get_version() -> Dict[str, Any]:
             "build_time": _BUILD_TIME,
             "service": "backtest-engine",
             "api_version": "v2",
+            # 【Phase4.2:前端构建版本】
+            "frontend": _get_frontend_version(),
         },
         "message": "获取版本信息成功"
     }
