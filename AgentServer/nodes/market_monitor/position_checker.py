@@ -325,12 +325,24 @@ class PositionChecker:
 
                     with self.state_lock:
                         trailing_state = dict(self.trailing_stops[pos.ts_code]) if pos.ts_code in self.trailing_stops else None
+
+                    # 计算持仓天数(与checker模式一致)
+                    trade_days_held = None
+                    if pos.buy_date:
+                        try:
+                            from nodes.backtest_engine.factor_selection.portfolio_backtest import PortfolioBacktester
+                            bt = PortfolioBacktester()
+                            trade_days_held = bt._calc_trade_days_held(int(pos.buy_date), int(trade_date))
+                        except (ValueError, TypeError):
+                            pass
+
                     result = checker.check_realtime_sell(
                         position=pos,
                         realtime_price=rt.get("price", 0),
                         high_price=rt.get("high", 0),
                         open_price=rt.get("open", 0),
                         trailing_stop_state=trailing_state,
+                        trade_days_held=trade_days_held,
                     )
                     if result:
                         checker_codes.add(pos.ts_code)
