@@ -119,7 +119,7 @@ class MarketScanner:
         self._pending_orders: Dict[str, Dict] = {}  # order_id → {status, retry_count, ...}
 
         # 【Phase1.1:运行时状态持久化——跌停挂起的卖出指令】
-        self._pending_sells: Dict[str, Tuple] = {}  # ts_code → (reason, price)
+        self._pending_sells: Dict[str, Dict] = {}  # ts_code → {reason, price, added_at, source}
 
         # 【Phase1.1:运行时状态持久化——快照节流】
         self._last_snapshot_save: float = 0.0
@@ -925,7 +925,7 @@ class MarketScanner:
             for pos, reason, price, risk in to_sell:
                 # 跌停不可卖检查
                 if self._is_limit_down(pos.ts_code):
-                    self._pending_sells[pos.ts_code] = (reason, price)
+                    self._pending_sells[pos.ts_code] = {"reason": reason, "price": price, "added_at": time.time(), "source": "risk_thread"}
                     logger.warning(f"[RISK_THREAD] 跌停不可卖: {pos.ts_code}, {reason}挂起")
                     continue
                 
@@ -1343,7 +1343,7 @@ class MarketScanner:
                 if pos.available_qty <= 0:
                     continue
                 if self._is_limit_down(pos.ts_code):
-                    self._pending_sells[pos.ts_code] = (f"情绪降级({old_phase}→{new_phase})", pos.current_price)
+                    self._pending_sells[pos.ts_code] = {"reason": f"情绪降级({old_phase}→{new_phase})", "price": pos.current_price, "added_at": time.time(), "source": "emotion"}
                     continue
                 to_sell.append((pos, f"情绪降级({rule['desc']})", pos.current_price, 
                                self._get_strategy_risk(pos.strategy)))
@@ -1356,7 +1356,7 @@ class MarketScanner:
                     continue
                 if pos.profit_pct < min_profit * 100:  # profit_pct是百分比
                     if self._is_limit_down(pos.ts_code):
-                        self._pending_sells[pos.ts_code] = (f"情绪清仓({old_phase}→{new_phase})", pos.current_price)
+                        self._pending_sells[pos.ts_code] = {"reason": f"情绪清仓({old_phase}→{new_phase})", "price": pos.current_price, "added_at": time.time(), "source": "emotion"}
                         continue
                     to_sell.append((pos, f"情绪清仓({rule['desc']}, 利润{pos.profit_pct:.1f}%<{min_profit*100:.0f}%)", 
                                    pos.current_price, self._get_strategy_risk(pos.strategy)))

@@ -43,6 +43,7 @@ class PositionChecker:
             scanner: MarketScanner实例
         """
         self._scanner = scanner
+        self._sell_checker = None  # 缓存SellSignalChecker实例
     
     # ==================== 属性代理 ====================
     
@@ -81,6 +82,24 @@ class PositionChecker:
     @property
     def execution_stats(self) -> Dict:
         return getattr(self._scanner, '_execution_stats', {})
+    
+    def _get_sell_checker(self):
+        """获取缓存的SellSignalChecker实例(懒初始化)"""
+        if self._sell_checker is not None:
+            return self._sell_checker
+        try:
+            from nodes.backtest_engine.factor_selection.sell_signal_checker import SellSignalChecker
+            from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK
+            strategy_params = {}
+            strategy_risk_params = {}
+            for strategy_key, cfg in STRATEGY_CONFIGS.items():
+                strategy_params[strategy_key] = cfg.get("params", {})
+                strategy_risk_params[strategy_key] = cfg.get("riskParams", {})
+            self._sell_checker = SellSignalChecker(strategy_params, strategy_risk_params, dict(GLOBAL_RISK))
+            return self._sell_checker
+        except ImportError:
+            logger.warning("[CHECKER] SellSignalChecker不可用")
+            return None
     
     # ==================== 主入口 ====================
     
@@ -206,10 +225,8 @@ class PositionChecker:
         """checker卖出逻辑(复用回测SellSignalChecker)"""
         scanner = self._scanner
 
-        try:
-            from nodes.backtest_engine.factor_selection.sell_signal_checker import SellSignalChecker
-            from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK
-        except ImportError:
+        checker = self._get_sell_checker()
+        if checker is None:
             logger.warning("[CHECKER] SellSignalChecker不可用, 回退legacy")
             return await self._check_positions_legacy(realtime_data, trade_date)
 
@@ -217,14 +234,6 @@ class PositionChecker:
         if not positions:
             return
 
-        # 构造SellSignalChecker所需的参数
-        strategy_params = {}
-        strategy_risk_params = {}
-        for strategy_key, cfg in STRATEGY_CONFIGS.items():
-            strategy_params[strategy_key] = cfg.get("params", {})
-            strategy_risk_params[strategy_key] = cfg.get("riskParams", {})
-
-        checker = SellSignalChecker(strategy_params, strategy_risk_params, dict(GLOBAL_RISK))
         to_sell = []
 
         for pos in positions:
@@ -287,41 +296,30 @@ class PositionChecker:
         )
         legacy_codes = {p.ts_code for p, _, _, _ in legacy_sell}
 
-        # Checker(使用正确的API签名)
+        # Checker(使用缓存的实例)
         checker_codes = set()
-        try:
-            from nodes.backtest_engine.factor_selection.sell_signal_checker import SellSignalChecker
-            from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK
+        checker = self._get_sell_checker()
+        if checker:
+            try:
+                for pos in self.broker.get_positions():
+                    if pos.available_qty <= 0:
+                        continue
+                    rt = realtime_data.get(pos.ts_code, {})
+                    if not rt or rt.get("price", 0) <= 0:
+                        continue
 
-            strategy_params = {}
-            strategy_risk_params = {}
-            for strategy_key, cfg in STRATEGY_CONFIGS.items():
-                strategy_params[strategy_key] = cfg.get("params", {})
-                strategy_risk_params[strategy_key] = cfg.get("riskParams", {})
-
-            checker = SellSignalChecker(strategy_params, strategy_risk_params, dict(GLOBAL_RISK))
-            for pos in self.broker.get_positions():
-                if pos.available_qty <= 0:
-                    continue
-                rt = realtime_data.get(pos.ts_code, {})
-                if not rt or rt.get("price", 0) <= 0:
-                    continue
-
-                trailing_state = self.trailing_stops.get(pos.ts_code)
-                result = checker.check_realtime_sell(
-                    position=pos,
-                    realtime_price=rt.get("price", 0),
-                    high_price=rt.get("high", 0),
-                    open_price=rt.get("open", 0),
-                    trailing_stop_state=trailing_state,
-                )
-                if result:
-                    checker_codes.add(pos.ts_code)
-        except ImportError:
-            checker_codes = set()
-        except Exception as e:
-            logger.debug(f"[COMPARE] checker执行异常: {e}")
-            checker_codes = set()
+                    trailing_state = self.trailing_stops.get(pos.ts_code)
+                    result = checker.check_realtime_sell(
+                        position=pos,
+                        realtime_price=rt.get("price", 0),
+                        high_price=rt.get("high", 0),
+                        open_price=rt.get("open", 0),
+                        trailing_stop_state=trailing_state,
+                    )
+                    if result:
+                        checker_codes.add(pos.ts_code)
+            except Exception as e:
+                logger.debug(f"[COMPARE] checker执行异常: {e}")
 
         # 记录差异
         only_legacy = legacy_codes - checker_codes
