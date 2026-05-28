@@ -1,10 +1,10 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.2 | 日期: 2026-05-29 | 基线分支: audit/V75-backtest-review
+> 版本: v2.3 | 日期: 2026-05-29 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅
-> 回测影响: 零文件修改(仅portfolio_backtest补充0交易策略字段), 197测试全通过
+> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅
+> 回测影响: 零文件修改(仅portfolio_backtest补充0交易策略字段), 199测试全通过
 
 ---
 
@@ -16,6 +16,7 @@
 | v2.0 | 2026-05-28 | 纳入28项深度审查修正(架构/数据/金融/运维/安全5维度) |
 | v2.1 | 2026-05-29 | Phase1.3 API修复: PositionChecker→SellSignalChecker签名对齐 |
 | v2.2 | 2026-05-29 | 代码审查: 8空委托桩+3隐式None+2回测契约+pending_sells统一+SellSignalChecker缓存 |
+| v2.3 | 2026-05-29 | 线程安全: _state_lock保护共享状态+SELL_PRIORITY排序+2并发测试 |
 
 v2.0关键修正:
 - ❶ 风控独立线程: asyncio协程→threading.Thread(真并行不受GIL影响)
@@ -487,6 +488,39 @@ Phase3.1拆分后,scanner.py中8个委托方法只有docstring没有实现体,�
 |---|---|---|
 | `test_strategy_results_has_avg_profit_pct` | 0交易策略无avg_profit_pct字段 | 补充字段+旧数据软断言 |
 | `test_total_return_is_percentage` | 接近0的合法百分比(如-0.94%)被误判为小数 | 改用策略量级对比启发式 |
+
+### 8.8 线程安全修复 (v2.3)
+
+**问题**: 风控独立线程(_risk_loop_sync)与asyncio主循环并发读写共享状态(trailing_stops/pending_sells/position_risk_levels)无锁保护,存在竞态条件:
+- PositionManager.check_stop_loss_only: 风控线程读/写pending_sells无锁
+- PositionManager.update_trailing_stops: 主循环写trailing_stops无锁
+- PositionChecker._check_positions_checker: 读trailing_stops无锁
+- RuntimePersistence.save_runtime_snapshot: 读共享状态无锁
+- scanner._compute_health_score: 读pending_sells无锁
+- 情绪调仓: 写pending_sells无锁
+
+**修复**: 新增`_state_lock`(threading.Lock),保护所有共享可变状态读写:
+
+| 模块 | 修复内容 |
+|---|---|
+| scanner.py | 新增`_state_lock`, risk_thread写pending_sells加锁, health_score读pending_sells加锁, 情绪调仓写pending_sells加锁 |
+| position_manager.py | `check_stop_loss_only`中pending_sells/trailing_stops/position_risk_overrides读写加锁; `update_trailing_stops`读写加锁 |
+| position_checker.py | trailing_stops读取加锁(深拷贝); pending_sells写入加锁; state清理加锁; `state_lock`属性代理 |
+| runtime_persistence.py | `save_runtime_snapshot`读取共享状态加锁(深拷贝); `load_runtime_snapshot`恢复加锁; 盘前竞价写入加锁 |
+
+**原则**: 锁粒度最小化——每个状态操作单独加锁,不跨方法持锁;读操作深拷贝后释放锁
+
+### 8.9 SELL_PRIORITY排序 (v2.3)
+
+**问题**: PositionChecker的checker模式返回的卖出信号未按优先级排序,可能先执行低优先级(如止盈)再执行高优先级(如止损)。
+
+**修复**: checker模式结果按`SELL_PRIORITY`降序排序(止损10>追踪止损8>利润锁定7>止盈3),确保高优先级卖出先执行。
+
+### 8.10 并发测试 (v2.3)
+
+新增2个线程安全测试:
+- `test_concurrent_trailing_stop_update`: 4线程×50只并发更新追踪止损,验证无crash/数据丢失
+- `test_concurrent_pending_sells_access`: 2读+2写线程并发访问pending_sells,验证无crash
 
 ## 九、已知风险 (原八)
 
