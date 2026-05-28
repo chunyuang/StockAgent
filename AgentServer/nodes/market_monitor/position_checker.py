@@ -45,6 +45,7 @@ class PositionChecker:
         """
         self._scanner = scanner
         self._sell_checker = None  # 缓存SellSignalChecker实例
+        self._backtester = None   # 缓存PortfolioBacktester实例
     
     # ==================== 属性代理 ====================
     
@@ -66,10 +67,12 @@ class PositionChecker:
     
     @property
     def realtime_cache(self) -> Dict:
+        """读取实时行情缓存(直接引用,仅用于内部加锁场景)"""
         return self._scanner._realtime_cache or {}
     
     @property
     def trailing_stops(self) -> Dict:
+        """读取追踪止损状态(直接引用,仅用于内部加锁场景)"""
         return self._scanner._trailing_stops
     
     @property
@@ -105,6 +108,28 @@ class PositionChecker:
             return self._sell_checker
         except ImportError:
             logger.warning("[CHECKER] SellSignalChecker不可用")
+            return None
+    
+    def _get_backtester(self):
+        """获取缓存的PortfolioBacktester实例(懒初始化,避免每个持仓重复创建)"""
+        if self._backtester is not None:
+            return self._backtester
+        try:
+            from nodes.backtest_engine.factor_selection.portfolio_backtest import PortfolioBacktester
+            self._backtester = PortfolioBacktester()
+            return self._backtester
+        except ImportError:
+            logger.warning("[CHECKER] PortfolioBacktester不可用")
+            return None
+    
+    def _calc_trade_days_held(self, buy_date, trade_date) -> Optional[int]:
+        """计算持仓交易日天数(缓存Backtester实例)"""
+        bt = self._get_backtester()
+        if bt is None:
+            return None
+        try:
+            return bt._calc_trade_days_held(int(buy_date), int(trade_date))
+        except (ValueError, TypeError):
             return None
     
     # ==================== 主入口 ====================
@@ -183,12 +208,8 @@ class PositionChecker:
             if max_hold >= 999:
                 continue
             try:
-                buy_dt = int(pos.buy_date)
-                cur_dt = int(trade_date)
-                from nodes.backtest_engine.factor_selection.portfolio_backtest import PortfolioBacktester
-                bt = PortfolioBacktester()
-                days_held = bt._calc_trade_days_held(buy_dt, cur_dt)
-                if days_held >= max_hold:
+                days_held = self._calc_trade_days_held(pos.buy_date, trade_date)
+                if days_held is not None and days_held >= max_hold:
                     already = any(p.ts_code == pos.ts_code for p, _, _, _ in to_sell)
                     if not already:
                         to_sell.append((pos, f"超时({days_held}日≥{max_hold}日)", pos.current_price, risk))
@@ -255,14 +276,7 @@ class PositionChecker:
                 trailing_state = dict(self.trailing_stops[pos.ts_code]) if pos.ts_code in self.trailing_stops else None
 
             # 计算持仓天数(超时检查需要)
-            trade_days_held = None
-            if pos.buy_date:
-                try:
-                    from nodes.backtest_engine.factor_selection.portfolio_backtest import PortfolioBacktester
-                    bt = PortfolioBacktester()
-                    trade_days_held = bt._calc_trade_days_held(int(pos.buy_date), int(trade_date))
-                except (ValueError, TypeError):
-                    pass
+            trade_days_held = self._calc_trade_days_held(pos.buy_date, trade_date) if pos.buy_date else None
 
             result = checker.check_realtime_sell(
                 position=pos,
@@ -327,14 +341,7 @@ class PositionChecker:
                         trailing_state = dict(self.trailing_stops[pos.ts_code]) if pos.ts_code in self.trailing_stops else None
 
                     # 计算持仓天数(与checker模式一致)
-                    trade_days_held = None
-                    if pos.buy_date:
-                        try:
-                            from nodes.backtest_engine.factor_selection.portfolio_backtest import PortfolioBacktester
-                            bt = PortfolioBacktester()
-                            trade_days_held = bt._calc_trade_days_held(int(pos.buy_date), int(trade_date))
-                        except (ValueError, TypeError):
-                            pass
+                    trade_days_held = self._calc_trade_days_held(pos.buy_date, trade_date) if pos.buy_date else None
 
                     result = checker.check_realtime_sell(
                         position=pos,
