@@ -484,6 +484,13 @@ class MarketScanner:
         except Exception:
             pass
 
+        # 【v2.8:EventBus订阅器注册(在scan_loop启动前)】
+        try:
+            from nodes.market_monitor.scanner_event_subscribers import register_subscribers
+            register_subscribers(self)
+        except Exception as e:
+            logger.warning(f"[EVENT_BUS] 订阅器注册失败(非关键): {e}")
+
         self._is_running = True
         self._task = asyncio.create_task(self._scan_loop(trade_date))
         
@@ -830,6 +837,16 @@ class MarketScanner:
                     except Exception:
                         pass
                     logger.info("[SCANNER] 收盘自动结算+持久化完成")
+                    # 【v2.8:EventBus盘后结算事件】
+                    try:
+                        account = self._broker.account if self._broker else None
+                        await self._event_bus.emit(ScannerEvents.DAILY_SETTLED, {
+                            "trade_date": trade_date,
+                            "total_profit": getattr(account, 'today_profit', 0) if account else 0,
+                            "total_assets": getattr(account, 'total_assets', 0) if account else 0,
+                        })
+                    except Exception:
+                        pass
                     # 保存timeline到MongoDB
                     try:
                         await self._save_timeline()
@@ -1490,6 +1507,16 @@ class MarketScanner:
         if hasattr(self, '_circuit_breaker') and self._circuit_breaker.get('is_triggered'):
             warnings.append("熔断器已触发")
         
+        # 7. EventBus异常率(v2.8)
+        if hasattr(self, '_event_bus') and self._event_bus:
+            stats = self._event_bus.get_stats()
+            total_errors = sum(s.get('errors', 0) for s in stats.values())
+            total_handled = sum(s.get('handled', 0) for s in stats.values())
+            if total_errors > 0 and total_handled > 0:
+                error_rate = total_errors / (total_handled + total_errors)
+                if error_rate > 0.1:  # >10%错误率
+                    warnings.append(f"EventBus异常率{error_rate:.0%}({total_errors}/{total_handled+total_errors})")
+        
         # 健康判定
         is_healthy = (
             scan_lag < 360 and      # 6分钟内有扫描
@@ -1517,6 +1544,7 @@ class MarketScanner:
             "risk_check_lag_seconds": round(risk_lag, 1),
             "quote_staleness_seconds": round(quote_staleness, 1),
             "warnings": warnings,
+            "event_bus_stats": self._event_bus.get_stats() if hasattr(self, '_event_bus') and self._event_bus else {},
         }
 
     # ==================== V59:智能持仓检查频率 ====================

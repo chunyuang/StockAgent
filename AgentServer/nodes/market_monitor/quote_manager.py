@@ -167,6 +167,17 @@ class QuoteManager:
                     self._quote_degrade_level = 0
                     self._degrade_since = 0
                     logger.info(f"[QUOTE] 行情恢复正常, 降级已恢复(持续{degrade_duration:.0f}秒)")
+                    # 【v2.8:EventBus行情恢复事件】
+                    try:
+                        scanner_ref = getattr(self, '_scanner', None)
+                        if scanner_ref and hasattr(scanner_ref, 'event_bus'):
+                            asyncio.ensure_future(scanner_ref.event_bus.emit("quote_recovered", {
+                                "level": 0,
+                                "degrade_duration_s": degrade_duration,
+                                "source": "eastmoney",
+                            }))
+                    except Exception:
+                        pass
             except Exception as e:
                 self._quote_fail_count += 1
                 if self._quote_fail_count >= 3 and self._quote_degrade_level == 0:
@@ -174,6 +185,17 @@ class QuoteManager:
                     self._degrade_since = time.monotonic()
                     self._last_recover_attempt = time.monotonic()  # 从降级时刻开始计时
                     logger.warning(f"[QUOTE] 东方财富连续3次失败,降级到level 1: {e}")
+                    # 【v2.8:EventBus行情降级事件】
+                    try:
+                        scanner_ref = getattr(self, '_scanner', None)
+                        if scanner_ref and hasattr(scanner_ref, 'event_bus'):
+                            asyncio.ensure_future(scanner_ref.event_bus.emit("quote_degraded", {
+                                "level": 1,
+                                "source": "eastmoney",
+                                "error": str(e),
+                            }))
+                    except Exception:
+                        pass
                 else:
                     logger.warning(f"[QUOTE] 东方财富获取失败({self._quote_fail_count}次): {e}")
 

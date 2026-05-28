@@ -2559,3 +2559,54 @@ async def get_audit_log(limit: int = 50):
     except Exception as e:
         return {"success": False, "message": str(e)}
 
+
+# ==================== V2.8: EventBus统计与历史 ====================
+
+@router.get("/event-bus/stats")
+async def get_event_bus_stats():
+    """EventBus事件统计
+    
+    返回各事件的发布/处理/错误次数, 便于监控事件流健康度
+    """
+    try:
+        scanner = _get_scanner_instance()
+        if not scanner or not hasattr(scanner, 'event_bus'):
+            return {"success": True, "stats": {}, "subscriber_count": 0,
+                    "events": [], "enabled": False}
+        
+        bus = scanner.event_bus
+        return _sanitize({
+            "success": True,
+            "stats": bus.get_stats(),
+            "subscriber_count": sum(bus.handler_count(e) for e in bus.get_events()),
+            "events": bus.get_events(),
+            "enabled": bus._enabled,
+        })
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@router.get("/event-bus/history")
+async def get_event_bus_history(event: str = None, limit: int = 50):
+    """EventBus事件历史
+    
+    Args:
+        event: 过滤特定事件类型(None=全部)
+        limit: 最大返回条数(1-200)
+    """
+    try:
+        limit = min(max(1, limit), 200)
+        scanner = _get_scanner_instance()
+        if not scanner or not hasattr(scanner, 'event_bus'):
+            return {"success": True, "history": [], "total": 0}
+        
+        bus = scanner.event_bus
+        history = bus.get_history(event=event, limit=limit)
+        return _sanitize({
+            "success": True,
+            "history": history,
+            "total": len(history),
+        })
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+

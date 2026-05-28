@@ -1,10 +1,10 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.7 | 日期: 2026-05-29 | 基线分支: audit/V75-backtest-review
+> 版本: v2.8 | 日期: 2026-05-29 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅
-> 回测影响: 零文件修改(仅portfolio_backtest补充0交易策略字段), 325测试全通过
+> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅
+> 回测影响: 零文件修改, 330测试全通过
 
 ---
 
@@ -21,6 +21,7 @@
 | v2.5 | 2026-05-29 | 审查优化: PositionManager线程安全trailing_stops读取+PortfolioBacktester缓存+因子测试修复+13回归测试 |
 | v2.6 | 2026-05-29 | 继续优化: _trade_date/_nav_peak初始化bug修复+异动检测提取到StrategyScorer+仓位计算提取到PositionManager+策略配置管理提取到StrategyParamCenter+22集成测试+limit_up_count字段修复 |
 | v2.7 | 2026-05-29 | EventBus: ScannerEventBus内部事件总线+Scanner集成5个发射点+StrategyScorer NaN防御修复+107新增测试(33 EventBus+22 StrategyScorer+52 FilterPipeline) |
+| v2.8 | 2026-05-29 | EventBus订阅器: 8组事件处理器(审计日志/快照触发/Redis推送/健康指标)+行情降级恢复事件发射+盘后结算事件+EventBus API端点(/event-bus/stats+history)+23集成测试 |
 
 v2.0关键修正:
 - ❶ 风控独立线程: asyncio协程→threading.Thread(真并行不受GIL影响)
@@ -843,3 +844,84 @@ Scanner内部组件(QuoteManager/PositionManager/StrategyScorer/FilterPipeline/S
 | Phase3.1后 | 1922 | -34% |
 | v2.6继续优化后 | 1757 | -40% |
 | v2.7 EventBus后 | ~1770 | +13行(EventBus初始化+5个emit) |
+| v2.8 EventBus订阅器后 | ~1811 | +41行(订阅器注册+盘后结算emit+行情降级/恢复emit) |
+
+---
+
+## 十六、EventBus订阅器完善 (v2.8)
+
+### 16.1 设计目标
+
+EventBus v2.7只实现了emit(发射)侧, 8个标准事件类型中仅5个有发射点, 且无任何订阅者。
+这导致EventBus变为"fire-and-forget"空管道, 解耦和可观测性目标未实现。
+
+v2.8目标:
+- 补全缺失的发射点(行情降级/恢复 + 盘后结算)
+- 实现8组事件订阅器, 连接事件与实际副作用
+- 新增Web API端点暴露EventBus状态
+- 不侵入scanner核心逻辑(handler通过EventBus.on注册)
+
+### 16.2 新增发射点
+
+| 事件 | 触发位置 | 数据 |
+|---|---|---|
+| `quote_degraded` | QuoteManager._fetch_realtime_batch | level, source, error |
+| `quote_recovered` | QuoteManager._fetch_realtime_batch | level, degrade_duration_s, source |
+| `daily_settled` | Scanner._scan_loop (15:05+结算) | trade_date, total_profit, total_assets |
+
+加上v2.7的5个发射点, 共8个标准事件全部有发射点。
+
+### 16.3 EventBus订阅器 (scanner_event_subscribers.py, 279行)
+
+| 订阅器 | 事件 | 副作用 |
+|---|---|---|
+| on_risk_sell | risk_sell_executed | MongoDB审计日志 + Redis状态推送 |
+| on_position_changed | position_changed | 运行时快照自动保存(force=True) + Redis持仓推送 |
+| on_circuit_breaker | circuit_breaker | MongoDB审计日志 + Redis紧急推送 |
+| on_scan_completed | scan_completed | 更新_last_scan_ts + Redis状态推送 |
+| on_quote_degraded | quote_degraded | Redis状态推送(前端显示降级警告) |
+| on_quote_recovered | quote_recovered | Redis状态推送 |
+| on_param_updated | param_updated | MongoDB审计日志(合规) |
+| on_emotion_changed | emotion_changed | Redis状态推送(前端情绪面板) |
+| on_daily_settled | daily_settled | MongoDB审计日志 + Redis状态推送 |
+
+**设计原则**:
+- 审计日志: 关键事件(风控卖出/熔断/参数变更/盘后结算)写入MongoDB audit_log集合
+- Redis推送: 所有事件转发Redis Pub/Sub, 供Web节点WebSocket广播到前端
+- 快照触发: 持仓变更自动保存运行时快照(force=True), 避免崩溃丢状态
+- 异常隔离: handler内异常被EventBus捕获, 不影响其他handler和发布者
+- 非阻塞: handler内用ensure_future异步化, 不阻塞scanner主循环
+
+### 16.4 Web API端点
+
+| 端点 | 方法 | 功能 |
+|---|---|---|
+| `/api/v1/scanner/event-bus/stats` | GET | 事件统计(emitted/handled/errors) + 订阅者数量 |
+| `/api/v1/scanner/event-bus/history` | GET | 事件历史(支持event过滤+limit) |
+
+### 16.5 注册时机
+
+`register_subscribers(scanner)` 在 `Scanner.start()` 中调用, 在 `_scan_loop` 启动前完成注册。
+使用try/except包裹, 注册失败不影响scanner启动。
+
+### 16.6 测试覆盖 (23新增)
+
+| 测试类 | 测试数 | 覆盖范围 |
+|---|---|---|
+| TestSubscriberRegistration | 2 | 注册完整性+幂等性 |
+| TestRiskSellHandler | 2 | 审计日志+Redis推送 |
+| TestPositionChangedHandler | 2 | 快照触发+异常不crash |
+| TestCircuitBreakerHandler | 2 | 审计日志+Redis推送 |
+| TestScanCompletedHandler | 1 | _last_scan_ts更新 |
+| TestQuoteDegradeHandler | 2 | 降级+恢复Redis推送 |
+| TestParamUpdatedHandler | 1 | 审计日志 |
+| TestEmotionChangedHandler | 1 | Redis推送 |
+| TestDailySettledHandler | 1 | 审计日志 |
+| TestSafeSerialize | 5 | 序列化工具(基础/嵌套/深度/自定义类型) |
+| TestNoBacktestRegression | 4 | 回测模块不受影响 |
+
+**总测试**: 330 passed (scanner模块230 + 其他100)
+
+### 16.7 回测影响
+
+零。EventBus订阅器仅在实盘scanner启动时注册, 回测引擎无任何引用。
