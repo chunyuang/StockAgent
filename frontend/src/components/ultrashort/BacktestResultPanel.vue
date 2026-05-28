@@ -29,11 +29,8 @@ import {
 } from 'echarts/components'
 import VChart from 'vue-echarts'
 import {
-  ElCard,
   ElTable,
   ElTableColumn,
-  ElTabs,
-  ElTabPane,
   ElButton,
   ElInput,
   ElSelect,
@@ -45,7 +42,6 @@ import {
 } from 'element-plus'
 import { Download } from '@element-plus/icons-vue'
 import { STRATEGY_NAMES } from '@/config/backtestConstants'
-import AnsiLogPanel from '@/components/backtest/AnsiLogPanel.vue'
 
 use([CanvasRenderer, LineChart, BarChart, PieChart, RadarChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent, DataZoomComponent])
 
@@ -230,7 +226,7 @@ const monthlyMergedData = computed(() => {
 const searchTradeKeyword = ref('')
 const filterStrategy = ref('')
 const filterProfit = ref('')
-const activeMainTab = ref('charts')
+const activeSection = ref('overview')
 
 // 统一的交易数据源(merged_trades优先)
 const allTrades = computed(() => {
@@ -821,54 +817,73 @@ function exportTrades() {
 
 <template>
   <div class="backtest-result-panel" v-if="result">
-    <!-- 核心指标卡片(永远显示在顶部) -->
+    <!-- ========== 1. 核心指标卡片(带颜色背景) ========== -->
     <div class="kpi-strip">
-      <div class="kpi-chip">
-        <span class="kpi-label">累计收益</span>
-        <!-- 【V63:UI增强】KPI chip增加趋势小图标 -->
-        <span class="kpi-value" :style="{ color: (result.total_return || 0) >= 0 ? 'var(--stock-down)' : 'var(--stock-up)' }">
-          {{ (result.total_return || 0) >= 0 ? '↑' : '↓' }} {{ fmtPct(result.total_return) }}
-        </span>
+      <div class="kpi-chip kpi-positive" v-if="(result.total_return || 0) >= 0">
+        <div class="kpi-icon">📈</div>
+        <div class="kpi-body">
+          <span class="kpi-label">累计收益</span>
+          <span class="kpi-value">{{ fmtPct(result.total_return) }}</span>
+        </div>
       </div>
-      <div class="kpi-chip">
-        <span class="kpi-label">年化收益<template v-if="(result?.net_value_series?.length || 0) < 250"><ElTooltip content="回测期不足1年，年化收益存在放大效应，仅供参考" placement="top"><span class="annual-warn"> *</span></ElTooltip></template></span>
-        <!-- 【V63:UI增强】KPI chip增加趋势小图标 -->
-        <span class="kpi-value" :style="{ color: (result.annualized_return || 0) >= 0 ? 'var(--stock-down)' : 'var(--stock-up)' }">
-          {{ (result.annualized_return || 0) >= 0 ? '↑' : '↓' }} {{ fmtPct(result.annualized_return) }}
-        </span>
+      <div class="kpi-chip kpi-negative" v-else>
+        <div class="kpi-icon">📉</div>
+        <div class="kpi-body">
+          <span class="kpi-label">累计收益</span>
+          <span class="kpi-value">{{ fmtPct(result.total_return) }}</span>
+        </div>
       </div>
-      <div class="kpi-chip">
-        <span class="kpi-label">最大回撤</span>
-        <span class="kpi-value" style="color: var(--stock-up)">↓ {{ fmtPct(result.max_drawdown) }}</span>
+
+      <div class="kpi-chip kpi-neutral">
+        <div class="kpi-icon">📊</div>
+        <div class="kpi-body">
+          <span class="kpi-label">年化收益<template v-if="(result?.net_value_series?.length || 0) < 250"><ElTooltip content="回测期不足1年，年化收益存在放大效应" placement="top"><span class="annual-warn">*</span></ElTooltip></template></span>
+          <span class="kpi-value">{{ fmtPct(result.annualized_return) }}</span>
+        </div>
       </div>
-      <div class="kpi-chip">
-        <span class="kpi-label">夏普比率</span>
-        <span class="kpi-value" style="color: var(--el-color-primary)">{{ (result.sharpe_ratio || 0).toFixed(2) }}</span>
+
+      <div class="kpi-chip kpi-warning">
+        <div class="kpi-icon">⬇️</div>
+        <div class="kpi-body">
+          <span class="kpi-label">最大回撤</span>
+          <span class="kpi-value">{{ fmtPct(result.max_drawdown) }}</span>
+        </div>
       </div>
-      <div class="kpi-chip">
-        <span class="kpi-label">胜率</span>
-        <!-- 【V63:UI增强】胜率KPI增加趋势小图标 -->
-        <span class="kpi-value" :style="{ color: (result.win_rate || 0) >= 50 ? 'var(--stock-down)' : 'var(--stock-up)' }">
-          {{ (result.win_rate || 0) >= 50 ? '↑' : '↓' }} {{ fmtPct(result.win_rate) }}
-        </span>
+
+      <div class="kpi-chip kpi-accent">
+        <div class="kpi-icon">⚡</div>
+        <div class="kpi-body">
+          <span class="kpi-label">夏普比率</span>
+          <span class="kpi-value">{{ (result.sharpe_ratio || 0).toFixed(2) }}</span>
+        </div>
       </div>
-      <div class="kpi-chip">
-        <span class="kpi-label">交易笔数</span>
-        <span class="kpi-value" style="color: var(--el-color-primary)">{{ result.total_trades || 0 }}</span>
+
+      <div :class="['kpi-chip', (result.win_rate || 0) >= 50 ? 'kpi-positive' : 'kpi-negative']">
+        <div class="kpi-icon">🎯</div>
+        <div class="kpi-body">
+          <span class="kpi-label">胜率</span>
+          <span class="kpi-value">{{ fmtPct(result.win_rate) }}</span>
+        </div>
       </div>
-      <div class="kpi-chip">
-        <span class="kpi-label">信号数</span>
-        <span class="kpi-value" style="color: var(--el-color-warning)">{{ result.total_signals || 0 }}</span>
+
+      <div class="kpi-chip kpi-neutral">
+        <div class="kpi-icon">🔢</div>
+        <div class="kpi-body">
+          <span class="kpi-label">交易笔数</span>
+          <span class="kpi-value">{{ result.total_trades || 0 }}</span>
+        </div>
       </div>
-      <div class="kpi-chip">
-        <span class="kpi-label">盈亏比</span>
-        <span class="kpi-value" :style="{ color: (result.profit_loss_ratio || 0) >= 2 ? 'var(--stock-down)' : 'var(--el-color-warning)' }">
-          {{ (result.profit_loss_ratio || 0).toFixed(2) }}
-        </span>
+
+      <div :class="['kpi-chip', (result.profit_loss_ratio || 0) >= 2 ? 'kpi-positive' : 'kpi-warning']">
+        <div class="kpi-icon">⚖️</div>
+        <div class="kpi-body">
+          <span class="kpi-label">盈亏比</span>
+          <span class="kpi-value">{{ (result.profit_loss_ratio || 0).toFixed(2) }}</span>
+        </div>
       </div>
     </div>
 
-    <!-- 任务3: 卖出原因统计 -->
+    <!-- ========== 2. 卖出原因统计 ========== -->
     <div v-if="result?.sell_reason_stats" class="sell-reason-bar">
       <span class="sell-reason-label">卖出分布</span>
       <div class="sell-reason-items">
@@ -890,7 +905,6 @@ function exportTrades() {
         <span v-if="result.sell_reason_stats.max_hold > 0" class="sell-reason-item max-hold">
           <span class="reason-dot"></span>到期{{ result.sell_reason_stats.max_hold }}笔({{ sellReasonPct('max_hold') }}%)
         </span>
-        <!-- V48: 新增冲高回落/利润保护/利润锁定在卖出原因栏 -->
         <span v-if="result.sell_reason_stats.pullback > 0" class="sell-reason-item pullback">
           <span class="reason-dot"></span>冲高回落{{ result.sell_reason_stats.pullback }}笔({{ sellReasonPct('pullback') }}%)
         </span>
@@ -906,258 +920,270 @@ function exportTrades() {
       </div>
     </div>
 
-    <!-- ========== 顶层大Tab：5个核心视图 ========== -->
-    <ElCard style="margin-top: 12px">
-      <ElTabs v-model="activeMainTab" type="border-card">
+    <!-- ========== 3. 扁平化导航 ========== -->
+    <div class="section-nav">
+      <button :class="['sec-btn', activeSection === 'overview' ? 'active' : '']" @click="activeSection = 'overview'">📈 概览</button>
+      <button :class="['sec-btn', activeSection === 'strategy' ? 'active' : '']" @click="activeSection = 'strategy'">🔄 策略对比</button>
+      <button :class="['sec-btn', activeSection === 'trades' ? 'active' : '']" @click="activeSection = 'trades'">📋 交易记录</button>
+      <button :class="['sec-btn', activeSection === 'monthly' ? 'active' : '']" @click="activeSection = 'monthly'">📅 月度归因</button>
+      <button :class="['sec-btn', activeSection === 'risk' ? 'active' : '']" @click="activeSection = 'risk'">🛡️ 风险指标</button>
+    </div>
 
-        <!-- Tab 1: 图表总览 -->
-        <ElTabPane label="📈 图表总览" name="charts">
-          <ElTabs>
-            <ElTabPane label="净值曲线">
-              <VChart v-if="netValueChartOption" :option="netValueChartOption" autoresize style="height: 400px; width: 100%" />
-              <ElEmpty v-else description="暂无净值数据" />
-            </ElTabPane>
-            <ElTabPane label="日收益">
-              <VChart v-if="dailyProfitChartOption" :option="dailyProfitChartOption" autoresize style="height: 400px; width: 100%" />
-              <ElEmpty v-else description="暂无日收益数据" />
-            </ElTabPane>
-            <ElTabPane label="仓位">
-              <VChart v-if="positionChartOption" :option="positionChartOption" autoresize style="height: 400px; width: 100%" />
-              <ElEmpty v-else description="暂无仓位数据" />
-            </ElTabPane>
-            <ElTabPane label="雷达图">
-              <VChart v-if="radarChartOption" :option="radarChartOption" autoresize style="height: 400px; width: 100%" />
-              <ElEmpty v-else description="暂无雷达数据" />
-            </ElTabPane>
-            <ElTabPane label="交易占比" name="factor_contribution">
-              <VChart v-if="factorContributionChartOption" :option="factorContributionChartOption" autoresize style="height: 400px; width: 100%" />
-              <ElEmpty v-else description="暂无交易占比数据" />
-            </ElTabPane>
-            <ElTabPane label="卖出原因" name="sell_reason_pie">
-              <VChart v-if="sellReasonPieOption" :option="sellReasonPieOption" autoresize style="height: 400px; width: 100%" />
-              <ElEmpty v-else description="暂无卖出原因数据" />
-            </ElTabPane>
-            <ElTabPane label="月度收益" name="monthly_profit">
-              <VChart v-if="monthlyReturnChartOption" :option="monthlyReturnChartOption" autoresize style="height: 350px; width: 100%" />
-              <ElEmpty v-else description="暂无月度数据" />
-            </ElTabPane>
-          </ElTabs>
-        </ElTabPane>
+    <!-- ========== 概览(默认) ========== -->
+    <div :class="['section-content', { 'section-hidden': activeSection !== 'overview' }]">
+      <!-- 净值曲线 + 回撤(主图) -->
+      <div class="chart-section">
+        <div class="chart-title">📈 净值曲线与回撤</div>
+        <VChart v-if="netValueChartOption" :option="netValueChartOption" autoresize style="height: 420px; width: 100%" />
+        <ElEmpty v-else description="暂无净值数据" />
+      </div>
 
-        <!-- Tab 2: 策略对比 -->
-        <ElTabPane label="🔄 策略对比" name="strategy">
-          <div v-if="result?.strategy_results && Object.keys(result.strategy_results).length >= 2">
-            <!-- 收益/胜率对比柱状图 -->
-            <VChart v-if="strategyBarChartOption" :option="strategyBarChartOption" autoresize style="height: 350px; width: 100%" />
-            <!-- 交易笔数 -->
-            <VChart v-if="strategyTradesChartOption" :option="strategyTradesChartOption" autoresize style="height: 250px; width: 100%; margin-top: 16px" />
-            <!-- 雷达图 -->
-            <VChart v-if="strategyCompareChartOption" :option="strategyCompareChartOption" autoresize style="height: 350px; width: 100%; margin-top: 16px" />
-            <!-- 策略KPI对比表 -->
-            <ElTable :data="Object.entries(result.strategy_results).map(([name, d]: any) => ({ name, ...d }))" size="small" border stripe style="margin-top: 12px">
-              <ElTableColumn label="策略名称" width="120">
-                <template #default="{ row }">{{ strategyDisplayName(row.name) }}</template>
-              </ElTableColumn>
-              <ElTableColumn label="累计盈利" width="100">
-                <template #default="{ row }">
-                  <span :style="{ color: row.total_return >= 0 ? 'var(--stock-down)' : 'var(--stock-up)' }">{{ fmtPct(row.total_return) }}</span>
-                </template>
-              </ElTableColumn>
-              <ElTableColumn label="胜率" width="80">
-                <template #default="{ row }">{{ fmtPct(row.win_rate) }}</template>
-              </ElTableColumn>
-              <ElTableColumn prop="trades_count" label="交易次数" width="80" />
-              <ElTableColumn label="最大回撤" width="100">
-                <template #default="{ row }">
-                  <span style="color: var(--stock-up)">{{ fmtPct(row.max_drawdown) }}</span>
-                </template>
-              </ElTableColumn>
-              <ElTableColumn label="单笔均利" width="100">
-                <template #default="{ row }">
-                  <span v-if="row.trades_count > 0" :style="{ color: row.avg_profit_pct >= 0 ? 'var(--stock-down)' : 'var(--stock-up)' }">{{ fmtPct(row.avg_profit_pct) }}</span>
-                  <span v-else>-</span>
-                </template>
-              </ElTableColumn>
-              <ElTableColumn label="盈亏比" width="80">
-                <template #default="{ row }">
-                  <span v-if="row.profit_loss_ratio">{{ row.profit_loss_ratio.toFixed(2) }}</span>
-                  <span v-else>-</span>
-                </template>
-              </ElTableColumn>
-            </ElTable>
-          </div>
-          <ElEmpty v-else description="至少启用2个策略才显示对比" />
-        </ElTabPane>
+      <!-- 月度收益 + 绩效雷达并排 -->
+      <div class="chart-row">
+        <div class="chart-half">
+          <div class="chart-title">📅 月度收益</div>
+          <VChart v-if="monthlyReturnChartOption" :option="monthlyReturnChartOption" autoresize style="height: 320px; width: 100%" />
+          <ElEmpty v-else description="暂无月度数据" />
+        </div>
+        <div class="chart-half">
+          <div class="chart-title">🎯 绩效雷达</div>
+          <VChart v-if="radarChartOption" :option="radarChartOption" autoresize style="height: 320px; width: 100%" />
+          <ElEmpty v-else description="暂无雷达数据" />
+        </div>
+      </div>
 
-        <!-- Tab 3: 交易记录 -->
-        <ElTabPane label="📋 交易记录" name="trades">
-          <div class="filter-bar">
-            <ElInput v-model="searchTradeKeyword" placeholder="搜索代码/名称" size="small" style="width: 200px" clearable />
-            <ElSelect v-model="filterStrategy" placeholder="策略筛选" size="small" style="width: 140px" clearable>
-              <ElOption v-for="s in availableStrategies" :key="s" :label="strategyDisplayName(s)" :value="s" />
-            </ElSelect>
-            <ElSelect v-model="filterProfit" placeholder="盈亏筛选" size="small" style="width: 120px" clearable>
-              <ElOption label="盈利" value="profit" />
-              <ElOption label="亏损" value="loss" />
-            </ElSelect>
-            <ElButton size="small" :icon="Download" @click="exportTrades">导出表格</ElButton>
+      <!-- 日收益 + 仓位并排 -->
+      <div class="chart-row">
+        <div class="chart-half">
+          <div class="chart-title">📊 日收益率</div>
+          <VChart v-if="dailyProfitChartOption" :option="dailyProfitChartOption" autoresize style="height: 280px; width: 100%" />
+          <ElEmpty v-else description="暂无日收益数据" />
+        </div>
+        <div class="chart-half">
+          <div class="chart-title">💼 仓位变化</div>
+          <VChart v-if="positionChartOption" :option="positionChartOption" autoresize style="height: 280px; width: 100%" />
+          <ElEmpty v-else description="暂无仓位数据" />
+        </div>
+      </div>
+
+      <!-- 交易占比 + 卖出原因并排 -->
+      <div class="chart-row">
+        <div class="chart-half">
+          <div class="chart-title">🍩 交易占比</div>
+          <VChart v-if="factorContributionChartOption" :option="factorContributionChartOption" autoresize style="height: 280px; width: 100%" />
+          <ElEmpty v-else description="暂无数据" />
+        </div>
+        <div class="chart-half">
+          <div class="chart-title">🔄 卖出原因</div>
+          <VChart v-if="sellReasonPieOption" :option="sellReasonPieOption" autoresize style="height: 280px; width: 100%" />
+          <ElEmpty v-else description="暂无卖出原因数据" />
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== 策略对比 ========== -->
+    <div :class="['section-content', { 'section-hidden': activeSection !== 'strategy' }]">
+      <div v-if="result?.strategy_results && Object.keys(result.strategy_results).length >= 2">
+        <div class="chart-section">
+          <div class="chart-title">🔄 策略收益与胜率对比</div>
+          <VChart v-if="strategyBarChartOption" :option="strategyBarChartOption" autoresize style="height: 350px; width: 100%" />
+        </div>
+        <div class="chart-row">
+          <div class="chart-half">
+            <div class="chart-title">📊 交易笔数</div>
+            <VChart v-if="strategyTradesChartOption" :option="strategyTradesChartOption" autoresize style="height: 280px; width: 100%" />
           </div>
-          <!-- 盈亏分布+持仓时长小图 -->
-          <div style="display: flex; gap: 16px; margin-bottom: 12px">
-            <div v-if="profitDistChartOption" style="flex: 1">
-              <div style="font-size: 13px; font-weight: 600; margin-bottom: 4px">📊 盈亏分布</div>
-              <VChart :option="profitDistChartOption" autoresize style="height: 220px; width: 100%" />
-            </div>
-            <div v-if="holdDaysChartOption" style="flex: 1">
-              <div style="font-size: 13px; font-weight: 600; margin-bottom: 4px">⏱️ 持仓时长</div>
-              <VChart :option="holdDaysChartOption" autoresize style="height: 220px; width: 100%" />
-            </div>
+          <div class="chart-half">
+            <div class="chart-title">🎯 策略雷达</div>
+            <VChart v-if="strategyCompareChartOption" :option="strategyCompareChartOption" autoresize style="height: 280px; width: 100%" />
           </div>
-          <!-- 盈亏TOP5 -->
-          <div class="top5-row" style="margin-bottom: 12px">
-            <div class="top5-card">
-              <div style="font-size: 13px; font-weight: 600; color: var(--stock-down); margin-bottom: 4px">🏆 盈利TOP5</div>
-              <ElTable v-if="profitTop5.length > 0" :data="profitTop5" size="small" border>
-                <ElTableColumn prop="ts_code" label="代码" width="100" />
-                <ElTableColumn label="名称" width="80">
-                  <template #default="{ row }">{{ row.name || row.stock_name || row.ts_code }}</template>
-                </ElTableColumn>
-                <ElTableColumn label="策略" width="100">
-              <template #default="{ row }">{{ strategyDisplayName(row.strategy) }}</template>
-            </ElTableColumn>
-                <ElTableColumn label="收益率" width="90">
-                  <template #default="{ row }">
-                    <span style="color: var(--stock-down)">{{ fmtPct(row.profit_pct) }}</span>
-                  </template>
-                </ElTableColumn>
-              </ElTable>
-              <ElEmpty v-else description="无盈利交易" :image-size="40" />
-            </div>
-            <div class="top5-card">
-              <div style="font-size: 13px; font-weight: 600; color: var(--stock-up); margin-bottom: 4px">💥 亏损TOP5</div>
-              <ElTable v-if="lossTop5.length > 0" :data="lossTop5" size="small" border>
-                <ElTableColumn prop="ts_code" label="代码" width="100" />
-                <ElTableColumn label="名称" width="80">
-                  <template #default="{ row }">{{ row.name || row.stock_name || row.ts_code }}</template>
-                </ElTableColumn>
-                <ElTableColumn label="策略" width="100">
-              <template #default="{ row }">{{ strategyDisplayName(row.strategy) }}</template>
-            </ElTableColumn>
-                <ElTableColumn label="收益率" width="90">
-                  <template #default="{ row }">
-                    <span style="color: var(--stock-up)">{{ fmtPct(row.profit_pct) }}</span>
-                  </template>
-                </ElTableColumn>
-              </ElTable>
-              <ElEmpty v-else description="无亏损交易" :image-size="40" />
-            </div>
-          </div>
-          <ElTable :data="pagedTrades" size="small" border stripe max-height="500"
-            :row-class-name="(data: any) => data.row?.profit_pct > 0 ? 'trade-profit' : data.row?.profit_pct < 0 ? 'trade-loss' : ''">
-            <ElTableColumn label="买入日" width="100" sortable>
-              <template #default="{ row }">{{ row.buy_date || row.date }}</template>
-            </ElTableColumn>
-            <ElTableColumn label="卖出日" width="100">
-              <template #default="{ row }">{{ row.sell_date || '-' }}</template>
-            </ElTableColumn>
+        </div>
+        <ElTable :data="Object.entries(result.strategy_results).map(([name, d]: any) => ({ name, ...d }))" size="small" border stripe style="margin-top: 12px">
+          <ElTableColumn label="策略名称" width="120">
+            <template #default="{ row }">{{ strategyDisplayName(row.name) }}</template>
+          </ElTableColumn>
+          <ElTableColumn label="累计盈利" width="100">
+            <template #default="{ row }">
+              <span :style="{ color: row.total_return >= 0 ? 'var(--stock-down)' : 'var(--stock-up)' }">{{ fmtPct(row.total_return) }}</span>
+            </template>
+          </ElTableColumn>
+          <ElTableColumn label="胜率" width="80">
+            <template #default="{ row }">{{ fmtPct(row.win_rate) }}</template>
+          </ElTableColumn>
+          <ElTableColumn prop="trades_count" label="交易次数" width="80" />
+          <ElTableColumn label="最大回撤" width="100">
+            <template #default="{ row }">
+              <span style="color: var(--stock-up)">{{ fmtPct(row.max_drawdown) }}</span>
+            </template>
+          </ElTableColumn>
+          <ElTableColumn label="单笔均利" width="100">
+            <template #default="{ row }">
+              <span v-if="row.trades_count > 0" :style="{ color: row.avg_profit_pct >= 0 ? 'var(--stock-down)' : 'var(--stock-up)' }">{{ fmtPct(row.avg_profit_pct) }}</span>
+              <span v-else>-</span>
+            </template>
+          </ElTableColumn>
+          <ElTableColumn label="盈亏比" width="80">
+            <template #default="{ row }">
+              <span v-if="row.profit_loss_ratio">{{ row.profit_loss_ratio.toFixed(2) }}</span>
+              <span v-else>-</span>
+            </template>
+          </ElTableColumn>
+        </ElTable>
+      </div>
+      <ElEmpty v-else description="至少启用2个策略才显示对比" />
+    </div>
+
+    <!-- ========== 交易记录 ========== -->
+    <div :class="['section-content', { 'section-hidden': activeSection !== 'trades' }]">
+      <div class="filter-bar">
+        <ElInput v-model="searchTradeKeyword" placeholder="搜索代码/名称" size="small" style="width: 200px" clearable />
+        <ElSelect v-model="filterStrategy" placeholder="策略筛选" size="small" style="width: 140px" clearable>
+          <ElOption v-for="s in availableStrategies" :key="s" :label="strategyDisplayName(s)" :value="s" />
+        </ElSelect>
+        <ElSelect v-model="filterProfit" placeholder="盈亏筛选" size="small" style="width: 120px" clearable>
+          <ElOption label="盈利" value="profit" />
+          <ElOption label="亏损" value="loss" />
+        </ElSelect>
+        <ElButton size="small" :icon="Download" @click="exportTrades">导出表格</ElButton>
+      </div>
+      <div style="display: flex; gap: 16px; margin-bottom: 12px">
+        <div v-if="profitDistChartOption" style="flex: 1">
+          <div class="chart-title">📊 盈亏分布</div>
+          <VChart :option="profitDistChartOption" autoresize style="height: 220px; width: 100%" />
+        </div>
+        <div v-if="holdDaysChartOption" style="flex: 1">
+          <div class="chart-title">⏱️ 持仓时长</div>
+          <VChart :option="holdDaysChartOption" autoresize style="height: 220px; width: 100%" />
+        </div>
+      </div>
+      <div class="top5-row" style="margin-bottom: 12px">
+        <div class="top5-card">
+          <div style="font-size: 13px; font-weight: 600; color: var(--stock-down); margin-bottom: 4px">🏆 盈利TOP5</div>
+          <ElTable v-if="profitTop5.length > 0" :data="profitTop5" size="small" border>
             <ElTableColumn prop="ts_code" label="代码" width="100" />
             <ElTableColumn label="名称" width="80">
-              <template #default="{ row }">{{ row.name || row.stock_name || '-' }}</template>
+              <template #default="{ row }">{{ row.name || row.stock_name || row.ts_code }}</template>
             </ElTableColumn>
             <ElTableColumn label="策略" width="100">
               <template #default="{ row }">{{ strategyDisplayName(row.strategy) }}</template>
             </ElTableColumn>
-            <ElTableColumn label="买入价" width="80">
-              <template #default="{ row }">{{ row.buy_price?.toFixed(2) ?? '-' }}</template>
-            </ElTableColumn>
-            <ElTableColumn label="卖出价" width="80">
-              <template #default="{ row }">{{ row.sell_price?.toFixed(2) ?? '-' }}</template>
-            </ElTableColumn>
-            <ElTableColumn label="盈亏额" width="110" sortable>
-              <template #default="{ row }">
-                <template v-if="row.profit_pct != null && row.shares && row.buy_price">
-                  <span :style="{ color: row.profit_pct > 0 ? 'var(--stock-down)' : 'var(--stock-up)' }">
-                    ¥{{ (row.buy_price * row.shares * row.profit_pct / 100).toFixed(0) }}
-                  </span>
-                </template>
-                <span v-else>-</span>
-              </template>
-            </ElTableColumn>
-            <ElTableColumn label="收益率" width="90" sortable>
-              <template #default="{ row }">
-                <span :style="{ color: row.profit_pct > 0 ? 'var(--stock-down)' : 'var(--stock-up)' }">
-                  {{ fmtPct(row.profit_pct) }}
-                </span>
-              </template>
-            </ElTableColumn>
-            <ElTableColumn label="持仓天数" width="80" sortable>
-              <template #default="{ row }">{{ row.hold_days ?? '-' }}</template>
-            </ElTableColumn>
-            <ElTableColumn label="股数" width="70">
-              <template #default="{ row }">{{ row.shares ?? '-' }}</template>
-            </ElTableColumn>
-            <!-- 任务3: 卖出原因列(中文翻译) -->
-            <ElTableColumn label="卖出原因" width="100">
-              <template #default="{ row }">
-                <span v-if="translateSellReason(row.sell_reason || row.reason) === '持仓中'" style="color: var(--el-color-warning); font-weight: 600">持仓中</span>
-                <span v-else>{{ translateSellReason(row.sell_reason || row.reason) }}</span>
-              </template>
+            <ElTableColumn label="收益率" width="90">
+              <template #default="{ row }"><span style="color: var(--stock-down)">{{ fmtPct(row.profit_pct) }}</span></template>
             </ElTableColumn>
           </ElTable>
-          <!-- 【V63修复:P1-9】交易记录分页控件 -->
-          <ElPagination
-            v-if="filteredTrades.length > tradePageSize"
-            v-model:current-page="tradeCurrentPage"
-            v-model:page-size="tradePageSize"
-            :page-sizes="[10, 20, 50, 100]"
-            :total="filteredTrades.length"
-            layout="total, sizes, prev, pager, next"
-            style="margin-top: 12px; justify-content: center"
-          />
-        </ElTabPane>
+          <ElEmpty v-else description="无盈利交易" :image-size="40" />
+        </div>
+        <div class="top5-card">
+          <div style="font-size: 13px; font-weight: 600; color: var(--stock-up); margin-bottom: 4px">💥 亏损TOP5</div>
+          <ElTable v-if="lossTop5.length > 0" :data="lossTop5" size="small" border>
+            <ElTableColumn prop="ts_code" label="代码" width="100" />
+            <ElTableColumn label="名称" width="80">
+              <template #default="{ row }">{{ row.name || row.stock_name || row.ts_code }}</template>
+            </ElTableColumn>
+            <ElTableColumn label="策略" width="100">
+              <template #default="{ row }">{{ strategyDisplayName(row.strategy) }}</template>
+            </ElTableColumn>
+            <ElTableColumn label="收益率" width="90">
+              <template #default="{ row }"><span style="color: var(--stock-up)">{{ fmtPct(row.profit_pct) }}</span></template>
+            </ElTableColumn>
+          </ElTable>
+          <ElEmpty v-else description="无亏损交易" :image-size="40" />
+        </div>
+      </div>
+      <ElTable :data="pagedTrades" size="small" border stripe max-height="500"
+        :row-class-name="(data: any) => data.row?.profit_pct > 0 ? 'trade-profit' : data.row?.profit_pct < 0 ? 'trade-loss' : ''">
+        <ElTableColumn label="买入日" width="100" sortable>
+          <template #default="{ row }">{{ row.buy_date || row.date }}</template>
+        </ElTableColumn>
+        <ElTableColumn label="卖出日" width="100">
+          <template #default="{ row }">{{ row.sell_date || '-' }}</template>
+        </ElTableColumn>
+        <ElTableColumn prop="ts_code" label="代码" width="100" />
+        <ElTableColumn label="名称" width="80">
+          <template #default="{ row }">{{ row.name || row.stock_name || '-' }}</template>
+        </ElTableColumn>
+        <ElTableColumn label="策略" width="100">
+          <template #default="{ row }">{{ strategyDisplayName(row.strategy) }}</template>
+        </ElTableColumn>
+        <ElTableColumn label="买入价" width="80">
+          <template #default="{ row }">{{ row.buy_price?.toFixed(2) ?? '-' }}</template>
+        </ElTableColumn>
+        <ElTableColumn label="卖出价" width="80">
+          <template #default="{ row }">{{ row.sell_price?.toFixed(2) ?? '-' }}</template>
+        </ElTableColumn>
+        <ElTableColumn label="盈亏额" width="110" sortable>
+          <template #default="{ row }">
+            <template v-if="row.profit_pct != null && row.shares && row.buy_price">
+              <span :style="{ color: row.profit_pct > 0 ? 'var(--stock-down)' : 'var(--stock-up)' }">¥{{ (row.buy_price * row.shares * row.profit_pct / 100).toFixed(0) }}</span>
+            </template>
+            <span v-else>-</span>
+          </template>
+        </ElTableColumn>
+        <ElTableColumn label="收益率" width="90" sortable>
+          <template #default="{ row }">
+            <span :style="{ color: row.profit_pct > 0 ? 'var(--stock-down)' : 'var(--stock-up)' }">{{ fmtPct(row.profit_pct) }}</span>
+          </template>
+        </ElTableColumn>
+        <ElTableColumn label="持仓天数" width="80" sortable>
+          <template #default="{ row }">{{ row.hold_days ?? '-' }}</template>
+        </ElTableColumn>
+        <ElTableColumn label="股数" width="70">
+          <template #default="{ row }">{{ row.shares ?? '-' }}</template>
+        </ElTableColumn>
+        <ElTableColumn label="卖出原因" width="100">
+          <template #default="{ row }">
+            <span v-if="translateSellReason(row.sell_reason || row.reason) === '持仓中'" style="color: var(--el-color-warning); font-weight: 600">持仓中</span>
+            <span v-else>{{ translateSellReason(row.sell_reason || row.reason) }}</span>
+          </template>
+        </ElTableColumn>
+      </ElTable>
+      <ElPagination
+        v-if="filteredTrades.length > tradePageSize"
+        v-model:current-page="tradeCurrentPage"
+        v-model:page-size="tradePageSize"
+        :page-sizes="[10, 20, 50, 100]"
+        :total="filteredTrades.length"
+        layout="total, sizes, prev, pager, next"
+        style="margin-top: 12px; justify-content: center"
+      />
+    </div>
 
-        <!-- Tab 4: 月度归因 -->
-        <ElTabPane label="📅 月度归因" name="monthly">
-          <div v-if="monthlyData.length > 0">
-            <div style="font-size: 13px; font-weight: 600; margin-bottom: 4px">📊 月度收益分布</div>
-            <VChart v-if="monthlyReturnChartOption" :option="monthlyReturnChartOption" autoresize style="height: 350px; width: 100%" />
-            <ElTable :data="monthlyMergedData" size="small" border stripe style="margin-top: 16px">
-              <ElTableColumn prop="month" label="月份" width="100" />
-              <ElTableColumn label="月度收益" width="100" sortable>
-                <template #default="{ row }">
-                  <span :style="{ color: row.return_pct >= 0 ? 'var(--stock-down)' : 'var(--stock-up)' }">{{ row.return_pct.toFixed(2) }}%</span>
-                </template>
-              </ElTableColumn>
-              <ElTableColumn prop="trades" label="交易笔数" width="100" sortable />
-              <ElTableColumn label="胜率" width="80">
-                <template #default="{ row }">{{ row.win_rate.toFixed(1) }}%</template>
-              </ElTableColumn>
-            </ElTable>
-          </div>
-          <ElEmpty v-else description="暂无月度数据" />
-        </ElTabPane>
+    <!-- ========== 月度归因 ========== -->
+    <div :class="['section-content', { 'section-hidden': activeSection !== 'monthly' }]">
+      <div v-if="monthlyData.length > 0">
+        <div class="chart-section">
+          <div class="chart-title">📅 月度收益分布</div>
+          <VChart v-if="monthlyReturnChartOption" :option="monthlyReturnChartOption" autoresize style="height: 350px; width: 100%" />
+        </div>
+        <ElTable :data="monthlyMergedData" size="small" border stripe style="margin-top: 16px">
+          <ElTableColumn prop="month" label="月份" width="100" />
+          <ElTableColumn label="月度收益" width="100" sortable>
+            <template #default="{ row }">
+              <span :style="{ color: row.return_pct >= 0 ? 'var(--stock-down)' : 'var(--stock-up)' }">{{ row.return_pct.toFixed(2) }}%</span>
+            </template>
+          </ElTableColumn>
+          <ElTableColumn prop="trades" label="交易笔数" width="100" sortable />
+          <ElTableColumn label="胜率" width="80">
+            <template #default="{ row }">{{ row.win_rate.toFixed(1) }}%</template>
+          </ElTableColumn>
+        </ElTable>
+      </div>
+      <ElEmpty v-else description="暂无月度数据" />
+    </div>
 
-        <!-- Tab 5: 风险指标 -->
-        <ElTabPane label="🛡️ 风险指标" name="risk">
-          <div class="risk-grid">
-            <div v-for="m in riskMetrics" :key="m.name" class="risk-item">
-              <span class="risk-name">{{ m.name }}</span>
-              <span class="risk-value">{{ m.value }}</span>
-              <span class="risk-desc">{{ m.desc }}</span>
-            </div>
-          </div>
-        </ElTabPane>
-
-        <!-- Tab 6: 运行日志 -->
-        <ElTabPane label="📋 运行日志" name="logs">
-          <AnsiLogPanel v-if="props.taskId" :task-id="props.taskId" :task-status="props.taskStatus || 'completed'" :height="600" />
-          <ElEmpty v-else description="暂无日志" />
-        </ElTabPane>
-
-      </ElTabs>
-    </ElCard>
+    <!-- ========== 风险指标 ========== -->
+    <div :class="['section-content', { 'section-hidden': activeSection !== 'risk' }]">
+      <div class="risk-grid">
+        <div v-for="m in riskMetrics" :key="m.name" class="risk-item">
+          <span class="risk-name">{{ m.name }}</span>
+          <span class="risk-value">{{ m.value }}</span>
+          <span class="risk-desc">{{ m.desc }}</span>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
+
 <script lang="ts">
 export default { name: 'BacktestResultPanel' }
 </script>
@@ -1167,31 +1193,104 @@ export default { name: 'BacktestResultPanel' }
   margin-top: 16px;
 }
 .kpi-strip {
-  /* 【V63修复:P2-1】KPI strip使用CSS Grid避免换行不美观 */
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
   gap: 8px;
   margin-bottom: 16px;
   min-width: 0;
 }
 .kpi-chip {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  padding: 10px 16px;
+  gap: 8px;
+  padding: 10px 14px;
   border-radius: 8px;
-  background: linear-gradient(135deg, var(--bg-muted) 0%, var(--el-fill-color-blank) 100%);
   border: 1px solid var(--border-default);
-  min-width: min(90px, 20%);
   flex: 1 1 auto;
-  transition: box-shadow 0.2s;
+  transition: box-shadow 0.2s, transform 0.15s;
   &:hover {
-    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    transform: translateY(-1px);
   }
 }
+.kpi-icon { font-size: 20px; flex-shrink: 0; }
+.kpi-body { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
 .kpi-label { font-size: 11px; color: var(--text-tertiary); font-weight: 500; }
-.kpi-value { font-size: 17px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.kpi-value { font-size: 16px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.kpi-positive { background: linear-gradient(135deg, rgba(103,194,58,0.08) 0%, rgba(103,194,58,0.02) 100%); border-color: rgba(103,194,58,0.2); }
+.kpi-positive .kpi-value { color: var(--stock-down); }
+.kpi-negative { background: linear-gradient(135deg, rgba(245,108,108,0.08) 0%, rgba(245,108,108,0.02) 100%); border-color: rgba(245,108,108,0.2); }
+.kpi-negative .kpi-value { color: var(--stock-up); }
+.kpi-warning { background: linear-gradient(135deg, rgba(230,162,60,0.08) 0%, rgba(230,162,60,0.02) 100%); border-color: rgba(230,162,60,0.2); }
+.kpi-warning .kpi-value { color: var(--el-color-warning); }
+.kpi-accent { background: linear-gradient(135deg, rgba(64,158,255,0.08) 0%, rgba(64,158,255,0.02) 100%); border-color: rgba(64,158,255,0.2); }
+.kpi-accent .kpi-value { color: var(--el-color-primary); }
+.kpi-neutral { background: var(--bg-muted); }
 .annual-warn { color: var(--el-color-warning); cursor: help; font-weight: 700; }
+
+/* Section navigation */
+.section-nav {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  padding: 4px;
+  background: var(--bg-muted);
+  border-radius: 8px;
+  border: 1px solid var(--border-default);
+}
+.sec-btn {
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.sec-btn:hover { color: var(--primary-500); background: var(--bg-elevated); }
+.sec-btn.active {
+  color: var(--primary-500);
+  background: var(--bg-elevated);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+.section-content { animation: fadeIn 0.2s ease; }
+.section-hidden { display: none; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* Chart layout */
+.chart-section {
+  margin-bottom: 16px;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+}
+.chart-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+.chart-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.chart-half {
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+}
+@media (max-width: 900px) {
+  .chart-row { grid-template-columns: 1fr; }
+}
+
 .chart-card { margin-bottom: 0; }
 .risk-grid {
   display: grid;

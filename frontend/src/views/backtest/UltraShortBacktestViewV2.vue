@@ -9,7 +9,6 @@ import { ElMessage } from 'element-plus'
 import { useThemeStore } from '@/stores'
 import StrategyConfigPanel from '@/components/ultrashort/StrategyConfigPanel.vue'
 import AnsiLogPanel from '@/components/backtest/AnsiLogPanel.vue'
-import BacktestSummaryTable from '@/components/backtest/BacktestSummaryTable.vue'
 import BacktestResultPanel from '@/components/ultrashort/BacktestResultPanel.vue'
 import BacktestHistoryPanel from '@/components/backtest/BacktestHistoryPanel.vue'
 import DataStatusPanel from '@/components/ultrashort/DataStatusPanel.vue'
@@ -469,7 +468,7 @@ const submitBacktest = async () => {
         console.log('[BacktestWS] result received, net_value_series length:', data.result?.net_value_series?.length, 'keys:', Object.keys(data.result || {}).slice(0, 10))
         backtestResult.value = data.result
         backtestState.running = false
-        activeMainTab.value = 'result'  // 自动切换到结果Tab
+        activeMainTab.value = 'log'  // 自动切换到回测日志Tab
         if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null }
         addLog('✅ 回测全部完成！')
         ElMessage.success('回测完成！')
@@ -504,7 +503,7 @@ const submitBacktest = async () => {
                 const resultRes = await backtestApi.getBacktestResult(backtestState.task_id)
                 backtestResult.value = resultRes.data.result
                 backtestState.running = false
-                activeMainTab.value = 'result'  // 轮询完成也切到结果Tab
+                activeMainTab.value = 'log'  // 轮询完成也切到回测日志Tab
                 ElMessage.success('回测完成！')
                 clearInterval(pollInterval)
               } else if (data.status === 'failed') {
@@ -711,11 +710,11 @@ const addLog = (text: string) => {
 
 // ==================== 历史回测操作 ====================
 
-const activeMainTab = ref<'config' | 'result' | 'report' | 'history' | 'data' | 'factors'>('config')
+const activeMainTab = ref<'config' | 'log' | 'result' | 'report' | 'history' | 'data' | 'factors'>('config')
 
 // 【BUG修复】watch activeMainTab 直接操作DOM确保面板切换可靠
 // Vue的v-show/:class绑定在Vite HMR后可能失效，用watch+DOM操作保障
-const tabPanelMap: Record<string, number> = { config: 0, result: 1, report: 2, history: 3, data: 4, factors: 5 }
+const tabPanelMap: Record<string, number> = { config: 0, log: 1, result: 2, report: 3, history: 4, data: 5, factors: 6 }
 watch(activeMainTab, (newTab) => {
   const panels = document.querySelectorAll('.tab-content-full')
   const targetIdx = tabPanelMap[newTab]
@@ -830,7 +829,7 @@ function onViewResult(task: BacktestHistoryItem) {
     if (result) {
       backtestResult.value = result
       backtestState.task_id = task.task_id
-      activeMainTab.value = 'result'  // 切到日志与结果Tab看结果
+      activeMainTab.value = 'result'  // 切到结果分析Tab看结果
       ElMessage.success('已加载历史回测结果')
     } else {
       ElMessage.warning('该回测无结果数据')
@@ -842,8 +841,8 @@ function onViewResult(task: BacktestHistoryItem) {
 
 /** 查看历史回测日志 */
 function onViewLogs(_taskId: string) {
-  // 切到日志与结果Tab
-  activeMainTab.value = 'result'
+  // 切到回测日志Tab
+  activeMainTab.value = 'log'
 }
 </script>
 
@@ -853,21 +852,61 @@ function onViewLogs(_taskId: string) {
     <div class="page-header-bar">
       <div class="ph-left">
         <span class="ph-title">📈 超短策略回测</span>
-        <span v-if="backtestResult" class="ph-sep">|</span>
-        <span v-if="backtestResult" class="ph-metric up">收益 {{ backtestResult.total_return?.toFixed(1) }}%</span>
-        <span v-if="backtestResult" class="ph-metric">胜率 {{ backtestResult.win_rate?.toFixed(1) }}%</span>
-        <span v-if="backtestResult" class="ph-metric down">回撤 {{ backtestResult.max_drawdown?.toFixed(2) }}%</span>
-        <span v-if="backtestResult" class="ph-metric">夏普 {{ backtestResult.sharpe_ratio?.toFixed(2) }}</span>
-        <span v-if="backtestResult" class="ph-metric">{{ backtestResult.merged_trades?.length || backtestResult.all_trades?.length || 0 }}笔</span>
         <span v-if="backtestState.running" class="ph-running">⏱ 运行中</span>
         <span class="ph-sep">|</span>
         <div class="ph-tabs">
-          <button :class="['tab-btn', activeMainTab === 'config' ? 'active' : '']" @click="activeMainTab = 'config'">🎯 配置</button>
-          <button :class="['tab-btn', activeMainTab === 'result' ? 'active' : '']" @click="activeMainTab = 'result'">📈 结果<span v-if="backtestResult" class="tab-badge-success">✓</span><span v-else-if="backtestState.running" class="tab-badge-running">运行中</span></button>
-          <button :class="['tab-btn', activeMainTab === 'report' ? 'active' : '']" @click="activeMainTab = 'report'">📋 复盘</button>
-          <button :class="['tab-btn', activeMainTab === 'history' ? 'active' : '']" @click="activeMainTab = 'history'">📋 历史<span class="tab-badge">{{ historyCount }}</span></button>
-          <button :class="['tab-btn', activeMainTab === 'data' ? 'active' : '']" @click="activeMainTab = 'data'">🗄️ 数据</button>
-          <button :class="['tab-btn', activeMainTab === 'factors' ? 'active' : '']" @click="activeMainTab = 'factors'">📊 因子</button>
+          <button :class="['tab-btn', activeMainTab === 'config' ? 'active' : '']" @click="activeMainTab = 'config'">
+            <span class="tab-icon">🎯</span>
+            <span class="tab-text">
+              <span class="tab-label">配置</span>
+              <span class="tab-desc">策略参数与提交</span>
+            </span>
+          </button>
+          <button :class="['tab-btn', activeMainTab === 'log' ? 'active' : '']" @click="activeMainTab = 'log'">
+            <span class="tab-icon">📜</span>
+            <span class="tab-text">
+              <span class="tab-label">回测日志</span>
+              <span class="tab-desc">实时运行输出</span>
+            </span>
+            <span v-if="backtestState.running" class="tab-badge-running">运行中</span>
+          </button>
+          <button :class="['tab-btn', activeMainTab === 'result' ? 'active' : '']" @click="activeMainTab = 'result'">
+            <span class="tab-icon">📊</span>
+            <span class="tab-text">
+              <span class="tab-label">结果分析</span>
+              <span class="tab-desc">收益曲线与指标</span>
+            </span>
+            <span v-if="backtestResult" class="tab-badge-success">✓</span>
+          </button>
+          <button :class="['tab-btn', activeMainTab === 'report' ? 'active' : '']" @click="activeMainTab = 'report'">
+            <span class="tab-icon">📋</span>
+            <span class="tab-text">
+              <span class="tab-label">复盘</span>
+              <span class="tab-desc">亮点诊断与策略对比</span>
+            </span>
+          </button>
+          <button :class="['tab-btn', activeMainTab === 'history' ? 'active' : '']" @click="activeMainTab = 'history'">
+            <span class="tab-icon">📚</span>
+            <span class="tab-text">
+              <span class="tab-label">历史</span>
+              <span class="tab-desc">过往回测记录</span>
+            </span>
+            <span class="tab-badge">{{ historyCount }}</span>
+          </button>
+          <button :class="['tab-btn', activeMainTab === 'data' ? 'active' : '']" @click="activeMainTab = 'data'">
+            <span class="tab-icon">🗄️</span>
+            <span class="tab-text">
+              <span class="tab-label">数据</span>
+              <span class="tab-desc">行情与因子完整性</span>
+            </span>
+          </button>
+          <button :class="['tab-btn', activeMainTab === 'factors' ? 'active' : '']" @click="activeMainTab = 'factors'">
+            <span class="tab-icon">🧮</span>
+            <span class="tab-text">
+              <span class="tab-label">因子</span>
+              <span class="tab-desc">因子库与权重参考</span>
+            </span>
+          </button>
         </div>
       </div>
       <div class="ph-right">
@@ -882,11 +921,11 @@ function onViewLogs(_taskId: string) {
     <div :class="['tab-content-full', { 'tab-hidden': activeMainTab !== 'config' }]">
       <!-- 运行状态/耗时 -->
       <div :class="{ 'tab-hidden': !backtestState.running }" class="running-status">
-        ⏱ 已运行 {{ Math.floor(elapsedSeconds / 60) }}:{{ String(elapsedSeconds % 60).padStart(2, '0') }} · 回测运行中，完成后自动切换到「日志与结果」
+        ⏱ 已运行 {{ Math.floor(elapsedSeconds / 60) }}:{{ String(elapsedSeconds % 60).padStart(2, '0') }} · 回测运行中，完成后自动切换到「回测日志」
       </div>
       <div :class="{ 'tab-hidden': !backtestResult?.execution_time_ms }" class="execution-time">
         ⏱ 上次回测耗时 {{ (backtestResult.execution_time_ms / 1000).toFixed(1) }}秒 · {{ backtestResult?.net_value_series?.length || 0 }} 交易日
-        <ElButton size="small" type="primary" link @click="activeMainTab = 'result'">📈 查看结果 →</ElButton>
+        <ElButton size="small" type="primary" link @click="activeMainTab = 'log'">📜 查看日志 →</ElButton>
       </div>
 
       <!-- 策略配置面板 - 全屏展示 -->
@@ -899,8 +938,8 @@ function onViewLogs(_taskId: string) {
       />
     </div>
 
-    <!-- Tab内容：日志与结果（全屏独立标签页） -->
-    <div :class="['tab-content-full', { 'tab-hidden': activeMainTab !== 'result' }]">
+    <!-- Tab内容：回测日志（全屏独立标签页） -->
+    <div :class="['tab-content-full', { 'tab-hidden': activeMainTab !== 'log' }]">
       <!-- 运行状态/耗时 -->
       <div :class="{ 'tab-hidden': !backtestState.running }" class="running-status">
         ⏱ 已运行 {{ Math.floor(elapsedSeconds / 60) }}:{{ String(elapsedSeconds % 60).padStart(2, '0') }} · 回测运行中...
@@ -910,12 +949,33 @@ function onViewLogs(_taskId: string) {
         <ElButton size="small" type="primary" link @click="activeMainTab = 'config'">🎯 修改配置 →</ElButton>
       </div>
 
-      <!-- 无结果时的空状态 -->
-      <div :class="{ 'tab-hidden': backtestState.running || backtestResult || backtestState.task_id }" class="empty-result">
+      <!-- 无日志时的空状态 -->
+      <div :class="{ 'tab-hidden': backtestState.running || backtestState.task_id }" class="empty-result">
         <div class="empty-hint">
-          <div class="empty-icon">📈</div>
-          <div class="empty-title">暂无回测结果</div>
-          <div class="empty-desc">请先在「回测配置」标签页中配置并提交回测</div>
+          <div class="empty-icon">📜</div>
+          <div class="empty-title">暂无回测日志</div>
+          <div class="empty-desc">请先在「配置」标签页中提交回测</div>
+          <ElButton type="primary" style="margin-top: 16px" @click="activeMainTab = 'config'">前往配置 →</ElButton>
+        </div>
+      </div>
+
+      <!-- 日志面板 -->
+      <AnsiLogPanel :class="{ 'tab-hidden': !backtestState.running && !backtestState.task_id }" :task-id="backtestState.task_id" :task-status="backtestState.running ? 'running' : 'completed'" :height="700" />
+
+      <!-- 日志底部快捷切换 -->
+      <div v-if="backtestResult" class="log-bottom-action">
+        <ElButton type="primary" @click="activeMainTab = 'result'">📊 查看结果分析 →</ElButton>
+      </div>
+    </div>
+
+    <!-- Tab内容：结果分析（全屏独立标签页） -->
+    <div :class="['tab-content-full', { 'tab-hidden': activeMainTab !== 'result' }]">
+      <!-- 无结果时的空状态 -->
+      <div :class="{ 'tab-hidden': backtestState.running || backtestResult }" class="empty-result">
+        <div class="empty-hint">
+          <div class="empty-icon">📊</div>
+          <div class="empty-title">暂无结果分析</div>
+          <div class="empty-desc">回测完成后可在此查看收益曲线、交易明细等</div>
           <ElButton type="primary" style="margin-top: 16px" @click="activeMainTab = 'config'">前往配置 →</ElButton>
         </div>
       </div>
@@ -943,12 +1003,6 @@ function onViewLogs(_taskId: string) {
           <ElTableColumn prop="total_trades" label="交易数" width="80" />
         </ElTable>
       </ElCard>
-
-      <!-- 回测结果总结表格 -->
-      <BacktestSummaryTable :class="{ 'tab-hidden': !backtestResult }" :result="backtestResult" />
-
-      <!-- 日志面板(放在结果前面，回测时更方便查看) -->
-      <AnsiLogPanel :class="{ 'tab-hidden': !backtestState.running && !backtestState.task_id }" :task-id="backtestState.task_id" :task-status="backtestState.running ? 'running' : 'completed'" :height="600" />
 
       <!-- 回测结果详细面板 -->
       <BacktestResultPanel :class="{ 'tab-hidden': !backtestResult }" :result="backtestResult" :form="form" :task-id="backtestState.task_id" :task-status="backtestState.running ? 'running' : 'completed'" />
@@ -1123,13 +1177,6 @@ function onViewLogs(_taskId: string) {
     font-weight: 300;
   }
 
-  .ph-metric {
-    font-size: 12px;
-    color: var(--text-secondary);
-    white-space: nowrap;
-  }
-  .ph-metric.up { color: var(--stock-down, #f5222d); }
-  .ph-metric.down { color: var(--stock-up, #52c41a); }
 
   .ph-running {
     font-size: 12px;
@@ -1147,7 +1194,7 @@ function onViewLogs(_taskId: string) {
   }
 
   .ph-tabs .tab-btn {
-    padding: 4px 12px;
+    padding: 4px 10px;
     font-size: 12px;
     font-weight: 500;
     border: none;
@@ -1157,9 +1204,18 @@ function onViewLogs(_taskId: string) {
     border-radius: 4px;
     transition: all 0.15s;
     white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 4px;
   }
+  .ph-tabs .tab-btn .tab-icon { font-size: 14px; flex-shrink: 0; }
+  .ph-tabs .tab-btn .tab-text { display: flex; flex-direction: column; line-height: 1.2; }
+  .ph-tabs .tab-btn .tab-label { font-size: 12px; font-weight: 600; }
+  .ph-tabs .tab-btn .tab-desc { font-size: 10px; color: var(--text-quaternary); opacity: 0.8; }
   .ph-tabs .tab-btn:hover { color: var(--primary-500); background: var(--bg-elevated); }
+  .ph-tabs .tab-btn:hover .tab-desc { color: var(--text-tertiary); }
   .ph-tabs .tab-btn.active { color: var(--primary-500); background: var(--bg-elevated); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+  .ph-tabs .tab-btn.active .tab-desc { color: var(--text-tertiary); opacity: 1; }
 
   .ph-right {
     display: flex;
@@ -1303,10 +1359,16 @@ function onViewLogs(_taskId: string) {
   gap: 8px;
 }
 
+.log-bottom-action {
+  display: flex;
+  justify-content: center;
+  padding: 16px 0 8px;
+}
+
 @media (max-width: 1000px) {
   .ultra-short-v2-page { }
   .page-header-bar { padding: 6px 10px; }
-  .ph-metric { display: none; }
+  .ph-tabs .tab-btn .tab-desc { display: none; }
 }
 
 
