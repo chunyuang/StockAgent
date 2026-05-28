@@ -281,6 +281,8 @@ class MarketScanner:
         self._signal_manager = SignalManager(self)
         from nodes.market_monitor.position_checker import PositionChecker
         self._position_checker = PositionChecker(self)
+        from nodes.market_monitor.runtime_persistence import RuntimePersistence
+        self._runtime_persistence = RuntimePersistence(self)
 
         # 【V54:分级行情扫描器】
         self._use_tiered = self.config.get("use_tiered_scanner", False)  # 默认关闭, 显式启用
@@ -406,110 +408,11 @@ class MarketScanner:
         return list(self._timeline)
 
     async def _save_timeline(self):
-        """保存时间线到MongoDB(追加模式, 不删除历史)"""
-        try:
-            from core.managers import mongo_manager
-            if mongo_manager.db is None:
-                return
-            today = datetime.now().strftime("%Y%m%d")
-            if not self._timeline:
-                return
-            # 只保存今天的时间线
-            docs = []
-            for item in self._timeline:
-                doc = dict(item)
-                doc["account_id"] = self._broker.account.account_id if self._broker else "default"
-                doc["trade_date"] = today
-                # decision_detail可能很大, 但值得保存
-                docs.append(doc)
-            # 去重: 查已有记录的time+ts_code+action组合, 只插入新的
-            existing_keys = set()
-            async for doc in mongo_manager.db["scanner_timeline"].find(
-                {"account_id": docs[0]["account_id"], "trade_date": today},
-                {"time": 1, "ts_code": 1, "action": 1, "_id": 0}
-            ):
-                existing_keys.add(f"{doc.get('time','')}|{doc.get('ts_code','')}|{doc.get('action','')}")
-            new_docs = [d for d in docs if f"{d.get('time','')}|{d.get('ts_code','')}|{d.get('action','')}" not in existing_keys]
-            if new_docs:
-                await mongo_manager.db["scanner_timeline"].insert_many(new_docs)
-                logger.info(f"[SCAN] 保存时间线: {len(new_docs)}条新增")
-        except Exception as e:
-            logger.info(f"[SCAN] 保存时间线失败(非关键): {e}")
-
+        """保存时间线 — 委托给RuntimePersistence【Phase3.1】"""
     async def _save_scan_traces(self, filter_result):
-        """【V50.1】保存扫描链路追踪到MongoDB
-        
-        记录每层筛选的完整候选状态, 用于复盘选股全流程
-        """
-        try:
-            from core.managers import mongo_manager
-            if mongo_manager.db is None:
-                return
-            if not filter_result or not filter_result.trace_candidates:
-                return
-            
-            today = datetime.now().strftime("%Y%m%d")
-            trace_doc = {
-                "trade_date": today,
-                "scan_time": datetime.now().isoformat(),
-                "account_id": self._broker.account.account_id if self._broker else "default",
-                "summary": {},
-                "candidates": [],
-            }
-            
-            # 汇总
-            for layer, stats in filter_result.trace_summary.items():
-                trace_doc["summary"][layer] = dict(stats)
-            trace_doc["summary"]["total_candidates"] = len(filter_result.trace_candidates)
-            trace_doc["summary"]["passed"] = len([t for t in filter_result.trace_candidates if t.final_status == "passed"])
-            trace_doc["summary"]["rejected"] = len([t for t in filter_result.trace_candidates if t.final_status == "rejected"])
-            
-            # 逐候选明细
-            for t in filter_result.trace_candidates:
-                trace_doc["candidates"].append({
-                    "ts_code": t.ts_code,
-                    "stock_name": t.stock_name,
-                    "strategy": t.strategy,
-                    "strategy_name": t.strategy_name,
-                    "price": t.price,
-                    "pct_chg": t.pct_chg,
-                    "final_status": t.final_status,
-                    "rejection_layer": t.final_rejection_layer,
-                    "rejection_reason": t.final_rejection_reason,
-                    "layer_results": t.layer_results,
-                })
-            
-            await mongo_manager.db["scan_traces"].insert_one(trace_doc)
-            logger.info(f"[SCAN] 保存链路追踪: {trace_doc['summary']['total_candidates']}候选, "
-                       f"{trace_doc['summary']['passed']}通过/{trace_doc['summary']['rejected']}拒绝")
-        except Exception as e:
-            logger.warning(f"[SCAN] 保存链路追踪失败(非关键): {e}")
-
+        """保存扫描链路追踪 — 委托给RuntimePersistence【Phase3.1】"""
     async def _load_timeline(self):
-        """从MongoDB加载时间线(启动时恢复)"""
-        try:
-            from core.managers import mongo_manager
-            if mongo_manager.db is None:
-                return
-            today = datetime.now().strftime("%Y%m%d")
-            account_id = self._broker.account.account_id if self._broker else "default"
-            cursor = mongo_manager.db["scanner_timeline"].find(
-                {"account_id": account_id, "trade_date": today}
-            ).sort("_id", 1)  # 按插入顺序
-            async for doc in cursor:
-                doc.pop("_id", None)
-                doc.pop("account_id", None)
-                doc.pop("trade_date", None)
-                self._timeline.append(doc)
-            if self._timeline:
-                logger.info(f"[SCAN] 恢复时间线: {len(self._timeline)}条")
-        except Exception as e:
-            logger.debug(f"[SCAN] 加载时间线失败(非关键): {e}")
-
-    # (update_strategy_config moved to end of class — see hot-update version)
-
-    # ==================== 生命周期 ====================
-
+        """加载时间线 — 委托给RuntimePersistence【Phase3.1】"""
     async def start(self, trade_date: str = None):
         """启动扫描"""
         if self._is_running:
@@ -2132,255 +2035,20 @@ class MarketScanner:
 
     @staticmethod
     def _safe_round(v, digits=2):
-        """安全round, 处理None/NaN/inf"""
-        if v is None:
-            return None
-        try:
-            import math
-            if math.isnan(v) or math.isinf(v):
-                return None
-            return round(v, digits)
-        except (TypeError, ValueError):
-            return None
+        """安全round — 委托给ScannerUtils【Phase3.1】"""
+        from nodes.market_monitor.scanner_utils import ScannerUtils
+        return ScannerUtils.safe_round(v, digits)
 
     async def _publish_scanner_event(self, event_type: str, data: Dict):
-        """推送scanner事件到Redis
-        
-        【Phase2.1:Signal/Position用Redis Stream(不可丢), 其他用Pub/Sub(允许丢)】
-        - scanner:signal → Redis Stream(maxlen=1000)
-        - scanner:position → Redis Stream(maxlen=5000)
-        - scanner:timeline → Redis Pub/Sub(允许丢,1秒后还有下一帧)
-        - scanner:status → Redis Pub/Sub(允许丢)
-        """
-        try:
-            from core.managers import redis_manager
-            if not redis_manager._client:
-                return
-            
-            data["timestamp"] = datetime.now().strftime("%H:%M:%S")
-            payload = json.dumps(data, ensure_ascii=False, default=str)
-            
-            if event_type in ("signal", "position"):
-                # Redis Stream(不可丢, 有消费组ACK机制)
-                stream_key = f"scanner:{event_type}"
-                await redis_manager._client.xadd(
-                    stream_key,
-                    {"data": payload},
-                    maxlen=5000 if event_type == "position" else 1000
-                )
-            else:
-                # Redis Pub/Sub(允许丢, 高频低价值)
-                channel = f"scanner:{event_type}"
-                await redis_manager._client.publish(channel, payload)
-        except Exception as e:
-            logger.debug(f"[PUSH] Redis推送失败(可忽略): {e}")
-
+        """推送scanner事件 — 委托给ScannerUtils【Phase3.1】"""
     def _position_to_dict(self, p) -> Dict:
-        """Position对象转dict"""
-        risk = self._get_strategy_risk(p.strategy)
-        sl_price = self._calc_stop_loss_price(p, risk)
-        tp_price = self._calc_take_profit_price(p, risk)
-        sl_pct = risk.get("stop_loss_pct", 0.03) * 100
-        tp_pct = risk.get("take_profit_pct", 0.07) * 100
-        mv = round(p.current_price * p.total_qty, 2)
-        profit_amt = round((p.current_price - p.avg_cost) * p.total_qty, 2)
-        # 策略中文名映射
-        strategy_cn = {
-            "halfway_chase": "半路追涨", "first_limit_up": "首板打板",
-            "dragon_head": "龙头低吸", "limit_down_qiao": "跌停翘板",
-            "limit_up_open": "涨停开板",
-            "anomaly_surge": "急速拉升", "anomaly_broken": "涨停炸板", "anomaly_strong": "强势涨停",
-            "manual": "手动操作",
-        }.get(p.strategy, p.strategy)
-        return {
-            "ts_code": p.ts_code, "stock_name": p.stock_name,
-            "strategy": p.strategy, "strategy_name": strategy_cn, "shares": p.total_qty,
-            "available_qty": p.available_qty,
-            "cost_price": round(p.avg_cost, 2),
-            "current_price": round(p.current_price, 2),
-            "profit_pct": round(p.profit_pct, 2),
-            "profit_amount": profit_amt,  # 【P1-2】盈亏金额
-            "market_value": mv,  # 【P1-2】持仓市值
-            "today_buy": p.today_buy_qty,
-            "stop_loss_pct": round(sl_pct, 1),
-            "take_profit_pct": round(tp_pct, 1),
-            "stop_loss_price": sl_price,
-            "take_profit_price": tp_price,
-            "distance_to_stop": round(p.profit_pct + sl_pct, 1),  # 【P1-2】距止损距离
-        }
-
+        """Position对象转dict — 委托给ScannerUtils【Phase3.1】"""
     def _signal_to_dict(self, s: ScanSignal) -> Dict:
-        """ScanSignal对象转dict"""
-        d = {
-            "ts_code": s.ts_code, "stock_name": s.stock_name,
-            "strategy": s.strategy, "strategy_name": s.strategy_name,
-            "signal_type": s.signal_type, "price": MarketScanner._safe_round(s.price),
-            "pct_chg": MarketScanner._safe_round(s.pct_chg),
-            "volume_ratio": MarketScanner._safe_round(s.volume_ratio),
-            "turnover_rate": MarketScanner._safe_round(s.turnover_rate),
-            "is_limit_up": s.is_limit_up,
-            "limit_up_count": s.limit_up_count,
-            "confidence": s.confidence, "reason": s.reason,
-            "scan_time": s.scan_time, "factors": s.factors,
-            "signal_status": s.signal_status,
-            "created_at": s.created_at,
-            "expire_remaining": max(0, self.SIGNAL_EXPIRE_SECONDS - (time.time() - s.created_at)) if s.created_at > 0 else -1,
-            # 【P1-1】关键因子摘要(前端可直接展示)
-            "key_factors": self._extract_key_factors(s),
-        }
-        if s.decision_detail:
-            d["decision_detail"] = s.decision_detail
-        if s.layer_trace:
-            d["layer_trace"] = s.layer_trace
-        return d
-
+        """ScanSignal对象转dict — 委托给ScannerUtils【Phase3.1】"""
     def _extract_key_factors(self, s: ScanSignal) -> Dict[str, Any]:
-        """提取信号的关键因子摘要(前端卡片展示用)"""
-        factors = s.factors or {}
-        key = {}
-        # 流通市值(小盘股优先)
-        if factors.get("circ_mv"):
-            mv = factors["circ_mv"]
-            key["circ_mv"] = f"{mv/10000:.0f}亿" if mv >= 10000 else f"{mv/100:.0f}万"
-        # PE/PB(估值)
-        if factors.get("pe") and factors["pe"] > 0:
-            key["pe"] = f"PE{factors['pe']:.0f}"
-        if factors.get("pb") and factors["pb"] > 0:
-            key["pb"] = f"PB{factors['pb']:.1f}"
-        # 连板数
-        if s.limit_up_count > 0:
-            key["limit_count"] = f"{s.limit_up_count}连板"
-        # 封单资金(涨停信号)
-        if factors.get("fd_amount"):
-            key["fd_amount"] = f"封单{factors['fd_amount']/1000:.0f}万"
-        # 量比/换手(核心量能指标)
-        if s.volume_ratio > 0:
-            key["volume_ratio"] = f"量比{s.volume_ratio:.1f}"
-        if s.turnover_rate > 0:
-            key["turnover_rate"] = f"换手{s.turnover_rate:.1f}%"
-        return key
-
+        """提取关键因子 — 委托给ScannerUtils【Phase3.1】"""
     def generate_summary_report(self) -> Dict[str, Any]:
-        """生成完整交易摘要报告(供API调用)
-        
-        包含:
-        - 账户概览(资产/现金/仓位/盈亏)
-        - 持仓详情(每只股票的成本/现价/盈亏/止损止盈)
-        - 今日交易统计(买入/卖出/胜率/盈亏比)
-        - 策略表现(每策略的交易数/胜率/盈亏)
-        - 风控状态(熔断/连续亏损/最大回撤)
-        - 信号统计(活跃/过期/执行/跳过)
-        """
-        if not self._broker:
-            return {"error": "Broker未初始化"}
-        
-        acct = self._broker.get_account()
-        positions = self._broker.get_positions()
-        
-        # === 账户概览 ===
-        account_summary = {
-            "total_assets": round(acct.total_assets, 2),
-            "available_cash": round(acct.available_cash, 2),
-            "market_value": round(acct.market_value, 2),
-            "total_profit": round(acct.total_profit, 2),
-            "position_ratio": round(acct.market_value / max(acct.total_assets, 1) * 100, 1),
-            "position_count": len(positions),
-        }
-        
-        # === 持仓详情 ===
-        position_details = []
-        for p in positions:
-            risk = self._get_strategy_risk(p.strategy)
-            sl_pct = risk.get("stop_loss_pct", 0.03) * 100
-            tp_pct = risk.get("take_profit_pct", 0.07) * 100
-            position_details.append({
-                "ts_code": p.ts_code,
-                "stock_name": p.stock_name,
-                "strategy": p.strategy,
-                "shares": p.total_qty,
-                "available_qty": p.available_qty,
-                "cost_price": round(p.avg_cost, 2),
-                "current_price": round(p.current_price, 2),
-                "profit_pct": round(p.profit_pct, 2),
-                "market_value": round(p.current_price * p.total_qty, 2),
-                "stop_loss_price": round(p.avg_cost * (1 - risk.get("stop_loss_pct", 0.03)), 2),
-                "take_profit_price": round(p.avg_cost * (1 + risk.get("take_profit_pct", 0.07)), 2),
-                "stop_loss_pct": round(sl_pct, 1),
-                "take_profit_pct": round(tp_pct, 1),
-                "distance_to_stop": round(p.profit_pct + sl_pct, 1),
-                "is_t1_locked": p.today_buy_qty > 0,
-            })
-        
-        # === 今日交易统计 ===
-        today_buys = [t for t in self._timeline if t.get("action") == "buy"]
-        today_sells = [t for t in self._timeline if t.get("action") == "sell"]
-        profitable_sells = [t for t in today_sells if t.get("profit_pct", 0) > 0]
-        losing_sells = [t for t in today_sells if t.get("profit_pct", 0) < 0]
-        
-        trade_stats = {
-            "total_trades": len(today_buys) + len(today_sells),
-            "buys": len(today_buys),
-            "sells": len(today_sells),
-            "win_trades": len(profitable_sells),
-            "loss_trades": len(losing_sells),
-            "win_rate": round(len(profitable_sells) / max(len(today_sells), 1) * 100, 1),
-            "avg_profit_pct": round(
-                sum(t.get("profit_pct", 0) for t in profitable_sells) / max(len(profitable_sells), 1), 2
-            ) if profitable_sells else 0,
-            "avg_loss_pct": round(
-                sum(t.get("profit_pct", 0) for t in losing_sells) / max(len(losing_sells), 1), 2
-            ) if losing_sells else 0,
-        }
-        
-        # === 策略表现 ===
-        strategy_performance = {}
-        for t in self._timeline:
-            strat = t.get("strategy", "unknown")
-            if strat not in strategy_performance:
-                strategy_performance[strat] = {"trades": 0, "wins": 0, "total_pnl": 0}
-            strategy_performance[strat]["trades"] += 1
-            if t.get("action") == "sell":
-                pnl = t.get("profit_pct", 0)
-                strategy_performance[strat]["total_pnl"] += pnl
-                if pnl > 0:
-                    strategy_performance[strat]["wins"] += 1
-        
-        # === 风控状态 ===
-        risk_status = {
-            "circuit_breaker_active": self._circuit_breaker.get("trading_paused", False),
-            "circuit_breaker_reason": self._circuit_breaker.get("pause_reason", ""),
-            "consecutive_losses": self._circuit_breaker.get("consecutive_losses", 0),
-            "today_trades": self._circuit_breaker.get("today_trades", 0),
-            "today_losses": self._circuit_breaker.get("today_losses", 0),
-            "dry_run": self._dry_run,
-        }
-        
-        # === 信号统计 ===
-        signal_stats = {
-            "total": len(self._active_signals),
-            "new": len([s for s in self._active_signals if s.signal_status == "new"]),
-            "executed": len([s for s in self._active_signals if s.signal_status == "executed"]),
-            "skipped": len([s for s in self._active_signals if s.signal_status == "skipped"]),
-            "expired": len([s for s in self._active_signals if s.signal_status == "expired"]),
-            "filtered": len([s for s in self._active_signals if s.signal_status == "filtered"]),
-        }
-        
-        return {
-            "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "account": account_summary,
-            "positions": position_details,
-            "trade_stats": trade_stats,
-            "strategy_performance": strategy_performance,
-            "risk_status": risk_status,
-            "signal_stats": signal_stats,
-            "scanner_stats": dict(self._stats),
-            "sentiment": self._current_sentiment,
-            "position_ratio": self._current_position_ratio,
-        }
-
-
-    # ==================== 收盘报告 ====================
-
+        """生成交易摘要报告 — 委托给ScannerUtils【Phase3.1】"""
     async def _save_performance_snapshot(self, trade_date: str):
         """保存绩效快照到MongoDB(供净值曲线使用)"""
         from core.managers import mongo_manager
