@@ -1223,25 +1223,23 @@ async def get_data_status() -> Dict[str, Any]:
 def _get_frontend_version() -> Dict[str, str]:
     """【Phase4.2】获取前端构建版本"""
     try:
-        import os
-        static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "static")
-        index_html = os.path.join(static_dir, "index.html")
-        if os.path.exists(index_html):
-            mtime = os.path.getmtime(index_html)
-            from datetime import datetime as _dt
-            build_time = _dt.fromtimestamp(mtime).isoformat()
-            return {"status": "built", "build_time": build_time, "path": "static/"}
-        # 检查frontend/dist/
-        dist_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "frontend", "dist")
-        dist_html = os.path.join(dist_dir, "index.html")
-        if os.path.exists(dist_html):
-            mtime = os.path.getmtime(dist_html)
-            from datetime import datetime as _dt
-            build_time = _dt.fromtimestamp(mtime).isoformat()
-            return {"status": "dev", "build_time": build_time, "path": "frontend/dist/"}
+        # 检查已知的几个前端路径
+        candidates = [
+            # npm run deploy 同步的 static 目录
+            "/root/.openclaw/workspace/StockAgent/AgentServer/static/index.html",
+            # 开发模式 frontend/dist
+            "/root/.openclaw/workspace/StockAgent/frontend/dist/index.html",
+        ]
+        for path in candidates:
+            if os.path.exists(path):
+                mtime = os.path.getmtime(path)
+                from datetime import datetime as _dt
+                build_time = _dt.fromtimestamp(mtime).isoformat()
+                source = "static/" if "AgentServer/static" in path else "frontend/dist/"
+                return {"status": "built" if "static" in source else "dev", "build_time": build_time, "path": source}
         return {"status": "not_found"}
-    except Exception:
-        return {"status": "error"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 @router.get("/version")
 async def get_version() -> Dict[str, Any]:
