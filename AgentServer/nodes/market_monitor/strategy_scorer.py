@@ -78,16 +78,20 @@ class StrategyScorer:
             row["pre_close"] = rt.get("pre_close", 0)
             row["stock_name"] = rt.get("name", "")
 
-            # 涨停判断(实时)
+            # 涨停判断(实时, 防御None/NaN)
+            pct = rt.get("pct_chg") or 0
             if ts_code.startswith('688'):
-                row["is_limit_up"] = 1 if rt.get("pct_chg", 0) >= 19.5 else 0
-                row["is_limit_down"] = 1 if rt.get("pct_chg", 0) <= -19.5 else 0
+                row["is_limit_up"] = 1 if pct >= 19.5 else 0
+                row["is_limit_down"] = 1 if pct <= -19.5 else 0
             elif ts_code.startswith(('4', '8')):
-                row["is_limit_up"] = 1 if rt.get("pct_chg", 0) >= 29.5 else 0
-                row["is_limit_down"] = 1 if rt.get("pct_chg", 0) <= -29.5 else 0
+                row["is_limit_up"] = 1 if pct >= 29.5 else 0
+                row["is_limit_down"] = 1 if pct <= -29.5 else 0
             else:
-                row["is_limit_up"] = 1 if rt.get("pct_chg", 0) >= 9.5 else 0
-                row["is_limit_down"] = 1 if rt.get("pct_chg", 0) <= -9.5 else 0
+                row["is_limit_up"] = 1 if pct >= 9.5 else 0
+                row["is_limit_down"] = 1 if pct <= -9.5 else 0
+
+            # 涨停数量统计(从pct_chg推断)
+            row["limit_up_count"] = row["is_limit_up"]
 
             rt_rows.append(row)
 

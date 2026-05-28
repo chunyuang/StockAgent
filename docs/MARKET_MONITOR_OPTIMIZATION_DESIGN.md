@@ -1,10 +1,10 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.6 | 日期: 2026-05-29 | 基线分支: audit/V75-backtest-review
+> 版本: v2.7 | 日期: 2026-05-29 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅
-> 回测影响: 零文件修改(仅portfolio_backtest补充0交易策略字段), 241测试全通过
+> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅
+> 回测影响: 零文件修改(仅portfolio_backtest补充0交易策略字段), 325测试全通过
 
 ---
 
@@ -20,6 +20,7 @@
 | v2.4 | 2026-05-29 | 深度审查: 情绪调仓委托修复+风控卖出加锁+compare补trade_days_held+2回归测试 |
 | v2.5 | 2026-05-29 | 审查优化: PositionManager线程安全trailing_stops读取+PortfolioBacktester缓存+因子测试修复+13回归测试 |
 | v2.6 | 2026-05-29 | 继续优化: _trade_date/_nav_peak初始化bug修复+异动检测提取到StrategyScorer+仓位计算提取到PositionManager+策略配置管理提取到StrategyParamCenter+22集成测试+limit_up_count字段修复 |
+| v2.7 | 2026-05-29 | EventBus: ScannerEventBus内部事件总线+Scanner集成5个发射点+StrategyScorer NaN防御修复+107新增测试(33 EventBus+22 StrategyScorer+52 FilterPipeline) |
 
 v2.0关键修正:
 - ❶ 风控独立线程: asyncio协程→threading.Thread(真并行不受GIL影响)
@@ -769,3 +770,76 @@ def trailing_stops(self) -> Dict:
 | TestNoBacktestRegression | `sell_signal_checker_api_unchanged` | 回测API不变 |
 | TestNoBacktestRegression | `strategy_defaults_importable` | 默认参数正常导入 |
 | TestNoBacktestRegression | `portfolio_backtester_importable` | 回测引擎正常导入 |
+
+## 十五、EventBus内部事件总线 (v2.7)
+
+### 15.1 设计目标
+
+Scanner内部组件(QuoteManager/PositionManager/StrategyScorer/FilterPipeline/SignalManager等)之间存在隐式耦合，通过直接调用scanner实例方法通信。引入EventBus实现发布-订阅解耦，便于:
+- 组件间松耦合: 模块只依赖事件接口，不依赖scanner实例
+- 可观测性: 事件统计+历史记录，便于调试和监控
+- 可扩展性: 新功能只需订阅事件，无需修改已有代码
+
+### 15.2 ScannerEventBus 实现
+
+**文件**: `AgentServer/nodes/market_monitor/scanner_event_bus.py` (8679 bytes)
+
+**核心特性**:
+- 纯Python异步事件总线，零外部依赖
+- 异步handler优先，同步handler自动包装为协程
+- 异常隔离: 单个handler失败不影响其他handler和发布者
+- 全局单例 `get_event_bus()` + 测试用 `reset_event_bus()`
+- 事件统计(emit/handled/errors) + 历史记录(默认100条,可配置)
+- enable/disable开关 + clear清理
+- once一次性订阅 + on_many/off_many批量操作
+
+**标准事件类型** (`ScannerEvents`类):
+| 事件 | 触发场景 |
+|---|---|
+| `position_changed` | 持仓变更(买入/卖出/风控卖出) |
+| `signal_generated` | 新信号生成 |
+| `emotion_changed` | 情绪周期变化 |
+| `risk_triggered` | 风控触发 |
+| `quote_degraded` | 行情降级 |
+| `quote_recovered` | 行情恢复 |
+| `param_updated` | 策略参数热更新 |
+| `scan_completed` | 单次扫描完成 |
+| `circuit_breaker` | 熔断触发/解除 |
+| `daily_settled` | 日终结算 |
+| `risk_sell_executed` | 风控卖出执行 |
+
+### 15.3 Scanner集成
+
+**5个发射点** (最小侵入，不修改现有逻辑):
+1. `scan_once` → `SCAN_COMPLETED` (扫描完成)
+2. `_execute_risk_sell` → `RISK_SELL_EXECUTED` + `POSITION_CHANGED` (风控卖出)
+3. `_apply_filter_pipeline` → `EMOTION_CHANGED` (情绪变化，在调仓前发射)
+4. `_check_circuit_breaker` → `CIRCUIT_BREAKER` (熔断触发)
+5. `update_strategy_config` → `PARAM_UPDATED` (参数更新，用ensure_future非阻塞)
+
+**只读属性**: `scanner.event_bus` (property)
+
+### 15.4 Bug修复: StrategyScorer NaN防御
+
+**问题**: `merge_factors`中涨停判断使用 `rt.get("pct_chg", 0)` 但None值不触发默认值(`or 0`正确，`dict.get(key, default)`对None无效)。
+
+**修复**: `pct = rt.get("pct_chg") or 0` 替代 `rt.get("pct_chg", 0)`
+
+### 15.5 测试覆盖 (107新增)
+
+| 测试文件 | 测试数 | 覆盖范围 |
+|---|---|---|
+| `test_event_bus.py` | 33 | 基础API/异常隔离/once/统计/历史/enable/disable/全局单例/Scanner集成 |
+| `test_strategy_scorer.py` | 22 | merge_factors/涨跌停判断/属性代理/边界条件(NaN/缺失/5000只) |
+| `test_live_filter_pipeline.py` | 52 | L1-L8全层测试/追踪/层开关/策略优先级/全管道apply |
+
+**总测试**: 325 passed (scanner模块207 + 其他118)
+
+### 15.6 scanner.py行数变化
+
+| 阶段 | scanner.py行数 | 变化 |
+|---|---|---|
+| Phase3.1前 | 2907 | 基线 |
+| Phase3.1后 | 1922 | -34% |
+| v2.6继续优化后 | 1757 | -40% |
+| v2.7 EventBus后 | ~1770 | +13行(EventBus初始化+5个emit) |
