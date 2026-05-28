@@ -3,7 +3,7 @@
 > 版本: v2.0 | 日期: 2026-05-28 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2.2✅ 2.3✅ | Phase3.1🟡 3.2✅ 3.4✅ | Phase4.3✅ 4.4✅
+> 状态: 开发中 | Phase1✅ | Phase2.2✅ 2.3✅ | Phase3.1✅ 3.2✅ 3.4✅ | Phase4.3✅ 4.4✅
 
 ---
 
@@ -71,7 +71,7 @@ v2.0关键修正:
 
 | 模块 | 文件 | 行数 | 职责 |
 |---|---|---|---|
-| MarketScanner | scanner.py | 2907 | 信号扫描+持仓+风控+执行(全部耦合) |
+| MarketScanner | scanner.py | 1846 | 信号扫描+持仓+风控+执行(委托模式) |
 | ScannerDaemon | scanner_daemon.py | 921 | 子进程守护 |
 | LiveFilterPipeline | live_filter_pipeline.py | 645 | 9层过滤管道 |
 | RiskWatchdog | risk_watchdog.py | 621 | 风控看门狗 |
@@ -338,19 +338,32 @@ phase转换时动态调仓(需回测同步):
 
 ## 五、Phase 3 — 架构治理（3-4周）
 
-### 3.1 God Class拆分（2周）
+### 3.1 God Class拆分 ✅ 已完成（2周→3天）
+
+**最终拆分结果: scanner.py 3348行→1846行 (-45%)**
 
 ```
-MarketScanner(编排器,~300行)
-  ├─ QuoteManager(行情,~400行) ← _fetch_realtime_batch
-  ├─ FactorEngine(因子,~300行) ← _merge_factors
-  ├─ StrategyScorer(策略,~500行) ← _apply_strategies
-  ├─ FilterPipeline(过滤,~400行) ← _apply_filter_pipeline
-  ├─ PositionManager(风控,~600行) ← _check_positions
-  └─ OrderExecutor(执行,~300行) ← _execute_signals
+MarketScanner(编排器, ~1846行, 30+委托方法)
+  ├─ QuoteManager(行情, 352行) ← _fetch_realtime_batch ✅
+  ├─ StrategyScorer(策略, 248行) ← _merge_factors + _apply_strategies ✅
+  ├─ PositionManager(风控, 356行) ← _check_stop_loss_take_profit ✅
+  ├─ PositionChecker(卖出, 497行) ← _check_positions(legacy/checker/compare) ✅
+  ├─ SignalManager(信号, 382行) ← _update_signals + _execute_signals ✅
+  ├─ ScannerUtils(工具, 274行) ← _safe_round + _publish + 序列化 + 报告 ✅
+  ├─ RuntimePersistence(持久化, 268行) ← 快照/时间线/链路追踪/盘前竞价 ✅
+  ├─ LiveFilterPipeline(过滤, 645行) ← _apply_filter_pipeline (已有)
+  ├─ EmotionCycle(情绪, 323行) ← _update_emotion (已有)
+  └─ RiskWatchdog(看门狗, 621行) ← 风控熔断 (已有)
 ```
 
-**v2.0修正: 加ScannerEventBus事件总线解耦**
+**设计原则:**
+1. 所有提取的方法在scanner.py中保留委托存根, 不破坏外部接口
+2. 不影响策略回测模块(SellSignalChecker仍独立)
+3. 灰度开关不变: SELL_LOGIC_MODE=legacy/checker/compare
+4. 追踪止损状态留在Scanner, checker只做判断(与回测一致)
+5. Broker为唯一持仓权威, 快照只存Scanner独有状态
+
+**v2.0修正: 加ScannerEventBus事件总线解耦(待Phase2.1完成)**
 ```python
 class ScannerEventBus:
     async def emit(self, event, data): ...
