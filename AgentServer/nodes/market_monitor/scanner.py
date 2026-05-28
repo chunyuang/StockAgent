@@ -107,6 +107,13 @@ class MarketScanner:
         # 【V59:订单状态跟踪】
         self._pending_orders: Dict[str, Dict] = {}  # order_id → {status, retry_count, ...}
 
+        # 【Phase1.1:运行时状态持久化——跌停挂起的卖出指令】
+        self._pending_sells: Dict[str, Tuple] = {}  # ts_code → (reason, price)
+
+        # 【Phase1.1:运行时状态持久化——快照节流】
+        self._last_snapshot_save: float = 0.0
+        self._snapshot_dirty: bool = False
+
         # 【V59:执行质量统计】
         self._execution_stats = {
             "total_slippage_pct": 0.0,  # 累计滑点
@@ -544,6 +551,8 @@ class MarketScanner:
                 await self._broker.save_state(force=True)
             except Exception:
                 pass
+            # 【Phase1.1】同步保存Scanner运行时状态
+            await self._save_runtime_snapshot(force=True)
         
         # 保存时间线到MongoDB
         try:
@@ -581,17 +590,14 @@ class MarketScanner:
             except Exception as e:
                 logger.warning(f"[SCANNER] 每日风控重置失败: {e}")
 
-        # 【V59:每日重置追踪止损+风险等级+执行统计】
-        self._trailing_stops.clear()
-        self._position_risk_levels.clear()
-        # 清理已了结持仓的追踪止损
-        if self._broker:
-            active_codes = {p.ts_code for p in self._broker.get_positions()}
-            stale = [k for k in self._trailing_stops if k not in active_codes]
-            for k in stale:
-                del self._trailing_stops[k]
+        # 【V59→Phase1.1优化:追踪止损+风险等级不再无条件清除】
+        # _load_positions()→_load_runtime_snapshot()会根据快照日期判断:
+        #   同一天重启 → 从快照恢复(保留盘中状态)
+        #   新的一天 → 清除(在_load_runtime_snapshot中snap_date!=trade_date时不恢复)
+        # 这里只清除执行统计(每次启动都重置)
         self._execution_stats["stop_loss_response_times"] = []
-        logger.info("[SCANNER] 追踪止损+风险等级+执行统计已重置")
+        self._pending_sells.clear()  # 跌停挂起每次启动都清空(重启后行情可能已变)
+        logger.info("[SCANNER] 执行统计+跌停挂起已重置(追踪止损/风险等级将在加载持仓时恢复)")
 
         # 1. 获取全市场代码
         await self._load_stock_list()
@@ -689,18 +695,148 @@ class MarketScanner:
             logger.error(f"[SCANNER] 加载日级因子失败: {e}")
 
     async def _load_positions(self):
-        """加载当前持仓(优先从MongoDB恢复, 否则从broker获取)"""
+        """加载当前持仓(优先从MongoDB恢复, 否则从broker获取)
+        
+        【Phase1.1增强】恢复后同时恢复Scanner运行时状态(追踪止损/风险等级/跌停挂起等)
+        Broker是持仓唯一权威来源, Scanner快照只存Scanner独有状态。
+        """
         if self._broker:
-            # 尝试从MongoDB恢复
+            # Step 1: Broker恢复(权威持仓)
             try:
                 restored = await self._broker.load_state()
                 if restored and self._broker.positions:
                     logger.info(f"[SCANNER] 持仓已从MongoDB恢复: {len(self._broker.positions)}个")
-                    return
             except Exception as e:
                 logger.warning(f"[SCANNER] 持仓恢复失败(使用空持仓): {e}")
         
-        logger.info(f"[SCANNER] 持仓: {len(self._broker.get_positions()) if self._broker else 0}个")
+        # Step 2: Scanner运行时状态恢复
+        await self._load_runtime_snapshot()
+        
+        logger.info(f"[SCANNER] 持仓: {len(self._broker.get_positions()) if self._broker else 0}个, "
+                    f"追踪止损: {len(self._trailing_stops)}个")
+
+    # ==================== Phase1.1: 运行时状态持久化 ====================
+
+    async def _load_runtime_snapshot(self):
+        """从MongoDB恢复Scanner运行时状态(追踪止损/风险等级/情绪/熔断器/跌停挂起)
+        
+        设计原则: Broker是持仓唯一权威, 本快照只存Scanner独有状态。
+        恢复后做一致性校验: 清理Broker已无持仓的追踪止损。
+        """
+        try:
+            from core.database.mongo_manager import mongo_manager
+            if not mongo_manager or not hasattr(mongo_manager, 'db'):
+                logger.debug("[SNAPSHOT] MongoDB不可用,跳过运行时状态恢复")
+                return
+            
+            snapshot = await mongo_manager.db.scanner_runtime_snapshot.find_one(
+                {"_id": self.account_id}
+            )
+            
+            if not snapshot:
+                logger.info("[SNAPSHOT] 无历史快照,使用空运行时状态")
+                return
+            
+            trade_date = datetime.now().strftime("%Y%m%d")
+            snap_date = snapshot.get("trade_date", "")
+            
+            if snap_date != trade_date:
+                # 新的一天 → 不恢复(昨天的状态已过期)
+                logger.info(f"[SNAPSHOT] 快照日期={snap_date}≠今日={trade_date}, 不恢复")
+                return
+            
+            # 恢复追踪止损
+            self._trailing_stops = snapshot.get("trailing_stops", {})
+            
+            # 恢复风险等级
+            self._position_risk_levels = snapshot.get("position_risk_levels", {})
+            
+            # 恢复单票风控覆盖
+            overrides = snapshot.get("position_risk_overrides", {})
+            if overrides:
+                self._position_risk_overrides = overrides
+            
+            # 恢复跌停挂起的卖出
+            pending = snapshot.get("pending_sells", {})
+            if pending:
+                # 将list转回tuple(MongoDB序列化tuple→list)
+                self._pending_sells = {k: tuple(v) if isinstance(v, list) else v 
+                                       for k, v in pending.items()}
+            
+            # 一致性校验: 清理Broker已无持仓的追踪止损
+            if self._broker:
+                broker_codes = {p.ts_code for p in self._broker.get_positions()}
+                stale_trailing = [k for k in self._trailing_stops if k not in broker_codes]
+                stale_risk = [k for k in self._position_risk_levels if k not in broker_codes]
+                for k in stale_trailing:
+                    del self._trailing_stops[k]
+                for k in stale_risk:
+                    del self._position_risk_levels[k]
+                if stale_trailing or stale_risk:
+                    logger.info(f"[SNAPSHOT] 清理过期状态: 追踪止损{len(stale_trailing)}个, "
+                                f"风险等级{len(stale_risk)}个")
+            
+            logger.info(f"[SNAPSHOT] 运行时状态恢复: 追踪止损{len(self._trailing_stops)}个, "
+                        f"风险等级{len(self._position_risk_levels)}个, "
+                        f"跌停挂起{len(self._pending_sells)}个")
+            
+        except Exception as e:
+            logger.warning(f"[SNAPSHOT] 运行时状态恢复失败: {e}")
+
+    async def _save_runtime_snapshot(self, force: bool = False):
+        """持久化Scanner运行时状态到MongoDB
+        
+        节流: 5秒内不重复保存(force=True跳过,用于资金变动场景)
+        降级: MongoDB不可用时写本地文件
+        
+        只存Scanner独有状态,不存Broker已有数据(持仓/账户)。
+        """
+        now = time.time()
+        if not force and now - self._last_snapshot_save < 5:
+            self._snapshot_dirty = True
+            return
+        self._last_snapshot_save = now
+        
+        trade_date = datetime.now().strftime("%Y%m%d")
+        
+        # 序列化跌停挂起(tuple→list for MongoDB)
+        pending_sells_serializable = {}
+        for k, v in self._pending_sells.items():
+            pending_sells_serializable[k] = list(v) if isinstance(v, tuple) else v
+        
+        snapshot = {
+            "_id": self.account_id,
+            "trailing_stops": dict(self._trailing_stops),
+            "position_risk_levels": dict(self._position_risk_levels),
+            "position_risk_overrides": dict(self._position_risk_overrides),
+            "pending_sells": pending_sells_serializable,
+            "trade_date": trade_date,
+            "updated_at": datetime.now().isoformat(),
+        }
+        
+        try:
+            from core.database.mongo_manager import mongo_manager
+            if mongo_manager and hasattr(mongo_manager, 'db'):
+                await mongo_manager.db.scanner_runtime_snapshot.replace_one(
+                    {"_id": self.account_id}, snapshot, upsert=True
+                )
+                self._snapshot_dirty = False
+                logger.debug(f"[SNAPSHOT] 运行时状态已持久化(trailing={len(self._trailing_stops)}, "
+                            f"risk={len(self._position_risk_levels)})")
+                return
+        except Exception as e:
+            logger.error(f"[SNAPSHOT] MongoDB写入失败, 降级写本地文件: {e}")
+        
+        # 降级: 写本地文件(保证重启可恢复)
+        try:
+            import json
+            local_path = f"/tmp/scanner_snapshot_{self.account_id}.json"
+            with open(local_path, "w") as f:
+                json.dump(snapshot, f, default=str, ensure_ascii=False)
+            self._snapshot_dirty = False
+            logger.info(f"[SNAPSHOT] 已降级写本地文件: {local_path}")
+        except Exception as e2:
+            logger.error(f"[SNAPSHOT] 本地文件写入也失败: {e2}")
 
     async def _premarket_auction(self, trade_date: str):
         """竞价预选(9:15-9:25集合竞价分析)
@@ -967,6 +1103,8 @@ class MarketScanner:
             logger.info(f"[SCAN] save_state={saved} positions={len(self._broker.positions)} orders={len(self._broker.orders)}")
             # 保存时间线到MongoDB
             await self._save_timeline()
+            # 【Phase1.1】扫描后保存运行时状态(节流5秒)
+            await self._save_runtime_snapshot(force=False)
         except Exception as e:
             logger.warning(f"[SCAN] save_state失败: {e}")
 
@@ -2036,6 +2174,8 @@ class MarketScanner:
                 await self._broker.save_state(force=True)
             except Exception:
                 pass
+            # 【Phase1.1】同步保存Scanner运行时状态(追踪止损等可能变更)
+            await self._save_runtime_snapshot(force=True)
 
     async def _check_positions_quick(self, trade_date: str):
         """持仓快速检查(30秒级, 用东方财富全市场缓存)
@@ -2151,6 +2291,8 @@ class MarketScanner:
                 await self._broker.save_state(force=True)
             except Exception:
                 pass
+            # 【Phase1.1】同步保存Scanner运行时状态
+            await self._save_runtime_snapshot(force=True)
 
     # ==================== V59:智能持仓检查频率 ====================
 
