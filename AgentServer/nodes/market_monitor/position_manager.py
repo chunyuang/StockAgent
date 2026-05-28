@@ -73,6 +73,13 @@ class PositionManager:
         """共享状态锁(保护trailing_stops/pending_sells/position_risk_levels)"""
         return self._scanner._state_lock
     
+    def _get_trailing_stop_safe(self, ts_code: str) -> Optional[Dict]:
+        """线程安全读取追踪止损状态(深拷贝后释放锁)"""
+        with self.state_lock:
+            if ts_code in self.trailing_stops:
+                return dict(self.trailing_stops[ts_code])
+        return None
+
     # ==================== 止损止盈计算 ====================
     
     def calc_stop_loss_price(self, pos_or_cost, risk: Dict) -> float:
@@ -118,8 +125,9 @@ class PositionManager:
 
             # 获取策略级风控参数
             risk = self._scanner._get_strategy_risk(pos.strategy)
-            # 单票风控覆盖
-            pos_overrides = self.position_risk_overrides.get(pos.ts_code, {})
+            # 单票风控覆盖(线程安全读取)
+            with self.state_lock:
+                pos_overrides = dict(self.position_risk_overrides.get(pos.ts_code, {}))
             if 'stop_loss_pct' in pos_overrides:
                 risk['stop_loss_pct'] = pos_overrides['stop_loss_pct']
             if 'take_profit_pct' in pos_overrides:
@@ -133,8 +141,8 @@ class PositionManager:
             sell_reason = None
             sell_price = pos.current_price
 
-            # 追踪止损检查
-            trailing = self.trailing_stops.get(pos.ts_code)
+            # 追踪止损检查(线程安全: 深拷贝读取)
+            trailing = self._get_trailing_stop_safe(pos.ts_code)
             trailing_triggered = False
             if trailing and trailing.get("activated") and trailing.get("stop_price", 0) > 0:
                 trailing_stop_price = trailing["stop_price"]
@@ -353,7 +361,9 @@ class PositionManager:
             if pos.available_qty <= 0:
                 continue
             risk = self._scanner._get_strategy_risk(pos.strategy)
-            pos_overrides = self.position_risk_overrides.get(pos.ts_code, {})
+            # 线程安全读取覆盖参数
+            with self.state_lock:
+                pos_overrides = dict(self.position_risk_overrides.get(pos.ts_code, {}))
             sl_pct = pos_overrides.get('stop_loss_pct', risk.get('stop_loss_pct', 0.03))
             
             if pos.profit_pct / 100 > sl_pct * 2 and pos.profit_pct <= 0:
