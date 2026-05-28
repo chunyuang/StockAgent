@@ -409,10 +409,18 @@ class MarketScanner:
 
     async def _save_timeline(self):
         """保存时间线 — 委托给RuntimePersistence【Phase3.1】"""
+        if self._runtime_persistence:
+            return await self._runtime_persistence.save_timeline()
+
     async def _save_scan_traces(self, filter_result):
         """保存扫描链路追踪 — 委托给RuntimePersistence【Phase3.1】"""
+        if self._runtime_persistence:
+            return await self._runtime_persistence.save_scan_traces(filter_result)
+
     async def _load_timeline(self):
         """加载时间线 — 委托给RuntimePersistence【Phase3.1】"""
+        if self._runtime_persistence:
+            return await self._runtime_persistence.load_timeline()
     async def start(self, trade_date: str = None):
         """启动扫描"""
         if self._is_running:
@@ -1090,17 +1098,22 @@ class MarketScanner:
         """合并日级因子+实时数据 — 委托给StrategyScorer【Phase3.1】"""
         if self._strategy_scorer:
             return self._strategy_scorer.merge_factors(realtime_data)
-        # fallback: 不再保留旧实现(已完整迁移到StrategyScorer)
+        # fallback: 返回空DataFrame
+        return pd.DataFrame()
+
     def _get_effective_strategy_config(self, strategy_key: str) -> Dict:
         """获取策略有效配置 — 委托给StrategyScorer【Phase3.1】"""
         if self._strategy_scorer:
             return self._strategy_scorer.get_effective_strategy_config(strategy_key)
-        # fallback: 不再保留旧实现(已完整迁移到StrategyScorer)
+        # fallback: 返回空配置
+        return {}
+
     def _get_strategy_risk(self, strategy_key: str) -> Dict:
         """获取策略风控参数 — 委托给StrategyScorer【Phase3.1】"""
         if self._strategy_scorer:
             return self._strategy_scorer.get_strategy_risk(strategy_key)
-        # fallback: 不再保留旧实现(已完整迁移到StrategyScorer)
+        # fallback: 返回默认风控参数
+        return {"stop_loss_pct": 0.03, "take_profit_pct": 0.07, "trailing_stop_pct": 0.05}
     async def _apply_strategies(self, merged_df: pd.DataFrame, trade_date: str) -> List[ScanSignal]:
         """策略筛选 — 委托给StrategyScorer【Phase3.1】"""
         if self._strategy_scorer:
@@ -1230,18 +1243,18 @@ class MarketScanner:
         """增量更新信号+过期清理 — 委托给SignalManager【Phase3.1】"""
         if self._signal_manager:
             return await self._signal_manager.update_signals(new_signals, scan_time)
-        # fallback: 不再保留旧实现(已完整迁移到SignalManager)
+
     async def _push_signals(self, signals: List[ScanSignal]):
         """推送信号 — 委托给SignalManager【Phase3.1】"""
         if self._signal_manager:
             return await self._signal_manager._push_signals(signals)
-        # fallback: 不再保留旧实现(已完整迁移到SignalManager)
+
     def _add_timeline_log(self, action, ts_code, stock_name, strategy, reason, sig):
         """添加执行日志 — 委托给SignalManager【Phase3.1】"""
         if self._signal_manager:
             return self._signal_manager._add_timeline_log(action, ts_code, stock_name, strategy, reason, sig)
-        # fallback: 不再保留旧实现(已完整迁移到SignalManager)
-    async def _write_audit_log(self, action: str, ts_code: str, stock_name: str, 
+
+    async def _write_audit_log(self, action: str, ts_code: str, stock_name: str,
                                 strategy: str, reason: str):
         """写入审计日志 — 委托给SignalManager【Phase3.1】"""
         if self._signal_manager:
@@ -1251,7 +1264,6 @@ class MarketScanner:
         """执行信号 — 委托给SignalManager【Phase3.1】"""
         if self._signal_manager:
             return await self._signal_manager.execute_signals(signals)
-        # fallback: 原逻辑已完整迁移到SignalManager
 
     # ==================== 公共止损止盈方法 ====================
 
@@ -1475,6 +1487,15 @@ class MarketScanner:
         """判断是否跌停 — 委托给PositionChecker【Phase3.1】"""
         if self._position_checker:
             return self._position_checker._is_limit_down(ts_code)
+        # fallback: 直接从缓存判断
+        rt = self._realtime_cache.get(ts_code, {}) if self._realtime_cache else {}
+        pct = rt.get("pct_chg", 0)
+        if ts_code.startswith('688'):
+            return pct <= -19.5
+        elif ts_code.startswith(('4', '8')):
+            return pct <= -29.5
+        else:
+            return pct <= -9.5
     def _validate_live_params(self):
         """实盘参数校验
         
@@ -1787,14 +1808,28 @@ class MarketScanner:
 
     async def _publish_scanner_event(self, event_type: str, data: Dict):
         """推送scanner事件 — 委托给ScannerUtils【Phase3.1】"""
+        from nodes.market_monitor.scanner_utils import ScannerUtils
+        return await ScannerUtils.publish_scanner_event(event_type, data)
+
     def _position_to_dict(self, p) -> Dict:
         """Position对象转dict — 委托给ScannerUtils【Phase3.1】"""
+        from nodes.market_monitor.scanner_utils import ScannerUtils
+        return ScannerUtils.position_to_dict(p, risk_getter=self._get_strategy_risk)
+
     def _signal_to_dict(self, s: ScanSignal) -> Dict:
         """ScanSignal对象转dict — 委托给ScannerUtils【Phase3.1】"""
+        from nodes.market_monitor.scanner_utils import ScannerUtils
+        return ScannerUtils.signal_to_dict(s, self.SIGNAL_EXPIRE_SECONDS)
+
     def _extract_key_factors(self, s: ScanSignal) -> Dict[str, Any]:
         """提取关键因子 — 委托给ScannerUtils【Phase3.1】"""
+        from nodes.market_monitor.scanner_utils import ScannerUtils
+        return ScannerUtils.extract_key_factors(s)
+
     def generate_summary_report(self) -> Dict[str, Any]:
         """生成交易摘要报告 — 委托给ScannerUtils【Phase3.1】"""
+        from nodes.market_monitor.scanner_utils import ScannerUtils
+        return ScannerUtils.generate_summary_report(self)
     async def _save_performance_snapshot(self, trade_date: str):
         """保存绩效快照到MongoDB(供净值曲线使用)"""
         from core.managers import mongo_manager
