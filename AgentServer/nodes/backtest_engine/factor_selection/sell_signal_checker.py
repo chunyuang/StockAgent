@@ -478,6 +478,27 @@ STRATEGY_PULLBACK_PARAMS = {
 
 
 # ============================================================
+# Phase1.3: 卖出原因优先级表(实盘check_realtime_sell使用)
+# 数字越大越优先; 可通过策略级sell_priority_override覆盖
+# ============================================================
+SELL_PRIORITY = {
+    'stop_loss':          10,   # 固定止损
+    'gap_stop_loss':       9,   # 跳空止损(开盘价<止损价)
+    'trailing_stop':       8,   # 追踪止损(Scanner独有,状态由调用方传入)
+    'profit_lock':         7,   # 利润锁定(盘中冲高回撤)
+    'profit_protect':      6,   # 利润保护
+    'pullback':            5,   # 冲高回落
+    'high_open_sell':      4,   # 高开即卖
+    'take_profit':         3,   # 固定止盈
+    'moving_stop':         3,   # 移动止损/保本(盈利>2倍SL后回撤到0以下)
+    'dragon_head_low_profit': 3, # 龙头5天低利润
+    'max_hold':            2,   # 持仓到期
+    'rebalance':           1,   # 调仓卖出
+    'force_empty':         0,   # 强制空仓
+}
+
+
+# ============================================================
 # SellSignalChecker — 统一入口
 # ============================================================
 
@@ -722,6 +743,159 @@ class SellSignalChecker:
                 for s in strategies
             )
         return self._global_slippage
+
+    # ==================== Phase1.3: 实盘卖出检查 ====================
+
+    def check_realtime_sell(self, position, realtime_price, high_price, open_price,
+                             trailing_stop_state=None, trade_days_held=None) -> dict:
+        """实盘专用: 检查单只持仓是否需要卖出
+        
+        与回测的check_early_sell()使用相同的核心逻辑,但支持实盘特有的:
+        - 追踪止损(状态由Scanner传入,checker无状态)
+        - 移动止损/保本(从Scanner迁移)
+        - 跳空止损(开盘价<止损价)
+        
+        Args:
+            position: 持仓对象(需有ts_code/strategy/profit_pct/avg_cost/current_price属性)
+            realtime_price: 当前实时价格
+            high_price: 当日最高价(用于利润锁定)
+            open_price: 当日开盘价(用于跳空止损/冲高回落/高开即卖)
+            trailing_stop_state: 追踪止损状态(由Scanner传入)
+                {"highest_price": 41.2, "stop_price": 40.17, "activated": True}
+            trade_days_held: 已持仓交易日数(用于超时检查)
+        
+        Returns:
+            None 或 {'reason': 'trailing_stop', 'price': 39.50, 'priority': 8, 'detail': '...'}
+        """
+        strategy_name = getattr(position, 'strategy', '') or ''
+        params = self._get_sell_params(strategy_name)
+        cost = getattr(position, 'avg_cost', 0)
+        
+        if cost <= 0:
+            return None
+        
+        triggered = []
+        
+        # 1. 固定止损 + 跳空止损
+        sl_result = self._check_realtime_stop_loss(position, realtime_price, open_price, params)
+        if sl_result:
+            triggered.append(sl_result)
+        
+        # 2. 追踪止损(状态由调用方传入)
+        if trailing_stop_state:
+            ts_result = self._check_realtime_trailing_stop(position, realtime_price, trailing_stop_state)
+            if ts_result:
+                triggered.append(ts_result)
+        
+        # 3-6. 保护性卖出(冲高回落/利润保护/利润锁定/高开即卖)
+        holding = {'code': getattr(position, 'ts_code', ''), 'strategies': [strategy_name], 'cost': cost}
+        market_data = {'open': open_price, 'close': realtime_price, 'high': high_price}
+        
+        # 利润锁定(需要high_price)
+        lock_signal = INTRADAY_PROFIT_LOCK_SIGNALS.get(strategy_name)
+        if lock_signal:
+            result = lock_signal.check(holding, market_data, params)
+            if result:
+                triggered.append({'reason': 'profit_lock', 'price': result[0], 'priority': SELL_PRIORITY['profit_lock'],
+                                  'detail': result[1]})
+        
+        # 利润保护
+        pp_result = check_profit_protect(holding, market_data, params)
+        if pp_result:
+            triggered.append({'reason': 'profit_protect', 'price': pp_result[0], 'priority': SELL_PRIORITY['profit_protect'],
+                              'detail': pp_result[1]})
+        
+        # 冲高回落
+        pb_result = check_pullback(holding, market_data, params)
+        if pb_result:
+            triggered.append({'reason': 'pullback', 'price': pb_result[0], 'priority': SELL_PRIORITY['pullback'],
+                              'detail': pb_result[1]})
+        
+        # 高开即卖
+        ho_result = check_high_open_sell(holding, market_data, params)
+        if ho_result:
+            triggered.append({'reason': 'high_open_sell', 'price': ho_result[0], 'priority': SELL_PRIORITY['high_open_sell'],
+                              'detail': ho_result[1]})
+        
+        # 7. 固定止盈
+        tp_result = check_take_profit(holding, market_data, params)
+        if tp_result:
+            triggered.append({'reason': 'take_profit', 'price': tp_result[0], 'priority': SELL_PRIORITY['take_profit'],
+                              'detail': tp_result[1]})
+        
+        # 8. 移动止损/保本(从Scanner迁移)
+        ms_result = self._check_realtime_moving_stop(position, params)
+        if ms_result:
+            triggered.append(ms_result)
+        
+        # 9. 超时
+        if trade_days_held is not None:
+            timeout_result = check_timeout(holding, market_data, {**params, 'trade_days_held': trade_days_held})
+            if timeout_result:
+                triggered.append({'reason': 'max_hold', 'price': timeout_result[0], 'priority': SELL_PRIORITY['max_hold'],
+                                  'detail': timeout_result[1]})
+        
+        if not triggered:
+            return None
+        
+        # 按优先级排序,返回最高的
+        triggered.sort(key=lambda x: x.get('priority', 0), reverse=True)
+        return triggered[0]
+
+    def _check_realtime_stop_loss(self, position, realtime_price, open_price, params):
+        """固定止损+跳空止损"""
+        sl_pct = params.get('stop_loss_pct', 0.03)
+        cost = getattr(position, 'avg_cost', 0)
+        if cost <= 0:
+            return None
+        
+        stop_loss_price = cost * (1 - sl_pct)
+        
+        if realtime_price <= stop_loss_price:
+            # 跳空止损: 开盘价<止损价 → 用开盘价卖
+            if open_price and open_price > 0 and open_price < stop_loss_price:
+                return {'reason': 'gap_stop_loss', 'price': open_price,
+                        'priority': SELL_PRIORITY['gap_stop_loss'],
+                        'detail': f'开{open_price:.2f}<止损{stop_loss_price:.2f}'}
+            else:
+                profit_pct = (realtime_price / cost - 1) * 100
+                return {'reason': 'stop_loss', 'price': realtime_price,
+                        'priority': SELL_PRIORITY['stop_loss'],
+                        'detail': f'止损 {profit_pct:.1f}%'}
+        return None
+
+    def _check_realtime_trailing_stop(self, position, realtime_price, state):
+        """追踪止损检查(状态由调用方传入)"""
+        if not state.get('activated') or state.get('stop_price', 0) <= 0:
+            return None
+        
+        trailing_stop_price = state['stop_price']
+        if realtime_price <= trailing_stop_price:
+            high_price = state.get('highest_price', getattr(position, 'avg_cost', 0))
+            cost = getattr(position, 'avg_cost', 0)
+            profit_at_high = (high_price / cost - 1) * 100 if cost > 0 else 0
+            return {'reason': 'trailing_stop', 'price': trailing_stop_price,
+                    'priority': SELL_PRIORITY['trailing_stop'],
+                    'detail': f'最高{high_price:.2f},止损线{trailing_stop_price:.2f},曾盈{profit_at_high:.1f}%'}
+        return None
+
+    def _check_realtime_moving_stop(self, position, params):
+        """移动止损/保本(从Scanner迁移)
+        
+        逻辑: 盈利超过2倍止损线后,如果利润回撤到0以下,保本出局。
+        防止: 盈利3%回撤到-2%才触发固定止损,白白损失利润。
+        """
+        sl_pct = params.get('stop_loss_pct', 0.03)
+        profit_pct = getattr(position, 'profit_pct', 0) / 100  # 转小数
+        
+        # 盈利超过2倍止损线
+        if profit_pct > sl_pct * 2:
+            # 但当前已经不赚钱了(回撤到0以下)
+            if profit_pct <= 0:
+                return {'reason': 'moving_stop', 'price': getattr(position, 'current_price', 0),
+                        'priority': SELL_PRIORITY['moving_stop'],
+                        'detail': f'盈利曾>{sl_pct*2*100:.0f}%,回撤至{profit_pct*100:.1f}%'}
+        return None
 
 
 # ============================================================
