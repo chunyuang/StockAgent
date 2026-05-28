@@ -211,13 +211,15 @@ class PositionManager:
                 if ts_code not in self.pending_sells:
                     risk = self._scanner._get_strategy_risk(pos.strategy)
                     reason = f"跌停挂起(当前{current_price:.2f})"
-                    self.pending_sells[ts_code] = (reason, current_price)
+                    self.pending_sells[ts_code] = {"reason": reason, "price": current_price, "added_at": time.time(), "source": "position_manager"}
                     logger.warning(f"[RISK] {ts_code} {reason}")
                 continue
             
             # 跌停恢复: 之前挂起,现在不跌停了
             if ts_code in self.pending_sells:
-                reason, price = self.pending_sells.pop(ts_code)
+                info = self.pending_sells.pop(ts_code)
+                reason = info.get("reason", "跌停恢复") if isinstance(info, dict) else info[0]
+                price = info.get("price", current_price) if isinstance(info, dict) else info[1]
                 logger.info(f"[RISK] {ts_code} 跌停恢复,执行挂起卖出: {reason}")
                 risk = self._scanner._get_strategy_risk(pos.strategy)
                 to_sell.append((pos, reason, price, risk))
