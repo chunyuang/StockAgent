@@ -114,6 +114,12 @@ class MarketScanner:
         self._last_snapshot_save: float = 0.0
         self._snapshot_dirty: bool = False
 
+        # 【Phase1.2:风控独立线程】
+        self._risk_thread = None
+        self._risk_running = False
+        self._cache_lock = None  # threading.Lock(在start时初始化)
+        self._loop = None       # asyncio事件循环引用
+
         # 【V59:执行质量统计】
         self._execution_stats = {
             "total_slippage_pct": 0.0,  # 累计滑点
@@ -484,6 +490,19 @@ class MarketScanner:
 
         self._is_running = True
         self._task = asyncio.create_task(self._scan_loop(trade_date))
+        
+        # 【Phase1.2:启动风控独立线程】
+        import threading
+        self._loop = asyncio.get_event_loop()
+        self._cache_lock = threading.Lock()
+        self._risk_running = True
+        self._risk_thread = threading.Thread(
+            target=self._risk_loop_sync, daemon=True,
+            name="scanner-risk-thread"
+        )
+        self._risk_thread.start()
+        logger.info("[SCANNER] 风控独立线程已启动")
+        
         # 【V54:启动分级行情扫描器】
         if self._tiered_scanner:
             await self._tiered_scanner.start(trade_date)
@@ -499,6 +518,13 @@ class MarketScanner:
             sell_all: 是否清仓所有持仓(默认只停止扫描,保留持仓)
         """
         self._is_running = False
+        
+        # 【Phase1.2:停止风控独立线程】
+        self._risk_running = False
+        if self._risk_thread and self._risk_thread.is_alive():
+            self._risk_thread.join(timeout=5)
+            logger.info("[SCANNER] 风控线程已停止")
+        
         if self._task:
             self._task.cancel()
             try:
@@ -975,9 +1001,8 @@ class MarketScanner:
                         await self.scan_once(trade_date)
                         last_full_scan = time.time()
                     else:
-                        # 【V59:智能持仓检查频率】
+                        # 【Phase1.2:持仓检查已由风控线程接管,扫描循环只做sleep等待下一次全量扫描】
                         check_interval = self._get_smart_check_interval()
-                        await self._check_positions_quick(trade_date)
                         await asyncio.sleep(check_interval)
                         continue
                 
@@ -1017,11 +1042,9 @@ class MarketScanner:
                 elif h >= 23 or h < 8:
                     await asyncio.sleep(1800)  # 30分钟
                     
-                # === 其他非交易时间: 低频持仓检查 ===
+                # === 其他非交易时间: 低频 ===
                 else:
-                    # 只检查持仓(不拉行情), 5分钟
-                    if self._broker and self._broker.get_positions():
-                        await self._check_positions_quick(trade_date)
+                    # 【Phase1.2:持仓检查已由风控线程接管】
                     await asyncio.sleep(300)  # 5分钟
 
         except asyncio.CancelledError:
@@ -1029,6 +1052,185 @@ class MarketScanner:
         except Exception as e:
             logger.error(f"[SCANNER] 异常: {e}", exc_info=True)
             self._is_running = False
+
+    # ==================== Phase1.2: 风控独立线程 ====================
+
+    def _risk_loop_sync(self):
+        """风控独立线程(分级节奏，不受asyncio事件循环影响)
+        
+        设计原则:
+        - threading.Thread(真并行, 不受asyncio协作式调度影响)
+        - 1秒止损检查(用缓存数据, 零API成本)
+        - 30秒完整quick check(东财缓存, 零额度)
+        - 职责: 只负责卖出, 不负责买入
+        - 跌停不可卖: 挂起pending_sells, 不丢追踪止损
+        """
+        import threading
+        tick = 0
+        logger.info("[RISK_THREAD] 风控线程启动")
+        
+        while self._risk_running:
+            try:
+                tick += 1
+                
+                # 非交易时间不做检查(与scan_loop同样的时间判断)
+                now = datetime.now()
+                ct = now.strftime("%H:%M")
+                if ct < "09:25" or ct > "15:05":
+                    time.sleep(30)  # 非交易时间30秒检查一次
+                    continue
+                
+                # 从共享缓存读取(线程安全, 浅拷贝)
+                with self._cache_lock:
+                    realtime_data = dict(self._realtime_cache) if self._realtime_cache else {}
+
+                if not realtime_data or not self._broker:
+                    time.sleep(1)
+                    continue
+
+                # ── 每1秒: 止损检查(用缓存数据, 零成本) ──
+                self._check_stop_loss_only(realtime_data)
+
+                # ── 每30秒: 完整quick check(东财缓存, 零额度) ──
+                if tick % 30 == 0 and self._loop and not self._loop.is_closed():
+                    try:
+                        trade_date = datetime.now().strftime("%Y%m%d")
+                        future = asyncio.run_coroutine_threadsafe(
+                            self._check_positions_quick(trade_date),
+                            self._loop
+                        )
+                        future.result(timeout=10)
+                    except Exception as e:
+                        logger.debug(f"[RISK_THREAD] quick check异常: {e}")
+
+            except Exception as e:
+                logger.error(f"[RISK_THREAD] 风控线程异常: {e}")
+            time.sleep(1)  # 真sleep,不受asyncio影响
+        
+        logger.info("[RISK_THREAD] 风控线程已退出")
+
+    def _check_stop_loss_only(self, realtime_data: Dict):
+        """1秒级止损检查(轻量, 只检查止损/追踪止损/跳空止损)
+        
+        用共享缓存中的行情数据,零API成本。
+        只做卖出检查,不扫描信号。
+        跌停不可卖: 挂起pending_sells。
+        """
+        if not self._broker:
+            return
+        
+        positions = self._broker.get_positions()
+        if not positions:
+            return
+        
+        to_sell = []
+        for pos in positions:
+            if pos.available_qty <= 0:  # T+1
+                continue
+            
+            ts_code = pos.ts_code
+            rt = realtime_data.get(ts_code, {})
+            current_price = rt.get('price', 0)
+            if current_price <= 0:
+                continue
+            
+            # 更新实时价格
+            self._broker.update_realtime(ts_code, current_price)
+            
+            # 止损检查
+            risk = self._get_strategy_risk(pos.strategy)
+            pos_overrides = self._position_risk_overrides.get(ts_code, {})
+            if 'stop_loss_pct' in pos_overrides:
+                risk['stop_loss_pct'] = pos_overrides['stop_loss_pct']
+            
+            stop_loss_pct = -risk.get("stop_loss_pct", 0.03) * 100
+            stop_loss_price = self._calc_stop_loss_price(pos, risk)
+            
+            if pos.profit_pct <= stop_loss_pct:
+                # 跳空止损
+                today_open = rt.get("open", 0)
+                if today_open > 0 and today_open < stop_loss_price:
+                    to_sell.append((pos, f"跳空止损(开{today_open:.2f}<止损{stop_loss_price:.2f})", today_open))
+                else:
+                    to_sell.append((pos, f"止损 {pos.profit_pct:.1f}%", current_price))
+                continue
+            
+            # 追踪止损检查
+            trailing = self._trailing_stops.get(ts_code)
+            if trailing and trailing.get("activated") and trailing.get("stop_price", 0) > 0:
+                trailing_stop_price = trailing["stop_price"]
+                if current_price <= trailing_stop_price:
+                    high_price = trailing.get("high_price", pos.avg_cost)
+                    profit_at_high = (high_price / pos.avg_cost - 1) * 100 if pos.avg_cost > 0 else 0
+                    to_sell.append((pos, f"追踪止损(最高{high_price:.2f}, 曾盈{profit_at_high:.1f}%)", trailing_stop_price))
+                    continue
+        
+        # 执行卖出
+        if to_sell:
+            for pos, reason, price in to_sell:
+                # 跌停不可卖检查
+                if self._is_limit_down(pos.ts_code):
+                    self._pending_sells[pos.ts_code] = (reason, price)
+                    logger.warning(f"[RISK_THREAD] 跌停不可卖: {pos.ts_code}, {reason}挂起")
+                    continue
+                
+                # 通过asyncio提交到主循环执行卖出
+                if self._loop and not self._loop.is_closed():
+                    try:
+                        sell_qty = pos.available_qty
+                        future = asyncio.run_coroutine_threadsafe(
+                            self._execute_risk_sell(pos, reason, price, sell_qty),
+                            self._loop
+                        )
+                        future.result(timeout=5)
+                    except Exception as e:
+                        logger.error(f"[RISK_THREAD] 卖出执行失败: {pos.ts_code} {e}")
+
+    async def _execute_risk_sell(self, pos, reason: str, price: float, quantity: int):
+        """风控线程触发的卖出执行(在asyncio主循环中运行)"""
+        if pos.available_qty <= 0:
+            return
+        
+        # 保存卖出前关键值
+        sell_profit_pct = pos.profit_pct
+        sell_profit_amount = (pos.current_price - pos.avg_cost) * quantity
+        
+        self._broker.update_realtime(pos.ts_code, pos.current_price)
+        ok, msg, order = self._broker.place_order(
+            ts_code=pos.ts_code,
+            stock_name=pos.stock_name,
+            side="sell",
+            quantity=quantity,
+            price=price,
+            order_type="market",
+            strategy=pos.strategy,
+            reason=reason,
+        )
+        if ok:
+            self._timeline.append({
+                "time": datetime.now().strftime("%H:%M:%S"),
+                "action": "sell",
+                "ts_code": pos.ts_code,
+                "stock_name": pos.stock_name,
+                "strategy": pos.strategy,
+                "shares": quantity,
+                "price": order.filled_price,
+                "reason": reason,
+                "profit_pct": round(sell_profit_pct, 2),
+                "profit_amount": round(sell_profit_amount, 2),
+            })
+            self._stats["stop_losses"] += 1
+            # 清理追踪止损
+            self._trailing_stops.pop(pos.ts_code, None)
+            self._position_risk_levels.pop(pos.ts_code, None)
+            await self._publish_scanner_event("timeline", {"item": self._timeline[-1]})
+            logger.info(f"[RISK_THREAD] {reason}: {pos.ts_code} {quantity}股@{order.filled_price:.2f}")
+            # 持久化
+            try:
+                await self._broker.save_state(force=True)
+            except Exception:
+                pass
+            await self._save_runtime_snapshot(force=True)
 
     async def scan_once(self, trade_date: str, force: bool = False):
         """单次扫描
@@ -1293,8 +1495,14 @@ class MarketScanner:
         else:
             logger.warning("[REALTIME] 必盈不可用, 仅使用东方财富数据(无涨停池详情)")
 
-        self._prev_realtime_cache = dict(self._realtime_cache)  # 保存上轮快照(用于急速拉升检测)
-        self._realtime_cache = realtime
+        # 【Phase1.2:线程安全更新缓存】
+        if self._cache_lock:
+            with self._cache_lock:
+                self._prev_realtime_cache = dict(self._realtime_cache)
+                self._realtime_cache = realtime
+        else:
+            self._prev_realtime_cache = dict(self._realtime_cache)
+            self._realtime_cache = realtime
         
         # 状态汇报
         em_info = ""
