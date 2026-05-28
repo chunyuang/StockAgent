@@ -40,6 +40,7 @@ class PositionManager:
             scanner: MarketScanner实例(读取状态,不修改)
         """
         self._scanner = scanner
+        self._backtester = None  # 缓存PortfolioBacktester实例
     
     # ==================== 属性代理(从scanner读取,线程安全) ====================
     
@@ -79,6 +80,27 @@ class PositionManager:
             if ts_code in self.trailing_stops:
                 return dict(self.trailing_stops[ts_code])
         return None
+
+    def _get_backtester(self):
+        """获取缓存的PortfolioBacktester实例(懒初始化)"""
+        if self._backtester is not None:
+            return self._backtester
+        try:
+            from nodes.backtest_engine.factor_selection.portfolio_backtest import PortfolioBacktester
+            self._backtester = PortfolioBacktester()
+            return self._backtester
+        except ImportError:
+            return None
+    
+    def _calc_trade_days_held(self, buy_date, trade_date) -> Optional[int]:
+        """计算持仓交易日天数(缓存Backtester实例)"""
+        bt = self._get_backtester()
+        if bt is None:
+            return None
+        try:
+            return bt._calc_trade_days_held(int(buy_date), int(trade_date))
+        except (ValueError, TypeError):
+            return None
 
     # ==================== 止损止盈计算 ====================
     
@@ -339,12 +361,8 @@ class PositionManager:
             if max_hold >= 999:
                 continue
             try:
-                buy_dt = int(pos.buy_date)
-                cur_dt = int(trade_date)
-                from nodes.backtest_engine.factor_selection.portfolio_backtest import PortfolioBacktester
-                bt = PortfolioBacktester()
-                days_held = bt._calc_trade_days_held(buy_dt, cur_dt)
-                if days_held >= max_hold:
+                days_held = self._calc_trade_days_held(pos.buy_date, trade_date)
+                if days_held is not None and days_held >= max_hold:
                     risk = self._scanner._get_strategy_risk(pos.strategy)
                     to_sell.append((pos, f"超时({days_held}日≥{max_hold}日)", pos.current_price, risk))
                     logger.info(f"[TIMEOUT] {pos.ts_code} 持仓{days_held}日≥{max_hold}日, 强制卖出")
