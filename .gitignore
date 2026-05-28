@@ -121,3 +121,6 @@ real_trading/*.json
 real_trading/*.log
 !real_trading/*.example.json
 backtest_verify_result.json
+
+# 构建产物(由npm run deploy生成)
+AgentServer/static/
