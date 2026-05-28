@@ -3276,6 +3276,9 @@ class PortfolioBacktester:
                 strategy_results[sname] = {
                     "strategy_name": sname,
                     "win_rate": 0, "total_return": 0,
+                    "avg_profit_pct": 0,  # 0交易策略:平均盈亏为0
+                    "max_drawdown": 0,
+                    "profit_loss_ratio": 0,
                     "trades_count": 0,
                     "warning": warning,
                 }  # 【V63-P1-8:删除重复的total_return key】
