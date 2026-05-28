@@ -1,6 +1,6 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.0 | 日期: 2026-05-28 | 基线分支: audit/V75-backtest-review
+> 版本: v2.1 | 日期: 2026-05-29 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
 > 状态: 开发中 | Phase1✅ | Phase2.2✅ 2.3✅ | Phase3.1✅ 3.2✅ 3.4✅ | Phase4.3✅ 4.4✅
@@ -11,8 +11,9 @@
 
 | 版本 | 日期 | 变更 |
 |---|---|---|
-| v1.0 | 2026-05-28 | 初版 |
+| v2.0 | 2026-05-28 | 初版 |
 | v2.0 | 2026-05-28 | 纳入28项深度审查修正(架构/数据/金融/运维/安全5维度) |
+| v2.1 | 2026-05-29 | Phase1.3 API修复: PositionChecker→SellSignalChecker签名对齐 |
 
 v2.0关键修正:
 - ❶ 风控独立线程: asyncio协程→threading.Thread(真并行不受GIL影响)
