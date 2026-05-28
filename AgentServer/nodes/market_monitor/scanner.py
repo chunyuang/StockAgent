@@ -176,6 +176,7 @@ class MarketScanner:
 
         # 【Phase3.1:QuoteManager+PositionManager+StrategyScorer+SignalManager】
         self._quote_manager = QuoteManager()
+        self._quote_manager._scanner = self  # 【v2.8:EventBus行情降级/恢复事件需要scanner引用】
         self._position_manager = None  # 延迟初始化(需要self引用)
         self._strategy_scorer = None   # 延迟初始化
         self._signal_manager = None    # 延迟初始化
