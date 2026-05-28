@@ -1797,7 +1797,8 @@ async def get_scanner_health():
                 "overall_status": "dead", "message": "Scanner未运行",
                 "checks": {}, "circuit_breaker": {"trading_paused": False},
                 "risk_metrics": {"daily_drawdown_pct": 0, "max_drawdown_pct": 5, "position_ratio": 0},
-                "health_score": 0, "scan_lag_seconds": None, "risk_check_lag_seconds": None,
+                "health_score": 0, "scan_lag_seconds": -1, "risk_check_lag_seconds": -1,
+                "data_freshness": "red",
                 "warnings": ["Scanner未运行"], "data_sources": []
             }}
         

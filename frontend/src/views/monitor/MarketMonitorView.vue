@@ -424,8 +424,8 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           <div class="rb-di" v-if="healthData?.risk_metrics"><span class="rb-dl">仓位比例</span><span class="rb-dv">{{ ((healthData.risk_metrics.position_ratio || 0) * 100).toFixed(0) }}%</span></div>
           <!-- 【Phase4.1:健康分数+告警】 -->
           <div class="rb-di" v-if="healthData?.health_score != null"><span class="rb-dl">健康分数</span><span class="rb-dv" :class="healthData.health_score < 60 ? 'down' : ''">{{ healthData.health_score }}/100</span></div>
-          <div class="rb-di" v-if="healthData?.scan_lag_seconds != null"><span class="rb-dl">扫描延迟</span><span class="rb-dv" :class="healthData.scan_lag_seconds > 60 ? 'down' : ''">{{ healthData.scan_lag_seconds.toFixed(1) }}s</span></div>
-          <div class="rb-di" v-if="healthData?.risk_check_lag_seconds != null"><span class="rb-dl">风控延迟</span><span class="rb-dv" :class="healthData.risk_check_lag_seconds > 5 ? 'down' : ''">{{ healthData.risk_check_lag_seconds.toFixed(1) }}s</span></div>
+          <div class="rb-di" v-if="healthData?.scan_lag_seconds != null"><span class="rb-dl">扫描延迟</span><span class="rb-dv" :class="healthData.scan_lag_seconds > 60 ? 'down' : ''">{{ healthData.scan_lag_seconds < 0 ? '未运行' : healthData.scan_lag_seconds.toFixed(1) + 's' }}</span></div>
+          <div class="rb-di" v-if="healthData?.risk_check_lag_seconds != null"><span class="rb-dl">风控延迟</span><span class="rb-dv" :class="healthData.risk_check_lag_seconds > 5 ? 'down' : ''">{{ healthData.risk_check_lag_seconds < 0 ? '未运行' : healthData.risk_check_lag_seconds.toFixed(1) + 's' }}</span></div>
           <div class="rb-di" v-if="healthData?.warnings?.length"><span class="rb-dl">告警</span><span class="rb-dv down">{{ healthData.warnings.join('; ') }}</span></div>
         </div>
         <div v-if="healthData?.data_sources?.length" class="rb-ds-detail">
