@@ -1,0 +1,279 @@
+"""
+ScannerEventSubscribers — EventBus事件订阅处理器
+
+将EventBus的emit点与实际副作用连接起来:
+- 审计日志: 风控卖出/熔断/参数变更写入MongoDB audit_log
+- 运行时快照: 持仓变更触发自动保存
+- Redis推送: 关键事件转发到Redis供Web节点WebSocket广播
+- 健康度更新: 扫描完成/行情降级更新health指标
+
+所有handler通过ScannerEventBus.on()注册, 不侵入scanner核心逻辑。
+"""
+
+import asyncio
+import logging
+import time
+from typing import Dict, Any, Optional, Callable
+
+logger = logging.getLogger("scanner.event_subscribers")
+
+
+# ==================== 订阅器工厂 ====================
+
+def register_subscribers(scanner) -> None:
+    """注册所有EventBus订阅器
+    
+    Args:
+        scanner: MarketScanner实例(通过弱引用或直接引用访问内部组件)
+    
+    设计原则:
+    - 每个handler是独立的async函数, 异常不互相影响(EventBus保证)
+    - handler内不raise, 只记录错误(EventBus保证但防御性编程)
+    - handler内不阻塞, 耗时操作用ensure_future异步化
+    """
+    bus = scanner.event_bus
+    
+    # 1. 风控卖出 → 审计日志 + Redis状态推送
+    bus.on("risk_sell_executed", _make_risk_sell_handler(scanner))
+    
+    # 2. 持仓变更 → 自动快照 + Redis状态推送
+    bus.on("position_changed", _make_position_changed_handler(scanner))
+    
+    # 3. 熔断器 → 审计日志 + Redis紧急推送
+    bus.on("circuit_breaker", _make_circuit_breaker_handler(scanner))
+    
+    # 4. 扫描完成 → 健康指标更新
+    bus.on("scan_completed", _make_scan_completed_handler(scanner))
+    
+    # 5. 行情降级/恢复 → 健康指标更新 + Redis推送
+    bus.on("quote_degraded", _make_quote_degraded_handler(scanner))
+    bus.on("quote_recovered", _make_quote_recovered_handler(scanner))
+    
+    # 6. 参数更新 → 审计日志(已有StrategyParamCenter._write_param_audit_log,
+    #    这里补充EventBus侧的冗余记录,防止直接调用scanner方法时遗漏)
+    bus.on("param_updated", _make_param_updated_handler(scanner))
+    
+    # 7. 情绪变化 → Redis状态推送
+    bus.on("emotion_changed", _make_emotion_changed_handler(scanner))
+    
+    # 8. 盘后结算 → 审计日志
+    bus.on("daily_settled", _make_daily_settled_handler(scanner))
+    
+    logger.info(
+        f"[SUBSCRIBERS] 已注册8组事件订阅器, "
+        f"总计{sum(bus.handler_count(e) for e in bus.get_events())}个handler"
+    )
+
+
+# ==================== 审计日志写入器 ====================
+
+async def _write_audit_log(scanner, event_type: str, data: Dict[str, Any]):
+    """写入审计日志到MongoDB audit_log集合
+    
+    Args:
+        scanner: MarketScanner实例
+        event_type: 事件类型
+        data: 事件数据
+    """
+    try:
+        from core.managers.mongo_manager import mongo_manager
+        if not mongo_manager._initialized:
+            return
+        
+        doc = {
+            "event_type": event_type,
+            "trade_date": getattr(scanner, '_trade_date', ''),
+            "account_id": getattr(scanner, '_account_id', 'default'),
+            "data": _safe_serialize(data),
+            "timestamp": time.time(),
+            "time_str": time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        await mongo_manager.db["audit_log"].insert_one(doc)
+    except Exception as e:
+        # 审计日志写入失败不应影响主流程
+        logger.debug(f"[AUDIT] 写入失败(非关键): {e}")
+
+
+def _safe_serialize(data: Any, max_depth: int = 3) -> Any:
+    """递归序列化数据, 处理不可JSON化的类型"""
+    if max_depth <= 0:
+        return str(data)
+    if isinstance(data, dict):
+        return {str(k): _safe_serialize(v, max_depth - 1) for k, v in data.items()}
+    if isinstance(data, (list, tuple)):
+        return [_safe_serialize(i, max_depth - 1) for i in data]
+    if isinstance(data, (int, float, str, bool, type(None))):
+        return data
+    return str(data)
+
+
+# ==================== Redis状态推送 ====================
+
+async def _push_to_redis(scanner, channel: str, data: Dict[str, Any]):
+    """推送事件到Redis Pub/Sub(供Web节点WebSocket广播)
+    
+    Args:
+        scanner: MarketScanner实例
+        channel: Redis频道名
+        data: 推送数据
+    """
+    try:
+        from core.managers.redis_manager import redis_manager
+        if not redis_manager._initialized:
+            return
+        
+        import json
+        payload = {
+            **_safe_serialize(data),
+            "timestamp": time.time(),
+            "account_id": getattr(scanner, '_account_id', 'default'),
+        }
+        await redis_manager._client.publish(channel, json.dumps(payload, default=str))
+    except Exception as e:
+        logger.debug(f"[REDIS_PUSH] 推送失败(非关键): {e}")
+
+
+# ==================== Handler工厂 ====================
+
+def _make_risk_sell_handler(scanner):
+    """风控卖出事件handler"""
+    async def on_risk_sell(data: Dict[str, Any]):
+        # 审计日志
+        await _write_audit_log(scanner, "risk_sell_executed", data)
+        # Redis状态推送
+        await _push_to_redis(scanner, "scanner:status", {
+            "event": "risk_sell",
+            "ts_code": data.get("ts_code", ""),
+            "reason": data.get("reason", ""),
+            "price": data.get("price", 0),
+        })
+        logger.info(
+            f"[AUDIT] 风控卖出: {data.get('ts_code')} "
+            f"原因={data.get('reason')} 价格={data.get('price')}"
+        )
+    on_risk_sell.__name__ = "on_risk_sell"
+    return on_risk_sell
+
+
+def _make_position_changed_handler(scanner):
+    """持仓变更事件handler"""
+    async def on_position_changed(data: Dict[str, Any]):
+        # 触发运行时快照自动保存(节流由save_runtime_snapshot内部控制)
+        try:
+            rp = getattr(scanner, '_runtime_persistence', None)
+            if rp:
+                await rp.save_runtime_snapshot(force=True)
+        except Exception as e:
+            logger.debug(f"[SNAPSHOT] 持仓变更后快照保存失败: {e}")
+        
+        # Redis持仓推送
+        await _push_to_redis(scanner, "scanner:position", {
+            "action": data.get("action", ""),
+            "ts_code": data.get("ts_code", ""),
+            "strategy": data.get("strategy", ""),
+        })
+    on_position_changed.__name__ = "on_position_changed"
+    return on_position_changed
+
+
+def _make_circuit_breaker_handler(scanner):
+    """熔断器事件handler"""
+    async def on_circuit_breaker(data: Dict[str, Any]):
+        # 审计日志(熔断是关键事件,必须记录)
+        await _write_audit_log(scanner, "circuit_breaker", data)
+        # Redis紧急推送
+        await _push_to_redis(scanner, "scanner:status", {
+            "event": "circuit_breaker",
+            "trading_paused": data.get("trading_paused", False),
+            "consecutive_losses": data.get("consecutive_losses", 0),
+        })
+        logger.warning(
+            f"[AUDIT] 熔断器: 交易暂停={data.get('trading_paused')} "
+            f"连续亏损={data.get('consecutive_losses')}"
+        )
+    on_circuit_breaker.__name__ = "on_circuit_breaker"
+    return on_circuit_breaker
+
+
+def _make_scan_completed_handler(scanner):
+    """扫描完成事件handler"""
+    async def on_scan_completed(data: Dict[str, Any]):
+        # 更新健康指标时间戳
+        scanner._last_scan_ts = time.time()
+        # Redis状态推送(轻量,不含信号详情)
+        await _push_to_redis(scanner, "scanner:status", {
+            "event": "scan_completed",
+            "signal_count": data.get("signal_count", 0),
+            "scan_duration_ms": data.get("scan_duration_ms", 0),
+        })
+    on_scan_completed.__name__ = "on_scan_completed"
+    return on_scan_completed
+
+
+def _make_quote_degraded_handler(scanner):
+    """行情降级事件handler"""
+    async def on_quote_degraded(data: Dict[str, Any]):
+        # Redis推送(前端应显示降级警告)
+        await _push_to_redis(scanner, "scanner:status", {
+            "event": "quote_degraded",
+            "level": data.get("level", 1),
+            "source": data.get("source", ""),
+        })
+        logger.warning(
+            f"[QUOTE] 行情降级: level={data.get('level')} source={data.get('source')}"
+        )
+    on_quote_degraded.__name__ = "on_quote_degraded"
+    return on_quote_degraded
+
+
+def _make_quote_recovered_handler(scanner):
+    """行情恢复事件handler"""
+    async def on_quote_recovered(data: Dict[str, Any]):
+        # Redis推送
+        await _push_to_redis(scanner, "scanner:status", {
+            "event": "quote_recovered",
+            "degrade_duration_s": data.get("degrade_duration_s", 0),
+        })
+        logger.info(
+            f"[QUOTE] 行情恢复: 降级持续{data.get('degrade_duration_s', 0):.0f}秒"
+        )
+    on_quote_recovered.__name__ = "on_quote_recovered"
+    return on_quote_recovered
+
+
+def _make_param_updated_handler(scanner):
+    """参数更新事件handler"""
+    async def on_param_updated(data: Dict[str, Any]):
+        # 审计日志(参数变更是合规要求)
+        await _write_audit_log(scanner, "param_updated", data)
+    on_param_updated.__name__ = "on_param_updated"
+    return on_param_updated
+
+
+def _make_emotion_changed_handler(scanner):
+    """情绪变化事件handler"""
+    async def on_emotion_changed(data: Dict[str, Any]):
+        # Redis状态推送(前端情绪面板实时更新)
+        await _push_to_redis(scanner, "scanner:status", {
+            "event": "emotion_changed",
+            "phase": data.get("phase", ""),
+            "score": data.get("score", 0),
+            "position_ratio": data.get("position_ratio", 0),
+        })
+    on_emotion_changed.__name__ = "on_emotion_changed"
+    return on_emotion_changed
+
+
+def _make_daily_settled_handler(scanner):
+    """盘后结算事件handler"""
+    async def on_daily_settled(data: Dict[str, Any]):
+        # 审计日志
+        await _write_audit_log(scanner, "daily_settled", data)
+        # Redis推送
+        await _push_to_redis(scanner, "scanner:status", {
+            "event": "daily_settled",
+            "trade_date": data.get("trade_date", ""),
+            "total_profit": data.get("total_profit", 0),
+        })
+    on_daily_settled.__name__ = "on_daily_settled"
+    return on_daily_settled
