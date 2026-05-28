@@ -59,8 +59,11 @@ def register_subscribers(scanner) -> None:
     # 8. 盘后结算 → 审计日志
     bus.on("daily_settled", _make_daily_settled_handler(scanner))
     
+    # 9. 信号生成 → Redis推送(前端实时信号面板)
+    bus.on("signal_generated", _make_signal_generated_handler(scanner))
+    
     logger.info(
-        f"[SUBSCRIBERS] 已注册8组事件订阅器, "
+        f"[SUBSCRIBERS] 已注册9组事件订阅器, "
         f"总计{sum(bus.handler_count(e) for e in bus.get_events())}个handler"
     )
 
@@ -277,3 +280,16 @@ def _make_daily_settled_handler(scanner):
         })
     on_daily_settled.__name__ = "on_daily_settled"
     return on_daily_settled
+
+
+def _make_signal_generated_handler(scanner):
+    """信号生成事件handler"""
+    async def on_signal_generated(data: Dict[str, Any]):
+        # Redis信号推送(前端实时信号面板)
+        await _push_to_redis(scanner, "scanner:signal", {
+            "event": "signal_generated",
+            "signal_count": data.get("signal_count", 0),
+            "signals": data.get("signals", []),
+        })
+    on_signal_generated.__name__ = "on_signal_generated"
+    return on_signal_generated

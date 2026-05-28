@@ -150,6 +150,22 @@ class SignalManager:
             # 推送新信号
             await self._push_signals(added)
 
+            # 【v2.8:EventBus信号生成事件】
+            try:
+                scanner_ref = self._scanner
+                if hasattr(scanner_ref, 'event_bus') and scanner_ref.event_bus:
+                    from nodes.market_monitor.scanner_event_bus import ScannerEvents
+                    await scanner_ref.event_bus.emit(ScannerEvents.SIGNAL_GENERATED, {
+                        "signal_count": len(added),
+                        "signals": [{
+                            "ts_code": s.ts_code,
+                            "strategy": s.strategy_name,
+                            "pct_chg": round(s.pct_chg, 1) if s.pct_chg else 0,
+                        } for s in added[:5]],
+                    })
+            except Exception:
+                pass
+
             # 执行新信号
             await self.execute_signals(added)
             
