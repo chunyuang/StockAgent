@@ -1796,7 +1796,9 @@ async def get_scanner_health():
             return {"success": True, "health": {
                 "overall_status": "dead", "message": "Scanner未运行",
                 "checks": {}, "circuit_breaker": {"trading_paused": False},
-                "risk_metrics": {"daily_drawdown_pct": 0, "max_drawdown_pct": 5, "position_ratio": 0}
+                "risk_metrics": {"daily_drawdown_pct": 0, "max_drawdown_pct": 5, "position_ratio": 0},
+                "health_score": 0, "scan_lag_seconds": None, "risk_check_lag_seconds": None,
+                "warnings": ["Scanner未运行"], "data_sources": []
             }}
         
         # 基础状态
@@ -1877,6 +1879,11 @@ async def get_scanner_health():
         
         # 健康分数(0-100)
         health_score = 100
+        # 熔断/连续亏损
+        cb = getattr(scanner, '_circuit_breaker', None) or {}
+        consecutive_losses = cb.get('consecutive_losses', 0) if isinstance(cb, dict) else 0
+        trading_paused = cb.get('trading_paused', False) if isinstance(cb, dict) else False
+        
         warnings = []
         if scan_lag > 60:
             health_score -= 20
@@ -1901,11 +1908,6 @@ async def get_scanner_health():
             health_score -= 5
             warnings.append(f"{len(pending_sells)}只跌停挂起")
         health_score = max(0, health_score)
-        
-        # 熔断状态
-        cb = getattr(scanner, '_circuit_breaker', None) or {}
-        consecutive_losses = cb.get('consecutive_losses', 0) if isinstance(cb, dict) else 0
-        trading_paused = cb.get('trading_paused', False) if isinstance(cb, dict) else False
         
         risk_metrics = {
             "daily_drawdown_pct": round(daily_drawdown, 2),
