@@ -294,3 +294,163 @@ class TestEmotionDowngradeRules:
             if rule["action"] == "clear_low_profit":
                 assert "min_profit" in rule, f"{key} 清仓规则缺少min_profit"
                 assert rule["min_profit"] > 0, f"{key} min_profit应>0"
+
+
+class TestQuoteManagerRecovery:
+    """【Phase2.2】行情降级自动恢复测试"""
+    
+    def test_staleness_no_fetch(self):
+        """从未获取行情时陈旧度为999"""
+        from nodes.market_monitor.quote_manager import QuoteManager
+        qm = QuoteManager()
+        assert qm.get_staleness() == 999.0
+    
+    def test_staleness_after_fetch(self):
+        """获取行情后陈旧度应递增"""
+        import time
+        from nodes.market_monitor.quote_manager import QuoteManager
+        qm = QuoteManager()
+        qm._last_fetch_time = time.monotonic()
+        staleness = qm.get_staleness()
+        assert staleness < 1.0  # 刚获取,陈旧度应<1秒
+    
+    def test_should_not_recover_when_normal(self):
+        """正常状态不应尝试恢复"""
+        from nodes.market_monitor.quote_manager import QuoteManager
+        qm = QuoteManager()
+        qm._quote_degrade_level = 0
+        assert qm.should_try_recover() is False
+    
+    def test_should_not_recover_too_soon(self):
+        """降级后5分钟内不应尝试恢复"""
+        import time
+        from nodes.market_monitor.quote_manager import QuoteManager
+        qm = QuoteManager()
+        qm._quote_degrade_level = 1
+        qm._degrade_since = time.monotonic()
+        qm._last_recover_attempt = time.monotonic()  # 刚降级
+        assert qm.should_try_recover() is False
+    
+    def test_should_recover_after_5min(self):
+        """降级5分钟后应尝试恢复"""
+        import time
+        from nodes.market_monitor.quote_manager import QuoteManager
+        qm = QuoteManager()
+        qm._quote_degrade_level = 1
+        qm._degrade_since = time.monotonic() - 100
+        qm._last_recover_attempt = time.monotonic() - 310  # 5m10s ago
+        assert qm.should_try_recover() is True
+    
+    def test_status_includes_staleness_and_recovery(self):
+        """状态应包含陈旧度和恢复倒计时"""
+        import time
+        from nodes.market_monitor.quote_manager import QuoteManager
+        qm = QuoteManager()
+        qm._quote_degrade_level = 1
+        qm._degrade_since = time.monotonic() - 60
+        qm._last_recover_attempt = time.monotonic() - 60
+        qm._last_fetch_time = time.monotonic() - 10
+        status = qm.get_status()
+        assert "staleness_seconds" in status
+        assert "degrade_duration_seconds" in status
+        assert "next_recover_in_seconds" in status
+        assert status["degrade_level"] == 1
+
+
+class TestParamAuditLog:
+    """【Phase2.3】参数变更审计日志测试"""
+    
+    def test_check_dangerous_params_normal(self):
+        """正常参数不应告警"""
+        from nodes.market_monitor.strategy_param_center import StrategyParamCenter
+        pc = StrategyParamCenter()
+        warnings = pc.check_dangerous_params("halfway_chase", {"stop_loss_pct": 0.04})
+        assert len(warnings) == 0
+    
+    def test_check_dangerous_params_excessive_sl(self):
+        """止损过大应告警"""
+        from nodes.market_monitor.strategy_param_center import StrategyParamCenter
+        pc = StrategyParamCenter()
+        warnings = pc.check_dangerous_params("halfway_chase", {"stop_loss_pct": 0.15})
+        assert len(warnings) > 0
+        assert "stop_loss_pct" in warnings[0]
+    
+    def test_check_dangerous_params_tiny_tp(self):
+        """止盈过小应告警"""
+        from nodes.market_monitor.strategy_param_center import StrategyParamCenter
+        pc = StrategyParamCenter()
+        warnings = pc.check_dangerous_params("halfway_chase", {"take_profit_pct": 0.01})
+        assert len(warnings) > 0
+    
+    def test_audit_trail_method_exists(self):
+        """审计轨迹查询方法应存在"""
+        from nodes.market_monitor.strategy_param_center import StrategyParamCenter
+        pc = StrategyParamCenter()
+        assert hasattr(pc, 'get_param_audit_trail')
+        assert hasattr(pc, '_write_param_audit_log')
+
+
+class TestScannerHealthScore:
+    """【Phase4.3】Scanner健康度评分测试"""
+    
+    def test_health_red_when_not_started(self):
+        """未启动时健康度应为红"""
+        from nodes.market_monitor.scanner import MarketScanner
+        import time
+        s = MarketScanner.__new__(MarketScanner)
+        s._last_scan_ts = 0
+        s._last_risk_check_ts = 0
+        s._pending_sells = {}
+        s._quote_manager = None
+        s._circuit_breaker = {}
+        health = s._compute_health_score()
+        assert health["status"] == "red"
+        assert health["is_healthy"] is False
+    
+    def test_health_green_when_active(self):
+        """活跃时健康度应为绿"""
+        from nodes.market_monitor.scanner import MarketScanner
+        from nodes.market_monitor.quote_manager import QuoteManager
+        import time
+        s = MarketScanner.__new__(MarketScanner)
+        s._last_scan_ts = time.time() - 60
+        s._last_risk_check_ts = time.time() - 2
+        s._pending_sells = {}
+        s._quote_manager = QuoteManager()
+        s._quote_manager._last_fetch_time = time.time() - 5
+        s._circuit_breaker = {}
+        health = s._compute_health_score()
+        assert health["status"] == "green"
+        assert health["is_healthy"] is True
+    
+    def test_health_yellow_when_degraded(self):
+        """行情降级时健康度应为黄"""
+        from nodes.market_monitor.scanner import MarketScanner
+        from nodes.market_monitor.quote_manager import QuoteManager
+        import time
+        s = MarketScanner.__new__(MarketScanner)
+        s._last_scan_ts = time.time() - 60
+        s._last_risk_check_ts = time.time() - 2
+        s._pending_sells = {}
+        s._quote_manager = QuoteManager()
+        s._quote_manager._last_fetch_time = time.time() - 5
+        s._quote_manager._quote_degrade_level = 1
+        s._circuit_breaker = {}
+        health = s._compute_health_score()
+        assert health["status"] == "yellow"
+        assert "行情降级" in str(health["warnings"])
+    
+    def test_health_warnings_include_pending_sells(self):
+        """跌停挂起应出现在warnings"""
+        from nodes.market_monitor.scanner import MarketScanner
+        from nodes.market_monitor.quote_manager import QuoteManager
+        import time
+        s = MarketScanner.__new__(MarketScanner)
+        s._last_scan_ts = time.time() - 60
+        s._last_risk_check_ts = time.time() - 2
+        s._pending_sells = {"600036.SH": ("跌停挂起", 40.0)}
+        s._quote_manager = QuoteManager()
+        s._quote_manager._last_fetch_time = time.time() - 5
+        s._circuit_breaker = {}
+        health = s._compute_health_score()
+        assert any("跌停挂起" in w for w in health["warnings"])

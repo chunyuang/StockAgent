@@ -148,6 +148,9 @@ class MarketScanner:
         self._task: Optional[asyncio.Task] = None
         self._scan_count = 0
         self._last_scan_time = ""
+        # 【Phase4.3:健康度】
+        self._last_scan_ts: float = 0.0      # 上次全量扫描时间戳(monotonic)
+        self._last_risk_check_ts: float = 0.0 # 上次风控检查时间戳(monotonic)
 
         # 数据
         # 【Phase3.1:QuoteManager】
@@ -335,6 +338,8 @@ class MarketScanner:
             "quote_degrade_level": self._quote_manager.degrade_level,
             "quote_degrade_desc": self._quote_manager.degrade_desc,
             "sell_logic_mode": self.SELL_LOGIC_MODE,
+            # 【Phase4.3:健康度评分】
+            "health": self._compute_health_score(),
         }
 
     def get_signals(self) -> List[Dict]:
@@ -1025,6 +1030,21 @@ class MarketScanner:
                 # === 交易时间(9:30-15:00) ===
                 if "09:30" <= ct <= "15:00":
                     settled = False
+                    
+                    # 【Phase2.2:行情降级自动恢复】每5分钟尝试恢复
+                    if self._quote_manager.should_try_recover():
+                        try:
+                            recovered = await self._quote_manager.try_recover()
+                            if recovered:
+                                # 恢复成功, 更新scanner本地状态
+                                self._quote_degrade_level = self._quote_manager.degrade_level
+                                await self._publish_scanner_event("status", {
+                                    "event": "quote_recovered",
+                                    "degrade_level": 0,
+                                })
+                        except Exception as e:
+                            logger.debug(f"[SCAN] 行情恢复尝试异常: {e}")
+                    
                     elapsed = time.time() - last_full_scan
                     
                     if elapsed >= self.SCAN_INTERVAL:
@@ -2675,6 +2695,76 @@ class MarketScanner:
                 "sold_count": len(to_sell),
             }
         })
+
+    # ==================== Phase4.3: 健康度评分 ====================
+
+    def _compute_health_score(self) -> Dict[str, Any]:
+        """Scanner健康度评分(绿/黄/红)
+        
+        维度:
+        - scan_lag: 全量扫描延迟(上次到现在)
+        - risk_check_lag: 风控检查延迟
+        - quote_staleness: 行情数据陈旧度
+        - warnings: 告警列表
+        """
+        now = time.time()
+        warnings = []
+        
+        # 1. 扫描延迟
+        scan_lag = (now - self._last_scan_ts) if self._last_scan_ts > 0 else 999
+        if scan_lag > 600:  # 10分钟没扫描
+            warnings.append(f"扫描延迟{scan_lag:.0f}秒")
+        
+        # 2. 风控检查延迟
+        risk_lag = (now - self._last_risk_check_ts) if self._last_risk_check_ts > 0 else 999
+        if risk_lag > 10:  # 10秒没做风控检查
+            warnings.append(f"风控延迟{risk_lag:.0f}秒")
+        
+        # 3. 行情陈旧度
+        quote_staleness = self._quote_manager.get_staleness() if self._quote_manager else 999.0
+        if quote_staleness > 60:  # 行情超过1分钟没更新
+            warnings.append(f"行情陈旧{quote_staleness:.0f}秒")
+        
+        # 4. 行情降级
+        if self._quote_manager and self._quote_manager.degrade_level > 0:
+            warnings.append(f"行情降级level={self._quote_manager.degrade_level}")
+        
+        # 5. 跌停挂起
+        if self._pending_sells:
+            warnings.append(f"跌停挂起{len(self._pending_sells)}只")
+        
+        # 6. 熔断器
+        if hasattr(self, '_circuit_breaker') and self._circuit_breaker.get('is_triggered'):
+            warnings.append("熔断器已触发")
+        
+        # 健康判定
+        is_healthy = (
+            scan_lag < 360 and      # 6分钟内有扫描
+            risk_lag < 5 and         # 5秒内有风控检查
+            quote_staleness < 30 and # 行情30秒内更新
+            len(warnings) == 0
+        )
+        is_warning = not is_healthy and (
+            scan_lag < 600 and      # 10分钟内
+            risk_lag < 30 and       # 30秒内
+            quote_staleness < 120   # 2分钟内
+        )
+        
+        if is_healthy:
+            status = "green"
+        elif is_warning:
+            status = "yellow"
+        else:
+            status = "red"
+        
+        return {
+            "status": status,          # green/yellow/red
+            "is_healthy": is_healthy,
+            "scan_lag_seconds": round(scan_lag, 1),
+            "risk_check_lag_seconds": round(risk_lag, 1),
+            "quote_staleness_seconds": round(quote_staleness, 1),
+            "warnings": warnings,
+        }
 
     # ==================== V59:智能持仓检查频率 ====================
 

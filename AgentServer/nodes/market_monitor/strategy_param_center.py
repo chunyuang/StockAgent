@@ -193,6 +193,14 @@ class StrategyParamCenter:
                 except Exception as e:
                     logger.warning(f"[PARAMS] 热更新通知失败: {e}")
             
+            # 【Phase2.3:参数变更审计日志】
+            asyncio.create_task(
+                self._write_param_audit_log(
+                    strategy_id, updates, updated_by, danger_warnings,
+                    before=current, after=merged
+                )
+            )
+            
             logger.info(
                 f"[PARAMS] 参数已更新: {strategy_id}, "
                 f"fields={list(updates.keys())}, by={updated_by}"
@@ -428,6 +436,72 @@ class StrategyParamCenter:
                 if not isinstance(value, (int, float)) or not (lo <= value <= hi):
                     warnings.append(f"⚠️ {strategy_id}.{key}={value} 超出合理范围({lo}-{hi})")
         return warnings
+
+    # ==================== Phase2.3: 参数变更审计日志 ====================
+
+    async def _write_param_audit_log(self, strategy_id: str, updates: Dict,
+                                      updated_by: str, danger_warnings: list,
+                                      before: Dict = None, after: Dict = None):
+        """参数变更审计日志(append-only, 存audit_log集合)"""
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.db is None:
+                return
+            
+            # 计算实际变更的键值(仅记录真正变化的字段)
+            changed_fields = {}
+            if before and after:
+                for key in updates:
+                    old_val = before.get(key)
+                    new_val = after.get(key)
+                    if old_val != new_val:
+                        changed_fields[key] = {"old": old_val, "new": new_val}
+            else:
+                changed_fields = {k: {"new": v} for k, v in updates.items()}
+            
+            doc = {
+                "timestamp": datetime.now().isoformat(),
+                "type": "param_change",  # 区别于scanner的signal/trade审计
+                "strategy_id": strategy_id,
+                "changed_fields": changed_fields,
+                "updated_by": updated_by,
+                "danger_warnings": danger_warnings,
+                "is_dangerous": len(danger_warnings) > 0,
+            }
+            await mongo_manager.db["audit_log"].insert_one(doc)
+            
+            if danger_warnings:
+                logger.warning(
+                    f"[PARAMS_AUDIT] 危险参数变更! strategy={strategy_id}, "
+                    f"by={updated_by}, warnings={danger_warnings}"
+                )
+            else:
+                logger.info(
+                    f"[PARAMS_AUDIT] 参数变更: strategy={strategy_id}, "
+                    f"fields={list(changed_fields.keys())}, by={updated_by}"
+                )
+        except Exception as e:
+            logger.debug(f"[PARAMS_AUDIT] 审计日志写入失败(不影响主流程): {e}")
+
+    async def get_param_audit_trail(self, strategy_id: str = None, limit: int = 50) -> list:
+        """查询参数变更审计轨迹"""
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.db is None:
+                return []
+            query = {"type": "param_change"}
+            if strategy_id:
+                query["strategy_id"] = strategy_id
+            cursor = mongo_manager.db["audit_log"].find(query).sort(
+                "timestamp", -1
+            ).limit(limit)
+            result = []
+            async for doc in cursor:
+                doc.pop("_id", None)
+                result.append(doc)
+            return result
+        except Exception:
+            return []
 
 
 # 全局单例

@@ -19,6 +19,7 @@ QuoteManager — 行情数据管理器
 import asyncio
 import logging
 import threading
+import time
 from datetime import datetime
 from typing import Dict, Optional, Any
 
@@ -37,6 +38,12 @@ class QuoteManager:
         # 降级状态
         self._quote_degrade_level = 0   # 0=正常, 1=东财降级, 2=日线缓存
         self._quote_fail_count = 0      # 连续失败次数
+        
+        # 【Phase2.2:5分钟自动恢复机制】
+        self._degrade_since: float = 0.0     # 降级开始时间(monotonic)
+        self._last_recover_attempt: float = 0.0  # 上次恢复尝试时间
+        self._recover_interval: float = 300.0    # 5分钟尝试一次恢复
+        self._last_fetch_time: float = 0.0      # 上次成功获取行情时间
         
         # 回放模式
         self._replay_mode = False
@@ -154,13 +161,18 @@ class QuoteManager:
                 logger.info(f"[QUOTE] 东方财富: {len(em_data)}只全市场快照")
                 # 成功 → 重置失败计数, 尝试恢复降级
                 self._quote_fail_count = 0
+                self._last_fetch_time = time.monotonic()
                 if self._quote_degrade_level > 0:
+                    degrade_duration = time.monotonic() - self._degrade_since
                     self._quote_degrade_level = 0
-                    logger.info("[QUOTE] 行情恢复正常, 降级已恢复")
+                    self._degrade_since = 0
+                    logger.info(f"[QUOTE] 行情恢复正常, 降级已恢复(持续{degrade_duration:.0f}秒)")
             except Exception as e:
                 self._quote_fail_count += 1
                 if self._quote_fail_count >= 3 and self._quote_degrade_level == 0:
                     self._quote_degrade_level = 1
+                    self._degrade_since = time.monotonic()
+                    self._last_recover_attempt = time.monotonic()  # 从降级时刻开始计时
                     logger.warning(f"[QUOTE] 东方财富连续3次失败,降级到level 1: {e}")
                 else:
                     logger.warning(f"[QUOTE] 东方财富获取失败({self._quote_fail_count}次): {e}")
@@ -266,6 +278,67 @@ class QuoteManager:
             return f"{short_code}.BJ"
         return f"{short_code}.SZ"
 
+    def get_staleness(self) -> float:
+        """行情陈旧度(秒) — 上次成功获取到现在的秒数"""
+        if self._last_fetch_time == 0:
+            return 999.0
+        return time.monotonic() - self._last_fetch_time
+    
+    def should_try_recover(self) -> bool:
+        """【Phase2.2】是否应该尝试恢复到更高级别数据源
+        
+        降级后每5分钟尝试恢复:
+        - level 1(东财降级): 每5分钟尝试重新连接东财
+        - level 2(日线缓存): 每5分钟尝试重新连接东财
+        
+        Returns:
+            True=应尝试恢复, False=尚未到恢复时间
+        """
+        if self._quote_degrade_level == 0:
+            return False  # 已正常,无需恢复
+        
+        elapsed = time.monotonic() - self._last_recover_attempt
+        if elapsed >= self._recover_interval:
+            return True
+        return False
+    
+    async def try_recover(self) -> bool:
+        """【Phase2.2】尝试恢复到更高级别数据源
+        
+        降级链: 量脉实时 → 东财实时 → 东财日线缓存
+        恢复链: 日线缓存 → 东财实时 → 量脉实时
+        
+        Returns:
+            True=恢复成功, False=恢复失败
+        """
+        if self._quote_degrade_level == 0:
+            return True  # 已正常
+        
+        self._last_recover_attempt = time.monotonic()
+        old_level = self._quote_degrade_level
+        
+        # 尝试重新获取东财数据
+        if self._data_router:
+            eastmoney = self._data_router._sources.get("eastmoney")
+            if eastmoney:
+                try:
+                    # 尝试获取行情来验证东财是否可用
+                    test_data = await eastmoney.get_all_realtime(force_refresh=True)
+                    if test_data and len(test_data) > 100:  # 至少100只=正常
+                        self._quote_degrade_level = 0
+                        self._quote_fail_count = 0
+                        degrade_duration = time.monotonic() - self._degrade_since
+                        logger.info(
+                            f"[QUOTE] 🔄 行情自动恢复成功! "
+                            f"level {old_level}→0, 降级持续{degrade_duration:.0f}秒"
+                        )
+                        return True
+                except Exception as e:
+                    logger.debug(f"[QUOTE] 恢复尝试失败(将在5分钟后重试): {e}")
+        
+        logger.info(f"[QUOTE] 行情恢复失败, 当前level={self._quote_degrade_level}, 5分钟后重试")
+        return False
+
     def get_status(self) -> Dict[str, Any]:
         """状态(供Scanner.get_status使用)"""
         return {
@@ -273,4 +346,7 @@ class QuoteManager:
             "degrade_desc": self.degrade_desc,
             "cached_stocks": len(self._realtime_cache),
             "data_sources": list(self._data_router._sources.keys()) if self._data_router else [],
+            "staleness_seconds": round(self.get_staleness(), 1),
+            "degrade_duration_seconds": round(time.monotonic() - self._degrade_since, 1) if self._degrade_since > 0 else 0,
+            "next_recover_in_seconds": max(0, round(self._recover_interval - (time.monotonic() - self._last_recover_attempt), 1)) if self._quote_degrade_level > 0 else 0,
         }

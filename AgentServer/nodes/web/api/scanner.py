@@ -1868,11 +1868,13 @@ async def get_scanner_health():
         daily_drawdown = abs(min(0, daily_profit / total_assets * 100)) if total_assets > 0 else 0
         position_ratio = market_value / total_assets if total_assets > 0 else 0
         
-        # 【Phase4.3:数据新鲜度+扫描延迟】
+        # 【Phase4.3:数据新鲜度+扫描延迟+健康度评分】
         import time as _time
-        scan_lag = _time.time() - getattr(scanner, '_last_scan_ts', 0) if hasattr(scanner, '_last_scan_ts') else 999
-        risk_check_lag = _time.time() - getattr(scanner, '_last_risk_check_ts', 0) if hasattr(scanner, '_last_risk_check_ts') else 999
-        quote_staleness = getattr(scanner, '_last_scan_duration_ms', 0) / 1000 if hasattr(scanner, '_last_scan_duration_ms') else 0
+        scan_lag = _time.time() - getattr(scanner, '_last_scan_ts', 0) if hasattr(scanner, '_last_scan_ts') and scanner._last_scan_ts > 0 else 999
+        risk_check_lag = _time.time() - getattr(scanner, '_last_risk_check_ts', 0) if hasattr(scanner, '_last_risk_check_ts') and scanner._last_risk_check_ts > 0 else 999
+        
+        # 使用Scanner内置健康度计算
+        scanner_health = scanner._compute_health_score() if hasattr(scanner, '_compute_health_score') else None
         
         # 数据新鲜度标记(3s绿/5s黄/>5s红)
         data_freshness = "green" if scan_lag < 60 and risk_check_lag < 5 else (
@@ -1941,13 +1943,15 @@ async def get_scanner_health():
                 "circuit_breaker": circuit_breaker,
                 "risk_metrics": risk_metrics,
                 "data_sources": ds_list,
-                # 【Phase4.3:新增字段】
+                # 【Phase4.3:新增字段+Scanner内置健康度】
                 "health_score": health_score,
                 "data_freshness": data_freshness,
                 "scan_lag_seconds": round(scan_lag, 1),
                 "risk_check_lag_seconds": round(risk_check_lag, 1),
                 "warnings": warnings,
                 "is_healthy": scan_lag < 60 and risk_check_lag < 5 and daily_drawdown < 3 and not trading_paused,
+                # Scanner内置健康度(绿/黄/红)
+                "scanner_health": scanner_health,
             }
         }
     except Exception as e:
