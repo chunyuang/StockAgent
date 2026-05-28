@@ -20,6 +20,7 @@ PositionChecker — 持仓检查与卖出执行引擎
 
 import logging
 import os
+import threading
 import time
 from datetime import datetime
 from typing import Dict, List, Any, Tuple, Optional
@@ -74,6 +75,11 @@ class PositionChecker:
     @property
     def position_risk_levels(self) -> Dict:
         return getattr(self._scanner, '_position_risk_levels', {})
+    
+    @property
+    def state_lock(self) -> threading.Lock:
+        """共享状态锁(保护trailing_stops/pending_sells/position_risk_levels)"""
+        return self._scanner._state_lock
     
     @property
     def data_router(self):
@@ -206,10 +212,11 @@ class PositionChecker:
         # 执行卖出
         await self._execute_sell_list(to_sell, trade_date, source="legacy")
         
-        # 卖出后清理
-        for pos, reason, _, _ in to_sell:
-            self.trailing_stops.pop(pos.ts_code, None)
-            self.position_risk_levels.pop(pos.ts_code, None)
+        # 卖出后清理(线程安全)
+        with self.state_lock:
+            for pos, reason, _, _ in to_sell:
+                self.trailing_stops.pop(pos.ts_code, None)
+                self.position_risk_levels.pop(pos.ts_code, None)
         
         # 强制持久化
         if to_sell and self.broker:
@@ -244,7 +251,8 @@ class PositionChecker:
                 continue
 
             # 传入trailing_stop_state(状态留在Scanner, checker只做判断)
-            trailing_state = self.trailing_stops.get(pos.ts_code)
+            with self.state_lock:
+                trailing_state = dict(self.trailing_stops[pos.ts_code]) if pos.ts_code in self.trailing_stops else None
 
             # 计算持仓天数(超时检查需要)
             trade_days_held = None
@@ -268,14 +276,21 @@ class PositionChecker:
             if result:
                 reason = result.get('reason', 'unknown')
                 sell_price = result.get('price', rt.get("price", 0))
+                priority = result.get('priority', 0)
                 risk = scanner._get_strategy_risk(pos.strategy)
-                to_sell.append((pos, reason, sell_price, risk))
+                to_sell.append((pos, reason, sell_price, risk, priority))
+
+        # 按卖出优先级排序(高优先级先执行: 止损>追踪止损>止盈)
+        to_sell.sort(key=lambda x: x[4], reverse=True)
+        # 去掉priority, 恢复4元组
+        to_sell = [(pos, reason, price, risk) for pos, reason, price, risk, _ in to_sell]
 
         await self._execute_sell_list(to_sell, trade_date, source="checker")
 
-        for pos, reason, _, _ in to_sell:
-            self.trailing_stops.pop(pos.ts_code, None)
-            self.position_risk_levels.pop(pos.ts_code, None)
+        with self.state_lock:
+            for pos, reason, _, _ in to_sell:
+                self.trailing_stops.pop(pos.ts_code, None)
+                self.position_risk_levels.pop(pos.ts_code, None)
 
         if to_sell and self.broker:
             try:
@@ -308,7 +323,8 @@ class PositionChecker:
                     if not rt or rt.get("price", 0) <= 0:
                         continue
 
-                    trailing_state = self.trailing_stops.get(pos.ts_code)
+                    with self.state_lock:
+                        trailing_state = dict(self.trailing_stops[pos.ts_code]) if pos.ts_code in self.trailing_stops else None
                     result = checker.check_realtime_sell(
                         position=pos,
                         realtime_price=rt.get("price", 0),
@@ -359,12 +375,13 @@ class PositionChecker:
                 scanner._add_timeline_log("blocked", pos.ts_code, pos.stock_name,
                     pos.strategy, f"跌停不可卖(触发{reason}但跌停挂单无法成交)", None)
                 # 加入pending_sells(等跌停打开后执行)
-                if not hasattr(scanner, '_pending_sells'):
-                    scanner._pending_sells = {}
-                scanner._pending_sells[pos.ts_code] = {
-                    "reason": reason, "risk": risk,
-                    "added_at": time.time(), "source": source,
-                }
+                with self.state_lock:
+                    if not hasattr(scanner, '_pending_sells'):
+                        scanner._pending_sells = {}
+                    scanner._pending_sells[pos.ts_code] = {
+                        "reason": reason, "risk": risk,
+                        "added_at": time.time(), "source": source,
+                    }
                 logger.warning(f"[{source.upper()}] 跌停不可卖: {pos.ts_code} {pos.stock_name}")
                 continue
             
@@ -455,20 +472,22 @@ class PositionChecker:
             
             profit_pct = (price - pos.avg_cost) / pos.avg_cost
             if profit_pct > trailing_pct * 2:
-                current_stop = self.trailing_stops.get(pos.ts_code, {}).get("stop_price", 0)
-                new_stop = price * (1 - trailing_pct)
-                if new_stop > current_stop:
-                    self.trailing_stops[pos.ts_code] = {
-                        "stop_price": round(new_stop, 2),
-                        "activated_at": datetime.now().isoformat(),
-                        "high_water_mark": price,
-                    }
-                    logger.debug(f"[TRAILING] {pos.ts_code} 止损线上移至{new_stop:.2f}(HWM={price:.2f})")
+                with self.state_lock:
+                    current_stop = self.trailing_stops.get(pos.ts_code, {}).get("stop_price", 0)
+                    new_stop = price * (1 - trailing_pct)
+                    if new_stop > current_stop:
+                        self.trailing_stops[pos.ts_code] = {
+                            "stop_price": round(new_stop, 2),
+                            "activated_at": datetime.now().isoformat(),
+                            "high_water_mark": price,
+                        }
+                        logger.debug(f"[TRAILING] {pos.ts_code} 止损线上移至{new_stop:.2f}(HWM={price:.2f})")
     
     def get_effective_stop_price(self, pos, risk: Dict) -> float:
         """获取有效止损价(追踪止损 > 固定止损)"""
         scanner = self._scanner
-        trailing = self.trailing_stops.get(pos.ts_code)
+        with self.state_lock:
+            trailing = dict(self.trailing_stops[pos.ts_code]) if pos.ts_code in self.trailing_stops else None
         if trailing and trailing.get("stop_price", 0) > 0:
             return trailing["stop_price"]
         return scanner._calc_stop_loss_price(pos, risk)

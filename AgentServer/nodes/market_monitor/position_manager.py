@@ -16,6 +16,7 @@ PositionManager — 持仓风控管理器
 """
 
 import logging
+import threading
 import time
 from datetime import datetime
 from typing import Dict, List, Tuple, Any, Optional
@@ -40,7 +41,7 @@ class PositionManager:
         """
         self._scanner = scanner
     
-    # ==================== 属性代理(从scanner读取) ====================
+    # ==================== 属性代理(从scanner读取,线程安全) ====================
     
     @property
     def broker(self):
@@ -48,6 +49,7 @@ class PositionManager:
     
     @property
     def trailing_stops(self) -> Dict:
+        """读取追踪止损状态(直接引用,调用方需自行加锁或仅在单线程读)"""
         return self._scanner._trailing_stops
     
     @property
@@ -65,6 +67,11 @@ class PositionManager:
     @property
     def sell_logic_mode(self) -> str:
         return self._scanner.SELL_LOGIC_MODE
+    
+    @property
+    def state_lock(self) -> threading.Lock:
+        """共享状态锁(保护trailing_stops/pending_sells/position_risk_levels)"""
+        return self._scanner._state_lock
     
     # ==================== 止损止盈计算 ====================
     
@@ -189,6 +196,8 @@ class PositionManager:
         只检查固定止损+追踪止损,不检查止盈/超时
         跌停不可卖→挂起pending_sells
         
+        线程安全: 通过state_lock保护trailing_stops/pending_sells读写
+        
         Returns: [(pos, reason, price, risk), ...]
         """
         to_sell = []
@@ -207,27 +216,29 @@ class PositionManager:
             
             # 跌停不可卖
             if self._is_limit_down(ts_code):
-                # 挂起(不丢追踪止损)
-                if ts_code not in self.pending_sells:
-                    risk = self._scanner._get_strategy_risk(pos.strategy)
-                    reason = f"跌停挂起(当前{current_price:.2f})"
-                    self.pending_sells[ts_code] = {"reason": reason, "price": current_price, "added_at": time.time(), "source": "position_manager"}
-                    logger.warning(f"[RISK] {ts_code} {reason}")
+                with self.state_lock:
+                    if ts_code not in self.pending_sells:
+                        risk = self._scanner._get_strategy_risk(pos.strategy)
+                        reason = f"跌停挂起(当前{current_price:.2f})"
+                        self.pending_sells[ts_code] = {"reason": reason, "price": current_price, "added_at": time.time(), "source": "position_manager"}
+                        logger.warning(f"[RISK] {ts_code} {reason}")
                 continue
             
             # 跌停恢复: 之前挂起,现在不跌停了
-            if ts_code in self.pending_sells:
-                info = self.pending_sells.pop(ts_code)
-                reason = info.get("reason", "跌停恢复") if isinstance(info, dict) else info[0]
-                price = info.get("price", current_price) if isinstance(info, dict) else info[1]
-                logger.info(f"[RISK] {ts_code} 跌停恢复,执行挂起卖出: {reason}")
-                risk = self._scanner._get_strategy_risk(pos.strategy)
-                to_sell.append((pos, reason, price, risk))
-                continue
+            with self.state_lock:
+                if ts_code in self.pending_sells:
+                    info = self.pending_sells.pop(ts_code)
+                    reason = info.get("reason", "跌停恢复") if isinstance(info, dict) else info[0]
+                    price = info.get("price", current_price) if isinstance(info, dict) else info[1]
+                    logger.info(f"[RISK] {ts_code} 跌停恢复,执行挂起卖出: {reason}")
+                    risk = self._scanner._get_strategy_risk(pos.strategy)
+                    to_sell.append((pos, reason, price, risk))
+                    continue
             
             risk = self._scanner._get_strategy_risk(pos.strategy)
             # 单票覆盖
-            pos_overrides = self.position_risk_overrides.get(ts_code, {})
+            with self.state_lock:
+                pos_overrides = self.position_risk_overrides.get(ts_code, {})
             if 'stop_loss_pct' in pos_overrides:
                 risk['stop_loss_pct'] = pos_overrides['stop_loss_pct']
             
@@ -244,7 +255,8 @@ class PositionManager:
                 continue
             
             # 追踪止损
-            trailing = self.trailing_stops.get(ts_code)
+            with self.state_lock:
+                trailing = dict(self.trailing_stops.get(ts_code, {})) if ts_code in self.trailing_stops else None
             if trailing and trailing.get("activated") and trailing.get("stop_price", 0) > 0:
                 if current_price <= trailing["stop_price"]:
                     to_sell.append((pos, f"追踪止损(回撤至{current_price:.2f})", trailing["stop_price"], risk))
@@ -259,6 +271,8 @@ class PositionManager:
         2. 当盈利>=2%时, 激活追踪止损, 止损线=最高价×(1-trailing_pct)
         3. 价格创新高时, 止损线上移
         4. 价格回落触发追踪止损时卖出, 锁住大部分利润
+        
+        线程安全: 通过state_lock保护trailing_stops读写
         """
         for pos in positions:
             ts_code = pos.ts_code
@@ -276,30 +290,31 @@ class PositionManager:
             if trailing_stop_pct <= 0:
                 continue
             
-            state = self.trailing_stops.get(ts_code, {
-                "high_price": pos.avg_cost,
-                "trailing_stop_pct": trailing_stop_pct,
-                "activated": False,
-                "activated_at": None,
-                "stop_price": 0.0,
-            })
-            
-            # 更新最高价
-            if current_price > state["high_price"]:
-                state["high_price"] = current_price
-                logger.debug(f"[TRAILING] {ts_code} 新高: {current_price:.2f}")
-            
-            # 盈利>=2%时激活追踪止损
-            if not state["activated"] and profit_pct >= 2.0:
-                state["activated"] = True
-                state["activated_at"] = datetime.now().strftime("%H:%M:%S")
-                logger.info(f"[TRAILING] {ts_code} 追踪止损激活: 盈利{profit_pct:.1f}%>=2%")
-            
-            # 计算追踪止损价
-            if state["activated"]:
-                state["stop_price"] = state["high_price"] * (1 - trailing_stop_pct)
-            
-            self.trailing_stops[ts_code] = state
+            with self.state_lock:
+                state = dict(self.trailing_stops.get(ts_code, {
+                    "high_price": pos.avg_cost,
+                    "trailing_stop_pct": trailing_stop_pct,
+                    "activated": False,
+                    "activated_at": None,
+                    "stop_price": 0.0,
+                }))
+                
+                # 更新最高价
+                if current_price > state["high_price"]:
+                    state["high_price"] = current_price
+                    logger.debug(f"[TRAILING] {ts_code} 新高: {current_price:.2f}")
+                
+                # 盈利>=2%时激活追踪止损
+                if not state["activated"] and profit_pct >= 2.0:
+                    state["activated"] = True
+                    state["activated_at"] = datetime.now().strftime("%H:%M:%S")
+                    logger.info(f"[TRAILING] {ts_code} 追踪止损激活: 盈利{profit_pct:.1f}%>=2%")
+                
+                # 计算追踪止损价
+                if state["activated"]:
+                    state["stop_price"] = state["high_price"] * (1 - trailing_stop_pct)
+                
+                self.trailing_stops[ts_code] = state
     
     # ==================== 超时强卖检查 ====================
     

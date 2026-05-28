@@ -85,14 +85,20 @@ class RuntimePersistence:
         
         scanner = self._scanner
         
-        # 恢复追踪止损
-        if "trailing_stops" in doc:
-            scanner._trailing_stops = doc["trailing_stops"]
-            logger.info(f"[SNAPSHOT] 恢复追踪止损: {len(scanner._trailing_stops)}只")
-        
-        # 恢复风险等级
-        if "position_risk_levels" in doc:
-            scanner._position_risk_levels = doc["position_risk_levels"]
+        # 恢复追踪止损(线程安全)
+        with scanner._state_lock:
+            if "trailing_stops" in doc:
+                scanner._trailing_stops = doc["trailing_stops"]
+                logger.info(f"[SNAPSHOT] 恢复追踪止损: {len(scanner._trailing_stops)}只")
+            
+            # 恢复风险等级
+            if "position_risk_levels" in doc:
+                scanner._position_risk_levels = doc["position_risk_levels"]
+            
+            # 恢复pending_sells
+            if "pending_sells" in doc:
+                scanner._pending_sells = doc["pending_sells"]
+                logger.info(f"[SNAPSHOT] 恢复待卖: {len(scanner._pending_sells)}只")
         
         # 恢复风控状态
         if "circuit_breaker" in doc:
@@ -101,11 +107,6 @@ class RuntimePersistence:
             scanner._circuit_breaker["consecutive_losses"] = cb.get("consecutive_losses", 0)
             scanner._circuit_breaker["today_trades"] = cb.get("today_trades", 0)
             scanner._circuit_breaker["today_losses"] = cb.get("today_losses", 0)
-        
-        # 恢复pending_sells
-        if "pending_sells" in doc:
-            scanner._pending_sells = doc["pending_sells"]
-            logger.info(f"[SNAPSHOT] 恢复待卖: {len(scanner._pending_sells)}只")
         
         # 恢复统计
         if "stats" in doc:
@@ -130,14 +131,18 @@ class RuntimePersistence:
         doc = {
             "account_id": self.account_id,
             "updated_at": datetime.now().isoformat(),
-            "trailing_stops": scanner._trailing_stops,
-            "position_risk_levels": getattr(scanner, '_position_risk_levels', {}),
-            "circuit_breaker": scanner._circuit_breaker,
-            "pending_sells": getattr(scanner, '_pending_sells', {}),
-            "stats": dict(scanner._stats),
-            "active_signals_count": len(scanner._active_signals),
-            "dry_run": scanner._dry_run,
         }
+        
+        # 线程安全读取共享状态
+        with scanner._state_lock:
+            doc["trailing_stops"] = dict(scanner._trailing_stops)
+            doc["position_risk_levels"] = dict(getattr(scanner, '_position_risk_levels', {}))
+            doc["pending_sells"] = dict(getattr(scanner, '_pending_sells', {}))
+        
+        doc["circuit_breaker"] = scanner._circuit_breaker
+        doc["stats"] = dict(scanner._stats)
+        doc["active_signals_count"] = len(scanner._active_signals)
+        doc["dry_run"] = scanner._dry_run
         
         saved = False
         
@@ -210,10 +215,12 @@ class RuntimePersistence:
             
             if gap_pct > 3:
                 logger.info(f"[AUCTION] {pos.ts_code} {pos.stock_name} 竞价高开+{gap_pct:.1f}%")
-                scanner._position_risk_levels[pos.ts_code] = "strong_open"
+                with scanner._state_lock:
+                    scanner._position_risk_levels[pos.ts_code] = "strong_open"
             elif gap_pct < -2:
                 logger.warning(f"[AUCTION] {pos.ts_code} {pos.stock_name} 竞价低开{gap_pct:.1f}%")
-                scanner._position_risk_levels[pos.ts_code] = "weak_open"
+                with scanner._state_lock:
+                    scanner._position_risk_levels[pos.ts_code] = "weak_open"
     
     # ==================== 时间线持久化 ====================
     
