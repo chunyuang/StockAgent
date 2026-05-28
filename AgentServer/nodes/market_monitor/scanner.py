@@ -20,6 +20,7 @@ import pandas as pd
 
 from nodes.market_monitor.broker import SimulatedBroker
 from nodes.market_monitor.live_filter_pipeline import LiveFilterPipeline
+from nodes.market_monitor.quote_manager import QuoteManager
 
 logger = logging.getLogger("scanner.market")
 
@@ -149,10 +150,12 @@ class MarketScanner:
         self._last_scan_time = ""
 
         # 数据
-        self._data_router: Optional[Any] = None  # DataSourceRouter实例
+        # 【Phase3.1:QuoteManager】
+        self._quote_manager = QuoteManager()
+        self._data_router: Optional[Any] = None  # DataSourceRouter实例(兼容,委托给QuoteManager)
         self._daily_factors_df: Optional[pd.DataFrame] = None
-        self._realtime_cache: Dict[str, Dict] = {}  # ts_code → 实时行情
-        self._prev_realtime_cache: Dict[str, Dict] = {}  # ts_code → 上轮实时行情(用于急速拉升检测)
+        self._realtime_cache: Dict[str, Dict] = {}  # ts_code → 实时行情(由QuoteManager维护)
+        self._prev_realtime_cache: Dict[str, Dict] = {}  # ts_code → 上轮实时行情(由QuoteManager维护)
         self._all_codes: List[str] = []  # 全市场代码
 
         # 撮合引擎: 根据模式选择
@@ -329,8 +332,8 @@ class MarketScanner:
             "execution_stats": dict(self._execution_stats),
             "smart_check_interval": self._get_smart_check_interval() if self._is_running else None,
             # 【Phase2.2:行情降级状态】
-            "quote_degrade_level": self._quote_degrade_level,
-            "quote_degrade_desc": ["正常", "东财降级", "日线缓存"][self._quote_degrade_level],
+            "quote_degrade_level": self._quote_manager.degrade_level,
+            "quote_degrade_desc": self._quote_manager.degrade_desc,
             "sell_logic_mode": self.SELL_LOGIC_MODE,
         }
 
@@ -1340,225 +1343,28 @@ class MarketScanner:
     # ==================== 实时行情 ====================
 
     async def _fetch_realtime_batch(self, force: bool = False) -> Dict[str, Dict]:
-        """批量获取实时行情 — 双数据源架构
-        
-        数据源分工:
-        - 东方财富(免费无限): 全市场5400只的price/pct_chg/volume_ratio/turnover_rate/PE/PB
-          → 半路追涨选股 + 持仓止损价格
-        - 必盈(200次/天): 涨停池/跌停池/炸板池(封板资金/连板/炸板次数)
-          → 首板打板 + 跌停翘板 + 龙头低吸
-        
-        单次消耗: 东方财富0次(全市场缓存) + 必盈3次(3个池)
-        """
-        # === 初始化数据源 ===
-        if not self._data_router:
-            try:
-                from nodes.market_monitor.data_source_router import DataSourceRouter
-                from src.data_sources.biying_adapter import BiyingAdapter
-                from src.data_sources.eastmoney_adapter import EastmoneyAdapter
-                
-                router = DataSourceRouter()
-                
-                # 东方财富: 免费, 无限流, 全市场快照
-                eastmoney = EastmoneyAdapter()
-                router.register("eastmoney", eastmoney, priority=5)
-                
-                # 必盈: 涨停池/五档
-                biying = BiyingAdapter(licence="E53CA0F0-3E85-4736-B22D-8FA41A5DB050")
-                router.register("biying", biying, priority=10)
-                
-                results = await router.initialize_all()
-                
-                if not results.get("eastmoney") and not results.get("biying"):
-                    logger.error("[REALTIME] 两个数据源都初始化失败")
-                    return {}
-                    
-                self._data_router = router
-                em_status = eastmoney.get_status()
-                logger.info(f"[REALTIME] 数据源初始化: 东方财富{em_status['cached_stocks']}只 + 必盈")
-            except Exception as e:
-                logger.error(f"[REALTIME] 数据源初始化失败: {e}")
-                return {}
-
-        # === 获取数据源 ===
-        eastmoney = self._data_router._sources.get("eastmoney")
-        biying = self._data_router._sources.get("biying")
-        
-        # === 回放模式: 直接返回历史数据 ===
-        if self._replay_mode and self._replay_provider:
-            replay_date = self._replay_date or datetime.now().strftime("%Y%m%d")
-            replay_data = self._replay_provider.get_realtime(replay_date)
-            logger.info(f"[REPLAY] 返回 {len(replay_data)} 只股票的模拟行情(日期={replay_date})")
-            return replay_data
-        
-        # 非交易时间检查: 盘中才有实时数据
-        now = datetime.now()
-        ct = now.strftime("%H:%M")
-        is_trading = ("09:15" <= ct <= "15:05")  # 含竞价和收盘后5分钟
-        if not is_trading and not force:
-            logger.info(f"[REALTIME] 非交易时间({ct}), 跳过API调用(用force=True强制)")
-            return {}
-
-        realtime = {}
-        today = datetime.now().strftime("%Y-%m-%d")
-
-        # === 1. 东方财富: 全市场5400只实时行情 (1次请求, 3秒, 0必盈额度) ===
-        # 【Phase2.2:行情降级+自动恢复】
-        if eastmoney:
-            try:
-                em_data = await eastmoney.get_all_realtime(force_refresh=True)
-                for ts_code, item in em_data.items():
-                    realtime[ts_code] = {
-                        "price": item.get("price"),
-                        "pct_chg": item.get("pct_chg"),
-                        "turnover_rate": item.get("turnover_rate"),
-                        "volume_ratio": item.get("volume_ratio"),
-                        "pe": item.get("pe"),
-                        "pb": item.get("pb"),
-                        "float_mv": item.get("float_mv"),
-                        "open": item.get("open"),
-                        "high": item.get("high"),
-                        "low": item.get("low"),
-                        "pre_close": item.get("pre_close"),
-                        "name": item.get("name", ""),
-                        "amplitude": item.get("amplitude"),
-                    }
-                logger.info(f"[REALTIME] 东方财富: {len(em_data)}只全市场快照")
-                # 成功 → 重置失败计数, 尝试恢复降级
-                self._quote_fail_count = 0
-                if self._quote_degrade_level > 0:
-                    self._quote_degrade_level = 0
-                    logger.info("[QUOTE] 行情恢复正常, 降级已恢复")
-            except Exception as e:
-                self._quote_fail_count += 1
-                if self._quote_fail_count >= 3 and self._quote_degrade_level == 0:
-                    self._quote_degrade_level = 1
-                    logger.warning(f"[QUOTE] 东方财富连续3次失败,降级到level 1: {e}")
-                else:
-                    logger.warning(f"[REALTIME] 东方财富获取失败({self._quote_fail_count}次): {e}")
-
-        # === 2. 必赢涨停池: 封板资金/连板/炸板次数 (3次API, 涨停池独有数据) ===
-        # 回放模式: 用MongoDB涨停池数据代替必赢API
-        limit_up_count = 0
-        if self._replay_mode and self._replay_provider:
-            replay_date = self._replay_date or datetime.now().strftime("%Y%m%d")
-            pools = self._replay_provider.get_limit_pools(replay_date)
-            for item in pools.get('limit_up', []):
-                ts_code = item.get('ts_code', '')
-                if ts_code in realtime:
-                    realtime[ts_code].update({
-                        "is_limit_up": True,
-                        "limit_times": item.get("limit_times", 0),
-                        "fd_amount": item.get("fd_amount", 0),
-                    })
-            limit_up_count = len(pools.get('limit_up', []))
-            logger.info(f"[REPLAY] 涨停池: {limit_up_count}只, 跌停池: {len(pools.get('limit_down', []))}只")
-        elif biying:
-            try:
-                limit_ups = await biying.get_limit_up_pool(today)
-                for item in limit_ups:
-                    ts_code = item.get("ts_code", "")
-                    if not ts_code or "." not in ts_code:
-                        continue
-                    # 用必盈涨停池数据补充/覆盖东方财富数据
-                    if ts_code in realtime:
-                        # 已有东方财富基础数据, 补充涨停池特有字段
-                        realtime[ts_code].update({
-                            "is_limit_up": True,
-                            "limit_times": item.get("limit_times", 0),
-                            "open_times": item.get("open_times", 0),
-                            "fd_amount": item.get("fd_amount", 0),
-                        })
-                    else:
-                        # 东方财富没有(可能刚涨停), 用必盈数据
-                        realtime[ts_code] = {
-                            "price": float(item.get("close", 0)),
-                            "pct_chg": float(item.get("pct_chg", 0)),
-                            "turnover_rate": float(item.get("turnover_ratio", 0)),
-                            "float_mv": float(item.get("float_mv", 0)) * 1e4,
-                            "name": item.get("name", ""),
-                            "is_limit_up": True,
-                            "limit_times": item.get("limit_times", 0),
-                            "open_times": item.get("open_times", 0),
-                            "fd_amount": item.get("fd_amount", 0),
-                        }
-                limit_up_count = len(limit_ups)
-                logger.info(f"[REALTIME] 必盈涨停池: {limit_up_count}只")
-            except Exception as e:
-                logger.warning(f"[REALTIME] 涨停池获取失败: {e}")
-
-            # === 3. 必盈跌停池 (1次API) ===
-            try:
-                limit_downs = await biying.get_limit_down_pool(today)
-                for item in limit_downs:
-                    ts_code = item.get("ts_code", "")
-                    if not ts_code or "." not in ts_code:
-                        continue
-                    if ts_code not in realtime:
-                        realtime[ts_code] = {
-                            "price": float(item.get("close", 0)),
-                            "pct_chg": float(item.get("pct_chg", 0)),
-                            "name": item.get("name", ""),
-                            "is_limit_down": True,
-                        }
-                    else:
-                        realtime[ts_code]["is_limit_down"] = True
-                logger.info(f"[REALTIME] 必盈跌停池: {len(limit_downs)}只")
-            except Exception as e:
-                logger.warning(f"[REALTIME] 跌停池获取失败: {e}")
-
-            # === 4. 必盈炸板池 (1次API) ===
-            try:
-                broken = await biying.get_broken_board_pool(today)
-                for item in broken:
-                    ts_code = item.get("ts_code", "")
-                    if not ts_code or "." not in ts_code:
-                        continue
-                    if ts_code not in realtime:
-                        realtime[ts_code] = {
-                            "price": float(item.get("close", 0)),
-                            "pct_chg": float(item.get("pct_chg", 0)),
-                            "name": item.get("name", ""),
-                            "is_broken_board": True,
-                            "open_times": item.get("open_times", 0),
-                        }
-                    else:
-                        realtime[ts_code].update({
-                            "is_broken_board": True,
-                            "open_times": item.get("open_times", 0),
-                        })
-                logger.info(f"[REALTIME] 必盈炸板池: {len(broken)}只")
-            except Exception as e:
-                logger.warning(f"[REALTIME] 炸板池获取失败: {e}")
-        else:
-            logger.warning("[REALTIME] 必盈不可用, 仅使用东方财富数据(无涨停池详情)")
-
-        # 【Phase1.2:线程安全更新缓存】
-        if self._cache_lock:
-            with self._cache_lock:
-                self._prev_realtime_cache = dict(self._realtime_cache)
-                self._realtime_cache = realtime
-        else:
-            self._prev_realtime_cache = dict(self._realtime_cache)
-            self._realtime_cache = realtime
-        
-        # 状态汇报
-        em_info = ""
-        if eastmoney:
-            em_s = eastmoney.get_status()
-            em_info = f"东方财富{em_s['cached_stocks']}只 "
-        biying_info = ""
-        if biying:
-            bs = biying.get_status()
-            biying_info = f"必盈{bs['daily_calls']}/{bs['daily_limit']}次"
-        logger.info(
-            f"[REALTIME] 完成: {len(realtime)}只 "
-            f"({em_info}{biying_info}) "
-            f"涨停{limit_up_count}"
+        """批量获取实时行情 — 委托给QuoteManager【Phase3.1】"""
+        # 同步回放模式到QuoteManager
+        self._quote_manager.set_replay_mode(
+            self._replay_mode, self._replay_provider, self._replay_date
         )
+        # 同步缓存锁
+        if self._cache_lock and not self._quote_manager._cache_lock:
+            self._quote_manager.set_cache_lock(self._cache_lock)
+        
+        realtime = await self._quote_manager.fetch_realtime_batch(force=force)
+        
+        # 同步缓存引用(Scanner其他方法可能直接读self._realtime_cache)
+        self._realtime_cache = self._quote_manager._realtime_cache
+        self._prev_realtime_cache = self._quote_manager._prev_realtime_cache
+        self._data_router = self._quote_manager._data_router
+        self._quote_degrade_level = self._quote_manager._quote_degrade_level
         
         return realtime
 
+    def _short_to_ts_code(self, short_code: str) -> str:
+        """6位代码→ts_code — 委托给QuoteManager【Phase3.1】"""
+        return QuoteManager.short_to_ts_code(short_code)
     def _short_to_ts_code(self, short_code: str) -> str:
         """6位代码→ts_code"""
         if not short_code:
