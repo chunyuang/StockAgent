@@ -77,6 +77,7 @@ class RedisWSBridge:
         self._ws_manager = ws_manager
         self._pubsub: Optional[PubSub] = None
         self._listener_task: Optional[asyncio.Task] = None
+        self._stream_task: Optional[asyncio.Task] = None  # 【Phase2.1】
         self._running = False
 
         # 【方案C】日志不再缓存，前端完成后通过API从.jsonl文件读取
@@ -109,10 +110,14 @@ class RedisWSBridge:
             # Redis订阅失败不阻塞启动，降级为仅MongoDB模式
             self._pubsub = None
 
-        # 3. 启动 Redis 监听协程
+        # 3. 启动 Redis 监听协程(Pub/Sub)
         if self._pubsub:
             self._listener_task = asyncio.create_task(self._redis_listener())
-            logger.info("Redis listener started")
+            logger.info("Redis Pub/Sub listener started")
+        
+        # 【Phase2.1:启动Redis Stream消费协程(signal/position不可丢)】
+        self._stream_task = asyncio.create_task(self._redis_stream_consumer())
+        logger.info("Redis Stream consumer started")
 
         self._running = True
         logger.info("Redis→WebSocket bridge started ✓")
@@ -145,6 +150,16 @@ class RedisWSBridge:
             self._pubsub = None
 
         # 【修复风险4：不再停止MongoDB writer】
+        
+        # 【Phase2.1:停止Stream消费者】
+        if self._stream_task:
+            self._stream_task.cancel()
+            try:
+                await self._stream_task
+            except asyncio.CancelledError:
+                pass
+            self._stream_task = None
+        
         logger.info("Redis→WebSocket bridge stopped")
 
     # ==================== Redis 监听 ====================
@@ -198,6 +213,69 @@ class RedisWSBridge:
         except Exception as e:
             logger.error(f"Redis listener error: {e}")
 
+    # ==================== Phase2.1: Redis Stream消费者 ====================
+
+    async def _redis_stream_consumer(self) -> None:
+        """消费Redis Stream中的signal/position消息(不可丢,有ACK机制)
+        
+        Scanner写入signal/position到Stream, 这里用消费组读取并ACK。
+        断线重连后可从上次ACK位置继续消费,不丢消息。
+        """
+        # 创建消费组(如果不存在)
+        group_name = "ws_bridge_group"
+        consumer_name = "web-node-1"
+        
+        for stream_key in [CHANNEL_SCANNER_SIGNAL, CHANNEL_SCANNER_POSITION]:
+            try:
+                await redis_manager.client.xgroup_create(
+                    stream_key, group_name, id="0", mkstream=True
+                )
+            except Exception:
+                pass  # 消费组已存在
+        
+        logger.info(f"Stream consumer groups created for signal/position")
+        
+        while self._running:
+            try:
+                # 从Stream读取(阻塞1秒)
+                entries = await redis_manager.client.xreadgroup(
+                    group_name, consumer_name,
+                    {CHANNEL_SCANNER_SIGNAL: ">", CHANNEL_SCANNER_POSITION: ">"},
+                    count=10, block=1000
+                )
+                
+                if entries:
+                    for stream_name, messages in entries:
+                        if isinstance(stream_name, bytes):
+                            stream_name = stream_name.decode("utf-8")
+                        
+                        for msg_id, fields in messages:
+                            data_str = fields.get("data", "")
+                            if isinstance(data_str, bytes):
+                                data_str = data_str.decode("utf-8")
+                            
+                            try:
+                                data = json.loads(data_str)
+                            except (json.JSONDecodeError, TypeError):
+                                continue
+                            
+                            # 转发到WebSocket
+                            if stream_name == CHANNEL_SCANNER_SIGNAL:
+                                await self._handle_scanner_signal_message(data)
+                            elif stream_name == CHANNEL_SCANNER_POSITION:
+                                await self._handle_scanner_position_message(data)
+                            
+                            # ACK确认
+                            await redis_manager.client.xack(
+                                stream_name, group_name, msg_id
+                            )
+            
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.debug(f"Stream consumer error: {e}")
+                await asyncio.sleep(1)  # 出错后等待1秒重试
+    
     async def _handle_log_message(self, task_id: str, data: dict) -> None:
         """处理日志消息：透传到WebSocket（不再缓存，前端完成后从API拉取）"""
         log_text = data.get("log", "")

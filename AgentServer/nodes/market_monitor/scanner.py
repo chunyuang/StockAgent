@@ -3189,13 +3189,34 @@ class MarketScanner:
             return None
 
     async def _publish_scanner_event(self, event_type: str, data: Dict):
-        """推送scanner事件到Redis Pub/Sub(→WebSocket实时推送)"""
+        """推送scanner事件到Redis
+        
+        【Phase2.1:Signal/Position用Redis Stream(不可丢), 其他用Pub/Sub(允许丢)】
+        - scanner:signal → Redis Stream(maxlen=1000)
+        - scanner:position → Redis Stream(maxlen=5000)
+        - scanner:timeline → Redis Pub/Sub(允许丢,1秒后还有下一帧)
+        - scanner:status → Redis Pub/Sub(允许丢)
+        """
         try:
             from core.managers import redis_manager
-            if redis_manager._client:
+            if not redis_manager._client:
+                return
+            
+            data["timestamp"] = datetime.now().strftime("%H:%M:%S")
+            payload = json.dumps(data, ensure_ascii=False, default=str)
+            
+            if event_type in ("signal", "position"):
+                # Redis Stream(不可丢, 有消费组ACK机制)
+                stream_key = f"scanner:{event_type}"
+                await redis_manager._client.xadd(
+                    stream_key,
+                    {"data": payload},
+                    maxlen=5000 if event_type == "position" else 1000
+                )
+            else:
+                # Redis Pub/Sub(允许丢, 高频低价值)
                 channel = f"scanner:{event_type}"
-                data["timestamp"] = datetime.now().strftime("%H:%M:%S")
-                await redis_manager._client.publish(channel, json.dumps(data, ensure_ascii=False))
+                await redis_manager._client.publish(channel, payload)
         except Exception as e:
             logger.debug(f"[PUSH] Redis推送失败(可忽略): {e}")
 
