@@ -15,6 +15,7 @@ import {
 import { api } from '@/api/client'
 import SignalTracePanel from './SignalTracePanel.vue'
 import { useThemeStore } from '@/stores/theme'
+import { useScannerStore } from '@/stores/scanner'
 import {
   strategyMeta, strategyCN,
   pipelineLabels,
@@ -37,6 +38,7 @@ interface HealthData { overall_status: 'healthy' | 'warning' | 'critical'; circu
 
 const loading = ref(false), autoRefresh = ref(true), soundEnabled = ref(false)
 const themeStore = useThemeStore()
+const scannerStore = useScannerStore() // 【Phase4.1:Scanner Store】
 watch(() => themeStore.isDark, () => { /* theme changes auto-propagate via CSS vars */ })
 let refreshTimer: any = null
 let ws: WebSocket | null = null
@@ -259,7 +261,7 @@ async function pauseCircuitBreaker() {
 async function fetchLimitPools() { try { const r = await api.get(`${scannerApi}/limit-pools`); const p = parseResponse(r); if (p.success) limitPools.value = p.data } catch { } }
 async function fetchDailyReport() { try { const r = await api.get(`${scannerApi}/daily-report`); const p = parseResponse(r); if (p.success) dailyReport.value = p.data } catch { } }
 async function fetchDataSources() { try { const [sR, bR] = await Promise.all([api.get('/datasource/sources'), api.get('/datasource/brokers')]); const sP = parseResponse(sR), bP = parseResponse(bR); if (sP.success) dataSources.value = sP.data || []; if (bP.success) brokers.value = bP.data || [] } catch { } }
-async function fetchHealth() { try { const r = await api.get(`${scannerApi}/health`); const p = parseResponse(r); if (p.success) healthData.value = p.data } catch { } }
+async function fetchHealth() { try { const r = await api.get(`${scannerApi}/health`); const p = parseResponse(r); if (p.success) { healthData.value = p.data; scannerStore.health = p.data; /* Phase4.1 */ } } catch { } }
 async function emergencyLiquidate() { showConfirm('🚨 紧急平仓', '将立即以市价卖出所有持仓！\n此操作不可撤销！\n\n确认紧急平仓？', async () => { emergencyLiquidating.value = true; try { const r = await api.post(`${scannerApi}/emergency-liquidate`); const p = parseResponse(r); if (p.success) { ElMessage.success(p.data?.message || '紧急平仓完成'); await fetchAll(true) } else ElMessage.error('平仓失败') } catch { ElMessage.error('紧急平仓失败') } finally { emergencyLiquidating.value = false } }) }
 async function fetchAll(force = false) { await Promise.all([fetchScanner(), fetchStrategies(), fetchHealth()]); fetchLimitPools(); fetchDataSources(); }
 async function fetchStrategies() { try { const [sR, rR] = await Promise.all([api.get(`${configApi}/strategies`), api.get(`${configApi}/global-risk`)]); if (sR?.success) strategies.value = sR.data; if (rR?.success) globalRisk.value = rR.data } catch (e) { console.error(e) } }
@@ -286,7 +288,7 @@ async function saveStrategy() {
 async function resetStrategy(sid: string) { try { await api.post(`${configApi}/reset/${sid}`); await fetchStrategies(); ElMessage.success('已重置') } catch { ElMessage.error('重置失败') } }
 onMounted(async () => { await Promise.all([fetchScanner(), fetchStrategies(), fetchHealth()]); fetchLimitPools(); fetchDataSources(); fetchPerformanceHistory(); connectWS(); nowTimer = setInterval(() => { nowMs.value = Date.now() }, 1000); const getRefreshInterval = () => { const n = new Date(), h = n.getHours(), m = n.getMinutes(); const isTrading = (h === 9 && m >= 30) || (h >= 10 && h < 15) || (h === 15 && m === 0); return isTrading ? 5000 : 60000 }; refreshTimer = setInterval(() => { if (!autoRefresh.value || ws?.readyState === WebSocket.OPEN) return; fetchScanner(); fetchHealth() }, getRefreshInterval()) })
 onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer); if (nowTimer) clearInterval(nowTimer); disconnectWS() })
-function connectWS() { try { const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'; ws = new WebSocket(`${proto}//${location.host}/ws`); let wsDebounceTimer: any = null; const wsDebouncedFetch = () => { if (wsDebounceTimer) clearTimeout(wsDebounceTimer); wsDebounceTimer = setTimeout(fetchScanner, 500); }; ws.onopen = () => { ws?.send(JSON.stringify({ type: 'subscribe_scanner' })); }; ws.onmessage = (e) => { try { const d = JSON.parse(e.data); if (d.type === 'scanner_signal') { signals.value = d.signals?.length ? d.signals : signals.value; wsDebouncedFetch(); } else if (d.type === 'scanner_position') { positions.value = d.positions?.length ? d.positions : positions.value; } else if (d.type === 'scanner_timeline') { if (d.item) timeline.value = [...timeline.value, d.item]; wsDebouncedFetch(); } else if (d.type === 'scanner_status') { if (d.status) status.value = { ...status.value, ...d.status }; wsDebouncedFetch(); } } catch {} }; ws.onclose = () => { wsReconnectTimer = setTimeout(connectWS, 3000); }; ws.onerror = () => { ws?.close(); }; } catch {} }
+function connectWS() { try { const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'; ws = new WebSocket(`${proto}//${location.host}/ws`); let wsDebounceTimer: any = null; const wsDebouncedFetch = () => { if (wsDebounceTimer) clearTimeout(wsDebounceTimer); wsDebounceTimer = setTimeout(fetchScanner, 500); }; ws.onopen = () => { ws?.send(JSON.stringify({ type: 'subscribe_scanner' })); scannerStore.isWsConnected = true; }; ws.onmessage = (e) => { try { const d = JSON.parse(e.data); // 【Phase4.1:通过Scanner Store分发WS数据】 if (d.type === 'scanner_signal') { scannerStore.updateFromWs('signal', { item: d.signals?.[0] || d.item }); signals.value = d.signals?.length ? d.signals : signals.value; wsDebouncedFetch(); } else if (d.type === 'scanner_position') { scannerStore.updateFromWs('position', { positions: d.positions, account: d.account }); positions.value = d.positions?.length ? d.positions : positions.value; } else if (d.type === 'scanner_timeline') { scannerStore.updateFromWs('timeline', { item: d.item }); if (d.item) timeline.value = [...timeline.value, d.item]; wsDebouncedFetch(); } else if (d.type === 'scanner_status') { scannerStore.updateFromWs('status', d.status || d); if (d.status) status.value = { ...status.value, ...d.status }; wsDebouncedFetch(); } } catch {} }; ws.onclose = () => { scannerStore.isWsConnected = false; wsReconnectTimer = setTimeout(connectWS, 3000); }; ws.onerror = () => { ws?.close(); }; } catch {} }
 function disconnectWS() { if (wsReconnectTimer) clearTimeout(wsReconnectTimer); if (ws) { ws.close(); ws = null; } }
 const historyDate = ref('')
 const historyData = ref<any[]>([])
@@ -372,6 +374,9 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           <div v-if="healthData?.data_sources?.length" class="rb-ds">
             <span v-for="ds in healthData.data_sources" :key="ds.name" class="rb-ds-dot" :class="ds.available ? 'ok' : 'err'" :title="`${ds.name}: ${ds.available ? '可用' : '不可用'}`">●</span>
           </div>
+          <!-- 【Phase4.1:数据新鲜度+健康分数】 -->
+          <span class="rb-freshness" :class="scannerStore.dataFreshness" :title="`数据新鲜度: ${scannerStore.dataFreshness}`">●</span>
+          <span v-if="healthData?.health_score != null" class="rb-score" :title="`健康分数: ${healthData.health_score}/100`">{{ healthData.health_score }}</span>
           <button class="emergency-btn" :class="{ active: isRunning && !emergencyLiquidating, disabled: !isRunning || emergencyLiquidating }" @click.stop="isRunning && !emergencyLiquidating && emergencyLiquidate()" :disabled="!isRunning || emergencyLiquidating">
             <span class="emergency-text">{{ emergencyLiquidating ? '平仓中...' : '🚨 紧急平仓' }}</span>
           </button>
@@ -385,6 +390,11 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           <div class="rb-di" v-if="healthData?.risk_metrics"><span class="rb-dl">最大回撤限制</span><span class="rb-dv">{{ (healthData.risk_metrics.max_drawdown_pct || 0).toFixed(1) }}%</span></div>
           <div class="rb-di" v-if="healthData?.circuit_breaker"><span class="rb-dl">连续亏损</span><span class="rb-dv" :class="healthData.circuit_breaker.consecutive_losses >= (healthData.circuit_breaker.max_consecutive_losses - 1) ? 'down' : ''">{{ healthData.circuit_breaker.consecutive_losses }}次</span></div>
           <div class="rb-di" v-if="healthData?.risk_metrics"><span class="rb-dl">仓位比例</span><span class="rb-dv">{{ ((healthData.risk_metrics.position_ratio || 0) * 100).toFixed(0) }}%</span></div>
+          <!-- 【Phase4.1:健康分数+告警】 -->
+          <div class="rb-di" v-if="healthData?.health_score != null"><span class="rb-dl">健康分数</span><span class="rb-dv" :class="healthData.health_score < 60 ? 'down' : ''">{{ healthData.health_score }}/100</span></div>
+          <div class="rb-di" v-if="healthData?.scan_lag_seconds != null"><span class="rb-dl">扫描延迟</span><span class="rb-dv" :class="healthData.scan_lag_seconds > 60 ? 'down' : ''">{{ healthData.scan_lag_seconds.toFixed(1) }}s</span></div>
+          <div class="rb-di" v-if="healthData?.risk_check_lag_seconds != null"><span class="rb-dl">风控延迟</span><span class="rb-dv" :class="healthData.risk_check_lag_seconds > 5 ? 'down' : ''">{{ healthData.risk_check_lag_seconds.toFixed(1) }}s</span></div>
+          <div class="rb-di" v-if="healthData?.warnings?.length"><span class="rb-dl">告警</span><span class="rb-dv down">{{ healthData.warnings.join('; ') }}</span></div>
         </div>
         <div v-if="healthData?.data_sources?.length" class="rb-ds-detail">
           <span class="rb-dl">数据源</span>
@@ -1179,4 +1189,10 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 
 /* 盈亏曲线 */
 .pnl-chart-wrap { background: var(--bg-elevated); border-radius: 6px; padding: 4px; margin-top: 4px; }
+/* 【Phase4.1:数据新鲜度+健康分数】 */
+.rb-freshness { font-size: 10px; margin: 0 4px; }
+.rb-freshness.green { color: #52c41a; }
+.rb-freshness.yellow { color: #faad14; }
+.rb-freshness.red { color: #ff4d4f; }
+.rb-score { font-size: 11px; font-weight: 600; color: var(--text-secondary); background: var(--bg-elevated); border-radius: 4px; padding: 1px 5px; margin-left: 4px; }
 </style>
