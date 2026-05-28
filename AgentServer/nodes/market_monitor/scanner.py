@@ -704,220 +704,17 @@ class MarketScanner:
     # ==================== Phase1.1: 运行时状态持久化 ====================
 
     async def _load_runtime_snapshot(self):
-        """从MongoDB恢复Scanner运行时状态(追踪止损/风险等级/情绪/熔断器/跌停挂起)
-        
-        设计原则: Broker是持仓唯一权威, 本快照只存Scanner独有状态。
-        恢复后做一致性校验: 清理Broker已无持仓的追踪止损。
-        """
-        try:
-            from core.database.mongo_manager import mongo_manager
-            if not mongo_manager or not hasattr(mongo_manager, 'db'):
-                logger.debug("[SNAPSHOT] MongoDB不可用,跳过运行时状态恢复")
-                return
-            
-            snapshot = await mongo_manager.db.scanner_runtime_snapshot.find_one(
-                {"_id": self.account_id}
-            )
-            
-            if not snapshot:
-                logger.info("[SNAPSHOT] 无历史快照,使用空运行时状态")
-                return
-            
-            trade_date = datetime.now().strftime("%Y%m%d")
-            snap_date = snapshot.get("trade_date", "")
-            
-            if snap_date != trade_date:
-                # 新的一天 → 不恢复(昨天的状态已过期)
-                logger.info(f"[SNAPSHOT] 快照日期={snap_date}≠今日={trade_date}, 不恢复")
-                return
-            
-            # 恢复追踪止损
-            self._trailing_stops = snapshot.get("trailing_stops", {})
-            
-            # 恢复风险等级
-            self._position_risk_levels = snapshot.get("position_risk_levels", {})
-            
-            # 恢复单票风控覆盖
-            overrides = snapshot.get("position_risk_overrides", {})
-            if overrides:
-                self._position_risk_overrides = overrides
-            
-            # 恢复跌停挂起的卖出
-            pending = snapshot.get("pending_sells", {})
-            if pending:
-                # 将list转回tuple(MongoDB序列化tuple→list)
-                self._pending_sells = {k: tuple(v) if isinstance(v, list) else v 
-                                       for k, v in pending.items()}
-            
-            # 一致性校验: 清理Broker已无持仓的追踪止损
-            if self._broker:
-                broker_codes = {p.ts_code for p in self._broker.get_positions()}
-                stale_trailing = [k for k in self._trailing_stops if k not in broker_codes]
-                stale_risk = [k for k in self._position_risk_levels if k not in broker_codes]
-                for k in stale_trailing:
-                    del self._trailing_stops[k]
-                for k in stale_risk:
-                    del self._position_risk_levels[k]
-                if stale_trailing or stale_risk:
-                    logger.info(f"[SNAPSHOT] 清理过期状态: 追踪止损{len(stale_trailing)}个, "
-                                f"风险等级{len(stale_risk)}个")
-            
-            logger.info(f"[SNAPSHOT] 运行时状态恢复: 追踪止损{len(self._trailing_stops)}个, "
-                        f"风险等级{len(self._position_risk_levels)}个, "
-                        f"跌停挂起{len(self._pending_sells)}个")
-            
-        except Exception as e:
-            logger.warning(f"[SNAPSHOT] 运行时状态恢复失败: {e}")
-
+        """加载运行时快照 — 委托给RuntimePersistence【Phase3.1】"""
+        if self._runtime_persistence:
+            return await self._runtime_persistence.load_runtime_snapshot()
     async def _save_runtime_snapshot(self, force: bool = False):
-        """持久化Scanner运行时状态到MongoDB
-        
-        节流: 5秒内不重复保存(force=True跳过,用于资金变动场景)
-        降级: MongoDB不可用时写本地文件
-        
-        只存Scanner独有状态,不存Broker已有数据(持仓/账户)。
-        """
-        now = time.time()
-        if not force and now - self._last_snapshot_save < 5:
-            self._snapshot_dirty = True
-            return
-        self._last_snapshot_save = now
-        
-        trade_date = datetime.now().strftime("%Y%m%d")
-        
-        # 序列化跌停挂起(tuple→list for MongoDB)
-        pending_sells_serializable = {}
-        for k, v in self._pending_sells.items():
-            pending_sells_serializable[k] = list(v) if isinstance(v, tuple) else v
-        
-        snapshot = {
-            "_id": self.account_id,
-            "trailing_stops": dict(self._trailing_stops),
-            "position_risk_levels": dict(self._position_risk_levels),
-            "position_risk_overrides": dict(self._position_risk_overrides),
-            "pending_sells": pending_sells_serializable,
-            "trade_date": trade_date,
-            "updated_at": datetime.now().isoformat(),
-        }
-        
-        try:
-            from core.database.mongo_manager import mongo_manager
-            if mongo_manager and hasattr(mongo_manager, 'db'):
-                await mongo_manager.db.scanner_runtime_snapshot.replace_one(
-                    {"_id": self.account_id}, snapshot, upsert=True
-                )
-                self._snapshot_dirty = False
-                logger.debug(f"[SNAPSHOT] 运行时状态已持久化(trailing={len(self._trailing_stops)}, "
-                            f"risk={len(self._position_risk_levels)})")
-                return
-        except Exception as e:
-            logger.error(f"[SNAPSHOT] MongoDB写入失败, 降级写本地文件: {e}")
-        
-        # 降级: 写本地文件(保证重启可恢复)
-        try:
-            import json
-            local_path = f"/tmp/scanner_snapshot_{self.account_id}.json"
-            with open(local_path, "w") as f:
-                json.dump(snapshot, f, default=str, ensure_ascii=False)
-            self._snapshot_dirty = False
-            logger.info(f"[SNAPSHOT] 已降级写本地文件: {local_path}")
-        except Exception as e2:
-            logger.error(f"[SNAPSHOT] 本地文件写入也失败: {e2}")
-
-    async def _premarket_auction(self, trade_date: str):
-        """竞价预选(9:15-9:25集合竞价分析)
-        
-        数据源:
-        1. 昨日涨停池 → 连板候选(必盈ztgc, 不占今日额度)
-        2. 今日强势股池 → 竞价强势确认(必盈qsgc)
-        3. 实时行情 → 竞价涨幅>3%确认(逐只, 仅候选股)
-        
-        策略:
-        - 昨日涨停+今竞价继续强势 → 龙头连板候选
-        - 昨日连板≥2 → 强势股继续关注
-        """
-        try:
-            if not self._data_router:
-                return
-                
-            biying = self._data_router._sources.get("biying")
-            if not biying:
-                return
-            
-            today = datetime.now().strftime("%Y-%m-%d")
-            
-            # === 1. 今日强势股池(1次API) ===
-            strong_stocks = set()
-            try:
-                strong_pool = await biying.get_strong_pool(today)
-                for item in strong_pool:
-                    dm = item.get("dm", "")
-                    ts_code = self._short_to_ts_code(dm) if dm else ""
-                    if ts_code:
-                        strong_stocks.add(ts_code)
-                logger.info(f"[AUCTION] 今日强势股池: {len(strong_stocks)}只")
-            except Exception as e:
-                logger.warning(f"[AUCTION] 强势股池获取失败: {e}")
-            
-            # === 2. 昨日涨停池(1次API, 非今日额度) ===
-            from datetime import timedelta
-            yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-            yesterday_limit_ups = await biying.get_limit_up_pool(yesterday)
-            
-            if not yesterday_limit_ups:
-                logger.info("[AUCTION] 昨日无涨停数据")
-                return
-            
-            # === 3. 对昨日涨停+今日强势的交叉验证 ===
-            for item in yesterday_limit_ups:
-                limit_times = item.get("limit_times", 0) if isinstance(item, dict) else getattr(item, 'limit_times', 0)
-                ts_code = item.get("ts_code", "") if isinstance(item, dict) else getattr(item, 'ts_code', "")
-                name = item.get("name", "") if isinstance(item, dict) else getattr(item, 'name', "")
-                pct = item.get("pct_chg", 0) if isinstance(item, dict) else getattr(item, 'pct_chg', 0)
-                fd = item.get("fd_amount", 0) if isinstance(item, dict) else getattr(item, 'fd_amount', 0)
-                fd = float(fd or 0)
-                open_times = item.get("open_times", 0) if isinstance(item, dict) else getattr(item, 'open_times', 0)
-                
-                if not ts_code:
-                    continue
-                
-                # 连板≥2 或 今日强势确认
-                is_strong = ts_code in strong_stocks
-                if limit_times >= 2 or is_strong:
-                    existing = {s.ts_code + s.strategy for s in self._active_signals}
-                    key = ts_code + "limit_up"
-                    if key not in existing:
-                        # 获取实时行情确认价格(仅候选股, 1次/只)
-                        price = 0.0
-                        try:
-                            quote = await biying.get_realtime_quote(ts_code)
-                            if quote:
-                                price = float(quote.get("close", 0) if isinstance(quote, dict) else getattr(quote, 'close', 0))
-                        except Exception:
-                            pass
-                        
-                        self._active_signals.append(ScanSignal(
-                            ts_code=ts_code,
-                            stock_name=name,
-                            strategy="limit_up",
-                            strategy_name="竞价连板" + ("+强势" if is_strong else ""),
-                            signal_type="buy",
-                            price=price,  # 实时竞价价格
-                            pct_chg=pct,
-                            volume_ratio=0,
-                            turnover_rate=0,
-                            is_limit_up=True,
-                            reason=f"昨{limit_times}连板 封单{fd/1000:.0f}万 炸板{open_times}次" + (" 今强势确认" if is_strong else ""),
-                        ))
-            
-            auction_count = len([s for s in self._active_signals if s.strategy_name.startswith("竞价")])
-            logger.info(f"[AUCTION] 竞价预选: {auction_count}只候选")
-            
-        except Exception as e:
-            logger.warning(f"[AUCTION] 竞价预选失败: {e}")
-
-    # ==================== 扫描循环 ====================
-
+        """保存运行时快照 — 委托给RuntimePersistence【Phase3.1】"""
+        if self._runtime_persistence:
+            return await self._runtime_persistence.save_runtime_snapshot(force)
+    async def _premarket_auction(self):
+        """盘前竞价 — 委托给RuntimePersistence【Phase3.1】"""
+        if self._runtime_persistence:
+            return await self._runtime_persistence.premarket_auction()
     async def _scan_loop(self, trade_date: str):
         """主扫描循环(双层节奏 + 智能刷新)
         
@@ -1645,65 +1442,11 @@ class MarketScanner:
         return None
 
 
-    def _get_smart_check_interval(self) -> int:
-        """智能持仓检查间隔
-        
-        根据持仓风险等级动态调整检查频率:
-        - 全部normal: 30秒(省资源)
-        - 有warning(距止损<1%): 10秒
-        - 有critical(已触及止损区): 5秒
-        
-        对标真实量化: 事件驱动做不到(无WebSocket行情), 但分级轮询是实用方案
-        """
-        if not self._broker:
-            return self.POSITION_CHECK_INTERVAL
-
-        positions = self._broker.get_positions()
-        if not positions:
-            return self.POSITION_CHECK_INTERVAL
-
-        max_risk = "normal"
-        for pos in positions:
-            risk = self._get_strategy_risk(pos.strategy)
-            pos_overrides = getattr(self, '_position_risk_overrides', {}).get(pos.ts_code, {})
-            if 'stop_loss_pct' in pos_overrides:
-                risk['stop_loss_pct'] = pos_overrides['stop_loss_pct']
-            stop_loss_pct = -risk.get("stop_loss_pct", 0.03) * 100
-            
-            # 追踪止损
-            trailing = self._trailing_stops.get(pos.ts_code)
-            effective_sl = stop_loss_pct
-            if trailing and trailing.get("activated"):
-                trailing_sl = -(trailing.get("trailing_stop_pct", 0.03)) * 100
-                # 追踪止损可能更紧
-                effective_sl = max(stop_loss_pct, trailing_sl)  # 更接近0的值(如-2% vs -3%, 取-2%)
-
-            # 计算距止损空间
-            distance_to_sl = pos.profit_pct - effective_sl  # 如: 当前-1%, 止损-3%, 距离=2%
-            
-            if distance_to_sl <= 0:
-                # 已触及止损区
-                level = "critical"
-            elif distance_to_sl <= 1.0:
-                # 距止损<1%
-                level = "warning"
-            else:
-                level = "normal"
-            
-            self._position_risk_levels[pos.ts_code] = level
-            
-            if level == "critical":
-                max_risk = "critical"
-            elif level == "warning" and max_risk != "critical":
-                max_risk = "warning"
-
-        interval_map = {
-            "normal": self.POSITION_CHECK_INTERVAL,
-            "warning": self.POSITION_CHECK_FAST,
-            "critical": self.POSITION_CHECK_CRITICAL,
-        }
-        return interval_map.get(max_risk, self.POSITION_CHECK_INTERVAL)
-
+    def _get_smart_check_interval(self, positions) -> float:
+        """智能检查间隔 — 委托给PositionChecker【Phase3.1】"""
+        if self._position_checker:
+            return self._position_checker.get_smart_check_interval(positions)
+        return 30.0
     def _update_trailing_stops(self, positions, realtime_data: Dict):
         """更新追踪止损状态 — 委托给PositionManager【Phase3.1】"""
         if self._position_manager:
@@ -1711,20 +1454,11 @@ class MarketScanner:
             return
         # fallback: 不更新
 
-    def _get_open_price(self, ts_code: str) -> Optional[float]:
-        """获取当日开盘价(从实时缓存)"""
-        cached = (self._realtime_cache or {}).get(ts_code, {})
-        open_price = cached.get("open", 0)
-        if open_price and open_price > 0:
-            return open_price
-        # 回退: 东方财富缓存
-        if self._data_router:
-            eastmoney = self._data_router._sources.get("eastmoney")
-            if eastmoney and hasattr(eastmoney, '_cache'):
-                snap = eastmoney._cache.get(ts_code, {})
-                return snap.get("open", 0) or None
-        return None
-
+    def _get_open_price(self, ts_code: str) -> float:
+        """获取当日开盘价 — 委托给PositionChecker【Phase3.1】"""
+        if self._position_checker:
+            return self._position_checker._get_open_price(ts_code)
+        return 0.0
     def _is_limit_down(self, ts_code: str) -> bool:
         """判断是否跌停 — 委托给PositionChecker【Phase3.1】"""
         if self._position_checker:
