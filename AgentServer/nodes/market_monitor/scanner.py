@@ -84,6 +84,16 @@ class MarketScanner:
     SIGNAL_EXPIRE_SECONDS = 300  # 信号过期时间(秒): 5分钟后信号失效
     SIGNAL_EXPIRE_ACTION = True   # 过期信号是否自动取消买入(后端强制)
 
+    # 情绪降级规则: phase降级时的动态调仓策略
+    EMOTION_DOWNGRADE_RULES = {
+        ("rising", "differentiation"): {"action": "reduce", "keep_ratio": 0.7, "desc": "高潮→分化: 减仓30%"},
+        ("rising", "chaos"):          {"action": "reduce", "keep_ratio": 0.5, "desc": "高潮→震荡: 减仓50%"},
+        ("rising", "bearish"):        {"action": "clear_low_profit", "min_profit": 0.03, "desc": "高潮→冰点: 低利润(<3%)清仓"},
+        ("differentiation", "chaos"):  {"action": "reduce", "keep_ratio": 0.7, "desc": "分化→震荡: 减仓30%"},
+        ("differentiation", "bearish"): {"action": "clear_low_profit", "min_profit": 0.03, "desc": "分化→冰点: 低利润(<3%)清仓"},
+        ("chaos", "bearish"):         {"action": "clear_low_profit", "min_profit": 0.02, "desc": "震荡→冰点: 低利润(<2%)清仓"},
+    }
+
     # 交易模式
     MODE_SIMULATED = "simulated"  # 内置仿真撮合
     MODE_GM = "gm"                # 掘金量化
@@ -153,9 +163,11 @@ class MarketScanner:
         self._last_risk_check_ts: float = 0.0 # 上次风控检查时间戳(monotonic)
 
         # 数据
-        # 【Phase3.1:QuoteManager+PositionManager】
+        # 【Phase3.1:QuoteManager+PositionManager+StrategyScorer+SignalManager】
         self._quote_manager = QuoteManager()
         self._position_manager = None  # 延迟初始化(需要self引用)
+        self._strategy_scorer = None   # 延迟初始化
+        self._signal_manager = None    # 延迟初始化
         self._data_router: Optional[Any] = None  # DataSourceRouter实例(兼容,委托给QuoteManager)
         self._daily_factors_df: Optional[pd.DataFrame] = None
         self._realtime_cache: Dict[str, Dict] = {}  # ts_code → 实时行情(由QuoteManager维护)
@@ -260,9 +272,15 @@ class MarketScanner:
         from nodes.market_monitor.risk_watchdog import RiskWatchdog
         self._risk_watchdog = RiskWatchdog(scanner=self)
         self._risk_watchdog.register_alert_channel(self._signal_dispatcher.dispatch)
-        # 【Phase3.1:PositionManager】
+        # 【Phase3.1:PositionManager+StrategyScorer+SignalManager+PositionChecker】
         from nodes.market_monitor.position_manager import PositionManager
         self._position_manager = PositionManager(self)
+        from nodes.market_monitor.strategy_scorer import StrategyScorer
+        self._strategy_scorer = StrategyScorer(self)
+        from nodes.market_monitor.signal_manager import SignalManager
+        self._signal_manager = SignalManager(self)
+        from nodes.market_monitor.position_checker import PositionChecker
+        self._position_checker = PositionChecker(self)
 
         # 【V54:分级行情扫描器】
         self._use_tiered = self.config.get("use_tiered_scanner", False)  # 默认关闭, 显式启用
@@ -1357,200 +1375,25 @@ class MarketScanner:
     # ==================== 因子合并 ====================
 
     def _merge_factors(self, realtime_data: Dict[str, Dict]) -> pd.DataFrame:
-        """合并日级因子+实时数据"""
-        if not realtime_data:
-            return pd.DataFrame()
-
-        # 实时数据→DataFrame
-        rt_rows = []
-        for ts_code, rt in realtime_data.items():
-            row = {"ts_code": ts_code}
-            # 实时因子(覆盖日级)
-            row["pct_chg"] = rt.get("pct_chg", 0)
-            row["volume_ratio"] = rt.get("volume_ratio", 0)
-            row["turnover_rate"] = rt.get("turnover_rate", 0)
-            row["circ_mv"] = rt.get("circ_mv", 0)
-            row["open"] = rt.get("open", 0)
-            row["high"] = rt.get("high", 0)
-            row["low"] = rt.get("low", 0)
-            row["close"] = rt.get("price", 0)
-            row["pre_close"] = rt.get("pre_close", 0)
-            row["stock_name"] = rt.get("name", "")
-
-            # 涨停判断(实时)
-            pct = abs(rt.get("pct_chg", 0))
-            if ts_code.startswith('688'):
-                row["is_limit_up"] = 1 if rt.get("pct_chg", 0) >= 19.5 else 0
-                row["is_limit_down"] = 1 if rt.get("pct_chg", 0) <= -19.5 else 0
-            elif ts_code.startswith(('4', '8')):
-                row["is_limit_up"] = 1 if rt.get("pct_chg", 0) >= 29.5 else 0
-                row["is_limit_down"] = 1 if rt.get("pct_chg", 0) <= -29.5 else 0
-            else:
-                row["is_limit_up"] = 1 if rt.get("pct_chg", 0) >= 9.5 else 0
-                row["is_limit_down"] = 1 if rt.get("pct_chg", 0) <= -9.5 else 0
-
-            rt_rows.append(row)
-
-        rt_df = pd.DataFrame(rt_rows)
-        rt_df.set_index("ts_code", inplace=False)
-
-        # 合并日级因子(ma5/macd/rsi/boll/atr等)
-        if self._daily_factors_df is not None and not self._daily_factors_df.empty:
-            # 日级因子列(实时数据没有的)
-            daily_cols = ["ts_code", "ma5", "macd", "rsi_6", "boll_upper", "atr",
-                          "limit_up_count", "limit_up_yesterday", "limit_down_yesterday",
-                          "first_limit_up", "fear_greed_index"]
-            available_cols = [c for c in daily_cols if c in self._daily_factors_df.columns]
-            if available_cols:
-                daily_sub = self._daily_factors_df[available_cols].copy()
-                # 用ts_code做merge key
-                merged = rt_df.merge(daily_sub, on="ts_code", how="left", suffixes=("", "_daily"))
-                # 填充缺失
-                for col in ["ma5", "macd", "rsi_6", "boll_upper", "atr", "limit_up_count",
-                            "limit_up_yesterday", "limit_down_yesterday", "first_limit_up"]:
-                    if col in merged.columns:
-                        merged[col] = merged[col].fillna(0)
-                return merged
-
-        return rt_df
-
-    # ==================== 策略筛选 ====================
-
+        """合并日级因子+实时数据 — 委托给StrategyScorer【Phase3.1】"""
+        if self._strategy_scorer:
+            return self._strategy_scorer.merge_factors(realtime_data)
+        # fallback: 不再保留旧实现(已完整迁移到StrategyScorer)
     def _get_effective_strategy_config(self, strategy_key: str) -> Dict:
-        """获取策略有效配置(ParamCenter > 前端覆盖 > strategy_defaults)"""
-        # 优先级1: ParamCenter(MongoDB, 支持热更新)
-        if hasattr(self, '_param_center') and self._param_center._initialized:
-            pc_params = self._param_center._cache.get(strategy_key)
-            if pc_params:
-                return pc_params  # ParamCenter已包含完整配置
-        
-        # 优先级2: strategy_defaults + 前端覆盖
-        from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS
-        base = dict(STRATEGY_CONFIGS.get(strategy_key, {}))
-        overrides = self.config.get("strategy_overrides", {}).get(strategy_key)
-        if overrides:
-            if "params" in overrides:
-                base["params"] = {**base.get("params", {}), **overrides["params"]}
-            if "riskParams" in overrides:
-                base["riskParams"] = {**base.get("riskParams", {}), **overrides["riskParams"]}
-            if "enabled" in overrides:
-                base["enabled"] = overrides["enabled"]
-        return base
-
+        """获取策略有效配置 — 委托给StrategyScorer【Phase3.1】"""
+        if self._strategy_scorer:
+            return self._strategy_scorer.get_effective_strategy_config(strategy_key)
+        # fallback: 不再保留旧实现(已完整迁移到StrategyScorer)
     def _get_strategy_risk(self, strategy_key: str) -> Dict:
-        """获取策略风控参数(小数形式: 0.03=3%)"""
-        from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
-        cfg = self._get_effective_strategy_config(strategy_key)
-        risk = dict(GLOBAL_RISK)  # 全局兜底
-        risk.update(cfg.get("riskParams", {}))  # 策略级覆盖
-        # 防御: 如果传了百分比形式(>1), 自动转小数
-        if risk.get("stop_loss_pct", 0) > 1:
-            risk["stop_loss_pct"] = risk["stop_loss_pct"] / 100
-        if risk.get("take_profit_pct", 0) > 1:
-            risk["take_profit_pct"] = risk["take_profit_pct"] / 100
-        return risk
-
+        """获取策略风控参数 — 委托给StrategyScorer【Phase3.1】"""
+        if self._strategy_scorer:
+            return self._strategy_scorer.get_strategy_risk(strategy_key)
+        # fallback: 不再保留旧实现(已完整迁移到StrategyScorer)
     async def _apply_strategies(self, merged_df: pd.DataFrame, trade_date: str) -> List[ScanSignal]:
-        """策略筛选(复用回测逻辑, 读取前端覆盖参数)"""
-        if merged_df is None or len(merged_df) == 0:
-            return []
-
-        from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS
-        from nodes.backtest_engine.factor_selection.portfolio_backtest import PortfolioBacktester
-
-        bt = PortfolioBacktester()
-        signals = []
-
-        for strategy_key in STRATEGY_CONFIGS:
-            # 读取有效配置(含前端覆盖)
-            cfg = self._get_effective_strategy_config(strategy_key)
-            if not cfg.get("enabled", True):
-                continue
-
-            strategy_name = cfg["name"]
-            params = cfg["params"]
-
-            # 复用回测的筛选条件
-            conditions = bt._build_strategy_filter_conditions(strategy_name, params)
-
-            # 应用条件
-            mask = pd.Series(True, index=merged_df.index)
-            for cond in conditions:
-                col = cond.get("name") or cond.get("column")
-                op = cond.get("operator", ">=")
-                val = cond.get("target") or cond.get("value")
-                if col and val is not None and col in merged_df.columns:
-                    try:
-                        col_data = merged_df[col].fillna(0)
-                        if op == ">=":   mask &= (col_data >= val)
-                        elif op == "<=": mask &= (col_data <= val)
-                        elif op == ">":  mask &= (col_data > val)
-                        elif op == "<":  mask &= (col_data < val)
-                        elif op == "==": mask &= (col_data == val)
-                    except TypeError:
-                        pass
-
-            selected = merged_df[mask]
-
-            # 排除已有持仓
-            for _, row in selected.iterrows():
-                ts_code = row.get("ts_code", "")
-                existing_positions = {p.ts_code for p in self._broker.get_positions()}
-                if ts_code in existing_positions:
-                    continue  # 已持仓, 跳过
-
-                # 构造详细reason
-                pct = float(row.get('pct_chg') or 0)
-                vr = float(row.get('volume_ratio') or 0)
-                tr = float(row.get('turnover_rate') or 0)
-                is_lu = bool(row.get('is_limit_up', 0))
-                lbc = int(row.get('limit_up_count', 0))
-                
-                if strategy_key == 'halfway_chase':
-                    reason = f"涨{pct:.1f}% 量比{vr:.1f} 换手{tr:.1f}%{' ⚠️ST' if 'ST' in row.get('stock_name','') else ''}"
-                elif strategy_key == 'first_limit_up':
-                    reason = f"首板涨停 封单强 炸板{lbc}次"
-                elif strategy_key == 'dragon_head':
-                    reason = f"{lbc}连板龙头 回调{pct:.1f}%"
-                elif strategy_key == 'limit_down_qiao':
-                    reason = f"跌停撬板 反弹{pct:.1f}%"
-                else:
-                    reason = f"{strategy_name} 涨{pct:.1f}%"
-
-                signals.append(ScanSignal(
-                    ts_code=ts_code,
-                    stock_name=row.get("stock_name", ""),
-                    strategy=strategy_key,
-                    strategy_name=strategy_name,
-                    price=row.get("close", 0) or row.get("price", 0),
-                    pct_chg=float(row.get('pct_chg') or 0),
-                    volume_ratio=float(row.get('volume_ratio') or 0),
-                    turnover_rate=float(row.get('turnover_rate') or 0),
-                    is_limit_up=bool(row.get("is_limit_up", 0)),
-                    limit_up_count=int(row.get("limit_up_count", 0)),
-                    reason=reason,
-                    scan_time=datetime.now().strftime("%H:%M:%S"),
-                    factors={k: row.get(k, 0) for k in
-                             ["pct_chg", "volume_ratio", "turnover_rate", "circ_mv",
-                              "ma5", "rsi_6", "is_limit_up", "limit_up_count"]
-                             if k in row.index},
-                    # 【调试增强】策略筛选层trace
-                    layer_trace={
-                        "L6_strategy": {
-                            "strategy": strategy_key,
-                            "strategy_name": strategy_name,
-                            "conditions_applied": len(conditions),
-                            "candidates_before": len(merged_df),
-                            "candidates_after": len(selected),
-                            "passed": True,
-                        }
-                    },
-                ))
-
-        return signals
-
-    # ==================== 9层筛选管道 ====================
-
+        """策略筛选 — 委托给StrategyScorer【Phase3.1】"""
+        if self._strategy_scorer:
+            return await self._strategy_scorer.apply_strategies(merged_df, trade_date)
+        return []
     async def _apply_filter_pipeline(
         self, signals: List[ScanSignal], trade_date: str, realtime_data: Dict
     ) -> List[ScanSignal]:
@@ -1672,308 +1515,31 @@ class MarketScanner:
     # ==================== 信号管理 ====================
 
     async def _update_signals(self, new_signals: List[ScanSignal], scan_time: str):
-        """增量更新信号 + 过期清理"""
-        # === 1. 过期清理: 超过SIGNAL_EXPIRE_SECONDS的信号标记为expired ===
-        now = time.time()
-        expired_keys = set()
-        for s in self._active_signals:
-            if s.created_at > 0 and (now - s.created_at) > self.SIGNAL_EXPIRE_SECONDS:
-                if s.signal_status == "new":  # 只过期未执行的信号
-                    s.signal_status = "expired"
-                    expired_keys.add(s.ts_code + "|" + s.strategy)
-                    logger.debug(f"[SIGNAL] 过期: {s.ts_code} {s.strategy_name} ({now - s.created_at:.0f}s)")
-                    # 推送过期事件
-                    try:
-                        await self._publish_scanner_event("signal_expired", {
-                            "ts_code": s.ts_code,
-                            "strategy": s.strategy,
-                            "expired_after": round(now - s.created_at, 0),
-                        })
-                    except Exception:
-                        pass
-        # 移除已过期且已执行的信号(保留expired状态供前端展示)
-        self._active_signals = [s for s in self._active_signals
-                                 if s.signal_status not in ("expired",) or s.created_at == 0]
-
-        # === 2. 增量更新 ===
-        existing_keys = {s.ts_code + "|" + s.strategy for s in self._active_signals}
-        added = []
-
-        for sig in new_signals:
-            key = sig.ts_code + "|" + sig.strategy
-            sig.created_at = now  # 设置创建时间
-            if key not in existing_keys:
-                self._active_signals.append(sig)
-                existing_keys.add(key)
-                added.append(sig)
-            else:
-                # 已存在: 刷新价格和因子(信号可能价格变了)
-                for s in self._active_signals:
-                    if s.ts_code + "|" + s.strategy == key:
-                        s.price = sig.price
-                        s.pct_chg = sig.pct_chg
-                        s.volume_ratio = sig.volume_ratio
-                        s.turnover_rate = sig.turnover_rate
-                        s.scan_time = sig.scan_time
-                        # 不刷新created_at: 保留原始创建时间, 让信号正常过期
-                        # 如果需要续期, 用户可以手动买入
-                        break
-
-        if added:
-            self._stats["signals_found"] += len(added)
-            logger.info(f"[SIGNAL] 新增{len(added)}个信号: "
-                         f"{', '.join(s.ts_code for s in added[:5])}")
-
-            # 推送新信号
-            await self._push_signals(added)
-
-            # 执行新信号
-            await self._execute_signals(added)
-            
-            # 执行后立即持久化(防止崩溃丢数据)
-            if self._broker:
-                try:
-                    await self._broker.save_state()
-                except Exception:
-                    pass  # 持久化失败不影响交易
-            
-            # WebSocket推送(通过Redis PubSub) — 使用标准_publish_scanner_event
-            try:
-                await self._publish_scanner_event("signal", {
-                    "signals": [{
-                        "ts_code": s.ts_code,
-                        "name": s.stock_name,
-                        "strategy": s.strategy_name,
-                        "pct_chg": round(s.pct_chg, 1),
-                        "reason": s.reason,
-                    } for s in added[:10]],
-                    "count": len(added),
-                    "time": scan_time,
-                })
-            except Exception:
-                pass  # 推送失败不影响交易
-
+        """增量更新信号+过期清理 — 委托给SignalManager【Phase3.1】"""
+        if self._signal_manager:
+            return await self._signal_manager.update_signals(new_signals, scan_time)
+        # fallback: 不再保留旧实现(已完整迁移到SignalManager)
     async def _push_signals(self, signals: List[ScanSignal]):
-        """推送信号"""
-        try:
-            from core.managers.live.signal_pusher import SignalPusher
-            pusher = SignalPusher(self.config.get("push", {}))
-            lines = [f"🎯 **实时信号** ({datetime.now().strftime('%H:%M:%S')})"]
-            for sig in signals[:10]:
-                pct = f"+{sig.pct_chg:.1f}%" if sig.pct_chg and sig.pct_chg > 0 else f"{sig.pct_chg or 0:.1f}%"
-                lines.append(f"- {sig.ts_code} {sig.stock_name} | {sig.strategy_name} | {pct}")
-            if len(signals) > 10:
-                lines.append(f"... 共{len(signals)}个")
-            await asyncio.to_thread(pusher.push_signal, "\n".join(lines))
-        except Exception as e:
-            logger.debug(f"[PUSH] 推送失败(可忽略): {e}")
-
+        """推送信号 — 委托给SignalManager【Phase3.1】"""
+        if self._signal_manager:
+            return await self._signal_manager._push_signals(signals)
+        # fallback: 不再保留旧实现(已完整迁移到SignalManager)
     def _add_timeline_log(self, action, ts_code, stock_name, strategy, reason, sig):
-        """【V50.1】添加执行日志到时间线(含blocked状态)"""
-        self._timeline.append({
-            "time": datetime.now().strftime("%H:%M:%S"),
-            "action": action,
-            "ts_code": ts_code,
-            "stock_name": stock_name,
-            "strategy": strategy,
-            "reason": reason,
-            "decision_detail": getattr(sig, "decision_detail", {}),
-            "layer_trace": getattr(sig, "layer_trace", {}),
-        })
-        # 【Phase3.4:审计日志】异步写入append-only集合
-        asyncio.create_task(self._write_audit_log(action, ts_code, stock_name, strategy, reason))
-    
+        """添加执行日志 — 委托给SignalManager【Phase3.1】"""
+        if self._signal_manager:
+            return self._signal_manager._add_timeline_log(action, ts_code, stock_name, strategy, reason, sig)
+        # fallback: 不再保留旧实现(已完整迁移到SignalManager)
     async def _write_audit_log(self, action: str, ts_code: str, stock_name: str, 
                                 strategy: str, reason: str):
-        """写入审计日志(append-only, TTL 90天)"""
-        try:
-            from core.managers import mongo_manager
-            if mongo_manager.db is None:
-                return
-            await mongo_manager.db["audit_log"].insert_one({
-                "timestamp": datetime.now().isoformat(),
-                "account_id": self.account_id,
-                "action": action,
-                "ts_code": ts_code,
-                "stock_name": stock_name,
-                "strategy": strategy,
-                "reason": reason,
-                "sentiment": self._current_sentiment.get("period", ""),
-                "position_ratio": self._current_position_ratio,
-                "sell_logic_mode": self.SELL_LOGIC_MODE,
-            })
-        except Exception:
-            pass  # 审计日志失败不应影响主流程
-
+        """写入审计日志 — 委托给SignalManager【Phase3.1】"""
+        if self._signal_manager:
+            return await self._signal_manager._write_audit_log(action, ts_code, stock_name, strategy, reason)
 
     async def _execute_signals(self, signals: List[ScanSignal]):
-        """执行信号(SimulatedBroker撮合)
-        
-        仓位管理(PositionSizer):
-        - 信号强度高(涨停+连板) → 重仓(可用现金40%)
-        - 信号强度中(半路追涨/首板) → 中仓(可用现金25%)
-        - 信号强度低(跌停翘板/低吸) → 轻仓(可用现金15%)
-        - 总仓位上限70%, 单票上限15%
-
-        【调试增强】dry_run模式: 只记录信号, 不实际下单
-        """
-        # dry_run模式: 标记信号为skipped, 不执行交易
-        if self._dry_run:
-            for sig in signals:
-                sig.signal_status = "skipped"
-                sig.layer_trace["execution"] = {
-                    "mode": "dry_run",
-                    "reason": "调试模式, 不执行交易",
-                    "would_buy_shares": self._calc_would_buy_shares(sig),
-                    "would_buy_amount": round(sig.price * self._calc_would_buy_shares(sig), 2),
-                }
-                self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
-                    sig.strategy_name, "调试模式, 未实际下单", sig)
-                logger.info(f"[DRY-RUN] 跳过买入 {sig.ts_code} {sig.stock_name} ({sig.strategy_name})")
-            return
-
-        stop_loss = self.config.get("stop_loss", -3.0)  # 【V50:默认-3%对齐GLOBAL_RISK,原-5%过低】
-        take_profit = self.config.get("take_profit", 7.0)
-
-        for sig in signals:
-            # 【安全】异动信号只观察不自动买入(历史bug: 曾绕过强制空仓造成重大损失)
-            if "anomaly" in sig.strategy:
-                sig.signal_status = "skipped"
-                self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
-                    sig.strategy_name, "异动信号, 仅观察不自动交易", sig)
-                logger.info(f"[EXEC] 异动信号仅观察: {sig.ts_code} {sig.stock_name} ({sig.strategy_name})")
-                continue
-
-            # 【去重】同票已有持仓则跳过(不同策略推荐同一只股不重复买入)
-            existing = self._broker.get_positions()
-            if any(p.ts_code == sig.ts_code for p in existing):
-                sig.signal_status = "skipped"
-                self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
-                    sig.strategy_name, "已有持仓, 跳过", sig)
-                logger.info(f"[EXEC] {sig.ts_code} 已有持仓, 跳过")
-                continue
-
-            # 熔断检查
-            if not await self._check_circuit_breaker():
-                self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
-                    sig.strategy_name, "风控熔断中, 暂停买入", sig)
-                logger.info(f"[EXEC] 风控熔断, 跳过买入")
-                break
-                
-            if len(self._broker.get_positions()) >= self.MAX_POSITIONS:
-                self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
-                    sig.strategy_name, f"已达最大持仓{self.MAX_POSITIONS}只", sig)
-                logger.info(f"[EXEC] 已达最大持仓{self.MAX_POSITIONS}, 跳过")
-                break
-
-            if sig.price <= 0:
-                self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
-                    sig.strategy_name, f"价格异常(price={sig.price})", sig)
-                continue
-
-            # === PositionSizer: 按策略和信号强度分配仓位 ===
-            acct = self._broker.get_account()
-            position_ratio = self._calc_position_ratio(sig)
-            max_amount = acct.available_cash * position_ratio
-            shares = int(max_amount / sig.price / 100) * 100
-            
-            # 科创板最小200股
-            if sig.ts_code.startswith('688'):
-                shares = int(max_amount / sig.price / 200) * 200
-                if shares <= 0 and max_amount > 0:
-                    self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
-                        sig.strategy_name, f"科创板资金不足200股(需≥{sig.price*200:.0f}元, 可用{max_amount:.0f}元)", sig)
-                    logger.info(f"[EXEC] {sig.ts_code} 科创板资金不足200股(需≥{sig.price*200:.0f}元, 可用{max_amount:.0f}元)")
-                    continue
-                
-            if shares <= 0:
-                self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
-                    sig.strategy_name, f"资金不足({max_amount:.0f}元<{sig.price*100:.0f}元)", sig)
-                continue
-
-            # 更新实时价格到broker
-            self._broker.update_realtime(sig.ts_code, sig.price)
-
-            # 【V51:下单前执行质量检查】
-            if self._pre_trade_checker:
-                self._pre_trade_checker._broker = self._broker  # 更新broker引用
-                ok_pre, pre_reason = self._pre_trade_checker.check_buy(
-                    ts_code=sig.ts_code,
-                    price=sig.price,
-                    quantity=shares,
-                    stock_name=sig.stock_name,
-                    strategy=sig.strategy,
-                )
-                if not ok_pre:
-                    self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
-                        sig.strategy_name, f"执行质量检查拒绝: {pre_reason}", sig)
-                    logger.info(f"[EXEC] 买入被拒: {sig.ts_code} {pre_reason}")
-                    continue
-
-            # 【V51:滑点估算】
-            daily_vol = self._realtime_cache.get(sig.ts_code, {}).get("volume", 0)
-            slippage = self._slippage_model.estimate(
-                price=sig.price, quantity=shares,
-                daily_volume=daily_vol * 100 if daily_vol else 0,  # 万手→股
-                side="buy", reason=sig.reason,
-            )
-            adjusted_price = self._slippage_model.apply_slippage(sig.price, slippage)
-            if abs(slippage) > 0.001:
-                logger.info(f"[EXEC] 滑点调整: {sig.ts_code} {sig.price:.2f}→{adjusted_price:.2f} (slippage={slippage*100:.3f}%)")
-
-            ok, msg, order = self._broker.place_order(
-                ts_code=sig.ts_code,
-                stock_name=sig.stock_name,
-                side="buy",
-                quantity=shares,
-                price=sig.price,
-                order_type="market",
-                strategy=sig.strategy,
-                reason=sig.reason,
-            )
-
-            if ok:
-                self._timeline.append({
-                    "time": datetime.now().strftime("%H:%M:%S"),
-                    "action": "buy",
-                    "ts_code": sig.ts_code,
-                    "stock_name": sig.stock_name,
-                    "strategy": sig.strategy_name,
-                    "shares": shares,
-                    "price": order.filled_price,
-                    "reason": sig.reason,
-                    "decision_detail": {
-                        **sig.decision_detail,
-                        "execution": {
-                            "position_ratio": position_ratio,
-                            "available_cash": round(acct.available_cash, 2),
-                            "max_amount": round(max_amount, 2),
-                            "shares": shares,
-                            "filled_price": order.filled_price,
-                            "total_cost": round(order.filled_price * shares, 2),
-                            "circuit_breaker": {
-                                "paused": self._circuit_breaker.get("trading_paused", False),
-                                "consecutive_losses": self._circuit_breaker.get("consecutive_losses", 0),
-                            },
-                            "sentiment": self._current_sentiment if hasattr(self, '_current_sentiment') else {},
-                            "position_count_before": len(self._broker.get_positions()),
-                        },
-                    },
-                })
-                sig.signal_status = "executed"
-                self._stats["trades_executed"] += 1
-                # 推送信号+时间线到Redis
-                await self._publish_scanner_event("signal", {
-                    "signals": [self._signal_to_dict(sig)],
-                })
-                await self._publish_scanner_event("timeline", {
-                    "item": self._timeline[-1],
-                })
-                logger.info(f"[EXEC] 买入 {sig.ts_code} {shares}股@{order.filled_price:.2f} ({sig.strategy_name})")
-            else:
-                self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
-                    sig.strategy_name, f"下单失败: {msg}", sig)
-                logger.warning(f"[EXEC] 买入被拒 {sig.ts_code}: {msg}")
+        """执行信号 — 委托给SignalManager【Phase3.1】"""
+        if self._signal_manager:
+            return await self._signal_manager.execute_signals(signals)
+        # fallback: 原逻辑已完整迁移到SignalManager
 
     # ==================== 公共止损止盈方法 ====================
 
@@ -2009,474 +1575,14 @@ class MarketScanner:
     # ==================== 持仓检查 ====================
 
     async def _check_positions(self, realtime_data: Dict[str, Dict], trade_date: str):
-        """止损止盈+超时强卖检查
-        
-        【Phase1.3:灰度开关】
-        SELL_LOGIC_MODE环境变量控制:
-        - legacy: Scanner内嵌逻辑(旧,安全)
-        - checker: sell_signal_checker(新,目标)
-        - compare: 两者都跑,只执行旧逻辑,记录差异
-        """
-        if self.SELL_LOGIC_MODE == "checker":
-            return await self._check_positions_checker(realtime_data, trade_date)
-        elif self.SELL_LOGIC_MODE == "compare":
-            return await self._check_positions_compare(realtime_data, trade_date)
-        else:
-            return await self._check_positions_legacy(realtime_data, trade_date)
-
-    async def _check_positions_legacy(self, realtime_data: Dict[str, Dict], trade_date: str):
-        """原Scanner内嵌卖出逻辑(不变)"""
-        # 使用公共止损止盈检查方法
-        to_sell = self._check_stop_loss_take_profit(
-            self._broker.get_positions(), realtime_data
-        )
-
-        # === 超时强卖(与回测对齐) ===
-        from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
-        for pos in self._broker.get_positions():
-            if pos.available_qty <= 0 or not pos.buy_date:
-                continue
-            risk = self._get_strategy_risk(pos.strategy)
-            max_hold = risk.get("max_hold_days", GLOBAL_RISK.get("max_hold_days", 999))
-            if max_hold >= 999:
-                continue
-            try:
-                buy_dt = int(pos.buy_date)
-                cur_dt = int(trade_date)
-                # 简单计算交易日差(含首尾)
-                from nodes.backtest_engine.factor_selection.portfolio_backtest import PortfolioBacktester
-                bt = PortfolioBacktester()
-                days_held = bt._calc_trade_days_held(buy_dt, cur_dt)
-                if days_held >= max_hold:
-                    # 检查是否已经在to_sell里
-                    already = any(p.ts_code == pos.ts_code for p, _, _, _ in to_sell)
-                    if not already:
-                        to_sell.append((pos, f"超时({days_held}日≥{max_hold}日)", pos.current_price, risk))
-                        logger.info(f"[TIMEOUT] {pos.ts_code} 持仓{days_held}日≥{max_hold}日, 强制卖出")
-            except (ValueError, TypeError):
-                pass
-
-        # === 移动止损(盈利保护) ===
-        for pos in self._broker.get_positions():
-            if pos.available_qty <= 0:
-                continue
-            risk = self._get_strategy_risk(pos.strategy)
-            # 单票覆盖
-            pos_overrides = getattr(self, '_position_risk_overrides', {}).get(pos.ts_code, {})
-            sl_pct = pos_overrides.get('stop_loss_pct', risk.get('stop_loss_pct', 0.03))
-            # 盈利超过2倍止损时, 止损线上移到成本价(保本出局)
-            if pos.profit_pct / 100 > sl_pct * 2:  # 盈利>2倍止损线
-                # 检查是否已经在to_sell(不要覆盖已有止损)
-                already = any(p.ts_code == pos.ts_code for p, _, _, _ in to_sell)
-                if not already and pos.profit_pct <= 0:
-                    # 盈利回撤到0以下, 但原本止损线在-3%, 现在应该保本出局
-                    to_sell.append((pos, f"移动止损(盈利回撤至{pos.profit_pct:.1f}%)", pos.current_price, risk))
-                    logger.info(f"[TRAILING] {pos.ts_code} 盈利回撤至{pos.profit_pct:.1f}%, 移动止损触发")
-
-        # 执行卖出
-        for pos, reason, sell_price, risk in to_sell:
-            if pos.available_qty <= 0:
-                continue  # T+1: 今日买入不可卖
-
-            # 【P1-7修复】在卖出前保存关键值(place_order会修改pos对象)
-            sell_qty = pos.available_qty
-            sell_profit_pct = pos.profit_pct
-            sell_profit_amount = (pos.current_price - pos.avg_cost) * sell_qty
-            sell_avg_cost = pos.avg_cost
-            sell_current_price = pos.current_price
-
-            self._broker.update_realtime(pos.ts_code, pos.current_price)
-            ok, msg, order = self._broker.place_order(
-                ts_code=pos.ts_code,
-                stock_name=pos.stock_name,
-                side="sell",
-                quantity=sell_qty,
-                price=sell_price,
-                order_type="market",
-                strategy=pos.strategy,
-                reason=reason,
-            )
-            if ok:
-                self._timeline.append({
-                    "time": datetime.now().strftime("%H:%M:%S"),
-                    "action": "sell",
-                    "ts_code": pos.ts_code,
-                    "stock_name": pos.stock_name,
-                    "strategy": pos.strategy,
-                    "shares": sell_qty,
-                    "price": order.filled_price,
-                    "reason": reason,
-                    "profit_pct": round(sell_profit_pct, 2),
-                    "profit_amount": round(sell_profit_amount, 2),  # 【P1-7修复】用卖出前保存的值
-                    "decision_detail": {  # 【实盘审查增强】卖出决策详情(使用正确的risk)
-                        "sell_reason": reason,
-                        "profit_pct": round(sell_profit_pct, 2),
-                        "profit_amount": round(sell_profit_amount, 2),
-                        "cost_price": sell_avg_cost,
-                        "sell_price": order.filled_price,
-                        "current_price": sell_current_price,
-                        "stop_loss_pct": round(-risk.get("stop_loss_pct", 0.03) * 100, 1),
-                        "take_profit_pct": round(risk.get("take_profit_pct", 0.07) * 100, 1),
-                        "stop_loss_price": self._calc_stop_loss_price(pos, risk),
-                        "take_profit_price": self._calc_take_profit_price(pos, risk),
-                        "hold_minutes": 0,
-                    },
-                })
-                if "止损" in reason:
-                    self._stats["stop_losses"] += 1
-                    # 【V59:止损响应时间追踪】
-                    try:
-                        self._execution_stats["stop_loss_response_times"].append(time.time())
-                        if len(self._execution_stats["stop_loss_response_times"]) > 50:
-                            self._execution_stats["stop_loss_response_times"] = self._execution_stats["stop_loss_response_times"][-50:]
-                    except Exception:
-                        pass
-                else:
-                    self._stats["take_profits"] += 1
-                await self._publish_scanner_event("timeline", {"item": self._timeline[-1]})
-                logger.info(f"[RISK] {reason}: {pos.ts_code} {pos.available_qty}股@{order.filled_price:.2f}")
-        
-        # 【V59:卖出后清理追踪止损和风险等级】
-        for pos, reason, _, _ in to_sell:
-            self._trailing_stops.pop(pos.ts_code, None)
-            self._position_risk_levels.pop(pos.ts_code, None)
-        
-        # 止损止盈后强制持久化(跳过节流)
-        if to_sell and self._broker:
-            try:
-                await self._broker.save_state(force=True)
-            except Exception:
-                pass
-            # 【Phase1.1】同步保存Scanner运行时状态(追踪止损等可能变更)
-            await self._save_runtime_snapshot(force=True)
+        """止损止盈+超时强卖检查 — 委托给PositionChecker【Phase3.1】"""
+        if self._position_checker:
+            return await self._position_checker.check_positions(realtime_data, trade_date)
 
     async def _check_positions_quick(self, trade_date: str):
-        """持仓快速检查(30秒级, 用东方财富全市场缓存)
-        
-        东方财富3秒获取全市场5400只价格, 不消耗必盈额度。
-        只从缓存提取持仓股价格, 然后检查止损止盈。
-        
-        【增强】
-        - 跳空止损: 当日open<止损价→open卖出(与回测一致)
-        - 跌停不可卖: 跌停股不执行卖出(挂单无法成交)
-        - dry_run模式: 不执行卖出, 只记录
-        """
-        if not self._broker:
-            return
-            
-        positions = self._broker.get_positions()
-        if not positions:
-            return
-        
-        # 风控熔断检查
-        if not await self._check_circuit_breaker():
-            return
-        
-        # 东方财富: 从缓存获取持仓股价格(0额外API)
-        pos_codes = [pos.ts_code for pos in positions]
-        if self._data_router:
-            eastmoney = self._data_router._sources.get("eastmoney")
-            if eastmoney:
-                prices = await eastmoney.get_position_prices(pos_codes)
-                for ts_code, price in prices.items():
-                    if price and price > 0:
-                        self._broker.update_realtime(ts_code=ts_code, price=price)
-                logger.debug(f"[QUICK] 东方财富更新: {len(prices)}/{len(pos_codes)}只持仓价")
-        
-        # 回退: 用全量扫描缓存
-        for pos in positions:
-            if pos.ts_code not in (self._realtime_cache or {}):
-                continue
-            cached = self._realtime_cache.get(pos.ts_code, {})
-            if cached.get("price", 0) > 0 and pos.current_price <= 0:
-                self._broker.update_realtime(
-                    ts_code=pos.ts_code,
-                    price=cached["price"],
-                    pre_close=cached.get("pre_close", 0),
-                )
-        
-        # 使用公共止损止盈检查方法
-        to_sell = self._check_stop_loss_take_profit(
-            self._broker.get_positions(), self._realtime_cache or {}
-        )
-        
-        # 执行卖出
-        for pos, reason, force_price, risk in to_sell:
-            if pos.available_qty <= 0:
-                continue
-            
-            # 【增强】跌停不可卖: 检查是否跌停
-            if self._is_limit_down(pos.ts_code):
-                self._add_timeline_log("blocked", pos.ts_code, pos.stock_name,
-                    pos.strategy, f"跌停不可卖(触发{reason}但跌停挂单无法成交)", None)
-                logger.warning(f"[QUICK] 跌停不可卖: {pos.ts_code} {pos.stock_name}")
-                continue
-            
-            # 【增强】dry_run模式: 不执行卖出
-            if self._dry_run:
-                self._add_timeline_log("blocked", pos.ts_code, pos.stock_name,
-                    pos.strategy, f"调试模式跳过卖出({reason})", None)
-                logger.info(f"[DRY-RUN] 跳过卖出 {pos.ts_code} {reason}")
-                continue
-            
-            # 【P1-7修复】在卖出前保存关键值
-            sell_qty = pos.available_qty
-            sell_profit_pct = pos.profit_pct
-            sell_profit_amount = (pos.current_price - pos.avg_cost) * sell_qty
-            sell_avg_cost = pos.avg_cost
-            sell_current_price = pos.current_price
-            
-            sell_price = force_price if force_price else sell_current_price
-            self._broker.update_realtime(pos.ts_code, sell_price)
-            ok, msg, order = self._broker.place_order(
-                ts_code=pos.ts_code,
-                stock_name=pos.stock_name,
-                side="sell",
-                quantity=sell_qty,
-                price=sell_price,
-                order_type="market",
-                strategy=pos.strategy,
-                reason=reason,
-            )
-            if ok:
-                self._timeline.append({
-                    "time": datetime.now().strftime("%H:%M:%S"),
-                    "action": "sell",
-                    "ts_code": pos.ts_code,
-                    "stock_name": pos.stock_name,
-                    "strategy": pos.strategy,
-                    "shares": sell_qty,
-                    "price": order.filled_price,
-                    "reason": reason,
-                    "profit_pct": round(sell_profit_pct, 2),
-                    "profit_amount": round(sell_profit_amount, 2),  # 【P1-7修复】用卖出前保存的值
-                })
-                if "止损" in reason:
-                    self._stats["stop_losses"] += 1
-                else:
-                    self._stats["take_profits"] += 1
-                await self._publish_scanner_event("timeline", {"item": self._timeline[-1]})
-                logger.info(f"[QUICK] {reason}: {pos.ts_code} {pos.available_qty}股@{order.filled_price:.2f}")
-        
-        # 止损止盈后强制持久化(跳过节流)
-        if to_sell and self._broker:
-            try:
-                await self._broker.save_state(force=True)
-            except Exception:
-                pass
-            # 【Phase1.1】同步保存Scanner运行时状态
-            await self._save_runtime_snapshot(force=True)
-
-    # ==================== Phase1.3: checker卖出逻辑 ====================
-
-    async def _check_positions_checker(self, realtime_data: Dict[str, Dict], trade_date: str):
-        """使用sell_signal_checker统一卖出逻辑"""
-        from nodes.backtest_engine.factor_selection.sell_signal_checker import SellSignalChecker, SELL_PRIORITY
-        from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK
-        
-        if not self._broker:
-            return
-        
-        to_sell = []
-        for pos in list(self._broker.get_positions()):
-            if pos.available_qty <= 0:  # T+1
-                continue
-            ts_code = pos.ts_code
-            rt = realtime_data.get(ts_code, {})
-            current_price = rt.get('price', 0)
-            high_price = rt.get('high', 0)
-            open_price = rt.get('open', 0)
-            if current_price <= 0:
-                continue
-            
-            # 更新实时价格
-            self._broker.update_realtime(ts_code, current_price)
-            
-            # 构造checker参数
-            strategy_name = getattr(pos, 'strategy', '') or ''
-            strategy_params = {}
-            strategy_risk = self._get_strategy_risk(strategy_name)
-            
-            checker = SellSignalChecker(
-                strategy_params={strategy_name: self._get_effective_strategy_config(strategy_name)},
-                strategy_risk_params={strategy_name: strategy_risk},
-                risk_config=GLOBAL_RISK
-            )
-            
-            # 计算持仓天数
-            trade_days_held = None
-            try:
-                if pos.buy_date:
-                    from nodes.backtest_engine.factor_selection.portfolio_backtest import PortfolioBacktester
-                    bt = PortfolioBacktester()
-                    trade_days_held = bt._calc_trade_days_held(int(pos.buy_date), int(trade_date))
-            except Exception:
-                pass
-            
-            result = checker.check_realtime_sell(
-                position=pos,
-                realtime_price=current_price,
-                high_price=high_price,
-                open_price=open_price,
-                trailing_stop_state=self._trailing_stops.get(ts_code),
-                trade_days_held=trade_days_held
-            )
-            
-            if result:
-                to_sell.append((pos, result['reason'], result['price'], strategy_risk))
-        
-        # 执行卖出(复用原有逻辑)
-        await self._execute_sell_list(to_sell, trade_date)
-    
-    async def _check_positions_compare(self, realtime_data: Dict[str, Dict], trade_date: str):
-        """灰度对比: 两者都跑,只执行旧逻辑,记录差异"""
-        # 旧逻辑
-        legacy_result = []
-        legacy_to_sell = self._check_stop_loss_take_profit(
-            self._broker.get_positions(), realtime_data
-        )
-        for pos, reason, price, risk in legacy_to_sell:
-            legacy_result.append((pos.ts_code, reason, price))
-        
-        # 新逻辑
-        from nodes.backtest_engine.factor_selection.sell_signal_checker import SellSignalChecker
-        from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK
-        checker_result = []
-        for pos in list(self._broker.get_positions()):
-            if pos.available_qty <= 0:
-                continue
-            ts_code = pos.ts_code
-            rt = realtime_data.get(ts_code, {})
-            current_price = rt.get('price', 0)
-            if current_price <= 0:
-                continue
-            strategy_risk = self._get_strategy_risk(pos.strategy)
-            checker = SellSignalChecker(
-                strategy_params={pos.strategy: self._get_effective_strategy_config(pos.strategy)},
-                strategy_risk_params={pos.strategy: strategy_risk},
-                risk_config=GLOBAL_RISK
-            )
-            result = checker.check_realtime_sell(
-                position=pos, realtime_price=current_price,
-                high_price=rt.get('high', 0), open_price=rt.get('open', 0),
-                trailing_stop_state=self._trailing_stops.get(ts_code)
-            )
-            if result:
-                checker_result.append((ts_code, result['reason'], result['price']))
-        
-        # 对比差异
-        if legacy_result != checker_result:
-            logger.warning(f"[COMPARE] 卖出逻辑差异! legacy={legacy_result}, checker={checker_result}")
-            # 写入差异日志到MongoDB(供离线分析)
-            try:
-                from core.database.mongo_manager import mongo_manager
-                if mongo_manager and hasattr(mongo_manager, 'db'):
-                    await mongo_manager.db.sell_logic_divergence.insert_one({
-                        "timestamp": datetime.now().isoformat(),
-                        "trade_date": trade_date,
-                        "legacy": [(c, r, f"{p:.2f}") for c, r, p in legacy_result],
-                        "checker": [(c, r, f"{p:.2f}") for c, r, p in checker_result],
-                    })
-            except Exception:
-                pass
-        
-        # 只执行旧逻辑
-        # ... 继续原_check_positions_legacy的后续流程 ...
-        # 超时强卖+移动止损+执行 (复用原有代码)
-        from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
-        to_sell = list(legacy_to_sell)
-        for pos in self._broker.get_positions():
-            if pos.available_qty <= 0 or not pos.buy_date:
-                continue
-            risk = self._get_strategy_risk(pos.strategy)
-            max_hold = risk.get("max_hold_days", GLOBAL_RISK.get("max_hold_days", 999))
-            if max_hold >= 999:
-                continue
-            try:
-                buy_dt = int(pos.buy_date)
-                cur_dt = int(trade_date)
-                from nodes.backtest_engine.factor_selection.portfolio_backtest import PortfolioBacktester
-                bt = PortfolioBacktester()
-                days_held = bt._calc_trade_days_held(buy_dt, cur_dt)
-                if days_held >= max_hold:
-                    already = any(p.ts_code == pos.ts_code for p, _, _, _ in to_sell)
-                    if not already:
-                        to_sell.append((pos, f"超时({days_held}日≥{max_hold}日)", pos.current_price, risk))
-            except (ValueError, TypeError):
-                pass
-        
-        await self._execute_sell_list(to_sell, trade_date)
-    
-    async def _execute_sell_list(self, to_sell, trade_date: str):
-        """执行卖出列表(从_check_positions和_check_positions_compare提取)"""
-        if not to_sell:
-            return
-        
-        for pos, reason, sell_price, risk in to_sell:
-            if pos.available_qty <= 0:
-                continue
-            
-            # 跌停不可卖
-            if self._is_limit_down(pos.ts_code):
-                self._pending_sells[pos.ts_code] = (reason, sell_price)
-                self._add_timeline_log("blocked", pos.ts_code, pos.stock_name,
-                    pos.strategy, f"跌停不可卖(触发{reason})", None)
-                continue
-            
-            # 保存卖出前关键值
-            sell_qty = pos.available_qty
-            sell_profit_pct = pos.profit_pct
-            sell_profit_amount = (pos.current_price - pos.avg_cost) * sell_qty
-            
-            self._broker.update_realtime(pos.ts_code, pos.current_price)
-            ok, msg, order = self._broker.place_order(
-                ts_code=pos.ts_code, stock_name=pos.stock_name,
-                side="sell", quantity=sell_qty, price=sell_price,
-                order_type="market", strategy=pos.strategy, reason=reason,
-            )
-            if ok:
-                self._timeline.append({
-                    "time": datetime.now().strftime("%H:%M:%S"),
-                    "action": "sell", "ts_code": pos.ts_code,
-                    "stock_name": pos.stock_name, "strategy": pos.strategy,
-                    "shares": sell_qty, "price": order.filled_price,
-                    "reason": reason,
-                    "profit_pct": round(sell_profit_pct, 2),
-                    "profit_amount": round(sell_profit_amount, 2),
-                })
-                if "止损" in reason:
-                    self._stats["stop_losses"] += 1
-                else:
-                    self._stats["take_profits"] += 1
-                await self._publish_scanner_event("timeline", {"item": self._timeline[-1]})
-                logger.info(f"[RISK] {reason}: {pos.ts_code} {sell_qty}股@{order.filled_price:.2f}")
-        
-        # 清理已卖出的追踪止损
-        for pos, reason, _, _ in to_sell:
-            self._trailing_stops.pop(pos.ts_code, None)
-            self._position_risk_levels.pop(pos.ts_code, None)
-        
-        # 持久化
-        if to_sell and self._broker:
-            try:
-                await self._broker.save_state(force=True)
-            except Exception:
-                pass
-            await self._save_runtime_snapshot(force=True)
-
-    # ==================== Phase2.4: 情绪动态调仓 ====================
-
-    # 情绪phase降级 → 减仓规则
-    EMOTION_DOWNGRADE_RULES = {
-        # (from_phase, to_phase) → {action, min_profit_pct_to_keep}
-        ("rising", "differentiation"): {"action": "reduce", "keep_ratio": 0.7, "desc": "高潮→分化: 减仓30%"},
-        ("rising", "chaos"):          {"action": "reduce", "keep_ratio": 0.5, "desc": "高潮→震荡: 减仓50%"},
-        ("rising", "bearish"):        {"action": "clear_low_profit", "min_profit": 0.03, "desc": "高潮→冰点: 低利润(<3%)清仓"},
-        ("differentiation", "chaos"):  {"action": "reduce", "keep_ratio": 0.7, "desc": "分化→震荡: 减仓30%"},
-        ("differentiation", "bearish"): {"action": "clear_low_profit", "min_profit": 0.03, "desc": "分化→冰点: 低利润(<3%)清仓"},
-        ("chaos", "bearish"):         {"action": "clear_low_profit", "min_profit": 0.02, "desc": "震荡→冰点: 低利润(<2%)清仓"},
-    }
-
+        """持仓快速检查 — 委托给PositionChecker【Phase3.1】"""
+        if self._position_checker:
+            return await self._position_checker.check_positions_quick(trade_date)
     async def _handle_emotion_phase_change(self, old_phase: str, new_phase: str):
         """情绪phase变化时的动态调仓
         
@@ -2717,19 +1823,9 @@ class MarketScanner:
         return None
 
     def _is_limit_down(self, ts_code: str) -> bool:
-        """检查是否跌停(跌停不可卖)"""
-        cached = (self._realtime_cache or {}).get(ts_code, {})
-        pct = cached.get("pct_chg", 0)
-        # ST股跌停-5%, 普通-10%, 科创/创业板-20%
-        if ts_code.startswith(('688', '300')):
-            return pct <= -19.5  # -20%跌停
-        elif cached.get("is_st", False):
-            return pct <= -4.5  # -5%跌停
-        else:
-            return pct <= -9.5  # -10%跌停
-
-    # ==================== 参数校验 ====================
-
+        """判断是否跌停 — 委托给PositionChecker【Phase3.1】"""
+        if self._position_checker:
+            return self._position_checker._is_limit_down(ts_code)
     def _validate_live_params(self):
         """实盘参数校验
         
