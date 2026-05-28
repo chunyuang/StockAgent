@@ -434,6 +434,18 @@ class MarketScanner:
 
         # 【P1-4】从MongoDB恢复策略参数覆盖
         await self._load_strategy_overrides()
+        
+        # 【Phase2.3:参数漂移检测(启动时)】
+        try:
+            from nodes.market_monitor.strategy_param_center import param_center
+            drifts = await param_center.detect_drift()
+            if drifts:
+                logger.warning(f"[PARAMS] 检测到{len(drifts)}个参数漂移: {drifts[:3]}")
+                await self._publish_scanner_event("status", {
+                    "type": "param_drift", "drifts": drifts[:5],
+                })
+        except Exception as e:
+            logger.debug(f"[PARAMS] 漂移检测失败(非关键): {e}")
 
         # 盘前准备
         await self.premarket_prepare(trade_date)
