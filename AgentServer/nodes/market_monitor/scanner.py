@@ -354,9 +354,9 @@ class MarketScanner:
             "risk_watchdog": self._risk_watchdog.get_status() if hasattr(self, '_risk_watchdog') else {},
             "signal_dispatcher": self._signal_dispatcher.get_stats() if hasattr(self, '_signal_dispatcher') else {},
             "tiered_scanner": self._tiered_scanner.get_status() if self._tiered_scanner else {},
-            # 【V59:追踪止损+执行质量】
-            "trailing_stops": {k: v for k, v in self._trailing_stops.items() if v.get("activated")},
-            "position_risk_levels": dict(self._position_risk_levels),
+            # 【V59:追踪止损+执行质量】(线程安全读取)
+            "trailing_stops": self._get_activated_trailing_stops_safe(),
+            "position_risk_levels": self._safe_copy_position_risk_levels(),
             "execution_stats": dict(self._execution_stats),
             "smart_check_interval": self._get_smart_check_interval() if self._is_running else None,
             # 【Phase2.2:行情降级状态】
@@ -398,9 +398,9 @@ class MarketScanner:
                 "take_profit_price": tp_price,
                 "distance_to_stop": round(p.profit_pct + sl_pct, 1),  # 【P1-2】距止损距离
                 "buy_date": p.buy_date,
-                # 【V59:追踪止损+风险等级】
-                "trailing_stop": self._trailing_stops.get(p.ts_code),
-                "risk_level": self._position_risk_levels.get(p.ts_code, "normal"),
+                # 【V59:追踪止损+风险等级】(线程安全读取)
+                "trailing_stop": self._safe_copy_trailing_stops().get(p.ts_code),
+                "risk_level": self._safe_copy_position_risk_levels().get(p.ts_code, "normal"),
                 "effective_stop_price": self._get_effective_stop_price(p, risk),
             })
         return result
@@ -1397,6 +1397,24 @@ class MarketScanner:
         })
 
     # ==================== Phase4.3: 健康度评分 ====================
+
+    # ==================== 线程安全辅助方法(v2.5) ====================
+
+    def _get_activated_trailing_stops_safe(self) -> Dict:
+        """线程安全读取已激活的追踪止损(深拷贝+过滤)"""
+        with self._state_lock:
+            all_stops = dict(self._trailing_stops)
+        return {k: v for k, v in all_stops.items() if v.get("activated")}
+
+    def _safe_copy_position_risk_levels(self) -> Dict:
+        """线程安全深拷贝position_risk_levels"""
+        with self._state_lock:
+            return dict(self._position_risk_levels)
+
+    def _safe_copy_trailing_stops(self) -> Dict:
+        """线程安全深拷贝trailing_stops"""
+        with self._state_lock:
+            return dict(self._trailing_stops)
 
     def _compute_health_score(self) -> Dict[str, Any]:
         """Scanner健康度评分(绿/黄/红)
