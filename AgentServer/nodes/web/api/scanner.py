@@ -274,7 +274,7 @@ async def get_timeline_history(date: str = None, days: int = 7):
     scanner = _get_scanner()
     try:
         from core.managers import mongo_manager
-        if mongo_manager.db is None:
+        if not mongo_manager.is_initialized:
             return {"success": True, "data": []}
         
         account_id = scanner._broker.account.account_id if scanner._broker else "default"
@@ -1391,7 +1391,7 @@ async def get_weekly_report():
     
     try:
         from core.managers import mongo_manager
-        if mongo_manager.db is None:
+        if not mongo_manager.is_initialized:
             return {"success": True, "data": {}}
         
         account_id = scanner._broker.account.account_id
@@ -1489,7 +1489,7 @@ async def get_trade_log(days: int = 30, format: str = "json"):
     
     try:
         from core.managers import mongo_manager
-        if mongo_manager.db is None:
+        if not mongo_manager.is_initialized:
             return {"success": True, "data": []}
         
         account_id = scanner._broker.account.account_id
@@ -1551,7 +1551,7 @@ async def save_performance_snapshot():
     
     try:
         from core.managers import mongo_manager
-        if mongo_manager.db is None:
+        if not mongo_manager.is_initialized:
             return {"success": True, "data": {}}
         
         acct = scanner._broker.get_account()
@@ -1596,7 +1596,7 @@ async def get_performance_history(days: int = 30):
     """获取历史性能快照(资产曲线)"""
     try:
         from core.managers import mongo_manager
-        if mongo_manager.db is None:
+        if not mongo_manager.is_initialized:
             return {"success": True, "data": []}
         
         start = (datetime.now() - timedelta(days=days)).isoformat()
@@ -1736,7 +1736,7 @@ async def get_scan_traces(date: str = None, limit: int = 10):
     """
     try:
         from core.managers import mongo_manager
-        if mongo_manager.db is None:
+        if not mongo_manager.is_initialized:
             return {"success": True, "data": [], "message": "MongoDB未连接"}
         
         query = {}
@@ -1765,7 +1765,7 @@ async def get_scan_trace_detail(scan_id: str):
     try:
         from core.managers import mongo_manager
         from bson import ObjectId
-        if mongo_manager.db is None:
+        if not mongo_manager.is_initialized:
             return {"success": True, "data": None}
         
         doc = await mongo_manager.db["scan_traces"].find_one({"_id": ObjectId(scan_id)})
@@ -2245,3 +2245,313 @@ async def get_position_risk_levels():
         }
     except Exception as e:
         return {"success": False, "message": str(e)}
+
+
+# ==================== 【专业运维增强】新增API ====================
+
+@router.get("/kline/{ts_code}")
+async def get_kline_data(ts_code: str, days: int = 30):
+    """K线数据（MongoDB读取，用于迷你K线和大图）"""
+    try:
+        from core.managers import mongo_manager
+        if not mongo_manager.is_initialized:
+            return {"success": True, "data": {"ts_code": ts_code, "kline": [], "annotations": []}}
+        from datetime import datetime, timedelta
+        start_date = (datetime.now() - timedelta(days=days * 2)).strftime("%Y%m%d")
+
+        cursor = mongo_manager.db["stock_daily_ak_full"].find(
+            {"ts_code": ts_code, "trade_date": {"$gte": start_date}},
+            {"_id": 0, "trade_date": 1, "open": 1, "high": 1, "low": 1, "close": 1, "vol": 1, "pct_chg": 1}
+        ).sort("trade_date", 1).limit(days + 10)
+
+        kline = []
+        async for doc in cursor:
+            kline.append({
+                "date": doc.get("trade_date", ""),
+                "open": doc.get("open", 0), "high": doc.get("high", 0),
+                "low": doc.get("low", 0), "close": doc.get("close", 0),
+                "volume": doc.get("vol", 0), "pct_chg": doc.get("pct_chg", 0),
+            })
+        kline = kline[-days:] if len(kline) > days else kline
+
+        # 均线
+        for i in range(len(kline)):
+            if i >= 4: kline[i]["ma5"] = round(sum(d["close"] for d in kline[i-4:i+1]) / 5, 2)
+            if i >= 9: kline[i]["ma10"] = round(sum(d["close"] for d in kline[i-9:i+1]) / 10, 2)
+            if i >= 19: kline[i]["ma20"] = round(sum(d["close"] for d in kline[i-19:i+1]) / 20, 2)
+
+        # 买卖点标注
+        scanner = _get_scanner()
+        annotations = []
+        for item in (scanner._timeline or []):
+            if item.get("ts_code") == ts_code:
+                annotations.append({
+                    "date": item.get("time", "")[:10].replace("-", ""),
+                    "action": item.get("action", ""), "price": item.get("price", 0),
+                    "strategy": item.get("strategy", ""),
+                })
+
+        return _sanitize({"success": True, "data": {"ts_code": ts_code, "kline": kline, "annotations": annotations}})
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@router.get("/strategy-performance")
+async def get_strategy_performance():
+    """策略实时绩效看板"""
+    scanner = _get_scanner()
+    if not scanner._broker:
+        return {"success": True, "data": []}
+
+    try:
+        from core.managers import mongo_manager
+        if not mongo_manager.is_initialized:
+            return {"success": True, "data": []}
+        positions = scanner._broker.get_positions()
+        timeline = scanner._timeline
+        strategy_names = {"halfway_chase": "半路追涨", "first_limit_up": "首板打板", "dragon_head": "龙头低吸", "limit_down_qiao": "跌停翘板", "limit_up_open": "涨停开板", "manual": "手动"}
+
+        strategies = {}
+        for key, name in strategy_names.items():
+            strategies[key] = {"key": key, "name": name, "today_profit": 0, "total_profit": 0, "win_count": 0, "loss_count": 0, "position_count": 0, "closed_count": 0, "max_win_pct": 0, "max_loss_pct": 0, "sparkline": []}
+
+        for pos in positions:
+            key = pos.strategy or "manual"
+            if key not in strategies:
+                strategies[key] = {"key": key, "name": strategy_names.get(key, key), "today_profit": 0, "total_profit": 0, "win_count": 0, "loss_count": 0, "position_count": 0, "closed_count": 0, "max_win_pct": 0, "max_loss_pct": 0, "sparkline": []}
+            profit = (pos.current_price - pos.avg_cost) * pos.total_qty
+            strategies[key]["position_count"] += 1
+            strategies[key]["total_profit"] += profit
+            strategies[key]["today_profit"] += profit
+            if profit >= 0: strategies[key]["win_count"] += 1
+            else: strategies[key]["loss_count"] += 1
+
+        all_profits = {}
+        for item in (timeline or []):
+            if item.get("action") == "sell" and item.get("strategy"):
+                key = item["strategy"]
+                pct = item.get("profit_pct", 0)
+                all_profits.setdefault(key, []).append(pct)
+                if key in strategies:
+                    strategies[key]["closed_count"] += 1
+                    if pct >= 0:
+                        strategies[key]["win_count"] += 1
+                        strategies[key]["max_win_pct"] = max(strategies[key]["max_win_pct"], pct)
+                    else:
+                        strategies[key]["loss_count"] += 1
+                        strategies[key]["max_loss_pct"] = min(strategies[key]["max_loss_pct"], pct)
+
+        for key, s in strategies.items():
+            total = s["win_count"] + s["loss_count"]
+            s["win_rate"] = round(s["win_count"] / max(total, 1) * 100, 1)
+            profits = all_profits.get(key, [])
+            avg_win = sum(p for p in profits if p >= 0) / max(sum(1 for p in profits if p >= 0), 1)
+            avg_loss = abs(sum(p for p in profits if p < 0) / max(sum(1 for p in profits if p < 0), 1))
+            s["profit_loss_ratio"] = round(avg_win / max(avg_loss, 0.01), 2)
+            s["avg_profit_pct"] = round(sum(profits) / max(len(profits), 1), 2) if profits else 0
+
+        # Sparkline from performance snapshots
+        try:
+            from datetime import datetime, timedelta
+            start = (datetime.now() - timedelta(days=10)).strftime("%Y%m%d")
+            perf_data = []
+            async for doc in mongo_manager.db["scanner_performance"].find({"date": {"$gte": start}}, {"_id": 0, "date": 1, "total_assets": 1}).sort("date", 1):
+                perf_data.append(doc)
+            if perf_data:
+                baseline = perf_data[0].get("total_assets", 1000000)
+                sparkline = [round((d.get("total_assets", baseline) / baseline - 1) * 100, 2) for d in perf_data]
+                for key in strategies: strategies[key]["sparkline"] = sparkline
+        except Exception:
+            pass
+
+        result = [s for s in strategies.values() if s["position_count"] > 0 or s["closed_count"] > 0]
+        total_row = {"key": "total", "name": "合计", "today_profit": sum(s["today_profit"] for s in result), "total_profit": sum(s["total_profit"] for s in result),
+                     "win_count": sum(s["win_count"] for s in result), "loss_count": sum(s["loss_count"] for s in result),
+                     "win_rate": 0, "profit_loss_ratio": 0, "position_count": sum(s["position_count"] for s in result),
+                     "closed_count": sum(s["closed_count"] for s in result), "max_win_pct": max((s["max_win_pct"] for s in result), default=0),
+                     "max_loss_pct": min((s["max_loss_pct"] for s in result), default=0), "avg_profit_pct": 0, "sparkline": []}
+        tt = total_row["win_count"] + total_row["loss_count"]
+        total_row["win_rate"] = round(total_row["win_count"] / max(tt, 1) * 100, 1)
+        result.append(total_row)
+        return _sanitize({"success": True, "data": result})
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@router.get("/position-risk-matrix")
+async def get_position_risk_matrix():
+    """持仓风控矩阵 + 全局风险仪表"""
+    scanner = _get_scanner()
+    if not scanner._broker:
+        return {"success": True, "data": {"positions": [], "global": {}}}
+
+    try:
+        from core.managers import mongo_manager
+        if not mongo_manager.is_initialized:
+            return {"success": True, "data": []}
+        positions = scanner._broker.get_positions()
+        acct = scanner._broker.get_account()
+        risk_levels = getattr(scanner, '_position_risk_levels', {})
+        trailing_stops = getattr(scanner, '_trailing_stops', {})
+        strategy_cn = {"halfway_chase": "半路追涨", "first_limit_up": "首板打板", "dragon_head": "龙头低吸", "limit_down_qiao": "跌停翘板"}
+
+        industry_map = {}
+        try:
+            async for doc in mongo_manager.db["stock_basic"].find({}, {"_id": 0, "ts_code": 1, "industry": 1}):
+                industry_map[doc.get("ts_code", "")] = doc.get("industry", "")
+        except Exception:
+            pass
+
+        matrix = []
+        industry_exp = {}
+        max_single_pct = 0
+        total_mv = acct.market_value
+
+        for pos in positions:
+            cost, cur = pos.avg_cost, pos.current_price
+            mv = cur * pos.total_qty
+            dist_sl = (cur - cost * 0.97) / max(cur, 0.01) * 100
+            dist_tp = (cost * 1.12 - cur) / max(cur, 0.01) * 100
+            position_pct = mv / max(total_mv, 1) * 100
+            max_single_pct = max(max_single_pct, position_pct)
+            industry = industry_map.get(pos.ts_code, "未知")
+            industry_exp[industry] = industry_exp.get(industry, 0) + mv
+            turnover = 0
+            if scanner._realtime_cache and pos.ts_code in scanner._realtime_cache:
+                turnover = scanner._realtime_cache[pos.ts_code].get("turnover_rate", 0)
+            risk_score = min(max(0, 30 - dist_sl * 3) + min(position_pct / 2, 20) + min(abs(pos.profit_pct) * 2, 20) + (max(0, 20 - turnover * 2) if turnover > 0 else 10), 100)
+            trail = trailing_stops.get(pos.ts_code, {})
+
+            matrix.append({
+                "ts_code": pos.ts_code, "stock_name": pos.stock_name,
+                "strategy": pos.strategy or "unknown", "strategy_name": strategy_cn.get(pos.strategy, pos.strategy or "未知"),
+                "industry": industry, "current_price": cur, "cost_price": cost,
+                "profit_pct": round(pos.profit_pct, 2), "profit_amount": round((cur - cost) * pos.total_qty, 0),
+                "market_value": round(mv, 0), "position_pct": round(position_pct, 1),
+                "dist_stop_loss": round(dist_sl, 2), "dist_take_profit": round(dist_tp, 2),
+                "stop_loss_price": round(cost * 0.97, 2), "take_profit_price": round(cost * 1.12, 2),
+                "volatility": round(abs(pos.profit_pct), 2), "turnover_rate": turnover,
+                "risk_score": round(risk_score, 0), "risk_level": risk_levels.get(pos.ts_code, "normal"),
+                "trailing_stop": trail, "total_qty": pos.total_qty,
+            })
+
+        top_ind = max(industry_exp.values()) / max(total_mv, 1) * 100 if industry_exp else 0
+        cash_ratio = acct.available_cash / max(acct.total_assets, 1) * 100
+
+        return _sanitize({"success": True, "data": {
+            "positions": sorted(matrix, key=lambda x: -x["risk_score"]),
+            "global": {
+                "total_assets": round(acct.total_assets, 2), "cash_ratio": round(cash_ratio, 1),
+                "position_ratio": round(100 - cash_ratio, 1), "max_single_pct": round(max_single_pct, 1),
+                "top_industry_concentration": round(top_ind, 1),
+                "industry_exposure": {k: round(v / max(total_mv, 1) * 100, 1) for k, v in sorted(industry_exp.items(), key=lambda x: -x[1])},
+                "position_count": len(positions),
+                "risk_summary": {
+                    "normal": sum(1 for m in matrix if m["risk_score"] < 40),
+                    "warning": sum(1 for m in matrix if 40 <= m["risk_score"] < 70),
+                    "critical": sum(1 for m in matrix if m["risk_score"] >= 70),
+                }
+            }
+        }})
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@router.get("/market-sentiment")
+async def get_market_sentiment_detail():
+    """市场情绪全景"""
+    scanner = _get_scanner()
+    try:
+        filter_pipeline = getattr(scanner, '_filter_pipeline', None)
+        emotion = getattr(filter_pipeline, '_emotion_cycle', None) if filter_pipeline else None
+        sentiment_score = getattr(emotion, 'score', 50) if emotion else 50
+        sentiment_period = getattr(emotion, 'period', 'unknown') if emotion else 'unknown'
+        position_ratio = getattr(emotion, 'position_ratio', 1.0) if emotion else 1.0
+        limit_pools = getattr(scanner, '_limit_pools', {})
+        limit_up = len(limit_pools.get("limit_up", []))
+        limit_down = len(limit_pools.get("limit_down", []))
+        broken = len(limit_pools.get("broken", []))
+        broken_rate = broken / max(limit_up + broken, 1) * 100
+        board_dist = {}
+        for item in limit_pools.get("limit_up", []):
+            t = item.get("limit_times", 1)
+            board_dist[str(t)] = board_dist.get(str(t), 0) + 1
+
+        period_labels = {"BEARISH": ("冰点", 0, 40), "CHAOS": ("震荡", 40, 55), "DIFFERENTIATION": ("分化", 55, 70), "RISING": ("高潮", 70, 100)}
+        pi = period_labels.get(sentiment_period, ("未知", 0, 100))
+
+        return _sanitize({"success": True, "data": {
+            "score": sentiment_score, "period": sentiment_period, "period_label": pi[0],
+            "position_ratio": position_ratio,
+            "limit_up_count": limit_up, "limit_down_count": limit_down, "broken_count": broken,
+            "broken_rate": round(broken_rate, 1), "board_distribution": board_dist,
+            "ranges": [
+                {"label": "冰点", "min": 0, "max": 40, "color": "#67c23a"},
+                {"label": "震荡", "min": 40, "max": 55, "color": "#e6a23c"},
+                {"label": "分化", "min": 55, "max": 70, "color": "#409eff"},
+                {"label": "高潮", "min": 70, "max": 100, "color": "#f56c6c"},
+            ],
+        }})
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@router.get("/system-health-detail")
+async def get_system_health_detail():
+    """系统健康运维面板"""
+    scanner = _get_scanner()
+    try:
+        import time, psutil
+        scanner_hb = {
+            "is_running": getattr(scanner, '_is_running', False),
+            "uptime_seconds": time.time() - scanner._start_time if hasattr(scanner, '_start_time') and scanner._start_time else 0,
+        }
+        data_sources = [{"name": "eastmoney", "available": True, "stocks": len(scanner._realtime_cache) if hasattr(scanner, '_realtime_cache') and scanner._realtime_cache else 0, "note": "免费无限流"}]
+
+        mongo_status = {"connected": False}
+        try:
+            from core.managers import mongo_manager
+            # mongo_manager auto-connected
+            mongo_status = {"connected": True, "collections": len(await mongo_manager.db.list_collections())}
+        except Exception:
+            pass
+
+        redis_status = {"connected": False}
+        try:
+            if hasattr(scanner, '_redis') and scanner._redis:
+                await scanner._redis.ping()
+                redis_status = {"connected": True}
+        except Exception:
+            pass
+
+        alerts = []
+        try:
+            from core.managers import mongo_manager
+            async for doc in mongo_manager.db["audit_log"].find({"level": {"$in": ["warning", "critical"]}}, {"_id": 0}).sort("timestamp", -1).limit(10):
+                alerts.append(doc)
+        except Exception:
+            pass
+
+        return _sanitize({"success": True, "data": {
+            "scanner": scanner_hb, "data_sources": data_sources,
+            "mongo": mongo_status, "redis": redis_status,
+            "system": {"cpu_pct": psutil.cpu_percent(interval=0.1), "memory_pct": psutil.virtual_memory().percent, "disk_pct": psutil.disk_usage('/').percent},
+            "alerts": alerts, "health_score": 50,
+        }})
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@router.get("/audit-log")
+async def get_audit_log(limit: int = 50):
+    """操作审计日志"""
+    try:
+        from core.managers import mongo_manager
+        # mongo_manager auto-connected
+        logs = []
+        async for doc in mongo_manager.db["audit_log"].find({}, {"_id": 0}).sort("timestamp", -1).limit(limit):
+            logs.append(doc)
+        return _sanitize({"success": True, "data": logs})
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+

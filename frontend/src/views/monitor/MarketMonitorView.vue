@@ -14,6 +14,12 @@ import {
 } from 'element-plus'
 import { api } from '@/api/client'
 import SignalTracePanel from './SignalTracePanel.vue'
+import StrategyPerfBoard from './StrategyPerfBoard.vue'
+import PositionRiskMatrix from './PositionRiskMatrix.vue'
+import MiniKline from './MiniKline.vue'
+import MarketSentiment from './MarketSentiment.vue'
+import SystemHealth from './SystemHealth.vue'
+import KeyboardShortcuts from './KeyboardShortcuts.vue'
 import { useThemeStore } from '@/stores/theme'
 import { useScannerStore } from '@/stores/scanner'
 import {
@@ -74,6 +80,7 @@ const healthEmoji = computed(() => ({ healthy: '🟢', warning: '🟡', critical
 const healthCN = computed(() => ({ healthy: '正常', warning: '预警', critical: '熔断' }[healthStatus.value] || '未知'))
 const healthClass = computed(() => ({ healthy: 'ok', warning: 'warn', critical: 'crit' }[healthStatus.value] || 'unknown'))
 const riskBarCollapsed = ref(true)
+const focusIndex = ref(-1)
 const emergencyLiquidating = ref(false)
 const signalFilter = ref('all')
 const filteredSignals = computed(() => { if (signalFilter.value === 'all') return signals.value; if (signalFilter.value === 'anomaly') return signals.value.filter(s => s.strategy.startsWith('anomaly_')); return signals.value.filter(s => s.strategy === signalFilter.value) })
@@ -551,8 +558,8 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <div class="st">📊 持仓监控 <ElBadge :value="positions.length" :max="99" style="margin-left:4px" /><ElSelect v-model="posSort" size="small" style="width:80px;margin-left:auto"><ElOption label="盈亏" value="profit" /><ElOption label="市值" value="cost" /><ElOption label="策略" value="strategy" /><ElOption label="时间" value="time" /></ElSelect></div>
         <div class="sl">
           <div v-if="!positions.length" class="empty">暂无持仓</div>
-          <div v-for="pos in sortedPositions" :key="pos.ts_code" class="pos-card">
-            <div class="pos-top"><ElTag size="small" :color="strategyMeta[pos.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="font-size:10px;min-width:48px;text-align:center">{{ pos.strategy_name || strategyCN(pos.strategy) }}</ElTag><span class="code">{{ pos.ts_code }}</span><span class="name">{{ pos.stock_name }}</span><span :class="pos.profit_pct >= 0 ? 'up' : 'down'" class="pct">{{ pos.profit_pct >= 0 ? '+' : '' }}{{ pos.profit_pct.toFixed(1) }}%</span><span class="mini-bar"><span class="mini-bar-fill" :style="{ width: Math.min(Math.abs(pos.profit_pct) / 10 * 100, 100) + '%' }" :class="pos.profit_pct >= 0 ? 'bar-up' : 'bar-down'"></span></span><span v-if="pos.today_buy > 0" class="t1-tag">T+1</span><ElButton size="small" type="danger" plain @click="quickSell(pos)" :disabled="pos.available_qty <= 0" class="btn-xs ml-auto">卖出</ElButton><ElButton size="small" type="info" plain @click="openTradeDetail(pos.ts_code)" class="btn-xs">详情</ElButton></div>
+          <div v-for="(pos, idx) in sortedPositions" :key="pos.ts_code" class="pos-card" :class="{ 'pos-focused': idx === focusIndex }">
+            <div class="pos-top"><ElTag size="small" :color="strategyMeta[pos.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="font-size:10px;min-width:48px;text-align:center">{{ pos.strategy_name || strategyCN(pos.strategy) }}</ElTag><span class="code">{{ pos.ts_code }}</span><span class="name">{{ pos.stock_name }}</span><MiniKline :tsCode="pos.ts_code" :compact="true" :days="5" /><span :class="pos.profit_pct >= 0 ? 'up' : 'down'" class="pct">{{ pos.profit_pct >= 0 ? '+' : '' }}{{ pos.profit_pct.toFixed(1) }}%</span><span class="mini-bar"><span class="mini-bar-fill" :style="{ width: Math.min(Math.abs(pos.profit_pct) / 10 * 100, 100) + '%' }" :class="pos.profit_pct >= 0 ? 'bar-up' : 'bar-down'"></span></span><span v-if="pos.today_buy > 0" class="t1-tag">T+1</span><ElButton size="small" type="danger" plain @click="quickSell(pos)" :disabled="pos.available_qty <= 0" class="btn-xs ml-auto">卖出</ElButton><ElButton size="small" type="info" plain @click="openTradeDetail(pos.ts_code)" class="btn-xs">详情</ElButton></div>
             <div class="pos-info"><span>{{ pos.shares }}股</span><span>成本¥{{ pos.cost_price.toFixed(2) }}</span><span>现价¥{{ pos.current_price.toFixed(2) }}</span><span v-if="pos.market_value" class="mv">市值{{ (pos.market_value / 10000).toFixed(1) }}万</span><span v-if="pos.profit_amount != null" :class="pos.profit_amount >= 0 ? 'up' : 'down'" class="pamt">{{ pos.profit_amount >= 0 ? '+' : '' }}¥{{ Math.abs(pos.profit_amount).toFixed(0) }}</span></div>
             <div class="pos-prices-row">
               <span v-if="pos.stop_loss_price" class="pp-sl">止损¥{{ pos.stop_loss_price.toFixed(2) }}</span>
@@ -850,6 +857,33 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
     <div v-if="signalTraceVisible" class="mm-trace">
       <SignalTracePanel />
     </div>
+
+    <!-- 【专业运维增强】新增面板 -->
+    <div class="mm-pro-panels">
+      <!-- P1-7: 市场情绪全景 -->
+      <MarketSentiment />
+
+      <!-- P0-2: 策略绩效看板 -->
+      <StrategyPerfBoard />
+
+      <!-- P0-3: 持仓风控矩阵 -->
+      <PositionRiskMatrix />
+
+      <!-- P2-8: 系统健康面板 -->
+      <SystemHealth />
+    </div>
+
+    <!-- P2-10: 键盘快捷键 -->
+    <KeyboardShortcuts
+      @force-scan="forceScan"
+      @manual-buy="() => { manualTrade.ts_code = ''; const input = $refs.codeInput as any; input?.focus() }"
+      @sell-selected="() => { if (focusIndex >= 0 && focusIndex < sortedPositions.length) quickSell(sortedPositions[focusIndex]) }"
+      @emergency-liquidate="emergencyLiquidate"
+      @toggle-strategy="(i) => { const keys = ['halfway_chase','first_limit_up','dragon_head','limit_down_qiao']; if (strategies[keys[i]]) toggleStrat(strategies[keys[i]].id) }"
+      @focus-prev="() => { if (focusIndex > 0) focusIndex-- }"
+      @focus-next="() => { if (focusIndex < sortedPositions.length - 1) focusIndex++ }"
+      @show-detail="() => { if (focusIndex >= 0 && focusIndex < sortedPositions.length) openTradeDetail(sortedPositions[focusIndex].ts_code) }"
+    />
 
   </div>
 </template>
@@ -1227,4 +1261,18 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .rb-freshness.yellow { color: #faad14; }
 .rb-freshness.red { color: #ff4d4f; }
 .rb-score { font-size: 11px; font-weight: 600; color: var(--text-secondary); background: var(--bg-elevated); border-radius: 4px; padding: 1px 5px; margin-left: 4px; }
+
+/* 专业运维增强面板 */
+.mm-pro-panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 0 8px;
+}
+
+.pos-focused {
+  border: 2px solid var(--el-color-primary) !important;
+  box-shadow: 0 0 8px var(--el-color-primary-light-5);
+}
 </style>
