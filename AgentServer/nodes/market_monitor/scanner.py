@@ -21,6 +21,7 @@ import pandas as pd
 from nodes.market_monitor.broker import SimulatedBroker
 from nodes.market_monitor.live_filter_pipeline import LiveFilterPipeline
 from nodes.market_monitor.quote_manager import QuoteManager
+from nodes.market_monitor.scanner_event_bus import ScannerEventBus, ScannerEvents
 
 logger = logging.getLogger("scanner.market")
 
@@ -170,6 +171,9 @@ class MarketScanner:
         self._last_risk_check_ts: float = 0.0 # 上次风控检查时间戳(monotonic)
 
         # 数据
+        # 【Phase3.1+EventBus:内部事件总线】
+        self._event_bus = ScannerEventBus()
+
         # 【Phase3.1:QuoteManager+PositionManager+StrategyScorer+SignalManager】
         self._quote_manager = QuoteManager()
         self._position_manager = None  # 延迟初始化(需要self引用)
@@ -320,6 +324,10 @@ class MarketScanner:
         }
 
     @property
+    def event_bus(self) -> ScannerEventBus:
+        """事件总线(只读)"""
+        return self._event_bus
+
     def is_running(self):
         return self._is_running
 
@@ -990,6 +998,15 @@ class MarketScanner:
                 self._trailing_stops.pop(pos.ts_code, None)
                 self._position_risk_levels.pop(pos.ts_code, None)
             await self._publish_scanner_event("timeline", {"item": self._timeline[-1]})
+            # EventBus: 风控卖出事件
+            await self._event_bus.emit(ScannerEvents.RISK_SELL_EXECUTED, {
+                "ts_code": pos.ts_code, "reason": reason,
+                "price": order.filled_price, "profit_pct": sell_profit_pct,
+            })
+            # EventBus: 持仓变更
+            await self._event_bus.emit(ScannerEvents.POSITION_CHANGED, {
+                "ts_code": pos.ts_code, "action": "sell", "reason": reason,
+            })
             logger.info(f"[RISK_THREAD] {reason}: {pos.ts_code} {quantity}股@{order.filled_price:.2f}")
             # 持久化
             try:
@@ -1244,7 +1261,16 @@ class MarketScanner:
         
         # 【Phase2.4:情绪phase变化→动态调仓】
         if old_phase and old_phase != new_phase:
+            # EventBus: 情绪变化事件(在调仓前发射, handler可做预处理)
+            await self._event_bus.emit(ScannerEvents.EMOTION_CHANGED, {
+                "old_phase": old_phase, "new_phase": new_phase,
+            })
             await self._handle_emotion_phase_change(old_phase, new_phase)
+
+        # EventBus: 扫描完成事件
+        await self._event_bus.emit(ScannerEvents.SCAN_COMPLETED, {
+            "trade_date": trade_date, "signals_count": len(filtered_signals),
+        })
 
         return filtered_signals
 
@@ -1546,6 +1572,13 @@ class MarketScanner:
             from nodes.market_monitor.strategy_param_center import StrategyParamCenter
             StrategyParamCenter.update_scanner_config(self.config, strategy_key, updates)
             logger.info(f"[SCANNER] 策略参数热更新: {strategy_key}")
+            # EventBus: 参数更新事件(同步发射, 不await)
+            try:
+                asyncio.ensure_future(self._event_bus.emit(ScannerEvents.PARAM_UPDATED, {
+                    "strategy_key": strategy_key, "updates": updates,
+                }))
+            except Exception:
+                pass
             # 持久化到MongoDB
             try:
                 asyncio.ensure_future(self._persist_strategy_overrides())
@@ -1626,6 +1659,10 @@ class MarketScanner:
                     cb["trading_paused"] = True
                     cb["pause_reason"] = f"单日回撤{drawdown*100:.1f}%超限({cb['daily_max_drawdown']*100:.0f}%)"
                     logger.warning(f"[CIRCUIT] ⚠️ 熔断触发: {cb['pause_reason']}")
+                    # EventBus: 熔断事件
+                    await self._event_bus.emit(ScannerEvents.CIRCUIT_BREAKER, {
+                        "paused": True, "reason": cb['pause_reason'],
+                    })
                     # 主动推送熔断通知(使用标准_publish_scanner_event)
                     try:
                         await self._publish_scanner_event("status", {
