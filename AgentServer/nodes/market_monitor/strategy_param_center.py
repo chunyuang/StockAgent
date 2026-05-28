@@ -503,6 +503,90 @@ class StrategyParamCenter:
         except Exception:
             return []
 
+    # ==================== Scanner配置管理辅助(静态方法) ====================
+
+    @staticmethod
+    def validate_live_params(broker, risk_getter) -> None:
+        """实盘参数校验
+        
+        检查回测参数是否合理, 避免用不切实际的参数跑实盘。
+        """
+        warnings = []
+        
+        # 1. 滑点检查
+        if broker and hasattr(broker, 'SLIPPAGE_RATE'):
+            if broker.SLIPPAGE_RATE < 0.001:
+                warnings.append(f"滑点{broker.SLIPPAGE_RATE*100:.2f}%过低, 实盘建议≥0.1%")
+        
+        # 2. 仓位上限
+        if broker and hasattr(broker, 'MAX_TOTAL_RATIO'):
+            if broker.MAX_TOTAL_RATIO > 0.8:
+                warnings.append(f"总仓位上限{broker.MAX_TOTAL_RATIO*100:.0f}%过高, 实盘建议≤70%")
+        
+        # 3. 止损检查
+        if risk_getter:
+            risk = risk_getter("default")
+            if risk.get("stop_loss_pct", 0.03) < 0.02:
+                warnings.append("止损<2%过紧, 实盘容易被震出")
+        
+        for w in warnings:
+            logger.warning(f"[VALIDATE] ⚠️ {w}")
+
+    @staticmethod
+    def update_scanner_config(config: Dict, strategy_key: str, updates: Dict) -> None:
+        """更新scanner.config中的strategy_overrides"""
+        if "strategy_overrides" not in config:
+            config["strategy_overrides"] = {}
+        
+        existing = config["strategy_overrides"].get(strategy_key, {})
+        
+        if "params" in updates:
+            if "params" not in existing:
+                existing["params"] = {}
+            existing["params"].update(updates["params"])
+        
+        if "riskParams" in updates:
+            if "riskParams" not in existing:
+                existing["riskParams"] = {}
+            existing["riskParams"].update(updates["riskParams"])
+        
+        if "enabled" in updates:
+            existing["enabled"] = updates["enabled"]
+        
+        config["strategy_overrides"][strategy_key] = existing
+
+    @staticmethod
+    async def persist_scanner_overrides(config: Dict) -> None:
+        """将strategy_overrides持久化到MongoDB"""
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.db is None:
+                return
+            overrides = config.get("strategy_overrides", {})
+            from datetime import datetime as dt
+            await mongo_manager.db["scanner_config"].update_one(
+                {"_id": "strategy_overrides"},
+                {"$set": {"data": overrides, "updated_at": dt.now().isoformat()}},
+                upsert=True,
+            )
+            logger.info(f"[SCANNER] 策略参数已持久化到MongoDB")
+        except Exception as e:
+            logger.warning(f"[SCANNER] 策略参数持久化失败(非关键): {e}")
+
+    @staticmethod
+    async def load_scanner_overrides() -> Dict:
+        """从MongoDB恢复strategy_overrides"""
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.db is None:
+                return {}
+            doc = await mongo_manager.db["scanner_config"].find_one({"_id": "strategy_overrides"})
+            if doc and "data" in doc:
+                return doc["data"]
+        except Exception as e:
+            logger.warning(f"[SCANNER] 策略参数恢复失败(非关键): {e}")
+        return {}
+
 
 # 全局单例
 param_center = StrategyParamCenter()

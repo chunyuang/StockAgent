@@ -399,3 +399,66 @@ class PositionManager:
     def _is_limit_down(self, ts_code: str) -> bool:
         """跌停判断(委托给scanner)"""
         return self._scanner._is_limit_down(ts_code)
+
+    # ==================== 仓位计算 ====================
+
+    def calc_position_ratio(self, signal) -> float:
+        """根据信号特征计算仓位比例
+        
+        逻辑:
+        - 涨停+连板≥2 → 重仓40% (确定性高)
+        - 涨停+首板 → 中仓25% (有确定性)
+        - 半路追涨 → 中仓25% (主力策略)
+        - 跌停翘板 → 轻仓15% (高风险)
+        - 龙头低吸 → 轻仓15% (高风险)
+        
+        总仓位限制: 单票≤总资产15%, 总仓位≤70%
+        """
+        strategy = signal.strategy or ""
+        
+        # 策略级仓位
+        if "涨停" in strategy or "limit_up" in strategy:
+            # 连板股重仓(limit_up_count字段, 兼容旧limit_times字段名)
+            limit_count = getattr(signal, 'limit_up_count', None) or getattr(signal, 'limit_times', 0)
+            if signal.is_limit_up and limit_count >= 2:
+                ratio = 0.40
+            else:
+                ratio = 0.25
+        elif "半路" in strategy or "mid_chase" in strategy:
+            ratio = 0.25
+        elif "跌停" in strategy or "limit_down" in strategy:
+            ratio = 0.15
+        elif "龙头" in strategy or "leader" in strategy:
+            ratio = 0.15
+        elif "anomaly" in strategy:
+            ratio = 0.10
+        else:
+            ratio = 0.20
+        
+        # 动态调整: 持仓多时减仓
+        if self.broker:
+            acct = self.broker.get_account()
+            if acct.total_assets > 0:
+                current_ratio = acct.market_value / acct.total_assets
+                if current_ratio > 0.5:
+                    ratio *= 0.7
+                if current_ratio > 0.65:
+                    ratio *= 0.5
+        
+        # 情绪仓位系数
+        pipeline_ratio = getattr(self._scanner, '_current_position_ratio', None)
+        if pipeline_ratio is not None and pipeline_ratio < 1.0:
+            ratio *= pipeline_ratio
+        
+        return ratio
+
+    def calc_would_buy_shares(self, signal) -> int:
+        """计算dry_run模式下会买入多少股(不实际下单)"""
+        if not self.broker or signal.price <= 0:
+            return 0
+        acct = self.broker.get_account()
+        position_ratio = self.calc_position_ratio(signal)
+        max_amount = acct.available_cash * position_ratio
+        lot = 200 if signal.ts_code.startswith('688') else 100
+        shares = int(max_amount / signal.price / lot) * lot
+        return shares

@@ -246,3 +246,87 @@ class StrategyScorer:
                 ))
 
         return signals
+
+    # ==================== 盘中异动检测 ====================
+
+    def detect_anomalies(self, realtime_data: Dict[str, Dict],
+                          active_signals: List[ScanSignal],
+                          prev_cache: Dict[str, Dict]) -> List[ScanSignal]:
+        """盘中异动检测
+
+        检测类型:
+        1. 急速拉升: 5分钟内涨幅>3%
+        2. 跌停打开: 跌停后打开(撬板机会)
+        3. 量比突变: 量比>5(资金异动)
+        4. 封板松动: 涨停后炸板(炸板股池)
+
+        不消耗额外必盈额度, 从已有的realtime_data里检测
+        """
+        signals = []
+        active_keys = {s.ts_code + "|" + s.strategy for s in active_signals}
+
+        for ts_code, rt in realtime_data.items():
+            key = ts_code + "|anomaly"
+            if key in active_keys:
+                continue  # 已有信号, 跳过
+
+            pct_chg = rt.get("pct_chg", 0)
+            is_limit_up = rt.get("is_limit_up", False)
+            is_limit_down = rt.get("is_limit_down", False)
+            is_broken = rt.get("is_broken_board", False)
+            open_times = rt.get("open_times", 0)
+            limit_times = rt.get("limit_times", 0)
+            name = rt.get("name", "")
+            price = rt.get("price", 0)
+            turnover = rt.get("turnover_rate", 0)
+            fd_amount = rt.get("fd_amount", 0)
+
+            # === 1. 跌停撬板(从必盈跌停/炸板池检测) ===
+            if is_broken and not is_limit_down:
+                # 炸板股: 涨停后打开 → 可能是炸板回封或龙头分歧
+                if pct_chg > 5 and open_times <= 2:
+                    signals.append(ScanSignal(
+                        ts_code=ts_code, stock_name=name,
+                        strategy="anomaly_broken", strategy_name="涨停炸板",
+                        signal_type="buy", price=price,
+                        pct_chg=pct_chg, volume_ratio=0,
+                        turnover_rate=turnover,
+                        is_limit_up=False,
+                        reason=f"涨停炸板2次内 涨{pct_chg:.1f}%",
+                    ))
+                    continue
+
+            # === 2. 量比突变(从涨停池里的换手率/封单判断) ===
+            if is_limit_up:
+                # 大封单+无炸板 → 强势涨停, 次日溢价
+                if fd_amount > 100000 and open_times == 0:
+                    signals.append(ScanSignal(
+                        ts_code=ts_code, stock_name=name,
+                        strategy="anomaly_strong", strategy_name="强势涨停",
+                        signal_type="buy", price=price,
+                        pct_chg=pct_chg, volume_ratio=0,
+                        turnover_rate=turnover, is_limit_up=True,
+                        reason=f"连板{limit_times} 封单{fd_amount/1000:.0f}万 无炸板",
+                    ))
+                    continue
+
+            # === 3. 急速拉升(5分钟内涨幅>3%) ===
+            prev_cached = prev_cache.get(ts_code, {})
+            prev_price = prev_cached.get("price", 0)
+            if prev_price > 0 and price > 0:
+                price_change_pct = (price - prev_price) / prev_price * 100
+                if price_change_pct > 3 and not is_limit_up:
+                    signals.append(ScanSignal(
+                        ts_code=ts_code, stock_name=name,
+                        strategy="anomaly_surge", strategy_name="急速拉升",
+                        signal_type="buy", price=price,
+                        pct_chg=pct_chg, volume_ratio=0,
+                        turnover_rate=turnover, is_limit_up=False,
+                        reason=f"5分钟涨{price_change_pct:.1f}%",
+                    ))
+                    continue
+
+        if signals:
+            logger.info(f"[ANOMALY] 异动检测: {len(signals)}只")
+
+        return signals

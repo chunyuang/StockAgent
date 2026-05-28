@@ -1,10 +1,10 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.5 | 日期: 2026-05-29 | 基线分支: audit/V75-backtest-review
+> 版本: v2.6 | 日期: 2026-05-29 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅
-> 回测影响: 零文件修改(仅portfolio_backtest补充0交易策略字段), 219测试全通过
+> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅
+> 回测影响: 零文件修改(仅portfolio_backtest补充0交易策略字段), 241测试全通过
 
 ---
 
@@ -19,6 +19,7 @@
 | v2.3 | 2026-05-29 | 线程安全: _state_lock保护共享状态+SELL_PRIORITY排序+2并发测试 |
 | v2.4 | 2026-05-29 | 深度审查: 情绪调仓委托修复+风控卖出加锁+compare补trade_days_held+2回归测试 |
 | v2.5 | 2026-05-29 | 审查优化: PositionManager线程安全trailing_stops读取+PortfolioBacktester缓存+因子测试修复+13回归测试 |
+| v2.6 | 2026-05-29 | 继续优化: _trade_date/_nav_peak初始化bug修复+异动检测提取到StrategyScorer+仓位计算提取到PositionManager+策略配置管理提取到StrategyParamCenter+22集成测试+limit_up_count字段修复 |
 
 v2.0关键修正:
 - ❶ 风控独立线程: asyncio协程→threading.Thread(真并行不受GIL影响)
@@ -346,13 +347,13 @@ phase转换时动态调仓(需回测同步):
 
 ### 3.1 God Class拆分 ✅ 已完成（2周→3天）
 
-**最终拆分结果: scanner.py 3348行→1846行 (-45%)**
+**最终拆分结果: scanner.py 2907行→1757行 (-40%)**
 
 ```
 MarketScanner(编排器, ~1846行, 30+委托方法)
   ├─ QuoteManager(行情, 352行) ← _fetch_realtime_batch ✅
-  ├─ StrategyScorer(策略, 248行) ← _merge_factors + _apply_strategies ✅
-  ├─ PositionManager(风控, 356行) ← _check_stop_loss_take_profit ✅
+  ├─ StrategyScorer(策略+异动, 332行) ← _merge_factors + _apply_strategies + _detect_anomalies ✅
+  ├─ PositionManager(风控+仓位, 464行) ← _check_stop_loss_take_profit + _calc_position_ratio + _calc_would_buy_shares ✅
   ├─ PositionChecker(卖出, 497行) ← _check_positions(legacy/checker/compare) ✅
   ├─ SignalManager(信号, 382行) ← _update_signals + _execute_signals ✅
   ├─ ScannerUtils(工具, 274行) ← _safe_round + _publish + 序列化 + 报告 ✅
@@ -685,3 +686,86 @@ def trailing_stops(self) -> Dict:
 | PositionCheckerPropertiesSafety | `realtime_cache_property_documented` | 属性文档说明直接引用 |
 | NoBacktestRegression | `sell_signal_checker_api_unchanged` | 回测API未变 |
 | NoBacktestRegression | `strategy_defaults_importable` | 默认参数正常导入 |
+
+---
+
+## 十四、继续优化记录 (v2.6)
+
+### 14.1 _trade_date未初始化Bug修复 (🔴 严重)
+
+**问题**: `_handle_emotion_phase_change` 使用 `self._trade_date` 获取交易日,但该属性从未在 `__init__` 或 `start()` 中设置,导致总是回退到 `datetime.now()`,午夜后调用会产生错误的交易日期。
+
+**修复**: 
+1. `__init__` 中初始化 `self._trade_date: str = ""`
+2. `start()` 中设置 `self._trade_date = trade_date`
+
+### 14.2 _nav_peak未初始化修复 (🟡 中等)
+
+**问题**: `_save_performance_snapshot` 使用 `getattr(self, "_nav_peak", 1.0)`,虽然安全但不够规范。
+
+**修复**: `__init__` 中显式初始化 `self._nav_peak: float = 1.0`,移除 `getattr` 防御代码。
+
+### 14.3 异动检测提取到StrategyScorer (🟡 架构优化)
+
+**问题**: `_detect_anomalies` (~70行) 仍在scanner.py中,属于策略筛选逻辑,应归入StrategyScorer。
+
+**修复**: 
+- 新增 `StrategyScorer.detect_anomalies(realtime_data, active_signals, prev_cache)` 方法
+- scanner.py 保留 `async _detect_anomalies` 委托存根(3行)
+- 方法签名从async改为sync(纯计算无需IO)
+
+### 14.4 仓位计算提取到PositionManager (🟡 架构优化)
+
+**问题**: `_calc_position_ratio` (~40行) 和 `_calc_would_buy_shares` (~8行) 属于仓位管理逻辑,应归入PositionManager。
+
+**修复**:
+- 新增 `PositionManager.calc_position_ratio(signal)` 和 `PositionManager.calc_would_buy_shares(signal)` 方法
+- scanner.py 保留委托存根
+- signal_manager.py 引用改为 `scanner._position_manager.calc_position_ratio()`
+- 修复 `limit_up_count` 字段名兼容: `getattr(signal, 'limit_up_count', None) or getattr(signal, 'limit_times', 0)`
+
+### 14.5 策略配置管理提取到StrategyParamCenter (🟡 架构优化)
+
+**问题**: `update_strategy_config`/`_persist_strategy_overrides`/`_load_strategy_overrides`/`_validate_live_params` (~75行) 属于参数管理逻辑,应归入StrategyParamCenter。
+
+**修复**:
+- 新增4个静态方法: `validate_live_params`/`update_scanner_config`/`persist_scanner_overrides`/`load_scanner_overrides`
+- scanner.py 保留委托存根(每个3-5行)
+- 不影响功能,仅代码归属更合理
+
+### 14.6 Scanner行数变化
+
+| 阶段 | scanner.py行数 | 变化 |
+|---|---|---|
+| Phase3.1前 | 2907 | 基线 |
+| Phase3.1后 | 1922 | -34% |
+| v2.6继续优化后 | 1757 | -40% |
+
+### 14.7 回归测试 (22个新增)
+
+新增 `test_extraction_integration.py` 测试文件:
+
+| 测试类 | 测试项 | 验证内容 |
+|---|---|---|
+| TestAnomalyDetection | `detect_anomalies_broken_board` | 涨停炸板信号检测 |
+| TestAnomalyDetection | `detect_anomalies_strong_limit` | 强势涨停信号检测 |
+| TestAnomalyDetection | `detect_anomalies_surge` | 急速拉升信号检测 |
+| TestAnomalyDetection | `detect_anomalies_skip_existing_signal` | 已有信号不重复生成 |
+| TestAnomalyDetection | `detect_anomalies_empty_data` | 空行情无信号 |
+| TestPositionSizing | `position_ratio_halfway_chase` | 半路追涨仓位计算 |
+| TestPositionSizing | `position_ratio_limit_up_consecutive` | 连板涨停仓位 |
+| TestPositionSizing | `position_ratio_limit_down` | 跌停翘板仓位 |
+| TestPositionSizing | `position_ratio_reduced_when_half_full` | 半仓以上减仓 |
+| TestPositionSizing | `position_ratio_with_emotion` | 情绪低迷降仓 |
+| TestPositionSizing | `calc_would_buy_shares` | 买入股数计算 |
+| TestPositionSizing | `calc_would_buy_shares_zero_price` | 零价格边界 |
+| TestStrategyParamCenterStatic | `update_scanner_config_params` | 参数更新 |
+| TestStrategyParamCenterStatic | `update_scanner_config_merge` | 参数合并 |
+| TestStrategyParamCenterStatic | `validate_live_params_low_slippage` | 低滑点告警 |
+| TestStrategyParamCenterStatic | `validate_live_params_high_position` | 高仓位告警 |
+| TestScannerInit | `trade_date_initialized` | _trade_date初始化 |
+| TestScannerInit | `nav_peak_initialized` | _nav_peak初始化 |
+| TestScannerInit | `state_lock_not_none_after_check` | _state_lock延迟初始化 |
+| TestNoBacktestRegression | `sell_signal_checker_api_unchanged` | 回测API不变 |
+| TestNoBacktestRegression | `strategy_defaults_importable` | 默认参数正常导入 |
+| TestNoBacktestRegression | `portfolio_backtester_importable` | 回测引擎正常导入 |

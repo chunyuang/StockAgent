@@ -202,8 +202,8 @@ class SignalManager:
                 sig.layer_trace["execution"] = {
                     "mode": "dry_run",
                     "reason": "调试模式, 不执行交易",
-                    "would_buy_shares": scanner._calc_would_buy_shares(sig),
-                    "would_buy_amount": round(sig.price * scanner._calc_would_buy_shares(sig), 2),
+                    "would_buy_shares": scanner._position_manager.calc_would_buy_shares(sig) if scanner._position_manager else 0,
+                    "would_buy_amount": round(sig.price * (scanner._position_manager.calc_would_buy_shares(sig) if scanner._position_manager else 0), 2),
                 }
                 self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
                     sig.strategy_name, "调试模式, 未实际下单", sig)
@@ -249,7 +249,7 @@ class SignalManager:
 
             # PositionSizer
             acct = self.broker.get_account()
-            position_ratio = scanner._calc_position_ratio(sig)
+            position_ratio = scanner._position_manager.calc_position_ratio(sig) if scanner._position_manager else 0.2
             max_amount = acct.available_cash * position_ratio
             shares = int(max_amount / sig.price / 100) * 100
             
