@@ -628,22 +628,18 @@ class DailyScheduler:
         """止损止盈检查(模拟盘)
         
         【V50:从strategy_defaults读取策略级风控参数,不再硬编码-3%/+7%】
-        
-        ⚠️ 此方法仍使用已废弃的 SimulatorExecutor，待迁移到 MarketScanner._check_positions()
+        【Phase3.2:替换SimulatorExecutor→SimulatedBroker】
         """
-        from nodes.listener.execution.simulator_executor import SimulatorExecutor  # DEPRECATED
+        from nodes.market_monitor.broker import SimulatedBroker
         from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK, STRATEGY_CONFIGS
         _NAME_TO_ID = {cfg["name"]: sid for sid, cfg in STRATEGY_CONFIGS.items()}
         
         if not self._executor:
-            self._executor = SimulatorExecutor(initial_cash=1000000.0)
-            await self._executor.connect()
-        
-        # 更新价格
-        await self._executor.update_current_prices()
+            self._executor = SimulatedBroker(account_id="scheduler_fallback", initial_cash=1000000.0)
+            await self._executor.initialize()
         
         alerts = []
-        positions = await self._executor.get_position()
+        positions = self._executor.get_positions()
         
         for pos in positions:
             # 【V50:策略级风控参数】
@@ -655,69 +651,69 @@ class DailyScheduler:
             # 止损
             if pos.profit_pct <= -sl_pct:
                 try:
-                    await self._executor.send_order(
-                        ts_code=pos.ts_code,
-                        direction="sell",
-                        shares=pos.shares,
-                        price=pos.current_price,
+                    ok, msg, order = self._executor.place_order(
+                        ts_code=pos.ts_code, stock_name=pos.stock_name,
+                        side="sell", quantity=pos.available_qty,
+                        price=pos.current_price, order_type="market",
+                        strategy=pos.strategy, reason="scheduler_stop_loss"
                     )
-                    alerts.append({
-                        "ts_code": pos.ts_code,
-                        "type": "stop_loss",
-                        "profit_pct": pos.profit_pct,
-                        "action": "已卖出",
-                    })
-                    logger.info(f"[RISK] 止损卖出 {pos.ts_code} 亏损{pos.profit_pct:.1f}%")
+                    if ok:
+                        alerts.append({
+                            "ts_code": pos.ts_code,
+                            "type": "stop_loss",
+                            "profit_pct": pos.profit_pct,
+                            "action": "已卖出",
+                        })
+                        logger.info(f"[RISK] 止损卖出 {pos.ts_code} 亏损{pos.profit_pct:.1f}%")
                 except Exception as e:
                     logger.error(f"[RISK] 止损卖出失败 {pos.ts_code}: {e}")
             
             # 止盈
             elif pos.profit_pct >= tp_pct:
                 try:
-                    await self._executor.send_order(
-                        ts_code=pos.ts_code,
-                        direction="sell",
-                        shares=pos.shares,
-                        price=pos.current_price,
+                    ok, msg, order = self._executor.place_order(
+                        ts_code=pos.ts_code, stock_name=pos.stock_name,
+                        side="sell", quantity=pos.available_qty,
+                        price=pos.current_price, order_type="market",
+                        strategy=pos.strategy, reason="scheduler_take_profit"
                     )
-                    alerts.append({
-                        "ts_code": pos.ts_code,
-                        "type": "take_profit",
-                        "profit_pct": pos.profit_pct,
-                        "action": "已卖出",
-                    })
-                    logger.info(f"[RISK] 止盈卖出 {pos.ts_code} 盈利{pos.profit_pct:.1f}%")
+                    if ok:
+                        alerts.append({
+                            "ts_code": pos.ts_code,
+                            "type": "take_profit",
+                            "profit_pct": pos.profit_pct,
+                            "action": "已卖出",
+                        })
+                        logger.info(f"[RISK] 止盈卖出 {pos.ts_code} 盈利{pos.profit_pct:.1f}%")
                 except Exception as e:
                     logger.error(f"[RISK] 止盈卖出失败 {pos.ts_code}: {e}")
         
         # 更新持仓状态
-        self._positions = {p.ts_code: {"shares": p.shares, "cost": p.cost_price, "current": p.current_price} 
-                          for p in await self._executor.get_position()}
+        self._positions = {p.ts_code: {"shares": p.total_qty, "cost": p.avg_cost, "current": p.current_price} 
+                          for p in self._executor.get_positions()}
         
         return alerts
 
     async def _calc_daily_performance(self, trade_date: str) -> Dict:
-        """今日绩效(模拟盘)"""
-        from nodes.listener.execution.simulator_executor import SimulatorExecutor
+        """今日绩效(模拟盘)【Phase3.2:SimulatedBroker】"""
+        from nodes.market_monitor.broker import SimulatedBroker
         
         if not self._executor:
-            self._executor = SimulatorExecutor(initial_cash=1000000.0)
-            await self._executor.connect()
+            self._executor = SimulatedBroker(account_id="scheduler_fallback", initial_cash=1000000.0)
+            await self._executor.initialize()
         
-        await self._executor.update_current_prices()
-        account = await self._executor.get_account()
-        positions = await self._executor.get_position()
+        acct = self._executor.get_account()
+        positions = self._executor.get_positions()
         
-        if account:
-            # 【V50:修复daily_return计算——用today的starting_asset而非硬编码1000000】
+        if acct:
             daily_start = getattr(self, '_daily_start_asset', 1000000.0)
             if daily_start <= 0:
                 daily_start = 1000000.0
-            daily_return = (account.total_asset - daily_start) / daily_start * 100
+            daily_return = (acct.total_assets - daily_start) / daily_start * 100
             return {
                 "daily_return": f"{daily_return:.2f}%",
-                "total_assets": f"{account.total_asset:,.0f}",
-                "cash": f"{account.available_cash:,.0f}",
+                "total_assets": f"{acct.total_assets:,.0f}",
+                "cash": f"{acct.available_cash:,.0f}",
                 "positions": len(positions),
                 "signals_today": len(self._signals),
                 "alerts_today": len(self._alerts),
@@ -808,50 +804,48 @@ class DailyScheduler:
         except Exception as e:
             logger.warning(f"[EXEC] scanner不可用: {e}, 回退到本地执行")
 
-        # 回退: scanner不可用时用本地SimulatorExecutor
-        # ⚠️ DEPRECATED: SimulatorExecutor 已废弃，此回退路径将在后续版本移除
-        # 迁移: 确保 scanner 可用，或改用 SimulatedBroker(nodes/market_monitor/broker.py)
-        import warnings
-        warnings.warn(
-            "SimulatorExecutor 已废弃，建议确保 MarketScanner 可用。"
-            "详见 nodes/listener/execution/simulator_executor.py",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        from nodes.listener.execution.simulator_executor import SimulatorExecutor
-        
-        if not self._executor:
-            self._executor = SimulatorExecutor(initial_cash=1000000.0)
-            await self._executor.connect()
-        
-        for sig in signals:
-            try:
-                ts_code = sig["ts_code"]
-                price = sig.get("price", 0)
-                if price <= 0:
-                    continue
-                account = await self._executor.get_account()
-                if not account:
-                    continue
-                
-                if account.market_value / account.total_asset > 0.7:
-                    break
-                
-                max_amount = account.available_cash * 0.5
-                shares = int(max_amount / price / 100) * 100
-                if shares <= 0:
-                    continue
-                
-                order = await self._executor.send_order(
-                    ts_code=ts_code, direction="buy", shares=shares, price=price)
-                if order and order.status.value in ("filled", "partial"):
-                    executed.append({
-                        "ts_code": ts_code, "strategy": sig["strategy"],
-                        "shares": shares, "price": price, "order_id": order.order_id,
-                    })
-                    logger.info(f"[EXEC] 本地买入 {ts_code} {shares}股@{price}")
-            except Exception as e:
-                logger.error(f"[EXEC] 本地执行失败 {sig['ts_code']}: {e}")
+        # 回退: scanner不可用时用SimulatedBroker(nodes/market_monitor/broker.py)
+        # 【Phase3.2:替换已废弃的SimulatorExecutor】
+        try:
+            from nodes.market_monitor.broker import SimulatedBroker
+            if not self._executor:
+                self._executor = SimulatedBroker(account_id="scheduler_fallback", initial_cash=1000000.0)
+                await self._executor.initialize()
+            
+            for sig in signals:
+                try:
+                    ts_code = sig["ts_code"]
+                    price = sig.get("price", 0)
+                    if price <= 0:
+                        continue
+                    acct = self._executor.get_account()
+                    if not acct:
+                        continue
+                    
+                    if acct.market_value / acct.total_assets > 0.7:
+                        break
+                    
+                    max_amount = acct.available_cash * 0.5
+                    shares = int(max_amount / price / 100) * 100
+                    if shares <= 0:
+                        continue
+                    
+                    ok, msg, order = self._executor.place_order(
+                        ts_code=ts_code, stock_name=sig.get("stock_name", ""),
+                        side="buy", quantity=shares, price=price,
+                        order_type="limit", strategy=sig.get("strategy", ""),
+                        reason=sig.get("strategy_name", "scheduler_fallback")
+                    )
+                    if ok:
+                        executed.append({
+                            "ts_code": ts_code, "strategy": sig["strategy"],
+                            "shares": shares, "price": order.filled_price, "order_id": order.order_id,
+                        })
+                        logger.info(f"[EXEC] broker买入 {ts_code} {shares}股@{order.filled_price:.2f}")
+                except Exception as e:
+                    logger.error(f"[EXEC] broker执行失败 {sig['ts_code']}: {e}")
+        except Exception as e:
+            logger.error(f"[EXEC] SimulatedBroker初始化失败: {e}, 信号未执行")
         
         return executed
 
