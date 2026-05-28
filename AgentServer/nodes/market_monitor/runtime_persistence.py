@@ -11,11 +11,16 @@ RuntimePersistence — 运行时状态持久化
 
 import json
 import logging
+import os
 import time
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
 logger = logging.getLogger("runtime_persistence")
+
+# 本地快照降级路径
+LOCAL_SNAPSHOT_DIR = "/tmp"
+LOCAL_SNAPSHOT_PREFIX = "scanner_snapshot_"
 
 
 class RuntimePersistence:
@@ -48,88 +53,134 @@ class RuntimePersistence:
     # ==================== 运行时快照 ====================
     
     async def load_runtime_snapshot(self):
-        """从MongoDB加载运行时快照(启动时恢复)"""
+        """从MongoDB加载运行时快照(启动时恢复)
+        
+        优先MongoDB, 失败时回退本地文件
+        """
+        doc = None
+        
+        # 尝试MongoDB
         try:
             from core.managers import mongo_manager
-            if mongo_manager.db is None:
-                return
-            
-            doc = await mongo_manager.db["scanner_runtime_snapshot"].find_one(
-                {"account_id": self.account_id}
-            )
-            if not doc:
-                return
-            
-            scanner = self._scanner
-            
-            # 恢复追踪止损
-            if "trailing_stops" in doc:
-                scanner._trailing_stops = doc["trailing_stops"]
-                logger.info(f"[SNAPSHOT] 恢复追踪止损: {len(scanner._trailing_stops)}只")
-            
-            # 恢复风险等级
-            if "position_risk_levels" in doc:
-                scanner._position_risk_levels = doc["position_risk_levels"]
-            
-            # 恢复风控状态
-            if "circuit_breaker" in doc:
-                cb = doc["circuit_breaker"]
-                # 只恢复连续亏损, 不恢复trading_paused(重启后应该重新评估)
-                scanner._circuit_breaker["consecutive_losses"] = cb.get("consecutive_losses", 0)
-                scanner._circuit_breaker["today_trades"] = cb.get("today_trades", 0)
-                scanner._circuit_breaker["today_losses"] = cb.get("today_losses", 0)
-            
-            # 恢复pending_sells
-            if "pending_sells" in doc:
-                scanner._pending_sells = doc["pending_sells"]
-                logger.info(f"[SNAPSHOT] 恢复待卖: {len(scanner._pending_sells)}只")
-            
-            # 恢复统计
-            if "stats" in doc:
-                scanner._stats.update(doc["stats"])
-            
-            logger.info(f"[SNAPSHOT] 加载运行时快照成功")
+            if mongo_manager.db is not None:
+                doc = await mongo_manager.db["scanner_runtime_snapshot"].find_one(
+                    {"account_id": self.account_id}
+                )
         except Exception as e:
-            logger.warning(f"[SNAPSHOT] 加载运行时快照失败: {e}")
+            logger.warning(f"[SNAPSHOT] MongoDB加载失败: {e}")
+        
+        # MongoDB失败→回退本地文件
+        if not doc:
+            try:
+                local_path = self._get_local_fallback_path()
+                if os.path.exists(local_path):
+                    with open(local_path, 'r') as f:
+                        doc = json.load(f)
+                    logger.info(f"[SNAPSHOT] 从本地降级文件恢复: {local_path}")
+            except Exception as e:
+                logger.debug(f"[SNAPSHOT] 本地文件加载失败: {e}")
+        
+        if not doc:
+            return
+        
+        scanner = self._scanner
+        
+        # 恢复追踪止损
+        if "trailing_stops" in doc:
+            scanner._trailing_stops = doc["trailing_stops"]
+            logger.info(f"[SNAPSHOT] 恢复追踪止损: {len(scanner._trailing_stops)}只")
+        
+        # 恢复风险等级
+        if "position_risk_levels" in doc:
+            scanner._position_risk_levels = doc["position_risk_levels"]
+        
+        # 恢复风控状态
+        if "circuit_breaker" in doc:
+            cb = doc["circuit_breaker"]
+            # 只恢复连续亏损, 不恢复trading_paused(重启后应该重新评估)
+            scanner._circuit_breaker["consecutive_losses"] = cb.get("consecutive_losses", 0)
+            scanner._circuit_breaker["today_trades"] = cb.get("today_trades", 0)
+            scanner._circuit_breaker["today_losses"] = cb.get("today_losses", 0)
+        
+        # 恢复pending_sells
+        if "pending_sells" in doc:
+            scanner._pending_sells = doc["pending_sells"]
+            logger.info(f"[SNAPSHOT] 恢复待卖: {len(scanner._pending_sells)}只")
+        
+        # 恢复统计
+        if "stats" in doc:
+            scanner._stats.update(doc["stats"])
+        
+        logger.info(f"[SNAPSHOT] 加载运行时快照成功")
     
     async def save_runtime_snapshot(self, force: bool = False):
         """保存运行时快照到MongoDB
         
-        节流: 默认30秒保存一次, force=True跳过节流
+        节流: 默认5秒保存一次, force=True跳过节流
+        MongoDB不可用时降级写本地文件
         """
         scanner = self._scanner
         
         now = time.time()
         if not force:
             last_save = getattr(scanner, '_last_snapshot_save', 0)
-            if now - last_save < 30:
+            if now - last_save < 5:  # v2.1: 5秒节流(原30秒太长, 崩溃后丢失多)
                 return
         
+        doc = {
+            "account_id": self.account_id,
+            "updated_at": datetime.now().isoformat(),
+            "trailing_stops": scanner._trailing_stops,
+            "position_risk_levels": getattr(scanner, '_position_risk_levels', {}),
+            "circuit_breaker": scanner._circuit_breaker,
+            "pending_sells": getattr(scanner, '_pending_sells', {}),
+            "stats": dict(scanner._stats),
+            "active_signals_count": len(scanner._active_signals),
+            "dry_run": scanner._dry_run,
+        }
+        
+        saved = False
+        
+        # 尝试MongoDB
         try:
             from core.managers import mongo_manager
-            if mongo_manager.db is None:
-                return
-            
-            doc = {
-                "account_id": self.account_id,
-                "updated_at": datetime.now().isoformat(),
-                "trailing_stops": scanner._trailing_stops,
-                "position_risk_levels": getattr(scanner, '_position_risk_levels', {}),
-                "circuit_breaker": scanner._circuit_breaker,
-                "pending_sells": getattr(scanner, '_pending_sells', {}),
-                "stats": dict(scanner._stats),
-                "active_signals_count": len(scanner._active_signals),
-                "dry_run": scanner._dry_run,
-            }
-            
-            await mongo_manager.db["scanner_runtime_snapshot"].update_one(
-                {"account_id": self.account_id},
-                {"$set": doc},
-                upsert=True,
-            )
-            scanner._last_snapshot_save = now
+            if mongo_manager.db is not None:
+                await mongo_manager.db["scanner_runtime_snapshot"].update_one(
+                    {"account_id": self.account_id},
+                    {"$set": doc},
+                    upsert=True,
+                )
+                scanner._last_snapshot_save = now
+                saved = True
+                # MongoDB成功后清理本地降级文件
+                self._cleanup_local_fallback()
         except Exception as e:
-            logger.debug(f"[SNAPSHOT] 保存运行时快照失败(非关键): {e}")
+            logger.debug(f"[SNAPSHOT] MongoDB保存失败: {e}")
+        
+        # MongoDB失败→降级写本地文件
+        if not saved:
+            try:
+                local_path = self._get_local_fallback_path()
+                with open(local_path, 'w') as f:
+                    json.dump(doc, f, ensure_ascii=False, default=str)
+                scanner._last_snapshot_save = now
+                logger.info(f"[SNAPSHOT] 降级保存到本地: {local_path}")
+            except Exception as e2:
+                logger.warning(f"[SNAPSHOT] 本地保存也失败: {e2}")
+    
+    def _get_local_fallback_path(self) -> str:
+        """获取本地降级文件路径"""
+        return os.path.join(LOCAL_SNAPSHOT_DIR, f"{LOCAL_SNAPSHOT_PREFIX}{self.account_id}.json")
+    
+    def _cleanup_local_fallback(self):
+        """MongoDB恢复后清理本地降级文件"""
+        try:
+            path = self._get_local_fallback_path()
+            if os.path.exists(path):
+                os.remove(path)
+                logger.debug(f"[SNAPSHOT] 清理本地降级文件: {path}")
+        except Exception:
+            pass
     
     # ==================== 盘前竞价 ====================
     

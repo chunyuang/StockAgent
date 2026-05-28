@@ -248,7 +248,12 @@ class SignalDispatcher:
 # ==================== 内置通道handler ====================
 
 async def redis_channel_handler(signal: DispatchSignal) -> bool:
-    """Redis Pub/Sub通道(→WebSocket实时推送到GUI)"""
+    """Redis Stream通道(不可丢, →WebSocket实时推送到GUI)
+    
+    v2.1: Pub/Sub → Stream升级
+    - scanner:signal → Redis Stream (maxlen=1000, 不可丢)
+    - scanner:status/health → Pub/Sub (不变, 允许丢)
+    """
     try:
         from core.managers import redis_manager
         if not redis_manager._client:
@@ -263,15 +268,16 @@ async def redis_channel_handler(signal: DispatchSignal) -> bool:
             "strategy": signal.strategy_name,
             "type": signal.signal_type,
             "priority": signal.priority.value,
-            "price": signal.price,
-            "pct_chg": signal.pct_chg,
+            "price": str(signal.price),  # Stream要求string值
+            "pct_chg": str(signal.pct_chg),
             "reason": signal.reason,
             "timestamp": datetime.now().strftime("%H:%M:%S"),
         }
-        await redis_manager._client.publish(channel, json.dumps(data, ensure_ascii=False))
+        # Redis Stream: XADD (不可丢, maxlen防内存溢出)
+        await redis_manager._client.xadd(channel, data, maxlen=1000, approximate=True)
         return True
     except Exception as e:
-        logger.debug(f"[DISPATCHER] Redis通道失败: {e}")
+        logger.debug(f"[DISPATCHER] Redis Stream通道失败: {e}")
         return False
 
 
