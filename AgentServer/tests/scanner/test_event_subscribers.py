@@ -67,6 +67,7 @@ class TestSubscriberRegistration:
             "risk_sell_executed", "position_changed", "circuit_breaker",
             "scan_completed", "quote_degraded", "quote_recovered",
             "param_updated", "emotion_changed", "daily_settled",
+            "signal_generated",
         ]
         for event in expected_events:
             assert bus.has_handlers(event), f"事件 {event} 缺少订阅者"
@@ -309,6 +310,27 @@ class TestDailySettledHandler:
                     "total_profit": 1234.5,
                 })
                 mock_audit.assert_called_once()
+
+
+# ==================== 信号生成Handler测试 ====================
+
+class TestSignalGeneratedHandler:
+    """信号生成事件handler测试"""
+    
+    @pytest.mark.asyncio
+    async def test_signal_generated_pushes_to_redis(self, mock_scanner):
+        from nodes.market_monitor.scanner_event_subscribers import register_subscribers
+        register_subscribers(mock_scanner)
+        
+        with patch("nodes.market_monitor.scanner_event_subscribers._push_to_redis", new_callable=AsyncMock) as mock_redis:
+            await mock_scanner.event_bus.emit("signal_generated", {
+                "signal_count": 3,
+                "signals": [{"ts_code": "600036.SH", "strategy": "halfway_chase", "pct_chg": 5.2}],
+            })
+            mock_redis.assert_called_once()
+            call_data = mock_redis.call_args[0][2]
+            assert call_data["event"] == "signal_generated"
+            assert call_data["signal_count"] == 3
 
 
 # ==================== 序列化工具测试 ====================
