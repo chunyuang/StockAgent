@@ -6,7 +6,6 @@
 - DataSyncNode: 数据同步节点
 - MCPNode: MCP 服务节点
 - InferenceNode: 分析智能体节点
-- ListenerNode: 实时监听节点
 """
 
 from .base import BaseNode
@@ -14,7 +13,7 @@ from .web.node import WebNode
 from .data_sync.node import DataSyncNode
 from .mcp.node import MCPNode
 from .inference.node import InferenceNode
-from .listener.node import ListenerNode
+# ListenerNode已废弃(V54), 由MarketScanner取代
 
 __all__ = [
     "BaseNode",
@@ -22,5 +21,4 @@ __all__ = [
     "DataSyncNode",
     "MCPNode",
     "InferenceNode",
-    "ListenerNode",
 ]
