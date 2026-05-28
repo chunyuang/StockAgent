@@ -395,12 +395,14 @@ class TestScannerHealthScore:
     
     def test_health_red_when_not_started(self):
         """未启动时健康度应为红"""
+        import threading
         from nodes.market_monitor.scanner import MarketScanner
         import time
         s = MarketScanner.__new__(MarketScanner)
         s._last_scan_ts = 0
         s._last_risk_check_ts = 0
         s._pending_sells = {}
+        s._state_lock = threading.Lock()
         s._quote_manager = None
         s._circuit_breaker = {}
         health = s._compute_health_score()
@@ -409,6 +411,7 @@ class TestScannerHealthScore:
     
     def test_health_green_when_active(self):
         """活跃时健康度应为绿"""
+        import threading
         from nodes.market_monitor.scanner import MarketScanner
         from nodes.market_monitor.quote_manager import QuoteManager
         import time
@@ -416,6 +419,7 @@ class TestScannerHealthScore:
         s._last_scan_ts = time.time() - 60
         s._last_risk_check_ts = time.time() - 2
         s._pending_sells = {}
+        s._state_lock = threading.Lock()
         s._quote_manager = QuoteManager()
         s._quote_manager._last_fetch_time = time.time() - 5
         s._circuit_breaker = {}
@@ -425,6 +429,7 @@ class TestScannerHealthScore:
     
     def test_health_yellow_when_degraded(self):
         """行情降级时健康度应为黄"""
+        import threading
         from nodes.market_monitor.scanner import MarketScanner
         from nodes.market_monitor.quote_manager import QuoteManager
         import time
@@ -432,6 +437,7 @@ class TestScannerHealthScore:
         s._last_scan_ts = time.time() - 60
         s._last_risk_check_ts = time.time() - 2
         s._pending_sells = {}
+        s._state_lock = threading.Lock()
         s._quote_manager = QuoteManager()
         s._quote_manager._last_fetch_time = time.time() - 5
         s._quote_manager._quote_degrade_level = 1
@@ -442,13 +448,15 @@ class TestScannerHealthScore:
     
     def test_health_warnings_include_pending_sells(self):
         """跌停挂起应出现在warnings"""
+        import threading
         from nodes.market_monitor.scanner import MarketScanner
         from nodes.market_monitor.quote_manager import QuoteManager
         import time
         s = MarketScanner.__new__(MarketScanner)
         s._last_scan_ts = time.time() - 60
         s._last_risk_check_ts = time.time() - 2
-        s._pending_sells = {"600036.SH": ("跌停挂起", 40.0)}
+        s._pending_sells = {"600036.SH": {"reason": "跌停挂起", "price": 40.0}}
+        s._state_lock = threading.Lock()
         s._quote_manager = QuoteManager()
         s._quote_manager._last_fetch_time = time.time() - 5
         s._circuit_breaker = {}
@@ -478,12 +486,14 @@ class TestPositionManager:
 
     def _make_mock_scanner(self):
         """构造mock Scanner对象(只提供PositionManager需要的属性)"""
+        import threading
         class MockScanner:
             SELL_LOGIC_MODE = "legacy"
             _trailing_stops = {}
             _pending_sells = {}
             _position_risk_levels = {}
             _position_risk_overrides = {}
+            _state_lock = threading.Lock()
             
             def _get_strategy_risk(self, strategy):
                 return {"stop_loss_pct": 0.03, "take_profit_pct": 0.07,
@@ -649,3 +659,115 @@ class TestPositionManager:
         result = pm.check_stop_loss_only(rt)
         # 跌停时挂起, 不返回to_sell(由Scanner处理挂起)
         assert "600036.SH" in scanner._pending_sells
+
+
+class TestPositionManagerThreadSafety:
+    """【线程安全】PositionManager并发读写测试"""
+
+    def _make_threadsafe_scanner(self):
+        """构造线程安全的mock Scanner"""
+        import threading
+        class MockScanner:
+            SELL_LOGIC_MODE = "legacy"
+            _trailing_stops = {}
+            _pending_sells = {}
+            _position_risk_levels = {}
+            _position_risk_overrides = {}
+            _state_lock = threading.Lock()
+
+            def _get_strategy_risk(self, strategy):
+                return {"stop_loss_pct": 0.03, "take_profit_pct": 0.07,
+                        "trailing_stop_pct": 0.02, "next_day_open_sell_pct": 0.03}
+
+            def _get_open_price(self, ts_code):
+                return 10.0
+
+            def _is_limit_down(self, ts_code):
+                return False
+        return MockScanner()
+
+    def test_concurrent_trailing_stop_update(self):
+        """并发更新追踪止损不会crash或丢失数据"""
+        import threading
+        from nodes.market_monitor.position_manager import PositionManager
+
+        scanner = self._make_threadsafe_scanner()
+        pm = PositionManager(scanner)
+
+        class MockPos:
+            pass
+
+        errors = []
+
+        def update_worker(code_prefix, count):
+            try:
+                for i in range(count):
+                    pos = MockPos()
+                    pos.ts_code = f"{code_prefix}{i:04d}.SH"
+                    pos.stock_name = "测试"
+                    pos.avg_cost = 10.0
+                    pos.current_price = 10.5 + i * 0.01
+                    pos.available_qty = 100
+                    pos.profit_pct = 5.0 + i * 0.1
+                    pos.buy_date = "20260520"
+                    pos.strategy = "halfway_chase"
+                    pm.update_trailing_stops([pos], {})
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=update_worker, args=(f"60{i}", 50)) for i in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert len(errors) == 0, f"并发更新出错: {errors}"
+        # 应该有200只(4线程×50)
+        assert len(scanner._trailing_stops) == 200
+
+    def test_concurrent_pending_sells_access(self):
+        """风控线程和主线程同时读写pending_sells"""
+        import threading
+        from nodes.market_monitor.position_manager import PositionManager
+
+        scanner = self._make_threadsafe_scanner()
+        pm = PositionManager(scanner)
+
+        # 预填一些pending_sells
+        for i in range(10):
+            scanner._pending_sells[f"60{i:04d}.SH"] = {"reason": "test", "price": 10.0}
+
+        errors = []
+
+        def reader_worker():
+            try:
+                for _ in range(100):
+                    with scanner._state_lock:
+                        _ = dict(scanner._pending_sells)
+                        _ = dict(scanner._trailing_stops)
+            except Exception as e:
+                errors.append(e)
+
+        def writer_worker():
+            try:
+                for i in range(100):
+                    code = f"00{i:04d}.SZ"
+                    with scanner._state_lock:
+                        scanner._pending_sells[code] = {"reason": "write", "price": 10.0}
+                    with scanner._state_lock:
+                        scanner._pending_sells.pop(code, None)
+            except Exception as e:
+                errors.append(e)
+
+        threads = [
+            threading.Thread(target=reader_worker),
+            threading.Thread(target=reader_worker),
+            threading.Thread(target=writer_worker),
+            threading.Thread(target=writer_worker),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert len(errors) == 0, f"并发读写出错: {errors}"

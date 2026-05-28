@@ -129,6 +129,7 @@ class MarketScanner:
         self._risk_thread = None
         self._risk_running = False
         self._cache_lock = None  # threading.Lock(在start时初始化)
+        self._state_lock = None  # threading.Lock(保护trailing_stops/pending_sells/position_risk_levels)
         self._loop = None       # asyncio事件循环引用
         
         # 【Phase1.3:卖出逻辑灰度开关】
@@ -475,6 +476,7 @@ class MarketScanner:
         import threading
         self._loop = asyncio.get_event_loop()
         self._cache_lock = threading.Lock()
+        self._state_lock = threading.Lock()  # 保护trailing_stops/pending_sells/position_risk_levels
         self._risk_running = True
         self._risk_thread = threading.Thread(
             target=self._risk_loop_sync, daemon=True,
@@ -925,7 +927,8 @@ class MarketScanner:
             for pos, reason, price, risk in to_sell:
                 # 跌停不可卖检查
                 if self._is_limit_down(pos.ts_code):
-                    self._pending_sells[pos.ts_code] = {"reason": reason, "price": price, "added_at": time.time(), "source": "risk_thread"}
+                    with self._state_lock:
+                        self._pending_sells[pos.ts_code] = {"reason": reason, "price": price, "added_at": time.time(), "source": "risk_thread"}
                     logger.warning(f"[RISK_THREAD] 跌停不可卖: {pos.ts_code}, {reason}挂起")
                     continue
                 
@@ -1343,7 +1346,8 @@ class MarketScanner:
                 if pos.available_qty <= 0:
                     continue
                 if self._is_limit_down(pos.ts_code):
-                    self._pending_sells[pos.ts_code] = {"reason": f"情绪降级({old_phase}→{new_phase})", "price": pos.current_price, "added_at": time.time(), "source": "emotion"}
+                    with self._state_lock:
+                        self._pending_sells[pos.ts_code] = {"reason": f"情绪降级({old_phase}→{new_phase})", "price": pos.current_price, "added_at": time.time(), "source": "emotion"}
                     continue
                 to_sell.append((pos, f"情绪降级({rule['desc']})", pos.current_price, 
                                self._get_strategy_risk(pos.strategy)))
@@ -1356,7 +1360,8 @@ class MarketScanner:
                     continue
                 if pos.profit_pct < min_profit * 100:  # profit_pct是百分比
                     if self._is_limit_down(pos.ts_code):
-                        self._pending_sells[pos.ts_code] = {"reason": f"情绪清仓({old_phase}→{new_phase})", "price": pos.current_price, "added_at": time.time(), "source": "emotion"}
+                        with self._state_lock:
+                            self._pending_sells[pos.ts_code] = {"reason": f"情绪清仓({old_phase}→{new_phase})", "price": pos.current_price, "added_at": time.time(), "source": "emotion"}
                         continue
                     to_sell.append((pos, f"情绪清仓({rule['desc']}, 利润{pos.profit_pct:.1f}%<{min_profit*100:.0f}%)", 
                                    pos.current_price, self._get_strategy_risk(pos.strategy)))
@@ -1421,8 +1426,10 @@ class MarketScanner:
             warnings.append(f"行情降级level={self._quote_manager.degrade_level}")
         
         # 5. 跌停挂起
-        if self._pending_sells:
-            warnings.append(f"跌停挂起{len(self._pending_sells)}只")
+        with self._state_lock:
+            pending_count = len(self._pending_sells)
+        if pending_count > 0:
+            warnings.append(f"跌停挂起{pending_count}只")
         
         # 6. 熔断器
         if hasattr(self, '_circuit_breaker') and self._circuit_breaker.get('is_triggered'):
