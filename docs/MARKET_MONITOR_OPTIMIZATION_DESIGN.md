@@ -29,7 +29,7 @@
 | v2.9.4 | 2026-05-29 | 健康度评分提取ScannerUtils+情绪调仓规则迁移EmotionCycle+pending_sells超时恢复增强+跌停挂起价格更新+21新增测试(344总计) |
 | v2.9.5 | 2026-05-29 | 内部迭代(scanner行数1813→1780, 54方法) |
 | v2.9.6 | 2026-05-30 | CircuitBreaker提取RiskWatchdog+情绪卖出列表提取_build_emotion_sell_list+绩效快照/飞书日报提取RuntimePersistence+_calc_stop_loss/_calc_take_profit加入DELEGATE_MAP移除fallback+Compare模式一致性验证测试+_execute_risk_sell/_execute_sell_list漏调_record_trade_result修复+_is_limit_down移除fallback加入DELEGATE_MAP+bare except修复+24新增测试(471总计,scanner 1710行53方法) |
-| v2.9.7 | 2026-05-30 | Phase2.1完善: scanner:cmd从Pub/Sub升级为List+ACK(RPUSH/BLPOP+ACK确认+超时处理)+Daemon告警Redis事件发布+/health集成Daemon状态+22新增测试(493总计) |
+| v2.9.7 | 2026-05-30 | Phase2.1完善: scanner:cmd从Pub/Sub升级为List+ACK(RPUSH/BLPOP+ACK确认+超时处理)+Daemon告警Redis事件发布+/health集成Daemon状态+EventBus handler耗时统计+/daemon/status+/daemon/restart端点+scan-traces性能优化(rejected摘要)+25新增测试(496总计) |
 
 v2.0关键修正:
 - ❶ 风控独立线程: asyncio协程→threading.Thread(真并行不受GIL影响)

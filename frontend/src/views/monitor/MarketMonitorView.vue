@@ -250,27 +250,27 @@ async function fetchScanTrace(scanId: string) {
 async function fetchReviewData() {
   reviewLoading.value = true
   try {
+    // 用 Promise.allSettled 防止单个API失败阻塞其他
+    const promises: Promise<any>[] = []
+    
     if (reviewTab.value === 'daily') {
-      const r = await api.get(`${scannerApi}/daily-report`)
-      const p = parseResponse(r)
-      if (p.success) dailyReportData.value = p.data
-      // 逐笔归因
-      const ar = await api.get(`${scannerApi}/trade-attribution?date=${reviewDate.value}`)
-      const ap = parseResponse(ar)
-      if (ap.success) tradeAttributions.value = ap.data || []
+      promises.push(
+        api.get(`${scannerApi}/daily-report`).then(r => { const p = parseResponse(r); if (p.success) dailyReportData.value = p.data }),
+        api.get(`${scannerApi}/trade-attribution?date=${reviewDate.value}`).then(r => { const p = parseResponse(r); if (p.success) tradeAttributions.value = p.data || [] }),
+      )
     } else if (reviewTab.value === 'weekly') {
-      const r = await api.get(`${scannerApi}/weekly-report`)
-      const p = parseResponse(r)
-      if (p.success) weeklyReportData.value = p.data
+      promises.push(
+        api.get(`${scannerApi}/weekly-report`).then(r => { const p = parseResponse(r); if (p.success) weeklyReportData.value = p.data }),
+      )
     }
-    // 执行质量
-    const eq = await api.get(`${scannerApi}/execution-quality`)
-    const eqp = parseResponse(eq)
-    if (eqp.success) executionQuality.value = eqp.data
-    // 实盘vs回测
-    const lb = await api.get(`${scannerApi}/backtest-compare`)
-    const lbp = parseResponse(lb)
-    if (lbp.success) liveBacktestDiff.value = lbp.data || []
+    
+    // 执行质量和实盘vs回测(所有tab共用)
+    promises.push(
+      api.get(`${scannerApi}/execution-quality`).then(r => { const p = parseResponse(r); if (p.success) executionQuality.value = p.data }),
+      api.get(`${scannerApi}/backtest-compare`).then(r => { const p = parseResponse(r); if (p.success) liveBacktestDiff.value = p.data || [] }),
+    )
+    
+    await Promise.allSettled(promises)
   } catch { /* ignore */ }
   finally { reviewLoading.value = false }
 }
