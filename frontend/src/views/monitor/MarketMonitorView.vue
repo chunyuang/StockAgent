@@ -46,6 +46,11 @@ const loading = ref(false), autoRefresh = ref(true), soundEnabled = ref(false)
 const themeStore = useThemeStore()
 const scannerStore = useScannerStore() // 【Phase4.1:Scanner Store】
 watch(() => themeStore.isDark, () => { /* theme changes auto-propagate via CSS vars */ })
+watch(activeTab, (tab) => {
+  if (tab === 'premarket') fetchPremarketData()
+  if (tab === 'scan-trace') fetchScanHistory()
+  if (tab === 'review') fetchReviewData()
+})
 let refreshTimer: any = null
 let ws: WebSocket | null = null
 let wsReconnectTimer: any = null
@@ -152,6 +157,28 @@ const dailyReportVisible = ref(false)
 // 盈亏曲线
 const pnlHistory = ref<{time: string, value: number}[]>([])
 const perfData = ref<Array<{time:string,net_value:number,drawdown:number}>>([])
+
+// ==================== 盘前竞价Tab ====================
+const premarketSignals = ref<any[]>([])
+const premarketStatus = ref<'waiting' | 'active' | 'ended' | 'off'>('off')
+const premarketCandidates = ref<any[]>([])
+const auctionTopGainers = ref<any[]>([])
+
+// ==================== 扫描追踪Tab ====================
+const scanHistory = ref<any[]>([])
+const selectedScanIdx = ref(-1)
+const scanTraceDetail = ref<any>(null)
+const scanHistoryLoading = ref(false)
+
+// ==================== 复盘Tab ====================
+const reviewTab = ref<'daily' | 'weekly' | 'monthly'>('daily')
+const reviewDate = ref(new Date().toISOString().slice(0, 10))
+const dailyReportData = ref<any>(null)
+const weeklyReportData = ref<any>(null)
+const tradeAttributions = ref<any[]>([])
+const reviewLoading = ref(false)
+const executionQuality = ref<any>(null)
+const liveBacktestDiff = ref<any[]>([])
 function updatePnlHistory() {
   const pnl = totalPnl.value
   if (pnl === 0 && pnlHistory.value.length === 0) return
@@ -159,6 +186,70 @@ function updatePnlHistory() {
   if (pnlHistory.value.length > 60) pnlHistory.value = pnlHistory.value.slice(-60)
 }
 async function fetchPerformanceHistory() {
+
+// ==================== 盘前竞价Tab 数据 ====================
+async function fetchPremarketData() {
+  try {
+    const r = await api.get(`${scannerApi}/premarket-status`)
+    const p = parseResponse(r)
+    if (p.success && p.data) {
+      premarketSignals.value = p.data.auction_signals || []
+      premarketStatus.value = p.data.status || 'off'
+      premarketCandidates.value = p.data.candidates || []
+      auctionTopGainers.value = p.data.top_gainers || []
+    }
+  } catch { /* ignore */ }
+}
+
+// ==================== 扫描追踪Tab 数据 ====================
+async function fetchScanHistory() {
+  scanHistoryLoading.value = true
+  try {
+    const r = await api.get(`${scannerApi}/scan-traces?limit=30`)
+    const p = parseResponse(r)
+    if (p.success && p.data?.length) {
+      scanHistory.value = p.data
+      if (selectedScanIdx.value < 0 && p.data.length) selectedScanIdx.value = 0
+    }
+  } catch { /* ignore */ }
+  finally { scanHistoryLoading.value = false }
+}
+async function fetchScanTrace(scanId: string) {
+  try {
+    const r = await api.get(`${scannerApi}/scan-traces/${scanId}`)
+    const p = parseResponse(r)
+    if (p.success) scanTraceDetail.value = p.data
+  } catch { /* ignore */ }
+}
+
+// ==================== 复盘Tab 数据 ====================
+async function fetchReviewData() {
+  reviewLoading.value = true
+  try {
+    if (reviewTab.value === 'daily') {
+      const r = await api.get(`${scannerApi}/daily-report`)
+      const p = parseResponse(r)
+      if (p.success) dailyReportData.value = p.data
+      // 逐笔归因
+      const ar = await api.get(`${scannerApi}/trade-attribution?date=${reviewDate.value}`)
+      const ap = parseResponse(ar)
+      if (ap.success) tradeAttributions.value = ap.data || []
+    } else if (reviewTab.value === 'weekly') {
+      const r = await api.get(`${scannerApi}/weekly-report`)
+      const p = parseResponse(r)
+      if (p.success) weeklyReportData.value = p.data
+    }
+    // 执行质量
+    const eq = await api.get(`${scannerApi}/execution-quality`)
+    const eqp = parseResponse(eq)
+    if (eqp.success) executionQuality.value = eqp.data
+    // 实盘vs回测
+    const lb = await api.get(`${scannerApi}/backtest-compare`)
+    const lbp = parseResponse(lb)
+    if (lbp.success) liveBacktestDiff.value = lbp.data || []
+  } catch { /* ignore */ }
+  finally { reviewLoading.value = false }
+}
   try {
     const r = await api.get(`${scannerApi}/performance-history?days=30`)
     const p = parseResponse(r)
@@ -204,7 +295,7 @@ const nowMs = ref(Date.now())
 let nowTimer: any = null
 // signalRemaining/formatRemaining/SIGNAL_EXPIRE_MS imported from @/utils/scanner
 // ==================== Tab 导航 ====================
-const activeTab = ref<'trading' | 'performance' | 'risk' | 'sentiment' | 'ops'>('trading')
+const activeTab = ref<'trading' | 'premarket' | 'scan-trace' | 'review' | 'risk' | 'ops'>('trading')
 
 const tradeMode = ref('simulated')
 const replayDate = ref('')
@@ -339,7 +430,6 @@ async function loadHistory() { if (!historyDate.value) { ElMessage.warning('请�
 const compareData = ref<any[]>([])
 const compareVisible = ref(false)
 const compareLoading = ref(false)
-const weeklyReportData = ref<any>(null)
 const weeklyReportVisible = ref(false)
 async function loadCompare() { compareLoading.value = true; try { const r = await api.get(`${scannerApi}/backtest-compare`); const p = parseResponse(r); if (p.success) { compareData.value = p.data || []; compareVisible.value = true } } catch { ElMessage.error('加载失败') } finally { compareLoading.value = false } }
 async function openWeeklyReport() { try { const data = await fetchWeeklyReport(); if (data) { weeklyReportData.value = data; weeklyReportVisible.value = true } else ElMessage.warning('暂无周报数据') } catch { ElMessage.error('加载失败') } }
@@ -486,23 +576,27 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <span class="tab-text"><span class="tab-label">实盘</span><span class="tab-desc">信号·持仓·交易</span></span>
         <span v-if="filteredSignals.length" class="tab-badge">{{ filteredSignals.length }}</span>
       </button>
-      <button :class="['tab-btn', activeTab === 'performance' ? 'active' : '']" @click="activeTab = 'performance'">
-        <span class="tab-icon">📊</span>
-        <span class="tab-text"><span class="tab-label">绩效</span><span class="tab-desc">收益·胜率·对比</span></span>
+      <button :class="['tab-btn', activeTab === 'premarket' ? 'active' : '']" @click="activeTab = 'premarket'">
+        <span class="tab-icon">🌅</span>
+        <span class="tab-text"><span class="tab-label">盘前竞价</span><span class="tab-desc">9:00-9:25</span></span>
+        <span v-if="premarketSignals.length" class="tab-badge">{{ premarketSignals.length }}</span>
+      </button>
+      <button :class="['tab-btn', activeTab === 'scan-trace' ? 'active' : '']" @click="activeTab = 'scan-trace'">
+        <span class="tab-icon">🔍</span>
+        <span class="tab-text"><span class="tab-label">扫描追踪</span><span class="tab-desc">9层漏斗·执行链</span></span>
+      </button>
+      <button :class="['tab-btn', activeTab === 'review' ? 'active' : '']" @click="activeTab = 'review'">
+        <span class="tab-icon">📋</span>
+        <span class="tab-text"><span class="tab-label">复盘</span><span class="tab-desc">日/周·归因·对比</span></span>
       </button>
       <button :class="['tab-btn', activeTab === 'risk' ? 'active' : '']" @click="activeTab = 'risk'">
         <span class="tab-icon">🛡️</span>
-        <span class="tab-text"><span class="tab-label">风控</span><span class="tab-desc">止损·距高·矩阵</span></span>
+        <span class="tab-text"><span class="tab-label">风控</span><span class="tab-desc">止损·矩阵</span></span>
         <span v-if="positions.some(p => p.risk_level === 'high')" class="tab-badge-danger">!</span>
-      </button>
-      <button :class="['tab-btn', activeTab === 'sentiment' ? 'active' : '']" @click="activeTab = 'sentiment'">
-        <span class="tab-icon">🌊</span>
-        <span class="tab-text"><span class="tab-label">情绪</span><span class="tab-desc">涨跌停·情绪周期</span></span>
       </button>
       <button :class="['tab-btn', activeTab === 'ops' ? 'active' : '']" @click="activeTab = 'ops'">
         <span class="tab-icon">⚙️</span>
-        <span class="tab-text"><span class="tab-label">运维</span><span class="tab-desc">系统·日志·操作</span></span>
-        <span v-if="healthData?.warnings?.length" class="tab-badge-danger">!</span>
+        <span class="tab-text"><span class="tab-label">运维</span><span class="tab-desc">系统·操作</span></span>
       </button>
     </div>
 
@@ -839,39 +933,235 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
       </div>
       <div v-else class="empty">暂无周报数据</div>
     </ElDialog>
-    <!-- ==================== 绩效Tab ==================== -->
-    <div v-if="activeTab === 'performance'" class="mm-tab-content">
+    <!-- ==================== 🌅 盘前竞价Tab ==================== -->
+    <div v-if="activeTab === 'premarket'" class="mm-tab-content">
       <div class="mm-tab-scroll">
-        <!-- 盈亏曲线 -->
-        <div class="st">📈 净值曲线</div>
-        <div v-if="perfData.length || pnlHistory.length" class="pnl-chart-wrap-lg">
-          <VChart :option="pnlOption" autoresize style="height:280px;width:100%" />
+        <!-- 竞价状态 -->
+        <div class="pm-status-bar">
+          <div class="pm-status-icon">{{ premarketStatus === 'active' ? '🔴' : premarketStatus === 'ended' ? '✅' : premarketStatus === 'waiting' ? '⏳' : '💤' }}</div>
+          <div class="pm-status-text">
+            <div class="pm-status-title">{{ {active: '竞价进行中', ended: '竞价已结束', waiting: '等待竞价(9:15)', off: '非交易时间'}[premarketStatus] }}</div>
+            <div class="pm-status-sub">盘前预选 · 竞价异动 · 量比排名</div>
+          </div>
+          <ElButton size="small" @click="fetchPremarketData" :loading="false">🔄 刷新</ElButton>
         </div>
-        <div v-else class="empty" style="padding:20px 0">启动后自动生成</div>
 
-        <!-- 策略绩效看板 -->
-        <StrategyPerfBoard />
+        <div class="pm-grid">
+          <!-- 左: 预选候选 -->
+          <div class="pm-section">
+            <div class="st">📋 盘前预选 ({{ premarketCandidates.length }})</div>
+            <div v-if="!premarketCandidates.length" class="empty">9:00后自动生成</div>
+            <div v-for="c in premarketCandidates" :key="c.ts_code" class="pm-candidate">
+              <ElTag size="small" :color="strategyMeta[c.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(c.strategy) }}</ElTag>
+              <span class="code">{{ c.ts_code }}</span>
+              <span class="name">{{ c.stock_name }}</span>
+              <span v-if="c.auction_pct" :class="c.auction_pct >= 0 ? 'up' : 'down'" class="pct">{{ c.auction_pct >= 0 ? '+' : '' }}{{ (c.auction_pct * 100).toFixed(1) }}%</span>
+              <span v-if="c.reason" class="text-tertiary" style="font-size:11px">{{ c.reason }}</span>
+            </div>
+          </div>
 
-        <!-- 回测对比 -->
-        <div class="st" style="margin-top:12px">📊 实盘 vs 回测</div>
-        <ElButton size="small" @click="loadCompare" :loading="compareLoading">加载对比</ElButton>
-        <div v-if="compareData.length" class="cl-table" style="margin-top:8px">
-          <div class="cl-h"><span>策略</span><span>实盘交易</span><span>实盘胜率</span><span>实盘盈亏</span><span>回测收益</span><span>回测胜率</span><span>回测回撤</span><span>回测夏普</span></div>
-          <div v-for="c in compareData" :key="c.strategy" class="cl-r">
-            <span class="code">{{ strategyCN(c.strategy) }}</span>
-            <span>{{ c.live_trades }}笔</span>
-            <span :class="c.live_win_rate >= 50 ? 'up' : 'down'">{{ c.live_win_rate }}%</span>
-            <span :class="c.live_pnl >= 0 ? 'up' : 'down'">{{ c.live_pnl >= 0 ? '+' : '' }}{{ c.live_pnl.toFixed(0) }}</span>
-            <span :class="c.bt_return >= 0 ? 'up' : 'down'">{{ c.bt_return }}%</span>
-            <span>{{ c.bt_win_rate }}%</span>
-            <span class="text-stock-up">{{ c.bt_drawdown }}%</span>
-            <span>{{ c.bt_sharpe }}</span>
+          <!-- 右: 竞价异动 -->
+          <div class="pm-section">
+            <div class="st">⚡ 竞价异动 ({{ auctionTopGainers.length }})</div>
+            <div v-if="!auctionTopGainers.length" class="empty">9:15后自动更新</div>
+            <div v-for="g in auctionTopGainers" :key="g.ts_code" class="pm-candidate">
+              <span class="code">{{ g.ts_code }}</span>
+              <span class="name">{{ g.name }}</span>
+              <span :class="g.pct_chg >= 0 ? 'up' : 'down'" class="pct">{{ g.pct_chg >= 0 ? '+' : '' }}{{ g.pct_chg.toFixed(1) }}%</span>
+              <span v-if="g.volume_ratio" class="text-tertiary" style="font-size:11px">量比{{ g.volume_ratio.toFixed(1) }}</span>
+            </div>
+
+            <div class="st" style="margin-top:12px">🎯 竞价信号 ({{ premarketSignals.length }})</div>
+            <div v-if="!premarketSignals.length" class="empty">竞价过滤后生成</div>
+            <div v-for="s in premarketSignals" :key="s.ts_code" class="pm-signal">
+              <ElTag size="small" :color="strategyMeta[s.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(s.strategy) }}</ElTag>
+              <span class="code">{{ s.ts_code }}</span>
+              <span class="name">{{ s.stock_name }}</span>
+              <span :class="s.pct_chg >= 0 ? 'up' : 'down'" class="pct">{{ s.pct_chg >= 0 ? '+' : '' }}{{ s.pct_chg.toFixed(1) }}%</span>
+              <ElTag v-if="!dryRun" size="small" type="success" plain class="btn-xs" @click="quickBuy(s)">买</ElTag>
+            </div>
           </div>
         </div>
+      </div>
+    </div>
 
-        <!-- 周报 -->
-        <div class="st" style="margin-top:12px">📊 周报</div>
-        <ElButton size="small" @click="openWeeklyReport">生成周报</ElButton>
+    <!-- ==================== 🔍 扫描追踪Tab ==================== -->
+    <div v-if="activeTab === 'scan-trace'" class="mm-tab-content">
+      <div class="mm-tab-scroll">
+        <div class="st">📡 扫描历史 <ElButton size="small" @click="fetchScanHistory" :loading="scanHistoryLoading">🔄</ElButton></div>
+
+        <div class="scan-grid">
+          <!-- 左: 扫描列表 -->
+          <div class="scan-list">
+            <div v-if="!scanHistory.length" class="empty">启动后扫描记录会显示在这里</div>
+            <div v-for="(s, i) in scanHistory" :key="i" class="scan-item" :class="{ active: selectedScanIdx === i }" @click="selectedScanIdx = i; fetchScanTrace(s.scan_id || '')">
+              <div class="scan-time">{{ s.scan_time || s.time }}</div>
+              <div class="scan-type">{{ s.scan_type === 'full' ? '全量' : '快速' }}</div>
+              <div class="scan-stats">候选{{ s.candidates || 0 }}→信号{{ s.signals || 0 }}→买入{{ s.buys || 0 }}</div>
+            </div>
+          </div>
+
+          <!-- 右: 9层漏斗 -->
+          <div class="scan-detail">
+            <div v-if="!scanTraceDetail" class="empty">选择左侧扫描记录查看详情</div>
+            <template v-else>
+              <div class="st">🔍 9层过滤漏斗</div>
+              <div class="funnel">
+                <template v-for="(layer, idx) in scanTraceDetail.layers || []" :key="idx">
+                  <div class="funnel-step" :class="{ passed: layer.passed, rejected: !layer.passed }">
+                    <div class="fn-label">L{{ idx + 1 }} {{ layer.name }}</div>
+                    <div class="fn-count">{{ layer.input }}→{{ layer.output }}</div>
+                    <div v-if="layer.rejected_count" class="fn-reject">淘汰{{ layer.rejected_count }}</div>
+                  </div>
+                  <div v-if="idx < (scanTraceDetail.layers || []).length - 1" class="fn-arrow">↓</div>
+                </template>
+              </div>
+
+              <div class="st" style="margin-top:12px">🎯 信号执行追踪</div>
+              <div v-if="!scanTraceDetail.signals?.length" class="empty">无信号</div>
+              <div v-for="sig in scanTraceDetail.signals || []" :key="sig.ts_code" class="exec-trace">
+                <div class="et-left">
+                  <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(sig.strategy) }}</ElTag>
+                  <span class="code">{{ sig.ts_code }}</span>
+                  <span class="name">{{ sig.stock_name }}</span>
+                </div>
+                <div class="et-right">
+                  <ElTag v-if="sig.status === 'executed'" size="small" type="success">✅ 已买入 {{ sig.shares }}股@¥{{ sig.buy_price?.toFixed(2) }}</ElTag>
+                  <ElTag v-else-if="sig.status === 'skipped'" size="small" type="warning">⏭ 跳过: {{ sig.skip_reason }}</ElTag>
+                  <ElTag v-else-if="sig.status === 'expired'" size="small" type="info">⌛ 过期</ElTag>
+                  <ElTag v-else size="small" type="info">{{ sig.status }}</ElTag>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== 📋 复盘Tab (专业版) ==================== -->
+    <div v-if="activeTab === 'review'" class="mm-tab-content">
+      <div class="mm-tab-scroll">
+        <!-- 日期/周期选择 -->
+        <div class="review-header">
+          <div class="review-tabs">
+            <button :class="['review-tab', reviewTab === 'daily' ? 'active' : '']" @click="reviewTab = 'daily'; fetchReviewData()">📊 日复盘</button>
+            <button :class="['review-tab', reviewTab === 'weekly' ? 'active' : '']" @click="reviewTab = 'weekly'; fetchReviewData()">📅 周复盘</button>
+            <button :class="['review-tab', reviewTab === 'monthly' ? 'active' : '']" @click="reviewTab = 'monthly'; fetchReviewData()">📆 月复盘</button>
+          </div>
+          <ElDatePicker v-model="reviewDate" type="date" size="small" value-format="YYYY-MM-DD" @change="fetchReviewData" />
+          <ElButton size="small" @click="fetchReviewData" :loading="reviewLoading">🔄</ElButton>
+        </div>
+
+        <!-- 日复盘内容 -->
+        <template v-if="reviewTab === 'daily' && dailyReportData">
+          <!-- 概览卡片 -->
+          <div class="review-summary-cards">
+            <div class="rsc"><div class="rsc-label">收益</div><div class="rsc-value" :class="dailyReportData.account?.today_profit >= 0 ? 'up' : 'down'">{{ dailyReportData.account?.today_profit >= 0 ? '+' : '' }}¥{{ dailyReportData.account?.today_profit?.toFixed(0) }}</div></div>
+            <div class="rsc"><div class="rsc-label">胜率</div><div class="rsc-value">{{ dailyReportData.win_rate }}%</div></div>
+            <div class="rsc"><div class="rsc-label">交易</div><div class="rsc-value">{{ dailyReportData.trades?.buy + dailyReportData.trades?.sell || 0 }}笔</div></div>
+            <div class="rsc"><div class="rsc-label">仓位</div><div class="rsc-value">{{ dailyReportData.account?.position_ratio }}%</div></div>
+            <div class="rsc"><div class="rsc-label">止损</div><div class="rsc-value down">{{ dailyReportData.stop_loss_count }}</div></div>
+            <div class="rsc"><div class="rsc-label">止盈</div><div class="rsc-value up">{{ dailyReportData.take_profit_count }}</div></div>
+          </div>
+
+          <!-- 策略贡献 -->
+          <div class="st" style="margin-top:12px">🎯 策略贡献</div>
+          <div class="strategy-contrib">
+            <div v-for="(data, key) in dailyReportData.positions?.strategy_summary || {}" :key="key" class="sc-bar-row">
+              <span class="sc-bar-label">{{ strategyCN(key) }}</span>
+              <div class="sc-bar-track"><div class="sc-bar-fill" :class="(data.closed_profit || data.total_profit) >= 0 ? 'up' : 'down'" :style="{ width: Math.min(Math.abs(data.closed_profit || data.total_profit || 0) / Math.max(Math.abs(dailyReportData.account?.today_profit || 1), 1) * 100, 100) + '%' }"></div></div>
+              <span class="sc-bar-value" :class="(data.closed_profit || data.total_profit) >= 0 ? 'up' : 'down'">¥{{ (data.closed_profit || data.total_profit || 0).toFixed(0) }}</span>
+              <span class="text-tertiary" style="font-size:11px">胜{{ data.win_rate }}% {{ data.closed_count || data.count }}笔</span>
+            </div>
+          </div>
+
+          <!-- 净值曲线 -->
+          <div class="st" style="margin-top:12px">📈 净值曲线</div>
+          <div v-if="perfData.length || pnlHistory.length" class="pnl-chart-wrap-lg">
+            <VChart :option="pnlOption" autoresize style="height:260px;width:100%" />
+          </div>
+          <div v-else class="empty" style="padding:12px 0">暂无净值数据</div>
+
+          <!-- 逐笔归因 -->
+          <div class="st" style="margin-top:12px">📝 逐笔归因</div>
+          <div v-if="!tradeAttributions.length" class="empty">暂无交易数据</div>
+          <div v-for="t in tradeAttributions" :key="t.ts_code" class="attribution-card">
+            <div class="attr-top">
+              <ElTag size="small" :color="strategyMeta[t.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(t.strategy) }}</ElTag>
+              <span class="code">{{ t.ts_code }}</span>
+              <span class="name">{{ t.stock_name }}</span>
+              <span :class="t.profit_pct >= 0 ? 'up' : 'down'" class="pct ml-auto">{{ t.profit_pct >= 0 ? '+' : '' }}{{ t.profit_pct.toFixed(1) }}%</span>
+            </div>
+            <div class="attr-detail">
+              <div class="attr-row"><span>买入</span><span>¥{{ t.buy_price?.toFixed(2) }} {{ t.buy_time }}</span></div>
+              <div class="attr-row"><span>卖出</span><span>¥{{ t.sell_price?.toFixed(2) }} {{ t.sell_time }}</span></div>
+              <div class="attr-row"><span>原因</span><span>{{ t.sell_reason }}</span></div>
+              <div class="attr-row" v-if="t.why_profit"><span class="up">赚在哪</span><span>{{ t.why_profit }}</span></div>
+              <div class="attr-row" v-if="t.why_loss"><span class="down">亏在哪</span><span>{{ t.why_loss }}</span></div>
+            </div>
+          </div>
+
+          <!-- 情绪周期 -->
+          <div class="st" style="margin-top:12px">🌡️ 情绪周期</div>
+          <MarketSentiment />
+        </template>
+
+        <!-- 周复盘内容 -->
+        <template v-if="reviewTab === 'weekly' && weeklyReportData">
+          <div class="review-summary-cards">
+            <div class="rsc"><div class="rsc-label">周收益</div><div class="rsc-value" :class="weeklyReportData.weekly_profit >= 0 ? 'up' : 'down'">¥{{ weeklyReportData.weekly_profit?.toFixed(0) }}</div></div>
+            <div class="rsc"><div class="rsc-label">周胜率</div><div class="rsc-value">{{ weeklyReportData.win_rate }}%</div></div>
+            <div class="rsc"><div class="rsc-label">交易</div><div class="rsc-value">{{ weeklyReportData.total_trades }}笔</div></div>
+          </div>
+          <div v-if="weeklyReportData.daily_breakdown" class="st" style="margin-top:12px">📅 逐日明细</div>
+          <div v-if="weeklyReportData.daily_breakdown" class="weekly-daily-table">
+            <div class="wdt-header"><span>日期</span><span>盈亏</span><span>交易</span><span>胜率</span><span>情绪</span></div>
+            <div v-for="d in weeklyReportData.daily_breakdown" :key="d.date" class="wdt-row">
+              <span>{{ d.date }}</span>
+              <span :class="d.profit >= 0 ? 'up' : 'down'">{{ d.profit >= 0 ? '+' : '' }}¥{{ d.profit?.toFixed(0) }}</span>
+              <span>{{ d.trades }}笔</span>
+              <span>{{ d.win_rate }}%</span>
+              <span>{{ d.sentiment || '-' }}</span>
+            </div>
+          </div>
+        </template>
+
+        <!-- 执行质量 & 实盘vs回测 -->
+        <div class="st" style="margin-top:16px">🎯 执行质量</div>
+        <div v-if="executionQuality" class="eq-grid">
+          <div class="eq-card"><div class="eq-label">平均滑点</div><div class="eq-value">{{ executionQuality.avg_slippage_pct?.toFixed(2) }}%</div></div>
+          <div class="eq-card"><div class="eq-label">成交延迟</div><div class="eq-value">{{ executionQuality.avg_fill_delay_ms?.toFixed(0) }}ms</div></div>
+          <div class="eq-card"><div class="eq-label">成交率</div><div class="eq-value">{{ executionQuality.fill_rate_pct?.toFixed(1) }}%</div></div>
+          <div class="eq-card"><div class="eq-label">拒绝数</div><div class="eq-value">{{ executionQuality.rejected_orders || 0 }}</div></div>
+        </div>
+        <div v-else class="empty">暂无执行数据</div>
+
+        <div class="st" style="margin-top:12px">📊 实盘 vs 回测偏差</div>
+        <div v-if="liveBacktestDiff.length" class="lb-table">
+          <div class="lb-header"><span>策略</span><span>实盘交易</span><span>实盘胜率</span><span>回测胜率</span><span>偏差</span><span>实盘收益</span><span>回测收益</span><span>偏差</span></div>
+          <div v-for="c in liveBacktestDiff" :key="c.strategy" class="lb-row">
+            <span class="code">{{ strategyCN(c.strategy) }}</span>
+            <span>{{ c.live_trades }}笔</span>
+            <span>{{ c.live_win_rate }}%</span>
+            <span>{{ c.bt_win_rate }}%</span>
+            <span :class="Math.abs(c.live_win_rate - c.bt_win_rate) > 15 ? 'down' : 'up'">{{ (c.live_win_rate - c.bt_win_rate).toFixed(1) }}%</span>
+            <span :class="c.live_pnl >= 0 ? 'up' : 'down'">¥{{ c.live_pnl?.toFixed(0) }}</span>
+            <span :class="c.bt_return >= 0 ? 'up' : 'down'">{{ c.bt_return }}%</span>
+            <span :class="c.live_pnl >= 0 ? 'up' : 'down'">{{ c.live_pnl >= 0 ? '+' : '' }}{{ ((c.live_pnl / (c.bt_return || 1)) - 1).toFixed(1) }}%</span>
+          </div>
+        </div>
+        <div v-else class="empty">暂无对比数据</div>
+
+        <!-- 改进建议 -->
+        <div class="st" style="margin-top:12px">💡 改进建议</div>
+        <div class="suggestions">
+          <div v-if="dailyReportData?.stop_loss_count > 3" class="suggestion warn">止损{{ dailyReportData.stop_loss_count }}次过多，建议检查入场条件或收紧情绪阈值</div>
+          <div v-if="executionQuality?.avg_slippage_pct > 0.5" class="suggestion warn">平均滑点{{ executionQuality.avg_slippage_pct.toFixed(2) }}%偏高，考虑限价单或避开开盘5分钟</div>
+          <div v-if="liveBacktestDiff.some(c => Math.abs(c.live_win_rate - c.bt_win_rate) > 20)" class="suggestion warn">实盘胜率偏离回测>20%，参数可能过拟合，建议降仓位</div>
+          <div v-if="dailyReportData?.positions?.strategy_summary" class="suggestion info">
+            策略集中度: {{ Object.keys(dailyReportData.positions.strategy_summary).filter(k => dailyReportData.positions.strategy_summary[k].count > 0).length }}个策略活跃
+          </div>
+        </div>
       </div>
     </div>
 
@@ -904,27 +1194,6 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
               <div class="risk-track"><div class="risk-fill" :style="{ width: Math.max(0, Math.min(100, (pos.profit_pct + normalizePct(pos.stop_loss_pct, 3)) / (normalizePct(pos.stop_loss_pct, 3) + normalizePct(pos.take_profit_pct, 7)) * 100)) + '%' }" :class="pos.profit_pct + normalizePct(pos.stop_loss_pct, 3) < 1 ? 'danger' : pos.profit_pct + normalizePct(pos.stop_loss_pct, 3) < 2 ? 'warning' : 'safe'"></div></div>
               <div class="risk-labels-row"><span class="rl stop">止损{{ formatSlTp(pos.stop_loss_pct, 3) }}</span><span class="rd" :class="{ danger: pos.profit_pct + normalizePct(pos.stop_loss_pct, 3) < 2 }">距止损{{ (pos.profit_pct + normalizePct(pos.stop_loss_pct, 3)).toFixed(1) }}%</span><span class="rl profit">止盈{{ formatSlTp(pos.take_profit_pct, 7) }}</span></div>
             </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ==================== 情绪Tab ==================== -->
-    <div v-if="activeTab === 'sentiment'" class="mm-tab-content">
-      <div class="mm-tab-scroll">
-        <!-- 市场情绪全景 -->
-        <MarketSentiment />
-
-        <!-- 涨跌停池 -->
-        <div class="st" style="margin-top:16px">🔥 涨跌停池 <div style="display:inline-flex;gap:2px;margin-left:6px"><ElTag size="small" :type="limitPoolTab==='limit_up'?'danger':'info'" class="cp" @click="limitPoolTab='limit_up'">涨停{{ limitPools.limit_up.length }}</ElTag><ElTag size="small" :type="limitPoolTab==='limit_down'?'warning':'info'" class="cp" @click="limitPoolTab='limit_down'">跌停{{ limitPools.limit_down.length }}</ElTag><ElTag size="small" :type="limitPoolTab==='broken'?'danger':'info'" class="cp" @click="limitPoolTab='broken'">炸板{{ limitPools.broken.length }}</ElTag></div></div>
-        <div v-if="!limitPools[limitPoolTab as keyof typeof limitPools]?.length" class="empty">暂无数据</div>
-        <div v-else class="limit-pool-grid">
-          <div v-for="item in (limitPools[limitPoolTab as keyof typeof limitPools] || [])" :key="item.ts_code" class="limit-pool-item">
-            <span class="code">{{ item.ts_code }}</span>
-            <span class="name">{{ item.name }}</span>
-            <span :class="item.pct_chg >= 0 ? 'up' : 'down'">{{ item.pct_chg >= 0 ? '+' : '' }}{{ item.pct_chg.toFixed(1) }}%</span>
-            <span v-if="item.limit_times" class="lb-tag">{{ item.limit_times }}连板</span>
-            <span v-if="item.fd_amount" class="fd-tag">封{{ item.fd_amount }}万</span>
           </div>
         </div>
       </div>
@@ -1492,6 +1761,75 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
   justify-content: space-between;
 }
 .rc-row span:first-child { color: var(--text-tertiary); }
+
+/* 复盘Tab */
+.review-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.review-tabs { display: flex; gap: 2px; }
+.review-tab { padding: 6px 14px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--bg-elevated); color: var(--text-secondary); font-size: 13px; cursor: pointer; transition: all 0.2s; }
+.review-tab:hover { background: var(--bg-hover); }
+.review-tab.active { background: var(--el-color-primary); color: var(--text-inverse); border-color: var(--el-color-primary); }
+.review-summary-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+.rsc { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 10px 12px; text-align: center; }
+.rsc-label { font-size: 11px; color: var(--text-tertiary); margin-bottom: 4px; }
+.rsc-value { font-size: 16px; font-weight: 600; }
+.strategy-contrib { display: flex; flex-direction: column; gap: 6px; }
+.sc-bar-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.sc-bar-label { width: 70px; text-align: right; flex-shrink: 0; }
+.sc-bar-track { flex: 1; height: 16px; background: var(--bg-secondary); border-radius: 4px; overflow: hidden; }
+.sc-bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+.sc-bar-fill.up { background: var(--stock-down); }
+.sc-bar-fill.down { background: var(--stock-up); }
+.sc-bar-value { width: 70px; font-weight: 600; }
+.attribution-card { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 10px 12px; margin-bottom: 6px; }
+.attr-top { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.attr-detail { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 16px; font-size: 12px; }
+.attr-row { display: flex; justify-content: space-between; }
+.attr-row span:first-child { color: var(--text-tertiary); }
+.weekly-daily-table { font-size: 12px; }
+.wdt-header, .wdt-row { display: grid; grid-template-columns: 90px 1fr 60px 60px 80px; gap: 8px; padding: 4px 0; }
+.wdt-header { font-weight: 600; color: var(--text-tertiary); border-bottom: 1px solid var(--border-default); }
+.eq-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.eq-card { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 10px 12px; text-align: center; }
+.eq-label { font-size: 11px; color: var(--text-tertiary); margin-bottom: 4px; }
+.eq-value { font-size: 15px; font-weight: 600; }
+.lb-table { font-size: 12px; }
+.lb-header, .lb-row { display: grid; grid-template-columns: 70px 60px 60px 60px 60px 70px 60px 60px; gap: 4px; padding: 3px 0; }
+.lb-header { font-weight: 600; color: var(--text-tertiary); border-bottom: 1px solid var(--border-default); }
+.suggestions { display: flex; flex-direction: column; gap: 6px; }
+.suggestion { padding: 8px 12px; border-radius: 6px; font-size: 12px; }
+.suggestion.warn { background: rgba(250,173,20,0.1); border: 1px solid rgba(250,173,20,0.3); }
+.suggestion.info { background: rgba(22,119,255,0.1); border: 1px solid rgba(22,119,255,0.3); }
+
+/* 盘前竞价Tab */
+.pm-status-bar { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--bg-elevated); border-radius: 8px; border: 1px solid var(--border-default); margin-bottom: 12px; }
+.pm-status-icon { font-size: 28px; }
+.pm-status-title { font-size: 15px; font-weight: 600; }
+.pm-status-sub { font-size: 11px; color: var(--text-tertiary); }
+.pm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.pm-section { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 10px 12px; }
+.pm-candidate, .pm-signal { display: flex; align-items: center; gap: 6px; padding: 4px 0; font-size: 12px; border-bottom: 1px solid var(--border-default); }
+.pm-candidate:last-child, .pm-signal:last-child { border-bottom: none; }
+
+/* 扫描追踪Tab */
+.scan-grid { display: grid; grid-template-columns: 260px 1fr; gap: 12px; }
+.scan-list { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 8px; overflow-y: auto; max-height: calc(100vh - 250px); }
+.scan-item { padding: 6px 8px; border-radius: 6px; cursor: pointer; margin-bottom: 2px; font-size: 12px; display: grid; grid-template-columns: 60px 40px 1fr; gap: 4px; align-items: center; }
+.scan-item:hover { background: var(--bg-hover); }
+.scan-item.active { background: var(--el-color-primary-light-9); border: 1px solid var(--el-color-primary-light-7); }
+.scan-time { color: var(--text-tertiary); }
+.scan-type { font-weight: 600; }
+.scan-stats { color: var(--text-secondary); }
+.scan-detail { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 12px; overflow-y: auto; max-height: calc(100vh - 250px); }
+.funnel { display: flex; flex-direction: column; gap: 2px; }
+.funnel-step { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px; font-size: 12px; border: 1px solid var(--border-default); }
+.funnel-step.passed { background: rgba(0,180,42,0.06); border-color: rgba(0,180,42,0.2); }
+.funnel-step.rejected { background: rgba(245,63,63,0.06); border-color: rgba(245,63,63,0.2); }
+.fn-label { font-weight: 600; width: 80px; }
+.fn-count { flex: 1; }
+.fn-reject { color: var(--stock-up); font-size: 11px; }
+.fn-arrow { text-align: center; color: var(--text-tertiary); font-size: 12px; }
+.exec-trace { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; border-radius: 6px; margin-bottom: 4px; background: var(--bg-base); font-size: 12px; }
+.et-left, .et-right { display: flex; align-items: center; gap: 6px; }
 
 /* 情绪Tab */
 .limit-pool-grid {

@@ -2610,3 +2610,176 @@ async def get_event_bus_history(event: str = None, limit: int = 50):
     except Exception as e:
         return {"success": False, "message": str(e)}
 
+
+
+# ==================== 盘前竞价 + 逐笔归因 API ====================
+
+@router.get("/premarket-status")
+async def get_premarket_status():
+    """盘前竞价状态、预选候选、竞价异动、竞价信号
+    
+    Returns:
+        status: waiting/active/ended/off
+        candidates: 盘前预选候选列表
+        auction_signals: 竞价过滤后的信号
+        top_gainers: 竞价涨幅/量比排名
+    """
+    try:
+        scanner = _get_scanner_instance()
+        if not scanner:
+            return {"success": True, "data": {"status": "off", "candidates": [], "auction_signals": [], "top_gainers": []}}
+        
+        from datetime import datetime
+        now = datetime.now()
+        ct = now.strftime("%H:%M")
+        
+        # 判断盘前状态
+        if not scanner._is_running:
+            status = "off"
+        elif "09:00" <= ct < "09:15":
+            status = "waiting"
+        elif "09:15" <= ct < "09:25":
+            status = "active"
+        elif "09:25" <= ct < "09:30":
+            status = "ended"
+        else:
+            status = "off"
+        
+        # 从活跃信号中提取竞价信号
+        auction_signals = []
+        for sig in scanner._active_signals:
+            if sig.signal_status in ('new', 'executed') and sig.factors:
+                # 检查是否为竞价阶段产生的信号
+                if sig.factors.get('auction_pct') is not None or sig.factors.get('is_auction'):
+                    auction_signals.append({
+                        "ts_code": sig.ts_code,
+                        "stock_name": sig.stock_name,
+                        "strategy": sig.strategy,
+                        "pct_chg": sig.pct_chg,
+                        "volume_ratio": sig.factors.get('volume_ratio', 0),
+                        "signal_status": sig.signal_status,
+                    })
+        
+        # 竞价涨幅排名(从limit_pools或信号提取)
+        top_gainers = []
+        if hasattr(scanner, '_limit_pools'):
+            for item in scanner._limit_pools.get('limit_up', [])[:10]:
+                top_gainers.append({
+                    "ts_code": item.get('ts_code', ''),
+                    "name": item.get('name', ''),
+                    "pct_chg": item.get('pct_chg', 0),
+                    "volume_ratio": item.get('volume_ratio', 0),
+                })
+        
+        # 盘前候选(所有活跃信号的预选)
+        candidates = []
+        for sig in scanner._active_signals:
+            candidates.append({
+                "ts_code": sig.ts_code,
+                "stock_name": sig.stock_name,
+                "strategy": sig.strategy,
+                "auction_pct": sig.factors.get('auction_pct'),
+                "reason": sig.reason[:50] if sig.reason else '',
+            })
+        
+        return {"success": True, "data": {
+            "status": status,
+            "candidates": candidates[:20],
+            "auction_signals": auction_signals,
+            "top_gainers": top_gainers[:15],
+        }}
+    except Exception as e:
+        return {"success": True, "data": {"status": "off", "candidates": [], "auction_signals": [], "top_gainers": [], "error": str(e)}}
+
+
+@router.get("/trade-attribution")
+async def get_trade_attribution(date: str = None):
+    """逐笔归因分析 — 每笔交易赚在哪/亏在哪
+    
+    Args:
+        date: 指定日期(YYYY-MM-DD), 不传则返回最近交易日
+    
+    Returns:
+        逐笔归因列表: ts_code/strategy/buy_price/sell_price/profit_pct/sell_reason/why_profit/why_loss
+    """
+    try:
+        scanner = _get_scanner_instance()
+        if not scanner:
+            return {"success": True, "data": []}
+        
+        attributions = []
+        
+        # 从timeline中提取已卖出交易
+        for item in scanner._timeline:
+            if item.get("action") != "sell" or not item.get("ts_code"):
+                continue
+            if date and not item.get("time", "").startswith(date.replace("-", "")):
+                continue
+            
+            ts_code = item["ts_code"]
+            strategy = item.get("strategy", "")
+            profit_pct = item.get("profit_pct", 0)
+            sell_reason = item.get("reason", "")
+            
+            # 归因分析
+            why_profit = None
+            why_loss = None
+            
+            if profit_pct >= 0:
+                # 赚在哪: 基于策略类型和卖出原因归因
+                profit_factors = []
+                if "半路" in strategy or "pullback" in strategy:
+                    profit_factors.append("突破均线+量能配合")
+                if "龙头" in strategy or "dragon" in strategy:
+                    profit_factors.append("龙头缩量回踩+板块共振")
+                if "跌停" in strategy or "limit_down" in strategy:
+                    profit_factors.append("翘板成功+恐慌反转")
+                if "止盈" in sell_reason:
+                    profit_factors.append("达到止盈目标")
+                if "冲高" in sell_reason:
+                    profit_factors.append("冲高兑现")
+                if "利润" in sell_reason:
+                    profit_factors.append("利润锁定")
+                if not profit_factors:
+                    profit_factors.append("趋势延续")
+                why_profit = "+".join(profit_factors)
+            else:
+                # 亏在哪
+                loss_factors = []
+                if "止损" in sell_reason:
+                    loss_factors.append("触发止损线")
+                if "跳空" in sell_reason:
+                    loss_factors.append("隔夜跳空低开")
+                if "超时" in sell_reason:
+                    loss_factors.append("超时未达预期")
+                if "强制空仓" in sell_reason:
+                    loss_factors.append("系统性风险强制清仓")
+                # 策略层面归因
+                if "龙头" in strategy and profit_pct < -3:
+                    loss_factors.append("龙头低吸追高")
+                if "半路" in strategy and profit_pct < -2:
+                    loss_factors.append("突破失败假信号")
+                if "跌停" in strategy:
+                    loss_factors.append("翘板失败继续下跌")
+                if not loss_factors:
+                    loss_factors.append("行情反转")
+                why_loss = "+".join(loss_factors)
+            
+            attributions.append({
+                "ts_code": ts_code,
+                "stock_name": item.get("stock_name", ""),
+                "strategy": strategy,
+                "buy_price": item.get("buy_price", 0),
+                "sell_price": item.get("price", 0),
+                "profit_pct": profit_pct,
+                "profit_amount": item.get("profit_amount", 0),
+                "buy_time": item.get("buy_time", ""),
+                "sell_time": item.get("time", ""),
+                "sell_reason": sell_reason,
+                "why_profit": why_profit,
+                "why_loss": why_loss,
+            })
+        
+        return {"success": True, "data": attributions}
+    except Exception as e:
+        return {"success": True, "data": [], "message": str(e)}
