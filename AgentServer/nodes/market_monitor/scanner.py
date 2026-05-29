@@ -350,6 +350,7 @@ class MarketScanner:
         "_check_positions_quick": ("_position_checker", "check_positions_quick"),
         "_get_smart_check_interval": ("_position_checker", "get_smart_check_interval"),
         "_get_open_price": ("_position_checker", "_get_open_price"),
+        "_is_limit_down": ("_position_checker", "_is_limit_down"),
         # PositionManager委托
         "_get_effective_stop_price": ("_position_manager", "get_effective_stop_price"),
         "_update_trailing_stops": ("_position_manager", "update_trailing_stops"),
@@ -1150,6 +1151,8 @@ class MarketScanner:
                 "profit_amount": round(sell_profit_amount, 2),
             })
             self._stats["stop_losses"] += 1
+            # 【v2.9.6:记录交易结果到circuit_breaker(之前漏掉,导致止损不计入连续亏损)】
+            self._record_trade_result(sell_profit_pct / 100 if abs(sell_profit_pct) > 1 else sell_profit_pct)
             # 清理追踪止损(线程安全)
             with self._state_lock:
                 self._trailing_stops.pop(pos.ts_code, None)
@@ -1610,18 +1613,10 @@ class MarketScanner:
                 pass
         return emit_quote_event
     def _is_limit_down(self, ts_code: str) -> bool:
-        """判断是否跌停 — 委托给PositionChecker【Phase3.1】"""
+        """判断是否跌停 — 委托给PositionChecker【v2.9.6移除fallback】"""
         if self._position_checker:
             return self._position_checker._is_limit_down(ts_code)
-        # fallback: 直接从缓存判断
-        rt = self._realtime_cache.get(ts_code, {}) if self._realtime_cache else {}
-        pct = rt.get("pct_chg", 0)
-        if ts_code.startswith('688'):
-            return pct <= -19.5
-        elif ts_code.startswith(('4', '8')):
-            return pct <= -29.5
-        else:
-            return pct <= -9.5
+        return False  # 无PositionChecker时默认非跌停(保守策略)
     def _validate_live_params(self):
         """实盘参数校验 — 委托给StrategyParamCenter"""
         try:

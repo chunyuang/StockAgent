@@ -454,6 +454,8 @@ class PositionChecker:
                 })
                 if "止损" in reason:
                     scanner._stats["stop_losses"] += 1
+                    # 【v2.9.6:记录交易结果到circuit_breaker(之前漏掉)】
+                    scanner._record_trade_result(sell_profit_pct / 100 if abs(sell_profit_pct) > 1 else sell_profit_pct)
                     try:
                         self.execution_stats.setdefault("stop_loss_response_times", []).append(time.time())
                         if len(self.execution_stats["stop_loss_response_times"]) > 50:
@@ -462,6 +464,8 @@ class PositionChecker:
                         pass
                 else:
                     scanner._stats["take_profits"] += 1
+                    # 【v2.9.6:盈利卖出也记录到circuit_breaker(重置连续亏损计数)】
+                    scanner._record_trade_result(sell_profit_pct / 100 if abs(sell_profit_pct) > 1 else sell_profit_pct)
                 await scanner._publish_scanner_event("timeline", {"item": scanner._timeline[-1]})
                 # 【v2.9:PositionChecker卖出也发射EventBus事件(与_execute_risk_sell对齐)】
                 try:
