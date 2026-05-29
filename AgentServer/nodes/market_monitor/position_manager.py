@@ -252,6 +252,11 @@ class PositionManager:
                         reason = f"跌停挂起(当前{current_price:.2f})"
                         self.pending_sells[ts_code] = {"reason": reason, "price": current_price, "added_at": time.time(), "source": "position_manager"}
                         logger.warning(f"[RISK] {ts_code} {reason}")
+                    else:
+                        # 【v3.0:更新挂起价格(可能连续跌停,价格在变)】
+                        info = self.pending_sells[ts_code]
+                        if isinstance(info, dict):
+                            info["price"] = current_price
                 continue
             
             # 跌停恢复: 之前挂起,现在不跌停了
@@ -462,3 +467,61 @@ class PositionManager:
         lot = 200 if signal.ts_code.startswith('688') else 100
         shares = int(max_amount / signal.price / lot) * lot
         return shares
+
+    # ==================== pending_sells超时检查 ====================
+
+    def check_pending_sells_timeout(self, max_wait_seconds: int = 7200) -> List[Tuple]:
+        """检查跌停挂起卖出是否超时(默认2小时)
+        
+        场景: 跌停后一直未恢复, 挂起的卖出永远无法执行。
+        超时后取消挂起, 保留持仓(避免亏损扩大时不必要的急杀)。
+        
+        注意: 此方法在风控线程中调用, 需要线程安全
+        
+        Args:
+            max_wait_seconds: 最大等待时间(默认7200秒=2小时, 即一个交易日的最长时间)
+        Returns:
+            超时清除的ts_code列表(不执行卖出, 仅清除挂起)
+        """
+        now = time.time()
+        expired_codes = []
+        
+        with self.state_lock:
+            to_remove = []
+            for ts_code, info in list(self.pending_sells.items()):
+                if not isinstance(info, dict):
+                    # 旧格式兼容, 直接清除
+                    to_remove.append(ts_code)
+                    continue
+                added_at = info.get("added_at", 0)
+                if added_at > 0 and (now - added_at) > max_wait_seconds:
+                    to_remove.append(ts_code)
+                    expired_codes.append(ts_code)
+                    logger.warning(
+                        f"[PENDING_SELLS] {ts_code} 跌停挂起超时({(now-added_at)/60:.0f}分钟>"
+                        f"{max_wait_seconds/60:.0f}分钟), 清除挂起: {info.get('reason', '')}"
+                    )
+            for code in to_remove:
+                self.pending_sells.pop(code, None)
+        
+        return expired_codes
+
+    def get_pending_sells_summary(self) -> List[Dict]:
+        """获取跌停挂起卖出摘要(供API/前端使用)
+        
+        Returns:
+            [{ts_code, reason, price, wait_seconds, source}, ...]
+        """
+        now = time.time()
+        result = []
+        with self.state_lock:
+            for ts_code, info in dict(self.pending_sells).items():
+                if isinstance(info, dict):
+                    result.append({
+                        "ts_code": ts_code,
+                        "reason": info.get("reason", ""),
+                        "price": info.get("price", 0),
+                        "wait_seconds": round(now - info.get("added_at", now), 0),
+                        "source": info.get("source", "unknown"),
+                    })
+        return result

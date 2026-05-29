@@ -318,6 +318,51 @@ class EmotionCycleManager:
         phase = self._score_to_phase(score)
         return self.CAN_OPEN[phase]
 
+    # ==================== Phase2.4: 情绪调仓规则 ====================
+
+    # phase降级时的调仓规则
+    DOWNGRADE_RULES = {
+        # 退潮→混沌: 无需减仓(已在退潮时清过)
+        # 分化→退潮: 清仓低利润
+        (EmotionPhase.DIFFERENTIATION, EmotionPhase.BEARISH): {
+            "action": "clear_low_profit", "min_profit": 0.03,
+            "desc": "分化→退潮:清低利润",
+        },
+        # 上升→分化: 减仓(保留50%仓位)
+        (EmotionPhase.RISING, EmotionPhase.DIFFERENTIATION): {
+            "action": "reduce", "keep_ratio": 0.5,
+            "desc": "上升→分化:减仓50%",
+        },
+        # 上升→退潮: 清仓低利润(急转直下, 保命优先)
+        (EmotionPhase.RISING, EmotionPhase.BEARISH): {
+            "action": "clear_low_profit", "min_profit": 0.03,
+            "desc": "上升→退潮:清低利润",
+        },
+        # 混沌→退潮: 清仓低利润
+        (EmotionPhase.CHAOS, EmotionPhase.BEARISH): {
+            "action": "clear_low_profit", "min_profit": 0.05,
+            "desc": "混沌→退潮:清低利润",
+        },
+        # 分化→混沌: 减仓(保留40%仓位)
+        (EmotionPhase.DIFFERENTIATION, EmotionPhase.CHAOS): {
+            "action": "reduce", "keep_ratio": 0.4,
+            "desc": "分化→混沌:减仓60%",
+        },
+        # 上升→混沌: 减仓50%(市场转弱, 保留核心仓位)
+        (EmotionPhase.RISING, EmotionPhase.CHAOS): {
+            "action": "reduce", "keep_ratio": 0.5,
+            "desc": "上升→混沌:减仓50%",
+        },
+    }
+
+    def get_downgrade_rule(self, old_phase: EmotionPhase, new_phase: EmotionPhase) -> Optional[Dict]:
+        """获取phase降级调仓规则
+        
+        Returns:
+            {"action": "reduce"|"clear_low_profit", ...} or None(无需调仓)
+        """
+        return self.DOWNGRADE_RULES.get((old_phase, new_phase))
+
 
 # 全局单例
 emotion_cycle_manager = EmotionCycleManager()

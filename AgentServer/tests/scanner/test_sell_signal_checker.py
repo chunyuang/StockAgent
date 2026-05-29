@@ -247,49 +247,44 @@ class TestQuoteManager:
 
 
 class TestEmotionDowngradeRules:
-    """情绪降级调仓规则测试"""
+    """情绪降级调仓规则测试(规则已迁移至EmotionCycleManager.DOWNGRADE_RULES)"""
     
-    def test_all_downgrade_paths_have_rules(self):
+    @pytest.fixture
+    def rules(self):
+        from nodes.market_monitor.emotion_cycle import EmotionPhase, emotion_cycle_manager
+        return emotion_cycle_manager.DOWNGRADE_RULES
+    
+    def test_all_downgrade_paths_have_rules(self, rules):
         """所有降级路径都有规则"""
-        from nodes.market_monitor.scanner import MarketScanner
+        from nodes.market_monitor.emotion_cycle import EmotionPhase
         
-        # 检查6条降级规则
-        rules = MarketScanner.EMOTION_DOWNGRADE_RULES
         expected_keys = [
-            ("rising", "differentiation"),
-            ("rising", "chaos"),
-            ("rising", "bearish"),
-            ("differentiation", "chaos"),
-            ("differentiation", "bearish"),
-            ("chaos", "bearish"),
+            (EmotionPhase.RISING, EmotionPhase.DIFFERENTIATION),
+            (EmotionPhase.RISING, EmotionPhase.CHAOS),
+            (EmotionPhase.RISING, EmotionPhase.BEARISH),
+            (EmotionPhase.DIFFERENTIATION, EmotionPhase.CHAOS),
+            (EmotionPhase.DIFFERENTIATION, EmotionPhase.BEARISH),
+            (EmotionPhase.CHAOS, EmotionPhase.BEARISH),
         ]
         for key in expected_keys:
             assert key in rules, f"缺少降级规则: {key}"
     
-    def test_upgrade_no_rule(self):
+    def test_upgrade_no_rule(self, rules):
         """升级路径不应有规则(自然加仓)"""
-        from nodes.market_monitor.scanner import MarketScanner
+        from nodes.market_monitor.emotion_cycle import EmotionPhase
         
-        rules = MarketScanner.EMOTION_DOWNGRADE_RULES
-        # 震荡→高潮不应有规则
-        assert ("chaos", "rising") not in rules
-        assert ("bearish", "rising") not in rules
+        assert (EmotionPhase.CHAOS, EmotionPhase.RISING) not in rules
+        assert (EmotionPhase.BEARISH, EmotionPhase.RISING) not in rules
     
-    def test_reduce_rules_have_keep_ratio(self):
+    def test_reduce_rules_have_keep_ratio(self, rules):
         """减仓规则应有keep_ratio"""
-        from nodes.market_monitor.scanner import MarketScanner
-        
-        rules = MarketScanner.EMOTION_DOWNGRADE_RULES
         for key, rule in rules.items():
             if rule["action"] == "reduce":
                 assert "keep_ratio" in rule, f"{key} 减仓规则缺少keep_ratio"
                 assert 0 < rule["keep_ratio"] < 1, f"{key} keep_ratio应在0-1之间"
     
-    def test_clear_rules_have_min_profit(self):
+    def test_clear_rules_have_min_profit(self, rules):
         """清仓规则应有min_profit"""
-        from nodes.market_monitor.scanner import MarketScanner
-        
-        rules = MarketScanner.EMOTION_DOWNGRADE_RULES
         for key, rule in rules.items():
             if rule["action"] == "clear_low_profit":
                 assert "min_profit" in rule, f"{key} 清仓规则缺少min_profit"

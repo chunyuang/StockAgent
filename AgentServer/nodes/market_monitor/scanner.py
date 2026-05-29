@@ -86,14 +86,9 @@ class MarketScanner:
     SIGNAL_EXPIRE_ACTION = True   # 过期信号是否自动取消买入(后端强制)
 
     # 情绪降级规则: phase降级时的动态调仓策略
-    EMOTION_DOWNGRADE_RULES = {
-        ("rising", "differentiation"): {"action": "reduce", "keep_ratio": 0.7, "desc": "高潮→分化: 减仓30%"},
-        ("rising", "chaos"):          {"action": "reduce", "keep_ratio": 0.5, "desc": "高潮→震荡: 减仓50%"},
-        ("rising", "bearish"):        {"action": "clear_low_profit", "min_profit": 0.03, "desc": "高潮→冰点: 低利润(<3%)清仓"},
-        ("differentiation", "chaos"):  {"action": "reduce", "keep_ratio": 0.7, "desc": "分化→震荡: 减仓30%"},
-        ("differentiation", "bearish"): {"action": "clear_low_profit", "min_profit": 0.03, "desc": "分化→冰点: 低利润(<3%)清仓"},
-        ("chaos", "bearish"):         {"action": "clear_low_profit", "min_profit": 0.02, "desc": "震荡→冰点: 低利润(<2%)清仓"},
-    }
+    # EMOTION_DOWNGRADE_RULES已迁移至EmotionCycleManager.DOWNGRADE_RULES【v3.0】
+    # 保持类属性兼容旧代码引用
+    EMOTION_DOWNGRADE_RULES = None  # type: ignore
 
     # 交易模式
     MODE_SIMULATED = "simulated"  # 内置仿真撮合
@@ -396,12 +391,9 @@ class MarketScanner:
         # 普通委托: 转发到子模块实例
         module = getattr(self, module_attr, None)
         if module is None:
-            # 子模块未初始化时的安全返回
-            import asyncio
-            if asyncio.iscoroutinefunction(getattr(type(module), method_name, None)):
-                async def _noop(*args, **kwargs):
-                    return None
-                return _noop
+            # 子模块未初始化时的安全返回(同步/异步noop)
+            # 无法判断是否async,默认返回同步noop(调用方需自行处理)
+            logger.warning(f"[SCANNER] 委托模块 {module_attr} 未初始化, 方法 {name} 返回None")
             return lambda *args, **kwargs: None
         
         return getattr(module, method_name)
@@ -970,6 +962,13 @@ class MarketScanner:
                 self._check_stop_loss_only(realtime_data)
                 self._last_risk_check_ts = time.time()  # 【Phase4.3】
 
+                # ── 每60秒: 跌停挂起超时检查(2小时超时自动清除) ──
+                if tick % 60 == 0 and self._position_manager:
+                    try:
+                        self._position_manager.check_pending_sells_timeout()
+                    except Exception as e:
+                        logger.debug(f"[RISK_THREAD] pending_sells超时检查异常: {e}")
+
                 # ── 每30秒: 完整quick check(东财缓存, 零额度) ──
                 if tick % 30 == 0 and self._loop and not self._loop.is_closed():
                     try:
@@ -1376,15 +1375,24 @@ class MarketScanner:
 
     # ==================== 持仓检查 ====================
     async def _handle_emotion_phase_change(self, old_phase: str, new_phase: str):
-        """情绪phase变化时的动态调仓
+        """情绪phase变化时的动态调仓 — 委托EmotionCycleManager规则【v3.0】
         
-        规则: phase降级时减仓/清仓低利润, 升级时不做操作(自然加仓)
+        规则来源: EmotionCycleManager.DOWNGRADE_RULES
+        执行: phase降级时减仓/清仓低利润, 升级时不做操作
         分批执行: max_per_round=2, 间隔0.5秒(避免冲击)
         """
-        key = (old_phase, new_phase)
-        rule = self.EMOTION_DOWNGRADE_RULES.get(key)
+        from nodes.market_monitor.emotion_cycle import EmotionPhase, emotion_cycle_manager
+        
+        # 将字符串转为EmotionPhase枚举
+        try:
+            old_enum = EmotionPhase(old_phase)
+            new_enum = EmotionPhase(new_phase)
+        except ValueError:
+            logger.info(f"[EMOTION] phase变化 {old_phase}→{new_phase}, 无法识别的阶段")
+            return
+        
+        rule = emotion_cycle_manager.get_downgrade_rule(old_enum, new_enum)
         if not rule:
-            # phase升级(如chaos→rising)或不支持的组合 → 不做操作
             logger.info(f"[EMOTION] phase变化 {old_phase}→{new_phase}, 无需调仓")
             return
         
@@ -1400,9 +1408,8 @@ class MarketScanner:
         to_sell = []
         
         if rule["action"] == "reduce":
-            # 按比例减仓(低利润优先)
             keep_ratio = rule["keep_ratio"]
-            sorted_pos = sorted(positions, key=lambda p: p.profit_pct)  # 利润从低到高
+            sorted_pos = sorted(positions, key=lambda p: p.profit_pct)
             total_count = len(sorted_pos)
             target_count = max(1, int(total_count * keep_ratio))
             sell_count = total_count - target_count
@@ -1418,12 +1425,11 @@ class MarketScanner:
                                self._get_strategy_risk(pos.strategy)))
         
         elif rule["action"] == "clear_low_profit":
-            # 清仓低利润持仓
             min_profit = rule.get("min_profit", 0.03)
             for pos in positions:
                 if pos.available_qty <= 0:
                     continue
-                if pos.profit_pct < min_profit * 100:  # profit_pct是百分比
+                if pos.profit_pct < min_profit * 100:
                     if self._is_limit_down(pos.ts_code):
                         with self._state_lock:
                             self._pending_sells[pos.ts_code] = {"reason": f"情绪清仓({old_phase}→{new_phase})", "price": pos.current_price, "added_at": time.time(), "source": "emotion"}
@@ -1435,12 +1441,10 @@ class MarketScanner:
             logger.info(f"[EMOTION] phase降级无需调仓(无符合条件持仓)")
             return
         
-        # 分批执行(max_per_round=2, 间隔0.5秒)
         batch_size = 2
         trade_date = self._trade_date or datetime.now().strftime("%Y%m%d")
         for i in range(0, len(to_sell), batch_size):
             batch = to_sell[i:i+batch_size]
-            # 委托给PositionChecker执行卖出(跌停挂起+broker下单)
             if self._position_checker:
                 await self._position_checker._execute_sell_list(batch, trade_date, source="emotion")
             if i + batch_size < len(to_sell):
@@ -1448,7 +1452,7 @@ class MarketScanner:
         
         logger.warning(f"[EMOTION] 调仓完成: 卖出{len(to_sell)}只, {rule['desc']}")
         
-        # 推送事件
+        # 推送事件 + 审计日志
         await self._publish_scanner_event("timeline", {
             "item": {
                 "time": datetime.now().strftime("%H:%M:%S"),
@@ -1488,88 +1492,9 @@ class MarketScanner:
             return dict(self._trailing_stops)
 
     def _compute_health_score(self) -> Dict[str, Any]:
-        """Scanner健康度评分(绿/黄/红)
-        
-        维度:
-        - scan_lag: 全量扫描延迟(上次到现在)
-        - risk_check_lag: 风控检查延迟
-        - quote_staleness: 行情数据陈旧度
-        - warnings: 告警列表
-        """
-        now = time.time()
-        warnings = []
-        
-        # 1. 扫描延迟
-        scan_lag = (now - self._last_scan_ts) if self._last_scan_ts > 0 else 999
-        if scan_lag > 600:  # 10分钟没扫描
-            warnings.append(f"扫描延迟{scan_lag:.0f}秒")
-        
-        # 2. 风控检查延迟
-        risk_lag = (now - self._last_risk_check_ts) if self._last_risk_check_ts > 0 else 999
-        if risk_lag > 10:  # 10秒没做风控检查
-            warnings.append(f"风控延迟{risk_lag:.0f}秒")
-        
-        # 3. 行情陈旧度
-        quote_staleness = self._quote_manager.get_staleness() if self._quote_manager else 999.0
-        if quote_staleness > 60:  # 行情超过1分钟没更新
-            warnings.append(f"行情陈旧{quote_staleness:.0f}秒")
-        
-        # 4. 行情降级
-        if self._quote_manager and self._quote_manager.degrade_level > 0:
-            warnings.append(f"行情降级level={self._quote_manager.degrade_level}")
-        
-        # 5. 跌停挂起
-        if self._state_lock is None:
-            pending_count = len(self._pending_sells)
-        else:
-            with self._state_lock:
-                pending_count = len(self._pending_sells)
-        if pending_count > 0:
-            warnings.append(f"跌停挂起{pending_count}只")
-        
-        # 6. 熔断器
-        if hasattr(self, '_circuit_breaker') and self._circuit_breaker.get('is_triggered'):
-            warnings.append("熔断器已触发")
-        
-        # 7. EventBus异常率(v2.8)
-        if hasattr(self, '_event_bus') and self._event_bus:
-            stats = self._event_bus.get_stats()
-            total_errors = sum(s.get('errors', 0) for s in stats.values())
-            total_handled = sum(s.get('handled', 0) for s in stats.values())
-            if total_errors > 0 and total_handled > 0:
-                error_rate = total_errors / (total_handled + total_errors)
-                if error_rate > 0.1:  # >10%错误率
-                    warnings.append(f"EventBus异常率{error_rate:.0%}({total_errors}/{total_handled+total_errors})")
-        
-        # 健康判定
-        is_healthy = (
-            scan_lag < 360 and      # 6分钟内有扫描
-            risk_lag < 5 and         # 5秒内有风控检查
-            quote_staleness < 30 and # 行情30秒内更新
-            len(warnings) == 0
-        )
-        is_warning = not is_healthy and (
-            scan_lag < 600 and      # 10分钟内
-            risk_lag < 30 and       # 30秒内
-            quote_staleness < 120   # 2分钟内
-        )
-        
-        if is_healthy:
-            status = "green"
-        elif is_warning:
-            status = "yellow"
-        else:
-            status = "red"
-        
-        return {
-            "status": status,          # green/yellow/red
-            "is_healthy": is_healthy,
-            "scan_lag_seconds": round(scan_lag, 1),
-            "risk_check_lag_seconds": round(risk_lag, 1),
-            "quote_staleness_seconds": round(quote_staleness, 1),
-            "warnings": warnings,
-            "event_bus_stats": self._event_bus.get_stats() if hasattr(self, '_event_bus') and self._event_bus else {},
-        }
+        """Scanner健康度评分 — 委托给ScannerUtils【v3.0提取】"""
+        from nodes.market_monitor.scanner_utils import ScannerUtils
+        return ScannerUtils.compute_health_score(self)
 
     # ==================== V59:智能持仓检查频率 ====================
 
@@ -1588,7 +1513,6 @@ class MarketScanner:
             except Exception:
                 pass
         return emit_quote_event
-        # fallback: 不更新
     def _is_limit_down(self, ts_code: str) -> bool:
         """判断是否跌停 — 委托给PositionChecker【Phase3.1】"""
         if self._position_checker:
