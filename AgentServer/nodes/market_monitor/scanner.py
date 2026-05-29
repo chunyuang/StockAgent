@@ -105,156 +105,84 @@ class MarketScanner:
         self.account_id = account_id
         self.config = config or {}
 
-        # 单票风控覆盖(用户手动调整止损止盈)
+        # 分阶段初始化
+        self._init_state()
+        self._init_broker()
+        self._init_pipeline()
+        self._init_modules()
+        self._init_risk()
+
+    # ==================== 初始化子方法 ====================
+
+    def _init_state(self):
+        """初始化基础状态变量【v2.9.3提取】"""
+        # 单票风控覆盖
         self._position_risk_overrides: Dict[str, Dict] = {}
 
-        # 【V59:追踪止损状态】
-        # key=ts_code, value={high_price: 最高价, trailing_stop_pct: 追踪止损比例, activated: 是否激活}
+        # 追踪止损状态
         self._trailing_stops: Dict[str, Dict] = {}
 
-        # 【V59:持仓风险等级(决定检查频率)】
-        # key=ts_code, value="normal"/"warning"/"critical"
+        # 持仓风险等级
         self._position_risk_levels: Dict[str, str] = {}
 
-        # 【V59:订单状态跟踪】
-        self._pending_orders: Dict[str, Dict] = {}  # order_id → {status, retry_count, ...}
+        # 订单状态跟踪
+        self._pending_orders: Dict[str, Dict] = {}
 
-        # 【Phase1.1:运行时状态持久化——跌停挂起的卖出指令】
-        self._pending_sells: Dict[str, Dict] = {}  # ts_code → {reason, price, added_at, source}
+        # 跌停挂起的卖出指令
+        self._pending_sells: Dict[str, Dict] = {}
 
-        # 【Phase1.1:运行时状态持久化——快照节流】
+        # 快照节流
         self._last_snapshot_save: float = 0.0
         self._snapshot_dirty: bool = False
 
-        # 交易日(由start()设置, _handle_emotion_phase_change等使用)
+        # 交易日(由start()设置)
         self._trade_date: str = ""
 
-        # 净值峰值(绩效快照用)
+        # 净值峰值
         self._nav_peak: float = 1.0
 
-        # 【Phase1.2:风控独立线程】
+        # 风控独立线程
         self._risk_thread = None
         self._risk_running = False
-        self._cache_lock = None  # threading.Lock(在start时初始化)
-        self._state_lock = None  # threading.Lock(保护trailing_stops/pending_sells/position_risk_levels)
-        self._loop = None       # asyncio事件循环引用
-        
-        # 【Phase1.3:卖出逻辑灰度开关】
+        self._cache_lock = None
+        self._state_lock = None
+        self._loop = None
+
+        # 卖出逻辑灰度开关
         import os
         self.SELL_LOGIC_MODE = os.getenv("SELL_LOGIC_MODE", "legacy")
-        # "legacy"  = Scanner内嵌(旧)
-        # "checker" = sell_signal_checker(新)
-        # "compare" = 两者都跑,只执行旧逻辑,记录差异(灰度)
-        
-        # 【Phase2.2:行情降级状态】
-        self._quote_degrade_level = 0   # 0=正常, 1=东财降级, 2=日线缓存
-        self._quote_fail_count = 0     # 连续失败次数
-        self._quote_last_recover_check = 0  # 上次恢复检查时间
-        # _quote_staleness已迁移到QuoteManager.get_staleness()
 
-        # 【V59:执行质量统计】
+        # 行情降级状态
+        self._quote_degrade_level = 0
+        self._quote_fail_count = 0
+        self._quote_last_recover_check = 0
+
+        # 执行质量统计
         self._execution_stats = {
-            "total_slippage_pct": 0.0,  # 累计滑点
-            "total_fills": 0,           # 成交次数
-            "partial_fills": 0,         # 部分成交次数
-            "avg_fill_latency_ms": 0.0, # 平均成交延迟
-            "stop_loss_response_times": [],  # 止损响应时间(ms)
+            "total_slippage_pct": 0.0,
+            "total_fills": 0,
+            "partial_fills": 0,
+            "avg_fill_latency_ms": 0.0,
+            "stop_loss_response_times": [],
         }
 
-        # 状态
+        # 运行状态
         self._is_running = False
         self._task: Optional[asyncio.Task] = None
         self._scan_count = 0
         self._last_scan_time = ""
-        # 【Phase4.3:健康度】
-        self._last_scan_ts: float = 0.0      # 上次全量扫描时间戳(monotonic)
-        self._last_risk_check_ts: float = 0.0 # 上次风控检查时间戳(monotonic)
+        self._last_scan_ts: float = 0.0
+        self._last_risk_check_ts: float = 0.0
 
-        # 数据
-        # 【Phase3.1+EventBus:内部事件总线】
-        self._event_bus = ScannerEventBus()
-
-        # 【Phase3.1:QuoteManager+PositionManager+StrategyScorer+SignalManager】
-        self._quote_manager = QuoteManager()
-        self._quote_manager.set_event_emitter(self._make_quote_event_emitter())  # 【v2.9:回调替代scanner引用】
-        self._position_manager = None  # 延迟初始化(需要self引用)
-        self._strategy_scorer = None   # 延迟初始化
-        self._signal_manager = None    # 延迟初始化
-        self._data_router: Optional[Any] = None  # DataSourceRouter实例(兼容,委托给QuoteManager)
+        # 数据缓存
         self._daily_factors_df: Optional[pd.DataFrame] = None
-        self._realtime_cache: Dict[str, Dict] = {}  # ts_code → 实时行情(由QuoteManager维护)
-        self._prev_realtime_cache: Dict[str, Dict] = {}  # ts_code → 上轮实时行情(由QuoteManager维护)
-        self._all_codes: List[str] = []  # 全市场代码
+        self._realtime_cache: Dict[str, Dict] = {}
+        self._prev_realtime_cache: Dict[str, Dict] = {}
+        self._all_codes: List[str] = []
 
-        # 撮合引擎: 根据模式选择
-        trade_mode = self.config.get("trade_mode", self.MODE_SIMULATED)
-        self._trade_mode = trade_mode
-        initial_cash = self.config.get("initial_cash", 1_000_000)
-
-        # 【调试增强】dry_run模式: 只扫描不交易
-        self._dry_run = (trade_mode == self.MODE_DRY_RUN)
-
-        # 【回放模式】用MongoDB历史数据模拟实时行情
-        self._replay_mode = (trade_mode == self.MODE_REPLAY)
-        self._replay_date = self.config.get("replay_date", None)
-        self._replay_provider = None
-
-        if trade_mode == self.MODE_GM:
-            # 掘金模式
-            from nodes.market_monitor.gm_broker import GmBroker
-            self._gm_broker = GmBroker(
-                token=self.config.get("gm_token", ""),
-                strategy_id=self.config.get("gm_strategy_id", ""),
-                mode=1,  # MODE_LIVE
-                serv_addr=self.config.get("gm_serv_addr", ""),
-                account_id=account_id,
-            )
-            self._broker = None  # 掘金模式下不用SimulatedBroker
-            logger.info(f"[SCANNER] 交易模式: 掘金量化")
-        elif self._dry_run:
-            # 调试模式: 仍创建broker用于模拟, 但不实际下单
-            self._broker = SimulatedBroker(account_id=account_id, initial_cash=initial_cash)
-            self._gm_broker = None
-            logger.info(f"[SCANNER] 交易模式: 🔍调试模式(只扫描不交易)")
-        elif self._replay_mode:
-            # 回放模式: 用历史数据模拟实时行情
-            self._broker = SimulatedBroker(account_id=account_id, initial_cash=initial_cash)
-            self._gm_broker = None
-            try:
-                from nodes.market_monitor.replay_provider import ReplayDataProvider
-                self._replay_provider = ReplayDataProvider()
-                if self._replay_date:
-                    # 预加载数据
-                    self._replay_provider.get_replay_data(self._replay_date)
-            except Exception as e:
-                logger.error(f"[SCANNER] 回放数据加载失败: {e}")
-            logger.info(f"[SCANNER] 交易模式: 🔄回放模式(日期={self._replay_date or '自动'})")
-        else:
-            # 内置仿真模式
-            self._broker = SimulatedBroker(account_id=account_id, initial_cash=initial_cash)
-            self._gm_broker = None
-            logger.info(f"[SCANNER] 交易模式: 内置仿真撮合")
-
-        # 信号
+        # 信号与时间线
         self._active_signals: List[ScanSignal] = []
-        self._timeline: List[Dict] = []  # 今日交易时间线
-
-        # 9层筛选管道
-        self._filter_pipeline = LiveFilterPipeline(
-            scanner=self,
-            config={
-                "enable_force_empty": True,
-                "enable_special_period": True,
-                "enable_sentiment_cycle": True,
-                "enable_premarket_filter": True,
-                "enable_auction_filter": True,
-                "max_total_position": 0.7,
-                "max_position_per_stock": 0.35,  # 【V50:与回测V49对齐,从0.20→0.35提升资金利用率】
-                "max_candidates_per_scan": 10,
-            }
-        )
-        self._current_position_ratio = 1.0  # 默认满仓
-        self._current_sentiment = {"score": 50, "period": "chaos"}
+        self._timeline: List[Dict] = []
 
         # 统计
         self._stats = {
@@ -266,14 +194,86 @@ class MarketScanner:
             "stocks_scanned": 0,
         }
 
-        # 【V51:统一信号分发器+参数中心+风控看门狗】
+    def _init_broker(self):
+        """初始化撮合引擎【v2.9.3提取】"""
+        trade_mode = self.config.get("trade_mode", self.MODE_SIMULATED)
+        self._trade_mode = trade_mode
+        initial_cash = self.config.get("initial_cash", 1_000_000)
+
+        self._dry_run = (trade_mode == self.MODE_DRY_RUN)
+        self._replay_mode = (trade_mode == self.MODE_REPLAY)
+        self._replay_date = self.config.get("replay_date", None)
+        self._replay_provider = None
+
+        if trade_mode == self.MODE_GM:
+            from nodes.market_monitor.gm_broker import GmBroker
+            self._gm_broker = GmBroker(
+                token=self.config.get("gm_token", ""),
+                strategy_id=self.config.get("gm_strategy_id", ""),
+                mode=1,
+                serv_addr=self.config.get("gm_serv_addr", ""),
+                account_id=self.account_id,
+            )
+            self._broker = None
+            logger.info("[SCANNER] 交易模式: 掘金量化")
+        elif self._dry_run:
+            self._broker = SimulatedBroker(account_id=self.account_id, initial_cash=initial_cash)
+            self._gm_broker = None
+            logger.info("[SCANNER] 交易模式: 🔍调试模式(只扫描不交易)")
+        elif self._replay_mode:
+            self._broker = SimulatedBroker(account_id=self.account_id, initial_cash=initial_cash)
+            self._gm_broker = None
+            try:
+                from nodes.market_monitor.replay_provider import ReplayDataProvider
+                self._replay_provider = ReplayDataProvider()
+                if self._replay_date:
+                    self._replay_provider.get_replay_data(self._replay_date)
+            except Exception as e:
+                logger.error(f"[SCANNER] 回放数据加载失败: {e}")
+            logger.info(f"[SCANNER] 交易模式: 🔄回放模式(日期={self._replay_date or '自动'})")
+        else:
+            self._broker = SimulatedBroker(account_id=self.account_id, initial_cash=initial_cash)
+            self._gm_broker = None
+            logger.info("[SCANNER] 交易模式: 内置仿真撮合")
+
+    def _init_pipeline(self):
+        """初始化9层筛选管道【v2.9.3提取】"""
+        self._filter_pipeline = LiveFilterPipeline(
+            scanner=self,
+            config={
+                "enable_force_empty": True,
+                "enable_special_period": True,
+                "enable_sentiment_cycle": True,
+                "enable_premarket_filter": True,
+                "enable_auction_filter": True,
+                "max_total_position": 0.7,
+                "max_position_per_stock": 0.35,
+                "max_candidates_per_scan": 10,
+            }
+        )
+        self._current_position_ratio = 1.0
+        self._current_sentiment = {"score": 50, "period": "chaos"}
+
+    def _init_modules(self):
+        """初始化EventBus+QuoteManager+PositionManager+SignalManager等模块【v2.9.3提取】"""
+        # EventBus
+        self._event_bus = ScannerEventBus()
+
+        # QuoteManager(回调模式,无scanner引用)
+        self._quote_manager = QuoteManager()
+        self._quote_manager.set_event_emitter(self._make_quote_event_emitter())
+        self._position_manager = None  # 延迟初始化
+        self._strategy_scorer = None
+        self._signal_manager = None
+        self._data_router: Optional[Any] = None
+
+        # 信号分发器
         from nodes.market_monitor.signal_dispatcher import (
             SignalDispatcher, redis_channel_handler, feishu_channel_handler, log_channel_handler
         )
         self._signal_dispatcher = SignalDispatcher(scanner=self)
         self._signal_dispatcher.register_channel("log", log_channel_handler)
         self._signal_dispatcher.register_channel("redis", redis_channel_handler)
-        # 飞书通道延迟注册(notification_manager可能未初始化)
         self._feishu_registered = False
 
         # 参数中心
@@ -284,7 +284,8 @@ class MarketScanner:
         from nodes.market_monitor.risk_watchdog import RiskWatchdog
         self._risk_watchdog = RiskWatchdog(scanner=self)
         self._risk_watchdog.register_alert_channel(self._signal_dispatcher.dispatch)
-        # 【Phase3.1:PositionManager+StrategyScorer+SignalManager+PositionChecker】
+
+        # PositionManager+StrategyScorer+SignalManager+PositionChecker
         from nodes.market_monitor.position_manager import PositionManager
         self._position_manager = PositionManager(self)
         from nodes.market_monitor.strategy_scorer import StrategyScorer
@@ -296,8 +297,8 @@ class MarketScanner:
         from nodes.market_monitor.runtime_persistence import RuntimePersistence
         self._runtime_persistence = RuntimePersistence(self)
 
-        # 【V54:分级行情扫描器】
-        self._use_tiered = self.config.get("use_tiered_scanner", False)  # 默认关闭, 显式启用
+        # 分级行情扫描器
+        self._use_tiered = self.config.get("use_tiered_scanner", False)
         self._tiered_scanner = None
         if self._use_tiered:
             from nodes.market_monitor.tiered_scanner import TieredScanner
@@ -312,17 +313,99 @@ class MarketScanner:
         })
         self._slippage_model = SlippageModel
 
-        # 风控熔断
+    def _init_risk(self):
+        """初始化风控熔断参数【v2.9.3提取】"""
+        initial_cash = self.config.get("initial_cash", 1_000_000)
         self._circuit_breaker = {
-            "daily_start_assets": initial_cash,  # 今日开盘资产
-            "daily_max_drawdown": 0.05,          # 单日最大回撤5%
-            "consecutive_losses": 0,              # 连续亏损次数
-            "consecutive_loss_limit": 3,          # 连续亏损3次熔断
-            "trading_paused": False,              # 是否暂停交易
-            "pause_reason": "",                  # 暂停原因
-            "today_trades": 0,                    # 今日交易次数
-            "today_losses": 0,                    # 今日亏损次数
+            "daily_start_assets": initial_cash,
+            "daily_max_drawdown": 0.05,
+            "consecutive_losses": 0,
+            "consecutive_loss_limit": 3,
+            "trading_paused": False,
+            "pause_reason": "",
+            "today_trades": 0,
+            "today_losses": 0,
         }
+
+    # ==================== 动态委托分派 ====================
+
+    # 委托映射: 方法名 → (子模块属性, 子模块方法名)
+    # 不再需要为每个委托写一个存根方法, __getattr__自动路由
+    _DELEGATE_MAP = {
+        # RuntimePersistence委托
+        "_save_timeline": ("_runtime_persistence", "save_timeline"),
+        "_save_scan_traces": ("_runtime_persistence", "save_scan_traces"),
+        "_load_timeline": ("_runtime_persistence", "load_timeline"),
+        "_load_runtime_snapshot": ("_runtime_persistence", "load_runtime_snapshot"),
+        "_save_runtime_snapshot": ("_runtime_persistence", "save_runtime_snapshot"),
+        "_premarket_auction": ("_runtime_persistence", "premarket_auction"),
+        # QuoteManager委托
+        "_short_to_ts_code": ("_quote_manager_class", "short_to_ts_code"),
+        # StrategyScorer委托
+        "_apply_strategies": ("_strategy_scorer", "apply_strategies"),
+        # SignalManager委托
+        "_update_signals": ("_signal_manager", "update_signals"),
+        "_push_signals": ("_signal_manager", "_push_signals"),
+        "_add_timeline_log": ("_signal_manager", "_add_timeline_log"),
+        "_write_audit_log": ("_signal_manager", "_write_audit_log"),
+        "_execute_signals": ("_signal_manager", "execute_signals"),
+        # PositionChecker委托
+        "_check_positions": ("_position_checker", "check_positions"),
+        "_check_positions_quick": ("_position_checker", "check_positions_quick"),
+        "_get_smart_check_interval": ("_position_checker", "get_smart_check_interval"),
+        "_get_open_price": ("_position_checker", "_get_open_price"),
+        # PositionManager委托
+        "_get_effective_stop_price": ("_position_manager", "get_effective_stop_price"),
+        "_update_trailing_stops": ("_position_manager", "update_trailing_stops"),
+        "_calc_would_buy_shares": ("_position_manager", "calc_would_buy_shares"),
+        "_calc_position_ratio": ("_position_manager", "calc_position_ratio"),
+        # ScannerUtils委托
+        "_safe_round": ("_scanner_utils", "safe_round"),
+        "_publish_scanner_event": ("_scanner_utils", "publish_scanner_event"),
+        "_position_to_dict": ("_scanner_utils", "position_to_dict"),
+        "_signal_to_dict": ("_scanner_utils", "signal_to_dict"),
+        "_extract_key_factors": ("_scanner_utils", "extract_key_factors"),
+        "generate_summary_report": ("_scanner_utils", "generate_summary_report"),
+    }
+
+    def __getattr__(self, name):
+        """动态委托分派 — 纯转发方法不再需要显式定义【v2.9.3】"""
+        delegate = self._DELEGATE_MAP.get(name)
+        if delegate is None:
+            raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+        
+        module_attr, method_name = delegate
+        
+        # 特殊处理: _quote_manager_class → QuoteManager类(不是实例)
+        if module_attr == "_quote_manager_class":
+            return getattr(QuoteManager, method_name)
+        
+        # 特殊处理: _scanner_utils → 延迟导入ScannerUtils
+        if module_attr == "_scanner_utils":
+            from nodes.market_monitor.scanner_utils import ScannerUtils
+            method = getattr(ScannerUtils, method_name)
+            # 需要self上下文的方法: 绑定额外参数
+            if name == "_position_to_dict":
+                return lambda p: ScannerUtils.position_to_dict(p, risk_getter=self._get_strategy_risk)
+            if name == "_signal_to_dict":
+                return lambda s: ScannerUtils.signal_to_dict(s, self.SIGNAL_EXPIRE_SECONDS)
+            if name == "generate_summary_report":
+                return lambda: ScannerUtils.generate_summary_report(self)
+            return method
+        
+        # 普通委托: 转发到子模块实例
+        module = getattr(self, module_attr, None)
+        if module is None:
+            # 子模块未初始化时的安全返回
+            import asyncio
+            if asyncio.iscoroutinefunction(getattr(type(module), method_name, None)):
+                async def _noop(*args, **kwargs):
+                    return None
+                return _noop
+            return lambda *args, **kwargs: None
+        
+        return getattr(module, method_name)
+
 
     @property
     def event_bus(self) -> ScannerEventBus:
@@ -422,21 +505,6 @@ class MarketScanner:
 
     def get_timeline(self) -> List[Dict]:
         return list(self._timeline)
-
-    async def _save_timeline(self):
-        """保存时间线 — 委托给RuntimePersistence【Phase3.1】"""
-        if self._runtime_persistence:
-            return await self._runtime_persistence.save_timeline()
-
-    async def _save_scan_traces(self, filter_result):
-        """保存扫描链路追踪 — 委托给RuntimePersistence【Phase3.1】"""
-        if self._runtime_persistence:
-            return await self._runtime_persistence.save_scan_traces(filter_result)
-
-    async def _load_timeline(self):
-        """加载时间线 — 委托给RuntimePersistence【Phase3.1】"""
-        if self._runtime_persistence:
-            return await self._runtime_persistence.load_timeline()
     async def start(self, trade_date: str = None):
         """启动扫描"""
         if self._is_running:
@@ -747,19 +815,6 @@ class MarketScanner:
                     f"追踪止损: {len(self._trailing_stops)}个")
 
     # ==================== Phase1.1: 运行时状态持久化 ====================
-
-    async def _load_runtime_snapshot(self):
-        """加载运行时快照 — 委托给RuntimePersistence【Phase3.1】"""
-        if self._runtime_persistence:
-            return await self._runtime_persistence.load_runtime_snapshot()
-    async def _save_runtime_snapshot(self, force: bool = False):
-        """保存运行时快照 — 委托给RuntimePersistence【Phase3.1】"""
-        if self._runtime_persistence:
-            return await self._runtime_persistence.save_runtime_snapshot(force)
-    async def _premarket_auction(self):
-        """盘前竞价 — 委托给RuntimePersistence【Phase3.1】"""
-        if self._runtime_persistence:
-            return await self._runtime_persistence.premarket_auction()
     async def _scan_loop(self, trade_date: str):
         """主扫描循环(双层节奏 + 智能刷新)
         
@@ -1118,10 +1173,6 @@ class MarketScanner:
         
         return realtime
 
-    def _short_to_ts_code(self, short_code: str) -> str:
-        """6位代码→ts_code — 委托给QuoteManager【Phase3.1】"""
-        return QuoteManager.short_to_ts_code(short_code)
-
     # ==================== 因子合并 ====================
 
     def _merge_factors(self, realtime_data: Dict[str, Dict]) -> pd.DataFrame:
@@ -1144,11 +1195,6 @@ class MarketScanner:
             return self._strategy_scorer.get_strategy_risk(strategy_key)
         # fallback: 返回默认风控参数
         return {"stop_loss_pct": 0.03, "take_profit_pct": 0.07, "trailing_stop_pct": 0.05}
-    async def _apply_strategies(self, merged_df: pd.DataFrame, trade_date: str) -> List[ScanSignal]:
-        """策略筛选 — 委托给StrategyScorer【Phase3.1】"""
-        if self._strategy_scorer:
-            return await self._strategy_scorer.apply_strategies(merged_df, trade_date)
-        return []
     async def _apply_filter_pipeline(
         self, signals: List[ScanSignal], trade_date: str, realtime_data: Dict
     ) -> List[ScanSignal]:
@@ -1291,32 +1337,6 @@ class MarketScanner:
 
     # ==================== 信号管理 ====================
 
-    async def _update_signals(self, new_signals: List[ScanSignal], scan_time: str):
-        """增量更新信号+过期清理 — 委托给SignalManager【Phase3.1】"""
-        if self._signal_manager:
-            return await self._signal_manager.update_signals(new_signals, scan_time)
-
-    async def _push_signals(self, signals: List[ScanSignal]):
-        """推送信号 — 委托给SignalManager【Phase3.1】"""
-        if self._signal_manager:
-            return await self._signal_manager._push_signals(signals)
-
-    def _add_timeline_log(self, action, ts_code, stock_name, strategy, reason, sig):
-        """添加执行日志 — 委托给SignalManager【Phase3.1】"""
-        if self._signal_manager:
-            return self._signal_manager._add_timeline_log(action, ts_code, stock_name, strategy, reason, sig)
-
-    async def _write_audit_log(self, action: str, ts_code: str, stock_name: str,
-                                strategy: str, reason: str):
-        """写入审计日志 — 委托给SignalManager【Phase3.1】"""
-        if self._signal_manager:
-            return await self._signal_manager._write_audit_log(action, ts_code, stock_name, strategy, reason)
-
-    async def _execute_signals(self, signals: List[ScanSignal]):
-        """执行信号 — 委托给SignalManager【Phase3.1】"""
-        if self._signal_manager:
-            return await self._signal_manager.execute_signals(signals)
-
     # ==================== 公共止损止盈方法 ====================
 
     def _calc_stop_loss_price(self, pos_or_cost, risk: Dict) -> float:
@@ -1349,16 +1369,6 @@ class MarketScanner:
         return []  # fallback(不应到达)
 
     # ==================== 持仓检查 ====================
-
-    async def _check_positions(self, realtime_data: Dict[str, Dict], trade_date: str):
-        """止损止盈+超时强卖检查 — 委托给PositionChecker【Phase3.1】"""
-        if self._position_checker:
-            return await self._position_checker.check_positions(realtime_data, trade_date)
-
-    async def _check_positions_quick(self, trade_date: str):
-        """持仓快速检查 — 委托给PositionChecker【Phase3.1】"""
-        if self._position_checker:
-            return await self._position_checker.check_positions_quick(trade_date)
     async def _handle_emotion_phase_change(self, old_phase: str, new_phase: str):
         """情绪phase变化时的动态调仓
         
@@ -1562,31 +1572,7 @@ class MarketScanner:
             except Exception:
                 pass
         return emit_quote_event
-
-    def _get_effective_stop_price(self, pos, risk: Dict) -> Optional[float]:
-        """获取有效止损价 — 委托给PositionManager【Phase3.1】"""
-        if self._position_manager:
-            return self._position_manager.get_effective_stop_price(pos, risk)
-        return None
-
-
-    def _get_smart_check_interval(self, positions) -> float:
-        """智能检查间隔 — 委托给PositionChecker【Phase3.1】"""
-        if self._position_checker:
-            return self._position_checker.get_smart_check_interval(positions)
-        return 30.0
-    def _update_trailing_stops(self, positions, realtime_data: Dict):
-        """更新追踪止损状态 — 委托给PositionManager【Phase3.1】"""
-        if self._position_manager:
-            self._position_manager.update_trailing_stops(positions, realtime_data)
-            return
         # fallback: 不更新
-
-    def _get_open_price(self, ts_code: str) -> float:
-        """获取当日开盘价 — 委托给PositionChecker【Phase3.1】"""
-        if self._position_checker:
-            return self._position_checker._get_open_price(ts_code)
-        return 0.0
     def _is_limit_down(self, ts_code: str) -> bool:
         """判断是否跌停 — 委托给PositionChecker【Phase3.1】"""
         if self._position_checker:
@@ -1662,18 +1648,6 @@ class MarketScanner:
 
     # ==================== 仓位管理 ====================
 
-    def _calc_would_buy_shares(self, signal: ScanSignal) -> int:
-        """计算dry_run模式下会买入多少股(不实际下单) — 委托给PositionManager"""
-        if self._position_manager:
-            return self._position_manager.calc_would_buy_shares(signal)
-        return 0
-
-    def _calc_position_ratio(self, signal: ScanSignal) -> float:
-        """仓位比例计算 — 委托给PositionManager"""
-        if self._position_manager:
-            return self._position_manager.calc_position_ratio(signal)
-        return 0.2
-
     # ==================== 风控熔断 ====================
 
     async def _check_circuit_breaker(self) -> bool:
@@ -1743,36 +1717,6 @@ class MarketScanner:
 
     # ==================== 工具方法 ====================
 
-    @staticmethod
-    def _safe_round(v, digits=2):
-        """安全round — 委托给ScannerUtils【Phase3.1】"""
-        from nodes.market_monitor.scanner_utils import ScannerUtils
-        return ScannerUtils.safe_round(v, digits)
-
-    async def _publish_scanner_event(self, event_type: str, data: Dict):
-        """推送scanner事件 — 委托给ScannerUtils【Phase3.1】"""
-        from nodes.market_monitor.scanner_utils import ScannerUtils
-        return await ScannerUtils.publish_scanner_event(event_type, data)
-
-    def _position_to_dict(self, p) -> Dict:
-        """Position对象转dict — 委托给ScannerUtils【Phase3.1】"""
-        from nodes.market_monitor.scanner_utils import ScannerUtils
-        return ScannerUtils.position_to_dict(p, risk_getter=self._get_strategy_risk)
-
-    def _signal_to_dict(self, s: ScanSignal) -> Dict:
-        """ScanSignal对象转dict — 委托给ScannerUtils【Phase3.1】"""
-        from nodes.market_monitor.scanner_utils import ScannerUtils
-        return ScannerUtils.signal_to_dict(s, self.SIGNAL_EXPIRE_SECONDS)
-
-    def _extract_key_factors(self, s: ScanSignal) -> Dict[str, Any]:
-        """提取关键因子 — 委托给ScannerUtils【Phase3.1】"""
-        from nodes.market_monitor.scanner_utils import ScannerUtils
-        return ScannerUtils.extract_key_factors(s)
-
-    def generate_summary_report(self) -> Dict[str, Any]:
-        """生成交易摘要报告 — 委托给ScannerUtils【Phase3.1】"""
-        from nodes.market_monitor.scanner_utils import ScannerUtils
-        return ScannerUtils.generate_summary_report(self)
     async def _save_performance_snapshot(self, trade_date: str):
         """保存绩效快照到MongoDB(供净值曲线使用)"""
         from core.managers import mongo_manager
