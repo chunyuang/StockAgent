@@ -1005,3 +1005,106 @@ self._quote_manager.set_event_emitter(self._make_quote_event_emitter())
 | TestNoBacktestRegressionV29 | 5 | 回测模块不受影响 |
 
 **总测试**: 253 passed (scanner模块253)
+
+---
+
+## 18. v2.9.5 稳定性增强 (2026-05-29)
+
+### 18.1 问题
+
+| # | 问题 | 严重度 | 影响 |
+|---|---|---|---|
+| 1 | 风控线程崩溃后无看门狗, 线程死亡→风控失效 | 🔴高 | 止损/追踪止损全部失效, 可能巨亏 |
+| 2 | `_execute_risk_sell`超时5秒后丢弃卖出指令 | 🔴高 | 风控卖出丢失, 持仓风险暴露 |
+| 3 | `__getattr__`异步委托未初始化→sync noop | 🟡中 | `await`调用报TypeError |
+| 4 | `pending_sells`恢复无`_state_lock` | 🟡中 | 与风控线程竞态 |
+| 5 | 健康评分不含风控线程状态 | 🟡中 | 线程已死但前端显示绿 |
+| 6 | `_risk_loop_sync`硬编码trade_date | 🟢低 | 与主循环可能不一致 |
+| 7 | `scanner_event_subscribers` MongoDB导入不一致 | 🟢低 | 维护性差 |
+
+### 18.2 解决方案
+
+#### 风控线程看门狗
+
+```python
+# _scan_loop中每轮检测(交易时段)
+if self._risk_running and self._risk_thread and not self._risk_thread.is_alive():
+    self._risk_thread_restarts += 1
+    self._risk_thread = threading.Thread(target=self._risk_loop_sync, daemon=True)
+    self._risk_thread.start()
+    if self._risk_thread_restarts >= 3:
+        await self._publish_scanner_event("status", {"event": "risk_thread_unstable"})
+```
+
+特性:
+- 检测到风控线程退出立即重启
+- 重启计数器 `_risk_thread_restarts` (init=0, start重置)
+- ≥3次重启→推送告警事件
+- `_scan_loop`主循环即看门狗(不新增定时器)
+
+#### 卖出超时兜底
+
+```python
+# _check_stop_loss_only中
+future.result(timeout=5)
+# 超时→不丢弃,加入pending_sells待下次执行
+except asyncio.TimeoutError:
+    with self._state_lock:
+        if pos.ts_code not in self._pending_sells:
+            self._pending_sells[pos.ts_code] = {
+                "reason": reason, "price": price,
+                "added_at": time.time(),
+                "source": "risk_thread_timeout",
+            }
+```
+
+- 已有pending_sell(如跌停挂起)不覆盖
+- 下次风控循环会重新检查pending_sells
+
+#### __getattr__异步noop
+
+```python
+_ASYNC_DELEGATE_METHODS = {
+    "_save_timeline", "_load_runtime_snapshot", "_apply_strategies",
+    "_update_signals", "_push_signals", "_execute_signals", "_write_audit_log",
+    "_check_positions", "_check_positions_quick", "_publish_scanner_event",
+    "_save_scan_traces", "_load_timeline", "_save_runtime_snapshot", "_premarket_auction",
+}
+if name in _ASYNC_DELEGATE_METHODS:
+    async def _async_noop(*args, **kwargs): return None
+    return _async_noop
+else:
+    return lambda *args, **kwargs: None
+```
+
+#### 健康评分升级
+
+新增维度: `risk_thread_alive` / `risk_thread_restarts`
+
+- `is_healthy`要求风控线程存活
+- `is_warning`至少风控线程存活
+- 线程停止→红, 3次+重启→warnings告警
+
+### 18.3 变更文件
+
+| 文件 | 变更 |
+|---|---|
+| scanner.py | 看门狗+超时兜底+__getattr__异步noop+_risk_thread_restarts+trade_date一致性 |
+| scanner_utils.py | 健康评分加risk_thread_alive/restarts |
+| scanner_event_subscribers.py | MongoDB导入统一为`from core.managers import` |
+| runtime_persistence.py | pending_sells恢复加_state_lock |
+| test_v295_stability.py | 22新增测试 |
+| test_sell_signal_checker.py | 旧健康评分测试适配风控线程维度 |
+
+### 18.4 测试覆盖
+
+| 测试类 | 用例数 | 覆盖点 |
+|---|---|---|
+| TestRiskThreadWatchdog | 5 | 初始化/重启计数/看门狗源码/死线程重启/3次告警 |
+| TestRiskSellTimeoutFallback | 3 | 超时pending_sells/不覆盖已有/源码验证 |
+| TestHealthScoreRiskThread | 5 | alive字段/restarts字段/死线程warning/健康判定/源码验证 |
+| TestMongoImportConsistency | 2 | runtime_persistence/event_subscribers |
+| TestRiskThreadTradeDateConsistency | 2 | _trade_date使用/fallback |
+| TestNoBacktestRegressionV295 | 5 | 回测零影响 |
+
+**总测试**: 447 passed (全量)
