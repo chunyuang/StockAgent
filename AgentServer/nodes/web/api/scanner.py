@@ -1909,6 +1909,9 @@ async def get_scanner_health():
             warnings.append(f"行情降级{qm.degrade_desc}")
         # 跌停挂起
         pending_sells = getattr(scanner, '_pending_sells', {})
+        pending_sells_detail = []
+        if pending_sells and hasattr(scanner, '_position_manager') and scanner._position_manager:
+            pending_sells_detail = scanner._position_manager.get_pending_sells_summary()
         if pending_sells:
             health_score -= 5
             warnings.append(f"{len(pending_sells)}只跌停挂起")
@@ -1954,6 +1957,8 @@ async def get_scanner_health():
                 "is_healthy": scan_lag < 60 and risk_check_lag < 5 and daily_drawdown < 3 and not trading_paused,
                 # Scanner内置健康度(绿/黄/红)
                 "scanner_health": scanner_health,
+                # 跌停挂起明细(v2.9.4)
+                "pending_sells_detail": pending_sells_detail,
             }
         }
     except Exception as e:

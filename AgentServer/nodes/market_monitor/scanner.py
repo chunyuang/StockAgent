@@ -550,6 +550,22 @@ class MarketScanner:
         except Exception:
             pass
 
+        # 【v2.9.4:从MongoDB恢复pending_sells(上次停机时保存的跌停挂起)】
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.db:
+                doc = await mongo_manager.db["scanner_state"].find_one({"_id": "pending_sells"})
+                if doc and doc.get("items"):
+                    lock = self._state_lock
+                    if lock:
+                        with lock:
+                            self._pending_sells.update(doc["items"])
+                    else:
+                        self._pending_sells.update(doc["items"])
+                    logger.info(f"[START] 恢复{len(doc['items'])}个pending_sells")
+        except Exception as e:
+            logger.debug(f"[START] pending_sells恢复失败(非关键): {e}")
+
         # 【v2.8:EventBus订阅器注册(在scan_loop启动前)】
         try:
             from nodes.market_monitor.scanner_event_subscribers import register_subscribers
@@ -656,6 +672,26 @@ class MarketScanner:
             await self._save_timeline()
         except Exception:
             pass
+        
+        # 【v2.9.4:保存pending_sells状态到MongoDB(防止重启丢失)】
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.db:
+                lock = self._state_lock
+                if lock:
+                    with lock:
+                        pending = dict(self._pending_sells)
+                else:
+                    pending = dict(self._pending_sells)
+                if pending:
+                    await mongo_manager.db["scanner_state"].update_one(
+                        {"_id": "pending_sells"},
+                        {"$set": {"items": pending, "saved_at": datetime.now().isoformat()}},
+                        upsert=True,
+                    )
+                    logger.info(f"[STOP] 保存{len(pending)}个pending_sells到MongoDB")
+        except Exception as e:
+            logger.debug(f"[STOP] pending_sells保存失败(非关键): {e}")
         
         # 关闭数据源
         if self._data_router:
