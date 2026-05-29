@@ -1460,17 +1460,24 @@ class MarketScanner:
 
     def _get_activated_trailing_stops_safe(self) -> Dict:
         """线程安全读取已激活的追踪止损(深拷贝+过滤)"""
-        with self._state_lock:
+        if self._state_lock is None:
             all_stops = dict(self._trailing_stops)
+        else:
+            with self._state_lock:
+                all_stops = dict(self._trailing_stops)
         return {k: v for k, v in all_stops.items() if v.get("activated")}
 
     def _safe_copy_position_risk_levels(self) -> Dict:
         """线程安全深拷贝position_risk_levels"""
+        if self._state_lock is None:
+            return dict(self._position_risk_levels)
         with self._state_lock:
             return dict(self._position_risk_levels)
 
     def _safe_copy_trailing_stops(self) -> Dict:
         """线程安全深拷贝trailing_stops"""
+        if self._state_lock is None:
+            return dict(self._trailing_stops)
         with self._state_lock:
             return dict(self._trailing_stops)
 
@@ -1506,8 +1513,11 @@ class MarketScanner:
             warnings.append(f"行情降级level={self._quote_manager.degrade_level}")
         
         # 5. 跌停挂起
-        with self._state_lock:
+        if self._state_lock is None:
             pending_count = len(self._pending_sells)
+        else:
+            with self._state_lock:
+                pending_count = len(self._pending_sells)
         if pending_count > 0:
             warnings.append(f"跌停挂起{pending_count}只")
         
