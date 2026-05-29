@@ -456,7 +456,7 @@ class MarketScanner:
             "trailing_stops": self._get_activated_trailing_stops_safe(),
             "position_risk_levels": self._safe_copy_position_risk_levels(),
             "execution_stats": dict(self._execution_stats),
-            "smart_check_interval": self._get_smart_check_interval() if self._is_running else None,
+            "smart_check_interval": self._get_smart_check_interval(self._broker.get_positions()) if self._is_running else None,
             # 【Phase2.2:行情降级状态】
             "quote_degrade_level": self._quote_manager.degrade_level,
             "quote_degrade_desc": self._quote_manager.degrade_desc,
@@ -509,6 +509,11 @@ class MarketScanner:
         """启动扫描"""
         if self._is_running:
             return {"success": True, "message": "已在运行中"}
+
+        # 【Phase1.2:提前初始化线程锁(被premarket_prepare/_load_positions使用)】
+        import threading
+        if self._state_lock is None:
+            self._state_lock = threading.Lock()
 
         # 互斥: 检查DailyScheduler是否在运行
         try:
@@ -567,7 +572,8 @@ class MarketScanner:
         import threading
         self._loop = asyncio.get_event_loop()
         self._cache_lock = threading.Lock()
-        self._state_lock = threading.Lock()  # 保护trailing_stops/pending_sells/position_risk_levels
+        if self._state_lock is None:
+            self._state_lock = threading.Lock()  # 保护trailing_stops/pending_sells/position_risk_levels
         self._risk_running = True
         self._risk_thread = threading.Thread(
             target=self._risk_loop_sync, daemon=True,
@@ -874,7 +880,7 @@ class MarketScanner:
                         last_full_scan = time.time()
                     else:
                         # 【Phase1.2:持仓检查已由风控线程接管,扫描循环只做sleep等待下一次全量扫描】
-                        check_interval = self._get_smart_check_interval()
+                        check_interval = self._get_smart_check_interval(self._broker.get_positions())
                         await asyncio.sleep(check_interval)
                         continue
                 
