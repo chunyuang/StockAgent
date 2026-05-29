@@ -186,6 +186,28 @@ function updatePnlHistory() {
   if (pnlHistory.value.length > 60) pnlHistory.value = pnlHistory.value.slice(-60)
 }
 async function fetchPerformanceHistory() {
+  try {
+    const r = await api.get(`${scannerApi}/performance-history?days=30`)
+    const p = parseResponse(r)
+    if (p.success && p.data?.length > 0) {
+      perfData.value = p.data.map((s: any) => ({ time: (s.timestamp || s.date || '').substring(5, 16), net_value: s.net_value || s.total_assets / 1000000, drawdown: s.drawdown_pct || 0 }))
+      return
+    }
+    // fallback: from timeline
+    const tl = await api.get(`${scannerApi}/timeline/history?days=30`)
+    const tp = parseResponse(tl)
+    if (tp.success && tp.data?.length > 0) {
+      let nav = 1.0, peak = 1.0
+      perfData.value = tp.data.map((item: any) => {
+        const profitAmount = item.profit_amount || 0
+        nav *= (1 + profitAmount / (1000000 * nav))
+        peak = Math.max(peak, nav)
+        const dd = nav < peak ? (nav / peak - 1) * 100 : 0
+        return { time: (item.date || item.time || '').substring(0, 16), net_value: nav, drawdown: dd }
+      })
+    }
+  } catch { /* ignore */ }
+}
 
 // ==================== 盘前竞价Tab 数据 ====================
 async function fetchPremarketData() {
@@ -268,28 +290,6 @@ async function fetchParamCompare() {
   } catch { /* ignore */ }
   finally { paramCompareLoading.value = false }
 }
-  try {
-    const r = await api.get(`${scannerApi}/performance-history?days=30`)
-    const p = parseResponse(r)
-    if (p.success && p.data?.length > 0) {
-      perfData.value = p.data.map((s: any) => ({ time: (s.timestamp || s.date || '').substring(5, 16), net_value: s.net_value || s.total_assets / 1000000, drawdown: s.drawdown_pct || 0 }))
-      return
-    }
-    // fallback: from timeline
-    const tl = await api.get(`${scannerApi}/timeline/history?days=30`)
-    const tp = parseResponse(tl)
-    if (tp.success && tp.data?.length > 0) {
-      let nav = 1.0, peak = 1.0
-      perfData.value = tp.data.map((item: any) => {
-        const profitAmount = item.profit_amount || 0
-        nav *= (1 + profitAmount / (1000000 * nav))
-        peak = Math.max(peak, nav)
-        const dd = nav < peak ? (nav / peak - 1) * 100 : 0
-        return { time: (item.date || item.time || '').substring(0, 16), net_value: nav, drawdown: dd }
-      })
-    }
-  } catch { /* ignore */ }
-}
 const pnlOption = computed(() => {
   const source = perfData.value.length > 0 ? perfData.value : pnlHistory.value.map(p => ({ time: p.time, net_value: p.value / 1000000 + 1, drawdown: 0 }))
   return {
@@ -371,7 +371,7 @@ const timelineCollapsed = ref(true)
 function toggleStrat(id: string) { stratCollapsed.value[id] = !stratCollapsed.value[id] }
 async function dailySettlement() { try { const r = await api.post(`${scannerApi}/daily-settlement`); const p = parseResponse(r); if (p.success) { ElMessage.success(p.data?.message || '日结算完成'); await fetchScanner() } } catch (e: any) { ElMessage.error('日结算失败') } }
 async function resetAccount() { showConfirm('⚠️ 重置账户', '将清空所有持仓和交易记录，不可恢复！\n确认重置？', async () => { try { const r = await api.post(`${scannerApi}/reset`); const p = parseResponse(r); if (p.success) { ElMessage.success('账户已重置'); await fetchAll(true) } } catch (e: any) { ElMessage.error('重置失败') } }) }
-async function sellAllPositions() { showConfirm('⚠️ 一键清仓', `确认清仓所有持仓？\n当前持仓 ${positions.value.length} 只，总市值 ¥${positions.value.reduce((s, p) => s + p.current_price * p.total_qty, 0).toFixed(0)}`, async () => { try { const r = await api.post(`${scannerApi}/sell-all`); const p = parseResponse(r); if (p.success) { ElMessage.success(p.data?.message || '清仓完成'); await fetchAll(true) } } catch (e: any) { ElMessage.error('清仓失败') } }) }
+async function sellAllPositions() { showConfirm('⚠️ 一键清仓', `确认清仓所有持仓？\n当前持仓 ${positions.value.length} 只，总市值 ¥${positions.value.reduce((s, p) => s + (p.market_value || p.current_price * p.shares), 0).toFixed(0)}`, async () => { try { const r = await api.post(`${scannerApi}/sell-all`); const p = parseResponse(r); if (p.success) { ElMessage.success(p.data?.message || '清仓完成'); await fetchAll(true) } } catch (e: any) { ElMessage.error('清仓失败') } }) }
 async function fetchWeeklyReport() { try { const r = await api.get(`${scannerApi}/weekly-report`); const p = parseResponse(r); if (p.success) return p.data } catch { return null } }
 async function exportTradeLog() { try { const r = await api.get(`${scannerApi}/trade-log?format=csv&days=30`); if (r?.success && r.data) { const blob = new Blob([r.data], { type: 'text/csv;charset=utf-8' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = r.filename || 'trade_log.csv'; a.click(); URL.revokeObjectURL(url); ElMessage.success('导出成功') } } catch { ElMessage.error('导出失败') } }
 async function saveSnapshot() { try { const r = await api.post(`${scannerApi}/snapshot`); const p = parseResponse(r); if (p.success) ElMessage.success('快照已保存') } catch { ElMessage.error('保存失败') } }
