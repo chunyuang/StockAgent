@@ -1751,7 +1751,8 @@ async def get_scan_traces(date: str = None, limit: int = 10):
             query,
             {"candidates": 0, "rejected_summary": 0}  # 排除大字段
         ).sort("_id", -1).limit(limit):
-            doc.pop("_id", None)
+            # 将_id转为scan_id供前端详情查询
+            doc["scan_id"] = str(doc.pop("_id", ""))
             docs.append(doc)
         
         return {"success": True, "data": docs, "count": len(docs)}
@@ -1781,7 +1782,7 @@ async def get_scan_trace_detail(scan_id: str, status: str = None, limit: int = 5
         
         doc = await mongo_manager.db["scan_traces"].find_one({"_id": ObjectId(scan_id)})
         if doc:
-            doc.pop("_id", None)
+            doc["scan_id"] = str(doc.pop("_id", ""))
             
             # 按状态过滤candidates，限制数量
             candidates = doc.get("candidates", [])
