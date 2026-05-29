@@ -352,6 +352,18 @@ class SignalManager:
                 await scanner._publish_scanner_event("timeline", {
                     "item": self.timeline[-1],
                 })
+                # 【v2.9:买入成功也发射EventBus持仓变更事件(与卖出对齐)】
+                try:
+                    from nodes.market_monitor.scanner_event_bus import ScannerEvents
+                    if hasattr(scanner, '_event_bus') and scanner._event_bus:
+                        await scanner._event_bus.emit(ScannerEvents.POSITION_CHANGED, {
+                            "ts_code": sig.ts_code, "action": "buy",
+                            "reason": sig.reason, "strategy": sig.strategy_name,
+                            "price": order.filled_price, "shares": shares,
+                            "source": "signal_manager",
+                        })
+                except Exception:
+                    pass
                 logger.info(f"[EXEC] 买入 {sig.ts_code} {shares}股@{order.filled_price:.2f} ({sig.strategy_name})")
             else:
                 self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
