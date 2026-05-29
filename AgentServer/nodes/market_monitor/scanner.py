@@ -1157,22 +1157,7 @@ class MarketScanner:
             return signals
 
         # 转换为管道输入格式
-        candidates = []
-        for s in signals:
-            candidates.append({
-                "ts_code": s.ts_code,
-                "stock_name": s.stock_name,
-                "strategy": s.strategy,
-                "strategy_name": s.strategy_name,
-                "price": s.price,
-                "pct_chg": s.pct_chg,
-                "volume_ratio": s.volume_ratio,
-                "turnover_rate": s.turnover_rate,
-                "is_limit_up": s.is_limit_up,
-                "limit_up_count": s.limit_up_count,
-                "reason": s.reason,
-                "confidence": s.confidence,
-            })
+        candidates = self._signals_to_candidates(signals)
 
         # 获取持仓信息
         positions = []
@@ -1198,23 +1183,74 @@ class MarketScanner:
 
         # 强制空仓 → 清所有持仓
         if result.action == "empty":
-            logger.warning(f"[FILTER] ⚠️ 强制空仓: {result.force_empty_reason}")
-            if self._broker:
-                for p in self._broker.get_positions():
-                    self._broker.sell(
-                        ts_code=p.ts_code,
-                        shares=p.total_qty,
-                        price=p.current_price,
-                        reason=f"强制空仓: {result.force_empty_reason}",
-                    )
+            await self._execute_force_empty(result.force_empty_reason)
             return []
 
         # 转回ScanSignal，注入筛选决策详情+逐层trace
+        filtered_signals = self._merge_filter_result(signals, result)
+
+        # 存储仓位系数和情绪信息(供execute_signals使用)
+        old_phase = self._current_sentiment.get("period", "")
+        self._current_position_ratio = result.position_ratio
+        self._current_sentiment = self._filter_pipeline.get_sentiment_info()
+        new_phase = self._current_sentiment.get("period", "")
+
+        logger.info(f"[FILTER] 筛选完成: {len(signals)}→{len(filtered_signals)}个信号, "
+                     f"仓位系数={result.position_ratio:.0%}")
+        
+        # 【Phase2.4:情绪phase变化→动态调仓】
+        if old_phase and old_phase != new_phase:
+            await self._event_bus.emit(ScannerEvents.EMOTION_CHANGED, {
+                "old_phase": old_phase, "new_phase": new_phase,
+            })
+            await self._handle_emotion_phase_change(old_phase, new_phase)
+
+        # EventBus: 扫描完成事件
+        await self._event_bus.emit(ScannerEvents.SCAN_COMPLETED, {
+            "trade_date": trade_date, "signals_count": len(filtered_signals),
+        })
+
+        return filtered_signals
+
+    def _signals_to_candidates(self, signals: List[ScanSignal]) -> List[Dict]:
+        """将ScanSignal列表转换为filter_pipeline候选格式【v2.9提取】"""
+        candidates = []
+        for s in signals:
+            candidates.append({
+                "ts_code": s.ts_code,
+                "stock_name": s.stock_name,
+                "strategy": s.strategy,
+                "strategy_name": s.strategy_name,
+                "price": s.price,
+                "pct_chg": s.pct_chg,
+                "volume_ratio": s.volume_ratio,
+                "turnover_rate": s.turnover_rate,
+                "is_limit_up": s.is_limit_up,
+                "limit_up_count": s.limit_up_count,
+                "reason": s.reason,
+                "confidence": s.confidence,
+            })
+        return candidates
+
+    async def _execute_force_empty(self, reason: str):
+        """强制空仓: 卖出所有持仓【v2.9提取】"""
+        logger.warning(f"[FILTER] ⚠️ 强制空仓: {reason}")
+        if self._broker:
+            for p in self._broker.get_positions():
+                self._broker.sell(
+                    ts_code=p.ts_code,
+                    shares=p.total_qty,
+                    price=p.current_price,
+                    reason=f"强制空仓: {reason}",
+                )
+
+    def _merge_filter_result(self, signals: List[ScanSignal], result) -> List[ScanSignal]:
+        """将filter_pipeline结果合并回ScanSignal【v2.9提取】"""
         candidate_map = {c["ts_code"]: c for c in result.candidates}
         filtered_signals = []
         for s in signals:
             if s.ts_code in candidate_map:
-                # 【实盘审查增强】注入9层筛选决策详情
+                # 注入9层筛选决策详情
                 s.decision_detail = {
                     "filter_pipeline": {
                         "layers_applied": result.layers_applied,
@@ -1232,7 +1268,7 @@ class MarketScanner:
                     "factors": s.factors,
                     "scan_time": s.scan_time,
                 }
-                # 【调试增强】逐层trace: 合并9层筛选结果到layer_trace
+                # 逐层trace
                 for layer_name, detail in result.layer_details.items():
                     s.layer_trace[layer_name] = {
                         "detail": detail,
@@ -1244,36 +1280,13 @@ class MarketScanner:
                 }
                 filtered_signals.append(s)
             else:
-                # 被过滤掉的信号: 记录被哪层过滤
+                # 被过滤掉的信号
                 s.signal_status = "filtered"
                 s.layer_trace["filter_result"] = {
                     "filtered_out": True,
                     "reason": "9层筛选管道过滤",
                     "layer_details": result.layer_details,
                 }
-
-        # 存储仓位系数和情绪信息(供execute_signals使用)
-        old_phase = self._current_sentiment.get("period", "")
-        self._current_position_ratio = result.position_ratio
-        self._current_sentiment = self._filter_pipeline.get_sentiment_info()
-        new_phase = self._current_sentiment.get("period", "")
-
-        logger.info(f"[FILTER] 筛选完成: {len(signals)}→{len(filtered_signals)}个信号, "
-                     f"仓位系数={result.position_ratio:.0%}")
-        
-        # 【Phase2.4:情绪phase变化→动态调仓】
-        if old_phase and old_phase != new_phase:
-            # EventBus: 情绪变化事件(在调仓前发射, handler可做预处理)
-            await self._event_bus.emit(ScannerEvents.EMOTION_CHANGED, {
-                "old_phase": old_phase, "new_phase": new_phase,
-            })
-            await self._handle_emotion_phase_change(old_phase, new_phase)
-
-        # EventBus: 扫描完成事件
-        await self._event_bus.emit(ScannerEvents.SCAN_COMPLETED, {
-            "trade_date": trade_date, "signals_count": len(filtered_signals),
-        })
-
         return filtered_signals
 
     # ==================== 信号管理 ====================
