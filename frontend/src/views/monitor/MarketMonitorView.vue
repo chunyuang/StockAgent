@@ -49,7 +49,8 @@ watch(() => themeStore.isDark, () => { /* theme changes auto-propagate via CSS v
 watch(activeTab, (tab) => {
   if (tab === 'premarket') fetchPremarketData()
   if (tab === 'scan-trace') fetchScanHistory()
-  if (tab === 'review') fetchReviewData()
+  if (tab === 'review') { fetchReviewData(); fetchParamCompare() }
+  if (tab === 'ops') fetchAutoTrades()
 })
 let refreshTimer: any = null
 let ws: WebSocket | null = null
@@ -179,6 +180,11 @@ const tradeAttributions = ref<any[]>([])
 const reviewLoading = ref(false)
 const executionQuality = ref<any>(null)
 const liveBacktestDiff = ref<any[]>([])
+
+// ==================== 自动交易 + 参数对比 ====================
+const autoTrades = ref<any[]>([])
+const paramCompare = ref<any>(null)
+const paramCompareLoading = ref(false)
 function updatePnlHistory() {
   const pnl = totalPnl.value
   if (pnl === 0 && pnlHistory.value.length === 0) return
@@ -249,6 +255,24 @@ async function fetchReviewData() {
     if (lbp.success) liveBacktestDiff.value = lbp.data || []
   } catch { /* ignore */ }
   finally { reviewLoading.value = false }
+}
+
+// ==================== 自动交易 + 参数对比 数据 ====================
+async function fetchAutoTrades() {
+  try {
+    const r = await api.get(`${scannerApi}/auto-trades?limit=50`)
+    const p = parseResponse(r)
+    if (p.success) autoTrades.value = p.data || []
+  } catch { /* ignore */ }
+}
+async function fetchParamCompare() {
+  paramCompareLoading.value = true
+  try {
+    const r = await api.get(`${scannerApi}/strategy-params-compare`)
+    const p = parseResponse(r)
+    if (p.success) paramCompare.value = p.data
+  } catch { /* ignore */ }
+  finally { paramCompareLoading.value = false }
 }
   try {
     const r = await api.get(`${scannerApi}/performance-history?days=30`)
@@ -1162,6 +1186,44 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
             策略集中度: {{ Object.keys(dailyReportData.positions.strategy_summary).filter(k => dailyReportData.positions.strategy_summary[k].count > 0).length }}个策略活跃
           </div>
         </div>
+
+        <!-- 策略参数对比(实盘vs回测) -->
+        <div class="st" style="margin-top:16px">🔧 策略参数对比 <span class="text-tertiary" style="font-size:11px">实盘(MongoDB) vs 回测(strategy_defaults.py)</span> <ElButton size="small" @click="fetchParamCompare" :loading="paramCompareLoading">🔄</ElButton></div>
+        <div v-if="paramCompare" class="param-compare">
+          <div v-if="paramCompare.drift_count > 0" class="suggestion warn" style="margin-bottom:8px">⚠️ 检测到{{ paramCompare.drift_count }}个参数漂移(实盘≠回测)，可能影响实盘-回测一致性</div>
+          <div v-for="sc in paramCompare.strategy_comparisons || []" :key="sc.strategy_id" class="pc-strategy">
+            <div class="pc-header">
+              <span class="pc-name">{{ sc.strategy_name }}</span>
+              <ElTag v-if="sc.drift_count > 0" size="small" type="danger">{{ sc.drift_count }}项漂移</ElTag>
+              <ElTag v-else size="small" type="success">一致</ElTag>
+            </div>
+            <div v-if="sc.param_diffs?.length" class="pc-params">
+              <div v-for="p in sc.param_diffs.filter(d => d.diff)" :key="p.key" class="pc-diff-row">
+                <span class="pc-key">{{ p.key }}</span>
+                <span class="pc-live">实盘: {{ typeof p.live_value === 'number' ? (p.live_value < 0.1 ? p.live_value.toFixed(4) : p.live_value.toFixed(2)) : p.live_value }}</span>
+                <span class="pc-bt">回测: {{ typeof p.backtest_value === 'number' ? (p.backtest_value < 0.1 ? p.backtest_value.toFixed(4) : p.backtest_value.toFixed(2)) : p.backtest_value }}</span>
+              </div>
+              <details v-if="sc.param_diffs.filter(d => !d.diff).length > 0"><summary class="cp" style="font-size:11px;color:var(--text-tertiary)">一致参数({{ sc.param_diffs.filter(d => !d.diff).length }}项) ▾</summary>
+                <div v-for="p in sc.param_diffs.filter(d => !d.diff)" :key="p.key" class="pc-same-row">
+                  <span class="pc-key">{{ p.key }}</span>
+                  <span>{{ typeof p.live_value === 'number' ? (p.live_value < 0.1 ? p.live_value.toFixed(4) : p.live_value.toFixed(2)) : p.live_value }}</span>
+                </div>
+              </details>
+            </div>
+          </div>
+          <!-- 全局风控参数 -->
+          <div v-if="paramCompare.global_risk?.diffs?.length" class="pc-strategy" style="margin-top:8px">
+            <div class="pc-header"><span class="pc-name">全局风控</span><ElTag size="small" type="danger">{{ paramCompare.global_risk.diffs.length }}项漂移</ElTag></div>
+            <div class="pc-params">
+              <div v-for="d in paramCompare.global_risk.diffs" :key="d.key" class="pc-diff-row">
+                <span class="pc-key">{{ d.key }}</span>
+                <span class="pc-live">实盘: {{ d.live_value }}</span>
+                <span class="pc-bt">回测: {{ d.backtest_value }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div v-else class="empty">点击刷新加载参数对比</div>
       </div>
     </div>
 
@@ -1202,7 +1264,26 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
     <!-- ==================== 运维Tab ==================== -->
     <div v-if="activeTab === 'ops'" class="mm-tab-content">
       <div class="mm-tab-scroll">
+        <!-- 自动交易操作流 -->
+        <div class="st">🤖 自动交易操作流 <ElButton size="small" @click="fetchAutoTrades">🔄</ElButton></div>
+        <div v-if="!autoTrades.length" class="empty">暂无自动交易记录</div>
+        <div v-else class="auto-trades-list">
+          <div class="at-header"><span>时间</span><span>来源</span><span>操作</span><span>代码</span><span>名称</span><span>数量</span><span>价格</span><span>策略</span><span>原因</span></div>
+          <div v-for="t in autoTrades" :key="t.order_id" class="at-row" :class="{ 'auto-trade': t.source === 'auto', 'manual-trade': t.source === 'manual' }">
+            <span class="tl-time">{{ t.time }}</span>
+            <span><ElTag size="small" :type="t.source === 'auto' ? 'primary' : 'warning'" style="font-size:10px">{{ t.source === 'auto' ? '🤖自动' : '✋手动' }}</ElTag></span>
+            <span class="tl-action" :class="t.side === 'buy' ? 'buy' : 'sell'">{{ t.side === 'buy' ? '买' : '卖' }}</span>
+            <span class="code">{{ t.ts_code }}</span>
+            <span class="name">{{ t.stock_name }}</span>
+            <span>{{ t.quantity }}股</span>
+            <span>¥{{ t.price?.toFixed(2) }}</span>
+            <span v-if="t.strategy" class="tl-strat">{{ strategyCN(t.strategy) }}</span><span v-else>-</span>
+            <span class="text-tertiary" style="font-size:11px">{{ t.reason }}</span>
+          </div>
+        </div>
+
         <!-- 系统健康 -->
+        <div class="st" style="margin-top:16px">💻 系统健康</div>
         <SystemHealth />
 
         <!-- 快捷操作 -->
@@ -1849,6 +1930,26 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 }
 
 /* 运维Tab */
+.auto-trades-list { font-size: 12px; }
+.at-header, .at-row { display: grid; grid-template-columns: 52px 50px 28px 72px 56px 50px 60px 56px 1fr; gap: 4px; padding: 3px 0; align-items: center; }
+.at-header { font-weight: 600; color: var(--text-tertiary); border-bottom: 1px solid var(--border-default); font-size: 11px; }
+.at-row { border-bottom: 1px solid var(--border-default); }
+.at-row:last-child { border-bottom: none; }
+.at-row.auto-trade { background: rgba(22,119,255,0.03); }
+.at-row.manual-trade { background: rgba(250,173,20,0.03); }
+
+/* 参数对比 */
+.param-compare { display: flex; flex-direction: column; gap: 8px; }
+.pc-strategy { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 10px 12px; }
+.pc-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.pc-name { font-weight: 600; font-size: 13px; }
+.pc-params { display: flex; flex-direction: column; gap: 2px; }
+.pc-diff-row { display: grid; grid-template-columns: 140px 1fr 1fr; gap: 8px; padding: 3px 6px; border-radius: 4px; font-size: 12px; background: rgba(245,63,63,0.06); }
+.pc-same-row { display: grid; grid-template-columns: 140px 1fr; gap: 8px; padding: 2px 6px; font-size: 11px; color: var(--text-tertiary); }
+.pc-key { font-weight: 500; }
+.pc-live { color: var(--el-color-primary); }
+.pc-bt { color: var(--stock-up); }
+
 .ops-grid {
   display: flex;
   flex-wrap: wrap;
