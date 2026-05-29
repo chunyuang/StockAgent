@@ -341,3 +341,71 @@ class TestEventBusEmissionCompleteness:
         # 情绪调仓使用_execute_risk_sell或直接broker操作
         # 至少应该有EMOTION_CHANGED事件
         assert "EMOTION_CHANGED" in inspect.getsource(MarketScanner._apply_filter_pipeline)
+
+
+# ==================== __getattr__动态委托测试 ====================
+
+class TestGetattrDelegation:
+    """验证__getattr__动态委托分派正确性"""
+
+    def _make_scanner(self):
+        from nodes.market_monitor.scanner import MarketScanner
+        return MarketScanner(account_id="test_delegate")
+
+    def test_delegate_map_has_entries(self):
+        """_DELEGATE_MAP非空"""
+        from nodes.market_monitor.scanner import MarketScanner
+        assert len(MarketScanner._DELEGATE_MAP) >= 20
+
+    def test_delegated_method_callable(self):
+        """委托方法可通过__getattr__获取"""
+        scanner = self._make_scanner()
+        assert callable(scanner._save_timeline)
+        assert callable(scanner._check_positions)
+        assert callable(scanner._short_to_ts_code)
+
+    def test_nonexistent_method_raises(self):
+        """非委托方法应抛AttributeError"""
+        scanner = self._make_scanner()
+        with pytest.raises(AttributeError):
+            scanner.nonexistent_method_12345()
+
+    def test_class_method_delegate(self):
+        """QuoteManager类方法委托"""
+        scanner = self._make_scanner()
+        result = scanner._short_to_ts_code("000001")
+        assert result == "000001.SZ"
+
+    def test_scanner_utils_delegate(self):
+        """ScannerUtils委托"""
+        scanner = self._make_scanner()
+        result = scanner._safe_round(1.23456, 2)
+        assert result == 1.23
+
+    def test_position_checker_delegate(self):
+        """PositionChecker委托"""
+        scanner = self._make_scanner()
+        interval = scanner._get_smart_check_interval([])
+        assert isinstance(interval, (int, float))
+        assert interval > 0
+
+    def test_init_split_methods_exist(self):
+        """_init_*子方法存在"""
+        from nodes.market_monitor.scanner import MarketScanner
+        for name in ['_init_state', '_init_broker', '_init_pipeline', '_init_modules', '_init_risk']:
+            assert hasattr(MarketScanner, name), f"Missing _init method: {name}"
+
+    def test_preserved_methods_not_in_delegate_map(self):
+        """线程安全方法不在委托映射中(保留为显式方法)"""
+        from nodes.market_monitor.scanner import MarketScanner
+        assert "_safe_copy_position_risk_levels" not in MarketScanner._DELEGATE_MAP
+        assert "_safe_copy_trailing_stops" not in MarketScanner._DELEGATE_MAP
+        assert "_get_activated_trailing_stops_safe" not in MarketScanner._DELEGATE_MAP
+
+    def test_init_is_short(self):
+        """__init__应为短方法(拆分后≤15行)"""
+        from nodes.market_monitor.scanner import MarketScanner
+        import inspect
+        source = inspect.getsource(MarketScanner.__init__)
+        lines = [l for l in source.split('\n') if l.strip() and not l.strip().startswith('#')]
+        assert len(lines) <= 15, f"__init__ too long: {len(lines)} lines"
