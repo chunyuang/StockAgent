@@ -61,6 +61,7 @@ class Order:
     trade_date: str = ""
     create_time: str = ""
     fill_time: str = ""
+    source: str = "auto"     # auto=自动交易 / manual=手动下单
 
 
 @dataclass
@@ -220,6 +221,7 @@ class SimulatedBroker:
                     "trade_date": o.trade_date,
                     "create_time": o.create_time,
                     "fill_time": getattr(o, 'fill_time', ''),
+                    "source": getattr(o, 'source', 'auto'),
                 }
                 for o in self.orders if o.trade_date == today
             ]
@@ -302,6 +304,7 @@ class SimulatedBroker:
                     reason=doc.get("reason", ""),
                     trade_date=doc.get("trade_date", today),
                     create_time=doc.get("create_time", ""),
+                    source=doc.get("source", "auto"),
                 )
                 order.fill_time = doc.get("fill_time", "")
                 self.orders.append(order)
@@ -397,7 +400,8 @@ class SimulatedBroker:
                     price: float = 0.0,
                     order_type: str = "market",
                     strategy: str = "",
-                    reason: str = "") -> Tuple[bool, str, Order]:
+                    reason: str = "",
+                    source: str = "auto") -> Tuple[bool, str, Order]:
         """
         下单
 
@@ -441,6 +445,7 @@ class SimulatedBroker:
             reason=reason,
             trade_date=trade_date,
             create_time=now.strftime("%H:%M:%S"),
+            source=source,
         )
 
         # ==================== 前置检查 ====================
@@ -726,4 +731,5 @@ class SimulatedBroker:
             "strategy": o.strategy,
             "reason": o.reason,
             "status": o.status.value,
+            "source": getattr(o, 'source', 'auto'),
         } for o in self.orders if o.trade_date == today and o.status == OrderStatus.FILLED]

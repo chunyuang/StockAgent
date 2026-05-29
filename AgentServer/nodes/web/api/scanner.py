@@ -393,6 +393,7 @@ async def manual_trade(req: ManualTradeRequest):
         order_type=req.order_type,
         strategy=req.strategy,
         reason=req.reason or "手动操作",
+        source="manual",
     )
     
     if ok:
@@ -1260,6 +1261,7 @@ async def sell_position(req: PartialSellRequest):
         order_type="market",
         strategy=pos.strategy,
         reason=reason,
+        source="manual",
     )
     
     if ok:
@@ -2783,3 +2785,139 @@ async def get_trade_attribution(date: str = None):
         return {"success": True, "data": attributions}
     except Exception as e:
         return {"success": True, "data": [], "message": str(e)}
+
+
+# ==================== 自动交易操作流 + 策略参数对比 ====================
+
+@router.get("/auto-trades")
+async def get_auto_trades(date: str = None, limit: int = 50):
+    """自动交易操作流 — 查看自动交易系统执行的所有操作
+    
+    区别于手动操作, 这是Scanner自动触发的买入/卖出
+    返回带source标记的订单列表
+    
+    Args:
+        date: 指定日期(YYYYMMDD)
+        limit: 最大返回数
+    """
+    try:
+        scanner = _get_scanner_instance()
+        if not scanner:
+            return {"success": True, "data": []}
+        
+        trades = []
+        for o in scanner._broker.orders if scanner._broker else []:
+            if o.status.value != "filled":
+                continue
+            if date and o.trade_date != date:
+                continue
+            trades.append({
+                "time": o.fill_time or o.create_time,
+                "ts_code": o.ts_code,
+                "stock_name": o.stock_name,
+                "side": o.side.value,
+                "quantity": o.filled_qty,
+                "price": o.filled_price,
+                "amount": o.filled_price * o.filled_qty,
+                "strategy": o.strategy,
+                "reason": o.reason,
+                "source": getattr(o, 'source', 'auto'),
+                "trade_date": o.trade_date,
+                "order_id": o.order_id,
+            })
+        
+        # 按时间倒序
+        trades.sort(key=lambda x: x.get("time", ""), reverse=True)
+        return {"success": True, "data": trades[:limit]}
+    except Exception as e:
+        return {"success": True, "data": [], "message": str(e)}
+
+
+@router.get("/strategy-params-compare")
+async def get_strategy_params_compare():
+    """策略参数对比 — 实盘(MongoDB) vs 回测(defaults.py)
+    
+    返回每个策略的所有参数, 标注与回测基线不同的字段
+    用于诊断实盘-回测不一致问题
+    """
+    try:
+        from nodes.market_monitor.strategy_param_center import param_center
+        await param_center.initialize()
+        
+        # 检测漂移
+        drifts = await param_center.detect_drift()
+        
+        # 获取所有策略参数(实盘)
+        live_params = {}
+        for strategy_id in ['halfway_chase', 'first_limit_up', 'dragon_head', 'limit_down_qiao']:
+            params = await param_center.get_strategy_params(strategy_id)
+            if params:
+                live_params[strategy_id] = params
+        
+        # 获取回测基线
+        from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK
+        backtest_params = {}
+        for strategy_id, config in STRATEGY_CONFIGS.items():
+            backtest_params[strategy_id] = config
+        
+        # 逐策略逐参数对比
+        comparisons = []
+        all_strategy_ids = set(list(live_params.keys()) + list(backtest_params.keys()))
+        for sid in sorted(all_strategy_ids):
+            live = live_params.get(sid, {})
+            bt = backtest_params.get(sid, {})
+            all_keys = set(list(live.keys()) + list(bt.keys()))
+            
+            param_diffs = []
+            for key in sorted(all_keys):
+                live_val = live.get(key)
+                bt_val = bt.get(key)
+                if live_val != bt_val and live_val is not None and bt_val is not None:
+                    param_diffs.append({
+                        "key": key,
+                        "live_value": live_val,
+                        "backtest_value": bt_val,
+                        "diff": True,
+                    })
+                elif live_val is not None:
+                    param_diffs.append({
+                        "key": key,
+                        "live_value": live_val,
+                        "backtest_value": bt_val,
+                        "diff": False,
+                    })
+            
+            comparisons.append({
+                "strategy_id": sid,
+                "strategy_name": {"halfway_chase": "半路追涨", "first_limit_up": "首板打板", 
+                                   "dragon_head": "龙头低吸", "limit_down_qiao": "跌停翘板"}.get(sid, sid),
+                "live_params": live,
+                "backtest_params": bt,
+                "param_diffs": param_diffs,
+                "drift_count": len([d for d in param_diffs if d.get("diff")]),
+            })
+        
+        # 全局风控参数对比
+        global_diffs = []
+        live_gr = live_params.get("global_risk", {})
+        for key, bt_val in GLOBAL_RISK.items():
+            live_val = live_gr.get(key)
+            if live_val != bt_val:
+                global_diffs.append({
+                    "key": key,
+                    "live_value": live_val,
+                    "backtest_value": bt_val,
+                })
+        
+        return {"success": True, "data": {
+            "strategy_comparisons": comparisons,
+            "global_risk": {
+                "live": live_gr,
+                "backtest": GLOBAL_RISK,
+                "diffs": global_diffs,
+            },
+            "drifts_detected": drifts,
+            "drift_count": len(drifts),
+        }}
+    except Exception as e:
+        return {"success": True, "data": {"strategy_comparisons": [], "global_risk": {}, "drifts_detected": [], "drift_count": 0, "error": str(e)}}
