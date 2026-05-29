@@ -203,6 +203,9 @@ const pnlOption = computed(() => {
 const nowMs = ref(Date.now())
 let nowTimer: any = null
 // signalRemaining/formatRemaining/SIGNAL_EXPIRE_MS imported from @/utils/scanner
+// ==================== Tab 导航 ====================
+const activeTab = ref<'trading' | 'performance' | 'risk' | 'sentiment' | 'ops'>('trading')
+
 const tradeMode = ref('simulated')
 const replayDate = ref('')
 const replayDateVisible = ref(false)
@@ -476,6 +479,33 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
       </div>
     </div>
 
+    <!-- Tab 导航栏 -->
+    <div class="mm-tab-bar">
+      <button :class="['tab-btn', activeTab === 'trading' ? 'active' : '']" @click="activeTab = 'trading'">
+        <span class="tab-icon">🎯</span>
+        <span class="tab-text"><span class="tab-label">实盘</span><span class="tab-desc">信号·持仓·交易</span></span>
+        <span v-if="filteredSignals.length" class="tab-badge">{{ filteredSignals.length }}</span>
+      </button>
+      <button :class="['tab-btn', activeTab === 'performance' ? 'active' : '']" @click="activeTab = 'performance'">
+        <span class="tab-icon">📊</span>
+        <span class="tab-text"><span class="tab-label">绩效</span><span class="tab-desc">收益·胜率·对比</span></span>
+      </button>
+      <button :class="['tab-btn', activeTab === 'risk' ? 'active' : '']" @click="activeTab = 'risk'">
+        <span class="tab-icon">🛡️</span>
+        <span class="tab-text"><span class="tab-label">风控</span><span class="tab-desc">止损·距高·矩阵</span></span>
+        <span v-if="positions.some(p => p.risk_level === 'high')" class="tab-badge-danger">!</span>
+      </button>
+      <button :class="['tab-btn', activeTab === 'sentiment' ? 'active' : '']" @click="activeTab = 'sentiment'">
+        <span class="tab-icon">🌊</span>
+        <span class="tab-text"><span class="tab-label">情绪</span><span class="tab-desc">涨跌停·情绪周期</span></span>
+      </button>
+      <button :class="['tab-btn', activeTab === 'ops' ? 'active' : '']" @click="activeTab = 'ops'">
+        <span class="tab-icon">⚙️</span>
+        <span class="tab-text"><span class="tab-label">运维</span><span class="tab-desc">系统·日志·操作</span></span>
+        <span v-if="healthData?.warnings?.length" class="tab-badge-danger">!</span>
+      </button>
+    </div>
+
     <!-- 未启动引导 -->
     <div v-if="!isRunning && !status" class="mm-guide">
       <div class="guide-card">
@@ -493,7 +523,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
     </div>
 
     <!-- 3列主布局 -->
-    <div v-else class="mm-body">
+    <div v-if="activeTab === 'trading'" class="mm-body">
       <!-- 左列: 策略控制 -->
       <div class="mm-left">
         <div class="st cp" @click="stratSectionCollapsed = !stratSectionCollapsed">🎛️ 策略控制 <span class="sc-arrow">{{ stratSectionCollapsed ? '▶' : '▼' }}</span></div>
@@ -507,37 +537,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           </div>
         </div>
         </template>
-        <div class="st mt-10 cp" @click="qaSectionCollapsed = !qaSectionCollapsed">⚡ 快捷操作 <span class="sc-arrow">{{ qaSectionCollapsed ? '▶' : '▼' }}</span></div>
-        <div class="qa" v-if="!qaSectionCollapsed">
-          <div class="qa-group"><div class="qa-label">常用</div>
-          <div class="qa-row2"><ElButton size="small" @click="manualScan" :loading="loading" :disabled="!isRunning">📡 扫描</ElButton><ElButton size="small" type="warning" @click="forceScan" :loading="loading" :disabled="!isRunning" title="忽略交易时间，消耗必盈额度">⚡ 强扫</ElButton><ElButton size="small" @click="dailySettlement" :disabled="!isRunning">📅 日结</ElButton></div>
-          <div class="qa-row2"><ElButton size="small" @click="openTradeAudit" :disabled="!timeline.length">🔍 审查</ElButton><ElButton size="small" @click="fetchDailyReport(); dailyReportVisible = true">📈 复盘</ElButton><ElButton v-if="circuitBreakerPaused" size="small" type="danger" @click="resetCircuitBreaker">🔓 解熔断</ElButton></div>
-          </div>
-          <details class="qa-more"><summary class="qa-more-toggle">更多操作 ▾</summary>
-          <div class="qa-group" style="margin-top:6px"><div class="qa-label">分析</div>
-          <ElButton size="small" @click="openLayerDebug" :loading="layerDebugLoading" class="w-full">🧪 9层调试</ElButton>
-          <ElButton size="small" @click="loadCompare" :loading="compareLoading" class="w-full">📊 回测对比</ElButton>
-          <ElButton size="small" @click="openWeeklyReport" class="w-full">📊 周报</ElButton>
-          </div>
-          <div class="qa-group"><div class="qa-label">风控</div>
-          <ElButton size="small" @click="toggleDryRun" class="w-full">{{ dryRun ? '🔴 关闭调试' : '🔍 开启调试' }}</ElButton>
-          <ElButton v-if="circuitBreakerPaused" size="small" type="danger" @click="resetCircuitBreaker" class="w-full">🔓 重置熔断</ElButton>
-          <ElButton size="small" type="warning" @click="resetAccount" class="w-full">🗑️ 清仓重置</ElButton>
-          </div>
-          <div class="qa-group"><div class="qa-label">导出</div>
-          <ElButton size="small" @click="exportTradeLog" class="w-full">📥 导出日志</ElButton>
-          <ElButton size="small" @click="saveSnapshot" class="w-full">📸 保存快照</ElButton>
-          </div>
-          </details>
-        </div>
-        <div class="st mt-10">🔧 手动下单</div>
-        <div class="mf">
-          <ElInput v-model="manualTrade.ts_code" placeholder="代码 000001.SZ" size="small" @change="onManualCodeChange(manualTrade.ts_code)" />
-          <div class="mf-row"><ElSelect v-model="manualTrade.side" size="small" style="width:70px"><ElOption label="买入" value="buy" /><ElOption label="卖出" value="sell" /></ElSelect><ElInputNumber v-model="manualTrade.quantity" :min="0" :step="100" placeholder="数量" size="small" style="flex:1" controls-position="right" /></div>
-          <div class="mf-row"><ElInputNumber v-model="manualTrade.price" :min="0" :precision="2" :step="0.01" placeholder="价格(0=市价)" size="small" style="flex:1" controls-position="right" /><span v-if="manualQuote" class="mf-hint" @click="manualTrade.price = manualQuote.price">💰 填入现价</span></div>
-          <ElButton type="primary" size="small" :disabled="!manualTrade.ts_code" @click="executeManualTrade" class="w-full">下单</ElButton>
-          <div v-if="manualQuote" class="mf-q">💡 现价: ¥{{ manualQuote.price?.toFixed(2) }} <span v-if="manualQuote.pct_chg" :class="manualQuote.pct_chg >= 0 ? 'up' : 'down'">{{ manualQuote.pct_chg >= 0 ? '+' : '' }}{{ manualQuote.pct_chg.toFixed(2) }}%</span></div>
-        </div>
+        <div class="st mt-10" style="font-size:11px;color:var(--text-tertiary)">更多操作见 <span class="cp" style="color:var(--el-color-primary)" @click="activeTab='ops'">⚙️ 运维Tab</span></div>
 
       </div>
 
@@ -574,18 +574,13 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           </div>
         </div>
 
-        <!-- 盈亏曲线 -->
-        <div class="st" style="margin-top:8px">📈 盈亏曲线</div>
-        <div v-if="perfData.length || pnlHistory.length" class="pnl-chart-wrap">
-          <VChart :option="pnlOption" autoresize style="height:140px;width:100%" />
-        </div>
-        <div v-else class="empty" style="padding:12px 0">启动后自动生成</div>
+        <!-- 盈亏曲线 → 已移至绩效Tab -->
 
       </div>
     </div>
 
-    <!-- 底部时间线 -->
-    <div v-if="isRunning || timeline.length" class="mm-footer">
+    <!-- 底部时间线(实盘Tab专属) -->
+    <div v-if="activeTab === 'trading' && (isRunning || timeline.length)" class="mm-footer">
       <div class="tl-header"><div class="st cp" @click="timelineCollapsed = !timelineCollapsed">⏱️ 交易时间线 ({{ timeline.length }}) <span v-if="cumulativePnl !== 0" :class="cumulativePnl >= 0 ? 'up' : 'down'" style="font-size:12px;margin-left:6px">累计{{ cumulativePnl >= 0 ? '+' : '' }}¥{{ cumulativePnl.toFixed(0) }}</span> <span class="sc-arrow">{{ timelineCollapsed ? '▶' : '▼' }}</span></div> <ElButton v-if="timeline.length" size="small" type="warning" @click="openTradeAudit" style="margin-left:6px">🔍 审查</ElButton> <div style="display:inline-flex;align-items:center;gap:4px;margin-left:8px"><ElDatePicker v-model="historyDate" type="date" placeholder="日期" size="small" value-format="YYYY-MM-DD" style="width:130px" :disabled-date="(d: Date) => d > new Date()" /><ElButton size="small" @click="loadHistory" :loading="historyLoading" style="padding:2px 8px;font-size:11px">回放</ElButton><ElButton v-if="historyData.length" size="small" type="info" @click="historyData=[];historyDate=''" style="padding:2px 8px;font-size:11px">返回</ElButton></div></div>
       <div v-if="!timelineCollapsed" class="tl-body">
         <div class="tl-col" style="flex:3">
@@ -596,15 +591,6 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <div class="tl-col" v-if="orders.length" style="flex:2">
           <div class="st">📋 历史订单 ({{ orders.length }})</div>
           <div v-for="o in orders.slice(0, 20)" :key="o.order_id" class="tl-row cp" @click="openTradeDetail(o.ts_code)"><span class="tl-time">{{ o.trade_date?.slice(-4) || '' }} {{ o.create_time }}</span><span class="tl-action" :class="o.side === 'buy' ? 'buy' : 'sell'">{{ o.side === 'buy' ? '买' : '卖' }}</span><span class="code">{{ o.ts_code }}</span><span class="name">{{ o.stock_name }}</span><span class="tl-detail">{{ o.filled_qty }}股@{{ o.filled_price?.toFixed(2) || '0.00' }}</span><span class="text-tertiary-sm">{{ strategyCN(o.strategy) }}</span></div>
-        </div>
-        <div class="tl-col" style="flex:2">
-          <div class="st">🔥 涨跌停池 <div style="display:inline-flex;gap:2px;margin-left:6px"><ElTag size="small" :type="limitPoolTab==='limit_up'?'danger':'info'" class="cp" @click="limitPoolTab='limit_up'">涨停{{ limitPools.limit_up.length }}</ElTag><ElTag size="small" :type="limitPoolTab==='limit_down'?'warning':'info'" class="cp" @click="limitPoolTab='limit_down'">跌停{{ limitPools.limit_down.length }}</ElTag><ElTag size="small" :type="limitPoolTab==='broken'?'danger':'info'" class="cp" @click="limitPoolTab='broken'">炸板{{ limitPools.broken.length }}</ElTag></div></div>
-          <div v-if="!limitPools[limitPoolTab as keyof typeof limitPools]?.length" class="empty">暂无数据</div>
-          <div v-for="item in (limitPools[limitPoolTab as keyof typeof limitPools] || []).slice(0, 20)" :key="item.ts_code" class="limit-row"><span class="code">{{ item.ts_code }}</span><span class="name">{{ item.name }}</span><span :class="item.pct_chg >= 0 ? 'up' : 'down'">{{ item.pct_chg >= 0 ? '+' : '' }}{{ item.pct_chg.toFixed(1) }}%</span><span v-if="item.limit_times" class="lb-tag">{{ item.limit_times }}连板</span><span v-if="item.fd_amount" class="fd-tag">封{{ item.fd_amount }}万</span></div>
-        </div>
-        <div class="tl-col" style="flex:1;max-height:none">
-          <div class="st">📈 今日统计</div>
-          <div class="stats" v-if="status"><div class="si"><div class="sv">{{ status.stats.signals_found }}</div><div class="sl2">信号</div></div><div class="si"><div class="sv">{{ status.stats.trades_executed }}</div><div class="sl2">交易</div></div><div class="si"><div class="sv text-stock-up">{{ status.stats.stop_losses }}</div><div class="sl2">止损</div></div><div class="si"><div class="sv text-stock-down">{{ status.stats.take_profits }}</div><div class="sl2">止盈</div></div></div>
         </div>
       </div>
     </div>
@@ -853,24 +839,153 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
       </div>
       <div v-else class="empty">暂无周报数据</div>
     </ElDialog>
-    <!-- 【V50.1】信号链路追踪面板(可收起) -->
-    <div v-if="signalTraceVisible" class="mm-trace">
-      <SignalTracePanel />
+    <!-- ==================== 绩效Tab ==================== -->
+    <div v-if="activeTab === 'performance'" class="mm-tab-content">
+      <div class="mm-tab-scroll">
+        <!-- 盈亏曲线 -->
+        <div class="st">📈 净值曲线</div>
+        <div v-if="perfData.length || pnlHistory.length" class="pnl-chart-wrap-lg">
+          <VChart :option="pnlOption" autoresize style="height:280px;width:100%" />
+        </div>
+        <div v-else class="empty" style="padding:20px 0">启动后自动生成</div>
+
+        <!-- 策略绩效看板 -->
+        <StrategyPerfBoard />
+
+        <!-- 回测对比 -->
+        <div class="st" style="margin-top:12px">📊 实盘 vs 回测</div>
+        <ElButton size="small" @click="loadCompare" :loading="compareLoading">加载对比</ElButton>
+        <div v-if="compareData.length" class="cl-table" style="margin-top:8px">
+          <div class="cl-h"><span>策略</span><span>实盘交易</span><span>实盘胜率</span><span>实盘盈亏</span><span>回测收益</span><span>回测胜率</span><span>回测回撤</span><span>回测夏普</span></div>
+          <div v-for="c in compareData" :key="c.strategy" class="cl-r">
+            <span class="code">{{ strategyCN(c.strategy) }}</span>
+            <span>{{ c.live_trades }}笔</span>
+            <span :class="c.live_win_rate >= 50 ? 'up' : 'down'">{{ c.live_win_rate }}%</span>
+            <span :class="c.live_pnl >= 0 ? 'up' : 'down'">{{ c.live_pnl >= 0 ? '+' : '' }}{{ c.live_pnl.toFixed(0) }}</span>
+            <span :class="c.bt_return >= 0 ? 'up' : 'down'">{{ c.bt_return }}%</span>
+            <span>{{ c.bt_win_rate }}%</span>
+            <span class="text-stock-up">{{ c.bt_drawdown }}%</span>
+            <span>{{ c.bt_sharpe }}</span>
+          </div>
+        </div>
+
+        <!-- 周报 -->
+        <div class="st" style="margin-top:12px">📊 周报</div>
+        <ElButton size="small" @click="openWeeklyReport">生成周报</ElButton>
+      </div>
     </div>
 
-    <!-- 【专业运维增强】新增面板 -->
-    <div class="mm-pro-panels">
-      <!-- P1-7: 市场情绪全景 -->
-      <MarketSentiment />
+    <!-- ==================== 风控Tab ==================== -->
+    <div v-if="activeTab === 'risk'" class="mm-tab-content">
+      <div class="mm-tab-scroll">
+        <!-- 持仓风控矩阵 -->
+        <PositionRiskMatrix />
 
-      <!-- P0-2: 策略绩效看板 -->
-      <StrategyPerfBoard />
+        <!-- 持仓止损止盈详情 -->
+        <div class="st" style="margin-top:16px">🎯 持仓止损止盈</div>
+        <div v-if="!positions.length" class="empty">暂无持仓</div>
+        <div v-else class="risk-cards">
+          <div v-for="pos in sortedPositions" :key="pos.ts_code" class="risk-card">
+            <div class="rc-top">
+              <ElTag size="small" :color="strategyMeta[pos.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ pos.strategy_name || strategyCN(pos.strategy) }}</ElTag>
+              <span class="code">{{ pos.ts_code }}</span>
+              <span class="name">{{ pos.stock_name }}</span>
+              <span :class="pos.profit_pct >= 0 ? 'up' : 'down'" class="pct ml-auto">{{ pos.profit_pct >= 0 ? '+' : '' }}{{ pos.profit_pct.toFixed(1) }}%</span>
+            </div>
+            <div class="rc-detail">
+              <div class="rc-row"><span>成本</span><span>¥{{ pos.cost_price.toFixed(2) }}</span></div>
+              <div class="rc-row"><span>现价</span><span>¥{{ pos.current_price.toFixed(2) }}</span></div>
+              <div class="rc-row" v-if="pos.stop_loss_price"><span>止损价</span><span class="text-stock-up">¥{{ pos.stop_loss_price.toFixed(2) }}</span></div>
+              <div class="rc-row" v-if="pos.take_profit_price"><span>止盈价</span><span class="text-stock-down">¥{{ pos.take_profit_price.toFixed(2) }}</span></div>
+              <div class="rc-row"><span>距止损</span><span :class="parseFloat(distanceToStopLoss(pos)) < 2 ? 'down' : ''">{{ distanceToStopLoss(pos) }}</span></div>
+              <div class="rc-row" v-if="pos.trailing_stop?.activated"><span>追踪止损</span><span>📍¥{{ pos.trailing_stop.stop_price?.toFixed(2) }} ({{ (pos.trailing_stop.trailing_stop_pct * 100).toFixed(0) }}%)</span></div>
+            </div>
+            <div v-if="pos.stop_loss_pct != null" class="pos-risk-row" style="margin-top:6px">
+              <div class="risk-track"><div class="risk-fill" :style="{ width: Math.max(0, Math.min(100, (pos.profit_pct + normalizePct(pos.stop_loss_pct, 3)) / (normalizePct(pos.stop_loss_pct, 3) + normalizePct(pos.take_profit_pct, 7)) * 100)) + '%' }" :class="pos.profit_pct + normalizePct(pos.stop_loss_pct, 3) < 1 ? 'danger' : pos.profit_pct + normalizePct(pos.stop_loss_pct, 3) < 2 ? 'warning' : 'safe'"></div></div>
+              <div class="risk-labels-row"><span class="rl stop">止损{{ formatSlTp(pos.stop_loss_pct, 3) }}</span><span class="rd" :class="{ danger: pos.profit_pct + normalizePct(pos.stop_loss_pct, 3) < 2 }">距止损{{ (pos.profit_pct + normalizePct(pos.stop_loss_pct, 3)).toFixed(1) }}%</span><span class="rl profit">止盈{{ formatSlTp(pos.take_profit_pct, 7) }}</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
 
-      <!-- P0-3: 持仓风控矩阵 -->
-      <PositionRiskMatrix />
+    <!-- ==================== 情绪Tab ==================== -->
+    <div v-if="activeTab === 'sentiment'" class="mm-tab-content">
+      <div class="mm-tab-scroll">
+        <!-- 市场情绪全景 -->
+        <MarketSentiment />
 
-      <!-- P2-8: 系统健康面板 -->
-      <SystemHealth />
+        <!-- 涨跌停池 -->
+        <div class="st" style="margin-top:16px">🔥 涨跌停池 <div style="display:inline-flex;gap:2px;margin-left:6px"><ElTag size="small" :type="limitPoolTab==='limit_up'?'danger':'info'" class="cp" @click="limitPoolTab='limit_up'">涨停{{ limitPools.limit_up.length }}</ElTag><ElTag size="small" :type="limitPoolTab==='limit_down'?'warning':'info'" class="cp" @click="limitPoolTab='limit_down'">跌停{{ limitPools.limit_down.length }}</ElTag><ElTag size="small" :type="limitPoolTab==='broken'?'danger':'info'" class="cp" @click="limitPoolTab='broken'">炸板{{ limitPools.broken.length }}</ElTag></div></div>
+        <div v-if="!limitPools[limitPoolTab as keyof typeof limitPools]?.length" class="empty">暂无数据</div>
+        <div v-else class="limit-pool-grid">
+          <div v-for="item in (limitPools[limitPoolTab as keyof typeof limitPools] || [])" :key="item.ts_code" class="limit-pool-item">
+            <span class="code">{{ item.ts_code }}</span>
+            <span class="name">{{ item.name }}</span>
+            <span :class="item.pct_chg >= 0 ? 'up' : 'down'">{{ item.pct_chg >= 0 ? '+' : '' }}{{ item.pct_chg.toFixed(1) }}%</span>
+            <span v-if="item.limit_times" class="lb-tag">{{ item.limit_times }}连板</span>
+            <span v-if="item.fd_amount" class="fd-tag">封{{ item.fd_amount }}万</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== 运维Tab ==================== -->
+    <div v-if="activeTab === 'ops'" class="mm-tab-content">
+      <div class="mm-tab-scroll">
+        <!-- 系统健康 -->
+        <SystemHealth />
+
+        <!-- 快捷操作 -->
+        <div class="st" style="margin-top:16px">⚡ 快捷操作</div>
+        <div class="ops-grid">
+          <ElButton size="small" @click="manualScan" :loading="loading" :disabled="!isRunning">📡 扫描</ElButton>
+          <ElButton size="small" type="warning" @click="forceScan" :loading="loading" :disabled="!isRunning">⚡ 强扫</ElButton>
+          <ElButton size="small" @click="dailySettlement" :disabled="!isRunning">📅 日结</ElButton>
+          <ElButton size="small" @click="openTradeAudit" :disabled="!timeline.length">🔍 审查</ElButton>
+          <ElButton size="small" @click="fetchDailyReport(); dailyReportVisible = true">📈 复盘</ElButton>
+          <ElButton size="small" @click="openWeeklyReport">📊 周报</ElButton>
+          <ElButton size="small" @click="openLayerDebug" :loading="layerDebugLoading">🧪 9层调试</ElButton>
+          <ElButton size="small" @click="loadCompare" :loading="compareLoading">📊 回测对比</ElButton>
+          <ElButton size="small" @click="toggleDryRun">{{ dryRun ? '🔴 关闭调试' : '🔍 开启调试' }}</ElButton>
+          <ElButton v-if="circuitBreakerPaused" size="small" type="danger" @click="resetCircuitBreaker">🔓 解熔断</ElButton>
+          <ElButton size="small" @click="exportTradeLog">📥 导出日志</ElButton>
+          <ElButton size="small" @click="saveSnapshot">📸 保存快照</ElButton>
+          <ElButton size="small" type="warning" @click="resetAccount">🗑️ 清仓重置</ElButton>
+          <ElButton size="small" @click="sellAllPositions">💰 一键清仓</ElButton>
+        </div>
+
+        <!-- 手动下单 -->
+        <div class="st" style="margin-top:16px">🔧 手动下单</div>
+        <div class="mf ops-mf">
+          <ElInput v-model="manualTrade.ts_code" placeholder="代码 000001.SZ" size="small" @change="onManualCodeChange(manualTrade.ts_code)" />
+          <div class="mf-row"><ElSelect v-model="manualTrade.side" size="small" style="width:70px"><ElOption label="买入" value="buy" /><ElOption label="卖出" value="sell" /></ElSelect><ElInputNumber v-model="manualTrade.quantity" :min="0" :step="100" placeholder="数量" size="small" style="flex:1" controls-position="right" /></div>
+          <div class="mf-row"><ElInputNumber v-model="manualTrade.price" :min="0" :precision="2" :step="0.01" placeholder="价格(0=市价)" size="small" style="flex:1" controls-position="right" /><span v-if="manualQuote" class="mf-hint" @click="manualTrade.price = manualQuote.price">💰 填入现价</span></div>
+          <ElButton type="primary" size="small" :disabled="!manualTrade.ts_code" @click="executeManualTrade" class="w-full">下单</ElButton>
+          <div v-if="manualQuote" class="mf-q">💡 现价: ¥{{ manualQuote.price?.toFixed(2) }} <span v-if="manualQuote.pct_chg" :class="manualQuote.pct_chg >= 0 ? 'up' : 'down'">{{ manualQuote.pct_chg >= 0 ? '+' : '' }}{{ manualQuote.pct_chg.toFixed(2) }}%</span></div>
+        </div>
+
+        <!-- 交易时间线 -->
+        <div class="st" style="margin-top:16px">⏱️ 交易时间线 ({{ timeline.length }}) <span v-if="cumulativePnl !== 0" :class="cumulativePnl >= 0 ? 'up' : 'down'" style="font-size:12px;margin-left:6px">累计{{ cumulativePnl >= 0 ? '+' : '' }}¥{{ cumulativePnl.toFixed(0) }}</span>
+          <div style="display:inline-flex;align-items:center;gap:4px;margin-left:8px"><ElDatePicker v-model="historyDate" type="date" placeholder="日期" size="small" value-format="YYYY-MM-DD" style="width:130px" :disabled-date="(d: Date) => d > new Date()" /><ElButton size="small" @click="loadHistory" :loading="historyLoading" style="padding:2px 8px;font-size:11px">回放</ElButton></div>
+        </div>
+        <div v-if="!timeline.length && !historyData.length" class="empty">暂无交易</div>
+        <div v-else class="ops-timeline">
+          <div v-if="historyData.length" class="history-tag">📜 {{ historyDate }} 历史回放 ({{ historyData.length }}条)</div>
+          <div v-for="(item, i) in historyData.length ? historyData : timeline" :key="i" class="tl-row cp" @click="item.action !== 'blocked' && openTradeDetail(item.ts_code)"><span class="tl-time">{{ item.time }}</span><span class="tl-action" :class="item.action === 'buy' ? 'buy' : item.action === 'sell' ? 'sell' : 'blocked'">{{ item.action === 'buy' ? '买' : item.action === 'sell' ? '卖' : '⛔' }}</span><span class="code">{{ item.ts_code }}</span><span class="name">{{ item.stock_name }}</span><template v-if="item.action !== 'blocked'"><span v-if="item.strategy" class="tl-strat">{{ strategyCN(item.strategy) }}</span><span class="tl-detail">{{ item.shares }}股@{{ item.price.toFixed(2) }}</span><span v-if="item.profit_pct !== undefined" :class="item.profit_pct >= 0 ? 'up' : 'down'">{{ item.profit_pct >= 0 ? '+' : '' }}{{ item.profit_pct.toFixed(1) }}%</span><span v-if="item.profit_amount != null" :class="item.profit_amount >= 0 ? 'up' : 'down'" class="tl-amt">{{ item.profit_amount >= 0 ? '+' : '' }}¥{{ item.profit_amount.toFixed(0) }}</span></template><span v-else class="tl-blocked-reason">{{ item.reason }}</span></div>
+        </div>
+
+        <!-- 历史订单 -->
+        <div v-if="orders.length" class="st" style="margin-top:16px">📋 历史订单 ({{ orders.length }})</div>
+        <div v-if="orders.length" class="ops-timeline">
+          <div v-for="o in orders.slice(0, 50)" :key="o.order_id" class="tl-row cp" @click="openTradeDetail(o.ts_code)"><span class="tl-time">{{ o.trade_date?.slice(-4) || '' }} {{ o.create_time }}</span><span class="tl-action" :class="o.side === 'buy' ? 'buy' : 'sell'">{{ o.side === 'buy' ? '买' : '卖' }}</span><span class="code">{{ o.ts_code }}</span><span class="name">{{ o.stock_name }}</span><span class="tl-detail">{{ o.filled_qty }}股@{{ o.filled_price?.toFixed(2) || '0.00' }}</span><span class="text-tertiary-sm">{{ strategyCN(o.strategy) }}</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 【V50.1】信号链路追踪面板(可收起, 跨Tab) -->
+    <div v-if="signalTraceVisible" class="mm-trace">
+      <SignalTracePanel />
     </div>
 
     <!-- P2-10: 键盘快捷键 -->
@@ -1262,13 +1377,151 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .rb-freshness.red { color: #ff4d4f; }
 .rb-score { font-size: 11px; font-weight: 600; color: var(--text-secondary); background: var(--bg-elevated); border-radius: 4px; padding: 1px 5px; margin-left: 4px; }
 
-/* 专业运维增强面板 */
-.mm-pro-panels {
+/* Tab导航栏 */
+.mm-tab-bar {
+  display: flex;
+  gap: 2px;
+  padding: 0 16px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-default);
+  flex-shrink: 0;
+}
+.mm-tab-bar .tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.mm-tab-bar .tab-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+.mm-tab-bar .tab-btn.active {
+  color: var(--el-color-primary);
+  border-bottom-color: var(--el-color-primary);
+  font-weight: 600;
+}
+.tab-icon { font-size: 15px; }
+.tab-text { display: flex; flex-direction: column; gap: 1px; }
+.tab-label { font-size: 13px; line-height: 1.2; }
+.tab-desc { font-size: 10px; color: var(--text-tertiary); line-height: 1; }
+.tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 9px;
+  background: var(--el-color-primary);
+  color: var(--text-inverse);
+  padding: 0 5px;
+}
+.tab-badge-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 9px;
+  background: var(--stock-up);
+  color: var(--text-inverse);
+  padding: 0 5px;
+}
+
+/* Tab内容区 */
+.mm-tab-content {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.mm-tab-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+/* 绩效Tab */
+.pnl-chart-wrap-lg {
+  background: var(--bg-elevated);
+  border-radius: 8px;
+  padding: 8px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border-default);
+}
+
+/* 风控Tab */
+.risk-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 8px;
+}
+.risk-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.rc-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.rc-detail {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-top: 8px;
-  padding: 0 8px;
+  gap: 4px 12px;
+  font-size: 12px;
+}
+.rc-row {
+  display: flex;
+  justify-content: space-between;
+}
+.rc-row span:first-child { color: var(--text-tertiary); }
+
+/* 情绪Tab */
+.limit-pool-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 6px;
+}
+.limit-pool-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--bg-elevated);
+  border-radius: 6px;
+  border: 1px solid var(--border-default);
+  font-size: 12px;
+}
+
+/* 运维Tab */
+.ops-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ops-mf {
+  max-width: 400px;
+}
+.ops-timeline {
+  max-height: 400px;
+  overflow-y: auto;
 }
 
 .pos-focused {
