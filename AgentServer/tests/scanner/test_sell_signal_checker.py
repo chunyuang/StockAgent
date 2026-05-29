@@ -418,9 +418,21 @@ class TestScannerHealthScore:
         s._quote_manager = QuoteManager()
         s._quote_manager._last_fetch_time = time.time() - 5
         s._circuit_breaker = {}
-        health = s._compute_health_score()
-        assert health["status"] == "green"
-        assert health["is_healthy"] is True
+        # v2.9.5: 风控线程存活(必须设置,否则健康度变红)
+        s._risk_running = True
+        _stop = threading.Event()
+        def _keep_alive():
+            while not _stop.is_set():
+                import time as _t; _t.sleep(0.1)
+        s._risk_thread = threading.Thread(target=_keep_alive, daemon=True)
+        s._risk_thread.start()
+        s._risk_thread_restarts = 0
+        try:
+            health = s._compute_health_score()
+            assert health["status"] == "green"
+            assert health["is_healthy"] is True
+        finally:
+            _stop.set()
     
     def test_health_yellow_when_degraded(self):
         """行情降级时健康度应为黄"""
@@ -437,9 +449,21 @@ class TestScannerHealthScore:
         s._quote_manager._last_fetch_time = time.time() - 5
         s._quote_manager._quote_degrade_level = 1
         s._circuit_breaker = {}
-        health = s._compute_health_score()
-        assert health["status"] == "yellow"
-        assert "行情降级" in str(health["warnings"])
+        # v2.9.5: 风控线程存活
+        s._risk_running = True
+        _stop2 = threading.Event()
+        def _keep_alive2():
+            while not _stop2.is_set():
+                import time as _t; _t.sleep(0.1)
+        s._risk_thread = threading.Thread(target=_keep_alive2, daemon=True)
+        s._risk_thread.start()
+        s._risk_thread_restarts = 0
+        try:
+            health = s._compute_health_score()
+            assert health["status"] == "yellow"
+            assert "行情降级" in str(health["warnings"])
+        finally:
+            _stop2.set()
     
     def test_health_warnings_include_pending_sells(self):
         """跌停挂起应出现在warnings"""
@@ -455,8 +479,20 @@ class TestScannerHealthScore:
         s._quote_manager = QuoteManager()
         s._quote_manager._last_fetch_time = time.time() - 5
         s._circuit_breaker = {}
-        health = s._compute_health_score()
-        assert any("跌停挂起" in w for w in health["warnings"])
+        # v2.9.5: 风控线程存活
+        s._risk_running = True
+        _stop3 = threading.Event()
+        def _keep_alive3():
+            while not _stop3.is_set():
+                import time as _t; _t.sleep(0.1)
+        s._risk_thread = threading.Thread(target=_keep_alive3, daemon=True)
+        s._risk_thread.start()
+        s._risk_thread_restarts = 0
+        try:
+            health = s._compute_health_score()
+            assert any("跌停挂起" in w for w in health["warnings"])
+        finally:
+            _stop3.set()
 
 
 class TestPositionManager:

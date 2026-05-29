@@ -333,17 +333,27 @@ class ScannerUtils:
                 if error_rate > 0.1:  # >10%错误率
                     warnings.append(f"EventBus异常率{error_rate:.0%}({total_errors}/{total_handled+total_errors})")
 
+        # 8. 【v2.9.5:风控线程存活状态】
+        risk_thread_alive = (
+            hasattr(scanner, '_risk_thread') and scanner._risk_thread is not None
+            and scanner._risk_thread.is_alive()
+        )
+        if not risk_thread_alive and getattr(scanner, '_risk_running', False):
+            warnings.append("风控线程已停止")
+
         # 健康判定
         is_healthy = (
             scan_lag < 360 and      # 6分钟内有扫描
             risk_lag < 5 and         # 5秒内有风控检查
             quote_staleness < 30 and # 行情30秒内更新
+            risk_thread_alive and    # 【v2.9.5:风控线程存活】
             len(warnings) == 0
         )
         is_warning = not is_healthy and (
             scan_lag < 600 and      # 10分钟内
             risk_lag < 30 and       # 30秒内
-            quote_staleness < 120   # 2分钟内
+            quote_staleness < 120 and # 2分钟内
+            risk_thread_alive       # 风控线程至少还活着
         )
 
         if is_healthy:
@@ -359,6 +369,8 @@ class ScannerUtils:
             "scan_lag_seconds": round(scan_lag, 1),
             "risk_check_lag_seconds": round(risk_lag, 1),
             "quote_staleness_seconds": round(quote_staleness, 1),
+            "risk_thread_alive": risk_thread_alive,           # 【v2.9.5】
+            "risk_thread_restarts": getattr(scanner, '_risk_thread_restarts', 0),  # 【v2.9.5】
             "warnings": warnings,
             "event_bus_stats": scanner._event_bus.get_stats() if hasattr(scanner, '_event_bus') and scanner._event_bus else {},
         }
