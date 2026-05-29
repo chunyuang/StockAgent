@@ -1,10 +1,10 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9 | 日期: 2026-05-29 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.4 | 日期: 2026-05-29 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅
-> 回测影响: 零文件修改, 253测试全通过
+> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅
+> 回测影响: 零文件修改, 344测试全通过
 
 ---
 
@@ -26,6 +26,7 @@
 | v2.9.1 | 2026-05-29 | _apply_filter_pipeline拆分: 提取_signals_to_candidates/_execute_force_empty/_merge_filter_result |
 | v2.9.2 | 2026-05-29 | EventBus事件完整性: PositionChecker/SignalManager买入卖出均发射事件+4新增测试(257总计) |
 | v2.9.3 | 2026-05-29 | __init__拆分5个_init_*+__getattr__动态委托消除27个存根方法(方法数74→54,行数1836→1780)+9新增测试(266总计) |
+| v2.9.4 | 2026-05-29 | 健康度评分提取ScannerUtils+情绪调仓规则迁移EmotionCycle+pending_sells超时恢复增强+跌停挂起价格更新+21新增测试(344总计) |
 
 v2.0关键修正:
 - ❶ 风控独立线程: asyncio协程→threading.Thread(真并行不受GIL影响)

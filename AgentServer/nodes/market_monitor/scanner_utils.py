@@ -272,3 +272,93 @@ class ScannerUtils:
             "sentiment": getattr(scanner, '_current_sentiment', {}),
             "position_ratio": getattr(scanner, '_current_position_ratio', None),
         }
+
+    # ==================== Phase4.3: 健康度评分 ====================
+
+    @staticmethod
+    def compute_health_score(scanner) -> Dict[str, Any]:
+        """Scanner健康度评分(绿/黄/红)
+
+        维度:
+        - scan_lag: 全量扫描延迟(上次到现在)
+        - risk_check_lag: 风控检查延迟
+        - quote_staleness: 行情数据陈旧度
+        - warnings: 告警列表
+
+        Args:
+            scanner: MarketScanner实例
+        """
+        now = time.time()
+        warnings = []
+
+        # 1. 扫描延迟
+        scan_lag = (now - scanner._last_scan_ts) if scanner._last_scan_ts > 0 else 999
+        if scan_lag > 600:  # 10分钟没扫描
+            warnings.append(f"扫描延迟{scan_lag:.0f}秒")
+
+        # 2. 风控检查延迟
+        risk_lag = (now - scanner._last_risk_check_ts) if scanner._last_risk_check_ts > 0 else 999
+        if risk_lag > 10:  # 10秒没做风控检查
+            warnings.append(f"风控延迟{risk_lag:.0f}秒")
+
+        # 3. 行情陈旧度
+        quote_staleness = scanner._quote_manager.get_staleness() if scanner._quote_manager else 999.0
+        if quote_staleness > 60:  # 行情超过1分钟没更新
+            warnings.append(f"行情陈旧{quote_staleness:.0f}秒")
+
+        # 4. 行情降级
+        if scanner._quote_manager and scanner._quote_manager.degrade_level > 0:
+            warnings.append(f"行情降级level={scanner._quote_manager.degrade_level}")
+
+        # 5. 跌停挂起
+        if scanner._state_lock is None:
+            pending_count = len(scanner._pending_sells)
+        else:
+            with scanner._state_lock:
+                pending_count = len(scanner._pending_sells)
+        if pending_count > 0:
+            warnings.append(f"跌停挂起{pending_count}只")
+
+        # 6. 熔断器
+        if hasattr(scanner, '_circuit_breaker') and scanner._circuit_breaker.get('trading_paused'):
+            warnings.append("熔断器已触发")
+
+        # 7. EventBus异常率(v2.8)
+        if hasattr(scanner, '_event_bus') and scanner._event_bus:
+            stats = scanner._event_bus.get_stats()
+            total_errors = sum(s.get('errors', 0) for s in stats.values())
+            total_handled = sum(s.get('handled', 0) for s in stats.values())
+            if total_errors > 0 and total_handled > 0:
+                error_rate = total_errors / (total_handled + total_errors)
+                if error_rate > 0.1:  # >10%错误率
+                    warnings.append(f"EventBus异常率{error_rate:.0%}({total_errors}/{total_handled+total_errors})")
+
+        # 健康判定
+        is_healthy = (
+            scan_lag < 360 and      # 6分钟内有扫描
+            risk_lag < 5 and         # 5秒内有风控检查
+            quote_staleness < 30 and # 行情30秒内更新
+            len(warnings) == 0
+        )
+        is_warning = not is_healthy and (
+            scan_lag < 600 and      # 10分钟内
+            risk_lag < 30 and       # 30秒内
+            quote_staleness < 120   # 2分钟内
+        )
+
+        if is_healthy:
+            status = "green"
+        elif is_warning:
+            status = "yellow"
+        else:
+            status = "red"
+
+        return {
+            "status": status,          # green/yellow/red
+            "is_healthy": is_healthy,
+            "scan_lag_seconds": round(scan_lag, 1),
+            "risk_check_lag_seconds": round(risk_lag, 1),
+            "quote_staleness_seconds": round(quote_staleness, 1),
+            "warnings": warnings,
+            "event_bus_stats": scanner._event_bus.get_stats() if hasattr(scanner, '_event_bus') and scanner._event_bus else {},
+        }
