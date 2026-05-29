@@ -1761,18 +1761,21 @@ async def get_scan_traces(date: str = None, limit: int = 10):
 
 
 @router.get("/scan-traces/{scan_id}")
-async def get_scan_trace_detail(scan_id: str, status: str = None, limit: int = 50):
+async def get_scan_trace_detail(scan_id: str, status: str = None, limit: int = 50, offset: int = 0):
     """获取单次扫描的详细追踪
     
-    返回该次扫描的完整候选链路：
-    - 每个候选在各层的通过/拒绝状态
-    - 被淘汰的候选在哪个环节、什么原因被淘汰
-    - 通过的候选最终执行的交易
+    v2.9.7优化：
+    - 默认只返回passed候选(不加载淘汰数据，避免卡顿)
+    - rejected需要显式请求status=rejected
+    - 支持分页offset+limit
+    - rejected候选按rejection_layer分组统计(不展开列表)
     
     Args:
         scan_id: 扫描记录ID
-        status: 过滤候选状态 (passed/rejected/all), 默认返回passed
-        limit: 返回候选数量上限(默认50, 防止返回MB级数据)
+        status: 过滤候选状态 (passed/rejected/summary), 默认passed
+                summary=只返回分组统计不返回候选列表
+        limit: 返回候选数量上限(默认50)
+        offset: 偏移量(分页)
     """
     try:
         from core.managers import mongo_manager
@@ -1784,20 +1787,30 @@ async def get_scan_trace_detail(scan_id: str, status: str = None, limit: int = 5
         if doc:
             doc["scan_id"] = str(doc.pop("_id", ""))
             
-            # 按状态过滤candidates，限制数量
             candidates = doc.get("candidates", [])
             rejected = doc.get("rejected_summary", [])
             
-            filter_status = status or "all"
-            if filter_status == "passed":
-                doc["candidates"] = candidates[:limit]
+            filter_status = status or "passed"  # 【v2.9.7: 默认只返回passed, 不加载rejected】
+            
+            if filter_status == "summary":
+                # 【v2.9.7: 只返回统计, 不返回候选列表】
+                # 按rejection_layer分组统计
+                layer_stats = {}
+                for r in rejected:
+                    layer = r.get("rejection_layer", "unknown")
+                    layer_stats[layer] = layer_stats.get(layer, 0) + 1
+                doc["candidates"] = []
+                doc["rejected_layer_stats"] = layer_stats
+                doc.pop("rejected_summary", None)
+            elif filter_status == "passed":
+                doc["candidates"] = candidates[offset:offset + limit]
                 doc.pop("rejected_summary", None)
             elif filter_status == "rejected":
-                doc["candidates"] = rejected[:limit]
+                doc["candidates"] = rejected[offset:offset + limit]
                 doc.pop("rejected_summary", None)
             else:
                 # all: 先放passed，再放rejected，合计不超过limit
-                combined = candidates[:limit]
+                combined = list(candidates[offset:offset + limit])
                 remaining = limit - len(combined)
                 if remaining > 0:
                     combined.extend(rejected[:remaining])
@@ -1811,6 +1824,9 @@ async def get_scan_trace_detail(scan_id: str, status: str = None, limit: int = 5
                 "returned_count": len(doc["candidates"]),
                 "filter": filter_status,
                 "limit": limit,
+                "offset": offset,
+                "has_more_passed": offset + limit < len(candidates),
+                "has_more_rejected": offset + limit < len(rejected),
             }
         
         return {"success": True, "data": doc}
