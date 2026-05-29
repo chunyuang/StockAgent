@@ -79,7 +79,7 @@ async def _write_audit_log(scanner, event_type: str, data: Dict[str, Any]):
         data: 事件数据
     """
     try:
-        from core.managers.mongo_manager import mongo_manager
+        from core.managers import mongo_manager
         if not mongo_manager._initialized:
             return
         

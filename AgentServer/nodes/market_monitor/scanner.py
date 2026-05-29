@@ -139,6 +139,7 @@ class MarketScanner:
         # 风控独立线程
         self._risk_thread = None
         self._risk_running = False
+        self._risk_thread_restarts = 0  # 【v2.9.5:风控线程重启计数】
         self._cache_lock = None
         self._state_lock = None
         self._loop = None
@@ -583,6 +584,7 @@ class MarketScanner:
         if self._state_lock is None:
             self._state_lock = threading.Lock()  # 保护trailing_stops/pending_sells/position_risk_levels
         self._risk_running = True
+        self._risk_thread_restarts = 0  # 风控线程重启计数
         self._risk_thread = threading.Thread(
             target=self._risk_loop_sync, daemon=True,
             name="scanner-risk-thread"
@@ -887,6 +889,25 @@ class MarketScanner:
                 if "09:30" <= ct <= "15:00":
                     settled = False
                     
+                    # 【v2.9.5:风控线程健康看门狗】检测风控线程存活, 崩溃自动重启
+                    if self._risk_running and self._risk_thread and not self._risk_thread.is_alive():
+                        self._risk_thread_restarts += 1
+                        logger.warning(
+                            f"[RISK_WATCHDOG] 风控线程已退出(第{self._risk_thread_restarts}次重启)"
+                        )
+                        self._risk_running = True
+                        self._risk_thread = threading.Thread(
+                            target=self._risk_loop_sync, daemon=True,
+                            name="scanner-risk-thread"
+                        )
+                        self._risk_thread.start()
+                        # 重启超过3次告警
+                        if self._risk_thread_restarts >= 3:
+                            await self._publish_scanner_event("status", {
+                                "event": "risk_thread_unstable",
+                                "restarts": self._risk_thread_restarts,
+                            })
+                    
                     # 【Phase2.2:行情降级自动恢复】每5分钟尝试恢复
                     if self._quote_manager.should_try_recover():
                         try:
@@ -970,6 +991,7 @@ class MarketScanner:
         - 30秒完整quick check(东财缓存, 零额度)
         - 职责: 只负责卖出, 不负责买入
         - 跌停不可卖: 挂起pending_sells, 不丢追踪止损
+        - 【v2.9.5】使用self._trade_date保证交易日一致性
         """
         import threading
         tick = 0
@@ -1008,9 +1030,10 @@ class MarketScanner:
                 # ── 每30秒: 完整quick check(东财缓存, 零额度) ──
                 if tick % 30 == 0 and self._loop and not self._loop.is_closed():
                     try:
-                        trade_date = datetime.now().strftime("%Y%m%d")
+                        # 【v2.9.5:优先使用scanner统一的_trade_date, 保证与主循环一致】
+                        risk_trade_date = self._trade_date or datetime.now().strftime("%Y%m%d")
                         future = asyncio.run_coroutine_threadsafe(
-                            self._check_positions_quick(trade_date),
+                            self._check_positions_quick(risk_trade_date),
                             self._loop
                         )
                         future.result(timeout=10)
@@ -1028,6 +1051,8 @@ class MarketScanner:
         
         v2.9修复: PositionManager.check_stop_loss_only已处理跌停挂起+恢复,
         scanner不再重复检查跌停(之前scanner和PM双重检查导致逻辑混乱)
+        
+        v2.9.5增强: _execute_risk_sell超时时记录待执行卖出, 避免丢失风控指令
         
         执行流程: PM返回to_sell → scanner执行卖出(通过asyncio主循环)
         """
@@ -1054,6 +1079,19 @@ class MarketScanner:
                         self._loop
                     )
                     future.result(timeout=5)
+                except asyncio.TimeoutError:
+                    # 【v2.9.5:超时不丢弃,记录到pending_sells待下次执行】
+                    logger.warning(
+                        f"[RISK_THREAD] 卖出执行超时(5秒): {pos.ts_code} {reason}, "
+                        f"加入pending_sells待下次执行"
+                    )
+                    with self._state_lock:
+                        if pos.ts_code not in self._pending_sells:
+                            self._pending_sells[pos.ts_code] = {
+                                "reason": reason, "price": price,
+                                "added_at": time.time(),
+                                "source": "risk_thread_timeout",
+                            }
                 except Exception as e:
                     logger.error(f"[RISK_THREAD] 卖出执行失败: {pos.ts_code} {e}")
 
