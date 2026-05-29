@@ -8,6 +8,7 @@ import pytest
 import mongomock
 import asyncio
 import os
+import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 from typing import Dict, List, Any, Optional
 
@@ -141,30 +142,67 @@ def mock_mongo_with_stock_data(mock_mongo):
 
 # ============================================================
 # 回测结果 fixture（第1层契约测试用）
-# 从MongoDB读取最近一次回测结果，供契约测试断言
+# 优先从本地JSON文件读取，fallback到MongoDB
 # ============================================================
+
+# 项目根目录下的回测结果JSON文件（按优先级排序）
+_BACKTEST_RESULT_FILES = [
+    'v77_fix2_result.json',
+    'v77_baseline_result.json',
+    'v58_postfix_result.json',
+    'v58_final_result.json',
+]
+
+
+def _find_result_from_json():
+    """从项目根目录下的JSON文件读取回测结果"""
+    project_root = os.path.join(os.path.dirname(__file__), '..', '..')
+    project_root = os.path.abspath(project_root)
+    import json
+    for fname in _BACKTEST_RESULT_FILES:
+        fpath = os.path.join(project_root, fname)
+        if os.path.exists(fpath):
+            try:
+                data = json.load(open(fpath, 'r'))
+                result = data.get('result')
+                if result and result.get('net_value_series'):
+                    return result
+            except (json.JSONDecodeError, KeyError, IOError):
+                continue
+    return None
+
 
 @pytest.fixture(scope="session")
 def backtest_result():
-    """从MongoDB读取最近一次回测结果
+    """获取回测结果供契约测试断言
+
+    读取优先级:
+    1. 项目根目录下的JSON结果文件（无需数据库，无event loop问题）
+    2. 命令行 --backtest-task= 指定的MongoDB任务
+    3. MongoDB最近一条completed任务
 
     用法: pytest tests/test_backtest_contract.py --backtest-task=us_xxx
-    如果不指定task_id，自动找最近一条completed的任务
     """
-    import sys
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+    # 优先：从本地JSON文件读取
+    result = _find_result_from_json()
+    if result is not None:
+        return result
 
-    # 从命令行参数获取task_id
+    # Fallback：从命令行参数获取task_id，连接MongoDB
     task_id = None
     for i, arg in enumerate(sys.argv):
         if arg.startswith('--backtest-task='):
             task_id = arg.split('=', 1)[1]
             break
 
-    # 连接真实MongoDB读取结果
-    loop = asyncio.new_event_loop()
-    result = loop.run_until_complete(_fetch_result(task_id))
-    loop.close()
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(_fetch_result(task_id))
+        loop.close()
+    except Exception as e:
+        pytest.skip(f"无法获取回测结果(JSON文件未找到且MongoDB连接失败: {e})")
+
     if result is None:
         pytest.skip("没有可用的回测结果，请先运行一次回测")
     return result
