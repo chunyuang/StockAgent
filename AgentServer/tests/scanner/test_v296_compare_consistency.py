@@ -399,3 +399,27 @@ class TestCalcStopLossTakeProfitDelegation:
         
         price = pm.calc_take_profit_price(pos, risk)
         assert price == 10.7  # 10 * (1 + 0.07) = 10.7
+
+
+class TestRiskSellCircuitBreakerUpdate:
+    """风控卖出更新CircuitBreaker统计验证(v2.9.6 bug修复)"""
+
+    def test_execute_risk_sell_updates_consecutive_losses(self):
+        """_execute_risk_sell应该更新circuit_breaker的连续亏损计数"""
+        import re
+        with open(os.path.join(os.path.dirname(__file__), '..', '..', 'nodes', 'market_monitor', 'scanner.py')) as f:
+            source = f.read()
+        
+        # 查找_execute_risk_sell方法
+        match = re.search(
+            r'async def _execute_risk_sell.*?(?=\n    async def |\n    def )',
+            source, re.DOTALL
+        )
+        assert match, "_execute_risk_sell方法未找到"
+        body = match.group(0)
+        
+        # 验证_record_trade_result被调用
+        assert '_record_trade_result' in body, (
+            "_execute_risk_sell未调用_record_trade_result! "
+            "止损卖出不计入连续亏损统计, 熔断逻辑会失效。"
+        )
