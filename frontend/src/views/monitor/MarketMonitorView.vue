@@ -4,7 +4,7 @@
  * 左: 策略控制+快捷操作 / 中: 信号+行情 / 右: 持仓+统计
  * 底: 时间线 / 顶: 状态栏
  */
-import { ref, computed, onMounted, onUnmounted, reactive, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, onErrorCaptured, reactive, watch, nextTick } from 'vue'
 import {
   ElButton, ElTag, ElEmpty,
   ElSwitch, ElInputNumber, ElSlider,
@@ -69,6 +69,7 @@ const saving = ref(false)
 const scannerApi = '/scanner', configApi = '/strategy-config'
 // Wrappers for shared constants (adapted for template usage)
 const layerLabel = (k: string) => { const label = pipelineLabels[k]; if (!label) return k; const prefix = k.split('_')[0]; return prefix + ' ' + label }
+const nowMs = ref(Date.now())
 const sigRemaining = (sig: ScanSignal) => _signalRemaining(sig.created_at || 0, nowMs.value)
 // factorCN, factorLabel imported from @/utils/scanner
 // layerLabel uses pipelineLabels from @/utils/scanner (see wrapper above)
@@ -309,16 +310,18 @@ const pnlOption = computed(() => {
 })
 
 // 【P1-4】信号过期倒计时
-const nowMs = ref(Date.now())
+// nowMs defined at top
 let nowTimer: any = null
 // signalRemaining/formatRemaining/SIGNAL_EXPIRE_MS imported from @/utils/scanner
 // ==================== Tab 导航 ====================
 const activeTab = ref<'trading' | 'premarket' | 'scan-trace' | 'review' | 'risk' | 'ops'>('trading')
 watch(activeTab, (tab) => {
-  if (tab === 'premarket') fetchPremarketData()
-  if (tab === 'scan-trace') fetchScanHistory()
-  if (tab === 'review') { fetchReviewData(); fetchParamCompare() }
-  if (tab === 'ops') fetchAutoTrades()
+  try {
+    if (tab === 'premarket') fetchPremarketData()
+    if (tab === 'scan-trace') fetchScanHistory()
+    if (tab === 'review') { fetchReviewData(); fetchParamCompare() }
+    if (tab === 'ops') fetchAutoTrades()
+  } catch (e) { console.error('[Tab] error:', e) }
 })
 
 const tradeMode = ref('simulated')
@@ -411,7 +414,13 @@ async function saveStrategy() {
   finally { saving.value = false }
 }
 async function resetStrategy(sid: string) { try { await api.post(`${configApi}/reset/${sid}`); await fetchStrategies(); ElMessage.success('已重置') } catch { ElMessage.error('重置失败') } }
-onMounted(async () => { await Promise.all([fetchScanner(), fetchStrategies(), fetchHealth()]); fetchLimitPools(); fetchDataSources(); fetchPerformanceHistory(); connectWS(); nowTimer = setInterval(() => { nowMs.value = Date.now() }, 1000); const getRefreshInterval = () => { const n = new Date(), h = n.getHours(), m = n.getMinutes(); const isTrading = (h === 9 && m >= 30) || (h >= 10 && h < 15) || (h === 15 && m === 0); return isTrading ? 5000 : 60000 }; refreshTimer = setInterval(() => { if (!autoRefresh.value || ws?.readyState === WebSocket.OPEN) return; fetchScanner(); fetchHealth() }, getRefreshInterval()) })
+// 全局错误边界：防止单个子组件崩溃导致整个页面白屏
+onErrorCaptured((err, instance, info) => {
+  console.error('[MonitorView] render error captured:', err, info)
+  return false // 阻止错误继续向上传播，组件不会卸载
+})
+
+onMounted(async () => { try { await Promise.all([fetchScanner(), fetchStrategies(), fetchHealth()]) } catch(e) { console.error('[Mount] fetch error:', e) } try { fetchLimitPools(); fetchDataSources(); fetchPerformanceHistory(); connectWS() } catch(e) { console.error('[Mount] setup error:', e) } nowTimer = setInterval(() => { nowMs.value = Date.now() }, 1000); const getRefreshInterval = () => { const n = new Date(), h = n.getHours(), m = n.getMinutes(); const isTrading = (h === 9 && m >= 30) || (h >= 10 && h < 15) || (h === 15 && m === 0); return isTrading ? 5000 : 60000 }; refreshTimer = setInterval(() => { if (!autoRefresh.value || ws?.readyState === WebSocket.OPEN) return; fetchScanner(); fetchHealth() }, getRefreshInterval()) })
 onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer); if (nowTimer) clearInterval(nowTimer); disconnectWS() })
 function connectWS() {
   try {
@@ -442,7 +451,7 @@ function connectWS() {
         }
       } catch {}
     }
-    ws.onclose = () => { scannerStore.isWsConnected = false; wsReconnectTimer = setTimeout(connectWS, 3000) }
+    ws.onclose = () => { scannerStore.isWsConnected = false; wsReconnectTimer = setTimeout(connectWS, 5000) }
     ws.onerror = () => { ws?.close() }
   } catch {}
 }
@@ -517,18 +526,18 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           <span class="rb-label">风控</span>
           <span v-if="healthData?.risk_metrics" class="rb-metric">
             <span class="rb-ml">回撤</span>
-            <span class="rb-progress"><span class="rb-progress-fill" :style="{ width: Math.min(Math.abs(healthData.risk_metrics.daily_drawdown_pct || 0) / (healthData.risk_metrics.max_drawdown_pct || 5) * 100, 100) + '%' }" :class="Math.abs(healthData.risk_metrics.daily_drawdown_pct || 0) > (healthData.risk_metrics.max_drawdown_pct || 5) * 0.7 ? 'danger' : ''"></span></span>
-            <span class="rb-mv">{{ Math.abs(healthData.risk_metrics.daily_drawdown_pct || 0).toFixed(1) }}%</span>
+            <span class="rb-progress"><span class="rb-progress-fill" :style="{ width: Math.min(Math.abs(healthData?.risk_metrics?.daily_drawdown_pct || 0) / (healthData?.risk_metrics?.max_drawdown_pct || 5) * 100, 100) + '%' }" :class="Math.abs(healthData?.risk_metrics?.daily_drawdown_pct || 0) > (healthData?.risk_metrics?.max_drawdown_pct || 5) * 0.7 ? 'danger' : ''"></span></span>
+            <span class="rb-mv">{{ Math.abs(healthData?.risk_metrics?.daily_drawdown_pct || 0).toFixed(1) }}%</span>
           </span>
           <span v-if="healthData?.circuit_breaker" class="rb-metric">
             <span class="rb-ml">连亏</span>
-            <span class="rb-mv" :class="healthData.circuit_breaker.consecutive_losses >= (healthData.circuit_breaker.max_consecutive_losses - 1) ? 'down' : ''">{{ healthData.circuit_breaker.consecutive_losses }}/{{ healthData.circuit_breaker.max_consecutive_losses }}</span>
+            <span class="rb-mv" :class="(healthData?.circuit_breaker?.consecutive_losses || 0) >= ((healthData?.circuit_breaker?.max_consecutive_losses || 3) - 1) ? 'down' : ''">{{ healthData?.circuit_breaker?.consecutive_losses ?? 0 }}/{{ healthData?.circuit_breaker?.max_consecutive_losses ?? 3 }}</span>
           </span>
           <span class="rb-arrow">{{ riskBarCollapsed ? '▶' : '▼' }}</span>
         </div>
         <div class="rb-right">
           <div v-if="healthData?.data_sources?.length" class="rb-ds">
-            <span v-for="ds in healthData.data_sources" :key="ds.name" class="rb-ds-dot" :class="ds.available ? 'ok' : 'err'" :title="`${ds.name}: ${ds.available ? '可用' : '不可用'}`">●</span>
+            <span v-for="ds in (healthData?.data_sources || [])" :key="ds.name" class="rb-ds-dot" :class="ds.available ? 'ok' : 'err'" :title="`${ds.name}: ${ds.available ? '可用' : '不可用'}`">●</span>
           </div>
           <!-- 【Phase4.1:数据新鲜度+健康分数】 -->
           <span class="rb-freshness" :class="scannerStore.dataFreshness" :title="`数据新鲜度: ${scannerStore.dataFreshness}`">●</span>
@@ -541,11 +550,11 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
       <div v-if="!riskBarCollapsed" class="rb-detail">
         <div class="rb-detail-grid">
           <div class="rb-di"><span class="rb-dl">整体状态</span><span class="rb-dv" :class="healthClass">{{ healthCN }}</span></div>
-          <div class="rb-di" v-if="healthData?.circuit_breaker"><span class="rb-dl">熔断原因</span><span class="rb-dv">{{ healthData.circuit_breaker.pause_reason || '-' }}</span></div>
-          <div class="rb-di" v-if="healthData?.risk_metrics"><span class="rb-dl">日回撤</span><span class="rb-dv down">{{ (healthData.risk_metrics.daily_drawdown_pct || 0).toFixed(2) }}%</span></div>
-          <div class="rb-di" v-if="healthData?.risk_metrics"><span class="rb-dl">最大回撤限制</span><span class="rb-dv">{{ (healthData.risk_metrics.max_drawdown_pct || 0).toFixed(1) }}%</span></div>
-          <div class="rb-di" v-if="healthData?.circuit_breaker"><span class="rb-dl">连续亏损</span><span class="rb-dv" :class="healthData.circuit_breaker.consecutive_losses >= (healthData.circuit_breaker.max_consecutive_losses - 1) ? 'down' : ''">{{ healthData.circuit_breaker.consecutive_losses }}次</span></div>
-          <div class="rb-di" v-if="healthData?.risk_metrics"><span class="rb-dl">仓位比例</span><span class="rb-dv">{{ ((healthData.risk_metrics.position_ratio || 0) * 100).toFixed(0) }}%</span></div>
+          <div class="rb-di" v-if="healthData?.circuit_breaker"><span class="rb-dl">熔断原因</span><span class="rb-dv">{{ healthData?.circuit_breaker?.pause_reason || '-' }}</span></div>
+          <div class="rb-di" v-if="healthData?.risk_metrics"><span class="rb-dl">日回撤</span><span class="rb-dv down">{{ (healthData?.risk_metrics?.daily_drawdown_pct || 0).toFixed(2) }}%</span></div>
+          <div class="rb-di" v-if="healthData?.risk_metrics"><span class="rb-dl">最大回撤限制</span><span class="rb-dv">{{ (healthData?.risk_metrics?.max_drawdown_pct || 0).toFixed(1) }}%</span></div>
+          <div class="rb-di" v-if="healthData?.circuit_breaker"><span class="rb-dl">连续亏损</span><span class="rb-dv" :class="(healthData?.circuit_breaker?.consecutive_losses || 0) >= ((healthData?.circuit_breaker?.max_consecutive_losses || 3) - 1) ? 'down' : ''">{{ healthData?.circuit_breaker?.consecutive_losses ?? 0 }}次</span></div>
+          <div class="rb-di" v-if="healthData?.risk_metrics"><span class="rb-dl">仓位比例</span><span class="rb-dv">{{ ((healthData?.risk_metrics?.position_ratio || 0) * 100).toFixed(0) }}%</span></div>
           <!-- 【Phase4.1:健康分数+告警】 -->
           <div class="rb-di" v-if="healthData?.health_score != null"><span class="rb-dl">健康分数</span><span class="rb-dv" :class="healthData.health_score < 60 ? 'down' : ''">{{ healthData.health_score }}/100</span></div>
           <div class="rb-di" v-if="healthData?.scan_lag_seconds != null"><span class="rb-dl">扫描延迟</span><span class="rb-dv" :class="healthData.scan_lag_seconds > 60 ? 'down' : ''">{{ healthData.scan_lag_seconds < 0 ? '未运行' : healthData.scan_lag_seconds.toFixed(1) + 's' }}</span></div>
@@ -554,7 +563,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         </div>
         <div v-if="healthData?.data_sources?.length" class="rb-ds-detail">
           <span class="rb-dl">数据源</span>
-          <span v-for="ds in healthData.data_sources" :key="ds.name" class="rb-ds-item" :class="ds.available ? 'ok' : 'err'">{{ ds.name }} {{ ds.available ? '✅' : '❌' }}</span>
+          <span v-for="ds in (healthData?.data_sources || [])" :key="ds.name" class="rb-ds-item" :class="ds.available ? 'ok' : 'err'">{{ ds.name }} {{ ds.available ? '✅' : '❌' }}</span>
         </div>
       </div>
     </div>
@@ -571,7 +580,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <button v-if="isRunning && !circuitBreakerPaused" class="cb-pause-btn" @click="pauseCircuitBreaker" title="暂停买入">⏸</button>
         <!-- 【P1-5】数据源健康指示 -->
         <div v-if="status?.data_sources?.length" class="ds-indicator">
-          <span v-for="ds in status.data_sources" :key="ds.name" class="ds-dot" :class="{ ok: ds.available, err: !ds.available }" :title="`${ds.name}: ${ds.available ? '可用' : '不可用'} ${ds.stocks || 0}只 ${ds.calls}/${ds.limit}次`">{{ ds.name === 'eastmoney' ? '东财' : ds.name === 'biying' ? '必盈' : ds.name }}</span>
+          <span v-for="ds in (status?.data_sources || [])" :key="ds.name" class="ds-dot" :class="{ ok: ds.available, err: !ds.available }" :title="`${ds.name}: ${ds.available ? '可用' : '不可用'} ${ds.stocks || 0}只 ${ds.calls}/${ds.limit}次`">{{ ds.name === 'eastmoney' ? '东财' : ds.name === 'biying' ? '必盈' : ds.name }}</span>
         </div>
       </div>
       <div class="hh-account" v-if="status">
@@ -579,7 +588,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <div class="ha"><span class="hl">可用</span><span class="hv">{{ (accountInfo.available_cash / 10000).toFixed(1) }}万</span></div>
         <div class="ha"><span class="hl">仓位</span><span class="hv">{{ positionRatio }}%</span></div>
         <div class="ha"><span class="hl">盈亏</span><span class="hv" :class="totalPnl >= 0 ? 'up' : 'down'">{{ totalPnl >= 0 ? '+' : '' }}{{ totalPnl.toFixed(0) }}</span></div>
-        <div class="ha" v-if="status?.signal_stats"><span class="hl">情绪</span><span class="hv">{{ status.signal_stats.filtered || 0 }}过滤</span></div>
+        <div class="ha" v-if="status?.signal_stats"><span class="hl">情绪</span><span class="hv">{{ status?.signal_stats?.filtered || 0 }}过滤</span></div>
       </div>
       <div class="hh-actions">
         <ElButton size="small" @click="signalTraceVisible = !signalTraceVisible" :type="signalTraceVisible ? 'primary' : 'info'" plain>🧪 链路追踪</ElButton>
@@ -650,7 +659,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           <div class="sc-top cp" @click="toggleStrat(s.id)"><span class="sc-icon">{{ strategyMeta[s.id]?.icon || '📋' }}</span><span class="sc-name">{{ s.name }}</span><ElSwitch :model-value="s.enabled" @change="(v: boolean) => toggleStrategy(s.id, v)" size="small" @click.stop /><span class="sc-arrow">{{ stratCollapsed[s.id] ? '▶' : '▼' }}</span></div>
           <div v-if="!stratCollapsed[s.id]">
             <div class="sc-desc">{{ strategyMeta[s.id]?.desc || '' }}</div>
-            <div class="sc-params"><div v-for="p in s.paramDescriptions.slice(0, 3)" :key="p.key" class="pm"><span class="pk">{{ p.label }}</span><span class="pv">{{ p.displayValue }}{{ p.unit }}</span></div></div>
+            <div class="sc-params"><div v-for="p in (s.paramDescriptions || []).slice(0, 3)" :key="p.key" class="pm"><span class="pk">{{ p.label }}</span><span class="pv">{{ p.displayValue }}{{ p.unit }}</span></div></div>
             <ElButton size="small" text type="primary" @click="openEditDialog(s)">⚙️ 编辑</ElButton>
           </div>
         </div>
