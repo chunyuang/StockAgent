@@ -31,6 +31,9 @@ from typing import Dict, Optional, Callable, Awaitable, List, Any
 from dataclasses import dataclass, field
 from enum import Enum
 
+# 延迟导入: 避免循环依赖
+# from nodes.market_monitor.scanner_event_bus import ScannerEvents
+
 
 logger = logging.getLogger("risk.watchdog")
 
@@ -598,6 +601,88 @@ class RiskWatchdog:
             logger.critical(f"[WATCHDOG] 🚨 紧急平仓失败: {e}")
         
         return result
+    
+    # ==================== CircuitBreaker熔断管理(v2.9.6提取) ====================
+    
+    @staticmethod
+    async def check_circuit_breaker(scanner) -> bool:
+        """风控熔断检查(从scanner提取)
+        
+        规则:
+        1. 单日回撤>5% → 暂停所有交易
+        2. 连续亏损3次 → 暂停买入(可卖出止损)
+        3. 手动暂停 → 尊重人工干预
+        
+        Args:
+            scanner: MarketScanner实例
+        Returns: True=允许交易, False=应暂停
+        """
+        cb = scanner._circuit_breaker
+        
+        if cb["trading_paused"]:
+            logger.debug(f"[CIRCUIT] 交易已暂停: {cb['pause_reason']}")
+            return False
+        
+        # 单日回撤检查
+        if scanner._broker:
+            acct = scanner._broker.get_account()
+            if cb["daily_start_assets"] > 0:
+                drawdown = (cb["daily_start_assets"] - acct.total_assets) / cb["daily_start_assets"]
+                if drawdown >= cb["daily_max_drawdown"]:
+                    cb["trading_paused"] = True
+                    cb["pause_reason"] = f"单日回撤{drawdown*100:.1f}%超限({cb['daily_max_drawdown']*100:.0f}%)",
+                    logger.warning(f"[CIRCUIT] ⚠️ 熔断触发: {cb['pause_reason']}")
+                    # EventBus: 熔断事件
+                    from nodes.market_monitor.scanner_event_bus import ScannerEvents
+                    await scanner._event_bus.emit(ScannerEvents.CIRCUIT_BREAKER, {
+                        "paused": True, "reason": cb['pause_reason'],
+                    })
+                    # 主动推送熔断通知
+                    try:
+                        await scanner._publish_scanner_event("status", {
+                            "circuit_breaker": True,
+                            "message": cb["pause_reason"],
+                            "trading_paused": True,
+                        })
+                    except Exception:
+                        pass
+                    return False
+        
+        # 连续亏损检查(只限制买入, 不限制卖出)
+        if cb["consecutive_losses"] >= cb["consecutive_loss_limit"]:
+            logger.info(f"[CIRCUIT] 连续亏损{cb['consecutive_losses']}次, 暂停买入")
+            return False
+        
+        return True
+    
+    @staticmethod
+    def record_trade_result(scanner, profit_pct: float):
+        """记录交易结果(用于连续亏损统计)
+        
+        Args:
+            scanner: MarketScanner实例
+            profit_pct: 本次交易盈亏百分比
+        """
+        cb = scanner._circuit_breaker
+        cb["today_trades"] += 1
+        
+        if profit_pct < 0:
+            cb["consecutive_losses"] += 1
+            cb["today_losses"] += 1
+        else:
+            cb["consecutive_losses"] = 0  # 盈利重置
+    
+    @staticmethod
+    def reset_circuit_breaker(scanner):
+        """重置熔断(手动恢复)
+        
+        Args:
+            scanner: MarketScanner实例
+        """
+        scanner._circuit_breaker["trading_paused"] = False
+        scanner._circuit_breaker["pause_reason"] = ""
+        scanner._circuit_breaker["consecutive_losses"] = 0
+        logger.info("[CIRCUIT] 熔断已重置")
     
     # ==================== 对外接口 ====================
     

@@ -336,6 +336,11 @@ class TestEmotionRebalanceDelegation:
             'take_profit_pct': 0.07,
             'trailing_stop_pct': 0.05,
         }
+        
+        # v2.9.6: _build_emotion_sell_list提取后, MagicMock不会自动提供真实实现
+        # 绑定真实方法使_handle_emotion_phase_change内调用self._build_emotion_sell_list走真实逻辑
+        from nodes.market_monitor.scanner import MarketScanner
+        scanner._build_emotion_sell_list = lambda *args, **kwargs: MarketScanner._build_emotion_sell_list(scanner, *args, **kwargs)
 
         # PositionChecker
         from nodes.market_monitor.position_checker import PositionChecker
