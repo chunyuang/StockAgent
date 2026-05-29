@@ -3,7 +3,7 @@
 > 版本: v2.9.6 | 日期: 2026-05-30 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅
+> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4进行中 | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅
 > 回测影响: 零文件修改, 470测试全通过
 
 ---
@@ -29,6 +29,7 @@
 | v2.9.4 | 2026-05-29 | 健康度评分提取ScannerUtils+情绪调仓规则迁移EmotionCycle+pending_sells超时恢复增强+跌停挂起价格更新+21新增测试(344总计) |
 | v2.9.5 | 2026-05-29 | 内部迭代(scanner行数1813→1780, 54方法) |
 | v2.9.6 | 2026-05-30 | CircuitBreaker提取RiskWatchdog+情绪卖出列表提取_build_emotion_sell_list+绩效快照/飞书日报提取RuntimePersistence+_calc_stop_loss/_calc_take_profit加入DELEGATE_MAP移除fallback+Compare模式一致性验证测试+_execute_risk_sell/_execute_sell_list漏调_record_trade_result修复+_is_limit_down移除fallback加入DELEGATE_MAP+bare except修复+24新增测试(471总计,scanner 1710行53方法) |
+| v2.9.7 | 2026-05-30 | Phase2.1完善: scanner:cmd从Pub/Sub升级为List+ACK(RPUSH/BLPOP+ACK确认+超时处理)+Daemon告警Redis事件发布+/health集成Daemon状态+22新增测试(493总计) |
 
 v2.0关键修正:
 - ❶ 风控独立线程: asyncio协程→threading.Thread(真并行不受GIL影响)
@@ -1110,3 +1111,114 @@ else:
 | TestNoBacktestRegressionV295 | 5 | 回测零影响 |
 
 **总测试**: 447 passed (全量)
+
+---
+
+## 十九、v2.9.7 List+ACK升级 (2026-05-30)
+
+### 19.1 设计目标
+
+Phase 2.1完善: scanner:cmd通道从Redis Pub/Sub升级为List+ACK模式, 解决命令丢失问题:
+
+**原问题**: Pub/Sub是fire-and-forget, 子进程重启/网络抖动期间命令会丢失。start/stop/emergency_liquidate等关键命令不可丢失。
+
+**升级方案**:
+- 主进程: `RPUSH` 到 `scanner:cmd` List (命令持久化到Redis)
+- 子进程: `BLPOP` 从 List 消费 (即使离线, 命令也不丢)
+- ACK确认: 子进程收到命令后发布到 `scanner:ack` (Pub/Sub)
+- 超时: 主进程等待ACK, 超时返回None
+
+### 19.2 IPC通道升级
+
+| 通道 | v2.9.6 | v2.9.7 | 升级原因 |
+|---|---|---|---|
+| scanner:cmd | Pub/Sub | **List+ACK** | 命令不可丢 |
+| scanner:ack | 无 | **Pub/Sub(新增)** | 命令确认 |
+| scanner:signal | Redis Stream | Redis Stream(不变) | 已不可丢 |
+| scanner:position | Redis Stream | Redis Stream(不变) | 已不可丢 |
+| scanner:status | Pub/Sub | Pub/Sub(不变) | 允许丢 |
+| scanner:health | Pub/Sub | Pub/Sub(不变) | 允许丢 |
+
+### 19.3 send_command升级
+
+```python
+async def send_command(cmd, params, timeout=None) -> Optional[dict]:
+    # 1. 生成cmd_id (uuid[:8])
+    # 2. 注册pending_ack Future
+    # 3. RPUSH到scanner:cmd List
+    # 4. 等待ACK Future (超时默认10秒)
+    # 5. 返回ACK结果或None(超时)
+```
+
+**返回值变化**: None → Optional[dict]
+- `None`: 超时或Redis不可用
+- `dict`: ACK结果 `{cmd_id, status, ts}`
+
+### 19.4 ACK状态流转
+
+```
+主进程 RPUSH → 子进程 BLPOP → ACK "received" → 执行命令 → ACK "done"
+                                    ↑立即确认          ↑执行完成
+```
+
+- `received`: 命令已被子进程接收(1秒内)
+- `done`: 命令执行完成(stop/start等)
+- 超时(默认10秒): 主进程不再等待, 记录warning
+
+### 19.5 Daemon告警增强
+
+**新增**: 告警触发时同步发布到Redis health通道, 前端可实时感知:
+```python
+alert_data = {
+    "event": "daemon_emergency",
+    "message": "重启3次失败",
+    "restart_count": 3,
+    "max_restart_count": 3,
+    "ts": time.time(),
+}
+await redis_client.publish("scanner:health", json.dumps(alert_data))
+```
+
+### 19.6 /health API增强
+
+新增 `daemon` 字段, 包含:
+- `alive`: 子进程是否存活
+- `pid`: 进程PID
+- `state`: 当前状态
+- `restart_count`: 重启次数
+- `max_restart_count`: 最大重启次数
+- `pending_acks`: 等待ACK的命令数
+- `cmd_ack_timeout`: ACK超时配置
+
+### 19.7 ScannerDaemonConfig新增
+
+| 字段 | 默认值 | 说明 |
+|---|---|---|
+| `cmd_ack_timeout` | 10.0 | 命令ACK超时(秒) |
+
+### 19.8 变更文件
+
+| 文件 | 变更 |
+|---|---|
+| scanner_daemon.py | send_command改RPUSH+ACK; 子进程改BLPOP; handle_command加ACK; _ack_listener; _send_emergency_alert加Redis发布; get_status加pending_acks |
+| scanner.py (web/api) | /health加daemon字段 |
+| test_v297_list_ack.py | 22新增测试 |
+
+### 19.9 测试覆盖
+
+| 测试类 | 用例数 | 覆盖点 |
+|---|---|---|
+| TestSendCommandUsesList | 3 | RPUSH替代publish/cmd_id/pending_ack注册 |
+| TestACKMechanism | 3 | Future resolve/超时None/成功返回 |
+| TestSubprocessBLPOP | 2 | 源码验证blpop/cmd_id |
+| TestDaemonStatusACK | 2 | get_status含ACK维度/max_restart_count |
+| TestEmergencyAlertRedisEvent | 2 | Redis发布/数据格式 |
+| TestDaemonConfigACK | 2 | 默认值/自定义值 |
+| TestNoBacktestRegressionV297 | 5 | 回测零影响 |
+| TestConvenienceMethodsReturnACK | 3 | start/stop/emergency返回ACK |
+
+**总测试**: 493 passed (全量)
+
+### 19.10 回测影响
+
+零。scanner_daemon.py是实盘独立进程, 回测引擎无任何引用。

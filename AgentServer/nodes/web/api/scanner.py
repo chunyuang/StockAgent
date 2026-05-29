@@ -1974,10 +1974,24 @@ async def get_scanner_health():
                     "alive": risk_thread_alive,
                     "restarts": risk_thread_restarts,
                 },
+                # 【v2.9.7: Daemon状态(如果可用)】
+                "daemon": _get_daemon_status(),
             }
         }
     except Exception as e:
         return {"success": True, "health": {"overall_status": "error", "message": str(e), "checks": {}}}
+
+
+def _get_daemon_status() -> dict:
+    """【v2.9.7】获取Daemon状态(如果可用)"""
+    try:
+        from nodes.market_monitor.scanner_daemon import ScannerDaemon
+        daemon = ScannerDaemon._instance
+        if daemon:
+            return daemon.get_status()
+    except Exception:
+        pass
+    return {"available": False}
 
 
 @router.post("/emergency-liquidate")
