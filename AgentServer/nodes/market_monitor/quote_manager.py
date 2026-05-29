@@ -49,6 +49,9 @@ class QuoteManager:
         self._replay_mode = False
         self._replay_provider = None
         self._replay_date = None
+        
+        # 事件发射回调(v2.9:替代_scanner引用,消除循环依赖)
+        self._event_emitter = None  # async函数: emit(event_name, data)
 
     @property
     def degrade_level(self) -> int:
@@ -65,6 +68,14 @@ class QuoteManager:
     def set_cache_lock(self, lock: threading.Lock):
         """设置缓存锁(Scanner传入,线程安全)"""
         self._cache_lock = lock
+
+    def set_event_emitter(self, emitter):
+        """设置事件发射回调(v2.9:替代_scanner引用,消除循环依赖)
+        
+        Args:
+            emitter: async函数 async emit(event_name: str, data: dict)
+        """
+        self._event_emitter = emitter
 
     def set_replay_mode(self, enabled: bool, provider=None, date: str = None):
         """设置回放模式"""
@@ -167,17 +178,13 @@ class QuoteManager:
                     self._quote_degrade_level = 0
                     self._degrade_since = 0
                     logger.info(f"[QUOTE] 行情恢复正常, 降级已恢复(持续{degrade_duration:.0f}秒)")
-                    # 【v2.8:EventBus行情恢复事件】
-                    try:
-                        scanner_ref = getattr(self, '_scanner', None)
-                        if scanner_ref and hasattr(scanner_ref, 'event_bus'):
-                            asyncio.ensure_future(scanner_ref.event_bus.emit("quote_recovered", {
-                                "level": 0,
-                                "degrade_duration_s": degrade_duration,
-                                "source": "eastmoney",
-                            }))
-                    except Exception:
-                        pass
+                    # 【v2.9:通过回调发射EventBus行情恢复事件(消除_scanner引用)】
+                    if self._event_emitter:
+                        asyncio.ensure_future(self._event_emitter("quote_recovered", {
+                            "level": 0,
+                            "degrade_duration_s": degrade_duration,
+                            "source": "eastmoney",
+                        }))
             except Exception as e:
                 self._quote_fail_count += 1
                 if self._quote_fail_count >= 3 and self._quote_degrade_level == 0:
@@ -185,17 +192,13 @@ class QuoteManager:
                     self._degrade_since = time.monotonic()
                     self._last_recover_attempt = time.monotonic()  # 从降级时刻开始计时
                     logger.warning(f"[QUOTE] 东方财富连续3次失败,降级到level 1: {e}")
-                    # 【v2.8:EventBus行情降级事件】
-                    try:
-                        scanner_ref = getattr(self, '_scanner', None)
-                        if scanner_ref and hasattr(scanner_ref, 'event_bus'):
-                            asyncio.ensure_future(scanner_ref.event_bus.emit("quote_degraded", {
-                                "level": 1,
-                                "source": "eastmoney",
-                                "error": str(e),
-                            }))
-                    except Exception:
-                        pass
+                    # 【v2.9:通过回调发射EventBus行情降级事件(消除_scanner引用)】
+                    if self._event_emitter:
+                        asyncio.ensure_future(self._event_emitter("quote_degraded", {
+                            "level": 1,
+                            "source": "eastmoney",
+                            "error": str(e),
+                        }))
                 else:
                     logger.warning(f"[QUOTE] 东方财富获取失败({self._quote_fail_count}次): {e}")
 

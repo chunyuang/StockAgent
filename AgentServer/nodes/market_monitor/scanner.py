@@ -176,7 +176,7 @@ class MarketScanner:
 
         # 【Phase3.1:QuoteManager+PositionManager+StrategyScorer+SignalManager】
         self._quote_manager = QuoteManager()
-        self._quote_manager._scanner = self  # 【v2.8:EventBus行情降级/恢复事件需要scanner引用】
+        self._quote_manager.set_event_emitter(self._make_quote_event_emitter())  # 【v2.9:回调替代scanner引用】
         self._position_manager = None  # 延迟初始化(需要self引用)
         self._strategy_scorer = None   # 延迟初始化
         self._signal_manager = None    # 延迟初始化
@@ -838,7 +838,7 @@ class MarketScanner:
                     except Exception:
                         pass
                     logger.info("[SCANNER] 收盘自动结算+持久化完成")
-                    # 【v2.8:EventBus盘后结算事件】
+                    # 【v2.9:盘后结算通过EventBus驱动,解耦scanner主循环】
                     try:
                         account = self._broker.account if self._broker else None
                         await self._event_bus.emit(ScannerEvents.DAILY_SETTLED, {
@@ -853,16 +853,6 @@ class MarketScanner:
                         await self._save_timeline()
                     except Exception:
                         pass
-                    # 保存绩效快照(供净值曲线使用)
-                    try:
-                        await self._save_performance_snapshot(trade_date)
-                    except Exception as e:
-                        logger.warning(f"[SCANNER] 保存绩效快照失败: {e}")
-                    # 推送结算报告到飞书
-                    try:
-                        await self._push_daily_summary(trade_date)
-                    except Exception as e:
-                        logger.warning(f"[SCANNER] 推送日报失败: {e}")
                     await asyncio.sleep(60)
                     
                 # === 深夜(23:00-8:00): 极低频 ===
@@ -940,7 +930,10 @@ class MarketScanner:
     def _check_stop_loss_only(self, realtime_data: Dict):
         """1秒级止损检查 — 委托给PositionManager【Phase3.1】
         
-        跌停挂起+卖出执行仍在此处(PositionManager只做检查,不执行)
+        v2.9修复: PositionManager.check_stop_loss_only已处理跌停挂起+恢复,
+        scanner不再重复检查跌停(之前scanner和PM双重检查导致逻辑混乱)
+        
+        执行流程: PM返回to_sell → scanner执行卖出(通过asyncio主循环)
         """
         if not self._broker:
             return
@@ -949,33 +942,24 @@ class MarketScanner:
         if not positions:
             return
         
-        # 委托检查
+        # 委托检查(PM已处理跌停挂起+跌停恢复)
         if self._position_manager:
             to_sell = self._position_manager.check_stop_loss_only(realtime_data)
         else:
             to_sell = []
         
-        # 跌停挂起+执行卖出(PositionManager不直接执行交易)
-        if to_sell:
-            for pos, reason, price, risk in to_sell:
-                # 跌停不可卖检查
-                if self._is_limit_down(pos.ts_code):
-                    with self._state_lock:
-                        self._pending_sells[pos.ts_code] = {"reason": reason, "price": price, "added_at": time.time(), "source": "risk_thread"}
-                    logger.warning(f"[RISK_THREAD] 跌停不可卖: {pos.ts_code}, {reason}挂起")
-                    continue
-                
-                # 通过asyncio提交到主循环执行卖出
-                if self._loop and not self._loop.is_closed():
-                    try:
-                        sell_qty = pos.available_qty
-                        future = asyncio.run_coroutine_threadsafe(
-                            self._execute_risk_sell(pos, reason, price, sell_qty),
-                            self._loop
-                        )
-                        future.result(timeout=5)
-                    except Exception as e:
-                        logger.error(f"[RISK_THREAD] 卖出执行失败: {pos.ts_code} {e}")
+        # 执行卖出(PositionManager只做检查,不执行交易)
+        for pos, reason, price, risk in to_sell:
+            if self._loop and not self._loop.is_closed():
+                try:
+                    sell_qty = pos.available_qty
+                    future = asyncio.run_coroutine_threadsafe(
+                        self._execute_risk_sell(pos, reason, price, sell_qty),
+                        self._loop
+                    )
+                    future.result(timeout=5)
+                except Exception as e:
+                    logger.error(f"[RISK_THREAD] 卖出执行失败: {pos.ts_code} {e}")
 
     async def _execute_risk_sell(self, pos, reason: str, price: float, quantity: int):
         """风控线程触发的卖出执行(在asyncio主循环中运行)"""
@@ -1549,6 +1533,22 @@ class MarketScanner:
         }
 
     # ==================== V59:智能持仓检查频率 ====================
+
+    def _make_quote_event_emitter(self):
+        """创建行情事件发射回调(v2.9:消除QuoteManager对Scanner的循环引用)
+        
+        之前QuoteManager直接持有scanner引用来发射EventBus事件,
+        造成QuoteManager→Scanner循环依赖。改用回调函数解耦:
+        - QuoteManager只依赖回调接口,不知道Scanner存在
+        - Scanner提供回调,内部调用EventBus.emit
+        """
+        scanner = self
+        async def emit_quote_event(event_name: str, data: dict):
+            try:
+                await scanner._event_bus.emit(event_name, data)
+            except Exception:
+                pass
+        return emit_quote_event
 
     def _get_effective_stop_price(self, pos, risk: Dict) -> Optional[float]:
         """获取有效止损价 — 委托给PositionManager【Phase3.1】"""

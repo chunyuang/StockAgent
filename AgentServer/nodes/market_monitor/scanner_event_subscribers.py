@@ -56,7 +56,7 @@ def register_subscribers(scanner) -> None:
     # 7. 情绪变化 → Redis状态推送
     bus.on("emotion_changed", _make_emotion_changed_handler(scanner))
     
-    # 8. 盘后结算 → 审计日志
+    # 8. 盘后结算 → 审计日志 + 绩效快照 + 飞书日报
     bus.on("daily_settled", _make_daily_settled_handler(scanner))
     
     # 9. 信号生成 → Redis推送(前端实时信号面板)
@@ -268,7 +268,7 @@ def _make_emotion_changed_handler(scanner):
 
 
 def _make_daily_settled_handler(scanner):
-    """盘后结算事件handler"""
+    """盘后结算事件handler(v2.9:扩展为审计日志+绩效快照+飞书日报)"""
     async def on_daily_settled(data: Dict[str, Any]):
         # 审计日志
         await _write_audit_log(scanner, "daily_settled", data)
@@ -278,6 +278,18 @@ def _make_daily_settled_handler(scanner):
             "trade_date": data.get("trade_date", ""),
             "total_profit": data.get("total_profit", 0),
         })
+        # 【v2.9:绩效快照保存(从scanner._scan_loop解耦到EventBus)】
+        trade_date = data.get("trade_date", "")
+        if trade_date:
+            try:
+                await scanner._save_performance_snapshot(trade_date)
+            except Exception as e:
+                logger.warning(f"[DAILY] 保存绩效快照失败: {e}")
+            # 【v2.9:推送飞书日报(从scanner._scan_loop解耦到EventBus)】
+            try:
+                await scanner._push_daily_summary(trade_date)
+            except Exception as e:
+                logger.warning(f"[DAILY] 推送日报失败: {e}")
     on_daily_settled.__name__ = "on_daily_settled"
     return on_daily_settled
 
