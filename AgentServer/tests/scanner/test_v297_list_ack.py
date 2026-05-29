@@ -378,3 +378,85 @@ class TestConvenienceMethodsReturnACK:
         with patch.object(daemon, 'send_command', new_callable=AsyncMock, return_value=ack):
             result = await daemon.emergency_liquidate(reason="测试")
         assert result == ack
+
+
+# ============================================================================
+# 9. EventBus handler latency (v2.9.7)
+# ============================================================================
+
+class TestEventBusHandlerLatency:
+    """验证EventBus handler耗时统计"""
+
+    @pytest.mark.asyncio
+    async def test_handler_latency_tracked(self):
+        """handler执行耗时应被记录"""
+        from nodes.market_monitor.scanner_event_bus import ScannerEventBus, reset_event_bus
+        
+        reset_event_bus()
+        bus = ScannerEventBus()
+        
+        async def slow_handler(data):
+            await asyncio.sleep(0.01)  # 10ms
+        
+        bus.on("test_event", slow_handler)
+        await bus.emit("test_event", {"key": "value"})
+        
+        latency = bus.get_handler_latency()
+        assert len(latency) > 0
+        
+        # 找到slow_handler的记录
+        handler_key = None
+        for k in latency:
+            if "slow_handler" in k:
+                handler_key = k
+                break
+        
+        assert handler_key is not None
+        assert latency[handler_key]["count"] == 1
+        assert latency[handler_key]["total_ms"] > 5  # 至少5ms
+        assert latency[handler_key]["max_ms"] > 5
+        assert latency[handler_key]["avg_ms"] > 5
+        
+        reset_event_bus()
+
+    @pytest.mark.asyncio
+    async def test_handler_latency_reset(self):
+        """reset_stats应清除耗时统计"""
+        from nodes.market_monitor.scanner_event_bus import ScannerEventBus, reset_event_bus
+        
+        reset_event_bus()
+        bus = ScannerEventBus()
+        
+        async def handler(data):
+            pass
+        
+        bus.on("test_event", handler)
+        await bus.emit("test_event", {})
+        
+        assert len(bus.get_handler_latency()) > 0
+        bus.reset_stats()
+        assert len(bus.get_handler_latency()) == 0
+        
+        reset_event_bus()
+
+    @pytest.mark.asyncio
+    async def test_handler_latency_multiple_calls(self):
+        """多次调用应正确统计"""
+        from nodes.market_monitor.scanner_event_bus import ScannerEventBus, reset_event_bus
+        
+        reset_event_bus()
+        bus = ScannerEventBus()
+        
+        async def handler(data):
+            pass
+        
+        bus.on("test_event", handler)
+        await bus.emit("test_event", {})
+        await bus.emit("test_event", {})
+        await bus.emit("test_event", {})
+        
+        latency = bus.get_handler_latency()
+        handler_key = [k for k in latency if "handler" in k][0]
+        assert latency[handler_key]["count"] == 3
+        
+        reset_event_bus()

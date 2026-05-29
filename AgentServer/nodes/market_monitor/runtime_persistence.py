@@ -278,7 +278,11 @@ class RuntimePersistence:
             logger.info(f"[SCAN] 保存时间线失败(非关键): {e}")
     
     async def save_scan_traces(self, filter_result):
-        """保存扫描链路追踪到MongoDB"""
+        """保存扫描链路追踪到MongoDB
+        
+        优化：rejected候选只保存摘要(不含layer_results)，减少文档体积
+        每次扫描3000+候选×layer_results会导致文档>1MB，列表查询返回20MB+
+        """
         try:
             from core.managers import mongo_manager
             if mongo_manager.db is None:
@@ -287,36 +291,58 @@ class RuntimePersistence:
                 return
             
             today = datetime.now().strftime("%Y%m%d")
+            
+            # 分离passed和rejected候选
+            passed_candidates = []
+            rejected_summary = []  # rejected只保留摘要信息，不保存layer_results
+            
+            for t in filter_result.trace_candidates:
+                if t.final_status == "passed":
+                    # passed候选保留完整layer_results（数量少，且是关注重点）
+                    passed_candidates.append({
+                        "ts_code": t.ts_code,
+                        "stock_name": t.stock_name,
+                        "strategy": t.strategy,
+                        "strategy_name": t.strategy_name,
+                        "price": t.price,
+                        "pct_chg": t.pct_chg,
+                        "final_status": t.final_status,
+                        "rejection_layer": t.final_rejection_layer,
+                        "rejection_reason": t.final_rejection_reason,
+                        "layer_results": t.layer_results,
+                    })
+                else:
+                    # rejected候选只保存摘要（数量巨大，layer_results占空间）
+                    rejected_summary.append({
+                        "ts_code": t.ts_code,
+                        "stock_name": t.stock_name,
+                        "strategy": t.strategy,
+                        "strategy_name": t.strategy_name,
+                        "price": t.price,
+                        "pct_chg": t.pct_chg,
+                        "final_status": t.final_status,
+                        "rejection_layer": t.final_rejection_layer,
+                        "rejection_reason": t.final_rejection_reason,
+                        # 不保存 layer_results — 这是体积大头
+                    })
+            
             trace_doc = {
                 "trade_date": today,
                 "scan_time": datetime.now().isoformat(),
                 "account_id": self.broker.account.account_id if self.broker else "default",
                 "summary": {},
-                "candidates": [],
+                "candidates": passed_candidates,
+                "rejected_summary": rejected_summary,
             }
             
             for layer, stats in filter_result.trace_summary.items():
                 trace_doc["summary"][layer] = dict(stats)
             trace_doc["summary"]["total_candidates"] = len(filter_result.trace_candidates)
-            trace_doc["summary"]["passed"] = len([t for t in filter_result.trace_candidates if t.final_status == "passed"])
-            trace_doc["summary"]["rejected"] = len([t for t in filter_result.trace_candidates if t.final_status == "rejected"])
-            
-            for t in filter_result.trace_candidates:
-                trace_doc["candidates"].append({
-                    "ts_code": t.ts_code,
-                    "stock_name": t.stock_name,
-                    "strategy": t.strategy,
-                    "strategy_name": t.strategy_name,
-                    "price": t.price,
-                    "pct_chg": t.pct_chg,
-                    "final_status": t.final_status,
-                    "rejection_layer": t.final_rejection_layer,
-                    "rejection_reason": t.final_rejection_reason,
-                    "layer_results": t.layer_results,
-                })
+            trace_doc["summary"]["passed"] = len(passed_candidates)
+            trace_doc["summary"]["rejected"] = len(rejected_summary)
             
             await mongo_manager.db["scan_traces"].insert_one(trace_doc)
-            logger.info(f"[SCAN] 保存链路追踪: {trace_doc['summary']['total_candidates']}候选")
+            logger.info(f"[SCAN] 保存链路追踪: {len(passed_candidates)} passed + {len(rejected_summary)} rejected (节省layer_results)")
         except Exception as e:
             logger.warning(f"[SCAN] 保存链路追踪失败(非关键): {e}")
     

@@ -69,6 +69,10 @@ class ScannerEventBus:
             lambda: {"emitted": 0, "handled": 0, "errors": 0}
         )
         self._enabled = True
+        # 【v2.9.7: handler执行耗时统计】
+        self._handler_latency: Dict[str, Dict[str, float]] = defaultdict(
+            lambda: {"total_ms": 0.0, "count": 0, "max_ms": 0.0}
+        )
     
     # ==================== 核心API ====================
     
@@ -141,6 +145,13 @@ class ScannerEventBus:
                 stats["handled"] += 1
                 success_count += 1
                 
+                # 【v2.9.7: handler耗时统计】
+                latency_key = f"{event}.{handler.__name__}"
+                lat = self._handler_latency[latency_key]
+                lat["total_ms"] += elapsed
+                lat["count"] += 1
+                lat["max_ms"] = max(lat["max_ms"], elapsed)
+                
                 if elapsed > 100:  # 超过100ms告警
                     logger.warning(
                         f"[EVENT_BUS] {event} handler {handler.__name__} "
@@ -204,6 +215,19 @@ class ScannerEventBus:
         """获取事件统计"""
         return dict(self._stats)
     
+    def get_handler_latency(self) -> Dict[str, Dict[str, float]]:
+        """【v2.9.7】获取handler执行耗时统计
+        
+        Returns:
+            {"event.handler_name": {"total_ms", "count", "max_ms", "avg_ms"}}
+        """
+        result = {}
+        for key, lat in self._handler_latency.items():
+            entry = dict(lat)
+            entry["avg_ms"] = round(lat["total_ms"] / lat["count"], 1) if lat["count"] > 0 else 0.0
+            result[key] = entry
+        return result
+    
     def get_history(self, event: str = None, limit: int = 20) -> List[Dict]:
         """获取事件历史
         
@@ -244,6 +268,7 @@ class ScannerEventBus:
     def reset_stats(self):
         """重置统计"""
         self._stats.clear()
+        self._handler_latency.clear()  # 【v2.9.7】
     
     # ==================== 内部方法 ====================
     
