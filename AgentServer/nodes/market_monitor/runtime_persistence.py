@@ -83,22 +83,30 @@ class RuntimePersistence:
         if not doc:
             return
         
+        # 【v2.9:跨日检查—如果是昨天的快照,只恢复非日期相关的持久状态】
+        snapshot_date = doc.get("trade_date", "")
+        today = datetime.now().strftime("%Y%m%d")
+        is_same_day = (snapshot_date == today)
+        if not is_same_day and snapshot_date:
+            logger.info(f"[SNAPSHOT] 快照日期={snapshot_date}, 今日={today}, 跳过日期相关状态恢复")
+        
         scanner = self._scanner
         
-        # 恢复追踪止损(线程安全)
-        with scanner._state_lock:
-            if "trailing_stops" in doc:
-                scanner._trailing_stops = doc["trailing_stops"]
-                logger.info(f"[SNAPSHOT] 恢复追踪止损: {len(scanner._trailing_stops)}只")
-            
-            # 恢复风险等级
-            if "position_risk_levels" in doc:
-                scanner._position_risk_levels = doc["position_risk_levels"]
-            
-            # 恢复pending_sells
-            if "pending_sells" in doc:
-                scanner._pending_sells = doc["pending_sells"]
-                logger.info(f"[SNAPSHOT] 恢复待卖: {len(scanner._pending_sells)}只")
+        # 恢复追踪止损(线程安全) — 仅恢复同日数据
+        if is_same_day:
+            with scanner._state_lock:
+                if "trailing_stops" in doc:
+                    scanner._trailing_stops = doc["trailing_stops"]
+                    logger.info(f"[SNAPSHOT] 恢复追踪止损: {len(scanner._trailing_stops)}只")
+                
+                # 恢复风险等级
+                if "position_risk_levels" in doc:
+                    scanner._position_risk_levels = doc["position_risk_levels"]
+                
+                # 恢复pending_sells
+                if "pending_sells" in doc:
+                    scanner._pending_sells = doc["pending_sells"]
+                    logger.info(f"[SNAPSHOT] 恢复待卖: {len(scanner._pending_sells)}只")
         
         # 恢复风控状态
         if "circuit_breaker" in doc:
@@ -111,6 +119,15 @@ class RuntimePersistence:
         # 恢复统计
         if "stats" in doc:
             scanner._stats.update(doc["stats"])
+        
+        # 【v2.9:恢复行情降级状态】
+        if "quote_degrade_level" in doc and scanner._quote_manager:
+            scanner._quote_degrade_level = doc["quote_degrade_level"]
+            scanner._quote_manager._quote_degrade_level = doc["quote_degrade_level"]
+            if doc["quote_degrade_level"] > 0:
+                scanner._quote_manager._degrade_since = time.monotonic()
+                scanner._quote_manager._last_recover_attempt = time.monotonic()
+                logger.info(f"[SNAPSHOT] 恢复行情降级: level={doc['quote_degrade_level']}")
         
         logger.info(f"[SNAPSHOT] 加载运行时快照成功")
     
@@ -143,6 +160,8 @@ class RuntimePersistence:
         doc["stats"] = dict(scanner._stats)
         doc["active_signals_count"] = len(scanner._active_signals)
         doc["dry_run"] = scanner._dry_run
+        doc["trade_date"] = getattr(scanner, '_trade_date', '')  # 【v2.9:快照中保存trade_date,重启后恢复】
+        doc["quote_degrade_level"] = getattr(scanner, '_quote_degrade_level', 0)  # 【v2.9:恢复行情降级状态】
         
         saved = False
         

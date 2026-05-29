@@ -1,10 +1,10 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.8 | 日期: 2026-05-29 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9 | 日期: 2026-05-29 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅
-> 回测影响: 零文件修改, 330测试全通过
+> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅
+> 回测影响: 零文件修改, 253测试全通过
 
 ---
 
@@ -22,6 +22,7 @@
 | v2.6 | 2026-05-29 | 继续优化: _trade_date/_nav_peak初始化bug修复+异动检测提取到StrategyScorer+仓位计算提取到PositionManager+策略配置管理提取到StrategyParamCenter+22集成测试+limit_up_count字段修复 |
 | v2.7 | 2026-05-29 | EventBus: ScannerEventBus内部事件总线+Scanner集成5个发射点+StrategyScorer NaN防御修复+107新增测试(33 EventBus+22 StrategyScorer+52 FilterPipeline) |
 | v2.8 | 2026-05-29 | EventBus订阅器: 8组事件处理器(审计日志/快照触发/Redis推送/健康指标)+行情降级恢复事件发射+盘后结算事件+EventBus API端点(/event-bus/stats+history)+23集成测试 |
+| v2.9 | 2026-05-29 | 架构解耦: QuoteManager回调消除循环依赖+盘后结算EventBus解耦+跌停检查去重+运行时快照跨日校验+22新增测试(253总计) |
 
 v2.0关键修正:
 - ❶ 风控独立线程: asyncio协程→threading.Thread(真并行不受GIL影响)
@@ -925,3 +926,78 @@ v2.8目标:
 ### 16.7 回测影响
 
 零。EventBus订阅器仅在实盘scanner启动时注册, 回测引擎无任何引用。
+
+---
+
+## 十七、v2.9 架构解耦优化
+
+### 17.1 QuoteManager循环依赖消除
+
+**问题**: QuoteManager直接持有`_scanner`引用来发射EventBus事件, 造成Scanner↔QuoteManager循环依赖。
+
+**修复**: 改用回调函数解耦:
+- QuoteManager新增 `_event_emitter` 回调属性(默认None)
+- Scanner通过 `set_event_emitter(callback)` 注入回调
+- 回调签名: `async(event_name: str, data: dict)`
+- QuoteManager完全不知道Scanner存在, 只依赖回调接口
+
+```python
+# Before (v2.8)
+self._quote_manager._scanner = self  # 循环引用!
+
+# After (v2.9)
+self._quote_manager.set_event_emitter(self._make_quote_event_emitter())
+# callback → scanner._event_bus.emit(event_name, data)
+```
+
+### 17.2 盘后结算EventBus解耦
+
+**问题**: `_save_performance_snapshot`和`_push_daily_summary`在`_scan_loop`中直接调用, 与主循环耦合。
+
+**修复**: 移到`daily_settled`事件订阅器:
+- scanner._scan_loop只发射`daily_settled`事件
+- 订阅器内部调用`scanner._save_performance_snapshot(trade_date)`
+- 订阅器内部调用`scanner._push_daily_summary(trade_date)`
+- 异常隔离: 绩效快照失败不影响飞书日报
+
+### 17.3 跌停检查去重
+
+**问题**: `_check_stop_loss_only`中scanner和PositionManager都检查跌停, 导致:
+- PM已处理跌停挂起, scanner又重复检查
+- 跌停恢复后, PM返回的to_sell可能被scanner的跌停检查再拦截
+
+**修复**: scanner不再重复检查跌停:
+- PositionManager.check_stop_loss_only已处理: 跌停→挂起pending_sells, 恢复→返回to_sell
+- scanner._check_stop_loss_only只执行PM返回的to_sell
+
+### 17.4 运行时快照跨日校验
+
+**问题**: 重启时加载昨天的快照, trailing_stops/pending_sells可能指向已不在的持仓。
+
+**修复**: `load_runtime_snapshot`增加跨日校验:
+- 快照包含`trade_date`字段
+- 同日快照: 恢复全部状态(trailing_stops/pending_sells/风控/统计)
+- 跨日快照: 只恢复跨日持久状态(风控consecutive_losses), 跳过日间状态
+- 新增`quote_degrade_level`字段保存/恢复行情降级状态
+
+### 17.5 变更文件
+
+| 文件 | 变更 |
+|---|---|
+| scanner.py | 回调创建+盘后结算EventBus发射+跌停去重 |
+| quote_manager.py | set_event_emitter回调+_event_emitter替代_scanner |
+| scanner_event_subscribers.py | daily_settled扩展(绩效快照+飞书日报) |
+| runtime_persistence.py | 跨日校验+trade_date/quote_degrade_level字段 |
+| test_v29_optimizations.py | 22新增测试 |
+
+### 17.6 测试覆盖
+
+| 测试类 | 用例数 | 覆盖点 |
+|---|---|---|
+| TestQuoteManagerCallbackInterface | 6 | emitter属性/回调存储/无_scanner引用/源码验证/无回调降级/签名验证 |
+| TestDailySettledEventBusDecouple | 4 | 绩效快照触发/飞书日报触发/失败隔离/scan_loop解耦验证 |
+| TestLimitDownDedup | 3 | PM跌停处理/PM恢复处理/scanner去重验证 |
+| TestRuntimeSnapshotCrossDayValidation | 4 | 同日恢复/跨日跳过/trade_date字段/源码验证 |
+| TestNoBacktestRegressionV29 | 5 | 回测模块不受影响 |
+
+**总测试**: 253 passed (scanner模块253)
