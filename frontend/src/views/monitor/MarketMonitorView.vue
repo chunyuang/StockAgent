@@ -46,12 +46,6 @@ const loading = ref(false), autoRefresh = ref(true), soundEnabled = ref(false)
 const themeStore = useThemeStore()
 const scannerStore = useScannerStore() // 【Phase4.1:Scanner Store】
 watch(() => themeStore.isDark, () => { /* theme changes auto-propagate via CSS vars */ })
-watch(activeTab, (tab) => {
-  if (tab === 'premarket') fetchPremarketData()
-  if (tab === 'scan-trace') fetchScanHistory()
-  if (tab === 'review') { fetchReviewData(); fetchParamCompare() }
-  if (tab === 'ops') fetchAutoTrades()
-})
 let refreshTimer: any = null
 let ws: WebSocket | null = null
 let wsReconnectTimer: any = null
@@ -320,6 +314,12 @@ let nowTimer: any = null
 // signalRemaining/formatRemaining/SIGNAL_EXPIRE_MS imported from @/utils/scanner
 // ==================== Tab 导航 ====================
 const activeTab = ref<'trading' | 'premarket' | 'scan-trace' | 'review' | 'risk' | 'ops'>('trading')
+watch(activeTab, (tab) => {
+  if (tab === 'premarket') fetchPremarketData()
+  if (tab === 'scan-trace') fetchScanHistory()
+  if (tab === 'review') { fetchReviewData(); fetchParamCompare() }
+  if (tab === 'ops') fetchAutoTrades()
+})
 
 const tradeMode = ref('simulated')
 const replayDate = ref('')

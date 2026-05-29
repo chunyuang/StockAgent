@@ -62,8 +62,10 @@ export default defineConfig({
       output: {
         manualChunks: {
           'element-plus': ['element-plus'],
-          'echarts': ['echarts', 'vue-echarts'],
-          'vendor': ['vue', 'vue-router', 'pinia', 'axios'],
+          // echarts拆分问题: 把echarts和vue-echarts放在同一个chunk会导致
+          // "Ho[o] is not a constructor"错误(渲染器注册时序问题)
+          // 修复: 不单独拆分echarts, 让它内联到各组件chunk中
+          'vendor': ['vue', 'vue-router', 'pinia', 'axios', 'echarts', 'vue-echarts'],
         },
       },
     },
