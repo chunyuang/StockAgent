@@ -1729,8 +1729,8 @@ async def get_realtime_quote(ts_code: str):
 async def get_scan_traces(date: str = None, limit: int = 10):
     """获取扫描链路追踪记录
     
-    返回每次扫描的完整选股→过滤→执行全流程
-    用于复盘：查看每层筛选淘汰了多少候选、为什么淘汰
+    返回每次扫描的摘要信息，不含candidates详情（用于列表展示）
+    点击单条记录时通过 /scan-traces/{scan_id} 获取详情
     
     Args:
         date: 指定日期(YYYYMMDD), 不传则返回最近N次
@@ -1746,7 +1746,11 @@ async def get_scan_traces(date: str = None, limit: int = 10):
             query["trade_date"] = date
         
         docs = []
-        async for doc in mongo_manager.db["scan_traces"].find(query).sort("_id", -1).limit(limit):
+        # 列表查询：排除candidates和rejected_summary字段，避免返回20MB+
+        async for doc in mongo_manager.db["scan_traces"].find(
+            query,
+            {"candidates": 0, "rejected_summary": 0}  # 排除大字段
+        ).sort("_id", -1).limit(limit):
             doc.pop("_id", None)
             docs.append(doc)
         
@@ -1756,13 +1760,18 @@ async def get_scan_traces(date: str = None, limit: int = 10):
 
 
 @router.get("/scan-traces/{scan_id}")
-async def get_scan_trace_detail(scan_id: str):
+async def get_scan_trace_detail(scan_id: str, status: str = None, limit: int = 50):
     """获取单次扫描的详细追踪
     
     返回该次扫描的完整候选链路：
     - 每个候选在各层的通过/拒绝状态
     - 被淘汰的候选在哪个环节、什么原因被淘汰
     - 通过的候选最终执行的交易
+    
+    Args:
+        scan_id: 扫描记录ID
+        status: 过滤候选状态 (passed/rejected/all), 默认返回passed
+        limit: 返回候选数量上限(默认50, 防止返回MB级数据)
     """
     try:
         from core.managers import mongo_manager
@@ -1773,6 +1782,35 @@ async def get_scan_trace_detail(scan_id: str):
         doc = await mongo_manager.db["scan_traces"].find_one({"_id": ObjectId(scan_id)})
         if doc:
             doc.pop("_id", None)
+            
+            # 按状态过滤candidates，限制数量
+            candidates = doc.get("candidates", [])
+            rejected = doc.get("rejected_summary", [])
+            
+            filter_status = status or "all"
+            if filter_status == "passed":
+                doc["candidates"] = candidates[:limit]
+                doc.pop("rejected_summary", None)
+            elif filter_status == "rejected":
+                doc["candidates"] = rejected[:limit]
+                doc.pop("rejected_summary", None)
+            else:
+                # all: 先放passed，再放rejected，合计不超过limit
+                combined = candidates[:limit]
+                remaining = limit - len(combined)
+                if remaining > 0:
+                    combined.extend(rejected[:remaining])
+                doc["candidates"] = combined
+                doc.pop("rejected_summary", None)
+            
+            # 添加分页信息
+            doc["_pagination"] = {
+                "passed_count": len(candidates),
+                "rejected_count": len(rejected),
+                "returned_count": len(doc["candidates"]),
+                "filter": filter_status,
+                "limit": limit,
+            }
         
         return {"success": True, "data": doc}
     except Exception as e:
@@ -2614,6 +2652,7 @@ async def get_event_bus_stats():
         return _sanitize({
             "success": True,
             "stats": bus.get_stats(),
+            "handler_latency": bus.get_handler_latency(),  # 【v2.9.7】
             "subscriber_count": sum(bus.handler_count(e) for e in bus.get_events()),
             "events": bus.get_events(),
             "enabled": bus._enabled,
@@ -2955,3 +2994,42 @@ async def get_strategy_params_compare():
         }}
     except Exception as e:
         return {"success": True, "data": {"strategy_comparisons": [], "global_risk": {}, "drifts_detected": [], "drift_count": 0, "error": str(e)}}
+
+
+# ==================== V2.9.7: Daemon管理端点 ====================
+
+@router.get("/daemon/status")
+async def get_daemon_status():
+    """【v2.9.7】获取ScannerDaemon守护进程详细状态
+    
+    返回子进程存活/状态/重启次数/ACK等待数等
+    仅当Daemon模式运行时有效
+    """
+    try:
+        from nodes.market_monitor.scanner_daemon import ScannerDaemon
+        daemon = ScannerDaemon._instance
+        if not daemon:
+            return {"success": True, "available": False, "message": "Daemon未启动(非Daemon模式)"}
+        
+        status = daemon.get_status()
+        return {"success": True, "available": True, "data": status}
+    except Exception as e:
+        return {"success": True, "available": False, "error": str(e)}
+
+
+@router.post("/daemon/restart")
+async def restart_daemon():
+    """【v2.9.7】重启ScannerDaemon子进程(手动重启,重置计数器)
+    
+    安全: 不会影响Broker持仓, 只重启扫描进程
+    """
+    try:
+        from nodes.market_monitor.scanner_daemon import ScannerDaemon
+        daemon = ScannerDaemon._instance
+        if not daemon:
+            return {"success": False, "message": "Daemon未启动"}
+        
+        result = await daemon.restart()
+        return {"success": result, "message": "重启成功" if result else "重启失败"}
+    except Exception as e:
+        return {"success": False, "message": str(e)}

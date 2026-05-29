@@ -238,8 +238,9 @@ async function fetchScanHistory() {
   finally { scanHistoryLoading.value = false }
 }
 async function fetchScanTrace(scanId: string) {
+  scanTraceDetail.value = null  // 清空旧数据防止渲染旧内容
   try {
-    const r = await api.get(`${scannerApi}/scan-traces/${scanId}`)
+    const r = await api.get(`${scannerApi}/scan-traces/${scanId}?status=all&limit=200`)
     const p = parseResponse(r)
     if (p.success) scanTraceDetail.value = p.data
   } catch { /* ignore */ }
@@ -1026,11 +1027,12 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <div class="scan-grid">
           <!-- 左: 扫描列表 -->
           <div class="scan-list">
-            <div v-if="!scanHistory.length" class="empty">启动后扫描记录会显示在这里</div>
+            <div v-if="scanHistoryLoading" class="empty">加载中...</div>
+            <div v-else-if="!scanHistory.length" class="empty">启动后扫描记录会显示在这里</div>
             <div v-for="(s, i) in scanHistory" :key="i" class="scan-item" :class="{ active: selectedScanIdx === i }" @click="selectedScanIdx = i; fetchScanTrace(s.scan_id || '')">
-              <div class="scan-time">{{ s.scan_time || s.time }}</div>
+              <div class="scan-time">{{ (s.scan_time || s.time || '').substring(0, 19).replace('T', ' ') }}</div>
               <div class="scan-type">{{ s.scan_type === 'full' ? '全量' : '快速' }}</div>
-              <div class="scan-stats">候选{{ s.candidates || 0 }}→信号{{ s.signals || 0 }}→买入{{ s.buys || 0 }}</div>
+              <div class="scan-stats">候选{{ s.summary?.total_candidates || s.candidates || 0 }}→信号{{ s.summary?.passed || s.signals || 0 }}→买入{{ s.buys || 0 }}</div>
             </div>
           </div>
 
@@ -1038,31 +1040,34 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           <div class="scan-detail">
             <div v-if="!scanTraceDetail" class="empty">选择左侧扫描记录查看详情</div>
             <template v-else>
-              <div class="st">🔍 9层过滤漏斗</div>
-              <div class="funnel">
-                <template v-for="(layer, idx) in scanTraceDetail.layers || []" :key="idx">
-                  <div class="funnel-step" :class="{ passed: layer.passed, rejected: !layer.passed }">
-                    <div class="fn-label">L{{ idx + 1 }} {{ layer.name }}</div>
-                    <div class="fn-count">{{ layer.input }}→{{ layer.output }}</div>
-                    <div v-if="layer.rejected_count" class="fn-reject">淘汰{{ layer.rejected_count }}</div>
+              <div class="st">🔍 扫描概览
+                <span v-if="scanTraceDetail._pagination" class="text-tertiary" style="font-size:11px;margin-left:8px">
+                  通过{{ scanTraceDetail._pagination.passed_count }} / 淘汰{{ scanTraceDetail._pagination.rejected_count }}
+                </span>
+              </div>
+              <!-- 漏斗摘要 -->
+              <div v-if="scanTraceDetail.summary" class="funnel">
+                <template v-for="(layerData, layerName, idx) in scanTraceDetail.summary" >
+                  <div v-if="layerName !== 'total_candidates' && layerName !== 'passed' && layerName !== 'rejected' && typeof layerData === 'object'" :key="layerName" class="funnel-step" :class="{ passed: true }">
+                    <div class="fn-label">{{ layerLabel(layerName) || layerName }}</div>
+                    <div class="fn-count">入{{ layerData.input || 0 }}→出{{ layerData.output || 0 }}</div>
+                    <div v-if="layerData.rejected" class="fn-reject">淘汰{{ layerData.rejected }}</div>
                   </div>
-                  <div v-if="idx < (scanTraceDetail.layers || []).length - 1" class="fn-arrow">↓</div>
                 </template>
               </div>
 
-              <div class="st" style="margin-top:12px">🎯 信号执行追踪</div>
-              <div v-if="!scanTraceDetail.signals?.length" class="empty">无信号</div>
-              <div v-for="sig in scanTraceDetail.signals || []" :key="sig.ts_code" class="exec-trace">
+              <div class="st" style="margin-top:12px">🎯 候选追踪</div>
+              <div v-if="!scanTraceDetail.candidates?.length" class="empty">无候选数据</div>
+              <div v-for="sig in scanTraceDetail.candidates || []" :key="sig.ts_code + sig.strategy" class="exec-trace">
                 <div class="et-left">
                   <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(sig.strategy) }}</ElTag>
                   <span class="code">{{ sig.ts_code }}</span>
                   <span class="name">{{ sig.stock_name }}</span>
+                  <span :class="sig.pct_chg >= 0 ? 'up' : 'down'" class="pct">{{ sig.pct_chg >= 0 ? '+' : '' }}{{ (sig.pct_chg || 0).toFixed(1) }}%</span>
                 </div>
                 <div class="et-right">
-                  <ElTag v-if="sig.status === 'executed'" size="small" type="success">✅ 已买入 {{ sig.shares }}股@¥{{ sig.buy_price?.toFixed(2) }}</ElTag>
-                  <ElTag v-else-if="sig.status === 'skipped'" size="small" type="warning">⏭ 跳过: {{ sig.skip_reason }}</ElTag>
-                  <ElTag v-else-if="sig.status === 'expired'" size="small" type="info">⌛ 过期</ElTag>
-                  <ElTag v-else size="small" type="info">{{ sig.status }}</ElTag>
+                  <ElTag v-if="sig.final_status === 'passed'" size="small" type="success">✅ 通过</ElTag>
+                  <ElTag v-else size="small" type="danger">❌ {{ sig.rejection_layer }}: {{ sig.rejection_reason }}</ElTag>
                 </div>
               </div>
             </template>
