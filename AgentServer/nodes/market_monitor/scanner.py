@@ -355,6 +355,8 @@ class MarketScanner:
         "_update_trailing_stops": ("_position_manager", "update_trailing_stops"),
         "_calc_would_buy_shares": ("_position_manager", "calc_would_buy_shares"),
         "_calc_position_ratio": ("_position_manager", "calc_position_ratio"),
+        "_calc_stop_loss_price": ("_position_manager", "calc_stop_loss_price"),
+        "_calc_take_profit_price": ("_position_manager", "calc_take_profit_price"),
         # ScannerUtils委托
         "_safe_round": ("_scanner_utils", "safe_round"),
         "_publish_scanner_event": ("_scanner_utils", "publish_scanner_event"),
@@ -1437,25 +1439,8 @@ class MarketScanner:
 
     # ==================== 公共止损止盈方法 ====================
 
-    def _calc_stop_loss_price(self, pos_or_cost, risk: Dict) -> float:
-        """统一止损价计算 — 委托给PositionManager【Phase3.1】"""
-        if self._position_manager:
-            return self._position_manager.calc_stop_loss_price(pos_or_cost, risk)
-        # fallback
-        cost = pos_or_cost.avg_cost if hasattr(pos_or_cost, 'avg_cost') else pos_or_cost
-        sl_pct = risk.get("stop_loss_pct", 0.03)
-        if sl_pct > 1: sl_pct = sl_pct / 100
-        return round(cost * (1 - sl_pct), 2)
-
-    def _calc_take_profit_price(self, pos_or_cost, risk: Dict) -> float:
-        """统一止盈价计算 — 委托给PositionManager【Phase3.1】"""
-        if self._position_manager:
-            return self._position_manager.calc_take_profit_price(pos_or_cost, risk)
-        # fallback
-        cost = pos_or_cost.avg_cost if hasattr(pos_or_cost, 'avg_cost') else pos_or_cost
-        tp_pct = risk.get("take_profit_pct", 0.07)
-        if tp_pct > 1: tp_pct = tp_pct / 100
-        return round(cost * (1 + tp_pct), 2)
+        # PositionManager委托 (止损价/止盈价已在DELEGATE_MAP中声明)
+        # _check_stop_loss_take_profit 保留在scanner中因为需要先更新追踪止损状态
 
     def _check_stop_loss_take_profit(self, positions, realtime_data: Dict) -> List[Tuple]:
         """止损止盈检查 — 委托给PositionManager【Phase3.1】"""
@@ -1467,37 +1452,19 @@ class MarketScanner:
         return []  # fallback(不应到达)
 
     # ==================== 持仓检查 ====================
-    async def _handle_emotion_phase_change(self, old_phase: str, new_phase: str):
-        """情绪phase变化时的动态调仓 — 委托EmotionCycleManager规则【v3.0】
+    # ==================== 情绪调仓执行(v2.9.6提取核心逻辑到EmotionCycle) ====================
+    
+    def _build_emotion_sell_list(self, positions, rule: Dict, old_phase: str, new_phase: str) -> List[Tuple]:
+        """根据情绪降级规则构建卖出列表
         
-        规则来源: EmotionCycleManager.DOWNGRADE_RULES
-        执行: phase降级时减仓/清仓低利润, 升级时不做操作
-        分批执行: max_per_round=2, 间隔0.5秒(避免冲击)
+        Args:
+            positions: 当前持仓列表
+            rule: EmotionCycleManager.DOWNGRADE_RULES中的规则
+            old_phase: 原始阶段
+            new_phase: 新阶段
+        Returns:
+            [(pos, reason, price, risk), ...] 卖出列表
         """
-        from nodes.market_monitor.emotion_cycle import EmotionPhase, emotion_cycle_manager
-        
-        # 将字符串转为EmotionPhase枚举
-        try:
-            old_enum = EmotionPhase(old_phase)
-            new_enum = EmotionPhase(new_phase)
-        except ValueError:
-            logger.info(f"[EMOTION] phase变化 {old_phase}→{new_phase}, 无法识别的阶段")
-            return
-        
-        rule = emotion_cycle_manager.get_downgrade_rule(old_enum, new_enum)
-        if not rule:
-            logger.info(f"[EMOTION] phase变化 {old_phase}→{new_phase}, 无需调仓")
-            return
-        
-        logger.warning(f"[EMOTION] phase降级 {old_phase}→{new_phase}: {rule['desc']}")
-        
-        if not self._broker:
-            return
-        
-        positions = self._broker.get_positions()
-        if not positions:
-            return
-        
         to_sell = []
         
         if rule["action"] == "reduce":
@@ -1529,6 +1496,42 @@ class MarketScanner:
                         continue
                     to_sell.append((pos, f"情绪清仓({rule['desc']}, 利润{pos.profit_pct:.1f}%<{min_profit*100:.0f}%)", 
                                    pos.current_price, self._get_strategy_risk(pos.strategy)))
+        
+        return to_sell
+    
+    async def _handle_emotion_phase_change(self, old_phase: str, new_phase: str):
+        """情绪phase变化时的动态调仓【v2.9.6重构】
+        
+        规则来源: EmotionCycleManager.DOWNGRADE_RULES
+        执行: phase降级时减仓/清仓低利润, 升级时不做操作
+        分批执行: max_per_round=2, 间隔0.5秒(避免冲击)
+        """
+        from nodes.market_monitor.emotion_cycle import EmotionPhase, emotion_cycle_manager
+        
+        # 将字符串转为EmotionPhase枚举
+        try:
+            old_enum = EmotionPhase(old_phase)
+            new_enum = EmotionPhase(new_phase)
+        except ValueError:
+            logger.info(f"[EMOTION] phase变化 {old_phase}→{new_phase}, 无法识别的阶段")
+            return
+        
+        rule = emotion_cycle_manager.get_downgrade_rule(old_enum, new_enum)
+        if not rule:
+            logger.info(f"[EMOTION] phase变化 {old_phase}→{new_phase}, 无需调仓")
+            return
+        
+        logger.warning(f"[EMOTION] phase降级 {old_phase}→{new_phase}: {rule['desc']}")
+        
+        if not self._broker:
+            return
+        
+        positions = self._broker.get_positions()
+        if not positions:
+            return
+        
+        # 委托给_build_emotion_sell_list构建卖出列表
+        to_sell = self._build_emotion_sell_list(positions, rule, old_phase, new_phase)
         
         if not to_sell:
             logger.info(f"[EMOTION] phase降级无需调仓(无符合条件持仓)")
@@ -1684,130 +1687,29 @@ class MarketScanner:
     # ==================== 风控熔断 ====================
 
     async def _check_circuit_breaker(self) -> bool:
-        """风控熔断检查
-        
-        规则:
-        1. 单日回撤>5% → 暂停所有交易
-        2. 连续亏损3次 → 暂停买入(可卖出止损)
-        3. 手动暂停 → 尊重人工干预
-        
-        Returns: True=允许交易, False=应暂停
-        """
-        cb = self._circuit_breaker
-        
-        if cb["trading_paused"]:
-            logger.debug(f"[CIRCUIT] 交易已暂停: {cb['pause_reason']}")
-            return False
-        
-        # 单日回撤检查
-        if self._broker:
-            acct = self._broker.get_account()
-            if cb["daily_start_assets"] > 0:
-                drawdown = (cb["daily_start_assets"] - acct.total_assets) / cb["daily_start_assets"]
-                if drawdown >= cb["daily_max_drawdown"]:
-                    cb["trading_paused"] = True
-                    cb["pause_reason"] = f"单日回撤{drawdown*100:.1f}%超限({cb['daily_max_drawdown']*100:.0f}%)"
-                    logger.warning(f"[CIRCUIT] ⚠️ 熔断触发: {cb['pause_reason']}")
-                    # EventBus: 熔断事件
-                    await self._event_bus.emit(ScannerEvents.CIRCUIT_BREAKER, {
-                        "paused": True, "reason": cb['pause_reason'],
-                    })
-                    # 主动推送熔断通知(使用标准_publish_scanner_event)
-                    try:
-                        await self._publish_scanner_event("status", {
-                            "circuit_breaker": True,
-                            "message": cb["pause_reason"],
-                            "trading_paused": True,
-                        })
-                    except Exception:
-                        pass
-                    return False
-        
-        # 连续亏损检查(只限制买入, 不限制卖出)
-        if cb["consecutive_losses"] >= cb["consecutive_loss_limit"]:
-            logger.info(f"[CIRCUIT] 连续亏损{cb['consecutive_losses']}次, 暂停买入")
-            return False
-        
-        return True
+        """风控熔断检查 — 委托给RiskWatchdog【v2.9.6】"""
+        from nodes.market_monitor.risk_watchdog import RiskWatchdog
+        return await RiskWatchdog.check_circuit_breaker(self)
 
     def _record_trade_result(self, profit_pct: float):
-        """记录交易结果(用于连续亏损统计)"""
-        cb = self._circuit_breaker
-        cb["today_trades"] += 1
-        
-        if profit_pct < 0:
-            cb["consecutive_losses"] += 1
-            cb["today_losses"] += 1
-        else:
-            cb["consecutive_losses"] = 0  # 盈利重置
+        """记录交易结果 — 委托给RiskWatchdog【v2.9.6】"""
+        from nodes.market_monitor.risk_watchdog import RiskWatchdog
+        RiskWatchdog.record_trade_result(self, profit_pct)
 
     def reset_circuit_breaker(self):
-        """重置熔断(手动恢复)"""
-        self._circuit_breaker["trading_paused"] = False
-        self._circuit_breaker["pause_reason"] = ""
-        self._circuit_breaker["consecutive_losses"] = 0
-        logger.info("[CIRCUIT] 熔断已重置")
+        """重置熔断 — 委托给RiskWatchdog【v2.9.6】"""
+        from nodes.market_monitor.risk_watchdog import RiskWatchdog
+        RiskWatchdog.reset_circuit_breaker(self)
 
     # ==================== 工具方法 ====================
 
     async def _save_performance_snapshot(self, trade_date: str):
-        """保存绩效快照到MongoDB(供净值曲线使用)"""
-        from core.managers import mongo_manager
-        if not mongo_manager.db:
-            return
-        acct = self._broker.get_account()
-        positions = self._broker.get_positions()
-        total_profit = acct.total_profit
-        net_value = acct.total_assets / 1_000_000  # 初始100万
-        peak = max(self._nav_peak, net_value)
-        self._nav_peak = peak
-        drawdown_pct = (net_value / peak - 1) * 100 if peak > 0 else 0
-
-        doc = {
-            "timestamp": datetime.now().isoformat(),
-            "date": trade_date,
-            "total_assets": acct.total_assets,
-            "available_cash": acct.available_cash,
-            "market_value": acct.market_value,
-            "total_profit": total_profit,
-            "net_value": net_value,
-            "drawdown_pct": drawdown_pct,
-            "position_count": len(positions),
-            "position_ratio": sum(p.current_price * p.total_qty for p in positions) / acct.total_assets * 100 if acct.total_assets > 0 else 0,
-        }
-        await mongo_manager.db["performance_snapshots"].insert_one(doc)
-        logger.info(f"[SNAPSHOT] 绩效快照已保存: 净值={net_value:.4f} 回撤={drawdown_pct:.1f}%")
+        """保存绩效快照 — 委托给RuntimePersistence【v2.9.6】"""
+        if self._runtime_persistence:
+            return await self._runtime_persistence.save_performance_snapshot(trade_date)
 
     async def _push_daily_summary(self, trade_date: str):
-        """推送每日结算摘要(飞书/webhook)"""
-        acct = self._broker.get_account()
-        positions = self._broker.get_positions()
-        # 今日买卖统计
-        buys = [t for t in self._timeline if t.get("action") == "buy"]
-        sells = [t for t in self._timeline if t.get("action") == "sell"]
-        wins = [t for t in sells if t.get("profit_pct", 0) > 0]
-        losses = [t for t in sells if t.get("profit_pct", 0) <= 0]
-        profit_sign = '+' if acct.total_profit >= 0 else ''
-        win_rate = f"{len(wins)/len(sells)*100:.0f}%" if sells else "-"
-        pos_value = sum(p.current_price * p.total_qty for p in positions)
-        pos_ratio = pos_value / acct.total_assets * 100 if acct.total_assets > 0 else 0
-
-        summary = (
-            f"📊 每日结算 {trade_date}\n"
-            f"💰 总资产: ¥{acct.total_assets:,.0f} | 盈亏: {profit_sign}¥{acct.total_profit:,.0f}\n"
-            f"📈 买入: {len(buys)}笔 | 卖出: {len(sells)}笔\n"
-            f"✅ 盈利: {len(wins)}笔 | ❌ 亏损: {len(losses)}笔\n"
-            f"📊 胜率: {win_rate}\n"
-            f"📂 持仓: {len(positions)}只 | 仓位: {pos_ratio:.0f}%"
-        )
-
-        # 推送到飞书(如果有webhook)
-        try:
-            from core.managers.signal_dispatcher import SignalDispatcher
-            dispatcher = SignalDispatcher.get_instance()
-            if dispatcher:
-                await dispatcher.push_message(summary, channel="feishu")
-        except Exception:
-            pass
-        logger.info(f"[DAILY] {summary}")
+        """推送每日结算摘要 — 委托给RuntimePersistence【v2.9.6】"""
+        if self._runtime_persistence:
+            return await self._runtime_persistence.push_daily_summary(trade_date)
 

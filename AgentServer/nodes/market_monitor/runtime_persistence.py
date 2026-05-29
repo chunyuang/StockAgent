@@ -344,3 +344,99 @@ class RuntimePersistence:
                 logger.info(f"[SCAN] 恢复时间线: {len(scanner._timeline)}条")
         except Exception as e:
             logger.debug(f"[SCAN] 加载时间线失败(非关键): {e}")
+
+    # ==================== 绩效快照+飞书日报(v2.9.6提取) ====================
+    
+    async def save_performance_snapshot(self, trade_date: str):
+        """保存绩效快照到MongoDB(供净值曲线使用)
+        
+        从scanner._save_performance_snapshot提取【v2.9.6】
+        """
+        from core.managers import mongo_manager
+        if not mongo_manager.db:
+            return
+        scanner = self._scanner
+        acct = scanner._broker.get_account()
+        positions = scanner._broker.get_positions()
+        total_profit = acct.total_profit
+        net_value = acct.total_assets / 1_000_000  # 初始100万
+        peak = max(scanner._nav_peak, net_value)
+        scanner._nav_peak = peak
+        drawdown_pct = (net_value / peak - 1) * 100 if peak > 0 else 0
+
+        doc = {
+            "timestamp": datetime.now().isoformat(),
+            "date": trade_date,
+            "total_assets": acct.total_assets,
+            "available_cash": acct.available_cash,
+            "market_value": acct.market_value,
+            "total_profit": total_profit,
+            "net_value": net_value,
+            "drawdown_pct": drawdown_pct,
+            "position_count": len(positions),
+            "position_ratio": sum(p.current_price * p.total_qty for p in positions) / acct.total_assets * 100 if acct.total_assets > 0 else 0,
+        }
+        await mongo_manager.db["performance_snapshots"].insert_one(doc)
+        logger.info(f"[SNAPSHOT] 绩效快照已保存: 净值={net_value:.4f} 回撤={drawdown_pct:.1f}%")
+    
+    async def push_daily_summary(self, trade_date: str):
+        """推送每日结算摘要(飞书/webhook)
+        
+        从scanner._push_daily_summary提取【v2.9.6】
+        """
+        scanner = self._scanner
+        acct = scanner._broker.get_account()
+        positions = scanner._broker.get_positions()
+        # 今日买卖统计
+        buys = [t for t in scanner._timeline if t.get("action") == "buy"]
+        sells = [t for t in scanner._timeline if t.get("action") == "sell"]
+        wins = [t for t in sells if t.get("profit_pct", 0) > 0]
+        losses = [t for t in sells if t.get("profit_pct", 0) <= 0]
+        profit_sign = '+' if acct.total_profit >= 0 else ''
+        win_rate = f"{len(wins)/len(sells)*100:.0f}%" if sells else "-"
+        pos_value = sum(p.current_price * p.total_qty for p in positions)
+        pos_ratio = pos_value / acct.total_assets * 100 if acct.total_assets > 0 else 0
+
+        summary = (
+            f"📊 每日结算 {trade_date}\n"
+            f"💰 总资产: ¥{acct.total_assets:,.0f} | 盈亏: {profit_sign}¥{acct.total_profit:,.0f}\n"
+            f"📈 买入: {len(buys)}笔 | 卖出: {len(sells)}笔\n"
+            f"✅ 盈利: {len(wins)}笔 | ❌ 亏损: {len(losses)}笔\n"
+            f"📊 胜率: {win_rate}\n"
+            f"📂 持仓: {len(positions)}只 | 仓位: {pos_ratio:.0f}%"
+        )
+
+        # 推送到飞书(如果有webhook)
+        try:
+            from core.managers.signal_dispatcher import SignalDispatcher
+            dispatcher = SignalDispatcher.get_instance()
+            if dispatcher:
+                await dispatcher.push_message(summary, channel="feishu")
+        except Exception:
+            pass
+        logger.info(f"[DAILY] {summary}")
+    
+    async def load_timeline(self):
+        """从MongoDB加载时间线(启动时恢复)"""
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.db is None:
+                return
+            today = datetime.now().strftime("%Y%m%d")
+            account_id = self.broker.account.account_id if self.broker else "default"
+            scanner = self._scanner
+            
+            cursor = mongo_manager.db["scanner_timeline"].find(
+                {"account_id": account_id, "trade_date": today}
+            ).sort("_id", 1)
+            
+            async for doc in cursor:
+                doc.pop("_id", None)
+                doc.pop("account_id", None)
+                doc.pop("trade_date", None)
+                scanner._timeline.append(doc)
+            
+            if scanner._timeline:
+                logger.info(f"[SCAN] 恢复时间线: {len(scanner._timeline)}条")
+        except Exception as e:
+            logger.debug(f"[SCAN] 加载时间线失败(非关键): {e}")
