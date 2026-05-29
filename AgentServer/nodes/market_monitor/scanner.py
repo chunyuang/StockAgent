@@ -392,10 +392,29 @@ class MarketScanner:
         # 普通委托: 转发到子模块实例
         module = getattr(self, module_attr, None)
         if module is None:
-            # 子模块未初始化时的安全返回(同步/异步noop)
-            # 无法判断是否async,默认返回同步noop(调用方需自行处理)
-            logger.warning(f"[SCANNER] 委托模块 {module_attr} 未初始化, 方法 {name} 返回None")
-            return lambda *args, **kwargs: None
+            # 【v2.9.5:子模块未初始化时区分async/sync】
+            # 已知async委托方法→返回coroutine noop, 其余→sync noop
+            _ASYNC_DELEGATE_METHODS = {
+                # RuntimePersistence (all async)
+                "_save_timeline", "_save_scan_traces", "_load_timeline",
+                "_load_runtime_snapshot", "_save_runtime_snapshot", "_premarket_auction",
+                # SignalManager (partial async)
+                "_update_signals", "_push_signals", "_execute_signals", "_write_audit_log",
+                # PositionChecker (partial async)
+                "_check_positions", "_check_positions_quick",
+                # ScannerUtils (publish_scanner_event is async)
+                "_publish_scanner_event",
+                # StrategyScorer
+                "_apply_strategies",
+            }
+            if name in _ASYNC_DELEGATE_METHODS:
+                logger.warning(f"[SCANNER] 委托模块 {module_attr} 未初始化, 异步方法 {name} 返回noop coroutine")
+                async def _async_noop(*args, **kwargs):
+                    return None
+                return _async_noop
+            else:
+                logger.warning(f"[SCANNER] 委托模块 {module_attr} 未初始化, 同步方法 {name} 返回None")
+                return lambda *args, **kwargs: None
         
         return getattr(module, method_name)
 
