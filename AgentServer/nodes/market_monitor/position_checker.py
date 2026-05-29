@@ -463,6 +463,21 @@ class PositionChecker:
                 else:
                     scanner._stats["take_profits"] += 1
                 await scanner._publish_scanner_event("timeline", {"item": scanner._timeline[-1]})
+                # 【v2.9:PositionChecker卖出也发射EventBus事件(与_execute_risk_sell对齐)】
+                try:
+                    from nodes.market_monitor.scanner_event_bus import ScannerEvents
+                    if hasattr(scanner, '_event_bus') and scanner._event_bus:
+                        await scanner._event_bus.emit(ScannerEvents.RISK_SELL_EXECUTED, {
+                            "ts_code": pos.ts_code, "reason": reason,
+                            "price": order.filled_price, "profit_pct": sell_profit_pct,
+                            "source": "position_checker",
+                        })
+                        await scanner._event_bus.emit(ScannerEvents.POSITION_CHANGED, {
+                            "ts_code": pos.ts_code, "action": "sell",
+                            "reason": reason, "source": "position_checker",
+                        })
+                except Exception:
+                    pass
                 logger.info(f"[{source.upper()}] {reason}: {pos.ts_code} {sell_qty}股@{order.filled_price:.2f}")
             else:
                 scanner._add_timeline_log("blocked", pos.ts_code, pos.stock_name,
