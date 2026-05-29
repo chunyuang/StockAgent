@@ -23,6 +23,8 @@
 | v2.7 | 2026-05-29 | EventBus: ScannerEventBus内部事件总线+Scanner集成5个发射点+StrategyScorer NaN防御修复+107新增测试(33 EventBus+22 StrategyScorer+52 FilterPipeline) |
 | v2.8 | 2026-05-29 | EventBus订阅器: 8组事件处理器(审计日志/快照触发/Redis推送/健康指标)+行情降级恢复事件发射+盘后结算事件+EventBus API端点(/event-bus/stats+history)+23集成测试 |
 | v2.9 | 2026-05-29 | 架构解耦: QuoteManager回调消除循环依赖+盘后结算EventBus解耦+跌停检查去重+运行时快照跨日校验+22新增测试(253总计) |
+| v2.9.1 | 2026-05-29 | _apply_filter_pipeline拆分: 提取_signals_to_candidates/_execute_force_empty/_merge_filter_result |
+| v2.9.2 | 2026-05-29 | EventBus事件完整性: PositionChecker/SignalManager买入卖出均发射事件+4新增测试(257总计) |
 
 v2.0关键修正:
 - ❶ 风控独立线程: asyncio协程→threading.Thread(真并行不受GIL影响)
