@@ -1915,6 +1915,16 @@ async def get_scanner_health():
         if pending_sells:
             health_score -= 5
             warnings.append(f"{len(pending_sells)}只跌停挂起")
+        # 【v2.9.5:风控线程状态】
+        risk_thread = getattr(scanner, '_risk_thread', None)
+        risk_thread_alive = risk_thread.is_alive() if risk_thread else False
+        if not risk_thread_alive and getattr(scanner, '_risk_running', False):
+            health_score -= 40
+            warnings.append("风控线程已停止")
+        risk_thread_restarts = getattr(scanner, '_risk_thread_restarts', 0)
+        if risk_thread_restarts >= 3:
+            health_score -= 10
+            warnings.append(f"风控线程已重启{risk_thread_restarts}次")
         health_score = max(0, health_score)
         
         risk_metrics = {
@@ -1959,6 +1969,11 @@ async def get_scanner_health():
                 "scanner_health": scanner_health,
                 # 跌停挂起明细(v2.9.4)
                 "pending_sells_detail": pending_sells_detail,
+                # 【v2.9.5:风控线程状态】
+                "risk_thread": {
+                    "alive": risk_thread_alive,
+                    "restarts": risk_thread_restarts,
+                },
             }
         }
     except Exception as e:
