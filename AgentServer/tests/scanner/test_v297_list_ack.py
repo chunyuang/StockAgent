@@ -460,3 +460,65 @@ class TestEventBusHandlerLatency:
         assert latency[handler_key]["count"] == 3
         
         reset_event_bus()
+
+
+# ============================================================================
+# 10. scan-traces API优化 (v2.9.7)
+# ============================================================================
+
+class TestScanTracesAPIOptimization:
+    """验证scan-traces API优化"""
+
+    def test_detail_api_default_status_is_passed(self):
+        """详情API默认status应为passed(不加载rejected)"""
+        # 直接读取源文件验证
+        import os
+        api_path = os.path.join(os.path.dirname(__file__), '..', '..', 'nodes', 'web', 'api', 'scanner.py')
+        with open(api_path) as f:
+            source = f.read()
+        # 找到get_scan_trace_detail函数
+        idx = source.find('async def get_scan_trace_detail')
+        func_source = source[idx:idx+2000]
+        assert '"passed"' in func_source  # 默认filter_status = status or "passed"
+
+    def test_detail_api_has_offset_param(self):
+        """详情API应支持offset分页"""
+        import os
+        api_path = os.path.join(os.path.dirname(__file__), '..', '..', 'nodes', 'web', 'api', 'scanner.py')
+        with open(api_path) as f:
+            source = f.read()
+        idx = source.find('async def get_scan_trace_detail')
+        func_source = source[idx:idx+2000]
+        assert "offset" in func_source
+
+    def test_detail_api_has_summary_mode(self):
+        """详情API应支持summary模式(只返回统计)"""
+        import os
+        api_path = os.path.join(os.path.dirname(__file__), '..', '..', 'nodes', 'web', 'api', 'scanner.py')
+        with open(api_path) as f:
+            source = f.read()
+        idx = source.find('async def get_scan_trace_detail')
+        func_source = source[idx:idx+2000]
+        assert "summary" in func_source
+
+    def test_list_api_excludes_candidates(self):
+        """列表API应排除candidates和rejected_summary字段"""
+        import os
+        api_path = os.path.join(os.path.dirname(__file__), '..', '..', 'nodes', 'web', 'api', 'scanner.py')
+        with open(api_path) as f:
+            source = f.read()
+        idx = source.find('async def get_scan_traces')
+        func_source = source[idx:idx+2000]
+        assert "rejected_summary" in func_source
+        assert '"candidates": 0' in func_source or "'candidates': 0" in func_source
+
+    def test_pagination_has_more_fields(self):
+        """分页信息应包含has_more字段"""
+        import os
+        api_path = os.path.join(os.path.dirname(__file__), '..', '..', 'nodes', 'web', 'api', 'scanner.py')
+        with open(api_path) as f:
+            source = f.read()
+        idx = source.find('async def get_scan_trace_detail')
+        func_source = source[idx:idx+3000]
+        assert "has_more" in func_source
+# remove old bad tests

@@ -165,6 +165,8 @@ const scanHistory = ref<any[]>([])
 const selectedScanIdx = ref(-1)
 const scanTraceDetail = ref<any>(null)
 const scanHistoryLoading = ref(false)
+const scanTraceFilter = ref<'passed' | 'rejected' | 'summary'>('passed')  // 【v2.9.7: 候选过滤模式】
+const scanTraceLoadingMore = ref(false)  // 【v2.9.7: 加载更多loading】
 
 // ==================== 复盘Tab ====================
 const reviewTab = ref<'daily' | 'weekly' | 'monthly'>('daily')
@@ -239,11 +241,47 @@ async function fetchScanHistory() {
 }
 async function fetchScanTrace(scanId: string) {
   scanTraceDetail.value = null  // 清空旧数据防止渲染旧内容
+  scanTraceFilter.value = 'passed'  // 重置过滤
   try {
-    const r = await api.get(`${scannerApi}/scan-traces/${scanId}?status=all&limit=200`, { timeout: 15000 })
+    // 【v2.9.7: 默认只加载passed候选, 避免卡顿】
+    const r = await api.get(`${scannerApi}/scan-traces/${scanId}?status=passed&limit=50`, { timeout: 10000 })
     const p = parseResponse(r)
     if (p.success) scanTraceDetail.value = p.data
   } catch { /* ignore */ }
+}
+// 【v2.9.7】切换候选过滤模式
+async function switchScanTraceFilter(filter: 'passed' | 'rejected' | 'summary') {
+  if (!scanTraceDetail.value) return
+  const scanId = scanTraceDetail.value.scan_id
+  if (!scanId) return
+  scanTraceFilter.value = filter
+  scanTraceLoadingMore.value = true
+  try {
+    const r = await api.get(`${scannerApi}/scan-traces/${scanId}?status=${filter}&limit=50`, { timeout: 10000 })
+    const p = parseResponse(r)
+    if (p.success) {
+      scanTraceDetail.value = { ...scanTraceDetail.value, candidates: p.data.candidates || [], _pagination: p.data._pagination, rejected_layer_stats: p.data.rejected_layer_stats }
+    }
+  } catch { /* ignore */ }
+  finally { scanTraceLoadingMore.value = false }
+}
+// 【v2.9.7】中文化rejection_layer
+const rejectionLayerCN: Record<string, string> = {
+  L1_force_empty: '强制空仓', L2_special_period: '特殊时期', L3_sentiment: '情绪周期',
+  L4_premarket: '盘前预选', L5_auction: '竞价过滤', L6_strategy: '策略量能',
+  L7_ranking: '综合排序', L8_position: '仓位控制', L9_execute: '执行确认',
+}
+const rejectionReasonCN = (reason: string) => {
+  if (!reason) return reason
+  const map: Record<string, string> = {
+    'force_empty': '强制空仓期', 'special_period': '特殊时期限制',
+    'sentiment_blocked': '情绪周期不允许', 'not_in_premarket': '未在盘前预选',
+    'auction_filter': '竞价过滤', 'strategy_score_low': '策略评分不足',
+    'ranking_too_low': '综合排名太低', 'position_full': '仓位已满',
+    'insufficient_cash': '资金不足', 'already_held': '已持有',
+    'limit_up_unbuyable': '涨停不可买', 'duplicate_signal': '重复信号',
+  }
+  return map[reason] || reason
 }
 
 // ==================== 复盘Tab 数据 ====================
@@ -1057,18 +1095,44 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
                 </template>
               </div>
 
-              <div class="st" style="margin-top:12px">🎯 候选追踪</div>
-              <div v-if="!scanTraceDetail.candidates?.length" class="empty">无候选数据</div>
-              <div v-for="sig in scanTraceDetail.candidates || []" :key="sig.ts_code + sig.strategy" class="exec-trace">
-                <div class="et-left">
-                  <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(sig.strategy) }}</ElTag>
-                  <span class="code">{{ sig.ts_code }}</span>
-                  <span class="name">{{ sig.stock_name }}</span>
-                  <span :class="sig.pct_chg >= 0 ? 'up' : 'down'" class="pct">{{ sig.pct_chg >= 0 ? '+' : '' }}{{ (sig.pct_chg || 0).toFixed(1) }}%</span>
+              <!-- 【v2.9.7: 候选过滤切换】 -->
+              <div class="st" style="margin-top:12px;display:flex;align-items:center;gap:8px">
+                <span>🎯 候选追踪</span>
+                <div style="display:flex;gap:4px;margin-left:auto">
+                  <button :class="['tab-btn-sm', scanTraceFilter === 'passed' ? 'active' : '']" @click="switchScanTraceFilter('passed')" :disabled="scanTraceLoadingMore">✅ 通过({{ scanTraceDetail._pagination?.passed_count || 0 }})</button>
+                  <button :class="['tab-btn-sm', scanTraceFilter === 'rejected' ? 'active' : '']" @click="switchScanTraceFilter('rejected')" :disabled="scanTraceLoadingMore">❌ 淘汰({{ scanTraceDetail._pagination?.rejected_count || 0 }})</button>
+                  <button :class="['tab-btn-sm', scanTraceFilter === 'summary' ? 'active' : '']" @click="switchScanTraceFilter('summary')" :-disabled="scanTraceLoadingMore">📊 统计</button>
                 </div>
-                <div class="et-right">
-                  <ElTag v-if="sig.final_status === 'passed'" size="small" type="success">✅ 通过</ElTag>
-                  <ElTag v-else size="small" type="danger">❌ {{ sig.rejection_layer }}: {{ sig.rejection_reason }}</ElTag>
+              </div>
+
+              <!-- 淘汰统计视图 -->
+              <div v-if="scanTraceFilter === 'summary' && scanTraceDetail.rejected_layer_stats" class="rejected-stats">
+                <div v-for="(count, layer) in scanTraceDetail.rejected_layer_stats" :key="layer" class="rs-row">
+                  <span class="rs-label">{{ rejectionLayerCN[layer] || layer }}</span>
+                  <div class="rs-bar-track"><div class="rs-bar-fill" :style="{ width: Math.min(count / (scanTraceDetail._pagination?.rejected_count || 1) * 100, 100) + '%' }"></div></div>
+                  <span class="rs-count">{{ count }}只</span>
+                </div>
+              </div>
+
+              <!-- 候选列表 -->
+              <div v-if="scanTraceFilter !== 'summary'">
+                <div v-if="scanTraceLoadingMore" class="empty">加载中...</div>
+                <div v-else-if="!scanTraceDetail.candidates?.length" class="empty">{{ scanTraceFilter === 'passed' ? '本轮无通过候选' : '无淘汰候选' }}</div>
+                <div v-for="sig in scanTraceDetail.candidates || []" :key="sig.ts_code + sig.strategy" class="exec-trace">
+                  <div class="et-left">
+                    <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(sig.strategy) }}</ElTag>
+                    <span class="code">{{ sig.ts_code }}</span>
+                    <span class="name">{{ sig.stock_name }}</span>
+                    <span :class="sig.pct_chg >= 0 ? 'up' : 'down'" class="pct">{{ sig.pct_chg >= 0 ? '+' : '' }}{{ (sig.pct_chg || 0).toFixed(1) }}%</span>
+                  </div>
+                  <div class="et-right">
+                    <ElTag v-if="sig.final_status === 'passed'" size="small" type="success">✅ 通过</ElTag>
+                    <ElTag v-else size="small" type="danger">❌ {{ rejectionLayerCN[sig.rejection_layer] || sig.rejection_layer }}: {{ rejectionReasonCN(sig.rejection_reason) || sig.rejection_reason }}</ElTag>
+                  </div>
+                </div>
+                <!-- 加载更多 -->
+                <div v-if="scanTraceDetail._pagination && (scanTraceDetail._pagination.has_more_passed || scanTraceDetail._pagination.has_more_rejected)" class="load-more-hint">
+                  <span class="text-tertiary" style="font-size:11px">已显示{{ scanTraceDetail._pagination.returned_count }}条 / 共{{ scanTraceFilter === 'passed' ? scanTraceDetail._pagination.passed_count : scanTraceDetail._pagination.rejected_count }}条</span>
                 </div>
               </div>
             </template>
@@ -1925,6 +1989,18 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .fn-reject { color: var(--stock-up); font-size: 11px; }
 .fn-arrow { text-align: center; color: var(--text-tertiary); font-size: 12px; }
 .exec-trace { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; border-radius: 6px; margin-bottom: 4px; background: var(--bg-base); font-size: 12px; }
+/* 【v2.9.7: 候选过滤按钮+淘汰统计+加载更多 */
+.tab-btn-sm { padding: 2px 10px; border-radius: 4px; border: 1px solid var(--border-default); background: transparent; font-size: 11px; cursor: pointer; color: var(--text-secondary); transition: all 0.15s; }
+.tab-btn-sm:hover { border-color: var(--el-color-primary-light-5); color: var(--el-color-primary); }
+.tab-btn-sm.active { background: var(--el-color-primary-light-9); border-color: var(--el-color-primary-light-5); color: var(--el-color-primary); font-weight: 600; }
+.tab-btn-sm:disabled { opacity: 0.5; cursor: not-allowed; }
+.rejected-stats { padding: 8px 0; }
+.rs-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; }
+.rs-label { min-width: 72px; color: var(--text-secondary); }
+.rs-bar-track { flex: 1; height: 16px; background: var(--bg-hover); border-radius: 3px; overflow: hidden; }
+.rs-bar-fill { height: 100%; background: rgba(245,63,63,0.25); border-radius: 3px; transition: width 0.3s; }
+.rs-count { min-width: 40px; text-align: right; font-weight: 600; }
+.load-more-hint { text-align: center; padding: 8px 0; }
 .et-left, .et-right { display: flex; align-items: center; gap: 6px; }
 
 /* 情绪Tab */
