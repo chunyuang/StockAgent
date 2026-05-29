@@ -228,7 +228,7 @@ async function fetchPremarketData() {
 async function fetchScanHistory() {
   scanHistoryLoading.value = true
   try {
-    const r = await api.get(`${scannerApi}/scan-traces?limit=30`)
+    const r = await api.get(`${scannerApi}/scan-traces?limit=30`, { timeout: 15000 })
     const p = parseResponse(r)
     if (p.success && p.data?.length) {
       scanHistory.value = p.data
@@ -240,7 +240,7 @@ async function fetchScanHistory() {
 async function fetchScanTrace(scanId: string) {
   scanTraceDetail.value = null  // 清空旧数据防止渲染旧内容
   try {
-    const r = await api.get(`${scannerApi}/scan-traces/${scanId}?status=all&limit=200`)
+    const r = await api.get(`${scannerApi}/scan-traces/${scanId}?status=all&limit=200`, { timeout: 15000 })
     const p = parseResponse(r)
     if (p.success) scanTraceDetail.value = p.data
   } catch { /* ignore */ }
@@ -250,24 +250,25 @@ async function fetchScanTrace(scanId: string) {
 async function fetchReviewData() {
   reviewLoading.value = true
   try {
-    // 用 Promise.allSettled 防止单个API失败阻塞其他
+    // 用 Promise.allSettled 防止单个API失败阻塞其他，并加15秒超时
     const promises: Promise<any>[] = []
+    const opts = { timeout: 15000 }
     
     if (reviewTab.value === 'daily') {
       promises.push(
-        api.get(`${scannerApi}/daily-report`).then(r => { const p = parseResponse(r); if (p.success) dailyReportData.value = p.data }),
-        api.get(`${scannerApi}/trade-attribution?date=${reviewDate.value}`).then(r => { const p = parseResponse(r); if (p.success) tradeAttributions.value = p.data || [] }),
+        api.get(`${scannerApi}/daily-report`, opts).then(r => { const p = parseResponse(r); if (p.success) dailyReportData.value = p.data }),
+        api.get(`${scannerApi}/trade-attribution?date=${reviewDate.value}`, opts).then(r => { const p = parseResponse(r); if (p.success) tradeAttributions.value = p.data || [] }),
       )
     } else if (reviewTab.value === 'weekly') {
       promises.push(
-        api.get(`${scannerApi}/weekly-report`).then(r => { const p = parseResponse(r); if (p.success) weeklyReportData.value = p.data }),
+        api.get(`${scannerApi}/weekly-report`, opts).then(r => { const p = parseResponse(r); if (p.success) weeklyReportData.value = p.data }),
       )
     }
     
     // 执行质量和实盘vs回测(所有tab共用)
     promises.push(
-      api.get(`${scannerApi}/execution-quality`).then(r => { const p = parseResponse(r); if (p.success) executionQuality.value = p.data }),
-      api.get(`${scannerApi}/backtest-compare`).then(r => { const p = parseResponse(r); if (p.success) liveBacktestDiff.value = p.data || [] }),
+      api.get(`${scannerApi}/execution-quality`, opts).then(r => { const p = parseResponse(r); if (p.success) executionQuality.value = p.data }),
+      api.get(`${scannerApi}/backtest-compare`, opts).then(r => { const p = parseResponse(r); if (p.success) liveBacktestDiff.value = p.data || [] }),
     )
     
     await Promise.allSettled(promises)
