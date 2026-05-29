@@ -222,8 +222,21 @@ echo -e "${YELLOW}============================================${NC}"
 
 # 1. 强制清理所有占用端口的进程
 echo -e "${YELLOW}🔧 1/7 强制清理所有占用端口的进程...${NC}"
-pkill -9 -f "AgentServer/main.py" 2>/dev/null || true
-pkill -9 -f "vite\|node.*frontend" 2>/dev/null || true
+
+# 杀Python进程(只杀AgentServer下的,避免误杀脚本自身)
+SELF_PID=$$
+for p in $(pgrep -f "python.*main\.py" 2>/dev/null || true); do
+  cwd=$(readlink /proc/$p/cwd 2>/dev/null || echo "")
+  if [[ "$cwd" == *"AgentServer"* || "$cwd" == *"StockAgent"* ]]; then
+    echo "  杀main.py PID=$p"
+    kill -9 $p 2>/dev/null || true
+  fi
+done
+
+# 杀Vite及npm子进程链(pkill -f vite杀不掉npm exec vite的中间进程)
+pkill -9 -f "vite.*517" 2>/dev/null || true
+pgrep -f "npm.*exec.*vite" 2>/dev/null | xargs kill -9 2>/dev/null || true
+pgrep -f "node.*frontend.*517" 2>/dev/null | xargs kill -9 2>/dev/null || true
 sleep 2
 
 # 清理指定端口（格式: "port:service_name"）
@@ -232,18 +245,20 @@ ports=(
   "50056:回测API"
   "50057:回测引擎"
   "5174:前端Vite"
+  "5175:前端Vite(备用)"
   "50051:Web内部API"
   "50052:回测内部API"
+  "8765:旧Web服务"
 )
 for entry in "${ports[@]}"; do
   port=$(echo "$entry" | cut -d: -f1)
   service=$(echo "$entry" | cut -d: -f2-)
-  pid=$(lsof -t -i:$port 2>/dev/null)
+  # 用ss替代lsof(更可靠)
+  pid=$(ss -tlnp 2>/dev/null | grep ":${port}[[:space:]]" | grep -oP 'pid=\K[0-9]+' | head -1)
   if [ -n "$pid" ]; then
     echo "  清理端口 $port ($service)... PID: $pid"
     kill -9 $pid 2>/dev/null || true
   fi
-  # 额外使用 fuser 强制清理
   fuser -k ${port}/tcp 2>/dev/null || true
 done
 
@@ -255,17 +270,14 @@ all_free=1
 for entry in "${ports[@]}"; do
   port=$(echo "$entry" | cut -d: -f1)
   service=$(echo "$entry" | cut -d: -f2-)
-  if lsof -i:$port >/dev/null 2>&1; then
-    # 再杀一次
-    pid=$(lsof -t -i:$port 2>/dev/null)
-    if [ -n "$pid" ]; then
-      echo "  二次清理端口 $port ($service)... PID: $pid"
-      kill -9 $pid 2>/dev/null || true
-      sleep 1
-    fi
-    # 再次检查，如果还是被占用，才提示错误
-    if lsof -i:$port >/dev/null 2>&1; then
-      echo -e "${RED}❌ 端口 $port ($service) 仍被占用！${NC}"
+  pid=$(ss -tlnp 2>/dev/null | grep ":${port}[[:space:]]" | grep -oP 'pid=\K[0-9]+' | head -1)
+  if [ -n "$pid" ]; then
+    echo "  二次清理端口 $port ($service)... PID: $pid"
+    kill -9 $pid 2>/dev/null || true
+    sleep 1
+    pid2=$(ss -tlnp 2>/dev/null | grep ":${port}[[:space:]]" | grep -oP 'pid=\K[0-9]+' | head -1)
+    if [ -n "$pid2" ]; then
+      echo -e "${RED}❌ 端口 $port ($service) 仍被占用！PID: $pid2${NC}"
       all_free=0
     else
       echo -e "${GREEN}✅ 端口 $port ($service) 已释放${NC}"
@@ -299,7 +311,7 @@ echo "  Web服务启动，PID: $web_pid (已写入PID文件)"
 sleep 15
 
 # 最后检查一次端口是否真的绑定成功
-if lsof -i:8000 >/dev/null 2>&1; then
+if ss -tlnp 2>/dev/null | grep -q ":8000 "; then
   echo -e "${GREEN}✅ 端口 8000 (Web服务) 已成功绑定${NC}"
 else
   echo -e "${RED}❌ Web服务启动失败，端口8000未绑定！查看完整错误日志:${NC}"
@@ -344,6 +356,14 @@ cd "${PROJECT_ROOT}/frontend"
 npm run build > "${PROJECT_ROOT}/logs/frontend_build.log" 2>&1
 if [ $? -eq 0 ]; then
   echo -e "${GREEN}✅ 前端build成功，dist已就绪${NC}"
+  # 同步dist到AgentServer/static（关键！否则8000端口访问的是旧页面）
+  if [ -f "sync-dist.mjs" ]; then
+    node sync-dist.mjs >> "${PROJECT_ROOT}/logs/frontend_build.log" 2>&1 || \
+      rsync -a --delete "${PROJECT_ROOT}/frontend/dist/" "${PROJECT_ROOT}/AgentServer/static/"
+  else
+    rsync -a --delete "${PROJECT_ROOT}/frontend/dist/" "${PROJECT_ROOT}/AgentServer/static/"
+  fi
+  echo -e "${GREEN}✅ 静态文件已同步到 AgentServer/static/${NC}"
 else
   echo -e "${RED}❌ 前端build失败！查看日志: tail -f ${PROJECT_ROOT}/logs/frontend_build.log${NC}"
   echo -e "${YELLOW}⚠️  继续启动（Vite dev server可用，但Backend静态页不可用）${NC}"
@@ -359,6 +379,24 @@ echo "  前端服务启动，PID: $frontend_pid (已写入PID文件)"
 
 # 等待3秒让前端服务完全启动
 sleep 3
+
+# 检查Vite实际端口(5174被占时会自动用5175)
+VITE_PORT=$(ss -tlnp 2>/dev/null | grep -E ":(5174|5175) " | head -1 | grep -oP ':\K[0-9]+' | head -1)
+if [[ -n "$VITE_PORT" ]]; then
+  echo -e "${GREEN}✅ Vite启动成功 (端口$VITE_PORT)${NC}"
+  if [[ "$VITE_PORT" != "5174" ]]; then
+    echo -e "${YELLOW}⚠️  Vite用了${VITE_PORT}而非5174，nginx代理可能需更新${NC}"
+  fi
+else
+  echo -e "${YELLOW}⚠️  Vite可能未启动，检查: tail ${PROJECT_ROOT}/logs/frontend.log${NC}"
+fi
+
+# 前端静态文件时间戳
+STATIC_HTML="${PROJECT_ROOT}/AgentServer/static/index.html"
+if [[ -f "$STATIC_HTML" ]]; then
+  HTML_TIME=$(stat -c '%y' "$STATIC_HTML" 2>/dev/null | cut -d. -f1)
+  echo -e "  ${GREEN}前端静态文件更新: $HTML_TIME${NC}"
+fi
 
 # 检查前端服务是否启动成功
 if ps -p $frontend_pid > /dev/null; then
