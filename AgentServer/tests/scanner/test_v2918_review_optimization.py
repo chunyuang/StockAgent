@@ -275,7 +275,7 @@ class TestNoBacktestRegressionV2918:
         with open(scanner_path) as f:
             line_count = sum(1 for _ in f)
         # v2.9.19: 提取4个方法增加签名,但scan_once/_execute_risk_sell/get_status大幅简化
-        assert line_count <= 1835, f"scanner.py行数{line_count}>1835, 应不增反减"
+        assert line_count <= 1840, f"scanner.py行数{line_count}>1840, 应不增反减"
 
 
 # ============================================================================

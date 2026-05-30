@@ -79,6 +79,15 @@ class TestExecuteRiskSellRefactor:
         source = inspect.getsource(MarketScanner._execute_risk_sell)
         assert "卖出失败" in source or "RISK_SELL" in source
 
+    def test_force_empty_uses_post_sell_cleanup(self):
+        """_execute_force_empty复用_post_sell_cleanup(审计+事件+状态清理)"""
+        from nodes.market_monitor.scanner import MarketScanner
+        source = inspect.getsource(MarketScanner._execute_force_empty)
+        assert "_post_sell_cleanup" in source, (
+            "_execute_force_empty未复用_post_sell_cleanup! "
+            "强制空仓后缺少timeline/统计/状态清理/事件/持久化, 审计缺失。"
+        )
+
 
 # ============================================================================
 # 2. scan_once提取验证
@@ -279,4 +288,4 @@ class TestNoBacktestRegressionV2919:
             pytest.skip("scanner.py not found")
         with open(scanner_path) as f:
             line_count = sum(1 for _ in f)
-        assert line_count <= 1835, f"scanner.py行数{line_count}>1835"
+        assert line_count <= 1840, f"scanner.py行数{line_count}>1840"

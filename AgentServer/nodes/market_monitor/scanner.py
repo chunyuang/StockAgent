@@ -1531,31 +1531,38 @@ class MarketScanner:
         return candidates
 
     async def _execute_force_empty(self, reason: str):
-        """强制空仓: 卖出所有持仓【v2.9提取, v2.9.9修复broker.sell→broker.place_order, v2.9.12单票异常不中断】"""
+        """强制空仓: 卖出所有持仓【v2.9.19:复用_post_sell_cleanup统一善后】"""
         logger.warning(f"[FILTER] ⚠️ 强制空仓: {reason}")
-        if self._broker:
-            positions = self._broker.get_positions()
-            sold, failed = 0, 0
-            for p in positions:
-                try:
-                    self._broker.update_realtime(p.ts_code, p.current_price)
-                    ok, msg, order = self._broker.place_order(
-                        ts_code=p.ts_code,
-                        stock_name=p.stock_name if hasattr(p, 'stock_name') else p.ts_code,
-                        side="sell",
-                        quantity=p.total_qty,
-                        price=p.current_price,
-                        reason=f"强制空仓: {reason}",
+        if not self._broker:
+            return
+        positions = self._broker.get_positions()
+        sold, failed = 0, 0
+        for p in positions:
+            try:
+                self._broker.update_realtime(p.ts_code, p.current_price)
+                profit_pct = p.profit_pct
+                profit_amount = (p.current_price - p.avg_cost) * p.total_qty
+                ok, msg, order = self._broker.place_order(
+                    ts_code=p.ts_code,
+                    stock_name=p.stock_name if hasattr(p, 'stock_name') else p.ts_code,
+                    side="sell",
+                    quantity=p.total_qty,
+                    price=p.current_price,
+                    reason=f"强制空仓: {reason}",
+                )
+                if ok:
+                    sold += 1
+                    await self._post_sell_cleanup(
+                        p, f"强制空仓: {reason}", order, p.total_qty,
+                        profit_pct, profit_amount, source="force_empty",
                     )
-                    if ok:
-                        sold += 1
-                    else:
-                        failed += 1
-                        logger.warning(f"[FORCE_EMPTY] {p.ts_code} 卖出失败: {msg}")
-                except Exception as e:
+                else:
                     failed += 1
-                    logger.error(f"[FORCE_EMPTY] {p.ts_code} 异常: {e}")
-            logger.info(f"[FORCE_EMPTY] 完成: 卖出{sold}只, 失败{failed}只")
+                    logger.warning(f"[FORCE_EMPTY] {p.ts_code} 卖出失败: {msg}")
+            except Exception as e:
+                failed += 1
+                logger.error(f"[FORCE_EMPTY] {p.ts_code} 异常: {e}")
+        logger.info(f"[FORCE_EMPTY] 完成: 卖出{sold}只, 失败{failed}只")
 
     def _merge_filter_result(self, signals: List[ScanSignal], result) -> List[ScanSignal]:
         """将filter_pipeline结果合并回ScanSignal【v2.9提取】"""
