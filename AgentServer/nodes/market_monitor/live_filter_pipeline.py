@@ -142,7 +142,7 @@ class LiveFilterPipeline:
 
         # ---- L1: 强制空仓 ----
         if self._layer_enabled["L1_force_empty"]:
-            force_empty, reason = await self._check_force_empty(trade_date, realtime_data)
+            force_empty, reason, l1_stats = await self._check_force_empty(trade_date, realtime_data)
             result.layers_applied["L1_force_empty"] = True
             if force_empty:
                 result.action = "empty"
@@ -159,7 +159,11 @@ class LiveFilterPipeline:
                 self._build_trace_summary(result)
                 logger.warning(f"[L1] 强制空仓: {reason}")
                 return result
-            result.layer_details["L1_force_empty"] = f"✅ 未触发 (涨停{limit_up_count}只, 跌停{limit_down_count}只, 大盘{'' if index_drop_pct < 0.03 else '跌' + f'{index_drop_pct*100:.1f}%'} | 触发条件: 跌停≥80 / 涨停≤10且跌停>0 / 大盘跌≥3%)"
+            # L1未触发: 用stats构建描述
+            _lu = l1_stats.get("limit_up_count", 0)
+            _ld = l1_stats.get("limit_down_count", 0)
+            _idx = l1_stats.get("index_drop_pct", 0.0)
+            result.layer_details["L1_force_empty"] = f"✅ 未触发 (涨停{_lu}只, 跌停{_ld}只, 大盘{'' if _idx < 0.03 else '跌' + f'{_idx*100:.1f}%'} | 触发条件: 跌停≥80 / 涨停≤10且跌停>0 / 大盘跌≥3%)"
             for t in result.trace_candidates:
                 t.layer_results["L1_force_empty"] = {"passed": True}
 
@@ -360,7 +364,7 @@ class LiveFilterPipeline:
 
     async def _check_force_empty(
         self, trade_date: str, realtime_data: Dict = None
-    ) -> Tuple[bool, str]:
+    ) -> Tuple[bool, str, Dict]:
         """
         检查是否触发强制空仓
 
@@ -369,8 +373,8 @@ class LiveFilterPipeline:
         2. 涨停≤10只且跌停>0 → 强制空仓
         3. 大盘跌幅≥3% → 强制空仓 (V44回测修复, V52实盘补齐)
 
-        实盘优势: 可用必盈涨停池/跌停池获取实时数据，比回测更精确
-        回测用MongoDB日线统计涨停数（收盘后），实盘盘中即可判断
+        Returns:
+            (force_empty, reason, stats) stats={limit_up_count, limit_down_count, index_drop_pct}
         """
         limit_up_count = 0
         limit_down_count = 0
@@ -416,7 +420,7 @@ class LiveFilterPipeline:
                     index_drop_pct = -idx_doc["pct_chg"] / 100
             except Exception as e:
                 logger.warning(f"[L1] 获取涨跌停数失败: {e}")
-                return False, ""  # 数据不足不触发
+                return False, "", {"limit_up_count": 0, "limit_down_count": 0, "index_drop_pct": 0.0}
 
         # 【V52:从strategy_defaults读取阈值,与回测对齐】
         try:
@@ -425,16 +429,18 @@ class LiveFilterPipeline:
         except ImportError:
             index_drop_threshold = 0.03
 
+        stats = {"limit_up_count": limit_up_count, "limit_down_count": limit_down_count, "index_drop_pct": index_drop_pct}
+
         # 判断(3个条件,与回测完全对齐)
         if limit_down_count >= self.FORCE_EMPTY_LIMIT_DOWN:
-            return True, f"跌停{limit_down_count}只≥{self.FORCE_EMPTY_LIMIT_DOWN}"
+            return True, f"跌停{limit_down_count}只≥{self.FORCE_EMPTY_LIMIT_DOWN}", stats
         if limit_up_count <= self.FORCE_EMPTY_LIMIT_UP and limit_down_count > 0:
-            return True, f"涨停{limit_up_count}只≤{self.FORCE_EMPTY_LIMIT_UP}且跌停{limit_down_count}只"
+            return True, f"涨停{limit_up_count}只≤{self.FORCE_EMPTY_LIMIT_UP}且跌停{limit_down_count}只", stats
         # 【V52补齐:大盘跌幅条件,与回测V44对齐】
         if index_drop_pct >= index_drop_threshold:
-            return True, f"大盘跌幅{index_drop_pct*100:.1f}%≥{index_drop_threshold*100:.0f}%"
+            return True, f"大盘跌幅{index_drop_pct*100:.1f}%≥{index_drop_threshold*100:.0f}%", stats
 
-        return False, ""
+        return False, "", stats
 
     # ========================================================================
     # L2: 特殊时期

@@ -97,7 +97,7 @@ class TestL1ForceEmpty:
         """正常市场不触发"""
         pipeline = LiveFilterPipeline()
         rt = _make_realtime_with_limits(limit_ups=30, limit_downs=5, total=100)
-        force_empty, reason = await pipeline._check_force_empty("20260529", rt)
+        force_empty, reason, stats = await pipeline._check_force_empty("20260529", rt)
         assert not force_empty
     
     @pytest.mark.asyncio
@@ -105,7 +105,7 @@ class TestL1ForceEmpty:
         """跌停≥80触发"""
         pipeline = LiveFilterPipeline()
         rt = _make_realtime_with_limits(limit_ups=5, limit_downs=85, total=200)
-        force_empty, reason = await pipeline._check_force_empty("20260529", rt)
+        force_empty, reason, stats = await pipeline._check_force_empty("20260529", rt)
         assert force_empty
         assert "跌停" in reason
     
@@ -114,7 +114,7 @@ class TestL1ForceEmpty:
         """涨停≤10且跌停>0触发"""
         pipeline = LiveFilterPipeline()
         rt = _make_realtime_with_limits(limit_ups=5, limit_downs=3, total=50)
-        force_empty, reason = await pipeline._check_force_empty("20260529", rt)
+        force_empty, reason, stats = await pipeline._check_force_empty("20260529", rt)
         assert force_empty
         assert "涨停" in reason
     
@@ -124,7 +124,7 @@ class TestL1ForceEmpty:
         pipeline = LiveFilterPipeline()
         rt = _make_realtime_with_limits(limit_ups=20, limit_downs=5, total=100)
         rt["000001.SH"] = {"pct_chg": -3.5}  # 上证跌3.5%
-        force_empty, reason = await pipeline._check_force_empty("20260529", rt)
+        force_empty, reason, stats = await pipeline._check_force_empty("20260529", rt)
         assert force_empty
         assert "大盘跌幅" in reason
     
@@ -133,7 +133,7 @@ class TestL1ForceEmpty:
         """无实时数据不触发(fail-safe)"""
         pipeline = LiveFilterPipeline()
         # 无MongoDB时catch异常
-        force_empty, reason = await pipeline._check_force_empty("20260529", None)
+        force_empty, reason, stats = await pipeline._check_force_empty("20260529", None)
         assert not force_empty
     
     @pytest.mark.asyncio
@@ -145,7 +145,7 @@ class TestL1ForceEmpty:
         for i in range(90):
             code = f"688{i:03d}.SH"
             rt[code] = {"pct_chg": 19.0}  # 不到涨停
-        force_empty, reason = await pipeline._check_force_empty("20260529", rt)
+        force_empty, reason, stats = await pipeline._check_force_empty("20260529", rt)
         assert not force_empty
     
     @pytest.mark.asyncio
@@ -153,7 +153,7 @@ class TestL1ForceEmpty:
         """强制空仓时apply直接返回empty"""
         pipeline = LiveFilterPipeline()
         # Mock _check_force_empty
-        pipeline._check_force_empty = AsyncMock(return_value=(True, "跌停85只"))
+        pipeline._check_force_empty = AsyncMock(return_value=(True, "跌停85只", {"limit_up_count": 5, "limit_down_count": 85, "index_drop_pct": 0.0}))
         result = await pipeline.apply("20260529", _make_candidates(), [])
         assert result.action == "empty"
         assert result.position_ratio == 0.0
@@ -163,7 +163,7 @@ class TestL1ForceEmpty:
     async def test_force_empty_marks_all_traces_rejected(self):
         """强制空仓标记所有候选为rejected"""
         pipeline = LiveFilterPipeline()
-        pipeline._check_force_empty = AsyncMock(return_value=(True, "跌停85只"))
+        pipeline._check_force_empty = AsyncMock(return_value=(True, "跌停85只", {"limit_up_count": 5, "limit_down_count": 85, "index_drop_pct": 0.0}))
         candidates = _make_candidates(3)
         result = await pipeline.apply("20260529", candidates, [])
         for t in result.trace_candidates:
@@ -242,7 +242,7 @@ class TestL3Sentiment:
     async def test_sentiment_keeps_halfway_chase_in_warm(self):
         """温暖期(score≥40)保留半路追涨"""
         pipeline = LiveFilterPipeline()
-        pipeline._check_force_empty = AsyncMock(return_value=(False, ""))
+        pipeline._check_force_empty = AsyncMock(return_value=(False, "", {"limit_up_count": 30, "limit_down_count": 5, "index_drop_pct": 0.005}))
         pipeline._calc_sentiment = AsyncMock(return_value=(1.0, 70.0, "rising"))
         pipeline._check_special_period = MagicMock(return_value=(1.0, "正常"))
         
@@ -429,7 +429,7 @@ class TestFullPipelineApply:
     async def test_apply_normal_flow(self):
         """正常流程"""
         pipeline = LiveFilterPipeline()
-        pipeline._check_force_empty = AsyncMock(return_value=(False, ""))
+        pipeline._check_force_empty = AsyncMock(return_value=(False, "", {"limit_up_count": 30, "limit_down_count": 5, "index_drop_pct": 0.005}))
         pipeline._check_special_period = MagicMock(return_value=(1.0, "正常"))
         pipeline._calc_sentiment = AsyncMock(return_value=(1.0, 65.0, "rising"))
         
@@ -444,7 +444,7 @@ class TestFullPipelineApply:
     async def test_apply_force_empty_short_circuit(self):
         """强制空仓短路后续层"""
         pipeline = LiveFilterPipeline()
-        pipeline._check_force_empty = AsyncMock(return_value=(True, "跌停85只"))
+        pipeline._check_force_empty = AsyncMock(return_value=(True, "跌停85只", {"limit_up_count": 5, "limit_down_count": 85, "index_drop_pct": 0.0}))
         
         result = await pipeline.apply("20260529", _make_candidates(3), [])
         assert result.action == "empty"
@@ -456,7 +456,7 @@ class TestFullPipelineApply:
     async def test_apply_empty_candidates(self):
         """空候选列表"""
         pipeline = LiveFilterPipeline()
-        pipeline._check_force_empty = AsyncMock(return_value=(False, ""))
+        pipeline._check_force_empty = AsyncMock(return_value=(False, "", {"limit_up_count": 30, "limit_down_count": 5, "index_drop_pct": 0.005}))
         pipeline._check_special_period = MagicMock(return_value=(1.0, "正常"))
         pipeline._calc_sentiment = AsyncMock(return_value=(1.0, 65.0, "rising"))
         
@@ -467,7 +467,7 @@ class TestFullPipelineApply:
     async def test_apply_position_ratio_combined(self):
         """仓位系数=情绪×特殊×上限"""
         pipeline = LiveFilterPipeline(config={"max_total_position": 0.6})
-        pipeline._check_force_empty = AsyncMock(return_value=(False, ""))
+        pipeline._check_force_empty = AsyncMock(return_value=(False, "", {"limit_up_count": 30, "limit_down_count": 5, "index_drop_pct": 0.005}))
         pipeline._check_special_period = MagicMock(return_value=(0.7, "月末"))
         pipeline._calc_sentiment = AsyncMock(return_value=(0.5, 40.0, "chaos"))
         
@@ -479,7 +479,7 @@ class TestFullPipelineApply:
     async def test_apply_trace_candidates_initialized(self):
         """追踪候选正确初始化"""
         pipeline = LiveFilterPipeline()
-        pipeline._check_force_empty = AsyncMock(return_value=(False, ""))
+        pipeline._check_force_empty = AsyncMock(return_value=(False, "", {"limit_up_count": 30, "limit_down_count": 5, "index_drop_pct": 0.005}))
         pipeline._check_special_period = MagicMock(return_value=(1.0, "正常"))
         pipeline._calc_sentiment = AsyncMock(return_value=(1.0, 65.0, "rising"))
         
@@ -495,7 +495,7 @@ class TestFullPipelineApply:
     async def test_apply_trace_summary_built(self):
         """追踪汇总构建"""
         pipeline = LiveFilterPipeline()
-        pipeline._check_force_empty = AsyncMock(return_value=(False, ""))
+        pipeline._check_force_empty = AsyncMock(return_value=(False, "", {"limit_up_count": 30, "limit_down_count": 5, "index_drop_pct": 0.005}))
         pipeline._check_special_period = MagicMock(return_value=(1.0, "正常"))
         pipeline._calc_sentiment = AsyncMock(return_value=(1.0, 65.0, "rising"))
         
@@ -614,7 +614,7 @@ class TestGetSentimentInfo:
     async def test_sentiment_after_apply(self):
         """apply后情绪状态更新"""
         pipeline = LiveFilterPipeline()
-        pipeline._check_force_empty = AsyncMock(return_value=(False, ""))
+        pipeline._check_force_empty = AsyncMock(return_value=(False, "", {"limit_up_count": 30, "limit_down_count": 5, "index_drop_pct": 0.005}))
         pipeline._check_special_period = MagicMock(return_value=(1.0, "正常"))
         pipeline._calc_sentiment = AsyncMock(return_value=(0.5, 45.0, "chaos"))
         
