@@ -1278,16 +1278,14 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           <div v-if="scanTraceFilter !== 'summary'">
             <div v-if="scanTraceLoadingMore" class="empty">加载中...</div>
             <div v-else-if="!scanTraceDetail.candidates?.length" class="empty">{{ scanTraceFilter === 'passed' ? '本轮无通过候选' : '无淘汰候选' }}</div>
-            <div v-for="sig in scanTraceDetail.candidates || []" :key="sig.ts_code + sig.strategy" class="exec-trace">
-              <div class="et-left">
-                <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(sig.strategy) }}</ElTag>
+            <div class="et-table">
+              <div class="et-thead"><span>策略</span><span>代码</span><span>名称</span><span>涨跌</span><span>结果</span></div>
+              <div v-for="sig in scanTraceDetail.candidates || []" :key="sig.ts_code + sig.strategy" class="et-trow" :class="sig.final_status === 'passed' ? 'et-pass' : 'et-fail'">
+                <span class="et-strat"><ElTag size="small" :color="strategyMeta[sig.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="font-size:10px">{{ strategyCN(sig.strategy) }}</ElTag></span>
                 <span class="code">{{ sig.ts_code }}</span>
                 <span class="name">{{ sig.stock_name }}</span>
-                <span :class="sig.pct_chg >= 0 ? 'up' : 'down'" class="pct">{{ sig.pct_chg >= 0 ? '+' : '' }}{{ (sig.pct_chg || 0).toFixed(1) }}%</span>
-              </div>
-              <div class="et-right">
-                <ElTag v-if="sig.final_status === 'passed'" size="small" type="success">✅ 通过</ElTag>
-                <ElTag v-else size="small" type="danger">❌ {{ rejectionLayerCN[sig.rejection_layer] || sig.rejection_layer }}: {{ rejectionReasonCN(sig.rejection_reason) || sig.rejection_reason }}</ElTag>
+                <span :class="sig.pct_chg >= 0 ? 'up' : 'down'" style="font-weight:600">{{ sig.pct_chg >= 0 ? '+' : '' }}{{ (sig.pct_chg || 0).toFixed(1) }}%</span>
+                <span class="et-result">{{ sig.final_status === 'passed' ? '✅' : '❌ ' + (rejectionLayerCN[sig.rejection_layer] || sig.rejection_layer) + ': ' + (rejectionReasonCN(sig.rejection_reason) || sig.rejection_reason) }}</span>
               </div>
             </div>
             <div v-if="scanTraceDetail._pagination && (scanTraceDetail._pagination.has_more_passed || scanTraceDetail._pagination.has_more_rejected)" class="load-more-hint">
@@ -2374,7 +2372,8 @@ mm-tab-content {
 .rs-bar-fill { height: 100%; background: rgba(245,63,63,0.25); border-radius: 3px; transition: width 0.3s; }
 .rs-count { min-width: 40px; text-align: right; font-weight: 600; }
 .load-more-hint { text-align: center; padding: 8px 0; }
-.et-left, .et-right { display: flex; align-items: center; gap: 4px; }
+.et-strat { line-height: 1; }
+.et-result { font-size: 10px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* 情绪Tab */
 .limit-pool-grid {
