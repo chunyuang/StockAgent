@@ -1,9 +1,9 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.25 | 日期: 2026-05-31 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.26 | 日期: 2026-05-31 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化 | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复 | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复 | v2.9.24 diagnose+情绪调仓提取+DelegateRouter策略扩展 | v2.9.25 update_strategy_config bug修复+bare except清理+_init_modules拆分
+> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化 | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复 | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复 | v2.9.24 diagnose+情绪调仓提取+DelegateRouter策略扩展 | v2.9.25 update_strategy_config bug修复+bare except清理+_init_modules拆分 | v2.9.26 全模块bare except清理+position_checker._execute_sell_list提取3子方法
 > 回测影响: 零文件修改, 726测试全通过(scanner 711+backtest 50+extraction 15-重叠)
 
 ---
@@ -48,6 +48,7 @@
 | v2.9.23 | 2026-05-31 | 行情缓存过期检测+异常日志增强+跌停恢复重试+提取重构 |
 | v2.9.24 | 2026-05-31 | diagnose提取到ScannerUtils+情绪调仓提取到EmotionCycleManager+DelegateRouter策略3.5+scanner 2103→1966行(-6.5%)+13新增测试 |
 | v2.9.25 | 2026-05-31 | 🔴update_strategy_config双except bug修复(更新只在异常路径执行)+缺少本地import修复+🟡6个bare except Exception:→except Exception as _e:+🟡_init_modules拆分4子方法(_init_event_and_quote/_init_signal_and_risk/_init_core_modules/_init_execution_quality)+17新增测试(726总计) |
+| v2.9.26 | 2026-05-31 | 🟡30个bare except全模块清理(12个market_monitor子模块)+🟡position_checker._execute_sell_list 106行→4方法(主方法27行+_handle_limit_down_pending 15行+_place_sell_order 22行+_post_sell_processing 62行)+726scanner+51backtest零回归 |
 
 v2.0关键修正:
 - ❶ 风控独立线程: asyncio协程→threading.Thread(真并行不受GIL影响)
