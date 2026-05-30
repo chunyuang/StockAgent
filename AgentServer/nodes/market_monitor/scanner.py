@@ -203,6 +203,7 @@ class MarketScanner:
         self._last_scan_time = ""
         self._last_scan_ts: float = 0.0
         self._last_risk_check_ts: float = 0.0
+        self._last_realtime_update_ts: float = 0.0  # 【v2.9.23:行情缓存最后更新时间】
 
         # 数据缓存
         self._daily_factors_df: Optional[pd.DataFrame] = None
@@ -457,6 +458,8 @@ class MarketScanner:
             "position_risk_levels": self._safe_copy_position_risk_levels(),
             "execution_stats": dict(self._execution_stats),
             "scan_loop_errors": getattr(self, '_scan_loop_error_count', 0),  # 【v2.9.22】
+            "last_realtime_update_ts": getattr(self, '_last_realtime_update_ts', 0),  # 【v2.9.23】
+            "realtime_cache_age_sec": round(time.time() - (self._last_realtime_update_ts or 0), 1) if self._last_realtime_update_ts else None,  # 【v2.9.23】
             "smart_check_interval": self._get_smart_check_interval(self._broker.get_positions()) if self._is_running else None,
             "quote_degrade_level": self._quote_manager.degrade_level,
             "quote_degrade_desc": self._quote_manager.degrade_desc,
@@ -832,6 +835,7 @@ class MarketScanner:
         
         # 写入本地缓存
         self._realtime_cache = realtime
+        self._last_realtime_update_ts = time.time()  # 【v2.9.23:记录行情更新时间】
         
         # 也写入东方财富缓存(如果存在)
         if self._quote_manager:
@@ -1237,6 +1241,22 @@ class MarketScanner:
                 if not realtime_data or not self._broker:
                     time.sleep(1)
                     continue
+                
+                # 【v2.9.23:行情缓存过期检测】交易时间内缓存>120秒未更新则告警
+                if phase == MarketPhase.TRADING and hasattr(self, '_last_realtime_update_ts'):
+                    cache_age = time.time() - (self._last_realtime_update_ts or 0)
+                    if cache_age > 120:
+                        logger.warning(f"[RISK_THREAD] 行情缓存过期({cache_age:.0f}秒), 风控精度下降")
+                        # 每5分钟只告警一次(避免刷日志)
+                        if tick % 300 == 0:
+                            try:
+                                asyncio.ensure_future(self._event_bus.emit(ScannerEvents.SCANNER_ERROR, {
+                                    "error": f"行情缓存过期{cache_age:.0f}秒",
+                                    "error_type": "StaleQuoteCache",
+                                    "timestamp": time.time(),
+                                }))
+                            except Exception:
+                                pass
 
                 # ── 每1秒: 止损检查(用缓存数据, 零成本) ──
                 self._check_stop_loss_only(realtime_data)
@@ -1630,6 +1650,7 @@ class MarketScanner:
         # 同步缓存引用(Scanner其他方法可能直接读self._realtime_cache)
         self._realtime_cache = self._quote_manager.realtime_cache
         self._prev_realtime_cache = self._quote_manager.prev_realtime_cache
+        self._last_realtime_update_ts = time.time()  # 【v2.9.23:记录行情更新时间】
         self._data_router = self._quote_manager.data_router
         self._quote_degrade_level = self._quote_manager.quote_degrade_level
         
