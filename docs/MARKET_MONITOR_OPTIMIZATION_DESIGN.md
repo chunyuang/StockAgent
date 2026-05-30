@@ -1,10 +1,10 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.16 | 日期: 2026-05-30 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.17 | 日期: 2026-05-30 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅
-> 回测影响: 零文件修改, 488测试全通过
+> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅
+> 回测影响: 零文件修改, 682测试全通过
 
 ---
 
@@ -38,6 +38,7 @@
 | v2.9.13 | 2026-05-30 | _scan_loop提取: 128行拆分为_scan_loop_trading/_scan_loop_settlement+线程安全补全(4处无锁修复)+.bak清理+27新增测试(433总计) |
 | v2.9.14 | 2026-05-30 | Redis Stream升级: scanner:position从Pub/Sub→xadd(maxlen=5000)+signal订阅器Stream(maxlen=1000)+_push_to_redis双模式+审计日志TTL索引(90天)+WS断线补发catchup_scanner_stream+Stream消费API(/stream/signals+/stream/positions)+消费兼容扁平字段+33新增测试+测试路径修复(472总计) |
 | v2.9.16 | 2026-05-30 | 🔴risk_watchdog pause_reason元组bug修复 + circuit_breaker线程安全(check/record/reset均持_state_lock) + 🟡_build_emotion_sell_list提取为EmotionCycleManager.build_emotion_sell_list静态方法(回调解耦) + 🟡strategy配置方法简化(Except替代ImportError/直接持久化) + emergency_liquidate线程安全审查(文档注释) + 23新增测试(644总计) |
+| v2.9.17 | 2026-05-30 | DelegateRouter提取(scanner.py __getattr__ 95行→8行) + _with_state_lock统一加锁辅助(3个RiskWatchdog方法+2个scanner方法消除if/else重复) + 参数审计增强(PARAM_UPDATED事件含old_values) + scanner.py 1766→1672行(-5.3%) + 35新增测试(682总计) |
 | v2.9.15 | 2026-05-30 | 错误遥测: SCANNER_ERROR事件(扫描异常+风控线程异常→EventBus→Redis→前端弹窗)+HEALTH_CHANGED事件枚举+参数预检API(/params/validate, 5项检查, is_safe字段)+Stream消息含_stream_id+前端追踪lastSignalStreamId/lastPositionStreamId(断线补发)+16新增测试(488总计) |
 
 v2.0关键修正:
@@ -97,10 +98,10 @@ v2.0关键修正:
 
 | 模块 | 文件 | 行数 | 职责 |
 |---|---|---|---|
-| MarketScanner | scanner.py | 1846 | 信号扫描+持仓+风控+执行(委托模式) |
+| MarketScanner | scanner.py | 1672 | 信号扫描+持仓+风控+执行(委托模式+DelegateRouter) |
 | ScannerDaemon | scanner_daemon.py | 921 | 子进程守护 |
 | LiveFilterPipeline | live_filter_pipeline.py | 645 | 9层过滤管道 |
-| RiskWatchdog | risk_watchdog.py | 621 | 风控看门狗 |
+| RiskWatchdog | risk_watchdog.py | 763 | 风控看门狗 + _with_state_lock |
 | TieredScanner | tiered_scanner.py | 890 | 分级行情 |
 | Broker | broker.py | 729 | 交易执行(含0.2%滑点) |
 | SignalDispatcher | signal_dispatcher.py | 333 | 信号分发 |
@@ -1759,3 +1760,139 @@ def _build_emotion_sell_list(self, positions, rule, old_phase, new_phase):
 ### 25.6 回测影响
 
 零。所有变更仅影响market_monitor模块,回测引擎零文件修改。
+
+## 二十六、v2.9.17 DelegateRouter提取 + _with_state_lock统一 + 参数审计增强 (2026-05-30)
+
+### 26.1 设计目标
+
+1. **__getattr__方法提取**: 95行→8行(-91%), 消除scanner.py中最大的单一方法
+2. **_with_state_lock统一加锁**: 消除RiskWatchdog和scanner中5处`if state_lock: with state_lock: else:`重复模式
+3. **参数审计增强**: PARAM_UPDATED事件新增old_values字段,审计日志可追溯变更前后值
+
+### 26.2 DelegateRouter提取
+
+**问题**: `scanner.py.__getattr__` 95行, 包含6种委托策略的特殊处理逻辑(QuoteManager/RiskWatchdog/ScannerUtils/StrategyScorer/AsyncNoop/Simple), 每种有独立的导入、绑定、fallback逻辑。方法过长且与scanner类耦合。
+
+**修复**: 提取为独立的`scanner_delegate_router.py`模块(136行):
+
+```python
+# __getattr__ 从95行简化为8行:
+def __getattr__(self, name):
+    delegate = self._DELEGATE_MAP.get(name)
+    if delegate is None:
+        raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+    from nodes.market_monitor.scanner_delegate_router import resolve_delegate
+    return resolve_delegate(self, name, delegate)
+```
+
+**6种路由策略**:
+
+| 策略 | 模块属性 | 特殊处理 |
+|---|---|---|
+| QuoteManager类方法 | `_quote_manager_class` | 直接getattr类方法 |
+| RiskWatchdog静态方法 | `_risk_watchdog_class` | 绑定scanner实例参数 |
+| ScannerUtils(部分上下文绑定) | `_scanner_utils` | position_to_dict/signal_to_dict等4方法需要scanner上下文 |
+| StrategyScorer(含fallback) | `_strategy_scorer` | 未初始化时4个fallback返回值 + _detect_anomalies异步绑定 |
+| Async noop fallback | 无/未初始化 | `_ASYNC_DELEGATE_METHODS`中的方法返回coroutine noop |
+| Simple转发 | 其他 | 直接getattr模块实例 |
+
+**数据驱动**: 4个配置字典替代if/elif链:
+- `_ASYNC_DELEGATE_METHODS`: frozenset(不可变), 17个async方法名
+- `_SCORER_FALLBACKS`: 4个StrategyScorer未初始化时的fallback返回值
+- `_UTILS_CONTEXT_METHODS`: 4个ScannerUtils方法的上下文绑定闭包
+- `_WATCHDOG_BINDINGS`: 3个RiskWatchdog静态方法的参数绑定
+
+### 26.3 _with_state_lock统一加锁辅助
+
+**问题**: RiskWatchdog的3个静态方法和scanner的2处代码中, `if state_lock: with state_lock: fn() else: fn()` 模式重复5次, 每处6-12行冗余代码。
+
+**修复**: 新增`RiskWatchdog._with_state_lock(scanner, fn, *, fallback=None)`静态方法:
+
+```python
+@staticmethod
+def _with_state_lock(scanner, fn, *, fallback=None):
+    """线程安全执行circuit_breaker读写操作"""
+    state_lock = getattr(scanner, '_state_lock', None)
+    if state_lock:
+        with state_lock:
+            return fn()
+    return (fallback or fn)()
+```
+
+**消除的重复代码**:
+
+| 位置 | 修复前行数 | 修复后行数 |
+|---|---|---|
+| `check_circuit_breaker` 读circuit_breaker | 12行 | 9行 |
+| `check_circuit_breaker` 写circuit_breaker | 6行 | 5行 |
+| `record_trade_result` | 16行 | 9行 |
+| `reset_circuit_breaker` | 12行 | 7行 |
+| `premarket_prepare` circuit_breaker重置 | 12行 | 5行 |
+| `premarket_prepare` pending_sells清除 | 5行 | 3行 |
+| `stop()` pending_sells保存 | 5行 | 4行 |
+
+### 26.4 参数审计增强
+
+**问题**: `update_strategy_config`的PARAM_UPDATED事件只包含新值, 无法追溯变更前后的差异。
+
+**修复**: 在更新前读取旧值, 传入EventBus事件:
+
+```python
+old_values = {}
+try:
+    strategy_config = self.config.get("strategies", {}).get(strategy_key, {})
+    for k in updates:
+        if k in strategy_config:
+            old_values[k] = strategy_config[k]
+except Exception:
+    pass
+
+# EventBus事件新增old_values字段
+await self._event_bus.emit(ScannerEvents.PARAM_UPDATED, {
+    "strategy_key": strategy_key, "updates": updates,
+    "old_values": old_values,  # 审计增强
+})
+```
+
+审计日志示例:
+```json
+{
+    "event": "param_updated",
+    "strategy_key": "半路追涨",
+    "updates": {"stop_loss_pct": 0.05},
+    "old_values": {"stop_loss_pct": 0.04}
+}
+```
+
+### 26.5 变更文件
+
+| 文件 | 变更 |
+|---|---|
+| scanner_delegate_router.py | 新增136行(DelegateRouter模块) |
+| scanner.py | __getattr__ 95→8行 + _with_state_lock替代2处if/lock + 参数审计增强 |
+| risk_watchdog.py | _with_state_lock新增 + 3个方法使用helper + _set_cb_paused辅助 |
+| test_v2917_delegate_router.py | 新增35测试 |
+| test_v2913_scan_loop_extraction.py | 2处测试适配_with_state_lock |
+
+### 26.6 scanner.py行数变化
+
+| 阶段 | scanner.py行数 | 变化 |
+|---|---|---|
+| Phase3.1前 | 2907 | 基线 |
+| Phase3.1后 | 1922 | -34% |
+| v2.6继续优化后 | 1757 | -40% |
+| v2.9.13后 | 1779 | +22行 |
+| v2.9.16后 | 1766 | -13行 |
+| **v2.9.17后** | **1672** | **-94行(-5.3%)** |
+
+### 26.7 测试覆盖
+
+| 测试文件 | 用例数 | 覆盖点 |
+|---|---|---|
+| test_v2917_delegate_router.py | 35 | 6种路由策略/async noop/sync noop/AttributeError/_with_state_lock(6项)/源码验证(4项)/回测零影响(5项) |
+
+**全量测试**: 682 passed (0 failed)
+
+### 26.8 回测影响
+
+零。DelegateRouter和_with_state_lock仅影响market_monitor模块, 回测引擎零文件修改。51个回测测试全通过。
