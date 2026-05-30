@@ -296,8 +296,8 @@ class TestScannerLineCountV2920:
         """scanner.py行数应在合理范围"""
         with open(SCANNER_PATH) as f:
             lines = len(f.readlines())
-        # v2.9.19: 1831行, 提取_liquidate_positions(+45行) - 删除两处重复(-60行) ≈ ~1815行
-        assert lines < 1850, f"scanner.py行数{lines}应<1850"
+        # v2.9.21: MarketPhase提取(+32行), 但_scan_loop/_risk_loop_sync简化
+        assert lines < 1870, f"scanner.py行数{lines}应<1870"
         assert lines > 1700, f"scanner.py行数{lines}应>1700"
 
 

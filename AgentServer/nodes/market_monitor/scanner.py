@@ -26,6 +26,40 @@ from nodes.market_monitor.scanner_event_bus import ScannerEventBus, ScannerEvent
 logger = logging.getLogger("scanner.market")
 
 
+class MarketPhase:
+    """市场时间阶段分类【v2.9.21】
+    
+    统一_scan_loop和_risk_loop_sync的时间门控逻辑,
+    消除散布在两个方法中的魔术字符串比较。
+    """
+    WEEKEND = "weekend"          # 周末(调试模式)
+    DEEP_NIGHT = "deep_night"    # 23:00-08:00 极低频
+    PREMARKET = "premarket"      # 09:00-09:25 竞价前
+    AUCTION = "auction"          # 09:25-09:30 竞价
+    TRADING = "trading"          # 09:30-15:00 交易时间
+    AFTER_CLOSE = "after_close"  # 15:05+ 收盘结算
+    OFF_HOURS = "off_hours"      # 其他非交易时间
+
+    @staticmethod
+    def classify() -> str:
+        """分类当前时间阶段(零副作用, 可随时调用)"""
+        now = datetime.now()
+        ct = now.strftime("%H:%M")
+        if now.weekday() >= 5:
+            return MarketPhase.WEEKEND
+        if now.hour >= 23 or now.hour < 8:
+            return MarketPhase.DEEP_NIGHT
+        if "09:00" <= ct < "09:25":
+            return MarketPhase.PREMARKET
+        if "09:25" <= ct < "09:30":
+            return MarketPhase.AUCTION
+        if "09:30" <= ct <= "15:00":
+            return MarketPhase.TRADING
+        if ct >= "15:05":
+            return MarketPhase.AFTER_CLOSE
+        return MarketPhase.OFF_HOURS
+
+
 @dataclass
 class ScanSignal:
     """扫描信号"""
@@ -992,48 +1026,47 @@ class MarketScanner:
 
         try:
             while self._is_running:
-                now = datetime.now()
-                ct = now.strftime("%H:%M")
-                h = now.hour
+                # 【v2.9.21】使用MarketPhase统一时间分类
+                phase = MarketPhase.classify()
                 
-                # === 周末: 调试模式(60秒循环, 用缓存数据) ===
-                if now.weekday() >= 5:
+                if phase == MarketPhase.WEEKEND:
+                    # 周末: 调试模式(60秒循环, 用缓存数据)
                     pos_count = len(self._broker.get_positions()) if self._broker else 0
                     if pos_count > 0:
                         try:
                             await self._check_positions_quick(trade_date)
                         except Exception as e:
                             logger.debug(f"[SCANNER] 周末持仓检查异常: {e}")
-                    await asyncio.sleep(60)  # 周末60秒循环
+                    await asyncio.sleep(60)
                     continue
 
-                # === 交易时间(9:30-15:00) ===
-                if "09:30" <= ct <= "15:00":
+                elif phase == MarketPhase.TRADING:
+                    # 交易时间(9:30-15:00)
                     settled = False
                     did_full_scan = await self._scan_loop_trading(trade_date, last_full_scan)
                     if did_full_scan:
                         last_full_scan = time.time()
                     else:
                         continue
-                
-                # === 盘前(9:00-9:30): 竞价预选 ===
-                elif "09:00" <= ct < "09:30":
+                    
+                elif phase in (MarketPhase.PREMARKET, MarketPhase.AUCTION):
+                    # 盘前(9:00-9:30): 竞价预选
                     settled = False
                     await self._premarket_auction(trade_date)
                     await asyncio.sleep(120)  # 2分钟
                     
-                # === 收盘后(15:05+): 自动结算+报告 ===
-                elif ct >= "15:05" and not settled and self._broker:
+                elif phase == MarketPhase.AFTER_CLOSE and not settled and self._broker:
+                    # 收盘后(15:05+): 自动结算+报告
                     await self._scan_loop_settlement(trade_date)
                     settled = True
                     await asyncio.sleep(60)
                     
-                # === 深夜(23:00-8:00): 极低频 ===
-                elif h >= 23 or h < 8:
+                elif phase == MarketPhase.DEEP_NIGHT:
+                    # 深夜(23:00-8:00): 极低频
                     await asyncio.sleep(1800)  # 30分钟
                     
-                # === 其他非交易时间: 低频 ===
                 else:
+                    # 其他非交易时间: 低频
                     await asyncio.sleep(300)  # 5分钟
 
         except asyncio.CancelledError:
@@ -1144,6 +1177,7 @@ class MarketScanner:
         - 职责: 只负责卖出, 不负责买入
         - 跌停不可卖: 挂起pending_sells, 不丢追踪止损
         - 【v2.9.5】使用self._trade_date保证交易日一致性
+        - 【v2.9.21】时间门控使用MarketPhase.classify()统一
         """
         import threading
         tick = 0
@@ -1153,18 +1187,16 @@ class MarketScanner:
             try:
                 tick += 1
                 
-                # 非交易时间不做检查(与scan_loop同样的时间判断)
-                now = datetime.now()
-                ct = now.strftime("%H:%M")
-                is_weekend = now.weekday() >= 5
-                if (ct < "09:25" or ct > "15:05") and not is_weekend:
-                    time.sleep(30)  # 工作日非交易时间30秒检查一次
+                # 【v2.9.21】使用MarketPhase统一时间分类
+                phase = MarketPhase.classify()
+                if phase == MarketPhase.WEEKEND:
+                    time.sleep(60)  # 周末调试: 60秒检查一次
+                elif phase == MarketPhase.DEEP_NIGHT:
+                    time.sleep(300)  # 深夜: 5分钟检查一次
                     continue
-                
-                # 周末: 60秒检查一次(调试模式)
-                if is_weekend:
-                    time.sleep(60)
-                    # 继续执行检查(用缓存数据)
+                elif phase not in (MarketPhase.TRADING, MarketPhase.AUCTION):
+                    time.sleep(30)  # 非交易时间30秒检查一次
+                    continue
                 
                 # 从共享缓存读取(线程安全, 浅拷贝)
                 with self._cache_lock:
