@@ -281,6 +281,32 @@ export const useScannerStore = defineStore('scanner', () => {
     lastRestUpdate.value = 0
   }
 
+  // ==================== v2.9.14/15: Stream + 参数预检 ====================
+
+  /** 【v2.9.14】从Redis Stream读取最近信号 */
+  async function fetchStreamSignals(count = 20) {
+    try {
+      const res = await api.get(`/scanner/stream/signals?count=${count}`)
+      return res?.data || []
+    } catch { return [] }
+  }
+
+  /** 【v2.9.14】从Redis Stream读取最近持仓变更 */
+  async function fetchStreamPositions(count = 20) {
+    try {
+      const res = await api.get(`/scanner/stream/positions?count=${count}`)
+      return res?.data || []
+    } catch { return [] }
+  }
+
+  /** 【v2.9.15】参数预检验证(不实际更新) */
+  async function validateParams(strategyId: string, params: Record<string, number>) {
+    try {
+      const res = await api.post('/scanner/params/validate', { strategy_id: strategyId, params })
+      return { warnings: res?.warnings || [], isSafe: res?.is_safe ?? true }
+    } catch { return { warnings: [], isSafe: true } }
+  }
+
   return {
     // 状态
     isRunning,
@@ -314,5 +340,10 @@ export const useScannerStore = defineStore('scanner', () => {
     start,
     stop,
     $reset,
+
+    // v2.9.14/15: Stream + 参数预检
+    fetchStreamSignals,
+    fetchStreamPositions,
+    validateParams,
   }
 })
