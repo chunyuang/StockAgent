@@ -432,11 +432,26 @@ async function fetchAuditLog() {
     const r = await api.get(`${scannerApi}/audit-log`)
     const p = parseResponse(r)
     if (p.success && p.data) {
-      auditLog.value = (p.data || []).map((log: any) => ({
-        time: new Date(log.timestamp * 1000 || log.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-        action: log.action || log.event_type || '-',
-        detail: log.detail || log.description || JSON.stringify(log).slice(0, 80),
-      }))
+      auditLog.value = (p.data || []).map((log: any) => {
+        // 格式化时间
+        const ts = log.timestamp
+        const time = ts ? new Date(typeof ts === 'number' ? ts * 1000 : ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''
+        // 格式化动作
+        const actionMap: Record<string, string> = {
+          buy: '🟢 买入', sell: '🔴 卖出', blocked: '⛔ 拦截',
+          force_sell: '🚨 强卖', signal: '📡 信号', position_check: '🔍 检查',
+        }
+        const action = actionMap[log.action] || log.action || '-'
+        // 格式化详情: 股票+策略+原因
+        const name = log.stock_name || ''
+        const code = log.ts_code || ''
+        const strategy = log.strategy ? `[${log.strategy}]` : ''
+        const reason = log.reason || ''
+        const sentiment = log.sentiment ? `情绪=${log.sentiment}` : ''
+        const posRatio = log.position_ratio ? `仓位=${(log.position_ratio * 100).toFixed(0)}%` : ''
+        const detail = [name || code, strategy, reason, sentiment, posRatio].filter(Boolean).join(' ')
+        return { time, action, detail, ts_code: code }
+      })
     }
   } catch { auditLog.value = [] }
   finally { auditLogLoading.value = false }
@@ -1601,7 +1616,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <div class="st" style="margin-top:16px">📝 审计日志 <ElButton size="small" @click="fetchAuditLog" :loading="auditLogLoading">🔄</ElButton></div>
         <div v-if="!auditLog.length" class="empty">暂无审计记录</div>
         <div v-else class="ht-audit">
-          <div v-for="log in auditLog" :key="log.timestamp + log.action" class="ha-row">
+          <div v-for="(log, i) in auditLog" :key="i" class="ha-row cp" @click="log.ts_code && openTradeDetail(log.ts_code)">
             <span class="tl-time">{{ log.time }}</span>
             <span class="ha-action">{{ log.action }}</span>
             <span class="ha-detail">{{ log.detail }}</span>
