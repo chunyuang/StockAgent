@@ -2083,7 +2083,7 @@ _version_cache = {"value": None, "ts": 0}
 _VERSION_CACHE_TTL = 300  # 5分钟缓存
 
 # 【v2.9.10:设计文档版本常量, 与docs/MARKET_MONITOR_OPTIMIZATION_DESIGN.md保持同步】
-_DESIGN_DOC_VERSION = "v2.9.14"
+_DESIGN_DOC_VERSION = "v2.9.15"
 _BASELINE_TAG = "v2.8.0-backtest-ui-v2"
 
 def _get_version_info() -> dict:
@@ -2280,6 +2280,63 @@ async def reset_strategy_params(strategy_id: str):
             return {"success": False, "message": "重置失败"}
     except Exception as e:
         return {"success": False, "message": str(e)}
+
+
+@router.post("/params/validate")
+async def validate_params_before_update(request: Request):
+    """【v2.9.15】参数预检验证(不实际更新)
+    
+    前端提交参数更新前先调用此端点, 检查参数合理性。
+    返回warnings数组(空=安全可直接提交, 非空=需用户确认)。
+    
+    Body: {strategy_id: str, params: {key: value, ...}}
+    """
+    try:
+        body = await request.json()
+        strategy_id = body.get("strategy_id", "default")
+        params = body.get("params", {})
+        
+        if not params:
+            return {"success": True, "warnings": [], "is_safe": True, "message": "无参数需验证"}
+        
+        warnings = []
+        
+        # 1. 止损检查
+        sl = params.get("stop_loss_pct")
+        if sl is not None:
+            if sl > 0.10:
+                warnings.append(f"止损{sl*100:.1f}%过宽, 实盘建议≤8%")
+            elif sl < 0.02:
+                warnings.append(f"止损{sl*100:.1f}%过紧, 实盘建议≥2%(容易被震出)")
+        
+        # 2. 止盈检查
+        tp = params.get("take_profit_pct")
+        if tp is not None and tp < 0.03:
+            warnings.append(f"止盈{tp*100:.1f}%过低, 实盘建议≥3%")
+        
+        # 3. 单票仓位上限检查
+        max_ratio = params.get("max_position_ratio")
+        if max_ratio is not None and max_ratio > 0.8:
+            warnings.append(f"单票仓位{max_ratio*100:.0f}%过高, 实盘建议≤15%")
+        
+        # 4. 追踪止损步长检查
+        trail = params.get("trailing_stop_step")
+        if trail is not None and trail < 0.01:
+            warnings.append(f"追踪止损步长{trail*100:.1f}%过紧, 可能被震出")
+        
+        # 5. 情绪调仓比例检查
+        rebalance = params.get("emotion_rebalance_ratio")
+        if rebalance is not None and rebalance > 0.5:
+            warnings.append(f"情绪调仓比例{rebalance*100:.0f}%过高, 建议≤30%")
+        
+        return {
+            "success": True,
+            "strategy_id": strategy_id,
+            "warnings": warnings,
+            "is_safe": len(warnings) == 0,
+        }
+    except Exception as e:
+        return {"success": False, "message": str(e), "warnings": []}
 
 
 # ==================== V59:执行质量 & 追踪止损 API ====================

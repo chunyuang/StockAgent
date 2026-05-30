@@ -62,8 +62,11 @@ def register_subscribers(scanner) -> None:
     # 9. 信号生成 → Redis推送(前端实时信号面板)
     bus.on("signal_generated", _make_signal_generated_handler(scanner))
     
+    # 10. 【v2.9.15】扫描器异常 → Redis推送(前端错误提示)
+    bus.on("scanner_error", _make_scanner_error_handler(scanner))
+    
     logger.info(
-        f"[SUBSCRIBERS] 已注册9组事件订阅器, "
+        f"[SUBSCRIBERS] 已注册10组事件订阅器, "
         f"总计{sum(bus.handler_count(e) for e in bus.get_events())}个handler"
     )
 
@@ -332,3 +335,22 @@ def _make_signal_generated_handler(scanner):
         }, use_stream=True, maxlen=1000)
     on_signal_generated.__name__ = "on_signal_generated"
     return on_signal_generated
+
+
+def _make_scanner_error_handler(scanner):
+    """【v2.9.15】扫描器异常事件handler"""
+    async def on_scanner_error(data: Dict[str, Any]):
+        # 异常推送(Pub/Sub, 允许丢但前端可感知)
+        await _push_to_redis(scanner, "scanner:status", {
+            "event": "scanner_error",
+            "error": data.get("error", "unknown"),
+            "error_type": data.get("error_type", "UnknownError"),
+            "timestamp": data.get("timestamp", time.time()),
+        })
+        # 审计日志
+        await _write_audit_log(scanner, "scanner_error", {
+            "error": data.get("error", ""),
+            "error_type": data.get("error_type", ""),
+        })
+    on_scanner_error.__name__ = "on_scanner_error"
+    return on_scanner_error

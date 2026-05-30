@@ -1018,6 +1018,15 @@ class MarketScanner:
         except Exception as e:
             logger.error(f"[SCANNER] 异常: {e}", exc_info=True)
             self._is_running = False
+            # 【v2.9.15】发射异常事件(前端可感知)
+            try:
+                asyncio.ensure_future(self._event_bus.emit(ScannerEvents.SCANNER_ERROR, {
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "timestamp": time.time(),
+                }))
+            except Exception:
+                pass
 
     # ==================== v2.9.13: _scan_loop时间段提取 ====================
 
@@ -1154,6 +1163,15 @@ class MarketScanner:
 
             except Exception as e:
                 logger.error(f"[RISK_THREAD] 风控线程异常: {e}")
+                # 【v2.9.15】风控线程异常也发射事件
+                try:
+                    asyncio.ensure_future(self._event_bus.emit(ScannerEvents.SCANNER_ERROR, {
+                        "error": f"风控线程异常: {e}",
+                        "error_type": "RiskThreadError",
+                        "timestamp": time.time(),
+                    }))
+                except Exception:
+                    pass
             time.sleep(1)  # 真sleep,不受asyncio影响
         
         logger.info("[RISK_THREAD] 风控线程已退出")
