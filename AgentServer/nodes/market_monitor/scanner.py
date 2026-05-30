@@ -505,14 +505,6 @@ class MarketScanner:
         if self._state_lock is None:
             self._state_lock = threading.Lock()
 
-        # 互斥: 检查DailyScheduler是否在运行
-        try:
-            from nodes.scheduler.daily_scheduler import DailyScheduler
-            # 如果scheduler在同一进程中运行, 检查状态
-            # (不同进程则无法检测, 需要用户自行保证)
-        except ImportError:
-            pass
-
         if not trade_date:
             trade_date = datetime.now().strftime("%Y%m%d")
         self._trade_date = trade_date
@@ -524,6 +516,38 @@ class MarketScanner:
         await self._load_strategy_overrides()
         
         # 【Phase2.3:参数漂移检测(启动时)】
+        await self._detect_param_drift()
+
+        # 盘前准备
+        await self.premarket_prepare(trade_date)
+        
+        # 【Phase3.4+v2.9.4】审计日志TTL索引+恢复pending_sells
+        await self._restore_start_state()
+
+        # 【v2.8:EventBus订阅器注册(在scan_loop启动前)】
+        try:
+            from nodes.market_monitor.scanner_event_subscribers import register_subscribers
+            register_subscribers(self)
+        except Exception as e:
+            logger.warning(f"[EVENT_BUS] 订阅器注册失败(非关键): {e}")
+
+        self._is_running = True
+        self._task = asyncio.create_task(self._scan_loop(trade_date))
+        
+        # 【Phase1.2:启动风控独立线程】
+        self._start_risk_thread()
+        
+        # 【V54:启动分级行情扫描器】
+        if self._tiered_scanner:
+            await self._tiered_scanner.start(trade_date)
+        # 恢复今日时间线
+        logger.info("[SCANNER] 加载时间线...")
+        await self._load_timeline()
+        logger.info(f"[SCANNER] 启动完成, account={self.account_id}, date={trade_date}")
+        return {"success": True, "message": "扫描器启动成功"}
+
+    async def _detect_param_drift(self):
+        """启动时检测参数漂移【v2.9.18:从start()提取】"""
         try:
             from nodes.market_monitor.strategy_param_center import param_center
             drifts = await param_center.detect_drift()
@@ -535,9 +559,8 @@ class MarketScanner:
         except Exception as e:
             logger.debug(f"[PARAMS] 漂移检测失败(非关键): {e}")
 
-        # 盘前准备
-        await self.premarket_prepare(trade_date)
-        
+    async def _restore_start_state(self):
+        """启动时恢复状态(审计索引+pending_sells)【v2.9.18:从start()提取】"""
         # 【Phase3.4:审计日志TTL索引(90天自动过期)】
         try:
             from core.managers import mongo_manager
@@ -554,49 +577,27 @@ class MarketScanner:
             if mongo_manager.db:
                 doc = await mongo_manager.db["scanner_state"].find_one({"_id": "pending_sells"})
                 if doc and doc.get("items"):
-                    lock = self._state_lock
-                    if lock:
-                        with lock:
-                            self._pending_sells.update(doc["items"])
-                    else:
+                    with self._state_lock:
                         self._pending_sells.update(doc["items"])
                     logger.info(f"[START] 恢复{len(doc['items'])}个pending_sells")
         except Exception as e:
             logger.debug(f"[START] pending_sells恢复失败(非关键): {e}")
 
-        # 【v2.8:EventBus订阅器注册(在scan_loop启动前)】
-        try:
-            from nodes.market_monitor.scanner_event_subscribers import register_subscribers
-            register_subscribers(self)
-        except Exception as e:
-            logger.warning(f"[EVENT_BUS] 订阅器注册失败(非关键): {e}")
-
-        self._is_running = True
-        self._task = asyncio.create_task(self._scan_loop(trade_date))
-        
-        # 【Phase1.2:启动风控独立线程】
+    def _start_risk_thread(self):
+        """启动风控独立线程【v2.9.18:从start()提取】"""
         import threading
         self._loop = asyncio.get_event_loop()
         self._cache_lock = threading.Lock()
         if self._state_lock is None:
-            self._state_lock = threading.Lock()  # 保护trailing_stops/pending_sells/position_risk_levels
+            self._state_lock = threading.Lock()
         self._risk_running = True
-        self._risk_thread_restarts = 0  # 风控线程重启计数
+        self._risk_thread_restarts = 0
         self._risk_thread = threading.Thread(
             target=self._risk_loop_sync, daemon=True,
             name="scanner-risk-thread"
         )
         self._risk_thread.start()
         logger.info("[SCANNER] 风控独立线程已启动")
-        
-        # 【V54:启动分级行情扫描器】
-        if self._tiered_scanner:
-            await self._tiered_scanner.start(trade_date)
-        # 恢复今日时间线
-        logger.info("[SCANNER] 加载时间线...")
-        await self._load_timeline()
-        logger.info(f"[SCANNER] 启动完成, account={self.account_id}, date={trade_date}")
-        return {"success": True, "message": "扫描器启动成功"}
 
     async def stop(self, sell_all: bool = False):
         """停止扫描
@@ -1671,7 +1672,7 @@ class MarketScanner:
         for i in range(0, len(to_sell), batch_size):
             batch = to_sell[i:i+batch_size]
             if self._position_checker:
-                await self._position_checker._execute_sell_list(batch, trade_date, source="emotion")
+                await self._position_checker.execute_sell_list(batch, trade_date, source="emotion")
             if i + batch_size < len(to_sell):
                 await asyncio.sleep(0.5)
         
@@ -1742,9 +1743,9 @@ class MarketScanner:
         return emit_quote_event
 
     def _is_limit_down(self, ts_code: str) -> bool:
-        """判断是否跌停 — 委托给PositionChecker【v2.9.6移除fallback】"""
+        """判断是否跌停 — 委托给PositionChecker【v2.9.6移除fallback, v2.9.18公开接口】"""
         if self._position_checker:
-            return self._position_checker._is_limit_down(ts_code)
+            return self._position_checker.is_limit_down(ts_code)
         return False  # 无PositionChecker时默认非跌停(保守策略)
 
     def _validate_live_params(self):

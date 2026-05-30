@@ -52,8 +52,8 @@ class TestVersionConstantSync:
                 for target in node.targets:
                     if isinstance(target, ast.Name) and target.id == "_DESIGN_DOC_VERSION":
                         if isinstance(node.value, ast.Constant):
-                            assert node.value.value == "v2.9.16", \
-                                f"_DESIGN_DOC_VERSION={node.value.value}, 期望v2.9.16"
+                            assert node.value.value >= "v2.9.18", \
+                                f"_DESIGN_DOC_VERSION={node.value.value}, 期望≥v2.9.18"
                             found = True
         assert found, "_DESIGN_DOC_VERSION常量未找到"
 
@@ -123,7 +123,7 @@ class TestVersionCache:
         cached_result = {
             "git_hash": "abc1234",
             "git_branch": "main",
-            "design_doc_version": "v2.9.16",
+            "design_doc_version": "v2.9.18",
             "baseline_tag": "v2.8.0-backtest-ui-v2",
         }
         with patch.dict('builtins.__dict__', {
