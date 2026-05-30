@@ -421,6 +421,16 @@ class MarketScanner:
         "_format_slow_steps": ("_scanner_utils", "format_slow_steps"),
         # 【v2.9.31:持仓dict构建提取到ScannerUtils】
         "_build_position_dict": ("_scanner_utils", "build_position_dict"),
+        # 【v2.9.32:数据加载+停止持久化提取到RuntimePersistence】
+        "_load_stock_list": ("_runtime_persistence", "load_stock_list"),
+        "_load_daily_factors": ("_runtime_persistence", "load_daily_factors"),
+        "_load_stock_name_map": ("_runtime_persistence", "load_stock_name_map"),
+        "_warm_weekend_cache": ("_runtime_persistence", "warm_weekend_cache"),
+        "_persist_stop_state": ("_runtime_persistence", "persist_stop_state"),
+        "_restore_start_state": ("_runtime_persistence", "restore_start_state"),
+        "_load_positions": ("_runtime_persistence", "load_positions"),
+        # 【v2.9.32:风控日重置提取到RiskWatchdog】
+        "_reset_daily_risk_state": ("_risk_watchdog_class", "reset_daily_risk_state"),
     }
 
     def __getattr__(self, name):
@@ -562,28 +572,8 @@ class MarketScanner:
             logger.debug(f"[PARAMS] 漂移检测失败(非关键): {e}")
 
     async def _restore_start_state(self):
-        """启动时恢复状态(审计索引+pending_sells)【v2.9.18:从start()提取】"""
-        # 【Phase3.4:审计日志TTL索引(90天自动过期)】
-        try:
-            from core.managers import mongo_manager
-            if mongo_manager.db:
-                await mongo_manager.db["audit_log"].create_index(
-                    "timestamp", expireAfterSeconds=7776000  # 90天
-                )
-        except Exception as _e:
-            logger.debug(f"[START] 审计日志TTL索引创建失败: {_e}")
-
-        # 【v2.9.4:从MongoDB恢复pending_sells(上次停机时保存的跌停挂起)】
-        try:
-            from core.managers import mongo_manager
-            if mongo_manager.db:
-                doc = await mongo_manager.db["scanner_state"].find_one({"_id": "pending_sells"})
-                if doc and doc.get("items"):
-                    with self._state_lock:
-                        self._pending_sells.update(doc["items"])
-                    logger.info(f"[START] 恢复{len(doc['items'])}个pending_sells")
-        except Exception as e:
-            logger.debug(f"[START] pending_sells恢复失败(非关键): {e}")
+        """启动时恢复状态 — 委托给RuntimePersistence【v2.9.32提取】"""
+        await self._runtime_persistence.restore_start_state()
 
     def _start_risk_thread(self):
         """启动风控独立线程【v2.9.18:从start()提取】"""
@@ -692,41 +682,8 @@ class MarketScanner:
         await self._liquidate_positions(reason="停止清仓", source="stop_sell")
 
     async def _persist_stop_state(self):
-        """停止时持久化状态【v2.9.18:从stop()提取】"""
-        # 强制保存当前状态(跳过节流)
-        if self._broker:
-            try:
-                await self._broker.save_state(force=True)
-            except Exception as _e:
-                logger.warning(f"[SCANNER] 停止时broker状态持久化失败: {_e}")
-            # 【Phase1.1】同步保存Scanner运行时状态
-            await self._save_runtime_snapshot(force=True)
-        
-        # 保存时间线到MongoDB
-        try:
-            await self._save_timeline()
-        except Exception as _e:
-            logger.warning(f"[SCANNER] 停止时Timeline保存失败: {_e}")
-        
-        # 【v2.9.4:保存pending_sells状态到MongoDB(防止重启丢失)】
-        # 【v2.9.17:使用_with_state_lock统一加锁模式】
-        try:
-            from core.managers import mongo_manager
-            if mongo_manager.db:
-                from nodes.market_monitor.risk_watchdog import RiskWatchdog
-                pending = RiskWatchdog._with_state_lock(
-                    self, lambda: dict(self._pending_sells),
-                    fallback=lambda: dict(self._pending_sells),
-                )
-                if pending:
-                    await mongo_manager.db["scanner_state"].update_one(
-                        {"_id": "pending_sells"},
-                        {"$set": {"items": pending, "saved_at": datetime.now().isoformat()}},
-                        upsert=True,
-                    )
-                    logger.info(f"[STOP] 保存{len(pending)}个pending_sells到MongoDB")
-        except Exception as e:
-            logger.debug(f"[STOP] pending_sells保存失败(非关键): {e}")
+        """停止时持久化状态 — 委托给RuntimePersistence【v2.9.32提取】"""
+        await self._runtime_persistence.persist_stop_state()
 
     # ==================== 盘前准备 ====================
 
@@ -749,97 +706,21 @@ class MarketScanner:
         return ""
 
     async def _load_stock_name_map(self):
-        """从MongoDB stock_basic加载ts_code→名称映射"""
-        try:
-            from core.managers import mongo_manager
-            if not mongo_manager.is_initialized:
-                return
-            docs = await mongo_manager.db["stock_basic"].find(
-                {}, {"ts_code": 1, "name": 1, "_id": 0}
-            ).to_list(length=None)
-            for doc in docs:
-                if doc.get("ts_code") and doc.get("name"):
-                    self._stock_name_map[doc["ts_code"]] = doc["name"]
-            logger.info(f"[SCANNER] 加载{len(self._stock_name_map)}只股票名称映射")
-        except Exception as e:
-            logger.warning(f"[SCANNER] 加载名称映射失败: {e}")
+        """加载名称映射 — 委托给RuntimePersistence【v2.9.32提取】"""
+        names = await self._runtime_persistence.load_stock_name_map()
+        self._stock_name_map.update(names)
     async def _warm_weekend_cache(self):
-        """周末调试: 用日级因子(上一交易日收盘)填充行情缓存"""
-        import time as _time
-        warmed = 0
-        realtime = {}
-        df = self._daily_factors_df
-        if df is None or df.empty:
-            return
-        
-        for _, row in df.iterrows():
-            ts_code = row.get("ts_code")
-            if not ts_code:
-                continue
-            close = row.get("close")
-            pre_close = row.get("pre_close")
-            pct_chg = row.get("pct_chg")
-            if close and close > 0:
-                realtime[ts_code] = {
-                    "price": close,
-                    "pct_chg": pct_chg if pct_chg else 0,
-                    "pre_close": pre_close if pre_close else close,
-                    "open": row.get("open", close),
-                    "high": row.get("high", close),
-                    "low": row.get("low", close),
-                    "vol": row.get("vol", 0),
-                    "amount": row.get("amount", 0),
-                    "turnover_rate": row.get("turnover_rate", 0),
-                    "volume_ratio": row.get("volume_ratio", 0),
-                    "name": self._stock_name_map.get(ts_code, ""),
-                }
-                warmed += 1
-        
-        # 写入本地缓存
+        """周末调试: 用日级因子填充行情缓存 — 委托给RuntimePersistence【v2.9.32提取】"""
+        realtime = self._runtime_persistence.warm_weekend_cache(
+            self._daily_factors_df, self._stock_name_map, self._quote_manager
+        )
         self._realtime_cache = realtime
-        self._last_realtime_update_ts = time.time()  # 【v2.9.23:记录行情更新时间】
-        
-        # 也写入东方财富缓存(如果存在)
-        if self._quote_manager:
-            self._quote_manager.warm_sources_cache(realtime)
-        
-        logger.info(f"[SCANNER] 周末缓存预热: {warmed}只(上一交易日收盘价)")
+        self._last_realtime_update_ts = time.time()
 
     def _reset_daily_risk_state(self):
-        """重置每日风控状态(circuit_breaker+pending_sells+执行统计)【v2.9.21提取, v2.9.22跨日一致性增强】"""
-        # 重置circuit_breaker(需要broker账户信息)
-        if self._broker:
-            try:
-                acct = self._broker.get_account()
-                if acct:
-                    from nodes.market_monitor.risk_watchdog import RiskWatchdog
-                    def _reset_cb():
-                        self._circuit_breaker["daily_start_assets"] = acct.total_assets
-                        self._circuit_breaker["today_trades"] = 0
-                        self._circuit_breaker["today_losses"] = 0
-                        self._circuit_breaker["trading_paused"] = False
-                        self._circuit_breaker["pause_reason"] = ""
-                    RiskWatchdog._with_state_lock(self, _reset_cb, fallback=_reset_cb)
-                    logger.info(f"[SCANNER] 每日风控重置: start_asset={acct.total_assets:.2f}")
-            except Exception as e:
-                logger.warning(f"[SCANNER] 每日风控重置失败: {e}")
-
-        # 清除执行统计(每次启动都重置)
-        self._execution_stats["stop_loss_response_times"] = []
-        
-        # 【v2.9.22:跨日pending_sells一致性清理】
-        # 清除引用已无持仓的pending_sells(跨日后Broker持仓已恢复,但旧pending_sells可能引用已卖出的票)
-        with self._state_lock:
-            if self._pending_sells and self._broker:
-                held_codes = {p.ts_code for p in self._broker.get_positions()}
-                stale = [c for c in self._pending_sells if c not in held_codes]
-                for c in stale:
-                    del self._pending_sells[c]
-                if stale:
-                    logger.info(f"[SCANNER] 清理{len(stale)}个跨日过期pending_sells(已无持仓): {stale[:3]}")
-            self._pending_sells.clear()
-        
-        logger.info("[SCANNER] 执行统计+跌停挂起已重置(追踪止损/风险等级将在加载持仓时恢复)")
+        """重置每日风控状态 — 委托给RiskWatchdog【v2.9.32提取】"""
+        from nodes.market_monitor.risk_watchdog import RiskWatchdog
+        RiskWatchdog.reset_daily_risk_state(self)
 
     async def premarket_prepare(self, trade_date: str):
         """盘前: 加载全市场代码 + 预加载日级因子"""
@@ -884,101 +765,16 @@ class MarketScanner:
                      f"{len(self._active_signals)}个竞价信号")
 
     async def _load_stock_list(self):
-        """加载全市场代码"""
-        try:
-            from core.managers import mongo_manager
-            await mongo_manager.initialize()
-
-            # 从stock_daily_ak_full获取当日有数据的所有股票
-            today = datetime.now().strftime("%Y%m%d")
-            # 如果今天没数据, 用最近一个交易日
-            cursor = mongo_manager.db["stock_daily_ak_full"].find(
-                {"trade_date": int(today)},
-                {"ts_code": 1, "_id": 0}
-            )
-            docs = await cursor.to_list(length=6000)
-            if not docs:
-                # 取最近交易日
-                latest = await mongo_manager.db["stock_daily_ak_full"].find_one(
-                    sort=[("trade_date", -1)],
-                    projection={"trade_date": 1, "_id": 0}
-                )
-                if latest:
-                    cursor = mongo_manager.db["stock_daily_ak_full"].find(
-                        {"trade_date": latest["trade_date"]},
-                        {"ts_code": 1, "_id": 0}
-                    )
-                    docs = await cursor.to_list(length=6000)
-
-            self._all_codes = [d["ts_code"] for d in docs if d.get("ts_code")]
-            logger.info(f"[SCANNER] 加载{len(self._all_codes)}只股票代码")
-        except Exception as e:
-            logger.error(f"[SCANNER] 加载股票列表失败: {e}")
-            self._all_codes = []
+        """加载全市场代码 — 委托给RuntimePersistence【v2.9.32提取】"""
+        self._all_codes = await self._runtime_persistence.load_stock_list()
 
     async def _load_daily_factors(self, trade_date: str):
-        """预加载日级因子(从MongoDB读取)"""
-        try:
-            from core.managers import mongo_manager
-            await mongo_manager.initialize()
-
-            # 读取前一个交易日的因子(已计算好的)
-            # 取最近的trade_date <= trade_date
-            latest_doc = await mongo_manager.db["stock_daily_ak_full"].find_one(
-                {"trade_date": {"$lte": int(trade_date)}},
-                sort=[("trade_date", -1)],
-                projection={"trade_date": 1, "_id": 0}
-            )
-            if not latest_doc:
-                return
-
-            factor_date = latest_doc["trade_date"]
-
-            # 读取关键因子
-            factor_fields = [
-                "ts_code", "pct_chg", "pre_close", "close", "open", "high", "low",
-                "ma5", "macd", "rsi_6", "boll_upper", "atr",
-                "turnover_rate", "volume_ratio", "circ_mv",
-                "is_limit_up", "is_limit_down", "first_limit_up", "limit_up_count",
-                "fear_greed_index"
-            ]
-            projection = {"_id": 0}
-            for f in factor_fields:
-                projection[f] = 1
-
-            cursor = mongo_manager.db["stock_daily_ak_full"].find(
-                {"trade_date": factor_date},
-                projection
-            )
-            docs = await cursor.to_list(length=6000)
-            if docs:
-                self._daily_factors_df = pd.DataFrame(docs)
-                logger.info(f"[SCANNER] 加载{len(docs)}只股票日级因子(date={factor_date})")
-        except Exception as e:
-            logger.error(f"[SCANNER] 加载日级因子失败: {e}")
+        """预加载日级因子 — 委托给RuntimePersistence【v2.9.32提取】"""
+        self._daily_factors_df = await self._runtime_persistence.load_daily_factors(trade_date)
 
     async def _load_positions(self):
-        """加载当前持仓(优先从MongoDB恢复, 否则从broker获取)
-        
-        【Phase1.1增强】恢复后同时恢复Scanner运行时状态(追踪止损/风险等级/跌停挂起等)
-        Broker是持仓唯一权威来源, Scanner快照只存Scanner独有状态。
-        """
-        if self._broker:
-            # Step 1: Broker恢复(权威持仓)
-            try:
-                restored = await self._broker.load_state()
-                if restored and self._broker.positions:
-                    logger.info(f"[SCANNER] 持仓已从MongoDB恢复: {len(self._broker.positions)}个")
-            except Exception as e:
-                logger.warning(f"[SCANNER] 持仓恢复失败(使用空持仓): {e}")
-        
-        # Step 2: Scanner运行时状态恢复
-        await self._load_runtime_snapshot()
-        
-        # 【v2.9.13:trailing_stops线程安全读取(日志输出)】
-        _ts_count = len(self._safe_copy_trailing_stops())
-        logger.info(f"[SCANNER] 持仓: {len(self._broker.get_positions()) if self._broker else 0}个, "
-                    f"追踪止损: {_ts_count}个")
+        """加载当前持仓 — 委托给RuntimePersistence【v2.9.32提取】"""
+        await self._runtime_persistence.load_positions()
 
     # ==================== Phase1.1: 运行时状态持久化 ====================
     async def _scan_loop(self, trade_date: str):
@@ -1058,7 +854,7 @@ class MarketScanner:
         try:
             if self._loop and not self._loop.is_closed():
                 self._loop.call_soon_threadsafe(
-                    lambda: asyncio.ensure_future(self._event_bus.emit(ScannerEvents.SCANNER_ERROR, {
+                    lambda: self._loop.create_task(self._event_bus.emit(ScannerEvents.SCANNER_ERROR, {
                         "error": str(error),
                         "error_type": type(error).__name__,
                         "timestamp": time.time(),
@@ -1204,7 +1000,7 @@ class MarketScanner:
                 try:
                     if self._loop and not self._loop.is_closed():
                         self._loop.call_soon_threadsafe(
-                            lambda: asyncio.ensure_future(self._event_bus.emit(ScannerEvents.SCANNER_ERROR, {
+                            lambda: self._loop.create_task(self._event_bus.emit(ScannerEvents.SCANNER_ERROR, {
                                 "error": f"风控线程异常: {e}",
                                 "error_type": "RiskThreadError",
                                 "timestamp": time.time(),
@@ -1267,7 +1063,7 @@ class MarketScanner:
             try:
                 if self._loop and not self._loop.is_closed():
                     self._loop.call_soon_threadsafe(
-                        lambda: asyncio.ensure_future(self._event_bus.emit(ScannerEvents.SCANNER_ERROR, {
+                        lambda: self._loop.create_task(self._event_bus.emit(ScannerEvents.SCANNER_ERROR, {
                             "error": f"行情缓存过期{cache_age:.0f}秒",
                             "error_type": "StaleQuoteCache",
                             "timestamp": time.time(),
@@ -1700,7 +1496,7 @@ class MarketScanner:
             logger.warning(f"[SCANNER] 策略参数热更新失败: {strategy_key}: {_e}")
             return
         # EventBus: 参数更新事件(含old_values审计) + 持久化(非阻塞)
-        # 【v2.9.31:修复RuntimeWarning — ensure_future泄露协程,改用try_schedule火火火火火火
+        # 【v2.9.31:修复RuntimeWarning — ensure_future泄露协程,改用loop.create_task替代ensure_future
         # 确保只对已运行的loop调度,否则静默跳过】
         try:
             if self._loop and not self._loop.is_closed():

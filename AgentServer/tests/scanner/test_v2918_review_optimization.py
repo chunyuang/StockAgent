@@ -143,16 +143,16 @@ class TestWarmSourcesCache:
         # 不报错即通过
 
     def test_scanner_uses_warm_sources_cache(self):
-        """scanner.py中使用warm_sources_cache替代直接访问"""
-        scanner_path = os.path.join(
-            os.path.dirname(__file__), '..', '..', 'nodes', 'market_monitor', 'scanner.py'
+        """warm_sources_cache在RuntimePersistence中使用【v2.9.32:已提取到RuntimePersistence】"""
+        rp_path = os.path.join(
+            os.path.dirname(__file__), '..', '..', 'nodes', 'market_monitor', 'runtime_persistence.py'
         )
-        if not os.path.exists(scanner_path):
-            pytest.skip("scanner.py not found")
-        with open(scanner_path) as f:
+        if not os.path.exists(rp_path):
+            pytest.skip("runtime_persistence.py not found")
+        with open(rp_path) as f:
             source = f.read()
-        assert "warm_sources_cache" in source, "scanner应使用warm_sources_cache"
-        assert "_data_router._sources" not in source, "scanner不应直接访问_data_router._sources"
+        assert "warm_sources_cache" in source, "RuntimePersistence应使用warm_sources_cache"
+        assert "_data_router._sources" not in source, "不应直接访问_data_router._sources"
 
 
 # ============================================================================
@@ -266,7 +266,7 @@ class TestNoBacktestRegressionV2918:
         assert "QuoteManager" not in source
 
     def test_scanner_line_count(self):
-        """scanner.py行数应≤1930(v2.9.19:提取_post_sell_cleanup+_scan_loop_replay等)"""
+        """scanner.py行数应≤1650(v2.9.32:数据加载+风控重置+停止持久化提取到RuntimePersistence/RiskWatchdog)"""
         scanner_path = os.path.join(
             os.path.dirname(__file__), '..', '..', 'nodes', 'market_monitor', 'scanner.py'
         )
@@ -274,8 +274,7 @@ class TestNoBacktestRegressionV2918:
             pytest.skip("scanner.py not found")
         with open(scanner_path) as f:
             line_count = sum(1 for _ in f)
-        # v2.9.19: 提取4个方法增加签名,但scan_once/_execute_risk_sell/get_status大幅简化
-        assert line_count <= 2150, f"scanner.py行数{line_count}>2010 (v2.9.22:分步计时+错误恢复+跌停恢复重试+提取)"
+        assert line_count <= 1650, f"scanner.py行数{line_count}>1650 (v2.9.32:7个方法提取到RuntimePersistence+1个到RiskWatchdog)"
 
 
 # ============================================================================
