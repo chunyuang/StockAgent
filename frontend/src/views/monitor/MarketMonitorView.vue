@@ -182,6 +182,8 @@ const liveBacktestDiff = ref<any[]>([])
 const autoTrades = ref<any[]>([])
 const paramCompare = ref<any>(null)
 const paramCompareLoading = ref(false)
+const scanConfig = ref<any>(null)
+const scanConfigLoading = ref(false)
 function updatePnlHistory() {
   const pnl = totalPnl.value
   if (pnl === 0 && pnlHistory.value.length === 0) return
@@ -331,6 +333,15 @@ async function fetchParamCompare() {
   } catch { /* ignore */ }
   finally { paramCompareLoading.value = false }
 }
+async function fetchScanConfig() {
+  scanConfigLoading.value = true
+  try {
+    const r = await api.get(`${scannerApi}/scan-config`)
+    const p = parseResponse(r)
+    if (p.success) scanConfig.value = p.data
+  } catch { /* ignore */ }
+  finally { scanConfigLoading.value = false }
+}
 const pnlOption = computed(() => {
   const source = perfData.value.length > 0 ? perfData.value : pnlHistory.value.map(p => ({ time: p.time, net_value: p.value / 1000000 + 1, drawdown: 0 }))
   return {
@@ -360,7 +371,7 @@ watch(activeTab, (tab) => {
     if (tab === 'premarket') fetchPremarketData()
     if (tab === 'scan-trace') fetchScanHistory()
     if (tab === 'review') { fetchReviewData(); fetchParamCompare() }
-    if (tab === 'ops') fetchAutoTrades()
+    if (tab === 'ops') { fetchAutoTrades(); fetchScanConfig() }
   } catch (e) { console.error('[Tab] error:', e) }
 })
 
@@ -1372,6 +1383,22 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           </div>
         </div>
 
+        <!-- 扫描器配置 -->
+        <div class="st" style="margin-top:16px">⏱️ 扫描器配置 <ElButton size="small" @click="fetchScanConfig" :loading="scanConfigLoading">🔄</ElButton></div>
+        <div v-if="scanConfig" class="scan-config-grid">
+          <div class="sc-item"><span class="sc-label">自动扫描间隔</span><span class="sc-value">{{ scanConfig.scan_interval_desc || scanConfig.scan_interval_sec + '秒' }}</span></div>
+          <div class="sc-item"><span class="sc-label">持仓检查间隔</span><span class="sc-value">{{ scanConfig.position_check_interval_sec }}秒</span></div>
+          <div class="sc-item"><span class="sc-label">持仓快速检查</span><span class="sc-value">{{ scanConfig.position_check_fast_sec }}秒(接近止损)</span></div>
+          <div class="sc-item"><span class="sc-label">持仓紧急检查</span><span class="sc-value">{{ scanConfig.position_check_critical_sec }}秒(触及止损)</span></div>
+          <div class="sc-item"><span class="sc-label">信号过期时间</span><span class="sc-value">{{ scanConfig.signal_expire_desc || scanConfig.signal_expire_sec + '秒' }}</span></div>
+          <div class="sc-item"><span class="sc-label">最大持仓数</span><span class="sc-value">{{ scanConfig.max_positions }}只</span></div>
+          <div class="sc-item"><span class="sc-label">最大仓位比例</span><span class="sc-value">{{ (scanConfig.max_position_ratio * 100).toFixed(0) }}%</span></div>
+          <div class="sc-item" v-if="scanConfig.current_smart_interval"><span class="sc-label">当前智能检查间隔</span><span class="sc-value">{{ scanConfig.current_smart_interval }}秒</span></div>
+          <div class="sc-item"><span class="sc-label">交易模式</span><span class="sc-value">{{ scanConfig.trade_mode === 'simulated' ? '模拟' : scanConfig.trade_mode === 'gm' ? '掘金' : scanConfig.trade_mode }}</span></div>
+          <div class="sc-item"><span class="sc-label">运行状态</span><span class="sc-value" :style="{ color: scanConfig.is_running ? 'var(--el-color-success)' : 'var(--el-color-danger)' }">{{ scanConfig.is_running ? '🟢 运行中' : '🔴 未启动' }}</span></div>
+        </div>
+        <div v-else class="empty" style="padding:8px">点击刷新加载扫描配置</div>
+
         <!-- 系统健康 -->
         <div class="st" style="margin-top:16px">💻 系统健康</div>
         <SystemHealth />
@@ -2057,6 +2084,23 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
   flex-wrap: wrap;
   gap: 6px;
 }
+.scan-config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 6px;
+}
+.sc-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  border: 1px solid var(--border-default);
+  background: var(--bg-elevated);
+}
+.sc-label { color: var(--text-secondary); }
+.sc-value { font-weight: 500; font-family: 'JetBrains Mono', monospace; font-size: 11px; }
 .ops-mf {
   max-width: 400px;
 }

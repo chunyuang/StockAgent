@@ -315,14 +315,22 @@ class LiveFilterPipeline:
         layers = ["L1_force_empty", "L2_special_period", "L3_sentiment",
                    "L4_premarket", "L5_auction", "L6_strategy",
                    "L7_ranking", "L8_position"]
+        
+        # 按层计算输入/输出/淘汰数(漏斗模型)
+        prev_output = len(result.trace_candidates)  # L1的input = 全部候选数
         for layer in layers:
             passed = sum(1 for t in result.trace_candidates
                         if t.layer_results.get(layer, {}).get("passed", False))
             rejected = sum(1 for t in result.trace_candidates
                           if t.layer_results.get(layer, {}).get("passed") is False)
             result.trace_summary[layer] = {
-                "total": passed + rejected, "passed": passed, "rejected": rejected
+                "total": passed + rejected,
+                "passed": passed,
+                "rejected": rejected,
+                "input": prev_output,       # 本层输入 = 上层输出
+                "output": passed,            # 本层输出 = 本层通过数
             }
+            prev_output = passed  # 下层输入 = 本层输出
 
     # ========================================================================
     # L1: 强制空仓
