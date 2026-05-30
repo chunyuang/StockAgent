@@ -1150,15 +1150,15 @@ async def backtest_compare():
             for pos in scanner._broker.get_positions():
                 key = pos.strategy or "unknown"
                 if key not in live_performance:
-                    live_performance[key] = {"trades": 0, "wins": 0, "total_pnl": 0, "positions": 0}
+                    live_performance[key] = {"trades": 0, "wins": 0, "total_profit": 0, "positions": 0}
                 live_performance[key]["positions"] += 1
-                live_performance[key]["total_pnl"] += (pos.current_price - pos.avg_cost) * pos.total_qty
+                live_performance[key]["total_profit"] += (pos.current_price - pos.avg_cost) * pos.total_qty
         
         # 从时间线统计各策略交易
         for item in scanner._timeline:
             strategy = item.get("strategy", "unknown")
             if strategy not in live_performance:
-                live_performance[strategy] = {"trades": 0, "wins": 0, "total_pnl": 0, "positions": 0}
+                live_performance[strategy] = {"trades": 0, "wins": 0, "total_profit": 0, "positions": 0}
             if item.get("action") == "buy":
                 live_performance[strategy]["trades"] += 1
             elif item.get("action") == "sell":
@@ -1197,7 +1197,7 @@ async def backtest_compare():
                 "strategy": sid,
                 "live_trades": lp.get("trades", 0),
                 "live_win_rate": round(lp.get("wins", 0) / max(lp.get("trades", 1), 1) * 100, 1),
-                "live_pnl": round(lp.get("total_pnl", 0), 2),
+                "live_pnl": round(lp.get("total_profit", 0), 2),
                 "live_positions": lp.get("positions", 0),
                 "bt_return": round(bt.get("total_return", 0) * 100, 1),
                 "bt_win_rate": round(bt.get("win_rate", 0) * 100, 1),

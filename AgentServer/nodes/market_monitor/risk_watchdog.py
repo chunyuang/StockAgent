@@ -596,6 +596,29 @@ class RiskWatchdog:
                     "message": msg if not ok else f"卖出{pos.available_qty}股@{order.filled_price:.2f}",
                 })
                 if ok:
+                    # 【v2.9.17:紧急平仓也记录到timeline(之前漏掉)】
+                    sell_profit_pct = (pos.current_price - pos.avg_cost) / pos.avg_cost * 100 if pos.avg_cost > 0 else 0
+                    sell_profit_amount = (pos.current_price - pos.avg_cost) * pos.available_qty
+                    self._scanner._timeline.append({
+                        "time": datetime.now().strftime("%H:%M:%S"),
+                        "action": "sell",
+                        "ts_code": pos.ts_code,
+                        "stock_name": pos.stock_name,
+                        "strategy": pos.strategy,
+                        "shares": pos.available_qty,
+                        "price": order.filled_price,
+                        "reason": f"⚠️紧急平仓: {reason}",
+                        "profit_pct": round(sell_profit_pct, 2),
+                        "profit_amount": round(sell_profit_amount, 2),
+                        "decision_detail": {
+                            "sell_reason": f"⚠️紧急平仓: {reason}",
+                            "cost_price": pos.avg_cost,
+                            "sell_price": order.filled_price,
+                            "source": "emergency_liquidate",
+                        },
+                    })
+                    self._scanner._stats["stop_losses"] += 1
+                    self._scanner._record_trade_result(sell_profit_pct / 100.0)
                     result["positions_cleared"] += 1
             
             # 持久化
