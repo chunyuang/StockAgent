@@ -1278,15 +1278,14 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           <div v-if="scanTraceFilter !== 'summary'">
             <div v-if="scanTraceLoadingMore" class="empty">加载中...</div>
             <div v-else-if="!scanTraceDetail.candidates?.length" class="empty">{{ scanTraceFilter === 'passed' ? '本轮无通过候选' : '无淘汰候选' }}</div>
-            <div class="et-table">
-              <div class="et-th"><span>策略</span><span>代码</span><span>名称</span><span>涨跌</span><span>结果</span></div>
-              <div v-for="sig in scanTraceDetail.candidates || []" :key="sig.ts_code + sig.strategy" class="et-tr" :class="sig.final_status === 'passed' ? 'et-pass' : 'et-fail'">
-                <span class="et-c et-strat"><ElTag size="small" :color="strategyMeta[sig.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="font-size:10px">{{ strategyCN(sig.strategy) }}</ElTag></span>
-                <span class="et-c code">{{ sig.ts_code }}</span>
-                <span class="et-c name">{{ sig.stock_name }}</span>
-                <span class="et-c" :class="sig.pct_chg >= 0 ? 'up' : 'down'" style="font-weight:600">{{ sig.pct_chg >= 0 ? '+' : '' }}{{ (sig.pct_chg || 0).toFixed(1) }}%</span>
-                <span class="et-c et-res" v-if="sig.final_status === 'passed'">✅ 通过</span>
-                <span class="et-c et-res" v-else>❌ {{ rejectionLayerCN[sig.rejection_layer] || sig.rejection_layer }}: {{ rejectionReasonCN(sig.rejection_reason) || sig.rejection_reason }}</span>
+            <div class="et-wrap">
+              <div v-for="sig in scanTraceDetail.candidates || []" :key="sig.ts_code + sig.strategy" class="et-item" :class="sig.final_status === 'passed' ? 'et-pass' : 'et-fail'">
+                <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="font-size:9px;min-width:28px;padding:0 2px">{{ strategyCN(sig.strategy) }}</ElTag>
+                <span class="code">{{ sig.ts_code }}</span>
+                <span class="name">{{ sig.stock_name }}</span>
+                <span :class="sig.pct_chg >= 0 ? 'up' : 'down'" style="font-weight:600">{{ sig.pct_chg >= 0 ? '+' : '' }}{{ (sig.pct_chg || 0).toFixed(1) }}%</span>
+                <span v-if="sig.final_status === 'passed'" class="et-ok">✅</span>
+                <span v-else class="et-no">❌{{ rejectionLayerCN[sig.rejection_layer] || sig.rejection_layer }}</span>
               </div>
             </div>
             <div v-if="scanTraceDetail._pagination && (scanTraceDetail._pagination.has_more_passed || scanTraceDetail._pagination.has_more_rejected)" class="load-more-hint">
@@ -2353,15 +2352,12 @@ mm-tab-content {
 .fn-count { flex: 1; }
 .fn-reject { color: var(--stock-up); font-size: 11px; }
 .fn-arrow { text-align: center; color: var(--text-tertiary); font-size: 12px; }
-.et-table { width: 100%; border-collapse: collapse; font-size: 11px; border: 1px solid var(--border-default); border-radius: 6px; overflow: hidden; }
-.et-th { display: grid; grid-template-columns: 52px 80px 72px 52px 1fr; gap: 4px; padding: 3px 8px; background: var(--bg-muted); font-size: 10px; font-weight: 600; color: var(--text-tertiary); }
-.et-tr { display: grid; grid-template-columns: 52px 80px 72px 52px 1fr; gap: 4px; padding: 2px 8px; border-top: 1px solid var(--border-default); align-items: center; }
-.et-tr:hover { background: var(--bg-hover); }
-.et-tr.et-pass { border-left: 2px solid var(--stock-up); }
-.et-tr.et-fail { border-left: 2px solid var(--stock-down); }
-.et-c { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.et-strat { line-height: 1; }
-.et-res { font-size: 10px; }
+.et-wrap { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 2px; }
+.et-item { display: flex; align-items: center; gap: 3px; padding: 2px 5px; font-size: 11px; border-radius: 3px; }
+.et-item.et-pass { background: rgba(0,180,42,0.05); }
+.et-item.et-fail { background: rgba(245,63,63,0.04); }
+.et-ok { color: var(--stock-up); flex-shrink: 0; }
+.et-no { color: var(--stock-down); font-size: 9px; flex-shrink: 0; }
 /* 【v2.9.7: 候选过滤按钮+淘汰统计+加载更多 */
 .tab-btn-sm { padding: 2px 10px; border-radius: 4px; border: 1px solid var(--border-default); background: transparent; font-size: 11px; cursor: pointer; color: var(--text-secondary); transition: all 0.15s; }
 .tab-btn-sm:hover { border-color: var(--el-color-primary-light-5); color: var(--el-color-primary); }
