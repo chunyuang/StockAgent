@@ -1,10 +1,10 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.9 | 日期: 2026-05-30 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.10 | 日期: 2026-05-30 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅
-> 回测影响: 零文件修改, 514测试全通过
+> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅
+> 回测影响: 零文件修改, 530测试全通过
 
 ---
 
@@ -32,6 +32,7 @@
 | v2.9.7 | 2026-05-30 | Phase2.1完善: scanner:cmd从Pub/Sub升级为List+ACK(RPUSH/BLPOP+ACK确认+超时处理)+Daemon告警Redis事件发布+/health集成Daemon状态+EventBus handler耗时统计+/daemon/status+/daemon/restart端点+scan-traces性能优化(rejected摘要)+25新增测试(496总计) |
 | v2.9.8 | 2026-05-30 | Phase4完善: /health新增version字段(git_hash/branch/设计文档版本)+WS断线重连3秒(设计文档规范)+Scanner Store集成验证+13新增测试(514总计) |
 | v2.9.9 | 2026-05-30 | 委托存根消除: 10个显式委托桩移至DELEGATE_MAP+__getattr__动态委托(_merge_factors/_get_effective_strategy_config/_get_strategy_risk/_detect_anomalies/_compute_health_score/_check_circuit_breaker/_record_trade_result/reset_circuit_breaker/_save_performance_snapshot/_push_daily_summary)+profit_pct转换修复(移除启发式,统一/100.0)+_is_limit_down死条目清理+__getattr__扩展(_risk_watchdog_class静态方法绑定/_strategy_scorer fallback+async wrapper)+安全审查: _execute_force_empty的broker.sell()→broker.place_order()修复+get_status()/get_positions() broker None guard+_ASYNC_DELEGATE_METHODS清理+514测试全通过(scanner 1716行44方法39 DELEGATE_MAP条目) |
+| v2.9.10 | 2026-05-30 | /health端点优化: 健康度统一(API层100扣减+scanner_health绿黄红→base_score映射green=100/yellow=60/red=30+金融扣减)+版本常量_DESIGN_DOC_VERSION=v2.9.9(不再硬编码)+版本缓存_version_cache(5分钟TTL,避免每次git子进程)+pending_sells线程安全读取(加state_lock)+合并warnings(scanner_health+金融指标)+16新增测试(530总计) |
 
 v2.0关键修正:
 - ❶ 风控独立线程: asyncio协程→threading.Thread(真并行不受GIL影响)
@@ -1305,3 +1306,111 @@ def _get_version_info() -> dict:
 ### 20.8 回测影响
 
 零。版本信息和WS重连均在前端/Web API层, 回测引擎无任何引用。
+
+---
+
+## 二十一、v2.9.10 /health端点优化 (2026-05-30)
+
+### 21.1 问题
+
+| # | 问题 | 严重度 | 影响 |
+|---|---|---|---|
+| 1 | /health双重健康度计算: API层自算health_score(100扣减)+scanner_health(绿黄红) | 🟡中 | 两套逻辑可能不一致,前端混乱 |
+| 2 | _get_version_info()写死v2.9.7,与设计文档v2.9.9不同步 | 🟡中 | 部署验证误判 |
+| 3 | /health读取_pending_sells无state_lock | 🔴高 | 与风控线程竞态,可能读到半更新状态 |
+| 4 | _get_version_info()每次请求调git子进程 | 🟢低 | 不必要的系统调用开销 |
+
+### 21.2 解决方案
+
+#### 健康度统一
+
+之前: API层独立计算`health_score = 100`后扣减, 同时又调`scanner._compute_health_score()`返回绿黄红。两套逻辑阈值不同, 可能出现`scanner_health.status=green`但`health_score=50`的矛盾。
+
+修复: 以`scanner._compute_health_score()`为权威来源, API层只补充金融指标(日回撤/熔断/跌停挂起):
+
+```python
+# 统一健康分数(基于scanner_health绿/黄/红 + 金融扣减)
+base_score = {"green": 100, "yellow": 60, "red": 30}.get(scanner_health.get('status', 'red'), 30)
+health_score = base_score
+if daily_drawdown >= 3:
+    health_score -= 15
+if daily_drawdown >= 5:
+    health_score -= 20
+if consecutive_losses >= 2:
+    health_score -= 10
+if trading_paused:
+    health_score -= 25
+health_score = max(0, health_score)
+```
+
+合并warnings:
+```python
+merged_warnings = list(scanner_health.get('warnings', []))
+if daily_drawdown >= 3:
+    merged_warnings.append(f"日回撤{daily_drawdown:.1f}%")
+if consecutive_losses >= 2:
+    merged_warnings.append(f"连续亏损{consecutive_losses}次")
+```
+
+#### 版本常量+缓存
+
+```python
+# 模块级常量(与docs/MARKET_MONITOR_OPTIMIZATION_DESIGN.md同步)
+_DESIGN_DOC_VERSION = "v2.9.9"
+_BASELINE_TAG = "v2.8.0-backtest-ui-v2"
+
+# 版本缓存(5分钟TTL)
+_version_cache = {"value": None, "ts": 0}
+_VERSION_CACHE_TTL = 300
+
+def _get_version_info() -> dict:
+    now = time.time()
+    if _version_cache["value"] and (now - _version_cache["ts"]) < _VERSION_CACHE_TTL:
+        return _version_cache["value"]
+    # ... git子进程调用 ...
+    _version_cache["value"] = result
+    _version_cache["ts"] = now
+    return result
+```
+
+#### pending_sells线程安全读取
+
+```python
+# 之前: 无锁读取
+pending_sells = getattr(scanner, '_pending_sells', {})
+
+# 修复: 加state_lock保护
+state_lock = getattr(scanner, '_state_lock', None)
+if state_lock:
+    with state_lock:
+        pending_sells_count = len(scanner._pending_sells)
+else:
+    pending_sells_count = len(getattr(scanner, '_pending_sells', {}))
+```
+
+### 21.3 变更文件
+
+| 文件 | 变更 |
+|---|---|
+| AgentServer/nodes/web/api/scanner.py | 健康度统一+版本常量+版本缓存+pending_sells加锁 |
+| AgentServer/tests/scanner/test_v2910_health_unification.py | 16新增测试 |
+| AgentServer/tests/scanner/test_phase4_health_version.py | 版本号断言更新+缓存污染修复 |
+| docs/MARKET_MONITOR_OPTIMIZATION_DESIGN.md | v2.9.10记录 |
+
+### 21.4 测试覆盖
+
+| 测试类 | 用例数 | 覆盖点 |
+|---|---|---|
+| TestVersionConstantSync | 3 | _DESIGN_DOC_VERSION=v2.9.9/无硬编码/_BASELINE_TAG |
+| TestVersionCache | 4 | 缓存变量/TTL=300/使用缓存/缓存命中 |
+| TestHealthScoreUnification | 3 | 无重复逻辑/scanner_health权威/合并warnings |
+| TestPendingSellsThreadSafety | 2 | state_lock保护/不直接getattr |
+| TestNoBacktestRegressionV2910 | 3 | 回测不导入API/scanner.py不变/scanner_utils不变 |
+| TestDeadStatusVersionInfo | 1 | dead状态含version字段 |
+| **总计** | **16** | |
+
+**全量测试**: 530 passed
+
+### 21.5 回测影响
+
+零。只修改web/api/scanner.py和测试文件, 回测引擎无任何引用。
