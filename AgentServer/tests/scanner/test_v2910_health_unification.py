@@ -3,7 +3,7 @@
 v2.9.10 — /health端点优化 + 版本缓存 + 线程安全修复 测试
 
 修复项:
-1. 版本不同步: _get_version_info()写死v2.9.7 → 常量_DESIGN_DOC_VERSION=v2.9.14
+1. 版本不同步: _get_version_info()写死v2.9.7 → 常量_DESIGN_DOC_VERSION=v2.9.15
 2. 重复健康度: API层100扣减 + scanner_health(绿黄红) → 统一以scanner_health为权威
 3. 线程安全: getattr(_pending_sells)无锁 → 加state_lock保护
 4. 版本缓存: 每次请求调git子进程 → 5分钟缓存
@@ -52,8 +52,8 @@ class TestVersionConstantSync:
                 for target in node.targets:
                     if isinstance(target, ast.Name) and target.id == "_DESIGN_DOC_VERSION":
                         if isinstance(node.value, ast.Constant):
-                            assert node.value.value == "v2.9.14", \
-                                f"_DESIGN_DOC_VERSION={node.value.value}, 期望v2.9.14"
+                            assert node.value.value == "v2.9.15", \
+                                f"_DESIGN_DOC_VERSION={node.value.value}, 期望v2.9.15"
                             found = True
         assert found, "_DESIGN_DOC_VERSION常量未找到"
 
@@ -123,7 +123,7 @@ class TestVersionCache:
         cached_result = {
             "git_hash": "abc1234",
             "git_branch": "main",
-            "design_doc_version": "v2.9.14",
+            "design_doc_version": "v2.9.15",
             "baseline_tag": "v2.8.0-backtest-ui-v2",
         }
         with patch.dict('builtins.__dict__', {
