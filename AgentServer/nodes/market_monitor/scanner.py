@@ -640,12 +640,14 @@ class MarketScanner:
         return {"success": True, "message": f"扫描器已停止" + ("并清仓" if sell_all else "")}
 
     async def _sell_all_positions(self):
-        """停止时清仓所有持仓【v2.9.18:从stop()提取】"""
+        """停止时清仓所有持仓【v2.9.18:从stop()提取, v2.9.19:复用_post_sell_cleanup】"""
         positions = self._broker.get_positions()
         for pos in positions:
             if pos.available_qty > 0:
                 try:
                     self._broker.update_realtime(pos.ts_code, pos.current_price)
+                    profit_pct = pos.profit_pct
+                    profit_amount = (pos.current_price - pos.avg_cost) * pos.available_qty
                     ok, msg, order = self._broker.place_order(
                         ts_code=pos.ts_code,
                         stock_name=pos.stock_name,
@@ -657,28 +659,14 @@ class MarketScanner:
                         reason="停止清仓",
                     )
                     if ok:
-                        self._timeline.append({
-                            "time": datetime.now().strftime("%H:%M:%S"),
-                            "action": "sell",
-                            "ts_code": pos.ts_code,
-                            "stock_name": pos.stock_name,
-                            "strategy": pos.strategy,
-                            "shares": pos.available_qty,
-                            "price": order.filled_price,
-                            "reason": "停止清仓",
-                            "profit_pct": round(pos.profit_pct, 2),
-                            "profit_amount": round((pos.current_price - pos.avg_cost) * pos.available_qty, 2),
-                        })
-                        logger.info(f"[STOP] 清仓卖出 {pos.ts_code} {pos.available_qty}股@{order.filled_price:.2f}")
+                        await self._post_sell_cleanup(
+                            pos, "停止清仓", order, pos.available_qty,
+                            profit_pct, profit_amount, source="stop_sell",
+                        )
                     else:
                         logger.warning(f"[STOP] 清仓卖出失败 {pos.ts_code}: {msg}")
                 except Exception as e:
                     logger.error(f"[STOP] 清仓卖出异常 {pos.ts_code}: {e}")
-        # 清仓后强制保存
-        try:
-            await self._broker.save_state(force=True)
-        except Exception:
-            pass
 
     async def _persist_stop_state(self):
         """停止时持久化状态【v2.9.18:从stop()提取】"""
