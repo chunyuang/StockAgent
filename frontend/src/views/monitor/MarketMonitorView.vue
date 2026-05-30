@@ -584,22 +584,12 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
     <!-- 顶部状态栏(一行: 风控+状态+资产+操作) -->
     <div class="mm-header">
       <div class="hh-left">
-        <span class="rb-light" :class="healthClass">{{ healthEmoji }}</span>
         <div class="hh-status" :class="{ running: isRunning, stopped: !isRunning }"><span class="dot"></span><span>{{ isRunning ? '扫描中' : '已停止' }}</span></div>
         <ElSelect v-model="tradeMode" size="small" style="width:96px" @change="onModeChange">
           <ElOption v-for="(m, key) in modeMeta" :key="key" :value="key" :label="m.emoji + ' ' + m.text" />
         </ElSelect>
         <ElTag v-if="tradeMode === 'replay' && replayDate" type="warning" size="small">🔄 {{ replayDateInput }}</ElTag>
         <ElTag v-if="circuitBreakerPaused" type="danger" size="small">⚠️熔断</ElTag>
-        <span v-if="healthData?.risk_metrics" class="rb-metric">
-          <span class="rb-ml">回撤</span>
-          <span class="rb-progress"><span class="rb-progress-fill" :style="{ width: Math.min(Math.abs(healthData?.risk_metrics?.daily_drawdown_pct || 0) / (healthData?.risk_metrics?.max_drawdown_pct || 5) * 100, 100) + '%' }" :class="Math.abs(healthData?.risk_metrics?.daily_drawdown_pct || 0) > (healthData?.risk_metrics?.max_drawdown_pct || 5) * 0.7 ? 'danger' : ''"></span></span>
-          <span class="rb-mv">{{ Math.abs(healthData?.risk_metrics?.daily_drawdown_pct || 0).toFixed(1) }}%</span>
-        </span>
-        <span v-if="healthData?.circuit_breaker" class="rb-metric">
-          <span class="rb-ml">连亏</span>
-          <span class="rb-mv" :class="(healthData?.circuit_breaker?.consecutive_losses || 0) >= ((healthData?.circuit_breaker?.max_consecutive_losses || 3) - 1) ? 'down' : ''">{{ healthData?.circuit_breaker?.consecutive_losses ?? 0 }}/{{ healthData?.circuit_breaker?.max_consecutive_losses ?? 3 }}</span>
-        </span>
         <div v-if="status?.data_sources?.length" class="ds-indicator">
           <span v-for="ds in (status?.data_sources || [])" :key="ds.name" class="ds-dot" :class="{ ok: ds.available, err: !ds.available }">{{ ds.name === 'eastmoney' ? '东财' : ds.name === 'biying' ? '必盈' : ds.name }}</span>
         </div>
@@ -1420,6 +1410,44 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
     <!-- ==================== 风控Tab ==================== -->
     <div v-if="activeTab === 'risk'" class="mm-tab-content">
       <div class="mm-tab-scroll">
+        <!-- 系统风控概览 -->
+        <div class="st">🛡️ 系统风控概览 <span :class="healthClass" style="font-size:14px">{{ healthEmoji }}</span> <span :class="healthClass" style="font-size:12px;font-weight:600">{{ healthCN }}</span></div>
+        <div class="risk-overview">
+          <div class="ro-card">
+            <span class="ro-label">日回撤</span>
+            <span class="rb-progress" style="width:80px"><span class="rb-progress-fill" :style="{ width: Math.min(Math.abs(healthData?.risk_metrics?.daily_drawdown_pct || 0) / (healthData?.risk_metrics?.max_drawdown_pct || 5) * 100, 100) + '%' }" :class="Math.abs(healthData?.risk_metrics?.daily_drawdown_pct || 0) > (healthData?.risk_metrics?.max_drawdown_pct || 5) * 0.7 ? 'danger' : ''"></span></span>
+            <span class="ro-value" :class="Math.abs(healthData?.risk_metrics?.daily_drawdown_pct || 0) > (healthData?.risk_metrics?.max_drawdown_pct || 5) * 0.5 ? 'down' : ''">{{ Math.abs(healthData?.risk_metrics?.daily_drawdown_pct || 0).toFixed(2) }}%</span>
+          </div>
+          <div class="ro-card">
+            <span class="ro-label">回撤限制</span>
+            <span class="ro-value">{{ (healthData?.risk_metrics?.max_drawdown_pct || 5).toFixed(1) }}%</span>
+          </div>
+          <div class="ro-card">
+            <span class="ro-label">连续亏损</span>
+            <span class="ro-value" :class="(healthData?.circuit_breaker?.consecutive_losses || 0) >= ((healthData?.circuit_breaker?.max_consecutive_losses || 3) - 1) ? 'down' : ''">{{ healthData?.circuit_breaker?.consecutive_losses ?? 0 }} / {{ healthData?.circuit_breaker?.max_consecutive_losses ?? 3 }}</span>
+          </div>
+          <div class="ro-card">
+            <span class="ro-label">仓位比例</span>
+            <span class="ro-value">{{ ((healthData?.risk_metrics?.position_ratio || 0) * 100).toFixed(0) }}%</span>
+          </div>
+          <div class="ro-card">
+            <span class="ro-label">健康分数</span>
+            <span class="ro-value" :class="healthData?.health_score != null && healthData.health_score < 60 ? 'down' : ''">{{ healthData?.health_score ?? '-' }}</span>
+          </div>
+          <div class="ro-card">
+            <span class="ro-label">扫描延迟</span>
+            <span class="ro-value" :class="healthData?.scan_lag_seconds > 60 ? 'down' : ''">{{ healthData?.scan_lag_seconds == null ? '-' : healthData.scan_lag_seconds < 0 ? '未运行' : healthData.scan_lag_seconds.toFixed(1) + 's' }}</span>
+          </div>
+          <div class="ro-card" v-if="healthData?.circuit_breaker?.trading_paused">
+            <span class="ro-label">熔断原因</span>
+            <span class="ro-value down">{{ healthData?.circuit_breaker?.pause_reason || '-' }}</span>
+          </div>
+          <div class="ro-card" v-if="healthData?.warnings?.length">
+            <span class="ro-label">告警</span>
+            <span class="ro-value down">{{ healthData.warnings.join('; ') }}</span>
+          </div>
+        </div>
+
         <!-- 持仓风控矩阵 -->
         <PositionRiskMatrix />
 
@@ -2057,6 +2085,10 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 }
 
 /* 风控Tab */
+.risk-overview { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.ro-card { display: flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--border-default); border-radius: 6px; font-size: 12px; background: var(--bg-normal); }
+.ro-label { color: var(--text-tertiary); }
+.ro-value { font-weight: 600; font-family: 'JetBrains Mono', monospace; }
 .risk-cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
