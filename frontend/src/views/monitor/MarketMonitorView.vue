@@ -581,68 +581,27 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 </script>
 <template>
   <div class="mm" :class="{ dark: themeStore.isDark }">
-    <!-- 风控状态栏 -->
-    <div class="risk-bar" :class="{ critical: healthStatus === 'critical', warning: healthStatus === 'warning' }">
-      <div class="rb-main cp" @click="riskBarCollapsed = !riskBarCollapsed">
-        <div class="rb-left">
-          <span class="rb-light" :class="healthClass">{{ healthEmoji }}</span>
-          <span class="rb-label">风控</span>
-          <span v-if="healthData?.risk_metrics" class="rb-metric">
-            <span class="rb-ml">回撤</span>
-            <span class="rb-progress"><span class="rb-progress-fill" :style="{ width: Math.min(Math.abs(healthData?.risk_metrics?.daily_drawdown_pct || 0) / (healthData?.risk_metrics?.max_drawdown_pct || 5) * 100, 100) + '%' }" :class="Math.abs(healthData?.risk_metrics?.daily_drawdown_pct || 0) > (healthData?.risk_metrics?.max_drawdown_pct || 5) * 0.7 ? 'danger' : ''"></span></span>
-            <span class="rb-mv">{{ Math.abs(healthData?.risk_metrics?.daily_drawdown_pct || 0).toFixed(1) }}%</span>
-          </span>
-          <span v-if="healthData?.circuit_breaker" class="rb-metric">
-            <span class="rb-ml">连亏</span>
-            <span class="rb-mv" :class="(healthData?.circuit_breaker?.consecutive_losses || 0) >= ((healthData?.circuit_breaker?.max_consecutive_losses || 3) - 1) ? 'down' : ''">{{ healthData?.circuit_breaker?.consecutive_losses ?? 0 }}/{{ healthData?.circuit_breaker?.max_consecutive_losses ?? 3 }}</span>
-          </span>
-          <span class="rb-arrow">{{ riskBarCollapsed ? '▶' : '▼' }}</span>
-        </div>
-        <div class="rb-right">
-          <div v-if="healthData?.data_sources?.length" class="rb-ds">
-            <span v-for="ds in (healthData?.data_sources || [])" :key="ds.name" class="rb-ds-dot" :class="ds.available ? 'ok' : 'err'" :title="`${ds.name}: ${ds.available ? '可用' : '不可用'}`">●</span>
-          </div>
-          <!-- 【Phase4.1:数据新鲜度+健康分数】 -->
-          <span class="rb-freshness" :class="scannerStore.dataFreshness" :title="`数据新鲜度: ${scannerStore.dataFreshness}`">●</span>
-          <span v-if="healthData?.health_score != null" class="rb-score" :title="`健康分数: ${healthData.health_score}/100`">{{ healthData.health_score }}</span>
-          <button class="emergency-btn" :class="{ active: isRunning && !emergencyLiquidating, disabled: !isRunning || emergencyLiquidating }" @click.stop="isRunning && !emergencyLiquidating && emergencyLiquidate()" :disabled="!isRunning || emergencyLiquidating">
-            <span class="emergency-text">{{ emergencyLiquidating ? '平仓中...' : '🚨 紧急平仓' }}</span>
-          </button>
-        </div>
-      </div>
-      <div v-if="!riskBarCollapsed" class="rb-detail">
-        <div class="rb-detail-grid">
-          <div class="rb-di"><span class="rb-dl">整体状态</span><span class="rb-dv" :class="healthClass">{{ healthCN }}</span></div>
-          <div class="rb-di" v-if="healthData?.circuit_breaker"><span class="rb-dl">熔断原因</span><span class="rb-dv">{{ healthData?.circuit_breaker?.pause_reason || '-' }}</span></div>
-          <div class="rb-di" v-if="healthData?.risk_metrics"><span class="rb-dl">日回撤</span><span class="rb-dv down">{{ (healthData?.risk_metrics?.daily_drawdown_pct || 0).toFixed(2) }}%</span></div>
-          <div class="rb-di" v-if="healthData?.risk_metrics"><span class="rb-dl">最大回撤限制</span><span class="rb-dv">{{ (healthData?.risk_metrics?.max_drawdown_pct || 0).toFixed(1) }}%</span></div>
-          <div class="rb-di" v-if="healthData?.circuit_breaker"><span class="rb-dl">连续亏损</span><span class="rb-dv" :class="(healthData?.circuit_breaker?.consecutive_losses || 0) >= ((healthData?.circuit_breaker?.max_consecutive_losses || 3) - 1) ? 'down' : ''">{{ healthData?.circuit_breaker?.consecutive_losses ?? 0 }}次</span></div>
-          <div class="rb-di" v-if="healthData?.risk_metrics"><span class="rb-dl">仓位比例</span><span class="rb-dv">{{ ((healthData?.risk_metrics?.position_ratio || 0) * 100).toFixed(0) }}%</span></div>
-          <!-- 【Phase4.1:健康分数+告警】 -->
-          <div class="rb-di" v-if="healthData?.health_score != null"><span class="rb-dl">健康分数</span><span class="rb-dv" :class="healthData.health_score < 60 ? 'down' : ''">{{ healthData.health_score }}/100</span></div>
-          <div class="rb-di" v-if="healthData?.scan_lag_seconds != null"><span class="rb-dl">扫描延迟</span><span class="rb-dv" :class="healthData.scan_lag_seconds > 60 ? 'down' : ''">{{ healthData.scan_lag_seconds < 0 ? '未运行' : healthData.scan_lag_seconds.toFixed(1) + 's' }}</span></div>
-          <div class="rb-di" v-if="healthData?.risk_check_lag_seconds != null"><span class="rb-dl">风控延迟</span><span class="rb-dv" :class="healthData.risk_check_lag_seconds > 5 ? 'down' : ''">{{ healthData.risk_check_lag_seconds < 0 ? '未运行' : healthData.risk_check_lag_seconds.toFixed(1) + 's' }}</span></div>
-          <div class="rb-di" v-if="healthData?.warnings?.length"><span class="rb-dl">告警</span><span class="rb-dv down">{{ healthData.warnings.join('; ') }}</span></div>
-        </div>
-        <div v-if="healthData?.data_sources?.length" class="rb-ds-detail">
-          <span class="rb-dl">数据源</span>
-          <span v-for="ds in (healthData?.data_sources || [])" :key="ds.name" class="rb-ds-item" :class="ds.available ? 'ok' : 'err'">{{ ds.name }} {{ ds.available ? '✅' : '❌' }}</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- 顶部状态栏(一行) -->
+    <!-- 顶部状态栏(一行: 风控+状态+资产+操作) -->
     <div class="mm-header">
       <div class="hh-left">
+        <span class="rb-light" :class="healthClass">{{ healthEmoji }}</span>
         <div class="hh-status" :class="{ running: isRunning, stopped: !isRunning }"><span class="dot"></span><span>{{ isRunning ? '扫描中' : '已停止' }}</span></div>
-        <ElSelect v-model="tradeMode" size="small" style="width:100px" @change="onModeChange">
+        <ElSelect v-model="tradeMode" size="small" style="width:96px" @change="onModeChange">
           <ElOption v-for="(m, key) in modeMeta" :key="key" :value="key" :label="m.emoji + ' ' + m.text" />
         </ElSelect>
         <ElTag v-if="tradeMode === 'replay' && replayDate" type="warning" size="small">🔄 {{ replayDateInput }}</ElTag>
         <ElTag v-if="circuitBreakerPaused" type="danger" size="small">⚠️熔断</ElTag>
-        <button v-if="isRunning && !circuitBreakerPaused" class="cb-pause-btn" @click="pauseCircuitBreaker" title="暂停买入">⏸</button>
+        <span v-if="healthData?.risk_metrics" class="rb-metric">
+          <span class="rb-ml">回撤</span>
+          <span class="rb-progress"><span class="rb-progress-fill" :style="{ width: Math.min(Math.abs(healthData?.risk_metrics?.daily_drawdown_pct || 0) / (healthData?.risk_metrics?.max_drawdown_pct || 5) * 100, 100) + '%' }" :class="Math.abs(healthData?.risk_metrics?.daily_drawdown_pct || 0) > (healthData?.risk_metrics?.max_drawdown_pct || 5) * 0.7 ? 'danger' : ''"></span></span>
+          <span class="rb-mv">{{ Math.abs(healthData?.risk_metrics?.daily_drawdown_pct || 0).toFixed(1) }}%</span>
+        </span>
+        <span v-if="healthData?.circuit_breaker" class="rb-metric">
+          <span class="rb-ml">连亏</span>
+          <span class="rb-mv" :class="(healthData?.circuit_breaker?.consecutive_losses || 0) >= ((healthData?.circuit_breaker?.max_consecutive_losses || 3) - 1) ? 'down' : ''">{{ healthData?.circuit_breaker?.consecutive_losses ?? 0 }}/{{ healthData?.circuit_breaker?.max_consecutive_losses ?? 3 }}</span>
+        </span>
         <div v-if="status?.data_sources?.length" class="ds-indicator">
-          <span v-for="ds in (status?.data_sources || [])" :key="ds.name" class="ds-dot" :class="{ ok: ds.available, err: !ds.available }" :title="`${ds.name}: ${ds.available ? '可用' : '不可用'} ${ds.stocks || 0}只 ${ds.calls}/${ds.limit}次`">{{ ds.name === 'eastmoney' ? '东财' : ds.name === 'biying' ? '必盈' : ds.name }}</span>
+          <span v-for="ds in (status?.data_sources || [])" :key="ds.name" class="ds-dot" :class="{ ok: ds.available, err: !ds.available }">{{ ds.name === 'eastmoney' ? '东财' : ds.name === 'biying' ? '必盈' : ds.name }}</span>
         </div>
       </div>
       <div class="hh-account" v-if="status">
@@ -650,14 +609,12 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <span class="ha"><span class="hl">可用</span><span class="hv">{{ (accountInfo.available_cash / 10000).toFixed(1) }}万</span></span>
         <span class="ha"><span class="hl">仓位</span><span class="hv">{{ positionRatio }}%</span></span>
         <span class="ha"><span class="hl">盈亏</span><span class="hv" :class="totalPnl >= 0 ? 'up' : 'down'">{{ totalPnl >= 0 ? '+' : '' }}{{ totalPnl.toFixed(0) }}</span></span>
-        <span class="ha" v-if="status?.signal_stats"><span class="hl">情绪</span><span class="hv">{{ status?.signal_stats?.filtered || 0 }}过滤</span></span>
       </div>
       <div class="hh-actions">
         <ElButton v-if="!isRunning" type="success" size="small" @click="startScanner">▶ 启动</ElButton>
         <ElButton v-else type="danger" size="small" @click="stopScanner">⏹ 停止</ElButton>
         <ElButton size="small" :loading="loading" @click="manualScan" :disabled="!isRunning">📡 扫描</ElButton>
-        <ElButton size="small" @click="dailySettlement" :disabled="!isRunning">📅 日结算</ElButton>
-        <ElSwitch v-model="soundEnabled" size="small" active-text="🔔" inactive-text="" />
+        <button class="emergency-btn-inline" :class="{ disabled: !isRunning || emergencyLiquidating }" @click="isRunning && !emergencyLiquidating && emergencyLiquidate()" :disabled="!isRunning || emergencyLiquidating" title="紧急平仓">🚨</button>
         <ElSwitch v-model="autoRefresh" size="small" active-text="自动" inactive-text="" />
         <span class="dark-toggle" @click="themeStore.toggleTheme()">{{ themeStore.isDark ? '☀️' : '🌙' }}</span>
       </div>
@@ -700,97 +657,135 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 
     <!-- 📖 指南Tab -->
     <div v-if="activeTab === 'guide'" class="mm-guide">
-      <div class="guide-card">
-        <div class="guide-header">
-          <div class="guide-logo">📡</div>
-          <div class="guide-title">超短量化实盘监控系统</div>
-          <div class="guide-subtitle">9层漏斗筛选 · 4策略联合选股 · 实时风控守护</div>
+      <!-- 顶部横幅 -->
+      <div class="guide-banner">
+        <div class="gb-left">
+          <div class="gb-logo">📡</div>
+          <div>
+            <div class="gb-title">超短量化实盘监控系统</div>
+            <div class="gb-sub">9层漏斗筛选 · 4策略联合选股 · 实时风控守护</div>
+          </div>
         </div>
+        <ElButton type="success" size="large" @click="startScanner" style="padding:10px 32px;font-size:15px">▶ 启动扫描器</ElButton>
+      </div>
 
+      <!-- 4列卡片网格 -->
+      <div class="guide-grid">
         <!-- 系统架构 -->
-        <div class="guide-section">
-          <div class="guide-section-title">🏗️ 系统架构</div>
-          <div class="guide-flow">
-            <div class="gf-node gf-input">全市场5000+股票</div>
-            <div class="gf-arrow">↓</div>
-            <div class="gf-funnel">
-              <div class="gf-layer">L1 强制空仓 → L2 特殊时期 → L3 情绪周期</div>
-              <div class="gf-layer">L4 盘前预选 → L5 竞价过滤 → L6 策略量能</div>
-              <div class="gf-layer">L7 综合排序 → L8 仓位控制 → L9 执行确认</div>
+        <div class="gg-card gg-span2">
+          <div class="gg-head"><span class="gg-icon">🏗️</span>系统架构</div>
+          <div class="gg-body">
+            <div class="gf-flow">
+              <span class="gf-tag gf-input">5000+股票</span>
+              <span class="gf-arrow">→</span>
+              <span class="gf-tag">L1~L3 基础过滤</span>
+              <span class="gf-arrow">→</span>
+              <span class="gf-tag">L4~L6 策略筛选</span>
+              <span class="gf-arrow">→</span>
+              <span class="gf-tag">L7~L9 排序仓位</span>
+              <span class="gf-arrow">→</span>
+              <span class="gf-tag gf-output">买入信号</span>
             </div>
-            <div class="gf-arrow">↓</div>
-            <div class="gf-node gf-output">买入信号</div>
           </div>
         </div>
 
-        <!-- 4大策略 -->
-        <div class="guide-section">
-          <div class="guide-section-title">🎯 四大策略</div>
-          <div class="guide-strategies">
-            <div class="gs-card">
-              <div class="gs-icon">🏃</div>
-              <div class="gs-name">半路追涨</div>
-              <div class="gs-desc">盘中涨幅3-5% + 量能放大<br/>止损3% / 止盈12% / 持仓3天</div>
+        <!-- 操作指南 -->
+        <div class="gg-card gg-span2">
+          <div class="gg-head"><span class="gg-icon">📖</span>操作指南</div>
+          <div class="gg-body">
+            <div class="go-list">
+              <div class="go-row"><span class="sn">1</span>▶ 启动 → 每5分钟自动扫描，30秒检查持仓</div>
+              <div class="go-row"><span class="sn">2</span>📡 扫描 → 立即触发选股，⚡ 强扫跳缓存</div>
+              <div class="go-row"><span class="sn">3</span>🎛️ 策略 → 左侧面板开关策略、调参数</div>
+              <div class="go-row"><span class="sn">4</span>🟢 买入 → 信号区候选一键下单</div>
+              <div class="go-row"><span class="sn">5</span>🔴 卖出 → 持仓卡片快捷平仓或自动止盈止损</div>
+              <div class="go-row"><span class="sn">6</span>📋 复盘 / ⚙️ 运维 → 归因分析+系统健康</div>
             </div>
-            <div class="gs-card">
-              <div class="gs-icon">🥇</div>
-              <div class="gs-name">首板打板</div>
-              <div class="gs-desc">首次涨停封板 + 成交概率<br/>止损3% / 止盈10% / 持仓2天</div>
+          </div>
+        </div>
+
+        <!-- 半路追涨 -->
+        <div class="gg-card">
+          <div class="gg-head"><span class="gg-icon">🏃</span>半路追涨</div>
+          <div class="gg-body gg-compact">
+            <div class="gg-line">盘中涨幅3-5% + 量能放大</div>
+            <div class="gg-params">
+              <span class="gg-p"><span class="gg-pl">SL</span>3%</span>
+              <span class="gg-p"><span class="gg-pl">TP</span>12%</span>
+              <span class="gg-p"><span class="gg-pl">持仓</span>3天</span>
             </div>
-            <div class="gs-card">
-              <div class="gs-icon">🐲</div>
-              <div class="gs-name">龙头低吸</div>
-              <div class="gs-desc">连板龙头回调 + MA支撑<br/>止损3.5% / 止盈30% / 持仓7天</div>
+          </div>
+        </div>
+
+        <!-- 首板打板 -->
+        <div class="gg-card">
+          <div class="gg-head"><span class="gg-icon">🥇</span>首板打板</div>
+          <div class="gg-body gg-compact">
+            <div class="gg-line">首次涨停封板 + 成交概率</div>
+            <div class="gg-params">
+              <span class="gg-p"><span class="gg-pl">SL</span>3%</span>
+              <span class="gg-p"><span class="gg-pl">TP</span>10%</span>
+              <span class="gg-p"><span class="gg-pl">持仓</span>2天</span>
             </div>
-            <div class="gs-card">
-              <div class="gs-icon">💥</div>
-              <div class="gs-name">跌停翘板</div>
-              <div class="gs-desc">连续跌停翘板反转<br/>止损5% / 止盈20% / 持仓3天</div>
+          </div>
+        </div>
+
+        <!-- 龙头低吸 -->
+        <div class="gg-card">
+          <div class="gg-head"><span class="gg-icon">🐲</span>龙头低吸</div>
+          <div class="gg-body gg-compact">
+            <div class="gg-line">连板龙头回调 + MA支撑</div>
+            <div class="gg-params">
+              <span class="gg-p"><span class="gg-pl">SL</span>3.5%</span>
+              <span class="gg-p"><span class="gg-pl">TP</span>30%</span>
+              <span class="gg-p"><span class="gg-pl">持仓</span>7天</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 跌停翘板 -->
+        <div class="gg-card">
+          <div class="gg-head"><span class="gg-icon">💥</span>跌停翘板</div>
+          <div class="gg-body gg-compact">
+            <div class="gg-line">连续跌停翘板反转</div>
+            <div class="gg-params">
+              <span class="gg-p"><span class="gg-pl">SL</span>5%</span>
+              <span class="gg-p"><span class="gg-pl">TP</span>20%</span>
+              <span class="gg-p"><span class="gg-pl">持仓</span>3天</span>
             </div>
           </div>
         </div>
 
         <!-- 风控体系 -->
-        <div class="guide-section">
-          <div class="guide-section-title">🛡️ 风控体系</div>
-          <div class="guide-risk-grid">
-            <div class="gr-item"><span class="gr-label">强制空仓</span><span class="gr-val">跌停≥80只 / 大盘跌≥3%</span></div>
-            <div class="gr-item"><span class="gr-label">情绪仓位</span><span class="gr-val">高潮100% / 分化70% / 震荡50% / 冰点30%</span></div>
-            <div class="gr-item"><span class="gr-label">单票上限</span><span class="gr-val">35% 总仓位上限75%</span></div>
-            <div class="gr-item"><span class="gr-label">盘中锁定</span><span class="gr-val">冲高≥6%回撤≥2.5%触发利润保护</span></div>
-            <div class="gr-item"><span class="gr-label">智能检查</span><span class="gr-val">盈利5s / 亏损3s / 接近止损1s</span></div>
-            <div class="gr-item"><span class="gr-label">信号过期</span><span class="gr-val">5分钟未执行自动取消</span></div>
-          </div>
-        </div>
-
-        <!-- 操作指南 -->
-        <div class="guide-section">
-          <div class="guide-section-title">📖 操作指南</div>
-          <div class="guide-steps">
-            <div class="guide-step"><span class="sn">1</span><div><b>启动扫描器</b> — 点击 ▶ 启动，系统每5分钟自动全量扫描，30秒检查持仓风控</div></div>
-            <div class="guide-step"><span class="sn">2</span><div><b>手动触发扫描</b> — 点击 📡 扫描立即执行，或 ⚡ 强扫跳过缓存</div></div>
-            <div class="guide-step"><span class="sn">3</span><div><b>调整策略参数</b> — 左侧面板开关策略、修改止损/止盈/仓位参数</div></div>
-            <div class="guide-step"><span class="sn">4</span><div><b>查看信号与买入</b> — 信号区显示通过9层漏斗的候选，点击 🟢 快捷买入</div></div>
-            <div class="guide-step"><span class="sn">5</span><div><b>管理持仓与卖出</b> — 持仓卡片实时盈亏，点 🔴 卖出或等自动止损止盈</div></div>
-            <div class="guide-step"><span class="sn">6</span><div><b>复盘与运维</b> — 📋复盘Tab查看归因，⚙️运维Tab查看系统配置和健康</div></div>
+        <div class="gg-card gg-span2">
+          <div class="gg-head"><span class="gg-icon">🛡️</span>风控体系</div>
+          <div class="gg-body">
+            <div class="gr-grid">
+              <div class="gr-row"><span class="gr-k">强制空仓</span><span class="gr-v">跌停≥80只 / 大盘跌≥3%</span></div>
+              <div class="gr-row"><span class="gr-k">情绪仓位</span><span class="gr-v">高潮100% / 分化70% / 震荡50% / 冰点30%</span></div>
+              <div class="gr-row"><span class="gr-k">单票上限</span><span class="gr-v">35% · 总仓位上限75%</span></div>
+              <div class="gr-row"><span class="gr-k">盘中锁定</span><span class="gr-v">冲高≥6% 回撤≥2.5% → 利润保护</span></div>
+              <div class="gr-row"><span class="gr-k">智能检查</span><span class="gr-v">盈利5s / 亏损3s / 接近止损1s</span></div>
+              <div class="gr-row"><span class="gr-k">信号过期</span><span class="gr-v">5分钟未执行自动取消</span></div>
+            </div>
           </div>
         </div>
 
         <!-- 快捷键 -->
-        <div class="guide-section">
-          <div class="guide-section-title">⌨️ 快捷键</div>
-          <div class="guide-kbd-grid">
-            <div class="gk-item"><kbd>F5</kbd> 强扫</div>
-            <div class="gk-item"><kbd>F9</kbd> 买入</div>
-            <div class="gk-item"><kbd>Ctrl+S</kbd> 卖出</div>
-            <div class="gk-item"><kbd>Ctrl+E</kbd> 紧急平仓</div>
-            <div class="gk-item"><kbd>↑ ↓</kbd> 切换持仓</div>
-            <div class="gk-item"><kbd>Enter</kbd> 持仓详情</div>
-            <div class="gk-item"><kbd>1-4</kbd> 策略开关</div>
+        <div class="gg-card gg-span2">
+          <div class="gg-head"><span class="gg-icon">⌨️</span>快捷键</div>
+          <div class="gg-body">
+            <div class="gk-row">
+              <span class="gk-g"><kbd>F5</kbd>强扫</span>
+              <span class="gk-g"><kbd>F9</kbd>买入</span>
+              <span class="gk-g"><kbd>Ctrl+S</kbd>卖出</span>
+              <span class="gk-g"><kbd>Ctrl+E</kbd>紧急平仓</span>
+              <span class="gk-g"><kbd>↑↓</kbd>切换持仓</span>
+              <span class="gk-g"><kbd>Enter</kbd>详情</span>
+              <span class="gk-g"><kbd>1-4</kbd>策略开关</span>
+            </div>
           </div>
         </div>
-
-        <ElButton type="success" size="large" @click="startScanner" style="margin-top:20px;padding:12px 40px;font-size:16px">▶ 启动扫描器</ElButton>
       </div>
     </div>
 
@@ -1584,46 +1579,48 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .down { color: var(--stock-down); }
 
 /* 引导页 */
-.mm-guide { flex: 1; overflow-y: auto; padding: 16px; }
-.guide-card { padding: 24px; background: var(--bg-elevated); border-radius: 12px; box-shadow: var(--shadow-md); }
-.guide-header { text-align: center; margin-bottom: 24px; }
-.guide-logo { font-size: 48px; margin-bottom: 8px; }
-.guide-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
-.guide-subtitle { font-size: 13px; color: var(--text-secondary); }
-.guide-section { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-light); }
-.guide-section-title { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
-
-/* 架构流程图 */
-.guide-flow { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.gf-node { padding: 6px 16px; border-radius: 6px; font-size: 13px; font-weight: 500; }
-.gf-input { background: var(--el-color-primary-light-5); color: var(--el-color-primary-dark-2); }
-.gf-output { background: rgba(0,180,42,0.12); color: #00b42a; }
-.gf-arrow { color: var(--text-tertiary); font-size: 12px; }
-.gf-funnel { background: var(--bg-normal); border: 1px solid var(--border-default); border-radius: 8px; padding: 8px 12px; width: 100%; }
-.gf-layer { font-size: 12px; color: var(--text-secondary); text-align: center; padding: 3px 0; font-family: 'JetBrains Mono', monospace; }
-
-/* 四大策略 */
-.guide-strategies { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-.gs-card { padding: 10px 12px; border: 1px solid var(--border-default); border-radius: 8px; background: var(--bg-normal); }
-.gs-icon { font-size: 20px; }
-.gs-name { font-size: 13px; font-weight: 600; margin: 2px 0; }
-.gs-desc { font-size: 11px; color: var(--text-secondary); line-height: 1.5; }
-
-/* 风控网格 */
-.guide-risk-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.gr-item { display: flex; justify-content: space-between; align-items: center; padding: 5px 10px; border: 1px solid var(--border-default); border-radius: 6px; font-size: 12px; background: var(--bg-normal); }
-.gr-label { color: var(--text-secondary); }
-.gr-val { font-weight: 500; font-family: 'JetBrains Mono', monospace; font-size: 11px; }
-
+.mm-guide { flex: 1; overflow-y: auto; padding: 12px 16px; }
+/* 横幅 */
+.guide-banner { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; background: var(--bg-elevated); border-radius: 10px; margin-bottom: 12px; }
+.gb-left { display: flex; align-items: center; gap: 14px; }
+.gb-logo { font-size: 36px; }
+.gb-title { font-size: 18px; font-weight: 700; }
+.gb-sub { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+/* 卡片网格 */
+.guide-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.gg-card { background: var(--bg-elevated); border-radius: 10px; overflow: hidden; }
+.gg-span2 { grid-column: span 2; }
+.gg-head { padding: 8px 14px; font-size: 13px; font-weight: 600; background: var(--bg-normal); border-bottom: 1px solid var(--border-light); }
+.gg-icon { margin-right: 6px; }
+.gg-body { padding: 10px 14px; }
+.gg-compact { display: flex; flex-direction: column; gap: 6px; }
+.gg-line { font-size: 12px; color: var(--text-secondary); }
+.gg-params { display: flex; gap: 10px; }
+.gg-p { font-size: 12px; font-weight: 500; }
+.gg-pl { color: var(--text-tertiary); font-weight: 400; margin-right: 3px; }
+/* 架构流程 */
+.gf-flow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.gf-tag { padding: 4px 10px; border-radius: 5px; font-size: 12px; font-weight: 500; background: var(--bg-normal); border: 1px solid var(--border-default); }
+.gf-tag.gf-input { background: var(--el-color-primary-light-5); border-color: var(--el-color-primary-light-3); color: var(--el-color-primary-dark-2); }
+.gf-tag.gf-output { background: rgba(0,180,42,0.1); border-color: rgba(0,180,42,0.3); color: #00b42a; }
+.gf-arrow { color: var(--text-tertiary); font-size: 11px; }
 /* 操作指南 */
-.guide-steps { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; text-align: left; }
-.guide-step { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 1.5; }
-.sn { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: var(--el-color-primary); color: var(--text-inverse); font-size: 11px; font-weight: 600; flex-shrink: 0; margin-top: 2px; }
-
+.go-list { display: flex; flex-direction: column; gap: 6px; }
+.go-row { display: flex; align-items: center; gap: 8px; font-size: 12px; line-height: 1.5; }
+.sn { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: var(--el-color-primary); color: var(--text-inverse); font-size: 10px; font-weight: 600; flex-shrink: 0; }
+/* 风控 */
+.gr-grid { display: flex; flex-direction: column; gap: 5px; }
+.gr-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.gr-k { color: var(--text-tertiary); min-width: 56px; flex-shrink: 0; }
+.gr-v { font-weight: 500; font-family: 'JetBrains Mono', monospace; font-size: 11px; }
 /* 快捷键 */
-.guide-kbd-grid { display: flex; flex-wrap: wrap; gap: 8px; }
-.gk-item { font-size: 12px; display: flex; align-items: center; gap: 4px; }
-.gk-item kbd { background: var(--bg-normal); border: 1px solid var(--border-default); border-radius: 4px; padding: 1px 6px; font-size: 11px; font-family: 'JetBrains Mono', monospace; }
+.gk-row { display: flex; flex-wrap: wrap; gap: 12px; }
+.gk-g { font-size: 12px; display: flex; align-items: center; gap: 4px; }
+.gk-g kbd { background: var(--bg-normal); border: 1px solid var(--border-default); border-radius: 4px; padding: 1px 6px; font-size: 11px; font-family: 'JetBrains Mono', monospace; }
+/* 紧急平仓行内按钮 */
+.emergency-btn-inline { font-size: 14px; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--stock-up); color: var(--stock-up); background: transparent; cursor: pointer; }
+.emergency-btn-inline:hover { background: var(--stock-up); color: var(--text-inverse); }
+.emergency-btn-inline.disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* 3列主布局 */
 .mm-trace { flex-shrink: 0; max-height: 45vh; overflow-y: auto; border-top: 1px solid var(--border-default); background: var(--bg-elevated); }
