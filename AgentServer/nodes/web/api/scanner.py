@@ -1856,7 +1856,8 @@ async def get_scanner_health():
                 "risk_metrics": {"daily_drawdown_pct": 0, "max_drawdown_pct": 5, "position_ratio": 0},
                 "health_score": 0, "scan_lag_seconds": -1, "risk_check_lag_seconds": -1,
                 "data_freshness": "red",
-                "warnings": ["Scanner未运行"], "data_sources": []
+                "warnings": ["Scanner未运行"], "data_sources": [],
+                "version": _get_version_info(),
             }}
         
         # 基础状态
@@ -2031,6 +2032,8 @@ async def get_scanner_health():
                 },
                 # 【v2.9.7: Daemon状态(如果可用)】
                 "daemon": _get_daemon_status(),
+                # 【Phase4.2: 版本信息(部署验证)】
+                "version": _get_version_info(),
             }
         }
     except Exception as e:
@@ -2047,6 +2050,31 @@ def _get_daemon_status() -> dict:
     except Exception:
         pass
     return {"available": False}
+
+
+def _get_version_info() -> dict:
+    """【Phase4.2】获取版本信息(部署验证)"""
+    import subprocess as _sp
+    try:
+        git_hash = _sp.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            stderr=_sp.DEVNULL, timeout=3
+        ).decode().strip()
+    except Exception:
+        git_hash = "unknown"
+    try:
+        git_branch = _sp.check_output(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            stderr=_sp.DEVNULL, timeout=3
+        ).decode().strip()
+    except Exception:
+        git_branch = "unknown"
+    return {
+        "git_hash": git_hash,
+        "git_branch": git_branch,
+        "design_doc_version": "v2.9.7",
+        "baseline_tag": "v2.8.0-backtest-ui-v2",
+    }
 
 
 @router.post("/emergency-liquidate")

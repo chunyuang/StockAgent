@@ -491,7 +491,7 @@ function connectWS() {
         }
       } catch {}
     }
-    ws.onclose = () => { scannerStore.isWsConnected = false; wsReconnectTimer = setTimeout(connectWS, 5000) }
+    ws.onclose = () => { scannerStore.isWsConnected = false; wsReconnectTimer = setTimeout(connectWS, 3000) } // Phase4.1: 3秒重连(设计文档规范)
     ws.onerror = () => { ws?.close() }
   } catch {}
 }

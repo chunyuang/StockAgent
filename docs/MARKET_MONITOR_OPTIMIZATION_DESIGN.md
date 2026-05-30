@@ -1,10 +1,10 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.6 | 日期: 2026-05-30 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.8 | 日期: 2026-05-30 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4进行中 | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅
-> 回测影响: 零文件修改, 470测试全通过
+> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅
+> 回测影响: 零文件修改, 514测试全通过
 
 ---
 
@@ -30,6 +30,7 @@
 | v2.9.5 | 2026-05-29 | 内部迭代(scanner行数1813→1780, 54方法) |
 | v2.9.6 | 2026-05-30 | CircuitBreaker提取RiskWatchdog+情绪卖出列表提取_build_emotion_sell_list+绩效快照/飞书日报提取RuntimePersistence+_calc_stop_loss/_calc_take_profit加入DELEGATE_MAP移除fallback+Compare模式一致性验证测试+_execute_risk_sell/_execute_sell_list漏调_record_trade_result修复+_is_limit_down移除fallback加入DELEGATE_MAP+bare except修复+24新增测试(471总计,scanner 1710行53方法) |
 | v2.9.7 | 2026-05-30 | Phase2.1完善: scanner:cmd从Pub/Sub升级为List+ACK(RPUSH/BLPOP+ACK确认+超时处理)+Daemon告警Redis事件发布+/health集成Daemon状态+EventBus handler耗时统计+/daemon/status+/daemon/restart端点+scan-traces性能优化(rejected摘要)+25新增测试(496总计) |
+| v2.9.8 | 2026-05-30 | Phase4完善: /health新增version字段(git_hash/branch/设计文档版本)+WS断线重连3秒(设计文档规范)+Scanner Store集成验证+13新增测试(514总计) |
 
 v2.0关键修正:
 - ❶ 风控独立线程: asyncio协程→threading.Thread(真并行不受GIL影响)
@@ -1222,3 +1223,84 @@ await redis_client.publish("scanner:health", json.dumps(alert_data))
 ### 19.10 回测影响
 
 零。scanner_daemon.py是实盘独立进程, 回测引擎无任何引用。
+
+---
+
+## 二十、v2.9.8 Phase4完善 (2026-05-30)
+
+### 20.1 设计目标
+
+Phase4运维体验完善, 补齐设计文档中定义但未实现的验收项:
+
+1. **/health版本信息**: 部署验证需要知道当前运行的git版本
+2. **WS重连间隔**: 设计文档规定3秒, 代码实际5秒
+3. **Scanner Store集成验证**: 确保Pinia Store与组件正确集成
+
+### 20.2 /health版本信息 (Phase4.2)
+
+**问题**: 健康检查API不返回版本信息, 无法验证部署是否成功。
+
+**修复**: 新增`_get_version_info()`辅助函数, 在`/health`响应中增加`version`字段:
+
+```python
+def _get_version_info() -> dict:
+    """【Phase4.2】获取版本信息(部署验证)"""
+    return {
+        "git_hash": "cc11121",       # git rev-parse --short HEAD
+        "git_branch": "feature/...",  # git rev-parse --abbrev-ref HEAD
+        "design_doc_version": "v2.9.8",
+        "baseline_tag": "v2.8.0-backtest-ui-v2",
+    }
+```
+
+**位置**: Scanner未运行(dead)和运行时两条路径均返回`version`字段。
+
+### 20.3 WS重连间隔修正 (Phase4.1)
+
+**问题**: `ws.onclose`中`setTimeout(connectWS, 5000)`为5秒, 设计文档Phase4.1验收标准要求3秒重连。
+
+**修复**: 改为`setTimeout(connectWS, 3000)`。
+
+### 20.4 Scanner Store集成验证
+
+确认Pinia Store与组件集成状态:
+- ✅ `useScannerStore`已在MarketMonitorView中导入使用
+- ✅ WS数据通过`scannerStore.updateFromWs()`分发
+- ✅ 数据新鲜度`scannerStore.dataFreshness`在状态栏显示
+- ✅ WS连接状态`scannerStore.isWsConnected`已跟踪
+- ✅ 健康数据`scannerStore.health`通过fetchHealth写入
+
+### 20.5 变更文件
+
+| 文件 | 变更 |
+|---|---|
+| AgentServer/nodes/web/api/scanner.py | 新增`_get_version_info()`+/health返回version字段(2处) |
+| frontend/src/views/monitor/MarketMonitorView.vue | WS重连5秒→3秒 |
+| AgentServer/tests/scanner/test_phase4_health_version.py | 新增13测试 |
+| docs/MARKET_MONITOR_OPTIMIZATION_DESIGN.md | 更新至v2.9.8 |
+
+### 20.6 测试覆盖 (13新增)
+
+| 测试类 | 用例数 | 覆盖点 |
+|---|---|---|
+| TestVersionInfo | 4 | 必要字段/git失败降级/dead状态含version/运行时含version |
+| TestWSReconnect | 1 | 重连间隔3秒(源码验证) |
+| TestScannerStoreIntegration | 3 | dataFreshness/updateFromWs/组件使用Store |
+| TestNoBacktestRegressionPhase4 | 5 | checker API/参数中心/回测引擎/版本函数未侵入回测/Daemon未侵入回测 |
+
+**总测试**: 514 passed (全量)
+
+### 20.7 Phase4验收对照
+
+| 验收项 | 状态 | 说明 |
+|---|---|---|
+| WS断线3秒重连 | ✅ | setTimeout 3000ms |
+| 健康度评分(绿/黄/红) | ✅ | _compute_health_score + /health |
+| Daemon 3次失败有告警 | ✅ | v2.9.7 Redis事件发布 |
+| 健康API返回版本号 | ✅ | v2.9.8 _get_version_info |
+| Pinia Store数据新鲜度 | ✅ | 3s绿/5s黄/>5s红 |
+| REST fallback | ✅ | WS断线时REST轮询 |
+
+### 20.8 回测影响
+
+零。版本信息和WS重连均在前端/Web API层, 回测引擎无任何引用。
