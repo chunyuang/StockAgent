@@ -1289,6 +1289,15 @@ class MarketScanner:
                 "reason": reason,
                 "profit_pct": round(sell_profit_pct, 2),
                 "profit_amount": round(sell_profit_amount, 2),
+                "decision_detail": {
+                    "sell_reason": reason,
+                    "profit_pct": round(sell_profit_pct, 2),
+                    "profit_amount": round(sell_profit_amount, 2),
+                    "cost_price": pos.avg_cost,
+                    "sell_price": order.filled_price,
+                    "current_price": pos.current_price,
+                    "source": "risk_sell",
+                },
             })
             self._stats["stop_losses"] += 1
             # 【v2.9.6:记录交易结果到circuit_breaker(之前漏掉,导致止损不计入连续亏损)】

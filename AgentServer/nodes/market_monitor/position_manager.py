@@ -508,6 +508,14 @@ class PositionManager:
             for code in to_remove:
                 self.pending_sells.pop(code, None)
         
+        # 【v2.9.17:超时清除也记录到timeline】
+        for ts_code in expired_codes:
+            try:
+                self._scanner._add_timeline_log("blocked", ts_code, "",
+                    "", f"跌停挂起超时清除(保留持仓)", None)
+            except Exception:
+                pass
+        
         return expired_codes
 
     def get_pending_sells_summary(self) -> List[Dict]:
