@@ -1245,11 +1245,11 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <!-- 中部: 9层漏斗(横向紧凑) -->
         <div v-if="scanTraceDetail" class="scan-funnel">
           <template v-for="(layerData, layerName, idx) in scanTraceDetail.summary || {}">
-            <div v-if="layerName !== 'total_candidates' && layerName !== 'passed' && layerName !== 'rejected' && typeof layerData === 'object'" :key="layerName" class="fn-row" :class="{ 'fn-filter': layerData.rejected > 0, 'fn-pass': !layerData.rejected }">
+            <div v-if="layerName !== 'total_candidates' && layerName !== 'passed' && layerName !== 'rejected' && typeof layerData === 'object'" :key="layerName" class="fn-row" :class="{ 'fn-filter': layerData.rejected > 0, 'fn-pass': !layerData.rejected && (layerData.input || 0) > 0 }">
               <span class="fn-tag">{{ layerLabel(layerName) }}</span>
               <span class="fn-flow">{{ layerData.input || 0 }}→{{ layerData.output || 0 }}</span>
               <span v-if="layerData.rejected" class="fn-rej">淘汰{{ layerData.rejected }}</span>
-              <span v-if="scanTraceDetail.layer_details?.[layerName]" class="fn-desc">{{ scanTraceDetail.layer_details[layerName] }}</span>
+              <span class="fn-desc">{{ scanTraceDetail.layer_details?.[layerName] || layerDesc(layerName, layerData) }}</span>
             </div>
           </template>
           <div v-if="scanTraceDetail._pagination" class="fn-total">✅ 通过{{ scanTraceDetail._pagination.passed_count }} / ❌ 淘汰{{ scanTraceDetail._pagination.rejected_count }}</div>
