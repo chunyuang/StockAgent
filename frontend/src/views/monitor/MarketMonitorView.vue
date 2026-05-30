@@ -112,17 +112,43 @@ const scannerApi = '/scanner', configApi = '/strategy-config'
 const layerLabel = (k: string) => { const label = pipelineLabels[k]; if (!label) return k; const prefix = k.split('_')[0]; return prefix + ' ' + label }
 const layerDesc = (layer: string, data: any): string => {
   const inp = data?.input || 0, out = data?.output || 0, rej = data?.rejected || 0
-  const descs: Record<string, string> = {
-    'L1_force_empty': rej > 0 ? '大盘异常,全部禁止买入' : (out === inp ? '正常,不触发' : '未触发'),
-    'L2_special_period': rej > 0 ? '特殊时期,降低仓位' : (out === inp ? '非特殊时期,仓位不变' : '调整仓位系数'),
-    'L3_sentiment': rej > 0 ? `冰点期,暂停半路追涨${rej}只` : (out === inp ? '情绪正常,仓位不变' : '调整情绪仓位'),
-    'L4_premarket': rej > 0 ? `排除ST/次新/低流动${rej}只` : '全部通过预选',
-    'L5_auction': rej > 0 ? `排除极端竞价${rej}只(高开>7%/低开<-5%)` : '竞价正常',
-    'L6_strategy': (out === inp) ? `复用回测筛选,${out}个候选` : `策略筛选${inp}→${out}`,
-    'L7_ranking': rej > 0 ? `综合排序+去重,截断${rej}只` : '排序完成',
-    'L8_position': rej > 0 ? `仓位受限,${rej}只无法买入` : '仓位充足',
+  // 每层详细决策描述: 规则+数据+结论
+  const descs: Record<string, () => string> = {
+    'L1_force_empty': () => {
+      if (rej > 0 && inp > 0 && out === 0) return '⚠️ 触发强制空仓: 全部禁止买入(清仓信号)'
+      return '未触发 → 三个条件均不满足: ①跌停≥80只 ②涨停≤10且跌停>0 ③大盘跌幅≥3%'
+    },
+    'L2_special_period': () => {
+      if (out < inp) return `特殊时期降仓 → 仓位系数=${out > 0 ? Math.round(out/inp*100) : '?'}% (月末/季末/年末/节前)`
+      return '非特殊时期 → 仓位系数=100% (无月末/季末/年末/节前效应)'
+    },
+    'L3_sentiment': () => {
+      if (rej > 0) return `冰点期(情绪<40分) → 仓位系数≈25-30%, 暂停半路追涨${rej}只 (公式: 涨停-跌停+大盘×10+50)`
+      if (out < inp) return `情绪偏低 → 仓位系数下调 (高潮≥70→100% / 分化55-70→70% / 震荡40-55→50% / 冰点<40→25%)`
+      return '情绪正常 → 仓位系数=100% (得分≥70, 高潮期) | 公式: 涨停数-跌停数+大盘涨幅×10+50'
+    },
+    'L4_premarket': () => {
+      if (rej > 0) return `排除不合格${rej}只 → ①ST/*ST/退市股 ②上市<60天次新股 ③日均成交<500万低流动性`
+      return '全部通过 → 无ST/退市/次新/低流动性股'
+    },
+    'L5_auction': () => {
+      if (rej > 0) return `排除极端竞价${rej}只 → ①高开>7%(追高风险) ②低开<-5%(风险信号) | 首板打板额外要求竞价≥2%`
+      return '竞价正常 → 无极端高开(>7%)或低开(<-5%) | 首板打板需竞价≥2%确认强势'
+    },
+    'L6_strategy': () => {
+      return `复用回测策略筛选 → ${out}个候选通过量能/涨幅/换手率等策略条件 (半路追涨:涨2-7%+量比>1.5 | 首板:涨停封板 | 龙头:连板回调 | 跌停翘板:撬板反弹)`
+    },
+    'L7_ranking': () => {
+      if (rej > 0) return `综合排序+去重 → 截断${rej}只 (优先级: 龙头低吸>跌停翘板>首板打板>半路追涨 | 同股多策略取最高 | 最多保留10个候选)`
+      return '排序完成 → 候选数未超上限(≤10个)'
+    },
+    'L8_position': () => {
+      if (rej > 0) return `仓位受限 → ${rej}只无法买入 (总仓位≤70%上限, 单票≤20%上限)`
+      return '仓位充足 → 总仓位≤70%, 单票≤20% (情绪×特殊×上限取最小)'
+    },
   }
-  return descs[layer] || ''
+  const fn = descs[layer]
+  return fn ? fn() : ''
 }
 const nowMs = ref(Date.now())
 const sigRemaining = (sig: ScanSignal) => _signalRemaining(sig.created_at || 0, nowMs.value)
@@ -2361,7 +2387,7 @@ mm-tab-content {
 .fn-tag { font-weight: 600; min-width: 56px; flex-shrink: 0; }
 .fn-flow { font-family: 'JetBrains Mono', monospace; font-weight: 600; flex-shrink: 0; }
 .fn-rej { color: var(--stock-down); flex-shrink: 0; font-size: 10px; }
-.fn-desc { color: var(--text-tertiary); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fn-desc { color: var(--text-tertiary); font-size: 10px; line-height: 1.4; flex: 1; min-width: 0; }
 .fn-total { padding: 6px 8px 0; font-size: 12px; font-weight: 600; border-top: 1px solid var(--border-default); margin-top: 4px; }
 .funnel { display: flex; flex-direction: column; gap: 2px; }
 .funnel-step { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px; font-size: 12px; border: 1px solid var(--border-default); }

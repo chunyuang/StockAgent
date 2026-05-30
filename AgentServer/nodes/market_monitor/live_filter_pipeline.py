@@ -159,7 +159,7 @@ class LiveFilterPipeline:
                 self._build_trace_summary(result)
                 logger.warning(f"[L1] 强制空仓: {reason}")
                 return result
-            result.layer_details["L1_force_empty"] = "✅ 不触发"
+            result.layer_details["L1_force_empty"] = f"✅ 未触发 (涨停{limit_up_count}只, 跌停{limit_down_count}只, 大盘{'' if index_drop_pct < 0.03 else '跌' + f'{index_drop_pct*100:.1f}%'} | 触发条件: 跌停≥80 / 涨停≤10且跌停>0 / 大盘跌≥3%)"
             for t in result.trace_candidates:
                 t.layer_results["L1_force_empty"] = {"passed": True}
 
@@ -169,7 +169,7 @@ class LiveFilterPipeline:
             result.layers_applied["L2_special_period"] = True
             ratio *= special_ratio
             result.layer_details["L2_special_period"] = (
-                f"仓位系数={special_ratio:.0%} ({reason})" if special_ratio < 1.0 else "✅ 非特殊时期"
+                f"⚠️ {reason} → 仓位系数={special_ratio:.0%} (正常100%, 月末30%, 周五70%)" if special_ratio < 1.0 else f"✅ 非特殊时期 → 仓位系数=100% (无月末/季末/年末/节前效应)"
             )
             # L2不淘汰候选,标记全部通过
             for t in result.trace_candidates:
@@ -200,8 +200,9 @@ class LiveFilterPipeline:
                     logger.info(f"[L3] 冰点期(情绪={score:.0f}), 过滤半路追涨{len(dropped)}只")
             l3_drop_count = len(dropped) if score < 40 and dropped else 0
             result.layer_details["L3_sentiment"] = (
-                f"情绪={score:.0f}→{period}, 仓位系数={sentiment_ratio:.0%}"
-                + (f", 过滤半路追涨{l3_drop_count}只" if l3_drop_count else "")
+                f"情绪={score:.0f}分→{period}, 仓位系数={sentiment_ratio:.0%}"
+                + (f", 过滤半路追涨{l3_drop_count}只(冰点<40分暂停)" if l3_drop_count else "")
+                + f" | 公式: 涨停-跌停+大盘×10+50 | 高潮≥70→100% / 分化55-70→70% / 震荡40-55→50% / 冰点<40→25%"
             )
 
         # ---- L4: 盘前预选（记录淘汰明细）----
@@ -214,7 +215,7 @@ class LiveFilterPipeline:
             self._record_layer_drop(result, "L4_premarket", dropped,
                                     lambda c: self._premarket_reject_reason(c))
             result.layer_details["L4_premarket"] = (
-                f"过滤: {len(before_ids)}→{len(after_ids)} (排除ST/次新/低流动: {len(dropped)}只)"
+                f"过滤: {len(before_ids)}→{len(after_ids)} (排除ST/退市/次新(<60天)/低流动(<500万/日): {len(dropped)}只)"
             )
 
         # ---- L5: 竞价过滤（记录淘汰明细）----
@@ -229,12 +230,12 @@ class LiveFilterPipeline:
             self._record_layer_drop(result, "L5_auction", dropped,
                                     lambda c: "极端竞价(高开>7%或低开<-5%)")
             result.layer_details["L5_auction"] = (
-                f"过滤: {len(before_ids)}→{len(after_ids)} (排除极端竞价: {len(dropped)}只)"
+                f"过滤: {len(before_ids)}→{len(after_ids)} (排除极端竞价: {len(dropped)}只 | 高开>7%追不上/低开<-5%有风险 | 首板打板额外要求竞价≥2%)"
             )
 
         # ---- L6: 策略量能 ---- (已由scanner._apply_strategies完成)
         result.layers_applied["L6_strategy"] = True
-        result.layer_details["L6_strategy"] = f"✅ 复用回测筛选 ({len(result.candidates)}个候选)"
+        result.layer_details["L6_strategy"] = f"✅ 复用回测策略筛选 → {len(result.candidates)}个候选通过量能/涨幅条件 (半路追涨:涨2-7%+量比>1.5 | 首板:涨停封板 | 龙头:连板回调 | 跌停翘板:撬板反弹)"
         # L6不淘汰候选,标记全部通过
         for t in result.trace_candidates:
             if t.final_status != "rejected":
@@ -250,7 +251,7 @@ class LiveFilterPipeline:
             self._record_layer_drop(result, "L7_ranking", dropped,
                                     lambda c: "去重/排序靠后被截断")
             result.layer_details["L7_ranking"] = (
-                f"排序去重: {len(before_ids)}→{len(after_ids)} (截断: {len(dropped)}只)"
+                f"排序去重: {len(before_ids)}→{len(after_ids)} (截断{len(dropped)}只 | 优先级: 龙头>跌停翘板>首板>半路 | 同股多策略取最高 | 最多保留10候选)"
             )
 
         # ---- L8: 仓位控制 ----
@@ -260,8 +261,8 @@ class LiveFilterPipeline:
         result.position_ratio = final_ratio
         result.layers_applied["L8_position"] = True
         result.layer_details["L8_position"] = (
-            f"总仓位={final_ratio:.0%} (情绪×特殊={ratio:.0%}, 上限{max_position_ratio:.0%}), "
-            f"单票上限{max_per_stock:.0%}"
+            f"总仓位上限={final_ratio:.0%} (情绪×特殊={ratio:.0%}, 硬上限{max_position_ratio:.0%}), "
+            f"单票上限={max_per_stock:.0%} | 仓位系数=min(情绪仓位, 特殊时期, 硬上限)"
         )
 
         # 【V50.1】最终标记通过 + 构建汇总
