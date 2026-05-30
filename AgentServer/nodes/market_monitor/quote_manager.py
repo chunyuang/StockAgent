@@ -295,7 +295,7 @@ class QuoteManager:
                                 "is_limit_open": True,
                                 "open_times": item.get("open_times", 0),
                             })
-                except Exception:
+                except Exception as _e:
                     pass
 
             except Exception as e:

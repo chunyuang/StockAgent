@@ -513,7 +513,7 @@ class PositionManager:
             try:
                 self._scanner._add_timeline_log("blocked", ts_code, "",
                     "", f"跌停挂起超时清除(保留持仓)", None)
-            except Exception:
+            except Exception as _e:
                 pass
         
         return expired_codes

@@ -243,7 +243,7 @@ class PositionChecker:
         if to_sell and self.broker:
             try:
                 await self.broker.save_state(force=True)
-            except Exception:
+            except Exception as _e:
                 pass
             await scanner._save_runtime_snapshot(force=True)
     
@@ -309,7 +309,7 @@ class PositionChecker:
         if to_sell and self.broker:
             try:
                 await self.broker.save_state(force=True)
-            except Exception:
+            except Exception as _e:
                 pass
             await scanner._save_runtime_snapshot(force=True)
     
@@ -373,7 +373,7 @@ class PositionChecker:
                     "both": list(both),
                     "time": datetime.now().strftime("%H:%M:%S"),
                 })
-            except Exception:
+            except Exception as _e:
                 pass
 
         # 只执行legacy逻辑
@@ -460,7 +460,7 @@ class PositionChecker:
                         self.execution_stats.setdefault("stop_loss_response_times", []).append(time.time())
                         if len(self.execution_stats["stop_loss_response_times"]) > 50:
                             self.execution_stats["stop_loss_response_times"] = self.execution_stats["stop_loss_response_times"][-50:]
-                    except Exception:
+                    except Exception as _e:
                         pass
                 else:
                     scanner._stats["take_profits"] += 1
@@ -480,7 +480,7 @@ class PositionChecker:
                             "ts_code": pos.ts_code, "action": "sell",
                             "reason": reason, "source": "position_checker",
                         })
-                except Exception:
+                except Exception as _e:
                     pass
                 logger.info(f"[{source.upper()}] {reason}: {pos.ts_code} {sell_qty}股@{order.filled_price:.2f}")
             else:

@@ -229,7 +229,7 @@ class GmBroker:
                         o.filled_price = odata.get("filled_price", 0)
                         o.status = GmOrderStatus(odata.get("status", "pending"))
                         o.reason = odata.get("reason", "")
-        except Exception:
+        except Exception as _e:
             pass
 
     def _generate_strategy_script(self) -> str:

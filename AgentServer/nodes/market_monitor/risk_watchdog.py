@@ -720,7 +720,7 @@ class RiskWatchdog:
                             "message": reason_str,
                             "trading_paused": True,
                         })
-                    except Exception:
+                    except Exception as _e:
                         pass
                     return False
         

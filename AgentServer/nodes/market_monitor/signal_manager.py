@@ -114,7 +114,7 @@ class SignalManager:
                             "strategy": s.strategy,
                             "expired_after": round(now - s.created_at, 0),
                         })
-                    except Exception:
+                    except Exception as _e:
                         pass
         
         # 移除已过期且已执行的信号
@@ -163,7 +163,7 @@ class SignalManager:
                             "pct_chg": round(s.pct_chg, 1) if s.pct_chg else 0,
                         } for s in added[:5]],
                     })
-            except Exception:
+            except Exception as _e:
                 pass
 
             # 执行新信号
@@ -173,7 +173,7 @@ class SignalManager:
             if self.broker:
                 try:
                     await self.broker.save_state()
-                except Exception:
+                except Exception as _e:
                     pass
             
             try:
@@ -188,7 +188,7 @@ class SignalManager:
                     "count": len(added),
                     "time": scan_time,
                 })
-            except Exception:
+            except Exception as _e:
                 pass
 
     async def _push_signals(self, signals: List[ScanSignal]):
@@ -362,7 +362,7 @@ class SignalManager:
                             "price": order.filled_price, "shares": shares,
                             "source": "signal_manager",
                         })
-                except Exception:
+                except Exception as _e:
                     pass
                 logger.info(f"[EXEC] 买入 {sig.ts_code} {shares}股@{order.filled_price:.2f} ({sig.strategy_name})")
             else:
@@ -406,5 +406,5 @@ class SignalManager:
                 "position_ratio": getattr(self._scanner, '_current_position_ratio', None),
                 "sell_logic_mode": self._scanner.SELL_LOGIC_MODE,
             })
-        except Exception:
+        except Exception as _e:
             pass
