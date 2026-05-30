@@ -74,10 +74,11 @@ class TestRiskThreadWatchdog:
         assert '_risk_thread_restarts = 0' in src or '_risk_thread_restarts=0' in src
 
     def test_watchdog_in_scan_loop_source(self):
-        """_scan_loop中有风控线程看门狗代码"""
+        """_scan_loop或其提取方法中有风控线程看门狗代码"""
         import inspect
         from nodes.market_monitor.scanner import MarketScanner
-        src = inspect.getsource(MarketScanner._scan_loop)
+        # v2.9.13: 看门狗逻辑提取到_scan_loop_trading
+        src = inspect.getsource(MarketScanner._scan_loop_trading)
         # 验证有风控线程健康检查
         assert '_risk_thread' in src and 'is_alive' in src
         assert '_risk_thread_restarts' in src

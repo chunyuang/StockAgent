@@ -117,9 +117,13 @@ class PositionManager:
         return round(cost * (1 + tp_pct), 2)
     
     def get_effective_stop_price(self, pos, risk: Dict) -> Optional[float]:
-        """获取实际止损价(考虑追踪止损/移动止损)"""
-        # 追踪止损
-        trailing = self.trailing_stops.get(pos.ts_code)
+        """获取实际止损价(考虑追踪止损/移动止损)
+        
+        【v2.9.13:线程安全修复】trailing_stops通过state_lock深拷贝读取，
+        避免风控线程并发写入导致读取半更新状态。
+        """
+        # 追踪止损(线程安全读取)
+        trailing = self._get_trailing_stop_safe(pos.ts_code)
         if trailing and trailing.get("activated") and trailing.get("stop_price", 0) > 0:
             return trailing["stop_price"]
         
