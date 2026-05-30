@@ -2958,6 +2958,69 @@ async def get_strategy_params_compare():
     返回每个策略的所有参数, 标注与回测基线不同的字段
     用于诊断实盘-回测不一致问题
     """
+    # 全局风控参数中文映射
+    GLOBAL_RISK_LABELS = {
+        "stop_loss_pct": "全局止损比例",
+        "take_profit_pct": "全局止盈比例",
+        "max_hold_days": "最大持仓天数",
+        "slippage_pct": "滑点比例",
+        "commission_rate": "综合佣金率",
+        "stamp_duty_rate": "印花税率",
+        "max_position_per_stock": "单票最大仓位",
+        "max_total_position": "总仓位上限",
+        "liquidity_threshold": "流动性门槛(万元)",
+        "volume_threshold": "量能放大倍数",
+        "force_empty_limit_down": "强制空仓-跌停数阈值",
+        "force_empty_limit_up": "强制空仓-涨停数阈值",
+        "force_empty_index_drop_pct": "强制空仓-大盘跌幅阈值",
+        "force_empty_cooldown_days": "强制空仓冷却期(天)",
+        "force_empty_cooldown_position_cap": "冷却期仓位上限",
+        "dragon_head_early_exit_days": "龙头低吸-提前退出天数",
+        "dragon_head_early_exit_min_profit": "龙头低吸-提前退出最低利润",
+        "intraday_lock_min_high_rise": "盘中锁定-冲高幅度阈值",
+        "intraday_lock_pullback_pct": "盘中锁定-回撤幅度阈值",
+        "intraday_lock_min_profit": "盘中锁定-最低利润阈值",
+        "hold_protection_threshold": "持仓保护阈值",
+        "live_trading_mode": "实盘模式开关",
+        "risk_free_rate": "无风险利率",
+    }
+    
+    # 策略级参数中文映射(常用key)
+    STRATEGY_PARAM_LABELS = {
+        "stop_loss_pct": "止损比例",
+        "take_profit_pct": "止盈比例",
+        "max_hold_days": "最大持仓天数",
+        "slippage_pct": "滑点比例",
+        "pullback_sl_pct": "追踪止损比例",
+        "pullback_mid_fallback": "回调中继回撤阈值",
+        "hit_probability_slow": "慢板成交概率",
+        "hit_probability_fast": "快板成交概率",
+        "hit_probability_instant": "秒板成交概率",
+        "hit_probability_one_char": "一字板成交概率",
+        "next_day_open_sell_pct": "次日高开卖出阈值",
+        "opening_pct_max": "开盘涨幅上限",
+        "min_turnover_rate": "最低换手率",
+        "min_rise_pct": "最低涨幅",
+        "max_rise_pct": "最高涨幅",
+        "min_volume_ratio": "最低量比",
+        "max_volume_ratio": "最高量比",
+        "min_close_pct": "最低收盘涨幅",
+        "max_open_pct": "最高开盘涨幅",
+        "before_10am_only": "仅10点前买入",
+        "min_consecutive_limit": "最低连板数",
+        "min_circ_mv": "最低流通市值(亿)",
+        "max_circ_mv": "最高流通市值(亿)",
+        "pullback_min_pct": "最低回调幅度",
+        "pullback_max_pct": "最高回调幅度",
+        "pullback_min_days": "最少回调天数",
+        "pullback_max_days": "最多回调天数",
+        "support_ma": "支撑均线",
+        "consecutive_limit_down_days": "最低连跌天数",
+        "min_qiaoban_amount": "最低翘板金额(万)",
+        "min_qiaoban_rise_pct": "最低翘板后涨幅",
+        "sentiment_override": "不限情绪周期",
+    }
+    
     try:
         from nodes.market_monitor.strategy_param_center import param_center
         await param_center.initialize()
@@ -2990,9 +3053,11 @@ async def get_strategy_params_compare():
             for key in sorted(all_keys):
                 live_val = live.get(key)
                 bt_val = bt.get(key)
+                label = STRATEGY_PARAM_LABELS.get(key, key)
                 if live_val != bt_val and live_val is not None and bt_val is not None:
                     param_diffs.append({
                         "key": key,
+                        "label": label,
                         "live_value": live_val,
                         "backtest_value": bt_val,
                         "diff": True,
@@ -3000,6 +3065,7 @@ async def get_strategy_params_compare():
                 elif live_val is not None:
                     param_diffs.append({
                         "key": key,
+                        "label": label,
                         "live_value": live_val,
                         "backtest_value": bt_val,
                         "diff": False,
@@ -3008,7 +3074,8 @@ async def get_strategy_params_compare():
             comparisons.append({
                 "strategy_id": sid,
                 "strategy_name": {"halfway_chase": "半路追涨", "first_limit_up": "首板打板", 
-                                   "dragon_head": "龙头低吸", "limit_down_qiao": "跌停翘板"}.get(sid, sid),
+                                   "dragon_head": "龙头低吸", "limit_down_qiao": "跌停翘板",
+                                   "limit_up_open": "涨停开板"}.get(sid, sid),
                 "live_params": live,
                 "backtest_params": bt,
                 "param_diffs": param_diffs,
@@ -3016,15 +3083,47 @@ async def get_strategy_params_compare():
             })
         
         # 全局风控参数对比
+        # 修复: globalRisk嵌在每个策略文档中, 不是独立文档
+        # 从第一个可用策略的globalRisk字段读取实盘值
+        live_gr = {}
+        for sid in ['halfway_chase', 'first_limit_up', 'dragon_head', 'limit_down_qiao']:
+            strategy_doc = live_params.get(sid, {})
+            if isinstance(strategy_doc, dict) and strategy_doc.get('globalRisk'):
+                live_gr = strategy_doc['globalRisk']
+                break
+        
         global_diffs = []
-        live_gr = live_params.get("global_risk", {})
+        global_sames = []
         for key, bt_val in GLOBAL_RISK.items():
             live_val = live_gr.get(key)
-            if live_val != bt_val:
+            label = GLOBAL_RISK_LABELS.get(key, key)
+            if live_val is None:
+                # 实盘缺失此参数 = 使用回测默认值, 不算漂移
+                global_sames.append({
+                    "key": key,
+                    "label": label,
+                    "live_value": "(未配置,用默认值)",
+                    "backtest_value": bt_val,
+                    "diff": False,
+                    "missing_in_live": True,
+                })
+            elif live_val != bt_val:
                 global_diffs.append({
                     "key": key,
+                    "label": label,
                     "live_value": live_val,
                     "backtest_value": bt_val,
+                    "diff": True,
+                    "missing_in_live": False,
+                })
+            else:
+                global_sames.append({
+                    "key": key,
+                    "label": label,
+                    "live_value": live_val,
+                    "backtest_value": bt_val,
+                    "diff": False,
+                    "missing_in_live": False,
                 })
         
         return {"success": True, "data": {
@@ -3033,9 +3132,11 @@ async def get_strategy_params_compare():
                 "live": live_gr,
                 "backtest": GLOBAL_RISK,
                 "diffs": global_diffs,
+                "sames": global_sames,
+                "labels": GLOBAL_RISK_LABELS,
             },
             "drifts_detected": drifts,
-            "drift_count": len(drifts),
+            "drift_count": len(drifts) + len(global_diffs),
         }}
     except Exception as e:
         return {"success": True, "data": {"strategy_comparisons": [], "global_risk": {}, "drifts_detected": [], "drift_count": 0, "error": str(e)}}
