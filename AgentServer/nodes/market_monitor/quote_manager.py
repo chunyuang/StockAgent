@@ -62,6 +62,31 @@ class QuoteManager:
         return ["正常", "东财降级", "日线缓存"][self._quote_degrade_level]
 
     @property
+    def cache_lock_initialized(self) -> bool:
+        """缓存锁是否已初始化【v2.9.18】"""
+        return self._cache_lock is not None
+
+    @property
+    def realtime_cache(self) -> Dict:
+        """实时行情缓存(直接引用,仅用于内部加锁场景)【v2.9.18】"""
+        return self._realtime_cache
+
+    @property
+    def prev_realtime_cache(self) -> Dict:
+        """上一帧行情缓存(直接引用)【v2.9.18】"""
+        return self._prev_realtime_cache
+
+    @property
+    def data_router(self):
+        """数据源路由器(直接引用)【v2.9.18】"""
+        return self._data_router
+
+    @property
+    def quote_degrade_level(self) -> int:
+        """行情降级等级(直接引用)【v2.9.18】"""
+        return self._quote_degrade_level
+
+    @property
     def cached_count(self) -> int:
         return len(self._realtime_cache)
 
@@ -82,6 +107,23 @@ class QuoteManager:
         self._replay_mode = enabled
         self._replay_provider = provider
         self._replay_date = date
+
+    def warm_sources_cache(self, realtime: Dict[str, Dict]):
+        """将预热行情数据写入数据源缓存(供scanner周末预热调用)【v2.9.18】"""
+        if not self._data_router:
+            return
+        for source in self._data_router._sources.values():
+            if hasattr(source, '_cache') and hasattr(source, '_cache_time'):
+                source._cache = {k: {"price": v["price"], "pct_chg": v["pct_chg"],
+                                     "pre_close": v["pre_close"], "open": v["open"],
+                                     "high": v["high"], "low": v["low"],
+                                     "vol": v["vol"], "amount": v["amount"],
+                                     "turnover_rate": v.get("turnover_rate", 0),
+                                     "volume_ratio": v.get("volume_ratio", 0),
+                                     "name": v.get("name", "")}
+                                for k, v in realtime.items()}
+                source._cache_time = __import__('time').time()
+                source._total_stocks = len(realtime)
 
     async def initialize(self) -> bool:
         """初始化数据源(东方财富+必盈)"""
