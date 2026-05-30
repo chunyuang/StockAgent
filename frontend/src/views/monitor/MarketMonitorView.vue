@@ -186,6 +186,7 @@ const scanHistory = ref<any[]>([])
 const selectedScanIdx = ref(-1)
 const scanTraceDetail = ref<any>(null)
 const scanHistoryLoading = ref(false)
+const scanTraceDate = ref('')  // 日期过滤器
 const scanTraceFilter = ref<'passed' | 'rejected' | 'summary'>('passed')  // 【v2.9.7: 候选过滤模式】
 const scanTraceLoadingMore = ref(false)  // 【v2.9.7: 加载更多loading】
 
@@ -253,7 +254,8 @@ async function fetchPremarketData() {
 async function fetchScanHistory() {
   scanHistoryLoading.value = true
   try {
-    const r = await api.get(`${scannerApi}/scan-traces?limit=30`, { timeout: 15000 })
+    const dateParam = scanTraceDate.value ? `&date=${scanTraceDate.value.replace(/-/g, '')}` : ''
+    const r = await api.get(`${scannerApi}/scan-traces?limit=30${dateParam}`, { timeout: 15000 })
     const p = parseResponse(r)
     if (p.success && p.data?.length) {
       scanHistory.value = p.data
@@ -1189,7 +1191,11 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
     <!-- ==================== 🔍 扫描追踪Tab ==================== -->
     <div v-if="activeTab === 'scan-trace'" class="mm-tab-content">
       <div class="mm-tab-scroll">
-        <div class="st">📡 扫描历史 <ElButton size="small" @click="fetchScanHistory" :loading="scanHistoryLoading">🔄</ElButton></div>
+        <div class="st">📡 扫描历史
+          <ElDatePicker v-model="scanTraceDate" type="date" placeholder="全部日期" size="small" value-format="YYYY-MM-DD" style="width:130px;margin-left:8px" :disabled-date="(d: Date) => d > new Date()" @change="fetchScanHistory" />
+          <ElButton size="small" @click="scanTraceDate='';fetchScanHistory()" :loading="scanHistoryLoading">🔄</ElButton>
+          <span class="text-tertiary" style="font-size:11px;margin-left:auto">全量5分钟 · 持仓30秒 · 信号5分钟过期</span>
+        </div>
 
         <div class="scan-grid">
           <!-- 左: 扫描列表 -->
