@@ -337,8 +337,9 @@ class TestEventBusEmissionCompleteness:
         # 风控卖出 → _post_sell_cleanup
         cleanup_source = inspect.getsource(MarketScanner._post_sell_cleanup)
         assert "RISK_SELL_EXECUTED" in cleanup_source
-        # 情绪调仓卖出 — _handle_emotion_phase_change中发射EMOTION_CHANGED
-        emotion_source = inspect.getsource(MarketScanner._handle_emotion_phase_change)
+        # 情绪调仓卖出 — _handle_emotion_phase_change已提取到EmotionCycleManager【v2.9.24】
+        from nodes.market_monitor.emotion_cycle import EmotionCycleManager
+        emotion_source = inspect.getsource(EmotionCycleManager.handle_emotion_phase_change)
         assert "EMOTION_CHANGED" in inspect.getsource(MarketScanner._apply_filter_pipeline)
 
 

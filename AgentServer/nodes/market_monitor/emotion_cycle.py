@@ -429,6 +429,72 @@ class EmotionCycleManager:
         
         return to_sell
 
+    @staticmethod
+    async def handle_emotion_phase_change(scanner, old_phase: str, new_phase: str):
+        """情绪phase变化时的动态调仓【v2.9.6→v2.9.24提取到EmotionCycleManager】
+        
+        规则来源: EmotionCycleManager.DOWNGRADE_RULES
+        执行: phase降级时减仓/清仓低利润, 升级时不做操作
+        分批执行: max_per_round=2, 间隔0.5秒(避免冲击)
+        
+        Args:
+            scanner: MarketScanner实例
+            old_phase: 原始阶段名称
+            new_phase: 新阶段名称
+        """
+        try:
+            old_enum = EmotionPhase(old_phase)
+            new_enum = EmotionPhase(new_phase)
+        except ValueError:
+            logger.info(f"[EMOTION] phase变化 {old_phase}→{new_phase}, 无法识别的阶段")
+            return
+        
+        rule = emotion_cycle_manager.get_downgrade_rule(old_enum, new_enum)
+        if not rule:
+            logger.info(f"[EMOTION] phase变化 {old_phase}→{new_phase}, 无需调仓")
+            return
+        
+        logger.warning(f"[EMOTION] phase降级 {old_phase}→{new_phase}: {rule['desc']}")
+        
+        if not scanner._broker:
+            return
+        
+        positions = scanner._broker.get_positions()
+        if not positions:
+            return
+        
+        # 委托给_build_emotion_sell_list构建卖出列表
+        to_sell = scanner._build_emotion_sell_list(positions, rule, old_phase, new_phase)
+        
+        if not to_sell:
+            logger.info(f"[EMOTION] phase降级无需调仓(无符合条件持仓)")
+            return
+        
+        import asyncio
+        batch_size = 2
+        from datetime import datetime
+        trade_date = scanner._trade_date or datetime.now().strftime("%Y%m%d")
+        for i in range(0, len(to_sell), batch_size):
+            batch = to_sell[i:i+batch_size]
+            if scanner._position_checker:
+                await scanner._position_checker.execute_sell_list(batch, trade_date, source="emotion")
+            if i + batch_size < len(to_sell):
+                await asyncio.sleep(0.5)
+        
+        logger.warning(f"[EMOTION] 调仓完成: 卖出{len(to_sell)}只, {rule['desc']}")
+        
+        # 推送事件 + 审计日志
+        await scanner._publish_scanner_event("timeline", {
+            "item": {
+                "time": datetime.now().strftime("%H:%M:%S"),
+                "action": "emotion_rebalance",
+                "reason": rule['desc'],
+                "old_phase": old_phase,
+                "new_phase": new_phase,
+                "sold_count": len(to_sell),
+            }
+        })
+
 
 # 全局单例
 emotion_cycle_manager = EmotionCycleManager()

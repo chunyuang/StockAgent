@@ -274,6 +274,95 @@ class ScannerUtils:
         }
 
     # ==================== Phase4.3: 健康度评分 ====================
+    # ==================== v2.9.24: 运行时诊断提取 ====================
+
+    @staticmethod
+    def diagnose(scanner) -> Dict[str, Any]:
+        """运行时诊断摘要(关键健康指标+可操作建议)【v2.9.23→v2.9.24提取】
+        
+        与get_status的区别:
+        - get_status: 完整状态快照(包含所有细节)
+        - diagnose: 关键指标+异常检测+修复建议(前端告警用)
+        
+        Args:
+            scanner: MarketScanner实例
+        """
+        issues: list = []
+        now = time.time()
+        
+        # 1. 风控线程存活检查
+        if scanner._risk_running and scanner._risk_thread and not scanner._risk_thread.is_alive():
+            issues.append({
+                "level": "critical",
+                "area": "risk_thread",
+                "message": "风控线程已退出",
+                "restarts": scanner._risk_thread_restarts,
+                "action": "风控线程将自动重启,如持续退出请检查日志",
+            })
+        
+        # 2. 行情缓存过期
+        cache_age = now - (scanner._last_realtime_update_ts or 0)
+        if scanner._is_running and cache_age > 120:
+            issues.append({
+                "level": "warning",
+                "area": "quote_cache",
+                "message": f"行情缓存{cache_age:.0f}秒未更新",
+                "action": "检查行情源(量脉/东财)连接状态",
+            })
+        
+        # 3. scan_loop连续异常
+        error_count = getattr(scanner, '_scan_loop_error_count', 0)
+        if error_count > 0:
+            issues.append({
+                "level": "warning" if error_count < 3 else "critical",
+                "area": "scan_loop",
+                "message": f"扫描循环连续{error_count}次异常",
+                "action": "3次以内自动恢复,超过3次scanner将停止",
+            })
+        
+        # 4. pending_sells积压
+        pending_count = len(scanner._pending_sells)
+        if pending_count > 5:
+            issues.append({
+                "level": "warning",
+                "area": "pending_sells",
+                "message": f"{pending_count}个挂起卖出待执行",
+                "action": "检查是否多票跌停或执行超时",
+            })
+        
+        # 5. circuit_breaker触发
+        if scanner._circuit_breaker.get("trading_paused"):
+            issues.append({
+                "level": "critical",
+                "area": "circuit_breaker",
+                "message": f"熔断器已触发: {scanner._circuit_breaker.get('pause_reason', '未知')}",
+                "action": "可调用reset_circuit_breaker()重置",
+            })
+        
+        # 6. 风控检查超时
+        last_risk = scanner._last_risk_check_ts
+        if scanner._is_running and last_risk and (now - last_risk) > 10:
+            issues.append({
+                "level": "warning",
+                "area": "risk_check",
+                "message": f"风控检查{(now - last_risk):.0f}秒未执行",
+                "action": "检查风控线程是否正常运行",
+            })
+        
+        return {
+            "healthy": len([i for i in issues if i["level"] == "critical"]) == 0,
+            "issues": issues,
+            "summary": {
+                "running": scanner._is_running,
+                "positions": len(scanner._broker.get_positions()) if scanner._broker else 0,
+                "active_signals": len(scanner._active_signals),
+                "cache_age_sec": round(cache_age, 1),
+                "pending_sells": pending_count,
+                "risk_thread_alive": scanner._risk_thread.is_alive() if scanner._risk_thread else False,
+                "scan_errors": error_count,
+                "trading_paused": scanner._circuit_breaker.get("trading_paused", False),
+            },
+        }
 
     @staticmethod
     def compute_health_score(scanner) -> Dict[str, Any]:

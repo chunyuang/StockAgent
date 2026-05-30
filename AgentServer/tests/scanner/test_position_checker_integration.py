@@ -364,7 +364,9 @@ class TestEmotionRebalanceDelegation:
         scanner._broker.get_positions.return_value = [pos1]
 
         # 模拟冰点降级(rising→bearish: 低利润清仓)
-        await MarketScanner._handle_emotion_phase_change(scanner, 'rising', 'bearish')
+        # 【v2.9.24: _handle_emotion_phase_change已提取到EmotionCycleManager】
+        from nodes.market_monitor.emotion_cycle import EmotionCycleManager
+        await EmotionCycleManager.handle_emotion_phase_change(scanner, 'rising', 'bearish')
 
         # 验证委托到PositionChecker
         checker._execute_sell_list.assert_called()
