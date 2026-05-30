@@ -1947,6 +1947,49 @@ async def get_realtime_quote(ts_code: str):
 
 # ==================== 【V50.1】扫描链路追踪 ====================
 
+def _fix_funnel_summary(doc: dict):
+    """修复旧数据漏斗: L2/L3/L6/L8不淘汰但output=0的bug
+    
+    旧版_build_trace_summary用passed计数,非淘汰层没人标记passed→output=0
+    修复逻辑:
+    1. 逐层传递: rejected=0的非淘汰层,output=input
+    2. 修正断裂: 某层input=0但上层output>0 → input=上层output
+    3. 修正output=0的断裂: 某层rejected=0但output=0且input=0 → output=prev_output
+    """
+    summary = doc.get("summary", {})
+    if not summary:
+        return
+    
+    layers = ["L1_force_empty", "L2_special_period", "L3_sentiment", 
+              "L4_premarket", "L5_auction", "L6_strategy",
+              "L7_ranking", "L8_position"]
+    
+    prev_output = 0
+    for layer in layers:
+        ld = summary.get(layer)
+        if not isinstance(ld, dict):
+            continue
+        inp = ld.get("input", 0)
+        out = ld.get("output", 0)
+        rej = ld.get("rejected", 0)
+        
+        # Step 1: 修正断裂input — 上层有output但本层input=0
+        if inp == 0 and prev_output > 0:
+            ld["input"] = prev_output
+            inp = prev_output
+        
+        # Step 2: 不淘汰层(rejected=0): output=input
+        if rej == 0:
+            if inp > 0 and out != inp:
+                ld["output"] = inp
+            elif inp == 0 and prev_output > 0:
+                # input还是0但上层有output → 本层也是非淘汰层
+                ld["input"] = prev_output
+                ld["output"] = prev_output
+        
+        prev_output = ld.get("output", 0)
+
+
 @router.get("/scan-traces")
 async def get_scan_traces(date: str = None, limit: int = 10):
     """获取扫描链路追踪记录
@@ -1975,6 +2018,8 @@ async def get_scan_traces(date: str = None, limit: int = 10):
         ).sort("_id", -1).limit(limit):
             # 将_id转为scan_id供前端详情查询
             doc["scan_id"] = str(doc.pop("_id", ""))
+            # 【v2.9.17:修复旧数据漏斗数字(L2/L3/L6/L8 output=0)】
+            _fix_funnel_summary(doc)
             docs.append(doc)
         
         return {"success": True, "data": docs, "count": len(docs)}
@@ -2008,6 +2053,8 @@ async def get_scan_trace_detail(scan_id: str, status: str = None, limit: int = 5
         doc = await mongo_manager.db["scan_traces"].find_one({"_id": ObjectId(scan_id)})
         if doc:
             doc["scan_id"] = str(doc.pop("_id", ""))
+            # 【v2.9.17:修复旧数据漏斗数字】
+            _fix_funnel_summary(doc)
             
             candidates = doc.get("candidates", [])
             rejected = doc.get("rejected_summary", [])
