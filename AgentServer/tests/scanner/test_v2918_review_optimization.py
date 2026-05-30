@@ -276,3 +276,101 @@ class TestNoBacktestRegressionV2918:
             line_count = sum(1 for _ in f)
         # stop()拆分增加2个方法签名,但整体不超1822
         assert line_count <= 1825, f"scanner.py行数{line_count}>1825, 应不增反减"
+
+
+# ============================================================================
+# 7. start()拆分验证
+# ============================================================================
+
+class TestStartMethodExtraction:
+    """验证start()方法拆分为_detect_param_drift + _restore_start_state + _start_risk_thread"""
+
+    def test_detect_param_drift_method_exists(self):
+        """_detect_param_drift方法存在且为async"""
+        from nodes.market_monitor.scanner import MarketScanner
+        import inspect
+        assert hasattr(MarketScanner, '_detect_param_drift')
+        assert inspect.iscoroutinefunction(MarketScanner._detect_param_drift)
+
+    def test_restore_start_state_method_exists(self):
+        """_restore_start_state方法存在且为async"""
+        from nodes.market_monitor.scanner import MarketScanner
+        import inspect
+        assert hasattr(MarketScanner, '_restore_start_state')
+        assert inspect.iscoroutinefunction(MarketScanner._restore_start_state)
+
+    def test_start_risk_thread_method_exists(self):
+        """_start_risk_thread方法存在且为同步方法"""
+        from nodes.market_monitor.scanner import MarketScanner
+        import inspect
+        assert hasattr(MarketScanner, '_start_risk_thread')
+        assert not inspect.iscoroutinefunction(MarketScanner._start_risk_thread)
+
+    def test_start_calls_extracted_methods(self):
+        """start()源码中调用了3个提取方法"""
+        import inspect
+        from nodes.market_monitor.scanner import MarketScanner
+        source = inspect.getsource(MarketScanner.start)
+        assert "_detect_param_drift" in source
+        assert "_restore_start_state" in source
+        assert "_start_risk_thread" in source
+
+    def test_start_line_count(self):
+        """start()方法行数应<40行有效代码"""
+        import inspect
+        from nodes.market_monitor.scanner import MarketScanner
+        source = inspect.getsource(MarketScanner.start)
+        lines = [l for l in source.split('\n') if l.strip() and not l.strip().startswith('#')]
+        assert len(lines) < 40, f"start()方法应<40行有效代码, 实际{len(lines)}行"
+
+
+# ============================================================================
+# 8. PositionChecker公开接口
+# ============================================================================
+
+class TestPositionCheckerPublicInterface:
+    """验证PositionChecker公开接口替代私有方法调用"""
+
+    def test_is_limit_down_public_exists(self):
+        """is_limit_down公开方法存在"""
+        from nodes.market_monitor.position_checker import PositionChecker
+        assert hasattr(PositionChecker, 'is_limit_down')
+
+    def test_execute_sell_list_public_exists(self):
+        """execute_sell_list公开方法存在且为async"""
+        from nodes.market_monitor.position_checker import PositionChecker
+        import inspect
+        assert hasattr(PositionChecker, 'execute_sell_list')
+        assert inspect.iscoroutinefunction(PositionChecker.execute_sell_list)
+
+    def test_is_limit_down_delegates_to_private(self):
+        """is_limit_down公开方法委托给_is_limit_down"""
+        from nodes.market_monitor.position_checker import PositionChecker
+        import inspect
+        source = inspect.getsource(PositionChecker.is_limit_down)
+        assert "_is_limit_down" in source
+
+    def test_scanner_uses_public_interface(self):
+        """scanner.py不再直接调用_position_checker._is_limit_down/_execute_sell_list"""
+        scanner_path = os.path.join(
+            os.path.dirname(__file__), '..', '..', 'nodes', 'market_monitor', 'scanner.py'
+        )
+        if not os.path.exists(scanner_path):
+            pytest.skip("scanner.py not found")
+        with open(scanner_path) as f:
+            source = f.read()
+        assert "_position_checker._is_limit_down" not in source, \
+            "scanner应使用_position_checker.is_limit_down而非私有方法"
+        assert "_position_checker._execute_sell_list" not in source, \
+            "scanner应使用_position_checker.execute_sell_list而非私有方法"
+
+    def test_is_limit_down_returns_bool(self):
+        """is_limit_down返回bool"""
+        from nodes.market_monitor.position_checker import PositionChecker
+        pc = PositionChecker.__new__(PositionChecker)
+        pc._scanner = None
+        # Mock realtime_cache
+        pc._realtime_cache_prop = {}
+        type(pc).realtime_cache = property(lambda self: self._realtime_cache_prop)
+        result = pc.is_limit_down("600036.SH")
+        assert isinstance(result, bool)
