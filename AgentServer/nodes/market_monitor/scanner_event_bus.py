@@ -319,3 +319,5 @@ class ScannerEvents:
     CIRCUIT_BREAKER = "circuit_breaker"      # 熔断器变化
     DAILY_SETTLED = "daily_settled"          # 盘后结算完成
     RISK_SELL_EXECUTED = "risk_sell_executed"  # 风控卖出执行
+    SCANNER_ERROR = "scanner_error"            # 【v2.9.15】扫描器异常
+    HEALTH_CHANGED = "health_changed"          # 【v2.9.15】健康度变化

@@ -36,7 +36,7 @@ class TestVersionInfo:
         assert "git_hash" in info
         assert "git_branch" in info
         assert "design_doc_version" in info
-        assert info["design_doc_version"] == "v2.9.14"
+        assert info["design_doc_version"] == "v2.9.15"
         assert info["git_hash"]  # 不为空
 
     def test_version_info_git_fallback(self):

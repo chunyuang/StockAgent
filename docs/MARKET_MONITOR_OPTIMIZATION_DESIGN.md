@@ -1,10 +1,10 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.14 | 日期: 2026-05-30 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.15 | 日期: 2026-05-30 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅
-> 回测影响: 零文件修改, 472测试全通过
+> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅
+> 回测影响: 零文件修改, 488测试全通过
 
 ---
 
@@ -37,6 +37,7 @@
 | v2.9.12 | 2026-05-30 | 关键路径健壮性: _execute_force_empty单票异常不中断强制空仓+stop()清仓单票try/except+_execute_risk_sell place_order独立异常保护+EventBus/publish事件包裹try/except+卖出失败warning日志 |
 | v2.9.13 | 2026-05-30 | _scan_loop提取: 128行拆分为_scan_loop_trading/_scan_loop_settlement+线程安全补全(4处无锁修复)+.bak清理+27新增测试(433总计) |
 | v2.9.14 | 2026-05-30 | Redis Stream升级: scanner:position从Pub/Sub→xadd(maxlen=5000)+signal订阅器Stream(maxlen=1000)+_push_to_redis双模式+审计日志TTL索引(90天)+WS断线补发catchup_scanner_stream+Stream消费API(/stream/signals+/stream/positions)+消费兼容扁平字段+33新增测试+测试路径修复(472总计) |
+| v2.9.15 | 2026-05-30 | 错误遥测: SCANNER_ERROR事件(扫描异常+风控线程异常→EventBus→Redis→前端弹窗)+HEALTH_CHANGED事件枚举+参数预检API(/params/validate, 5项检查, is_safe字段)+Stream消息含_stream_id+前端追踪lastSignalStreamId/lastPositionStreamId(断线补发)+16新增测试(488总计) |
 
 v2.0关键修正:
 - ❶ 风控独立线程: asyncio协程→threading.Thread(真并行不受GIL影响)
@@ -1605,3 +1606,95 @@ await mongo_manager.db["audit_log"].create_index(
 ### 23.9 回测影响
 
 零。只修改scanner_event_subscribers.py(redis_ws_bridge.py/web/api/scanner.py和测试文件, 回测引擎无任何引用。
+
+---
+
+## 二十四、v2.9.15 错误遥测 + 参数预检 + 事件扩展 (2026-05-30)
+
+### 24.1 设计目标
+
+完善运行时可观测性: 扫描器异常实时感知(EventBus→Redis→前端弹窗);
+新增参数预检API(前端提交前验证,减少误操作); 扩展事件枚举。
+
+### 24.2 SCANNER_ERROR事件
+
+**问题**: 扫描器主循环或风控线程异常时, 仅日志记录, 前端无感知。
+运维人员需主动查看日志才能发现, 延迟响应时间。
+
+**修复**: 新增`ScannerEvents.SCANNER_ERROR`事件, 从两个关键错误路径发射:
+
+1. `_scan_loop`主循环except块 → `emit(SCANNER_ERROR, {error, error_type})`
+2. `_risk_thread`风控线程except块 → `emit(SCANNER_ERROR, {error, error_type})`
+
+事件订阅器`_make_scanner_error_handler`:
+- 推送`scanner:status`到Redis(Pub/Sub, 含`event: "scanner_error"`标记)
+- 写入审计日志`_write_audit_log(scanner, "scanner_error", {...})`
+
+前端WS接收: `scanner_status`消息中`event === "scanner_error"`时弹出ElMessage错误提示(8秒)。
+
+### 24.3 HEALTH_CHANGED事件枚举
+
+**问题**: 健康度变化时无EventBus事件, 未来难以触发告警。
+
+**修复**: 预留`ScannerEvents.HEALTH_CHANGED`枚举值。
+当前健康度通过`/health` API和daemon的health_pusher提供, 
+后续可从compute_health_score内部发射。
+
+### 24.4 参数预检API
+
+**问题**: 前端直接提交参数更新, 无前置验证。极端参数(如止损0.1%或仓位100%)可导致实盘风险。
+
+**修复**: 新增`POST /api/v1/scanner/params/validate`端点:
+
+```json
+// 请求
+{ "strategy_id": "半路追涨", "params": { "stop_loss_pct": 0.001, "max_position_ratio": 0.9 } }
+
+// 响应
+{ "success": true, "warnings": ["止损0.1%过紧, 实盘建议≥2%", "单票仓位90%过高, 实盘建议≤15%"], "is_safe": false }
+```
+
+验证项:
+1. 止损: >10%过宽, <2%过紧
+2. 止盈: <3%过低
+3. 单票仓位: >80%过高
+4. 追踪止损步长: <1%过紧
+5. 情绪调仓比例: >50%过高
+
+前端工作流: 先调用validate → warnings为空则直接提交 → 非空则弹出确认对话框。
+
+### 24.5 Stream消息含_stream_id
+
+v2.9.14已实现WS断线补发(catchup_scanner_stream), 但实时消息不含Stream entry ID,
+前端无法记录last_id用于断线回补。
+
+**修复**: 
+- `_handle_scanner_signal_message`/`_handle_scanner_position_message`新增`stream_id`参数
+- Stream消费时传入`msg_id`, WS广播消息包含`_stream_id`字段
+- 前端记录`lastSignalStreamId`/`lastPositionStreamId`
+
+### 24.6 变更文件
+
+| 文件 | 变更 |
+|---|---|
+| scanner_event_bus.py | 新增SCANNER_ERROR/HEALTH_CHANGED事件枚举 |
+| scanner_event_subscribers.py | 新增scanner_error订阅器(handler+审计日志); 注册10组 |
+| scanner.py | scan_loop/risk_thread异常时发射SCANNER_ERROR事件 |
+| web/api/scanner.py | 新增/params/validate端点; 版本→v2.9.15 |
+| redis_ws_bridge.py | signal/position handler含stream_id参数; WS广播含_stream_id |
+| MarketMonitorView.vue | 前端记录lastSignalStreamId; scanner_error弹窗 |
+| test_v2915_error_telemetry.py | 16新增测试 |
+| test_phase4_health_version.py | 版本断言v2.9.14→v2.9.15 |
+| MARKET_MONITOR_OPTIMIZATION_DESIGN.md | v2.9.15记录 |
+
+### 24.7 测试覆盖
+
+| 测试文件 | 用例数 | 覆盖点 |
+|---|---|---|
+| test_v2915_error_telemetry.py | 16 | SCANNER_ERROR枚举/发射/订阅/Redis推送/审计日志/参数预检5项/回测零影响 |
+
+**全量测试**: 488 passed (0 failed)
+
+### 24.8 回测影响
+
+零。SCANNER_ERROR事件和参数预检API仅影响scanner/前端/WS桥接, 回测引擎无引用。

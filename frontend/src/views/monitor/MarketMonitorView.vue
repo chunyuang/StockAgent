@@ -506,6 +506,10 @@ function connectWS() {
         } else if (d.type === 'scanner_status') {
           scannerStore.updateFromWs('status', d.status || d)
           if (d.status) status.value = { ...status.value, ...d.status }
+          // 【v2.9.15】异常事件弹窗提示
+          if (d.event === 'scanner_error') {
+            ElMessage({ type: 'error', message: `Scanner异常: ${d.error || '未知错误'}`, duration: 8000 })
+          }
           wsDebouncedFetch()
         }
       } catch {}
