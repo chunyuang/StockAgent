@@ -171,6 +171,10 @@ class LiveFilterPipeline:
             result.layer_details["L2_special_period"] = (
                 f"仓位系数={special_ratio:.0%} ({reason})" if special_ratio < 1.0 else "✅ 非特殊时期"
             )
+            # L2不淘汰候选,标记全部通过
+            for t in result.trace_candidates:
+                if t.final_status != "rejected":
+                    t.layer_results["L2_special_period"] = {"passed": True}
 
         # ---- L3: 情绪周期 ----
         if self._layer_enabled["L3_sentiment"]:
@@ -179,17 +183,25 @@ class LiveFilterPipeline:
             self._sentiment_score = score
             self._sentiment_period = period
             ratio *= sentiment_ratio
+            # L3默认全部通过(冰点期过滤在下面单独处理)
+            for t in result.trace_candidates:
+                if t.final_status != "rejected":
+                    t.layer_results["L3_sentiment"] = {"passed": True}
             # 策略级情绪过滤: 冰点期(<40)暂停半路追涨(与回测V36对齐)
             if score < 40:
-                before_count = len(result.candidates)
+                before_ids = {c["ts_code"] for c in result.candidates}
                 result.candidates = [c for c in result.candidates
                                      if c.get("strategy") != "halfway_chase"]
-                dropped_count = before_count - len(result.candidates)
-                if dropped_count > 0:
-                    logger.info(f"[L3] 冰点期(情绪={score:.0f}), 过滤半路追涨{dropped_count}只")
+                after_ids = {c["ts_code"] for c in result.candidates}
+                dropped = before_ids - after_ids
+                if dropped:
+                    self._record_layer_drop(result, "L3_sentiment", dropped,
+                                            lambda c: f"冰点期(情绪{score:.0f}<40), 暂停半路追涨")
+                    logger.info(f"[L3] 冰点期(情绪={score:.0f}), 过滤半路追涨{len(dropped)}只")
+            l3_drop_count = len(dropped) if score < 40 and dropped else 0
             result.layer_details["L3_sentiment"] = (
                 f"情绪={score:.0f}→{period}, 仓位系数={sentiment_ratio:.0%}"
-                + (f", 过滤半路追涨" if score < 40 else "")
+                + (f", 过滤半路追涨{l3_drop_count}只" if l3_drop_count else "")
             )
 
         # ---- L4: 盘前预选（记录淘汰明细）----
@@ -223,6 +235,10 @@ class LiveFilterPipeline:
         # ---- L6: 策略量能 ---- (已由scanner._apply_strategies完成)
         result.layers_applied["L6_strategy"] = True
         result.layer_details["L6_strategy"] = f"✅ 复用回测筛选 ({len(result.candidates)}个候选)"
+        # L6不淘汰候选,标记全部通过
+        for t in result.trace_candidates:
+            if t.final_status != "rejected":
+                t.layer_results["L6_strategy"] = {"passed": True}
 
         # ---- L7: 综合排序（记录去重淘汰）----
         if self._layer_enabled["L7_ranking"]:
@@ -313,33 +329,29 @@ class LiveFilterPipeline:
     def _build_trace_summary(self, result):
         """构建追踪汇总 — 正确追踪每层的输入/输出/淘汰
         
-        层分3类:
-        1. 淘汰层(L1/L4/L5/L7): 实际过滤候选, 有rejected记录
-        2. 仓位调整层(L2/L3): 不淘汰, 只调仓位系数, 所有候选通过
-        3. 标记层(L6/L8): 不淘汰, 只做记录, 所有候选通过
+        每层都通过layer_results正确标记了passed/rejected:
+        - 淘汰层(L1/L3冰点/L4/L5/L7): 部分passed, 部分rejected
+        - 仓位调整层(L2/L3非冰点/L6/L8): 全部passed, 0 rejected
         """
         layers = ["L1_force_empty", "L2_special_period", "L3_sentiment",
                    "L4_premarket", "L5_auction", "L6_strategy",
                    "L7_ranking", "L8_position"]
         
-        # 按层计算输入/输出/淘汰数(漏斗模型)
-        prev_output = len(result.trace_candidates)  # L1的input = 全部候选数
+        prev_output = len(result.trace_candidates)
         for layer in layers:
+            passed = sum(1 for t in result.trace_candidates
+                        if t.layer_results.get(layer, {}).get("passed") is True)
             rejected = sum(1 for t in result.trace_candidates
                           if t.layer_results.get(layer, {}).get("passed") is False)
-            # 如果本层没有淘汰任何人, 说明是非淘汰层(仓位调整/标记), 所有候选通过
-            if rejected == 0:
-                output = prev_output  # 不淘汰: 输出 = 输入
-            else:
-                output = prev_output - rejected  # 淘汰层: 输出 = 输入 - 淘汰
+            output = prev_output - rejected  # 本层输出 = 上层输出 - 本层淘汰
             result.trace_summary[layer] = {
-                "total": prev_output,
-                "passed": output,
+                "total": passed + rejected,
+                "passed": passed,
                 "rejected": rejected,
                 "input": prev_output,
                 "output": output,
             }
-            prev_output = output  # 下层输入 = 本层输出
+            prev_output = output
 
     # ========================================================================
     # L1: 强制空仓
