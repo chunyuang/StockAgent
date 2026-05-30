@@ -419,33 +419,39 @@ class TestRiskSellCircuitBreakerUpdate:
     def test_execute_risk_sell_updates_consecutive_losses(self):
         """_execute_risk_sell→_post_sell_cleanup应该更新circuit_breaker的连续亏损计数"""
         import re
+        # v2.9.27: _execute_risk_sell在scanner.py, _post_sell_cleanup在runtime_persistence.py
         with open(os.path.join(os.path.dirname(__file__), '..', '..', 'nodes', 'market_monitor', 'scanner.py')) as f:
-            source = f.read()
-        
-        # v2.9.19: _record_trade_result在_post_sell_cleanup中
-        # 验证_execute_risk_sell委托_post_sell_cleanup, 且_post_sell_cleanup含_record_trade_result
+            scanner_source = f.read()
+        with open(os.path.join(os.path.dirname(__file__), '..', '..', 'nodes', 'market_monitor', 'runtime_persistence.py')) as f:
+            rp_source = f.read()
+
+        # 验证_execute_risk_sell调用_post_sell_cleanup
         risk_sell_match = re.search(
             r'async def _execute_risk_sell.*?(?=\n    async def |\n    def )',
-            source, re.DOTALL
+            scanner_source, re.DOTALL
         )
         assert risk_sell_match, "_execute_risk_sell方法未找到"
         risk_sell_body = risk_sell_match.group(0)
-        
-        # 验证_execute_risk_sell调用_post_sell_cleanup
+
         assert '_post_sell_cleanup' in risk_sell_body, (
             "_execute_risk_sell未调用_post_sell_cleanup! "
             "v2.9.19重构后卖出后清理逻辑应在_post_sell_cleanup中。"
         )
-        
-        # 验证_post_sell_cleanup调用_record_trade_result
-        cleanup_match = re.search(
-            r'async def _post_sell_cleanup.*?(?=\n    async def |\n    def )',
-            source, re.DOTALL
+
+        # 验证post_sell_cleanup含_record_trade_result(v2.9.27:在RuntimePersistence中)
+        assert '_record_trade_result' in rp_source, (
+            "runtime_persistence.py中post_sell_cleanup应包含_record_trade_result调用!"
         )
-        assert cleanup_match, "_post_sell_cleanup方法未找到"
+
+        # 验证post_sell_cleanup调用_record_trade_result
+        cleanup_match = re.search(
+            r'async def post_sell_cleanup.*?(?=\n    async def |\n    def |\n    @staticmethod)',
+            rp_source, re.DOTALL
+        )
+        assert cleanup_match, "post_sell_cleanup方法未找到(runtime_persistence.py)"
         cleanup_body = cleanup_match.group(0)
-        
+
         assert '_record_trade_result' in cleanup_body, (
-            "_post_sell_cleanup未调用_record_trade_result! "
+            "post_sell_cleanup未调用_record_trade_result! "
             "止损卖出不计入连续亏损统计, 熔断逻辑会失效。"
         )

@@ -376,26 +376,26 @@ class TestRiskSellStateLock:
     """回归测试: _execute_risk_sell→_post_sell_cleanup清理状态必须加锁"""
 
     def test_trailing_stops_cleanup_uses_lock(self):
-        """验证卖出后trailing_stops.pop受_state_lock保护(v2.9.19:逻辑在_post_sell_cleanup)"""
-        scanner_source = open(
-            os.path.join(os.path.dirname(__file__), '..', '..', 'nodes', 'market_monitor', 'scanner.py')
+        """验证卖出后trailing_stops.pop受_state_lock保护(v2.9.27:逻辑在RuntimePersistence.post_sell_cleanup)"""
+        rp_source = open(
+            os.path.join(os.path.dirname(__file__), '..', '..', 'nodes', 'market_monitor', 'runtime_persistence.py')
         ).read()
 
         import re
-        # v2.9.19: _execute_risk_sell委托_post_sell_cleanup, 锁在_post_sell_cleanup中
-        # 验证_post_sell_cleanup中trailing_stops.pop在_state_lock内
+        # v2.9.27: _post_sell_cleanup已提取到RuntimePersistence
+        # 验证post_sell_cleanup中trailing_stops.pop在_state_lock内
         method_match = re.search(
-            r'async def _post_sell_cleanup.*?(?=\n    async def |\n    def |\Z)',
-            scanner_source, re.DOTALL
+            r'async def post_sell_cleanup.*?(?=\n    async def |\n    def |\n    @staticmethod|\Z)',
+            rp_source, re.DOTALL
         )
-        assert method_match, "_post_sell_cleanup方法未找到"
+        assert method_match, "post_sell_cleanup方法未找到(runtime_persistence.py)"
         method_body = method_match.group(0)
 
         lock_block = re.search(
-            r'with self\._state_lock:.*?self\._trailing_stops\.pop',
+            r'with scanner\._state_lock:.*?scanner\._trailing_stops\.pop',
             method_body, re.DOTALL
         )
         assert lock_block, (
-            "_post_sell_cleanup中trailing_stops.pop未在_state_lock保护内! "
+            "post_sell_cleanup中trailing_stops.pop未在_state_lock保护内! "
             "这是线程安全回归bug。"
         )

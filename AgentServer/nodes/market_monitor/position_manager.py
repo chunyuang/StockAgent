@@ -520,7 +520,7 @@ class PositionManager:
 
     def get_pending_sells_summary(self) -> List[Dict]:
         """获取跌停挂起卖出摘要(供API/前端使用)
-        
+
         Returns:
             [{ts_code, reason, price, wait_seconds, source}, ...]
         """
@@ -537,3 +537,90 @@ class PositionManager:
                         "source": info.get("source", "unknown"),
                     })
         return result
+
+    # ==================== v2.9.27: 风控卖出执行逻辑提取 ====================
+
+    def retry_pending_sells(self, realtime_data: Dict):
+        """跌停恢复后重试挂起的卖出指令【v2.9.22提取, v2.9.27:从scanner移入PositionManager】
+
+        当股票从跌停恢复(非跌停状态)且有挂起的卖出指令时,
+        重新尝试执行该卖出。避免跌停恢复后卖出指令被遗忘。
+        """
+        scanner = self._scanner
+        with self.state_lock:
+            pending = dict(self.pending_sells)
+        if not pending:
+            return
+
+        retried = []
+        for ts_code, info in pending.items():
+            # 检查是否仍持有该票
+            pos = None
+            for p in scanner._broker.get_positions():
+                if p.ts_code == ts_code and p.available_qty > 0:
+                    pos = p
+                    break
+            if not pos:
+                # 已无持仓或无可用数量, 清除挂起
+                with self.state_lock:
+                    self.pending_sells.pop(ts_code, None)
+                continue
+
+            # 检查是否不再跌停
+            if self._is_limit_down(ts_code):
+                continue  # 仍在跌停, 无法卖出
+
+            # 跌停恢复! 尝试执行挂起的卖出
+            reason = info.get("reason", "pending_retry")
+            price = info.get("price", pos.current_price)
+            logger.info(f"[RISK_THREAD] 跌停恢复重试: {ts_code} {reason}")
+
+            if scanner._loop and not scanner._loop.is_closed():
+                import asyncio
+                try:
+                    future = asyncio.run_coroutine_threadsafe(
+                        scanner._execute_risk_sell(pos, reason, price, pos.available_qty),
+                        scanner._loop
+                    )
+                    future.result(timeout=5)
+                    retried.append(ts_code)
+                except Exception as e:
+                    logger.debug(f"[RISK_THREAD] 跌停恢复重试失败: {ts_code} {e}")
+
+        # 清除成功重试的条目
+        if retried:
+            with self.state_lock:
+                for code in retried:
+                    self.pending_sells.pop(code, None)
+
+    def execute_sell_list_from_risk(self, to_sell: list):
+        """风控线程执行卖出列表【v2.9.22提取, v2.9.27:从scanner移入PositionManager】
+
+        逐个执行PositionManager返回的to_sell列表, 超时/失败时记录到pending_sells。
+        """
+        import asyncio
+        scanner = self._scanner
+        for pos, reason, price, risk in to_sell:
+            if scanner._loop and not scanner._loop.is_closed():
+                try:
+                    sell_qty = pos.available_qty
+                    future = asyncio.run_coroutine_threadsafe(
+                        scanner._execute_risk_sell(pos, reason, price, sell_qty),
+                        scanner._loop
+                    )
+                    future.result(timeout=5)
+                except asyncio.TimeoutError:
+                    # 超时不丢弃,记录到pending_sells待下次执行
+                    logger.warning(
+                        f"[RISK_THREAD] 卖出执行超时(5秒): {pos.ts_code} {reason}, "
+                        f"加入pending_sells待下次执行"
+                    )
+                    with self.state_lock:
+                        if pos.ts_code not in self.pending_sells:
+                            self.pending_sells[pos.ts_code] = {
+                                "reason": reason, "price": price,
+                                "added_at": time.time(),
+                                "source": "risk_thread_timeout",
+                            }
+                except Exception as e:
+                    logger.error(f"[RISK_THREAD] 卖出执行失败: {pos.ts_code} {e}")

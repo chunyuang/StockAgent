@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 # ============================================================================
 
 class TestExecuteRiskSellRefactor:
-    """验证_execute_risk_sell→_post_sell_cleanup提取"""
+    """验证_execute_risk_sell→_post_sell_cleanup提取(v2.9.27:post_sell_cleanup在RuntimePersistence)"""
 
     def test_execute_risk_sell_calls_post_sell_cleanup(self):
         """_execute_risk_sell成功时调用_post_sell_cleanup"""
@@ -29,48 +29,48 @@ class TestExecuteRiskSellRefactor:
         assert "_post_sell_cleanup" in source, "_execute_risk_sell应委托_post_sell_cleanup"
 
     def test_post_sell_cleanup_exists(self):
-        """_post_sell_cleanup方法存在且是async"""
-        from nodes.market_monitor.scanner import MarketScanner
-        assert hasattr(MarketScanner, '_post_sell_cleanup')
-        assert inspect.iscoroutinefunction(MarketScanner._post_sell_cleanup)
+        """post_sell_cleanup方法存在且是async(v2.9.27:在RuntimePersistence中)"""
+        from nodes.market_monitor.runtime_persistence import RuntimePersistence
+        assert hasattr(RuntimePersistence, 'post_sell_cleanup')
+        assert inspect.iscoroutinefunction(RuntimePersistence.post_sell_cleanup)
 
     def test_post_sell_cleanup_has_source_param(self):
-        """_post_sell_cleanup接受source关键字参数"""
-        from nodes.market_monitor.scanner import MarketScanner
-        sig = inspect.signature(MarketScanner._post_sell_cleanup)
+        """post_sell_cleanup接受source关键字参数"""
+        from nodes.market_monitor.runtime_persistence import RuntimePersistence
+        sig = inspect.signature(RuntimePersistence.post_sell_cleanup)
         assert 'source' in sig.parameters
 
     def test_post_sell_cleanup_contains_timeline(self):
-        """_post_sell_cleanup包含timeline记录"""
-        from nodes.market_monitor.scanner import MarketScanner
-        source = inspect.getsource(MarketScanner._post_sell_cleanup)
+        """post_sell_cleanup包含timeline记录"""
+        from nodes.market_monitor.runtime_persistence import RuntimePersistence
+        source = inspect.getsource(RuntimePersistence.post_sell_cleanup)
         assert "_timeline" in source
 
     def test_post_sell_cleanup_contains_state_lock(self):
-        """_post_sell_cleanup包含_state_lock保护"""
-        from nodes.market_monitor.scanner import MarketScanner
-        source = inspect.getsource(MarketScanner._post_sell_cleanup)
+        """post_sell_cleanup包含_state_lock保护"""
+        from nodes.market_monitor.runtime_persistence import RuntimePersistence
+        source = inspect.getsource(RuntimePersistence.post_sell_cleanup)
         assert "_state_lock" in source
         assert "_trailing_stops.pop" in source
 
     def test_post_sell_cleanup_contains_eventbus(self):
-        """_post_sell_cleanup包含EventBus事件发射"""
-        from nodes.market_monitor.scanner import MarketScanner
-        source = inspect.getsource(MarketScanner._post_sell_cleanup)
+        """post_sell_cleanup包含EventBus事件发射"""
+        from nodes.market_monitor.runtime_persistence import RuntimePersistence
+        source = inspect.getsource(RuntimePersistence.post_sell_cleanup)
         assert "RISK_SELL_EXECUTED" in source
         assert "POSITION_CHANGED" in source
 
     def test_post_sell_cleanup_contains_persistence(self):
-        """_post_sell_cleanup包含持久化调用"""
-        from nodes.market_monitor.scanner import MarketScanner
-        source = inspect.getsource(MarketScanner._post_sell_cleanup)
+        """post_sell_cleanup包含持久化调用"""
+        from nodes.market_monitor.runtime_persistence import RuntimePersistence
+        source = inspect.getsource(RuntimePersistence.post_sell_cleanup)
         assert "save_state" in source
         assert "_save_runtime_snapshot" in source
 
     def test_post_sell_cleanup_contains_record_trade_result(self):
-        """_post_sell_cleanup包含_record_trade_result调用"""
-        from nodes.market_monitor.scanner import MarketScanner
-        source = inspect.getsource(MarketScanner._post_sell_cleanup)
+        """post_sell_cleanup包含_record_trade_result调用"""
+        from nodes.market_monitor.runtime_persistence import RuntimePersistence
+        source = inspect.getsource(RuntimePersistence.post_sell_cleanup)
         assert "_record_trade_result" in source
 
     def test_execute_risk_sell_still_handles_failure(self):
@@ -211,25 +211,28 @@ class TestGetStatusSimplification:
     """验证get_status提取_build_account_info"""
 
     def test_build_account_info_exists(self):
-        """_build_account_info方法存在"""
+        """_build_account_info方法存在(ScannerUtils或DELEGATE_MAP)"""
         from nodes.market_monitor.scanner import MarketScanner
-        assert hasattr(MarketScanner, '_build_account_info')
+        from nodes.market_monitor.scanner_utils import ScannerUtils
+        # v2.9.27:已提取到ScannerUtils, 通过DELEGATE_MAP委托
+        assert hasattr(ScannerUtils, 'build_account_info')
+        assert '_build_account_info' in MarketScanner._DELEGATE_MAP
 
     def test_build_account_info_is_sync(self):
         """_build_account_info是同步方法"""
-        from nodes.market_monitor.scanner import MarketScanner
-        assert not inspect.iscoroutinefunction(MarketScanner._build_account_info)
+        from nodes.market_monitor.scanner_utils import ScannerUtils
+        assert not inspect.iscoroutinefunction(ScannerUtils.build_account_info)
 
     def test_build_account_info_handles_gm(self):
         """_build_account_info处理掘金模式"""
-        from nodes.market_monitor.scanner import MarketScanner
-        source = inspect.getsource(MarketScanner._build_account_info)
+        from nodes.market_monitor.scanner_utils import ScannerUtils
+        source = inspect.getsource(ScannerUtils.build_account_info)
         assert "MODE_GM" in source
 
     def test_build_account_info_handles_sim(self):
         """_build_account_info处理模拟broker"""
-        from nodes.market_monitor.scanner import MarketScanner
-        source = inspect.getsource(MarketScanner._build_account_info)
+        from nodes.market_monitor.scanner_utils import ScannerUtils
+        source = inspect.getsource(ScannerUtils.build_account_info)
         assert "total_assets" in source
         assert "available_cash" in source
 
