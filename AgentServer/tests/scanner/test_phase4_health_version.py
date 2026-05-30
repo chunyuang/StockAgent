@@ -36,23 +36,27 @@ class TestVersionInfo:
         assert "git_hash" in info
         assert "git_branch" in info
         assert "design_doc_version" in info
-        assert info["design_doc_version"] == "v2.9.7"
+        assert info["design_doc_version"] == "v2.9.9"
         assert info["git_hash"]  # 不为空
 
     def test_version_info_git_fallback(self):
         """git命令失败时返回unknown"""
         import subprocess
+        import sys
+        api_path = "nodes.web.api.scanner"
+        if api_path not in sys.modules:
+            return
+        
+        mod = sys.modules[api_path]
+        if not hasattr(mod, '_get_version_info'):
+            pytest.skip("_get_version_info not found")
+        
+        # 【v2.9.10:清除版本缓存, 确保patch生效】
+        if hasattr(mod, '_version_cache'):
+            mod._version_cache["value"] = None
+            mod._version_cache["ts"] = 0
+        
         with patch("subprocess.check_output", side_effect=subprocess.SubprocessError("no git")):
-            import importlib
-            import sys
-            api_path = "nodes.web.api.scanner"
-            if api_path not in sys.modules:
-                return
-            
-            mod = sys.modules[api_path]
-            if not hasattr(mod, '_get_version_info'):
-                pytest.skip("_get_version_info not found")
-            
             info = mod._get_version_info()
             assert info["git_hash"] == "unknown"
             assert info["git_branch"] == "unknown"
