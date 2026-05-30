@@ -2354,7 +2354,12 @@ mm-tab-content {
 .fn-count { flex: 1; }
 .fn-reject { color: var(--stock-up); font-size: 11px; }
 .fn-arrow { text-align: center; color: var(--text-tertiary); font-size: 12px; }
-.exec-trace { display: flex; align-items: center; justify-content: space-between; padding: 2px 6px; border-radius: 4px; margin-bottom: 1px; background: var(--bg-base); font-size: 11px; line-height: 1.4; }
+.et-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 3px; }
+.et-card { padding: 3px 6px; border-radius: 4px; font-size: 11px; background: var(--bg-base); border: 1px solid var(--border-default); }
+.et-card.et-pass { border-left: 2px solid var(--stock-up); }
+.et-card.et-fail { border-left: 2px solid var(--stock-down); }
+.et-row1 { display: flex; align-items: center; gap: 3px; }
+.et-row2 { font-size: 10px; color: var(--text-tertiary); padding-left: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 【v2.9.7: 候选过滤按钮+淘汰统计+加载更多 */
 .tab-btn-sm { padding: 2px 10px; border-radius: 4px; border: 1px solid var(--border-default); background: transparent; font-size: 11px; cursor: pointer; color: var(--text-secondary); transition: all 0.15s; }
 .tab-btn-sm:hover { border-color: var(--el-color-primary-light-5); color: var(--el-color-primary); }
