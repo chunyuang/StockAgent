@@ -351,60 +351,42 @@ else
 fi
 
 # 5. 构建前端 + 同步到Backend静态目录
-echo -e "${YELLOW}🎨 5/7 构建前端 + 同步dist到Backend...${NC}"
-cd "${PROJECT_ROOT}/frontend"
-npm run build > "${PROJECT_ROOT}/logs/frontend_build.log" 2>&1
-if [ $? -eq 0 ]; then
-  echo -e "${GREEN}✅ 前端build成功，dist已就绪${NC}"
-  # 同步dist到AgentServer/static（关键！否则8000端口访问的是旧页面）
-  if [ -f "sync-dist.mjs" ]; then
-    node sync-dist.mjs >> "${PROJECT_ROOT}/logs/frontend_build.log" 2>&1 || \
-      rsync -a --delete "${PROJECT_ROOT}/frontend/dist/" "${PROJECT_ROOT}/AgentServer/static/"
+echo -e "${YELLOW}🎨 5/7 构建前端 + 部署 (使用frontend_deploy.sh)...${NC}"
+cd "${PROJECT_ROOT}"
+if [ -f "bin/frontend_deploy.sh" ]; then
+  bash bin/frontend_deploy.sh >> "${PROJECT_ROOT}/logs/frontend_build.log" 2>&1
+  if [ $? -eq 0 ]; then
+    echo -e "${GREEN}✅ 前端构建+部署+验证完成${NC}"
   else
-    rsync -a --delete "${PROJECT_ROOT}/frontend/dist/" "${PROJECT_ROOT}/AgentServer/static/"
+    echo -e "${RED}❌ 前端部署失败！查看日志: ${PROJECT_ROOT}/logs/frontend_build.log${NC}"
+    echo -e "${YELLOW}⚠️  继续启动（但前端页面可能不可用）${NC}"
   fi
-  echo -e "${GREEN}✅ 静态文件已同步到 AgentServer/static/${NC}"
 else
-  echo -e "${RED}❌ 前端build失败！查看日志: tail -f ${PROJECT_ROOT}/logs/frontend_build.log${NC}"
-  echo -e "${YELLOW}⚠️  继续启动（Vite dev server可用，但Backend静态页不可用）${NC}"
+  # fallback: 旧方式
+  cd "${PROJECT_ROOT}/frontend"
+  npm run build > "${PROJECT_ROOT}/logs/frontend_build.log" 2>&1
+  rsync -a --delete "${PROJECT_ROOT}/frontend/dist/" "${PROJECT_ROOT}/AgentServer/static/"
+  echo -e "${GREEN}✅ 前端build+sync完成(旧方式)${NC}"
 fi
 
 # 6. 启动前端Vite开发服务
-echo -e "${YELLOW}🎨 6/7 启动前端Vite开发服务...${NC}"
+echo -e "${YELLOW}🎨 6/7 启动前端Vite开发服务(可选,仅开发时需要)...${NC}"
+echo -e "${CYAN}   ℹ️  生产模式已通过Nginx→8000提供稳定页面, Vite dev仅用于开发调试${NC}"
 cd "${PROJECT_ROOT}/frontend"
 nohup npm run dev -- --port 5174 --host 0.0.0.0 > "${PROJECT_ROOT}/logs/frontend.log" 2>&1 &
 frontend_pid=$!
 echo $frontend_pid > "${PROJECT_ROOT}/logs/frontend.pid"
-echo "  前端服务启动，PID: $frontend_pid (已写入PID文件)"
+echo "  Vite dev服务启动，PID: $frontend_pid"
 
 # 等待3秒让前端服务完全启动
 sleep 3
 
-# 检查Vite实际端口(5174被占时会自动用5175)
+# 检查Vite实际端口
 VITE_PORT=$(ss -tlnp 2>/dev/null | grep -E ":(5174|5175) " | head -1 | grep -oP ':\K[0-9]+' | head -1)
 if [[ -n "$VITE_PORT" ]]; then
-  echo -e "${GREEN}✅ Vite启动成功 (端口$VITE_PORT)${NC}"
-  if [[ "$VITE_PORT" != "5174" ]]; then
-    echo -e "${YELLOW}⚠️  Vite用了${VITE_PORT}而非5174，nginx代理可能需更新${NC}"
-  fi
+  echo -e "${GREEN}✅ Vite dev启动成功 (端口${VITE_PORT})，直接访问 :${VITE_PORT} 即可开发调试${NC}"
 else
-  echo -e "${YELLOW}⚠️  Vite可能未启动，检查: tail ${PROJECT_ROOT}/logs/frontend.log${NC}"
-fi
-
-# 前端静态文件时间戳
-STATIC_HTML="${PROJECT_ROOT}/AgentServer/static/index.html"
-if [[ -f "$STATIC_HTML" ]]; then
-  HTML_TIME=$(stat -c '%y' "$STATIC_HTML" 2>/dev/null | cut -d. -f1)
-  echo -e "  ${GREEN}前端静态文件更新: $HTML_TIME${NC}"
-fi
-
-# 检查前端服务是否启动成功
-if ps -p $frontend_pid > /dev/null; then
-  echo -e "${GREEN}✅ 前端服务启动成功，PID: $frontend_pid，端口: 5174${NC}"
-else
-  echo -e "${YELLOW}⚠️  前端服务启动失败，但不影响后端回测使用，查看日志:${NC}"
-  echo -e "${YELLOW}   tail -f ${PROJECT_ROOT}/logs/frontend.log${NC}"
-  # 前端不是必须的，不退出
+  echo -e "${YELLOW}⚠️  Vite dev可能未启动，但不影响生产页面(http://172.16.16.101/)${NC}"
 fi
 
 # 7. 完成输出
@@ -414,8 +396,9 @@ echo -e "${GREEN}👉 Web服务: 端口 8000 (PID $web_pid)${NC}"
 echo -e "${GREEN}👉 回测引擎: 端口 50057 (PID $backtest_pid)${NC}"
 echo -e "${GREEN}👉 前端: 端口 5174 (PID $frontend_pid)${NC}"
 echo -e "${GREEN}👉 前端build: frontend/dist/ 已就绪${NC}"
-echo -e "${GREEN}👉 前端访问地址: http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'localhost'):5174/ultra-short-v2${NC}"
-echo -e "${GREEN}👉 Backend静态页: http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'localhost'):8000/ultra-short-v2${NC}"
+echo -e "${GREEN}👉 前端(生产): http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'localhost')/  (Nginx→8000)${NC}"
+echo -e "${GREEN}👉 前端(开发): http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'localhost'):5174/ (Vite HMR)${NC}"
+echo -e "${GREEN}👉 数据库管理: http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'localhost')/admin/db${NC}"
 echo -e "${GREEN}👉 数据库管理页面: http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'localhost'):5174/admin/db${NC}"
 echo -e "${GREEN}👉 当前分支: $(git rev-parse --abbrev-ref HEAD)${NC}"
 echo -e "${YELLOW}============================================${NC}"
