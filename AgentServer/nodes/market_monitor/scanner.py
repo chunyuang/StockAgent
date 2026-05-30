@@ -1338,9 +1338,7 @@ class MarketScanner:
         # 执行卖出(PositionManager只做检查,不执行交易)
         self._execute_sell_list_from_risk(to_sell)
 
-    # _retry_pending_sells已提取到PositionManager【v2.9.27:DELEGATE_MAP动态委托】
 
-    # _execute_sell_list_from_risk已提取到PositionManager【v2.9.27:DELEGATE_MAP动态委托】
 
     async def _execute_risk_sell(self, pos, reason: str, price: float, quantity: int):
         """风控线程触发的卖出执行(在asyncio主循环中运行)【v2.9.12:try/except保护, v2.9.19:提取_post_sell_cleanup】"""
@@ -1369,8 +1367,6 @@ class MarketScanner:
         else:
             logger.warning(f"[RISK_SELL] 卖出失败 {pos.ts_code}: {msg}")
 
-    # _build_timeline_entry已提取到RuntimePersistence【v2.9.27:DELEGATE_MAP动态委托】
-    # _post_sell_cleanup已提取到RuntimePersistence【v2.9.27:DELEGATE_MAP动态委托】
 
     async def scan_once(self, trade_date: str, force: bool = False):
         """单次扫描
@@ -1591,11 +1587,8 @@ class MarketScanner:
         logger.warning(f"[FILTER] ⚠️ 强制空仓: {reason}")
         await self._liquidate_positions(reason=f"强制空仓: {reason}", source="force_empty")
 
-    # _merge_filter_result已提取到LiveFilterPipeline【v2.9.28:DELEGATE_MAP动态委托】
 
-    # ==================== 信号管理 ====================
-
-    # ==================== 公共止损止盈方法 ====================
+    # ==================== 信号管理+止损止盈 ====================
 
         # PositionManager委托 (止损价/止盈价已在DELEGATE_MAP中声明)
         # _check_stop_loss_take_profit 保留在scanner中因为需要先更新追踪止损状态
@@ -1610,7 +1603,7 @@ class MarketScanner:
         return []  # fallback(不应到达)
 
     # ==================== 持仓检查 ====================
-    # ==================== 情绪调仓执行(v2.9.6提取核心逻辑到EmotionCycle) ====================
+    # ==================== 情绪调仓 ====================
     
     def _build_emotion_sell_list(self, positions, rule: Dict, old_phase: str, new_phase: str) -> List[Tuple]:
         """根据情绪降级规则构建卖出列表 — 委托给EmotionCycleManager【v2.9.16】"""
@@ -1631,9 +1624,7 @@ class MarketScanner:
     # 【v2.9.24: _handle_emotion_phase_change提取到EmotionCycleManager.handle_emotion_phase_change】
     # 通过DELEGATE_MAP+__getattr__动态委托
 
-    # ==================== Phase4.3: 健康度评分 ====================
-
-    # ==================== 线程安全辅助方法(v2.5) ====================
+    # ==================== 健康度+线程安全 ====================
 
     def _get_activated_trailing_stops_safe(self) -> Dict:
         """线程安全读取已激活的追踪止损(深拷贝+过滤)"""
@@ -1665,7 +1656,7 @@ class MarketScanner:
         with self._state_lock:
             return dict(self._pending_sells)
 
-    # ==================== V59:智能持仓检查频率 ====================
+    # ==================== 智能持仓检查频率 ====================
 
     def _make_quote_event_emitter(self):
         """创建行情事件发射回调(v2.9:消除QuoteManager对Scanner的循环引用)
@@ -1751,19 +1742,5 @@ class MarketScanner:
         except Exception as _e:
             logger.debug(f"[SCANNER] 从MongoDB恢复策略参数失败: {_e}")
 
-    # 【v2.9.9:以下方法已移至DELEGATE_MAP+__getattr__动态委托,不再显式定义】
-    # _compute_health_score → ScannerUtils.compute_health_score(self)
-    # _detect_anomalies → StrategyScorer.detect_anomalies(rt, active_signals, prev_cache)
-    # _check_circuit_breaker → RiskWatchdog.check_circuit_breaker(self)
-    # _record_trade_result → RiskWatchdog.record_trade_result(self, profit_pct)
-    # reset_circuit_breaker → RiskWatchdog.reset_circuit_breaker(self)
-    # _save_performance_snapshot → RuntimePersistence.save_performance_snapshot(trade_date)
-    # _push_daily_summary → RuntimePersistence.push_daily_summary(trade_date)
-    # _merge_factors → StrategyScorer.merge_factors(realtime_data)
-    # _get_effective_strategy_config → StrategyScorer.get_effective_strategy_config(strategy_key)
-    # _get_strategy_risk → StrategyScorer.get_strategy_risk(strategy_key)
-
-    # ==================== v2.9.24: diagnose提取到ScannerUtils ====================
-    # diagnose() → ScannerUtils.diagnose(scanner) 通过DELEGATE_MAP+__getattr__动态委托
-    # _handle_emotion_phase_change → EmotionCycleManager.handle_emotion_phase_change(scanner, old_phase, new_phase) 通过DELEGATE_MAP委托
+    # DELEGATE_MAP条目即委托文档, 不再逐一注释
 
