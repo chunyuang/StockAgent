@@ -705,31 +705,36 @@ class MarketScanner:
             positions = self._broker.get_positions()
             for pos in positions:
                 if pos.available_qty > 0:
-                    self._broker.update_realtime(pos.ts_code, pos.current_price)
-                    ok, msg, order = self._broker.place_order(
-                        ts_code=pos.ts_code,
-                        stock_name=pos.stock_name,
-                        side="sell",
-                        quantity=pos.available_qty,
-                        price=pos.current_price,
-                        order_type="market",
-                        strategy=pos.strategy,
-                        reason="停止清仓",
-                    )
-                    if ok:
-                        self._timeline.append({
-                            "time": datetime.now().strftime("%H:%M:%S"),
-                            "action": "sell",
-                            "ts_code": pos.ts_code,
-                            "stock_name": pos.stock_name,
-                            "strategy": pos.strategy,
-                            "shares": pos.available_qty,
-                            "price": order.filled_price,
-                            "reason": "停止清仓",
-                            "profit_pct": round(pos.profit_pct, 2),
-                            "profit_amount": round((pos.current_price - pos.avg_cost) * pos.available_qty, 2),
-                        })
-                        logger.info(f"[STOP] 清仓卖出 {pos.ts_code} {pos.available_qty}股@{order.filled_price:.2f}")
+                    try:
+                        self._broker.update_realtime(pos.ts_code, pos.current_price)
+                        ok, msg, order = self._broker.place_order(
+                            ts_code=pos.ts_code,
+                            stock_name=pos.stock_name,
+                            side="sell",
+                            quantity=pos.available_qty,
+                            price=pos.current_price,
+                            order_type="market",
+                            strategy=pos.strategy,
+                            reason="停止清仓",
+                        )
+                        if ok:
+                            self._timeline.append({
+                                "time": datetime.now().strftime("%H:%M:%S"),
+                                "action": "sell",
+                                "ts_code": pos.ts_code,
+                                "stock_name": pos.stock_name,
+                                "strategy": pos.strategy,
+                                "shares": pos.available_qty,
+                                "price": order.filled_price,
+                                "reason": "停止清仓",
+                                "profit_pct": round(pos.profit_pct, 2),
+                                "profit_amount": round((pos.current_price - pos.avg_cost) * pos.available_qty, 2),
+                            })
+                            logger.info(f"[STOP] 清仓卖出 {pos.ts_code} {pos.available_qty}股@{order.filled_price:.2f}")
+                        else:
+                            logger.warning(f"[STOP] 清仓卖出失败 {pos.ts_code}: {msg}")
+                    except Exception as e:
+                        logger.error(f"[STOP] 清仓卖出异常 {pos.ts_code}: {e}")
             # 清仓后强制保存
             try:
                 await self._broker.save_state(force=True)
@@ -1172,7 +1177,7 @@ class MarketScanner:
                     logger.error(f"[RISK_THREAD] 卖出执行失败: {pos.ts_code} {e}")
 
     async def _execute_risk_sell(self, pos, reason: str, price: float, quantity: int):
-        """风控线程触发的卖出执行(在asyncio主循环中运行)"""
+        """风控线程触发的卖出执行(在asyncio主循环中运行)【v2.9.12:try/except保护】"""
         if pos.available_qty <= 0:
             return
         
@@ -1180,17 +1185,22 @@ class MarketScanner:
         sell_profit_pct = pos.profit_pct
         sell_profit_amount = (pos.current_price - pos.avg_cost) * quantity
         
-        self._broker.update_realtime(pos.ts_code, pos.current_price)
-        ok, msg, order = self._broker.place_order(
-            ts_code=pos.ts_code,
-            stock_name=pos.stock_name,
-            side="sell",
-            quantity=quantity,
-            price=price,
-            order_type="market",
-            strategy=pos.strategy,
-            reason=reason,
-        )
+        try:
+            self._broker.update_realtime(pos.ts_code, pos.current_price)
+            ok, msg, order = self._broker.place_order(
+                ts_code=pos.ts_code,
+                stock_name=pos.stock_name,
+                side="sell",
+                quantity=quantity,
+                price=price,
+                order_type="market",
+                strategy=pos.strategy,
+                reason=reason,
+            )
+        except Exception as e:
+            logger.error(f"[RISK_SELL] place_order异常 {pos.ts_code}: {e}")
+            return
+        
         if ok:
             self._timeline.append({
                 "time": datetime.now().strftime("%H:%M:%S"),
@@ -1212,23 +1222,33 @@ class MarketScanner:
             with self._state_lock:
                 self._trailing_stops.pop(pos.ts_code, None)
                 self._position_risk_levels.pop(pos.ts_code, None)
-            await self._publish_scanner_event("timeline", {"item": self._timeline[-1]})
+            try:
+                await self._publish_scanner_event("timeline", {"item": self._timeline[-1]})
+            except Exception:
+                pass
             # EventBus: 风控卖出事件
-            await self._event_bus.emit(ScannerEvents.RISK_SELL_EXECUTED, {
-                "ts_code": pos.ts_code, "reason": reason,
-                "price": order.filled_price, "profit_pct": sell_profit_pct,
-            })
-            # EventBus: 持仓变更
-            await self._event_bus.emit(ScannerEvents.POSITION_CHANGED, {
-                "ts_code": pos.ts_code, "action": "sell", "reason": reason,
-            })
+            try:
+                await self._event_bus.emit(ScannerEvents.RISK_SELL_EXECUTED, {
+                    "ts_code": pos.ts_code, "reason": reason,
+                    "price": order.filled_price, "profit_pct": sell_profit_pct,
+                })
+                await self._event_bus.emit(ScannerEvents.POSITION_CHANGED, {
+                    "ts_code": pos.ts_code, "action": "sell", "reason": reason,
+                })
+            except Exception:
+                pass
             logger.info(f"[RISK_THREAD] {reason}: {pos.ts_code} {quantity}股@{order.filled_price:.2f}")
             # 持久化
             try:
                 await self._broker.save_state(force=True)
             except Exception:
                 pass
-            await self._save_runtime_snapshot(force=True)
+            try:
+                await self._save_runtime_snapshot(force=True)
+            except Exception:
+                pass
+        else:
+            logger.warning(f"[RISK_SELL] 卖出失败 {pos.ts_code}: {msg}")
 
     async def scan_once(self, trade_date: str, force: bool = False):
         """单次扫描
@@ -1417,19 +1437,31 @@ class MarketScanner:
         return candidates
 
     async def _execute_force_empty(self, reason: str):
-        """强制空仓: 卖出所有持仓【v2.9提取, v2.9.9修复broker.sell→broker.place_order】"""
+        """强制空仓: 卖出所有持仓【v2.9提取, v2.9.9修复broker.sell→broker.place_order, v2.9.12单票异常不中断】"""
         logger.warning(f"[FILTER] ⚠️ 强制空仓: {reason}")
         if self._broker:
-            for p in self._broker.get_positions():
-                self._broker.update_realtime(p.ts_code, p.current_price)
-                self._broker.place_order(
-                    ts_code=p.ts_code,
-                    stock_name=p.stock_name if hasattr(p, 'stock_name') else p.ts_code,
-                    side="sell",
-                    quantity=p.total_qty,
-                    price=p.current_price,
-                    reason=f"强制空仓: {reason}",
-                )
+            positions = self._broker.get_positions()
+            sold, failed = 0, 0
+            for p in positions:
+                try:
+                    self._broker.update_realtime(p.ts_code, p.current_price)
+                    ok, msg, order = self._broker.place_order(
+                        ts_code=p.ts_code,
+                        stock_name=p.stock_name if hasattr(p, 'stock_name') else p.ts_code,
+                        side="sell",
+                        quantity=p.total_qty,
+                        price=p.current_price,
+                        reason=f"强制空仓: {reason}",
+                    )
+                    if ok:
+                        sold += 1
+                    else:
+                        failed += 1
+                        logger.warning(f"[FORCE_EMPTY] {p.ts_code} 卖出失败: {msg}")
+                except Exception as e:
+                    failed += 1
+                    logger.error(f"[FORCE_EMPTY] {p.ts_code} 异常: {e}")
+            logger.info(f"[FORCE_EMPTY] 完成: 卖出{sold}只, 失败{failed}只")
 
     def _merge_filter_result(self, signals: List[ScanSignal], result) -> List[ScanSignal]:
         """将filter_pipeline结果合并回ScanSignal【v2.9提取】"""
