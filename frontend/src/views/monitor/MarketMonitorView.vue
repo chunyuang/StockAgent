@@ -1278,27 +1278,38 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
             </div>
             <div v-if="sc.param_diffs?.length" class="pc-params">
               <div v-for="p in sc.param_diffs.filter(d => d.diff)" :key="p.key" class="pc-diff-row">
-                <span class="pc-key">{{ p.key }}</span>
+                <span class="pc-key">{{ p.label || p.key }}</span>
                 <span class="pc-live">实盘: {{ typeof p.live_value === 'number' ? (p.live_value < 0.1 ? p.live_value.toFixed(4) : p.live_value.toFixed(2)) : p.live_value }}</span>
                 <span class="pc-bt">回测: {{ typeof p.backtest_value === 'number' ? (p.backtest_value < 0.1 ? p.backtest_value.toFixed(4) : p.backtest_value.toFixed(2)) : p.backtest_value }}</span>
               </div>
               <details v-if="sc.param_diffs.filter(d => !d.diff).length > 0"><summary class="cp" style="font-size:11px;color:var(--text-tertiary)">一致参数({{ sc.param_diffs.filter(d => !d.diff).length }}项) ▾</summary>
                 <div v-for="p in sc.param_diffs.filter(d => !d.diff)" :key="p.key" class="pc-same-row">
-                  <span class="pc-key">{{ p.key }}</span>
+                  <span class="pc-key">{{ p.label || p.key }}</span>
                   <span>{{ typeof p.live_value === 'number' ? (p.live_value < 0.1 ? p.live_value.toFixed(4) : p.live_value.toFixed(2)) : p.live_value }}</span>
                 </div>
               </details>
             </div>
           </div>
           <!-- 全局风控参数 -->
-          <div v-if="paramCompare.global_risk?.diffs?.length" class="pc-strategy" style="margin-top:8px">
-            <div class="pc-header"><span class="pc-name">全局风控</span><ElTag size="small" type="danger">{{ paramCompare.global_risk.diffs.length }}项漂移</ElTag></div>
+          <div v-if="paramCompare.global_risk" class="pc-strategy" style="margin-top:8px">
+            <div class="pc-header">
+              <span class="pc-name">全局风控</span>
+              <ElTag v-if="paramCompare.global_risk.diffs?.length" size="small" type="danger">{{ paramCompare.global_risk.diffs.length }}项漂移</ElTag>
+              <ElTag v-else size="small" type="success">一致</ElTag>
+            </div>
             <div class="pc-params">
-              <div v-for="d in paramCompare.global_risk.diffs" :key="d.key" class="pc-diff-row">
-                <span class="pc-key">{{ d.key }}</span>
-                <span class="pc-live">实盘: {{ d.live_value }}</span>
-                <span class="pc-bt">回测: {{ d.backtest_value }}</span>
+              <div v-for="d in paramCompare.global_risk.diffs || []" :key="d.key" class="pc-diff-row">
+                <span class="pc-key">{{ d.label || d.key }}</span>
+                <span class="pc-live">实盘: {{ typeof d.live_value === 'number' ? (d.live_value < 0.1 ? d.live_value.toFixed(4) : d.live_value.toFixed(2)) : d.live_value }}</span>
+                <span class="pc-bt">回测: {{ typeof d.backtest_value === 'number' ? (d.backtest_value < 0.1 ? d.backtest_value.toFixed(4) : d.backtest_value.toFixed(2)) : d.backtest_value }}</span>
               </div>
+              <details v-if="(paramCompare.global_risk.sames || []).length > 0"><summary class="cp" style="font-size:11px;color:var(--text-tertiary)">一致参数({{ paramCompare.global_risk.sames.length }}项) ▾</summary>
+                <div v-for="d in paramCompare.global_risk.sames" :key="d.key" class="pc-same-row">
+                  <span class="pc-key">{{ d.label || d.key }}</span>
+                  <span v-if="d.missing_in_live" style="color:var(--el-color-warning)">{{ typeof d.backtest_value === 'number' ? (d.backtest_value < 0.1 ? d.backtest_value.toFixed(4) : d.backtest_value.toFixed(2)) : d.backtest_value }} <small>(默认)</small></span>
+                  <span v-else>{{ typeof d.live_value === 'number' ? (d.live_value < 0.1 ? d.live_value.toFixed(4) : d.live_value.toFixed(2)) : d.live_value }}</span>
+                </div>
+              </details>
             </div>
           </div>
         </div>
