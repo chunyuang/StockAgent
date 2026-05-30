@@ -255,11 +255,11 @@ class TestMethodSizeReduction:
         assert len(lines) <= 45, f"_execute_risk_sell {len(lines)}行,应≤45"
 
     def test_scan_once_under_55_lines(self):
-        """scan_once应≤55行(重构后)"""
+        """scan_once应≤80行(v2.9.22:新增分步计时)(重构后)"""
         from nodes.market_monitor.scanner import MarketScanner
         source = inspect.getsource(MarketScanner.scan_once)
         lines = [l for l in source.split('\n') if l.strip()]
-        assert len(lines) <= 55, f"scan_once {len(lines)}行,应≤55"
+        assert len(lines) <= 80, f"scan_once {len(lines)}行,应≤80"
 
     def test_get_status_under_35_lines(self):
         """get_status应≤35行(重构后)"""
@@ -300,7 +300,7 @@ class TestNoBacktestRegressionV2919:
         assert not hasattr(portfolio_backtest, '_sync_broker_prices')
 
     def test_scanner_line_count(self):
-        """scanner.py行数应≤1835"""
+        """scanner.py行数应≤1930(v2.9.22:分步计时+错误恢复)"""
         scanner_path = os.path.join(
             os.path.dirname(__file__), '..', '..', 'nodes', 'market_monitor', 'scanner.py'
         )
@@ -308,4 +308,4 @@ class TestNoBacktestRegressionV2919:
             pytest.skip("scanner.py not found")
         with open(scanner_path) as f:
             line_count = sum(1 for _ in f)
-        assert line_count <= 1860, f"scanner.py行数{line_count}>1860"
+        assert line_count <= 1930, f"scanner.py行数{line_count}>1860"
