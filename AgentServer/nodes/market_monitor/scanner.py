@@ -639,34 +639,54 @@ class MarketScanner:
         logger.info(f"[SCANNER] 已停止 (清仓={sell_all})")
         return {"success": True, "message": f"扫描器已停止" + ("并清仓" if sell_all else "")}
 
-    async def _sell_all_positions(self):
-        """停止时清仓所有持仓【v2.9.18:从stop()提取, v2.9.19:复用_post_sell_cleanup】"""
+    async def _liquidate_positions(self, reason: str, source: str) -> Tuple[int, int]:
+        """批量清仓: 卖出所有可用持仓【v2.9.20提取】
+        
+        _sell_all_positions(停止清仓)和_execute_force_empty(强制空仓)的公共实现。
+        使用available_qty(T+1合规), 单票异常不中断。
+        
+        Returns:
+            (sold, failed) 成功/失败数
+        """
+        if not self._broker:
+            return 0, 0
         positions = self._broker.get_positions()
-        for pos in positions:
-            if pos.available_qty > 0:
-                try:
-                    self._broker.update_realtime(pos.ts_code, pos.current_price)
-                    profit_pct = pos.profit_pct
-                    profit_amount = (pos.current_price - pos.avg_cost) * pos.available_qty
-                    ok, msg, order = self._broker.place_order(
-                        ts_code=pos.ts_code,
-                        stock_name=pos.stock_name,
-                        side="sell",
-                        quantity=pos.available_qty,
-                        price=pos.current_price,
-                        order_type="market",
-                        strategy=pos.strategy,
-                        reason="停止清仓",
+        sold, failed = 0, 0
+        for p in positions:
+            if p.available_qty <= 0:
+                continue  # T+1: 不可卖跳过
+            try:
+                self._broker.update_realtime(p.ts_code, p.current_price)
+                profit_pct = p.profit_pct
+                profit_amount = (p.current_price - p.avg_cost) * p.available_qty
+                ok, msg, order = self._broker.place_order(
+                    ts_code=p.ts_code,
+                    stock_name=p.stock_name,
+                    side="sell",
+                    quantity=p.available_qty,
+                    price=p.current_price,
+                    order_type="market",
+                    strategy=p.strategy,
+                    reason=reason,
+                )
+                if ok:
+                    sold += 1
+                    await self._post_sell_cleanup(
+                        p, reason, order, p.available_qty,
+                        profit_pct, profit_amount, source=source,
                     )
-                    if ok:
-                        await self._post_sell_cleanup(
-                            pos, "停止清仓", order, pos.available_qty,
-                            profit_pct, profit_amount, source="stop_sell",
-                        )
-                    else:
-                        logger.warning(f"[STOP] 清仓卖出失败 {pos.ts_code}: {msg}")
-                except Exception as e:
-                    logger.error(f"[STOP] 清仓卖出异常 {pos.ts_code}: {e}")
+                else:
+                    failed += 1
+                    logger.warning(f"[{source.upper()}] {p.ts_code} 卖出失败: {msg}")
+            except Exception as e:
+                failed += 1
+                logger.error(f"[{source.upper()}] {p.ts_code} 异常: {e}")
+        logger.info(f"[{source.upper()}] 完成: 卖出{sold}只, 失败{failed}只")
+        return sold, failed
+
+    async def _sell_all_positions(self):
+        """停止时清仓所有持仓【v2.9.18:从stop()提取, v2.9.20:复用_liquidate_positions】"""
+        await self._liquidate_positions(reason="停止清仓", source="stop_sell")
 
     async def _persist_stop_state(self):
         """停止时持久化状态【v2.9.18:从stop()提取】"""
@@ -1519,38 +1539,9 @@ class MarketScanner:
         return candidates
 
     async def _execute_force_empty(self, reason: str):
-        """强制空仓: 卖出所有持仓【v2.9.19:复用_post_sell_cleanup统一善后】"""
+        """强制空仓: 卖出所有持仓【v2.9.20:复用_liquidate_positions, 修复total_qty→available_qty(T+1合规)】"""
         logger.warning(f"[FILTER] ⚠️ 强制空仓: {reason}")
-        if not self._broker:
-            return
-        positions = self._broker.get_positions()
-        sold, failed = 0, 0
-        for p in positions:
-            try:
-                self._broker.update_realtime(p.ts_code, p.current_price)
-                profit_pct = p.profit_pct
-                profit_amount = (p.current_price - p.avg_cost) * p.total_qty
-                ok, msg, order = self._broker.place_order(
-                    ts_code=p.ts_code,
-                    stock_name=p.stock_name if hasattr(p, 'stock_name') else p.ts_code,
-                    side="sell",
-                    quantity=p.total_qty,
-                    price=p.current_price,
-                    reason=f"强制空仓: {reason}",
-                )
-                if ok:
-                    sold += 1
-                    await self._post_sell_cleanup(
-                        p, f"强制空仓: {reason}", order, p.total_qty,
-                        profit_pct, profit_amount, source="force_empty",
-                    )
-                else:
-                    failed += 1
-                    logger.warning(f"[FORCE_EMPTY] {p.ts_code} 卖出失败: {msg}")
-            except Exception as e:
-                failed += 1
-                logger.error(f"[FORCE_EMPTY] {p.ts_code} 异常: {e}")
-        logger.info(f"[FORCE_EMPTY] 完成: 卖出{sold}只, 失败{failed}只")
+        await self._liquidate_positions(reason=f"强制空仓: {reason}", source="force_empty")
 
     def _merge_filter_result(self, signals: List[ScanSignal], result) -> List[ScanSignal]:
         """将filter_pipeline结果合并回ScanSignal【v2.9提取】"""
