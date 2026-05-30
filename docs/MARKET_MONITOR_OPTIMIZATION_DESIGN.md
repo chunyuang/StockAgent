@@ -1,10 +1,10 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.12 | 日期: 2026-05-30 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.13 | 日期: 2026-05-30 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅
-> 回测影响: 零文件修改, 542测试全通过
+> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅
+> 回测影响: 零文件修改, 433测试全通过
 
 ---
 
@@ -1416,3 +1416,90 @@ else:
 ### 21.5 回测影响
 
 零。只修改web/api/scanner.py和测试文件, 回测引擎无任何引用。
+
+---
+
+## 二十二、v2.9.13 _scan_loop提取 + 线程安全补全 (2026-05-30)
+
+### 22.1 设计目标
+
+1. **_scan_loop方法拆分**: 128行的_scan_loop方法拆分出`_scan_loop_trading`(交易时间逻辑)和`_scan_loop_settlement`(盘后结算逻辑)，主循环行数<100
+2. **线程安全补全**: 修复3处共享状态无锁访问，消除与风控线程的竞态条件
+3. **死代码清理**: 删除2个.bak文件
+
+### 22.2 _scan_loop时间段提取
+
+**问题**: `_scan_loop`是scanner.py最大方法(128行)，包含5个时间段的完整处理逻辑，阅读和维护困难。
+
+**修复**: 提取2个独立方法:
+
+| 方法 | 职责 | 来源 |
+|---|---|---|
+| `_scan_loop_trading(trade_date, last_full_scan) -> bool` | 交易时间(9:30-15:00): 风控看门狗+行情恢复+全量扫描/等待 | 原_scan_loop中"交易时间"分支 |
+| `_scan_loop_settlement(trade_date)` | 盘后结算(15:05+): Broker结算+EventBus+Timeline | 原_scan_loop中"收盘后"分支 |
+
+**_scan_loop主循环变化**:
+- 128行 → ~85行 (减少33%)
+- 5个时间段分支保留在主循环中(盘前/深夜/其他较简单，不值得提取)
+- `_scan_loop_trading`返回`bool`(True=全量扫描完成, False=等待中)，主循环据此更新`last_full_scan`
+
+### 22.3 线程安全修复
+
+| # | 位置 | 问题 | 修复 |
+|---|---|---|---|
+| 1 | PositionManager.get_effective_stop_price | 直接`trailing_stops.get()`无锁 | 改用`_get_trailing_stop_safe()`深拷贝读取 |
+| 2 | scanner.premarket_prepare | `_circuit_breaker`5个字段赋值无锁 | 加`_state_lock`保护写入 |
+| 3 | scanner.premarket_prepare | `_pending_sells.clear()`无锁 | 加`_state_lock`保护写入 |
+| 4 | scanner._load_positions | `len(self._trailing_stops)`无锁读取 | 改用`len(self._safe_copy_trailing_stops())` |
+
+**风险评估**:
+- #1 🔴高: 风控线程通过`check_stop_loss_take_profit`→`get_effective_stop_price`调用，并发概率高
+- #2 🟡中: premarket_prepare在风控线程启动后调用，但写入频率低(每日一次)
+- #3 🟡中: 同#2，clear()操作与风控线程的pending_sells写入可能竞态
+- #4 🟢低: 仅日志输出，但原则上共享状态读取应统一安全模式
+
+### 22.4 死代码清理
+
+| 文件 | 大小 | 说明 |
+|---|---|---|
+| scanner.py.bak | 76KB | 旧版scanner备份，已通过git版本控制 |
+| position_checker.py.bak | 25KB | 旧版备份，同上 |
+
+### 22.5 变更文件
+
+| 文件 | 变更 |
+|---|---|
+| scanner.py | _scan_loop拆分+_scan_loop_trading/_scan_loop_settlement提取+circuit_breaker/pending_sells加锁+trailing_stops安全读取 |
+| position_manager.py | get_effective_stop_price使用_get_trailing_stop_safe |
+| test_v295_stability.py | 看门狗源码测试适配(检查_scan_loop_trading而非_scan_loop) |
+| test_v2913_scan_loop_extraction.py | 27新增测试 |
+| MARKET_MONITOR_OPTIMIZATION_DESIGN.md | v2.9.13记录 |
+
+### 22.6 测试覆盖 (27新增)
+
+| 测试类 | 用例数 | 覆盖点 |
+|---|---|---|
+| TestScanLoopTradingExtraction | 5 | 存在性/async/返回bool/签名 |
+| TestScanLoopTradingLogic | 2 | 全量扫描返回True/等待返回False |
+| TestScanLoopSettlementLogic | 5 | 结算/持久化/事件/timeline/异常安全 |
+| TestPositionManagerEffectiveStopPriceThreadSafety | 2 | 使用safe方法/深拷贝验证 |
+| TestScannerPremarketLocks | 2 | circuit_breaker加锁/pending_sells加锁 |
+| TestTrailingStopsSafeRead | 1 | _load_positions安全读取 |
+| TestBakFileCleanup | 2 | .bak文件已删除 |
+| TestScanLoopStructure | 3 | 引用提取方法/行数<100 |
+| TestNoBacktestRegressionV2913 | 5 | API不变/回测不引用新方法 |
+
+**全量测试**: 433 passed (scanner模块)
+
+### 22.7 scanner.py行数变化
+
+| 阶段 | scanner.py行数 | 变化 |
+|---|---|---|
+| Phase3.1前 | 2907 | 基线 |
+| Phase3.1后 | 1922 | -34% |
+| v2.6继续优化后 | 1757 | -40% |
+| v2.9.13后 | 1779 | +22行(2个提取方法+锁保护) |
+
+### 22.8 回测影响
+
+零。仅修改scanner.py/position_manager.py内部逻辑和测试文件，回测引擎无任何引用。18项回测契约测试全通过。

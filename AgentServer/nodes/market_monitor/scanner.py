@@ -793,15 +793,25 @@ class MarketScanner:
         logger.info(f"[SCANNER] 盘前准备 {trade_date}")
 
         # 【V50:重置每日风控状态——daily_start_assets/熔断计数器】
+        # 【v2.9.13:_circuit_breaker写操作加锁(风控线程可能已启动)】
         if self._broker:
             try:
                 acct = self._broker.get_account()
                 if acct:
-                    self._circuit_breaker["daily_start_assets"] = acct.total_assets
-                    self._circuit_breaker["today_trades"] = 0
-                    self._circuit_breaker["today_losses"] = 0
-                    self._circuit_breaker["trading_paused"] = False
-                    self._circuit_breaker["pause_reason"] = ""
+                    lock = self._state_lock
+                    if lock:
+                        with lock:
+                            self._circuit_breaker["daily_start_assets"] = acct.total_assets
+                            self._circuit_breaker["today_trades"] = 0
+                            self._circuit_breaker["today_losses"] = 0
+                            self._circuit_breaker["trading_paused"] = False
+                            self._circuit_breaker["pause_reason"] = ""
+                    else:
+                        self._circuit_breaker["daily_start_assets"] = acct.total_assets
+                        self._circuit_breaker["today_trades"] = 0
+                        self._circuit_breaker["today_losses"] = 0
+                        self._circuit_breaker["trading_paused"] = False
+                        self._circuit_breaker["pause_reason"] = ""
                     logger.info(f"[SCANNER] 每日风控重置: start_asset={acct.total_assets:.2f}")
             except Exception as e:
                 logger.warning(f"[SCANNER] 每日风控重置失败: {e}")
@@ -812,7 +822,13 @@ class MarketScanner:
         #   新的一天 → 清除(在_load_runtime_snapshot中snap_date!=trade_date时不恢复)
         # 这里只清除执行统计(每次启动都重置)
         self._execution_stats["stop_loss_response_times"] = []
-        self._pending_sells.clear()  # 跌停挂起每次启动都清空(重启后行情可能已变)
+        # 【v2.9.13:_pending_sells.clear()加锁(风控线程可能已启动)】
+        lock = self._state_lock
+        if lock:
+            with lock:
+                self._pending_sells.clear()
+        else:
+            self._pending_sells.clear()
         logger.info("[SCANNER] 执行统计+跌停挂起已重置(追踪止损/风险等级将在加载持仓时恢复)")
 
         # 1. 获取全市场代码
@@ -928,8 +944,10 @@ class MarketScanner:
         # Step 2: Scanner运行时状态恢复
         await self._load_runtime_snapshot()
         
+        # 【v2.9.13:trailing_stops线程安全读取(日志输出)】
+        _ts_count = len(self._safe_copy_trailing_stops())
         logger.info(f"[SCANNER] 持仓: {len(self._broker.get_positions()) if self._broker else 0}个, "
-                    f"追踪止损: {len(self._trailing_stops)}个")
+                    f"追踪止损: {_ts_count}个")
 
     # ==================== Phase1.1: 运行时状态持久化 ====================
     async def _scan_loop(self, trade_date: str):
@@ -969,49 +987,10 @@ class MarketScanner:
                 # === 交易时间(9:30-15:00) ===
                 if "09:30" <= ct <= "15:00":
                     settled = False
-                    
-                    # 【v2.9.5:风控线程健康看门狗】检测风控线程存活, 崩溃自动重启
-                    if self._risk_running and self._risk_thread and not self._risk_thread.is_alive():
-                        self._risk_thread_restarts += 1
-                        logger.warning(
-                            f"[RISK_WATCHDOG] 风控线程已退出(第{self._risk_thread_restarts}次重启)"
-                        )
-                        self._risk_running = True
-                        self._risk_thread = threading.Thread(
-                            target=self._risk_loop_sync, daemon=True,
-                            name="scanner-risk-thread"
-                        )
-                        self._risk_thread.start()
-                        # 重启超过3次告警
-                        if self._risk_thread_restarts >= 3:
-                            await self._publish_scanner_event("status", {
-                                "event": "risk_thread_unstable",
-                                "restarts": self._risk_thread_restarts,
-                            })
-                    
-                    # 【Phase2.2:行情降级自动恢复】每5分钟尝试恢复
-                    if self._quote_manager.should_try_recover():
-                        try:
-                            recovered = await self._quote_manager.try_recover()
-                            if recovered:
-                                # 恢复成功, 更新scanner本地状态
-                                self._quote_degrade_level = self._quote_manager.degrade_level
-                                await self._publish_scanner_event("status", {
-                                    "event": "quote_recovered",
-                                    "degrade_level": 0,
-                                })
-                        except Exception as e:
-                            logger.debug(f"[SCAN] 行情恢复尝试异常: {e}")
-                    
-                    elapsed = time.time() - last_full_scan
-                    
-                    if elapsed >= self.SCAN_INTERVAL:
-                        await self.scan_once(trade_date)
+                    did_full_scan = await self._scan_loop_trading(trade_date, last_full_scan)
+                    if did_full_scan:
                         last_full_scan = time.time()
                     else:
-                        # 【Phase1.2:持仓检查已由风控线程接管,扫描循环只做sleep等待下一次全量扫描】
-                        check_interval = self._get_smart_check_interval(self._broker.get_positions())
-                        await asyncio.sleep(check_interval)
                         continue
                 
                 # === 盘前(9:00-9:30): 竞价预选 ===
@@ -1022,28 +1001,8 @@ class MarketScanner:
                     
                 # === 收盘后(15:05+): 自动结算+报告 ===
                 elif ct >= "15:05" and not settled and self._broker:
-                    self._broker.daily_settlement(trade_date)
+                    await self._scan_loop_settlement(trade_date)
                     settled = True
-                    try:
-                        await self._broker.save_state()
-                    except Exception:
-                        pass
-                    logger.info("[SCANNER] 收盘自动结算+持久化完成")
-                    # 【v2.9:盘后结算通过EventBus驱动,解耦scanner主循环】
-                    try:
-                        account = self._broker.account if self._broker else None
-                        await self._event_bus.emit(ScannerEvents.DAILY_SETTLED, {
-                            "trade_date": trade_date,
-                            "total_profit": getattr(account, 'today_profit', 0) if account else 0,
-                            "total_assets": getattr(account, 'total_assets', 0) if account else 0,
-                        })
-                    except Exception:
-                        pass
-                    # 保存timeline到MongoDB
-                    try:
-                        await self._save_timeline()
-                    except Exception:
-                        pass
                     await asyncio.sleep(60)
                     
                 # === 深夜(23:00-8:00): 极低频 ===
@@ -1052,7 +1011,6 @@ class MarketScanner:
                     
                 # === 其他非交易时间: 低频 ===
                 else:
-                    # 【Phase1.2:持仓检查已由风控线程接管】
                     await asyncio.sleep(300)  # 5分钟
 
         except asyncio.CancelledError:
@@ -1060,6 +1018,79 @@ class MarketScanner:
         except Exception as e:
             logger.error(f"[SCANNER] 异常: {e}", exc_info=True)
             self._is_running = False
+
+    # ==================== v2.9.13: _scan_loop时间段提取 ====================
+
+    async def _scan_loop_trading(self, trade_date: str, last_full_scan: float) -> bool:
+        """交易时间(9:30-15:00)处理逻辑\n        \n        职责: 风控线程看门狗 + 行情恢复 + 全量扫描/等待
+        """
+        # 【v2.9.5:风控线程健康看门狗】检测风控线程存活, 崩溃自动重启
+        if self._risk_running and self._risk_thread and not self._risk_thread.is_alive():
+            self._risk_thread_restarts += 1
+            logger.warning(
+                f"[RISK_WATCHDOG] 风控线程已退出(第{self._risk_thread_restarts}次重启)"
+            )
+            self._risk_running = True
+            self._risk_thread = threading.Thread(
+                target=self._risk_loop_sync, daemon=True,
+                name="scanner-risk-thread"
+            )
+            self._risk_thread.start()
+            # 重启超过3次告警
+            if self._risk_thread_restarts >= 3:
+                await self._publish_scanner_event("status", {
+                    "event": "risk_thread_unstable",
+                    "restarts": self._risk_thread_restarts,
+                })
+        
+        # 【Phase2.2:行情降级自动恢复】每5分钟尝试恢复
+        if self._quote_manager.should_try_recover():
+            try:
+                recovered = await self._quote_manager.try_recover()
+                if recovered:
+                    self._quote_degrade_level = self._quote_manager.degrade_level
+                    await self._publish_scanner_event("status", {
+                        "event": "quote_recovered",
+                        "degrade_level": 0,
+                    })
+            except Exception as e:
+                logger.debug(f"[SCAN] 行情恢复尝试异常: {e}")
+        
+        elapsed = time.time() - last_full_scan
+        if elapsed >= self.SCAN_INTERVAL:
+            await self.scan_once(trade_date)
+            return True
+        else:
+            # 【Phase1.2:持仓检查已由风控线程接管,扫描循环只做sleep等待下一次全量扫描】
+            check_interval = self._get_smart_check_interval(self._broker.get_positions())
+            await asyncio.sleep(check_interval)
+            return False
+
+    async def _scan_loop_settlement(self, trade_date: str):
+        """盘后结算(15:05+)处理逻辑\n        \n        职责: Broker结算+持久化 + EventBus盘后结算 + Timeline保存
+        """
+        if self._broker:
+            self._broker.daily_settlement(trade_date)
+        try:
+            await self._broker.save_state()
+        except Exception:
+            pass
+        logger.info("[SCANNER] 收盘自动结算+持久化完成")
+        # 【v2.9:盘后结算通过EventBus驱动,解耦scanner主循环】
+        try:
+            account = self._broker.account if self._broker else None
+            await self._event_bus.emit(ScannerEvents.DAILY_SETTLED, {
+                "trade_date": trade_date,
+                "total_profit": getattr(account, 'today_profit', 0) if account else 0,
+                "total_assets": getattr(account, 'total_assets', 0) if account else 0,
+            })
+        except Exception:
+            pass
+        # 保存timeline到MongoDB
+        try:
+            await self._save_timeline()
+        except Exception:
+            pass
 
     # ==================== Phase1.2: 风控独立线程 ====================
 
