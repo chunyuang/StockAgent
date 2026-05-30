@@ -53,7 +53,7 @@
 | v2.9.28 | 2026-05-31 | 🟡风控线程拆分(_risk_non_trading_sleep/_check_stale_quote_cache/_risk_error_backoff)+_merge_filter_result→LiveFilterPipeline+_scan_loop_error_recovery提取+scan_once慢步骤日志→ScannerUtils.format_slow_steps+_init_state注释分组9域+DELEGATE_MAP+2条目+scanner 1810→1769行(-2.3%)+777全通过 |
 | v2.9.29 | 2026-05-31 | 🟢冗余注释清理+section合并 | 777全通过 |
 | v2.9.30 | 2026-05-31 | 🟡_risk_periodic_checks提取(风控线程周期性检查60s/30s)+缩进修复 | 777全通过 |
-| v2.9.31 | 2026-05-31 | 🔴RuntimeWarning修复(ensure_future→create_task+call_soon_threadsafe)+🟡_safe_read_state统一(4个_safe_copy_*方法共享state_lock读取)+🟡get_positions提取→ScannerUtils.build_position_dict+scanner 1742→1737行+777全通过 |
+| v2.9.31 | 2026-05-31 | 🔴RuntimeWarning修复(ensure_future→create_task+call_soon_threadsafe)+🟡_safe_read_state统一(4个_safe_copy_*方法共享state_lock读取)+🟡get_positions提取→ScannerUtils.build_position_dict+🟡_apply_filter_pipeline拆分_process_filter_result+scanner 1742→1742行(行数不变, 职责更清晰)+777全通过 |
 
 v2.0关键修正:
 - ❶ 风控独立线程: asyncio协程→threading.Thread(真并行不受GIL影响)
