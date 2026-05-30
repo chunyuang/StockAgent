@@ -70,13 +70,22 @@ class TestUpdateStrategyConfigBugFix:
         captured_events = []
         
         with patch("nodes.market_monitor.strategy_param_center.StrategyParamCenter"):
-            with patch("nodes.market_monitor.scanner.asyncio") as mock_asyncio:
-                def capture_ensure_future(coro):
-                    captured_events.append(coro)
-                mock_asyncio.ensure_future = capture_ensure_future
-                scanner.update_strategy_config("halfway_chase", updates)
-                # 应有PARAM_UPDATED事件(含old_values)
-                assert len(captured_events) >= 1
+            # Mock event loop with create_task support
+            mock_loop = MagicMock()
+            mock_loop.is_closed.return_value = True  # 无event loop时create_task不调用
+            scanner._loop = mock_loop
+            
+            # 保存原始create_task引用
+            original_create_task = scanner._loop.create_task if hasattr(scanner._loop, 'create_task') else None
+            
+            def capture_create_task(coro):
+                captured_events.append(coro)
+            mock_loop.is_closed.return_value = False  # 启用create_task
+            mock_loop.create_task = capture_create_task
+            
+            scanner.update_strategy_config("halfway_chase", updates)
+            # 应有PARAM_UPDATED事件(含old_values)
+            assert len(captured_events) >= 1
 
     def test_no_dual_except_blocks(self):
         """源码验证: update_strategy_config不应有两个连续except Exception块"""

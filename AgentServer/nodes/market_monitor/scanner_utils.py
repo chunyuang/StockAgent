@@ -422,11 +422,20 @@ class ScannerUtils:
             warnings.append(f"行情降级level={scanner._quote_manager.degrade_level}")
 
         # 5. 跌停挂起
-        if scanner._state_lock is None:
-            pending_count = len(scanner._pending_sells)
-        else:
-            with scanner._state_lock:
+        try:
+            pending_data = scanner._safe_read_state("_pending_sells")
+            if isinstance(pending_data, dict):
+                pending_count = len(pending_data)
+            else:
+                # _safe_read_state不可用或返回非dict(Mock等情况)
+                raise TypeError("_safe_read_state returned non-dict")
+        except (AttributeError, TypeError):
+            # fallback: 直接读取+加锁
+            if scanner._state_lock is None:
                 pending_count = len(scanner._pending_sells)
+            else:
+                with scanner._state_lock:
+                    pending_count = len(scanner._pending_sells)
         if pending_count > 0:
             warnings.append(f"跌停挂起{pending_count}只")
 
@@ -502,3 +511,45 @@ class ScannerUtils:
             elif ms > 100:
                 slow_marks.append(f"\u26a0\ufe0f{label}={ms:.0f}ms")
         return f" | 慢步骤: {', '.join(slow_marks)}" if slow_marks else ""
+
+    @staticmethod
+    def build_position_dict(pos, scanner, trailing_copy: Dict, risk_levels_copy: Dict) -> Dict:
+        """将Broker持仓对象转换为API响应dict【v2.9.31:从get_positions提取】
+        
+        Args:
+            pos: Broker持仓对象(Position)
+            scanner: MarketScanner实例(委托获取风控参数)
+            trailing_copy: 追踪止损快照(已深拷贝,线程安全)
+            risk_levels_copy: 风险等级快照(已深拷贝,线程安全)
+        Returns:
+            持仓信息dict
+        """
+        risk = scanner._get_strategy_risk(pos.strategy)
+        sl_price = scanner._calc_stop_loss_price(pos, risk)
+        tp_price = scanner._calc_take_profit_price(pos, risk)
+        sl_pct = risk.get("stop_loss_pct", 0.03) * 100
+        tp_pct = risk.get("take_profit_pct", 0.07) * 100
+        mv = round(pos.current_price * pos.total_qty, 2)
+        profit_amt = round((pos.current_price - pos.avg_cost) * pos.total_qty, 2)
+        return {
+            "ts_code": pos.ts_code,
+            "stock_name": pos.stock_name or scanner._stock_name_map.get(pos.ts_code, ""),
+            "strategy": pos.strategy,
+            "shares": pos.total_qty,
+            "available_qty": pos.available_qty,
+            "cost_price": round(pos.avg_cost, 2),
+            "current_price": round(pos.current_price, 2),
+            "profit_pct": round(pos.profit_pct, 2),
+            "profit_amount": profit_amt,
+            "market_value": mv,
+            "today_buy": pos.today_buy_qty,
+            "stop_loss_pct": round(sl_pct, 1),
+            "take_profit_pct": round(tp_pct, 1),
+            "stop_loss_price": sl_price,
+            "take_profit_price": tp_price,
+            "distance_to_stop": round(pos.profit_pct + sl_pct, 1),
+            "buy_date": pos.buy_date,
+            "trailing_stop": trailing_copy.get(pos.ts_code),
+            "risk_level": risk_levels_copy.get(pos.ts_code, "normal"),
+            "effective_stop_price": scanner._get_effective_stop_price(pos, risk),
+        }

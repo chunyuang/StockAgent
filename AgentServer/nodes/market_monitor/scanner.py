@@ -419,6 +419,8 @@ class MarketScanner:
         "_merge_filter_result": ("_filter_pipeline", "merge_filter_result"),
         # 【v2.9.28:慢步骤日志格式化提取到ScannerUtils】
         "_format_slow_steps": ("_scanner_utils", "format_slow_steps"),
+        # 【v2.9.31:持仓dict构建提取到ScannerUtils】
+        "_build_position_dict": ("_scanner_utils", "build_position_dict"),
     }
 
     def __getattr__(self, name):
@@ -484,39 +486,14 @@ class MarketScanner:
     def get_positions(self) -> List[Dict]:
         if self._trade_mode == self.MODE_GM and self._gm_broker:
             return self._gm_broker.get_positions()
-        if not self._broker:  # 【v2.9.9:None guard】
+        if not self._broker:
             return []
-        result = []
-        for p in self._broker.get_positions():
-            risk = self._get_strategy_risk(p.strategy)
-            sl_price = self._calc_stop_loss_price(p, risk)
-            tp_price = self._calc_take_profit_price(p, risk)
-            sl_pct = risk.get("stop_loss_pct", 0.03) * 100
-            tp_pct = risk.get("take_profit_pct", 0.07) * 100
-            mv = round(p.current_price * p.total_qty, 2)
-            profit_amt = round((p.current_price - p.avg_cost) * p.total_qty, 2)
-            result.append({
-                "ts_code": p.ts_code, "stock_name": p.stock_name or self._stock_name_map.get(p.ts_code, ""),
-                "strategy": p.strategy, "shares": p.total_qty,
-                "available_qty": p.available_qty,
-                "cost_price": round(p.avg_cost, 2),
-                "current_price": round(p.current_price, 2),
-                "profit_pct": round(p.profit_pct, 2),
-                "profit_amount": profit_amt,  # 【P1-2】盈亏金额
-                "market_value": mv,  # 【P1-2】持仓市值
-                "today_buy": p.today_buy_qty,
-                "stop_loss_pct": round(sl_pct, 1),
-                "take_profit_pct": round(tp_pct, 1),
-                "stop_loss_price": sl_price,
-                "take_profit_price": tp_price,
-                "distance_to_stop": round(p.profit_pct + sl_pct, 1),  # 【P1-2】距止损距离
-                "buy_date": p.buy_date,
-                # 【V59:追踪止损+风险等级】(线程安全读取)
-                "trailing_stop": self._safe_copy_trailing_stops().get(p.ts_code),
-                "risk_level": self._safe_copy_position_risk_levels().get(p.ts_code, "normal"),
-                "effective_stop_price": self._get_effective_stop_price(p, risk),
-            })
-        return result
+        trailing_copy = self._safe_copy_trailing_stops()
+        risk_levels_copy = self._safe_copy_position_risk_levels()
+        return [
+            self._build_position_dict(p, trailing_copy, risk_levels_copy)
+            for p in self._broker.get_positions()
+        ]
 
     def get_timeline(self) -> List[Dict]:
         return list(self._timeline)
@@ -1079,12 +1056,15 @@ class MarketScanner:
             logger.warning(f"[SCANNER] 第{self._scan_loop_error_count}次异常, 30秒后尝试恢复")
             await asyncio.sleep(30)
         try:
-            asyncio.ensure_future(self._event_bus.emit(ScannerEvents.SCANNER_ERROR, {
-                "error": str(error),
-                "error_type": type(error).__name__,
-                "timestamp": time.time(),
-                "consecutive_errors": self._scan_loop_error_count,
-            }))
+            if self._loop and not self._loop.is_closed():
+                self._loop.call_soon_threadsafe(
+                    lambda: asyncio.ensure_future(self._event_bus.emit(ScannerEvents.SCANNER_ERROR, {
+                        "error": str(error),
+                        "error_type": type(error).__name__,
+                        "timestamp": time.time(),
+                        "consecutive_errors": self._scan_loop_error_count,
+                    }))
+                )
         except Exception as _e:
             pass
 
@@ -1222,12 +1202,15 @@ class MarketScanner:
                 consecutive_errors += 1
                 logger.error(f"[RISK_THREAD] 风控线程异常({consecutive_errors}次): {e}")
                 try:
-                    asyncio.ensure_future(self._event_bus.emit(ScannerEvents.SCANNER_ERROR, {
-                        "error": f"风控线程异常: {e}",
-                        "error_type": "RiskThreadError",
-                        "timestamp": time.time(),
-                        "consecutive_errors": consecutive_errors,
-                    }))
+                    if self._loop and not self._loop.is_closed():
+                        self._loop.call_soon_threadsafe(
+                            lambda: asyncio.ensure_future(self._event_bus.emit(ScannerEvents.SCANNER_ERROR, {
+                                "error": f"风控线程异常: {e}",
+                                "error_type": "RiskThreadError",
+                                "timestamp": time.time(),
+                                "consecutive_errors": consecutive_errors,
+                            }))
+                        )
                 except Exception as _e:
                     pass
                 sleep_s = self._risk_error_backoff(consecutive_errors, e)
@@ -1282,11 +1265,14 @@ class MarketScanner:
         # 每5分钟只告警一次(避免刷日志)
         if tick % 300 == 0:
             try:
-                asyncio.ensure_future(self._event_bus.emit(ScannerEvents.SCANNER_ERROR, {
-                    "error": f"行情缓存过期{cache_age:.0f}秒",
-                    "error_type": "StaleQuoteCache",
-                    "timestamp": time.time(),
-                }))
+                if self._loop and not self._loop.is_closed():
+                    self._loop.call_soon_threadsafe(
+                        lambda: asyncio.ensure_future(self._event_bus.emit(ScannerEvents.SCANNER_ERROR, {
+                            "error": f"行情缓存过期{cache_age:.0f}秒",
+                            "error_type": "StaleQuoteCache",
+                            "timestamp": time.time(),
+                        }))
+                    )
             except Exception as _e:
                 pass
 
@@ -1622,35 +1608,40 @@ class MarketScanner:
 
     # ==================== 健康度+线程安全 ====================
 
+    def _safe_read_state(self, attr_name: str) -> Dict:
+        """线程安全深拷贝共享状态(统一辅助)【v2.9.31提取】
+        
+        替代4个_safe_copy_*方法, 统一state_lock保护读取模式:
+        - _state_lock未初始化 → 直接浅拷贝(启动前无并发风险)
+        - _state_lock已初始化 → 加锁后浅拷贝再释放
+        
+        Args:
+            attr_name: 共享状态属性名(trailing_stops/position_risk_levels/pending_sells等)
+        Returns:
+            dict浅拷贝(调用方可安全修改不影响原始状态)
+        """
+        source = getattr(self, attr_name, {})
+        if self._state_lock is None:
+            return dict(source)
+        with self._state_lock:
+            return dict(source)
+
     def _get_activated_trailing_stops_safe(self) -> Dict:
         """线程安全读取已激活的追踪止损(深拷贝+过滤)"""
-        if self._state_lock is None:
-            all_stops = dict(self._trailing_stops)
-        else:
-            with self._state_lock:
-                all_stops = dict(self._trailing_stops)
+        all_stops = self._safe_read_state("_trailing_stops")
         return {k: v for k, v in all_stops.items() if v.get("activated")}
 
     def _safe_copy_position_risk_levels(self) -> Dict:
         """线程安全深拷贝position_risk_levels"""
-        if self._state_lock is None:
-            return dict(self._position_risk_levels)
-        with self._state_lock:
-            return dict(self._position_risk_levels)
+        return self._safe_read_state("_position_risk_levels")
 
     def _safe_copy_trailing_stops(self) -> Dict:
         """线程安全深拷贝trailing_stops"""
-        if self._state_lock is None:
-            return dict(self._trailing_stops)
-        with self._state_lock:
-            return dict(self._trailing_stops)
+        return self._safe_read_state("_trailing_stops")
 
     def _safe_copy_pending_sells(self) -> Dict:
-        """线程安全深拷贝pending_sells【v2.9.18】"""
-        if self._state_lock is None:
-            return dict(self._pending_sells)
-        with self._state_lock:
-            return dict(self._pending_sells)
+        """线程安全深拷贝pending_sells"""
+        return self._safe_read_state("_pending_sells")
 
     # ==================== 智能持仓检查频率 ====================
 
@@ -1704,16 +1695,20 @@ class MarketScanner:
             logger.warning(f"[SCANNER] 策略参数热更新失败: {strategy_key}: {_e}")
             return
         # EventBus: 参数更新事件(含old_values审计) + 持久化(非阻塞)
+        # 【v2.9.31:修复RuntimeWarning — ensure_future泄露协程,改用try_schedule火火火火火火
+        # 确保只对已运行的loop调度,否则静默跳过】
         try:
-            asyncio.ensure_future(self._event_bus.emit(ScannerEvents.PARAM_UPDATED, {
-                "strategy_key": strategy_key, "updates": updates,
-                "old_values": old_values,  # 【v2.9.17:审计增强】
-            }))
+            if self._loop and not self._loop.is_closed():
+                self._loop.create_task(self._event_bus.emit(ScannerEvents.PARAM_UPDATED, {
+                    "strategy_key": strategy_key, "updates": updates,
+                    "old_values": old_values,
+                }))
         except Exception as _e:
             logger.debug(f"[SCANNER] 参数更新事件发射失败: {_e}")
         try:
             from nodes.market_monitor.strategy_param_center import StrategyParamCenter
-            asyncio.ensure_future(StrategyParamCenter.persist_scanner_overrides(self.config))
+            if self._loop and not self._loop.is_closed():
+                self._loop.create_task(StrategyParamCenter.persist_scanner_overrides(self.config))
         except Exception as _e:
             logger.debug(f"[SCANNER] 参数持久化失败: {_e}")
 
