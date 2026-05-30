@@ -2911,7 +2911,7 @@ async def get_premarket_status():
                 if sig.factors.get('auction_pct') is not None or sig.factors.get('is_auction'):
                     auction_signals.append({
                         "ts_code": sig.ts_code,
-                        "stock_name": sig.stock_name,
+                        "stock_name": sig.stock_name or (scanner._stock_name_map.get(sig.ts_code, "") if hasattr(scanner, '_stock_name_map') else ""),
                         "strategy": sig.strategy,
                         "pct_chg": sig.pct_chg,
                         "volume_ratio": sig.factors.get('volume_ratio', 0),
@@ -2924,7 +2924,7 @@ async def get_premarket_status():
             for item in scanner._limit_pools.get('limit_up', [])[:10]:
                 top_gainers.append({
                     "ts_code": item.get('ts_code', ''),
-                    "name": item.get('name', ''),
+                    "name": item.get('name', '') or (scanner._stock_name_map.get(item.get('ts_code', ''), '') if hasattr(scanner, '_stock_name_map') else ''),
                     "pct_chg": item.get('pct_chg', 0),
                     "volume_ratio": item.get('volume_ratio', 0),
                 })
@@ -2934,7 +2934,7 @@ async def get_premarket_status():
         for sig in scanner._active_signals:
             candidates.append({
                 "ts_code": sig.ts_code,
-                "stock_name": sig.stock_name,
+                "stock_name": sig.stock_name or (scanner._stock_name_map.get(sig.ts_code, "") if hasattr(scanner, '_stock_name_map') else ""),
                 "strategy": sig.strategy,
                 "auction_pct": sig.factors.get('auction_pct'),
                 "reason": sig.reason[:50] if sig.reason else '',
