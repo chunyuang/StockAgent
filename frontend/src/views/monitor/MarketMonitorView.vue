@@ -56,22 +56,42 @@ const signalTraceVisible = ref(false)
 const timeline = ref<TimelineItem[]>([])
 const orders = ref<any[]>([])
 const closedPositions = computed(() => {
-  // 从orders中提取已平仓(卖出)记录,匹配买入
-  const sells = orders.value.filter(o => o.side === 'sell' && o.filled_price > 0)
-  const buys = orders.value.filter(o => o.side === 'buy' && o.filled_price > 0)
+  // 优先从timeline匹配买卖(有完整决策链路),fallback到orders
+  const tlBuys = timeline.value.filter(t => t.action === 'buy')
+  const tlSells = timeline.value.filter(t => t.action === 'sell')
   const result: any[] = []
-  for (const sell of sells) {
-    const buy = buys.find(b => b.ts_code === sell.ts_code && b.strategy === sell.strategy && !result.some(r => r.ts_code === sell.ts_code && r.buy_time === b.create_time))
+  for (const sell of tlSells) {
+    const buy = tlBuys.find(b => b.ts_code === sell.ts_code && b.strategy === sell.strategy && !result.some(r => r.buy_time === b.time))
+    const buyPrice = buy?.price || sell.decision_detail?.cost_price || 0
     result.push({
       ts_code: sell.ts_code,
-      stock_name: sell.stock_name,
+      stock_name: sell.stock_name || buy?.stock_name || '',
       strategy: sell.strategy,
-      buy_price: buy?.filled_price || 0,
-      sell_price: sell.filled_price,
-      profit_amount: (sell.filled_price - (buy?.filled_price || 0)) * sell.filled_qty,
-      profit_pct: buy?.filled_price ? ((sell.filled_price - buy.filled_price) / buy.filled_price * 100) : 0,
+      buy_price: buyPrice,
+      sell_price: sell.price,
+      profit_amount: sell.profit_amount || (sell.price - buyPrice) * (sell.shares || 0),
+      profit_pct: sell.profit_pct || (buyPrice > 0 ? (sell.price - buyPrice) / buyPrice * 100 : 0),
+      buy_time: buy?.time || '',
+      sell_time: sell.time || '',
+    })
+  }
+  // 补充orders中的卖出(timeline可能不全)
+  const covered = new Set(result.map(r => r.ts_code + r.strategy))
+  for (const o of orders.value.filter(o => o.side === 'sell' && o.filled_price > 0)) {
+    const key = o.ts_code + o.strategy
+    if (covered.has(key)) continue
+    const buy = orders.value.find(b => b.side === 'buy' && b.ts_code === o.ts_code && b.strategy === o.strategy)
+    const buyPrice = buy?.filled_price || 0
+    result.push({
+      ts_code: o.ts_code,
+      stock_name: o.stock_name || '',
+      strategy: o.strategy,
+      buy_price: buyPrice,
+      sell_price: o.filled_price,
+      profit_amount: (o.filled_price - buyPrice) * o.filled_qty,
+      profit_pct: buyPrice > 0 ? (o.filled_price - buyPrice) / buyPrice * 100 : 0,
       buy_time: buy?.create_time || '',
-      sell_time: sell.create_time || '',
+      sell_time: o.create_time || '',
     })
   }
   return result.sort((a, b) => Math.abs(b.profit_amount) - Math.abs(a.profit_amount))
@@ -902,7 +922,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
     </ElDialog>
 
     <!-- 交易详情弹窗 — 结构化卡片 -->
-    <ElDialog v-model="tradeDetailVisible" :title="`🔍 交易审查 — ${tradeDetailData?.ts_code || ''} ${tradeDetailData?.buy?.stock_name || tradeDetailData?.sell?.stock_name || ''}`" width="780px">
+    <ElDialog v-model="tradeDetailVisible" :title="`🔍 交易审查 — ${tradeDetailData?.ts_code || ''} ${tradeDetailData?.stock_name || tradeDetailData?.buy?.stock_name || tradeDetailData?.sell?.stock_name || ''}`" width="780px">
       <div v-if="tradeDetailData" class="td2">
         <!-- 买入决策 -->
         <div class="td2-sec"><div class="td2-title">📥 买入决策</div>
