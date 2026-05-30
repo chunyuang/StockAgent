@@ -1,10 +1,10 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.17 | 日期: 2026-05-30 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.18 | 日期: 2026-05-30 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅
-> 回测影响: 零文件修改, 682测试全通过
+> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats
+> 回测影响: 零文件修改, 569测试全通过
 
 ---
 
@@ -1896,3 +1896,99 @@ await self._event_bus.emit(ScannerEvents.PARAM_UPDATED, {
 ### 26.8 回测影响
 
 零。DelegateRouter和_with_state_lock仅影响market_monitor模块, 回测引擎零文件修改。51个回测测试全通过。
+
+## 二十七、v2.9.18 stop()拆分 + QuoteManager封装 + pending_sells安全拷贝 (2026-05-30)
+
+### 27.1 设计目标
+
+1. **stop()方法拆分**: 110行→3个方法(stop 30行+_sell_all_positions 35行+_persist_stop_state 30行)
+2. **QuoteManager封装**: 消除scanner.py直接访问_quote_manager私有属性(5处→0处)
+3. **pending_sells安全拷贝**: _build_emotion_sell_list传深拷贝+lock=None,防止回调修改内部状态
+4. **_check_force_empty返回stats**: 修复L1描述NameError(limit_up_count未定义)
+
+### 27.2 stop()方法拆分
+
+**问题**: `stop()` 110行,包含清仓逻辑(~40行)、状态保存(~30行)、资源清理(~20行),职责混杂。
+
+**修复**: 提取2个独立方法:
+
+| 方法 | 职责 | 来源 |
+|---|---|---|
+| `_sell_all_positions()` | 清仓所有持仓(遍历+place_order+timeline) | stop()中清仓分支 |
+| `_persist_stop_state()` | 持久化状态(broker保存+快照+timeline+pending_sells) | stop()中保存分支 |
+
+**stop()主方法**: 30行,仅编排3个步骤(停止线程→清仓→保存)。
+
+### 27.3 QuoteManager属性封装
+
+**问题**: scanner.py通过`_quote_manager._cache_lock`/`_realtime_cache`/`_prev_realtime_cache`/`_data_router`/`_quote_degrade_level`直接访问QuoteManager私有属性,破坏封装。
+
+**修复**: QuoteManager新增5个属性(只读):
+
+| 属性 | 类型 | 说明 |
+|---|---|---|
+| `cache_lock_initialized` | bool | 缓存锁是否已设置 |
+| `realtime_cache` | Dict | 实时行情缓存(直接引用) |
+| `prev_realtime_cache` | Dict | 上一帧行情缓存 |
+| `data_router` | DataSourceRouter | 数据源路由器 |
+| `quote_degrade_level` | int | 行情降级等级 |
+
+新增`warm_sources_cache(realtime)`方法,封装缓存预热写入(替代scanner直接遍历`_data_router._sources`)。
+
+### 27.4 _build_emotion_sell_list安全性
+
+**问题**: `_build_emotion_sell_list`直接传入`self._pending_sells`可变引用+`self._state_lock`,EmotionCycleManager静态方法可意外修改scanner内部状态。
+
+**修复**: 传深拷贝+lock=None:
+```python
+pending_copy = self._safe_copy_pending_sells()
+EmotionCycleManager.build_emotion_sell_list(
+    ..., pending_sells=pending_copy, state_lock=None, ...
+)
+```
+
+新增`_safe_copy_pending_sells()`方法(与`_safe_copy_trailing_stops`/`_safe_copy_position_risk_levels`一致模式)。
+
+### 27.5 _check_force_empty返回stats
+
+**问题**: `_check_force_empty`返回`(bool, str)`,但L1描述行引用`limit_up_count`/`limit_down_count`/`index_drop_pct`未定义变量→NameError。
+
+**修复**: 返回3元组`(bool, str, dict)`:
+```python
+stats = {"limit_up_count": N, "limit_down_count": N, "index_drop_pct": N}
+return True, f"跌停{N}只≥80", stats
+```
+
+L1描述行从stats字典取值,不再依赖未定义变量。
+
+### 27.6 变更文件
+
+| 文件 | 变更 |
+|---|---|
+| scanner.py | stop()拆分+_safe_copy_pending_sells+_build_emotion_sell_list深拷贝+QuoteManager属性替代私有访问 |
+| quote_manager.py | 5个只读属性+warm_sources_cache方法 |
+| live_filter_pipeline.py | _check_force_empty返回3元组+L1描述从stats取值 |
+| test_v2918_review_optimization.py | 23新增测试 |
+| test_live_filter_pipeline.py | 适配3元组返回值 |
+| test_phase4_health_version.py | 前端store断言更新 |
+| MARKET_MONITOR_OPTIMIZATION_DESIGN.md | v2.9.18记录 |
+
+### 27.7 测试覆盖
+
+| 测试文件 | 用例数 | 覆盖点 |
+|---|---|---|
+| test_v2918_review_optimization.py | 23 | stop拆分(4)+QuoteManager封装(6)+warm_sources_cache(3)+pending_sells安全(4)+情绪卖出安全(1)+回测零影响(5) |
+
+**全量测试**: 569 passed (0 failed)
+
+### 27.8 scanner.py行数变化
+
+| 阶段 | scanner.py行数 | 变化 |
+|---|---|---|
+| Phase3.1前 | 2907 | 基线 |
+| v2.9.17后 | 1672 | -42% |
+| **v2.9.18后** | **1822** | +150行(stop拆分+新增方法+pending_sells安全+QuoteManager属性访问, 但方法数增加2个,整体结构更清晰) |
+
+### 27.9 回测影响
+
+零。所有变更仅影响market_monitor模块, 回测引擎零文件修改。回测测试全通过。
