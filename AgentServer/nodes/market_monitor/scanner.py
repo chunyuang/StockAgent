@@ -290,11 +290,15 @@ class MarketScanner:
         self._current_sentiment = {"score": 50, "period": "chaos"}
 
     def _init_modules(self):
-        """初始化EventBus+QuoteManager+PositionManager+SignalManager等模块【v2.9.3提取】"""
-        # EventBus
-        self._event_bus = ScannerEventBus()
+        """初始化EventBus+QuoteManager+核心模块+风控+执行质量【v2.9.3提取, v2.9.25拆分为子方法】"""
+        self._init_event_and_quote()
+        self._init_signal_and_risk()
+        self._init_core_modules()
+        self._init_execution_quality()
 
-        # QuoteManager(回调模式,无scanner引用)
+    def _init_event_and_quote(self):
+        """初始化EventBus+QuoteManager【v2.9.25提取】"""
+        self._event_bus = ScannerEventBus()
         self._quote_manager = QuoteManager()
         self._quote_manager.set_event_emitter(self._make_quote_event_emitter())
         self._position_manager = None  # 延迟初始化
@@ -302,7 +306,8 @@ class MarketScanner:
         self._signal_manager = None
         self._data_router: Optional[Any] = None
 
-        # 信号分发器
+    def _init_signal_and_risk(self):
+        """初始化信号分发器+参数中心+风控看门狗【v2.9.25提取】"""
         from nodes.market_monitor.signal_dispatcher import (
             SignalDispatcher, redis_channel_handler, feishu_channel_handler, log_channel_handler
         )
@@ -311,16 +316,15 @@ class MarketScanner:
         self._signal_dispatcher.register_channel("redis", redis_channel_handler)
         self._feishu_registered = False
 
-        # 参数中心
         from nodes.market_monitor.strategy_param_center import param_center
         self._param_center = param_center
 
-        # 风控看门狗
         from nodes.market_monitor.risk_watchdog import RiskWatchdog
         self._risk_watchdog = RiskWatchdog(scanner=self)
         self._risk_watchdog.register_alert_channel(self._signal_dispatcher.dispatch)
 
-        # PositionManager+StrategyScorer+SignalManager+PositionChecker
+    def _init_core_modules(self):
+        """初始化PositionManager+StrategyScorer+SignalManager+PositionChecker+RuntimePersistence【v2.9.25提取】"""
         from nodes.market_monitor.position_manager import PositionManager
         self._position_manager = PositionManager(self)
         from nodes.market_monitor.strategy_scorer import StrategyScorer
@@ -340,7 +344,8 @@ class MarketScanner:
             self._tiered_scanner = TieredScanner(scanner=self)
             logger.info("[SCANNER] 分级行情: L1(5min全市场) → L2(30s候选池) → L3(5s持仓)")
 
-        # 执行质量检查
+    def _init_execution_quality(self):
+        """初始化执行质量检查+滑点模型【v2.9.25提取】"""
         from nodes.market_monitor.execution_quality import PreTradeChecker, SlippageModel
         self._pre_trade_checker = PreTradeChecker(broker=self._broker, config={
             "max_position_per_stock": 0.35,
@@ -1113,8 +1118,8 @@ class MarketScanner:
                     "timestamp": time.time(),
                     "consecutive_errors": self._scan_loop_error_count,
                 }))
-            except Exception:
-                pass  # 事件发射失败不应影响主流程
+            except Exception as _e:
+                pass  # 事件发射失败不应影响主流程(v2.9.25:已捕获异常对象)
 
     # ==================== v2.9.13: _scan_loop时间段提取 ==================
 
@@ -1258,8 +1263,8 @@ class MarketScanner:
                                     "error_type": "StaleQuoteCache",
                                     "timestamp": time.time(),
                                 }))
-                            except Exception:
-                                pass
+                            except Exception as _e:
+                                pass  # v2.9.25:已捕获异常对象
 
                 # ── 每1秒: 止损检查(用缓存数据, 零成本) ──
                 self._check_stop_loss_only(realtime_data)
@@ -1302,8 +1307,8 @@ class MarketScanner:
                         "timestamp": time.time(),
                         "consecutive_errors": consecutive_errors,
                     }))
-                except Exception:
-                    pass  # 事件发射失败不应影响风控线程
+                except Exception as _e:
+                    pass  # 事件发射失败不应影响风控线程(v2.9.25:已捕获异常对象)
                 continue  # 【v2.9.22:异常后跳过time.sleep(1)的下方sleep,用上面的退避sleep】
             time.sleep(1)  # 真sleep,不受asyncio影响
         
@@ -1880,8 +1885,8 @@ class MarketScanner:
         async def emit_quote_event(event_name: str, data: dict):
             try:
                 await scanner._event_bus.emit(event_name, data)
-            except Exception:
-                pass  # 行情事件发射失败不应影响行情推送
+            except Exception as _e:
+                pass  # 行情事件发射失败不应影响行情推送(v2.9.25:已捕获异常对象)
         return emit_quote_event
 
     def _is_limit_down(self, ts_code: str) -> bool:
@@ -1895,8 +1900,8 @@ class MarketScanner:
         try:
             from nodes.market_monitor.strategy_param_center import StrategyParamCenter
             StrategyParamCenter.validate_live_params(self._broker, self._get_strategy_risk)
-        except Exception:
-            pass  # fallback: 不校验(StrategyParamCenter不可用时不阻塞)
+        except Exception as _e:
+            pass  # fallback: 不校验(StrategyParamCenter不可用时不阻塞, v2.9.25:已捕获异常对象)
 
     def update_strategy_config(self, strategy_key: str, updates: Dict[str, Any]):
         """策略参数热更新(无需重启scanner) + 持久化到MongoDB — 委托给StrategyParamCenter【v2.9.16:简化, v2.9.17:审计增强】"""
@@ -1909,10 +1914,13 @@ class MarketScanner:
                     old_values[k] = strategy_config[k]
         except Exception as _e:
             logger.debug(f"[SCANNER] 策略参数旧值读取失败: {_e}")
+        # 【v2.9.25:修复bug — 更新逻辑不应在except块内,正常路径需执行; 补充本地import】
+        try:
+            from nodes.market_monitor.strategy_param_center import StrategyParamCenter
             StrategyParamCenter.update_scanner_config(self.config, strategy_key, updates)
             logger.info(f"[SCANNER] 策略参数热更新: {strategy_key}")
-        except Exception:
-            logger.warning(f"[SCANNER] 策略参数热更新失败: {strategy_key}")
+        except Exception as _e:
+            logger.warning(f"[SCANNER] 策略参数热更新失败: {strategy_key}: {_e}")
             return
         # EventBus: 参数更新事件(含old_values审计) + 持久化(非阻塞)
         try:
@@ -1923,6 +1931,7 @@ class MarketScanner:
         except Exception as _e:
             logger.debug(f"[SCANNER] 参数更新事件发射失败: {_e}")
         try:
+            from nodes.market_monitor.strategy_param_center import StrategyParamCenter
             asyncio.ensure_future(StrategyParamCenter.persist_scanner_overrides(self.config))
         except Exception as _e:
             logger.debug(f"[SCANNER] 参数持久化失败: {_e}")
