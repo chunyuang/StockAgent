@@ -631,30 +631,28 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
       </div>
     </div>
 
-    <!-- 顶部状态栏 -->
+    <!-- 顶部状态栏(一行) -->
     <div class="mm-header">
       <div class="hh-left">
         <div class="hh-status" :class="{ running: isRunning, stopped: !isRunning }"><span class="dot"></span><span>{{ isRunning ? '扫描中' : '已停止' }}</span></div>
-        <ElSelect v-model="tradeMode" size="small" style="width:110px" @change="onModeChange">
+        <ElSelect v-model="tradeMode" size="small" style="width:100px" @change="onModeChange">
           <ElOption v-for="(m, key) in modeMeta" :key="key" :value="key" :label="m.emoji + ' ' + m.text" />
         </ElSelect>
         <ElTag v-if="tradeMode === 'replay' && replayDate" type="warning" size="small">🔄 {{ replayDateInput }}</ElTag>
         <ElTag v-if="circuitBreakerPaused" type="danger" size="small">⚠️熔断</ElTag>
         <button v-if="isRunning && !circuitBreakerPaused" class="cb-pause-btn" @click="pauseCircuitBreaker" title="暂停买入">⏸</button>
-        <!-- 【P1-5】数据源健康指示 -->
         <div v-if="status?.data_sources?.length" class="ds-indicator">
           <span v-for="ds in (status?.data_sources || [])" :key="ds.name" class="ds-dot" :class="{ ok: ds.available, err: !ds.available }" :title="`${ds.name}: ${ds.available ? '可用' : '不可用'} ${ds.stocks || 0}只 ${ds.calls}/${ds.limit}次`">{{ ds.name === 'eastmoney' ? '东财' : ds.name === 'biying' ? '必盈' : ds.name }}</span>
         </div>
       </div>
       <div class="hh-account" v-if="status">
-        <div class="ha"><span class="hl">资产</span><span class="hv">{{ (accountInfo.total_assets / 10000).toFixed(1) }}万</span></div>
-        <div class="ha"><span class="hl">可用</span><span class="hv">{{ (accountInfo.available_cash / 10000).toFixed(1) }}万</span></div>
-        <div class="ha"><span class="hl">仓位</span><span class="hv">{{ positionRatio }}%</span></div>
-        <div class="ha"><span class="hl">盈亏</span><span class="hv" :class="totalPnl >= 0 ? 'up' : 'down'">{{ totalPnl >= 0 ? '+' : '' }}{{ totalPnl.toFixed(0) }}</span></div>
-        <div class="ha" v-if="status?.signal_stats"><span class="hl">情绪</span><span class="hv">{{ status?.signal_stats?.filtered || 0 }}过滤</span></div>
+        <span class="ha"><span class="hl">资产</span><span class="hv">{{ (accountInfo.total_assets / 10000).toFixed(1) }}万</span></span>
+        <span class="ha"><span class="hl">可用</span><span class="hv">{{ (accountInfo.available_cash / 10000).toFixed(1) }}万</span></span>
+        <span class="ha"><span class="hl">仓位</span><span class="hv">{{ positionRatio }}%</span></span>
+        <span class="ha"><span class="hl">盈亏</span><span class="hv" :class="totalPnl >= 0 ? 'up' : 'down'">{{ totalPnl >= 0 ? '+' : '' }}{{ totalPnl.toFixed(0) }}</span></span>
+        <span class="ha" v-if="status?.signal_stats"><span class="hl">情绪</span><span class="hv">{{ status?.signal_stats?.filtered || 0 }}过滤</span></span>
       </div>
       <div class="hh-actions">
-        <ElButton size="small" @click="signalTraceVisible = !signalTraceVisible" :type="signalTraceVisible ? 'primary' : 'info'" plain>🧪 链路追踪</ElButton>
         <ElButton v-if="!isRunning" type="success" size="small" @click="startScanner">▶ 启动</ElButton>
         <ElButton v-else type="danger" size="small" @click="stopScanner">⏹ 停止</ElButton>
         <ElButton size="small" :loading="loading" @click="manualScan" :disabled="!isRunning">📡 扫描</ElButton>
@@ -1568,26 +1566,26 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 <style scoped lang="scss">
 .mm { height: 100%; display: flex; flex-direction: column; background: var(--bg-base); overflow: hidden; min-width: 0; }
 /* 顶部状态栏 */
-.mm-header { display: flex; align-items: center; gap: 12px; padding: 8px 16px; background: var(--bg-elevated); border-bottom: 1px solid var(--border-default); flex-shrink: 0; flex-wrap: wrap; min-width: 0; }
+.mm-header { display: flex; align-items: center; gap: 10px; padding: 6px 16px; background: var(--bg-elevated); border-bottom: 1px solid var(--border-default); flex-shrink: 0; min-width: 0; }
 .cb-pause-btn { font-size: 12px; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--warning); color: var(--warning); background: transparent; cursor: pointer; }
 .cb-pause-btn:hover { background: var(--warning); color: var(--text-inverse); }
-.hh-left { display: flex; align-items: center; gap: 6px; flex-shrink: 0; flex-wrap: wrap; }
+.hh-left { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .hh-status { display: flex; align-items: center; gap: 5px; font-weight: 600; font-size: 13px; }
 .hh-status .dot { width: 8px; height: 8px; border-radius: 50%; }
 .hh-status.running .dot { background: var(--stock-down); animation: pulse 1.5s infinite; }
 .hh-status.stopped .dot { background: var(--text-tertiary); }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
-.hh-account { display: flex; gap: 14px; flex: 1 1 auto; min-width: 0; flex-wrap: wrap; }
-.ha { display: flex; flex-direction: column; min-width: 0; }
+.hh-account { display: flex; align-items: center; gap: 12px; flex: 1 1 auto; min-width: 0; }
+.ha { display: inline-flex; flex-direction: column; line-height: 1.2; }
 .hl { font-size: 10px; color: var(--text-tertiary); }
 .hv { font-size: 13px; font-weight: 600; }
-.hh-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; flex-wrap: wrap; }
+.hh-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .up { color: var(--stock-up); }
 .down { color: var(--stock-down); }
 
 /* 引导页 */
 .mm-guide { flex: 1; overflow-y: auto; padding: 16px; }
-.guide-card { max-width: 720px; margin: 0 auto; width: 100%; padding: 24px; background: var(--bg-elevated); border-radius: 12px; box-shadow: var(--shadow-md); }
+.guide-card { padding: 24px; background: var(--bg-elevated); border-radius: 12px; box-shadow: var(--shadow-md); }
 .guide-header { text-align: center; margin-bottom: 24px; }
 .guide-logo { font-size: 48px; margin-bottom: 8px; }
 .guide-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
@@ -1605,21 +1603,21 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .gf-layer { font-size: 12px; color: var(--text-secondary); text-align: center; padding: 3px 0; font-family: 'JetBrains Mono', monospace; }
 
 /* 四大策略 */
-.guide-strategies { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.guide-strategies { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .gs-card { padding: 10px 12px; border: 1px solid var(--border-default); border-radius: 8px; background: var(--bg-normal); }
 .gs-icon { font-size: 20px; }
 .gs-name { font-size: 13px; font-weight: 600; margin: 2px 0; }
 .gs-desc { font-size: 11px; color: var(--text-secondary); line-height: 1.5; }
 
 /* 风控网格 */
-.guide-risk-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.guide-risk-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .gr-item { display: flex; justify-content: space-between; align-items: center; padding: 5px 10px; border: 1px solid var(--border-default); border-radius: 6px; font-size: 12px; background: var(--bg-normal); }
 .gr-label { color: var(--text-secondary); }
 .gr-val { font-weight: 500; font-family: 'JetBrains Mono', monospace; font-size: 11px; }
 
 /* 操作指南 */
-.guide-steps { text-align: left; }
-.guide-step { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 8px; font-size: 13px; line-height: 1.5; }
+.guide-steps { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; text-align: left; }
+.guide-step { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 1.5; }
 .sn { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: var(--el-color-primary); color: var(--text-inverse); font-size: 11px; font-weight: 600; flex-shrink: 0; margin-top: 2px; }
 
 /* 快捷键 */
