@@ -170,8 +170,8 @@ class StrategyScorer:
             if not cfg.get("enabled", True):
                 continue
 
-            strategy_name = cfg["name"]
-            params = cfg["params"]
+            strategy_name = cfg.get("name", strategy_key)
+            params = cfg.get("params", {})
 
             # 复用回测的筛选条件
             conditions = bt._build_strategy_filter_conditions(strategy_name, params)
