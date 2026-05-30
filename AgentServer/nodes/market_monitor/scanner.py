@@ -1184,31 +1184,24 @@ class MarketScanner:
         - 30秒完整quick check(东财缓存, 零额度)
         - 职责: 只负责卖出, 不负责买入
         - 跌停不可卖: 挂起pending_sells, 不丢追踪止损
-        - 【v2.9.5】使用self._trade_date保证交易日一致性
-        - 【v2.9.21】时间门控使用MarketPhase.classify()统一
-        - 【v2.9.22】连续错误退避: 3次异常后加长sleep, 避免空转刷日志
-        - 【v2.9.28】主循环拆分为_risk_wait_for_trading+周期检查逻辑
+        - 【v2.9.28】提取_risk_non_trading_sleep/_check_stale_quote_cache/_risk_periodic_checks
         """
         import threading
         tick = 0
-        consecutive_errors = 0  # 【v2.9.22】
+        consecutive_errors = 0
         logger.info("[RISK_THREAD] 风控线程启动")
         
         while self._risk_running:
             try:
                 tick += 1
-                consecutive_errors = 0  # 【v2.9.22:成功时重置】
+                consecutive_errors = 0
                 
-                # 【v2.9.21】使用MarketPhase统一时间分类
                 phase = MarketPhase.classify()
-                
-                # 非交易时间等待
                 sleep_s = self._risk_non_trading_sleep(phase)
                 if sleep_s > 0:
                     time.sleep(sleep_s)
                     continue
                 
-                # 从共享缓存读取(线程安全, 浅拷贝)
                 with self._cache_lock:
                     realtime_data = dict(self._realtime_cache) if self._realtime_cache else {}
 
@@ -1216,36 +1209,18 @@ class MarketScanner:
                     time.sleep(1)
                     continue
                 
-                # 【v2.9.23:行情缓存过期检测】
                 self._check_stale_quote_cache(tick, phase)
 
-                # ── 每1秒: 止损检查(用缓存数据, 零成本) ──
+                # 每1秒: 止损检查
                 self._check_stop_loss_only(realtime_data)
-                self._last_risk_check_ts = time.time()  # 【Phase4.3】
+                self._last_risk_check_ts = time.time()
 
-                # ── 每60秒: 跌停挂起超时检查(2小时超时自动清除) ──
-                if tick % 60 == 0 and self._position_manager:
-                    try:
-                        self._position_manager.check_pending_sells_timeout()
-                    except Exception as e:
-                        logger.debug(f"[RISK_THREAD] pending_sells超时检查异常: {e}")
-
-                # ── 每30秒: 完整quick check(东财缓存, 零额度) ──
-                if tick % 30 == 0 and self._loop and not self._loop.is_closed():
-                    try:
-                        risk_trade_date = self._trade_date or datetime.now().strftime("%Y%m%d")
-                        future = asyncio.run_coroutine_threadsafe(
-                            self._check_positions_quick(risk_trade_date),
-                            self._loop
-                        )
-                        future.result(timeout=10)
-                    except Exception as e:
-                        logger.debug(f"[RISK_THREAD] quick check异常: {e}")
+                # 周期性检查(60秒/30秒)
+                self._risk_periodic_checks(tick)
 
             except Exception as e:
                 consecutive_errors += 1
                 logger.error(f"[RISK_THREAD] 风控线程异常({consecutive_errors}次): {e}")
-                # 风控线程异常发射事件
                 try:
                     asyncio.ensure_future(self._event_bus.emit(ScannerEvents.SCANNER_ERROR, {
                         "error": f"风控线程异常: {e}",
@@ -1258,9 +1233,30 @@ class MarketScanner:
                 sleep_s = self._risk_error_backoff(consecutive_errors, e)
                 time.sleep(sleep_s)
                 continue
-            time.sleep(1)  # 真sleep,不受asyncio影响
+            time.sleep(1)
         
         logger.info("[RISK_THREAD] 风控线程已退出")
+
+    def _risk_periodic_checks(self, tick: int):
+        """风控线程周期性检查(60秒跌停超时+30秒quick check)【v2.9.30提取】"""
+        # 60秒: 跌停挂起超时检查
+        if tick % 60 == 0 and self._position_manager:
+            try:
+                self._position_manager.check_pending_sells_timeout()
+            except Exception as e:
+                logger.debug(f"[RISK_THREAD] pending_sells超时检查异常: {e}")
+
+        # 30秒: 完整quick check(东财缓存, 零额度)
+        if tick % 30 == 0 and self._loop and not self._loop.is_closed():
+            try:
+                risk_trade_date = self._trade_date or datetime.now().strftime("%Y%m%d")
+                future = asyncio.run_coroutine_threadsafe(
+                    self._check_positions_quick(risk_trade_date),
+                    self._loop
+                )
+                future.result(timeout=10)
+            except Exception as e:
+                logger.debug(f"[RISK_THREAD] quick check异常: {e}")
 
     @staticmethod
     def _risk_non_trading_sleep(phase: str) -> int:

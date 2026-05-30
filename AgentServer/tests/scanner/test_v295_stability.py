@@ -289,18 +289,17 @@ class TestRiskThreadTradeDateConsistency:
     """v2.9.5: 风控线程使用scanner._trade_date"""
 
     def test_risk_loop_uses_scanner_trade_date(self):
-        """_risk_loop_sync源码使用self._trade_date"""
+        """风控线程使用self._trade_date【v2.9.30:逻辑在_risk_periodic_checks中】"""
         import inspect
         from nodes.market_monitor.scanner import MarketScanner
-        src = inspect.getsource(MarketScanner._risk_loop_sync)
+        src = inspect.getsource(MarketScanner._risk_periodic_checks)
         assert "self._trade_date" in src
 
     def test_risk_loop_has_fallback(self):
-        """_trade_date为空时有fallback"""
+        """_trade_date为空时有fallback【v2.9.30:逻辑在_risk_periodic_checks中】"""
         import inspect
         from nodes.market_monitor.scanner import MarketScanner
-        src = inspect.getsource(MarketScanner._risk_loop_sync)
-        # 应该有 or datetime.now().strftime 的fallback
+        src = inspect.getsource(MarketScanner._risk_periodic_checks)
         assert "datetime.now()" in src
 
 
