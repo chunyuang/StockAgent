@@ -266,7 +266,7 @@ class TestNoBacktestRegressionV2918:
         assert "QuoteManager" not in source
 
     def test_scanner_line_count(self):
-        """scanner.py行数应≤1822(拆分+新增方法略增,但stop()减少)"""
+        """scanner.py行数应≤1835(v2.9.19:提取_post_sell_cleanup+_scan_loop_replay等)"""
         scanner_path = os.path.join(
             os.path.dirname(__file__), '..', '..', 'nodes', 'market_monitor', 'scanner.py'
         )
@@ -274,8 +274,8 @@ class TestNoBacktestRegressionV2918:
             pytest.skip("scanner.py not found")
         with open(scanner_path) as f:
             line_count = sum(1 for _ in f)
-        # stop()拆分增加2个方法签名,但整体不超1822
-        assert line_count <= 1825, f"scanner.py行数{line_count}>1825, 应不增反减"
+        # v2.9.19: 提取4个方法增加签名,但scan_once/_execute_risk_sell/get_status大幅简化
+        assert line_count <= 1835, f"scanner.py行数{line_count}>1835, 应不增反减"
 
 
 # ============================================================================

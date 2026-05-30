@@ -1,10 +1,10 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.18 | 日期: 2026-05-30 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.19 | 日期: 2026-05-30 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats
-> 回测影响: 零文件修改, 569测试全通过
+> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化
+> 回测影响: 零文件修改, 615测试全通过
 
 ---
 
@@ -2031,3 +2031,109 @@ scanner.py改用公开接口调用。
 | PositionChecker私有访问 | 2处 | 0处 | 全部消除 |
 | 测试用例数 | 546 | 579 | +33(新测试) |
 | 回测影响 | 零 | 零 | 无变化 |
+
+## 二十八、v2.9.19 _execute_risk_sell拆分 + scan_once提取 + _scan_loop回放提取 + get_status简化 (2026-05-30)
+
+### 28.1 设计目标
+
+1. **_execute_risk_sell拆分**: 82行→40行, 提取_post_sell_cleanup(timeline+统计+状态清理+事件+持久化)
+2. **scan_once提取**: 80行→50行, 提取_sync_broker_prices + _update_scan_stats + _persist_scan_result
+3. **_scan_loop回放模式提取**: 提取_scan_loop_replay, 主循环更清晰
+4. **get_status简化**: 提取_build_account_info, 减少条件分支
+
+### 28.2 _execute_risk_sell拆分
+
+**问题**: `_execute_risk_sell` 82行, 包含下单+timeline+统计+状态清理+事件+持久化, 职责混杂。卖出后清理逻辑(timeline/统计/状态/事件/持久化)在多个卖出路径中重复。
+
+**修复**: 提取`_post_sell_cleanup`方法:
+
+```python
+async def _execute_risk_sell(self, pos, reason, price, quantity):
+    # 1. 下单(职责1)
+    ok, msg, order = self._broker.place_order(...)
+    # 2. 成功后委托清理
+    if ok:
+        await self._post_sell_cleanup(pos, reason, order, quantity, profit_pct, profit_amount, source="risk_sell")
+
+async def _post_sell_cleanup(self, pos, reason, order, quantity, profit_pct, profit_amount, *, source="sell"):
+    # timeline + 统计 + 状态清理(加锁) + 事件 + 持久化
+```
+
+**好处**: 
+- `_post_sell_cleanup`可被其他卖出路径(如强制空仓)复用
+- 职责清晰: 下单vs善后分离
+- `source`参数标记卖出来源(risk_sell/force_empty等)
+
+### 28.3 scan_once提取
+
+**问题**: `scan_once` 80行, Step6(行情同步)和持久化逻辑混在核心扫描流程中。
+
+**修复**: 提取3个方法:
+
+| 方法 | 职责 | 类型 |
+|---|---|---|
+| `_sync_broker_prices(realtime_data)` | 更新broker实时价格(ST判断+价格同步) | sync |
+| `_update_scan_stats(scan_time, stocks_count, elapsed)` | 更新扫描统计+看门狗心跳 | sync |
+| `_persist_scan_result()` | save_state+timeline+运行时快照 | async |
+
+### 28.4 _scan_loop回放模式提取
+
+**问题**: `_scan_loop`中回放模式5行逻辑嵌入主方法, 影响阅读主循环流程。
+
+**修复**: 提取`_scan_loop_replay`方法, 主循环仅保留一行`await self._scan_loop_replay(); return`。
+
+### 28.5 get_status简化
+
+**问题**: `get_status` 51行, 含掘金/模拟broker两种账户构建逻辑(15行), 混在状态字典构建中。
+
+**修复**: 提取`_build_account_info`方法, `get_status`仅构建字典引用。
+
+### 28.6 变更文件
+
+| 文件 | 变更 |
+|---|---|
+| scanner.py | 4个方法提取 + _execute_risk_sell委托_post_sell_cleanup |
+| scanner.py (web/api) | _DESIGN_DOC_VERSION→v2.9.19 |
+| test_v2919_review_optimization.py | 36新增测试 |
+| test_position_checker_integration.py | 锁测试适配_post_sell_cleanup |
+| test_v296_compare_consistency.py | circuit_breaker测试适配 |
+| test_v29_optimizations.py | EventBus事件测试适配 |
+| test_v2918_review_optimization.py | 行数断言更新(1825→1835) |
+| MARKET_MONITOR_OPTIMIZATION_DESIGN.md | v2.9.19记录 |
+
+### 28.7 测试覆盖
+
+| 测试文件 | 用例数 | 覆盖点 |
+|---|---|---|
+| test_v2919_review_optimization.py | 36 | _execute_risk_sell拆分(9)+scan_once提取(10)+_scan_loop回放(4)+get_status简化(5)+方法行数回归(3)+回测零影响(5) |
+
+**全量测试**: 615 passed (0 failed)
+
+### 28.8 scanner.py行数变化
+
+| 阶段 | scanner.py行数 | 变化 |
+|---|---|---|
+| Phase3.1前 | 2907 | 基线 |
+| v2.9.17后 | 1672 | -42% |
+| v2.9.18后 | 1823 | +151(拆分+封装) |
+| **v2.9.19后** | **1831** | **+8(4个提取方法签名,但3个大方法大幅简化)** |
+
+### 28.9 方法行数改善
+
+| 方法 | v2.9.18 | v2.9.19 | 变化 |
+|---|---|---|---|
+| _execute_risk_sell | 82行 | 40行 | -51% |
+| scan_once | 80行 | 50行 | -38% |
+| get_status | 51行 | 30行 | -41% |
+| _scan_loop | 88行 | 84行 | -5% |
+| **新增** | | | |
+| _post_sell_cleanup | - | 50行 | 卖出善后统一 |
+| _sync_broker_prices | - | 10行 | 行情同步 |
+| _update_scan_stats | - | 8行 | 统计更新 |
+| _persist_scan_result | - | 9行 | 持久化 |
+| _scan_loop_replay | - | 6行 | 回放循环 |
+| _build_account_info | - | 15行 | 账户信息 |
+
+### 28.10 回测影响
+
+零。所有变更仅影响market_monitor模块, 回测引擎零文件修改。

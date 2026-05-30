@@ -417,21 +417,35 @@ class TestRiskSellCircuitBreakerUpdate:
     """风控卖出更新CircuitBreaker统计验证(v2.9.6 bug修复)"""
 
     def test_execute_risk_sell_updates_consecutive_losses(self):
-        """_execute_risk_sell应该更新circuit_breaker的连续亏损计数"""
+        """_execute_risk_sell→_post_sell_cleanup应该更新circuit_breaker的连续亏损计数"""
         import re
         with open(os.path.join(os.path.dirname(__file__), '..', '..', 'nodes', 'market_monitor', 'scanner.py')) as f:
             source = f.read()
         
-        # 查找_execute_risk_sell方法
-        match = re.search(
+        # v2.9.19: _record_trade_result在_post_sell_cleanup中
+        # 验证_execute_risk_sell委托_post_sell_cleanup, 且_post_sell_cleanup含_record_trade_result
+        risk_sell_match = re.search(
             r'async def _execute_risk_sell.*?(?=\n    async def |\n    def )',
             source, re.DOTALL
         )
-        assert match, "_execute_risk_sell方法未找到"
-        body = match.group(0)
+        assert risk_sell_match, "_execute_risk_sell方法未找到"
+        risk_sell_body = risk_sell_match.group(0)
         
-        # 验证_record_trade_result被调用
-        assert '_record_trade_result' in body, (
-            "_execute_risk_sell未调用_record_trade_result! "
+        # 验证_execute_risk_sell调用_post_sell_cleanup
+        assert '_post_sell_cleanup' in risk_sell_body, (
+            "_execute_risk_sell未调用_post_sell_cleanup! "
+            "v2.9.19重构后卖出后清理逻辑应在_post_sell_cleanup中。"
+        )
+        
+        # 验证_post_sell_cleanup调用_record_trade_result
+        cleanup_match = re.search(
+            r'async def _post_sell_cleanup.*?(?=\n    async def |\n    def )',
+            source, re.DOTALL
+        )
+        assert cleanup_match, "_post_sell_cleanup方法未找到"
+        cleanup_body = cleanup_match.group(0)
+        
+        assert '_record_trade_result' in cleanup_body, (
+            "_post_sell_cleanup未调用_record_trade_result! "
             "止损卖出不计入连续亏损统计, 熔断逻辑会失效。"
         )

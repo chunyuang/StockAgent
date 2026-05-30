@@ -371,33 +371,29 @@ class TestEmotionRebalanceDelegation:
 
 
 class TestRiskSellStateLock:
-    """回归测试: _execute_risk_sell清理状态必须加锁"""
+    """回归测试: _execute_risk_sell→_post_sell_cleanup清理状态必须加锁"""
 
     def test_trailing_stops_cleanup_uses_lock(self):
-        """验证_execute_risk_sell中trailing_stops.pop受_state_lock保护"""
-        import threading
+        """验证卖出后trailing_stops.pop受_state_lock保护(v2.9.19:逻辑在_post_sell_cleanup)"""
         scanner_source = open(
             os.path.join(os.path.dirname(__file__), '..', '..', 'nodes', 'market_monitor', 'scanner.py')
         ).read()
 
-        # 查找_execute_risk_sell方法中的trailing_stops.pop
-        # 验证它在with self._state_lock块内
         import re
-        # 找_execute_risk_sell方法
+        # v2.9.19: _execute_risk_sell委托_post_sell_cleanup, 锁在_post_sell_cleanup中
+        # 验证_post_sell_cleanup中trailing_stops.pop在_state_lock内
         method_match = re.search(
-            r'async def _execute_risk_sell.*?(?=\n    async def |\n    def |\Z)',
+            r'async def _post_sell_cleanup.*?(?=\n    async def |\n    def |\Z)',
             scanner_source, re.DOTALL
         )
-        assert method_match, "_execute_risk_sell方法未找到"
+        assert method_match, "_post_sell_cleanup方法未找到"
         method_body = method_match.group(0)
 
-        # 验证trailing_stops.pop在_state_lock内
-        # 找到包含trailing_stops.pop的部分
         lock_block = re.search(
             r'with self\._state_lock:.*?self\._trailing_stops\.pop',
             method_body, re.DOTALL
         )
         assert lock_block, (
-            "_execute_risk_sell中trailing_stops.pop未在_state_lock保护内! "
+            "_post_sell_cleanup中trailing_stops.pop未在_state_lock保护内! "
             "这是线程安全回归bug。"
         )

@@ -397,25 +397,7 @@ class MarketScanner:
         return self._is_running
 
     def get_status(self) -> Dict[str, Any]:
-        # 【v2.9.9:broker None guard(防止未初始化时API调用崩溃)】
-        account_info = {"total_assets": 0, "available_cash": 0, "market_value": 0, "total_profit": 0}
-        if self._trade_mode == self.MODE_GM and self._gm_broker:
-            gm_acct = self._gm_broker.get_account()
-            gm_positions = self._gm_broker.get_positions()
-            account_info = {
-                "total_assets": gm_acct.get("total_assets", 0),
-                "available_cash": gm_acct.get("available_cash", 0),
-                "market_value": gm_acct.get("market_value", 0),
-                "total_profit": 0,
-            }
-        elif self._broker:
-            acct = self._broker.get_account()
-            account_info = {
-                "total_assets": round(acct.total_assets, 2),
-                "available_cash": round(acct.available_cash, 2),
-                "market_value": round(acct.market_value, 2),
-                "total_profit": round(acct.total_profit, 2),
-            }
+        """Scanner完整状态快照"""
         return {
             "is_running": self._is_running,
             "scan_count": self._scan_count,
@@ -423,7 +405,7 @@ class MarketScanner:
             "active_signals": len(self._active_signals),
             "positions": len(self.get_positions()),
             "stocks_scanned": len(self._realtime_cache),
-            "account": account_info,
+            "account": self._build_account_info(),
             "stats": self._stats,
             "account_id": self.account_id,
             "trade_mode": self._trade_mode,
@@ -431,22 +413,39 @@ class MarketScanner:
                 "position_ratio": self._current_position_ratio,
                 "sentiment": self._current_sentiment,
             },
-            # 【V51:看门狗+分发器状态】
             "risk_watchdog": self._risk_watchdog.get_status() if hasattr(self, '_risk_watchdog') else {},
             "signal_dispatcher": self._signal_dispatcher.get_stats() if hasattr(self, '_signal_dispatcher') else {},
             "tiered_scanner": self._tiered_scanner.get_status() if self._tiered_scanner else {},
-            # 【V59:追踪止损+执行质量】(线程安全读取)
             "trailing_stops": self._get_activated_trailing_stops_safe(),
             "position_risk_levels": self._safe_copy_position_risk_levels(),
             "execution_stats": dict(self._execution_stats),
             "smart_check_interval": self._get_smart_check_interval(self._broker.get_positions()) if self._is_running else None,
-            # 【Phase2.2:行情降级状态】
             "quote_degrade_level": self._quote_manager.degrade_level,
             "quote_degrade_desc": self._quote_manager.degrade_desc,
             "sell_logic_mode": self.SELL_LOGIC_MODE,
-            # 【Phase4.3:健康度评分】
             "health": self._compute_health_score(),
         }
+
+    def _build_account_info(self) -> Dict[str, Any]:
+        """构建账户信息(兼容掘金+模拟broker)【v2.9.19提取】"""
+        default = {"total_assets": 0, "available_cash": 0, "market_value": 0, "total_profit": 0}
+        if self._trade_mode == self.MODE_GM and self._gm_broker:
+            gm_acct = self._gm_broker.get_account()
+            return {
+                "total_assets": gm_acct.get("total_assets", 0),
+                "available_cash": gm_acct.get("available_cash", 0),
+                "market_value": gm_acct.get("market_value", 0),
+                "total_profit": 0,
+            }
+        elif self._broker:
+            acct = self._broker.get_account()
+            return {
+                "total_assets": round(acct.total_assets, 2),
+                "available_cash": round(acct.available_cash, 2),
+                "market_value": round(acct.market_value, 2),
+                "total_profit": round(acct.total_profit, 2),
+            }
+        return default
 
     def get_signals(self) -> List[Dict]:
         result = [self._signal_to_dict(s) for s in self._active_signals]
@@ -980,11 +979,7 @@ class MarketScanner:
 
         # 回放模式: 不受交易时间限制, 持续扫描
         if self._replay_mode:
-            logger.info(f"[REPLAY] 回放循环启动, 日期={self._replay_date}")
-            while self._is_running:
-                trade_date = self._replay_date or datetime.now().strftime("%Y%m%d")
-                await self.scan_once(trade_date, force=True)
-                await asyncio.sleep(self.SCAN_INTERVAL)  # 5分钟间隔
+            await self._scan_loop_replay()
             return
 
         try:
@@ -1121,6 +1116,14 @@ class MarketScanner:
         except Exception:
             pass
 
+    async def _scan_loop_replay(self):
+        """回放模式循环: 不受交易时间限制, 持续扫描【v2.9.19提取】"""
+        logger.info(f"[REPLAY] 回放循环启动, 日期={self._replay_date}")
+        while self._is_running:
+            trade_date = self._replay_date or datetime.now().strftime("%Y%m%d")
+            await self.scan_once(trade_date, force=True)
+            await asyncio.sleep(self.SCAN_INTERVAL)
+
     # ==================== Phase1.2: 风控独立线程 ====================
 
     def _risk_loop_sync(self):
@@ -1252,87 +1255,91 @@ class MarketScanner:
                     logger.error(f"[RISK_THREAD] 卖出执行失败: {pos.ts_code} {e}")
 
     async def _execute_risk_sell(self, pos, reason: str, price: float, quantity: int):
-        """风控线程触发的卖出执行(在asyncio主循环中运行)【v2.9.12:try/except保护】"""
+        """风控线程触发的卖出执行(在asyncio主循环中运行)【v2.9.12:try/except保护, v2.9.19:提取_post_sell_cleanup】"""
         if pos.available_qty <= 0:
             return
         
-        # 保存卖出前关键值
         sell_profit_pct = pos.profit_pct
         sell_profit_amount = (pos.current_price - pos.avg_cost) * quantity
         
         try:
             self._broker.update_realtime(pos.ts_code, pos.current_price)
             ok, msg, order = self._broker.place_order(
-                ts_code=pos.ts_code,
-                stock_name=pos.stock_name,
-                side="sell",
-                quantity=quantity,
-                price=price,
-                order_type="market",
-                strategy=pos.strategy,
-                reason=reason,
+                ts_code=pos.ts_code, stock_name=pos.stock_name,
+                side="sell", quantity=quantity, price=price,
+                order_type="market", strategy=pos.strategy, reason=reason,
             )
         except Exception as e:
             logger.error(f"[RISK_SELL] place_order异常 {pos.ts_code}: {e}")
             return
         
         if ok:
-            self._timeline.append({
-                "time": datetime.now().strftime("%H:%M:%S"),
-                "action": "sell",
-                "ts_code": pos.ts_code,
-                "stock_name": pos.stock_name,
-                "strategy": pos.strategy,
-                "shares": quantity,
-                "price": order.filled_price,
-                "reason": reason,
-                "profit_pct": round(sell_profit_pct, 2),
-                "profit_amount": round(sell_profit_amount, 2),
-                "decision_detail": {
-                    "sell_reason": reason,
-                    "profit_pct": round(sell_profit_pct, 2),
-                    "profit_amount": round(sell_profit_amount, 2),
-                    "cost_price": pos.avg_cost,
-                    "sell_price": order.filled_price,
-                    "current_price": pos.current_price,
-                    "source": "risk_sell",
-                },
-            })
-            self._stats["stop_losses"] += 1
-            # 【v2.9.6:记录交易结果到circuit_breaker(之前漏掉,导致止损不计入连续亏损)】
-            # 【v2.9.9:profit_pct始终是百分比(如-3.5),直接/100转比率,移除启发式】
-            self._record_trade_result(sell_profit_pct / 100.0)
-            # 清理追踪止损(线程安全)
-            with self._state_lock:
-                self._trailing_stops.pop(pos.ts_code, None)
-                self._position_risk_levels.pop(pos.ts_code, None)
-            try:
-                await self._publish_scanner_event("timeline", {"item": self._timeline[-1]})
-            except Exception:
-                pass
-            # EventBus: 风控卖出事件
-            try:
-                await self._event_bus.emit(ScannerEvents.RISK_SELL_EXECUTED, {
-                    "ts_code": pos.ts_code, "reason": reason,
-                    "price": order.filled_price, "profit_pct": sell_profit_pct,
-                })
-                await self._event_bus.emit(ScannerEvents.POSITION_CHANGED, {
-                    "ts_code": pos.ts_code, "action": "sell", "reason": reason,
-                })
-            except Exception:
-                pass
-            logger.info(f"[RISK_THREAD] {reason}: {pos.ts_code} {quantity}股@{order.filled_price:.2f}")
-            # 持久化
-            try:
-                await self._broker.save_state(force=True)
-            except Exception:
-                pass
-            try:
-                await self._save_runtime_snapshot(force=True)
-            except Exception:
-                pass
+            await self._post_sell_cleanup(
+                pos, reason, order, quantity,
+                sell_profit_pct, sell_profit_amount, source="risk_sell",
+            )
         else:
             logger.warning(f"[RISK_SELL] 卖出失败 {pos.ts_code}: {msg}")
+
+    async def _post_sell_cleanup(
+        self, pos, reason: str, order, quantity: int,
+        profit_pct: float, profit_amount: float, *, source: str = "sell",
+    ):
+        """卖出成功后统一清理: timeline+统计+状态清理+事件+持久化【v2.9.19提取】"""
+        # Timeline记录
+        self._timeline.append({
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "action": "sell",
+            "ts_code": pos.ts_code,
+            "stock_name": pos.stock_name,
+            "strategy": pos.strategy,
+            "shares": quantity,
+            "price": order.filled_price,
+            "reason": reason,
+            "profit_pct": round(profit_pct, 2),
+            "profit_amount": round(profit_amount, 2),
+            "decision_detail": {
+                "sell_reason": reason,
+                "profit_pct": round(profit_pct, 2),
+                "profit_amount": round(profit_amount, 2),
+                "cost_price": pos.avg_cost,
+                "sell_price": order.filled_price,
+                "current_price": pos.current_price,
+                "source": source,
+            },
+        })
+        self._stats["stop_losses"] += 1
+        # 记录交易结果到circuit_breaker(v2.9.9:profit_pct/100转比率)
+        self._record_trade_result(profit_pct / 100.0)
+        # 清理追踪止损(线程安全)
+        with self._state_lock:
+            self._trailing_stops.pop(pos.ts_code, None)
+            self._position_risk_levels.pop(pos.ts_code, None)
+        # 事件通知(timeline + EventBus)
+        try:
+            await self._publish_scanner_event("timeline", {"item": self._timeline[-1]})
+        except Exception:
+            pass
+        try:
+            await self._event_bus.emit(ScannerEvents.RISK_SELL_EXECUTED, {
+                "ts_code": pos.ts_code, "reason": reason,
+                "price": order.filled_price, "profit_pct": profit_pct,
+            })
+            await self._event_bus.emit(ScannerEvents.POSITION_CHANGED, {
+                "ts_code": pos.ts_code, "action": "sell", "reason": reason,
+            })
+        except Exception:
+            pass
+        logger.info(f"[{source.upper()}] {reason}: {pos.ts_code} {quantity}股@{order.filled_price:.2f}")
+        # 持久化(broker + 运行时快照)
+        try:
+            await self._broker.save_state(force=True)
+        except Exception:
+            pass
+        try:
+            await self._save_runtime_snapshot(force=True)
+        except Exception:
+            pass
 
     async def scan_once(self, trade_date: str, force: bool = False):
         """单次扫描
@@ -1351,25 +1358,17 @@ class MarketScanner:
         realtime_data = await self._fetch_realtime_batch(force=force)
 
         # Step 2: 合并日级因子+实时数据
-        # 更新股票名称映射(从实时行情)
         self._update_name_map(realtime_data)
         merged_df = self._merge_factors(realtime_data)
 
-        # Step 3: 策略筛选
+        # Step 3: 策略筛选 + 9层筛选管道
         new_signals = await self._apply_strategies(merged_df, trade_date)
+        new_signals = await self._apply_filter_pipeline(new_signals, trade_date, realtime_data)
 
-        # Step 3.5: 9层筛选管道(强制空仓/情绪/竞价/排序/仓位)
-        new_signals = await self._apply_filter_pipeline(
-            new_signals, trade_date, realtime_data
-        )
-
-        # Step 3.6: 异动检测(从realtime_data检测, 不消耗额外API)
-        # 【安全修复】异动信号也必须经过9层筛选管道(特别是强制空仓检查)
+        # Step 3.6: 异动检测(也经过筛选管道)
         anomaly_signals = await self._detect_anomalies(realtime_data)
         if anomaly_signals:
-            anomaly_signals = await self._apply_filter_pipeline(
-                anomaly_signals, trade_date, realtime_data
-            )
+            anomaly_signals = await self._apply_filter_pipeline(anomaly_signals, trade_date, realtime_data)
         new_signals.extend(anomaly_signals)
 
         # Step 4: 增量更新信号
@@ -1378,7 +1377,22 @@ class MarketScanner:
         # Step 5: 持仓检查(止损止盈)
         await self._check_positions(realtime_data, trade_date)
 
-        # Step 6: 更新broker实时价格(用于持仓估值和涨跌停判断)
+        # Step 6: 同步broker实时价格
+        self._sync_broker_prices(realtime_data)
+
+        # Step 7: 统计+持久化
+        elapsed = time.time() - t0
+        self._update_scan_stats(scan_time, len(realtime_data), elapsed)
+        await self._persist_scan_result()
+
+        logger.info(f"[SCAN #{self._scan_count}] 完成: "
+                     f"{len(realtime_data)}只 | {len(self._active_signals)}信号 | "
+                     f"{elapsed:.1f}秒")
+
+    def _sync_broker_prices(self, realtime_data: Dict[str, Dict]):
+        """同步broker实时价格(用于持仓估值和涨跌停判断)【v2.9.19提取】"""
+        if not self._broker:
+            return
         for ts_code, rt in realtime_data.items():
             name = rt.get("name", "")
             is_st = bool(name and ("ST" in name or "*ST" in name))
@@ -1389,28 +1403,22 @@ class MarketScanner:
                 is_st=is_st,
             )
 
-        elapsed = time.time() - t0
+    def _update_scan_stats(self, scan_time: str, stocks_count: int, elapsed: float):
+        """更新扫描统计+看门狗心跳【v2.9.19提取】"""
         self._last_scan_time = scan_time
         self._stats["scans"] += 1
-        self._stats["stocks_scanned"] = len(realtime_data)
-
-        # 【V51:看门狗心跳】
+        self._stats["stocks_scanned"] = stocks_count
         if hasattr(self, '_risk_watchdog'):
             self._risk_watchdog.update_heartbeat()
-        self._last_scan_duration_ms = elapsed * 1000  # 看门狗用
-        self._last_scan_ts = time.time()  # 【Phase4.3:健康度用】
+        self._last_scan_duration_ms = elapsed * 1000
+        self._last_scan_ts = time.time()
 
-        logger.info(f"[SCAN #{self._scan_count}] 完成: "
-                     f"{len(realtime_data)}只 | {len(self._active_signals)}信号 | "
-                     f"{elapsed:.1f}秒")
-        
-        # 持久化到MongoDB
+    async def _persist_scan_result(self):
+        """扫描结果持久化: broker状态+时间线+运行时快照【v2.9.19提取】"""
         try:
             saved = await self._broker.save_state()
             logger.info(f"[SCAN] save_state={saved} positions={len(self._broker.positions)} orders={len(self._broker.orders)}")
-            # 保存时间线到MongoDB
             await self._save_timeline()
-            # 【Phase1.1】扫描后保存运行时状态(节流5秒)
             await self._save_runtime_snapshot(force=False)
         except Exception as e:
             logger.warning(f"[SCAN] save_state失败: {e}")
