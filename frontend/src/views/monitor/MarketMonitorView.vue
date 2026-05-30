@@ -180,6 +180,7 @@ const liveBacktestDiff = ref<any[]>([])
 
 // ==================== 自动交易 + 参数对比 ====================
 const autoTrades = ref<any[]>([])
+const guideVisible = ref(false)
 const paramCompare = ref<any>(null)
 const paramCompareLoading = ref(false)
 const scanConfig = ref<any>(null)
@@ -365,11 +366,10 @@ const pnlOption = computed(() => {
 let nowTimer: any = null
 // signalRemaining/formatRemaining/SIGNAL_EXPIRE_MS imported from @/utils/scanner
 // ==================== Tab 导航 ====================
-const activeTab = ref<'guide' | 'trading' | 'premarket' | 'scan-trace' | 'review' | 'risk' | 'ops'>('guide')
+const activeTab = ref<'trading' | 'review' | 'risk' | 'scan' | 'ops'>('trading')
 watch(activeTab, (tab) => {
   try {
-    if (tab === 'premarket') fetchPremarketData()
-    if (tab === 'scan-trace') fetchScanHistory()
+    if (tab === 'scan') { fetchScanHistory(); fetchPremarketData() }
     if (tab === 'review') { fetchReviewData(); fetchParamCompare() }
     if (tab === 'ops') { fetchAutoTrades(); fetchScanConfig() }
   } catch (e) { console.error('[Tab] error:', e) }
@@ -581,205 +581,50 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 </script>
 <template>
   <div class="mm" :class="{ dark: themeStore.isDark }">
-    <!-- 顶部状态栏(一行: 风控+状态+资产+操作) -->
-    <div class="mm-header">
-      <div class="hh-left">
-        <div class="hh-status" :class="{ running: isRunning, stopped: !isRunning }"><span class="dot"></span><span>{{ isRunning ? '扫描中' : '已停止' }}</span></div>
+    <!-- 页面头部栏(标题+指标+Tab+操作, 单行, 与回测页统一格式) -->
+    <div class="page-header-bar">
+      <div class="ph-left">
+        <span class="ph-title">📡 市场监听</span>
+        <span v-if="isRunning" class="ph-running">⏱ 扫描中</span>
+        <span class="ph-sep">|</span>
+        <div class="ph-tabs">
+          <button :class="['tab-btn', activeTab === 'trading' ? 'active' : '']" @click="activeTab = 'trading'">
+            <span class="tab-icon">🎯</span><span class="tab-text"><span class="tab-label">实盘</span><span class="tab-desc">信号·持仓·交易</span></span>
+            <span v-if="filteredSignals.length" class="tab-badge">{{ filteredSignals.length }}</span>
+          </button>
+          <button :class="['tab-btn', activeTab === 'review' ? 'active' : '']" @click="activeTab = 'review'">
+            <span class="tab-icon">📊</span><span class="tab-text"><span class="tab-label">复盘</span><span class="tab-desc">归因·净值·报告</span></span>
+          </button>
+          <button :class="['tab-btn', activeTab === 'risk' ? 'active' : '']" @click="activeTab = 'risk'">
+            <span class="tab-icon">🛡️</span><span class="tab-text"><span class="tab-label">风控</span><span class="tab-desc">止损·矩阵·概览</span></span>
+            <span v-if="positions.some(p => p.risk_level === 'high')" class="tab-badge-danger">!</span>
+          </button>
+          <button :class="['tab-btn', activeTab === 'scan' ? 'active' : '']" @click="activeTab = 'scan'">
+            <span class="tab-icon">🔍</span><span class="tab-text"><span class="tab-label">扫描</span><span class="tab-desc">9层漏斗·盘前</span></span>
+          </button>
+          <button :class="['tab-btn', activeTab === 'ops' ? 'active' : '']" @click="activeTab = 'ops'">
+            <span class="tab-icon">⚙️</span><span class="tab-text"><span class="tab-label">运维</span><span class="tab-desc">系统·配置</span></span>
+          </button>
+        </div>
+      </div>
+      <div class="ph-right">
+        <span class="ph-stat" v-if="status">资产<span class="ph-val">{{ (accountInfo.total_assets / 10000).toFixed(1) }}万</span></span>
+        <span class="ph-stat" v-if="status">可用<span class="ph-val">{{ (accountInfo.available_cash / 10000).toFixed(1) }}万</span></span>
+        <span class="ph-stat" v-if="status">仓位<span class="ph-val">{{ positionRatio }}%</span></span>
+        <span class="ph-stat" v-if="status">盈亏<span class="ph-val" :class="totalPnl >= 0 ? 'up' : 'down'">{{ totalPnl >= 0 ? '+' : '' }}{{ totalPnl.toFixed(0) }}</span></span>
         <ElSelect v-model="tradeMode" size="small" style="width:96px" @change="onModeChange">
           <ElOption v-for="(m, key) in modeMeta" :key="key" :value="key" :label="m.emoji + ' ' + m.text" />
         </ElSelect>
-        <ElTag v-if="tradeMode === 'replay' && replayDate" type="warning" size="small">🔄 {{ replayDateInput }}</ElTag>
-        <ElTag v-if="circuitBreakerPaused" type="danger" size="small">⚠️熔断</ElTag>
-        <div v-if="status?.data_sources?.length" class="ds-indicator">
-          <span v-for="ds in (status?.data_sources || [])" :key="ds.name" class="ds-dot" :class="{ ok: ds.available, err: !ds.available }">{{ ds.name === 'eastmoney' ? '东财' : ds.name === 'biying' ? '必盈' : ds.name }}</span>
-        </div>
-      </div>
-      <div class="hh-account" v-if="status">
-        <span class="ha">资产<span class="hv">{{ (accountInfo.total_assets / 10000).toFixed(1) }}万</span></span>
-        <span class="ha">可用<span class="hv">{{ (accountInfo.available_cash / 10000).toFixed(1) }}万</span></span>
-        <span class="ha">仓位<span class="hv">{{ positionRatio }}%</span></span>
-        <span class="ha">盈亏<span class="hv" :class="totalPnl >= 0 ? 'up' : 'down'">{{ totalPnl >= 0 ? '+' : '' }}{{ totalPnl.toFixed(0) }}</span></span>
-      </div>
-      <div class="hh-actions">
         <ElButton v-if="!isRunning" type="success" size="small" @click="startScanner">▶ 启动</ElButton>
         <ElButton v-else type="danger" size="small" @click="stopScanner">⏹ 停止</ElButton>
         <ElButton size="small" :loading="loading" @click="manualScan" :disabled="!isRunning">📡 扫描</ElButton>
-        <button class="emergency-btn-inline" :class="{ disabled: !isRunning || emergencyLiquidating }" @click="isRunning && !emergencyLiquidating && emergencyLiquidate()" :disabled="!isRunning || emergencyLiquidating" title="紧急平仓">🚨</button>
         <ElSwitch v-model="autoRefresh" size="small" active-text="自动" inactive-text="" />
         <span class="dark-toggle" @click="themeStore.toggleTheme()">{{ themeStore.isDark ? '☀️' : '🌙' }}</span>
+        <span class="help-btn" @click="guideVisible = true" title="帮助">?</span>
       </div>
     </div>
 
-    <!-- Tab 导航栏 -->
-    <div class="mm-tab-bar">
-      <button :class="['tab-btn', activeTab === 'guide' ? 'active' : '']" @click="activeTab = 'guide'">
-        <span class="tab-icon">📖</span>
-        <span class="tab-text"><span class="tab-label">指南</span><span class="tab-desc">架构·策略·操作</span></span>
-      </button>
-      <button :class="['tab-btn', activeTab === 'trading' ? 'active' : '']" @click="activeTab = 'trading'">
-        <span class="tab-icon">🎯</span>
-        <span class="tab-text"><span class="tab-label">实盘</span><span class="tab-desc">信号·持仓·交易</span></span>
-        <span v-if="filteredSignals.length" class="tab-badge">{{ filteredSignals.length }}</span>
-      </button>
-      <button :class="['tab-btn', activeTab === 'premarket' ? 'active' : '']" @click="activeTab = 'premarket'">
-        <span class="tab-icon">🌅</span>
-        <span class="tab-text"><span class="tab-label">盘前竞价</span><span class="tab-desc">9:00-9:25</span></span>
-        <span v-if="premarketSignals.length" class="tab-badge">{{ premarketSignals.length }}</span>
-      </button>
-      <button :class="['tab-btn', activeTab === 'scan-trace' ? 'active' : '']" @click="activeTab = 'scan-trace'">
-        <span class="tab-icon">🔍</span>
-        <span class="tab-text"><span class="tab-label">扫描追踪</span><span class="tab-desc">9层漏斗·执行链</span></span>
-      </button>
-      <button :class="['tab-btn', activeTab === 'review' ? 'active' : '']" @click="activeTab = 'review'">
-        <span class="tab-icon">📋</span>
-        <span class="tab-text"><span class="tab-label">复盘</span><span class="tab-desc">日/周·归因·对比</span></span>
-      </button>
-      <button :class="['tab-btn', activeTab === 'risk' ? 'active' : '']" @click="activeTab = 'risk'">
-        <span class="tab-icon">🛡️</span>
-        <span class="tab-text"><span class="tab-label">风控</span><span class="tab-desc">止损·矩阵</span></span>
-        <span v-if="positions.some(p => p.risk_level === 'high')" class="tab-badge-danger">!</span>
-      </button>
-      <button :class="['tab-btn', activeTab === 'ops' ? 'active' : '']" @click="activeTab = 'ops'">
-        <span class="tab-icon">⚙️</span>
-        <span class="tab-text"><span class="tab-label">运维</span><span class="tab-desc">系统·操作</span></span>
-      </button>
-    </div>
-
-    <!-- 📖 指南Tab -->
-    <div v-if="activeTab === 'guide'" class="mm-guide">
-      <!-- 顶部横幅 -->
-      <div class="guide-banner">
-        <div class="gb-left">
-          <div class="gb-logo">📡</div>
-          <div>
-            <div class="gb-title">超短量化实盘监控系统</div>
-            <div class="gb-sub">9层漏斗筛选 · 4策略联合选股 · 实时风控守护</div>
-          </div>
-        </div>
-        <ElButton type="success" size="large" @click="startScanner" style="padding:10px 32px;font-size:15px">▶ 启动扫描器</ElButton>
-      </div>
-
-      <!-- 4列卡片网格 -->
-      <div class="guide-grid">
-        <!-- 系统架构 -->
-        <div class="gg-card gg-span2">
-          <div class="gg-head"><span class="gg-icon">🏗️</span>系统架构</div>
-          <div class="gg-body">
-            <div class="gf-flow">
-              <span class="gf-tag gf-input">5000+股票</span>
-              <span class="gf-arrow">→</span>
-              <span class="gf-tag">L1~L3 基础过滤</span>
-              <span class="gf-arrow">→</span>
-              <span class="gf-tag">L4~L6 策略筛选</span>
-              <span class="gf-arrow">→</span>
-              <span class="gf-tag">L7~L9 排序仓位</span>
-              <span class="gf-arrow">→</span>
-              <span class="gf-tag gf-output">买入信号</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- 操作指南 -->
-        <div class="gg-card gg-span2">
-          <div class="gg-head"><span class="gg-icon">📖</span>操作指南</div>
-          <div class="gg-body">
-            <div class="go-list">
-              <div class="go-row"><span class="sn">1</span>▶ 启动 → 每5分钟自动扫描，30秒检查持仓</div>
-              <div class="go-row"><span class="sn">2</span>📡 扫描 → 立即触发选股，⚡ 强扫跳缓存</div>
-              <div class="go-row"><span class="sn">3</span>🎛️ 策略 → 左侧面板开关策略、调参数</div>
-              <div class="go-row"><span class="sn">4</span>🟢 买入 → 信号区候选一键下单</div>
-              <div class="go-row"><span class="sn">5</span>🔴 卖出 → 持仓卡片快捷平仓或自动止盈止损</div>
-              <div class="go-row"><span class="sn">6</span>📋 复盘 / ⚙️ 运维 → 归因分析+系统健康</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 半路追涨 -->
-        <div class="gg-card">
-          <div class="gg-head"><span class="gg-icon">🏃</span>半路追涨</div>
-          <div class="gg-body gg-compact">
-            <div class="gg-line">盘中涨幅3-5% + 量能放大</div>
-            <div class="gg-params">
-              <span class="gg-p"><span class="gg-pl">SL</span>3%</span>
-              <span class="gg-p"><span class="gg-pl">TP</span>12%</span>
-              <span class="gg-p"><span class="gg-pl">持仓</span>3天</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- 首板打板 -->
-        <div class="gg-card">
-          <div class="gg-head"><span class="gg-icon">🥇</span>首板打板</div>
-          <div class="gg-body gg-compact">
-            <div class="gg-line">首次涨停封板 + 成交概率</div>
-            <div class="gg-params">
-              <span class="gg-p"><span class="gg-pl">SL</span>3%</span>
-              <span class="gg-p"><span class="gg-pl">TP</span>10%</span>
-              <span class="gg-p"><span class="gg-pl">持仓</span>2天</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- 龙头低吸 -->
-        <div class="gg-card">
-          <div class="gg-head"><span class="gg-icon">🐲</span>龙头低吸</div>
-          <div class="gg-body gg-compact">
-            <div class="gg-line">连板龙头回调 + MA支撑</div>
-            <div class="gg-params">
-              <span class="gg-p"><span class="gg-pl">SL</span>3.5%</span>
-              <span class="gg-p"><span class="gg-pl">TP</span>30%</span>
-              <span class="gg-p"><span class="gg-pl">持仓</span>7天</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- 跌停翘板 -->
-        <div class="gg-card">
-          <div class="gg-head"><span class="gg-icon">💥</span>跌停翘板</div>
-          <div class="gg-body gg-compact">
-            <div class="gg-line">连续跌停翘板反转</div>
-            <div class="gg-params">
-              <span class="gg-p"><span class="gg-pl">SL</span>5%</span>
-              <span class="gg-p"><span class="gg-pl">TP</span>20%</span>
-              <span class="gg-p"><span class="gg-pl">持仓</span>3天</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- 风控体系 -->
-        <div class="gg-card gg-span2">
-          <div class="gg-head"><span class="gg-icon">🛡️</span>风控体系</div>
-          <div class="gg-body">
-            <div class="gr-grid">
-              <div class="gr-row"><span class="gr-k">强制空仓</span><span class="gr-v">跌停≥80只 / 大盘跌≥3%</span></div>
-              <div class="gr-row"><span class="gr-k">情绪仓位</span><span class="gr-v">高潮100% / 分化70% / 震荡50% / 冰点30%</span></div>
-              <div class="gr-row"><span class="gr-k">单票上限</span><span class="gr-v">35% · 总仓位上限75%</span></div>
-              <div class="gr-row"><span class="gr-k">盘中锁定</span><span class="gr-v">冲高≥6% 回撤≥2.5% → 利润保护</span></div>
-              <div class="gr-row"><span class="gr-k">智能检查</span><span class="gr-v">盈利5s / 亏损3s / 接近止损1s</span></div>
-              <div class="gr-row"><span class="gr-k">信号过期</span><span class="gr-v">5分钟未执行自动取消</span></div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 快捷键 -->
-        <div class="gg-card gg-span2">
-          <div class="gg-head"><span class="gg-icon">⌨️</span>快捷键</div>
-          <div class="gg-body">
-            <div class="gk-row">
-              <span class="gk-g"><kbd>F5</kbd>强扫</span>
-              <span class="gk-g"><kbd>F9</kbd>买入</span>
-              <span class="gk-g"><kbd>Ctrl+S</kbd>卖出</span>
-              <span class="gk-g"><kbd>Ctrl+E</kbd>紧急平仓</span>
-              <span class="gk-g"><kbd>↑↓</kbd>切换持仓</span>
-              <span class="gk-g"><kbd>Enter</kbd>详情</span>
-              <span class="gk-g"><kbd>1-4</kbd>策略开关</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 3列主布局 -->
+<!-- 3列主布局 -->
     <div v-if="activeTab === 'trading'" class="mm-body">
       <!-- 左列: 策略控制 -->
       <div class="mm-left">
@@ -793,7 +638,30 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
             <ElButton size="small" text type="primary" @click="openEditDialog(s)">⚙️ 编辑</ElButton>
           </div>
         </div>
-        </template>
+        
+    <!-- 指南弹窗 -->
+    <ElDialog v-model="guideVisible" title="📡 超短量化实盘监控系统" width="720px" :close-on-click-modal="true">
+      <div class="guide-grid">
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🏗️</span>系统架构</div><div class="gg-body"><div class="gf-flow"><span class="gf-tag gf-input">5000+股票</span><span class="gf-arrow">→</span><span class="gf-tag">L1~L3 基础过滤</span><span class="gf-arrow">→</span><span class="gf-tag">L4~L6 策略筛选</span><span class="gf-arrow">→</span><span class="gf-tag">L7~L9 排序仓位</span><span class="gf-arrow">→</span><span class="gf-tag gf-output">买入信号</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">📖</span>操作指南</div><div class="gg-body"><div class="go-list"><div class="go-row"><span class="sn">1</span>▶ 启动 → 每5分钟自动扫描，30秒检查持仓</div><div class="go-row"><span class="sn">2</span>📡 扫描 → 立即触发选股，⚡ 强扫跳缓存</div><div class="go-row"><span class="sn">3</span>🎛️ 策略 → 左侧面板开关策略、调参数</div><div class="go-row"><span class="sn">4</span>🟢 买入 → 信号区候选一键下单</div><div class="go-row"><span class="sn">5</span>🔴 卖出 → 持仓卡片快捷平仓或自动止盈止损</div><div class="go-row"><span class="sn">6</span>📋 复盘 / 🛡️ 风控 / ⚙️ 运维 → 详细分析</div></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🏃</span>半路追涨</div><div class="gg-body gg-compact"><div class="gg-line">盘中涨幅3-5% + 量能放大</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>12%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🥇</span>首板打板</div><div class="gg-body gg-compact"><div class="gg-line">首次涨停封板 + 成交概率</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>10%</span><span class="gg-p"><span class="gg-pl">持仓</span>2天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🐲</span>龙头低吸</div><div class="gg-body gg-compact"><div class="gg-line">连板龙头回调 + MA支撑</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3.5%</span><span class="gg-p"><span class="gg-pl">TP</span>30%</span><span class="gg-p"><span class="gg-pl">持仓</span>7天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">💥</span>跌停翘板</div><div class="gg-body gg-compact"><div class="gg-line">连续跌停翘板反转</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>5%</span><span class="gg-p"><span class="gg-pl">TP</span>20%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🛡️</span>风控体系</div><div class="gg-body"><div class="gr-grid"><div class="gr-row"><span class="gr-k">强制空仓</span><span class="gr-v">跌停≥80只 / 大盘跌≥3%</span></div><div class="gr-row"><span class="gr-k">情绪仓位</span><span class="gr-v">高潮100% / 分化70% / 震荡50% / 冰点30%</span></div><div class="gr-row"><span class="gr-k">单票上限</span><span class="gr-v">35% · 总仓位上限75%</span></div><div class="gr-row"><span class="gr-k">盘中锁定</span><span class="gr-v">冲高≥6% 回撤≥2.5% → 利润保护</span></div><div class="gr-row"><span class="gr-k">智能检查</span><span class="gr-v">盈利5s / 亏损3s / 接近止损1s</span></div><div class="gr-row"><span class="gr-k">信号过期</span><span class="gr-v">5分钟未执行自动取消</span></div></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">⌨️</span>快捷键</div><div class="gg-body"><div class="gk-row"><span class="gk-g"><kbd>F5</kbd>强扫</span><span class="gk-g"><kbd>F9</kbd>买入</span><span class="gk-g"><kbd>Ctrl+S</kbd>卖出</span><span class="gk-g"><kbd>Ctrl+E</kbd>紧急平仓</span><span class="gk-g"><kbd>↑↓</kbd>切换持仓</span><span class="gk-g"><kbd>1-4</kbd>策略开关</span></div></div></div>
+      </div>
+      <template #footer><ElButton type="success" @click="guideVisible = false; startScanner()">▶ 启动扫描器</ElButton><ElButton @click="guideVisible = false">关闭</ElButton></template>
+    </ElDialog>
+</template>
+        <!-- 快捷操作 -->
+        <div class="st" style="margin-top:12px">⚡ 快捷操作</div>
+        <div class="qa-grid">
+          <ElButton size="small" @click="manualScan" :loading="loading" :disabled="!isRunning">📡 扫描</ElButton>
+          <ElButton size="small" type="warning" @click="forceScan" :loading="loading" :disabled="!isRunning">⚡ 强扫</ElButton>
+          <ElButton size="small" @click="dailySettlement" :disabled="!isRunning">📅 日结</ElButton>
+          <button class="emergency-btn-inline" :class="{ disabled: !isRunning || emergencyLiquidating }" @click="isRunning && !emergencyLiquidating && emergencyLiquidate()" :disabled="!isRunning || emergencyLiquidating" title="紧急平仓">🚨 紧急平仓</button>
+        </div>
         <div class="st mt-10" style="font-size:11px;color:var(--text-tertiary)">更多操作见 <span class="cp" style="color:var(--el-color-primary)" @click="activeTab='ops'">⚙️ 运维Tab</span></div>
 
       </div>
@@ -843,7 +711,22 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <div class="tl-col" style="flex:3">
           <div v-if="historyData.length" class="history-tag">📜 {{ historyDate }} 历史回放 ({{ historyData.length }}条)</div>
           <div v-if="!historyData.length && !timeline.length" class="empty">暂无交易</div>
-          <div v-for="(item, i) in historyData.length ? historyData : timeline" :key="i" class="tl-row cp" @click="item.action !== 'blocked' && openTradeDetail(item.ts_code)"><span class="tl-time">{{ item.time }}</span><span class="tl-action" :class="item.action === 'buy' ? 'buy' : item.action === 'sell' ? 'sell' : 'blocked'">{{ item.action === 'buy' ? '买' : item.action === 'sell' ? '卖' : '⛔' }}</span><span class="code">{{ item.ts_code }}</span><span class="name">{{ item.stock_name }}</span><span v-if="item.action === 'blocked'" class="tl-blocked-reason">{{ item.reason }}</span><template v-else><span v-if="item.strategy" class="tl-strat">{{ strategyCN(item.strategy) }}</span><span class="tl-detail">{{ item.shares }}股@{{ item.price.toFixed(2) }}</span><span v-if="item.profit_pct !== undefined" :class="item.profit_pct >= 0 ? 'up' : 'down'">{{ item.profit_pct >= 0 ? '+' : '' }}{{ item.profit_pct.toFixed(1) }}%</span><span v-if="item.profit_amount != null" :class="item.profit_amount >= 0 ? 'up' : 'down'" class="tl-amt">{{ item.profit_amount >= 0 ? '+' : '' }}¥{{ item.profit_amount.toFixed(0) }}</span></template></div>
+          <div v-for="(item, i) in historyData.length ? historyData : timeline" :key="i" class="tl-row cp" @click="item.action !== 'blocked' && openTradeDetail(item.ts_code)"><span class="tl-time">{{ item.time }}</span><span class="tl-action" :class="item.action === 'buy' ? 'buy' : item.action === 'sell' ? 'sell' : 'blocked'">{{ item.action === 'buy' ? '买' : item.action === 'sell' ? '卖' : '⛔' }}</span><span class="code">{{ item.ts_code }}</span><span class="name">{{ item.stock_name }}</span><span v-if="item.action === 'blocked'" class="tl-blocked-reason">{{ item.reason }}</span><template v-else><span v-if="item.strategy" class="tl-strat">{{ strategyCN(item.strategy) }}</span><span class="tl-detail">{{ item.shares }}股@{{ item.price.toFixed(2) }}</span><span v-if="item.profit_pct !== undefined" :class="item.profit_pct >= 0 ? 'up' : 'down'">{{ item.profit_pct >= 0 ? '+' : '' }}{{ item.profit_pct.toFixed(1) }}%</span><span v-if="item.profit_amount != null" :class="item.profit_amount >= 0 ? 'up' : 'down'" class="tl-amt">{{ item.profit_amount >= 0 ? '+' : '' }}¥{{ item.profit_amount.toFixed(0) }}</span>
+    <!-- 指南弹窗 -->
+    <ElDialog v-model="guideVisible" title="📡 超短量化实盘监控系统" width="720px" :close-on-click-modal="true">
+      <div class="guide-grid">
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🏗️</span>系统架构</div><div class="gg-body"><div class="gf-flow"><span class="gf-tag gf-input">5000+股票</span><span class="gf-arrow">→</span><span class="gf-tag">L1~L3 基础过滤</span><span class="gf-arrow">→</span><span class="gf-tag">L4~L6 策略筛选</span><span class="gf-arrow">→</span><span class="gf-tag">L7~L9 排序仓位</span><span class="gf-arrow">→</span><span class="gf-tag gf-output">买入信号</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">📖</span>操作指南</div><div class="gg-body"><div class="go-list"><div class="go-row"><span class="sn">1</span>▶ 启动 → 每5分钟自动扫描，30秒检查持仓</div><div class="go-row"><span class="sn">2</span>📡 扫描 → 立即触发选股，⚡ 强扫跳缓存</div><div class="go-row"><span class="sn">3</span>🎛️ 策略 → 左侧面板开关策略、调参数</div><div class="go-row"><span class="sn">4</span>🟢 买入 → 信号区候选一键下单</div><div class="go-row"><span class="sn">5</span>🔴 卖出 → 持仓卡片快捷平仓或自动止盈止损</div><div class="go-row"><span class="sn">6</span>📋 复盘 / 🛡️ 风控 / ⚙️ 运维 → 详细分析</div></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🏃</span>半路追涨</div><div class="gg-body gg-compact"><div class="gg-line">盘中涨幅3-5% + 量能放大</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>12%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🥇</span>首板打板</div><div class="gg-body gg-compact"><div class="gg-line">首次涨停封板 + 成交概率</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>10%</span><span class="gg-p"><span class="gg-pl">持仓</span>2天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🐲</span>龙头低吸</div><div class="gg-body gg-compact"><div class="gg-line">连板龙头回调 + MA支撑</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3.5%</span><span class="gg-p"><span class="gg-pl">TP</span>30%</span><span class="gg-p"><span class="gg-pl">持仓</span>7天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">💥</span>跌停翘板</div><div class="gg-body gg-compact"><div class="gg-line">连续跌停翘板反转</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>5%</span><span class="gg-p"><span class="gg-pl">TP</span>20%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🛡️</span>风控体系</div><div class="gg-body"><div class="gr-grid"><div class="gr-row"><span class="gr-k">强制空仓</span><span class="gr-v">跌停≥80只 / 大盘跌≥3%</span></div><div class="gr-row"><span class="gr-k">情绪仓位</span><span class="gr-v">高潮100% / 分化70% / 震荡50% / 冰点30%</span></div><div class="gr-row"><span class="gr-k">单票上限</span><span class="gr-v">35% · 总仓位上限75%</span></div><div class="gr-row"><span class="gr-k">盘中锁定</span><span class="gr-v">冲高≥6% 回撤≥2.5% → 利润保护</span></div><div class="gr-row"><span class="gr-k">智能检查</span><span class="gr-v">盈利5s / 亏损3s / 接近止损1s</span></div><div class="gr-row"><span class="gr-k">信号过期</span><span class="gr-v">5分钟未执行自动取消</span></div></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">⌨️</span>快捷键</div><div class="gg-body"><div class="gk-row"><span class="gk-g"><kbd>F5</kbd>强扫</span><span class="gk-g"><kbd>F9</kbd>买入</span><span class="gk-g"><kbd>Ctrl+S</kbd>卖出</span><span class="gk-g"><kbd>Ctrl+E</kbd>紧急平仓</span><span class="gk-g"><kbd>↑↓</kbd>切换持仓</span><span class="gk-g"><kbd>1-4</kbd>策略开关</span></div></div></div>
+      </div>
+      <template #footer><ElButton type="success" @click="guideVisible = false; startScanner()">▶ 启动扫描器</ElButton><ElButton @click="guideVisible = false">关闭</ElButton></template>
+    </ElDialog>
+</template></div>
         </div>
         <div class="tl-col" v-if="orders.length" style="flex:2">
           <div class="st">📋 历史订单 ({{ orders.length }})</div>
@@ -858,7 +741,22 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <ElTabPane label="选股参数" name="params"><div v-for="p in editingStrategy?.paramDescriptions || []" :key="p.key" style="margin-bottom:12px"><div style="font-size:13px;margin-bottom:4px">{{ p.label }} <span class="text-tertiary">({{ p.min }}~{{ p.max }}{{ p.unit }})</span></div><ElInputNumber v-model="editParams[p.key]" :min="p.min" :max="p.max" :step="p.step" :precision="p.step < 1 ? 2 : 1" size="small" controls-position="right" style="width:160px" /></div></ElTabPane>
         <ElTabPane label="风控参数" name="risk"><div v-for="p in editingStrategy?.riskDescriptions || []" :key="p.key" style="margin-bottom:12px"><div style="font-size:13px;margin-bottom:4px">{{ p.label }} <span class="text-tertiary">({{ p.min }}~{{ p.max }}{{ p.unit }})</span></div><ElInputNumber v-model="editRiskParams[p.key]" :min="p.min" :max="p.max" :step="p.step" :precision="p.step < 1 ? 2 : 1" size="small" controls-position="right" style="width:160px" /></div></ElTabPane>
       </ElTabs>
-      <template #footer><ElButton @click="editDialogVisible = false">取消</ElButton><ElButton type="primary" :loading="saving" @click="saveStrategy">保存</ElButton></template>
+      <template #footer><ElButton @click="editDialogVisible = false">取消</ElButton><ElButton type="primary" :loading="saving" @click="saveStrategy">保存</ElButton>
+    <!-- 指南弹窗 -->
+    <ElDialog v-model="guideVisible" title="📡 超短量化实盘监控系统" width="720px" :close-on-click-modal="true">
+      <div class="guide-grid">
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🏗️</span>系统架构</div><div class="gg-body"><div class="gf-flow"><span class="gf-tag gf-input">5000+股票</span><span class="gf-arrow">→</span><span class="gf-tag">L1~L3 基础过滤</span><span class="gf-arrow">→</span><span class="gf-tag">L4~L6 策略筛选</span><span class="gf-arrow">→</span><span class="gf-tag">L7~L9 排序仓位</span><span class="gf-arrow">→</span><span class="gf-tag gf-output">买入信号</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">📖</span>操作指南</div><div class="gg-body"><div class="go-list"><div class="go-row"><span class="sn">1</span>▶ 启动 → 每5分钟自动扫描，30秒检查持仓</div><div class="go-row"><span class="sn">2</span>📡 扫描 → 立即触发选股，⚡ 强扫跳缓存</div><div class="go-row"><span class="sn">3</span>🎛️ 策略 → 左侧面板开关策略、调参数</div><div class="go-row"><span class="sn">4</span>🟢 买入 → 信号区候选一键下单</div><div class="go-row"><span class="sn">5</span>🔴 卖出 → 持仓卡片快捷平仓或自动止盈止损</div><div class="go-row"><span class="sn">6</span>📋 复盘 / 🛡️ 风控 / ⚙️ 运维 → 详细分析</div></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🏃</span>半路追涨</div><div class="gg-body gg-compact"><div class="gg-line">盘中涨幅3-5% + 量能放大</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>12%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🥇</span>首板打板</div><div class="gg-body gg-compact"><div class="gg-line">首次涨停封板 + 成交概率</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>10%</span><span class="gg-p"><span class="gg-pl">持仓</span>2天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🐲</span>龙头低吸</div><div class="gg-body gg-compact"><div class="gg-line">连板龙头回调 + MA支撑</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3.5%</span><span class="gg-p"><span class="gg-pl">TP</span>30%</span><span class="gg-p"><span class="gg-pl">持仓</span>7天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">💥</span>跌停翘板</div><div class="gg-body gg-compact"><div class="gg-line">连续跌停翘板反转</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>5%</span><span class="gg-p"><span class="gg-pl">TP</span>20%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🛡️</span>风控体系</div><div class="gg-body"><div class="gr-grid"><div class="gr-row"><span class="gr-k">强制空仓</span><span class="gr-v">跌停≥80只 / 大盘跌≥3%</span></div><div class="gr-row"><span class="gr-k">情绪仓位</span><span class="gr-v">高潮100% / 分化70% / 震荡50% / 冰点30%</span></div><div class="gr-row"><span class="gr-k">单票上限</span><span class="gr-v">35% · 总仓位上限75%</span></div><div class="gr-row"><span class="gr-k">盘中锁定</span><span class="gr-v">冲高≥6% 回撤≥2.5% → 利润保护</span></div><div class="gr-row"><span class="gr-k">智能检查</span><span class="gr-v">盈利5s / 亏损3s / 接近止损1s</span></div><div class="gr-row"><span class="gr-k">信号过期</span><span class="gr-v">5分钟未执行自动取消</span></div></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">⌨️</span>快捷键</div><div class="gg-body"><div class="gk-row"><span class="gk-g"><kbd>F5</kbd>强扫</span><span class="gk-g"><kbd>F9</kbd>买入</span><span class="gk-g"><kbd>Ctrl+S</kbd>卖出</span><span class="gk-g"><kbd>Ctrl+E</kbd>紧急平仓</span><span class="gk-g"><kbd>↑↓</kbd>切换持仓</span><span class="gk-g"><kbd>1-4</kbd>策略开关</span></div></div></div>
+      </div>
+      <template #footer><ElButton type="success" @click="guideVisible = false; startScanner()">▶ 启动扫描器</ElButton><ElButton @click="guideVisible = false">关闭</ElButton></template>
+    </ElDialog>
+</template>
     </ElDialog>
 
     <!-- 交易详情弹窗 — 结构化卡片 -->
@@ -885,7 +783,22 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
                       <span class="td2-pipe-detail">{{ tradeDetailData.buy.decision_detail.filter_pipeline.layer_details?.[layer] || (applied ? '通过' : '跳过') }}</span>
                     </div>
                   </div>
-                </template>
+                
+    <!-- 指南弹窗 -->
+    <ElDialog v-model="guideVisible" title="📡 超短量化实盘监控系统" width="720px" :close-on-click-modal="true">
+      <div class="guide-grid">
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🏗️</span>系统架构</div><div class="gg-body"><div class="gf-flow"><span class="gf-tag gf-input">5000+股票</span><span class="gf-arrow">→</span><span class="gf-tag">L1~L3 基础过滤</span><span class="gf-arrow">→</span><span class="gf-tag">L4~L6 策略筛选</span><span class="gf-arrow">→</span><span class="gf-tag">L7~L9 排序仓位</span><span class="gf-arrow">→</span><span class="gf-tag gf-output">买入信号</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">📖</span>操作指南</div><div class="gg-body"><div class="go-list"><div class="go-row"><span class="sn">1</span>▶ 启动 → 每5分钟自动扫描，30秒检查持仓</div><div class="go-row"><span class="sn">2</span>📡 扫描 → 立即触发选股，⚡ 强扫跳缓存</div><div class="go-row"><span class="sn">3</span>🎛️ 策略 → 左侧面板开关策略、调参数</div><div class="go-row"><span class="sn">4</span>🟢 买入 → 信号区候选一键下单</div><div class="go-row"><span class="sn">5</span>🔴 卖出 → 持仓卡片快捷平仓或自动止盈止损</div><div class="go-row"><span class="sn">6</span>📋 复盘 / 🛡️ 风控 / ⚙️ 运维 → 详细分析</div></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🏃</span>半路追涨</div><div class="gg-body gg-compact"><div class="gg-line">盘中涨幅3-5% + 量能放大</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>12%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🥇</span>首板打板</div><div class="gg-body gg-compact"><div class="gg-line">首次涨停封板 + 成交概率</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>10%</span><span class="gg-p"><span class="gg-pl">持仓</span>2天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🐲</span>龙头低吸</div><div class="gg-body gg-compact"><div class="gg-line">连板龙头回调 + MA支撑</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3.5%</span><span class="gg-p"><span class="gg-pl">TP</span>30%</span><span class="gg-p"><span class="gg-pl">持仓</span>7天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">💥</span>跌停翘板</div><div class="gg-body gg-compact"><div class="gg-line">连续跌停翘板反转</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>5%</span><span class="gg-p"><span class="gg-pl">TP</span>20%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🛡️</span>风控体系</div><div class="gg-body"><div class="gr-grid"><div class="gr-row"><span class="gr-k">强制空仓</span><span class="gr-v">跌停≥80只 / 大盘跌≥3%</span></div><div class="gr-row"><span class="gr-k">情绪仓位</span><span class="gr-v">高潮100% / 分化70% / 震荡50% / 冰点30%</span></div><div class="gr-row"><span class="gr-k">单票上限</span><span class="gr-v">35% · 总仓位上限75%</span></div><div class="gr-row"><span class="gr-k">盘中锁定</span><span class="gr-v">冲高≥6% 回撤≥2.5% → 利润保护</span></div><div class="gr-row"><span class="gr-k">智能检查</span><span class="gr-v">盈利5s / 亏损3s / 接近止损1s</span></div><div class="gr-row"><span class="gr-k">信号过期</span><span class="gr-v">5分钟未执行自动取消</span></div></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">⌨️</span>快捷键</div><div class="gg-body"><div class="gk-row"><span class="gk-g"><kbd>F5</kbd>强扫</span><span class="gk-g"><kbd>F9</kbd>买入</span><span class="gk-g"><kbd>Ctrl+S</kbd>卖出</span><span class="gk-g"><kbd>Ctrl+E</kbd>紧急平仓</span><span class="gk-g"><kbd>↑↓</kbd>切换持仓</span><span class="gk-g"><kbd>1-4</kbd>策略开关</span></div></div></div>
+      </div>
+      <template #footer><ElButton type="success" @click="guideVisible = false; startScanner()">▶ 启动扫描器</ElButton><ElButton @click="guideVisible = false">关闭</ElButton></template>
+    </ElDialog>
+</template>
                 <template v-if="tradeDetailData.buy.decision_detail.execution">
                   <div class="td2-chain-title">⚡ 执行决策</div>
                   <div class="td2-grid">
@@ -896,16 +809,76 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
                     <div class="td2-card sm" v-if="tradeDetailData.buy.decision_detail.execution.sentiment"><div class="td2-label">情绪</div><div class="td2-val">{{ tradeDetailData.buy.decision_detail.execution.sentiment.score?.toFixed(0) }}→{{ tradeDetailData.buy.decision_detail.execution.sentiment.period }}</div></div>
                     <div class="td2-card sm" v-if="tradeDetailData.buy.decision_detail.execution.circuit_breaker"><div class="td2-label">熔断</div><div class="td2-val" :class="tradeDetailData.buy.decision_detail.execution.circuit_breaker.paused ? 'down' : ''">{{ tradeDetailData.buy.decision_detail.execution.circuit_breaker.paused ? '⛔暂停' : '✅正常' }}</div></div>
                   </div>
-                </template>
+                
+    <!-- 指南弹窗 -->
+    <ElDialog v-model="guideVisible" title="📡 超短量化实盘监控系统" width="720px" :close-on-click-modal="true">
+      <div class="guide-grid">
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🏗️</span>系统架构</div><div class="gg-body"><div class="gf-flow"><span class="gf-tag gf-input">5000+股票</span><span class="gf-arrow">→</span><span class="gf-tag">L1~L3 基础过滤</span><span class="gf-arrow">→</span><span class="gf-tag">L4~L6 策略筛选</span><span class="gf-arrow">→</span><span class="gf-tag">L7~L9 排序仓位</span><span class="gf-arrow">→</span><span class="gf-tag gf-output">买入信号</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">📖</span>操作指南</div><div class="gg-body"><div class="go-list"><div class="go-row"><span class="sn">1</span>▶ 启动 → 每5分钟自动扫描，30秒检查持仓</div><div class="go-row"><span class="sn">2</span>📡 扫描 → 立即触发选股，⚡ 强扫跳缓存</div><div class="go-row"><span class="sn">3</span>🎛️ 策略 → 左侧面板开关策略、调参数</div><div class="go-row"><span class="sn">4</span>🟢 买入 → 信号区候选一键下单</div><div class="go-row"><span class="sn">5</span>🔴 卖出 → 持仓卡片快捷平仓或自动止盈止损</div><div class="go-row"><span class="sn">6</span>📋 复盘 / 🛡️ 风控 / ⚙️ 运维 → 详细分析</div></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🏃</span>半路追涨</div><div class="gg-body gg-compact"><div class="gg-line">盘中涨幅3-5% + 量能放大</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>12%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🥇</span>首板打板</div><div class="gg-body gg-compact"><div class="gg-line">首次涨停封板 + 成交概率</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>10%</span><span class="gg-p"><span class="gg-pl">持仓</span>2天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🐲</span>龙头低吸</div><div class="gg-body gg-compact"><div class="gg-line">连板龙头回调 + MA支撑</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3.5%</span><span class="gg-p"><span class="gg-pl">TP</span>30%</span><span class="gg-p"><span class="gg-pl">持仓</span>7天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">💥</span>跌停翘板</div><div class="gg-body gg-compact"><div class="gg-line">连续跌停翘板反转</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>5%</span><span class="gg-p"><span class="gg-pl">TP</span>20%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🛡️</span>风控体系</div><div class="gg-body"><div class="gr-grid"><div class="gr-row"><span class="gr-k">强制空仓</span><span class="gr-v">跌停≥80只 / 大盘跌≥3%</span></div><div class="gr-row"><span class="gr-k">情绪仓位</span><span class="gr-v">高潮100% / 分化70% / 震荡50% / 冰点30%</span></div><div class="gr-row"><span class="gr-k">单票上限</span><span class="gr-v">35% · 总仓位上限75%</span></div><div class="gr-row"><span class="gr-k">盘中锁定</span><span class="gr-v">冲高≥6% 回撤≥2.5% → 利润保护</span></div><div class="gr-row"><span class="gr-k">智能检查</span><span class="gr-v">盈利5s / 亏损3s / 接近止损1s</span></div><div class="gr-row"><span class="gr-k">信号过期</span><span class="gr-v">5分钟未执行自动取消</span></div></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">⌨️</span>快捷键</div><div class="gg-body"><div class="gk-row"><span class="gk-g"><kbd>F5</kbd>强扫</span><span class="gk-g"><kbd>F9</kbd>买入</span><span class="gk-g"><kbd>Ctrl+S</kbd>卖出</span><span class="gk-g"><kbd>Ctrl+E</kbd>紧急平仓</span><span class="gk-g"><kbd>↑↓</kbd>切换持仓</span><span class="gk-g"><kbd>1-4</kbd>策略开关</span></div></div></div>
+      </div>
+      <template #footer><ElButton type="success" @click="guideVisible = false; startScanner()">▶ 启动扫描器</ElButton><ElButton @click="guideVisible = false">关闭</ElButton></template>
+    </ElDialog>
+</template>
                 <template v-if="tradeDetailData.buy.decision_detail.factors && Object.values(tradeDetailData.buy.decision_detail.factors).some(v => v !== 0 && v !== null)">
                   <div class="td2-chain-title">📈 关键因子</div>
                   <div class="td2-factors">
                     <div v-for="(v, k) in tradeDetailData.buy.decision_detail.factors" :key="k" v-show="v !== 0 && v !== null" class="td2-factor"><span class="td2-fk">{{ factorLabel(k) }}</span><span class="td2-fv">{{ typeof v === 'number' ? v.toFixed(2) : v }}</span></div>
                   </div>
-                </template>
+                
+    <!-- 指南弹窗 -->
+    <ElDialog v-model="guideVisible" title="📡 超短量化实盘监控系统" width="720px" :close-on-click-modal="true">
+      <div class="guide-grid">
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🏗️</span>系统架构</div><div class="gg-body"><div class="gf-flow"><span class="gf-tag gf-input">5000+股票</span><span class="gf-arrow">→</span><span class="gf-tag">L1~L3 基础过滤</span><span class="gf-arrow">→</span><span class="gf-tag">L4~L6 策略筛选</span><span class="gf-arrow">→</span><span class="gf-tag">L7~L9 排序仓位</span><span class="gf-arrow">→</span><span class="gf-tag gf-output">买入信号</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">📖</span>操作指南</div><div class="gg-body"><div class="go-list"><div class="go-row"><span class="sn">1</span>▶ 启动 → 每5分钟自动扫描，30秒检查持仓</div><div class="go-row"><span class="sn">2</span>📡 扫描 → 立即触发选股，⚡ 强扫跳缓存</div><div class="go-row"><span class="sn">3</span>🎛️ 策略 → 左侧面板开关策略、调参数</div><div class="go-row"><span class="sn">4</span>🟢 买入 → 信号区候选一键下单</div><div class="go-row"><span class="sn">5</span>🔴 卖出 → 持仓卡片快捷平仓或自动止盈止损</div><div class="go-row"><span class="sn">6</span>📋 复盘 / 🛡️ 风控 / ⚙️ 运维 → 详细分析</div></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🏃</span>半路追涨</div><div class="gg-body gg-compact"><div class="gg-line">盘中涨幅3-5% + 量能放大</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>12%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🥇</span>首板打板</div><div class="gg-body gg-compact"><div class="gg-line">首次涨停封板 + 成交概率</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>10%</span><span class="gg-p"><span class="gg-pl">持仓</span>2天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🐲</span>龙头低吸</div><div class="gg-body gg-compact"><div class="gg-line">连板龙头回调 + MA支撑</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3.5%</span><span class="gg-p"><span class="gg-pl">TP</span>30%</span><span class="gg-p"><span class="gg-pl">持仓</span>7天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">💥</span>跌停翘板</div><div class="gg-body gg-compact"><div class="gg-line">连续跌停翘板反转</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>5%</span><span class="gg-p"><span class="gg-pl">TP</span>20%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🛡️</span>风控体系</div><div class="gg-body"><div class="gr-grid"><div class="gr-row"><span class="gr-k">强制空仓</span><span class="gr-v">跌停≥80只 / 大盘跌≥3%</span></div><div class="gr-row"><span class="gr-k">情绪仓位</span><span class="gr-v">高潮100% / 分化70% / 震荡50% / 冰点30%</span></div><div class="gr-row"><span class="gr-k">单票上限</span><span class="gr-v">35% · 总仓位上限75%</span></div><div class="gr-row"><span class="gr-k">盘中锁定</span><span class="gr-v">冲高≥6% 回撤≥2.5% → 利润保护</span></div><div class="gr-row"><span class="gr-k">智能检查</span><span class="gr-v">盈利5s / 亏损3s / 接近止损1s</span></div><div class="gr-row"><span class="gr-k">信号过期</span><span class="gr-v">5分钟未执行自动取消</span></div></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">⌨️</span>快捷键</div><div class="gg-body"><div class="gk-row"><span class="gk-g"><kbd>F5</kbd>强扫</span><span class="gk-g"><kbd>F9</kbd>买入</span><span class="gk-g"><kbd>Ctrl+S</kbd>卖出</span><span class="gk-g"><kbd>Ctrl+E</kbd>紧急平仓</span><span class="gk-g"><kbd>↑↓</kbd>切换持仓</span><span class="gk-g"><kbd>1-4</kbd>策略开关</span></div></div></div>
+      </div>
+      <template #footer><ElButton type="success" @click="guideVisible = false; startScanner()">▶ 启动扫描器</ElButton><ElButton @click="guideVisible = false">关闭</ElButton></template>
+    </ElDialog>
+</template>
               </div>
-            </template>
-          </template>
+            
+    <!-- 指南弹窗 -->
+    <ElDialog v-model="guideVisible" title="📡 超短量化实盘监控系统" width="720px" :close-on-click-modal="true">
+      <div class="guide-grid">
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🏗️</span>系统架构</div><div class="gg-body"><div class="gf-flow"><span class="gf-tag gf-input">5000+股票</span><span class="gf-arrow">→</span><span class="gf-tag">L1~L3 基础过滤</span><span class="gf-arrow">→</span><span class="gf-tag">L4~L6 策略筛选</span><span class="gf-arrow">→</span><span class="gf-tag">L7~L9 排序仓位</span><span class="gf-arrow">→</span><span class="gf-tag gf-output">买入信号</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">📖</span>操作指南</div><div class="gg-body"><div class="go-list"><div class="go-row"><span class="sn">1</span>▶ 启动 → 每5分钟自动扫描，30秒检查持仓</div><div class="go-row"><span class="sn">2</span>📡 扫描 → 立即触发选股，⚡ 强扫跳缓存</div><div class="go-row"><span class="sn">3</span>🎛️ 策略 → 左侧面板开关策略、调参数</div><div class="go-row"><span class="sn">4</span>🟢 买入 → 信号区候选一键下单</div><div class="go-row"><span class="sn">5</span>🔴 卖出 → 持仓卡片快捷平仓或自动止盈止损</div><div class="go-row"><span class="sn">6</span>📋 复盘 / 🛡️ 风控 / ⚙️ 运维 → 详细分析</div></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🏃</span>半路追涨</div><div class="gg-body gg-compact"><div class="gg-line">盘中涨幅3-5% + 量能放大</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>12%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🥇</span>首板打板</div><div class="gg-body gg-compact"><div class="gg-line">首次涨停封板 + 成交概率</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>10%</span><span class="gg-p"><span class="gg-pl">持仓</span>2天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🐲</span>龙头低吸</div><div class="gg-body gg-compact"><div class="gg-line">连板龙头回调 + MA支撑</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3.5%</span><span class="gg-p"><span class="gg-pl">TP</span>30%</span><span class="gg-p"><span class="gg-pl">持仓</span>7天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">💥</span>跌停翘板</div><div class="gg-body gg-compact"><div class="gg-line">连续跌停翘板反转</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>5%</span><span class="gg-p"><span class="gg-pl">TP</span>20%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🛡️</span>风控体系</div><div class="gg-body"><div class="gr-grid"><div class="gr-row"><span class="gr-k">强制空仓</span><span class="gr-v">跌停≥80只 / 大盘跌≥3%</span></div><div class="gr-row"><span class="gr-k">情绪仓位</span><span class="gr-v">高潮100% / 分化70% / 震荡50% / 冰点30%</span></div><div class="gr-row"><span class="gr-k">单票上限</span><span class="gr-v">35% · 总仓位上限75%</span></div><div class="gr-row"><span class="gr-k">盘中锁定</span><span class="gr-v">冲高≥6% 回撤≥2.5% → 利润保护</span></div><div class="gr-row"><span class="gr-k">智能检查</span><span class="gr-v">盈利5s / 亏损3s / 接近止损1s</span></div><div class="gr-row"><span class="gr-k">信号过期</span><span class="gr-v">5分钟未执行自动取消</span></div></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">⌨️</span>快捷键</div><div class="gg-body"><div class="gk-row"><span class="gk-g"><kbd>F5</kbd>强扫</span><span class="gk-g"><kbd>F9</kbd>买入</span><span class="gk-g"><kbd>Ctrl+S</kbd>卖出</span><span class="gk-g"><kbd>Ctrl+E</kbd>紧急平仓</span><span class="gk-g"><kbd>↑↓</kbd>切换持仓</span><span class="gk-g"><kbd>1-4</kbd>策略开关</span></div></div></div>
+      </div>
+      <template #footer><ElButton type="success" @click="guideVisible = false; startScanner()">▶ 启动扫描器</ElButton><ElButton @click="guideVisible = false">关闭</ElButton></template>
+    </ElDialog>
+</template>
+          
+    <!-- 指南弹窗 -->
+    <ElDialog v-model="guideVisible" title="📡 超短量化实盘监控系统" width="720px" :close-on-click-modal="true">
+      <div class="guide-grid">
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🏗️</span>系统架构</div><div class="gg-body"><div class="gf-flow"><span class="gf-tag gf-input">5000+股票</span><span class="gf-arrow">→</span><span class="gf-tag">L1~L3 基础过滤</span><span class="gf-arrow">→</span><span class="gf-tag">L4~L6 策略筛选</span><span class="gf-arrow">→</span><span class="gf-tag">L7~L9 排序仓位</span><span class="gf-arrow">→</span><span class="gf-tag gf-output">买入信号</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">📖</span>操作指南</div><div class="gg-body"><div class="go-list"><div class="go-row"><span class="sn">1</span>▶ 启动 → 每5分钟自动扫描，30秒检查持仓</div><div class="go-row"><span class="sn">2</span>📡 扫描 → 立即触发选股，⚡ 强扫跳缓存</div><div class="go-row"><span class="sn">3</span>🎛️ 策略 → 左侧面板开关策略、调参数</div><div class="go-row"><span class="sn">4</span>🟢 买入 → 信号区候选一键下单</div><div class="go-row"><span class="sn">5</span>🔴 卖出 → 持仓卡片快捷平仓或自动止盈止损</div><div class="go-row"><span class="sn">6</span>📋 复盘 / 🛡️ 风控 / ⚙️ 运维 → 详细分析</div></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🏃</span>半路追涨</div><div class="gg-body gg-compact"><div class="gg-line">盘中涨幅3-5% + 量能放大</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>12%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🥇</span>首板打板</div><div class="gg-body gg-compact"><div class="gg-line">首次涨停封板 + 成交概率</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>10%</span><span class="gg-p"><span class="gg-pl">持仓</span>2天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🐲</span>龙头低吸</div><div class="gg-body gg-compact"><div class="gg-line">连板龙头回调 + MA支撑</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3.5%</span><span class="gg-p"><span class="gg-pl">TP</span>30%</span><span class="gg-p"><span class="gg-pl">持仓</span>7天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">💥</span>跌停翘板</div><div class="gg-body gg-compact"><div class="gg-line">连续跌停翘板反转</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>5%</span><span class="gg-p"><span class="gg-pl">TP</span>20%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🛡️</span>风控体系</div><div class="gg-body"><div class="gr-grid"><div class="gr-row"><span class="gr-k">强制空仓</span><span class="gr-v">跌停≥80只 / 大盘跌≥3%</span></div><div class="gr-row"><span class="gr-k">情绪仓位</span><span class="gr-v">高潮100% / 分化70% / 震荡50% / 冰点30%</span></div><div class="gr-row"><span class="gr-k">单票上限</span><span class="gr-v">35% · 总仓位上限75%</span></div><div class="gr-row"><span class="gr-k">盘中锁定</span><span class="gr-v">冲高≥6% 回撤≥2.5% → 利润保护</span></div><div class="gr-row"><span class="gr-k">智能检查</span><span class="gr-v">盈利5s / 亏损3s / 接近止损1s</span></div><div class="gr-row"><span class="gr-k">信号过期</span><span class="gr-v">5分钟未执行自动取消</span></div></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">⌨️</span>快捷键</div><div class="gg-body"><div class="gk-row"><span class="gk-g"><kbd>F5</kbd>强扫</span><span class="gk-g"><kbd>F9</kbd>买入</span><span class="gk-g"><kbd>Ctrl+S</kbd>卖出</span><span class="gk-g"><kbd>Ctrl+E</kbd>紧急平仓</span><span class="gk-g"><kbd>↑↓</kbd>切换持仓</span><span class="gk-g"><kbd>1-4</kbd>策略开关</span></div></div></div>
+      </div>
+      <template #footer><ElButton type="success" @click="guideVisible = false; startScanner()">▶ 启动扫描器</ElButton><ElButton @click="guideVisible = false">关闭</ElButton></template>
+    </ElDialog>
+</template>
           <div v-else class="td2-empty">暂无买入记录</div>
         </div>
         <!-- 卖出决策 -->
@@ -929,8 +902,38 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
                   <div class="td2-card sm" v-if="tradeDetailData.sell.decision_detail.take_profit_price"><div class="td2-label">止盈价</div><div class="td2-val text-stock-down">¥{{ tradeDetailData.sell.decision_detail.take_profit_price?.toFixed(2) }}</div></div>
                 </div>
               </div>
-            </template>
-          </template>
+            
+    <!-- 指南弹窗 -->
+    <ElDialog v-model="guideVisible" title="📡 超短量化实盘监控系统" width="720px" :close-on-click-modal="true">
+      <div class="guide-grid">
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🏗️</span>系统架构</div><div class="gg-body"><div class="gf-flow"><span class="gf-tag gf-input">5000+股票</span><span class="gf-arrow">→</span><span class="gf-tag">L1~L3 基础过滤</span><span class="gf-arrow">→</span><span class="gf-tag">L4~L6 策略筛选</span><span class="gf-arrow">→</span><span class="gf-tag">L7~L9 排序仓位</span><span class="gf-arrow">→</span><span class="gf-tag gf-output">买入信号</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">📖</span>操作指南</div><div class="gg-body"><div class="go-list"><div class="go-row"><span class="sn">1</span>▶ 启动 → 每5分钟自动扫描，30秒检查持仓</div><div class="go-row"><span class="sn">2</span>📡 扫描 → 立即触发选股，⚡ 强扫跳缓存</div><div class="go-row"><span class="sn">3</span>🎛️ 策略 → 左侧面板开关策略、调参数</div><div class="go-row"><span class="sn">4</span>🟢 买入 → 信号区候选一键下单</div><div class="go-row"><span class="sn">5</span>🔴 卖出 → 持仓卡片快捷平仓或自动止盈止损</div><div class="go-row"><span class="sn">6</span>📋 复盘 / 🛡️ 风控 / ⚙️ 运维 → 详细分析</div></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🏃</span>半路追涨</div><div class="gg-body gg-compact"><div class="gg-line">盘中涨幅3-5% + 量能放大</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>12%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🥇</span>首板打板</div><div class="gg-body gg-compact"><div class="gg-line">首次涨停封板 + 成交概率</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>10%</span><span class="gg-p"><span class="gg-pl">持仓</span>2天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🐲</span>龙头低吸</div><div class="gg-body gg-compact"><div class="gg-line">连板龙头回调 + MA支撑</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3.5%</span><span class="gg-p"><span class="gg-pl">TP</span>30%</span><span class="gg-p"><span class="gg-pl">持仓</span>7天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">💥</span>跌停翘板</div><div class="gg-body gg-compact"><div class="gg-line">连续跌停翘板反转</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>5%</span><span class="gg-p"><span class="gg-pl">TP</span>20%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🛡️</span>风控体系</div><div class="gg-body"><div class="gr-grid"><div class="gr-row"><span class="gr-k">强制空仓</span><span class="gr-v">跌停≥80只 / 大盘跌≥3%</span></div><div class="gr-row"><span class="gr-k">情绪仓位</span><span class="gr-v">高潮100% / 分化70% / 震荡50% / 冰点30%</span></div><div class="gr-row"><span class="gr-k">单票上限</span><span class="gr-v">35% · 总仓位上限75%</span></div><div class="gr-row"><span class="gr-k">盘中锁定</span><span class="gr-v">冲高≥6% 回撤≥2.5% → 利润保护</span></div><div class="gr-row"><span class="gr-k">智能检查</span><span class="gr-v">盈利5s / 亏损3s / 接近止损1s</span></div><div class="gr-row"><span class="gr-k">信号过期</span><span class="gr-v">5分钟未执行自动取消</span></div></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">⌨️</span>快捷键</div><div class="gg-body"><div class="gk-row"><span class="gk-g"><kbd>F5</kbd>强扫</span><span class="gk-g"><kbd>F9</kbd>买入</span><span class="gk-g"><kbd>Ctrl+S</kbd>卖出</span><span class="gk-g"><kbd>Ctrl+E</kbd>紧急平仓</span><span class="gk-g"><kbd>↑↓</kbd>切换持仓</span><span class="gk-g"><kbd>1-4</kbd>策略开关</span></div></div></div>
+      </div>
+      <template #footer><ElButton type="success" @click="guideVisible = false; startScanner()">▶ 启动扫描器</ElButton><ElButton @click="guideVisible = false">关闭</ElButton></template>
+    </ElDialog>
+</template>
+          
+    <!-- 指南弹窗 -->
+    <ElDialog v-model="guideVisible" title="📡 超短量化实盘监控系统" width="720px" :close-on-click-modal="true">
+      <div class="guide-grid">
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🏗️</span>系统架构</div><div class="gg-body"><div class="gf-flow"><span class="gf-tag gf-input">5000+股票</span><span class="gf-arrow">→</span><span class="gf-tag">L1~L3 基础过滤</span><span class="gf-arrow">→</span><span class="gf-tag">L4~L6 策略筛选</span><span class="gf-arrow">→</span><span class="gf-tag">L7~L9 排序仓位</span><span class="gf-arrow">→</span><span class="gf-tag gf-output">买入信号</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">📖</span>操作指南</div><div class="gg-body"><div class="go-list"><div class="go-row"><span class="sn">1</span>▶ 启动 → 每5分钟自动扫描，30秒检查持仓</div><div class="go-row"><span class="sn">2</span>📡 扫描 → 立即触发选股，⚡ 强扫跳缓存</div><div class="go-row"><span class="sn">3</span>🎛️ 策略 → 左侧面板开关策略、调参数</div><div class="go-row"><span class="sn">4</span>🟢 买入 → 信号区候选一键下单</div><div class="go-row"><span class="sn">5</span>🔴 卖出 → 持仓卡片快捷平仓或自动止盈止损</div><div class="go-row"><span class="sn">6</span>📋 复盘 / 🛡️ 风控 / ⚙️ 运维 → 详细分析</div></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🏃</span>半路追涨</div><div class="gg-body gg-compact"><div class="gg-line">盘中涨幅3-5% + 量能放大</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>12%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🥇</span>首板打板</div><div class="gg-body gg-compact"><div class="gg-line">首次涨停封板 + 成交概率</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>10%</span><span class="gg-p"><span class="gg-pl">持仓</span>2天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🐲</span>龙头低吸</div><div class="gg-body gg-compact"><div class="gg-line">连板龙头回调 + MA支撑</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3.5%</span><span class="gg-p"><span class="gg-pl">TP</span>30%</span><span class="gg-p"><span class="gg-pl">持仓</span>7天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">💥</span>跌停翘板</div><div class="gg-body gg-compact"><div class="gg-line">连续跌停翘板反转</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>5%</span><span class="gg-p"><span class="gg-pl">TP</span>20%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🛡️</span>风控体系</div><div class="gg-body"><div class="gr-grid"><div class="gr-row"><span class="gr-k">强制空仓</span><span class="gr-v">跌停≥80只 / 大盘跌≥3%</span></div><div class="gr-row"><span class="gr-k">情绪仓位</span><span class="gr-v">高潮100% / 分化70% / 震荡50% / 冰点30%</span></div><div class="gr-row"><span class="gr-k">单票上限</span><span class="gr-v">35% · 总仓位上限75%</span></div><div class="gr-row"><span class="gr-k">盘中锁定</span><span class="gr-v">冲高≥6% 回撤≥2.5% → 利润保护</span></div><div class="gr-row"><span class="gr-k">智能检查</span><span class="gr-v">盈利5s / 亏损3s / 接近止损1s</span></div><div class="gr-row"><span class="gr-k">信号过期</span><span class="gr-v">5分钟未执行自动取消</span></div></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">⌨️</span>快捷键</div><div class="gg-body"><div class="gk-row"><span class="gk-g"><kbd>F5</kbd>强扫</span><span class="gk-g"><kbd>F9</kbd>买入</span><span class="gk-g"><kbd>Ctrl+S</kbd>卖出</span><span class="gk-g"><kbd>Ctrl+E</kbd>紧急平仓</span><span class="gk-g"><kbd>↑↓</kbd>切换持仓</span><span class="gk-g"><kbd>1-4</kbd>策略开关</span></div></div></div>
+      </div>
+      <template #footer><ElButton type="success" @click="guideVisible = false; startScanner()">▶ 启动扫描器</ElButton><ElButton @click="guideVisible = false">关闭</ElButton></template>
+    </ElDialog>
+</template>
           <div v-else class="td2-empty">暂无卖出记录</div>
         </div>
         <!-- 当前持仓 -->
@@ -1065,13 +1068,43 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
     <ElDialog v-model="replayDateVisible" title="🔄 回放模式" width="380px" :close-on-click-modal="false">
       <div style="margin-bottom:12px;font-size:14px">选择要回放的交易日期，将使用历史数据重放扫描：</div>
       <ElDatePicker v-model="replayDateInput" type="date" placeholder="选择回放日期" value-format="YYYY-MM-DD" style="width:100%" :disabled-date="(d: Date) => d > new Date()" />
-      <template #footer><ElButton @click="cancelReplay">取消</ElButton><ElButton type="primary" @click="confirmReplay" :disabled="!replayDateInput">确认回放</ElButton></template>
+      <template #footer><ElButton @click="cancelReplay">取消</ElButton><ElButton type="primary" @click="confirmReplay" :disabled="!replayDateInput">确认回放</ElButton>
+    <!-- 指南弹窗 -->
+    <ElDialog v-model="guideVisible" title="📡 超短量化实盘监控系统" width="720px" :close-on-click-modal="true">
+      <div class="guide-grid">
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🏗️</span>系统架构</div><div class="gg-body"><div class="gf-flow"><span class="gf-tag gf-input">5000+股票</span><span class="gf-arrow">→</span><span class="gf-tag">L1~L3 基础过滤</span><span class="gf-arrow">→</span><span class="gf-tag">L4~L6 策略筛选</span><span class="gf-arrow">→</span><span class="gf-tag">L7~L9 排序仓位</span><span class="gf-arrow">→</span><span class="gf-tag gf-output">买入信号</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">📖</span>操作指南</div><div class="gg-body"><div class="go-list"><div class="go-row"><span class="sn">1</span>▶ 启动 → 每5分钟自动扫描，30秒检查持仓</div><div class="go-row"><span class="sn">2</span>📡 扫描 → 立即触发选股，⚡ 强扫跳缓存</div><div class="go-row"><span class="sn">3</span>🎛️ 策略 → 左侧面板开关策略、调参数</div><div class="go-row"><span class="sn">4</span>🟢 买入 → 信号区候选一键下单</div><div class="go-row"><span class="sn">5</span>🔴 卖出 → 持仓卡片快捷平仓或自动止盈止损</div><div class="go-row"><span class="sn">6</span>📋 复盘 / 🛡️ 风控 / ⚙️ 运维 → 详细分析</div></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🏃</span>半路追涨</div><div class="gg-body gg-compact"><div class="gg-line">盘中涨幅3-5% + 量能放大</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>12%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🥇</span>首板打板</div><div class="gg-body gg-compact"><div class="gg-line">首次涨停封板 + 成交概率</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>10%</span><span class="gg-p"><span class="gg-pl">持仓</span>2天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🐲</span>龙头低吸</div><div class="gg-body gg-compact"><div class="gg-line">连板龙头回调 + MA支撑</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3.5%</span><span class="gg-p"><span class="gg-pl">TP</span>30%</span><span class="gg-p"><span class="gg-pl">持仓</span>7天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">💥</span>跌停翘板</div><div class="gg-body gg-compact"><div class="gg-line">连续跌停翘板反转</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>5%</span><span class="gg-p"><span class="gg-pl">TP</span>20%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🛡️</span>风控体系</div><div class="gg-body"><div class="gr-grid"><div class="gr-row"><span class="gr-k">强制空仓</span><span class="gr-v">跌停≥80只 / 大盘跌≥3%</span></div><div class="gr-row"><span class="gr-k">情绪仓位</span><span class="gr-v">高潮100% / 分化70% / 震荡50% / 冰点30%</span></div><div class="gr-row"><span class="gr-k">单票上限</span><span class="gr-v">35% · 总仓位上限75%</span></div><div class="gr-row"><span class="gr-k">盘中锁定</span><span class="gr-v">冲高≥6% 回撤≥2.5% → 利润保护</span></div><div class="gr-row"><span class="gr-k">智能检查</span><span class="gr-v">盈利5s / 亏损3s / 接近止损1s</span></div><div class="gr-row"><span class="gr-k">信号过期</span><span class="gr-v">5分钟未执行自动取消</span></div></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">⌨️</span>快捷键</div><div class="gg-body"><div class="gk-row"><span class="gk-g"><kbd>F5</kbd>强扫</span><span class="gk-g"><kbd>F9</kbd>买入</span><span class="gk-g"><kbd>Ctrl+S</kbd>卖出</span><span class="gk-g"><kbd>Ctrl+E</kbd>紧急平仓</span><span class="gk-g"><kbd>↑↓</kbd>切换持仓</span><span class="gk-g"><kbd>1-4</kbd>策略开关</span></div></div></div>
+      </div>
+      <template #footer><ElButton type="success" @click="guideVisible = false; startScanner()">▶ 启动扫描器</ElButton><ElButton @click="guideVisible = false">关闭</ElButton></template>
+    </ElDialog>
+</template>
     </ElDialog>
 
     <!-- 【P1-7】交易确认弹窗 -->
     <ElDialog v-model="confirmVisible" :title="confirmData.title" width="420px" :close-on-click-modal="false">
       <div style="font-size:14px;line-height:1.8;white-space:pre-line">{{ confirmData.message }}</div>
-      <template #footer><ElButton @click="confirmVisible = false" :disabled="confirmLoading">取消</ElButton><ElButton type="danger" :loading="confirmLoading" @click="handleConfirm">确认执行</ElButton></template>
+      <template #footer><ElButton @click="confirmVisible = false" :disabled="confirmLoading">取消</ElButton><ElButton type="danger" :loading="confirmLoading" @click="handleConfirm">确认执行</ElButton>
+    <!-- 指南弹窗 -->
+    <ElDialog v-model="guideVisible" title="📡 超短量化实盘监控系统" width="720px" :close-on-click-modal="true">
+      <div class="guide-grid">
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🏗️</span>系统架构</div><div class="gg-body"><div class="gf-flow"><span class="gf-tag gf-input">5000+股票</span><span class="gf-arrow">→</span><span class="gf-tag">L1~L3 基础过滤</span><span class="gf-arrow">→</span><span class="gf-tag">L4~L6 策略筛选</span><span class="gf-arrow">→</span><span class="gf-tag">L7~L9 排序仓位</span><span class="gf-arrow">→</span><span class="gf-tag gf-output">买入信号</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">📖</span>操作指南</div><div class="gg-body"><div class="go-list"><div class="go-row"><span class="sn">1</span>▶ 启动 → 每5分钟自动扫描，30秒检查持仓</div><div class="go-row"><span class="sn">2</span>📡 扫描 → 立即触发选股，⚡ 强扫跳缓存</div><div class="go-row"><span class="sn">3</span>🎛️ 策略 → 左侧面板开关策略、调参数</div><div class="go-row"><span class="sn">4</span>🟢 买入 → 信号区候选一键下单</div><div class="go-row"><span class="sn">5</span>🔴 卖出 → 持仓卡片快捷平仓或自动止盈止损</div><div class="go-row"><span class="sn">6</span>📋 复盘 / 🛡️ 风控 / ⚙️ 运维 → 详细分析</div></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🏃</span>半路追涨</div><div class="gg-body gg-compact"><div class="gg-line">盘中涨幅3-5% + 量能放大</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>12%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🥇</span>首板打板</div><div class="gg-body gg-compact"><div class="gg-line">首次涨停封板 + 成交概率</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>10%</span><span class="gg-p"><span class="gg-pl">持仓</span>2天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🐲</span>龙头低吸</div><div class="gg-body gg-compact"><div class="gg-line">连板龙头回调 + MA支撑</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3.5%</span><span class="gg-p"><span class="gg-pl">TP</span>30%</span><span class="gg-p"><span class="gg-pl">持仓</span>7天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">💥</span>跌停翘板</div><div class="gg-body gg-compact"><div class="gg-line">连续跌停翘板反转</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>5%</span><span class="gg-p"><span class="gg-pl">TP</span>20%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🛡️</span>风控体系</div><div class="gg-body"><div class="gr-grid"><div class="gr-row"><span class="gr-k">强制空仓</span><span class="gr-v">跌停≥80只 / 大盘跌≥3%</span></div><div class="gr-row"><span class="gr-k">情绪仓位</span><span class="gr-v">高潮100% / 分化70% / 震荡50% / 冰点30%</span></div><div class="gr-row"><span class="gr-k">单票上限</span><span class="gr-v">35% · 总仓位上限75%</span></div><div class="gr-row"><span class="gr-k">盘中锁定</span><span class="gr-v">冲高≥6% 回撤≥2.5% → 利润保护</span></div><div class="gr-row"><span class="gr-k">智能检查</span><span class="gr-v">盈利5s / 亏损3s / 接近止损1s</span></div><div class="gr-row"><span class="gr-k">信号过期</span><span class="gr-v">5分钟未执行自动取消</span></div></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">⌨️</span>快捷键</div><div class="gg-body"><div class="gk-row"><span class="gk-g"><kbd>F5</kbd>强扫</span><span class="gk-g"><kbd>F9</kbd>买入</span><span class="gk-g"><kbd>Ctrl+S</kbd>卖出</span><span class="gk-g"><kbd>Ctrl+E</kbd>紧急平仓</span><span class="gk-g"><kbd>↑↓</kbd>切换持仓</span><span class="gk-g"><kbd>1-4</kbd>策略开关</span></div></div></div>
+      </div>
+      <template #footer><ElButton type="success" @click="guideVisible = false; startScanner()">▶ 启动扫描器</ElButton><ElButton @click="guideVisible = false">关闭</ElButton></template>
+    </ElDialog>
+</template>
     </ElDialog>
 
     <!-- 【P1-6】复盘报告弹窗 -->
@@ -1097,7 +1130,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
       <div v-else class="empty">暂无周报数据</div>
     </ElDialog>
     <!-- ==================== 🌅 盘前竞价Tab ==================== -->
-    <div v-if="activeTab === 'premarket'" class="mm-tab-content">
+    <div v-if="activeTab === 'scan'" class="mm-tab-content">
       <div class="mm-tab-scroll">
         <!-- 竞价状态 -->
         <div class="pm-status-bar">
@@ -1149,7 +1182,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
     </div>
 
     <!-- ==================== 🔍 扫描追踪Tab ==================== -->
-    <div v-if="activeTab === 'scan-trace'" class="mm-tab-content">
+    <div v-if="activeTab === 'scan'" class="mm-tab-content">
       <div class="mm-tab-scroll">
         <div class="st">📡 扫描历史 <ElButton size="small" @click="fetchScanHistory" :loading="scanHistoryLoading">🔄</ElButton></div>
 
@@ -1182,7 +1215,22 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
                     <div class="fn-count">入{{ layerData.input || 0 }}→出{{ layerData.output || 0 }}</div>
                     <div v-if="layerData.rejected" class="fn-reject">淘汰{{ layerData.rejected }}</div>
                   </div>
-                </template>
+                
+    <!-- 指南弹窗 -->
+    <ElDialog v-model="guideVisible" title="📡 超短量化实盘监控系统" width="720px" :close-on-click-modal="true">
+      <div class="guide-grid">
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🏗️</span>系统架构</div><div class="gg-body"><div class="gf-flow"><span class="gf-tag gf-input">5000+股票</span><span class="gf-arrow">→</span><span class="gf-tag">L1~L3 基础过滤</span><span class="gf-arrow">→</span><span class="gf-tag">L4~L6 策略筛选</span><span class="gf-arrow">→</span><span class="gf-tag">L7~L9 排序仓位</span><span class="gf-arrow">→</span><span class="gf-tag gf-output">买入信号</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">📖</span>操作指南</div><div class="gg-body"><div class="go-list"><div class="go-row"><span class="sn">1</span>▶ 启动 → 每5分钟自动扫描，30秒检查持仓</div><div class="go-row"><span class="sn">2</span>📡 扫描 → 立即触发选股，⚡ 强扫跳缓存</div><div class="go-row"><span class="sn">3</span>🎛️ 策略 → 左侧面板开关策略、调参数</div><div class="go-row"><span class="sn">4</span>🟢 买入 → 信号区候选一键下单</div><div class="go-row"><span class="sn">5</span>🔴 卖出 → 持仓卡片快捷平仓或自动止盈止损</div><div class="go-row"><span class="sn">6</span>📋 复盘 / 🛡️ 风控 / ⚙️ 运维 → 详细分析</div></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🏃</span>半路追涨</div><div class="gg-body gg-compact"><div class="gg-line">盘中涨幅3-5% + 量能放大</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>12%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🥇</span>首板打板</div><div class="gg-body gg-compact"><div class="gg-line">首次涨停封板 + 成交概率</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>10%</span><span class="gg-p"><span class="gg-pl">持仓</span>2天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🐲</span>龙头低吸</div><div class="gg-body gg-compact"><div class="gg-line">连板龙头回调 + MA支撑</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3.5%</span><span class="gg-p"><span class="gg-pl">TP</span>30%</span><span class="gg-p"><span class="gg-pl">持仓</span>7天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">💥</span>跌停翘板</div><div class="gg-body gg-compact"><div class="gg-line">连续跌停翘板反转</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>5%</span><span class="gg-p"><span class="gg-pl">TP</span>20%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🛡️</span>风控体系</div><div class="gg-body"><div class="gr-grid"><div class="gr-row"><span class="gr-k">强制空仓</span><span class="gr-v">跌停≥80只 / 大盘跌≥3%</span></div><div class="gr-row"><span class="gr-k">情绪仓位</span><span class="gr-v">高潮100% / 分化70% / 震荡50% / 冰点30%</span></div><div class="gr-row"><span class="gr-k">单票上限</span><span class="gr-v">35% · 总仓位上限75%</span></div><div class="gr-row"><span class="gr-k">盘中锁定</span><span class="gr-v">冲高≥6% 回撤≥2.5% → 利润保护</span></div><div class="gr-row"><span class="gr-k">智能检查</span><span class="gr-v">盈利5s / 亏损3s / 接近止损1s</span></div><div class="gr-row"><span class="gr-k">信号过期</span><span class="gr-v">5分钟未执行自动取消</span></div></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">⌨️</span>快捷键</div><div class="gg-body"><div class="gk-row"><span class="gk-g"><kbd>F5</kbd>强扫</span><span class="gk-g"><kbd>F9</kbd>买入</span><span class="gk-g"><kbd>Ctrl+S</kbd>卖出</span><span class="gk-g"><kbd>Ctrl+E</kbd>紧急平仓</span><span class="gk-g"><kbd>↑↓</kbd>切换持仓</span><span class="gk-g"><kbd>1-4</kbd>策略开关</span></div></div></div>
+      </div>
+      <template #footer><ElButton type="success" @click="guideVisible = false; startScanner()">▶ 启动扫描器</ElButton><ElButton @click="guideVisible = false">关闭</ElButton></template>
+    </ElDialog>
+</template>
               </div>
 
               <!-- 【v2.9.7: 候选过滤切换】 -->
@@ -1225,7 +1273,22 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
                   <span class="text-tertiary" style="font-size:11px">已显示{{ scanTraceDetail._pagination.returned_count }}条 / 共{{ scanTraceFilter === 'passed' ? scanTraceDetail._pagination.passed_count : scanTraceDetail._pagination.rejected_count }}条</span>
                 </div>
               </div>
-            </template>
+            
+    <!-- 指南弹窗 -->
+    <ElDialog v-model="guideVisible" title="📡 超短量化实盘监控系统" width="720px" :close-on-click-modal="true">
+      <div class="guide-grid">
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🏗️</span>系统架构</div><div class="gg-body"><div class="gf-flow"><span class="gf-tag gf-input">5000+股票</span><span class="gf-arrow">→</span><span class="gf-tag">L1~L3 基础过滤</span><span class="gf-arrow">→</span><span class="gf-tag">L4~L6 策略筛选</span><span class="gf-arrow">→</span><span class="gf-tag">L7~L9 排序仓位</span><span class="gf-arrow">→</span><span class="gf-tag gf-output">买入信号</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">📖</span>操作指南</div><div class="gg-body"><div class="go-list"><div class="go-row"><span class="sn">1</span>▶ 启动 → 每5分钟自动扫描，30秒检查持仓</div><div class="go-row"><span class="sn">2</span>📡 扫描 → 立即触发选股，⚡ 强扫跳缓存</div><div class="go-row"><span class="sn">3</span>🎛️ 策略 → 左侧面板开关策略、调参数</div><div class="go-row"><span class="sn">4</span>🟢 买入 → 信号区候选一键下单</div><div class="go-row"><span class="sn">5</span>🔴 卖出 → 持仓卡片快捷平仓或自动止盈止损</div><div class="go-row"><span class="sn">6</span>📋 复盘 / 🛡️ 风控 / ⚙️ 运维 → 详细分析</div></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🏃</span>半路追涨</div><div class="gg-body gg-compact"><div class="gg-line">盘中涨幅3-5% + 量能放大</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>12%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🥇</span>首板打板</div><div class="gg-body gg-compact"><div class="gg-line">首次涨停封板 + 成交概率</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>10%</span><span class="gg-p"><span class="gg-pl">持仓</span>2天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🐲</span>龙头低吸</div><div class="gg-body gg-compact"><div class="gg-line">连板龙头回调 + MA支撑</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3.5%</span><span class="gg-p"><span class="gg-pl">TP</span>30%</span><span class="gg-p"><span class="gg-pl">持仓</span>7天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">💥</span>跌停翘板</div><div class="gg-body gg-compact"><div class="gg-line">连续跌停翘板反转</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>5%</span><span class="gg-p"><span class="gg-pl">TP</span>20%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🛡️</span>风控体系</div><div class="gg-body"><div class="gr-grid"><div class="gr-row"><span class="gr-k">强制空仓</span><span class="gr-v">跌停≥80只 / 大盘跌≥3%</span></div><div class="gr-row"><span class="gr-k">情绪仓位</span><span class="gr-v">高潮100% / 分化70% / 震荡50% / 冰点30%</span></div><div class="gr-row"><span class="gr-k">单票上限</span><span class="gr-v">35% · 总仓位上限75%</span></div><div class="gr-row"><span class="gr-k">盘中锁定</span><span class="gr-v">冲高≥6% 回撤≥2.5% → 利润保护</span></div><div class="gr-row"><span class="gr-k">智能检查</span><span class="gr-v">盈利5s / 亏损3s / 接近止损1s</span></div><div class="gr-row"><span class="gr-k">信号过期</span><span class="gr-v">5分钟未执行自动取消</span></div></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">⌨️</span>快捷键</div><div class="gg-body"><div class="gk-row"><span class="gk-g"><kbd>F5</kbd>强扫</span><span class="gk-g"><kbd>F9</kbd>买入</span><span class="gk-g"><kbd>Ctrl+S</kbd>卖出</span><span class="gk-g"><kbd>Ctrl+E</kbd>紧急平仓</span><span class="gk-g"><kbd>↑↓</kbd>切换持仓</span><span class="gk-g"><kbd>1-4</kbd>策略开关</span></div></div></div>
+      </div>
+      <template #footer><ElButton type="success" @click="guideVisible = false; startScanner()">▶ 启动扫描器</ElButton><ElButton @click="guideVisible = false">关闭</ElButton></template>
+    </ElDialog>
+</template>
           </div>
         </div>
       </div>
@@ -1297,7 +1360,22 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           <!-- 情绪周期 -->
           <div class="st" style="margin-top:12px">🌡️ 情绪周期</div>
           <MarketSentiment />
-        </template>
+        
+    <!-- 指南弹窗 -->
+    <ElDialog v-model="guideVisible" title="📡 超短量化实盘监控系统" width="720px" :close-on-click-modal="true">
+      <div class="guide-grid">
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🏗️</span>系统架构</div><div class="gg-body"><div class="gf-flow"><span class="gf-tag gf-input">5000+股票</span><span class="gf-arrow">→</span><span class="gf-tag">L1~L3 基础过滤</span><span class="gf-arrow">→</span><span class="gf-tag">L4~L6 策略筛选</span><span class="gf-arrow">→</span><span class="gf-tag">L7~L9 排序仓位</span><span class="gf-arrow">→</span><span class="gf-tag gf-output">买入信号</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">📖</span>操作指南</div><div class="gg-body"><div class="go-list"><div class="go-row"><span class="sn">1</span>▶ 启动 → 每5分钟自动扫描，30秒检查持仓</div><div class="go-row"><span class="sn">2</span>📡 扫描 → 立即触发选股，⚡ 强扫跳缓存</div><div class="go-row"><span class="sn">3</span>🎛️ 策略 → 左侧面板开关策略、调参数</div><div class="go-row"><span class="sn">4</span>🟢 买入 → 信号区候选一键下单</div><div class="go-row"><span class="sn">5</span>🔴 卖出 → 持仓卡片快捷平仓或自动止盈止损</div><div class="go-row"><span class="sn">6</span>📋 复盘 / 🛡️ 风控 / ⚙️ 运维 → 详细分析</div></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🏃</span>半路追涨</div><div class="gg-body gg-compact"><div class="gg-line">盘中涨幅3-5% + 量能放大</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>12%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🥇</span>首板打板</div><div class="gg-body gg-compact"><div class="gg-line">首次涨停封板 + 成交概率</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>10%</span><span class="gg-p"><span class="gg-pl">持仓</span>2天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🐲</span>龙头低吸</div><div class="gg-body gg-compact"><div class="gg-line">连板龙头回调 + MA支撑</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3.5%</span><span class="gg-p"><span class="gg-pl">TP</span>30%</span><span class="gg-p"><span class="gg-pl">持仓</span>7天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">💥</span>跌停翘板</div><div class="gg-body gg-compact"><div class="gg-line">连续跌停翘板反转</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>5%</span><span class="gg-p"><span class="gg-pl">TP</span>20%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🛡️</span>风控体系</div><div class="gg-body"><div class="gr-grid"><div class="gr-row"><span class="gr-k">强制空仓</span><span class="gr-v">跌停≥80只 / 大盘跌≥3%</span></div><div class="gr-row"><span class="gr-k">情绪仓位</span><span class="gr-v">高潮100% / 分化70% / 震荡50% / 冰点30%</span></div><div class="gr-row"><span class="gr-k">单票上限</span><span class="gr-v">35% · 总仓位上限75%</span></div><div class="gr-row"><span class="gr-k">盘中锁定</span><span class="gr-v">冲高≥6% 回撤≥2.5% → 利润保护</span></div><div class="gr-row"><span class="gr-k">智能检查</span><span class="gr-v">盈利5s / 亏损3s / 接近止损1s</span></div><div class="gr-row"><span class="gr-k">信号过期</span><span class="gr-v">5分钟未执行自动取消</span></div></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">⌨️</span>快捷键</div><div class="gg-body"><div class="gk-row"><span class="gk-g"><kbd>F5</kbd>强扫</span><span class="gk-g"><kbd>F9</kbd>买入</span><span class="gk-g"><kbd>Ctrl+S</kbd>卖出</span><span class="gk-g"><kbd>Ctrl+E</kbd>紧急平仓</span><span class="gk-g"><kbd>↑↓</kbd>切换持仓</span><span class="gk-g"><kbd>1-4</kbd>策略开关</span></div></div></div>
+      </div>
+      <template #footer><ElButton type="success" @click="guideVisible = false; startScanner()">▶ 启动扫描器</ElButton><ElButton @click="guideVisible = false">关闭</ElButton></template>
+    </ElDialog>
+</template>
 
         <!-- 周复盘内容 -->
         <template v-if="reviewTab === 'weekly' && weeklyReportData">
@@ -1317,7 +1395,22 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
               <span>{{ d.sentiment || '-' }}</span>
             </div>
           </div>
-        </template>
+        
+    <!-- 指南弹窗 -->
+    <ElDialog v-model="guideVisible" title="📡 超短量化实盘监控系统" width="720px" :close-on-click-modal="true">
+      <div class="guide-grid">
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🏗️</span>系统架构</div><div class="gg-body"><div class="gf-flow"><span class="gf-tag gf-input">5000+股票</span><span class="gf-arrow">→</span><span class="gf-tag">L1~L3 基础过滤</span><span class="gf-arrow">→</span><span class="gf-tag">L4~L6 策略筛选</span><span class="gf-arrow">→</span><span class="gf-tag">L7~L9 排序仓位</span><span class="gf-arrow">→</span><span class="gf-tag gf-output">买入信号</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">📖</span>操作指南</div><div class="gg-body"><div class="go-list"><div class="go-row"><span class="sn">1</span>▶ 启动 → 每5分钟自动扫描，30秒检查持仓</div><div class="go-row"><span class="sn">2</span>📡 扫描 → 立即触发选股，⚡ 强扫跳缓存</div><div class="go-row"><span class="sn">3</span>🎛️ 策略 → 左侧面板开关策略、调参数</div><div class="go-row"><span class="sn">4</span>🟢 买入 → 信号区候选一键下单</div><div class="go-row"><span class="sn">5</span>🔴 卖出 → 持仓卡片快捷平仓或自动止盈止损</div><div class="go-row"><span class="sn">6</span>📋 复盘 / 🛡️ 风控 / ⚙️ 运维 → 详细分析</div></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🏃</span>半路追涨</div><div class="gg-body gg-compact"><div class="gg-line">盘中涨幅3-5% + 量能放大</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>12%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🥇</span>首板打板</div><div class="gg-body gg-compact"><div class="gg-line">首次涨停封板 + 成交概率</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>10%</span><span class="gg-p"><span class="gg-pl">持仓</span>2天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🐲</span>龙头低吸</div><div class="gg-body gg-compact"><div class="gg-line">连板龙头回调 + MA支撑</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3.5%</span><span class="gg-p"><span class="gg-pl">TP</span>30%</span><span class="gg-p"><span class="gg-pl">持仓</span>7天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">💥</span>跌停翘板</div><div class="gg-body gg-compact"><div class="gg-line">连续跌停翘板反转</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>5%</span><span class="gg-p"><span class="gg-pl">TP</span>20%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🛡️</span>风控体系</div><div class="gg-body"><div class="gr-grid"><div class="gr-row"><span class="gr-k">强制空仓</span><span class="gr-v">跌停≥80只 / 大盘跌≥3%</span></div><div class="gr-row"><span class="gr-k">情绪仓位</span><span class="gr-v">高潮100% / 分化70% / 震荡50% / 冰点30%</span></div><div class="gr-row"><span class="gr-k">单票上限</span><span class="gr-v">35% · 总仓位上限75%</span></div><div class="gr-row"><span class="gr-k">盘中锁定</span><span class="gr-v">冲高≥6% 回撤≥2.5% → 利润保护</span></div><div class="gr-row"><span class="gr-k">智能检查</span><span class="gr-v">盈利5s / 亏损3s / 接近止损1s</span></div><div class="gr-row"><span class="gr-k">信号过期</span><span class="gr-v">5分钟未执行自动取消</span></div></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">⌨️</span>快捷键</div><div class="gg-body"><div class="gk-row"><span class="gk-g"><kbd>F5</kbd>强扫</span><span class="gk-g"><kbd>F9</kbd>买入</span><span class="gk-g"><kbd>Ctrl+S</kbd>卖出</span><span class="gk-g"><kbd>Ctrl+E</kbd>紧急平仓</span><span class="gk-g"><kbd>↑↓</kbd>切换持仓</span><span class="gk-g"><kbd>1-4</kbd>策略开关</span></div></div></div>
+      </div>
+      <template #footer><ElButton type="success" @click="guideVisible = false; startScanner()">▶ 启动扫描器</ElButton><ElButton @click="guideVisible = false">关闭</ElButton></template>
+    </ElDialog>
+</template>
 
         <!-- 执行质量 & 实盘vs回测 -->
         <div class="st" style="margin-top:16px">🎯 执行质量</div>
@@ -1479,6 +1572,10 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
       </div>
     </div>
 
+    <!-- 情绪全景 -->
+        <div class="st" style="margin-top:16px">🌡️ 情绪全景</div>
+        <MarketSentiment />
+
     <!-- ==================== 运维Tab ==================== -->
     <div v-if="activeTab === 'ops'" class="mm-tab-content">
       <div class="mm-tab-scroll">
@@ -1520,15 +1617,10 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <div class="st" style="margin-top:16px">💻 系统健康</div>
         <SystemHealth />
 
-        <!-- 快捷操作 -->
-        <div class="st" style="margin-top:16px">⚡ 快捷操作</div>
+        <!-- 高级操作 -->
+        <div class="st" style="margin-top:16px">🔧 高级操作</div>
         <div class="ops-grid">
-          <ElButton size="small" @click="manualScan" :loading="loading" :disabled="!isRunning">📡 扫描</ElButton>
-          <ElButton size="small" type="warning" @click="forceScan" :loading="loading" :disabled="!isRunning">⚡ 强扫</ElButton>
-          <ElButton size="small" @click="dailySettlement" :disabled="!isRunning">📅 日结</ElButton>
           <ElButton size="small" @click="openTradeAudit" :disabled="!timeline.length">🔍 审查</ElButton>
-          <ElButton size="small" @click="fetchDailyReport(); dailyReportVisible = true">📈 复盘</ElButton>
-          <ElButton size="small" @click="openWeeklyReport">📊 周报</ElButton>
           <ElButton size="small" @click="openLayerDebug" :loading="layerDebugLoading">🧪 9层调试</ElButton>
           <ElButton size="small" @click="loadCompare" :loading="compareLoading">📊 回测对比</ElButton>
           <ElButton size="small" @click="toggleDryRun">{{ dryRun ? '🔴 关闭调试' : '🔍 开启调试' }}</ElButton>
@@ -1556,7 +1648,22 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <div v-if="!timeline.length && !historyData.length" class="empty">暂无交易</div>
         <div v-else class="ops-timeline">
           <div v-if="historyData.length" class="history-tag">📜 {{ historyDate }} 历史回放 ({{ historyData.length }}条)</div>
-          <div v-for="(item, i) in historyData.length ? historyData : timeline" :key="i" class="tl-row cp" @click="item.action !== 'blocked' && openTradeDetail(item.ts_code)"><span class="tl-time">{{ item.time }}</span><span class="tl-action" :class="item.action === 'buy' ? 'buy' : item.action === 'sell' ? 'sell' : 'blocked'">{{ item.action === 'buy' ? '买' : item.action === 'sell' ? '卖' : '⛔' }}</span><span class="code">{{ item.ts_code }}</span><span class="name">{{ item.stock_name }}</span><template v-if="item.action !== 'blocked'"><span v-if="item.strategy" class="tl-strat">{{ strategyCN(item.strategy) }}</span><span class="tl-detail">{{ item.shares }}股@{{ item.price.toFixed(2) }}</span><span v-if="item.profit_pct !== undefined" :class="item.profit_pct >= 0 ? 'up' : 'down'">{{ item.profit_pct >= 0 ? '+' : '' }}{{ item.profit_pct.toFixed(1) }}%</span><span v-if="item.profit_amount != null" :class="item.profit_amount >= 0 ? 'up' : 'down'" class="tl-amt">{{ item.profit_amount >= 0 ? '+' : '' }}¥{{ item.profit_amount.toFixed(0) }}</span></template><span v-else class="tl-blocked-reason">{{ item.reason }}</span></div>
+          <div v-for="(item, i) in historyData.length ? historyData : timeline" :key="i" class="tl-row cp" @click="item.action !== 'blocked' && openTradeDetail(item.ts_code)"><span class="tl-time">{{ item.time }}</span><span class="tl-action" :class="item.action === 'buy' ? 'buy' : item.action === 'sell' ? 'sell' : 'blocked'">{{ item.action === 'buy' ? '买' : item.action === 'sell' ? '卖' : '⛔' }}</span><span class="code">{{ item.ts_code }}</span><span class="name">{{ item.stock_name }}</span><template v-if="item.action !== 'blocked'"><span v-if="item.strategy" class="tl-strat">{{ strategyCN(item.strategy) }}</span><span class="tl-detail">{{ item.shares }}股@{{ item.price.toFixed(2) }}</span><span v-if="item.profit_pct !== undefined" :class="item.profit_pct >= 0 ? 'up' : 'down'">{{ item.profit_pct >= 0 ? '+' : '' }}{{ item.profit_pct.toFixed(1) }}%</span><span v-if="item.profit_amount != null" :class="item.profit_amount >= 0 ? 'up' : 'down'" class="tl-amt">{{ item.profit_amount >= 0 ? '+' : '' }}¥{{ item.profit_amount.toFixed(0) }}</span>
+    <!-- 指南弹窗 -->
+    <ElDialog v-model="guideVisible" title="📡 超短量化实盘监控系统" width="720px" :close-on-click-modal="true">
+      <div class="guide-grid">
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🏗️</span>系统架构</div><div class="gg-body"><div class="gf-flow"><span class="gf-tag gf-input">5000+股票</span><span class="gf-arrow">→</span><span class="gf-tag">L1~L3 基础过滤</span><span class="gf-arrow">→</span><span class="gf-tag">L4~L6 策略筛选</span><span class="gf-arrow">→</span><span class="gf-tag">L7~L9 排序仓位</span><span class="gf-arrow">→</span><span class="gf-tag gf-output">买入信号</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">📖</span>操作指南</div><div class="gg-body"><div class="go-list"><div class="go-row"><span class="sn">1</span>▶ 启动 → 每5分钟自动扫描，30秒检查持仓</div><div class="go-row"><span class="sn">2</span>📡 扫描 → 立即触发选股，⚡ 强扫跳缓存</div><div class="go-row"><span class="sn">3</span>🎛️ 策略 → 左侧面板开关策略、调参数</div><div class="go-row"><span class="sn">4</span>🟢 买入 → 信号区候选一键下单</div><div class="go-row"><span class="sn">5</span>🔴 卖出 → 持仓卡片快捷平仓或自动止盈止损</div><div class="go-row"><span class="sn">6</span>📋 复盘 / 🛡️ 风控 / ⚙️ 运维 → 详细分析</div></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🏃</span>半路追涨</div><div class="gg-body gg-compact"><div class="gg-line">盘中涨幅3-5% + 量能放大</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>12%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🥇</span>首板打板</div><div class="gg-body gg-compact"><div class="gg-line">首次涨停封板 + 成交概率</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>10%</span><span class="gg-p"><span class="gg-pl">持仓</span>2天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🐲</span>龙头低吸</div><div class="gg-body gg-compact"><div class="gg-line">连板龙头回调 + MA支撑</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3.5%</span><span class="gg-p"><span class="gg-pl">TP</span>30%</span><span class="gg-p"><span class="gg-pl">持仓</span>7天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">💥</span>跌停翘板</div><div class="gg-body gg-compact"><div class="gg-line">连续跌停翘板反转</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>5%</span><span class="gg-p"><span class="gg-pl">TP</span>20%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🛡️</span>风控体系</div><div class="gg-body"><div class="gr-grid"><div class="gr-row"><span class="gr-k">强制空仓</span><span class="gr-v">跌停≥80只 / 大盘跌≥3%</span></div><div class="gr-row"><span class="gr-k">情绪仓位</span><span class="gr-v">高潮100% / 分化70% / 震荡50% / 冰点30%</span></div><div class="gr-row"><span class="gr-k">单票上限</span><span class="gr-v">35% · 总仓位上限75%</span></div><div class="gr-row"><span class="gr-k">盘中锁定</span><span class="gr-v">冲高≥6% 回撤≥2.5% → 利润保护</span></div><div class="gr-row"><span class="gr-k">智能检查</span><span class="gr-v">盈利5s / 亏损3s / 接近止损1s</span></div><div class="gr-row"><span class="gr-k">信号过期</span><span class="gr-v">5分钟未执行自动取消</span></div></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">⌨️</span>快捷键</div><div class="gg-body"><div class="gk-row"><span class="gk-g"><kbd>F5</kbd>强扫</span><span class="gk-g"><kbd>F9</kbd>买入</span><span class="gk-g"><kbd>Ctrl+S</kbd>卖出</span><span class="gk-g"><kbd>Ctrl+E</kbd>紧急平仓</span><span class="gk-g"><kbd>↑↓</kbd>切换持仓</span><span class="gk-g"><kbd>1-4</kbd>策略开关</span></div></div></div>
+      </div>
+      <template #footer><ElButton type="success" @click="guideVisible = false; startScanner()">▶ 启动扫描器</ElButton><ElButton @click="guideVisible = false">关闭</ElButton></template>
+    </ElDialog>
+</template><span v-else class="tl-blocked-reason">{{ item.reason }}</span></div>
         </div>
 
         <!-- 历史订单 -->
@@ -1585,30 +1692,60 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
     />
 
   </div>
+
+    <!-- 指南弹窗 -->
+    <ElDialog v-model="guideVisible" title="📡 超短量化实盘监控系统" width="720px" :close-on-click-modal="true">
+      <div class="guide-grid">
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🏗️</span>系统架构</div><div class="gg-body"><div class="gf-flow"><span class="gf-tag gf-input">5000+股票</span><span class="gf-arrow">→</span><span class="gf-tag">L1~L3 基础过滤</span><span class="gf-arrow">→</span><span class="gf-tag">L4~L6 策略筛选</span><span class="gf-arrow">→</span><span class="gf-tag">L7~L9 排序仓位</span><span class="gf-arrow">→</span><span class="gf-tag gf-output">买入信号</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">📖</span>操作指南</div><div class="gg-body"><div class="go-list"><div class="go-row"><span class="sn">1</span>▶ 启动 → 每5分钟自动扫描，30秒检查持仓</div><div class="go-row"><span class="sn">2</span>📡 扫描 → 立即触发选股，⚡ 强扫跳缓存</div><div class="go-row"><span class="sn">3</span>🎛️ 策略 → 左侧面板开关策略、调参数</div><div class="go-row"><span class="sn">4</span>🟢 买入 → 信号区候选一键下单</div><div class="go-row"><span class="sn">5</span>🔴 卖出 → 持仓卡片快捷平仓或自动止盈止损</div><div class="go-row"><span class="sn">6</span>📋 复盘 / 🛡️ 风控 / ⚙️ 运维 → 详细分析</div></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🏃</span>半路追涨</div><div class="gg-body gg-compact"><div class="gg-line">盘中涨幅3-5% + 量能放大</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>12%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🥇</span>首板打板</div><div class="gg-body gg-compact"><div class="gg-line">首次涨停封板 + 成交概率</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3%</span><span class="gg-p"><span class="gg-pl">TP</span>10%</span><span class="gg-p"><span class="gg-pl">持仓</span>2天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">🐲</span>龙头低吸</div><div class="gg-body gg-compact"><div class="gg-line">连板龙头回调 + MA支撑</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>3.5%</span><span class="gg-p"><span class="gg-pl">TP</span>30%</span><span class="gg-p"><span class="gg-pl">持仓</span>7天</span></div></div></div>
+        <div class="gg-card"><div class="gg-head"><span class="gg-icon">💥</span>跌停翘板</div><div class="gg-body gg-compact"><div class="gg-line">连续跌停翘板反转</div><div class="gg-params"><span class="gg-p"><span class="gg-pl">SL</span>5%</span><span class="gg-p"><span class="gg-pl">TP</span>20%</span><span class="gg-p"><span class="gg-pl">持仓</span>3天</span></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">🛡️</span>风控体系</div><div class="gg-body"><div class="gr-grid"><div class="gr-row"><span class="gr-k">强制空仓</span><span class="gr-v">跌停≥80只 / 大盘跌≥3%</span></div><div class="gr-row"><span class="gr-k">情绪仓位</span><span class="gr-v">高潮100% / 分化70% / 震荡50% / 冰点30%</span></div><div class="gr-row"><span class="gr-k">单票上限</span><span class="gr-v">35% · 总仓位上限75%</span></div><div class="gr-row"><span class="gr-k">盘中锁定</span><span class="gr-v">冲高≥6% 回撤≥2.5% → 利润保护</span></div><div class="gr-row"><span class="gr-k">智能检查</span><span class="gr-v">盈利5s / 亏损3s / 接近止损1s</span></div><div class="gr-row"><span class="gr-k">信号过期</span><span class="gr-v">5分钟未执行自动取消</span></div></div></div></div>
+        <div class="gg-card gg-span2"><div class="gg-head"><span class="gg-icon">⌨️</span>快捷键</div><div class="gg-body"><div class="gk-row"><span class="gk-g"><kbd>F5</kbd>强扫</span><span class="gk-g"><kbd>F9</kbd>买入</span><span class="gk-g"><kbd>Ctrl+S</kbd>卖出</span><span class="gk-g"><kbd>Ctrl+E</kbd>紧急平仓</span><span class="gk-g"><kbd>↑↓</kbd>切换持仓</span><span class="gk-g"><kbd>1-4</kbd>策略开关</span></div></div></div>
+      </div>
+      <template #footer><ElButton type="success" @click="guideVisible = false; startScanner()">▶ 启动扫描器</ElButton><ElButton @click="guideVisible = false">关闭</ElButton></template>
+    </ElDialog>
 </template>
 <style scoped lang="scss">
 .mm { height: 100%; display: flex; flex-direction: column; background: var(--bg-base); overflow: hidden; min-width: 0; }
 /* 顶部状态栏 */
-.mm-header { display: flex; align-items: center; gap: 8px; padding: 5px 12px; background: var(--bg-elevated); border-bottom: 1px solid var(--border-default); flex-shrink: 0; min-width: 0; overflow-x: auto; }
-.cb-pause-btn { font-size: 12px; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--warning); color: var(--warning); background: transparent; cursor: pointer; }
-.cb-pause-btn:hover { background: var(--warning); color: var(--text-inverse); }
-.hh-left { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-.hh-status { display: flex; align-items: center; gap: 5px; font-weight: 600; font-size: 13px; }
-.hh-status .dot { width: 8px; height: 8px; border-radius: 50%; }
-.hh-status.running .dot { background: var(--stock-down); animation: pulse 1.5s infinite; }
-.hh-status.stopped .dot { background: var(--text-tertiary); }
-@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
-.hh-account { display: flex; align-items: center; gap: 8px; flex: 1; justify-content: center; }
-.ha { display: inline-flex; align-items: baseline; gap: 2px; font-size: 12px; }
-.hl { color: var(--text-tertiary); font-size: 10px; }
-.hv { font-weight: 600; }
-.hl { font-size: 10px; color: var(--text-tertiary); }
-.hv { font-size: 13px; font-weight: 600; }
-.hh-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
-.up { color: var(--stock-up); }
-.down { color: var(--stock-down); }
-
-/* 引导页 */
+.page-header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 16px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-default);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.ph-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.ph-title { font-size: 15px; font-weight: 700; white-space: nowrap; }
+.ph-sep { color: var(--border-default); font-weight: 300; }
+.ph-running { font-size: 12px; color: var(--warning, #f59e0b); animation: pulse 1.5s infinite; }
+.ph-tabs { display: flex; gap: 2px; background: var(--bg-muted); border-radius: 6px; padding: 2px; }
+.ph-tabs .tab-btn { padding: 4px 10px; font-size: 12px; font-weight: 500; border: none; background: transparent; color: var(--text-tertiary); cursor: pointer; border-radius: 4px; transition: all 0.15s; white-space: nowrap; display: flex; align-items: center; gap: 4px; }
+.ph-tabs .tab-btn .tab-icon { font-size: 14px; flex-shrink: 0; }
+.ph-tabs .tab-btn .tab-text { display: flex; flex-direction: column; line-height: 1.2; }
+.ph-tabs .tab-btn .tab-label { font-size: 12px; font-weight: 600; }
+.ph-tabs .tab-btn .tab-desc { font-size: 10px; color: var(--text-quaternary); opacity: 0.8; }
+.ph-tabs .tab-btn:hover { color: var(--primary-500); background: var(--bg-elevated); }
+.ph-tabs .tab-btn:hover .tab-desc { color: var(--text-tertiary); }
+.ph-tabs .tab-btn.active { color: var(--primary-500); background: var(--bg-elevated); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+.ph-tabs .tab-btn.active .tab-desc { color: var(--text-tertiary); opacity: 1; }
+.ph-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.ph-stat { font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+.ph-val { font-weight: 600; margin-left: 2px; }
+.help-btn { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: var(--bg-muted); color: var(--text-secondary); font-size: 13px; font-weight: 700; cursor: pointer; transition: all 0.15s; }
+.help-btn:hover { background: var(--primary-500); color: white; }
+.qa-grid { display: flex; flex-wrap: wrap; gap: 4px; }
+.emergency-btn-inline { font-size: 12px; padding: 4px 8px; border-radius: 4px; border: 1px solid var(--stock-up); color: var(--stock-up); background: transparent; cursor: pointer; }
+.emergency-btn-inline:hover { background: var(--stock-up); color: var(--text-inverse); }
+.emergency-btn-inline.disabled { opacity: 0.4; cursor: not-allowed; }
 .mm-guide { flex: 1; overflow-y: auto; padding: 12px 16px; }
 /* 横幅 */
 .guide-banner { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; background: var(--bg-elevated); border-radius: 10px; margin-bottom: 12px; }
@@ -1999,243 +2136,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .rb-score { font-size: 11px; font-weight: 600; color: var(--text-secondary); background: var(--bg-elevated); border-radius: 4px; padding: 1px 5px; margin-left: 4px; }
 
 /* Tab导航栏 */
-.mm-tab-bar {
-  display: flex;
-  gap: 2px;
-  padding: 0 16px;
-  background: var(--bg-elevated);
-  border-bottom: 1px solid var(--border-default);
-  flex-shrink: 0;
-}
-.mm-tab-bar .tab-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 13px;
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  transition: all 0.2s;
-  white-space: nowrap;
-}
-.mm-tab-bar .tab-btn:hover {
-  color: var(--text-primary);
-  background: var(--bg-hover);
-}
-.mm-tab-bar .tab-btn.active {
-  color: var(--el-color-primary);
-  border-bottom-color: var(--el-color-primary);
-  font-weight: 600;
-}
-.tab-icon { font-size: 15px; }
-.tab-text { display: flex; flex-direction: column; gap: 1px; }
-.tab-label { font-size: 13px; line-height: 1.2; }
-.tab-desc { font-size: 10px; color: var(--text-tertiary); line-height: 1; }
-.tab-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  font-size: 10px;
-  font-weight: 600;
-  border-radius: 9px;
-  background: var(--el-color-primary);
-  color: var(--text-inverse);
-  padding: 0 5px;
-}
-.tab-badge-danger {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  font-size: 10px;
-  font-weight: 700;
-  border-radius: 9px;
-  background: var(--stock-up);
-  color: var(--text-inverse);
-  padding: 0 5px;
-}
 
-/* Tab内容区 */
-.mm-tab-content {
-  flex: 1;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-.mm-tab-scroll {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px;
-}
-
-/* 绩效Tab */
-.pnl-chart-wrap-lg {
-  background: var(--bg-elevated);
-  border-radius: 8px;
-  padding: 8px;
-  margin-bottom: 12px;
-  border: 1px solid var(--border-default);
-}
-
-/* 风控Tab */
-.risk-overview { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-.ro-card { display: flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--border-default); border-radius: 6px; font-size: 12px; background: var(--bg-normal); }
-.ro-label { color: var(--text-tertiary); }
-.ro-value { font-weight: 600; font-family: 'JetBrains Mono', monospace; }
-.risk-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 8px;
-}
-.risk-card {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  padding: 10px 12px;
-}
-.rc-top {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-.rc-detail {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px 12px;
-  font-size: 12px;
-}
-.rc-row {
-  display: flex;
-  justify-content: space-between;
-}
-.rc-row span:first-child { color: var(--text-tertiary); }
-
-/* 复盘Tab */
-.review-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
-.review-tabs { display: flex; gap: 2px; }
-.review-tab { padding: 6px 14px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--bg-elevated); color: var(--text-secondary); font-size: 13px; cursor: pointer; transition: all 0.2s; }
-.review-tab:hover { background: var(--bg-hover); }
-.review-tab.active { background: var(--el-color-primary); color: var(--text-inverse); border-color: var(--el-color-primary); }
-.review-summary-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
-.rsc { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 10px 12px; text-align: center; }
-.rsc-label { font-size: 11px; color: var(--text-tertiary); margin-bottom: 4px; }
-.rsc-value { font-size: 16px; font-weight: 600; }
-.strategy-contrib { display: flex; flex-direction: column; gap: 6px; }
-.sc-bar-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-.sc-bar-label { width: 70px; text-align: right; flex-shrink: 0; }
-.sc-bar-track { flex: 1; height: 16px; background: var(--bg-secondary); border-radius: 4px; overflow: hidden; }
-.sc-bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
-.sc-bar-fill.up { background: var(--stock-down); }
-.sc-bar-fill.down { background: var(--stock-up); }
-.sc-bar-value { width: 70px; font-weight: 600; }
-.attribution-card { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 10px 12px; margin-bottom: 6px; }
-.attr-top { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
-.attr-detail { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 16px; font-size: 12px; }
-.attr-row { display: flex; justify-content: space-between; }
-.attr-row span:first-child { color: var(--text-tertiary); }
-.weekly-daily-table { font-size: 12px; }
-.wdt-header, .wdt-row { display: grid; grid-template-columns: 90px 1fr 60px 60px 80px; gap: 8px; padding: 4px 0; }
-.wdt-header { font-weight: 600; color: var(--text-tertiary); border-bottom: 1px solid var(--border-default); }
-.eq-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
-.eq-card { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 10px 12px; text-align: center; }
-.eq-label { font-size: 11px; color: var(--text-tertiary); margin-bottom: 4px; }
-.eq-value { font-size: 15px; font-weight: 600; }
-.lb-table { font-size: 12px; }
-.lb-header, .lb-row { display: grid; grid-template-columns: 70px 60px 60px 60px 60px 70px 60px 60px; gap: 4px; padding: 3px 0; }
-.lb-header { font-weight: 600; color: var(--text-tertiary); border-bottom: 1px solid var(--border-default); }
-.suggestions { display: flex; flex-direction: column; gap: 6px; }
-.suggestion { padding: 8px 12px; border-radius: 6px; font-size: 12px; }
-.suggestion.warn { background: rgba(250,173,20,0.1); border: 1px solid rgba(250,173,20,0.3); }
-.suggestion.info { background: rgba(22,119,255,0.1); border: 1px solid rgba(22,119,255,0.3); }
-
-/* 盘前竞价Tab */
-.pm-status-bar { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--bg-elevated); border-radius: 8px; border: 1px solid var(--border-default); margin-bottom: 12px; }
-.pm-status-icon { font-size: 28px; }
-.pm-status-title { font-size: 15px; font-weight: 600; }
-.pm-status-sub { font-size: 11px; color: var(--text-tertiary); }
-.pm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.pm-section { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 10px 12px; }
-.pm-candidate, .pm-signal { display: flex; align-items: center; gap: 6px; padding: 4px 0; font-size: 12px; border-bottom: 1px solid var(--border-default); }
-.pm-candidate:last-child, .pm-signal:last-child { border-bottom: none; }
-
-/* 扫描追踪Tab */
-.scan-grid { display: grid; grid-template-columns: 260px 1fr; gap: 12px; }
-.scan-list { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 8px; overflow-y: auto; max-height: calc(100vh - 250px); }
-.scan-item { padding: 6px 8px; border-radius: 6px; cursor: pointer; margin-bottom: 2px; font-size: 12px; display: grid; grid-template-columns: 60px 40px 1fr; gap: 4px; align-items: center; }
-.scan-item:hover { background: var(--bg-hover); }
-.scan-item.active { background: var(--el-color-primary-light-9); border: 1px solid var(--el-color-primary-light-7); }
-.scan-time { color: var(--text-tertiary); }
-.scan-type { font-weight: 600; }
-.scan-stats { color: var(--text-secondary); }
-.scan-detail { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 12px; overflow-y: auto; max-height: calc(100vh - 250px); }
-.funnel { display: flex; flex-direction: column; gap: 2px; }
-.funnel-step { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px; font-size: 12px; border: 1px solid var(--border-default); }
-.funnel-step.passed { background: rgba(0,180,42,0.06); border-color: rgba(0,180,42,0.2); }
-.funnel-step.rejected { background: rgba(245,63,63,0.06); border-color: rgba(245,63,63,0.2); }
-.fn-label { font-weight: 600; width: 80px; }
-.fn-count { flex: 1; }
-.fn-reject { color: var(--stock-up); font-size: 11px; }
-.fn-arrow { text-align: center; color: var(--text-tertiary); font-size: 12px; }
-.exec-trace { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; border-radius: 6px; margin-bottom: 4px; background: var(--bg-base); font-size: 12px; }
-/* 【v2.9.7: 候选过滤按钮+淘汰统计+加载更多 */
-.tab-btn-sm { padding: 2px 10px; border-radius: 4px; border: 1px solid var(--border-default); background: transparent; font-size: 11px; cursor: pointer; color: var(--text-secondary); transition: all 0.15s; }
-.tab-btn-sm:hover { border-color: var(--el-color-primary-light-5); color: var(--el-color-primary); }
-.tab-btn-sm.active { background: var(--el-color-primary-light-9); border-color: var(--el-color-primary-light-5); color: var(--el-color-primary); font-weight: 600; }
-.tab-btn-sm:disabled { opacity: 0.5; cursor: not-allowed; }
-.rejected-stats { padding: 8px 0; }
-.rs-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; }
-.rs-label { min-width: 72px; color: var(--text-secondary); }
-.rs-bar-track { flex: 1; height: 16px; background: var(--bg-hover); border-radius: 3px; overflow: hidden; }
-.rs-bar-fill { height: 100%; background: rgba(245,63,63,0.25); border-radius: 3px; transition: width 0.3s; }
-.rs-count { min-width: 40px; text-align: right; font-weight: 600; }
-.load-more-hint { text-align: center; padding: 8px 0; }
-.et-left, .et-right { display: flex; align-items: center; gap: 6px; }
-
-/* 情绪Tab */
-.limit-pool-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 6px;
-}
-.limit-pool-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  background: var(--bg-elevated);
-  border-radius: 6px;
-  border: 1px solid var(--border-default);
-  font-size: 12px;
-}
-
-/* 运维Tab */
-.auto-trades-list { font-size: 12px; }
-.at-header, .at-row { display: grid; grid-template-columns: 52px 50px 28px 72px 56px 50px 60px 56px 1fr; gap: 4px; padding: 3px 0; align-items: center; }
-.at-header { font-weight: 600; color: var(--text-tertiary); border-bottom: 1px solid var(--border-default); font-size: 11px; }
-.at-row { border-bottom: 1px solid var(--border-default); }
-.at-row:last-child { border-bottom: none; }
-.at-row.auto-trade { background: rgba(22,119,255,0.03); }
-.at-row.manual-trade { background: rgba(250,173,20,0.03); }
-
-/* 参数对比 */
-.param-compare { display: flex; flex-direction: column; gap: 8px; }
-.pc-strategy { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 10px 12px; }
-.pc-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.pc-name { font-weight: 600; font-size: 13px; }
-.pc-params { display: flex; flex-direction: column; gap: 2px; }
-.pc-diff-row { display: grid; grid-template-columns: 140px 1fr 1fr; gap: 8px; padding: 3px 6px; border-radius: 4px; font-size: 12px; background: rgba(245,63,63,0.06); }
-.pc-same-row { display: grid; grid-template-columns: 140px 1fr; gap: 8px; padding: 2px 6px; font-size: 11px; color: var(--text-tertiary); }
-.pc-key { font-weight: 500; }
-.pc-live { color: var(--el-color-primary); }
-.pc-bt { color: var(--stock-up); }
 
 .ops-grid {
   display: flex;
