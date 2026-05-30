@@ -168,11 +168,14 @@ async def get_scanner_status():
     # 交易时间判断
     now = datetime.now()
     ct = now.strftime("%H:%M")
-    is_trading = ("09:15" <= ct <= "15:05")
-    is_premarket = ("09:00" <= ct < "09:15")
-    is_closed = ct > "15:05"
+    is_weekend = now.weekday() >= 5
+    is_trading = ("09:15" <= ct <= "15:05") and not is_weekend
+    is_premarket = ("09:00" <= ct < "09:15") and not is_weekend
+    is_closed = ct > "15:05" or is_weekend
     
-    if is_trading:
+    if is_weekend:
+        market_status = "休市(调试)"
+    elif is_trading:
         market_status = "交易中"
     elif is_premarket:
         market_status = "盘前"
