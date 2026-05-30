@@ -485,3 +485,20 @@ class ScannerUtils:
             "warnings": warnings,
             "event_bus_stats": scanner._event_bus.get_stats() if hasattr(scanner, '_event_bus') and scanner._event_bus else {},
         }
+
+    @staticmethod
+    def format_slow_steps(steps: list) -> str:
+        """格式化扫描慢步骤日志【v2.9.28:从scan_once提取】
+        
+        Args:
+            steps: [(label, ms), ...] 分步耗时列表
+        Returns:
+            慢步骤日志字符串, 无慢步骤返回空字符串
+        """
+        slow_marks = []
+        for label, ms in steps:
+            if ms > 1000:
+                slow_marks.append(f"\U0001f534{label}={ms:.0f}ms")
+            elif ms > 100:
+                slow_marks.append(f"\u26a0\ufe0f{label}={ms:.0f}ms")
+        return f" | 慢步骤: {', '.join(slow_marks)}" if slow_marks else ""

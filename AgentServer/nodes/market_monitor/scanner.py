@@ -417,6 +417,8 @@ class MarketScanner:
         "_execute_sell_list_from_risk": ("_position_manager", "execute_sell_list_from_risk"),
         # 【v2.9.28:filter结果合并提取到LiveFilterPipeline】
         "_merge_filter_result": ("_filter_pipeline", "merge_filter_result"),
+        # 【v2.9.28:慢步骤日志格式化提取到ScannerUtils】
+        "_format_slow_steps": ("_scanner_utils", "format_slow_steps"),
     }
 
     def __getattr__(self, name):
@@ -1008,31 +1010,20 @@ class MarketScanner:
         全量扫描(5分钟): 涨停池+策略筛选 → 发现新信号
         持仓检查(30秒): 只查持仓股行情 → 止损止盈
         
-        【智能刷新】
-        - 交易时间(9:30-15:00): 正常5分钟全量+30秒持仓
-        - 盘前(9:00-9:30): 2分钟检查一次(竞价预选)
-        - 非交易时间: 5分钟检查一次(只检查持仓,不拉行情)
-        - 深夜(23:00-8:00): 30分钟检查一次(几乎不刷新)
-        
-        必盈200次/天:
-        - 全量: 23次/轮 × 8轮(4h/5min) = 184次 → 合理
-        - 持仓检查: 不消耗必盈额度(用东方财富缓存)
+        【v2.9.28】提取_scan_loop_phase_sleep, 错误恢复简化
         """
         settled = False
-        last_full_scan = 0  # 上次全量扫描时间
+        last_full_scan = 0
 
-        # 回放模式: 不受交易时间限制, 持续扫描
         if self._replay_mode:
             await self._scan_loop_replay()
             return
 
         try:
             while self._is_running:
-                # 【v2.9.21】使用MarketPhase统一时间分类
                 phase = MarketPhase.classify()
                 
                 if phase == MarketPhase.WEEKEND:
-                    # 周末: 调试模式(60秒循环, 用缓存数据)
                     pos_count = len(self._broker.get_positions()) if self._broker else 0
                     if pos_count > 0:
                         try:
@@ -1043,7 +1034,6 @@ class MarketScanner:
                     continue
 
                 elif phase == MarketPhase.TRADING:
-                    # 交易时间(9:30-15:00)
                     settled = False
                     did_full_scan = await self._scan_loop_trading(trade_date, last_full_scan)
                     if did_full_scan:
@@ -1052,49 +1042,51 @@ class MarketScanner:
                         continue
                     
                 elif phase in (MarketPhase.PREMARKET, MarketPhase.AUCTION):
-                    # 盘前(9:00-9:30): 竞价预选
                     settled = False
                     await self._premarket_auction(trade_date)
-                    await asyncio.sleep(120)  # 2分钟
+                    await asyncio.sleep(120)
                     
                 elif phase == MarketPhase.AFTER_CLOSE and not settled and self._broker:
-                    # 收盘后(15:05+): 自动结算+报告
                     await self._scan_loop_settlement(trade_date)
                     settled = True
                     await asyncio.sleep(60)
                     
-                elif phase == MarketPhase.DEEP_NIGHT:
-                    # 深夜(23:00-8:00): 极低频
-                    await asyncio.sleep(1800)  # 30分钟
-                    
                 else:
-                    # 其他非交易时间: 低频
-                    await asyncio.sleep(300)  # 5分钟
+                    # 非交易时间(含DEEP_NIGHT/其他)
+                    sleep_s = self._scan_loop_phase_sleep(phase)
+                    await asyncio.sleep(sleep_s)
 
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            logger.error(f"[SCANNER] _scan_loop异常: {e}", exc_info=True)
-            # 【v2.9.22:瞬态错误恢复】不立即杀死scanner, 等30秒后尝试恢复
-            # 只有连续异常才标记停止(3次异常后彻底退出)
-            self._scan_loop_error_count = getattr(self, '_scan_loop_error_count', 0) + 1
-            if self._scan_loop_error_count >= 3:
-                logger.error(f"[SCANNER] 连续{self._scan_loop_error_count}次异常, scanner退出")
-                self._is_running = False
-            else:
-                logger.warning(f"[SCANNER] 第{self._scan_loop_error_count}次异常, 30秒后尝试恢复")
-                await asyncio.sleep(30)
-                # 恢复后重置计数(下次scan_once成功时)
-            # 发射异常事件(前端可感知)
-            try:
-                asyncio.ensure_future(self._event_bus.emit(ScannerEvents.SCANNER_ERROR, {
-                    "error": str(e),
-                    "error_type": type(e).__name__,
-                    "timestamp": time.time(),
-                    "consecutive_errors": self._scan_loop_error_count,
-                }))
-            except Exception as _e:
-                pass  # 事件发射失败不应影响主流程(v2.9.25:已捕获异常对象)
+            await self._scan_loop_error_recovery(e)
+
+    @staticmethod
+    def _scan_loop_phase_sleep(phase) -> int:
+        """非交易时间scan_loop的sleep秒数【v2.9.28提取】"""
+        if phase == MarketPhase.DEEP_NIGHT:
+            return 1800
+        return 300
+
+    async def _scan_loop_error_recovery(self, error: Exception):
+        """_scan_loop异常恢复【v2.9.28从_scan_loop提取】"""
+        logger.error(f"[SCANNER] _scan_loop异常: {error}", exc_info=True)
+        self._scan_loop_error_count = getattr(self, '_scan_loop_error_count', 0) + 1
+        if self._scan_loop_error_count >= 3:
+            logger.error(f"[SCANNER] 连续{self._scan_loop_error_count}次异常, scanner退出")
+            self._is_running = False
+        else:
+            logger.warning(f"[SCANNER] 第{self._scan_loop_error_count}次异常, 30秒后尝试恢复")
+            await asyncio.sleep(30)
+        try:
+            asyncio.ensure_future(self._event_bus.emit(ScannerEvents.SCANNER_ERROR, {
+                "error": str(error),
+                "error_type": type(error).__name__,
+                "timestamp": time.time(),
+                "consecutive_errors": self._scan_loop_error_count,
+            }))
+        except Exception as _e:
+            pass
 
     # ==================== v2.9.13: _scan_loop时间段提取 ==================
 
@@ -1441,16 +1433,12 @@ class MarketScanner:
         self._update_scan_stats(scan_time, len(realtime_data), elapsed)
         await self._persist_scan_result()
 
-        # 【v2.9.22】分步耗时日志(>100ms的步骤标⚠️, >1s的标🔴)
-        slow_marks = []
-        for label, ms in [("行情", step1_ms), ("因子", step2_ms),
-                          ("策略+筛选", step3_ms), ("信号", step4_ms),
-                          ("持仓检查", step5_ms)]:
-            if ms > 1000:
-                slow_marks.append(f"🔴{label}={ms:.0f}ms")
-            elif ms > 100:
-                slow_marks.append(f"⚠️{label}={ms:.0f}ms")
-        slow_info = f" | 慢步骤: {', '.join(slow_marks)}" if slow_marks else ""
+        # 【v2.9.28:慢步骤日志提取到ScannerUtils.format_slow_steps】
+        slow_info = self._format_slow_steps([
+            ("行情", step1_ms), ("因子", step2_ms),
+            ("策略+筛选", step3_ms), ("信号", step4_ms),
+            ("持仓检查", step5_ms),
+        ])
 
         logger.info(f"[SCAN #{self._scan_count}] 完成: "
                      f"{len(realtime_data)}只 | {len(self._active_signals)}信号 | "
