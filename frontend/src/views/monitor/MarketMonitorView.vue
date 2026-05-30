@@ -1243,15 +1243,16 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         </div>
 
         <!-- 中部: 9层漏斗(横向紧凑) -->
-        <div v-if="scanTraceDetail" class="scan-funnel-bar">
+        <div v-if="scanTraceDetail" class="scan-funnel">
           <template v-for="(layerData, layerName, idx) in scanTraceDetail.summary || {}">
-            <div v-if="layerName !== 'total_candidates' && layerName !== 'passed' && layerName !== 'rejected' && typeof layerData === 'object'" :key="layerName" class="fb-step" :class="{ filter: layerData.rejected > 0, pass: !layerData.rejected }">
-              <span class="fb-name">{{ layerLabel(layerName) }}</span>
-              <span class="fb-nums">{{ layerData.output || 0 }}<span v-if="layerData.rejected" class="fb-rej">-{{ layerData.rejected }}</span></span>
+            <div v-if="layerName !== 'total_candidates' && layerName !== 'passed' && layerName !== 'rejected' && typeof layerData === 'object'" :key="layerName" class="fn-row" :class="{ 'fn-filter': layerData.rejected > 0, 'fn-pass': !layerData.rejected }">
+              <span class="fn-tag">{{ layerLabel(layerName) }}</span>
+              <span class="fn-flow">{{ layerData.input || 0 }}→{{ layerData.output || 0 }}</span>
+              <span v-if="layerData.rejected" class="fn-rej">淘汰{{ layerData.rejected }}</span>
+              <span v-if="scanTraceDetail.layer_details?.[layerName]" class="fn-desc">{{ scanTraceDetail.layer_details[layerName] }}</span>
             </div>
-            <span v-if="layerName !== 'total_candidates' && layerName !== 'passed' && layerName !== 'rejected' && typeof layerData === 'object' && idx < 8" :key="'arrow'+layerName" class="fb-arrow">→</span>
           </template>
-          <span v-if="scanTraceDetail._pagination" class="fb-summary">通过{{ scanTraceDetail._pagination.passed_count }} / 淘汰{{ scanTraceDetail._pagination.rejected_count }}</span>
+          <div v-if="scanTraceDetail._pagination" class="fn-total">✅ 通过{{ scanTraceDetail._pagination.passed_count }} / ❌ 淘汰{{ scanTraceDetail._pagination.rejected_count }}</div>
         </div>
 
         <!-- 底部: 候选追踪(主区域) -->
@@ -2336,15 +2337,15 @@ mm-tab-content {
 .sc-type.full { background: rgba(0,180,42,0.12); color: #00b42a; }
 .sc-type.quick { background: rgba(22,93,255,0.12); color: #165dff; }
 .sc-stats { color: var(--text-secondary); }
-.scan-funnel-bar { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; padding: 8px 12px; background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; margin-top: 8px; }
-.fb-step { display: inline-flex; flex-direction: column; align-items: center; padding: 4px 8px; border-radius: 5px; font-size: 11px; min-width: 48px; }
-.fb-step.filter { background: rgba(245,63,63,0.05); }
-.fb-step.pass { background: rgba(0,180,42,0.05); }
-.fb-name { font-weight: 600; font-size: 10px; color: var(--text-secondary); white-space: nowrap; }
-.fb-nums { font-weight: 700; font-family: 'JetBrains Mono', monospace; }
-.fb-rej { color: var(--stock-down); font-weight: 400; font-size: 10px; }
-.fb-arrow { color: var(--text-tertiary); font-size: 12px; }
-.fb-summary { margin-left: auto; font-size: 11px; color: var(--text-tertiary); }
+.scan-funnel { padding: 8px 0; }
+.fn-row { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 5px; font-size: 11px; margin-bottom: 2px; }
+.fn-row.fn-filter { background: rgba(245,63,63,0.04); }
+.fn-row.fn-pass { background: rgba(0,180,42,0.03); }
+.fn-tag { font-weight: 600; min-width: 56px; flex-shrink: 0; }
+.fn-flow { font-family: 'JetBrains Mono', monospace; font-weight: 600; flex-shrink: 0; }
+.fn-rej { color: var(--stock-down); flex-shrink: 0; font-size: 10px; }
+.fn-desc { color: var(--text-tertiary); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fn-total { padding: 6px 8px 0; font-size: 12px; font-weight: 600; border-top: 1px solid var(--border-default); margin-top: 4px; }
 .funnel { display: flex; flex-direction: column; gap: 2px; }
 .funnel-step { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px; font-size: 12px; border: 1px solid var(--border-default); }
 .funnel-step.passed { background: rgba(0,180,42,0.06); border-color: rgba(0,180,42,0.2); }
