@@ -1992,3 +1992,42 @@ L1描述行从stats字典取值,不再依赖未定义变量。
 ### 27.9 回测影响
 
 零。所有变更仅影响market_monitor模块, 回测引擎零文件修改。回测测试全通过。
+
+### 27.10 start()方法拆分(补充)
+
+**问题**: `start()` 103行,包含参数校验、漂移检测、盘前准备、状态恢复、EventBus注册、线程启动等多个职责。
+
+**修复**: 提取3个独立方法:
+
+| 方法 | 职责 | 类型 |
+|---|---|---|
+| `_detect_param_drift()` | 参数漂移检测+告警 | async |
+| `_restore_start_state()` | 审计TTL索引+pending_sells恢复 | async |
+| `_start_risk_thread()` | 启动风控独立线程 | sync |
+
+**start()主方法**: 51行,仅编排8个步骤。
+
+### 27.11 PositionChecker公开接口(补充)
+
+**问题**: scanner.py通过`_position_checker._is_limit_down()`和`_position_checker._execute_sell_list()`直接调用PositionChecker私有方法。
+
+**修复**: PositionChecker新增2个公开代理方法:
+
+| 方法 | 委托到 | 说明 |
+|---|---|---|
+| `is_limit_down(ts_code)` | `_is_limit_down` | 跌停判断 |
+| `execute_sell_list(to_sell, trade_date, source)` | `_execute_sell_list` | 卖出列表执行 |
+
+scanner.py改用公开接口调用。
+
+### 27.12 最终统计
+
+| 指标 | v2.9.17 | v2.9.18 | 变化 |
+|---|---|---|---|
+| scanner.py行数 | 1672 | 1823 | +151(新增方法+测试) |
+| scanner.py方法数 | 48 | 53 | +5(拆分+新增) |
+| >50行方法数 | 14 | 13 | -1(start 103→51) |
+| QuoteManager私有访问 | 5处 | 0处 | 全部消除 |
+| PositionChecker私有访问 | 2处 | 0处 | 全部消除 |
+| 测试用例数 | 546 | 579 | +33(新测试) |
+| 回测影响 | 零 | 零 | 无变化 |
