@@ -1,9 +1,9 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.8 | 日期: 2026-05-30 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.9 | 日期: 2026-05-30 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅
+> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅
 > 回测影响: 零文件修改, 514测试全通过
 
 ---
@@ -31,6 +31,7 @@
 | v2.9.6 | 2026-05-30 | CircuitBreaker提取RiskWatchdog+情绪卖出列表提取_build_emotion_sell_list+绩效快照/飞书日报提取RuntimePersistence+_calc_stop_loss/_calc_take_profit加入DELEGATE_MAP移除fallback+Compare模式一致性验证测试+_execute_risk_sell/_execute_sell_list漏调_record_trade_result修复+_is_limit_down移除fallback加入DELEGATE_MAP+bare except修复+24新增测试(471总计,scanner 1710行53方法) |
 | v2.9.7 | 2026-05-30 | Phase2.1完善: scanner:cmd从Pub/Sub升级为List+ACK(RPUSH/BLPOP+ACK确认+超时处理)+Daemon告警Redis事件发布+/health集成Daemon状态+EventBus handler耗时统计+/daemon/status+/daemon/restart端点+scan-traces性能优化(rejected摘要)+25新增测试(496总计) |
 | v2.9.8 | 2026-05-30 | Phase4完善: /health新增version字段(git_hash/branch/设计文档版本)+WS断线重连3秒(设计文档规范)+Scanner Store集成验证+13新增测试(514总计) |
+| v2.9.9 | 2026-05-30 | 委托存根消除: 10个显式委托桩移至DELEGATE_MAP+__getattr__动态委托(_merge_factors/_get_effective_strategy_config/_get_strategy_risk/_detect_anomalies/_compute_health_score/_check_circuit_breaker/_record_trade_result/reset_circuit_breaker/_save_performance_snapshot/_push_daily_summary)+profit_pct转换修复(移除启发式,统一/100.0)+_is_limit_down死条目清理+__getattr__扩展(_risk_watchdog_class静态方法绑定/_strategy_scorer fallback+async wrapper)+514测试全通过(scanner 1711行44方法39 DELEGATE_MAP条目) |
 
 v2.0关键修正:
 - ❶ 风控独立线程: asyncio协程→threading.Thread(真并行不受GIL影响)
