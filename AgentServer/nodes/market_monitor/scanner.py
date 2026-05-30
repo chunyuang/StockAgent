@@ -1506,11 +1506,9 @@ class MarketScanner:
             realtime_data=realtime_data,
         )
 
-        # 日志
+        # 日志+链路追踪
         for layer, detail in result.layer_details.items():
             logger.info(f"[FILTER] {layer}: {detail}")
-
-        # 【V50.1】保存完整链路追踪到MongoDB(含被淘汰候选)
         await self._save_scan_traces(result)
 
         # 强制空仓 → 清所有持仓
@@ -1518,10 +1516,17 @@ class MarketScanner:
             await self._execute_force_empty(result.force_empty_reason)
             return []
 
+        # 处理筛选结果(合并+情绪调仓+EventBus事件)
+        return await self._process_filter_result(signals, result, trade_date)
+
+    async def _process_filter_result(
+        self, signals: List[ScanSignal], result, trade_date: str
+    ) -> List[ScanSignal]:
+        """处理筛选管道结果: 合并信号+情绪调仓+EventBus事件【v2.9.31提取】"""
         # 转回ScanSignal，注入筛选决策详情+逐层trace
         filtered_signals = self._merge_filter_result(signals, result)
 
-        # 存储仓位系数和情绪信息(供execute_signals使用)
+        # 更新仓位系数和情绪信息
         old_phase = self._current_sentiment.get("period", "")
         self._current_position_ratio = result.position_ratio
         self._current_sentiment = self._filter_pipeline.get_sentiment_info()
@@ -1529,8 +1534,8 @@ class MarketScanner:
 
         logger.info(f"[FILTER] 筛选完成: {len(signals)}→{len(filtered_signals)}个信号, "
                      f"仓位系数={result.position_ratio:.0%}")
-        
-        # 【Phase2.4:情绪phase变化→动态调仓】
+
+        # 情绪phase变化→动态调仓
         if old_phase and old_phase != new_phase:
             await self._event_bus.emit(ScannerEvents.EMOTION_CHANGED, {
                 "old_phase": old_phase, "new_phase": new_phase,
