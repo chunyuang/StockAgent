@@ -687,16 +687,96 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
     <!-- 未启动引导 -->
     <div v-if="!isRunning && !status" class="mm-guide">
       <div class="guide-card">
-        <div class="guide-icon">📡</div>
-        <div class="guide-title">欢迎使用超短量化实盘监控</div>
-        <div class="guide-steps">
-          <div class="guide-step"><span class="sn">1</span> 点击 <b>▶ 启动</b> 开始扫描器</div>
-          <div class="guide-step"><span class="sn">2</span> 点击 <b>📡 扫描</b> 手动触发选股</div>
-          <div class="guide-step"><span class="sn">3</span> 左侧调整 <b>策略开关</b> 和参数</div>
-          <div class="guide-step"><span class="sn">4</span> 信号出现后点 <b>🟢买入</b> 快捷下单</div>
-          <div class="guide-step"><span class="sn">5</span> 持仓卡片点 <b>🔴卖出</b> 快捷平仓</div>
+        <div class="guide-header">
+          <div class="guide-logo">📡</div>
+          <div class="guide-title">超短量化实盘监控系统</div>
+          <div class="guide-subtitle">9层漏斗筛选 · 4策略联合选股 · 实时风控守护</div>
         </div>
-        <ElButton type="success" size="large" @click="startScanner" style="margin-top:16px">▶ 启动扫描器</ElButton>
+
+        <!-- 系统架构 -->
+        <div class="guide-section">
+          <div class="guide-section-title">🏗️ 系统架构</div>
+          <div class="guide-flow">
+            <div class="gf-node gf-input">全市场5000+股票</div>
+            <div class="gf-arrow">↓</div>
+            <div class="gf-funnel">
+              <div class="gf-layer">L1 强制空仓 → L2 特殊时期 → L3 情绪周期</div>
+              <div class="gf-layer">L4 盘前预选 → L5 竞价过滤 → L6 策略量能</div>
+              <div class="gf-layer">L7 综合排序 → L8 仓位控制 → L9 执行确认</div>
+            </div>
+            <div class="gf-arrow">↓</div>
+            <div class="gf-node gf-output">买入信号</div>
+          </div>
+        </div>
+
+        <!-- 4大策略 -->
+        <div class="guide-section">
+          <div class="guide-section-title">🎯 四大策略</div>
+          <div class="guide-strategies">
+            <div class="gs-card">
+              <div class="gs-icon">🏃</div>
+              <div class="gs-name">半路追涨</div>
+              <div class="gs-desc">盘中涨幅3-5% + 量能放大<br/>止损3% / 止盈12% / 持仓3天</div>
+            </div>
+            <div class="gs-card">
+              <div class="gs-icon">🥇</div>
+              <div class="gs-name">首板打板</div>
+              <div class="gs-desc">首次涨停封板 + 成交概率<br/>止损3% / 止盈10% / 持仓2天</div>
+            </div>
+            <div class="gs-card">
+              <div class="gs-icon">🐲</div>
+              <div class="gs-name">龙头低吸</div>
+              <div class="gs-desc">连板龙头回调 + MA支撑<br/>止损3.5% / 止盈30% / 持仓7天</div>
+            </div>
+            <div class="gs-card">
+              <div class="gs-icon">💥</div>
+              <div class="gs-name">跌停翘板</div>
+              <div class="gs-desc">连续跌停翘板反转<br/>止损5% / 止盈20% / 持仓3天</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 风控体系 -->
+        <div class="guide-section">
+          <div class="guide-section-title">🛡️ 风控体系</div>
+          <div class="guide-risk-grid">
+            <div class="gr-item"><span class="gr-label">强制空仓</span><span class="gr-val">跌停≥80只 / 大盘跌≥3%</span></div>
+            <div class="gr-item"><span class="gr-label">情绪仓位</span><span class="gr-val">高潮100% / 分化70% / 震荡50% / 冰点30%</span></div>
+            <div class="gr-item"><span class="gr-label">单票上限</span><span class="gr-val">35% 总仓位上限75%</span></div>
+            <div class="gr-item"><span class="gr-label">盘中锁定</span><span class="gr-val">冲高≥6%回撤≥2.5%触发利润保护</span></div>
+            <div class="gr-item"><span class="gr-label">智能检查</span><span class="gr-val">盈利5s / 亏损3s / 接近止损1s</span></div>
+            <div class="gr-item"><span class="gr-label">信号过期</span><span class="gr-val">5分钟未执行自动取消</span></div>
+          </div>
+        </div>
+
+        <!-- 操作指南 -->
+        <div class="guide-section">
+          <div class="guide-section-title">📖 操作指南</div>
+          <div class="guide-steps">
+            <div class="guide-step"><span class="sn">1</span><div><b>启动扫描器</b> — 点击 ▶ 启动，系统每5分钟自动全量扫描，30秒检查持仓风控</div></div>
+            <div class="guide-step"><span class="sn">2</span><div><b>手动触发扫描</b> — 点击 📡 扫描立即执行，或 ⚡ 强扫跳过缓存</div></div>
+            <div class="guide-step"><span class="sn">3</span><div><b>调整策略参数</b> — 左侧面板开关策略、修改止损/止盈/仓位参数</div></div>
+            <div class="guide-step"><span class="sn">4</span><div><b>查看信号与买入</b> — 信号区显示通过9层漏斗的候选，点击 🟢 快捷买入</div></div>
+            <div class="guide-step"><span class="sn">5</span><div><b>管理持仓与卖出</b> — 持仓卡片实时盈亏，点 🔴 卖出或等自动止损止盈</div></div>
+            <div class="guide-step"><span class="sn">6</span><div><b>复盘与运维</b> — 📋复盘Tab查看归因，⚙️运维Tab查看系统配置和健康</div></div>
+          </div>
+        </div>
+
+        <!-- 快捷键 -->
+        <div class="guide-section">
+          <div class="guide-section-title">⌨️ 快捷键</div>
+          <div class="guide-kbd-grid">
+            <div class="gk-item"><kbd>F5</kbd> 强扫</div>
+            <div class="gk-item"><kbd>F9</kbd> 买入</div>
+            <div class="gk-item"><kbd>Ctrl+S</kbd> 卖出</div>
+            <div class="gk-item"><kbd>Ctrl+E</kbd> 紧急平仓</div>
+            <div class="gk-item"><kbd>↑ ↓</kbd> 切换持仓</div>
+            <div class="gk-item"><kbd>Enter</kbd> 持仓详情</div>
+            <div class="gk-item"><kbd>1-4</kbd> 策略开关</div>
+          </div>
+        </div>
+
+        <ElButton type="success" size="large" @click="startScanner" style="margin-top:20px;padding:12px 40px;font-size:16px">▶ 启动扫描器</ElButton>
       </div>
     </div>
 
@@ -1490,13 +1570,46 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .down { color: var(--stock-down); }
 
 /* 引导页 */
-.mm-guide { flex: 1; display: flex; align-items: center; justify-content: center; }
-.guide-card { text-align: center; padding: 40px; background: var(--bg-elevated); border-radius: 12px; box-shadow: var(--shadow-md); }
-.guide-icon { font-size: 48px; margin-bottom: 12px; }
-.guide-title { font-size: 20px; font-weight: 600; margin-bottom: 20px; }
-.guide-steps { text-align: left; display: inline-block; }
-.guide-step { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 14px; }
-.sn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: var(--el-color-primary); color: var(--text-inverse); font-size: 12px; font-weight: 600; flex-shrink: 0; }
+.mm-guide { flex: 1; display: flex; align-items: flex-start; justify-content: center; overflow-y: auto; padding: 20px; }
+.guide-card { max-width: 720px; width: 100%; padding: 32px; background: var(--bg-elevated); border-radius: 12px; box-shadow: var(--shadow-md); }
+.guide-header { text-align: center; margin-bottom: 24px; }
+.guide-logo { font-size: 48px; margin-bottom: 8px; }
+.guide-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+.guide-subtitle { font-size: 13px; color: var(--text-secondary); }
+.guide-section { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-light); }
+.guide-section-title { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
+
+/* 架构流程图 */
+.guide-flow { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.gf-node { padding: 6px 16px; border-radius: 6px; font-size: 13px; font-weight: 500; }
+.gf-input { background: var(--el-color-primary-light-5); color: var(--el-color-primary-dark-2); }
+.gf-output { background: rgba(0,180,42,0.12); color: #00b42a; }
+.gf-arrow { color: var(--text-tertiary); font-size: 12px; }
+.gf-funnel { background: var(--bg-normal); border: 1px solid var(--border-default); border-radius: 8px; padding: 8px 12px; width: 100%; }
+.gf-layer { font-size: 12px; color: var(--text-secondary); text-align: center; padding: 3px 0; font-family: 'JetBrains Mono', monospace; }
+
+/* 四大策略 */
+.guide-strategies { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.gs-card { padding: 10px 12px; border: 1px solid var(--border-default); border-radius: 8px; background: var(--bg-normal); }
+.gs-icon { font-size: 20px; }
+.gs-name { font-size: 13px; font-weight: 600; margin: 2px 0; }
+.gs-desc { font-size: 11px; color: var(--text-secondary); line-height: 1.5; }
+
+/* 风控网格 */
+.guide-risk-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.gr-item { display: flex; justify-content: space-between; align-items: center; padding: 5px 10px; border: 1px solid var(--border-default); border-radius: 6px; font-size: 12px; background: var(--bg-normal); }
+.gr-label { color: var(--text-secondary); }
+.gr-val { font-weight: 500; font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+
+/* 操作指南 */
+.guide-steps { text-align: left; }
+.guide-step { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 8px; font-size: 13px; line-height: 1.5; }
+.sn { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: var(--el-color-primary); color: var(--text-inverse); font-size: 11px; font-weight: 600; flex-shrink: 0; margin-top: 2px; }
+
+/* 快捷键 */
+.guide-kbd-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.gk-item { font-size: 12px; display: flex; align-items: center; gap: 4px; }
+.gk-item kbd { background: var(--bg-normal); border: 1px solid var(--border-default); border-radius: 4px; padding: 1px 6px; font-size: 11px; font-family: 'JetBrains Mono', monospace; }
 
 /* 3列主布局 */
 .mm-trace { flex-shrink: 0; max-height: 45vh; overflow-y: auto; border-top: 1px solid var(--border-default); background: var(--bg-elevated); }
