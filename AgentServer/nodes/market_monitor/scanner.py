@@ -1097,7 +1097,8 @@ class MarketScanner:
             else:
                 logger.warning(f"[SCANNER] 第{self._scan_loop_error_count}次异常, 30秒后尝试恢复")
                 await asyncio.sleep(30)
-                # 恢复后重置计数(下次scan_once成功时)\n            # 发射异常事件(前端可感知)
+                # 恢复后重置计数(下次scan_once成功时)
+            # 发射异常事件(前端可感知)
             try:
                 asyncio.ensure_future(self._event_bus.emit(ScannerEvents.SCANNER_ERROR, {
                     "error": str(e),
@@ -1111,7 +1112,9 @@ class MarketScanner:
     # ==================== v2.9.13: _scan_loop时间段提取 ==================
 
     async def _scan_loop_trading(self, trade_date: str, last_full_scan: float) -> bool:
-        """交易时间(9:30-15:00)处理逻辑\n        \n        职责: 风控线程看门狗 + 行情恢复 + 全量扫描/等待
+        """交易时间(9:30-15:00)处理逻辑
+        
+        职责: 风控线程看门狗 + 行情恢复 + 全量扫描/等待
         """
         # 【v2.9.5:风控线程健康看门狗】检测风控线程存活, 崩溃自动重启
         if self._risk_running and self._risk_thread and not self._risk_thread.is_alive():
@@ -1156,7 +1159,9 @@ class MarketScanner:
             return False
 
     async def _scan_loop_settlement(self, trade_date: str):
-        """盘后结算(15:05+)处理逻辑\n        \n        职责: Broker结算+持久化 + EventBus盘后结算 + Timeline保存
+        """盘后结算(15:05+)处理逻辑
+        
+        职责: Broker结算+持久化 + EventBus盘后结算 + Timeline保存
         """
         if self._broker:
             self._broker.daily_settlement(trade_date)
