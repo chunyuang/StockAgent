@@ -2354,12 +2354,14 @@ mm-tab-content {
 .fn-count { flex: 1; }
 .fn-reject { color: var(--stock-up); font-size: 11px; }
 .fn-arrow { text-align: center; color: var(--text-tertiary); font-size: 12px; }
-.et-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 3px; }
-.et-card { padding: 3px 6px; border-radius: 4px; font-size: 11px; background: var(--bg-base); border: 1px solid var(--border-default); }
-.et-card.et-pass { border-left: 2px solid var(--stock-up); }
-.et-card.et-fail { border-left: 2px solid var(--stock-down); }
-.et-row1 { display: flex; align-items: center; gap: 3px; }
-.et-row2 { font-size: 10px; color: var(--text-tertiary); padding-left: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.et-table { border: 1px solid var(--border-default); border-radius: 6px; overflow: hidden; }
+.et-thead { display: grid; grid-template-columns: 52px 80px 1fr 56px 1fr; gap: 4px; padding: 4px 8px; background: var(--bg-muted); font-size: 10px; font-weight: 600; color: var(--text-tertiary); }
+.et-trow { display: grid; grid-template-columns: 52px 80px 1fr 56px 1fr; gap: 4px; padding: 2px 8px; font-size: 11px; border-top: 1px solid var(--border-default); align-items: center; }
+.et-trow:hover { background: var(--bg-hover); }
+.et-trow.et-pass { border-left: 2px solid var(--stock-up); }
+.et-trow.et-fail { border-left: 2px solid var(--stock-down); }
+.et-strat { line-height: 1; }
+.et-result { font-size: 10px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 【v2.9.7: 候选过滤按钮+淘汰统计+加载更多 */
 .tab-btn-sm { padding: 2px 10px; border-radius: 4px; border: 1px solid var(--border-default); background: transparent; font-size: 11px; cursor: pointer; color: var(--text-secondary); transition: all 0.15s; }
 .tab-btn-sm:hover { border-color: var(--el-color-primary-light-5); color: var(--el-color-primary); }
