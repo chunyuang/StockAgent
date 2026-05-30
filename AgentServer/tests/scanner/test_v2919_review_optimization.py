@@ -80,20 +80,31 @@ class TestExecuteRiskSellRefactor:
         assert "卖出失败" in source or "RISK_SELL" in source
 
     def test_force_empty_uses_post_sell_cleanup(self):
-        """_execute_force_empty复用_post_sell_cleanup(审计+事件+状态清理)"""
+        """_execute_force_empty复用_post_sell_cleanup(通过_liquidate_positions)"""
         from nodes.market_monitor.scanner import MarketScanner
-        source = inspect.getsource(MarketScanner._execute_force_empty)
-        assert "_post_sell_cleanup" in source, (
-            "_execute_force_empty未复用_post_sell_cleanup! "
+        # v2.9.20: _execute_force_empty委托到_liquidate_positions
+        # _liquidate_positions内部调用_post_sell_cleanup
+        source_fe = inspect.getsource(MarketScanner._execute_force_empty)
+        assert "_liquidate_positions" in source_fe, (
+            "_execute_force_empty应委托到_liquidate_positions"
+        )
+        source_liq = inspect.getsource(MarketScanner._liquidate_positions)
+        assert "_post_sell_cleanup" in source_liq, (
+            "_liquidate_positions未复用_post_sell_cleanup! "
             "强制空仓后缺少timeline/统计/状态清理/事件/持久化, 审计缺失。"
         )
 
     def test_sell_all_positions_uses_post_sell_cleanup(self):
-        """_sell_all_positions复用_post_sell_cleanup(审计+事件+状态清理)"""
+        """_sell_all_positions复用_post_sell_cleanup(通过_liquidate_positions)"""
         from nodes.market_monitor.scanner import MarketScanner
-        source = inspect.getsource(MarketScanner._sell_all_positions)
-        assert "_post_sell_cleanup" in source, (
-            "_sell_all_positions未复用_post_sell_cleanup! "
+        # v2.9.20: _sell_all_positions委托到_liquidate_positions
+        source_sa = inspect.getsource(MarketScanner._sell_all_positions)
+        assert "_liquidate_positions" in source_sa, (
+            "_sell_all_positions应委托到_liquidate_positions"
+        )
+        source_liq = inspect.getsource(MarketScanner._liquidate_positions)
+        assert "_post_sell_cleanup" in source_liq, (
+            "_liquidate_positions未复用_post_sell_cleanup! "
             "停止清仓后缺少timeline/统计/状态清理/事件/持久化, 审计缺失。"
         )
 
