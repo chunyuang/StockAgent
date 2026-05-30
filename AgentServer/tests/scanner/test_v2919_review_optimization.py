@@ -88,6 +88,15 @@ class TestExecuteRiskSellRefactor:
             "强制空仓后缺少timeline/统计/状态清理/事件/持久化, 审计缺失。"
         )
 
+    def test_sell_all_positions_uses_post_sell_cleanup(self):
+        """_sell_all_positions复用_post_sell_cleanup(审计+事件+状态清理)"""
+        from nodes.market_monitor.scanner import MarketScanner
+        source = inspect.getsource(MarketScanner._sell_all_positions)
+        assert "_post_sell_cleanup" in source, (
+            "_sell_all_positions未复用_post_sell_cleanup! "
+            "停止清仓后缺少timeline/统计/状态清理/事件/持久化, 审计缺失。"
+        )
+
 
 # ============================================================================
 # 2. scan_once提取验证
