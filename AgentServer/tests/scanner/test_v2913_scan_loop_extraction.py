@@ -172,7 +172,7 @@ class TestScannerPremarketLocks:
         import inspect
         from nodes.market_monitor.scanner import MarketScanner
         src = inspect.getsource(MarketScanner.premarket_prepare)
-        # v2.9.13: 应该有state_lock保护circuit_breaker写入
+        # v2.9.17: 应该有state_lock保护circuit_breaker写入(直接with或_with_state_lock)
         # 检查方法体中包含lock相关代码(在circuit_breaker赋值附近)
         lines = src.split('\n')
         cb_lines = [i for i, l in enumerate(lines) if 'circuit_breaker' in l and '=' in l and 'daily_start_assets' in l]
@@ -180,18 +180,18 @@ class TestScannerPremarketLocks:
             # 找到circuit_breaker赋值行，检查之前10行内是否有lock
             for idx in cb_lines:
                 context = '\n'.join(lines[max(0, idx-10):idx])
-                assert '_state_lock' in context, f"circuit_breaker赋值附近缺少state_lock保护 (line {idx})"
+                assert ('_state_lock' in context or '_with_state_lock' in context), \
+                    f"circuit_breaker赋值附近缺少lock保护 (line {idx})"
 
     def test_pending_sells_clear_uses_lock(self):
         """premarket_prepare中_pending_sells.clear()使用state_lock"""
         import inspect
         from nodes.market_monitor.scanner import MarketScanner
         src = inspect.getsource(MarketScanner.premarket_prepare)
-        # v2.9.13: _pending_sells.clear()应受state_lock保护
-        assert '_state_lock' in src, "premarket_prepare缺少_state_lock引用"
-        # 检查_pending_sells.clear()附近有'lock'上下文(排除注释行)
+        # v2.9.17: _pending_sells.clear()通过_with_state_lock保护
+        # 检查_pending_sells.clear()附近有lock保护(直接with或_with_state_lock)
         lines = src.split('\n')
-        found_with_lock_before_clear = False
+        found_lock_protection = False
         for i, line in enumerate(lines):
             stripped = line.strip()
             # 跳过注释行
@@ -199,11 +199,12 @@ class TestScannerPremarketLocks:
                 continue
             if '_pending_sells.clear()' in stripped:
                 for j in range(max(0, i-10), i):
-                    if 'with lock:' in lines[j] or 'with self._state_lock:' in lines[j]:
-                        found_with_lock_before_clear = True
+                    if ('with lock:' in lines[j] or 'with self._state_lock:' in lines[j]
+                            or '_with_state_lock' in lines[j]):
+                        found_lock_protection = True
                         break
                 break
-        assert found_with_lock_before_clear, "_pending_sells.clear()缺少lock保护"
+        assert found_lock_protection, "_pending_sells.clear()缺少lock保护"
 
 
 class TestTrailingStopsSafeRead:

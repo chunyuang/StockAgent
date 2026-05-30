@@ -379,97 +379,12 @@ class MarketScanner:
     }
 
     def __getattr__(self, name):
-        """动态委托分派 — 纯转发方法不再需要显式定义【v2.9.3】"""
+        """动态委托分派 — 纯转发方法不再需要显式定义【v2.9.3, v2.9.17:委托路由提取】"""
         delegate = self._DELEGATE_MAP.get(name)
         if delegate is None:
             raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
-        
-        module_attr, method_name = delegate
-        
-        # 特殊处理: _quote_manager_class → QuoteManager类(不是实例)
-        if module_attr == "_quote_manager_class":
-            return getattr(QuoteManager, method_name)
-        
-        # 【v2.9.9:特殊处理: _risk_watchdog_class → RiskWatchdog类(静态方法)】
-        if module_attr == "_risk_watchdog_class":
-            from nodes.market_monitor.risk_watchdog import RiskWatchdog
-            method = getattr(RiskWatchdog, method_name)
-            if method_name == "check_circuit_breaker":
-                return lambda *a, **kw: method(self, *a, **kw) if a else method(self)
-            if method_name == "record_trade_result":
-                return lambda profit_pct: method(self, profit_pct)
-            if method_name == "reset_circuit_breaker":
-                return lambda: method(self)
-            return method
-        
-        # 特殊处理: _scanner_utils → 延迟导入ScannerUtils
-        if module_attr == "_scanner_utils":
-            from nodes.market_monitor.scanner_utils import ScannerUtils
-            method = getattr(ScannerUtils, method_name)
-            # 需要self上下文的方法: 绑定额外参数
-            if name == "_position_to_dict":
-                return lambda p: ScannerUtils.position_to_dict(p, risk_getter=self._get_strategy_risk)
-            if name == "_signal_to_dict":
-                return lambda s: ScannerUtils.signal_to_dict(s, self.SIGNAL_EXPIRE_SECONDS)
-            if name == "generate_summary_report":
-                return lambda: ScannerUtils.generate_summary_report(self)
-            if name == "_compute_health_score":
-                return lambda: ScannerUtils.compute_health_score(self)
-            return method
-        
-        # 特殊处理: _strategy_scorer → 需要scanner上下文的方法
-        if module_attr == "_strategy_scorer":
-            module = getattr(self, module_attr, None)
-            if module is None:
-                # _strategy_scorer未初始化时的fallback
-                if name == "_merge_factors":
-                    return lambda *a, **kw: pd.DataFrame()
-                if name == "_get_effective_strategy_config":
-                    return lambda *a, **kw: {}
-                if name == "_get_strategy_risk":
-                    return lambda *a, **kw: {"stop_loss_pct": 0.03, "take_profit_pct": 0.07, "trailing_stop_pct": 0.05}
-                if name == "_detect_anomalies":
-                    return lambda *a, **kw: []
-                return lambda *a, **kw: None
-            method = getattr(module, method_name)
-            # _detect_anomalies需要scanner上下文(active_signals + prev_cache)
-            if name == "_detect_anomalies":
-                async def _async_detect_anomalies(realtime_data):
-                    return method(realtime_data, self._active_signals, self._prev_realtime_cache)
-                return _async_detect_anomalies
-            return method
-        
-        # 普通委托: 转发到子模块实例
-        module = getattr(self, module_attr, None)
-        if module is None:
-            # 【v2.9.5:子模块未初始化时区分async/sync】
-            # 已知async委托方法→返回coroutine noop, 其余→sync noop
-            _ASYNC_DELEGATE_METHODS = {
-                # RuntimePersistence (all async)
-                "_save_timeline", "_save_scan_traces", "_load_timeline",
-                "_load_runtime_snapshot", "_save_runtime_snapshot", "_premarket_auction",
-                "_save_performance_snapshot", "_push_daily_summary",
-                # SignalManager (partial async)
-                "_update_signals", "_push_signals", "_execute_signals", "_write_audit_log",
-                # PositionChecker (partial async)
-                "_check_positions", "_check_positions_quick",
-                # ScannerUtils (publish_scanner_event is async)
-                "_publish_scanner_event",
-                # StrategyScorer
-                "_apply_strategies", "_detect_anomalies",
-                # RiskWatchdog
-                "_check_circuit_breaker",
-            }
-            if name in _ASYNC_DELEGATE_METHODS:
-                logger.warning(f"[SCANNER] 委托模块 {module_attr} 未初始化, 异步方法 {name} 返回noop coroutine")
-                async def _async_noop(*args, **kwargs):
-                    return None
-                return _async_noop
-            else:
-                logger.warning(f"[SCANNER] 委托模块 {module_attr} 未初始化, 同步方法 {name} 返回None")
-                return lambda *args, **kwargs: None
-        
-        return getattr(module, method_name)
+        from nodes.market_monitor.scanner_delegate_router import resolve_delegate
+        return resolve_delegate(self, name, delegate)
 
 
     @property
@@ -757,15 +672,15 @@ class MarketScanner:
             pass
         
         # 【v2.9.4:保存pending_sells状态到MongoDB(防止重启丢失)】
+        # 【v2.9.17:使用_with_state_lock统一加锁模式】
         try:
             from core.managers import mongo_manager
             if mongo_manager.db:
-                lock = self._state_lock
-                if lock:
-                    with lock:
-                        pending = dict(self._pending_sells)
-                else:
-                    pending = dict(self._pending_sells)
+                from nodes.market_monitor.risk_watchdog import RiskWatchdog
+                pending = RiskWatchdog._with_state_lock(
+                    self, lambda: dict(self._pending_sells),
+                    fallback=lambda: dict(self._pending_sells),
+                )
                 if pending:
                     await mongo_manager.db["scanner_state"].update_one(
                         {"_id": "pending_sells"},
@@ -793,25 +708,19 @@ class MarketScanner:
         logger.info(f"[SCANNER] 盘前准备 {trade_date}")
 
         # 【V50:重置每日风控状态——daily_start_assets/熔断计数器】
-        # 【v2.9.13:_circuit_breaker写操作加锁(风控线程可能已启动)】
+        # 【v2.9.17:使用_with_state_lock统一加锁模式】
         if self._broker:
             try:
                 acct = self._broker.get_account()
                 if acct:
-                    lock = self._state_lock
-                    if lock:
-                        with lock:
-                            self._circuit_breaker["daily_start_assets"] = acct.total_assets
-                            self._circuit_breaker["today_trades"] = 0
-                            self._circuit_breaker["today_losses"] = 0
-                            self._circuit_breaker["trading_paused"] = False
-                            self._circuit_breaker["pause_reason"] = ""
-                    else:
+                    from nodes.market_monitor.risk_watchdog import RiskWatchdog
+                    def _reset_cb():
                         self._circuit_breaker["daily_start_assets"] = acct.total_assets
                         self._circuit_breaker["today_trades"] = 0
                         self._circuit_breaker["today_losses"] = 0
                         self._circuit_breaker["trading_paused"] = False
                         self._circuit_breaker["pause_reason"] = ""
+                    RiskWatchdog._with_state_lock(self, _reset_cb, fallback=_reset_cb)
                     logger.info(f"[SCANNER] 每日风控重置: start_asset={acct.total_assets:.2f}")
             except Exception as e:
                 logger.warning(f"[SCANNER] 每日风控重置失败: {e}")
@@ -822,13 +731,10 @@ class MarketScanner:
         #   新的一天 → 清除(在_load_runtime_snapshot中snap_date!=trade_date时不恢复)
         # 这里只清除执行统计(每次启动都重置)
         self._execution_stats["stop_loss_response_times"] = []
-        # 【v2.9.13:_pending_sells.clear()加锁(风控线程可能已启动)】
-        lock = self._state_lock
-        if lock:
-            with lock:
-                self._pending_sells.clear()
-        else:
-            self._pending_sells.clear()
+        # 【v2.9.17:使用_with_state_lock统一加锁模式】
+        from nodes.market_monitor.risk_watchdog import RiskWatchdog
+        RiskWatchdog._with_state_lock(self, lambda: self._pending_sells.clear(),
+                                       fallback=lambda: self._pending_sells.clear())
         logger.info("[SCANNER] 执行统计+跌停挂起已重置(追踪止损/风险等级将在加载持仓时恢复)")
 
         # 1. 获取全市场代码
@@ -1711,7 +1617,17 @@ class MarketScanner:
             pass  # fallback: 不校验(StrategyParamCenter不可用时不阻塞)
 
     def update_strategy_config(self, strategy_key: str, updates: Dict[str, Any]):
-        """策略参数热更新(无需重启scanner) + 持久化到MongoDB — 委托给StrategyParamCenter【v2.9.16:简化】"""
+        """策略参数热更新(无需重启scanner) + 持久化到MongoDB — 委托给StrategyParamCenter【v2.9.16:简化, v2.9.17:审计增强】"""
+        # 【v2.9.17:记录变更前后的值,用于审计日志】
+        old_values = {}
+        try:
+            strategy_config = self.config.get("strategies", {}).get(strategy_key, {})
+            for k in updates:
+                if k in strategy_config:
+                    old_values[k] = strategy_config[k]
+        except Exception:
+            pass
+
         try:
             from nodes.market_monitor.strategy_param_center import StrategyParamCenter
             StrategyParamCenter.update_scanner_config(self.config, strategy_key, updates)
@@ -1719,10 +1635,11 @@ class MarketScanner:
         except Exception:
             logger.warning(f"[SCANNER] 策略参数热更新失败: {strategy_key}")
             return
-        # EventBus: 参数更新事件 + 持久化(非阻塞, 失败不影响主流程)
+        # EventBus: 参数更新事件(含old_values审计) + 持久化(非阻塞)
         try:
             asyncio.ensure_future(self._event_bus.emit(ScannerEvents.PARAM_UPDATED, {
                 "strategy_key": strategy_key, "updates": updates,
+                "old_values": old_values,  # 【v2.9.17:审计增强】
             }))
         except Exception:
             pass
