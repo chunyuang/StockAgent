@@ -203,7 +203,7 @@ class RuntimePersistence:
             if os.path.exists(path):
                 os.remove(path)
                 logger.debug(f"[SNAPSHOT] 清理本地降级文件: {path}")
-        except Exception:
+        except Exception as _e:
             pass
     
     # ==================== 盘前竞价 ====================
@@ -439,7 +439,7 @@ class RuntimePersistence:
             dispatcher = SignalDispatcher.get_instance()
             if dispatcher:
                 await dispatcher.push_message(summary, channel="feishu")
-        except Exception:
+        except Exception as _e:
             pass
         logger.info(f"[DAILY] {summary}")
     

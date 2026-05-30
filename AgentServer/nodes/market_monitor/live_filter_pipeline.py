@@ -670,7 +670,7 @@ class LiveFilterPipeline:
             ]
             async for doc in mongo_manager.db["stock_daily_ak_full"].aggregate(pipeline):
                 return str(doc["max_date"])
-        except Exception:
+        except Exception as _e:
             return None
 
     def get_sentiment_info(self) -> Dict:

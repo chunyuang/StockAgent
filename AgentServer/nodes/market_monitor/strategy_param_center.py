@@ -251,7 +251,7 @@ class StrategyParamCenter:
                 doc.pop("_id", None)
                 result.append(doc)
             return result
-        except Exception:
+        except Exception as _e:
             return []
     
     def set_on_update_callback(self, callback: Callable[[str, Dict], Awaitable[None]]) -> None:
@@ -500,7 +500,7 @@ class StrategyParamCenter:
                 doc.pop("_id", None)
                 result.append(doc)
             return result
-        except Exception:
+        except Exception as _e:
             return []
 
     # ==================== Scanner配置管理辅助(静态方法) ====================

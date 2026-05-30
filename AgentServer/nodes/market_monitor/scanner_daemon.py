@@ -116,7 +116,7 @@ def _scanner_subprocess_main(config_dict: dict) -> None:
     # 运行 asyncio 事件循环
     try:
         asyncio.run(_subprocess_async_main(config))
-    except Exception:
+    except Exception as _e:
         logger.critical(f"Scanner subprocess crashed:\n{traceback.format_exc()}")
         sys.exit(1)
 
@@ -181,7 +181,7 @@ async def _subprocess_async_main(config: ScannerDaemonConfig) -> None:
                     ack_channel,
                     json.dumps({"cmd_id": cmd_id, "status": "received", "ts": time.time()}, default=str)
                 )
-            except Exception:
+            except Exception as _e:
                 pass
 
         if cmd == "start":
@@ -227,7 +227,7 @@ async def _subprocess_async_main(config: ScannerDaemonConfig) -> None:
                         ack_channel,
                         json.dumps({"cmd_id": cmd_id, "status": "done", "ts": time.time()}, default=str)
                     )
-                except Exception:
+                except Exception as _e:
                     pass
             logger.info("Scanner stopped")
 
@@ -298,7 +298,7 @@ async def _subprocess_async_main(config: ScannerDaemonConfig) -> None:
                     ack_channel,
                     json.dumps({"cmd_id": cmd_id, "status": "done", "cmd": cmd, "ts": time.time()}, default=str)
                 )
-            except Exception:
+            except Exception as _e:
                 pass
 
     # ------------------------------------------------------------------
@@ -686,7 +686,7 @@ class ScannerDaemon:
             try:
                 await pubsub.unsubscribe(ack_channel)
                 await pubsub.close()
-            except Exception:
+            except Exception as _e:
                 pass
 
     # ------------------------------------------------------------------
@@ -861,7 +861,7 @@ class ScannerDaemon:
             try:
                 await pubsub.unsubscribe(channel)
                 await pubsub.close()
-            except Exception:
+            except Exception as _e:
                 pass
 
     async def _cleanup_redis_subscriptions(self) -> None:
@@ -869,7 +869,7 @@ class ScannerDaemon:
         if self._redis_client:
             try:
                 await self._redis_client.close()
-            except Exception:
+            except Exception as _e:
                 pass
             self._redis_client = None
 
@@ -908,7 +908,7 @@ class ScannerDaemon:
                 if self._process:
                     try:
                         self._process.join(timeout=3)
-                    except Exception:
+                    except Exception as _e:
                         pass
 
                 # 重启

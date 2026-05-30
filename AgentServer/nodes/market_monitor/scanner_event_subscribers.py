@@ -94,7 +94,7 @@ async def _write_audit_log(scanner, event_type: str, data: Dict[str, Any]):
                 "timestamp", name="ttl_90d",
                 expireAfterSeconds=90 * 86400
             )
-        except Exception:
+        except Exception as _e:
             pass  # 索引已存在或其他错误, 不影响写入
         
         doc = {

@@ -221,7 +221,7 @@ class EmotionCycleManager:
             if not prev_trade_date_doc:
                 return 0.0
             yesterday = str(prev_trade_date_doc["trade_date"])
-        except Exception:
+        except Exception as _e:
             from datetime import timedelta
             date_obj = datetime(int(trade_date[:4]), int(trade_date[4:6]), int(trade_date[6:8]))
             yesterday = (date_obj - timedelta(days=1)).strftime("%Y%m%d")
