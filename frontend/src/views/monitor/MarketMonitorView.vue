@@ -605,10 +605,10 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         </div>
       </div>
       <div class="hh-account" v-if="status">
-        <span class="ha"><span class="hl">资产</span><span class="hv">{{ (accountInfo.total_assets / 10000).toFixed(1) }}万</span></span>
-        <span class="ha"><span class="hl">可用</span><span class="hv">{{ (accountInfo.available_cash / 10000).toFixed(1) }}万</span></span>
-        <span class="ha"><span class="hl">仓位</span><span class="hv">{{ positionRatio }}%</span></span>
-        <span class="ha"><span class="hl">盈亏</span><span class="hv" :class="totalPnl >= 0 ? 'up' : 'down'">{{ totalPnl >= 0 ? '+' : '' }}{{ totalPnl.toFixed(0) }}</span></span>
+        <span class="ha">资产<span class="hv">{{ (accountInfo.total_assets / 10000).toFixed(1) }}万</span></span>
+        <span class="ha">可用<span class="hv">{{ (accountInfo.available_cash / 10000).toFixed(1) }}万</span></span>
+        <span class="ha">仓位<span class="hv">{{ positionRatio }}%</span></span>
+        <span class="ha">盈亏<span class="hv" :class="totalPnl >= 0 ? 'up' : 'down'">{{ totalPnl >= 0 ? '+' : '' }}{{ totalPnl.toFixed(0) }}</span></span>
       </div>
       <div class="hh-actions">
         <ElButton v-if="!isRunning" type="success" size="small" @click="startScanner">▶ 启动</ElButton>
@@ -1561,7 +1561,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 <style scoped lang="scss">
 .mm { height: 100%; display: flex; flex-direction: column; background: var(--bg-base); overflow: hidden; min-width: 0; }
 /* 顶部状态栏 */
-.mm-header { display: flex; align-items: center; gap: 10px; padding: 6px 16px; background: var(--bg-elevated); border-bottom: 1px solid var(--border-default); flex-shrink: 0; min-width: 0; }
+.mm-header { display: flex; align-items: center; gap: 8px; padding: 5px 12px; background: var(--bg-elevated); border-bottom: 1px solid var(--border-default); flex-shrink: 0; min-width: 0; overflow-x: auto; }
 .cb-pause-btn { font-size: 12px; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--warning); color: var(--warning); background: transparent; cursor: pointer; }
 .cb-pause-btn:hover { background: var(--warning); color: var(--text-inverse); }
 .hh-left { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
@@ -1570,11 +1570,13 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .hh-status.running .dot { background: var(--stock-down); animation: pulse 1.5s infinite; }
 .hh-status.stopped .dot { background: var(--text-tertiary); }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
-.hh-account { display: flex; align-items: center; gap: 12px; flex: 1 1 auto; min-width: 0; }
-.ha { display: inline-flex; flex-direction: column; line-height: 1.2; }
+.hh-account { display: flex; align-items: center; gap: 8px; flex: 1; justify-content: center; }
+.ha { display: inline-flex; align-items: baseline; gap: 2px; font-size: 12px; }
+.hl { color: var(--text-tertiary); font-size: 10px; }
+.hv { font-weight: 600; }
 .hl { font-size: 10px; color: var(--text-tertiary); }
 .hv { font-size: 13px; font-weight: 600; }
-.hh-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.hh-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 .up { color: var(--stock-up); }
 .down { color: var(--stock-down); }
 
