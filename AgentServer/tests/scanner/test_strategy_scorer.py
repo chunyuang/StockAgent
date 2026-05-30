@@ -249,11 +249,12 @@ class TestDetectAnomalies:
     
     @pytest.mark.asyncio
     async def test_detect_anomalies_returns_list(self):
-        """异动检测返回列表"""
+        """异动检测返回列表(via __getattr__委托)"""
         from nodes.market_monitor.scanner import MarketScanner
         scanner = MarketScanner(account_id="test_anomaly")
         
-        # _detect_anomalies方法存在
+        # _detect_anomalies方法通过DELEGATE_MAP+__getattr__存在
+        assert "_detect_anomalies" in MarketScanner._DELEGATE_MAP
         result = await scanner._detect_anomalies({})
         assert isinstance(result, list)
     

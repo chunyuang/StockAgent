@@ -319,24 +319,36 @@ class TestPerformanceSnapshotDelegation:
 
     @pytest.mark.asyncio
     async def test_scanner_delegates_save_performance_snapshot(self):
-        """scanner._save_performance_snapshot委托给RuntimePersistence"""
-        scanner = MagicMock()
+        """scanner._save_performance_snapshot通过DELEGATE_MAP委托给RuntimePersistence"""
+        from nodes.market_monitor.scanner import MarketScanner
+        
+        # 验证DELEGATE_MAP映射
+        assert "_save_performance_snapshot" in MarketScanner._DELEGATE_MAP
+        assert MarketScanner._DELEGATE_MAP["_save_performance_snapshot"] == ("_runtime_persistence", "save_performance_snapshot")
+        
+        # 用真实scanner实例测试委托
+        scanner = MarketScanner(account_id="test_perf")
         scanner._runtime_persistence = MagicMock()
         scanner._runtime_persistence.save_performance_snapshot = AsyncMock()
         
-        from nodes.market_monitor.scanner import MarketScanner
-        await MarketScanner._save_performance_snapshot(scanner, '20260529')
+        await scanner._save_performance_snapshot('20260529')
         scanner._runtime_persistence.save_performance_snapshot.assert_called_once_with('20260529')
 
     @pytest.mark.asyncio
     async def test_scanner_delegates_push_daily_summary(self):
-        """scanner._push_daily_summary委托给RuntimePersistence"""
-        scanner = MagicMock()
+        """scanner._push_daily_summary通过DELEGATE_MAP委托给RuntimePersistence"""
+        from nodes.market_monitor.scanner import MarketScanner
+        
+        # 验证DELEGATE_MAP映射
+        assert "_push_daily_summary" in MarketScanner._DELEGATE_MAP
+        assert MarketScanner._DELEGATE_MAP["_push_daily_summary"] == ("_runtime_persistence", "push_daily_summary")
+        
+        # 用真实scanner实例测试委托
+        scanner = MarketScanner(account_id="test_perf")
         scanner._runtime_persistence = MagicMock()
         scanner._runtime_persistence.push_daily_summary = AsyncMock()
         
-        from nodes.market_monitor.scanner import MarketScanner
-        await MarketScanner._push_daily_summary(scanner, '20260529')
+        await scanner._push_daily_summary('20260529')
         scanner._runtime_persistence.push_daily_summary.assert_called_once_with('20260529')
 
 
