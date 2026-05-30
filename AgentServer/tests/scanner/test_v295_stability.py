@@ -180,10 +180,11 @@ class TestRiskSellTimeoutFallback:
         assert scanner._pending_sells["600036.SH"]["reason"] == "跌停挂起"
 
     def test_check_stop_loss_only_timeout_handling_in_source(self):
-        """_check_stop_loss_only源码包含TimeoutError处理"""
+        """_check_stop_loss_only或_execute_sell_list_from_risk源码包含TimeoutError处理"""
         import inspect
         from nodes.market_monitor.scanner import MarketScanner
-        src = inspect.getsource(MarketScanner._check_stop_loss_only)
+        # v2.9.22: TimeoutError处理已移至_execute_sell_list_from_risk
+        src = inspect.getsource(MarketScanner._execute_sell_list_from_risk)
         assert "TimeoutError" in src
         assert "pending_sells" in src
 
