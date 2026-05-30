@@ -256,12 +256,15 @@ class TestScannerHealthScoreDelegation:
     """验证scanner._compute_health_score委托到ScannerUtils"""
 
     def test_delegates_to_scanner_utils(self):
-        """_compute_health_score调用ScannerUtils.compute_health_score"""
+        """_compute_health_score通过DELEGATE_MAP委托给ScannerUtils【v2.9.9更新】"""
         from nodes.market_monitor.scanner_utils import ScannerUtils
-        import nodes.market_monitor.scanner as scanner_mod
+        from nodes.market_monitor.scanner import MarketScanner
         
-        # 创建mock scanner
-        scanner = MagicMock()
+        # 验证DELEGATE_MAP中有映射
+        assert "_compute_health_score" in MarketScanner._DELEGATE_MAP
+        
+        # 创建真实scanner实例测试委托
+        scanner = MarketScanner(account_id="test_health")
         scanner._last_scan_ts = time.time() - 5
         scanner._last_risk_check_ts = time.time()
         scanner._pending_sells = {}
@@ -271,9 +274,15 @@ class TestScannerHealthScoreDelegation:
         scanner._quote_manager = MagicMock()
         scanner._quote_manager.get_staleness.return_value = 1.0
         scanner._quote_manager.degrade_level = 0
+        scanner._risk_running = True
+        # 风控线程mock(需alive=True才能green)
+        mock_thread = MagicMock()
+        mock_thread.is_alive.return_value = True
+        scanner._risk_thread = mock_thread
+        scanner._risk_thread_restarts = 0
         
-        # 调用实例方法
-        result = scanner_mod.MarketScanner._compute_health_score(scanner)
+        # 通过__getattr__委托调用
+        result = scanner._compute_health_score()
         assert result["status"] == "green"
 
 

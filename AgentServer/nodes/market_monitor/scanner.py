@@ -350,7 +350,7 @@ class MarketScanner:
         "_check_positions_quick": ("_position_checker", "check_positions_quick"),
         "_get_smart_check_interval": ("_position_checker", "get_smart_check_interval"),
         "_get_open_price": ("_position_checker", "_get_open_price"),
-        "_is_limit_down": ("_position_checker", "_is_limit_down"),
+        # _is_limit_down保留显式定义(有False fallback),不放入DELEGATE_MAP
         # PositionManager委托
         "_get_effective_stop_price": ("_position_manager", "get_effective_stop_price"),
         "_update_trailing_stops": ("_position_manager", "update_trailing_stops"),
@@ -365,6 +365,17 @@ class MarketScanner:
         "_signal_to_dict": ("_scanner_utils", "signal_to_dict"),
         "_extract_key_factors": ("_scanner_utils", "extract_key_factors"),
         "generate_summary_report": ("_scanner_utils", "generate_summary_report"),
+        # 【v2.9.9:更多委托消除显式存根】
+        "_merge_factors": ("_strategy_scorer", "merge_factors"),
+        "_get_effective_strategy_config": ("_strategy_scorer", "get_effective_strategy_config"),
+        "_get_strategy_risk": ("_strategy_scorer", "get_strategy_risk"),
+        "_detect_anomalies": ("_strategy_scorer", "detect_anomalies"),
+        "_check_circuit_breaker": ("_risk_watchdog_class", "check_circuit_breaker"),
+        "_record_trade_result": ("_risk_watchdog_class", "record_trade_result"),
+        "reset_circuit_breaker": ("_risk_watchdog_class", "reset_circuit_breaker"),
+        "_compute_health_score": ("_scanner_utils", "compute_health_score"),
+        "_save_performance_snapshot": ("_runtime_persistence", "save_performance_snapshot"),
+        "_push_daily_summary": ("_runtime_persistence", "push_daily_summary"),
     }
 
     def __getattr__(self, name):
@@ -379,6 +390,18 @@ class MarketScanner:
         if module_attr == "_quote_manager_class":
             return getattr(QuoteManager, method_name)
         
+        # 【v2.9.9:特殊处理: _risk_watchdog_class → RiskWatchdog类(静态方法)】
+        if module_attr == "_risk_watchdog_class":
+            from nodes.market_monitor.risk_watchdog import RiskWatchdog
+            method = getattr(RiskWatchdog, method_name)
+            if method_name == "check_circuit_breaker":
+                return lambda *a, **kw: method(self, *a, **kw) if a else method(self)
+            if method_name == "record_trade_result":
+                return lambda profit_pct: method(self, profit_pct)
+            if method_name == "reset_circuit_breaker":
+                return lambda: method(self)
+            return method
+        
         # 特殊处理: _scanner_utils → 延迟导入ScannerUtils
         if module_attr == "_scanner_utils":
             from nodes.market_monitor.scanner_utils import ScannerUtils
@@ -390,6 +413,30 @@ class MarketScanner:
                 return lambda s: ScannerUtils.signal_to_dict(s, self.SIGNAL_EXPIRE_SECONDS)
             if name == "generate_summary_report":
                 return lambda: ScannerUtils.generate_summary_report(self)
+            if name == "_compute_health_score":
+                return lambda: ScannerUtils.compute_health_score(self)
+            return method
+        
+        # 特殊处理: _strategy_scorer → 需要scanner上下文的方法
+        if module_attr == "_strategy_scorer":
+            module = getattr(self, module_attr, None)
+            if module is None:
+                # _strategy_scorer未初始化时的fallback
+                if name == "_merge_factors":
+                    return lambda *a, **kw: pd.DataFrame()
+                if name == "_get_effective_strategy_config":
+                    return lambda *a, **kw: {}
+                if name == "_get_strategy_risk":
+                    return lambda *a, **kw: {"stop_loss_pct": 0.03, "take_profit_pct": 0.07, "trailing_stop_pct": 0.05}
+                if name == "_detect_anomalies":
+                    return lambda *a, **kw: []
+                return lambda *a, **kw: None
+            method = getattr(module, method_name)
+            # _detect_anomalies需要scanner上下文(active_signals + prev_cache)
+            if name == "_detect_anomalies":
+                async def _async_detect_anomalies(realtime_data):
+                    return method(realtime_data, self._active_signals, self._prev_realtime_cache)
+                return _async_detect_anomalies
             return method
         
         # 普通委托: 转发到子模块实例
@@ -401,6 +448,7 @@ class MarketScanner:
                 # RuntimePersistence (all async)
                 "_save_timeline", "_save_scan_traces", "_load_timeline",
                 "_load_runtime_snapshot", "_save_runtime_snapshot", "_premarket_auction",
+                "_save_performance_snapshot", "_push_daily_summary",
                 # SignalManager (partial async)
                 "_update_signals", "_push_signals", "_execute_signals", "_write_audit_log",
                 # PositionChecker (partial async)
@@ -408,7 +456,11 @@ class MarketScanner:
                 # ScannerUtils (publish_scanner_event is async)
                 "_publish_scanner_event",
                 # StrategyScorer
-                "_apply_strategies",
+                "_apply_strategies", "_detect_anomalies",
+                # StrategyParamCenter
+                "_persist_strategy_overrides", "_load_strategy_overrides",
+                # RiskWatchdog
+                "_check_circuit_breaker",
             }
             if name in _ASYNC_DELEGATE_METHODS:
                 logger.warning(f"[SCANNER] 委托模块 {module_attr} 未初始化, 异步方法 {name} 返回noop coroutine")
@@ -1152,7 +1204,8 @@ class MarketScanner:
             })
             self._stats["stop_losses"] += 1
             # 【v2.9.6:记录交易结果到circuit_breaker(之前漏掉,导致止损不计入连续亏损)】
-            self._record_trade_result(sell_profit_pct / 100 if abs(sell_profit_pct) > 1 else sell_profit_pct)
+            # 【v2.9.9:profit_pct始终是百分比(如-3.5),直接/100转比率,移除启发式】
+            self._record_trade_result(sell_profit_pct / 100.0)
             # 清理追踪止损(线程安全)
             with self._state_lock:
                 self._trailing_stops.pop(pos.ts_code, None)
@@ -1278,26 +1331,6 @@ class MarketScanner:
 
     # ==================== 因子合并 ====================
 
-    def _merge_factors(self, realtime_data: Dict[str, Dict]) -> pd.DataFrame:
-        """合并日级因子+实时数据 — 委托给StrategyScorer【Phase3.1】"""
-        if self._strategy_scorer:
-            return self._strategy_scorer.merge_factors(realtime_data)
-        # fallback: 返回空DataFrame
-        return pd.DataFrame()
-
-    def _get_effective_strategy_config(self, strategy_key: str) -> Dict:
-        """获取策略有效配置 — 委托给StrategyScorer【Phase3.1】"""
-        if self._strategy_scorer:
-            return self._strategy_scorer.get_effective_strategy_config(strategy_key)
-        # fallback: 返回空配置
-        return {}
-
-    def _get_strategy_risk(self, strategy_key: str) -> Dict:
-        """获取策略风控参数 — 委托给StrategyScorer【Phase3.1】"""
-        if self._strategy_scorer:
-            return self._strategy_scorer.get_strategy_risk(strategy_key)
-        # fallback: 返回默认风控参数
-        return {"stop_loss_pct": 0.03, "take_profit_pct": 0.07, "trailing_stop_pct": 0.05}
     async def _apply_filter_pipeline(
         self, signals: List[ScanSignal], trade_date: str, realtime_data: Dict
     ) -> List[ScanSignal]:
@@ -1590,11 +1623,6 @@ class MarketScanner:
         with self._state_lock:
             return dict(self._trailing_stops)
 
-    def _compute_health_score(self) -> Dict[str, Any]:
-        """Scanner健康度评分 — 委托给ScannerUtils【v3.0提取】"""
-        from nodes.market_monitor.scanner_utils import ScannerUtils
-        return ScannerUtils.compute_health_score(self)
-
     # ==================== V59:智能持仓检查频率 ====================
 
     def _make_quote_event_emitter(self):
@@ -1612,11 +1640,13 @@ class MarketScanner:
             except Exception:
                 pass
         return emit_quote_event
+
     def _is_limit_down(self, ts_code: str) -> bool:
         """判断是否跌停 — 委托给PositionChecker【v2.9.6移除fallback】"""
         if self._position_checker:
             return self._position_checker._is_limit_down(ts_code)
         return False  # 无PositionChecker时默认非跌停(保守策略)
+
     def _validate_live_params(self):
         """实盘参数校验 — 委托给StrategyParamCenter"""
         try:
@@ -1667,44 +1697,15 @@ class MarketScanner:
         except ImportError:
             pass
 
-    # ==================== 盘中异动监控 ====================
-
-    async def _detect_anomalies(self, realtime_data: Dict[str, Dict]) -> List[ScanSignal]:
-        """盘中异动检测 — 委托给StrategyScorer【Phase3.1提取】"""
-        if self._strategy_scorer:
-            return self._strategy_scorer.detect_anomalies(
-                realtime_data, self._active_signals, self._prev_realtime_cache
-            )
-        return []
-
-    # ==================== 仓位管理 ====================
-
-    # ==================== 风控熔断 ====================
-
-    async def _check_circuit_breaker(self) -> bool:
-        """风控熔断检查 — 委托给RiskWatchdog【v2.9.6】"""
-        from nodes.market_monitor.risk_watchdog import RiskWatchdog
-        return await RiskWatchdog.check_circuit_breaker(self)
-
-    def _record_trade_result(self, profit_pct: float):
-        """记录交易结果 — 委托给RiskWatchdog【v2.9.6】"""
-        from nodes.market_monitor.risk_watchdog import RiskWatchdog
-        RiskWatchdog.record_trade_result(self, profit_pct)
-
-    def reset_circuit_breaker(self):
-        """重置熔断 — 委托给RiskWatchdog【v2.9.6】"""
-        from nodes.market_monitor.risk_watchdog import RiskWatchdog
-        RiskWatchdog.reset_circuit_breaker(self)
-
-    # ==================== 工具方法 ====================
-
-    async def _save_performance_snapshot(self, trade_date: str):
-        """保存绩效快照 — 委托给RuntimePersistence【v2.9.6】"""
-        if self._runtime_persistence:
-            return await self._runtime_persistence.save_performance_snapshot(trade_date)
-
-    async def _push_daily_summary(self, trade_date: str):
-        """推送每日结算摘要 — 委托给RuntimePersistence【v2.9.6】"""
-        if self._runtime_persistence:
-            return await self._runtime_persistence.push_daily_summary(trade_date)
+    # 【v2.9.9:以下方法已移至DELEGATE_MAP+__getattr__动态委托,不再显式定义】
+    # _compute_health_score → ScannerUtils.compute_health_score(self)
+    # _detect_anomalies → StrategyScorer.detect_anomalies(rt, active_signals, prev_cache)
+    # _check_circuit_breaker → RiskWatchdog.check_circuit_breaker(self)
+    # _record_trade_result → RiskWatchdog.record_trade_result(self, profit_pct)
+    # reset_circuit_breaker → RiskWatchdog.reset_circuit_breaker(self)
+    # _save_performance_snapshot → RuntimePersistence.save_performance_snapshot(trade_date)
+    # _push_daily_summary → RuntimePersistence.push_daily_summary(trade_date)
+    # _merge_factors → StrategyScorer.merge_factors(realtime_data)
+    # _get_effective_strategy_config → StrategyScorer.get_effective_strategy_config(strategy_key)
+    # _get_strategy_risk → StrategyScorer.get_strategy_risk(strategy_key)
 
