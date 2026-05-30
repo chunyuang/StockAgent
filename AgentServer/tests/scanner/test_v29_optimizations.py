@@ -341,7 +341,10 @@ class TestEventBusEmissionCompleteness:
         from nodes.market_monitor.emotion_cycle import EmotionCycleManager
         emotion_source = inspect.getsource(EmotionCycleManager.handle_emotion_phase_change)
         from nodes.market_monitor.scanner import MarketScanner
-        assert "EMOTION_CHANGED" in inspect.getsource(MarketScanner._apply_filter_pipeline)
+        # 【v2.9.31:EMOTION_CHANGED发射从_apply_filter_pipeline提取到_process_filter_result】
+        filter_pipeline_source = inspect.getsource(MarketScanner._apply_filter_pipeline)
+        process_result_source = inspect.getsource(MarketScanner._process_filter_result)
+        assert "EMOTION_CHANGED" in filter_pipeline_source + process_result_source
 
 
 # ==================== __getattr__动态委托测试 ====================
