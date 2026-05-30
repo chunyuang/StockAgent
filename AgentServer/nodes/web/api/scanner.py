@@ -24,6 +24,26 @@ def _sanitize(obj):
         return [_sanitize(v) for v in obj]
     return obj
 
+
+def _safe_read_shared(scanner, attr_name: str, copy: bool = True) -> dict:
+    """【v2.9.11】线程安全读取scanner共享状态(trailing_stops/position_risk_levels/pending_sells)
+    
+    这些dict由风控线程写入, API端点读取, 必须加state_lock保护:
+    - 读: dict浅拷贝后释放锁
+    - 写: 在锁内修改原始dict
+    
+    Args:
+        scanner: MarketScanner实例
+        attr_name: '_trailing_stops' / '_position_risk_levels' / '_pending_sells'
+        copy: True=深拷贝(安全), False=直接引用(仅用于已加锁的写场景)
+    """
+    state_lock = getattr(scanner, '_state_lock', None)
+    data = getattr(scanner, attr_name, {})
+    if state_lock:
+        with state_lock:
+            return dict(data) if copy else data
+    return dict(data) if copy else data
+
 logger = logging.getLogger("api.scanner")
 
 router = APIRouter(prefix="/scanner", tags=["市场监听"])
@@ -2279,8 +2299,8 @@ async def get_execution_quality():
             return {"success": False, "message": "Scanner未运行"}
         
         stats = getattr(scanner, '_execution_stats', {})
-        trailing = getattr(scanner, '_trailing_stops', {})
-        risk_levels = getattr(scanner, '_position_risk_levels', {})
+        trailing = _safe_read_shared(scanner, '_trailing_stops')
+        risk_levels = _safe_read_shared(scanner, '_position_risk_levels')
         
         return {
             "success": True,
@@ -2310,31 +2330,63 @@ async def set_trailing_stop(ts_code: str, request: Request):
             return {"success": False, "message": "Scanner未运行"}
         
         body = await request.json()
-        trailing = getattr(scanner, '_trailing_stops', {})
         
-        if ts_code not in trailing:
-            # 没有追踪止损记录, 需要初始化
-            positions = scanner._broker.get_positions() if scanner._broker else []
-            pos = next((p for p in positions if p.ts_code == ts_code), None)
-            if not pos:
-                return {"success": False, "message": f"未找到持仓 {ts_code}"}
-            trailing[ts_code] = {
-                "high_price": pos.current_price,
-                "trailing_stop_pct": body.get("trailing_stop_pct", 0.03),
-                "activated": body.get("activated", True),
-                "stop_price": 0.0,
-            }
+        # 【v2.9.11:写操作必须在state_lock内完成】
+        state_lock = getattr(scanner, '_state_lock', None)
+        if state_lock:
+            with state_lock:
+                trailing = scanner._trailing_stops
+                
+                if ts_code not in trailing:
+                    positions = scanner._broker.get_positions() if scanner._broker else []
+                    pos = next((p for p in positions if p.ts_code == ts_code), None)
+                    if not pos:
+                        return {"success": False, "message": f"未找到持仓 {ts_code}"}
+                    trailing[ts_code] = {
+                        "high_price": pos.current_price,
+                        "trailing_stop_pct": body.get("trailing_stop_pct", 0.03),
+                        "activated": body.get("activated", True),
+                        "stop_price": 0.0,
+                    }
+                else:
+                    if "trailing_stop_pct" in body:
+                        trailing[ts_code]["trailing_stop_pct"] = float(body["trailing_stop_pct"])
+                    if "activated" in body:
+                        trailing[ts_code]["activated"] = bool(body["activated"])
+                
+                # 重新计算止损价
+                if trailing[ts_code].get("activated"):
+                    high = trailing[ts_code].get("high_price", 0)
+                    pct = trailing[ts_code].get("trailing_stop_pct", 0.03)
+                    trailing[ts_code]["stop_price"] = high * (1 - pct)
+                
+                result_data = {"ts_code": ts_code, **trailing[ts_code]}
         else:
-            if "trailing_stop_pct" in body:
-                trailing[ts_code]["trailing_stop_pct"] = float(body["trailing_stop_pct"])
-            if "activated" in body:
-                trailing[ts_code]["activated"] = bool(body["activated"])
-        
-        # 重新计算止损价
-        if trailing[ts_code].get("activated"):
-            high = trailing[ts_code].get("high_price", 0)
-            pct = trailing[ts_code].get("trailing_stop_pct", 0.03)
-            trailing[ts_code]["stop_price"] = high * (1 - pct)
+            trailing = scanner._trailing_stops
+            
+            if ts_code not in trailing:
+                positions = scanner._broker.get_positions() if scanner._broker else []
+                pos = next((p for p in positions if p.ts_code == ts_code), None)
+                if not pos:
+                    return {"success": False, "message": f"未找到持仓 {ts_code}"}
+                trailing[ts_code] = {
+                    "high_price": pos.current_price,
+                    "trailing_stop_pct": body.get("trailing_stop_pct", 0.03),
+                    "activated": body.get("activated", True),
+                    "stop_price": 0.0,
+                }
+            else:
+                if "trailing_stop_pct" in body:
+                    trailing[ts_code]["trailing_stop_pct"] = float(body["trailing_stop_pct"])
+                if "activated" in body:
+                    trailing[ts_code]["activated"] = bool(body["activated"])
+            
+            if trailing[ts_code].get("activated"):
+                high = trailing[ts_code].get("high_price", 0)
+                pct = trailing[ts_code].get("trailing_stop_pct", 0.03)
+                trailing[ts_code]["stop_price"] = high * (1 - pct)
+            
+            result_data = {"ts_code": ts_code, **trailing[ts_code]}
         
         return {
             "success": True,
@@ -2358,8 +2410,8 @@ async def get_position_risk_levels():
         if not scanner:
             return {"success": False, "message": "Scanner未运行"}
         
-        risk_levels = getattr(scanner, '_position_risk_levels', {})
-        trailing = getattr(scanner, '_trailing_stops', {})
+        risk_levels = _safe_read_shared(scanner, '_position_risk_levels')
+        trailing = _safe_read_shared(scanner, '_trailing_stops')
         positions = scanner.get_positions() if hasattr(scanner, 'get_positions') else []
         
         # 按风险等级分组
@@ -2535,8 +2587,8 @@ async def get_position_risk_matrix():
             return {"success": True, "data": []}
         positions = scanner._broker.get_positions()
         acct = scanner._broker.get_account()
-        risk_levels = getattr(scanner, '_position_risk_levels', {})
-        trailing_stops = getattr(scanner, '_trailing_stops', {})
+        risk_levels = _safe_read_shared(scanner, '_position_risk_levels')
+        trailing_stops = _safe_read_shared(scanner, '_trailing_stops')
         strategy_cn = {"halfway_chase": "半路追涨", "first_limit_up": "首板打板", "dragon_head": "龙头低吸", "limit_down_qiao": "跌停翘板"}
 
         industry_map = {}
