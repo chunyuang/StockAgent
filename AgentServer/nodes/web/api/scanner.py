@@ -810,7 +810,7 @@ async def get_trade_detail(ts_code: str):
     """获取指定股票的完整交易审查详情
     
     包含：买入原因、9层筛选决策链路、卖出原因、盈亏分析
-    用于人工审查自动交易的决策是否合理
+    数据来源: 内存timeline → MongoDB scanner_timeline → MongoDB broker_orders
     """
     scanner = _get_scanner()
     
@@ -822,7 +822,7 @@ async def get_trade_detail(ts_code: str):
         "signal": None,    # 当前信号状态
     }
     
-    # 1. 从时间线查找买入/卖出记录
+    # 1. 从内存时间线查找买入/卖出记录
     for item in scanner._timeline:
         if item.get("ts_code") == ts_code:
             if item.get("action") == "buy" and not detail["buy"]:
@@ -832,6 +832,7 @@ async def get_trade_detail(ts_code: str):
                     "shares": item.get("shares", 0),
                     "reason": item.get("reason", ""),
                     "strategy": item.get("strategy", ""),
+                    "stock_name": item.get("stock_name", ""),
                     "decision_detail": item.get("decision_detail", {}),
                 }
             elif item.get("action") == "sell" and not detail["sell"]:
@@ -840,9 +841,46 @@ async def get_trade_detail(ts_code: str):
                     "price": item.get("price", 0),
                     "shares": item.get("shares", 0),
                     "reason": item.get("reason", ""),
+                    "strategy": item.get("strategy", ""),
+                    "stock_name": item.get("stock_name", ""),
                     "profit_pct": item.get("profit_pct", 0),
+                    "profit_amount": item.get("profit_amount", 0),
                     "decision_detail": item.get("decision_detail", {}),
                 }
+    
+    # 1b. 从MongoDB历史时间线补充(跨session数据)
+    if not detail["buy"] or not detail["sell"]:
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.is_initialized:
+                account_id = scanner._broker.account.account_id if scanner._broker else "default"
+                async for doc in mongo_manager.db["scanner_timeline"].find(
+                    {"account_id": account_id, "ts_code": ts_code}
+                ).sort("_id", 1):
+                    if doc.get("action") == "buy" and not detail["buy"]:
+                        detail["buy"] = {
+                            "time": doc.get("time", ""),
+                            "price": doc.get("price", 0),
+                            "shares": doc.get("shares", 0),
+                            "reason": doc.get("reason", ""),
+                            "strategy": doc.get("strategy", ""),
+                            "stock_name": doc.get("stock_name", ""),
+                            "decision_detail": doc.get("decision_detail", {}),
+                        }
+                    elif doc.get("action") == "sell" and not detail["sell"]:
+                        detail["sell"] = {
+                            "time": doc.get("time", ""),
+                            "price": doc.get("price", 0),
+                            "shares": doc.get("shares", 0),
+                            "reason": doc.get("reason", ""),
+                            "strategy": doc.get("strategy", ""),
+                            "stock_name": doc.get("stock_name", ""),
+                            "profit_pct": doc.get("profit_pct", 0),
+                            "profit_amount": doc.get("profit_amount", 0),
+                            "decision_detail": doc.get("decision_detail", {}),
+                        }
+        except Exception:
+            pass
     
     # 2. 从持仓查找当前状态(含止损止盈)
     for p in scanner._broker.get_positions():
@@ -867,21 +905,34 @@ async def get_trade_detail(ts_code: str):
             detail["signal"] = scanner._signal_to_dict(s)
             break
     
-    # 4. 从历史订单查找
+    # 4. 从MongoDB历史订单查找(全量,跨session)
     orders = []
-    for o in scanner._broker.orders:
-        if o.ts_code == ts_code:
-            orders.append({
-                "order_id": o.order_id,
-                "side": o.side,
-                "quantity": o.quantity,
-                "filled_qty": o.filled_qty,
-                "filled_price": o.filled_price,
-                "strategy": o.strategy,
-                "reason": o.reason,
-                "trade_date": o.trade_date,
-                "create_time": o.create_time,
-            })
+    try:
+        if scanner._broker and await scanner._broker._ensure_mongo():
+            db = scanner._broker._mongo_db
+            account_id = scanner._broker.account.account_id
+            async for doc in db["broker_orders"].find(
+                {"account_id": account_id, "ts_code": ts_code}
+            ).sort("create_time", 1):
+                doc.pop("_id", None)
+                orders.append(doc)
+    except Exception:
+        pass
+    # fallback: 内存orders
+    if not orders and scanner._broker:
+        for o in scanner._broker.orders:
+            if o.ts_code == ts_code:
+                orders.append({
+                    "order_id": o.order_id,
+                    "side": o.side,
+                    "quantity": o.quantity,
+                    "filled_qty": o.filled_qty,
+                    "filled_price": o.filled_price,
+                    "strategy": o.strategy,
+                    "reason": o.reason,
+                    "trade_date": o.trade_date,
+                    "create_time": o.create_time,
+                })
     detail["orders"] = orders
     
     # 5. 如果买入信息缺失,从订单中补充
