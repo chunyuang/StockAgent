@@ -9,6 +9,7 @@ v2.9.25 测试: update_strategy_config bug修复 + bare except清理 + _init_mod
 
 import pytest
 import re
+import os
 from unittest.mock import MagicMock, patch, AsyncMock
 from typing import Dict, Any
 
@@ -79,7 +80,8 @@ class TestUpdateStrategyConfigBugFix:
 
     def test_no_dual_except_blocks(self):
         """源码验证: update_strategy_config不应有两个连续except Exception块"""
-        with open("nodes/market_monitor/scanner.py") as f:
+        scanner_path = os.path.join(os.path.dirname(__file__), "..", "..", "nodes", "market_monitor", "scanner.py")
+        with open(scanner_path) as f:
             content = f.read()
         # 找到update_strategy_config方法
         import ast
@@ -104,7 +106,8 @@ class TestBareExceptCleanup:
 
     def test_no_bare_except_in_scanner(self):
         """scanner.py不应有bare except Exception:"""
-        with open("nodes/market_monitor/scanner.py") as f:
+        scanner_path = os.path.join(os.path.dirname(__file__), "..", "..", "nodes", "market_monitor", "scanner.py")
+        with open(scanner_path) as f:
             content = f.read()
         # 匹配 "except Exception:" (不含 "as")
         matches = re.findall(r'except Exception\s+as\s+\w+\s*:', content)
@@ -115,7 +118,8 @@ class TestBareExceptCleanup:
 
     def test_event_emission_exceptions_captured(self):
         """EventBus事件发射的except应捕获异常对象(可追踪)"""
-        with open("nodes/market_monitor/scanner.py") as f:
+        scanner_path = os.path.join(os.path.dirname(__file__), "..", "..", "nodes", "market_monitor", "scanner.py")
+        with open(scanner_path) as f:
             content = f.read()
         # 查找所有 "except Exception:" (不跟 "as") 后跟 "pass" 的模式
         bare_excepts = re.findall(r'except Exception:\s*\n\s*pass', content)

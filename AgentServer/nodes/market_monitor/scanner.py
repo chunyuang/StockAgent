@@ -423,6 +423,12 @@ class MarketScanner:
         # 【v2.9.24:diagnose+情绪调仓提取】
         "diagnose": ("_scanner_utils", "diagnose"),
         "_handle_emotion_phase_change": ("_emotion_cycle_class", "handle_emotion_phase_change"),
+        # 【v2.9.27:更多方法提取到子模块】
+        "_build_account_info": ("_scanner_utils", "build_account_info"),
+        "_build_timeline_entry": ("_runtime_persistence", "build_timeline_entry"),
+        "_post_sell_cleanup": ("_runtime_persistence", "post_sell_cleanup"),
+        "_retry_pending_sells": ("_position_manager", "retry_pending_sells"),
+        "_execute_sell_list_from_risk": ("_position_manager", "execute_sell_list_from_risk"),
     }
 
     def __getattr__(self, name):
@@ -475,26 +481,7 @@ class MarketScanner:
             "health": self._compute_health_score(),
         }
 
-    def _build_account_info(self) -> Dict[str, Any]:
-        """构建账户信息(兼容掘金+模拟broker)【v2.9.19提取】"""
-        default = {"total_assets": 0, "available_cash": 0, "market_value": 0, "total_profit": 0}
-        if self._trade_mode == self.MODE_GM and self._gm_broker:
-            gm_acct = self._gm_broker.get_account()
-            return {
-                "total_assets": gm_acct.get("total_assets", 0),
-                "available_cash": gm_acct.get("available_cash", 0),
-                "market_value": gm_acct.get("market_value", 0),
-                "total_profit": 0,
-            }
-        elif self._broker:
-            acct = self._broker.get_account()
-            return {
-                "total_assets": round(acct.total_assets, 2),
-                "available_cash": round(acct.available_cash, 2),
-                "market_value": round(acct.market_value, 2),
-                "total_profit": round(acct.total_profit, 2),
-            }
-        return default
+    # _build_account_info已提取到ScannerUtils【v2.9.27:DELEGATE_MAP动态委托】
 
     def get_signals(self) -> List[Dict]:
         result = [self._signal_to_dict(s) for s in self._active_signals]
@@ -1345,83 +1332,9 @@ class MarketScanner:
         # 执行卖出(PositionManager只做检查,不执行交易)
         self._execute_sell_list_from_risk(to_sell)
 
-    def _retry_pending_sells(self, realtime_data: Dict):
-        """跌停恢复后重试挂起的卖出指令【v2.9.22提取】
-        
-        当股票从跌停恢复(非跌停状态)且有挂起的卖出指令时,
-        重新尝试执行该卖出。避免跌停恢复后卖出指令被遗忘。
-        """
-        with self._state_lock:
-            pending = dict(self._pending_sells)
-        if not pending:
-            return
-        
-        retried = []
-        for ts_code, info in pending.items():
-            # 检查是否仍持有该票
-            pos = None
-            for p in self._broker.get_positions():
-                if p.ts_code == ts_code and p.available_qty > 0:
-                    pos = p
-                    break
-            if not pos:
-                # 已无持仓或无可用数量, 清除挂起
-                with self._state_lock:
-                    self._pending_sells.pop(ts_code, None)
-                continue
-            
-            # 检查是否不再跌停
-            if self._is_limit_down(ts_code):
-                continue  # 仍在跌停, 无法卖出
-            
-            # 跌停恢复! 尝试执行挂起的卖出
-            reason = info.get("reason", "pending_retry")
-            price = info.get("price", pos.current_price)
-            logger.info(f"[RISK_THREAD] 跌停恢复重试: {ts_code} {reason}")
-            
-            if self._loop and not self._loop.is_closed():
-                try:
-                    future = asyncio.run_coroutine_threadsafe(
-                        self._execute_risk_sell(pos, reason, price, pos.available_qty),
-                        self._loop
-                    )
-                    future.result(timeout=5)
-                    retried.append(ts_code)
-                except Exception as e:
-                    logger.debug(f"[RISK_THREAD] 跌停恢复重试失败: {ts_code} {e}")
-        
-        # 清除成功重试的条目
-        if retried:
-            with self._state_lock:
-                for code in retried:
-                    self._pending_sells.pop(code, None)
+    # _retry_pending_sells已提取到PositionManager【v2.9.27:DELEGATE_MAP动态委托】
 
-    def _execute_sell_list_from_risk(self, to_sell: list):
-        """风控线程执行卖出列表【v2.9.22提取, 从_check_stop_loss_only拆分】"""
-        for pos, reason, price, risk in to_sell:
-            if self._loop and not self._loop.is_closed():
-                try:
-                    sell_qty = pos.available_qty
-                    future = asyncio.run_coroutine_threadsafe(
-                        self._execute_risk_sell(pos, reason, price, sell_qty),
-                        self._loop
-                    )
-                    future.result(timeout=5)
-                except asyncio.TimeoutError:
-                    # 超时不丢弃,记录到pending_sells待下次执行
-                    logger.warning(
-                        f"[RISK_THREAD] 卖出执行超时(5秒): {pos.ts_code} {reason}, "
-                        f"加入pending_sells待下次执行"
-                    )
-                    with self._state_lock:
-                        if pos.ts_code not in self._pending_sells:
-                            self._pending_sells[pos.ts_code] = {
-                                "reason": reason, "price": price,
-                                "added_at": time.time(),
-                                "source": "risk_thread_timeout",
-                            }
-                except Exception as e:
-                    logger.error(f"[RISK_THREAD] 卖出执行失败: {pos.ts_code} {e}")
+    # _execute_sell_list_from_risk已提取到PositionManager【v2.9.27:DELEGATE_MAP动态委托】
 
     async def _execute_risk_sell(self, pos, reason: str, price: float, quantity: int):
         """风控线程触发的卖出执行(在asyncio主循环中运行)【v2.9.12:try/except保护, v2.9.19:提取_post_sell_cleanup】"""
@@ -1450,86 +1363,8 @@ class MarketScanner:
         else:
             logger.warning(f"[RISK_SELL] 卖出失败 {pos.ts_code}: {msg}")
 
-    @staticmethod
-    def _build_timeline_entry(
-        pos, reason: str, order, quantity: int,
-        profit_pct: float, profit_amount: float, *, source: str = "sell",
-    ) -> Dict:
-        """构建卖出timeline记录【v2.9.22提取, 从_post_sell_cleanup拆分】"""
-        return {
-            "time": datetime.now().strftime("%H:%M:%S"),
-            "action": "sell",
-            "ts_code": pos.ts_code,
-            "stock_name": pos.stock_name,
-            "strategy": pos.strategy,
-            "shares": quantity,
-            "price": order.filled_price,
-            "reason": reason,
-            "profit_pct": round(profit_pct, 2),
-            "profit_amount": round(profit_amount, 2),
-            "decision_detail": {
-                "sell_reason": reason,
-                "profit_pct": round(profit_pct, 2),
-                "profit_amount": round(profit_amount, 2),
-                "cost_price": pos.avg_cost,
-                "sell_price": order.filled_price,
-                "current_price": pos.current_price,
-                "source": source,
-            },
-        }
-
-    async def _post_sell_cleanup(
-        self, pos, reason: str, order, quantity: int,
-        profit_pct: float, profit_amount: float, *, source: str = "sell",
-    ):
-        """卖出成功后统一清理: timeline+统计+状态清理+事件+持久化【v2.9.19提取, v2.9.22:统计分类+提取_build_timeline_entry】"""
-        # Timeline记录
-        entry = self._build_timeline_entry(
-            pos, reason, order, quantity,
-            profit_pct, profit_amount, source=source,
-        )
-        self._timeline.append(entry)
-        # 【v2.9.22:按卖出原因分类统计,修复所有卖出都计为stop_losses的bug】
-        # stop_loss/gap_stop_loss/trailing_stop → stop_losses
-        # take_profit/profit_lock/profit_protect → take_profits
-        # 其他(moving_stop/emotion/max_hold/rebalance/force_empty/stop_sell) → trades_executed
-        if reason in ("stop_loss", "gap_stop_loss", "trailing_stop"):
-            self._stats["stop_losses"] += 1
-        elif reason in ("take_profit", "profit_lock", "profit_protect"):
-            self._stats["take_profits"] += 1
-        else:
-            self._stats["trades_executed"] += 1
-        # 记录交易结果到circuit_breaker(v2.9.9:profit_pct/100转比率)
-        self._record_trade_result(profit_pct / 100.0)
-        # 清理追踪止损(线程安全)
-        with self._state_lock:
-            self._trailing_stops.pop(pos.ts_code, None)
-            self._position_risk_levels.pop(pos.ts_code, None)
-        # 事件通知(timeline + EventBus)
-        try:
-            await self._publish_scanner_event("timeline", {"item": entry})
-        except Exception as _e:
-            logger.debug(f"[SCANNER] timeline事件发射失败: {_e}")
-        try:
-            await self._event_bus.emit(ScannerEvents.RISK_SELL_EXECUTED, {
-                "ts_code": pos.ts_code, "reason": reason,
-                "price": order.filled_price, "profit_pct": profit_pct,
-            })
-            await self._event_bus.emit(ScannerEvents.POSITION_CHANGED, {
-                "ts_code": pos.ts_code, "action": "sell", "reason": reason,
-            })
-        except Exception as _e:
-            logger.debug(f"[SCANNER] 卖出事件发射失败: {_e}")
-        logger.info(f"[{source.upper()}] {reason}: {pos.ts_code} {quantity}股@{order.filled_price:.2f}")
-        # 持久化(broker + 运行时快照)
-        try:
-            await self._broker.save_state(force=True)
-        except Exception as _e:
-            logger.warning(f"[SCANNER] 卖出后broker状态持久化失败: {_e}")
-        try:
-            await self._save_runtime_snapshot(force=True)
-        except Exception as _e:
-            logger.debug(f"[SCANNER] 卖出后运行时快照失败: {_e}")
+    # _build_timeline_entry已提取到RuntimePersistence【v2.9.27:DELEGATE_MAP动态委托】
+    # _post_sell_cleanup已提取到RuntimePersistence【v2.9.27:DELEGATE_MAP动态委托】
 
     async def scan_once(self, trade_date: str, force: bool = False):
         """单次扫描

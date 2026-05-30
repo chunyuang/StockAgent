@@ -21,6 +21,7 @@ _ASYNC_DELEGATE_METHODS = frozenset({
     "_save_timeline", "_save_scan_traces", "_load_timeline",
     "_load_runtime_snapshot", "_save_runtime_snapshot", "_premarket_auction",
     "_save_performance_snapshot", "_push_daily_summary",
+    "_post_sell_cleanup",  # v2.9.27: async
     # SignalManager (partial async)
     "_update_signals", "_push_signals", "_execute_signals", "_write_audit_log",
     # PositionChecker (partial async)
@@ -52,6 +53,7 @@ _UTILS_CONTEXT_METHODS = {
     "generate_summary_report": lambda scanner, method: lambda: method(scanner),
     "_compute_health_score": lambda scanner, method: lambda: method(scanner),
     "diagnose": lambda scanner, method: lambda: method(scanner),
+    "_build_account_info": lambda scanner, method: lambda: method(scanner),  # v2.9.27
 }
 
 # RiskWatchdog静态方法绑定(第一个参数为scanner实例)

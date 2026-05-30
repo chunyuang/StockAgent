@@ -365,6 +365,28 @@ class ScannerUtils:
         }
 
     @staticmethod
+    def build_account_info(scanner) -> Dict[str, Any]:
+        """构建账户信息(兼容掘金+模拟broker)【v2.9.27:从scanner提取】"""
+        default = {"total_assets": 0, "available_cash": 0, "market_value": 0, "total_profit": 0}
+        if scanner._trade_mode == scanner.MODE_GM and scanner._gm_broker:
+            gm_acct = scanner._gm_broker.get_account()
+            return {
+                "total_assets": gm_acct.get("total_assets", 0),
+                "available_cash": gm_acct.get("available_cash", 0),
+                "market_value": gm_acct.get("market_value", 0),
+                "total_profit": 0,
+            }
+        elif scanner._broker:
+            acct = scanner._broker.get_account()
+            return {
+                "total_assets": round(acct.total_assets, 2),
+                "available_cash": round(acct.available_cash, 2),
+                "market_value": round(acct.market_value, 2),
+                "total_profit": round(acct.total_profit, 2),
+            }
+        return default
+
+    @staticmethod
     def compute_health_score(scanner) -> Dict[str, Any]:
         """Scanner健康度评分(绿/黄/红)
 

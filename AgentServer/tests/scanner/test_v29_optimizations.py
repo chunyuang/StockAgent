@@ -322,24 +322,25 @@ class TestEventBusEmissionCompleteness:
         assert "POSITION_CHANGED" in source, "SignalManager应发射POSITION_CHANGED事件(买入)"
 
     def test_risk_sell_emits_events(self):
-        """_execute_risk_sell→_post_sell_cleanup发射RISK_SELL_EXECUTED+POSITION_CHANGED"""
+        """_execute_risk_sell→post_sell_cleanup发射RISK_SELL_EXECUTED+POSITION_CHANGED"""
         import inspect
-        from nodes.market_monitor.scanner import MarketScanner
-        # v2.9.19: 事件发射在_post_sell_cleanup中
-        cleanup_source = inspect.getsource(MarketScanner._post_sell_cleanup)
+        from nodes.market_monitor.runtime_persistence import RuntimePersistence
+        # v2.9.27: 事件发射在RuntimePersistence.post_sell_cleanup中
+        cleanup_source = inspect.getsource(RuntimePersistence.post_sell_cleanup)
         assert "RISK_SELL_EXECUTED" in cleanup_source
         assert "POSITION_CHANGED" in cleanup_source
 
     def test_all_sell_paths_emit_events(self):
         """验证所有卖出路径(风控/PositionChecker/情绪调仓)都发射EventBus事件"""
         import inspect
-        from nodes.market_monitor.scanner import MarketScanner
-        # 风控卖出 → _post_sell_cleanup
-        cleanup_source = inspect.getsource(MarketScanner._post_sell_cleanup)
+        from nodes.market_monitor.runtime_persistence import RuntimePersistence
+        # 风控卖出 → post_sell_cleanup
+        cleanup_source = inspect.getsource(RuntimePersistence.post_sell_cleanup)
         assert "RISK_SELL_EXECUTED" in cleanup_source
         # 情绪调仓卖出 — _handle_emotion_phase_change已提取到EmotionCycleManager【v2.9.24】
         from nodes.market_monitor.emotion_cycle import EmotionCycleManager
         emotion_source = inspect.getsource(EmotionCycleManager.handle_emotion_phase_change)
+        from nodes.market_monitor.scanner import MarketScanner
         assert "EMOTION_CHANGED" in inspect.getsource(MarketScanner._apply_filter_pipeline)
 
 

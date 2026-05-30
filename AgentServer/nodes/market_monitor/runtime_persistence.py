@@ -372,6 +372,90 @@ class RuntimePersistence:
         except Exception as e:
             logger.debug(f"[SCAN] 加载时间线失败(非关键): {e}")
 
+    @staticmethod
+    def build_timeline_entry(
+        pos, reason: str, order, quantity: int,
+        profit_pct: float, profit_amount: float, *, source: str = "sell",
+    ) -> Dict:
+        """构建卖出timeline记录【v2.9.22提取, v2.9.27:从scanner移入RuntimePersistence】"""
+        return {
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "action": "sell",
+            "ts_code": pos.ts_code,
+            "stock_name": pos.stock_name,
+            "strategy": pos.strategy,
+            "shares": quantity,
+            "price": order.filled_price,
+            "reason": reason,
+            "profit_pct": round(profit_pct, 2),
+            "profit_amount": round(profit_amount, 2),
+            "decision_detail": {
+                "sell_reason": reason,
+                "profit_pct": round(profit_pct, 2),
+                "profit_amount": round(profit_amount, 2),
+                "cost_price": pos.avg_cost,
+                "sell_price": order.filled_price,
+                "current_price": pos.current_price,
+                "source": source,
+            },
+        }
+
+    async def post_sell_cleanup(
+        self, pos, reason: str, order, quantity: int,
+        profit_pct: float, profit_amount: float, *, source: str = "sell",
+    ):
+        """卖出成功后统一清理: timeline+统计+状态清理+事件+持久化
+
+        v2.9.19从scanner提取, v2.9.22:统计分类+提取_build_timeline_entry
+        v2.9.27:从scanner.py移入RuntimePersistence
+        """
+        scanner = self._scanner
+        # Timeline记录
+        entry = self.build_timeline_entry(
+            pos, reason, order, quantity,
+            profit_pct, profit_amount, source=source,
+        )
+        scanner._timeline.append(entry)
+        # v2.9.22:按卖出原因分类统计,修复所有卖出都计为stop_losses的bug
+        if reason in ("stop_loss", "gap_stop_loss", "trailing_stop"):
+            scanner._stats["stop_losses"] += 1
+        elif reason in ("take_profit", "profit_lock", "profit_protect"):
+            scanner._stats["take_profits"] += 1
+        else:
+            scanner._stats["trades_executed"] += 1
+        # 记录交易结果到circuit_breaker(v2.9.9:profit_pct/100转比率)
+        scanner._record_trade_result(profit_pct / 100.0)
+        # 清理追踪止损(线程安全)
+        with scanner._state_lock:
+            scanner._trailing_stops.pop(pos.ts_code, None)
+            scanner._position_risk_levels.pop(pos.ts_code, None)
+        # 事件通知(timeline + EventBus)
+        try:
+            await scanner._publish_scanner_event("timeline", {"item": entry})
+        except Exception as _e:
+            logger.debug(f"[SCANNER] timeline事件发射失败: {_e}")
+        try:
+            from nodes.market_monitor.scanner_event_bus import ScannerEvents
+            await scanner._event_bus.emit(ScannerEvents.RISK_SELL_EXECUTED, {
+                "ts_code": pos.ts_code, "reason": reason,
+                "price": order.filled_price, "profit_pct": profit_pct,
+            })
+            await scanner._event_bus.emit(ScannerEvents.POSITION_CHANGED, {
+                "ts_code": pos.ts_code, "action": "sell", "reason": reason,
+            })
+        except Exception as _e:
+            logger.debug(f"[SCANNER] 卖出事件发射失败: {_e}")
+        logger.info(f"[{source.upper()}] {reason}: {pos.ts_code} {quantity}股@{order.filled_price:.2f}")
+        # 持久化(broker + 运行时快照)
+        try:
+            await scanner._broker.save_state(force=True)
+        except Exception as _e:
+            logger.warning(f"[SCANNER] 卖出后broker状态持久化失败: {_e}")
+        try:
+            await scanner._save_runtime_snapshot(force=True)
+        except Exception as _e:
+            logger.debug(f"[SCANNER] 卖出后运行时快照失败: {_e}")
+
     # ==================== 绩效快照+飞书日报(v2.9.6提取) ====================
     
     async def save_performance_snapshot(self, trade_date: str):
