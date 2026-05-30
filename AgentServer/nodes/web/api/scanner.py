@@ -25,6 +25,33 @@ def _sanitize(obj):
     return obj
 
 
+
+def _fill_stock_names(data, scanner=None) -> list:
+    """填充空stock_name/name字段(从scanner的名称映射), 支持嵌套结构"""
+    if not scanner or not data:
+        return data
+    name_map = getattr(scanner, '_stock_name_map', {})
+    if not name_map:
+        return data
+    if isinstance(data, dict):
+        for key, val in data.items():
+            if isinstance(val, list):
+                data[key] = _fill_stock_names(val, scanner)
+            elif isinstance(val, dict):
+                _fill_stock_names([val], scanner)
+        return data
+    if isinstance(data, list):
+        for item in data:
+            if isinstance(item, dict):
+                if not item.get("stock_name") and item.get("ts_code"):
+                    item["stock_name"] = name_map.get(item["ts_code"], "")
+                if not item.get("name") and item.get("ts_code"):
+                    item["name"] = name_map.get(item["ts_code"], "")
+                for key, val in item.items():
+                    if isinstance(val, list) and val and isinstance(val[0], dict):
+                        _fill_stock_names(val, scanner)
+    return data
+
 def _safe_read_shared(scanner, attr_name: str, copy: bool = True) -> dict:
     """【v2.9.11】线程安全读取scanner共享状态(trailing_stops/position_risk_levels/pending_sells)
     
@@ -289,7 +316,7 @@ async def get_positions():
 async def get_timeline():
     """获取今日交易时间线"""
     scanner = _get_scanner()
-    return _sanitize({"success": True, "data": scanner.get_timeline()})
+    return _sanitize({"success": True, "data": _fill_stock_names(scanner.get_timeline(), scanner)})
 
 @router.get("/timeline/history")
 async def get_timeline_history(date: str = None, days: int = 7):
@@ -321,7 +348,7 @@ async def get_timeline_history(date: str = None, days: int = 7):
             doc.pop("account_id", None)
             items.append(doc)
         
-        return {"success": True, "data": items, "count": len(items)}
+        return {"success": True, "data": _fill_stock_names(items, scanner), "count": len(items)}
     except Exception as e:
         return {"success": True, "data": [], "message": str(e)}
 
@@ -556,7 +583,7 @@ async def get_orders(limit: int = 50):
         for d in docs:
             d.pop("_id", None)
         
-        return {"success": True, "data": docs}
+        return {"success": True, "data": _fill_stock_names(docs, scanner)}
     except Exception as e:
         return {"success": True, "data": [], "message": str(e)}
 
@@ -620,12 +647,16 @@ async def get_daily_report():
     try:
         acct = scanner._broker.get_account()
         positions = scanner._broker.get_positions()
+        name_map = getattr(scanner, '_stock_name_map', {})
         cb = scanner._circuit_breaker
         stats = scanner._stats
         
         # 按策略汇总(含胜率和收益)
         strategy_summary = {}
         for pos in positions:
+            # 确保pos有stock_name
+            if not pos.stock_name and name_map:
+                pos.stock_name = name_map.get(pos.ts_code, "")
             key = pos.strategy or "unknown"
             if key not in strategy_summary:
                 strategy_summary[key] = {"count": 0, "market_value": 0, "total_profit": 0, "win_count": 0, "loss_count": 0}
@@ -687,11 +718,11 @@ async def get_daily_report():
                 "count": len(positions),
                 "strategy_summary": strategy_summary,
                 "top_profit": sorted(
-                    [{"ts_code": p.ts_code, "name": p.stock_name, "pct": round(p.profit_pct, 1)} for p in positions],
+                    [{"ts_code": p.ts_code, "name": p.stock_name or getattr(scanner, '_stock_name_map', {}).get(p.ts_code, ""), "pct": round(p.profit_pct, 1)} for p in positions],
                     key=lambda x: x["pct"], reverse=True
                 )[:5],
                 "top_loss": sorted(
-                    [{"ts_code": p.ts_code, "name": p.stock_name, "pct": round(p.profit_pct, 1)} for p in positions],
+                    [{"ts_code": p.ts_code, "name": p.stock_name or getattr(scanner, '_stock_name_map', {}).get(p.ts_code, ""), "pct": round(p.profit_pct, 1)} for p in positions],
                     key=lambda x: x["pct"]
                 )[:5],
             },
@@ -1057,7 +1088,46 @@ async def get_trade_audit():
         if p.ts_code in traded_stocks:
             traded_stocks[p.ts_code]["status"] = f"持仓中 {p.profit_pct:+.1f}%"
     
-    return {"success": True, "data": list(traded_stocks.values())}
+    # 补充历史数据(从MongoDB scanner_timeline)
+    try:
+        from core.managers import mongo_manager
+        if mongo_manager.is_initialized:
+            account_id = scanner._broker.account.account_id if scanner._broker else "default"
+            async for doc in mongo_manager.db["scanner_timeline"].find(
+                {"account_id": account_id}
+            ).sort("_id", 1):
+                ts_code = doc.get("ts_code", "")
+                if not ts_code or ts_code in traded_stocks:
+                    continue
+                if ts_code not in traded_stocks:
+                    traded_stocks[ts_code] = {
+                        "ts_code": ts_code,
+                        "stock_name": doc.get("stock_name", ""),
+                        "strategy": doc.get("strategy", ""),
+                        "buy_time": "", "buy_price": 0, "buy_reason": "",
+                        "buy_detail": None,
+                        "sell_time": "", "sell_price": 0, "sell_reason": "",
+                        "sell_detail": None,
+                        "profit_pct": None,
+                        "status": "已卖出",
+                    }
+                entry = traded_stocks[ts_code]
+                if doc.get("action") == "buy" and not entry["buy_time"]:
+                    entry["buy_time"] = doc.get("time", "")
+                    entry["buy_price"] = doc.get("price", 0)
+                    entry["buy_reason"] = doc.get("reason", "")
+                    entry["buy_detail"] = doc.get("decision_detail")
+                elif doc.get("action") == "sell" and not entry["sell_time"]:
+                    entry["sell_time"] = doc.get("time", "")
+                    entry["sell_price"] = doc.get("price", 0)
+                    entry["sell_reason"] = doc.get("reason", "")
+                    entry["sell_detail"] = doc.get("decision_detail")
+                    entry["profit_pct"] = doc.get("profit_pct")
+    except Exception:
+        pass
+    
+    result = list(traded_stocks.values())
+    return {"success": True, "data": _fill_stock_names(result, scanner)}
 
 
 @router.get("/backtest-compare")
@@ -1709,6 +1779,7 @@ async def save_performance_snapshot():
         
         acct = scanner._broker.get_account()
         positions = scanner._broker.get_positions()
+        name_map = getattr(scanner, '_stock_name_map', {})
         
         snapshot = {
             "account_id": scanner._broker.account.account_id,
@@ -2807,7 +2878,7 @@ async def get_position_risk_matrix():
             trail = trailing_stops.get(pos.ts_code, {})
 
             matrix.append({
-                "ts_code": pos.ts_code, "stock_name": pos.stock_name,
+                "ts_code": pos.ts_code, "stock_name": pos.stock_name or getattr(scanner, '_stock_name_map', {}).get(pos.ts_code, ""),
                 "strategy": pos.strategy or "unknown", "strategy_name": strategy_cn.get(pos.strategy, pos.strategy or "未知"),
                 "industry": industry, "current_price": cur, "cost_price": cost,
                 "profit_pct": round(pos.profit_pct, 2), "profit_amount": round((cur - cost) * pos.total_qty, 0),
