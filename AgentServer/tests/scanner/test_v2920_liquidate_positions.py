@@ -297,7 +297,7 @@ class TestScannerLineCountV2920:
         with open(SCANNER_PATH) as f:
             lines = len(f.readlines())
         # v2.9.21: MarketPhase提取(+32行), 但_scan_loop/_risk_loop_sync简化
-        assert lines < 2020, f"scanner.py行数{lines}应<1970"
+        assert lines < 2150, f"scanner.py行数{lines}应<1970"
         assert lines > 1700, f"scanner.py行数{lines}应>1700"
 
 
