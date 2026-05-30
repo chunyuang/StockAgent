@@ -1226,85 +1226,73 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
     <!-- ==================== 🔍 扫描追踪Tab ==================== -->
     <div v-if="activeTab === 'scan-trace'" class="mm-tab-content">
       <div class="mm-tab-scroll">
+        <!-- 顶部: 扫描历史列表(单行紧凑) -->
         <div class="st">📡 扫描历史
           <ElDatePicker v-model="scanTraceDate" type="date" placeholder="全部日期" size="small" value-format="YYYY-MM-DD" style="width:130px;margin-left:8px" :disabled-date="(d: Date) => d > new Date()" @change="fetchScanHistory" />
           <ElButton size="small" @click="scanTraceDate='';fetchScanHistory()" :loading="scanHistoryLoading">🔄</ElButton>
           <span class="text-tertiary" style="font-size:11px;margin-left:auto">全量5分钟 · 持仓30秒 · 信号5分钟过期</span>
         </div>
+        <div v-if="scanHistoryLoading" class="empty" style="padding:8px 0">加载中...</div>
+        <div v-else-if="!scanHistory.length" class="empty" style="padding:8px 0">启动后扫描记录会显示在这里</div>
+        <div v-else class="scan-strip">
+          <div v-for="(s, i) in scanHistory" :key="i" class="scan-chip" :class="{ active: selectedScanIdx === i }" @click="selectedScanIdx = i; fetchScanTrace(s.scan_id || '')">
+            <span class="sc-time">{{ (s.scan_time || s.time || '').substring(11, 19) }}</span>
+            <span class="sc-type" :class="s.scan_type === 'full' ? 'full' : 'quick'">{{ s.scan_type === 'full' ? '全量' : '快速' }}</span>
+            <span class="sc-stats">{{ s.summary?.total_candidates || 0 }}→{{ s.summary?.passed || 0 }}→{{ s.buys || 0 }}</span>
+          </div>
+        </div>
 
-        <div class="scan-grid">
-          <!-- 左: 扫描列表 -->
-          <div class="scan-list">
-            <div v-if="scanHistoryLoading" class="empty">加载中...</div>
-            <div v-else-if="!scanHistory.length" class="empty">启动后扫描记录会显示在这里</div>
-            <div v-for="(s, i) in scanHistory" :key="i" class="scan-item" :class="{ active: selectedScanIdx === i }" @click="selectedScanIdx = i; fetchScanTrace(s.scan_id || '')">
-              <div class="scan-time">{{ (s.scan_time || s.time || '').substring(0, 19).replace('T', ' ') }}</div>
-              <div class="scan-type">{{ s.scan_type === 'full' ? '全量' : '快速' }}</div>
-              <div class="scan-stats">候选{{ s.summary?.total_candidates || s.candidates || 0 }}→信号{{ s.summary?.passed || s.signals || 0 }}→买入{{ s.buys || 0 }}</div>
+        <!-- 中部: 9层漏斗(横向紧凑) -->
+        <div v-if="scanTraceDetail" class="scan-funnel-bar">
+          <template v-for="(layerData, layerName, idx) in scanTraceDetail.summary || {}">
+            <div v-if="layerName !== 'total_candidates' && layerName !== 'passed' && layerName !== 'rejected' && typeof layerData === 'object'" :key="layerName" class="fb-step" :class="{ passed: layerData.output > 0 }">
+              <span class="fb-name">{{ layerLabel(layerName) }}</span>
+              <span class="fb-nums">{{ layerData.output || 0 }}<span v-if="layerData.rejected" class="fb-rej">-{{ layerData.rejected }}</span></span>
+            </div>
+            <span v-if="layerName !== 'total_candidates' && layerName !== 'passed' && layerName !== 'rejected' && typeof layerData === 'object' && idx < 8" :key="'arrow'+layerName" class="fb-arrow">→</span>
+          </template>
+          <span v-if="scanTraceDetail._pagination" class="fb-summary">通过{{ scanTraceDetail._pagination.passed_count }} / 淘汰{{ scanTraceDetail._pagination.rejected_count }}</span>
+        </div>
+
+        <!-- 底部: 候选追踪(主区域) -->
+        <div v-if="scanTraceDetail" style="margin-top:8px">
+          <div class="st" style="display:flex;align-items:center;gap:8px">
+            <span>🎯 候选追踪</span>
+            <div style="display:flex;gap:4px;margin-left:auto">
+              <button :class="['tab-btn-sm', scanTraceFilter === 'passed' ? 'active' : '']" @click="switchScanTraceFilter('passed')" :disabled="scanTraceLoadingMore">✅ 通过({{ scanTraceDetail._pagination?.passed_count || 0 }})</button>
+              <button :class="['tab-btn-sm', scanTraceFilter === 'rejected' ? 'active' : '']" @click="switchScanTraceFilter('rejected')" :disabled="scanTraceLoadingMore">❌ 淘汰({{ scanTraceDetail._pagination?.rejected_count || 0 }})</button>
+              <button :class="['tab-btn-sm', scanTraceFilter === 'summary' ? 'active' : '']" @click="switchScanTraceFilter('summary')">📊 统计</button>
             </div>
           </div>
 
-          <!-- 右: 9层漏斗 -->
-          <div class="scan-detail">
-            <div v-if="!scanTraceDetail" class="empty">选择左侧扫描记录查看详情</div>
-            <template v-else>
-              <div class="st">🔍 扫描概览
-                <span v-if="scanTraceDetail._pagination" class="text-tertiary" style="font-size:11px;margin-left:8px">
-                  通过{{ scanTraceDetail._pagination.passed_count }} / 淘汰{{ scanTraceDetail._pagination.rejected_count }}
-                </span>
-              </div>
-              <!-- 漏斗摘要 -->
-              <div v-if="scanTraceDetail.summary" class="funnel">
-                <template v-for="(layerData, layerName, idx) in scanTraceDetail.summary" >
-                  <div v-if="layerName !== 'total_candidates' && layerName !== 'passed' && layerName !== 'rejected' && typeof layerData === 'object'" :key="layerName" class="funnel-step" :class="{ passed: true }">
-                    <div class="fn-label">{{ layerLabel(layerName) || layerName }}</div>
-                    <div class="fn-count">入{{ layerData.input || 0 }}→出{{ layerData.output || 0 }}</div>
-                    <div v-if="layerData.rejected" class="fn-reject">淘汰{{ layerData.rejected }}</div>
-                  </div>
-                </template>
-              </div>
+          <!-- 淘汰统计视图 -->
+          <div v-if="scanTraceFilter === 'summary' && scanTraceDetail.rejected_layer_stats" class="rejected-stats">
+            <div v-for="(count, layer) in scanTraceDetail.rejected_layer_stats" :key="layer" class="rs-row">
+              <span class="rs-label">{{ rejectionLayerCN[layer] || layer }}</span>
+              <div class="rs-bar-track"><div class="rs-bar-fill" :style="{ width: Math.min(count / (scanTraceDetail._pagination?.rejected_count || 1) * 100, 100) + '%' }"></div></div>
+              <span class="rs-count">{{ count }}只</span>
+            </div>
+          </div>
 
-              <!-- 【v2.9.7: 候选过滤切换】 -->
-              <div class="st" style="margin-top:12px;display:flex;align-items:center;gap:8px">
-                <span>🎯 候选追踪</span>
-                <div style="display:flex;gap:4px;margin-left:auto">
-                  <button :class="['tab-btn-sm', scanTraceFilter === 'passed' ? 'active' : '']" @click="switchScanTraceFilter('passed')" :disabled="scanTraceLoadingMore">✅ 通过({{ scanTraceDetail._pagination?.passed_count || 0 }})</button>
-                  <button :class="['tab-btn-sm', scanTraceFilter === 'rejected' ? 'active' : '']" @click="switchScanTraceFilter('rejected')" :disabled="scanTraceLoadingMore">❌ 淘汰({{ scanTraceDetail._pagination?.rejected_count || 0 }})</button>
-                  <button :class="['tab-btn-sm', scanTraceFilter === 'summary' ? 'active' : '']" @click="switchScanTraceFilter('summary')" :-disabled="scanTraceLoadingMore">📊 统计</button>
-                </div>
+          <!-- 候选列表 -->
+          <div v-if="scanTraceFilter !== 'summary'">
+            <div v-if="scanTraceLoadingMore" class="empty">加载中...</div>
+            <div v-else-if="!scanTraceDetail.candidates?.length" class="empty">{{ scanTraceFilter === 'passed' ? '本轮无通过候选' : '无淘汰候选' }}</div>
+            <div v-for="sig in scanTraceDetail.candidates || []" :key="sig.ts_code + sig.strategy" class="exec-trace">
+              <div class="et-left">
+                <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(sig.strategy) }}</ElTag>
+                <span class="code">{{ sig.ts_code }}</span>
+                <span class="name">{{ sig.stock_name }}</span>
+                <span :class="sig.pct_chg >= 0 ? 'up' : 'down'" class="pct">{{ sig.pct_chg >= 0 ? '+' : '' }}{{ (sig.pct_chg || 0).toFixed(1) }}%</span>
               </div>
-
-              <!-- 淘汰统计视图 -->
-              <div v-if="scanTraceFilter === 'summary' && scanTraceDetail.rejected_layer_stats" class="rejected-stats">
-                <div v-for="(count, layer) in scanTraceDetail.rejected_layer_stats" :key="layer" class="rs-row">
-                  <span class="rs-label">{{ rejectionLayerCN[layer] || layer }}</span>
-                  <div class="rs-bar-track"><div class="rs-bar-fill" :style="{ width: Math.min(count / (scanTraceDetail._pagination?.rejected_count || 1) * 100, 100) + '%' }"></div></div>
-                  <span class="rs-count">{{ count }}只</span>
-                </div>
+              <div class="et-right">
+                <ElTag v-if="sig.final_status === 'passed'" size="small" type="success">✅ 通过</ElTag>
+                <ElTag v-else size="small" type="danger">❌ {{ rejectionLayerCN[sig.rejection_layer] || sig.rejection_layer }}: {{ rejectionReasonCN(sig.rejection_reason) || sig.rejection_reason }}</ElTag>
               </div>
-
-              <!-- 候选列表 -->
-              <div v-if="scanTraceFilter !== 'summary'">
-                <div v-if="scanTraceLoadingMore" class="empty">加载中...</div>
-                <div v-else-if="!scanTraceDetail.candidates?.length" class="empty">{{ scanTraceFilter === 'passed' ? '本轮无通过候选' : '无淘汰候选' }}</div>
-                <div v-for="sig in scanTraceDetail.candidates || []" :key="sig.ts_code + sig.strategy" class="exec-trace">
-                  <div class="et-left">
-                    <ElTag size="small" :color="strategyMeta[sig.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(sig.strategy) }}</ElTag>
-                    <span class="code">{{ sig.ts_code }}</span>
-                    <span class="name">{{ sig.stock_name }}</span>
-                    <span :class="sig.pct_chg >= 0 ? 'up' : 'down'" class="pct">{{ sig.pct_chg >= 0 ? '+' : '' }}{{ (sig.pct_chg || 0).toFixed(1) }}%</span>
-                  </div>
-                  <div class="et-right">
-                    <ElTag v-if="sig.final_status === 'passed'" size="small" type="success">✅ 通过</ElTag>
-                    <ElTag v-else size="small" type="danger">❌ {{ rejectionLayerCN[sig.rejection_layer] || sig.rejection_layer }}: {{ rejectionReasonCN(sig.rejection_reason) || sig.rejection_reason }}</ElTag>
-                  </div>
-                </div>
-                <!-- 加载更多 -->
-                <div v-if="scanTraceDetail._pagination && (scanTraceDetail._pagination.has_more_passed || scanTraceDetail._pagination.has_more_rejected)" class="load-more-hint">
-                  <span class="text-tertiary" style="font-size:11px">已显示{{ scanTraceDetail._pagination.returned_count }}条 / 共{{ scanTraceFilter === 'passed' ? scanTraceDetail._pagination.passed_count : scanTraceDetail._pagination.rejected_count }}条</span>
-                </div>
-              </div>
-            </template>
+            </div>
+            <div v-if="scanTraceDetail._pagination && (scanTraceDetail._pagination.has_more_passed || scanTraceDetail._pagination.has_more_rejected)" class="load-more-hint">
+              <span class="text-tertiary" style="font-size:11px">已显示{{ scanTraceDetail._pagination.returned_count }}条 / 共{{ scanTraceFilter === 'passed' ? scanTraceDetail._pagination.passed_count : scanTraceDetail._pagination.rejected_count }}条</span>
+            </div>
           </div>
         </div>
       </div>
@@ -2341,15 +2329,23 @@ mm-tab-content {
 .pm-candidate:last-child, .pm-signal:last-child { border-bottom: none; }
 
 /* 扫描追踪Tab */
-.scan-grid { display: grid; grid-template-columns: 260px 1fr; gap: 12px; }
-.scan-list { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 8px; overflow-y: auto; max-height: calc(100vh - 250px); }
-.scan-item { padding: 6px 8px; border-radius: 6px; cursor: pointer; margin-bottom: 2px; font-size: 12px; display: grid; grid-template-columns: 60px 40px 1fr; gap: 4px; align-items: center; }
-.scan-item:hover { background: var(--bg-hover); }
-.scan-item.active { background: var(--el-color-primary-light-9); border: 1px solid var(--el-color-primary-light-7); }
-.scan-time { color: var(--text-tertiary); }
-.scan-type { font-weight: 600; }
-.scan-stats { color: var(--text-secondary); }
-.scan-detail { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 12px; overflow-y: auto; max-height: calc(100vh - 250px); }
+.scan-strip { display: flex; flex-wrap: wrap; gap: 4px; }
+.scan-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; border: 1px solid var(--border-default); background: var(--bg-elevated); transition: all 0.15s; }
+.scan-chip:hover { background: var(--bg-hover); border-color: var(--el-color-primary-light-5); }
+.scan-chip.active { background: var(--el-color-primary-light-9); border-color: var(--el-color-primary); }
+.sc-time { color: var(--text-tertiary); font-family: 'JetBrains Mono', monospace; }
+.sc-type { font-weight: 600; padding: 1px 5px; border-radius: 3px; font-size: 10px; }
+.sc-type.full { background: rgba(0,180,42,0.12); color: #00b42a; }
+.sc-type.quick { background: rgba(22,93,255,0.12); color: #165dff; }
+.sc-stats { color: var(--text-secondary); }
+.scan-funnel-bar { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; padding: 8px 12px; background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; margin-top: 8px; }
+.fb-step { display: inline-flex; flex-direction: column; align-items: center; padding: 4px 8px; border-radius: 5px; font-size: 11px; min-width: 48px; }
+.fb-step.passed { background: rgba(0,180,42,0.06); }
+.fb-name { font-weight: 600; font-size: 10px; color: var(--text-secondary); white-space: nowrap; }
+.fb-nums { font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+.fb-rej { color: var(--stock-down); font-weight: 400; font-size: 10px; }
+.fb-arrow { color: var(--text-tertiary); font-size: 12px; }
+.fb-summary { margin-left: auto; font-size: 11px; color: var(--text-tertiary); }
 .funnel { display: flex; flex-direction: column; gap: 2px; }
 .funnel-step { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px; font-size: 12px; border: 1px solid var(--border-default); }
 .funnel-step.passed { background: rgba(0,180,42,0.06); border-color: rgba(0,180,42,0.2); }
