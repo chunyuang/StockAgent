@@ -141,7 +141,7 @@ class QuoteManager:
         # 非交易时间检查
         now = datetime.now()
         ct = now.strftime("%H:%M")
-        is_trading = ("09:15" <= ct <= "15:05")
+        is_trading = ("09:15" <= ct <= "15:05") and now.weekday() < 5  # 周一至周五
         if not is_trading and not force:
             logger.info(f"[QUOTE] 非交易时间({ct}), 跳过(用force=True强制)")
             return {}

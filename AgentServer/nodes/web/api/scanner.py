@@ -228,7 +228,7 @@ async def get_scanner_status():
 
 @router.post("/start")
 async def start_scanner(req: ScannerStartRequest):
-    """启动扫描"""
+    """启动扫描(后台线程初始化, 立即返回)"""
     global _scanner_instance
 
     if _scanner_instance is None or (
@@ -245,8 +245,13 @@ async def start_scanner(req: ScannerStartRequest):
         _scanner_instance = MarketScanner(account_id=req.account_id, config=config)
 
     scanner = _scanner_instance
-    result = await scanner.start(trade_date=req.trade_date)
-    return {"success": True, "data": result}
+    if scanner._is_running:
+        return {"success": True, "data": {"message": "已在运行中"}}
+    
+    # 后台启动(用run_in_executor避免阻塞事件循环)
+    loop = asyncio.get_event_loop()
+    loop.create_task(scanner.start(trade_date=req.trade_date))
+    return {"success": True, "data": {"message": "扫描器启动中..."}}
 
 
 class StopScannerRequest(BaseModel):
