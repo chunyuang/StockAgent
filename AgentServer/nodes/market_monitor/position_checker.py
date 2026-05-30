@@ -382,111 +382,127 @@ class PositionChecker:
     # ==================== 卖出执行 ====================
     
     async def _execute_sell_list(self, to_sell: List[Tuple], trade_date: str, source: str = "legacy"):
-        """执行卖出列表(含跌停挂起、dry_run、P1-7修复)"""
-        scanner = self._scanner
-        
+        """执行卖出列表(含跌停挂起、dry_run、P1-7修复)【v2.9.26:提取子方法】"""
         for pos, reason, force_price, risk in to_sell:
             if pos.available_qty <= 0:
                 continue
-            
-            # 跌停不可卖
+            # 跌停不可卖 → 挂起pending_sells
             if self._is_limit_down(pos.ts_code):
-                scanner._add_timeline_log("blocked", pos.ts_code, pos.stock_name,
-                    pos.strategy, f"跌停不可卖(触发{reason}但跌停挂单无法成交)", None)
-                # 加入pending_sells(等跌停打开后执行)
-                with self.state_lock:
-                    if not hasattr(scanner, '_pending_sells'):
-                        scanner._pending_sells = {}
-                    scanner._pending_sells[pos.ts_code] = {
-                        "reason": reason, "risk": risk,
-                        "added_at": time.time(), "source": source,
-                    }
-                logger.warning(f"[{source.upper()}] 跌停不可卖: {pos.ts_code} {pos.stock_name}")
+                self._handle_limit_down_pending(pos, reason, risk, source)
                 continue
-            
             # dry_run模式
             if self.dry_run:
-                scanner._add_timeline_log("blocked", pos.ts_code, pos.stock_name,
+                self._scanner._add_timeline_log("blocked", pos.ts_code, pos.stock_name,
                     pos.strategy, f"调试模式跳过卖出({reason})", None)
                 logger.info(f"[DRY-RUN] 跳过卖出 {pos.ts_code} {reason}")
                 continue
-            
-            # P1-7修复: 卖出前保存关键值
-            sell_qty = pos.available_qty
-            sell_profit_pct = pos.profit_pct
-            sell_profit_amount = (pos.current_price - pos.avg_cost) * sell_qty
-            sell_avg_cost = pos.avg_cost
-            sell_current_price = pos.current_price
-            
-            sell_price = force_price if force_price else sell_current_price
-            self.broker.update_realtime(pos.ts_code, sell_price)
-            ok, msg, order = self.broker.place_order(
-                ts_code=pos.ts_code, stock_name=pos.stock_name,
-                side="sell", quantity=sell_qty, price=sell_price,
-                order_type="market", strategy=pos.strategy, reason=reason,
-            )
-            
+            # 执行卖出
+            ok, msg, order, sell_info = self._place_sell_order(pos, reason, force_price, risk)
             if ok:
-                scanner._timeline.append({
-                    "time": datetime.now().strftime("%H:%M:%S"),
-                    "action": "sell",
-                    "ts_code": pos.ts_code,
-                    "stock_name": pos.stock_name,
-                    "strategy": pos.strategy,
-                    "shares": sell_qty,
-                    "price": order.filled_price,
-                    "reason": reason,
-                    "profit_pct": round(sell_profit_pct, 2),
-                    "profit_amount": round(sell_profit_amount, 2),
-                    "decision_detail": {
-                        "sell_reason": reason,
-                        "profit_pct": round(sell_profit_pct, 2),
-                        "profit_amount": round(sell_profit_amount, 2),
-                        "cost_price": sell_avg_cost,
-                        "sell_price": order.filled_price,
-                        "current_price": sell_current_price,
-                        "stop_loss_pct": round(-risk.get("stop_loss_pct", 0.03) * 100, 1),
-                        "take_profit_pct": round(risk.get("take_profit_pct", 0.07) * 100, 1),
-                        "stop_loss_price": scanner._calc_stop_loss_price(pos, risk),
-                        "take_profit_price": scanner._calc_take_profit_price(pos, risk),
-                        "hold_minutes": 0,
-                    },
-                })
-                if "止损" in reason:
-                    scanner._stats["stop_losses"] += 1
-                    # 【v2.9.6:记录交易结果到circuit_breaker(之前漏掉)】
-                    scanner._record_trade_result(sell_profit_pct / 100.0)
-                    try:
-                        self.execution_stats.setdefault("stop_loss_response_times", []).append(time.time())
-                        if len(self.execution_stats["stop_loss_response_times"]) > 50:
-                            self.execution_stats["stop_loss_response_times"] = self.execution_stats["stop_loss_response_times"][-50:]
-                    except Exception as _e:
-                        pass
-                else:
-                    scanner._stats["take_profits"] += 1
-                    # 【v2.9.6:盈利卖出也记录到circuit_breaker(重置连续亏损计数)】
-                    scanner._record_trade_result(sell_profit_pct / 100.0)
-                await scanner._publish_scanner_event("timeline", {"item": scanner._timeline[-1]})
-                # 【v2.9:PositionChecker卖出也发射EventBus事件(与_execute_risk_sell对齐)】
-                try:
-                    from nodes.market_monitor.scanner_event_bus import ScannerEvents
-                    if hasattr(scanner, '_event_bus') and scanner._event_bus:
-                        await scanner._event_bus.emit(ScannerEvents.RISK_SELL_EXECUTED, {
-                            "ts_code": pos.ts_code, "reason": reason,
-                            "price": order.filled_price, "profit_pct": sell_profit_pct,
-                            "source": "position_checker",
-                        })
-                        await scanner._event_bus.emit(ScannerEvents.POSITION_CHANGED, {
-                            "ts_code": pos.ts_code, "action": "sell",
-                            "reason": reason, "source": "position_checker",
-                        })
-                except Exception as _e:
-                    pass
-                logger.info(f"[{source.upper()}] {reason}: {pos.ts_code} {sell_qty}股@{order.filled_price:.2f}")
+                await self._post_sell_processing(pos, order, sell_info, reason, risk, source)
             else:
-                scanner._add_timeline_log("blocked", pos.ts_code, pos.stock_name,
+                self._scanner._add_timeline_log("blocked", pos.ts_code, pos.stock_name,
                     pos.strategy, f"卖出失败: {msg}", None)
                 logger.warning(f"[{source.upper()}] 卖出被拒 {pos.ts_code}: {msg}")
+
+    def _handle_limit_down_pending(self, pos, reason: str, risk: Dict, source: str):
+        """跌停不可卖时挂起pending_sells【v2.9.26提取】"""
+        scanner = self._scanner
+        scanner._add_timeline_log("blocked", pos.ts_code, pos.stock_name,
+            pos.strategy, f"跌停不可卖(触发{reason}但跌停挂单无法成交)", None)
+        with self.state_lock:
+            if not hasattr(scanner, '_pending_sells'):
+                scanner._pending_sells = {}
+            scanner._pending_sells[pos.ts_code] = {
+                "reason": reason, "risk": risk,
+                "added_at": time.time(), "source": source,
+            }
+        logger.warning(f"[{source.upper()}] 跌停不可卖: {pos.ts_code} {pos.stock_name}")
+
+    def _place_sell_order(self, pos, reason: str, force_price, risk: Dict):
+        """下单卖出并返回(ok, msg, order, sell_info)【v2.9.26提取】"""
+        sell_qty = pos.available_qty
+        sell_profit_pct = pos.profit_pct
+        sell_profit_amount = (pos.current_price - pos.avg_cost) * sell_qty
+        sell_avg_cost = pos.avg_cost
+        sell_current_price = pos.current_price
+        sell_price = force_price if force_price else sell_current_price
+        self.broker.update_realtime(pos.ts_code, sell_price)
+        ok, msg, order = self.broker.place_order(
+            ts_code=pos.ts_code, stock_name=pos.stock_name,
+            side="sell", quantity=sell_qty, price=sell_price,
+            order_type="market", strategy=pos.strategy, reason=reason,
+        )
+        sell_info = {
+            "sell_qty": sell_qty, "sell_profit_pct": sell_profit_pct,
+            "sell_profit_amount": sell_profit_amount, "sell_avg_cost": sell_avg_cost,
+            "sell_current_price": sell_current_price, "risk": risk,
+        }
+        return ok, msg, order, sell_info
+
+    async def _post_sell_processing(self, pos, order, sell_info: Dict, reason: str, risk: Dict, source: str):
+        """卖出后处理: timeline+统计+EventBus【v2.9.26提取】"""
+        scanner = self._scanner
+        sell_qty = sell_info["sell_qty"]
+        sell_profit_pct = sell_info["sell_profit_pct"]
+        sell_profit_amount = sell_info["sell_profit_amount"]
+        sell_avg_cost = sell_info["sell_avg_cost"]
+        sell_current_price = sell_info["sell_current_price"]
+
+        scanner._timeline.append({
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "action": "sell",
+            "ts_code": pos.ts_code,
+            "stock_name": pos.stock_name,
+            "strategy": pos.strategy,
+            "shares": sell_qty,
+            "price": order.filled_price,
+            "reason": reason,
+            "profit_pct": round(sell_profit_pct, 2),
+            "profit_amount": round(sell_profit_amount, 2),
+            "decision_detail": {
+                "sell_reason": reason,
+                "profit_pct": round(sell_profit_pct, 2),
+                "profit_amount": round(sell_profit_amount, 2),
+                "cost_price": sell_avg_cost,
+                "sell_price": order.filled_price,
+                "current_price": sell_current_price,
+                "stop_loss_pct": round(-risk.get("stop_loss_pct", 0.03) * 100, 1),
+                "take_profit_pct": round(risk.get("take_profit_pct", 0.07) * 100, 1),
+                "stop_loss_price": scanner._calc_stop_loss_price(pos, risk),
+                "take_profit_price": scanner._calc_take_profit_price(pos, risk),
+                "hold_minutes": 0,
+            },
+        })
+        if "止损" in reason:
+            scanner._stats["stop_losses"] += 1
+            scanner._record_trade_result(sell_profit_pct / 100.0)
+            try:
+                self.execution_stats.setdefault("stop_loss_response_times", []).append(time.time())
+                if len(self.execution_stats["stop_loss_response_times"]) > 50:
+                    self.execution_stats["stop_loss_response_times"] = self.execution_stats["stop_loss_response_times"][-50:]
+            except Exception as _e:
+                pass
+        else:
+            scanner._stats["take_profits"] += 1
+            scanner._record_trade_result(sell_profit_pct / 100.0)
+        await scanner._publish_scanner_event("timeline", {"item": scanner._timeline[-1]})
+        # EventBus事件(与_execute_risk_sell对齐)
+        try:
+            from nodes.market_monitor.scanner_event_bus import ScannerEvents
+            if hasattr(scanner, '_event_bus') and scanner._event_bus:
+                await scanner._event_bus.emit(ScannerEvents.RISK_SELL_EXECUTED, {
+                    "ts_code": pos.ts_code, "reason": reason,
+                    "price": order.filled_price, "profit_pct": sell_profit_pct,
+                    "source": "position_checker",
+                })
+                await scanner._event_bus.emit(ScannerEvents.POSITION_CHANGED, {
+                    "ts_code": pos.ts_code, "action": "sell",
+                    "reason": reason, "source": "position_checker",
+                })
+        except Exception as _e:
+            pass
+        logger.info(f"[{source.upper()}] {reason}: {pos.ts_code} {sell_qty}股@{order.filled_price:.2f}")
     
     # ==================== 追踪止损 ====================
     
