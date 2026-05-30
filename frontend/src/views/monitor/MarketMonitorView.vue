@@ -110,6 +110,20 @@ const saving = ref(false)
 const scannerApi = '/scanner', configApi = '/strategy-config'
 // Wrappers for shared constants (adapted for template usage)
 const layerLabel = (k: string) => { const label = pipelineLabels[k]; if (!label) return k; const prefix = k.split('_')[0]; return prefix + ' ' + label }
+const layerDesc = (layer: string, data: any): string => {
+  const inp = data?.input || 0, out = data?.output || 0, rej = data?.rejected || 0
+  const descs: Record<string, string> = {
+    'L1_force_empty': rej > 0 ? '大盘异常,全部禁止买入' : (out === inp ? '正常,不触发' : '未触发'),
+    'L2_special_period': rej > 0 ? '特殊时期,降低仓位' : (out === inp ? '非特殊时期,仓位不变' : '调整仓位系数'),
+    'L3_sentiment': rej > 0 ? `冰点期,暂停半路追涨${rej}只` : (out === inp ? '情绪正常,仓位不变' : '调整情绪仓位'),
+    'L4_premarket': rej > 0 ? `排除ST/次新/低流动${rej}只` : '全部通过预选',
+    'L5_auction': rej > 0 ? `排除极端竞价${rej}只(高开>7%/低开<-5%)` : '竞价正常',
+    'L6_strategy': (out === inp) ? `复用回测筛选,${out}个候选` : `策略筛选${inp}→${out}`,
+    'L7_ranking': rej > 0 ? `综合排序+去重,截断${rej}只` : '排序完成',
+    'L8_position': rej > 0 ? `仓位受限,${rej}只无法买入` : '仓位充足',
+  }
+  return descs[layer] || ''
+}
 const nowMs = ref(Date.now())
 const sigRemaining = (sig: ScanSignal) => _signalRemaining(sig.created_at || 0, nowMs.value)
 // factorCN, factorLabel imported from @/utils/scanner
