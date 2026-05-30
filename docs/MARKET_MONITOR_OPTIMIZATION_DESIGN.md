@@ -1,10 +1,10 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.28 | 日期: 2026-05-31 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.31 | 日期: 2026-05-31 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats✅ | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化✅ | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复✅ | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复✅ | v2.9.24 diagnose+情绪调仓提取+DelegateRouter策略扩展✅ | v2.9.25 update_strategy_config bug修复+bare except清理+_init_modules拆分✅ | v2.9.26 全模块bare except清理+position_checker._execute_sell_list提取3子方法✅ | v2.9.27 方法提取到子模块5个+测试适配✅ | v2.9.28 风控线程拆分+filter合并提取+scan_loop错误恢复✅
-> 回测影响: 零文件修改, 726测试全通过(scanner 711+backtest 50+extraction 15-重叠)
+> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats✅ | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化✅ | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复✅ | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复✅ | v2.9.24 diagnose+情绪调仓提取+DelegateRouter策略扩展✅ | v2.9.25 update_strategy_config bug修复+bare except清理+_init_modules拆分✅ | v2.9.26 全模块bare except清理+position_checker._execute_sell_list提取3子方法✅ | v2.9.27 方法提取到子模块5个+测试适配✅ | v2.9.28 风控线程拆分+filter合并提取+scan_loop错误恢复✅ | v2.9.31 _safe_read_state统一+RuntimeWarning修复+get_positions提取✅
+> 回测影响: 零文件修改, 777测试全通过(scanner 726+backtest 51)
 
 ---
 
@@ -51,6 +51,9 @@
 | v2.9.26 | 2026-05-31 | 🟡30个bare except全模块清理(12个market_monitor子模块)+🟡position_checker._execute_sell_list 106行→4方法(主方法27行+_handle_limit_down_pending 15行+_place_sell_order 22行+_post_sell_processing 62行)+726scanner+51backtest零回归 |
 | v2.9.27 | 2026-05-31 | 🟡5个方法提取到子模块(_build_account_info→ScannerUtils/_build_timeline_entry→RuntimePersistence/_post_sell_cleanup→RuntimePersistence/_retry_pending_sells→PositionManager/_execute_sell_list_from_risk→PositionManager)+13个源码检查测试适配+scanner 1966→1810行(-7.9%)+726+51全通过 |
 | v2.9.28 | 2026-05-31 | 🟡风控线程拆分(_risk_non_trading_sleep/_check_stale_quote_cache/_risk_error_backoff)+_merge_filter_result→LiveFilterPipeline+_scan_loop_error_recovery提取+scan_once慢步骤日志→ScannerUtils.format_slow_steps+_init_state注释分组9域+DELEGATE_MAP+2条目+scanner 1810→1769行(-2.3%)+777全通过 |
+| v2.9.29 | 2026-05-31 | 🟢冗余注释清理+section合并 | 777全通过 |
+| v2.9.30 | 2026-05-31 | 🟡_risk_periodic_checks提取(风控线程周期性检查60s/30s)+缩进修复 | 777全通过 |
+| v2.9.31 | 2026-05-31 | 🔴RuntimeWarning修复(ensure_future→create_task+call_soon_threadsafe)+🟡_safe_read_state统一(4个_safe_copy_*方法共享state_lock读取)+🟡get_positions提取→ScannerUtils.build_position_dict+scanner 1742→1737行+777全通过 |
 
 v2.0关键修正:
 - ❶ 风控独立线程: asyncio协程→threading.Thread(真并行不受GIL影响)
@@ -109,7 +112,7 @@ v2.0关键修正:
 
 | 模块 | 文件 | 行数 | 职责 |
 |---|---|---|---|
-| MarketScanner | scanner.py | 1672 | 信号扫描+持仓+风控+执行(委托模式+DelegateRouter) |
+| MarketScanner | scanner.py | 1737 | 信号扫描+持仓+风控+执行(委托模式+DelegateRouter) |
 | ScannerDaemon | scanner_daemon.py | 921 | 子进程守护 |
 | LiveFilterPipeline | live_filter_pipeline.py | 645 | 9层过滤管道 |
 | RiskWatchdog | risk_watchdog.py | 763 | 风控看门狗 + _with_state_lock |
