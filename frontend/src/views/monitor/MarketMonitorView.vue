@@ -479,9 +479,17 @@ function connectWS() {
     ws = new WebSocket(`${proto}//${location.host}/ws`)
     let wsDebounceTimer: any = null
     const wsDebouncedFetch = () => { if (wsDebounceTimer) clearTimeout(wsDebounceTimer); wsDebounceTimer = setTimeout(fetchScanner, 500) }
+    let lastSignalStreamId = ''
+    let lastPositionStreamId = ''
     ws.onopen = () => { ws?.send(JSON.stringify({ type: 'subscribe_scanner' })); scannerStore.isWsConnected = true }
     ws.onmessage = (e) => {
       try {
+        const d = JSON.parse(e.data)
+        // 【v2.9.14】记录Stream ID(断线重连后补发用)
+        if (d._stream_id) {
+          if (d.type === 'scanner_signal') lastSignalStreamId = d._stream_id
+          else if (d.type === 'scanner_position') lastPositionStreamId = d._stream_id
+        }
         const d = JSON.parse(e.data)
         // 【Phase4.1:通过Scanner Store分发WS数据】
         if (d.type === 'scanner_signal') {

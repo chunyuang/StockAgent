@@ -273,11 +273,11 @@ class RedisWSBridge:
                                         v = v.decode("utf-8")
                                     data[k] = v
                             
-                            # 转发到WebSocket
+                            # 转发到WebSocket(含_stream_id, 供前端断线补发)
                             if stream_name == CHANNEL_SCANNER_SIGNAL:
-                                await self._handle_scanner_signal_message(data)
+                                await self._handle_scanner_signal_message(data, stream_id=str(msg_id))
                             elif stream_name == CHANNEL_SCANNER_POSITION:
-                                await self._handle_scanner_position_message(data)
+                                await self._handle_scanner_position_message(data, stream_id=str(msg_id))
                             
                             # ACK确认
                             await redis_manager.client.xack(
@@ -357,21 +357,27 @@ class RedisWSBridge:
 
     # ==================== Scanner 频道处理 ====================
 
-    async def _handle_scanner_signal_message(self, data: dict) -> None:
+    async def _handle_scanner_signal_message(self, data: dict, stream_id: str = "") -> None:
         """处理scanner信号消息"""
-        await self._ws_manager.broadcast_scanner_event({
+        msg = {
             "type": "scanner_signal",
             "signals": data.get("signals", []),
             "timestamp": data.get("timestamp"),
-        })
+        }
+        if stream_id:
+            msg["_stream_id"] = stream_id
+        await self._ws_manager.broadcast_scanner_event(msg)
 
-    async def _handle_scanner_position_message(self, data: dict) -> None:
+    async def _handle_scanner_position_message(self, data: dict, stream_id: str = "") -> None:
         """处理scanner持仓变更消息"""
-        await self._ws_manager.broadcast_scanner_event({
+        msg = {
             "type": "scanner_position",
             "positions": data.get("positions", []),
             "timestamp": data.get("timestamp"),
-        })
+        }
+        if stream_id:
+            msg["_stream_id"] = stream_id
+        await self._ws_manager.broadcast_scanner_event(msg)
 
     async def _handle_scanner_timeline_message(self, data: dict) -> None:
         """处理scanner时间线消息"""
