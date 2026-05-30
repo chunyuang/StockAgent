@@ -155,7 +155,14 @@ def create_app() -> FastAPI:
                 static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../../frontend/dist")
                 index_path = os.path.join(static_dir, "index.html")
                 if os.path.exists(index_path):
-                    return FileResponse(index_path, media_type="text/html")
+                    from starlette.responses import Response
+                    with open(index_path, "rb") as f:
+                        html_content = f.read()
+                    return Response(
+                        content=html_content,
+                        media_type="text/html",
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"}
+                    )
         return response
 
     # Trace ID 中间件
