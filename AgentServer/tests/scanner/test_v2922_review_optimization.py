@@ -37,11 +37,14 @@ class TestScanOnceTiming:
         assert "step5_ms" in source, "scan_once缺少step5_ms(持仓检查耗时)"
 
     def test_scan_once_has_slow_step_logging(self):
-        """scan_once源码包含慢步骤标记逻辑"""
+        """scan_once源码包含慢步骤格式化调用【v2.9.28:提取到_format_slow_steps】"""
         from nodes.market_monitor.scanner import MarketScanner
         source = inspect.getsource(MarketScanner.scan_once)
-        assert "slow_marks" in source, "scan_once缺少slow_marks(慢步骤收集)"
-        assert "⚠️" in source or "slow" in source, "scan_once缺少慢步骤警告标记"
+        assert "_format_slow_steps" in source, "scan_once缺少_format_slow_steps调用"
+        # 验证ScannerUtils包含实际格式化逻辑
+        from nodes.market_monitor.scanner_utils import ScannerUtils
+        util_source = inspect.getsource(ScannerUtils.format_slow_steps)
+        assert "slow" in util_source, "format_slow_steps缺少慢步骤逻辑"
 
     def test_scan_once_line_count_reasonable(self):
         """scan_once行数应≤80(v2.9.22:新增分步计时)"""
@@ -182,11 +185,13 @@ class TestScanLoopErrorRecovery:
         assert scanner._scan_loop_error_count == 0
 
     def test_scan_loop_has_error_recovery_logic(self):
-        """_scan_loop源码包含错误恢复逻辑"""
+        """_scan_loop调用_scan_loop_error_recovery【v2.9.28:错误恢复提取到独立方法】"""
         from nodes.market_monitor.scanner import MarketScanner
         source = inspect.getsource(MarketScanner._scan_loop)
-        # 应包含连续错误计数
-        assert "_scan_loop_error_count" in source, "_scan_loop缺少错误恢复计数"
+        assert "_scan_loop_error_recovery" in source, "_scan_loop缺少_scan_loop_error_recovery调用"
+        # 验证error_recovery方法包含实际逻辑
+        recovery_source = inspect.getsource(MarketScanner._scan_loop_error_recovery)
+        assert "_scan_loop_error_count" in recovery_source, "_scan_loop_error_recovery缺少错误计数"
 
     def test_scan_once_resets_error_count(self):
         """scan_once源码包含错误计数重置"""
@@ -195,11 +200,10 @@ class TestScanLoopErrorRecovery:
         assert "_scan_loop_error_count" in source, "scan_once缺少错误计数重置"
 
     def test_scan_loop_max_3_retries(self):
-        """_scan_loop连续3次异常才退出"""
+        """_scan_loop_error_recovery连续3次异常才退出【v2.9.28:逻辑提取到error_recovery】"""
         from nodes.market_monitor.scanner import MarketScanner
-        source = inspect.getsource(MarketScanner._scan_loop)
-        # 应包含3次限制
-        assert ">= 3" in source, "_scan_loop缺少3次异常限制"
+        source = inspect.getsource(MarketScanner._scan_loop_error_recovery)
+        assert ">= 3" in source, "_scan_loop_error_recovery缺少3次异常限制"
 
 
 # ==================== 5. _risk_loop_sync连续错误退避 ====================
