@@ -365,7 +365,7 @@ const pnlOption = computed(() => {
 let nowTimer: any = null
 // signalRemaining/formatRemaining/SIGNAL_EXPIRE_MS imported from @/utils/scanner
 // ==================== Tab 导航 ====================
-const activeTab = ref<'trading' | 'premarket' | 'scan-trace' | 'review' | 'risk' | 'ops'>('trading')
+const activeTab = ref<'guide' | 'trading' | 'premarket' | 'scan-trace' | 'review' | 'risk' | 'ops'>('guide')
 watch(activeTab, (tab) => {
   try {
     if (tab === 'premarket') fetchPremarketData()
@@ -414,6 +414,7 @@ async function startScanner() {
     payload.replay_date = replayDate.value
   }
   await api.post(`${scannerApi}/start`, payload); await fetchScanner()
+  activeTab.value = 'trading'
 }
 async function stopScanner() { showConfirm('停止扫描', '确认停止扫描器？\n持仓将保留，可手动卖出。', async () => { await api.post(`${scannerApi}/stop`, { sell_all: false }); await fetchScanner() }) }
 async function manualScan() { loading.value = true; try { const payload: Record<string, any> = {}; if (tradeMode.value === 'replay' && replayDate.value) payload.replay_date = replayDate.value; const r = await api.post(`${scannerApi}/scan-once`, payload); const p = parseResponse(r); if (p.success) { const m = p.data?.message; if (m) ElMessage.warning(m); else ElMessage.success(`扫描完成: ${p.data?.signals || 0}信号, ${p.data?.positions || 0}持仓`) } else ElMessage.error('扫描失败') } catch (e: any) { ElMessage.error('扫描失败') } finally { loading.value = false; await fetchScanner() } }
@@ -490,7 +491,6 @@ function connectWS() {
           if (d.type === 'scanner_signal') lastSignalStreamId = d._stream_id
           else if (d.type === 'scanner_position') lastPositionStreamId = d._stream_id
         }
-        const d = JSON.parse(e.data)
         // 【Phase4.1:通过Scanner Store分发WS数据】
         if (d.type === 'scanner_signal') {
           scannerStore.updateFromWs('signal', { item: d.signals?.[0] || d.item })
@@ -667,6 +667,10 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 
     <!-- Tab 导航栏 -->
     <div class="mm-tab-bar">
+      <button :class="['tab-btn', activeTab === 'guide' ? 'active' : '']" @click="activeTab = 'guide'">
+        <span class="tab-icon">📖</span>
+        <span class="tab-text"><span class="tab-label">指南</span><span class="tab-desc">架构·策略·操作</span></span>
+      </button>
       <button :class="['tab-btn', activeTab === 'trading' ? 'active' : '']" @click="activeTab = 'trading'">
         <span class="tab-icon">🎯</span>
         <span class="tab-text"><span class="tab-label">实盘</span><span class="tab-desc">信号·持仓·交易</span></span>
@@ -696,8 +700,8 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
       </button>
     </div>
 
-    <!-- 未启动引导 -->
-    <div v-if="!isRunning && !status" class="mm-guide">
+    <!-- 📖 指南Tab -->
+    <div v-if="activeTab === 'guide'" class="mm-guide">
       <div class="guide-card">
         <div class="guide-header">
           <div class="guide-logo">📡</div>
@@ -1582,8 +1586,8 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 .down { color: var(--stock-down); }
 
 /* 引导页 */
-.mm-guide { flex: 1; display: flex; align-items: flex-start; justify-content: center; overflow-y: auto; padding: 20px; }
-.guide-card { max-width: 720px; width: 100%; padding: 32px; background: var(--bg-elevated); border-radius: 12px; box-shadow: var(--shadow-md); }
+.mm-guide { flex: 1; overflow-y: auto; padding: 16px; }
+.guide-card { max-width: 720px; margin: 0 auto; width: 100%; padding: 24px; background: var(--bg-elevated); border-radius: 12px; box-shadow: var(--shadow-md); }
 .guide-header { text-align: center; margin-bottom: 24px; }
 .guide-logo { font-size: 48px; margin-bottom: 8px; }
 .guide-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
