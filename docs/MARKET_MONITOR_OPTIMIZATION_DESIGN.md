@@ -1,10 +1,10 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.10 | 日期: 2026-05-30 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.11 | 日期: 2026-05-30 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅
-> 回测影响: 零文件修改, 530测试全通过
+> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅
+> 回测影响: 零文件修改, 542测试全通过
 
 ---
 
@@ -33,6 +33,7 @@
 | v2.9.8 | 2026-05-30 | Phase4完善: /health新增version字段(git_hash/branch/设计文档版本)+WS断线重连3秒(设计文档规范)+Scanner Store集成验证+13新增测试(514总计) |
 | v2.9.9 | 2026-05-30 | 委托存根消除: 10个显式委托桩移至DELEGATE_MAP+__getattr__动态委托(_merge_factors/_get_effective_strategy_config/_get_strategy_risk/_detect_anomalies/_compute_health_score/_check_circuit_breaker/_record_trade_result/reset_circuit_breaker/_save_performance_snapshot/_push_daily_summary)+profit_pct转换修复(移除启发式,统一/100.0)+_is_limit_down死条目清理+__getattr__扩展(_risk_watchdog_class静态方法绑定/_strategy_scorer fallback+async wrapper)+安全审查: _execute_force_empty的broker.sell()→broker.place_order()修复+get_status()/get_positions() broker None guard+_ASYNC_DELEGATE_METHODS清理+514测试全通过(scanner 1716行44方法39 DELEGATE_MAP条目) |
 | v2.9.10 | 2026-05-30 | /health端点优化: 健康度统一(API层100扣减+scanner_health绿黄红→base_score映射green=100/yellow=60/red=30+金融扣减)+版本常量_DESIGN_DOC_VERSION=v2.9.9(不再硬编码)+版本缓存_version_cache(5分钟TTL,避免每次git子进程)+pending_sells线程安全读取(加state_lock)+合并warnings(scanner_health+金融指标)+16新增测试(530总计) |
+| v2.9.11 | 2026-05-30 | API端点线程安全: _safe_read_shared辅助函数(统一state_lock保护共享状态读取)+7处unsafe getattr(_trailing_stops/_position_risk_levels)替换+set_trailing_stop写操作在state_lock内完成(读拷贝/写引用模式)+12新增测试(542总计) |
 
 v2.0关键修正:
 - ❶ 风控独立线程: asyncio协程→threading.Thread(真并行不受GIL影响)
