@@ -1,10 +1,10 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.22 | 日期: 2026-05-31 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.23 | 日期: 2026-05-31 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
 > 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化 | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复 | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复
-> 回测影响: 零文件修改, 814测试全通过
+> 回测影响: 零文件修改, 822测试全通过
 
 ---
 
@@ -2403,8 +2403,78 @@ scan_once成功时重置: `self._scan_loop_error_count = 0`
 |---|---|---|
 | v2.9.21 | 1851 | +2行(MarketPhase类) |
 | v2.9.22 | 1922 | 分步计时+卖出统计分类修复+跨日一致性+错误恢复 |
+| v2.9.23 | 2017 | 行情缓存过期检测+异常日志增强+跌停恢复重试+提取重构 |
 | **v2.9.22** | **1922** | **+71行(分步计时30行+统计分类12行+跨日一致性10行+错误恢复19行)** |
 
 ### 31.5 回测影响
 
 零。所有变更仅影响market_monitor模块, 回测引擎零文件修改。
+
+## 三十二、v2.9.23 行情缓存过期检测+异常日志增强+跌停恢复重试+提取重构 (2026-05-31)
+
+### 32.1 设计目标
+
+1. **🟡 行情缓存过期检测**: 交易时间内行情源故障时,风控线程使用过期数据做止损判断,可能导致误判
+2. **🔴 关键路径异常静默吞没**: `_post_sell_cleanup`等关键卖出路径4个`except Exception: pass`,问题不可观测
+3. **🟡 跌停恢复后卖出遗忘**: 跌停挂起的pending_sells在跌停恢复后没有被自动重试
+
+### 32.2 变更详情
+
+#### A. 行情缓存过期检测
+
+```python
+# 新增_last_realtime_update_ts字段
+self._last_realtime_update_ts: float = 0.0
+
+# _risk_loop_sync中检测
+if phase == MarketPhase.TRADING:
+    cache_age = time.time() - (self._last_realtime_update_ts or 0)
+    if cache_age > 120:  # 2分钟未更新
+        logger.warning(f"[RISK_THREAD] 行情缓存过期({cache_age:.0f}秒)")
+        # 每5分钟发射一次事件(避免刷日志)
+```
+
+#### B. 异常日志增强
+
+| 位置 | 修复前 | 修复后 |
+|---|---|---|
+| _post_sell_cleanup timeline事件 | `except: pass` | `except: logger.debug(...)` |
+| _post_sell_cleanup 卖出事件 | `except: pass` | `except: logger.debug(...)` |
+| _post_sell_cleanup broker持久化 | `except: pass` | `except: logger.warning(...)` |
+| _post_sell_cleanup 运行时快照 | `except: pass` | `except: logger.debug(...)` |
+| _scan_loop_settlement 3处 | `except: pass` | `except: logger.debug/warning(...)` |
+| _persist_stop_state 2处 | `except: pass` | `except: logger.warning(...)` |
+| _restore_start_state 审计索引 | `except: pass` | `except: logger.debug(...)` |
+| update_strategy_config 3处 | `except: pass` | `except: logger.debug(...)` |
+| _load/persist_strategy_overrides | `except: pass` | `except: logger.debug(...)` |
+
+保留5个bare except(均有注释): 事件发射失败不应影响主流程/风控线程/行情推送/参数校验
+
+#### C. 跌停恢复后卖出重试
+
+```python
+def _retry_pending_sells(self, realtime_data: Dict):
+    """跌停恢复后重试挂起的卖出指令"""
+    with self._state_lock:
+        pending = dict(self._pending_sells)
+    for ts_code, info in pending.items():
+        # 已无持仓→清除
+        # 仍在跌停→跳过
+        # 跌停恢复→重新执行卖出
+```
+
+#### D. 方法提取
+
+| 新方法 | 来源 | 行数 |
+|---|---|---|
+| `_retry_pending_sells` | `_check_stop_loss_only`拆分 | 50行 |
+| `_execute_sell_list_from_risk` | `_check_stop_loss_only`拆分 | 26行 |
+| `_build_timeline_entry` | `_post_sell_cleanup`拆分(staticmethod) | 24行 |
+
+### 32.3 测试覆盖
+
+v2.9.22测试28个 + v2.9.23无新增(纯增强), 全量822 passed。
+
+### 32.4 回测影响
+
+零。所有变更仅影响market_monitor模块。
