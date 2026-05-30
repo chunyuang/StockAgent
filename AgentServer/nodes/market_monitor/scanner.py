@@ -223,6 +223,9 @@ class MarketScanner:
             "take_profits": 0,
             "stocks_scanned": 0,
         }
+        
+        # 【v2.9.22:scan_loop连续错误计数(瞬态错误恢复)】
+        self._scan_loop_error_count: int = 0
 
     def _init_broker(self):
         """初始化撮合引擎【v2.9.3提取】"""
@@ -453,6 +456,7 @@ class MarketScanner:
             "trailing_stops": self._get_activated_trailing_stops_safe(),
             "position_risk_levels": self._safe_copy_position_risk_levels(),
             "execution_stats": dict(self._execution_stats),
+            "scan_loop_errors": getattr(self, '_scan_loop_error_count', 0),  # 【v2.9.22】
             "smart_check_interval": self._get_smart_check_interval(self._broker.get_positions()) if self._is_running else None,
             "quote_degrade_level": self._quote_manager.degrade_level,
             "quote_degrade_desc": self._quote_manager.degrade_desc,
@@ -836,7 +840,7 @@ class MarketScanner:
         logger.info(f"[SCANNER] 周末缓存预热: {warmed}只(上一交易日收盘价)")
 
     def _reset_daily_risk_state(self):
-        """重置每日风控状态(circuit_breaker+pending_sells+执行统计)【v2.9.21提取】"""
+        """重置每日风控状态(circuit_breaker+pending_sells+执行统计)【v2.9.21提取, v2.9.22跨日一致性增强】"""
         # 重置circuit_breaker(需要broker账户信息)
         if self._broker:
             try:
@@ -856,10 +860,19 @@ class MarketScanner:
 
         # 清除执行统计(每次启动都重置)
         self._execution_stats["stop_loss_response_times"] = []
-        # 清除跌停挂起(使用_with_state_lock统一加锁)
-        from nodes.market_monitor.risk_watchdog import RiskWatchdog
-        RiskWatchdog._with_state_lock(self, lambda: self._pending_sells.clear(),
-                                       fallback=lambda: self._pending_sells.clear())
+        
+        # 【v2.9.22:跨日pending_sells一致性清理】
+        # 清除引用已无持仓的pending_sells(跨日后Broker持仓已恢复,但旧pending_sells可能引用已卖出的票)
+        with self._state_lock:
+            if self._pending_sells and self._broker:
+                held_codes = {p.ts_code for p in self._broker.get_positions()}
+                stale = [c for c in self._pending_sells if c not in held_codes]
+                for c in stale:
+                    del self._pending_sells[c]
+                if stale:
+                    logger.info(f"[SCANNER] 清理{len(stale)}个跨日过期pending_sells(已无持仓): {stale[:3]}")
+            self._pending_sells.clear()
+        
         logger.info("[SCANNER] 执行统计+跌停挂起已重置(追踪止损/风险等级将在加载持仓时恢复)")
 
     async def premarket_prepare(self, trade_date: str):
@@ -1074,14 +1087,23 @@ class MarketScanner:
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            logger.error(f"[SCANNER] 异常: {e}", exc_info=True)
-            self._is_running = False
-            # 【v2.9.15】发射异常事件(前端可感知)
+            logger.error(f"[SCANNER] _scan_loop异常: {e}", exc_info=True)
+            # 【v2.9.22:瞬态错误恢复】不立即杀死scanner, 等30秒后尝试恢复
+            # 只有连续异常才标记停止(3次异常后彻底退出)
+            self._scan_loop_error_count = getattr(self, '_scan_loop_error_count', 0) + 1
+            if self._scan_loop_error_count >= 3:
+                logger.error(f"[SCANNER] 连续{self._scan_loop_error_count}次异常, scanner退出")
+                self._is_running = False
+            else:
+                logger.warning(f"[SCANNER] 第{self._scan_loop_error_count}次异常, 30秒后尝试恢复")
+                await asyncio.sleep(30)
+                # 恢复后重置计数(下次scan_once成功时)\n            # 发射异常事件(前端可感知)
             try:
                 asyncio.ensure_future(self._event_bus.emit(ScannerEvents.SCANNER_ERROR, {
                     "error": str(e),
                     "error_type": type(e).__name__,
                     "timestamp": time.time(),
+                    "consecutive_errors": self._scan_loop_error_count,
                 }))
             except Exception:
                 pass
@@ -1180,14 +1202,17 @@ class MarketScanner:
         - 跌停不可卖: 挂起pending_sells, 不丢追踪止损
         - 【v2.9.5】使用self._trade_date保证交易日一致性
         - 【v2.9.21】时间门控使用MarketPhase.classify()统一
+        - 【v2.9.22】连续错误退避: 3次异常后加长sleep, 避免空转刷日志
         """
         import threading
         tick = 0
+        consecutive_errors = 0  # 【v2.9.22】
         logger.info("[RISK_THREAD] 风控线程启动")
         
         while self._risk_running:
             try:
                 tick += 1
+                consecutive_errors = 0  # 【v2.9.22:成功时重置】
                 
                 # 【v2.9.21】使用MarketPhase统一时间分类
                 phase = MarketPhase.classify()
@@ -1233,16 +1258,25 @@ class MarketScanner:
                         logger.debug(f"[RISK_THREAD] quick check异常: {e}")
 
             except Exception as e:
-                logger.error(f"[RISK_THREAD] 风控线程异常: {e}")
-                # 【v2.9.15】风控线程异常也发射事件
+                consecutive_errors += 1  # 【v2.9.22】
+                logger.error(f"[RISK_THREAD] 风控线程异常({consecutive_errors}次): {e}")
+                # 【v2.9.22:连续错误退避】
+                # 3次以内正常1秒sleep; 3-10次5秒sleep; >10次30秒sleep(避免空转刷日志)
+                if consecutive_errors >= 10:
+                    time.sleep(30)
+                elif consecutive_errors >= 3:
+                    time.sleep(5)
+                # 风控线程异常也发射事件
                 try:
                     asyncio.ensure_future(self._event_bus.emit(ScannerEvents.SCANNER_ERROR, {
                         "error": f"风控线程异常: {e}",
                         "error_type": "RiskThreadError",
                         "timestamp": time.time(),
+                        "consecutive_errors": consecutive_errors,
                     }))
                 except Exception:
                     pass
+                continue  # 【v2.9.22:异常后跳过time.sleep(1)的下方sleep,用上面的退避sleep】
             time.sleep(1)  # 真sleep,不受asyncio影响
         
         logger.info("[RISK_THREAD] 风控线程已退出")
@@ -1350,7 +1384,16 @@ class MarketScanner:
                 "source": source,
             },
         })
-        self._stats["stop_losses"] += 1
+        # 【v2.9.22:按卖出原因分类统计,修复所有卖出都计为stop_losses的bug】
+        # stop_loss/gap_stop_loss/trailing_stop → stop_losses
+        # take_profit/profit_lock/profit_protect → take_profits
+        # 其他(moving_stop/emotion/max_hold/rebalance/force_empty/stop_sell) → trades_executed
+        if reason in ("stop_loss", "gap_stop_loss", "trailing_stop"):
+            self._stats["stop_losses"] += 1
+        elif reason in ("take_profit", "profit_lock", "profit_protect"):
+            self._stats["take_profits"] += 1
+        else:
+            self._stats["trades_executed"] += 1
         # 记录交易结果到circuit_breaker(v2.9.9:profit_pct/100转比率)
         self._record_trade_result(profit_pct / 100.0)
         # 清理追踪止损(线程安全)
@@ -1389,21 +1432,33 @@ class MarketScanner:
         Args:
             trade_date: 交易日期
             force: 强制模式, 忽略交易时间检查(测试用)
+        
+        【v2.9.22】新增分步计时, 性能瓶颈可追踪
         """
         t0 = time.time()
         self._scan_count += 1
         scan_time = datetime.now().strftime("%H:%M:%S")
 
+        # 【v2.9.22:成功扫描时重置_scan_loop连续错误计数】
+        if hasattr(self, '_scan_loop_error_count') and self._scan_loop_error_count > 0:
+            logger.info(f"[SCAN] 恢复成功(之前连续{self._scan_loop_error_count}次异常)")
+            self._scan_loop_error_count = 0
+
         logger.info(f"[SCAN #{self._scan_count}] 开始扫描 {scan_time}")
 
         # Step 1: 获取实时行情
+        t1 = time.time()
         realtime_data = await self._fetch_realtime_batch(force=force)
+        step1_ms = (time.time() - t1) * 1000
 
         # Step 2: 合并日级因子+实时数据
+        t2 = time.time()
         self._update_name_map(realtime_data)
         merged_df = self._merge_factors(realtime_data)
+        step2_ms = (time.time() - t2) * 1000
 
         # Step 3: 策略筛选 + 9层筛选管道
+        t3 = time.time()
         new_signals = await self._apply_strategies(merged_df, trade_date)
         new_signals = await self._apply_filter_pipeline(new_signals, trade_date, realtime_data)
 
@@ -1412,12 +1467,17 @@ class MarketScanner:
         if anomaly_signals:
             anomaly_signals = await self._apply_filter_pipeline(anomaly_signals, trade_date, realtime_data)
         new_signals.extend(anomaly_signals)
+        step3_ms = (time.time() - t3) * 1000
 
         # Step 4: 增量更新信号
+        t4 = time.time()
         await self._update_signals(new_signals, scan_time)
+        step4_ms = (time.time() - t4) * 1000
 
         # Step 5: 持仓检查(止损止盈)
+        t5 = time.time()
         await self._check_positions(realtime_data, trade_date)
+        step5_ms = (time.time() - t5) * 1000
 
         # Step 6: 同步broker实时价格
         self._sync_broker_prices(realtime_data)
@@ -1427,9 +1487,20 @@ class MarketScanner:
         self._update_scan_stats(scan_time, len(realtime_data), elapsed)
         await self._persist_scan_result()
 
+        # 【v2.9.22】分步耗时日志(>100ms的步骤标⚠️, >1s的标🔴)
+        slow_marks = []
+        for label, ms in [("行情", step1_ms), ("因子", step2_ms),
+                          ("策略+筛选", step3_ms), ("信号", step4_ms),
+                          ("持仓检查", step5_ms)]:
+            if ms > 1000:
+                slow_marks.append(f"🔴{label}={ms:.0f}ms")
+            elif ms > 100:
+                slow_marks.append(f"⚠️{label}={ms:.0f}ms")
+        slow_info = f" | 慢步骤: {', '.join(slow_marks)}" if slow_marks else ""
+
         logger.info(f"[SCAN #{self._scan_count}] 完成: "
                      f"{len(realtime_data)}只 | {len(self._active_signals)}信号 | "
-                     f"{elapsed:.1f}秒")
+                     f"{elapsed:.1f}秒{slow_info}")
 
     def _sync_broker_prices(self, realtime_data: Dict[str, Dict]):
         """同步broker实时价格(用于持仓估值和涨跌停判断)【v2.9.19提取】"""
