@@ -764,7 +764,49 @@ class RiskWatchdog:
         RiskWatchdog._with_state_lock(scanner, _reset, fallback=_reset)
         logger.info("[CIRCUIT] 熔断已重置")
     
-    # ==================== 对外接口 ====================
+    @staticmethod
+    def reset_daily_risk_state(scanner):
+        """重置每日风控状态(circuit_breaker+pending_sells+执行统计)【v2.9.32从scanner提取】
+        
+        重置项:
+        - circuit_breaker: daily_start_assets/today_trades/today_losses/trading_paused
+        - 执行统计: stop_loss_response_times清空
+        - pending_sells: 清理跨日过期的(已无持仓的票)
+        - 追踪止损/风险等级: 在_load_positions→load_runtime_snapshot中按日期恢复
+        """
+        # 重置circuit_breaker(需要broker账户信息)
+        if scanner._broker:
+            try:
+                acct = scanner._broker.get_account()
+                if acct:
+                    def _reset_cb():
+                        scanner._circuit_breaker["daily_start_assets"] = acct.total_assets
+                        scanner._circuit_breaker["today_trades"] = 0
+                        scanner._circuit_breaker["today_losses"] = 0
+                        scanner._circuit_breaker["trading_paused"] = False
+                        scanner._circuit_breaker["pause_reason"] = ""
+                    RiskWatchdog._with_state_lock(scanner, _reset_cb, fallback=_reset_cb)
+                    logger.info(f"[SCANNER] 每日风控重置: start_asset={acct.total_assets:.2f}")
+            except Exception as e:
+                logger.warning(f"[SCANNER] 每日风控重置失败: {e}")
+
+        # 清除执行统计(每次启动都重置)
+        scanner._execution_stats["stop_loss_response_times"] = []
+        
+        # 跨日pending_sells一致性清理
+        with scanner._state_lock:
+            if scanner._pending_sells and scanner._broker:
+                held_codes = {p.ts_code for p in scanner._broker.get_positions()}
+                stale = [c for c in scanner._pending_sells if c not in held_codes]
+                for c in stale:
+                    del scanner._pending_sells[c]
+                if stale:
+                    logger.info(f"[SCANNER] 清理{len(stale)}个跨日过期pending_sells(已无持仓): {stale[:3]}")
+            scanner._pending_sells.clear()
+        
+        logger.info("[SCANNER] 执行统计+跌停挂起已重置(追踪止损/风险等级将在加载持仓时恢复)")
+
+        # ==================== 对外接口 ====================
     
     def get_status(self) -> Dict:
         """获取看门狗状态(供GUI/API使用)"""

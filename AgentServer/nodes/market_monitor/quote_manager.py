@@ -230,7 +230,7 @@ class QuoteManager:
                     logger.info(f"[QUOTE] 行情恢复正常, 降级已恢复(持续{degrade_duration:.0f}秒)")
                     # 【v2.9:通过回调发射EventBus行情恢复事件(消除_scanner引用)】
                     if self._event_emitter:
-                        asyncio.ensure_future(self._event_emitter("quote_recovered", {
+                        asyncio.get_event_loop().create_task(self._event_emitter("quote_recovered", {
                             "level": 0,
                             "degrade_duration_s": degrade_duration,
                             "source": "eastmoney",
@@ -244,7 +244,7 @@ class QuoteManager:
                     logger.warning(f"[QUOTE] 东方财富连续3次失败,降级到level 1: {e}")
                     # 【v2.9:通过回调发射EventBus行情降级事件(消除_scanner引用)】
                     if self._event_emitter:
-                        asyncio.ensure_future(self._event_emitter("quote_degraded", {
+                        asyncio.get_event_loop().create_task(self._event_emitter("quote_degraded", {
                             "level": 1,
                             "source": "eastmoney",
                             "error": str(e),

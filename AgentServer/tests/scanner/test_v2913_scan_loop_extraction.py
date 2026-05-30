@@ -1,5 +1,6 @@
 """v2.9.13: _scan_loop时间段提取 + 线程安全修复 测试"""
 import asyncio
+import os
 import threading
 import time
 from unittest.mock import MagicMock, AsyncMock, patch
@@ -184,11 +185,10 @@ class TestScannerPremarketLocks:
                     f"circuit_breaker赋值附近缺少lock保护 (line {idx})"
 
     def test_pending_sells_clear_uses_lock(self):
-        """_pending_sells.clear()使用state_lock(v2.9.21:在_reset_daily_risk_state中)"""
+        """_pending_sells.clear()使用state_lock【v2.9.32:已提取到RiskWatchdog.reset_daily_risk_state】"""
         import inspect
-        from nodes.market_monitor.scanner import MarketScanner
-        # v2.9.21: _pending_sells.clear()从premarket_prepare提取到_reset_daily_risk_state
-        src = inspect.getsource(MarketScanner._reset_daily_risk_state)
+        from nodes.market_monitor.risk_watchdog import RiskWatchdog
+        src = inspect.getsource(RiskWatchdog.reset_daily_risk_state)
         lines = src.split('\n')
         found_lock_protection = False
         for i, line in enumerate(lines):
@@ -197,7 +197,7 @@ class TestScannerPremarketLocks:
                 continue
             if '_pending_sells.clear()' in stripped:
                 for j in range(max(0, i-10), i):
-                    if ('with lock:' in lines[j] or 'with self._state_lock:' in lines[j]
+                    if ('with scanner._state_lock:' in lines[j]
                             or '_with_state_lock' in lines[j]):
                         found_lock_protection = True
                         break
@@ -209,13 +209,13 @@ class TestTrailingStopsSafeRead:
     """scanner中trailing_stops读取线程安全"""
 
     def test_load_positions_trailing_count_safe(self):
-        """_load_positions中trailing_stops计数使用安全读取"""
-        import inspect
-        from nodes.market_monitor.scanner import MarketScanner
-        src = inspect.getsource(MarketScanner._load_positions)
-        # v2.9.13: 不应直接len(self._trailing_stops)(无锁)
-        # 允许在_safe_copy_trailing_stops返回值上用len()
-        assert 'len(self._safe_copy_trailing_stops())' in src, "应使用_safe_copy_trailing_stops()安全读取"
+        """_load_positions中trailing_stops计数使用安全读取【v2.9.32:已提取到RuntimePersistence】"""
+        # v2.9.32: _load_positions委托到RuntimePersistence.load_positions
+        # 检查RuntimePersistence源码中使用_safe_copy_trailing_stops
+        rp_path = os.path.join(os.path.dirname(__file__), "..", "..", "nodes", "market_monitor", "runtime_persistence.py")
+        with open(rp_path) as f:
+            rp_src = f.read()
+        assert "_safe_copy_trailing_stops" in rp_src, "RuntimePersistence.load_positions应使用_safe_copy_trailing_stops安全读取"
 
 
 # ==================== 死代码清理 ====================

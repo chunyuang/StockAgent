@@ -7,6 +7,8 @@ RuntimePersistence — 运行时状态持久化
 - 时间线保存/加载(MongoDB scanner_timeline)
 - 扫描链路追踪保存(MongoDB scan_traces)
 - 盘前竞价处理
+- 数据加载(股票列表/日级因子/名称映射/周末缓存)【v2.9.32提取】
+- 停止时状态持久化【v2.9.32提取】
 """
 
 import json
@@ -15,6 +17,8 @@ import os
 import time
 from datetime import datetime
 from typing import Dict, List, Any, Optional
+
+import pandas as pd
 
 logger = logging.getLogger("runtime_persistence")
 
@@ -551,3 +555,223 @@ class RuntimePersistence:
                 logger.info(f"[SCAN] 恢复时间线: {len(scanner._timeline)}条")
         except Exception as e:
             logger.debug(f"[SCAN] 加载时间线失败(非关键): {e}")
+
+    # ==================== 数据加载方法【v2.9.32从scanner提取】 ====================
+
+    async def load_stock_list(self) -> List[str]:
+        """加载全市场代码(从stock_daily_ak_full)"""
+        try:
+            from core.managers import mongo_manager
+            await mongo_manager.initialize()
+
+            today = datetime.now().strftime("%Y%m%d")
+            cursor = mongo_manager.db["stock_daily_ak_full"].find(
+                {"trade_date": int(today)},
+                {"ts_code": 1, "_id": 0}
+            )
+            docs = await cursor.to_list(length=6000)
+            if not docs:
+                latest = await mongo_manager.db["stock_daily_ak_full"].find_one(
+                    sort=[("trade_date", -1)],
+                    projection={"trade_date": 1, "_id": 0}
+                )
+                if latest:
+                    cursor = mongo_manager.db["stock_daily_ak_full"].find(
+                        {"trade_date": latest["trade_date"]},
+                        {"ts_code": 1, "_id": 0}
+                    )
+                    docs = await cursor.to_list(length=6000)
+
+            codes = [d["ts_code"] for d in docs if d.get("ts_code")]
+            logger.info(f"[SCANNER] 加载{len(codes)}只股票代码")
+            return codes
+        except Exception as e:
+            logger.error(f"[SCANNER] 加载股票列表失败: {e}")
+            return []
+
+    async def load_daily_factors(self, trade_date: str) -> Optional[pd.DataFrame]:
+        """预加载日级因子(从MongoDB读取)"""
+        try:
+            from core.managers import mongo_manager
+            await mongo_manager.initialize()
+
+            latest_doc = await mongo_manager.db["stock_daily_ak_full"].find_one(
+                {"trade_date": {"$lte": int(trade_date)}},
+                sort=[("trade_date", -1)],
+                projection={"trade_date": 1, "_id": 0}
+            )
+            if not latest_doc:
+                return None
+
+            factor_date = latest_doc["trade_date"]
+            factor_fields = [
+                "ts_code", "pct_chg", "pre_close", "close", "open", "high", "low",
+                "ma5", "macd", "rsi_6", "boll_upper", "atr",
+                "turnover_rate", "volume_ratio", "circ_mv",
+                "is_limit_up", "is_limit_down", "first_limit_up", "limit_up_count",
+                "fear_greed_index"
+            ]
+            projection = {"_id": 0}
+            for f in factor_fields:
+                projection[f] = 1
+
+            cursor = mongo_manager.db["stock_daily_ak_full"].find(
+                {"trade_date": factor_date},
+                projection
+            )
+            docs = await cursor.to_list(length=6000)
+            if docs:
+                df = pd.DataFrame(docs)
+                logger.info(f"[SCANNER] 加载{len(docs)}只股票日级因子(date={factor_date})")
+                return df
+        except Exception as e:
+            logger.error(f"[SCANNER] 加载日级因子失败: {e}")
+        return None
+
+    async def load_stock_name_map(self) -> Dict[str, str]:
+        """从MongoDB stock_basic加载ts_code→名称映射"""
+        try:
+            from core.managers import mongo_manager
+            if not mongo_manager.is_initialized:
+                return {}
+            docs = await mongo_manager.db["stock_basic"].find(
+                {}, {"ts_code": 1, "name": 1, "_id": 0}
+            ).to_list(length=None)
+            name_map = {}
+            for doc in docs:
+                if doc.get("ts_code") and doc.get("name"):
+                    name_map[doc["ts_code"]] = doc["name"]
+            logger.info(f"[SCANNER] 加载{len(name_map)}只股票名称映射")
+            return name_map
+        except Exception as e:
+            logger.warning(f"[SCANNER] 加载名称映射失败: {e}")
+            return {}
+
+    def warm_weekend_cache(self, daily_factors_df, stock_name_map: Dict[str, str],
+                           quote_manager=None) -> Dict[str, Dict]:
+        """周末调试: 用日级因子(上一交易日收盘)填充行情缓存
+        
+        Returns:
+            realtime dict (由scanner写入_realtime_cache)
+        """
+        warmed = 0
+        realtime = {}
+        df = daily_factors_df
+        if df is None or df.empty:
+            return realtime
+
+        for _, row in df.iterrows():
+            ts_code = row.get("ts_code")
+            if not ts_code:
+                continue
+            close = row.get("close")
+            pre_close = row.get("pre_close")
+            pct_chg = row.get("pct_chg")
+            if close and close > 0:
+                realtime[ts_code] = {
+                    "price": close,
+                    "pct_chg": pct_chg if pct_chg else 0,
+                    "pre_close": pre_close if pre_close else close,
+                    "open": row.get("open", close),
+                    "high": row.get("high", close),
+                    "low": row.get("low", close),
+                    "vol": row.get("vol", 0),
+                    "amount": row.get("amount", 0),
+                    "turnover_rate": row.get("turnover_rate", 0),
+                    "volume_ratio": row.get("volume_ratio", 0),
+                    "name": stock_name_map.get(ts_code, ""),
+                }
+                warmed += 1
+
+        if quote_manager:
+            quote_manager.warm_sources_cache(realtime)
+
+        logger.info(f"[SCANNER] 周末缓存预热: {warmed}只(上一交易日收盘价)")
+        return realtime
+
+    async def persist_stop_state(self):
+        """停止时持久化状态: broker+timeline+runtime snapshot+pending_sells【v2.9.32从scanner提取】"""
+        scanner = self._scanner
+        broker = scanner._broker
+
+        # 强制保存当前状态(跳过节流)
+        if broker:
+            try:
+                await broker.save_state(force=True)
+            except Exception as _e:
+                logger.warning(f"[SCANNER] 停止时broker状态持久化失败: {_e}")
+            await self.save_runtime_snapshot(force=True)
+
+        # 保存时间线到MongoDB
+        try:
+            await self.save_timeline()
+        except Exception as _e:
+            logger.warning(f"[SCANNER] 停止时Timeline保存失败: {_e}")
+
+        # 保存pending_sells状态到MongoDB(防止重启丢失)
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.db:
+                from nodes.market_monitor.risk_watchdog import RiskWatchdog
+                pending = RiskWatchdog._with_state_lock(
+                    scanner, lambda: dict(scanner._pending_sells),
+                    fallback=lambda: dict(scanner._pending_sells),
+                )
+                if pending:
+                    await mongo_manager.db["scanner_state"].update_one(
+                        {"_id": "pending_sells"},
+                        {"$set": {"items": pending, "saved_at": datetime.now().isoformat()}},
+                        upsert=True,
+                    )
+                    logger.info(f"[STOP] 保存{len(pending)}个pending_sells到MongoDB")
+        except Exception as e:
+            logger.debug(f"[STOP] pending_sells保存失败(非关键): {e}")
+
+    async def restore_start_state(self):
+        """启动时恢复状态(审计索引+pending_sells)【v2.9.32从scanner提取】"""
+        scanner = self._scanner
+
+        # 审计日志TTL索引(90天自动过期)
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.db:
+                await mongo_manager.db["audit_log"].create_index(
+                    "timestamp", expireAfterSeconds=7776000  # 90天
+                )
+        except Exception as _e:
+            logger.debug(f"[START] 审计日志TTL索引创建失败: {_e}")
+
+        # 从MongoDB恢复pending_sells(上次停机时保存的跌停挂起)
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.db:
+                doc = await mongo_manager.db["scanner_state"].find_one({"_id": "pending_sells"})
+                if doc and doc.get("items"):
+                    with scanner._state_lock:
+                        scanner._pending_sells.update(doc["items"])
+                    logger.info(f"[START] 恢复{len(doc['items'])}个pending_sells")
+        except Exception as e:
+            logger.debug(f"[START] pending_sells恢复失败(非关键): {e}")
+
+    async def load_positions(self):
+        """加载当前持仓(优先从MongoDB恢复, 否则从broker获取)
+        
+        【Phase1.1增强】恢复后同时恢复Scanner运行时状态(追踪止损/风险等级/跌停挂起等)
+        Broker是持仓唯一权威来源, Scanner快照只存Scanner独有状态。
+        【v2.9.32从scanner提取】
+        """
+        scanner = self._scanner
+        if scanner._broker:
+            try:
+                restored = await scanner._broker.load_state()
+                if restored and scanner._broker.positions:
+                    logger.info(f"[SCANNER] 持仓已从MongoDB恢复: {len(scanner._broker.positions)}个")
+            except Exception as e:
+                logger.warning(f"[SCANNER] 持仓恢复失败(使用空持仓): {e}")
+
+        # Scanner运行时状态恢复
+        await self.load_runtime_snapshot()
+
+        _ts_count = len(scanner._safe_copy_trailing_stops())
+        logger.info(f"[SCANNER] 持仓: {len(scanner._broker.get_positions()) if scanner._broker else 0}个, "
+                    f"追踪止损: {_ts_count}个")

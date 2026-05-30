@@ -293,12 +293,11 @@ class TestScannerLineCountV2920:
     """验证v2.9.20行数变化"""
 
     def test_scanner_line_count(self):
-        """scanner.py行数应在合理范围(v2.9.22:分步计时+错误恢复)"""
+        """scanner.py行数应在合理范围(v2.9.32:8个方法提取到子模块)"""
         with open(SCANNER_PATH) as f:
             lines = len(f.readlines())
-        # v2.9.21: MarketPhase提取(+32行), 但_scan_loop/_risk_loop_sync简化
-        assert lines < 2150, f"scanner.py行数{lines}应<1970"
-        assert lines > 1700, f"scanner.py行数{lines}应>1700"
+        assert lines < 1650, f"scanner.py行数{lines}应<1650 (v2.9.32)"
+        assert lines > 1400, f"scanner.py行数{lines}应>1400"
 
 
 class TestNoBacktestRegressionV2920:

@@ -310,10 +310,10 @@ class TestScannerGetattrSimplification:
         assert 'resolve_delegate' in src
 
     def test_scanner_uses_with_state_lock(self):
-        """scanner.py使用_with_state_lock(v2.9.21:在_reset_daily_risk_state中)"""
+        """scanner.py通过RiskWatchdog委托使用_with_state_lock【v2.9.32:已提取到RiskWatchdog.reset_daily_risk_state】"""
         import inspect
-        from nodes.market_monitor.scanner import MarketScanner
-        src = inspect.getsource(MarketScanner._reset_daily_risk_state)
+        from nodes.market_monitor.risk_watchdog import RiskWatchdog
+        src = inspect.getsource(RiskWatchdog.reset_daily_risk_state)
         assert '_with_state_lock' in src
 
 
