@@ -1,10 +1,10 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.13 | 日期: 2026-05-30 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.14 | 日期: 2026-05-30 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅
-> 回测影响: 零文件修改, 433测试全通过
+> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅
+> 回测影响: 零文件修改, 472测试全通过
 
 ---
 
@@ -35,6 +35,8 @@
 | v2.9.10 | 2026-05-30 | /health端点优化: 健康度统一(API层100扣减+scanner_health绿黄红→base_score映射green=100/yellow=60/red=30+金融扣减)+版本常量_DESIGN_DOC_VERSION=v2.9.9(不再硬编码)+版本缓存_version_cache(5分钟TTL,避免每次git子进程)+pending_sells线程安全读取(加state_lock)+合并warnings(scanner_health+金融指标)+16新增测试(530总计) |
 | v2.9.11 | 2026-05-30 | API端点线程安全: _safe_read_shared辅助函数(统一state_lock保护共享状态读取)+7处unsafe getattr(_trailing_stops/_position_risk_levels)替换+set_trailing_stop写操作在state_lock内完成(读拷贝/写引用模式)+12新增测试(542总计) |
 | v2.9.12 | 2026-05-30 | 关键路径健壮性: _execute_force_empty单票异常不中断强制空仓+stop()清仓单票try/except+_execute_risk_sell place_order独立异常保护+EventBus/publish事件包裹try/except+卖出失败warning日志 |
+| v2.9.13 | 2026-05-30 | _scan_loop提取: 128行拆分为_scan_loop_trading/_scan_loop_settlement+线程安全补全(4处无锁修复)+.bak清理+27新增测试(433总计) |
+| v2.9.14 | 2026-05-30 | Redis Stream升级: scanner:position从Pub/Sub→xadd(maxlen=5000)+signal订阅器Stream(maxlen=1000)+_push_to_redis双模式+审计日志TTL索引(90天)+WS断线补发catchup_scanner_stream+Stream消费API(/stream/signals+/stream/positions)+消费兼容扁平字段+33新增测试+测试路径修复(472总计) |
 
 v2.0关键修正:
 - ❶ 风控独立线程: asyncio协程→threading.Thread(真并行不受GIL影响)
@@ -1503,3 +1505,103 @@ else:
 ### 22.8 回测影响
 
 零。仅修改scanner.py/position_manager.py内部逻辑和测试文件，回测引擎无任何引用。18项回测契约测试全通过。
+
+---
+
+## 二十三、v2.9.14 Redis Stream升级 + 审计TTL + 断线补发 (2026-05-30)
+
+### 23.1 设计目标
+
+Phase2.1完善: 将scanner:position通道从Pub/Sub升级为Redis Stream, 实现信号/持仓消息零丢失;
+补齐审计日志TTL索引(Phase3.4); 新增WS断线重连Stream补发能力。
+
+### 23.2 Redis Stream升级
+
+**问题**: `_push_to_redis`对所有通道使用`publish()`(Pub/Sub, fire-and-forget), 
+但设计文档Phase2.1明确规定scanner:signal和scanner:position应使用Redis Stream(不可丢)。
+signal_dispatcher.py已单独用xadd, 但EventBus订阅器的position/signal推送仍走Pub/Sub。
+
+**修复**: `_push_to_redis`新增`use_stream`和`maxlen`参数:
+
+```python
+async def _push_to_redis(scanner, channel, data, use_stream=False, maxlen=1000):
+    if use_stream:
+        await redis_manager._client.xadd(channel, payload, maxlen=maxlen, approximate=True)
+    else:
+        await redis_manager._client.publish(channel, json.dumps(payload))
+```
+
+通道模式对照:
+
+| 通道 | 模式 | maxlen | 原因 |
+|---|---|---|---|
+| scanner:signal | Redis Stream | 1000 | 不可丢(signal_dispatcher.xadd + EventBus订阅器.xadd) |
+| scanner:position | Redis Stream | 5000 | 不可丢(持仓变更关键数据) |
+| scanner:status | Pub/Sub | N/A | 允许丢(状态更新频繁) |
+| scanner:health | Pub/Sub | N/A | 允许丢(健康检查轮询) |
+
+### 23.3 Stream消费兼容修复
+
+**问题**: `redis_ws_bridge.py`的`_redis_stream_consumer`仅处理`fields.get("data")`格式(JSON字符串),
+但`signal_dispatcher`和`_push_to_redis`的xadd使用扁平字段字典, 不包含`data`键, 导致Stream消息被静默丢弃。
+
+**修复**: Stream消费者兼容两种格式:
+1. 旧格式: `fields = {"data": "{...}"}` → `json.loads(fields["data"])`
+2. 新格式: `fields = {"ts_code": "...", "action": "..."}` → 直接使用fields
+
+### 23.4 审计日志TTL索引 (Phase3.4)
+
+**问题**: `audit_log`集合无TTL索引, 数据无限增长。
+
+**修复**: `_write_audit_log`首次写入时创建TTL索引:
+```python
+await mongo_manager.db["audit_log"].create_index(
+    "timestamp", name="ttl_90d", expireAfterSeconds=90 * 86400
+)
+```
+幂等操作(已存在不报错), 90天后自动清理。
+
+### 23.5 WS断线补发 (catchup_scanner_stream)
+
+**问题**: WS断线重连后, 断线期间的Stream消息只被消费组ACK了但未推送到前端。
+
+**修复**: 新增`catchup_scanner_stream(stream, last_id, websocket)`方法:
+- 使用`XRANGE (last_id + count=100`从上次位置读取未消费消息
+- 前端重连时传`last_stream_id`(从实时消息的`_stream_id`字段获取)
+- 最多补发100条(防止大量积压阻塞WS)
+
+### 23.6 Stream消费API端点
+
+| 端点 | 方法 | 功能 |
+|---|---|---|
+| `/api/v1/scanner/stream/signals` | GET | 从Redis Stream读取最近信号(支持count参数) |
+| `/api/v1/scanner/stream/positions` | GET | 从Redis Stream读取最近持仓变更(支持count参数) |
+
+返回格式: `{success, count, data: [{id, data}]}`, id为Stream entry ID(用于断线回补)。
+
+### 23.7 变更文件
+
+| 文件 | 变更 |
+|---|---|
+| scanner_event_subscribers.py | _push_to_redis新增use_stream/maxlen参数; position用Stream(maxlen=5000); signal用Stream(maxlen=1000); audit_log TTL索引 |
+| redis_ws_bridge.py | Stream消费兼容扁平字段; 新增catchup_scanner_stream方法 |
+| web/api/scanner.py | 新增/stream/signals和/stream/positions端点; 版本→v2.9.14 |
+| test_v2910_health_unification.py | 修复路径(使用os.path而非硬编码) |
+| test_v2911_thread_safety.py | 修复路径(使用os.path而非硬编码) |
+| test_v2914_redis_stream.py | 20新增测试 |
+| test_v2914b_stream_compat.py | 19新增测试 |
+| test_phase4_health_version.py | 版本号断言更新v2.9.13→v2.9.14 |
+| MARKET_MONITOR_OPTIMIZATION_DESIGN.md | v2.9.14记录 |
+
+### 23.8 测试覆盖
+
+| 测试文件 | 用例数 | 覆盖点 |
+|---|---|---|
+| test_v2914_redis_stream.py | 20 | Stream模式/Pub/Sub模式/position maxlen/signal maxlen/版本同步/回测零影响 |
+| test_v2914b_stream_compat.py | 19 | 扁平字段兼容/JSON兼容/bytes解码/TTL索引/TTL 90天/幂等/catchup方法/xrange/开区间/返回count/_stream_id/limit 100 |
+
+**全量测试**: 472 passed (0 failed)
+
+### 23.9 回测影响
+
+零。只修改scanner_event_subscribers.py(redis_ws_bridge.py/web/api/scanner.py和测试文件, 回测引擎无任何引用。

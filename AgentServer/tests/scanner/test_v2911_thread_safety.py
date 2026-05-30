@@ -8,7 +8,20 @@ v2.9.11 — API端点线程安全修复 测试
 3. set_trailing_stop写操作在state_lock内完成
 """
 import ast
+import os
 import pytest
+
+# 项目根目录(从tests/scanner/向上两级到AgentServer)
+_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+_API_SCANNER = os.path.join(_PROJECT_ROOT, "nodes", "web", "api", "scanner.py")
+_MONITOR_SCANNER = os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "scanner.py")
+
+
+def _read_api_scanner():
+    return open(_API_SCANNER).read()
+
+def _read_monitor_scanner():
+    return open(_MONITOR_SCANNER).read()
 
 
 # ==================== 1. _safe_read_shared辅助函数测试 ====================
@@ -18,24 +31,24 @@ class TestSafeReadShared:
 
     def test_safe_read_shared_function_exists(self):
         """_safe_read_shared函数存在"""
-        source = open("AgentServer/nodes/web/api/scanner.py").read()
+        source = _read_api_scanner()
         assert "def _safe_read_shared(" in source, "_safe_read_shared函数未定义"
 
     def test_safe_read_shared_has_state_lock(self):
         """_safe_read_shared内部使用state_lock"""
-        source = open("AgentServer/nodes/web/api/scanner.py").read()
+        source = _read_api_scanner()
         assert "state_lock" in source.split("def _safe_read_shared")[1].split("\ndef ")[0], \
             "_safe_read_shared未使用state_lock"
 
     def test_safe_read_shared_has_copy_param(self):
         """_safe_read_shared支持copy参数(读拷贝/写引用)"""
-        source = open("AgentServer/nodes/web/api/scanner.py").read()
+        source = _read_api_scanner()
         assert "copy" in source.split("def _safe_read_shared")[1].split("\ndef ")[0], \
             "_safe_read_shared缺少copy参数"
 
     def test_safe_read_shared_returns_dict_copy(self):
         """_safe_read_shared默认返回dict浅拷贝"""
-        source = open("AgentServer/nodes/web/api/scanner.py").read()
+        source = _read_api_scanner()
         func_code = source.split("def _safe_read_shared")[1].split("\ndef ")[0]
         assert "dict(data)" in func_code, "缺少dict(data)浅拷贝"
 
@@ -47,7 +60,7 @@ class TestUnsafeGetattrReplaced:
 
     def test_no_unsafe_trailing_stops_getattr(self):
         """不再有getattr(scanner, '_trailing_stops', {})直接调用"""
-        source = open("AgentServer/nodes/web/api/scanner.py").read()
+        source = _read_api_scanner()
         # 搜索API端点中的unsafe getattr
         lines = source.split('\n')
         for i, line in enumerate(lines):
@@ -58,7 +71,7 @@ class TestUnsafeGetattrReplaced:
 
     def test_no_unsafe_position_risk_levels_getattr(self):
         """不再有getattr(scanner, '_position_risk_levels', {})直接调用"""
-        source = open("AgentServer/nodes/web/api/scanner.py").read()
+        source = _read_api_scanner()
         lines = source.split('\n')
         for i, line in enumerate(lines):
             if "getattr(scanner, '_position_risk_levels'" in line:
@@ -66,13 +79,13 @@ class TestUnsafeGetattrReplaced:
 
     def test_safe_read_shared_called_for_trailing_stops(self):
         """_safe_read_shared用于读取_trailing_stops"""
-        source = open("AgentServer/nodes/web/api/scanner.py").read()
+        source = _read_api_scanner()
         count = source.count("_safe_read_shared(scanner, '_trailing_stops')")
         assert count >= 3, f"_safe_read_shared(_trailing_stops)调用次数{count}, 期望>=3"
 
     def test_safe_read_shared_called_for_risk_levels(self):
         """_safe_read_shared用于读取_position_risk_levels"""
-        source = open("AgentServer/nodes/web/api/scanner.py").read()
+        source = _read_api_scanner()
         count = source.count("_safe_read_shared(scanner, '_position_risk_levels')")
         assert count >= 3, f"_safe_read_shared(_position_risk_levels)调用次数{count}, 期望>=3"
 
@@ -84,7 +97,7 @@ class TestWriteOperationsLocked:
 
     def test_set_trailing_stop_uses_state_lock(self):
         """set_trailing_stop端点在state_lock内完成写操作"""
-        source = open("AgentServer/nodes/web/api/scanner.py").read()
+        source = _read_api_scanner()
         # 找到set_trailing_stop函数
         func_start = source.find("async def set_trailing_stop")
         assert func_start > 0, "set_trailing_stop函数未找到"
@@ -94,7 +107,7 @@ class TestWriteOperationsLocked:
 
     def test_set_trailing_stop_writes_inside_lock(self):
         """set_trailing_stop的dict写操作在with state_lock内"""
-        source = open("AgentServer/nodes/web/api/scanner.py").read()
+        source = _read_api_scanner()
         func_start = source.find("async def set_trailing_stop")
         func_code = source[func_start:func_start+3000]
         
@@ -113,14 +126,14 @@ class TestNoBacktestRegressionV2911:
 
     def test_only_api_scanner_modified(self):
         """v2.9.11只修改web/api/scanner.py"""
-        source = open("AgentServer/nodes/market_monitor/scanner.py").read()
+        source = _read_monitor_scanner()
         # scanner.py中不应有_safe_read_shared
         assert "_safe_read_shared" not in source, \
             "market_monitor/scanner.py不应包含_safe_read_shared"
 
     def test_scanner_delegate_map_unchanged(self):
         """DELEGATE_MAP未修改"""
-        source = open("AgentServer/nodes/market_monitor/scanner.py").read()
+        source = _read_monitor_scanner()
         assert "_DELEGATE_MAP" in source
         # 仍委托_compute_health_score
         assert "_compute_health_score" in source
