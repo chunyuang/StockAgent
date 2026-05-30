@@ -1,10 +1,10 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.20 | 日期: 2026-05-31 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.21 | 日期: 2026-05-31 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
 > 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化 | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复
-> 回测影响: 零文件修改, 639测试全通过
+> 回测影响: 零文件修改, 660测试全通过
 
 ---
 
@@ -2226,5 +2226,77 @@ async def _execute_force_empty(self, reason: str):
 | **v2.9.20后** | **1817** | **-14行(-0.8%)** |
 
 ### 29.7 回测影响
+
+零。所有变更仅影响market_monitor模块, 回测引擎零文件修改。
+
+## 三十、v2.9.21 MarketPhase时间分类提取 + 循环门控统一 (2026-05-31)
+
+### 30.1 设计目标
+
+1. **🟡 时间门控重复消除**: `_scan_loop`和`_risk_loop_sync`各自内联时间判断(5处+3处硬编码字符串比较),逻辑相似但分散
+2. **🟡 可维护性**: 新增/修改交易时段只需改一处,而非两个方法各改一次
+3. **🟡 新增竞价阶段**: 原来盘前9:00-9:30笼统处理,现拆分为PREMARKET(9:00-9:25)和AUCTION(9:25-9:30)
+
+### 30.2 MarketPhase类设计
+
+```python
+class MarketPhase:
+    """市场时间阶段分类【v2.9.21】"""
+    WEEKEND = "weekend"          # 周末(调试模式)
+    DEEP_NIGHT = "deep_night"    # 23:00-08:00 极低频
+    PREMARKET = "premarket"      # 09:00-09:25 竞价前
+    AUCTION = "auction"          # 09:25-09:30 竞价
+    TRADING = "trading"          # 09:30-15:00 交易时间
+    AFTER_CLOSE = "after_close"  # 15:05+ 收盘结算
+    OFF_HOURS = "off_hours"      # 其他非交易时间
+
+    @staticmethod
+    def classify() -> str:
+        """分类当前时间阶段(零副作用, 可随时调用)"""
+        ...
+```
+
+**设计决策**:
+- 使用纯字符串常量(非Enum), 与现有代码风格一致,避免import复杂度
+- `classify()`是纯函数:零副作用,可被任意线程随时调用
+- 不持有状态,不需要实例化
+
+### 30.3 _scan_loop重构
+
+| Before | After |
+|---|---|
+| 5处硬编码字符串比较 | `MarketPhase.classify()` + 6个phase分支 |
+| `now.weekday() >= 5` | `phase == MarketPhase.WEEKEND` |
+| `"09:30" <= ct <= "15:00"` | `phase == MarketPhase.TRADING` |
+| `"09:00" <= ct < "09:30"` | `phase in (PREMARKET, AUCTION)` |
+
+### 30.4 _risk_loop_sync重构
+
+| Before | After |
+|---|---|
+| `(ct < "09:25" or ct > "15:05") and not is_weekend` | `phase not in (TRADING, AUCTION)` |
+| `if is_weekend` | `phase == MarketPhase.WEEKEND` |
+| 无深夜逻辑 | 新增`DEEP_NIGHT`→5分钟检查一次 |
+
+### 30.5 测试覆盖 (21新增)
+
+| 测试类 | 用例数 | 覆盖点 |
+|---|---|---|
+| TestMarketPhaseClassify | 12 | 7阶段分类+零副作用+7阶段唯一 |
+| TestScanLoopUsesMarketPhase | 2 | 无硬编码比较+使用MarketPhase |
+| TestRiskLoopUsesMarketPhase | 2 | 无硬编码比较+使用MarketPhase |
+| TestMarketPhaseEdgeCases | 4 | 边界时间(9:30/15:00/9:25/15:01) |
+| TestNoBacktestRegressionV2921 | 2 | 回测零影响+模块可导入 |
+
+**全量测试**: 660 passed (0 failed)
+
+### 30.6 scanner.py行数变化
+
+| 阶段 | 行数 | 变化 |
+|---|---|---|
+| v2.9.20 | 1817 | -14行(提取_liquidate_positions) |
+| **v2.9.21** | **1849** | **+32行(MarketPhase类)** |
+
+### 30.7 回测影响
 
 零。所有变更仅影响market_monitor模块, 回测引擎零文件修改。
