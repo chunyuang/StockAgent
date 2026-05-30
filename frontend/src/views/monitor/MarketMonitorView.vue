@@ -273,15 +273,18 @@ async function fetchPremarketData() {
 // ==================== 扫描追踪Tab 数据 ====================
 async function fetchScanHistory() {
   scanHistoryLoading.value = true
+  scanTraceDetail.value = null  // 清空旧详情,避免渲染错误
+  selectedScanIdx.value = -1
   try {
     const dateParam = scanTraceDate.value ? `&date=${scanTraceDate.value.replace(/-/g, '')}` : ''
     const r = await api.get(`${scannerApi}/scan-traces?limit=30${dateParam}`, { timeout: 15000 })
     const p = parseResponse(r)
     if (p.success && p.data?.length) {
       scanHistory.value = p.data
-      if (selectedScanIdx.value < 0 && p.data.length) selectedScanIdx.value = 0
+    } else {
+      scanHistory.value = []
     }
-  } catch { /* ignore */ }
+  } catch { scanHistory.value = [] }
   finally { scanHistoryLoading.value = false }
 }
 async function fetchScanTrace(scanId: string) {
