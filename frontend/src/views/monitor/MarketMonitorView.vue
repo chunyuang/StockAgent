@@ -1245,7 +1245,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <!-- 中部: 9层漏斗(横向紧凑) -->
         <div v-if="scanTraceDetail" class="scan-funnel-bar">
           <template v-for="(layerData, layerName, idx) in scanTraceDetail.summary || {}">
-            <div v-if="layerName !== 'total_candidates' && layerName !== 'passed' && layerName !== 'rejected' && typeof layerData === 'object'" :key="layerName" class="fb-step" :class="{ passed: layerData.output > 0 }">
+            <div v-if="layerName !== 'total_candidates' && layerName !== 'passed' && layerName !== 'rejected' && typeof layerData === 'object'" :key="layerName" class="fb-step" :class="{ passed: layerData.output > 0, adjust: !layerData.rejected && layerName !== 'L1_force_empty' && layerName !== 'L4_premarket' && layerName !== 'L5_auction' && layerName !== 'L7_ranking' }">
               <span class="fb-name">{{ layerLabel(layerName) }}</span>
               <span class="fb-nums">{{ layerData.output || 0 }}<span v-if="layerData.rejected" class="fb-rej">-{{ layerData.rejected }}</span></span>
             </div>
@@ -2339,6 +2339,7 @@ mm-tab-content {
 .scan-funnel-bar { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; padding: 8px 12px; background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; margin-top: 8px; }
 .fb-step { display: inline-flex; flex-direction: column; align-items: center; padding: 4px 8px; border-radius: 5px; font-size: 11px; min-width: 48px; }
 .fb-step.passed { background: rgba(0,180,42,0.06); }
+.fb-step.adjust { background: rgba(22,93,255,0.06); border: 1px dashed rgba(22,93,255,0.2); }
 .fb-name { font-weight: 600; font-size: 10px; color: var(--text-secondary); white-space: nowrap; }
 .fb-nums { font-weight: 700; font-family: 'JetBrains Mono', monospace; }
 .fb-rej { color: var(--stock-down); font-weight: 400; font-size: 10px; }

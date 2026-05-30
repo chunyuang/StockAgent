@@ -311,7 +311,13 @@ class LiveFilterPipeline:
         return f"未知原因"
 
     def _build_trace_summary(self, result):
-        """构建追踪汇总"""
+        """构建追踪汇总 — 正确追踪每层的输入/输出/淘汰
+        
+        层分3类:
+        1. 淘汰层(L1/L4/L5/L7): 实际过滤候选, 有rejected记录
+        2. 仓位调整层(L2/L3): 不淘汰, 只调仓位系数, 所有候选通过
+        3. 标记层(L6/L8): 不淘汰, 只做记录, 所有候选通过
+        """
         layers = ["L1_force_empty", "L2_special_period", "L3_sentiment",
                    "L4_premarket", "L5_auction", "L6_strategy",
                    "L7_ranking", "L8_position"]
@@ -319,18 +325,21 @@ class LiveFilterPipeline:
         # 按层计算输入/输出/淘汰数(漏斗模型)
         prev_output = len(result.trace_candidates)  # L1的input = 全部候选数
         for layer in layers:
-            passed = sum(1 for t in result.trace_candidates
-                        if t.layer_results.get(layer, {}).get("passed", False))
             rejected = sum(1 for t in result.trace_candidates
                           if t.layer_results.get(layer, {}).get("passed") is False)
+            # 如果本层没有淘汰任何人, 说明是非淘汰层(仓位调整/标记), 所有候选通过
+            if rejected == 0:
+                output = prev_output  # 不淘汰: 输出 = 输入
+            else:
+                output = prev_output - rejected  # 淘汰层: 输出 = 输入 - 淘汰
             result.trace_summary[layer] = {
-                "total": passed + rejected,
-                "passed": passed,
+                "total": prev_output,
+                "passed": output,
                 "rejected": rejected,
-                "input": prev_output,       # 本层输入 = 上层输出
-                "output": passed,            # 本层输出 = 本层通过数
+                "input": prev_output,
+                "output": output,
             }
-            prev_output = passed  # 下层输入 = 本层输出
+            prev_output = output  # 下层输入 = 本层输出
 
     # ========================================================================
     # L1: 强制空仓
