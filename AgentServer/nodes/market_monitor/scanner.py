@@ -457,8 +457,6 @@ class MarketScanner:
                 "_publish_scanner_event",
                 # StrategyScorer
                 "_apply_strategies", "_detect_anomalies",
-                # StrategyParamCenter
-                "_persist_strategy_overrides", "_load_strategy_overrides",
                 # RiskWatchdog
                 "_check_circuit_breaker",
             }
@@ -483,6 +481,8 @@ class MarketScanner:
         return self._is_running
 
     def get_status(self) -> Dict[str, Any]:
+        # 【v2.9.9:broker None guard(防止未初始化时API调用崩溃)】
+        account_info = {"total_assets": 0, "available_cash": 0, "market_value": 0, "total_profit": 0}
         if self._trade_mode == self.MODE_GM and self._gm_broker:
             gm_acct = self._gm_broker.get_account()
             gm_positions = self._gm_broker.get_positions()
@@ -492,7 +492,7 @@ class MarketScanner:
                 "market_value": gm_acct.get("market_value", 0),
                 "total_profit": 0,
             }
-        else:
+        elif self._broker:
             acct = self._broker.get_account()
             account_info = {
                 "total_assets": round(acct.total_assets, 2),
@@ -538,6 +538,8 @@ class MarketScanner:
     def get_positions(self) -> List[Dict]:
         if self._trade_mode == self.MODE_GM and self._gm_broker:
             return self._gm_broker.get_positions()
+        if not self._broker:  # 【v2.9.9:None guard】
+            return []
         result = []
         for p in self._broker.get_positions():
             risk = self._get_strategy_risk(p.strategy)
@@ -1415,13 +1417,16 @@ class MarketScanner:
         return candidates
 
     async def _execute_force_empty(self, reason: str):
-        """强制空仓: 卖出所有持仓【v2.9提取】"""
+        """强制空仓: 卖出所有持仓【v2.9提取, v2.9.9修复broker.sell→broker.place_order】"""
         logger.warning(f"[FILTER] ⚠️ 强制空仓: {reason}")
         if self._broker:
             for p in self._broker.get_positions():
-                self._broker.sell(
+                self._broker.update_realtime(p.ts_code, p.current_price)
+                self._broker.place_order(
                     ts_code=p.ts_code,
-                    shares=p.total_qty,
+                    stock_name=p.stock_name if hasattr(p, 'stock_name') else p.ts_code,
+                    side="sell",
+                    quantity=p.total_qty,
                     price=p.current_price,
                     reason=f"强制空仓: {reason}",
                 )
