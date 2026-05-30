@@ -587,8 +587,9 @@ class MarketScanner:
         if self._tiered_scanner:
             await self._tiered_scanner.start(trade_date)
         # 恢复今日时间线
+        logger.info("[SCANNER] 加载时间线...")
         await self._load_timeline()
-        logger.info(f"[SCANNER] 启动, account={self.account_id}, date={trade_date}")
+        logger.info(f"[SCANNER] 启动完成, account={self.account_id}, date={trade_date}")
         return {"success": True, "message": "扫描器启动成功"}
 
     async def stop(self, sell_all: bool = False):
@@ -744,7 +745,9 @@ class MarketScanner:
         await self._load_daily_factors(trade_date)
 
         # 3. 加载当前持仓
+        logger.info("[SCANNER] 开始加载持仓...")
         await self._load_positions()
+        logger.info("[SCANNER] 持仓加载完成")
 
         # 4. 竞价预选(仅交易时间9:15-9:30)
         now = datetime.now()
@@ -754,6 +757,7 @@ class MarketScanner:
         else:
             logger.debug(f"[SCANNER] 非竞价时间({ct}), 跳过竞价预选")
 
+        logger.info("[SCANNER] premarket_prepare 即将完成")
         logger.info(f"[SCANNER] 准备完成: {len(self._all_codes)}只股票, "
                      f"{len(self._daily_factors_df) if self._daily_factors_df is not None else 0}条因子, "
                      f"{len(self._active_signals)}个竞价信号")
@@ -889,6 +893,11 @@ class MarketScanner:
                 now = datetime.now()
                 ct = now.strftime("%H:%M")
                 h = now.hour
+                
+                # === 周末/节假日: 极低频(5分钟心跳) ===
+                if now.weekday() >= 5:
+                    await asyncio.sleep(300)
+                    continue
 
                 # === 交易时间(9:30-15:00) ===
                 if "09:30" <= ct <= "15:00":

@@ -413,14 +413,23 @@ async function startScanner() {
     if (!replayDate.value) { ElMessage.warning('请先选择回放日期'); return }
     payload.replay_date = replayDate.value
   }
-  await api.post(`${scannerApi}/start`, payload); await fetchScanner()
-  activeTab.value = 'trading'
+  loading.value = true
+  try {
+    await api.post(`${scannerApi}/start`, payload)
+    ElMessage.success('扫描器已启动')
+    activeTab.value = 'trading'
+    await fetchScanner()
+  } catch (e: any) {
+    ElMessage.error('启动失败: ' + (e?.response?.data?.detail || e?.message || '超时'))
+  } finally {
+    loading.value = false
+  }
 }
 async function stopScanner() { showConfirm('停止扫描', '确认停止扫描器？\n持仓将保留，可手动卖出。', async () => { await api.post(`${scannerApi}/stop`, { sell_all: false }); await fetchScanner() }) }
 async function manualScan() { loading.value = true; try { const payload: Record<string, any> = {}; if (tradeMode.value === 'replay' && replayDate.value) payload.replay_date = replayDate.value; const r = await api.post(`${scannerApi}/scan-once`, payload); const p = parseResponse(r); if (p.success) { const m = p.data?.message; if (m) ElMessage.warning(m); else ElMessage.success(`扫描完成: ${p.data?.signals || 0}信号, ${p.data?.positions || 0}持仓`) } else ElMessage.error('扫描失败') } catch (e: any) { ElMessage.error('扫描失败') } finally { loading.value = false; await fetchScanner() } }
 async function forceScan() { loading.value = true; try { const payload: Record<string, any> = { force: true }; if (tradeMode.value === 'replay' && replayDate.value) payload.replay_date = replayDate.value; const r = await api.post(`${scannerApi}/scan-once`, payload); const p = parseResponse(r); if (p.success) { ElMessage.success(`强制扫描完成: ${p.data?.signals || 0}信号, ${p.data?.positions || 0}持仓`) } else ElMessage.error('强制扫描失败') } catch (e: any) { ElMessage.error('强制扫描失败') } finally { loading.value = false; await fetchScanner() } }
-const stratCollapsed = ref<Record<string, boolean>>({ halfway_chase: true, first_limit_up: true, dragon_head: true, limit_down_qiao: true, limit_up_open: true })
-const stratSectionCollapsed = ref(true)
+const stratCollapsed = ref<Record<string, boolean>>({ halfway_chase: false, first_limit_up: false, dragon_head: false, limit_down_qiao: false, limit_up_open: false })
+const stratSectionCollapsed = ref(false)
 const qaSectionCollapsed = ref(false)
 const timelineCollapsed = ref(true)
 function toggleStrat(id: string) { stratCollapsed.value[id] = !stratCollapsed.value[id] }

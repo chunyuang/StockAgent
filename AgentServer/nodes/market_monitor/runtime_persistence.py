@@ -103,10 +103,9 @@ class RuntimePersistence:
                 if "position_risk_levels" in doc:
                     scanner._position_risk_levels = doc["position_risk_levels"]
                 
-                # 恢复pending_sells(线程安全替换)
+                # 恢复pending_sells — 已在外层state_lock内, 不再加锁
                 if "pending_sells" in doc:
-                    with scanner._state_lock:
-                        scanner._pending_sells = doc["pending_sells"]
+                    scanner._pending_sells = doc["pending_sells"]
                     logger.info(f"[SNAPSHOT] 恢复待卖: {len(scanner._pending_sells)}只")
         
         # 恢复风控状态
