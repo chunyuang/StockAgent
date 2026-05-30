@@ -1577,49 +1577,18 @@ class MarketScanner:
     # ==================== 情绪调仓执行(v2.9.6提取核心逻辑到EmotionCycle) ====================
     
     def _build_emotion_sell_list(self, positions, rule: Dict, old_phase: str, new_phase: str) -> List[Tuple]:
-        """根据情绪降级规则构建卖出列表
-        
-        Args:
-            positions: 当前持仓列表
-            rule: EmotionCycleManager.DOWNGRADE_RULES中的规则
-            old_phase: 原始阶段
-            new_phase: 新阶段
-        Returns:
-            [(pos, reason, price, risk), ...] 卖出列表
-        """
-        to_sell = []
-        
-        if rule["action"] == "reduce":
-            keep_ratio = rule["keep_ratio"]
-            sorted_pos = sorted(positions, key=lambda p: p.profit_pct)
-            total_count = len(sorted_pos)
-            target_count = max(1, int(total_count * keep_ratio))
-            sell_count = total_count - target_count
-            
-            for pos in sorted_pos[:sell_count]:
-                if pos.available_qty <= 0:
-                    continue
-                if self._is_limit_down(pos.ts_code):
-                    with self._state_lock:
-                        self._pending_sells[pos.ts_code] = {"reason": f"情绪降级({old_phase}→{new_phase})", "price": pos.current_price, "added_at": time.time(), "source": "emotion"}
-                    continue
-                to_sell.append((pos, f"情绪降级({rule['desc']})", pos.current_price, 
-                               self._get_strategy_risk(pos.strategy)))
-        
-        elif rule["action"] == "clear_low_profit":
-            min_profit = rule.get("min_profit", 0.03)
-            for pos in positions:
-                if pos.available_qty <= 0:
-                    continue
-                if pos.profit_pct < min_profit * 100:
-                    if self._is_limit_down(pos.ts_code):
-                        with self._state_lock:
-                            self._pending_sells[pos.ts_code] = {"reason": f"情绪清仓({old_phase}→{new_phase})", "price": pos.current_price, "added_at": time.time(), "source": "emotion"}
-                        continue
-                    to_sell.append((pos, f"情绪清仓({rule['desc']}, 利润{pos.profit_pct:.1f}%<{min_profit*100:.0f}%)", 
-                                   pos.current_price, self._get_strategy_risk(pos.strategy)))
-        
-        return to_sell
+        """根据情绪降级规则构建卖出列表 — 委托给EmotionCycleManager【v2.9.16】"""
+        from nodes.market_monitor.emotion_cycle import EmotionCycleManager
+        return EmotionCycleManager.build_emotion_sell_list(
+            positions=positions,
+            rule=rule,
+            old_phase=old_phase,
+            new_phase=new_phase,
+            is_limit_down_fn=self._is_limit_down,
+            pending_sells=self._pending_sells,
+            state_lock=self._state_lock,
+            strategy_risk_fn=self._get_strategy_risk,
+        )
     
     async def _handle_emotion_phase_change(self, old_phase: str, new_phase: str):
         """情绪phase变化时的动态调仓【v2.9.6重构】
@@ -1734,32 +1703,32 @@ class MarketScanner:
         return False  # 无PositionChecker时默认非跌停(保守策略)
 
     def _validate_live_params(self):
-        """实盘参数校验 — 委托给StrategyParamCenter"""
+        """实盘参数校验 — 委托给StrategyParamCenter【v2.9.16:简化try/except】"""
         try:
             from nodes.market_monitor.strategy_param_center import StrategyParamCenter
             StrategyParamCenter.validate_live_params(self._broker, self._get_strategy_risk)
-        except ImportError:
-            pass  # fallback: 不校验
+        except Exception:
+            pass  # fallback: 不校验(StrategyParamCenter不可用时不阻塞)
 
     def update_strategy_config(self, strategy_key: str, updates: Dict[str, Any]):
-        """策略参数热更新(无需重启scanner) + 持久化到MongoDB — 委托给StrategyParamCenter"""
+        """策略参数热更新(无需重启scanner) + 持久化到MongoDB — 委托给StrategyParamCenter【v2.9.16:简化】"""
         try:
             from nodes.market_monitor.strategy_param_center import StrategyParamCenter
             StrategyParamCenter.update_scanner_config(self.config, strategy_key, updates)
             logger.info(f"[SCANNER] 策略参数热更新: {strategy_key}")
-            # EventBus: 参数更新事件(同步发射, 不await)
-            try:
-                asyncio.ensure_future(self._event_bus.emit(ScannerEvents.PARAM_UPDATED, {
-                    "strategy_key": strategy_key, "updates": updates,
-                }))
-            except Exception:
-                pass
-            # 持久化到MongoDB
-            try:
-                asyncio.ensure_future(self._persist_strategy_overrides())
-            except Exception:
-                pass
-        except ImportError:
+        except Exception:
+            logger.warning(f"[SCANNER] 策略参数热更新失败: {strategy_key}")
+            return
+        # EventBus: 参数更新事件 + 持久化(非阻塞, 失败不影响主流程)
+        try:
+            asyncio.ensure_future(self._event_bus.emit(ScannerEvents.PARAM_UPDATED, {
+                "strategy_key": strategy_key, "updates": updates,
+            }))
+        except Exception:
+            pass
+        try:
+            asyncio.ensure_future(StrategyParamCenter.persist_scanner_overrides(self.config))
+        except Exception:
             pass
 
     async def _persist_strategy_overrides(self):
@@ -1767,7 +1736,7 @@ class MarketScanner:
         try:
             from nodes.market_monitor.strategy_param_center import StrategyParamCenter
             await StrategyParamCenter.persist_scanner_overrides(self.config)
-        except ImportError:
+        except Exception:
             pass
 
     async def _load_strategy_overrides(self):
@@ -1780,7 +1749,7 @@ class MarketScanner:
                     self.config["strategy_overrides"] = {}
                 self.config["strategy_overrides"].update(data)
                 logger.info(f"[SCANNER] 从MongoDB恢复策略参数: {len(data)}个策略")
-        except ImportError:
+        except Exception:
             pass
 
     # 【v2.9.9:以下方法已移至DELEGATE_MAP+__getattr__动态委托,不再显式定义】

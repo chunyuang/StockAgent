@@ -179,7 +179,7 @@ class TestVersionSync:
     """验证版本常量与设计文档同步"""
 
     def test_design_doc_version_is_v2914(self):
-        """_DESIGN_DOC_VERSION = v2.9.15"""
+        """_DESIGN_DOC_VERSION = v2.9.16"""
         source = _read_api_scanner()
         tree = ast.parse(source)
         for node in ast.walk(tree):
@@ -187,8 +187,8 @@ class TestVersionSync:
                 for target in node.targets:
                     if isinstance(target, ast.Name) and target.id == "_DESIGN_DOC_VERSION":
                         if isinstance(node.value, ast.Constant):
-                            assert node.value.value == "v2.9.15", \
-                                f"_DESIGN_DOC_VERSION={node.value.value}, 期望v2.9.15"
+                            assert node.value.value == "v2.9.16", \
+                                f"_DESIGN_DOC_VERSION={node.value.value}, 期望v2.9.16"
                             return
         pytest.fail("_DESIGN_DOC_VERSION未找到")
 

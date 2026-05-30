@@ -1,6 +1,6 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.15 | 日期: 2026-05-30 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.16 | 日期: 2026-05-30 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
 > 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅
@@ -37,6 +37,7 @@
 | v2.9.12 | 2026-05-30 | 关键路径健壮性: _execute_force_empty单票异常不中断强制空仓+stop()清仓单票try/except+_execute_risk_sell place_order独立异常保护+EventBus/publish事件包裹try/except+卖出失败warning日志 |
 | v2.9.13 | 2026-05-30 | _scan_loop提取: 128行拆分为_scan_loop_trading/_scan_loop_settlement+线程安全补全(4处无锁修复)+.bak清理+27新增测试(433总计) |
 | v2.9.14 | 2026-05-30 | Redis Stream升级: scanner:position从Pub/Sub→xadd(maxlen=5000)+signal订阅器Stream(maxlen=1000)+_push_to_redis双模式+审计日志TTL索引(90天)+WS断线补发catchup_scanner_stream+Stream消费API(/stream/signals+/stream/positions)+消费兼容扁平字段+33新增测试+测试路径修复(472总计) |
+| v2.9.16 | 2026-05-30 | 🔴risk_watchdog pause_reason元组bug修复 + circuit_breaker线程安全(check/record/reset均持_state_lock) + 🟡_build_emotion_sell_list提取为EmotionCycleManager.build_emotion_sell_list静态方法(回调解耦) + 🟡strategy配置方法简化(Except替代ImportError/直接持久化) + emergency_liquidate线程安全审查(文档注释) + 23新增测试(644总计) |
 | v2.9.15 | 2026-05-30 | 错误遥测: SCANNER_ERROR事件(扫描异常+风控线程异常→EventBus→Redis→前端弹窗)+HEALTH_CHANGED事件枚举+参数预检API(/params/validate, 5项检查, is_safe字段)+Stream消息含_stream_id+前端追踪lastSignalStreamId/lastPositionStreamId(断线补发)+16新增测试(488总计) |
 
 v2.0关键修正:
@@ -1698,3 +1699,63 @@ v2.9.14已实现WS断线补发(catchup_scanner_stream), 但实时消息不含Str
 ### 24.8 回测影响
 
 零。SCANNER_ERROR事件和参数预检API仅影响scanner/前端/WS桥接, 回测引擎无引用。
+
+## 二十五、v2.9.16 RiskWatchdog线程安全 + 情绪卖出提取 + 配置方法简化 (2026-05-30)
+
+### 25.1 问题背景
+
+1. **🔴 risk_watchdog.py `pause_reason`元组bug**: L633 `pause_reason = f"..."`行尾有逗号,Python将其解释为tuple而非str
+2. **🔴 circuit_breaker线程安全**: 风控线程写`_circuit_breaker`, Scanner主循环读, 无锁保护→并发读写风险
+3. **🟡 `_build_emotion_sell_list`耦合**: 30行逻辑硬编码在scanner.py中,依赖`_is_limit_down`/`_pending_sells`/`_state_lock`/`_get_strategy_risk`
+4. **🟡 strategy配置方法异常处理粗糙**: `except ImportError`过于窄,其他异常(如AttributeError)会泄漏
+5. **🟡 emergency_liquidate线程安全审查**: 需确认紧急平仓操作的并发安全性
+
+### 25.2 修复方案
+
+| # | 修复项 | 方案 | 文件 |
+|---|---|---|---|
+| 1 | pause_reason元组bug | 删除尾随逗号 | risk_watchdog.py L633 |
+| 2 | circuit_breaker线程安全 | check/record/reset均持`_state_lock`读写 | risk_watchdog.py |
+| 3 | _build_emotion_sell_list提取 | 静态方法`EmotionCycleManager.build_emotion_sell_list(回调解耦)` | emotion_cycle.py + scanner.py |
+| 4 | strategy配置简化 | `except Exception` + 直接调用StrategyParamCenter | scanner.py |
+| 5 | emergency_liquidate审查 | asyncio协程安全,添加线程安全文档注释 | risk_watchdog.py |
+
+### 25.3 EmotionCycleManager.build_emotion_sell_list签名
+
+```python
+@staticmethod
+def build_emotion_sell_list(
+    positions, rule: Dict, old_phase: str, new_phase: str,
+    is_limit_down_fn=None,  # Callable[[str], bool]
+    pending_sells=None,      # Dict[str, dict]
+    state_lock=None,         # threading.Lock
+    strategy_risk_fn=None,   # Callable[[str], dict]
+) -> List[Tuple]:
+```
+
+回调解耦: scanner内部依赖通过函数参数注入,EmotionCycleManager不持有scanner引用。
+
+### 25.4 scanner委托调用
+
+```python
+def _build_emotion_sell_list(self, positions, rule, old_phase, new_phase):
+    return EmotionCycleManager.build_emotion_sell_list(
+        positions=positions, rule=rule, old_phase=old_phase, new_phase=new_phase,
+        is_limit_down_fn=self._is_limit_down,
+        pending_sells=self._pending_sells,
+        state_lock=self._state_lock,
+        strategy_risk_fn=self._get_strategy_risk,
+    )
+```
+
+### 25.5 测试覆盖
+
+| 测试文件 | 用例数 | 覆盖点 |
+|---|---|---|
+| test_v2916_risk_watchdog_thread_safety.py | 23 | pause_reason类型检查/circuit_breaker线程安全(源码+并发)/build_emotion_sell_list(5场景)/strategy配置简化/emergency_liquidate审查/版本同步/回测零影响 |
+
+**全量测试**: 644 passed (0 failed)
+
+### 25.6 回测影响
+
+零。所有变更仅影响market_monitor模块,回测引擎零文件修改。

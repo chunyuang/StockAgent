@@ -363,6 +363,72 @@ class EmotionCycleManager:
         """
         return self.DOWNGRADE_RULES.get((old_phase, new_phase))
 
+    @staticmethod
+    def build_emotion_sell_list(positions, rule: Dict, old_phase: str, new_phase: str,
+                                 is_limit_down_fn=None, pending_sells: Dict = None,
+                                 state_lock=None, strategy_risk_fn=None) -> list:
+        """根据情绪降级规则构建卖出列表【v2.9.16:从scanner提取】
+        
+        Args:
+            positions: 当前持仓列表
+            rule: DOWNGRADE_RULES中的规则
+            old_phase: 原始阶段名称
+            new_phase: 新阶段名称
+            is_limit_down_fn: 判断跌停的回调 fn(ts_code) -> bool
+            pending_sells: 跌停挂起卖出字典(可变引用, 直接写入)
+            state_lock: 线程锁(保护pending_sells写入)
+            strategy_risk_fn: 获取策略风控参数回调 fn(strategy) -> dict
+        Returns:
+            [(pos, reason, price, risk), ...] 卖出列表
+        """
+        import time as _time
+        to_sell = []
+        
+        if rule["action"] == "reduce":
+            keep_ratio = rule["keep_ratio"]
+            sorted_pos = sorted(positions, key=lambda p: p.profit_pct)
+            total_count = len(sorted_pos)
+            target_count = max(1, int(total_count * keep_ratio))
+            sell_count = total_count - target_count
+            
+            for pos in sorted_pos[:sell_count]:
+                if pos.available_qty <= 0:
+                    continue
+                if is_limit_down_fn and is_limit_down_fn(pos.ts_code):
+                    if pending_sells is not None:
+                        entry = {"reason": f"情绪降级({old_phase}→{new_phase})", "price": pos.current_price,
+                                 "added_at": _time.time(), "source": "emotion"}
+                        if state_lock:
+                            with state_lock:
+                                pending_sells[pos.ts_code] = entry
+                        else:
+                            pending_sells[pos.ts_code] = entry
+                    continue
+                risk = strategy_risk_fn(pos.strategy) if strategy_risk_fn else {}
+                to_sell.append((pos, f"情绪降级({rule['desc']})", pos.current_price, risk))
+        
+        elif rule["action"] == "clear_low_profit":
+            min_profit = rule.get("min_profit", 0.03)
+            for pos in positions:
+                if pos.available_qty <= 0:
+                    continue
+                if pos.profit_pct < min_profit * 100:
+                    if is_limit_down_fn and is_limit_down_fn(pos.ts_code):
+                        if pending_sells is not None:
+                            entry = {"reason": f"情绪清仓({old_phase}→{new_phase})", "price": pos.current_price,
+                                     "added_at": _time.time(), "source": "emotion"}
+                            if state_lock:
+                                with state_lock:
+                                    pending_sells[pos.ts_code] = entry
+                            else:
+                                pending_sells[pos.ts_code] = entry
+                        continue
+                    risk = strategy_risk_fn(pos.strategy) if strategy_risk_fn else {}
+                    to_sell.append((pos, f"情绪清仓({rule['desc']}, 利润{pos.profit_pct:.1f}%<{min_profit*100:.0f}%)",
+                                   pos.current_price, risk))
+        
+        return to_sell
+
 
 # 全局单例
 emotion_cycle_manager = EmotionCycleManager()
