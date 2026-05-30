@@ -884,6 +884,78 @@ async def get_trade_detail(ts_code: str):
             })
     detail["orders"] = orders
     
+    # 5. 如果买入信息缺失,从订单中补充
+    if not detail["buy"] and orders:
+        buy_order = next((o for o in orders if o["side"] == "buy"), None)
+        if buy_order:
+            detail["buy"] = {
+                "time": buy_order.get("create_time", ""),
+                "price": buy_order.get("filled_price", 0),
+                "shares": buy_order.get("filled_qty", 0),
+                "reason": buy_order.get("reason", ""),
+                "strategy": buy_order.get("strategy", ""),
+                "stock_name": "",
+                "decision_detail": {},
+            }
+    
+    # 5b. 如果仍无买入信息,从卖出的decision_detail推断(cost_price)
+    if not detail["buy"] and detail["sell"]:
+        sell_dd = detail["sell"].get("decision_detail", {})
+        cost_price = sell_dd.get("cost_price", 0)
+        if cost_price > 0:
+            detail["buy"] = {
+                "time": "(历史记录)",
+                "price": cost_price,
+                "shares": detail["sell"].get("shares", 0),
+                "reason": detail["sell"].get("reason", "").split("(")[0].strip() if detail["sell"].get("reason") else "",
+                "strategy": detail["sell"].get("strategy", ""),
+                "stock_name": "",
+                "decision_detail": {},
+                "inferred": True,  # 标记为推断数据
+            }
+    
+    # 6. 如果卖出信息缺失,从订单中补充
+    if not detail["sell"] and orders:
+        sell_order = next((o for o in orders if o["side"] == "sell"), None)
+        if sell_order:
+            profit_pct = 0
+            if detail["buy"] and detail["buy"].get("price") and sell_order.get("filled_price"):
+                profit_pct = (sell_order["filled_price"] - detail["buy"]["price"]) / detail["buy"]["price"] * 100
+            detail["sell"] = {
+                "time": sell_order.get("create_time", ""),
+                "price": sell_order.get("filled_price", 0),
+                "shares": sell_order.get("filled_qty", 0),
+                "reason": sell_order.get("reason", ""),
+                "strategy": sell_order.get("strategy", ""),
+                "profit_pct": profit_pct,
+                "decision_detail": {},
+            }
+    
+    # 7. 填充stock_name
+    stock_name = ""
+    # 从名称映射
+    if hasattr(scanner, '_stock_name_map'):
+        stock_name = scanner._stock_name_map.get(ts_code, "")
+    if not stock_name:
+        # 从活跃信号
+        for s in scanner._active_signals:
+            if s.ts_code == ts_code and s.stock_name:
+                stock_name = s.stock_name
+                break
+    if not stock_name:
+        # 从持仓
+        for p in scanner._broker.get_positions():
+            if p.ts_code == ts_code and p.stock_name:
+                stock_name = p.stock_name
+                break
+    detail["stock_name"] = stock_name
+    
+    # 把stock_name也填入buy/sell
+    if detail["buy"] and not detail["buy"].get("stock_name"):
+        detail["buy"]["stock_name"] = stock_name
+    if detail["sell"] and not detail["sell"].get("stock_name"):
+        detail["sell"]["stock_name"] = stock_name
+    
     return {"success": True, "data": detail}
 
 
