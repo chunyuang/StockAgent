@@ -2300,3 +2300,11 @@ class MarketPhase:
 ### 30.7 回测影响
 
 零。所有变更仅影响market_monitor模块, 回测引擎零文件修改。
+
+### 30.8 追加重构: _reset_daily_risk_state提取
+
+**问题**: `premarket_prepare`中26行风控重置代码(circuit_breaker重置+pending_sells清除+执行统计重置)与盘前准备逻辑混在一起。
+
+**修复**: 提取`_reset_daily_risk_state()`方法(26行), `premarket_prepare`从66行→41行(-39%)。
+
+**影响**: 仅代码组织优化, 行为完全不变。
