@@ -36,6 +36,7 @@ class StrategyScorer:
             scanner: MarketScanner实例(读取配置/持仓)
         """
         self._scanner = scanner
+        self._name_map: Dict[str, str] = {}  # ts_code→stock_name
     
     # ==================== 属性代理 ====================
     
@@ -76,7 +77,7 @@ class StrategyScorer:
             row["low"] = rt.get("low", 0)
             row["close"] = rt.get("price", 0)
             row["pre_close"] = rt.get("pre_close", 0)
-            row["stock_name"] = rt.get("name", "")
+            row["stock_name"] = rt.get("name", "") or self._name_map.get(ts_code, "")
 
             # 涨停判断(实时, 防御None/NaN)
             pct = rt.get("pct_chg") or 0
@@ -154,6 +155,10 @@ class StrategyScorer:
     
     # ==================== 策略筛选 ====================
     
+
+    def update_name_map(self, name_map: Dict[str, str]):
+        """更新股票名称映射(从scanner传入)"""
+        self._name_map = name_map
     async def apply_strategies(self, merged_df: pd.DataFrame, trade_date: str) -> List[ScanSignal]:
         """策略筛选(复用回测逻辑, 读取前端覆盖参数)"""
         if merged_df is None or len(merged_df) == 0:
@@ -222,7 +227,7 @@ class StrategyScorer:
 
                 signals.append(ScanSignal(
                     ts_code=ts_code,
-                    stock_name=row.get("stock_name", ""),
+                    stock_name=row.get("stock_name", "") or self._name_map.get(row.get("ts_code", ""), ""),
                     strategy=strategy_key,
                     strategy_name=strategy_name,
                     price=row.get("close", 0) or row.get("price", 0),
@@ -280,7 +285,7 @@ class StrategyScorer:
             is_broken = rt.get("is_broken_board", False)
             open_times = rt.get("open_times", 0)
             limit_times = rt.get("limit_times", 0)
-            name = rt.get("name", "")
+            name = rt.get("name", "") or self._name_map.get(ts_code, "")
             price = rt.get("price", 0)
             turnover = rt.get("turnover_rate", 0)
             fd_amount = rt.get("fd_amount", 0)

@@ -200,6 +200,7 @@ class MarketScanner:
         self._replay_mode = (trade_mode == self.MODE_REPLAY)
         self._replay_date = self.config.get("replay_date", None)
         self._replay_provider = None
+        self._stock_name_map: Dict[str, str] = {}  # ts_code→stock_name缓存
 
         if trade_mode == self.MODE_GM:
             from nodes.market_monitor.gm_broker import GmBroker
@@ -448,7 +449,12 @@ class MarketScanner:
         }
 
     def get_signals(self) -> List[Dict]:
-        return [self._signal_to_dict(s) for s in self._active_signals]
+        result = [self._signal_to_dict(s) for s in self._active_signals]
+        # 填充空名称
+        for r in result:
+            if not r.get("stock_name"):
+                r["stock_name"] = self._stock_name_map.get(r.get("ts_code", ""), "")
+        return result
 
     def get_positions(self) -> List[Dict]:
         if self._trade_mode == self.MODE_GM and self._gm_broker:
@@ -465,7 +471,7 @@ class MarketScanner:
             mv = round(p.current_price * p.total_qty, 2)
             profit_amt = round((p.current_price - p.avg_cost) * p.total_qty, 2)
             result.append({
-                "ts_code": p.ts_code, "stock_name": p.stock_name,
+                "ts_code": p.ts_code, "stock_name": p.stock_name or self._stock_name_map.get(p.ts_code, ""),
                 "strategy": p.strategy, "shares": p.total_qty,
                 "available_qty": p.available_qty,
                 "cost_price": round(p.avg_cost, 2),
@@ -704,6 +710,39 @@ class MarketScanner:
 
     # ==================== 盘前准备 ====================
 
+
+    def _update_name_map(self, realtime_data: Dict[str, Dict]):
+        """从实时行情数据更新ts_code→stock_name映射"""
+        updated = False
+        for ts_code, rt in realtime_data.items():
+            name = rt.get("name", "")
+            if name and ts_code not in self._stock_name_map:
+                self._stock_name_map[ts_code] = name
+                updated = True
+        if updated and self._strategy_scorer:
+            self._strategy_scorer.update_name_map(self._stock_name_map)
+
+    def _get_stock_name(self, ts_code: str) -> str:
+        """获取股票名称(带缓存)"""
+        if ts_code in self._stock_name_map:
+            return self._stock_name_map[ts_code]
+        return ""
+
+    async def _load_stock_name_map(self):
+        """从MongoDB stock_basic加载ts_code→名称映射"""
+        try:
+            from core.managers import mongo_manager
+            if not mongo_manager.is_initialized:
+                return
+            docs = await mongo_manager.db["stock_basic"].find(
+                {}, {"ts_code": 1, "name": 1, "_id": 0}
+            ).to_list(length=None)
+            for doc in docs:
+                if doc.get("ts_code") and doc.get("name"):
+                    self._stock_name_map[doc["ts_code"]] = doc["name"]
+            logger.info(f"[SCANNER] 加载{len(self._stock_name_map)}只股票名称映射")
+        except Exception as e:
+            logger.warning(f"[SCANNER] 加载名称映射失败: {e}")
     async def _warm_weekend_cache(self):
         """周末调试: 用日级因子(上一交易日收盘)填充行情缓存"""
         import time as _time
@@ -732,6 +771,7 @@ class MarketScanner:
                     "amount": row.get("amount", 0),
                     "turnover_rate": row.get("turnover_rate", 0),
                     "volume_ratio": row.get("volume_ratio", 0),
+                    "name": self._stock_name_map.get(ts_code, ""),
                 }
                 warmed += 1
         
@@ -747,7 +787,8 @@ class MarketScanner:
                                          "high": v["high"], "low": v["low"],
                                          "vol": v["vol"], "amount": v["amount"],
                                          "turnover_rate": v.get("turnover_rate", 0),
-                                         "volume_ratio": v.get("volume_ratio", 0)}
+                                         "volume_ratio": v.get("volume_ratio", 0),
+                                         "name": v.get("name", "")}
                                     for k, v in realtime.items()}
                     source._cache_time = _time.time()
                     source._total_stocks = len(realtime)
@@ -793,6 +834,10 @@ class MarketScanner:
 
         # 2. 预加载前日因子(ma5/rsi/macd/boll/atr等需要历史数据的因子)
         await self._load_daily_factors(trade_date)
+        # 加载股票名称映射(从stock_basic)
+        await self._load_stock_name_map()
+        if self._strategy_scorer:
+            self._strategy_scorer.update_name_map(self._stock_name_map)
 
         # 3. 加载当前持仓
         logger.info("[SCANNER] 开始加载持仓...")
@@ -1298,6 +1343,8 @@ class MarketScanner:
         realtime_data = await self._fetch_realtime_batch(force=force)
 
         # Step 2: 合并日级因子+实时数据
+        # 更新股票名称映射(从实时行情)
+        self._update_name_map(realtime_data)
         merged_df = self._merge_factors(realtime_data)
 
         # Step 3: 策略筛选
