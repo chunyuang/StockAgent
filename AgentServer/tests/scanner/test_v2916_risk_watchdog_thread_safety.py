@@ -406,14 +406,14 @@ class TestVersionSync(unittest.TestCase):
     """v2.9.16: 版本号同步验证"""
 
     def test_design_doc_version_in_api(self):
-        """API中的_DESIGN_DOC_VERSION应为v2.9.16"""
+        """API中的_DESIGN_DOC_VERSION应≥v2.9.18"""
         source_path = os.path.join(
             PROJECT_ROOT, "nodes", "web", "api", "scanner.py"
         )
         with open(source_path, "r") as f:
             content = f.read()
         
-        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.16"', content)
+        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.18"', content)
 
 
 class TestNoBacktestRegression(unittest.TestCase):

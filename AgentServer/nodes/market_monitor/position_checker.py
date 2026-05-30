@@ -575,7 +575,15 @@ class PositionChecker:
             return pct <= -29.5
         else:
             return pct <= -9.5
-    
+
+    def is_limit_down(self, ts_code: str) -> bool:
+        """判断是否跌停(公开接口,替代_is_limit_down)【v2.9.18】"""
+        return self._is_limit_down(ts_code)
+
+    async def execute_sell_list(self, to_sell: List[Tuple], trade_date: str, source: str = "legacy"):
+        """执行卖出列表(公开接口,替代_execute_sell_list)【v2.9.18】"""
+        return await self._execute_sell_list(to_sell, trade_date, source=source)
+
     def _get_open_price(self, ts_code: str) -> float:
         """获取当日开盘价(用于跳空止损)"""
         rt = self.realtime_cache.get(ts_code, {})

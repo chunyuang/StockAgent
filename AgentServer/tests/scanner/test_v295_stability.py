@@ -66,11 +66,11 @@ class TestRiskThreadWatchdog:
         assert '_risk_thread_restarts' in src
 
     def test_risk_thread_restarts_counter_in_start(self):
-        """start()中重置重启计数"""
+        """start()或其调用的方法中重置重启计数"""
         import inspect
         from nodes.market_monitor.scanner import MarketScanner
-        src = inspect.getsource(MarketScanner.start)
-        # 验证start中有_risk_thread_restarts = 0
+        # v2.9.18: _risk_thread_restarts = 0 移到 _start_risk_thread()
+        src = inspect.getsource(MarketScanner.start) + inspect.getsource(MarketScanner._start_risk_thread)
         assert '_risk_thread_restarts = 0' in src or '_risk_thread_restarts=0' in src
 
     def test_watchdog_in_scan_loop_source(self):

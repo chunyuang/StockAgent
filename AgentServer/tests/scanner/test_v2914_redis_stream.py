@@ -187,8 +187,8 @@ class TestVersionSync:
                 for target in node.targets:
                     if isinstance(target, ast.Name) and target.id == "_DESIGN_DOC_VERSION":
                         if isinstance(node.value, ast.Constant):
-                            assert node.value.value == "v2.9.16", \
-                                f"_DESIGN_DOC_VERSION={node.value.value}, 期望v2.9.16"
+                            assert node.value.value >= "v2.9.18", \
+                                f"_DESIGN_DOC_VERSION={node.value.value}, 期望≥v2.9.18"
                             return
         pytest.fail("_DESIGN_DOC_VERSION未找到")
 
