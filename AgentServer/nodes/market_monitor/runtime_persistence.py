@@ -339,6 +339,8 @@ class RuntimePersistence:
             trace_doc["summary"]["total_candidates"] = len(filter_result.trace_candidates)
             trace_doc["summary"]["passed"] = len(passed_candidates)
             trace_doc["summary"]["rejected"] = len(rejected_summary)
+            # 【v2.9.17:保存layer_details(每层的决策描述)】
+            trace_doc["layer_details"] = dict(filter_result.layer_details)
             
             await mongo_manager.db["scan_traces"].insert_one(trace_doc)
             logger.info(f"[SCAN] 保存链路追踪: {len(passed_candidates)} passed + {len(rejected_summary)} rejected (节省layer_results)")
