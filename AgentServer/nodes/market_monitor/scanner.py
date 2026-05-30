@@ -144,50 +144,34 @@ class MarketScanner:
     # ==================== 初始化子方法 ====================
 
     def _init_state(self):
-        """初始化基础状态变量【v2.9.3提取】"""
-        # 单票风控覆盖
+        """初始化基础状态变量【v2.9.3提取, v2.9.28:注释分组】"""
+        # ── 风控状态(风控线程+主循环并发读写, _state_lock保护) ──
         self._position_risk_overrides: Dict[str, Dict] = {}
-
-        # 追踪止损状态
         self._trailing_stops: Dict[str, Dict] = {}
-
-        # 持仓风险等级
         self._position_risk_levels: Dict[str, str] = {}
-
-        # 订单状态跟踪
         self._pending_orders: Dict[str, Dict] = {}
-
-        # 跌停挂起的卖出指令
         self._pending_sells: Dict[str, Dict] = {}
 
-        # 快照节流
-        self._last_snapshot_save: float = 0.0
-        self._snapshot_dirty: bool = False
-
-        # 交易日(由start()设置)
-        self._trade_date: str = ""
-
-        # 净值峰值
-        self._nav_peak: float = 1.0
-
-        # 风控独立线程
+        # ── 线程安全(延迟初始化, start()中设置) ──
         self._risk_thread = None
         self._risk_running = False
-        self._risk_thread_restarts = 0  # 【v2.9.5:风控线程重启计数】
+        self._risk_thread_restarts = 0
         self._cache_lock = None
         self._state_lock = None
         self._loop = None
 
-        # 卖出逻辑灰度开关
-        import os
-        self.SELL_LOGIC_MODE = os.getenv("SELL_LOGIC_MODE", "legacy")
+        # ── 快照+持久化 ──
+        self._last_snapshot_save: float = 0.0
+        self._snapshot_dirty: bool = False
+        self._trade_date: str = ""  # 由start()设置
+        self._nav_peak: float = 1.0
 
-        # 行情降级状态
+        # ── 行情降级(QuoteManager管理, scanner记录级别) ──
         self._quote_degrade_level = 0
         self._quote_fail_count = 0
         self._quote_last_recover_check = 0
 
-        # 执行质量统计
+        # ── 执行质量统计 ──
         self._execution_stats = {
             "total_slippage_pct": 0.0,
             "total_fills": 0,
@@ -196,26 +180,31 @@ class MarketScanner:
             "stop_loss_response_times": [],
         }
 
-        # 运行状态
+        # ── 卖出逻辑灰度开关 ──
+        import os
+        self.SELL_LOGIC_MODE = os.getenv("SELL_LOGIC_MODE", "legacy")
+
+        # ── 运行状态 ──
         self._is_running = False
         self._task: Optional[asyncio.Task] = None
         self._scan_count = 0
         self._last_scan_time = ""
         self._last_scan_ts: float = 0.0
         self._last_risk_check_ts: float = 0.0
-        self._last_realtime_update_ts: float = 0.0  # 【v2.9.23:行情缓存最后更新时间】
+        self._last_realtime_update_ts: float = 0.0
+        self._scan_loop_error_count: int = 0
 
-        # 数据缓存
+        # ── 数据缓存(主循环写, 风控线程读, _cache_lock保护) ──
         self._daily_factors_df: Optional[pd.DataFrame] = None
         self._realtime_cache: Dict[str, Dict] = {}
         self._prev_realtime_cache: Dict[str, Dict] = {}
         self._all_codes: List[str] = []
 
-        # 信号与时间线
+        # ── 信号与时间线 ──
         self._active_signals: List[ScanSignal] = []
         self._timeline: List[Dict] = []
 
-        # 统计
+        # ── 交易统计 ──
         self._stats = {
             "scans": 0,
             "signals_found": 0,
@@ -224,9 +213,6 @@ class MarketScanner:
             "take_profits": 0,
             "stocks_scanned": 0,
         }
-        
-        # 【v2.9.22:scan_loop连续错误计数(瞬态错误恢复)】
-        self._scan_loop_error_count: int = 0
 
     def _init_broker(self):
         """初始化撮合引擎【v2.9.3提取】"""
@@ -429,6 +415,8 @@ class MarketScanner:
         "_post_sell_cleanup": ("_runtime_persistence", "post_sell_cleanup"),
         "_retry_pending_sells": ("_position_manager", "retry_pending_sells"),
         "_execute_sell_list_from_risk": ("_position_manager", "execute_sell_list_from_risk"),
+        # 【v2.9.28:filter结果合并提取到LiveFilterPipeline】
+        "_merge_filter_result": ("_filter_pipeline", "merge_filter_result"),
     }
 
     def __getattr__(self, name):
@@ -1207,6 +1195,7 @@ class MarketScanner:
         - 【v2.9.5】使用self._trade_date保证交易日一致性
         - 【v2.9.21】时间门控使用MarketPhase.classify()统一
         - 【v2.9.22】连续错误退避: 3次异常后加长sleep, 避免空转刷日志
+        - 【v2.9.28】主循环拆分为_risk_wait_for_trading+周期检查逻辑
         """
         import threading
         tick = 0
@@ -1220,13 +1209,11 @@ class MarketScanner:
                 
                 # 【v2.9.21】使用MarketPhase统一时间分类
                 phase = MarketPhase.classify()
-                if phase == MarketPhase.WEEKEND:
-                    time.sleep(60)  # 周末调试: 60秒检查一次
-                elif phase == MarketPhase.DEEP_NIGHT:
-                    time.sleep(300)  # 深夜: 5分钟检查一次
-                    continue
-                elif phase not in (MarketPhase.TRADING, MarketPhase.AUCTION):
-                    time.sleep(30)  # 非交易时间30秒检查一次
+                
+                # 非交易时间等待
+                sleep_s = self._risk_non_trading_sleep(phase)
+                if sleep_s > 0:
+                    time.sleep(sleep_s)
                     continue
                 
                 # 从共享缓存读取(线程安全, 浅拷贝)
@@ -1237,21 +1224,8 @@ class MarketScanner:
                     time.sleep(1)
                     continue
                 
-                # 【v2.9.23:行情缓存过期检测】交易时间内缓存>120秒未更新则告警
-                if phase == MarketPhase.TRADING and hasattr(self, '_last_realtime_update_ts'):
-                    cache_age = time.time() - (self._last_realtime_update_ts or 0)
-                    if cache_age > 120:
-                        logger.warning(f"[RISK_THREAD] 行情缓存过期({cache_age:.0f}秒), 风控精度下降")
-                        # 每5分钟只告警一次(避免刷日志)
-                        if tick % 300 == 0:
-                            try:
-                                asyncio.ensure_future(self._event_bus.emit(ScannerEvents.SCANNER_ERROR, {
-                                    "error": f"行情缓存过期{cache_age:.0f}秒",
-                                    "error_type": "StaleQuoteCache",
-                                    "timestamp": time.time(),
-                                }))
-                            except Exception as _e:
-                                pass  # v2.9.25:已捕获异常对象
+                # 【v2.9.23:行情缓存过期检测】
+                self._check_stale_quote_cache(tick, phase)
 
                 # ── 每1秒: 止损检查(用缓存数据, 零成本) ──
                 self._check_stop_loss_only(realtime_data)
@@ -1267,7 +1241,6 @@ class MarketScanner:
                 # ── 每30秒: 完整quick check(东财缓存, 零额度) ──
                 if tick % 30 == 0 and self._loop and not self._loop.is_closed():
                     try:
-                        # 【v2.9.5:优先使用scanner统一的_trade_date, 保证与主循环一致】
                         risk_trade_date = self._trade_date or datetime.now().strftime("%Y%m%d")
                         future = asyncio.run_coroutine_threadsafe(
                             self._check_positions_quick(risk_trade_date),
@@ -1278,15 +1251,9 @@ class MarketScanner:
                         logger.debug(f"[RISK_THREAD] quick check异常: {e}")
 
             except Exception as e:
-                consecutive_errors += 1  # 【v2.9.22】
+                consecutive_errors += 1
                 logger.error(f"[RISK_THREAD] 风控线程异常({consecutive_errors}次): {e}")
-                # 【v2.9.22:连续错误退避】
-                # 3次以内正常1秒sleep; 3-10次5秒sleep; >10次30秒sleep(避免空转刷日志)
-                if consecutive_errors >= 10:
-                    time.sleep(30)
-                elif consecutive_errors >= 3:
-                    time.sleep(5)
-                # 风控线程异常也发射事件
+                # 风控线程异常发射事件
                 try:
                     asyncio.ensure_future(self._event_bus.emit(ScannerEvents.SCANNER_ERROR, {
                         "error": f"风控线程异常: {e}",
@@ -1295,11 +1262,58 @@ class MarketScanner:
                         "consecutive_errors": consecutive_errors,
                     }))
                 except Exception as _e:
-                    pass  # 事件发射失败不应影响风控线程(v2.9.25:已捕获异常对象)
-                continue  # 【v2.9.22:异常后跳过time.sleep(1)的下方sleep,用上面的退避sleep】
+                    pass
+                sleep_s = self._risk_error_backoff(consecutive_errors, e)
+                time.sleep(sleep_s)
+                continue
             time.sleep(1)  # 真sleep,不受asyncio影响
         
         logger.info("[RISK_THREAD] 风控线程已退出")
+
+    @staticmethod
+    def _risk_non_trading_sleep(phase: str) -> int:
+        """非交易时间返回sleep秒数, 交易时间返回0【v2.9.28提取】"""
+        if phase == MarketPhase.WEEKEND:
+            return 60
+        elif phase == MarketPhase.DEEP_NIGHT:
+            return 300
+        elif phase not in (MarketPhase.TRADING, MarketPhase.AUCTION):
+            return 30
+        return 0
+
+    def _check_stale_quote_cache(self, tick: int, phase: str):
+        """交易时间内行情缓存过期检测+告警【v2.9.28从_risk_loop_sync提取】"""
+        if phase != MarketPhase.TRADING:
+            return
+        if not hasattr(self, '_last_realtime_update_ts'):
+            return
+        cache_age = time.time() - (self._last_realtime_update_ts or 0)
+        if cache_age <= 120:
+            return
+        logger.warning(f"[RISK_THREAD] 行情缓存过期({cache_age:.0f}秒), 风控精度下降")
+        # 每5分钟只告警一次(避免刷日志)
+        if tick % 300 == 0:
+            try:
+                asyncio.ensure_future(self._event_bus.emit(ScannerEvents.SCANNER_ERROR, {
+                    "error": f"行情缓存过期{cache_age:.0f}秒",
+                    "error_type": "StaleQuoteCache",
+                    "timestamp": time.time(),
+                }))
+            except Exception as _e:
+                pass
+
+    @staticmethod
+    def _risk_error_backoff(consecutive_errors: int, error: Exception) -> int:
+        """风控线程错误退避sleep秒数【v2.9.28从_risk_loop_sync提取】
+        
+        Returns: sleep秒数
+        """
+        # 3次以内1秒; 3-10次5秒; >10次30秒
+        if consecutive_errors >= 10:
+            return 30
+        elif consecutive_errors >= 3:
+            return 5
+        return 1
 
     def _check_stop_loss_only(self, realtime_data: Dict):
         """1秒级止损检查 — 委托给PositionManager【Phase3.1】
@@ -1589,50 +1603,7 @@ class MarketScanner:
         logger.warning(f"[FILTER] ⚠️ 强制空仓: {reason}")
         await self._liquidate_positions(reason=f"强制空仓: {reason}", source="force_empty")
 
-    def _merge_filter_result(self, signals: List[ScanSignal], result) -> List[ScanSignal]:
-        """将filter_pipeline结果合并回ScanSignal【v2.9提取】"""
-        candidate_map = {c["ts_code"]: c for c in result.candidates}
-        filtered_signals = []
-        for s in signals:
-            if s.ts_code in candidate_map:
-                # 注入9层筛选决策详情
-                s.decision_detail = {
-                    "filter_pipeline": {
-                        "layers_applied": result.layers_applied,
-                        "layer_details": result.layer_details,
-                        "position_ratio": result.position_ratio,
-                        "action": result.action,
-                    },
-                    "signal_reason": s.reason,
-                    "strategy": s.strategy,
-                    "strategy_name": s.strategy_name,
-                    "price": s.price,
-                    "pct_chg": s.pct_chg,
-                    "volume_ratio": s.volume_ratio,
-                    "turnover_rate": s.turnover_rate,
-                    "factors": s.factors,
-                    "scan_time": s.scan_time,
-                }
-                # 逐层trace
-                for layer_name, detail in result.layer_details.items():
-                    s.layer_trace[layer_name] = {
-                        "detail": detail,
-                        "applied": result.layers_applied.get(layer_name, False),
-                    }
-                s.layer_trace["L8_position"] = {
-                    "position_ratio": result.position_ratio,
-                    "action": result.action,
-                }
-                filtered_signals.append(s)
-            else:
-                # 被过滤掉的信号
-                s.signal_status = "filtered"
-                s.layer_trace["filter_result"] = {
-                    "filtered_out": True,
-                    "reason": "9层筛选管道过滤",
-                    "layer_details": result.layer_details,
-                }
-        return filtered_signals
+    # _merge_filter_result已提取到LiveFilterPipeline【v2.9.28:DELEGATE_MAP动态委托】
 
     # ==================== 信号管理 ====================
 
