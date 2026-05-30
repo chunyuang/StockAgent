@@ -835,12 +835,9 @@ class MarketScanner:
         
         logger.info(f"[SCANNER] 周末缓存预热: {warmed}只(上一交易日收盘价)")
 
-    async def premarket_prepare(self, trade_date: str):
-        """盘前: 加载全市场代码 + 预加载日级因子"""
-        logger.info(f"[SCANNER] 盘前准备 {trade_date}")
-
-        # 【V50:重置每日风控状态——daily_start_assets/熔断计数器】
-        # 【v2.9.17:使用_with_state_lock统一加锁模式】
+    def _reset_daily_risk_state(self):
+        """重置每日风控状态(circuit_breaker+pending_sells+执行统计)【v2.9.21提取】"""
+        # 重置circuit_breaker(需要broker账户信息)
         if self._broker:
             try:
                 acct = self._broker.get_account()
@@ -857,17 +854,22 @@ class MarketScanner:
             except Exception as e:
                 logger.warning(f"[SCANNER] 每日风控重置失败: {e}")
 
-        # 【V59→Phase1.1优化:追踪止损+风险等级不再无条件清除】
-        # _load_positions()→_load_runtime_snapshot()会根据快照日期判断:
-        #   同一天重启 → 从快照恢复(保留盘中状态)
-        #   新的一天 → 清除(在_load_runtime_snapshot中snap_date!=trade_date时不恢复)
-        # 这里只清除执行统计(每次启动都重置)
+        # 清除执行统计(每次启动都重置)
         self._execution_stats["stop_loss_response_times"] = []
-        # 【v2.9.17:使用_with_state_lock统一加锁模式】
+        # 清除跌停挂起(使用_with_state_lock统一加锁)
         from nodes.market_monitor.risk_watchdog import RiskWatchdog
         RiskWatchdog._with_state_lock(self, lambda: self._pending_sells.clear(),
                                        fallback=lambda: self._pending_sells.clear())
         logger.info("[SCANNER] 执行统计+跌停挂起已重置(追踪止损/风险等级将在加载持仓时恢复)")
+
+    async def premarket_prepare(self, trade_date: str):
+        """盘前: 加载全市场代码 + 预加载日级因子"""
+        logger.info(f"[SCANNER] 盘前准备 {trade_date}")
+
+        # 【v2.9.21:提取_reset_daily_risk_state, 简化本方法】
+        # 重置每日风控(circuit_breaker+pending_sells+执行统计)
+        # 追踪止损/风险等级: _load_positions→_load_runtime_snapshot根据快照日期判断
+        self._reset_daily_risk_state()
 
         # 1. 获取全市场代码
         await self._load_stock_list()
@@ -884,7 +886,7 @@ class MarketScanner:
         await self._load_positions()
         logger.info("[SCANNER] 持仓加载完成")
 
-        # 4. 竞价预选(仅交易时间9:15-9:30)
+        # 4. 竞价预选(仅竞价阶段9:15-9:30)
         now = datetime.now()
         ct = now.strftime("%H:%M")
         if "09:15" <= ct <= "09:30":
