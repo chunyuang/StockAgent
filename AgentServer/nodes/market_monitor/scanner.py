@@ -605,8 +605,8 @@ class MarketScanner:
                 await mongo_manager.db["audit_log"].create_index(
                     "timestamp", expireAfterSeconds=7776000  # 90天
                 )
-        except Exception:
-            pass
+        except Exception as _e:
+            logger.debug(f"[START] 审计日志TTL索引创建失败: {_e}")
 
         # 【v2.9.4:从MongoDB恢复pending_sells(上次停机时保存的跌停挂起)】
         try:
@@ -732,16 +732,16 @@ class MarketScanner:
         if self._broker:
             try:
                 await self._broker.save_state(force=True)
-            except Exception:
-                pass
+            except Exception as _e:
+                logger.warning(f"[SCANNER] 停止时broker状态持久化失败: {_e}")
             # 【Phase1.1】同步保存Scanner运行时状态
             await self._save_runtime_snapshot(force=True)
         
         # 保存时间线到MongoDB
         try:
             await self._save_timeline()
-        except Exception:
-            pass
+        except Exception as _e:
+            logger.warning(f"[SCANNER] 停止时Timeline保存失败: {_e}")
         
         # 【v2.9.4:保存pending_sells状态到MongoDB(防止重启丢失)】
         # 【v2.9.17:使用_with_state_lock统一加锁模式】
@@ -1106,9 +1106,9 @@ class MarketScanner:
                     "consecutive_errors": self._scan_loop_error_count,
                 }))
             except Exception:
-                pass
+                pass  # 事件发射失败不应影响主流程
 
-    # ==================== v2.9.13: _scan_loop时间段提取 ====================
+    # ==================== v2.9.13: _scan_loop时间段提取 ==================
 
     async def _scan_loop_trading(self, trade_date: str, last_full_scan: float) -> bool:
         """交易时间(9:30-15:00)处理逻辑\n        \n        职责: 风控线程看门狗 + 行情恢复 + 全量扫描/等待
@@ -1162,8 +1162,8 @@ class MarketScanner:
             self._broker.daily_settlement(trade_date)
         try:
             await self._broker.save_state()
-        except Exception:
-            pass
+        except Exception as _e:
+            logger.warning(f"[SCANNER] 盘后结算broker状态持久化失败: {_e}")
         logger.info("[SCANNER] 收盘自动结算+持久化完成")
         # 【v2.9:盘后结算通过EventBus驱动,解耦scanner主循环】
         try:
@@ -1173,13 +1173,13 @@ class MarketScanner:
                 "total_profit": getattr(account, 'today_profit', 0) if account else 0,
                 "total_assets": getattr(account, 'total_assets', 0) if account else 0,
             })
-        except Exception:
-            pass
+        except Exception as _e:
+            logger.debug(f"[SCANNER] 盘后结算事件发射失败: {_e}")
         # 保存timeline到MongoDB
         try:
             await self._save_timeline()
-        except Exception:
-            pass
+        except Exception as _e:
+            logger.warning(f"[SCANNER] 盘后Timeline保存失败: {_e}")
 
     async def _scan_loop_replay(self):
         """回放模式循环: 不受交易时间限制, 持续扫描【v2.9.19提取】"""
@@ -1275,7 +1275,7 @@ class MarketScanner:
                         "consecutive_errors": consecutive_errors,
                     }))
                 except Exception:
-                    pass
+                    pass  # 事件发射失败不应影响风控线程
                 continue  # 【v2.9.22:异常后跳过time.sleep(1)的下方sleep,用上面的退避sleep】
             time.sleep(1)  # 真sleep,不受asyncio影响
         
@@ -1475,8 +1475,8 @@ class MarketScanner:
         # 事件通知(timeline + EventBus)
         try:
             await self._publish_scanner_event("timeline", {"item": entry})
-        except Exception:
-            pass
+        except Exception as _e:
+            logger.debug(f"[SCANNER] timeline事件发射失败: {_e}")
         try:
             await self._event_bus.emit(ScannerEvents.RISK_SELL_EXECUTED, {
                 "ts_code": pos.ts_code, "reason": reason,
@@ -1485,18 +1485,18 @@ class MarketScanner:
             await self._event_bus.emit(ScannerEvents.POSITION_CHANGED, {
                 "ts_code": pos.ts_code, "action": "sell", "reason": reason,
             })
-        except Exception:
-            pass
+        except Exception as _e:
+            logger.debug(f"[SCANNER] 卖出事件发射失败: {_e}")
         logger.info(f"[{source.upper()}] {reason}: {pos.ts_code} {quantity}股@{order.filled_price:.2f}")
         # 持久化(broker + 运行时快照)
         try:
             await self._broker.save_state(force=True)
-        except Exception:
-            pass
+        except Exception as _e:
+            logger.warning(f"[SCANNER] 卖出后broker状态持久化失败: {_e}")
         try:
             await self._save_runtime_snapshot(force=True)
-        except Exception:
-            pass
+        except Exception as _e:
+            logger.debug(f"[SCANNER] 卖出后运行时快照失败: {_e}")
 
     async def scan_once(self, trade_date: str, force: bool = False):
         """单次扫描
@@ -1910,7 +1910,7 @@ class MarketScanner:
             try:
                 await scanner._event_bus.emit(event_name, data)
             except Exception:
-                pass
+                pass  # 行情事件发射失败不应影响行情推送
         return emit_quote_event
 
     def _is_limit_down(self, ts_code: str) -> bool:
@@ -1936,11 +1936,8 @@ class MarketScanner:
             for k in updates:
                 if k in strategy_config:
                     old_values[k] = strategy_config[k]
-        except Exception:
-            pass
-
-        try:
-            from nodes.market_monitor.strategy_param_center import StrategyParamCenter
+        except Exception as _e:
+            logger.debug(f"[SCANNER] 策略参数旧值读取失败: {_e}")
             StrategyParamCenter.update_scanner_config(self.config, strategy_key, updates)
             logger.info(f"[SCANNER] 策略参数热更新: {strategy_key}")
         except Exception:
@@ -1952,20 +1949,20 @@ class MarketScanner:
                 "strategy_key": strategy_key, "updates": updates,
                 "old_values": old_values,  # 【v2.9.17:审计增强】
             }))
-        except Exception:
-            pass
+        except Exception as _e:
+            logger.debug(f"[SCANNER] 参数更新事件发射失败: {_e}")
         try:
             asyncio.ensure_future(StrategyParamCenter.persist_scanner_overrides(self.config))
-        except Exception:
-            pass
+        except Exception as _e:
+            logger.debug(f"[SCANNER] 参数持久化失败: {_e}")
 
     async def _persist_strategy_overrides(self):
         """将strategy_overrides持久化到MongoDB — 委托给StrategyParamCenter"""
         try:
             from nodes.market_monitor.strategy_param_center import StrategyParamCenter
             await StrategyParamCenter.persist_scanner_overrides(self.config)
-        except Exception:
-            pass
+        except Exception as _e:
+            logger.debug(f"[SCANNER] 策略覆盖持久化失败: {_e}")
 
     async def _load_strategy_overrides(self):
         """从MongoDB恢复strategy_overrides — 委托给StrategyParamCenter"""
@@ -1977,8 +1974,8 @@ class MarketScanner:
                     self.config["strategy_overrides"] = {}
                 self.config["strategy_overrides"].update(data)
                 logger.info(f"[SCANNER] 从MongoDB恢复策略参数: {len(data)}个策略")
-        except Exception:
-            pass
+        except Exception as _e:
+            logger.debug(f"[SCANNER] 从MongoDB恢复策略参数失败: {_e}")
 
     # 【v2.9.9:以下方法已移至DELEGATE_MAP+__getattr__动态委托,不再显式定义】
     # _compute_health_score → ScannerUtils.compute_health_score(self)
