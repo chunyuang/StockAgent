@@ -138,12 +138,20 @@ class QuoteManager:
             logger.info(f"[REPLAY] 返回 {len(replay_data)} 只模拟行情(日期={replay_date})")
             return replay_data
 
-        # 非交易时间检查
+        # 非交易时间检查(周末/收盘后: 用缓存数据,不阻塞)
         now = datetime.now()
         ct = now.strftime("%H:%M")
-        is_trading = ("09:15" <= ct <= "15:05") and now.weekday() < 5  # 周一至周五
+        is_weekend = now.weekday() >= 5
+        is_trading = ("09:15" <= ct <= "15:05") and not is_weekend
+        
         if not is_trading and not force:
-            logger.info(f"[QUOTE] 非交易时间({ct}), 跳过(用force=True强制)")
+            # 非交易时间: 尝试返回缓存, 不拉实时
+            logger.info(f"[QUOTE] 非交易时间({ct}{' 周末' if is_weekend else ''}), 使用缓存")
+            # 尝试从东方财富缓存获取
+            if eastmoney and eastmoney._cache:
+                cache_age = time.time() - eastmoney._cache_time if eastmoney._cache_time > 0 else 9999
+                logger.info(f"[QUOTE] 东财缓存: {len(eastmoney._cache)}只, {cache_age:.0f}秒前")
+                return self._build_realtime_from_cache(eastmoney._cache)
             return {}
 
         realtime = {}
@@ -260,6 +268,27 @@ class QuoteManager:
             self._prev_realtime_cache = dict(self._realtime_cache)
             self._realtime_cache = realtime
 
+        return realtime
+
+    def _build_realtime_from_cache(self, em_cache: Dict) -> Dict[str, Dict]:
+        """从东方财富缓存构建realtime格式数据"""
+        realtime = {}
+        for ts_code, item in em_cache.items():
+            realtime[ts_code] = {
+                "price": item.get("price"),
+                "pct_chg": item.get("pct_chg"),
+                "turnover_rate": item.get("turnover_rate"),
+                "volume_ratio": item.get("volume_ratio"),
+                "open": item.get("open"),
+                "high": item.get("high"),
+                "low": item.get("low"),
+                "pre_close": item.get("pre_close"),
+                "vol": item.get("vol"),
+                "amount": item.get("amount"),
+            }
+        # 更新本地缓存
+        self._realtime_cache = realtime
+        self._last_fetch_time = time.time()
         return realtime
 
     def get_cached_price(self, ts_code: str) -> Optional[float]:

@@ -345,11 +345,25 @@ class EastmoneyAdapter(AsyncDataSourceAdapter):
     async def get_all_realtime(self, force_refresh: bool = False) -> Dict[str, Dict]:
         """获取全市场实时行情 (带缓存, 默认5秒TTL)
         
-        Returns:
-            Dict[ts_code, 行情数据] — 全市场5400+只
+        周末/非交易日: 优先用缓存, force_refresh时尝试刷新(失败不阻塞)
         """
         now = time.time()
         cache_age = now - self._cache_time
+        
+        # 周末: 优先用缓存, 不强制拉取(避免阻塞)
+        from datetime import datetime as _dt
+        if _dt.now().weekday() >= 5:
+            if self._cache:
+                return self._cache
+            # 周末且无缓存: 尝试拉取一次(有15s超时)
+            if force_refresh or not self._cache:
+                try:
+                    data = await asyncio.wait_for(self._fetch_all_stocks(), timeout=20)
+                    if data:
+                        return data
+                except (asyncio.TimeoutError, Exception) as e:
+                    logger.warning(f"[EASTMONEY] 周末拉取超时/失败({e}), 返回空缓存")
+            return self._cache or {}
         
         if force_refresh or cache_age > self._cache_ttl or not self._cache:
             data = await self._fetch_all_stocks()

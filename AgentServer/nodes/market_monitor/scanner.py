@@ -704,6 +704,56 @@ class MarketScanner:
 
     # ==================== 盘前准备 ====================
 
+    async def _warm_weekend_cache(self):
+        """周末调试: 用日级因子(上一交易日收盘)填充行情缓存"""
+        import time as _time
+        warmed = 0
+        realtime = {}
+        df = self._daily_factors_df
+        if df is None or df.empty:
+            return
+        
+        for _, row in df.iterrows():
+            ts_code = row.get("ts_code")
+            if not ts_code:
+                continue
+            close = row.get("close")
+            pre_close = row.get("pre_close")
+            pct_chg = row.get("pct_chg")
+            if close and close > 0:
+                realtime[ts_code] = {
+                    "price": close,
+                    "pct_chg": pct_chg if pct_chg else 0,
+                    "pre_close": pre_close if pre_close else close,
+                    "open": row.get("open", close),
+                    "high": row.get("high", close),
+                    "low": row.get("low", close),
+                    "vol": row.get("vol", 0),
+                    "amount": row.get("amount", 0),
+                    "turnover_rate": row.get("turnover_rate", 0),
+                    "volume_ratio": row.get("volume_ratio", 0),
+                }
+                warmed += 1
+        
+        # 写入本地缓存
+        self._realtime_cache = realtime
+        
+        # 也写入东方财富缓存(如果存在)
+        if self._quote_manager:
+            for source in self._quote_manager._data_router._sources.values() if self._quote_manager._data_router else []:
+                if hasattr(source, '_cache') and hasattr(source, '_cache_time'):
+                    source._cache = {k: {"price": v["price"], "pct_chg": v["pct_chg"], 
+                                         "pre_close": v["pre_close"], "open": v["open"],
+                                         "high": v["high"], "low": v["low"],
+                                         "vol": v["vol"], "amount": v["amount"],
+                                         "turnover_rate": v.get("turnover_rate", 0),
+                                         "volume_ratio": v.get("volume_ratio", 0)}
+                                    for k, v in realtime.items()}
+                    source._cache_time = _time.time()
+                    source._total_stocks = len(realtime)
+        
+        logger.info(f"[SCANNER] 周末缓存预热: {warmed}只(上一交易日收盘价)")
+
     async def premarket_prepare(self, trade_date: str):
         """盘前: 加载全市场代码 + 预加载日级因子"""
         logger.info(f"[SCANNER] 盘前准备 {trade_date}")
@@ -758,6 +808,11 @@ class MarketScanner:
             logger.debug(f"[SCANNER] 非竞价时间({ct}), 跳过竞价预选")
 
         logger.info("[SCANNER] premarket_prepare 即将完成")
+        
+        # 【周末调试】用日级因子填充行情缓存, 使周末也能操作
+        if datetime.now().weekday() >= 5 and self._daily_factors_df is not None:
+            await self._warm_weekend_cache()
+        
         logger.info(f"[SCANNER] 准备完成: {len(self._all_codes)}只股票, "
                      f"{len(self._daily_factors_df) if self._daily_factors_df is not None else 0}条因子, "
                      f"{len(self._active_signals)}个竞价信号")
@@ -894,9 +949,15 @@ class MarketScanner:
                 ct = now.strftime("%H:%M")
                 h = now.hour
                 
-                # === 周末/节假日: 极低频(5分钟心跳) ===
+                # === 周末: 调试模式(60秒循环, 用缓存数据) ===
                 if now.weekday() >= 5:
-                    await asyncio.sleep(300)
+                    pos_count = len(self._broker.get_positions()) if self._broker else 0
+                    if pos_count > 0:
+                        try:
+                            await self._check_positions_quick(trade_date)
+                        except Exception as e:
+                            logger.debug(f"[SCANNER] 周末持仓检查异常: {e}")
+                    await asyncio.sleep(60)  # 周末60秒循环
                     continue
 
                 # === 交易时间(9:30-15:00) ===
@@ -1040,9 +1101,15 @@ class MarketScanner:
                 # 非交易时间不做检查(与scan_loop同样的时间判断)
                 now = datetime.now()
                 ct = now.strftime("%H:%M")
-                if ct < "09:25" or ct > "15:05":
-                    time.sleep(30)  # 非交易时间30秒检查一次
+                is_weekend = now.weekday() >= 5
+                if (ct < "09:25" or ct > "15:05") and not is_weekend:
+                    time.sleep(30)  # 工作日非交易时间30秒检查一次
                     continue
+                
+                # 周末: 60秒检查一次(调试模式)
+                if is_weekend:
+                    time.sleep(60)
+                    # 继续执行检查(用缓存数据)
                 
                 # 从共享缓存读取(线程安全, 浅拷贝)
                 with self._cache_lock:
