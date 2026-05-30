@@ -688,6 +688,10 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <span class="tab-text"><span class="tab-label">风控</span><span class="tab-desc">止损·矩阵</span></span>
         <span v-if="positions.some(p => p.risk_level === 'high')" class="tab-badge-danger">!</span>
       </button>
+      <button :class="['tab-btn', activeTab === 'history' ? 'active' : '']" @click="activeTab = 'history'">
+        <span class="tab-icon">📜</span>
+        <span class="tab-text"><span class="tab-label">历史</span><span class="tab-desc">时间线·订单</span></span>
+      </button>
       <button :class="['tab-btn', activeTab === 'ops' ? 'active' : '']" @click="activeTab = 'ops'">
         <span class="tab-icon">⚙️</span>
         <span class="tab-text"><span class="tab-label">运维</span><span class="tab-desc">系统·操作</span></span>
