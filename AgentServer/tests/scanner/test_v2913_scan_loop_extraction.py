@@ -184,17 +184,15 @@ class TestScannerPremarketLocks:
                     f"circuit_breaker赋值附近缺少lock保护 (line {idx})"
 
     def test_pending_sells_clear_uses_lock(self):
-        """premarket_prepare中_pending_sells.clear()使用state_lock"""
+        """_pending_sells.clear()使用state_lock(v2.9.21:在_reset_daily_risk_state中)"""
         import inspect
         from nodes.market_monitor.scanner import MarketScanner
-        src = inspect.getsource(MarketScanner.premarket_prepare)
-        # v2.9.17: _pending_sells.clear()通过_with_state_lock保护
-        # 检查_pending_sells.clear()附近有lock保护(直接with或_with_state_lock)
+        # v2.9.21: _pending_sells.clear()从premarket_prepare提取到_reset_daily_risk_state
+        src = inspect.getsource(MarketScanner._reset_daily_risk_state)
         lines = src.split('\n')
         found_lock_protection = False
         for i, line in enumerate(lines):
             stripped = line.strip()
-            # 跳过注释行
             if stripped.startswith('#'):
                 continue
             if '_pending_sells.clear()' in stripped:
