@@ -73,6 +73,8 @@ def register_subscribers(scanner) -> None:
 async def _write_audit_log(scanner, event_type: str, data: Dict[str, Any]):
     """写入审计日志到MongoDB audit_log集合
     
+    设计文档Phase3.4: TTL 90天自动清理, 防止无限增长。
+    
     Args:
         scanner: MarketScanner实例
         event_type: 事件类型
@@ -82,6 +84,15 @@ async def _write_audit_log(scanner, event_type: str, data: Dict[str, Any]):
         from core.managers import mongo_manager
         if not mongo_manager._initialized:
             return
+        
+        # 【Phase3.4】确保TTL索引存在(90天自动清理, 幂等操作)
+        try:
+            await mongo_manager.db["audit_log"].create_index(
+                "timestamp", name="ttl_90d",
+                expireAfterSeconds=90 * 86400
+            )
+        except Exception:
+            pass  # 索引已存在或其他错误, 不影响写入
         
         doc = {
             "event_type": event_type,
@@ -112,13 +123,21 @@ def _safe_serialize(data: Any, max_depth: int = 3) -> Any:
 
 # ==================== Redis状态推送 ====================
 
-async def _push_to_redis(scanner, channel: str, data: Dict[str, Any]):
-    """推送事件到Redis Pub/Sub(供Web节点WebSocket广播)
+async def _push_to_redis(scanner, channel: str, data: Dict[str, Any], use_stream: bool = False, maxlen: int = 1000):
+    """推送事件到Redis
     
     Args:
         scanner: MarketScanner实例
         channel: Redis频道名
         data: 推送数据
+        use_stream: True时用Redis Stream(xadd,不可丢), False时用Pub/Sub(允许丢)
+        maxlen: Stream最大长度(仅use_stream=True时生效)
+    
+    设计文档Phase2.1:
+    - scanner:signal   → Redis Stream(maxlen=1000, 不可丢)
+    - scanner:position → Redis Stream(maxlen=5000, 不可丢)
+    - scanner:status   → Pub/Sub(允许丢)
+    - scanner:health   → Pub/Sub(允许丢)
     """
     try:
         from core.managers.redis_manager import redis_manager
@@ -131,7 +150,15 @@ async def _push_to_redis(scanner, channel: str, data: Dict[str, Any]):
             "timestamp": time.time(),
             "account_id": getattr(scanner, '_account_id', 'default'),
         }
-        await redis_manager._client.publish(channel, json.dumps(payload, default=str))
+        
+        if use_stream:
+            # Redis Stream: 消息持久化, 消费者可用XREAD消费, 不丢失
+            await redis_manager._client.xadd(
+                channel, payload, maxlen=maxlen, approximate=True
+            )
+        else:
+            # Pub/Sub: 实时广播, 不持久化, 离线消费者丢失
+            await redis_manager._client.publish(channel, json.dumps(payload, default=str))
     except Exception as e:
         logger.debug(f"[REDIS_PUSH] 推送失败(非关键): {e}")
 
@@ -169,12 +196,12 @@ def _make_position_changed_handler(scanner):
         except Exception as e:
             logger.debug(f"[SNAPSHOT] 持仓变更后快照保存失败: {e}")
         
-        # Redis持仓推送
+        # Redis持仓推送(Phase2.1: Redis Stream, 不可丢)
         await _push_to_redis(scanner, "scanner:position", {
             "action": data.get("action", ""),
             "ts_code": data.get("ts_code", ""),
             "strategy": data.get("strategy", ""),
-        })
+        }, use_stream=True, maxlen=5000)
     on_position_changed.__name__ = "on_position_changed"
     return on_position_changed
 
@@ -297,11 +324,11 @@ def _make_daily_settled_handler(scanner):
 def _make_signal_generated_handler(scanner):
     """信号生成事件handler"""
     async def on_signal_generated(data: Dict[str, Any]):
-        # Redis信号推送(前端实时信号面板)
+        # Redis信号推送(Phase2.1: Redis Stream, 不可丢)
         await _push_to_redis(scanner, "scanner:signal", {
             "event": "signal_generated",
             "signal_count": data.get("signal_count", 0),
             "signals": data.get("signals", []),
-        })
+        }, use_stream=True, maxlen=1000)
     on_signal_generated.__name__ = "on_signal_generated"
     return on_signal_generated

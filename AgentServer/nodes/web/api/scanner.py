@@ -2083,7 +2083,7 @@ _version_cache = {"value": None, "ts": 0}
 _VERSION_CACHE_TTL = 300  # 5分钟缓存
 
 # 【v2.9.10:设计文档版本常量, 与docs/MARKET_MONITOR_OPTIMIZATION_DESIGN.md保持同步】
-_DESIGN_DOC_VERSION = "v2.9.13"
+_DESIGN_DOC_VERSION = "v2.9.14"
 _BASELINE_TAG = "v2.8.0-backtest-ui-v2"
 
 def _get_version_info() -> dict:
@@ -3280,5 +3280,72 @@ async def restart_daemon():
         
         result = await daemon.restart()
         return {"success": result, "message": "重启成功" if result else "重启失败"}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@router.get("/stream/signals")
+async def get_stream_signals(count: int = 20):
+    """【v2.9.14】从Redis Stream读取最近信号(scanner:signal)
+    
+    Phase2.1: signal通道已升级为Redis Stream(xadd), 消息不丢失。
+    Web节点可通过此端点消费Stream数据, 支持断线后回补。
+    
+    Args:
+        count: 读取条数(默认20, 最大100)
+    """
+    try:
+        from core.managers.redis_manager import redis_manager
+        if not redis_manager._initialized:
+            return {"success": False, "message": "Redis未初始化"}
+        
+        count = min(max(count, 1), 100)
+        # XRANGE从最早到最新, 然后取最后count条
+        messages = await redis_manager._client.xrange(
+            "scanner:signal", count=count
+        )
+        # 返回最新的count条(如果总数超过count)
+        if len(messages) > count:
+            messages = messages[-count:]
+        
+        result = []
+        for msg_id, fields in messages:
+            result.append({
+                "id": msg_id,
+                "data": fields,
+            })
+        return {"success": True, "count": len(result), "data": result}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@router.get("/stream/positions")
+async def get_stream_positions(count: int = 20):
+    """【v2.9.14】从Redis Stream读取最近持仓变更(scanner:position)
+    
+    Phase2.1: position通道已升级为Redis Stream(xadd), 消息不丢失。
+    
+    Args:
+        count: 读取条数(默认20, 最大100)
+    """
+    try:
+        from core.managers.redis_manager import redis_manager
+        if not redis_manager._initialized:
+            return {"success": False, "message": "Redis未初始化"}
+        
+        count = min(max(count, 1), 100)
+        messages = await redis_manager._client.xrange(
+            "scanner:position", count=count
+        )
+        if len(messages) > count:
+            messages = messages[-count:]
+        
+        result = []
+        for msg_id, fields in messages:
+            result.append({
+                "id": msg_id,
+                "data": fields,
+            })
+        return {"success": True, "count": len(result), "data": result}
     except Exception as e:
         return {"success": False, "message": str(e)}

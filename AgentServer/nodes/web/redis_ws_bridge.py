@@ -250,14 +250,28 @@ class RedisWSBridge:
                             stream_name = stream_name.decode("utf-8")
                         
                         for msg_id, fields in messages:
+                            # 【v2.9.14】支持两种Stream格式:
+                            # 1. 嵌套JSON: fields={"data": "{...}"} (旧格式)
+                            # 2. 扁平字段: fields={"ts_code": "...", "action": "..."} (新格式)
                             data_str = fields.get("data", "")
                             if isinstance(data_str, bytes):
                                 data_str = data_str.decode("utf-8")
                             
-                            try:
-                                data = json.loads(data_str)
-                            except (json.JSONDecodeError, TypeError):
-                                continue
+                            if data_str:
+                                # 旧格式: data字段包含JSON字符串
+                                try:
+                                    data = json.loads(data_str)
+                                except (json.JSONDecodeError, TypeError):
+                                    continue
+                            else:
+                                # 新格式: 扁平字段(signal_dispatcher + _push_to_redis)
+                                data = {}
+                                for k, v in fields.items():
+                                    if isinstance(k, bytes):
+                                        k = k.decode("utf-8")
+                                    if isinstance(v, bytes):
+                                        v = v.decode("utf-8")
+                                    data[k] = v
                             
                             # 转发到WebSocket
                             if stream_name == CHANNEL_SCANNER_SIGNAL:
@@ -395,6 +409,60 @@ class RedisWSBridge:
             })
         except Exception:
             pass
+
+    async def catchup_scanner_stream(self, stream: str, last_id: str, websocket: Any) -> int:
+        """【v2.9.14】为重连的WS客户端补发Scanner Stream消息
+        
+        WS断线重连后，前端可传last_id(上次收到的Stream entry ID)，
+       从此ID之后读取未消费的消息并推送，实现断线不丢。
+        
+        Args:
+            stream: Stream名称(scanner:signal / scanner:position)
+            last_id: 上次收到的entry ID(如"1717000000000-0")
+            websocket: WebSocket连接
+        Returns:
+            补发消息数量
+        """
+        if not last_id or not redis_manager._initialized:
+            return 0
+        
+        try:
+            # 从last_id之后读取(XRANGE, 不含last_id)
+            messages = await redis_manager.client.xrange(
+                stream, min=f"({last_id}", max="+", count=100
+            )
+            
+            count = 0
+            for msg_id, fields in messages:
+                # 构造消息(与实时推送格式一致)
+                data = {}
+                for k, v in fields.items():
+                    if isinstance(k, bytes):
+                        k = k.decode("utf-8")
+                    if isinstance(v, bytes):
+                        v = v.decode("utf-8")
+                    data[k] = v
+                
+                if stream == CHANNEL_SCANNER_SIGNAL:
+                    await websocket.send_json({
+                        "type": "scanner_signal",
+                        "signals": data.get("signals", []),
+                        "timestamp": data.get("timestamp"),
+                        "_stream_id": msg_id,
+                    })
+                elif stream == CHANNEL_SCANNER_POSITION:
+                    await websocket.send_json({
+                        "type": "scanner_position",
+                        "positions": data.get("positions", []),
+                        "timestamp": data.get("timestamp"),
+                        "_stream_id": msg_id,
+                    })
+                count += 1
+            
+            return count
+        except Exception as e:
+            logger.debug(f"Scanner Stream catchup失败: {e}")
+            return 0
 
     # ==================== 状态查询 ====================
 

@@ -3,15 +3,33 @@
 v2.9.10 — /health端点优化 + 版本缓存 + 线程安全修复 测试
 
 修复项:
-1. 版本不同步: _get_version_info()写死v2.9.7 → 常量_DESIGN_DOC_VERSION=v2.9.13
+1. 版本不同步: _get_version_info()写死v2.9.7 → 常量_DESIGN_DOC_VERSION=v2.9.14
 2. 重复健康度: API层100扣减 + scanner_health(绿黄红) → 统一以scanner_health为权威
 3. 线程安全: getattr(_pending_sells)无锁 → 加state_lock保护
 4. 版本缓存: 每次请求调git子进程 → 5分钟缓存
 """
 import ast
+import os
 import time
 import pytest
 from unittest.mock import MagicMock, patch, PropertyMock
+
+# 项目根目录(从tests/scanner/向上两级到AgentServer)
+_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+_API_SCANNER = os.path.join(_PROJECT_ROOT, "nodes", "web", "api", "scanner.py")
+_MONITOR_SCANNER = os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "scanner.py")
+_MONITOR_UTILS = os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "scanner_utils.py")
+_BACKTEST_ENGINE = os.path.join(_PROJECT_ROOT, "nodes", "backtest_engine", "factor_selection", "portfolio_backtest.py")
+
+
+def _read_api_scanner():
+    return open(_API_SCANNER).read()
+
+def _read_monitor_scanner():
+    return open(_MONITOR_SCANNER).read()
+
+def _read_monitor_utils():
+    return open(_MONITOR_UTILS).read()
 
 
 # ==================== 1. 版本常量同步测试 ====================
@@ -23,10 +41,9 @@ class TestVersionConstantSync:
         """_DESIGN_DOC_VERSION常量存在且与设计文档匹配"""
         import importlib.util
         spec = importlib.util.spec_from_file_location(
-            "scanner_api",
-            "AgentServer/nodes/web/api/scanner.py"
+            "scanner_api", _API_SCANNER
         )
-        source = open("AgentServer/nodes/web/api/scanner.py").read()
+        source = _read_api_scanner()
         tree = ast.parse(source)
         # 查找模块级变量赋值
         found = False
@@ -35,14 +52,14 @@ class TestVersionConstantSync:
                 for target in node.targets:
                     if isinstance(target, ast.Name) and target.id == "_DESIGN_DOC_VERSION":
                         if isinstance(node.value, ast.Constant):
-                            assert node.value.value == "v2.9.13", \
-                                f"_DESIGN_DOC_VERSION={node.value.value}, 期望v2.9.13"
+                            assert node.value.value == "v2.9.14", \
+                                f"_DESIGN_DOC_VERSION={node.value.value}, 期望v2.9.14"
                             found = True
         assert found, "_DESIGN_DOC_VERSION常量未找到"
 
     def test_design_doc_version_not_hardcoded_in_function(self):
         """_get_version_info()不再硬编码版本号"""
-        source = open("AgentServer/nodes/web/api/scanner.py").read()
+        source = _read_api_scanner()
         # 不应在函数内硬编码v2.9.x
         # 但允许在模块级常量中定义
         lines = source.split('\n')
@@ -57,7 +74,7 @@ class TestVersionConstantSync:
 
     def test_baseline_tag_constant_exists(self):
         """_BASELINE_TAG常量存在"""
-        source = open("AgentServer/nodes/web/api/scanner.py").read()
+        source = _read_api_scanner()
         tree = ast.parse(source)
         found = False
         for node in ast.walk(tree):
@@ -77,13 +94,13 @@ class TestVersionCache:
 
     def test_version_cache_variables_exist(self):
         """缓存变量_version_cache和_VERSION_CACHE_TTL存在"""
-        source = open("AgentServer/nodes/web/api/scanner.py").read()
+        source = _read_api_scanner()
         assert "_version_cache" in source, "_version_cache变量未找到"
         assert "_VERSION_CACHE_TTL" in source, "_VERSION_CACHE_TTL变量未找到"
 
     def test_version_cache_ttl_is_300(self):
         """缓存TTL为300秒(5分钟)"""
-        source = open("AgentServer/nodes/web/api/scanner.py").read()
+        source = _read_api_scanner()
         tree = ast.parse(source)
         for node in ast.walk(tree):
             if isinstance(node, ast.Assign):
@@ -95,7 +112,7 @@ class TestVersionCache:
 
     def test_version_info_uses_cache(self):
         """_get_version_info()使用缓存而非每次调git"""
-        source = open("AgentServer/nodes/web/api/scanner.py").read()
+        source = _read_api_scanner()
         # 应包含缓存检查逻辑
         assert "_version_cache" in source, "缺少缓存检查"
         assert "_VERSION_CACHE_TTL" in source, "缺少TTL引用"
@@ -106,7 +123,7 @@ class TestVersionCache:
         cached_result = {
             "git_hash": "abc1234",
             "git_branch": "main",
-            "design_doc_version": "v2.9.13",
+            "design_doc_version": "v2.9.14",
             "baseline_tag": "v2.8.0-backtest-ui-v2",
         }
         with patch.dict('builtins.__dict__', {
@@ -115,7 +132,7 @@ class TestVersionCache:
         }):
             # 如果缓存命中, 不应该调用subprocess
             # (这里验证源码逻辑, 不是真正运行)
-            source = open("AgentServer/nodes/web/api/scanner.py").read()
+            source = _read_api_scanner()
             assert "_version_cache[\"value\"]" in source or "_version_cache['value']" in source
 
 
@@ -126,7 +143,7 @@ class TestHealthScoreUnification:
 
     def test_no_duplicate_health_score_logic(self):
         """API层不再有独立的100扣减制health_score逻辑"""
-        source = open("AgentServer/nodes/web/api/scanner.py").read()
+        source = _read_api_scanner()
         # 直接在源码中搜索统一健康度逻辑
         # 新逻辑应该基于scanner_health的绿黄红映射(base_score)
         assert "base_score" in source, \
@@ -146,14 +163,14 @@ class TestHealthScoreUnification:
 
     def test_scanner_health_is_authoritative(self):
         """scanner_health是权威来源, API层只补充金融指标"""
-        source = open("AgentServer/nodes/web/api/scanner.py").read()
+        source = _read_api_scanner()
         # 应该调用scanner._compute_health_score()作为权威
         assert "scanner._compute_health_score()" in source, \
             "应调用scanner._compute_health_score()作为健康度权威来源"
 
     def test_merged_warnings_includes_both(self):
         """合并warnings包含ScannerUtils + 金融指标"""
-        source = open("AgentServer/nodes/web/api/scanner.py").read()
+        source = _read_api_scanner()
         # 应有merged_warnings
         assert "merged_warnings" in source, "缺少merged_warnings合并逻辑"
         # 应包含金融指标扣减
@@ -168,7 +185,7 @@ class TestPendingSellsThreadSafety:
 
     def test_pending_sells_read_uses_state_lock(self):
         """读取pending_sells使用state_lock"""
-        source = open("AgentServer/nodes/web/api/scanner.py").read()
+        source = _read_api_scanner()
         # 在get_scanner_health函数中, 应该有state_lock保护
         in_health = False
         health_code_lines = []
@@ -191,7 +208,7 @@ class TestPendingSellsThreadSafety:
 
     def test_pending_sells_count_not_direct_getattr(self):
         """不应直接用getattr(scanner, '_pending_sells', {})无锁读取"""
-        source = open("AgentServer/nodes/web/api/scanner.py").read()
+        source = _read_api_scanner()
         in_health = False
         health_code_lines = []
         for line in source.split('\n'):
@@ -223,11 +240,10 @@ class TestNoBacktestRegressionV2910:
         import importlib.util
         try:
             spec = importlib.util.spec_from_file_location(
-                "backtest_engine",
-                "AgentServer/nodes/backtest_engine/factor_selection/portfolio_backtest.py"
+                "backtest_engine", _BACKTEST_ENGINE
             )
             if spec and spec.loader:
-                source = open("AgentServer/nodes/backtest_engine/factor_selection/portfolio_backtest.py").read()
+                source = open(_BACKTEST_ENGINE).read()
                 assert "nodes.web.api.scanner" not in source
                 assert "nodes/market_monitor/scanner" not in source
         except FileNotFoundError:
@@ -235,8 +251,7 @@ class TestNoBacktestRegressionV2910:
 
     def test_scanner_py_not_modified(self):
         """v2.9.10只修改了web/api/scanner.py, 未修改market_monitor/scanner.py"""
-        # 验证scanner.py的DELEGATE_MAP和__getattr__不变
-        source = open("AgentServer/nodes/market_monitor/scanner.py").read()
+        source = _read_monitor_scanner()
         assert "_DELEGATE_MAP" in source
         assert "__getattr__" in source
         # 关键方法仍通过DELEGATE_MAP委托
@@ -244,7 +259,7 @@ class TestNoBacktestRegressionV2910:
 
     def test_scanner_utils_unchanged(self):
         """ScannerUtils.compute_health_score()未修改"""
-        source = open("AgentServer/nodes/market_monitor/scanner_utils.py").read()
+        source = _read_monitor_utils()
         assert "def compute_health_score" in source
         # 仍然返回status/is_healthy/warnings
         assert '"status"' in source or "'status'" in source
@@ -258,7 +273,7 @@ class TestDeadStatusVersionInfo:
 
     def test_dead_status_has_version(self):
         """dead状态的health响应包含version字段"""
-        source = open("AgentServer/nodes/web/api/scanner.py").read()
+        source = _read_api_scanner()
         # 在dead状态的return中应包含version
         in_dead_block = False
         for line in source.split('\n'):
