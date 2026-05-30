@@ -38,6 +38,12 @@ from enum import Enum
 logger = logging.getLogger("risk.watchdog")
 
 
+def _set_cb_paused(scanner, reason: str):
+    """辅助: 设置circuit_breaker为暂停状态(在_with_state_lock内调用)"""
+    scanner._circuit_breaker["trading_paused"] = True
+    scanner._circuit_breaker["pause_reason"] = reason
+
+
 class HealthStatus(Enum):
     """健康状态"""
     HEALTHY = "healthy"        # 绿灯
@@ -610,6 +616,26 @@ class RiskWatchdog:
     # ==================== CircuitBreaker熔断管理(v2.9.6提取) ====================
     
     @staticmethod
+    def _with_state_lock(scanner, fn, *, fallback=None):
+        """【v2.9.17】线程安全执行circuit_breaker读写操作
+
+        封装 if state_lock: with state_lock: fn() else: fn() 模式,
+        消除3个方法中的重复代码。
+
+        Args:
+            scanner: MarketScanner实例
+            fn: 无参可调用对象,在锁内执行
+            fallback: state_lock不存在时的替代执行(默认=fn)
+        Returns:
+            fn()的返回值
+        """
+        state_lock = getattr(scanner, '_state_lock', None)
+        if state_lock:
+            with state_lock:
+                return fn()
+        return (fallback or fn)()
+
+    @staticmethod
     async def check_circuit_breaker(scanner) -> bool:
         """风控熔断检查(从scanner提取)
         
@@ -622,23 +648,24 @@ class RiskWatchdog:
             scanner: MarketScanner实例
         Returns: True=允许交易, False=应暂停
         """
-        # 【v2.9.16:线程安全读取circuit_breaker(风控线程可能并发写入)】
-        state_lock = getattr(scanner, '_state_lock', None)
-        if state_lock:
-            with state_lock:
-                trading_paused = scanner._circuit_breaker.get("trading_paused", False)
-                pause_reason = scanner._circuit_breaker.get("pause_reason", "")
-                daily_start = scanner._circuit_breaker.get("daily_start_assets", 0)
-                max_drawdown = scanner._circuit_breaker.get("daily_max_drawdown", 0.05)
-                consecutive_losses = scanner._circuit_breaker.get("consecutive_losses", 0)
-                loss_limit = scanner._circuit_breaker.get("consecutive_loss_limit", 3)
-        else:
-            trading_paused = scanner._circuit_breaker.get("trading_paused", False)
-            pause_reason = scanner._circuit_breaker.get("pause_reason", "")
-            daily_start = scanner._circuit_breaker.get("daily_start_assets", 0)
-            max_drawdown = scanner._circuit_breaker.get("daily_max_drawdown", 0.05)
-            consecutive_losses = scanner._circuit_breaker.get("consecutive_losses", 0)
-            loss_limit = scanner._circuit_breaker.get("consecutive_loss_limit", 3)
+        # 【v2.9.17:线程安全读取circuit_breaker(使用_with_state_lock)】
+        cb_data = RiskWatchdog._with_state_lock(
+            scanner,
+            lambda: {
+                "trading_paused": scanner._circuit_breaker.get("trading_paused", False),
+                "pause_reason": scanner._circuit_breaker.get("pause_reason", ""),
+                "daily_start_assets": scanner._circuit_breaker.get("daily_start_assets", 0),
+                "daily_max_drawdown": scanner._circuit_breaker.get("daily_max_drawdown", 0.05),
+                "consecutive_losses": scanner._circuit_breaker.get("consecutive_losses", 0),
+                "consecutive_loss_limit": scanner._circuit_breaker.get("consecutive_loss_limit", 3),
+            },
+        )
+        trading_paused = cb_data["trading_paused"]
+        pause_reason = cb_data["pause_reason"]
+        daily_start = cb_data["daily_start_assets"]
+        max_drawdown = cb_data["daily_max_drawdown"]
+        consecutive_losses = cb_data["consecutive_losses"]
+        loss_limit = cb_data["consecutive_loss_limit"]
         
         if trading_paused:
             logger.debug(f"[CIRCUIT] 交易已暂停: {pause_reason}")
@@ -651,14 +678,12 @@ class RiskWatchdog:
                 drawdown = (daily_start - acct.total_assets) / daily_start
                 if drawdown >= max_drawdown:
                     reason_str = f"单日回撤{drawdown*100:.1f}%超限({max_drawdown*100:.0f}%)"
-                    # 【v2.9.16:线程安全写入circuit_breaker】
-                    if state_lock:
-                        with state_lock:
-                            scanner._circuit_breaker["trading_paused"] = True
-                            scanner._circuit_breaker["pause_reason"] = reason_str
-                    else:
-                        scanner._circuit_breaker["trading_paused"] = True
-                        scanner._circuit_breaker["pause_reason"] = reason_str
+                    # 【v2.9.17:线程安全写入circuit_breaker(使用_with_state_lock)】
+                    RiskWatchdog._with_state_lock(
+                        scanner,
+                        lambda: _set_cb_paused(scanner, reason_str),
+                        fallback=lambda: _set_cb_paused(scanner, reason_str),
+                    )
                     logger.warning(f"[CIRCUIT] ⚠️ 熔断触发: {reason_str}")
                     # EventBus: 熔断事件
                     from nodes.market_monitor.scanner_event_bus import ScannerEvents
@@ -691,23 +716,15 @@ class RiskWatchdog:
             scanner: MarketScanner实例
             profit_pct: 本次交易盈亏百分比
         """
-        # 【v2.9.16:线程安全写入circuit_breaker(风控线程可能并发读取)】
-        state_lock = getattr(scanner, '_state_lock', None)
-        if state_lock:
-            with state_lock:
-                scanner._circuit_breaker["today_trades"] += 1
-                if profit_pct < 0:
-                    scanner._circuit_breaker["consecutive_losses"] += 1
-                    scanner._circuit_breaker["today_losses"] += 1
-                else:
-                    scanner._circuit_breaker["consecutive_losses"] = 0  # 盈利重置
-        else:
+        # 【v2.9.17:线程安全写入circuit_breaker(使用_with_state_lock)】
+        def _record():
             scanner._circuit_breaker["today_trades"] += 1
             if profit_pct < 0:
                 scanner._circuit_breaker["consecutive_losses"] += 1
                 scanner._circuit_breaker["today_losses"] += 1
             else:
                 scanner._circuit_breaker["consecutive_losses"] = 0  # 盈利重置
+        RiskWatchdog._with_state_lock(scanner, _record, fallback=_record)
     
     @staticmethod
     def reset_circuit_breaker(scanner):
@@ -716,17 +733,12 @@ class RiskWatchdog:
         Args:
             scanner: MarketScanner实例
         """
-        # 【v2.9.16:线程安全写入circuit_breaker】
-        state_lock = getattr(scanner, '_state_lock', None)
-        if state_lock:
-            with state_lock:
-                scanner._circuit_breaker["trading_paused"] = False
-                scanner._circuit_breaker["pause_reason"] = ""
-                scanner._circuit_breaker["consecutive_losses"] = 0
-        else:
+        # 【v2.9.17:线程安全写入circuit_breaker(使用_with_state_lock)】
+        def _reset():
             scanner._circuit_breaker["trading_paused"] = False
             scanner._circuit_breaker["pause_reason"] = ""
             scanner._circuit_breaker["consecutive_losses"] = 0
+        RiskWatchdog._with_state_lock(scanner, _reset, fallback=_reset)
         logger.info("[CIRCUIT] 熔断已重置")
     
     # ==================== 对外接口 ====================
