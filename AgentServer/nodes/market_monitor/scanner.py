@@ -415,6 +415,9 @@ class MarketScanner:
         "_compute_health_score": ("_scanner_utils", "compute_health_score"),
         "_save_performance_snapshot": ("_runtime_persistence", "save_performance_snapshot"),
         "_push_daily_summary": ("_runtime_persistence", "push_daily_summary"),
+        # 【v2.9.24:diagnose+情绪调仓提取】
+        "diagnose": ("_scanner_utils", "diagnose"),
+        "_handle_emotion_phase_change": ("_emotion_cycle_class", "handle_emotion_phase_change"),
     }
 
     def __getattr__(self, name):
@@ -1826,66 +1829,8 @@ class MarketScanner:
             strategy_risk_fn=self._get_strategy_risk,
         )
     
-    async def _handle_emotion_phase_change(self, old_phase: str, new_phase: str):
-        """情绪phase变化时的动态调仓【v2.9.6重构】
-        
-        规则来源: EmotionCycleManager.DOWNGRADE_RULES
-        执行: phase降级时减仓/清仓低利润, 升级时不做操作
-        分批执行: max_per_round=2, 间隔0.5秒(避免冲击)
-        """
-        from nodes.market_monitor.emotion_cycle import EmotionPhase, emotion_cycle_manager
-        
-        # 将字符串转为EmotionPhase枚举
-        try:
-            old_enum = EmotionPhase(old_phase)
-            new_enum = EmotionPhase(new_phase)
-        except ValueError:
-            logger.info(f"[EMOTION] phase变化 {old_phase}→{new_phase}, 无法识别的阶段")
-            return
-        
-        rule = emotion_cycle_manager.get_downgrade_rule(old_enum, new_enum)
-        if not rule:
-            logger.info(f"[EMOTION] phase变化 {old_phase}→{new_phase}, 无需调仓")
-            return
-        
-        logger.warning(f"[EMOTION] phase降级 {old_phase}→{new_phase}: {rule['desc']}")
-        
-        if not self._broker:
-            return
-        
-        positions = self._broker.get_positions()
-        if not positions:
-            return
-        
-        # 委托给_build_emotion_sell_list构建卖出列表
-        to_sell = self._build_emotion_sell_list(positions, rule, old_phase, new_phase)
-        
-        if not to_sell:
-            logger.info(f"[EMOTION] phase降级无需调仓(无符合条件持仓)")
-            return
-        
-        batch_size = 2
-        trade_date = self._trade_date or datetime.now().strftime("%Y%m%d")
-        for i in range(0, len(to_sell), batch_size):
-            batch = to_sell[i:i+batch_size]
-            if self._position_checker:
-                await self._position_checker.execute_sell_list(batch, trade_date, source="emotion")
-            if i + batch_size < len(to_sell):
-                await asyncio.sleep(0.5)
-        
-        logger.warning(f"[EMOTION] 调仓完成: 卖出{len(to_sell)}只, {rule['desc']}")
-        
-        # 推送事件 + 审计日志
-        await self._publish_scanner_event("timeline", {
-            "item": {
-                "time": datetime.now().strftime("%H:%M:%S"),
-                "action": "emotion_rebalance",
-                "reason": rule['desc'],
-                "old_phase": old_phase,
-                "new_phase": new_phase,
-                "sold_count": len(to_sell),
-            }
-        })
+    # 【v2.9.24: _handle_emotion_phase_change提取到EmotionCycleManager.handle_emotion_phase_change】
+    # 通过DELEGATE_MAP+__getattr__动态委托
 
     # ==================== Phase4.3: 健康度评分 ====================
 
@@ -2015,89 +1960,7 @@ class MarketScanner:
     # _get_effective_strategy_config → StrategyScorer.get_effective_strategy_config(strategy_key)
     # _get_strategy_risk → StrategyScorer.get_strategy_risk(strategy_key)
 
-    # ==================== v2.9.23: 运行时诊断 ====================
-
-    def diagnose(self) -> Dict[str, Any]:
-        """运行时诊断摘要(关键健康指标+可操作建议)【v2.9.23】
-        
-        与get_status的区别:
-        - get_status: 完整状态快照(包含所有细节)
-        - diagnose: 关键指标+异常检测+修复建议(前端告警用)
-        """
-        issues: list = []
-        now = time.time()
-        
-        # 1. 风控线程存活检查
-        if self._risk_running and self._risk_thread and not self._risk_thread.is_alive():
-            issues.append({
-                "level": "critical",
-                "area": "risk_thread",
-                "message": "风控线程已退出",
-                "restarts": self._risk_thread_restarts,
-                "action": "风控线程将自动重启,如持续退出请检查日志",
-            })
-        
-        # 2. 行情缓存过期
-        cache_age = now - (self._last_realtime_update_ts or 0)
-        if self._is_running and cache_age > 120:
-            issues.append({
-                "level": "warning",
-                "area": "quote_cache",
-                "message": f"行情缓存{cache_age:.0f}秒未更新",
-                "action": "检查行情源(量脉/东财)连接状态",
-            })
-        
-        # 3. scan_loop连续异常
-        error_count = getattr(self, '_scan_loop_error_count', 0)
-        if error_count > 0:
-            issues.append({
-                "level": "warning" if error_count < 3 else "critical",
-                "area": "scan_loop",
-                "message": f"扫描循环连续{error_count}次异常",
-                "action": "3次以内自动恢复,超过3次scanner将停止",
-            })
-        
-        # 4. pending_sells积压
-        pending_count = len(self._pending_sells)
-        if pending_count > 5:
-            issues.append({
-                "level": "warning",
-                "area": "pending_sells",
-                "message": f"{pending_count}个挂起卖出待执行",
-                "action": "检查是否多票跌停或执行超时",
-            })
-        
-        # 5. circuit_breaker触发
-        if self._circuit_breaker.get("trading_paused"):
-            issues.append({
-                "level": "critical",
-                "area": "circuit_breaker",
-                "message": f"熔断器已触发: {self._circuit_breaker.get('pause_reason', '未知')}",
-                "action": "可调用reset_circuit_breaker()重置",
-            })
-        
-        # 6. 风控检查超时
-        last_risk = self._last_risk_check_ts
-        if self._is_running and last_risk and (now - last_risk) > 10:
-            issues.append({
-                "level": "warning",
-                "area": "risk_check",
-                "message": f"风控检查{(now - last_risk):.0f}秒未执行",
-                "action": "检查风控线程是否正常运行",
-            })
-        
-        return {
-            "healthy": len([i for i in issues if i["level"] == "critical"]) == 0,
-            "issues": issues,
-            "summary": {
-                "running": self._is_running,
-                "positions": len(self._broker.get_positions()) if self._broker else 0,
-                "active_signals": len(self._active_signals),
-                "cache_age_sec": round(cache_age, 1),
-                "pending_sells": pending_count,
-                "risk_thread_alive": self._risk_thread.is_alive() if self._risk_thread else False,
-                "scan_errors": error_count,
-                "trading_paused": self._circuit_breaker.get("trading_paused", False),
-            },
-        }
+    # ==================== v2.9.24: diagnose提取到ScannerUtils ====================
+    # diagnose() → ScannerUtils.diagnose(scanner) 通过DELEGATE_MAP+__getattr__动态委托
+    # _handle_emotion_phase_change → EmotionCycleManager.handle_emotion_phase_change(scanner, old_phase, new_phase) 通过DELEGATE_MAP委托
 

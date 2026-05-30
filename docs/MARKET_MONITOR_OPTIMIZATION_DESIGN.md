@@ -1,10 +1,10 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.23 | 日期: 2026-05-31 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.24 | 日期: 2026-05-31 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化 | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复 | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复
-> 回测影响: 零文件修改, 822测试全通过
+> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化 | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复 | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复 | v2.9.24 diagnose+情绪调仓提取+DelegateRouter策略扩展
+> 回测影响: 零文件修改, 709测试全通过(scanner 696+backtest 50+extraction 13-重叠)
 
 ---
 
@@ -40,6 +40,13 @@
 | v2.9.16 | 2026-05-30 | 🔴risk_watchdog pause_reason元组bug修复 + circuit_breaker线程安全(check/record/reset均持_state_lock) + 🟡_build_emotion_sell_list提取为EmotionCycleManager.build_emotion_sell_list静态方法(回调解耦) + 🟡strategy配置方法简化(Except替代ImportError/直接持久化) + emergency_liquidate线程安全审查(文档注释) + 23新增测试(644总计) |
 | v2.9.17 | 2026-05-30 | DelegateRouter提取(scanner.py __getattr__ 95行→8行) + _with_state_lock统一加锁辅助(3个RiskWatchdog方法+2个scanner方法消除if/else重复) + 参数审计增强(PARAM_UPDATED事件含old_values) + scanner.py 1766→1672行(-5.3%) + 35新增测试(682总计) |
 | v2.9.15 | 2026-05-30 | 错误遥测: SCANNER_ERROR事件(扫描异常+风控线程异常→EventBus→Redis→前端弹窗)+HEALTH_CHANGED事件枚举+参数预检API(/params/validate, 5项检查, is_safe字段)+Stream消息含_stream_id+前端追踪lastSignalStreamId/lastPositionStreamId(断线补发)+16新增测试(488总计) |
+| v2.9.18 | 2026-05-30 | stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats |
+| v2.9.19 | 2026-05-30 | _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化 |
+| v2.9.20 | 2026-05-31 | _liquidate_positions提取+_execute_force_empty T+1合规修复 |
+| v2.9.21 | 2026-05-31 | MarketPhase时间分类提取+循环门控统一 |
+| v2.9.22 | 2026-05-31 | 分步计时+卖出统计分类修复+跨日一致性+错误恢复 |
+| v2.9.23 | 2026-05-31 | 行情缓存过期检测+异常日志增强+跌停恢复重试+提取重构 |
+| v2.9.24 | 2026-05-31 | diagnose提取到ScannerUtils+情绪调仓提取到EmotionCycleManager+DelegateRouter策略3.5+scanner 2103→1966行(-6.5%)+13新增测试 |
 
 v2.0关键修正:
 - ❶ 风控独立线程: asyncio协程→threading.Thread(真并行不受GIL影响)
@@ -2478,3 +2485,77 @@ v2.9.22测试28个 + v2.9.23无新增(纯增强), 全量822 passed。
 ### 32.4 回测影响
 
 零。所有变更仅影响market_monitor模块。
+
+## 三十三、v2.9.24 diagnose+情绪调仓提取 + DelegateRouter策略扩展 (2026-05-31)
+
+### 33.1 设计目标
+
+1. **🟡 diagnose()提取**: 83行运行时诊断方法,纯读取scanner状态,语义归属ScannerUtils
+2. **🟡 _handle_emotion_phase_change提取**: 66行情绪调仓逻辑,语义归属EmotionCycleManager
+3. **🟡 DelegateRouter策略扩展**: 新增`_emotion_cycle_class`路由策略,支持EmotionCycleManager静态方法绑定
+
+### 33.2 变更详情
+
+#### A. diagnose()提取到ScannerUtils
+
+```python
+# scanner.py → 删除diagnose()方法(83行)
+# scanner_utils.py → 新增ScannerUtils.diagnose(scanner)静态方法
+# DELEGATE_MAP注册: "diagnose": ("_scanner_utils", "diagnose")
+# 委托路由: _UTILS_CONTEXT_METHODS["diagnose"] = lambda scanner, method: lambda: method(scanner)
+```
+
+#### B. _handle_emotion_phase_change提取到EmotionCycleManager
+
+```python
+# scanner.py → 删除_handle_emotion_phase_change()方法(66行)
+# emotion_cycle.py → 新增EmotionCycleManager.handle_emotion_phase_change(scanner, old_phase, new_phase)静态方法
+# DELEGATE_MAP注册: "_handle_emotion_phase_change": ("_emotion_cycle_class", "handle_emotion_phase_change")
+```
+
+#### C. DelegateRouter新增策略
+
+| 策略 | 模块属性 | 绑定器 |
+|---|---|---|
+| 策略3.5: EmotionCycleManager | `_emotion_cycle_class` | `_EMOTION_BINDINGS` |
+
+```python
+# scanner_delegate_router.py
+_EMOTION_BINDINGS = {
+    "handle_emotion_phase_change": lambda method, scanner: lambda old_phase, new_phase: method(scanner, old_phase, new_phase),
+}
+# _ASYNC_DELEGATE_METHODS新增: "_handle_emotion_phase_change"
+```
+
+### 33.3 文件变更
+
+| 文件 | 变更 |
+|---|---|
+| nodes/market_monitor/scanner.py | 删除diagnose()83行+删除_handle_emotion_phase_change()66行, 2103→1966行(-6.5%) |
+| nodes/market_monitor/scanner_utils.py | 新增ScannerUtils.diagnose()83行, 376→465行 |
+| nodes/market_monitor/emotion_cycle.py | 新增EmotionCycleManager.handle_emotion_phase_change()66行, 434→500行 |
+| nodes/market_monitor/scanner_delegate_router.py | 新增_EMOTION_BINDINGS+策略3.5+_ASYNC_DELEGATE_METHODS, 136→153行 |
+| tests/scanner/test_v2924_extraction.py | 新增13个测试 |
+| tests/scanner/test_position_checker_integration.py | 更新: MarketScanner._handle_emotion_phase_change→EmotionCycleManager.handle_emotion_phase_change |
+| tests/scanner/test_v29_optimizations.py | 更新: inspect源码检查指向EmotionCycleManager |
+
+### 33.4 scanner.py行数变化
+
+| 阶段 | 行数 | 变化 |
+|---|---|---|
+| v2.9.23 | 2017 | 行情缓存过期检测+异常日志增强+跌停恢复重试+提取重构(实际git: 2103) |
+| **v2.9.24** | **1966** | **-137行(-6.5%) diagnose提取83行+情绪调仓提取66行-注释12行** |
+
+### 33.5 测试覆盖
+
+新增13个测试(diagnose委托5+情绪调仓委托4+DelegateRouter策略3+行数回归1):
+- TestDiagnoseDelegation: 5个(委托调用/直接调用一致性/缓存过期/DELEGATE_MAP注册)
+- TestEmotionPhaseChangeDelegation: 4个(无规则调仓/有持仓调仓/DELEGATE_MAP注册)
+- TestDelegateRouterEmotionStrategy: 3个(binder注册/async注册/resolve可调用)
+- TestScannerLineCount: 1个(scanner.py < 2000行回归)
+
+全量696 scanner测试 + 50 backtest测试通过。
+
+### 33.6 回测影响
+
+零。所有变更仅影响market_monitor模块委托路由, 回测引擎零文件修改。

@@ -31,6 +31,8 @@ _ASYNC_DELEGATE_METHODS = frozenset({
     "_apply_strategies", "_detect_anomalies",
     # RiskWatchdog
     "_check_circuit_breaker",
+    # EmotionCycleManager
+    "_handle_emotion_phase_change",
 })
 
 # StrategyScorer未初始化时的fallback返回值
@@ -49,6 +51,7 @@ _UTILS_CONTEXT_METHODS = {
     "_signal_to_dict": lambda scanner, method: lambda s: method(s, scanner.SIGNAL_EXPIRE_SECONDS),
     "generate_summary_report": lambda scanner, method: lambda: method(scanner),
     "_compute_health_score": lambda scanner, method: lambda: method(scanner),
+    "diagnose": lambda scanner, method: lambda: method(scanner),
 }
 
 # RiskWatchdog静态方法绑定(第一个参数为scanner实例)
@@ -56,6 +59,11 @@ _WATCHDOG_BINDINGS = {
     "check_circuit_breaker": lambda method, scanner: lambda *a, **kw: method(scanner, *a, **kw) if a else method(scanner),
     "record_trade_result": lambda method, scanner: lambda profit_pct: method(scanner, profit_pct),
     "reset_circuit_breaker": lambda method, scanner: lambda: method(scanner),
+}
+
+# EmotionCycleManager静态方法绑定(第一个参数为scanner实例)
+_EMOTION_BINDINGS = {
+    "handle_emotion_phase_change": lambda method, scanner: lambda old_phase, new_phase: method(scanner, old_phase, new_phase),
 }
 
 
@@ -92,6 +100,15 @@ def resolve_delegate(scanner, name: str, delegate: tuple):
         binder = _UTILS_CONTEXT_METHODS.get(name)
         if binder:
             return binder(scanner, method)
+        return method
+
+    # 策略3.5: EmotionCycleManager(类静态方法, 绑定scanner上下文)
+    if module_attr == "_emotion_cycle_class":
+        from nodes.market_monitor.emotion_cycle import EmotionCycleManager
+        method = getattr(EmotionCycleManager, method_name)
+        binder = _EMOTION_BINDINGS.get(method_name)
+        if binder:
+            return binder(method, scanner)
         return method
 
     # 策略4: StrategyScorer(需要fallback + 上下文绑定)
