@@ -99,8 +99,8 @@ class RedisWSBridge:
                 CHANNEL_BACKTEST_PROGRESS,
                 CHANNEL_SCHEDULER_STATUS,
                 CHANNEL_SCHEDULER_PHASE,
-                CHANNEL_SCANNER_SIGNAL,
-                CHANNEL_SCANNER_POSITION,
+                # 【v2.9.14】scanner:signal和scanner:position已升级为Redis Stream,
+                # 由_redis_stream_consumer(XREADGROUP)处理,不再通过Pub/Sub
                 CHANNEL_SCANNER_TIMELINE,
                 CHANNEL_SCANNER_STATUS,
             )
@@ -199,10 +199,8 @@ class RedisWSBridge:
                     await self._handle_scheduler_status_message(data)
                 elif channel == CHANNEL_SCHEDULER_PHASE:
                     await self._handle_scheduler_phase_message(data)
-                elif channel == CHANNEL_SCANNER_SIGNAL:
-                    await self._handle_scanner_signal_message(data)
-                elif channel == CHANNEL_SCANNER_POSITION:
-                    await self._handle_scanner_position_message(data)
+                # 【v2.9.14】scanner:signal和scanner:position由Stream消费者处理
+                # 不再在Pub/Sub监听器中处理
                 elif channel == CHANNEL_SCANNER_TIMELINE:
                     await self._handle_scanner_timeline_message(data)
                 elif channel == CHANNEL_SCANNER_STATUS:
