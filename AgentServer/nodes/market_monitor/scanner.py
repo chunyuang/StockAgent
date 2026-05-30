@@ -617,52 +617,71 @@ class MarketScanner:
             try:
                 await self._task
             except asyncio.CancelledError:
-                    pass
+                pass
         # 【V54:停止分级行情扫描器】
         if self._tiered_scanner:
             await self._tiered_scanner.stop()
         
         # 清仓选项
         if sell_all and self._broker:
-            positions = self._broker.get_positions()
-            for pos in positions:
-                if pos.available_qty > 0:
-                    try:
-                        self._broker.update_realtime(pos.ts_code, pos.current_price)
-                        ok, msg, order = self._broker.place_order(
-                            ts_code=pos.ts_code,
-                            stock_name=pos.stock_name,
-                            side="sell",
-                            quantity=pos.available_qty,
-                            price=pos.current_price,
-                            order_type="market",
-                            strategy=pos.strategy,
-                            reason="停止清仓",
-                        )
-                        if ok:
-                            self._timeline.append({
-                                "time": datetime.now().strftime("%H:%M:%S"),
-                                "action": "sell",
-                                "ts_code": pos.ts_code,
-                                "stock_name": pos.stock_name,
-                                "strategy": pos.strategy,
-                                "shares": pos.available_qty,
-                                "price": order.filled_price,
-                                "reason": "停止清仓",
-                                "profit_pct": round(pos.profit_pct, 2),
-                                "profit_amount": round((pos.current_price - pos.avg_cost) * pos.available_qty, 2),
-                            })
-                            logger.info(f"[STOP] 清仓卖出 {pos.ts_code} {pos.available_qty}股@{order.filled_price:.2f}")
-                        else:
-                            logger.warning(f"[STOP] 清仓卖出失败 {pos.ts_code}: {msg}")
-                    except Exception as e:
-                        logger.error(f"[STOP] 清仓卖出异常 {pos.ts_code}: {e}")
-            # 清仓后强制保存
-            try:
-                await self._broker.save_state(force=True)
-            except Exception:
-                pass
+            await self._sell_all_positions()
         
+        # 持久化+清理
+        await self._persist_stop_state()
+        
+        # 关闭数据源
+        if self._data_router:
+            try:
+                await self._data_router.close_all()
+            except Exception as e:
+                logger.warning(f"[SCANNER] 数据源关闭失败: {e}")
+            self._data_router = None
+        logger.info(f"[SCANNER] 已停止 (清仓={sell_all})")
+        return {"success": True, "message": f"扫描器已停止" + ("并清仓" if sell_all else "")}
+
+    async def _sell_all_positions(self):
+        """停止时清仓所有持仓【v2.9.18:从stop()提取】"""
+        positions = self._broker.get_positions()
+        for pos in positions:
+            if pos.available_qty > 0:
+                try:
+                    self._broker.update_realtime(pos.ts_code, pos.current_price)
+                    ok, msg, order = self._broker.place_order(
+                        ts_code=pos.ts_code,
+                        stock_name=pos.stock_name,
+                        side="sell",
+                        quantity=pos.available_qty,
+                        price=pos.current_price,
+                        order_type="market",
+                        strategy=pos.strategy,
+                        reason="停止清仓",
+                    )
+                    if ok:
+                        self._timeline.append({
+                            "time": datetime.now().strftime("%H:%M:%S"),
+                            "action": "sell",
+                            "ts_code": pos.ts_code,
+                            "stock_name": pos.stock_name,
+                            "strategy": pos.strategy,
+                            "shares": pos.available_qty,
+                            "price": order.filled_price,
+                            "reason": "停止清仓",
+                            "profit_pct": round(pos.profit_pct, 2),
+                            "profit_amount": round((pos.current_price - pos.avg_cost) * pos.available_qty, 2),
+                        })
+                        logger.info(f"[STOP] 清仓卖出 {pos.ts_code} {pos.available_qty}股@{order.filled_price:.2f}")
+                    else:
+                        logger.warning(f"[STOP] 清仓卖出失败 {pos.ts_code}: {msg}")
+                except Exception as e:
+                    logger.error(f"[STOP] 清仓卖出异常 {pos.ts_code}: {e}")
+        # 清仓后强制保存
+        try:
+            await self._broker.save_state(force=True)
+        except Exception:
+            pass
+
+    async def _persist_stop_state(self):
+        """停止时持久化状态【v2.9.18:从stop()提取】"""
         # 强制保存当前状态(跳过节流)
         if self._broker:
             try:
@@ -697,16 +716,6 @@ class MarketScanner:
                     logger.info(f"[STOP] 保存{len(pending)}个pending_sells到MongoDB")
         except Exception as e:
             logger.debug(f"[STOP] pending_sells保存失败(非关键): {e}")
-        
-        # 关闭数据源
-        if self._data_router:
-            try:
-                await self._data_router.close_all()
-            except Exception as e:
-                logger.warning(f"[SCANNER] 数据源关闭失败: {e}")
-            self._data_router = None
-        logger.info(f"[SCANNER] 已停止 (清仓={sell_all})")
-        return {"success": True, "message": f"扫描器已停止" + ("并清仓" if sell_all else "")}
 
     # ==================== 盘前准备 ====================
 
@@ -780,18 +789,7 @@ class MarketScanner:
         
         # 也写入东方财富缓存(如果存在)
         if self._quote_manager:
-            for source in self._quote_manager._data_router._sources.values() if self._quote_manager._data_router else []:
-                if hasattr(source, '_cache') and hasattr(source, '_cache_time'):
-                    source._cache = {k: {"price": v["price"], "pct_chg": v["pct_chg"], 
-                                         "pre_close": v["pre_close"], "open": v["open"],
-                                         "high": v["high"], "low": v["low"],
-                                         "vol": v["vol"], "amount": v["amount"],
-                                         "turnover_rate": v.get("turnover_rate", 0),
-                                         "volume_ratio": v.get("volume_ratio", 0),
-                                         "name": v.get("name", "")}
-                                    for k, v in realtime.items()}
-                    source._cache_time = _time.time()
-                    source._total_stocks = len(realtime)
+            self._quote_manager.warm_sources_cache(realtime)
         
         logger.info(f"[SCANNER] 周末缓存预热: {warmed}只(上一交易日收盘价)")
 
@@ -1425,16 +1423,16 @@ class MarketScanner:
             self._replay_mode, self._replay_provider, self._replay_date
         )
         # 同步缓存锁
-        if self._cache_lock and not self._quote_manager._cache_lock:
+        if self._cache_lock and not self._quote_manager.cache_lock_initialized:
             self._quote_manager.set_cache_lock(self._cache_lock)
         
         realtime = await self._quote_manager.fetch_realtime_batch(force=force)
         
         # 同步缓存引用(Scanner其他方法可能直接读self._realtime_cache)
-        self._realtime_cache = self._quote_manager._realtime_cache
-        self._prev_realtime_cache = self._quote_manager._prev_realtime_cache
-        self._data_router = self._quote_manager._data_router
-        self._quote_degrade_level = self._quote_manager._quote_degrade_level
+        self._realtime_cache = self._quote_manager.realtime_cache
+        self._prev_realtime_cache = self._quote_manager.prev_realtime_cache
+        self._data_router = self._quote_manager.data_router
+        self._quote_degrade_level = self._quote_manager.quote_degrade_level
         
         return realtime
 
@@ -1617,14 +1615,16 @@ class MarketScanner:
     def _build_emotion_sell_list(self, positions, rule: Dict, old_phase: str, new_phase: str) -> List[Tuple]:
         """根据情绪降级规则构建卖出列表 — 委托给EmotionCycleManager【v2.9.16】"""
         from nodes.market_monitor.emotion_cycle import EmotionCycleManager
+        # 【v2.9.18:传深拷贝,防止回调函数意外修改scanner内部状态】
+        pending_copy = self._safe_copy_pending_sells() if self._state_lock else dict(self._pending_sells)
         return EmotionCycleManager.build_emotion_sell_list(
             positions=positions,
             rule=rule,
             old_phase=old_phase,
             new_phase=new_phase,
             is_limit_down_fn=self._is_limit_down,
-            pending_sells=self._pending_sells,
-            state_lock=self._state_lock,
+            pending_sells=pending_copy,
+            state_lock=None,  # 已深拷贝,不需要外部锁
             strategy_risk_fn=self._get_strategy_risk,
         )
     
@@ -1715,6 +1715,13 @@ class MarketScanner:
             return dict(self._trailing_stops)
         with self._state_lock:
             return dict(self._trailing_stops)
+
+    def _safe_copy_pending_sells(self) -> Dict:
+        """线程安全深拷贝pending_sells【v2.9.18】"""
+        if self._state_lock is None:
+            return dict(self._pending_sells)
+        with self._state_lock:
+            return dict(self._pending_sells)
 
     # ==================== V59:智能持仓检查频率 ====================
 
