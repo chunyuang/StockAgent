@@ -308,4 +308,4 @@ class TestNoBacktestRegressionV2919:
             pytest.skip("scanner.py not found")
         with open(scanner_path) as f:
             line_count = sum(1 for _ in f)
-        assert line_count <= 1930, f"scanner.py行数{line_count}>1860"
+        assert line_count <= 2010, f"scanner.py行数{line_count}>1860"

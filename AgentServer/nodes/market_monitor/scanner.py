@@ -1288,6 +1288,7 @@ class MarketScanner:
         scanner不再重复检查跌停(之前scanner和PM双重检查导致逻辑混乱)
         
         v2.9.5增强: _execute_risk_sell超时时记录待执行卖出, 避免丢失风控指令
+        v2.9.22增强: 跌停恢复时重试pending_sells中的挂起卖出
         
         执行流程: PM返回to_sell → scanner执行卖出(通过asyncio主循环)
         """
@@ -1298,6 +1299,10 @@ class MarketScanner:
         if not positions:
             return
         
+        # 【v2.9.22:跌停恢复重试pending_sells】
+        # 如果某票不再跌停且有挂起的卖出指令, 优先执行
+        self._retry_pending_sells(realtime_data)
+        
         # 委托检查(PM已处理跌停挂起+跌停恢复)
         if self._position_manager:
             to_sell = self._position_manager.check_stop_loss_only(realtime_data)
@@ -1305,6 +1310,61 @@ class MarketScanner:
             to_sell = []
         
         # 执行卖出(PositionManager只做检查,不执行交易)
+        self._execute_sell_list_from_risk(to_sell)
+
+    def _retry_pending_sells(self, realtime_data: Dict):
+        """跌停恢复后重试挂起的卖出指令【v2.9.22提取】
+        
+        当股票从跌停恢复(非跌停状态)且有挂起的卖出指令时,
+        重新尝试执行该卖出。避免跌停恢复后卖出指令被遗忘。
+        """
+        with self._state_lock:
+            pending = dict(self._pending_sells)
+        if not pending:
+            return
+        
+        retried = []
+        for ts_code, info in pending.items():
+            # 检查是否仍持有该票
+            pos = None
+            for p in self._broker.get_positions():
+                if p.ts_code == ts_code and p.available_qty > 0:
+                    pos = p
+                    break
+            if not pos:
+                # 已无持仓或无可用数量, 清除挂起
+                with self._state_lock:
+                    self._pending_sells.pop(ts_code, None)
+                continue
+            
+            # 检查是否不再跌停
+            if self._is_limit_down(ts_code):
+                continue  # 仍在跌停, 无法卖出
+            
+            # 跌停恢复! 尝试执行挂起的卖出
+            reason = info.get("reason", "pending_retry")
+            price = info.get("price", pos.current_price)
+            logger.info(f"[RISK_THREAD] 跌停恢复重试: {ts_code} {reason}")
+            
+            if self._loop and not self._loop.is_closed():
+                try:
+                    future = asyncio.run_coroutine_threadsafe(
+                        self._execute_risk_sell(pos, reason, price, pos.available_qty),
+                        self._loop
+                    )
+                    future.result(timeout=5)
+                    retried.append(ts_code)
+                except Exception as e:
+                    logger.debug(f"[RISK_THREAD] 跌停恢复重试失败: {ts_code} {e}")
+        
+        # 清除成功重试的条目
+        if retried:
+            with self._state_lock:
+                for code in retried:
+                    self._pending_sells.pop(code, None)
+
+    def _execute_sell_list_from_risk(self, to_sell: list):
+        """风控线程执行卖出列表【v2.9.22提取, 从_check_stop_loss_only拆分】"""
         for pos, reason, price, risk in to_sell:
             if self._loop and not self._loop.is_closed():
                 try:
@@ -1315,7 +1375,7 @@ class MarketScanner:
                     )
                     future.result(timeout=5)
                 except asyncio.TimeoutError:
-                    # 【v2.9.5:超时不丢弃,记录到pending_sells待下次执行】
+                    # 超时不丢弃,记录到pending_sells待下次执行
                     logger.warning(
                         f"[RISK_THREAD] 卖出执行超时(5秒): {pos.ts_code} {reason}, "
                         f"加入pending_sells待下次执行"
@@ -1357,13 +1417,13 @@ class MarketScanner:
         else:
             logger.warning(f"[RISK_SELL] 卖出失败 {pos.ts_code}: {msg}")
 
-    async def _post_sell_cleanup(
-        self, pos, reason: str, order, quantity: int,
+    @staticmethod
+    def _build_timeline_entry(
+        pos, reason: str, order, quantity: int,
         profit_pct: float, profit_amount: float, *, source: str = "sell",
-    ):
-        """卖出成功后统一清理: timeline+统计+状态清理+事件+持久化【v2.9.19提取】"""
-        # Timeline记录
-        self._timeline.append({
+    ) -> Dict:
+        """构建卖出timeline记录【v2.9.22提取, 从_post_sell_cleanup拆分】"""
+        return {
             "time": datetime.now().strftime("%H:%M:%S"),
             "action": "sell",
             "ts_code": pos.ts_code,
@@ -1383,7 +1443,19 @@ class MarketScanner:
                 "current_price": pos.current_price,
                 "source": source,
             },
-        })
+        }
+
+    async def _post_sell_cleanup(
+        self, pos, reason: str, order, quantity: int,
+        profit_pct: float, profit_amount: float, *, source: str = "sell",
+    ):
+        """卖出成功后统一清理: timeline+统计+状态清理+事件+持久化【v2.9.19提取, v2.9.22:统计分类+提取_build_timeline_entry】"""
+        # Timeline记录
+        entry = self._build_timeline_entry(
+            pos, reason, order, quantity,
+            profit_pct, profit_amount, source=source,
+        )
+        self._timeline.append(entry)
         # 【v2.9.22:按卖出原因分类统计,修复所有卖出都计为stop_losses的bug】
         # stop_loss/gap_stop_loss/trailing_stop → stop_losses
         # take_profit/profit_lock/profit_protect → take_profits
@@ -1402,7 +1474,7 @@ class MarketScanner:
             self._position_risk_levels.pop(pos.ts_code, None)
         # 事件通知(timeline + EventBus)
         try:
-            await self._publish_scanner_event("timeline", {"item": self._timeline[-1]})
+            await self._publish_scanner_event("timeline", {"item": entry})
         except Exception:
             pass
         try:
