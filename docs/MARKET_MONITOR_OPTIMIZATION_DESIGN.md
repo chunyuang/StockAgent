@@ -1,10 +1,10 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.19 | 日期: 2026-05-30 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.20 | 日期: 2026-05-31 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化
-> 回测影响: 零文件修改, 615测试全通过
+> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化 | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复
+> 回测影响: 零文件修改, 639测试全通过
 
 ---
 
@@ -2135,5 +2135,96 @@ async def _post_sell_cleanup(self, pos, reason, order, quantity, profit_pct, pro
 | _build_account_info | - | 15行 | 账户信息 |
 
 ### 28.10 回测影响
+
+零。所有变更仅影响market_monitor模块, 回测引擎零文件修改。
+
+## 二十九、v2.9.20 _liquidate_positions提取 + T+1合规修复 (2026-05-31)
+
+### 29.1 设计目标
+
+1. **🔴 T+1合规Bug修复**: `_execute_force_empty`使用`pos.total_qty`忽略T+1限制,会尝试卖出当日买入的锁定股份
+2. **🟡 代码冗余消除**: `_sell_all_positions`和`_execute_force_empty`逻辑几乎相同(遍历持仓→place_order→_post_sell_cleanup),应提取公共方法
+3. **🟡 多余检查移除**: `_execute_force_empty`中`hasattr(p, 'stock_name')`检查多余(Position数据类必有stock_name)
+
+### 29.2 T+1合规Bug
+
+**问题**: `_execute_force_empty`使用`pos.total_qty`(总持仓量), 但A股T+1规则规定当日买入的股票不可卖出。
+
+对比:
+| 方法 | 下单数量 | T+1合规 |
+|---|---|---|
+| `_execute_risk_sell` | `pos.available_qty` | ✅ 合规 |
+| `_sell_all_positions` | `pos.available_qty` | ✅ 合规 |
+| `_execute_force_empty` | `pos.total_qty` | 🔴 **不合规** |
+
+**影响**: 强制空仓时,当日买入的股票会被尝试卖出,但Broker层会拒绝(或产生错误)。
+
+**修复**: 统一使用`pos.available_qty`。
+
+### 29.3 _liquidate_positions公共方法提取
+
+**问题**: 两个清仓方法逻辑几乎相同(30+行重复代码), 仅source和reason不同。
+
+**修复**: 提取`_liquidate_positions(reason, source)`公共方法:
+
+```python
+async def _liquidate_positions(self, reason: str, source: str) -> Tuple[int, int]:
+    """批量清仓: 卖出所有可用持仓(v2.9.20提取)"""
+    if not self._broker:
+        return 0, 0
+    positions = self._broker.get_positions()
+    sold, failed = 0, 0
+    for p in positions:
+        if p.available_qty <= 0:
+            continue  # T+1: 不可卖跳过
+        try:
+            # place_order + _post_sell_cleanup
+        except Exception:
+            failed += 1
+    return sold, failed
+```
+
+两个调用方简化为3行:
+```python
+async def _sell_all_positions(self):
+    """停止时清仓"""
+    await self._liquidate_positions(reason="停止清仓", source="stop_sell")
+
+async def _execute_force_empty(self, reason: str):
+    """强制空仓"""
+    await self._liquidate_positions(reason=f"强制空仓: {reason}", source="force_empty")
+```
+
+### 29.4 变更文件
+
+| 文件 | 变更 |
+|---|---|
+| scanner.py | 新增`_liquidate_positions`; `_sell_all_positions`/`_execute_force_empty`简化为委托; 移除`hasattr(stock_name)` |
+| web/api/scanner.py | `_DESIGN_DOC_VERSION`→v2.9.20 |
+| test_v2920_liquidate_positions.py | 22新增测试 |
+| test_v2919_review_optimization.py | 委托链测试适配(_post_sell_cleanup→_liquidate_positions) |
+| test_v2916_risk_watchdog_thread_safety.py | 版本断言更新 |
+
+### 29.5 测试覆盖 (22新增)
+
+| 测试类 | 用例数 | 覆盖点 |
+|---|---|---|
+| TestLiquidatePositionsExtraction | 5 | 存在性/委托/无重复循环 |
+| TestT1ComplianceFix | 3 | available_qty/无total_qty/无hasattr |
+| TestLiquidatePositionsBehavior | 5 | T+1合规/零可用跳过/单票失败不中断/返回值/无broker |
+| TestLiquidatePositionsConsistency | 3 | 双方法委托/source一致性 |
+| TestScannerLineCountV2920 | 1 | 行数合理 |
+| TestNoBacktestRegressionV2920 | 5 | 回测零影响 |
+
+**全量测试**: 639 passed (0 failed)
+
+### 29.6 scanner.py行数变化
+
+| 阶段 | scanner.py行数 | 变化 |
+|---|---|---|
+| v2.9.19后 | 1831 | +8(提取方法签名) |
+| **v2.9.20后** | **1817** | **-14行(-0.8%)** |
+
+### 29.7 回测影响
 
 零。所有变更仅影响market_monitor模块, 回测引擎零文件修改。
