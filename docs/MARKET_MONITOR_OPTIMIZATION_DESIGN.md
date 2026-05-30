@@ -1,10 +1,10 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.21 | 日期: 2026-05-31 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.22 | 日期: 2026-05-31 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化 | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复
-> 回测影响: 零文件修改, 660测试全通过
+> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化 | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复 | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复
+> 回测影响: 零文件修改, 814测试全通过
 
 ---
 
@@ -2308,3 +2308,103 @@ class MarketPhase:
 **修复**: 提取`_reset_daily_risk_state()`方法(26行), `premarket_prepare`从66行→41行(-39%)。
 
 **影响**: 仅代码组织优化, 行为完全不变。
+
+## 三十一、v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复 (2026-05-31)
+
+### 31.1 设计目标
+
+1. **🔴 卖出统计分类bug**: `_post_sell_cleanup`中所有卖出都`_stats["stop_losses"] += 1`,无论止损/止盈/情绪调仓,导致`get_status()`中`stop_losses`虚高
+2. **🟡 scan_once性能可观测**: 扫描7个步骤无耗时追踪,性能瓶颈难以定位
+3. **🟡 跨日pending_sells一致性**: 跨日后Broker持仓已恢复,但旧`_pending_sells`可能引用已卖出的票(当日跌停挂起→次日已卖出但pending_sells仍在)
+4. **🟡 _scan_loop瞬态错误恢复**: 单次异常直接`_is_running = False`杀死scanner,MongoDB临时抖动也会导致整个扫描退出
+5. **🟡 _risk_loop_sync连续错误空转**: 风控线程异常时1秒循环刷日志,连续错误无退避
+
+### 31.2 变更详情
+
+#### A. scan_once分步计时
+
+```python
+# 新增5个步骤计时(step1_ms~step5_ms)
+t1 = time.time()
+realtime_data = await self._fetch_realtime_batch(force=force)
+step1_ms = (time.time() - t1) * 1000
+# ... 同理step2-step5
+
+# 慢步骤标记: ⚠️>100ms / 🔴>1s
+slow_marks = []
+for label, ms in [("行情", step1_ms), ("因子", step2_ms), ...]:
+    if ms > 1000: slow_marks.append(f"🔴{label}={ms:.0f}ms")
+    elif ms > 100: slow_marks.append(f"⚠️{label}={ms:.0f}ms")
+```
+
+**效果**: 日志中可直接看到哪步慢,如`[SCAN] 完成: 4500只 | 3信号 | 8.2秒 | 慢步骤: 🔴行情=5200ms`
+
+#### B. _post_sell_cleanup统计分类修复
+
+| 卖出原因 | 修复前 | 修复后 |
+|---|---|---|
+| stop_loss/gap_stop_loss/trailing_stop | stop_losses | ✅ stop_losses |
+| take_profit/profit_lock/profit_protect | stop_losses | ✅ take_profits |
+| moving_stop/emotion/max_hold/force_empty/stop_sell | stop_losses | ✅ trades_executed |
+
+#### C. _reset_daily_risk_state跨日一致性
+
+```python
+# 清理已无持仓的pending_sells(跨日后Broker已恢复)
+with self._state_lock:
+    if self._pending_sells and self._broker:
+        held_codes = {p.ts_code for p in self._broker.get_positions()}
+        stale = [c for c in self._pending_sells if c not in held_codes]
+        for c in stale:
+            del self._pending_sells[c]
+    self._pending_sells.clear()
+```
+
+#### D. _scan_loop瞬态错误恢复
+
+```python
+# 3次连续异常才退出,中间30秒重试
+self._scan_loop_error_count = getattr(self, '_scan_loop_error_count', 0) + 1
+if self._scan_loop_error_count >= 3:
+    self._is_running = False
+else:
+    await asyncio.sleep(30)  # 30秒后重试
+```
+
+scan_once成功时重置: `self._scan_loop_error_count = 0`
+
+#### E. _risk_loop_sync连续错误退避
+
+| consecutive_errors | sleep | 说明 |
+|---|---|---|
+| 1-2 | 1秒 | 正常重试 |
+| 3-9 | 5秒 | 避免空转刷日志 |
+| ≥10 | 30秒 | 严重问题,降频检查 |
+
+成功时重置: `consecutive_errors = 0`
+
+### 31.3 测试覆盖 (18新增)
+
+| 测试类 | 用例数 | 覆盖点 |
+|---|---|---|
+| TestScanOnceTiming | 3 | 分步计时变量+慢步骤标记+行数 |
+| TestPostSellCleanupStats | 3 | 分类逻辑+统计键+3类计数 |
+| TestCrossDayPendingSells | 2 | 跨日清理+空后重置 |
+| TestScanLoopErrorRecovery | 4 | 初始化+恢复逻辑+重置+3次限制 |
+| TestRiskLoopErrorBackoff | 4 | 退避逻辑+阈值+重置+事件 |
+| TestGetStatusV2922 | 1 | scan_loop_errors字段 |
+| TestNoBacktestRegressionV2922 | 2 | 回测零影响+模块可导入 |
+
+**全量测试**: 814 passed (0 failed)
+
+### 31.4 scanner.py行数变化
+
+| 阶段 | 行数 | 变化 |
+|---|---|---|
+| v2.9.21 | 1851 | +2行(MarketPhase类) |
+| v2.9.22 | 1922 | 分步计时+卖出统计分类修复+跨日一致性+错误恢复 |
+| **v2.9.22** | **1922** | **+71行(分步计时30行+统计分类12行+跨日一致性10行+错误恢复19行)** |
+
+### 31.5 回测影响
+
+零。所有变更仅影响market_monitor模块, 回测引擎零文件修改。
