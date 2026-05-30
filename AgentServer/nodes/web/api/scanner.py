@@ -1964,14 +1964,22 @@ def _fix_funnel_summary(doc: dict):
               "L4_premarket", "L5_auction", "L6_strategy",
               "L7_ranking", "L8_position"]
     
+    # 先清理None值(旧数据可能没有input/output字段)
+    for layer in layers:
+        ld = summary.get(layer)
+        if isinstance(ld, dict):
+            for k in ["input", "output", "rejected", "passed", "total"]:
+                if ld.get(k) is None:
+                    ld[k] = 0
+    
     prev_output = 0
     for layer in layers:
         ld = summary.get(layer)
         if not isinstance(ld, dict):
             continue
-        inp = ld.get("input", 0)
-        out = ld.get("output", 0)
-        rej = ld.get("rejected", 0)
+        inp = ld.get("input", 0) or 0
+        out = ld.get("output", 0) or 0
+        rej = ld.get("rejected", 0) or 0
         
         # Step 1: 修正断裂input — 上层有output但本层input=0
         if inp == 0 and prev_output > 0:
