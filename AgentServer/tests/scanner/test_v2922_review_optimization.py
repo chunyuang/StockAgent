@@ -214,11 +214,11 @@ class TestRiskLoopErrorBackoff:
         assert "consecutive_errors" in source, "_risk_loop_sync缺少consecutive_errors计数"
 
     def test_risk_loop_has_backoff_thresholds(self):
-        """_risk_loop_sync源码包含退避阈值(3次/10次)"""
+        """_risk_error_backoff源码包含退避阈值(3次/10次)【v2.9.28:逻辑提取到_risk_error_backoff】"""
         from nodes.market_monitor.scanner import MarketScanner
-        source = inspect.getsource(MarketScanner._risk_loop_sync)
-        assert ">= 3" in source, "_risk_loop_sync缺少3次退避阈值"
-        assert ">= 10" in source, "_risk_loop_sync缺少10次退避阈值"
+        source = inspect.getsource(MarketScanner._risk_error_backoff)
+        assert ">= 3" in source, "_risk_error_backoff缺少3次退避阈值"
+        assert ">= 10" in source, "_risk_error_backoff缺少10次退避阈值"
 
     def test_risk_loop_resets_on_success(self):
         """_risk_loop_sync成功时重置consecutive_errors"""

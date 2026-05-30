@@ -679,3 +679,49 @@ class LiveFilterPipeline:
             "score": self._sentiment_score,
             "period": self._sentiment_period,
         }
+
+    @staticmethod
+    def merge_filter_result(signals, result) -> list:
+        """将filter_pipeline结果合并回ScanSignal【v2.9.28:从scanner提取】"""
+        candidate_map = {c["ts_code"]: c for c in result.candidates}
+        filtered_signals = []
+        for s in signals:
+            if s.ts_code in candidate_map:
+                # 注入9层筛选决策详情
+                s.decision_detail = {
+                    "filter_pipeline": {
+                        "layers_applied": result.layers_applied,
+                        "layer_details": result.layer_details,
+                        "position_ratio": result.position_ratio,
+                        "action": result.action,
+                    },
+                    "signal_reason": s.reason,
+                    "strategy": s.strategy,
+                    "strategy_name": s.strategy_name,
+                    "price": s.price,
+                    "pct_chg": s.pct_chg,
+                    "volume_ratio": s.volume_ratio,
+                    "turnover_rate": s.turnover_rate,
+                    "factors": s.factors,
+                    "scan_time": s.scan_time,
+                }
+                # 逐层trace
+                for layer_name, detail in result.layer_details.items():
+                    s.layer_trace[layer_name] = {
+                        "detail": detail,
+                        "applied": result.layers_applied.get(layer_name, False),
+                    }
+                s.layer_trace["L8_position"] = {
+                    "position_ratio": result.position_ratio,
+                    "action": result.action,
+                }
+                filtered_signals.append(s)
+            else:
+                # 被过滤掉的信号
+                s.signal_status = "filtered"
+                s.layer_trace["filter_result"] = {
+                    "filtered_out": True,
+                    "reason": "9层筛选管道过滤",
+                    "layer_details": result.layer_details,
+                }
+        return filtered_signals
