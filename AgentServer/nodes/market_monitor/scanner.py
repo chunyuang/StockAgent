@@ -431,6 +431,9 @@ class MarketScanner:
         "_load_positions": ("_runtime_persistence", "load_positions"),
         # 【v2.9.32:风控日重置提取到RiskWatchdog】
         "_reset_daily_risk_state": ("_risk_watchdog_class", "reset_daily_risk_state"),
+        # 【v2.9.34:情绪得分+收盘同步提取】
+        "_update_sentiment_score": ("_emotion_cycle_class", "update_sentiment_score"),
+        "_sync_close_data_to_mongo": ("_runtime_persistence", "sync_close_data_to_mongo"),
     }
 
     def __getattr__(self, name):
@@ -966,131 +969,6 @@ class MarketScanner:
             trade_date = self._replay_date or datetime.now().strftime("%Y%m%d")
             await self.scan_once(trade_date, force=True)
             await asyncio.sleep(self.SCAN_INTERVAL)
-
-    async def _update_sentiment_score(self, trade_date: str):
-        """收盘后更新当日情绪预计算(写入sentiment_scores集合)"""
-        from core.managers import mongo_manager
-        if not mongo_manager.is_initialized:
-            return
-        db = mongo_manager.db
-        td_int = int(trade_date)
-        
-        # 从scanner实时状态获取涨跌停
-        limit_pools = getattr(self, '_limit_pools', {})
-        lu = len(limit_pools.get("limit_up", []))
-        ld = len(limit_pools.get("limit_down", []))
-        max_lb = 1
-        if limit_pools.get("limit_up"):
-            max_lb = max((item.get("limit_times", 1) for item in limit_pools["limit_up"]), default=1)
-        
-        # 没有实时数据则从limit_list/daily_basic查
-        data_source = "scanner_realtime"
-        if lu == 0 and ld == 0:
-            lu = await db["limit_list"].count_documents({"trade_date": td_int, "limit": "U"})
-            ld = await db["limit_list"].count_documents({"trade_date": td_int, "limit": "D"})
-            max_lb_doc = await db["limit_list"].find_one({"trade_date": td_int, "limit": "U"}, sort=[("limit_times", -1)], projection={"limit_times": 1})
-            max_lb = max_lb_doc.get("limit_times", 1) if max_lb_doc else 1
-            data_source = "limit_list"
-        if lu == 0 and ld == 0:
-            lu = await db["daily_basic"].count_documents({"trade_date": td_int, "pct_chg": {"$gte": 9.8}})
-            ld = await db["daily_basic"].count_documents({"trade_date": td_int, "pct_chg": {"$lte": -9.8}})
-            max_lb = 1
-            data_source = "daily_basic"
-        
-        missing_data = (lu == 0 and ld == 0)
-        
-        # 涨跌家数
-        up_count = await db["daily_basic"].count_documents({"trade_date": td_int, "pct_chg": {"$gt": 0}})
-        down_count = await db["daily_basic"].count_documents({"trade_date": td_int, "pct_chg": {"$lt": 0}})
-        up_down_ratio = up_count / max(up_count + down_count, 1)
-        
-        # 情绪公式
-        score = min(100, max(0, min(30,lu) + max(0,20-ld*2) + min(20,max_lb*2) + int(up_down_ratio*15)))
-        if score >= 70: period = "高潮"
-        elif score >= 55: period = "分化"
-        elif score >= 40: period = "震荡"
-        else: period = "冰点"
-        
-        await db["sentiment_scores"].update_one(
-            {"trade_date": td_int},
-            {"$set": {
-                "trade_date": td_int, "score": score, "period": period,
-                "position_ratio": {"高潮": 1.0, "分化": 0.7, "震荡": 0.5, "冰点": 0.3}.get(period, 0.3),
-                "limit_up": lu, "limit_down": ld, "max_continue": max_lb,
-                "up_count": up_count, "down_count": down_count,
-                "up_down_ratio": round(up_down_ratio, 3), "zt_premium": 0,
-                "data_source": data_source, "missing_data": missing_data,
-                "updated_at": datetime.now().isoformat(),
-            }},
-            upsert=True
-        )
-
-    async def _sync_close_data_to_mongo(self, trade_date: str):
-        """收盘后同步内存数据到MongoDB(limit_list + daily_basic)"""
-        from core.managers import mongo_manager
-        if not mongo_manager.is_initialized:
-            return
-        db = mongo_manager.db
-        td_int = int(trade_date)
-        
-        # 1. 同步limit_pools → limit_list
-        limit_pools = getattr(self, '_limit_pools', {})
-        lu_list = limit_pools.get("limit_up", [])
-        ld_list = limit_pools.get("limit_down", [])
-        broken_list = limit_pools.get("broken", [])
-        
-        if lu_list or ld_list:
-            ops = []
-            for item in lu_list:
-                ops.append(UpdateOne(
-                    {"trade_date": td_int, "ts_code": item.get("ts_code", "")},
-                    {"$set": {"trade_date": td_int, "ts_code": item.get("ts_code", ""), "name": item.get("name", ""), "limit": "U",
-                     "close": item.get("close", 0), "limit_times": item.get("limit_times", 1),
-                     "first_time": item.get("first_time", ""), "last_time": item.get("last_time", ""),
-                     "data_source": "scanner_realtime"}},
-                    upsert=True
-                ))
-            for item in ld_list:
-                ops.append(UpdateOne(
-                    {"trade_date": td_int, "ts_code": item.get("ts_code", "")},
-                    {"$set": {"trade_date": td_int, "ts_code": item.get("ts_code", ""), "name": item.get("name", ""), "limit": "D",
-                     "close": item.get("close", 0), "limit_times": item.get("limit_times", 1),
-                     "first_time": item.get("first_time", ""), "last_time": item.get("last_time", ""),
-                     "data_source": "scanner_realtime"}},
-                    upsert=True
-                ))
-            for item in broken_list:
-                ops.append(UpdateOne(
-                    {"trade_date": td_int, "ts_code": item.get("ts_code", "")},
-                    {"$set": {"trade_date": td_int, "ts_code": item.get("ts_code", ""), "name": item.get("name", ""), "limit": "U",
-                     "close": item.get("close", 0), "limit_times": item.get("limit_times", 1),
-                     "amp": item.get("amp", 0), "data_source": "scanner_realtime"}},
-                    upsert=True
-                ))
-            if ops:
-                result = await db["limit_list"].bulk_write(ops)
-                logger.info(f"[SCANNER] limit_list同步: {result.upserted_count}新增 {result.modified_count}更新")
-        
-        # 2. 同步realtime_cache的pct_chg → daily_basic(补pct_chg字段)
-        realtime_cache = getattr(self, '_realtime_cache', {})
-        if realtime_cache:
-            pct_ops = []
-            synced = 0
-            for ts_code, quote in realtime_cache.items():
-                pct_chg = quote.get("pct_chg")
-                if pct_chg is not None:
-                    # 只更新pct_chg为空的记录(不覆盖已有数据)
-                    pct_ops.append(UpdateOne(
-                        {"trade_date": td_int, "ts_code": ts_code, "pct_chg": None},
-                        {"$set": {"pct_chg": pct_chg, "close": quote.get("close", 0), "data_source": "scanner_realtime"}}
-                    ))
-                    synced += 1
-                    if len(pct_ops) >= 500:  # 批量上限
-                        await db["daily_basic"].bulk_write(pct_ops)
-                        pct_ops = []
-            if pct_ops:
-                result = await db["daily_basic"].bulk_write(pct_ops)
-                logger.info(f"[SCANNER] daily_basic pct_chg同步: {synced}只")
 
     def _risk_loop_sync(self):
         """风控独立线程(分级节奏，不受asyncio事件循环影响)

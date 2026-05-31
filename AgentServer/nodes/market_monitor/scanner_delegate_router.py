@@ -34,6 +34,7 @@ _ASYNC_DELEGATE_METHODS = frozenset({
     "_check_circuit_breaker",
     # EmotionCycleManager
     "_handle_emotion_phase_change",
+    "_update_sentiment_score",  # v2.9.34
 })
 
 # StrategyScorer未初始化时的fallback返回值
@@ -66,6 +67,7 @@ _WATCHDOG_BINDINGS = {
 # EmotionCycleManager静态方法绑定(第一个参数为scanner实例)
 _EMOTION_BINDINGS = {
     "handle_emotion_phase_change": lambda method, scanner: lambda old_phase, new_phase: method(scanner, old_phase, new_phase),
+    "update_sentiment_score": lambda method, scanner: lambda trade_date: method(scanner, trade_date),
 }
 
 

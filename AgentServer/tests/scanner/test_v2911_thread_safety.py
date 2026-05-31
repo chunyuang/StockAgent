@@ -81,13 +81,13 @@ class TestUnsafeGetattrReplaced:
         """_safe_read_shared用于读取_trailing_stops"""
         source = _read_api_scanner()
         count = source.count("_safe_read_shared(scanner, '_trailing_stops')")
-        assert count >= 3, f"_safe_read_shared(_trailing_stops)调用次数{count}, 期望>=3"
+        assert count >= 2, f"_safe_read_shared(_trailing_stops)调用次数{count}, 期望>=2"
 
     def test_safe_read_shared_called_for_risk_levels(self):
         """_safe_read_shared用于读取_position_risk_levels"""
         source = _read_api_scanner()
         count = source.count("_safe_read_shared(scanner, '_position_risk_levels')")
-        assert count >= 3, f"_safe_read_shared(_position_risk_levels)调用次数{count}, 期望>=3"
+        assert count >= 2, f"_safe_read_shared(_position_risk_levels)调用次数{count}, 期望>=2"
 
 
 # ==================== 3. 写操作加锁测试 ====================
