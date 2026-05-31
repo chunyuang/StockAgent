@@ -436,9 +436,11 @@ class RuntimePersistence:
         )
         scanner._timeline.append(entry)
         # v2.9.22:按卖出原因分类统计,修复所有卖出都计为stop_losses的bug
-        if reason in ("stop_loss", "gap_stop_loss", "trailing_stop"):
+        # v2.9.45:兼容中文reason(止损/止盈)和英文reason(stop_loss/take_profit)
+        reason_lower = reason.lower() if isinstance(reason, str) else ""
+        if reason_lower in ("stop_loss", "gap_stop_loss", "trailing_stop") or "止损" in reason:
             scanner._stats["stop_losses"] += 1
-        elif reason in ("take_profit", "profit_lock", "profit_protect"):
+        elif reason_lower in ("take_profit", "profit_lock", "profit_protect") or "止盈" in reason:
             scanner._stats["take_profits"] += 1
         else:
             scanner._stats["trades_executed"] += 1
