@@ -301,6 +301,8 @@ const deviationData = ref<any>(null)  // P1偏差归因
 const weeklyReviewData = ref<any>(null)  // P2周复盘
 const monthlyReviewData = ref<any>(null)  // P2月复盘
 const paramDriftData = ref<any>(null)  // P2参数漂移
+const factorEffectData = ref<any>(null)  // P2因子效果
+const closedLoopData = ref<any>(null)  // P2闭环建议
 
 async function runBacktest() {
   backtestRunning.value = true
@@ -649,14 +651,16 @@ async function fetchReviewData() {
         api.get(`${scannerApi}/review-forward?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) reviewForward.value = p.data }),
       )
     } else if (reviewTab.value === 'monthly') {
-      // 月复盘: 系统偏差 + 参数漂移 + 行为漂移
+      // 月复盘: 系统偏差 + 参数漂移 + 行为漂移 + 因子效果 + 闭环建议
       promises.push(
         api.get(`${scannerApi}/review-monthly?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) monthlyReviewData.value = p.data }),
         api.get(`${scannerApi}/param-drift`, opts).then(r => { const p = parseResponse(r); if (p.success) paramDriftData.value = p.data }),
-        api.get(`${scannerApi}/deviation-attribution?start_date=&end_date=`, opts).then(r => { const p = parseResponse(r); if (p.success) deviationData.value = p.data }),
+        api.get(`${scannerApi}/factor-effectiveness?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) factorEffectData.value = p.data }),
+        api.get(`${scannerApi}/review-closed-loop?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) closedLoopData.value = p.data }),
       )
       promises.push(
         api.get(`${scannerApi}/review-forward?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) reviewForward.value = p.data }),
+        api.get(`${scannerApi}/discipline-check?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) disciplineCheck.value = p.data }),
       )
     }
     
@@ -1759,11 +1763,127 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 
         <!-- 月复盘 -->
         <template v-if="reviewTab === 'monthly'">
-          <div class="empty" style="padding:40px 0;text-align:center">
-            <div style="font-size:32px;margin-bottom:8px">📆</div>
-            <div>月复盘即将上线</div>
-            <div style="font-size:12px;color:var(--text-tertiary);margin-top:4px">将包含：日历热力图 + 策略贡献堆积图 + 最大回撤标注 + 参数漂移检测</div>
+          <!-- === 月复盘主区块 === -->
+          <template v-if="monthlyReviewData">
+            <div class="st" style="margin-top:12px">🔬 系统偏差 ({{ monthlyReviewData.period }})</div>
+            <div class="review-scorecard" style="grid-template-columns:repeat(4,1fr)">
+              <div class="rsc"><div class="rsc-label">交易</div><div class="rsc-value">{{ monthlyReviewData.summary?.trades || 0 }}笔</div></div>
+              <div class="rsc"><div class="rsc-label">胜率</div><div class="rsc-value">{{ monthlyReviewData.summary?.win_rate || 0 }}%</div></div>
+              <div class="rsc"><div class="rsc-label">盈亏</div><div class="rsc-value" :class="monthlyReviewData.summary?.pnl >= 0 ? 'up' : 'down'">{{ monthlyReviewData.summary?.pnl >= 0 ? '+' : '' }}{{ monthlyReviewData.summary?.pnl || 0 }}%</div></div>
+              <div class="rsc"><div class="rsc-label">连亏</div><div class="rsc-value">-</div></div>
+            </div>
+
+            <!-- 📈 偏差趋势折线(用weekly_trend数据绘制) -->
+            <div class="st" style="margin-top:12px">📈 偏差趋势(近4周)</div>
+            <div v-if="monthlyReviewData.weekly_trend?.length" class="deviation-trend-chart">
+              <div class="trend-axis">
+                <div v-for="w in monthlyReviewData.weekly_trend" :key="w.week" class="trend-col">
+                  <div class="trend-bar" :style="{height: Math.min(w.win_rate, 100) + '%', background: w.win_rate >= 60 ? 'var(--color-up)' : w.win_rate >= 40 ? 'var(--color-warn, #e6a23c)' : 'var(--color-down)'}">
+                    <span class="trend-val">{{ w.win_rate }}%</span>
+                  </div>
+                  <div class="trend-label">{{ w.week }}</div>
+                  <div class="trend-sub">{{ w.trades }}笔</div>
+                </div>
+              </div>
+            </div>
+            <div v-else class="empty">无周度数据</div>
+
+            <!-- ⚡ 行为漂移检测 -->
+            <div class="st" style="margin-top:12px">⚡ 行为漂移检测</div>
+            <div class="review-2col">
+              <div class="dev-card">
+                <div class="dev-title">🛡️ 止损执行率</div>
+                <div class="dev-row"><span>亏损止损/总亏损</span><span :class="monthlyReviewData.behavior_drift?.stop_loss_execution_rate >= 90 ? 'up' : 'down'">{{ monthlyReviewData.behavior_drift?.stop_loss_execution_rate || 0 }}%</span></div>
+                <div class="dev-row" style="font-size:11px;color:var(--text-tertiary)"><span>亏损止损{{ monthlyReviewData.behavior_drift?.stop_loss_at_loss || 0 }}笔 / 盈利止损{{ monthlyReviewData.behavior_drift?.stop_loss_at_profit || 0 }}笔</span></div>
+              </div>
+              <div class="dev-card">
+                <div class="dev-title">❄️ 冰点期开仓率</div>
+                <div class="dev-row"><span>冰点买入占比</span><span :class="monthlyReviewData.behavior_drift?.bearish_period_buy_ratio >= 30 ? 'down' : 'up'">{{ monthlyReviewData.behavior_drift?.bearish_period_buy_ratio || 0 }}%</span></div>
+                <div class="dev-row"><span>冰点/总买入</span><span>{{ monthlyReviewData.behavior_drift?.bearish_buys || 0 }}/{{ monthlyReviewData.behavior_drift?.total_buys || 0 }}笔</span></div>
+              </div>
+            </div>
+
+            <!-- 🗓️ 日历热力图(月度盈亏) -->
+            <div class="st" style="margin-top:12px">🗓️ 日历热力图</div>
+            <div v-if="monthlyReviewData.daily_breakdown?.length" class="calendar-heatmap">
+              <div v-for="d in monthlyReviewData.daily_breakdown" :key="d.date" class="cal-cell" :class="d.pnl > 0 ? 'cal-up' : d.pnl < 0 ? 'cal-down' : 'cal-neutral'">
+                <div class="cal-date">{{ d.date?.slice(-2) }}</div>
+                <div class="cal-pnl">{{ d.pnl >= 0 ? '+' : '' }}{{ d.pnl }}%</div>
+                <div class="cal-trades">{{ d.trades }}笔</div>
+              </div>
+            </div>
+            <div v-else class="empty">无逐日数据</div>
+
+            <!-- 🎯 策略贡献堆积图 -->
+            <div class="st" style="margin-top:12px">🎯 策略月度贡献</div>
+            <div class="strategy-stacked">
+              <div v-for="(data, key) in monthlyReviewData.strategy_stats || {}" :key="key" class="stacked-bar" :style="{width: Math.max(Math.abs(data.pnl), 5) + '%', background: data.pnl >= 0 ? 'var(--color-up)' : 'var(--color-down)'}">
+                <span class="stacked-label">{{ strategyCN(key) }}</span>
+                <span class="stacked-val">{{ data.pnl >= 0 ? '+' : '' }}{{ data.pnl }}%</span>
+              </div>
+            </div>
+
+            <!-- 🔧 参数漂移检测 -->
+            <div class="st" style="margin-top:12px">🔧 参数漂移检测
+              <ElButton size="small" @click="saveParamSnapshot" style="margin-left:8px">📸 保存当前快照</ElButton>
+            </div>
+            <div v-if="paramDriftData?.drifts?.length" class="violations-list">
+              <div v-for="(d, i) in paramDriftData.drifts" :key="i" class="violation-item" :class="d.severity === 'high' ? 'sev-high' : 'sev-medium'">
+                <span class="v-icon">{{ d.severity === 'high' ? '🔴' : '🟡' }}</span>
+                <span class="v-type">{{ d.strategy || d.level }}</span>
+                <span class="v-detail">{{ d.key }}: {{ d.old }} → {{ d.new }}</span>
+              </div>
+            </div>
+            <div v-else class="empty">无参数漂移(快照基线: {{ paramDriftData?.start_date || '无' }})</div>
+          </template>
+          <div v-else class="empty">选择日期后查看月复盘</div>
+
+          <!-- 📊 因子效果跟踪 -->
+          <div class="st" style="margin-top:12px">📊 因子效果跟踪 <span style="font-weight:normal;font-size:11px;color:var(--text-tertiary)">(市场漂移检测)</span></div>
+          <div v-if="factorEffectData" class="factor-effect-section">
+            <div v-if="factorEffectData.drift_alerts?.length" class="violations-list" style="margin-bottom:8px">
+              <div v-for="(a, i) in factorEffectData.drift_alerts" :key="i" class="violation-item sev-medium">
+                <span class="v-icon">⚠️</span>
+                <span class="v-type">{{ a.factor }}/{{ a.bucket }}</span>
+                <span class="v-detail">{{ a.alert }}</span>
+              </div>
+            </div>
+            <div v-for="(periods, fname) in factorEffectData.factor_stats || {}" :key="fname" class="factor-group">
+              <div class="factor-name">{{ fname }}</div>
+              <div v-for="(items, period) in periods" :key="period" class="factor-period">
+                <div class="factor-period-label">{{ period }}</div>
+                <div class="factor-bars">
+                  <div v-for="it in items?.slice(0, 5)" :key="it.name" class="factor-bar-row">
+                    <span class="fb-name">{{ it.name }}</span>
+                    <div class="fb-bar-bg">
+                      <div class="fb-bar-fill" :style="{width: it.total > 0 ? Math.min(it.win_rate, 100) + '%' : '0%'}" :class="it.win_rate >= 60 ? 'fb-up' : it.win_rate >= 40 ? 'fb-mid' : 'fb-down'"></div>
+                    </div>
+                    <span class="fb-wr" :class="it.win_rate >= 60 ? 'up' : 'down'">{{ it.win_rate }}%</span>
+                    <span class="fb-cnt">({{ it.total }})</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
+          <div v-else class="empty">无因子数据</div>
+
+          <!-- 💡 闭环建议 -->
+          <div class="st" style="margin-top:12px">💡 闭环建议 <span v-if="closedLoopData" style="font-weight:normal;font-size:11px;margin-left:6px" :class="closedLoopData.summary?.high > 0 ? 'down' : 'up'">{{ closedLoopData.summary?.high || 0 }}高 / {{ closedLoopData.summary?.medium || 0 }}中 / {{ closedLoopData.summary?.low || 0 }}低</span></div>
+          <div v-if="closedLoopData?.suggestions?.length" class="closed-loop-list">
+            <div v-for="(s, i) in closedLoopData.suggestions" :key="i" class="cl-card" :class="'cl-' + s.severity">
+              <div class="cl-header">
+                <span class="cl-sev">{{ s.severity === 'high' ? '🔴' : s.severity === 'medium' ? '🟡' : '🔵' }}</span>
+                <span class="cl-type">{{ s.type }}</span>
+              </div>
+              <div class="cl-diagnosis">{{ s.diagnosis }}</div>
+              <div class="cl-action">👉 {{ s.action }}</div>
+              <div class="cl-verify">✅ 验证: {{ s.verification }}</div>
+              <div v-if="s.worst_cases?.length" class="cl-cases">
+                最差案例: <span v-for="w in s.worst_cases" :key="w.ts_code">{{ w.name }}({{ w.pnl }}%) </span>
+              </div>
+            </div>
+          </div>
+          <div v-else class="empty">无闭环建议</div>
         </template>
 
         <!-- ============ 第4层: 纪律检查 + 执行质量 ============ -->
@@ -1833,55 +1953,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           </div>
         </template>
 
-        <!-- ===== 月复盘: 系统偏差 + 参数漂移 + 行为漂移 ===== -->
-        <template v-if="reviewTab === 'monthly' && monthlyReviewData">
-          <div class="st" style="margin-top:12px">🔬 系统偏差 ({{ monthlyReviewData.period }})</div>
-          <div class="review-scorecard" style="grid-template-columns:repeat(4,1fr)">
-            <div class="rsc"><div class="rsc-label">交易</div><div class="rsc-value">{{ monthlyReviewData.summary?.trades || 0 }}笔</div></div>
-            <div class="rsc"><div class="rsc-label">胜率</div><div class="rsc-value">{{ monthlyReviewData.summary?.win_rate || 0 }}%</div></div>
-            <div class="rsc"><div class="rsc-label">盈亏</div><div class="rsc-value" :class="monthlyReviewData.summary?.pnl >= 0 ? 'up' : 'down'">{{ monthlyReviewData.summary?.pnl >= 0 ? '+' : '' }}{{ monthlyReviewData.summary?.pnl || 0 }}%</div></div>
-            <div class="rsc"><div class="rsc-label">连亏</div><div class="rsc-value">-</div></div>
-          </div>
-          <!-- 行为漂移 -->
-          <div class="st" style="margin-top:12px">⚡ 行为漂移检测</div>
-          <div class="review-2col">
-            <div class="dev-card">
-              <div class="dev-title">🛡️ 止损执行率</div>
-              <div class="dev-row"><span>本月</span><span :class="monthlyReviewData.behavior_drift?.stop_loss_execution_rate >= 90 ? 'up' : 'down'">{{ monthlyReviewData.behavior_drift?.stop_loss_execution_rate || 0 }}%</span></div>
-            </div>
-            <div class="dev-card">
-              <div class="dev-title">❄️ 冰点期开仓率</div>
-              <div class="dev-row"><span>冰点买入</span><span :class="monthlyReviewData.behavior_drift?.bearish_period_buy_ratio >= 30 ? 'down' : 'up'">{{ monthlyReviewData.behavior_drift?.bearish_period_buy_ratio || 0 }}%</span></div>
-              <div class="dev-row"><span>冰点买入/总买入</span><span>{{ monthlyReviewData.behavior_drift?.bearish_buys || 0 }}/{{ monthlyReviewData.behavior_drift?.total_buys || 0 }}笔</span></div>
-            </div>
-          </div>
-          <!-- 参数漂移 -->
-          <div class="st" style="margin-top:12px">🔧 参数漂移检测
-            <ElButton size="small" @click="saveParamSnapshot" style="margin-left:8px">📸 保存当前快照</ElButton>
-          </div>
-          <div v-if="paramDriftData?.drifts?.length" class="violations-list">
-            <div v-for="(d, i) in paramDriftData.drifts" :key="i" class="violation-item" :class="d.severity === 'high' ? 'sev-high' : 'sev-medium'">
-              <span class="v-icon">{{ d.severity === 'high' ? '🔴' : '🟡' }}</span>
-              <span class="v-type">{{ d.strategy || d.level }}</span>
-              <span class="v-detail">{{ d.key }}: {{ d.old }} → {{ d.new }}</span>
-            </div>
-          </div>
-          <div v-else class="empty">无参数漂移(快照基线: {{ paramDriftData?.start_date || '无' }})</div>
-          <!-- 策略月度 -->
-          <div class="st" style="margin-top:12px">🎯 策略月度贡献</div>
-          <div class="strategy-contrib">
-            <div v-for="(data, key) in monthlyReviewData.strategy_stats || {}" :key="key" class="strat-card">
-              <div class="strat-header">
-                <ElTag size="small" class="tag-solid">{{ strategyCN(key) }}</ElTag>
-                <span class="strat-pnl" :class="data.pnl >= 0 ? 'up' : 'down'">{{ data.pnl >= 0 ? '+' : '' }}{{ data.pnl }}%</span>
-              </div>
-              <div class="strat-metrics">
-                <div class="strat-m"><span class="strat-ml">笔数</span><span class="strat-mv">{{ data.trades }}笔</span></div>
-                <div class="strat-m"><span class="strat-ml">胜率</span><span class="strat-mv" :class="data.win_rate >= 50 ? 'up' : 'down'">{{ data.win_rate }}%</span></div>
-              </div>
-            </div>
-          </div>
-        </template>
+        <!-- (月复盘内容已在上方reviewTab==='monthly'区块中) -->
         <div class="review-2col" style="margin-top:12px">
           <!-- 纪律检查 -->
           <div class="sentiment-panel">
@@ -3262,6 +3334,62 @@ mm-tab-content {
 .eq-grid-mini { display: flex; flex-direction: column; gap: 4px; }
 .eq-row { display: flex; justify-content: space-between; font-size: 11px; padding: 3px 0; border-bottom: 1px solid var(--border-default); }
 .forward-section { display: flex; flex-direction: column; gap: 8px; }
+
+/* 偏差趋势图 */
+.deviation-trend-chart { background: var(--bg-elevated); border-radius: 8px; padding: 12px; }
+.trend-axis { display: flex; align-items: flex-end; gap: 8px; height: 120px; padding-top: 20px; }
+.trend-col { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; }
+.trend-bar { width: 100%; border-radius: 4px 4px 0 0; min-height: 20px; position: relative; transition: height 0.3s; }
+.trend-val { position: absolute; top: -18px; left: 50%; transform: translateX(-50%); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.trend-label { font-size: 11px; color: var(--text-secondary); margin-top: 4px; }
+.trend-sub { font-size: 10px; color: var(--text-tertiary); }
+
+/* 日历热力图 */
+.calendar-heatmap { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; padding: 8px; background: var(--bg-elevated); border-radius: 8px; }
+.cal-cell { border-radius: 6px; padding: 4px 2px; text-align: center; font-size: 10px; min-height: 48px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.cal-up { background: rgba(207, 48, 48, 0.15); color: var(--color-up, #f56c6c); }
+.cal-down { background: rgba(103, 194, 58, 0.15); color: var(--color-down, #67c23a); }
+.cal-neutral { background: var(--bg-elevated); color: var(--text-tertiary); }
+.cal-date { font-weight: 600; }
+.cal-pnl { font-size: 10px; font-weight: 600; }
+.cal-trades { font-size: 9px; color: var(--text-tertiary); }
+
+/* 策略贡献堆积图 */
+.strategy-stacked { display: flex; flex-direction: column; gap: 4px; padding: 8px; background: var(--bg-elevated); border-radius: 8px; }
+.stacked-bar { display: flex; align-items: center; justify-content: space-between; border-radius: 4px; padding: 4px 8px; min-width: 80px; }
+.stacked-label { font-size: 11px; font-weight: 600; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.3); }
+.stacked-val { font-size: 11px; font-weight: 600; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.3); }
+
+/* 因子效果跟踪 */
+.factor-effect-section { display: flex; flex-direction: column; gap: 8px; }
+.factor-group { background: var(--bg-elevated); border-radius: 8px; padding: 8px; }
+.factor-name { font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+.factor-period { margin-bottom: 6px; }
+.factor-period-label { font-size: 10px; color: var(--text-tertiary); margin-bottom: 2px; }
+.factor-bars { display: flex; flex-direction: column; gap: 2px; }
+.factor-bar-row { display: flex; align-items: center; gap: 6px; }
+.fb-name { width: 60px; font-size: 10px; text-align: right; color: var(--text-secondary); }
+.fb-bar-bg { flex: 1; height: 14px; background: var(--bg-elevated); border-radius: 3px; overflow: hidden; }
+.fb-bar-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+.fb-up { background: var(--color-up, #f56c6c); }
+.fb-mid { background: var(--color-warn, #e6a23c); }
+.fb-down { background: var(--color-down, #67c23a); }
+.fb-wr { width: 36px; font-size: 10px; font-weight: 600; text-align: right; }
+.fb-cnt { width: 28px; font-size: 9px; color: var(--text-tertiary); }
+
+/* 闭环建议 */
+.closed-loop-list { display: flex; flex-direction: column; gap: 6px; }
+.cl-card { border-radius: 8px; padding: 8px 10px; border-left: 3px solid; }
+.cl-high { background: rgba(245,108,108,0.08); border-color: #f56c6c; }
+.cl-medium { background: rgba(230,162,60,0.08); border-color: #e6a23c; }
+.cl-low { background: rgba(144,147,153,0.08); border-color: #909399; }
+.cl-header { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.cl-sev { font-size: 14px; }
+.cl-type { font-weight: 600; font-size: 12px; }
+.cl-diagnosis { font-size: 11px; color: var(--text-secondary); margin-bottom: 2px; }
+.cl-action { font-size: 11px; font-weight: 600; margin-bottom: 2px; }
+.cl-verify { font-size: 10px; color: var(--text-tertiary); }
+.cl-cases { font-size: 10px; color: var(--text-tertiary); margin-top: 2px; }
 .fw-card { padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border-default); font-size: 12px; }
 .fw-card.fw-advice { background: rgba(64,158,255,0.06); border-color: rgba(64,158,255,0.2); }
 .fw-card.fw-open { background: rgba(103,194,58,0.06); border-color: rgba(103,194,58,0.15); }
