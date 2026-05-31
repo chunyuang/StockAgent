@@ -178,21 +178,21 @@ class TestSubprocessBLPOP:
     """验证子进程使用BLPOP消费List"""
 
     def test_subprocess_uses_blpop_in_source(self):
-        """源码中子进程应使用blpop"""
+        """源码中子进程应使用blpop【v2.9.44:适配_SubprocessRuntime提取】"""
         import inspect
-        from nodes.market_monitor.scanner_daemon import _scanner_subprocess_main, _subprocess_async_main
+        from nodes.market_monitor.scanner_daemon import _SubprocessRuntime
 
-        # _scanner_subprocess_main只是入口, 核心逻辑在_subprocess_async_main
-        source = inspect.getsource(_subprocess_async_main)
+        # v2.9.44: _subprocess_async_main委托给_SubprocessRuntime
+        source = inspect.getsource(_SubprocessRuntime)
         assert "blpop" in source
         assert "cmd_list_key" in source or "scanner:cmd" in source
 
     def test_subprocess_sends_ack(self):
-        """源码中子进程应在收到命令后发送ACK"""
+        """源码中子进程应在收到命令后发送ACK【v2.9.44:适配_SubprocessRuntime提取】"""
         import inspect
-        from nodes.market_monitor.scanner_daemon import _subprocess_async_main
+        from nodes.market_monitor.scanner_daemon import _SubprocessRuntime
 
-        source = inspect.getsource(_subprocess_async_main)
+        source = inspect.getsource(_SubprocessRuntime)
         assert "ack" in source.lower()
         assert "cmd_id" in source
 
