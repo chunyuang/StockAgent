@@ -8,6 +8,18 @@ import logging
 import math
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
+
+
+def _clean_mongo(doc):
+    """清理MongoDB文档,移除ObjectId等不可序列化字段"""
+    if isinstance(doc, dict):
+        return {k: _clean_mongo(v) for k, v in doc.items() if k != '_id'}
+    elif isinstance(doc, list):
+        return [_clean_mongo(i) for i in doc]
+    elif isinstance(doc, (int, float, str, bool, type(None))):
+        return doc
+    else:
+        return str(doc)  # ObjectId等转字符串
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
@@ -4920,7 +4932,7 @@ async def deviation_attribution(date: str = None, start_date: str = None, end_da
             }
         }
         
-        return {"success": True, "data": result}
+        return {"success": True, "data": _clean_mongo(result)}
     except Exception as e:
         logger.error(f"[DEVIATION] {e}")
         return {"success": True, "data": None, "message": str(e)}
@@ -5124,7 +5136,7 @@ async def review_weekly(date: str = None):
             "weekly_trend": weekly_trend,
         }
         
-        return {"success": True, "data": result}
+        return {"success": True, "data": _clean_mongo(result)}
     except Exception as e:
         logger.error(f"[REVIEW-WEEKLY] {e}")
         return {"success": True, "data": None, "message": str(e)}
@@ -5230,7 +5242,7 @@ async def review_monthly(date: str = None):
             "index_performance": index_data,
         }
         
-        return {"success": True, "data": result}
+        return {"success": True, "data": _clean_mongo(result)}
     except Exception as e:
         logger.error(f"[REVIEW-MONTHLY] {e}")
         return {"success": True, "data": None, "message": str(e)}
