@@ -566,6 +566,9 @@ class RiskWatchdog:
         - asyncio协程中调用: 安全(单线程事件循环, 无并发风险)
         - 从外部线程调用: 调用方需确保不与Scanner主循环并发(建议通过asyncio.run_coroutine_threadsafe调度)
         - broker.place_order是原子操作, 单票失败不影响后续清仓
+        
+        【v2.9.45】复用RuntimePersistence.post_sell_cleanup,
+        消除30行内联timeline/stats/record逻辑。
         """
         result = {"success": False, "positions_cleared": 0, "reason": reason, "details": []}
         
@@ -573,14 +576,17 @@ class RiskWatchdog:
             result["error"] = "Scanner或Broker不可用"
             return result
         
+        scanner = self._scanner
+        rp = getattr(scanner, '_runtime_persistence', None)
+        
         try:
-            positions = self._scanner._broker.get_positions()
+            positions = scanner._broker.get_positions()
             for pos in positions:
                 if pos.available_qty <= 0:
                     continue  # T+1: 今日买入不可卖
                 
-                self._scanner._broker.update_realtime(pos.ts_code, pos.current_price)
-                ok, msg, order = self._scanner._broker.place_order(
+                scanner._broker.update_realtime(pos.ts_code, pos.current_price)
+                ok, msg, order = scanner._broker.place_order(
                     ts_code=pos.ts_code,
                     stock_name=pos.stock_name,
                     side="sell",
@@ -595,34 +601,18 @@ class RiskWatchdog:
                     "success": ok,
                     "message": msg if not ok else f"卖出{pos.available_qty}股@{order.filled_price:.2f}",
                 })
-                if ok:
-                    # 【v2.9.17:紧急平仓也记录到timeline(之前漏掉)】
+                if ok and rp:
                     sell_profit_pct = (pos.current_price - pos.avg_cost) / pos.avg_cost * 100 if pos.avg_cost > 0 else 0
                     sell_profit_amount = (pos.current_price - pos.avg_cost) * pos.available_qty
-                    self._scanner._timeline.append({
-                        "time": datetime.now().strftime("%H:%M:%S"),
-                        "action": "sell",
-                        "ts_code": pos.ts_code,
-                        "stock_name": pos.stock_name,
-                        "strategy": pos.strategy,
-                        "shares": pos.available_qty,
-                        "price": order.filled_price,
-                        "reason": f"⚠️紧急平仓: {reason}",
-                        "profit_pct": round(sell_profit_pct, 2),
-                        "profit_amount": round(sell_profit_amount, 2),
-                        "decision_detail": {
-                            "sell_reason": f"⚠️紧急平仓: {reason}",
-                            "cost_price": pos.avg_cost,
-                            "sell_price": order.filled_price,
-                            "source": "emergency_liquidate",
-                        },
-                    })
-                    self._scanner._stats["stop_losses"] += 1
-                    self._scanner._record_trade_result(sell_profit_pct / 100.0)
+                    await rp.post_sell_cleanup(
+                        pos, f"⚠️紧急平仓: {reason}", order, pos.available_qty,
+                        sell_profit_pct, sell_profit_amount, source="emergency",
+                    )
                     result["positions_cleared"] += 1
             
-            # 持久化
-            await self._scanner._broker.save_state(force=True)
+            # 持久化(post_sell_cleanup已做,此处兜底)
+            if not rp:
+                await scanner._broker.save_state(force=True)
             result["success"] = True
             
             logger.critical(

@@ -149,79 +149,119 @@ class PositionManager:
             if pos.available_qty <= 0:
                 continue  # T+1: 今日买入不可卖
 
-            # 获取策略级风控参数
-            risk = self._scanner._get_strategy_risk(pos.strategy)
-            # 单票风控覆盖(线程安全读取)
-            with self.state_lock:
-                pos_overrides = dict(self.position_risk_overrides.get(pos.ts_code, {}))
-            if 'stop_loss_pct' in pos_overrides:
-                risk['stop_loss_pct'] = pos_overrides['stop_loss_pct']
-            if 'take_profit_pct' in pos_overrides:
-                risk['take_profit_pct'] = pos_overrides['take_profit_pct']
+            risk = self._get_risk_with_overrides(pos)
             stop_loss_pct = -risk.get("stop_loss_pct", 0.03) * 100
             take_profit_pct = risk.get("take_profit_pct", 0.07) * 100
-
             stop_loss_price = self.calc_stop_loss_price(pos, risk)
-            take_profit_price = self.calc_take_profit_price(pos, risk)
 
             sell_reason = None
             sell_price = pos.current_price
 
-            # 追踪止损检查(线程安全: 深拷贝读取)
-            trailing = self._get_trailing_stop_safe(pos.ts_code)
-            trailing_triggered = False
-            if trailing and trailing.get("activated") and trailing.get("stop_price", 0) > 0:
-                trailing_stop_price = trailing["stop_price"]
-                if pos.current_price <= trailing_stop_price:
-                    high_price = trailing.get("high_price", pos.avg_cost)
-                    trailing_pct = trailing.get("trailing_stop_pct", 0)
-                    profit_at_high = (high_price / pos.avg_cost - 1) * 100 if pos.avg_cost > 0 else 0
-                    sell_reason = f"追踪止损(最高{high_price:.2f}→{trailing_pct*100:.0f}%回撤, 曾盈{profit_at_high:.1f}%)"
-                    sell_price = trailing_stop_price
-                    trailing_triggered = True
+            # 追踪止损检查
+            sell_reason, sell_price, trailing_triggered = self._check_trailing_stop(pos, risk)
 
-            # 常规止损止盈(追踪止损未触发时)
+            # 常规止损止盈+冲高回落等策略(追踪止损未触发时)
             if not trailing_triggered:
-                rt = realtime_data.get(pos.ts_code, {})
-                today_open = rt.get("open", 0) if rt else self._get_open_price(pos.ts_code)
-
-                if pos.profit_pct <= stop_loss_pct:
-                    if today_open and today_open > 0 and today_open < stop_loss_price:
-                        sell_reason = f"跳空止损(开{today_open:.2f}<止损{stop_loss_price:.2f})"
-                        sell_price = today_open
-                    else:
-                        sell_reason = f"止损 {pos.profit_pct:.1f}%"
-                elif pos.profit_pct >= take_profit_pct:
-                    sell_reason = f"止盈 {pos.profit_pct:.1f}%"
-
-                # 冲高回落/利润保护/高开即卖
-                if not sell_reason and pos.avg_cost > 0:
-                    open_rise = (today_open / pos.avg_cost - 1) if today_open > 0 else 0
-                    close_rise = pos.profit_pct / 100
-                    next_day_sell_pct = risk.get("next_day_open_sell_pct", 0.03)
-
-                    if open_rise >= next_day_sell_pct and pos.current_price < today_open:
-                        if open_rise >= 0.05:
-                            sell_reason = f"冲高回落(开涨{open_rise*100:.1f}%)"
-                            sell_price = today_open
-                        elif (today_open - pos.current_price) / today_open >= 0.01:
-                            sell_reason = f"冲高回落(开涨{open_rise*100:.1f}%回落)"
-                            sell_price = today_open
-
-                    if not sell_reason and open_rise >= 0.02 and close_rise >= 0.02 and pos.current_price < today_open:
-                        sell_reason = f"利润保护(收涨{close_rise*100:.1f}%)"
-                        sell_price = pos.current_price
-
-                    if not sell_reason and open_rise >= next_day_sell_pct:
-                        strategy_name = getattr(pos, 'strategy', '')
-                        if strategy_name in ('first_limit_up', '首板打板'):
-                            sell_reason = f"高开即卖(开涨{open_rise*100:.1f}%)"
-                            sell_price = today_open
+                sell_reason, sell_price = self._check_regular_stop_profit(
+                    pos, risk, realtime_data, stop_loss_pct, take_profit_pct, stop_loss_price,
+                )
 
             if sell_reason:
                 to_sell.append((pos, sell_reason, sell_price, risk))
 
         return to_sell
+    
+    def _get_risk_with_overrides(self, pos) -> Dict:
+        """获取策略级风控参数+单票覆盖【v2.9.45提取】"""
+        risk = self._scanner._get_strategy_risk(pos.strategy)
+        with self.state_lock:
+            pos_overrides = dict(self.position_risk_overrides.get(pos.ts_code, {}))
+        if 'stop_loss_pct' in pos_overrides:
+            risk['stop_loss_pct'] = pos_overrides['stop_loss_pct']
+        if 'take_profit_pct' in pos_overrides:
+            risk['take_profit_pct'] = pos_overrides['take_profit_pct']
+        return risk
+    
+    def _check_trailing_stop(self, pos, risk: Dict) -> Tuple:
+        """追踪止损检查【v2.9.45提取】
+        
+        Returns: (sell_reason, sell_price, triggered)
+        """
+        trailing = self._get_trailing_stop_safe(pos.ts_code)
+        if not trailing or not trailing.get("activated") or trailing.get("stop_price", 0) <= 0:
+            return None, pos.current_price, False
+        
+        trailing_stop_price = trailing["stop_price"]
+        if pos.current_price <= trailing_stop_price:
+            high_price = trailing.get("high_price", pos.avg_cost)
+            trailing_pct = trailing.get("trailing_stop_pct", 0)
+            profit_at_high = (high_price / pos.avg_cost - 1) * 100 if pos.avg_cost > 0 else 0
+            reason = f"追踪止损(最高{high_price:.2f}→{trailing_pct*100:.0f}%回撤, 曾盈{profit_at_high:.1f}%)"
+            return reason, trailing_stop_price, True
+        
+        return None, pos.current_price, False
+    
+    def _check_regular_stop_profit(self, pos, risk: Dict, realtime_data: Dict,
+                                    stop_loss_pct: float, take_profit_pct: float,
+                                    stop_loss_price: float) -> Tuple:
+        """常规止损止盈+冲高回落/利润保护/高开即卖【v2.9.45提取】
+        
+        Returns: (sell_reason, sell_price)
+        """
+        rt = realtime_data.get(pos.ts_code, {})
+        today_open = rt.get("open", 0) if rt else self._get_open_price(pos.ts_code)
+        
+        sell_reason = None
+        sell_price = pos.current_price
+        
+        # 固定止损/止盈
+        if pos.profit_pct <= stop_loss_pct:
+            if today_open and today_open > 0 and today_open < stop_loss_price:
+                sell_reason = f"跳空止损(开{today_open:.2f}<止损{stop_loss_price:.2f})"
+                sell_price = today_open
+            else:
+                sell_reason = f"止损 {pos.profit_pct:.1f}%"
+        elif pos.profit_pct >= take_profit_pct:
+            sell_reason = f"止盈 {pos.profit_pct:.1f}%"
+        
+        # 冲高回落/利润保护/高开即卖
+        if not sell_reason and pos.avg_cost > 0:
+            sell_reason, sell_price = self._check_intraday_rules(
+                pos, risk, today_open,
+            )
+        
+        return sell_reason, sell_price
+    
+    def _check_intraday_rules(self, pos, risk: Dict, today_open: float) -> Tuple:
+        """盘中冲高回落/利润保护/高开即卖规则【v2.9.45提取】
+        
+        Returns: (sell_reason, sell_price) or (None, price)
+        """
+        if today_open <= 0:
+            return None, pos.current_price
+        
+        open_rise = (today_open / pos.avg_cost - 1) if pos.avg_cost > 0 else 0
+        close_rise = pos.profit_pct / 100
+        next_day_sell_pct = risk.get("next_day_open_sell_pct", 0.03)
+        
+        # 冲高回落
+        if open_rise >= next_day_sell_pct and pos.current_price < today_open:
+            if open_rise >= 0.05:
+                return f"冲高回落(开涨{open_rise*100:.1f}%)", today_open
+            elif (today_open - pos.current_price) / today_open >= 0.01:
+                return f"冲高回落(开涨{open_rise*100:.1f}%回落)", today_open
+        
+        # 利润保护
+        if open_rise >= 0.02 and close_rise >= 0.02 and pos.current_price < today_open:
+            return f"利润保护(收涨{close_rise*100:.1f}%)", pos.current_price
+        
+        # 高开即卖(首板策略专属)
+        if open_rise >= next_day_sell_pct:
+            strategy_name = getattr(pos, 'strategy', '')
+            if strategy_name in ('first_limit_up', '首板打板'):
+                return f"高开即卖(开涨{open_rise*100:.1f}%)", today_open
+        
+        return None, pos.current_price
     
     def check_stop_loss_only(self, realtime_data: Dict) -> List[Tuple]:
         """
@@ -248,59 +288,78 @@ class PositionManager:
             if current_price <= 0:
                 continue
             
-            # 跌停不可卖
-            if self._is_limit_down(ts_code):
-                with self.state_lock:
-                    if ts_code not in self.pending_sells:
-                        risk = self._scanner._get_strategy_risk(pos.strategy)
-                        reason = f"跌停挂起(当前{current_price:.2f})"
-                        self.pending_sells[ts_code] = {"reason": reason, "price": current_price, "added_at": time.time(), "source": "position_manager"}
-                        logger.warning(f"[RISK] {ts_code} {reason}")
-                    else:
-                        # 【v3.0:更新挂起价格(可能连续跌停,价格在变)】
-                        info = self.pending_sells[ts_code]
-                        if isinstance(info, dict):
-                            info["price"] = current_price
+            # 跌停不可卖处理
+            handled, sell_item = self._handle_limit_down(pos, current_price)
+            if sell_item:
+                to_sell.append(sell_item)
+            if handled:
                 continue
             
-            # 跌停恢复: 之前挂起,现在不跌停了
-            with self.state_lock:
-                if ts_code in self.pending_sells:
-                    info = self.pending_sells.pop(ts_code)
-                    reason = info.get("reason", "跌停恢复") if isinstance(info, dict) else info[0]
-                    price = info.get("price", current_price) if isinstance(info, dict) else info[1]
-                    logger.info(f"[RISK] {ts_code} 跌停恢复,执行挂起卖出: {reason}")
-                    risk = self._scanner._get_strategy_risk(pos.strategy)
-                    to_sell.append((pos, reason, price, risk))
-                    continue
-            
-            risk = self._scanner._get_strategy_risk(pos.strategy)
-            # 单票覆盖
-            with self.state_lock:
-                pos_overrides = self.position_risk_overrides.get(ts_code, {})
-            if 'stop_loss_pct' in pos_overrides:
-                risk['stop_loss_pct'] = pos_overrides['stop_loss_pct']
-            
-            sl_pct = -risk.get("stop_loss_pct", 0.03) * 100
-            
-            # 固定止损
-            if pos.profit_pct <= sl_pct:
-                stop_loss_price = self.calc_stop_loss_price(pos, risk)
-                today_open = rt.get("open", 0)
-                if today_open > 0 and today_open < stop_loss_price:
-                    to_sell.append((pos, f"跳空止损(开{today_open:.2f}<止损{stop_loss_price:.2f})", today_open, risk))
-                else:
-                    to_sell.append((pos, f"止损 {pos.profit_pct:.1f}%", current_price, risk))
-                continue
-            
-            # 追踪止损
-            with self.state_lock:
-                trailing = dict(self.trailing_stops.get(ts_code, {})) if ts_code in self.trailing_stops else None
-            if trailing and trailing.get("activated") and trailing.get("stop_price", 0) > 0:
-                if current_price <= trailing["stop_price"]:
-                    to_sell.append((pos, f"追踪止损(回撤至{current_price:.2f})", trailing["stop_price"], risk))
+            # 固定止损+追踪止损
+            sell_item = self._check_quick_stop_loss(pos, rt, current_price)
+            if sell_item:
+                to_sell.append(sell_item)
         
         return to_sell
+    
+    def _handle_limit_down(self, pos, current_price: float) -> Tuple[bool, Optional[Tuple]]:
+        """跌停不可卖处理: 挂起/恢复【v2.9.45提取】
+        
+        Returns: (handled, sell_item) — handled=True表示该持仓已处理(跳过后续检查)
+        """
+        ts_code = pos.ts_code
+        
+        if self._is_limit_down(ts_code):
+            with self.state_lock:
+                if ts_code not in self.pending_sells:
+                    risk = self._scanner._get_strategy_risk(pos.strategy)
+                    reason = f"跌停挂起(当前{current_price:.2f})"
+                    self.pending_sells[ts_code] = {"reason": reason, "price": current_price, "added_at": time.time(), "source": "position_manager"}
+                    logger.warning(f"[RISK] {ts_code} {reason}")
+                else:
+                    info = self.pending_sells[ts_code]
+                    if isinstance(info, dict):
+                        info["price"] = current_price
+            return True, None
+        
+        # 跌停恢复: 之前挂起,现在不跌停了
+        with self.state_lock:
+            if ts_code in self.pending_sells:
+                info = self.pending_sells.pop(ts_code)
+                reason = info.get("reason", "跌停恢复") if isinstance(info, dict) else info[0]
+                price = info.get("price", current_price) if isinstance(info, dict) else info[1]
+                logger.info(f"[RISK] {ts_code} 跌停恢复,执行挂起卖出: {reason}")
+                risk = self._scanner._get_strategy_risk(pos.strategy)
+                return True, (pos, reason, price, risk)
+        
+        return False, None
+    
+    def _check_quick_stop_loss(self, pos, rt: Dict, current_price: float) -> Optional[Tuple]:
+        """快速止损检查: 固定止损+追踪止损【v2.9.45提取】
+        
+        Returns: (pos, reason, price, risk) or None
+        """
+        ts_code = pos.ts_code
+        risk = self._get_risk_with_overrides(pos)
+        sl_pct = -risk.get("stop_loss_pct", 0.03) * 100
+        
+        # 固定止损
+        if pos.profit_pct <= sl_pct:
+            stop_loss_price = self.calc_stop_loss_price(pos, risk)
+            today_open = rt.get("open", 0)
+            if today_open > 0 and today_open < stop_loss_price:
+                return (pos, f"跳空止损(开{today_open:.2f}<止损{stop_loss_price:.2f})", today_open, risk)
+            else:
+                return (pos, f"止损 {pos.profit_pct:.1f}%", current_price, risk)
+        
+        # 追踪止损
+        with self.state_lock:
+            trailing = dict(self.trailing_stops.get(ts_code, {})) if ts_code in self.trailing_stops else None
+        if trailing and trailing.get("activated") and trailing.get("stop_price", 0) > 0:
+            if current_price <= trailing["stop_price"]:
+                return (pos, f"追踪止损(回撤至{current_price:.2f})", trailing["stop_price"], risk)
+        
+        return None
     
     def update_trailing_stops(self, positions, realtime_data: Dict):
         """更新追踪止损状态(每轮扫描后调用)

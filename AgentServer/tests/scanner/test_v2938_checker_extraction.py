@@ -24,6 +24,12 @@ def _read_source():
     with open(POSITION_CHECKER_PATH) as f:
         return f.read()
 
+def _read_rp_source():
+    """读取RuntimePersistence源码【v2.9.45:_persist_compare_diff已迁移】"""
+    rp_path = os.path.join(SCANNER_DIR, "runtime_persistence.py")
+    with open(rp_path) as f:
+        return f.read()
+
 
 # ==================== _run_checker_on_positions提取 ====================
 
@@ -283,30 +289,32 @@ class TestPostSellStateCleanup:
 # ==================== compare差异持久化 ====================
 
 class TestCompareDiffPersistence:
-    """验证_persist_compare_diff方法"""
+    """验证_persist_compare_diff方法(v2.9.45:实现已迁移到RuntimePersistence)"""
 
     def test_method_exists(self):
-        """_persist_compare_diff方法存在"""
-        src = _read_source()
-        assert "def _persist_compare_diff" in src
+        """_persist_compare_diff在position_checker和runtime_persistence均存在"""
+        pc_src = _read_source()
+        rp_src = _read_rp_source()
+        assert "def _persist_compare_diff" in pc_src, "position_checker应有委托方法"
+        assert "def persist_compare_diff" in rp_src, "runtime_persistence应有实现方法"
 
     def test_mongodb_collection_name(self):
         """使用sell_compare_diff集合"""
-        src = _read_source()
-        assert '"sell_compare_diff"' in src or "'sell_compare_diff'" in src
+        rp_src = _read_rp_source()
+        assert '"sell_compare_diff"' in rp_src or "'sell_compare_diff'" in rp_src
 
     def test_ttl_index_creation(self):
         """创建TTL索引(30天)"""
-        src = _read_source()
-        assert "ttl_30d_compare" in src
-        assert "30 * 86400" in src or "2592000" in src
+        rp_src = _read_rp_source()
+        assert "ttl_30d_compare" in rp_src
+        assert "30 * 86400" in rp_src or "2592000" in rp_src
 
     def test_diff_details_structure(self):
         """差异详情包含必要字段"""
-        src = _read_source()
-        assert "legacy_reason" in src
-        assert "checker_reason" in src
-        assert "agreement_rate" in src
+        rp_src = _read_rp_source()
+        assert "legacy_reason" in rp_src
+        assert "checker_reason" in rp_src
+        assert "agreement_rate" in rp_src
 
     def test_compare_mode_calls_persist(self):
         """compare模式调用_persist_compare_diff"""
@@ -324,23 +332,30 @@ class TestCompareDiffPersistence:
                 break
         assert found, "_check_positions_compare应调用_persist_compare_diff"
 
+    def test_position_checker_delegates_to_rp(self):
+        """position_checker的_persist_compare_diff委托给runtime_persistence【v2.9.45新增】"""
+        src = _read_source()
+        assert "rp.persist_compare_diff" in src or "runtime_persistence" in src, (
+            "position_checker._persist_compare_diff应委托给RuntimePersistence"
+        )
+
     def test_try_except_protection(self):
         """持久化方法有try/except保护(失败不影响主流程)"""
-        src = _read_source()
-        lines = src.split("\n")
+        rp_src = _read_rp_source()
+        lines = rp_src.split("\n")
         in_method = False
         has_try = False
         has_except = False
         for line in lines:
-            if "def _persist_compare_diff" in line:
+            if "def persist_compare_diff" in line:
                 in_method = True
-            elif in_method and "def " in line and "_persist_compare_diff" not in line:
+            elif in_method and "def " in line and "persist_compare_diff" not in line:
                 break
             elif in_method and line.strip().startswith("try:"):
                 has_try = True
             elif in_method and "except Exception" in line:
                 has_except = True
-        assert has_try and has_except, "_persist_compare_diff应有try/except保护"
+        assert has_try and has_except, "persist_compare_diff应有try/except保护"
 
 
 # ==================== 代码量回归 ====================
