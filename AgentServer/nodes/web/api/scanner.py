@@ -1052,7 +1052,7 @@ async def get_sentiment_timeline(date: str = None, mode: str = "daily"):
 
 
 @router.get("/sentiment-strategy-matrix")
-async def get_sentiment_strategy_matrix():
+async def get_sentiment_strategy_matrix(date: str = None):
     """策略×情绪 效果矩阵 — 按情绪阶段分组统计每个策略的交易表现"""
     try:
         from core.managers import mongo_manager
@@ -1080,8 +1080,16 @@ async def get_sentiment_strategy_matrix():
         matrix = defaultdict(lambda: defaultdict(lambda: {"wins": 0, "losses": 0, "count": 0, "total_pnl": 0.0}))
         strategy_totals = defaultdict(lambda: {"wins": 0, "losses": 0, "count": 0, "total_pnl": 0.0})
         
+        # 构建查询条件: date参数时只统计该日期及之前的卖出
+        sell_query = {"side": "sell", "status": "filled"}
+        if date:
+            try:
+                sell_query["trade_date"] = {"$lte": str(date)}  # trade_date是字符串格式YYYYMMDD
+            except Exception:
+                pass
+        
         async for doc in db["broker_orders"].find(
-            {"side": "sell", "status": "filled"},
+            sell_query,
             {"trade_date": 1, "strategy": 1, "reason": 1, "filled_price": 1, "filled_qty": 1}
         ):
             strategy = doc.get("strategy", "unknown")

@@ -406,7 +406,7 @@ async function fetchSentimentData() {
     const dateParam = sentimentDate.value.replace(/-/g, '')
     const [tlRes, matRes, liveRes] = await Promise.allSettled([
       api.get(`${scannerApi}/sentiment-timeline?date=${dateParam}&mode=${sentimentMode.value}`, opts),
-      api.get(`${scannerApi}/sentiment-strategy-matrix`, opts),
+      api.get(`${scannerApi}/sentiment-strategy-matrix?date=${dateParam}`, opts),
       api.get(`${scannerApi}/market-sentiment?date=${dateParam}`, opts),
     ])
     if (tlRes.status === 'fulfilled') { const p = parseResponse(tlRes.value); if (p.success) { sentimentCache[sentimentMode.value] = p.data?.points || []; sentimentTradesCache[sentimentMode.value] = p.data?.trades || [] } }
