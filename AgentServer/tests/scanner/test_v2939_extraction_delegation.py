@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-v2.9.39 测试: _scan_loop_settlement提取 + _emit_risk_thread_error委托RiskWatchdog + MarketPhase.is_trading_active + position_checker except修复
+v2.9.40 测试: _scan_loop_settlement提取 + _emit_risk_thread_error委托RiskWatchdog + MarketPhase.is_trading_active + position_checker except修复
 
 1. _scan_loop_settlement委托RuntimePersistence.daily_settlement
 2. _emit_risk_thread_error委托RiskWatchdog.emit_risk_thread_error
@@ -244,9 +244,9 @@ class TestVersionSync:
     """版本同步检查"""
 
     def test_design_doc_version_in_api(self):
-        """API版本号为v2.9.39"""
+        """API版本号为v2.9.40"""
         source = _read(_API)
-        assert '_DESIGN_DOC_VERSION = "v2.9.39"' in source
+        assert '_DESIGN_DOC_VERSION = "v2.9.40"' in source
 
 
 class TestNoBacktestRegressionV2939:

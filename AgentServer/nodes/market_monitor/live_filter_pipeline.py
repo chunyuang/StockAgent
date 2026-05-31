@@ -120,7 +120,7 @@ class LiveFilterPipeline:
         self,
         trade_date: str,
         candidates: List[Dict],
-        positions: List[Dict],
+        positions: List[Dict] = None,
         account: Dict = None,
         realtime_data: Dict = None,
     ) -> FilterResult:
@@ -130,10 +130,26 @@ class LiveFilterPipeline:
         Args:
             trade_date: 交易日期 (YYYYMMDD)
             candidates: 原始候选列表 [{ts_code, strategy, ...}]
-            positions: 当前持仓列表
-            account: 账户信息 {cash, total_value, ...}
+            positions: 当前持仓列表(不传则从scanner自动获取)【v2.9.40】
+            account: 账户信息(不传则从scanner自动获取)【v2.9.40】
             realtime_data: 实时行情 {ts_code: {close, pct_chg, ...}}
         """
+        # 【v2.9.40:自动从scanner获取持仓和账户信息,减少scanner中broker耦合】
+        if positions is None and self._scanner:
+            broker = getattr(self._scanner, '_broker', None)
+            if broker:
+                positions = [{"ts_code": p.ts_code, "strategy": p.strategy} for p in broker.get_positions()]
+            else:
+                positions = []
+        elif positions is None:
+            positions = []
+
+        if account is None and self._scanner:
+            broker = getattr(self._scanner, '_broker', None)
+            if broker:
+                account = {"cash": broker.account.available_cash}
+            else:
+                account = {"cash": 0}
         result = FilterResult(candidates=list(candidates))
         ratio = 1.0  # 仓位系数
 
