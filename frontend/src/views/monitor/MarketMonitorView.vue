@@ -358,6 +358,42 @@ const sentimentRecommendations = ref<any[]>([])
 const sentimentLoading = ref(false)
 const sentimentLive = ref<any>(null)  // 实时情绪快照
 
+// 情绪阶段指南(固定数据)
+const phaseGuide = computed(() => {
+  const cur = sentimentLive.value?.period_label || ''
+  return [
+    { name: '高潮', icon: '🔥', range: '≥70分', color: '#f56c6c', position: '100%', canOpen: '✅ 全部', strategy: '所有策略开放', advice: '满仓操作，可追涨打板、龙头低吸、跌停翘板', active: cur.includes('高潮') },
+    { name: '分化', icon: '⚖️', range: '55-70分', color: '#409eff', position: '50-70%', canOpen: '✅ 精选', strategy: '仅龙头低吸+半路追涨', advice: '降低仓位，只做最强龙头，避免跟风股', active: cur.includes('分化') },
+    { name: '震荡', icon: '🌊', range: '40-55分', color: '#e6a23c', position: '25-40%', canOpen: '⚠️ 轻仓', strategy: '仅龙头低吸(小仓)', advice: '轻仓试错，严格止损3%，快进快出', active: cur.includes('震荡') },
+    { name: '冰点', icon: '❄️', range: '<40分', color: '#67c23a', position: '0%', canOpen: '❌ 禁止', strategy: '空仓观望', advice: '禁止新开仓，持仓止损优先，等待情绪回暖', active: cur.includes('冰点') },
+  ]
+})
+
+// 情绪降级调仓规则
+const downgradeRules = [
+  { from: '分化', to: '冰点', action: '清低利润', desc: '利润<3%的全部卖出' },
+  { from: '高潮', to: '分化', action: '减仓50%', desc: '保留核心仓位' },
+  { from: '高潮', to: '冰点', action: '清低利润', desc: '急转直下，保命优先' },
+  { from: '震荡', to: '冰点', action: '清低利润', desc: '利润<5%的全部卖出' },
+  { from: '分化', to: '震荡', action: '减仓60%', desc: '仅保留最强持仓' },
+  { from: '高潮', to: '震荡', action: '减仓50%', desc: '市场转弱，保留核心' },
+]
+
+const phaseColors: Record<string, string> = { '高潮': '#f56c6c', '分化': '#409eff', '震荡': '#e6a23c', '冰点': '#67c23a' }
+
+// 基于当前情绪的智能建议
+const sentimentAdvice = computed(() => {
+  const s = sentimentLive.value
+  if (!s) return '选择日期后查看建议'
+  const score = s.score || 0
+  const lu = s.limit_up_count || 0
+  const ld = s.limit_down_count || 0
+  if (score >= 70) return `市场高潮，涨停${lu}只，赚钱效应强。可满仓操作，所有策略开放。注意高潮末端可能突然分化，设好止盈。`
+  if (score >= 55) return `市场分化，涨停${lu}只跌停${ld}只。建议降仓位至50-70%，只做最强龙头，避免追高跟风股。`
+  if (score >= 40) return `市场震荡，涨停${lu}只跌停${ld}只。建议轻仓25-40%试错，严格止损3%，快进快出，不恋战。`
+  return `市场冰点，跌停${ld}只，极度弱势。建议空仓观望，禁止新开仓。持仓执行止损，等待情绪回暖信号。`
+})
+
 // ==================== 自动交易 + 参数对比 ====================
 const autoTrades = ref<any[]>([])
 const paramCompare = ref<any>(null)
@@ -1831,7 +1867,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           <ElButton size="small" @click="fetchSentimentData" :loading="sentimentLoading">🔄</ElButton>
         </div>
 
-        <!-- 1. 情绪时间线 -->
+        <!-- ============ 区块1: 情绪时间线 ============ -->
         <div class="st">📈 情绪时间线
           <span style="font-weight:normal;font-size:11px;color:var(--text-tertiary);margin-left:8px">
             {{ isIntradayFallback ? '（Scanner未运行，显示日线数据）' : `（${displayTimeline.length}个数据点）` }}
@@ -1845,81 +1881,56 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <div v-else-if="!displayTimeline.length" class="empty" style="padding:12px 0">暂无情绪数据</div>
         <div v-else class="sentiment-chart">
           <div class="sc-chart-row">
-          <!-- Y轴标签 -->
-          <div class="sc-y-axis">
-            <span>100</span><span>70</span><span>55</span><span>40</span><span>0</span>
-          </div>
-          <!-- 图表主体 -->
-          <div class="sc-chart-body">
-            <!-- 背景色带(非日内) -->
-            <template v-if="sentimentMode !== 'intraday' || isIntradayFallback">
-              <div class="sc-band" style="height:30%;background:rgba(245,108,108,0.08)" title="高潮 ≥70"></div>
-              <div class="sc-band" style="height:15%;background:rgba(64,158,255,0.08)" title="分化 55-70"></div>
-              <div class="sc-band" style="height:15%;background:rgba(230,162,60,0.08)" title="震荡 40-55"></div>
-              <div class="sc-band" style="height:40%;background:rgba(103,194,58,0.08)" title="冰点 <40"></div>
-            </template>
-            <!-- 日内模式: candidates/passed双线 -->
-            <template v-if="sentimentMode === 'intraday' && !isIntradayFallback && intradayMaxCand > 0">
-              <svg class="sc-svg" :viewBox="`0 0 ${Math.max(displayTimeline.length - 1, 1) * 20} 100`" preserveAspectRatio="none">
-                <!-- 候选数线(蓝) -->
-                <polyline :points="displayTimeline.map((p, i) => `${i * 20},${100 - Math.round((p.candidates || 0) / intradayMaxCand * 90)}`).join(' ')" fill="none" stroke="#409eff" stroke-width="1.5" />
-                <!-- 通过数线(绿) -->
-                <polyline :points="displayTimeline.map((p, i) => `${i * 20},${100 - Math.round((p.passed || 0) / intradayMaxCand * 90)}`).join(' ')" fill="none" stroke="#67c23a" stroke-width="1.5" />
-              </svg>
-              <!-- 日内数据点 -->
-              <template v-for="(p, i) in displayTimeline" :key="i">
-                <div class="sc-dot" :style="{ left: `${i / Math.max(displayTimeline.length - 1, 1) * 100}%`, bottom: `${Math.round((p.candidates || 0) / intradayMaxCand * 90)}%` }" @mouseenter="hoveredPoint = p" @mouseleave="hoveredPoint = null" :title="`${p.time?.substring(11,16)} 候选${p.candidates} 通过${p.passed}`">
-                </div>
+            <div class="sc-y-axis"><span>100</span><span>70</span><span>55</span><span>40</span><span>0</span></div>
+            <div class="sc-chart-body">
+              <template v-if="sentimentMode !== 'intraday' || isIntradayFallback">
+                <div class="sc-band" style="height:30%;background:rgba(245,108,108,0.08)" title="高潮 ≥70"></div>
+                <div class="sc-band" style="height:15%;background:rgba(64,158,255,0.08)" title="分化 55-70"></div>
+                <div class="sc-band" style="height:15%;background:rgba(230,162,60,0.08)" title="震荡 40-55"></div>
+                <div class="sc-band" style="height:40%;background:rgba(103,194,58,0.08)" title="冰点 <40"></div>
               </template>
-              <!-- 日内图例 -->
-              <div style="position:absolute;top:4px;right:8px;font-size:10px;z-index:5">
-                <span style="color:#409eff">● 候选</span> <span style="color:#67c23a;margin-left:6px">● 通过</span>
-              </div>
-            </template>
-            <!-- 日线/周线/月线模式: score线 -->
-            <template v-else>
-              <svg class="sc-svg" :viewBox="`0 0 ${Math.max(intradayFallback ? 0 : displayTimeline.filter(p => p.score != null).length - 1, 1) * 20} 100`" preserveAspectRatio="none">
-                <polyline :points="displayTimeline.filter(p => p.score != null).map((p, i) => `${i * 20},${100 - (p.score || 0)}`).join(' ')" fill="none" stroke="var(--el-color-primary)" stroke-width="1.5" />
-              </svg>
-              <template v-for="(p, i) in displayTimeline" :key="i">
-                <div v-if="p.score != null" class="sc-dot" :style="{ left: `${i / Math.max(displayTimeline.length - 1, 1) * 100}%`, bottom: `${(p.score || 0)}%` }" :class="p.period === '高潮' ? 'hot' : p.period === '冰点' ? 'cold' : p.missing_data ? 'missing' : ''" @mouseenter="hoveredPoint = p" @mouseleave="hoveredPoint = null">
-                </div>
-              </template>
-            </template>
-            <!-- Hover详情 -->
-            <div v-if="hoveredPoint" class="sc-hover-card" :style="{ left: `${Math.min(displayTimeline.findIndex(p => p === hoveredPoint) / Math.max(displayTimeline.length - 1, 1) * 100, 75)}%`, bottom: `${Math.min((hoveredPoint.score || hoveredPoint.candidates ? 30 : 0) + 8, 85)}%` }">
-              <template v-if="sentimentMode === 'intraday' && !isIntradayFallback">
-                <div class="sc-hover-date">{{ hoveredPoint.time?.substring(11, 16) }}</div>
-                <div class="sc-hover-detail" style="font-size:13px">候选 <strong style="color:#409eff">{{ hoveredPoint.candidates }}</strong> 通过 <strong style="color:#67c23a">{{ hoveredPoint.passed }}</strong></div>
-                <div v-if="hoveredPoint.score" class="sc-hover-score">{{ hoveredPoint.score.toFixed(1) }} {{ hoveredPoint.period }}</div>
+              <template v-if="sentimentMode === 'intraday' && !isIntradayFallback && intradayMaxCand > 0">
+                <svg class="sc-svg" :viewBox="`0 0 ${Math.max(displayTimeline.length - 1, 1) * 20} 100`" preserveAspectRatio="none">
+                  <polyline :points="displayTimeline.map((p, i) => `${i * 20},${100 - Math.round((p.candidates || 0) / intradayMaxCand * 90)}`).join(' ')" fill="none" stroke="#409eff" stroke-width="1.5" />
+                  <polyline :points="displayTimeline.map((p, i) => `${i * 20},${100 - Math.round((p.passed || 0) / intradayMaxCand * 90)}`).join(' ')" fill="none" stroke="#67c23a" stroke-width="1.5" />
+                </svg>
+                <template v-for="(p, i) in displayTimeline" :key="i">
+                  <div class="sc-dot" :style="{ left: `${i / Math.max(displayTimeline.length - 1, 1) * 100}%`, bottom: `${Math.round((p.candidates || 0) / intradayMaxCand * 90)}%` }" @mouseenter="hoveredPoint = p" @mouseleave="hoveredPoint = null"></div>
+                </template>
+                <div style="position:absolute;top:4px;right:8px;font-size:10px;z-index:5"><span style="color:#409eff">● 候选</span> <span style="color:#67c23a;margin-left:6px">● 通过</span></div>
               </template>
               <template v-else>
-                <div class="sc-hover-date">{{ hoveredPoint.date }}</div>
-                <div class="sc-hover-score" :class="hoveredPoint.period === '高潮' ? 'hot' : hoveredPoint.period === '冰点' ? 'cold' : ''">{{ hoveredPoint.score?.toFixed(1) }} {{ hoveredPoint.period }}</div>
-                <div class="sc-hover-detail">涨停{{ hoveredPoint.limit_up || 0 }} 跌停{{ hoveredPoint.limit_down || 0 }} 连板{{ hoveredPoint.max_continue || 0 }}</div>
-                <div v-if="hoveredPoint.missing_data" class="sc-hover-warn">⚠ 数据不完整</div>
+                <svg class="sc-svg" :viewBox="`0 0 ${Math.max(displayTimeline.filter(p => p.score != null).length - 1, 1) * 20} 100`" preserveAspectRatio="none">
+                  <polyline :points="displayTimeline.filter(p => p.score != null).map((p, i) => `${i * 20},${100 - (p.score || 0)}`).join(' ')" fill="none" stroke="var(--el-color-primary)" stroke-width="1.5" />
+                </svg>
+                <template v-for="(p, i) in displayTimeline" :key="i">
+                  <div v-if="p.score != null" class="sc-dot" :style="{ left: `${i / Math.max(displayTimeline.length - 1, 1) * 100}%`, bottom: `${(p.score || 0)}%` }" :class="p.period === '高潮' ? 'hot' : p.period === '冰点' ? 'cold' : p.missing_data ? 'missing' : ''" @mouseenter="hoveredPoint = p" @mouseleave="hoveredPoint = null"></div>
+                </template>
+              </template>
+              <div v-if="hoveredPoint" class="sc-hover-card" :style="{ left: `${Math.min(displayTimeline.findIndex(p => p === hoveredPoint) / Math.max(displayTimeline.length - 1, 1) * 100, 75)}%`, bottom: `${Math.min((hoveredPoint.score || 30) + 8, 85)}%` }">
+                <template v-if="sentimentMode === 'intraday' && !isIntradayFallback">
+                  <div class="sc-hover-date">{{ hoveredPoint.time?.substring(11, 16) }}</div>
+                  <div class="sc-hover-detail" style="font-size:13px">候选 <strong style="color:#409eff">{{ hoveredPoint.candidates }}</strong> 通过 <strong style="color:#67c23a">{{ hoveredPoint.passed }}</strong></div>
+                </template>
+                <template v-else>
+                  <div class="sc-hover-date">{{ hoveredPoint.date }}</div>
+                  <div class="sc-hover-score" :class="hoveredPoint.period === '高潮' ? 'hot' : hoveredPoint.period === '冰点' ? 'cold' : ''">{{ hoveredPoint.score?.toFixed(1) }} {{ hoveredPoint.period }}</div>
+                  <div class="sc-hover-detail">涨停{{ hoveredPoint.limit_up || 0 }} 跌停{{ hoveredPoint.limit_down || 0 }} 连板{{ hoveredPoint.max_continue || 0 }}</div>
+                  <div v-if="hoveredPoint.missing_data" class="sc-hover-warn">⚠ 数据不完整</div>
+                </template>
+              </div>
+              <template v-for="(t, i) in sentimentTrades" :key="'t'+i">
+                <div v-if="sentimentMode === 'intraday'" class="sc-trade-marker" :class="t.side" :style="{ left: `${displayTimeline.length ? displayTimeline.findIndex(p => p.time >= t.time) / Math.max(displayTimeline.length - 1, 1) * 100 : 50}%`, bottom: '2%' }">{{ t.side === 'buy' ? '▲' : '▼' }}</div>
+                <div v-else class="sc-trade-marker" :class="t.side" :style="{ left: `${displayTimeline.findIndex(p => p.date >= t.date) / Math.max(displayTimeline.length - 1, 1) * 100}%`, bottom: '2%' }">{{ t.side === 'buy' ? '▲' : '▼' }}</div>
               </template>
             </div>
-            <!-- 买卖标记 -->
-            <template v-for="(t, i) in sentimentTrades" :key="'t'+i">
-              <div v-if="sentimentMode === 'intraday'" class="sc-trade-marker" :class="t.side" :style="{ left: `${displayTimeline.length ? displayTimeline.findIndex(p => p.time >= t.time) / Math.max(displayTimeline.length - 1, 1) * 100 : 50}%`, bottom: '2%' }" :title="`${t.side === 'buy' ? '买入' : '卖出'} ${t.ts_code} ${t.strategy}`">
-                {{ t.side === 'buy' ? '▲' : '▼' }}
-              </div>
-              <div v-else class="sc-trade-marker" :class="t.side" :style="{ left: `${displayTimeline.findIndex(p => p.date >= t.date) / Math.max(displayTimeline.length - 1, 1) * 100}%`, bottom: '2%' }">
-                {{ t.side === 'buy' ? '▲' : '▼' }}
-              </div>
-            </template>
           </div>
-          </div>
-          <!-- X轴(采样+可读格式) -->
-          <div class="sc-x-labels">
-            <span v-for="(lbl, i) in xAxisLabels" :key="i">{{ lbl }}</span>
-          </div>
+          <div class="sc-x-labels"><span v-for="(lbl, i) in xAxisLabels" :key="i">{{ lbl }}</span></div>
         </div>
 
-        <!-- 2. 实时状态 + 市场全景 -->
-        <div class="sentiment-2col" style="margin-top:12px">
-          <!-- 实时情绪 -->
+        <!-- ============ 区块2: 情绪全貌(当前状态+市场全景+得分拆解) ============ -->
+        <div class="sentiment-3col" style="margin-top:12px">
+          <!-- 当前状态 -->
           <div class="sentiment-panel">
             <div class="st">🔄 当前状态</div>
             <div v-if="sentimentLive" class="sl-content">
@@ -1932,8 +1943,9 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
               <div class="sl-row"><span>情绪分</span><span class="sl-val" :style="{ color: sentimentLive.score >= 70 ? '#f56c6c' : sentimentLive.score >= 55 ? '#409eff' : sentimentLive.score >= 40 ? '#e6a23c' : '#67c23a' }">{{ sentimentLive.score?.toFixed(0) }}</span></div>
               <div class="sl-row"><span>周期</span><span class="sl-val">{{ sentimentLive.period_label }}</span></div>
               <div class="sl-row"><span>仓位系数</span><span class="sl-val">{{ (sentimentLive.position_ratio * 100).toFixed(0) }}%</span></div>
+              <div class="sl-row"><span>允许开仓</span><span class="sl-val" :style="{ color: sentimentLive.position_ratio > 0 ? '#67c23a' : '#f56c6c' }">{{ sentimentLive.position_ratio > 0 ? '✅ 是' : '❌ 否' }}</span></div>
             </div>
-            <div v-else class="empty" style="padding:8px 0">Scanner未运行</div>
+            <div v-else class="empty" style="padding:8px 0">无数据</div>
           </div>
           <!-- 市场全景 -->
           <div class="sentiment-panel">
@@ -1946,26 +1958,73 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
               <div v-if="sentimentLive.board_distribution && Object.keys(sentimentLive.board_distribution).length" class="sl-board">
                 <span style="color:var(--text-tertiary);font-size:11px">连板分布</span>
                 <div v-for="(cnt, times) in sentimentLive.board_distribution" :key="times" class="sl-board-item">
-                  <span class="sl-board-n">{{ times }}板</span>
-                  <span class="sl-board-c">{{ cnt }}</span>
+                  <span class="sl-board-n">{{ times }}板</span><span class="sl-board-c">{{ cnt }}</span>
                 </div>
               </div>
             </div>
-            <div v-else class="empty" style="padding:8px 0">Scanner未运行</div>
+            <div v-else class="empty" style="padding:8px 0">无数据</div>
+          </div>
+          <!-- 得分拆解 -->
+          <div class="sentiment-panel">
+            <div class="st">🧮 得分拆解</div>
+            <div v-if="sentimentLive" class="sl-content">
+              <div class="sl-row"><span>涨停贡献</span><span class="sl-val">{{ Math.min(30, sentimentLive.limit_up_count) }}/30</span></div>
+              <div class="sl-row"><span>跌停扣分</span><span class="sl-val">{{ Math.max(0, 20 - sentimentLive.limit_down_count * 2) }}/20</span></div>
+              <div class="sl-row"><span>连板高度</span><span class="sl-val">—/20</span></div>
+              <div class="sl-row"><span>涨跌比</span><span class="sl-val">—/15</span></div>
+              <div class="sl-row"><span>涨停溢价</span><span class="sl-val">—/15</span></div>
+              <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border-default)">
+                <div style="font-size:10px;color:var(--text-quaternary);line-height:1.4">
+                  满分100 = 涨停30 + 跌停20 + 连板20 + 涨跌比15 + 溢价15<br>
+                  ≥70高潮 | 55-70分化 | 40-55震荡 | &lt;40冰点
+                </div>
+              </div>
+            </div>
+            <div v-else class="empty" style="padding:8px 0">无数据</div>
           </div>
         </div>
 
-        <!-- 3. 策略×情绪矩阵 -->
+        <!-- ============ 区块3: 情绪阶段说明与建议 ============ -->
+        <div class="st" style="margin-top:12px">📖 阶段说明与建议</div>
+        <div class="phase-guide">
+          <div v-for="p in phaseGuide" :key="p.name" class="phase-card" :class="p.active ? 'active' : ''" :style="{ borderColor: p.color }">
+            <div class="phase-header" :style="{ background: p.color + '18' }">
+              <span class="phase-icon">{{ p.icon }}</span>
+              <span class="phase-name" :style="{ color: p.color }">{{ p.name }}</span>
+              <span class="phase-range">{{ p.range }}</span>
+            </div>
+            <div class="phase-body">
+              <div class="phase-row"><span class="phase-label">仓位</span><span class="phase-val">{{ p.position }}</span></div>
+              <div class="phase-row"><span class="phase-label">开仓</span><span class="phase-val">{{ p.canOpen }}</span></div>
+              <div class="phase-row"><span class="phase-label">策略</span><span class="phase-val">{{ p.strategy }}</span></div>
+              <div class="phase-row"><span class="phase-label">建议</span><span class="phase-val">{{ p.advice }}</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============ 区块4: 情绪降级调仓规则 ============ -->
+        <div class="st" style="margin-top:12px">⚠️ 情绪降级调仓规则</div>
+        <div class="downgrade-rules">
+          <div v-for="r in downgradeRules" :key="r.from+r.to" class="dg-rule">
+            <span class="dg-from" :style="{ color: phaseColors[r.from] }">{{ r.from }}</span>
+            <span class="dg-arrow">→</span>
+            <span class="dg-to" :style="{ color: phaseColors[r.to] }">{{ r.to }}</span>
+            <span class="dg-action">{{ r.action }}</span>
+            <span class="dg-desc">{{ r.desc }}</span>
+          </div>
+        </div>
+
+        <!-- ============ 区块5: 策略×情绪效果矩阵 ============ -->
         <div class="st" style="margin-top:12px">📋 策略×情绪 效果矩阵</div>
         <div v-if="sentimentMatrix && Object.keys(sentimentMatrix).length" class="matrix-table-wrap">
           <table class="matrix-table">
             <thead>
-              <tr><th>策略</th><th>冰点</th><th>震荡</th><th>分化</th><th>高潮</th><th>数据缺失</th><th>合计</th></tr>
+              <tr><th>策略</th><th>冰点</th><th>震荡</th><th>分化</th><th>高潮</th><th>合计</th></tr>
             </thead>
             <tbody>
               <tr v-for="(periods, strat) in sentimentMatrix" :key="strat">
                 <td class="mt-strat">{{ strategyCN(strat) }}</td>
-                <td v-for="col in ['冰点','震荡','分化','高潮','数据缺失']" :key="col" class="mt-cell">
+                <td v-for="col in ['冰点','震荡','分化','高潮']" :key="col" class="mt-cell">
                   <template v-if="periods[col]">
                     <div class="mt-count" :class="periods[col].total_pnl >= 0 ? 'up' : 'down'">{{ periods[col].count }}笔</div>
                     <div class="mt-wr" :class="periods[col].win_rate >= 50 ? 'up' : 'down'">WR {{ periods[col].win_rate }}%</div>
@@ -1980,13 +2039,55 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         </div>
         <div v-else class="empty" style="padding:8px 0">暂无策略×情绪数据</div>
 
-        <!-- 4. 推荐结论 -->
-        <div v-if="sentimentRecommendations.length" class="st" style="margin-top:12px">💡 策略推荐</div>
-        <div v-for="r in sentimentRecommendations" :key="r.strategy" class="rec-card">
-          <span class="rec-strat">{{ strategyCN(r.strategy) }}</span>
-          <span>在 <strong :style="{ color: r.best_period === '高潮' ? '#f56c6c' : r.best_period === '分化' ? '#409eff' : r.best_period === '震荡' ? '#e6a23c' : '#67c23a' }">{{ r.best_period }}</strong> 期表现最佳</span>
-          <span class="rec-stat">{{ r.count }}笔 WR{{ r.win_rate }}%</span>
-          <span class="rec-pnl" :class="r.pnl >= 0 ? 'up' : 'down'">¥{{ r.pnl }}</span>
+        <!-- ============ 区块6: 推荐与警告 ============ -->
+        <div class="st" style="margin-top:12px">💡 推荐与警告</div>
+        <div v-if="sentimentLive" class="rec-warn-section">
+          <!-- 基于当前情绪的推荐 -->
+          <div class="rw-card rw-rec">
+            <div class="rw-title">📌 当前建议</div>
+            <div class="rw-content">{{ sentimentAdvice }}</div>
+          </div>
+          <!-- 基于策略矩阵的推荐 -->
+          <div v-for="r in sentimentRecommendations" :key="r.strategy" class="rw-card rw-strat">
+            <div class="rw-title">🏆 {{ strategyCN(r.strategy) }}</div>
+            <div class="rw-content">在 <strong :style="{ color: phaseColors[r.best_period] || 'var(--text-primary)' }">{{ r.best_period }}</strong> 期表现最佳，{{ r.count }}笔 WR{{ r.win_rate }}%</div>
+          </div>
+          <!-- 风险警告 -->
+          <div v-if="sentimentLive.score < 40" class="rw-card rw-warn">
+            <div class="rw-title">⚠️ 风险警告</div>
+            <div class="rw-content">当前情绪冰点，市场极度弱势。建议空仓观望，禁止新开仓。持仓应严格执行止损，亏损标的优先平仓。</div>
+          </div>
+          <div v-else-if="sentimentLive.score < 55" class="rw-card rw-caution">
+            <div class="rw-title">⚡ 震荡提醒</div>
+            <div class="rw-content">市场情绪震荡，涨跌分化明显。建议轻仓操作，仅做龙头股低吸，避免追高。严格止损3%。</div>
+          </div>
+        </div>
+        <div v-else class="empty" style="padding:8px 0">选择日期后查看推荐</div>
+
+        <!-- ============ 区块7: 算法说明 ============ -->
+        <div class="st" style="margin-top:12px">🔬 算法与数据源</div>
+        <div class="algo-info">
+          <div class="algo-section">
+            <div class="algo-title">📐 情绪得分算法</div>
+            <div class="algo-body">
+              综合得分满分100，由5个维度加权计算：<br>
+              <strong>涨停数量(0-30分)</strong>：每只涨停+1分，50只以上满分。涨停越多市场越强。<br>
+              <strong>跌停数量(0-20分)</strong>：0跌停满分20，每只跌停-2分。跌停反映恐慌程度。<br>
+              <strong>最高连板(0-20分)</strong>：每层连板+2分，10板以上满分。连板高度代表赚钱效应。<br>
+              <strong>涨跌家数比(0-15分)</strong>：上涨占比×15。反映市场广度。<br>
+              <strong>昨日涨停溢价(0-15分)</strong>：昨日涨停股今日平均涨幅每1%+1分。反映打板盈亏。
+            </div>
+          </div>
+          <div class="algo-section">
+            <div class="algo-title">📊 数据来源</div>
+            <div class="algo-body">
+              <strong>实时数据</strong>：Scanner内存缓存(limit_pools/realtime_cache)，盘中最快5秒更新。<br>
+              <strong>历史数据</strong>：MongoDB sentiment_scores集合(预计算缓存，494天)。<br>
+              <strong>涨跌停</strong>：limit_list集合(Scanner收盘自动同步) 或 daily_basic(pct_chg推算)。<br>
+              <strong>交易数据</strong>：broker_orders集合(含profit_pct真实盈亏)。<br>
+              <strong style="color:var(--el-color-warning)">数据断档</strong>：5/12-5/30部分数据缺失(东财API网络不通)，标记为⚠。
+            </div>
+          </div>
         </div>
 
       </div>
@@ -3003,4 +3104,36 @@ mm-tab-content {
 /* 扫描记录: 调试标记 */
 .scan-chip.debug { border-style: dashed; opacity: 0.85; }
 .sc-debug-tag { font-size: 9px; padding: 1px 4px; border-radius: 3px; background: rgba(230,162,60,0.15); color: #e6a23c; font-weight: 600; }
+/* 情绪Tab - 新增样式 */
+.sentiment-3col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+.phase-guide { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.phase-card { border: 1px solid var(--border-default); border-radius: 8px; overflow: hidden; transition: all 0.2s; opacity: 0.65; }
+.phase-card.active { opacity: 1; box-shadow: 0 0 0 2px var(--el-color-primary); transform: translateY(-1px); }
+.phase-header { display: flex; align-items: center; gap: 4px; padding: 6px 8px; font-size: 12px; }
+.phase-icon { font-size: 16px; }
+.phase-name { font-weight: 700; font-size: 13px; }
+.phase-range { margin-left: auto; color: var(--text-tertiary); font-size: 10px; }
+.phase-body { padding: 6px 8px; }
+.phase-row { display: flex; justify-content: space-between; font-size: 11px; padding: 2px 0; }
+.phase-label { color: var(--text-tertiary); }
+.phase-val { color: var(--text-primary); font-weight: 500; }
+.downgrade-rules { display: flex; flex-direction: column; gap: 4px; }
+.dg-rule { display: flex; align-items: center; gap: 6px; padding: 4px 10px; font-size: 11px; background: var(--bg-elevated); border-radius: 4px; border: 1px solid var(--border-default); }
+.dg-from, .dg-to { font-weight: 700; min-width: 28px; }
+.dg-arrow { color: var(--text-quaternary); }
+.dg-action { color: var(--el-color-warning); font-weight: 600; min-width: 60px; }
+.dg-desc { color: var(--text-tertiary); }
+.rec-warn-section { display: flex; flex-direction: column; gap: 8px; }
+.rw-card { padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border-default); }
+.rw-card.rw-rec { background: rgba(64,158,255,0.06); border-color: rgba(64,158,255,0.2); }
+.rw-card.rw-strat { background: rgba(103,194,58,0.06); border-color: rgba(103,194,58,0.2); }
+.rw-card.rw-warn { background: rgba(245,108,108,0.06); border-color: rgba(245,108,108,0.2); }
+.rw-card.rw-caution { background: rgba(230,162,60,0.06); border-color: rgba(230,162,60,0.2); }
+.rw-title { font-weight: 700; font-size: 13px; margin-bottom: 4px; }
+.rw-content { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
+.algo-info { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.algo-section { border: 1px solid var(--border-default); border-radius: 8px; overflow: hidden; }
+.algo-title { font-weight: 700; font-size: 12px; padding: 6px 10px; background: var(--bg-elevated); border-bottom: 1px solid var(--border-default); }
+.algo-body { padding: 8px 10px; font-size: 11px; color: var(--text-secondary); line-height: 1.6; }
+
 </style>
