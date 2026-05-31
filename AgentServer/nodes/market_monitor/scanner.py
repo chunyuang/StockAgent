@@ -948,6 +948,11 @@ class MarketScanner:
             await self._save_timeline()
         except Exception as _e:
             logger.warning(f"[SCANNER] 盘后Timeline保存失败: {_e}")
+        # 【v2.9.39:收盘后更新情绪预计算】
+        try:
+            await self._update_sentiment_score(trade_date)
+        except Exception as _e:
+            logger.debug(f"[SCANNER] 盘后情绪预计算失败: {_e}")
 
     async def _scan_loop_replay(self):
         """回放模式循环: 不受交易时间限制, 持续扫描【v2.9.19提取】"""
@@ -956,6 +961,64 @@ class MarketScanner:
             trade_date = self._replay_date or datetime.now().strftime("%Y%m%d")
             await self.scan_once(trade_date, force=True)
             await asyncio.sleep(self.SCAN_INTERVAL)
+
+    async def _update_sentiment_score(self, trade_date: str):
+        """收盘后更新当日情绪预计算(写入sentiment_scores集合)"""
+        from core.managers import mongo_manager
+        if not mongo_manager.is_initialized:
+            return
+        db = mongo_manager.db
+        td_int = int(trade_date)
+        
+        # 从scanner实时状态获取涨跌停
+        limit_pools = getattr(self, '_limit_pools', {})
+        lu = len(limit_pools.get("limit_up", []))
+        ld = len(limit_pools.get("limit_down", []))
+        max_lb = 1
+        if limit_pools.get("limit_up"):
+            max_lb = max((item.get("limit_times", 1) for item in limit_pools["limit_up"]), default=1)
+        
+        # 没有实时数据则从limit_list/daily_basic查
+        data_source = "scanner_realtime"
+        if lu == 0 and ld == 0:
+            lu = await db["limit_list"].count_documents({"trade_date": td_int, "limit": "U"})
+            ld = await db["limit_list"].count_documents({"trade_date": td_int, "limit": "D"})
+            max_lb_doc = await db["limit_list"].find_one({"trade_date": td_int, "limit": "U"}, sort=[("limit_times", -1)], projection={"limit_times": 1})
+            max_lb = max_lb_doc.get("limit_times", 1) if max_lb_doc else 1
+            data_source = "limit_list"
+        if lu == 0 and ld == 0:
+            lu = await db["daily_basic"].count_documents({"trade_date": td_int, "pct_chg": {"$gte": 9.8}})
+            ld = await db["daily_basic"].count_documents({"trade_date": td_int, "pct_chg": {"$lte": -9.8}})
+            max_lb = 1
+            data_source = "daily_basic"
+        
+        missing_data = (lu == 0 and ld == 0)
+        
+        # 涨跌家数
+        up_count = await db["daily_basic"].count_documents({"trade_date": td_int, "pct_chg": {"$gt": 0}})
+        down_count = await db["daily_basic"].count_documents({"trade_date": td_int, "pct_chg": {"$lt": 0}})
+        up_down_ratio = up_count / max(up_count + down_count, 1)
+        
+        # 情绪公式
+        score = min(100, max(0, min(30,lu) + max(0,20-ld*2) + min(20,max_lb*2) + int(up_down_ratio*15)))
+        if score >= 70: period = "高潮"
+        elif score >= 55: period = "分化"
+        elif score >= 40: period = "震荡"
+        else: period = "冰点"
+        
+        await db["sentiment_scores"].update_one(
+            {"trade_date": td_int},
+            {"$set": {
+                "trade_date": td_int, "score": score, "period": period,
+                "position_ratio": {"高潮": 1.0, "分化": 0.7, "震荡": 0.5, "冰点": 0.3}.get(period, 0.3),
+                "limit_up": lu, "limit_down": ld, "max_continue": max_lb,
+                "up_count": up_count, "down_count": down_count,
+                "up_down_ratio": round(up_down_ratio, 3), "zt_premium": 0,
+                "data_source": data_source, "missing_data": missing_data,
+                "updated_at": datetime.now().isoformat(),
+            }},
+            upsert=True
+        )
 
     # ==================== Phase1.2: 风控独立线程 ====================
 
