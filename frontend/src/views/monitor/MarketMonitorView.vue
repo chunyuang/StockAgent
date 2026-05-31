@@ -303,10 +303,11 @@ const sentimentCache = reactive<Record<string, any[]>>({})
 const sentimentTradesCache = reactive<Record<string, any[]>>({})
 const sentimentTimeline = computed(() => sentimentCache[sentimentMode.value] || [])
 const sentimentTrades = computed(() => sentimentTradesCache[sentimentMode.value] || [])
-// displayTimeline: 日线模式API已返回日期范围附近120天,直接用
+// displayTimeline: 直接用当前模式数据
 // 日内无数据时回退显示日线
 const displayTimeline = computed(() => {
   const data = sentimentTimeline.value
+  // 日内模式: 有数据(即使score=null)直接用, 无数据才fallback日线
   if (sentimentMode.value === 'intraday' && !data.length) {
     const dailyData = sentimentCache['daily'] || []
     return dailyData.slice(-60)
@@ -314,6 +315,13 @@ const displayTimeline = computed(() => {
   return data
 })
 const isIntradayFallback = computed(() => sentimentMode.value === 'intraday' && !sentimentTimeline.value.length && (sentimentCache['daily'] || []).length > 0)
+// 日内模式candidates最大值(用于归一化Y轴)
+const intradayMaxCand = computed(() => {
+  if (sentimentMode.value !== 'intraday') return 0
+  const data = displayTimeline.value
+  if (!data.length) return 0
+  return Math.max(...data.map(p => p.candidates || 0), 1)
+})
 // X轴标签: 采样+可读格式
 const xAxisLabels = computed(() => {
   const data = displayTimeline.value
@@ -1843,26 +1851,54 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           </div>
           <!-- 图表主体 -->
           <div class="sc-chart-body">
-            <!-- 背景色带: 高潮≥70(30%) / 分化55-70(15%) / 震荡40-55(15%) / 冰点<40(40%) -->
-            <div class="sc-band" style="height:30%;background:rgba(245,108,108,0.08)" title="高潮 ≥70"></div>
-            <div class="sc-band" style="height:15%;background:rgba(64,158,255,0.08)" title="分化 55-70"></div>
-            <div class="sc-band" style="height:15%;background:rgba(230,162,60,0.08)" title="震荡 40-55"></div>
-            <div class="sc-band" style="height:40%;background:rgba(103,194,58,0.08)" title="冰点 <40"></div>
-            <!-- 数据点连线 SVG -->
-            <svg class="sc-svg" :viewBox="`0 0 ${Math.max(displayTimeline.filter(p => p.score != null).length - 1, 1) * 20} 100`" preserveAspectRatio="none">
-              <polyline :points="displayTimeline.filter(p => p.score != null).map((p, i) => `${i * 20},${100 - (p.score || 0)}`).join(' ')" fill="none" stroke="var(--el-color-primary)" stroke-width="1.5" />
-            </svg>
-            <!-- 数据点 -->
-            <template v-for="(p, i) in displayTimeline" :key="i">
-              <div v-if="p.score != null" class="sc-dot" :style="{ left: `${i / Math.max(displayTimeline.length - 1, 1) * 100}%`, bottom: `${(p.score || 0)}%` }" :class="p.period === '高潮' ? 'hot' : p.period === '冰点' ? 'cold' : p.missing_data ? 'missing' : ''" @mouseenter="hoveredPoint = p" @mouseleave="hoveredPoint = null">
+            <!-- 背景色带(非日内) -->
+            <template v-if="sentimentMode !== 'intraday' || isIntradayFallback">
+              <div class="sc-band" style="height:30%;background:rgba(245,108,108,0.08)" title="高潮 ≥70"></div>
+              <div class="sc-band" style="height:15%;background:rgba(64,158,255,0.08)" title="分化 55-70"></div>
+              <div class="sc-band" style="height:15%;background:rgba(230,162,60,0.08)" title="震荡 40-55"></div>
+              <div class="sc-band" style="height:40%;background:rgba(103,194,58,0.08)" title="冰点 <40"></div>
+            </template>
+            <!-- 日内模式: candidates/passed双线 -->
+            <template v-if="sentimentMode === 'intraday' && !isIntradayFallback && intradayMaxCand > 0">
+              <svg class="sc-svg" :viewBox="`0 0 ${Math.max(displayTimeline.length - 1, 1) * 20} 100`" preserveAspectRatio="none">
+                <!-- 候选数线(蓝) -->
+                <polyline :points="displayTimeline.map((p, i) => `${i * 20},${100 - Math.round((p.candidates || 0) / intradayMaxCand * 90)}`).join(' ')" fill="none" stroke="#409eff" stroke-width="1.5" />
+                <!-- 通过数线(绿) -->
+                <polyline :points="displayTimeline.map((p, i) => `${i * 20},${100 - Math.round((p.passed || 0) / intradayMaxCand * 90)}`).join(' ')" fill="none" stroke="#67c23a" stroke-width="1.5" />
+              </svg>
+              <!-- 日内数据点 -->
+              <template v-for="(p, i) in displayTimeline" :key="i">
+                <div class="sc-dot" :style="{ left: `${i / Math.max(displayTimeline.length - 1, 1) * 100}%`, bottom: `${Math.round((p.candidates || 0) / intradayMaxCand * 90)}%` }" @mouseenter="hoveredPoint = p" @mouseleave="hoveredPoint = null" :title="`${p.time?.substring(11,16)} 候选${p.candidates} 通过${p.passed}`">
+                </div>
+              </template>
+              <!-- 日内图例 -->
+              <div style="position:absolute;top:4px;right:8px;font-size:10px;z-index:5">
+                <span style="color:#409eff">● 候选</span> <span style="color:#67c23a;margin-left:6px">● 通过</span>
               </div>
             </template>
+            <!-- 日线/周线/月线模式: score线 -->
+            <template v-else>
+              <svg class="sc-svg" :viewBox="`0 0 ${Math.max(intradayFallback ? 0 : displayTimeline.filter(p => p.score != null).length - 1, 1) * 20} 100`" preserveAspectRatio="none">
+                <polyline :points="displayTimeline.filter(p => p.score != null).map((p, i) => `${i * 20},${100 - (p.score || 0)}`).join(' ')" fill="none" stroke="var(--el-color-primary)" stroke-width="1.5" />
+              </svg>
+              <template v-for="(p, i) in displayTimeline" :key="i">
+                <div v-if="p.score != null" class="sc-dot" :style="{ left: `${i / Math.max(displayTimeline.length - 1, 1) * 100}%`, bottom: `${(p.score || 0)}%` }" :class="p.period === '高潮' ? 'hot' : p.period === '冰点' ? 'cold' : p.missing_data ? 'missing' : ''" @mouseenter="hoveredPoint = p" @mouseleave="hoveredPoint = null">
+                </div>
+              </template>
+            </template>
             <!-- Hover详情 -->
-            <div v-if="hoveredPoint" class="sc-hover-card" :style="{ left: `${Math.min(displayTimeline.findIndex(p => p === hoveredPoint) / Math.max(displayTimeline.length - 1, 1) * 100, 75)}%`, bottom: `${Math.min((hoveredPoint.score || 0) + 8, 85)}%` }">
-              <div class="sc-hover-date">{{ hoveredPoint.date }}</div>
-              <div class="sc-hover-score" :class="hoveredPoint.period === '高潮' ? 'hot' : hoveredPoint.period === '冰点' ? 'cold' : ''">{{ hoveredPoint.score?.toFixed(1) }} {{ hoveredPoint.period }}</div>
-              <div class="sc-hover-detail">涨停{{ hoveredPoint.limit_up || 0 }} 跌停{{ hoveredPoint.limit_down || 0 }} 连板{{ hoveredPoint.max_continue || 0 }}</div>
-              <div v-if="hoveredPoint.missing_data" class="sc-hover-warn">⚠ 数据不完整</div>
+            <div v-if="hoveredPoint" class="sc-hover-card" :style="{ left: `${Math.min(displayTimeline.findIndex(p => p === hoveredPoint) / Math.max(displayTimeline.length - 1, 1) * 100, 75)}%`, bottom: `${Math.min((hoveredPoint.score || hoveredPoint.candidates ? 30 : 0) + 8, 85)}%` }">
+              <template v-if="sentimentMode === 'intraday' && !isIntradayFallback">
+                <div class="sc-hover-date">{{ hoveredPoint.time?.substring(11, 16) }}</div>
+                <div class="sc-hover-detail" style="font-size:13px">候选 <strong style="color:#409eff">{{ hoveredPoint.candidates }}</strong> 通过 <strong style="color:#67c23a">{{ hoveredPoint.passed }}</strong></div>
+                <div v-if="hoveredPoint.score" class="sc-hover-score">{{ hoveredPoint.score.toFixed(1) }} {{ hoveredPoint.period }}</div>
+              </template>
+              <template v-else>
+                <div class="sc-hover-date">{{ hoveredPoint.date }}</div>
+                <div class="sc-hover-score" :class="hoveredPoint.period === '高潮' ? 'hot' : hoveredPoint.period === '冰点' ? 'cold' : ''">{{ hoveredPoint.score?.toFixed(1) }} {{ hoveredPoint.period }}</div>
+                <div class="sc-hover-detail">涨停{{ hoveredPoint.limit_up || 0 }} 跌停{{ hoveredPoint.limit_down || 0 }} 连板{{ hoveredPoint.max_continue || 0 }}</div>
+                <div v-if="hoveredPoint.missing_data" class="sc-hover-warn">⚠ 数据不完整</div>
+              </template>
             </div>
             <!-- 买卖标记 -->
             <template v-for="(t, i) in sentimentTrades" :key="'t'+i">
