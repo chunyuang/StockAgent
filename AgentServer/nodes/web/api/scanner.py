@@ -908,7 +908,7 @@ async def get_sentiment_timeline(date: str = None, mode: str = "daily"):
     """情绪时间线 — 聚合历史情绪数据,返回时间序列
     
     Args:
-        date: YYYYMMDD, 不传则今天
+        date: YYYYMMDD, 用于日线模式限定范围(前后60天), 日内模式指定日期
         mode: intraday(日内) | daily(日线) | weekly(周线) | monthly(月线)
     """
     try:
@@ -923,61 +923,64 @@ async def get_sentiment_timeline(date: str = None, mode: str = "daily"):
         points = []
         trades = []
         
-        def _parse_l3(doc):
-            l3d = doc.get("layer_details", {}).get("L3_sentiment_data") or {}
-            l3_text = doc.get("layer_details", {}).get("L3_sentiment", "")
-            score = l3d.get("score", 0)
-            period = l3d.get("period", "")
-            position_ratio = l3d.get("position_ratio", 0)
-            if not score and l3_text:
-                m = re.search(r'情绪=([\\d.]+)分', l3_text)
-                if m: score = float(m.group(1))
-                m2 = re.search(r'仓位系数=([\\d.]+)', l3_text)
-                if m2: position_ratio = float(m2.group(1))
-                m3 = re.search(r'→(高潮|分化|震荡|冰点)', l3_text)
-                if m3: period = m3.group(1)
-            return score, period, position_ratio
-        
         if mode in ("daily", "weekly", "monthly"):
             from collections import OrderedDict
             daily_map = OrderedDict()
             
-            # 优先从预计算的sentiment_scores读取(高效,不再实时计算)
+            # 日线模式: 以date为中心取前后60天(共120天窗口)
+            # 周线/月线: 取全部数据
+            query = {}
+            if mode == "daily":
+                try:
+                    center = _dt.datetime.strptime(date, "%Y%m%d")
+                    start = (center - _dt.timedelta(days=120)).strftime("%Y%m%d")
+                    end = (center + _dt.timedelta(days=30)).strftime("%Y%m%d")
+                    query["trade_date"] = {"$gte": int(start), "$lte": int(end)}
+                except:
+                    pass
+            
+            # 读取sentiment_scores(包含missing_data,前端用虚线标注)
             async for doc in db["sentiment_scores"].find(
-                {"missing_data": {"$ne": True}},
-                {"trade_date": 1, "score": 1, "period": 1, "position_ratio": 1, "limit_up": 1, "limit_down": 1, "max_continue": 1, "up_down_ratio": 1, "zt_premium": 1, "data_source": 1}
+                query,
+                {"trade_date": 1, "score": 1, "period": 1, "position_ratio": 1, 
+                 "limit_up": 1, "limit_down": 1, "max_continue": 1, "up_down_ratio": 1, 
+                 "zt_premium": 1, "data_source": 1, "missing_data": 1}
             ).sort("trade_date", 1):
                 td = str(doc["trade_date"])
                 daily_map[td] = {
-                    "date": td, "score": doc["score"], "period": doc["period"],
-                    "position_ratio": doc["position_ratio"],
+                    "date": td, "score": doc.get("score", 0), "period": doc.get("period", ""),
+                    "position_ratio": doc.get("position_ratio", 0.3),
                     "limit_up": doc.get("limit_up", 0), "limit_down": doc.get("limit_down", 0),
-                    "max_continue": doc.get("max_continue", 1),
+                    "max_continue": doc.get("max_continue", 0),
                     "up_down_ratio": doc.get("up_down_ratio", 0),
                     "zt_premium": doc.get("zt_premium", 0),
                     "data_source": doc.get("data_source", ""),
+                    "missing_data": doc.get("missing_data", False),
                 }
             
             points = list(daily_map.values())
             
-            # 周/月聚合: 取该周期内所有日的均值
+            # 周/月聚合
             if mode in ("weekly", "monthly") and points:
                 from itertools import groupby
                 agg_points = []
                 def _period_key(p):
                     d = p["date"]
                     if mode == "weekly":
-                        # 按周分组(ISO周)
                         import datetime as _dt2
                         dt = _dt2.datetime.strptime(d, "%Y%m%d")
                         return dt.strftime("%Y-W%W")
                     else:
-                        return d[:6]  # YYYYMM
+                        return d[:6]
                 for key, group in groupby(points, key=_period_key):
                     grp = list(group)
-                    avg_score = sum(p["score"] for p in grp) / len(grp)
+                    valid = [p for p in grp if not p.get("missing_data")]
+                    if not valid:
+                        valid = grp  # 全是missing也保留
+                    avg_score = sum(p["score"] for p in valid) / len(valid)
                     total_lu = sum(p.get("limit_up", 0) for p in grp)
                     total_ld = sum(p.get("limit_down", 0) for p in grp)
+                    has_missing = any(p.get("missing_data") for p in grp)
                     if avg_score >= 70: period = "高潮"
                     elif avg_score >= 55: period = "分化"
                     elif avg_score >= 40: period = "震荡"
@@ -987,26 +990,51 @@ async def get_sentiment_timeline(date: str = None, mode: str = "daily"):
                         "position_ratio": {"高潮": 1.0, "分化": 0.7, "震荡": 0.5, "冰点": 0.3}.get(period, 0.3),
                         "limit_up": total_lu, "limit_down": total_ld,
                         "days": len(grp), "first_date": grp[0]["date"], "last_date": grp[-1]["date"],
+                        "missing_data": has_missing,
                     })
                 points = agg_points
+            
+            # trades: 只取时间范围内的sell记录
+            trade_query = {"status": "filled", "side": "sell"}
+            if mode == "daily" and query.get("trade_date"):
+                td_q = query["trade_date"]
+                trade_query["trade_date"] = td_q
             async for doc in db["broker_orders"].find(
-                {"status": "filled"},
-                {"trade_date": 1, "side": 1, "ts_code": 1, "strategy": 1, "filled_price": 1, "reason": 1}
+                trade_query,
+                {"trade_date": 1, "side": 1, "ts_code": 1, "strategy": 1, "filled_price": 1, "reason": 1, "profit_pct": 1}
             ).sort("trade_date", 1):
-                if doc.get("side") in ("buy", "sell"):
-                    trades.append({"date": doc.get("trade_date", ""), "side": doc["side"], "ts_code": doc.get("ts_code", ""), "strategy": doc.get("strategy", ""), "price": doc.get("filled_price", 0), "reason": doc.get("reason", "") if doc["side"] == "sell" else ""})
+                trades.append({
+                    "date": doc.get("trade_date", ""), "side": "sell", 
+                    "ts_code": doc.get("ts_code", ""), "strategy": doc.get("strategy", ""), 
+                    "price": doc.get("filled_price", 0), "reason": doc.get("reason", ""),
+                    "profit_pct": doc.get("profit_pct", 0),
+                })
         else:
+            # 日内模式
+            def _parse_l3(doc):
+                l3d = doc.get("layer_details", {}).get("L3_sentiment_data") or {}
+                l3_text = doc.get("layer_details", {}).get("L3_sentiment", "")
+                score = l3d.get("score", 0)
+                period = l3d.get("period", "")
+                position_ratio = l3d.get("position_ratio", 0)
+                if not score and l3_text:
+                    m = re.search(r'情绪=([\\d.]+)分', l3_text)
+                    if m: score = float(m.group(1))
+                    m2 = re.search(r'仓位系数=([\\d.]+)', l3_text)
+                    if m2: position_ratio = float(m2.group(1))
+                    m3 = re.search(r'→(高潮|分化|震荡|冰点)', l3_text)
+                    if m3: period = m3.group(1)
+                return score, period, position_ratio
+            
             async for doc in db["scan_traces"].find(
                 {"trade_date": date},
                 {"scan_time": 1, "layer_details": 1, "summary": 1, "is_debug": 1}
             ).sort("scan_time", 1):
                 score, period, position_ratio = _parse_l3(doc)
-                # 无L3数据时,显示null(不强行估算)
                 points.append({
                     "time": doc.get("scan_time", "")[:19],
                     "score": round(score, 1) if score else None,
-                    "period": period,
-                    "position_ratio": position_ratio,
+                    "period": period, "position_ratio": position_ratio,
                     "candidates": doc.get("summary", {}).get("total_candidates", 0),
                     "passed": doc.get("summary", {}).get("passed", 0),
                     "is_debug": doc.get("is_debug", False),
@@ -1023,7 +1051,6 @@ async def get_sentiment_timeline(date: str = None, mode: str = "daily"):
         return {"success": True, "data": {"points": [], "trades": []}, "message": str(e)}
 
 
-@router.get("/sentiment-strategy-matrix")
 async def get_sentiment_strategy_matrix():
     """策略×情绪 效果矩阵 — 按情绪阶段分组统计每个策略的交易表现"""
     try:
@@ -3373,7 +3400,7 @@ async def get_position_risk_matrix():
 
 
 @router.get("/market-sentiment")
-async def get_market_sentiment_detail():
+async def get_market_sentiment_detail(date: str = None):
     """市场情绪全景"""
     scanner = _get_scanner()
     try:
@@ -3388,10 +3415,11 @@ async def get_market_sentiment_detail():
             try:
                 from core.managers import mongo_manager
                 if mongo_manager.is_initialized:
-                    latest = await mongo_manager.db["sentiment_scores"].find_one(
-                        {"missing_data": {"$ne": True}},
-                        sort=[("trade_date", -1)]
-                    )
+                    # 优先读指定日期
+                    q = {"missing_data": {"$ne": True}}
+                    if date:
+                        q["trade_date"] = int(date)
+                    latest = await mongo_manager.db["sentiment_scores"].find_one(q, sort=[("trade_date", -1)])
                     if latest:
                         sentiment_score = latest.get("score", 50)
                         sentiment_period = latest.get("period", "unknown")
@@ -3413,15 +3441,15 @@ async def get_market_sentiment_detail():
             t = item.get("limit_times", 1)
             board_dist[str(t)] = board_dist.get(str(t), 0) + 1
         
-        # 涨跌停=0时从sentiment_scores补
+        # 涨跌停=0时从sentiment_scores补(优先指定日期)
         if limit_up == 0 and limit_down == 0:
             try:
                 from core.managers import mongo_manager
                 if mongo_manager.is_initialized:
-                    latest = await mongo_manager.db["sentiment_scores"].find_one(
-                        {"missing_data": {"$ne": True}},
-                        sort=[("trade_date", -1)]
-                    )
+                    q = {"missing_data": {"$ne": True}}
+                    if date:
+                        q["trade_date"] = int(date)
+                    latest = await mongo_manager.db["sentiment_scores"].find_one(q, sort=[("trade_date", -1)])
                     if latest:
                         limit_up = latest.get("limit_up", 0)
                         limit_down = latest.get("limit_down", 0)
