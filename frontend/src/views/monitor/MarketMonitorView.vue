@@ -295,7 +295,7 @@ const executionQuality = ref<any>(null)
 const liveBacktestDiff = ref<any[]>([])
 
 // ==================== 情绪Tab ====================
-const sentimentMode = ref<'intraday' | 'daily'>('daily')
+const sentimentMode = ref<'intraday' | 'daily' | 'weekly' | 'monthly'>('daily')
 const sentimentDate = ref(new Date().toISOString().slice(0, 10))
 const sentimentTimeline = ref<any[]>([])
 const sentimentTrades = ref<any[]>([])
@@ -1770,7 +1770,9 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <!-- 头部: 模式切换 + 日期 -->
         <div class="review-header">
           <button :class="['review-tab', sentimentMode === 'intraday' ? 'active' : '']" @click="sentimentMode = 'intraday'; fetchSentimentData()">📈 日内</button>
-          <button :class="['review-tab', sentimentMode === 'daily' ? 'active' : '']" @click="sentimentMode = 'daily'; fetchSentimentData()">📊 跨日</button>
+          <button :class="['review-tab', sentimentMode === 'daily' ? 'active' : '']" @click="sentimentMode = 'daily'; fetchSentimentData()">📊 日线</button>
+          <button :class="['review-tab', sentimentMode === 'weekly' ? 'active' : '']" @click="sentimentMode = 'weekly'; fetchSentimentData()">📅 周线</button>
+          <button :class="['review-tab', sentimentMode === 'monthly' ? 'active' : '']" @click="sentimentMode = 'monthly'; fetchSentimentData()">📆 月线</button>
           <ElDatePicker v-model="sentimentDate" type="date" size="small" value-format="YYYY-MM-DD" @change="fetchSentimentData" :teleported="false" />
           <ElButton size="small" @click="fetchSentimentData" :loading="sentimentLoading">🔄</ElButton>
         </div>
@@ -1778,6 +1780,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <!-- 1. 情绪时间线 -->
         <div class="st">📈 情绪时间线</div>
         <div v-if="!sentimentTimeline.length" class="empty" style="padding:12px 0">暂无情绪数据（新扫描会产生数据点）</div>
+        <div v-else-if="sentimentTimeline.length < 3" class="empty" style="padding:12px 0">数据点不足({{sentimentTimeline.length}}个)，需积累更多交易日</div>
         <div v-else class="sentiment-chart">
           <!-- Y轴标签 -->
           <div class="sc-y-axis">
