@@ -853,3 +853,50 @@ class RuntimePersistence:
             if pct_ops:
                 result = await db["daily_basic"].bulk_write(pct_ops)
                 logger.info(f"[SCANNER] daily_basic pct_chg同步: {synced}只")
+
+    # ==================== 盘后结算 ====================
+
+    async def daily_settlement(self, trade_date: str):
+        """盘后结算处理(Broker结算+持久化+EventBus+Timeline+情绪预计算+数据同步)
+
+        从scanner._scan_loop_settlement提取【v2.9.39】
+        职责: Broker日终结算+状态持久化+EventBus事件+Timeline保存+收盘数据同步
+        """
+        # 1. Broker日终结算+状态持久化
+        if self.broker:
+            self.broker.daily_settlement(trade_date)
+        try:
+            await self.broker.save_state()
+        except Exception as _e:
+            logger.warning(f"[SCANNER] 盘后结算broker状态持久化失败: {_e}")
+        logger.info("[SCANNER] 收盘自动结算+持久化完成")
+
+        # 2. EventBus盘后结算事件(驱动绩效快照+飞书日报)
+        try:
+            account = self.broker.account if self.broker else None
+            from nodes.market_monitor.scanner_event_bus import ScannerEvents
+            await self._scanner._event_bus.emit(ScannerEvents.DAILY_SETTLED, {
+                "trade_date": trade_date,
+                "total_profit": getattr(account, 'today_profit', 0) if account else 0,
+                "total_assets": getattr(account, 'total_assets', 0) if account else 0,
+            })
+        except Exception as _e:
+            logger.debug(f"[SCANNER] 盘后结算事件发射失败: {_e}")
+
+        # 3. 保存Timeline到MongoDB
+        try:
+            await self._scanner._save_timeline()
+        except Exception as _e:
+            logger.warning(f"[SCANNER] 盘后Timeline保存失败: {_e}")
+
+        # 4. 收盘后更新情绪预计算
+        try:
+            await self._scanner._update_sentiment_score(trade_date)
+        except Exception as _e:
+            logger.debug(f"[SCANNER] 盘后情绪预计算失败: {_e}")
+
+        # 5. 收盘后同步内存数据到MongoDB
+        try:
+            await self._scanner._sync_close_data_to_mongo(trade_date)
+        except Exception as _e:
+            logger.debug(f"[SCANNER] 盘后数据同步失败: {_e}")

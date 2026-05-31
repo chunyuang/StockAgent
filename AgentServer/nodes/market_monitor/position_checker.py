@@ -451,7 +451,7 @@ class PositionChecker:
                 await db["sell_compare_diff"].create_index(
                     "time", name="ttl_30d_compare", expireAfterSeconds=30 * 86400
                 )
-            except Exception:
+            except Exception as _e:
                 pass  # 索引已存在
             
             logger.info(f"[COMPARE] 差异已持久化: "
