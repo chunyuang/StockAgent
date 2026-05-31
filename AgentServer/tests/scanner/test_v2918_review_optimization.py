@@ -285,11 +285,12 @@ class TestStartMethodExtraction:
     """验证start()方法拆分为_detect_param_drift + _restore_start_state + _start_risk_thread"""
 
     def test_detect_param_drift_method_exists(self):
-        """_detect_param_drift方法存在且为async"""
+        """_detect_param_drift通过DELEGATE_MAP动态委托【v2.9.42更新】"""
         from nodes.market_monitor.scanner import MarketScanner
-        import inspect
-        assert hasattr(MarketScanner, '_detect_param_drift')
-        assert inspect.iscoroutinefunction(MarketScanner._detect_param_drift)
+        # 检查DELEGATE_MAP中有_detect_param_drift委托条目
+        delegate_map = MarketScanner._DELEGATE_MAP
+        assert "_detect_param_drift" in delegate_map
+        assert delegate_map["_detect_param_drift"] == ("_strategy_param_center_class", "detect_and_publish_drift")
 
     def test_restore_start_state_method_exists(self):
         """_restore_start_state方法存在且为async"""

@@ -458,6 +458,13 @@ class MarketScanner:
         # 【v2.9.35:卖出执行提取到PositionManager】
         "_execute_risk_sell": ("_position_manager", "execute_risk_sell"),
         "_liquidate_positions": ("_position_manager", "liquidate_positions"),
+        # 【v2.9.42:参数管理提取到StrategyParamCenter+RuntimePersistence】
+        "_save_param_snapshot": ("_runtime_persistence", "save_param_snapshot"),
+        "_detect_param_drift": ("_strategy_param_center_class", "detect_and_publish_drift"),
+        "_validate_live_params": ("_strategy_param_center_class", "validate_live_params"),
+        "update_strategy_config": ("_strategy_param_center_class", "apply_scanner_config_update"),
+        "_load_strategy_overrides": ("_strategy_param_center_class", "load_and_apply_scanner_overrides"),
+        "_persist_strategy_overrides": ("_strategy_param_center_class", "persist_scanner_overrides"),
     }
 
     def __getattr__(self, name):
@@ -597,35 +604,9 @@ class MarketScanner:
         
         return {"success": True, "message": "扫描器启动成功"}
 
-    async def _save_param_snapshot(self, trade_date: str):
-        """启动时保存参数快照(供月复盘参数漂移检测)【v2.9.37:从start()提取】"""
-        try:
-            from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK
-            from core.managers import mongo_manager as mm
-            if mm.is_initialized:
-                today = trade_date or datetime.now().strftime("%Y%m%d")
-                snapshot = {
-                    "date": today,
-                    "global_risk": {k: v for k, v in GLOBAL_RISK.items() if not k.startswith("__")},
-                    "strategies": {sid: {"enabled":cfg.get("enabled",True),"params":cfg.get("params",{}),"riskParams":cfg.get("riskParams",{})} for sid,cfg in STRATEGY_CONFIGS.items()},
-                }
-                await mm.db["param_snapshots"].update_one({"date":today},{"$set":snapshot},upsert=True)
-                logger.info(f"[SCANNER] 参数快照已保存({today})")
-        except Exception as e:
-            logger.warning(f"[SCANNER] 参数快照保存失败: {e}")
-
-    async def _detect_param_drift(self):
-        """启动时检测参数漂移【v2.9.18:从start()提取】"""
-        try:
-            from nodes.market_monitor.strategy_param_center import param_center
-            drifts = await param_center.detect_drift()
-            if drifts:
-                logger.warning(f"[PARAMS] 检测到{len(drifts)}个参数漂移: {drifts[:3]}")
-                await self._publish_scanner_event("status", {
-                    "type": "param_drift", "drifts": drifts[:5],
-                })
-        except Exception as e:
-            logger.debug(f"[PARAMS] 漂移检测失败(非关键): {e}")
+    # DELEGATE_MAP条目即委托文档, 不再逐一注释
+    # 【v2.9.42: _save_param_snapshot/_detect_param_drift/_validate_live_params/update_strategy_config
+    #   /_persist_strategy_overrides/_load_strategy_overrides 均已加入DELEGATE_MAP动态委托】
 
     async def _restore_start_state(self):
         """启动时恢复状态 — 委托给RuntimePersistence【v2.9.32提取】"""
@@ -1394,71 +1375,8 @@ class MarketScanner:
             return self._position_checker.is_limit_down(ts_code)
         return False  # 无PositionChecker时默认非跌停(保守策略)
 
-    def _validate_live_params(self):
-        """实盘参数校验 — 委托给StrategyParamCenter【v2.9.16:简化try/except, v2.9.34:日志增强】"""
-        try:
-            from nodes.market_monitor.strategy_param_center import StrategyParamCenter
-            StrategyParamCenter.validate_live_params(self._broker, self._get_strategy_risk)
-        except Exception as _e:
-            logger.debug(f"[SCANNER] 实盘参数校验失败(非关键): {_e}")
-
-    def update_strategy_config(self, strategy_key: str, updates: Dict[str, Any]):
-        """策略参数热更新(无需重启scanner) + 持久化到MongoDB — 委托给StrategyParamCenter【v2.9.16:简化, v2.9.17:审计增强】"""
-        # 【v2.9.17:记录变更前后的值,用于审计日志】
-        old_values = {}
-        try:
-            strategy_config = self.config.get("strategies", {}).get(strategy_key, {})
-            for k in updates:
-                if k in strategy_config:
-                    old_values[k] = strategy_config[k]
-        except Exception as _e:
-            logger.debug(f"[SCANNER] 策略参数旧值读取失败: {_e}")
-        # 【v2.9.25:修复bug — 更新逻辑不应在except块内,正常路径需执行; 补充本地import】
-        try:
-            from nodes.market_monitor.strategy_param_center import StrategyParamCenter
-            StrategyParamCenter.update_scanner_config(self.config, strategy_key, updates)
-            logger.info(f"[SCANNER] 策略参数热更新: {strategy_key}")
-        except Exception as _e:
-            logger.warning(f"[SCANNER] 策略参数热更新失败: {strategy_key}: {_e}")
-            return
-        # EventBus: 参数更新事件(含old_values审计) + 持久化(非阻塞)
-        # 【v2.9.31:修复RuntimeWarning — ensure_future泄露协程,改用loop.create_task替代ensure_future
-        # 确保只对已运行的loop调度,否则静默跳过】
-        try:
-            if self._loop and not self._loop.is_closed():
-                self._loop.create_task(self._event_bus.emit(ScannerEvents.PARAM_UPDATED, {
-                    "strategy_key": strategy_key, "updates": updates,
-                    "old_values": old_values,
-                }))
-        except Exception as _e:
-            logger.debug(f"[SCANNER] 参数更新事件发射失败: {_e}")
-        try:
-            from nodes.market_monitor.strategy_param_center import StrategyParamCenter
-            if self._loop and not self._loop.is_closed():
-                self._loop.create_task(StrategyParamCenter.persist_scanner_overrides(self.config))
-        except Exception as _e:
-            logger.debug(f"[SCANNER] 参数持久化失败: {_e}")
-
-    async def _persist_strategy_overrides(self):
-        """将strategy_overrides持久化到MongoDB — 委托给StrategyParamCenter"""
-        try:
-            from nodes.market_monitor.strategy_param_center import StrategyParamCenter
-            await StrategyParamCenter.persist_scanner_overrides(self.config)
-        except Exception as _e:
-            logger.debug(f"[SCANNER] 策略覆盖持久化失败: {_e}")
-
-    async def _load_strategy_overrides(self):
-        """从MongoDB恢复strategy_overrides — 委托给StrategyParamCenter"""
-        try:
-            from nodes.market_monitor.strategy_param_center import StrategyParamCenter
-            data = await StrategyParamCenter.load_scanner_overrides()
-            if data:
-                if "strategy_overrides" not in self.config:
-                    self.config["strategy_overrides"] = {}
-                self.config["strategy_overrides"].update(data)
-                logger.info(f"[SCANNER] 从MongoDB恢复策略参数: {len(data)}个策略")
-        except Exception as _e:
-            logger.debug(f"[SCANNER] 从MongoDB恢复策略参数失败: {_e}")
+    # 【v2.9.42: _validate_live_params/update_strategy_config/_persist_strategy_overrides
+    #   /_load_strategy_overrides 均已加入DELEGATE_MAP动态委托, 显式定义移除】
 
     # DELEGATE_MAP条目即委托文档, 不再逐一注释
 

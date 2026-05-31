@@ -22,6 +22,7 @@ _ASYNC_DELEGATE_METHODS = frozenset({
     "_load_runtime_snapshot", "_save_runtime_snapshot", "_premarket_auction",
     "_save_performance_snapshot", "_push_daily_summary",
     "_post_sell_cleanup",  # v2.9.27: async
+    "_save_param_snapshot",  # v2.9.42: async
     # SignalManager (partial async)
     "_update_signals", "_push_signals", "_execute_signals", "_write_audit_log",
     # PositionChecker (partial async)
@@ -38,6 +39,10 @@ _ASYNC_DELEGATE_METHODS = frozenset({
     # PositionManager (async sell execution)
     "_execute_risk_sell",  # v2.9.35
     "_liquidate_positions",  # v2.9.35
+    # StrategyParamCenter (async)
+    "_detect_param_drift",  # v2.9.42
+    "_load_strategy_overrides",  # v2.9.42
+    "_persist_strategy_overrides",  # v2.9.42
 })
 
 # StrategyScorer未初始化时的fallback返回值
@@ -71,6 +76,15 @@ _WATCHDOG_BINDINGS = {
 _EMOTION_BINDINGS = {
     "handle_emotion_phase_change": lambda method, scanner: lambda old_phase, new_phase: method(scanner, old_phase, new_phase),
     "update_sentiment_score": lambda method, scanner: lambda trade_date: method(scanner, trade_date),
+}
+
+# StrategyParamCenter静态方法绑定
+_PARAM_CENTER_BINDINGS = {
+    "validate_live_params": lambda method, scanner: lambda: method(scanner._broker, scanner._get_strategy_risk),
+    "detect_and_publish_drift": lambda method, scanner: lambda: method(scanner),
+    "apply_scanner_config_update": lambda method, scanner: lambda strategy_key, updates: method(scanner, strategy_key, updates),
+    "load_and_apply_scanner_overrides": lambda method, scanner: lambda: method(scanner),
+    "persist_scanner_overrides": lambda method, scanner: lambda: method(scanner.config),
 }
 
 
@@ -114,6 +128,15 @@ def resolve_delegate(scanner, name: str, delegate: tuple):
         from nodes.market_monitor.emotion_cycle import EmotionCycleManager
         method = getattr(EmotionCycleManager, method_name)
         binder = _EMOTION_BINDINGS.get(method_name)
+        if binder:
+            return binder(method, scanner)
+        return method
+
+    # 策略3.6: StrategyParamCenter(类静态方法, 绑定scanner上下文)【v2.9.42】
+    if module_attr == "_strategy_param_center_class":
+        from nodes.market_monitor.strategy_param_center import StrategyParamCenter
+        method = getattr(StrategyParamCenter, method_name)
+        binder = _PARAM_CENTER_BINDINGS.get(method_name)
         if binder:
             return binder(method, scanner)
         return method
