@@ -86,6 +86,23 @@ class ScanSignal:
     # 信号创建时间(用于过期判断)
     created_at: float = 0.0  # time.time()戳
 
+    def to_candidate(self) -> Dict[str, Any]:
+        """转换为filter_pipeline候选格式【v2.9.35】"""
+        return {
+            "ts_code": self.ts_code,
+            "stock_name": self.stock_name,
+            "strategy": self.strategy,
+            "strategy_name": self.strategy_name,
+            "price": self.price,
+            "pct_chg": self.pct_chg,
+            "volume_ratio": self.volume_ratio,
+            "turnover_rate": self.turnover_rate,
+            "is_limit_up": self.is_limit_up,
+            "limit_up_count": self.limit_up_count,
+            "reason": self.reason,
+            "confidence": self.confidence,
+        }
+
 
 @dataclass
 class PositionStatus:
@@ -1321,24 +1338,8 @@ class MarketScanner:
         return filtered_signals
 
     def _signals_to_candidates(self, signals: List[ScanSignal]) -> List[Dict]:
-        """将ScanSignal列表转换为filter_pipeline候选格式【v2.9提取】"""
-        candidates = []
-        for s in signals:
-            candidates.append({
-                "ts_code": s.ts_code,
-                "stock_name": s.stock_name,
-                "strategy": s.strategy,
-                "strategy_name": s.strategy_name,
-                "price": s.price,
-                "pct_chg": s.pct_chg,
-                "volume_ratio": s.volume_ratio,
-                "turnover_rate": s.turnover_rate,
-                "is_limit_up": s.is_limit_up,
-                "limit_up_count": s.limit_up_count,
-                "reason": s.reason,
-                "confidence": s.confidence,
-            })
-        return candidates
+        """将ScanSignal列表转换为filter_pipeline候选格式【v2.9.35:委托给ScanSignal.to_candidate】"""
+        return [s.to_candidate() for s in signals]
 
     async def _execute_force_empty(self, reason: str):
         """强制空仓: 卖出所有持仓【v2.9.20:复用_liquidate_positions, 修复total_qty→available_qty(T+1合规)】"""
