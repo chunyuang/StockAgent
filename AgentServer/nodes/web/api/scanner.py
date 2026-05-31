@@ -1051,6 +1051,7 @@ async def get_sentiment_timeline(date: str = None, mode: str = "daily"):
         return {"success": True, "data": {"points": [], "trades": []}, "message": str(e)}
 
 
+@router.get("/sentiment-strategy-matrix")
 async def get_sentiment_strategy_matrix():
     """策略×情绪 效果矩阵 — 按情绪阶段分组统计每个策略的交易表现"""
     try:
