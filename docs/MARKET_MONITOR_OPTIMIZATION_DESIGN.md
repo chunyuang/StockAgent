@@ -1,10 +1,10 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.42 | 日期: 2026-06-01 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.43 | 日期: 2026-06-01 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats✅ | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化✅ | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复✅ | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复✅ | v2.9.24 diagnose+情绪调仓提取+DelegateRouter策略扩展✅ | v2.9.25 update_strategy_config bug修复+bare except清理+_init_modules拆分✅ | v2.9.26 全模块bare except清理+position_checker._execute_sell_list提取3子方法✅ | v2.9.27 方法提取到子模块5个+测试适配✅ | v2.9.28 风控线程拆分+filter合并提取+scan_loop错误恢复✅ | v2.9.31 _safe_read_state统一+RuntimeWarning修复+get_positions提取✅ | v2.9.34 情绪得分+收盘同步提取→子模块✅ | v2.9.35 卖出执行提取到PositionManager✅ | v2.9.36 审查P0/P1修复+WS断线补发+前端错误提示 | v2.9.37 _save_param_snapshot提取+_init_state类属性瘦身+start()30行 | v2.9.38 _run_checker_on_positions提取+compare差异持久化+_post_sell_state_cleanup统一 | v2.9.39 _scan_loop_settlement提取→RuntimePersistence+_emit_risk_thread_error委托RiskWatchdog+MarketPhase.is_trading_active+position_checker except修复 | v2.9.42 参数管理6方法DELEGATE_MAP委托+StrategyParamCenter路由策略+scanner 1382行
-> 回测影响: 零文件修改, 1108测试全通过(scanner 880+backtest 228)
+> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats✅ | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化✅ | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复✅ | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复✅ | v2.9.24 diagnose+情绪调仓提取+DelegateRouter策略扩展✅ | v2.9.25 update_strategy_config bug修复+bare except清理+_init_modules拆分✅ | v2.9.26 全模块bare except清理+position_checker._execute_sell_list提取3子方法✅ | v2.9.27 方法提取到子模块5个+测试适配✅ | v2.9.28 风控线程拆分+filter合并提取+scan_loop错误恢复✅ | v2.9.31 _safe_read_state统一+RuntimeWarning修复+get_positions提取✅ | v2.9.34 情绪得分+收盘同步提取→子模块✅ | v2.9.35 卖出执行提取到PositionManager✅ | v2.9.36 审查P0/P1修复+WS断线补发+前端错误提示 | v2.9.37 _save_param_snapshot提取+_init_state类属性瘦身+start()30行 | v2.9.38 _run_checker_on_positions提取+compare差异持久化+_post_sell_state_cleanup统一 | v2.9.39 _scan_loop_settlement提取→RuntimePersistence+_emit_risk_thread_error委托RiskWatchdog+MarketPhase.is_trading_active+position_checker except修复 | v2.9.42 参数管理6方法DELEGATE_MAP委托+StrategyParamCenter路由策略+scanner 1382行 | v2.9.43 signal_manager方法提取7子方法(execute_signals 161→24行+update_signals 96→9行)+版本同步+1000测试全通过
+> 回测影响: 零文件修改, 1000测试全通过(scanner 972+backtest 28)
 
 ---
 
@@ -2882,3 +2882,95 @@ class MarketScanner:
 ### 36.6 回测影响
 
 零。所有变更仅影响position_checker.py内部重构, 回测引擎零文件修改。SellSignalChecker.check_realtime_sell API签名不变。
+
+## 三十七、v2.9.43 signal_manager方法提取7子方法 (2026-06-01)
+
+### 37.1 设计目标
+
+1. **🟡 execute_signals 161行→24行**: 信号执行逻辑拆分为4个子方法(dry_run/eligibility/single_buy/post_buy_success)
+2. **🟡 update_signals 96行→9行**: 信号更新逻辑拆分为3个子方法(expire/merge/process)
+3. **🟡 熔断检查同步化**: `_check_signal_eligibility`改为sync方法(直接读取circuit_breaker字典),避免每个信号都await
+
+### 37.2 execute_signals拆分
+
+**问题**: `execute_signals` 161行,包含dry_run处理(8行)+5种前置检查(40行)+PositionSizer(30行)+滑点+下单+善后(83行),职责混杂。
+
+**修复**: 提取4个方法:
+
+| 方法 | 职责 | 行数 | 类型 |
+|---|---|---|---|
+| `_handle_dry_run(signals)` | 调试模式:记录不执行 | 14行 | sync |
+| `_check_signal_eligibility(sig)→(eligible, reason)` | 5种前置检查(异动/持仓/熔断/最大持仓/价格) | 35行 | sync |
+| `_execute_single_buy(sig)` | PositionSizer+质量检查+滑点+下单+善后 | 60行 | async |
+| `_post_buy_success(sig, order, ...)` | 买入成功后timeline+统计+事件推送 | 45行 | async |
+
+**execute_signals主方法**: 24行,仅编排循环+eligibility判断+single_buy调用。
+
+**关键改进**:
+- `_check_signal_eligibility`改为sync: 直接读取`circuit_breaker`字典(主循环已持有锁),避免每个信号await `_check_circuit_breaker()`
+- 返回`(eligible, reason)`元组: reason区分全局阻挡(circuit_breaker/max_positions→break)和单票阻挡(anomaly/duplicate/invalid_price→continue)
+
+### 37.3 update_signals拆分
+
+**问题**: `update_signals` 96行,包含过期清理(20行)+增量合并(25行)+推送执行(51行),三个独立步骤混在一起。
+
+**修复**: 提取3个方法:
+
+| 方法 | 职责 | 行数 | 类型 |
+|---|---|---|---|
+| `_expire_old_signals()` | 过期信号清理+状态标记+事件推送 | 20行 | async |
+| `_merge_new_signals(new_signals)→List` | 增量合并(新增/更新已有),返回added列表 | 22行 | sync |
+| `_process_new_signals(added, scan_time)` | 推送+EventBus+执行+持久化 | 38行 | async |
+
+**update_signals主方法**: 9行,仅编排3个步骤。
+
+**设计决策**:
+- `_merge_new_signals`为sync(纯数据计算), 可被同步测试
+- `_expire_old_signals`为async(含事件推送)
+- `_process_new_signals`为async(含broker/EventBus)
+
+### 37.4 变更文件
+
+| 文件 | 变更 |
+|---|---|
+| nodes/market_monitor/signal_manager.py | 7个新方法; execute_signals 161→24行; update_signals 96→9行; 410→425行(+3.7%) |
+| nodes/web/api/scanner.py | _DESIGN_DOC_VERSION→v2.9.43 |
+| tests/scanner/test_v2943_signal_manager_extraction.py | 新增28测试 |
+| tests/scanner/test_v2916_risk_watchdog_thread_safety.py | 版本断言v2.9.41→v2.9.43 |
+| tests/scanner/test_v2933_extraction_optimization.py | 版本断言v2.9.41→v2.9.43 |
+| tests/scanner/test_v2937_init_state_class_attrs.py | 版本断言v2.9.41→v2.9.43 |
+| tests/scanner/test_v2938-v2942_*.py | 版本断言统一v2.9.43 |
+| docs/MARKET_MONITOR_OPTIMIZATION_DESIGN.md | v2.9.43记录 |
+
+### 37.5 方法行数改善
+
+| 方法 | v2.9.42 | v2.9.43 | 变化 |
+|---|---|---|---|
+| execute_signals | 161行 | 24行 | -85% |
+| update_signals | 96行 | 9行 | -91% |
+| **新增** | | | |
+| _handle_dry_run | - | 14行 | 调试模式处理 |
+| _check_signal_eligibility | - | 35行 | 前置检查(5种) |
+| _execute_single_buy | - | 60行 | 单票买入 |
+| _post_buy_success | - | 45行 | 买入善后 |
+| _expire_old_signals | - | 20行 | 过期清理 |
+| _merge_new_signals | - | 22行 | 增量合并(sync) |
+| _process_new_signals | - | 38行 | 推送+执行+持久化 |
+
+### 37.6 测试覆盖 (28新增)
+
+| 测试类 | 用例数 | 覆盖点 |
+|---|---|---|
+| TestSignalManagerMethodExtraction | 7 | 7个新方法存在性 |
+| TestSignalManagerUpdateSignalsSplit | 4 | 调用3子方法+行数<20 |
+| TestSignalManagerExecuteSignalsSplit | 6 | 行数<30/调用eligibility/调用single_buy/返回元组/无async检查/break条件 |
+| TestSignalManagerMergeNewSignals | 3 | merge为sync/expire为async/process为async |
+| TestSignalManagerLineCount | 1 | 行数<460 |
+| TestVersionSyncV2943 | 2 | API版本v2.9.43/DELEGATE_MAP条目 |
+| TestNoBacktestRegressionV2943 | 5 | 文件存在/不导入signal_manager/回测测试非空 |
+
+**全量测试**: 1000 passed (0 failed)
+
+### 37.7 回测影响
+
+零。所有变更仅影响signal_manager.py内部重构, 回测引擎零文件修改。SignalManager.execute_signals/update_signals API签名不变。

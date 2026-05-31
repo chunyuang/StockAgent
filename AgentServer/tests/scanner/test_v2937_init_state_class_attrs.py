@@ -1,5 +1,5 @@
 """
-v2.9.37 审查优化测试 — _save_param_snapshot提取 + _init_state类属性瘦身
+v2.9.43 审查优化测试 — _save_param_snapshot提取 + _init_state类属性瘦身
 
 变更项:
 1. start()中参数快照保存逻辑提取为_save_param_snapshot()
@@ -194,4 +194,4 @@ class TestNoBacktestRegressionV2937:
     def test_version_constant(self):
         """版本常量已更新"""
         from nodes.web.api.scanner import _DESIGN_DOC_VERSION
-        assert _DESIGN_DOC_VERSION == "v2.9.41"
+        assert _DESIGN_DOC_VERSION == "v2.9.43"
