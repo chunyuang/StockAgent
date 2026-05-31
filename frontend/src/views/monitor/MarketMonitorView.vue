@@ -294,9 +294,37 @@ const reviewLoading = ref(false)
 const executionQuality = ref<any>(null)
 const liveBacktestDiff = ref<any[]>([])
 
+// ==================== 情绪Tab ====================
+const sentimentMode = ref<'intraday' | 'daily'>('daily')
+const sentimentDate = ref(new Date().toISOString().slice(0, 10))
+const sentimentTimeline = ref<any[]>([])
+const sentimentTrades = ref<any[]>([])
+const sentimentMatrix = ref<any>(null)
+const sentimentRecommendations = ref<any[]>([])
+const sentimentLoading = ref(false)
+const sentimentLive = ref<any>(null)  // 实时情绪快照
+
 // ==================== 自动交易 + 参数对比 ====================
 const autoTrades = ref<any[]>([])
 const paramCompare = ref<any>(null)
+
+// ==================== 情绪Tab fetch ====================
+async function fetchSentimentData() {
+  sentimentLoading.value = true
+  try {
+    const opts = { timeout: 15000 }
+    const dateParam = sentimentDate.value.replace(/-/g, '')
+    const [tlRes, matRes, liveRes] = await Promise.allSettled([
+      api.get(`${scannerApi}/sentiment-timeline?date=${dateParam}&mode=${sentimentMode.value}`, opts),
+      api.get(`${scannerApi}/sentiment-strategy-matrix`, opts),
+      api.get(`${scannerApi}/market-sentiment`, opts),
+    ])
+    if (tlRes.status === 'fulfilled') { const p = parseResponse(tlRes.value); if (p.success) { sentimentTimeline.value = p.data?.points || []; sentimentTrades.value = p.data?.trades || [] } }
+    if (matRes.status === 'fulfilled') { const p = parseResponse(matRes.value); if (p.success) { sentimentMatrix.value = p.data?.matrix || {}; sentimentRecommendations.value = p.data?.recommendations || [] } }
+    if (liveRes.status === 'fulfilled') { const p = parseResponse(liveRes.value); if (p.success) sentimentLive.value = p.data }
+  } catch { /* ignore */ }
+  finally { sentimentLoading.value = false }
+}
 const paramCompareLoading = ref(false)
 const scanConfig = ref<any>(null)
 const scanConfigLoading = ref(false)
@@ -539,12 +567,13 @@ const pnlOption = computed(() => {
 let nowTimer: any = null
 // signalRemaining/formatRemaining/SIGNAL_EXPIRE_MS imported from @/utils/scanner
 // ==================== Tab 导航 ====================
-const activeTab = ref<'guide' | 'trading' | 'premarket' | 'scan-trace' | 'review' | 'risk' | 'history' | 'ops'>('guide')
+const activeTab = ref<'guide' | 'trading' | 'premarket' | 'scan-trace' | 'review' | 'risk' | 'sentiment' | 'history' | 'ops'>('guide')
 watch(activeTab, (tab) => {
   try {
     if (tab === 'premarket') fetchPremarketData()
     if (tab === 'scan-trace') { fetchScanTraceDates(); fetchScanHistory() }
     if (tab === 'review') { fetchReviewData(); fetchParamCompare() }
+    if (tab === 'sentiment') { fetchSentimentData() }
     if (tab === 'history') { fetchTimeline(); fetchOrders(); fetchAuditLog() }
     if (tab === 'ops') { fetchAutoTrades(); fetchScanConfig() }
   } catch (e) { console.error('[Tab] error:', e) }
@@ -855,6 +884,10 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <span class="tab-icon">🛡️</span>
         <span class="tab-text"><span class="tab-label">风控</span><span class="tab-desc">止损·矩阵</span></span>
         <span v-if="positions.some(p => p.risk_level === 'high')" class="tab-badge-danger">!</span>
+      </button>
+      <button :class="['tab-btn', activeTab === 'sentiment' ? 'active' : '']" @click="activeTab = 'sentiment'">
+        <span class="tab-icon">🌡️</span>
+        <span class="tab-text"><span class="tab-label">情绪</span><span class="tab-desc">周期·曲线·矩阵</span></span>
       </button>
       <button :class="['tab-btn', activeTab === 'history' ? 'active' : '']" @click="activeTab = 'history'">
         <span class="tab-icon">📜</span>
@@ -1731,6 +1764,139 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
       </div>
     </div>
 
+    <!-- ==================== 🌡️ 情绪Tab ==================== -->
+    <div v-if="activeTab === 'sentiment'" class="mm-tab-content">
+      <div class="mm-tab-scroll">
+        <!-- 头部: 模式切换 + 日期 -->
+        <div class="review-header">
+          <button :class="['review-tab', sentimentMode === 'intraday' ? 'active' : '']" @click="sentimentMode = 'intraday'; fetchSentimentData()">📈 日内</button>
+          <button :class="['review-tab', sentimentMode === 'daily' ? 'active' : '']" @click="sentimentMode = 'daily'; fetchSentimentData()">📊 跨日</button>
+          <ElDatePicker v-model="sentimentDate" type="date" size="small" value-format="YYYY-MM-DD" @change="fetchSentimentData" :teleported="false" />
+          <ElButton size="small" @click="fetchSentimentData" :loading="sentimentLoading">🔄</ElButton>
+        </div>
+
+        <!-- 1. 情绪时间线 -->
+        <div class="st">📈 情绪时间线</div>
+        <div v-if="!sentimentTimeline.length" class="empty" style="padding:12px 0">暂无情绪数据（新扫描会产生数据点）</div>
+        <div v-else class="sentiment-chart">
+          <!-- Y轴标签 -->
+          <div class="sc-y-axis">
+            <span>100</span><span>70</span><span>55</span><span>40</span><span>0</span>
+          </div>
+          <!-- 图表主体 -->
+          <div class="sc-chart-body">
+            <!-- 背景色带 -->
+            <div class="sc-band" style="height:30%;background:rgba(245,108,108,0.08)"></div>
+            <div class="sc-band" style="height:15%;background:rgba(64,158,255,0.08)"></div>
+            <div class="sc-band" style="height:15%;background:rgba(230,162,60,0.08)"></div>
+            <div class="sc-band" style="height:40%;background:rgba(103,194,58,0.08)"></div>
+            <!-- 数据点连线 SVG -->
+            <svg class="sc-svg" :viewBox="`0 0 ${Math.max(sentimentTimeline.filter(p => p.score != null).length - 1, 1) * 20} 100`" preserveAspectRatio="none">
+              <polyline :points="sentimentTimeline.filter(p => p.score != null).map((p, i, arr) => `${i * 20},${100 - (p.score || 0)}`).join(' ')" fill="none" stroke="var(--el-color-primary)" stroke-width="1.5" />
+            </svg>
+            <!-- 数据点 -->
+            <template v-for="(p, i) in sentimentTimeline" :key="i">
+              <div v-if="p.score != null" class="sc-dot" :style="{ left: `${i / Math.max(sentimentTimeline.length - 1, 1) * 100}%`, bottom: `${(p.score || 0)}%` }" :class="p.period === '高潮' ? 'hot' : p.period === '冰点' ? 'cold' : ''" :title="`${p.time?.substring(11, 19) || p.date} 情绪=${p.score} ${p.period || ''}`">
+              </div>
+              <div v-else class="sc-dot-null" :style="{ left: (i / Math.max(sentimentTimeline.length - 1, 1) * 100) + '%' }" :title="(p.time ? p.time.substring(11, 19) : p.date) + ' 候选' + p.candidates + ' 通过' + p.passed">
+              </div>
+            </template>
+            <!-- 买卖标记 -->
+            <template v-for="(t, i) in sentimentTrades" :key="'t'+i">
+              <div v-if="sentimentMode === 'intraday'" class="sc-trade-marker" :class="t.side" :style="{ left: `${sentimentTimeline.length ? sentimentTimeline.findIndex(p => p.time >= t.time) / Math.max(sentimentTimeline.length - 1, 1) * 100 : 50}%`, bottom: '2%' }" :title="`${t.side === 'buy' ? '买入' : '卖出'} ${t.ts_code} ${t.strategy}`">
+                {{ t.side === 'buy' ? '▲' : '▼' }}
+              </div>
+              <div v-else class="sc-trade-marker" :class="t.side" :style="{ left: `${sentimentTimeline.findIndex(p => p.date >= t.date) / Math.max(sentimentTimeline.length - 1, 1) * 100}%`, bottom: '2%' }">
+                {{ t.side === 'buy' ? '▲' : '▼' }}
+              </div>
+            </template>
+          </div>
+          <!-- X轴 -->
+          <div class="sc-x-labels">
+            <template v-if="sentimentMode === 'intraday'">
+              <span v-for="(p, i) in sentimentTimeline.filter((_, idx) => idx % Math.max(Math.ceil(sentimentTimeline.length / 6), 1) === 0)" :key="i">{{ p.time?.substring(11, 16) }}</span>
+            </template>
+            <template v-else>
+              <span v-for="(p, i) in sentimentTimeline" :key="i">{{ p.date?.substring(4, 8) }}</span>
+            </template>
+          </div>
+        </div>
+
+        <!-- 2. 实时状态 + 市场全景 -->
+        <div class="sentiment-2col" style="margin-top:12px">
+          <!-- 实时情绪 -->
+          <div class="sentiment-panel">
+            <div class="st">🔄 当前状态</div>
+            <div v-if="sentimentLive" class="sl-content">
+              <div class="sl-gauge">
+                <div class="sl-gauge-bar">
+                  <div class="sl-gauge-fill" :style="{ width: sentimentLive.score + '%', background: sentimentLive.score >= 70 ? '#f56c6c' : sentimentLive.score >= 55 ? '#409eff' : sentimentLive.score >= 40 ? '#e6a23c' : '#67c23a' }"></div>
+                </div>
+                <div class="sl-score-labels"><span>0 冰点</span><span>40 震荡</span><span>55 分化</span><span>70 高潮</span><span>100</span></div>
+              </div>
+              <div class="sl-row"><span>情绪分</span><span class="sl-val" :style="{ color: sentimentLive.score >= 70 ? '#f56c6c' : sentimentLive.score >= 55 ? '#409eff' : sentimentLive.score >= 40 ? '#e6a23c' : '#67c23a' }">{{ sentimentLive.score?.toFixed(0) }}</span></div>
+              <div class="sl-row"><span>周期</span><span class="sl-val">{{ sentimentLive.period_label }}</span></div>
+              <div class="sl-row"><span>仓位系数</span><span class="sl-val">{{ (sentimentLive.position_ratio * 100).toFixed(0) }}%</span></div>
+            </div>
+            <div v-else class="empty" style="padding:8px 0">Scanner未运行</div>
+          </div>
+          <!-- 市场全景 -->
+          <div class="sentiment-panel">
+            <div class="st">📊 市场全景</div>
+            <div v-if="sentimentLive" class="sl-content">
+              <div class="sl-row"><span>涨停</span><span class="sl-val up">{{ sentimentLive.limit_up_count }}</span></div>
+              <div class="sl-row"><span>跌停</span><span class="sl-val down">{{ sentimentLive.limit_down_count }}</span></div>
+              <div class="sl-row"><span>炸板率</span><span class="sl-val" :style="{ color: sentimentLive.broken_rate > 30 ? '#f56c6c' : 'var(--text-primary)' }">{{ sentimentLive.broken_rate?.toFixed(1) }}%</span></div>
+              <div class="sl-row"><span>炸板数</span><span class="sl-val">{{ sentimentLive.broken_count }}</span></div>
+              <div v-if="sentimentLive.board_distribution && Object.keys(sentimentLive.board_distribution).length" class="sl-board">
+                <span style="color:var(--text-tertiary);font-size:11px">连板分布</span>
+                <div v-for="(cnt, times) in sentimentLive.board_distribution" :key="times" class="sl-board-item">
+                  <span class="sl-board-n">{{ times }}板</span>
+                  <span class="sl-board-c">{{ cnt }}</span>
+                </div>
+              </div>
+            </div>
+            <div v-else class="empty" style="padding:8px 0">Scanner未运行</div>
+          </div>
+        </div>
+
+        <!-- 3. 策略×情绪矩阵 -->
+        <div class="st" style="margin-top:12px">📋 策略×情绪 效果矩阵</div>
+        <div v-if="sentimentMatrix && Object.keys(sentimentMatrix).length" class="matrix-table-wrap">
+          <table class="matrix-table">
+            <thead>
+              <tr><th>策略</th><th>冰点</th><th>震荡</th><th>分化</th><th>高潮</th><th>未知</th><th>合计</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="(periods, strat) in sentimentMatrix" :key="strat">
+                <td class="mt-strat">{{ strategyCN(strat) }}</td>
+                <td v-for="col in ['冰点','震荡','分化','高潮','未知']" :key="col" class="mt-cell">
+                  <template v-if="periods[col]">
+                    <div class="mt-count" :class="periods[col].total_pnl >= 0 ? 'up' : 'down'">{{ periods[col].count }}笔</div>
+                    <div class="mt-wr" :class="periods[col].win_rate >= 50 ? 'up' : 'down'">WR {{ periods[col].win_rate }}%</div>
+                    <div class="mt-pnl" :class="periods[col].total_pnl >= 0 ? 'up' : 'down'">¥{{ periods[col].total_pnl }}</div>
+                  </template>
+                  <span v-else class="mt-empty">-</span>
+                </td>
+                <td class="mt-total">{{ Object.values(periods).reduce((s: number, v: any) => s + v.count, 0) }}笔</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-else class="empty" style="padding:8px 0">暂无策略×情绪数据</div>
+
+        <!-- 4. 推荐结论 -->
+        <div v-if="sentimentRecommendations.length" class="st" style="margin-top:12px">💡 策略推荐</div>
+        <div v-for="r in sentimentRecommendations" :key="r.strategy" class="rec-card">
+          <span class="rec-strat">{{ strategyCN(r.strategy) }}</span>
+          <span>在 <strong :style="{ color: r.best_period === '高潮' ? '#f56c6c' : r.best_period === '分化' ? '#409eff' : r.best_period === '震荡' ? '#e6a23c' : '#67c23a' }">{{ r.best_period }}</strong> 期表现最佳</span>
+          <span class="rec-stat">{{ r.count }}笔 WR{{ r.win_rate }}%</span>
+          <span class="rec-pnl" :class="r.pnl >= 0 ? 'up' : 'down'">¥{{ r.pnl }}</span>
+        </div>
+
+      </div>
+    </div>
+
     <!-- ==================== 📜 历史Tab ==================== -->
     <div v-if="activeTab === 'history'" class="mm-tab-content">
       <div class="mm-tab-scroll">
@@ -2478,6 +2644,54 @@ mm-tab-content {
 .rfd-bar-fill { height: 100%; border-radius: 3px; background: var(--stock-up); opacity: 0.6; }
 .rfd-rej { font-weight: 600; color: var(--stock-up); font-size: 10px; min-width: 50px; }
 .review-sentiment-snap { margin-top: 8px; padding: 6px 12px; border-radius: 6px; background: rgba(22,93,255,0.05); border-left: 3px solid var(--el-color-primary); font-size: 12px; display: flex; gap: 8px; }
+
+/* ==================== 情绪Tab ==================== */
+.sentiment-chart { display: flex; height: 200px; position: relative; border: 1px solid var(--border-default); border-radius: 8px; overflow: hidden; background: var(--bg-elevated); }
+.sc-y-axis { display: flex; flex-direction: column-reverse; justify-content: space-between; padding: 4px 6px; font-size: 10px; color: var(--text-tertiary); min-width: 32px; text-align: right; }
+.sc-chart-body { flex: 1; position: relative; display: flex; flex-direction: column-reverse; }
+.sc-band { width: 100%; position: relative; z-index: 1; }
+.sc-svg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 3; }
+.sc-dot { position: absolute; width: 6px; height: 6px; border-radius: 50%; background: var(--el-color-primary); transform: translate(-50%, 50%); z-index: 4; cursor: pointer; transition: transform 0.15s; }
+.sc-dot:hover { transform: translate(-50%, 50%) scale(2); }
+.sc-dot.hot { background: #f56c6c; }
+.sc-dot.cold { background: #67c23a; }
+.sc-dot-null { position: absolute; width: 4px; height: 4px; border-radius: 50%; background: var(--text-quaternary); transform: translate(-50%, 0); z-index: 4; top: 50%; opacity: 0.5; }
+.sc-trade-marker { position: absolute; font-size: 10px; z-index: 5; font-weight: 700; }
+.sc-trade-marker.buy { color: var(--stock-down); }
+.sc-trade-marker.sell { color: var(--stock-up); }
+.sc-x-labels { display: flex; justify-content: space-between; padding: 2px 8px; font-size: 9px; color: var(--text-tertiary); border-top: 1px solid var(--border-default); }
+
+.sentiment-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.sentiment-panel { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 10px 12px; }
+.sl-content { margin-top: 6px; }
+.sl-gauge { margin-bottom: 8px; }
+.sl-gauge-bar { height: 16px; background: var(--bg-secondary); border-radius: 8px; overflow: hidden; }
+.sl-gauge-fill { height: 100%; border-radius: 8px; transition: width 0.5s; }
+.sl-score-labels { display: flex; justify-content: space-between; font-size: 9px; color: var(--text-tertiary); margin-top: 2px; }
+.sl-row { display: flex; justify-content: space-between; font-size: 12px; padding: 2px 0; }
+.sl-row span:first-child { color: var(--text-tertiary); }
+.sl-val { font-weight: 600; }
+.sl-board { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.sl-board-item { font-size: 11px; background: var(--bg-secondary); padding: 1px 6px; border-radius: 4px; }
+.sl-board-n { color: var(--text-tertiary); }
+.sl-board-c { font-weight: 600; margin-left: 2px; }
+
+.matrix-table-wrap { overflow-x: auto; }
+.matrix-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.matrix-table th { padding: 6px 8px; background: var(--bg-secondary); font-weight: 600; color: var(--text-tertiary); text-align: center; border-bottom: 1px solid var(--border-default); }
+.matrix-table td { padding: 6px 8px; text-align: center; border-bottom: 1px solid var(--border-default); }
+.mt-strat { font-weight: 600; text-align: left !important; white-space: nowrap; }
+.mt-cell { min-width: 80px; }
+.mt-count { font-weight: 600; }
+.mt-wr { font-size: 10px; }
+.mt-pnl { font-size: 10px; font-weight: 600; }
+.mt-empty { color: var(--text-quaternary); }
+.mt-total { font-weight: 600; color: var(--text-secondary); }
+
+.rec-card { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; margin-bottom: 6px; font-size: 12px; }
+.rec-strat { font-weight: 600; min-width: 70px; }
+.rec-stat { color: var(--text-tertiary); margin-left: auto; }
+.rec-pnl { font-weight: 700; }
 .review-tabs { display: flex; gap: 2px; }
 .review-tab { padding: 6px 14px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--bg-elevated); color: var(--text-secondary); font-size: 13px; cursor: pointer; transition: all 0.2s; }
 .review-tab:hover { background: var(--bg-hover); }
