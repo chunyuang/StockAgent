@@ -429,22 +429,55 @@ const rejectionReasonCN = (reason: string) => {
 async function fetchReviewData() {
   reviewLoading.value = true
   try {
-    // 用 Promise.allSettled 防止单个API失败阻塞其他，并加15秒超时
     const promises: Promise<any>[] = []
     const opts = { timeout: 15000 }
+    const today = new Date().toISOString().slice(0, 10)
+    const isToday = reviewDate.value === today
     
     if (reviewTab.value === 'daily') {
-      promises.push(
-        api.get(`${scannerApi}/daily-report`, opts).then(r => { const p = parseResponse(r); if (p.success) dailyReportData.value = p.data }),
-        api.get(`${scannerApi}/trade-attribution?date=${reviewDate.value}`, opts).then(r => { const p = parseResponse(r); if (p.success) tradeAttributions.value = p.data || [] }),
-      )
+      if (isToday) {
+        // 今天: 用实时API
+        promises.push(
+          api.get(`${scannerApi}/daily-report`, opts).then(r => { const p = parseResponse(r); if (p.success) dailyReportData.value = p.data }),
+          api.get(`${scannerApi}/trade-attribution?date=${reviewDate.value}`, opts).then(r => { const p = parseResponse(r); if (p.success) tradeAttributions.value = p.data || [] }),
+        )
+      } else {
+        // 历史日期: 用历史复盘API
+        const dateParam = reviewDate.value.replace(/-/g, '')
+        promises.push(
+          api.get(`${scannerApi}/historical-review?date=${dateParam}`, opts).then(r => {
+            const p = parseResponse(r)
+            if (p.success && p.data) {
+              const d = p.data
+              // 转换为dailyReportData格式
+              dailyReportData.value = {
+                date: reviewDate.value,
+                account: { today_profit: 0, position_ratio: 0, available_cash: 0 },  // 历史无实时账户
+                positions: { count: 0, strategy_summary: d.strategy_summary, top_profit: [], top_loss: [] },
+                trades: { buy: d.scan_stats?.buy_count || 0, sell: d.scan_stats?.sell_count || 0, total_amount: 0 },
+                win_rate: 0,
+                stop_loss_count: Object.values(d.strategy_summary || {}).reduce((s: number, v: any) => s + (v.stop_loss_count || 0), 0),
+                take_profit_count: Object.values(d.strategy_summary || {}).reduce((s: number, v: any) => s + (v.take_profit_count || 0), 0),
+                scanner_stats: d.scan_stats,
+              }
+              // 交易归因从sells构建
+              tradeAttributions.value = (d.sells || []).map((s: any) => ({
+                ts_code: s.ts_code, stock_name: s.stock_name, strategy: s.strategy,
+                buy_price: 0, sell_price: s.price, profit_pct: 0, profit_amount: 0,
+                buy_time: '', sell_time: s.time, sell_reason: s.reason,
+                why_profit: s.reason && (s.reason.includes('追踪') || s.reason.includes('止盈') || s.reason.includes('冲高')) ? '趋势延续盈利锁定' : null,
+                why_loss: s.reason && (s.reason.includes('止损') || s.reason.includes('强制')) ? s.reason : null,
+              }))
+            }
+          }),
+        )
+      }
     } else if (reviewTab.value === 'weekly') {
       promises.push(
         api.get(`${scannerApi}/weekly-report`, opts).then(r => { const p = parseResponse(r); if (p.success) weeklyReportData.value = p.data }),
       )
     }
     
-    // 执行质量和实盘vs回测(所有tab共用)
     promises.push(
       api.get(`${scannerApi}/execution-quality`, opts).then(r => { const p = parseResponse(r); if (p.success) executionQuality.value = p.data }),
       api.get(`${scannerApi}/backtest-compare`, opts).then(r => { const p = parseResponse(r); if (p.success) liveBacktestDiff.value = p.data || [] }),
@@ -1419,6 +1452,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           </div>
           <ElDatePicker v-model="reviewDate" type="date" size="small" value-format="YYYY-MM-DD" @change="fetchReviewData" />
           <ElButton size="small" @click="fetchReviewData" :loading="reviewLoading">🔄</ElButton>
+          <span v-if="reviewDate !== new Date().toISOString().slice(0, 10)" style="font-size:11px;color:#e6a23c">📋 历史数据</span>
         </div>
 
         <!-- 日复盘内容 -->

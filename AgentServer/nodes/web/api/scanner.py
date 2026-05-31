@@ -770,7 +770,92 @@ async def get_daily_report():
         return {"success": True, "data": {}, "message": str(e)}
 
 
-@router.post("/daily-settlement")
+@router.get("/historical-review")
+async def get_historical_review(date: str = None):
+    """历史复盘 — 从MongoDB聚合历史交易数据,支持任意交易日查看
+    
+    Args:
+        date: YYYYMMDD格式,不传则返回最近有数据的交易日
+    """
+    try:
+        from core.managers import mongo_manager
+        if not mongo_manager.is_initialized:
+            return {"success": True, "data": None, "message": "MongoDB未连接"}
+        db = mongo_manager.db
+        
+        # 确定日期
+        if not date:
+            latest = await db["broker_orders"].find_one(
+                {"status": "filled", "side": "sell"},
+                sort=[("_id", -1)]
+            )
+            if not latest:
+                return {"success": True, "data": None, "message": "无历史交易数据"}
+            date = latest.get("trade_date", "")
+        
+        # 查询当日所有成交订单
+        buys, sells = [], []
+        async for doc in db["broker_orders"].find({
+            "trade_date": date, "status": "filled"
+        }).sort("fill_time", 1):
+            (buys if doc.get("side") == "buy" else sells).append(doc)
+        
+        # 按策略统计
+        from collections import defaultdict
+        strategy_stats = defaultdict(lambda: {
+            "buy_count": 0, "sell_count": 0, "stop_loss": 0, "take_profit": 0,
+            "wins": [], "losses": [], "total_pnl": 0
+        })
+        import re
+        for s in sells:
+            st = s.get("strategy", "unknown")
+            reason = s.get("reason", "")
+            fp = s.get("filled_price", 0) or 0
+            fq = s.get("filled_qty", 0) or 0
+            strategy_stats[st]["sell_count"] += 1
+            pct_match = re.search(r'曾盈([\d.]+)%', reason) or re.search(r'-?([\d.]+)%', reason)
+            profit_pct = float(pct_match.group(1)) if pct_match else 0
+            if "止损" in reason and "追踪" not in reason:
+                profit_pct = -abs(profit_pct)
+                strategy_stats[st]["stop_loss"] += 1
+            elif "追踪止损" in reason or "止盈" in reason or "冲高" in reason:
+                strategy_stats[st]["take_profit"] += 1
+            (strategy_stats[st]["wins"] if profit_pct >= 0 else strategy_stats[st]["losses"]).append(profit_pct)
+            strategy_stats[st]["total_pnl"] += fp * fq * profit_pct / 100
+        for b in buys:
+            strategy_stats[b.get("strategy", "unknown")]["buy_count"] += 1
+        
+        strategy_summary = {}
+        for k, v in strategy_stats.items():
+            w, l = v["wins"], v["losses"]
+            t = len(w) + len(l)
+            strategy_summary[k] = {
+                "buy_count": v["buy_count"], "sell_count": v["sell_count"],
+                "stop_loss_count": v["stop_loss"], "take_profit_count": v["take_profit"],
+                "win_count": len(w), "loss_count": len(l),
+                "win_rate": round(len(w) / max(t, 1) * 100, 1),
+                "total_pnl": round(v["total_pnl"]),
+                "avg_win_pct": round(sum(w) / len(w), 1) if w else 0,
+                "avg_loss_pct": round(sum(l) / len(l), 1) if l else 0,
+                "profit_loss_ratio": round(abs(sum(w)/len(w) / (sum(l)/len(l))), 1) if w and l else 0,
+            }
+        
+        # 扫描统计
+        scan_count = await db["scan_traces"].count_documents({"trade_date": date, "is_debug": {"$ne": True}})
+        debug_count = await db["scan_traces"].count_documents({"trade_date": date, "is_debug": True})
+        total_passed = 0
+        async for doc in db["scan_traces"].find({"trade_date": date}, {"summary.passed": 1}):
+            total_passed += (doc.get("summary") or {}).get("passed", 0)
+        
+        return {"success": True, "data": {
+            "date": date,
+            "buys": [{"ts_code": b.get("ts_code"), "stock_name": b.get("stock_name", ""), "strategy": b.get("strategy", ""), "price": b.get("filled_price", 0), "qty": b.get("filled_qty", 0), "time": b.get("fill_time", "")} for b in buys],
+            "sells": [{"ts_code": s.get("ts_code"), "stock_name": s.get("stock_name", ""), "strategy": s.get("strategy", ""), "price": s.get("filled_price", 0), "qty": s.get("filled_qty", 0), "reason": s.get("reason", ""), "time": s.get("fill_time", "")} for s in sells],
+            "strategy_summary": strategy_summary,
+            "scan_stats": {"scan_count": scan_count, "debug_scan_count": debug_count, "total_signals": total_passed, "buy_count": len(buys), "sell_count": len(sells)},
+        }}
+    except Exception as e:
+        return {"success": True, "data": None, "message": str(e)}
 async def daily_settlement():
     """手动触发日结算(T+1解锁)"""
     scanner = _get_scanner()
