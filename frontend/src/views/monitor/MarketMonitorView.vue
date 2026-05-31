@@ -296,6 +296,23 @@ const liveBacktestDiff = ref<any[]>([])
 const reviewHero = ref<any>(null)  // Hero Banner数据
 const disciplineCheck = ref<any>(null)  // 纪律检查数据
 const reviewForward = ref<any>(null)  // 前瞻建议数据
+const backtestRunning = ref(false)  // 回测运行中
+
+async function runBacktest() {
+  backtestRunning.value = true
+  try {
+    const r = await api.post(`${scannerApi}/run-backtest`, { period: '2025Q1' })
+    const p = parseResponse(r)
+    if (p.success) {
+      ElMessage.success(p.message || '回测已启动')
+      // 30秒后刷新
+      setTimeout(() => { fetchReviewData() }, 30000)
+    } else {
+      ElMessage.error(p.message || '回测启动失败')
+    }
+  } catch { ElMessage.error('回测启动失败') }
+  finally { backtestRunning.value = false }
+}
 
 // ==================== 情绪Tab ====================
 const sentimentMode = ref<'intraday' | 'daily' | 'weekly' | 'monthly'>('daily')
@@ -1719,7 +1736,9 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         </div>
 
         <!-- 实盘vs回测 -->
-        <div class="st" style="margin-top:12px">📊 实盘 vs 回测偏差</div>
+        <div class="st" style="margin-top:12px">📊 实盘 vs 回测偏差
+          <ElButton v-if="!liveBacktestDiff.length" size="small" type="primary" @click="runBacktest" :loading="backtestRunning" style="margin-left:8px">▶️ 运行回测</ElButton>
+        </div>
         <div v-if="liveBacktestDiff.length" class="lb-table">
           <div class="lb-header"><span>策略</span><span>实盘交易</span><span>实盘胜率</span><span>回测胜率</span><span>偏差</span></div>
           <div v-for="c in liveBacktestDiff" :key="c.strategy" class="lb-row">
