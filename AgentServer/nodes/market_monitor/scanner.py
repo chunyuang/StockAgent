@@ -953,6 +953,11 @@ class MarketScanner:
             await self._update_sentiment_score(trade_date)
         except Exception as _e:
             logger.debug(f"[SCANNER] 盘后情绪预计算失败: {_e}")
+        # 【v2.9.41:收盘后同步内存数据到MongoDB】
+        try:
+            await self._sync_close_data_to_mongo(trade_date)
+        except Exception as _e:
+            logger.debug(f"[SCANNER] 盘后数据同步失败: {_e}")
 
     async def _scan_loop_replay(self):
         """回放模式循环: 不受交易时间限制, 持续扫描【v2.9.19提取】"""
@@ -1020,7 +1025,72 @@ class MarketScanner:
             upsert=True
         )
 
-    # ==================== Phase1.2: 风控独立线程 ====================
+    async def _sync_close_data_to_mongo(self, trade_date: str):
+        """收盘后同步内存数据到MongoDB(limit_list + daily_basic)"""
+        from core.managers import mongo_manager
+        if not mongo_manager.is_initialized:
+            return
+        db = mongo_manager.db
+        td_int = int(trade_date)
+        
+        # 1. 同步limit_pools → limit_list
+        limit_pools = getattr(self, '_limit_pools', {})
+        lu_list = limit_pools.get("limit_up", [])
+        ld_list = limit_pools.get("limit_down", [])
+        broken_list = limit_pools.get("broken", [])
+        
+        if lu_list or ld_list:
+            ops = []
+            for item in lu_list:
+                ops.append(UpdateOne(
+                    {"trade_date": td_int, "ts_code": item.get("ts_code", "")},
+                    {"$set": {"trade_date": td_int, "ts_code": item.get("ts_code", ""), "name": item.get("name", ""), "limit": "U",
+                     "close": item.get("close", 0), "limit_times": item.get("limit_times", 1),
+                     "first_time": item.get("first_time", ""), "last_time": item.get("last_time", ""),
+                     "data_source": "scanner_realtime"}},
+                    upsert=True
+                ))
+            for item in ld_list:
+                ops.append(UpdateOne(
+                    {"trade_date": td_int, "ts_code": item.get("ts_code", "")},
+                    {"$set": {"trade_date": td_int, "ts_code": item.get("ts_code", ""), "name": item.get("name", ""), "limit": "D",
+                     "close": item.get("close", 0), "limit_times": item.get("limit_times", 1),
+                     "first_time": item.get("first_time", ""), "last_time": item.get("last_time", ""),
+                     "data_source": "scanner_realtime"}},
+                    upsert=True
+                ))
+            for item in broken_list:
+                ops.append(UpdateOne(
+                    {"trade_date": td_int, "ts_code": item.get("ts_code", "")},
+                    {"$set": {"trade_date": td_int, "ts_code": item.get("ts_code", ""), "name": item.get("name", ""), "limit": "U",
+                     "close": item.get("close", 0), "limit_times": item.get("limit_times", 1),
+                     "amp": item.get("amp", 0), "data_source": "scanner_realtime"}},
+                    upsert=True
+                ))
+            if ops:
+                result = await db["limit_list"].bulk_write(ops)
+                logger.info(f"[SCANNER] limit_list同步: {result.upserted_count}新增 {result.modified_count}更新")
+        
+        # 2. 同步realtime_cache的pct_chg → daily_basic(补pct_chg字段)
+        realtime_cache = getattr(self, '_realtime_cache', {})
+        if realtime_cache:
+            pct_ops = []
+            synced = 0
+            for ts_code, quote in realtime_cache.items():
+                pct_chg = quote.get("pct_chg")
+                if pct_chg is not None:
+                    # 只更新pct_chg为空的记录(不覆盖已有数据)
+                    pct_ops.append(UpdateOne(
+                        {"trade_date": td_int, "ts_code": ts_code, "pct_chg": None},
+                        {"$set": {"pct_chg": pct_chg, "close": quote.get("close", 0), "data_source": "scanner_realtime"}}
+                    ))
+                    synced += 1
+                    if len(pct_ops) >= 500:  # 批量上限
+                        await db["daily_basic"].bulk_write(pct_ops)
+                        pct_ops = []
+            if pct_ops:
+                result = await db["daily_basic"].bulk_write(pct_ops)
+                logger.info(f"[SCANNER] daily_basic pct_chg同步: {synced}只")
 
     def _risk_loop_sync(self):
         """风控独立线程(分级节奏，不受asyncio事件循环影响)

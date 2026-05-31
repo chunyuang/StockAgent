@@ -1036,9 +1036,14 @@ async def get_sentiment_strategy_matrix():
         
         # 获取每日情绪阶段
         daily_sentiment = {}
-        # 从预计算的sentiment_scores读取
-        async for doc in db["sentiment_scores"].find({"missing_data": {"$ne": True}}, {"trade_date": 1, "period": 1}):
-            daily_sentiment[str(doc["trade_date"])] = doc["period"]
+        # 从预计算的sentiment_scores读取(包括missing_data的日期)
+        async for doc in db["sentiment_scores"].find({}, {"trade_date": 1, "period": 1, "missing_data": 1}):
+            td = str(doc["trade_date"])
+            period = doc.get("period", "")
+            if doc.get("missing_data") and not period:
+                period = "未知(数据缺失)"
+            if period:
+                daily_sentiment[td] = period
         
         matrix = defaultdict(lambda: defaultdict(lambda: {"wins": 0, "losses": 0, "count": 0, "total_pnl": 0.0}))
         strategy_totals = defaultdict(lambda: {"wins": 0, "losses": 0, "count": 0, "total_pnl": 0.0})
@@ -1056,15 +1061,30 @@ async def get_sentiment_strategy_matrix():
             if not period:
                 period = "冰点" if "强制" in reason or "空仓" in reason else "未知"
             
-            pct_match = re.search(r'曾盈([\\d.]+)%', reason)
-            if not pct_match:
-                pct_match = re.search(r'-?([\\d.]+)%', reason)
-            profit_pct = float(pct_match.group(1)) if pct_match else 0
-            if "止损" in reason and "追踪" not in reason:
-                profit_pct = -abs(profit_pct)
+            # 优先从broker_orders的profit_pct字段读取(真实盈亏)
+            profit_pct = doc.get("profit_pct", 0) or 0
+            profit_amount = doc.get("profit_amount", 0) or 0
+            if not profit_pct and not profit_amount:
+                # 无盈亏数据,从reason推断
+                pct_match = re.search(r'曾盈([\\d.]+)%', reason)
+                if not pct_match:
+                    pct_match = re.search(r'-?([\\d.]+)%', reason)
+                profit_pct = float(pct_match.group(1)) if pct_match else 0
+                if "止损" in reason and "追踪" not in reason:
+                    profit_pct = -abs(profit_pct)
             
-            is_win = profit_pct >= 0
-            pnl = fp * fq * profit_pct / 100
+            pnl = profit_amount if profit_amount else fp * fq * profit_pct / 100
+            # profit_pct=0且无profit_amount的跳过(无法判断胜负)
+            if profit_pct == 0 and profit_amount == 0 and not reason:
+                continue
+            # 有profit_pct时用真实盈亏判断胜负
+            if profit_pct != 0:
+                is_win = profit_pct > 0
+            elif profit_amount != 0:
+                is_win = profit_amount > 0
+            else:
+                # 从reason推断
+                is_win = "止盈" in reason or "追踪止损" in reason or "冲高" in reason
             matrix[strategy][period]["count"] += 1
             matrix[strategy][period]["wins"] += int(is_win)
             matrix[strategy][period]["losses"] += int(not is_win)

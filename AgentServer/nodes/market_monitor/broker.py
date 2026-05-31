@@ -221,6 +221,8 @@ class SimulatedBroker:
                     "trade_date": o.trade_date,
                     "create_time": o.create_time,
                     "fill_time": getattr(o, 'fill_time', ''),
+                    "profit_pct": getattr(o, 'profit_pct', 0),
+                    "profit_amount": getattr(o, 'profit_amount', 0),
                     "source": getattr(o, 'source', 'auto'),
                 }
                 for o in self.orders if o.trade_date == today
@@ -674,6 +676,11 @@ class SimulatedBroker:
 
         # 计算本笔盈亏
         profit = (fill_price - pos.avg_cost) * order.quantity - total_cost
+        profit_pct = ((fill_price - pos.avg_cost) / pos.avg_cost * 100) if pos.avg_cost > 0 else 0
+        profit_amount = profit
+        # [v2.9.41] write pnl to order for broker_orders
+        order.profit_pct = round(profit_pct, 2)
+        order.profit_amount = round(profit_amount, 2)
         self.account.total_profit += profit
 
         # 收回资金
