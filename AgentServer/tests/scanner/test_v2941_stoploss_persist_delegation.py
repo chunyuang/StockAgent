@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-v2.9.41 测试: _check_stop_loss_only简化 + _persist_scan_result提取到RuntimePersistence + broker耦合13
+v2.9.43 测试: _check_stop_loss_only简化 + _persist_scan_result提取到RuntimePersistence + broker耦合13
 
 1. _check_stop_loss_only移除冗余broker/positions检查(PM内部已处理)
 2. _persist_scan_result委托RuntimePersistence.persist_scan_result
@@ -129,9 +129,9 @@ class TestVersionSync:
     """版本同步检查"""
 
     def test_design_doc_version_in_api(self):
-        """API版本号为v2.9.41"""
+        """API版本号为v2.9.43"""
         source = _read(_API)
-        assert '_DESIGN_DOC_VERSION = "v2.9.41"' in source
+        assert '_DESIGN_DOC_VERSION = "v2.9.43"' in source
 
 
 class TestNoBacktestRegressionV2941:

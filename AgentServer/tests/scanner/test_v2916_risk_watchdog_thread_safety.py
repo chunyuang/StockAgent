@@ -1,5 +1,5 @@
 """
-v2.9.16 测试: RiskWatchdog线程安全 + circuit_breaker线程安全 + 
+v2.9.43 测试: RiskWatchdog线程安全 + circuit_breaker线程安全 + 
 pause_reason元组bug修复 + EmotionCycleManager.build_emotion_sell_list提取
 """
 
@@ -18,7 +18,7 @@ if PROJECT_ROOT not in sys.path:
 
 
 class TestCircuitBreakerTupleBugFix(unittest.TestCase):
-    """v2.9.16: risk_watchdog.py pause_reason元组bug修复"""
+    """v2.9.43: risk_watchdog.py pause_reason元组bug修复"""
 
     def test_pause_reason_is_string_not_tuple(self):
         """pause_reason应为字符串,不应有尾随逗号导致变成tuple"""
@@ -75,7 +75,7 @@ class TestCircuitBreakerTupleBugFix(unittest.TestCase):
 
 
 class TestCircuitBreakerThreadSafety(unittest.TestCase):
-    """v2.9.16: circuit_breaker操作线程安全验证"""
+    """v2.9.43: circuit_breaker操作线程安全验证"""
 
     def test_check_circuit_breaker_uses_state_lock(self):
         """check_circuit_breaker应使用state_lock保护circuit_breaker读写"""
@@ -162,7 +162,7 @@ class TestCircuitBreakerThreadSafety(unittest.TestCase):
 
 
 class TestEmotionCycleBuildSellList(unittest.TestCase):
-    """v2.9.16: EmotionCycleManager.build_emotion_sell_list提取"""
+    """v2.9.43: EmotionCycleManager.build_emotion_sell_list提取"""
 
     def test_build_emotion_sell_list_exists(self):
         """EmotionCycleManager应有build_emotion_sell_list静态方法"""
@@ -338,7 +338,7 @@ class TestEmotionCycleBuildSellList(unittest.TestCase):
 
 
 class TestScannerStrategyConfigSimplified(unittest.TestCase):
-    """v2.9.16: scanner策略配置方法简化"""
+    """v2.9.43: scanner策略配置方法简化"""
 
     def test_validate_live_params_catches_general_exception(self):
         """_validate_live_params应捕获通用Exception(不只ImportError)【v2.9.42更新:委托到StrategyParamCenter】"""
@@ -374,7 +374,7 @@ class TestScannerStrategyConfigSimplified(unittest.TestCase):
 
 
 class TestRiskWatchdogEmergencyLiquidate(unittest.TestCase):
-    """v2.9.16: RiskWatchdog.emergency_liquidate安全审查"""
+    """v2.9.43: RiskWatchdog.emergency_liquidate安全审查"""
 
     def test_emergency_liquidate_per_position_try_except(self):
         """紧急平仓应每只股票独立try/except,单票失败不影响其他"""
@@ -403,7 +403,7 @@ class TestRiskWatchdogEmergencyLiquidate(unittest.TestCase):
 
 
 class TestVersionSync(unittest.TestCase):
-    """v2.9.16: 版本号同步验证"""
+    """v2.9.43: 版本号同步验证"""
 
     def test_design_doc_version_in_api(self):
         """API中的_DESIGN_DOC_VERSION应≥v2.9.18"""
@@ -413,11 +413,11 @@ class TestVersionSync(unittest.TestCase):
         with open(source_path, "r") as f:
             content = f.read()
         
-        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.41"', content)
+        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.43"', content)
 
 
 class TestNoBacktestRegression(unittest.TestCase):
-    """v2.9.16: 回测零影响验证"""
+    """v2.9.43: 回测零影响验证"""
 
     def test_sell_signal_checker_importable(self):
         """SellSignalChecker应正常导入"""

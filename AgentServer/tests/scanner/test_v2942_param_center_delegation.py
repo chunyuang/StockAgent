@@ -1,4 +1,4 @@
-"""v2.9.42 测试: StrategyParamCenter委托路由 + RuntimePersistence参数快照
+"""v2.9.43 测试: StrategyParamCenter委托路由 + RuntimePersistence参数快照
 
 变更:
 1. _save_param_snapshot提取到RuntimePersistence.save_param_snapshot

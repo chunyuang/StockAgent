@@ -86,12 +86,12 @@ class TestEmitRiskThreadError:
         assert "_emit_risk_thread_error" in method_code
 
     def test_method_contains_scanner_error_event(self):
-        """_emit_risk_thread_error发射SCANNER_ERROR事件(v2.9.41:委托给RiskWatchdog)"""
+        """_emit_risk_thread_error发射SCANNER_ERROR事件(v2.9.43:委托给RiskWatchdog)"""
         source = _read(_SCANNER)
         idx = source.find("def _emit_risk_thread_error")
         assert idx > 0
         method_code = source[idx:idx+800]
-        # v2.9.41: 逻辑已迁移到RiskWatchdog.emit_risk_thread_error
+        # v2.9.43: 逻辑已迁移到RiskWatchdog.emit_risk_thread_error
         assert "RiskWatchdog" in method_code
         # 验证RiskWatchdog中有SCANNER_ERROR
         rw_source = _read(_RW)
@@ -106,7 +106,7 @@ class TestEmitRiskThreadError:
         assert "consecutive_errors" in sig
 
     def test_method_uses_threadsafe_emit(self):
-        """使用call_soon_threadsafe跨线程发射(v2.9.41:逻辑在RiskWatchdog)"""
+        """使用call_soon_threadsafe跨线程发射(v2.9.43:逻辑在RiskWatchdog)"""
         rw_source = _read(_RW)
         assert "call_soon_threadsafe" in rw_source
         assert "create_task" in rw_source
@@ -163,7 +163,7 @@ class TestVersionSync:
     def test_design_doc_version_in_api(self):
         """API中的_DESIGN_DOC_VERSION应为v2.9.35"""
         source = _read(_API_SCANNER)
-        assert '_DESIGN_DOC_VERSION = "v2.9.41"' in source
+        assert '_DESIGN_DOC_VERSION = "v2.9.43"' in source
 
 
 class TestNoBacktestRegressionV2933:
