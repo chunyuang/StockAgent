@@ -317,15 +317,18 @@ const xAxisLabels = computed(() => {
   const step = Math.max(Math.ceil(data.length / maxLabels), 1)
   const sampled = data.filter((_, idx) => idx % step === 0)
   return sampled.map(p => {
+    const d = p.date || ''
     if (sentimentMode.value === 'intraday') {
       return p.time?.substring(11, 16) || ''
+    } else if (sentimentMode.value === 'weekly') {
+      // "2026-W17" → "W17"
+      const wi = d.indexOf('-W')
+      return wi >= 0 ? d.substring(wi + 1) : d
     } else if (sentimentMode.value === 'monthly') {
       // "202601" → "26/01"
-      const d = p.date || ''
       return d.length >= 6 ? d.substring(2, 4) + '/' + d.substring(4, 6) : d
     } else {
       // "20260211" → "02/11"
-      const d = p.date || ''
       return d.length >= 8 ? d.substring(4, 6) + '/' + d.substring(6, 8) : d
     }
   })
@@ -1821,6 +1824,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         </div>
         <div v-else-if="!sentimentTimeline.length" class="empty" style="padding:12px 0">暂无情绪数据</div>
         <div v-else class="sentiment-chart">
+          <div class="sc-chart-row">
           <!-- Y轴标签 -->
           <div class="sc-y-axis">
             <span>100</span><span>70</span><span>55</span><span>40</span><span>0</span>
@@ -1857,6 +1861,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
                 {{ t.side === 'buy' ? '▲' : '▼' }}
               </div>
             </template>
+          </div>
           </div>
           <!-- X轴(采样+可读格式) -->
           <div class="sc-x-labels">
@@ -2688,8 +2693,9 @@ mm-tab-content {
 .review-sentiment-snap { margin-top: 8px; padding: 6px 12px; border-radius: 6px; background: rgba(22,93,255,0.05); border-left: 3px solid var(--el-color-primary); font-size: 12px; display: flex; gap: 8px; }
 
 /* ==================== 情绪Tab ==================== */
-.sentiment-chart { display: flex; height: 240px; position: relative; border: 1px solid var(--border-default); border-radius: 8px; overflow: hidden; background: var(--bg-elevated); }
+.sentiment-chart { display: flex; flex-direction: column; height: 260px; position: relative; border: 1px solid var(--border-default); border-radius: 8px; overflow: hidden; background: var(--bg-elevated); }
 .sc-y-axis { display: flex; flex-direction: column-reverse; justify-content: space-between; padding: 4px 6px; font-size: 10px; color: var(--text-tertiary); min-width: 32px; text-align: right; }
+.sc-chart-row { display: flex; flex: 1; min-height: 0; }
 .sc-chart-body { flex: 1; position: relative; display: flex; flex-direction: column-reverse; }
 .sc-band { width: 100%; position: relative; z-index: 1; }
 .sc-svg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 3; }
@@ -2709,7 +2715,7 @@ mm-tab-content {
 .sc-trade-marker { position: absolute; font-size: 10px; z-index: 5; font-weight: 700; }
 .sc-trade-marker.buy { color: var(--stock-down); }
 .sc-trade-marker.sell { color: var(--stock-up); }
-.sc-x-labels { display: flex; justify-content: space-between; padding: 4px 8px; font-size: 11px; color: var(--text-tertiary); border-top: 1px solid var(--border-default); min-height: 22px; }
+.sc-x-labels { display: flex; justify-content: space-between; padding: 4px 8px 4px 40px; font-size: 11px; color: var(--text-tertiary); border-top: 1px solid var(--border-default); min-height: 22px; }
 
 .sentiment-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .sentiment-panel { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 10px 12px; }
