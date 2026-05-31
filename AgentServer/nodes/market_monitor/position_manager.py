@@ -337,6 +337,9 @@ class PositionManager:
     def _check_quick_stop_loss(self, pos, rt: Dict, current_price: float) -> Optional[Tuple]:
         """快速止损检查: 固定止损+追踪止损【v2.9.45提取】
         
+        Note: 使用_get_risk_with_overrides获取完整风控参数(含take_profit覆盖),
+        虽然止损检查不使用take_profit, 但统一获取减少分支。
+        
         Returns: (pos, reason, price, risk) or None
         """
         ts_code = pos.ts_code
