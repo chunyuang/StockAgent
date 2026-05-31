@@ -309,6 +309,27 @@ const displayTimeline = computed(() => {
   if (sentimentMode.value !== 'daily') return data
   return data.slice(-60)
 })
+// X轴标签: 采样+可读格式
+const xAxisLabels = computed(() => {
+  const data = displayTimeline.value
+  if (!data.length) return []
+  const maxLabels = sentimentMode.value === 'intraday' ? 6 : 8
+  const step = Math.max(Math.ceil(data.length / maxLabels), 1)
+  const sampled = data.filter((_, idx) => idx % step === 0)
+  return sampled.map(p => {
+    if (sentimentMode.value === 'intraday') {
+      return p.time?.substring(11, 16) || ''
+    } else if (sentimentMode.value === 'monthly') {
+      // "202601" → "26/01"
+      const d = p.date || ''
+      return d.length >= 6 ? d.substring(2, 4) + '/' + d.substring(4, 6) : d
+    } else {
+      // "20260211" → "02/11"
+      const d = p.date || ''
+      return d.length >= 8 ? d.substring(4, 6) + '/' + d.substring(6, 8) : d
+    }
+  })
+})
 const sentimentMatrix = ref<any>(null)
 const sentimentRecommendations = ref<any[]>([])
 const sentimentLoading = ref(false)
@@ -1788,11 +1809,17 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         </div>
 
         <!-- 1. 情绪时间线 -->
-        <div class="st">📈 情绪时间线</div>
-        <div v-if="!sentimentTimeline.length" class="empty" style="padding:12px 0">
-          {{ sentimentMode === 'intraday' ? '日内模式需要扫描器运行中，当前无实时数据' : '暂无情绪数据（新扫描会产生数据点）' }}
+        <div class="st">📈 情绪时间线
+          <span style="font-weight:normal;font-size:11px;color:var(--text-tertiary);margin-left:8px">
+            {{ sentimentMode === 'intraday' ? '（需扫描器运行）' : `（${displayTimeline.length}个数据点）` }}
+          </span>
         </div>
-        <div v-else-if="sentimentTimeline.length < 3 && sentimentMode !== 'intraday'" class="empty" style="padding:12px 0">数据点不足({{sentimentTimeline.length}}个)，需积累更多交易日</div>
+        <div v-if="sentimentMode === 'intraday' && !sentimentTimeline.length" class="empty" style="padding:16px 0;text-align:center">
+          <div style="font-size:32px;margin-bottom:8px">📡</div>
+          <div>日内模式需要扫描器运行中才能采集数据</div>
+          <div style="font-size:12px;color:var(--text-tertiary);margin-top:4px">请先启动扫描器，或在日线/周线/月线模式下查看历史情绪</div>
+        </div>
+        <div v-else-if="!sentimentTimeline.length" class="empty" style="padding:12px 0">暂无情绪数据</div>
         <div v-else class="sentiment-chart">
           <!-- Y轴标签 -->
           <div class="sc-y-axis">
@@ -1805,21 +1832,13 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
             <div class="sc-band" style="height:15%;background:rgba(64,158,255,0.08)" title="分化 55-70"></div>
             <div class="sc-band" style="height:15%;background:rgba(230,162,60,0.08)" title="震荡 40-55"></div>
             <div class="sc-band" style="height:40%;background:rgba(103,194,58,0.08)" title="冰点 <40"></div>
-            <!-- 左侧刻度 -->
-            <div style="position:absolute;left:2px;top:0;font-size:10px;color:var(--text-quaternary);z-index:5">100</div>
-            <div style="position:absolute;left:2px;top:28%;font-size:10px;color:var(--text-quaternary);z-index:5">70</div>
-            <div style="position:absolute;left:2px;top:43%;font-size:10px;color:var(--text-quaternary);z-index:5">55</div>
-            <div style="position:absolute;left:2px;top:58%;font-size:10px;color:var(--text-quaternary);z-index:5">40</div>
-            <div style="position:absolute;left:2px;bottom:0;font-size:10px;color:var(--text-quaternary);z-index:5">0</div>
-            <!-- 数据点连线 SVG (用显示范围的数据) -->
+            <!-- 数据点连线 SVG -->
             <svg class="sc-svg" :viewBox="`0 0 ${Math.max(displayTimeline.filter(p => p.score != null).length - 1, 1) * 20} 100`" preserveAspectRatio="none">
-              <polyline :points="displayTimeline.filter(p => p.score != null).map((p, i, arr) => `${i * 20},${100 - (p.score || 0)}`).join(' ')" fill="none" stroke="var(--el-color-primary)" stroke-width="1.5" />
+              <polyline :points="displayTimeline.filter(p => p.score != null).map((p, i) => `${i * 20},${100 - (p.score || 0)}`).join(' ')" fill="none" stroke="var(--el-color-primary)" stroke-width="1.5" />
             </svg>
             <!-- 数据点 -->
             <template v-for="(p, i) in displayTimeline" :key="i">
               <div v-if="p.score != null" class="sc-dot" :style="{ left: `${i / Math.max(displayTimeline.length - 1, 1) * 100}%`, bottom: `${(p.score || 0)}%` }" :class="p.period === '高潮' ? 'hot' : p.period === '冰点' ? 'cold' : p.missing_data ? 'missing' : ''" @mouseenter="hoveredPoint = p" @mouseleave="hoveredPoint = null">
-              </div>
-              <div v-else class="sc-dot-null" :style="{ left: (i / Math.max(displayTimeline.length - 1, 1) * 100) + '%' }">
               </div>
             </template>
             <!-- Hover详情 -->
@@ -1839,14 +1858,9 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
               </div>
             </template>
           </div>
-          <!-- X轴(采样显示,避免拥挤) -->
+          <!-- X轴(采样+可读格式) -->
           <div class="sc-x-labels">
-            <template v-if="sentimentMode === 'intraday'">
-              <span v-for="(p, i) in displayTimeline.filter((_, idx) => idx % Math.max(Math.ceil(displayTimeline.length / 6), 1) === 0)" :key="i">{{ p.time?.substring(11, 16) }}</span>
-            </template>
-            <template v-else>
-              <span v-for="(p, i) in displayTimeline.filter((_, idx) => idx % Math.max(Math.ceil(displayTimeline.length / 8), 1) === 0)" :key="i">{{ sentimentMode === 'monthly' ? p.date : p.date?.substring(4) }}</span>
-            </template>
+            <span v-for="(lbl, i) in xAxisLabels" :key="i">{{ lbl }}</span>
           </div>
         </div>
 
@@ -2674,7 +2688,7 @@ mm-tab-content {
 .review-sentiment-snap { margin-top: 8px; padding: 6px 12px; border-radius: 6px; background: rgba(22,93,255,0.05); border-left: 3px solid var(--el-color-primary); font-size: 12px; display: flex; gap: 8px; }
 
 /* ==================== 情绪Tab ==================== */
-.sentiment-chart { display: flex; height: 200px; position: relative; border: 1px solid var(--border-default); border-radius: 8px; overflow: hidden; background: var(--bg-elevated); }
+.sentiment-chart { display: flex; height: 240px; position: relative; border: 1px solid var(--border-default); border-radius: 8px; overflow: hidden; background: var(--bg-elevated); }
 .sc-y-axis { display: flex; flex-direction: column-reverse; justify-content: space-between; padding: 4px 6px; font-size: 10px; color: var(--text-tertiary); min-width: 32px; text-align: right; }
 .sc-chart-body { flex: 1; position: relative; display: flex; flex-direction: column-reverse; }
 .sc-band { width: 100%; position: relative; z-index: 1; }
@@ -2695,7 +2709,7 @@ mm-tab-content {
 .sc-trade-marker { position: absolute; font-size: 10px; z-index: 5; font-weight: 700; }
 .sc-trade-marker.buy { color: var(--stock-down); }
 .sc-trade-marker.sell { color: var(--stock-up); }
-.sc-x-labels { display: flex; justify-content: space-between; padding: 2px 8px; font-size: 9px; color: var(--text-tertiary); border-top: 1px solid var(--border-default); }
+.sc-x-labels { display: flex; justify-content: space-between; padding: 4px 8px; font-size: 11px; color: var(--text-tertiary); border-top: 1px solid var(--border-default); min-height: 22px; }
 
 .sentiment-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .sentiment-panel { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 10px 12px; }
