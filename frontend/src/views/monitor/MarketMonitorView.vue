@@ -1785,8 +1785,10 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
 
         <!-- 1. 情绪时间线 -->
         <div class="st">📈 情绪时间线</div>
-        <div v-if="!sentimentTimeline.length" class="empty" style="padding:12px 0">暂无情绪数据（新扫描会产生数据点）</div>
-        <div v-else-if="sentimentTimeline.length < 3" class="empty" style="padding:12px 0">数据点不足({{sentimentTimeline.length}}个)，需积累更多交易日</div>
+        <div v-if="!sentimentTimeline.length" class="empty" style="padding:12px 0">
+          {{ sentimentMode === 'intraday' ? '日内模式需要扫描器运行中，当前无实时数据' : '暂无情绪数据（新扫描会产生数据点）' }}
+        </div>
+        <div v-else-if="sentimentTimeline.length < 3 && sentimentMode !== 'intraday'" class="empty" style="padding:12px 0">数据点不足({{sentimentTimeline.length}}个)，需积累更多交易日</div>
         <div v-else class="sentiment-chart">
           <!-- Y轴标签 -->
           <div class="sc-y-axis">
@@ -1833,13 +1835,13 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
               </div>
             </template>
           </div>
-          <!-- X轴 -->
+          <!-- X轴(采样显示,避免拥挤) -->
           <div class="sc-x-labels">
             <template v-if="sentimentMode === 'intraday'">
-              <span v-for="(p, i) in sentimentTimeline.filter((_, idx) => idx % Math.max(Math.ceil(sentimentTimeline.length / 6), 1) === 0)" :key="i">{{ p.time?.substring(11, 16) }}</span>
+              <span v-for="(p, i) in displayTimeline.filter((_, idx) => idx % Math.max(Math.ceil(displayTimeline.length / 6), 1) === 0)" :key="i">{{ p.time?.substring(11, 16) }}</span>
             </template>
             <template v-else>
-              <span v-for="(p, i) in sentimentTimeline" :key="i">{{ p.date?.substring(4, 8) }}</span>
+              <span v-for="(p, i) in displayTimeline.filter((_, idx) => idx % Math.max(Math.ceil(displayTimeline.length / 8), 1) === 0)" :key="i">{{ sentimentMode === 'monthly' ? p.date : p.date?.substring(4) }}</span>
             </template>
           </div>
         </div>
