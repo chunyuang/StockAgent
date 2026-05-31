@@ -1273,7 +1273,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <div class="st">📡 扫描历史
           <ElDatePicker v-model="scanTraceDate" type="date" placeholder="全部日期" size="small" value-format="YYYY-MM-DD" style="width:130px;margin-left:8px" :disabled-date="(d: Date) => d > new Date()" @change="fetchScanHistory" />
           <ElButton size="small" @click="scanTraceDate='';fetchScanHistory()" :loading="scanHistoryLoading">🔄</ElButton>
-          <span class="text-tertiary" style="font-size:11px;margin-left:auto">全量5分钟 · 持仓30秒 · 信号5分钟过期</span>
+          <span class="text-tertiary" style="font-size:11px;margin-left:auto">全量5分钟 · 持仓30秒 · 信号5分钟过期 · <span style="opacity:0.7">候→过→买</span></span>
         </div>
         <div v-if="scanHistoryLoading" class="empty" style="padding:8px 0">加载中...</div>
         <div v-else-if="!scanHistory.length" class="empty" style="padding:8px 0">启动后扫描记录会显示在这里</div>
@@ -1281,7 +1281,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           <div v-for="(s, i) in scanHistory" :key="i" class="scan-chip" :class="{ active: selectedScanIdx === i }" @click="selectedScanIdx = i; fetchScanTrace(s.scan_id || '')">
             <span class="sc-time">{{ (s.scan_time || s.time || '').substring(11, 19) || '--:--' }}</span>
             <span class="sc-type" :class="s.scan_type === 'full' ? 'full' : 'quick'">{{ s.scan_type === 'full' ? '全量' : '快速' }}</span>
-            <span class="sc-stats">{{ s.summary?.total_candidates || s.candidates || 0 }}→{{ s.summary?.passed || s.signals || 0 }}→{{ s.buys || 0 }}</span>
+            <span class="sc-stats" title="候选数→通过数→买入数">{{ s.summary?.total_candidates || s.candidates || 0 }}→{{ s.summary?.passed || s.signals || 0 }}→{{ s.buys || 0 }}</span>
           </div>
         </div>
 
