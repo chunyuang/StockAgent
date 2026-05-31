@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-v2.9.40 测试: filter_pipeline自动获取持仓/账户 + scanner broker耦合降低
+v2.9.41 测试: filter_pipeline自动获取持仓/账户 + scanner broker耦合降低
 
 1. LiveFilterPipeline.apply自动从scanner._broker获取positions和account
 2. scanner._apply_filter_pipeline不再组装positions/account
@@ -140,9 +140,9 @@ class TestVersionSync:
     """版本同步检查"""
 
     def test_design_doc_version_in_api(self):
-        """API版本号为v2.9.40"""
+        """API版本号为v2.9.41"""
         source = _read(_API)
-        assert '_DESIGN_DOC_VERSION = "v2.9.40"' in source
+        assert '_DESIGN_DOC_VERSION = "v2.9.41"' in source
 
 
 class TestNoBacktestRegressionV2940:

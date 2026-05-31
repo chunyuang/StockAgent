@@ -1065,28 +1065,15 @@ class MarketScanner:
         RiskWatchdog.emit_risk_thread_error(self, error, consecutive_errors)
 
     def _check_stop_loss_only(self, realtime_data: Dict):
-        """1秒级止损检查 — 委托给PositionManager【Phase3.1】
+        """1秒级止损检查 — 委托给PositionManager【v2.9.41简化】
         
-        v2.9修复: PositionManager.check_stop_loss_only已处理跌停挂起+恢复,
-        scanner不再重复检查跌停(之前scanner和PM双重检查导致逻辑混乱)
-        
-        v2.9.5增强: _execute_risk_sell超时时记录待执行卖出, 避免丢失风控指令
-        v2.9.22增强: 跌停恢复时重试pending_sells中的挂起卖出
-        
-        执行流程: PM返回to_sell → scanner执行卖出(通过asyncio主循环)
+        v2.9.41: 移除冗余的broker/positions检查(PM内部已处理), 
+        scanner只负责调用PM和执行卖出结果。
         """
-        if not self._broker:
-            return
-        
-        positions = self._broker.get_positions()
-        if not positions:
-            return
-        
         # 【v2.9.22:跌停恢复重试pending_sells】
-        # 如果某票不再跌停且有挂起的卖出指令, 优先执行
         self._retry_pending_sells(realtime_data)
         
-        # 委托检查(PM已处理跌停挂起+跌停恢复)
+        # 委托检查(PM内部已处理: broker检查+持仓获取+跌停挂起+跌停恢复)
         if self._position_manager:
             to_sell = self._position_manager.check_stop_loss_only(realtime_data)
         else:
@@ -1212,14 +1199,8 @@ class MarketScanner:
         self._last_scan_ts = time.time()
 
     async def _persist_scan_result(self):
-        """扫描结果持久化: broker状态+时间线+运行时快照【v2.9.19提取】"""
-        try:
-            saved = await self._broker.save_state()
-            logger.info(f"[SCAN] save_state={saved} positions={len(self._broker.positions)} orders={len(self._broker.orders)}")
-            await self._save_timeline()
-            await self._save_runtime_snapshot(force=False)
-        except Exception as e:
-            logger.warning(f"[SCAN] save_state失败: {e}")
+        """扫描结果持久化 — 委托给RuntimePersistence【v2.9.41提取】"""
+        await self._runtime_persistence.persist_scan_result()
 
     # ==================== 实时行情 ====================
 
