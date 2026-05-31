@@ -298,6 +298,12 @@ const liveBacktestDiff = ref<any[]>([])
 const sentimentMode = ref<'intraday' | 'daily' | 'weekly' | 'monthly'>('daily')
 const sentimentDate = ref(new Date().toISOString().slice(0, 10))
 const sentimentTimeline = ref<any[]>([])
+const hoveredPoint = ref<any>(null)
+// 日线只显示最近60天, 其他模式全显
+const displayTimeline = computed(() => {
+  if (sentimentMode.value !== 'daily') return sentimentTimeline.value
+  return sentimentTimeline.value.slice(-60)
+})
 const sentimentTrades = ref<any[]>([])
 const sentimentMatrix = ref<any>(null)
 const sentimentRecommendations = ref<any[]>([])
@@ -1788,28 +1794,41 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           </div>
           <!-- 图表主体 -->
           <div class="sc-chart-body">
-            <!-- 背景色带 -->
-            <div class="sc-band" style="height:30%;background:rgba(245,108,108,0.08)"></div>
-            <div class="sc-band" style="height:15%;background:rgba(64,158,255,0.08)"></div>
-            <div class="sc-band" style="height:15%;background:rgba(230,162,60,0.08)"></div>
-            <div class="sc-band" style="height:40%;background:rgba(103,194,58,0.08)"></div>
-            <!-- 数据点连线 SVG -->
-            <svg class="sc-svg" :viewBox="`0 0 ${Math.max(sentimentTimeline.filter(p => p.score != null).length - 1, 1) * 20} 100`" preserveAspectRatio="none">
-              <polyline :points="sentimentTimeline.filter(p => p.score != null).map((p, i, arr) => `${i * 20},${100 - (p.score || 0)}`).join(' ')" fill="none" stroke="var(--el-color-primary)" stroke-width="1.5" />
+            <!-- 背景色带: 高潮≥70(30%) / 分化55-70(15%) / 震荡40-55(15%) / 冰点<40(40%) -->
+            <div class="sc-band" style="height:30%;background:rgba(245,108,108,0.08)" title="高潮 ≥70"></div>
+            <div class="sc-band" style="height:15%;background:rgba(64,158,255,0.08)" title="分化 55-70"></div>
+            <div class="sc-band" style="height:15%;background:rgba(230,162,60,0.08)" title="震荡 40-55"></div>
+            <div class="sc-band" style="height:40%;background:rgba(103,194,58,0.08)" title="冰点 <40"></div>
+            <!-- 左侧刻度 -->
+            <div style="position:absolute;left:2px;top:0;font-size:10px;color:var(--text-quaternary);z-index:5">100</div>
+            <div style="position:absolute;left:2px;top:28%;font-size:10px;color:var(--text-quaternary);z-index:5">70</div>
+            <div style="position:absolute;left:2px;top:43%;font-size:10px;color:var(--text-quaternary);z-index:5">55</div>
+            <div style="position:absolute;left:2px;top:58%;font-size:10px;color:var(--text-quaternary);z-index:5">40</div>
+            <div style="position:absolute;left:2px;bottom:0;font-size:10px;color:var(--text-quaternary);z-index:5">0</div>
+            <!-- 数据点连线 SVG (用显示范围的数据) -->
+            <svg class="sc-svg" :viewBox="`0 0 ${Math.max(displayTimeline.filter(p => p.score != null).length - 1, 1) * 20} 100`" preserveAspectRatio="none">
+              <polyline :points="displayTimeline.filter(p => p.score != null).map((p, i, arr) => `${i * 20},${100 - (p.score || 0)}`).join(' ')" fill="none" stroke="var(--el-color-primary)" stroke-width="1.5" />
             </svg>
             <!-- 数据点 -->
-            <template v-for="(p, i) in sentimentTimeline" :key="i">
-              <div v-if="p.score != null" class="sc-dot" :style="{ left: `${i / Math.max(sentimentTimeline.length - 1, 1) * 100}%`, bottom: `${(p.score || 0)}%` }" :class="p.period === '高潮' ? 'hot' : p.period === '冰点' ? 'cold' : ''" :title="`${p.time?.substring(11, 19) || p.date} 情绪=${p.score} ${p.period || ''}`">
+            <template v-for="(p, i) in displayTimeline" :key="i">
+              <div v-if="p.score != null" class="sc-dot" :style="{ left: `${i / Math.max(displayTimeline.length - 1, 1) * 100}%`, bottom: `${(p.score || 0)}%` }" :class="p.period === '高潮' ? 'hot' : p.period === '冰点' ? 'cold' : p.missing_data ? 'missing' : ''" @mouseenter="hoveredPoint = p" @mouseleave="hoveredPoint = null">
               </div>
-              <div v-else class="sc-dot-null" :style="{ left: (i / Math.max(sentimentTimeline.length - 1, 1) * 100) + '%' }" :title="(p.time ? p.time.substring(11, 19) : p.date) + ' 候选' + p.candidates + ' 通过' + p.passed">
+              <div v-else class="sc-dot-null" :style="{ left: (i / Math.max(displayTimeline.length - 1, 1) * 100) + '%' }">
               </div>
             </template>
+            <!-- Hover详情 -->
+            <div v-if="hoveredPoint" class="sc-hover-card" :style="{ left: `${Math.min(displayTimeline.findIndex(p => p === hoveredPoint) / Math.max(displayTimeline.length - 1, 1) * 100, 75)}%`, bottom: `${Math.min((hoveredPoint.score || 0) + 8, 85)}%` }">
+              <div class="sc-hover-date">{{ hoveredPoint.date }}</div>
+              <div class="sc-hover-score" :class="hoveredPoint.period === '高潮' ? 'hot' : hoveredPoint.period === '冰点' ? 'cold' : ''">{{ hoveredPoint.score?.toFixed(1) }} {{ hoveredPoint.period }}</div>
+              <div class="sc-hover-detail">涨停{{ hoveredPoint.limit_up || 0 }} 跌停{{ hoveredPoint.limit_down || 0 }} 连板{{ hoveredPoint.max_continue || 0 }}</div>
+              <div v-if="hoveredPoint.missing_data" class="sc-hover-warn">⚠ 数据不完整</div>
+            </div>
             <!-- 买卖标记 -->
             <template v-for="(t, i) in sentimentTrades" :key="'t'+i">
-              <div v-if="sentimentMode === 'intraday'" class="sc-trade-marker" :class="t.side" :style="{ left: `${sentimentTimeline.length ? sentimentTimeline.findIndex(p => p.time >= t.time) / Math.max(sentimentTimeline.length - 1, 1) * 100 : 50}%`, bottom: '2%' }" :title="`${t.side === 'buy' ? '买入' : '卖出'} ${t.ts_code} ${t.strategy}`">
+              <div v-if="sentimentMode === 'intraday'" class="sc-trade-marker" :class="t.side" :style="{ left: `${displayTimeline.length ? displayTimeline.findIndex(p => p.time >= t.time) / Math.max(displayTimeline.length - 1, 1) * 100 : 50}%`, bottom: '2%' }" :title="`${t.side === 'buy' ? '买入' : '卖出'} ${t.ts_code} ${t.strategy}`">
                 {{ t.side === 'buy' ? '▲' : '▼' }}
               </div>
-              <div v-else class="sc-trade-marker" :class="t.side" :style="{ left: `${sentimentTimeline.findIndex(p => p.date >= t.date) / Math.max(sentimentTimeline.length - 1, 1) * 100}%`, bottom: '2%' }">
+              <div v-else class="sc-trade-marker" :class="t.side" :style="{ left: `${displayTimeline.findIndex(p => p.date >= t.date) / Math.max(displayTimeline.length - 1, 1) * 100}%`, bottom: '2%' }">
                 {{ t.side === 'buy' ? '▲' : '▼' }}
               </div>
             </template>
@@ -2659,6 +2678,14 @@ mm-tab-content {
 .sc-dot.hot { background: #f56c6c; }
 .sc-dot.cold { background: #67c23a; }
 .sc-dot-null { position: absolute; width: 4px; height: 4px; border-radius: 50%; background: var(--text-quaternary); transform: translate(-50%, 0); z-index: 4; top: 50%; opacity: 0.5; }
+.sc-dot.missing { background: var(--el-color-warning); opacity: 0.6; }
+.sc-hover-card { position: absolute; z-index: 10; background: var(--el-bg-color-overlay); border: 1px solid var(--el-border-color); border-radius: 6px; padding: 6px 10px; font-size: 12px; pointer-events: none; box-shadow: 0 2px 8px rgba(0,0,0,0.15); white-space: nowrap; }
+.sc-hover-date { color: var(--text-secondary); margin-bottom: 2px; }
+.sc-hover-score { font-weight: 600; font-size: 14px; }
+.sc-hover-score.hot { color: #f56c6c; }
+.sc-hover-score.cold { color: #67c23a; }
+.sc-hover-detail { color: var(--text-tertiary); margin-top: 2px; }
+.sc-hover-warn { color: var(--el-color-warning); margin-top: 2px; }
 .sc-trade-marker { position: absolute; font-size: 10px; z-index: 5; font-weight: 700; }
 .sc-trade-marker.buy { color: var(--stock-down); }
 .sc-trade-marker.sell { color: var(--stock-up); }
