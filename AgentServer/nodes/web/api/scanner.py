@@ -1583,18 +1583,43 @@ async def backtest_compare(date: str = None):
             if same_period_doc:
                 backtest_type = "same_period"
                 strategies = same_period_doc.get("params", {}).get("strategy_ids", [])
-                summary = same_period_doc.get("result", {}).get("summary", {})
-                for sid in strategies:
-                    if sid not in backtest_results:
-                        backtest_results[sid] = {
-                            "total_return": summary.get("total_return", 0),
-                            "win_rate": summary.get("win_rate", 0),
-                            "max_drawdown": summary.get("max_drawdown", 0),
-                            "sharpe": summary.get("sharpe_ratio", 0),
-                            "trades": summary.get("total_trades", 0),
-                            "source": "same_period",
-                            "period": f"{same_period_doc.get('params',{}).get('start_date','')}~{same_period_doc.get('params',{}).get('end_date','')}",
-                        }
+                raw_summary = same_period_doc.get("result", {}).get("summary", {})
+                # 解析summary: 可能是嵌套dict(含strategy_results)或error dict
+                if isinstance(raw_summary, dict) and "error" not in raw_summary:
+                    # 有strategy_results时, 拆分到每个策略
+                    sr = raw_summary.get("strategy_results", {})
+                    cn_to_en = {"半路追涨":"halfway_chase","涨停开板":"first_limit_up","跌停翘板":"limit_down_qiao","首板打板":"first_limit_up","龙头低吸":"dragon_head"}
+                    if sr:
+                        for cn_name, v in sr.items():
+                            sid = cn_to_en.get(cn_name, cn_name)
+                            if sid not in backtest_results:
+                                backtest_results[sid] = {
+                                    "total_return": v.get("total_return", 0),
+                                    "win_rate": v.get("win_rate", 0),
+                                    "max_drawdown": v.get("max_drawdown", 0),
+                                    "sharpe": 0,
+                                    "trades": v.get("total_trades", 0),
+                                    "source": "same_period",
+                                    "period": f"{same_period_doc.get('params',{}).get('start_date','')}~{same_period_doc.get('params',{}).get('end_date','')}",
+                                }
+                    else:
+                        # 整体summary
+                        summary = raw_summary
+                        for sid in strategies:
+                            if sid not in backtest_results:
+                                backtest_results[sid] = {
+                                    "total_return": summary.get("total_return", 0),
+                                    "win_rate": summary.get("win_rate", 0),
+                                    "max_drawdown": summary.get("max_drawdown", 0),
+                                    "sharpe": summary.get("sharpe_ratio", 0),
+                                    "trades": summary.get("total_trades", 0),
+                                    "source": "same_period",
+                                    "period": f"{same_period_doc.get('params',{}).get('start_date','')}~{same_period_doc.get('params',{}).get('end_date','')}",
+                                }
+                else:
+                    # error或无数据
+                    backtest_type = "same_period_failed"
+                    backtest_results = {}  # fallback到文件
             
             # 2b. fallback: 普通回测
             if not backtest_results:
@@ -4706,6 +4731,42 @@ async def backtest_same_period(request: Request):
                 
                 if not mm.is_initialized:
                     await mm.initialize()
+                
+                # 检查行情数据是否存在
+                bar_count = await mm.db["stock_daily_ak_full"].count_documents(
+                    {"trade_date": {"$gte": sd, "$lte": ed}}
+                )
+                if bar_count < 100:
+                    # 尝试用东财补数据
+                    try:
+                        from nodes.market_monitor.data_source_router import data_source_router
+                        for td_int in range(int(sd), int(ed)+1):
+                            td_str = str(td_int)
+                            if await mm.db["stock_daily_ak_full"].count_documents({"trade_date": td_str}) > 0:
+                                continue
+                            try:
+                                await data_source_router.fetch_and_save_daily_bar(td_str)
+                                logger.info(f"[SAME-PERIOD-BT] 补数据: {td_str}")
+                            except: pass
+                    except Exception as e2:
+                        logger.warning(f"[SAME-PERIOD-BT] 补数据失败: {e2}")
+                    
+                    bar_count2 = await mm.db["stock_daily_ak_full"].count_documents(
+                        {"trade_date": {"$gte": sd, "$lte": ed}}
+                    )
+                    if bar_count2 < 100:
+                        await mm.db["backtest_results"].update_one(
+                            {"task_id": f"same_period_{sd}_{ed}"},
+                            {"$set": {
+                                "task_id": f"same_period_{sd}_{ed}",
+                                "status": "failed",
+                                "error": f"行情数据不足: {bar_count2}条(需要>100)",
+                                "created_at": datetime.now().isoformat(),
+                                "type": "same_period",
+                            }},
+                            upsert=True
+                        )
+                        return
                 
                 bt = PortfolioBacktester()
                 bt_config = {
