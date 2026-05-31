@@ -459,6 +459,8 @@ async function fetchReviewData() {
                 stop_loss_count: Object.values(d.strategy_summary || {}).reduce((s: number, v: any) => s + (v.stop_loss_count || 0), 0),
                 take_profit_count: Object.values(d.strategy_summary || {}).reduce((s: number, v: any) => s + (v.take_profit_count || 0), 0),
                 scanner_stats: d.scan_stats,
+                funnel_summary: d.funnel_summary,
+                sentiment_snapshot: d.sentiment_snapshot,
               }
               // 交易归因从sells构建
               tradeAttributions.value = (d.sells || []).map((s: any) => ({
@@ -479,7 +481,7 @@ async function fetchReviewData() {
     }
     
     promises.push(
-      api.get(`${scannerApi}/execution-quality`, opts).then(r => { const p = parseResponse(r); if (p.success) executionQuality.value = p.data }),
+      api.get(`${scannerApi}/execution-quality?date=${reviewDate.value.replace(/-/g, '')}`, opts).then(r => { const p = parseResponse(r); if (p.success) executionQuality.value = p.data }),
       api.get(`${scannerApi}/backtest-compare`, opts).then(r => { const p = parseResponse(r); if (p.success) liveBacktestDiff.value = p.data || [] }),
     )
     
@@ -1519,8 +1521,30 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
             </div>
           </div>
 
+          <!-- 扫描漏斗统计 -->
+          <div class="st" style="margin-top:12px">📡 扫描漏斗统计</div>
+          <div v-if="dailyReportData?.scanner_stats" class="review-scan-stats">
+            <div class="rss-row"><span class="rss-label">扫描次数</span><span class="rss-value">{{ dailyReportData.scanner_stats.scan_count || 0 }}次</span></div>
+            <div class="rss-row"><span class="rss-label">发现信号</span><span class="rss-value up">{{ dailyReportData.scanner_stats.total_signals || 0 }}只</span></div>
+            <div class="rss-row"><span class="rss-label">实际买入</span><span class="rss-value">{{ dailyReportData.scanner_stats.buy_count || 0 }}笔</span></div>
+            <div class="rss-row"><span class="rss-label">实际卖出</span><span class="rss-value">{{ dailyReportData.scanner_stats.sell_count || 0 }}笔</span></div>
+            <div class="rss-row"><span class="rss-label">调试扫描</span><span class="rss-value" style="color:#e6a23c">{{ dailyReportData.scanner_stats.debug_scan_count || 0 }}次</span></div>
+          </div>
+          <div v-if="dailyReportData?.funnel_summary && Object.keys(dailyReportData.funnel_summary).length" class="review-funnel-detail">
+            <div v-for="(data, layer) in dailyReportData.funnel_summary" :key="layer" class="rfd-row">
+              <span class="rfd-layer">{{ pipelineLabels[layer] || layer }}</span>
+              <div class="rfd-bar-track"><div class="rfd-bar-fill" :style="{ width: Math.min(data.total_rejected / Math.max(data.total_input, 1) * 100, 100) + '%' }"></div></div>
+              <span class="rfd-rej">淘汰{{ data.total_rejected }}</span>
+            </div>
+          </div>
+          <div v-if="dailyReportData?.sentiment_snapshot" class="review-sentiment-snap">
+            <span style="font-weight:600">🌡️ 末次情绪</span>
+            <span>{{ dailyReportData.sentiment_snapshot }}</span>
+          </div>
+          <div v-if="!dailyReportData?.scanner_stats" class="empty" style="padding:8px 0">暂无扫描数据</div>
+
           <!-- 情绪周期 -->
-          <div class="st" style="margin-top:12px">🌡️ 情绪周期</div>
+          <div class="st" style="margin-top:12px">🌡️ 实时情绪</div>
           <MarketSentiment />
         </template>
 
@@ -1545,12 +1569,15 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         </template>
 
         <!-- 执行质量 & 实盘vs回测 -->
-        <div class="st" style="margin-top:16px">🎯 执行质量</div>
+        <div class="st" style="margin-top:16px">🎯 执行质量 <span v-if="executionQuality?.date" style="font-size:11px;color:var(--text-tertiary);font-weight:normal">{{ executionQuality.date }}</span></div>
         <div v-if="executionQuality" class="eq-grid">
-          <div class="eq-card"><div class="eq-label">平均滑点</div><div class="eq-value">{{ executionQuality.avg_slippage_pct?.toFixed(2) }}%</div></div>
-          <div class="eq-card"><div class="eq-label">成交延迟</div><div class="eq-value">{{ executionQuality.avg_fill_delay_ms?.toFixed(0) }}ms</div></div>
-          <div class="eq-card"><div class="eq-label">成交率</div><div class="eq-value">{{ executionQuality.fill_rate_pct?.toFixed(1) }}%</div></div>
-          <div class="eq-card"><div class="eq-label">拒绝数</div><div class="eq-value">{{ executionQuality.rejected_orders || 0 }}</div></div>
+          <div class="eq-card"><div class="eq-label">平均滑点</div><div class="eq-value" :class="Math.abs(executionQuality.avg_slippage_pct || 0) > 0.5 ? 'warn' : ''">{{ (executionQuality.avg_slippage_pct || 0).toFixed(3) }}%</div></div>
+          <div class="eq-card"><div class="eq-label">最大滑点</div><div class="eq-value">{{ (executionQuality.max_slippage_pct || 0).toFixed(3) }}%</div></div>
+          <div class="eq-card"><div class="eq-label">成交延迟</div><div class="eq-value">{{ (executionQuality.avg_fill_delay_ms || 0).toFixed(0) }}ms</div></div>
+          <div class="eq-card"><div class="eq-label">成交率</div><div class="eq-value" :class="(executionQuality.fill_rate_pct || 0) < 90 ? 'warn' : 'ok'">{{ (executionQuality.fill_rate_pct || 0).toFixed(1) }}%</div></div>
+          <div class="eq-card"><div class="eq-label">下单数</div><div class="eq-value">{{ executionQuality.total_orders || 0 }}</div></div>
+          <div class="eq-card"><div class="eq-label">成交数</div><div class="eq-value ok">{{ executionQuality.filled_orders || 0 }}</div></div>
+          <div class="eq-card"><div class="eq-label">拒绝数</div><div class="eq-value" :class="(executionQuality.rejected_orders || 0) > 0 ? 'warn' : ''">{{ executionQuality.rejected_orders || 0 }}</div></div>
         </div>
         <div v-else class="empty">暂无执行数据</div>
 
@@ -2440,6 +2467,17 @@ mm-tab-content {
 
 /* 复盘Tab */
 .review-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.review-scan-stats { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 8px 12px; border-radius: 6px; background: var(--bg-elevated); border: 1px solid var(--border-default); }
+.rss-row { font-size: 12px; }
+.rss-label { color: var(--text-tertiary); margin-right: 4px; }
+.rss-value { font-weight: 600; }
+.review-funnel-detail { margin-top: 6px; }
+.rfd-row { display: flex; align-items: center; gap: 8px; font-size: 11px; padding: 2px 0; }
+.rfd-layer { width: 70px; text-align: right; color: var(--text-tertiary); flex-shrink: 0; }
+.rfd-bar-track { flex: 1; height: 12px; background: var(--bg-secondary); border-radius: 3px; overflow: hidden; }
+.rfd-bar-fill { height: 100%; border-radius: 3px; background: var(--stock-up); opacity: 0.6; }
+.rfd-rej { font-weight: 600; color: var(--stock-up); font-size: 10px; min-width: 50px; }
+.review-sentiment-snap { margin-top: 8px; padding: 6px 12px; border-radius: 6px; background: rgba(22,93,255,0.05); border-left: 3px solid var(--el-color-primary); font-size: 12px; display: flex; gap: 8px; }
 .review-tabs { display: flex; gap: 2px; }
 .review-tab { padding: 6px 14px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--bg-elevated); color: var(--text-secondary); font-size: 13px; cursor: pointer; transition: all 0.2s; }
 .review-tab:hover { background: var(--bg-hover); }
@@ -2472,6 +2510,8 @@ mm-tab-content {
 .eq-card { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 10px 12px; text-align: center; }
 .eq-label { font-size: 11px; color: var(--text-tertiary); margin-bottom: 4px; }
 .eq-value { font-size: 15px; font-weight: 600; }
+.eq-value.ok { color: var(--stock-down); }
+.eq-value.warn { color: var(--stock-up); }
 .lb-table { font-size: 12px; }
 .lb-header, .lb-row { display: grid; grid-template-columns: 70px 60px 60px 60px 60px 70px 60px 60px; gap: 4px; padding: 3px 0; }
 .lb-header { font-weight: 600; color: var(--text-tertiary); border-bottom: 1px solid var(--border-default); }

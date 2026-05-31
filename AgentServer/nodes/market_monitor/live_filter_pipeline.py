@@ -208,6 +208,12 @@ class LiveFilterPipeline:
                 + (f", 过滤半路追涨{l3_drop_count}只(冰点<40分暂停)" if l3_drop_count else "")
                 + f" | 公式: 涨停-跌停+大盘×10+50 | 高潮≥70→100% / 分化55-70→70% / 震荡40-55→50% / 冰点<40→25%"
             )
+            # 【v2.9.36:保存情绪数值快照,供复盘时间线使用】
+            result.layer_details["L3_sentiment_data"] = {
+                "score": round(score, 1), "period": period,
+                "position_ratio": round(sentiment_ratio, 3),
+                "l3_drop_count": l3_drop_count,
+            }
 
         # ---- L4: 盘前预选（记录淘汰明细）----
         if self._layer_enabled["L4_premarket"]:
