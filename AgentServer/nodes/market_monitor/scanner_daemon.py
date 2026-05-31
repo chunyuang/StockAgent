@@ -121,198 +121,197 @@ def _scanner_subprocess_main(config_dict: dict) -> None:
         sys.exit(1)
 
 
-async def _subprocess_async_main(config: ScannerDaemonConfig) -> None:
-    """子进程内的异步主循环"""
+class _SubprocessRuntime:
+    """子进程运行时 — 封装异步主循环的所有逻辑【v2.9.44提取】
+    
+    从_subprocess_async_main的303行闭包提取为类,
+    每个子功能成为独立的类方法:
+    - pub(): Redis发布辅助
+    - handle_command(): 命令路由+处理
+    - _cmd_start/stop/emergency_liquidate/update_params/scan(): 各命令子handler
+    - _run_scanner_loop(): 扫描循环
+    - status_pusher/health_pusher(): 定时推送
+    - run(): 主循环(BLPOP消费命令)
+    """
 
-    # 延迟导入 redis（子进程独立连接）
-    import redis.asyncio as aioredis
+    def __init__(self, config: ScannerDaemonConfig):
+        self.config = config
+        self.scanner = None
+        self.state = ScannerState.IDLE
+        self.scan_task: Optional[asyncio.Task] = None
+        self._redis_client = None
+        self._status_task: Optional[asyncio.Task] = None
+        self._health_task: Optional[asyncio.Task] = None
 
-    from core.managers import redis_manager
-    from core.settings import settings as app_settings
+        # IPC 频道(延迟初始化, 在run()中设置)
+        self.cmd_channel: str = ""
+        self.status_channel: str = ""
+        self.signal_channel: str = ""
+        self.position_channel: str = ""
+        self.health_channel: str = ""
+        self.cmd_list_key: str = ""
+        self.ack_channel: str = ""
 
-    # 初始化 Redis（子进程需要自己的连接）
-    redis_client: aioredis.Redis = aioredis.from_url(
-        app_settings.redis.url,
-        decode_responses=True,
-        max_connections=20,
-    )
+    # ==================== Redis 发布辅助 ====================
 
-    # IPC 频道
-    cmd_channel = _chan(config, "cmd")
-    status_channel = _chan(config, "status")
-    signal_channel = _chan(config, "signal")
-    position_channel = _chan(config, "position")
-    health_channel = _chan(config, "health")
-    cmd_list_key = _chan(config, "cmd")    # 【v2.9.7: List+ACK, 替代Pub/Sub】
-    ack_channel = _chan(config, "ack")      # 【v2.9.7: ACK确认通道】
-
-    # Scanner 实例（延迟创建）
-    scanner = None
-    state = ScannerState.IDLE
-    scan_task: Optional[asyncio.Task] = None
-
-    # ------------------------------------------------------------------
-    # Redis 发布辅助
-    # ------------------------------------------------------------------
-    async def pub(channel: str, data: dict) -> None:
+    async def pub(self, channel: str, data: dict) -> None:
+        """Redis发布(异常安全)"""
         try:
-            await redis_client.publish(channel, json.dumps(data, default=str))
+            await self._redis_client.publish(channel, json.dumps(data, default=str))
         except Exception as e:
             logger.warning(f"Redis publish to {channel} failed: {e}")
 
-    # ------------------------------------------------------------------
-    # 命令处理
-    # ------------------------------------------------------------------
-    # 命令处理 (v2.9.7: 支持ACK)
-    # ------------------------------------------------------------------
-    async def handle_command(data: dict) -> None:
-        nonlocal scanner, state, scan_task
+    async def _send_ack(self, cmd_id: str, status: str, cmd: str = "") -> None:
+        """发送ACK确认【v2.9.44从handle_command提取】"""
+        if not cmd_id:
+            return
+        try:
+            payload = {"cmd_id": cmd_id, "status": status, "ts": time.time()}
+            if cmd:
+                payload["cmd"] = cmd
+            await self._redis_client.publish(
+                self.ack_channel, json.dumps(payload, default=str)
+            )
+        except Exception as _e:
+            logger.debug(f"ACK publish failed: {_e}")
 
+    # ==================== 命令路由+处理 ====================
+
+    async def handle_command(self, data: dict) -> None:
+        """命令路由 — 分发到各子handler【v2.9.44提取, 原闭包handle_command 134行】"""
         cmd = data.get("cmd", "")
         params = data.get("params", {})
         cmd_id = data.get("cmd_id", "")  # 【v2.9.7: 命令唯一ID, 用于ACK】
 
         logger.info(f"Received command: {cmd} (id={cmd_id}) params={params}")
 
-        # 【v2.9.7: ACK确认 — 收到命令立即回复】
-        if cmd_id:
-            try:
-                await redis_client.publish(
-                    ack_channel,
-                    json.dumps({"cmd_id": cmd_id, "status": "received", "ts": time.time()}, default=str)
-                )
-            except Exception as _e:
-                logger.debug(f"ACK publish failed: {_e}")
+        # ACK确认 — 收到命令立即回复
+        await self._send_ack(cmd_id, "received")
 
-        if cmd == "start":
-            if state in (ScannerState.RUNNING, ScannerState.SCANNING):
-                await pub(cmd_channel, {"response": "already_running"})
-                return
-            state = ScannerState.STARTING
-            await pub(status_channel, {"state": state.value, "ts": time.time()})
+        # 命令路由
+        handler = {
+            "start": self._cmd_start,
+            "stop": self._cmd_stop,
+            "emergency_liquidate": self._cmd_emergency_liquidate,
+            "update_params": self._cmd_update_params,
+            "scan": self._cmd_scan,
+        }.get(cmd)
 
-            try:
-                # 动态导入 MarketScanner（避免子进程启动时依赖）
-                from nodes.market_monitor.scanner import MarketScanner
-                scanner = MarketScanner()
-                # 启动扫描循环
-                scan_task = asyncio.create_task(_run_scanner_loop(scanner, config, params))
-                state = ScannerState.RUNNING
-                await pub(status_channel, {"state": state.value, "ts": time.time()})
-                logger.info("Scanner started successfully")
-            except Exception as e:
-                state = ScannerState.ERROR
-                await pub(status_channel, {
-                    "state": state.value,
-                    "error": str(e),
-                    "ts": time.time(),
-                })
-                logger.error(f"Scanner start failed: {e}\n{traceback.format_exc()}")
-
-        elif cmd == "stop":
-            if scan_task and not scan_task.done():
-                scan_task.cancel()
-                try:
-                    await scan_task
-                except asyncio.CancelledError:
-                    pass
-            scanner = None
-            scan_task = None
-            state = ScannerState.STOPPED
-            await pub(status_channel, {"state": state.value, "ts": time.time()})
-            # 【v2.9.7: 完成ACK】
-            if cmd_id:
-                try:
-                    await redis_client.publish(
-                        ack_channel,
-                        json.dumps({"cmd_id": cmd_id, "status": "done", "ts": time.time()}, default=str)
-                    )
-                except Exception as _e:
-                    logger.debug(f"ACK publish failed: {_e}")
-            logger.info("Scanner stopped")
-
-        elif cmd == "emergency_liquidate":
-            reason = params.get("reason", "未知")
-            logger.warning(f"EMERGENCY LIQUIDATE: {reason}")
-            if scanner is not None:
-                try:
-                    # 尝试调用 scanner 的清仓方法
-                    if hasattr(scanner, "emergency_liquidate"):
-                        await scanner.emergency_liquidate(reason=reason)
-                    elif hasattr(scanner, "close_all_positions"):
-                        await scanner.close_all_positions(reason=reason)
-                    await pub(position_channel, {
-                        "event": "emergency_liquidate",
-                        "reason": reason,
-                        "ts": time.time(),
-                    })
-                except Exception as e:
-                    logger.error(f"Emergency liquidate failed: {e}")
-            else:
-                logger.warning("No scanner instance for emergency liquidate")
-
-        elif cmd == "update_params":
-            strategy_id = params.get("strategy_id", "")
-            updates = params.get("updates", {})
-            if scanner is not None and hasattr(scanner, "update_strategy_params"):
-                try:
-                    await scanner.update_strategy_params(strategy_id, updates)
-                    await pub(status_channel, {
-                        "state": state.value,
-                        "params_updated": strategy_id,
-                        "ts": time.time(),
-                    })
-                except Exception as e:
-                    logger.error(f"Update params failed: {e}")
-            else:
-                logger.warning(f"Cannot update params: scanner={'exists' if scanner else 'none'}")
-
-        elif cmd == "scan":
-            # 手动触发一次扫描
-            if scanner is not None and hasattr(scanner, "run_once"):
-                try:
-                    state = ScannerState.SCANNING
-                    await pub(status_channel, {"state": state.value, "ts": time.time()})
-                    result = await scanner.run_once()
-                    if result:
-                        await pub(signal_channel, {
-                            "event": "manual_scan",
-                            "signals": [_signal_to_dict(s) for s in result] if result else [],
-                            "ts": time.time(),
-                        })
-                    state = ScannerState.RUNNING
-                    await pub(status_channel, {"state": state.value, "ts": time.time()})
-                except Exception as e:
-                    logger.error(f"Manual scan failed: {e}")
-                    state = ScannerState.RUNNING
-            else:
-                logger.warning("Cannot scan: no scanner or run_once method")
-
+        if handler:
+            await handler(params, cmd_id)
         else:
             logger.warning(f"Unknown command: {cmd}")
 
-        # 【v2.9.7: 通用完成ACK — 非stop命令的完成确认】
-        if cmd_id and cmd != "stop":  # stop已单独发ACK
-            try:
-                await redis_client.publish(
-                    ack_channel,
-                    json.dumps({"cmd_id": cmd_id, "status": "done", "cmd": cmd, "ts": time.time()}, default=str)
-                )
-            except Exception as _e:
-                logger.debug(f"ACK publish failed: {_e}")
+        # 通用完成ACK(stop已单独发ACK)
+        if cmd_id and cmd != "stop":
+            await self._send_ack(cmd_id, "done", cmd)
 
-    # ------------------------------------------------------------------
-    # Scanner 扫描循环
-    # ------------------------------------------------------------------
+    async def _cmd_start(self, params: dict, cmd_id: str) -> None:
+        """启动Scanner"""
+        if self.state in (ScannerState.RUNNING, ScannerState.SCANNING):
+            await self.pub(self.cmd_channel, {"response": "already_running"})
+            return
+        self.state = ScannerState.STARTING
+        await self.pub(self.status_channel, {"state": self.state.value, "ts": time.time()})
+
+        try:
+            from nodes.market_monitor.scanner import MarketScanner
+            self.scanner = MarketScanner()
+            self.scan_task = asyncio.create_task(
+                self._run_scanner_loop(self.scanner, self.config, params)
+            )
+            self.state = ScannerState.RUNNING
+            await self.pub(self.status_channel, {"state": self.state.value, "ts": time.time()})
+            logger.info("Scanner started successfully")
+        except Exception as e:
+            self.state = ScannerState.ERROR
+            await self.pub(self.status_channel, {
+                "state": self.state.value, "error": str(e), "ts": time.time(),
+            })
+            logger.error(f"Scanner start failed: {e}\n{traceback.format_exc()}")
+
+    async def _cmd_stop(self, params: dict, cmd_id: str) -> None:
+        """停止Scanner"""
+        if self.scan_task and not self.scan_task.done():
+            self.scan_task.cancel()
+            try:
+                await self.scan_task
+            except asyncio.CancelledError:
+                pass
+        self.scanner = None
+        self.scan_task = None
+        self.state = ScannerState.STOPPED
+        await self.pub(self.status_channel, {"state": self.state.value, "ts": time.time()})
+        # 完成ACK
+        await self._send_ack(cmd_id, "done")
+        logger.info("Scanner stopped")
+
+    async def _cmd_emergency_liquidate(self, params: dict, cmd_id: str) -> None:
+        """紧急清仓"""
+        reason = params.get("reason", "未知")
+        logger.warning(f"EMERGENCY LIQUIDATE: {reason}")
+        if self.scanner is not None:
+            try:
+                if hasattr(self.scanner, "emergency_liquidate"):
+                    await self.scanner.emergency_liquidate(reason=reason)
+                elif hasattr(self.scanner, "close_all_positions"):
+                    await self.scanner.close_all_positions(reason=reason)
+                await self.pub(self.position_channel, {
+                    "event": "emergency_liquidate",
+                    "reason": reason,
+                    "ts": time.time(),
+                })
+            except Exception as e:
+                logger.error(f"Emergency liquidate failed: {e}")
+        else:
+            logger.warning("No scanner instance for emergency liquidate")
+
+    async def _cmd_update_params(self, params: dict, cmd_id: str) -> None:
+        """更新策略参数"""
+        strategy_id = params.get("strategy_id", "")
+        updates = params.get("updates", {})
+        if self.scanner is not None and hasattr(self.scanner, "update_strategy_params"):
+            try:
+                await self.scanner.update_strategy_params(strategy_id, updates)
+                await self.pub(self.status_channel, {
+                    "state": self.state.value,
+                    "params_updated": strategy_id,
+                    "ts": time.time(),
+                })
+            except Exception as e:
+                logger.error(f"Update params failed: {e}")
+        else:
+            logger.warning(f"Cannot update params: scanner={'exists' if self.scanner else 'none'}")
+
+    async def _cmd_scan(self, params: dict, cmd_id: str) -> None:
+        """手动触发一次扫描"""
+        if self.scanner is not None and hasattr(self.scanner, "run_once"):
+            try:
+                self.state = ScannerState.SCANNING
+                await self.pub(self.status_channel, {"state": self.state.value, "ts": time.time()})
+                result = await self.scanner.run_once()
+                if result:
+                    await self.pub(self.signal_channel, {
+                        "event": "manual_scan",
+                        "signals": [_signal_to_dict(s) for s in result] if result else [],
+                        "ts": time.time(),
+                    })
+                self.state = ScannerState.RUNNING
+                await self.pub(self.status_channel, {"state": self.state.value, "ts": time.time()})
+            except Exception as e:
+                logger.error(f"Manual scan failed: {e}")
+                self.state = ScannerState.RUNNING
+        else:
+            logger.warning("Cannot scan: no scanner or run_once method")
+
+    # ==================== Scanner 扫描循环 ====================
+
     async def _run_scanner_loop(
-        scanner_instance,
-        cfg: ScannerDaemonConfig,
-        start_params: dict,
+        self, scanner_instance, cfg: ScannerDaemonConfig, start_params: dict
     ) -> None:
         """运行 Scanner 主循环"""
         try:
             if hasattr(scanner_instance, "run"):
-                # MarketScanner.run() 是主循环
                 await scanner_instance.run(**start_params)
             elif hasattr(scanner_instance, "start"):
                 await scanner_instance.start(**start_params)
@@ -324,107 +323,126 @@ async def _subprocess_async_main(config: ScannerDaemonConfig) -> None:
         except Exception as e:
             logger.error(f"Scanner loop error: {e}\n{traceback.format_exc()}")
 
-    # ------------------------------------------------------------------
-    # 订阅命令频道 (v2.9.7: 使用BLPOP消费List, 替代Pub/Sub)
-    # ------------------------------------------------------------------
-    # 注: 不再使用 pubsub.subscribe(cmd_channel)
-    # 改用 BLPOP 从 List 消费, 保证命令不丢失(即使子进程暂时离线)
-    logger.info(f"Listening for commands on {cmd_list_key} (List+ACK mode)")
+    # ==================== 定时推送 ====================
 
-    # ------------------------------------------------------------------
-    # 定时推送任务
-    # ------------------------------------------------------------------
-    async def status_pusher() -> None:
+    async def status_pusher(self) -> None:
         """定期推送状态"""
         while True:
-            await asyncio.sleep(config.status_push_interval)
+            await asyncio.sleep(self.config.status_push_interval)
             status_data: Dict[str, Any] = {
-                "state": state.value,
+                "state": self.state.value,
                 "ts": time.time(),
             }
-            if scanner is not None:
+            if self.scanner is not None:
                 try:
-                    # 尝试获取 scanner 状态
-                    if hasattr(scanner, "get_status"):
-                        scanner_status = scanner.get_status()
+                    if hasattr(self.scanner, "get_status"):
+                        scanner_status = self.scanner.get_status()
                         if isinstance(scanner_status, dict):
                             status_data.update(scanner_status)
-                    elif hasattr(scanner, "account"):
-                        acct = scanner.account
+                    elif hasattr(self.scanner, "account"):
+                        acct = self.scanner.account
                         if hasattr(acct, "total_assets"):
                             status_data["total_assets"] = float(acct.total_assets)
                         if hasattr(acct, "available_cash"):
                             status_data["available_cash"] = float(acct.available_cash)
-                    if hasattr(scanner, "positions"):
-                        positions = scanner.positions
+                    if hasattr(self.scanner, "positions"):
+                        positions = self.scanner.positions
                         if isinstance(positions, dict):
                             status_data["position_count"] = len(positions)
                 except Exception as e:
                     status_data["status_error"] = str(e)
-            await pub(status_channel, status_data)
+            await self.pub(self.status_channel, status_data)
 
-    async def health_pusher() -> None:
+    async def health_pusher(self) -> None:
         """定期推送健康状态"""
         while True:
-            await asyncio.sleep(config.health_push_interval)
-            import psutil
+            await asyncio.sleep(self.config.health_push_interval)
             try:
+                import psutil
                 proc = psutil.Process(os.getpid())
                 health_data = {
                     "pid": os.getpid(),
                     "memory_mb": proc.memory_info().rss / 1024 / 1024,
                     "cpu_pct": proc.cpu_percent(),
                     "threads": proc.num_threads(),
-                    "state": state.value,
+                    "state": self.state.value,
                     "ts": time.time(),
                 }
             except ImportError:
                 health_data = {
                     "pid": os.getpid(),
-                    "state": state.value,
+                    "state": self.state.value,
                     "ts": time.time(),
                 }
             except Exception as e:
                 health_data = {"pid": os.getpid(), "error": str(e), "ts": time.time()}
-            await pub(health_channel, health_data)
+            await self.pub(self.health_channel, health_data)
 
-    status_task = asyncio.create_task(status_pusher())
-    health_task = asyncio.create_task(health_pusher())
+    # ==================== 主循环 ====================
 
-    # ------------------------------------------------------------------
-    # 主循环: 消费命令 (v2.9.7: BLPOP from List)
-    # ------------------------------------------------------------------
-    logger.info("Scanner subprocess main loop started (List+ACK mode)")
-    try:
-        while True:
-            # 【v2.9.7: BLPOP从List取命令, 超时1秒轮询】
-            try:
-                result = await redis_client.blpop(cmd_list_key, timeout=1.0)
-                if result is not None:
-                    _, raw = result
-                    try:
-                        data = json.loads(raw)
-                        await handle_command(data)
-                    except json.JSONDecodeError as e:
-                        logger.warning(f"Invalid JSON in command: {e}")
-                    except Exception as e:
-                        logger.error(f"Command handling error: {e}\n{traceback.format_exc()}")
-            except Exception as e:
-                # BLPOP可能因Redis断连失败
-                if "Timeout" not in str(e):
-                    logger.warning(f"BLPOP error: {e}")
-                await asyncio.sleep(0.1)
-    except asyncio.CancelledError:
-        pass
-    finally:
-        # 清理
-        status_task.cancel()
-        health_task.cancel()
-        if scan_task and not scan_task.done():
-            scan_task.cancel()
-        # 【v2.9.7: 不再需要pubsub清理】
-        await redis_client.close()
-        logger.info("Scanner subprocess shutdown complete")
+    async def run(self) -> None:
+        """子进程主循环: 初始化Redis + BLPOP消费命令 + 定时推送"""
+        import redis.asyncio as aioredis
+
+        from core.managers import redis_manager
+        from core.settings import settings as app_settings
+
+        # 初始化 Redis（子进程需要自己的连接）
+        self._redis_client = aioredis.from_url(
+            app_settings.redis.url,
+            decode_responses=True,
+            max_connections=20,
+        )
+
+        # IPC 频道
+        self.cmd_channel = _chan(self.config, "cmd")
+        self.status_channel = _chan(self.config, "status")
+        self.signal_channel = _chan(self.config, "signal")
+        self.position_channel = _chan(self.config, "position")
+        self.health_channel = _chan(self.config, "health")
+        self.cmd_list_key = _chan(self.config, "cmd")    # List+ACK
+        self.ack_channel = _chan(self.config, "ack")      # ACK确认通道
+
+        logger.info(f"Listening for commands on {self.cmd_list_key} (List+ACK mode)")
+
+        # 启动定时推送
+        self._status_task = asyncio.create_task(self.status_pusher())
+        self._health_task = asyncio.create_task(self.health_pusher())
+
+        # 主循环: BLPOP消费命令
+        logger.info("Scanner subprocess main loop started (List+ACK mode)")
+        try:
+            while True:
+                try:
+                    result = await self._redis_client.blpop(self.cmd_list_key, timeout=1.0)
+                    if result is not None:
+                        _, raw = result
+                        try:
+                            data = json.loads(raw)
+                            await self.handle_command(data)
+                        except json.JSONDecodeError as e:
+                            logger.warning(f"Invalid JSON in command: {e}")
+                        except Exception as e:
+                            logger.error(f"Command handling error: {e}\n{traceback.format_exc()}")
+                except Exception as e:
+                    if "Timeout" not in str(e):
+                        logger.warning(f"BLPOP error: {e}")
+                    await asyncio.sleep(0.1)
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self._status_task.cancel()
+            self._health_task.cancel()
+            if self.scan_task and not self.scan_task.done():
+                self.scan_task.cancel()
+            await self._redis_client.close()
+            logger.info("Scanner subprocess shutdown complete")
+
+
+async def _subprocess_async_main(config: ScannerDaemonConfig) -> None:
+    """子进程内的异步主循环 — 委托给_SubprocessRuntime【v2.9.44重构】"""
+    runtime = _SubprocessRuntime(config)
+    await runtime.run()
 
 
 def _signal_to_dict(sig: Any) -> dict:
