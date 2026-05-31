@@ -1571,15 +1571,19 @@ async def backtest_compare(date: str = None):
                     "total_pnl": round(v["total_pnl"], 2),
                 }
         
-        # 2. 从MongoDB回测结果或文件读取
+        # 2. 从MongoDB回测结果读取(优先same_period)
         backtest_results = {}
+        backtest_type = "none"
         if mongo_manager.is_initialized:
-            async for doc in mongo_manager.db["backtest_results"].find(
-                {"status": "completed"},
-                {"_id": 0, "task_id": 1, "params.strategy_ids": 1, "result.summary": 1, "created_at": 1}
-            ).sort("created_at", -1).limit(5):
-                strategies = doc.get("params", {}).get("strategy_ids", [])
-                summary = doc.get("result", {}).get("summary", {})
+            # 2a. 优先查same_period(同区间回测)
+            same_period_doc = await mongo_manager.db["backtest_results"].find_one(
+                {"status": "completed", "type": "same_period"},
+                sort=[("created_at", -1)]
+            )
+            if same_period_doc:
+                backtest_type = "same_period"
+                strategies = same_period_doc.get("params", {}).get("strategy_ids", [])
+                summary = same_period_doc.get("result", {}).get("summary", {})
                 for sid in strategies:
                     if sid not in backtest_results:
                         backtest_results[sid] = {
@@ -1588,8 +1592,29 @@ async def backtest_compare(date: str = None):
                             "max_drawdown": summary.get("max_drawdown", 0),
                             "sharpe": summary.get("sharpe_ratio", 0),
                             "trades": summary.get("total_trades", 0),
-                            "task_id": doc.get("task_id", ""),
+                            "source": "same_period",
+                            "period": f"{same_period_doc.get('params',{}).get('start_date','')}~{same_period_doc.get('params',{}).get('end_date','')}",
                         }
+            
+            # 2b. fallback: 普通回测
+            if not backtest_results:
+                async for doc in mongo_manager.db["backtest_results"].find(
+                    {"status": "completed"},
+                    {"_id": 0, "task_id": 1, "params.strategy_ids": 1, "result.summary": 1, "created_at": 1}
+                ).sort("created_at", -1).limit(5):
+                    strategies = doc.get("params", {}).get("strategy_ids", [])
+                    summary = doc.get("result", {}).get("summary", {})
+                    for sid in strategies:
+                        if sid not in backtest_results:
+                            backtest_results[sid] = {
+                                "total_return": summary.get("total_return", 0),
+                                "win_rate": summary.get("win_rate", 0),
+                                "max_drawdown": summary.get("max_drawdown", 0),
+                                "sharpe": summary.get("sharpe_ratio", 0),
+                                "trades": summary.get("total_trades", 0),
+                                "source": "mongodb",
+                            }
+                    backtest_type = "historical"
         
         # 2b. fallback: 从backtest_result.json文件读取
         logger.info(f"[BACKTEST-COMPARE] backtest_results empty: {not backtest_results}, keys: {list(backtest_results.keys())}")
@@ -1641,7 +1666,7 @@ async def backtest_compare(date: str = None):
                 "bt_source": bt.get("source", "mongodb"),
             })
         
-        return {"success": True, "data": compare}
+        return {"success": True, "data": compare, "backtest_type": backtest_type}
     except Exception as e:
         return {"success": True, "data": [], "message": str(e)}
 
@@ -4849,8 +4874,13 @@ async def deviation_attribution(date: str = None, start_date: str = None, end_da
                     })
         
         # C. 选股偏差: 实盘买入 vs scan_traces候选的重叠度
-        live_picks = {}  # strategy -> [ts_codes]
+        # 只统计scan_traces有数据的日期(避免日期不匹配导致overlap=0)
+        scan_dates = set(scan_map.keys())
+        live_picks = {}  # strategy -> [ts_codes] (only for dates with scan data)
         for buy in buys:
+            td = buy.get("trade_date","")
+            if td not in scan_dates:
+                continue  # 跳过无scan_traces数据的日期
             s = buy.get("strategy","") or "unknown"
             if s not in live_picks: live_picks[s] = set()
             live_picks[s].add(buy.get("ts_code",""))
@@ -4862,10 +4892,33 @@ async def deviation_attribution(date: str = None, start_date: str = None, end_da
                 if s not in signal_picks: signal_picks[s] = set()
                 signal_picks[s].add(ts)
         
+        # 策略名映射: scan_traces中可能的别名→STRATEGY_CONFIGS的ID
+        strategy_name_aliases = {
+            "anomaly_surge": "halfway_chase",  # 异动急涨≈半路追涨
+            "anomaly_strong": "halfway_chase",  # 异动强势≈半路追涨
+            "anomaly_broken": "limit_down_qiao",  # 异动破位≈跌停翘板
+        }
+        
+        # 统一策略名后计算重叠
+        def normalize_strat(s):
+            return strategy_name_aliases.get(s, s)
+        
+        norm_live = {}  # normalized strategy -> set of ts_codes
+        for s, codes in live_picks.items():
+            ns = normalize_strat(s)
+            if ns not in norm_live: norm_live[ns] = set()
+            norm_live[ns].update(codes)
+        
+        norm_signal = {}
+        for s, codes in signal_picks.items():
+            ns = normalize_strat(s)
+            if ns not in norm_signal: norm_signal[ns] = set()
+            norm_signal[ns].update(codes)
+        
         selection_details = []
-        for strat in set(list(live_picks.keys()) + list(signal_picks.keys())):
-            lp = live_picks.get(strat, set())
-            sp = signal_picks.get(strat, set())
+        for strat in set(list(norm_live.keys()) + list(norm_signal.keys())):
+            lp = norm_live.get(strat, set())
+            sp = norm_signal.get(strat, set())
             overlap = lp & sp
             only_live = lp - sp
             only_signal = sp - lp
@@ -4874,6 +4927,7 @@ async def deviation_attribution(date: str = None, start_date: str = None, end_da
                 "live_count": len(lp), "signal_count": len(sp),
                 "overlap_count": len(overlap), "overlap_pct": round(len(overlap)/max(len(lp),1)*100,1),
                 "only_live": len(only_live), "only_signal": len(only_signal),
+                "scan_dates_matched": len(scan_dates),
             })
         
         # D. 时间偏差: 估算(用create_time粗略判断是否延迟)
@@ -4919,6 +4973,11 @@ async def deviation_attribution(date: str = None, start_date: str = None, end_da
         result = {
             "period": f"{sd}~{ed}",
             "live_stats": {"trades": total_sells, "wins": wins, "win_rate": live_wr},
+            "risk_alerts": {
+                "bearish_buy_ratio": round(len([b for b in buys if sentiment_map.get(b.get("trade_date",""),{}).get("period")=="冰点"])/max(len(buys),1)*100,1),
+                "bearish_buy_count": len([b for b in buys if sentiment_map.get(b.get("trade_date",""),{}).get("period")=="冰点"]),
+                "note": "冰点期开仓率高→信号管道L3层仅过滤halfway_chase, 其他策略仍允许冰点期候选通过"
+            },
             "deviations": {
                 "slippage": {"avg_pct": avg_slippage, "count": slippage_count, "impact": round(-avg_slippage * slippage_count / 100, 2)},
                 "discipline": {"violations": len(discipline_details), "violation_wr": violation_wr, "impact": round(discipline_impact, 2)},
@@ -5204,7 +5263,12 @@ async def review_monthly(date: str = None):
         
         # 行为漂移: 止损执行率、冰点开仓率
         stop_loss_sells = sum(1 for s in sells if "止损" in (s.get("reason","")))
-        stop_loss_total = sum(1 for s in sells if (s.get("profit_pct") or 0) < 0)
+        # 区分: 真正亏损止损 vs 盈利止损(冲高回落触发但实际盈利)
+        stop_loss_at_loss = sum(1 for s in sells if "止损" in (s.get("reason","")) and (s.get("profit_pct") or 0) < 0)
+        stop_loss_at_profit = sum(1 for s in sells if "止损" in (s.get("reason","")) and (s.get("profit_pct") or 0) >= 0)
+        loss_sells = sum(1 for s in sells if (s.get("profit_pct") or 0) < 0)
+        # 止损执行率 = 亏损止损卖出 / 所有亏损卖出 (真正该止损的有多少执行了)
+        # 70.8%: 有近30%的亏损没走止损, 说明止损不够及时
         
         # 冰点期开仓
         sentiment_map = {}
@@ -5234,7 +5298,9 @@ async def review_monthly(date: str = None):
             "summary": {"trades":total_sells,"wins":total_wins,"win_rate":round(total_wins/max(total_sells,1)*100,1),"pnl":round(total_pnl,2)},
             "strategy_stats": {k: {"trades":v["trades"],"win_rate":round(v["wins"]/max(v["trades"],1)*100,1),"pnl":round(v["pnl"],2)} for k,v in strategy_stats.items()},
             "behavior_drift": {
-                "stop_loss_execution_rate": round(stop_loss_sells/max(stop_loss_total,1)*100,1),
+                "stop_loss_execution_rate": round(stop_loss_at_loss/max(loss_sells,1)*100,1),
+                "stop_loss_at_loss": stop_loss_at_loss, "stop_loss_at_profit": stop_loss_at_profit,
+                "loss_sells": loss_sells,
                 "bearish_period_buy_ratio": round(bearish_buys/max(len(buys),1)*100,1),
                 "bearish_buys": bearish_buys, "total_buys": len(buys),
             },
