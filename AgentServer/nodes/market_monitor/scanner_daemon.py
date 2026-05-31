@@ -182,7 +182,7 @@ async def _subprocess_async_main(config: ScannerDaemonConfig) -> None:
                     json.dumps({"cmd_id": cmd_id, "status": "received", "ts": time.time()}, default=str)
                 )
             except Exception as _e:
-                pass
+                logger.debug(f"ACK publish failed: {_e}")
 
         if cmd == "start":
             if state in (ScannerState.RUNNING, ScannerState.SCANNING):
@@ -228,7 +228,7 @@ async def _subprocess_async_main(config: ScannerDaemonConfig) -> None:
                         json.dumps({"cmd_id": cmd_id, "status": "done", "ts": time.time()}, default=str)
                     )
                 except Exception as _e:
-                    pass
+                    logger.debug(f"ACK publish failed: {_e}")
             logger.info("Scanner stopped")
 
         elif cmd == "emergency_liquidate":
@@ -299,7 +299,7 @@ async def _subprocess_async_main(config: ScannerDaemonConfig) -> None:
                     json.dumps({"cmd_id": cmd_id, "status": "done", "cmd": cmd, "ts": time.time()}, default=str)
                 )
             except Exception as _e:
-                pass
+                logger.debug(f"ACK publish failed: {_e}")
 
     # ------------------------------------------------------------------
     # Scanner 扫描循环
@@ -687,7 +687,7 @@ class ScannerDaemon:
                 await pubsub.unsubscribe(ack_channel)
                 await pubsub.close()
             except Exception as _e:
-                pass
+                logger.debug(f"ACK publish failed: {_e}")
 
     # ------------------------------------------------------------------
     # 便捷方法
@@ -862,7 +862,7 @@ class ScannerDaemon:
                 await pubsub.unsubscribe(channel)
                 await pubsub.close()
             except Exception as _e:
-                pass
+                logger.debug(f"pubsub cleanup failed: {_e}")
 
     async def _cleanup_redis_subscriptions(self) -> None:
         """清理 Redis"""
@@ -870,7 +870,7 @@ class ScannerDaemon:
             try:
                 await self._redis_client.close()
             except Exception as _e:
-                pass
+                logger.debug(f"redis client close failed: {_e}")
             self._redis_client = None
 
     # ------------------------------------------------------------------
@@ -909,7 +909,7 @@ class ScannerDaemon:
                     try:
                         self._process.join(timeout=3)
                     except Exception as _e:
-                        pass
+                        logger.debug(f"process join failed: {_e}")
 
                 # 重启
                 self._start_process()
