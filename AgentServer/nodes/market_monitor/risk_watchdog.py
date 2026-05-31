@@ -721,7 +721,7 @@ class RiskWatchdog:
                             "trading_paused": True,
                         })
                     except Exception as _e:
-                        pass
+                        logger.debug(f"operation failed: {_e}")
                     return False
         
         # 连续亏损检查(只限制买入, 不限制卖出)

@@ -303,7 +303,7 @@ class PositionChecker:
                     "time": datetime.now().strftime("%H:%M:%S"),
                 })
             except Exception as _e:
-                pass
+                logger.debug(f"operation failed: {_e}")
 
             # 【v2.9.38】差异持久化到MongoDB(审计用)
             await self._persist_compare_diff(
@@ -564,7 +564,7 @@ class PositionChecker:
                 if len(self.execution_stats["stop_loss_response_times"]) > 50:
                     self.execution_stats["stop_loss_response_times"] = self.execution_stats["stop_loss_response_times"][-50:]
             except Exception as _e:
-                pass
+                logger.debug(f"operation failed: {_e}")
         else:
             scanner._stats["take_profits"] += 1
             scanner._record_trade_result(sell_profit_pct / 100.0)
@@ -583,7 +583,7 @@ class PositionChecker:
                     "reason": reason, "source": "position_checker",
                 })
         except Exception as _e:
-            pass
+            logger.debug(f"operation failed: {_e}")
         logger.info(f"[{source.upper()}] {reason}: {pos.ts_code} {sell_qty}股@{order.filled_price:.2f}")
     
     # ==================== 追踪止损 ====================
