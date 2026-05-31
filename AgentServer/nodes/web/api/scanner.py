@@ -844,8 +844,22 @@ async def get_historical_review(date: str = None):
         scan_count = await db["scan_traces"].count_documents({"trade_date": date, "is_debug": {"$ne": True}})
         debug_count = await db["scan_traces"].count_documents({"trade_date": date, "is_debug": True})
         total_passed = 0
-        async for doc in db["scan_traces"].find({"trade_date": date}, {"summary.passed": 1}):
+        funnel_agg = defaultdict(lambda: {"total_input": 0, "total_rejected": 0})
+        async for doc in db["scan_traces"].find({"trade_date": date}, {"summary": 1, "layer_details.L3_sentiment": 1}):
             total_passed += (doc.get("summary") or {}).get("passed", 0)
+            for layer_name, layer_data in (doc.get("summary") or {}).items():
+                if isinstance(layer_data, dict) and layer_data.get("rejected", 0) > 0:
+                    funnel_agg[layer_name]["total_input"] += layer_data.get("total", 0)
+                    funnel_agg[layer_name]["total_rejected"] += layer_data.get("rejected", 0)
+        # 取最新一条layer_details.L3作为情绪快照
+        sentiment_snap = None
+        latest_with_l3 = await db["scan_traces"].find_one(
+            {"trade_date": date, "layer_details.L3_sentiment": {"$exists": True, "$ne": ""}},
+            sort=[("_id", -1)],
+            projection={"layer_details.L3_sentiment": 1}
+        )
+        if latest_with_l3:
+            sentiment_snap = (latest_with_l3.get("layer_details") or {}).get("L3_sentiment")
         
         return {"success": True, "data": {
             "date": date,
@@ -853,6 +867,8 @@ async def get_historical_review(date: str = None):
             "sells": [{"ts_code": s.get("ts_code"), "stock_name": s.get("stock_name", ""), "strategy": s.get("strategy", ""), "price": s.get("filled_price", 0), "qty": s.get("filled_qty", 0), "reason": s.get("reason", ""), "time": s.get("fill_time", "")} for s in sells],
             "strategy_summary": strategy_summary,
             "scan_stats": {"scan_count": scan_count, "debug_scan_count": debug_count, "total_signals": total_passed, "buy_count": len(buys), "sell_count": len(sells)},
+            "funnel_summary": {k: dict(v) for k, v in funnel_agg.items()},
+            "sentiment_snapshot": sentiment_snap,
         }}
     except Exception as e:
         return {"success": True, "data": None, "message": str(e)}
@@ -2737,34 +2753,72 @@ async def validate_params_before_update(request: Request):
 # ==================== V59:执行质量 & 追踪止损 API ====================
 
 @router.get("/execution-quality")
-async def get_execution_quality():
-    """获取执行质量统计
+async def get_execution_quality(date: str = None):
+    """执行质量统计 — 从broker_orders计算真实滑点/延迟/成交率
     
-    对标真实量化: 执行质量是衡量量化系统水平的关键指标
-    - 滑点: 实际成交价vs预期价的偏差
-    - 止损响应: 信号触发到实际成交的时间
-    - 成交率: 下单成功率vs拒绝率
+    Args:
+        date: YYYYMMDD, 不传则当天
     """
     try:
-        scanner = _get_scanner_instance()
-        if not scanner:
-            return {"success": False, "message": "Scanner未运行"}
+        from core.managers import mongo_manager
+        if not mongo_manager.is_initialized:
+            return {"success": True, "data": {}}
+        db = mongo_manager.db
         
-        stats = getattr(scanner, '_execution_stats', {})
-        trailing = _safe_read_shared(scanner, '_trailing_stops')
-        risk_levels = _safe_read_shared(scanner, '_position_risk_levels')
+        if not date:
+            import datetime
+            date = datetime.datetime.now().strftime("%Y%m%d")
+        
+        # 从broker_orders聚合
+        total_orders = 0
+        filled_orders = 0
+        rejected_orders = 0
+        slippages = []
+        delays = []
+        
+        async for doc in db["broker_orders"].find({"trade_date": date}):
+            total_orders += 1
+            if doc.get("status") == "filled":
+                filled_orders += 1
+                # 滑点: (filled_price - price) / price * 100
+                target = doc.get("price", 0) or 0
+                filled = doc.get("filled_price", 0) or 0
+                if target > 0:
+                    slip = (filled - target) / target * 100
+                    slippages.append(slip)
+                # 延迟: fill_time - create_time
+                ct = doc.get("create_time", "")
+                ft = doc.get("fill_time", "")
+                if ct and ft:
+                    try:
+                        from datetime import datetime as dt
+                        c = dt.fromisoformat(ct.replace("Z", "+00:00")) if "T" in ct else None
+                        f = dt.fromisoformat(ft.replace("Z", "+00:00")) if "T" in ft else None
+                        if c and f:
+                            delays.append((f - c).total_seconds() * 1000)
+                    except: pass
+            elif doc.get("status") in ("rejected", "cancelled"):
+                rejected_orders += 1
+        
+        avg_slip = sum(slippages) / len(slippages) if slippages else 0
+        avg_delay = sum(delays) / len(delays) if delays else 0
+        fill_rate = filled_orders / max(total_orders, 1) * 100
         
         return {
             "success": True,
             "data": {
-                "execution_stats": stats,
-                "trailing_stops_active": {k: v for k, v in trailing.items() if v.get("activated")},
-                "risk_levels": risk_levels,
-                "smart_check_interval": scanner._get_smart_check_interval() if hasattr(scanner, '_get_smart_check_interval') else 30,
+                "avg_slippage_pct": round(avg_slip, 3),
+                "max_slippage_pct": round(max(slippages, key=abs), 3) if slippages else 0,
+                "avg_fill_delay_ms": round(avg_delay, 0),
+                "fill_rate_pct": round(fill_rate, 1),
+                "rejected_orders": rejected_orders,
+                "total_orders": total_orders,
+                "filled_orders": filled_orders,
+                "date": date,
             }
         }
     except Exception as e:
-        return {"success": False, "message": str(e)}
+        return {"success": True, "data": {}, "message": str(e)}
 
 
 @router.put("/trailing-stop/{ts_code}")
