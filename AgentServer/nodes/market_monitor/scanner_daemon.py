@@ -252,10 +252,11 @@ class _SubprocessRuntime:
         logger.warning(f"EMERGENCY LIQUIDATE: {reason}")
         if self.scanner is not None:
             try:
+                # 【v2.9.45:scanner.emergency_liquidate()现已存在,委托给RiskWatchdog】
                 if hasattr(self.scanner, "emergency_liquidate"):
                     await self.scanner.emergency_liquidate(reason=reason)
-                elif hasattr(self.scanner, "close_all_positions"):
-                    await self.scanner.close_all_positions(reason=reason)
+                elif hasattr(self.scanner, "_liquidate_positions"):
+                    await self.scanner._liquidate_positions(reason=f"紧急清仓: {reason}", source="emergency")
                 await self.pub(self.position_channel, {
                     "event": "emergency_liquidate",
                     "reason": reason,

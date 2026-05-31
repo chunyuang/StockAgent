@@ -392,74 +392,13 @@ class PositionChecker:
     async def _persist_compare_diff(self, trade_date: str, only_legacy: set, only_checker: set,
                                      both: set, legacy_sell: list, checker_results: list,
                                      realtime_data: Dict[str, Dict]):
-        """compare差异持久化到MongoDB【v2.9.38新增】
-        
-        将legacy/checker卖出差异记录到sell_compare_diff集合,
-        用于事后审计和分析, 评估checker模式何时可以替代legacy。
-        
-        TTL: 30天自动过期
-        """
-        scanner = self._scanner
-        try:
-            from core.managers import mongo_manager
-            if not mongo_manager or not mongo_manager._client:
-                return
-            
-            db = mongo_manager.db
-            
-            # 构建差异详情
-            diff_details = {}
-            for code in only_legacy | only_checker:
-                detail = {"code": code}
-                # legacy侧卖出原因
-                for pos, reason, _, _ in legacy_sell:
-                    if pos.ts_code == code:
-                        detail["legacy_reason"] = reason
-                        detail["legacy_profit_pct"] = round(pos.profit_pct, 2)
-                        detail["strategy"] = pos.strategy
-                        break
-                # checker侧卖出原因
-                for pos, reason, _, _, _ in checker_results:
-                    if pos.ts_code == code:
-                        detail["checker_reason"] = reason
-                        detail["checker_profit_pct"] = round(pos.profit_pct, 2)
-                        break
-                # 行情上下文
-                rt = realtime_data.get(code, {})
-                detail["price"] = rt.get("price", 0)
-                detail["pct_chg"] = rt.get("pct_chg", 0)
-                diff_details[code] = detail
-            
-            doc = {
-                "trade_date": trade_date,
-                "time": datetime.now().strftime("%H:%M:%S"),
-                "only_legacy": list(only_legacy),
-                "only_checker": list(only_checker),
-                "both": list(both),
-                "diff_details": diff_details,
-                "summary": {
-                    "total_legacy": len(only_legacy) + len(both),
-                    "total_checker": len(only_checker) + len(both),
-                    "agreement_rate": round(len(both) / max(len(only_legacy | only_checker | both), 1) * 100, 1),
-                },
-            }
-            
-            await db["sell_compare_diff"].insert_one(doc)
-            
-            # 创建TTL索引(30天, 幂等)
-            try:
-                await db["sell_compare_diff"].create_index(
-                    "time", name="ttl_30d_compare", expireAfterSeconds=30 * 86400
-                )
-            except Exception as _e:
-                pass  # 索引已存在
-            
-            logger.info(f"[COMPARE] 差异已持久化: "
-                        f"一致率={doc['summary']['agreement_rate']}% "
-                        f"仅legacy={len(only_legacy)} 仅checker={len(only_checker)}")
-            
-        except Exception as e:
-            logger.debug(f"[COMPARE] 差异持久化失败: {e}")
+        """compare差异持久化 — 委托给RuntimePersistence【v2.9.45提取】"""
+        rp = getattr(self._scanner, '_runtime_persistence', None)
+        if rp:
+            await rp.persist_compare_diff(
+                trade_date, only_legacy, only_checker, both,
+                legacy_sell, checker_results, realtime_data,
+            )
     
     # ==================== 卖出执行 ====================
     
@@ -523,68 +462,44 @@ class PositionChecker:
         return ok, msg, order, sell_info
 
     async def _post_sell_processing(self, pos, order, sell_info: Dict, reason: str, risk: Dict, source: str):
-        """卖出后处理: timeline+统计+EventBus【v2.9.26提取】"""
-        scanner = self._scanner
-        sell_qty = sell_info["sell_qty"]
-        sell_profit_pct = sell_info["sell_profit_pct"]
-        sell_profit_amount = sell_info["sell_profit_amount"]
-        sell_avg_cost = sell_info["sell_avg_cost"]
-        sell_current_price = sell_info["sell_current_price"]
-
-        scanner._timeline.append({
-            "time": datetime.now().strftime("%H:%M:%S"),
-            "action": "sell",
-            "ts_code": pos.ts_code,
-            "stock_name": pos.stock_name,
-            "strategy": pos.strategy,
-            "shares": sell_qty,
-            "price": order.filled_price,
-            "reason": reason,
-            "profit_pct": round(sell_profit_pct, 2),
-            "profit_amount": round(sell_profit_amount, 2),
-            "decision_detail": {
-                "sell_reason": reason,
-                "profit_pct": round(sell_profit_pct, 2),
-                "profit_amount": round(sell_profit_amount, 2),
-                "cost_price": sell_avg_cost,
-                "sell_price": order.filled_price,
-                "current_price": sell_current_price,
-                "stop_loss_pct": round(-risk.get("stop_loss_pct", 0.03) * 100, 1),
-                "take_profit_pct": round(risk.get("take_profit_pct", 0.07) * 100, 1),
-                "stop_loss_price": scanner._calc_stop_loss_price(pos, risk),
-                "take_profit_price": scanner._calc_take_profit_price(pos, risk),
-                "hold_minutes": 0,
-            },
-        })
-        if "止损" in reason:
-            scanner._stats["stop_losses"] += 1
-            scanner._record_trade_result(sell_profit_pct / 100.0)
-            try:
-                self.execution_stats.setdefault("stop_loss_response_times", []).append(time.time())
-                if len(self.execution_stats["stop_loss_response_times"]) > 50:
-                    self.execution_stats["stop_loss_response_times"] = self.execution_stats["stop_loss_response_times"][-50:]
-            except Exception as _e:
-                logger.debug(f"operation failed: {_e}")
+        """卖出后处理: 委托RuntimePersistence.post_sell_cleanup【v2.9.45重构】
+        
+        之前: 内联构建timeline+统计+EventBus(63行)
+        现在: 统一委托, 与emergency_liquidate/execute_sell_list对齐
+        """
+        rp = getattr(self._scanner, '_runtime_persistence', None)
+        if rp:
+            await rp.post_sell_cleanup(
+                pos, reason, order, sell_info["sell_qty"],
+                sell_info["sell_profit_pct"], sell_info["sell_profit_amount"],
+                source=source,
+            )
+            # checker专属: 记录止损响应时间
+            if "止损" in reason:
+                try:
+                    self.execution_stats.setdefault("stop_loss_response_times", []).append(time.time())
+                    if len(self.execution_stats["stop_loss_response_times"]) > 50:
+                        self.execution_stats["stop_loss_response_times"] = self.execution_stats["stop_loss_response_times"][-50:]
+                except Exception as _e:
+                    logger.debug(f"operation failed: {_e}")
         else:
-            scanner._stats["take_profits"] += 1
+            # 降级: RuntimePersistence不可用时仍记录基本timeline
+            scanner = self._scanner
+            sell_profit_pct = sell_info["sell_profit_pct"]
+            scanner._timeline.append({
+                "time": datetime.now().strftime("%H:%M:%S"),
+                "action": "sell", "ts_code": pos.ts_code,
+                "stock_name": pos.stock_name, "strategy": pos.strategy,
+                "shares": sell_info["sell_qty"], "price": order.filled_price,
+                "reason": reason,
+                "profit_pct": round(sell_profit_pct, 2),
+                "profit_amount": round(sell_info["sell_profit_amount"], 2),
+            })
+            if "止损" in reason:
+                scanner._stats["stop_losses"] += 1
+            else:
+                scanner._stats["take_profits"] += 1
             scanner._record_trade_result(sell_profit_pct / 100.0)
-        await scanner._publish_scanner_event("timeline", {"item": scanner._timeline[-1]})
-        # EventBus事件(与_execute_risk_sell对齐)
-        try:
-            from nodes.market_monitor.scanner_event_bus import ScannerEvents
-            if hasattr(scanner, '_event_bus') and scanner._event_bus:
-                await scanner._event_bus.emit(ScannerEvents.RISK_SELL_EXECUTED, {
-                    "ts_code": pos.ts_code, "reason": reason,
-                    "price": order.filled_price, "profit_pct": sell_profit_pct,
-                    "source": "position_checker",
-                })
-                await scanner._event_bus.emit(ScannerEvents.POSITION_CHANGED, {
-                    "ts_code": pos.ts_code, "action": "sell",
-                    "reason": reason, "source": "position_checker",
-                })
-        except Exception as _e:
-            logger.debug(f"operation failed: {_e}")
-        logger.info(f"[{source.upper()}] {reason}: {pos.ts_code} {sell_qty}股@{order.filled_price:.2f}")
     
     # ==================== 追踪止损 ====================
     

@@ -306,13 +306,21 @@ class TestEventBusEmissionCompleteness:
     """验证所有交易路径都发射了EventBus事件"""
 
     def test_position_checker_emits_events(self):
-        """PositionChecker卖出后发射RISK_SELL_EXECUTED+POSITION_CHANGED"""
+        """PositionChecker卖出后发射RISK_SELL_EXECUTED+POSITION_CHANGED
+        
+        v2.9.45: _post_sell_processing委托给RuntimePersistence.post_sell_cleanup,
+        事件由post_sell_cleanup统一发射,PositionChecker不再直接发射。
+        """
         import inspect
         from nodes.market_monitor.position_checker import PositionChecker
+        from nodes.market_monitor.runtime_persistence import RuntimePersistence
+        # 验证PositionChecker委托给RuntimePersistence
         source = inspect.getsource(PositionChecker)
-        # 验证源码包含EventBus发射逻辑
-        assert "RISK_SELL_EXECUTED" in source, "PositionChecker应发射RISK_SELL_EXECUTED事件"
-        assert "POSITION_CHANGED" in source, "PositionChecker应发射POSITION_CHANGED事件"
+        assert "post_sell_cleanup" in source, "PositionChecker._post_sell_processing应委托给post_sell_cleanup"
+        # 验证RuntimePersistence中包含EventBus发射逻辑
+        cleanup_source = inspect.getsource(RuntimePersistence.post_sell_cleanup)
+        assert "RISK_SELL_EXECUTED" in cleanup_source
+        assert "POSITION_CHANGED" in cleanup_source
 
     def test_signal_manager_emits_position_changed_on_buy(self):
         """SignalManager买入后发射POSITION_CHANGED"""

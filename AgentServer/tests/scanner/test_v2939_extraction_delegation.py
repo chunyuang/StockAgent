@@ -223,8 +223,8 @@ class TestPositionCheckerExceptFix:
                 pytest.fail(f'Found bare except Exception: at line {i}: {stripped}')
 
     def test_compare_diff_index_uses_as(self):
-        """compare差异索引创建使用except Exception as _e"""
-        source = _read(_PC)
+        """compare差异索引创建使用except Exception as _e【v2.9.45:实现已迁移到runtime_persistence】"""
+        source = _read(_RP)
         idx = source.find("ttl_30d_compare")
         assert idx > 0
         block = source[max(0, idx-300):idx+100]

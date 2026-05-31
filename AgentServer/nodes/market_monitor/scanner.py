@@ -677,6 +677,17 @@ class MarketScanner:
         """停止时清仓所有持仓【v2.9.18:从stop()提取, v2.9.20:复用_liquidate_positions】"""
         await self._liquidate_positions(reason="停止清仓", source="stop_sell")
 
+    async def emergency_liquidate(self, reason: str = "手动触发") -> Dict:
+        """紧急清仓 — 委托给RiskWatchdog【v2.9.45:修复Daemon IPC路径断裂】
+
+        之前: Daemon._cmd_emergency_liquidate 调用 scanner.emergency_liquidate()
+              但scanner上无此方法,通过Daemon IPC发送紧急清仓会静默失败。
+        修复: scanner新增emergency_liquidate方法,委托给RiskWatchdog。
+        """
+        if self._risk_watchdog:
+            return await self._risk_watchdog.emergency_liquidate(reason)
+        return {"success": False, "error": "RiskWatchdog未初始化"}
+
     async def _persist_stop_state(self):
         """停止时持久化状态 — 委托给RuntimePersistence【v2.9.32提取】"""
         await self._runtime_persistence.persist_stop_state()

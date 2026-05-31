@@ -61,8 +61,22 @@ class RuntimePersistence:
         
         优先MongoDB, 失败时回退本地文件
         """
-        doc = None
+        doc = await self._load_snapshot_doc()
+        if not doc:
+            return
         
+        # 跨日检查
+        snapshot_date = doc.get("trade_date", "")
+        today = datetime.now().strftime("%Y%m%d")
+        is_same_day = (snapshot_date == today)
+        if not is_same_day and snapshot_date:
+            logger.info(f"[SNAPSHOT] 快照日期={snapshot_date}, 今日={today}, 跳过日期相关状态恢复")
+        
+        self._restore_snapshot_data(doc, is_same_day)
+        logger.info(f"[SNAPSHOT] 加载运行时快照成功")
+    
+    async def _load_snapshot_doc(self) -> Optional[dict]:
+        """从MongoDB或本地文件加载快照文档【v2.9.45提取】"""
         # 尝试MongoDB
         try:
             from core.managers import mongo_manager
@@ -70,52 +84,48 @@ class RuntimePersistence:
                 doc = await mongo_manager.db["scanner_runtime_snapshot"].find_one(
                     {"account_id": self.account_id}
                 )
+                if doc:
+                    return doc
         except Exception as e:
             logger.warning(f"[SNAPSHOT] MongoDB加载失败: {e}")
         
         # MongoDB失败→回退本地文件
-        if not doc:
-            try:
-                local_path = self._get_local_fallback_path()
-                if os.path.exists(local_path):
-                    with open(local_path, 'r') as f:
-                        doc = json.load(f)
-                    logger.info(f"[SNAPSHOT] 从本地降级文件恢复: {local_path}")
-            except Exception as e:
-                logger.debug(f"[SNAPSHOT] 本地文件加载失败: {e}")
+        try:
+            local_path = self._get_local_fallback_path()
+            if os.path.exists(local_path):
+                with open(local_path, 'r') as f:
+                    doc = json.load(f)
+                logger.info(f"[SNAPSHOT] 从本地降级文件恢复: {local_path}")
+                return doc
+        except Exception as e:
+            logger.debug(f"[SNAPSHOT] 本地文件加载失败: {e}")
         
-        if not doc:
-            return
+        return None
+    
+    def _restore_snapshot_data(self, doc: dict, is_same_day: bool):
+        """从快照文档恢复运行时状态【v2.9.45提取】
         
-        # 【v2.9:跨日检查—如果是昨天的快照,只恢复非日期相关的持久状态】
-        snapshot_date = doc.get("trade_date", "")
-        today = datetime.now().strftime("%Y%m%d")
-        is_same_day = (snapshot_date == today)
-        if not is_same_day and snapshot_date:
-            logger.info(f"[SNAPSHOT] 快照日期={snapshot_date}, 今日={today}, 跳过日期相关状态恢复")
-        
+        Args:
+            doc: 快照文档
+            is_same_day: 快照是否为当日(同日恢复追踪止损等日内状态)
+        """
         scanner = self._scanner
         
-        # 恢复追踪止损(线程安全) — 仅恢复同日数据
+        # 恢复同日状态(线程安全) — 追踪止损/风险等级/pending_sells仅同日有效
         if is_same_day:
             with scanner._state_lock:
                 if "trailing_stops" in doc:
                     scanner._trailing_stops = doc["trailing_stops"]
                     logger.info(f"[SNAPSHOT] 恢复追踪止损: {len(scanner._trailing_stops)}只")
-                
-                # 恢复风险等级
                 if "position_risk_levels" in doc:
                     scanner._position_risk_levels = doc["position_risk_levels"]
-                
-                # 恢复pending_sells — 已在外层state_lock内, 不再加锁
                 if "pending_sells" in doc:
                     scanner._pending_sells = doc["pending_sells"]
                     logger.info(f"[SNAPSHOT] 恢复待卖: {len(scanner._pending_sells)}只")
         
-        # 恢复风控状态
+        # 恢复风控状态(跨日也恢复,不恢复trading_paused)
         if "circuit_breaker" in doc:
             cb = doc["circuit_breaker"]
-            # 只恢复连续亏损, 不恢复trading_paused(重启后应该重新评估)
             scanner._circuit_breaker["consecutive_losses"] = cb.get("consecutive_losses", 0)
             scanner._circuit_breaker["today_trades"] = cb.get("today_trades", 0)
             scanner._circuit_breaker["today_losses"] = cb.get("today_losses", 0)
@@ -124,7 +134,7 @@ class RuntimePersistence:
         if "stats" in doc:
             scanner._stats.update(doc["stats"])
         
-        # 【v2.9:恢复行情降级状态】
+        # 恢复行情降级状态
         if "quote_degrade_level" in doc and scanner._quote_manager:
             scanner._quote_degrade_level = doc["quote_degrade_level"]
             scanner._quote_manager._quote_degrade_level = doc["quote_degrade_level"]
@@ -132,8 +142,6 @@ class RuntimePersistence:
                 scanner._quote_manager._degrade_since = time.monotonic()
                 scanner._quote_manager._last_recover_attempt = time.monotonic()
                 logger.info(f"[SNAPSHOT] 恢复行情降级: level={doc['quote_degrade_level']}")
-        
-        logger.info(f"[SNAPSHOT] 加载运行时快照成功")
     
     async def save_runtime_snapshot(self, force: bool = False):
         """保存运行时快照到MongoDB
@@ -911,6 +919,73 @@ class RuntimePersistence:
             await self._scanner._save_runtime_snapshot(force=False)
         except Exception as _e:
             logger.warning(f"[SCAN] save_state失败: {_e}")
+
+    async def persist_compare_diff(self, trade_date: str, only_legacy: set, only_checker: set,
+                                   both: set, legacy_sell: list, checker_results: list,
+                                   realtime_data: Dict):
+        """compare差异持久化到MongoDB【v2.9.45:从position_checker._persist_compare_diff提取】
+        
+        将legacy/checker卖出差异记录到sell_compare_diff集合,
+        用于事后审计和分析, 评估checker模式何时可以替代legacy。
+        TTL: 30天自动过期
+        """
+        try:
+            from core.managers import mongo_manager
+            if not mongo_manager or not mongo_manager._client:
+                return
+            
+            db = mongo_manager.db
+            
+            # 构建差异详情
+            diff_details = {}
+            for code in only_legacy | only_checker:
+                detail = {"code": code}
+                for pos, reason, _, _ in legacy_sell:
+                    if pos.ts_code == code:
+                        detail["legacy_reason"] = reason
+                        detail["legacy_profit_pct"] = round(pos.profit_pct, 2)
+                        detail["strategy"] = pos.strategy
+                        break
+                for pos, reason, _, _, _ in checker_results:
+                    if pos.ts_code == code:
+                        detail["checker_reason"] = reason
+                        detail["checker_profit_pct"] = round(pos.profit_pct, 2)
+                        break
+                rt = realtime_data.get(code, {})
+                detail["price"] = rt.get("price", 0)
+                detail["pct_chg"] = rt.get("pct_chg", 0)
+                diff_details[code] = detail
+            
+            doc = {
+                "trade_date": trade_date,
+                "time": datetime.now().strftime("%H:%M:%S"),
+                "only_legacy": list(only_legacy),
+                "only_checker": list(only_checker),
+                "both": list(both),
+                "diff_details": diff_details,
+                "summary": {
+                    "total_legacy": len(only_legacy) + len(both),
+                    "total_checker": len(only_checker) + len(both),
+                    "agreement_rate": round(len(both) / max(len(only_legacy | only_checker | both), 1) * 100, 1),
+                },
+            }
+            
+            await db["sell_compare_diff"].insert_one(doc)
+            
+            # 创建TTL索引(30天, 幂等)
+            try:
+                await db["sell_compare_diff"].create_index(
+                    "time", name="ttl_30d_compare", expireAfterSeconds=30 * 86400
+                )
+            except Exception as _e:
+                pass  # 索引已存在
+            
+            logger.info(f"[COMPARE] 差异已持久化: "
+                        f"一致率={doc['summary']['agreement_rate']}% "
+                        f"仅legacy={len(only_legacy)} 仅checker={len(only_checker)}")
+            
+        except Exception as e:
+            logger.debug(f"[COMPARE] 差异持久化失败: {e}")
 
     async def save_param_snapshot(self, trade_date: str):
         """启动时保存参数快照(供月复盘参数漂移检测)【v2.9.42:从scanner._save_param_snapshot提取】"""
