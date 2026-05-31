@@ -557,7 +557,7 @@ async function fetchReviewData() {
         // 今天: 用实时API
         promises.push(
           api.get(`${scannerApi}/daily-report`, opts).then(r => { const p = parseResponse(r); if (p.success) dailyReportData.value = p.data }),
-          api.get(`${scannerApi}/trade-attribution?date=${reviewDate.value}`, opts).then(r => { const p = parseResponse(r); if (p.success) tradeAttributions.value = p.data || [] }),
+          api.get(`${scannerApi}/trade-attribution?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) tradeAttributions.value = p.data || [] }),
         )
       } else {
         // 历史日期: 用历史复盘API
@@ -570,37 +570,33 @@ async function fetchReviewData() {
               // 转换为dailyReportData格式
               dailyReportData.value = {
                 date: reviewDate.value,
-                account: { today_profit: 0, position_ratio: 0, available_cash: 0 },  // 历史无实时账户
+                account: { today_profit: 0, position_ratio: 0, available_cash: 0 },
                 positions: { count: 0, strategy_summary: d.strategy_summary, top_profit: [], top_loss: [] },
                 trades: { buy: d.scan_stats?.buy_count || 0, sell: d.scan_stats?.sell_count || 0, total_amount: 0 },
-                win_rate: 0,
+                win_rate: Object.values(d.strategy_summary || {}).reduce((s: number, v: any) => s + v.win_count, 0) / Math.max(Object.values(d.strategy_summary || {}).reduce((s: number, v: any) => s + (v.win_count || 0) + (v.loss_count || 0), 0), 1) * 100,
                 stop_loss_count: Object.values(d.strategy_summary || {}).reduce((s: number, v: any) => s + (v.stop_loss_count || 0), 0),
                 take_profit_count: Object.values(d.strategy_summary || {}).reduce((s: number, v: any) => s + (v.take_profit_count || 0), 0),
                 scanner_stats: d.scan_stats,
                 funnel_summary: d.funnel_summary,
                 sentiment_snapshot: d.sentiment_snapshot,
               }
-              // 交易归因从sells构建
-              tradeAttributions.value = (d.sells || []).map((s: any) => ({
-                ts_code: s.ts_code, stock_name: s.stock_name, strategy: s.strategy,
-                buy_price: 0, sell_price: s.price, profit_pct: 0, profit_amount: 0,
-                buy_time: '', sell_time: s.time, sell_reason: s.reason,
-                why_profit: s.reason && (s.reason.includes('追踪') || s.reason.includes('止盈') || s.reason.includes('冲高')) ? '趋势延续盈利锁定' : null,
-                why_loss: s.reason && (s.reason.includes('止损') || s.reason.includes('强制')) ? s.reason : null,
-              }))
+              // 交易归因从trade-attribution API获取(不再从sells硬编码)
             }
           }),
+          // 历史也用trade-attribution获取完整归因
+          api.get(`${scannerApi}/trade-attribution?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) tradeAttributions.value = p.data || [] }),
         )
       }
     } else if (reviewTab.value === 'weekly') {
+      const dateParam = reviewDate.value.replace(/-/g, '')
       promises.push(
-        api.get(`${scannerApi}/weekly-report`, opts).then(r => { const p = parseResponse(r); if (p.success) weeklyReportData.value = p.data }),
+        api.get(`${scannerApi}/weekly-report?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) weeklyReportData.value = p.data }),
       )
     }
     
     promises.push(
       api.get(`${scannerApi}/execution-quality?date=${reviewDate.value.replace(/-/g, '')}`, opts).then(r => { const p = parseResponse(r); if (p.success) executionQuality.value = p.data }),
-      api.get(`${scannerApi}/backtest-compare`, opts).then(r => { const p = parseResponse(r); if (p.success) liveBacktestDiff.value = p.data || [] }),
+      api.get(`${scannerApi}/backtest-compare?date=${reviewDate.value.replace(/-/g, '')}`, opts).then(r => { const p = parseResponse(r); if (p.success) liveBacktestDiff.value = p.data || [] }),
     )
     
     await Promise.allSettled(promises)
