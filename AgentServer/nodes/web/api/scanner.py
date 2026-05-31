@@ -1040,8 +1040,8 @@ async def get_sentiment_strategy_matrix():
         async for doc in db["sentiment_scores"].find({}, {"trade_date": 1, "period": 1, "missing_data": 1}):
             td = str(doc["trade_date"])
             period = doc.get("period", "")
-            if doc.get("missing_data") and not period:
-                period = "未知(数据缺失)"
+            if doc.get("missing_data"):
+                period = "数据缺失"
             if period:
                 daily_sentiment[td] = period
         
@@ -3408,11 +3408,30 @@ async def get_market_sentiment_detail():
         limit_up = len(limit_pools.get("limit_up", []))
         limit_down = len(limit_pools.get("limit_down", []))
         broken = len(limit_pools.get("broken", []))
-        broken_rate = broken / max(limit_up + broken, 1) * 100
         board_dist = {}
         for item in limit_pools.get("limit_up", []):
             t = item.get("limit_times", 1)
             board_dist[str(t)] = board_dist.get(str(t), 0) + 1
+        
+        # 涨跌停=0时从sentiment_scores补
+        if limit_up == 0 and limit_down == 0:
+            try:
+                from core.managers import mongo_manager
+                if mongo_manager.is_initialized:
+                    latest = await mongo_manager.db["sentiment_scores"].find_one(
+                        {"missing_data": {"$ne": True}},
+                        sort=[("trade_date", -1)]
+                    )
+                    if latest:
+                        limit_up = latest.get("limit_up", 0)
+                        limit_down = latest.get("limit_down", 0)
+                        # 连板分布从max_continue推算
+                        mc = latest.get("max_continue", 0)
+                        if mc > 0:
+                            board_dist[str(mc)] = board_dist.get(str(mc), 0) + 1
+            except Exception:
+                pass
+        broken_rate = broken / max(limit_up + broken, 1) * 100
 
         period_labels = {"BEARISH": ("冰点", 0, 40), "CHAOS": ("震荡", 40, 55), "DIFFERENTIATION": ("分化", 55, 70), "RISING": ("高潮", 70, 100),
                           "冰点": ("冰点", 0, 40), "震荡": ("震荡", 40, 55), "分化": ("分化", 55, 70), "高潮": ("高潮", 70, 100)}
