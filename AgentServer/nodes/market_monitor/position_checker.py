@@ -16,6 +16,10 @@ PositionChecker — 持仓检查与卖出执行引擎
 2. 跌停不可卖→pending_sells挂起机制
 3. 追踪止损状态留在Scanner, checker只做判断(与回测一致)
 4. 不影响策略回测模块
+
+v2.9.38: _run_checker_on_positions提取(消除checker/compare重复遍历)
+         _post_sell_state_cleanup提取(3处卖出后清理统一)
+         compare差异MongoDB持久化(sell_compare_diff集合)
 """
 
 import logging
@@ -232,27 +236,12 @@ class PositionChecker:
 
         # 执行卖出
         await self._execute_sell_list(to_sell, trade_date, source="legacy")
-        
-        # 卖出后清理(线程安全)
-        with self.state_lock:
-            for pos, reason, _, _ in to_sell:
-                self.trailing_stops.pop(pos.ts_code, None)
-                self.position_risk_levels.pop(pos.ts_code, None)
-        
-        # 强制持久化
-        if to_sell and self.broker:
-            try:
-                await self.broker.save_state(force=True)
-            except Exception as _e:
-                pass
-            await scanner._save_runtime_snapshot(force=True)
+        await self._post_sell_state_cleanup(to_sell)
     
     # ==================== Checker模式 ====================
     
     async def _check_positions_checker(self, realtime_data: Dict[str, Dict], trade_date: str):
-        """checker卖出逻辑(复用回测SellSignalChecker)"""
-        scanner = self._scanner
-
+        """checker卖出逻辑(复用回测SellSignalChecker)【v2.9.38:用_run_checker_on_positions消除重复】"""
         checker = self._get_sell_checker()
         if checker is None:
             logger.warning("[CHECKER] SellSignalChecker不可用, 回退legacy")
@@ -262,8 +251,89 @@ class PositionChecker:
         if not positions:
             return
 
-        to_sell = []
+        results = self._run_checker_on_positions(checker, positions, realtime_data, trade_date)
 
+        # 按卖出优先级排序(高优先级先执行: 止损>追踪止损>止盈)
+        results.sort(key=lambda x: x[4], reverse=True)
+        # 去掉priority, 恢复4元组
+        to_sell = [(pos, reason, price, risk) for pos, reason, price, risk, _ in results]
+
+        await self._execute_sell_list(to_sell, trade_date, source="checker")
+        await self._post_sell_state_cleanup(to_sell)
+    
+    # ==================== Compare模式 ====================
+    
+    async def _check_positions_compare(self, realtime_data: Dict[str, Dict], trade_date: str):
+        """compare模式: 两种逻辑都跑, 只执行旧逻辑, 记录差异【v2.9.38:用_run_checker_on_positions+差异持久化】"""
+        scanner = self._scanner
+        
+        # Legacy
+        legacy_sell = scanner._check_stop_loss_take_profit(
+            self.broker.get_positions(), realtime_data
+        )
+        legacy_codes = {p.ts_code for p, _, _, _ in legacy_sell}
+
+        # Checker(使用缓存的实例, 复用_run_checker_on_positions)
+        checker_codes = set()
+        checker_results = []
+        checker = self._get_sell_checker()
+        if checker:
+            try:
+                positions = self.broker.get_positions()
+                checker_results = self._run_checker_on_positions(checker, positions, realtime_data, trade_date)
+                checker_codes = {pos.ts_code for pos, _, _, _, _ in checker_results}
+            except Exception as e:
+                logger.debug(f"[COMPARE] checker执行异常: {e}")
+
+        # 记录差异
+        only_legacy = legacy_codes - checker_codes
+        only_checker = checker_codes - legacy_codes
+        both = legacy_codes & checker_codes
+
+        if only_legacy or only_checker:
+            logger.info(f"[COMPARE] 卖出差异: "
+                         f"仅legacy={only_legacy or '{}'} "
+                         f"仅checker={only_checker or '{}'} "
+                         f"一致={both or '{}'}")
+            try:
+                await scanner._publish_scanner_event("sell_compare", {
+                    "only_legacy": list(only_legacy),
+                    "only_checker": list(only_checker),
+                    "both": list(both),
+                    "time": datetime.now().strftime("%H:%M:%S"),
+                })
+            except Exception as _e:
+                pass
+
+            # 【v2.9.38】差异持久化到MongoDB(审计用)
+            await self._persist_compare_diff(
+                trade_date, only_legacy, only_checker, both,
+                legacy_sell, checker_results, realtime_data,
+            )
+
+        # 只执行legacy逻辑
+        await self._check_positions_legacy(realtime_data, trade_date)
+    
+    # ==================== Checker公共逻辑【v2.9.38提取】 ====================
+    
+    def _run_checker_on_positions(self, checker, positions, realtime_data: Dict[str, Dict], trade_date: str) -> List[Tuple]:
+        """遍历持仓, 运行SellSignalChecker, 返回5元组列表[(pos, reason, price, risk, priority)]
+        
+        消除checker/compare模式的重复遍历逻辑。
+        checker模式使用完整5元组(含priority排序), compare模式只取ts_code。
+        
+        Args:
+            checker: SellSignalChecker实例
+            positions: 持仓列表
+            realtime_data: 实时行情字典
+            trade_date: 交易日期
+            
+        Returns:
+            List of (pos, reason, sell_price, risk, priority) tuples
+        """
+        scanner = self._scanner
+        results = []
+        
         for pos in positions:
             if pos.available_qty <= 0:
                 continue
@@ -292,92 +362,104 @@ class PositionChecker:
                 sell_price = result.get('price', rt.get("price", 0))
                 priority = result.get('priority', 0)
                 risk = scanner._get_strategy_risk(pos.strategy)
-                to_sell.append((pos, reason, sell_price, risk, priority))
-
-        # 按卖出优先级排序(高优先级先执行: 止损>追踪止损>止盈)
-        to_sell.sort(key=lambda x: x[4], reverse=True)
-        # 去掉priority, 恢复4元组
-        to_sell = [(pos, reason, price, risk) for pos, reason, price, risk, _ in to_sell]
-
-        await self._execute_sell_list(to_sell, trade_date, source="checker")
-
+                results.append((pos, reason, sell_price, risk, priority))
+        
+        return results
+    
+    async def _post_sell_state_cleanup(self, to_sell: List[Tuple]):
+        """卖出后状态清理(线程安全) + 强制持久化【v2.9.38:从3处重复逻辑提取】"""
+        if not to_sell:
+            return
+        scanner = self._scanner
+        
+        # 线程安全清理trailing_stops/position_risk_levels
         with self.state_lock:
             for pos, reason, _, _ in to_sell:
                 self.trailing_stops.pop(pos.ts_code, None)
                 self.position_risk_levels.pop(pos.ts_code, None)
-
-        if to_sell and self.broker:
+        
+        # 强制持久化
+        if self.broker:
             try:
                 await self.broker.save_state(force=True)
             except Exception as _e:
-                pass
-            await scanner._save_runtime_snapshot(force=True)
-    
-    # ==================== Compare模式 ====================
-    
-    async def _check_positions_compare(self, realtime_data: Dict[str, Dict], trade_date: str):
-        """compare模式: 两种逻辑都跑, 只执行旧逻辑, 记录差异"""
-        scanner = self._scanner
-        
-        # Legacy
-        legacy_sell = scanner._check_stop_loss_take_profit(
-            self.broker.get_positions(), realtime_data
-        )
-        legacy_codes = {p.ts_code for p, _, _, _ in legacy_sell}
-
-        # Checker(使用缓存的实例)
-        checker_codes = set()
-        checker = self._get_sell_checker()
-        if checker:
+                logger.debug(f"[CLEANUP] broker保存失败: {_e}")
             try:
-                for pos in self.broker.get_positions():
-                    if pos.available_qty <= 0:
-                        continue
-                    rt = realtime_data.get(pos.ts_code, {})
-                    if not rt or rt.get("price", 0) <= 0:
-                        continue
-
-                    with self.state_lock:
-                        trailing_state = dict(self.trailing_stops[pos.ts_code]) if pos.ts_code in self.trailing_stops else None
-
-                    # 计算持仓天数(与checker模式一致)
-                    trade_days_held = self._calc_trade_days_held(pos.buy_date, trade_date) if pos.buy_date else None
-
-                    result = checker.check_realtime_sell(
-                        position=pos,
-                        realtime_price=rt.get("price", 0),
-                        high_price=rt.get("high", 0),
-                        open_price=rt.get("open", 0),
-                        trailing_stop_state=trailing_state,
-                        trade_days_held=trade_days_held,
-                    )
-                    if result:
-                        checker_codes.add(pos.ts_code)
-            except Exception as e:
-                logger.debug(f"[COMPARE] checker执行异常: {e}")
-
-        # 记录差异
-        only_legacy = legacy_codes - checker_codes
-        only_checker = checker_codes - legacy_codes
-        both = legacy_codes & checker_codes
-
-        if only_legacy or only_checker:
-            logger.info(f"[COMPARE] 卖出差异: "
-                         f"仅legacy={only_legacy or '{}'} "
-                         f"仅checker={only_checker or '{}'} "
-                         f"一致={both or '{}'}")
-            try:
-                await scanner._publish_scanner_event("sell_compare", {
-                    "only_legacy": list(only_legacy),
-                    "only_checker": list(only_checker),
-                    "both": list(both),
-                    "time": datetime.now().strftime("%H:%M:%S"),
-                })
+                await scanner._save_runtime_snapshot(force=True)
             except Exception as _e:
-                pass
-
-        # 只执行legacy逻辑
-        await self._check_positions_legacy(realtime_data, trade_date)
+                logger.debug(f"[CLEANUP] 运行时快照保存失败: {_e}")
+    
+    async def _persist_compare_diff(self, trade_date: str, only_legacy: set, only_checker: set,
+                                     both: set, legacy_sell: list, checker_results: list,
+                                     realtime_data: Dict[str, Dict]):
+        """compare差异持久化到MongoDB【v2.9.38新增】
+        
+        将legacy/checker卖出差异记录到sell_compare_diff集合,
+        用于事后审计和分析, 评估checker模式何时可以替代legacy。
+        
+        TTL: 30天自动过期
+        """
+        scanner = self._scanner
+        try:
+            from core.managers import mongo_manager
+            if not mongo_manager or not mongo_manager._client:
+                return
+            
+            db = mongo_manager.db
+            
+            # 构建差异详情
+            diff_details = {}
+            for code in only_legacy | only_checker:
+                detail = {"code": code}
+                # legacy侧卖出原因
+                for pos, reason, _, _ in legacy_sell:
+                    if pos.ts_code == code:
+                        detail["legacy_reason"] = reason
+                        detail["legacy_profit_pct"] = round(pos.profit_pct, 2)
+                        detail["strategy"] = pos.strategy
+                        break
+                # checker侧卖出原因
+                for pos, reason, _, _, _ in checker_results:
+                    if pos.ts_code == code:
+                        detail["checker_reason"] = reason
+                        detail["checker_profit_pct"] = round(pos.profit_pct, 2)
+                        break
+                # 行情上下文
+                rt = realtime_data.get(code, {})
+                detail["price"] = rt.get("price", 0)
+                detail["pct_chg"] = rt.get("pct_chg", 0)
+                diff_details[code] = detail
+            
+            doc = {
+                "trade_date": trade_date,
+                "time": datetime.now().strftime("%H:%M:%S"),
+                "only_legacy": list(only_legacy),
+                "only_checker": list(only_checker),
+                "both": list(both),
+                "diff_details": diff_details,
+                "summary": {
+                    "total_legacy": len(only_legacy) + len(both),
+                    "total_checker": len(only_checker) + len(both),
+                    "agreement_rate": round(len(both) / max(len(only_legacy | only_checker | both), 1) * 100, 1),
+                },
+            }
+            
+            await db["sell_compare_diff"].insert_one(doc)
+            
+            # 创建TTL索引(30天, 幂等)
+            try:
+                await db["sell_compare_diff"].create_index(
+                    "time", name="ttl_30d_compare", expireAfterSeconds=30 * 86400
+                )
+            except Exception:
+                pass  # 索引已存在
+            
+            logger.info(f"[COMPARE] 差异已持久化: "
+                        f"一致率={doc['summary']['agreement_rate']}% "
+                        f"仅legacy={len(only_legacy)} 仅checker={len(only_checker)}")
+            
+        except Exception as e:
+            logger.debug(f"[COMPARE] 差异持久化失败: {e}")
     
     # ==================== 卖出执行 ====================
     

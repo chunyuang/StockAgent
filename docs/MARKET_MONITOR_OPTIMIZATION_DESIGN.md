@@ -1,9 +1,9 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.37 | 日期: 2026-06-01 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.38 | 日期: 2026-06-01 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats✅ | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化✅ | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复✅ | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复✅ | v2.9.24 diagnose+情绪调仓提取+DelegateRouter策略扩展✅ | v2.9.25 update_strategy_config bug修复+bare except清理+_init_modules拆分✅ | v2.9.26 全模块bare except清理+position_checker._execute_sell_list提取3子方法✅ | v2.9.27 方法提取到子模块5个+测试适配✅ | v2.9.28 风控线程拆分+filter合并提取+scan_loop错误恢复✅ | v2.9.31 _safe_read_state统一+RuntimeWarning修复+get_positions提取✅ | v2.9.34 情绪得分+收盘同步提取→子模块✅ | v2.9.35 卖出执行提取到PositionManager✅ | v2.9.36 审查P0/P1修复+WS断线补发+前端错误提示 | v2.9.37 _save_param_snapshot提取+_init_state类属性瘦身+start()30行
+> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats✅ | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化✅ | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复✅ | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复✅ | v2.9.24 diagnose+情绪调仓提取+DelegateRouter策略扩展✅ | v2.9.25 update_strategy_config bug修复+bare except清理+_init_modules拆分✅ | v2.9.26 全模块bare except清理+position_checker._execute_sell_list提取3子方法✅ | v2.9.27 方法提取到子模块5个+测试适配✅ | v2.9.28 风控线程拆分+filter合并提取+scan_loop错误恢复✅ | v2.9.31 _safe_read_state统一+RuntimeWarning修复+get_positions提取✅ | v2.9.34 情绪得分+收盘同步提取→子模块✅ | v2.9.35 卖出执行提取到PositionManager✅ | v2.9.36 审查P0/P1修复+WS断线补发+前端错误提示 | v2.9.37 _save_param_snapshot提取+_init_state类属性瘦身+start()30行 | v2.9.38 _run_checker_on_positions提取+compare差异持久化+_post_sell_state_cleanup统一
 > 回测影响: 零文件修改, 834测试全通过(scanner 783+backtest 51)
 
 ---
@@ -2771,3 +2771,114 @@ class MarketScanner:
 ### 35.8 回测影响
 
 零。所有变更仅影响market_monitor模块scanner.py内部重构和测试, 回测引擎零文件修改。
+
+## 三十六、v2.9.38 _run_checker_on_positions提取 + compare差异持久化 + _post_sell_state_cleanup统一 (2026-06-01)
+
+### 36.1 设计目标
+
+1. **🟡 checker/compare重复遍历消除**: `_check_positions_checker`和`_check_positions_compare`中各有30+行几乎相同的持仓遍历+checker调用逻辑, 应提取公共方法
+2. **🟡 卖出后清理3处重复**: legacy/checker模式的卖出后trailing_stops/position_risk_levels清理+持久化逻辑完全相同(15行), 应提取统一方法
+3. **🟡 compare差异持久化**: compare模式只记录日志和EventBus事件, 无MongoDB持久化, 差异数据重启后丢失, 不利于审计分析
+
+### 36.2 变更详情
+
+#### A. _run_checker_on_positions提取
+
+**问题**: `_check_positions_checker`和`_check_positions_compare`各有一段30+行几乎相同的代码:遍历持仓→加锁读trailing_state→计算trade_days_held→调用checker.check_realtime_sell→收集结果。仅返回格式不同(checker返回5元组含priority, compare只收集ts_code)。
+
+**修复**: 提取`_run_checker_on_positions(checker, positions, realtime_data, trade_date)`公共方法, 返回统一的5元组列表`[(pos, reason, sell_price, risk, priority)]`:
+
+- checker模式: 调用后按priority排序→去掉第5元→执行卖出
+- compare模式: 调用后只取ts_code集合→记录差异
+
+**代码减少**: ~60行重复代码消除
+
+#### B. _post_sell_state_cleanup提取
+
+**问题**: `_check_positions_legacy`和`_check_positions_checker`中卖出后清理逻辑完全相同:
+1. `with self.state_lock: trailing_stops.pop / position_risk_levels.pop`
+2. `if to_sell and self.broker: await self.broker.save_state(force=True)`
+3. `await scanner._save_runtime_snapshot(force=True)`
+
+**修复**: 提取为`_post_sell_state_cleanup(to_sell)`方法:
+- 空列表提前返回(`if not to_sell: return`)
+- 加锁清理trailing_stops/position_risk_levels
+- broker.save_state + _save_runtime_snapshot (均有try/except保护)
+
+**调用方变更**:
+- `_check_positions_legacy`: 删除15行内联清理→1行`await self._post_sell_state_cleanup(to_sell)`
+- `_check_positions_checker`: 删除15行内联清理→1行`await self._post_sell_state_cleanup(to_sell)`
+
+#### C. compare差异MongoDB持久化
+
+**问题**: compare模式发现差异时只记录日志和EventBus事件, 运维人员需要手动收集日志才能分析。重启后历史差异丢失。
+
+**修复**: 新增`_persist_compare_diff()`方法, 将差异记录写入MongoDB `sell_compare_diff`集合:
+
+```python
+{
+    "trade_date": "20260601",
+    "time": "10:30:15",
+    "only_legacy": ["600036.SH"],
+    "only_checker": ["000001.SZ"],
+    "both": ["300750.SZ"],
+    "diff_details": {
+        "600036.SH": {
+            "code": "600036.SH",
+            "legacy_reason": "止损 -3.5%",
+            "checker_reason": None,
+            "legacy_profit_pct": -3.5,
+            "strategy": "半路追涨",
+            "price": 38.5,
+            "pct_chg": -2.1,
+        },
+        ...
+    },
+    "summary": {
+        "total_legacy": 3,
+        "total_checker": 2,
+        "agreement_rate": 33.3,
+    },
+}
+```
+
+**特性**:
+- TTL索引: 30天自动过期(`ttl_30d_compare`)
+- 幂等: create_index已存在不报错
+- 安全: try/except保护, MongoDB不可用不影响主流程
+- 详情: 每只差异股票记录两侧原因+行情上下文
+- 统计: 自动计算一致率(agreement_rate)
+
+### 36.3 变更文件
+
+| 文件 | 变更 |
+|---|---|
+| nodes/market_monitor/position_checker.py | 新增3个方法; checker/compare模式用提取方法; legacy用_post_sell_state_cleanup |
+| nodes/web/api/scanner.py | _DESIGN_DOC_VERSION→v2.9.38 |
+| tests/scanner/test_v2938_checker_extraction.py | 新增32测试 |
+| tests/scanner/test_v2937_init_state_class_attrs.py | 版本断言更新 |
+| docs/MARKET_MONITOR_OPTIMIZATION_DESIGN.md | v2.9.38记录 |
+
+### 36.4 position_checker.py行数变化
+
+| 阶段 | 行数 | 变化 |
+|---|---|---|
+| v2.9.37 | 606 | 基线 |
+| **v2.9.38** | **688** | **+82行(3个新方法共约110行, 消除约60行重复, 净增+82行但逻辑更清晰)** |
+
+### 36.5 测试覆盖 (32新增)
+
+| 测试类 | 用例数 | 覆盖点 |
+|---|---|---|
+| TestRunCheckerOnPositions | 8 | 存在性/5元组返回/checker模式调用/compare模式调用/无重复循环/加锁/trade_days_held |
+| TestPostSellStateCleanup | 10 | 存在性/trailing_stops_pop/position_risk_levels_pop/state_lock/broker_save/runtime_snapshot/legacy调用/checker调用/无内联pop/空列表提前返回 |
+| TestCompareDiffPersistence | 7 | 存在性/集合名/TTL索引/差异详情字段/compare调用/try/except保护 |
+| TestCodeReduction | 2 | 行数合理/无重复for循环 |
+| TestVersionSync | 2 | API版本/文档版本 |
+| TestNoBacktestRegression | 5 | 引入/签名/默认参数/无回测引用/无外部依赖 |
+
+**全量测试**: 883 passed (0 failed)
+
+### 36.6 回测影响
+
+零。所有变更仅影响position_checker.py内部重构, 回测引擎零文件修改。SellSignalChecker.check_realtime_sell API签名不变。
