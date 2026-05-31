@@ -321,9 +321,16 @@ const xAxisLabels = computed(() => {
     if (sentimentMode.value === 'intraday') {
       return p.time?.substring(11, 16) || ''
     } else if (sentimentMode.value === 'weekly') {
-      // "2026-W17" → "W17"
+      // "2024-W19" → 从date推算月/日显示
       const wi = d.indexOf('-W')
-      return wi >= 0 ? d.substring(wi + 1) : d
+      if (wi >= 0) {
+        const yr = d.substring(2, 4)
+        const wk = parseInt(d.substring(wi + 2)) || 1
+        // ISO周→大概月份: week*7/30 粗估
+        const mon = Math.min(Math.ceil(wk * 7 / 30), 12)
+        return yr + '/' + String(mon).padStart(2, '0')
+      }
+      return d
     } else if (sentimentMode.value === 'monthly') {
       // "202601" → "26/01"
       return d.length >= 6 ? d.substring(2, 4) + '/' + d.substring(4, 6) : d
