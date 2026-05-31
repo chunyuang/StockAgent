@@ -885,6 +885,7 @@ async def get_historical_review(date: str = None):
         }}
     except Exception as e:
         return {"success": True, "data": None, "message": str(e)}
+@router.post("/scanner/daily-settlement")
 async def daily_settlement():
     """手动触发日结算(T+1解锁)"""
     scanner = _get_scanner()
@@ -2790,7 +2791,7 @@ _version_cache = {"value": None, "ts": 0}
 _VERSION_CACHE_TTL = 300  # 5分钟缓存
 
 # 【v2.9.10:设计文档版本常量, 与docs/MARKET_MONITOR_OPTIMIZATION_DESIGN.md保持同步】
-_DESIGN_DOC_VERSION = "v2.9.35"
+_DESIGN_DOC_VERSION = "v2.9.36"
 _BASELINE_TAG = "v2.8.0-backtest-ui-v2"
 
 def _get_version_info() -> dict:

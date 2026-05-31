@@ -67,9 +67,29 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as e:
         logger.warning(f"[APP] 数据源初始化失败(不影响其他功能): {e}")
     
+    # 初始化 Redis→WebSocket 桥接
+    try:
+        from .websocket import manager as ws_manager
+        from .redis_ws_bridge import init_bridge
+        bridge = init_bridge(ws_manager)
+        await bridge.start()
+        logger.info("[APP] Redis→WS 桥接已启动")
+    except Exception as e:
+        logger.warning(f"[APP] Redis→WS 桥接启动失败(不影响其他功能): {e}")
+    
     yield
     
     # ========== 关闭 ==========
+    # 停止 Redis→WS 桥接
+    try:
+        from .redis_ws_bridge import get_bridge
+        bridge = get_bridge()
+        if bridge:
+            await bridge.stop()
+            logger.info("[APP] Redis→WS 桥接已停止")
+    except Exception as e:
+        logger.warning(f"[APP] Redis→WS 桥接停止异常: {e}")
+    
     await mongo_manager.shutdown()
     await redis_manager.shutdown()
 

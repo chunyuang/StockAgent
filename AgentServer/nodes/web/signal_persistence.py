@@ -65,8 +65,11 @@ logger = logging.getLogger("signal_persistence")
 # C.DAILY_PREMARKET_SIGNALS -> C.DAILY_PREMARKET_SIGNALS
 # C.TRADING_SIGNALS -> C.TRADING_SIGNALS
 # COLLECTION_REVIEW kept (not in C)
+COLLECTION_REVIEW = "daily_postmarket_review"
 # COLLECTION_EXECUTION_LOG kept (not in C)
+COLLECTION_EXECUTION_LOG = "signal_execution_log"
 # COLLECTION_POOL kept (not in C)
+COLLECTION_POOL = "premarket_pool"
 
 
 # ==================== 信号状态 ====================

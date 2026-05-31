@@ -1,10 +1,10 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.35 | 日期: 2026-05-31 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.36 | 日期: 2026-05-31 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats✅ | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化✅ | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复✅ | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复✅ | v2.9.24 diagnose+情绪调仓提取+DelegateRouter策略扩展✅ | v2.9.25 update_strategy_config bug修复+bare except清理+_init_modules拆分✅ | v2.9.26 全模块bare except清理+position_checker._execute_sell_list提取3子方法✅ | v2.9.27 方法提取到子模块5个+测试适配✅ | v2.9.28 风控线程拆分+filter合并提取+scan_loop错误恢复✅ | v2.9.31 _safe_read_state统一+RuntimeWarning修复+get_positions提取✅ | v2.9.34 情绪得分+收盘同步提取→子模块✅ | v2.9.35 卖出执行提取到PositionManager✅
-> 回测影响: 零文件修改, 845测试全通过(scanner 794+backtest 51)
+> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats✅ | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化✅ | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复✅ | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复✅ | v2.9.24 diagnose+情绪调仓提取+DelegateRouter策略扩展✅ | v2.9.25 update_strategy_config bug修复+bare except清理+_init_modules拆分✅ | v2.9.26 全模块bare except清理+position_checker._execute_sell_list提取3子方法✅ | v2.9.27 方法提取到子模块5个+测试适配✅ | v2.9.28 风控线程拆分+filter合并提取+scan_loop错误恢复✅ | v2.9.31 _safe_read_state统一+RuntimeWarning修复+get_positions提取✅ | v2.9.34 情绪得分+收盘同步提取→子模块✅ | v2.9.35 卖出执行提取到PositionManager✅ | v2.9.36 审查P0/P1修复+WS断线补发+前端错误提示
+> 回测影响: 零文件修改, 834测试全通过(scanner 783+backtest 51)
 
 ---
 
@@ -2570,3 +2570,120 @@ _EMOTION_BINDINGS = {
 ### 33.6 回测影响
 
 零。所有变更仅影响market_monitor模块委托路由, 回测引擎零文件修改。
+
+## 三十四、v2.9.36 审查P0/P1修复 + WS断线补发 + 前端错误提示 (2026-05-31)
+
+### 34.1 设计目标
+
+根据 REALTIME_MONITOR_AUDIT_20260531.md 审查报告, 修复3个P0严重Bug + 1个P1问题, 并补齐WS断线重连后的Stream消息补发能力。
+
+### 34.2 P0#1: Redis→WebSocket桥接未启动 (🔴 严重)
+
+**问题**: `nodes/web/app.py` lifespan函数中从未调用`init_bridge()`和`bridge.start()`, 导致整个实时数据推送链路(Redis Pub/Sub → WebSocket → 前端)完全不工作。
+
+**影响**: scanner信号/持仓/时间线不会通过WS推送, 前端只能依赖REST轮询。
+
+**修复**: 在lifespan启动部分添加bridge初始化和启动, 关闭部分添加bridge停止:
+```python
+# 启动
+from .websocket import manager as ws_manager
+from .redis_ws_bridge import init_bridge
+bridge = init_bridge(ws_manager)
+await bridge.start()
+
+# 关闭
+from .redis_ws_bridge import get_bridge
+bridge = get_bridge()
+if bridge:
+    await bridge.stop()
+```
+
+### 34.3 P0#2: signal_persistence集合常量未定义 (🔴 严重)
+
+**问题**: `signal_persistence.py`中`COLLECTION_REVIEW`/`COLLECTION_EXECUTION_LOG`/`COLLECTION_POOL`三常量只有注释但从未定义, 运行时NameError。
+
+**修复**: 添加常量定义:
+```python
+COLLECTION_REVIEW = "daily_postmarket_review"
+COLLECTION_EXECUTION_LOG = "signal_execution_log"
+COLLECTION_POOL = "premarket_pool"
+```
+
+### 34.4 P0#3: daily_settlement无路由装饰器 (🔴 严重)
+
+**问题**: `daily_settlement()`函数定义了但没有`@router.post`装饰器, 前端POST请求返回404。
+
+**修复**: 添加路由装饰器:
+```python
+@router.post("/scanner/daily-settlement")
+async def daily_settlement():
+```
+
+### 34.5 P1#4: RedisWSBridge._log_cache未初始化 (🟡 中等)
+
+**问题**: `get_stats()`中`len(self._log_cache)`引用已移除的属性, 运行时NameError。
+
+**修复**: 替换为整数常量`0`:
+```python
+"cached_tasks": 0,  # _log_cache不再缓存
+```
+
+### 34.6 P2#8: WS断线重连后Stream ID补发 (🟢 低风险)
+
+**问题**: 前端记录了`lastSignalStreamId`/`lastPositionStreamId`但断线重连后未使用, 断线期间的信号/持仓变更丢失。
+
+**修复**: `ws.onopen`回调中, 如果有上次的Stream ID, 调用REST API补发:
+```javascript
+// 断线重连后补发缺失的Stream消息
+if (lastSignalStreamId) {
+  fetch(`/api/v1/scanner/stream/signals?after=${lastSignalStreamId}&count=50`)
+    .then(r => r.json()).then(j => {
+      if (j.success && j.data?.length) {
+        for (const msg of j.data) {
+          if (msg.data) scannerStore.updateFromWs('signal', { item: msg.data.signals?.[0] || msg.data.item })
+        }
+        fetchScanner() // 刷新全量状态
+      }
+    }).catch(() => {})
+}
+```
+
+### 34.7 P2#9: onMounted错误提示 (🟢 低风险)
+
+**问题**: `onMounted`中catch只打console.error, 用户不知道初始化失败。
+
+**修复**: 关键初始化失败时显示ElMessage提示:
+```javascript
+catch(e) {
+  console.error('[Mount] fetch error:', e);
+  ElMessage.warning('数据加载失败，请检查连接后刷新')
+}
+```
+
+### 34.8 变更文件
+
+| 文件 | 变更 |
+|---|---|
+| nodes/web/app.py | lifespan添加bridge启动/停止 |
+| nodes/web/signal_persistence.py | 添加3个集合常量定义 |
+| nodes/web/api/scanner.py | daily_settlement添加路由装饰器 + 版本→v2.9.36 |
+| nodes/web/redis_ws_bridge.py | get_stats修复_log_cache引用 |
+| frontend/src/views/monitor/MarketMonitorView.vue | WS断线补发 + onMounted错误提示 |
+| tests/scanner/test_v2936_audit_p0_fixes.py | 新增15测试 |
+| docs/MARKET_MONITOR_OPTIMIZATION_DESIGN.md | v2.9.36记录 |
+
+### 34.9 测试覆盖
+
+| 测试类 | 用例数 | 覆盖点 |
+|---|---|---|
+| TestBridgeStartedInLifespan | 4 | init_bridge导入/bridge.start/bridge.stop/try-except保护 |
+| TestSignalPersistenceCollections | 4 | 3常量定义+引用验证 |
+| TestDailySettlementRoute | 2 | 路由装饰器+路径 |
+| TestLogCacheReference | 2 | 无_log_cache引用/常量整数 |
+| TestNoBacktestRegressionV2936 | 3 | 回测模块零影响 |
+
+**全量测试**: 834 passed (0 failed)
+
+### 34.10 回测影响
+
+零。所有修复限于web层(app.py/signal_persistence/scanner API/redis_ws_bridge)和前端, 回测引擎零文件修改。
