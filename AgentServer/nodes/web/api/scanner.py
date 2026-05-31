@@ -830,11 +830,15 @@ async def get_historical_review(date: str = None):
             w, l = v["wins"], v["losses"]
             t = len(w) + len(l)
             strategy_summary[k] = {
+                "count": v["sell_count"],  # 持仓/已平数量
                 "buy_count": v["buy_count"], "sell_count": v["sell_count"],
+                "closed_count": t,  # 已平仓笔数
                 "stop_loss_count": v["stop_loss"], "take_profit_count": v["take_profit"],
                 "win_count": len(w), "loss_count": len(l),
                 "win_rate": round(len(w) / max(t, 1) * 100, 1),
+                "closed_win_rate": round(len(w) / max(t, 1) * 100, 1),
                 "total_pnl": round(v["total_pnl"]),
+                "closed_profit": round(v["total_pnl"]),
                 "avg_win_pct": round(sum(w) / len(w), 1) if w else 0,
                 "avg_loss_pct": round(sum(l) / len(l), 1) if l else 0,
                 "profit_loss_ratio": round(abs(sum(w)/len(w) / (sum(l)/len(l))), 1) if w and l else 0,
@@ -853,6 +857,7 @@ async def get_historical_review(date: str = None):
                     funnel_agg[layer_name]["total_rejected"] += layer_data.get("rejected", 0)
         # 取最新一条layer_details.L3作为情绪快照
         sentiment_snap = None
+        # 1. 优先从scan_traces读取L3情绪层
         latest_with_l3 = await db["scan_traces"].find_one(
             {"trade_date": date, "layer_details.L3_sentiment": {"$exists": True, "$ne": ""}},
             sort=[("_id", -1)],
@@ -860,6 +865,14 @@ async def get_historical_review(date: str = None):
         )
         if latest_with_l3:
             sentiment_snap = (latest_with_l3.get("layer_details") or {}).get("L3_sentiment")
+        # 2. fallback到sentiment_scores
+        if not sentiment_snap:
+            ss_doc = await db["sentiment_scores"].find_one({"trade_date": int(date)})
+            if ss_doc:
+                score = ss_doc.get("score", 0)
+                period = ss_doc.get("period", "")
+                pos = ss_doc.get("position_ratio", 0)
+                sentiment_snap = f"{period} {score}分 仓位{int(pos*100)}%"
         
         return {"success": True, "data": {
             "date": date,
@@ -1512,10 +1525,11 @@ async def get_trade_audit():
 
 
 @router.get("/backtest-compare")
-async def backtest_compare():
+async def backtest_compare(date: str = None):
     """实盘vs回测对比
     
-    返回各策略的回测指标和实盘指标对比
+    Args:
+        date: YYYYMMDD格式, 不传则全量
     """
     scanner = _get_scanner()
     try:
@@ -1979,15 +1993,11 @@ async def sell_all_positions():
 # ==================== 交易报告增强 ====================
 
 @router.get("/weekly-report")
-async def get_weekly_report():
-    """周报: 最近5个交易日的汇总
+async def get_weekly_report(date: str = None):
+    """周报: 指定日期所在周的5个交易日汇总
     
-    包含:
-    - 每日盈亏
-    - 累计收益曲线
-    - 策略表现汇总
-    - 最大回撤
-    - 交易统计
+    Args:
+        date: YYYYMMDD格式, 不传则当天
     """
     scanner = _get_scanner()
     if not scanner._broker:
@@ -2000,8 +2010,14 @@ async def get_weekly_report():
         
         account_id = scanner._broker.account.account_id
         
-        # 获取最近5个交易日的订单
-        start_date = (datetime.now() - timedelta(days=7)).strftime("%Y%m%d")
+        # 确定日期范围: 指定日期往前7天
+        if date:
+            end_date = date
+            start_dt = datetime(int(date[:4]), int(date[4:6]), int(date[6:8])) - timedelta(days=7)
+            start_date = start_dt.strftime("%Y%m%d")
+        else:
+            start_date = (datetime.now() - timedelta(days=7)).strftime("%Y%m%d")
+            end_date = datetime.now().strftime("%Y%m%d")
         
         daily_stats = {}
         async for doc in mongo_manager.db["broker_orders"].find({
@@ -3708,104 +3724,100 @@ async def get_trade_attribution(date: str = None):
     """逐笔归因分析 — 每笔交易赚在哪/亏在哪
     
     Args:
-        date: 指定日期(YYYY-MM-DD), 不传则返回最近交易日
+        date: YYYYMMDD格式, 不传则返回最近交易日
     
     Returns:
         逐笔归因列表: ts_code/strategy/buy_price/sell_price/profit_pct/sell_reason/why_profit/why_loss
     """
     try:
-        scanner = _get_scanner_instance()
-        if not scanner:
+        from core.managers import mongo_manager
+        if not mongo_manager.is_initialized:
             return {"success": True, "data": []}
+        db = mongo_manager.db
+        
+        # 确定日期
+        if not date:
+            latest = await db["broker_orders"].find_one(
+                {"side": "sell", "status": "filled"},
+                sort=[("_id", -1)]
+            )
+            if not latest:
+                return {"success": True, "data": []}
+            date = latest.get("trade_date", "")
         
         attributions = []
-        
-        # 从timeline中提取已卖出交易
-        for item in scanner._timeline:
-            if item.get("action") != "sell" or not item.get("ts_code"):
-                continue
-            if date and not item.get("time", "").startswith(date.replace("-", "")):
-                continue
+        # 从broker_orders读取卖出记录
+        async for doc in db["broker_orders"].find({
+            "trade_date": date, "side": "sell", "status": "filled"
+        }).sort("fill_time", 1):
+            ts_code = doc.get("ts_code", "")
+            strategy = doc.get("strategy", "")
+            profit_pct = doc.get("profit_pct", 0) or 0
+            sell_reason = doc.get("reason", "")
+            filled_price = doc.get("filled_price", 0) or 0
+            filled_qty = doc.get("filled_qty", 0) or 0
             
-            ts_code = item["ts_code"]
-            strategy = item.get("strategy", "")
-            profit_pct = item.get("profit_pct", 0) or 0
-            sell_reason = item.get("reason", "")
+            # 查找对应买入记录
+            buy_doc = await db["broker_orders"].find_one(
+                {"ts_code": ts_code, "strategy": strategy, "side": "buy", "status": "filled"},
+                sort=[("_id", 1)]
+            )
+            buy_price = buy_doc.get("filled_price", 0) if buy_doc else 0
+            buy_time = buy_doc.get("fill_time", "") if buy_doc else ""
             
-            # 归因分析: 优先从scan_traces获取真实漏斗数据
-            why_profit = None
-            why_loss = None
+            # 查找scan_trace(买入漏斗)
             scan_info = None
-            
-            # 从MongoDB查找该股票最近的scan_trace(买入时经过的漏斗)
             try:
-                from core.managers import mongo_manager
-                if mongo_manager.is_initialized:
-                    scan_doc = await mongo_manager.db["scan_traces"].find_one(
-                        {"candidates.ts_code": ts_code, "candidates.strategy": strategy},
-                        {"scan_time": 1, "summary": 1, "layer_details": 1}
-                    )
-                    if scan_doc:
-                        layers = []
-                        for layer_name, layer_data in (scan_doc.get("summary") or {}).items():
-                            if isinstance(layer_data, dict) and layer_data.get("rejected", 0) > 0:
-                                layers.append(f"{layer_name}淘汰{layer_data['rejected']}只")
-                        ld = scan_doc.get("layer_details") or {}
-                        l3_info = ld.get("L3_sentiment", "")
-                        l4_info = ld.get("L4_premarket", "")
-                        l7_info = ld.get("L7_ranking", "")
-                        scan_info = {
-                            "scan_time": scan_doc.get("scan_time", "")[:19],
-                            "key_layers": layers[:3] if layers else [],
-                            "sentiment": l3_info,
-                            "premarket": l4_info,
-                            "ranking": l7_info,
-                        }
+                scan_doc = await db["scan_traces"].find_one(
+                    {"candidates.ts_code": ts_code, "candidates.strategy": strategy},
+                    {"scan_time": 1, "summary": 1, "layer_details": 1}
+                )
+                if scan_doc:
+                    ld = scan_doc.get("layer_details") or {}
+                    scan_info = {
+                        "scan_time": scan_doc.get("scan_time", "")[:19],
+                        "sentiment": ld.get("L3_sentiment", ""),
+                        "ranking": ld.get("L7_ranking", ""),
+                    }
             except Exception:
                 pass
             
-            # 归因: 基于实际卖出原因(而非硬编码规则)
+            # 归因分析
+            why_profit = None
+            why_loss = None
             if profit_pct >= 0:
-                factors = []
-                if "追踪止损" in sell_reason:
-                    factors.append("趋势延续盈利锁定")
+                if "追踪" in sell_reason:
+                    why_profit = "趋势延续盈利锁定"
                 elif "止盈" in sell_reason:
-                    factors.append("达到止盈目标")
+                    why_profit = "达到止盈目标"
                 elif "冲高" in sell_reason:
-                    factors.append("冲高兑现")
-                elif "利润" in sell_reason:
-                    factors.append("利润保护")
+                    why_profit = "冲高兑现"
                 else:
-                    factors.append("趋势延续")
-                why_profit = "+".join(factors)
+                    why_profit = "趋势延续"
             else:
-                factors = []
                 if "止损" in sell_reason and "追踪" not in sell_reason:
-                    factors.append(f"触发止损({profit_pct:.1f}%)")
+                    why_loss = f"触发止损({profit_pct:.1f}%)"
                 elif "追踪止损" in sell_reason:
-                    factors.append(f"冲高回落")
-                if "跳空" in sell_reason:
-                    factors.append("隔夜跳空")
-                if "强制" in sell_reason or "空仓" in sell_reason:
-                    factors.append("系统风控强制清仓")
-                if not factors:
-                    factors.append("行情反转")
-                why_loss = "+".join(factors)
+                    why_loss = "冲高回落"
+                elif "强制" in sell_reason or "空仓" in sell_reason:
+                    why_loss = "系统风控强制清仓"
+                else:
+                    why_loss = "行情反转"
             
             attributions.append({
                 "ts_code": ts_code,
-                "stock_name": item.get("stock_name", ""),
+                "stock_name": doc.get("stock_name", ""),
                 "strategy": strategy,
-                "buy_price": item.get("buy_price", 0),
-                "sell_price": item.get("price", 0),
+                "buy_price": buy_price,
+                "sell_price": filled_price,
                 "profit_pct": profit_pct,
-                "profit_amount": item.get("profit_amount", 0),
-                "buy_time": item.get("buy_time", ""),
-                "sell_time": item.get("time", ""),
+                "profit_amount": doc.get("profit_amount", 0),
+                "buy_time": buy_time,
+                "sell_time": doc.get("fill_time", ""),
                 "sell_reason": sell_reason,
                 "why_profit": why_profit,
                 "why_loss": why_loss,
-                "scan_info": scan_info,  # 真实漏斗数据
+                "scan_info": scan_info,
             })
         
         return {"success": True, "data": attributions}
