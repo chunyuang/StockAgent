@@ -1064,12 +1064,16 @@ async def get_sentiment_strategy_matrix():
         
         # 获取每日情绪阶段
         daily_sentiment = {}
-        # 从预计算的sentiment_scores读取(包括missing_data的日期)
-        async for doc in db["sentiment_scores"].find({}, {"trade_date": 1, "period": 1, "missing_data": 1}):
+        # 从sentiment_scores读取,missing_data的日期用前一个有效期补
+        last_valid_period = ""
+        async for doc in db["sentiment_scores"].find({}, {"trade_date": 1, "period": 1, "missing_data": 1}).sort("trade_date", 1):
             td = str(doc["trade_date"])
             period = doc.get("period", "")
             if doc.get("missing_data"):
-                period = "数据缺失"
+                # 用前一个有效期补,没有则为数据缺失
+                period = last_valid_period if last_valid_period else "数据缺失"
+            else:
+                last_valid_period = period
             if period:
                 daily_sentiment[td] = period
         
@@ -3411,20 +3415,30 @@ async def get_market_sentiment_detail(date: str = None):
         sentiment_period = getattr(emotion, 'period', None) if emotion else None
         position_ratio = getattr(emotion, 'position_ratio', None) if emotion else None
         
-        # 实时数据优先,无则从sentiment_scores读最近交易日
+        # 实时数据优先,无则从sentiment_scores读
         if sentiment_score is None or sentiment_period is None:
             try:
                 from core.managers import mongo_manager
                 if mongo_manager.is_initialized:
-                    # 优先读指定日期
-                    q = {"missing_data": {"$ne": True}}
+                    # 1. 优先读指定日期(即使missing也返回,标注数据不完整)
                     if date:
-                        q["trade_date"] = int(date)
-                    latest = await mongo_manager.db["sentiment_scores"].find_one(q, sort=[("trade_date", -1)])
-                    if latest:
-                        sentiment_score = latest.get("score", 50)
-                        sentiment_period = latest.get("period", "unknown")
-                        position_ratio = latest.get("position_ratio", 0.3)
+                        exact = await mongo_manager.db["sentiment_scores"].find_one({"trade_date": int(date)})
+                        if exact:
+                            sentiment_score = exact.get("score", 50)
+                            sentiment_period = exact.get("period", "unknown")
+                            position_ratio = exact.get("position_ratio", 0.3)
+                            if exact.get("missing_data"):
+                                sentiment_period = "冰点(数据缺失)"  # 保留period但标注缺失
+                    # 2. 指定日期无数据或未指定日期→读最近的非missing日期
+                    if sentiment_period is None or (not date and sentiment_period is None):
+                        latest = await mongo_manager.db["sentiment_scores"].find_one(
+                            {"missing_data": {"$ne": True}},
+                            sort=[("trade_date", -1)]
+                        )
+                        if doc:
+                            sentiment_score = latest.get("score", 50)
+                            sentiment_period = latest.get("period", "unknown")
+                            position_ratio = latest.get("position_ratio", 0.3)
             except Exception:
                 pass
         
@@ -3442,20 +3456,25 @@ async def get_market_sentiment_detail(date: str = None):
             t = item.get("limit_times", 1)
             board_dist[str(t)] = board_dist.get(str(t), 0) + 1
         
-        # 涨跌停=0时从sentiment_scores补(优先指定日期)
+        # 涨跌停=0时从sentiment_scores补(优先指定日期,包括missing)
         if limit_up == 0 and limit_down == 0:
             try:
                 from core.managers import mongo_manager
                 if mongo_manager.is_initialized:
-                    q = {"missing_data": {"$ne": True}}
+                    doc = None
                     if date:
-                        q["trade_date"] = int(date)
-                    latest = await mongo_manager.db["sentiment_scores"].find_one(q, sort=[("trade_date", -1)])
-                    if latest:
-                        limit_up = latest.get("limit_up", 0)
-                        limit_down = latest.get("limit_down", 0)
+                        doc = await mongo_manager.db["sentiment_scores"].find_one({"trade_date": int(date)})
+                    if not doc or doc.get("missing_data"):
+                        # fallback到最近非missing
+                        doc = await mongo_manager.db["sentiment_scores"].find_one(
+                            {"missing_data": {"$ne": True}},
+                            sort=[("trade_date", -1)]
+                        )
+                    if doc:
+                        limit_up = doc.get("limit_up", 0)
+                        limit_down = doc.get("limit_down", 0)
                         # 连板分布从max_continue推算
-                        mc = latest.get("max_continue", 0)
+                        mc = doc.get("max_continue", 0)
                         if mc > 0:
                             board_dist[str(mc)] = board_dist.get(str(mc), 0) + 1
             except Exception:
@@ -3463,7 +3482,8 @@ async def get_market_sentiment_detail(date: str = None):
         broken_rate = broken / max(limit_up + broken, 1) * 100
 
         period_labels = {"BEARISH": ("冰点", 0, 40), "CHAOS": ("震荡", 40, 55), "DIFFERENTIATION": ("分化", 55, 70), "RISING": ("高潮", 70, 100),
-                          "冰点": ("冰点", 0, 40), "震荡": ("震荡", 40, 55), "分化": ("分化", 55, 70), "高潮": ("高潮", 70, 100)}
+                          "冰点": ("冰点", 0, 40), "震荡": ("震荡", 40, 55), "分化": ("分化", 55, 70), "高潮": ("高潮", 70, 100),
+                          "冰点(数据缺失)": ("冰点⚠", 0, 40), "震荡(数据缺失)": ("震荡⚠", 40, 55), "分化(数据缺失)": ("分化⚠", 55, 70), "高潮(数据缺失)": ("高潮⚠", 70, 100)}
         pi = period_labels.get(sentiment_period, ("未知", 0, 100))
 
         return _sanitize({"success": True, "data": {
