@@ -296,7 +296,7 @@ class QuoteManager:
                                 "open_times": item.get("open_times", 0),
                             })
                 except Exception as _e:
-                    pass
+                    logger.debug(f"operation failed: {_e}")
 
             except Exception as e:
                 logger.warning(f"[QUOTE] 必盈不可用: {e}, 仅使用东方财富数据(无涨停池详情)")

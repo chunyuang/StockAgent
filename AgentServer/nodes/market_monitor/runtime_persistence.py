@@ -208,7 +208,7 @@ class RuntimePersistence:
                 os.remove(path)
                 logger.debug(f"[SNAPSHOT] 清理本地降级文件: {path}")
         except Exception as _e:
-            pass
+            logger.debug(f"persistence failed: {_e}")
     
     # ==================== 盘前竞价 ====================
     
@@ -535,7 +535,7 @@ class RuntimePersistence:
             if dispatcher:
                 await dispatcher.push_message(summary, channel="feishu")
         except Exception as _e:
-            pass
+            logger.debug(f"persistence failed: {_e}")
         logger.info(f"[DAILY] {summary}")
     
     async def load_timeline(self):

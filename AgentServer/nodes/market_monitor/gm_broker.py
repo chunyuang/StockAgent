@@ -230,7 +230,7 @@ class GmBroker:
                         o.status = GmOrderStatus(odata.get("status", "pending"))
                         o.reason = odata.get("reason", "")
         except Exception as _e:
-            pass
+            logger.debug(f"order operation failed: {_e}")
 
     def _generate_strategy_script(self) -> str:
         """生成掘金策略脚本(子进程运行)"""

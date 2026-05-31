@@ -115,7 +115,7 @@ class SignalManager:
                             "expired_after": round(now - s.created_at, 0),
                         })
                     except Exception as _e:
-                        pass
+                        logger.debug(f"event publish failed: {_e}")
         
         # 移除已过期且已执行的信号
         self.active_signals = [s for s in self.active_signals
@@ -164,7 +164,7 @@ class SignalManager:
                         } for s in added[:5]],
                     })
             except Exception as _e:
-                pass
+                logger.debug(f"event publish failed: {_e}")
 
             # 执行新信号
             await self.execute_signals(added)
@@ -174,7 +174,7 @@ class SignalManager:
                 try:
                     await self.broker.save_state()
                 except Exception as _e:
-                    pass
+                    logger.debug(f"event publish failed: {_e}")
             
             try:
                 await scanner._publish_scanner_event("signal", {
@@ -189,7 +189,7 @@ class SignalManager:
                     "time": scan_time,
                 })
             except Exception as _e:
-                pass
+                logger.debug(f"event publish failed: {_e}")
 
     async def _push_signals(self, signals: List[ScanSignal]):
         """推送信号到飞书等渠道"""
@@ -363,7 +363,7 @@ class SignalManager:
                             "source": "signal_manager",
                         })
                 except Exception as _e:
-                    pass
+                    logger.debug(f"event publish failed: {_e}")
                 logger.info(f"[EXEC] 买入 {sig.ts_code} {shares}股@{order.filled_price:.2f} ({sig.strategy_name})")
             else:
                 self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
@@ -407,4 +407,4 @@ class SignalManager:
                 "sell_logic_mode": self._scanner.SELL_LOGIC_MODE,
             })
         except Exception as _e:
-            pass
+            logger.debug(f"event publish failed: {_e}")

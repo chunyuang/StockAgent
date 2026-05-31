@@ -514,7 +514,7 @@ class PositionManager:
                 self._scanner._add_timeline_log("blocked", ts_code, "",
                     "", f"跌停挂起超时清除(保留持仓)", None)
             except Exception as _e:
-                pass
+                logger.debug(f"operation failed: {_e}")
         
         return expired_codes
 
