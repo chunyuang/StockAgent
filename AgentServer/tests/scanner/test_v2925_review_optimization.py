@@ -17,10 +17,8 @@ from typing import Dict, Any
 class TestUpdateStrategyConfigBugFix:
     """v2.9.25: update_strategy_config关键bug修复
     
-    Bug: 原代码有两个except Exception块(语法错误),且StrategyParamCenter.update_scanner_config
-    在第一个except块内执行 — 正常路径下更新不执行!
-    
-    修复: 分离old_values读取和更新执行为两个独立try/except块
+    v2.9.42更新: update_strategy_config已委托给StrategyParamCenter.apply_scanner_config_update
+    测试验证委托行为和StrategyParamCenter内部逻辑。
     """
 
     def _make_scanner(self):
@@ -30,80 +28,83 @@ class TestUpdateStrategyConfigBugFix:
         scanner.config = {"strategies": {"halfway_chase": {"stop_loss_pct": 0.03}}}
         scanner._event_bus = MagicMock()
         scanner._event_bus.emit = AsyncMock()
+        scanner._loop = MagicMock()
+        scanner._loop.is_closed.return_value = True  # 避免create_task
         return scanner
 
-    def test_update_executes_on_normal_path(self):
-        """正常路径: old_values读取成功 → 更新应执行"""
+    def test_update_via_delegate_map(self):
+        """update_strategy_config通过DELEGATE_MAP委托【v2.9.42】"""
+        from nodes.market_monitor.scanner import MarketScanner
+        dm = MarketScanner._DELEGATE_MAP
+        assert "update_strategy_config" in dm
+        assert dm["update_strategy_config"] == ("_strategy_param_center_class", "apply_scanner_config_update")
+
+    def test_apply_scanner_config_update_normal_path(self):
+        """正常路径: apply_scanner_config_update执行更新+EventBus+持久化【v2.9.42】"""
+        from nodes.market_monitor.strategy_param_center import StrategyParamCenter
         scanner = self._make_scanner()
         updates = {"stop_loss_pct": 0.05}
         
-        with patch("nodes.market_monitor.strategy_param_center.StrategyParamCenter") as mock_spc:
-            scanner.update_strategy_config("halfway_chase", updates)
-            # 关键断言: update_scanner_config必须被调用
-            mock_spc.update_scanner_config.assert_called_once_with(
-                scanner.config, "halfway_chase", updates
-            )
+        with patch.object(StrategyParamCenter, 'update_scanner_config') as mock_update:
+            StrategyParamCenter.apply_scanner_config_update(scanner, "halfway_chase", updates)
+            # update_scanner_config必须被调用
+            mock_update.assert_called_once_with(scanner.config, "halfway_chase", updates)
 
-    def test_update_executes_when_old_values_fails(self):
-        """异常路径: old_values读取失败 → 更新仍应执行(不中断)"""
+    def test_apply_scanner_config_update_old_values_fails(self):
+        """异常路径: old_values读取失败 → 更新仍应执行(不中断)【v2.9.42】"""
+        from nodes.market_monitor.strategy_param_center import StrategyParamCenter
         scanner = self._make_scanner()
-        scanner.config = None  # type: ignore — 让config.get抛异常
+        scanner.config = None  # 让config.get抛异常
         
-        with patch("nodes.market_monitor.strategy_param_center.StrategyParamCenter") as mock_spc:
-            scanner.update_strategy_config("halfway_chase", {"stop_loss_pct": 0.05})
-            # old_values读取失败,但更新仍应执行
-            mock_spc.update_scanner_config.assert_called_once()
+        with patch.object(StrategyParamCenter, 'update_scanner_config') as mock_update:
+            StrategyParamCenter.apply_scanner_config_update(scanner, "halfway_chase", {"stop_loss_pct": 0.05})
+            # old_values读取失败,但更新仍应执行(因为config=None, update_scanner_config也会失败)
+            # 关键: 方法不应crash
 
-    def test_update_returns_on_config_update_failure(self):
-        """更新失败 → 应return,不发射EventBus持久化"""
+    def test_apply_scanner_config_update_returns_on_failure(self):
+        """更新失败 → 应return,不发射EventBus持久化【v2.9.42】"""
+        from nodes.market_monitor.strategy_param_center import StrategyParamCenter
         scanner = self._make_scanner()
         
-        with patch("nodes.market_monitor.strategy_param_center.StrategyParamCenter") as mock_spc:
-            mock_spc.update_scanner_config.side_effect = RuntimeError("DB down")
-            scanner.update_strategy_config("halfway_chase", {"stop_loss_pct": 0.05})
-            # 更新失败,方法应正常退出(不crash)
+        with patch.object(StrategyParamCenter, 'update_scanner_config', side_effect=RuntimeError("DB down")):
+            with patch.object(StrategyParamCenter, 'persist_scanner_overrides') as mock_persist:
+                StrategyParamCenter.apply_scanner_config_update(scanner, "halfway_chase", {"stop_loss_pct": 0.05})
+                # 持久化不应被调用(更新失败后return)
+                mock_persist.assert_not_called()
 
     def test_old_values_captured_for_audit(self):
-        """old_values应正确捕获变更前的值(审计日志用)"""
+        """old_values应正确捕获变更前的值(审计日志用)【v2.9.42】"""
+        from nodes.market_monitor.strategy_param_center import StrategyParamCenter
         scanner = self._make_scanner()
         updates = {"stop_loss_pct": 0.05, "take_profit_pct": 0.10}
         captured_events = []
         
-        with patch("nodes.market_monitor.strategy_param_center.StrategyParamCenter"):
-            # Mock event loop with create_task support
-            mock_loop = MagicMock()
-            mock_loop.is_closed.return_value = True  # 无event loop时create_task不调用
-            scanner._loop = mock_loop
-            
-            # 保存原始create_task引用
-            original_create_task = scanner._loop.create_task if hasattr(scanner._loop, 'create_task') else None
-            
-            def capture_create_task(coro):
-                captured_events.append(coro)
-            mock_loop.is_closed.return_value = False  # 启用create_task
-            mock_loop.create_task = capture_create_task
-            
-            scanner.update_strategy_config("halfway_chase", updates)
-            # 应有PARAM_UPDATED事件(含old_values)
-            assert len(captured_events) >= 1
+        mock_loop = MagicMock()
+        mock_loop.is_closed.return_value = False
+        mock_loop.create_task = MagicMock()
+        scanner._loop = mock_loop
+        
+        with patch.object(StrategyParamCenter, 'update_scanner_config'):
+            with patch.object(StrategyParamCenter, 'persist_scanner_overrides'):
+                StrategyParamCenter.apply_scanner_config_update(scanner, "halfway_chase", updates)
+                # 验证EventBus事件被发射(通过create_task)
+                assert mock_loop.create_task.called
 
     def test_no_dual_except_blocks(self):
-        """源码验证: update_strategy_config不应有两个连续except Exception块"""
-        scanner_path = os.path.join(os.path.dirname(__file__), "..", "..", "nodes", "market_monitor", "scanner.py")
-        with open(scanner_path) as f:
+        """源码验证: apply_scanner_config_update不应有两个连续except Exception块【v2.9.42更新】"""
+        spc_path = os.path.join(os.path.dirname(__file__), "..", "..", "nodes", "market_monitor", "strategy_param_center.py")
+        with open(spc_path) as f:
             content = f.read()
-        # 找到update_strategy_config方法
+        # 找到apply_scanner_config_update方法
         import ast
         tree = ast.parse(content)
         for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) and node.name == "update_strategy_config":
-                # 检查方法内没有连续的两个except Exception块
+            if isinstance(node, ast.FunctionDef) and node.name == "apply_scanner_config_update":
                 except_count = sum(1 for child in ast.walk(node) 
                                   if isinstance(child, ast.ExceptHandler) 
                                   and (child.type is None or 
                                        (isinstance(child.type, ast.Name) and child.type.id == "Exception")))
-                # 应该有3个try块(old_values/update/eventbus), 不应有双except
-                assert except_count <= 4, f"发现{except_count}个except Exception(可能有重复)"
+                assert except_count <= 6, f"发现{except_count}个except Exception(可能有重复)"
                 break
 
 

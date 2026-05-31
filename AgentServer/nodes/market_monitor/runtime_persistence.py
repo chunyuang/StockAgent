@@ -911,3 +911,32 @@ class RuntimePersistence:
             await self._scanner._save_runtime_snapshot(force=False)
         except Exception as _e:
             logger.warning(f"[SCAN] save_state失败: {_e}")
+
+    async def save_param_snapshot(self, trade_date: str):
+        """启动时保存参数快照(供月复盘参数漂移检测)【v2.9.42:从scanner._save_param_snapshot提取】"""
+        try:
+            from core.managers import mongo_manager as mm
+            if mm.is_initialized:
+                # 从scanner.config获取策略参数(运行时状态)
+                scanner_config = self._scanner.config
+                strategies = scanner_config.get("strategies", {})
+                global_risk = scanner_config.get("global_risk", {})
+                today = trade_date or datetime.now().strftime("%Y%m%d")
+                snapshot = {
+                    "date": today,
+                    "global_risk": {k: v for k, v in global_risk.items() if not k.startswith("__")},
+                    "strategies": {
+                        sid: {
+                            "enabled": cfg.get("enabled", True),
+                            "params": cfg.get("params", {}),
+                            "riskParams": cfg.get("riskParams", {}),
+                        }
+                        for sid, cfg in strategies.items()
+                    },
+                }
+                await mm.db["param_snapshots"].update_one(
+                    {"date": today}, {"$set": snapshot}, upsert=True
+                )
+                logger.info(f"[SCANNER] 参数快照已保存({today})")
+        except Exception as e:
+            logger.warning(f"[SCANNER] 参数快照保存失败: {e}")

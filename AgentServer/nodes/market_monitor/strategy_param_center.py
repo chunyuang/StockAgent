@@ -587,6 +587,76 @@ class StrategyParamCenter:
             logger.warning(f"[SCANNER] 策略参数恢复失败(非关键): {e}")
         return {}
 
+    @staticmethod
+    async def load_and_apply_scanner_overrides(scanner) -> None:
+        """从MongoDB恢复strategy_overrides并应用到scanner.config【v2.9.42:从scanner._load_strategy_overrides提取】"""
+        try:
+            data = await StrategyParamCenter.load_scanner_overrides()
+            if data:
+                if "strategy_overrides" not in scanner.config:
+                    scanner.config["strategy_overrides"] = {}
+                scanner.config["strategy_overrides"].update(data)
+                logger.info(f"[SCANNER] 从MongoDB恢复策略参数: {len(data)}个策略")
+        except Exception as _e:
+            logger.debug(f"[SCANNER] 从MongoDB恢复策略参数失败: {_e}")
+
+    @staticmethod
+    async def detect_and_publish_drift(scanner) -> None:
+        """启动时检测参数漂移并发布事件【v2.9.42:从scanner._detect_param_drift提取】"""
+        try:
+            drifts = await param_center.detect_drift()
+            if drifts:
+                logger.warning(f"[PARAMS] 检测到{len(drifts)}个参数漂移: {drifts[:3]}")
+                await scanner._publish_scanner_event("status", {
+                    "type": "param_drift", "drifts": drifts[:5],
+                })
+        except Exception as e:
+            logger.debug(f"[PARAMS] 漂移检测失败(非关键): {e}")
+
+    @staticmethod
+    def apply_scanner_config_update(scanner, strategy_key: str, updates: Dict[str, Any]) -> None:
+        """策略参数热更新+EventBus+持久化【v2.9.42:从scanner.update_strategy_config提取】
+        
+        流程: 记录旧值→更新config→EventBus事件→持久化(非阻塞)
+        """
+        import asyncio as _asyncio
+        
+        # 1. 记录旧值(审计)
+        old_values = {}
+        try:
+            strategy_config = scanner.config.get("strategies", {}).get(strategy_key, {})
+            for k in updates:
+                if k in strategy_config:
+                    old_values[k] = strategy_config[k]
+        except Exception as _e:
+            logger.debug(f"[SCANNER] 策略参数旧值读取失败: {_e}")
+        
+        # 2. 更新config
+        try:
+            StrategyParamCenter.update_scanner_config(scanner.config, strategy_key, updates)
+            logger.info(f"[SCANNER] 策略参数热更新: {strategy_key}")
+        except Exception as _e:
+            logger.warning(f"[SCANNER] 策略参数热更新失败: {strategy_key}: {_e}")
+            return
+        
+        # 3. EventBus事件(非阻塞)
+        try:
+            from nodes.market_monitor.scanner_event_bus import ScannerEvents
+            if scanner._loop and not scanner._loop.is_closed():
+                scanner._loop.create_task(scanner._event_bus.emit(ScannerEvents.PARAM_UPDATED, {
+                    "strategy_key": strategy_key, "updates": updates,
+                    "old_values": old_values,
+                }))
+        except Exception as _e:
+            logger.debug(f"[SCANNER] 参数更新事件发射失败: {_e}")
+        
+        # 4. 持久化(非阻塞)
+        try:
+            if scanner._loop and not scanner._loop.is_closed():
+                scanner._loop.create_task(StrategyParamCenter.persist_scanner_overrides(scanner.config))
+        except Exception as _e:
+            logger.debug(f"[SCANNER] 参数持久化失败: {_e}")
+
 
 # 全局单例
 param_center = StrategyParamCenter()

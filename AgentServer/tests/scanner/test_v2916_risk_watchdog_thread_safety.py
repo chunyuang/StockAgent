@@ -341,36 +341,36 @@ class TestScannerStrategyConfigSimplified(unittest.TestCase):
     """v2.9.16: scanner策略配置方法简化"""
 
     def test_validate_live_params_catches_general_exception(self):
-        """_validate_live_params应捕获通用Exception(不只ImportError)"""
+        """_validate_live_params应捕获通用Exception(不只ImportError)【v2.9.42更新:委托到StrategyParamCenter】"""
         source_path = os.path.join(
-            PROJECT_ROOT, "nodes", "market_monitor", "scanner.py"
+            PROJECT_ROOT, "nodes", "market_monitor", "strategy_param_center.py"
         )
         with open(source_path, "r") as f:
             content = f.read()
         
-        # 找到_validate_live_params方法
-        methods = content.split("def _validate_live_params")
+        # v2.9.42: _validate_live_params已委托给StrategyParamCenter.validate_live_params
+        # 找到validate_live_params方法
+        methods = content.split("def validate_live_params")
         self.assertGreaterEqual(len(methods), 2)
         method_body = methods[1].split("def ")[0]
         # 不应只有except ImportError,应该有except Exception
         self.assertNotIn("except ImportError:", method_body,
-                        "_validate_live_params应捕获通用Exception而非仅ImportError")
+                        "validate_live_params应捕获通用Exception而非仅ImportError")
 
     def test_update_strategy_config_direct_persist(self):
-        """update_strategy_config应直接调用StrategyParamCenter持久化,不经过中间方法"""
+        """update_strategy_config应通过StrategyParamCenter动态委托,不经过中间方法【v2.9.42更新】"""
         source_path = os.path.join(
             PROJECT_ROOT, "nodes", "market_monitor", "scanner.py"
         )
         with open(source_path, "r") as f:
             content = f.read()
         
-        # 找到update_strategy_config方法
-        methods = content.split("def update_strategy_config")
-        self.assertGreaterEqual(len(methods), 2)
-        method_body = methods[1].split("def ")[0]
-        # 应直接调用StrategyParamCenter.persist_scanner_overrides
-        self.assertIn("StrategyParamCenter.persist_scanner_overrides", method_body,
-                     "应直接调用StrategyParamCenter持久化,不经过_persist_strategy_overrides中间方法")
+        # v2.9.42: update_strategy_config已加入DELEGATE_MAP, 委托给StrategyParamCenter.apply_scanner_config_update
+        # 检查DELEGATE_MAP中是否有update_strategy_config条目
+        self.assertIn('"update_strategy_config":', content,
+                     "update_strategy_config应在DELEGATE_MAP中有动态委托条目")
+        self.assertIn('apply_scanner_config_update', content,
+                     "update_strategy_config应委托给StrategyParamCenter.apply_scanner_config_update")
 
 
 class TestRiskWatchdogEmergencyLiquidate(unittest.TestCase):

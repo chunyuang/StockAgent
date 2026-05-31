@@ -17,17 +17,20 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 
 class TestSaveParamSnapshotExtraction:
-    """验证_save_param_snapshot提取"""
+    """验证_save_param_snapshot提取【v2.9.42:委托到RuntimePersistence】"""
 
-    def test_method_exists(self):
-        """_save_param_snapshot方法存在"""
+    def test_method_delegated(self):
+        """_save_param_snapshot通过DELEGATE_MAP委托到RuntimePersistence【v2.9.42】"""
         from nodes.market_monitor.scanner import MarketScanner
-        assert hasattr(MarketScanner, '_save_param_snapshot')
+        dm = MarketScanner._DELEGATE_MAP
+        assert "_save_param_snapshot" in dm
+        assert dm["_save_param_snapshot"] == ("_runtime_persistence", "save_param_snapshot")
 
-    def test_method_is_async(self):
-        """_save_param_snapshot是异步方法"""
-        from nodes.market_monitor.scanner import MarketScanner
-        assert inspect.iscoroutinefunction(MarketScanner._save_param_snapshot)
+    def test_runtime_persistence_has_method(self):
+        """RuntimePersistence.save_param_snapshot存在且为async"""
+        from nodes.market_monitor.runtime_persistence import RuntimePersistence
+        assert hasattr(RuntimePersistence, 'save_param_snapshot')
+        assert inspect.iscoroutinefunction(RuntimePersistence.save_param_snapshot)
 
     def test_start_calls_save_param_snapshot(self):
         """start()方法调用_save_param_snapshot"""
@@ -40,8 +43,8 @@ class TestSaveParamSnapshotExtraction:
         from nodes.market_monitor.scanner import MarketScanner
         source = inspect.getsource(MarketScanner.start)
         # 不应包含原来的内联逻辑
-        assert 'STRATEGY_CONFIGS' not in source, "start()不应内联STRATEGY_CONFIGS引用"
-        assert 'param_snapshots' not in source, "start()不应内联MongoDB操作"
+        assert 'STRATEGY_CONFIGS' not in source, 'start()不应内联STRATEGY_CONFIGS引用'
+        assert 'param_snapshots' not in source, 'start()不应内联MongoDB操作'
 
 
 class TestClassAttributeDefaults:
@@ -122,24 +125,24 @@ class TestStartMethodSlimmed:
 
 
 class TestSaveParamSnapshotBehavior:
-    """验证_save_param_snapshot行为"""
+    """验证_save_param_snapshot行为【v2.9.42:委托到RuntimePersistence】"""
 
     def test_snapshot_writes_to_mongo(self):
         """参数快照写入MongoDB param_snapshots集合"""
-        from nodes.market_monitor.scanner import MarketScanner
-        source = inspect.getsource(MarketScanner._save_param_snapshot)
+        from nodes.market_monitor.runtime_persistence import RuntimePersistence
+        source = inspect.getsource(RuntimePersistence.save_param_snapshot)
         assert 'param_snapshots' in source
 
     def test_snapshot_contains_date(self):
         """快照包含date字段"""
-        from nodes.market_monitor.scanner import MarketScanner
-        source = inspect.getsource(MarketScanner._save_param_snapshot)
+        from nodes.market_monitor.runtime_persistence import RuntimePersistence
+        source = inspect.getsource(RuntimePersistence.save_param_snapshot)
         assert '"date"' in source or "'date'" in source
 
     def test_snapshot_handles_failure_gracefully(self):
         """快照保存失败不影响启动"""
-        from nodes.market_monitor.scanner import MarketScanner
-        source = inspect.getsource(MarketScanner._save_param_snapshot)
+        from nodes.market_monitor.runtime_persistence import RuntimePersistence
+        source = inspect.getsource(RuntimePersistence.save_param_snapshot)
         assert 'except Exception' in source
 
 
