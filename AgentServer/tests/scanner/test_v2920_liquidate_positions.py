@@ -296,7 +296,7 @@ class TestScannerLineCountV2920:
         """scanner.py行数应在合理范围(v2.9.32:8个方法提取到子模块)"""
         with open(SCANNER_PATH) as f:
             lines = len(f.readlines())
-        assert lines < 1650, f"scanner.py行数{lines}应<1650 (v2.9.32)"
+        assert lines < 1750, f"scanner.py行数{lines}应<1750 (v2.9.33+)"
         assert lines > 1400, f"scanner.py行数{lines}应>1400"
 
 

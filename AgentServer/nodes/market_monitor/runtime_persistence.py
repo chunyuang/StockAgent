@@ -782,3 +782,74 @@ class RuntimePersistence:
         _ts_count = len(scanner._safe_copy_trailing_stops())
         logger.info(f"[SCANNER] 持仓: {len(scanner._broker.get_positions()) if scanner._broker else 0}个, "
                     f"追踪止损: {_ts_count}个")
+
+    async def sync_close_data_to_mongo(self, trade_date: str):
+        """收盘后同步内存数据到MongoDB(limit_list + daily_basic)
+        
+        【v2.9.34从scanner提取】将scanner内存中的涨跌停/行情数据
+        批量写入MongoDB, 供情绪计算和历史回测使用。
+        """
+        from pymongo.operations import UpdateOne
+        if not mongo_manager.is_initialized:
+            return
+        db = mongo_manager.db
+        td_int = int(trade_date)
+        scanner = self._scanner
+        
+        # 1. 同步limit_pools → limit_list
+        limit_pools = getattr(scanner, '_limit_pools', {})
+        lu_list = limit_pools.get("limit_up", [])
+        ld_list = limit_pools.get("limit_down", [])
+        broken_list = limit_pools.get("broken", [])
+        
+        if lu_list or ld_list:
+            ops = []
+            for item in lu_list:
+                ops.append(UpdateOne(
+                    {"trade_date": td_int, "ts_code": item.get("ts_code", "")},
+                    {"$set": {"trade_date": td_int, "ts_code": item.get("ts_code", ""), "name": item.get("name", ""), "limit": "U",
+                     "close": item.get("close", 0), "limit_times": item.get("limit_times", 1),
+                     "first_time": item.get("first_time", ""), "last_time": item.get("last_time", ""),
+                     "data_source": "scanner_realtime"}},
+                    upsert=True
+                ))
+            for item in ld_list:
+                ops.append(UpdateOne(
+                    {"trade_date": td_int, "ts_code": item.get("ts_code", "")},
+                    {"$set": {"trade_date": td_int, "ts_code": item.get("ts_code", ""), "name": item.get("name", ""), "limit": "D",
+                     "close": item.get("close", 0), "limit_times": item.get("limit_times", 1),
+                     "first_time": item.get("first_time", ""), "last_time": item.get("last_time", ""),
+                     "data_source": "scanner_realtime"}},
+                    upsert=True
+                ))
+            for item in broken_list:
+                ops.append(UpdateOne(
+                    {"trade_date": td_int, "ts_code": item.get("ts_code", "")},
+                    {"$set": {"trade_date": td_int, "ts_code": item.get("ts_code", ""), "name": item.get("name", ""), "limit": "U",
+                     "close": item.get("close", 0), "limit_times": item.get("limit_times", 1),
+                     "amp": item.get("amp", 0), "data_source": "scanner_realtime"}},
+                    upsert=True
+                ))
+            if ops:
+                result = await db["limit_list"].bulk_write(ops)
+                logger.info(f"[SCANNER] limit_list同步: {result.upserted_count}新增 {result.modified_count}更新")
+        
+        # 2. 同步realtime_cache的pct_chg → daily_basic(补pct_chg字段)
+        realtime_cache = getattr(scanner, '_realtime_cache', {})
+        if realtime_cache:
+            pct_ops = []
+            synced = 0
+            for ts_code, quote in realtime_cache.items():
+                pct_chg = quote.get("pct_chg")
+                if pct_chg is not None:
+                    pct_ops.append(UpdateOne(
+                        {"trade_date": td_int, "ts_code": ts_code, "pct_chg": None},
+                        {"$set": {"pct_chg": pct_chg, "close": quote.get("close", 0), "data_source": "scanner_realtime"}}
+                    ))
+                    synced += 1
+                    if len(pct_ops) >= 500:  # 批量上限
+                        await db["daily_basic"].bulk_write(pct_ops)
+                        pct_ops = []
+            if pct_ops:
+                result = await db["daily_basic"].bulk_write(pct_ops)
+                logger.info(f"[SCANNER] daily_basic pct_chg同步: {synced}只")
