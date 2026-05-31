@@ -46,14 +46,21 @@ class TestScannerErrorEvent:
         assert "ScannerEvents.SCANNER_ERROR" in source
 
     def test_risk_thread_emits_error(self):
-        """风控线程异常时发射SCANNER_ERROR"""
+        """风控线程异常时发射SCANNER_ERROR(v2.9.33:提取为_emit_risk_thread_error)"""
         source = _read(_SCANNER)
         # 查找风控线程except块
         idx = source.find("[RISK_THREAD] 风控线程异常")
         assert idx > 0, "缺少风控线程异常日志"
         block = source[idx:idx+500]
-        assert "ScannerEvents.SCANNER_ERROR" in block, \
-            "风控线程异常未发射SCANNER_ERROR"
+        # v2.9.33: 原内联emit提取为_emit_risk_thread_error方法
+        assert "_emit_risk_thread_error" in block, \
+            "风控线程异常未调用_emit_risk_thread_error"
+        # 确认_emit_risk_thread_error方法存在且发射SCANNER_ERROR
+        method_idx = source.find("def _emit_risk_thread_error")
+        assert method_idx > 0, "缺少_emit_risk_thread_error方法定义"
+        method_code = source[method_idx:method_idx+800]
+        assert "ScannerEvents.SCANNER_ERROR" in method_code, \
+            "_emit_risk_thread_error应发射SCANNER_ERROR"
 
     def test_error_subscriber_registered(self):
         """scanner_error事件订阅器已注册"""
