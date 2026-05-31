@@ -1528,43 +1528,39 @@ async def get_trade_audit():
 async def backtest_compare(date: str = None):
     """实盘vs回测对比
     
+    优先从MongoDB读取回测结果，fallback到backtest_result.json文件
+    
     Args:
         date: YYYYMMDD格式, 不传则全量
     """
-    scanner = _get_scanner()
     try:
         from core.managers import mongo_manager
         
-        # 获取实盘统计
-        stats = scanner._stats
-        cb = scanner._circuit_breaker
+        # 1. 从MongoDB获取实盘统计(按策略)
+        live_stats = {}
+        if mongo_manager.is_initialized:
+            from collections import defaultdict
+            ls = defaultdict(lambda: {"trades":0,"wins":0,"total_pnl":0})
+            sell_query = {"side":"sell","status":"filled"}
+            if date:
+                sell_query["trade_date"] = {"$lte": str(date)}
+            async for doc in mongo_manager.db["broker_orders"].find(sell_query):
+                strat = doc.get("strategy","unknown")
+                pct = doc.get("profit_pct",0) or 0
+                ls[strat]["trades"] += 1
+                if pct >= 0:
+                    ls[strat]["wins"] += 1
+                ls[strat]["total_pnl"] += pct
+            for strat, v in ls.items():
+                live_stats[strat] = {
+                    "trades": v["trades"],
+                    "win_rate": round(v["wins"]/max(v["trades"],1)*100, 1),
+                    "total_pnl": round(v["total_pnl"], 2),
+                }
         
-        # 获取各策略的实盘表现
-        live_performance = {}
-        if scanner._broker:
-            for pos in scanner._broker.get_positions():
-                key = pos.strategy or "unknown"
-                if key not in live_performance:
-                    live_performance[key] = {"trades": 0, "wins": 0, "total_profit": 0, "positions": 0}
-                live_performance[key]["positions"] += 1
-                live_performance[key]["total_profit"] += (pos.current_price - pos.avg_cost) * pos.total_qty
-        
-        # 从时间线统计各策略交易
-        for item in scanner._timeline:
-            strategy = item.get("strategy", "unknown")
-            if strategy not in live_performance:
-                live_performance[strategy] = {"trades": 0, "wins": 0, "total_profit": 0, "positions": 0}
-            if item.get("action") == "buy":
-                live_performance[strategy]["trades"] += 1
-            elif item.get("action") == "sell":
-                pnl = item.get("profit_pct", 0)
-                if pnl > 0:
-                    live_performance[strategy]["wins"] += 1
-        
-        # 获取最近回测结果
+        # 2. 从MongoDB回测结果或文件读取
         backtest_results = {}
-        if mongo_manager.db is not None:
-            today = datetime.now().strftime("%Y%m%d")
+        if mongo_manager.is_initialized:
             async for doc in mongo_manager.db["backtest_results"].find(
                 {"status": "completed"},
                 {"_id": 0, "task_id": 1, "params.strategy_ids": 1, "result.summary": 1, "created_at": 1}
@@ -1582,23 +1578,54 @@ async def backtest_compare(date: str = None):
                             "task_id": doc.get("task_id", ""),
                         }
         
-        # 组装对比数据
+        # 2b. fallback: 从backtest_result.json文件读取
+        logger.info(f"[BACKTEST-COMPARE] backtest_results empty: {not backtest_results}, keys: {list(backtest_results.keys())}")
+        if not backtest_results:
+            import os, json
+            result_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "results", "backtest_result.json")
+            logger.info(f"[BACKTEST-COMPARE] fallback file: {result_file} exists={os.path.exists(result_file)}")
+            if os.path.exists(result_file):
+                try:
+                    with open(result_file, 'r') as f:
+                        bt_data = json.load(f)
+                    logger.info(f"[BACKTEST-COMPARE] loaded strategies: {list(bt_data.get('strategy_results',{}).keys())}")
+                    cn_to_en = {"半路追涨":"halfway_chase","涨停开板":"first_limit_up","跌停翘板":"limit_down_qiao","首板打板":"first_limit_up","龙头低吸":"dragon_head"}
+                    for cn_name, v in bt_data.get("strategy_results",{}).items():
+                        en_name = cn_to_en.get(cn_name, cn_name)
+                        if en_name not in backtest_results:
+                            ret = v.get("total_return", 0) or 0
+                            # total_return<10视为倍数(2.65=265%),>=10视为百分比
+                            ret_pct = round(ret * 100, 1) if abs(ret) < 10 else round(ret, 1)
+                            dd = v.get("max_drawdown", 0) or 0
+                            dd_pct = round(dd * 100, 1) if abs(dd) < 1 and dd != 0 else round(dd, 1)
+                            backtest_results[en_name] = {
+                                "total_return": ret_pct,
+                                "win_rate": round(v.get("win_rate", 0) or 0, 1),
+                                "max_drawdown": dd_pct,
+                                "sharpe": round(v.get("sharpe_ratio", 0) or 0, 2),
+                                "trades": v.get("total_trades", 0) or 0,
+                                "source": "backtest_result.json",
+                            }
+                except Exception as e:
+                    logger.warning(f"[BACKTEST-COMPARE] file read failed: {e}")
+        
+        # 3. 组装对比数据
         compare = []
-        all_strategies = set(list(live_performance.keys()) + list(backtest_results.keys()))
+        all_strategies = set(list(live_stats.keys()) + list(backtest_results.keys()))
         for sid in all_strategies:
-            lp = live_performance.get(sid, {})
+            lp = live_stats.get(sid, {})
             bt = backtest_results.get(sid, {})
             compare.append({
                 "strategy": sid,
                 "live_trades": lp.get("trades", 0),
-                "live_win_rate": round(lp.get("wins", 0) / max(lp.get("trades", 1), 1) * 100, 1),
-                "live_pnl": round(lp.get("total_profit", 0), 2),
-                "live_positions": lp.get("positions", 0),
-                "bt_return": round(bt.get("total_return", 0) * 100, 1),
-                "bt_win_rate": round(bt.get("win_rate", 0) * 100, 1),
-                "bt_drawdown": round(bt.get("max_drawdown", 0) * 100, 1),
+                "live_win_rate": lp.get("win_rate", 0),
+                "live_pnl": lp.get("total_pnl", 0),
+                "bt_return": bt.get("total_return", 0),
+                "bt_win_rate": round(bt.get("win_rate", 0), 1),
+                "bt_drawdown": bt.get("max_drawdown", 0),
                 "bt_sharpe": round(bt.get("sharpe", 0), 2),
                 "bt_trades": bt.get("trades", 0),
+                "bt_source": bt.get("source", "mongodb"),
             })
         
         return {"success": True, "data": compare}
@@ -4528,3 +4555,69 @@ async def get_review_forward(date: str = None):
         }}
     except Exception as e:
         return {"success": True, "data": None, "message": str(e)}
+
+
+@router.post("/run-backtest")
+async def run_quick_backtest(request: Request):
+    """一键回测: 在后台运行快速回测(2025Q1, 半路追涨), 结果写入backtest_result.json
+    
+    请求体: {"period": "2025Q1"}  # 可选, 默认2025Q1
+    """
+    try:
+        body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+        period = body.get("period", "2025Q1")
+        
+        period_config = {
+            "2025Q1": {"start": "20250101", "end": "20250331"},
+            "2025H1": {"start": "20250101", "end": "20250630"},
+            "2025": {"start": "20250101", "end": "20251231"},
+            "recent3m": {"start": "20260301", "end": "20260531"},
+        }
+        
+        config = period_config.get(period, period_config["2025Q1"])
+        
+        # 在后台运行回测
+        import subprocess, os
+        script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "scripts", "run_backtest_quick.py")
+        
+        # 使用subprocess启动后台回测
+        result_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "results", "backtest_result.json")
+        
+        # 直接用PortfolioBacktester在asyncio中运行
+        import asyncio
+        
+        async def _run_backtest():
+            try:
+                import sys, types
+                BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                if BASE not in sys.path:
+                    sys.path.insert(0, BASE)
+                
+                from nodes.backtest_engine.factor_selection.portfolio_backtest import PortfolioBacktester
+                from core.managers.mongo_manager import mongo_manager
+                
+                await mongo_manager.initialize()
+                
+                bt = PortfolioBacktester()
+                bt_config = {
+                    "start_date": config["start"],
+                    "end_date": config["end"],
+                    "initial_cash": 1000000,
+                    "strategies": ["halfway_chase", "limit_down_qiao", "dragon_head"],
+                    "mode": "backtest",
+                }
+                result = await bt.run(bt_config)
+                
+                # 写入文件
+                with open(result_file, 'w') as f:
+                    json.dump(result, f, ensure_ascii=False, default=str)
+                
+                logger.info(f"[BACKTEST] Quick backtest completed: {result.get('total_return', 0):.2%}")
+            except Exception as e:
+                logger.error(f"[BACKTEST] Quick backtest failed: {e}")
+        
+        asyncio.create_task(_run_backtest())
+        
+        return {"success": True, "message": f"回测已启动({period}: {config['start']}~{config['end']}), 预计30-60秒完成", "period": period}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
