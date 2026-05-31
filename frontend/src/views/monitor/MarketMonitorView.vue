@@ -297,14 +297,18 @@ const liveBacktestDiff = ref<any[]>([])
 // ==================== 情绪Tab ====================
 const sentimentMode = ref<'intraday' | 'daily' | 'weekly' | 'monthly'>('daily')
 const sentimentDate = ref(new Date().toISOString().slice(0, 10))
-const sentimentTimeline = ref<any[]>([])
 const hoveredPoint = ref<any>(null)
+// 每个模式独立缓存, 切换时不会清空
+const sentimentCache = reactive<Record<string, any[]>>({})
+const sentimentTradesCache = reactive<Record<string, any[]>>({})
+const sentimentTimeline = computed(() => sentimentCache[sentimentMode.value] || [])
+const sentimentTrades = computed(() => sentimentTradesCache[sentimentMode.value] || [])
 // 日线只显示最近60天, 其他模式全显
 const displayTimeline = computed(() => {
-  if (sentimentMode.value !== 'daily') return sentimentTimeline.value
-  return sentimentTimeline.value.slice(-60)
+  const data = sentimentTimeline.value
+  if (sentimentMode.value !== 'daily') return data
+  return data.slice(-60)
 })
-const sentimentTrades = ref<any[]>([])
 const sentimentMatrix = ref<any>(null)
 const sentimentRecommendations = ref<any[]>([])
 const sentimentLoading = ref(false)
@@ -325,7 +329,7 @@ async function fetchSentimentData() {
       api.get(`${scannerApi}/sentiment-strategy-matrix`, opts),
       api.get(`${scannerApi}/market-sentiment`, opts),
     ])
-    if (tlRes.status === 'fulfilled') { const p = parseResponse(tlRes.value); if (p.success) { sentimentTimeline.value = p.data?.points || []; sentimentTrades.value = p.data?.trades || [] } }
+    if (tlRes.status === 'fulfilled') { const p = parseResponse(tlRes.value); if (p.success) { sentimentCache[sentimentMode.value] = p.data?.points || []; sentimentTradesCache[sentimentMode.value] = p.data?.trades || [] } }
     if (matRes.status === 'fulfilled') { const p = parseResponse(matRes.value); if (p.success) { sentimentMatrix.value = p.data?.matrix || {}; sentimentRecommendations.value = p.data?.recommendations || [] } }
     if (liveRes.status === 'fulfilled') { const p = parseResponse(liveRes.value); if (p.success) sentimentLive.value = p.data }
   } catch { /* ignore */ }
