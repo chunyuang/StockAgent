@@ -191,4 +191,4 @@ class TestNoBacktestRegressionV2937:
     def test_version_constant(self):
         """版本常量已更新"""
         from nodes.web.api.scanner import _DESIGN_DOC_VERSION
-        assert _DESIGN_DOC_VERSION == "v2.9.39"
+        assert _DESIGN_DOC_VERSION == "v2.9.40"

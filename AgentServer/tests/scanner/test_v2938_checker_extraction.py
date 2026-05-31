@@ -396,13 +396,13 @@ class TestVersionSync:
         api_path = os.path.join(os.path.dirname(__file__), "..", "..", "nodes", "web", "api", "scanner.py")
         with open(api_path) as f:
             src = f.read()
-        assert '_DESIGN_DOC_VERSION = "v2.9.39"' in src
+        assert '_DESIGN_DOC_VERSION = "v2.9.40"' in src
 
     def test_docstring_mentions_version(self):
         """position_checker.py文档提到当前版本"""
         src = _read_source()
-        # v2.9.38是提取版本, v2.9.39是最新, 文档中至少包含一个
-        assert "v2.9.38" in src or "v2.9.39" in src
+        # v2.9.38是提取版本, v2.9.40是最新, 文档中至少包含一个
+        assert "v2.9.38" in src or "v2.9.40" in src
 
 
 # ==================== 回测零影响 ====================

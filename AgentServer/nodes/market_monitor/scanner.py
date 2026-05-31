@@ -503,7 +503,7 @@ class MarketScanner:
             "scan_loop_errors": getattr(self, '_scan_loop_error_count', 0),
             "last_realtime_update_ts": getattr(self, '_last_realtime_update_ts', 0),
             "realtime_cache_age_sec": round(time.time() - (self._last_realtime_update_ts or 0), 1) if self._last_realtime_update_ts else None,
-            "smart_check_interval": self._get_smart_check_interval(self._broker.get_positions()) if self._is_running else None,
+            "smart_check_interval": self._get_smart_check_interval(self.get_positions()) if self._is_running else None,
             "sell_logic_mode": self.SELL_LOGIC_MODE,
             "health": self._compute_health_score(),
         }
@@ -812,7 +812,7 @@ class MarketScanner:
                 phase = MarketPhase.classify()
                 
                 if phase == MarketPhase.WEEKEND:
-                    pos_count = len(self._broker.get_positions()) if self._broker else 0
+                    pos_count = len(self.get_positions())
                     if pos_count > 0:
                         try:
                             await self._check_positions_quick(trade_date)
@@ -922,7 +922,7 @@ class MarketScanner:
             return True
         else:
             # 【Phase1.2:持仓检查已由风控线程接管,扫描循环只做sleep等待下一次全量扫描】
-            check_interval = self._get_smart_check_interval(self._broker.get_positions())
+            check_interval = self._get_smart_check_interval(self.get_positions())
             await asyncio.sleep(check_interval)
             return False
 
@@ -1256,18 +1256,10 @@ class MarketScanner:
         # 转换为管道输入格式
         candidates = self._signals_to_candidates(signals)
 
-        # 获取持仓信息
-        positions = []
-        if self._broker:
-            for p in self._broker.get_positions():
-                positions.append({"ts_code": p.ts_code, "strategy": p.strategy})
-
-        # 执行管道
+        # 执行管道(v2.9.40:positions/account由pipeline自动从broker获取)
         result = await self._filter_pipeline.apply(
             trade_date=trade_date,
             candidates=candidates,
-            positions=positions,
-            account={"cash": self._broker.account.available_cash if self._broker else 0},
             realtime_data=realtime_data,
         )
 
