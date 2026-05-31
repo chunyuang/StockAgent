@@ -452,6 +452,8 @@ class MarketScanner:
 
     def get_status(self) -> Dict[str, Any]:
         """Scanner完整状态快照"""
+        # 子模块状态(安全读取, 无boker时返回空dict)
+        module_status = self._build_module_status()
         return {
             "is_running": self._is_running,
             "scan_count": self._scan_count,
@@ -467,21 +469,27 @@ class MarketScanner:
                 "position_ratio": self._current_position_ratio,
                 "sentiment": self._current_sentiment,
             },
-            "risk_watchdog": self._risk_watchdog.get_status() if hasattr(self, '_risk_watchdog') else {},
-            "signal_dispatcher": self._signal_dispatcher.get_stats() if hasattr(self, '_signal_dispatcher') else {},
-            "tiered_scanner": self._tiered_scanner.get_status() if self._tiered_scanner else {},
+            **module_status,
             "trailing_stops": self._get_activated_trailing_stops_safe(),
             "position_risk_levels": self._safe_copy_position_risk_levels(),
             "execution_stats": dict(self._execution_stats),
-            "scan_loop_errors": getattr(self, '_scan_loop_error_count', 0),  # 【v2.9.22】
-            "last_realtime_update_ts": getattr(self, '_last_realtime_update_ts', 0),  # 【v2.9.23】
-            "realtime_cache_age_sec": round(time.time() - (self._last_realtime_update_ts or 0), 1) if self._last_realtime_update_ts else None,  # 【v2.9.23】
+            "scan_loop_errors": getattr(self, '_scan_loop_error_count', 0),
+            "last_realtime_update_ts": getattr(self, '_last_realtime_update_ts', 0),
+            "realtime_cache_age_sec": round(time.time() - (self._last_realtime_update_ts or 0), 1) if self._last_realtime_update_ts else None,
             "smart_check_interval": self._get_smart_check_interval(self._broker.get_positions()) if self._is_running else None,
-            "quote_degrade_level": self._quote_manager.degrade_level,
-            "quote_degrade_desc": self._quote_manager.degrade_desc,
             "sell_logic_mode": self.SELL_LOGIC_MODE,
             "health": self._compute_health_score(),
         }
+
+    def _build_module_status(self) -> Dict[str, Any]:
+        """读取子模块状态(risk_watchdog/signal_dispatcher/tiered_scanner/quote)【v2.9.33提取】"""
+        result = {}
+        result["risk_watchdog"] = self._risk_watchdog.get_status() if hasattr(self, '_risk_watchdog') else {}
+        result["signal_dispatcher"] = self._signal_dispatcher.get_stats() if hasattr(self, '_signal_dispatcher') else {}
+        result["tiered_scanner"] = self._tiered_scanner.get_status() if self._tiered_scanner else {}
+        result["quote_degrade_level"] = self._quote_manager.degrade_level
+        result["quote_degrade_desc"] = self._quote_manager.degrade_desc
+        return result
 
     # _build_account_info已提取到ScannerUtils【v2.9.27:DELEGATE_MAP动态委托】
 
@@ -997,18 +1005,7 @@ class MarketScanner:
             except Exception as e:
                 consecutive_errors += 1
                 logger.error(f"[RISK_THREAD] 风控线程异常({consecutive_errors}次): {e}")
-                try:
-                    if self._loop and not self._loop.is_closed():
-                        self._loop.call_soon_threadsafe(
-                            lambda: self._loop.create_task(self._event_bus.emit(ScannerEvents.SCANNER_ERROR, {
-                                "error": f"风控线程异常: {e}",
-                                "error_type": "RiskThreadError",
-                                "timestamp": time.time(),
-                                "consecutive_errors": consecutive_errors,
-                            }))
-                        )
-                except Exception as _e:
-                    pass
+                self._emit_risk_thread_error(e, consecutive_errors)
                 sleep_s = self._risk_error_backoff(consecutive_errors, e)
                 time.sleep(sleep_s)
                 continue
@@ -1084,6 +1081,26 @@ class MarketScanner:
         elif consecutive_errors >= 3:
             return 5
         return 1
+
+    def _emit_risk_thread_error(self, error: Exception, consecutive_errors: int):
+        """风控线程异常事件发射到EventBus【v2.9.33从_risk_loop_sync提取】
+        
+        通过loop.call_soon_threadsafe+create_task安全跨线程发射, 
+        不阻塞风控线程主流程。
+        """
+        try:
+            if self._loop and not self._loop.is_closed():
+                err_data = {
+                    "error": f"风控线程异常: {error}",
+                    "error_type": "RiskThreadError",
+                    "timestamp": time.time(),
+                    "consecutive_errors": consecutive_errors,
+                }
+                self._loop.call_soon_threadsafe(
+                    lambda: self._loop.create_task(self._event_bus.emit(ScannerEvents.SCANNER_ERROR, err_data))
+                )
+        except Exception as _e:
+            pass  # 事件发射失败不应阻塞风控线程
 
     def _check_stop_loss_only(self, realtime_data: Dict):
         """1秒级止损检查 — 委托给PositionManager【Phase3.1】
@@ -1177,16 +1194,9 @@ class MarketScanner:
         merged_df = self._merge_factors(realtime_data)
         step2_ms = (time.time() - t2) * 1000
 
-        # Step 3: 策略筛选 + 9层筛选管道
+        # Step 3: 策略筛选 + 异动检测 + 9层筛选管道
         t3 = time.time()
-        new_signals = await self._apply_strategies(merged_df, trade_date)
-        new_signals = await self._apply_filter_pipeline(new_signals, trade_date, realtime_data)
-
-        # Step 3.6: 异动检测(也经过筛选管道)
-        anomaly_signals = await self._detect_anomalies(realtime_data)
-        if anomaly_signals:
-            anomaly_signals = await self._apply_filter_pipeline(anomaly_signals, trade_date, realtime_data)
-        new_signals.extend(anomaly_signals)
+        new_signals = await self._apply_strategies_and_filters(merged_df, trade_date, realtime_data)
         step3_ms = (time.time() - t3) * 1000
 
         # Step 4: 增量更新信号
@@ -1217,6 +1227,26 @@ class MarketScanner:
         logger.info(f"[SCAN #{self._scan_count}] 完成: "
                      f"{len(realtime_data)}只 | {len(self._active_signals)}信号 | "
                      f"{elapsed:.1f}秒{slow_info}")
+
+    async def _apply_strategies_and_filters(
+        self, merged_df, trade_date: str, realtime_data: Dict
+    ) -> List[ScanSignal]:
+        """策略筛选 + 异动检测 + 9层筛选管道【v2.9.33提取】
+        
+        合并scan_once中Step3的策略+筛选+异动三步,
+        减少scan_once的行数, 使扫描流程更清晰。
+        """
+        # 策略筛选 → 筛选管道
+        new_signals = await self._apply_strategies(merged_df, trade_date)
+        new_signals = await self._apply_filter_pipeline(new_signals, trade_date, realtime_data)
+
+        # 异动检测(也经过筛选管道)
+        anomaly_signals = await self._detect_anomalies(realtime_data)
+        if anomaly_signals:
+            anomaly_signals = await self._apply_filter_pipeline(anomaly_signals, trade_date, realtime_data)
+        new_signals.extend(anomaly_signals)
+
+        return new_signals
 
     def _sync_broker_prices(self, realtime_data: Dict[str, Dict]):
         """同步broker实时价格(用于持仓估值和涨跌停判断)【v2.9.19提取】"""
