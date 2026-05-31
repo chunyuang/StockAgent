@@ -58,6 +58,17 @@ class MarketPhase:
             return MarketPhase.AFTER_CLOSE
         return MarketPhase.OFF_HOURS
 
+    @staticmethod
+    def is_trading_active(phase: str = None) -> bool:
+        """当前是否处于交易活跃时段(竞价+交易)【v2.9.39】
+
+        用于风控线程等需要快速判断是否应执行检查的场景。
+        Args:
+            phase: 传入阶段(省略则自动classify)
+        """
+        p = phase or MarketPhase.classify()
+        return p in (MarketPhase.TRADING, MarketPhase.AUCTION)
+
 
 @dataclass
 class ScanSignal:
@@ -916,42 +927,8 @@ class MarketScanner:
             return False
 
     async def _scan_loop_settlement(self, trade_date: str):
-        """盘后结算(15:05+)处理逻辑
-        
-        职责: Broker结算+持久化 + EventBus盘后结算 + Timeline保存
-        """
-        if self._broker:
-            self._broker.daily_settlement(trade_date)
-        try:
-            await self._broker.save_state()
-        except Exception as _e:
-            logger.warning(f"[SCANNER] 盘后结算broker状态持久化失败: {_e}")
-        logger.info("[SCANNER] 收盘自动结算+持久化完成")
-        # 【v2.9:盘后结算通过EventBus驱动,解耦scanner主循环】
-        try:
-            account = self._broker.account if self._broker else None
-            await self._event_bus.emit(ScannerEvents.DAILY_SETTLED, {
-                "trade_date": trade_date,
-                "total_profit": getattr(account, 'today_profit', 0) if account else 0,
-                "total_assets": getattr(account, 'total_assets', 0) if account else 0,
-            })
-        except Exception as _e:
-            logger.debug(f"[SCANNER] 盘后结算事件发射失败: {_e}")
-        # 保存timeline到MongoDB
-        try:
-            await self._save_timeline()
-        except Exception as _e:
-            logger.warning(f"[SCANNER] 盘后Timeline保存失败: {_e}")
-        # 【v2.9.39:收盘后更新情绪预计算】
-        try:
-            await self._update_sentiment_score(trade_date)
-        except Exception as _e:
-            logger.debug(f"[SCANNER] 盘后情绪预计算失败: {_e}")
-        # 【v2.9.41:收盘后同步内存数据到MongoDB】
-        try:
-            await self._sync_close_data_to_mongo(trade_date)
-        except Exception as _e:
-            logger.debug(f"[SCANNER] 盘后数据同步失败: {_e}")
+        """盘后结算(15:05+) — 委托给RuntimePersistence【v2.9.39提取】"""
+        await self._runtime_persistence.daily_settlement(trade_date)
 
     async def _scan_loop_replay(self):
         """回放模式循环: 不受交易时间限制, 持续扫描【v2.9.19提取】"""
@@ -1083,24 +1060,9 @@ class MarketScanner:
         return 1
 
     def _emit_risk_thread_error(self, error: Exception, consecutive_errors: int):
-        """风控线程异常事件发射到EventBus【v2.9.33从_risk_loop_sync提取】
-        
-        通过loop.call_soon_threadsafe+create_task安全跨线程发射, 
-        不阻塞风控线程主流程。
-        """
-        try:
-            if self._loop and not self._loop.is_closed():
-                err_data = {
-                    "error": f"风控线程异常: {error}",
-                    "error_type": "RiskThreadError",
-                    "timestamp": time.time(),
-                    "consecutive_errors": consecutive_errors,
-                }
-                self._loop.call_soon_threadsafe(
-                    lambda: self._loop.create_task(self._event_bus.emit(ScannerEvents.SCANNER_ERROR, err_data))
-                )
-        except Exception as _e:
-            logger.debug(f"[RISK] 风控线程事件发射失败: {_e}")
+        """风控线程异常事件发射 — 委托给RiskWatchdog【v2.9.39提取】"""
+        from nodes.market_monitor.risk_watchdog import RiskWatchdog
+        RiskWatchdog.emit_risk_thread_error(self, error, consecutive_errors)
 
     def _check_stop_loss_only(self, realtime_data: Dict):
         """1秒级止损检查 — 委托给PositionManager【Phase3.1】

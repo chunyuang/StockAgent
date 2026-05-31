@@ -14,6 +14,7 @@ import ast
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _SCANNER = os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "scanner.py")
 _API_SCANNER = os.path.join(_PROJECT_ROOT, "nodes", "web", "api", "scanner.py")
+_RW = os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "risk_watchdog.py")
 
 
 def _read(path):
@@ -85,12 +86,16 @@ class TestEmitRiskThreadError:
         assert "_emit_risk_thread_error" in method_code
 
     def test_method_contains_scanner_error_event(self):
-        """_emit_risk_thread_error发射SCANNER_ERROR事件"""
+        """_emit_risk_thread_error发射SCANNER_ERROR事件(v2.9.39:委托给RiskWatchdog)"""
         source = _read(_SCANNER)
         idx = source.find("def _emit_risk_thread_error")
         assert idx > 0
         method_code = source[idx:idx+800]
-        assert "ScannerEvents.SCANNER_ERROR" in method_code
+        # v2.9.39: 逻辑已迁移到RiskWatchdog.emit_risk_thread_error
+        assert "RiskWatchdog" in method_code
+        # 验证RiskWatchdog中有SCANNER_ERROR
+        rw_source = _read(_RW)
+        assert "ScannerEvents.SCANNER_ERROR" in rw_source
 
     def test_method_signature(self):
         """方法签名包含error和consecutive_errors"""
@@ -101,12 +106,10 @@ class TestEmitRiskThreadError:
         assert "consecutive_errors" in sig
 
     def test_method_uses_threadsafe_emit(self):
-        """使用call_soon_threadsafe跨线程发射"""
-        source = _read(_SCANNER)
-        idx = source.find("def _emit_risk_thread_error")
-        method_code = source[idx:idx+800]
-        assert "call_soon_threadsafe" in method_code
-        assert "create_task" in method_code
+        """使用call_soon_threadsafe跨线程发射(v2.9.39:逻辑在RiskWatchdog)"""
+        rw_source = _read(_RW)
+        assert "call_soon_threadsafe" in rw_source
+        assert "create_task" in rw_source
 
 
 class TestBuildModuleStatus:
@@ -160,7 +163,7 @@ class TestVersionSync:
     def test_design_doc_version_in_api(self):
         """API中的_DESIGN_DOC_VERSION应为v2.9.35"""
         source = _read(_API_SCANNER)
-        assert '_DESIGN_DOC_VERSION = "v2.9.38"' in source
+        assert '_DESIGN_DOC_VERSION = "v2.9.39"' in source
 
 
 class TestNoBacktestRegressionV2933:

@@ -16,6 +16,7 @@ _EVENT_BUS = os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "scanner_eve
 _SUBSCRIBERS = os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "scanner_event_subscribers.py")
 _SCANNER = os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "scanner.py")
 _API_SCANNER = os.path.join(_PROJECT_ROOT, "nodes", "web", "api", "scanner.py")
+_RW = os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "risk_watchdog.py")
 _WS_BRIDGE = os.path.join(_PROJECT_ROOT, "nodes", "web", "redis_ws_bridge.py")
 _FRONTEND = os.path.join(_PROJECT_ROOT, "..", "frontend", "src", "views", "monitor", "MarketMonitorView.vue")
 
@@ -46,21 +47,25 @@ class TestScannerErrorEvent:
         assert "ScannerEvents.SCANNER_ERROR" in source
 
     def test_risk_thread_emits_error(self):
-        """风控线程异常时发射SCANNER_ERROR(v2.9.33:提取为_emit_risk_thread_error)"""
+        """风控线程异常时发射SCANNER_ERROR(v2.9.39:委托给RiskWatchdog)"""
         source = _read(_SCANNER)
         # 查找风控线程except块
         idx = source.find("[RISK_THREAD] 风控线程异常")
         assert idx > 0, "缺少风控线程异常日志"
         block = source[idx:idx+500]
-        # v2.9.33: 原内联emit提取为_emit_risk_thread_error方法
+        # v2.9.33+39: 原内联emit提取为_emit_risk_thread_error方法,再委托RiskWatchdog
         assert "_emit_risk_thread_error" in block, \
             "风控线程异常未调用_emit_risk_thread_error"
-        # 确认_emit_risk_thread_error方法存在且发射SCANNER_ERROR
+        # 确认_emit_risk_thread_error方法存在且委托RiskWatchdog
         method_idx = source.find("def _emit_risk_thread_error")
         assert method_idx > 0, "缺少_emit_risk_thread_error方法定义"
-        method_code = source[method_idx:method_idx+800]
-        assert "ScannerEvents.SCANNER_ERROR" in method_code, \
-            "_emit_risk_thread_error应发射SCANNER_ERROR"
+        method_code = source[method_idx:method_idx+400]
+        assert "RiskWatchdog" in method_code, \
+            "_emit_risk_thread_error应委托RiskWatchdog.emit_risk_thread_error"
+        # 验证RiskWatchdog中有SCANNER_ERROR
+        rw_source = _read(_RW)
+        assert "ScannerEvents.SCANNER_ERROR" in rw_source, \
+            "RiskWatchdog.emit_risk_thread_error应发射SCANNER_ERROR"
 
     def test_error_subscriber_registered(self):
         """scanner_error事件订阅器已注册"""

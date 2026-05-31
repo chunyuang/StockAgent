@@ -806,6 +806,29 @@ class RiskWatchdog:
         
         logger.info("[SCANNER] 执行统计+跌停挂起已重置(追踪止损/风险等级将在加载持仓时恢复)")
 
+    @staticmethod
+    def emit_risk_thread_error(scanner, error: Exception, consecutive_errors: int):
+        """风控线程异常事件发射到EventBus【v2.9.39:从scanner._emit_risk_thread_error提取】
+
+        通过loop.call_soon_threadsafe+create_task安全跨线程发射,
+        不阻塞风控线程主流程。
+        """
+        try:
+            loop = getattr(scanner, '_loop', None)
+            if loop and not loop.is_closed():
+                from nodes.market_monitor.scanner_event_bus import ScannerEvents
+                err_data = {
+                    "error": f"风控线程异常: {error}",
+                    "error_type": "RiskThreadError",
+                    "timestamp": time.time(),
+                    "consecutive_errors": consecutive_errors,
+                }
+                loop.call_soon_threadsafe(
+                    lambda: loop.create_task(scanner._event_bus.emit(ScannerEvents.SCANNER_ERROR, err_data))
+                )
+        except Exception as _e:
+            logger.debug(f"[RISK] 风控线程事件发射失败: {_e}")
+
         # ==================== 对外接口 ====================
     
     def get_status(self) -> Dict:
