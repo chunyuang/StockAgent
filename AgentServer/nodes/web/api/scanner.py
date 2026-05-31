@@ -4196,3 +4196,335 @@ async def get_stream_positions(count: int = 20):
         return {"success": True, "count": len(result), "data": result}
     except Exception as e:
         return {"success": False, "message": str(e)}
+
+
+# ==================== 复盘增强API ====================
+
+@router.get("/review-hero")
+async def get_review_hero(date: str = None):
+    """复盘Hero: 一句话结论 + 基准对比 + 核心指标 + 纪律评分
+    
+    Args:
+        date: YYYYMMDD格式
+    """
+    try:
+        from core.managers import mongo_manager
+        if not mongo_manager.is_initialized:
+            return {"success": True, "data": None}
+        db = mongo_manager.db
+        
+        if not date:
+            latest = await db["broker_orders"].find_one({"side":"sell","status":"filled"}, sort=[("_id",-1)])
+            date = latest.get("trade_date","") if latest else ""
+        
+        # 1. 当日交易统计
+        sells, buys = [], []
+        async for doc in db["broker_orders"].find({"trade_date": date, "status": "filled"}):
+            (buys if doc.get("side") == "buy" else sells).append(doc)
+        
+        wins = [s for s in sells if (s.get("profit_pct") or 0) >= 0]
+        losses = [s for s in sells if (s.get("profit_pct") or 0) < 0]
+        win_rate = len(wins) / max(len(sells), 1) * 100
+        avg_win = sum(s.get("profit_pct",0) or 0 for s in wins) / max(len(wins),1) if wins else 0
+        avg_loss = sum(s.get("profit_pct",0) or 0 for s in losses) / max(len(losses),1) if losses else 0
+        total_pct = sum(s.get("profit_pct",0) or 0 for s in sells)
+        
+        # 2. 期望值 = 胜率×均盈 - 败率×均亏
+        expectancy = (win_rate/100) * avg_win - (1-win_rate/100) * abs(avg_loss) if sells else 0
+        
+        # 3. 大盘对比(上证)
+        benchmark_pct = 0
+        benchmark_name = "上证指数"
+        idx_doc = await db["index_daily"].find_one({"ts_code": "000001.SH", "trade_date": int(date)})
+        if idx_doc:
+            benchmark_pct = idx_doc.get("pct_chg", 0) or 0
+        else:
+            # 尝试最近的交易日
+            idx_doc = await db["index_daily"].find_one({"ts_code": "000001.SH", "trade_date": {"$lte": int(date)}}, sort=[("trade_date",-1)])
+            if idx_doc:
+                benchmark_pct = idx_doc.get("pct_chg", 0) or 0
+        
+        # 4. 情绪环境
+        sentiment_doc = await db["sentiment_scores"].find_one({"trade_date": int(date)})
+        sentiment_period = sentiment_doc.get("period", "") if sentiment_doc else ""
+        sentiment_score = sentiment_doc.get("score", 0) if sentiment_doc else 50
+        if sentiment_doc and sentiment_doc.get("missing_data"):
+            sentiment_period = sentiment_doc.get("period", "") + "(数据缺失)"
+        
+        # 5. 纪律检查
+        violations = []
+        # 冰点开仓
+        if sentiment_doc and sentiment_doc.get("period") in ["bearish", "chaos"] or (sentiment_score < 40 and buys):
+            for b in buys:
+                violations.append({
+                    "type": "冰点开仓", "severity": "high",
+                    "ts_code": b.get("ts_code",""), "strategy": b.get("strategy",""),
+                    "detail": f"情绪{sentiment_score:.0f}分({sentiment_period})时买入{b.get('ts_code','')}"
+                })
+        # 情绪不匹配(冰点做半路追涨)
+        period_map = {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点"}
+        strategy_period_fit = {"halfway_chase": ["RISING", "DIFFERENTIATION"], "first_limit_up": ["RISING"], "limit_down_qiao": ["RISING", "DIFFERENTIATION", "CHAOS"]}
+        if sentiment_doc:
+            raw_period = sentiment_doc.get("period", "")
+            for b in buys:
+                strat = b.get("strategy", "")
+                fit_periods = strategy_period_fit.get(strat, [])
+                if fit_periods and raw_period not in fit_periods:
+                    cn_period = period_map.get(raw_period, raw_period)
+                    violations.append({
+                        "type": "情绪不匹配", "severity": "medium",
+                        "ts_code": b.get("ts_code",""), "strategy": strat,
+                        "detail": f"{cn_period}期做{strat}(适合{'+'.join(period_map.get(p,p) for p in fit_periods)})"
+                    })
+        # 单日止损过多(≥3)
+        stop_losses = [s for s in sells if "止损" in (s.get("reason","") or "") and "追踪" not in (s.get("reason","") or "")];
+        if len(stop_losses) >= 3:
+            violations.append({
+                "type": "止损过多", "severity": "high",
+                "ts_code": "", "strategy": "",
+                "detail": f"当日止损{len(stop_losses)}笔,建议检查入场条件"
+            })
+        
+        discipline_score = max(0, 100 - len(violations) * 20)
+        
+        # 6. 连续亏损
+        all_sells_cursor = db["broker_orders"].find({"side":"sell","status":"filled"}, {"profit_pct":1,"trade_date":1}).sort("trade_date",1)
+        all_sells = await all_sells_cursor.to_list(length=500)
+        max_consecutive_loss = 0
+        current_loss_streak = 0
+        for s in all_sells:
+            pct = s.get("profit_pct",0) or 0
+            if pct < 0:
+                current_loss_streak += 1
+                max_consecutive_loss = max(max_consecutive_loss, current_loss_streak)
+            else:
+                current_loss_streak = 0
+        
+        # 7. 一句话结论
+        if not sells:
+            conclusion = "📋 当日无卖出交易"
+            conclusion_type = "neutral"
+        elif total_pct > 3:
+            conclusion = f"🟢 今日大赚 +{total_pct:.1f}% 跑赢大盘{total_pct - benchmark_pct:.1f}% {max((wins), key=lambda w: w.get('profit_pct',0)).get('strategy','')}贡献最大"
+            conclusion_type = "profit"
+        elif total_pct > 0:
+            conclusion = f"🟡 今日小赚 +{total_pct:.1f}% {'跑赢' if total_pct > benchmark_pct else '落后'}大盘{abs(total_pct - benchmark_pct):.1f}%"
+            conclusion_type = "slight_profit"
+        elif total_pct > -2:
+            conclusion = f"🟠 今日小亏 {total_pct:.1f}% {'仍跑赢大盘' if total_pct > benchmark_pct else '落后大盘'} 止损{len(stop_losses)}笔"
+            conclusion_type = "slight_loss"
+        else:
+            conclusion = f"🔴 今日亏损 {total_pct:.1f}% 止损{len(stop_losses)}笔过多 建议降仓检查策略"
+            conclusion_type = "loss"
+        
+        return {"success": True, "data": {
+            "date": date,
+            "conclusion": conclusion,
+            "conclusion_type": conclusion_type,
+            "metrics": {
+                "total_pct": round(total_pct, 2),
+                "win_rate": round(win_rate, 1),
+                "trades": len(sells),
+                "buys": len(buys),
+                "stop_loss_count": len(stop_losses),
+                "take_profit_count": len(wins),
+                "expectancy": round(expectancy, 2),
+                "discipline_score": discipline_score,
+                "max_consecutive_loss": max_consecutive_loss,
+                "avg_win": round(avg_win, 1),
+                "avg_loss": round(avg_loss, 1),
+                "profit_loss_ratio": round(abs(avg_win / avg_loss), 1) if avg_loss != 0 else 0,
+            },
+            "benchmark": {
+                "name": benchmark_name,
+                "pct_chg": round(benchmark_pct, 2),
+                "alpha": round(total_pct - benchmark_pct, 2),
+            },
+            "sentiment": {
+                "period": sentiment_period,
+                "score": sentiment_score,
+            },
+            "violations": violations,
+        }}
+    except Exception as e:
+        return {"success": True, "data": None, "message": str(e)}
+
+
+@router.get("/discipline-check")
+async def get_discipline_check(date: str = None):
+    """纪律检查: 标记违规交易, 计算执行正确率
+    
+    Args:
+        date: YYYYMMDD格式
+    """
+    try:
+        from core.managers import mongo_manager
+        if not mongo_manager.is_initialized:
+            return {"success": True, "data": None}
+        db = mongo_manager.db
+        
+        if not date:
+            latest = await db["broker_orders"].find_one({"side":"sell","status":"filled"}, sort=[("_id",-1)])
+            date = latest.get("trade_date","") if latest else ""
+        
+        # 情绪
+        sentiment_doc = await db["sentiment_scores"].find_one({"trade_date": int(date)})
+        raw_period = sentiment_doc.get("period","") if sentiment_doc else ""
+        sentiment_score = sentiment_doc.get("score",50) if sentiment_doc else 50
+        
+        # 策略-情绪适配规则
+        strategy_fit = {
+            "halfway_chase": {"高潮": True, "分化": True, "震荡": False, "冰点": False},
+            "first_limit_up": {"高潮": True, "分化": False, "震荡": False, "冰点": False},
+            "limit_down_qiao": {"高潮": True, "分化": True, "震荡": True, "冰点": False},
+            "dragon_head": {"高潮": True, "分化": True, "震荡": False, "冰点": False},
+        }
+        
+        violations = []
+        total_actions = 0
+        correct_actions = 0
+        
+        # 检查买入
+        async for doc in db["broker_orders"].find({"trade_date": date, "side": "buy", "status": "filled"}):
+            total_actions += 1
+            strat = doc.get("strategy", "")
+            fit = strategy_fit.get(strat, {})
+            is_fit = fit.get(raw_period, True)  # 未知策略默认合规
+            
+            # 冰点期禁止开仓
+            if raw_period in ["BEARISH", "冰点"]:
+                violations.append({
+                    "ts_code": doc.get("ts_code",""), "strategy": strat, "side": "buy",
+                    "violation": "冰点期禁止开仓", "severity": "high",
+                    "detail": f"情绪{sentiment_score:.0f}分处于冰点,不应买入"
+                })
+            elif not is_fit:
+                violations.append({
+                    "ts_code": doc.get("ts_code",""), "strategy": strat, "side": "buy",
+                    "violation": "情绪不匹配", "severity": "medium",
+                    "detail": f"{raw_period}期不适合做{strat}"
+                })
+            else:
+                correct_actions += 1
+        
+        # 检查卖出(止损是否及时)
+        async for doc in db["broker_orders"].find({"trade_date": date, "side": "sell", "status": "filled"}):
+            total_actions += 1
+            pct = doc.get("profit_pct",0) or 0
+            reason = doc.get("reason","")
+            
+            # 亏损超过5%仍未止损(可能是扛单)
+            if pct < -5 and "止损" not in reason:
+                violations.append({
+                    "ts_code": doc.get("ts_code",""), "strategy": doc.get("strategy",""), "side": "sell",
+                    "violation": "亏损过大未及时止损", "severity": "high",
+                    "detail": f"亏损{pct:.1f}%但卖出原因非止损({reason[:20]})"
+                })
+            else:
+                correct_actions += 1
+        
+        execution_rate = correct_actions / max(total_actions, 1) * 100
+        
+        return {"success": True, "data": {
+            "date": date,
+            "total_actions": total_actions,
+            "correct_actions": correct_actions,
+            "execution_rate": round(execution_rate, 1),
+            "violation_count": len(violations),
+            "violations": violations,
+        }}
+    except Exception as e:
+        return {"success": True, "data": None, "message": str(e)}
+
+
+@router.get("/review-forward")
+async def get_review_forward(date: str = None):
+    """前瞻建议: 基于当前情绪+历史模式给出明日操作建议
+    
+    Args:
+        date: YYYYMMDD格式
+    """
+    try:
+        from core.managers import mongo_manager
+        if not mongo_manager.is_initialized:
+            return {"success": True, "data": None}
+        db = mongo_manager.db
+        
+        if not date:
+            import datetime
+            date = datetime.datetime.now().strftime("%Y%m%d")
+        
+        # 1. 当前情绪
+        sentiment_doc = await db["sentiment_scores"].find_one({"trade_date": int(date)})
+        if not sentiment_doc:
+            # fallback到最近
+            sentiment_doc = await db["sentiment_scores"].find_one({"missing_data": {"$ne": True}}, sort=[("trade_date",-1)])
+        
+        raw_period = sentiment_doc.get("period","") if sentiment_doc else ""
+        score = sentiment_doc.get("score",50) if sentiment_doc else 50
+        period_map = {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点"}
+        cn_period = period_map.get(raw_period, raw_period)
+        
+        # 2. 策略历史表现(近30天)
+        from collections import defaultdict
+        strat_stats = defaultdict(lambda: {"wins":0,"losses":0,"count":0})
+        recent_sells = db["broker_orders"].find({"side":"sell","status":"filled"}).sort("_id",-1).limit(60)
+        async for doc in recent_sells:
+            strat = doc.get("strategy","unknown")
+            pct = doc.get("profit_pct",0) or 0
+            strat_stats[strat]["count"] += 1
+            if pct >= 0:
+                strat_stats[strat]["wins"] += 1
+            else:
+                strat_stats[strat]["losses"] += 1
+        
+        # 3. 生成建议
+        strategy_recommendations = []
+        strategy_switches = []
+        period_strategy_map = {
+            "高潮": {"open": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head"], "close": []},
+            "分化": {"open": ["halfway_chase","dragon_head"], "close": ["first_limit_up"]},
+            "震荡": {"open": ["limit_down_qiao"], "close": ["halfway_chase","first_limit_up"]},
+            "冰点": {"open": [], "close": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head"]},
+        }
+        
+        switches = period_strategy_map.get(raw_period, {"open":[],"close":[]})
+        for strat in switches["open"]:
+            st = strat_stats.get(strat, {})
+            wr = st.get("wins",0) / max(st.get("count",1),1) * 100
+            strategy_recommendations.append({"strategy": strat, "action": "open", "win_rate": round(wr,1), "count": st.get("count",0)})
+        for strat in switches["close"]:
+            strategy_switches.append({"strategy": strat, "action": "close", "reason": f"{cn_period}期不适合该策略"})
+        
+        # 4. 参数漂移检查
+        drift_warnings = []
+        try:
+            from core.managers.param_center import ParamCenter
+            pc = ParamCenter()
+            for strat_key in ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head"]:
+                live_params = await pc.get_strategy_config(strat_key)
+                if live_params and live_params.get("source") == "param_center":
+                    drift_warnings.append({"strategy": strat_key, "status": "参数已从ParamCenter修改", "source": "param_center"})
+        except Exception:
+            pass
+        
+        # 5. 综合建议
+        if raw_period in ["RISING", "高潮"]:
+            advice = f"当前高潮({score:.0f}分)，所有策略开放。建议满仓操作，注意高潮末端可能突然分化，设好止盈。"
+        elif raw_period in ["DIFFERENTIATION", "分化"]:
+            advice = f"当前分化({score:.0f}分)，建议降仓位至50-70%。只做半路追涨和龙头低吸，关闭首板打板。"
+        elif raw_period in ["CHAOS", "震荡"]:
+            advice = f"当前震荡({score:.0f}分)，建议轻仓25-40%。只做跌停翘板(小仓)，严格止损3%，快进快出。"
+        else:
+            advice = f"当前冰点({score:.0f}分)，建议空仓观望，禁止新开仓。持仓执行止损，等待情绪回暖信号(涨停>50)。"
+        
+        return {"success": True, "data": {
+            "date": date,
+            "sentiment": {"period": cn_period, "score": score, "raw_period": raw_period},
+            "advice": advice,
+            "strategy_recommendations": strategy_recommendations,
+            "strategy_switches": strategy_switches,
+            "drift_warnings": drift_warnings,
+        }}
+    except Exception as e:
+        return {"success": True, "data": None, "message": str(e)}

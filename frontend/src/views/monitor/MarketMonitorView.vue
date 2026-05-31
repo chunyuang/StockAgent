@@ -293,6 +293,9 @@ const tradeAttributions = ref<any[]>([])
 const reviewLoading = ref(false)
 const executionQuality = ref<any>(null)
 const liveBacktestDiff = ref<any[]>([])
+const reviewHero = ref<any>(null)  // Hero Banner数据
+const disciplineCheck = ref<any>(null)  // 纪律检查数据
+const reviewForward = ref<any>(null)  // 前瞻建议数据
 
 // ==================== 情绪Tab ====================
 const sentimentMode = ref<'intraday' | 'daily' | 'weekly' | 'monthly'>('daily')
@@ -597,6 +600,9 @@ async function fetchReviewData() {
     promises.push(
       api.get(`${scannerApi}/execution-quality?date=${reviewDate.value.replace(/-/g, '')}`, opts).then(r => { const p = parseResponse(r); if (p.success) executionQuality.value = p.data }),
       api.get(`${scannerApi}/backtest-compare?date=${reviewDate.value.replace(/-/g, '')}`, opts).then(r => { const p = parseResponse(r); if (p.success) liveBacktestDiff.value = p.data || [] }),
+      api.get(`${scannerApi}/review-hero?date=${reviewDate.value.replace(/-/g, '')}`, opts).then(r => { const p = parseResponse(r); if (p.success) reviewHero.value = p.data }),
+      api.get(`${scannerApi}/discipline-check?date=${reviewDate.value.replace(/-/g, '')}`, opts).then(r => { const p = parseResponse(r); if (p.success) disciplineCheck.value = p.data }),
+      api.get(`${scannerApi}/review-forward?date=${reviewDate.value.replace(/-/g, '')}`, opts).then(r => { const p = parseResponse(r); if (p.success) reviewForward.value = p.data }),
     )
     
     await Promise.allSettled(promises)
@@ -1573,53 +1579,55 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           </div>
           <ElDatePicker v-model="reviewDate" type="date" size="small" value-format="YYYY-MM-DD" @change="fetchReviewData" />
           <ElButton size="small" @click="fetchReviewData" :loading="reviewLoading">🔄</ElButton>
-          <span v-if="reviewDate !== new Date().toISOString().slice(0, 10)" style="font-size:11px;color:#e6a23c">📋 历史数据</span>
         </div>
 
-        <!-- 日复盘内容 -->
-        <template v-if="reviewTab === 'daily' && dailyReportData">
-          <!-- 概览卡片 -->
-          <div class="review-summary-cards">
-            <div class="rsc"><div class="rsc-label">收益</div><div class="rsc-value" :class="dailyReportData.account?.today_profit >= 0 ? 'up' : 'down'">{{ dailyReportData.account?.today_profit >= 0 ? '+' : '' }}¥{{ dailyReportData.account?.today_profit?.toFixed(0) }}</div></div>
-            <div class="rsc"><div class="rsc-label">胜率</div><div class="rsc-value">{{ dailyReportData.win_rate }}%</div></div>
-            <div class="rsc"><div class="rsc-label">交易</div><div class="rsc-value">{{ dailyReportData.trades?.buy + dailyReportData.trades?.sell || 0 }}笔</div></div>
-            <div class="rsc"><div class="rsc-label">仓位</div><div class="rsc-value">{{ dailyReportData.account?.position_ratio }}%</div></div>
-            <div class="rsc"><div class="rsc-label">止损</div><div class="rsc-value down">{{ dailyReportData.stop_loss_count }}</div></div>
-            <div class="rsc"><div class="rsc-label">止盈</div><div class="rsc-value up">{{ dailyReportData.take_profit_count }}</div></div>
+        <!-- ============ 第1层: Hero Banner ============ -->
+        <div v-if="reviewHero" class="hero-banner" :class="reviewHero.conclusion_type">
+          <div class="hero-conclusion">{{ reviewHero.conclusion }}</div>
+          <div class="hero-meta">
+            <span v-if="reviewHero.benchmark" class="hero-bench">📊 {{ reviewHero.benchmark.name }} {{ reviewHero.benchmark.pct_chg >= 0 ? '+' : '' }}{{ reviewHero.benchmark.pct_chg }}%</span>
+            <span class="hero-alpha" :class="reviewHero.benchmark?.alpha >= 0 ? 'up' : 'down'">{{ reviewHero.benchmark?.alpha >= 0 ? '跑赢' : '落后' }} {{ Math.abs(reviewHero.benchmark?.alpha || 0) }}%</span>
+            <span class="hero-sentiment">🌡️ {{ reviewHero.sentiment?.period }} {{ reviewHero.sentiment?.score }}分</span>
           </div>
+        </div>
 
+        <!-- ============ 第2层: 核心仪表盘 ============ -->
+        <div v-if="reviewHero" class="review-scorecard">
+          <div class="rsc"><div class="rsc-label">收益</div><div class="rsc-value" :class="reviewHero.metrics.total_pct >= 0 ? 'up' : 'down'">{{ reviewHero.metrics.total_pct >= 0 ? '+' : '' }}{{ reviewHero.metrics.total_pct }}%</div></div>
+          <div class="rsc"><div class="rsc-label">胜率</div><div class="rsc-value">{{ reviewHero.metrics.win_rate }}%</div></div>
+          <div class="rsc"><div class="rsc-label">交易</div><div class="rsc-value">{{ reviewHero.metrics.trades }}笔</div></div>
+          <div class="rsc"><div class="rsc-label">期望值</div><div class="rsc-value" :class="reviewHero.metrics.expectancy >= 0 ? 'up' : 'down'">{{ reviewHero.metrics.expectancy }}</div></div>
+          <div class="rsc"><div class="rsc-label">纪律分</div><div class="rsc-value" :class="reviewHero.metrics.discipline_score >= 80 ? 'up' : reviewHero.metrics.discipline_score >= 60 ? '' : 'down'">{{ reviewHero.metrics.discipline_score }}</div></div>
+          <div class="rsc"><div class="rsc-label">盈亏比</div><div class="rsc-value">{{ reviewHero.metrics.profit_loss_ratio }}</div></div>
+          <div class="rsc"><div class="rsc-label">止损</div><div class="rsc-value down">{{ reviewHero.metrics.stop_loss_count }}</div></div>
+          <div class="rsc"><div class="rsc-label">止盈</div><div class="rsc-value up">{{ reviewHero.metrics.take_profit_count }}</div></div>
+          <div class="rsc"><div class="rsc-label">连亏</div><div class="rsc-value" :class="reviewHero.metrics.max_consecutive_loss >= 3 ? 'down' : ''">{{ reviewHero.metrics.max_consecutive_loss }}笔</div></div>
+        </div>
+
+        <!-- ============ 第3层: 归因分析 ============ -->
+        <template v-if="reviewTab === 'daily' && dailyReportData">
           <!-- 策略贡献 -->
           <div class="st" style="margin-top:12px">🎯 策略贡献</div>
           <div class="strategy-contrib">
             <div v-for="(data, key) in dailyReportData.positions?.strategy_summary || {}" :key="key" class="strat-card">
               <div class="strat-header">
                 <ElTag size="small" :color="strategyMeta[key]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(key) }}</ElTag>
-                <span class="strat-pnl" :class="(data.closed_profit || data.total_profit || 0) >= 0 ? 'up' : 'down'">{{ (data.closed_profit || data.total_profit || 0) >= 0 ? '+' : '' }}¥{{ (data.closed_profit || data.total_profit || 0).toFixed(0) }}</span>
+                <span class="strat-pnl" :class="(data.closed_profit || data.total_pnl || 0) >= 0 ? 'up' : 'down'">{{ (data.closed_profit || data.total_pnl || 0) >= 0 ? '+' : '' }}¥{{ (data.closed_profit || data.total_pnl || 0).toFixed(0) }}</span>
               </div>
               <div class="strat-metrics">
-                <div class="strat-m"><span class="strat-ml">持仓</span><span class="strat-mv">{{ data.count || 0 }}只</span></div>
-                <div class="strat-m"><span class="strat-ml">已平</span><span class="strat-mv">{{ data.closed_count || 0 }}笔</span></div>
+                <div class="strat-m"><span class="strat-ml">已平</span><span class="strat-mv">{{ data.closed_count || data.sell_count || 0 }}笔</span></div>
                 <div class="strat-m"><span class="strat-ml">胜率</span><span class="strat-mv" :class="(data.closed_win_rate || data.win_rate || 0) >= 50 ? 'up' : 'down'">{{ (data.closed_win_rate || data.win_rate || 0).toFixed(0) }}%</span></div>
                 <div class="strat-m" v-if="data.avg_win_pct"><span class="strat-ml">均盈</span><span class="strat-mv up">+{{ data.avg_win_pct }}%</span></div>
                 <div class="strat-m" v-if="data.avg_loss_pct"><span class="strat-ml">均亏</span><span class="strat-mv down">{{ data.avg_loss_pct }}%</span></div>
-                <div class="strat-m" v-if="data.profit_loss_ratio"><span class="strat-ml">盈亏比</span><span class="strat-mv" :class="data.profit_loss_ratio >= 2 ? 'up' : ''">{{ data.profit_loss_ratio }}</span></div>
                 <div class="strat-m" v-if="data.stop_loss_count"><span class="strat-ml">止损</span><span class="strat-mv down">{{ data.stop_loss_count }}笔</span></div>
-                <div class="strat-m" v-if="data.take_profit_count"><span class="strat-ml">止盈</span><span class="strat-mv up">{{ data.take_profit_count }}笔</span></div>
               </div>
             </div>
           </div>
 
-          <!-- 净值曲线 -->
-          <div class="st" style="margin-top:12px">📈 净值曲线</div>
-          <div v-if="perfData.length || pnlHistory.length" class="pnl-chart-wrap-lg">
-            <VChart :option="pnlOption" autoresize style="height:260px;width:100%" />
-          </div>
-          <div v-else class="empty" style="padding:12px 0">暂无净值数据</div>
-
           <!-- 逐笔归因 -->
-          <div class="st" style="margin-top:12px">📝 逐笔归因</div>
+          <div class="st" style="margin-top:12px">📝 逐笔归因 <span style="font-weight:normal;font-size:11px;color:var(--text-tertiary)">({{ tradeAttributions.length }}笔)</span></div>
           <div v-if="!tradeAttributions.length" class="empty">暂无交易数据</div>
-          <div v-for="t in tradeAttributions" :key="t.ts_code + t.sell_time" class="attribution-card">
+          <div v-for="t in tradeAttributions" :key="t.ts_code + t.sell_time" class="attribution-card" :class="t.profit_pct >= 0 ? 'attr-profit' : 'attr-loss'">
             <div class="attr-top">
               <ElTag size="small" :color="strategyMeta[t.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(t.strategy) }}</ElTag>
               <span class="code">{{ t.ts_code }}</span>
@@ -1632,42 +1640,24 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
               <div class="attr-row"><span>原因</span><span>{{ t.sell_reason }}</span></div>
               <div class="attr-row" v-if="t.why_profit"><span class="up">赚在哪</span><span>{{ t.why_profit }}</span></div>
               <div class="attr-row" v-if="t.why_loss"><span class="down">亏在哪</span><span>{{ t.why_loss }}</span></div>
-              <div v-if="t.scan_info" class="attr-scan">
-                <div class="attr-scan-title">📡 入场漏斗 {{ t.scan_info.scan_time?.substring(11, 19) }}</div>
-                <div v-if="t.scan_info.sentiment" class="attr-row"><span>情绪</span><span>{{ t.scan_info.sentiment }}</span></div>
-                <div v-if="t.scan_info.ranking" class="attr-row"><span>排序</span><span>{{ t.scan_info.ranking }}</span></div>
-              </div>
             </div>
           </div>
 
-          <!-- 扫描漏斗统计 -->
-          <div class="st" style="margin-top:12px">📡 扫描漏斗统计</div>
+          <!-- 扫描漏斗 -->
+          <div class="st" style="margin-top:12px">📡 扫描漏斗</div>
           <div v-if="dailyReportData?.scanner_stats" class="review-scan-stats">
             <div class="rss-row"><span class="rss-label">扫描次数</span><span class="rss-value">{{ dailyReportData.scanner_stats.scan_count || 0 }}次</span></div>
             <div class="rss-row"><span class="rss-label">发现信号</span><span class="rss-value up">{{ dailyReportData.scanner_stats.total_signals || 0 }}只</span></div>
             <div class="rss-row"><span class="rss-label">实际买入</span><span class="rss-value">{{ dailyReportData.scanner_stats.buy_count || 0 }}笔</span></div>
             <div class="rss-row"><span class="rss-label">实际卖出</span><span class="rss-value">{{ dailyReportData.scanner_stats.sell_count || 0 }}笔</span></div>
-            <div class="rss-row"><span class="rss-label">调试扫描</span><span class="rss-value" style="color:#e6a23c">{{ dailyReportData.scanner_stats.debug_scan_count || 0 }}次</span></div>
-          </div>
-          <div v-if="dailyReportData?.funnel_summary && Object.keys(dailyReportData.funnel_summary).length" class="review-funnel-detail">
-            <div v-for="(data, layer) in dailyReportData.funnel_summary" :key="layer" class="rfd-row">
-              <span class="rfd-layer">{{ pipelineLabels[layer] || layer }}</span>
-              <div class="rfd-bar-track"><div class="rfd-bar-fill" :style="{ width: Math.min(data.total_rejected / Math.max(data.total_input, 1) * 100, 100) + '%' }"></div></div>
-              <span class="rfd-rej">淘汰{{ data.total_rejected }}</span>
-            </div>
           </div>
           <div v-if="dailyReportData?.sentiment_snapshot" class="review-sentiment-snap">
-            <span style="font-weight:600">🌡️ 末次情绪</span>
+            <span style="font-weight:600">🌡️ 情绪快照</span>
             <span>{{ dailyReportData.sentiment_snapshot }}</span>
           </div>
-          <div v-if="!dailyReportData?.scanner_stats" class="empty" style="padding:8px 0">暂无扫描数据</div>
-
-          <!-- 情绪周期 -->
-          <div class="st" style="margin-top:12px">🌡️ 实时情绪</div>
-          <MarketSentiment />
         </template>
 
-        <!-- 周复盘内容 -->
+        <!-- 周复盘 -->
         <template v-if="reviewTab === 'weekly' && weeklyReportData">
           <div class="review-summary-cards">
             <div class="rsc"><div class="rsc-label">周收益</div><div class="rsc-value" :class="weeklyReportData.weekly_profit >= 0 ? 'up' : 'down'">¥{{ weeklyReportData.weekly_profit?.toFixed(0) }}</div></div>
@@ -1687,166 +1677,83 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           </div>
         </template>
 
-        <!-- 执行质量 & 实盘vs回测 -->
-        <div class="st" style="margin-top:16px">🎯 执行质量 <span v-if="executionQuality?.date" style="font-size:11px;color:var(--text-tertiary);font-weight:normal">{{ executionQuality.date }}</span></div>
-        <div v-if="executionQuality" class="eq-grid">
-          <div class="eq-card"><div class="eq-label">平均滑点</div><div class="eq-value" :class="Math.abs(executionQuality.avg_slippage_pct || 0) > 0.5 ? 'warn' : ''">{{ (executionQuality.avg_slippage_pct || 0).toFixed(3) }}%</div></div>
-          <div class="eq-card"><div class="eq-label">最大滑点</div><div class="eq-value">{{ (executionQuality.max_slippage_pct || 0).toFixed(3) }}%</div></div>
-          <div class="eq-card"><div class="eq-label">成交延迟</div><div class="eq-value">{{ (executionQuality.avg_fill_delay_ms || 0).toFixed(0) }}ms</div></div>
-          <div class="eq-card"><div class="eq-label">成交率</div><div class="eq-value" :class="(executionQuality.fill_rate_pct || 0) < 90 ? 'warn' : 'ok'">{{ (executionQuality.fill_rate_pct || 0).toFixed(1) }}%</div></div>
-          <div class="eq-card"><div class="eq-label">下单数</div><div class="eq-value">{{ executionQuality.total_orders || 0 }}</div></div>
-          <div class="eq-card"><div class="eq-label">成交数</div><div class="eq-value ok">{{ executionQuality.filled_orders || 0 }}</div></div>
-          <div class="eq-card"><div class="eq-label">拒绝数</div><div class="eq-value" :class="(executionQuality.rejected_orders || 0) > 0 ? 'warn' : ''">{{ executionQuality.rejected_orders || 0 }}</div></div>
-        </div>
-        <div v-else class="empty">暂无执行数据</div>
+        <!-- 月复盘 -->
+        <template v-if="reviewTab === 'monthly'">
+          <div class="empty" style="padding:40px 0;text-align:center">
+            <div style="font-size:32px;margin-bottom:8px">📆</div>
+            <div>月复盘即将上线</div>
+            <div style="font-size:12px;color:var(--text-tertiary);margin-top:4px">将包含：日历热力图 + 策略贡献堆积图 + 最大回撤标注 + 参数漂移检测</div>
+          </div>
+        </template>
 
+        <!-- ============ 第4层: 纪律检查 + 执行质量 ============ -->
+        <div class="review-2col" style="margin-top:12px">
+          <!-- 纪律检查 -->
+          <div class="sentiment-panel">
+            <div class="st">🔍 纪律检查
+              <span v-if="disciplineCheck" style="font-weight:normal;font-size:11px;margin-left:6px" :class="disciplineCheck.execution_rate >= 80 ? 'up' : disciplineCheck.execution_rate >= 60 ? '' : 'down'">
+                执行正确率 {{ disciplineCheck.execution_rate }}%
+              </span>
+            </div>
+            <div v-if="disciplineCheck && disciplineCheck.violations.length" class="violations-list">
+              <div v-for="(v, i) in disciplineCheck.violations" :key="i" class="violation-item" :class="'sev-' + v.severity">
+                <span class="v-icon">{{ v.severity === 'high' ? '🔴' : '🟡' }}</span>
+                <span class="v-type">{{ v.violation }}</span>
+                <span class="v-detail">{{ v.detail }}</span>
+              </div>
+            </div>
+            <div v-else-if="disciplineCheck" class="empty" style="padding:8px 0;color:#67c23a">✅ 无违规交易</div>
+            <div v-else class="empty" style="padding:8px 0">无数据</div>
+          </div>
+          <!-- 执行质量 -->
+          <div class="sentiment-panel">
+            <div class="st">🎯 执行质量</div>
+            <div v-if="executionQuality" class="eq-grid-mini">
+              <div class="eq-row"><span>平均滑点</span><span :class="Math.abs(executionQuality.avg_slippage_pct || 0) > 0.5 ? 'down' : ''">{{ (executionQuality.avg_slippage_pct || 0).toFixed(3) }}%</span></div>
+              <div class="eq-row"><span>最大滑点</span><span>{{ (executionQuality.max_slippage_pct || 0).toFixed(3) }}%</span></div>
+              <div class="eq-row"><span>成交率</span><span :class="(executionQuality.fill_rate_pct || 0) < 90 ? 'down' : 'up'">{{ (executionQuality.fill_rate_pct || 0).toFixed(1) }}%</span></div>
+              <div class="eq-row"><span>下单/成交</span><span>{{ executionQuality.total_orders || 0 }}/{{ executionQuality.filled_orders || 0 }}</span></div>
+            </div>
+            <div v-else class="empty" style="padding:8px 0">无数据</div>
+          </div>
+        </div>
+
+        <!-- 实盘vs回测 -->
         <div class="st" style="margin-top:12px">📊 实盘 vs 回测偏差</div>
         <div v-if="liveBacktestDiff.length" class="lb-table">
-          <div class="lb-header"><span>策略</span><span>实盘交易</span><span>实盘胜率</span><span>回测胜率</span><span>偏差</span><span>实盘收益</span><span>回测收益</span><span>偏差</span></div>
+          <div class="lb-header"><span>策略</span><span>实盘交易</span><span>实盘胜率</span><span>回测胜率</span><span>偏差</span></div>
           <div v-for="c in liveBacktestDiff" :key="c.strategy" class="lb-row">
             <span class="code">{{ strategyCN(c.strategy) }}</span>
             <span>{{ c.live_trades }}笔</span>
             <span>{{ c.live_win_rate }}%</span>
             <span>{{ c.bt_win_rate }}%</span>
             <span :class="Math.abs(c.live_win_rate - c.bt_win_rate) > 15 ? 'down' : 'up'">{{ (c.live_win_rate - c.bt_win_rate).toFixed(1) }}%</span>
-            <span :class="c.live_pnl >= 0 ? 'up' : 'down'">¥{{ c.live_pnl?.toFixed(0) }}</span>
-            <span :class="c.bt_return >= 0 ? 'up' : 'down'">{{ c.bt_return }}%</span>
-            <span :class="c.live_pnl >= 0 ? 'up' : 'down'">{{ c.live_pnl >= 0 ? '+' : '' }}{{ ((c.live_pnl / (c.bt_return || 1)) - 1).toFixed(1) }}%</span>
           </div>
         </div>
         <div v-else class="empty">暂无对比数据</div>
 
-        <!-- 改进建议 -->
-        <div class="st" style="margin-top:12px">💡 改进建议</div>
-        <div class="suggestions">
-          <div v-if="dailyReportData?.stop_loss_count > 3" class="suggestion warn">止损{{ dailyReportData.stop_loss_count }}次过多，建议检查入场条件或收紧情绪阈值</div>
-          <div v-if="executionQuality?.avg_slippage_pct > 0.5" class="suggestion warn">平均滑点{{ executionQuality.avg_slippage_pct.toFixed(2) }}%偏高，考虑限价单或避开开盘5分钟</div>
-          <div v-if="liveBacktestDiff.some(c => Math.abs(c.live_win_rate - c.bt_win_rate) > 20)" class="suggestion warn">实盘胜率偏离回测>20%，参数可能过拟合，建议降仓位</div>
-          <div v-if="dailyReportData?.positions?.strategy_summary" class="suggestion info">
-            策略集中度: {{ Object.keys(dailyReportData.positions.strategy_summary).filter(k => dailyReportData.positions.strategy_summary[k].count > 0).length }}个策略活跃
+        <!-- ============ 第5层: 前瞻建议 ============ -->
+        <div class="st" style="margin-top:12px">💡 前瞻建议</div>
+        <div v-if="reviewForward" class="forward-section">
+          <!-- 操作建议 -->
+          <div class="fw-card fw-advice">
+            <div class="fw-title">📌 明日操作</div>
+            <div class="fw-content">{{ reviewForward.advice }}</div>
           </div>
-        </div>
-
-        <!-- 策略参数对比(实盘vs回测) -->
-        <div class="st" style="margin-top:16px">🔧 策略参数对比 <span class="text-tertiary" style="font-size:11px">实盘(MongoDB) vs 回测(strategy_defaults.py)</span> <ElButton size="small" @click="fetchParamCompare" :loading="paramCompareLoading">🔄</ElButton></div>
-        <div v-if="paramCompare" class="param-compare">
-          <div v-if="paramCompare.drift_count > 0" class="suggestion warn" style="margin-bottom:8px">⚠️ 检测到{{ paramCompare.drift_count }}个参数漂移(实盘≠回测)，可能影响实盘-回测一致性</div>
-          <div v-for="sc in paramCompare.strategy_comparisons || []" :key="sc.strategy_id" class="pc-strategy">
-            <div class="pc-header">
-              <span class="pc-name">{{ sc.strategy_name }}</span>
-              <ElTag v-if="sc.drift_count > 0" size="small" type="danger">{{ sc.drift_count }}项漂移</ElTag>
-              <ElTag v-else size="small" type="success">一致</ElTag>
+          <!-- 策略开关 -->
+          <div v-if="reviewForward.strategy_recommendations?.length || reviewForward.strategy_switches?.length" class="fw-switches">
+            <div v-for="r in reviewForward.strategy_recommendations" :key="'o'+r.strategy" class="fw-card fw-open">
+              <span class="fw-icon">🟢</span>
+              <span><strong>{{ strategyCN(r.strategy) }}</strong> 可开仓 (历史WR {{ r.win_rate }}%)</span>
             </div>
-            <div v-if="sc.param_diffs?.length" class="pc-params">
-              <div v-for="p in sc.param_diffs.filter(d => d.diff)" :key="p.key" class="pc-diff-row">
-                <span class="pc-key">{{ p.label || p.key }}</span>
-                <span class="pc-live">实盘: {{ typeof p.live_value === 'number' ? (p.live_value < 0.1 ? p.live_value.toFixed(4) : p.live_value.toFixed(2)) : p.live_value }}</span>
-                <span class="pc-bt">回测: {{ typeof p.backtest_value === 'number' ? (p.backtest_value < 0.1 ? p.backtest_value.toFixed(4) : p.backtest_value.toFixed(2)) : p.backtest_value }}</span>
-              </div>
-              <details v-if="sc.param_diffs.filter(d => !d.diff).length > 0"><summary class="cp" style="font-size:11px;color:var(--text-tertiary)">一致参数({{ sc.param_diffs.filter(d => !d.diff).length }}项) ▾</summary>
-                <div v-for="p in sc.param_diffs.filter(d => !d.diff)" :key="p.key" class="pc-same-row">
-                  <span class="pc-key">{{ p.label || p.key }}</span>
-                  <span>{{ typeof p.live_value === 'number' ? (p.live_value < 0.1 ? p.live_value.toFixed(4) : p.live_value.toFixed(2)) : p.live_value }}</span>
-                </div>
-              </details>
-            </div>
-          </div>
-          <!-- 全局风控参数 -->
-          <div v-if="paramCompare.global_risk" class="pc-strategy" style="margin-top:8px">
-            <div class="pc-header">
-              <span class="pc-name">全局风控</span>
-              <ElTag v-if="paramCompare.global_risk.diffs?.length" size="small" type="danger">{{ paramCompare.global_risk.diffs.length }}项漂移</ElTag>
-              <ElTag v-else size="small" type="success">一致</ElTag>
-            </div>
-            <div class="pc-params">
-              <div v-for="d in paramCompare.global_risk.diffs || []" :key="d.key" class="pc-diff-row">
-                <span class="pc-key">{{ d.label || d.key }}</span>
-                <span class="pc-live">实盘: {{ typeof d.live_value === 'number' ? (d.live_value < 0.1 ? d.live_value.toFixed(4) : d.live_value.toFixed(2)) : d.live_value }}</span>
-                <span class="pc-bt">回测: {{ typeof d.backtest_value === 'number' ? (d.backtest_value < 0.1 ? d.backtest_value.toFixed(4) : d.backtest_value.toFixed(2)) : d.backtest_value }}</span>
-              </div>
-              <details v-if="(paramCompare.global_risk.sames || []).length > 0"><summary class="cp" style="font-size:11px;color:var(--text-tertiary)">一致参数({{ paramCompare.global_risk.sames.length }}项) ▾</summary>
-                <div v-for="d in paramCompare.global_risk.sames" :key="d.key" class="pc-same-row">
-                  <span class="pc-key">{{ d.label || d.key }}</span>
-                  <span v-if="d.missing_in_live" style="color:var(--el-color-warning)">{{ typeof d.backtest_value === 'number' ? (d.backtest_value < 0.1 ? d.backtest_value.toFixed(4) : d.backtest_value.toFixed(2)) : d.backtest_value }} <small>(默认)</small></span>
-                  <span v-else>{{ typeof d.live_value === 'number' ? (d.live_value < 0.1 ? d.live_value.toFixed(4) : d.live_value.toFixed(2)) : d.live_value }}</span>
-                </div>
-              </details>
+            <div v-for="s in reviewForward.strategy_switches" :key="'c'+s.strategy" class="fw-card fw-close">
+              <span class="fw-icon">🔴</span>
+              <span><strong>{{ strategyCN(s.strategy) }}</strong> {{ s.reason }}</span>
             </div>
           </div>
         </div>
-        <div v-else class="empty">点击刷新加载参数对比</div>
-      </div>
-    </div>
+        <div v-else class="empty">选择日期后查看前瞻建议</div>
 
-    <!-- ==================== 风控Tab ==================== -->
-    <div v-if="activeTab === 'risk'" class="mm-tab-content">
-      <div class="mm-tab-scroll">
-        <!-- 系统风控概览 -->
-        <div class="st">🛡️ 系统风控概览 <span :class="healthClass" style="font-size:14px">{{ healthEmoji }}</span> <span :class="healthClass" style="font-size:12px;font-weight:600">{{ healthCN }}</span></div>
-        <div class="risk-overview">
-          <div class="ro-card">
-            <span class="ro-label">日回撤</span>
-            <span class="rb-progress" style="width:80px"><span class="rb-progress-fill" :style="{ width: Math.min(Math.abs(healthData?.risk_metrics?.daily_drawdown_pct || 0) / (healthData?.risk_metrics?.max_drawdown_pct || 5) * 100, 100) + '%' }" :class="Math.abs(healthData?.risk_metrics?.daily_drawdown_pct || 0) > (healthData?.risk_metrics?.max_drawdown_pct || 5) * 0.7 ? 'danger' : ''"></span></span>
-            <span class="ro-value" :class="Math.abs(healthData?.risk_metrics?.daily_drawdown_pct || 0) > (healthData?.risk_metrics?.max_drawdown_pct || 5) * 0.5 ? 'down' : ''">{{ Math.abs(healthData?.risk_metrics?.daily_drawdown_pct || 0).toFixed(2) }}%</span>
-          </div>
-          <div class="ro-card">
-            <span class="ro-label">回撤限制</span>
-            <span class="ro-value">{{ (healthData?.risk_metrics?.max_drawdown_pct || 5).toFixed(1) }}%</span>
-          </div>
-          <div class="ro-card">
-            <span class="ro-label">连续亏损</span>
-            <span class="ro-value" :class="(healthData?.circuit_breaker?.consecutive_losses || 0) >= ((healthData?.circuit_breaker?.max_consecutive_losses || 3) - 1) ? 'down' : ''">{{ healthData?.circuit_breaker?.consecutive_losses ?? 0 }} / {{ healthData?.circuit_breaker?.max_consecutive_losses ?? 3 }}</span>
-          </div>
-          <div class="ro-card">
-            <span class="ro-label">仓位比例</span>
-            <span class="ro-value">{{ ((healthData?.risk_metrics?.position_ratio || 0) * 100).toFixed(0) }}%</span>
-          </div>
-          <div class="ro-card">
-            <span class="ro-label">健康分数</span>
-            <span class="ro-value" :class="healthData?.health_score != null && healthData.health_score < 60 ? 'down' : ''">{{ healthData?.health_score ?? '-' }}</span>
-          </div>
-          <div class="ro-card">
-            <span class="ro-label">扫描延迟</span>
-            <span class="ro-value" :class="healthData?.scan_lag_seconds > 60 ? 'down' : ''">{{ healthData?.scan_lag_seconds == null ? '-' : healthData.scan_lag_seconds < 0 ? '未运行' : healthData.scan_lag_seconds.toFixed(1) + 's' }}</span>
-          </div>
-          <div class="ro-card" v-if="healthData?.circuit_breaker?.trading_paused">
-            <span class="ro-label">熔断原因</span>
-            <span class="ro-value down">{{ healthData?.circuit_breaker?.pause_reason || '-' }}</span>
-          </div>
-          <div class="ro-card" v-if="healthData?.warnings?.length">
-            <span class="ro-label">告警</span>
-            <span class="ro-value down">{{ healthData.warnings.join('; ') }}</span>
-          </div>
-        </div>
-
-        <!-- 持仓风控矩阵 -->
-        <PositionRiskMatrix />
-
-        <!-- 持仓止损止盈详情 -->
-        <div class="st" style="margin-top:16px">🎯 持仓止损止盈</div>
-        <div v-if="!positions.length" class="empty">暂无持仓</div>
-        <div v-else class="risk-cards">
-          <div v-for="pos in sortedPositions" :key="pos.ts_code" class="risk-card">
-            <div class="rc-top">
-              <ElTag size="small" :color="strategyMeta[pos.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ pos.strategy_name || strategyCN(pos.strategy) }}</ElTag>
-              <span class="code">{{ pos.ts_code }}</span>
-              <span class="name">{{ pos.stock_name }}</span>
-              <span :class="pos.profit_pct >= 0 ? 'up' : 'down'" class="pct ml-auto">{{ pos.profit_pct >= 0 ? '+' : '' }}{{ pos.profit_pct.toFixed(1) }}%</span>
-            </div>
-            <div class="rc-detail">
-              <div class="rc-row"><span>成本</span><span>¥{{ pos.cost_price.toFixed(2) }}</span></div>
-              <div class="rc-row"><span>现价</span><span>¥{{ pos.current_price.toFixed(2) }}</span></div>
-              <div class="rc-row" v-if="pos.stop_loss_price"><span>止损价</span><span class="text-stock-up">¥{{ pos.stop_loss_price.toFixed(2) }}</span></div>
-              <div class="rc-row" v-if="pos.take_profit_price"><span>止盈价</span><span class="text-stock-down">¥{{ pos.take_profit_price.toFixed(2) }}</span></div>
-              <div class="rc-row"><span>距止损</span><span :class="parseFloat(distanceToStopLoss(pos)) < 2 ? 'down' : ''">{{ distanceToStopLoss(pos) }}</span></div>
-              <div class="rc-row" v-if="pos.trailing_stop?.activated"><span>追踪止损</span><span>📍¥{{ pos.trailing_stop.stop_price?.toFixed(2) }} ({{ (pos.trailing_stop.trailing_stop_pct * 100).toFixed(0) }}%)</span></div>
-            </div>
-            <div v-if="pos.stop_loss_pct != null" class="pos-risk-row" style="margin-top:6px">
-              <div class="risk-track"><div class="risk-fill" :style="{ width: Math.max(0, Math.min(100, (pos.profit_pct + normalizePct(pos.stop_loss_pct, 3)) / (normalizePct(pos.stop_loss_pct, 3) + normalizePct(pos.take_profit_pct, 7)) * 100)) + '%' }" :class="pos.profit_pct + normalizePct(pos.stop_loss_pct, 3) < 1 ? 'danger' : pos.profit_pct + normalizePct(pos.stop_loss_pct, 3) < 2 ? 'warning' : 'safe'"></div></div>
-              <div class="risk-labels-row"><span class="rl stop">止损{{ formatSlTp(pos.stop_loss_pct, 3) }}</span><span class="rd" :class="{ danger: pos.profit_pct + normalizePct(pos.stop_loss_pct, 3) < 2 }">距止损{{ (pos.profit_pct + normalizePct(pos.stop_loss_pct, 3)).toFixed(1) }}%</span><span class="rl profit">止盈{{ formatSlTp(pos.take_profit_pct, 7) }}</span></div>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
 
@@ -3131,5 +3038,40 @@ mm-tab-content {
 .algo-section { border: 1px solid var(--border-default); border-radius: 8px; overflow: hidden; }
 .algo-title { font-weight: 700; font-size: 12px; padding: 6px 10px; background: var(--bg-elevated); border-bottom: 1px solid var(--border-default); }
 .algo-body { padding: 8px 10px; font-size: 11px; color: var(--text-secondary); line-height: 1.6; }
+
+/* 复盘Tab - 5层架构 */
+.hero-banner { padding: 14px 16px; border-radius: 10px; margin-bottom: 8px; }
+.hero-banner.profit { background: linear-gradient(135deg, rgba(103,194,58,0.12), rgba(103,194,58,0.04)); border: 1px solid rgba(103,194,58,0.25); }
+.hero-banner.slight_profit { background: linear-gradient(135deg, rgba(103,194,58,0.08), rgba(230,162,60,0.04)); border: 1px solid rgba(103,194,58,0.15); }
+.hero-banner.slight_loss { background: linear-gradient(135deg, rgba(230,162,60,0.12), rgba(245,108,108,0.04)); border: 1px solid rgba(230,162,60,0.25); }
+.hero-banner.loss { background: linear-gradient(135deg, rgba(245,108,108,0.12), rgba(245,108,108,0.04)); border: 1px solid rgba(245,108,108,0.25); }
+.hero-banner.neutral { background: var(--bg-elevated); border: 1px solid var(--border-default); }
+.hero-conclusion { font-size: 15px; font-weight: 700; line-height: 1.5; margin-bottom: 4px; }
+.hero-meta { display: flex; gap: 12px; font-size: 11px; color: var(--text-secondary); flex-wrap: wrap; }
+.hero-bench { }
+.hero-alpha { font-weight: 600; }
+.hero-sentiment { }
+.review-scorecard { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.review-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.violations-list { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.violation-item { display: flex; align-items: flex-start; gap: 6px; padding: 5px 8px; border-radius: 6px; font-size: 11px; line-height: 1.4; }
+.violation-item.sev-high { background: rgba(245,108,108,0.08); border: 1px solid rgba(245,108,108,0.15); }
+.violation-item.sev-medium { background: rgba(230,162,60,0.08); border: 1px solid rgba(230,162,60,0.15); }
+.v-icon { flex-shrink: 0; }
+.v-type { font-weight: 600; min-width: 64px; color: var(--text-primary); }
+.v-detail { color: var(--text-secondary); }
+.attr-profit { border-left: 3px solid rgba(103,194,58,0.4); }
+.attr-loss { border-left: 3px solid rgba(245,108,108,0.4); }
+.eq-grid-mini { display: flex; flex-direction: column; gap: 4px; }
+.eq-row { display: flex; justify-content: space-between; font-size: 11px; padding: 3px 0; border-bottom: 1px solid var(--border-default); }
+.forward-section { display: flex; flex-direction: column; gap: 8px; }
+.fw-card { padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border-default); font-size: 12px; }
+.fw-card.fw-advice { background: rgba(64,158,255,0.06); border-color: rgba(64,158,255,0.2); }
+.fw-card.fw-open { background: rgba(103,194,58,0.06); border-color: rgba(103,194,58,0.15); }
+.fw-card.fw-close { background: rgba(245,108,108,0.06); border-color: rgba(245,108,108,0.15); }
+.fw-title { font-weight: 700; font-size: 13px; margin-bottom: 4px; }
+.fw-content { color: var(--text-secondary); line-height: 1.5; }
+.fw-switches { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.fw-icon { margin-right: 4px; }
 
 </style>

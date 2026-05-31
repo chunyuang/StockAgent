@@ -35,6 +35,9 @@ _ASYNC_DELEGATE_METHODS = frozenset({
     # EmotionCycleManager
     "_handle_emotion_phase_change",
     "_update_sentiment_score",  # v2.9.34
+    # PositionManager (async sell execution)
+    "_execute_risk_sell",  # v2.9.35
+    "_liquidate_positions",  # v2.9.35
 })
 
 # StrategyScorer未初始化时的fallback返回值

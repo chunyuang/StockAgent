@@ -605,7 +605,7 @@ class PositionManager:
                 try:
                     sell_qty = pos.available_qty
                     future = asyncio.run_coroutine_threadsafe(
-                        scanner._execute_risk_sell(pos, reason, price, sell_qty),
+                        self.execute_risk_sell(pos, reason, price, sell_qty),
                         scanner._loop
                     )
                     future.result(timeout=5)
@@ -624,3 +624,85 @@ class PositionManager:
                             }
                 except Exception as e:
                     logger.error(f"[RISK_THREAD] 卖出执行失败: {pos.ts_code} {e}")
+
+    # ==================== v2.9.35: 从scanner提取的卖出执行方法 ====================
+
+    async def execute_risk_sell(self, pos, reason: str, price: float, quantity: int):
+        """风控线程触发的卖出执行(在asyncio主循环中运行)
+
+        【v2.9.35: 从scanner._execute_risk_sell提取】
+        v2.9.12: try/except保护
+        v2.9.19: 提取_post_sell_cleanup
+        """
+        scanner = self._scanner
+        if pos.available_qty <= 0:
+            return
+
+        sell_profit_pct = pos.profit_pct
+        sell_profit_amount = (pos.current_price - pos.avg_cost) * quantity
+
+        try:
+            scanner._broker.update_realtime(pos.ts_code, pos.current_price)
+            ok, msg, order = scanner._broker.place_order(
+                ts_code=pos.ts_code, stock_name=pos.stock_name,
+                side="sell", quantity=quantity, price=price,
+                order_type="market", strategy=pos.strategy, reason=reason,
+            )
+        except Exception as e:
+            logger.error(f"[RISK_SELL] place_order异常 {pos.ts_code}: {e}")
+            return
+
+        if ok:
+            await scanner._post_sell_cleanup(
+                pos, reason, order, quantity,
+                sell_profit_pct, sell_profit_amount, source="risk_sell",
+            )
+        else:
+            logger.warning(f"[RISK_SELL] 卖出失败 {pos.ts_code}: {msg}")
+
+    async def liquidate_positions(self, reason: str, source: str) -> Tuple[int, int]:
+        """批量清仓: 卖出所有可用持仓
+
+        【v2.9.35: 从scanner._liquidate_positions提取】
+        _sell_all_positions(停止清仓)和_execute_force_empty(强制空仓)的公共实现。
+        使用available_qty(T+1合规), 单票异常不中断。
+
+        Returns:
+            (sold, failed) 成功/失败数
+        """
+        scanner = self._scanner
+        if not scanner._broker:
+            return 0, 0
+        positions = scanner._broker.get_positions()
+        sold, failed = 0, 0
+        for p in positions:
+            if p.available_qty <= 0:
+                continue  # T+1: 不可卖跳过
+            try:
+                scanner._broker.update_realtime(p.ts_code, p.current_price)
+                profit_pct = p.profit_pct
+                profit_amount = (p.current_price - p.avg_cost) * p.available_qty
+                ok, msg, order = scanner._broker.place_order(
+                    ts_code=p.ts_code,
+                    stock_name=p.stock_name,
+                    side="sell",
+                    quantity=p.available_qty,
+                    price=p.current_price,
+                    order_type="market",
+                    strategy=p.strategy,
+                    reason=reason,
+                )
+                if ok:
+                    sold += 1
+                    await scanner._post_sell_cleanup(
+                        p, reason, order, p.available_qty,
+                        profit_pct, profit_amount, source=source,
+                    )
+                else:
+                    failed += 1
+                    logger.warning(f"[{source.upper()}] {p.ts_code} 卖出失败: {msg}")
+            except Exception as e:
+                failed += 1
+                logger.error(f"[{source.upper()}] {p.ts_code} 异常: {e}")
+        logger.info(f"[{source.upper()}] 完成: 卖出{sold}只, 失败{failed}只")
+        return sold, failed

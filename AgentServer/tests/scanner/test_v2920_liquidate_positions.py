@@ -18,6 +18,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 SCANNER_PATH = os.path.join(
     os.path.dirname(__file__), "..", "..", "nodes", "market_monitor", "scanner.py"
 )
+PM_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "..", "nodes", "market_monitor", "position_manager.py"
+)
 
 
 class TestLiquidatePositionsExtraction:
@@ -75,23 +78,40 @@ class TestT1ComplianceFix:
     """验证T+1合规修复: total_qty→available_qty"""
 
     def test_liquidate_uses_available_qty(self):
-        """_liquidate_positions使用available_qty(不是total_qty)"""
+        """liquidate_positions使用available_qty(不是total_qty)"""
+        # v2.9.35: 实现已移到PositionManager,检查position_manager.py
+        with open(PM_PATH) as f:
+            src = f.read()
+        # 在liquidate_positions方法中，应使用available_qty
+        import ast
+        tree = ast.parse(src)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "liquidate_positions":
+                method_src = src.splitlines()[node.lineno-1:node.end_lineno]
+                method_text = "\n".join(method_src)
+                # 不应出现total_qty
+                assert "total_qty" not in method_text, \
+                    "liquidate_positions不应使用total_qty(T+1不合规)"
+                # 应使用available_qty
+                assert "available_qty" in method_text, \
+                    "liquidate_positions应使用available_qty(T+1合规)"
+
+    def test_scanner_delegates_to_pm(self):
+        """scanner._liquidate_positions委托给PositionManager"""
         with open(SCANNER_PATH) as f:
             src = f.read()
-        # 在_liquidate_positions方法中，应使用available_qty
-        # 找到方法体
         import ast
         tree = ast.parse(src)
         for node in ast.walk(tree):
             if isinstance(node, ast.AsyncFunctionDef) and node.name == "_liquidate_positions":
                 method_src = src.splitlines()[node.lineno-1:node.end_lineno]
                 method_text = "\n".join(method_src)
-                # 不应出现total_qty
-                assert "total_qty" not in method_text, \
-                    "_liquidate_positions不应使用total_qty(T+1不合规)"
-                # 应使用available_qty
-                assert "available_qty" in method_text, \
-                    "_liquidate_positions应使用available_qty(T+1合规)"
+                # 应委托给_position_manager.liquidate_positions
+                assert "liquidate_positions" in method_text, \
+                    "_liquidate_positions应委托给PositionManager"
+                # 不应有内联循环逻辑
+                assert "for p in" not in method_text, \
+                    "_liquidate_positions不应有内联循环(已提取)"
 
     def test_force_empty_no_total_qty(self):
         """_execute_force_empty不再使用total_qty"""
@@ -113,18 +133,18 @@ class TestT1ComplianceFix:
                     "_execute_force_empty不应使用.total_qty(T+1不合规)"
 
     def test_no_hasattr_stock_name(self):
-        """不再有多余的hasattr(stock_name)检查"""
-        with open(SCANNER_PATH) as f:
+        """liquidate_positions不再有多余的hasattr(stock_name)检查"""
+        # v2.9.35: 实现已移到PositionManager,检查position_manager.py
+        with open(PM_PATH) as f:
             src = f.read()
-        # 在_liquidate_positions中不应有hasattr(stock_name)
         import ast
         tree = ast.parse(src)
         for node in ast.walk(tree):
-            if isinstance(node, ast.AsyncFunctionDef) and node.name == "_liquidate_positions":
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "liquidate_positions":
                 method_src = src.splitlines()[node.lineno-1:node.end_lineno]
                 method_text = "\n".join(method_src)
                 assert "hasattr" not in method_text, \
-                    "_liquidate_positions不应有hasattr检查(Position数据类必有stock_name)"
+                    "liquidate_positions不应有hasattr检查(Position数据类必有stock_name)"
 
 
 class TestLiquidatePositionsBehavior:
@@ -165,14 +185,18 @@ class TestLiquidatePositionsBehavior:
 
     @pytest.mark.asyncio
     async def test_liquidate_uses_available_qty_not_total(self, mock_scanner):
-        """验证_liquidate_positions使用available_qty下单"""
+        """验证liquidate_positions使用available_qty下单"""
         scanner, pos = mock_scanner
 
         # Mock _post_sell_cleanup to avoid complex async mock chain
         scanner._post_sell_cleanup = AsyncMock()
+        # Mock _position_manager for scanner delegate
+        scanner._position_manager = MagicMock()
+        scanner._position_manager.liquidate_positions = AsyncMock(return_value=(1, 0))
 
-        from nodes.market_monitor.scanner import MarketScanner
-        result = await MarketScanner._liquidate_positions(scanner, "测试清仓", "test")
+        from nodes.market_monitor.position_manager import PositionManager
+        pm = PositionManager(scanner)
+        result = await pm.liquidate_positions("测试清仓", "test")
 
         # 验证place_order用的是available_qty(100), 不是total_qty(200)
         call_args = scanner._broker.place_order.call_args
@@ -186,8 +210,9 @@ class TestLiquidatePositionsBehavior:
         pos.available_qty = 0  # T+1: 当日买入不可卖
         pos.total_qty = 100
 
-        from nodes.market_monitor.scanner import MarketScanner
-        result = await MarketScanner._liquidate_positions(scanner, "测试", "test")
+        from nodes.market_monitor.position_manager import PositionManager
+        pm = PositionManager(scanner)
+        result = await pm.liquidate_positions("测试", "test")
 
         # 不应调用place_order
         scanner._broker.place_order.assert_not_called()
@@ -220,20 +245,22 @@ class TestLiquidatePositionsBehavior:
             (False, "跌停无法卖出", None),
         ]
 
-        from nodes.market_monitor.scanner import MarketScanner
-        result = await MarketScanner._liquidate_positions(scanner, "测试", "test")
+        from nodes.market_monitor.position_manager import PositionManager
+        pm = PositionManager(scanner)
+        result = await pm.liquidate_positions("测试", "test")
         assert result == (1, 1)  # 1成功1失败
 
     @pytest.mark.asyncio
     async def test_liquidate_returns_sold_failed(self, mock_scanner):
-        """_liquidate_positions返回(sold, failed)元组"""
+        """liquidate_positions返回(sold, failed)元组"""
         scanner, pos = mock_scanner
 
         # Mock _post_sell_cleanup to avoid complex async mock chain
         scanner._post_sell_cleanup = AsyncMock()
 
-        from nodes.market_monitor.scanner import MarketScanner
-        result = await MarketScanner._liquidate_positions(scanner, "测试", "test")
+        from nodes.market_monitor.position_manager import PositionManager
+        pm = PositionManager(scanner)
+        result = await pm.liquidate_positions("测试", "test")
         assert isinstance(result, tuple)
         assert len(result) == 2
         sold, failed = result
@@ -246,8 +273,9 @@ class TestLiquidatePositionsBehavior:
         scanner = MagicMock()
         scanner._broker = None
 
-        from nodes.market_monitor.scanner import MarketScanner
-        result = await MarketScanner._liquidate_positions(scanner, "测试", "test")
+        from nodes.market_monitor.position_manager import PositionManager
+        pm = PositionManager(scanner)
+        result = await pm.liquidate_positions("测试", "test")
         assert result == (0, 0)
 
 
@@ -296,8 +324,8 @@ class TestScannerLineCountV2920:
         """scanner.py行数应在合理范围(v2.9.32:8个方法提取到子模块)"""
         with open(SCANNER_PATH) as f:
             lines = len(f.readlines())
-        assert lines < 1750, f"scanner.py行数{lines}应<1750 (v2.9.33+)"
-        assert lines > 1400, f"scanner.py行数{lines}应>1400"
+        assert lines < 1550, f"scanner.py行数{lines}应<1550 (v2.9.35+)"
+        assert lines > 1200, f"scanner.py行数{lines}应>1200"
 
 
 class TestNoBacktestRegressionV2920:
