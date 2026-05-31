@@ -417,24 +417,24 @@ class TestRiskSellCircuitBreakerUpdate:
     """风控卖出更新CircuitBreaker统计验证(v2.9.6 bug修复)"""
 
     def test_execute_risk_sell_updates_consecutive_losses(self):
-        """_execute_risk_sell→_post_sell_cleanup应该更新circuit_breaker的连续亏损计数"""
+        """execute_risk_sell→_post_sell_cleanup应该更新circuit_breaker的连续亏损计数"""
         import re
-        # v2.9.27: _execute_risk_sell在scanner.py, _post_sell_cleanup在runtime_persistence.py
-        with open(os.path.join(os.path.dirname(__file__), '..', '..', 'nodes', 'market_monitor', 'scanner.py')) as f:
-            scanner_source = f.read()
+        # v2.9.35: execute_risk_sell在position_manager.py, _post_sell_cleanup在runtime_persistence.py
+        with open(os.path.join(os.path.dirname(__file__), '..', '..', 'nodes', 'market_monitor', 'position_manager.py')) as f:
+            pm_source = f.read()
         with open(os.path.join(os.path.dirname(__file__), '..', '..', 'nodes', 'market_monitor', 'runtime_persistence.py')) as f:
             rp_source = f.read()
 
-        # 验证_execute_risk_sell调用_post_sell_cleanup
+        # 验证execute_risk_sell调用_post_sell_cleanup
         risk_sell_match = re.search(
-            r'async def _execute_risk_sell.*?(?=\n    async def |\n    def )',
-            scanner_source, re.DOTALL
+            r'async def execute_risk_sell.*?(?=\n    async def |\n    def )',
+            pm_source, re.DOTALL
         )
-        assert risk_sell_match, "_execute_risk_sell方法未找到"
+        assert risk_sell_match, "execute_risk_sell方法未找到"
         risk_sell_body = risk_sell_match.group(0)
 
         assert '_post_sell_cleanup' in risk_sell_body, (
-            "_execute_risk_sell未调用_post_sell_cleanup! "
+            "execute_risk_sell未调用_post_sell_cleanup! "
             "v2.9.19重构后卖出后清理逻辑应在_post_sell_cleanup中。"
         )
 
