@@ -9,7 +9,6 @@ MarketScanner — 超短量化市场扫描器
 - 信号→模拟执行→止损止盈
 """
 import asyncio
-import json
 import logging
 import time
 from datetime import datetime
@@ -873,9 +872,7 @@ class MarketScanner:
                     }))
                 )
         except Exception as _e:
-            pass
-
-    # ==================== v2.9.13: _scan_loop时间段提取 ==================
+            logger.debug(f"[SCAN_LOOP] 错误恢复事件发射失败: {_e}")
 
     async def _scan_loop_trading(self, trade_date: str, last_full_scan: float) -> bool:
         """交易时间(9:30-15:00)处理逻辑
@@ -1078,9 +1075,7 @@ class MarketScanner:
                         }))
                     )
             except Exception as _e:
-                pass
-
-    @staticmethod
+                logger.debug(f"[RISK] 行情缓存过期事件发射失败: {_e}")
     def _risk_error_backoff(consecutive_errors: int, error: Exception) -> int:
         """风控线程错误退避sleep秒数【v2.9.28从_risk_loop_sync提取】
         
@@ -1111,7 +1106,7 @@ class MarketScanner:
                     lambda: self._loop.create_task(self._event_bus.emit(ScannerEvents.SCANNER_ERROR, err_data))
                 )
         except Exception as _e:
-            pass  # 事件发射失败不应阻塞风控线程
+            logger.debug(f"[RISK] 风控线程事件发射失败: {_e}")
 
     def _check_stop_loss_only(self, realtime_data: Dict):
         """1秒级止损检查 — 委托给PositionManager【Phase3.1】
@@ -1500,7 +1495,7 @@ class MarketScanner:
             try:
                 await scanner._event_bus.emit(event_name, data)
             except Exception as _e:
-                pass  # 行情事件发射失败不应影响行情推送(v2.9.25:已捕获异常对象)
+                logger.debug(f"[QUOTE] 行情事件发射失败({event_name}): {_e}")
         return emit_quote_event
 
     def _is_limit_down(self, ts_code: str) -> bool:
@@ -1510,12 +1505,12 @@ class MarketScanner:
         return False  # 无PositionChecker时默认非跌停(保守策略)
 
     def _validate_live_params(self):
-        """实盘参数校验 — 委托给StrategyParamCenter【v2.9.16:简化try/except】"""
+        """实盘参数校验 — 委托给StrategyParamCenter【v2.9.16:简化try/except, v2.9.34:日志增强】"""
         try:
             from nodes.market_monitor.strategy_param_center import StrategyParamCenter
             StrategyParamCenter.validate_live_params(self._broker, self._get_strategy_risk)
         except Exception as _e:
-            pass  # fallback: 不校验(StrategyParamCenter不可用时不阻塞, v2.9.25:已捕获异常对象)
+            logger.debug(f"[SCANNER] 实盘参数校验失败(非关键): {_e}")
 
     def update_strategy_config(self, strategy_key: str, updates: Dict[str, Any]):
         """策略参数热更新(无需重启scanner) + 持久化到MongoDB — 委托给StrategyParamCenter【v2.9.16:简化, v2.9.17:审计增强】"""
