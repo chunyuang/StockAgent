@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-v2.9.33 — scan_once策略筛选提取 + _emit_risk_thread_error提取 + get_status模块状态提取 测试
+v2.9.34 — scan_once策略筛选提取 + _emit_risk_thread_error提取 + get_status模块状态提取 测试
 
 新增:
 1. _apply_strategies_and_filters: scan_once Step3策略+筛选+异动合并
@@ -158,13 +158,13 @@ class TestVersionSync:
     """验证版本号同步"""
 
     def test_design_doc_version_in_api(self):
-        """API中的_DESIGN_DOC_VERSION应为v2.9.33"""
+        """API中的_DESIGN_DOC_VERSION应为v2.9.34"""
         source = _read(_API_SCANNER)
-        assert '_DESIGN_DOC_VERSION = "v2.9.33"' in source
+        assert '_DESIGN_DOC_VERSION = "v2.9.34"' in source
 
 
 class TestNoBacktestRegressionV2933:
-    """验证v2.9.33改动对回测零影响"""
+    """验证v2.9.34改动对回测零影响"""
 
     def test_scanner_methods_not_in_backtest(self):
         """新方法不在回测引擎中"""
