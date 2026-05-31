@@ -3379,9 +3379,31 @@ async def get_market_sentiment_detail():
     try:
         filter_pipeline = getattr(scanner, '_filter_pipeline', None)
         emotion = getattr(filter_pipeline, '_emotion_cycle', None) if filter_pipeline else None
-        sentiment_score = getattr(emotion, 'score', 50) if emotion else 50
-        sentiment_period = getattr(emotion, 'period', 'unknown') if emotion else 'unknown'
-        position_ratio = getattr(emotion, 'position_ratio', 1.0) if emotion else 1.0
+        sentiment_score = getattr(emotion, 'score', None) if emotion else None
+        sentiment_period = getattr(emotion, 'period', None) if emotion else None
+        position_ratio = getattr(emotion, 'position_ratio', None) if emotion else None
+        
+        # 实时数据优先,无则从sentiment_scores读最近交易日
+        if sentiment_score is None or sentiment_period is None:
+            try:
+                from core.managers import mongo_manager
+                if mongo_manager.is_initialized:
+                    latest = await mongo_manager.db["sentiment_scores"].find_one(
+                        {"missing_data": {"$ne": True}},
+                        sort=[("trade_date", -1)]
+                    )
+                    if latest:
+                        sentiment_score = latest.get("score", 50)
+                        sentiment_period = latest.get("period", "unknown")
+                        position_ratio = latest.get("position_ratio", 0.3)
+            except Exception:
+                pass
+        
+        # 最终fallback
+        if sentiment_score is None: sentiment_score = 50
+        if sentiment_period is None: sentiment_period = "unknown"
+        if position_ratio is None: position_ratio = 0.3
+        
         limit_pools = getattr(scanner, '_limit_pools', {})
         limit_up = len(limit_pools.get("limit_up", []))
         limit_down = len(limit_pools.get("limit_down", []))
@@ -3392,7 +3414,8 @@ async def get_market_sentiment_detail():
             t = item.get("limit_times", 1)
             board_dist[str(t)] = board_dist.get(str(t), 0) + 1
 
-        period_labels = {"BEARISH": ("冰点", 0, 40), "CHAOS": ("震荡", 40, 55), "DIFFERENTIATION": ("分化", 55, 70), "RISING": ("高潮", 70, 100)}
+        period_labels = {"BEARISH": ("冰点", 0, 40), "CHAOS": ("震荡", 40, 55), "DIFFERENTIATION": ("分化", 55, 70), "RISING": ("高潮", 70, 100),
+                          "冰点": ("冰点", 0, 40), "震荡": ("震荡", 40, 55), "分化": ("分化", 55, 70), "高潮": ("高潮", 70, 100)}
         pi = period_labels.get(sentiment_period, ("未知", 0, 100))
 
         return _sanitize({"success": True, "data": {
