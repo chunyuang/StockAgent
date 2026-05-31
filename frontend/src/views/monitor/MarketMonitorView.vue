@@ -303,13 +303,11 @@ const sentimentCache = reactive<Record<string, any[]>>({})
 const sentimentTradesCache = reactive<Record<string, any[]>>({})
 const sentimentTimeline = computed(() => sentimentCache[sentimentMode.value] || [])
 const sentimentTrades = computed(() => sentimentTradesCache[sentimentMode.value] || [])
-// 日线只显示最近60天, 其他模式全显
+// displayTimeline: 日线模式API已返回日期范围附近120天,直接用
 // 日内无数据时回退显示日线
 const displayTimeline = computed(() => {
   const data = sentimentTimeline.value
-  if (sentimentMode.value === 'daily') return data.slice(-60)
   if (sentimentMode.value === 'intraday' && !data.length) {
-    // fallback到日线缓存
     const dailyData = sentimentCache['daily'] || []
     return dailyData.slice(-60)
   }
@@ -365,7 +363,7 @@ async function fetchSentimentData() {
     const [tlRes, matRes, liveRes] = await Promise.allSettled([
       api.get(`${scannerApi}/sentiment-timeline?date=${dateParam}&mode=${sentimentMode.value}`, opts),
       api.get(`${scannerApi}/sentiment-strategy-matrix`, opts),
-      api.get(`${scannerApi}/market-sentiment`, opts),
+      api.get(`${scannerApi}/market-sentiment?date=${dateParam}`, opts),
     ])
     if (tlRes.status === 'fulfilled') { const p = parseResponse(tlRes.value); if (p.success) { sentimentCache[sentimentMode.value] = p.data?.points || []; sentimentTradesCache[sentimentMode.value] = p.data?.trades || [] } }
     if (matRes.status === 'fulfilled') { const p = parseResponse(matRes.value); if (p.success) { sentimentMatrix.value = p.data?.matrix || {}; sentimentRecommendations.value = p.data?.recommendations || [] } }
