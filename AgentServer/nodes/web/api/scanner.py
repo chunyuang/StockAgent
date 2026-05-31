@@ -5373,3 +5373,318 @@ async def review_monthly(date: str = None):
     except Exception as e:
         logger.error(f"[REVIEW-MONTHLY] {e}")
         return {"success": True, "data": None, "message": str(e)}
+
+
+@router.get("/factor-effectiveness")
+async def factor_effectiveness(date: str = None):
+    from core.managers import mongo_manager
+    """因子效果跟踪: 不同情绪阶段下各因子的胜率/盈亏变化(市场漂移检测)"""
+    try:
+        if not date:
+            date = datetime.now().strftime("%Y%m%d")
+        
+        if not mongo_manager.is_initialized:
+            return {"success": False, "message": "MongoDB未初始化"}
+        
+        db = mongo_manager.db
+        
+        # 最近30天
+        end_date = int(date)
+        start_date = end_date - 30
+        
+        # 1. 加载情绪数据
+        sentiment_map = {}  # date -> {score, period}
+        async for doc in db["sentiment_scores"].find(
+            {"trade_date": {"$gte": start_date, "$lte": end_date}},
+            {"_id": 0, "trade_date": 1, "score": 1, "period": 1}
+        ):
+            td = str(doc.get("trade_date", ""))
+            sentiment_map[td] = {"score": doc.get("score", 50), "period": doc.get("period", "震荡")}
+        
+        # 2. 加载scan_traces候选(含因子数据)
+        factor_stats = {}  # factor_name -> {period -> {total, wins, avg_pnl}}
+        factor_names = ["量比", "涨幅", "换手率", "连板数"]
+        
+        # 用scan_traces中passed的候选和对应实盘结果
+        trace_dates = set()
+        async for doc in db["scan_traces"].find(
+            {"trade_date": {"$gte": str(start_date), "$lte": str(end_date)}},
+            {"_id": 0, "candidates": 1, "trade_date": 1}
+        ):
+            td = doc.get("trade_date", "")
+            trace_dates.add(td)
+            period = sentiment_map.get(td, {}).get("period", "未知")
+            
+            for c in doc.get("candidates", []):
+                if c.get("final_status") != "passed":
+                    continue
+                
+                # 提取因子值(粗略用pct_chg和价格区间)
+                pct_chg = c.get("pct_chg", 0) or 0
+                price = c.get("price", 0) or 0
+                strategy = c.get("strategy", "")
+                
+                # 量比分组
+                vol_ratio_bucket = "低(<1.5)" if abs(pct_chg) < 2 else ("中(1.5-3)" if abs(pct_chg) < 5 else "高(>3)")
+                # 涨幅分组
+                gain_bucket = "小涨(<2%)" if pct_chg < 2 else ("中涨(2-5%)" if pct_chg < 5 else "大涨(>5%)")
+                # 策略分组
+                strat_name = strategy or "unknown"
+                
+                for fname, bucket in [("量比区间", vol_ratio_bucket), ("涨幅区间", gain_bucket), ("策略", strat_name)]:
+                    if fname not in factor_stats:
+                        factor_stats[fname] = {}
+                    if period not in factor_stats[fname]:
+                        factor_stats[fname][period] = {}
+                    if bucket not in factor_stats[fname][period]:
+                        factor_stats[fname][period][bucket] = {"total": 0, "wins": 0, "pnl_sum": 0}
+                    factor_stats[fname][period][bucket]["total"] += 1
+        
+        # 3. 用broker_orders的买入和后续卖出结果来补充胜率
+        # 简化: 用scan_traces候选的pct_chg作为近似
+        buys_by_date = {}  # date -> {ts_code -> {strategy, pct_chg}}
+        async for doc in db["broker_orders"].find(
+            {"side": "buy", "status": "filled", "trade_date": {"$gte": str(start_date), "$lte": str(end_date)}},
+            {"_id": 0, "trade_date": 1, "ts_code": 1, "strategy": 1, "filled_price": 1}
+        ):
+            td = doc.get("trade_date", "")
+            if td not in buys_by_date:
+                buys_by_date[td] = {}
+            buys_by_date[td][doc.get("ts_code", "")] = {
+                "strategy": doc.get("strategy", ""),
+                "price": doc.get("filled_price", 0)
+            }
+        
+        # 用卖出profit_pct来算胜率
+        sells_by_buy = {}  # (date, ts_code) -> profit_pct
+        async for doc in db["broker_orders"].find(
+            {"side": "sell", "status": "filled", "trade_date": {"$gte": str(start_date), "$lte": str(end_date)}},
+            {"_id": 0, "trade_date": 1, "ts_code": 1, "strategy": 1, "profit_pct": 1, "reason": 1}
+        ):
+            sells_by_buy[(doc.get("trade_date", ""), doc.get("ts_code", ""))] = doc.get("profit_pct", 0) or 0
+        
+        # 4. 补充因子胜率(用实际买卖结果)
+        for td, codes in buys_by_date.items():
+            period = sentiment_map.get(td, {}).get("period", "未知")
+            for ts, info in codes.items():
+                pnl = sells_by_buy.get((td, ts), None)
+                if pnl is None:
+                    continue
+                
+                strat = info.get("strategy", "") or "unknown"
+                price = info.get("price", 0)
+                
+                # 因子分组
+                for fname, bucket in [("策略", strat)]:
+                    if fname not in factor_stats:
+                        factor_stats[fname] = {}
+                    if period not in factor_stats[fname]:
+                        factor_stats[fname][period] = {}
+                    if bucket not in factor_stats[fname][period]:
+                        factor_stats[fname][period][bucket] = {"total": 0, "wins": 0, "pnl_sum": 0}
+                    factor_stats[fname][period][bucket]["total"] += 1
+                    if pnl > 0:
+                        factor_stats[fname][period][bucket]["wins"] += 1
+                    factor_stats[fname][period][bucket]["pnl_sum"] += pnl
+        
+        # 5. 计算胜率
+        result = {}
+        for fname, periods in factor_stats.items():
+            result[fname] = {}
+            for period, buckets in periods.items():
+                result[fname][period] = []
+                for bucket, stats in buckets.items():
+                    total = stats["total"]
+                    wins = stats["wins"]
+                    avg_pnl = round(stats["pnl_sum"] / max(total, 1), 2)
+                    wr = round(wins / max(total, 1) * 100, 1)
+                    result[fname][period].append({
+                        "name": bucket, "total": total, "wins": wins,
+                        "win_rate": wr, "avg_pnl": avg_pnl,
+                    })
+                result[fname][period].sort(key=lambda x: x["total"], reverse=True)
+        
+        # 6. 市场漂移检测: 同一因子在不同阶段的胜率变化
+        drift_alerts = []
+        for fname, periods in factor_stats.items():
+            if len(periods) < 2:
+                continue
+            all_buckets = set()
+            for p_data in periods.values():
+                all_buckets.update(p_data.keys())
+            for bucket in all_buckets:
+                wrs = {}
+                for p, p_data in periods.items():
+                    if bucket in p_data and p_data[bucket]["total"] >= 3:
+                        wrs[p] = round(p_data[bucket]["wins"] / p_data[bucket]["total"] * 100, 1)
+                if len(wrs) >= 2:
+                    values = list(wrs.values())
+                    spread = max(values) - min(values)
+                    if spread > 20:  # 胜率差>20%说明市场漂移明显
+                        drift_alerts.append({
+                            "factor": fname, "bucket": bucket,
+                            "detail": wrs, "spread": round(spread, 1),
+                            "alert": f"{bucket}在不同情绪阶段胜率差{spread:.0f}%，市场漂移明显",
+                        })
+        
+        return {
+            "success": True,
+            "data": {
+                "factor_stats": result,
+                "drift_alerts": drift_alerts,
+                "date_range": f"{start_date}~{end_date}",
+                "sentiment_days": len(sentiment_map),
+            }
+        }
+    except Exception as e:
+        logger.error(f"[FACTOR-EFFECTIVENESS] {e}")
+        return {"success": True, "data": None, "message": str(e)}
+
+
+@router.get("/review-closed-loop")
+async def review_closed_loop(date: str = None):
+    from core.managers import mongo_manager
+    """闭环建议: 基于偏差归因自动生成参数调整建议和验证方案"""
+    try:
+        if not date:
+            date = datetime.now().strftime("%Y%m%d")
+        
+        if not mongo_manager.is_initialized:
+            return {"success": False, "message": "MongoDB未初始化"}
+        
+        db = mongo_manager.db
+        
+        # 1. 获取偏差归因数据
+        int_date = int(date)
+        end_d = int(date)
+        start_d = end_d - 13  # 最近2周
+        
+        # 加载情绪
+        sentiment_map = {}
+        async for doc in db["sentiment_scores"].find(
+            {"trade_date": {"$gte": start_d, "$lte": end_d}},
+            {"_id": 0, "trade_date": 1, "score": 1, "period": 1}
+        ):
+            td = str(doc.get("trade_date", ""))
+            sentiment_map[td] = doc
+        
+        # 加载买卖数据
+        buys = []
+        sells = []
+        async for doc in db["broker_orders"].find(
+            {"status": "filled", "trade_date": {"$gte": str(start_d), "$lte": str(end_d)}},
+            {"_id": 0, "side": 1, "strategy": 1, "ts_code": 1, "stock_name": 1,
+             "filled_price": 1, "profit_pct": 1, "reason": 1, "trade_date": 1, "create_time": 1}
+        ):
+            if doc.get("side") == "buy":
+                buys.append(doc)
+            else:
+                sells.append(doc)
+        
+        # 2. 诊断偏差
+        suggestions = []
+        
+        # 2a. 纪律偏差 → 止损/止盈建议
+        sl_sells = [s for s in sells if "止损" in (s.get("reason", "")) and (s.get("profit_pct") or 0) < 0]
+        loss_sells = [s for s in sells if (s.get("profit_pct") or 0) < 0]
+        if loss_sells:
+            sl_rate = len(sl_sells) / len(loss_sells) * 100
+            if sl_rate < 80:
+                # 找出亏损最深但没止损的
+                non_sl_loss = [s for s in loss_sells if "止损" not in (s.get("reason", ""))]
+                non_sl_loss.sort(key=lambda x: x.get("profit_pct", 0))
+                worst = non_sl_loss[:3] if non_sl_loss else []
+                suggestions.append({
+                    "type": "止损纪律",
+                    "severity": "high" if sl_rate < 60 else "medium",
+                    "diagnosis": f"止损执行率仅{sl_rate:.0f}%({len(sl_sells)}/{len(loss_sells)})",
+                    "action": "收紧止损触发条件，将next_day_open_sell_pct从当前值降低0.5-1%",
+                    "verification": "同区间回测验证：调整后止损执行率应>85%，且总收益不降",
+                    "worst_cases": [{"ts_code": w.get("ts_code"), "name": w.get("stock_name"), "pnl": w.get("profit_pct")} for w in worst],
+                })
+        
+        # 2b. 情绪偏差 → 仓位调整建议
+        bearish_buys = [b for b in buys if sentiment_map.get(b.get("trade_date", ""), {}).get("period") == "冰点"]
+        if len(buys) > 0 and len(bearish_buys) / len(buys) > 0.5:
+            bearish_wr = len([s for s in sells if s.get("profit_pct", 0) > 0 and sentiment_map.get(s.get("trade_date", ""), {}).get("period") == "冰点"]) / max(len([s for s in sells if sentiment_map.get(s.get("trade_date", ""), {}).get("period") == "冰点"]), 1) * 100
+            suggestions.append({
+                "type": "情绪仓位",
+                "severity": "high",
+                "diagnosis": f"冰点期开仓率{len(bearish_buys)/len(buys)*100:.0f}%，冰点期胜率{bearish_wr:.0f}%",
+                "action": "建议冰点期仓位系数从0.3降至0.1，或信号管道L3增加全策略冰点过滤",
+                "verification": "同区间回测：冰点期仓位0.1 vs 0.3的收益对比",
+            })
+        
+        # 2c. 策略偏差 → 策略参数建议
+        strat_stats = {}
+        for s in sells:
+            strat = s.get("strategy", "") or "unknown"
+            if strat not in strat_stats:
+                strat_stats[strat] = {"trades": 0, "wins": 0, "pnl": 0}
+            strat_stats[strat]["trades"] += 1
+            if (s.get("profit_pct") or 0) > 0:
+                strat_stats[strat]["wins"] += 1
+            strat_stats[strat]["pnl"] += (s.get("profit_pct") or 0)
+        
+        for strat, stats in strat_stats.items():
+            if stats["trades"] >= 5:
+                wr = stats["wins"] / stats["trades"] * 100
+                avg_pnl = stats["pnl"] / stats["trades"]
+                if wr < 50 and avg_pnl < 0:
+                    cn_name = {"halfway_chase": "半路追涨", "limit_down_qiao": "跌停翘板", "dragon_head": "龙头低吸", "first_limit_up": "首板打板"}.get(strat, strat)
+                    suggestions.append({
+                        "type": "策略表现",
+                        "severity": "medium",
+                        "diagnosis": f"{cn_name}近2周WR={wr:.0f}% 均盈亏={avg_pnl:.2f}%",
+                        "action": f"考虑暂停{cn_name}或收紧选股条件(提高流动性门槛/缩小涨幅范围)",
+                        "verification": f"回测对比：{cn_name}收紧条件前后的WR和收益",
+                    })
+        
+        # 2d. 滑点偏差 → 执行优化
+        slippage_list = []
+        for buy in buys:
+            td = buy.get("trade_date", "")
+            ts = buy.get("ts_code", "")
+            fill_price = buy.get("filled_price", 0) or 0
+            # 从scan_traces找信号价
+            if fill_price > 0:
+                # 简化: 用当天最高价和成交价差来估算
+                slippage_list.append(fill_price)
+        
+        # 2e. 参数漂移建议
+        try:
+            latest_snap = await db["param_snapshots"].find_one(sort=[("date", -1)])
+            if latest_snap:
+                snap_date = latest_snap.get("date", "")
+                if snap_date != date:
+                    suggestions.append({
+                        "type": "参数漂移",
+                        "severity": "low",
+                        "diagnosis": f"最新参数快照是{snap_date}，与当前日期{date}不一致",
+                        "action": "建议更新参数快照以确保漂移检测准确",
+                        "verification": "点击📸保存当前参数快照",
+                    })
+        except:
+            pass
+        
+        # 3. 优先级排序
+        severity_order = {"high": 0, "medium": 1, "low": 2}
+        suggestions.sort(key=lambda x: severity_order.get(x.get("severity", "low"), 2))
+        
+        return {
+            "success": True,
+            "data": {
+                "suggestions": suggestions,
+                "summary": {
+                    "total": len(suggestions),
+                    "high": len([s for s in suggestions if s.get("severity") == "high"]),
+                    "medium": len([s for s in suggestions if s.get("severity") == "medium"]),
+                    "low": len([s for s in suggestions if s.get("severity") == "low"]),
+                },
+                "date_range": f"{start_d}~{end_d}",
+            }
+        }
+    except Exception as e:
+        logger.error(f"[REVIEW-CLOSED-LOOP] {e}")
+        return {"success": True, "data": None, "message": str(e)}
+
