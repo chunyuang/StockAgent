@@ -146,6 +146,29 @@ class MarketScanner:
     MODE_DRY_RUN = "dry_run"      # 调试模式: 只扫描不交易
     MODE_REPLAY = "replay"        # 回放模式: 用历史数据模拟实时行情
 
+    # ==================== 类属性默认值(不可变/标量)【v2.9.37】 ====================
+    _risk_thread = None
+    _risk_running: bool = False
+    _risk_thread_restarts: int = 0
+    _cache_lock = None
+    _state_lock = None
+    _loop = None
+    _last_snapshot_save: float = 0.0
+    _snapshot_dirty: bool = False
+    _trade_date: str = ""
+    _nav_peak: float = 1.0
+    _quote_degrade_level: int = 0
+    _quote_fail_count: int = 0
+    _quote_last_recover_check: float = 0.0
+    _is_running: bool = False
+    _task = None
+    _scan_count: int = 0
+    _last_scan_time: str = ""
+    _last_scan_ts: float = 0.0
+    _last_risk_check_ts: float = 0.0
+    _last_realtime_update_ts: float = 0.0
+    _scan_loop_error_count: int = 0
+
     def __init__(self, account_id: str = "default", config: Dict = None):
         self.account_id = account_id
         self.config = config or {}
@@ -160,32 +183,13 @@ class MarketScanner:
     # ==================== 初始化子方法 ====================
 
     def _init_state(self):
-        """初始化基础状态变量【v2.9.3提取, v2.9.28:注释分组】"""
+        """初始化基础状态变量【v2.9.3提取, v2.9.37:标量默认值提升为类属性】"""
         # ── 风控状态(风控线程+主循环并发读写, _state_lock保护) ──
         self._position_risk_overrides: Dict[str, Dict] = {}
         self._trailing_stops: Dict[str, Dict] = {}
         self._position_risk_levels: Dict[str, str] = {}
         self._pending_orders: Dict[str, Dict] = {}
         self._pending_sells: Dict[str, Dict] = {}
-
-        # ── 线程安全(延迟初始化, start()中设置) ──
-        self._risk_thread = None
-        self._risk_running = False
-        self._risk_thread_restarts = 0
-        self._cache_lock = None
-        self._state_lock = None
-        self._loop = None
-
-        # ── 快照+持久化 ──
-        self._last_snapshot_save: float = 0.0
-        self._snapshot_dirty: bool = False
-        self._trade_date: str = ""  # 由start()设置
-        self._nav_peak: float = 1.0
-
-        # ── 行情降级(QuoteManager管理, scanner记录级别) ──
-        self._quote_degrade_level = 0
-        self._quote_fail_count = 0
-        self._quote_last_recover_check = 0
 
         # ── 执行质量统计 ──
         self._execution_stats = {
@@ -199,16 +203,6 @@ class MarketScanner:
         # ── 卖出逻辑灰度开关 ──
         import os
         self.SELL_LOGIC_MODE = os.getenv("SELL_LOGIC_MODE", "legacy")
-
-        # ── 运行状态 ──
-        self._is_running = False
-        self._task: Optional[asyncio.Task] = None
-        self._scan_count = 0
-        self._last_scan_time = ""
-        self._last_scan_ts: float = 0.0
-        self._last_risk_check_ts: float = 0.0
-        self._last_realtime_update_ts: float = 0.0
-        self._scan_loop_error_count: int = 0
 
         # ── 数据缓存(主循环写, 风控线程读, _cache_lock保护) ──
         self._daily_factors_df: Optional[pd.DataFrame] = None
@@ -588,6 +582,12 @@ class MarketScanner:
         logger.info(f"[SCANNER] 启动完成, account={self.account_id}, date={trade_date}")
         
         # 【V67:启动时自动保存参数快照(供月复盘参数漂移检测)】
+        await self._save_param_snapshot(trade_date)
+        
+        return {"success": True, "message": "扫描器启动成功"}
+
+    async def _save_param_snapshot(self, trade_date: str):
+        """启动时保存参数快照(供月复盘参数漂移检测)【v2.9.37:从start()提取】"""
         try:
             from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK
             from core.managers import mongo_manager as mm
@@ -602,8 +602,6 @@ class MarketScanner:
                 logger.info(f"[SCANNER] 参数快照已保存({today})")
         except Exception as e:
             logger.warning(f"[SCANNER] 参数快照保存失败: {e}")
-        
-        return {"success": True, "message": "扫描器启动成功"}
 
     async def _detect_param_drift(self):
         """启动时检测参数漂移【v2.9.18:从start()提取】"""

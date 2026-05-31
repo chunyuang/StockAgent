@@ -1,9 +1,9 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.36 | 日期: 2026-05-31 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.37 | 日期: 2026-06-01 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats✅ | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化✅ | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复✅ | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复✅ | v2.9.24 diagnose+情绪调仓提取+DelegateRouter策略扩展✅ | v2.9.25 update_strategy_config bug修复+bare except清理+_init_modules拆分✅ | v2.9.26 全模块bare except清理+position_checker._execute_sell_list提取3子方法✅ | v2.9.27 方法提取到子模块5个+测试适配✅ | v2.9.28 风控线程拆分+filter合并提取+scan_loop错误恢复✅ | v2.9.31 _safe_read_state统一+RuntimeWarning修复+get_positions提取✅ | v2.9.34 情绪得分+收盘同步提取→子模块✅ | v2.9.35 卖出执行提取到PositionManager✅ | v2.9.36 审查P0/P1修复+WS断线补发+前端错误提示
+> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats✅ | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化✅ | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复✅ | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复✅ | v2.9.24 diagnose+情绪调仓提取+DelegateRouter策略扩展✅ | v2.9.25 update_strategy_config bug修复+bare except清理+_init_modules拆分✅ | v2.9.26 全模块bare except清理+position_checker._execute_sell_list提取3子方法✅ | v2.9.27 方法提取到子模块5个+测试适配✅ | v2.9.28 风控线程拆分+filter合并提取+scan_loop错误恢复✅ | v2.9.31 _safe_read_state统一+RuntimeWarning修复+get_positions提取✅ | v2.9.34 情绪得分+收盘同步提取→子模块✅ | v2.9.35 卖出执行提取到PositionManager✅ | v2.9.36 审查P0/P1修复+WS断线补发+前端错误提示 | v2.9.37 _save_param_snapshot提取+_init_state类属性瘦身+start()30行
 > 回测影响: 零文件修改, 834测试全通过(scanner 783+backtest 51)
 
 ---
@@ -2687,3 +2687,87 @@ catch(e) {
 ### 34.10 回测影响
 
 零。所有修复限于web层(app.py/signal_persistence/scanner API/redis_ws_bridge)和前端, 回测引擎零文件修改。
+
+## 三十五、v2.9.37 _save_param_snapshot提取 + _init_state类属性瘦身 (2026-06-01)
+
+### 35.1 设计目标
+
+1. **start()方法瘦身**: 参数快照保存逻辑(16行)提取为`_save_param_snapshot()`, start()有效代码43→30行
+2. **_init_state类属性默认值**: 21个标量默认值提升为类属性声明, _init_state有效代码70→30行
+3. **修复失败测试**: `test_start_line_count`阈值更新(<40→<35)
+4. **版本同步**: 3个旧测试的版本断言更新(v2.9.36→v2.9.37)
+
+### 35.2 _save_param_snapshot提取
+
+**问题**: `start()`中16行参数快照保存逻辑(STRATEGY_CONFIGS遍历+MongoDB upsert)与启动编排无关, 应独立方法。
+
+**修复**: 提取为`_save_param_snapshot(trade_date)`方法, start()仅保留一行`await self._save_param_snapshot(trade_date)`。
+
+### 35.3 _init_state类属性默认值
+
+**问题**: `_init_state()`中21个标量赋值(`self._is_running = False`, `self._scan_count = 0`等)每次实例化都执行, 但值始终相同。
+
+**修复**: 将不可变标量默认值提升为类属性:
+
+```python
+class MarketScanner:
+    # 类属性默认值(不可变/标量)【v2.9.37】
+    _risk_thread = None
+    _risk_running: bool = False
+    _risk_thread_restarts: int = 0
+    _is_running: bool = False
+    _scan_count: int = 0
+    _nav_peak: float = 1.0
+    _trade_date: str = ""
+    # ... 共21个
+```
+
+**设计原则**:
+- 不可变标量(数字/字符串/None/bool) → 类属性默认值
+- 可变容器(dict/list) → 仍必须在`__init__`中初始化, 避免实例间共享
+- 每个实例设置属性时自动创建实例属性, 不影响类默认值
+
+### 35.4 scanner.py行数变化
+
+| 阶段 | 行数 | 变化 |
+|---|---|---|
+| v2.9.36 | 1531 | 基线 |
+| **v2.9.37** | **1529** | **-2行(start瘦身+类属性替代_init_state赋值, 新增_save_param_snapshot 16行被删除覆盖)** |
+
+### 35.5 方法有效行数改善
+
+| 方法 | v2.9.36 | v2.9.37 | 变化 |
+|---|---|---|---|
+| start() | 43行 | 30行 | -30% |
+| _init_state() | 70行 | 30行 | -57% |
+
+### 35.6 变更文件
+
+| 文件 | 变更 |
+|---|---|
+| nodes/market_monitor/scanner.py | _save_param_snapshot提取 + 21个类属性默认值 + _init_state瘦身 |
+| nodes/web/api/scanner.py | _DESIGN_DOC_VERSION→v2.9.37 |
+| tests/scanner/test_v2937_init_state_class_attrs.py | 新增20测试 |
+| tests/scanner/test_v2918_review_optimization.py | start()行数阈值<40→<35 |
+| tests/scanner/test_v2916_risk_watchdog_thread_safety.py | 版本断言v2.9.36→v2.9.37 |
+| tests/scanner/test_v2933_extraction_optimization.py | 版本断言v2.9.36→v2.9.37 |
+| tests/scanner/test_v295_stability.py | _risk_thread_restarts检查改为类属性验证 |
+| docs/MARKET_MONITOR_OPTIMIZATION_DESIGN.md | v2.9.37记录 |
+
+### 35.7 测试覆盖 (20新增)
+
+| 测试类 | 用例数 | 覆盖点 |
+|---|---|---|
+| TestSaveParamSnapshotExtraction | 4 | 存在性/async/start调用/无内联逻辑 |
+| TestClassAttributeDefaults | 3 | 类属性值/实例继承/实例覆盖不影响类 |
+| TestInitStateSlimmed | 4 | 无冗余赋值/仍初始化可变默认值/行数<35 |
+| TestStartMethodSlimmed | 1 | start()<35行 |
+| TestSaveParamSnapshotBehavior | 3 | MongoDB写入/包含date/失败不影响启动 |
+| TestScannerLineCount | 1 | <1550行 |
+| TestNoBacktestRegressionV2937 | 5 | 回测零影响+类属性隔离+版本常量 |
+
+**全量测试**: 851 passed (0 failed), 回测214 passed (0 failed)
+
+### 35.8 回测影响
+
+零。所有变更仅影响market_monitor模块scanner.py内部重构和测试, 回测引擎零文件修改。
