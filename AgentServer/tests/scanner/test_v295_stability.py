@@ -58,12 +58,10 @@ class TestRiskThreadWatchdog:
         return scanner
 
     def test_risk_thread_restarts_counter_initialized(self):
-        """_risk_thread_restarts 在 _init_state 中初始化为0"""
+        """_risk_thread_restarts 初始化为0(类属性或_init_state)"""
         from nodes.market_monitor.scanner import MarketScanner
-        import inspect
-        # __init__ 调 _init_state, 实际初始化在那里
-        src = inspect.getsource(MarketScanner._init_state)
-        assert '_risk_thread_restarts' in src
+        # v2.9.37: _risk_thread_restarts提升为类属性默认值
+        assert MarketScanner._risk_thread_restarts == 0
 
     def test_risk_thread_restarts_counter_in_start(self):
         """start()或其调用的方法中重置重启计数"""

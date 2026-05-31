@@ -315,12 +315,12 @@ class TestStartMethodExtraction:
         assert "_start_risk_thread" in source
 
     def test_start_line_count(self):
-        """start()方法行数应<40行有效代码"""
+        """start()方法行数应<35行有效代码【v2.9.37:参数快照提取后瘦身】"""
         import inspect
         from nodes.market_monitor.scanner import MarketScanner
         source = inspect.getsource(MarketScanner.start)
         lines = [l for l in source.split('\n') if l.strip() and not l.strip().startswith('#')]
-        assert len(lines) < 40, f"start()方法应<40行有效代码, 实际{len(lines)}行"
+        assert len(lines) < 35, f"start()方法应<35行有效代码, 实际{len(lines)}行"
 
 
 # ============================================================================
