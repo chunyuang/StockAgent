@@ -962,7 +962,7 @@ async def get_sentiment_timeline(date: str = None, mode: str = "daily"):
                     start = (center - _dt.timedelta(days=120)).strftime("%Y%m%d")
                     end = (center + _dt.timedelta(days=30)).strftime("%Y%m%d")
                     query["trade_date"] = {"$gte": int(start), "$lte": int(end)}
-                except:
+                except (ValueError, TypeError):
                     pass
             
             # 读取sentiment_scores(包含missing_data,前端用虚线标注)
@@ -2853,7 +2853,7 @@ _version_cache = {"value": None, "ts": 0}
 _VERSION_CACHE_TTL = 300  # 5分钟缓存
 
 # 【v2.9.10:设计文档版本常量, 与docs/MARKET_MONITOR_OPTIMIZATION_DESIGN.md保持同步】
-_DESIGN_DOC_VERSION = "v2.9.43"
+_DESIGN_DOC_VERSION = "v2.9.46"
 _BASELINE_TAG = "v2.8.0-backtest-ui-v2"
 
 def _get_version_info() -> dict:
@@ -3155,7 +3155,7 @@ async def get_execution_quality(date: str = None):
                         f = dt.fromisoformat(ft.replace("Z", "+00:00")) if "T" in ft else None
                         if c and f:
                             delays.append((f - c).total_seconds() * 1000)
-                    except: pass
+                    except Exception: pass
             elif doc.get("status") in ("rejected", "cancelled"):
                 rejected_orders += 1
         
@@ -4747,7 +4747,7 @@ async def backtest_same_period(request: Request):
                             try:
                                 await data_source_router.fetch_and_save_daily_bar(td_str)
                                 logger.info(f"[SAME-PERIOD-BT] 补数据: {td_str}")
-                            except: pass
+                            except Exception: pass
                     except Exception as e2:
                         logger.warning(f"[SAME-PERIOD-BT] 补数据失败: {e2}")
                     
@@ -4800,7 +4800,7 @@ async def backtest_same_period(request: Request):
                         {"$set": {"status": "failed", "error": str(e), "created_at": datetime.now().isoformat()}},
                         upsert=True
                     )
-                except: pass
+                except Exception: pass
         
         asyncio.create_task(_run_same_period_bt(start_date, end_date))
         
@@ -5008,7 +5008,7 @@ async def deviation_attribution(date: str = None, start_date: str = None, end_da
                             "execute_time": ct, "expected": "10:00前",
                             "ts_code": buy.get("ts_code",""), "stock_name": buy.get("stock_name",""),
                         })
-                except: pass
+                except Exception: pass
         
         # E. 汇总
         total_sells = len(sells)
@@ -5347,7 +5347,7 @@ async def review_monthly(date: str = None):
         try:
             drift_resp = await param_drift(month_start, last_day)
             drift_data = drift_resp.get("data")
-        except: pass
+        except Exception: pass
         
         # 大盘表现
         index_data = []
@@ -5664,7 +5664,7 @@ async def review_closed_loop(date: str = None):
                         "action": "建议更新参数快照以确保漂移检测准确",
                         "verification": "点击📸保存当前参数快照",
                     })
-        except:
+        except Exception:
             pass
         
         # 3. 优先级排序

@@ -405,6 +405,7 @@ class MarketScanner:
         # PositionManager委托
         "_get_effective_stop_price": ("_position_manager", "get_effective_stop_price"),
         "_update_trailing_stops": ("_position_manager", "update_trailing_stops"),
+        # _check_stop_loss_take_profit保留显式方法(先_update_trailing_stops再委托PM)
         "_calc_would_buy_shares": ("_position_manager", "calc_would_buy_shares"),
         "_calc_position_ratio": ("_position_manager", "calc_position_ratio"),
         "_calc_stop_loss_price": ("_position_manager", "calc_stop_loss_price"),
@@ -1291,20 +1292,16 @@ class MarketScanner:
 
     # ==================== 信号管理+止损止盈 ====================
 
-        # PositionManager委托 (止损价/止盈价已在DELEGATE_MAP中声明)
-        # _check_stop_loss_take_profit 保留在scanner中因为需要先更新追踪止损状态
+        # _check_stop_loss_take_profit: 先更新追踪止损再委托检查
+        # 已在DELEGATE_MAP中声明, 但scanner仍保留显式定义以在检查前调用_update_trailing_stops
+        # _update_trailing_stops已在DELEGATE_MAP中声明
 
     def _check_stop_loss_take_profit(self, positions, realtime_data: Dict) -> List[Tuple]:
-        """止损止盈检查 — 委托给PositionManager【Phase3.1】"""
-        # 更新追踪止损状态(仍在Scanner,因为状态属于Scanner)
+        """止损止盈检查 — 先更新追踪止损再委托PositionManager"""
         self._update_trailing_stops(positions, realtime_data)
-        
-        if self._position_manager:
-            return self._position_manager.check_stop_loss_take_profit(positions, realtime_data)
-        return []  # fallback(不应到达)
+        return self._position_manager.check_stop_loss_take_profit(positions, realtime_data) if self._position_manager else []
 
-    # ==================== 持仓检查 ====================
-    # ==================== 情绪调仓 ====================
+    # ==================== 持仓检查 + 情绪调仓 ====================
     
     def _build_emotion_sell_list(self, positions, rule: Dict, old_phase: str, new_phase: str) -> List[Tuple]:
         """根据情绪降级规则构建卖出列表 — 委托给EmotionCycleManager【v2.9.16】"""
@@ -1386,8 +1383,5 @@ class MarketScanner:
             return self._position_checker.is_limit_down(ts_code)
         return False  # 无PositionChecker时默认非跌停(保守策略)
 
-    # 【v2.9.42: _validate_live_params/update_strategy_config/_persist_strategy_overrides
-    #   /_load_strategy_overrides 均已加入DELEGATE_MAP动态委托, 显式定义移除】
-
-    # DELEGATE_MAP条目即委托文档, 不再逐一注释
+    # DELEGATE_MAP条目即委托文档
 
