@@ -2974,3 +2974,66 @@ class MarketScanner:
 ### 37.7 回测影响
 
 零。所有变更仅影响signal_manager.py内部重构, 回测引擎零文件修改。SignalManager.execute_signals/update_signals API签名不变。
+
+---
+
+## 38. v2.9.45: 方法提取+bug修复+委托对齐
+
+### 38.1 关键bug修复
+
+**Daemon._cmd_emergency_liquidate路径断裂**:
+- 问题: `_cmd_emergency_liquidate`调用`scanner.emergency_liquidate()`和`scanner.close_all_positions()`，但scanner上两个方法均不存在
+- 影响: 通过Daemon IPC发送紧急清仓命令会静默失败(GUI红色按钮/Daemon模式)
+- 修复: scanner新增`emergency_liquidate()`方法,委托给RiskWatchdog
+
+### 38.2 方法提取
+
+| 源方法 | 原行数 | 提取后 | 提取子方法 |
+|---|---|---|---|
+| risk_watchdog.emergency_liquidate | 80行 | 35行 | 复用post_sell_cleanup |
+| runtime_persistence.load_runtime_snapshot | 78行 | 15行 | _load_snapshot_doc + _restore_snapshot_data |
+| position_checker._persist_compare_diff | 71行 | 8行 | 委托RuntimePersistence.persist_compare_diff |
+| position_checker._post_sell_processing | 63行 | 30行 | 委托post_sell_cleanup |
+| position_manager.check_stop_loss_take_profit | 85行 | 18行 | _get_risk_with_overrides + _check_trailing_stop + _check_regular_stop_profit + _check_intraday_rules |
+| position_manager.check_stop_loss_only | 78行 | 30行 | _handle_limit_down + _check_quick_stop_loss |
+
+### 38.3 委托对齐
+
+卖出后处理统一委托RuntimePersistence.post_sell_cleanup:
+- scanner._execute_risk_sell → post_sell_cleanup (v2.9.27)
+- position_checker._post_sell_processing → post_sell_cleanup (v2.9.45)
+- risk_watchdog.emergency_liquidate → post_sell_cleanup (v2.9.45)
+
+好处: timeline/统计/EventBus/持久化逻辑统一,新增卖出路径自动获得完整后处理。
+
+### 38.4 文件行数变化
+
+| 文件 | v2.9.44 | v2.9.45 | 变化 |
+|---|---|---|---|
+| position_manager.py | 708 | 767 | +59(提取方法增加签名+doc) |
+| position_checker.py | 627 | 603 | -24(委托减少内联) |
+| risk_watchdog.py | 841 | 841 | 0(复用替代内联) |
+| runtime_persistence.py | 1017 | 1017 | 0(新增persist_compare_diff+snapshot提取抵消) |
+| scanner.py | 1382 | 1393 | +11(emergency_liquidate方法) |
+| scanner_daemon.py | 1113 | 1114 | +1(路径修复) |
+
+### 38.5 线程安全审查结论
+
+✅ 共享状态(trailing_stops/pending_sells/position_risk_levels/position_risk_overrides/circuit_breaker):
+- asyncio主循环内访问: 安全(单线程)
+- 风控线程内访问: 全部通过state_lock保护
+- 无嵌套锁风险(所有锁获取是顺序的)
+
+### 38.6 测试覆盖
+
+新增/更新测试:
+- TestCompareDiffPersistence: 更新为检查runtime_persistence实现
+- test_position_checker_delegates_to_rp: 新增(position_checker委托验证)
+- test_position_checker_emits_events: 更新(委托post_sell_cleanup)
+- test_compare_diff_index_uses_as: 更新(检查runtime_persistence)
+
+**全量测试**: 960 passed (0 failed), 回测50 passed (0 failed)
+
+### 38.7 回测影响
+
+零。所有变更仅影响market_monitor模块内部重构,回测引擎零文件修改。
