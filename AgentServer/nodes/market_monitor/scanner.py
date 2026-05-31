@@ -586,6 +586,23 @@ class MarketScanner:
         logger.info("[SCANNER] 加载时间线...")
         await self._load_timeline()
         logger.info(f"[SCANNER] 启动完成, account={self.account_id}, date={trade_date}")
+        
+        # 【V67:启动时自动保存参数快照(供月复盘参数漂移检测)】
+        try:
+            from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK
+            from core.managers import mongo_manager as mm
+            if mm.is_initialized:
+                today = trade_date or datetime.now().strftime("%Y%m%d")
+                snapshot = {
+                    "date": today,
+                    "global_risk": {k: v for k, v in GLOBAL_RISK.items() if not k.startswith("__")},
+                    "strategies": {sid: {"enabled":cfg.get("enabled",True),"params":cfg.get("params",{}),"riskParams":cfg.get("riskParams",{})} for sid,cfg in STRATEGY_CONFIGS.items()},
+                }
+                await mm.db["param_snapshots"].update_one({"date":today},{"$set":snapshot},upsert=True)
+                logger.info(f"[SCANNER] 参数快照已保存({today})")
+        except Exception as e:
+            logger.warning(f"[SCANNER] 参数快照保存失败: {e}")
+        
         return {"success": True, "message": "扫描器启动成功"}
 
     async def _detect_param_drift(self):
