@@ -685,10 +685,37 @@ async def get_daily_report():
                 else:
                     strategy_summary[key]["loss_count"] = strategy_summary[key].get("loss_count", 0) + 1
         
-        # 计算策略胜率
+        # 计算策略胜率 + 扩展归因指标
         for key in strategy_summary:
             total = strategy_summary[key].get("win_count", 0) + strategy_summary[key].get("loss_count", 0)
             strategy_summary[key]["win_rate"] = round(strategy_summary[key].get("win_count", 0) / max(total, 1) * 100, 1)
+            # 以下指标供复盘归因展示
+            closed = strategy_summary[key].get("closed_count", 0)
+            strategy_summary[key]["closed_win_rate"] = round(strategy_summary[key].get("win_count", 0) / max(closed, 1) * 100, 1) if closed else 0
+            # 从timeline按策略提取已平仓的pct列表(用于均盈均亏/盈亏比)
+            strategy_pcts = {"wins": [], "losses": []}
+            strategy_summary[key]["stop_loss_count"] = 0
+            strategy_summary[key]["take_profit_count"] = 0
+            for item in scanner._timeline:
+                if item.get("action") != "sell" or item.get("strategy") != key:
+                    continue
+                pct = item.get("profit_pct", 0) or 0
+                reason = item.get("reason", "")
+                if pct >= 0:
+                    strategy_pcts["wins"].append(pct)
+                else:
+                    strategy_pcts["losses"].append(pct)
+                if "止损" in reason and "追踪" not in reason:
+                    strategy_summary[key]["stop_loss_count"] += 1
+                elif "止盈" in reason or "追踪止损" in reason:
+                    strategy_summary[key]["take_profit_count"] += 1
+            wins = strategy_pcts["wins"]
+            losses = strategy_pcts["losses"]
+            strategy_summary[key]["avg_win_pct"] = round(sum(wins) / len(wins), 1) if wins else 0
+            strategy_summary[key]["avg_loss_pct"] = round(sum(losses) / len(losses), 1) if losses else 0
+            strategy_summary[key]["profit_loss_ratio"] = round(abs(sum(wins)/len(wins) / (sum(losses)/len(losses))), 1) if wins and losses else 0
+            strategy_summary[key]["max_win_pct"] = round(max(wins), 1) if wins else 0
+            strategy_summary[key]["max_loss_pct"] = round(min(losses), 1) if losses else 0
         
         # 从MongoDB获取今日订单统计
         today_trades = {"buy": 0, "sell": 0, "total_amount": 0}
@@ -1998,6 +2025,32 @@ def _fix_funnel_summary(doc: dict):
         prev_output = ld.get("output", 0)
 
 
+@router.get("/scan-dates")
+async def get_scan_trace_dates():
+    """获取有扫描记录的日期列表（用于日期选择器标记）
+    
+    返回格式: [{"date": "YYYYMMDD", "is_debug": bool, "count": int}]
+    非交易日标记is_debug=true，前端可区分显示
+    """
+    try:
+        from core.managers import mongo_manager
+        if not mongo_manager.is_initialized:
+            return {"success": True, "data": []}
+        pipeline = [
+            {"$group": {
+                "_id": "$trade_date",
+                "count": {"$sum": 1},
+                "is_debug": {"$max": {"$cond": [{"$eq": ["$is_debug", True]}, True, False]}}
+            }},
+            {"$sort": {"_id": 1}}
+        ]
+        results = await mongo_manager.db["scan_traces"].aggregate(pipeline).to_list(None)
+        dates = [{"date": r["_id"], "count": r["count"], "is_debug": r.get("is_debug", False)} for r in results]
+        return {"success": True, "data": dates}
+    except Exception as e:
+        return {"success": True, "data": [], "message": str(e)}
+
+
 @router.get("/scan-traces")
 async def get_scan_traces(date: str = None, limit: int = 10):
     """获取扫描链路追踪记录
@@ -3225,52 +3278,68 @@ async def get_trade_attribution(date: str = None):
             
             ts_code = item["ts_code"]
             strategy = item.get("strategy", "")
-            profit_pct = item.get("profit_pct", 0)
+            profit_pct = item.get("profit_pct", 0) or 0
             sell_reason = item.get("reason", "")
             
-            # 归因分析
+            # 归因分析: 优先从scan_traces获取真实漏斗数据
             why_profit = None
             why_loss = None
+            scan_info = None
             
+            # 从MongoDB查找该股票最近的scan_trace(买入时经过的漏斗)
+            try:
+                from core.managers import mongo_manager
+                if mongo_manager.is_initialized:
+                    scan_doc = await mongo_manager.db["scan_traces"].find_one(
+                        {"candidates.ts_code": ts_code, "candidates.strategy": strategy},
+                        {"scan_time": 1, "summary": 1, "layer_details": 1}
+                    )
+                    if scan_doc:
+                        layers = []
+                        for layer_name, layer_data in (scan_doc.get("summary") or {}).items():
+                            if isinstance(layer_data, dict) and layer_data.get("rejected", 0) > 0:
+                                layers.append(f"{layer_name}淘汰{layer_data['rejected']}只")
+                        ld = scan_doc.get("layer_details") or {}
+                        l3_info = ld.get("L3_sentiment", "")
+                        l4_info = ld.get("L4_premarket", "")
+                        l7_info = ld.get("L7_ranking", "")
+                        scan_info = {
+                            "scan_time": scan_doc.get("scan_time", "")[:19],
+                            "key_layers": layers[:3] if layers else [],
+                            "sentiment": l3_info,
+                            "premarket": l4_info,
+                            "ranking": l7_info,
+                        }
+            except Exception:
+                pass
+            
+            # 归因: 基于实际卖出原因(而非硬编码规则)
             if profit_pct >= 0:
-                # 赚在哪: 基于策略类型和卖出原因归因
-                profit_factors = []
-                if "半路" in strategy or "pullback" in strategy:
-                    profit_factors.append("突破均线+量能配合")
-                if "龙头" in strategy or "dragon" in strategy:
-                    profit_factors.append("龙头缩量回踩+板块共振")
-                if "跌停" in strategy or "limit_down" in strategy:
-                    profit_factors.append("翘板成功+恐慌反转")
-                if "止盈" in sell_reason:
-                    profit_factors.append("达到止盈目标")
-                if "冲高" in sell_reason:
-                    profit_factors.append("冲高兑现")
-                if "利润" in sell_reason:
-                    profit_factors.append("利润锁定")
-                if not profit_factors:
-                    profit_factors.append("趋势延续")
-                why_profit = "+".join(profit_factors)
+                factors = []
+                if "追踪止损" in sell_reason:
+                    factors.append("趋势延续盈利锁定")
+                elif "止盈" in sell_reason:
+                    factors.append("达到止盈目标")
+                elif "冲高" in sell_reason:
+                    factors.append("冲高兑现")
+                elif "利润" in sell_reason:
+                    factors.append("利润保护")
+                else:
+                    factors.append("趋势延续")
+                why_profit = "+".join(factors)
             else:
-                # 亏在哪
-                loss_factors = []
-                if "止损" in sell_reason:
-                    loss_factors.append("触发止损线")
+                factors = []
+                if "止损" in sell_reason and "追踪" not in sell_reason:
+                    factors.append(f"触发止损({profit_pct:.1f}%)")
+                elif "追踪止损" in sell_reason:
+                    factors.append(f"冲高回落")
                 if "跳空" in sell_reason:
-                    loss_factors.append("隔夜跳空低开")
-                if "超时" in sell_reason:
-                    loss_factors.append("超时未达预期")
-                if "强制空仓" in sell_reason:
-                    loss_factors.append("系统性风险强制清仓")
-                # 策略层面归因
-                if "龙头" in strategy and profit_pct < -3:
-                    loss_factors.append("龙头低吸追高")
-                if "半路" in strategy and profit_pct < -2:
-                    loss_factors.append("突破失败假信号")
-                if "跌停" in strategy:
-                    loss_factors.append("翘板失败继续下跌")
-                if not loss_factors:
-                    loss_factors.append("行情反转")
-                why_loss = "+".join(loss_factors)
+                    factors.append("隔夜跳空")
+                if "强制" in sell_reason or "空仓" in sell_reason:
+                    factors.append("系统风控强制清仓")
+                if not factors:
+                    factors.append("行情反转")
+                why_loss = "+".join(factors)
             
             attributions.append({
                 "ts_code": ts_code,
@@ -3285,6 +3354,7 @@ async def get_trade_attribution(date: str = None):
                 "sell_reason": sell_reason,
                 "why_profit": why_profit,
                 "why_loss": why_loss,
+                "scan_info": scan_info,  # 真实漏斗数据
             })
         
         return {"success": True, "data": attributions}

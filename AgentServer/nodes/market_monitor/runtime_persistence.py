@@ -293,6 +293,10 @@ class RuntimePersistence:
             if not filter_result or not filter_result.trace_candidates:
                 return
             
+            # DEBUG: 检查layer_details是否为空
+            if not filter_result.layer_details:
+                logger.warning(f"[SCAN] layer_details为空! layers_applied={dict(filter_result.layers_applied)}, candidates={len(filter_result.trace_candidates)}")
+            
             today = datetime.now().strftime("%Y%m%d")
             
             # 分离passed和rejected候选
@@ -329,10 +333,13 @@ class RuntimePersistence:
                         # 不保存 layer_results — 这是体积大头
                     })
             
+            # 判断是否交易日(周一~周五)
+            is_trading_day = datetime.now().weekday() < 5
             trace_doc = {
                 "trade_date": today,
                 "scan_time": datetime.now().isoformat(),
                 "account_id": self.broker.account.account_id if self.broker else "default",
+                "is_debug": not is_trading_day,  # 非交易日标记为调试数据
                 "summary": {},
                 "candidates": passed_candidates,
                 "rejected_summary": rejected_summary,
