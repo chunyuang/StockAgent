@@ -903,6 +903,185 @@ async def daily_settlement():
     }
 
 
+@router.get("/sentiment-timeline")
+async def get_sentiment_timeline(date: str = None, mode: str = "intraday"):
+    """情绪时间线 — 聚合scan_traces中的L3情绪数据,返回时间序列
+    
+    Args:
+        date: YYYYMMDD, 不传则今天
+        mode: intraday(日内采样) | daily(跨日日线)
+    """
+    try:
+        from core.managers import mongo_manager
+        if not mongo_manager.is_initialized:
+            return {"success": True, "data": {"points": [], "trades": []}}
+        db = mongo_manager.db
+        import datetime as _dt, re
+        if not date:
+            date = _dt.datetime.now().strftime("%Y%m%d")
+        
+        points = []
+        trades = []
+        
+        def _parse_l3(doc):
+            l3d = doc.get("layer_details", {}).get("L3_sentiment_data") or {}
+            l3_text = doc.get("layer_details", {}).get("L3_sentiment", "")
+            score = l3d.get("score", 0)
+            period = l3d.get("period", "")
+            position_ratio = l3d.get("position_ratio", 0)
+            if not score and l3_text:
+                m = re.search(r'情绪=([\\d.]+)分', l3_text)
+                if m: score = float(m.group(1))
+                m2 = re.search(r'仓位系数=([\\d.]+)', l3_text)
+                if m2: position_ratio = float(m2.group(1))
+                m3 = re.search(r'→(高潮|分化|震荡|冰点)', l3_text)
+                if m3: period = m3.group(1)
+            return score, period, position_ratio
+        
+        if mode == "daily":
+            from collections import OrderedDict
+            daily_map = OrderedDict()
+            # 每天取扫描数据(有情绪分就显示,没有也显示扫描次数)
+            async for doc in db["scan_traces"].find(
+                {"trade_date": {"$exists": True}},
+                {"trade_date": 1, "scan_time": 1, "layer_details": 1, "summary": 1, "is_debug": 1}
+            ).sort("scan_time", 1):
+                td = doc.get("trade_date", "")
+                score, period, position_ratio = _parse_l3(doc)
+                # 已有则更新,取最后一条的score
+                if td not in daily_map or score:
+                    daily_map[td] = {
+                        "date": td, "score": round(score, 1) if score else None,
+                        "period": period, "position_ratio": position_ratio,
+                        "time": doc.get("scan_time", "")[:19],
+                        "scan_count": daily_map.get(td, {}).get("scan_count", 0) + 1,
+                    }
+                else:
+                    daily_map[td]["scan_count"] = daily_map[td].get("scan_count", 0) + 1
+            points = list(daily_map.values())
+            async for doc in db["broker_orders"].find(
+                {"status": "filled"},
+                {"trade_date": 1, "side": 1, "ts_code": 1, "strategy": 1, "filled_price": 1, "reason": 1}
+            ).sort("trade_date", 1):
+                if doc.get("side") in ("buy", "sell"):
+                    trades.append({"date": doc.get("trade_date", ""), "side": doc["side"], "ts_code": doc.get("ts_code", ""), "strategy": doc.get("strategy", ""), "price": doc.get("filled_price", 0), "reason": doc.get("reason", "") if doc["side"] == "sell" else ""})
+        else:
+            async for doc in db["scan_traces"].find(
+                {"trade_date": date},
+                {"scan_time": 1, "layer_details": 1, "summary": 1, "is_debug": 1}
+            ).sort("scan_time", 1):
+                score, period, position_ratio = _parse_l3(doc)
+                # 无L3数据时,显示null(不强行估算)
+                points.append({
+                    "time": doc.get("scan_time", "")[:19],
+                    "score": round(score, 1) if score else None,
+                    "period": period,
+                    "position_ratio": position_ratio,
+                    "candidates": doc.get("summary", {}).get("total_candidates", 0),
+                    "passed": doc.get("summary", {}).get("passed", 0),
+                    "is_debug": doc.get("is_debug", False),
+                })
+            async for doc in db["broker_orders"].find(
+                {"trade_date": date, "status": "filled"},
+                {"fill_time": 1, "side": 1, "ts_code": 1, "strategy": 1, "filled_price": 1, "reason": 1}
+            ).sort("fill_time", 1):
+                if doc.get("side") in ("buy", "sell"):
+                    trades.append({"time": doc.get("fill_time", ""), "side": doc["side"], "ts_code": doc.get("ts_code", ""), "strategy": doc.get("strategy", ""), "price": doc.get("filled_price", 0), "reason": doc.get("reason", "") if doc["side"] == "sell" else ""})
+        
+        return {"success": True, "data": {"date": date, "mode": mode, "points": points, "trades": trades}}
+    except Exception as e:
+        return {"success": True, "data": {"points": [], "trades": []}, "message": str(e)}
+
+
+@router.get("/sentiment-strategy-matrix")
+async def get_sentiment_strategy_matrix():
+    """策略×情绪 效果矩阵 — 按情绪阶段分组统计每个策略的交易表现"""
+    try:
+        from core.managers import mongo_manager
+        if not mongo_manager.is_initialized:
+            return {"success": True, "data": {"matrix": {}, "recommendations": []}}
+        db = mongo_manager.db
+        import re
+        from collections import defaultdict
+        
+        # 获取每日情绪阶段
+        daily_sentiment = {}
+        async for doc in db["scan_traces"].find(
+            {"trade_date": {"$exists": True}},
+            {"trade_date": 1, "layer_details": 1, "summary": 1}
+        ):
+            td = doc.get("trade_date", "")
+            l3d = doc.get("layer_details", {}).get("L3_sentiment_data") or {}
+            l3_text = doc.get("layer_details", {}).get("L3_sentiment", "")
+            period = l3d.get("period", "")
+            if not period and l3_text:
+                m = re.search(r'→(高潮|分化|震荡|冰点)', l3_text)
+                if m: period = m.group(1)
+            # 旧数据用candidates粗估(大数=全市场扫描=正常交易日)
+            if not period:
+                cand = doc.get("summary", {}).get("total_candidates", 0)
+                if cand >= 10000: period = "分化"  # 全市场正常
+                elif cand >= 3000: period = "震荡"
+                elif cand > 0: period = "冰点"
+            if period:
+                daily_sentiment[td] = period
+        
+        matrix = defaultdict(lambda: defaultdict(lambda: {"wins": 0, "losses": 0, "count": 0, "total_pnl": 0.0}))
+        strategy_totals = defaultdict(lambda: {"wins": 0, "losses": 0, "count": 0, "total_pnl": 0.0})
+        
+        async for doc in db["broker_orders"].find(
+            {"side": "sell", "status": "filled"},
+            {"trade_date": 1, "strategy": 1, "reason": 1, "filled_price": 1, "filled_qty": 1}
+        ):
+            strategy = doc.get("strategy", "unknown")
+            td = doc.get("trade_date", "")
+            reason = doc.get("reason", "")
+            fp = doc.get("filled_price", 0) or 0
+            fq = doc.get("filled_qty", 0) or 0
+            period = daily_sentiment.get(td, "")
+            if not period:
+                period = "冰点" if "强制" in reason or "空仓" in reason else "未知"
+            
+            pct_match = re.search(r'曾盈([\\d.]+)%', reason)
+            if not pct_match:
+                pct_match = re.search(r'-?([\\d.]+)%', reason)
+            profit_pct = float(pct_match.group(1)) if pct_match else 0
+            if "止损" in reason and "追踪" not in reason:
+                profit_pct = -abs(profit_pct)
+            
+            is_win = profit_pct >= 0
+            pnl = fp * fq * profit_pct / 100
+            matrix[strategy][period]["count"] += 1
+            matrix[strategy][period]["wins"] += int(is_win)
+            matrix[strategy][period]["losses"] += int(not is_win)
+            matrix[strategy][period]["total_pnl"] += pnl
+            strategy_totals[strategy]["count"] += 1
+            strategy_totals[strategy]["wins"] += int(is_win)
+            strategy_totals[strategy]["losses"] += int(not is_win)
+            strategy_totals[strategy]["total_pnl"] += pnl
+        
+        result_matrix = {}
+        for strat, periods in matrix.items():
+            result_matrix[strat] = {}
+            for per, data in periods.items():
+                result_matrix[strat][per] = {"count": data["count"], "win_rate": round(data["wins"]/max(data["count"],1)*100,1), "total_pnl": round(data["total_pnl"]), "wins": data["wins"], "losses": data["losses"]}
+        
+        recommendations = []
+        for strat, periods in result_matrix.items():
+            best = max(periods.items(), key=lambda x: x[1]["win_rate"]*x[1]["count"] if x[1]["count"]>0 else 0)
+            if best[1]["count"] >= 2:
+                recommendations.append({"strategy": strat, "best_period": best[0], "win_rate": best[1]["win_rate"], "count": best[1]["count"], "pnl": best[1]["total_pnl"]})
+        recommendations.sort(key=lambda x: x["pnl"], reverse=True)
+        
+        return {"success": True, "data": {
+            "matrix": result_matrix,
+            "strategy_totals": {k: {"count": v["count"], "wins": v["wins"], "losses": v["losses"], "win_rate": round(v["wins"]/max(v["count"],1)*100,1), "total_pnl": round(v["total_pnl"])} for k,v in strategy_totals.items()},
+            "recommendations": recommendations[:5],
+        }}
+    except Exception as e:
+        return {"success": True, "data": {"matrix": {}, "recommendations": []}, "message": str(e)}
+
+
 @router.post("/reset")
 async def reset_account():
     """清仓重置(清空所有持仓/订单, 恢复初始资金)"""
