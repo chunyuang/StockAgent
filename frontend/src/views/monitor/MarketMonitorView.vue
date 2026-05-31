@@ -304,11 +304,18 @@ const sentimentTradesCache = reactive<Record<string, any[]>>({})
 const sentimentTimeline = computed(() => sentimentCache[sentimentMode.value] || [])
 const sentimentTrades = computed(() => sentimentTradesCache[sentimentMode.value] || [])
 // 日线只显示最近60天, 其他模式全显
+// 日内无数据时回退显示日线
 const displayTimeline = computed(() => {
   const data = sentimentTimeline.value
-  if (sentimentMode.value !== 'daily') return data
-  return data.slice(-60)
+  if (sentimentMode.value === 'daily') return data.slice(-60)
+  if (sentimentMode.value === 'intraday' && !data.length) {
+    // fallback到日线缓存
+    const dailyData = sentimentCache['daily'] || []
+    return dailyData.slice(-60)
+  }
+  return data
 })
+const isIntradayFallback = computed(() => sentimentMode.value === 'intraday' && !sentimentTimeline.value.length && (sentimentCache['daily'] || []).length > 0)
 // X轴标签: 采样+可读格式
 const xAxisLabels = computed(() => {
   const data = displayTimeline.value
@@ -1821,15 +1828,15 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <!-- 1. 情绪时间线 -->
         <div class="st">📈 情绪时间线
           <span style="font-weight:normal;font-size:11px;color:var(--text-tertiary);margin-left:8px">
-            {{ sentimentMode === 'intraday' ? '（需扫描器运行）' : `（${displayTimeline.length}个数据点）` }}
+            {{ isIntradayFallback ? '（Scanner未运行，显示日线数据）' : `（${displayTimeline.length}个数据点）` }}
           </span>
         </div>
-        <div v-if="sentimentMode === 'intraday' && !sentimentTimeline.length" class="empty" style="padding:16px 0;text-align:center">
+        <div v-if="sentimentMode === 'intraday' && !sentimentTimeline.length && !isIntradayFallback" class="empty" style="padding:16px 0;text-align:center">
           <div style="font-size:32px;margin-bottom:8px">📡</div>
           <div>日内模式需要扫描器运行中才能采集数据</div>
           <div style="font-size:12px;color:var(--text-tertiary);margin-top:4px">请先启动扫描器，或在日线/周线/月线模式下查看历史情绪</div>
         </div>
-        <div v-else-if="!sentimentTimeline.length" class="empty" style="padding:12px 0">暂无情绪数据</div>
+        <div v-else-if="!displayTimeline.length" class="empty" style="padding:12px 0">暂无情绪数据</div>
         <div v-else class="sentiment-chart">
           <div class="sc-chart-row">
           <!-- Y轴标签 -->
