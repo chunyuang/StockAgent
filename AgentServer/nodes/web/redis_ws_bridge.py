@@ -479,7 +479,7 @@ class RedisWSBridge:
         return {
             "running": self._running,
             "subscribed": self._pubsub is not None,
-            "cached_tasks": len(self._log_cache),
+            "cached_tasks": 0,  # _log_cache不再缓存
         }
 
 

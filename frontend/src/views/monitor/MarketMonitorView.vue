@@ -827,7 +827,7 @@ onErrorCaptured((err, instance, info) => {
   return false // 阻止错误继续向上传播，组件不会卸载
 })
 
-onMounted(async () => { try { await Promise.all([fetchScanner(), fetchStrategies(), fetchHealth()]) } catch(e) { console.error('[Mount] fetch error:', e) } try { fetchLimitPools(); fetchDataSources(); fetchPerformanceHistory(); connectWS() } catch(e) { console.error('[Mount] setup error:', e) } nowTimer = setInterval(() => { nowMs.value = Date.now() }, 1000); const getRefreshInterval = () => { const n = new Date(), h = n.getHours(), m = n.getMinutes(); const isTrading = (h === 9 && m >= 30) || (h >= 10 && h < 15) || (h === 15 && m === 0); return isTrading ? 5000 : 60000 }; refreshTimer = setInterval(() => { if (!autoRefresh.value || ws?.readyState === WebSocket.OPEN) return; fetchScanner(); fetchHealth() }, getRefreshInterval()) })
+onMounted(async () => { try { await Promise.all([fetchScanner(), fetchStrategies(), fetchHealth()]) } catch(e) { console.error('[Mount] fetch error:', e); ElMessage.warning('数据加载失败，请检查连接后刷新') } try { fetchLimitPools(); fetchDataSources(); fetchPerformanceHistory(); connectWS() } catch(e) { console.error('[Mount] setup error:', e); ElMessage.error('实时连接建立失败') } nowTimer = setInterval(() => { nowMs.value = Date.now() }, 1000); const getRefreshInterval = () => { const n = new Date(), h = n.getHours(), m = n.getMinutes(); const isTrading = (h === 9 && m >= 30) || (h >= 10 && h < 15) || (h === 15 && m === 0); return isTrading ? 5000 : 60000 }; refreshTimer = setInterval(() => { if (!autoRefresh.value || ws?.readyState === WebSocket.OPEN) return; fetchScanner(); fetchHealth() }, getRefreshInterval()) })
 onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer); if (nowTimer) clearInterval(nowTimer); disconnectWS() })
 function connectWS() {
   try {
@@ -837,7 +837,32 @@ function connectWS() {
     const wsDebouncedFetch = () => { if (wsDebounceTimer) clearTimeout(wsDebounceTimer); wsDebounceTimer = setTimeout(fetchScanner, 500) }
     let lastSignalStreamId = ''
     let lastPositionStreamId = ''
-    ws.onopen = () => { ws?.send(JSON.stringify({ type: 'subscribe_scanner' })); scannerStore.isWsConnected = true }
+    ws.onopen = () => {
+      ws?.send(JSON.stringify({ type: 'subscribe_scanner' }))
+      scannerStore.isWsConnected = true
+      // 【v2.9.36】断线重连后补发缺失的Stream消息
+      if (lastSignalStreamId) {
+        fetch(`/api/v1/scanner/stream/signals?after=${lastSignalStreamId}&count=50`)
+          .then(r => r.json()).then(j => {
+            if (j.success && j.data?.length) {
+              for (const msg of j.data) {
+                if (msg.data) scannerStore.updateFromWs('signal', { item: msg.data.signals?.[0] || msg.data.item })
+              }
+              fetchScanner() // 刷新全量状态
+            }
+          }).catch(() => {})
+      }
+      if (lastPositionStreamId) {
+        fetch(`/api/v1/scanner/stream/positions?after=${lastPositionStreamId}&count=50`)
+          .then(r => r.json()).then(j => {
+            if (j.success && j.data?.length) {
+              for (const msg of j.data) {
+                if (msg.data) scannerStore.updateFromWs('position', { positions: msg.data.positions, account: msg.data.account })
+              }
+            }
+          }).catch(() => {})
+      }
+    }
     ws.onmessage = (e) => {
       try {
         const d = JSON.parse(e.data)

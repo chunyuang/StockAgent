@@ -35,6 +35,22 @@ GLOBAL_RISK = {
     "hold_protection_threshold": 0.06,     # 【V67:从5%→6%】持仓保护阈值提升:盈利≥6%的股不让调仓卖出;5%保护了龙头低吸低利润股,但6%以上的盈利股更有可能继续上涨,5%→6%减少被调仓卖出的潜在大牛
     "live_trading_mode": False,     # 【V29:实盘模式开关】True时pct_chg等T日因子降级为_prev
     "risk_free_rate": 0.03,        # 【V64-P2-3:无风险利率,用于夏普/索提诺计算(从0.03/252硬编码提升为可配置参数)】
+    # 【V67:情绪仓位单一来源(Single Source of Truth)】
+    # 所有消费方(EmotionCycleManager/live_filter_pipeline/portfolio_backtest/emotion_cycle.py)
+    # 必须从此读取,不允许各自硬编码。修改仓位系数只改这里。
+    "sentiment_position_map": {
+        "rising": 1.0,              # 高潮期(≥70): 满仓
+        "differentiation": 0.7,    # 分化期(55-70): 七仓
+        "chaos": 0.5,              # 震荡期(40-55): 半仓
+        "bearish": 0.3,            # 冰点期(<40): 三仓
+    },
+    # 情绪阶段阈值(也统一在这里)
+    "sentiment_thresholds": {
+        "rising": 70,               # ≥70 高潮
+        "differentiation": 55,      # 55-70 分化
+        "chaos": 40,                # 40-55 震荡
+        # <40 冰点
+    },
 }
 
 # ============================================================

@@ -3,6 +3,17 @@
 
 基于每日涨跌停数据、连板高度、涨跌家数计算市场情绪得分，判断情绪周期阶段。
 
+【V67:情绪仓位单一来源】所有仓位系数从strategy_defaults.GLOBAL_RISK["sentiment_position_map"]读取。
+"""
+
+
+def _get_position_ratio(period_cn: str) -> float:
+    """从strategy_defaults读取仓位系数(单一来源)"""
+    from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+    cn_to_en = {"高潮": "rising", "分化": "differentiation", "震荡": "chaos", "冰点": "bearish"}
+    en_key = cn_to_en.get(period_cn, "bearish")
+    return GLOBAL_RISK.get("sentiment_position_map", {}).get(en_key, 0.3)
+
 **情绪周期四阶段:**
 1.  **上升期/发酵期** ✅ 满仓开仓，所有策略开放
 2.  **分化期** ⚠️ 降低仓位，只做最强龙头
@@ -62,21 +73,27 @@ class EmotionCycleManager:
     计算每日市场情绪得分，判断情绪周期阶段，提供仓位建议。
     """
     
-    # 情绪阶段阈值
-    THRESHOLD = {
-        "rising": 70,        # >70 上升期
-        "differentiation": 50,  # 50-70 分化期
-        "chaos": 30,          # 30-50 混沌期
-        # <30 退潮期
-    }
+    # 情绪阶段阈值 — 从strategy_defaults读取(单一来源)
+    # 旧值: {rising:70, differentiation:50, chaos:30} → 与回测不一致
+    # 新值: 从GLOBAL_RISK["sentiment_thresholds"]统一读取
+    @property
+    def THRESHOLD(self):
+        from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+        return GLOBAL_RISK.get("sentiment_thresholds", {"rising": 70, "differentiation": 55, "chaos": 40})
     
-    # 仓位乘数
-    POSITION_MULTIPLIER = {
-        EmotionPhase.RISING: 1.0,         # 满仓
-        EmotionPhase.DIFFERENTIATION: 0.5,  # 半仓
-        EmotionPhase.CHAOS: 0.25,        # 1/4仓
-        EmotionPhase.BEARISH: 0.0,        # 空仓
-    }
+    # 仓位乘数 — 从strategy_defaults读取(单一来源)
+    # 旧值: {RISING:1.0, DIFFERENTIATION:0.5, CHAOS:0.25, BEARISH:0.0} → 与回测不一致
+    # 新值: 从GLOBAL_RISK["sentiment_position_map"]统一读取
+    @property
+    def POSITION_MULTIPLIER(self):
+        from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+        m = GLOBAL_RISK.get("sentiment_position_map", {})
+        return {
+            EmotionPhase.RISING: m.get("rising", 1.0),
+            EmotionPhase.DIFFERENTIATION: m.get("differentiation", 0.7),
+            EmotionPhase.CHAOS: m.get("chaos", 0.5),
+            EmotionPhase.BEARISH: m.get("bearish", 0.3),
+        }
     
     # 开仓允许
     CAN_OPEN = {
@@ -551,7 +568,7 @@ class EmotionCycleManager:
             {"trade_date": td_int},
             {"$set": {
                 "trade_date": td_int, "score": score, "period": period,
-                "position_ratio": {"高潮": 1.0, "分化": 0.7, "震荡": 0.5, "冰点": 0.3}.get(period, 0.3),
+                "position_ratio": _get_position_ratio(period),
                 "limit_up": lu, "limit_down": ld, "max_continue": max_lb,
                 "up_count": up_count, "down_count": down_count,
                 "up_down_ratio": round(up_down_ratio, 3), "zt_premium": 0,

@@ -413,7 +413,7 @@ class TestVersionSync(unittest.TestCase):
         with open(source_path, "r") as f:
             content = f.read()
         
-        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.35"', content)
+        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.36"', content)
 
 
 class TestNoBacktestRegression(unittest.TestCase):
