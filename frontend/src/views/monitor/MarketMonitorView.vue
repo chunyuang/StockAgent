@@ -297,6 +297,10 @@ const reviewHero = ref<any>(null)  // Hero Banner数据
 const disciplineCheck = ref<any>(null)  // 纪律检查数据
 const reviewForward = ref<any>(null)  // 前瞻建议数据
 const backtestRunning = ref(false)  // 回测运行中
+const deviationData = ref<any>(null)  // P1偏差归因
+const weeklyReviewData = ref<any>(null)  // P2周复盘
+const monthlyReviewData = ref<any>(null)  // P2月复盘
+const paramDriftData = ref<any>(null)  // P2参数漂移
 
 async function runBacktest() {
   backtestRunning.value = true
@@ -305,13 +309,32 @@ async function runBacktest() {
     const p = parseResponse(r)
     if (p.success) {
       ElMessage.success(p.message || '回测已启动')
-      // 30秒后刷新
       setTimeout(() => { fetchReviewData() }, 30000)
-    } else {
-      ElMessage.error(p.message || '回测启动失败')
-    }
+    } else { ElMessage.error(p.message || '回测启动失败') }
   } catch { ElMessage.error('回测启动失败') }
   finally { backtestRunning.value = false }
+}
+
+async function runSamePeriodBacktest() {
+  backtestRunning.value = true
+  try {
+    const r = await api.post(`${scannerApi}/backtest-same-period`, {})
+    const p = parseResponse(r)
+    if (p.success) {
+      ElMessage.success(p.message || '同区间回测已启动')
+      setTimeout(() => { fetchReviewData() }, 60000)
+    } else { ElMessage.error(p.message || '回测启动失败') }
+  } catch { ElMessage.error('回测启动失败') }
+  finally { backtestRunning.value = false }
+}
+
+async function saveParamSnapshot() {
+  try {
+    const r = await api.get(`${scannerApi}/param-snapshot`)
+    const p = parseResponse(r)
+    if (p.success) ElMessage.success('参数快照已保存')
+    else ElMessage.error(p.message || '保存失败')
+  } catch { ElMessage.error('保存失败') }
 }
 
 // ==================== 情绪Tab ====================
@@ -570,24 +593,29 @@ async function fetchReviewData() {
     const promises: Promise<any>[] = []
     const opts = { timeout: 15000 }
     const today = new Date().toISOString().slice(0, 10)
+    const dateParam = reviewDate.value.replace(/-/g, '')
     const isToday = reviewDate.value === today
     
+    // ===== 通用数据 =====
+    promises.push(
+      api.get(`${scannerApi}/review-hero?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) reviewHero.value = p.data }),
+      api.get(`${scannerApi}/backtest-compare?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) liveBacktestDiff.value = p.data || [] }),
+    )
+    
+    // ===== 按周期差异化 =====
     if (reviewTab.value === 'daily') {
+      // 日复盘: 执行质量 + 纪律检查 + 偏差归因(纪律+滑点) + 前瞻
       if (isToday) {
-        // 今天: 用实时API
         promises.push(
           api.get(`${scannerApi}/daily-report`, opts).then(r => { const p = parseResponse(r); if (p.success) dailyReportData.value = p.data }),
           api.get(`${scannerApi}/trade-attribution?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) tradeAttributions.value = p.data || [] }),
         )
       } else {
-        // 历史日期: 用历史复盘API
-        const dateParam = reviewDate.value.replace(/-/g, '')
         promises.push(
           api.get(`${scannerApi}/historical-review?date=${dateParam}`, opts).then(r => {
             const p = parseResponse(r)
             if (p.success && p.data) {
               const d = p.data
-              // 转换为dailyReportData格式
               dailyReportData.value = {
                 date: reviewDate.value,
                 account: { today_profit: 0, position_ratio: 0, available_cash: 0 },
@@ -596,31 +624,41 @@ async function fetchReviewData() {
                 win_rate: Object.values(d.strategy_summary || {}).reduce((s: number, v: any) => s + v.win_count, 0) / Math.max(Object.values(d.strategy_summary || {}).reduce((s: number, v: any) => s + (v.win_count || 0) + (v.loss_count || 0), 0), 1) * 100,
                 stop_loss_count: Object.values(d.strategy_summary || {}).reduce((s: number, v: any) => s + (v.stop_loss_count || 0), 0),
                 take_profit_count: Object.values(d.strategy_summary || {}).reduce((s: number, v: any) => s + (v.take_profit_count || 0), 0),
-                scanner_stats: d.scan_stats,
-                funnel_summary: d.funnel_summary,
-                sentiment_snapshot: d.sentiment_snapshot,
+                scanner_stats: d.scan_stats, funnel_summary: d.funnel_summary, sentiment_snapshot: d.sentiment_snapshot,
               }
-              // 交易归因从trade-attribution API获取(不再从sells硬编码)
             }
           }),
-          // 历史也用trade-attribution获取完整归因
           api.get(`${scannerApi}/trade-attribution?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) tradeAttributions.value = p.data || [] }),
         )
       }
-    } else if (reviewTab.value === 'weekly') {
-      const dateParam = reviewDate.value.replace(/-/g, '')
+      // 日复盘专有: 纪律检查 + 偏差归因(执行偏差)
       promises.push(
-        api.get(`${scannerApi}/weekly-report?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) weeklyReportData.value = p.data }),
+        api.get(`${scannerApi}/discipline-check?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) disciplineCheck.value = p.data }),
+        api.get(`${scannerApi}/deviation-attribution?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) deviationData.value = p.data }),
+        api.get(`${scannerApi}/review-forward?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) reviewForward.value = p.data }),
+      )
+    } else if (reviewTab.value === 'weekly') {
+      // 周复盘: 策略效能 + 偏差归因(策略偏差) + 偏差趋势
+      promises.push(
+        api.get(`${scannerApi}/review-weekly?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) weeklyReviewData.value = p.data }),
+        api.get(`${scannerApi}/deviation-attribution?start_date=&end_date=`, opts).then(r => { const p = parseResponse(r); if (p.success) deviationData.value = p.data }),
+      )
+      // 周复盘也需要纪律和前瞻
+      promises.push(
+        api.get(`${scannerApi}/discipline-check?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) disciplineCheck.value = p.data }),
+        api.get(`${scannerApi}/review-forward?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) reviewForward.value = p.data }),
+      )
+    } else if (reviewTab.value === 'monthly') {
+      // 月复盘: 系统偏差 + 参数漂移 + 行为漂移
+      promises.push(
+        api.get(`${scannerApi}/review-monthly?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) monthlyReviewData.value = p.data }),
+        api.get(`${scannerApi}/param-drift`, opts).then(r => { const p = parseResponse(r); if (p.success) paramDriftData.value = p.data }),
+        api.get(`${scannerApi}/deviation-attribution?start_date=&end_date=`, opts).then(r => { const p = parseResponse(r); if (p.success) deviationData.value = p.data }),
+      )
+      promises.push(
+        api.get(`${scannerApi}/review-forward?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) reviewForward.value = p.data }),
       )
     }
-    
-    promises.push(
-      api.get(`${scannerApi}/execution-quality?date=${reviewDate.value.replace(/-/g, '')}`, opts).then(r => { const p = parseResponse(r); if (p.success) executionQuality.value = p.data }),
-      api.get(`${scannerApi}/backtest-compare?date=${reviewDate.value.replace(/-/g, '')}`, opts).then(r => { const p = parseResponse(r); if (p.success) liveBacktestDiff.value = p.data || [] }),
-      api.get(`${scannerApi}/review-hero?date=${reviewDate.value.replace(/-/g, '')}`, opts).then(r => { const p = parseResponse(r); if (p.success) reviewHero.value = p.data }),
-      api.get(`${scannerApi}/discipline-check?date=${reviewDate.value.replace(/-/g, '')}`, opts).then(r => { const p = parseResponse(r); if (p.success) disciplineCheck.value = p.data }),
-      api.get(`${scannerApi}/review-forward?date=${reviewDate.value.replace(/-/g, '')}`, opts).then(r => { const p = parseResponse(r); if (p.success) reviewForward.value = p.data }),
-    )
     
     await Promise.allSettled(promises)
   } catch { /* ignore */ }
@@ -1729,6 +1767,121 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         </template>
 
         <!-- ============ 第4层: 纪律检查 + 执行质量 ============ -->
+        <!-- ===== 日复盘: 执行偏差(纪律+滑点) ===== -->
+        <template v-if="reviewTab === 'daily' && deviationData">
+          <div class="st" style="margin-top:12px">🔍 执行偏差归因 <span style="font-weight:normal;font-size:11px;color:var(--text-tertiary)">({{ deviationData.period }})</span></div>
+          <div class="review-2col">
+            <div class="dev-card">
+              <div class="dev-title">📊 滑点偏差</div>
+              <div class="dev-row"><span>平均滑点</span><span :class="deviationData.deviations?.slippage?.avg_pct > 0 ? 'down' : 'up'">{{ deviationData.deviations?.slippage?.avg_pct || 0 }}%</span></div>
+              <div class="dev-row"><span>影响笔数</span><span>{{ deviationData.deviations?.slippage?.count || 0 }}笔</span></div>
+              <div class="dev-row"><span>影响幅度</span><span class="down">{{ deviationData.deviations?.slippage?.impact || 0 }}%</span></div>
+            </div>
+            <div class="dev-card">
+              <div class="dev-title">🚨 纪律偏差 <span v-if="deviationData.deviations?.discipline?.violations" class="down">（主因）</span></div>
+              <div class="dev-row"><span>违规笔数</span><span class="down">{{ deviationData.deviations?.discipline?.violations || 0 }}笔</span></div>
+              <div class="dev-row"><span>违规胜率</span><span class="down">{{ deviationData.deviations?.discipline?.violation_wr || 0 }}%</span></div>
+              <div class="dev-row"><span>影响幅度</span><span class="down">{{ deviationData.deviations?.discipline?.impact || 0 }}%</span></div>
+            </div>
+          </div>
+          <div v-if="deviationData.details?.discipline?.length" class="violations-list" style="margin-top:6px">
+            <div v-for="v in deviationData.details.discipline.slice(0,5)" :key="v.ts_code" class="violation-item sev-high">
+              <span class="v-icon">🔴</span>
+              <span class="v-type">{{ v.type }}</span>
+              <span class="v-detail">{{ v.period }}期{{ v.strategy }} {{ v.stock_name }}</span>
+            </div>
+          </div>
+        </template>
+
+        <!-- ===== 周复盘: 策略偏差 + 偏差趋势 ===== -->
+        <template v-if="reviewTab === 'weekly' && weeklyReviewData">
+          <div class="st" style="margin-top:12px">📊 策略效能 ({{ weeklyReviewData.period }})</div>
+          <div class="review-scorecard" style="grid-template-columns:repeat(4,1fr)">
+            <div class="rsc"><div class="rsc-label">交易</div><div class="rsc-value">{{ weeklyReviewData.summary?.trades || 0 }}笔</div></div>
+            <div class="rsc"><div class="rsc-label">胜率</div><div class="rsc-value">{{ weeklyReviewData.summary?.win_rate || 0 }}%</div></div>
+            <div class="rsc"><div class="rsc-label">盈亏</div><div class="rsc-value" :class="weeklyReviewData.summary?.pnl >= 0 ? 'up' : 'down'">{{ weeklyReviewData.summary?.pnl >= 0 ? '+' : '' }}{{ weeklyReviewData.summary?.pnl || 0 }}%</div></div>
+            <div class="rsc"><div class="rsc-label">情绪</div><div class="rsc-value">{{ Object.values(weeklyReviewData.sentiments || {})[0]?.period || '-' }}</div></div>
+          </div>
+          <!-- 策略统计 -->
+          <div class="strategy-contrib">
+            <div v-for="(data, key) in weeklyReviewData.strategy_stats || {}" :key="key" class="strat-card">
+              <div class="strat-header">
+                <ElTag size="small" class="tag-solid">{{ strategyCN(key) }}</ElTag>
+                <span class="strat-pnl" :class="data.pnl >= 0 ? 'up' : 'down'">{{ data.pnl >= 0 ? '+' : '' }}{{ data.pnl }}%</span>
+              </div>
+              <div class="strat-metrics">
+                <div class="strat-m"><span class="strat-ml">笔数</span><span class="strat-mv">{{ data.trades }}笔</span></div>
+                <div class="strat-m"><span class="strat-ml">胜率</span><span class="strat-mv" :class="data.win_rate >= 50 ? 'up' : 'down'">{{ data.win_rate }}%</span></div>
+              </div>
+            </div>
+          </div>
+          <!-- 偏差趋势 -->
+          <div class="st" style="margin-top:12px">📈 偏差趋势(近4周)</div>
+          <div class="eq-grid-mini">
+            <div v-for="w in weeklyReviewData.weekly_trend || []" :key="w.week" class="eq-row">
+              <span>{{ w.week }}({{ w.start }})</span>
+              <span>{{ w.trades }}笔 WR={{ w.win_rate }}%</span>
+            </div>
+          </div>
+          <!-- 逐日 -->
+          <div class="st" style="margin-top:12px">📋 逐日明细</div>
+          <div class="eq-grid-mini">
+            <div v-for="d in weeklyReviewData.daily_breakdown || []" :key="d.date" class="eq-row">
+              <span>{{ d.date }}</span>
+              <span>买{{ d.buys }} 卖{{ d.sells }} WR={{ d.win_rate }}% PnL={{ d.pnl }}%</span>
+            </div>
+          </div>
+        </template>
+
+        <!-- ===== 月复盘: 系统偏差 + 参数漂移 + 行为漂移 ===== -->
+        <template v-if="reviewTab === 'monthly' && monthlyReviewData">
+          <div class="st" style="margin-top:12px">🔬 系统偏差 ({{ monthlyReviewData.period }})</div>
+          <div class="review-scorecard" style="grid-template-columns:repeat(4,1fr)">
+            <div class="rsc"><div class="rsc-label">交易</div><div class="rsc-value">{{ monthlyReviewData.summary?.trades || 0 }}笔</div></div>
+            <div class="rsc"><div class="rsc-label">胜率</div><div class="rsc-value">{{ monthlyReviewData.summary?.win_rate || 0 }}%</div></div>
+            <div class="rsc"><div class="rsc-label">盈亏</div><div class="rsc-value" :class="monthlyReviewData.summary?.pnl >= 0 ? 'up' : 'down'">{{ monthlyReviewData.summary?.pnl >= 0 ? '+' : '' }}{{ monthlyReviewData.summary?.pnl || 0 }}%</div></div>
+            <div class="rsc"><div class="rsc-label">连亏</div><div class="rsc-value">-</div></div>
+          </div>
+          <!-- 行为漂移 -->
+          <div class="st" style="margin-top:12px">⚡ 行为漂移检测</div>
+          <div class="review-2col">
+            <div class="dev-card">
+              <div class="dev-title">🛡️ 止损执行率</div>
+              <div class="dev-row"><span>本月</span><span :class="monthlyReviewData.behavior_drift?.stop_loss_execution_rate >= 90 ? 'up' : 'down'">{{ monthlyReviewData.behavior_drift?.stop_loss_execution_rate || 0 }}%</span></div>
+            </div>
+            <div class="dev-card">
+              <div class="dev-title">❄️ 冰点期开仓率</div>
+              <div class="dev-row"><span>冰点买入</span><span :class="monthlyReviewData.behavior_drift?.bearish_period_buy_ratio >= 30 ? 'down' : 'up'">{{ monthlyReviewData.behavior_drift?.bearish_period_buy_ratio || 0 }}%</span></div>
+              <div class="dev-row"><span>冰点买入/总买入</span><span>{{ monthlyReviewData.behavior_drift?.bearish_buys || 0 }}/{{ monthlyReviewData.behavior_drift?.total_buys || 0 }}笔</span></div>
+            </div>
+          </div>
+          <!-- 参数漂移 -->
+          <div class="st" style="margin-top:12px">🔧 参数漂移检测
+            <ElButton size="small" @click="saveParamSnapshot" style="margin-left:8px">📸 保存当前快照</ElButton>
+          </div>
+          <div v-if="paramDriftData?.drifts?.length" class="violations-list">
+            <div v-for="(d, i) in paramDriftData.drifts" :key="i" class="violation-item" :class="d.severity === 'high' ? 'sev-high' : 'sev-medium'">
+              <span class="v-icon">{{ d.severity === 'high' ? '🔴' : '🟡' }}</span>
+              <span class="v-type">{{ d.strategy || d.level }}</span>
+              <span class="v-detail">{{ d.key }}: {{ d.old }} → {{ d.new }}</span>
+            </div>
+          </div>
+          <div v-else class="empty">无参数漂移(快照基线: {{ paramDriftData?.start_date || '无' }})</div>
+          <!-- 策略月度 -->
+          <div class="st" style="margin-top:12px">🎯 策略月度贡献</div>
+          <div class="strategy-contrib">
+            <div v-for="(data, key) in monthlyReviewData.strategy_stats || {}" :key="key" class="strat-card">
+              <div class="strat-header">
+                <ElTag size="small" class="tag-solid">{{ strategyCN(key) }}</ElTag>
+                <span class="strat-pnl" :class="data.pnl >= 0 ? 'up' : 'down'">{{ data.pnl >= 0 ? '+' : '' }}{{ data.pnl }}%</span>
+              </div>
+              <div class="strat-metrics">
+                <div class="strat-m"><span class="strat-ml">笔数</span><span class="strat-mv">{{ data.trades }}笔</span></div>
+                <div class="strat-m"><span class="strat-ml">胜率</span><span class="strat-mv" :class="data.win_rate >= 50 ? 'up' : 'down'">{{ data.win_rate }}%</span></div>
+              </div>
+            </div>
+          </div>
+        </template>
         <div class="review-2col" style="margin-top:12px">
           <!-- 纪律检查 -->
           <div class="sentiment-panel">
@@ -3117,5 +3270,9 @@ mm-tab-content {
 .fw-content { color: var(--text-secondary); line-height: 1.5; }
 .fw-switches { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .fw-icon { margin-right: 4px; }
+
+.dev-card { padding: 10px 12px; border-radius: 8px; background: var(--bg-elevated); border: 1px solid var(--border-default); }
+.dev-title { font-weight: 700; font-size: 13px; margin-bottom: 6px; }
+.dev-row { display: flex; justify-content: space-between; font-size: 11px; padding: 2px 0; }
 
 </style>
