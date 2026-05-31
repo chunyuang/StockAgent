@@ -23,10 +23,11 @@ class TestExecuteRiskSellRefactor:
     """验证_execute_risk_sell→_post_sell_cleanup提取(v2.9.27:post_sell_cleanup在RuntimePersistence)"""
 
     def test_execute_risk_sell_calls_post_sell_cleanup(self):
-        """_execute_risk_sell成功时调用_post_sell_cleanup"""
-        from nodes.market_monitor.scanner import MarketScanner
-        source = inspect.getsource(MarketScanner._execute_risk_sell)
-        assert "_post_sell_cleanup" in source, "_execute_risk_sell应委托_post_sell_cleanup"
+        """execute_risk_sell成功时调用_post_sell_cleanup"""
+        # v2.9.35: 实现已移到PositionManager.execute_risk_sell
+        from nodes.market_monitor.position_manager import PositionManager
+        source = inspect.getsource(PositionManager.execute_risk_sell)
+        assert "_post_sell_cleanup" in source, "execute_risk_sell应调用_post_sell_cleanup"
 
     def test_post_sell_cleanup_exists(self):
         """post_sell_cleanup方法存在且是async(v2.9.27:在RuntimePersistence中)"""
@@ -74,9 +75,10 @@ class TestExecuteRiskSellRefactor:
         assert "_record_trade_result" in source
 
     def test_execute_risk_sell_still_handles_failure(self):
-        """_execute_risk_sell仍处理卖出失败"""
-        from nodes.market_monitor.scanner import MarketScanner
-        source = inspect.getsource(MarketScanner._execute_risk_sell)
+        """execute_risk_sell仍处理卖出失败"""
+        # v2.9.35: 实现已移到PositionManager.execute_risk_sell
+        from nodes.market_monitor.position_manager import PositionManager
+        source = inspect.getsource(PositionManager.execute_risk_sell)
         assert "卖出失败" in source or "RISK_SELL" in source
 
     def test_force_empty_uses_post_sell_cleanup(self):
@@ -88,9 +90,11 @@ class TestExecuteRiskSellRefactor:
         assert "_liquidate_positions" in source_fe, (
             "_execute_force_empty应委托到_liquidate_positions"
         )
-        source_liq = inspect.getsource(MarketScanner._liquidate_positions)
+        # v2.9.35: _liquidate_positions已提取到PositionManager
+        from nodes.market_monitor.position_manager import PositionManager
+        source_liq = inspect.getsource(PositionManager.liquidate_positions)
         assert "_post_sell_cleanup" in source_liq, (
-            "_liquidate_positions未复用_post_sell_cleanup! "
+            "liquidate_positions未复用_post_sell_cleanup! "
             "强制空仓后缺少timeline/统计/状态清理/事件/持久化, 审计缺失。"
         )
 
@@ -102,9 +106,11 @@ class TestExecuteRiskSellRefactor:
         assert "_liquidate_positions" in source_sa, (
             "_sell_all_positions应委托到_liquidate_positions"
         )
-        source_liq = inspect.getsource(MarketScanner._liquidate_positions)
+        # v2.9.35: _liquidate_positions已提取到PositionManager
+        from nodes.market_monitor.position_manager import PositionManager
+        source_liq = inspect.getsource(PositionManager.liquidate_positions)
         assert "_post_sell_cleanup" in source_liq, (
-            "_liquidate_positions未复用_post_sell_cleanup! "
+            "liquidate_positions未复用_post_sell_cleanup! "
             "停止清仓后缺少timeline/统计/状态清理/事件/持久化, 审计缺失。"
         )
 
