@@ -112,39 +112,46 @@ const scannerApi = '/scanner', configApi = '/strategy-config'
 const layerLabel = (k: string) => { const label = pipelineLabels[k]; if (!label) return k; const prefix = k.split('_')[0]; return prefix + ' ' + label }
 const layerDesc = (layer: string, data: any): string => {
   const inp = data?.input || 0, out = data?.output || 0, rej = data?.rejected || 0
-  // 每层详细决策描述: 规则+数据+结论
   const descs: Record<string, () => string> = {
     'L1_force_empty': () => {
-      if (rej > 0 && inp > 0 && out === 0) return '⚠️ 触发强制空仓: 全部禁止买入(清仓信号)'
-      return '未触发 → 三个条件均不满足: ①跌停≥80只 ②涨停≤10且跌停>0 ③大盘跌幅≥3%'
+      if (rej > 0 && inp > 0 && out === 0) return `⚠️ 触发强制空仓! ${inp}只全部禁止买入`
+      if (inp > 0) return `${inp}只通过 (未触发: 跌停<80且涨停>10且大盘跌<3%)`
+      return '未执行'
     },
     'L2_special_period': () => {
-      if (out < inp) return `特殊时期降仓 → 仓位系数=${out > 0 ? Math.round(out/inp*100) : '?'}% (月末/季末/年末/节前)`
-      return '非特殊时期 → 仓位系数=100% (无月末/季末/年末/节前效应)'
+      if (inp > 0 && out < inp) return `仓位系数下调至${out}%(月末/季末/周五/节前)`
+      if (inp > 0) return '仓位系数=100% (无特殊时期)'
+      return '未执行'
     },
     'L3_sentiment': () => {
-      if (rej > 0) return `冰点期(情绪<40分) → 仓位系数≈25-30%, 暂停半路追涨${rej}只 (公式: 涨停-跌停+大盘×10+50)`
-      if (out < inp) return `情绪偏低 → 仓位系数下调 (高潮≥70→100% / 分化55-70→70% / 震荡40-55→50% / 冰点<40→25%)`
-      return '情绪正常 → 仓位系数=100% (得分≥70, 高潮期) | 公式: 涨停数-跌停数+大盘涨幅×10+50'
+      if (rej > 0) return `冰点期 → 暂停半路追涨${rej}只, 仓位≈25%`
+      if (inp > 0 && out < inp) return `情绪偏低 → 仓位系数下调`
+      if (inp > 0) return '情绪正常(≥70分) → 仓位100%'
+      return '未执行'
     },
     'L4_premarket': () => {
-      if (rej > 0) return `排除不合格${rej}只 → ①ST/*ST/退市股 ②上市<60天次新股 ③日均成交<500万低流动性`
-      return '全部通过 → 无ST/退市/次新/低流动性股'
+      if (rej > 0) return `${inp}→${out}: 排除${rej}只(ST/退市/次新<60天/低流动性<500万)`
+      if (inp > 0) return `${inp}只全部通过(ST/退市/次新/低流动性检查)`
+      return '未执行'
     },
     'L5_auction': () => {
-      if (rej > 0) return `排除极端竞价${rej}只 → ①高开>7%(追高风险) ②低开<-5%(风险信号) | 首板打板额外要求竞价≥2%`
-      return '竞价正常 → 无极端高开(>7%)或低开(<-5%) | 首板打板需竞价≥2%确认强势'
+      if (rej > 0) return `${inp}→${out}: 排除${rej}只(高开>7%/低开<-5%/首板竞价<2%)`
+      if (inp > 0) return `${inp}只竞价正常(无极端高开低开)`
+      return '未执行'
     },
     'L6_strategy': () => {
-      return `复用回测策略筛选 → ${out}个候选通过量能/涨幅/换手率等策略条件 (半路追涨:涨2-7%+量比>1.5 | 首板:涨停封板 | 龙头:连板回调 | 跌停翘板:撬板反弹)`
+      if (out > 0) return `${inp}→${out}: ${out}个候选通过策略量能筛选`
+      if (inp > 0) return `${inp}个候选, 无一通过策略条件`
+      return '未执行(策略筛选由上游完成)'
     },
     'L7_ranking': () => {
-      if (rej > 0) return `综合排序+去重 → 截断${rej}只 (优先级: 龙头低吸>跌停翘板>首板打板>半路追涨 | 同股多策略取最高 | 最多保留10个候选)`
-      return '排序完成 → 候选数未超上限(≤10个)'
+      if (rej > 0) return `${inp}→${out}: 排序+去重截断${rej}只(最多保留10候选)`
+      if (inp > 0) return `${inp}只排序通过(未超上限)`
+      return '未执行'
     },
     'L8_position': () => {
-      if (rej > 0) return `仓位受限 → ${rej}只无法买入 (总仓位≤70%上限, 单票≤20%上限)`
-      return '仓位充足 → 总仓位≤70%, 单票≤20% (情绪×特殊×上限取最小)'
+      if (inp > 0) return '仓位充足 → 总仓位≤70%, 单票≤20%'
+      return '仓位控制(总≤70%/单票≤20%)'
     },
   }
   const fn = descs[layer]
@@ -247,8 +254,35 @@ const selectedScanIdx = ref(-1)
 const scanTraceDetail = ref<any>(null)
 const scanHistoryLoading = ref(false)
 const scanTraceDate = ref('')  // 日期过滤器
-const scanTraceFilter = ref<'passed' | 'rejected' | 'summary'>('passed')  // 【v2.9.7: 候选过滤模式】
-const scanTraceLoadingMore = ref(false)  // 【v2.9.7: 加载更多loading】
+const scanTraceHasData = ref<string[]>([])  // 有数据的日期列表
+const scanTraceFilter = ref<'passed' | 'rejected' | 'summary'>('passed')
+const scanTraceLoadingMore = ref(false)
+
+const scanHourCollapse = ref<Record<string, boolean>>({})  // 小时折叠状态
+
+// 按小时分组扫描记录，最新小时展开，其他折叠
+const scanHistoryByHour = computed(() => {
+  if (!scanHistory.value.length) return []
+  const hourMap = new Map<string, any[]>()
+  for (const s of scanHistory.value) {
+    const t = s.scan_time || s.time || ''
+    const hour = t.length > 11 ? t.substring(11, 13) : '??'
+    if (!hourMap.has(hour)) hourMap.set(hour, [])
+    hourMap.get(hour)!.push(s)
+  }
+  const hours = [...hourMap.keys()].sort((a, b) => b.localeCompare(a))  // 最新的小时在前
+  const latestHour = hours[0]
+  return hours.map(h => ({
+    hour: h,
+    items: hourMap.get(h) || [],
+    collapsed: scanHourCollapse.value[h] ?? (h !== latestHour)  // 默认：最新展开，其他折叠
+  }))
+})
+
+function toggleScanHour(hour: string) {
+  scanHourCollapse.value[hour] = !(scanHourCollapse.value[hour] ?? true)
+}
+
 
 // ==================== 复盘Tab ====================
 const reviewTab = ref<'daily' | 'weekly' | 'monthly'>('daily')
@@ -311,13 +345,32 @@ async function fetchPremarketData() {
 }
 
 // ==================== 扫描追踪Tab 数据 ====================
+async function fetchScanTraceDates() {
+  try {
+    const r = await api.get(`${scannerApi}/scan-dates`, { timeout: 10000 })
+    const p = parseResponse(r)
+    if (p.success && p.data?.length) {
+      scanTraceHasData.value = p.data  // [{date, count, is_debug}]
+    }
+  } catch {}
+}
+function scanDateCellClass(date: Date) {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  const key = `${y}${m}${d}`
+  const item = scanTraceHasData.value.find((x: any) => x.date === key)
+  if (!item) return ''
+  return item.is_debug ? 'has-scan-debug' : 'has-scan-data'
+}
+
 async function fetchScanHistory() {
+  if (!scanTraceDate.value) { scanHistory.value = []; scanTraceDetail.value = null; return }
   scanHistoryLoading.value = true
-  scanTraceDetail.value = null  // 清空旧详情,避免渲染错误
+  scanTraceDetail.value = null
   selectedScanIdx.value = -1
   try {
-    const dateParam = scanTraceDate.value ? `&date=${scanTraceDate.value.replace(/-/g, '')}` : ''
-    const r = await api.get(`${scannerApi}/scan-traces?limit=30${dateParam}`, { timeout: 15000 })
+    const r = await api.get(`${scannerApi}/scan-traces?limit=200&date=${scanTraceDate.value.replace(/-/g, '')}`, { timeout: 15000 })
     const p = parseResponse(r)
     if (p.success && p.data?.length) {
       scanHistory.value = p.data
@@ -455,7 +508,7 @@ const activeTab = ref<'guide' | 'trading' | 'premarket' | 'scan-trace' | 'review
 watch(activeTab, (tab) => {
   try {
     if (tab === 'premarket') fetchPremarketData()
-    if (tab === 'scan-trace') fetchScanHistory()
+    if (tab === 'scan-trace') { fetchScanTraceDates(); fetchScanHistory() }
     if (tab === 'review') { fetchReviewData(); fetchParamCompare() }
     if (tab === 'history') { fetchTimeline(); fetchOrders(); fetchAuditLog() }
     if (tab === 'ops') { fetchAutoTrades(); fetchScanConfig() }
@@ -1271,21 +1324,35 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
       <div class="mm-tab-scroll">
         <!-- 顶部: 扫描历史列表(单行紧凑) -->
         <div class="st">📡 扫描历史
-          <ElDatePicker v-model="scanTraceDate" type="date" placeholder="全部日期" size="small" value-format="YYYY-MM-DD" style="width:130px;margin-left:8px" :disabled-date="(d: Date) => d > new Date()" @change="fetchScanHistory" />
-          <ElButton size="small" @click="scanTraceDate='';fetchScanHistory()" :loading="scanHistoryLoading">🔄</ElButton>
-          <span class="text-tertiary" style="font-size:11px;margin-left:auto">全量5分钟 · 持仓30秒 · 信号5分钟过期 · <span style="opacity:0.7">候→过→买</span></span>
+          <ElDatePicker v-model="scanTraceDate" type="date" placeholder="选择日期查看" size="small" value-format="YYYY-MM-DD" style="width:130px;margin-left:8px" :disabled-date="(d: Date) => d > new Date()" :cell-class-name="scanDateCellClass" :teleported="false" @change="fetchScanHistory" />
+          <ElButton v-if="scanTraceDate" size="small" @click="scanTraceDate='';scanHistory=[];scanTraceDetail=null" :loading="scanHistoryLoading">✕ 清除</ElButton>
+          <span class="text-tertiary" style="font-size:11px;margin-left:auto">扫描5分钟 · 持仓30秒 · <span style="opacity:0.7">全市场扫→策略候选→通过筛选</span> · <span style="color:var(--el-color-primary)">●</span>交易日 <span style="color:#e6a23c">●</span>调试</span>
         </div>
-        <div v-if="scanHistoryLoading" class="empty" style="padding:8px 0">加载中...</div>
-        <div v-else-if="!scanHistory.length" class="empty" style="padding:8px 0">启动后扫描记录会显示在这里</div>
-        <div v-else class="scan-strip">
-          <div v-for="(s, i) in scanHistory" :key="i" class="scan-chip" :class="{ active: selectedScanIdx === i }" @click="selectedScanIdx = i; fetchScanTrace(s.scan_id || '')">
-            <span class="sc-time">{{ (s.scan_time || s.time || '').substring(11, 19) || '--:--' }}</span>
-            <span class="sc-type" :class="s.scan_type === 'full' ? 'full' : 'quick'">{{ s.scan_type === 'full' ? '全量' : '快速' }}</span>
-            <span class="sc-stats" title="候选数→通过数→买入数">{{ s.summary?.total_candidates || s.candidates || 0 }}→{{ s.summary?.passed || s.signals || 0 }}→{{ s.buys || 0 }}</span>
+        <div v-if="!scanTraceDate" class="empty" style="padding:12px 0;color:var(--text-tertiary)">📅 请在上方选择日期查看扫描记录（高亮日期有数据）</div>
+        <div v-else-if="scanHistoryLoading" class="empty" style="padding:8px 0">加载中...</div>
+        <div v-else-if="!scanHistory.length" class="empty" style="padding:8px 0">该日暂无扫描记录</div>
+        <div v-else>
+          <div style="font-size:12px;color:var(--el-color-primary);font-weight:600;margin-bottom:4px">📅 {{ scanTraceDate }} 的扫描记录（共{{ scanHistory.length }}条）</div>
+          <div class="scan-hours">
+            <div v-for="(group, gi) in scanHistoryByHour" :key="gi" class="sc-hour-group">
+              <div class="sc-hour-header" @click="toggleScanHour(group.hour)">
+                <span class="sc-hour-toggle">{{ group.collapsed ? '▶' : '▽' }}</span>
+                <span class="sc-hour-label">{{ group.hour }}:00</span>
+                <span class="sc-hour-count">{{ group.items.length }}条</span>
+                <span v-if="group.collapsed" class="sc-hour-summary">最新 {{ group.items[group.items.length-1]?.summary?.passed || 0 }}只通过</span>
+              </div>
+              <div v-show="!group.collapsed" class="scan-strip">
+                <div v-for="(s, i) in group.items" :key="group.hour + '-' + i" class="scan-chip" :class="{ active: selectedScanIdx === scanHistory.indexOf(s), debug: s.is_debug }" @click="selectedScanIdx = scanHistory.indexOf(s); fetchScanTrace(s.scan_id || '')">
+                  <span class="sc-time">{{ (s.scan_time || s.time || '').substring(11, 19) || '--:--' }}</span>
+                  <span v-if="s.is_debug" class="sc-debug-tag">调试</span>
+                  <span class="sc-stats" :title="`全市场扫描${s.summary?.total_candidates || s.candidates || 0}只 → 通过9层筛选${s.summary?.passed || s.signals || 0}只 → 实际买入${s.buys || 0}只`">
+                    <span class="ss-all">{{ s.summary?.total_candidates || s.candidates || 0 }}</span><span class="ss-arr">▶</span><span class="ss-pass">{{ s.summary?.passed || s.signals || 0 }}</span><span class="ss-arr">▶</span><span class="ss-buy" :class="(s.buys || 0) > 0 ? 'has-buy' : ''">{{ s.buys || 0 }}</span>
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-
-        <!-- 中部: 9层漏斗(横向紧凑) -->
         <div v-if="scanTraceDetail" class="scan-funnel">
           <template v-for="(layerData, layerName, idx) in scanTraceDetail.summary || {}">
             <div v-if="layerName !== 'total_candidates' && layerName !== 'passed' && layerName !== 'rejected' && typeof layerData === 'object'" :key="layerName" class="fn-row" :class="{ 'fn-filter': layerData.rejected > 0, 'fn-pass': !layerData.rejected && (layerData.input || 0) > 0 }">
@@ -1369,11 +1436,21 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           <!-- 策略贡献 -->
           <div class="st" style="margin-top:12px">🎯 策略贡献</div>
           <div class="strategy-contrib">
-            <div v-for="(data, key) in dailyReportData.positions?.strategy_summary || {}" :key="key" class="sc-bar-row">
-              <span class="sc-bar-label">{{ strategyCN(key) }}</span>
-              <div class="sc-bar-track"><div class="sc-bar-fill" :class="(data.closed_profit || data.total_profit) >= 0 ? 'up' : 'down'" :style="{ width: Math.min(Math.abs(data.closed_profit || data.total_profit || 0) / Math.max(Math.abs(dailyReportData.account?.today_profit || 1), 1) * 100, 100) + '%' }"></div></div>
-              <span class="sc-bar-value" :class="(data.closed_profit || data.total_profit) >= 0 ? 'up' : 'down'">¥{{ (data.closed_profit || data.total_profit || 0).toFixed(0) }}</span>
-              <span class="text-tertiary" style="font-size:11px">胜{{ data.win_rate }}% {{ data.closed_count || data.count }}笔</span>
+            <div v-for="(data, key) in dailyReportData.positions?.strategy_summary || {}" :key="key" class="strat-card">
+              <div class="strat-header">
+                <ElTag size="small" :color="strategyMeta[key]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(key) }}</ElTag>
+                <span class="strat-pnl" :class="(data.closed_profit || data.total_profit || 0) >= 0 ? 'up' : 'down'">{{ (data.closed_profit || data.total_profit || 0) >= 0 ? '+' : '' }}¥{{ (data.closed_profit || data.total_profit || 0).toFixed(0) }}</span>
+              </div>
+              <div class="strat-metrics">
+                <div class="strat-m"><span class="strat-ml">持仓</span><span class="strat-mv">{{ data.count || 0 }}只</span></div>
+                <div class="strat-m"><span class="strat-ml">已平</span><span class="strat-mv">{{ data.closed_count || 0 }}笔</span></div>
+                <div class="strat-m"><span class="strat-ml">胜率</span><span class="strat-mv" :class="(data.closed_win_rate || data.win_rate || 0) >= 50 ? 'up' : 'down'">{{ (data.closed_win_rate || data.win_rate || 0).toFixed(0) }}%</span></div>
+                <div class="strat-m" v-if="data.avg_win_pct"><span class="strat-ml">均盈</span><span class="strat-mv up">+{{ data.avg_win_pct }}%</span></div>
+                <div class="strat-m" v-if="data.avg_loss_pct"><span class="strat-ml">均亏</span><span class="strat-mv down">{{ data.avg_loss_pct }}%</span></div>
+                <div class="strat-m" v-if="data.profit_loss_ratio"><span class="strat-ml">盈亏比</span><span class="strat-mv" :class="data.profit_loss_ratio >= 2 ? 'up' : ''">{{ data.profit_loss_ratio }}</span></div>
+                <div class="strat-m" v-if="data.stop_loss_count"><span class="strat-ml">止损</span><span class="strat-mv down">{{ data.stop_loss_count }}笔</span></div>
+                <div class="strat-m" v-if="data.take_profit_count"><span class="strat-ml">止盈</span><span class="strat-mv up">{{ data.take_profit_count }}笔</span></div>
+              </div>
             </div>
           </div>
 
@@ -1387,7 +1464,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           <!-- 逐笔归因 -->
           <div class="st" style="margin-top:12px">📝 逐笔归因</div>
           <div v-if="!tradeAttributions.length" class="empty">暂无交易数据</div>
-          <div v-for="t in tradeAttributions" :key="t.ts_code" class="attribution-card">
+          <div v-for="t in tradeAttributions" :key="t.ts_code + t.sell_time" class="attribution-card">
             <div class="attr-top">
               <ElTag size="small" :color="strategyMeta[t.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(t.strategy) }}</ElTag>
               <span class="code">{{ t.ts_code }}</span>
@@ -1400,6 +1477,11 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
               <div class="attr-row"><span>原因</span><span>{{ t.sell_reason }}</span></div>
               <div class="attr-row" v-if="t.why_profit"><span class="up">赚在哪</span><span>{{ t.why_profit }}</span></div>
               <div class="attr-row" v-if="t.why_loss"><span class="down">亏在哪</span><span>{{ t.why_loss }}</span></div>
+              <div v-if="t.scan_info" class="attr-scan">
+                <div class="attr-scan-title">📡 入场漏斗 {{ t.scan_info.scan_time?.substring(11, 19) }}</div>
+                <div v-if="t.scan_info.sentiment" class="attr-row"><span>情绪</span><span>{{ t.scan_info.sentiment }}</span></div>
+                <div v-if="t.scan_info.ranking" class="attr-row"><span>排序</span><span>{{ t.scan_info.ranking }}</span></div>
+              </div>
             </div>
           </div>
 
@@ -2332,19 +2414,23 @@ mm-tab-content {
 .rsc { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 10px 12px; text-align: center; }
 .rsc-label { font-size: 11px; color: var(--text-tertiary); margin-bottom: 4px; }
 .rsc-value { font-size: 16px; font-weight: 600; }
-.strategy-contrib { display: flex; flex-direction: column; gap: 6px; }
-.sc-bar-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-.sc-bar-label { width: 70px; text-align: right; flex-shrink: 0; }
-.sc-bar-track { flex: 1; height: 16px; background: var(--bg-secondary); border-radius: 4px; overflow: hidden; }
-.sc-bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
-.sc-bar-fill.up { background: var(--stock-down); }
-.sc-bar-fill.down { background: var(--stock-up); }
-.sc-bar-value { width: 70px; font-weight: 600; }
+.strategy-contrib { display: flex; flex-direction: column; gap: 8px; }
+.strat-card { padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-default); background: var(--bg-elevated); }
+.strat-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.strat-pnl { font-weight: 700; font-size: 14px; margin-left: auto; }
+.strat-pnl.up { color: var(--stock-down); }
+.strat-pnl.down { color: var(--stock-up); }
+.strat-metrics { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.strat-m { font-size: 11px; }
+.strat-ml { color: var(--text-tertiary); margin-right: 4px; }
+.strat-mv { font-weight: 600; }
 .attribution-card { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 10px 12px; margin-bottom: 6px; }
 .attr-top { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
 .attr-detail { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 16px; font-size: 12px; }
 .attr-row { display: flex; justify-content: space-between; }
 .attr-row span:first-child { color: var(--text-tertiary); }
+.attr-scan { margin-top: 6px; padding: 6px 8px; border-radius: 4px; background: rgba(22,93,255,0.05); border-left: 3px solid var(--el-color-primary); }
+.attr-scan-title { font-size: 11px; font-weight: 600; color: var(--el-color-primary); margin-bottom: 4px; }
 .weekly-daily-table { font-size: 12px; }
 .wdt-header, .wdt-row { display: grid; grid-template-columns: 90px 1fr 60px 60px 80px; gap: 8px; padding: 4px 0; }
 .wdt-header { font-weight: 600; color: var(--text-tertiary); border-bottom: 1px solid var(--border-default); }
@@ -2371,7 +2457,15 @@ mm-tab-content {
 .pm-candidate:last-child, .pm-signal:last-child { border-bottom: none; }
 
 /* 扫描追踪Tab */
-.scan-strip { display: flex; flex-wrap: wrap; gap: 4px; }
+.scan-hours { display: flex; flex-direction: column; gap: 4px; }
+.sc-hour-group { margin-bottom: 2px; }
+.sc-hour-header { display: flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; background: var(--bg-elevated); border: 1px solid var(--border-default); }
+.sc-hour-header:hover { background: var(--bg-hover); }
+.sc-hour-toggle { font-size: 9px; color: var(--text-tertiary); }
+.sc-hour-label { font-weight: 600; color: var(--text-primary); }
+.sc-hour-count { color: var(--text-tertiary); font-size: 10px; }
+.sc-hour-summary { color: var(--el-color-primary); font-size: 10px; margin-left: auto; }
+.scan-strip { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 0 0 16px; }
 .scan-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; border: 1px solid var(--border-default); background: var(--bg-elevated); transition: all 0.15s; }
 .scan-chip:hover { background: var(--bg-hover); border-color: var(--el-color-primary-light-5); }
 .scan-chip.active { background: var(--el-color-primary-light-9); border-color: var(--el-color-primary); }
@@ -2379,7 +2473,13 @@ mm-tab-content {
 .sc-type { font-weight: 600; padding: 1px 5px; border-radius: 3px; font-size: 10px; }
 .sc-type.full { background: rgba(0,180,42,0.12); color: #00b42a; }
 .sc-type.quick { background: rgba(22,93,255,0.12); color: #165dff; }
-.sc-stats { color: var(--text-secondary); }
+.sc-stats { display: inline-flex; align-items: center; gap: 2px; font-size: 11px; font-family: 'JetBrains Mono', monospace; }
+.ss-all { color: var(--text-tertiary); font-size: 10px; }
+.ss-arr { color: var(--text-tertiary); font-size: 9px; margin: 0 1px; }
+.ss-pass { color: var(--el-color-primary); font-weight: 600; }
+.ss-buy { color: var(--text-tertiary); font-weight: 600; }
+.ss-buy.has-buy { color: #f56c6c; }
+
 .scan-funnel { padding: 8px 0; }
 .fn-row { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 5px; font-size: 11px; margin-bottom: 2px; }
 .fn-row.fn-filter { background: rgba(245,63,63,0.04); }
@@ -2490,4 +2590,25 @@ mm-tab-content {
   border: 2px solid var(--el-color-primary) !important;
   box-shadow: 0 0 8px var(--el-color-primary-light-5);
 }
+/* 日期选择器: 交易日有数据 */
+:deep(.el-date-table td.has-scan-data) {
+  .el-date-table-cell__text {
+    background: var(--el-color-primary);
+    color: #fff;
+    font-weight: 600;
+    border-radius: 50%;
+  }
+}
+/* 日期选择器: 调试数据(非交易日) */
+:deep(.el-date-table td.has-scan-debug) {
+  .el-date-table-cell__text {
+    background: #e6a23c;
+    color: #fff;
+    font-weight: 600;
+    border-radius: 50%;
+  }
+}
+/* 扫描记录: 调试标记 */
+.scan-chip.debug { border-style: dashed; opacity: 0.85; }
+.sc-debug-tag { font-size: 9px; padding: 1px 4px; border-radius: 3px; background: rgba(230,162,60,0.15); color: #e6a23c; font-weight: 600; }
 </style>
