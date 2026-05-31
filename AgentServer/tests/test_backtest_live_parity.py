@@ -62,36 +62,35 @@ class TestBacktestLiveParity:
             return f.read()
 
     def test_chaos_position_ratio_parity(self):
-        """震荡期仓位系数：回测和实盘必须一致"""
-        backtest_content = self._read_file(
-            'nodes/backtest_engine/factor_selection/portfolio_backtest.py')
-        live_content = self._read_file(
-            'nodes/market_monitor/live_filter_pipeline.py')
-
-        # 提取回测的仓位系数
-        m_bt = re.search(r'震荡期,仓位系数([\d.]+)', backtest_content)
-        assert m_bt, "回测代码中未找到'震荡期,仓位系数'定义"
-        bt_ratio = float(m_bt.group(1))
-
-        # 提取实盘的仓位系数
-        # 实盘可能用不同写法，搜索0.7或类似值
-        m_live = re.search(r'ratio\s*=\s*0\.7', live_content)
-        if not m_live:
-            # 搜索注释中的说明
-            m_live = re.search(r'chaos.*?70%', live_content, re.IGNORECASE)
-
-        if m_live:
-            # 实盘找到0.7，验证一致
-            assert bt_ratio == 0.7, \
-                f"仓位系数不一致: 回测={bt_ratio}, 实盘=0.7"
-        else:
-            # 实盘找不到明确值，检查注释说明
-            m_comment = re.search(r'rising.*?100%.*?chaos.*?(\d+)%.*?depression.*?(\d+)%',
-                                  live_content, re.IGNORECASE)
-            if m_comment:
-                live_chaos_pct = int(m_comment.group(1))
-                assert bt_ratio == live_chaos_pct / 100, \
-                    f"仓位系数不一致: 回测={bt_ratio}, 实盘={live_chaos_pct}%"
+        """震荡期仓位系数：回测和实盘必须一致(V67:统一从strategy_defaults读取)"""
+        from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+        spm = GLOBAL_RISK.get("sentiment_position_map", {})
+        
+        # 验证strategy_defaults定义了4级仓位
+        assert "rising" in spm, "sentiment_position_map缺少rising"
+        assert "differentiation" in spm, "sentiment_position_map缺少differentiation"
+        assert "chaos" in spm, "sentiment_position_map缺少chaos"
+        assert "bearish" in spm, "sentiment_position_map缺少bearish"
+        
+        # 验证实盘EmotionCycleManager读取的值一致
+        from nodes.market_monitor.emotion_cycle import EmotionCycleManager
+        m = EmotionCycleManager()
+        pm = m.POSITION_MULTIPLIER
+        for phase in pm:
+            en = phase.value
+            expected = spm.get(en)
+            actual = pm[phase]
+            assert actual == expected, \
+                f"{phase.name}仓位不一致: GLOBAL_RISK={expected}, EmotionCycleManager={actual}"
+        
+        # 验证MongoDB写入函数一致
+        from nodes.market_monitor.emotion_cycle import _get_position_ratio
+        cn_to_en = {"高潮": "rising", "分化": "differentiation", "震荡": "chaos", "冰点": "bearish"}
+        for cn, en in cn_to_en.items():
+            expected = spm.get(en)
+            actual = _get_position_ratio(cn)
+            assert actual == expected, \
+                f"{cn}仓位不一致: GLOBAL_RISK={expected}, _get_position_ratio={actual}"
 
     def test_force_empty_thresholds_parity(self):
         """强制空仓阈值：回测和实盘必须从同一来源读取"""

@@ -14,19 +14,18 @@ def _get_position_ratio(period_cn: str) -> float:
     en_key = cn_to_en.get(period_cn, "bearish")
     return GLOBAL_RISK.get("sentiment_position_map", {}).get(en_key, 0.3)
 
-**情绪周期四阶段:**
-1.  **上升期/发酵期** ✅ 满仓开仓，所有策略开放
-2.  **分化期** ⚠️ 降低仓位，只做最强龙头
-3.  **退潮期** ❌ 禁止开仓，强制空仓
-4.  **混沌期** ⚠️ 轻仓试错
-
-**情绪得分计算维度:**
-- 涨停数量 / 跌停数量
-- 连板高度（最高连板数）
-- 涨跌家数比
-- 昨日涨停今日溢价
-- 板块效应强度
-"""
+# 情绪周期四阶段:
+# 1. 上升期/发酵期: 满仓开仓，所有策略开放
+# 2. 分化期: 降低仓位，只做最强龙头
+# 3. 退潮期: 禁止开仓，强制空仓
+# 4. 混沌期: 轻仓试错
+#
+# 情绪得分计算维度:
+# - 涨停数量 / 跌停数量
+# - 连板高度(最高连板数)
+# - 涨跌家数比
+# - 昨日涨停今日溢价
+# - 板块效应强度
 
 from enum import Enum
 from typing import Dict, Any, Optional
