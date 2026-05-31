@@ -938,57 +938,25 @@ async def get_sentiment_timeline(date: str = None, mode: str = "daily"):
                 if m3: period = m3.group(1)
             return score, period, position_ratio
         
-        if mode == "daily":
+        if mode in ("daily", "weekly", "monthly"):
             from collections import OrderedDict
             daily_map = OrderedDict()
-            # 直接从limit_list计算历史情绪(避免EmotionCycleManager查询条件不匹配)
-            # 获取所有有数据的日期(合并多个数据源)
-            trade_dates = sorted(set(
-                [d for d in await db["scan_traces"].distinct("trade_date") if d] +
-                [d for d in await db["broker_orders"].distinct("trade_date") if d] +
-                [str(d) for d in await db["limit_list"].distinct("trade_date") if d and str(d).startswith("202605")]
-            ))
             
-            for td in trade_dates:
-                td_int = int(td)
-                # 从limit_list统计涨跌停(完整历史)
-                lu = await db["limit_list"].count_documents({"trade_date": td_int, "limit": "U"})
-                ld = await db["limit_list"].count_documents({"trade_date": td_int, "limit": "D"})
-                max_lb_doc = await db["limit_list"].find_one({"trade_date": td_int, "limit": "U"}, sort=[("limit_times", -1)], projection={"limit_times": 1})
-                max_lb = max_lb_doc.get("limit_times", 1) if max_lb_doc else 1
-                
-                # limit_list无数据时,尝试从daily_basic用pct_chg统计
-                if lu == 0 and ld == 0:
-                    lu = await db["daily_basic"].count_documents({"trade_date": td_int, "pct_chg": {"$gte": 9.8}})
-                    ld = await db["daily_basic"].count_documents({"trade_date": td_int, "pct_chg": {"$lte": -9.8}})
-                    max_lb = 1  # daily_basic无连板信息
-                
-                # 还没有就用scan_traces的实时L3
-                score, period, position_ratio = 0, "", 0
-                if lu == 0 and ld == 0:
-                    last_scan = await db["scan_traces"].find_one({"trade_date": td}, sort=[("_id", -1)], projection={"layer_details": 1})
-                    if last_scan:
-                        score, period, position_ratio = _parse_l3(last_scan)
-                    if not score:
-                        continue  # 无任何数据
-                
-                if lu > 0 or ld > 0:
-                    # 情绪公式(与EmotionCycleManager._compute_score一致)
-                    score_zu = min(30, lu)
-                    score_zd = max(0, 20 - ld * 2)
-                    score_lb = min(20, max_lb * 2)
-                    score_ud = 7  # 默认7分
-                    score_ym = 0  # 溢价未知
-                    score = min(100, max(0, score_zu + score_zd + score_lb + score_ud + score_ym))
-                
-                if score >= 70: period = "高潮"
-                elif score >= 55: period = "分化"
-                elif score >= 40: period = "震荡"
-                else: period = "冰点"
-                
-                pos_ratio = {"高潮": 1.0, "分化": 0.7, "震荡": 0.5, "冰点": 0.3}.get(period, 0.3)
-                
-                daily_map[td] = {"date": td, "score": round(score, 1), "period": period, "position_ratio": pos_ratio, "limit_up": lu, "limit_down": ld, "max_continue": max_lb}
+            # 优先从预计算的sentiment_scores读取(高效,不再实时计算)
+            async for doc in db["sentiment_scores"].find(
+                {"missing_data": {"$ne": True}},
+                {"trade_date": 1, "score": 1, "period": 1, "position_ratio": 1, "limit_up": 1, "limit_down": 1, "max_continue": 1, "up_down_ratio": 1, "zt_premium": 1, "data_source": 1}
+            ).sort("trade_date", 1):
+                td = str(doc["trade_date"])
+                daily_map[td] = {
+                    "date": td, "score": doc["score"], "period": doc["period"],
+                    "position_ratio": doc["position_ratio"],
+                    "limit_up": doc.get("limit_up", 0), "limit_down": doc.get("limit_down", 0),
+                    "max_continue": doc.get("max_continue", 1),
+                    "up_down_ratio": doc.get("up_down_ratio", 0),
+                    "zt_premium": doc.get("zt_premium", 0),
+                    "data_source": doc.get("data_source", ""),
+                }
             
             points = list(daily_map.values())
             
@@ -1068,19 +1036,9 @@ async def get_sentiment_strategy_matrix():
         
         # 获取每日情绪阶段
         daily_sentiment = {}
-        # 从limit_list直接计算每日情绪阶段
-        trade_dates = sorted(set([d for d in await db["broker_orders"].distinct("trade_date") if d]))
-        for td in trade_dates:
-            td_int = int(td)
-            lu = await db["limit_list"].count_documents({"trade_date": td_int, "limit": "U"})
-            ld = await db["limit_list"].count_documents({"trade_date": td_int, "limit": "D"})
-            max_lb_doc = await db["limit_list"].find_one({"trade_date": td_int, "limit": "U"}, sort=[("limit_times", -1)], projection={"limit_times": 1})
-            max_lb = max_lb_doc.get("limit_times", 1) if max_lb_doc else 1
-            score = min(100, max(0, min(30,lu) + max(0,20-ld*2) + min(20,max_lb*2) + 7))
-            if score >= 70: daily_sentiment[td] = "高潮"
-            elif score >= 55: daily_sentiment[td] = "分化"
-            elif score >= 40: daily_sentiment[td] = "震荡"
-            else: daily_sentiment[td] = "冰点"
+        # 从预计算的sentiment_scores读取
+        async for doc in db["sentiment_scores"].find({"missing_data": {"$ne": True}}, {"trade_date": 1, "period": 1}):
+            daily_sentiment[str(doc["trade_date"])] = doc["period"]
         
         matrix = defaultdict(lambda: defaultdict(lambda: {"wins": 0, "losses": 0, "count": 0, "total_pnl": 0.0}))
         strategy_totals = defaultdict(lambda: {"wins": 0, "losses": 0, "count": 0, "total_pnl": 0.0})
