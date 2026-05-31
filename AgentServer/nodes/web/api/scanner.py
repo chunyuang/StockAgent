@@ -4622,3 +4622,615 @@ async def run_quick_backtest(request: Request):
         return {"success": True, "message": f"回测已启动({period}: {config['start']}~{config['end']}), 预计30-60秒完成", "period": period}
     except Exception as e:
         return {"success": False, "message": str(e)}
+
+
+# ============================================================================
+# P0+P1: 同区间回测对比 + 偏差归因
+# ============================================================================
+
+@router.post("/backtest-same-period")
+async def backtest_same_period(request: Request):
+    """P0: 同区间回测 - 用当前参数重跑实盘同区间的回测
+    
+    请求体: {"start_date": "20260518", "end_date": "20260530"}
+    如果不传, 自动取broker_orders最早~最新卖出日
+    """
+    try:
+        body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+        start_date = body.get("start_date")
+        end_date = body.get("end_date")
+        
+        from core.managers import mongo_manager
+        
+        if not start_date or not end_date:
+            if not mongo_manager.is_initialized:
+                return {"success": False, "message": "MongoDB未初始化, 请提供start_date/end_date"}
+            # 自动取实盘日期范围
+            sells = []
+            async for doc in mongo_manager.db["broker_orders"].find({"side":"sell","status":"filled"},{"trade_date":1}):
+                if doc.get("trade_date"):
+                    sells.append(doc["trade_date"])
+            if not sells:
+                return {"success": False, "message": "无实盘交易数据"}
+            start_date = min(sells)
+            end_date = max(sells)
+        
+        # 后台运行回测
+        import asyncio, os, sys
+        
+        async def _run_same_period_bt(sd, ed):
+            try:
+                BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                if BASE not in sys.path:
+                    sys.path.insert(0, BASE)
+                
+                from nodes.backtest_engine.factor_selection.portfolio_backtest import PortfolioBacktester
+                from core.managers import mongo_manager as mm
+                
+                if not mm.is_initialized:
+                    await mm.initialize()
+                
+                bt = PortfolioBacktester()
+                bt_config = {
+                    "start_date": sd,
+                    "end_date": ed,
+                    "initial_cash": 1000000,
+                    "strategies": ["halfway_chase", "limit_down_qiao", "dragon_head", "first_limit_up"],
+                    "mode": "backtest",
+                }
+                result = await bt.run(bt_config)
+                
+                # 存到MongoDB
+                await mm.db["backtest_results"].update_one(
+                    {"task_id": f"same_period_{sd}_{ed}"},
+                    {"$set": {
+                        "task_id": f"same_period_{sd}_{ed}",
+                        "status": "completed",
+                        "params": {"strategy_ids": bt_config["strategies"], "start_date": sd, "end_date": ed},
+                        "result": {"summary": result},
+                        "created_at": datetime.now().isoformat(),
+                        "type": "same_period",
+                    }},
+                    upsert=True
+                )
+                logger.info(f"[SAME-PERIOD-BT] Completed: {sd}~{ed}, return={result.get('total_return',0):.2%}")
+            except Exception as e:
+                logger.error(f"[SAME-PERIOD-BT] Failed: {e}")
+                try:
+                    await mm.db["backtest_results"].update_one(
+                        {"task_id": f"same_period_{sd}_{ed}"},
+                        {"$set": {"status": "failed", "error": str(e), "created_at": datetime.now().isoformat()}},
+                        upsert=True
+                    )
+                except: pass
+        
+        asyncio.create_task(_run_same_period_bt(start_date, end_date))
+        
+        return {"success": True, "message": f"同区间回测已启动({start_date}~{end_date}), 预计30-60秒", "start_date": start_date, "end_date": end_date}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@router.get("/deviation-attribution")
+async def deviation_attribution(date: str = None, start_date: str = None, end_date: str = None):
+    """P1: 偏差4层归因 - 滑点/纪律/选股/时间
+    
+    Args:
+        date: 单日YYYYMMDD
+        start_date/end_date: 区间查询
+    """
+    try:
+        from core.managers import mongo_manager
+        if not mongo_manager.is_initialized:
+            return {"success": True, "data": None, "message": "MongoDB未初始化"}
+        
+        db = mongo_manager.db
+        
+        # 确定日期范围
+        if date:
+            sd = ed = date
+        elif start_date and end_date:
+            sd, ed = start_date, end_date
+        else:
+            # 默认取最近7天
+            sells = []
+            async for doc in db["broker_orders"].find({"side":"sell","status":"filled"},{"trade_date":1}).sort("trade_date",-1).limit(20):
+                if doc.get("trade_date"): sells.append(doc["trade_date"])
+            if not sells:
+                return {"success": True, "data": None, "message": "无交易数据"}
+            sd, ed = min(sells), max(sells)
+        
+        # 1. 获取实盘卖出订单
+        query = {"side": "sell", "status": "filled"}
+        if sd == ed:
+            query["trade_date"] = sd
+        else:
+            query["trade_date"] = {"$gte": sd, "$lte": ed}
+        
+        sells = []
+        async for doc in db["broker_orders"].find(query):
+            sells.append(doc)
+        
+        # 2. 获取同区间买入订单(用于计算纪律偏差)
+        buy_query = {"side": "buy", "status": "filled"}
+        if sd == ed:
+            buy_query["trade_date"] = sd
+        else:
+            buy_query["trade_date"] = {"$gte": sd, "$lte": ed}
+        
+        buys = []
+        async for doc in db["broker_orders"].find(buy_query):
+            buys.append(doc)
+        
+        # 3. 获取情绪数据(用于纪律检查)
+        sentiment_map = {}
+        s_query = {}
+        if sd == ed:
+            s_query["trade_date"] = int(sd)
+        else:
+            s_query["trade_date"] = {"$gte": int(sd), "$lte": int(ed)}
+        async for doc in db["sentiment_scores"].find(s_query, {"trade_date":1, "score":1, "period":1}):
+            sentiment_map[str(doc.get("trade_date",""))] = {"score": doc.get("score",50), "period": doc.get("period","震荡")}
+        
+        # 4. 获取scan_traces(信号价格,用于滑点计算)
+        scan_map = {}  # trade_date -> {ts_code -> {price, strategy}}
+        scan_query = {}
+        if sd == ed:
+            scan_query["trade_date"] = sd
+        else:
+            scan_query["trade_date"] = {"$gte": sd, "$lte": ed}
+        async for doc in db["scan_traces"].find(scan_query, {"trade_date":1, "candidates":1}):
+            td = doc.get("trade_date","")
+            cands = doc.get("candidates",[])
+            for c in cands:
+                if c.get("final_status") == "passed" and c.get("ts_code"):
+                    if td not in scan_map:
+                        scan_map[td] = {}
+                    scan_map[td][c["ts_code"]] = {"price": c.get("price",0), "strategy": c.get("strategy","")}
+        
+        # ============ 计算偏差 ============
+        
+        # A. 滑点偏差: 信号价格 vs 成交价格
+        slippage_details = []
+        total_slippage_pct = 0
+        slippage_count = 0
+        for buy in buys:
+            ts = buy.get("ts_code","")
+            td = buy.get("trade_date","")
+            fp = buy.get("filled_price",0) or 0
+            # 从scan_traces找信号价格
+            signal = scan_map.get(td, {}).get(ts, {})
+            sp = signal.get("price", 0)
+            if sp > 0 and fp > 0:
+                slippage = (fp - sp) / sp * 100  # 正=买贵了(不利)
+                slippage_details.append({
+                    "ts_code": ts, "stock_name": buy.get("stock_name",""),
+                    "signal_price": round(sp, 2), "filled_price": round(fp, 2),
+                    "slippage_pct": round(slippage, 2), "strategy": buy.get("strategy",""),
+                    "trade_date": td,
+                })
+                total_slippage_pct += slippage
+                slippage_count += 1
+        
+        # B. 纪律偏差: 冰点期开仓 / 情绪不匹配
+        discipline_details = []
+        strategy_sentiment_rules = {
+            "halfway_chase": {"适合": ["高潮","分化"], "不适合": ["震荡","冰点"]},
+            "first_limit_up": {"适合": ["高潮"], "不适合": ["分化","震荡","冰点"]},
+            "limit_down_qiao": {"适合": ["高潮","分化","震荡"], "不适合": ["冰点"]},
+            "dragon_head": {"适合": ["高潮","分化"], "不适合": ["震荡","冰点"]},
+        }
+        for buy in buys:
+            td = buy.get("trade_date","")
+            strat = buy.get("strategy","") or "unknown"
+            sentiment = sentiment_map.get(td, {})
+            period = sentiment.get("period","")
+            if strat in strategy_sentiment_rules and period:
+                not_suitable = strategy_sentiment_rules[strat].get("不适合",[])
+                if period in not_suitable:
+                    discipline_details.append({
+                        "type": "情绪不匹配",
+                        "strategy": strat, "period": period,
+                        "detail": f"{period}期买入{strat}",
+                        "trade_date": td, "ts_code": buy.get("ts_code",""),
+                        "stock_name": buy.get("stock_name",""),
+                    })
+        
+        # C. 选股偏差: 实盘买入 vs scan_traces候选的重叠度
+        live_picks = {}  # strategy -> [ts_codes]
+        for buy in buys:
+            s = buy.get("strategy","") or "unknown"
+            if s not in live_picks: live_picks[s] = set()
+            live_picks[s].add(buy.get("ts_code",""))
+        
+        signal_picks = {}  # strategy -> [ts_codes]
+        for td, codes in scan_map.items():
+            for ts, info in codes.items():
+                s = info.get("strategy","")
+                if s not in signal_picks: signal_picks[s] = set()
+                signal_picks[s].add(ts)
+        
+        selection_details = []
+        for strat in set(list(live_picks.keys()) + list(signal_picks.keys())):
+            lp = live_picks.get(strat, set())
+            sp = signal_picks.get(strat, set())
+            overlap = lp & sp
+            only_live = lp - sp
+            only_signal = sp - lp
+            selection_details.append({
+                "strategy": strat,
+                "live_count": len(lp), "signal_count": len(sp),
+                "overlap_count": len(overlap), "overlap_pct": round(len(overlap)/max(len(lp),1)*100,1),
+                "only_live": len(only_live), "only_signal": len(only_signal),
+            })
+        
+        # D. 时间偏差: 估算(用create_time粗略判断是否延迟)
+        timing_details = []
+        late_count = 0
+        for buy in buys:
+            ct = buy.get("create_time","")  # 格式 HH:MM:SS
+            if isinstance(ct, str) and ":" in ct:
+                try:
+                    h, m = int(ct.split(":")[0]), int(ct.split(":")[1])
+                    # 10:00前算正常, 10:00后算延迟(半路追涨不应10点后买)
+                    if h >= 10 and buy.get("strategy") == "halfway_chase":
+                        late_count += 1
+                        timing_details.append({
+                            "type": "延迟执行",
+                            "strategy": buy.get("strategy",""),
+                            "execute_time": ct, "expected": "10:00前",
+                            "ts_code": buy.get("ts_code",""), "stock_name": buy.get("stock_name",""),
+                        })
+                except: pass
+        
+        # E. 汇总
+        total_sells = len(sells)
+        wins = sum(1 for s in sells if (s.get("profit_pct") or 0) >= 0)
+        live_wr = round(wins / max(total_sells, 1) * 100, 1)
+        
+        # 违规买入的亏损贡献
+        violation_sells = []
+        for ds in discipline_details:
+            # 找对应的卖出
+            for s in sells:
+                if s.get("ts_code") == ds.get("ts_code") and s.get("strategy") == ds.get("strategy"):
+                    violation_sells.append(s)
+        violation_loss = sum(s.get("profit_pct",0) or 0 for s in violation_sells)
+        violation_wins = sum(1 for s in violation_sells if (s.get("profit_pct") or 0) >= 0)
+        violation_wr = round(violation_wins/max(len(violation_sells),1)*100,1)
+        
+        avg_slippage = round(total_slippage_pct / max(slippage_count, 1), 2)
+        
+        # 总偏差估算(纪律是主因, 滑点次之)
+        discipline_impact = round(violation_loss, 2)
+        
+        result = {
+            "period": f"{sd}~{ed}",
+            "live_stats": {"trades": total_sells, "wins": wins, "win_rate": live_wr},
+            "deviations": {
+                "slippage": {"avg_pct": avg_slippage, "count": slippage_count, "impact": round(-avg_slippage * slippage_count / 100, 2)},
+                "discipline": {"violations": len(discipline_details), "violation_wr": violation_wr, "impact": round(discipline_impact, 2)},
+                "selection": selection_details,
+                "timing": {"late_count": late_count, "count": len(timing_details)},
+            },
+            "details": {
+                "slippage": slippage_details[:20],
+                "discipline": discipline_details[:20],
+                "timing": timing_details[:10],
+            }
+        }
+        
+        return {"success": True, "data": result}
+    except Exception as e:
+        logger.error(f"[DEVIATION] {e}")
+        return {"success": True, "data": None, "message": str(e)}
+
+
+@router.get("/param-snapshot")
+async def param_snapshot(date: str = None):
+    """P2: 参数快照 - 当前参数状态(用于月复盘参数漂移检测)
+    
+    存一份当前strategy_defaults到MongoDB param_snapshots
+    """
+    try:
+        from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK
+        from core.managers import mongo_manager
+        
+        today = date or datetime.now().strftime("%Y%m%d")
+        snapshot = {
+            "date": today,
+            "global_risk": {k: v for k, v in GLOBAL_RISK.items() if not k.startswith("__")},
+            "strategies": {},
+        }
+        for sid, cfg in STRATEGY_CONFIGS.items():
+            snapshot["strategies"][sid] = {
+                "enabled": cfg.get("enabled", True),
+                "params": cfg.get("params", {}),
+                "riskParams": cfg.get("riskParams", {}),
+            }
+        
+        if mongo_manager.is_initialized:
+            await mongo_manager.db["param_snapshots"].update_one(
+                {"date": today},
+                {"$set": snapshot},
+                upsert=True
+            )
+        
+        return {"success": True, "data": snapshot, "message": f"参数快照已保存({today})"}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@router.get("/param-drift")
+async def param_drift(start_date: str = None, end_date: str = None):
+    """P2: 参数漂移检测 - 对比两个日期的参数差异
+    
+    用于月复盘: 当前参数 vs 30天前参数
+    """
+    try:
+        from core.managers import mongo_manager
+        if not mongo_manager.is_initialized:
+            return {"success": True, "data": None, "message": "MongoDB未初始化"}
+        
+        db = mongo_manager.db
+        end_date = end_date or datetime.now().strftime("%Y%m%d")
+        
+        # 找最近的快照
+        end_snap = await db["param_snapshots"].find_one({"date": {"$lte": end_date}}, sort=[("date",-1)])
+        if not end_snap:
+            # 自动创建当前快照
+            from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK
+            end_snap = {
+                "date": end_date,
+                "global_risk": {k:v for k,v in GLOBAL_RISK.items() if not k.startswith("__")},
+                "strategies": {sid: {"params":cfg.get("params",{}),"riskParams":cfg.get("riskParams",{})} for sid,cfg in STRATEGY_CONFIGS.items()},
+            }
+        
+        if start_date:
+            start_snap = await db["param_snapshots"].find_one({"date": {"$lte": start_date}}, sort=[("date",-1)])
+        else:
+            # 找最早的快照
+            start_snap = await db["param_snapshots"].find_one(sort=[("date",1)])
+        
+        if not start_snap:
+            return {"success": True, "data": {"current": end_snap, "baseline": None, "drifts": []}, "message": "无历史快照,无法检测漂移"}
+        
+        # 对比参数
+        drifts = []
+        
+        # 全局参数
+        start_g = start_snap.get("global_risk", {})
+        end_g = end_snap.get("global_risk", {})
+        for key in set(list(start_g.keys()) + list(end_g.keys())):
+            sv = start_g.get(key)
+            ev = end_g.get(key)
+            if sv != ev and not isinstance(sv, (dict, list)):
+                drifts.append({"level":"global","key":key,"old":sv,"new":ev,"severity":"high" if key in ["stop_loss_pct","take_profit_pct","max_position_per_stock","max_total_position"] else "medium"})
+        
+        # 策略参数
+        start_s = start_snap.get("strategies", {})
+        end_s = end_snap.get("strategies", {})
+        for sid in set(list(start_s.keys()) + list(end_s.keys())):
+            for param_type in ["params","riskParams"]:
+                sp = start_s.get(sid,{}).get(param_type,{})
+                ep = end_s.get(sid,{}).get(param_type,{})
+                for key in set(list(sp.keys()) + list(ep.keys())):
+                    sv = sp.get(key)
+                    ev = ep.get(key)
+                    if sv != ev and not isinstance(sv, (dict, list)):
+                        drifts.append({"level":"strategy","strategy":sid,"param_type":param_type,"key":key,"old":sv,"new":ev,"severity":"high" if param_type=="riskParams" else "medium"})
+        
+        return {"success": True, "data": {
+            "start_date": start_snap.get("date"),
+            "end_date": end_snap.get("date"),
+            "drifts": drifts,
+            "drift_count": len(drifts),
+            "high_severity": len([d for d in drifts if d.get("severity")=="high"]),
+        }}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@router.get("/review-weekly")
+async def review_weekly(date: str = None):
+    """P2: 周复盘 - 策略效能+偏差趋势+情绪环境
+    
+    Args:
+        date: 周内任一天, 自动计算该周范围
+    """
+    try:
+        from core.managers import mongo_manager
+        if not mongo_manager.is_initialized:
+            return {"success": True, "data": None, "message": "MongoDB未初始化"}
+        
+        db = mongo_manager.db
+        
+        # 计算本周范围(周一~周日)
+        if date:
+            from datetime import datetime as dt, timedelta
+            d = dt.strptime(date, "%Y%m%d")
+            weekday = d.weekday()
+            monday = (d - timedelta(days=weekday)).strftime("%Y%m%d")
+            sunday = (d + timedelta(days=6-weekday)).strftime("%Y%m%d")
+        else:
+            from datetime import datetime as dt, timedelta
+            today = dt.now()
+            weekday = today.weekday()
+            monday = (today - timedelta(days=weekday)).strftime("%Y%m%d")
+            sunday = (today + timedelta(days=6-weekday)).strftime("%Y%m%d")
+        
+        # 获取本周卖出
+        sells = []
+        async for doc in db["broker_orders"].find({"side":"sell","status":"filled","trade_date":{"$gte":monday,"$lte":sunday}}):
+            sells.append(doc)
+        
+        # 获取本周买入
+        buys = []
+        async for doc in db["broker_orders"].find({"side":"buy","status":"filled","trade_date":{"$gte":monday,"$lte":sunday}}):
+            buys.append(doc)
+        
+        # 逐日统计(偏差趋势)
+        from collections import defaultdict
+        daily_stats = defaultdict(lambda: {"buys":0,"sells":0,"wins":0,"pnl":0})
+        for s in sells:
+            td = s.get("trade_date","")
+            daily_stats[td]["sells"] += 1
+            if (s.get("profit_pct") or 0) >= 0:
+                daily_stats[td]["wins"] += 1
+            daily_stats[td]["pnl"] += s.get("profit_pct",0) or 0
+        for b in buys:
+            daily_stats[b.get("trade_date","")]["buys"] += 1
+        
+        # 情绪数据
+        sentiments = {}
+        async for doc in db["sentiment_scores"].find({"trade_date":{"$gte":int(monday),"$lte":int(sunday)}},{"trade_date":1,"score":1,"period":1}):
+            sentiments[str(doc.get("trade_date",""))] = {"score":doc.get("score",50),"period":doc.get("period","")}
+        
+        # 策略统计
+        strategy_stats = defaultdict(lambda: {"trades":0,"wins":0,"pnl":0})
+        for s in sells:
+            strat = s.get("strategy","") or "unknown"
+            strategy_stats[strat]["trades"] += 1
+            if (s.get("profit_pct") or 0) >= 0:
+                strategy_stats[strat]["wins"] += 1
+            strategy_stats[strat]["pnl"] += s.get("profit_pct",0) or 0
+        
+        total_sells = len(sells)
+        total_wins = sum(1 for s in sells if (s.get("profit_pct") or 0) >= 0)
+        total_pnl = sum(s.get("profit_pct",0) or 0 for s in sells)
+        
+        # 偏差趋势(近4周)
+        weekly_trend = []
+        from datetime import datetime as dt, timedelta
+        base = dt.strptime(monday, "%Y%m%d")
+        for w in range(4):
+            wm = (base - timedelta(weeks=3-w)).strftime("%Y%m%d")
+            ws = (base - timedelta(weeks=3-w) + timedelta(days=6)).strftime("%Y%m%d")
+            ws_list = []
+            async for doc in db["broker_orders"].find({"side":"sell","status":"filled","trade_date":{"$gte":wm,"$lte":ws}}):
+                ws_list.append(doc)
+            if ws_list:
+                wr = sum(1 for s in ws_list if (s.get("profit_pct") or 0) >= 0) / len(ws_list) * 100
+                weekly_trend.append({"week": f"W{w+1}", "start": wm, "trades": len(ws_list), "win_rate": round(wr,1)})
+            else:
+                weekly_trend.append({"week": f"W{w+1}", "start": wm, "trades": 0, "win_rate": 0})
+        
+        result = {
+            "period": f"{monday}~{sunday}",
+            "summary": {"trades": total_sells, "wins": total_wins, "win_rate": round(total_wins/max(total_sells,1)*100,1), "pnl": round(total_pnl,2)},
+            "strategy_stats": {k: {"trades":v["trades"],"win_rate":round(v["wins"]/max(v["trades"],1)*100,1),"pnl":round(v["pnl"],2)} for k,v in strategy_stats.items()},
+            "daily_breakdown": [{"date":td,"buys":v["buys"],"sells":v["sells"],"win_rate":round(v["wins"]/max(v["sells"],1)*100,1),"pnl":round(v["pnl"],2)} for td,v in sorted(daily_stats.items())],
+            "sentiments": sentiments,
+            "weekly_trend": weekly_trend,
+        }
+        
+        return {"success": True, "data": result}
+    except Exception as e:
+        logger.error(f"[REVIEW-WEEKLY] {e}")
+        return {"success": True, "data": None, "message": str(e)}
+
+
+@router.get("/review-monthly")
+async def review_monthly(date: str = None):
+    """P2: 月复盘 - 系统偏差+参数漂移+行为漂移+因子效果
+    
+    Args:
+        date: 月内任一天, 自动计算该月范围
+    """
+    try:
+        from core.managers import mongo_manager
+        if not mongo_manager.is_initialized:
+            return {"success": True, "data": None, "message": "MongoDB未初始化"}
+        
+        db = mongo_manager.db
+        
+        # 计算本月范围
+        if date:
+            month_start = date[:6] + "01"
+            from datetime import datetime as dt
+            d = dt.strptime(date, "%Y%m%d")
+            if d.month == 12:
+                month_end = f"{d.year+1}0101"
+            else:
+                month_end = f"{d.year}{d.month+1:02d}01"
+            # 取上月末
+            from datetime import datetime as dt, timedelta
+            next_month = dt.strptime(month_end, "%Y%m%d")
+            last_day = (next_month - timedelta(days=1)).strftime("%Y%m%d")
+        else:
+            from datetime import datetime as dt, timedelta
+            today = dt.now()
+            month_start = today.strftime("%Y%m01")
+            if today.month == 12:
+                next_m = dt(today.year+1, 1, 1)
+            else:
+                next_m = dt(today.year, today.month+1, 1)
+            last_day = (next_m - timedelta(days=1)).strftime("%Y%m%d")
+        
+        # 月度统计
+        sells = []
+        async for doc in db["broker_orders"].find({"side":"sell","status":"filled","trade_date":{"$gte":month_start,"$lte":last_day}}):
+            sells.append(doc)
+        
+        buys = []
+        async for doc in db["broker_orders"].find({"side":"buy","status":"filled","trade_date":{"$gte":month_start,"$lte":last_day}}):
+            buys.append(doc)
+        
+        total_sells = len(sells)
+        total_wins = sum(1 for s in sells if (s.get("profit_pct") or 0) >= 0)
+        total_pnl = sum(s.get("profit_pct",0) or 0 for s in sells)
+        
+        # 策略月度
+        from collections import defaultdict
+        strategy_stats = defaultdict(lambda: {"trades":0,"wins":0,"pnl":0,"positions":0})
+        for s in sells:
+            strat = s.get("strategy","") or "unknown"
+            strategy_stats[strat]["trades"] += 1
+            if (s.get("profit_pct") or 0) >= 0:
+                strategy_stats[strat]["wins"] += 1
+            strategy_stats[strat]["pnl"] += s.get("profit_pct",0) or 0
+        
+        # 行为漂移: 止损执行率、冰点开仓率
+        stop_loss_sells = sum(1 for s in sells if "止损" in (s.get("reason","")))
+        stop_loss_total = sum(1 for s in sells if (s.get("profit_pct") or 0) < 0)
+        
+        # 冰点期开仓
+        sentiment_map = {}
+        async for doc in db["sentiment_scores"].find({"trade_date":{"$gte":int(month_start),"$lte":int(last_day)}},{"trade_date":1,"period":1,"score":1}):
+            sentiment_map[str(doc.get("trade_date",""))] = {"period":doc.get("period",""),"score":doc.get("score",50)}
+        
+        bearish_buys = 0
+        for b in buys:
+            td = b.get("trade_date","")
+            if sentiment_map.get(td,{}).get("period") == "冰点":
+                bearish_buys += 1
+        
+        # 参数漂移
+        drift_data = None
+        try:
+            drift_resp = await param_drift(month_start, last_day)
+            drift_data = drift_resp.get("data")
+        except: pass
+        
+        # 大盘表现
+        index_data = []
+        async for doc in db["index_daily"].find({"ts_code":"000001.SH","trade_date":{"$gte":int(month_start),"$lte":int(last_day)}},{"trade_date":1,"close":1,"pct_chg":1}).sort("trade_date",1):
+            index_data.append({"date":str(doc["trade_date"]),"close":round(doc.get("close",0),2),"pct_chg":round(doc.get("pct_chg",0),2)})
+        
+        result = {
+            "period": f"{month_start}~{last_day}",
+            "summary": {"trades":total_sells,"wins":total_wins,"win_rate":round(total_wins/max(total_sells,1)*100,1),"pnl":round(total_pnl,2)},
+            "strategy_stats": {k: {"trades":v["trades"],"win_rate":round(v["wins"]/max(v["trades"],1)*100,1),"pnl":round(v["pnl"],2)} for k,v in strategy_stats.items()},
+            "behavior_drift": {
+                "stop_loss_execution_rate": round(stop_loss_sells/max(stop_loss_total,1)*100,1),
+                "bearish_period_buy_ratio": round(bearish_buys/max(len(buys),1)*100,1),
+                "bearish_buys": bearish_buys, "total_buys": len(buys),
+            },
+            "param_drift": drift_data,
+            "index_performance": index_data,
+        }
+        
+        return {"success": True, "data": result}
+    except Exception as e:
+        logger.error(f"[REVIEW-MONTHLY] {e}")
+        return {"success": True, "data": None, "message": str(e)}
