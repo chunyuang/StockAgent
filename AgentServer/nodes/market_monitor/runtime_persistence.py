@@ -900,3 +900,14 @@ class RuntimePersistence:
             await self._scanner._sync_close_data_to_mongo(trade_date)
         except Exception as _e:
             logger.debug(f"[SCANNER] 盘后数据同步失败: {_e}")
+
+    async def persist_scan_result(self):
+        """扫描结果持久化: broker状态+时间线+运行时快照【v2.9.41:从scanner._persist_scan_result提取】"""
+        try:
+            if self.broker:
+                saved = await self.broker.save_state()
+                logger.info(f"[SCAN] save_state={saved} positions={len(self.broker.positions)} orders={len(self.broker.orders)}")
+            await self._scanner._save_timeline()
+            await self._scanner._save_runtime_snapshot(force=False)
+        except Exception as _e:
+            logger.warning(f"[SCAN] save_state失败: {_e}")

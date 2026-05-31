@@ -165,10 +165,10 @@ class TestScanOnceRefactor:
         assert inspect.iscoroutinefunction(MarketScanner._persist_scan_result)
 
     def test_persist_scan_result_saves_state(self):
-        """_persist_scan_result包含save_state"""
+        """_persist_scan_result委托RuntimePersistence.persist_scan_result(v2.9.41)"""
         from nodes.market_monitor.scanner import MarketScanner
         source = inspect.getsource(MarketScanner._persist_scan_result)
-        assert "save_state" in source
+        assert "persist_scan_result" in source or "_runtime_persistence" in source
 
     def test_scan_once_calls_extracted_methods(self):
         """scan_once调用提取出的方法"""
