@@ -1893,12 +1893,12 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <div v-if="sentimentMatrix && Object.keys(sentimentMatrix).length" class="matrix-table-wrap">
           <table class="matrix-table">
             <thead>
-              <tr><th>策略</th><th>冰点</th><th>震荡</th><th>分化</th><th>高潮</th><th>未知</th><th>合计</th></tr>
+              <tr><th>策略</th><th>冰点</th><th>震荡</th><th>分化</th><th>高潮</th><th>数据缺失</th><th>合计</th></tr>
             </thead>
             <tbody>
               <tr v-for="(periods, strat) in sentimentMatrix" :key="strat">
                 <td class="mt-strat">{{ strategyCN(strat) }}</td>
-                <td v-for="col in ['冰点','震荡','分化','高潮','未知']" :key="col" class="mt-cell">
+                <td v-for="col in ['冰点','震荡','分化','高潮','数据缺失']" :key="col" class="mt-cell">
                   <template v-if="periods[col]">
                     <div class="mt-count" :class="periods[col].total_pnl >= 0 ? 'up' : 'down'">{{ periods[col].count }}笔</div>
                     <div class="mt-wr" :class="periods[col].win_rate >= 50 ? 'up' : 'down'">WR {{ periods[col].win_rate }}%</div>
