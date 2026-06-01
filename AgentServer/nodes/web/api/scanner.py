@@ -3733,18 +3733,22 @@ async def get_event_bus_history(event: str = None, limit: int = 50):
 
 @router.get("/premarket-status")
 async def get_premarket_status():
-    """盘前竞价状态、预选候选、竞价异动、竞价信号
+    """盘前竞价增强版 — 策略分组+情绪背景+量能排名+历史统计
     
     Returns:
         status: waiting/active/ended/off
-        candidates: 盘前预选候选列表
+        market_snapshot: 全市场快照(涨跌分布/涨跌停数/量比分布)
+        strategy_groups: 按策略分组的候选+统计
+        candidates: 全量预选候选(带完整因子)
         auction_signals: 竞价过滤后的信号
         top_gainers: 竞价涨幅/量比排名
+        sentiment: 当前情绪周期+仓位系数
+        historical_hit_rate: 策略历史命中率
     """
     try:
         scanner = _get_scanner_instance()
         if not scanner:
-            return {"success": True, "data": {"status": "off", "candidates": [], "auction_signals": [], "top_gainers": []}}
+            return {"success": True, "data": {"status": "off", "candidates": [], "auction_signals": [], "top_gainers": [], "strategy_groups": [], "market_snapshot": {}, "sentiment": {}, "historical_hit_rate": {}}}
         
         from datetime import datetime
         now = datetime.now()
@@ -3762,11 +3766,70 @@ async def get_premarket_status():
         else:
             status = "off"
         
-        # 从活跃信号中提取竞价信号
+        # ===== 全市场快照 =====
+        market_snapshot = {"up_count": 0, "down_count": 0, "flat_count": 0, "limit_up_count": 0, "limit_down_count": 0,
+                           "avg_pct_chg": 0, "volume_ratio_gt2": 0, "total_stocks": 0}
+        if scanner._realtime_cache:
+            pct_list = []
+            for ts_code, rt in scanner._realtime_cache.items():
+                pct = rt.get("pct_chg", 0) or 0
+                pct_list.append(pct)
+                if pct > 0: market_snapshot["up_count"] += 1
+                elif pct < 0: market_snapshot["down_count"] += 1
+                else: market_snapshot["flat_count"] += 1
+                if pct >= 9.9: market_snapshot["limit_up_count"] += 1
+                if pct <= -9.9: market_snapshot["limit_down_count"] += 1
+                if (rt.get("volume_ratio") or 0) >= 2: market_snapshot["volume_ratio_gt2"] += 1
+            market_snapshot["total_stocks"] = len(pct_list)
+            market_snapshot["avg_pct_chg"] = round(sum(pct_list) / len(pct_list), 2) if pct_list else 0
+        
+        # ===== 情绪背景 =====
+        sentiment = {"score": 50, "period": "chaos", "position_ratio": 0.5, "phase_name": "震荡"}
+        try:
+            if hasattr(scanner, '_current_sentiment') and scanner._current_sentiment:
+                sentiment = {"score": scanner._current_sentiment.get("score", 50),
+                             "period": scanner._current_sentiment.get("period", "chaos"),
+                             "position_ratio": scanner._current_position_ratio or 0.5,
+                             "phase_name": {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点"}.get(scanner._current_sentiment.get("period", ""), "震荡")}
+        except Exception:
+            pass
+        
+        # ===== 候选列表(带完整因子) =====
+        candidates = []
+        strategy_map = {}  # strategy -> [candidates]
+        for sig in scanner._active_signals:
+            c = {
+                "ts_code": sig.ts_code,
+                "stock_name": sig.stock_name or (scanner._stock_name_map.get(sig.ts_code, "") if hasattr(scanner, '_stock_name_map') else ""),
+                "strategy": sig.strategy,
+                "pct_chg": sig.pct_chg or 0,
+                "auction_pct": sig.factors.get('auction_pct'),
+                "volume_ratio": sig.factors.get('volume_ratio', 0),
+                "turnover_rate": sig.factors.get('turnover_rate', 0),
+                "signal_status": sig.signal_status,
+                "reason": sig.reason[:80] if sig.reason else '',
+            }
+            candidates.append(c)
+            s = sig.strategy
+            if s not in strategy_map:
+                strategy_map[s] = []
+            strategy_map[s].append(c)
+        
+        # ===== 策略分组统计 =====
+        strategy_groups = []
+        for s, group in strategy_map.items():
+            avg_pct = sum(c['pct_chg'] for c in group) / len(group) if group else 0
+            executed = sum(1 for c in group if c['signal_status'] == 'executed')
+            strategy_groups.append({
+                "strategy": s, "count": len(group), "executed": executed,
+                "avg_pct_chg": round(avg_pct, 2), "candidates": group,
+            })
+        strategy_groups.sort(key=lambda x: x["count"], reverse=True)
+        
+        # ===== 竞价信号 =====
         auction_signals = []
         for sig in scanner._active_signals:
             if sig.signal_status in ('new', 'executed') and sig.factors:
-                # 检查是否为竞价阶段产生的信号
                 if sig.factors.get('auction_pct') is not None or sig.factors.get('is_auction'):
                     auction_signals.append({
                         "ts_code": sig.ts_code,
@@ -3777,7 +3840,7 @@ async def get_premarket_status():
                         "signal_status": sig.signal_status,
                     })
         
-        # 竞价涨幅排名(从limit_pools或信号提取)
+        # ===== 竞价涨幅排名 =====
         top_gainers = []
         if hasattr(scanner, '_limit_pools'):
             for item in scanner._limit_pools.get('limit_up', [])[:10]:
@@ -3788,25 +3851,35 @@ async def get_premarket_status():
                     "volume_ratio": item.get('volume_ratio', 0),
                 })
         
-        # 盘前候选(所有活跃信号的预选)
-        candidates = []
-        for sig in scanner._active_signals:
-            candidates.append({
-                "ts_code": sig.ts_code,
-                "stock_name": sig.stock_name or (scanner._stock_name_map.get(sig.ts_code, "") if hasattr(scanner, '_stock_name_map') else ""),
-                "strategy": sig.strategy,
-                "auction_pct": sig.factors.get('auction_pct'),
-                "reason": sig.reason[:50] if sig.reason else '',
-            })
+        # ===== 历史命中率(从MongoDB) =====
+        historical_hit_rate = {}
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.is_initialized:
+                db = mongo_manager.db
+                pipeline = [
+                    {"$match": {"side": "sell", "profit_pct": {"$ne": None}}},
+                    {"$group": {"_id": "$strategy", "total": {"$sum": 1}, "wins": {"$sum": {"$cond": [{"$gt": ["$profit_pct", 0]}, 1, 0]}}, "avg_profit": {"$avg": "$profit_pct"}}},
+                ]
+                async for doc in db["broker_orders"].aggregate(pipeline):
+                    s = doc["_id"] or "unknown"
+                    total = doc["total"] or 1
+                    historical_hit_rate[s] = {"total": total, "wins": doc["wins"], "win_rate": round(doc["wins"] / total * 100, 1), "avg_profit": round(doc.get("avg_profit", 0), 2)}
+        except Exception:
+            pass
         
         return {"success": True, "data": {
             "status": status,
-            "candidates": candidates[:20],
+            "market_snapshot": market_snapshot,
+            "sentiment": sentiment,
+            "candidates": candidates[:30],
+            "strategy_groups": strategy_groups[:6],
             "auction_signals": auction_signals,
             "top_gainers": top_gainers[:15],
+            "historical_hit_rate": historical_hit_rate,
         }}
     except Exception as e:
-        return {"success": True, "data": {"status": "off", "candidates": [], "auction_signals": [], "top_gainers": [], "error": str(e)}}
+        return {"success": True, "data": {"status": "off", "candidates": [], "auction_signals": [], "top_gainers": [], "strategy_groups": [], "market_snapshot": {}, "sentiment": {}, "historical_hit_rate": {}, "error": str(e)}}
 
 
 @router.get("/trade-attribution")
