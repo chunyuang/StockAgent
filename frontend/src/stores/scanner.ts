@@ -224,7 +224,7 @@ export const useScannerStore = defineStore('scanner', () => {
       ])
 
       if (statusRes.status === 'fulfilled' && statusRes.value?.success) {
-        const s = statusRes.value
+        const s = statusRes.value.data || statusRes.value
         isRunning.value = s.is_running
         stats.value = s.stats || stats.value
         account.value = s.account || account.value
@@ -235,7 +235,8 @@ export const useScannerStore = defineStore('scanner', () => {
       }
 
       if (healthRes.status === 'fulfilled' && healthRes.value?.success) {
-        health.value = healthRes.value.health
+        const h = healthRes.value.data || healthRes.value
+        health.value = h.health || h
       }
 
       lastRestUpdate.value = Date.now()
