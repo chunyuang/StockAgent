@@ -2051,6 +2051,8 @@ async def debug_premarket_sim():
         "funnel": funnel,
         "is_simulated": True,
         "cache_source": cache_source,
+        "limit_pools": await _build_limit_pools(scanner),
+        "position_gaps": _build_position_gaps(scanner),
     }}
 
 
@@ -3950,6 +3952,73 @@ async def get_event_bus_history(event: str = None, limit: int = 50):
 
 # ==================== 盘前竞价 + 逐笔归因 API ====================
 
+async def _build_limit_pools(scanner) -> dict:
+    """涨停池+连板分布+板块热力"""
+    from core.managers import mongo_manager
+    result = {"up_count": 0, "down_count": 0, "limit_up_list": [], "continue_stats": {}, "sector_heat": []}
+    try:
+        if not mongo_manager.is_initialized:
+            return result
+        db = mongo_manager.db
+        # 最新交易日
+        latest = await db["limit_list"].find_one(sort=[("trade_date", -1)])
+        if not latest:
+            return result
+        td = latest["trade_date"]
+        
+        # 涨停列表
+        limit_ups = []
+        sector_count = {}
+        continue_count = {}
+        async for doc in db["limit_list"].find({"trade_date": td, "limit": "U"}, {"_id": 0}):
+            name = doc.get("name", "") or scanner._stock_name_map.get(doc.get("ts_code", ""), "")
+            limit_ups.append({"ts_code": doc.get("ts_code", ""), "name": name,
+                              "open_times": doc.get("open_times", 0), "limit_times": doc.get("limit_times", 1),
+                              "first_time": doc.get("first_time", ""), "sector": doc.get("sector", "")})
+            # 连板统计
+            lt = doc.get("limit_times", 1) or 1
+            continue_count[str(lt)] = continue_count.get(str(lt), 0) + 1
+            # 板块统计
+            sec = doc.get("sector", "")
+            if sec:
+                sector_count[sec] = sector_count.get(sec, 0) + 1
+        
+        down_count = await db["limit_list"].count_documents({"trade_date": td, "limit": "D"})
+        
+        result["up_count"] = len(limit_ups)
+        result["down_count"] = down_count
+        result["limit_up_list"] = limit_ups[:30]
+        result["continue_stats"] = dict(sorted(continue_count.items()))
+        result["sector_heat"] = sorted([{"name": k, "count": v} for k, v in sector_count.items()], key=lambda x: x["count"], reverse=True)[:10]
+        result["trade_date"] = str(td)
+    except Exception:
+        pass
+    return result
+
+def _build_position_gaps(scanner) -> list:
+    """持仓竞价跳空影响"""
+    gaps = []
+    try:
+        if not scanner._broker or not scanner._realtime_cache:
+            return gaps
+        positions = scanner._broker.get_positions()
+        for pos in positions:
+            rt = scanner._realtime_cache.get(pos.ts_code, {})
+            if not rt:
+                continue
+            current = rt.get("price", 0) or rt.get("close", 0) or pos.current_price
+            pre_close = rt.get("pre_close", 0) or pos.current_price
+            gap_pct = ((current - pre_close) / pre_close * 100) if pre_close > 0 else 0
+            if abs(gap_pct) >= 0.5:  # 只显示跳空>0.5%的
+                gaps.append({"ts_code": pos.ts_code, "stock_name": pos.stock_name,
+                             "gap_pct": round(gap_pct, 1), "strategy": pos.strategy,
+                             "profit_pct": round(pos.profit_pct, 1) if hasattr(pos, 'profit_pct') else 0})
+        gaps.sort(key=lambda x: abs(x["gap_pct"]), reverse=True)
+    except Exception:
+        pass
+    return gaps
+
+
 @router.get("/premarket-status")
 async def get_premarket_status():
     """盘前竞价增强版 — 策略分组+情绪背景+量能排名+历史统计
@@ -4096,9 +4165,11 @@ async def get_premarket_status():
             "auction_signals": auction_signals,
             "top_gainers": top_gainers[:15],
             "historical_hit_rate": historical_hit_rate,
+            "limit_pools": await _build_limit_pools(scanner),
+            "position_gaps": _build_position_gaps(scanner),
         }}
     except Exception as e:
-        return {"success": True, "data": {"status": "off", "candidates": [], "auction_signals": [], "top_gainers": [], "strategy_groups": [], "market_snapshot": {}, "sentiment": {}, "historical_hit_rate": {}, "error": str(e)}}
+        return {"success": True, "data": {"status": "off", "candidates": [], "auction_signals": [], "top_gainers": [], "strategy_groups": [], "market_snapshot": {}, "sentiment": {}, "historical_hit_rate": {}, "limit_pools": {}, "position_gaps": [], "error": str(e)}}
 
 
 @router.get("/trade-attribution")
