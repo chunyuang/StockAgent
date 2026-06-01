@@ -252,6 +252,7 @@ const premarketSentiment = ref<any>({})
 const premarketStrategyGroups = ref<any[]>([])
 const premarketHitRate = ref<Record<string, any>>({})
 const premarketGroupMode = ref<'strategy' | 'list'>('strategy')
+const premarketDebugMode = ref(false)
 
 // ==================== 扫描追踪Tab ====================
 const scanHistory = ref<any[]>([])
@@ -501,11 +502,12 @@ async function fetchPerformanceHistory() {
 // ==================== 盘前竞价Tab 数据 ====================
 async function fetchPremarketData() {
   try {
-    const r = await api.get(`${scannerApi}/premarket-status`)
+    const url = premarketDebugMode.value ? `${scannerApi}/debug/premarket-sim` : `${scannerApi}/premarket-status`
+    const r = await api.get(url)
     const p = parseResponse(r)
     if (p.success && p.data) {
       premarketSignals.value = p.data.auction_signals || []
-      premarketStatus.value = p.data.status || 'off'
+      premarketStatus.value = premarketDebugMode.value ? 'debug' : (p.data.status || 'off')
       premarketCandidates.value = p.data.candidates || []
       auctionTopGainers.value = p.data.top_gainers || []
       premarketMarketSnapshot.value = p.data.market_snapshot || {}
@@ -1525,13 +1527,14 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
       <div class="mm-tab-scroll">
         <!-- 状态栏 -->
         <div class="pm-status-bar">
-          <div class="pm-status-icon">{{ premarketStatus === 'active' ? '🔴' : premarketStatus === 'ended' ? '✅' : premarketStatus === 'waiting' ? '⏳' : '💤' }}</div>
+          <div class="pm-status-icon">{{ premarketStatus === 'active' ? '🔴' : premarketStatus === 'ended' ? '✅' : premarketStatus === 'waiting' ? '⏳' : premarketStatus === 'debug' ? '🧪' : '💤' }}</div>
           <div class="pm-status-text">
-            <div class="pm-status-title">{{ {active: '竞价进行中', ended: '竞价已结束', waiting: '等待竞价(9:15)', off: '非交易时间'}[premarketStatus] }}</div>
-            <div class="pm-status-sub">{{ premarketCandidates.length }}只候选 · {{ premarketStrategyGroups.length }}个策略</div>
+            <div class="pm-status-title">{{ {active: '竞价进行中', ended: '竞价已结束', waiting: '等待竞价(9:15)', debug: '🧪 调试预选模式', off: '非交易时间'}[premarketStatus] }} <span v-if="premarketDebugMode" class="pm-debug-badge">SIM</span></div>
+            <div class="pm-status-sub">{{ premarketDebugMode ? '日级因子模拟 · 不影响实盘' : premarketCandidates.length + '只候选 · ' + premarketStrategyGroups.length + '个策略' }}</div>
           </div>
           <div class="pm-status-actions">
             <ElButton size="small" @click="fetchPremarketData">🔄</ElButton>
+            <button :class="['pm-mode-btn', premarketDebugMode ? 'active' : '']" @click="premarketDebugMode = !premarketDebugMode; fetchPremarketData()" title="用日级因子模拟盘前预选(非交易时间可用)">🧪 调试</button>
             <button :class="['pm-mode-btn', premarketGroupMode === 'strategy' ? 'active' : '']" @click="premarketGroupMode = 'strategy'">按策略</button>
             <button :class="['pm-mode-btn', premarketGroupMode === 'list' ? 'active' : '']" @click="premarketGroupMode = 'list'">列表</button>
           </div>
@@ -1600,8 +1603,8 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           </div>
           <div v-if="!premarketStrategyGroups.length" class="pm-empty-state">
             <div class="pm-empty-icon">📋</div>
-            <div class="pm-empty-text">9:00后自动生成盘前预选</div>
-            <div class="pm-empty-hint">Scanner启动后，竞价阶段自动扫描全市场候选</div>
+            <div class="pm-empty-text">{{ premarketDebugMode ? '无日级因子数据，请启动扫描器后再试' : '9:00后自动生成盘前预选' }}</div>
+            <div class="pm-empty-hint">{{ premarketDebugMode ? '调试模式使用daily_factors_df模拟策略扫描' : 'Scanner启动后，竞价阶段自动扫描全市场候选' }}</div>
           </div>
         </div>
 
@@ -3223,6 +3226,7 @@ mm-tab-content {
 .pm-status-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
 .pm-mode-btn { padding: 2px 8px; font-size: 11px; border-radius: 4px; border: 1px solid var(--border-default); background: var(--bg-elevated); cursor: pointer; color: var(--text-secondary); }
 .pm-mode-btn.active { background: var(--el-color-primary); color: #fff; border-color: var(--el-color-primary); }
+.pm-debug-badge { display: inline-block; font-size: 9px; background: var(--el-color-warning); color: #fff; padding: 0 4px; border-radius: 2px; margin-left: 4px; vertical-align: middle; }
 
 .pm-overview { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
 .pm-ov-card { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 10px 12px; }
