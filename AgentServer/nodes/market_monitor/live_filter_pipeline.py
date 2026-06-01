@@ -434,7 +434,7 @@ class LiveFilterPipeline:
         self, trade_date: str, realtime_data: Dict = None
     ) -> Tuple[bool, str, Dict]:
         """
-        检查是否触发强制空仓
+        检查是否触发强制空仓【v2.9.56:提取数据收集】
 
         与回测portfolio_backtest.py完全对齐的3个条件:
         1. 跌停≥80只 → 强制空仓
@@ -444,50 +444,13 @@ class LiveFilterPipeline:
         Returns:
             (force_empty, reason, stats) stats={limit_up_count, limit_down_count, index_drop_pct}
         """
-        limit_up_count = 0
-        limit_down_count = 0
-        index_drop_pct = 0.0  # 大盘跌幅
-
-        # 优先用实时行情统计
         if realtime_data:
-            for code, data in realtime_data.items():
-                pct = data.get("pct_chg", 0)
-                if isinstance(pct, (int, float)):
-                    if pct >= 9.5:
-                        limit_up_count += 1
-                    elif pct <= -9.5:
-                        limit_down_count += 1
-            # 【V52补齐:从实时数据获取上证指数跌幅】
-            # 上证指数代码: 000001.SH, 实时数据中可能有index数据
-            sh_index = realtime_data.get("000001.SH", {})
-            if sh_index and isinstance(sh_index.get("pct_chg"), (int, float)):
-                index_drop_pct = -sh_index["pct_chg"] / 100  # 正数=下跌
+            limit_up_count, limit_down_count, index_drop_pct = \
+                self._count_limits_from_realtime(realtime_data)
         else:
-            # 无实时数据时从MongoDB取前日数据
-            try:
-                from core.managers import mongo_manager
-                await mongo_manager.initialize()
-                prev_date = await self._get_prev_trade_date(trade_date)
-                if prev_date:
-                    cursor = mongo_manager.db["stock_daily_ak_full"].find(
-                        {"trade_date": int(prev_date)},
-                        {"pct_chg": 1, "_id": 0}
-                    )
-                    async for doc in cursor:
-                        pct = doc.get("pct_chg", 0)
-                        if pct >= 9.5:
-                            limit_up_count += 1
-                        elif pct <= -9.5:
-                            limit_down_count += 1
-                # 【V52补齐:从MongoDB获取上证指数跌幅】
-                idx_doc = await mongo_manager.db["stock_daily_ak_full"].find_one(
-                    {"ts_code": "000001.SH", "trade_date": int(prev_date or trade_date)},
-                    {"pct_chg": 1, "_id": 0}
-                )
-                if idx_doc and isinstance(idx_doc.get("pct_chg"), (int, float)):
-                    index_drop_pct = -idx_doc["pct_chg"] / 100
-            except Exception as e:
-                logger.warning(f"[L1] 获取涨跌停数失败: {e}")
+            limit_up_count, limit_down_count, index_drop_pct = \
+                await self._count_limits_from_mongo(trade_date)
+            if limit_up_count is None:  # MongoDB查询失败
                 return False, "", {"limit_up_count": 0, "limit_down_count": 0, "index_drop_pct": 0.0}
 
         # 【V52:从strategy_defaults读取阈值,与回测对齐】
@@ -504,11 +467,66 @@ class LiveFilterPipeline:
             return True, f"跌停{limit_down_count}只≥{self.FORCE_EMPTY_LIMIT_DOWN}", stats
         if limit_up_count <= self.FORCE_EMPTY_LIMIT_UP and limit_down_count > 0:
             return True, f"涨停{limit_up_count}只≤{self.FORCE_EMPTY_LIMIT_UP}且跌停{limit_down_count}只", stats
-        # 【V52补齐:大盘跌幅条件,与回测V44对齐】
         if index_drop_pct >= index_drop_threshold:
             return True, f"大盘跌幅{index_drop_pct*100:.1f}%≥{index_drop_threshold*100:.0f}%", stats
 
         return False, "", stats
+
+    def _count_limits_from_realtime(self, realtime_data: Dict) -> Tuple[int, int, float]:
+        """从实时行情统计涨跌停数量【v2.9.56从_check_force_empty提取】
+        
+        Returns: (limit_up_count, limit_down_count, index_drop_pct)
+        """
+        limit_up_count = 0
+        limit_down_count = 0
+        for code, data in realtime_data.items():
+            pct = data.get("pct_chg", 0)
+            if isinstance(pct, (int, float)):
+                if pct >= 9.5:
+                    limit_up_count += 1
+                elif pct <= -9.5:
+                    limit_down_count += 1
+        # 上证指数跌幅
+        sh_index = realtime_data.get("000001.SH", {})
+        index_drop_pct = 0.0
+        if sh_index and isinstance(sh_index.get("pct_chg"), (int, float)):
+            index_drop_pct = -sh_index["pct_chg"] / 100
+        return limit_up_count, limit_down_count, index_drop_pct
+
+    async def _count_limits_from_mongo(self, trade_date: str) -> Tuple[Optional[int], Optional[int], Optional[float]]:
+        """从MongoDB统计涨跌停数量【v2.9.56从_check_force_empty提取】
+        
+        Returns: (limit_up_count, limit_down_count, index_drop_pct) 或 (None,None,None)表示查询失败
+        """
+        try:
+            from core.managers import mongo_manager
+            await mongo_manager.initialize()
+            prev_date = await self._get_prev_trade_date(trade_date)
+            limit_up_count = 0
+            limit_down_count = 0
+            if prev_date:
+                cursor = mongo_manager.db["stock_daily_ak_full"].find(
+                    {"trade_date": int(prev_date)},
+                    {"pct_chg": 1, "_id": 0}
+                )
+                async for doc in cursor:
+                    pct = doc.get("pct_chg", 0)
+                    if pct >= 9.5:
+                        limit_up_count += 1
+                    elif pct <= -9.5:
+                        limit_down_count += 1
+            # 上证指数跌幅
+            idx_doc = await mongo_manager.db["stock_daily_ak_full"].find_one(
+                {"ts_code": "000001.SH", "trade_date": int(prev_date or trade_date)},
+                {"pct_chg": 1, "_id": 0}
+            )
+            index_drop_pct = 0.0
+            if idx_doc and isinstance(idx_doc.get("pct_chg"), (int, float)):
+                index_drop_pct = -idx_doc["pct_chg"] / 100
+            return limit_up_count, limit_down_count, index_drop_pct
+        except Exception as e:
+            logger.warning(f"[L1] 获取涨跌停数失败: {e}")
+            return None, None, None
 
     # ========================================================================
     # L2: 特殊时期
