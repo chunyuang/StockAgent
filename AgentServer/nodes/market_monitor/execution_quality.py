@@ -67,68 +67,63 @@ class PreTradeChecker:
         stock_name: str = "",
         strategy: str = "",
     ) -> Tuple[bool, str]:
-        """
-        买入前检查
-        
-        Returns:
-            (ok, reason) — ok=True允许买入, ok=False拒绝+原因
-        """
+        """买入前检查(编排方法)"""
         if not self._broker:
             return True, "broker未关联,跳过检查"
-        
-        # 1. 基础参数检查
+
+        # 基础检查
+        ok, reason = self._check_buy_basics(ts_code, price, quantity, stock_name)
+        if not ok:
+            return False, reason
+
+        # 仓位+资金检查
+        return self._check_buy_position_and_cash(ts_code, price, quantity)
+
+    def _check_buy_basics(
+        self, ts_code: str, price: float, quantity: int, stock_name: str,
+    ) -> Tuple[bool, str]:
+        """买入基础检查(参数+ST+涨停+停牌)"""
         if price <= 0:
             return False, f"价格异常: {price}"
-        
         if quantity <= 0:
             return False, f"数量异常: {quantity}"
-        
-        # 2. 科创板200股门槛
         if ts_code.startswith("688") and quantity < 200:
             return False, f"科创板最小200股, 当前{quantity}股"
-        
-        # 3. ST股二次确认
         if stock_name and self._is_st_stock(stock_name):
             return False, f"ST股: {stock_name}"
-        
-        # 4. 涨停不可买入(封板不确定性高, 买入可能无法成交)
         if self._is_at_limit_up(ts_code, price):
             return False, f"涨停价不可买入(排板不确定性)"
-        
-        # 5. 停牌检查
         if self._is_suspended(ts_code):
             return False, f"停牌: {ts_code}"
-        
-        # 6. 单票仓位上限
+        return True, "通过"
+
+    def _check_buy_position_and_cash(
+        self, ts_code: str, price: float, quantity: int,
+    ) -> Tuple[bool, str]:
+        """买入仓位+资金检查"""
         acct = self._broker.get_account()
-        if acct:
-            order_amount = price * quantity
-            stock_mv = 0
-            for p in self._broker.get_positions():
-                if p.ts_code == ts_code:
-                    stock_mv += p.current_price * p.total_qty
-            stock_mv += order_amount
-            total_asset = acct.total_assets
-            if total_asset > 0 and stock_mv / total_asset > self._max_position_per_stock:
-                return False, (
-                    f"单票仓位超限: {stock_mv/total_asset:.1%} > "
-                    f"{self._max_position_per_stock:.1%}"
-                )
-            
-            # 7. 总仓位上限
-            total_mv = acct.market_value + order_amount
-            if total_asset > 0 and total_mv / total_asset > self._max_total_position:
-                return False, (
-                    f"总仓位超限: {total_mv/total_asset:.1%} > "
-                    f"{self._max_total_position:.1%}"
-                )
-            
-            # 8. 可用资金
-            if order_amount > acct.available_cash:
-                return False, (
-                    f"资金不足: 需{order_amount:.0f}, 可用{acct.available_cash:.0f}"
-                )
-        
+        if not acct:
+            return True, "通过(无账户信息)"
+
+        order_amount = price * quantity
+        stock_mv = sum(
+            p.current_price * p.total_qty
+            for p in self._broker.get_positions()
+            if p.ts_code == ts_code
+        )
+        stock_mv += order_amount
+        total_asset = acct.total_assets
+
+        if total_asset > 0 and stock_mv / total_asset > self._max_position_per_stock:
+            return False, f"单票仓位超限: {stock_mv/total_asset:.1%} > {self._max_position_per_stock:.1%}"
+
+        total_mv = acct.market_value + order_amount
+        if total_asset > 0 and total_mv / total_asset > self._max_total_position:
+            return False, f"总仓位超限: {total_mv/total_asset:.1%} > {self._max_total_position:.1%}"
+
+        if order_amount > acct.available_cash:
+            return False, f"资金不足: 需{order_amount:.0f}, 可用{acct.available_cash:.0f}"
+
         return True, "通过"
     
     def check_sell(

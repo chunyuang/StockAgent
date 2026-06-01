@@ -27,7 +27,7 @@ import asyncio
 import logging
 import time
 from datetime import datetime
-from typing import Dict, Optional, Callable, Awaitable, List, Any
+from typing import Dict, Optional, Callable, Awaitable, List, Any, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -290,15 +290,14 @@ class RiskWatchdog:
         )
 
     async def _check_drawdown(self) -> HealthCheck:
-        """检查账户回撤"""
+        """检查账户回撤(编排方法)"""
         now = time.time()
 
         if not self._scanner or not self._scanner._broker:
             return HealthCheck(
                 name="drawdown", status=HealthStatus.HEALTHY,
                 value="N/A", threshold="<5%日/<20%总",
-                message="Broker未初始化",
-                last_check_time=now,
+                message="Broker未初始化", last_check_time=now,
             )
 
         try:
@@ -307,57 +306,55 @@ class RiskWatchdog:
                 return HealthCheck(
                     name="drawdown", status=HealthStatus.HEALTHY,
                     value="N/A", threshold="<5%日/<20%总",
-                    message="账户信息不可用",
-                    last_check_time=now,
+                    message="账户信息不可用", last_check_time=now,
                 )
 
-            # 计算总回撤(从峰值)
-            total_assets = acct.total_assets
-            initial = self._scanner._broker._initial_cash
-            peak = max(initial, total_assets)  # 简化: 实际应从历史获取峰值
-
-            total_drawdown = 0
-            if peak > 0:
-                total_drawdown = (1 - total_assets / peak) * 100
-
-            # 日内起始资产(在scanner.start()设置)
-            daily_start = self._scanner._daily_start_asset
-            daily_drawdown = 0
-            if daily_start > 0:
-                daily_drawdown = (1 - total_assets / daily_start) * 100
-
-            if total_drawdown > 20 or daily_drawdown > 5:
-                return HealthCheck(
-                    name="drawdown", status=HealthStatus.CRITICAL,
-                    value=f"日{daily_drawdown:.1f}%/总{total_drawdown:.1f}%",
-                    threshold="<5%日/<20%总",
-                    message=f"🚨 回撤超限! 日{daily_drawdown:.1f}%/总{total_drawdown:.1f}%",
-                    last_check_time=now,
-                )
-            elif daily_drawdown > 3 or total_drawdown > 10:
-                return HealthCheck(
-                    name="drawdown", status=HealthStatus.DEGRADED,
-                    value=f"日{daily_drawdown:.1f}%/总{total_drawdown:.1f}%",
-                    threshold="<5%日/<20%总",
-                    message=f"⚠️ 回撤偏高: 日{daily_drawdown:.1f}%/总{total_drawdown:.1f}%",
-                    last_check_time=now,
-                )
-
-            return HealthCheck(
-                name="drawdown", status=HealthStatus.HEALTHY,
-                value=f"日{daily_drawdown:.1f}%/总{total_drawdown:.1f}%",
-                threshold="<5%日/<20%总",
-                message="正常",
-                last_check_time=now,
-            )
+            daily_dd, total_dd = self._compute_drawdowns(acct)
+            return self._judge_drawdown_status(daily_dd, total_dd, now)
         except Exception as e:
             return HealthCheck(
                 name="drawdown", status=HealthStatus.DEGRADED,
-                value=f"检查失败: {e}",
-                threshold="<5%日/<20%总",
-                message=f"⚠️ 回撤检查异常: {e}",
-                last_check_time=now,
+                value=f"检查失败: {e}", threshold="<5%日/<20%总",
+                message=f"⚠️ 回撤检查异常: {e}", last_check_time=now,
             )
+
+    def _compute_drawdowns(self, acct) -> Tuple[float, float]:
+        """计算日内和总回撤百分比"""
+        total_assets = acct.total_assets
+        initial = self._scanner._broker._initial_cash
+        peak = max(initial, total_assets)
+        total_drawdown = (1 - total_assets / peak) * 100 if peak > 0 else 0
+
+        daily_start = self._scanner._daily_start_asset
+        daily_drawdown = (1 - total_assets / daily_start) * 100 if daily_start > 0 else 0
+
+        return daily_drawdown, total_drawdown
+
+    def _judge_drawdown_status(
+        self, daily_dd: float, total_dd: float, now: float,
+    ) -> HealthCheck:
+        """根据回撤值判断健康状态"""
+        value = f"日{daily_dd:.1f}%/总{total_dd:.1f}%"
+        threshold = "<5%日/<20%总"
+
+        if total_dd > 20 or daily_dd > 5:
+            return HealthCheck(
+                name="drawdown", status=HealthStatus.CRITICAL,
+                value=value, threshold=threshold,
+                message=f"🚨 回撤超限! {value}", last_check_time=now,
+            )
+        elif daily_dd > 3 or total_dd > 10:
+            return HealthCheck(
+                name="drawdown", status=HealthStatus.DEGRADED,
+                value=value, threshold=threshold,
+                message=f"⚠️ 回撤偏高: {value}", last_check_time=now,
+            )
+
+        return HealthCheck(
+            name="drawdown", status=HealthStatus.HEALTHY,
+            value=value, threshold=threshold,
+            message="正常", last_check_time=now,
+        )
 
     async def _check_position_health(self) -> HealthCheck:
         """检查持仓健康"""
