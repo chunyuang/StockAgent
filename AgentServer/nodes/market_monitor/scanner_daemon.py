@@ -543,7 +543,7 @@ class ScannerDaemon:
         return False
 
     async def stop(self) -> None:
-        """停止 Scanner 子进程"""
+        """停止 Scanner 子进程【v2.9.56:进程终止提取到_terminate_process】"""
         logger.info("Stopping Scanner subprocess...")
         self._running = False
 
@@ -551,16 +551,7 @@ class ScannerDaemon:
         await self.send_command("stop", {})
 
         # 等待子进程退出
-        if self._process and self._process.is_alive():
-            self._process.join(timeout=10)
-            if self._process.is_alive():
-                logger.warning("Scanner subprocess did not exit gracefully, terminating...")
-                self._process.terminate()
-                self._process.join(timeout=5)
-                if self._process.is_alive():
-                    logger.warning("Force killing Scanner subprocess")
-                    self._process.kill()
-                    self._process.join(timeout=3)
+        await self._terminate_process()
 
         # 取消看门狗
         if self._watchdog_task and not self._watchdog_task.done():
@@ -584,6 +575,20 @@ class ScannerDaemon:
         self._state = ScannerState.STOPPED
         self._process = None
         logger.info("Scanner subprocess stopped")
+
+    async def _terminate_process(self) -> None:
+        """等待子进程退出, 不响应则强制终止【v2.9.56从stop()提取】"""
+        if not (self._process and self._process.is_alive()):
+            return
+        self._process.join(timeout=10)
+        if self._process.is_alive():
+            logger.warning("Scanner subprocess did not exit gracefully, terminating...")
+            self._process.terminate()
+            self._process.join(timeout=5)
+            if self._process.is_alive():
+                logger.warning("Force killing Scanner subprocess")
+                self._process.kill()
+                self._process.join(timeout=3)
 
     async def restart(self) -> bool:
         """重启 Scanner 子进程"""
@@ -654,6 +659,12 @@ class ScannerDaemon:
             return None
 
         # 等待ACK
+        return await self._wait_for_ack(cmd, cmd_id, ack_future, ack_timeout)
+
+    async def _wait_for_ack(
+        self, cmd: str, cmd_id: str, ack_future: asyncio.Future, ack_timeout: float
+    ) -> Optional[dict]:
+        """等待命令ACK确认【v2.9.56从send_command提取】"""
         try:
             result = await asyncio.wait_for(ack_future, timeout=ack_timeout)
             logger.info(f"Command {cmd} (id={cmd_id}) ACK: {result.get('status', 'unknown')}")
@@ -841,28 +852,7 @@ class ScannerDaemon:
                     timeout=1.0,
                 )
                 if message and message["type"] == "message":
-                    try:
-                        data = json.loads(message["data"])
-
-                        # 特殊处理: 更新状态
-                        if channel_suffix == "status" and "state" in data:
-                            try:
-                                self._state = ScannerState(data["state"])
-                            except ValueError:
-                                pass
-
-                        # 特殊处理: 更新健康时间戳
-                        if channel_suffix == "health" and "ts" in data:
-                            self._last_health_ts = data["ts"]
-
-                        # 调用回调
-                        if callback:
-                            callback(data)
-
-                    except json.JSONDecodeError as e:
-                        logger.warning(f"Invalid JSON on {channel}: {e}")
-                    except Exception as e:
-                        logger.error(f"Callback error on {channel}: {e}")
+                    await self._handle_subscription_message(channel_suffix, message["data"], callback)
                 else:
                     await asyncio.sleep(0.05)
 
@@ -876,6 +866,33 @@ class ScannerDaemon:
                 await pubsub.close()
             except Exception as _e:
                 logger.debug(f"pubsub cleanup failed: {_e}")
+
+    async def _handle_subscription_message(
+        self, channel_suffix: str, raw_data: bytes, callback: Optional[Callable]
+    ) -> None:
+        """处理订阅消息: 解析+状态更新+回调【v2.9.56从_subscribe_loop提取】"""
+        try:
+            data = json.loads(raw_data)
+
+            # 特殊处理: 更新状态
+            if channel_suffix == "status" and "state" in data:
+                try:
+                    self._state = ScannerState(data["state"])
+                except ValueError:
+                    pass
+
+            # 特殊处理: 更新健康时间戳
+            if channel_suffix == "health" and "ts" in data:
+                self._last_health_ts = data["ts"]
+
+            # 调用回调
+            if callback:
+                callback(data)
+
+        except json.JSONDecodeError as e:
+            logger.warning(f"Invalid JSON on {channel_suffix}: {e}")
+        except Exception as e:
+            logger.error(f"Callback error on {channel_suffix}: {e}")
 
     async def _cleanup_redis_subscriptions(self) -> None:
         """清理 Redis"""
@@ -891,7 +908,7 @@ class ScannerDaemon:
     # ------------------------------------------------------------------
 
     async def _watchdog_loop(self) -> None:
-        """看门狗: 检查子进程存活, 挂掉自动重启"""
+        """看门狗: 检查子进程存活, 挂掉自动重启【v2.9.56:提取_check_subprocess_health】"""
         while self._running:
             await asyncio.sleep(self.config.heartbeat_interval)
 
@@ -911,21 +928,7 @@ class ScannerDaemon:
                     await self._send_emergency_alert("Scanner重启{0}次失败,已停止自动重启!".format(self._restart_count))
                     break
 
-                self._restart_count += 1
-                logger.warning(
-                    f"Scanner subprocess died! "
-                    f"Restarting ({self._restart_count}/{self.config.max_restart_count})..."
-                )
-
-                # 清理旧进程
-                if self._process:
-                    try:
-                        self._process.join(timeout=3)
-                    except Exception as _e:
-                        logger.debug(f"process join failed: {_e}")
-
-                # 重启
-                self._start_process()
+                await self._restart_subprocess()
 
             # 检查健康时间戳（子进程可能活着但不响应）
             elif self._last_health_ts > 0:
@@ -935,6 +938,24 @@ class ScannerDaemon:
                         f"Scanner health check stale ({elapsed:.1f}s), "
                         f"subprocess may be unresponsive"
                     )
+
+    async def _restart_subprocess(self) -> None:
+        """重启子进程(清理旧进程+启动新进程)【v2.9.56从_watchdog_loop提取】"""
+        self._restart_count += 1
+        logger.warning(
+            f"Scanner subprocess died! "
+            f"Restarting ({self._restart_count}/{self.config.max_restart_count})..."
+        )
+
+        # 清理旧进程
+        if self._process:
+            try:
+                self._process.join(timeout=3)
+            except Exception as _e:
+                logger.debug(f"process join failed: {_e}")
+
+        # 重启
+        self._start_process()
 
     # ------------------------------------------------------------------
     # 状态查询

@@ -44,7 +44,7 @@ class TestStopMethodExtraction:
         import inspect
         from nodes.market_monitor.scanner import MarketScanner
         source = inspect.getsource(MarketScanner.stop)
-        # v2.9.55: 清理逻辑提取到_stop_cleanup
+        # v2.9.56: 清理逻辑提取到_stop_cleanup
         assert "_stop_cleanup" in source, "stop()应调用_stop_cleanup"
         # 验证_stop_cleanup包含关键步骤
         cleanup_source = inspect.getsource(MarketScanner._stop_cleanup)
@@ -315,7 +315,7 @@ class TestStartMethodExtraction:
         import inspect
         from nodes.market_monitor.scanner import MarketScanner
         source = inspect.getsource(MarketScanner.start)
-        # v2.9.55: 初始化序列提取到_start_init_sequence
+        # v2.9.56: 初始化序列提取到_start_init_sequence
         assert "_start_init_sequence" in source
         assert "_start_risk_thread" in source
         # 验证_start_init_sequence包含关键步骤
