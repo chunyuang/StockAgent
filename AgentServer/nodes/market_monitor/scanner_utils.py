@@ -15,7 +15,7 @@ import logging
 import math
 import time
 from datetime import datetime
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Tuple
 
 from nodes.market_monitor.scanner import ScanSignal
 
@@ -428,7 +428,7 @@ class ScannerUtils:
 
     @staticmethod
     def compute_health_score(scanner) -> Dict[str, Any]:
-        """Scanner健康度评分(绿/黄/红)
+        """Scanner健康度评分(绿/黄/红)【v2.9.56:提取指标收集+健康判定】
 
         维度:
         - scan_lag: 全量扫描延迟(上次到现在)
@@ -439,101 +439,106 @@ class ScannerUtils:
         Args:
             scanner: MarketScanner实例
         """
+        metrics = ScannerUtils._collect_health_metrics(scanner)
+        warnings = ScannerUtils._collect_health_warnings(scanner, metrics)
+        status, is_healthy, is_warning = ScannerUtils._judge_health(metrics, warnings)
+
+        return {
+            "status": status,          # green/yellow/red
+            "is_healthy": is_healthy,
+            "scan_lag_seconds": round(metrics['scan_lag'], 1),
+            "risk_check_lag_seconds": round(metrics['risk_lag'], 1),
+            "quote_staleness_seconds": round(metrics['quote_staleness'], 1),
+            "risk_thread_alive": metrics['risk_thread_alive'],
+            "risk_thread_restarts": getattr(scanner, '_risk_thread_restarts', 0),
+            "warnings": warnings,
+            "event_bus_stats": scanner._event_bus.get_stats() if hasattr(scanner, '_event_bus') and scanner._event_bus else {},
+        }
+
+    @staticmethod
+    def _collect_health_metrics(scanner) -> Dict[str, Any]:
+        """收集健康度指标【v2.9.56从compute_health_score提取】"""
         now = time.time()
-        warnings = []
+        risk_thread_alive = (
+            hasattr(scanner, '_risk_thread') and scanner._risk_thread is not None
+            and scanner._risk_thread.is_alive()
+        )
+        return {
+            'scan_lag': (now - scanner._last_scan_ts) if scanner._last_scan_ts > 0 else 999,
+            'risk_lag': (now - scanner._last_risk_check_ts) if scanner._last_risk_check_ts > 0 else 999,
+            'quote_staleness': scanner._quote_manager.get_staleness() if scanner._quote_manager else 999.0,
+            'risk_thread_alive': risk_thread_alive,
+            'pending_count': ScannerUtils._get_pending_sells_count(scanner),
+        }
 
-        # 1. 扫描延迟
-        scan_lag = (now - scanner._last_scan_ts) if scanner._last_scan_ts > 0 else 999
-        if scan_lag > 600:  # 10分钟没扫描
-            warnings.append(f"扫描延迟{scan_lag:.0f}秒")
-
-        # 2. 风控检查延迟
-        risk_lag = (now - scanner._last_risk_check_ts) if scanner._last_risk_check_ts > 0 else 999
-        if risk_lag > 10:  # 10秒没做风控检查
-            warnings.append(f"风控延迟{risk_lag:.0f}秒")
-
-        # 3. 行情陈旧度
-        quote_staleness = scanner._quote_manager.get_staleness() if scanner._quote_manager else 999.0
-        if quote_staleness > 60:  # 行情超过1分钟没更新
-            warnings.append(f"行情陈旧{quote_staleness:.0f}秒")
-
-        # 4. 行情降级
-        if scanner._quote_manager and scanner._quote_manager.degrade_level > 0:
-            warnings.append(f"行情降级level={scanner._quote_manager.degrade_level}")
-
-        # 5. 跌停挂起
+    @staticmethod
+    def _get_pending_sells_count(scanner) -> int:
+        """安全获取pending_sells数量【v2.9.56从compute_health_score提取】"""
         try:
             pending_data = scanner._safe_read_state("_pending_sells")
             if isinstance(pending_data, dict):
-                pending_count = len(pending_data)
-            else:
-                # _safe_read_state不可用或返回非dict(Mock等情况)
-                raise TypeError("_safe_read_state returned non-dict")
+                return len(pending_data)
+            raise TypeError("_safe_read_state returned non-dict")
         except (AttributeError, TypeError):
-            # fallback: 直接读取+加锁
             if scanner._state_lock is None:
-                pending_count = len(scanner._pending_sells)
-            else:
-                with scanner._state_lock:
-                    pending_count = len(scanner._pending_sells)
-        if pending_count > 0:
-            warnings.append(f"跌停挂起{pending_count}只")
+                return len(scanner._pending_sells)
+            with scanner._state_lock:
+                return len(scanner._pending_sells)
 
-        # 6. 熔断器
+    @staticmethod
+    def _collect_health_warnings(scanner, metrics: Dict) -> List[str]:
+        """收集健康度告警【v2.9.56从compute_health_score提取】"""
+        warnings = []
+        if metrics['scan_lag'] > 600:
+            warnings.append(f"扫描延迟{metrics['scan_lag']:.0f}秒")
+        if metrics['risk_lag'] > 10:
+            warnings.append(f"风控延迟{metrics['risk_lag']:.0f}秒")
+        if metrics['quote_staleness'] > 60:
+            warnings.append(f"行情陈旧{metrics['quote_staleness']:.0f}秒")
+        if scanner._quote_manager and scanner._quote_manager.degrade_level > 0:
+            warnings.append(f"行情降级level={scanner._quote_manager.degrade_level}")
+        if metrics['pending_count'] > 0:
+            warnings.append(f"跌停挂起{metrics['pending_count']}只")
         if hasattr(scanner, '_circuit_breaker') and scanner._circuit_breaker.get('trading_paused'):
             warnings.append("熔断器已触发")
-
-        # 7. EventBus异常率(v2.8)
+        # EventBus异常率
         if hasattr(scanner, '_event_bus') and scanner._event_bus:
             stats = scanner._event_bus.get_stats()
             total_errors = sum(s.get('errors', 0) for s in stats.values())
             total_handled = sum(s.get('handled', 0) for s in stats.values())
             if total_errors > 0 and total_handled > 0:
                 error_rate = total_errors / (total_handled + total_errors)
-                if error_rate > 0.1:  # >10%错误率
+                if error_rate > 0.1:
                     warnings.append(f"EventBus异常率{error_rate:.0%}({total_errors}/{total_handled+total_errors})")
-
-        # 8. 【v2.9.5:风控线程存活状态】
-        risk_thread_alive = (
-            hasattr(scanner, '_risk_thread') and scanner._risk_thread is not None
-            and scanner._risk_thread.is_alive()
-        )
-        if not risk_thread_alive and getattr(scanner, '_risk_running', False):
+        if not metrics['risk_thread_alive'] and getattr(scanner, '_risk_running', False):
             warnings.append("风控线程已停止")
+        return warnings
 
-        # 健康判定
+    @staticmethod
+    def _judge_health(metrics: Dict, warnings: List[str]) -> Tuple[str, bool, bool]:
+        """健康度判定【v2.9.56从compute_health_score提取】
+        
+        Returns: (status, is_healthy, is_warning)
+        """
         is_healthy = (
-            scan_lag < 360 and      # 6分钟内有扫描
-            risk_lag < 5 and         # 5秒内有风控检查
-            quote_staleness < 30 and # 行情30秒内更新
-            risk_thread_alive and    # 【v2.9.5:风控线程存活】
+            metrics['scan_lag'] < 360 and
+            metrics['risk_lag'] < 5 and
+            metrics['quote_staleness'] < 30 and
+            metrics['risk_thread_alive'] and
             len(warnings) == 0
         )
         is_warning = not is_healthy and (
-            scan_lag < 600 and      # 10分钟内
-            risk_lag < 30 and       # 30秒内
-            quote_staleness < 120 and # 2分钟内
-            risk_thread_alive       # 风控线程至少还活着
+            metrics['scan_lag'] < 600 and
+            metrics['risk_lag'] < 30 and
+            metrics['quote_staleness'] < 120 and
+            metrics['risk_thread_alive']
         )
-
         if is_healthy:
-            status = "green"
+            return "green", True, False
         elif is_warning:
-            status = "yellow"
+            return "yellow", False, True
         else:
-            status = "red"
-
-        return {
-            "status": status,          # green/yellow/red
-            "is_healthy": is_healthy,
-            "scan_lag_seconds": round(scan_lag, 1),
-            "risk_check_lag_seconds": round(risk_lag, 1),
-            "quote_staleness_seconds": round(quote_staleness, 1),
-            "risk_thread_alive": risk_thread_alive,           # 【v2.9.5】
-            "risk_thread_restarts": getattr(scanner, '_risk_thread_restarts', 0),  # 【v2.9.5】
-            "warnings": warnings,
-            "event_bus_stats": scanner._event_bus.get_stats() if hasattr(scanner, '_event_bus') and scanner._event_bus else {},
-        }
+            return "red", False, False
 
     @staticmethod
     def format_slow_steps(steps: list) -> str:

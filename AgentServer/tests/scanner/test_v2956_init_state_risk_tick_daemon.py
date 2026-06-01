@@ -369,3 +369,24 @@ class TestScannerUtilsExtraction:
         from nodes.market_monitor.scanner_utils import ScannerUtils
         lines = inspect.getsource(ScannerUtils.generate_summary_report).split('\n')
         assert len(lines) <= 28, f"generate_summary_report {len(lines)}行,应≤28"
+
+    def test_compute_health_score_helpers_exist(self):
+        """compute_health_score的3个构建方法应存在"""
+        from nodes.market_monitor.scanner_utils import ScannerUtils
+        helpers = ['_collect_health_metrics', '_collect_health_warnings', '_judge_health', '_get_pending_sells_count']
+        for name in helpers:
+            assert hasattr(ScannerUtils, name), f"ScannerUtils缺少{name}"
+
+    def test_compute_health_score_calls_helpers(self):
+        """compute_health_score应调用所有构建方法"""
+        from nodes.market_monitor.scanner_utils import ScannerUtils
+        source = inspect.getsource(ScannerUtils.compute_health_score)
+        assert '_collect_health_metrics' in source
+        assert '_collect_health_warnings' in source
+        assert '_judge_health' in source
+
+    def test_compute_health_score_line_count(self):
+        """compute_health_score行数应≤35(v2.9.56:3子方法提取)"""
+        from nodes.market_monitor.scanner_utils import ScannerUtils
+        lines = inspect.getsource(ScannerUtils.compute_health_score).split('\n')
+        assert len(lines) <= 35, f"compute_health_score {len(lines)}行,应≤35"
