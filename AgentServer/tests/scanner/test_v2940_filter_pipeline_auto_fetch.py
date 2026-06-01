@@ -44,7 +44,7 @@ class TestFilterPipelineAutoFetch:
     def test_auto_fetch_positions_from_scanner(self):
         """当positions为None时从scanner自动获取"""
         source = _read(_LFP)
-        # v2.9.51: getattr已替换为直接属性访问
+        # v2.9.54: getattr已替换为直接属性访问
         assert "self._scanner._broker" in source
         assert "broker.get_positions()" in source
 
@@ -144,7 +144,7 @@ class TestVersionSync:
     def test_design_doc_version_in_api(self):
         """API版本号为v2.9.43"""
         source = _read(_API)
-        assert '_DESIGN_DOC_VERSION = "v2.9.51"' in source
+        assert '_DESIGN_DOC_VERSION = "v2.9.54"' in source
 
 
 class TestNoBacktestRegressionV2940:

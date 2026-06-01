@@ -76,10 +76,14 @@ class TestRiskThreadWatchdog:
         import inspect
         from nodes.market_monitor.scanner import MarketScanner
         # v2.9.13: 看门狗逻辑提取到_scan_loop_trading
+        # v2.9.54: 进一步提取到_restart_risk_thread_if_dead
         src = inspect.getsource(MarketScanner._scan_loop_trading)
-        # 验证有风控线程健康检查
-        assert '_risk_thread' in src and 'is_alive' in src
-        assert '_risk_thread_restarts' in src
+        # 验证_scan_loop_trading委托给_restart_risk_thread_if_dead
+        assert '_restart_risk_thread_if_dead' in src
+        # 验证_restart_risk_thread_if_dead包含is_alive检查
+        watchdog_src = inspect.getsource(MarketScanner._restart_risk_thread_if_dead)
+        assert 'is_alive' in watchdog_src
+        assert '_risk_thread_restarts' in watchdog_src
 
     def test_watchdog_restarts_dead_thread(self):
         """风控线程死后看门狗重启它"""

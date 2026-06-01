@@ -109,7 +109,7 @@ class TestBrokerDecouplingProgress:
     """验证broker耦合持续降低"""
 
     def test_broker_refs_under_17(self):
-        """self._broker引用<17处(v2.9.51:新增_daily_start_asset初始化+1)"""
+        """self._broker引用<17处(v2.9.54:新增_daily_start_asset初始化+1)"""
         source = _read(_SCANNER)
         count = sum(1 for line in source.splitlines()
                     if 'self._broker' in line and not line.strip().startswith('#'))
@@ -131,7 +131,7 @@ class TestVersionSync:
     def test_design_doc_version_in_api(self):
         """API版本号为v2.9.43"""
         source = _read(_API)
-        assert '_DESIGN_DOC_VERSION = "v2.9.51"' in source
+        assert '_DESIGN_DOC_VERSION = "v2.9.54"' in source
 
 
 class TestNoBacktestRegressionV2941:

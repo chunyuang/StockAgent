@@ -267,10 +267,10 @@ class TestVersionSyncV2943:
         path = os.path.join(os.path.dirname(__file__), "..", "..", "nodes", "web", "api", "scanner.py")
         with open(path) as f:
             content = f.read()
-        assert "v2.9.51" in content
+        assert "v2.9.54" in content
 
     def test_delegate_map_has_signal_entries(self):
-        """DELEGATE_MAP包含signal_manager条目【v2.9.52:MAP外提到router】"""
+        """DELEGATE_MAP包含signal_manager条目【v2.9.54:MAP外提到router】"""
         from nodes.market_monitor.scanner_delegate_router import DELEGATE_MAP
         signal_entries = {k: v for k, v in DELEGATE_MAP.items() if v[0] == '_signal_manager'}
         assert len(signal_entries) >= 3, f"应至少有3个signal_manager委托条目, 实际{len(signal_entries)}"
