@@ -219,19 +219,21 @@ class TestScannerDelegationV2932:
     """验证scanner.py中v2.9.32委托方法的正确性"""
 
     def test_delegate_map_entries(self):
-        """DELEGATE_MAP包含v2.9.32新增的委托"""
+        """v2.9.52: 有显式方法定义的数据加载方法已从DELEGATE_MAP移除(避免死代码)"""
         from nodes.market_monitor.scanner import MarketScanner
-        dm = MarketScanner._DELEGATE_MAP
+        from nodes.market_monitor.scanner_delegate_router import DELEGATE_MAP
         
-        assert "_load_stock_list" in dm
-        assert dm["_load_stock_list"] == ("_runtime_persistence", "load_stock_list")
-        assert "_load_daily_factors" in dm
-        assert dm["_load_daily_factors"] == ("_runtime_persistence", "load_daily_factors")
-        assert "_load_stock_name_map" in dm
-        assert dm["_load_stock_name_map"] == ("_runtime_persistence", "load_stock_name_map")
-        assert "_warm_weekend_cache" in dm
-        assert "_reset_daily_risk_state" in dm
-        assert dm["_reset_daily_risk_state"] == ("_risk_watchdog_class", "reset_daily_risk_state")
+        # 显式定义的方法应有hasattr检查
+        assert hasattr(MarketScanner, '_load_stock_list')
+        assert hasattr(MarketScanner, '_load_daily_factors')
+        assert hasattr(MarketScanner, '_load_stock_name_map')
+        assert hasattr(MarketScanner, '_warm_weekend_cache')
+        assert hasattr(MarketScanner, '_reset_daily_risk_state')
+        
+        # 显式方法不应在DELEGATE_MAP中(优先级更高,MAP条目永远不会被使用)
+        assert '_load_stock_list' not in DELEGATE_MAP
+        assert '_load_daily_factors' not in DELEGATE_MAP
+        assert '_reset_daily_risk_state' not in DELEGATE_MAP
 
     def test_scanner_line_count(self):
         """scanner.py行数应在合理范围"""

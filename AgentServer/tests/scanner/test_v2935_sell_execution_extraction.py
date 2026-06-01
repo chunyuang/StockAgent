@@ -96,14 +96,20 @@ class TestScannerDelegation:
     """验证scanner委托到PositionManager"""
 
     def test_execute_risk_sell_in_delegate_map(self):
+        """_execute_risk_sell有显式方法定义(v2.9.52:从DELEGATE_MAP移除,保留显式存根)"""
+        from nodes.market_monitor.scanner import MarketScanner
+        # 应有显式方法定义
+        assert hasattr(MarketScanner, '_execute_risk_sell')
+        # 显式方法优先于DELEGATE_MAP, 不需要委托条目
         from nodes.market_monitor.scanner_delegate_router import DELEGATE_MAP
-        assert '_execute_risk_sell' in DELEGATE_MAP
-        assert DELEGATE_MAP['_execute_risk_sell'] == ('_position_manager', 'execute_risk_sell')
+        assert '_execute_risk_sell' not in DELEGATE_MAP, "显式方法不应在DELEGATE_MAP中(死代码)"
 
     def test_liquidate_positions_in_delegate_map(self):
+        """_liquidate_positions有显式方法定义(v2.9.52:从DELEGATE_MAP移除,保留显式存根)"""
+        from nodes.market_monitor.scanner import MarketScanner
+        assert hasattr(MarketScanner, '_liquidate_positions')
         from nodes.market_monitor.scanner_delegate_router import DELEGATE_MAP
-        assert '_liquidate_positions' in DELEGATE_MAP
-        assert DELEGATE_MAP['_liquidate_positions'] == ('_position_manager', 'liquidate_positions')
+        assert '_liquidate_positions' not in DELEGATE_MAP, "显式方法不应在DELEGATE_MAP中(死代码)"
 
     def test_delegate_stubs_are_short(self):
         """scanner中的委托存根应<=5行"""
