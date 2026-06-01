@@ -216,7 +216,7 @@ class RuntimePersistence:
                 os.remove(path)
                 logger.debug(f"[SNAPSHOT] 清理本地降级文件: {path}")
         except Exception as _e:
-            logger.debug(f"persistence failed: {_e}")
+            logger.warning(f"[SNAPSHOT] 本地降级文件清理失败: {_e}")
     
     # ==================== 盘前竞价 ====================
     
@@ -475,7 +475,7 @@ class RuntimePersistence:
         try:
             await scanner._save_runtime_snapshot(force=True)
         except Exception as _e:
-            logger.debug(f"[SCANNER] 卖出后运行时快照失败: {_e}")
+            logger.warning(f"[SCANNER] 卖出后运行时快照失败: {_e}")
 
     # ==================== 绩效快照+飞书日报(v2.9.6提取) ====================
     
@@ -545,7 +545,7 @@ class RuntimePersistence:
             if dispatcher:
                 await dispatcher.push_message(summary, channel="feishu")
         except Exception as _e:
-            logger.debug(f"persistence failed: {_e}")
+            logger.warning(f"[DAILY] 飞书日报推送失败: {_e}")
         logger.info(f"[DAILY] {summary}")
     
     async def load_timeline(self):
@@ -891,7 +891,7 @@ class RuntimePersistence:
                 "total_assets": getattr(account, 'total_assets', 0) if account else 0,
             })
         except Exception as _e:
-            logger.debug(f"[SCANNER] 盘后结算事件发射失败: {_e}")
+            logger.warning(f"[SCANNER] 盘后结算事件发射失败: {_e}")
 
         # 3. 保存Timeline到MongoDB
         try:
@@ -903,13 +903,13 @@ class RuntimePersistence:
         try:
             await self._scanner._update_sentiment_score(trade_date)
         except Exception as _e:
-            logger.debug(f"[SCANNER] 盘后情绪预计算失败: {_e}")
+            logger.warning(f"[SCANNER] 盘后情绪预计算失败: {_e}")
 
         # 5. 收盘后同步内存数据到MongoDB
         try:
             await self._scanner._sync_close_data_to_mongo(trade_date)
         except Exception as _e:
-            logger.debug(f"[SCANNER] 盘后数据同步失败: {_e}")
+            logger.warning(f"[SCANNER] 盘后数据同步失败: {_e}")
 
     async def persist_scan_result(self):
         """扫描结果持久化: broker状态+时间线+运行时快照【v2.9.41:从scanner._persist_scan_result提取】"""

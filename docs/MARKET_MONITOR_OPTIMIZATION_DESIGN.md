@@ -1,10 +1,10 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.46 | 日期: 2026-06-01 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.47 | 日期: 2026-06-01 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats✅ | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化✅ | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复✅ | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复✅ | v2.9.24 diagnose+情绪调仓提取+DelegateRouter策略扩展✅ | v2.9.25 update_strategy_config bug修复+bare except清理+_init_modules拆分✅ | v2.9.26 全模块bare except清理+position_checker._execute_sell_list提取3子方法✅ | v2.9.27 方法提取到子模块5个+测试适配✅ | v2.9.28 风控线程拆分+filter合并提取+scan_loop错误恢复✅ | v2.9.31 _safe_read_state统一+RuntimeWarning修复+get_positions提取✅ | v2.9.34 情绪得分+收盘同步提取→子模块✅ | v2.9.35 卖出执行提取到PositionManager✅ | v2.9.36 审查P0/P1修复+WS断线补发+前端错误提示 | v2.9.37 _save_param_snapshot提取+_init_state类属性瘦身+start()30行 | v2.9.38 _run_checker_on_positions提取+compare差异持久化+_post_sell_state_cleanup统一 | v2.9.39 _scan_loop_settlement提取→RuntimePersistence+_emit_risk_thread_error委托RiskWatchdog+MarketPhase.is_trading_active+position_checker except修复 | v2.9.42 参数管理6方法DELEGATE_MAP委托+StrategyParamCenter路由策略+scanner 1382行 | v2.9.43 signal_manager方法提取7子方法(execute_signals 161→24行+update_signals 96→9行)+版本同步+1000测试全通过 | v2.9.44 _SubprocessRuntime提取(scanner_daemon 303行闭包→独立类+命令路由表5子handler+_send_ack统一+16新增测试) | v2.9.46 bare except清理(web API)+版本同步+_check_stop_loss_take_profit简化+section合并 
-> 回测影响: 零文件修改, 1016测试全通过(scanner 988+backtest 28)
+> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats✅ | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化✅ | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复✅ | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复✅ | v2.9.24 diagnose+情绪调仓提取+DelegateRouter策略扩展✅ | v2.9.25 update_strategy_config bug修复+bare except清理+_init_modules拆分✅ | v2.9.26 全模块bare except清理+position_checker._execute_sell_list提取3子方法✅ | v2.9.27 方法提取到子模块5个+测试适配✅ | v2.9.28 风控线程拆分+filter合并提取+scan_loop错误恢复✅ | v2.9.31 _safe_read_state统一+RuntimeWarning修复+get_positions提取✅ | v2.9.34 情绪得分+收盘同步提取→子模块✅ | v2.9.35 卖出执行提取到PositionManager✅ | v2.9.36 审查P0/P1修复+WS断线补发+前端错误提示 | v2.9.37 _save_param_snapshot提取+_init_state类属性瘦身+start()30行 | v2.9.38 _run_checker_on_positions提取+compare差异持久化+_post_sell_state_cleanup统一 | v2.9.39 _scan_loop_settlement提取→RuntimePersistence+_emit_risk_thread_error委托RiskWatchdog+MarketPhase.is_trading_active+position_checker except修复 | v2.9.42 参数管理6方法DELEGATE_MAP委托+StrategyParamCenter路由策略+scanner 1382行 | v2.9.43 signal_manager方法提取7子方法(execute_signals 161→24行+update_signals 96→9行)+版本同步+1000测试全通过 | v2.9.44 _SubprocessRuntime提取(scanner_daemon 303行闭包→独立类+命令路由表5子handler+_send_ack统一+16新增测试) | v2.9.46 bare except清理(web API)+版本同步+_check_stop_loss_take_profit简化+section合并 | v2.9.47 getattr/hasattr防御消除+关键路径日志级别提升+18新增测试 | 
+> 回测影响: 零文件修改, 1086测试全通过(scanner 1035+backtest 51)
 
 ---
 
@@ -3037,3 +3037,74 @@ class MarketScanner:
 ### 38.7 回测影响
 
 零。所有变更仅影响market_monitor模块内部重构,回测引擎零文件修改。
+
+## 三十九、v2.9.47 getattr/hasattr防御消除 + 关键路径日志级别提升 (2026-06-01)
+
+### 39.1 设计目标
+
+1. **🟡 getattr/hasattr防御消除**: `_scan_loop_error_count`和`_last_realtime_update_ts`已在v2.9.37提升为类属性默认值,但代码中仍有6处getattr/hasattr防御调用,可简化
+2. **🟡 hasattr防御消除**: `_risk_watchdog`和`_signal_dispatcher`在`_init_modules`中保证初始化,`_build_module_status`中hasattr多余
+3. **🔴 关键路径日志级别提升**: runtime_persistence中6处盘后结算/快照/飞书推送失败用`logger.debug`,运维不可见,应提升为`logger.warning`
+
+### 39.2 变更详情
+
+#### A. getattr/hasattr防御消除
+
+| 位置 | 修复前 | 修复后 |
+|---|---|---|
+| get_status | `getattr(self, '_scan_loop_error_count', 0)` | `self._scan_loop_error_count` |
+| get_status | `getattr(self, '_last_realtime_update_ts', 0)` | `self._last_realtime_update_ts` |
+| _scan_loop_error_recovery | `getattr(self, '_scan_loop_error_count', 0) + 1` | `self._scan_loop_error_count += 1` |
+| scan_once | `hasattr(self, '_scan_loop_error_count') and ...` | `self._scan_loop_error_count > 0` |
+| _check_stale_quote_cache | `hasattr(self, '_last_realtime_update_ts')` | `self._last_realtime_update_ts` |
+| _update_scan_stats | `hasattr(self, '_risk_watchdog')` | `self._risk_watchdog` |
+| _build_module_status | `hasattr(self, '_risk_watchdog')` | `self._risk_watchdog` |
+| _build_module_status | `hasattr(self, '_signal_dispatcher')` | `self._signal_dispatcher` |
+
+**设计原则**: 类属性默认值(v2.9.37)保证了实例化后这些属性始终存在,getattr/hasattr防御不再必要。
+
+#### B. 关键路径日志级别提升
+
+| 位置 | 修复前 | 修复后 | 理由 |
+|---|---|---|---|
+| sync_close_data_to_mongo | logger.debug | logger.warning | 数据同步失败影响MongoDB完整性 |
+| post_sell_cleanup 快照 | logger.debug | logger.warning | 快照失败影响崩溃恢复 |
+| daily_settlement 事件 | logger.debug | logger.warning | 结算事件失败影响前端状态 |
+| daily_settlement 情绪 | logger.debug | logger.warning | 情绪预计算影响次日策略 |
+| push_daily_summary 飞书 | logger.debug | logger.warning | 飞书推送失败运维不可见 |
+| _cleanup_local_fallback | logger.debug | logger.warning | 降级文件残留影响下次恢复 |
+
+**原则**: 影响运维可观测性或数据完整性的失败应warning; 纯辅助操作(如timeline事件发射失败)保留debug。
+
+### 39.3 变更文件
+
+| 文件 | 变更 |
+|---|---|
+| nodes/market_monitor/scanner.py | 8处getattr/hasattr消除 |
+| nodes/market_monitor/runtime_persistence.py | 6处logger.debug→logger.warning |
+| nodes/web/api/scanner.py | _DESIGN_DOC_VERSION→v2.9.47 |
+| tests/scanner/test_v2947_getattr_loglevel.py | 新增18测试 |
+| tests/scanner/test_v2916_risk_watchdog_thread_safety.py | 版本断言v2.9.46→v2.9.47 |
+| tests/scanner/test_v2933_extraction_optimization.py | 版本断言v2.9.46→v2.9.47 |
+| tests/scanner/test_v2937_init_state_class_attrs.py | 版本断言v2.9.46→v2.9.47 |
+| tests/scanner/test_v2938_checker_extraction.py | 版本断言v2.9.46→v2.9.47 |
+| tests/scanner/test_v2939_extraction_delegation.py | 版本断言v2.9.46→v2.9.47 |
+| tests/scanner/test_v2940_filter_pipeline_auto_fetch.py | 版本断言v2.9.46→v2.9.47 |
+| tests/scanner/test_v2941_stoploss_persist_delegation.py | 版本断言v2.9.46→v2.9.47 |
+| tests/scanner/test_v2943_signal_manager_extraction.py | 版本断言v2.9.46→v2.9.47 |
+| docs/MARKET_MONITOR_OPTIMIZATION_DESIGN.md | v2.9.47记录 |
+
+### 39.4 测试覆盖 (18新增)
+
+| 测试类 | 用例数 | 覆盖点 |
+|---|---|---|
+| TestGetattrHasattrElimination | 8 | 无getattr防御(4)+无hasattr防御(4) |
+| TestRuntimePersistenceLogLevels | 6 | 关键路径warning级别(6) |
+| TestVersionSync | 1 | API版本v2.9.47 |
+| TestNoBacktestRegression | 3 | 回测零影响 |
+
+**全量测试**: 1035 scanner + 51 backtest = 1086 passed (0 failed)
+
+### 39.5 回测影响
+
+零。getattr/hasattr消除和日志级别提升不影响回测模块,回测引擎零文件修改。
