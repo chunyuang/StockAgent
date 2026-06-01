@@ -365,11 +365,13 @@ class TestScannerStrategyConfigSimplified(unittest.TestCase):
         with open(source_path, "r") as f:
             content = f.read()
         
-        # v2.9.42: update_strategy_config已加入DELEGATE_MAP, 委托给StrategyParamCenter.apply_scanner_config_update
+        # v2.9.52: DELEGATE_MAP外提到scanner_delegate_router.py
         # 检查DELEGATE_MAP中是否有update_strategy_config条目
-        self.assertIn('"update_strategy_config":', content,
+        from nodes.market_monitor.scanner_delegate_router import DELEGATE_MAP
+        self.assertIn('update_strategy_config', DELEGATE_MAP,
                      "update_strategy_config应在DELEGATE_MAP中有动态委托条目")
-        self.assertIn('apply_scanner_config_update', content,
+        self.assertEqual(DELEGATE_MAP['update_strategy_config'],
+                         ('_strategy_param_center_class', 'apply_scanner_config_update'),
                      "update_strategy_config应委托给StrategyParamCenter.apply_scanner_config_update")
 
 

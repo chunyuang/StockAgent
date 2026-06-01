@@ -140,20 +140,18 @@ class TestDelegateMapRegistration:
 
     def test_update_sentiment_score_in_delegate_map(self):
         """_update_sentiment_score在DELEGATE_MAP中，路由到_emotion_cycle_class"""
-        source = _read_file(_SCANNER_PATH)
+        source = _read_file(_ROUTER_PATH)  # v2.9.52: DELEGATE_MAP外提到router
         assert '"_update_sentiment_score"' in source, "_update_sentiment_score不在DELEGATE_MAP中"
-        # 验证路由目标: 找到条目后检查值
-        idx = source.find('"_update_sentiment_score"')
-        after = source[idx:idx + 100]
-        assert '"_emotion_cycle_class"' in after, f"路由目标不是_emotion_cycle_class: {after[:80]}"
+        # 验证路由目标
+        from nodes.market_monitor.scanner_delegate_router import DELEGATE_MAP
+        assert DELEGATE_MAP["_update_sentiment_score"] == ("_emotion_cycle_class", "update_sentiment_score")
 
     def test_sync_close_data_in_delegate_map(self):
         """_sync_close_data_to_mongo在DELEGATE_MAP中，路由到_runtime_persistence"""
-        source = _read_file(_SCANNER_PATH)
+        source = _read_file(_ROUTER_PATH)  # v2.9.52: DELEGATE_MAP外提到router
         assert '"_sync_close_data_to_mongo"' in source, "_sync_close_data_to_mongo不在DELEGATE_MAP中"
-        idx = source.find('"_sync_close_data_to_mongo"')
-        after = source[idx:idx + 100]
-        assert '"_runtime_persistence"' in after, f"路由目标不是_runtime_persistence: {after[:80]}"
+        from nodes.market_monitor.scanner_delegate_router import DELEGATE_MAP
+        assert DELEGATE_MAP["_sync_close_data_to_mongo"] == ("_runtime_persistence", "sync_close_data_to_mongo")
 
     def test_update_sentiment_in_async_delegates(self):
         """_update_sentiment_score在_ASYNC_DELEGATE_METHODS中"""
@@ -215,24 +213,10 @@ class TestMethodsAccessible:
     """验证提取后的方法通过DELEGATE_MAP仍可访问"""
 
     def test_update_sentiment_score_in_delegate_map_dict(self):
-        """_DELEGATE_MAP字典包含_update_sentiment_score"""
-        source = _read_file(_SCANNER_PATH)
-        # 解析DELEGATE_MAP
-        start = source.find("_DELEGATE_MAP = {")
-        end = source.find("}", start) + 1
-        # 找最后一个}
-        brace_count = 0
-        for i in range(start, len(source)):
-            if source[i] == '{':
-                brace_count += 1
-            elif source[i] == '}':
-                brace_count -= 1
-                if brace_count == 0:
-                    end = i + 1
-                    break
-        map_code = source[start:end]
-        assert '"_update_sentiment_score"' in map_code
-        assert '"_sync_close_data_to_mongo"' in map_code
+        """_DELEGATE_MAP字典包含_update_sentiment_score【v2.9.52:MAP外提到router】"""
+        from nodes.market_monitor.scanner_delegate_router import DELEGATE_MAP
+        assert "_update_sentiment_score" in DELEGATE_MAP
+        assert "_sync_close_data_to_mongo" in DELEGATE_MAP
 
 
 # ==================== 6. 回测零影响 ====================

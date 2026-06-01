@@ -104,15 +104,22 @@ class PositionManager:
 
     # ==================== 止损止盈计算 ====================
     
+    @staticmethod
+    def _extract_cost(pos_or_cost) -> float:
+        """从Position对象或float值提取成本价【v2.9.52:替代hasattr防御】"""
+        if isinstance(pos_or_cost, (int, float)):
+            return pos_or_cost
+        return pos_or_cost.avg_cost
+
     def calc_stop_loss_price(self, pos_or_cost, risk: Dict) -> float:
         """统一止损价计算"""
-        cost = pos_or_cost.avg_cost if hasattr(pos_or_cost, 'avg_cost') else pos_or_cost
+        cost = self._extract_cost(pos_or_cost)
         sl_pct = risk.get("stop_loss_pct", 0.03)
         return round(cost * (1 - sl_pct), 2)
     
     def calc_take_profit_price(self, pos_or_cost, risk: Dict) -> float:
         """统一止盈价计算"""
-        cost = pos_or_cost.avg_cost if hasattr(pos_or_cost, 'avg_cost') else pos_or_cost
+        cost = self._extract_cost(pos_or_cost)
         tp_pct = risk.get("take_profit_pct", 0.07)
         return round(cost * (1 + tp_pct), 2)
     
@@ -257,7 +264,7 @@ class PositionManager:
         
         # 高开即卖(首板策略专属)
         if open_rise >= next_day_sell_pct:
-            strategy_name = getattr(pos, 'strategy', '')
+            strategy_name = pos.strategy
             if strategy_name in ('first_limit_up', '首板打板'):
                 return f"高开即卖(开涨{open_rise*100:.1f}%)", today_open
         
@@ -489,8 +496,8 @@ class PositionManager:
         
         # 策略级仓位
         if "涨停" in strategy or "limit_up" in strategy:
-            # 连板股重仓(limit_up_count字段, 兼容旧limit_times字段名)
-            limit_count = getattr(signal, 'limit_up_count', None) or getattr(signal, 'limit_times', 0)
+            # 连板股重仓(limit_up_count字段)
+            limit_count = signal.limit_up_count
             if signal.is_limit_up and limit_count >= 2:
                 ratio = 0.40
             else:

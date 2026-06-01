@@ -96,18 +96,14 @@ class TestScannerDelegation:
     """验证scanner委托到PositionManager"""
 
     def test_execute_risk_sell_in_delegate_map(self):
-        source = _read_file(_SCANNER_PATH)
-        assert '"_execute_risk_sell"' in source
-        idx = source.find('"_execute_risk_sell"')
-        after = source[idx:idx + 100]
-        assert '"_position_manager"' in after
+        from nodes.market_monitor.scanner_delegate_router import DELEGATE_MAP
+        assert '_execute_risk_sell' in DELEGATE_MAP
+        assert DELEGATE_MAP['_execute_risk_sell'] == ('_position_manager', 'execute_risk_sell')
 
     def test_liquidate_positions_in_delegate_map(self):
-        source = _read_file(_SCANNER_PATH)
-        assert '"_liquidate_positions"' in source
-        idx = source.find('"_liquidate_positions"')
-        after = source[idx:idx + 100]
-        assert '"_position_manager"' in after
+        from nodes.market_monitor.scanner_delegate_router import DELEGATE_MAP
+        assert '_liquidate_positions' in DELEGATE_MAP
+        assert DELEGATE_MAP['_liquidate_positions'] == ('_position_manager', 'liquidate_positions')
 
     def test_delegate_stubs_are_short(self):
         """scanner中的委托存根应<=5行"""

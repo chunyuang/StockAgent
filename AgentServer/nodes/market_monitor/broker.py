@@ -144,7 +144,7 @@ class SimulatedBroker:
     async def save_state(self, force: bool = False):
         """持久化当前状态到MongoDB(带节流: 30秒内不重复保存, force=True跳过节流)"""
         now = time.time()
-        if not force and hasattr(self, '_last_save_time') and now - self._last_save_time < 30:
+        if not force and now - self._last_save_time < 30:
             logger.debug(f"[BROKER] save_state节流: {now - self._last_save_time:.0f}s < 30s")
             return True  # 节流: 30秒内不重复保存
         self._last_save_time = now
@@ -220,10 +220,10 @@ class SimulatedBroker:
                     "reason": o.reason,
                     "trade_date": o.trade_date,
                     "create_time": o.create_time,
-                    "fill_time": getattr(o, 'fill_time', ''),
+                    "fill_time": o.fill_time,
                     "profit_pct": getattr(o, 'profit_pct', 0),
                     "profit_amount": getattr(o, 'profit_amount', 0),
-                    "source": getattr(o, 'source', 'auto'),
+                    "source": o.source,
                 }
                 for o in self.orders if o.trade_date == today
             ]
@@ -764,5 +764,5 @@ class SimulatedBroker:
             "strategy": o.strategy,
             "reason": o.reason,
             "status": o.status.value,
-            "source": getattr(o, 'source', 'auto'),
+            "source": o.source,
         } for o in self.orders if o.trade_date == today and o.status == OrderStatus.FILLED]

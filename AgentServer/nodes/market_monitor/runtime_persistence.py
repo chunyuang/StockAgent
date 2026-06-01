@@ -887,8 +887,8 @@ class RuntimePersistence:
             from nodes.market_monitor.scanner_event_bus import ScannerEvents
             await self._scanner._event_bus.emit(ScannerEvents.DAILY_SETTLED, {
                 "trade_date": trade_date,
-                "total_profit": getattr(account, 'today_profit', 0) if account else 0,
-                "total_assets": getattr(account, 'total_assets', 0) if account else 0,
+                "total_profit": account.today_profit if account else 0,
+                "total_assets": account.total_assets if account else 0,
             })
         except Exception as _e:
             logger.warning(f"[SCANNER] 盘后结算事件发射失败: {_e}")
