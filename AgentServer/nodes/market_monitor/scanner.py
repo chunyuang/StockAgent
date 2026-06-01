@@ -270,7 +270,7 @@ class MarketScanner:
                 self._replay_provider = ReplayDataProvider()
                 if self._replay_date:
                     self._replay_provider.get_replay_data(self._replay_date)
-            except Exception as e:
+            except (ImportError, OSError, ValueError) as e:
                 logger.error(f"[SCANNER] 回放数据加载失败: {e}")
             logger.info(f"[SCANNER] 交易模式: 🔄回放模式(日期={self._replay_date or '自动'})")
         else:
@@ -583,7 +583,7 @@ class MarketScanner:
         try:
             from nodes.market_monitor.scanner_event_subscribers import register_subscribers
             register_subscribers(self)
-        except Exception as e:
+        except (ImportError, AttributeError) as e:
             logger.warning(f"[EVENT_BUS] 订阅器注册失败(非关键): {e}")
 
         self._is_running = True
@@ -664,7 +664,7 @@ class MarketScanner:
         if self._data_router:
             try:
                 await self._data_router.close_all()
-            except Exception as e:
+            except (OSError, RuntimeError) as e:
                 logger.warning(f"[SCANNER] 数据源关闭失败: {e}")
             self._data_router = None
         logger.info(f"[SCANNER] 已停止 (清仓={sell_all})")
@@ -809,7 +809,7 @@ class MarketScanner:
                     if pos_count > 0:
                         try:
                             await self._check_positions_quick(trade_date)
-                        except Exception as e:
+                        except (RuntimeError, KeyError, ValueError) as e:
                             logger.debug(f"[SCANNER] 周末持仓检查异常: {e}")
                     await asyncio.sleep(60)
                     continue
@@ -906,7 +906,7 @@ class MarketScanner:
                         "event": "quote_recovered",
                         "degrade_level": 0,
                     })
-            except Exception as e:
+            except (ConnectionError, OSError, TimeoutError) as e:
                 logger.debug(f"[SCAN] 行情恢复尝试异常: {e}")
         
         elapsed = time.time() - last_full_scan
@@ -991,7 +991,7 @@ class MarketScanner:
         if tick % 60 == 0 and self._position_manager:
             try:
                 self._position_manager.check_pending_sells_timeout()
-            except Exception as e:
+            except (RuntimeError, KeyError, AttributeError) as e:
                 logger.debug(f"[RISK_THREAD] pending_sells超时检查异常: {e}")
 
         # 30秒: 完整quick check(东财缓存, 零额度)
@@ -1003,7 +1003,7 @@ class MarketScanner:
                     self._loop
                 )
                 future.result(timeout=10)
-            except Exception as e:
+            except (RuntimeError, KeyError, TimeoutError, asyncio.TimeoutError) as e:
                 logger.debug(f"[RISK_THREAD] quick check异常: {e}")
 
     @staticmethod

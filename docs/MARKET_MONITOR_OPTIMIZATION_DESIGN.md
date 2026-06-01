@@ -1,10 +1,10 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.49 | 日期: 2026-06-01 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.50 | 日期: 2026-06-01 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats✅ | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化✅ | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复✅ | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复✅ | v2.9.24 diagnose+情绪调仓提取+DelegateRouter策略扩展✅ | v2.9.25 update_strategy_config bug修复+bare except清理+_init_modules拆分✅ | v2.9.26 全模块bare except清理+position_checker._execute_sell_list提取3子方法✅ | v2.9.27 方法提取到子模块5个+测试适配✅ | v2.9.28 风控线程拆分+filter合并提取+scan_loop错误恢复✅ | v2.9.31 _safe_read_state统一+RuntimeWarning修复+get_positions提取✅ | v2.9.34 情绪得分+收盘同步提取→子模块✅ | v2.9.35 卖出执行提取到PositionManager✅ | v2.9.36 审查P0/P1修复+WS断线补发+前端错误提示 | v2.9.37 _save_param_snapshot提取+_init_state类属性瘦身+start()30行 | v2.9.38 _run_checker_on_positions提取+compare差异持久化+_post_sell_state_cleanup统一 | v2.9.39 _scan_loop_settlement提取→RuntimePersistence+_emit_risk_thread_error委托RiskWatchdog+MarketPhase.is_trading_active+position_checker except修复 | v2.9.42 参数管理6方法DELEGATE_MAP委托+StrategyParamCenter路由策略+scanner 1382行 | v2.9.43 signal_manager方法提取7子方法(execute_signals 161→24行+update_signals 96→9行)+版本同步+1000测试全通过 | v2.9.44 _SubprocessRuntime提取(scanner_daemon 303行闭包→独立类+命令路由表5子handler+_send_ack统一+16新增测试) | v2.9.46 bare except清理(web API)+版本同步+_check_stop_loss_take_profit简化+section合并 | v2.9.47 getattr/hasattr防御消除+关键路径日志级别提升+18新增测试 | v2.9.48 pipeline.apply提取(187→103)+broker.place_order提取(182→109)+33新增测试 | v2.9.49 审查P0安全修复(WS Token首条消息认证+Trading API越权访问)+P1修复(Stream consumer动态化+持仓批量价格查询)+P2修复(System API同步MongoDB→异步)+19新增测试 | 
-> 回测影响: 零文件修改, 1119测试全通过(scanner 1068+backtest 51)
+> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats✅ | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化✅ | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复✅ | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复✅ | v2.9.24 diagnose+情绪调仓提取+DelegateRouter策略扩展✅ | v2.9.25 update_strategy_config bug修复+bare except清理+_init_modules拆分✅ | v2.9.26 全模块bare except清理+position_checker._execute_sell_list提取3子方法✅ | v2.9.27 方法提取到子模块5个+测试适配✅ | v2.9.28 风控线程拆分+filter合并提取+scan_loop错误恢复✅ | v2.9.31 _safe_read_state统一+RuntimeWarning修复+get_positions提取✅ | v2.9.34 情绪得分+收盘同步提取→子模块✅ | v2.9.35 卖出执行提取到PositionManager✅ | v2.9.36 审查P0/P1修复+WS断线补发+前端错误提示 | v2.9.37 _save_param_snapshot提取+_init_state类属性瘦身+start()30行 | v2.9.38 _run_checker_on_positions提取+compare差异持久化+_post_sell_state_cleanup统一 | v2.9.39 _scan_loop_settlement提取→RuntimePersistence+_emit_risk_thread_error委托RiskWatchdog+MarketPhase.is_trading_active+position_checker except修复 | v2.9.42 参数管理6方法DELEGATE_MAP委托+StrategyParamCenter路由策略+scanner 1382行 | v2.9.43 signal_manager方法提取7子方法(execute_signals 161→24行+update_signals 96→9行)+版本同步+1000测试全通过 | v2.9.44 _SubprocessRuntime提取(scanner_daemon 303行闭包→独立类+命令路由表5子handler+_send_ack统一+16新增测试) | v2.9.46 bare except清理(web API)+版本同步+_check_stop_loss_take_profit简化+section合并 | v2.9.47 getattr/hasattr防御消除+关键路径日志级别提升+18新增测试 | v2.9.48 pipeline.apply提取(187→103)+broker.place_order提取(182→109)+33新增测试 | v2.9.49 审查P0安全修复(WS Token首条消息认证+Trading API越权访问)+P1修复(Stream consumer动态化+持仓批量价格查询)+P2修复(System API同步MongoDB→异步)+19新增测试 | v2.9.50 🔴Daemon方法名Bug修复(update_strategy_params→update_strategy_config/run_once→scan_once)+hasattr防御清理6处+except Exception收窄9处+15新增测试 |
+> 回测影响: 零文件修改, 1152测试全通过(scanner 1101+backtest 51)
 
 ---
 
@@ -3256,3 +3256,76 @@ cursor = db.stock_daily_ak_full.aggregate([
 ### 41.7 回测影响
 
 零。所有修改限于web API层和前端, scanner核心和回测引擎零修改。
+
+---
+
+## 四十二、v2.9.50 Daemon方法名Bug修复+hasattr防御清理+except收窄 (2026-06-01)
+
+### 42.1 🔴 关键Bug修复 (2个)
+
+| Bug | 修复前 | 修复后 | 影响 |
+|---|---|---|---|
+| `_cmd_update_params` | 调用`scanner.update_strategy_params()`(不存在)→hasattr返回False→命令永远不执行 | 调用`scanner.update_strategy_config(strategy_key, updates)` | **策略参数热更新完全失效!** |
+| `_cmd_scan` | 调用`scanner.run_once()`(不存在)→hasattr返回False→手动扫描永远不触发 | 调用`scanner.scan_once(trade_date, force=True)` | **手动扫描命令完全失效!** |
+
+**根因**: v2.9.44提取`_SubprocessRuntime`时,闭包中的方法名未与scanner实际接口对齐。hasattr防御掩盖了错误,导致静默失败。
+
+### 42.2 🟡 hasattr防御清理 (6处)
+
+| 位置 | 修复前 | 修复后 | 原因 |
+|---|---|---|---|
+| `_cmd_emergency_liquidate` | `hasattr(scanner, "emergency_liquidate")` + elif hasattr fallback | 直接调用`scanner.emergency_liquidate()` | v2.9.45已添加该方法 |
+| `_run_scanner_loop` | `hasattr(scanner, "run")` / `hasattr(scanner, "start")` 双分支 | 直接调用`scanner.start()` | scanner统一用start()接口 |
+| `status_pusher` | 4个hasattr链(get_status/account/total_assets/available_cash/positions) | 直接调用`scanner.get_status()` | get_status()已存在且返回完整状态 |
+| `_emergency_reduce_positions` | 直接访问`scanner._broker.get_positions()` + `scanner._is_limit_down()` | 用`scanner.get_positions()`统一接口 | 不应直接访问内部属性 |
+| `_signal_to_dict` | `hasattr(sig, "__dataclass_fields__")` → `asdict()` | try/except TypeError + isinstance(dict) | 更Pythonic的EAFP模式 |
+| `_cmd_update_params` | `hasattr(scanner, "update_strategy_params")` | 移除hasattr, 直接调用 | 方法已确认存在 |
+
+### 42.3 🟡 except Exception收窄 (9处)
+
+**scanner.py (7处)**:
+
+| 位置 | 修复前 | 修复后 | 理由 |
+|---|---|---|---|
+| 回放数据加载 | `except Exception` | `except (ImportError, OSError, ValueError)` | 加载失败只可能这3种 |
+| EventBus订阅器注册 | `except Exception` | `except (ImportError, AttributeError)` | 导入+属性错误 |
+| 数据源关闭 | `except Exception` | `except (OSError, RuntimeError)` | close()只可能I/O或运行时错误 |
+| 周末持仓检查 | `except Exception` | `except (RuntimeError, KeyError, ValueError)` | 检查逻辑错误类型有限 |
+| 行情恢复尝试 | `except Exception` | `except (ConnectionError, OSError, TimeoutError)` | 网络恢复只可能连接错误 |
+| pending_sells超时检查 | `except Exception` | `except (RuntimeError, KeyError, AttributeError)` | 风控检查错误类型有限 |
+| quick check(risk线程) | `except Exception` | `except (RuntimeError, KeyError, TimeoutError, asyncio.TimeoutError)` | 超时+运行时错误 |
+
+**scanner_daemon.py (2处)**:
+
+| 位置 | 修复前 | 修复后 | 理由 |
+|---|---|---|---|
+| ACK监听器 | `except (json.JSONDecodeError, Exception)` | 分开: `json.JSONDecodeError` + `(KeyError, TypeError, AttributeError)` | ACK解析错误类型有限 |
+| BLPOP主循环 | `except Exception` | 分开: `(ConnectionError, OSError, TimeoutError)` + `Exception` | 连接错误单独处理 |
+
+### 42.4 变更文件
+
+| 文件 | 变更 |
+|---|---|
+| scanner_daemon.py | 2个Bug修复+6处hasattr清理+2处except收窄 |
+| scanner.py | 7处except收窄 |
+| test_v2950_audit_fixes.py | 15新增测试 |
+| docs/MARKET_MONITOR_OPTIMIZATION_DESIGN.md | v2.9.50记录 |
+
+### 42.5 测试覆盖 (15新增)
+
+| 测试类 | 用例数 | 覆盖点 |
+|---|---|---|
+| TestCmdUpdateParamsFix | 2 | 方法名修复+无scanner时warning |
+| TestCmdScanFix | 1 | scan_once方法名修复 |
+| TestCmdEmergencyLiquidateFix | 1 | 直接调用emergency_liquidate |
+| TestRunScannerLoopFix | 1 | 直接调用start() |
+| TestStatusPusherFix | 1 | 用get_status()替代hasattr链 |
+| TestScannerExceptNarrowing | 4 | scanner.py 4处except收窄源码验证 |
+| TestDaemonExceptNarrowing | 2 | daemon.py 2处except收窄源码验证 |
+| TestNoBacktestRegression | 3 | 回测模块零影响 |
+
+**全量测试**: 1152 passed (scanner 1101 + backtest 51)
+
+### 42.6 回测影响
+
+零。所有修改限于scanner_daemon.py(子进程IPC)和scanner.py的异常处理, 不影响回测引擎和sell_signal_checker。
