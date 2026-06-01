@@ -10,6 +10,7 @@
 """
 
 import logging
+from typing import Any
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -170,7 +171,7 @@ _PARAM_CENTER_BINDINGS = {
 }
 
 
-def resolve_delegate(scanner, name: str, delegate: tuple):
+def resolve_delegate(scanner, name: str, delegate: tuple) -> Any:
     """解析委托调用 — 根据模块类型分派到对应策略
 
     Args:
@@ -234,7 +235,7 @@ def resolve_delegate(scanner, name: str, delegate: tuple):
     return getattr(module, method_name)
 
 
-def _resolve_scorer(scanner, name: str, module_attr: str, method_name: str):
+def _resolve_scorer(scanner, name: str, module_attr: str, method_name: str) -> Any:
     """策略4: StrategyScorer委托解析"""
     module = getattr(scanner, module_attr, None)
     if module is None:
@@ -247,17 +248,17 @@ def _resolve_scorer(scanner, name: str, module_attr: str, method_name: str):
     method = getattr(module, method_name)
     # _detect_anomalies需要scanner上下文
     if name == "_detect_anomalies":
-        async def _async_detect_anomalies(realtime_data):
+        async def _async_detect_anomalies(realtime_data) -> Any:
             return method(realtime_data, scanner._active_signals, scanner._prev_realtime_cache)
         return _async_detect_anomalies
     return method
 
 
-def _resolve_noop_fallback(module_attr: str, name: str):
+def _resolve_noop_fallback(module_attr: str, name: str) -> Any:
     """策略5+6: 模块未初始化时的noop fallback"""
     if name in _ASYNC_DELEGATE_METHODS:
         logger.warning(f"[SCANNER] 委托模块 {module_attr} 未初始化, 异步方法 {name} 返回noop coroutine")
-        async def _async_noop(*args, **kwargs):
+        async def _async_noop(*args, **kwargs) -> None:
             return None
         return _async_noop
     else:

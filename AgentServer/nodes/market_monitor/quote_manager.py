@@ -77,7 +77,7 @@ class QuoteManager:
         return self._prev_realtime_cache
 
     @property
-    def data_router(self):
+    def data_router(self) -> Any:
         """数据源路由器(直接引用)【v2.9.18】"""
         return self._data_router
 
@@ -90,11 +90,11 @@ class QuoteManager:
     def cached_count(self) -> int:
         return len(self._realtime_cache)
 
-    def set_cache_lock(self, lock: threading.Lock):
+    def set_cache_lock(self, lock: threading.Lock) -> None:
         """设置缓存锁(Scanner传入,线程安全)"""
         self._cache_lock = lock
 
-    def set_event_emitter(self, emitter):
+    def set_event_emitter(self, emitter) -> None:
         """设置事件发射回调(v2.9:替代_scanner引用,消除循环依赖)
         
         Args:
@@ -102,13 +102,13 @@ class QuoteManager:
         """
         self._event_emitter = emitter
 
-    def set_replay_mode(self, enabled: bool, provider=None, date: str = None):
+    def set_replay_mode(self, enabled: bool, provider=None, date: str = None) -> None:
         """设置回放模式"""
         self._replay_mode = enabled
         self._replay_provider = provider
         self._replay_date = date
 
-    def warm_sources_cache(self, realtime: Dict[str, Dict]):
+    def warm_sources_cache(self, realtime: Dict[str, Dict]) -> None:
         """将预热行情数据写入数据源缓存(供scanner周末预热调用)【v2.9.18】"""
         if not self._data_router:
             return

@@ -47,7 +47,7 @@ class RuntimePersistence:
         self._scanner = scanner
     
     @property
-    def broker(self):
+    def broker(self) -> Any:
         return self._scanner._broker
     
     @property
@@ -56,7 +56,7 @@ class RuntimePersistence:
     
     # ==================== 运行时快照 ====================
     
-    async def load_runtime_snapshot(self):
+    async def load_runtime_snapshot(self) -> None:
         """从MongoDB加载运行时快照(启动时恢复)
         
         优先MongoDB, 失败时回退本地文件
@@ -102,7 +102,7 @@ class RuntimePersistence:
         
         return None
     
-    def _restore_snapshot_data(self, doc: dict, is_same_day: bool):
+    def _restore_snapshot_data(self, doc: dict, is_same_day: bool) -> None:
         """从快照文档恢复运行时状态【v2.9.45提取】
         
         Args:
@@ -143,7 +143,7 @@ class RuntimePersistence:
                 scanner._quote_manager._last_recover_attempt = time.monotonic()
                 logger.info(f"[SNAPSHOT] 恢复行情降级: level={doc['quote_degrade_level']}")
     
-    async def save_runtime_snapshot(self, force: bool = False):
+    async def save_runtime_snapshot(self, force: bool = False) -> None:
         """保存运行时快照到MongoDB
         
         节流: 默认5秒保存一次, force=True跳过节流
@@ -208,7 +208,7 @@ class RuntimePersistence:
         """获取本地降级文件路径"""
         return os.path.join(LOCAL_SNAPSHOT_DIR, f"{LOCAL_SNAPSHOT_PREFIX}{self.account_id}.json")
     
-    def _cleanup_local_fallback(self):
+    def _cleanup_local_fallback(self) -> None:
         """MongoDB恢复后清理本地降级文件"""
         try:
             path = self._get_local_fallback_path()
@@ -220,7 +220,7 @@ class RuntimePersistence:
     
     # ==================== 盘前竞价 ====================
     
-    async def premarket_auction(self):
+    async def premarket_auction(self) -> None:
         """盘前竞价: 从持仓中筛选竞价异常股
         
         集合竞价9:15-9:25, 价格可能跳空:
@@ -255,7 +255,7 @@ class RuntimePersistence:
     
     # ==================== 时间线持久化 ====================
     
-    async def save_timeline(self):
+    async def save_timeline(self) -> None:
         """保存时间线到MongoDB(追加模式, 不删除历史)"""
         try:
             from core.managers import mongo_manager
@@ -288,7 +288,7 @@ class RuntimePersistence:
         except Exception as e:
             logger.info(f"[SCAN] 保存时间线失败(非关键): {e}")
     
-    async def save_scan_traces(self, filter_result):
+    async def save_scan_traces(self, filter_result) -> None:
         """保存扫描链路追踪到MongoDB
         
         优化：rejected候选只保存摘要(不含layer_results)，减少文档体积
@@ -366,7 +366,7 @@ class RuntimePersistence:
         except Exception as e:
             logger.warning(f"[SCAN] 保存链路追踪失败(非关键): {e}")
     
-    async def load_timeline(self):
+    async def load_timeline(self) -> None:
         """从MongoDB加载时间线(启动时恢复)"""
         try:
             from core.managers import mongo_manager
@@ -422,7 +422,7 @@ class RuntimePersistence:
     async def post_sell_cleanup(
         self, pos, reason: str, order, quantity: int,
         profit_pct: float, profit_amount: float, *, source: str = "sell",
-    ):
+    ) -> None:
         """卖出成功后统一清理: timeline+统计+状态清理+事件+持久化
 
         v2.9.19从scanner提取, v2.9.22:统计分类+提取_build_timeline_entry
@@ -479,7 +479,7 @@ class RuntimePersistence:
 
     # ==================== 绩效快照+飞书日报(v2.9.6提取) ====================
     
-    async def save_performance_snapshot(self, trade_date: str):
+    async def save_performance_snapshot(self, trade_date: str) -> None:
         """保存绩效快照到MongoDB(供净值曲线使用)
         
         从scanner._save_performance_snapshot提取【v2.9.6】
@@ -511,7 +511,7 @@ class RuntimePersistence:
         await mongo_manager.db["performance_snapshots"].insert_one(doc)
         logger.info(f"[SNAPSHOT] 绩效快照已保存: 净值={net_value:.4f} 回撤={drawdown_pct:.1f}%")
     
-    async def push_daily_summary(self, trade_date: str):
+    async def push_daily_summary(self, trade_date: str) -> None:
         """推送每日结算摘要(飞书/webhook)
         
         从scanner._push_daily_summary提取【v2.9.6】
@@ -548,7 +548,7 @@ class RuntimePersistence:
             logger.warning(f"[DAILY] 飞书日报推送失败: {_e}")
         logger.info(f"[DAILY] {summary}")
     
-    async def load_timeline(self):
+    async def load_timeline(self) -> None:
         """从MongoDB加载时间线(启动时恢复)"""
         try:
             from core.managers import mongo_manager
@@ -706,7 +706,7 @@ class RuntimePersistence:
         logger.info(f"[SCANNER] 周末缓存预热: {warmed}只(上一交易日收盘价)")
         return realtime
 
-    async def persist_stop_state(self):
+    async def persist_stop_state(self) -> None:
         """停止时持久化状态: broker+timeline+runtime snapshot+pending_sells【v2.9.32从scanner提取】"""
         scanner = self._scanner
         broker = scanner._broker
@@ -744,7 +744,7 @@ class RuntimePersistence:
         except Exception as e:
             logger.debug(f"[STOP] pending_sells保存失败(非关键): {e}")
 
-    async def restore_start_state(self):
+    async def restore_start_state(self) -> None:
         """启动时恢复状态(审计索引+pending_sells)【v2.9.32从scanner提取】"""
         scanner = self._scanner
 
@@ -770,7 +770,7 @@ class RuntimePersistence:
         except Exception as e:
             logger.debug(f"[START] pending_sells恢复失败(非关键): {e}")
 
-    async def load_positions(self):
+    async def load_positions(self) -> None:
         """加载当前持仓(优先从MongoDB恢复, 否则从broker获取)
         
         【Phase1.1增强】恢复后同时恢复Scanner运行时状态(追踪止损/风险等级/跌停挂起等)
@@ -793,7 +793,7 @@ class RuntimePersistence:
         logger.info(f"[SCANNER] 持仓: {len(scanner._broker.get_positions()) if scanner._broker else 0}个, "
                     f"追踪止损: {_ts_count}个")
 
-    async def sync_close_data_to_mongo(self, trade_date: str):
+    async def sync_close_data_to_mongo(self, trade_date: str) -> None:
         """收盘后同步内存数据到MongoDB(limit_list + daily_basic)
         
         【v2.9.34从scanner提取】将scanner内存中的涨跌停/行情数据
@@ -866,7 +866,7 @@ class RuntimePersistence:
 
     # ==================== 盘后结算 ====================
 
-    async def daily_settlement(self, trade_date: str):
+    async def daily_settlement(self, trade_date: str) -> None:
         """盘后结算处理(Broker结算+持久化+EventBus+Timeline+情绪预计算+数据同步)
 
         从scanner._scan_loop_settlement提取【v2.9.39】
@@ -911,7 +911,7 @@ class RuntimePersistence:
         except Exception as _e:
             logger.warning(f"[SCANNER] 盘后数据同步失败: {_e}")
 
-    async def persist_scan_result(self):
+    async def persist_scan_result(self) -> None:
         """扫描结果持久化: broker状态+时间线+运行时快照【v2.9.41:从scanner._persist_scan_result提取】"""
         try:
             if self.broker:
@@ -924,7 +924,7 @@ class RuntimePersistence:
 
     async def persist_compare_diff(self, trade_date: str, only_legacy: set, only_checker: set,
                                    both: set, legacy_sell: list, checker_results: list,
-                                   realtime_data: Dict):
+                                   realtime_data: Dict) -> None:
         """compare差异持久化到MongoDB【v2.9.45:从position_checker._persist_compare_diff提取】
         
         将legacy/checker卖出差异记录到sell_compare_diff集合,
@@ -989,7 +989,7 @@ class RuntimePersistence:
         except Exception as e:
             logger.debug(f"[COMPARE] 差异持久化失败: {e}")
 
-    async def save_param_snapshot(self, trade_date: str):
+    async def save_param_snapshot(self, trade_date: str) -> None:
         """启动时保存参数快照(供月复盘参数漂移检测)【v2.9.42:从scanner._save_param_snapshot提取】"""
         try:
             from core.managers import mongo_manager as mm

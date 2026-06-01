@@ -41,7 +41,7 @@ class StrategyScorer:
     # ==================== 属性代理 ====================
     
     @property
-    def broker(self):
+    def broker(self) -> Any:
         return self._scanner._broker
     
     @property
@@ -53,7 +53,7 @@ class StrategyScorer:
         return self._scanner._daily_factors_df
     
     @property
-    def param_center(self):
+    def param_center(self) -> Any:
         return self._scanner._param_center
     
     # ==================== 因子合并 ====================
@@ -156,7 +156,7 @@ class StrategyScorer:
     # ==================== 策略筛选 ====================
     
 
-    def update_name_map(self, name_map: Dict[str, str]):
+    def update_name_map(self, name_map: Dict[str, str]) -> None:
         """更新股票名称映射(从scanner传入)"""
         self._name_map = name_map
     async def apply_strategies(self, merged_df: pd.DataFrame, trade_date: str) -> List[ScanSignal]:

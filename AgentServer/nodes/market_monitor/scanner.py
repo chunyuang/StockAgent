@@ -14,7 +14,7 @@ import os
 import threading
 import time
 from datetime import datetime
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Callable, Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 
 import pandas as pd
@@ -195,7 +195,7 @@ class MarketScanner:
 
     # ==================== 初始化子方法 ====================
 
-    def _init_state(self):
+    def _init_state(self) -> None:
         """初始化基础状态变量【v2.9.3提取, v2.9.37:标量默认值提升为类属性】"""
         # ── 风控状态(风控线程+主循环并发读写, _state_lock保护) ──
         self._position_risk_overrides: Dict[str, Dict] = {}
@@ -238,7 +238,7 @@ class MarketScanner:
         self._last_scan_duration_ms: float = 0.0
         self._daily_start_asset: float = 0.0
 
-    def _init_broker(self):
+    def _init_broker(self) -> None:
         """初始化撮合引擎【v2.9.3提取】"""
         trade_mode = self.config.get("trade_mode", self.MODE_SIMULATED)
         self._trade_mode = trade_mode
@@ -281,7 +281,7 @@ class MarketScanner:
             self._gm_broker = None
             logger.info("[SCANNER] 交易模式: 内置仿真撮合")
 
-    def _init_pipeline(self):
+    def _init_pipeline(self) -> None:
         """初始化9层筛选管道【v2.9.3提取】"""
         self._filter_pipeline = LiveFilterPipeline(
             scanner=self,
@@ -299,14 +299,14 @@ class MarketScanner:
         self._current_position_ratio = 1.0
         self._current_sentiment = {"score": 50, "period": "chaos"}
 
-    def _init_modules(self):
+    def _init_modules(self) -> None:
         """初始化EventBus+QuoteManager+核心模块+风控+执行质量【v2.9.3提取, v2.9.25拆分为子方法】"""
         self._init_event_and_quote()
         self._init_signal_and_risk()
         self._init_core_modules()
         self._init_execution_quality()
 
-    def _init_event_and_quote(self):
+    def _init_event_and_quote(self) -> None:
         """初始化EventBus+QuoteManager【v2.9.25提取】"""
         self._event_bus = ScannerEventBus()
         self._quote_manager = QuoteManager()
@@ -316,7 +316,7 @@ class MarketScanner:
         self._signal_manager = None
         self._data_router: Optional[Any] = None
 
-    def _init_signal_and_risk(self):
+    def _init_signal_and_risk(self) -> None:
         """初始化信号分发器+参数中心+风控看门狗【v2.9.25提取】"""
         from nodes.market_monitor.signal_dispatcher import (
             SignalDispatcher, redis_channel_handler, feishu_channel_handler, log_channel_handler
@@ -333,7 +333,7 @@ class MarketScanner:
         self._risk_watchdog = RiskWatchdog(scanner=self)
         self._risk_watchdog.register_alert_channel(self._signal_dispatcher.dispatch)
 
-    def _init_core_modules(self):
+    def _init_core_modules(self) -> None:
         """初始化PositionManager+StrategyScorer+SignalManager+PositionChecker+RuntimePersistence【v2.9.25提取】"""
         from nodes.market_monitor.position_manager import PositionManager
         self._position_manager = PositionManager(self)
@@ -354,7 +354,7 @@ class MarketScanner:
             self._tiered_scanner = TieredScanner(scanner=self)
             logger.info("[SCANNER] 分级行情: L1(5min全市场) → L2(30s候选池) → L3(5s持仓)")
 
-    def _init_execution_quality(self):
+    def _init_execution_quality(self) -> None:
         """初始化执行质量检查+滑点模型【v2.9.25提取】"""
         from nodes.market_monitor.execution_quality import PreTradeChecker, SlippageModel
         self._pre_trade_checker = PreTradeChecker(broker=self._broker, config={
@@ -363,7 +363,7 @@ class MarketScanner:
         })
         self._slippage_model = SlippageModel
 
-    def _init_risk(self):
+    def _init_risk(self) -> None:
         """初始化风控熔断参数【v2.9.3提取】"""
         initial_cash = self.config.get("initial_cash", 1_000_000)
         self._circuit_breaker = {
@@ -383,7 +383,7 @@ class MarketScanner:
     # 保留_DELEGATE_MAP类属性作为兼容别名(测试代码引用MarketScanner._DELEGATE_MAP)
     @classmethod
     @property
-    def _DELEGATE_MAP(cls):
+    def _DELEGATE_MAP(cls) -> Dict:
         """兼容别名: 指向scanner_delegate_router.DELEGATE_MAP【v2.9.52】"""
         from nodes.market_monitor.scanner_delegate_router import DELEGATE_MAP
         return DELEGATE_MAP
@@ -402,7 +402,7 @@ class MarketScanner:
         """事件总线(只读)"""
         return self._event_bus
 
-    def is_running(self):
+    def is_running(self) -> bool:
         return self._is_running
 
     def get_status(self) -> Dict[str, Any]:
@@ -470,7 +470,7 @@ class MarketScanner:
 
     def get_timeline(self) -> List[Dict]:
         return list(self._timeline)
-    async def start(self, trade_date: str = None):
+    async def start(self, trade_date: str = None) -> Dict:
         """启动扫描"""
         if self._is_running:
             return {"success": True, "message": "已在运行中"}
@@ -532,11 +532,11 @@ class MarketScanner:
     # 【v2.9.42: _save_param_snapshot/_detect_param_drift/_validate_live_params/update_strategy_config
     #   /_persist_strategy_overrides/_load_strategy_overrides 均已加入DELEGATE_MAP动态委托】
 
-    async def _restore_start_state(self):
+    async def _restore_start_state(self) -> None:
         """启动时恢复状态 — 委托给RuntimePersistence【v2.9.32提取】"""
         await self._runtime_persistence.restore_start_state()
 
-    def _start_risk_thread(self):
+    def _start_risk_thread(self) -> None:
         """启动风控独立线程【v2.9.18:从start()提取】"""
         self._loop = asyncio.get_event_loop()
         self._cache_lock = threading.Lock()
@@ -551,7 +551,7 @@ class MarketScanner:
         self._risk_thread.start()
         logger.info("[SCANNER] 风控独立线程已启动")
 
-    async def stop(self, sell_all: bool = False):
+    async def stop(self, sell_all: bool = False) -> Dict:
         """停止扫描
         
         Args:
@@ -596,7 +596,7 @@ class MarketScanner:
         """批量清仓 — 委托给PositionManager【v2.9.35提取】"""
         return await self._position_manager.liquidate_positions(reason, source)
 
-    async def _sell_all_positions(self):
+    async def _sell_all_positions(self) -> None:
         """停止时清仓所有持仓【v2.9.18:从stop()提取, v2.9.20:复用_liquidate_positions】"""
         await self._liquidate_positions(reason="停止清仓", source="stop_sell")
 
@@ -611,14 +611,14 @@ class MarketScanner:
             return await self._risk_watchdog.emergency_liquidate(reason)
         return {"success": False, "error": "RiskWatchdog未初始化"}
 
-    async def _persist_stop_state(self):
+    async def _persist_stop_state(self) -> None:
         """停止时持久化状态 — 委托给RuntimePersistence【v2.9.32提取】"""
         await self._runtime_persistence.persist_stop_state()
 
     # ==================== 盘前准备 ====================
 
 
-    def _update_name_map(self, realtime_data: Dict[str, Dict]):
+    def _update_name_map(self, realtime_data: Dict[str, Dict]) -> None:
         """从实时行情数据更新ts_code→stock_name映射"""
         updated = False
         for ts_code, rt in realtime_data.items():
@@ -635,11 +635,11 @@ class MarketScanner:
             return self._stock_name_map[ts_code]
         return ""
 
-    async def _load_stock_name_map(self):
+    async def _load_stock_name_map(self) -> None:
         """加载名称映射 — 委托给RuntimePersistence【v2.9.32提取】"""
         names = await self._runtime_persistence.load_stock_name_map()
         self._stock_name_map.update(names)
-    async def _warm_weekend_cache(self):
+    async def _warm_weekend_cache(self) -> None:
         """周末调试: 用日级因子填充行情缓存 — 委托给RuntimePersistence【v2.9.32提取】"""
         realtime = self._runtime_persistence.warm_weekend_cache(
             self._daily_factors_df, self._stock_name_map, self._quote_manager
@@ -647,12 +647,12 @@ class MarketScanner:
         self._realtime_cache = realtime
         self._last_realtime_update_ts = time.time()
 
-    def _reset_daily_risk_state(self):
+    def _reset_daily_risk_state(self) -> None:
         """重置每日风控状态 — 委托给RiskWatchdog【v2.9.32提取】"""
         from nodes.market_monitor.risk_watchdog import RiskWatchdog
         RiskWatchdog.reset_daily_risk_state(self)
 
-    async def premarket_prepare(self, trade_date: str):
+    async def premarket_prepare(self, trade_date: str) -> None:
         """盘前: 加载全市场代码 + 预加载日级因子"""
         logger.info(f"[SCANNER] 盘前准备 {trade_date}")
 
@@ -694,20 +694,20 @@ class MarketScanner:
                      f"{len(self._daily_factors_df) if self._daily_factors_df is not None else 0}条因子, "
                      f"{len(self._active_signals)}个竞价信号")
 
-    async def _load_stock_list(self):
+    async def _load_stock_list(self) -> None:
         """加载全市场代码 — 委托给RuntimePersistence【v2.9.32提取】"""
         self._all_codes = await self._runtime_persistence.load_stock_list()
 
-    async def _load_daily_factors(self, trade_date: str):
+    async def _load_daily_factors(self, trade_date: str) -> None:
         """预加载日级因子 — 委托给RuntimePersistence【v2.9.32提取】"""
         self._daily_factors_df = await self._runtime_persistence.load_daily_factors(trade_date)
 
-    async def _load_positions(self):
+    async def _load_positions(self) -> None:
         """加载当前持仓 — 委托给RuntimePersistence【v2.9.32提取】"""
         await self._runtime_persistence.load_positions()
 
     # ==================== Phase1.1: 运行时状态持久化 ====================
-    async def _scan_loop(self, trade_date: str):
+    async def _scan_loop(self, trade_date: str) -> None:
         """主扫描循环(双层节奏 + 智能刷新)
         
         全量扫描(5分钟): 涨停池+策略筛选 → 发现新信号
@@ -771,7 +771,7 @@ class MarketScanner:
             return 1800
         return 300
 
-    async def _scan_loop_error_recovery(self, error: Exception):
+    async def _scan_loop_error_recovery(self, error: Exception) -> None:
         """_scan_loop异常恢复【v2.9.28从_scan_loop提取】"""
         logger.error(f"[SCANNER] _scan_loop异常: {error}", exc_info=True)
         self._scan_loop_error_count += 1
@@ -841,11 +841,11 @@ class MarketScanner:
             await asyncio.sleep(check_interval)
             return False
 
-    async def _scan_loop_settlement(self, trade_date: str):
+    async def _scan_loop_settlement(self, trade_date: str) -> None:
         """盘后结算(15:05+) — 委托给RuntimePersistence【v2.9.39提取】"""
         await self._runtime_persistence.daily_settlement(trade_date)
 
-    async def _scan_loop_replay(self):
+    async def _scan_loop_replay(self) -> None:
         """回放模式循环: 不受交易时间限制, 持续扫描【v2.9.19提取】"""
         logger.info(f"[REPLAY] 回放循环启动, 日期={self._replay_date}")
         while self._is_running:
@@ -853,7 +853,7 @@ class MarketScanner:
             await self.scan_once(trade_date, force=True)
             await asyncio.sleep(self.SCAN_INTERVAL)
 
-    def _risk_loop_sync(self):
+    def _risk_loop_sync(self) -> None:
         """风控独立线程(分级节奏，不受asyncio事件循环影响)
         
         设计原则:
@@ -906,7 +906,7 @@ class MarketScanner:
         
         logger.info("[RISK_THREAD] 风控线程已退出")
 
-    def _risk_periodic_checks(self, tick: int):
+    def _risk_periodic_checks(self, tick: int) -> None:
         """风控线程周期性检查(60秒跌停超时+30秒quick check)【v2.9.30提取】"""
         # 60秒: 跌停挂起超时检查
         if tick % 60 == 0 and self._position_manager:
@@ -938,7 +938,7 @@ class MarketScanner:
             return 30
         return 0
 
-    def _check_stale_quote_cache(self, tick: int, phase: str):
+    def _check_stale_quote_cache(self, tick: int, phase: str) -> None:
         """交易时间内行情缓存过期检测+告警【v2.9.28从_risk_loop_sync提取】"""
         if phase != MarketPhase.TRADING:
             return
@@ -973,12 +973,12 @@ class MarketScanner:
             return 5
         return 1
 
-    def _emit_risk_thread_error(self, error: Exception, consecutive_errors: int):
+    def _emit_risk_thread_error(self, error: Exception, consecutive_errors: int) -> None:
         """风控线程异常事件发射 — 委托给RiskWatchdog【v2.9.39提取】"""
         from nodes.market_monitor.risk_watchdog import RiskWatchdog
         RiskWatchdog.emit_risk_thread_error(self, error, consecutive_errors)
 
-    def _check_stop_loss_only(self, realtime_data: Dict):
+    def _check_stop_loss_only(self, realtime_data: Dict) -> None:
         """1秒级止损检查 — 委托给PositionManager【v2.9.41简化】
         
         v2.9.41: 移除冗余的broker/positions检查(PM内部已处理), 
@@ -998,12 +998,12 @@ class MarketScanner:
 
 
 
-    async def _execute_risk_sell(self, pos, reason: str, price: float, quantity: int):
+    async def _execute_risk_sell(self, pos, reason: str, price: float, quantity: int) -> None:
         """风控卖出执行 — 委托给PositionManager【v2.9.35提取】"""
         await self._position_manager.execute_risk_sell(pos, reason, price, quantity)
 
 
-    async def scan_once(self, trade_date: str, force: bool = False):
+    async def scan_once(self, trade_date: str, force: bool = False) -> None:
         """单次扫描
         
         Args:
@@ -1088,7 +1088,7 @@ class MarketScanner:
 
         return new_signals
 
-    def _sync_broker_prices(self, realtime_data: Dict[str, Dict]):
+    def _sync_broker_prices(self, realtime_data: Dict[str, Dict]) -> None:
         """同步broker实时价格(用于持仓估值和涨跌停判断)【v2.9.19提取】"""
         if not self._broker:
             return
@@ -1102,7 +1102,7 @@ class MarketScanner:
                 is_st=is_st,
             )
 
-    def _update_scan_stats(self, scan_time: str, stocks_count: int, elapsed: float):
+    def _update_scan_stats(self, scan_time: str, stocks_count: int, elapsed: float) -> None:
         """更新扫描统计+看门狗心跳【v2.9.19提取】"""
         self._last_scan_time = scan_time
         self._stats["scans"] += 1
@@ -1112,7 +1112,7 @@ class MarketScanner:
         self._last_scan_duration_ms = elapsed * 1000
         self._last_scan_ts = time.time()
 
-    async def _persist_scan_result(self):
+    async def _persist_scan_result(self) -> None:
         """扫描结果持久化 — 委托给RuntimePersistence【v2.9.41提取】"""
         await self._runtime_persistence.persist_scan_result()
 
@@ -1205,7 +1205,7 @@ class MarketScanner:
         """将ScanSignal列表转换为filter_pipeline候选格式【v2.9.35:委托给ScanSignal.to_candidate】"""
         return [s.to_candidate() for s in signals]
 
-    async def _execute_force_empty(self, reason: str):
+    async def _execute_force_empty(self, reason: str) -> None:
         """强制空仓: 卖出所有持仓【v2.9.20:复用_liquidate_positions, 修复total_qty→available_qty(T+1合规)】"""
         logger.warning(f"[FILTER] ⚠️ 强制空仓: {reason}")
         await self._liquidate_positions(reason=f"强制空仓: {reason}", source="force_empty")
@@ -1282,7 +1282,7 @@ class MarketScanner:
 
     # ==================== 智能持仓检查频率 ====================
 
-    def _make_quote_event_emitter(self):
+    def _make_quote_event_emitter(self) -> Callable:
         """创建行情事件发射回调(v2.9:消除QuoteManager对Scanner的循环引用)
         
         之前QuoteManager直接持有scanner引用来发射EventBus事件,
@@ -1291,7 +1291,7 @@ class MarketScanner:
         - Scanner提供回调,内部调用EventBus.emit
         """
         scanner = self
-        async def emit_quote_event(event_name: str, data: dict):
+        async def emit_quote_event(event_name: str, data: dict) -> None:
             try:
                 await scanner._event_bus.emit(event_name, data)
             except Exception as _e:

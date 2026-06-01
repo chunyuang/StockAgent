@@ -18,7 +18,7 @@ import json
 import logging
 import time
 from datetime import datetime
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 
 from nodes.market_monitor.scanner import ScanSignal
 
@@ -45,7 +45,7 @@ class SignalManager:
     # ==================== 属性代理 ====================
     
     @property
-    def broker(self):
+    def broker(self) -> Any:
         return self._scanner._broker
     
     @property
@@ -57,7 +57,7 @@ class SignalManager:
         return self._scanner._active_signals
     
     @active_signals.setter
-    def active_signals(self, value):
+    def active_signals(self, value) -> Any:
         self._scanner._active_signals = value
     
     @property
@@ -85,16 +85,16 @@ class SignalManager:
         return self._scanner._realtime_cache or {}
     
     @property
-    def pre_trade_checker(self):
+    def pre_trade_checker(self) -> Any:
         return self._scanner._pre_trade_checker
     
     @property
-    def slippage_model(self):
+    def slippage_model(self) -> Any:
         return self._scanner._slippage_model
     
     # ==================== 信号更新 ====================
     
-    async def update_signals(self, new_signals: List[ScanSignal], scan_time: str):
+    async def update_signals(self, new_signals: List[ScanSignal], scan_time: str) -> None:
         """增量更新信号 + 过期清理【v2.9.43拆分】"""
         # 1. 过期清理
         await self._expire_old_signals()
@@ -105,7 +105,7 @@ class SignalManager:
         # 3. 推送+执行+持久化
         await self._process_new_signals(added, scan_time)
 
-    async def _expire_old_signals(self):
+    async def _expire_old_signals(self) -> None:
         """过期信号清理【v2.9.43从update_signals提取】"""
         scanner = self._scanner
         SIGNAL_EXPIRE_SECONDS = scanner.SIGNAL_EXPIRE_SECONDS
@@ -149,7 +149,7 @@ class SignalManager:
                         break
         return added
 
-    async def _process_new_signals(self, added: List[ScanSignal], scan_time: str):
+    async def _process_new_signals(self, added: List[ScanSignal], scan_time: str) -> None:
         """推送+执行+持久化新信号【v2.9.43从update_signals提取】"""
         scanner = self._scanner
         self.stats["signals_found"] += len(added)
@@ -191,7 +191,7 @@ class SignalManager:
         except Exception as _e:
             logger.debug(f"event publish failed: {_e}")
 
-    async def _push_signals(self, signals: List[ScanSignal]):
+    async def _push_signals(self, signals: List[ScanSignal]) -> None:
         """推送信号到飞书等渠道"""
         try:
             from core.managers.live.signal_pusher import SignalPusher
@@ -208,7 +208,7 @@ class SignalManager:
 
     # ==================== 信号执行 ====================
     
-    async def execute_signals(self, signals: List[ScanSignal]):
+    async def execute_signals(self, signals: List[ScanSignal]) -> None:
         """执行信号(SimulatedBroker撮合)【v2.9.43拆分】"""
         if self.dry_run:
             self._handle_dry_run(signals)
@@ -221,7 +221,7 @@ class SignalManager:
                 continue  # 单票阻挡, 继续下一个
             await self._execute_single_buy(sig)
 
-    def _handle_dry_run(self, signals: List[ScanSignal]):
+    def _handle_dry_run(self, signals: List[ScanSignal]) -> None:
         """调试模式: 只记录不执行【v2.9.43从execute_signals提取】"""
         scanner = self._scanner
         for sig in signals:
@@ -276,7 +276,7 @@ class SignalManager:
             return False, "invalid_price"
         return True, ""
 
-    async def _execute_single_buy(self, sig: ScanSignal):
+    async def _execute_single_buy(self, sig: ScanSignal) -> Optional[Dict]:
         """执行单票买入(PositionSizer+质量检查+滑点+下单+善后)【v2.9.43从execute_signals提取】"""
         scanner = self._scanner
         # PositionSizer
@@ -332,7 +332,7 @@ class SignalManager:
                 sig.strategy_name, f"下单失败: {msg}", sig)
             logger.warning(f"[EXEC] 买入被拒 {sig.ts_code}: {msg}")
 
-    async def _post_buy_success(self, sig, order, shares, position_ratio, max_amount, acct):
+    async def _post_buy_success(self, sig, order, shares, position_ratio, max_amount, acct) -> None:
         """买入成功后善后(timeline+统计+事件推送)【v2.9.43从execute_signals提取】"""
         scanner = self._scanner
         self.timeline.append({
@@ -387,7 +387,7 @@ class SignalManager:
 
     # ==================== 日志 ====================
     
-    def _add_timeline_log(self, action, ts_code, stock_name, strategy, reason, sig):
+    def _add_timeline_log(self, action, ts_code, stock_name, strategy, reason, sig) -> None:
         """添加执行日志到时间线(含blocked状态)"""
         self.timeline.append({
             "time": datetime.now().strftime("%H:%M:%S"),
@@ -403,7 +403,7 @@ class SignalManager:
         asyncio.create_task(self._write_audit_log(action, ts_code, stock_name, strategy, reason))
     
     async def _write_audit_log(self, action: str, ts_code: str, stock_name: str,
-                                strategy: str, reason: str):
+                                strategy: str, reason: str) -> None:
         """写入审计日志(append-only, TTL 90天)"""
         try:
             from core.managers import mongo_manager

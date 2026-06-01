@@ -76,7 +76,7 @@ class EmotionCycleManager:
     # 旧值: {rising:70, differentiation:50, chaos:30} → 与回测不一致
     # 新值: 从GLOBAL_RISK["sentiment_thresholds"]统一读取
     @property
-    def THRESHOLD(self):
+    def THRESHOLD(self) -> Dict:
         from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
         return GLOBAL_RISK.get("sentiment_thresholds", {"rising": 70, "differentiation": 55, "chaos": 40})
     
@@ -84,7 +84,7 @@ class EmotionCycleManager:
     # 旧值: {RISING:1.0, DIFFERENTIATION:0.5, CHAOS:0.25, BEARISH:0.0} → 与回测不一致
     # 新值: 从GLOBAL_RISK["sentiment_position_map"]统一读取
     @property
-    def POSITION_MULTIPLIER(self):
+    def POSITION_MULTIPLIER(self) -> Dict:
         from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
         m = GLOBAL_RISK.get("sentiment_position_map", {})
         return {
@@ -446,7 +446,7 @@ class EmotionCycleManager:
         return to_sell
 
     @staticmethod
-    async def handle_emotion_phase_change(scanner, old_phase: str, new_phase: str):
+    async def handle_emotion_phase_change(scanner, old_phase: str, new_phase: str) -> None:
         """情绪phase变化时的动态调仓【v2.9.6→v2.9.24提取到EmotionCycleManager】
         
         规则来源: EmotionCycleManager.DOWNGRADE_RULES
@@ -512,7 +512,7 @@ class EmotionCycleManager:
         })
 
     @staticmethod
-    async def update_sentiment_score(scanner, trade_date: str):
+    async def update_sentiment_score(scanner, trade_date: str) -> None:
         """收盘后更新当日情绪预计算(写入sentiment_scores集合)
         
         【v2.9.34从scanner提取】从scanner实时状态或MongoDB获取涨跌停数据,

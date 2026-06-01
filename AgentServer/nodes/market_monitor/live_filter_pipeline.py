@@ -354,7 +354,7 @@ class LiveFilterPipeline:
     # 【V50.1】候选追踪辅助方法
     # ========================================================================
 
-    def _init_traces(self, result, candidates):
+    def _init_traces(self, result, candidates) -> None:
         """初始化全量候选追踪"""
         result.trace_candidates = []
         for c in candidates:
@@ -367,7 +367,7 @@ class LiveFilterPipeline:
                 pct_chg=c.get("pct_chg", 0),
             ))
 
-    def _record_layer_drop(self, result, layer, dropped_ids, reason_fn):
+    def _record_layer_drop(self, result, layer, dropped_ids, reason_fn) -> None:
         """记录某层被淘汰的候选"""
         if not dropped_ids:
             for t in result.trace_candidates:
@@ -386,7 +386,7 @@ class LiveFilterPipeline:
             elif t.final_status != "rejected":
                 t.layer_results[layer] = {"passed": True}
 
-    def _premarket_reject_reason(self, c):
+    def _premarket_reject_reason(self, c) -> None:
         """分析盘前预选淘汰原因"""
         name = c.get("stock_name", "")
         if "ST" in name.upper():
@@ -399,7 +399,7 @@ class LiveFilterPipeline:
             return f"流动性不足(日成交{vol:.0f}万<500万)"
         return f"未知原因"
 
-    def _build_trace_summary(self, result):
+    def _build_trace_summary(self, result) -> Dict:
         """构建追踪汇总 — 正确追踪每层的输入/输出/淘汰
         
         每层都通过layer_results正确标记了passed/rejected:
