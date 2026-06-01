@@ -154,16 +154,7 @@ class SimulatedBroker:
 
         try:
             # 账户
-            account_doc = {
-                "account_id": self.account.account_id,
-                "total_assets": self.account.total_assets,
-                "available_cash": self.account.available_cash,
-                "frozen_cash": self.account.frozen_cash,
-                "market_value": self.account.market_value,
-                "today_profit": self.account.today_profit,
-                "total_profit": self.account.total_profit,
-                "updated_at": datetime.now().isoformat(),
-            }
+            account_doc = self._build_account_doc()
             await self._mongo_db["broker_accounts"].update_one(
                 {"account_id": self.account.account_id},
                 {"$set": account_doc},
@@ -171,77 +162,98 @@ class SimulatedBroker:
             )
 
             # 持仓
-            positions_docs = []
-            for ts_code, pos in self.positions.items():
-                positions_docs.append({
-                    "account_id": self.account.account_id,
-                    "ts_code": ts_code,
-                    "stock_name": pos.stock_name,
-                    "total_qty": pos.total_qty,
-                    "available_qty": pos.available_qty,
-                    "avg_cost": pos.avg_cost,
-                    "current_price": pos.current_price,
-                    "profit_pct": pos.profit_pct,
-                    "today_buy_qty": pos.today_buy_qty,
-                    "strategy": pos.strategy,
-                })
+            await self._save_positions_to_mongo()
 
-            # Upsert持仓(避免并发重复)
-            for doc in positions_docs:
-                await self._mongo_db["broker_positions"].update_one(
-                    {"account_id": doc["account_id"], "ts_code": doc["ts_code"]},
-                    {"$set": doc},
-                    upsert=True,
-                )
-            
-            # 清理已平仓的持仓(内存里没有但MongoDB还留着的)
-            current_codes = set(self.positions.keys())
-            await self._mongo_db["broker_positions"].delete_many({
-                "account_id": self.account.account_id,
-                "ts_code": {"$nin": list(current_codes)} if current_codes else {"$exists": True},
-            })
-
-            # 今日订单(追加,不删)
-            today = datetime.now().strftime("%Y%m%d")
-            today_orders = [
-                {
-                    "account_id": self.account.account_id,
-                    "order_id": o.order_id,
-                    "ts_code": o.ts_code,
-                    "stock_name": o.stock_name,
-                    "side": o.side.value,
-                    "order_type": o.order_type.value,
-                    "quantity": o.quantity,
-                    "price": o.price,
-                    "filled_qty": o.filled_qty,
-                    "filled_price": o.filled_price,
-                    "status": o.status.value,
-                    "strategy": o.strategy,
-                    "reason": o.reason,
-                    "trade_date": o.trade_date,
-                    "create_time": o.create_time,
-                    "fill_time": o.fill_time,
-                    "profit_pct": getattr(o, 'profit_pct', 0),
-                    "profit_amount": getattr(o, 'profit_amount', 0),
-                    "source": o.source,
-                }
-                for o in self.orders if o.trade_date == today
-            ]
-            if today_orders:
-                existing_ids = set()
-                async for doc in self._mongo_db["broker_orders"].find(
-                    {"account_id": self.account.account_id, "trade_date": today},
-                    {"order_id": 1}
-                ):
-                    existing_ids.add(doc["order_id"])
-                new_orders = [o for o in today_orders if o["order_id"] not in existing_ids]
-                if new_orders:
-                    await self._mongo_db["broker_orders"].insert_many(new_orders)
+            # 今日订单
+            await self._save_today_orders_to_mongo()
 
             return True
         except Exception as e:
             logger.error(f"[BROKER] 状态保存失败: {e}")
             return False
+
+    def _build_account_doc(self) -> dict:
+        """【v2.9.57提取】构建账户文档"""
+        return {
+            "account_id": self.account.account_id,
+            "total_assets": self.account.total_assets,
+            "available_cash": self.account.available_cash,
+            "frozen_cash": self.account.frozen_cash,
+            "market_value": self.account.market_value,
+            "today_profit": self.account.today_profit,
+            "total_profit": self.account.total_profit,
+            "updated_at": datetime.now().isoformat(),
+        }
+
+    async def _save_positions_to_mongo(self) -> None:
+        """【v2.9.57提取】持久化持仓到MongoDB"""
+        positions_docs = []
+        for ts_code, pos in self.positions.items():
+            positions_docs.append({
+                "account_id": self.account.account_id,
+                "ts_code": ts_code,
+                "stock_name": pos.stock_name,
+                "total_qty": pos.total_qty,
+                "available_qty": pos.available_qty,
+                "avg_cost": pos.avg_cost,
+                "current_price": pos.current_price,
+                "profit_pct": pos.profit_pct,
+                "today_buy_qty": pos.today_buy_qty,
+                "strategy": pos.strategy,
+            })
+
+        # Upsert持仓(避免并发重复)
+        for doc in positions_docs:
+            await self._mongo_db["broker_positions"].update_one(
+                {"account_id": doc["account_id"], "ts_code": doc["ts_code"]},
+                {"$set": doc},
+                upsert=True,
+            )
+
+        # 清理已平仓的持仓(内存里没有但MongoDB还留着的)
+        current_codes = set(self.positions.keys())
+        await self._mongo_db["broker_positions"].delete_many({
+            "account_id": self.account.account_id,
+            "ts_code": {"$nin": list(current_codes)} if current_codes else {"$exists": True},
+        })
+
+    async def _save_today_orders_to_mongo(self) -> None:
+        """【v2.9.57提取】持久化今日订单到MongoDB"""
+        today = datetime.now().strftime("%Y%m%d")
+        today_orders = [
+            {
+                "account_id": self.account.account_id,
+                "order_id": o.order_id,
+                "ts_code": o.ts_code,
+                "stock_name": o.stock_name,
+                "side": o.side.value,
+                "order_type": o.order_type.value,
+                "quantity": o.quantity,
+                "price": o.price,
+                "filled_qty": o.filled_qty,
+                "filled_price": o.filled_price,
+                "status": o.status.value,
+                "strategy": o.strategy,
+                "reason": o.reason,
+                "trade_date": o.trade_date,
+                "create_time": o.create_time,
+                "fill_time": o.fill_time,
+                "profit_pct": getattr(o, 'profit_pct', 0),
+                "profit_amount": getattr(o, 'profit_amount', 0),
+                "source": o.source,
+            }
+            for o in self.orders if o.trade_date == today
+        ]
+        if today_orders:
+            existing_ids = set()
+            async for doc in self._mongo_db["broker_orders"].find(
+                {"account_id": self.account.account_id, "trade_date": today},
+                {"order_id": 1}
+            ):
+                existing_ids.add(doc["order_id"])
+            new_orders = [o for o in today_orders if o["order_id"] not in existing_ids]
+            if new_orders:
+                await self._mongo_db["broker_orders"].insert_many(new_orders)
 
     async def load_state(self) -> bool:
         """从MongoDB恢复状态(断电/重启后)"""
@@ -250,74 +262,86 @@ class SimulatedBroker:
 
         try:
             # 恢复账户
-            account_doc = await self._mongo_db["broker_accounts"].find_one(
-                {"account_id": self.account.account_id}
-            )
-            if account_doc:
-                self.account.total_assets = account_doc.get("total_assets", self.account.total_assets)
-                self.account.available_cash = account_doc.get("available_cash", self.account.available_cash)
-                self.account.frozen_cash = account_doc.get("frozen_cash", 0)
-                self.account.market_value = account_doc.get("market_value", 0)
-                self.account.today_profit = account_doc.get("today_profit", 0)
-                self.account.total_profit = account_doc.get("total_profit", 0)
-                logger.info(f"[BROKER] 账户恢复: 资产{self.account.total_assets:.0f} 现金{self.account.available_cash:.0f}")
+            await self._restore_account_from_mongo()
 
             # 恢复持仓
-            cursor = self._mongo_db["broker_positions"].find(
-                {"account_id": self.account.account_id}
-            )
-            loaded = 0
-            async for doc in cursor:
-                self.positions[doc["ts_code"]] = Position(
-                    ts_code=doc["ts_code"],
-                    stock_name=doc.get("stock_name", ""),
-                    total_qty=doc.get("total_qty", 0),
-                    available_qty=doc.get("available_qty", 0),
-                    avg_cost=doc.get("avg_cost", 0),
-                    current_price=doc.get("current_price", 0),
-                    profit_pct=doc.get("profit_pct", 0),
-                    today_buy_qty=doc.get("today_buy_qty", 0),
-                    strategy=doc.get("strategy", ""),
-                )
-                loaded += 1
-            if loaded:
-                logger.info(f"[BROKER] 持仓恢复: {loaded}只")
+            await self._restore_positions_from_mongo()
 
             # 恢复今日订单
-            today = datetime.now().strftime("%Y%m%d")
-            cursor = self._mongo_db["broker_orders"].find(
-                {"account_id": self.account.account_id, "trade_date": today}
-            )
-            loaded_orders = 0
-            async for doc in cursor:
-                order = Order(
-                    order_id=doc["order_id"],
-                    account_id=doc.get("account_id", self.account.account_id),
-                    ts_code=doc["ts_code"],
-                    stock_name=doc.get("stock_name", ""),
-                    side=OrderSide(doc.get("side", "buy")),
-                    order_type=OrderType(doc.get("order_type", "market")),
-                    quantity=doc.get("quantity", 0),
-                    price=doc.get("price", 0),
-                    filled_qty=doc.get("filled_qty", 0),
-                    filled_price=doc.get("filled_price", 0),
-                    status=OrderStatus(doc.get("status", "filled")),
-                    strategy=doc.get("strategy", ""),
-                    reason=doc.get("reason", ""),
-                    trade_date=doc.get("trade_date", today),
-                    create_time=doc.get("create_time", ""),
-                    source=doc.get("source", "auto"),
-                )
-                order.fill_time = doc.get("fill_time", "")
-                self.orders.append(order)
-                loaded_orders += 1
-            if loaded_orders:
-                logger.info(f"[BROKER] 订单恢复: {loaded_orders}笔")
+            await self._restore_orders_from_mongo()
 
             return True
         except Exception as e:
             logger.error(f"[BROKER] 状态恢复失败: {e}")
             return False
+
+    async def _restore_account_from_mongo(self) -> None:
+        """【v2.9.57提取】从MongoDB恢复账户"""
+        account_doc = await self._mongo_db["broker_accounts"].find_one(
+            {"account_id": self.account.account_id}
+        )
+        if account_doc:
+            self.account.total_assets = account_doc.get("total_assets", self.account.total_assets)
+            self.account.available_cash = account_doc.get("available_cash", self.account.available_cash)
+            self.account.frozen_cash = account_doc.get("frozen_cash", 0)
+            self.account.market_value = account_doc.get("market_value", 0)
+            self.account.today_profit = account_doc.get("today_profit", 0)
+            self.account.total_profit = account_doc.get("total_profit", 0)
+            logger.info(f"[BROKER] 账户恢复: 资产{self.account.total_assets:.0f} 现金{self.account.available_cash:.0f}")
+
+    async def _restore_positions_from_mongo(self) -> None:
+        """【v2.9.57提取】从MongoDB恢复持仓"""
+        cursor = self._mongo_db["broker_positions"].find(
+            {"account_id": self.account.account_id}
+        )
+        loaded = 0
+        async for doc in cursor:
+            self.positions[doc["ts_code"]] = Position(
+                ts_code=doc["ts_code"],
+                stock_name=doc.get("stock_name", ""),
+                total_qty=doc.get("total_qty", 0),
+                available_qty=doc.get("available_qty", 0),
+                avg_cost=doc.get("avg_cost", 0),
+                current_price=doc.get("current_price", 0),
+                profit_pct=doc.get("profit_pct", 0),
+                today_buy_qty=doc.get("today_buy_qty", 0),
+                strategy=doc.get("strategy", ""),
+            )
+            loaded += 1
+        if loaded:
+            logger.info(f"[BROKER] 持仓恢复: {loaded}只")
+
+    async def _restore_orders_from_mongo(self) -> None:
+        """【v2.9.57提取】从MongoDB恢复今日订单"""
+        today = datetime.now().strftime("%Y%m%d")
+        cursor = self._mongo_db["broker_orders"].find(
+            {"account_id": self.account.account_id, "trade_date": today}
+        )
+        loaded_orders = 0
+        async for doc in cursor:
+            order = Order(
+                order_id=doc["order_id"],
+                account_id=doc.get("account_id", self.account.account_id),
+                ts_code=doc["ts_code"],
+                stock_name=doc.get("stock_name", ""),
+                side=OrderSide(doc.get("side", "buy")),
+                order_type=OrderType(doc.get("order_type", "market")),
+                quantity=doc.get("quantity", 0),
+                price=doc.get("price", 0),
+                filled_qty=doc.get("filled_qty", 0),
+                filled_price=doc.get("filled_price", 0),
+                status=OrderStatus(doc.get("status", "filled")),
+                strategy=doc.get("strategy", ""),
+                reason=doc.get("reason", ""),
+                trade_date=doc.get("trade_date", today),
+                create_time=doc.get("create_time", ""),
+                source=doc.get("source", "auto"),
+            )
+            order.fill_time = doc.get("fill_time", "")
+            self.orders.append(order)
+            loaded_orders += 1
+        if loaded_orders:
+            logger.info(f"[BROKER] 订单恢复: {loaded_orders}笔")
 
     def _calc_limit_prices(self, ts_code: str, pre_close: float) -> Dict[str, float]:
         """根据板块计算涨跌停价"""
@@ -525,28 +549,7 @@ class SimulatedBroker:
         if stock_name:
             self._stock_names[ts_code] = stock_name
 
-        now = datetime.now()
-        trade_date = now.strftime("%Y%m%d")
-        order_id = f"ORD{now.strftime('%H%M%S')}{len(self.orders):04d}"
-
-        side_enum = OrderSide.BUY if side == "buy" else OrderSide.SELL
-        type_enum = OrderType.MARKET if order_type == "market" else OrderType.LIMIT
-
-        order = Order(
-            order_id=order_id,
-            account_id=self.account.account_id,
-            ts_code=ts_code,
-            stock_name=stock_name,
-            side=side_enum,
-            order_type=type_enum,
-            quantity=quantity,
-            price=price,
-            strategy=strategy,
-            reason=reason,
-            trade_date=trade_date,
-            create_time=now.strftime("%H:%M:%S"),
-            source=source,
-        )
+        order = self._create_order_instance(ts_code, stock_name, side, quantity, price, order_type, strategy, reason, source)
 
         # ==================== 前置检查 ====================
         reject_reason = self._validate_prechecks(ts_code, quantity)
@@ -556,6 +559,7 @@ class SimulatedBroker:
         current_price = self._realtime_prices.get(ts_code, 0)
 
         # ==================== 买入检查 ====================
+        side_enum = order.side
         if side_enum == OrderSide.BUY:
             ok, reject_reason, quantity = self._validate_and_adjust_buy(ts_code, quantity, current_price)
             if not ok:
@@ -595,6 +599,40 @@ class SimulatedBroker:
                      f"佣金{commission:.0f} 印花税{stamp_duty:.0f} ({strategy})")
 
         # 持久化(异步, 不阻塞)
+        self._async_save_state()
+
+        return True, f"{action}{quantity}股@{fill_price:.2f}", order
+
+    def _create_order_instance(self, ts_code: str, stock_name: str,
+                                side: str, quantity: int, price: float,
+                                order_type: str, strategy: str, reason: str,
+                                source: str) -> 'Order':
+        """【v2.9.57提取】创建订单实例"""
+        now = datetime.now()
+        trade_date = now.strftime("%Y%m%d")
+        order_id = f"ORD{now.strftime('%H%M%S')}{len(self.orders):04d}"
+
+        side_enum = OrderSide.BUY if side == "buy" else OrderSide.SELL
+        type_enum = OrderType.MARKET if order_type == "market" else OrderType.LIMIT
+
+        return Order(
+            order_id=order_id,
+            account_id=self.account.account_id,
+            ts_code=ts_code,
+            stock_name=stock_name,
+            side=side_enum,
+            order_type=type_enum,
+            quantity=quantity,
+            price=price,
+            strategy=strategy,
+            reason=reason,
+            trade_date=trade_date,
+            create_time=now.strftime("%H:%M:%S"),
+            source=source,
+        )
+
+    def _async_save_state(self) -> None:
+        """【v2.9.57提取】异步持久化状态(不阻塞)"""
         try:
             loop = asyncio.get_running_loop()
             loop.create_task(self.save_state())
@@ -603,8 +641,6 @@ class SimulatedBroker:
             self._pending_save = True
         except Exception as e:
             logger.debug(f"[BROKER] 异步保存失败: {e}")
-
-        return True, f"{action}{quantity}股@{fill_price:.2f}", order
 
     def _match(self, order: Order, current_price: float) -> Tuple[float, float, float]:
         """
