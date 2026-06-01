@@ -615,14 +615,10 @@ class MarketScanner:
         logger.info("[SCANNER] 风控独立线程已启动")
 
     async def stop(self, sell_all: bool = False) -> Dict:
-        """停止扫描
-        
-        Args:
-            sell_all: 是否清仓所有持仓(默认只停止扫描,保留持仓)
-        """
+        """停止扫描【v2.9.55:清理逻辑提取到_stop_cleanup】"""
         self._is_running = False
         
-        # 【Phase1.2:停止风控独立线程】
+        # 停止风控独立线程
         self._risk_running = False
         if self._risk_thread and self._risk_thread.is_alive():
             self._risk_thread.join(timeout=5)
@@ -634,10 +630,18 @@ class MarketScanner:
                 await self._task
             except asyncio.CancelledError:
                 pass
-        # 【V54:停止分级行情扫描器】
+        # 停止分级行情扫描器
         if self._tiered_scanner:
             await self._tiered_scanner.stop()
         
+        # 清仓+持久化+数据源清理
+        await self._stop_cleanup(sell_all)
+        
+        logger.info(f"[SCANNER] 已停止 (清仓={sell_all})")
+        return {"success": True, "message": f"扫描器已停止" + ("并清仓" if sell_all else "")}
+
+    async def _stop_cleanup(self, sell_all: bool) -> None:
+        """停止后清理(清仓+持久化+数据源关闭)【v2.9.55从stop()提取】"""
         # 清仓选项
         if sell_all and self._broker:
             await self._sell_all_positions()
@@ -652,8 +656,6 @@ class MarketScanner:
             except (OSError, RuntimeError) as e:
                 logger.warning(f"[SCANNER] 数据源关闭失败: {e}")
             self._data_router = None
-        logger.info(f"[SCANNER] 已停止 (清仓={sell_all})")
-        return {"success": True, "message": f"扫描器已停止" + ("并清仓" if sell_all else "")}
 
     async def _liquidate_positions(self, reason: str, source: str) -> Tuple[int, int]:
         """批量清仓 — 委托给PositionManager【v2.9.35提取】"""
@@ -716,20 +718,33 @@ class MarketScanner:
         RiskWatchdog.reset_daily_risk_state(self)
 
     async def premarket_prepare(self, trade_date: str) -> None:
-        """盘前: 加载全市场代码 + 预加载日级因子"""
+        """盘前: 加载全市场代码 + 预加载日级因子【v2.9.55:步骤提取为_load_premarket_data】"""
         logger.info(f"[SCANNER] 盘前准备 {trade_date}")
 
-        # 【v2.9.21:提取_reset_daily_risk_state, 简化本方法】
         # 重置每日风控(circuit_breaker+pending_sells+执行统计)
-        # 追踪止损/风险等级: _load_positions→_load_runtime_snapshot根据快照日期判断
         self._reset_daily_risk_state()
 
+        # 加载数据(代码+因子+名称+持仓)
+        await self._load_premarket_data(trade_date)
+
+        # 竞价预选(仅竞价阶段9:15-9:30)
+        await self._check_premarket_auction(trade_date)
+
+        # 周末调试: 用日级因子填充行情缓存
+        if datetime.now().weekday() >= 5 and self._daily_factors_df is not None:
+            await self._warm_weekend_cache()
+        
+        logger.info(f"[SCANNER] 准备完成: {len(self._all_codes)}只股票, "
+                     f"{len(self._daily_factors_df) if self._daily_factors_df is not None else 0}条因子, "
+                     f"{len(self._active_signals)}个竞价信号")
+
+    async def _load_premarket_data(self, trade_date: str) -> None:
+        """盘前数据加载(代码+因子+名称+持仓)【v2.9.55从premarket_prepare提取】"""
         # 1. 获取全市场代码
         await self._load_stock_list()
 
-        # 2. 预加载前日因子(ma5/rsi/macd/boll/atr等需要历史数据的因子)
+        # 2. 预加载前日因子
         await self._load_daily_factors(trade_date)
-        # 加载股票名称映射(从stock_basic)
         await self._load_stock_name_map()
         if self._strategy_scorer:
             self._strategy_scorer.update_name_map(self._stock_name_map)
@@ -739,23 +754,14 @@ class MarketScanner:
         await self._load_positions()
         logger.info("[SCANNER] 持仓加载完成")
 
-        # 4. 竞价预选(仅竞价阶段9:15-9:30)
+    async def _check_premarket_auction(self, trade_date: str) -> None:
+        """竞价预选检查【v2.9.55从premarket_prepare提取】"""
         now = datetime.now()
         ct = now.strftime("%H:%M")
         if "09:15" <= ct <= "09:30":
             await self._premarket_auction(trade_date)
         else:
             logger.debug(f"[SCANNER] 非竞价时间({ct}), 跳过竞价预选")
-
-        logger.info("[SCANNER] premarket_prepare 即将完成")
-        
-        # 【周末调试】用日级因子填充行情缓存, 使周末也能操作
-        if datetime.now().weekday() >= 5 and self._daily_factors_df is not None:
-            await self._warm_weekend_cache()
-        
-        logger.info(f"[SCANNER] 准备完成: {len(self._all_codes)}只股票, "
-                     f"{len(self._daily_factors_df) if self._daily_factors_df is not None else 0}条因子, "
-                     f"{len(self._active_signals)}个竞价信号")
 
     async def _load_stock_list(self) -> None:
         """加载全市场代码 — 委托给RuntimePersistence【v2.9.32提取】"""
