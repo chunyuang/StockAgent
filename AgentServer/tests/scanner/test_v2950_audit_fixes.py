@@ -9,11 +9,17 @@
 - 🟡 _emergency_reduce_positions: 用get_positions()替代_broker直接访问
 - 🟡 except Exception收窄(scanner.py 7处+daemon.py 2处)
 """
+import os
 import asyncio
 import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
 from dataclasses import dataclass
+
+# 源文件绝对路径(从tests/scanner/向上3级到AgentServer/)
+_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+SCANNER_PY = os.path.join(_ROOT, "nodes", "market_monitor", "scanner.py")
+DAEMON_PY = os.path.join(_ROOT, "nodes", "market_monitor", "scanner_daemon.py")
 
 
 # ---------------------------------------------------------------------------
@@ -218,7 +224,7 @@ class TestScannerExceptNarrowing:
     def test_replay_load_catches_import_error(self):
         """回放数据加载应捕获ImportError而不是Exception"""
         import ast
-        with open("AgentServer/nodes/market_monitor/scanner.py") as f:
+        with open(SCANNER_PY) as f:
             source = f.read()
         # 验证不再有"回放数据加载失败"的except Exception
         lines = source.split('\n')
@@ -228,7 +234,7 @@ class TestScannerExceptNarrowing:
 
     def test_eventbus_subscriber_catches_import_error(self):
         """EventBus订阅器注册应捕获ImportError而不是Exception"""
-        with open("AgentServer/nodes/market_monitor/scanner.py") as f:
+        with open(SCANNER_PY) as f:
             source = f.read()
         lines = source.split('\n')
         for i, line in enumerate(lines):
@@ -237,7 +243,7 @@ class TestScannerExceptNarrowing:
 
     def test_data_router_close_catches_os_error(self):
         """数据源关闭应捕获OSError而不是Exception"""
-        with open("AgentServer/nodes/market_monitor/scanner.py") as f:
+        with open(SCANNER_PY) as f:
             source = f.read()
         lines = source.split('\n')
         for i, line in enumerate(lines):
@@ -246,7 +252,7 @@ class TestScannerExceptNarrowing:
 
     def test_quote_recovery_catches_connection_error(self):
         """行情恢复应捕获ConnectionError而不是Exception"""
-        with open("AgentServer/nodes/market_monitor/scanner.py") as f:
+        with open(SCANNER_PY) as f:
             source = f.read()
         lines = source.split('\n')
         for i, line in enumerate(lines):
@@ -263,7 +269,7 @@ class TestDaemonExceptNarrowing:
 
     def test_ack_listener_catches_specific_errors(self):
         """ACK监听器应捕获json.JSONDecodeError+KeyError而不是Exception"""
-        with open("AgentServer/nodes/market_monitor/scanner_daemon.py") as f:
+        with open(DAEMON_PY) as f:
             source = f.read()
         # 验证ACK parse error不在宽except内
         assert "except (json.JSONDecodeError, Exception) as e:" not in source, \
@@ -271,7 +277,7 @@ class TestDaemonExceptNarrowing:
 
     def test_blpop_catches_connection_error(self):
         """BLPOP错误应单独捕获ConnectionError"""
-        with open("AgentServer/nodes/market_monitor/scanner_daemon.py") as f:
+        with open(DAEMON_PY) as f:
             source = f.read()
         assert "except (ConnectionError, OSError, TimeoutError)" in source, \
             "BLPOP应单独捕获ConnectionError"

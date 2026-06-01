@@ -307,13 +307,18 @@ class TestStartMethodExtraction:
         assert not inspect.iscoroutinefunction(MarketScanner._start_risk_thread)
 
     def test_start_calls_extracted_methods(self):
-        """start()源码中调用了3个提取方法"""
+        """start()源码中调用了提取的初始化序列和风控线程"""
         import inspect
         from nodes.market_monitor.scanner import MarketScanner
         source = inspect.getsource(MarketScanner.start)
-        assert "_detect_param_drift" in source
-        assert "_restore_start_state" in source
+        # v2.9.55: 初始化序列提取到_start_init_sequence
+        assert "_start_init_sequence" in source
         assert "_start_risk_thread" in source
+        # 验证_start_init_sequence包含关键步骤
+        init_source = inspect.getsource(MarketScanner._start_init_sequence)
+        assert "_detect_param_drift" in init_source
+        assert "_restore_start_state" in init_source
+        assert "_validate_live_params" in init_source
 
     def test_start_line_count(self):
         """start()方法行数应<35行有效代码【v2.9.37:参数快照提取后瘦身】"""

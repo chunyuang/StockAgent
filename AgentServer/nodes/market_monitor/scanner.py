@@ -27,6 +27,54 @@ from nodes.market_monitor.scanner_event_bus import ScannerEventBus, ScannerEvent
 logger = logging.getLogger("scanner.market")
 
 
+class _StepTimer:
+    """扫描步骤分步计时器【v2.9.55从scan_once提取】
+    
+    用法:
+        timer = _StepTimer()
+        with timer.step("行情"):
+            data = await fetch()
+        with timer.step("因子"):
+            df = merge(data)
+        timer.log_summary(scan_count, total_stocks, signal_count, elapsed)
+    """
+    __slots__ = ('_steps', '_current_name', '_current_t0')
+
+    def __init__(self) -> None:
+        self._steps: List[Tuple[str, float]] = []
+        self._current_name: str = ""
+        self._current_t0: float = 0.0
+
+    def step(self, name: str) -> '_StepTimer':
+        """返回上下文管理器,记录步骤耗时(ms)"""
+        self._current_name = name
+        self._current_t0 = time.time()
+        return self
+
+    def __enter__(self) -> '_StepTimer':
+        return self
+
+    def __exit__(self, *exc) -> None:
+        elapsed_ms = (time.time() - self._current_t0) * 1000
+        self._steps.append((self._current_name, elapsed_ms))
+
+    def get_slow_info(self) -> str:
+        """生成慢步骤日志摘要"""
+        if not self._steps:
+            return ""
+        # 委托给ScannerUtils.format_slow_steps(如果可用), 否则内联
+        parts = []
+        for name, ms in self._steps:
+            if ms > 500:
+                parts.append(f"{name}={ms:.0f}ms")
+        return f" | 慢:{','.join(parts)}" if parts else ""
+
+    @property
+    def steps(self) -> List[Tuple[str, float]]:
+        return self._steps
+
+
+
 class MarketPhase:
     """市场时间阶段分类【v2.9.21】
     
@@ -477,7 +525,7 @@ class MarketScanner:
     def get_timeline(self) -> List[Dict]:
         return list(self._timeline)
     async def start(self, trade_date: str = None) -> Dict:
-        """启动扫描"""
+        """启动扫描【v2.9.55: 初始化序列提取到_start_init_sequence】"""
         if self._is_running:
             return {"success": True, "message": "已在运行中"}
 
@@ -489,6 +537,34 @@ class MarketScanner:
             trade_date = datetime.now().strftime("%Y%m%d")
         self._trade_date = trade_date
 
+        # 初始化序列(参数校验+加载+恢复+注册)
+        await self._start_init_sequence(trade_date)
+        
+        # 启动主循环
+        self._is_running = True
+        self._task = asyncio.create_task(self._scan_loop(trade_date))
+        
+        # 【Phase1.2:启动风控独立线程】
+        self._start_risk_thread()
+        
+        # 【V54:启动分级行情扫描器】
+        if self._tiered_scanner:
+            await self._tiered_scanner.start(trade_date)
+        # 恢复今日时间线
+        logger.info("[SCANNER] 加载时间线...")
+        await self._load_timeline()
+        logger.info(f"[SCANNER] 启动完成, account={self.account_id}, date={trade_date}")
+        
+        # 【V67:启动时自动保存参数快照(供月复盘参数漂移检测)】
+        await self._save_param_snapshot(trade_date)
+        
+        return {"success": True, "message": "扫描器启动成功"}
+
+    async def _start_init_sequence(self, trade_date: str) -> None:
+        """启动前初始化序列【v2.9.55从start()提取】
+        
+        包含: 参数校验→策略加载→漂移检测→盘前准备→资产记录→状态恢复→事件订阅
+        """
         # 实盘参数校验
         self._validate_live_params()
 
@@ -514,25 +590,6 @@ class MarketScanner:
             register_subscribers(self)
         except (ImportError, AttributeError) as e:
             logger.warning(f"[EVENT_BUS] 订阅器注册失败(非关键): {e}")
-
-        self._is_running = True
-        self._task = asyncio.create_task(self._scan_loop(trade_date))
-        
-        # 【Phase1.2:启动风控独立线程】
-        self._start_risk_thread()
-        
-        # 【V54:启动分级行情扫描器】
-        if self._tiered_scanner:
-            await self._tiered_scanner.start(trade_date)
-        # 恢复今日时间线
-        logger.info("[SCANNER] 加载时间线...")
-        await self._load_timeline()
-        logger.info(f"[SCANNER] 启动完成, account={self.account_id}, date={trade_date}")
-        
-        # 【V67:启动时自动保存参数快照(供月复盘参数漂移检测)】
-        await self._save_param_snapshot(trade_date)
-        
-        return {"success": True, "message": "扫描器启动成功"}
 
     # DELEGATE_MAP条目即委托文档, 不再逐一注释
     # 【v2.9.42: _save_param_snapshot/_detect_param_drift/_validate_live_params/update_strategy_config
@@ -719,7 +776,7 @@ class MarketScanner:
         全量扫描(5分钟): 涨停池+策略筛选 → 发现新信号
         持仓检查(30秒): 只查持仓股行情 → 止损止盈
         
-        【v2.9.28】提取_scan_loop_phase_sleep, 错误恢复简化
+        【v2.9.55】阶段处理提取为_handle_*_phase方法
         """
         settled = False
         last_full_scan = 0
@@ -733,14 +790,7 @@ class MarketScanner:
                 phase = MarketPhase.classify()
                 
                 if phase == MarketPhase.WEEKEND:
-                    pos_count = len(self.get_positions())
-                    if pos_count > 0:
-                        try:
-                            await self._check_positions_quick(trade_date)
-                        except (RuntimeError, KeyError, ValueError) as e:
-                            logger.debug(f"[SCANNER] 周末持仓检查异常: {e}")
-                    await asyncio.sleep(60)
-                    continue
+                    await self._handle_weekend_phase(trade_date)
 
                 elif phase == MarketPhase.TRADING:
                     settled = False
@@ -752,23 +802,36 @@ class MarketScanner:
                     
                 elif phase in (MarketPhase.PREMARKET, MarketPhase.AUCTION):
                     settled = False
-                    await self._premarket_auction(trade_date)
-                    await asyncio.sleep(120)
+                    await self._handle_premarket_phase(trade_date)
                     
-                elif phase == MarketPhase.AFTER_CLOSE and not settled and self._broker:
-                    await self._scan_loop_settlement(trade_date)
-                    settled = True
+                elif phase == MarketPhase.AFTER_CLOSE:
+                    if not settled and self._broker:
+                        await self._scan_loop_settlement(trade_date)
+                        settled = True
                     await asyncio.sleep(60)
                     
                 else:
-                    # 非交易时间(含DEEP_NIGHT/其他)
-                    sleep_s = self._scan_loop_phase_sleep(phase)
-                    await asyncio.sleep(sleep_s)
+                    await asyncio.sleep(self._scan_loop_phase_sleep(phase))
 
         except asyncio.CancelledError:
             pass
         except Exception as e:
             await self._scan_loop_error_recovery(e)
+
+    async def _handle_weekend_phase(self, trade_date: str) -> None:
+        """周末阶段: 持仓检查+低频休眠【v2.9.55从_scan_loop提取】"""
+        pos_count = len(self.get_positions())
+        if pos_count > 0:
+            try:
+                await self._check_positions_quick(trade_date)
+            except (RuntimeError, KeyError, ValueError) as e:
+                logger.debug(f"[SCANNER] 周末持仓检查异常: {e}")
+        await asyncio.sleep(60)
+
+    async def _handle_premarket_phase(self, trade_date: str) -> None:
+        """盘前竞价阶段【v2.9.55从_scan_loop提取】"""
+        await self._premarket_auction(trade_date)
+        await asyncio.sleep(120)
 
     @staticmethod
     def _scan_loop_phase_sleep(phase) -> int:
@@ -1037,44 +1100,41 @@ class MarketScanner:
             trade_date: 交易日期
             force: 强制模式, 忽略交易时间检查(测试用)
         
-        【v2.9.22】新增分步计时, 性能瓶颈可追踪
+        【v2.9.55】分步计时提取到_StepTimer上下文管理器
         """
         t0 = time.time()
         self._scan_count += 1
         scan_time = datetime.now().strftime("%H:%M:%S")
 
-        # 【v2.9.22:成功扫描时重置_scan_loop连续错误计数】
+        # 成功扫描时重置连续错误计数
         if self._scan_loop_error_count > 0:
             logger.info(f"[SCAN] 恢复成功(之前连续{self._scan_loop_error_count}次异常)")
             self._scan_loop_error_count = 0
 
         logger.info(f"[SCAN #{self._scan_count}] 开始扫描 {scan_time}")
 
+        timer = _StepTimer()
+
         # Step 1: 获取实时行情
-        t1 = time.time()
-        realtime_data = await self._fetch_realtime_batch(force=force)
-        step1_ms = (time.time() - t1) * 1000
+        with timer.step("行情"):
+            realtime_data = await self._fetch_realtime_batch(force=force)
 
         # Step 2: 合并日级因子+实时数据
-        t2 = time.time()
-        self._update_name_map(realtime_data)
-        merged_df = self._merge_factors(realtime_data)
-        step2_ms = (time.time() - t2) * 1000
+        with timer.step("因子"):
+            self._update_name_map(realtime_data)
+            merged_df = self._merge_factors(realtime_data)
 
         # Step 3: 策略筛选 + 异动检测 + 9层筛选管道
-        t3 = time.time()
-        new_signals = await self._apply_strategies_and_filters(merged_df, trade_date, realtime_data)
-        step3_ms = (time.time() - t3) * 1000
+        with timer.step("策略+筛选"):
+            new_signals = await self._apply_strategies_and_filters(merged_df, trade_date, realtime_data)
 
         # Step 4: 增量更新信号
-        t4 = time.time()
-        await self._update_signals(new_signals, scan_time)
-        step4_ms = (time.time() - t4) * 1000
+        with timer.step("信号"):
+            await self._update_signals(new_signals, scan_time)
 
         # Step 5: 持仓检查(止损止盈)
-        t5 = time.time()
-        await self._check_positions(realtime_data, trade_date)
-        step5_ms = (time.time() - t5) * 1000
+        with timer.step("持仓检查"):
+            await self._check_positions(realtime_data, trade_date)
 
         # Step 6: 同步broker实时价格
         self._sync_broker_prices(realtime_data)
@@ -1084,13 +1144,7 @@ class MarketScanner:
         self._update_scan_stats(scan_time, len(realtime_data), elapsed)
         await self._persist_scan_result()
 
-        # 【v2.9.28:慢步骤日志提取到ScannerUtils.format_slow_steps】
-        slow_info = self._format_slow_steps([
-            ("行情", step1_ms), ("因子", step2_ms),
-            ("策略+筛选", step3_ms), ("信号", step4_ms),
-            ("持仓检查", step5_ms),
-        ])
-
+        slow_info = timer.get_slow_info()
         logger.info(f"[SCAN #{self._scan_count}] 完成: "
                      f"{len(realtime_data)}只 | {len(self._active_signals)}信号 | "
                      f"{elapsed:.1f}秒{slow_info}")
