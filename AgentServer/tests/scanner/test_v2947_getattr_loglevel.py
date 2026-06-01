@@ -1,4 +1,4 @@
-"""v2.9.47: getattr/hasattr防御消除 + 关键路径日志级别提升
+"""v2.9.48: getattr/hasattr防御消除 + 关键路径日志级别提升
 
 验证:
 1. _scan_loop_error_count/_last_realtime_update_ts 已是类属性, 无需getattr/hasattr
@@ -182,10 +182,10 @@ class TestVersionSync(unittest.TestCase):
     """版本号同步"""
 
     def test_web_api_version(self):
-        """Web API版本号应为v2.9.47"""
+        """Web API版本号应为v2.9.48"""
         with open(WEB_API_PATH) as f:
             src = f.read()
-        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.47"', src)
+        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.48"', src)
 
 
 class TestNoBacktestRegression(unittest.TestCase):

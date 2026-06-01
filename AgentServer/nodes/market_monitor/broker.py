@@ -397,6 +397,95 @@ class SimulatedBroker:
             return [o for o in self.orders if o.trade_date == trade_date]
         return self.orders
 
+    def _reject_order(self, order: Order, reason: str) -> Tuple[bool, str, Order]:
+        """拒绝委托并记录【v2.9.48:从place_order提取】"""
+        order.status = OrderStatus.REJECTED
+        order.reason = reason
+        self.orders.append(order)
+        return False, reason, order
+
+    def _validate_prechecks(
+        self,
+        ts_code: str,
+        quantity: int,
+    ) -> Optional[str]:
+        """前置检查: 停牌+行情+整手, 返回None=通过, 否则=拒绝原因【v2.9.48:从place_order提取】"""
+        # 1. 停牌
+        if ts_code in self._suspended:
+            return "停牌不可交易"
+
+        # 2. 实时价格
+        current_price = self._realtime_prices.get(ts_code, 0)
+        if current_price <= 0:
+            return "无实时行情"
+
+        # 3. 整手
+        lot_size = self.KCB_LOT_SIZE if ts_code.startswith('688') else self.LOT_SIZE
+        if quantity % lot_size != 0 or quantity <= 0:
+            return f"数量必须为{lot_size}的整数倍"
+
+        return None  # 通过
+
+    def _validate_and_adjust_buy(
+        self,
+        ts_code: str,
+        quantity: int,
+        current_price: float,
+    ) -> Tuple[bool, str, int]:
+        """买入检查+数量调整, 返回(ok, reason, adjusted_quantity)【v2.9.48:从place_order提取】"""
+        lot_size = self.KCB_LOT_SIZE if ts_code.startswith('688') else self.LOT_SIZE
+
+        # 涨停不可市价买入
+        limit_info = self._limit_prices.get(ts_code, {})
+        if limit_info and current_price >= limit_info.get("upper", 999999):
+            return False, "涨停不可买入", quantity
+
+        # 仓位检查
+        est_amount = quantity * current_price
+        if est_amount > self.account.available_cash:
+            quantity = int(self.account.available_cash / current_price / lot_size) * lot_size
+            if quantity <= 0:
+                return False, "可用资金不足", 0
+
+        # 单票仓位上限
+        if self.account.total_assets > 0:
+            single_max = self.account.total_assets * self.MAX_POSITION_RATIO
+            existing = self.positions.get(ts_code)
+            existing_value = existing.avg_cost * existing.total_qty if existing else 0
+            if existing_value + est_amount > single_max:
+                max_qty = int((single_max - existing_value) / current_price / lot_size) * lot_size
+                quantity = max(0, min(quantity, max_qty))
+                if quantity <= 0:
+                    return False, "单票仓位超限", 0
+
+        # 总仓位上限
+        self._recalc_account()
+        if self.account.market_value / max(self.account.total_assets, 1) > self.MAX_TOTAL_RATIO:
+            return False, "总仓位超限", quantity
+
+        return True, "", quantity
+
+    def _validate_sell(
+        self,
+        ts_code: str,
+        quantity: int,
+        current_price: float,
+    ) -> Tuple[bool, str, int]:
+        """卖出检查+数量调整, 返回(ok, reason, adjusted_quantity)【v2.9.48:从place_order提取】"""
+        pos = self.positions.get(ts_code)
+        if not pos or pos.available_qty <= 0:
+            reason = "无可用持仓(T+1限制)" if pos and pos.total_qty > 0 else "无持仓"
+            return False, reason, quantity
+
+        # 跌停不可市价卖出
+        limit_info = self._limit_prices.get(ts_code, {})
+        if limit_info and current_price <= limit_info.get("lower", 0):
+            return False, "跌停不可卖出", quantity
+
+        # 数量不可超过可卖
+        quantity = min(quantity, pos.available_qty)
+        return True, "", quantity
+
     def place_order(self, ts_code: str, stock_name: str,
                     side: str, quantity: int,
                     price: float = 0.0,
@@ -410,13 +499,6 @@ class SimulatedBroker:
         Args:
             ts_code: 股票代码
             stock_name: 股票名称
-        """
-        # 记录stock_name用于ST判断
-        if stock_name:
-            self._stock_names[ts_code] = stock_name
-
-        """
-        Args:
             side: buy/sell
             quantity: 委托数量(股)
             price: 委托价格(市价单=0)
@@ -427,6 +509,10 @@ class SimulatedBroker:
         Returns:
             (success, message, order)
         """
+        # 记录stock_name用于ST判断
+        if stock_name:
+            self._stock_names[ts_code] = stock_name
+
         now = datetime.now()
         trade_date = now.strftime("%Y%m%d")
         order_id = f"ORD{now.strftime('%H%M%S')}{len(self.orders):04d}"
@@ -451,102 +537,30 @@ class SimulatedBroker:
         )
 
         # ==================== 前置检查 ====================
+        reject_reason = self._validate_prechecks(ts_code, quantity)
+        if reject_reason is not None:
+            return self._reject_order(order, reject_reason)
 
-        # 1. 停牌检查
-        if ts_code in self._suspended:
-            order.status = OrderStatus.REJECTED
-            order.reason = "停牌不可交易"
-            self.orders.append(order)
-            return False, "停牌不可交易", order
-
-        # 2. 实时价格检查
         current_price = self._realtime_prices.get(ts_code, 0)
-        if current_price <= 0:
-            order.status = OrderStatus.REJECTED
-            order.reason = "无实时行情"
-            self.orders.append(order)
-            return False, "无实时行情", order
-
-        # 3. 整手检查
-        lot_size = self.KCB_LOT_SIZE if ts_code.startswith('688') else self.LOT_SIZE
-        if quantity % lot_size != 0 or quantity <= 0:
-            order.status = OrderStatus.REJECTED
-            order.reason = f"数量必须为{lot_size}的整数倍"
-            self.orders.append(order)
-            return False, f"数量必须为{lot_size}的整数倍", order
 
         # ==================== 买入检查 ====================
         if side_enum == OrderSide.BUY:
-            # 4. 涨停不可市价买入
-            limit_info = self._limit_prices.get(ts_code, {})
-            if limit_info and current_price >= limit_info.get("upper", 999999):
-                order.status = OrderStatus.REJECTED
-                order.reason = "涨停不可买入"
-                self.orders.append(order)
-                return False, "涨停不可买入", order
-
-            # 5. 仓位检查
-            est_amount = quantity * current_price
-            if est_amount > self.account.available_cash:
-                # 缩减到可用现金能买到的数量
-                quantity = int(self.account.available_cash / current_price / lot_size) * lot_size
-                if quantity <= 0:
-                    order.status = OrderStatus.REJECTED
-                    order.reason = "可用资金不足"
-                    self.orders.append(order)
-                    return False, "可用资金不足", order
-
-            # 6. 单票仓位上限
-            if self.account.total_assets > 0:
-                single_max = self.account.total_assets * self.MAX_POSITION_RATIO
-                existing = self.positions.get(ts_code)
-                existing_value = existing.avg_cost * existing.total_qty if existing else 0
-                if existing_value + est_amount > single_max:
-                    max_qty = int((single_max - existing_value) / current_price / lot_size) * lot_size
-                    quantity = max(0, min(quantity, max_qty))
-                    if quantity <= 0:
-                        order.status = OrderStatus.REJECTED
-                        order.reason = "单票仓位超限"
-                        self.orders.append(order)
-                        return False, "单票仓位超限", order
-
-            # 7. 总仓位上限
-            self._recalc_account()
-            if self.account.market_value / max(self.account.total_assets, 1) > self.MAX_TOTAL_RATIO:
-                order.status = OrderStatus.REJECTED
-                order.reason = "总仓位超限"
-                self.orders.append(order)
-                return False, "总仓位超限", order
+            ok, reject_reason, quantity = self._validate_and_adjust_buy(ts_code, quantity, current_price)
+            if not ok:
+                return self._reject_order(order, reject_reason)
 
         # ==================== 卖出检查 ====================
         elif side_enum == OrderSide.SELL:
-            pos = self.positions.get(ts_code)
-            if not pos or pos.available_qty <= 0:
-                order.status = OrderStatus.REJECTED
-                order.reason = "无可用持仓(T+1限制)" if pos and pos.total_qty > 0 else "无持仓"
-                self.orders.append(order)
-                return False, order.reason, order
-
-            # 跌停不可市价卖出
-            limit_info = self._limit_prices.get(ts_code, {})
-            if limit_info and current_price <= limit_info.get("lower", 0):
-                order.status = OrderStatus.REJECTED
-                order.reason = "跌停不可卖出"
-                self.orders.append(order)
-                return False, "跌停不可卖出", order
-
-            # 数量不可超过可卖
-            quantity = min(quantity, pos.available_qty)
+            ok, reject_reason, quantity = self._validate_sell(ts_code, quantity, current_price)
+            if not ok:
+                return self._reject_order(order, reject_reason)
 
         # ==================== 撮合 ====================
         order.quantity = quantity  # 可能被调整
         fill_price, commission, stamp_duty = self._match(order, current_price)
 
         if fill_price <= 0:
-            order.status = OrderStatus.REJECTED
-            order.reason = "撮合失败"
-            self.orders.append(order)
-            return False, "撮合失败", order
+            return self._reject_order(order, "撮合失败")
 
         # 成交
         order.filled_qty = quantity
