@@ -253,6 +253,7 @@ const premarketStrategyGroups = ref<any[]>([])
 const premarketHitRate = ref<Record<string, any>>({})
 const premarketGroupMode = ref<'strategy' | 'list'>('strategy')
 const premarketDebugMode = ref(false)
+const premarketGroupExpanded = ref<Record<string, boolean>>({})
 const premarketFunnel = ref<any>({})
 const premarketBlockedReasons = ref<Record<string, number>>({})
 const premarketCacheSource = ref('')
@@ -1622,16 +1623,19 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
         <!-- 策略分组模式 -->
         <div v-if="premarketGroupMode === 'strategy'" class="pm-groups">
           <div v-for="g in premarketStrategyGroups" :key="g.strategy" class="pm-group">
-            <div class="pm-group-header">
+            <div class="pm-group-header cp" @click="premarketGroupExpanded[g.strategy] = !premarketGroupExpanded[g.strategy]">
+              <span class="pm-group-toggle">{{ premarketGroupExpanded[g.strategy] ? '▼' : '▶' }}</span>
               <ElTag size="small" :color="strategyMeta[g.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(g.strategy) }}</ElTag>
               <span class="pm-group-stat">{{ g.count }}只</span>
               <span class="pm-group-stat" :class="g.avg_pct_chg >= 0 ? 'up' : 'down'">均幅 {{ g.avg_pct_chg >= 0 ? '+' : '' }}{{ g.avg_pct_chg.toFixed(1) }}%</span>
               <span v-if="g.executed" class="pm-group-stat executed">已买{{ g.executed }}</span>
+              <span v-if="g.blocked" class="pm-group-stat warn">blocked {{ g.blocked }}</span>
               <span v-if="premarketHitRate[g.strategy]" class="pm-group-stat hit-rate" :class="premarketHitRate[g.strategy].win_rate >= 60 ? 'up' : 'warn'">
                 历史 {{ premarketHitRate[g.strategy].win_rate }}%胜 / {{ premarketHitRate[g.strategy].total }}笔
               </span>
+              <span class="pm-group-preview">{{ g.candidates.slice(0, 3).map(c => (c.stock_name || c.ts_code?.slice(0,6)) + ' ' + (c.pct_chg >= 0 ? '+' : '') + c.pct_chg.toFixed(1) + '%').join(' · ') }}{{ g.count > 3 ? ' ...' : '' }}</span>
             </div>
-            <div class="pm-group-list">
+            <div v-if="premarketGroupExpanded[g.strategy]" class="pm-group-list">
               <div v-for="c in g.candidates" :key="c.ts_code + c.strategy" class="pm-item">
                 <span class="pm-item-code">{{ c.ts_code?.slice(0,6) }}</span>
                 <span class="pm-item-name">{{ c.stock_name }}</span>
@@ -1640,6 +1644,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
                 <span v-if="c.turnover_rate" class="pm-item-factor">换手{{ c.turnover_rate.toFixed(1) }}%</span>
                 <ElTag v-if="c.signal_status === 'executed'" size="small" type="success" style="font-size:9px">已买</ElTag>
                 <ElTag v-else-if="c.signal_status === 'skipped'" size="small" type="warning" style="font-size:9px">跳过</ElTag>
+                <ElTag v-else-if="c.signal_status === 'preview'" size="small" type="info" style="font-size:9px">预览</ElTag>
                 <ElButton v-if="c.signal_status === 'new' && !dryRun" size="small" type="danger" plain class="btn-xs" @click="quickBuy(c)">买</ElButton>
                 <span v-if="c.reason" class="pm-item-reason">{{ c.reason }}</span>
               </div>
@@ -3299,6 +3304,10 @@ mm-tab-content {
 .pm-groups { display: flex; flex-direction: column; gap: 8px; }
 .pm-group { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; overflow: hidden; }
 .pm-group-header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border-default); background: var(--bg-muted); }
+.pm-group-header.cp { cursor: pointer; }
+.pm-group-header.cp:hover { background: var(--bg-hover); }
+.pm-group-toggle { font-size: 9px; color: var(--text-tertiary); min-width: 10px; }
+.pm-group-preview { margin-left: auto; font-size: 10px; color: var(--text-tertiary); max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pm-group-stat { font-size: 11px; color: var(--text-secondary); }
 .pm-group-stat.executed { color: var(--el-color-success); }
 .pm-group-stat.hit-rate { margin-left: auto; font-size: 10px; }
