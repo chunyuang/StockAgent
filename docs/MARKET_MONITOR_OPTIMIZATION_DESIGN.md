@@ -10,7 +10,7 @@
 
 ---
 
-## 四十六、v2.9.56 _init_state分组提取 + _risk_tick_body提取 + ScannerDaemon方法提取 (2026-06-02)
+## 四十六、v2.9.56 _init_state分组提取 + _risk_tick_body提取 + ScannerDaemon方法提取 + 子模块方法提取 (2026-06-02)
 
 ### 46.1 设计目标
 
@@ -106,6 +106,54 @@
 ### 46.8 回测影响
 
 零。所有变更仅影响market_monitor模块内部重构和测试, 回测引擎零文件修改。
+
+---
+
+## 四十七、v2.9.56+ 子模块方法提取 (scanner_utils + risk_watchdog + live_filter_pipeline + runtime_persistence) (2026-06-02)
+
+### 47.1 设计目标
+
+1. **scanner_utils.diagnose**: 86行→36行(-58%), 6个检查提取为`_check_*`子方法
+2. **scanner_utils.generate_summary_report**: 106行→24行(-77%), 6个构建提取为`_build_*`子方法
+3. **scanner_utils.compute_health_score**: 107行→29行(-73%), 提取`_collect_health_metrics`+`_collect_health_warnings`+`_judge_health`
+4. **risk_watchdog.check_circuit_breaker**: 71行→41行(-42%), 回撤检查提取为`_check_daily_drawdown`
+5. **risk_watchdog.emergency_liquidate**: 70行→45行(-36%), 平仓循环提取为`_liquidate_positions`
+6. **live_filter_pipeline._check_force_empty**: 79行→37行(-53%), 数据收集提取为`_count_limits_from_realtime`+`_count_limits_from_mongo`
+7. **runtime_persistence.persist_compare_diff**: 66行→36行(-45%), 详情构建提取为`_build_compare_diff_details`
+8. **runtime_persistence.save_runtime_snapshot**: 60行→12行(-80%), 提取`_build_snapshot_doc`+`_save_snapshot_mongo`+`_save_snapshot_local`
+9. **runtime_persistence.save_scan_traces**: 77行→30行(-61%), 提取`_split_trace_candidates`+`_build_trace_doc`
+10. **runtime_persistence.sync_close_data_to_mongo**: 70行→20行(-71%), 提取`_build_limit_ops`+`_sync_pct_chg_to_daily_basic`
+
+### 47.2 方法行数改善
+
+| 方法 | 原始行数 | 提取后 | 变化 |
+|---|---|---|---|
+| diagnose | 86 | 36 | -58% |
+| generate_summary_report | 106 | 24 | -77% |
+| compute_health_score | 107 | 29 | -73% |
+| check_circuit_breaker | 71 | 41 | -42% |
+| emergency_liquidate | 70 | 45 | -36% |
+| _check_force_empty | 79 | 37 | -53% |
+| persist_compare_diff | 66 | 36 | -45% |
+| save_runtime_snapshot | 60 | 12 | -80% |
+| save_scan_traces | 77 | 30 | -61% |
+| sync_close_data_to_mongo | 70 | 20 | -71% |
+
+**新增提取子方法共22个**
+
+### 47.3 超过50行方法数
+
+- 提取前: 44个方法超过50行
+- 提取后: 36个方法超过50行(-8, -18%)
+
+### 47.4 测试覆盖
+
+- test_v2956扩展至47个用例(scanner_utils + risk_watchdog + live_filter_pipeline + runtime_persistence)
+- 全量1367测试通过
+
+### 47.5 回测影响
+
+零。所有变更仅影响market_monitor模块内部重构, 回测引擎零文件修改。
 
 ---
 
