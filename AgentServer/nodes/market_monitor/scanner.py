@@ -508,8 +508,8 @@ class MarketScanner:
             "trailing_stops": self._get_activated_trailing_stops_safe(),
             "position_risk_levels": self._safe_copy_position_risk_levels(),
             "execution_stats": dict(self._execution_stats),
-            "scan_loop_errors": getattr(self, '_scan_loop_error_count', 0),
-            "last_realtime_update_ts": getattr(self, '_last_realtime_update_ts', 0),
+            "scan_loop_errors": self._scan_loop_error_count,
+            "last_realtime_update_ts": self._last_realtime_update_ts,
             "realtime_cache_age_sec": round(time.time() - (self._last_realtime_update_ts or 0), 1) if self._last_realtime_update_ts else None,
             "smart_check_interval": self._get_smart_check_interval(self.get_positions()) if self._is_running else None,
             "sell_logic_mode": self.SELL_LOGIC_MODE,
@@ -519,8 +519,8 @@ class MarketScanner:
     def _build_module_status(self) -> Dict[str, Any]:
         """读取子模块状态(risk_watchdog/signal_dispatcher/tiered_scanner/quote)【v2.9.33提取】"""
         result = {}
-        result["risk_watchdog"] = self._risk_watchdog.get_status() if hasattr(self, '_risk_watchdog') else {}
-        result["signal_dispatcher"] = self._signal_dispatcher.get_stats() if hasattr(self, '_signal_dispatcher') else {}
+        result["risk_watchdog"] = self._risk_watchdog.get_status() if self._risk_watchdog else {}
+        result["signal_dispatcher"] = self._signal_dispatcher.get_stats() if self._signal_dispatcher else {}
         result["tiered_scanner"] = self._tiered_scanner.get_status() if self._tiered_scanner else {}
         result["quote_degrade_level"] = self._quote_manager.degrade_level
         result["quote_degrade_desc"] = self._quote_manager.degrade_desc
@@ -852,7 +852,7 @@ class MarketScanner:
     async def _scan_loop_error_recovery(self, error: Exception):
         """_scan_loop异常恢复【v2.9.28从_scan_loop提取】"""
         logger.error(f"[SCANNER] _scan_loop异常: {error}", exc_info=True)
-        self._scan_loop_error_count = getattr(self, '_scan_loop_error_count', 0) + 1
+        self._scan_loop_error_count += 1
         if self._scan_loop_error_count >= 3:
             logger.error(f"[SCANNER] 连续{self._scan_loop_error_count}次异常, scanner退出")
             self._is_running = False
@@ -1021,7 +1021,7 @@ class MarketScanner:
         """交易时间内行情缓存过期检测+告警【v2.9.28从_risk_loop_sync提取】"""
         if phase != MarketPhase.TRADING:
             return
-        if not hasattr(self, '_last_realtime_update_ts'):
+        if not self._last_realtime_update_ts:
             return
         cache_age = time.time() - (self._last_realtime_update_ts or 0)
         if cache_age <= 120:
@@ -1096,7 +1096,7 @@ class MarketScanner:
         scan_time = datetime.now().strftime("%H:%M:%S")
 
         # 【v2.9.22:成功扫描时重置_scan_loop连续错误计数】
-        if hasattr(self, '_scan_loop_error_count') and self._scan_loop_error_count > 0:
+        if self._scan_loop_error_count > 0:
             logger.info(f"[SCAN] 恢复成功(之前连续{self._scan_loop_error_count}次异常)")
             self._scan_loop_error_count = 0
 
@@ -1186,7 +1186,7 @@ class MarketScanner:
         self._last_scan_time = scan_time
         self._stats["scans"] += 1
         self._stats["stocks_scanned"] = stocks_count
-        if hasattr(self, '_risk_watchdog'):
+        if self._risk_watchdog:
             self._risk_watchdog.update_heartbeat()
         self._last_scan_duration_ms = elapsed * 1000
         self._last_scan_ts = time.time()
