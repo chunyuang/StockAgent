@@ -2026,6 +2026,13 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
       </div>
     </div>
 
+    <!-- ==================== 🛡️ 风控Tab ==================== -->
+    <div v-if="activeTab === 'risk'" class="mm-tab-content">
+      <div class="mm-tab-scroll">
+        <PositionRiskMatrix />
+      </div>
+    </div>
+
     <!-- ==================== 🌡️ 情绪Tab ==================== -->
     <div v-if="activeTab === 'sentiment'" class="mm-tab-content">
       <div class="mm-tab-scroll">
