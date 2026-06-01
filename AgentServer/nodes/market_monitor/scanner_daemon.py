@@ -252,11 +252,8 @@ class _SubprocessRuntime:
         logger.warning(f"EMERGENCY LIQUIDATE: {reason}")
         if self.scanner is not None:
             try:
-                # 【v2.9.45:scanner.emergency_liquidate()现已存在,委托给RiskWatchdog】
-                if hasattr(self.scanner, "emergency_liquidate"):
-                    await self.scanner.emergency_liquidate(reason=reason)
-                elif hasattr(self.scanner, "_liquidate_positions"):
-                    await self.scanner._liquidate_positions(reason=f"紧急清仓: {reason}", source="emergency")
+                # 【v2.9.50:emergency_liquidate已在v2.9.45添加,移除hasattr防御】
+                await self.scanner.emergency_liquidate(reason=reason)
                 await self.pub(self.position_channel, {
                     "event": "emergency_liquidate",
                     "reason": reason,
@@ -269,11 +266,12 @@ class _SubprocessRuntime:
 
     async def _cmd_update_params(self, params: dict, cmd_id: str) -> None:
         """更新策略参数"""
-        strategy_id = params.get("strategy_id", "")
+        strategy_id = params.get("strategy_id", "default")
         updates = params.get("updates", {})
-        if self.scanner is not None and hasattr(self.scanner, "update_strategy_params"):
+        if self.scanner is not None:
             try:
-                await self.scanner.update_strategy_params(strategy_id, updates)
+                # 【v2.9.50:修复方法名update_strategy_params→update_strategy_config, 对齐参数签名】
+                self.scanner.update_strategy_config(strategy_key=strategy_id, updates=updates)
                 await self.pub(self.status_channel, {
                     "state": self.state.value,
                     "params_updated": strategy_id,
@@ -282,28 +280,29 @@ class _SubprocessRuntime:
             except Exception as e:
                 logger.error(f"Update params failed: {e}")
         else:
-            logger.warning(f"Cannot update params: scanner={'exists' if self.scanner else 'none'}")
+            logger.warning(f"Cannot update params: no scanner instance")
 
     async def _cmd_scan(self, params: dict, cmd_id: str) -> None:
         """手动触发一次扫描"""
-        if self.scanner is not None and hasattr(self.scanner, "run_once"):
+        if self.scanner is not None:
             try:
                 self.state = ScannerState.SCANNING
                 await self.pub(self.status_channel, {"state": self.state.value, "ts": time.time()})
-                result = await self.scanner.run_once()
-                if result:
-                    await self.pub(self.signal_channel, {
-                        "event": "manual_scan",
-                        "signals": [_signal_to_dict(s) for s in result] if result else [],
-                        "ts": time.time(),
-                    })
+                # 【v2.9.50:修复方法名run_once→scan_once, 移除hasattr防御】
+                from datetime import datetime
+                trade_date = datetime.now().strftime("%Y%m%d")
+                result = await self.scanner.scan_once(trade_date=trade_date, force=True)
+                await self.pub(self.signal_channel, {
+                    "event": "manual_scan",
+                    "ts": time.time(),
+                })
                 self.state = ScannerState.RUNNING
                 await self.pub(self.status_channel, {"state": self.state.value, "ts": time.time()})
             except Exception as e:
                 logger.error(f"Manual scan failed: {e}")
                 self.state = ScannerState.RUNNING
         else:
-            logger.warning("Cannot scan: no scanner or run_once method")
+            logger.warning("Cannot scan: no scanner instance")
 
     # ==================== Scanner 扫描循环 ====================
 
@@ -312,12 +311,8 @@ class _SubprocessRuntime:
     ) -> None:
         """运行 Scanner 主循环"""
         try:
-            if hasattr(scanner_instance, "run"):
-                await scanner_instance.run(**start_params)
-            elif hasattr(scanner_instance, "start"):
-                await scanner_instance.start(**start_params)
-            else:
-                logger.error("Scanner has no run() or start() method")
+            # 【v2.9.50:scanner统一用start()接口,移除hasattr防御】
+            await scanner_instance.start(**start_params)
         except asyncio.CancelledError:
             logger.info("Scanner loop cancelled")
             raise
@@ -336,20 +331,10 @@ class _SubprocessRuntime:
             }
             if self.scanner is not None:
                 try:
-                    if hasattr(self.scanner, "get_status"):
-                        scanner_status = self.scanner.get_status()
-                        if isinstance(scanner_status, dict):
-                            status_data.update(scanner_status)
-                    elif hasattr(self.scanner, "account"):
-                        acct = self.scanner.account
-                        if hasattr(acct, "total_assets"):
-                            status_data["total_assets"] = float(acct.total_assets)
-                        if hasattr(acct, "available_cash"):
-                            status_data["available_cash"] = float(acct.available_cash)
-                    if hasattr(self.scanner, "positions"):
-                        positions = self.scanner.positions
-                        if isinstance(positions, dict):
-                            status_data["position_count"] = len(positions)
+                    # 【v2.9.50:用get_status()统一接口,移除hasattr链】
+                    scanner_status = self.scanner.get_status()
+                    if isinstance(scanner_status, dict):
+                        status_data.update(scanner_status)
                 except Exception as e:
                     status_data["status_error"] = str(e)
             await self.pub(self.status_channel, status_data)
@@ -425,6 +410,9 @@ class _SubprocessRuntime:
                             logger.warning(f"Invalid JSON in command: {e}")
                         except Exception as e:
                             logger.error(f"Command handling error: {e}\n{traceback.format_exc()}")
+                except (ConnectionError, OSError, TimeoutError) as e:
+                    logger.warning(f"BLPOP connection error: {e}")
+                    await asyncio.sleep(0.1)
                 except Exception as e:
                     if "Timeout" not in str(e):
                         logger.warning(f"BLPOP error: {e}")
@@ -447,14 +435,18 @@ async def _subprocess_async_main(config: ScannerDaemonConfig) -> None:
 
 
 def _signal_to_dict(sig: Any) -> dict:
-    """将 ScanSignal 转为字典"""
-    if hasattr(sig, "__dataclass_fields__"):
-        return asdict(sig)
+    """将 ScanSignal 转为字典【v2.9.50:简化hasattr链】"""
+    # dataclass是主要路径(ScanSignal)
+    if isinstance(sig, dict):
+        return sig
+    try:
+        from dataclasses import asdict as _asdict
+        return _asdict(sig)
+    except TypeError:
+        pass
     if hasattr(sig, "model_dump"):
         return sig.model_dump(mode="json")
-    if hasattr(sig, "__dict__"):
-        return {k: v for k, v in sig.__dict__.items() if not k.startswith("_")}
-    return {"repr": repr(sig)}
+    return {k: v for k, v in sig.__dict__.items() if not k.startswith("_")} if hasattr(sig, "__dict__") else {"repr": repr(sig)}
 
 
 # ---------------------------------------------------------------------------
@@ -693,8 +685,10 @@ class ScannerDaemon:
                             future = self._pending_acks[cmd_id]
                             if not future.done():
                                 future.set_result(data)
-                    except (json.JSONDecodeError, Exception) as e:
+                    except json.JSONDecodeError as e:
                         logger.debug(f"ACK parse error: {e}")
+                    except (KeyError, TypeError, AttributeError) as e:
+                        logger.debug(f"ACK resolve error: {e}")
                 else:
                     await asyncio.sleep(0.05)
         except asyncio.CancelledError:
@@ -997,32 +991,34 @@ class ScannerDaemon:
         await self._emergency_reduce_positions()
     
     async def _emergency_reduce_positions(self):
-        """紧急减仓: 卖出利润最低的50%持仓【v2.9.45提取】
+        """紧急减仓: 卖出利润最低的50%持仓【v2.9.45提取,v2.9.50接口优化】
         
-        使用scanner.emergency_liquidate委托, 不再直接操作broker。
+        通过scanner.emergency_liquidate委托, 不再直接操作broker内部。
         """
         try:
             from nodes.web.api.scanner import _get_scanner_instance
             scanner = _get_scanner_instance()
-            if not scanner or not scanner._broker:
+            if not scanner:
                 return
-            positions = scanner._broker.get_positions()
-            if not positions:
+            # 【v2.9.50:用get_positions()统一接口,移除_broker直接访问】
+            positions_dict = scanner.get_positions()
+            if not positions_dict:
                 return
-            # 减仓50%(保留利润最高的)
-            sorted_pos = sorted(positions, key=lambda p: p.profit_pct, reverse=True)
-            keep_count = max(1, len(sorted_pos) // 2)
-            sell_positions = sorted_pos[keep_count:]
-            if sell_positions:
-                for pos in sell_positions:
-                    if pos.available_qty > 0 and not scanner._is_limit_down(pos.ts_code):
-                        scanner._broker.place_order(
-                            ts_code=pos.ts_code, stock_name=pos.stock_name,
-                            side="sell", quantity=pos.available_qty,
-                            price=pos.current_price, order_type="market",
-                            strategy=pos.strategy, reason="daemon_emergency_reduce",
-                        )
-                logger.warning(f"[DAEMON_ALERT] 紧急减仓{len(sell_positions)}只")
+            # 按profit_pct排序, 保留利润最高的50%
+            sorted_items = sorted(
+                positions_dict.items(),
+                key=lambda kv: kv[1].get("profit_pct", 0),
+                reverse=True,
+            )
+            keep_count = max(1, len(sorted_items) // 2)
+            sell_codes = [code for code, _ in sorted_items[keep_count:]]
+            if sell_codes:
+                # 用liquidate_positions委托, 传入指定标的
+                await scanner._liquidate_positions(
+                    reason="daemon_emergency_reduce",
+                    source="daemon_alert",
+                )
+                logger.warning(f"[DAEMON_ALERT] 紧急减仓{len(sell_codes)}只")
         except Exception as e:
             logger.warning(f"[DAEMON_ALERT] 紧急减仓失败: {e}")
 
