@@ -257,6 +257,8 @@ const premarketGroupExpanded = ref<Record<string, boolean>>({})
 const premarketFunnel = ref<any>({})
 const premarketBlockedReasons = ref<Record<string, number>>({})
 const premarketCacheSource = ref('')
+const premarketLimitPools = ref<any>({})
+const premarketPositionGaps = ref<any[]>([])
 
 // ==================== 扫描追踪Tab ====================
 const scanHistory = ref<any[]>([])
@@ -521,6 +523,8 @@ async function fetchPremarketData() {
       premarketFunnel.value = p.data.funnel || {}
       premarketBlockedReasons.value = p.data.blocked_reasons || {}
       premarketCacheSource.value = p.data.cache_source || ''
+      premarketLimitPools.value = p.data.limit_pools || {}
+      premarketPositionGaps.value = p.data.position_gaps || []
     }
   } catch { /* ignore */ }
 }
@@ -1616,6 +1620,53 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
             <div v-for="(count, reason) in premarketBlockedReasons" :key="reason" class="pm-br-item">
               <span class="pm-br-reason">{{ reason }}</span>
               <span class="pm-br-count">{{ count }}笔</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 涨停池+连板分布+板块热力 -->
+        <div class="pm-zt-section">
+          <div class="pm-zt-header">
+            <div class="st">🔴 涨停池 <span class="text-tertiary" style="font-size:10px">({{ premarketLimitPools.up_count || 0 }}只)</span></div>
+            <div class="st">🟢 跌停池 <span class="text-tertiary" style="font-size:10px">({{ premarketLimitPools.down_count || 0 }}只)</span></div>
+          </div>
+          <div class="pm-zt-body">
+            <!-- 连板分布 -->
+            <div v-if="premarketLimitPools.continue_stats && Object.keys(premarketLimitPools.continue_stats).length" class="pm-continue-bar">
+              <span class="pm-cb-label">连板</span>
+              <template v-for="(count, boards) in premarketLimitPools.continue_stats" :key="boards">
+                <span class="pm-cb-item" :class="Number(boards) >= 3 ? 'hot' : ''">{{ boards }}板×{{ count }}</span>
+              </template>
+            </div>
+            <!-- 板块热力 -->
+            <div v-if="premarketLimitPools.sector_heat && premarketLimitPools.sector_heat.length" class="pm-sector-heat">
+              <span class="pm-sh-label">板块</span>
+              <span v-for="s in premarketLimitPools.sector_heat.slice(0, 8)" :key="s.name" class="pm-sh-item" :class="s.count >= 3 ? 'hot' : ''">
+                {{ s.name }}<sub>{{ s.count }}</sub>
+              </span>
+            </div>
+            <!-- 涨停列表(折叠) -->
+            <div v-if="premarketLimitPools.limit_up_list && premarketLimitPools.limit_up_list.length" class="pm-zt-list">
+              <div class="pm-zt-toggle cp" @click="premarketGroupExpanded['limit_up'] = !premarketGroupExpanded['limit_up']">
+                {{ premarketGroupExpanded['limit_up'] ? '▼' : '▶' }} 涨停明细 {{ premarketLimitPools.limit_up_list.length }}只
+              </div>
+              <div v-if="premarketGroupExpanded['limit_up']" class="pm-zt-items">
+                <span v-for="z in premarketLimitPools.limit_up_list" :key="z.ts_code" class="pm-zt-tag" :class="z.open_times > 0 ? 'broken' : 'sealed'">
+                  {{ z.name }}<sub v-if="z.open_times > 0">炸</sub>
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 持仓竞价影响 -->
+        <div v-if="premarketPositionGaps && premarketPositionGaps.length" class="pm-pos-gap-section">
+          <div class="st">💼 持仓竞价影响</div>
+          <div class="pm-pos-gaps">
+            <div v-for="p in premarketPositionGaps" :key="p.ts_code" class="pm-pg-item" :class="p.gap_pct >= 0 ? 'gap-up' : 'gap-down'">
+              <span class="pm-pg-name">{{ p.stock_name }}</span>
+              <span class="pm-pg-gap" :class="p.gap_pct >= 0 ? 'up' : 'down'">{{ p.gap_pct >= 0 ? '⬆' : '⬇' }} {{ p.gap_pct >= 0 ? '+' : '' }}{{ p.gap_pct.toFixed(1) }}%</span>
+              <span class="pm-pg-hint">{{ p.gap_pct > 3 ? '强势高开' : p.gap_pct < -2 ? '⚠️风险低开' : '正常' }}</span>
             </div>
           </div>
         </div>
@@ -3290,6 +3341,38 @@ mm-tab-content {
 .pm-br-item { display: flex; justify-content: space-between; padding: 2px 0; font-size: 11px; border-bottom: 1px solid var(--border-default); }
 .pm-br-reason { color: var(--text-secondary); }
 .pm-br-count { font-weight: 600; color: var(--el-color-warning); }
+
+/* 涨停池+连板+板块 */
+.pm-zt-section { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
+.pm-zt-header { display: flex; gap: 16px; margin-bottom: 6px; }
+.pm-zt-body { font-size: 12px; }
+.pm-continue-bar { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
+.pm-cb-label { font-size: 10px; color: var(--text-tertiary); font-weight: 600; }
+.pm-cb-item { background: var(--bg-muted); padding: 1px 6px; border-radius: 3px; font-size: 11px; }
+.pm-cb-item.hot { background: #f56c6c18; color: var(--el-color-danger); font-weight: 600; }
+.pm-sector-heat { display: flex; align-items: center; gap: 4px; margin-bottom: 6px; flex-wrap: wrap; }
+.pm-sh-label { font-size: 10px; color: var(--text-tertiary); font-weight: 600; }
+.pm-sh-item { background: var(--bg-muted); padding: 1px 5px; border-radius: 3px; font-size: 11px; }
+.pm-sh-item.hot { background: #e6a23c18; color: var(--el-color-warning); font-weight: 600; }
+.pm-sh-item sub { font-size: 9px; color: var(--el-color-danger); }
+.pm-zt-list { margin-top: 4px; }
+.pm-zt-toggle { font-size: 11px; color: var(--text-secondary); padding: 2px 0; }
+.pm-zt-toggle:hover { color: var(--text-primary); }
+.pm-zt-items { display: flex; flex-wrap: wrap; gap: 4px; padding-top: 4px; }
+.pm-zt-tag { font-size: 11px; padding: 1px 5px; border-radius: 3px; }
+.pm-zt-tag.sealed { background: #f56c6c18; color: var(--el-color-danger); }
+.pm-zt-tag.broken { background: #e6a23c18; color: var(--el-color-warning); }
+.pm-zt-tag sub { font-size: 8px; }
+
+/* 持仓竞价影响 */
+.pm-pos-gap-section { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
+.pm-pos-gaps { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.pm-pg-item { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 6px; font-size: 12px; }
+.pm-pg-item.gap-up { background: #f56c6c08; border-left: 3px solid var(--el-color-danger); }
+.pm-pg-item.gap-down { background: #67c23a08; border-left: 3px solid var(--el-color-success); }
+.pm-pg-name { font-weight: 600; min-width: 60px; }
+.pm-pg-gap { font-weight: 700; font-size: 14px; min-width: 60px; }
+.pm-pg-hint { font-size: 10px; color: var(--text-tertiary); }
 
 .pm-overview { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
 .pm-ov-card { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 10px 12px; }
