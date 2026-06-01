@@ -427,13 +427,11 @@ class PositionChecker:
                 logger.warning(f"[{source.upper()}] 卖出被拒 {pos.ts_code}: {msg}")
 
     def _handle_limit_down_pending(self, pos, reason: str, risk: Dict, source: str):
-        """跌停不可卖时挂起pending_sells【v2.9.26提取】"""
+        """跌停不可卖时挂起pending_sells【v2.9.26提取,v2.9.50:移除hasattr防御(_pending_sells在__init__已初始化)】"""
         scanner = self._scanner
         scanner._add_timeline_log("blocked", pos.ts_code, pos.stock_name,
             pos.strategy, f"跌停不可卖(触发{reason}但跌停挂单无法成交)", None)
         with self.state_lock:
-            if not hasattr(scanner, '_pending_sells'):
-                scanner._pending_sells = {}
             scanner._pending_sells[pos.ts_code] = {
                 "reason": reason, "risk": risk,
                 "added_at": time.time(), "source": source,
