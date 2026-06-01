@@ -379,104 +379,21 @@ class MarketScanner:
 
     # ==================== 动态委托分派 ====================
 
-    # 委托映射: 方法名 → (子模块属性, 子模块方法名)
-    # 不再需要为每个委托写一个存根方法, __getattr__自动路由
-    _DELEGATE_MAP = {
-        # RuntimePersistence委托
-        "_save_timeline": ("_runtime_persistence", "save_timeline"),
-        "_save_scan_traces": ("_runtime_persistence", "save_scan_traces"),
-        "_load_timeline": ("_runtime_persistence", "load_timeline"),
-        "_load_runtime_snapshot": ("_runtime_persistence", "load_runtime_snapshot"),
-        "_save_runtime_snapshot": ("_runtime_persistence", "save_runtime_snapshot"),
-        "_premarket_auction": ("_runtime_persistence", "premarket_auction"),
-        # QuoteManager委托
-        "_short_to_ts_code": ("_quote_manager_class", "short_to_ts_code"),
-        # StrategyScorer委托
-        "_apply_strategies": ("_strategy_scorer", "apply_strategies"),
-        # SignalManager委托
-        "_update_signals": ("_signal_manager", "update_signals"),
-        "_push_signals": ("_signal_manager", "_push_signals"),
-        "_add_timeline_log": ("_signal_manager", "_add_timeline_log"),
-        "_write_audit_log": ("_signal_manager", "_write_audit_log"),
-        "_execute_signals": ("_signal_manager", "execute_signals"),
-        # PositionChecker委托
-        "_check_positions": ("_position_checker", "check_positions"),
-        "_check_positions_quick": ("_position_checker", "check_positions_quick"),
-        "_get_smart_check_interval": ("_position_checker", "get_smart_check_interval"),
-        "_get_open_price": ("_position_checker", "_get_open_price"),
-        # _is_limit_down保留显式定义(有False fallback),不放入DELEGATE_MAP
-        # PositionManager委托
-        "_get_effective_stop_price": ("_position_manager", "get_effective_stop_price"),
-        "_update_trailing_stops": ("_position_manager", "update_trailing_stops"),
-        # _check_stop_loss_take_profit保留显式方法(先_update_trailing_stops再委托PM)
-        "_calc_would_buy_shares": ("_position_manager", "calc_would_buy_shares"),
-        "_calc_position_ratio": ("_position_manager", "calc_position_ratio"),
-        "_calc_stop_loss_price": ("_position_manager", "calc_stop_loss_price"),
-        "_calc_take_profit_price": ("_position_manager", "calc_take_profit_price"),
-        # ScannerUtils委托
-        "_safe_round": ("_scanner_utils", "safe_round"),
-        "_publish_scanner_event": ("_scanner_utils", "publish_scanner_event"),
-        "_position_to_dict": ("_scanner_utils", "position_to_dict"),
-        "_signal_to_dict": ("_scanner_utils", "signal_to_dict"),
-        "_extract_key_factors": ("_scanner_utils", "extract_key_factors"),
-        "generate_summary_report": ("_scanner_utils", "generate_summary_report"),
-        # 【v2.9.9:更多委托消除显式存根】
-        "_merge_factors": ("_strategy_scorer", "merge_factors"),
-        "_get_effective_strategy_config": ("_strategy_scorer", "get_effective_strategy_config"),
-        "_get_strategy_risk": ("_strategy_scorer", "get_strategy_risk"),
-        "_detect_anomalies": ("_strategy_scorer", "detect_anomalies"),
-        "_check_circuit_breaker": ("_risk_watchdog_class", "check_circuit_breaker"),
-        "_record_trade_result": ("_risk_watchdog_class", "record_trade_result"),
-        "reset_circuit_breaker": ("_risk_watchdog_class", "reset_circuit_breaker"),
-        "_compute_health_score": ("_scanner_utils", "compute_health_score"),
-        "_save_performance_snapshot": ("_runtime_persistence", "save_performance_snapshot"),
-        "_push_daily_summary": ("_runtime_persistence", "push_daily_summary"),
-        # 【v2.9.24:diagnose+情绪调仓提取】
-        "diagnose": ("_scanner_utils", "diagnose"),
-        "_handle_emotion_phase_change": ("_emotion_cycle_class", "handle_emotion_phase_change"),
-        # 【v2.9.27:更多方法提取到子模块】
-        "_build_account_info": ("_scanner_utils", "build_account_info"),
-        "_build_timeline_entry": ("_runtime_persistence", "build_timeline_entry"),
-        "_post_sell_cleanup": ("_runtime_persistence", "post_sell_cleanup"),
-        "_retry_pending_sells": ("_position_manager", "retry_pending_sells"),
-        "_execute_sell_list_from_risk": ("_position_manager", "execute_sell_list_from_risk"),
-        # 【v2.9.28:filter结果合并提取到LiveFilterPipeline】
-        "_merge_filter_result": ("_filter_pipeline", "merge_filter_result"),
-        # 【v2.9.28:慢步骤日志格式化提取到ScannerUtils】
-        "_format_slow_steps": ("_scanner_utils", "format_slow_steps"),
-        # 【v2.9.31:持仓dict构建提取到ScannerUtils】
-        "_build_position_dict": ("_scanner_utils", "build_position_dict"),
-        # 【v2.9.32:数据加载+停止持久化提取到RuntimePersistence】
-        "_load_stock_list": ("_runtime_persistence", "load_stock_list"),
-        "_load_daily_factors": ("_runtime_persistence", "load_daily_factors"),
-        "_load_stock_name_map": ("_runtime_persistence", "load_stock_name_map"),
-        "_warm_weekend_cache": ("_runtime_persistence", "warm_weekend_cache"),
-        "_persist_stop_state": ("_runtime_persistence", "persist_stop_state"),
-        "_restore_start_state": ("_runtime_persistence", "restore_start_state"),
-        "_load_positions": ("_runtime_persistence", "load_positions"),
-        # 【v2.9.32:风控日重置提取到RiskWatchdog】
-        "_reset_daily_risk_state": ("_risk_watchdog_class", "reset_daily_risk_state"),
-        # 【v2.9.34:情绪得分+收盘同步提取】
-        "_update_sentiment_score": ("_emotion_cycle_class", "update_sentiment_score"),
-        "_sync_close_data_to_mongo": ("_runtime_persistence", "sync_close_data_to_mongo"),
-        # 【v2.9.35:卖出执行提取到PositionManager】
-        "_execute_risk_sell": ("_position_manager", "execute_risk_sell"),
-        "_liquidate_positions": ("_position_manager", "liquidate_positions"),
-        # 【v2.9.42:参数管理提取到StrategyParamCenter+RuntimePersistence】
-        "_save_param_snapshot": ("_runtime_persistence", "save_param_snapshot"),
-        "_detect_param_drift": ("_strategy_param_center_class", "detect_and_publish_drift"),
-        "_validate_live_params": ("_strategy_param_center_class", "validate_live_params"),
-        "update_strategy_config": ("_strategy_param_center_class", "apply_scanner_config_update"),
-        "_load_strategy_overrides": ("_strategy_param_center_class", "load_and_apply_scanner_overrides"),
-        "_persist_strategy_overrides": ("_strategy_param_center_class", "persist_scanner_overrides"),
-    }
+    # 委托映射已移至scanner_delegate_router.DELEGATE_MAP【v2.9.52】
+    # 保留_DELEGATE_MAP类属性作为兼容别名(测试代码引用MarketScanner._DELEGATE_MAP)
+    @classmethod
+    @property
+    def _DELEGATE_MAP(cls):
+        """兼容别名: 指向scanner_delegate_router.DELEGATE_MAP【v2.9.52】"""
+        from nodes.market_monitor.scanner_delegate_router import DELEGATE_MAP
+        return DELEGATE_MAP
 
     def __getattr__(self, name):
-        """动态委托分派 — 纯转发方法不再需要显式定义【v2.9.3, v2.9.17:委托路由提取】"""
-        delegate = self._DELEGATE_MAP.get(name)
+        """动态委托分派 — 纯转发方法不再需要显式定义【v2.9.3, v2.9.17:委托路由提取, v2.9.52:MAP外提】"""
+        from nodes.market_monitor.scanner_delegate_router import DELEGATE_MAP, resolve_delegate
+        delegate = DELEGATE_MAP.get(name)
         if delegate is None:
             raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
-        from nodes.market_monitor.scanner_delegate_router import resolve_delegate
         return resolve_delegate(self, name, delegate)
 
 

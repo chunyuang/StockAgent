@@ -122,7 +122,7 @@ class StrategyScorer:
     def get_effective_strategy_config(self, strategy_key: str) -> Dict:
         """获取策略有效配置(ParamCenter > 前端覆盖 > strategy_defaults)"""
         # 优先级1: ParamCenter(MongoDB, 支持热更新)
-        if self.param_center and getattr(self.param_center, '_initialized', False):
+        if self.param_center and self.param_center._initialized:
             pc_params = self.param_center._cache.get(strategy_key)
             if pc_params:
                 return pc_params

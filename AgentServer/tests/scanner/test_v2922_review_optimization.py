@@ -99,7 +99,8 @@ class TestPostSellCleanupStats:
         scanner._runtime_persistence.save_runtime_snapshot = AsyncMock()
 
         # Mock _record_trade_result
-        scanner._DELEGATE_MAP = {}
+        # _DELEGATE_MAP已外提到scanner_delegate_router, 实例赋值无效
+        # 但_record_trade_result委托已由__getattr__路由, 此处mock不影响测试逻辑
         scanner._risk_watchdog_class = MagicMock()
 
         # 直接测试统计逻辑(不调用完整_post_sell_cleanup,只验证分类)

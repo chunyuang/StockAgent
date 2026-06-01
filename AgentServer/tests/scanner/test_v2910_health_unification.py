@@ -250,12 +250,12 @@ class TestNoBacktestRegressionV2910:
             pass  # 回测引擎在不同路径, 跳过
 
     def test_scanner_py_not_modified(self):
-        """v2.9.10只修改了web/api/scanner.py, 未修改market_monitor/scanner.py"""
+        """v2.9.52: _DELEGATE_MAP外提到scanner_delegate_router.py, scanner.py通过__getattr__路由"""
         source = _read_monitor_scanner()
-        assert "_DELEGATE_MAP" in source
         assert "__getattr__" in source
-        # 关键方法仍通过DELEGATE_MAP委托
-        assert '"_compute_health_score"' in source or "'_compute_health_score'" in source
+        # DELEGATE_MAP在scanner_delegate_router.py中
+        from nodes.market_monitor.scanner_delegate_router import DELEGATE_MAP
+        assert "_compute_health_score" in DELEGATE_MAP
 
     def test_scanner_utils_unchanged(self):
         """ScannerUtils.compute_health_score()未修改"""

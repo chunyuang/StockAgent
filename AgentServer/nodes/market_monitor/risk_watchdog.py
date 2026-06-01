@@ -1,5 +1,5 @@
 """
-RiskWatchdog — 独立风控看门狗
+RiskWatchdog - 独立风控看门狗
 
 解决核心问题: 风控不能依赖策略进程
 - 之前: 风控只在Scanner内部, Scanner假死则风控也失效
@@ -18,7 +18,7 @@ RiskWatchdog — 独立风控看门狗
     watchdog = RiskWatchdog(scanner)
     watchdog.register_alert_channel(dispatcher.dispatch)
     asyncio.create_task(watchdog.run())
-    
+
     # 紧急平仓(独立于Scanner)
     await watchdog.emergency_liquidate("手动触发")
 """
@@ -63,7 +63,7 @@ class HealthCheck:
     last_check_time: float = 0.0
 
 
-@dataclass 
+@dataclass
 class WatchdogState:
     """看门狗状态"""
     overall_status: HealthStatus = HealthStatus.HEALTHY
@@ -77,7 +77,7 @@ class WatchdogState:
 class RiskWatchdog:
     """
     独立风控看门狗
-    
+
     检查项:
     1. Scanner心跳: 最近一次成功扫描时间
     2. 信号产出: 最近5分钟是否有信号(不应该一直0)
@@ -86,34 +86,34 @@ class RiskWatchdog:
     5. 持仓健康: 是否有持仓超过最大持有天数
     6. 必盈额度: 剩余API调用次数
     """
-    
+
     # 检查间隔
     CHECK_INTERVAL = 30  # 30秒检查一次
     HEARTBEAT_TIMEOUT = 300  # 5分钟无心跳视为异常
     SIGNAL_SILENCE_WARNING = 1800  # 30分钟无信号发警告
-    
+
     # 告警冷却(秒): 同一告警不重复发送
     ALERT_COOLDOWN = 300
-    
+
     def __init__(self, scanner=None):
         self._scanner = scanner
         self._state = WatchdogState(start_time=time.time())
         self._alert_channels: List[Callable] = []
         self._running = False
         self._task: Optional[asyncio.Task] = None
-        
+
         # 告警冷却
         self._last_alerts: Dict[str, float] = {}  # check_name → last_alert_time
-    
+
     def register_alert_channel(self, handler: Callable) -> None:
         """注册告警通道(如SignalDispatcher.dispatch)"""
         self._alert_channels.append(handler)
-        logger.info(f"[WATCHDOG] 注册告警通道: {handler.__name__ if hasattr(handler, '__name__') else 'lambda'}")
-    
+        logger.info(f"[WATCHDOG] 注册告警通道: {getattr(handler, '__name__', 'lambda')}")
+
     def update_heartbeat(self) -> None:
         """Scanner调用: 每次扫描成功后更新心跳"""
         self._state.scanner_heartbeat = time.time()
-    
+
     async def start(self) -> None:
         """启动看门狗"""
         if self._running:
@@ -121,7 +121,7 @@ class RiskWatchdog:
         self._running = True
         self._task = asyncio.create_task(self._run_loop())
         logger.info("[WATCHDOG] 看门狗已启动")
-    
+
     async def stop(self) -> None:
         """停止看门狗"""
         self._running = False
@@ -132,7 +132,7 @@ class RiskWatchdog:
             except asyncio.CancelledError:
                 pass
         logger.info("[WATCHDOG] 看门狗已停止")
-    
+
     async def _run_loop(self) -> None:
         """看门狗主循环"""
         while self._running:
@@ -141,32 +141,32 @@ class RiskWatchdog:
             except Exception as e:
                 logger.error(f"[WATCHDOG] 检查异常: {e}", exc_info=True)
             await asyncio.sleep(self.CHECK_INTERVAL)
-    
+
     async def _run_checks(self) -> None:
         """执行所有健康检查"""
         checks = {}
-        
+
         # 1. Scanner心跳检查
         checks["heartbeat"] = self._check_heartbeat()
-        
+
         # 2. 信号产出检查
         checks["signal_output"] = self._check_signal_output()
-        
+
         # 3. 账户回撤检查
         checks["drawdown"] = await self._check_drawdown()
-        
+
         # 4. 持仓健康检查
         checks["position_health"] = await self._check_position_health()
-        
+
         # 5. 行情延迟检查(如果Scanner有数据)
         checks["market_latency"] = self._check_market_latency()
-        
+
         # 【V54:数据源可用性检查】
         checks["data_source"] = self._check_data_source()
-        
+
         # 更新状态
         self._state.checks = checks
-        
+
         # 综合判断
         statuses = [c.status for c in checks.values()]
         if any(s == HealthStatus.CRITICAL for s in statuses):
@@ -177,12 +177,12 @@ class RiskWatchdog:
             self._state.overall_status = HealthStatus.DEAD
         else:
             self._state.overall_status = HealthStatus.HEALTHY
-        
+
         # 发送告警(只对DEGRADED/CRITICAL/DEAD)
         for name, check in checks.items():
             if check.status in (HealthStatus.DEGRADED, HealthStatus.CRITICAL, HealthStatus.DEAD):
                 await self._send_alert_if_needed(name, check)
-        
+
         # 【自动自愈】心跳DEAD超过3分钟 → 自动重启Scanner
         hb_check = checks.get("heartbeat")
         if hb_check and hb_check.status == HealthStatus.DEAD:
@@ -197,14 +197,14 @@ class RiskWatchdog:
                     logger.info("[WATCHDOG] Scanner自动重启成功")
                 except Exception as e:
                     logger.error(f"[WATCHDOG] Scanner自动重启失败: {e}")
-    
+
     # ==================== 具体检查 ====================
-    
+
     def _check_heartbeat(self) -> HealthCheck:
         """检查Scanner心跳"""
         now = time.time()
         last_hb = self._state.scanner_heartbeat
-        
+
         if last_hb <= 0:
             # 尚未收到心跳(刚启动)
             elapsed = now - self._state.start_time
@@ -224,9 +224,9 @@ class RiskWatchdog:
                     message="🚨 Scanner从未成功扫描, 可能启动失败",
                     last_check_time=now,
                 )
-        
+
         elapsed = now - last_hb
-        
+
         if elapsed > self.HEARTBEAT_TIMEOUT:
             return HealthCheck(
                 name="heartbeat", status=HealthStatus.DEAD,
@@ -251,11 +251,11 @@ class RiskWatchdog:
                 message="正常",
                 last_check_time=now,
             )
-    
+
     def _check_signal_output(self) -> HealthCheck:
         """检查信号产出"""
         now = time.time()
-        
+
         if not self._scanner:
             return HealthCheck(
                 name="signal_output", status=HealthStatus.HEALTHY,
@@ -263,15 +263,15 @@ class RiskWatchdog:
                 message="Scanner未关联",
                 last_check_time=now,
             )
-        
+
         stats = self._scanner._stats
         total_signals = stats.get("signals_found", 0)
         scan_count = stats.get("scans", 0)
-        
+
         # 检查最近时间线(信号产出)
-        recent_trades = [t for t in self._scanner._timeline 
+        recent_trades = [t for t in self._scanner._timeline
                         if now - t.get("_timestamp", now) < 1800]  # 最近30分钟
-        
+
         if scan_count > 10 and total_signals == 0:
             return HealthCheck(
                 name="signal_output", status=HealthStatus.DEGRADED,
@@ -280,7 +280,7 @@ class RiskWatchdog:
                 message="⚠️ 多次扫描无信号, 可能行情源异常或策略条件过严",
                 last_check_time=now,
             )
-        
+
         return HealthCheck(
             name="signal_output", status=HealthStatus.HEALTHY,
             value=f"{total_signals}信号/{scan_count}次扫描",
@@ -288,11 +288,11 @@ class RiskWatchdog:
             message="正常",
             last_check_time=now,
         )
-    
+
     async def _check_drawdown(self) -> HealthCheck:
         """检查账户回撤"""
         now = time.time()
-        
+
         if not self._scanner or not self._scanner._broker:
             return HealthCheck(
                 name="drawdown", status=HealthStatus.HEALTHY,
@@ -300,7 +300,7 @@ class RiskWatchdog:
                 message="Broker未初始化",
                 last_check_time=now,
             )
-        
+
         try:
             acct = self._scanner._broker.get_account()
             if not acct:
@@ -310,22 +310,22 @@ class RiskWatchdog:
                     message="账户信息不可用",
                     last_check_time=now,
                 )
-            
+
             # 计算总回撤(从峰值)
             total_assets = acct.total_assets
             initial = self._scanner._broker._initial_cash
             peak = max(initial, total_assets)  # 简化: 实际应从历史获取峰值
-            
+
             total_drawdown = 0
             if peak > 0:
                 total_drawdown = (1 - total_assets / peak) * 100
-            
+
             # 日内起始资产(在scanner.start()设置)
             daily_start = self._scanner._daily_start_asset
             daily_drawdown = 0
             if daily_start > 0:
                 daily_drawdown = (1 - total_assets / daily_start) * 100
-            
+
             if total_drawdown > 20 or daily_drawdown > 5:
                 return HealthCheck(
                     name="drawdown", status=HealthStatus.CRITICAL,
@@ -342,7 +342,7 @@ class RiskWatchdog:
                     message=f"⚠️ 回撤偏高: 日{daily_drawdown:.1f}%/总{total_drawdown:.1f}%",
                     last_check_time=now,
                 )
-            
+
             return HealthCheck(
                 name="drawdown", status=HealthStatus.HEALTHY,
                 value=f"日{daily_drawdown:.1f}%/总{total_drawdown:.1f}%",
@@ -358,11 +358,11 @@ class RiskWatchdog:
                 message=f"⚠️ 回撤检查异常: {e}",
                 last_check_time=now,
             )
-    
+
     async def _check_position_health(self) -> HealthCheck:
         """检查持仓健康"""
         now = time.time()
-        
+
         if not self._scanner or not self._scanner._broker:
             return HealthCheck(
                 name="position_health", status=HealthStatus.HEALTHY,
@@ -370,28 +370,28 @@ class RiskWatchdog:
                 message="Broker未初始化",
                 last_check_time=now,
             )
-        
+
         try:
             positions = self._scanner._broker.get_positions()
             max_hold_days = 5  # 与回测对齐
-            
+
             overdue = []
             for p in positions:
                 # 计算持仓天数
-                buy_date = getattr(p, 'buy_date', None)
+                buy_date = p.buy_date
                 if buy_date:
                     if isinstance(buy_date, str):
                         from datetime import datetime as dt
                         buy_dt = dt.strptime(buy_date, "%Y%m%d")
-                    elif hasattr(buy_date, 'date'):
+                    elif isinstance(buy_date, datetime):
                         buy_dt = buy_date
                     else:
                         buy_dt = datetime.now()
-                    
+
                     days = (datetime.now() - buy_dt).days
                     if days > max_hold_days:
                         overdue.append(f"{p.ts_code}({days}天)")
-            
+
             if overdue:
                 return HealthCheck(
                     name="position_health", status=HealthStatus.DEGRADED,
@@ -400,7 +400,7 @@ class RiskWatchdog:
                     message=f"⚠️ 超时持仓: {', '.join(overdue[:5])}",
                     last_check_time=now,
                 )
-            
+
             return HealthCheck(
                 name="position_health", status=HealthStatus.HEALTHY,
                 value=f"{len(positions)}只持仓",
@@ -416,11 +416,11 @@ class RiskWatchdog:
                 message=f"持仓检查异常(非关键): {e}",
                 last_check_time=now,
             )
-    
+
     def _check_market_latency(self) -> HealthCheck:
         """检查行情延迟"""
         now = time.time()
-        
+
         if not self._scanner:
             return HealthCheck(
                 name="market_latency", status=HealthStatus.HEALTHY,
@@ -428,10 +428,10 @@ class RiskWatchdog:
                 message="Scanner未关联",
                 last_check_time=now,
             )
-        
+
         # 从Scanner获取最近一次扫描耗时
         scan_time = self._scanner._last_scan_duration_ms
-        
+
         if scan_time <= 0:
             return HealthCheck(
                 name="market_latency", status=HealthStatus.HEALTHY,
@@ -439,7 +439,7 @@ class RiskWatchdog:
                 message="暂无扫描耗时数据",
                 last_check_time=now,
             )
-        
+
         if scan_time > 30000:  # >30秒
             return HealthCheck(
                 name="market_latency", status=HealthStatus.DEGRADED,
@@ -456,7 +456,7 @@ class RiskWatchdog:
                 message=f"⚠️ 行情获取偏慢{scan_time/1000:.1f}s",
                 last_check_time=now,
             )
-        
+
         return HealthCheck(
             name="market_latency", status=HealthStatus.HEALTHY,
             value=f"{scan_time/1000:.1f}s",
@@ -464,11 +464,11 @@ class RiskWatchdog:
             message="正常",
             last_check_time=now,
         )
-    
+
     def _check_data_source(self) -> HealthCheck:
         """【V54:检查数据源可用性(东财/必盈连接状态)"""
         now = time.time()
-        
+
         if not self._scanner:
             return HealthCheck(
                 name="data_source", status=HealthStatus.HEALTHY,
@@ -476,7 +476,7 @@ class RiskWatchdog:
                 message="Scanner未关联",
                 last_check_time=now,
             )
-        
+
         issues = []
         # 检查东财连接: 最后一次scan是否成功获取行情
         cache_size = len(self._scanner._realtime_cache)
@@ -485,14 +485,14 @@ class RiskWatchdog:
             elapsed = time.time() - self._state.scanner_heartbeat
             if elapsed > 60:  # 超过60秒没有行情
                 issues.append("东财行情缓存为空")
-        
+
         # 检查必盈额度(如果有)
         data_router = self._scanner._data_router
         if data_router and hasattr(data_router, 'bingying_remaining'):
             remaining = data_router.bingying_remaining
             if remaining is not None and remaining < 20:
                 issues.append(f"必盈额度不足({remaining}次)")
-        
+
         if issues:
             return HealthCheck(
                 name="data_source", status=HealthStatus.DEGRADED,
@@ -501,7 +501,7 @@ class RiskWatchdog:
                 message=f"⚠️ 数据源异常: {', '.join(issues)}",
                 last_check_time=now,
             )
-        
+
         return HealthCheck(
             name="data_source", status=HealthStatus.HEALTHY,
             value=f"东财缓存{cache_size}只",
@@ -511,25 +511,25 @@ class RiskWatchdog:
         )
 
     # ==================== 告警与紧急操作 ====================
-    
+
     async def _send_alert_if_needed(self, check_name: str, check: HealthCheck) -> None:
         """发送告警(带冷却)"""
         now = time.time()
         last_alert = self._last_alerts.get(check_name, 0)
-        
+
         if now - last_alert < self.ALERT_COOLDOWN:
             return  # 冷却中
-        
+
         self._last_alerts[check_name] = now
         self._state.alert_count += 1
-        
+
         # 构建告警信号
         from nodes.market_monitor.signal_dispatcher import (
             SignalDispatcher, DispatchSignal, SignalPriority
         )
-        
+
         priority = SignalPriority.CRITICAL if check.status in (HealthStatus.CRITICAL, HealthStatus.DEAD) else SignalPriority.HIGH
-        
+
         alert_signal = DispatchSignal(
             signal_id=f"watchdog|{check_name}|{int(now)}",
             ts_code="SYSTEM",
@@ -548,43 +548,43 @@ class RiskWatchdog:
             created_at=now,
             source="risk_watchdog",
         )
-        
+
         for handler in self._alert_channels:
             try:
                 await handler(alert_signal)
             except Exception as e:
                 logger.warning(f"[WATCHDOG] 告警通道异常: {e}")
-    
+
     async def emergency_liquidate(self, reason: str = "手动触发") -> Dict:
         """
         紧急平仓(独立于Scanner)
-        
+
         直接通过broker清仓, 不经过Scanner主循环。
         用于: GUI红色按钮 / 风控自动触发 / API紧急调用
-        
+
         【v2.9.16线程安全审查】
         - asyncio协程中调用: 安全(单线程事件循环, 无并发风险)
         - 从外部线程调用: 调用方需确保不与Scanner主循环并发(建议通过asyncio.run_coroutine_threadsafe调度)
         - broker.place_order是原子操作, 单票失败不影响后续清仓
-        
+
         【v2.9.45】复用RuntimePersistence.post_sell_cleanup,
         消除30行内联timeline/stats/record逻辑。
         """
         result = {"success": False, "positions_cleared": 0, "reason": reason, "details": []}
-        
+
         if not self._scanner or not self._scanner._broker:
             result["error"] = "Scanner或Broker不可用"
             return result
-        
+
         scanner = self._scanner
         rp = scanner._runtime_persistence
-        
+
         try:
             positions = scanner._broker.get_positions()
             for pos in positions:
                 if pos.available_qty <= 0:
                     continue  # T+1: 今日买入不可卖
-                
+
                 scanner._broker.update_realtime(pos.ts_code, pos.current_price)
                 ok, msg, order = scanner._broker.place_order(
                     ts_code=pos.ts_code,
@@ -609,25 +609,25 @@ class RiskWatchdog:
                         sell_profit_pct, sell_profit_amount, source="emergency",
                     )
                     result["positions_cleared"] += 1
-            
+
             # 持久化(post_sell_cleanup已做,此处兜底)
             if not rp:
                 await scanner._broker.save_state(force=True)
             result["success"] = True
-            
+
             logger.critical(
                 f"[WATCHDOG] 🚨 紧急平仓: reason={reason}, "
                 f"cleared={result['positions_cleared']}/{len(positions)}"
             )
-            
+
         except Exception as e:
             result["error"] = str(e)
             logger.critical(f"[WATCHDOG] 🚨 紧急平仓失败: {e}")
-        
+
         return result
-    
+
     # ==================== CircuitBreaker熔断管理(v2.9.6提取) ====================
-    
+
     @staticmethod
     def _with_state_lock(scanner, fn, *, fallback=None):
         """【v2.9.17】线程安全执行circuit_breaker读写操作
@@ -654,12 +654,12 @@ class RiskWatchdog:
     @staticmethod
     async def check_circuit_breaker(scanner) -> bool:
         """风控熔断检查(从scanner提取)
-        
+
         规则:
         1. 单日回撤>5% → 暂停所有交易
         2. 连续亏损3次 → 暂停买入(可卖出止损)
         3. 手动暂停 → 尊重人工干预
-        
+
         Args:
             scanner: MarketScanner实例
         Returns: True=允许交易, False=应暂停
@@ -682,11 +682,11 @@ class RiskWatchdog:
         max_drawdown = cb_data["daily_max_drawdown"]
         consecutive_losses = cb_data["consecutive_losses"]
         loss_limit = cb_data["consecutive_loss_limit"]
-        
+
         if trading_paused:
             logger.debug(f"[CIRCUIT] 交易已暂停: {pause_reason}")
             return False
-        
+
         # 单日回撤检查
         if scanner._broker:
             acct = scanner._broker.get_account()
@@ -716,18 +716,18 @@ class RiskWatchdog:
                     except Exception as _e:
                         logger.debug(f"operation failed: {_e}")
                     return False
-        
+
         # 连续亏损检查(只限制买入, 不限制卖出)
         if consecutive_losses >= loss_limit:
             logger.info(f"[CIRCUIT] 连续亏损{consecutive_losses}次, 暂停买入")
             return False
-        
+
         return True
-    
+
     @staticmethod
     def record_trade_result(scanner, profit_pct: float):
         """记录交易结果(用于连续亏损统计)
-        
+
         Args:
             scanner: MarketScanner实例
             profit_pct: 本次交易盈亏百分比
@@ -741,11 +741,11 @@ class RiskWatchdog:
             else:
                 scanner._circuit_breaker["consecutive_losses"] = 0  # 盈利重置
         RiskWatchdog._with_state_lock(scanner, _record, fallback=_record)
-    
+
     @staticmethod
     def reset_circuit_breaker(scanner):
         """重置熔断(手动恢复)
-        
+
         Args:
             scanner: MarketScanner实例
         """
@@ -756,11 +756,11 @@ class RiskWatchdog:
             scanner._circuit_breaker["consecutive_losses"] = 0
         RiskWatchdog._with_state_lock(scanner, _reset, fallback=_reset)
         logger.info("[CIRCUIT] 熔断已重置")
-    
+
     @staticmethod
     def reset_daily_risk_state(scanner):
         """重置每日风控状态(circuit_breaker+pending_sells+执行统计)【v2.9.32从scanner提取】
-        
+
         重置项:
         - circuit_breaker: daily_start_assets/today_trades/today_losses/trading_paused
         - 执行统计: stop_loss_response_times清空
@@ -785,7 +785,7 @@ class RiskWatchdog:
 
         # 清除执行统计(每次启动都重置)
         scanner._execution_stats["stop_loss_response_times"] = []
-        
+
         # 跨日pending_sells一致性清理
         with scanner._state_lock:
             if scanner._pending_sells and scanner._broker:
@@ -796,7 +796,7 @@ class RiskWatchdog:
                 if stale:
                     logger.info(f"[SCANNER] 清理{len(stale)}个跨日过期pending_sells(已无持仓): {stale[:3]}")
             scanner._pending_sells.clear()
-        
+
         logger.info("[SCANNER] 执行统计+跌停挂起已重置(追踪止损/风险等级将在加载持仓时恢复)")
 
     @staticmethod
@@ -823,7 +823,7 @@ class RiskWatchdog:
             logger.debug(f"[RISK] 风控线程事件发射失败: {_e}")
 
         # ==================== 对外接口 ====================
-    
+
     def get_status(self) -> Dict:
         """获取看门狗状态(供GUI/API使用)"""
         checks = {}
@@ -834,7 +834,7 @@ class RiskWatchdog:
                 "threshold": str(check.threshold),
                 "message": check.message,
             }
-        
+
         return {
             "overall_status": self._state.overall_status.value,
             "uptime_seconds": time.time() - self._state.start_time,

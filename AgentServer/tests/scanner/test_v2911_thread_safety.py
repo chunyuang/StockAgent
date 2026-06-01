@@ -132,8 +132,9 @@ class TestNoBacktestRegressionV2911:
             "market_monitor/scanner.py不应包含_safe_read_shared"
 
     def test_scanner_delegate_map_unchanged(self):
-        """DELEGATE_MAP未修改"""
+        """DELEGATE_MAP仍存在(v2.9.52:外提到scanner_delegate_router)"""
         source = _read_monitor_scanner()
-        assert "_DELEGATE_MAP" in source
-        # 仍委托_compute_health_score
-        assert "_compute_health_score" in source
+        assert "__getattr__" in source
+        # _compute_health_score仍通过DELEGATE_MAP委托(现在在router中)
+        from nodes.market_monitor.scanner_delegate_router import DELEGATE_MAP
+        assert "_compute_health_score" in DELEGATE_MAP
