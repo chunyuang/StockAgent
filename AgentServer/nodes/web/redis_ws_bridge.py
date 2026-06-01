@@ -24,6 +24,7 @@ from typing import Dict, Set, Optional, Any, List
 from datetime import datetime
 
 from redis.asyncio.client import PubSub
+from redis.exceptions import ResponseError as redis_exceptions_ResponseError
 
 from core.managers import redis_manager, mongo_manager
 
@@ -230,8 +231,8 @@ class RedisWSBridge:
                 await redis_manager.client.xgroup_create(
                     stream_key, group_name, id="0", mkstream=True
                 )
-            except Exception:
-                pass  # 消费组已存在
+            except (redis_exceptions_ResponseError, OSError):
+                pass  # 消费组已存在(BUSYGROUP)
         
         logger.info(f"Stream consumer groups created for signal/position")
         
