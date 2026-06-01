@@ -63,6 +63,7 @@ _UTILS_CONTEXT_METHODS = {
     "_compute_health_score": lambda scanner, method: lambda: method(scanner),
     "diagnose": lambda scanner, method: lambda: method(scanner),
     "_build_account_info": lambda scanner, method: lambda: method(scanner),  # v2.9.27
+    "_build_position_dict": lambda scanner, method: lambda pos, trailing_copy, risk_levels_copy: method(pos, scanner, trailing_copy, risk_levels_copy),  # v2.9.43
 }
 
 # RiskWatchdog静态方法绑定(第一个参数为scanner实例)

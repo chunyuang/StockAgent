@@ -511,7 +511,7 @@ class MarketScanner:
             "scan_loop_errors": self._scan_loop_error_count,
             "last_realtime_update_ts": self._last_realtime_update_ts,
             "realtime_cache_age_sec": round(time.time() - (self._last_realtime_update_ts or 0), 1) if self._last_realtime_update_ts else None,
-            "smart_check_interval": self._get_smart_check_interval(self.get_positions()) if self._is_running else None,
+            "smart_check_interval": self._get_smart_check_interval(self._broker.get_positions() if self._broker else []) if self._is_running else None,
             "sell_logic_mode": self.SELL_LOGIC_MODE,
             "health": self._compute_health_score(),
         }
@@ -915,7 +915,7 @@ class MarketScanner:
             return True
         else:
             # 【Phase1.2:持仓检查已由风控线程接管,扫描循环只做sleep等待下一次全量扫描】
-            check_interval = self._get_smart_check_interval(self.get_positions())
+            check_interval = self._get_smart_check_interval(self._broker.get_positions() if self._broker else [])
             await asyncio.sleep(check_interval)
             return False
 
