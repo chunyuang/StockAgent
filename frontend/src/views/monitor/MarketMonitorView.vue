@@ -247,6 +247,11 @@ const premarketSignals = ref<any[]>([])
 const premarketStatus = ref<'waiting' | 'active' | 'ended' | 'off'>('off')
 const premarketCandidates = ref<any[]>([])
 const auctionTopGainers = ref<any[]>([])
+const premarketMarketSnapshot = ref<any>({})
+const premarketSentiment = ref<any>({})
+const premarketStrategyGroups = ref<any[]>([])
+const premarketHitRate = ref<Record<string, any>>({})
+const premarketGroupMode = ref<'strategy' | 'list'>('strategy')
 
 // ==================== 扫描追踪Tab ====================
 const scanHistory = ref<any[]>([])
@@ -503,6 +508,10 @@ async function fetchPremarketData() {
       premarketStatus.value = p.data.status || 'off'
       premarketCandidates.value = p.data.candidates || []
       auctionTopGainers.value = p.data.top_gainers || []
+      premarketMarketSnapshot.value = p.data.market_snapshot || {}
+      premarketSentiment.value = p.data.sentiment || {}
+      premarketStrategyGroups.value = p.data.strategy_groups || []
+      premarketHitRate.value = p.data.historical_hit_rate || {}
     }
   } catch { /* ignore */ }
 }
@@ -1514,49 +1523,137 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
     <!-- ==================== 🌅 盘前竞价Tab ==================== -->
     <div v-if="activeTab === 'premarket'" class="mm-tab-content">
       <div class="mm-tab-scroll">
-        <!-- 竞价状态 -->
+        <!-- 状态栏 -->
         <div class="pm-status-bar">
           <div class="pm-status-icon">{{ premarketStatus === 'active' ? '🔴' : premarketStatus === 'ended' ? '✅' : premarketStatus === 'waiting' ? '⏳' : '💤' }}</div>
           <div class="pm-status-text">
             <div class="pm-status-title">{{ {active: '竞价进行中', ended: '竞价已结束', waiting: '等待竞价(9:15)', off: '非交易时间'}[premarketStatus] }}</div>
-            <div class="pm-status-sub">盘前预选 · 竞价异动 · 量比排名</div>
+            <div class="pm-status-sub">{{ premarketCandidates.length }}只候选 · {{ premarketStrategyGroups.length }}个策略</div>
           </div>
-          <ElButton size="small" @click="fetchPremarketData" :loading="false">🔄 刷新</ElButton>
+          <div class="pm-status-actions">
+            <ElButton size="small" @click="fetchPremarketData">🔄</ElButton>
+            <button :class="['pm-mode-btn', premarketGroupMode === 'strategy' ? 'active' : '']" @click="premarketGroupMode = 'strategy'">按策略</button>
+            <button :class="['pm-mode-btn', premarketGroupMode === 'list' ? 'active' : '']" @click="premarketGroupMode = 'list'">列表</button>
+          </div>
         </div>
 
-        <div class="pm-grid">
-          <!-- 左: 预选候选 -->
-          <div class="pm-section">
-            <div class="st">📋 盘前预选 ({{ premarketCandidates.length }})</div>
-            <div v-if="!premarketCandidates.length" class="empty">9:00后自动生成</div>
-            <div v-for="c in premarketCandidates" :key="c.ts_code" class="pm-candidate">
-              <ElTag size="small" :color="strategyMeta[c.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(c.strategy) }}</ElTag>
-              <span class="code">{{ c.ts_code }}</span>
-              <span class="name">{{ c.stock_name }}</span>
-              <span v-if="c.auction_pct" :class="c.auction_pct >= 0 ? 'up' : 'down'" class="pct">{{ c.auction_pct >= 0 ? '+' : '' }}{{ (c.auction_pct * 100).toFixed(1) }}%</span>
-              <span v-if="c.reason" class="text-tertiary" style="font-size:11px">{{ c.reason }}</span>
+        <!-- 情绪+市场快照 -->
+        <div class="pm-overview">
+          <div class="pm-ov-card pm-sentiment">
+            <div class="pm-ov-label">🌡️ 情绪周期</div>
+            <div class="pm-ov-val" :class="premarketSentiment.score >= 55 ? 'up' : premarketSentiment.score < 40 ? 'down' : ''">
+              {{ premarketSentiment.phase_name || '震荡' }}
+              <span class="pm-ov-sub">{{ premarketSentiment.score }}分</span>
+            </div>
+            <div class="pm-ov-hint">仓位系数 {{ ((premarketSentiment.position_ratio || 0.5) * 100).toFixed(0) }}%</div>
+          </div>
+          <div class="pm-ov-card">
+            <div class="pm-ov-label">📈 涨/跌</div>
+            <div class="pm-ov-row">
+              <span class="up">{{ premarketMarketSnapshot.up_count || 0 }}</span>
+              <span class="pm-ov-sep">/</span>
+              <span class="down">{{ premarketMarketSnapshot.down_count || 0 }}</span>
+            </div>
+            <div class="pm-ov-hint">均幅 {{ (premarketMarketSnapshot.avg_pct_chg || 0).toFixed(2) }}%</div>
+          </div>
+          <div class="pm-ov-card">
+            <div class="pm-ov-label">🔴 涨停/跌停</div>
+            <div class="pm-ov-row">
+              <span class="up">{{ premarketMarketSnapshot.limit_up_count || 0 }}</span>
+              <span class="pm-ov-sep">/</span>
+              <span class="down">{{ premarketMarketSnapshot.limit_down_count || 0 }}</span>
+            </div>
+            <div class="pm-ov-hint">量比>2: {{ premarketMarketSnapshot.volume_ratio_gt2 || 0 }}只</div>
+          </div>
+          <div class="pm-ov-card">
+            <div class="pm-ov-label">🎯 信号数</div>
+            <div class="pm-ov-val">{{ premarketCandidates.length }}</div>
+            <div class="pm-ov-hint">已执行 {{ premarketCandidates.filter(c => c.signal_status === 'executed').length }}</div>
+          </div>
+        </div>
+
+        <!-- 策略分组模式 -->
+        <div v-if="premarketGroupMode === 'strategy'" class="pm-groups">
+          <div v-for="g in premarketStrategyGroups" :key="g.strategy" class="pm-group">
+            <div class="pm-group-header">
+              <ElTag size="small" :color="strategyMeta[g.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(g.strategy) }}</ElTag>
+              <span class="pm-group-stat">{{ g.count }}只</span>
+              <span class="pm-group-stat" :class="g.avg_pct_chg >= 0 ? 'up' : 'down'">均幅 {{ g.avg_pct_chg >= 0 ? '+' : '' }}{{ g.avg_pct_chg.toFixed(1) }}%</span>
+              <span v-if="g.executed" class="pm-group-stat executed">已买{{ g.executed }}</span>
+              <span v-if="premarketHitRate[g.strategy]" class="pm-group-stat hit-rate" :class="premarketHitRate[g.strategy].win_rate >= 60 ? 'up' : 'warn'">
+                历史 {{ premarketHitRate[g.strategy].win_rate }}%胜 / {{ premarketHitRate[g.strategy].total }}笔
+              </span>
+            </div>
+            <div class="pm-group-list">
+              <div v-for="c in g.candidates" :key="c.ts_code + c.strategy" class="pm-item">
+                <span class="pm-item-code">{{ c.ts_code?.slice(0,6) }}</span>
+                <span class="pm-item-name">{{ c.stock_name }}</span>
+                <span :class="c.pct_chg >= 0 ? 'up' : 'down'" class="pm-item-pct">{{ c.pct_chg >= 0 ? '+' : '' }}{{ (c.pct_chg || 0).toFixed(1) }}%</span>
+                <span v-if="c.volume_ratio" class="pm-item-factor">量比{{ c.volume_ratio.toFixed(1) }}</span>
+                <span v-if="c.turnover_rate" class="pm-item-factor">换手{{ c.turnover_rate.toFixed(1) }}%</span>
+                <ElTag v-if="c.signal_status === 'executed'" size="small" type="success" style="font-size:9px">已买</ElTag>
+                <ElTag v-else-if="c.signal_status === 'skipped'" size="small" type="warning" style="font-size:9px">跳过</ElTag>
+                <ElButton v-if="c.signal_status === 'new' && !dryRun" size="small" type="danger" plain class="btn-xs" @click="quickBuy(c)">买</ElButton>
+                <span v-if="c.reason" class="pm-item-reason">{{ c.reason }}</span>
+              </div>
             </div>
           </div>
+          <div v-if="!premarketStrategyGroups.length" class="pm-empty-state">
+            <div class="pm-empty-icon">📋</div>
+            <div class="pm-empty-text">9:00后自动生成盘前预选</div>
+            <div class="pm-empty-hint">Scanner启动后，竞价阶段自动扫描全市场候选</div>
+          </div>
+        </div>
 
-          <!-- 右: 竞价异动 -->
-          <div class="pm-section">
-            <div class="st">⚡ 竞价异动 ({{ auctionTopGainers.length }})</div>
-            <div v-if="!auctionTopGainers.length" class="empty">9:15后自动更新</div>
-            <div v-for="g in auctionTopGainers" :key="g.ts_code" class="pm-candidate">
-              <span class="code">{{ g.ts_code }}</span>
+        <!-- 列表模式 -->
+        <div v-if="premarketGroupMode === 'list'" class="pm-list-mode">
+          <div class="pm-table-header">
+            <span>代码</span><span>名称</span><span>策略</span><span>涨幅</span><span>量比</span><span>换手</span><span>状态</span><span>操作</span>
+          </div>
+          <div v-for="c in premarketCandidates" :key="c.ts_code + c.strategy" class="pm-table-row">
+            <span class="code">{{ c.ts_code?.slice(0,6) }}</span>
+            <span class="name">{{ c.stock_name }}</span>
+            <ElTag size="small" :color="strategyMeta[c.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="font-size:9px">{{ strategyCN(c.strategy) }}</ElTag>
+            <span :class="c.pct_chg >= 0 ? 'up' : 'down'" style="font-weight:600">{{ (c.pct_chg || 0) >= 0 ? '+' : '' }}{{ (c.pct_chg || 0).toFixed(1) }}%</span>
+            <span :class="(c.volume_ratio || 0) >= 2 ? 'up' : ''">{{ (c.volume_ratio || 0).toFixed(1) }}</span>
+            <span :class="(c.turnover_rate || 0) >= 3 ? 'up' : ''">{{ (c.turnover_rate || 0).toFixed(1) }}%</span>
+            <ElTag v-if="c.signal_status === 'executed'" size="small" type="success" style="font-size:9px">已买</ElTag>
+            <ElTag v-else-if="c.signal_status === 'skipped'" size="small" type="warning" style="font-size:9px">跳过</ElTag>
+            <ElTag v-else-if="c.signal_status === 'new'" size="small" type="danger" style="font-size:9px">新</ElTag>
+            <span v-else class="text-tertiary" style="font-size:10px">{{ c.signal_status }}</span>
+            <ElButton v-if="c.signal_status === 'new' && !dryRun" size="small" type="danger" plain class="btn-xs" @click="quickBuy(c)">买</ElButton>
+          </div>
+          <div v-if="!premarketCandidates.length" class="pm-empty-state">
+            <div class="pm-empty-icon">📋</div>
+            <div class="pm-empty-text">9:00后自动生成盘前预选</div>
+          </div>
+        </div>
+
+        <!-- 竞价异动 -->
+        <div v-if="auctionTopGainers.length" class="pm-auction-section">
+          <div class="st">⚡ 竞价涨幅TOP <span class="text-tertiary" style="font-size:10px">({{ auctionTopGainers.length }}只)</span></div>
+          <div class="pm-auction-grid">
+            <div v-for="g in auctionTopGainers" :key="g.ts_code" class="pm-auction-item">
+              <span class="code">{{ g.ts_code?.slice(0,6) }}</span>
               <span class="name">{{ g.name }}</span>
-              <span :class="g.pct_chg >= 0 ? 'up' : 'down'" class="pct">{{ g.pct_chg >= 0 ? '+' : '' }}{{ g.pct_chg.toFixed(1) }}%</span>
-              <span v-if="g.volume_ratio" class="text-tertiary" style="font-size:11px">量比{{ g.volume_ratio.toFixed(1) }}</span>
+              <span :class="g.pct_chg >= 0 ? 'up' : 'down'" style="font-weight:700;font-size:14px">{{ g.pct_chg >= 0 ? '+' : '' }}{{ g.pct_chg.toFixed(1) }}%</span>
+              <span v-if="g.volume_ratio" class="pm-item-factor">量比{{ g.volume_ratio.toFixed(1) }}</span>
             </div>
+          </div>
+        </div>
 
-            <div class="st" style="margin-top:12px">🎯 竞价信号 ({{ premarketSignals.length }})</div>
-            <div v-if="!premarketSignals.length" class="empty">竞价过滤后生成</div>
-            <div v-for="s in premarketSignals" :key="s.ts_code" class="pm-signal">
+        <!-- 竞价信号 -->
+        <div v-if="premarketSignals.length" class="pm-signal-section">
+          <div class="st">🎯 竞价过滤信号 <span class="text-tertiary" style="font-size:10px">(通过竞价筛选)</span></div>
+          <div class="pm-signal-list">
+            <div v-for="s in premarketSignals" :key="s.ts_code" class="pm-signal-item">
               <ElTag size="small" :color="strategyMeta[s.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(s.strategy) }}</ElTag>
-              <span class="code">{{ s.ts_code }}</span>
+              <span class="code">{{ s.ts_code?.slice(0,6) }}</span>
               <span class="name">{{ s.stock_name }}</span>
-              <span :class="s.pct_chg >= 0 ? 'up' : 'down'" class="pct">{{ s.pct_chg >= 0 ? '+' : '' }}{{ s.pct_chg.toFixed(1) }}%</span>
-              <ElTag v-if="!dryRun" size="small" type="success" plain class="btn-xs" @click="quickBuy(s)">买</ElTag>
+              <span :class="s.pct_chg >= 0 ? 'up' : 'down'" style="font-weight:600">{{ s.pct_chg >= 0 ? '+' : '' }}{{ s.pct_chg.toFixed(1) }}%</span>
+              <span v-if="s.volume_ratio" class="pm-item-factor">量比{{ s.volume_ratio.toFixed(1) }}</span>
+              <ElTag v-if="s.signal_status === 'executed'" size="small" type="success">已买</ElTag>
+              <ElButton v-else-if="!dryRun" size="small" type="danger" plain class="btn-xs" @click="quickBuy(s)">买</ElButton>
             </div>
           </div>
         </div>
@@ -3119,14 +3216,57 @@ mm-tab-content {
 .suggestion.info { background: rgba(22,119,255,0.1); border: 1px solid rgba(22,119,255,0.3); }
 
 /* 盘前竞价Tab */
-.pm-status-bar { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--bg-elevated); border-radius: 8px; border: 1px solid var(--border-default); margin-bottom: 12px; }
+.pm-status-bar { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--bg-elevated); border-radius: 8px; border: 1px solid var(--border-default); margin-bottom: 10px; }
 .pm-status-icon { font-size: 28px; }
 .pm-status-title { font-size: 15px; font-weight: 600; }
 .pm-status-sub { font-size: 11px; color: var(--text-tertiary); }
-.pm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.pm-section { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 10px 12px; }
-.pm-candidate, .pm-signal { display: flex; align-items: center; gap: 6px; padding: 4px 0; font-size: 12px; border-bottom: 1px solid var(--border-default); }
-.pm-candidate:last-child, .pm-signal:last-child { border-bottom: none; }
+.pm-status-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+.pm-mode-btn { padding: 2px 8px; font-size: 11px; border-radius: 4px; border: 1px solid var(--border-default); background: var(--bg-elevated); cursor: pointer; color: var(--text-secondary); }
+.pm-mode-btn.active { background: var(--el-color-primary); color: #fff; border-color: var(--el-color-primary); }
+
+.pm-overview { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
+.pm-ov-card { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 10px 12px; }
+.pm-ov-label { font-size: 10px; color: var(--text-tertiary); margin-bottom: 4px; }
+.pm-ov-val { font-size: 16px; font-weight: 700; }
+.pm-ov-sub { font-size: 11px; font-weight: 400; color: var(--text-secondary); margin-left: 4px; }
+.pm-ov-row { display: flex; align-items: baseline; gap: 2px; font-size: 18px; font-weight: 700; }
+.pm-ov-sep { color: var(--text-tertiary); font-weight: 400; margin: 0 2px; }
+.pm-ov-hint { font-size: 10px; color: var(--text-tertiary); margin-top: 2px; }
+.pm-ov-card.pm-sentiment { border-left: 3px solid var(--el-color-warning); }
+
+.pm-groups { display: flex; flex-direction: column; gap: 8px; }
+.pm-group { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; overflow: hidden; }
+.pm-group-header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border-default); background: var(--bg-muted); }
+.pm-group-stat { font-size: 11px; color: var(--text-secondary); }
+.pm-group-stat.executed { color: var(--el-color-success); }
+.pm-group-stat.hit-rate { margin-left: auto; font-size: 10px; }
+.pm-group-stat.warn { color: var(--el-color-warning); }
+.pm-group-list { padding: 4px 12px; }
+.pm-item { display: flex; align-items: center; gap: 6px; padding: 5px 0; font-size: 12px; border-bottom: 1px solid var(--border-default); }
+.pm-item:last-child { border-bottom: none; }
+.pm-item-code { font-family: monospace; font-size: 10px; color: var(--text-tertiary); min-width: 50px; }
+.pm-item-name { font-size: 12px; min-width: 60px; }
+.pm-item-pct { font-weight: 600; min-width: 48px; }
+.pm-item-factor { font-size: 10px; color: var(--text-tertiary); background: var(--bg-muted); padding: 0 4px; border-radius: 2px; }
+.pm-item-reason { font-size: 10px; color: var(--text-tertiary); margin-left: auto; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.pm-list-mode { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; overflow: hidden; }
+.pm-table-header { display: grid; grid-template-columns: 56px 72px 72px 56px 44px 52px 48px 40px; gap: 4px; padding: 6px 12px; font-size: 10px; color: var(--text-tertiary); border-bottom: 1px solid var(--border-default); background: var(--bg-muted); }
+.pm-table-row { display: grid; grid-template-columns: 56px 72px 72px 56px 44px 52px 48px 40px; gap: 4px; padding: 5px 12px; font-size: 12px; align-items: center; border-bottom: 1px solid var(--border-default); }
+.pm-table-row:hover { background: var(--bg-hover); }
+
+.pm-auction-section { margin-top: 12px; }
+.pm-auction-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 6px; margin-top: 6px; }
+.pm-auction-item { display: flex; align-items: center; gap: 4px; padding: 6px 8px; background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 6px; font-size: 12px; }
+
+.pm-signal-section { margin-top: 12px; }
+.pm-signal-list { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.pm-signal-item { display: flex; align-items: center; gap: 6px; padding: 6px 10px; background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 6px; font-size: 12px; }
+
+.pm-empty-state { text-align: center; padding: 32px 16px; }
+.pm-empty-icon { font-size: 36px; margin-bottom: 8px; }
+.pm-empty-text { font-size: 14px; color: var(--text-secondary); margin-bottom: 4px; }
+.pm-empty-hint { font-size: 11px; color: var(--text-tertiary); }
 
 /* 扫描追踪Tab */
 .scan-hours { display: flex; flex-direction: column; gap: 4px; }
