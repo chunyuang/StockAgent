@@ -299,3 +299,73 @@ class TestNoBacktestRegressionV2956:
         with open(os.path.join(project_root, "nodes/web/api/scanner.py")) as f:
             source = f.read()
         assert '_DESIGN_DOC_VERSION = "v2.9.56"' in source
+
+
+# ---------------------------------------------------------------------------
+# ScannerUtils方法提取测试
+# ---------------------------------------------------------------------------
+
+class TestScannerUtilsExtraction:
+    """验证ScannerUtils方法提取(v2.9.56+)"""
+
+    def test_diagnose_checks_extracted(self):
+        """diagnose的6个检查应提取为子方法"""
+        from nodes.market_monitor.scanner_utils import ScannerUtils
+        check_methods = [
+            '_check_risk_thread_alive',
+            '_check_quote_cache_stale',
+            '_check_scan_loop_errors',
+            '_check_pending_sells_backlog',
+            '_check_circuit_breaker_active',
+            '_check_risk_check_timeout',
+        ]
+        for name in check_methods:
+            assert hasattr(ScannerUtils, name), f"ScannerUtils缺少{name}"
+
+    def test_diagnose_calls_sub_methods(self):
+        """diagnose应调用所有子检查方法"""
+        from nodes.market_monitor.scanner_utils import ScannerUtils
+        source = inspect.getsource(ScannerUtils.diagnose)
+        assert '_check_risk_thread_alive' in source
+        assert '_check_quote_cache_stale' in source
+        assert '_check_scan_loop_errors' in source
+        assert '_check_pending_sells_backlog' in source
+        assert '_check_circuit_breaker_active' in source
+        assert '_check_risk_check_timeout' in source
+
+    def test_diagnose_line_count(self):
+        """diagnose行数应≤40(v2.9.56:6检查提取)"""
+        from nodes.market_monitor.scanner_utils import ScannerUtils
+        lines = inspect.getsource(ScannerUtils.diagnose).split('\n')
+        assert len(lines) <= 40, f"diagnose {len(lines)}行,应≤40"
+
+    def test_summary_report_helpers_exist(self):
+        """generate_summary_report的5个构建方法应存在"""
+        from nodes.market_monitor.scanner_utils import ScannerUtils
+        helpers = [
+            '_build_account_summary',
+            '_build_position_details',
+            '_build_trade_stats',
+            '_build_strategy_performance',
+            '_build_risk_status',
+            '_build_signal_stats',
+        ]
+        for name in helpers:
+            assert hasattr(ScannerUtils, name), f"ScannerUtils缺少{name}"
+
+    def test_summary_report_calls_helpers(self):
+        """generate_summary_report应调用所有构建方法"""
+        from nodes.market_monitor.scanner_utils import ScannerUtils
+        source = inspect.getsource(ScannerUtils.generate_summary_report)
+        assert '_build_account_summary' in source
+        assert '_build_position_details' in source
+        assert '_build_trade_stats' in source
+        assert '_build_strategy_performance' in source
+        assert '_build_risk_status' in source
+        assert '_build_signal_stats' in source
+
+    def test_summary_report_line_count(self):
+        """generate_summary_report行数应≤28(v2.9.56:6子方法提取)"""
+        from nodes.market_monitor.scanner_utils import ScannerUtils
+        lines = inspect.getsource(ScannerUtils.generate_summary_report).split('\n')
+        assert len(lines) <= 28, f"generate_summary_report {len(lines)}行,应≤28"

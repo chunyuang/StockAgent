@@ -167,7 +167,7 @@ class ScannerUtils:
     
     @staticmethod
     def generate_summary_report(scanner) -> Dict[str, Any]:
-        """生成完整交易摘要报告(供API调用)
+        """生成完整交易摘要报告(供API调用)【v2.9.56:提取子报告构建方法】
         
         Args:
             scanner: MarketScanner实例(读取broker/stats/timeline等)
@@ -178,7 +178,23 @@ class ScannerUtils:
         acct = scanner._broker.get_account()
         positions = scanner._broker.get_positions()
         
-        account_summary = {
+        return {
+            "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "account": ScannerUtils._build_account_summary(acct, positions),
+            "positions": ScannerUtils._build_position_details(scanner, positions),
+            "trade_stats": ScannerUtils._build_trade_stats(scanner._timeline),
+            "strategy_performance": ScannerUtils._build_strategy_performance(scanner._timeline),
+            "risk_status": ScannerUtils._build_risk_status(scanner),
+            "signal_stats": ScannerUtils._build_signal_stats(scanner._active_signals),
+            "scanner_stats": dict(scanner._stats),
+            "sentiment": getattr(scanner, '_current_sentiment', {}),
+            "position_ratio": getattr(scanner, '_current_position_ratio', None),
+        }
+
+    @staticmethod
+    def _build_account_summary(acct, positions) -> Dict[str, Any]:
+        """构建账户摘要【v2.9.56从generate_summary_report提取】"""
+        return {
             "total_assets": round(acct.total_assets, 2),
             "available_cash": round(acct.available_cash, 2),
             "market_value": round(acct.market_value, 2),
@@ -186,13 +202,16 @@ class ScannerUtils:
             "position_ratio": round(acct.market_value / max(acct.total_assets, 1) * 100, 1),
             "position_count": len(positions),
         }
-        
-        position_details = []
+
+    @staticmethod
+    def _build_position_details(scanner, positions) -> List[Dict]:
+        """构建持仓详情【v2.9.56从generate_summary_report提取】"""
+        details = []
         for p in positions:
             risk = scanner._get_strategy_risk(p.strategy)
             sl_pct = risk.get("stop_loss_pct", 0.03) * 100
             tp_pct = risk.get("take_profit_pct", 0.07) * 100
-            position_details.append({
+            details.append({
                 "ts_code": p.ts_code,
                 "stock_name": p.stock_name,
                 "strategy": p.strategy,
@@ -209,13 +228,16 @@ class ScannerUtils:
                 "distance_to_stop": round(p.profit_pct + sl_pct, 1),
                 "is_t1_locked": p.today_buy_qty > 0,
             })
-        
-        today_buys = [t for t in scanner._timeline if t.get("action") == "buy"]
-        today_sells = [t for t in scanner._timeline if t.get("action") == "sell"]
+        return details
+
+    @staticmethod
+    def _build_trade_stats(timeline: list) -> Dict[str, Any]:
+        """构建交易统计【v2.9.56从generate_summary_report提取】"""
+        today_buys = [t for t in timeline if t.get("action") == "buy"]
+        today_sells = [t for t in timeline if t.get("action") == "sell"]
         profitable_sells = [t for t in today_sells if t.get("profit_pct", 0) > 0]
         losing_sells = [t for t in today_sells if t.get("profit_pct", 0) < 0]
-        
-        trade_stats = {
+        return {
             "total_trades": len(today_buys) + len(today_sells),
             "buys": len(today_buys),
             "sells": len(today_sells),
@@ -229,20 +251,27 @@ class ScannerUtils:
                 sum(t.get("profit_pct", 0) for t in losing_sells) / max(len(losing_sells), 1), 2
             ) if losing_sells else 0,
         }
-        
-        strategy_performance = {}
-        for t in scanner._timeline:
+
+    @staticmethod
+    def _build_strategy_performance(timeline: list) -> Dict[str, Any]:
+        """构建策略表现【v2.9.56从generate_summary_report提取】"""
+        perf = {}
+        for t in timeline:
             strat = t.get("strategy", "unknown")
-            if strat not in strategy_performance:
-                strategy_performance[strat] = {"trades": 0, "wins": 0, "total_pnl": 0}
-            strategy_performance[strat]["trades"] += 1
+            if strat not in perf:
+                perf[strat] = {"trades": 0, "wins": 0, "total_pnl": 0}
+            perf[strat]["trades"] += 1
             if t.get("action") == "sell":
                 pnl = t.get("profit_pct", 0)
-                strategy_performance[strat]["total_pnl"] += pnl
+                perf[strat]["total_pnl"] += pnl
                 if pnl > 0:
-                    strategy_performance[strat]["wins"] += 1
-        
-        risk_status = {
+                    perf[strat]["wins"] += 1
+        return perf
+
+    @staticmethod
+    def _build_risk_status(scanner) -> Dict[str, Any]:
+        """构建风控状态【v2.9.56从generate_summary_report提取】"""
+        return {
             "circuit_breaker_active": scanner._circuit_breaker.get("trading_paused", False),
             "circuit_breaker_reason": scanner._circuit_breaker.get("pause_reason", ""),
             "consecutive_losses": scanner._circuit_breaker.get("consecutive_losses", 0),
@@ -250,27 +279,17 @@ class ScannerUtils:
             "today_losses": scanner._circuit_breaker.get("today_losses", 0),
             "dry_run": scanner._dry_run,
         }
-        
-        signal_stats = {
-            "total": len(scanner._active_signals),
-            "new": len([s for s in scanner._active_signals if s.signal_status == "new"]),
-            "executed": len([s for s in scanner._active_signals if s.signal_status == "executed"]),
-            "skipped": len([s for s in scanner._active_signals if s.signal_status == "skipped"]),
-            "expired": len([s for s in scanner._active_signals if s.signal_status == "expired"]),
-            "filtered": len([s for s in scanner._active_signals if s.signal_status == "filtered"]),
-        }
-        
+
+    @staticmethod
+    def _build_signal_stats(active_signals: list) -> Dict[str, Any]:
+        """构建信号统计【v2.9.56从generate_summary_report提取】"""
         return {
-            "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "account": account_summary,
-            "positions": position_details,
-            "trade_stats": trade_stats,
-            "strategy_performance": strategy_performance,
-            "risk_status": risk_status,
-            "signal_stats": signal_stats,
-            "scanner_stats": dict(scanner._stats),
-            "sentiment": getattr(scanner, '_current_sentiment', {}),
-            "position_ratio": getattr(scanner, '_current_position_ratio', None),
+            "total": len(active_signals),
+            "new": len([s for s in active_signals if s.signal_status == "new"]),
+            "executed": len([s for s in active_signals if s.signal_status == "executed"]),
+            "skipped": len([s for s in active_signals if s.signal_status == "skipped"]),
+            "expired": len([s for s in active_signals if s.signal_status == "expired"]),
+            "filtered": len([s for s in active_signals if s.signal_status == "filtered"]),
         }
 
     # ==================== Phase4.3: 健康度评分 ====================
@@ -278,7 +297,7 @@ class ScannerUtils:
 
     @staticmethod
     def diagnose(scanner) -> Dict[str, Any]:
-        """运行时诊断摘要(关键健康指标+可操作建议)【v2.9.23→v2.9.24提取】
+        """运行时诊断摘要(关键健康指标+可操作建议)【v2.9.23→v2.9.24提取, v2.9.56:检查提取为子方法】
         
         与get_status的区别:
         - get_status: 完整状态快照(包含所有细节)
@@ -290,65 +309,15 @@ class ScannerUtils:
         issues: list = []
         now = time.time()
         
-        # 1. 风控线程存活检查
-        if scanner._risk_running and scanner._risk_thread and not scanner._risk_thread.is_alive():
-            issues.append({
-                "level": "critical",
-                "area": "risk_thread",
-                "message": "风控线程已退出",
-                "restarts": scanner._risk_thread_restarts,
-                "action": "风控线程将自动重启,如持续退出请检查日志",
-            })
+        ScannerUtils._check_risk_thread_alive(scanner, issues)
+        ScannerUtils._check_quote_cache_stale(scanner, issues, now)
+        ScannerUtils._check_scan_loop_errors(scanner, issues)
+        ScannerUtils._check_pending_sells_backlog(scanner, issues)
+        ScannerUtils._check_circuit_breaker_active(scanner, issues)
+        ScannerUtils._check_risk_check_timeout(scanner, issues, now)
         
-        # 2. 行情缓存过期
         cache_age = now - (scanner._last_realtime_update_ts or 0)
-        if scanner._is_running and cache_age > 120:
-            issues.append({
-                "level": "warning",
-                "area": "quote_cache",
-                "message": f"行情缓存{cache_age:.0f}秒未更新",
-                "action": "检查行情源(量脉/东财)连接状态",
-            })
-        
-        # 3. scan_loop连续异常
-        error_count = getattr(scanner, '_scan_loop_error_count', 0)
-        if error_count > 0:
-            issues.append({
-                "level": "warning" if error_count < 3 else "critical",
-                "area": "scan_loop",
-                "message": f"扫描循环连续{error_count}次异常",
-                "action": "3次以内自动恢复,超过3次scanner将停止",
-            })
-        
-        # 4. pending_sells积压
         pending_count = len(scanner._pending_sells)
-        if pending_count > 5:
-            issues.append({
-                "level": "warning",
-                "area": "pending_sells",
-                "message": f"{pending_count}个挂起卖出待执行",
-                "action": "检查是否多票跌停或执行超时",
-            })
-        
-        # 5. circuit_breaker触发
-        if scanner._circuit_breaker.get("trading_paused"):
-            issues.append({
-                "level": "critical",
-                "area": "circuit_breaker",
-                "message": f"熔断器已触发: {scanner._circuit_breaker.get('pause_reason', '未知')}",
-                "action": "可调用reset_circuit_breaker()重置",
-            })
-        
-        # 6. 风控检查超时
-        last_risk = scanner._last_risk_check_ts
-        if scanner._is_running and last_risk and (now - last_risk) > 10:
-            issues.append({
-                "level": "warning",
-                "area": "risk_check",
-                "message": f"风控检查{(now - last_risk):.0f}秒未执行",
-                "action": "检查风控线程是否正常运行",
-            })
-        
         return {
             "healthy": len([i for i in issues if i["level"] == "critical"]) == 0,
             "issues": issues,
@@ -359,10 +328,81 @@ class ScannerUtils:
                 "cache_age_sec": round(cache_age, 1),
                 "pending_sells": pending_count,
                 "risk_thread_alive": scanner._risk_thread.is_alive() if scanner._risk_thread else False,
-                "scan_errors": error_count,
+                "scan_errors": getattr(scanner, '_scan_loop_error_count', 0),
                 "trading_paused": scanner._circuit_breaker.get("trading_paused", False),
             },
         }
+
+    @staticmethod
+    def _check_risk_thread_alive(scanner, issues: list) -> None:
+        """风控线程存活检查【v2.9.56从diagnose提取】"""
+        if scanner._risk_running and scanner._risk_thread and not scanner._risk_thread.is_alive():
+            issues.append({
+                "level": "critical",
+                "area": "risk_thread",
+                "message": "风控线程已退出",
+                "restarts": scanner._risk_thread_restarts,
+                "action": "风控线程将自动重启,如持续退出请检查日志",
+            })
+
+    @staticmethod
+    def _check_quote_cache_stale(scanner, issues: list, now: float) -> None:
+        """行情缓存过期检查【v2.9.56从diagnose提取】"""
+        cache_age = now - (scanner._last_realtime_update_ts or 0)
+        if scanner._is_running and cache_age > 120:
+            issues.append({
+                "level": "warning",
+                "area": "quote_cache",
+                "message": f"行情缓存{cache_age:.0f}秒未更新",
+                "action": "检查行情源(量脉/东财)连接状态",
+            })
+
+    @staticmethod
+    def _check_scan_loop_errors(scanner, issues: list) -> None:
+        """scan_loop连续异常检查【v2.9.56从diagnose提取】"""
+        error_count = getattr(scanner, '_scan_loop_error_count', 0)
+        if error_count > 0:
+            issues.append({
+                "level": "warning" if error_count < 3 else "critical",
+                "area": "scan_loop",
+                "message": f"扫描循环连续{error_count}次异常",
+                "action": "3次以内自动恢复,超过3次scanner将停止",
+            })
+
+    @staticmethod
+    def _check_pending_sells_backlog(scanner, issues: list) -> None:
+        """pending_sells积压检查【v2.9.56从diagnose提取】"""
+        pending_count = len(scanner._pending_sells)
+        if pending_count > 5:
+            issues.append({
+                "level": "warning",
+                "area": "pending_sells",
+                "message": f"{pending_count}个挂起卖出待执行",
+                "action": "检查是否多票跌停或执行超时",
+            })
+
+    @staticmethod
+    def _check_circuit_breaker_active(scanner, issues: list) -> None:
+        """熔断器触发检查【v2.9.56从diagnose提取】"""
+        if scanner._circuit_breaker.get("trading_paused"):
+            issues.append({
+                "level": "critical",
+                "area": "circuit_breaker",
+                "message": f"熔断器已触发: {scanner._circuit_breaker.get('pause_reason', '未知')}",
+                "action": "可调用reset_circuit_breaker()重置",
+            })
+
+    @staticmethod
+    def _check_risk_check_timeout(scanner, issues: list, now: float) -> None:
+        """风控检查超时检查【v2.9.56从diagnose提取】"""
+        last_risk = scanner._last_risk_check_ts
+        if scanner._is_running and last_risk and (now - last_risk) > 10:
+            issues.append({
+                "level": "warning",
+                "area": "risk_check",
+                "message": f"风控检查{(now - last_risk):.0f}秒未执行",
+                "action": "检查风控线程是否正常运行",
+            })
 
     @staticmethod
     def build_account_info(scanner) -> Dict[str, Any]:
