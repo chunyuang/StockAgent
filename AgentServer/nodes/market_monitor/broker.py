@@ -391,6 +391,18 @@ class SimulatedBroker:
         """获取所有持仓"""
         return list(self.positions.values())
 
+    def get_limit_prices(self, ts_code: str = None) -> Dict:
+        """获取涨跌停价格(ts_code=None时返回全量dict)【v2.9.51:正式接口替代getattr(_limit_prices)】"""
+        if ts_code is not None:
+            return self._limit_prices.get(ts_code, {})
+        return dict(self._limit_prices)
+
+    def get_realtime_prices(self, ts_code: str = None):
+        """获取实时价格(ts_code=None时返回全量dict)【v2.9.51:正式接口替代getattr(_realtime_prices)】"""
+        if ts_code is not None:
+            return self._realtime_prices.get(ts_code, 0)
+        return dict(self._realtime_prices)
+
     def get_orders(self, trade_date: str = None) -> List[Order]:
         """获取委托"""
         if trade_date:

@@ -164,9 +164,7 @@ class PreTradeChecker:
         """判断是否在涨停价"""
         if not self._broker:
             return False
-        # 从broker的limit价格缓存获取
-        limit_prices = getattr(self._broker, '_limit_prices', {})
-        info = limit_prices.get(ts_code, {})
+        info = self._broker.get_limit_prices(ts_code)
         up_limit = info.get("up_limit", 0)
         if up_limit > 0 and price >= up_limit:
             return True
@@ -176,8 +174,7 @@ class PreTradeChecker:
         """判断是否在跌停价"""
         if not self._broker:
             return False
-        limit_prices = getattr(self._broker, '_limit_prices', {})
-        info = limit_prices.get(ts_code, {})
+        info = self._broker.get_limit_prices(ts_code)
         down_limit = info.get("down_limit", 0)
         if down_limit > 0 and price <= down_limit:
             return True
@@ -187,12 +184,11 @@ class PreTradeChecker:
         """判断是否停牌(简化: 价格为0视为停牌)"""
         if not self._broker:
             return False
-        prices = getattr(self._broker, '_realtime_prices', {})
-        info = prices.get(ts_code, {})
-        if isinstance(info, (int, float)):
-            return info <= 0
-        if isinstance(info, dict):
-            return info.get("price", 0) <= 0
+        price_info = self._broker.get_realtime_prices(ts_code)
+        if isinstance(price_info, (int, float)):
+            return price_info <= 0
+        if isinstance(price_info, dict):
+            return price_info.get("price", 0) <= 0
         return True
 
 

@@ -44,7 +44,8 @@ class TestFilterPipelineAutoFetch:
     def test_auto_fetch_positions_from_scanner(self):
         """当positions为None时从scanner自动获取"""
         source = _read(_LFP)
-        assert "getattr(self._scanner, '_broker'" in source
+        # v2.9.51: getattr已替换为直接属性访问
+        assert "self._scanner._broker" in source
         assert "broker.get_positions()" in source
 
     def test_auto_fetch_account_from_scanner(self):
