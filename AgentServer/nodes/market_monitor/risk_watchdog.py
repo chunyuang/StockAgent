@@ -187,7 +187,7 @@ class RiskWatchdog:
         hb_check = checks.get("heartbeat")
         if hb_check and hb_check.status == HealthStatus.DEAD:
             elapsed = time.time() - self._state.scanner_heartbeat if self._state.scanner_heartbeat > 0 else 999
-            if elapsed > 180 and hasattr(self, '_scanner') and self._scanner:
+            if elapsed > 180 and self._scanner is not None:
                 logger.warning(f"[WATCHDOG] Scanner心跳超时{elapsed:.0f}s, 尝试自动重启...")
                 try:
                     self._scanner._is_running = False  # 停止旧循环
