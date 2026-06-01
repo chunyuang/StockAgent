@@ -529,63 +529,53 @@ class SimulatedBroker:
                     strategy: str = "",
                     reason: str = "",
                     source: str = "auto") -> Tuple[bool, str, Order]:
-        """
-        下单
-
-        Args:
-            ts_code: 股票代码
-            stock_name: 股票名称
-            side: buy/sell
-            quantity: 委托数量(股)
-            price: 委托价格(市价单=0)
-            order_type: market/limit
-            strategy: 策略名
-            reason: 下单原因
-
-        Returns:
-            (success, message, order)
-        """
-        # 记录stock_name用于ST判断
+        """下单(编排方法: 前置检查→买入/卖出校验→撮合→执行)"""
         if stock_name:
             self._stock_names[ts_code] = stock_name
 
-        order = self._create_order_instance(ts_code, stock_name, side, quantity, price, order_type, strategy, reason, source)
+        order = self._create_order_instance(
+            ts_code, stock_name, side, quantity, price, order_type, strategy, reason, source)
 
-        # ==================== 前置检查 ====================
+        # 前置检查
         reject_reason = self._validate_prechecks(ts_code, quantity)
         if reject_reason is not None:
             return self._reject_order(order, reject_reason)
 
         current_price = self._realtime_prices.get(ts_code, 0)
 
-        # ==================== 买入检查 ====================
+        # 买入校验
         side_enum = order.side
         if side_enum == OrderSide.BUY:
             ok, reject_reason, quantity = self._validate_and_adjust_buy(ts_code, quantity, current_price)
             if not ok:
                 return self._reject_order(order, reject_reason)
 
-        # ==================== 卖出检查 ====================
+        # 卖出校验
         elif side_enum == OrderSide.SELL:
             ok, reject_reason, quantity = self._validate_sell(ts_code, quantity, current_price)
             if not ok:
                 return self._reject_order(order, reject_reason)
 
-        # ==================== 撮合 ====================
-        order.quantity = quantity  # 可能被调整
+        # 撮合+执行
+        return self._execute_order_fill(order, quantity, current_price, side_enum, strategy)
+
+    def _execute_order_fill(
+        self, order: Order, quantity: int, current_price: float,
+        side_enum, strategy: str,
+    ) -> Tuple[bool, str, Order]:
+        """撮合+执行成交+更新持仓/资金+持久化"""
+        order.quantity = quantity
         fill_price, commission, stamp_duty = self._match(order, current_price)
 
         if fill_price <= 0:
             return self._reject_order(order, "撮合失败")
 
-        # 成交
         order.filled_qty = quantity
         order.filled_price = fill_price
         order.status = OrderStatus.FILLED
         order.fill_time = datetime.now().strftime("%H:%M:%S")
         total_cost = commission + stamp_duty
 
-        # ==================== 更新持仓/资金 ====================
         if side_enum == OrderSide.BUY:
             self._execute_buy(order, fill_price, total_cost)
         else:
@@ -595,12 +585,10 @@ class SimulatedBroker:
         self._recalc_account()
 
         action = "买入" if side_enum == OrderSide.BUY else "卖出"
-        logger.info(f"[BROKER] {action} {ts_code} {quantity}股@{fill_price:.2f} "
+        logger.info(f"[BROKER] {action} {order.ts_code} {quantity}股@{fill_price:.2f} "
                      f"佣金{commission:.0f} 印花税{stamp_duty:.0f} ({strategy})")
 
-        # 持久化(异步, 不阻塞)
         self._async_save_state()
-
         return True, f"{action}{quantity}股@{fill_price:.2f}", order
 
     def _create_order_instance(self, ts_code: str, stock_name: str,
