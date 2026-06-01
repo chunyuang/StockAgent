@@ -253,6 +253,9 @@ const premarketStrategyGroups = ref<any[]>([])
 const premarketHitRate = ref<Record<string, any>>({})
 const premarketGroupMode = ref<'strategy' | 'list'>('strategy')
 const premarketDebugMode = ref(false)
+const premarketFunnel = ref<any>({})
+const premarketBlockedReasons = ref<Record<string, number>>({})
+const premarketCacheSource = ref('')
 
 // ==================== 扫描追踪Tab ====================
 const scanHistory = ref<any[]>([])
@@ -514,6 +517,9 @@ async function fetchPremarketData() {
       premarketSentiment.value = p.data.sentiment || {}
       premarketStrategyGroups.value = p.data.strategy_groups || []
       premarketHitRate.value = p.data.historical_hit_rate || {}
+      premarketFunnel.value = p.data.funnel || {}
+      premarketBlockedReasons.value = p.data.blocked_reasons || {}
+      premarketCacheSource.value = p.data.cache_source || ''
     }
   } catch { /* ignore */ }
 }
@@ -1557,7 +1563,7 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
               <span class="pm-ov-sep">/</span>
               <span class="down">{{ premarketMarketSnapshot.down_count || 0 }}</span>
             </div>
-            <div class="pm-ov-hint">均幅 {{ (premarketMarketSnapshot.avg_pct_chg || 0).toFixed(2) }}%</div>
+            <div class="pm-ov-hint">均幅 {{ (premarketMarketSnapshot.avg_pct_chg || 0).toFixed(2) }}%<span v-if="premarketMarketSnapshot.data_date"> ({{ premarketMarketSnapshot.data_date.slice(4,6) }}/{{ premarketMarketSnapshot.data_date.slice(6,8) }}数据)</span></div>
           </div>
           <div class="pm-ov-card">
             <div class="pm-ov-label">🔴 涨停/跌停</div>
@@ -1571,7 +1577,45 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
           <div class="pm-ov-card">
             <div class="pm-ov-label">🎯 信号数</div>
             <div class="pm-ov-val">{{ premarketCandidates.length }}</div>
-            <div class="pm-ov-hint">已执行 {{ premarketCandidates.filter(c => c.signal_status === 'executed').length }}</div>
+            <div class="pm-ov-hint">已执行 {{ premarketCandidates.filter(c => c.signal_status === 'executed').length }} | blocked {{ premarketCandidates.filter(c => c.signal_status === 'blocked' || c.signal_status === 'skipped').length }}</div>
+          </div>
+        </div>
+
+        <!-- 漏斗+Blocked原因(调试模式) -->
+        <div v-if="premarketDebugMode && (premarketFunnel.total_scanned || Object.keys(premarketBlockedReasons).length)" class="pm-debug-panel">
+          <div class="pm-dp-title">📊 9层漏斗</div>
+          <div class="pm-funnel">
+            <div class="pm-funnel-step">
+              <span class="pm-fs-label">全市场</span>
+              <span class="pm-fs-val">{{ premarketFunnel.total_scanned || 0 }}</span>
+            </div>
+            <div class="pm-funnel-arrow">→</div>
+            <div class="pm-funnel-step">
+              <span class="pm-fs-label">策略候选</span>
+              <span class="pm-fs-val">{{ premarketFunnel.strategy_candidates || 0 }}</span>
+            </div>
+            <div class="pm-funnel-arrow">→</div>
+            <div class="pm-funnel-step">
+              <span class="pm-fs-label">9层通过</span>
+              <span class="pm-fs-val up">{{ premarketFunnel.after_pipeline || 0 }}</span>
+            </div>
+            <div class="pm-funnel-arrow">→</div>
+            <div class="pm-funnel-step">
+              <span class="pm-fs-label">blocked</span>
+              <span class="pm-fs-val warn">{{ premarketFunnel.blocked || 0 }}</span>
+            </div>
+            <div class="pm-funnel-arrow">→</div>
+            <div class="pm-funnel-step">
+              <span class="pm-fs-label">已买</span>
+              <span class="pm-fs-val" style="color:var(--el-color-success)">{{ premarketFunnel.executed || 0 }}</span>
+            </div>
+          </div>
+          <div v-if="Object.keys(premarketBlockedReasons).length" class="pm-blocked-reasons">
+            <div class="pm-dp-title">🚫 Blocked原因</div>
+            <div v-for="(count, reason) in premarketBlockedReasons" :key="reason" class="pm-br-item">
+              <span class="pm-br-reason">{{ reason }}</span>
+              <span class="pm-br-count">{{ count }}笔</span>
+            </div>
           </div>
         </div>
 
@@ -3227,6 +3271,20 @@ mm-tab-content {
 .pm-mode-btn { padding: 2px 8px; font-size: 11px; border-radius: 4px; border: 1px solid var(--border-default); background: var(--bg-elevated); cursor: pointer; color: var(--text-secondary); }
 .pm-mode-btn.active { background: var(--el-color-primary); color: #fff; border-color: var(--el-color-primary); }
 .pm-debug-badge { display: inline-block; font-size: 9px; background: var(--el-color-warning); color: #fff; padding: 0 4px; border-radius: 2px; margin-left: 4px; vertical-align: middle; }
+
+.pm-debug-panel { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
+.pm-dp-title { font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+.pm-funnel { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.pm-funnel-step { display: flex; flex-direction: column; align-items: center; background: var(--bg-muted); border-radius: 6px; padding: 4px 10px; min-width: 56px; }
+.pm-fs-label { font-size: 9px; color: var(--text-tertiary); }
+.pm-fs-val { font-size: 16px; font-weight: 700; }
+.pm-fs-val.up { color: var(--el-color-success); }
+.pm-fs-val.warn { color: var(--el-color-warning); }
+.pm-funnel-arrow { color: var(--text-tertiary); font-size: 14px; }
+.pm-blocked-reasons { margin-top: 8px; }
+.pm-br-item { display: flex; justify-content: space-between; padding: 2px 0; font-size: 11px; border-bottom: 1px solid var(--border-default); }
+.pm-br-reason { color: var(--text-secondary); }
+.pm-br-count { font-weight: 600; color: var(--el-color-warning); }
 
 .pm-overview { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
 .pm-ov-card { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 10px 12px; }

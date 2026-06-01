@@ -1839,27 +1839,32 @@ async def toggle_dry_run():
 async def debug_premarket_sim():
     """调试模式: 模拟盘前预选(非交易时间可用)
     
-    用日级因子+缓存行情模拟一次策略扫描,返回:
-    - 各策略候选列表+因子
-    - 全市场快照(涨跌分布)
-    - 情绪背景
-    - 历史命中率
+    两种策略:
+    1. 如果scanner有realtime_cache(交易日), 直接用缓存行情
+    2. 如果没有(非交易时间), 用daily_factors_df模拟全市场快照+策略预选
     
-    不改变实际信号/持仓,纯粹预览
+    返回:
+    - market_snapshot: 用daily_factors_df填充涨跌分布(非交易时间也能看)
+    - 实际产生的信号(active_signals)+被blocked的原因
+    - 各策略的漏斗: 粗筛数 → 9层过滤后数
+    - 情绪+历史命中率
     """
     scanner = _get_scanner()
     if not scanner._is_running:
         return {"success": False, "message": "请先启动扫描器"}
     
     from core.managers import mongo_manager
+    import pandas as pd
     
-    # 用缓存行情(周末/非交易时=日级因子缓存, 交易时=实时行情)
+    # ===== 用daily_factors_df填充市场快照(不依赖realtime_cache) =====
     market_snapshot = {"up_count": 0, "down_count": 0, "flat_count": 0, 
                        "limit_up_count": 0, "limit_down_count": 0,
-                       "avg_pct_chg": 0, "volume_ratio_gt2": 0, "total_stocks": 0}
+                       "avg_pct_chg": 0, "volume_ratio_gt2": 0, "total_stocks": 0,
+                       "data_date": None}
     
-    # 从realtime_cache统计
-    if scanner._realtime_cache:
+    # 优先用realtime_cache(交易时间有实时行情)
+    cache_source = "realtime"
+    if scanner._realtime_cache and len(scanner._realtime_cache) > 100:
         pct_list = []
         for ts_code, rt in scanner._realtime_cache.items():
             pct = rt.get("pct_chg", 0) or 0
@@ -1872,8 +1877,34 @@ async def debug_premarket_sim():
             if (rt.get("volume_ratio") or 0) >= 2: market_snapshot["volume_ratio_gt2"] += 1
         market_snapshot["total_stocks"] = len(pct_list)
         market_snapshot["avg_pct_chg"] = round(sum(pct_list) / len(pct_list), 2) if pct_list else 0
+    elif scanner._daily_factors_df is not None and len(scanner._daily_factors_df) > 0:
+        # 用日级因子填充(非交易时间)
+        cache_source = "daily_factors"
+        df = scanner._daily_factors_df
+        if 'pct_chg' in df.columns:
+            pcts = df['pct_chg'].dropna()
+            market_snapshot["up_count"] = int((pcts > 0).sum())
+            market_snapshot["down_count"] = int((pcts < 0).sum())
+            market_snapshot["flat_count"] = int((pcts == 0).sum())
+            market_snapshot["limit_up_count"] = int((pcts >= 9.9).sum())
+            market_snapshot["limit_down_count"] = int((pcts <= -9.9).sum())
+            market_snapshot["avg_pct_chg"] = round(float(pcts.mean()), 2)
+            market_snapshot["total_stocks"] = len(pcts)
+        if 'volume_ratio' in df.columns:
+            market_snapshot["volume_ratio_gt2"] = int((df['volume_ratio'].fillna(0) >= 2).sum())
+        # 标记数据日期(从MongoDB读最新日期)
+        if not market_snapshot.get("data_date") and mongo_manager.is_initialized:
+            try:
+                latest = await mongo_manager.db["stock_daily_ak_full"].find_one(
+                    {"trade_date": {"$exists": True}}, sort=[("trade_date", -1)],
+                    projection={"trade_date": 1}
+                )
+                if latest and latest.get("trade_date"):
+                    market_snapshot["data_date"] = str(latest["trade_date"])
+            except Exception:
+                pass
     
-    # 情绪
+    # ===== 情绪(从MongoDB读最新) =====
     sentiment = {"score": 50, "period": "chaos", "position_ratio": 0.5, "phase_name": "震荡"}
     try:
         if hasattr(scanner, '_current_sentiment') and scanner._current_sentiment:
@@ -1883,71 +1914,98 @@ async def debug_premarket_sim():
                          "phase_name": {"RISING": "高潮", "DIFFERENTIATION": "分化", 
                                          "CHAOS": "震荡", "BEARISH": "冰点"}.get(
                              scanner._current_sentiment.get("period", ""), "震荡")}
+        # 尝试从MongoDB读最新情绪
+        if sentiment.get("score") == 50 and mongo_manager.is_initialized:
+            ss = await mongo_manager.db["sentiment_scores"].find_one(sort=[("updated_at", -1)])
+            if ss:
+                sentiment = {"score": ss.get("score", 50), "period": ss.get("period", "chaos"),
+                             "position_ratio": ss.get("position_ratio", 0.5),
+                             "phase_name": {"RISING": "高潮", "DIFFERENTIATION": "分化",
+                                             "CHAOS": "震荡", "BEARISH": "冰点"}.get(ss.get("period", ""), "震荡")}
     except Exception:
         pass
     
-    # 用日级因子做策略模拟扫描
-    sim_candidates = []
+    # ===== 实际信号(来自9层筛选管道, 不是粗筛) =====
+    candidates = []
     strategy_map = {}
+    blocked_reasons = {}  # 被block的原因统计
     
-    if scanner._daily_factors_df is not None and len(scanner._daily_factors_df) > 0:
+    for sig in scanner._active_signals:
+        c = {"ts_code": sig.ts_code,
+             "stock_name": sig.stock_name or (scanner._stock_name_map.get(sig.ts_code, "") if hasattr(scanner, '_stock_name_map') else ""),
+             "strategy": sig.strategy,
+             "pct_chg": sig.pct_chg or 0,
+             "volume_ratio": sig.factors.get('volume_ratio', 0),
+             "turnover_rate": sig.factors.get('turnover_rate', 0),
+             "signal_status": sig.signal_status,
+             "reason": sig.reason[:80] if sig.reason else '',}
+        candidates.append(c)
+        strategy_map.setdefault(sig.strategy, []).append(c)
+        
+        # 统计blocked原因
+        if sig.signal_status in ('blocked', 'skipped') and sig.reason:
+            # 提取blocked的关键原因
+            reason_key = sig.reason.split('|')[0].strip()[:30] if '|' in sig.reason else sig.reason[:30]
+            blocked_reasons[reason_key] = blocked_reasons.get(reason_key, 0) + 1
+    
+    # ===== 漏斗统计(从scan_traces或时间线推断) =====
+    funnel = {"total_scanned": 0, "strategy_candidates": 0, "after_pipeline": 0, "blocked": 0, "executed": 0}
+    funnel["total_scanned"] = len(scanner._realtime_cache) if scanner._realtime_cache else (len(scanner._daily_factors_df) if scanner._daily_factors_df is not None else 0)
+    funnel["strategy_candidates"] = len(candidates)
+    funnel["after_pipeline"] = len([c for c in candidates if c["signal_status"] in ('new', 'executed')])
+    funnel["blocked"] = len([c for c in candidates if c["signal_status"] in ('blocked', 'skipped', 'filtered')])
+    funnel["executed"] = len([c for c in candidates if c["signal_status"] == 'executed'])
+    
+    # 如果active_signals为0, 用日级因子做粗筛预览(标注为preview)
+    if not candidates and scanner._daily_factors_df is not None and len(scanner._daily_factors_df) > 0:
         df = scanner._daily_factors_df
+        # 半路追涨Top10(涨幅+换手排序)
+        if 'pct_chg' in df.columns:
+            hc = df[(df['pct_chg'] >= 3) & (df['pct_chg'] <= 7)]
+            if 'turnover_rate' in hc.columns:
+                hc = hc.nlargest(10, 'turnover_rate')
+            else:
+                hc = hc.nlargest(10, 'pct_chg')
+            for _, row in hc.iterrows():
+                ts_code = row.get('ts_code', '')
+                c = {"ts_code": ts_code, "stock_name": scanner._stock_name_map.get(ts_code, ''),
+                     "strategy": "halfway_chase", "pct_chg": round(row.get('pct_chg', 0), 2),
+                     "volume_ratio": round(row.get('volume_ratio', 0), 2),
+                     "turnover_rate": round(row.get('turnover_rate', 0), 2),
+                     "signal_status": "preview",
+                     "reason": f"涨{row.get('pct_chg',0):.1f}% 换手{row.get('turnover_rate',0):.1f}% (粗筛Top10)"}
+                candidates.append(c)
+                strategy_map.setdefault("halfway_chase", []).append(c)
+            funnel["strategy_candidates"] += len(hc)
         
-        # 半路追涨: 涨3-7% + 量比>1.5 + 换手>2%
-        hc_mask = (df['pct_chg'] >= 3) & (df['pct_chg'] <= 7)
-        if 'volume_ratio' in df.columns:
-            hc_mask = hc_mask & (df['volume_ratio'] >= 1.5)
-        if 'turnover_rate' in df.columns:
-            hc_mask = hc_mask & (df['turnover_rate'] >= 2)
-        for _, row in df[hc_mask].iterrows():
+        # 涨停Top5
+        zt_df = df[df['pct_chg'] >= 9.9] if 'pct_chg' in df.columns else pd.DataFrame()
+        zt = zt_df.nlargest(5, 'turnover_rate') if len(zt_df) > 0 and 'turnover_rate' in zt_df.columns else (zt_df.head(5) if len(zt_df) > 0 else pd.DataFrame())
+        for _, row in zt.iterrows():
             ts_code = row.get('ts_code', '')
-            c = {"ts_code": ts_code, "stock_name": scanner._stock_name_map.get(ts_code, row.get('name', '')),
-                 "strategy": "halfway_chase", "pct_chg": round(row.get('pct_chg', 0), 2),
-                 "volume_ratio": round(row.get('volume_ratio', 0), 2),
-                 "turnover_rate": round(row.get('turnover_rate', 0), 2),
-                 "signal_status": "sim", "reason": f"涨{row.get('pct_chg',0):.1f}% 量比{row.get('volume_ratio',0):.1f} 换手{row.get('turnover_rate',0):.1f}%"}
-            sim_candidates.append(c)
-            strategy_map.setdefault("halfway_chase", []).append(c)
-        
-        # 首板打板: 涨停(9.9%+) + 非ST
-        flu_mask = df['pct_chg'] >= 9.9
-        if 'is_st' in df.columns:
-            flu_mask = flu_mask & (~df['is_st'])
-        for _, row in df[flu_mask].iterrows():
-            ts_code = row.get('ts_code', '')
-            c = {"ts_code": ts_code, "stock_name": scanner._stock_name_map.get(ts_code, row.get('name', '')),
+            c = {"ts_code": ts_code, "stock_name": scanner._stock_name_map.get(ts_code, ''),
                  "strategy": "first_limit_up", "pct_chg": round(row.get('pct_chg', 0), 2),
                  "volume_ratio": round(row.get('volume_ratio', 0), 2),
                  "turnover_rate": round(row.get('turnover_rate', 0), 2),
-                 "signal_status": "sim", "reason": f"涨停 {row.get('pct_chg',0):.1f}%"}
-            sim_candidates.append(c)
+                 "signal_status": "preview",
+                 "reason": f"涨停 {row.get('pct_chg',0):.1f}% 换手{row.get('turnover_rate',0):.1f}%"}
+            candidates.append(c)
             strategy_map.setdefault("first_limit_up", []).append(c)
-        
-        # 龙头低吸: 跌幅>-3% + 高换手
-        dh_mask = df['pct_chg'] <= -3
-        if 'turnover_rate' in df.columns:
-            dh_mask = dh_mask & (df['turnover_rate'] >= 3)
-        for _, row in df[dh_mask].iterrows():
-            ts_code = row.get('ts_code', '')
-            c = {"ts_code": ts_code, "stock_name": scanner._stock_name_map.get(ts_code, row.get('name', '')),
-                 "strategy": "dragon_head", "pct_chg": round(row.get('pct_chg', 0), 2),
-                 "volume_ratio": round(row.get('volume_ratio', 0), 2),
-                 "turnover_rate": round(row.get('turnover_rate', 0), 2),
-                 "signal_status": "sim", "reason": f"跌{row.get('pct_chg',0):.1f}% 换手{row.get('turnover_rate',0):.1f}%"}
-            sim_candidates.append(c)
-            strategy_map.setdefault("dragon_head", []).append(c)
+        funnel["strategy_candidates"] += len(zt)
     
-    # 策略分组
+    # ===== 策略分组 =====
     strategy_groups = []
     for s, group in strategy_map.items():
         avg_pct = sum(c['pct_chg'] for c in group) / len(group) if group else 0
+        executed = sum(1 for c in group if c['signal_status'] == 'executed')
+        blocked = sum(1 for c in group if c['signal_status'] in ('blocked', 'skipped', 'filtered'))
         strategy_groups.append({
-            "strategy": s, "count": len(group), "executed": 0,
+            "strategy": s, "count": len(group), "executed": executed, "blocked": blocked,
             "avg_pct_chg": round(avg_pct, 2), "candidates": group[:15],
         })
     strategy_groups.sort(key=lambda x: x["count"], reverse=True)
     
-    # 历史命中率
+    # ===== 历史命中率 =====
     historical_hit_rate = {}
     try:
         if mongo_manager.is_initialized:
@@ -1966,29 +2024,33 @@ async def debug_premarket_sim():
     except Exception:
         pass
     
-    # 涨幅TOP(从日级因子取)
+    # ===== 涨幅TOP =====
     top_gainers = []
     if scanner._daily_factors_df is not None and len(scanner._daily_factors_df) > 0:
         df = scanner._daily_factors_df
-        top = df.nlargest(10, 'pct_chg')
-        for _, row in top.iterrows():
-            ts_code = row.get('ts_code', '')
-            top_gainers.append({
-                "ts_code": ts_code, "name": scanner._stock_name_map.get(ts_code, row.get('name', '')),
-                "pct_chg": round(row.get('pct_chg', 0), 2),
-                "volume_ratio": round(row.get('volume_ratio', 0), 2),
-            })
+        if 'pct_chg' in df.columns:
+            top = df.nlargest(10, 'pct_chg')
+            for _, row in top.iterrows():
+                ts_code = row.get('ts_code', '')
+                top_gainers.append({
+                    "ts_code": ts_code, "name": scanner._stock_name_map.get(ts_code, ''),
+                    "pct_chg": round(row.get('pct_chg', 0), 2),
+                    "volume_ratio": round(row.get('volume_ratio', 0), 2),
+                })
     
     return {"success": True, "data": {
         "status": "debug",
         "market_snapshot": market_snapshot,
         "sentiment": sentiment,
-        "candidates": sim_candidates[:30],
+        "candidates": candidates[:30],
         "strategy_groups": strategy_groups[:6],
         "auction_signals": [],
         "top_gainers": top_gainers[:10],
         "historical_hit_rate": historical_hit_rate,
+        "blocked_reasons": blocked_reasons,
+        "funnel": funnel,
         "is_simulated": True,
+        "cache_source": cache_source,
     }}
 
 
