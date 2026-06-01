@@ -577,7 +577,7 @@ class RiskWatchdog:
             return result
         
         scanner = self._scanner
-        rp = getattr(scanner, '_runtime_persistence', None)
+        rp = scanner._runtime_persistence
         
         try:
             positions = scanner._broker.get_positions()
@@ -642,7 +642,10 @@ class RiskWatchdog:
         Returns:
             fn()的返回值
         """
-        state_lock = getattr(scanner, '_state_lock', None)
+        try:
+            state_lock = scanner._state_lock
+        except AttributeError:
+            state_lock = None
         if state_lock:
             with state_lock:
                 return fn()
@@ -804,7 +807,7 @@ class RiskWatchdog:
         不阻塞风控线程主流程。
         """
         try:
-            loop = getattr(scanner, '_loop', None)
+            loop = scanner._loop
             if loop and not loop.is_closed():
                 from nodes.market_monitor.scanner_event_bus import ScannerEvents
                 err_data = {

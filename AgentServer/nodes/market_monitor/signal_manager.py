@@ -108,7 +108,7 @@ class SignalManager:
     async def _expire_old_signals(self):
         """过期信号清理【v2.9.43从update_signals提取】"""
         scanner = self._scanner
-        SIGNAL_EXPIRE_SECONDS = getattr(scanner, 'SIGNAL_EXPIRE_SECONDS', 600)
+        SIGNAL_EXPIRE_SECONDS = scanner.SIGNAL_EXPIRE_SECONDS
         now = time.time()
         for s in self.active_signals:
             if s.created_at > 0 and (now - s.created_at) > SIGNAL_EXPIRE_SECONDS:
@@ -158,7 +158,7 @@ class SignalManager:
         await self._push_signals(added)
         # EventBus信号生成事件
         try:
-            if hasattr(scanner, 'event_bus') and scanner.event_bus:
+            if scanner._event_bus:
                 from nodes.market_monitor.scanner_event_bus import ScannerEvents
                 await scanner.event_bus.emit(ScannerEvents.SIGNAL_GENERATED, {
                     "signal_count": len(added),
@@ -263,7 +263,7 @@ class SignalManager:
             logger.info(f"[EXEC] 风控熔断, 跳过买入")
             return False, "circuit_breaker"
         # 最大持仓数
-        MAX_POSITIONS = getattr(scanner, 'MAX_POSITIONS', 10)
+        MAX_POSITIONS = scanner.MAX_POSITIONS
         if self.broker and len(self.broker.get_positions()) >= MAX_POSITIONS:
             self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
                 sig.strategy_name, f"已达最大持仓{MAX_POSITIONS}只", sig)
@@ -374,7 +374,7 @@ class SignalManager:
         # EventBus持仓变更事件
         try:
             from nodes.market_monitor.scanner_event_bus import ScannerEvents
-            if hasattr(scanner, '_event_bus') and scanner._event_bus:
+            if scanner._event_bus:
                 await scanner._event_bus.emit(ScannerEvents.POSITION_CHANGED, {
                     "ts_code": sig.ts_code, "action": "buy",
                     "reason": sig.reason, "strategy": sig.strategy_name,

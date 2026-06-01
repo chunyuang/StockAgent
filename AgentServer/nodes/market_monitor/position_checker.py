@@ -226,7 +226,7 @@ class PositionChecker:
             if pos.available_qty <= 0:
                 continue
             risk = scanner._get_strategy_risk(pos.strategy)
-            pos_overrides = getattr(scanner, '_position_risk_overrides', {}).get(pos.ts_code, {})
+            pos_overrides = scanner._position_risk_overrides.get(pos.ts_code, {})
             sl_pct = pos_overrides.get('stop_loss_pct', risk.get('stop_loss_pct', 0.03))
             if pos.profit_pct / 100 > sl_pct * 2:
                 already = any(p.ts_code == pos.ts_code for p, _, _, _ in to_sell)
