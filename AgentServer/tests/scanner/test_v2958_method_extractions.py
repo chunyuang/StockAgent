@@ -159,6 +159,54 @@ class TestStrategyParamCenterExtraction(unittest.TestCase):
         self.assertTrue(_method_exists(self.tree, "_notify_param_update"))
 
 
+class TestExecutionQualityExtraction(unittest.TestCase):
+    """execution_quality.check_buy 拆分验证"""
+
+    def setUp(self):
+        self.tree = _parse(os.path.join(MM_DIR, "execution_quality.py"))
+
+    def test_check_buy_under_20(self):
+        lines = _method_lines(self.tree, "check_buy")
+        self.assertLess(lines, 20, f"check_buy should be <20 lines, got {lines}")
+
+    def test_check_buy_basics_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_check_buy_basics"))
+
+    def test_check_buy_position_and_cash_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_check_buy_position_and_cash"))
+
+    def test_check_buy_basics_line_count(self):
+        lines = _method_lines(self.tree, "_check_buy_basics")
+        self.assertLess(lines, 20, f"_check_buy_basics should be <20 lines, got {lines}")
+
+    def test_check_buy_position_and_cash_line_count(self):
+        lines = _method_lines(self.tree, "_check_buy_position_and_cash")
+        self.assertLess(lines, 30, f"_check_buy_position_and_cash should be <30 lines, got {lines}")
+
+
+class TestRiskWatchdogDrawdownExtraction(unittest.TestCase):
+    """risk_watchdog._check_drawdown 拆分验证"""
+
+    def setUp(self):
+        self.tree = _parse(os.path.join(MM_DIR, "risk_watchdog.py"))
+
+    def test_check_drawdown_under_30(self):
+        lines = _method_lines(self.tree, "_check_drawdown")
+        self.assertLess(lines, 30, f"_check_drawdown should be <30 lines, got {lines}")
+
+    def test_compute_drawdowns_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_compute_drawdowns"))
+
+    def test_judge_drawdown_status_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_judge_drawdown_status"))
+
+    def test_compute_drawdowns_is_sync(self):
+        with open(os.path.join(MM_DIR, "risk_watchdog.py")) as f:
+            src = f.read()
+        self.assertIn("def _compute_drawdowns", src)
+        self.assertNotIn("async def _compute_drawdowns", src)
+
+
 class TestBigMethodsReduction(unittest.TestCase):
     """超过50行方法数应减少"""
 
