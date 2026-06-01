@@ -1,10 +1,10 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.47 | 日期: 2026-06-01 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.48 | 日期: 2026-06-01 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats✅ | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化✅ | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复✅ | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复✅ | v2.9.24 diagnose+情绪调仓提取+DelegateRouter策略扩展✅ | v2.9.25 update_strategy_config bug修复+bare except清理+_init_modules拆分✅ | v2.9.26 全模块bare except清理+position_checker._execute_sell_list提取3子方法✅ | v2.9.27 方法提取到子模块5个+测试适配✅ | v2.9.28 风控线程拆分+filter合并提取+scan_loop错误恢复✅ | v2.9.31 _safe_read_state统一+RuntimeWarning修复+get_positions提取✅ | v2.9.34 情绪得分+收盘同步提取→子模块✅ | v2.9.35 卖出执行提取到PositionManager✅ | v2.9.36 审查P0/P1修复+WS断线补发+前端错误提示 | v2.9.37 _save_param_snapshot提取+_init_state类属性瘦身+start()30行 | v2.9.38 _run_checker_on_positions提取+compare差异持久化+_post_sell_state_cleanup统一 | v2.9.39 _scan_loop_settlement提取→RuntimePersistence+_emit_risk_thread_error委托RiskWatchdog+MarketPhase.is_trading_active+position_checker except修复 | v2.9.42 参数管理6方法DELEGATE_MAP委托+StrategyParamCenter路由策略+scanner 1382行 | v2.9.43 signal_manager方法提取7子方法(execute_signals 161→24行+update_signals 96→9行)+版本同步+1000测试全通过 | v2.9.44 _SubprocessRuntime提取(scanner_daemon 303行闭包→独立类+命令路由表5子handler+_send_ack统一+16新增测试) | v2.9.46 bare except清理(web API)+版本同步+_check_stop_loss_take_profit简化+section合并 | v2.9.47 getattr/hasattr防御消除+关键路径日志级别提升+18新增测试 | 
-> 回测影响: 零文件修改, 1086测试全通过(scanner 1035+backtest 51)
+> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats✅ | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化✅ | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复✅ | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复✅ | v2.9.24 diagnose+情绪调仓提取+DelegateRouter策略扩展✅ | v2.9.25 update_strategy_config bug修复+bare except清理+_init_modules拆分✅ | v2.9.26 全模块bare except清理+position_checker._execute_sell_list提取3子方法✅ | v2.9.27 方法提取到子模块5个+测试适配✅ | v2.9.28 风控线程拆分+filter合并提取+scan_loop错误恢复✅ | v2.9.31 _safe_read_state统一+RuntimeWarning修复+get_positions提取✅ | v2.9.34 情绪得分+收盘同步提取→子模块✅ | v2.9.35 卖出执行提取到PositionManager✅ | v2.9.36 审查P0/P1修复+WS断线补发+前端错误提示 | v2.9.37 _save_param_snapshot提取+_init_state类属性瘦身+start()30行 | v2.9.38 _run_checker_on_positions提取+compare差异持久化+_post_sell_state_cleanup统一 | v2.9.39 _scan_loop_settlement提取→RuntimePersistence+_emit_risk_thread_error委托RiskWatchdog+MarketPhase.is_trading_active+position_checker except修复 | v2.9.42 参数管理6方法DELEGATE_MAP委托+StrategyParamCenter路由策略+scanner 1382行 | v2.9.43 signal_manager方法提取7子方法(execute_signals 161→24行+update_signals 96→9行)+版本同步+1000测试全通过 | v2.9.44 _SubprocessRuntime提取(scanner_daemon 303行闭包→独立类+命令路由表5子handler+_send_ack统一+16新增测试) | v2.9.46 bare except清理(web API)+版本同步+_check_stop_loss_take_profit简化+section合并 | v2.9.47 getattr/hasattr防御消除+关键路径日志级别提升+18新增测试 | v2.9.48 pipeline.apply提取(187→103)+broker.place_order提取(182→109)+33新增测试 | 
+> 回测影响: 零文件修改, 1119测试全通过(scanner 1068+backtest 51)
 
 ---
 
@@ -3108,3 +3108,61 @@ class MarketScanner:
 ### 39.5 回测影响
 
 零。getattr/hasattr消除和日志级别提升不影响回测模块,回测引擎零文件修改。
+
+## 四十、v2.9.48 pipeline.apply提取 + broker.place_order提取 (2026-06-01)
+
+### 40.1 设计目标
+
+1. **🔴 live_filter_pipeline.apply提取**: 187行大方法拆分为4个子方法,消除L4/L5/L7重复过滤模式
+2. **🔴 broker.place_order提取**: 182行大方法拆分为4个验证子方法,消除重复拒绝模式
+3. **🟢 修复docstring问题**: broker.place_order中的docstring被拆成两段(Args被分离)
+
+### 40.2 变更详情
+
+#### A. live_filter_pipeline.apply提取
+
+| 新方法 | 行数 | 职责 |
+|---|---|---|
+| `_resolve_positions_account` | 22 | 自动获取持仓/账户(从scanner._broker) |
+| `_apply_L1_force_empty` | 39 | L1强制空仓检查,返回bool(是否触发) |
+| `_apply_L3_sentiment` | 47 | L3情绪+冰点过滤,返回更新后ratio |
+| `_apply_filter_layer` | 18 | L4/L5/L7共享过滤模式(before/after/dropped) |
+| **apply(重构后)** | **103** | **从187→103行, 减少45%** |
+
+**设计亮点**: `_apply_filter_layer` 消除了L4/L5/L7的重复 before_ids→after_ids→dropped→_record_layer_drop→layer_details 模式。
+
+#### B. broker.place_order提取
+
+| 新方法 | 行数 | 职责 |
+|---|---|---|
+| `_reject_order` | 6 | 拒绝委托+记录(消除6处重复3行模式) |
+| `_validate_prechecks` | 37 | 停牌+行情+整手前置检查 |
+| `_validate_and_adjust_buy` | 38 | 涨停+现金+单票+总仓位检查(含数量调整) |
+| `_validate_sell` | 20 | 持仓+跌停+可卖数量检查 |
+| **place_order(重构后)** | **109** | **从182→109行, 减少40%** |
+
+**设计亮点**: `_validate_and_adjust_buy` 和 `_validate_sell` 返回 `(ok, reason, adjusted_quantity)`, 买入侧支持数量缩减(资金不足→缩小买入量), 卖出侧支持截断(可卖<委托→截断)。
+
+### 40.3 变更文件
+
+| 文件 | 变更 |
+|---|---|
+| nodes/market_monitor/live_filter_pipeline.py | apply提取4子方法(187→103行) |
+| nodes/market_monitor/broker.py | place_order提取4子方法(182→109行) |
+| nodes/web/api/scanner.py | _DESIGN_DOC_VERSION→v2.9.48 |
+| tests/scanner/test_v2948_pipeline_apply_extraction.py | 新增19测试 |
+| tests/scanner/test_v2948_broker_validation_extraction.py | 新增14测试 |
+| docs/MARKET_MONITOR_OPTIMIZATION_DESIGN.md | v2.9.48记录 |
+
+### 40.4 测试覆盖 (33新增)
+
+| 测试文件 | 用例数 | 覆盖点 |
+|---|---|---|
+| test_v2948_pipeline_apply_extraction | 19 | apply大小+4子方法存在+调用+参数+契约 |
+| test_v2948_broker_validation_extraction | 14 | place_order大小+4子方法存在+调用+参数 |
+
+**全量测试**: 1068 scanner + 51 backtest = 1119 passed (0 failed)
+
+### 40.5 回测影响
+
+零。方法提取仅影响market_monitor模块内部,回测引擎零文件修改。

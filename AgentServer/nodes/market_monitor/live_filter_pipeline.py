@@ -116,6 +116,136 @@ class LiveFilterPipeline:
     # 主入口
     # ========================================================================
 
+    def _resolve_positions_account(
+        self,
+        positions: Optional[List[Dict]],
+        account: Optional[Dict],
+    ) -> Tuple[List[Dict], Dict]:
+        """自动从scanner获取持仓和账户信息【v2.9.48:从apply提取】"""
+        if positions is None and self._scanner:
+            broker = getattr(self._scanner, '_broker', None)
+            if broker:
+                positions = [{"ts_code": p.ts_code, "strategy": p.strategy} for p in broker.get_positions()]
+            else:
+                positions = []
+        elif positions is None:
+            positions = []
+
+        if account is None and self._scanner:
+            broker = getattr(self._scanner, '_broker', None)
+            if broker:
+                account = {"cash": broker.account.available_cash}
+            else:
+                account = {"cash": 0}
+        return positions, account
+
+    async def _apply_L1_force_empty(
+        self,
+        result: FilterResult,
+        trade_date: str,
+        realtime_data: Optional[Dict],
+    ) -> bool:
+        """L1强制空仓检查, 返回True=触发强制空仓(apply应提前返回)【v2.9.48:从apply提取】"""
+        if not self._layer_enabled["L1_force_empty"]:
+            return False
+
+        force_empty, reason, l1_stats = await self._check_force_empty(trade_date, realtime_data)
+        result.layers_applied["L1_force_empty"] = True
+        if force_empty:
+            result.action = "empty"
+            result.force_empty_reason = reason
+            result.position_ratio = 0.0
+            result.candidates = []
+            result.layer_details["L1_force_empty"] = f"⚠️ 强制空仓: {reason}"
+            for t in result.trace_candidates:
+                t.layer_results["L1_force_empty"] = {"passed": False, "reason": f"强制空仓: {reason}"}
+                t.final_status = "rejected"
+                t.final_rejection_layer = "L1_force_empty"
+                t.final_rejection_reason = f"强制空仓: {reason}"
+            self._build_trace_summary(result)
+            logger.warning(f"[L1] 强制空仓: {reason}")
+            return True
+
+        # L1未触发
+        _lu = l1_stats.get("limit_up_count", 0)
+        _ld = l1_stats.get("limit_down_count", 0)
+        _idx = l1_stats.get("index_drop_pct", 0.0)
+        result.layer_details["L1_force_empty"] = (
+            f"✅ 未触发 (涨停{_lu}只, 跌停{_ld}只, "
+            f"大盘{'' if _idx < 0.03 else '跌' + f'{_idx*100:.1f}%'} | "
+            f"触发条件: 跌停≥80 / 涨停≤10且跌停>0 / 大盘跌≥3%)"
+        )
+        for t in result.trace_candidates:
+            t.layer_results["L1_force_empty"] = {"passed": True}
+        return False
+
+    async def _apply_L3_sentiment(
+        self,
+        result: FilterResult,
+        trade_date: str,
+        realtime_data: Optional[Dict],
+        ratio: float,
+    ) -> float:
+        """L3情绪周期筛选, 返回更新后的仓位系数【v2.9.48:从apply提取】"""
+        if not self._layer_enabled["L3_sentiment"]:
+            return ratio
+
+        sentiment_ratio, score, period = await self._calc_sentiment(trade_date, realtime_data)
+        result.layers_applied["L3_sentiment"] = True
+        self._sentiment_score = score
+        self._sentiment_period = period
+        ratio *= sentiment_ratio
+
+        # L3默认全部通过
+        for t in result.trace_candidates:
+            if t.final_status != "rejected":
+                t.layer_results["L3_sentiment"] = {"passed": True}
+
+        # 冰点期(<40)暂停半路追涨
+        l3_drop_count = 0
+        if score < 40:
+            before_ids = {c["ts_code"] for c in result.candidates}
+            result.candidates = [c for c in result.candidates
+                                 if c.get("strategy") != "halfway_chase"]
+            after_ids = {c["ts_code"] for c in result.candidates}
+            dropped = before_ids - after_ids
+            if dropped:
+                self._record_layer_drop(result, "L3_sentiment", dropped,
+                                        lambda c: f"冰点期(情绪{score:.0f}<40), 暂停半路追涨")
+                logger.info(f"[L3] 冰点期(情绪={score:.0f}), 过滤半路追涨{len(dropped)}只")
+                l3_drop_count = len(dropped)
+
+        result.layer_details["L3_sentiment"] = (
+            f"情绪={score:.0f}分→{period}, 仓位系数={sentiment_ratio:.0%}"
+            + (f", 过滤半路追涨{l3_drop_count}只(冰点<40分暂停)" if l3_drop_count else "")
+            + f" | 公式: 涨停-跌停+大盘×10+50 | 高潮≥70→100% / 分化55-70→70% / 震荡40-55→50% / 冰点<40→25%"
+        )
+        result.layer_details["L3_sentiment_data"] = {
+            "score": round(score, 1), "period": period,
+            "position_ratio": round(sentiment_ratio, 3),
+            "l3_drop_count": l3_drop_count,
+        }
+        return ratio
+
+    def _apply_filter_layer(
+        self,
+        result: FilterResult,
+        layer_name: str,
+        filtered: List[Dict],
+        reject_reason_fn,
+        detail_template: str,
+    ) -> None:
+        """通用过滤层: 记录before/after/dropped+淘汰明细+详情【v2.9.48:从apply提取(L4/L5/L7共享)】"""
+        before_ids = {c["ts_code"] for c in result.candidates}
+        result.candidates = filtered
+        after_ids = {c["ts_code"] for c in result.candidates}
+        dropped = before_ids - after_ids
+        result.layers_applied[layer_name] = True
+        self._record_layer_drop(result, layer_name, dropped, reject_reason_fn)
+        result.layer_details[layer_name] = detail_template.format(
+            before=len(before_ids), after=len(after_ids), dropped=len(dropped)
+        )
+
     async def apply(
         self,
         trade_date: str,
@@ -134,22 +264,9 @@ class LiveFilterPipeline:
             account: 账户信息(不传则从scanner自动获取)【v2.9.40】
             realtime_data: 实时行情 {ts_code: {close, pct_chg, ...}}
         """
-        # 【v2.9.40:自动从scanner获取持仓和账户信息,减少scanner中broker耦合】
-        if positions is None and self._scanner:
-            broker = getattr(self._scanner, '_broker', None)
-            if broker:
-                positions = [{"ts_code": p.ts_code, "strategy": p.strategy} for p in broker.get_positions()]
-            else:
-                positions = []
-        elif positions is None:
-            positions = []
+        # 【v2.9.40+2.9.48:自动获取持仓/账户信息提取为_resolve_positions_account】
+        positions, account = self._resolve_positions_account(positions, account)
 
-        if account is None and self._scanner:
-            broker = getattr(self._scanner, '_broker', None)
-            if broker:
-                account = {"cash": broker.account.available_cash}
-            else:
-                account = {"cash": 0}
         result = FilterResult(candidates=list(candidates))
         ratio = 1.0  # 仓位系数
 
@@ -157,31 +274,8 @@ class LiveFilterPipeline:
         self._init_traces(result, candidates)
 
         # ---- L1: 强制空仓 ----
-        if self._layer_enabled["L1_force_empty"]:
-            force_empty, reason, l1_stats = await self._check_force_empty(trade_date, realtime_data)
-            result.layers_applied["L1_force_empty"] = True
-            if force_empty:
-                result.action = "empty"
-                result.force_empty_reason = reason
-                result.position_ratio = 0.0
-                result.candidates = []
-                result.layer_details["L1_force_empty"] = f"⚠️ 强制空仓: {reason}"
-                # 记录所有候选被L1拒绝
-                for t in result.trace_candidates:
-                    t.layer_results["L1_force_empty"] = {"passed": False, "reason": f"强制空仓: {reason}"}
-                    t.final_status = "rejected"
-                    t.final_rejection_layer = "L1_force_empty"
-                    t.final_rejection_reason = f"强制空仓: {reason}"
-                self._build_trace_summary(result)
-                logger.warning(f"[L1] 强制空仓: {reason}")
-                return result
-            # L1未触发: 用stats构建描述
-            _lu = l1_stats.get("limit_up_count", 0)
-            _ld = l1_stats.get("limit_down_count", 0)
-            _idx = l1_stats.get("index_drop_pct", 0.0)
-            result.layer_details["L1_force_empty"] = f"✅ 未触发 (涨停{_lu}只, 跌停{_ld}只, 大盘{'' if _idx < 0.03 else '跌' + f'{_idx*100:.1f}%'} | 触发条件: 跌停≥80 / 涨停≤10且跌停>0 / 大盘跌≥3%)"
-            for t in result.trace_candidates:
-                t.layer_results["L1_force_empty"] = {"passed": True}
+        if await self._apply_L1_force_empty(result, trade_date, realtime_data):
+            return result
 
         # ---- L2: 特殊时期 ----
         if self._layer_enabled["L2_special_period"]:
@@ -191,93 +285,45 @@ class LiveFilterPipeline:
             result.layer_details["L2_special_period"] = (
                 f"⚠️ {reason} → 仓位系数={special_ratio:.0%} (正常100%, 月末30%, 周五70%)" if special_ratio < 1.0 else f"✅ 非特殊时期 → 仓位系数=100% (无月末/季末/年末/节前效应)"
             )
-            # L2不淘汰候选,标记全部通过
             for t in result.trace_candidates:
                 if t.final_status != "rejected":
                     t.layer_results["L2_special_period"] = {"passed": True}
 
         # ---- L3: 情绪周期 ----
-        if self._layer_enabled["L3_sentiment"]:
-            sentiment_ratio, score, period = await self._calc_sentiment(trade_date, realtime_data)
-            result.layers_applied["L3_sentiment"] = True
-            self._sentiment_score = score
-            self._sentiment_period = period
-            ratio *= sentiment_ratio
-            # L3默认全部通过(冰点期过滤在下面单独处理)
-            for t in result.trace_candidates:
-                if t.final_status != "rejected":
-                    t.layer_results["L3_sentiment"] = {"passed": True}
-            # 策略级情绪过滤: 冰点期(<40)暂停半路追涨(与回测V36对齐)
-            if score < 40:
-                before_ids = {c["ts_code"] for c in result.candidates}
-                result.candidates = [c for c in result.candidates
-                                     if c.get("strategy") != "halfway_chase"]
-                after_ids = {c["ts_code"] for c in result.candidates}
-                dropped = before_ids - after_ids
-                if dropped:
-                    self._record_layer_drop(result, "L3_sentiment", dropped,
-                                            lambda c: f"冰点期(情绪{score:.0f}<40), 暂停半路追涨")
-                    logger.info(f"[L3] 冰点期(情绪={score:.0f}), 过滤半路追涨{len(dropped)}只")
-            l3_drop_count = len(dropped) if score < 40 and dropped else 0
-            result.layer_details["L3_sentiment"] = (
-                f"情绪={score:.0f}分→{period}, 仓位系数={sentiment_ratio:.0%}"
-                + (f", 过滤半路追涨{l3_drop_count}只(冰点<40分暂停)" if l3_drop_count else "")
-                + f" | 公式: 涨停-跌停+大盘×10+50 | 高潮≥70→100% / 分化55-70→70% / 震荡40-55→50% / 冰点<40→25%"
-            )
-            # 【v2.9.36:保存情绪数值快照,供复盘时间线使用】
-            result.layer_details["L3_sentiment_data"] = {
-                "score": round(score, 1), "period": period,
-                "position_ratio": round(sentiment_ratio, 3),
-                "l3_drop_count": l3_drop_count,
-            }
+        ratio = await self._apply_L3_sentiment(result, trade_date, realtime_data, ratio)
 
-        # ---- L4: 盘前预选（记录淘汰明细）----
+        # ---- L4: 盘前预选 ----
         if self._layer_enabled["L4_premarket"]:
-            before_ids = {c["ts_code"] for c in result.candidates}
-            result.candidates = self._premarket_filter(result.candidates)
-            after_ids = {c["ts_code"] for c in result.candidates}
-            dropped = before_ids - after_ids
-            result.layers_applied["L4_premarket"] = True
-            self._record_layer_drop(result, "L4_premarket", dropped,
-                                    lambda c: self._premarket_reject_reason(c))
-            result.layer_details["L4_premarket"] = (
-                f"过滤: {len(before_ids)}→{len(after_ids)} (排除ST/退市/次新(<60天)/低流动(<500万/日): {len(dropped)}只)"
+            self._apply_filter_layer(
+                result, "L4_premarket",
+                self._premarket_filter(result.candidates),
+                lambda c: self._premarket_reject_reason(c),
+                "过滤: {before}→{after} (排除ST/退市/次新(<60天)/低流动(<500万/日): {dropped}只)",
             )
 
-        # ---- L5: 竞价过滤（记录淘汰明细）----
+        # ---- L5: 竞价过滤 ----
         if self._layer_enabled["L5_auction"]:
-            before_ids = {c["ts_code"] for c in result.candidates}
-            result.candidates = await self._auction_filter(
-                result.candidates, trade_date, realtime_data
-            )
-            after_ids = {c["ts_code"] for c in result.candidates}
-            dropped = before_ids - after_ids
-            result.layers_applied["L5_auction"] = True
-            self._record_layer_drop(result, "L5_auction", dropped,
-                                    lambda c: "极端竞价(高开>7%或低开<-5%)")
-            result.layer_details["L5_auction"] = (
-                f"过滤: {len(before_ids)}→{len(after_ids)} (排除极端竞价: {len(dropped)}只 | 高开>7%追不上/低开<-5%有风险 | 首板打板额外要求竞价≥2%)"
+            auction_filtered = await self._auction_filter(result.candidates, trade_date, realtime_data)
+            self._apply_filter_layer(
+                result, "L5_auction", auction_filtered,
+                lambda c: "极端竞价(高开>7%或低开<-5%)",
+                "过滤: {before}→{after} (排除极端竞价: {dropped}只 | 高开>7%追不上/低开<-5%有风险 | 首板打板额外要求竞价≥2%)",
             )
 
         # ---- L6: 策略量能 ---- (已由scanner._apply_strategies完成)
         result.layers_applied["L6_strategy"] = True
         result.layer_details["L6_strategy"] = f"✅ 复用回测策略筛选 → {len(result.candidates)}个候选通过量能/涨幅条件 (半路追涨:涨2-7%+量比>1.5 | 首板:涨停封板 | 龙头:连板回调 | 跌停翘板:撬板反弹)"
-        # L6不淘汰候选,标记全部通过
         for t in result.trace_candidates:
             if t.final_status != "rejected":
                 t.layer_results["L6_strategy"] = {"passed": True}
 
-        # ---- L7: 综合排序（记录去重淘汰）----
+        # ---- L7: 综合排序 ----
         if self._layer_enabled["L7_ranking"]:
-            before_ids = {c["ts_code"] for c in result.candidates}
-            result.candidates = self._rank_and_dedup(result.candidates)
-            after_ids = {c["ts_code"] for c in result.candidates}
-            dropped = before_ids - after_ids
-            result.layers_applied["L7_ranking"] = True
-            self._record_layer_drop(result, "L7_ranking", dropped,
-                                    lambda c: "去重/排序靠后被截断")
-            result.layer_details["L7_ranking"] = (
-                f"排序去重: {len(before_ids)}→{len(after_ids)} (截断{len(dropped)}只 | 优先级: 龙头>跌停翘板>首板>半路 | 同股多策略取最高 | 最多保留10候选)"
+            self._apply_filter_layer(
+                result, "L7_ranking",
+                self._rank_and_dedup(result.candidates),
+                lambda c: "去重/排序靠后被截断",
+                "排序去重: {before}→{after} (截断{dropped}只 | 优先级: 龙头>跌停翘板>首板>半路 | 同股多策略取最高 | 最多保留10候选)",
             )
 
         # ---- L8: 仓位控制 ----
