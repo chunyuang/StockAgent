@@ -40,12 +40,16 @@ class TestStopMethodExtraction:
         assert inspect.iscoroutinefunction(MarketScanner._persist_stop_state)
 
     def test_stop_calls_extracted_methods(self):
-        """stop()源码中调用了_sell_all_positions和_persist_stop_state"""
+        """stop()源码中调用了_stop_cleanup(包含_sell_all_positions和_persist_stop_state)"""
         import inspect
         from nodes.market_monitor.scanner import MarketScanner
         source = inspect.getsource(MarketScanner.stop)
-        assert "_sell_all_positions" in source, "stop()应调用_sell_all_positions"
-        assert "_persist_stop_state" in source, "stop()应调用_persist_stop_state"
+        # v2.9.55: 清理逻辑提取到_stop_cleanup
+        assert "_stop_cleanup" in source, "stop()应调用_stop_cleanup"
+        # 验证_stop_cleanup包含关键步骤
+        cleanup_source = inspect.getsource(MarketScanner._stop_cleanup)
+        assert "_sell_all_positions" in cleanup_source, "_stop_cleanup应调用_sell_all_positions"
+        assert "_persist_stop_state" in cleanup_source, "_stop_cleanup应调用_persist_stop_state"
 
     def test_stop_line_count_reduced(self):
         """stop()方法行数应显著减少(110→~30行)"""

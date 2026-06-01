@@ -188,6 +188,78 @@ class TestStartInitSequence:
 
 
 # ---------------------------------------------------------------------------
+# premarket_prepare提取测试
+# ---------------------------------------------------------------------------
+
+class TestPremarketPrepareExtraction:
+    """验证premarket_prepare数据加载提取"""
+
+    def test_load_premarket_data_exists(self):
+        """_load_premarket_data方法应存在"""
+        from nodes.market_monitor.scanner import MarketScanner
+        assert hasattr(MarketScanner, '_load_premarket_data')
+
+    def test_check_premarket_auction_exists(self):
+        """_check_premarket_auction方法应存在"""
+        from nodes.market_monitor.scanner import MarketScanner
+        assert hasattr(MarketScanner, '_check_premarket_auction')
+
+    def test_premarket_prepare_calls_extracted_methods(self):
+        """premarket_prepare应调用提取的方法"""
+        from nodes.market_monitor.scanner import MarketScanner
+        source = inspect.getsource(MarketScanner.premarket_prepare)
+        assert "_load_premarket_data" in source
+        assert "_check_premarket_auction" in source
+
+    def test_load_premarket_data_contains_key_steps(self):
+        """_load_premarket_data应包含关键数据加载步骤"""
+        from nodes.market_monitor.scanner import MarketScanner
+        source = inspect.getsource(MarketScanner._load_premarket_data)
+        assert "_load_stock_list" in source
+        assert "_load_daily_factors" in source
+        assert "_load_positions" in source
+
+    def test_premarket_prepare_line_count(self):
+        """premarket_prepare行数应≤25(v2.9.55:数据加载提取)"""
+        from nodes.market_monitor.scanner import MarketScanner
+        lines = inspect.getsource(MarketScanner.premarket_prepare).split('\n')
+        assert len(lines) <= 25, f"premarket_prepare {len(lines)}行,应≤25"
+
+
+# ---------------------------------------------------------------------------
+# stop清理提取测试
+# ---------------------------------------------------------------------------
+
+class TestStopCleanupExtraction:
+    """验证_stop_cleanup从stop()提取"""
+
+    def test_stop_cleanup_exists(self):
+        """_stop_cleanup方法应存在"""
+        from nodes.market_monitor.scanner import MarketScanner
+        assert hasattr(MarketScanner, '_stop_cleanup')
+
+    def test_stop_calls_cleanup(self):
+        """stop()应调用_stop_cleanup"""
+        from nodes.market_monitor.scanner import MarketScanner
+        source = inspect.getsource(MarketScanner.stop)
+        assert "_stop_cleanup" in source
+
+    def test_stop_cleanup_contains_key_steps(self):
+        """_stop_cleanup应包含清仓+持久化+数据源关闭"""
+        from nodes.market_monitor.scanner import MarketScanner
+        source = inspect.getsource(MarketScanner._stop_cleanup)
+        assert "_sell_all_positions" in source
+        assert "_persist_stop_state" in source
+        assert "_data_router" in source
+
+    def test_stop_line_count(self):
+        """stop()行数应≤25(v2.9.55:清理提取)"""
+        from nodes.market_monitor.scanner import MarketScanner
+        lines = inspect.getsource(MarketScanner.stop).split('\n')
+        assert len(lines) <= 30, f"stop() {len(lines)}行,应≤30"
+
+
+# ---------------------------------------------------------------------------
 # 回测不影响验证
 # ---------------------------------------------------------------------------
 
