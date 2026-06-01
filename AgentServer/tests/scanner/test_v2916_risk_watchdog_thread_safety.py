@@ -86,7 +86,7 @@ class TestCircuitBreakerThreadSafety(unittest.TestCase):
             content = f.read()
         
         # 找到check_circuit_breaker方法体
-        self.assertIn("state_lock = getattr(scanner, '_state_lock', None)", content)
+        self.assertIn("scanner._state_lock", content)
         # 验证读取时加锁
         self.assertIn("with state_lock:", content)
 

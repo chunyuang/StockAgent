@@ -60,6 +60,31 @@ class TestGetattrCleanup:
         source = _read(os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "execution_quality.py"))
         assert "getattr(self._broker," not in source
 
+    def test_runtime_persistence_no_getattr_scanner(self):
+        """runtime_persistence.py不再使用getattr(scanner, ...)访问已知属性"""
+        source = _read(os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "runtime_persistence.py"))
+        # 这些属性全部在_init_state中初始化,不需要getattr
+        assert "getattr(scanner, '_position_risk_levels'" not in source
+        assert "getattr(scanner, '_pending_sells'" not in source
+        assert "getattr(scanner, '_last_snapshot_save'" not in source
+        assert "getattr(scanner, '_trade_date'" not in source
+        assert "getattr(scanner, '_quote_degrade_level'" not in source
+        assert "getattr(scanner, '_limit_pools'" not in source
+        assert "getattr(scanner, '_realtime_cache'" not in source
+
+    def test_signal_manager_no_hasattr_scanner(self):
+        """signal_manager.py不再使用hasattr(scanner, ...)检查已知属性"""
+        source = _read(os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "signal_manager.py"))
+        assert "hasattr(scanner, 'event_bus')" not in source
+        assert "hasattr(scanner, '_event_bus')" not in source
+
+    def test_risk_watchdog_no_getattr_scanner_attrs(self):
+        """risk_watchdog.py不再使用getattr(scanner, '_xxx')访问已知属性"""
+        source = _read(os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "risk_watchdog.py"))
+        assert "getattr(scanner, '_runtime_persistence'" not in source
+        assert "getattr(scanner, '_state_lock'" not in source
+        assert "getattr(scanner, '_loop'" not in source
+
 
 # ─── 2. Broker正式接口 ───
 

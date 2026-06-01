@@ -10,6 +10,7 @@ MarketScanner — 超短量化市场扫描器
 """
 import asyncio
 import logging
+import os
 import threading
 import time
 from datetime import datetime
@@ -213,7 +214,6 @@ class MarketScanner:
         }
 
         # ── 卖出逻辑灰度开关 ──
-        import os
         self.SELL_LOGIC_MODE = os.getenv("SELL_LOGIC_MODE", "legacy")
 
         # ── 数据缓存(主循环写, 风控线程读, _cache_lock保护) ──
@@ -559,7 +559,6 @@ class MarketScanner:
             return {"success": True, "message": "已在运行中"}
 
         # 【Phase1.2:提前初始化线程锁(被premarket_prepare/_load_positions使用)】
-        import threading
         if self._state_lock is None:
             self._state_lock = threading.Lock()
 

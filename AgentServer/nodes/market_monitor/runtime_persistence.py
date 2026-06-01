@@ -153,7 +153,7 @@ class RuntimePersistence:
         
         now = time.time()
         if not force:
-            last_save = getattr(scanner, '_last_snapshot_save', 0)
+            last_save = scanner._last_snapshot_save
             if now - last_save < 5:  # v2.1: 5秒节流(原30秒太长, 崩溃后丢失多)
                 return
         
@@ -165,15 +165,15 @@ class RuntimePersistence:
         # 线程安全读取共享状态
         with scanner._state_lock:
             doc["trailing_stops"] = dict(scanner._trailing_stops)
-            doc["position_risk_levels"] = dict(getattr(scanner, '_position_risk_levels', {}))
-            doc["pending_sells"] = dict(getattr(scanner, '_pending_sells', {}))
+            doc["position_risk_levels"] = dict(scanner._position_risk_levels)
+            doc["pending_sells"] = dict(scanner._pending_sells)
         
         doc["circuit_breaker"] = scanner._circuit_breaker
         doc["stats"] = dict(scanner._stats)
         doc["active_signals_count"] = len(scanner._active_signals)
         doc["dry_run"] = scanner._dry_run
-        doc["trade_date"] = getattr(scanner, '_trade_date', '')  # 【v2.9:快照中保存trade_date,重启后恢复】
-        doc["quote_degrade_level"] = getattr(scanner, '_quote_degrade_level', 0)  # 【v2.9:恢复行情降级状态】
+        doc["trade_date"] = scanner._trade_date
+        doc["quote_degrade_level"] = scanner._quote_degrade_level
         
         saved = False
         
@@ -807,7 +807,7 @@ class RuntimePersistence:
         scanner = self._scanner
         
         # 1. 同步limit_pools → limit_list
-        limit_pools = getattr(scanner, '_limit_pools', {})
+        limit_pools = scanner._limit_pools
         lu_list = limit_pools.get("limit_up", [])
         ld_list = limit_pools.get("limit_down", [])
         broken_list = limit_pools.get("broken", [])
@@ -845,7 +845,7 @@ class RuntimePersistence:
                 logger.info(f"[SCANNER] limit_list同步: {result.upserted_count}新增 {result.modified_count}更新")
         
         # 2. 同步realtime_cache的pct_chg → daily_basic(补pct_chg字段)
-        realtime_cache = getattr(scanner, '_realtime_cache', {})
+        realtime_cache = scanner._realtime_cache
         if realtime_cache:
             pct_ops = []
             synced = 0
