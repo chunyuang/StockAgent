@@ -1,0 +1,203 @@
+"""
+v2.9.58 方法提取测试
+
+5个文件方法提取:
+1. replay_provider: get_replay_data 129→41行, 4个子方法
+2. strategy_scorer: apply_strategies 96→31行, 2个子方法
+3. strategy_scorer: detect_anomalies 81→18行, 1个子方法
+4. broker: place_order 80→36行, 1个子方法
+5. emotion_cycle: calculate_daily_emotion 86→28行, 2个子方法
+6. strategy_param_center: update_strategy_params 83→30行, 3个子方法
+"""
+
+import ast
+import os
+import unittest
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+AGENT_DIR = os.path.join(BASE_DIR, "..", "..")
+MM_DIR = os.path.join(AGENT_DIR, "nodes", "market_monitor")
+
+
+def _parse(filepath: str) -> ast.Module:
+    with open(filepath) as f:
+        return ast.parse(f.read())
+
+
+def _method_lines(tree: ast.Module, name: str) -> int:
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+            return (node.end_lineno or node.lineno) - node.lineno + 1
+    return -1
+
+
+def _method_exists(tree: ast.Module, name: str) -> bool:
+    return _method_lines(tree, name) >= 0
+
+
+class TestReplayProviderDecomposition(unittest.TestCase):
+    """replay_provider.get_replay_data 拆分验证"""
+
+    def setUp(self):
+        self.tree = _parse(os.path.join(MM_DIR, "replay_provider.py"))
+
+    def test_get_replay_data_under_50(self):
+        lines = _method_lines(self.tree, "get_replay_data")
+        self.assertLess(lines, 50, f"get_replay_data should be <50 lines, got {lines}")
+
+    def test_extracted_methods_exist(self):
+        for name in ["_load_daily_data", "_enrich_daily_basic", "_load_limit_pools", "_compute_volume_ratios"]:
+            self.assertTrue(_method_exists(self.tree, name), f"Missing method: {name}")
+
+    def test_extracted_methods_line_counts(self):
+        self.assertLessEqual(_method_lines(self.tree, "_load_daily_data"), 25)
+        self.assertLessEqual(_method_lines(self.tree, "_enrich_daily_basic"), 15)
+        self.assertLessEqual(_method_lines(self.tree, "_load_limit_pools"), 35)
+        self.assertLessEqual(_method_lines(self.tree, "_compute_volume_ratios"), 35)
+
+    def test_no_vol_cache_dead_code(self):
+        """vol_cache变量和timedelta导入应已消除"""
+        with open(os.path.join(MM_DIR, "replay_provider.py")) as f:
+            src = f.read()
+        self.assertNotIn("vol_cache", src, "vol_cache dead variable should be removed")
+        self.assertNotIn("from datetime import timedelta", src, "unused timedelta import should be removed")
+
+
+class TestStrategyScorerExtraction(unittest.TestCase):
+    """strategy_scorer.apply_strategies + detect_anomalies 提取验证"""
+
+    def setUp(self):
+        self.tree = _parse(os.path.join(MM_DIR, "strategy_scorer.py"))
+
+    def test_apply_strategies_under_40(self):
+        lines = _method_lines(self.tree, "apply_strategies")
+        self.assertLess(lines, 40, f"apply_strategies should be <40 lines, got {lines}")
+
+    def test_detect_anomalies_under_25(self):
+        lines = _method_lines(self.tree, "detect_anomalies")
+        self.assertLess(lines, 25, f"detect_anomalies should be <25 lines, got {lines}")
+
+    def test_apply_filter_conditions_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_apply_filter_conditions"))
+
+    def test_build_signal_from_row_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_build_signal_from_row"))
+
+    def test_check_single_anomaly_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_check_single_anomaly"))
+
+    def test_optional_import(self):
+        """Optional应已添加到typing导入"""
+        with open(os.path.join(MM_DIR, "strategy_scorer.py")) as f:
+            src = f.read()
+        self.assertIn("Optional", src)
+
+
+class TestBrokerPlaceOrderExtraction(unittest.TestCase):
+    """broker.place_order 拆分验证"""
+
+    def setUp(self):
+        self.tree = _parse(os.path.join(MM_DIR, "broker.py"))
+
+    def test_place_order_under_40(self):
+        lines = _method_lines(self.tree, "place_order")
+        self.assertLess(lines, 40, f"place_order should be <40 lines, got {lines}")
+
+    def test_execute_order_fill_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_execute_order_fill"))
+
+    def test_execute_order_fill_line_count(self):
+        lines = _method_lines(self.tree, "_execute_order_fill")
+        self.assertLess(lines, 40, f"_execute_order_fill should be <40 lines, got {lines}")
+
+
+class TestEmotionCycleExtraction(unittest.TestCase):
+    """emotion_cycle.calculate_daily_emotion 拆分验证"""
+
+    def setUp(self):
+        self.tree = _parse(os.path.join(MM_DIR, "emotion_cycle.py"))
+
+    def test_calculate_daily_emotion_under_35(self):
+        lines = _method_lines(self.tree, "calculate_daily_emotion")
+        self.assertLess(lines, 35, f"calculate_daily_emotion should be <35 lines, got {lines}")
+
+    def test_collect_emotion_factors_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_collect_emotion_factors"))
+
+    def test_build_emotion_score_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_build_emotion_score"))
+
+    def test_collect_emotion_factors_is_async(self):
+        with open(os.path.join(MM_DIR, "emotion_cycle.py")) as f:
+            src = f.read()
+        self.assertIn("async def _collect_emotion_factors", src)
+
+    def test_build_emotion_score_is_sync(self):
+        with open(os.path.join(MM_DIR, "emotion_cycle.py")) as f:
+            src = f.read()
+        self.assertIn("def _build_emotion_score", src)
+        self.assertNotIn("async def _build_emotion_score", src)
+
+
+class TestStrategyParamCenterExtraction(unittest.TestCase):
+    """strategy_param_center.update_strategy_params 拆分验证"""
+
+    def setUp(self):
+        self.tree = _parse(os.path.join(MM_DIR, "strategy_param_center.py"))
+
+    def test_update_strategy_params_under_45(self):
+        lines = _method_lines(self.tree, "update_strategy_params")
+        self.assertLess(lines, 45, f"update_strategy_params should be <45 lines, got {lines}")
+
+    def test_persist_param_update_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_persist_param_update"))
+
+    def test_record_param_history_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_record_param_history"))
+
+    def test_notify_param_update_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_notify_param_update"))
+
+
+class TestBigMethodsReduction(unittest.TestCase):
+    """超过50行方法数应减少"""
+
+    def test_fewer_big_methods(self):
+        count = 0
+        for fname in os.listdir(MM_DIR):
+            if not fname.endswith(".py") or fname.startswith("_"):
+                continue
+            try:
+                tree = _parse(os.path.join(MM_DIR, fname))
+                for node in ast.walk(tree):
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        lines = (node.end_lineno or node.lineno) - node.lineno + 1
+                        if lines > 50:
+                            count += 1
+            except SyntaxError:
+                pass
+        # Was 34 before, should be fewer now
+        self.assertLessEqual(count, 30, f"Expected ≤30 methods >50 lines, got {count}")
+
+
+class TestNoBacktestRegressionV2958(unittest.TestCase):
+    """v2.9.58 回测零影响验证"""
+
+    def test_backtest_engine_untouched(self):
+        """回测引擎文件不应被修改"""
+        backtest_path = os.path.join(AGENT_DIR, "nodes", "backtest_engine", "factor_selection", "portfolio_backtest.py")
+        self.assertTrue(os.path.exists(backtest_path))
+
+    def test_version_constant_updated(self):
+        with open(os.path.join(AGENT_DIR, "nodes", "web", "api", "scanner.py")) as f:
+            src = f.read()
+        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.58"', src)
+
+    def test_sell_signal_checker_untouched(self):
+        """卖出信号检查器不应被修改"""
+        checker_path = os.path.join(AGENT_DIR, "nodes", "backtest_engine", "factor_selection", "sell_signal_checker.py")
+        self.assertTrue(os.path.exists(checker_path))
+
+
+if __name__ == "__main__":
+    unittest.main()

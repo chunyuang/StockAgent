@@ -134,82 +134,73 @@ class StrategyParamCenter:
         updated_by: str = "api",
         comment: str = "",
     ) -> bool:
-        """
-        更新策略参数
-        
-        1. 合并到当前参数
-        2. 写入MongoDB
-        3. 记录历史
-        4. 通知Scanner(热更新)
-        """
+        """更新策略参数(编排方法: 合并→写入→历史→通知→审计)"""
         try:
             from core.managers import mongo_manager
             if mongo_manager.db is None:
                 logger.warning("[PARAMS] MongoDB未连接, 无法更新参数")
                 return False
-            
-            # 获取当前参数
+
             current = await self.get_strategy_params(strategy_id)
-            
-            # 【Phase2.3:危险参数告警】
+
             danger_warnings = self.check_dangerous_params(strategy_id, updates)
-            if danger_warnings:
-                for w in danger_warnings:
-                    logger.warning(f"[PARAMS] {w}")
-            
-            # 深度合并updates到current
+            for w in danger_warnings:
+                logger.warning(f"[PARAMS] {w}")
+
             merged = self._deep_merge(current, updates)
             merged["strategy_id"] = strategy_id
             merged["updated_at"] = datetime.now().isoformat()
             merged["updated_by"] = updated_by
-            
-            # 写入MongoDB (upsert)
-            await mongo_manager.db[self.COLLECTION].update_one(
-                {"strategy_id": strategy_id},
-                {"$set": merged},
-                upsert=True,
-            )
-            
-            # 记录历史
-            history_doc = {
-                "strategy_id": strategy_id,
-                "before": current,
-                "after": deepcopy(merged),
-                "updates": updates,
-                "updated_by": updated_by,
-                "comment": comment,
-                "timestamp": datetime.now().isoformat(),
-            }
-            await mongo_manager.db[self.HISTORY_COLLECTION].insert_one(history_doc)
-            
-            # 更新缓存
+
+            await self._persist_param_update(strategy_id, merged)
+            await self._record_param_history(strategy_id, current, merged, updates, updated_by, comment)
+
             self._cache[strategy_id] = merged
-            
-            # 通知Scanner热更新
-            if self._on_update:
-                try:
-                    await self._on_update(strategy_id, merged)
-                    logger.info(f"[PARAMS] 热更新通知已发送: {strategy_id}")
-                except Exception as e:
-                    logger.warning(f"[PARAMS] 热更新通知失败: {e}")
-            
-            # 【Phase2.3:参数变更审计日志】
+
+            await self._notify_param_update(strategy_id, merged)
             asyncio.create_task(
-                self._write_param_audit_log(
-                    strategy_id, updates, updated_by, danger_warnings,
-                    before=current, after=merged
-                )
+                self._write_param_audit_log(strategy_id, updates, updated_by, danger_warnings, before=current, after=merged)
             )
-            
-            logger.info(
-                f"[PARAMS] 参数已更新: {strategy_id}, "
-                f"fields={list(updates.keys())}, by={updated_by}"
-            )
+
+            logger.info(f"[PARAMS] 参数已更新: {strategy_id}, fields={list(updates.keys())}, by={updated_by}")
             return True
-            
+
         except Exception as e:
             logger.error(f"[PARAMS] 更新失败: {e}")
             return False
+
+    async def _persist_param_update(self, strategy_id: str, merged: Dict) -> None:
+        """将合并后参数写入MongoDB"""
+        from core.managers import mongo_manager
+        await mongo_manager.db[self.COLLECTION].update_one(
+            {"strategy_id": strategy_id}, {"$set": merged}, upsert=True,
+        )
+
+    async def _record_param_history(
+        self, strategy_id: str, before: Dict, after: Dict,
+        updates: Dict, updated_by: str, comment: str,
+    ) -> None:
+        """记录参数变更历史"""
+        from core.managers import mongo_manager
+        history_doc = {
+            "strategy_id": strategy_id,
+            "before": before,
+            "after": deepcopy(after),
+            "updates": updates,
+            "updated_by": updated_by,
+            "comment": comment,
+            "timestamp": datetime.now().isoformat(),
+        }
+        await mongo_manager.db[self.HISTORY_COLLECTION].insert_one(history_doc)
+
+    async def _notify_param_update(self, strategy_id: str, merged: Dict) -> None:
+        """通知Scanner热更新"""
+        if self._on_update:
+            try:
+                await self._on_update(strategy_id, merged)
+                logger.info(f"[PARAMS] 热更新通知已发送: {strategy_id}")
+            except Exception as e:
+                logger.warning(f"[PARAMS] 热更新通知失败: {e}")
     
     async def reset_to_defaults(self, strategy_id: str) -> bool:
         """重置策略参数为默认值"""

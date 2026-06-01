@@ -110,87 +110,87 @@ class EmotionCycleManager:
         trade_date: str,
         limit_stocks: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> EmotionScore:
-        """
-        计算当日市场情绪得分
-        
-        Args:
-            trade_date: 交易日 YYYYMMDD
-            limit_stocks: 当日涨跌停列表（可选，从 snapshot 获取）
-            
-        Returns:
-            EmotionScore 情绪得分结果
-        """
-        # 检查缓存
+        """计算当日市场情绪得分(编排方法)"""
         if trade_date in self._cache:
             return self._cache[trade_date]
-        
-        # 1. 获取涨跌停数量
+
+        # 1-4. 收集情绪因子数据
+        factors = await self._collect_emotion_factors(trade_date, limit_stocks)
+
+        # 5. 综合打分
+        score = self._compute_score(**factors)
+
+        # 6. 判断情绪阶段
+        phase = self._score_to_phase(score)
+
+        # 7. 构建结果
+        result = self._build_emotion_score(trade_date, score, phase, factors)
+        self._cache[trade_date] = result
+
+        logger.info(
+            f"[EMOTION] {trade_date}: score={score:.1f}, phase={phase.value}, "
+            f"涨停={factors['limit_up_count']}, 跌停={factors['limit_down_count']}, "
+            f"最高连板={factors['max_continue_limit']}, 仓位乘数={result.position_multiplier:.2f}"
+        )
+        return result
+
+    async def _collect_emotion_factors(
+        self, trade_date: str, limit_stocks: Optional[Dict] = None,
+    ) -> Dict[str, Any]:
+        """收集情绪计算所需的5个因子"""
+        # 涨跌停数量
         if limit_stocks is not None:
-            # 从 snapshot 中统计
             limit_up_count = sum(1 for v in limit_stocks.values() if v.get("limit_type") == "U")
             limit_down_count = sum(1 for v in limit_stocks.values() if v.get("limit_type") == "D")
         else:
-            # 从 MongoDB 查询
             query = {"trade_date": int(trade_date), "is_limit_up": True}
             limit_up_count = await mongo_manager.count(C.LIMIT_LIST, query)
             query = {"trade_date": int(trade_date), "is_limit_down": True}
             limit_down_count = await mongo_manager.count(C.LIMIT_LIST, query)
-        
-        # 2. 获取最高连板高度
+
+        # 最高连板高度
         max_continue_limit = await self._get_max_continuation_limit(trade_date, limit_up_count)
-        
-        # 3. 获取涨跌家数
+
+        # 涨跌家数
         up_count, down_count = await self._get_up_down_counts(trade_date)
-        if up_count + down_count > 0:
-            up_down_ratio = up_count / (up_count + down_count)
-        else:
-            up_down_ratio = 0.5
-        
-        # 4. 计算昨日涨停溢价
+        up_down_ratio = up_count / (up_count + down_count) if (up_count + down_count) > 0 else 0.5
+
+        # 昨日涨停溢价
         zt_premium = await self._calculate_zt_premium(trade_date)
-        
-        # 5. 综合打分
-        score = self._compute_score(
-            limit_up_count=limit_up_count,
-            limit_down_count=limit_down_count,
-            max_continue_limit=max_continue_limit,
-            up_down_ratio=up_down_ratio,
-            zt_premium=zt_premium,
-        )
-        
-        # 6. 判断情绪阶段
-        phase = self._score_to_phase(score)
-        
-        # 7. 获取仓位建议
+
+        return {
+            "limit_up_count": limit_up_count,
+            "limit_down_count": limit_down_count,
+            "max_continue_limit": max_continue_limit,
+            "up_down_ratio": up_down_ratio,
+            "zt_premium": zt_premium,
+            "up_count": up_count,
+            "down_count": down_count,
+        }
+
+    def _build_emotion_score(
+        self, trade_date: str, score: float, phase: EmotionPhase, factors: Dict,
+    ) -> EmotionScore:
+        """构建EmotionScore结果对象"""
         position_multiplier = self.POSITION_MULTIPLIER[phase]
         can_open_position = self.CAN_OPEN[phase]
-        
-        result = EmotionScore(
+        zt_premium = factors["zt_premium"]
+
+        return EmotionScore(
             date=trade_date,
             score=score,
             phase=phase,
-            limit_up_count=limit_up_count,
-            limit_down_count=limit_down_count,
-            max_continue_limit=max_continue_limit,
-            up_count=up_count,
-            down_count=down_count,
-            up_down_ratio=up_down_ratio,
+            limit_up_count=factors["limit_up_count"],
+            limit_down_count=factors["limit_down_count"],
+            max_continue_limit=factors["max_continue_limit"],
+            up_count=factors["up_count"],
+            down_count=factors["down_count"],
+            up_down_ratio=factors["up_down_ratio"],
             ZT_premium=zt_premium,
             zt_premium=zt_premium,
             position_multiplier=position_multiplier,
             can_open_position=can_open_position,
         )
-        
-        # 缓存
-        self._cache[trade_date] = result
-        
-        logger.info(
-            f"[EMOTION] {trade_date}: score={score:.1f}, phase={phase.value}, "
-            f"涨停={limit_up_count}, 跌停={limit_down_count}, "
-            f"最高连板={max_continue_limit}, 仓位乘数={position_multiplier:.2f}"
-        )
-        
-        return result
     
     async def _get_max_continuation_limit(self, trade_date: str, limit_up_count: int) -> int:
         """获取当日最高连板高度

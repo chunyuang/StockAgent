@@ -182,10 +182,10 @@ class TestVersionSync(unittest.TestCase):
     """版本号同步"""
 
     def test_web_api_version(self):
-        """Web API版本号应为v2.9.57"""
+        """Web API版本号应为v2.9.58"""
         with open(WEB_API_PATH) as f:
             src = f.read()
-        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.57"', src)
+        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.58"', src)
 
 
 class TestNoBacktestRegression(unittest.TestCase):

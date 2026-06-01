@@ -37,23 +37,49 @@ class ReplayDataProvider:
         return self._db
 
     def get_replay_data(self, trade_date: str) -> Dict[str, dict]:
-        """获取指定日期的模拟实时行情
+        """获取指定日期的模拟实时行情(编排方法)
 
         将stock_daily_ak_full日线数据转为scanner期望的格式:
         {ts_code: {price, pct_chg, turnover_rate, volume_ratio, pe, pb, ...}}
-
-        同时从daily_basic补充PE/PB/换手率/流通市值等字段
         """
         if trade_date in self._cache:
             return self._cache[trade_date]
 
         logger.info(f"[REPLAY] 加载 {trade_date} 历史数据...")
 
-        # trade_date可能是字符串或整数, 兼容处理
         td_int = int(trade_date) if isinstance(trade_date, str) else trade_date
-        td_str = str(trade_date)
 
         # 1. 日线数据
+        daily_data = self._load_daily_data(td_int)
+
+        # 2. daily_basic补充PE/PB/换手率/流通市值
+        self._enrich_daily_basic(td_int, daily_data)
+
+        # 3. 涨停池/跌停池
+        limit_up_list, limit_down_list = self._load_limit_pools(td_int, daily_data)
+
+        # 4. 计算量比
+        self._compute_volume_ratios(trade_date, td_int, daily_data)
+
+        result = {
+            'realtime': daily_data,
+            'limit_up': limit_up_list,
+            'limit_down': limit_down_list,
+            'broken': [],
+            'total_stocks': len(daily_data),
+        }
+        self._cache[trade_date] = result
+        self._current_date = trade_date
+
+        logger.info(
+            f"[REPLAY] 加载完成: {trade_date} | "
+            f"{len(daily_data)}只股票 | "
+            f"涨停{len(limit_up_list)} | 跌停{len(limit_down_list)}"
+        )
+        return result
+
+    def _load_daily_data(self, td_int: int) -> Dict[str, dict]:
+        """从stock_daily_ak_full加载日线数据"""
         daily_col = self.db['stock_daily_ak_full']
         daily_data = {}
         for doc in daily_col.find({'trade_date': td_int}):
@@ -70,8 +96,10 @@ class ReplayDataProvider:
                 'volume': doc.get('vol', 0),
                 'name': doc.get('name', ''),
             }
+        return daily_data
 
-        # 2. daily_basic补充PE/PB/换手率/流通市值
+    def _enrich_daily_basic(self, td_int: int, daily_data: Dict[str, dict]) -> None:
+        """从daily_basic补充PE/PB/换手率/流通市值"""
         basic_col = self.db['daily_basic']
         for doc in basic_col.find({'trade_date': td_int}):
             code = doc.get('ts_code', '')
@@ -80,64 +108,61 @@ class ReplayDataProvider:
                     'pe': doc.get('pe_ttm'),
                     'pb': doc.get('pb'),
                     'turnover_rate': doc.get('turnover_rate'),
-                    'float_mv': doc.get('circ_mv'),  # 流通市值(万元)
+                    'float_mv': doc.get('circ_mv'),
                     'total_mv': doc.get('total_mv'),
                 })
 
-        # 3. 涨停池/跌停池
+    def _load_limit_pools(self, td_int: int, daily_data: Dict[str, dict]) -> tuple:
+        """加载涨停池/跌停池数据"""
         limit_up_list = []
         limit_down_list = []
-        
+
         if 'limit_pool_up' in self.db.list_collection_names():
-            limit_up_col = self.db['limit_pool_up']
-            for doc in limit_up_col.find({'trade_date': td_int}):
+            for doc in self.db['limit_pool_up'].find({'trade_date': td_int}):
                 code = doc.get('ts_code', '')
-                item = {
+                limit_up_list.append({
                     'ts_code': code,
                     'name': daily_data.get(code, {}).get('name', doc.get('name', '')),
                     'pct_chg': daily_data.get(code, {}).get('pct_chg', 10.0),
                     'limit_times': doc.get('limit_times', 1),
-                    'fd_amount': doc.get('fd_amount', 0),  # 封单金额(万)
+                    'fd_amount': doc.get('fd_amount', 0),
                     'up_stat': doc.get('up_stat', ''),
                     'limit': doc.get('limit', 0),
-                }
-                limit_up_list.append(item)
+                })
 
         if 'limit_pool_down' in self.db.list_collection_names():
-            limit_down_col = self.db['limit_pool_down']
-            for doc in limit_down_col.find({'trade_date': td_int}):
+            for doc in self.db['limit_pool_down'].find({'trade_date': td_int}):
                 code = doc.get('ts_code', '')
-                item = {
+                limit_down_list.append({
                     'ts_code': code,
                     'name': daily_data.get(code, {}).get('name', doc.get('name', '')),
                     'pct_chg': daily_data.get(code, {}).get('pct_chg', -10.0),
                     'limit_times': doc.get('limit_times', 1),
                     'fd_amount': doc.get('fd_amount', 0),
-                }
-                limit_down_list.append(item)
+                })
 
-        # 4. 计算量比 (volume_ratio) — 简化: 用当日vol / 5日均vol
-        # 从最近5天数据计算
-        from datetime import timedelta
-        vol_cache = {}
-        for doc in daily_col.find({'trade_date': trade_date}):
-            vol_cache[doc.get('ts_code', '')] = doc.get('vol', 0)
+        return limit_up_list, limit_down_list
 
-        # 取前5天数据
-        prev_vols = {}  # ts_code -> [vol1, vol2, ...]
-        # 简化：用trade_cal找前5个交易日
+    def _compute_volume_ratios(self, trade_date, td_int: int, daily_data: Dict[str, dict]) -> None:
+        """计算量比(当日vol / 5日均vol)"""
+        daily_col = self.db['stock_daily_ak_full']
+
+        # 获取前5个交易日
         prev_dates = []
         if 'trade_cal' in self.db.list_collection_names():
-            cal_col = self.db['trade_cal']
-            for doc in cal_col.find({'is_open': 1, 'cal_date': {'$lt': td_int}}).sort('cal_date', -1).limit(5):
+            for doc in self.db['trade_cal'].find(
+                {'is_open': 1, 'cal_date': {'$lt': td_int}}
+            ).sort('cal_date', -1).limit(5):
                 prev_dates.append(doc['cal_date'])
 
-            if prev_dates:
-                for doc in daily_col.find({'trade_date': {'$in': [int(d) for d in prev_dates]}}):
-                    code = doc.get('ts_code', '')
-                    if code not in prev_vols:
-                        prev_vols[code] = []
-                    prev_vols[code].append(doc.get('vol', 0))
+        # 获取前5日成交量
+        prev_vols: Dict[str, list] = {}
+        if prev_dates:
+            for doc in daily_col.find({'trade_date': {'$in': [int(d) for d in prev_dates]}}):
+                code = doc.get('ts_code', '')
+                if code not in prev_vols:
+                    prev_vols[code] = []
+                prev_vols[code].append(doc.get('vol', 0))
 
         # 计算量比
         for code, data in daily_data.items():
@@ -147,24 +172,7 @@ class ReplayDataProvider:
                 avg_vol = sum(pv) / len(pv)
                 data['volume_ratio'] = round(cur_vol / avg_vol, 2) if avg_vol > 0 else 0
             else:
-                data['volume_ratio'] = 1.0  # 默认
-
-        self._cache[trade_date] = {
-            'realtime': daily_data,
-            'limit_up': limit_up_list,
-            'limit_down': limit_down_list,
-            'broken': [],  # 炸板池暂无历史数据
-            'total_stocks': len(daily_data),
-        }
-
-        self._current_date = trade_date
-        logger.info(
-            f"[REPLAY] 加载完成: {trade_date} | "
-            f"{len(daily_data)}只股票 | "
-            f"涨停{len(limit_up_list)} | 跌停{len(limit_down_list)}"
-        )
-
-        return self._cache[trade_date]
+                data['volume_ratio'] = 1.0
 
     def get_realtime(self, trade_date: str) -> Dict[str, dict]:
         """获取模拟实时行情(兼容_fetch_realtime_batch返回格式)"""

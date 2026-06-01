@@ -1,4 +1,4 @@
-"""v2.9.57: _StepTimer提取 + _scan_loop阶段处理程序 + start初始化序列提取
+"""v2.9.58: _StepTimer提取 + _scan_loop阶段处理程序 + start初始化序列提取
 
 变更:
 - 🟡 _StepTimer上下文管理器: scan_once 7个计时变量→with timer.step()
@@ -96,7 +96,7 @@ class TestScanOnceRefactoring:
         assert "step3_ms" not in source
 
     def test_scan_once_line_count(self):
-        """scan_once行数应≤70(v2.9.57:_StepTimer简化)"""
+        """scan_once行数应≤70(v2.9.58:_StepTimer简化)"""
         from nodes.market_monitor.scanner import MarketScanner
         lines = inspect.getsource(MarketScanner.scan_once).split('\n')
         assert len(lines) <= 70, f"scan_once {len(lines)}行,应≤70"
@@ -133,7 +133,7 @@ class TestScanLoopPhaseHandlers:
         assert "_handle_premarket_phase" in source
 
     def test_scan_loop_line_count(self):
-        """_scan_loop行数应≤50(v2.9.57:阶段处理提取)"""
+        """_scan_loop行数应≤50(v2.9.58:阶段处理提取)"""
         from nodes.market_monitor.scanner import MarketScanner
         lines = inspect.getsource(MarketScanner._scan_loop).split('\n')
         assert len(lines) <= 50, f"_scan_loop {len(lines)}行,应≤50"
@@ -180,7 +180,7 @@ class TestStartInitSequence:
         assert "_restore_start_state" in source
 
     def test_start_line_count(self):
-        """start()行数应<30行有效代码(v2.9.57:初始化序列提取)"""
+        """start()行数应<30行有效代码(v2.9.58:初始化序列提取)"""
         from nodes.market_monitor.scanner import MarketScanner
         source = inspect.getsource(MarketScanner.start)
         lines = [l for l in source.split('\n') if l.strip() and not l.strip().startswith('#')]
@@ -220,7 +220,7 @@ class TestPremarketPrepareExtraction:
         assert "_load_positions" in source
 
     def test_premarket_prepare_line_count(self):
-        """premarket_prepare行数应≤25(v2.9.57:数据加载提取)"""
+        """premarket_prepare行数应≤25(v2.9.58:数据加载提取)"""
         from nodes.market_monitor.scanner import MarketScanner
         lines = inspect.getsource(MarketScanner.premarket_prepare).split('\n')
         assert len(lines) <= 25, f"premarket_prepare {len(lines)}行,应≤25"
@@ -253,7 +253,7 @@ class TestStopCleanupExtraction:
         assert "_data_router" in source
 
     def test_stop_line_count(self):
-        """stop()行数应≤25(v2.9.57:清理提取)"""
+        """stop()行数应≤25(v2.9.58:清理提取)"""
         from nodes.market_monitor.scanner import MarketScanner
         lines = inspect.getsource(MarketScanner.stop).split('\n')
         assert len(lines) <= 30, f"stop() {len(lines)}行,应≤30"
@@ -264,7 +264,7 @@ class TestStopCleanupExtraction:
 # ---------------------------------------------------------------------------
 
 class TestNoBacktestRegressionV2955:
-    """验证v2.9.57变更不影响回测模块"""
+    """验证v2.9.58变更不影响回测模块"""
 
     def test_sell_signal_checker_importable(self):
         """SellSignalChecker仍可正常导入"""
@@ -296,10 +296,10 @@ class TestNoBacktestRegressionV2955:
             assert os.path.exists(full_path), f"回测文件不存在: {f}"
 
     def test_version_constant_updated(self):
-        """版本常量更新为v2.9.57"""
+        """版本常量更新为v2.9.58"""
         import os
         base_dir = os.path.dirname(os.path.abspath(__file__))
         project_root = os.path.abspath(os.path.join(base_dir, "..", ".."))
         with open(os.path.join(project_root, "nodes/web/api/scanner.py")) as f:
             source = f.read()
-        assert '_DESIGN_DOC_VERSION = "v2.9.57"' in source
+        assert '_DESIGN_DOC_VERSION = "v2.9.58"' in source
