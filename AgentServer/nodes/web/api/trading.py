@@ -292,21 +292,28 @@ async def get_positions(
             sort=[("created_at", -1)]
         )
         
-        positions = []
-        for record in records:
-            # 从MongoDB获取最新收盘价作为当前价格
-            ts_code = record["ts_code"]
-            avg_cost = record["avg_cost"]
+        # 【v2.9.49】P1性能优化: 批量查询最新收盘价, 避免N+1查询
+        ts_codes = list(set(r["ts_code"] for r in records))
+        price_map: Dict[str, float] = {}
+        if ts_codes:
             try:
                 from core.managers.mongo_manager import mongo_manager as _mm
-                latest = await _mm.db.stock_daily_ak_full.find_one(
-                    {'ts_code': ts_code},
-                    sort=[('trade_date', -1)],
-                    projection={'close': 1}
-                )
-                current_price = latest['close'] if latest and latest.get('close', 0) > 0 else avg_cost
-            except Exception:
-                current_price = avg_cost
+                pipeline = [
+                    {"$match": {"ts_code": {"$in": ts_codes}}},
+                    {"$sort": {"ts_code": 1, "trade_date": -1}},
+                    {"$group": {"_id": "$ts_code", "close": {"$first": "$close"}}},
+                ]
+                async for doc in _mm.db.stock_daily_ak_full.aggregate(pipeline):
+                    if doc.get("close", 0) > 0:
+                        price_map[doc["_id"]] = doc["close"]
+            except Exception as e:
+                logger.warning(f"Batch price query failed, falling back to avg_cost: {e}")
+        
+        positions = []
+        for record in records:
+            ts_code = record["ts_code"]
+            avg_cost = record["avg_cost"]
+            current_price = price_map.get(ts_code, avg_cost)
             quantity = record["quantity"]
             profit = (current_price - avg_cost) * quantity if current_price and avg_cost else 0
             profit_pct = (current_price - avg_cost) / avg_cost if avg_cost > 0 and current_price else 0
@@ -415,6 +422,9 @@ async def get_trading_signals(
         query = {}
         if only_unexecuted:
             query["status"] = SignalStatus.PENDING
+        # 【v2.9.49】P0安全修复: 信号按用户过滤,防止越权访问
+        if user_id:
+            query["user_id"] = user_id
         
         total = await mongo_manager.count(C.TRADING_SIGNALS, query)
         

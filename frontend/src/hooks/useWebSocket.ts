@@ -10,6 +10,7 @@
 
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useTaskStore } from '@/stores/task'
+import { useScannerStore } from '@/stores/scanner'
 import type { WSMessage } from '@/api/types'
 
 // ==================== 类型定义 ====================
@@ -54,14 +55,21 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   
   // 获取 Store
   const taskStore = useTaskStore()
+  let scannerStore: ReturnType<typeof useScannerStore> | null = null
+  try {
+    scannerStore = useScannerStore()
+  } catch {
+    // ScannerStore可能未在当前上下文中初始化
+  }
   
   // ==================== 核心方法 ====================
   
   function getWsUrl(): string {
-    const token = localStorage.getItem('access_token')
+    // 【v2.9.49】P0安全修复: Token不再拼入URL(避免泄漏到日志/DevTools)
+    // 改用首条消息认证, WebSocket连接后再发送auth消息
     const baseUrl = import.meta.env.VITE_WS_URL || 
       `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`
-    return `${baseUrl}/ws?token=${token}`
+    return `${baseUrl}/ws`
   }
   
   function connect(): void {
@@ -80,8 +88,13 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     try {
       wsInstance = new WebSocket(getWsUrl())
       
+      // 【v2.9.49】连接成功后发送auth消息(替代URL token)
       wsInstance.onopen = () => {
         console.log('[WebSocket] Connected')
+        const token = localStorage.getItem('access_token')
+        if (token) {
+          wsInstance!.send(JSON.stringify({ type: 'auth', token }))
+        }
         status.value = 'connected'
         retryCount.value = 0
         startHeartbeat()
@@ -198,6 +211,32 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         case 'connected':
           console.log('[WebSocket] Server confirmed connection', message.user_id)
           break
+          
+        // 【v2.9.49】P1修复: Scanner事件类型映射
+        // Bridge发送scanner_signal/position/timeline/status, Store期望signal/position/timeline/status
+        case 'scanner_signal':
+          if (scannerStore) {
+            scannerStore.updateFromWs('signal', { item: message.signals?.[0] || message.item })
+          }
+          break
+          
+        case 'scanner_position':
+          if (scannerStore) {
+            scannerStore.updateFromWs('position', { positions: message.positions, account: message.account })
+          }
+          break
+          
+        case 'scanner_timeline':
+          if (scannerStore) {
+            scannerStore.updateFromWs('timeline', { item: message.item })
+          }
+          break
+          
+        case 'scanner_status':
+          if (scannerStore) {
+            scannerStore.updateFromWs('status', message.status || message)
+          }
+          break
       }
       
     } catch (error) {
@@ -245,11 +284,34 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     retryCount.value = 0
   }
   
+  // ==================== 引用计数(防止最后一个用户卸载后连接泄漏) ====================
+  let refCount = 0
+  
+  function acquire(): void {
+    refCount++
+    if (refCount === 1 && status.value !== 'connected') {
+      connect()
+    }
+  }
+  
+  function release(): void {
+    refCount = Math.max(0, refCount - 1)
+    if (refCount === 0 && status.value === 'connected') {
+      // 【v2.9.49】最后一个使用者释放时断开连接
+      console.log('[WebSocket] Last subscriber released, disconnecting')
+      disconnect()
+    }
+  }
+  
   // ==================== 订阅管理 ====================
   
   function subscribe(callback: (message: WSMessage) => void): () => void {
     subscribers.add(callback)
-    return () => subscribers.delete(callback)
+    acquire()
+    return () => {
+      subscribers.delete(callback)
+      release()
+    }
   }
   
   // ==================== 生命周期 ====================

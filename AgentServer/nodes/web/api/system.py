@@ -96,15 +96,13 @@ async def health_check() -> Dict[str, Any]:
     
     # 6. 数据完整性检查
     try:
-        from pymongo import MongoClient as SyncClient
-        from core.settings import settings as app_settings
-        client = SyncClient(app_settings.mongo.host, app_settings.mongo.port, serverSelectionTimeoutMS=3000)
-        db = client[app_settings.mongo.database]
-        daily_count = db.stock_daily_ak_full.count_documents({})
-        basic_count = db.daily_basic.count_documents({})
-        latest = list(db.stock_daily_ak_full.find({}, {'trade_date': 1}).sort('trade_date', -1).limit(1))
-        latest_date = str(latest[0]['trade_date']) if latest else '无数据'
-        client.close()
+        # 【v2.9.49】P2修复: 异步查询, 避免同步pymongo阻塞事件循环
+        from core.managers import mongo_manager
+        daily_count = await mongo_manager.count_documents("stock_daily_ak_full", {})
+        basic_count = await mongo_manager.count_documents("daily_basic", {})
+        latest_cursor = mongo_manager.db.stock_daily_ak_full.find({}, {'trade_date': 1}).sort('trade_date', -1).limit(1)
+        latest_doc = await latest_cursor.to_list(length=1)
+        latest_date = str(latest_doc[0]['trade_date']) if latest_doc else '无数据'
         
         data_msg = f"日线{daily_count//1000}K条, 基础{basic_count//1000}K条, 最新日期{latest_date}"
         if daily_count > 0:
@@ -742,19 +740,20 @@ def _factor_to_group(factor: str) -> str:
     return mapping.get(factor, 'basic')
 
 
-def _get_factor_detail(db, date_str: str, factors: list) -> dict:
-    """获取指定日期每个因子的覆盖率(单次聚合)"""
+async def _get_factor_detail(db, date_str: str, factors: list) -> dict:
+    """获取指定日期每个因子的覆盖率(单次聚合) - 异步版本"""
     d = int(date_str) if isinstance(date_str, str) else date_str
-    total = db.stock_daily_ak_full.count_documents({'trade_date': d})
+    total = await db.stock_daily_ak_full.count_documents({'trade_date': d})
     if total == 0:
         return {f: 0 for f in factors}
     group_fields = {'total': {'$sum': 1}}
     for f in factors:
         group_fields[f'{f}_cnt'] = {'$sum': {'$cond': [{'$ne': [{'$type': f'${f}'}, 'missing']}, 1, 0]}}
-    result = list(db.stock_daily_ak_full.aggregate([
+    cursor = db.stock_daily_ak_full.aggregate([
         {'$match': {'trade_date': d}},
         {'$group': {'_id': None, **group_fields}}
-    ]))
+    ])
+    result = await cursor.to_list(length=None)
     if not result:
         return {f: 0 for f in factors}
     r = result[0]
@@ -765,24 +764,25 @@ def _get_factor_detail(db, date_str: str, factors: list) -> dict:
 async def get_data_status() -> Dict[str, Any]:
     """获取数据层状态：各集合记录数、因子覆盖率、最新数据日期"""
     try:
-        from pymongo import MongoClient as SyncClient
-        from core.settings import settings as app_settings
-        client = SyncClient(app_settings.mongo.host, app_settings.mongo.port)
-        db = client[app_settings.mongo.database]
+        # 【v2.9.49】P2修复: 全部改用异步mongo_manager, 消除同步pymongo阻塞
+        from core.managers import mongo_manager
+        db = mongo_manager.db
 
         # 集合记录数 + 日期范围
         collections = {}
         for name in ['stock_daily_ak_full', 'daily_basic', 'index_daily', 'limit_list', 'limit_pool_down', 'backtest_tasks']:
             try:
-                cnt = db[name].count_documents({})
+                cnt = await mongo_manager.count_documents(name, {})
                 # 日期范围(只对有trade_date字段的集合查询)
                 date_range = None
                 if cnt > 0:
                     try:
-                        first = list(db[name].find({}, {'trade_date': 1}).sort('trade_date', 1).limit(1))
-                        last = list(db[name].find({}, {'trade_date': 1}).sort('trade_date', -1).limit(1))
-                        if first and last and 'trade_date' in first[0] and 'trade_date' in last[0]:
-                            date_range = {'start': str(first[0]['trade_date']), 'end': str(last[0]['trade_date'])}
+                        first_cursor = db[name].find({}, {'trade_date': 1}).sort('trade_date', 1).limit(1)
+                        last_cursor = db[name].find({}, {'trade_date': 1}).sort('trade_date', -1).limit(1)
+                        first_list = await first_cursor.to_list(length=1)
+                        last_list = await last_cursor.to_list(length=1)
+                        if first_list and last_list and 'trade_date' in first_list[0] and 'trade_date' in last_list[0]:
+                            date_range = {'start': str(first_list[0]['trade_date']), 'end': str(last_list[0]['trade_date'])}
                     except Exception:
                         pass  # backtest_tasks等集合没有trade_date字段
                 collections[name] = {'count': cnt, 'date_range': date_range}
@@ -807,10 +807,12 @@ async def get_data_status() -> Dict[str, Any]:
         for f in all_factors:
             group_fields[f'{f}_count'] = {'$sum': {'$cond': [{'$ne': [{'$type': f'${f}'}, 'missing']}, 1, 0]}}
 
-        agg_result = list(db.stock_daily_ak_full.aggregate([
+        # 【v2.9.49】异步聚合查询
+        agg_cursor = db.stock_daily_ak_full.aggregate([
             {'$group': {'_id': '$trade_date', **group_fields}},
             {'$sort': {'_id': 1}}
-        ]))
+        ])
+        agg_result = await agg_cursor.to_list(length=None)
 
         for doc in agg_result:
             d = str(doc['_id'])
@@ -838,8 +840,10 @@ async def get_data_status() -> Dict[str, Any]:
             })
 
         # 最新数据日期
-        last_daily = list(db.stock_daily_ak_full.find({}, {'trade_date': 1}).sort('trade_date', -1).limit(1))
-        last_basic = list(db.daily_basic.find({}, {'trade_date': 1}).sort('trade_date', -1).limit(1))
+        last_daily_cursor = db.stock_daily_ak_full.find({}, {'trade_date': 1}).sort('trade_date', -1).limit(1)
+        last_daily = await last_daily_cursor.to_list(length=1)
+        last_basic_cursor = db.daily_basic.find({}, {'trade_date': 1}).sort('trade_date', -1).limit(1)
+        last_basic = await last_basic_cursor.to_list(length=1)
 
         # 推荐回测区间(核心3组因子覆盖>70%的连续段)
         recommended_ranges = []
@@ -1029,7 +1033,7 @@ async def get_data_status() -> Dict[str, Any]:
             for st in strategies:
                 missing = [f for f in st['factors'] if lg.get(_factor_to_group(f), 0) < 50]
                 # 更精确: 检查单个因子覆盖率
-                factor_detail = _get_factor_detail(db, latest['date'], st['factors'])
+                factor_detail = await _get_factor_detail(db, latest['date'], st['factors'])
                 missing = [f for f in st['factors'] if factor_detail.get(f, 0) < 50]
                 st['available'] = len(missing) == 0
                 st['missing_factors'] = missing
@@ -1152,10 +1156,15 @@ async def get_data_status() -> Dict[str, Any]:
         data_alignment = {}
         if daily_coverage:
             last_day = daily_coverage[-1]['date']
-            sd_total = db.stock_daily_ak_full.count_documents({'trade_date': int(last_day)})
-            db_total = db.daily_basic.count_documents({'trade_date': int(last_day)})
-            sd_codes = set(d['ts_code'] for d in db.stock_daily_ak_full.find({'trade_date': int(last_day)}, {'ts_code': 1}))
-            db_codes = set(d['ts_code'] for d in db.daily_basic.find({'trade_date': int(last_day)}, {'ts_code': 1}))
+            sd_total = await mongo_manager.count_documents('stock_daily_ak_full', {'trade_date': int(last_day)})
+            db_total = await mongo_manager.count_documents('daily_basic', {'trade_date': int(last_day)})
+            # 【v2.9.49】异步查询ts_code集合
+            sd_cursor = db.stock_daily_ak_full.find({'trade_date': int(last_day)}, {'ts_code': 1})
+            sd_docs = await sd_cursor.to_list(length=None)
+            db_cursor = db.daily_basic.find({'trade_date': int(last_day)}, {'ts_code': 1})
+            db_docs = await db_cursor.to_list(length=None)
+            sd_codes = set(d['ts_code'] for d in sd_docs)
+            db_codes = set(d['ts_code'] for d in db_docs)
             common = sd_codes & db_codes
             only_basic = db_codes - sd_codes
             only_daily = sd_codes - db_codes
@@ -1177,7 +1186,7 @@ async def get_data_status() -> Dict[str, Any]:
                                  'ma5', 'macd', 'rsi_6', 'boll_upper', 'atr', 'fear_greed_index',
                                  'turnover_rate', 'volume_ratio', 'circ_mv',
                                  'is_limit_up', 'is_limit_down', 'first_limit_up', 'limit_up_count']
-            factor_detail_latest = _get_factor_detail(db, last_day, all_check_factors)
+            factor_detail_latest = await _get_factor_detail(db, last_day, all_check_factors)
 
         # ====== 健康分拆分 ======
         health_breakdown = {
@@ -1192,8 +1201,6 @@ async def get_data_status() -> Dict[str, Any]:
         # 跌停池数据
         if collections.get('limit_pool_down', {}).get('count', 0) < 10:
             diagnostics.append({'level': 'yellow', 'message': f'跌停池仅{collections.get("limit_pool_down",{}).get("count",0)}条 — 跌停翘板策略数据不足'})
-
-        client.close()
 
         return {
             "success": True,

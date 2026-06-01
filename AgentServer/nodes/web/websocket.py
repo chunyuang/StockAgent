@@ -160,15 +160,20 @@ async def websocket_endpoint(
     websocket: WebSocket,
     token: str = Query(None),
 ):
-    """WebSocket 端点"""
+    """WebSocket 端点
+    
+    认证方式(v2.9.49):
+    1. URL参数: ws://host/ws?token=xxx (向后兼容,不推荐)
+    2. 首条消息认证: 连接后发送 {"type":"auth","token":"xxx"} (推荐, 避免Token泄漏到URL)
+    """
     # 验证 Token，可选验证，测试环境默认使用test_user_001
     user_id = "test_user_001"
     if token:
-        user_id = verify_token(token)
-        if not user_id:
-            user_id = "test_user_001"
+        verified = verify_token(token)
+        if verified:
+            user_id = verified
 
-    # 连接
+    # 连接(先接受, 等待auth消息后再确认身份)
     await manager.connect(websocket, user_id)
 
     # 发送连接确认
@@ -184,6 +189,29 @@ async def websocket_endpoint(
             message = json.loads(data)
 
             msg_type = message.get("type")
+
+            # 【v2.9.49】首条消息认证: Token不放入URL, 避免泄漏
+            if msg_type == "auth":
+                auth_token = message.get("token", "")
+                if auth_token:
+                    verified = verify_token(auth_token)
+                    if verified:
+                        # 更新user_id(断开旧关联,重新连接到正确用户)
+                        old_user_id = user_id
+                        user_id = verified
+                        if old_user_id != user_id:
+                            manager.disconnect(websocket, old_user_id)
+                            await manager.connect(websocket, user_id)
+                        await websocket.send_json({
+                            "type": "auth_ok",
+                            "user_id": user_id,
+                        })
+                    else:
+                        await websocket.send_json({
+                            "type": "auth_failed",
+                            "reason": "Invalid token",
+                        })
+                continue
 
             if msg_type == "ping":
                 await websocket.send_json({"type": "pong"})
