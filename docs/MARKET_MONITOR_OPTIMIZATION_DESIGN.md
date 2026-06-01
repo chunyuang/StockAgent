@@ -1,12 +1,111 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.55 | 日期: 2026-06-02 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.56 | 日期: 2026-06-02 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
 > 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats✅ | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化✅ | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复✅ | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复✅ | v2.9.24 diagnose+情绪调仓提取+DelegateRouter策略扩展✅ | v2.9.25 update_strategy_config bug修复+bare except清理+_init_modules拆分✅ | v2.9.26 全模块bare except清理+position_checker._execute_sell_list提取3子方法✅ | v2.9.27 方法提取到子模块5个+测试适配✅ | v2.9.28 风控线程拆分+filter合并提取+scan_loop错误恢复✅ | v2.9.31 _safe_read_state统一+RuntimeWarning修复+get_positions提取✅ | v2.9.34 情绪得分+收盘同步提取→子模块✅ | v2.9.35 卖出执行提取到PositionManager✅ | v2.9.36 审查P0/P1修复+WS断线补发+前端错误提示 | v2.9.37 _save_param_snapshot提取+_init_state类属性瘦身+start()30行 | v2.9.38 _run_checker_on_positions提取+compare差异持久化+_post_sell_state_cleanup统一 | v2.9.39 _scan_loop_settlement提取→RuntimePersistence+_emit_risk_thread_error委托RiskWatchdog+MarketPhase.is_trading_active+position_checker except修复 | v2.9.42 参数管理6方法DELEGATE_MAP委托+StrategyParamCenter路由策略+scanner 1382行 | v2.9.43 signal_manager方法提取7子方法(execute_signals 161→24行+update_signals 96→9行)+版本同步+1000测试全通过 | v2.9.44 _SubprocessRuntime提取(scanner_daemon 303行闭包→独立类+命令路由表5子handler+_send_ack统一+16新增测试) | v2.9.46 bare except清理(web API)+版本同步+_check_stop_loss_take_profit简化+section合并 | v2.9.47 getattr/hasattr防御消除+关键路径日志级别提升+18新增测试 | v2.9.48 pipeline.apply提取(187→103)+broker.place_order提取(182→109)+33新增测试 | v2.9.49 审查P0安全修复(WS Token首条消息认证+Trading API越权访问)+P1修复(Stream consumer动态化+持仓批量价格查询)+P2修复(System API同步MongoDB→异步)+19新增测试 | v2.9.50 🔴Daemon方法名Bug修复(update_strategy_params→update_strategy_config/run_once→scan_once)+hasattr防御清理6处+except Exception收窄9处+15新增测试 | v2.9.51 getattr防御清理18处+broker正式接口(get_limit_prices/get_realtime_prices)+🔴_daily_start_asset日内回撤永远为0bug修复+_last_scan_duration_ms初始化+22新增测试 | v2.9.52 getattr/hasattr清理(broker/position_manager/runtime_persistence/strategy_scorer/risk_watchdog 5文件)+DELEGATE_MAP外提到scanner_delegate_router(scanner 1391→1308 -83行)+@classmethod@property兼容别名+7测试文件更新+1177测试全通过 |
 | v2.9.53 返回类型注解补全(14个核心模块0.3%缺失,总体9.6%)+scanner_delegate_router Any导入修复+1177测试全通过 |
 | v2.9.54 _init_broker拆分(_init_broker_gm/_init_broker_sim提取)+_scan_loop_trading健壮性(scan_once异常不传播)+_restart_risk_thread_if_dead看门狗提取+_try_recover_quote_source行情恢复提取+25新增测试+1151全通过 |
 > 回测影响: 零文件修改, 1228测试全通过(scanner 1177+backtest 51)
+
+---
+
+## 四十六、v2.9.56 _init_state分组提取 + _risk_tick_body提取 + ScannerDaemon方法提取 (2026-06-02)
+
+### 46.1 设计目标
+
+1. **🟡 _init_state分组提取**: 42行→7行, 提取4个子方法(_init_risk_state/_init_execution_state/_init_cache_state/_init_signal_state)
+2. **🟡 _risk_tick_body提取**: _risk_loop_sync 52行→32行(-38%), 循环体提取为独立方法
+3. **🟡 ScannerDaemon._handle_subscription_message**: _subscribe_loop 49行→29行(-41%), 消息处理提取
+4. **🟡 ScannerDaemon._restart_subprocess**: _watchdog_loop 45行→32行(-29%), 重启逻辑提取
+5. **🟡 ScannerDaemon._wait_for_ack**: send_command 46行→39行(-15%), ACK等待提取
+6. **🟡 ScannerDaemon._terminate_process**: stop() 42行→34行(-19%), 进程终止提取
+
+### 46.2 _init_state分组提取
+
+**问题**: _init_state 42行, 9个注释分组(风控/执行/缓存/信号)混在一个方法中。
+
+**修复**: 按注释分组提取为4个子方法:
+
+| 方法 | 职责 | 包含状态 |
+|---|---|---|
+| `_init_risk_state()` | 风控+交易 | trailing_stops, pending_sells, SELL_LOGIC_MODE |
+| `_init_execution_state()` | 执行质量 | execution_stats |
+| `_init_cache_state()` | 数据缓存 | realtime_cache, daily_factors_df, all_codes |
+| `_init_signal_state()` | 信号+统计 | active_signals, timeline, stats |
+
+### 46.3 _risk_tick_body提取
+
+**问题**: _risk_loop_sync 52行, 循环体(阶段判断→行情读取→过期检测→止损→周期检查)与异常处理混在一起。
+
+**修复**: 循环体提取为`_risk_tick_body(tick)`, _risk_loop_sync只保留循环+异常处理+sleep:
+- _risk_loop_sync: 52行→32行(-38%)
+- _risk_tick_body: 27行(新)
+
+### 46.4 ScannerDaemon方法提取
+
+| 方法 | 来源 | 行数变化 |
+|---|---|---|
+| `_handle_subscription_message` | _subscribe_loop消息处理 | 27行(新), _subscribe_loop 49→29(-41%) |
+| `_restart_subprocess` | _watchdog_loop重启逻辑 | 18行(新), _watchdog_loop 45→32(-29%) |
+| `_wait_for_ack` | send_command ACK等待 | 14行(新), send_command 46→39(-15%) |
+| `_terminate_process` | stop()进程终止 | 14行(新), stop 42→34(-19%) |
+
+### 46.5 变更文件
+
+| 文件 | 变更 |
+|---|---|
+| scanner.py | _init_state分组+_risk_tick_body提取 |
+| scanner_daemon.py | 4个方法提取 |
+| web/api/scanner.py | _DESIGN_DOC_VERSION→v2.9.56 |
+| test_v2956_init_state_risk_tick_daemon.py | 新增30测试 |
+| test_v2921/test_v2937 | 测试适配(MarketPhase委托+init_state分组) |
+| 12个版本断言文件 | v2.9.55→v2.9.56 |
+
+### 46.6 方法行数改善
+
+| 方法 | v2.9.55 | v2.9.56 | 变化 |
+|---|---|---|---|
+| _init_state | 42行 | 7行 | -83% |
+| _risk_loop_sync | 52行 | 32行 | -38% |
+| **新增** | | | |
+| _init_risk_state | - | 9行 | 风控状态初始化 |
+| _init_execution_state | - | 10行 | 执行质量初始化 |
+| _init_cache_state | - | 7行 | 数据缓存初始化 |
+| _init_signal_state | - | 15行 | 信号+统计初始化 |
+| _risk_tick_body | - | 27行 | 风控单次循环体 |
+
+**ScannerDaemon方法行数改善:**
+
+| 方法 | v2.9.55 | v2.9.56 | 变化 |
+|---|---|---|---|
+| _subscribe_loop | 49行 | 29行 | -41% |
+| _watchdog_loop | 45行 | 32行 | -29% |
+| send_command | 46行 | 39行 | -15% |
+| stop | 42行 | 34行 | -19% |
+| **新增** | | | |
+| _handle_subscription_message | - | 27行 | 订阅消息处理 |
+| _restart_subprocess | - | 18行 | 子进程重启 |
+| _wait_for_ack | - | 14行 | ACK等待 |
+| _terminate_process | - | 14行 | 进程终止 |
+
+### 46.7 测试覆盖 (30新增)
+
+| 测试类 | 用例数 | 覆盖点 |
+|---|---|---|
+| TestInitStateDecomposition | 9 | 4个子方法存在+调用+内容+行数 |
+| TestRiskTickBodyExtraction | 4 | 存在+调用+内容+行数 |
+| TestDaemonSubscriptionMessageExtraction | 3 | 存在+调用+行数 |
+| TestDaemonRestartSubprocessExtraction | 3 | 存在+调用+内容 |
+| TestDaemonWaitForAckExtraction | 3 | 存在+调用+超时处理 |
+| TestDaemonTerminateProcessExtraction | 3 | 存在+调用+三阶段终止 |
+| TestNoBacktestRegressionV2956 | 5 | 导入+文件+版本常量 |
+
+**全量测试**: 1350 passed (0 failed)
+
+### 46.8 回测影响
+
+零。所有变更仅影响market_monitor模块内部重构和测试, 回测引擎零文件修改。
 
 ---
 
