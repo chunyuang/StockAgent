@@ -239,35 +239,43 @@ class MarketScanner:
         self._daily_start_asset: float = 0.0
 
     def _init_broker(self) -> None:
-        """初始化撮合引擎【v2.9.3提取】"""
+        """初始化撮合引擎【v2.9.3提取, v2.9.54:提取_init_broker_gm/_init_broker_sim】"""
         trade_mode = self.config.get("trade_mode", self.MODE_SIMULATED)
         self._trade_mode = trade_mode
-        initial_cash = self.config.get("initial_cash", 1_000_000)
+        self._stock_name_map: Dict[str, str] = {}  # ts_code→stock_name缓存
 
+        if trade_mode == self.MODE_GM:
+            self._init_broker_gm()
+        else:
+            self._init_broker_sim(trade_mode)
+
+    def _init_broker_gm(self) -> None:
+        """初始化掘金量化Broker【v2.9.54从_init_broker提取】"""
+        from nodes.market_monitor.gm_broker import GmBroker
+        self._gm_broker = GmBroker(
+            token=self.config.get("gm_token", ""),
+            strategy_id=self.config.get("gm_strategy_id", ""),
+            mode=1,
+            serv_addr=self.config.get("gm_serv_addr", ""),
+            account_id=self.account_id,
+        )
+        self._broker = None
+        logger.info("[SCANNER] 交易模式: 掘金量化")
+
+    def _init_broker_sim(self, trade_mode: str) -> None:
+        """初始化仿真Broker(含调试/回放/标准模式)【v2.9.54从_init_broker提取】"""
+        initial_cash = self.config.get("initial_cash", 1_000_000)
         self._dry_run = (trade_mode == self.MODE_DRY_RUN)
         self._replay_mode = (trade_mode == self.MODE_REPLAY)
         self._replay_date = self.config.get("replay_date", None)
         self._replay_provider = None
-        self._stock_name_map: Dict[str, str] = {}  # ts_code→stock_name缓存
+        self._gm_broker = None
 
-        if trade_mode == self.MODE_GM:
-            from nodes.market_monitor.gm_broker import GmBroker
-            self._gm_broker = GmBroker(
-                token=self.config.get("gm_token", ""),
-                strategy_id=self.config.get("gm_strategy_id", ""),
-                mode=1,
-                serv_addr=self.config.get("gm_serv_addr", ""),
-                account_id=self.account_id,
-            )
-            self._broker = None
-            logger.info("[SCANNER] 交易模式: 掘金量化")
-        elif self._dry_run:
-            self._broker = SimulatedBroker(account_id=self.account_id, initial_cash=initial_cash)
-            self._gm_broker = None
+        self._broker = SimulatedBroker(account_id=self.account_id, initial_cash=initial_cash)
+
+        if self._dry_run:
             logger.info("[SCANNER] 交易模式: 🔍调试模式(只扫描不交易)")
         elif self._replay_mode:
-            self._broker = SimulatedBroker(account_id=self.account_id, initial_cash=initial_cash)
-            self._gm_broker = None
             try:
                 from nodes.market_monitor.replay_provider import ReplayDataProvider
                 self._replay_provider = ReplayDataProvider()
@@ -277,8 +285,6 @@ class MarketScanner:
                 logger.error(f"[SCANNER] 回放数据加载失败: {e}")
             logger.info(f"[SCANNER] 交易模式: 🔄回放模式(日期={self._replay_date or '自动'})")
         else:
-            self._broker = SimulatedBroker(account_id=self.account_id, initial_cash=initial_cash)
-            self._gm_broker = None
             logger.info("[SCANNER] 交易模式: 内置仿真撮合")
 
     def _init_pipeline(self) -> None:
@@ -798,48 +804,69 @@ class MarketScanner:
         """交易时间(9:30-15:00)处理逻辑
         
         职责: 风控线程看门狗 + 行情恢复 + 全量扫描/等待
+        Returns: True=全量扫描完成(更新last_full_scan), False=等待中
+        
+        【v2.9.54:scan_once异常不向上传播,返回False让主循环继续】
         """
         # 【v2.9.5:风控线程健康看门狗】检测风控线程存活, 崩溃自动重启
-        if self._risk_running and self._risk_thread and not self._risk_thread.is_alive():
-            self._risk_thread_restarts += 1
-            logger.warning(
-                f"[RISK_WATCHDOG] 风控线程已退出(第{self._risk_thread_restarts}次重启)"
-            )
-            self._risk_running = True
-            self._risk_thread = threading.Thread(
-                target=self._risk_loop_sync, daemon=True,
-                name="scanner-risk-thread"
-            )
-            self._risk_thread.start()
-            # 重启超过3次告警
-            if self._risk_thread_restarts >= 3:
-                await self._publish_scanner_event("status", {
-                    "event": "risk_thread_unstable",
-                    "restarts": self._risk_thread_restarts,
-                })
+        self._restart_risk_thread_if_dead()
         
         # 【Phase2.2:行情降级自动恢复】每5分钟尝试恢复
-        if self._quote_manager.should_try_recover():
-            try:
-                recovered = await self._quote_manager.try_recover()
-                if recovered:
-                    self._quote_degrade_level = self._quote_manager.degrade_level
-                    await self._publish_scanner_event("status", {
-                        "event": "quote_recovered",
-                        "degrade_level": 0,
-                    })
-            except (ConnectionError, OSError, TimeoutError) as e:
-                logger.debug(f"[SCAN] 行情恢复尝试异常: {e}")
+        await self._try_recover_quote_source()
         
         elapsed = time.time() - last_full_scan
         if elapsed >= self.SCAN_INTERVAL:
-            await self.scan_once(trade_date)
-            return True
+            try:
+                await self.scan_once(trade_date)
+                return True
+            except Exception as e:
+                # 【v2.9.54】scan_once异常不杀循环, 由_scan_loop_error_recovery处理
+                logger.error(f"[SCAN_TRADING] scan_once异常: {e}")
+                self._scan_loop_error_count += 1
+                return False
         else:
             # 【Phase1.2:持仓检查已由风控线程接管,扫描循环只做sleep等待下一次全量扫描】
             check_interval = self._get_smart_check_interval(self._broker.get_positions() if self._broker else [])
             await asyncio.sleep(check_interval)
             return False
+
+    def _restart_risk_thread_if_dead(self) -> None:
+        """风控线程看门狗: 检测线程退出并自动重启【v2.9.54从_scan_loop_trading提取】"""
+        if not (self._risk_running and self._risk_thread and not self._risk_thread.is_alive()):
+            return
+        self._risk_thread_restarts += 1
+        logger.warning(
+            f"[RISK_WATCHDOG] 风控线程已退出(第{self._risk_thread_restarts}次重启)"
+        )
+        self._risk_running = True
+        self._risk_thread = threading.Thread(
+            target=self._risk_loop_sync, daemon=True,
+            name="scanner-risk-thread",
+        )
+        self._risk_thread.start()
+        if self._risk_thread_restarts >= 3:
+            try:
+                asyncio.create_task(self._publish_scanner_event("status", {
+                    "event": "risk_thread_unstable",
+                    "restarts": self._risk_thread_restarts,
+                }))
+            except RuntimeError:
+                pass  # 事件循环未就绪
+
+    async def _try_recover_quote_source(self) -> None:
+        """行情降级自动恢复尝试【v2.9.54从_scan_loop_trading提取】"""
+        if not self._quote_manager.should_try_recover():
+            return
+        try:
+            recovered = await self._quote_manager.try_recover()
+            if recovered:
+                self._quote_degrade_level = self._quote_manager.degrade_level
+                await self._publish_scanner_event("status", {
+                    "event": "quote_recovered",
+                    "degrade_level": 0,
+                })
+        except (ConnectionError, OSError, TimeoutError) as e:
+            logger.debug(f"[SCAN] 行情恢复尝试异常: {e}")
 
     async def _scan_loop_settlement(self, trade_date: str) -> None:
         """盘后结算(15:05+) — 委托给RuntimePersistence【v2.9.39提取】"""

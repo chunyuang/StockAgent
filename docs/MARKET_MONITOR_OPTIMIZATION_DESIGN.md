@@ -1,11 +1,119 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.53 | 日期: 2026-06-02 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.54 | 日期: 2026-06-02 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
 > 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats✅ | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化✅ | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复✅ | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复✅ | v2.9.24 diagnose+情绪调仓提取+DelegateRouter策略扩展✅ | v2.9.25 update_strategy_config bug修复+bare except清理+_init_modules拆分✅ | v2.9.26 全模块bare except清理+position_checker._execute_sell_list提取3子方法✅ | v2.9.27 方法提取到子模块5个+测试适配✅ | v2.9.28 风控线程拆分+filter合并提取+scan_loop错误恢复✅ | v2.9.31 _safe_read_state统一+RuntimeWarning修复+get_positions提取✅ | v2.9.34 情绪得分+收盘同步提取→子模块✅ | v2.9.35 卖出执行提取到PositionManager✅ | v2.9.36 审查P0/P1修复+WS断线补发+前端错误提示 | v2.9.37 _save_param_snapshot提取+_init_state类属性瘦身+start()30行 | v2.9.38 _run_checker_on_positions提取+compare差异持久化+_post_sell_state_cleanup统一 | v2.9.39 _scan_loop_settlement提取→RuntimePersistence+_emit_risk_thread_error委托RiskWatchdog+MarketPhase.is_trading_active+position_checker except修复 | v2.9.42 参数管理6方法DELEGATE_MAP委托+StrategyParamCenter路由策略+scanner 1382行 | v2.9.43 signal_manager方法提取7子方法(execute_signals 161→24行+update_signals 96→9行)+版本同步+1000测试全通过 | v2.9.44 _SubprocessRuntime提取(scanner_daemon 303行闭包→独立类+命令路由表5子handler+_send_ack统一+16新增测试) | v2.9.46 bare except清理(web API)+版本同步+_check_stop_loss_take_profit简化+section合并 | v2.9.47 getattr/hasattr防御消除+关键路径日志级别提升+18新增测试 | v2.9.48 pipeline.apply提取(187→103)+broker.place_order提取(182→109)+33新增测试 | v2.9.49 审查P0安全修复(WS Token首条消息认证+Trading API越权访问)+P1修复(Stream consumer动态化+持仓批量价格查询)+P2修复(System API同步MongoDB→异步)+19新增测试 | v2.9.50 🔴Daemon方法名Bug修复(update_strategy_params→update_strategy_config/run_once→scan_once)+hasattr防御清理6处+except Exception收窄9处+15新增测试 | v2.9.51 getattr防御清理18处+broker正式接口(get_limit_prices/get_realtime_prices)+🔴_daily_start_asset日内回撤永远为0bug修复+_last_scan_duration_ms初始化+22新增测试 | v2.9.52 getattr/hasattr清理(broker/position_manager/runtime_persistence/strategy_scorer/risk_watchdog 5文件)+DELEGATE_MAP外提到scanner_delegate_router(scanner 1391→1308 -83行)+@classmethod@property兼容别名+7测试文件更新+1177测试全通过 |
 | v2.9.53 返回类型注解补全(14个核心模块0.3%缺失,总体9.6%)+scanner_delegate_router Any导入修复+1177测试全通过 |
+| v2.9.54 _init_broker拆分(_init_broker_gm/_init_broker_sim提取)+_scan_loop_trading健壮性(scan_once异常不传播)+_restart_risk_thread_if_dead看门狗提取+_try_recover_quote_source行情恢复提取+25新增测试+1151全通过 |
 > 回测影响: 零文件修改, 1228测试全通过(scanner 1177+backtest 51)
+
+---
+
+## 四十四、v2.9.54 _init_broker拆分 + _scan_loop_trading健壮性 + 看门狗/行情恢复提取 (2026-06-02)
+
+### 44.1 设计目标
+
+1. **🟡 _init_broker拆分**: 42行→15行, 提取`_init_broker_gm()`和`_init_broker_sim()`两个独立方法
+2. **🔴 _scan_loop_trading健壮性**: `scan_once`异常不向上传播,返回False让主循环继续(避免一次扫描失败导致整个循环退出)
+3. **🟡 _restart_risk_thread_if_dead提取**: 风控看门狗逻辑从_scan_loop_trading提取为独立方法
+4. **🟡 _try_recover_quote_source提取**: 行情恢复逻辑从_scan_loop_trading提取为独立方法
+
+### 44.2 _init_broker拆分
+
+**问题**: `_init_broker` 42行, 包含4个分支(GM/dry_run/replay/标准),每个分支独立初始化不同类型的Broker,混杂在一个方法中。
+
+**修复**: 提取2个独立方法:
+
+| 方法 | 职责 | 来源 |
+|---|---|---|
+| `_init_broker_gm()` | 创建GmBroker实例,设broker=None | 原GM分支 |
+| `_init_broker_sim(trade_mode)` | 创建SimulatedBroker+replay/dry_run/标准3种模式 | 原else分支 |
+
+**_init_broker主方法**: 15行,仅判断GM/非GM后委托。
+
+### 44.3 _scan_loop_trading健壮性
+
+**问题**: `_scan_loop_trading`中`await self.scan_once(trade_date)`无try/except保护。scan_once抛异常时,异常传播到`_scan_loop`的外层except,触发`_scan_loop_error_recovery`。但error_recovery会增加`_scan_loop_error_count`,连续3次异常会杀掉整个scanner。一次MongoDB抖动导致的scan_once失败不应直接计入错误计数。
+
+**修复**: scan_once调用加try/except,异常时仅记录error并返回False(让主循环继续下一轮):
+
+```python
+try:
+    await self.scan_once(trade_date)
+    return True
+except Exception as e:
+    logger.error(f"[SCAN_TRADING] scan_once异常: {e}")
+    self._scan_loop_error_count += 1
+    return False
+```
+
+**注意**: 仍增加`_scan_loop_error_count`,但不会触发`_is_running = False`(连续3次杀循环的逻辑在_scan_loop的error_recovery中,此处仅计数+返回False)。
+
+### 44.4 _restart_risk_thread_if_dead提取
+
+**问题**: `_scan_loop_trading`中15行风控看门狗逻辑(检测线程退出+重启+告警)与扫描逻辑无关,应独立方法。
+
+**修复**: 提取为`_restart_risk_thread_if_dead()`方法:
+- 早期返回: 线程存活时直接return
+- 重启: 创建新风控线程并启动
+- 告警: 重启≥3次时发射事件(用try/except保护,事件循环可能未就绪)
+
+### 44.5 _try_recover_quote_source提取
+
+**问题**: `_scan_loop_trading`中10行行情恢复逻辑与扫描逻辑无关。
+
+**修复**: 提取为`_try_recover_quote_source()`方法:
+- 早期返回: `should_try_recover()`为False时直接return
+- 尝试恢复: 调用`try_recover()`+更新降级等级+发射恢复事件
+- 异常保护: `except (ConnectionError, OSError, TimeoutError)`
+
+### 44.6 变更文件
+
+| 文件 | 变更 |
+|---|---|
+| scanner.py | _init_broker拆分+_scan_loop_trading健壮性+2个方法提取 |
+| web/api/scanner.py | _DESIGN_DOC_VERSION→v2.9.54 |
+| test_v2954_init_broker_scan_robust.py | 新增25测试 |
+| test_v295_stability.py | 看门狗测试适配(_restart_risk_thread_if_dead) |
+| test_v2916_risk_watchdog_thread_safety.py | 版本断言v2.9.51→v2.9.54 |
+| test_v2933/37/38/39/40/41/47/43 | 版本断言统一v2.9.54 |
+| MARKET_MONITOR_OPTIMIZATION_DESIGN.md | v2.9.54记录 |
+
+### 44.7 scanner.py行数变化
+
+| 阶段 | 行数 | 变化 |
+|---|---|---|
+| v2.9.53 | 1308 | 基线 |
+| **v2.9.54** | **1335** | **+27行(2个提取方法+scan_once异常保护, _init_broker减少27行但新方法+28行, _scan_loop_trading减少24行但新方法+25行)** |
+
+### 44.8 方法行数改善
+
+| 方法 | v2.9.53 | v2.9.54 | 变化 |
+|---|---|---|---|
+| _init_broker | 42行 | 15行 | -64% |
+| _scan_loop_trading | 46行 | 22行 | -52% |
+| **新增** | | | |
+| _init_broker_gm | - | 14行 | 掘金Broker初始化 |
+| _init_broker_sim | - | 23行 | 仿真Broker初始化 |
+| _restart_risk_thread_if_dead | - | 18行 | 风控看门狗 |
+| _try_recover_quote_source | - | 12行 | 行情恢复 |
+
+### 44.9 测试覆盖 (25新增)
+
+| 测试类 | 用例数 | 覆盖点 |
+|---|---|---|
+| TestInitBrokerDecomposition | 8 | _init_broker_gm/sim存在+委托+行数+内容 |
+| TestScanLoopTradingRobustness | 3 | try/except包裹+返回False+行数 |
+| TestRestartRiskThreadExtraction | 5 | 存在+创建线程+重启计数+早期返回+委托 |
+| TestTryRecoverQuoteSourceExtraction | 4 | 存在+should_try_recover+try_recover+委托 |
+| TestNoBacktestRegressionV2954 | 5 | 回测零影响 |
+
+**全量测试**: 1151 passed (0 failed)
+
+### 44.10 回测影响
+
+零。所有变更仅影响market_monitor模块内部重构和测试, 回测引擎零文件修改。
 
 ---
 
