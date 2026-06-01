@@ -45,7 +45,7 @@ class PositionManager:
     # ==================== 属性代理(从scanner读取,线程安全) ====================
     
     @property
-    def broker(self):
+    def broker(self) -> Any:
         return self._scanner._broker
     
     @property
@@ -81,7 +81,7 @@ class PositionManager:
                 return dict(self.trailing_stops[ts_code])
         return None
 
-    def _get_backtester(self):
+    def _get_backtester(self) -> Optional[Any]:
         """获取缓存的PortfolioBacktester实例(懒初始化)"""
         if self._backtester is not None:
             return self._backtester
@@ -371,7 +371,7 @@ class PositionManager:
         
         return None
     
-    def update_trailing_stops(self, positions, realtime_data: Dict):
+    def update_trailing_stops(self, positions, realtime_data: Dict) -> None:
         """更新追踪止损状态(每轮扫描后调用)
         
         规则(与真实超短量化对齐):
@@ -609,7 +609,7 @@ class PositionManager:
 
     # ==================== v2.9.27: 风控卖出执行逻辑提取 ====================
 
-    def retry_pending_sells(self, realtime_data: Dict):
+    def retry_pending_sells(self, realtime_data: Dict) -> None:
         """跌停恢复后重试挂起的卖出指令【v2.9.22提取, v2.9.27:从scanner移入PositionManager】
 
         当股票从跌停恢复(非跌停状态)且有挂起的卖出指令时,
@@ -662,7 +662,7 @@ class PositionManager:
                 for code in retried:
                     self.pending_sells.pop(code, None)
 
-    def execute_sell_list_from_risk(self, to_sell: list):
+    def execute_sell_list_from_risk(self, to_sell: list) -> None:
         """风控线程执行卖出列表【v2.9.22提取, v2.9.27:从scanner移入PositionManager】
 
         逐个执行PositionManager返回的to_sell列表, 超时/失败时记录到pending_sells。
@@ -696,7 +696,7 @@ class PositionManager:
 
     # ==================== v2.9.35: 从scanner提取的卖出执行方法 ====================
 
-    async def execute_risk_sell(self, pos, reason: str, price: float, quantity: int):
+    async def execute_risk_sell(self, pos, reason: str, price: float, quantity: int) -> None:
         """风控线程触发的卖出执行(在asyncio主循环中运行)
 
         【v2.9.35: 从scanner._execute_risk_sell提取】

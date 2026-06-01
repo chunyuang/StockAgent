@@ -54,7 +54,7 @@ class PositionChecker:
     # ==================== 属性代理 ====================
     
     @property
-    def broker(self):
+    def broker(self) -> Any:
         return self._scanner._broker
     
     @property
@@ -89,14 +89,14 @@ class PositionChecker:
         return self._scanner._state_lock
     
     @property
-    def data_router(self):
+    def data_router(self) -> Any:
         return self._scanner._data_router
     
     @property
     def execution_stats(self) -> Dict:
         return self._scanner._execution_stats
     
-    def _get_sell_checker(self):
+    def _get_sell_checker(self) -> Optional[Any]:
         """获取缓存的SellSignalChecker实例(懒初始化)"""
         if self._sell_checker is not None:
             return self._sell_checker
@@ -114,7 +114,7 @@ class PositionChecker:
             logger.warning("[CHECKER] SellSignalChecker不可用")
             return None
     
-    def _get_backtester(self):
+    def _get_backtester(self) -> Optional[Any]:
         """获取缓存的PortfolioBacktester实例(懒初始化,避免每个持仓重复创建)"""
         if self._backtester is not None:
             return self._backtester
@@ -138,7 +138,7 @@ class PositionChecker:
     
     # ==================== 主入口 ====================
     
-    async def check_positions(self, realtime_data: Dict[str, Dict], trade_date: str):
+    async def check_positions(self, realtime_data: Dict[str, Dict], trade_date: str) -> List[Tuple]:
         """止损止盈+超时强卖检查(灰度开关路由)"""
         mode = self.sell_logic_mode
         if mode == "checker":
@@ -148,7 +148,7 @@ class PositionChecker:
         else:
             return await self._check_positions_legacy(realtime_data, trade_date)
     
-    async def check_positions_quick(self, trade_date: str):
+    async def check_positions_quick(self, trade_date: str) -> List[Tuple]:
         """持仓快速检查(30秒级, 用东方财富全市场缓存)"""
         scanner = self._scanner
         
@@ -194,7 +194,7 @@ class PositionChecker:
     
     # ==================== Legacy模式 ====================
     
-    async def _check_positions_legacy(self, realtime_data: Dict[str, Dict], trade_date: str):
+    async def _check_positions_legacy(self, realtime_data: Dict[str, Dict], trade_date: str) -> List[Tuple]:
         """原Scanner内嵌卖出逻辑(不变)"""
         scanner = self._scanner
         
@@ -240,7 +240,7 @@ class PositionChecker:
     
     # ==================== Checker模式 ====================
     
-    async def _check_positions_checker(self, realtime_data: Dict[str, Dict], trade_date: str):
+    async def _check_positions_checker(self, realtime_data: Dict[str, Dict], trade_date: str) -> List[Tuple]:
         """checker卖出逻辑(复用回测SellSignalChecker)【v2.9.38:用_run_checker_on_positions消除重复】"""
         checker = self._get_sell_checker()
         if checker is None:
@@ -263,7 +263,7 @@ class PositionChecker:
     
     # ==================== Compare模式 ====================
     
-    async def _check_positions_compare(self, realtime_data: Dict[str, Dict], trade_date: str):
+    async def _check_positions_compare(self, realtime_data: Dict[str, Dict], trade_date: str) -> List[Tuple]:
         """compare模式: 两种逻辑都跑, 只执行旧逻辑, 记录差异【v2.9.38:用_run_checker_on_positions+差异持久化】"""
         scanner = self._scanner
         
@@ -366,7 +366,7 @@ class PositionChecker:
         
         return results
     
-    async def _post_sell_state_cleanup(self, to_sell: List[Tuple]):
+    async def _post_sell_state_cleanup(self, to_sell: List[Tuple]) -> None:
         """卖出后状态清理(线程安全) + 强制持久化【v2.9.38:从3处重复逻辑提取】"""
         if not to_sell:
             return
@@ -391,7 +391,7 @@ class PositionChecker:
     
     async def _persist_compare_diff(self, trade_date: str, only_legacy: set, only_checker: set,
                                      both: set, legacy_sell: list, checker_results: list,
-                                     realtime_data: Dict[str, Dict]):
+                                     realtime_data: Dict[str, Dict]) -> None:
         """compare差异持久化 — 委托给RuntimePersistence【v2.9.45提取,v2.9.51:getattr清理】"""
         rp = self._scanner._runtime_persistence
         if rp:
@@ -402,7 +402,7 @@ class PositionChecker:
     
     # ==================== 卖出执行 ====================
     
-    async def _execute_sell_list(self, to_sell: List[Tuple], trade_date: str, source: str = "legacy"):
+    async def _execute_sell_list(self, to_sell: List[Tuple], trade_date: str, source: str = "legacy") -> List[Tuple]:
         """执行卖出列表(含跌停挂起、dry_run、P1-7修复)【v2.9.26:提取子方法】"""
         for pos, reason, force_price, risk in to_sell:
             if pos.available_qty <= 0:
@@ -426,7 +426,7 @@ class PositionChecker:
                     pos.strategy, f"卖出失败: {msg}", None)
                 logger.warning(f"[{source.upper()}] 卖出被拒 {pos.ts_code}: {msg}")
 
-    def _handle_limit_down_pending(self, pos, reason: str, risk: Dict, source: str):
+    def _handle_limit_down_pending(self, pos, reason: str, risk: Dict, source: str) -> None:
         """跌停不可卖时挂起pending_sells【v2.9.26提取,v2.9.50:移除hasattr防御(_pending_sells在__init__已初始化)】"""
         scanner = self._scanner
         scanner._add_timeline_log("blocked", pos.ts_code, pos.stock_name,
@@ -438,7 +438,7 @@ class PositionChecker:
             }
         logger.warning(f"[{source.upper()}] 跌停不可卖: {pos.ts_code} {pos.stock_name}")
 
-    def _place_sell_order(self, pos, reason: str, force_price, risk: Dict):
+    def _place_sell_order(self, pos, reason: str, force_price, risk: Dict) -> Optional[Dict]:
         """下单卖出并返回(ok, msg, order, sell_info)【v2.9.26提取】"""
         sell_qty = pos.available_qty
         sell_profit_pct = pos.profit_pct
@@ -459,7 +459,7 @@ class PositionChecker:
         }
         return ok, msg, order, sell_info
 
-    async def _post_sell_processing(self, pos, order, sell_info: Dict, reason: str, risk: Dict, source: str):
+    async def _post_sell_processing(self, pos, order, sell_info: Dict, reason: str, risk: Dict, source: str) -> None:
         """卖出后处理: 委托RuntimePersistence.post_sell_cleanup【v2.9.45重构】
         
         之前: 内联构建timeline+统计+EventBus(63行)
@@ -501,7 +501,7 @@ class PositionChecker:
     
     # ==================== 追踪止损 ====================
     
-    def update_trailing_stops(self, positions, realtime_data: Dict[str, Dict]):
+    def update_trailing_stops(self, positions, realtime_data: Dict[str, Dict]) -> None:
         """更新追踪止损(盈利保护)"""
         scanner = self._scanner
         
@@ -591,7 +591,7 @@ class PositionChecker:
         """判断是否跌停(公开接口,替代_is_limit_down)【v2.9.18】"""
         return self._is_limit_down(ts_code)
 
-    async def execute_sell_list(self, to_sell: List[Tuple], trade_date: str, source: str = "legacy"):
+    async def execute_sell_list(self, to_sell: List[Tuple], trade_date: str, source: str = "legacy") -> List[Tuple]:
         """执行卖出列表(公开接口,替代_execute_sell_list)【v2.9.18】"""
         return await self._execute_sell_list(to_sell, trade_date, source=source)
 

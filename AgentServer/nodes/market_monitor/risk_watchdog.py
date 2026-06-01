@@ -38,7 +38,7 @@ from enum import Enum
 logger = logging.getLogger("risk.watchdog")
 
 
-def _set_cb_paused(scanner, reason: str):
+def _set_cb_paused(scanner, reason: str) -> None:
     """辅助: 设置circuit_breaker为暂停状态(在_with_state_lock内调用)"""
     scanner._circuit_breaker["trading_paused"] = True
     scanner._circuit_breaker["pause_reason"] = reason
@@ -629,7 +629,7 @@ class RiskWatchdog:
     # ==================== CircuitBreaker熔断管理(v2.9.6提取) ====================
 
     @staticmethod
-    def _with_state_lock(scanner, fn, *, fallback=None):
+    def _with_state_lock(scanner, fn, *, fallback=None) -> None:
         """【v2.9.17】线程安全执行circuit_breaker读写操作
 
         封装 if state_lock: with state_lock: fn() else: fn() 模式,
@@ -725,7 +725,7 @@ class RiskWatchdog:
         return True
 
     @staticmethod
-    def record_trade_result(scanner, profit_pct: float):
+    def record_trade_result(scanner, profit_pct: float) -> None:
         """记录交易结果(用于连续亏损统计)
 
         Args:
@@ -733,7 +733,7 @@ class RiskWatchdog:
             profit_pct: 本次交易盈亏百分比
         """
         # 【v2.9.17:线程安全写入circuit_breaker(使用_with_state_lock)】
-        def _record():
+        def _record() -> None:
             scanner._circuit_breaker["today_trades"] += 1
             if profit_pct < 0:
                 scanner._circuit_breaker["consecutive_losses"] += 1
@@ -743,14 +743,14 @@ class RiskWatchdog:
         RiskWatchdog._with_state_lock(scanner, _record, fallback=_record)
 
     @staticmethod
-    def reset_circuit_breaker(scanner):
+    def reset_circuit_breaker(scanner) -> None:
         """重置熔断(手动恢复)
 
         Args:
             scanner: MarketScanner实例
         """
         # 【v2.9.17:线程安全写入circuit_breaker(使用_with_state_lock)】
-        def _reset():
+        def _reset() -> None:
             scanner._circuit_breaker["trading_paused"] = False
             scanner._circuit_breaker["pause_reason"] = ""
             scanner._circuit_breaker["consecutive_losses"] = 0
@@ -758,7 +758,7 @@ class RiskWatchdog:
         logger.info("[CIRCUIT] 熔断已重置")
 
     @staticmethod
-    def reset_daily_risk_state(scanner):
+    def reset_daily_risk_state(scanner) -> None:
         """重置每日风控状态(circuit_breaker+pending_sells+执行统计)【v2.9.32从scanner提取】
 
         重置项:
@@ -772,7 +772,7 @@ class RiskWatchdog:
             try:
                 acct = scanner._broker.get_account()
                 if acct:
-                    def _reset_cb():
+                    def _reset_cb() -> None:
                         scanner._circuit_breaker["daily_start_assets"] = acct.total_assets
                         scanner._circuit_breaker["today_trades"] = 0
                         scanner._circuit_breaker["today_losses"] = 0
@@ -800,7 +800,7 @@ class RiskWatchdog:
         logger.info("[SCANNER] 执行统计+跌停挂起已重置(追踪止损/风险等级将在加载持仓时恢复)")
 
     @staticmethod
-    def emit_risk_thread_error(scanner, error: Exception, consecutive_errors: int):
+    def emit_risk_thread_error(scanner, error: Exception, consecutive_errors: int) -> None:
         """风控线程异常事件发射到EventBus【v2.9.39:从scanner._emit_risk_thread_error提取】
 
         通过loop.call_soon_threadsafe+create_task安全跨线程发射,

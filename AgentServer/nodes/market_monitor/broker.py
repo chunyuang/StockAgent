@@ -127,7 +127,7 @@ class SimulatedBroker:
 
     # ==================== 持久化 ====================
 
-    async def _ensure_mongo(self):
+    async def _ensure_mongo(self) -> None:
         """懒初始化MongoDB连接"""
         if self._mongo_db is not None:
             return True
@@ -141,7 +141,7 @@ class SimulatedBroker:
             logger.warning(f"[BROKER] MongoDB连接失败: {e}")
             return False
 
-    async def save_state(self, force: bool = False):
+    async def save_state(self, force: bool = False) -> None:
         """持久化当前状态到MongoDB(带节流: 30秒内不重复保存, force=True跳过节流)"""
         now = time.time()
         if not force and now - self._last_save_time < 30:
@@ -349,7 +349,7 @@ class SimulatedBroker:
     def update_realtime(self, ts_code: str, price: float,
                         pre_close: float = None,
                         upper_limit: float = None, lower_limit: float = None,
-                        suspended: bool = False, is_st: bool = False):
+                        suspended: bool = False, is_st: bool = False) -> None:
         """更新实时行情(由MarketScanner调用)"""
         self._realtime_prices[ts_code] = price
 
@@ -397,7 +397,7 @@ class SimulatedBroker:
             return self._limit_prices.get(ts_code, {})
         return dict(self._limit_prices)
 
-    def get_realtime_prices(self, ts_code: str = None):
+    def get_realtime_prices(self, ts_code: str = None) -> Dict:
         """获取实时价格(ts_code=None时返回全量dict)【v2.9.51:正式接口替代getattr(_realtime_prices)】"""
         if ts_code is not None:
             return self._realtime_prices.get(ts_code, 0)
@@ -664,7 +664,7 @@ class SimulatedBroker:
 
         return round(fill_price, 2), round(commission, 2), round(stamp_duty, 2)
 
-    def _execute_buy(self, order: Order, fill_price: float, total_cost: float):
+    def _execute_buy(self, order: Order, fill_price: float, total_cost: float) -> Optional[Dict]:
         """执行买入"""
         # 买入成本含佣金, 计入avg_cost
         amount = fill_price * order.quantity + total_cost
@@ -694,7 +694,7 @@ class SimulatedBroker:
                 buy_date=order.trade_date,
             )
 
-    def _execute_sell(self, order: Order, fill_price: float, total_cost: float):
+    def _execute_sell(self, order: Order, fill_price: float, total_cost: float) -> Optional[Dict]:
         """执行卖出"""
         pos = self.positions.get(order.ts_code)
         if not pos:
@@ -721,7 +721,7 @@ class SimulatedBroker:
             del self.positions[order.ts_code]
         # 部分卖出: 盈亏已在上方计入total_profit
 
-    def daily_settlement(self, trade_date: str = None):
+    def daily_settlement(self, trade_date: str = None) -> None:
         """
         每日结算: T+1解锁可卖
 
@@ -737,7 +737,7 @@ class SimulatedBroker:
         self.account.today_profit = 0
         logger.info(f"[BROKER] 日结算: {len(self.positions)}持仓, 可用{self.account.available_cash:.0f}")
 
-    def _recalc_account(self):
+    def _recalc_account(self) -> None:
         """重算账户总值"""
         market_value = 0
         for pos in self.positions.values():

@@ -33,7 +33,7 @@ class ScannerUtils:
     """
     
     @staticmethod
-    def safe_round(v, digits=2):
+    def safe_round(v, digits=2) -> float:
         """安全round, 处理None/NaN/inf"""
         if v is None:
             return None
@@ -45,7 +45,7 @@ class ScannerUtils:
             return None
     
     @staticmethod
-    async def publish_scanner_event(event_type: str, data: Dict):
+    async def publish_scanner_event(event_type: str, data: Dict) -> None:
         """推送scanner事件到Redis
         
         【Phase2.1:Signal/Position用Redis Stream(不可丢), 其他用Pub/Sub(允许丢)】

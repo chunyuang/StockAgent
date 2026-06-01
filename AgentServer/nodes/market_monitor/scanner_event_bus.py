@@ -87,7 +87,7 @@ class ScannerEventBus:
             logger.warning(f"[EVENT_BUS] handler {handler.__name__} 不是协程函数, 将被包装")
             # 包装同步函数为协程
             original = handler
-            async def _sync_wrapper(data):
+            async def _sync_wrapper(data) -> None:
                 original(data)
             _sync_wrapper.__name__ = original.__name__
             handler = _sync_wrapper
@@ -178,7 +178,7 @@ class ScannerEventBus:
             event: 事件名称
             handler: 异步函数
         """
-        async def _once_wrapper(data):
+        async def _once_wrapper(data) -> None:
             self.off(event, _once_wrapper)
             await handler(data)
         
@@ -243,17 +243,17 @@ class ScannerEventBus:
     
     # ==================== 控制 ====================
     
-    def enable(self):
+    def enable(self) -> None:
         """启用事件总线"""
         self._enabled = True
         logger.info("[EVENT_BUS] 已启用")
     
-    def disable(self):
+    def disable(self) -> None:
         """禁用事件总线(emit不执行handler)"""
         self._enabled = False
         logger.info("[EVENT_BUS] 已禁用")
     
-    def clear(self, event: str = None):
+    def clear(self, event: str = None) -> None:
         """清除订阅
         
         Args:
@@ -265,14 +265,14 @@ class ScannerEventBus:
             self._handlers.clear()
         logger.debug(f"[EVENT_BUS] 清除订阅: {event or '全部'}")
     
-    def reset_stats(self):
+    def reset_stats(self) -> None:
         """重置统计"""
         self._stats.clear()
         self._handler_latency.clear()  # 【v2.9.7】
     
     # ==================== 内部方法 ====================
     
-    def _record_history(self, event: str, data: Dict):
+    def _record_history(self, event: str, data: Dict) -> None:
         """记录事件历史"""
         record = {
             "event": event,
@@ -298,7 +298,7 @@ def get_event_bus() -> ScannerEventBus:
     return _global_bus
 
 
-def reset_event_bus():
+def reset_event_bus() -> "ScannerEventBus":
     """重置全局事件总线(主要用于测试)"""
     global _global_bus
     _global_bus = None
