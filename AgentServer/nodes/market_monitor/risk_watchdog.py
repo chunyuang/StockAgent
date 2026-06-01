@@ -581,34 +581,8 @@ class RiskWatchdog:
 
         try:
             positions = scanner._broker.get_positions()
-            for pos in positions:
-                if pos.available_qty <= 0:
-                    continue  # T+1: 今日买入不可卖
-
-                scanner._broker.update_realtime(pos.ts_code, pos.current_price)
-                ok, msg, order = scanner._broker.place_order(
-                    ts_code=pos.ts_code,
-                    stock_name=pos.stock_name,
-                    side="sell",
-                    quantity=pos.available_qty,
-                    price=pos.current_price,
-                    order_type="market",
-                    strategy=pos.strategy,
-                    reason=f"⚠️紧急平仓: {reason}",
-                )
-                result["details"].append({
-                    "ts_code": pos.ts_code,
-                    "success": ok,
-                    "message": msg if not ok else f"卖出{pos.available_qty}股@{order.filled_price:.2f}",
-                })
-                if ok and rp:
-                    sell_profit_pct = (pos.current_price - pos.avg_cost) / pos.avg_cost * 100 if pos.avg_cost > 0 else 0
-                    sell_profit_amount = (pos.current_price - pos.avg_cost) * pos.available_qty
-                    await rp.post_sell_cleanup(
-                        pos, f"⚠️紧急平仓: {reason}", order, pos.available_qty,
-                        sell_profit_pct, sell_profit_amount, source="emergency",
-                    )
-                    result["positions_cleared"] += 1
+            cleared = await self._liquidate_positions(scanner, positions, rp, reason, result)
+            result["positions_cleared"] = cleared
 
             # 持久化(post_sell_cleanup已做,此处兜底)
             if not rp:
@@ -617,7 +591,7 @@ class RiskWatchdog:
 
             logger.critical(
                 f"[WATCHDOG] 🚨 紧急平仓: reason={reason}, "
-                f"cleared={result['positions_cleared']}/{len(positions)}"
+                f"cleared={cleared}/{len(positions)}"
             )
 
         except Exception as e:
@@ -625,6 +599,42 @@ class RiskWatchdog:
             logger.critical(f"[WATCHDOG] 🚨 紧急平仓失败: {e}")
 
         return result
+
+    async def _liquidate_positions(self, scanner, positions, rp, reason: str, result: Dict) -> int:
+        """遍历持仓执行紧急平仓【v2.9.56从emergency_liquidate提取】
+        
+        Returns: 成功清仓数
+        """
+        cleared = 0
+        for pos in positions:
+            if pos.available_qty <= 0:
+                continue  # T+1: 今日买入不可卖
+
+            scanner._broker.update_realtime(pos.ts_code, pos.current_price)
+            ok, msg, order = scanner._broker.place_order(
+                ts_code=pos.ts_code,
+                stock_name=pos.stock_name,
+                side="sell",
+                quantity=pos.available_qty,
+                price=pos.current_price,
+                order_type="market",
+                strategy=pos.strategy,
+                reason=f"⚠️紧急平仓: {reason}",
+            )
+            result["details"].append({
+                "ts_code": pos.ts_code,
+                "success": ok,
+                "message": msg if not ok else f"卖出{pos.available_qty}股@{order.filled_price:.2f}",
+            })
+            if ok and rp:
+                sell_profit_pct = (pos.current_price - pos.avg_cost) / pos.avg_cost * 100 if pos.avg_cost > 0 else 0
+                sell_profit_amount = (pos.current_price - pos.avg_cost) * pos.available_qty
+                await rp.post_sell_cleanup(
+                    pos, f"⚠️紧急平仓: {reason}", order, pos.available_qty,
+                    sell_profit_pct, sell_profit_amount, source="emergency",
+                )
+                cleared += 1
+        return cleared
 
     # ==================== CircuitBreaker熔断管理(v2.9.6提取) ====================
 
@@ -653,7 +663,7 @@ class RiskWatchdog:
 
     @staticmethod
     async def check_circuit_breaker(scanner) -> bool:
-        """风控熔断检查(从scanner提取)
+        """风控熔断检查(从scanner提取)【v2.9.56:提取回撤+亏损检查子方法】
 
         规则:
         1. 单日回撤>5% → 暂停所有交易
@@ -676,52 +686,61 @@ class RiskWatchdog:
                 "consecutive_loss_limit": scanner._circuit_breaker.get("consecutive_loss_limit", 3),
             },
         )
-        trading_paused = cb_data["trading_paused"]
-        pause_reason = cb_data["pause_reason"]
-        daily_start = cb_data["daily_start_assets"]
-        max_drawdown = cb_data["daily_max_drawdown"]
-        consecutive_losses = cb_data["consecutive_losses"]
-        loss_limit = cb_data["consecutive_loss_limit"]
 
-        if trading_paused:
-            logger.debug(f"[CIRCUIT] 交易已暂停: {pause_reason}")
+        if cb_data["trading_paused"]:
+            logger.debug(f"[CIRCUIT] 交易已暂停: {cb_data['pause_reason']}")
             return False
 
         # 单日回撤检查
-        if scanner._broker:
-            acct = scanner._broker.get_account()
-            if daily_start > 0:
-                drawdown = (daily_start - acct.total_assets) / daily_start
-                if drawdown >= max_drawdown:
-                    reason_str = f"单日回撤{drawdown*100:.1f}%超限({max_drawdown*100:.0f}%)"
-                    # 【v2.9.17:线程安全写入circuit_breaker(使用_with_state_lock)】
-                    RiskWatchdog._with_state_lock(
-                        scanner,
-                        lambda: _set_cb_paused(scanner, reason_str),
-                        fallback=lambda: _set_cb_paused(scanner, reason_str),
-                    )
-                    logger.warning(f"[CIRCUIT] ⚠️ 熔断触发: {reason_str}")
-                    # EventBus: 熔断事件
-                    from nodes.market_monitor.scanner_event_bus import ScannerEvents
-                    await scanner._event_bus.emit(ScannerEvents.CIRCUIT_BREAKER, {
-                        "paused": True, "reason": reason_str,
-                    })
-                    # 主动推送熔断通知
-                    try:
-                        await scanner._publish_scanner_event("status", {
-                            "circuit_breaker": True,
-                            "message": reason_str,
-                            "trading_paused": True,
-                        })
-                    except Exception as _e:
-                        logger.debug(f"operation failed: {_e}")
-                    return False
-
-        # 连续亏损检查(只限制买入, 不限制卖出)
-        if consecutive_losses >= loss_limit:
-            logger.info(f"[CIRCUIT] 连续亏损{consecutive_losses}次, 暂停买入")
+        if await RiskWatchdog._check_daily_drawdown(scanner, cb_data):
             return False
 
+        # 连续亏损检查(只限制买入, 不限制卖出)
+        if cb_data["consecutive_losses"] >= cb_data["consecutive_loss_limit"]:
+            logger.info(f"[CIRCUIT] 连续亏损{cb_data['consecutive_losses']}次, 暂停买入")
+            return False
+
+        return True
+
+    @staticmethod
+    async def _check_daily_drawdown(scanner, cb_data: Dict) -> bool:
+        """单日回撤检查【v2.9.56从check_circuit_breaker提取】
+        
+        Returns: True=触发熔断(应暂停), False=未触发
+        """
+        if not scanner._broker:
+            return False
+        acct = scanner._broker.get_account()
+        daily_start = cb_data["daily_start_assets"]
+        max_drawdown = cb_data["daily_max_drawdown"]
+        if daily_start <= 0:
+            return False
+        drawdown = (daily_start - acct.total_assets) / daily_start
+        if drawdown < max_drawdown:
+            return False
+
+        reason_str = f"单日回撤{drawdown*100:.1f}%超限({max_drawdown*100:.0f}%)"
+        # 【v2.9.17:线程安全写入circuit_breaker】
+        RiskWatchdog._with_state_lock(
+            scanner,
+            lambda: _set_cb_paused(scanner, reason_str),
+            fallback=lambda: _set_cb_paused(scanner, reason_str),
+        )
+        logger.warning(f"[CIRCUIT] ⚠️ 熔断触发: {reason_str}")
+        # EventBus: 熔断事件
+        from nodes.market_monitor.scanner_event_bus import ScannerEvents
+        await scanner._event_bus.emit(ScannerEvents.CIRCUIT_BREAKER, {
+            "paused": True, "reason": reason_str,
+        })
+        # 主动推送熔断通知
+        try:
+            await scanner._publish_scanner_event("status", {
+                "circuit_breaker": True,
+                "message": reason_str,
+                "trading_paused": True,
+            })
+        except Exception as _e:
+            logger.debug(f"operation failed: {_e}")
         return True
 
     @staticmethod
