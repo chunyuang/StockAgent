@@ -144,7 +144,7 @@ class RuntimePersistence:
                 logger.info(f"[SNAPSHOT] 恢复行情降级: level={doc['quote_degrade_level']}")
     
     async def save_runtime_snapshot(self, force: bool = False) -> None:
-        """保存运行时快照到MongoDB
+        """保存运行时快照到MongoDB【v2.9.56:提取_snapshot_doc构建+_save_snapshot_local降级】
         
         节流: 默认5秒保存一次, force=True跳过节流
         MongoDB不可用时降级写本地文件
@@ -154,30 +154,40 @@ class RuntimePersistence:
         now = time.time()
         if not force:
             last_save = scanner._last_snapshot_save
-            if now - last_save < 5:  # v2.1: 5秒节流(原30秒太长, 崩溃后丢失多)
+            if now - last_save < 5:  # v2.1: 5秒节流
                 return
         
+        doc = self._build_snapshot_doc(scanner)
+        saved = await self._save_snapshot_mongo(scanner, doc, now)
+        
+        # MongoDB失败→降级写本地文件
+        if not saved:
+            self._save_snapshot_local(scanner, doc, now)
+
+    def _build_snapshot_doc(self, scanner) -> Dict:
+        """构建运行时快照文档【v2.9.56从save_runtime_snapshot提取】"""
         doc = {
             "account_id": self.account_id,
             "updated_at": datetime.now().isoformat(),
         }
-        
         # 线程安全读取共享状态
         with scanner._state_lock:
             doc["trailing_stops"] = dict(scanner._trailing_stops)
             doc["position_risk_levels"] = dict(scanner._position_risk_levels)
             doc["pending_sells"] = dict(scanner._pending_sells)
-        
         doc["circuit_breaker"] = scanner._circuit_breaker
         doc["stats"] = dict(scanner._stats)
         doc["active_signals_count"] = len(scanner._active_signals)
         doc["dry_run"] = scanner._dry_run
         doc["trade_date"] = scanner._trade_date
         doc["quote_degrade_level"] = scanner._quote_degrade_level
+        return doc
+
+    async def _save_snapshot_mongo(self, scanner, doc: Dict, now: float) -> bool:
+        """尝试保存快照到MongoDB【v2.9.56从save_runtime_snapshot提取】
         
-        saved = False
-        
-        # 尝试MongoDB
+        Returns: True=保存成功
+        """
         try:
             from core.managers import mongo_manager
             if mongo_manager.db is not None:
@@ -187,22 +197,22 @@ class RuntimePersistence:
                     upsert=True,
                 )
                 scanner._last_snapshot_save = now
-                saved = True
-                # MongoDB成功后清理本地降级文件
                 self._cleanup_local_fallback()
+                return True
         except Exception as e:
             logger.debug(f"[SNAPSHOT] MongoDB保存失败: {e}")
-        
-        # MongoDB失败→降级写本地文件
-        if not saved:
-            try:
-                local_path = self._get_local_fallback_path()
-                with open(local_path, 'w') as f:
-                    json.dump(doc, f, ensure_ascii=False, default=str)
-                scanner._last_snapshot_save = now
-                logger.info(f"[SNAPSHOT] 降级保存到本地: {local_path}")
-            except Exception as e2:
-                logger.warning(f"[SNAPSHOT] 本地保存也失败: {e2}")
+        return False
+
+    def _save_snapshot_local(self, scanner, doc: Dict, now: float) -> None:
+        """降级保存快照到本地文件【v2.9.56从save_runtime_snapshot提取】"""
+        try:
+            local_path = self._get_local_fallback_path()
+            with open(local_path, 'w') as f:
+                json.dump(doc, f, ensure_ascii=False, default=str)
+            scanner._last_snapshot_save = now
+            logger.info(f"[SNAPSHOT] 降级保存到本地: {local_path}")
+        except Exception as e2:
+            logger.warning(f"[SNAPSHOT] 本地保存也失败: {e2}")
     
     def _get_local_fallback_path(self) -> str:
         """获取本地降级文件路径"""
@@ -933,7 +943,7 @@ class RuntimePersistence:
     async def persist_compare_diff(self, trade_date: str, only_legacy: set, only_checker: set,
                                    both: set, legacy_sell: list, checker_results: list,
                                    realtime_data: Dict) -> None:
-        """compare差异持久化到MongoDB【v2.9.45:从position_checker._persist_compare_diff提取】
+        """compare差异持久化到MongoDB【v2.9.45提取, v2.9.56:提取_diff_details构建】
         
         将legacy/checker卖出差异记录到sell_compare_diff集合,
         用于事后审计和分析, 评估checker模式何时可以替代legacy。
@@ -945,26 +955,9 @@ class RuntimePersistence:
                 return
             
             db = mongo_manager.db
-            
-            # 构建差异详情
-            diff_details = {}
-            for code in only_legacy | only_checker:
-                detail = {"code": code}
-                for pos, reason, _, _ in legacy_sell:
-                    if pos.ts_code == code:
-                        detail["legacy_reason"] = reason
-                        detail["legacy_profit_pct"] = round(pos.profit_pct, 2)
-                        detail["strategy"] = pos.strategy
-                        break
-                for pos, reason, _, _, _ in checker_results:
-                    if pos.ts_code == code:
-                        detail["checker_reason"] = reason
-                        detail["checker_profit_pct"] = round(pos.profit_pct, 2)
-                        break
-                rt = realtime_data.get(code, {})
-                detail["price"] = rt.get("price", 0)
-                detail["pct_chg"] = rt.get("pct_chg", 0)
-                diff_details[code] = detail
+            diff_details = self._build_compare_diff_details(
+                only_legacy, only_checker, legacy_sell, checker_results, realtime_data
+            )
             
             doc = {
                 "trade_date": trade_date,
@@ -996,6 +989,30 @@ class RuntimePersistence:
             
         except Exception as e:
             logger.debug(f"[COMPARE] 差异持久化失败: {e}")
+
+    def _build_compare_diff_details(self, only_legacy: set, only_checker: set,
+                                    legacy_sell: list, checker_results: list,
+                                    realtime_data: Dict) -> Dict:
+        """构建compare差异详情【v2.9.56从persist_compare_diff提取】"""
+        diff_details = {}
+        for code in only_legacy | only_checker:
+            detail = {"code": code}
+            for pos, reason, _, _ in legacy_sell:
+                if pos.ts_code == code:
+                    detail["legacy_reason"] = reason
+                    detail["legacy_profit_pct"] = round(pos.profit_pct, 2)
+                    detail["strategy"] = pos.strategy
+                    break
+            for pos, reason, _, _, _ in checker_results:
+                if pos.ts_code == code:
+                    detail["checker_reason"] = reason
+                    detail["checker_profit_pct"] = round(pos.profit_pct, 2)
+                    break
+            rt = realtime_data.get(code, {})
+            detail["price"] = rt.get("price", 0)
+            detail["pct_chg"] = rt.get("pct_chg", 0)
+            diff_details[code] = detail
+        return diff_details
 
     async def save_param_snapshot(self, trade_date: str) -> None:
         """启动时保存参数快照(供月复盘参数漂移检测)【v2.9.42:从scanner._save_param_snapshot提取】"""
