@@ -144,7 +144,7 @@ class TestVersionSync:
     def test_design_doc_version_in_api(self):
         """API版本号为v2.9.43"""
         source = _read(_API)
-        assert '_DESIGN_DOC_VERSION = "v2.9.48"' in source
+        assert '_DESIGN_DOC_VERSION = "v2.9.51"' in source
 
 
 class TestNoBacktestRegressionV2940:
