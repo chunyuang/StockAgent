@@ -16,7 +16,7 @@ import logging
 import os
 import time
 from datetime import datetime
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 
 import pandas as pd
 
@@ -305,66 +305,63 @@ class RuntimePersistence:
             if not filter_result.layer_details:
                 logger.warning(f"[SCAN] layer_details为空! layers_applied={dict(filter_result.layers_applied)}, candidates={len(filter_result.trace_candidates)}")
             
-            today = datetime.now().strftime("%Y%m%d")
-            
             # 分离passed和rejected候选
-            passed_candidates = []
-            rejected_summary = []  # rejected只保留摘要信息，不保存layer_results
+            passed_candidates, rejected_summary = self._split_trace_candidates(filter_result.trace_candidates)
             
-            for t in filter_result.trace_candidates:
-                if t.final_status == "passed":
-                    # passed候选保留完整layer_results（数量少，且是关注重点）
-                    passed_candidates.append({
-                        "ts_code": t.ts_code,
-                        "stock_name": t.stock_name,
-                        "strategy": t.strategy,
-                        "strategy_name": t.strategy_name,
-                        "price": t.price,
-                        "pct_chg": t.pct_chg,
-                        "final_status": t.final_status,
-                        "rejection_layer": t.final_rejection_layer,
-                        "rejection_reason": t.final_rejection_reason,
-                        "layer_results": t.layer_results,
-                    })
-                else:
-                    # rejected候选只保存摘要（数量巨大，layer_results占空间）
-                    rejected_summary.append({
-                        "ts_code": t.ts_code,
-                        "stock_name": t.stock_name,
-                        "strategy": t.strategy,
-                        "strategy_name": t.strategy_name,
-                        "price": t.price,
-                        "pct_chg": t.pct_chg,
-                        "final_status": t.final_status,
-                        "rejection_layer": t.final_rejection_layer,
-                        "rejection_reason": t.final_rejection_reason,
-                        # 不保存 layer_results — 这是体积大头
-                    })
-            
-            # 判断是否交易日(周一~周五)
-            is_trading_day = datetime.now().weekday() < 5
-            trace_doc = {
-                "trade_date": today,
-                "scan_time": datetime.now().isoformat(),
-                "account_id": self.broker.account.account_id if self.broker else "default",
-                "is_debug": not is_trading_day,  # 非交易日标记为调试数据
-                "summary": {},
-                "candidates": passed_candidates,
-                "rejected_summary": rejected_summary,
-            }
-            
-            for layer, stats in filter_result.trace_summary.items():
-                trace_doc["summary"][layer] = dict(stats)
-            trace_doc["summary"]["total_candidates"] = len(filter_result.trace_candidates)
-            trace_doc["summary"]["passed"] = len(passed_candidates)
-            trace_doc["summary"]["rejected"] = len(rejected_summary)
-            # 【v2.9.17:保存layer_details(每层的决策描述)】
-            trace_doc["layer_details"] = dict(filter_result.layer_details)
+            # 构建追踪文档
+            trace_doc = self._build_trace_doc(filter_result, passed_candidates, rejected_summary)
             
             await mongo_manager.db["scan_traces"].insert_one(trace_doc)
             logger.info(f"[SCAN] 保存链路追踪: {len(passed_candidates)} passed + {len(rejected_summary)} rejected (节省layer_results)")
         except Exception as e:
             logger.warning(f"[SCAN] 保存链路追踪失败(非关键): {e}")
+
+    def _split_trace_candidates(self, trace_candidates) -> Tuple[List, List]:
+        """分离passed/rejected候选【v2.9.56从save_scan_traces提取】
+        
+        passed候选保留完整layer_results(关注重点), rejected只保留摘要(省空间)。
+        """
+        passed = []
+        rejected = []
+        for t in trace_candidates:
+            base = {
+                "ts_code": t.ts_code,
+                "stock_name": t.stock_name,
+                "strategy": t.strategy,
+                "strategy_name": t.strategy_name,
+                "price": t.price,
+                "pct_chg": t.pct_chg,
+                "final_status": t.final_status,
+                "rejection_layer": t.final_rejection_layer,
+                "rejection_reason": t.final_rejection_reason,
+            }
+            if t.final_status == "passed":
+                base["layer_results"] = t.layer_results
+                passed.append(base)
+            else:
+                rejected.append(base)
+        return passed, rejected
+
+    def _build_trace_doc(self, filter_result, passed_candidates: List, rejected_summary: List) -> Dict:
+        """构建链路追踪文档【v2.9.56从save_scan_traces提取】"""
+        today = datetime.now().strftime("%Y%m%d")
+        is_trading_day = datetime.now().weekday() < 5
+        trace_doc = {
+            "trade_date": today,
+            "scan_time": datetime.now().isoformat(),
+            "account_id": self.broker.account.account_id if self.broker else "default",
+            "is_debug": not is_trading_day,
+            "summary": {},
+            "candidates": passed_candidates,
+            "rejected_summary": rejected_summary,
+        }
+        for layer, stats in filter_result.trace_summary.items():
+            trace_doc["summary"][layer] = dict(stats)
+        trace_doc["summary"]["total_candidates"] = len(filter_result.trace_candidates)
+        trace_doc["summary"]["passed"] = len(passed_candidates)
+        trace_doc["summary"]["rejected"] = len(rejected_summary)
+        trace_doc["layer_details"] = dict(filter_result.layer_details)
+        return trace_doc
     
     async def load_timeline(self) -> None:
         """从MongoDB加载时间线(启动时恢复)"""
@@ -796,7 +793,8 @@ class RuntimePersistence:
     async def sync_close_data_to_mongo(self, trade_date: str) -> None:
         """收盘后同步内存数据到MongoDB(limit_list + daily_basic)
         
-        【v2.9.34从scanner提取】将scanner内存中的涨跌停/行情数据
+        【v2.9.34从scanner提取, v2.9.56:提取_build_limit_ops】
+        将scanner内存中的涨跌停/行情数据
         批量写入MongoDB, 供情绪计算和历史回测使用。
         """
         from pymongo.operations import UpdateOne
@@ -807,62 +805,72 @@ class RuntimePersistence:
         scanner = self._scanner
         
         # 1. 同步limit_pools → limit_list
-        limit_pools = scanner._limit_pools
+        ops = self._build_limit_ops(scanner._limit_pools, td_int)
+        if ops:
+            result = await db["limit_list"].bulk_write(ops)
+            logger.info(f"[SCANNER] limit_list同步: {result.upserted_count}新增 {result.modified_count}更新")
+        
+        # 2. 同步realtime_cache的pct_chg → daily_basic(补pct_chg字段)
+        await self._sync_pct_chg_to_daily_basic(scanner._realtime_cache, td_int, db)
+
+    def _build_limit_ops(self, limit_pools: Dict, td_int: int) -> List:
+        """构建limit_list的bulk_write操作【v2.9.56从sync_close_data_to_mongo提取】"""
+        from pymongo.operations import UpdateOne
         lu_list = limit_pools.get("limit_up", [])
         ld_list = limit_pools.get("limit_down", [])
         broken_list = limit_pools.get("broken", [])
-        
-        if lu_list or ld_list:
-            ops = []
-            for item in lu_list:
-                ops.append(UpdateOne(
-                    {"trade_date": td_int, "ts_code": item.get("ts_code", "")},
-                    {"$set": {"trade_date": td_int, "ts_code": item.get("ts_code", ""), "name": item.get("name", ""), "limit": "U",
-                     "close": item.get("close", 0), "limit_times": item.get("limit_times", 1),
-                     "first_time": item.get("first_time", ""), "last_time": item.get("last_time", ""),
-                     "data_source": "scanner_realtime"}},
-                    upsert=True
+        if not (lu_list or ld_list):
+            return []
+        ops = []
+        for item in lu_list:
+            ops.append(UpdateOne(
+                {"trade_date": td_int, "ts_code": item.get("ts_code", "")},
+                {"$set": {"trade_date": td_int, "ts_code": item.get("ts_code", ""), "name": item.get("name", ""), "limit": "U",
+                 "close": item.get("close", 0), "limit_times": item.get("limit_times", 1),
+                 "first_time": item.get("first_time", ""), "last_time": item.get("last_time", ""),
+                 "data_source": "scanner_realtime"}},
+                upsert=True
+            ))
+        for item in ld_list:
+            ops.append(UpdateOne(
+                {"trade_date": td_int, "ts_code": item.get("ts_code", "")},
+                {"$set": {"trade_date": td_int, "ts_code": item.get("ts_code", ""), "name": item.get("name", ""), "limit": "D",
+                 "close": item.get("close", 0), "limit_times": item.get("limit_times", 1),
+                 "first_time": item.get("first_time", ""), "last_time": item.get("last_time", ""),
+                 "data_source": "scanner_realtime"}},
+                upsert=True
+            ))
+        for item in broken_list:
+            ops.append(UpdateOne(
+                {"trade_date": td_int, "ts_code": item.get("ts_code", "")},
+                {"$set": {"trade_date": td_int, "ts_code": item.get("ts_code", ""), "name": item.get("name", ""), "limit": "U",
+                 "close": item.get("close", 0), "limit_times": item.get("limit_times", 1),
+                 "amp": item.get("amp", 0), "data_source": "scanner_realtime"}},
+                upsert=True
+            ))
+        return ops
+
+    async def _sync_pct_chg_to_daily_basic(self, realtime_cache: Dict, td_int: int, db) -> None:
+        """同步pct_chg字段到daily_basic【v2.9.56从sync_close_data_to_mongo提取】"""
+        from pymongo.operations import UpdateOne
+        if not realtime_cache:
+            return
+        pct_ops = []
+        synced = 0
+        for ts_code, quote in realtime_cache.items():
+            pct_chg = quote.get("pct_chg")
+            if pct_chg is not None:
+                pct_ops.append(UpdateOne(
+                    {"trade_date": td_int, "ts_code": ts_code, "pct_chg": None},
+                    {"$set": {"pct_chg": pct_chg, "close": quote.get("close", 0), "data_source": "scanner_realtime"}}
                 ))
-            for item in ld_list:
-                ops.append(UpdateOne(
-                    {"trade_date": td_int, "ts_code": item.get("ts_code", "")},
-                    {"$set": {"trade_date": td_int, "ts_code": item.get("ts_code", ""), "name": item.get("name", ""), "limit": "D",
-                     "close": item.get("close", 0), "limit_times": item.get("limit_times", 1),
-                     "first_time": item.get("first_time", ""), "last_time": item.get("last_time", ""),
-                     "data_source": "scanner_realtime"}},
-                    upsert=True
-                ))
-            for item in broken_list:
-                ops.append(UpdateOne(
-                    {"trade_date": td_int, "ts_code": item.get("ts_code", "")},
-                    {"$set": {"trade_date": td_int, "ts_code": item.get("ts_code", ""), "name": item.get("name", ""), "limit": "U",
-                     "close": item.get("close", 0), "limit_times": item.get("limit_times", 1),
-                     "amp": item.get("amp", 0), "data_source": "scanner_realtime"}},
-                    upsert=True
-                ))
-            if ops:
-                result = await db["limit_list"].bulk_write(ops)
-                logger.info(f"[SCANNER] limit_list同步: {result.upserted_count}新增 {result.modified_count}更新")
-        
-        # 2. 同步realtime_cache的pct_chg → daily_basic(补pct_chg字段)
-        realtime_cache = scanner._realtime_cache
-        if realtime_cache:
-            pct_ops = []
-            synced = 0
-            for ts_code, quote in realtime_cache.items():
-                pct_chg = quote.get("pct_chg")
-                if pct_chg is not None:
-                    pct_ops.append(UpdateOne(
-                        {"trade_date": td_int, "ts_code": ts_code, "pct_chg": None},
-                        {"$set": {"pct_chg": pct_chg, "close": quote.get("close", 0), "data_source": "scanner_realtime"}}
-                    ))
-                    synced += 1
-                    if len(pct_ops) >= 500:  # 批量上限
-                        await db["daily_basic"].bulk_write(pct_ops)
-                        pct_ops = []
-            if pct_ops:
-                result = await db["daily_basic"].bulk_write(pct_ops)
-                logger.info(f"[SCANNER] daily_basic pct_chg同步: {synced}只")
+                synced += 1
+                if len(pct_ops) >= 500:  # 批量上限
+                    await db["daily_basic"].bulk_write(pct_ops)
+                    pct_ops = []
+        if pct_ops:
+            await db["daily_basic"].bulk_write(pct_ops)
+            logger.info(f"[SCANNER] daily_basic pct_chg同步: {synced}只")
 
     # ==================== 盘后结算 ====================
 

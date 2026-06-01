@@ -205,6 +205,59 @@ class TestDaemonTerminateProcessExtraction:
 
 
 # ---------------------------------------------------------------------------
+# RuntimePersistence方法提取测试
+# ---------------------------------------------------------------------------
+
+class TestRuntimePersistenceExtraction:
+    """验证RuntimePersistence方法提取(v2.9.56)"""
+
+    def test_split_trace_candidates_exists(self):
+        """_split_trace_candidates方法应存在"""
+        from nodes.market_monitor.runtime_persistence import RuntimePersistence
+        assert hasattr(RuntimePersistence, '_split_trace_candidates')
+
+    def test_build_trace_doc_exists(self):
+        """_build_trace_doc方法应存在"""
+        from nodes.market_monitor.runtime_persistence import RuntimePersistence
+        assert hasattr(RuntimePersistence, '_build_trace_doc')
+
+    def test_build_limit_ops_exists(self):
+        """_build_limit_ops方法应存在"""
+        from nodes.market_monitor.runtime_persistence import RuntimePersistence
+        assert hasattr(RuntimePersistence, '_build_limit_ops')
+
+    def test_sync_pct_chg_exists(self):
+        """_sync_pct_chg_to_daily_basic方法应存在"""
+        from nodes.market_monitor.runtime_persistence import RuntimePersistence
+        assert hasattr(RuntimePersistence, '_sync_pct_chg_to_daily_basic')
+
+    def test_save_scan_traces_calls_split(self):
+        """save_scan_traces应调用_split_trace_candidates"""
+        from nodes.market_monitor.runtime_persistence import RuntimePersistence
+        source = inspect.getsource(RuntimePersistence.save_scan_traces)
+        assert "_split_trace_candidates" in source
+
+    def test_sync_close_data_calls_build_limit_ops(self):
+        """sync_close_data_to_mongo应调用_build_limit_ops"""
+        from nodes.market_monitor.runtime_persistence import RuntimePersistence
+        source = inspect.getsource(RuntimePersistence.sync_close_data_to_mongo)
+        assert "_build_limit_ops" in source
+        assert "_sync_pct_chg" in source
+
+    def test_save_scan_traces_line_count(self):
+        """save_scan_traces行数应≤35(v2.9.56:提取)"""
+        from nodes.market_monitor.runtime_persistence import RuntimePersistence
+        lines = inspect.getsource(RuntimePersistence.save_scan_traces).split('\n')
+        assert len(lines) <= 35, f"save_scan_traces {len(lines)}行,应≤35"
+
+    def test_sync_close_data_line_count(self):
+        """sync_close_data_to_mongo行数应≤25(v2.9.56:提取)"""
+        from nodes.market_monitor.runtime_persistence import RuntimePersistence
+        lines = inspect.getsource(RuntimePersistence.sync_close_data_to_mongo).split('\n')
+        assert len(lines) <= 25, f"sync_close_data_to_mongo {len(lines)}行,应≤25"
+
+
+# ---------------------------------------------------------------------------
 # 回测不影响验证
 # ---------------------------------------------------------------------------
 
