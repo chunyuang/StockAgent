@@ -26,25 +26,25 @@ class TestScanOnceTiming:
     """scan_once分步计时测试"""
 
     def test_scan_once_has_step_timing(self):
-        """scan_once源码包含分步计时变量"""
-        from nodes.market_monitor.scanner import MarketScanner
+        """scan_once使用_StepTimer上下文管理器进行分步计时【v2.9.55重构】"""
+        from nodes.market_monitor.scanner import MarketScanner, _StepTimer
         source = inspect.getsource(MarketScanner.scan_once)
-        # 应包含分步计时变量
-        assert "step1_ms" in source, "scan_once缺少step1_ms(行情耗时)"
-        assert "step2_ms" in source, "scan_once缺少step2_ms(因子耗时)"
-        assert "step3_ms" in source, "scan_once缺少step3_ms(策略+筛选耗时)"
-        assert "step4_ms" in source, "scan_once缺少step4_ms(信号耗时)"
-        assert "step5_ms" in source, "scan_once缺少step5_ms(持仓检查耗时)"
+        # v2.9.55: 分步计时提取到_StepTimer
+        assert "_StepTimer" in source or "timer.step" in source, "scan_once应使用_StepTimer"
+        assert "timer.step" in source, "scan_once缺少timer.step()调用"
+        # 验证_StepTimer类存在且功能完整
+        assert hasattr(_StepTimer, 'step'), "_StepTimer缺少step方法"
+        assert hasattr(_StepTimer, 'get_slow_info'), "_StepTimer缺少get_slow_info方法"
 
     def test_scan_once_has_slow_step_logging(self):
-        """scan_once源码包含慢步骤格式化调用【v2.9.28:提取到_format_slow_steps】"""
+        """scan_once源码包含慢步骤日志【v2.9.55:通过_StepTimer.get_slow_info()】"""
         from nodes.market_monitor.scanner import MarketScanner
         source = inspect.getsource(MarketScanner.scan_once)
-        assert "_format_slow_steps" in source, "scan_once缺少_format_slow_steps调用"
-        # 验证ScannerUtils包含实际格式化逻辑
-        from nodes.market_monitor.scanner_utils import ScannerUtils
-        util_source = inspect.getsource(ScannerUtils.format_slow_steps)
-        assert "slow" in util_source, "format_slow_steps缺少慢步骤逻辑"
+        assert "get_slow_info" in source, "scan_once缺少get_slow_info调用"
+        # 验证_StepTimer.get_slow_info包含慢步骤逻辑
+        from nodes.market_monitor.scanner import _StepTimer
+        timer_source = inspect.getsource(_StepTimer.get_slow_info)
+        assert "slow" in timer_source.lower(), "get_slow_info缺少慢步骤逻辑"
 
     def test_scan_once_line_count_reasonable(self):
         """scan_once行数应≤80(v2.9.22:新增分步计时)"""
