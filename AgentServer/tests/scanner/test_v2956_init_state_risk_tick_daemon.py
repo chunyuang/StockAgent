@@ -1,4 +1,4 @@
-"""v2.9.56: _init_state分组提取 + _risk_tick_body提取 + ScannerDaemon方法提取
+"""v2.9.57: _init_state分组提取 + _risk_tick_body提取 + ScannerDaemon方法提取
 
 变更:
 - 🟡 _init_state分组提取: 42行→5行委托 + 4个子方法(_init_risk_state/_init_execution_state/_init_cache_state/_init_signal_state)
@@ -68,7 +68,7 @@ class TestInitStateDecomposition:
         assert "_all_codes" in source
 
     def test_init_state_line_count(self):
-        """_init_state行数应≤10(v2.9.56:分组委托)"""
+        """_init_state行数应≤10(v2.9.57:分组委托)"""
         from nodes.market_monitor.scanner import MarketScanner
         lines = inspect.getsource(MarketScanner._init_state).split('\n')
         assert len(lines) <= 10, f"_init_state {len(lines)}行,应≤10"
@@ -107,7 +107,7 @@ class TestRiskTickBodyExtraction:
         assert "_risk_periodic_checks" in source
 
     def test_risk_loop_sync_line_count(self):
-        """_risk_loop_sync行数应≤35(v2.9.56:循环体提取)"""
+        """_risk_loop_sync行数应≤35(v2.9.57:循环体提取)"""
         from nodes.market_monitor.scanner import MarketScanner
         lines = inspect.getsource(MarketScanner._risk_loop_sync).split('\n')
         assert len(lines) <= 35, f"_risk_loop_sync {len(lines)}行,应≤35"
@@ -132,7 +132,7 @@ class TestDaemonSubscriptionMessageExtraction:
         assert "_handle_subscription_message" in source
 
     def test_subscribe_loop_line_count(self):
-        """_subscribe_loop行数应≤30(v2.9.56:消息处理提取)"""
+        """_subscribe_loop行数应≤30(v2.9.57:消息处理提取)"""
         from nodes.market_monitor.scanner_daemon import ScannerDaemon
         lines = inspect.getsource(ScannerDaemon._subscribe_loop).split('\n')
         assert len(lines) <= 30, f"_subscribe_loop {len(lines)}行,应≤30"
@@ -209,7 +209,7 @@ class TestDaemonTerminateProcessExtraction:
 # ---------------------------------------------------------------------------
 
 class TestRuntimePersistenceExtraction:
-    """验证RuntimePersistence方法提取(v2.9.56)"""
+    """验证RuntimePersistence方法提取(v2.9.57)"""
 
     def test_split_trace_candidates_exists(self):
         """_split_trace_candidates方法应存在"""
@@ -245,13 +245,13 @@ class TestRuntimePersistenceExtraction:
         assert "_sync_pct_chg" in source
 
     def test_save_scan_traces_line_count(self):
-        """save_scan_traces行数应≤35(v2.9.56:提取)"""
+        """save_scan_traces行数应≤35(v2.9.57:提取)"""
         from nodes.market_monitor.runtime_persistence import RuntimePersistence
         lines = inspect.getsource(RuntimePersistence.save_scan_traces).split('\n')
         assert len(lines) <= 35, f"save_scan_traces {len(lines)}行,应≤35"
 
     def test_sync_close_data_line_count(self):
-        """sync_close_data_to_mongo行数应≤25(v2.9.56:提取)"""
+        """sync_close_data_to_mongo行数应≤25(v2.9.57:提取)"""
         from nodes.market_monitor.runtime_persistence import RuntimePersistence
         lines = inspect.getsource(RuntimePersistence.sync_close_data_to_mongo).split('\n')
         assert len(lines) <= 25, f"sync_close_data_to_mongo {len(lines)}行,应≤25"
@@ -262,7 +262,7 @@ class TestRuntimePersistenceExtraction:
 # ---------------------------------------------------------------------------
 
 class TestNoBacktestRegressionV2956:
-    """验证v2.9.56变更不影响回测模块"""
+    """验证v2.9.57变更不影响回测模块"""
 
     def test_sell_signal_checker_importable(self):
         """SellSignalChecker仍可正常导入"""
@@ -293,12 +293,12 @@ class TestNoBacktestRegressionV2956:
             assert os.path.exists(full_path), f"回测文件不存在: {f}"
 
     def test_version_constant_updated(self):
-        """版本常量更新为v2.9.56"""
+        """版本常量更新为v2.9.57"""
         base_dir = os.path.dirname(os.path.abspath(__file__))
         project_root = os.path.abspath(os.path.join(base_dir, "..", ".."))
         with open(os.path.join(project_root, "nodes/web/api/scanner.py")) as f:
             source = f.read()
-        assert '_DESIGN_DOC_VERSION = "v2.9.56"' in source
+        assert '_DESIGN_DOC_VERSION = "v2.9.57"' in source
 
 
 # ---------------------------------------------------------------------------
@@ -306,7 +306,7 @@ class TestNoBacktestRegressionV2956:
 # ---------------------------------------------------------------------------
 
 class TestScannerUtilsExtraction:
-    """验证ScannerUtils方法提取(v2.9.56+)"""
+    """验证ScannerUtils方法提取(v2.9.57+)"""
 
     def test_diagnose_checks_extracted(self):
         """diagnose的6个检查应提取为子方法"""
@@ -334,7 +334,7 @@ class TestScannerUtilsExtraction:
         assert '_check_risk_check_timeout' in source
 
     def test_diagnose_line_count(self):
-        """diagnose行数应≤40(v2.9.56:6检查提取)"""
+        """diagnose行数应≤40(v2.9.57:6检查提取)"""
         from nodes.market_monitor.scanner_utils import ScannerUtils
         lines = inspect.getsource(ScannerUtils.diagnose).split('\n')
         assert len(lines) <= 40, f"diagnose {len(lines)}行,应≤40"
@@ -365,7 +365,7 @@ class TestScannerUtilsExtraction:
         assert '_build_signal_stats' in source
 
     def test_summary_report_line_count(self):
-        """generate_summary_report行数应≤28(v2.9.56:6子方法提取)"""
+        """generate_summary_report行数应≤28(v2.9.57:6子方法提取)"""
         from nodes.market_monitor.scanner_utils import ScannerUtils
         lines = inspect.getsource(ScannerUtils.generate_summary_report).split('\n')
         assert len(lines) <= 28, f"generate_summary_report {len(lines)}行,应≤28"
@@ -386,7 +386,7 @@ class TestScannerUtilsExtraction:
         assert '_judge_health' in source
 
     def test_compute_health_score_line_count(self):
-        """compute_health_score行数应≤35(v2.9.56:3子方法提取)"""
+        """compute_health_score行数应≤35(v2.9.57:3子方法提取)"""
         from nodes.market_monitor.scanner_utils import ScannerUtils
         lines = inspect.getsource(ScannerUtils.compute_health_score).split('\n')
         assert len(lines) <= 35, f"compute_health_score {len(lines)}行,应≤35"

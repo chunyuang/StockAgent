@@ -185,123 +185,139 @@ class QuoteManager:
         ct = now.strftime("%H:%M")
         is_weekend = now.weekday() >= 5
         is_trading = ("09:15" <= ct <= "15:05") and not is_weekend
-        
+
         if not is_trading and not force:
-            # 非交易时间: 尝试返回缓存, 不拉实时
             logger.info(f"[QUOTE] 非交易时间({ct}{' 周末' if is_weekend else ''}), 使用缓存")
-            # 尝试从东方财富缓存获取
             if eastmoney and eastmoney._cache:
                 cache_age = time.time() - eastmoney._cache_time if eastmoney._cache_time > 0 else 9999
                 logger.info(f"[QUOTE] 东财缓存: {len(eastmoney._cache)}只, {cache_age:.0f}秒前")
                 return self._build_realtime_from_cache(eastmoney._cache)
             return {}
 
-        realtime = {}
+        realtime: Dict[str, Dict] = {}
         today = datetime.now().strftime("%Y-%m-%d")
 
         # === 1. 东方财富: 全市场5400只 ===
-        if eastmoney:
-            try:
-                em_data = await eastmoney.get_all_realtime(force_refresh=True)
-                for ts_code, item in em_data.items():
-                    realtime[ts_code] = {
-                        "price": item.get("price"),
-                        "pct_chg": item.get("pct_chg"),
-                        "turnover_rate": item.get("turnover_rate"),
-                        "volume_ratio": item.get("volume_ratio"),
-                        "pe": item.get("pe"),
-                        "pb": item.get("pb"),
-                        "float_mv": item.get("float_mv"),
-                        "open": item.get("open"),
-                        "high": item.get("high"),
-                        "low": item.get("low"),
-                        "pre_close": item.get("pre_close"),
-                        "name": item.get("name", ""),
-                        "amplitude": item.get("amplitude"),
-                    }
-                logger.info(f"[QUOTE] 东方财富: {len(em_data)}只全市场快照")
-                # 成功 → 重置失败计数, 尝试恢复降级
-                self._quote_fail_count = 0
-                self._last_fetch_time = time.monotonic()
-                if self._quote_degrade_level > 0:
-                    degrade_duration = time.monotonic() - self._degrade_since
-                    self._quote_degrade_level = 0
-                    self._degrade_since = 0
-                    logger.info(f"[QUOTE] 行情恢复正常, 降级已恢复(持续{degrade_duration:.0f}秒)")
-                    # 【v2.9:通过回调发射EventBus行情恢复事件(消除_scanner引用)】
-                    if self._event_emitter:
-                        asyncio.get_event_loop().create_task(self._event_emitter("quote_recovered", {
-                            "level": 0,
-                            "degrade_duration_s": degrade_duration,
-                            "source": "eastmoney",
-                        }))
-            except Exception as e:
-                self._quote_fail_count += 1
-                if self._quote_fail_count >= 3 and self._quote_degrade_level == 0:
-                    self._quote_degrade_level = 1
-                    self._degrade_since = time.monotonic()
-                    self._last_recover_attempt = time.monotonic()  # 从降级时刻开始计时
-                    logger.warning(f"[QUOTE] 东方财富连续3次失败,降级到level 1: {e}")
-                    # 【v2.9:通过回调发射EventBus行情降级事件(消除_scanner引用)】
-                    if self._event_emitter:
-                        asyncio.get_event_loop().create_task(self._event_emitter("quote_degraded", {
-                            "level": 1,
-                            "source": "eastmoney",
-                            "error": str(e),
-                        }))
-                else:
-                    logger.warning(f"[QUOTE] 东方财富获取失败({self._quote_fail_count}次): {e}")
+        await self._fetch_eastmoney_data(eastmoney, realtime)
 
-        # === 2. 必盈涨停池 ===
-        if biying:
-            try:
-                limit_ups = await biying.get_limit_up_pool(today)
-                limit_up_count = 0
-                for item in limit_ups:
-                    ts_code = item.get("ts_code", "")
-                    if not ts_code or "." not in ts_code:
-                        continue
-                    if ts_code in realtime:
-                        realtime[ts_code].update({
-                            "is_limit_up": True,
-                            "limit_times": item.get("limit_times", 0),
-                            "fd_amount": item.get("fd_amount", 0),
-                            "first_limit_time": item.get("first_limit_time", ""),
-                            "last_limit_time": item.get("last_limit_time", ""),
-                            "limit_amount": item.get("limit_amount", 0),
-                            "open_times": item.get("open_times", 0),
-                            "up_stat": item.get("up_stat", ""),
-                        })
-                    limit_up_count += 1
-                logger.info(f"[QUOTE] 必盈涨停池: {limit_up_count}只")
+        # === 2. 必盈涨停/跌停/炸板池 ===
+        await self._merge_limit_pool_data(biying, realtime, today)
 
-                # 跌停池
-                limit_downs = await biying.get_limit_down_pool(today)
-                for item in limit_downs:
+        # 更新缓存(线程安全)
+        self._update_realtime_cache(realtime)
+
+        return realtime
+
+    async def _fetch_eastmoney_data(
+        self, eastmoney: Any, realtime: Dict[str, Dict]
+    ) -> None:
+        """【v2.9.57提取】东方财富全市场数据获取 + 降级处理"""
+        if not eastmoney:
+            return
+        try:
+            em_data = await eastmoney.get_all_realtime(force_refresh=True)
+            for ts_code, item in em_data.items():
+                realtime[ts_code] = {
+                    "price": item.get("price"),
+                    "pct_chg": item.get("pct_chg"),
+                    "turnover_rate": item.get("turnover_rate"),
+                    "volume_ratio": item.get("volume_ratio"),
+                    "pe": item.get("pe"),
+                    "pb": item.get("pb"),
+                    "float_mv": item.get("float_mv"),
+                    "open": item.get("open"),
+                    "high": item.get("high"),
+                    "low": item.get("low"),
+                    "pre_close": item.get("pre_close"),
+                    "name": item.get("name", ""),
+                    "amplitude": item.get("amplitude"),
+                }
+            logger.info(f"[QUOTE] 东方财富: {len(em_data)}只全市场快照")
+            # 成功 → 重置失败计数, 尝试恢复降级
+            self._quote_fail_count = 0
+            self._last_fetch_time = time.monotonic()
+            if self._quote_degrade_level > 0:
+                degrade_duration = time.monotonic() - self._degrade_since
+                self._quote_degrade_level = 0
+                self._degrade_since = 0
+                logger.info(f"[QUOTE] 行情恢复正常, 降级已恢复(持续{degrade_duration:.0f}秒)")
+                if self._event_emitter:
+                    asyncio.get_event_loop().create_task(self._event_emitter("quote_recovered", {
+                        "level": 0,
+                        "degrade_duration_s": degrade_duration,
+                        "source": "eastmoney",
+                    }))
+        except Exception as e:
+            self._quote_fail_count += 1
+            if self._quote_fail_count >= 3 and self._quote_degrade_level == 0:
+                self._quote_degrade_level = 1
+                self._degrade_since = time.monotonic()
+                self._last_recover_attempt = time.monotonic()
+                logger.warning(f"[QUOTE] 东方财富连续3次失败,降级到level 1: {e}")
+                if self._event_emitter:
+                    asyncio.get_event_loop().create_task(self._event_emitter("quote_degraded", {
+                        "level": 1,
+                        "source": "eastmoney",
+                        "error": str(e),
+                    }))
+            else:
+                logger.warning(f"[QUOTE] 东方财富获取失败({self._quote_fail_count}次): {e}")
+
+    async def _merge_limit_pool_data(
+        self, biying: Any, realtime: Dict[str, Dict], today: str
+    ) -> None:
+        """【v2.9.57提取】必盈涨停/跌停/炸板池数据合并"""
+        if not biying:
+            return
+        try:
+            limit_ups = await biying.get_limit_up_pool(today)
+            limit_up_count = 0
+            for item in limit_ups:
+                ts_code = item.get("ts_code", "")
+                if not ts_code or "." not in ts_code:
+                    continue
+                if ts_code in realtime:
+                    realtime[ts_code].update({
+                        "is_limit_up": True,
+                        "limit_times": item.get("limit_times", 0),
+                        "fd_amount": item.get("fd_amount", 0),
+                        "first_limit_time": item.get("first_limit_time", ""),
+                        "last_limit_time": item.get("last_limit_time", ""),
+                        "limit_amount": item.get("limit_amount", 0),
+                        "open_times": item.get("open_times", 0),
+                        "up_stat": item.get("up_stat", ""),
+                    })
+                limit_up_count += 1
+            logger.info(f"[QUOTE] 必盈涨停池: {limit_up_count}只")
+
+            # 跌停池
+            limit_downs = await biying.get_limit_down_pool(today)
+            for item in limit_downs:
+                ts_code = item.get("ts_code", "")
+                if ts_code and ts_code in realtime:
+                    realtime[ts_code].update({
+                        "is_limit_down": True,
+                        "limit_down_amount": item.get("fd_amount", 0),
+                    })
+
+            # 炸板池
+            try:
+                limit_opens = await biying.get_limit_open_pool(today)
+                for item in limit_opens:
                     ts_code = item.get("ts_code", "")
                     if ts_code and ts_code in realtime:
                         realtime[ts_code].update({
-                            "is_limit_down": True,
-                            "limit_down_amount": item.get("fd_amount", 0),
+                            "is_limit_open": True,
+                            "open_times": item.get("open_times", 0),
                         })
+            except Exception as _e:
+                logger.debug(f"operation failed: {_e}")
 
-                # 炸板池
-                try:
-                    limit_opens = await biying.get_limit_open_pool(today)
-                    for item in limit_opens:
-                        ts_code = item.get("ts_code", "")
-                        if ts_code and ts_code in realtime:
-                            realtime[ts_code].update({
-                                "is_limit_open": True,
-                                "open_times": item.get("open_times", 0),
-                            })
-                except Exception as _e:
-                    logger.debug(f"operation failed: {_e}")
+        except Exception as e:
+            logger.warning(f"[QUOTE] 必盈不可用: {e}, 仅使用东方财富数据(无涨停池详情)")
 
-            except Exception as e:
-                logger.warning(f"[QUOTE] 必盈不可用: {e}, 仅使用东方财富数据(无涨停池详情)")
-
-        # 更新缓存(线程安全)
+    def _update_realtime_cache(self, realtime: Dict[str, Dict]) -> None:
+        """【v2.9.57提取】线程安全地更新行情缓存"""
         if self._cache_lock:
             with self._cache_lock:
                 self._prev_realtime_cache = dict(self._realtime_cache)

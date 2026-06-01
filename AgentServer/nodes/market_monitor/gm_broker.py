@@ -233,12 +233,22 @@ class GmBroker:
             logger.debug(f"order operation failed: {_e}")
 
     def _generate_strategy_script(self) -> str:
-        """生成掘金策略脚本(子进程运行)"""
-        return f'''#!/usr/bin/env python3
-"""
-掘金策略 — 由GmBroker自动生成
-功能: 读取命令文件执行下单, 写状态文件回报结果
-"""
+        """生成掘金策略脚本(子进程运行) — v2.9.57: 拆分为5个模板方法"""
+        parts = [
+            self._script_header(),
+            self._script_callbacks(),
+            self._script_order_execution(),
+            self._script_state_update(),
+            self._script_helpers(),
+            self._script_main_entry(),
+        ]
+        return "\n".join(parts)
+
+    @staticmethod
+    def _script_header() -> str:
+        """掘金策略脚本头部: import + 全局状态 + save_state"""
+        return '''#!/usr/bin/env python3
+"""掘金策略 — 由GmBroker自动生成"""
 import json
 import os
 import time
@@ -251,11 +261,16 @@ STATE_FILE = "/tmp/gm_broker_state.json"
 CMD_FILE = "/tmp/gm_broker_cmd.json"
 
 # 全局状态
-state = {{"connected": False, "positions": [], "account": {{}}, "orders": {{}}}}
+state = {"connected": False, "positions": [], "account": {}, "orders": {}}
 
 def save_state():
     with open(STATE_FILE, "w") as f:
-        json.dump(state, f, ensure_ascii=False)
+        json.dump(state, f, ensure_ascii=False)'''
+
+    @staticmethod
+    def _script_callbacks() -> str:
+        """掘金回调: init + on_bar + on_order_filled + on_order_rejected + on_backtest_finished"""
+        return '''
 
 def init(context):
     """掘金初始化回调"""
@@ -263,32 +278,24 @@ def init(context):
     state["connected"] = True
     save_state()
 
-    # 订阅全市场1分钟行情
-    # symbols = get_symbols(sec_type1=1)  # 1=股票
-    # subscribe(symbols=symbols[:100], frequency="60s", count=1)
-
 def on_bar(context, bars):
     """行情回调"""
-    # 读取命令文件
     if os.path.exists(CMD_FILE):
         try:
             with open(CMD_FILE) as f:
                 cmd = json.load(f)
             if cmd.get("action") == "place_order":
                 execute_order(context, cmd)
-            # 执行后删除命令文件
             os.remove(CMD_FILE)
         except Exception as e:
-            logger.error(f"处理命令失败: {{e}}")
-
-    # 更新持仓和账户
+            logger.error(f"处理命令失败: {e}")
     update_state(context)
 
 def on_order_filled(context, order):
     """成交回调"""
-    logger.info(f"成交: {{order.symbol}} {{order.side}} {{order.filled_volume}}@{{order.filled_vwap}}")
+    logger.info(f"成交: {order.symbol} {order.side} {order.filled_volume}@{order.filled_vwap}")
     oid = order.cl_ord_id if hasattr(order, "cl_ord_id") else ""
-    if oid in state.get("orders", {{}}):
+    if oid in state.get("orders", {}):
         state["orders"][oid]["status"] = "filled"
         state["orders"][oid]["filled_qty"] = order.filled_volume
         state["orders"][oid]["filled_price"] = order.filled_vwap
@@ -296,12 +303,17 @@ def on_order_filled(context, order):
 
 def on_order_rejected(context, order):
     """委托被拒"""
-    logger.warning(f"被拒: {{order.symbol}} {{order.reject_reason}}")
+    logger.warning(f"被拒: {order.symbol} {order.reject_reason}")
     save_state()
 
 def on_backtest_finished(context, indicator):
     """回测完成"""
-    logger.info(f"回测完成: {{indicator}}")
+    logger.info(f"回测完成: {indicator}")'''
+
+    @staticmethod
+    def _script_order_execution() -> str:
+        """掘金下单执行: execute_order"""
+        return '''
 
 def execute_order(context, cmd):
     """执行下单命令"""
@@ -312,7 +324,6 @@ def execute_order(context, cmd):
     order_type = cmd.get("order_type", "market")
     order_id = cmd.get("order_id", "")
 
-    # 转换ts_code格式: 600519.SH → SHSE.600519
     gm_symbol = convert_symbol(ts_code)
 
     from gm.api import OrderSide_Buy, OrderSide_Sell, OrderType_Market, OrderType_Limit, PositionEffect_Open, PositionEffect_Close
@@ -331,20 +342,23 @@ def execute_order(context, cmd):
             position_effect=gm_effect,
             price=price if order_type == "limit" else 0,
         )
-        logger.info(f"下单成功: {{gm_symbol}} {{side}} {{quantity}} result={{{{result}}}}")
-
-        # 记录
-        state.setdefault("orders", {{}})[order_id] = {{
+        logger.info(f"下单成功: {gm_symbol} {side} {quantity} result={result}")
+        state.setdefault("orders", {})[order_id] = {
             "status": "pending",
             "filled_qty": 0,
             "filled_price": 0,
-        }}
+        }
     except Exception as e:
-        logger.error(f"下单失败: {{e}}")
-        state.setdefault("orders", {{}})[order_id] = {{
+        logger.error(f"下单失败: {e}")
+        state.setdefault("orders", {})[order_id] = {
             "status": "rejected",
             "reason": str(e),
-        }}
+        }'''
+
+    @staticmethod
+    def _script_state_update() -> str:
+        """掘金状态更新: update_state"""
+        return '''
 
 def update_state(context):
     """更新持仓和账户"""
@@ -355,46 +369,53 @@ def update_state(context):
             positions = []
             if hasattr(pos, "__iter__"):
                 for p in pos:
-                    positions.append({{
+                    positions.append({
                         "ts_code": convert_symbol_back(p.symbol) if hasattr(p, "symbol") else "",
                         "stock_name": "",
                         "total_qty": p.volume if hasattr(p, "volume") else 0,
                         "available_qty": p.available if hasattr(p, "available") else 0,
                         "avg_cost": p.vwap if hasattr(p, "vwap") else 0,
                         "current_price": p.price if hasattr(p, "price") else 0,
-                    }})
+                    })
             state["positions"] = positions
 
-        # 账户
         acct = context.account() if hasattr(context, "account") else None
         if acct:
-            state["account"] = {{
+            state["account"] = {
                 "total_assets": acct.nav if hasattr(acct, "nav") else 0,
                 "available_cash": acct.available if hasattr(acct, "available") else 0,
                 "market_value": acct.market_value if hasattr(acct, "market_value") else 0,
-            }}
+            }
     except Exception as e:
-        logger.debug(f"更新状态: {{e}}")
+        logger.debug(f"更新状态: {e}")
+    save_state()'''
 
-    save_state()
+    @staticmethod
+    def _script_helpers() -> str:
+        """掘金辅助函数: convert_symbol + convert_symbol_back"""
+        return '''
 
 def convert_symbol(ts_code: str) -> str:
     """600519.SH → SHSE.600519"""
     if "." not in ts_code:
         return ts_code
     code, suffix = ts_code.split(".")
-    exchange_map = {{"SH": "SHSE", "SZ": "SZSE", "BJ": "BJSE"}}
+    exchange_map = {"SH": "SHSE", "SZ": "SZSE", "BJ": "BJSE"}
     exchange = exchange_map.get(suffix, suffix)
-    return f"{{exchange}}.{{code}}"
+    return f"{exchange}.{code}"
 
 def convert_symbol_back(gm_symbol: str) -> str:
     """SHSE.600519 → 600519.SH"""
     if "." not in gm_symbol:
         return gm_symbol
     exchange, code = gm_symbol.split(".")
-    exchange_map = {{"SHSE": "SH", "SZSE": "SZ", "BJSE": "BJ"}}
+    exchange_map = {"SHSE": "SH", "SZSE": "SZ", "BJSE": "BJ"}
     suffix = exchange_map.get(exchange, exchange)
-    return f"{{code}}.{{suffix}}"
+    return f"{code}.{suffix}"'''
+
+    def _script_main_entry(self) -> str:
+        """掘金脚本入口: set_token + gm.run()"""
+        return f'''
 
 if __name__ == "__main__":
     from gm.api import run, set_token
@@ -408,8 +429,8 @@ if __name__ == "__main__":
         filename=__file__,
         mode={self.mode},
         serv_addr="{self.serv_addr}",
-    )
-'''
+    )'''
+
 
     @staticmethod
     def _order_to_dict(o: GmOrder) -> Dict:
