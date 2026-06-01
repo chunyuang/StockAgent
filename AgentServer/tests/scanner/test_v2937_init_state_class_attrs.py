@@ -95,15 +95,19 @@ class TestInitStateSlimmed:
         assert 'self._nav_peak = 1.0' not in source
 
     def test_init_state_still_initializes_mutable_defaults(self):
-        """_init_state仍然初始化可变默认值(dict/list)"""
+        """_init_state(及其子方法)仍然初始化可变默认值(dict/list)"""
         from nodes.market_monitor.scanner import MarketScanner
-        source = inspect.getsource(MarketScanner._init_state)
+        # v2.9.56: _init_state委托给4个子方法, 检查子方法内容
+        risk_src = inspect.getsource(MarketScanner._init_risk_state)
+        exec_src = inspect.getsource(MarketScanner._init_execution_state)
+        cache_src = inspect.getsource(MarketScanner._init_cache_state)
+        signal_src = inspect.getsource(MarketScanner._init_signal_state)
         # 可变默认值必须在__init__中初始化，不能共享
-        assert 'self._trailing_stops' in source
-        assert 'self._pending_sells' in source
-        assert 'self._execution_stats' in source
-        assert 'self._realtime_cache' in source
-        assert 'self._active_signals' in source
+        assert 'self._trailing_stops' in risk_src
+        assert 'self._pending_sells' in risk_src
+        assert 'self._execution_stats' in exec_src
+        assert 'self._realtime_cache' in cache_src
+        assert 'self._active_signals' in signal_src
 
     def test_init_state_line_count(self):
         """_init_state有效代码行数应<35行"""
@@ -194,4 +198,4 @@ class TestNoBacktestRegressionV2937:
     def test_version_constant(self):
         """版本常量已更新"""
         from nodes.web.api.scanner import _DESIGN_DOC_VERSION
-        assert _DESIGN_DOC_VERSION == "v2.9.55"
+        assert _DESIGN_DOC_VERSION == "v2.9.56"

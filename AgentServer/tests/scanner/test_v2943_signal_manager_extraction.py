@@ -267,7 +267,7 @@ class TestVersionSyncV2943:
         path = os.path.join(os.path.dirname(__file__), "..", "..", "nodes", "web", "api", "scanner.py")
         with open(path) as f:
             content = f.read()
-        assert "v2.9.55" in content
+        assert "v2.9.56" in content
 
     def test_delegate_map_has_signal_entries(self):
         """DELEGATE_MAP包含signal_manager条目【v2.9.43:MAP外提到router】"""

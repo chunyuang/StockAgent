@@ -210,17 +210,22 @@ class TestRiskLoopUsesMarketPhase:
                                 f"_risk_loop_sync仍有硬编码时间比较: {l.strip()}")
 
     def test_risk_loop_uses_market_phase(self):
-        """_risk_loop_sync使用MarketPhase.classify()"""
+        """_risk_loop_sync(或其委托的_risk_tick_body)使用MarketPhase.classify()"""
         with open(SCANNER_PATH) as f:
             src = f.read()
         import ast
         tree = ast.parse(src)
+        # v2.9.56: MarketPhase.classify()已提取到_risk_tick_body
+        method_names = ("_risk_loop_sync", "_risk_tick_body")
+        found = False
         for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) and node.name == "_risk_loop_sync":
+            if isinstance(node, ast.FunctionDef) and node.name in method_names:
                 method_src = src.splitlines()[node.lineno-1:node.end_lineno]
                 method_text = "\n".join(method_src)
-                assert "MarketPhase" in method_text, \
-                    "_risk_loop_sync应使用MarketPhase"
+                if "MarketPhase" in method_text:
+                    found = True
+                    break
+        assert found, "_risk_loop_sync或_risk_tick_body应使用MarketPhase"
 
 
 class TestMarketPhaseEdgeCases:

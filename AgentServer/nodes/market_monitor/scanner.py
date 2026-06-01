@@ -244,15 +244,23 @@ class MarketScanner:
     # ==================== 初始化子方法 ====================
 
     def _init_state(self) -> None:
-        """初始化基础状态变量【v2.9.3提取, v2.9.37:标量默认值提升为类属性】"""
-        # ── 风控状态(风控线程+主循环并发读写, _state_lock保护) ──
+        """初始化基础状态变量【v2.9.3提取, v2.9.37:标量默认值提升为类属性, v2.9.56:分组初始化】"""
+        self._init_risk_state()
+        self._init_execution_state()
+        self._init_cache_state()
+        self._init_signal_state()
+
+    def _init_risk_state(self) -> None:
+        """初始化风控+交易状态【v2.9.56从_init_state提取】"""
         self._position_risk_overrides: Dict[str, Dict] = {}
         self._trailing_stops: Dict[str, Dict] = {}
         self._position_risk_levels: Dict[str, str] = {}
         self._pending_orders: Dict[str, Dict] = {}
         self._pending_sells: Dict[str, Dict] = {}
+        self.SELL_LOGIC_MODE = os.getenv("SELL_LOGIC_MODE", "legacy")
 
-        # ── 执行质量统计 ──
+    def _init_execution_state(self) -> None:
+        """初始化执行质量统计【v2.9.56从_init_state提取】"""
         self._execution_stats = {
             "total_slippage_pct": 0.0,
             "total_fills": 0,
@@ -261,20 +269,17 @@ class MarketScanner:
             "stop_loss_response_times": [],
         }
 
-        # ── 卖出逻辑灰度开关 ──
-        self.SELL_LOGIC_MODE = os.getenv("SELL_LOGIC_MODE", "legacy")
-
-        # ── 数据缓存(主循环写, 风控线程读, _cache_lock保护) ──
+    def _init_cache_state(self) -> None:
+        """初始化数据缓存【v2.9.56从_init_state提取】"""
         self._daily_factors_df: Optional[pd.DataFrame] = None
         self._realtime_cache: Dict[str, Dict] = {}
         self._prev_realtime_cache: Dict[str, Dict] = {}
         self._all_codes: List[str] = []
 
-        # ── 信号与时间线 ──
+    def _init_signal_state(self) -> None:
+        """初始化信号+时间线+交易统计【v2.9.56从_init_state提取】"""
         self._active_signals: List[ScanSignal] = []
         self._timeline: List[Dict] = []
-
-        # ── 交易统计 ──
         self._stats = {
             "scans": 0,
             "signals_found": 0,
@@ -959,6 +964,7 @@ class MarketScanner:
         - 职责: 只负责卖出, 不负责买入
         - 跌停不可卖: 挂起pending_sells, 不丢追踪止损
         - 【v2.9.28】提取_risk_non_trading_sleep/_check_stale_quote_cache/_risk_periodic_checks
+        - 【v2.9.56】循环体提取为_risk_tick_body
         """
         tick = 0
         consecutive_errors = 0
@@ -968,29 +974,7 @@ class MarketScanner:
             try:
                 tick += 1
                 consecutive_errors = 0
-                
-                phase = MarketPhase.classify()
-                sleep_s = self._risk_non_trading_sleep(phase)
-                if sleep_s > 0:
-                    time.sleep(sleep_s)
-                    continue
-                
-                with self._cache_lock:
-                    realtime_data = dict(self._realtime_cache) if self._realtime_cache else {}
-
-                if not realtime_data or not self._broker:
-                    time.sleep(1)
-                    continue
-                
-                self._check_stale_quote_cache(tick, phase)
-
-                # 每1秒: 止损检查
-                self._check_stop_loss_only(realtime_data)
-                self._last_risk_check_ts = time.time()
-
-                # 周期性检查(60秒/30秒)
-                self._risk_periodic_checks(tick)
-
+                self._risk_tick_body(tick)
             except Exception as e:
                 consecutive_errors += 1
                 logger.error(f"[RISK_THREAD] 风控线程异常({consecutive_errors}次): {e}")
@@ -1001,6 +985,33 @@ class MarketScanner:
             time.sleep(1)
         
         logger.info("[RISK_THREAD] 风控线程已退出")
+
+    def _risk_tick_body(self, tick: int) -> None:
+        """风控线程单次循环体【v2.9.56从_risk_loop_sync提取】
+        
+        包含: 阶段判断→行情读取→过期检测→止损检查→周期性检查
+        """
+        phase = MarketPhase.classify()
+        sleep_s = self._risk_non_trading_sleep(phase)
+        if sleep_s > 0:
+            time.sleep(sleep_s)
+            return
+        
+        with self._cache_lock:
+            realtime_data = dict(self._realtime_cache) if self._realtime_cache else {}
+
+        if not realtime_data or not self._broker:
+            time.sleep(1)
+            return
+        
+        self._check_stale_quote_cache(tick, phase)
+
+        # 每1秒: 止损检查
+        self._check_stop_loss_only(realtime_data)
+        self._last_risk_check_ts = time.time()
+
+        # 周期性检查(60秒/30秒)
+        self._risk_periodic_checks(tick)
 
     def _risk_periodic_checks(self, tick: int) -> None:
         """风控线程周期性检查(60秒跌停超时+30秒quick check)【v2.9.30提取】"""
