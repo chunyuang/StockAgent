@@ -10,6 +10,7 @@ MarketScanner — 超短量化市场扫描器
 """
 import asyncio
 import logging
+import threading
 import time
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Tuple
@@ -621,7 +622,6 @@ class MarketScanner:
 
     def _start_risk_thread(self):
         """启动风控独立线程【v2.9.18:从start()提取】"""
-        import threading
         self._loop = asyncio.get_event_loop()
         self._cache_lock = threading.Lock()
         if self._state_lock is None:
@@ -948,7 +948,6 @@ class MarketScanner:
         - 跌停不可卖: 挂起pending_sells, 不丢追踪止损
         - 【v2.9.28】提取_risk_non_trading_sleep/_check_stale_quote_cache/_risk_periodic_checks
         """
-        import threading
         tick = 0
         consecutive_errors = 0
         logger.info("[RISK_THREAD] 风控线程启动")
