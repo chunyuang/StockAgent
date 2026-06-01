@@ -221,7 +221,9 @@ class RedisWSBridge:
         """
         # 创建消费组(如果不存在)
         group_name = "ws_bridge_group"
-        consumer_name = "web-node-1"
+        # 【v2.9.49】动态consumer_name, 避免多实例部署时消息被随机分配
+        import socket
+        consumer_name = f"web-node-{socket.gethostname()}"
         
         for stream_key in [CHANNEL_SCANNER_SIGNAL, CHANNEL_SCANNER_POSITION]:
             try:

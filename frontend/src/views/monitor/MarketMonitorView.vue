@@ -43,6 +43,9 @@ interface GlobalRisk { stop_loss_pct: number; take_profit_pct: number; max_posit
 interface HealthData { overall_status: 'healthy' | 'warning' | 'critical'; circuit_breaker: { trading_paused: boolean; pause_reason: string; consecutive_losses: number; max_consecutive_losses: number }; risk_metrics: { daily_drawdown_pct: number; max_drawdown_pct: number; position_ratio: number }; data_sources: Array<{ name: string; available: boolean; last_check: string }> }
 
 const loading = ref(false), autoRefresh = ref(true), soundEnabled = ref(false)
+// 【v2.9.49】P2修复: fetchScanner并发控制,防止请求叠加
+let fetchScannerAbort: AbortController | null = null
+let fetchScannerRunning = false
 const themeStore = useThemeStore()
 const scannerStore = useScannerStore() // 【Phase4.1:Scanner Store】
 watch(() => themeStore.isDark, () => { /* theme changes auto-propagate via CSS vars */ })
@@ -817,7 +820,7 @@ async function onManualCodeChange(code: string) {
 }
 const executeManualTrade = async () => { if (!manualTrade.ts_code) return; const sideText = manualTrade.side === 'buy' ? '买入' : '卖出'; const amount = (manualTrade.quantity || 0) * (manualTrade.price || 0); showConfirm(`确认${sideText}`, `${manualTrade.stock_name || manualTrade.ts_code}\n${sideText} ${manualTrade.quantity || 0}股 × ¥${(manualTrade.price || 0).toFixed(2)} ≈ ¥${amount.toFixed(0)}`, async () => { try { const r = await api.post(`${scannerApi}/trade`, { ts_code: manualTrade.ts_code, stock_name: manualTrade.stock_name, side: manualTrade.side, quantity: manualTrade.quantity || 0, price: manualTrade.price || 0, order_type: 'market', strategy: 'manual', reason: '手动操作' }); const p = parseResponse(r); if (p.success) { ElMessage.success(`${p.data.side === 'buy' ? '买入' : '卖出'} ${p.data.ts_code} ${p.data.filled_qty}股@${p.data.filled_price}`); manualTrade.ts_code = ''; manualTrade.stock_name = ''; manualTrade.quantity = 0; manualTrade.price = 0; fetchAll(true) } else ElMessage.error('下单失败') } catch (e: any) { ElMessage.error('下单失败') } }) }
 const cumulativePnl = computed(() => { let total = 0; return timeline.value.filter(t => t.action === 'sell' && t.profit_amount != null).reduce((sum, t) => sum + (t.profit_amount || 0), 0) })
-async function fetchScanner() { try { const r = await api.get(`${scannerApi}/all`); const p = parseResponse(r); if (p.success) { const d = p.data; if (d.signals && signals.value.length > 0 && d.signals.length > signals.value.length) { playSignalSound() } if (d.status) status.value = d.status; if (d.signals) signals.value = d.signals; if (d.positions) positions.value = d.positions; if (d.timeline) timeline.value = d.timeline; if (d.orders) orders.value = d.orders } fetchLimitPools(); updatePnlHistory() } catch (e) { console.error(e) } }
+async function fetchScanner() { if (fetchScannerRunning) return; fetchScannerRunning = true; try { if (fetchScannerAbort) fetchScannerAbort.abort(); fetchScannerAbort = new AbortController(); const r = await api.get(`${scannerApi}/all`, { signal: fetchScannerAbort.signal }); const p = parseResponse(r); if (p.success) { const d = p.data; if (d.signals && signals.value.length > 0 && d.signals.length > signals.value.length) { playSignalSound() } if (d.status) status.value = d.status; if (d.signals) signals.value = d.signals; if (d.positions) positions.value = d.positions; if (d.timeline) timeline.value = d.timeline; if (d.orders) orders.value = d.orders } fetchLimitPools(); updatePnlHistory() } catch (e: any) { if (e.name !== 'CanceledError' && e.name !== 'AbortError') console.error(e) } finally { fetchScannerRunning = false } }
 async function fetchScannerFull() { try { const [sR, sigR, posR, tlR, ordR] = await Promise.all([api.get(`${scannerApi}/status`), api.get(`${scannerApi}/signals`), api.get(`${scannerApi}/positions`), api.get(`${scannerApi}/timeline`), api.get(`${scannerApi}/orders`)]); const sP = parseResponse(sR), sigP = parseResponse(sigR), posP = parseResponse(posR), tlP = parseResponse(tlR), ordP = parseResponse(ordR); if (sP.success) status.value = sP.data; if (sigP.success) signals.value = sigP.data; if (posP.success) positions.value = posP.data; if (tlP.success) timeline.value = tlP.data; if (ordP.success) orders.value = ordP.data || [] } catch (e) { console.error(e) } }
 async function startScanner() {
   const payload: Record<string, any> = { account_id: 'default', trade_mode: tradeMode.value }
@@ -904,6 +907,9 @@ function connectWS() {
     let lastSignalStreamId = ''
     let lastPositionStreamId = ''
     ws.onopen = () => {
+      // 【v2.9.49】首条消息认证(替代URL token), 再订阅scanner
+      const token = localStorage.getItem('access_token')
+      if (token) ws?.send(JSON.stringify({ type: 'auth', token }))
       ws?.send(JSON.stringify({ type: 'subscribe_scanner' }))
       scannerStore.isWsConnected = true
       // 【v2.9.36】断线重连后补发缺失的Stream消息

@@ -1,9 +1,9 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.48 | 日期: 2026-06-01 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.49 | 日期: 2026-06-01 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
-> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats✅ | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化✅ | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复✅ | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复✅ | v2.9.24 diagnose+情绪调仓提取+DelegateRouter策略扩展✅ | v2.9.25 update_strategy_config bug修复+bare except清理+_init_modules拆分✅ | v2.9.26 全模块bare except清理+position_checker._execute_sell_list提取3子方法✅ | v2.9.27 方法提取到子模块5个+测试适配✅ | v2.9.28 风控线程拆分+filter合并提取+scan_loop错误恢复✅ | v2.9.31 _safe_read_state统一+RuntimeWarning修复+get_positions提取✅ | v2.9.34 情绪得分+收盘同步提取→子模块✅ | v2.9.35 卖出执行提取到PositionManager✅ | v2.9.36 审查P0/P1修复+WS断线补发+前端错误提示 | v2.9.37 _save_param_snapshot提取+_init_state类属性瘦身+start()30行 | v2.9.38 _run_checker_on_positions提取+compare差异持久化+_post_sell_state_cleanup统一 | v2.9.39 _scan_loop_settlement提取→RuntimePersistence+_emit_risk_thread_error委托RiskWatchdog+MarketPhase.is_trading_active+position_checker except修复 | v2.9.42 参数管理6方法DELEGATE_MAP委托+StrategyParamCenter路由策略+scanner 1382行 | v2.9.43 signal_manager方法提取7子方法(execute_signals 161→24行+update_signals 96→9行)+版本同步+1000测试全通过 | v2.9.44 _SubprocessRuntime提取(scanner_daemon 303行闭包→独立类+命令路由表5子handler+_send_ack统一+16新增测试) | v2.9.46 bare except清理(web API)+版本同步+_check_stop_loss_take_profit简化+section合并 | v2.9.47 getattr/hasattr防御消除+关键路径日志级别提升+18新增测试 | v2.9.48 pipeline.apply提取(187→103)+broker.place_order提取(182→109)+33新增测试 | 
+> 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats✅ | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化✅ | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复✅ | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复✅ | v2.9.24 diagnose+情绪调仓提取+DelegateRouter策略扩展✅ | v2.9.25 update_strategy_config bug修复+bare except清理+_init_modules拆分✅ | v2.9.26 全模块bare except清理+position_checker._execute_sell_list提取3子方法✅ | v2.9.27 方法提取到子模块5个+测试适配✅ | v2.9.28 风控线程拆分+filter合并提取+scan_loop错误恢复✅ | v2.9.31 _safe_read_state统一+RuntimeWarning修复+get_positions提取✅ | v2.9.34 情绪得分+收盘同步提取→子模块✅ | v2.9.35 卖出执行提取到PositionManager✅ | v2.9.36 审查P0/P1修复+WS断线补发+前端错误提示 | v2.9.37 _save_param_snapshot提取+_init_state类属性瘦身+start()30行 | v2.9.38 _run_checker_on_positions提取+compare差异持久化+_post_sell_state_cleanup统一 | v2.9.39 _scan_loop_settlement提取→RuntimePersistence+_emit_risk_thread_error委托RiskWatchdog+MarketPhase.is_trading_active+position_checker except修复 | v2.9.42 参数管理6方法DELEGATE_MAP委托+StrategyParamCenter路由策略+scanner 1382行 | v2.9.43 signal_manager方法提取7子方法(execute_signals 161→24行+update_signals 96→9行)+版本同步+1000测试全通过 | v2.9.44 _SubprocessRuntime提取(scanner_daemon 303行闭包→独立类+命令路由表5子handler+_send_ack统一+16新增测试) | v2.9.46 bare except清理(web API)+版本同步+_check_stop_loss_take_profit简化+section合并 | v2.9.47 getattr/hasattr防御消除+关键路径日志级别提升+18新增测试 | v2.9.48 pipeline.apply提取(187→103)+broker.place_order提取(182→109)+33新增测试 | v2.9.49 审查P0安全修复(WS Token首条消息认证+Trading API越权访问)+P1修复(Stream consumer动态化+持仓批量价格查询)+P2修复(System API同步MongoDB→异步)+19新增测试 | 
 > 回测影响: 零文件修改, 1119测试全通过(scanner 1068+backtest 51)
 
 ---
@@ -3166,3 +3166,93 @@ class MarketScanner:
 ### 40.5 回测影响
 
 零。方法提取仅影响market_monitor模块内部,回测引擎零文件修改。
+
+---
+
+## 四十一、v2.9.49 审查P0/P1/P2修复 (2026-06-01)
+
+> 基于全面审计报告 `docs/audit-realtime-monitor-2026-06-01.md` 的修复
+
+### 41.1 修复清单
+
+| 编号 | 优先级 | 问题 | 修复方案 | 文件 |
+|------|--------|------|----------|------|
+| #1 | P0 | WS Token泄漏到URL | 改为首条消息认证(`{"type":"auth","token":"xxx"}`) | websocket.py, useWebSocket.ts, MarketMonitorView.vue |
+| #3 | P0 | Trading API越权访问 | signals/positions/trades查询加user_id过滤 | trading.py |
+| #4 | P1 | 事件类型不匹配(scanner_signal vs signal) | useWebSocket添加scanner_*→Store映射 | useWebSocket.ts |
+| #6 | P1 | 持仓N+1价格查询 | 改为$group聚合管道批量查询 | trading.py |
+| #7 | P1 | Stream consumer_name硬编码 | 改为`f"web-node-{hostname}"` | redis_ws_bridge.py |
+| #10 | P2 | System API同步pymongo阻塞 | health_check+data-status全部改async motor | system.py |
+| #12 | P2 | useWebSocket无引用计数 | 添加acquire/release引用计数机制 | useWebSocket.ts |
+| #13 | P2 | fetchScanner无并发控制 | 添加AbortController+running锁 | MarketMonitorView.vue |
+
+### 41.2 P0安全修复详情
+
+**WS Token首条消息认证**:
+- 后端: `websocket.py` 增加`msg_type == "auth"`处理, 调用`verify_token`, 成功后加入`authenticated`集合
+- 前端: `useWebSocket.ts` `getWsUrl()`不再拼token, `onopen`后发送`{"type":"auth","token":"xxx"}`
+- 前端: `MarketMonitorView.vue` `connectWS()`同样发送auth消息
+- 向后兼容: 仍保留URL Query参数方式(已连接后auth优先)
+
+**Trading API越权访问修复**:
+- `get_trading_signals()`: query增加`user_id`条件
+- `get_positions()`: 验证account归属当前用户
+- `get_trade_records()`: 验证account归属当前用户
+
+### 41.3 P1修复详情
+
+**事件类型映射**: useWebSocket.ts的`handleMessage()`增加4个case:
+- `scanner_signal` → `scannerStore.updateFromWs('signal', ...)`
+- `scanner_position` → `scannerStore.updateFromWs('position', ...)`
+- `scanner_timeline` → `scannerStore.updateFromWs('timeline', ...)`
+- `scanner_status` → `scannerStore.updateFromWs('status', ...)`
+
+**持仓批量价格查询**: `$group`聚合管道一次查询所有持仓股票的最新价格:
+```python
+cursor = db.stock_daily_ak_full.aggregate([
+    {"$match": {"ts_code": {"$in": codes}}},
+    {"$sort": {"trade_date": -1}},
+    {"$group": {"_id": "$ts_code", ...}},
+])
+```
+
+**Stream consumer_name动态化**: `f"web-node-{socket.gethostname()}"` 替代硬编码 `"web-node-1"`
+
+### 41.4 P2修复详情
+
+**System API异步MongoDB**:
+- `health_check()`: 删除SyncClient, 改用mongo_manager异步查询
+- `get_data_status()`: 删除SyncClient, 改用mongo_manager + `await cursor.to_list()`
+- `_get_factor_detail()`: 从同步改为`async`, 所有调用方加`await`
+- `data_alignment`: 异步查询ts_code集合
+- 线程内sync pymongo(`_run_sync_index`等)保留—线程中sync是安全的
+
+**useWebSocket引用计数**: 添加`acquire()`/`release()`, subscribe时acquire, unsubscribe时release, 最后一个subscriber释放时自动断开连接。
+
+**fetchScanner并发控制**: 添加`AbortController`+`fetchScannerRunning`锁, 防止请求叠加。
+
+### 41.5 变更文件
+
+| 文件 | 变更 |
+|---|---|
+| nodes/web/websocket.py | auth消息处理(verify_token+响应) |
+| nodes/web/api/trading.py | user_id过滤+批量价格查询 |
+| nodes/web/redis_ws_bridge.py | consumer_name动态化 |
+| nodes/web/api/system.py | health_check+data-status异步化+_get_factor_detail异步 |
+| frontend/src/hooks/useWebSocket.ts | auth消息+scanner映射+引用计数 |
+| frontend/src/views/monitor/MarketMonitorView.vue | auth消息+fetchScanner并发控制 |
+| tests/scanner/test_v2949_audit_fixes.py | 19新增测试 |
+| tests/scanner/test_v2940_filter_pipeline_auto_fetch.py | 修复过时断言 |
+| docs/MARKET_MONITOR_OPTIMIZATION_DESIGN.md | v2.9.49记录 |
+
+### 41.6 测试覆盖 (19新增)
+
+| 测试文件 | 用例数 | 覆盖点 |
+|---|---|---|
+| test_v2949_audit_fixes | 18 | P0 WS auth+越权访问, P1 批量查询+consumer_name, P2 async mongo+await+回归 |
+
+**全量测试**: 1086 scanner passed (0 failed)
+
+### 41.7 回测影响
+
+零。所有修改限于web API层和前端, scanner核心和回测引擎零修改。
