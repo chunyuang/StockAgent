@@ -79,22 +79,16 @@ DELEGATE_MAP = {
     "_merge_filter_result": ("_filter_pipeline", "merge_filter_result"),
     "_format_slow_steps": ("_scanner_utils", "format_slow_steps"),
     "_build_position_dict": ("_scanner_utils", "build_position_dict"),
-    # 数据加载+停止持久化
-    "_load_stock_list": ("_runtime_persistence", "load_stock_list"),
-    "_load_daily_factors": ("_runtime_persistence", "load_daily_factors"),
-    "_load_stock_name_map": ("_runtime_persistence", "load_stock_name_map"),
-    "_warm_weekend_cache": ("_runtime_persistence", "warm_weekend_cache"),
-    "_persist_stop_state": ("_runtime_persistence", "persist_stop_state"),
-    "_restore_start_state": ("_runtime_persistence", "restore_start_state"),
-    "_load_positions": ("_runtime_persistence", "load_positions"),
-    # 风控日重置
-    "_reset_daily_risk_state": ("_risk_watchdog_class", "reset_daily_risk_state"),
+    # 数据加载+停止持久化(显式定义方法,不通过DELEGATE_MAP路由)
+    # _load_stock_list/_load_daily_factors/_load_stock_name_map/_warm_weekend_cache
+    # 有self状态赋值逻辑,必须保留显式方法
+    # _persist_stop_state/_restore_start_state/_load_positions 是纯存根但保留显式定义
+    # _reset_daily_risk_state 有import,保留显式定义
     # 情绪得分+收盘同步
     "_update_sentiment_score": ("_emotion_cycle_class", "update_sentiment_score"),
     "_sync_close_data_to_mongo": ("_runtime_persistence", "sync_close_data_to_mongo"),
-    # 卖出执行
-    "_execute_risk_sell": ("_position_manager", "execute_risk_sell"),
-    "_liquidate_positions": ("_position_manager", "liquidate_positions"),
+    # 卖出执行(显式定义存根,不通过DELEGATE_MAP路由)
+    # _execute_risk_sell/_liquidate_positions 保留显式方法定义
     # 参数管理
     "_save_param_snapshot": ("_runtime_persistence", "save_param_snapshot"),
     "_detect_param_drift": ("_strategy_param_center_class", "detect_and_publish_drift"),
