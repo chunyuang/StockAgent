@@ -368,12 +368,21 @@ class _SubprocessRuntime:
 
     async def run(self) -> None:
         """子进程主循环: 初始化Redis + BLPOP消费命令 + 定时推送"""
-        import redis.asyncio as aioredis
+        await self._init_ipc_channels()
 
+        # 启动定时推送
+        self._status_task = asyncio.create_task(self.status_pusher())
+        self._health_task = asyncio.create_task(self.health_pusher())
+
+        # 主循环: BLPOP消费命令
+        await self._run_command_loop()
+
+    async def _init_ipc_channels(self) -> None:
+        """【v2.9.57提取】初始化Redis IPC频道"""
+        import redis.asyncio as aioredis
         from core.managers import redis_manager
         from core.settings import settings as app_settings
 
-        # 初始化 Redis（子进程需要自己的连接）
         self._redis_client = aioredis.from_url(
             app_settings.redis.url,
             decode_responses=True,
@@ -386,16 +395,13 @@ class _SubprocessRuntime:
         self.signal_channel = _chan(self.config, "signal")
         self.position_channel = _chan(self.config, "position")
         self.health_channel = _chan(self.config, "health")
-        self.cmd_list_key = _chan(self.config, "cmd")    # List+ACK
-        self.ack_channel = _chan(self.config, "ack")      # ACK确认通道
+        self.cmd_list_key = _chan(self.config, "cmd")
+        self.ack_channel = _chan(self.config, "ack")
 
         logger.info(f"Listening for commands on {self.cmd_list_key} (List+ACK mode)")
 
-        # 启动定时推送
-        self._status_task = asyncio.create_task(self.status_pusher())
-        self._health_task = asyncio.create_task(self.health_pusher())
-
-        # 主循环: BLPOP消费命令
+    async def _run_command_loop(self) -> None:
+        """【v2.9.57提取】BLPOP命令消费主循环"""
         logger.info("Scanner subprocess main loop started (List+ACK mode)")
         try:
             while True:
