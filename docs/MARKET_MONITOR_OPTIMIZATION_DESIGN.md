@@ -1,12 +1,122 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.54 | 日期: 2026-06-02 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.55 | 日期: 2026-06-02 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
 > 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats✅ | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化✅ | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复✅ | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复✅ | v2.9.24 diagnose+情绪调仓提取+DelegateRouter策略扩展✅ | v2.9.25 update_strategy_config bug修复+bare except清理+_init_modules拆分✅ | v2.9.26 全模块bare except清理+position_checker._execute_sell_list提取3子方法✅ | v2.9.27 方法提取到子模块5个+测试适配✅ | v2.9.28 风控线程拆分+filter合并提取+scan_loop错误恢复✅ | v2.9.31 _safe_read_state统一+RuntimeWarning修复+get_positions提取✅ | v2.9.34 情绪得分+收盘同步提取→子模块✅ | v2.9.35 卖出执行提取到PositionManager✅ | v2.9.36 审查P0/P1修复+WS断线补发+前端错误提示 | v2.9.37 _save_param_snapshot提取+_init_state类属性瘦身+start()30行 | v2.9.38 _run_checker_on_positions提取+compare差异持久化+_post_sell_state_cleanup统一 | v2.9.39 _scan_loop_settlement提取→RuntimePersistence+_emit_risk_thread_error委托RiskWatchdog+MarketPhase.is_trading_active+position_checker except修复 | v2.9.42 参数管理6方法DELEGATE_MAP委托+StrategyParamCenter路由策略+scanner 1382行 | v2.9.43 signal_manager方法提取7子方法(execute_signals 161→24行+update_signals 96→9行)+版本同步+1000测试全通过 | v2.9.44 _SubprocessRuntime提取(scanner_daemon 303行闭包→独立类+命令路由表5子handler+_send_ack统一+16新增测试) | v2.9.46 bare except清理(web API)+版本同步+_check_stop_loss_take_profit简化+section合并 | v2.9.47 getattr/hasattr防御消除+关键路径日志级别提升+18新增测试 | v2.9.48 pipeline.apply提取(187→103)+broker.place_order提取(182→109)+33新增测试 | v2.9.49 审查P0安全修复(WS Token首条消息认证+Trading API越权访问)+P1修复(Stream consumer动态化+持仓批量价格查询)+P2修复(System API同步MongoDB→异步)+19新增测试 | v2.9.50 🔴Daemon方法名Bug修复(update_strategy_params→update_strategy_config/run_once→scan_once)+hasattr防御清理6处+except Exception收窄9处+15新增测试 | v2.9.51 getattr防御清理18处+broker正式接口(get_limit_prices/get_realtime_prices)+🔴_daily_start_asset日内回撤永远为0bug修复+_last_scan_duration_ms初始化+22新增测试 | v2.9.52 getattr/hasattr清理(broker/position_manager/runtime_persistence/strategy_scorer/risk_watchdog 5文件)+DELEGATE_MAP外提到scanner_delegate_router(scanner 1391→1308 -83行)+@classmethod@property兼容别名+7测试文件更新+1177测试全通过 |
 | v2.9.53 返回类型注解补全(14个核心模块0.3%缺失,总体9.6%)+scanner_delegate_router Any导入修复+1177测试全通过 |
 | v2.9.54 _init_broker拆分(_init_broker_gm/_init_broker_sim提取)+_scan_loop_trading健壮性(scan_once异常不传播)+_restart_risk_thread_if_dead看门狗提取+_try_recover_quote_source行情恢复提取+25新增测试+1151全通过 |
 > 回测影响: 零文件修改, 1228测试全通过(scanner 1177+backtest 51)
+
+---
+
+## 四十五、v2.9.55 _StepTimer提取 + scan_loop阶段处理程序 + start初始化序列提取 (2026-06-02)
+
+### 45.1 设计目标
+
+1. **🟡 _StepTimer上下文管理器**: scan_once 7个手动计时变量→`with timer.step()`模式,消除step1_ms~step5_ms和t1~t5变量
+2. **🟡 _scan_loop阶段处理提取**: WEEKEND→`_handle_weekend_phase()`, PREMARKET/AUCTION→`_handle_premarket_phase()`, 使_scan_loop更清晰
+3. **🟡 _start_init_sequence提取**: start()中参数校验+策略加载+漂移检测+盘前准备+资产记录+状态恢复+事件注册→独立方法
+4. **🟢 6个测试文件路径修复**: test_v2950的`open("AgentServer/nodes/...")`→基于`__file__`的绝对路径
+
+### 45.2 _StepTimer上下文管理器
+
+**问题**: scan_once中7个计时变量(t1~t5, step1_ms~step5_ms)+5行耗时计算+5元素列表传给`_format_slow_steps`, 占64行方法中约15行纯计时样板代码。
+
+**修复**: 提取`_StepTimer`类:
+- `__slots__`优化内存
+- `timer.step(name)`上下文管理器自动记录耗时(ms)
+- `timer.get_slow_info()`生成慢步骤摘要(>500ms)
+- 异常安全: 步骤中异常仍记录耗时
+
+```python
+timer = _StepTimer()
+with timer.step("行情"):
+    realtime_data = await self._fetch_realtime_batch(force=force)
+with timer.step("因子"):
+    merged_df = self._merge_factors(realtime_data)
+# ...
+slow_info = timer.get_slow_info()
+```
+
+### 45.3 _scan_loop阶段处理提取
+
+**问题**: _scan_loop中WEEKEND和PREMARKET/AUCTION的分支处理(各5-8行)混在主循环的if/elif链中,影响可读性。
+
+**修复**: 提取2个独立方法:
+
+| 方法 | 职责 | 来源 |
+|---|---|---|
+| `_handle_weekend_phase(trade_date)` | 周末持仓检查+60秒休眠 | 原WEEKEND分支 |
+| `_handle_premarket_phase(trade_date)` | 盘前竞价+120秒休眠 | 原PREMARKET/AUCTION分支 |
+
+_scan_loop: 56行→38行(-32%)
+
+### 45.4 _start_init_sequence提取
+
+**问题**: start()中14行初始化步骤(参数校验→策略加载→漂移检测→盘前准备→资产记录→状态恢复→事件订阅)与启动流程控制混在一起。
+
+**修复**: 提取为`_start_init_sequence(trade_date)`, start()只负责:
+1. 状态检查(已在运行?)
+2. 线程锁初始化
+3. 交易日期设置
+4. 调用`_start_init_sequence`
+5. 启动主循环+风控线程+分级行情+时间线
+
+start(): 57行→29行(-49%)
+
+### 45.5 测试路径修复
+
+**问题**: test_v2950_audit_fixes.py中6个测试使用`open("AgentServer/nodes/...")`,但pytest工作目录是`AgentServer/`,导致FileNotFoundError。
+
+**修复**: 改用`os.path.dirname(os.path.abspath(__file__))`计算绝对路径,不再依赖工作目录。
+
+### 45.6 变更文件
+
+| 文件 | 变更 |
+|---|---|
+| scanner.py | _StepTimer类+scan_once重构+_scan_loop阶段处理提取+_start_init_sequence提取 |
+| web/api/scanner.py | _DESIGN_DOC_VERSION→v2.9.55 |
+| test_v2955_step_timer_phase_handlers.py | 新增24测试 |
+| test_v2950_audit_fixes.py | 6个测试路径修复 |
+| test_v2918/22/2933/37/38/39/40/41/43/47/54 | 版本断言v2.9.54→v2.9.55 |
+| MARKET_MONITOR_OPTIMIZATION_DESIGN.md | v2.9.55记录 |
+
+### 45.7 scanner.py行数变化
+
+| 阶段 | 行数 | 变化 |
+|---|---|---|
+| v2.9.54 | 1335 | 基线 |
+| **v2.9.55** | **1389** | **+54行(_StepTimer 52行+2个阶段处理方法14行+1个初始化序列方法17行, scan_once -12行, _scan_loop -18行, start -28行)** |
+
+### 45.8 方法行数改善
+
+| 方法 | v2.9.54 | v2.9.55 | 变化 |
+|---|---|---|---|
+| scan_once | 64行 | 53行 | -17% |
+| _scan_loop | 56行 | 38行 | -32% |
+| start | 57行 | 29行 | -49% |
+| **新增** | | | |
+| _StepTimer | - | 52行 | 分步计时器 |
+| _handle_weekend_phase | - | 7行 | 周末处理 |
+| _handle_premarket_phase | - | 5行 | 盘前处理 |
+| _start_init_sequence | - | 17行 | 初始化序列 |
+
+### 45.9 测试覆盖 (24新增)
+
+| 测试类 | 用例数 | 覆盖点 |
+|---|---|---|
+| TestStepTimer | 6 | 类存在+记录步骤+慢步骤+空慢步骤+__slots__+异常处理 |
+| TestScanOnceRefactoring | 3 | _StepTimer使用+行数+get_slow_info |
+| TestScanLoopPhaseHandlers | 7 | 方法存在+调用+行数+内容验证 |
+| TestStartInitSequence | 4 | 方法存在+调用+关键步骤+行数 |
+| TestNoBacktestRegressionV2955 | 5 | 导入+文件+版本常量 |
+
+**全量测试**: 1175 passed (0 failed)
+
+### 45.10 回测影响
+
+零。所有变更仅影响market_monitor模块内部重构和测试, 回测引擎零文件修改。
 
 ---
 
