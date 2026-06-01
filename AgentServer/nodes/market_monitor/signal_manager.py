@@ -78,7 +78,7 @@ class SignalManager:
     
     @property
     def current_sentiment(self) -> Dict:
-        return getattr(self._scanner, '_current_sentiment', {})
+        return self._scanner._current_sentiment
     
     @property
     def realtime_cache(self) -> Dict:
@@ -418,7 +418,7 @@ class SignalManager:
                 "strategy": strategy,
                 "reason": reason,
                 "sentiment": self.current_sentiment.get("period", ""),
-                "position_ratio": getattr(self._scanner, '_current_position_ratio', None),
+                "position_ratio": self._scanner._current_position_ratio,
                 "sell_logic_mode": self._scanner.SELL_LOGIC_MODE,
             })
         except Exception as _e:

@@ -63,7 +63,7 @@ class PositionChecker:
     
     @property
     def sell_logic_mode(self) -> str:
-        return getattr(self._scanner, 'SELL_LOGIC_MODE', 'legacy')
+        return self._scanner.SELL_LOGIC_MODE
     
     @property
     def dry_run(self) -> bool:
@@ -81,7 +81,7 @@ class PositionChecker:
     
     @property
     def position_risk_levels(self) -> Dict:
-        return getattr(self._scanner, '_position_risk_levels', {})
+        return self._scanner._position_risk_levels
     
     @property
     def state_lock(self) -> threading.Lock:
@@ -90,11 +90,11 @@ class PositionChecker:
     
     @property
     def data_router(self):
-        return getattr(self._scanner, '_data_router', None)
+        return self._scanner._data_router
     
     @property
     def execution_stats(self) -> Dict:
-        return getattr(self._scanner, '_execution_stats', {})
+        return self._scanner._execution_stats
     
     def _get_sell_checker(self):
         """获取缓存的SellSignalChecker实例(懒初始化)"""
@@ -392,8 +392,8 @@ class PositionChecker:
     async def _persist_compare_diff(self, trade_date: str, only_legacy: set, only_checker: set,
                                      both: set, legacy_sell: list, checker_results: list,
                                      realtime_data: Dict[str, Dict]):
-        """compare差异持久化 — 委托给RuntimePersistence【v2.9.45提取】"""
-        rp = getattr(self._scanner, '_runtime_persistence', None)
+        """compare差异持久化 — 委托给RuntimePersistence【v2.9.45提取,v2.9.51:getattr清理】"""
+        rp = self._scanner._runtime_persistence
         if rp:
             await rp.persist_compare_diff(
                 trade_date, only_legacy, only_checker, both,
@@ -465,7 +465,7 @@ class PositionChecker:
         之前: 内联构建timeline+统计+EventBus(63行)
         现在: 统一委托, 与emergency_liquidate/execute_sell_list对齐
         """
-        rp = getattr(self._scanner, '_runtime_persistence', None)
+        rp = self._scanner._runtime_persistence
         if rp:
             await rp.post_sell_cleanup(
                 pos, reason, order, sell_info["sell_qty"],

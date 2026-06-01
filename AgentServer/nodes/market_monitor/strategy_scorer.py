@@ -54,7 +54,7 @@ class StrategyScorer:
     
     @property
     def param_center(self):
-        return getattr(self._scanner, '_param_center', None)
+        return self._scanner._param_center
     
     # ==================== 因子合并 ====================
     

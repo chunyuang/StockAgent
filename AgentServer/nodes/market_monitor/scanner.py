@@ -234,6 +234,8 @@ class MarketScanner:
             "take_profits": 0,
             "stocks_scanned": 0,
         }
+        self._last_scan_duration_ms: float = 0.0
+        self._daily_start_asset: float = 0.0
 
     def _init_broker(self):
         """初始化撮合引擎【v2.9.3提取】"""
@@ -575,6 +577,10 @@ class MarketScanner:
 
         # 盘前准备
         await self.premarket_prepare(trade_date)
+        
+        # 【v2.9.51】记录日内起始资产(供RiskWatchdog日内回撤检查)
+        account = self._broker.get_account()
+        self._daily_start_asset = account.total_assets
         
         # 【Phase3.4+v2.9.4】审计日志TTL索引+恢复pending_sells
         await self._restore_start_state()

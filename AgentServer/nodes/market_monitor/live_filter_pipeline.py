@@ -121,9 +121,9 @@ class LiveFilterPipeline:
         positions: Optional[List[Dict]],
         account: Optional[Dict],
     ) -> Tuple[List[Dict], Dict]:
-        """自动从scanner获取持仓和账户信息【v2.9.48:从apply提取】"""
+        """自动从scanner获取持仓和账户信息【v2.9.48:从apply提取,v2.9.51:getattr清理】"""
         if positions is None and self._scanner:
-            broker = getattr(self._scanner, '_broker', None)
+            broker = self._scanner._broker
             if broker:
                 positions = [{"ts_code": p.ts_code, "strategy": p.strategy} for p in broker.get_positions()]
             else:
@@ -132,7 +132,7 @@ class LiveFilterPipeline:
             positions = []
 
         if account is None and self._scanner:
-            broker = getattr(self._scanner, '_broker', None)
+            broker = self._scanner._broker
             if broker:
                 account = {"cash": broker.account.available_cash}
             else:

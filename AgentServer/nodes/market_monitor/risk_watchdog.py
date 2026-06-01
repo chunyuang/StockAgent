@@ -320,8 +320,8 @@ class RiskWatchdog:
             if peak > 0:
                 total_drawdown = (1 - total_assets / peak) * 100
             
-            # 检查DailyScheduler的daily_start_asset
-            daily_start = getattr(self._scanner, '_daily_start_asset', 0)
+            # 日内起始资产(在scanner.start()设置)
+            daily_start = self._scanner._daily_start_asset
             daily_drawdown = 0
             if daily_start > 0:
                 daily_drawdown = (1 - total_assets / daily_start) * 100
@@ -430,7 +430,7 @@ class RiskWatchdog:
             )
         
         # 从Scanner获取最近一次扫描耗时
-        scan_time = getattr(self._scanner, '_last_scan_duration_ms', 0)
+        scan_time = self._scanner._last_scan_duration_ms
         
         if scan_time <= 0:
             return HealthCheck(
@@ -479,7 +479,7 @@ class RiskWatchdog:
         
         issues = []
         # 检查东财连接: 最后一次scan是否成功获取行情
-        cache_size = len(getattr(self._scanner, '_realtime_cache', {}))
+        cache_size = len(self._scanner._realtime_cache)
         if cache_size == 0 and self._scanner._is_running:
             # 正在运行但行情缓存为空 = 东财可能断流
             elapsed = time.time() - self._state.scanner_heartbeat
@@ -487,7 +487,7 @@ class RiskWatchdog:
                 issues.append("东财行情缓存为空")
         
         # 检查必盈额度(如果有)
-        data_router = getattr(self._scanner, '_data_router', None)
+        data_router = self._scanner._data_router
         if data_router and hasattr(data_router, 'bingying_remaining'):
             remaining = data_router.bingying_remaining
             if remaining is not None and remaining < 20:

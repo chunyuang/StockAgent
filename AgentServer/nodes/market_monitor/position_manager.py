@@ -59,11 +59,11 @@ class PositionManager:
     
     @property
     def position_risk_levels(self) -> Dict:
-        return getattr(self._scanner, '_position_risk_levels', {})
+        return self._scanner._position_risk_levels
     
     @property
     def position_risk_overrides(self) -> Dict:
-        return getattr(self._scanner, '_position_risk_overrides', {})
+        return self._scanner._position_risk_overrides
     
     @property
     def sell_logic_mode(self) -> str:
@@ -517,8 +517,8 @@ class PositionManager:
                     ratio *= 0.5
         
         # 情绪仓位系数
-        pipeline_ratio = getattr(self._scanner, '_current_position_ratio', None)
-        if pipeline_ratio is not None and pipeline_ratio < 1.0:
+        pipeline_ratio = self._scanner._current_position_ratio
+        if pipeline_ratio < 1.0:
             ratio *= pipeline_ratio
         
         return ratio
