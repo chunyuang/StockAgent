@@ -1,16 +1,122 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.56 | 日期: 2026-06-02 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.57 | 日期: 2026-06-02 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
 > 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats✅ | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化✅ | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复✅ | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复✅ | v2.9.24 diagnose+情绪调仓提取+DelegateRouter策略扩展✅ | v2.9.25 update_strategy_config bug修复+bare except清理+_init_modules拆分✅ | v2.9.26 全模块bare except清理+position_checker._execute_sell_list提取3子方法✅ | v2.9.27 方法提取到子模块5个+测试适配✅ | v2.9.28 风控线程拆分+filter合并提取+scan_loop错误恢复✅ | v2.9.31 _safe_read_state统一+RuntimeWarning修复+get_positions提取✅ | v2.9.34 情绪得分+收盘同步提取→子模块✅ | v2.9.35 卖出执行提取到PositionManager✅ | v2.9.36 审查P0/P1修复+WS断线补发+前端错误提示 | v2.9.37 _save_param_snapshot提取+_init_state类属性瘦身+start()30行 | v2.9.38 _run_checker_on_positions提取+compare差异持久化+_post_sell_state_cleanup统一 | v2.9.39 _scan_loop_settlement提取→RuntimePersistence+_emit_risk_thread_error委托RiskWatchdog+MarketPhase.is_trading_active+position_checker except修复 | v2.9.42 参数管理6方法DELEGATE_MAP委托+StrategyParamCenter路由策略+scanner 1382行 | v2.9.43 signal_manager方法提取7子方法(execute_signals 161→24行+update_signals 96→9行)+版本同步+1000测试全通过 | v2.9.44 _SubprocessRuntime提取(scanner_daemon 303行闭包→独立类+命令路由表5子handler+_send_ack统一+16新增测试) | v2.9.46 bare except清理(web API)+版本同步+_check_stop_loss_take_profit简化+section合并 | v2.9.47 getattr/hasattr防御消除+关键路径日志级别提升+18新增测试 | v2.9.48 pipeline.apply提取(187→103)+broker.place_order提取(182→109)+33新增测试 | v2.9.49 审查P0安全修复(WS Token首条消息认证+Trading API越权访问)+P1修复(Stream consumer动态化+持仓批量价格查询)+P2修复(System API同步MongoDB→异步)+19新增测试 | v2.9.50 🔴Daemon方法名Bug修复(update_strategy_params→update_strategy_config/run_once→scan_once)+hasattr防御清理6处+except Exception收窄9处+15新增测试 | v2.9.51 getattr防御清理18处+broker正式接口(get_limit_prices/get_realtime_prices)+🔴_daily_start_asset日内回撤永远为0bug修复+_last_scan_duration_ms初始化+22新增测试 | v2.9.52 getattr/hasattr清理(broker/position_manager/runtime_persistence/strategy_scorer/risk_watchdog 5文件)+DELEGATE_MAP外提到scanner_delegate_router(scanner 1391→1308 -83行)+@classmethod@property兼容别名+7测试文件更新+1177测试全通过 |
 | v2.9.53 返回类型注解补全(14个核心模块0.3%缺失,总体9.6%)+scanner_delegate_router Any导入修复+1177测试全通过 |
 | v2.9.54 _init_broker拆分(_init_broker_gm/_init_broker_sim提取)+_scan_loop_trading健壮性(scan_once异常不传播)+_restart_risk_thread_if_dead看门狗提取+_try_recover_quote_source行情恢复提取+25新增测试+1151全通过 |
-> 回测影响: 零文件修改, 1228测试全通过(scanner 1177+backtest 51)
+| v2.9.57 gm_broker策略脚本6方法拆分(178→12行 -93%)+quote_manager 3方法提取(152→42行 -72%)+daemon run拆分(60→12行 -80%)+28新增测试+1394全通过 |
+> 回测影响: 零文件修改, 1394测试全通过(scanner 1293+backtest 101)
 
 ---
 
 ## 四十六、v2.9.56 _init_state分组提取 + _risk_tick_body提取 + ScannerDaemon方法提取 + 子模块方法提取 (2026-06-02)
+
+## 四十八、v2.9.57 gm_broker策略脚本6方法拆分 + quote_manager 3方法提取 + daemon run拆分 (2026-06-02)
+
+### 48.1 设计目标
+
+1. **🟡 gm_broker._generate_strategy_script拆分**: 178行→12行(-93%), 提取6个模板方法(_script_header/_script_callbacks/_script_order_execution/_script_state_update/_script_helpers/_script_main_entry)
+2. **🟡 quote_manager.fetch_realtime_batch提取**: 152行→42行(-72%), 提取3个子方法(_fetch_eastmoney_data/_merge_limit_pool_data/_update_realtime_cache)
+3. **🟡 scanner_daemon.run拆分**: 60行→12行(-80%), 提取2个子方法(_init_ipc_channels/_run_command_loop)
+
+### 48.2 gm_broker策略脚本拆分
+
+**问题**: `_generate_strategy_script` 178行, 整个掘金策略脚本(160+行Python代码)作为f-string硬编码在一个方法中, 无法单独测试或复用各部分。
+
+**修复**: 按职责拆分为6个模板方法:
+
+| 方法 | 职责 | 修饰 | 行数 |
+|---|---|---|---|
+| `_generate_strategy_script` | 拼接6个部分 | - | 12 |
+| `_script_header` | import+全局状态+save_state | @staticmethod | 15 |
+| `_script_callbacks` | init/on_bar/on_order_filled等5个回调 | @staticmethod | 20 |
+| `_script_order_execution` | execute_order下单命令 | @staticmethod | 28 |
+| `_script_state_update` | update_state持仓+账户更新 | @staticmethod | 22 |
+| `_script_helpers` | convert_symbol双向转换 | @staticmethod | 12 |
+| `_script_main_entry` | set_token+gm.run()入口 | 实例方法 | 10 |
+
+**关键改进**: 消除了f-string双层大括号`{{}}`, 各模板方法返回普通Python字符串, 更易阅读和维护。
+
+### 48.3 quote_manager方法提取
+
+**问题**: `fetch_realtime_batch` 152行, 包含3个独立逻辑(东财数据获取+降级处理/必盈涨停池合并/缓存更新)混在一个方法中。
+
+**修复**: 提取3个子方法:
+
+| 方法 | 职责 | 类型 | 行数 |
+|---|---|---|---|
+| `fetch_realtime_batch` | 编排3步 | async | 42 |
+| `_fetch_eastmoney_data` | 东财数据获取+降级处理 | async | 54 |
+| `_merge_limit_pool_data` | 必盈涨停/跌停/炸板池 | async | 52 |
+| `_update_realtime_cache` | 线程安全缓存更新 | sync | 7 |
+
+### 48.4 scanner_daemon.run拆分
+
+**问题**: `run` 60行, 包含3个阶段(Redis初始化+频道设置/定时推送启动/BLPOP主循环+异常处理+清理)。
+
+**修复**: 提取2个子方法:
+
+| 方法 | 职责 | 行数 |
+|---|---|---|
+| `run` | 编排3步 | 12 |
+| `_init_ipc_channels` | Redis初始化+频道设置 | 25 |
+| `_run_command_loop` | BLPOP主循环+异常+清理 | 38 |
+
+### 48.5 变更文件
+
+| 文件 | 变更 |
+|---|---|
+| gm_broker.py | _generate_strategy_script拆分6个模板方法(178→12行) |
+| quote_manager.py | 3个方法提取(152→42行) |
+| scanner_daemon.py | run拆分2个方法(60→12行) |
+| web/api/scanner.py | _DESIGN_DOC_VERSION→v2.9.57 |
+| test_v2957_gm_broker_quote_daemon.py | 新增28测试 |
+| 13个版本断言文件 | v2.9.56→v2.9.57 |
+
+### 48.6 方法行数改善
+
+| 方法 | v2.9.56 | v2.9.57 | 变化 |
+|---|---|---|---|
+| _generate_strategy_script | 178行 | 12行 | -93% |
+| fetch_realtime_batch | 152行 | 42行 | -72% |
+| run (daemon) | 60行 | 12行 | -80% |
+| **新增** | | | |
+| _script_header | - | 15行 | import+全局状态 |
+| _script_callbacks | - | 20行 | 掘金回调5个 |
+| _script_order_execution | - | 28行 | 下单执行 |
+| _script_state_update | - | 22行 | 持仓+账户更新 |
+| _script_helpers | - | 12行 | 代码格式转换 |
+| _script_main_entry | - | 10行 | 入口 |
+| _fetch_eastmoney_data | - | 54行 | 东财+降级 |
+| _merge_limit_pool_data | - | 52行 | 必盈涨停池 |
+| _update_realtime_cache | - | 7行 | 缓存更新 |
+| _init_ipc_channels | - | 25行 | Redis初始化 |
+| _run_command_loop | - | 38行 | BLPOP主循环 |
+
+### 48.7 超过50行方法数
+
+- 提取前(v2.9.56): 37个方法超过50行
+- 提取后(v2.9.57): 36个方法超过50行(-1, gm_broker最大方法从178→12)
+
+### 48.8 测试覆盖 (28新增)
+
+| 测试类 | 用例数 | 覆盖点 |
+|---|---|---|
+| TestGmBrokerScriptDecomposition | 10 | 6个子方法存在+行数+@staticmethod+无超100行方法 |
+| TestQuoteManagerExtraction | 8 | 3个提取方法存在+行数+async/sync类型检查 |
+| TestDaemonRunDecomposition | 8 | 2个提取方法存在+行数+内容验证 |
+| TestBigMethodsReduction | 1 | >50行方法数减少 |
+| TestNoBacktestRegressionV2957 | 4 | 回测零影响+版本常量 |
+
+**全量测试**: 1394 passed (0 failed)
+
+### 48.9 回测影响
+
+零。所有变更仅影响market_monitor模块内部重构和测试, 回测引擎零文件修改。
+
+---
 
 ### 46.1 设计目标
 
