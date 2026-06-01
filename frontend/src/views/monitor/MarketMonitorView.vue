@@ -259,6 +259,7 @@ const premarketBlockedReasons = ref<Record<string, number>>({})
 const premarketCacheSource = ref('')
 const premarketLimitPools = ref<any>({})
 const premarketPositionGaps = ref<any[]>([])
+const premarketAnalysis = ref<any>(null)
 
 // ==================== 扫描追踪Tab ====================
 const scanHistory = ref<any[]>([])
@@ -525,6 +526,7 @@ async function fetchPremarketData() {
       premarketCacheSource.value = p.data.cache_source || ''
       premarketLimitPools.value = p.data.limit_pools || {}
       premarketPositionGaps.value = p.data.position_gaps || []
+      premarketAnalysis.value = p.data.analysis || null
     }
   } catch { /* ignore */ }
 }
@@ -1621,6 +1623,32 @@ function signalStatusTag(status?: string) { if (!status || status === 'new') ret
               <span class="pm-br-reason">{{ reason }}</span>
               <span class="pm-br-count">{{ count }}笔</span>
             </div>
+          </div>
+        </div>
+
+        <!-- 盘前综合分析 -->
+        <div v-if="premarketAnalysis" class="pm-analysis">
+          <div class="pm-analysis-head">
+            <span class="pm-analysis-icon">🧠</span>
+            <span class="pm-analysis-title">盘前综合研判</span>
+            <span class="pm-analysis-date" v-if="premarketAnalysis.data_date">{{ premarketAnalysis.data_date.slice(4,6) }}/{{ premarketAnalysis.data_date.slice(6,8) }}数据</span>
+          </div>
+          <!-- 核心结论 -->
+          <div class="pm-conclusion" :class="premarketAnalysis.verdict">
+            <span class="pm-verdict-icon">{{ premarketAnalysis.verdict === 'bullish' ? '🟢' : premarketAnalysis.verdict === 'bearish' ? '🔴' : '🟡' }}</span>
+            <span class="pm-verdict-text">{{ premarketAnalysis.conclusion }}</span>
+          </div>
+          <!-- 判断依据 -->
+          <div class="pm-reasons">
+            <div v-for="(r, i) in premarketAnalysis.reasons" :key="i" class="pm-reason-item">
+              <span class="pm-reason-icon">{{ r.icon }}</span>
+              <span class="pm-reason-text">{{ r.text }}</span>
+            </div>
+          </div>
+          <!-- 操作建议 -->
+          <div v-if="premarketAnalysis.suggestion" class="pm-suggestion">
+            <span class="pm-sugg-label">💡 建议</span>
+            <span class="pm-sugg-text">{{ premarketAnalysis.suggestion }}</span>
           </div>
         </div>
 
@@ -3383,6 +3411,24 @@ mm-tab-content {
 .pm-ov-sep { color: var(--text-tertiary); font-weight: 400; margin: 0 2px; }
 .pm-ov-hint { font-size: 10px; color: var(--text-tertiary); margin-top: 2px; }
 .pm-ov-card.pm-sentiment { border-left: 3px solid var(--el-color-warning); }
+
+/* 盘前综合分析 */
+.pm-analysis { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+.pm-analysis-head { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.pm-analysis-icon { font-size: 18px; }
+.pm-analysis-title { font-size: 13px; font-weight: 600; }
+.pm-analysis-date { font-size: 10px; color: var(--text-tertiary); margin-left: auto; }
+.pm-conclusion { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-radius: 6px; margin-bottom: 8px; font-size: 14px; font-weight: 700; }
+.pm-conclusion.bullish { background: #67c23a10; color: var(--el-color-success); }
+.pm-conclusion.bearish { background: #f56c6c10; color: var(--el-color-danger); }
+.pm-conclusion.neutral { background: #e6a23c10; color: var(--el-color-warning); }
+.pm-verdict-icon { font-size: 18px; }
+.pm-reasons { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; }
+.pm-reason-item { display: flex; align-items: baseline; gap: 4px; font-size: 12px; color: var(--text-secondary); }
+.pm-reason-icon { font-size: 12px; flex-shrink: 0; }
+.pm-suggestion { display: flex; align-items: baseline; gap: 4px; padding: 6px 8px; background: var(--bg-muted); border-radius: 4px; font-size: 12px; }
+.pm-sugg-label { font-weight: 600; color: var(--text-primary); flex-shrink: 0; }
+.pm-sugg-text { color: var(--text-secondary); }
 
 .pm-groups { display: flex; flex-direction: column; gap: 8px; }
 .pm-group { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; overflow: hidden; }
