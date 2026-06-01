@@ -87,22 +87,27 @@ start(): 57行→29行(-49%)
 | 阶段 | 行数 | 变化 |
 |---|---|---|
 | v2.9.54 | 1335 | 基线 |
-| **v2.9.55** | **1389** | **+54行(_StepTimer 52行+2个阶段处理方法14行+1个初始化序列方法17行, scan_once -12行, _scan_loop -18行, start -28行)** |
+| **v2.9.55** | **1395** | **+60行(_StepTimer 52行+5个提取方法39行, scan_once -9行, _scan_loop -9行, start -22行, premarket_prepare -21行, stop -15行)** |
 
 ### 45.8 方法行数改善
 
 | 方法 | v2.9.54 | v2.9.55 | 变化 |
 |---|---|---|---|
-| scan_once | 64行 | 53行 | -17% |
-| _scan_loop | 56行 | 38行 | -32% |
-| start | 57行 | 29行 | -49% |
+| scan_once | 64行 | 55行 | -14% |
+| _scan_loop | 56行 | 47行 | -16% |
+| start | 57行 | 35行 | -39% |
+| premarket_prepare | 41行 | 20行 | -51% |
+| stop | 40行 | 25行 | -38% |
 | **新增** | | | |
 | _StepTimer | - | 52行 | 分步计时器 |
 | _handle_weekend_phase | - | 7行 | 周末处理 |
 | _handle_premarket_phase | - | 5行 | 盘前处理 |
 | _start_init_sequence | - | 17行 | 初始化序列 |
+| _load_premarket_data | - | 9行 | 盘前数据加载 |
+| _check_premarket_auction | - | 6行 | 竞价检查 |
+| _stop_cleanup | - | 12行 | 停止清理 |
 
-### 45.9 测试覆盖 (24新增)
+### 45.9 测试覆盖 (33新增)
 
 | 测试类 | 用例数 | 覆盖点 |
 |---|---|---|
@@ -110,9 +115,11 @@ start(): 57行→29行(-49%)
 | TestScanOnceRefactoring | 3 | _StepTimer使用+行数+get_slow_info |
 | TestScanLoopPhaseHandlers | 7 | 方法存在+调用+行数+内容验证 |
 | TestStartInitSequence | 4 | 方法存在+调用+关键步骤+行数 |
+| TestPremarketPrepareExtraction | 5 | 方法存在+调用+内容+行数 |
+| TestStopCleanupExtraction | 4 | 方法存在+调用+内容+行数 |
 | TestNoBacktestRegressionV2955 | 5 | 导入+文件+版本常量 |
 
-**全量测试**: 1175 passed (0 failed)
+**全量测试**: 1184 passed (0 failed) + 50 backtest passed
 
 ### 45.10 回测影响
 
