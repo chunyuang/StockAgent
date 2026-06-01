@@ -524,7 +524,7 @@ class EmotionCycleManager:
         td_int = int(trade_date)
         
         # 从scanner实时状态获取涨跌停
-        limit_pools = getattr(scanner, '_limit_pools', {})
+        limit_pools = scanner._limit_pools
         lu = len(limit_pools.get("limit_up", []))
         ld = len(limit_pools.get("limit_down", []))
         max_lb = 1

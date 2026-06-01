@@ -99,8 +99,8 @@ async def _write_audit_log(scanner, event_type: str, data: Dict[str, Any]):
         
         doc = {
             "event_type": event_type,
-            "trade_date": getattr(scanner, '_trade_date', ''),
-            "account_id": getattr(scanner, '_account_id', 'default'),
+            "trade_date": scanner._trade_date,
+            "account_id": scanner._account_id,
             "data": _safe_serialize(data),
             "timestamp": time.time(),
             "time_str": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -151,7 +151,7 @@ async def _push_to_redis(scanner, channel: str, data: Dict[str, Any], use_stream
         payload = {
             **_safe_serialize(data),
             "timestamp": time.time(),
-            "account_id": getattr(scanner, '_account_id', 'default'),
+            "account_id": scanner._account_id,
         }
         
         if use_stream:
@@ -193,7 +193,7 @@ def _make_position_changed_handler(scanner):
     async def on_position_changed(data: Dict[str, Any]):
         # 触发运行时快照自动保存(节流由save_runtime_snapshot内部控制)
         try:
-            rp = getattr(scanner, '_runtime_persistence', None)
+            rp = scanner._runtime_persistence
             if rp:
                 await rp.save_runtime_snapshot(force=True)
         except Exception as e:
