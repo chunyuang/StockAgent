@@ -25,6 +25,8 @@ export function useScannerMonitor() {
  * 底: 时间线 / 顶: 状态栏
  */
 
+
+  // ==================== 🔴 核心状态 ====================
 const loading = ref(false), autoRefresh = ref(true), soundEnabled = ref(false)
 // 【v2.9.49】P2修复: fetchScanner并发控制,防止请求叠加
 let fetchScannerAbort: AbortController | null = null
@@ -87,6 +89,8 @@ const closedPositions = computed(() => {
 const limitPools = ref<{limit_up: any[], limit_down: any[], broken: any[]}>({limit_up: [], limit_down: [], broken: []})
 const limitPoolTab = ref('limit_up')
 const dailyReport = ref<any>(null)
+
+  // ==================== ⚙️ 策略配置 ====================
 const strategies = ref<StrategyConfig[]>([])
 const globalRisk = ref<GlobalRisk | null>(null)
 const editingStrategy = ref<StrategyConfig | null>(null)
@@ -151,6 +155,8 @@ const sigRemaining = (sig: ScanSignal) => _signalRemaining(sig.created_at || 0, 
 // layerLabel uses pipelineLabels from @/utils/scanner (see wrapper above)
 const dataSources = ref<any[]>([])
 const brokers = ref<any[]>([])
+
+  // ==================== 🏥 健康状态 ====================
 const healthData = ref<HealthData | null>(null)
 const healthStatus = computed(() => healthData.value?.overall_status || 'unknown')
 const healthEmoji = computed(() => ({ healthy: '🟢', warning: '🟡', critical: '🔴' }[healthStatus.value] || '⚪'))
@@ -230,7 +236,8 @@ const dailyReportVisible = ref(false)
 const pnlHistory = ref<{time: string, value: number}[]>([])
 const perfData = ref<Array<{time:string,net_value:number,drawdown:number}>>([])
 
-// ==================== 盘前竞价Tab ====================
+
+  // ==================== 🌅 盘前竞价 ====================
 const premarketSignals = ref<any[]>([])
 const premarketStatus = ref<'waiting' | 'active' | 'ended' | 'off'>('off')
 const premarketCandidates = ref<any[]>([])
@@ -249,7 +256,8 @@ const premarketLimitPools = ref<any>({})
 const premarketPositionGaps = ref<any[]>([])
 const premarketAnalysis = ref<any>(null)
 
-// ==================== 扫描追踪Tab ====================
+
+  // ==================== 🔍 扫描追踪 ====================
 const scanHistory = ref<any[]>([])
 const selectedScanIdx = ref(-1)
 const scanTraceDetail = ref<any>(null)
@@ -285,7 +293,8 @@ function toggleScanHour(hour: string) {
 }
 
 
-// ==================== 复盘Tab ====================
+
+  // ==================== 📋 复盘数据 ====================
 const reviewTab = ref<'daily' | 'weekly' | 'monthly'>('daily')
 const reviewDate = ref(new Date().toISOString().slice(0, 10))
 const dailyReportData = ref<any>(null)
@@ -340,7 +349,8 @@ async function saveParamSnapshot() {
   } catch { ElMessage.error('保存失败') }
 }
 
-// ==================== 情绪Tab ====================
+
+  // ==================== 💫 情绪数据 ====================
 const sentimentMode = ref<'intraday' | 'daily' | 'weekly' | 'monthly'>('daily')
 const sentimentDate = ref(new Date().toISOString().slice(0, 10))
 const hoveredPoint = ref<any>(null)
@@ -440,11 +450,11 @@ const sentimentAdvice = computed(() => {
   return `市场冰点，跌停${ld}只，极度弱势。建议空仓观望，禁止新开仓。持仓执行止损，等待情绪回暖信号。`
 })
 
-// ==================== 自动交易 + 参数对比 ====================
+
+  // ==================== 🤖 自动交易+参数对比 ====================
 const autoTrades = ref<any[]>([])
 const paramCompare = ref<any>(null)
 
-// ==================== 情绪Tab fetch ====================
 async function fetchSentimentData() {
   sentimentLoading.value = true
   try {
@@ -494,7 +504,6 @@ async function fetchPerformanceHistory() {
   } catch { /* ignore */ }
 }
 
-// ==================== 盘前竞价Tab 数据 ====================
 async function fetchPremarketData() {
   try {
     const url = premarketDebugMode.value ? `${scannerApi}/debug/premarket-sim` : `${scannerApi}/premarket-status`
@@ -519,7 +528,6 @@ async function fetchPremarketData() {
   } catch { /* ignore */ }
 }
 
-// ==================== 扫描追踪Tab 数据 ====================
 async function fetchScanTraceDates() {
   try {
     const r = await api.get(`${scannerApi}/scan-dates`, { timeout: 10000 })
@@ -600,7 +608,6 @@ const rejectionReasonCN = (reason: string) => {
   return map[reason] || reason
 }
 
-// ==================== 复盘Tab 数据 ====================
 async function fetchReviewData() {
   reviewLoading.value = true
   try {
@@ -610,13 +617,11 @@ async function fetchReviewData() {
     const dateParam = reviewDate.value.replace(/-/g, '')
     const isToday = reviewDate.value === today
     
-    // ===== 通用数据 =====
     promises.push(
       api.get(`${scannerApi}/review-hero?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) reviewHero.value = p.data }),
       api.get(`${scannerApi}/backtest-compare?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) liveBacktestDiff.value = p.data || [] }),
     )
     
-    // ===== 按周期差异化 =====
     if (reviewTab.value === 'daily') {
       // 日复盘: 执行质量 + 纪律检查 + 偏差归因(纪律+滑点) + 前瞻
       if (isToday) {
@@ -681,7 +686,6 @@ async function fetchReviewData() {
   finally { reviewLoading.value = false }
 }
 
-// ==================== 自动交易 + 参数对比 数据 ====================
 async function fetchAutoTrades() {
   try {
     const r = await api.get(`${scannerApi}/auto-trades?limit=50`)
@@ -729,7 +733,8 @@ const pnlOption = computed(() => {
 // nowMs defined at top
 let nowTimer: any = null
 // signalRemaining/formatRemaining/SIGNAL_EXPIRE_MS imported from @/utils/scanner
-// ==================== Tab 导航 ====================
+
+  // ==================== 🎛️ UI状态 ====================
 const activeTab = ref<'guide' | 'trading' | 'premarket' | 'scan-trace' | 'review' | 'risk' | 'sentiment' | 'history' | 'ops'>('guide')
 watch(activeTab, (tab) => {
   try {
@@ -747,6 +752,8 @@ const replayDate = ref('')
 const replayDateVisible = ref(false)
 const replayDateInput = ref('')
 
+
+  // ==================== 📊 运维+审计 ====================
 const auditLog = ref<any[]>([])
 const auditLogLoading = ref(false)
 async function fetchAuditLog() {
@@ -805,6 +812,8 @@ async function onManualCodeChange(code: string) {
 }
 const executeManualTrade = async () => { if (!manualTrade.ts_code) return; const sideText = manualTrade.side === 'buy' ? '买入' : '卖出'; const amount = (manualTrade.quantity || 0) * (manualTrade.price || 0); showConfirm(`确认${sideText}`, `${manualTrade.stock_name || manualTrade.ts_code}\n${sideText} ${manualTrade.quantity || 0}股 × ¥${(manualTrade.price || 0).toFixed(2)} ≈ ¥${amount.toFixed(0)}`, async () => { try { const r = await api.post(`${scannerApi}/trade`, { ts_code: manualTrade.ts_code, stock_name: manualTrade.stock_name, side: manualTrade.side, quantity: manualTrade.quantity || 0, price: manualTrade.price || 0, order_type: 'market', strategy: 'manual', reason: '手动操作' }); const p = parseResponse(r); if (p.success) { ElMessage.success(`${p.data.side === 'buy' ? '买入' : '卖出'} ${p.data.ts_code} ${p.data.filled_qty}股@${p.data.filled_price}`); manualTrade.ts_code = ''; manualTrade.stock_name = ''; manualTrade.quantity = 0; manualTrade.price = 0; fetchAll(true) } else ElMessage.error('下单失败') } catch (e: any) { ElMessage.error('下单失败') } }) }
 const cumulativePnl = computed(() => { let total = 0; return timeline.value.filter(t => t.action === 'sell' && t.profit_amount != null).reduce((sum, t) => sum + (t.profit_amount || 0), 0) })
+
+  // ==================== 🔧 核心方法 ====================
 async function fetchScanner() { if (fetchScannerRunning) return; fetchScannerRunning = true; try { if (fetchScannerAbort) fetchScannerAbort.abort(); fetchScannerAbort = new AbortController(); const r = await api.get(`${scannerApi}/all`, { signal: fetchScannerAbort.signal }); const p = parseResponse(r); if (p.success) { const d = p.data; if (d.signals && signals.value.length > 0 && d.signals.length > signals.value.length) { playSignalSound() } if (d.status) status.value = d.status; if (d.signals) signals.value = d.signals; if (d.positions) positions.value = d.positions; if (d.timeline) timeline.value = d.timeline; if (d.orders) orders.value = d.orders } fetchLimitPools(); updatePnlHistory() } catch (e: any) { if (e.name !== 'CanceledError' && e.name !== 'AbortError') console.error(e) } finally { fetchScannerRunning = false } }
 async function fetchScannerFull() { try { const [sR, sigR, posR, tlR, ordR] = await Promise.all([api.get(`${scannerApi}/status`), api.get(`${scannerApi}/signals`), api.get(`${scannerApi}/positions`), api.get(`${scannerApi}/timeline`), api.get(`${scannerApi}/orders`)]); const sP = parseResponse(sR), sigP = parseResponse(sigR), posP = parseResponse(posR), tlP = parseResponse(tlR), ordP = parseResponse(ordR); if (sP.success) status.value = sP.data; if (sigP.success) signals.value = sigP.data; if (posP.success) positions.value = posP.data; if (tlP.success) timeline.value = tlP.data; if (ordP.success) orders.value = ordP.data || [] } catch (e) { console.error(e) } }
 async function startScanner() {
