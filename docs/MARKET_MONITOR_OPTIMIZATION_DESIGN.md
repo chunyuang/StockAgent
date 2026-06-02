@@ -1,6 +1,6 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.69 | 日期: 2026-06-03 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.70 | 日期: 2026-06-03 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
 > 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats✅ | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化✅ | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复✅ | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复✅ | v2.9.24 diagnose+情绪调仓提取+DelegateRouter策略扩展✅ | v2.9.25 update_strategy_config bug修复+bare except清理+_init_modules拆分✅ | v2.9.26 全模块bare except清理+position_checker._execute_sell_list提取3子方法✅ | v2.9.27 方法提取到子模块5个+测试适配✅ | v2.9.28 风控线程拆分+filter合并提取+scan_loop错误恢复✅ | v2.9.31 _safe_read_state统一+RuntimeWarning修复+get_positions提取✅ | v2.9.34 情绪得分+收盘同步提取→子模块✅ | v2.9.35 卖出执行提取到PositionManager✅ | v2.9.36 审查P0/P1修复+WS断线补发+前端错误提示 | v2.9.37 _save_param_snapshot提取+_init_state类属性瘦身+start()30行 | v2.9.38 _run_checker_on_positions提取+compare差异持久化+_post_sell_state_cleanup统一 | v2.9.39 _scan_loop_settlement提取→RuntimePersistence+_emit_risk_thread_error委托RiskWatchdog+MarketPhase.is_trading_active+position_checker except修复 | v2.9.42 参数管理6方法DELEGATE_MAP委托+StrategyParamCenter路由策略+scanner 1382行 | v2.9.43 signal_manager方法提取7子方法(execute_signals 161→24行+update_signals 96→9行)+版本同步+1000测试全通过 | v2.9.44 _SubprocessRuntime提取(scanner_daemon 303行闭包→独立类+命令路由表5子handler+_send_ack统一+16新增测试) | v2.9.46 bare except清理(web API)+版本同步+_check_stop_loss_take_profit简化+section合并 | v2.9.47 getattr/hasattr防御消除+关键路径日志级别提升+18新增测试 | v2.9.48 pipeline.apply提取(187→103)+broker.place_order提取(182→109)+33新增测试 | v2.9.49 审查P0安全修复(WS Token首条消息认证+Trading API越权访问)+P1修复(Stream consumer动态化+持仓批量价格查询)+P2修复(System API同步MongoDB→异步)+19新增测试 | v2.9.50 🔴Daemon方法名Bug修复(update_strategy_params→update_strategy_config/run_once→scan_once)+hasattr防御清理6处+except Exception收窄9处+15新增测试 | v2.9.51 getattr防御清理18处+broker正式接口(get_limit_prices/get_realtime_prices)+🔴_daily_start_asset日内回撤永远为0bug修复+_last_scan_duration_ms初始化+22新增测试 | v2.9.52 getattr/hasattr清理(broker/position_manager/runtime_persistence/strategy_scorer/risk_watchdog 5文件)+DELEGATE_MAP外提到scanner_delegate_router(scanner 1391→1308 -83行)+@classmethod@property兼容别名+7测试文件更新+1177测试全通过 |
@@ -4549,3 +4549,49 @@ scanner_delegate_router.py: 184行 → 271行 (+87行)
 ### 56.9 回测影响
 
 零。所有变更仅影响market_monitor模块类型注解补全和新增灰度对齐追踪器, 回测引擎零文件修改。
+
+## 五十七、v2.9.70 对齐统计持久化+通知 + ReviewTab提取 + TS修复 (2026-06-03)
+
+### 57.1 变更摘要
+
+1. **CompareAlignmentStats持久化到MongoDB** — 重启不丢失统计数据
+2. **switch_ready变更通知** — 对齐达标时发射alignment_switch_ready事件
+3. **_check_positions_compare重构** — 72L→23L, 提取3个子方法
+4. **ReviewTab.vue提取** — 375L模板从MarketMonitorView拆出(2811→2452L)
+5. **前端TS修复** — api.get返回值类型注解、移除未使用导入
+
+### 57.2 后端变更
+
+| 文件 | 变更 |
+|------|------|
+| position_checker.py | CompareAlignmentStats.from_dict+int()类型安全, _persist_alignment_stats, _restore_alignment_stats, __init__自动恢复, record()返回became_ready, _check_positions_compare重构(72→23L) |
+| scanner_system.py | _DESIGN_DOC_VERSION v2.9.70 |
+
+### 57.3 前端变更
+
+| 文件 | 变更 |
+|------|------|
+| ReviewTab.vue | 新增: 317L复盘Tab子组件(Props-based, 避免重复composable实例) |
+| MarketMonitorView.vue | 2811→2452L, 复盘Tab替换为ReviewTab组件引用 |
+| StrategyPerfBoard.vue | const r: any = await api.get |
+| SystemHealth.vue | const r: any = await api.get |
+| useAutoTradeMonitor.ts | 移除未使用ElMessage导入 |
+| useCoreMethods.ts | 移除未使用ref/reactive/nextTick/factorLabel/pipelineLabels |
+| useScannerMonitor.ts | weeklyReportData补回return |
+
+### 57.4 方法行数统计
+
+- `_check_positions_compare`: 72L→23L ✅
+- `_run_compare_both`: 25L (新提取)
+- `_handle_compare_stats`: 21L (新提取)
+- `_handle_compare_diff`: 22L (新提取)
+- **零方法 > 50L** ✅
+
+### 57.5 测试
+
+- 26个新增v2.9.70测试 (test_v2970_alignment_persistence_ts_fix.py)
+- 全套: 1676 passed
+
+### 57.6 回测影响
+
+零。所有变更仅影响market_monitor模块, 回测引擎零文件修改。
