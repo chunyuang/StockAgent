@@ -143,31 +143,27 @@ class RiskWatchdog:
             await asyncio.sleep(self.CHECK_INTERVAL)
 
     async def _run_checks(self) -> None:
-        """执行所有健康检查"""
-        checks = {}
+        """执行所有健康检查(编排方法)"""
+        checks = {
+            "heartbeat": self._check_heartbeat(),
+            "signal_output": self._check_signal_output(),
+            "drawdown": await self._check_drawdown(),
+            "position_health": await self._check_position_health(),
+            "market_latency": self._check_market_latency(),
+            "data_source": self._check_data_source(),
+        }
 
-        # 1. Scanner心跳检查
-        checks["heartbeat"] = self._check_heartbeat()
-
-        # 2. 信号产出检查
-        checks["signal_output"] = self._check_signal_output()
-
-        # 3. 账户回撤检查
-        checks["drawdown"] = await self._check_drawdown()
-
-        # 4. 持仓健康检查
-        checks["position_health"] = await self._check_position_health()
-
-        # 5. 行情延迟检查(如果Scanner有数据)
-        checks["market_latency"] = self._check_market_latency()
-
-        # 【V54:数据源可用性检查】
-        checks["data_source"] = self._check_data_source()
-
-        # 更新状态
         self._state.checks = checks
+        self._update_overall_status(checks)
 
-        # 综合判断
+        for name, check in checks.items():
+            if check.status in (HealthStatus.DEGRADED, HealthStatus.CRITICAL, HealthStatus.DEAD):
+                await self._send_alert_if_needed(name, check)
+
+        await self._try_auto_recovery(checks.get("heartbeat"))
+
+    def _update_overall_status(self, checks: Dict[str, HealthCheck]) -> None:
+        """综合判断整体状态"""
         statuses = [c.status for c in checks.values()]
         if any(s == HealthStatus.CRITICAL for s in statuses):
             self._state.overall_status = HealthStatus.CRITICAL
@@ -178,25 +174,22 @@ class RiskWatchdog:
         else:
             self._state.overall_status = HealthStatus.HEALTHY
 
-        # 发送告警(只对DEGRADED/CRITICAL/DEAD)
-        for name, check in checks.items():
-            if check.status in (HealthStatus.DEGRADED, HealthStatus.CRITICAL, HealthStatus.DEAD):
-                await self._send_alert_if_needed(name, check)
-
-        # 【自动自愈】心跳DEAD超过3分钟 → 自动重启Scanner
-        hb_check = checks.get("heartbeat")
-        if hb_check and hb_check.status == HealthStatus.DEAD:
-            elapsed = time.time() - self._state.scanner_heartbeat if self._state.scanner_heartbeat > 0 else 999
-            if elapsed > 180 and self._scanner is not None:
-                logger.warning(f"[WATCHDOG] Scanner心跳超时{elapsed:.0f}s, 尝试自动重启...")
-                try:
-                    self._scanner._is_running = False  # 停止旧循环
-                    await asyncio.sleep(2)
-                    trade_date = datetime.now().strftime("%Y%m%d")
-                    await self._scanner.start(trade_date)
-                    logger.info("[WATCHDOG] Scanner自动重启成功")
-                except Exception as e:
-                    logger.error(f"[WATCHDOG] Scanner自动重启失败: {e}")
+    async def _try_auto_recovery(self, hb_check: Optional[HealthCheck]) -> None:
+        """心跳DEAD超过3分钟→自动重启Scanner"""
+        if not hb_check or hb_check.status != HealthStatus.DEAD:
+            return
+        elapsed = time.time() - self._state.scanner_heartbeat if self._state.scanner_heartbeat > 0 else 999
+        if elapsed <= 180 or self._scanner is None:
+            return
+        logger.warning(f"[WATCHDOG] Scanner心跳超时{elapsed:.0f}s, 尝试自动重启...")
+        try:
+            self._scanner._is_running = False
+            await asyncio.sleep(2)
+            trade_date = datetime.now().strftime("%Y%m%d")
+            await self._scanner.start(trade_date)
+            logger.info("[WATCHDOG] Scanner自动重启成功")
+        except Exception as e:
+            logger.error(f"[WATCHDOG] Scanner自动重启失败: {e}")
 
     # ==================== 具体检查 ====================
 
@@ -357,62 +350,53 @@ class RiskWatchdog:
         )
 
     async def _check_position_health(self) -> HealthCheck:
-        """检查持仓健康"""
+        """检查持仓健康(编排方法)"""
         now = time.time()
 
         if not self._scanner or not self._scanner._broker:
             return HealthCheck(
                 name="position_health", status=HealthStatus.HEALTHY,
                 value="N/A", threshold="无超时持仓",
-                message="Broker未初始化",
-                last_check_time=now,
-            )
+                message="Broker未初始化", last_check_time=now)
 
         try:
-            positions = self._scanner._broker.get_positions()
-            max_hold_days = 5  # 与回测对齐
-
-            overdue = []
-            for p in positions:
-                # 计算持仓天数
-                buy_date = p.buy_date
-                if buy_date:
-                    if isinstance(buy_date, str):
-                        from datetime import datetime as dt
-                        buy_dt = dt.strptime(buy_date, "%Y%m%d")
-                    elif isinstance(buy_date, datetime):
-                        buy_dt = buy_date
-                    else:
-                        buy_dt = datetime.now()
-
-                    days = (datetime.now() - buy_dt).days
-                    if days > max_hold_days:
-                        overdue.append(f"{p.ts_code}({days}天)")
-
+            overdue = self._find_overdue_positions()
             if overdue:
                 return HealthCheck(
                     name="position_health", status=HealthStatus.DEGRADED,
-                    value=f"{len(overdue)}只超时",
-                    threshold=f"<={max_hold_days}天",
-                    message=f"⚠️ 超时持仓: {', '.join(overdue[:5])}",
-                    last_check_time=now,
-                )
-
+                    value=f"{len(overdue)}只超时", threshold="<=5天",
+                    message=f"⚠️ 超时持仓: {', '.join(overdue[:5])}", last_check_time=now)
+            positions = self._scanner._broker.get_positions()
             return HealthCheck(
                 name="position_health", status=HealthStatus.HEALTHY,
-                value=f"{len(positions)}只持仓",
-                threshold=f"<={max_hold_days}天",
-                message="正常",
-                last_check_time=now,
-            )
+                value=f"{len(positions)}只持仓", threshold="<=5天",
+                message="正常", last_check_time=now)
         except Exception as e:
             return HealthCheck(
                 name="position_health", status=HealthStatus.HEALTHY,
-                value=f"检查失败: {e}",
-                threshold=f"<={max_hold_days}天",
-                message=f"持仓检查异常(非关键): {e}",
-                last_check_time=now,
-            )
+                value=f"检查失败: {e}", threshold="<=5天",
+                message=f"持仓检查异常(非关键): {e}", last_check_time=now)
+
+    def _find_overdue_positions(self) -> List[str]:
+        """查找超时持仓(>5天)"""
+        positions = self._scanner._broker.get_positions()
+        max_hold_days = 5
+        overdue = []
+        for p in positions:
+            buy_date = p.buy_date
+            if not buy_date:
+                continue
+            if isinstance(buy_date, str):
+                from datetime import datetime as dt
+                buy_dt = dt.strptime(buy_date, "%Y%m%d")
+            elif isinstance(buy_date, datetime):
+                buy_dt = buy_date
+            else:
+                buy_dt = datetime.now()
+            days = (datetime.now() - buy_dt).days
+            if days > max_hold_days:
+                overdue.append(f"{p.ts_code}({days}天)")
+        return overdue
 
     def _check_market_latency(self) -> HealthCheck:
         """检查行情延迟"""

@@ -208,7 +208,7 @@ class TestRiskWatchdogDrawdownExtraction(unittest.TestCase):
 
 
 class TestEmotionCycleV2959Extraction(unittest.TestCase):
-    """v2.9.59 emotion_cycle提取验证"""
+    """v2.9.60 emotion_cycle提取验证"""
 
     def setUp(self):
         self.tree = _parse(os.path.join(MM_DIR, "emotion_cycle.py"))
@@ -240,7 +240,7 @@ class TestEmotionCycleV2959Extraction(unittest.TestCase):
 
 
 class TestSignalDispatcherExtraction(unittest.TestCase):
-    """v2.9.59 signal_dispatcher提取验证"""
+    """v2.9.60 signal_dispatcher提取验证"""
 
     def setUp(self):
         self.tree = _parse(os.path.join(MM_DIR, "signal_dispatcher.py"))
@@ -260,7 +260,7 @@ class TestSignalDispatcherExtraction(unittest.TestCase):
 
 
 class TestEventBusExtraction(unittest.TestCase):
-    """v2.9.59 scanner_event_bus提取验证"""
+    """v2.9.60 scanner_event_bus提取验证"""
 
     def setUp(self):
         self.tree = _parse(os.path.join(MM_DIR, "scanner_event_bus.py"))
@@ -274,7 +274,7 @@ class TestEventBusExtraction(unittest.TestCase):
 
 
 class TestStrategyScorerMergeFactorsExtraction(unittest.TestCase):
-    """v2.9.59 strategy_scorer.merge_factors提取验证"""
+    """v2.9.60 strategy_scorer.merge_factors提取验证"""
 
     def setUp(self):
         self.tree = _parse(os.path.join(MM_DIR, "strategy_scorer.py"))
@@ -294,7 +294,7 @@ class TestStrategyScorerMergeFactorsExtraction(unittest.TestCase):
 
 
 class TestRuntimePersistencePostSellExtraction(unittest.TestCase):
-    """v2.9.59 runtime_persistence.post_sell_cleanup提取验证"""
+    """v2.9.60 runtime_persistence.post_sell_cleanup提取验证"""
 
     def setUp(self):
         self.tree = _parse(os.path.join(MM_DIR, "runtime_persistence.py"))
@@ -311,6 +311,50 @@ class TestRuntimePersistencePostSellExtraction(unittest.TestCase):
 
     def test_persist_sell_state_exists(self):
         self.assertTrue(_method_exists(self.tree, "_persist_sell_state"))
+
+
+class TestRiskWatchdogV2960Extraction(unittest.TestCase):
+    """v2.9.60 risk_watchdog提取验证"""
+
+    def setUp(self):
+        self.tree = _parse(os.path.join(MM_DIR, "risk_watchdog.py"))
+
+    def test_run_checks_under_20(self):
+        lines = _method_lines(self.tree, "_run_checks")
+        self.assertLess(lines, 20, f"_run_checks should be <20 lines, got {lines}")
+
+    def test_update_overall_status_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_update_overall_status"))
+
+    def test_try_auto_recovery_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_try_auto_recovery"))
+
+    def test_find_overdue_positions_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_find_overdue_positions"))
+
+    def test_check_position_health_under_30(self):
+        lines = _method_lines(self.tree, "_check_position_health")
+        self.assertLess(lines, 30, f"_check_position_health should be <30 lines, got {lines}")
+
+
+class TestSignalManagerV2960Extraction(unittest.TestCase):
+    """v2.9.60 signal_manager提取验证"""
+
+    def setUp(self):
+        self.tree = _parse(os.path.join(MM_DIR, "signal_manager.py"))
+
+    def test_execute_single_buy_under_30(self):
+        lines = _method_lines(self.tree, "_execute_single_buy")
+        self.assertLess(lines, 30, f"_execute_single_buy should be <30 lines, got {lines}")
+
+    def test_calc_buy_shares_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_calc_buy_shares"))
+
+    def test_check_buy_quality_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_check_buy_quality"))
+
+    def test_apply_buy_slippage_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_apply_buy_slippage"))
 
 
 class TestBigMethodsReduction(unittest.TestCase):
@@ -345,7 +389,7 @@ class TestNoBacktestRegressionV2958(unittest.TestCase):
     def test_version_constant_updated(self):
         with open(os.path.join(AGENT_DIR, "nodes", "web", "api", "scanner.py")) as f:
             src = f.read()
-        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.59"', src)
+        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.60"', src)
 
     def test_sell_signal_checker_untouched(self):
         """卖出信号检查器不应被修改"""
