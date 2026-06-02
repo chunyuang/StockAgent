@@ -190,7 +190,7 @@ class TestVersionSync:
     """验证版本常量与设计文档同步"""
 
     def test_design_doc_version_is_v2914(self):
-        """_DESIGN_DOC_VERSION = v2.9.73"""
+        """_DESIGN_DOC_VERSION = v2.9.74"""
         source = _read_api_scanner()
         tree = ast.parse(source)
         for node in ast.walk(tree):

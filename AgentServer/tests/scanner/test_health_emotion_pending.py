@@ -30,7 +30,7 @@ class TestComputeHealthScore:
         scanner._circuit_breaker = {"trading_paused": False}
         scanner._event_bus = None
         
-        # v2.9.73访问器方法
+        # v2.9.74访问器方法
         scanner.get_current_sentiment.return_value = {}
         scanner.get_current_position_ratio.return_value = None
         scanner.get_scan_error_count.return_value = 0

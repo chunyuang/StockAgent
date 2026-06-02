@@ -1,4 +1,4 @@
-"""v2.9.73: 盘前研判子方法提取 + trace_id全链路 + docstring补齐"""
+"""v2.9.74: 盘前研判子方法提取 + trace_id全链路 + docstring补齐"""
 import ast
 import inspect
 import unittest
@@ -128,7 +128,7 @@ class TestTraceIdFullChain(unittest.TestCase):
 
 
 class TestDocstringCompleteness(unittest.TestCase):
-    """验证v2.9.73 docstring补齐"""
+    """验证v2.9.74 docstring补齐"""
 
     def test_event_subscribers_handlers_have_docstrings(self):
         """EventBus handler函数都有docstring"""
@@ -150,7 +150,7 @@ class TestDocstringCompleteness(unittest.TestCase):
 
 
 class TestMethodSizeV2972(unittest.TestCase):
-    """验证v2.9.73拆分后的方法行数"""
+    """验证v2.9.74拆分后的方法行数"""
 
     def test_build_premarket_analysis_under_40(self):
         """_build_premarket_analysis < 40行"""
@@ -183,14 +183,14 @@ class TestVersionV2972(unittest.TestCase):
 
     def test_version_is_v2972(self):
         from nodes.web.api.scanner_system import _DESIGN_DOC_VERSION
-        self.assertEqual(_DESIGN_DOC_VERSION, "v2.9.73")
+        self.assertEqual(_DESIGN_DOC_VERSION, "v2.9.74")
 
 
 class TestNoBacktestRegressionV2972(unittest.TestCase):
-    """v2.9.73对回测模块零影响"""
+    """v2.9.74对回测模块零影响"""
 
     def test_backtest_files_unchanged(self):
-        """回测相关文件未被v2.9.73修改"""
+        """回测相关文件未被v2.9.74修改"""
         import os
         backtest_dirs = ['nodes/backtest/', 'core/backtest/']
         for d in backtest_dirs:
@@ -200,5 +200,5 @@ class TestNoBacktestRegressionV2972(unittest.TestCase):
                         if f.endswith('.py'):
                             path = os.path.join(root, f)
                             with open(path) as fh:
-                                if 'v2.9.73' in fh.read():
+                                if 'v2.9.74' in fh.read():
                                     self.fail(f"Backtest file modified: {path}")

@@ -376,7 +376,7 @@ class TestVersionV2964(unittest.TestCase):
     def test_design_doc_version_v2964(self):
         """Web API版本常量为v2.9.64"""
         from nodes.web.api.scanner_system import _DESIGN_DOC_VERSION
-        self.assertEqual(_DESIGN_DOC_VERSION, "v2.9.73")
+        self.assertEqual(_DESIGN_DOC_VERSION, "v2.9.74")
 
     def test_version_in_source(self):
         """源文件中包含v2.9.64"""
@@ -385,7 +385,7 @@ class TestVersionV2964(unittest.TestCase):
         src_path = os.path.join(base, '..', '..', 'nodes', 'web', 'api', 'scanner_system.py')
         with open(src_path, 'r') as f:
             src = f.read()
-        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.73"', src)
+        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.74"', src)
 
 
 class TestNoBacktestRegression(unittest.TestCase):

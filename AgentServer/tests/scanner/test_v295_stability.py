@@ -55,7 +55,7 @@ class TestRiskThreadWatchdog:
         scanner._active_signals = []
         scanner._stats = {}
         scanner._nav_peak = 1.0
-        # v2.9.73访问器方法
+        # v2.9.74访问器方法
         scanner.get_trade_date.return_value = "20260529"
         scanner.get_current_sentiment.return_value = {}
         scanner.get_current_position_ratio.return_value = None
@@ -223,7 +223,7 @@ class TestHealthScoreRiskThread:
         scanner._risk_thread = MagicMock()
         scanner._risk_thread.is_alive.return_value = True
         scanner._risk_thread_restarts = 0
-        # v2.9.73访问器方法
+        # v2.9.74访问器方法
         scanner.get_current_sentiment.return_value = {}
         scanner.get_current_position_ratio.return_value = None
         scanner.get_scan_error_count.return_value = 0
