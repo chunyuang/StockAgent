@@ -1,5 +1,5 @@
 """
-v2.9.63 方法提取测试 - 最终清零>50行方法
+v2.9.64 方法提取测试 - 最终清零>50行方法
 
 5个剩余方法提取:
 1. quote_manager._merge_limit_pool_data → _merge_limit_up_items + _merge_limit_down_items + _merge_limit_open_items (3个@staticmethod)
@@ -54,7 +54,7 @@ def _is_staticmethod(source, method_name):
 
 
 class TestQuoteManagerV2963Extraction(unittest.TestCase):
-    """v2.9.63: quote_manager 3个@staticmethod提取"""
+    """v2.9.64: quote_manager 3个@staticmethod提取"""
 
     def setUp(self):
         self.src = _read_source("quote_manager.py")
@@ -96,7 +96,7 @@ class TestQuoteManagerV2963Extraction(unittest.TestCase):
 
 
 class TestTieredScannerV2963Extraction(unittest.TestCase):
-    """v2.9.63: tiered_scanner 2个@staticmethod提取"""
+    """v2.9.64: tiered_scanner 2个@staticmethod提取"""
 
     def setUp(self):
         self.src = _read_source("tiered_scanner.py")
@@ -137,7 +137,7 @@ class TestTieredScannerV2963Extraction(unittest.TestCase):
 
 
 class TestScannerV2963Extraction(unittest.TestCase):
-    """v2.9.63: scanner 1个方法提取"""
+    """v2.9.64: scanner 1个方法提取"""
 
     def setUp(self):
         self.src = _read_source("scanner.py")
@@ -157,7 +157,7 @@ class TestScannerV2963Extraction(unittest.TestCase):
 
 
 class TestLiveFilterPipelineV2963Extraction(unittest.TestCase):
-    """v2.9.63: live_filter_pipeline 2个方法提取"""
+    """v2.9.64: live_filter_pipeline 2个方法提取"""
 
     def setUp(self):
         self.src = _read_source("live_filter_pipeline.py")
@@ -186,7 +186,7 @@ class TestLiveFilterPipelineV2963Extraction(unittest.TestCase):
 
 
 class TestBigMethodsZeroV2963(unittest.TestCase):
-    """v2.9.63: >50行方法数为0"""
+    """v2.9.64: >50行方法数为0"""
 
     def test_no_methods_over_50_lines(self):
         """market_monitor模块无>50行方法"""
@@ -209,14 +209,14 @@ class TestBigMethodsZeroV2963(unittest.TestCase):
 
 
 class TestVersionV2963(unittest.TestCase):
-    """v2.9.63: 版本常量"""
+    """v2.9.64: 版本常量"""
 
     def test_version_constant(self):
-        """Web API版本常量为v2.9.63"""
+        """Web API版本常量为v2.9.64"""
         filepath = os.path.join(WEB_API_DIR, "scanner_system.py")
         with open(filepath) as f:
             src = f.read()
-        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.63"', src)
+        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.64"', src)
 
 
 if __name__ == "__main__":
