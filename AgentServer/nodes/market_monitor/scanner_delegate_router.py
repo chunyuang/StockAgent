@@ -171,8 +171,20 @@ _PARAM_CENTER_BINDINGS = {
 }
 
 
+# 策略路由表: module_attr → 解析函数【v2.9.61:if/elif链→路由表】
+# 新增策略只需加一行, 不再需要改resolve_delegate函数体
+_DISPATCH_TABLE = {
+    "_quote_manager_class": None,  # 延迟绑定(函数尚未定义)
+    "_risk_watchdog_class": None,
+    "_scanner_utils": None,
+    "_emotion_cycle_class": None,
+    "_strategy_param_center_class": None,
+    "_strategy_scorer": None,
+}
+
+
 def resolve_delegate(scanner, name: str, delegate: tuple) -> Any:
-    """解析委托调用 — 根据模块类型分派到对应策略
+    """解析委托调用 — 策略路由表分派【v2.9.61:if/elif链→路由表】
 
     Args:
         scanner: MarketScanner实例
@@ -183,52 +195,66 @@ def resolve_delegate(scanner, name: str, delegate: tuple) -> Any:
     """
     module_attr, method_name = delegate
 
-    # 策略1: QuoteManager类方法(不是实例)
-    if module_attr == "_quote_manager_class":
-        from nodes.market_monitor.quote_manager import QuoteManager
-        return getattr(QuoteManager, method_name)
+    # 先查路由表
+    resolver = _DISPATCH_TABLE.get(module_attr)
+    if resolver:
+        return resolver(scanner, name, module_attr, method_name)
 
-    # 策略2: RiskWatchdog类静态方法
-    if module_attr == "_risk_watchdog_class":
-        from nodes.market_monitor.risk_watchdog import RiskWatchdog
-        method = getattr(RiskWatchdog, method_name)
-        binder = _WATCHDOG_BINDINGS.get(method_name)
-        if binder:
-            return binder(method, scanner)
-        return method
+    # 兜底: 普通模块委托
+    return _resolve_module_delegate(scanner, name, module_attr, method_name)
 
-    # 策略3: ScannerUtils(部分方法需要scanner上下文绑定)
-    if module_attr == "_scanner_utils":
-        from nodes.market_monitor.scanner_utils import ScannerUtils
-        method = getattr(ScannerUtils, method_name)
-        binder = _UTILS_CONTEXT_METHODS.get(name)
-        if binder:
-            return binder(scanner, method)
-        return method
 
-    # 策略3.5: EmotionCycleManager(类静态方法, 绑定scanner上下文)
-    if module_attr == "_emotion_cycle_class":
-        from nodes.market_monitor.emotion_cycle import EmotionCycleManager
-        method = getattr(EmotionCycleManager, method_name)
-        binder = _EMOTION_BINDINGS.get(method_name)
-        if binder:
-            return binder(method, scanner)
-        return method
+# ==================== 路由策略实现 ====================
 
-    # 策略3.6: StrategyParamCenter(类静态方法, 绑定scanner上下文)【v2.9.42】
-    if module_attr == "_strategy_param_center_class":
-        from nodes.market_monitor.strategy_param_center import StrategyParamCenter
-        method = getattr(StrategyParamCenter, method_name)
-        binder = _PARAM_CENTER_BINDINGS.get(method_name)
-        if binder:
-            return binder(method, scanner)
-        return method
 
-    # 策略4: StrategyScorer(需要fallback + 上下文绑定)
-    if module_attr == "_strategy_scorer":
-        return _resolve_scorer(scanner, name, module_attr, method_name)
+def _resolve_class_method(scanner, name: str, module_attr: str, method_name: str) -> Any:
+    """策略1: QuoteManager类方法(不是实例)"""
+    from nodes.market_monitor.quote_manager import QuoteManager
+    return getattr(QuoteManager, method_name)
 
-    # 策略5+6: 普通模块委托(含未初始化fallback)
+
+def _resolve_watchdog(scanner, name: str, module_attr: str, method_name: str) -> Any:
+    """策略2: RiskWatchdog类静态方法"""
+    from nodes.market_monitor.risk_watchdog import RiskWatchdog
+    method = getattr(RiskWatchdog, method_name)
+    binder = _WATCHDOG_BINDINGS.get(method_name)
+    if binder:
+        return binder(method, scanner)
+    return method
+
+
+def _resolve_utils(scanner, name: str, module_attr: str, method_name: str) -> Any:
+    """策略3: ScannerUtils(部分方法需要scanner上下文绑定)"""
+    from nodes.market_monitor.scanner_utils import ScannerUtils
+    method = getattr(ScannerUtils, method_name)
+    binder = _UTILS_CONTEXT_METHODS.get(name)
+    if binder:
+        return binder(scanner, method)
+    return method
+
+
+def _resolve_emotion(scanner, name: str, module_attr: str, method_name: str) -> Any:
+    """策略3.5: EmotionCycleManager(类静态方法, 绑定scanner上下文)"""
+    from nodes.market_monitor.emotion_cycle import EmotionCycleManager
+    method = getattr(EmotionCycleManager, method_name)
+    binder = _EMOTION_BINDINGS.get(method_name)
+    if binder:
+        return binder(method, scanner)
+    return method
+
+
+def _resolve_param_center(scanner, name: str, module_attr: str, method_name: str) -> Any:
+    """策略3.6: StrategyParamCenter(类静态方法, 绑定scanner上下文)"""
+    from nodes.market_monitor.strategy_param_center import StrategyParamCenter
+    method = getattr(StrategyParamCenter, method_name)
+    binder = _PARAM_CENTER_BINDINGS.get(method_name)
+    if binder:
+        return binder(method, scanner)
+    return method
+
+
+def _resolve_module_delegate(scanner, name: str, module_attr: str, method_name: str) -> Any:
+    """策略5+6: 普通模块委托(含未初始化fallback)"""
     module = getattr(scanner, module_attr, None)
     if module is None:
         return _resolve_noop_fallback(module_attr, name)
@@ -264,3 +290,13 @@ def _resolve_noop_fallback(module_attr: str, name: str) -> Any:
     else:
         logger.warning(f"[SCANNER] 委托模块 {module_attr} 未初始化, 同步方法 {name} 返回None")
         return lambda *args, **kwargs: None
+
+
+# ==================== 延迟绑定路由表 ====================
+# 函数定义完成后, 将路由表指向实际函数
+_DISPATCH_TABLE["_quote_manager_class"] = _resolve_class_method
+_DISPATCH_TABLE["_risk_watchdog_class"] = _resolve_watchdog
+_DISPATCH_TABLE["_scanner_utils"] = _resolve_utils
+_DISPATCH_TABLE["_emotion_cycle_class"] = _resolve_emotion
+_DISPATCH_TABLE["_strategy_param_center_class"] = _resolve_param_center
+_DISPATCH_TABLE["_strategy_scorer"] = _resolve_scorer

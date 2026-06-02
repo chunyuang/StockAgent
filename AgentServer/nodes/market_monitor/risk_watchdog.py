@@ -194,56 +194,55 @@ class RiskWatchdog:
     # ==================== 具体检查 ====================
 
     def _check_heartbeat(self) -> HealthCheck:
-        """检查Scanner心跳"""
+        """检查Scanner心跳【v2.9.61:状态判定提取到_judge_heartbeat_status】"""
         now = time.time()
         last_hb = self._state.scanner_heartbeat
 
         if last_hb <= 0:
             # 尚未收到心跳(刚启动)
             elapsed = now - self._state.start_time
-            if elapsed < 120:
-                return HealthCheck(
-                    name="heartbeat", status=HealthStatus.HEALTHY,
-                    value=f"启动中({elapsed:.0f}s)",
-                    threshold="<300s",
-                    message="Scanner尚未完成首次扫描",
-                    last_check_time=now,
-                )
-            else:
-                return HealthCheck(
-                    name="heartbeat", status=HealthStatus.DEAD,
-                    value=f"从未心跳({elapsed:.0f}s)",
-                    threshold="<300s",
-                    message="🚨 Scanner从未成功扫描, 可能启动失败",
-                    last_check_time=now,
-                )
+            return self._judge_startup_heartbeat(elapsed, now)
 
         elapsed = now - last_hb
+        return self._judge_heartbeat_elapsed(elapsed, now)
 
-        if elapsed > self.HEARTBEAT_TIMEOUT:
-            return HealthCheck(
-                name="heartbeat", status=HealthStatus.DEAD,
-                value=f"{elapsed:.0f}s",
-                threshold=f"<{self.HEARTBEAT_TIMEOUT}s",
-                message=f"🚨 Scanner心跳超时{elapsed:.0f}s, 可能假死",
-                last_check_time=now,
-            )
-        elif elapsed > self.HEARTBEAT_TIMEOUT * 0.6:
-            return HealthCheck(
-                name="heartbeat", status=HealthStatus.DEGRADED,
-                value=f"{elapsed:.0f}s",
-                threshold=f"<{self.HEARTBEAT_TIMEOUT}s",
-                message=f"⚠️ Scanner心跳延迟{elapsed:.0f}s",
-                last_check_time=now,
-            )
-        else:
+    def _judge_startup_heartbeat(self, elapsed: float, now: float) -> HealthCheck:
+        """判断启动阶段的心跳状态【v2.9.61:从_check_heartbeat提取】"""
+        if elapsed < 120:
             return HealthCheck(
                 name="heartbeat", status=HealthStatus.HEALTHY,
-                value=f"{elapsed:.0f}s",
-                threshold=f"<{self.HEARTBEAT_TIMEOUT}s",
-                message="正常",
+                value=f"启动中({elapsed:.0f}s)",
+                threshold="<300s",
+                message="Scanner尚未完成首次扫描",
                 last_check_time=now,
             )
+        return HealthCheck(
+            name="heartbeat", status=HealthStatus.DEAD,
+            value=f"从未心跳({elapsed:.0f}s)",
+            threshold="<300s",
+            message="🚨 Scanner从未成功扫描, 可能启动失败",
+            last_check_time=now,
+        )
+
+    def _judge_heartbeat_elapsed(self, elapsed: float, now: float) -> HealthCheck:
+        """判断运行中的心跳状态【v2.9.61:从_check_heartbeat提取】"""
+        if elapsed > self.HEARTBEAT_TIMEOUT:
+            status = HealthStatus.DEAD
+            msg = f"🚨 Scanner心跳超时{elapsed:.0f}s, 可能假死"
+        elif elapsed > self.HEARTBEAT_TIMEOUT * 0.6:
+            status = HealthStatus.DEGRADED
+            msg = f"⚠️ Scanner心跳延迟{elapsed:.0f}s"
+        else:
+            status = HealthStatus.HEALTHY
+            msg = "正常"
+
+        return HealthCheck(
+            name="heartbeat", status=status,
+            value=f"{elapsed:.0f}s",
+            threshold=f"<{self.HEARTBEAT_TIMEOUT}s",
+            message=msg,
+            last_check_time=now,
+        )
 
     def _check_signal_output(self) -> HealthCheck:
         """检查信号产出"""

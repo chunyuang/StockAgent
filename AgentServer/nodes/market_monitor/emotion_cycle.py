@@ -222,11 +222,20 @@ class EmotionCycleManager:
         return up_count, down_count
     
     async def _calculate_zt_premium(self, trade_date: str) -> float:
-        """计算昨日涨停今日平均溢价率
-        
+        """计算昨日涨停今日平均溢价率【v2.9.61:编排方法】
+
         【V50:使用交易日历+批量查询,避免N+1问题】
         """
         # 获取前一个交易日
+        yesterday = await self._get_prev_trade_date(trade_date)
+        if not yesterday:
+            return 0.0
+
+        # 查询昨日涨停+计算溢价
+        return await self._calc_avg_zt_premium(yesterday, trade_date)
+
+    async def _get_prev_trade_date(self, trade_date: str) -> Optional[str]:
+        """获取前一个交易日【v2.9.61:从_calculate_zt_premium提取】"""
         try:
             prev_trade_date_doc = await mongo_manager.find_one(
                 C.STOCK_DAILY,
@@ -235,31 +244,34 @@ class EmotionCycleManager:
                 projection={"trade_date": 1},
             )
             if not prev_trade_date_doc:
-                return 0.0
-            yesterday = str(prev_trade_date_doc["trade_date"])
+                return None
+            return str(prev_trade_date_doc["trade_date"])
         except Exception as _e:
             from datetime import timedelta
             date_obj = datetime(int(trade_date[:4]), int(trade_date[4:6]), int(trade_date[6:8]))
-            yesterday = (date_obj - timedelta(days=1)).strftime("%Y%m%d")
-        
-        # 查询昨日涨停
+            return (date_obj - timedelta(days=1)).strftime("%Y%m%d")
+
+    async def _calc_avg_zt_premium(self, yesterday: str, trade_date: str) -> float:
+        """批量查询昨日涨停+计算平均溢价【v2.9.61:从_calculate_zt_premium提取】
+
+        【V50:批量查询替代逐只查询,从N+1次DB调用降为2次】
+        """
         yesterday_zt = await mongo_manager.find_many(
             C.LIMIT_LIST,
             {"trade_date": int(yesterday), "is_limit_up": True},
             projection={"ts_code": 1},
         )
-        
+
         if not yesterday_zt:
             return 0.0
-        
-        # 【V50:批量查询替代逐只查询,从N+1次DB调用降为2次】
+
         zt_codes = [doc["ts_code"] for doc in yesterday_zt]
         today_data_list = await mongo_manager.find_many(
             C.STOCK_DAILY,
             {"ts_code": {"$in": zt_codes}, "trade_date": int(trade_date)},
             projection={"ts_code": 1, "close": 1, "pre_close": 1},
         )
-        
+
         # 计算平均溢价
         total_premium = 0.0
         count = 0
@@ -270,11 +282,8 @@ class EmotionCycleManager:
                 premium = (close - pre_close) / pre_close * 100
                 total_premium += premium
                 count += 1
-        
-        if count == 0:
-            return 0.0
-        
-        return total_premium / count
+
+        return total_premium / count if count > 0 else 0.0
     
     def _compute_score(
         self,
@@ -436,12 +445,12 @@ class EmotionCycleManager:
 
     @staticmethod
     async def handle_emotion_phase_change(scanner, old_phase: str, new_phase: str) -> None:
-        """情绪phase变化时的动态调仓【v2.9.6→v2.9.24提取到EmotionCycleManager】
-        
+        """情绪phase变化时的动态调仓【v2.9.61:编排方法】
+
         规则来源: EmotionCycleManager.DOWNGRADE_RULES
         执行: phase降级时减仓/清仓低利润, 升级时不做操作
         分批执行: max_per_round=2, 间隔0.5秒(避免冲击)
-        
+
         Args:
             scanner: MarketScanner实例
             old_phase: 原始阶段名称
@@ -453,42 +462,60 @@ class EmotionCycleManager:
         except ValueError:
             logger.info(f"[EMOTION] phase变化 {old_phase}→{new_phase}, 无法识别的阶段")
             return
-        
+
         rule = emotion_cycle_manager.get_downgrade_rule(old_enum, new_enum)
         if not rule:
             logger.info(f"[EMOTION] phase变化 {old_phase}→{new_phase}, 无需调仓")
             return
-        
+
         logger.warning(f"[EMOTION] phase降级 {old_phase}→{new_phase}: {rule['desc']}")
-        
+
         if not scanner._broker:
             return
-        
+
         positions = scanner._broker.get_positions()
         if not positions:
             return
-        
+
         # 委托给_build_emotion_sell_list构建卖出列表
         to_sell = scanner._build_emotion_sell_list(positions, rule, old_phase, new_phase)
-        
+
         if not to_sell:
             logger.info(f"[EMOTION] phase降级无需调仓(无符合条件持仓)")
             return
-        
+
+        # 分批执行卖出+事件推送
+        sold_count = await EmotionCycleManager._execute_emotion_batch_sell(
+            scanner, to_sell, old_phase, new_phase
+        )
+        await EmotionCycleManager._emit_rebalance_event(
+            scanner, rule, old_phase, new_phase, sold_count
+        )
+
+    @staticmethod
+    async def _execute_emotion_batch_sell(
+        scanner, to_sell: list, old_phase: str, new_phase: str
+    ) -> int:
+        """分批执行情绪调仓卖出【v2.9.61:从handle_emotion_phase_change提取】"""
         import asyncio
-        batch_size = 2
         from datetime import datetime
         trade_date = scanner._trade_date or datetime.now().strftime("%Y%m%d")
+        batch_size = 2
         for i in range(0, len(to_sell), batch_size):
             batch = to_sell[i:i+batch_size]
             if scanner._position_checker:
                 await scanner._position_checker.execute_sell_list(batch, trade_date, source="emotion")
             if i + batch_size < len(to_sell):
                 await asyncio.sleep(0.5)
-        
-        logger.warning(f"[EMOTION] 调仓完成: 卖出{len(to_sell)}只, {rule['desc']}")
-        
-        # 推送事件 + 审计日志
+        logger.warning(f"[EMOTION] 调仓完成: 卖出{len(to_sell)}只")
+        return len(to_sell)
+
+    @staticmethod
+    async def _emit_rebalance_event(
+        scanner, rule: dict, old_phase: str, new_phase: str, sold_count: int
+    ) -> None:
+        """推送情绪调仓事件+审计日志【v2.9.61:从handle_emotion_phase_change提取】"""
+        from datetime import datetime
         await scanner._publish_scanner_event("timeline", {
             "item": {
                 "time": datetime.now().strftime("%H:%M:%S"),
@@ -496,7 +523,7 @@ class EmotionCycleManager:
                 "reason": rule['desc'],
                 "old_phase": old_phase,
                 "new_phase": new_phase,
-                "sold_count": len(to_sell),
+                "sold_count": sold_count,
             }
         })
 

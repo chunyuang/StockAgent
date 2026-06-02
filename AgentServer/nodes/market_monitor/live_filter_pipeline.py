@@ -277,6 +277,30 @@ class LiveFilterPipeline:
         if await self._apply_L1_force_empty(result, trade_date, realtime_data):
             return result
 
+        # ---- L2~L8: 筛选层应用 ----
+        ratio = await self._apply_filter_layers(result, trade_date, realtime_data, ratio)
+
+        # ---- L8: 仓位控制 ----
+        max_position_ratio = self._config.get("max_total_position", 0.7)
+        max_per_stock = self._config.get("max_position_per_stock", 0.2)
+        final_ratio = min(ratio, max_position_ratio)
+        result.position_ratio = final_ratio
+        result.layers_applied["L8_position"] = True
+        result.layer_details["L8_position"] = (
+            f"总仓位上限={final_ratio:.0%} (情绪×特殊={ratio:.0%}, 硬上限{max_position_ratio:.0%}), "
+            f"单票上限={max_per_stock:.0%} | 仓位系数=min(情绪仓位, 特殊时期, 硬上限)"
+        )
+
+        # 【V50.1】最终标记通过 + 构建汇总
+        self._finalize_traces(result)
+
+        return result
+
+    async def _apply_filter_layers(
+        self, result: FilterResult, trade_date: str,
+        realtime_data: Dict, ratio: float
+    ) -> float:
+        """应用L2~L7筛选层, 返回仓位系数【v2.9.61:从apply提取】"""
         # ---- L2: 特殊时期 ----
         if self._layer_enabled["L2_special_period"]:
             special_ratio, reason = self._check_special_period(trade_date)
@@ -326,18 +350,10 @@ class LiveFilterPipeline:
                 "排序去重: {before}→{after} (截断{dropped}只 | 优先级: 龙头>跌停翘板>首板>半路 | 同股多策略取最高 | 最多保留10候选)",
             )
 
-        # ---- L8: 仓位控制 ----
-        max_position_ratio = self._config.get("max_total_position", 0.7)
-        max_per_stock = self._config.get("max_position_per_stock", 0.2)
-        final_ratio = min(ratio, max_position_ratio)
-        result.position_ratio = final_ratio
-        result.layers_applied["L8_position"] = True
-        result.layer_details["L8_position"] = (
-            f"总仓位上限={final_ratio:.0%} (情绪×特殊={ratio:.0%}, 硬上限{max_position_ratio:.0%}), "
-            f"单票上限={max_per_stock:.0%} | 仓位系数=min(情绪仓位, 特殊时期, 硬上限)"
-        )
+        return ratio
 
-        # 【V50.1】最终标记通过 + 构建汇总
+    def _finalize_traces(self, result: FilterResult) -> None:
+        """最终标记候选通过/拒绝状态+构建汇总【v2.9.61:从apply提取】"""
         passed_ids = {c["ts_code"] for c in result.candidates}
         for t in result.trace_candidates:
             if t.final_status == "pending":
@@ -347,8 +363,6 @@ class LiveFilterPipeline:
                     t.final_status = "rejected"
                     t.final_rejection_layer = t.final_rejection_layer or "unknown"
         self._build_trace_summary(result)
-
-        return result
 
     # ========================================================================
     # 【V50.1】候选追踪辅助方法

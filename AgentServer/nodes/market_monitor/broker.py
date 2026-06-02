@@ -631,39 +631,12 @@ class SimulatedBroker:
             logger.debug(f"[BROKER] 异步保存失败: {e}")
 
     def _match(self, order: Order, current_price: float) -> Tuple[float, float, float]:
-        """
-        撮合引擎(动态滑点)
-        
-        滑点规则:
-        - 基础: 0.1% (流动性充裕)
-        - 涨停附近: 0.5% (涨停价附近买盘拥挤)
-        - 大量成交: 0.3% (委托量>成交量10%)
-        - 跌停卖出: 0.5% (跌停卖盘拥挤)
-        
+        """撮合引擎(动态滑点)【v2.9.61:滑点提取到_calc_dynamic_slippage】
+
         Returns: (fill_price, commission, stamp_duty)
         """
-        # 动态滑点
-        slippage = self.SLIPPAGE_RATE  # 默认0.1%
-        
-        # 涨停/跌停附近加大滑点
-        limit_info = self._limit_prices.get(order.ts_code, {})
-        if limit_info:
-            upper = limit_info.get("upper", 999999)
-            lower = limit_info.get("lower", 0)
-            
-            if order.side == OrderSide.BUY:
-                # 买入: 接近涨停加大滑点
-                if current_price >= upper * 0.98:  # 距涨停2%以内
-                    slippage = 0.005  # 0.5%
-                elif current_price >= upper * 0.95:  # 距涨停5%以内
-                    slippage = 0.003  # 0.3%
-            else:
-                # 卖出: 接近跌停加大滑点
-                if current_price <= lower * 1.02:
-                    slippage = 0.005
-                elif current_price <= lower * 1.05:
-                    slippage = 0.003
-        
+        slippage = self._calc_dynamic_slippage(order, current_price)
+
         if order.order_type == OrderType.MARKET:
             # 市价单: 用最新价 + 滑点
             if order.side == OrderSide.BUY:
@@ -687,6 +660,39 @@ class SimulatedBroker:
         stamp_duty = amount * self.STAMP_DUTY_RATE if order.side == OrderSide.SELL else 0
 
         return round(fill_price, 2), round(commission, 2), round(stamp_duty, 2)
+
+    def _calc_dynamic_slippage(self, order: Order, current_price: float) -> float:
+        """计算动态滑点【v2.9.61:从_match提取】
+
+        滑点规则:
+        - 基础: 0.1% (流动性充裕)
+        - 涨停附近: 0.5% (涨停价附近买盘拥挤)
+        - 大量成交: 0.3% (委托量>成交量10%)
+        - 跌停卖出: 0.5% (跌停卖盘拥挤)
+        """
+        slippage = self.SLIPPAGE_RATE  # 默认0.1%
+
+        limit_info = self._limit_prices.get(order.ts_code, {})
+        if not limit_info:
+            return slippage
+
+        upper = limit_info.get("upper", 999999)
+        lower = limit_info.get("lower", 0)
+
+        if order.side == OrderSide.BUY:
+            # 买入: 接近涨停加大滑点
+            if current_price >= upper * 0.98:  # 距涨停2%以内
+                slippage = 0.005  # 0.5%
+            elif current_price >= upper * 0.95:  # 距涨停5%以内
+                slippage = 0.003  # 0.3%
+        else:
+            # 卖出: 接近跌停加大滑点
+            if current_price <= lower * 1.02:
+                slippage = 0.005
+            elif current_price <= lower * 1.05:
+                slippage = 0.003
+
+        return slippage
 
     def _execute_buy(self, order: Order, fill_price: float, total_cost: float) -> Optional[Dict]:
         """执行买入"""

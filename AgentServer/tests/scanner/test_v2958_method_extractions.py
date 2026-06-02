@@ -208,7 +208,7 @@ class TestRiskWatchdogDrawdownExtraction(unittest.TestCase):
 
 
 class TestEmotionCycleV2959Extraction(unittest.TestCase):
-    """v2.9.60 emotion_cycle提取验证"""
+    """v2.9.61 emotion_cycle提取验证"""
 
     def setUp(self):
         self.tree = _parse(os.path.join(MM_DIR, "emotion_cycle.py"))
@@ -240,7 +240,7 @@ class TestEmotionCycleV2959Extraction(unittest.TestCase):
 
 
 class TestSignalDispatcherExtraction(unittest.TestCase):
-    """v2.9.60 signal_dispatcher提取验证"""
+    """v2.9.61 signal_dispatcher提取验证"""
 
     def setUp(self):
         self.tree = _parse(os.path.join(MM_DIR, "signal_dispatcher.py"))
@@ -260,7 +260,7 @@ class TestSignalDispatcherExtraction(unittest.TestCase):
 
 
 class TestEventBusExtraction(unittest.TestCase):
-    """v2.9.60 scanner_event_bus提取验证"""
+    """v2.9.61 scanner_event_bus提取验证"""
 
     def setUp(self):
         self.tree = _parse(os.path.join(MM_DIR, "scanner_event_bus.py"))
@@ -274,7 +274,7 @@ class TestEventBusExtraction(unittest.TestCase):
 
 
 class TestStrategyScorerMergeFactorsExtraction(unittest.TestCase):
-    """v2.9.60 strategy_scorer.merge_factors提取验证"""
+    """v2.9.61 strategy_scorer.merge_factors提取验证"""
 
     def setUp(self):
         self.tree = _parse(os.path.join(MM_DIR, "strategy_scorer.py"))
@@ -294,7 +294,7 @@ class TestStrategyScorerMergeFactorsExtraction(unittest.TestCase):
 
 
 class TestRuntimePersistencePostSellExtraction(unittest.TestCase):
-    """v2.9.60 runtime_persistence.post_sell_cleanup提取验证"""
+    """v2.9.61 runtime_persistence.post_sell_cleanup提取验证"""
 
     def setUp(self):
         self.tree = _parse(os.path.join(MM_DIR, "runtime_persistence.py"))
@@ -314,7 +314,7 @@ class TestRuntimePersistencePostSellExtraction(unittest.TestCase):
 
 
 class TestRiskWatchdogV2960Extraction(unittest.TestCase):
-    """v2.9.60 risk_watchdog提取验证"""
+    """v2.9.61 risk_watchdog提取验证"""
 
     def setUp(self):
         self.tree = _parse(os.path.join(MM_DIR, "risk_watchdog.py"))
@@ -338,7 +338,7 @@ class TestRiskWatchdogV2960Extraction(unittest.TestCase):
 
 
 class TestSignalManagerV2960Extraction(unittest.TestCase):
-    """v2.9.60 signal_manager提取验证"""
+    """v2.9.61 signal_manager提取验证"""
 
     def setUp(self):
         self.tree = _parse(os.path.join(MM_DIR, "signal_manager.py"))
@@ -389,7 +389,7 @@ class TestNoBacktestRegressionV2958(unittest.TestCase):
     def test_version_constant_updated(self):
         with open(os.path.join(AGENT_DIR, "nodes", "web", "api", "scanner.py")) as f:
             src = f.read()
-        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.60"', src)
+        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.61"', src)
 
     def test_sell_signal_checker_untouched(self):
         """卖出信号检查器不应被修改"""
