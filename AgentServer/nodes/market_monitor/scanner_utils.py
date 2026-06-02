@@ -187,8 +187,8 @@ class ScannerUtils:
             "risk_status": ScannerUtils._build_risk_status(scanner),
             "signal_stats": ScannerUtils._build_signal_stats(scanner._active_signals),
             "scanner_stats": dict(scanner._stats),
-            "sentiment": getattr(scanner, '_current_sentiment', {}),
-            "position_ratio": getattr(scanner, '_current_position_ratio', None),
+            "sentiment": scanner.get_current_sentiment(),
+            "position_ratio": scanner.get_current_position_ratio(),
         }
 
     @staticmethod
@@ -328,7 +328,7 @@ class ScannerUtils:
                 "cache_age_sec": round(cache_age, 1),
                 "pending_sells": pending_count,
                 "risk_thread_alive": scanner._risk_thread.is_alive() if scanner._risk_thread else False,
-                "scan_errors": getattr(scanner, '_scan_loop_error_count', 0),
+                "scan_errors": scanner.get_scan_error_count(),
                 "trading_paused": scanner._circuit_breaker.get("trading_paused", False),
             },
         }
@@ -360,7 +360,7 @@ class ScannerUtils:
     @staticmethod
     def _check_scan_loop_errors(scanner, issues: list) -> None:
         """scan_loop连续异常检查【v2.9.56从diagnose提取】"""
-        error_count = getattr(scanner, '_scan_loop_error_count', 0)
+        error_count = scanner.get_scan_error_count()
         if error_count > 0:
             issues.append({
                 "level": "warning" if error_count < 3 else "critical",
@@ -450,9 +450,9 @@ class ScannerUtils:
             "risk_check_lag_seconds": round(metrics['risk_lag'], 1),
             "quote_staleness_seconds": round(metrics['quote_staleness'], 1),
             "risk_thread_alive": metrics['risk_thread_alive'],
-            "risk_thread_restarts": getattr(scanner, '_risk_thread_restarts', 0),
+            "risk_thread_restarts": scanner.get_risk_thread_restarts(),
             "warnings": warnings,
-            "event_bus_stats": scanner._event_bus.get_stats() if hasattr(scanner, '_event_bus') and scanner._event_bus else {},
+            "event_bus_stats": scanner.get_event_bus().get_stats() if scanner.get_event_bus() else {},
         }
 
     @staticmethod
@@ -460,8 +460,8 @@ class ScannerUtils:
         """收集健康度指标【v2.9.56从compute_health_score提取】"""
         now = time.time()
         risk_thread_alive = (
-            hasattr(scanner, '_risk_thread') and scanner._risk_thread is not None
-            and scanner._risk_thread.is_alive()
+            scanner.get_risk_thread() is not None
+            and scanner.get_risk_thread().is_alive()
         )
         return {
             'scan_lag': (now - scanner._last_scan_ts) if scanner._last_scan_ts > 0 else 999,
@@ -499,18 +499,19 @@ class ScannerUtils:
             warnings.append(f"行情降级level={scanner._quote_manager.degrade_level}")
         if metrics['pending_count'] > 0:
             warnings.append(f"跌停挂起{metrics['pending_count']}只")
-        if hasattr(scanner, '_circuit_breaker') and scanner._circuit_breaker.get('trading_paused'):
+        if scanner.get_circuit_breaker().get('trading_paused'):
             warnings.append("熔断器已触发")
         # EventBus异常率
-        if hasattr(scanner, '_event_bus') and scanner._event_bus:
-            stats = scanner._event_bus.get_stats()
+        event_bus = scanner.get_event_bus()
+        if event_bus:
+            stats = event_bus.get_stats()
             total_errors = sum(s.get('errors', 0) for s in stats.values())
             total_handled = sum(s.get('handled', 0) for s in stats.values())
             if total_errors > 0 and total_handled > 0:
                 error_rate = total_errors / (total_handled + total_errors)
                 if error_rate > 0.1:
                     warnings.append(f"EventBus异常率{error_rate:.0%}({total_errors}/{total_handled+total_errors})")
-        if not metrics['risk_thread_alive'] and getattr(scanner, '_risk_running', False):
+        if not metrics['risk_thread_alive'] and scanner.is_risk_running():
             warnings.append("风控线程已停止")
         return warnings
 

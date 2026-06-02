@@ -525,6 +525,7 @@ class TestPositionManager:
             _position_risk_levels = {}
             _position_risk_overrides = {}
             _state_lock = threading.Lock()
+            _trade_date = "20260602"
             
             def _get_strategy_risk(self, strategy):
                 return {"stop_loss_pct": 0.03, "take_profit_pct": 0.07,
@@ -535,6 +536,10 @@ class TestPositionManager:
             
             def _is_limit_down(self, ts_code):
                 return False
+            
+            # v2.9.73访问器
+            def get_trade_date(self):
+                return self._trade_date
         
         return MockScanner()
     

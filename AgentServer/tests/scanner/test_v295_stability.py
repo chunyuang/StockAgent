@@ -55,6 +55,16 @@ class TestRiskThreadWatchdog:
         scanner._active_signals = []
         scanner._stats = {}
         scanner._nav_peak = 1.0
+        # v2.9.73访问器方法
+        scanner.get_trade_date.return_value = "20260529"
+        scanner.get_current_sentiment.return_value = {}
+        scanner.get_current_position_ratio.return_value = None
+        scanner.get_scan_error_count.return_value = 0
+        scanner.get_event_bus.return_value = scanner._event_bus
+        scanner.get_risk_thread.return_value = scanner._risk_thread
+        scanner.get_circuit_breaker.return_value = {"trading_paused": False}
+        scanner.get_risk_thread_restarts.return_value = 0
+        scanner.is_risk_running.return_value = False
         return scanner
 
     def test_risk_thread_restarts_counter_initialized(self):
@@ -213,6 +223,15 @@ class TestHealthScoreRiskThread:
         scanner._risk_thread = MagicMock()
         scanner._risk_thread.is_alive.return_value = True
         scanner._risk_thread_restarts = 0
+        # v2.9.73访问器方法
+        scanner.get_current_sentiment.return_value = {}
+        scanner.get_current_position_ratio.return_value = None
+        scanner.get_scan_error_count.return_value = 0
+        scanner.get_event_bus.return_value = scanner._event_bus
+        scanner.get_risk_thread.return_value = scanner._risk_thread
+        scanner.get_circuit_breaker.return_value = {"trading_paused": False}
+        scanner.get_risk_thread_restarts.return_value = 0
+        scanner.is_risk_running.return_value = True
         return scanner
 
     def test_health_score_includes_risk_thread_alive(self):

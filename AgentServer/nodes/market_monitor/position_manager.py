@@ -331,9 +331,7 @@ class PositionManager:
         
         # 从scanner获取trade_date(运行时始终有值)
         scanner = self._scanner
-        trade_date = None
-        if hasattr(scanner, '_trade_date') and scanner._trade_date:
-            trade_date = scanner._trade_date
+        trade_date = scanner.get_trade_date() if scanner else None
         if not trade_date:
             return None
         
