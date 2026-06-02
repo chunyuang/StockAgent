@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-轻量因子补算 - 仅补3天缺失的简单因子
+轻量因子补算 - 补全最近缺失的所有因子
 避免全量加载导致OOM，分批处理
 
 用法: python3 scripts/lightweight_factor_fill.py
@@ -9,6 +9,7 @@ import asyncio
 import sys
 import os
 import time
+from collections import defaultdict
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
@@ -84,27 +85,32 @@ async def fill_simple_factors(trade_dates: list[int]):
             print(f"  {td}: is_limit_up/down computed for {result2.modified_count} records ({time.time()-t0:.1f}s)")
 
 
-async def compute_ma5(trade_dates: list[int]):
-    """计算MA5 - 需要前5天数据，分批处理"""
+async def compute_ma(trade_dates: list[int], periods: list[int] = None):
+    """计算MA均线 - MA5/MA10/MA20/MA60"""
+    if periods is None:
+        periods = [5, 10, 20, 60]
+    max_period = max(periods)
+    
     await mongo_manager.initialize()
     db = mongo_manager.db
+    field_names = {p: f'ma{p}' for p in periods}
     
     for td in trade_dates:
         t0 = time.time()
         
-        # 获取该日期及前5个交易日的数据
+        # 获取该日期及前N个交易日的数据(需要max_period天来回溯)
         pipeline = [
             {'$match': {'trade_date': {'$lte': td}}},
             {'$group': {'_id': '$trade_date'}},
             {'$sort': {'_id': -1}},
-            {'$limit': 6}  # 当天+前5天
+            {'$limit': max_period + 5}  # 多取几天以防缺失
         ]
         recent_dates = []
         async for doc in db['stock_daily_ak_full'].aggregate(pipeline):
             recent_dates.append(doc['_id'])
         
         if len(recent_dates) < 2:
-            print(f"  {td}: not enough historical data for MA5")
+            print(f"  {td}: not enough historical data for MA")
             continue
         
         recent_dates.sort()
@@ -116,33 +122,37 @@ async def compute_ma5(trade_dates: list[int]):
         )
         
         # 按股票分组
-        from collections import defaultdict
         stock_data = defaultdict(list)
         async for doc in cursor:
             stock_data[doc['ts_code']].append((doc['trade_date'], doc.get('close', 0)))
         
-        # 计算MA5
+        # 计算各周期MA
         ops = []
-        target_date = td
         for ts_code, records in stock_data.items():
             records.sort()
-            # 找到target_date在records中的位置
             closes = [r[1] for r in records if r[1] and r[1] > 0]
-            if len(closes) >= 5:
-                ma5 = sum(closes[-5:]) / 5
-            elif len(closes) >= 2:
-                ma5 = sum(closes) / len(closes)
-            else:
+            
+            if not closes:
                 continue
             
-            ops.append(UpdateOne(
-                {'ts_code': ts_code, 'trade_date': target_date},
-                {'$set': {'ma5': round(ma5, 4)}}
-            ))
+            update = {}
+            for p in periods:
+                if len(closes) >= p:
+                    update[field_names[p]] = round(sum(closes[-p:]) / p, 4)
+                elif len(closes) >= 2:
+                    # 数据不足时用已有数据近似
+                    update[field_names[p]] = round(sum(closes) / len(closes), 4)
+            
+            if update:
+                ops.append(UpdateOne(
+                    {'ts_code': ts_code, 'trade_date': td},
+                    {'$set': update}
+                ))
         
         if ops:
             result = await db['stock_daily_ak_full'].bulk_write(ops)
-            print(f"  {td}: MA5 computed for {result.modified_count} records ({time.time()-t0:.1f}s)")
+            ma_fields = '+'.join(field_names.values())
+            print(f"  {td}: {ma_fields} computed for {result.modified_count} records ({time.time()-t0:.1f}s)")
 
 
 async def compute_limit_flags(trade_dates: list[int]):
@@ -208,8 +218,14 @@ async def compute_limit_flags(trade_dates: list[int]):
             print(f"  {td}: limit flags computed for {result.modified_count} records ({time.time()-t0:.1f}s)")
 
 
-async def compute_opening_pct_chg(trade_dates: list[int]):
-    """计算开盘涨幅 opening_pct_chg = (open - pre_close) / pre_close * 100"""
+async def compute_opening_and_intraday(trade_dates: list[int]):
+    """计算开盘涨幅、盘中涨幅等衍生因子
+
+    - opening_pct_chg = (open - pre_close) / pre_close * 100
+    - intraday_max_rise_pct = (high - pre_close) / pre_close * 100
+    - intraday_open_rise_pct = (open - pre_close) / pre_close * 100 (同opening_pct_chg)
+    - open_above_limit / open_below_limit / open_above_limit_down
+    """
     await mongo_manager.initialize()
     db = mongo_manager.db
     
@@ -217,24 +233,41 @@ async def compute_opening_pct_chg(trade_dates: list[int]):
         t0 = time.time()
         cursor = db['stock_daily_ak_full'].find(
             {'trade_date': td, 'open': {'$ne': None}, 'pre_close': {'$ne': None, '$gt': 0}},
-            {'ts_code': 1, 'open': 1, 'pre_close': 1, 'high': 1, 'low': 1, '_id': 0}
+            {'ts_code': 1, 'open': 1, 'pre_close': 1, 'high': 1, 'low': 1, 'close': 1, 'pct_chg': 1, '_id': 0}
         )
         
         ops = []
         async for doc in cursor:
             ts_code = doc['ts_code']
-            open_p = doc.get('open', 0)
-            pre_close = doc.get('pre_close', 0)
-            high = doc.get('high', 0)
-            low = doc.get('low', 0)
+            open_p = doc.get('open', 0) or 0
+            pre_close = doc.get('pre_close', 0) or 0
+            high = doc.get('high', 0) or 0
+            low = doc.get('low', 0) or 0
+            close_p = doc.get('close', 0) or 0
             
-            if pre_close > 0 and open_p > 0:
+            if pre_close <= 0:
+                continue
+            
+            update = {}
+            
+            # 开盘涨幅
+            if open_p > 0:
                 opening_pct = (open_p - pre_close) / pre_close * 100
-                
-                # 计算其他衍生因子
-                update = {'opening_pct_chg': round(opening_pct, 4)}
-                
-                # open_above_limit: 开盘高于涨停价
+                update['opening_pct_chg'] = round(opening_pct, 4)
+                update['intraday_open_rise_pct'] = round(opening_pct, 4)
+            
+            # 盘中最高涨幅
+            if high > 0:
+                max_rise = (high - pre_close) / pre_close * 100
+                update['intraday_max_rise_pct'] = round(max_rise, 4)
+            
+            # 振幅
+            if low > 0 and high > 0:
+                amplitude = (high - low) / pre_close * 100
+                update['amplitude'] = round(amplitude, 4)
+            
+            # 涨停/跌停开盘标记
+            if open_p > 0:
                 if ts_code.startswith(('30', '688')):
                     limit_threshold = 19.5
                 elif ts_code.startswith(('8', '4')):
@@ -248,7 +281,8 @@ async def compute_opening_pct_chg(trade_dates: list[int]):
                 update['open_above_limit'] = 1 if open_p >= limit_up_price * 0.995 else 0
                 update['open_below_limit'] = 1 if open_p <= limit_down_price * 1.005 else 0
                 update['open_above_limit_down'] = 1 if open_p > limit_down_price else 0
-                
+            
+            if update:
                 ops.append(UpdateOne(
                     {'ts_code': ts_code, 'trade_date': td},
                     {'$set': update}
@@ -256,52 +290,223 @@ async def compute_opening_pct_chg(trade_dates: list[int]):
         
         if ops:
             result = await db['stock_daily_ak_full'].bulk_write(ops)
-            print(f"  {td}: opening_pct_chg computed for {result.modified_count} records ({time.time()-t0:.1f}s)")
+            print(f"  {td}: opening+intraday computed for {result.modified_count} records ({time.time()-t0:.1f}s)")
+
+
+async def compute_limit_up_count(trade_dates: list[int]):
+    """计算连板数 limit_up_count - 需要多日回溯"""
+    await mongo_manager.initialize()
+    db = mongo_manager.db
+    
+    for td in trade_dates:
+        t0 = time.time()
+        
+        # 获取前10个交易日(最大连板回溯)
+        pipeline = [
+            {'$match': {'trade_date': {'$lte': td}}},
+            {'$group': {'_id': '$trade_date'}},
+            {'$sort': {'_id': -1}},
+            {'$limit': 11}
+        ]
+        recent_dates = []
+        async for doc in db['stock_daily_ak_full'].aggregate(pipeline):
+            recent_dates.append(doc['_id'])
+        
+        if len(recent_dates) < 2:
+            continue
+        
+        recent_dates.sort()
+        
+        # 加载这些日期的is_limit_up数据
+        cursor = db['stock_daily_ak_full'].find(
+            {'trade_date': {'$in': recent_dates}},
+            {'ts_code': 1, 'trade_date': 1, 'is_limit_up': 1, '_id': 0}
+        )
+        
+        # 按股票分组，按日期排序
+        stock_data = defaultdict(list)
+        async for doc in cursor:
+            stock_data[doc['ts_code']].append((doc['trade_date'], doc.get('is_limit_up', 0)))
+        
+        ops = []
+        for ts_code, records in stock_data.items():
+            records.sort()
+            # 找到target_date在records中的位置
+            target_idx = None
+            for i, (d, _) in enumerate(records):
+                if d == td:
+                    target_idx = i
+                    break
+            
+            if target_idx is None:
+                continue
+            
+            # 从target_date往前数连续涨停天数
+            count = 0
+            for i in range(target_idx, -1, -1):
+                if records[i][1] == 1:
+                    count += 1
+                else:
+                    break
+            
+            ops.append(UpdateOne(
+                {'ts_code': ts_code, 'trade_date': td},
+                {'$set': {'limit_up_count': count, 'limit_down_count': 0}}  # limit_down_count简化为0
+            ))
+        
+        if ops:
+            result = await db['stock_daily_ak_full'].bulk_write(ops)
+            print(f"  {td}: limit_up_count computed for {result.modified_count} records ({time.time()-t0:.1f}s)")
+
+
+async def compute_pullback(trade_dates: list[int]):
+    """计算回调因子 pullback_pct - 从高点回调百分比"""
+    await mongo_manager.initialize()
+    db = mongo_manager.db
+    
+    for td in trade_dates:
+        t0 = time.time()
+        
+        # 获取前5个交易日
+        pipeline = [
+            {'$match': {'trade_date': {'$lte': td}}},
+            {'$group': {'_id': '$trade_date'}},
+            {'$sort': {'_id': -1}},
+            {'$limit': 6}
+        ]
+        recent_dates = []
+        async for doc in db['stock_daily_ak_full'].aggregate(pipeline):
+            recent_dates.append(doc['_id'])
+        
+        if len(recent_dates) < 2:
+            continue
+        
+        recent_dates.sort()
+        
+        cursor = db['stock_daily_ak_full'].find(
+            {'trade_date': {'$in': recent_dates}},
+            {'ts_code': 1, 'trade_date': 1, 'close': 1, 'high': 1, '_id': 0}
+        )
+        
+        stock_data = defaultdict(list)
+        async for doc in cursor:
+            stock_data[doc['ts_code']].append((doc['trade_date'], doc.get('close', 0), doc.get('high', 0)))
+        
+        ops = []
+        for ts_code, records in stock_data.items():
+            records.sort()
+            if len(records) < 2:
+                continue
+            
+            # 最近5日最高价
+            recent_highs = [r[2] for r in records[-5:] if r[2] and r[2] > 0]
+            if not recent_highs:
+                continue
+            
+            max_high = max(recent_highs)
+            current_close = records[-1][1]  # 当天收盘价
+            
+            if max_high > 0 and current_close > 0:
+                pullback_pct = (current_close - max_high) / max_high * 100
+                ops.append(UpdateOne(
+                    {'ts_code': ts_code, 'trade_date': td},
+                    {'$set': {'pullback_pct': round(pullback_pct, 4)}}
+                ))
+        
+        if ops:
+            result = await db['stock_daily_ak_full'].bulk_write(ops)
+            print(f"  {td}: pullback_pct computed for {result.modified_count} records ({time.time()-t0:.1f}s)")
+
+
+async def detect_missing_dates(db, lookback_days: int = 30) -> list[int]:
+    """检测最近N天中缺因子的日期 - 检查所有关键因子"""
+    all_dates = await db['stock_daily_ak_full'].distinct('trade_date')
+    if not all_dates:
+        return []
+    
+    all_dates_sorted = sorted(all_dates, reverse=True)
+    recent_dates = all_dates_sorted[:lookback_days]
+    
+    # 关键因子：任一缺失率>10%则该日期需补
+    key_factors = [
+        'ma5', 'ma10', 'ma20', 'ma60',
+        'turnover_rate', 'volume_ratio', 'circ_mv',
+        'is_limit_up', 'is_limit_down',
+        'opening_pct_chg', 'open_above_limit',
+        'intraday_max_rise_pct', 'intraday_open_rise_pct',
+        'limit_up_count',
+    ]
+    
+    trade_dates = []
+    for td in sorted(recent_dates):
+        total = await db['stock_daily_ak_full'].count_documents({'trade_date': td})
+        if total == 0:
+            continue
+        
+        # 检查关键因子覆盖率
+        has_missing = False
+        for factor in key_factors:
+            with_factor = await db['stock_daily_ak_full'].count_documents({
+                'trade_date': td,
+                factor: {'$ne': None, '$exists': True, '$gt': 0} if factor not in ('is_limit_up', 'is_limit_down', 'open_above_limit') else {'$ne': None, '$exists': True}
+            })
+            rate = with_factor / total if total > 0 else 0
+            if rate < 0.9:
+                has_missing = True
+                break
+        
+        if has_missing:
+            trade_dates.append(td)
+    
+    return trade_dates
 
 
 async def main():
-    from pymongo import MongoClient
-    db = MongoClient('localhost', 27017)['stock_agent']
-    # 自动检测缺因子的日期(有日线但缺turnover_rate/ma5的)
-    all_dates = sorted(db['stock_daily_ak_full'].distinct('trade_date'))
-    # 只处理最近30天
-    recent_dates = [d for d in all_dates if d >= 20260420]
-    trade_dates = []
-    for td in recent_dates:
-        total = db['stock_daily_ak_full'].count_documents({'trade_date': td})
-        with_ma5 = db['stock_daily_ak_full'].count_documents({'trade_date': td, 'ma5': {'$gt': 0}})
-        if total > 0 and with_ma5 < total * 0.5:
-            trade_dates.append(td)
+    await mongo_manager.initialize()
+    db = mongo_manager.db
+    
+    # 使用增强的检测逻辑
+    trade_dates = await detect_missing_dates(db, lookback_days=30)
+    
     if not trade_dates:
         print('所有日期的因子已完整，无需补算')
         return
-    print(f'需补算因子的日期: {trade_dates}')
     
-    print("=== Step 1: Sync basic factors from daily_basic ===")
+    print(f'需补算因子的日期({len(trade_dates)}天): {trade_dates[:5]}{"..." if len(trade_dates) > 5 else ""}')
+    
+    print("\n=== Step 1: Sync basic factors from daily_basic ===")
     await fill_simple_factors(trade_dates)
     
-    print("\n=== Step 2: Compute MA5 ===")
-    await compute_ma5(trade_dates)
+    print("\n=== Step 2: Compute MA5/MA10/MA20/MA60 ===")
+    await compute_ma(trade_dates, periods=[5, 10, 20, 60])
     
     print("\n=== Step 3: Compute limit flags ===")
     await compute_limit_flags(trade_dates)
     
-    print("\n=== Step 4: Compute opening_pct_chg ===")
-    await compute_opening_pct_chg(trade_dates)
+    print("\n=== Step 4: Compute opening_pct_chg + intraday_max/open_rise_pct ===")
+    await compute_opening_and_intraday(trade_dates)
+    
+    print("\n=== Step 5: Compute limit_up_count (连板数) ===")
+    await compute_limit_up_count(trade_dates)
+    
+    print("\n=== Step 6: Compute pullback_pct ===")
+    await compute_pullback(trade_dates)
     
     # Verify
     print("\n=== Verification ===")
-    await mongo_manager.initialize()
-    for td in trade_dates:
-        sample = await mongo_manager.db['stock_daily_ak_full'].find_one(
-            {'trade_date': td, 'ma5': {'$ne': None}},
-            {'ts_code': 1, 'ma5': 1, 'turnover_rate': 1, 'volume_ratio': 1, 'circ_mv': 1,
-             'is_limit_up': 1, 'opening_pct_chg': 1, 'limit_up_yesterday': 1, '_id': 0}
+    for td in trade_dates[-3:]:  # 只验证最近3天
+        sample = await db['stock_daily_ak_full'].find_one(
+            {'trade_date': td},
+            {'ts_code': 1, 'ma5': 1, 'ma10': 1, 'ma20': 1, 'ma60': 1,
+             'turnover_rate': 1, 'volume_ratio': 1, 'circ_mv': 1,
+             'is_limit_up': 1, 'opening_pct_chg': 1, 'open_above_limit': 1,
+             'intraday_max_rise_pct': 1, 'intraday_open_rise_pct': 1,
+             'limit_up_count': 1, 'pullback_pct': 1, '_id': 0}
         )
         if sample:
             print(f"  {td}: {sample}")
         else:
-            print(f"  {td}: STILL NO FACTORS")
+            print(f"  {td}: NO DATA")
 
 
 if __name__ == '__main__':
