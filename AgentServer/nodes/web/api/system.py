@@ -1613,3 +1613,229 @@ async def list_sync_tasks() -> Dict[str, Any]:
     # 只返回最近10个
     recent = sorted(tasks.items(), key=lambda x: x[0], reverse=True)[:10]
     return {"success": True, "data": dict(recent)}
+
+
+@router.get("/auto-fill-detect")
+async def auto_fill_detect() -> Dict[str, Any]:
+    """
+    检测最近缺失的因子，返回缺失信息供前端展示。
+    
+    检测范围：最近30个交易日，找出缺因子的日期和字段。
+    """
+    try:
+        if not mongo_manager._initialized:
+            await mongo_manager.initialize()
+        db = mongo_manager.db
+        coll = db["stock_daily_ak_full"]
+        
+        # 获取所有交易日
+        all_dates = await coll.distinct("trade_date")
+        if not all_dates:
+            return {"success": True, "data": {"missing_dates": [], "missing_fields": [], "total_missing_days": 0, "latest_date": None}}
+        
+        all_dates_sorted = sorted(all_dates, reverse=True)
+        recent_dates = all_dates_sorted[:30]  # 最近30个交易日
+        latest_date = all_dates_sorted[0]
+        
+        # 关键因子字段列表
+        key_factors = [
+            "ma5", "ma10", "ma20", "ma60",
+            "turnover_rate", "volume_ratio", "circ_mv",
+            "is_limit_up", "is_limit_down", "first_limit_up", "limit_up_count",
+            "opening_pct_chg", "open_above_limit",
+            "intraday_max_rise_pct", "intraday_open_rise_pct",
+            "pullback_pct",
+        ]
+        
+        missing_dates = []
+        missing_field_counts: Dict[str, int] = {}
+        
+        for td in recent_dates:
+            total = await coll.count_documents({"trade_date": td})
+            if total == 0:
+                continue
+            
+            # 检查各因子覆盖率
+            date_missing = {"date": td, "total": total, "missing": []}
+            for factor in key_factors:
+                with_factor = await coll.count_documents({"trade_date": td, factor: {"$ne": None, "$exists": True}})
+                rate = with_factor / total if total > 0 else 0
+                if rate < 0.9:  # 覆盖率<90%视为缺失
+                    missing_count = total - with_factor
+                    date_missing["missing"].append({
+                        "field": factor,
+                        "coverage": round(rate * 100, 1),
+                        "missing_count": missing_count,
+                    })
+                    missing_field_counts[factor] = missing_field_counts.get(factor, 0) + missing_count
+            
+            if date_missing["missing"]:
+                missing_dates.append(date_missing)
+        
+        # 按日期正序排列(最早的在前)
+        missing_dates.sort(key=lambda x: x["date"])
+        
+        missing_fields = sorted(
+            [{"field": k, "total_missing": v} for k, v in missing_field_counts.items()],
+            key=lambda x: x["total_missing"], reverse=True
+        )
+        
+        return {
+            "success": True,
+            "data": {
+                "missing_dates": missing_dates,
+                "missing_fields": missing_fields,
+                "total_missing_days": len(missing_dates),
+                "latest_date": latest_date,
+                "checked_dates": len(recent_dates),
+                "key_factors": key_factors,
+            },
+        }
+    except Exception as e:
+        logger.error(f"Auto-fill detect failed: {e}")
+        return {"success": False, "message": str(e)}
+
+
+@router.post("/auto-fill-trigger")
+async def auto_fill_trigger() -> Dict[str, Any]:
+    """
+    触发自动补全因子数据。
+    
+    按顺序执行：
+    1. lightweight_factor_fill.py — 补基础因子(turnover_rate/volume_ratio/circ_mv/ma5/is_limit_up等)
+    2. 如果需要技术指标(MACD/RSI等)，则运行factor_auto_compute
+    """
+    task_id = f"autofill_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    
+    with _sync_lock:
+        running = [t for t in _sync_tasks.values() if t.get("status") == "running"]
+        if running:
+            return {"success": False, "message": "已有数据补全任务正在运行中，请稍后再试"}
+        
+        _sync_tasks[task_id] = {"type": "autofill", "status": "pending", "steps": ["detect", "basic_factors", "derived_factors"]}
+    
+    def _run_auto_fill():
+        import asyncio
+        with _sync_lock:
+            _sync_tasks[task_id]["status"] = "running"
+            _sync_tasks[task_id]["started_at"] = datetime.now().isoformat()
+            _sync_tasks[task_id]["current_step"] = "detect"
+        
+        results = []
+        
+        # Step 1: 先运行轻量因子补算(补基础因子)
+        script_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "../../../scripts/lightweight_factor_fill.py"
+        )
+        script_path = os.path.normpath(script_path)
+        
+        with _sync_lock:
+            _sync_tasks[task_id]["current_step"] = "basic_factors"
+        
+        try:
+            r = subprocess.run(
+                ["python3", "-u", script_path],
+                capture_output=True, text=True, timeout=300,
+                cwd=os.path.dirname(script_path),
+            )
+            output = (r.stdout or '') + (r.stderr or '')
+            no_data = ('所有日期的因子已完整' in output)
+            success = r.returncode == 0
+            results.append({
+                "step": "basic_factors",
+                "success": success,
+                "message": "因子已完整,无需补算" if no_data else ("补算成功" if success else "补算失败"),
+                "stdout": r.stdout[-800:] if r.stdout else "",
+                "stderr": r.stderr[-500:] if r.stderr else "",
+            })
+        except Exception as e:
+            results.append({"step": "basic_factors", "success": False, "message": str(e)})
+        
+        # Step 2: 补东财日线数据(可能缺最近几天的OHLCV)
+        bar_script = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "../../../scripts/eastmoney_daily_bar.py"
+        )
+        bar_script = os.path.normpath(bar_script)
+        
+        with _sync_lock:
+            _sync_tasks[task_id]["current_step"] = "daily_bar"
+        
+        try:
+            r = subprocess.run(
+                ["python3", "-u", bar_script],
+                capture_output=True, text=True, timeout=120,
+                cwd=os.path.dirname(bar_script),
+            )
+            results.append({
+                "step": "daily_bar",
+                "success": r.returncode == 0,
+                "message": "日线数据同步完成" if r.returncode == 0 else "日线数据同步失败",
+                "stdout": r.stdout[-500:] if r.stdout else "",
+            })
+        except Exception as e:
+            results.append({"step": "daily_bar", "success": False, "message": str(e)})
+        
+        # Step 3: 补东财基础指标(PE/PB/流通市值)
+        basic_script = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "../../../scripts/eastmoney_daily_basic.py"
+        )
+        basic_script = os.path.normpath(basic_script)
+        
+        with _sync_lock:
+            _sync_tasks[task_id]["current_step"] = "daily_basic"
+        
+        try:
+            r = subprocess.run(
+                ["python3", "-u", basic_script],
+                capture_output=True, text=True, timeout=120,
+                cwd=os.path.dirname(basic_script),
+            )
+            results.append({
+                "step": "daily_basic",
+                "success": r.returncode == 0,
+                "message": "基础指标同步完成" if r.returncode == 0 else "基础指标同步失败",
+                "stdout": r.stdout[-500:] if r.stdout else "",
+            })
+        except Exception as e:
+            results.append({"step": "daily_basic", "success": False, "message": str(e)})
+        
+        # Step 4: 再跑一次轻量因子补算(确保新数据的因子也补上)
+        with _sync_lock:
+            _sync_tasks[task_id]["current_step"] = "derived_factors"
+        
+        try:
+            r = subprocess.run(
+                ["python3", "-u", script_path],
+                capture_output=True, text=True, timeout=300,
+                cwd=os.path.dirname(script_path),
+            )
+            output = (r.stdout or '') + (r.stderr or '')
+            no_data = ('所有日期的因子已完整' in output)
+            success = r.returncode == 0
+            results.append({
+                "step": "derived_factors",
+                "success": success,
+                "message": "因子已完整" if no_data else ("衍生因子补算完成" if success else "衍生因子补算失败"),
+                "stdout": r.stdout[-800:] if r.stdout else "",
+            })
+        except Exception as e:
+            results.append({"step": "derived_factors", "success": False, "message": str(e)})
+        
+        with _sync_lock:
+            all_success = all(r["success"] for r in results)
+            _sync_tasks[task_id]["status"] = "success" if all_success else "partial"
+            _sync_tasks[task_id]["finished_at"] = datetime.now().isoformat()
+            _sync_tasks[task_id]["results"] = results
+    
+    t = threading.Thread(target=_run_auto_fill)
+    t.daemon = True
+    t.start()
+    
+    return {
+        "success": True,
+        "task_id": task_id,
+        "message": "自动补全已启动(检测→日线→基础指标→因子)，请通过 /api/v1/system/sync-status/{task_id} 查看进度",
+    }

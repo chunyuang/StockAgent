@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { ElCard, ElProgress, ElTable, ElTableColumn, ElTag, ElButton, ElMessage } from 'element-plus'
+import { ElCard, ElProgress, ElTable, ElTableColumn, ElTag, ElButton, ElMessage, ElSwitch, ElTooltip } from 'element-plus'
 import StrategyFactorPanel from './StrategyFactorPanel.vue'
 // 【V66:UI增强】数据可视化图表
 import { use } from 'echarts/core'
@@ -190,8 +190,120 @@ const actionGroups = computed(() => {
 function priorityIcon(p: string) {
   return { done: '✅', info: '💤', high: '🔴', medium: '🟡', low: '🔵' }[p] || '⚪'
 }
-onMounted(fetchData)
-onUnmounted(() => { stopPolling() })
+// ===== 自动补全因子开关 =====
+const autoFillEnabled = ref(localStorage.getItem('autoFillEnabled') === 'true')
+const autoFillDetecting = ref(false)
+const autoFillDetectResult = ref<any>(null)
+const autoFillRunning = ref(false)
+const autoFillTaskId = ref('')
+const autoFillStatus = ref<any>(null)
+const autoFillPollTimer = ref<any>(null)
+
+function onAutoFillToggle(val: string | number | boolean) {
+  const enabled = val === true || val === 'true'
+  autoFillEnabled.value = enabled
+  localStorage.setItem('autoFillEnabled', String(enabled))
+  if (enabled) {
+    // 开关打开时：先检测，再触发补全
+    runAutoFill()
+  }
+}
+
+async function runAutoFill() {
+  // Step 1: 检测缺失
+  autoFillDetecting.value = true
+  autoFillDetectResult.value = null
+  try {
+    const res = await fetch('/api/v1/system/auto-fill-detect')
+    const json = await res.json()
+    if (json.success) {
+      autoFillDetectResult.value = json.data
+      if (json.data.total_missing_days === 0) {
+        ElMessage.success('✅ 因子数据已完整，无需补全')
+        autoFillDetecting.value = false
+        return
+      }
+      // Step 2: 触发补全
+      await triggerAutoFill()
+    } else {
+      ElMessage.error('检测失败: ' + (json.message || '未知错误'))
+    }
+  } catch (e: any) {
+    ElMessage.error('检测请求失败: ' + e.message)
+  } finally {
+    autoFillDetecting.value = false
+  }
+}
+
+async function triggerAutoFill() {
+  autoFillRunning.value = true
+  autoFillStatus.value = null
+  try {
+    const res = await fetch('/api/v1/system/auto-fill-trigger', { method: 'POST' })
+    const json = await res.json()
+    if (json.success) {
+      autoFillTaskId.value = json.task_id
+      startAutoFillPolling()
+      ElMessage.info('🔄 自动补全已启动...')
+    } else {
+      autoFillRunning.value = false
+      ElMessage.error(json.message || '补全启动失败')
+    }
+  } catch (e: any) {
+    autoFillRunning.value = false
+    ElMessage.error('补全请求失败: ' + e.message)
+  }
+}
+
+function startAutoFillPolling() {
+  stopAutoFillPolling()
+  autoFillPollTimer.value = setInterval(async () => {
+    if (!autoFillTaskId.value) { stopAutoFillPolling(); return }
+    try {
+      const res = await fetch(`/api/v1/system/sync-status/${autoFillTaskId.value}`)
+      const json = await res.json()
+      if (json.success) {
+        autoFillStatus.value = json.data
+        if (['success', 'partial', 'failed'].includes(json.data.status)) {
+          autoFillRunning.value = false
+          stopAutoFillPolling()
+          // 刷新数据状态
+          await fetchData()
+          // 重新检测看还有没有缺失
+          if (autoFillEnabled.value && json.data.status === 'success') {
+            const detectRes = await fetch('/api/v1/system/auto-fill-detect')
+            const detectJson = await detectRes.json()
+            if (detectJson.success) {
+              autoFillDetectResult.value = detectJson.data
+            }
+          }
+          if (json.data.status === 'success') {
+            ElMessage.success('✅ 因子自动补全完成！')
+          } else if (json.data.status === 'partial') {
+            ElMessage.warning('⚠️ 因子补全部分完成')
+          } else {
+            ElMessage.error('❌ 因子补全失败')
+          }
+        }
+      }
+    } catch { /* ignore poll errors */ }
+  }, 3000)
+}
+
+function stopAutoFillPolling() {
+  if (autoFillPollTimer.value) { clearInterval(autoFillPollTimer.value); autoFillPollTimer.value = null }
+}
+
+const autoFillStepLabel: Record<string, string> = {
+  detect: '🔍 检测缺失因子',
+  basic_factors: '📐 补算基础因子',
+  daily_bar: '📊 同步日线数据',
+  daily_basic: '📈 同步基础指标',
+  derived_factors: '🧮 补算衍生因子',
+}
+
+onMounted(() => { fetchData(); if (autoFillEnabled.value) runAutoFill() })
+onUnmounted(() => { stopPolling(); stopAutoFillPolling() })
 // 当面板变为可见时，如果还没有数据则加载
 watch(() => props.visible, (v) => { if (v && !status.value) fetchData() })
 </script>
@@ -216,6 +328,50 @@ watch(() => props.visible, (v) => { if (v && !status.value) fetchData() })
         <div class="hb-item"><span class="hb-label">因子完整</span><div class="hb-bar"><div class="hb-fill" :style="{ width: (status.health_breakdown.factor_score / status.health_breakdown.factor_max * 100) + '%', background: 'var(--stock-down)' }"></div></div><span class="hb-val">{{ status.health_breakdown.factor_score }}/{{ status.health_breakdown.factor_max }}</span></div>
         <div class="hb-item"><span class="hb-label">数据新鲜</span><div class="hb-bar"><div class="hb-fill" :style="{ width: (status.health_breakdown.freshness_score / status.health_breakdown.freshness_max * 100) + '%', background: 'var(--el-color-primary)' }"></div></div><span class="hb-val">{{ status.health_breakdown.freshness_score }}/{{ status.health_breakdown.freshness_max }}</span></div>
         <div class="hb-item"><span class="hb-label">数据源</span><div class="hb-bar"><div class="hb-fill" :style="{ width: (status.health_breakdown.source_score / status.health_breakdown.source_max * 100) + '%', background: 'var(--el-color-warning)' }"></div></div><span class="hb-val">{{ status.health_breakdown.source_score }}/{{ status.health_breakdown.source_max }}</span></div>
+      </div>
+      <!-- 自动补全开关 -->
+      <div class="auto-fill-control">
+        <div class="afc-header">
+          <ElTooltip content="开启后自动检测并补全最近缺失的因子数据（MA/量比/涨跌停/竞价涨幅等）" placement="top">
+            <span class="afc-label">🔄 自动补全因子</span>
+          </ElTooltip>
+          <ElSwitch v-model="autoFillEnabled" @change="onAutoFillToggle" :loading="autoFillDetecting || autoFillRunning" />
+        </div>
+        <!-- 检测结果 -->
+        <div v-if="autoFillDetectResult" class="afc-detect">
+          <div v-if="autoFillDetectResult.total_missing_days === 0" class="afc-complete">✅ 因子数据完整</div>
+          <template v-else>
+            <div class="afc-missing-summary">
+              ⚠️ 近{{ autoFillDetectResult.checked_dates }}个交易日中，<b>{{ autoFillDetectResult.total_missing_days }}</b>天有因子缺失
+            </div>
+            <div v-if="autoFillDetectResult.missing_fields?.length" class="afc-missing-fields">
+              <span v-for="mf in autoFillDetectResult.missing_fields.slice(0, 6)" :key="mf.field" class="afc-field-tag">
+                {{ mf.field }} <small>({{ mf.total_missing }}条)</small>
+              </span>
+              <span v-if="autoFillDetectResult.missing_fields.length > 6" class="afc-field-more">
+                +{{ autoFillDetectResult.missing_fields.length - 6 }}更多
+              </span>
+            </div>
+          </template>
+        </div>
+        <!-- 补全进度 -->
+        <div v-if="autoFillRunning || autoFillStatus" class="afc-progress" :class="{'afc-fail': autoFillStatus?.status === 'failed', 'afc-ok': autoFillStatus?.status === 'success'}">
+          <div v-if="autoFillRunning" class="afc-running">
+            ⏳ {{ autoFillStatus?.current_step ? autoFillStepLabel[autoFillStatus.current_step] || autoFillStatus.current_step : '正在补全...' }}
+          </div>
+          <div v-if="autoFillStatus" class="afc-detail">
+            <span>状态: <b>{{ autoFillStatus.status === 'running' ? '🔄 执行中' : autoFillStatus.status === 'success' ? '✅ 完成' : autoFillStatus.status === 'partial' ? '⚠️ 部分完成' : '❌ 失败' }}</b></span>
+            <div v-if="autoFillStatus.results" class="afc-steps">
+              <div v-for="(r, ri) in autoFillStatus.results" :key="ri" class="afc-step" :class="r.success ? 'step-ok' : 'step-fail'">
+                {{ autoFillStepLabel[r.step] || r.step }}: {{ r.success ? '✅' : '❌' }} {{ r.message || '' }}
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- 手动补全按钮 -->
+        <ElButton v-if="!autoFillEnabled && !autoFillRunning" size="small" type="primary" plain @click="runAutoFill" :loading="autoFillDetecting" style="margin-top: 6px">
+          🔍 检测并补全
+        </ElButton>
       </div>
     </div>
 
@@ -419,6 +575,75 @@ watch(() => props.visible, (v) => { if (v && !status.value) fetchData() })
 .hb-bar { flex: 1; height: 6px; background: var(--border-default); border-radius: 3px; overflow: hidden; min-width: 60px; }
 .hb-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
 .hb-val { font-size: 11px; color: var(--text-secondary); width: 36px; }
+
+/* 自动补全控制 */
+.auto-fill-control {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 220px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+}
+.afc-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+}
+.afc-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: help;
+}
+.afc-detect {
+  font-size: 12px;
+}
+.afc-complete {
+  color: var(--stock-down);
+  font-weight: 600;
+}
+.afc-missing-summary {
+  color: var(--el-color-warning);
+  font-weight: 500;
+}
+.afc-missing-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.afc-field-tag {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--warning-bg);
+  color: var(--el-color-warning);
+}
+.afc-field-tag small {
+  opacity: 0.7;
+}
+.afc-field-more {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.afc-progress {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+.afc-ok { background: var(--success-bg); border: 1px solid var(--success-bg); }
+.afc-fail { background: var(--error-bg); border: 1px solid var(--error-bg); }
+.afc-running { color: var(--primary-500); font-weight: 600; }
+.afc-detail { display: flex; flex-direction: column; gap: 4px; color: var(--text-secondary); }
+.afc-steps { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+.afc-step { font-size: 11px; padding: 2px 6px; border-radius: 3px; }
+.step-ok { background: var(--success-bg); color: var(--success); }
+.step-fail { background: var(--error-bg); color: var(--error); }
 .action-items { display: flex; flex-direction: column; gap: 8px; }
 .action-item { display: flex; align-items: flex-start; gap: 10px; padding: 8px 12px; border-radius: 6px; }
 .action-high { background: var(--stock-up-bg); border-left: 3px solid var(--stock-up); }
