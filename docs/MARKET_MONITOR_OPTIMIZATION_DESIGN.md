@@ -1,6 +1,6 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.65 | 日期: 2026-06-03 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.68 | 日期: 2026-06-03 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
 > 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats✅ | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化✅ | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复✅ | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复✅ | v2.9.24 diagnose+情绪调仓提取+DelegateRouter策略扩展✅ | v2.9.25 update_strategy_config bug修复+bare except清理+_init_modules拆分✅ | v2.9.26 全模块bare except清理+position_checker._execute_sell_list提取3子方法✅ | v2.9.27 方法提取到子模块5个+测试适配✅ | v2.9.28 风控线程拆分+filter合并提取+scan_loop错误恢复✅ | v2.9.31 _safe_read_state统一+RuntimeWarning修复+get_positions提取✅ | v2.9.34 情绪得分+收盘同步提取→子模块✅ | v2.9.35 卖出执行提取到PositionManager✅ | v2.9.36 审查P0/P1修复+WS断线补发+前端错误提示 | v2.9.37 _save_param_snapshot提取+_init_state类属性瘦身+start()30行 | v2.9.38 _run_checker_on_positions提取+compare差异持久化+_post_sell_state_cleanup统一 | v2.9.39 _scan_loop_settlement提取→RuntimePersistence+_emit_risk_thread_error委托RiskWatchdog+MarketPhase.is_trading_active+position_checker except修复 | v2.9.42 参数管理6方法DELEGATE_MAP委托+StrategyParamCenter路由策略+scanner 1382行 | v2.9.43 signal_manager方法提取7子方法(execute_signals 161→24行+update_signals 96→9行)+版本同步+1000测试全通过 | v2.9.44 _SubprocessRuntime提取(scanner_daemon 303行闭包→独立类+命令路由表5子handler+_send_ack统一+16新增测试) | v2.9.46 bare except清理(web API)+版本同步+_check_stop_loss_take_profit简化+section合并 | v2.9.47 getattr/hasattr防御消除+关键路径日志级别提升+18新增测试 | v2.9.48 pipeline.apply提取(187→103)+broker.place_order提取(182→109)+33新增测试 | v2.9.49 审查P0安全修复(WS Token首条消息认证+Trading API越权访问)+P1修复(Stream consumer动态化+持仓批量价格查询)+P2修复(System API同步MongoDB→异步)+19新增测试 | v2.9.50 🔴Daemon方法名Bug修复(update_strategy_params→update_strategy_config/run_once→scan_once)+hasattr防御清理6处+except Exception收窄9处+15新增测试 | v2.9.51 getattr防御清理18处+broker正式接口(get_limit_prices/get_realtime_prices)+🔴_daily_start_asset日内回撤永远为0bug修复+_last_scan_duration_ms初始化+22新增测试 | v2.9.52 getattr/hasattr清理(broker/position_manager/runtime_persistence/strategy_scorer/risk_watchdog 5文件)+DELEGATE_MAP外提到scanner_delegate_router(scanner 1391→1308 -83行)+@classmethod@property兼容别名+7测试文件更新+1177测试全通过 |
@@ -4324,6 +4324,70 @@ scanner_delegate_router.py: 184行 → 271行 (+87行)
 ### 51.6 回测影响
 
 零。所有变更仅影响market_monitor模块内部重构和测试, 回测引擎零文件修改。
+
+---
+
+## 五十五、v2.9.68 ScannerDaemon mixin拆分 (2026-06-03)
+
+### 55.1 设计目标
+
+1. **🟡 ScannerDaemon mixin拆分**: scanner_daemon.py从1146行→753行(-34%), 3个mixin模块
+   - `daemon_command_mixin.py` (144行): 命令发送+ACK(send_command/_wait_for_ack/_ack_listener)+5个便捷方法
+   - `daemon_subscription_mixin.py` (146行): Redis订阅(_ensure_redis/_init_redis_subscriptions/_subscribe_loop/_handle_subscription_message)+4个回调注册
+   - `daemon_watchdog_mixin.py` (170行): 看门狗(_watchdog_loop/_restart_subprocess/_start_process)+紧急告警(_send_emergency_alert/_emergency_reduce_positions)
+2. **🟢 ScannerDaemon继承3个mixin**: 保留核心生命周期方法(start/stop/restart/is_alive/get_status等)在主文件中
+3. **🟢 版本常量**: v2.9.67→v2.9.68
+
+### 55.2 设计决策
+
+**mixin模式**: 与v2.9.67 scanner.py拆分一致, 使用混入(mixin)类模式。ScannerDaemon继承DaemonCommandMixin/DaemonSubscriptionMixin/DaemonWatchdogMixin, 通过self访问daemon属性。
+
+**功能分组**:
+- **Command**: 命令发送和ACK机制, 与子进程通信的核心通道
+- **Subscription**: Redis订阅和回调, 与子进程状态同步的通道
+- **Watchdog**: 看门狗和紧急处理, 守护子进程存活的逻辑
+
+**主文件保留**: 生命周期方法(start/stop/restart/is_alive)和状态查询(get_status)保留在scanner_daemon.py中, 因为它们编排多个mixin方法, 是ScannerDaemon的核心职责。
+
+### 55.3 变更文件
+
+| 文件 | 变更 |
+|---|---|
+| scanner_daemon.py | 1146→753行(-34%), ScannerDaemon继承3个mixin, 移除已提取方法 |
+| daemon_command_mixin.py | 新增144行(DaemonCommandMixin: send_command+5便捷方法) |
+| daemon_subscription_mixin.py | 新增146行(DaemonSubscriptionMixin: Redis订阅+回调) |
+| daemon_watchdog_mixin.py | 新增170行(DaemonWatchdogMixin: 看门狗+紧急告警) |
+| scanner_system.py | _DESIGN_DOC_VERSION→v2.9.68 |
+| test_v2968_daemon_mixin_split.py | 新增36测试 |
+| 19个版本断言文件 | v2.9.67→v2.9.68 |
+
+### 55.4 行数变化
+
+| 文件 | 行数 | 说明 |
+|---|---|---|
+| scanner_daemon.py | 753行 | 主文件(-34%) |
+| daemon_command_mixin.py | 144行 | 命令+ACK |
+| daemon_subscription_mixin.py | 146行 | 订阅+回调 |
+| daemon_watchdog_mixin.py | 170行 | 看门狗+紧急 |
+| **合计** | **1213行** | **1146→1213(+67, mixin导入/类声明/注释)** |
+
+### 55.5 测试覆盖 (36新增)
+
+| 测试类 | 用例数 | 覆盖点 |
+|---|---|---|
+| TestDaemonMixinFiles | 6 | 3个mixin文件存在+可导入+关键方法 |
+| TestDaemonInheritance | 3 | ScannerDaemon继承3个mixin |
+| TestDaemonMethodDelegation | 10 | 通过mixin获取的方法存在 |
+| TestDaemonLineCount | 5 | 主文件<800+总行数+mixin行数 |
+| TestMethodsInMixinFiles | 7 | 方法在mixin中定义, 不在主文件 |
+| TestDaemonRetainedMethods | 4 | 核心方法保留在主文件 |
+| TestNoBacktestRegressionV2968 | 2 | 回测零影响+版本常量 |
+
+**全量测试**: 1566 passed (1479 scanner + 51 backtest + 36 new)
+
+### 55.6 回测影响
+
+零。所有变更仅影响market_monitor模块ScannerDaemon内部拆分, 回测引擎零文件修改。
 
 ---
 
