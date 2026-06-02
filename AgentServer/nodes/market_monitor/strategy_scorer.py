@@ -289,10 +289,63 @@ class StrategyScorer:
             logger.info(f"[ANOMALY] 异动检测: {len(signals)}只")
         return signals
 
+    def _check_broken_board(
+        self, ts_code: str, name: str, price: float,
+        pct_chg: float, turnover: float, is_broken: bool,
+        is_limit_down: bool, open_times: int,
+    ) -> Optional[ScanSignal]:
+        """跌停撬板(炸板股)检测【v2.9.62提取】"""
+        if is_broken and not is_limit_down and pct_chg > 5 and open_times <= 2:
+            return ScanSignal(
+                ts_code=ts_code, stock_name=name,
+                strategy="anomaly_broken", strategy_name="涨停炸板",
+                signal_type="buy", price=price,
+                pct_chg=pct_chg, volume_ratio=0,
+                turnover_rate=turnover, is_limit_up=False,
+                reason=f"涨停炸板2次内 涨{pct_chg:.1f}%",
+            )
+        return None
+
+    def _check_strong_limit(
+        self, ts_code: str, name: str, price: float,
+        pct_chg: float, turnover: float, is_limit_up: bool,
+        fd_amount: float, open_times: int, limit_times: int,
+    ) -> Optional[ScanSignal]:
+        """强势涨停(大封单+无炸板)检测【v2.9.62提取】"""
+        if is_limit_up and fd_amount > 100000 and open_times == 0:
+            return ScanSignal(
+                ts_code=ts_code, stock_name=name,
+                strategy="anomaly_strong", strategy_name="强势涨停",
+                signal_type="buy", price=price,
+                pct_chg=pct_chg, volume_ratio=0,
+                turnover_rate=turnover, is_limit_up=True,
+                reason=f"连板{limit_times} 封单{fd_amount/1000:.0f}万 无炸板",
+            )
+        return None
+
+    def _check_surge(
+        self, ts_code: str, name: str, price: float,
+        pct_chg: float, turnover: float, is_limit_up: bool,
+        prev_price: float,
+    ) -> Optional[ScanSignal]:
+        """急速拉升(5分钟内涨幅>3%)检测【v2.9.62提取】"""
+        if prev_price > 0 and price > 0:
+            price_change_pct = (price - prev_price) / prev_price * 100
+            if price_change_pct > 3 and not is_limit_up:
+                return ScanSignal(
+                    ts_code=ts_code, stock_name=name,
+                    strategy="anomaly_surge", strategy_name="急速拉升",
+                    signal_type="buy", price=price,
+                    pct_chg=pct_chg, volume_ratio=0,
+                    turnover_rate=turnover, is_limit_up=False,
+                    reason=f"5分钟涨{price_change_pct:.1f}%",
+                )
+        return None
+
     def _check_single_anomaly(
         self, ts_code: str, rt: Dict, prev_cache: Dict[str, Dict],
     ) -> Optional[ScanSignal]:
-        """单只股票异动检测, 返回信号或None"""
+        """单只股票异动检测, 返回信号或None【v2.9.62重构: 3种异动提取子方法】"""
         pct_chg = rt.get("pct_chg", 0)
         is_limit_up = rt.get("is_limit_up", False)
         is_limit_down = rt.get("is_limit_down", False)
@@ -305,39 +358,24 @@ class StrategyScorer:
         fd_amount = rt.get("fd_amount", 0)
 
         # 1. 跌停撬板(炸板股)
-        if is_broken and not is_limit_down and pct_chg > 5 and open_times <= 2:
-            return ScanSignal(
-                ts_code=ts_code, stock_name=name,
-                strategy="anomaly_broken", strategy_name="涨停炸板",
-                signal_type="buy", price=price,
-                pct_chg=pct_chg, volume_ratio=0,
-                turnover_rate=turnover, is_limit_up=False,
-                reason=f"涨停炸板2次内 涨{pct_chg:.1f}%",
-            )
+        sig = self._check_broken_board(
+            ts_code, name, price, pct_chg, turnover,
+            is_broken, is_limit_down, open_times,
+        )
+        if sig:
+            return sig
 
         # 2. 强势涨停(大封单+无炸板)
-        if is_limit_up and fd_amount > 100000 and open_times == 0:
-            return ScanSignal(
-                ts_code=ts_code, stock_name=name,
-                strategy="anomaly_strong", strategy_name="强势涨停",
-                signal_type="buy", price=price,
-                pct_chg=pct_chg, volume_ratio=0,
-                turnover_rate=turnover, is_limit_up=True,
-                reason=f"连板{limit_times} 封单{fd_amount/1000:.0f}万 无炸板",
-            )
+        sig = self._check_strong_limit(
+            ts_code, name, price, pct_chg, turnover,
+            is_limit_up, fd_amount, open_times, limit_times,
+        )
+        if sig:
+            return sig
 
         # 3. 急速拉升(5分钟内涨幅>3%)
         prev_price = prev_cache.get(ts_code, {}).get("price", 0)
-        if prev_price > 0 and price > 0:
-            price_change_pct = (price - prev_price) / prev_price * 100
-            if price_change_pct > 3 and not is_limit_up:
-                return ScanSignal(
-                    ts_code=ts_code, stock_name=name,
-                    strategy="anomaly_surge", strategy_name="急速拉升",
-                    signal_type="buy", price=price,
-                    pct_chg=pct_chg, volume_ratio=0,
-                    turnover_rate=turnover, is_limit_up=False,
-                    reason=f"5分钟涨{price_change_pct:.1f}%",
-                )
-
-        return None
+        return self._check_surge(
+            ts_code, name, price, pct_chg, turnover,
+            is_limit_up, prev_price,
+        )

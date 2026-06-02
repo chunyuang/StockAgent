@@ -1,6 +1,6 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.61 | 日期: 2026-06-02 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.62 | 日期: 2026-06-02 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
 > 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats✅ | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化✅ | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复✅ | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复✅ | v2.9.24 diagnose+情绪调仓提取+DelegateRouter策略扩展✅ | v2.9.25 update_strategy_config bug修复+bare except清理+_init_modules拆分✅ | v2.9.26 全模块bare except清理+position_checker._execute_sell_list提取3子方法✅ | v2.9.27 方法提取到子模块5个+测试适配✅ | v2.9.28 风控线程拆分+filter合并提取+scan_loop错误恢复✅ | v2.9.31 _safe_read_state统一+RuntimeWarning修复+get_positions提取✅ | v2.9.34 情绪得分+收盘同步提取→子模块✅ | v2.9.35 卖出执行提取到PositionManager✅ | v2.9.36 审查P0/P1修复+WS断线补发+前端错误提示 | v2.9.37 _save_param_snapshot提取+_init_state类属性瘦身+start()30行 | v2.9.38 _run_checker_on_positions提取+compare差异持久化+_post_sell_state_cleanup统一 | v2.9.39 _scan_loop_settlement提取→RuntimePersistence+_emit_risk_thread_error委托RiskWatchdog+MarketPhase.is_trading_active+position_checker except修复 | v2.9.42 参数管理6方法DELEGATE_MAP委托+StrategyParamCenter路由策略+scanner 1382行 | v2.9.43 signal_manager方法提取7子方法(execute_signals 161→24行+update_signals 96→9行)+版本同步+1000测试全通过 | v2.9.44 _SubprocessRuntime提取(scanner_daemon 303行闭包→独立类+命令路由表5子handler+_send_ack统一+16新增测试) | v2.9.46 bare except清理(web API)+版本同步+_check_stop_loss_take_profit简化+section合并 | v2.9.47 getattr/hasattr防御消除+关键路径日志级别提升+18新增测试 | v2.9.48 pipeline.apply提取(187→103)+broker.place_order提取(182→109)+33新增测试 | v2.9.49 审查P0安全修复(WS Token首条消息认证+Trading API越权访问)+P1修复(Stream consumer动态化+持仓批量价格查询)+P2修复(System API同步MongoDB→异步)+19新增测试 | v2.9.50 🔴Daemon方法名Bug修复(update_strategy_params→update_strategy_config/run_once→scan_once)+hasattr防御清理6处+except Exception收窄9处+15新增测试 | v2.9.51 getattr防御清理18处+broker正式接口(get_limit_prices/get_realtime_prices)+🔴_daily_start_asset日内回撤永远为0bug修复+_last_scan_duration_ms初始化+22新增测试 | v2.9.52 getattr/hasattr清理(broker/position_manager/runtime_persistence/strategy_scorer/risk_watchdog 5文件)+DELEGATE_MAP外提到scanner_delegate_router(scanner 1391→1308 -83行)+@classmethod@property兼容别名+7测试文件更新+1177测试全通过 |
@@ -8,8 +8,91 @@
 | v2.9.54 _init_broker拆分(_init_broker_gm/_init_broker_sim提取)+_scan_loop_trading健壮性(scan_once异常不传播)+_restart_risk_thread_if_dead看门狗提取+_try_recover_quote_source行情恢复提取+25新增测试+1151全通过 |
 | v2.9.60 risk_watchdog 5方法提取(_run_checks 55→19+_check_position_health 57→27+_find_overdue_positions+_try_auto_recovery+_update_overall_status)+signal_manager 3方法提取(_execute_single_buy 55→26+_calc_buy_shares+_check_buy_quality+_apply_buy_slippage)+9新增测试+1459全通过 |
 | v2.9.61 live_filter_pipeline.apply 103→48行+2方法提取(_apply_filter_layers+_finalize_traces)+emotion_cycle.handle_emotion_phase_change 64→47行+2方法提取(_execute_emotion_batch_sell+_emit_rebalance_event)+_calculate_zt_premium 54→12行+2方法提取(_get_prev_trade_date+_calc_avg_zt_premium)+scanner_delegate_router.resolve_delegate 62→16行(if/elif→_DISPATCH_TABLE路由表)+tiered_scanner._l3_builtin_check 58→17行+_check_single_position_stop_profit提取+broker._match 57→28行+_calc_dynamic_slippage提取+risk_watchdog._check_heartbeat 51→13行+2方法提取(_judge_startup_heartbeat+_judge_heartbeat_elapsed)+47新增测试+1421全通过 |
+| v2.9.62 quote_manager 3方法提取(_map_em_item_to_realtime+_handle_em_degrade_recovery+_handle_em_fetch_failure, _fetch_eastmoney_data 54→22行)+tiered_scanner 4方法提取(_fetch_l3_eastmoney_batch+_fetch_l3_biying_snapshot+_map_quote_to_price_dict+_map_l2_quote_to_dict, _fetch_l3_prices 52→26行)+signal_manager 2方法提取(_build_buy_timeline_entry+_emit_buy_events, _post_buy_success 52→8行)+position_manager 2方法提取(_update_single_trailing_stop+_retry_single_pending_sell, update_trailing_stops 52→31行+retry_pending_sells 52→21行)+live_filter_pipeline 2方法提取(_calc_opening_pct+_check_auction_pass, _auction_filter 52→32行)+strategy_scorer 3方法提取(_check_broken_board+_check_strong_limit+_check_surge, _check_single_anomaly 52→37行)+48新增测试+1469全通过(>50行方法12→5, -58%) |
 | v2.9.59 emotion_cycle 5方法提取(_try_add_pending_sell死代码消除+update_sentiment_score 4子方法)+signal_dispatcher 3方法提取(dispatch 63→15 -76%)+event_bus 1方法提取(emit 59→21 -64%)+strategy_scorer 3方法提取(merge_factors 58→7 -88%)+runtime_persistence 3方法提取(post_sell_cleanup 57→22 -61%)+execution_quality 2方法提取(check_buy 71→19 -73%)+risk_watchdog 2方法提取(_check_drawdown 69→28 -59%)+21新增测试+1450全通过 |
 > 回测影响: 零文件修改, 1459测试全通过(scanner 1358+backtest 101)
+
+---
+
+## 五十一、v2.9.62 6模块方法提取 + quote_manager降级拆分 + tiered_scanner数据映射提取 + strategy_scorer异动检测拆分 (2026-06-02)
+
+### 51.1 设计目标
+
+1. **🟡 quote_manager._fetch_eastmoney_data拆分**: 54行→22行(-59%), 提取3个子方法(_map_em_item_to_realtime/@staticmethod+_handle_em_degrade_recovery+_handle_em_fetch_failure)
+2. **🟡 tiered_scanner._fetch_l3_prices拆分**: 52行→26行(-50%), 提取4个子方法(_fetch_l3_eastmoney_batch+_fetch_l3_biying_snapshot+_map_quote_to_price_dict/@staticmethod+_map_l2_quote_to_dict/@staticmethod)
+3. **🟡 signal_manager._post_buy_success拆分**: 52行→8行(-85%), 提取2个子方法(_build_buy_timeline_entry+_emit_buy_events)
+4. **🟡 position_manager.update_trailing_stops拆分**: 52行→31行(-40%), 提取_update_single_trailing_stop
+5. **🟡 position_manager.retry_pending_sells拆分**: 52行→21行(-60%), 提取_retry_single_pending_sell
+6. **🟡 live_filter_pipeline._auction_filter拆分**: 52行→32行(-38%), 提取2个@staticmethod(_calc_opening_pct+_check_auction_pass)
+7. **🟡 strategy_scorer._check_single_anomaly拆分**: 52行→37行(-29%), 提取3个子方法(_check_broken_board+_check_strong_limit+_check_surge)
+
+### 51.2 变更文件
+
+| 文件 | 变更 |
+|---|---|
+| quote_manager.py | 3个方法提取(_map_em_item_to_realtime+_handle_em_degrade_recovery+_handle_em_fetch_failure) |
+| tiered_scanner.py | 4个方法提取(_fetch_l3_eastmoney_batch+_fetch_l3_biying_snapshot+_map_quote_to_price_dict+_map_l2_quote_to_dict) |
+| signal_manager.py | 2个方法提取(_build_buy_timeline_entry+_emit_buy_events) |
+| position_manager.py | 2个方法提取(_update_single_trailing_stop+_retry_single_pending_sell) |
+| live_filter_pipeline.py | 2个@staticmethod提取(_calc_opening_pct+_check_auction_pass) |
+| strategy_scorer.py | 3个方法提取(_check_broken_board+_check_strong_limit+_check_surge) |
+| web/api/scanner.py | _DESIGN_DOC_VERSION→v2.9.62 |
+| test_v2962_method_extractions.py | 新增48测试 |
+| 15个版本断言文件 | v2.9.61→v2.9.62 |
+
+### 51.3 方法行数改善
+
+| 方法 | 之前 | 之后 | 变化 |
+|---|---|---|---|
+| _fetch_eastmoney_data | 54行 | 22行 | -59% |
+| _fetch_l3_prices | 52行 | 26行 | -50% |
+| _post_buy_success | 52行 | 8行 | -85% |
+| update_trailing_stops | 52行 | 31行 | -40% |
+| retry_pending_sells | 52行 | 21行 | -60% |
+| _auction_filter | 52行 | 32行 | -38% |
+| _check_single_anomaly | 52行 | 37行 | -29% |
+| **新增** | | | |
+| _map_em_item_to_realtime | - | 17行 | @staticmethod 数据映射 |
+| _handle_em_degrade_recovery | - | 10行 | 降级恢复 |
+| _handle_em_fetch_failure | - | 12行 | 失败处理 |
+| _fetch_l3_eastmoney_batch | - | 12行 | 东财批量 |
+| _fetch_l3_biying_snapshot | - | 18行 | 必盈快照 |
+| _map_quote_to_price_dict | - | 8行 | @staticmethod quote→价格 |
+| _map_l2_quote_to_dict | - | 8行 | @staticmethod L2映射 |
+| _build_buy_timeline_entry | - | 28行 | 时间线构建 |
+| _emit_buy_events | - | 17行 | 事件推送 |
+| _update_single_trailing_stop | - | 28行 | 单票追踪止损 |
+| _retry_single_pending_sell | - | 30行 | 单票重试 |
+| _calc_opening_pct | - | 11行 | @staticmethod 竞价涨幅 |
+| _check_auction_pass | - | 12行 | @staticmethod 竞价过滤 |
+| _check_broken_board | - | 13行 | 炸板检测 |
+| _check_strong_limit | - | 13行 | 强势涨停 |
+| _check_surge | - | 14行 | 急速拉升 |
+
+### 51.4 超过50行方法数
+
+- v2.9.61: 12个方法超过50行
+- v2.9.62: 5个方法超过50行(-7, -58%)
+- 剩余5个均为编排方法(scan_once 55L, _apply_filter_layers 55L, _l3_scan 54L, _merge_limit_pool_data 52L, _l2_scan 52L), 结构清晰无需进一步拆分
+
+### 51.5 测试覆盖 (48新增)
+
+| 测试类 | 用例数 | 覆盖点 |
+|---|---|---|
+| TestQuoteManagerV2962Extraction | 8 | 3个提取方法+行数+@staticmethod+使用验证 |
+| TestTieredScannerV2962Extraction | 7 | 4个提取方法+行数+使用验证 |
+| TestSignalManagerV2962Extraction | 6 | 2个提取方法+行数+使用验证 |
+| TestPositionManagerV2962Extraction | 8 | 2个提取方法+行数+使用验证 |
+| TestLiveFilterPipelineV2962Extraction | 8 | 2个@staticmethod+行数+使用验证 |
+| TestStrategyScorerV2962Extraction | 8 | 3个提取方法+行数+使用验证 |
+| TestBigMethodsReductionV2962 | 1 | >50行方法数减少 |
+| TestNoBacktestRegressionV2962 | 2 | 回测零影响+版本常量 |
+
+**全量测试**: 1469 passed (0 failed)
+
+### 51.6 回测影响
+
+零。所有变更仅影响market_monitor模块内部重构和测试, 回测引擎零文件修改。
 
 ---
 
