@@ -32,6 +32,10 @@ from dataclasses import dataclass, field, asdict
 from enum import Enum
 from typing import Any, Dict, List, Optional, Callable
 
+from nodes.market_monitor.daemon_command_mixin import DaemonCommandMixin  # 【v2.9.68提取到mixin】
+from nodes.market_monitor.daemon_subscription_mixin import DaemonSubscriptionMixin  # 【v2.9.68提取到mixin】
+from nodes.market_monitor.daemon_watchdog_mixin import DaemonWatchdogMixin  # 【v2.9.68提取到mixin】
+
 # ---------------------------------------------------------------------------
 # 配置
 # ---------------------------------------------------------------------------
@@ -459,12 +463,21 @@ def _signal_to_dict(sig: Any) -> dict:
 # ScannerDaemon (主进程侧)
 # ---------------------------------------------------------------------------
 
-class ScannerDaemon:
+class ScannerDaemon(
+    DaemonCommandMixin,
+    DaemonSubscriptionMixin,
+    DaemonWatchdogMixin,
+):
     """
     Scanner 独立进程守护
 
     将 MarketScanner 运行为独立子进程，通过 Redis Pub/Sub IPC。
     作为单例挂在 WebNode 上。
+
+    v2.9.68: mixin拆分
+    - DaemonCommandMixin: 命令发送+ACK
+    - DaemonSubscriptionMixin: Redis订阅+回调
+    - DaemonWatchdogMixin: 看门狗+紧急处理
 
     用法:
         daemon = ScannerDaemon()
@@ -625,345 +638,6 @@ class ScannerDaemon:
         return self._restart_count
 
     # ------------------------------------------------------------------
-    # 命令发送 (v2.9.7: List+ACK)
-    # ------------------------------------------------------------------
-
-    async def send_command(self, cmd: str, params: dict, timeout: float = None) -> Optional[dict]:
-        """向子进程发送命令 (v2.9.7: RPUSH到List, 等待ACK)
-
-        Args:
-            cmd: 命令名
-            params: 命令参数
-            timeout: ACK超时(秒), None=使用config默认值
-
-        Returns:
-            ACK结果dict, 超时返回None
-        """
-        if self._redis_client is None:
-            await self._ensure_redis()
-        if self._redis_client is None:
-            logger.error("Redis not available, cannot send command")
-            return None
-
-        cmd_id = str(uuid.uuid4())[:8]
-        ack_timeout = timeout or self.config.cmd_ack_timeout
-
-        # 注册ACK Future
-        loop = asyncio.get_running_loop()
-        ack_future = loop.create_future()
-        self._pending_acks[cmd_id] = ack_future
-
-        # RPUSH到List (子进程用BLPOP消费)
-        cmd_list_key = _chan(self.config, "cmd")
-        message = json.dumps({"cmd": cmd, "params": params, "cmd_id": cmd_id}, default=str)
-        try:
-            await self._redis_client.rpush(cmd_list_key, message)
-            logger.info(f"Sent command: {cmd} (id={cmd_id})")
-        except Exception as e:
-            logger.error(f"Failed to send command {cmd}: {e}")
-            self._pending_acks.pop(cmd_id, None)
-            return None
-
-        # 等待ACK
-        return await self._wait_for_ack(cmd, cmd_id, ack_future, ack_timeout)
-
-    async def _wait_for_ack(
-        self, cmd: str, cmd_id: str, ack_future: asyncio.Future, ack_timeout: float
-    ) -> Optional[dict]:
-        """等待命令ACK确认【v2.9.56从send_command提取】"""
-        try:
-            result = await asyncio.wait_for(ack_future, timeout=ack_timeout)
-            logger.info(f"Command {cmd} (id={cmd_id}) ACK: {result.get('status', 'unknown')}")
-            return result
-        except asyncio.TimeoutError:
-            logger.warning(f"Command {cmd} (id={cmd_id}) ACK timeout ({ack_timeout}s)")
-            return None
-        finally:
-            self._pending_acks.pop(cmd_id, None)
-
-    async def _ack_listener(self) -> None:
-        """【v2.9.7】订阅ACK通道, 匹配pending_acks并resolve Future"""
-        ack_channel = _chan(self.config, "ack")
-        try:
-            pubsub = self._redis_client.pubsub()
-            await pubsub.subscribe(ack_channel)
-            logger.info(f"ACK listener subscribed to {ack_channel}")
-
-            while self._running:
-                message = await pubsub.get_message(
-                    ignore_subscribe_messages=True,
-                    timeout=1.0,
-                )
-                if message and message["type"] == "message":
-                    try:
-                        data = json.loads(message["data"])
-                        cmd_id = data.get("cmd_id", "")
-                        if cmd_id in self._pending_acks:
-                            future = self._pending_acks[cmd_id]
-                            if not future.done():
-                                future.set_result(data)
-                    except json.JSONDecodeError as e:
-                        logger.debug(f"ACK parse error: {e}")
-                    except (KeyError, TypeError, AttributeError) as e:
-                        logger.debug(f"ACK resolve error: {e}")
-                else:
-                    await asyncio.sleep(0.05)
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            logger.error(f"ACK listener error: {e}")
-        finally:
-            try:
-                await pubsub.unsubscribe(ack_channel)
-                await pubsub.close()
-            except Exception as _e:
-                logger.debug(f"ACK publish failed: {_e}")
-
-    # ------------------------------------------------------------------
-    # 便捷方法
-    # ------------------------------------------------------------------
-
-    async def start_scanner(self, trade_date: str = "", trade_mode: str = "simulated") -> Optional[dict]:
-        """启动扫描 (v2.9.7: 返回ACK结果)"""
-        return await self.send_command("start", {
-            "trade_date": trade_date,
-            "trade_mode": trade_mode,
-        })
-
-    async def stop_scanner(self) -> Optional[dict]:
-        """停止扫描 (v2.9.7: 返回ACK结果)"""
-        return await self.send_command("stop", {})
-
-    async def emergency_liquidate(self, reason: str = "手动") -> Optional[dict]:
-        """紧急清仓 (v2.9.7: 返回ACK结果)"""
-        return await self.send_command("emergency_liquidate", {"reason": reason})
-
-    async def update_params(self, strategy_id: str, updates: dict) -> Optional[dict]:
-        """更新策略参数 (v2.9.7: 返回ACK结果)"""
-        return await self.send_command("update_params", {
-            "strategy_id": strategy_id,
-            "updates": updates,
-        })
-
-    async def trigger_scan(self) -> Optional[dict]:
-        """手动触发一次扫描 (v2.9.7: 返回ACK结果)"""
-        return await self.send_command("scan", {})
-
-    # ------------------------------------------------------------------
-    # 回调注册
-    # ------------------------------------------------------------------
-
-    def on_status(self, callback: Callable[[dict], None]) -> None:
-        """注册状态回调"""
-        self._status_callback = callback
-
-    def on_signal(self, callback: Callable[[dict], None]) -> None:
-        """注册信号回调"""
-        self._signal_callback = callback
-
-    def on_position(self, callback: Callable[[dict], None]) -> None:
-        """注册持仓变更回调"""
-        self._position_callback = callback
-
-    def on_health(self, callback: Callable[[dict], None]) -> None:
-        """注册健康回调"""
-        self._health_callback = callback
-
-    # ------------------------------------------------------------------
-    # 内部: 进程启动
-    # ------------------------------------------------------------------
-
-    def _start_process(self) -> None:
-        """启动子进程"""
-        config_dict = {
-            "cpu_core": self.config.cpu_core,
-            "realtime_priority": self.config.realtime_priority,
-            "max_restart_count": self.config.max_restart_count,
-            "heartbeat_interval": self.config.heartbeat_interval,
-            "ipc_redis_prefix": self.config.ipc_redis_prefix,
-            "status_push_interval": self.config.status_push_interval,
-            "health_push_interval": self.config.health_push_interval,
-            "subprocess_startup_timeout": self.config.subprocess_startup_timeout,
-            "restart_cooldown": self.config.restart_cooldown,
-            "max_memory_mb": self.config.max_memory_mb,
-            "max_cpu_percent": self.config.max_cpu_percent,
-        }
-
-        self._process = multiprocessing.Process(
-            target=_scanner_subprocess_main,
-            args=(config_dict,),
-            name="scanner-daemon",
-            daemon=True,
-        )
-        self._process.start()
-        self._last_start_time = time.monotonic()
-        logger.info(f"Scanner subprocess started, PID={self._process.pid}")
-
-    # ------------------------------------------------------------------
-    # 内部: Redis 订阅 (主进程侧)
-    # ------------------------------------------------------------------
-
-    async def _ensure_redis(self) -> None:
-        """确保 Redis 连接"""
-        if self._redis_client is not None:
-            return
-        try:
-            import redis.asyncio as aioredis
-            from core.settings import settings as app_settings
-            self._redis_client = aioredis.from_url(
-                app_settings.redis.url,
-                decode_responses=True,
-                max_connections=10,
-            )
-            await self._redis_client.ping()
-        except Exception as e:
-            logger.error(f"Failed to connect to Redis: {e}")
-            self._redis_client = None
-
-    async def _init_redis_subscriptions(self) -> None:
-        """初始化 Redis 订阅"""
-        await self._ensure_redis()
-        if self._redis_client is None:
-            logger.error("Cannot subscribe: Redis not available")
-            return
-
-        self._status_sub_task = asyncio.create_task(
-            self._subscribe_loop("status", self._status_callback)
-        )
-        self._signal_sub_task = asyncio.create_task(
-            self._subscribe_loop("signal", self._signal_callback)
-        )
-        self._position_sub_task = asyncio.create_task(
-            self._subscribe_loop("position", self._position_callback)
-        )
-        self._health_sub_task = asyncio.create_task(
-            self._subscribe_loop("health", self._health_callback)
-        )
-        # 【v2.9.7: ACK监听器】
-        self._ack_sub_task = asyncio.create_task(
-            self._ack_listener()
-        )
-
-    async def _subscribe_loop(self, channel_suffix: str, callback: Optional[Callable]) -> None:
-        """订阅 Redis 频道的循环"""
-        channel = _chan(self.config, channel_suffix)
-        try:
-            pubsub = self._redis_client.pubsub()
-            await pubsub.subscribe(channel)
-            logger.info(f"Subscribed to {channel}")
-
-            while self._running:
-                message = await pubsub.get_message(
-                    ignore_subscribe_messages=True,
-                    timeout=1.0,
-                )
-                if message and message["type"] == "message":
-                    await self._handle_subscription_message(channel_suffix, message["data"], callback)
-                else:
-                    await asyncio.sleep(0.05)
-
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            logger.error(f"Subscription loop error on {channel}: {e}")
-        finally:
-            try:
-                await pubsub.unsubscribe(channel)
-                await pubsub.close()
-            except Exception as _e:
-                logger.debug(f"pubsub cleanup failed: {_e}")
-
-    async def _handle_subscription_message(
-        self, channel_suffix: str, raw_data: bytes, callback: Optional[Callable]
-    ) -> None:
-        """处理订阅消息: 解析+状态更新+回调【v2.9.56从_subscribe_loop提取】"""
-        try:
-            data = json.loads(raw_data)
-
-            # 特殊处理: 更新状态
-            if channel_suffix == "status" and "state" in data:
-                try:
-                    self._state = ScannerState(data["state"])
-                except ValueError:
-                    pass
-
-            # 特殊处理: 更新健康时间戳
-            if channel_suffix == "health" and "ts" in data:
-                self._last_health_ts = data["ts"]
-
-            # 调用回调
-            if callback:
-                callback(data)
-
-        except json.JSONDecodeError as e:
-            logger.warning(f"Invalid JSON on {channel_suffix}: {e}")
-        except Exception as e:
-            logger.error(f"Callback error on {channel_suffix}: {e}")
-
-    async def _cleanup_redis_subscriptions(self) -> None:
-        """清理 Redis"""
-        if self._redis_client:
-            try:
-                await self._redis_client.close()
-            except Exception as _e:
-                logger.debug(f"redis client close failed: {_e}")
-            self._redis_client = None
-
-    # ------------------------------------------------------------------
-    # 内部: 看门狗
-    # ------------------------------------------------------------------
-
-    async def _watchdog_loop(self) -> None:
-        """看门狗: 检查子进程存活, 挂掉自动重启【v2.9.56:提取_check_subprocess_health】"""
-        while self._running:
-            await asyncio.sleep(self.config.heartbeat_interval)
-
-            if not self._running:
-                break
-
-            # 检查子进程存活
-            if not self.is_alive():
-                if self._restart_count >= self.config.max_restart_count:
-                    logger.error(
-                        f"Scanner subprocess died, max restart count "
-                        f"({self.config.max_restart_count}) reached. "
-                        f"Not restarting."
-                    )
-                    self._state = ScannerState.ERROR
-                    # 【Phase4.4:重启3次失败→飞书紧急告警+可选紧急减仓】
-                    await self._send_emergency_alert("Scanner重启{0}次失败,已停止自动重启!".format(self._restart_count))
-                    break
-
-                await self._restart_subprocess()
-
-            # 检查健康时间戳（子进程可能活着但不响应）
-            elif self._last_health_ts > 0:
-                elapsed = time.time() - self._last_health_ts
-                if elapsed > self.config.heartbeat_interval * 3:
-                    logger.warning(
-                        f"Scanner health check stale ({elapsed:.1f}s), "
-                        f"subprocess may be unresponsive"
-                    )
-
-    async def _restart_subprocess(self) -> None:
-        """重启子进程(清理旧进程+启动新进程)【v2.9.56从_watchdog_loop提取】"""
-        self._restart_count += 1
-        logger.warning(
-            f"Scanner subprocess died! "
-            f"Restarting ({self._restart_count}/{self.config.max_restart_count})..."
-        )
-
-        # 清理旧进程
-        if self._process:
-            try:
-                self._process.join(timeout=3)
-            except Exception as _e:
-                logger.debug(f"process join failed: {_e}")
-
-        # 重启
-        self._start_process()
-
-    # ------------------------------------------------------------------
     # 状态查询
     # ------------------------------------------------------------------
 
@@ -981,73 +655,6 @@ class ScannerDaemon:
             "cmd_ack_timeout": self.config.cmd_ack_timeout,  # 【v2.9.7】
             "config": asdict(self.config),
         }
-    
-    # ==================== Phase4.4: 紧急告警 ====================
-    
-    async def _send_emergency_alert(self, message: str):
-        """重启3次失败→飞书紧急告警+可选紧急减仓"""
-        logger.critical(f"[DAEMON_ALERT] {message}")
-        
-        # 0. Redis告警事件(前端可见)
-        try:
-            if self._redis_client:
-                alert_data = {
-                    "event": "daemon_emergency",
-                    "message": message,
-                    "restart_count": self._restart_count,
-                    "max_restart_count": self.config.max_restart_count,
-                    "ts": time.time(),
-                }
-                await self._redis_client.publish(
-                    _chan(self.config, "health"),
-                    json.dumps(alert_data, default=str)
-                )
-        except Exception as e:
-            logger.debug(f"[DAEMON_ALERT] Redis告警发布失败: {e}")
-        
-        # 1. 飞书告警
-        try:
-            from core.managers.live.signal_pusher import SignalPusher
-            pusher = SignalPusher()
-            pusher.push_signal(f"🚨 **紧急告警**\n{message}\n\n请立即检查Scanner状态!")
-            logger.info("[DAEMON_ALERT] 飞书告警已发送")
-        except Exception as e:
-            logger.warning(f"[DAEMON_ALERT] 飞书告警失败: {e}")
-        
-        # 2. 可选紧急减仓(通过scanner.emergency_liquidate委托)
-        await self._emergency_reduce_positions()
-    
-    async def _emergency_reduce_positions(self):
-        """紧急减仓: 卖出利润最低的50%持仓【v2.9.45提取,v2.9.50接口优化】
-        
-        通过scanner.emergency_liquidate委托, 不再直接操作broker内部。
-        """
-        try:
-            from nodes.web.api.scanner import _get_scanner_instance
-            scanner = _get_scanner_instance()
-            if not scanner:
-                return
-            # 【v2.9.50:用get_positions()统一接口,移除_broker直接访问】
-            positions_dict = scanner.get_positions()
-            if not positions_dict:
-                return
-            # 按profit_pct排序, 保留利润最高的50%
-            sorted_items = sorted(
-                positions_dict.items(),
-                key=lambda kv: kv[1].get("profit_pct", 0),
-                reverse=True,
-            )
-            keep_count = max(1, len(sorted_items) // 2)
-            sell_codes = [code for code, _ in sorted_items[keep_count:]]
-            if sell_codes:
-                # 用liquidate_positions委托, 传入指定标的
-                await scanner._liquidate_positions(
-                    reason="daemon_emergency_reduce",
-                    source="daemon_alert",
-                )
-                logger.warning(f"[DAEMON_ALERT] 紧急减仓{len(sell_codes)}只")
-        except Exception as e:
-            logger.warning(f"[DAEMON_ALERT] 紧急减仓失败: {e}")
 
 
 # ---------------------------------------------------------------------------
