@@ -754,54 +754,52 @@ class TieredScanner:
         sell_signals = []
 
         for pos in positions:
-            ts_code = pos.get("ts_code", "")
-            if not ts_code:
-                continue
-
-            price_info = prices.get(ts_code, {})
-            current_price = price_info.get("price") or price_info.get("biying_price")
-            if not current_price:
-                continue
-
-            cost_price = pos.get("cost_price", 0)
-            if not cost_price:
-                continue
-
-            profit_pct = (current_price - cost_price) / cost_price * 100
-            stop_loss_pct = pos.get("stop_loss_pct", -3.0)
-            take_profit_pct = pos.get("take_profit_pct", 7.0)
-
-            # 止损
-            if profit_pct <= stop_loss_pct:
-                sell_signals.append(SellSignal(
-                    ts_code=ts_code,
-                    stock_name=pos.get("stock_name", ""),
-                    strategy=pos.get("strategy", ""),
-                    sell_reason="stop_loss",
-                    current_price=current_price,
-                    cost_price=cost_price,
-                    profit_pct=profit_pct,
-                    stop_loss_pct=stop_loss_pct,
-                    take_profit_pct=take_profit_pct,
-                    scan_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                ))
-
-            # 止盈
-            elif profit_pct >= take_profit_pct:
-                sell_signals.append(SellSignal(
-                    ts_code=ts_code,
-                    stock_name=pos.get("stock_name", ""),
-                    strategy=pos.get("strategy", ""),
-                    sell_reason="take_profit",
-                    current_price=current_price,
-                    cost_price=cost_price,
-                    profit_pct=profit_pct,
-                    stop_loss_pct=stop_loss_pct,
-                    take_profit_pct=take_profit_pct,
-                    scan_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                ))
+            signal = self._check_single_position_stop_profit(pos, prices)
+            if signal:
+                sell_signals.append(signal)
 
         return sell_signals
+
+    def _check_single_position_stop_profit(
+        self, pos: Dict, prices: Dict[str, Dict]
+    ) -> Optional[SellSignal]:
+        """单只持仓止损止盈检查【v2.9.61:从_l3_builtin_check提取】"""
+        ts_code = pos.get("ts_code", "")
+        if not ts_code:
+            return None
+
+        price_info = prices.get(ts_code, {})
+        current_price = price_info.get("price") or price_info.get("biying_price")
+        if not current_price:
+            return None
+
+        cost_price = pos.get("cost_price", 0)
+        if not cost_price:
+            return None
+
+        profit_pct = (current_price - cost_price) / cost_price * 100
+        stop_loss_pct = pos.get("stop_loss_pct", -3.0)
+        take_profit_pct = pos.get("take_profit_pct", 7.0)
+
+        if profit_pct <= stop_loss_pct:
+            sell_reason = "stop_loss"
+        elif profit_pct >= take_profit_pct:
+            sell_reason = "take_profit"
+        else:
+            return None
+
+        return SellSignal(
+            ts_code=ts_code,
+            stock_name=pos.get("stock_name", ""),
+            strategy=pos.get("strategy", ""),
+            sell_reason=sell_reason,
+            current_price=current_price,
+            cost_price=cost_price,
+            profit_pct=profit_pct,
+            stop_loss_pct=stop_loss_pct,
+            take_profit_pct=take_profit_pct,
+            scan_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        )
 
     # ──────────────────────────── 状态查询 ────────────────────────
 

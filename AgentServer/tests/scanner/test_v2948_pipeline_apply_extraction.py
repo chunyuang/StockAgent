@@ -104,17 +104,19 @@ class TestPipelineMethodExtraction(unittest.TestCase):
         self.assertIn("_apply_L1_force_empty", src)
 
     def test_apply_calls_apply_L3_sentiment(self):
-        """apply方法应调用_apply_L3_sentiment"""
-        m = self._get_method("LiveFilterPipeline", "apply")
+        """apply→_apply_filter_layers→_apply_L3_sentiment"""
+        # v2.9.61: L2~L7提取到_apply_filter_layers, 检查新方法包含调用
+        m = self._get_method("LiveFilterPipeline", "_apply_filter_layers")
         src = ast.get_source_segment(self.src, m)
         self.assertIn("_apply_L3_sentiment", src)
 
     def test_apply_calls_apply_filter_layer(self):
-        """apply方法应调用_apply_filter_layer(L4/L5/L7)"""
-        m = self._get_method("LiveFilterPipeline", "apply")
+        """_apply_filter_layers应调用_apply_filter_layer(L4/L5/L7)"""
+        # v2.9.61: 调用从apply移到_apply_filter_layers
+        m = self._get_method("LiveFilterPipeline", "_apply_filter_layers")
         src = ast.get_source_segment(self.src, m)
         count = src.count("_apply_filter_layer")
-        self.assertGreaterEqual(count, 3, f"apply应至少调用_apply_filter_layer 3次, 实际{count}次")
+        self.assertGreaterEqual(count, 3, f"_apply_filter_layers应至少调用_apply_filter_layer 3次, 实际{count}次")
 
     def test_no_duplicate_before_after_pattern_in_apply(self):
         """apply方法中不应再有重复的before_ids/after_ids/dropped模式(应使用_apply_filter_layer)"""
