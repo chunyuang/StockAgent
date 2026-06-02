@@ -233,6 +233,7 @@ def _make_circuit_breaker_handler(scanner) -> Callable:
 def _make_scan_completed_handler(scanner) -> Callable:
     """扫描完成事件handler"""
     async def on_scan_completed(data: Dict[str, Any]) -> None:
+        """扫描完成事件: 更新健康指标时间戳"""
         # 更新健康指标时间戳
         scanner._last_scan_ts = time.time()
         # Redis状态推送(轻量,不含信号详情)
@@ -248,6 +249,7 @@ def _make_scan_completed_handler(scanner) -> Callable:
 def _make_quote_degraded_handler(scanner) -> Callable:
     """行情降级事件handler"""
     async def on_quote_degraded(data: Dict[str, Any]) -> None:
+        """行情降级事件: 推送Redis降级警告"""
         # Redis推送(前端应显示降级警告)
         await _push_to_redis(scanner, "scanner:status", {
             "event": "quote_degraded",
@@ -264,6 +266,7 @@ def _make_quote_degraded_handler(scanner) -> Callable:
 def _make_quote_recovered_handler(scanner) -> Callable:
     """行情恢复事件handler"""
     async def on_quote_recovered(data: Dict[str, Any]) -> None:
+        """行情恢复事件: 推送Redis恢复通知"""
         # Redis推送
         await _push_to_redis(scanner, "scanner:status", {
             "event": "quote_recovered",
@@ -279,6 +282,7 @@ def _make_quote_recovered_handler(scanner) -> Callable:
 def _make_param_updated_handler(scanner) -> Callable:
     """参数更新事件handler"""
     async def on_param_updated(data: Dict[str, Any]) -> None:
+        """参数更新事件: 写审计日志(合规要求)"""
         # 审计日志(参数变更是合规要求)
         await _write_audit_log(scanner, "param_updated", data)
     on_param_updated.__name__ = "on_param_updated"
@@ -288,6 +292,7 @@ def _make_param_updated_handler(scanner) -> Callable:
 def _make_emotion_changed_handler(scanner) -> Callable:
     """情绪变化事件handler"""
     async def on_emotion_changed(data: Dict[str, Any]) -> None:
+        """情绪变化事件: 推送Redis状态(前端情绪面板)"""
         # Redis状态推送(前端情绪面板实时更新)
         await _push_to_redis(scanner, "scanner:status", {
             "event": "emotion_changed",
@@ -330,6 +335,7 @@ def _make_daily_settled_handler(scanner) -> Callable:
 def _make_signal_generated_handler(scanner) -> Callable:
     """信号生成事件handler"""
     async def on_signal_generated(data: Dict[str, Any]) -> None:
+        """信号生成事件: 推送Redis Stream(不可丢)"""
         # Redis信号推送(Phase2.1: Redis Stream, 不可丢)
         await _push_to_redis(scanner, "scanner:signal", {
             "event": "signal_generated",
