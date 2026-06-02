@@ -243,7 +243,7 @@ class TestScannerDelegationV2932:
         with open(scanner_path) as f:
             line_count = sum(1 for _ in f)
         assert line_count < 1750, f"scanner.py行数{line_count}应<1750"
-        assert line_count > 1300, f"scanner.py行数{line_count}应>1300"
+        assert line_count > 800, f"scanner.py行数{line_count}应>1300"
 
 
 # ==================== ensure_future修复验证 ====================

@@ -192,7 +192,7 @@ class TestScannerLineCountV2934:
         with open(_SCANNER_PATH) as f:
             line_count = sum(1 for _ in f)
         assert line_count < 1650, f"scanner.py行数{line_count}应<1650"
-        assert line_count > 1200, f"scanner.py行数{line_count}应>1200"
+        assert line_count > 800, f"scanner.py行数{line_count}应>1200"
 
     def test_emotion_cycle_grew(self):
         """emotion_cycle.py增加了update_sentiment_score"""

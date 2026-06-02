@@ -10,6 +10,7 @@ v2.9.43 测试: _scan_loop_settlement提取 + _emit_risk_thread_error委托RiskW
 import os
 import pytest
 import inspect
+from scanner_test_helpers import read_all_scanner_sources
 
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _SCANNER = os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "scanner.py")
@@ -28,12 +29,12 @@ class TestScanLoopSettlementDelegation:
 
     def test_method_exists(self):
         """_scan_loop_settlement方法存在"""
-        source = _read(_SCANNER)
+        source = read_all_scanner_sources()
         assert "def _scan_loop_settlement" in source
 
     def test_delegates_to_runtime_persistence(self):
         """委托给RuntimePersistence.daily_settlement"""
-        source = _read(_SCANNER)
+        source = read_all_scanner_sources()
         idx = source.find("def _scan_loop_settlement")
         assert idx > 0
         method_code = source[idx:idx+400]
@@ -42,7 +43,7 @@ class TestScanLoopSettlementDelegation:
 
     def test_no_inline_broker_settlement(self):
         """scanner中不再内联broker.daily_settlement"""
-        source = _read(_SCANNER)
+        source = read_all_scanner_sources()
         idx = source.find("def _scan_loop_settlement")
         assert idx > 0
         method_code = source[idx:idx+400]
@@ -101,12 +102,12 @@ class TestEmitRiskThreadErrorDelegation:
 
     def test_method_exists(self):
         """_emit_risk_thread_error方法存在"""
-        source = _read(_SCANNER)
+        source = read_all_scanner_sources()
         assert "def _emit_risk_thread_error" in source
 
     def test_delegates_to_risk_watchdog(self):
         """委托给RiskWatchdog.emit_risk_thread_error"""
-        source = _read(_SCANNER)
+        source = read_all_scanner_sources()
         idx = source.find("def _emit_risk_thread_error")
         assert idx > 0
         method_code = source[idx:idx+400]
@@ -115,7 +116,7 @@ class TestEmitRiskThreadErrorDelegation:
 
     def test_no_inline_call_soon(self):
         """scanner中不再内联call_soon_threadsafe"""
-        source = _read(_SCANNER)
+        source = read_all_scanner_sources()
         idx = source.find("def _emit_risk_thread_error")
         assert idx > 0
         method_code = source[idx:idx+400]
@@ -145,7 +146,7 @@ class TestEmitRiskThreadErrorDelegation:
 
     def test_risk_loop_still_calls_method(self):
         """_risk_loop_sync仍调用_emit_risk_thread_error"""
-        source = _read(_SCANNER)
+        source = read_all_scanner_sources()
         idx = source.find("def _risk_loop_sync")
         assert idx > 0
         method_code = source[idx:idx+2000]
@@ -202,7 +203,7 @@ class TestMarketPhaseIsTradingActive:
 
     def test_accepts_phase_arg(self):
         """接受phase参数(避免重复classify)"""
-        source = _read(_SCANNER)
+        source = read_all_scanner_sources()
         idx = source.find("def is_trading_active")
         assert idx > 0
         sig = source[idx:idx+200]
@@ -246,7 +247,7 @@ class TestVersionSync:
     def test_design_doc_version_in_api(self):
         """API版本号为v2.9.43"""
         source = _read(_API)
-        assert '_DESIGN_DOC_VERSION = "v2.9.66"' in source
+        assert '_DESIGN_DOC_VERSION = "v2.9.67"' in source
 
 
 class TestNoBacktestRegressionV2939:

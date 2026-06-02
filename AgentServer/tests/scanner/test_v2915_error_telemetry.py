@@ -10,6 +10,7 @@ v2.9.15 — 错误遥测 + 参数预检 + 事件扩展 测试
 """
 import os
 import pytest
+from scanner_test_helpers import read_all_scanner_sources
 
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _EVENT_BUS = os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "scanner_event_bus.py")
@@ -43,13 +44,13 @@ class TestScannerErrorEvent:
 
     def test_scan_loop_emits_error_on_exception(self):
         """scan_loop主循环异常时发射SCANNER_ERROR"""
-        source = _read(_SCANNER)
+        source = read_all_scanner_sources()
         # 主循环except块应有emit(SCANNER_ERROR)
         assert "ScannerEvents.SCANNER_ERROR" in source
 
     def test_risk_thread_emits_error(self):
         """风控线程异常时发射SCANNER_ERROR(v2.9.39:委托给RiskWatchdog)"""
-        source = _read(_SCANNER)
+        source = read_all_scanner_sources()
         # 查找风控线程except块
         idx = source.find("[RISK_THREAD] 风控线程异常")
         assert idx > 0, "缺少风控线程异常日志"

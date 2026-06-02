@@ -1,4 +1,4 @@
-"""v2.9.66 测试: P0-2 MarketMonitorView script拆分 + 测试断言更新"""
+"""v2.9.67 测试: P0-2 MarketMonitorView script拆分 + 测试断言更新"""
 
 import os
 import pytest
@@ -15,7 +15,7 @@ def _read_version():
     with open(version_file) as f:
         for line in f:
             if '_DESIGN_DOC_VERSION' in line and '=' in line:
-                # _DESIGN_DOC_VERSION = "v2.9.66"
+                # _DESIGN_DOC_VERSION = "v2.9.67"
                 return line.split('"')[1]
     return None
 
@@ -24,8 +24,8 @@ class TestVersionV2965:
     """版本号验证"""
 
     def test_design_doc_version_is_v2965(self):
-        """设计文档版本应为v2.9.66"""
-        assert _read_version() == "v2.9.66"
+        """设计文档版本应为v2.9.67"""
+        assert _read_version() == "v2.9.67"
 
 
 class TestMarketMonitorViewComposableRefactor:
@@ -70,7 +70,7 @@ class TestMarketMonitorViewComposableRefactor:
         script_end = source.find('</script>', script_start)
         script_content = source[script_start:script_end]
         script_lines = [l for l in script_content.split('\n') if l.strip() and not l.strip().startswith('//')]
-        # v2.9.66: script应为薄壳,只做import+destructure+return
+        # v2.9.67: script应为薄壳,只做import+destructure+return
         assert len(script_lines) <= 100, f"MarketMonitorView script应为薄壳(≤100行有效代码), 实际{len(script_lines)}行"
 
     def test_composable_exports_use_scanner_store(self):
@@ -119,7 +119,7 @@ class TestPhase4TestFix:
             pytest.skip("test_phase4_health_version.py not found")
         with open(test_file) as f:
             source = f.read()
-        # v2.9.66: 测试应接受useScannerMonitor作为合法的组件模式
+        # v2.9.67: 测试应接受useScannerMonitor作为合法的组件模式
         assert "useScannerMonitor" in source, "测试应接受useScannerMonitor composable模式"
 
 
