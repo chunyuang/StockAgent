@@ -395,7 +395,7 @@ class TestNoBacktestRegressionV2961(unittest.TestCase):
         scanner_api = os.path.join(_AGENT_DIR, "nodes", "web", "api", "scanner_system.py")
         with open(scanner_api) as f:
             content = f.read()
-        self.assertIn('v2.9.63', content)
+        self.assertIn('v2.9.64', content)
 
 
 if __name__ == "__main__":

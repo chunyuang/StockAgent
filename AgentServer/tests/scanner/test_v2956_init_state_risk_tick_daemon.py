@@ -298,7 +298,7 @@ class TestNoBacktestRegressionV2956:
         project_root = os.path.abspath(os.path.join(base_dir, "..", ".."))
         with open(os.path.join(project_root, "nodes/web/api/scanner_system.py")) as f:
             source = f.read()
-        assert '_DESIGN_DOC_VERSION = "v2.9.63"' in source
+        assert '_DESIGN_DOC_VERSION = "v2.9.64"' in source
 
 
 # ---------------------------------------------------------------------------

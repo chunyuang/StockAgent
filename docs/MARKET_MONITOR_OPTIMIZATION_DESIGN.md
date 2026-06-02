@@ -1,6 +1,6 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.63 | 日期: 2026-06-02 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.64 | 日期: 2026-06-02 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
 > 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats✅ | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化✅ | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复✅ | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复✅ | v2.9.24 diagnose+情绪调仓提取+DelegateRouter策略扩展✅ | v2.9.25 update_strategy_config bug修复+bare except清理+_init_modules拆分✅ | v2.9.26 全模块bare except清理+position_checker._execute_sell_list提取3子方法✅ | v2.9.27 方法提取到子模块5个+测试适配✅ | v2.9.28 风控线程拆分+filter合并提取+scan_loop错误恢复✅ | v2.9.31 _safe_read_state统一+RuntimeWarning修复+get_positions提取✅ | v2.9.34 情绪得分+收盘同步提取→子模块✅ | v2.9.35 卖出执行提取到PositionManager✅ | v2.9.36 审查P0/P1修复+WS断线补发+前端错误提示 | v2.9.37 _save_param_snapshot提取+_init_state类属性瘦身+start()30行 | v2.9.38 _run_checker_on_positions提取+compare差异持久化+_post_sell_state_cleanup统一 | v2.9.39 _scan_loop_settlement提取→RuntimePersistence+_emit_risk_thread_error委托RiskWatchdog+MarketPhase.is_trading_active+position_checker except修复 | v2.9.42 参数管理6方法DELEGATE_MAP委托+StrategyParamCenter路由策略+scanner 1382行 | v2.9.43 signal_manager方法提取7子方法(execute_signals 161→24行+update_signals 96→9行)+版本同步+1000测试全通过 | v2.9.44 _SubprocessRuntime提取(scanner_daemon 303行闭包→独立类+命令路由表5子handler+_send_ack统一+16新增测试) | v2.9.46 bare except清理(web API)+版本同步+_check_stop_loss_take_profit简化+section合并 | v2.9.47 getattr/hasattr防御消除+关键路径日志级别提升+18新增测试 | v2.9.48 pipeline.apply提取(187→103)+broker.place_order提取(182→109)+33新增测试 | v2.9.49 审查P0安全修复(WS Token首条消息认证+Trading API越权访问)+P1修复(Stream consumer动态化+持仓批量价格查询)+P2修复(System API同步MongoDB→异步)+19新增测试 | v2.9.50 🔴Daemon方法名Bug修复(update_strategy_params→update_strategy_config/run_once→scan_once)+hasattr防御清理6处+except Exception收窄9处+15新增测试 | v2.9.51 getattr防御清理18处+broker正式接口(get_limit_prices/get_realtime_prices)+🔴_daily_start_asset日内回撤永远为0bug修复+_last_scan_duration_ms初始化+22新增测试 | v2.9.52 getattr/hasattr清理(broker/position_manager/runtime_persistence/strategy_scorer/risk_watchdog 5文件)+DELEGATE_MAP外提到scanner_delegate_router(scanner 1391→1308 -83行)+@classmethod@property兼容别名+7测试文件更新+1177测试全通过 |
@@ -10,7 +10,75 @@
 | v2.9.61 live_filter_pipeline.apply 103→48行+2方法提取(_apply_filter_layers+_finalize_traces)+emotion_cycle.handle_emotion_phase_change 64→47行+2方法提取(_execute_emotion_batch_sell+_emit_rebalance_event)+_calculate_zt_premium 54→12行+2方法提取(_get_prev_trade_date+_calc_avg_zt_premium)+scanner_delegate_router.resolve_delegate 62→16行(if/elif→_DISPATCH_TABLE路由表)+tiered_scanner._l3_builtin_check 58→17行+_check_single_position_stop_profit提取+broker._match 57→28行+_calc_dynamic_slippage提取+risk_watchdog._check_heartbeat 51→13行+2方法提取(_judge_startup_heartbeat+_judge_heartbeat_elapsed)+47新增测试+1421全通过 |
 | v2.9.62 quote_manager 3方法提取(_map_em_item_to_realtime+_handle_em_degrade_recovery+_handle_em_fetch_failure, _fetch_eastmoney_data 54→22行)+tiered_scanner 4方法提取(_fetch_l3_eastmoney_batch+_fetch_l3_biying_snapshot+_map_quote_to_price_dict+_map_l2_quote_to_dict, _fetch_l3_prices 52→26行)+signal_manager 2方法提取(_build_buy_timeline_entry+_emit_buy_events, _post_buy_success 52→8行)+position_manager 2方法提取(_update_single_trailing_stop+_retry_single_pending_sell, update_trailing_stops 52→31行+retry_pending_sells 52→21行)+live_filter_pipeline 2方法提取(_calc_opening_pct+_check_auction_pass, _auction_filter 52→32行)+strategy_scorer 3方法提取(_check_broken_board+_check_strong_limit+_check_surge, _check_single_anomaly 52→37行)+48新增测试+1469全通过(>50行方法12→5, -58%) |
 | v2.9.59 emotion_cycle 5方法提取(_try_add_pending_sell死代码消除+update_sentiment_score 4子方法)+signal_dispatcher 3方法提取(dispatch 63→15 -76%)+event_bus 1方法提取(emit 59→21 -64%)+strategy_scorer 3方法提取(merge_factors 58→7 -88%)+runtime_persistence 3方法提取(post_sell_cleanup 57→22 -61%)+execution_quality 2方法提取(check_buy 71→19 -73%)+risk_watchdog 2方法提取(_check_drawdown 69→28 -59%)+21新增测试+1450全通过 |
-> 回测影响: 零文件修改, 1459测试全通过(scanner 1358+backtest 101)
+| v2.9.63 >50行方法清零(5方法提取+scanner API路径修正)+26新增测试+1481全通过 |
+| v2.9.64 🔴P0利润锁定补齐(_check_intraday_profit_lock)+🔴P0龙头5天低利润补齐(_check_dragon_head_early_exit)+DEBUG注释清理+27新增测试+1607全通过 |
+> 回测影响: 零文件修改, 1607测试全通过(scanner 1506+backtest 101)
+
+---
+
+## 五十三、v2.9.64 🔴P0利润锁定+龙头5天低利润补齐 + DEBUG清理 (2026-06-02)
+
+### 53.1 设计目标
+
+1. **🔴 利润锁定补齐**: PositionManager._check_intraday_profit_lock新增, 盘中冲高>=6%但从高点回撤>=2.5%且收盘仍盈>=2%→以close价卖出(与sell_signal_checker.check_intraday_profit_lock对齐)
+2. **🔴 龙头5天低利润补齐**: PositionManager._check_dragon_head_early_exit新增, 龙头低吸持仓>=5天且利润<3%→提前退出(与sell_signal_checker龙头5天低利润对齐)
+3. **🟡 _check_intraday_rules集成**: 两个新条件插入规则链(利润保护之后/高开即卖之前 + 链末尾)
+4. **🟢 DEBUG注释清理**: runtime_persistence.py中的DEBUG日志移除
+5. **🟢 版本常量**: v2.9.63→v2.9.64
+
+### 53.2 设计决策
+
+**利润锁定参数来源**: 从strategy_defaults.GLOBAL_RISK读取(intraday_lock_min_high_rise/intraday_lock_pullback_pct/intraday_lock_min_profit), 与回测引擎单一来源对齐。risk参数可覆盖策略级阈值。
+
+**盘中最高价获取**: 优先从追踪止损的high_price字段读取(实时更新,更精确), 无追踪止损时回退到current_price(无回撤,不触发)。
+
+**龙头5天低利润策略过滤**: 仅对dragon_head/龙头低吸策略生效, 避免影响其他策略的正常超时逻辑。持仓天数通过_calc_trade_days_held计算(复用Backtester)。
+
+**trade_date获取**: 通过hasattr(scanner, '_trade_date') + scanner._trade_date获取(不使用getattr防御模式)。
+
+### 53.3 变更文件
+
+| 文件 | 变更 |
+|---|---|
+| position_manager.py | 2个方法新增(_check_intraday_profit_lock+_check_dragon_head_early_exit)+_check_intraday_rules集成 |
+| runtime_persistence.py | DEBUG注释清理 |
+| web/api/scanner_system.py | _DESIGN_DOC_VERSION→v2.9.64 |
+| test_v2964_profit_lock_dragon_exit.py | 新增27测试 |
+| 17个版本断言文件 | v2.9.63→v2.9.64 |
+
+### 53.4 卖出条件对齐状态
+
+| 卖出条件 | v2.9.63 | v2.9.64 | 差异 |
+|---|---|---|---|
+| 固定止损 | ✅ | ✅ | 一致 |
+| 跳空止损 | ✅ | ✅ | 一致 |
+| 追踪止损 | ✅ | ✅ | 一致 |
+| 冲高回落 | ✅ | ✅ | 一致 |
+| 利润保护 | ✅ | ✅ | 一致 |
+| **利润锁定** | **❌缺失** | **✅** | **v2.9.64补齐** |
+| 高开即卖 | ✅ | ✅ | 一致 |
+| 龙头5天低利润 | **❌缺失** | **✅** | **v2.9.64补齐** |
+| 固定止盈 | ✅ | ✅ | 一致 |
+| 超时强卖 | ✅ | ✅ | 一致 |
+| 移动止损(保本) | ✅ | ✅ | 一致 |
+| 跌停不可卖 | ✅ | ✅ | Broker层 |
+
+### 53.5 测试覆盖 (27新增)
+
+| 测试类 | 用例数 | 覆盖点 |
+|---|---|---|
+| TestIntradayProfitLock | 8 | 触发+不触发(3种边界)+无追踪止损+零成本+GLOBAL_RISK默认值 |
+| TestDragonHeadEarlyExit | 8 | 触发+不触发(3种边界)+中文策略名+无买入日期+无交易日期+GLOBAL_RISK默认值 |
+| TestIntradayRulesIntegration | 4 | 利润锁定集成+龙头低利润集成+冲高回落优先级+零开盘价 |
+| TestMethodExistence | 3 | 方法存在+文档字符串更新 |
+| TestVersionV2964 | 2 | 版本常量+源文件断言 |
+| TestNoBacktestRegression | 3 | sell_signal_checker未修改+strategy_defaults未修改+变更范围验证 |
+
+**全量测试**: 1607 passed (0 failed)
+
+### 53.6 回测影响
+
+零。所有变更仅影响market_monitor模块PositionManager内部卖出逻辑补齐, 回测引擎零文件修改。
 
 ---
 
@@ -973,11 +1041,11 @@ v2.0关键修正:
 | 冲高回落 | ✅ | ✅ | 参数可能不同 |
 | 利润保护 | ✅ | ✅ | 参数可能不同 |
 | 高开即卖 | ✅ | ✅ | 一致 |
-| **利润锁定** | **❌缺失** | ✅ | **Scanner漏了!盘中冲高8%回撤3%不触发** |
+| **利润锁定** | **✅v2.9.64补齐** | ✅ | v2.9.64补齐,与checker对齐 |
 | 固定止盈 | ✅ | ✅ | 一致 |
 | 超时强卖 | ✅ | ✅ | 一致 |
 | 移动止损(保本) | ✅(盈利>2SL→保本) | ❌ | **Scanner独有,迁移前补到checker** |
-| 龙头5天低利润 | ❌ | ✅ | **Scanner漏了** |
+| 龙头5天低利润 | **✅v2.9.64补齐** | ✅ | v2.9.64补齐,与checker对齐 |
 | 跌停不可卖 | ✅ `_is_limit_down` | N/A | Broker层逻辑,checker不管 |
 
 ### 1.6 仓位计算：两层逻辑
@@ -1004,7 +1072,7 @@ dynamic_ratio:  持仓>50%时递减(已有逻辑)
 | P0-3 | 扫描和风控抢时间 | 止损延迟 | 风控无独立调度 |
 | P0-4 | Redis Pub/Sub无保障 | 信号/状态丢失 | 无ACK机制 |
 | P0-5 | 实盘-回测卖出逻辑分叉 | 回测结果不可信 | Scanner内嵌卖出逻辑 |
-| P0-6 | Scanner缺利润锁定 | 盘中利润回吐 | V42对齐不完整 |
+| P0-6 | Scanner缺利润锁定 | ~~盘中利润回吐~~ | v2.9.64补齐 |
 | P0-7 | 追踪止损/移动止损迁移后会丢 | 迁移后风控退化 | checker无状态 |
 
 ---

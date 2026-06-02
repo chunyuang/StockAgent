@@ -311,10 +311,6 @@ class RuntimePersistence:
             if not filter_result or not filter_result.trace_candidates:
                 return
             
-            # DEBUG: 检查layer_details是否为空
-            if not filter_result.layer_details:
-                logger.warning(f"[SCAN] layer_details为空! layers_applied={dict(filter_result.layers_applied)}, candidates={len(filter_result.trace_candidates)}")
-            
             # 分离passed和rejected候选
             passed_candidates, rejected_summary = self._split_trace_candidates(filter_result.trace_candidates)
             
