@@ -1,4 +1,4 @@
-"""v2.9.58: gm_broker策略脚本拆分 + quote_manager方法提取 + scanner_daemon.run拆分
+"""v2.9.59: gm_broker策略脚本拆分 + quote_manager方法提取 + scanner_daemon.run拆分
 
 测试覆盖:
 1. GmBroker._generate_strategy_script拆分为6个模板方法
@@ -190,7 +190,7 @@ class TestBigMethodsReduction(unittest.TestCase):
     """超过50行方法数减少"""
 
     def test_big_method_count_decreased(self):
-        """v2.9.58: >50行方法数应<37(v2.9.56为37, gm_broker -1, daemon -0)"""
+        """v2.9.59: >50行方法数应<37(v2.9.56为37, gm_broker -1, daemon -0)"""
         big_count = 0
         for root_dir, dirs, files in os.walk(NODES):
             for f in files:
@@ -210,7 +210,7 @@ class TestBigMethodsReduction(unittest.TestCase):
 
 
 class TestNoBacktestRegressionV2957(unittest.TestCase):
-    """v2.9.58变更不影响回测模块"""
+    """v2.9.59变更不影响回测模块"""
 
     def test_backtest_files_unchanged(self):
         """回测引擎文件不应被修改"""
@@ -224,22 +224,22 @@ class TestNoBacktestRegressionV2957(unittest.TestCase):
             if os.path.exists(path):
                 with open(path) as fh:
                     content = fh.read()
-                # Should not contain v2.9.58 references
-                self.assertNotIn("v2.9.58", content, f"{f}不应包含v2.9.58引用")
+                # Should not contain v2.9.59 references
+                self.assertNotIn("v2.9.59", content, f"{f}不应包含v2.9.59引用")
 
     def test_design_doc_version(self):
-        """Web API版本常量应为v2.9.58"""
+        """Web API版本常量应为v2.9.59"""
         api_path = os.path.join(ROOT, "nodes", "web", "api", "scanner.py")
         with open(api_path) as f:
             content = f.read()
-        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.58"', content)
+        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.59"', content)
 
     def test_scanner_version_constant(self):
         """scanner模块应能正常导入"""
         sys.path.insert(0, ROOT)
         try:
             from nodes.web.api.scanner import _DESIGN_DOC_VERSION
-            self.assertEqual(_DESIGN_DOC_VERSION, "v2.9.58")
+            self.assertEqual(_DESIGN_DOC_VERSION, "v2.9.59")
         except ImportError:
             self.skipTest("scanner module import failed")
 

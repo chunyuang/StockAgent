@@ -430,20 +430,29 @@ class RuntimePersistence:
         self, pos, reason: str, order, quantity: int,
         profit_pct: float, profit_amount: float, *, source: str = "sell",
     ) -> None:
-        """卖出成功后统一清理: timeline+统计+状态清理+事件+持久化
-
-        v2.9.19从scanner提取, v2.9.22:统计分类+提取_build_timeline_entry
-        v2.9.27:从scanner.py移入RuntimePersistence
-        """
+        """卖出成功后统一清理(编排方法)"""
         scanner = self._scanner
+
         # Timeline记录
         entry = self.build_timeline_entry(
-            pos, reason, order, quantity,
-            profit_pct, profit_amount, source=source,
-        )
+            pos, reason, order, quantity, profit_pct, profit_amount, source=source)
         scanner._timeline.append(entry)
-        # v2.9.22:按卖出原因分类统计,修复所有卖出都计为stop_losses的bug
-        # v2.9.45:兼容中文reason(止损/止盈)和英文reason(stop_loss/take_profit)
+
+        self._classify_sell_stats(scanner, reason)
+        scanner._record_trade_result(profit_pct / 100.0)
+
+        with scanner._state_lock:
+            scanner._trailing_stops.pop(pos.ts_code, None)
+            scanner._position_risk_levels.pop(pos.ts_code, None)
+
+        await self._emit_sell_events(scanner, pos, reason, order, entry, profit_pct)
+        logger.info(f"[{source.upper()}] {reason}: {pos.ts_code} {quantity}股@{order.filled_price:.2f}")
+
+        await self._persist_sell_state(scanner)
+
+    @staticmethod
+    def _classify_sell_stats(scanner, reason: str) -> None:
+        """按卖出原因分类统计"""
         reason_lower = reason.lower() if isinstance(reason, str) else ""
         if reason_lower in ("stop_loss", "gap_stop_loss", "trailing_stop") or "止损" in reason:
             scanner._stats["stop_losses"] += 1
@@ -451,13 +460,10 @@ class RuntimePersistence:
             scanner._stats["take_profits"] += 1
         else:
             scanner._stats["trades_executed"] += 1
-        # 记录交易结果到circuit_breaker(v2.9.9:profit_pct/100转比率)
-        scanner._record_trade_result(profit_pct / 100.0)
-        # 清理追踪止损(线程安全)
-        with scanner._state_lock:
-            scanner._trailing_stops.pop(pos.ts_code, None)
-            scanner._position_risk_levels.pop(pos.ts_code, None)
-        # 事件通知(timeline + EventBus)
+
+    @staticmethod
+    async def _emit_sell_events(scanner, pos, reason, order, entry, profit_pct) -> None:
+        """发射卖出事件(timeline + EventBus)"""
         try:
             await scanner._publish_scanner_event("timeline", {"item": entry})
         except Exception as _e:
@@ -466,15 +472,15 @@ class RuntimePersistence:
             from nodes.market_monitor.scanner_event_bus import ScannerEvents
             await scanner._event_bus.emit(ScannerEvents.RISK_SELL_EXECUTED, {
                 "ts_code": pos.ts_code, "reason": reason,
-                "price": order.filled_price, "profit_pct": profit_pct,
-            })
+                "price": order.filled_price, "profit_pct": profit_pct})
             await scanner._event_bus.emit(ScannerEvents.POSITION_CHANGED, {
-                "ts_code": pos.ts_code, "action": "sell", "reason": reason,
-            })
+                "ts_code": pos.ts_code, "action": "sell", "reason": reason})
         except Exception as _e:
             logger.debug(f"[SCANNER] 卖出事件发射失败: {_e}")
-        logger.info(f"[{source.upper()}] {reason}: {pos.ts_code} {quantity}股@{order.filled_price:.2f}")
-        # 持久化(broker + 运行时快照)
+
+    @staticmethod
+    async def _persist_sell_state(scanner) -> None:
+        """持久化broker状态+运行时快照"""
         try:
             await scanner._broker.save_state(force=True)
         except Exception as _e:

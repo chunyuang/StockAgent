@@ -306,21 +306,18 @@ class TestEventBusEmissionCompleteness:
     """验证所有交易路径都发射了EventBus事件"""
 
     def test_position_checker_emits_events(self):
-        """PositionChecker卖出后发射RISK_SELL_EXECUTED+POSITION_CHANGED
-        
-        v2.9.45: _post_sell_processing委托给RuntimePersistence.post_sell_cleanup,
-        事件由post_sell_cleanup统一发射,PositionChecker不再直接发射。
-        """
+        """PositionChecker卖出后发射RISK_SELL_EXECUTED+POSITION_CHANGED"""
         import inspect
         from nodes.market_monitor.position_checker import PositionChecker
         from nodes.market_monitor.runtime_persistence import RuntimePersistence
-        # 验证PositionChecker委托给RuntimePersistence
         source = inspect.getsource(PositionChecker)
         assert "post_sell_cleanup" in source, "PositionChecker._post_sell_processing应委托给post_sell_cleanup"
-        # 验证RuntimePersistence中包含EventBus发射逻辑
+        # v2.9.59: EventBus发射已提取到_emit_sell_events
         cleanup_source = inspect.getsource(RuntimePersistence.post_sell_cleanup)
-        assert "RISK_SELL_EXECUTED" in cleanup_source
-        assert "POSITION_CHANGED" in cleanup_source
+        if "RISK_SELL_EXECUTED" not in cleanup_source:
+            emit_source = inspect.getsource(RuntimePersistence._emit_sell_events)
+            assert "RISK_SELL_EXECUTED" in emit_source
+            assert "POSITION_CHANGED" in emit_source
 
     def test_signal_manager_emits_position_changed_on_buy(self):
         """SignalManager买入后发射POSITION_CHANGED"""
@@ -333,23 +330,23 @@ class TestEventBusEmissionCompleteness:
         """_execute_risk_sell→post_sell_cleanup发射RISK_SELL_EXECUTED+POSITION_CHANGED"""
         import inspect
         from nodes.market_monitor.runtime_persistence import RuntimePersistence
-        # v2.9.27: 事件发射在RuntimePersistence.post_sell_cleanup中
         cleanup_source = inspect.getsource(RuntimePersistence.post_sell_cleanup)
-        assert "RISK_SELL_EXECUTED" in cleanup_source
-        assert "POSITION_CHANGED" in cleanup_source
+        if "RISK_SELL_EXECUTED" not in cleanup_source:
+            emit_source = inspect.getsource(RuntimePersistence._emit_sell_events)
+            assert "RISK_SELL_EXECUTED" in emit_source
+            assert "POSITION_CHANGED" in emit_source
 
     def test_all_sell_paths_emit_events(self):
-        """验证所有卖出路径(风控/PositionChecker/情绪调仓)都发射EventBus事件"""
+        """验证所有卖出路径都发射EventBus事件"""
         import inspect
         from nodes.market_monitor.runtime_persistence import RuntimePersistence
-        # 风控卖出 → post_sell_cleanup
         cleanup_source = inspect.getsource(RuntimePersistence.post_sell_cleanup)
-        assert "RISK_SELL_EXECUTED" in cleanup_source
-        # 情绪调仓卖出 — _handle_emotion_phase_change已提取到EmotionCycleManager【v2.9.24】
+        if "RISK_SELL_EXECUTED" not in cleanup_source:
+            emit_source = inspect.getsource(RuntimePersistence._emit_sell_events)
+            assert "RISK_SELL_EXECUTED" in emit_source
         from nodes.market_monitor.emotion_cycle import EmotionCycleManager
         emotion_source = inspect.getsource(EmotionCycleManager.handle_emotion_phase_change)
         from nodes.market_monitor.scanner import MarketScanner
-        # 【v2.9.31:EMOTION_CHANGED发射从_apply_filter_pipeline提取到_process_filter_result】
         filter_pipeline_source = inspect.getsource(MarketScanner._apply_filter_pipeline)
         process_result_source = inspect.getsource(MarketScanner._process_filter_result)
         assert "EMOTION_CHANGED" in filter_pipeline_source + process_result_source

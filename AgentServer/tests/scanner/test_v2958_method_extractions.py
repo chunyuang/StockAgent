@@ -207,6 +207,112 @@ class TestRiskWatchdogDrawdownExtraction(unittest.TestCase):
         self.assertNotIn("async def _compute_drawdowns", src)
 
 
+class TestEmotionCycleV2959Extraction(unittest.TestCase):
+    """v2.9.59 emotion_cycle提取验证"""
+
+    def setUp(self):
+        self.tree = _parse(os.path.join(MM_DIR, "emotion_cycle.py"))
+        with open(os.path.join(MM_DIR, "emotion_cycle.py")) as f:
+            self.src = f.read()
+
+    def test_try_add_pending_sell_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_try_add_pending_sell"))
+
+    def test_build_emotion_sell_list_under_50(self):
+        lines = _method_lines(self.tree, "build_emotion_sell_list")
+        self.assertLess(lines, 50, f"build_emotion_sell_list should be <50 lines, got {lines}")
+
+    def test_update_sentiment_score_under_15(self):
+        lines = _method_lines(self.tree, "update_sentiment_score")
+        self.assertLess(lines, 15, f"update_sentiment_score should be <15 lines, got {lines}")
+
+    def test_fetch_limit_stats_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_fetch_limit_stats"))
+
+    def test_fetch_up_down_ratio_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_fetch_up_down_ratio"))
+
+    def test_calc_sentiment_score_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_calc_sentiment_score"))
+
+    def test_persist_sentiment_score_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_persist_sentiment_score"))
+
+
+class TestSignalDispatcherExtraction(unittest.TestCase):
+    """v2.9.59 signal_dispatcher提取验证"""
+
+    def setUp(self):
+        self.tree = _parse(os.path.join(MM_DIR, "signal_dispatcher.py"))
+
+    def test_dispatch_under_20(self):
+        lines = _method_lines(self.tree, "dispatch")
+        self.assertLess(lines, 20, f"dispatch should be <20 lines, got {lines}")
+
+    def test_should_dedup_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_should_dedup"))
+
+    def test_dispatch_to_channels_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_dispatch_to_channels"))
+
+    def test_record_dispatch_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_record_dispatch"))
+
+
+class TestEventBusExtraction(unittest.TestCase):
+    """v2.9.59 scanner_event_bus提取验证"""
+
+    def setUp(self):
+        self.tree = _parse(os.path.join(MM_DIR, "scanner_event_bus.py"))
+
+    def test_emit_under_25(self):
+        lines = _method_lines(self.tree, "emit")
+        self.assertLess(lines, 25, f"emit should be <25 lines, got {lines}")
+
+    def test_invoke_handler_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_invoke_handler"))
+
+
+class TestStrategyScorerMergeFactorsExtraction(unittest.TestCase):
+    """v2.9.59 strategy_scorer.merge_factors提取验证"""
+
+    def setUp(self):
+        self.tree = _parse(os.path.join(MM_DIR, "strategy_scorer.py"))
+
+    def test_merge_factors_under_10(self):
+        lines = _method_lines(self.tree, "merge_factors")
+        self.assertLess(lines, 10, f"merge_factors should be <10 lines, got {lines}")
+
+    def test_realtime_to_dataframe_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_realtime_to_dataframe"))
+
+    def test_classify_limit_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_classify_limit"))
+
+    def test_merge_with_daily_factors_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_merge_with_daily_factors"))
+
+
+class TestRuntimePersistencePostSellExtraction(unittest.TestCase):
+    """v2.9.59 runtime_persistence.post_sell_cleanup提取验证"""
+
+    def setUp(self):
+        self.tree = _parse(os.path.join(MM_DIR, "runtime_persistence.py"))
+
+    def test_post_sell_cleanup_under_25(self):
+        lines = _method_lines(self.tree, "post_sell_cleanup")
+        self.assertLess(lines, 25, f"post_sell_cleanup should be <25 lines, got {lines}")
+
+    def test_classify_sell_stats_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_classify_sell_stats"))
+
+    def test_emit_sell_events_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_emit_sell_events"))
+
+    def test_persist_sell_state_exists(self):
+        self.assertTrue(_method_exists(self.tree, "_persist_sell_state"))
+
+
 class TestBigMethodsReduction(unittest.TestCase):
     """超过50行方法数应减少"""
 
@@ -239,7 +345,7 @@ class TestNoBacktestRegressionV2958(unittest.TestCase):
     def test_version_constant_updated(self):
         with open(os.path.join(AGENT_DIR, "nodes", "web", "api", "scanner.py")) as f:
             src = f.read()
-        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.58"', src)
+        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.59"', src)
 
     def test_sell_signal_checker_untouched(self):
         """卖出信号检查器不应被修改"""

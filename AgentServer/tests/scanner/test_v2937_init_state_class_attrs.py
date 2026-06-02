@@ -97,7 +97,7 @@ class TestInitStateSlimmed:
     def test_init_state_still_initializes_mutable_defaults(self):
         """_init_state(及其子方法)仍然初始化可变默认值(dict/list)"""
         from nodes.market_monitor.scanner import MarketScanner
-        # v2.9.58: _init_state委托给4个子方法, 检查子方法内容
+        # v2.9.59: _init_state委托给4个子方法, 检查子方法内容
         risk_src = inspect.getsource(MarketScanner._init_risk_state)
         exec_src = inspect.getsource(MarketScanner._init_execution_state)
         cache_src = inspect.getsource(MarketScanner._init_cache_state)
@@ -198,4 +198,4 @@ class TestNoBacktestRegressionV2937:
     def test_version_constant(self):
         """版本常量已更新"""
         from nodes.web.api.scanner import _DESIGN_DOC_VERSION
-        assert _DESIGN_DOC_VERSION == "v2.9.58"
+        assert _DESIGN_DOC_VERSION == "v2.9.59"

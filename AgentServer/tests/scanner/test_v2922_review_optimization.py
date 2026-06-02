@@ -62,9 +62,13 @@ class TestPostSellCleanupStats:
         """stop_loss类原因→stop_losses计数"""
         from nodes.market_monitor.runtime_persistence import RuntimePersistence
         source = inspect.getsource(RuntimePersistence.post_sell_cleanup)
-        # 应包含分类逻辑
-        assert "stop_loss" in source, "post_sell_cleanup缺少stop_loss分类"
-        assert "take_profit" in source, "post_sell_cleanup缺少take_profit分类"
+        # v2.9.59: 分类逻辑已提取到_classify_sell_stats
+        if "stop_loss" not in source:
+            classify_source = inspect.getsource(RuntimePersistence._classify_sell_stats)
+            assert "stop_loss" in classify_source, "_classify_sell_stats缺少stop_loss分类"
+            assert "take_profit" in classify_source, "_classify_sell_stats缺少take_profit分类"
+        else:
+            assert "take_profit" in source, "post_sell_cleanup缺少take_profit分类"
 
     def test_stats_keys_exist(self):
         """_stats包含所有3个卖出分类键"""
