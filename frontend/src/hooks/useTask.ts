@@ -34,13 +34,13 @@ export function useTask() {
     isCreating.value = true
     
     try {
-      const response = await taskApi.createTask(request)
+      const response = await taskApi.createTask(request as unknown as Record<string, unknown>)
       
       // 添加到 Store
       taskStore.addTask({
         task_id: response.task_id,
         task_type: request.task_type,
-        status: response.status,
+        status: (response as any).status || 'pending',
         ts_codes: request.ts_codes || [],
         stock_names: [],
         query: request.query,

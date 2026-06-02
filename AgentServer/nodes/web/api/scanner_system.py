@@ -22,6 +22,207 @@ from nodes.web.api.scanner_shared import (
 router = APIRouter(prefix="/scanner", tags=["系统健康/守护/Stream"])
 
 
+def _build_strategy_checks(scanner) -> dict:
+    """构建策略状态checks(基于信号产出)【v2.9.71提取】"""
+    checks: Dict[str, dict] = {}
+    for strategy_key in ["halfway_chase", "first_limit_up", "dragon_head", "limit_down_qiao"]:
+        strategy_signals = [s for s in scanner._active_signals if s.strategy == strategy_key]
+        total_signals = getattr(scanner, '_scan_count', 0)
+        if total_signals > 0 and len(strategy_signals) > 0:
+            checks[strategy_key] = {
+                "status": "healthy",
+                "value": f"{len(strategy_signals)}个活跃信号",
+                "threshold": ">0",
+                "message": "策略正常产出信号",
+            }
+        elif total_signals > 0:
+            checks[strategy_key] = {
+                "status": "unknown",
+                "value": "无信号",
+                "threshold": ">0",
+                "message": "当前无信号(可能正常)",
+            }
+        else:
+            checks[strategy_key] = {
+                "status": "unknown",
+                "value": "未扫描",
+                "threshold": ">0",
+                "message": "尚未执行扫描",
+            }
+    return checks
+
+
+def _build_datasource_checks(scanner) -> tuple:
+    """构建数据源checks+ds_list【v2.9.71提取】"""
+    checks: Dict[str, dict] = {}
+    ds_list: List[dict] = []
+    data_router = getattr(scanner, '_data_router', None)
+    if not data_router:
+        return checks, ds_list
+    for name, src in data_router._sources.items():
+        status_info = src.get_status() if hasattr(src, 'get_status') else {}
+        ds_list.append({
+            "name": name,
+            "available": status_info.get('available', True),
+            "stocks": status_info.get('cached_stocks', 0),
+            "calls": status_info.get('api_calls_today', 0),
+            "limit": status_info.get('api_limit', 0),
+        })
+        checks[f"datasource_{name}"] = {
+            "status": "healthy" if status_info.get('available', True) else "critical",
+            "value": f"{status_info.get('cached_stocks', 0)}只",
+            "threshold": "在线",
+            "message": status_info.get('note', ''),
+        }
+    return checks, ds_list
+
+
+def _build_risk_metrics(scanner) -> dict:
+    """构建风控指标(回撤/持仓比/熔断/连续亏损)【v2.9.71提取】"""
+    broker = scanner._broker
+    acc = broker.account if broker else None
+    total_assets = acc.total_assets if acc else 0
+    market_value = acc.market_value if acc else 0
+    daily_profit = acc.today_profit if acc else 0
+
+    daily_drawdown = abs(min(0, daily_profit / total_assets * 100)) if total_assets > 0 else 0
+    position_ratio = market_value / total_assets if total_assets > 0 else 0
+
+    cb = getattr(scanner, '_circuit_breaker', None) or {}
+    consecutive_losses = cb.get('consecutive_losses', 0) if isinstance(cb, dict) else 0
+    trading_paused = cb.get('trading_paused', False) if isinstance(cb, dict) else False
+
+    # 线程安全读取pending_sells
+    state_lock = getattr(scanner, '_state_lock', None)
+    if state_lock:
+        with state_lock:
+            pending_sells_count = len(scanner._pending_sells)
+    else:
+        pending_sells_count = len(getattr(scanner, '_pending_sells', {}))
+    pending_sells_detail: List[dict] = []
+    if pending_sells_count > 0 and hasattr(scanner, '_position_manager') and scanner._position_manager:
+        pending_sells_detail = scanner._position_manager.get_pending_sells_summary()
+
+    risk_metrics = {
+        "daily_drawdown_pct": round(daily_drawdown, 2),
+        "max_drawdown_pct": 5.0,
+        "position_ratio": round(position_ratio, 3),
+        "consecutive_losses": consecutive_losses,
+        "max_consecutive_losses": 3,
+    }
+    circuit_breaker = {
+        "trading_paused": trading_paused,
+        "pause_reason": cb.get('pause_reason', '') if isinstance(cb, dict) else '',
+        "consecutive_losses": consecutive_losses,
+        "max_consecutive_losses": 3,
+    }
+    return {
+        "daily_drawdown": daily_drawdown,
+        "position_ratio": position_ratio,
+        "consecutive_losses": consecutive_losses,
+        "trading_paused": trading_paused,
+        "pending_sells_count": pending_sells_count,
+        "pending_sells_detail": pending_sells_detail,
+        "risk_metrics": risk_metrics,
+        "circuit_breaker": circuit_breaker,
+    }
+
+
+def _compute_overall_health(scanner_health: dict, risk: dict) -> dict:
+    """合并scanner健康度+金融指标, 计算综合健康度【v2.9.71提取】"""
+    dd = risk["daily_drawdown"]
+    cl = risk["consecutive_losses"]
+    tp = risk["trading_paused"]
+
+    # 统一健康分数(0-100)
+    base_score = {"green": 100, "yellow": 60, "red": 30}.get(scanner_health.get('status', 'red'), 30)
+    health_score = base_score
+    if dd >= 3: health_score -= 15
+    if dd >= 5: health_score -= 20
+    if cl >= 2: health_score -= 10
+    if tp: health_score -= 25
+    health_score = max(0, health_score)
+
+    # 合并warnings
+    merged_warnings = list(scanner_health.get('warnings', []))
+    if dd >= 3: merged_warnings.append(f"日回撤{dd:.1f}%")
+    if cl >= 2: merged_warnings.append(f"连续亏损{cl}次")
+    if risk["pending_sells_count"] > 0: merged_warnings.append(f"{risk['pending_sells_count']}只跌停挂起")
+    if tp: merged_warnings.append("熔断器已触发")
+
+    # 综合状态
+    overall = scanner_health.get('status', 'unknown')
+    if dd >= 5 or tp: overall = 'critical'
+    elif dd >= 3 or cl >= 2: overall = 'degraded'
+
+    scan_lag = scanner_health.get('scan_lag_seconds', 999)
+    risk_lag = scanner_health.get('risk_check_lag_seconds', 999)
+    data_freshness = "green" if scan_lag < 60 and risk_lag < 5 else (
+        "yellow" if scan_lag < 120 and risk_lag < 30 else "red")
+
+    return {
+        "overall": overall,
+        "health_score": health_score,
+        "data_freshness": data_freshness,
+        "warnings": merged_warnings,
+        "is_healthy": scanner_health.get('is_healthy', False) and dd < 3 and not tp,
+    }
+
+
+def _dead_health_response() -> dict:
+    """Scanner未运行时的健康响应【v2.9.71提取】"""
+    return {"success": True, "health": {
+        "overall_status": "dead", "message": "Scanner未运行",
+        "checks": {}, "circuit_breaker": {"trading_paused": False},
+        "risk_metrics": {"daily_drawdown_pct": 0, "max_drawdown_pct": 5, "position_ratio": 0},
+        "health_score": 0, "scan_lag_seconds": -1, "risk_check_lag_seconds": -1,
+        "data_freshness": "red",
+        "warnings": ["Scanner未运行"], "data_sources": [],
+        "version": _get_version_info(),
+    }}
+
+
+def _build_scanner_health_dict(scanner) -> dict:
+    """获取Scanner内置健康度(权威来源)【v2.9.71提取】"""
+    import time as _time
+    scan_lag = _time.time() - scanner._last_scan_ts if getattr(scanner, '_last_scan_ts', 0) > 0 else 999
+    risk_lag = _time.time() - getattr(scanner, '_last_risk_check_ts', 0) if getattr(scanner, '_last_risk_check_ts', 0) > 0 else 999
+    return scanner._compute_health_score() if hasattr(scanner, '_compute_health_score') else {
+        "status": "unknown", "is_healthy": False, "scan_lag_seconds": scan_lag,
+        "risk_check_lag_seconds": risk_lag, "quote_staleness_seconds": 999,
+        "risk_thread_alive": False, "risk_thread_restarts": 0, "warnings": [],
+    }, scan_lag, risk_lag
+
+
+def _build_health_response(watchdog_status, checks, ds_list, risk, scanner_health, scan_lag, risk_lag, overall_h) -> dict:
+    """构建最终health响应字典【v2.9.71提取】"""
+    return {
+        "success": True,
+        "health": {
+            **watchdog_status,
+            "overall_status": overall_h["overall"],
+            "checks": checks,
+            "circuit_breaker": risk["circuit_breaker"],
+            "risk_metrics": risk["risk_metrics"],
+            "data_sources": ds_list,
+            "health_score": overall_h["health_score"],
+            "data_freshness": overall_h["data_freshness"],
+            "scan_lag_seconds": round(scan_lag, 1),
+            "risk_check_lag_seconds": round(risk_lag, 1),
+            "warnings": overall_h["warnings"],
+            "is_healthy": overall_h["is_healthy"],
+            "scanner_health": scanner_health,
+            "pending_sells_detail": risk["pending_sells_detail"],
+            "risk_thread": {
+                "alive": scanner_health.get('risk_thread_alive', False),
+                "restarts": scanner_health.get('risk_thread_restarts', 0),
+            },
+            "daemon": _get_daemon_status(),
+            "version": _get_version_info(),
+        },
+    }
+
+
 @router.get("/health")
 async def get_scanner_health():
     """获取风控看门狗健康状态
@@ -35,198 +236,32 @@ async def get_scanner_health():
     try:
         scanner = _get_scanner_instance()
         if not scanner:
-            return {"success": True, "health": {
-                "overall_status": "dead", "message": "Scanner未运行",
-                "checks": {}, "circuit_breaker": {"trading_paused": False},
-                "risk_metrics": {"daily_drawdown_pct": 0, "max_drawdown_pct": 5, "position_ratio": 0},
-                "health_score": 0, "scan_lag_seconds": -1, "risk_check_lag_seconds": -1,
-                "data_freshness": "red",
-                "warnings": ["Scanner未运行"], "data_sources": [],
-                "version": _get_version_info(),
-            }}
-        
-        # 基础状态
+            return _dead_health_response()
+
+        # 1. Watchdog基础状态
         watchdog = getattr(scanner, '_risk_watchdog', None)
         watchdog_status = watchdog.get_status() if watchdog else {
             "overall_status": "unknown", "checks": {}, "uptime_seconds": 0,
-            "scanner_heartbeat_age": -1, "alert_count": 0
+            "scanner_heartbeat_age": -1, "alert_count": 0,
         }
-        
-        # 补充scanner级别的checks(策略+数据源)
-        checks = watchdog_status.get("checks", {})
-        
-        # 策略状态 — 基于信号产出
-        for strategy_key in ["halfway_chase", "first_limit_up", "dragon_head", "limit_down_qiao"]:
-            strategy_signals = [s for s in scanner._active_signals if s.strategy == strategy_key]
-            total_signals = getattr(scanner, '_scan_count', 0)
-            if total_signals > 0 and len(strategy_signals) > 0:
-                checks[strategy_key] = {
-                    "status": "healthy",
-                    "value": f"{len(strategy_signals)}个活跃信号",
-                    "threshold": ">0",
-                    "message": "策略正常产出信号"
-                }
-            elif total_signals > 0:
-                checks[strategy_key] = {
-                    "status": "unknown",
-                    "value": "无信号",
-                    "threshold": ">0",
-                    "message": "当前无信号(可能正常)"
-                }
-            else:
-                checks[strategy_key] = {
-                    "status": "unknown",
-                    "value": "未扫描",
-                    "threshold": ">0",
-                    "message": "尚未执行扫描"
-                }
-        
-        # 数据源状态
-        data_router = getattr(scanner, '_data_router', None)
-        ds_list = []
-        if data_router:
-            for name, src in data_router._sources.items():
-                status_info = src.get_status() if hasattr(src, 'get_status') else {}
-                ds_list.append({
-                    "name": name,
-                    "available": status_info.get('available', True),
-                    "stocks": status_info.get('cached_stocks', 0),
-                    "calls": status_info.get('api_calls_today', 0),
-                    "limit": status_info.get('api_limit', 0),
-                })
-                checks[f"datasource_{name}"] = {
-                    "status": "healthy" if status_info.get('available', True) else "critical",
-                    "value": f"{status_info.get('cached_stocks', 0)}只",
-                    "threshold": "在线",
-                    "message": status_info.get('note', '')
-                }
-        
-        # 风控指标
-        broker = scanner._broker
-        acc = broker.account if broker else None
-        total_assets = acc.total_assets if acc else 0
-        market_value = acc.market_value if acc else 0
-        daily_profit = acc.today_profit if acc else 0
-        positions = broker.positions if broker else {}
-        daily_drawdown = abs(min(0, daily_profit / total_assets * 100)) if total_assets > 0 else 0
-        position_ratio = market_value / total_assets if total_assets > 0 else 0
-        
-        # 【v2.9.10:统一健康度计算 — 合并API层与ScannerUtils两套重复逻辑】
-        # 之前: API层自算health_score(100扣减) + scanner_health(ScannerUtils绿黄红), 两套逻辑不一致
-        # 现在: 以ScannerUtils.compute_health_score()为权威, API层只补充金融指标(回撤/熔断)
-        import time as _time
-        now = _time.time()
-        scan_lag = now - scanner._last_scan_ts if getattr(scanner, '_last_scan_ts', 0) > 0 else 999
-        risk_check_lag = now - getattr(scanner, '_last_risk_check_ts', 0) if getattr(scanner, '_last_risk_check_ts', 0) > 0 else 999
-        
-        # 1. Scanner内置健康度(权威来源: 绿/黄/红 + warnings)
-        scanner_health = scanner._compute_health_score() if hasattr(scanner, '_compute_health_score') else {
-            "status": "unknown", "is_healthy": False, "scan_lag_seconds": scan_lag,
-            "risk_check_lag_seconds": risk_check_lag, "quote_staleness_seconds": 999,
-            "risk_thread_alive": False, "risk_thread_restarts": 0, "warnings": []
-        }
-        
-        # 2. 金融指标(API层独有, ScannerUtils不涉及)
-        cb = getattr(scanner, '_circuit_breaker', None) or {}
-        consecutive_losses = cb.get('consecutive_losses', 0) if isinstance(cb, dict) else 0
-        trading_paused = cb.get('trading_paused', False) if isinstance(cb, dict) else False
-        
-        # 3. 【v2.9.10:线程安全读取pending_sells】之前无锁, 与风控线程竞态
-        state_lock = getattr(scanner, '_state_lock', None)
-        if state_lock:
-            with state_lock:
-                pending_sells_count = len(scanner._pending_sells)
-        else:
-            pending_sells_count = len(getattr(scanner, '_pending_sells', {}))
-        pending_sells_detail = []
-        if pending_sells_count > 0 and hasattr(scanner, '_position_manager') and scanner._position_manager:
-            pending_sells_detail = scanner._position_manager.get_pending_sells_summary()
-        
-        # 4. 合并warnings(ScannerUtils + 金融指标)
-        merged_warnings = list(scanner_health.get('warnings', []))
-        if daily_drawdown >= 3:
-            merged_warnings.append(f"日回撤{daily_drawdown:.1f}%")
-        if consecutive_losses >= 2:
-            merged_warnings.append(f"连续亏损{consecutive_losses}次")
-        if pending_sells_count > 0:
-            merged_warnings.append(f"{pending_sells_count}只跌停挂起")
-        if trading_paused:
-            merged_warnings.append("熔断器已触发")
-        
-        # 5. 统一健康分数(0-100, 基于scanner_health的绿/黄/红 + 金融扣减)
-        base_score = {"green": 100, "yellow": 60, "red": 30}.get(scanner_health.get('status', 'red'), 30)
-        health_score = base_score
-        if daily_drawdown >= 3:
-            health_score -= 15
-        if daily_drawdown >= 5:
-            health_score -= 20
-        if consecutive_losses >= 2:
-            health_score -= 10
-        if trading_paused:
-            health_score -= 25
-        health_score = max(0, health_score)
-        
-        # 6. 数据新鲜度标记(3s绿/5s黄/>5s红 — 前端UI用)
-        data_freshness = "green" if scan_lag < 60 and risk_check_lag < 5 else (
-            "yellow" if scan_lag < 120 and risk_check_lag < 30 else "red")
-        
-        # 风控线程状态(从scanner_health提取, 避免重复读取)
-        risk_thread_alive = scanner_health.get('risk_thread_alive', False)
-        risk_thread_restarts = scanner_health.get('risk_thread_restarts', 0)
-        
-        risk_metrics = {
-            "daily_drawdown_pct": round(daily_drawdown, 2),
-            "max_drawdown_pct": 5.0,
-            "position_ratio": round(position_ratio, 3),
-            "consecutive_losses": consecutive_losses,
-            "max_consecutive_losses": 3,
-        }
-        
-        circuit_breaker = {
-            "trading_paused": trading_paused,
-            "pause_reason": cb.get('pause_reason', '') if isinstance(cb, dict) else '',
-            "consecutive_losses": consecutive_losses,
-            "max_consecutive_losses": 3,
-        }
-        
-        # 综合状态判断(基于scanner_health + 金融指标)
-        overall = scanner_health.get('status', 'unknown')
-        if daily_drawdown >= 5 or trading_paused:
-            overall = 'critical'
-        elif daily_drawdown >= 3 or consecutive_losses >= 2:
-            overall = 'degraded'
-        
-        return {
-            "success": True, 
-            "health": {
-                **watchdog_status,
-                "overall_status": overall,
-                "checks": checks,
-                "circuit_breaker": circuit_breaker,
-                "risk_metrics": risk_metrics,
-                "data_sources": ds_list,
-                # 【v2.9.10:统一健康度 — health_score基于scanner_health+金融扣减】
-                "health_score": health_score,
-                "data_freshness": data_freshness,
-                "scan_lag_seconds": round(scan_lag, 1),
-                "risk_check_lag_seconds": round(risk_check_lag, 1),
-                "warnings": merged_warnings,
-                "is_healthy": scanner_health.get('is_healthy', False) and daily_drawdown < 3 and not trading_paused,
-                # Scanner内置健康度(绿/黄/红) — 权威来源
-                "scanner_health": scanner_health,
-                # 跌停挂起明细(v2.9.4)
-                "pending_sells_detail": pending_sells_detail,
-                # 风控线程状态
-                "risk_thread": {
-                    "alive": risk_thread_alive,
-                    "restarts": risk_thread_restarts,
-                },
-                # 【v2.9.7: Daemon状态(如果可用)】
-                "daemon": _get_daemon_status(),
-                # 【Phase4.2: 版本信息(部署验证)】
-                "version": _get_version_info(),
-            }
-        }
+        checks = dict(watchdog_status.get("checks", {}))
+
+        # 2. 策略+数据源checks
+        checks.update(_build_strategy_checks(scanner))
+        ds_checks, ds_list = _build_datasource_checks(scanner)
+        checks.update(ds_checks)
+
+        # 3. 风控指标
+        risk = _build_risk_metrics(scanner)
+
+        # 4. Scanner内置健康度(权威来源)
+        scanner_health, scan_lag, risk_lag = _build_scanner_health_dict(scanner)
+
+        # 5. 综合健康度
+        overall_h = _compute_overall_health(scanner_health, risk)
+
+        return _build_health_response(
+            watchdog_status, checks, ds_list, risk, scanner_health, scan_lag, risk_lag, overall_h)
     except Exception as e:
         return {"success": True, "health": {"overall_status": "error", "message": str(e), "checks": {}}}
 
@@ -248,7 +283,7 @@ _version_cache = {"value": None, "ts": 0}
 _VERSION_CACHE_TTL = 300  # 5分钟缓存
 
 # 【v2.9.10:设计文档版本常量, 与docs/MARKET_MONITOR_OPTIMIZATION_DESIGN.md保持同步】
-_DESIGN_DOC_VERSION = "v2.9.70"
+_DESIGN_DOC_VERSION = "v2.9.71"
 _BASELINE_TAG = "v2.8.0-backtest-ui-v2"
 
 def _get_version_info() -> dict:

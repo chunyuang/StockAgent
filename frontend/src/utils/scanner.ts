@@ -67,7 +67,6 @@ export const factorCN: Record<string, string> = {
 export const factorLabel = (k: string | number) => factorCN[String(k)] || k
 
 // ============ Scanner API 封装 ============
-const scannerApi = '/scanner'
 
 /** 统一解析scanner API响应 — axios拦截器已剥response.data */
 export function parseResponse(r: any): { success: boolean; data: any } {

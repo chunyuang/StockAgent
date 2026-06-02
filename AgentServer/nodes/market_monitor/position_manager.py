@@ -797,11 +797,14 @@ class PositionManager:
         【v2.9.35: 从scanner._execute_risk_sell提取】
         v2.9.12: try/except保护
         v2.9.19: 提取_post_sell_cleanup
+        v2.9.71: trace_id贯穿
         """
+        import uuid
         scanner = self._scanner
         if pos.available_qty <= 0:
             return
 
+        trace_id = f"risk-{pos.ts_code}-{uuid.uuid4().hex[:8]}"
         sell_profit_pct = pos.profit_pct
         sell_profit_amount = (pos.current_price - pos.avg_cost) * quantity
 
@@ -813,16 +816,17 @@ class PositionManager:
                 order_type="market", strategy=pos.strategy, reason=reason,
             )
         except Exception as e:
-            logger.error(f"[RISK_SELL] place_order异常 {pos.ts_code}: {e}")
+            logger.error(f"[RISK_SELL] place_order异常 {pos.ts_code}: {e} trace={trace_id}")
             return
 
         if ok:
             await scanner._post_sell_cleanup(
                 pos, reason, order, quantity,
                 sell_profit_pct, sell_profit_amount, source="risk_sell",
+                trace_id=trace_id,
             )
         else:
-            logger.warning(f"[RISK_SELL] 卖出失败 {pos.ts_code}: {msg}")
+            logger.warning(f"[RISK_SELL] 卖出失败 {pos.ts_code}: {msg} trace={trace_id}")
 
     async def liquidate_positions(self, reason: str, source: str) -> Tuple[int, int]:
         """批量清仓: 卖出所有可用持仓
@@ -830,10 +834,12 @@ class PositionManager:
         【v2.9.35: 从scanner._liquidate_positions提取】
         _sell_all_positions(停止清仓)和_execute_force_empty(强制空仓)的公共实现。
         使用available_qty(T+1合规), 单票异常不中断。
+        v2.9.71: 每笔卖出带trace_id。
 
         Returns:
             (sold, failed) 成功/失败数
         """
+        import uuid
         scanner = self._scanner
         if not scanner._broker:
             return 0, 0
@@ -842,6 +848,7 @@ class PositionManager:
         for p in positions:
             if p.available_qty <= 0:
                 continue  # T+1: 不可卖跳过
+            trace_id = f"liq-{p.ts_code}-{uuid.uuid4().hex[:8]}"
             try:
                 scanner._broker.update_realtime(p.ts_code, p.current_price)
                 profit_pct = p.profit_pct
@@ -861,12 +868,13 @@ class PositionManager:
                     await scanner._post_sell_cleanup(
                         p, reason, order, p.available_qty,
                         profit_pct, profit_amount, source=source,
+                        trace_id=trace_id,
                     )
                 else:
                     failed += 1
-                    logger.warning(f"[{source.upper()}] {p.ts_code} 卖出失败: {msg}")
+                    logger.warning(f"[{source.upper()}] {p.ts_code} 卖出失败: {msg} trace={trace_id}")
             except Exception as e:
                 failed += 1
-                logger.error(f"[{source.upper()}] {p.ts_code} 异常: {e}")
+                logger.error(f"[{source.upper()}] {p.ts_code} 异常: {e} trace={trace_id}")
         logger.info(f"[{source.upper()}] 完成: 卖出{sold}只, 失败{failed}只")
         return sold, failed

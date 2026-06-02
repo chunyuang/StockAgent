@@ -228,17 +228,17 @@ export const useScannerStore = defineStore('scanner', () => {
   async function refreshFromApi() {
     try {
       const [statusRes, healthRes] = await Promise.allSettled([
-        api.get('/scanner/status'),
-        api.get('/scanner/health'),
+        api.get<Record<string, any>>('/scanner/status'),
+        api.get<Record<string, any>>('/scanner/health'),
       ])
 
       if (statusRes.status === 'fulfilled' && statusRes.value?.success) {
         const s = statusRes.value.data || statusRes.value
-        isRunning.value = s.is_running
+        isRunning.value = s.is_running ?? s.isRunning ?? false
         stats.value = s.stats || stats.value
         account.value = s.account || account.value
         sentiment.value = s.sentiment || sentiment.value
-        positionRatio.value = s.position_ratio || positionRatio.value
+        positionRatio.value = s.position_ratio ?? s.positionRatio ?? positionRatio.value
         positions.value = s.positions || positions.value
         signals.value = s.signals || signals.value
       }
@@ -296,7 +296,7 @@ export const useScannerStore = defineStore('scanner', () => {
   /** 【v2.9.14】从Redis Stream读取最近信号 */
   async function fetchStreamSignals(count = 20) {
     try {
-      const res = await api.get(`/scanner/stream/signals?count=${count}`)
+      const res = await api.get<Record<string, any>>(`/scanner/stream/signals?count=${count}`)
       return res?.data || []
     } catch { return [] }
   }
@@ -304,7 +304,7 @@ export const useScannerStore = defineStore('scanner', () => {
   /** 【v2.9.14】从Redis Stream读取最近持仓变更 */
   async function fetchStreamPositions(count = 20) {
     try {
-      const res = await api.get(`/scanner/stream/positions?count=${count}`)
+      const res = await api.get<Record<string, any>>(`/scanner/stream/positions?count=${count}`)
       return res?.data || []
     } catch { return [] }
   }
@@ -312,7 +312,7 @@ export const useScannerStore = defineStore('scanner', () => {
   /** 【v2.9.15】参数预检验证(不实际更新) */
   async function validateParams(strategyId: string, params: Record<string, number>) {
     try {
-      const res = await api.post('/scanner/params/validate', { strategy_id: strategyId, params })
+      const res = await api.post<Record<string, any>>('/scanner/params/validate', { strategy_id: strategyId, params })
       return { warnings: res?.warnings || [], isSafe: res?.is_safe ?? true }
     } catch { return { warnings: [], isSafe: true } }
   }

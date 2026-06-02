@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""v2.9.69测试: 返回类型注解补全 + EMOTION_DOWNGRADE_RULES清理 + 灰度对齐追踪器
+"""v2.9.70测试: 返回类型注解补全 + EMOTION_DOWNGRADE_RULES清理 + 灰度对齐追踪器
 
 验证:
 1. 55个返回类型注解补全(91.9%→97%+)
@@ -236,9 +236,9 @@ class TestAlignmentStatsAPIV2969:
         assert 'get_alignment_stats' in source
 
     def test_design_doc_version_v2969(self):
-        """版本常量v2.9.69"""
+        """版本常量v2.9.70"""
         source = open(os.path.join(AGENT_SERVER, "nodes", "web", "api", "scanner_system.py")).read()
-        assert 'v2.9.69' in source
+        assert 'v2.9.70' in source
 
     def test_alignment_stats_endpoint_has_recommendation(self):
         """API端点包含切换建议逻辑"""

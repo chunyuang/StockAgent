@@ -49,7 +49,6 @@ interface RequestConfig extends AxiosRequestConfig {
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1'
 const TIMEOUT = 300000  // 5 minutes (回测需要几分钟，不能用30秒超时)
-const SCAN_TRACE_TIMEOUT = 15000  // 扫描追踪/复盘等轻量API用15秒超时，防止大数据卡死
 
 // Token 刷新状态
 let isRefreshing = false
