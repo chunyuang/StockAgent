@@ -155,10 +155,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
     SIGNAL_EXPIRE_SECONDS = 300  # 信号过期时间(秒): 5分钟后信号失效
     SIGNAL_EXPIRE_ACTION = True   # 过期信号是否自动取消买入(后端强制)
 
-    # 情绪降级规则: phase降级时的动态调仓策略
-    # EMOTION_DOWNGRADE_RULES已迁移至EmotionCycleManager.DOWNGRADE_RULES【v3.0】
-    # 保持类属性兼容旧代码引用
-    EMOTION_DOWNGRADE_RULES = None  # type: ignore
+    EMOTION_DOWNGRADE_RULES: Optional[Dict] = None  # 已迁移至EmotionCycleManager.DOWNGRADE_RULES【v3.0】,保留类属性兼容
 
     # 交易模式
     MODE_SIMULATED = "simulated"  # 内置仿真撮合

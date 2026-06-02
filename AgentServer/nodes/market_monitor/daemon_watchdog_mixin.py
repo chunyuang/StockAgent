@@ -103,7 +103,7 @@ class DaemonWatchdogMixin:
 
     # ==================== Phase4.4: 紧急告警 ====================
 
-    async def _send_emergency_alert(self, message: str):
+    async def _send_emergency_alert(self, message: str) -> None:
         """重启3次失败→飞书紧急告警+可选紧急减仓"""
         logger.critical(f"[DAEMON_ALERT] {message}")
 
@@ -137,7 +137,7 @@ class DaemonWatchdogMixin:
         # 2. 可选紧急减仓(通过scanner.emergency_liquidate委托)
         await self._emergency_reduce_positions()
 
-    async def _emergency_reduce_positions(self):
+    async def _emergency_reduce_positions(self) -> None:
         """紧急减仓: 卖出利润最低的50%持仓【v2.9.45提取,v2.9.50接口优化】
 
         通过scanner.emergency_liquidate委托, 不再直接操作broker内部。

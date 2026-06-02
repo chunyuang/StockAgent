@@ -28,7 +28,7 @@ def _get_position_ratio(period_cn: str) -> float:
 # - 板块效应强度
 
 from enum import Enum
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 import logging
 
@@ -544,7 +544,7 @@ class EmotionCycleManager:
                                                            up_count, down_count, up_down_ratio, data_source, missing_data)
 
     @staticmethod
-    async def _fetch_limit_stats(scanner, db, td_int: int):
+    async def _fetch_limit_stats(scanner, db, td_int: int) -> Tuple[int, int, int, str]:
         """获取涨跌停数据(实时→limit_list→daily_basic三级降级)"""
         limit_pools = scanner._limit_pools
         lu = len(limit_pools.get("limit_up", []))
@@ -568,7 +568,7 @@ class EmotionCycleManager:
         return lu, ld, max_lb, data_source
 
     @staticmethod
-    async def _fetch_up_down_ratio(db, td_int: int):
+    async def _fetch_up_down_ratio(db, td_int: int) -> Tuple[int, int, float]:
         """获取涨跌家数和涨跌比"""
         up_count = await db["daily_basic"].count_documents({"trade_date": td_int, "pct_chg": {"$gt": 0}})
         down_count = await db["daily_basic"].count_documents({"trade_date": td_int, "pct_chg": {"$lt": 0}})
@@ -576,7 +576,7 @@ class EmotionCycleManager:
         return up_count, down_count, up_down_ratio
 
     @staticmethod
-    def _calc_sentiment_score(lu: int, ld: int, max_lb: int, up_down_ratio: float):
+    def _calc_sentiment_score(lu: int, ld: int, max_lb: int, up_down_ratio: float) -> Tuple[int, str]:
         """计算情绪得分和周期"""
         score = min(100, max(0, min(30, lu) + max(0, 20 - ld * 2) + min(20, max_lb * 2) + int(up_down_ratio * 15)))
         if score >= 70: period = "高潮"
@@ -587,7 +587,7 @@ class EmotionCycleManager:
 
     @staticmethod
     async def _persist_sentiment_score(db, td_int, score, period, lu, ld, max_lb,
-                                       up_count, down_count, up_down_ratio, data_source, missing_data):
+                                       up_count, down_count, up_down_ratio, data_source, missing_data) -> None:
         """持久化情绪得分到MongoDB"""
         from datetime import datetime as _dt
         await db["sentiment_scores"].update_one(

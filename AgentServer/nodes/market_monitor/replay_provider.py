@@ -13,7 +13,7 @@
 
 import logging
 from datetime import datetime
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ class ReplayDataProvider:
         self._current_date: Optional[str] = None
 
     @property
-    def db(self):
+    def db(self) -> Any:
         if self._db is None:
             from pymongo import MongoClient
             if self._client is None:
@@ -193,7 +193,7 @@ class ReplayDataProvider:
         """是否处于回放模式"""
         return self._current_date is not None
 
-    def clear_cache(self):
+    def clear_cache(self) -> None:
         """清除缓存"""
         self._cache.clear()
         self._current_date = None

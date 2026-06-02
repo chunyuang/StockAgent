@@ -92,7 +92,7 @@ class GmBroker:
         self._order_file = "/tmp/gm_broker_orders.json"
 
     @property
-    def is_running(self):
+    def is_running(self) -> bool:
         return self._is_running
 
     def get_positions(self) -> List[Dict]:
@@ -112,7 +112,7 @@ class GmBroker:
 
     # ==================== 生命周期 ====================
 
-    async def start(self):
+    async def start(self) -> Dict[str, Any]:
         """启动掘金策略子进程"""
         if self._is_running:
             return {"success": True, "message": "已在运行中"}
@@ -145,7 +145,7 @@ class GmBroker:
         logger.warning("[GM] 掘金连接超时(30秒)")
         return {"success": False, "message": "掘金连接超时"}
 
-    async def stop(self):
+    async def stop(self) -> Dict[str, Any]:
         """停止掘金策略"""
         if self._process:
             self._process.terminate()
@@ -211,7 +211,7 @@ class GmBroker:
 
     # ==================== 内部方法 ====================
 
-    def _load_state(self):
+    def _load_state(self) -> None:
         """从状态文件读取掘金状态"""
         import json
         try:
