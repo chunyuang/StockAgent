@@ -163,7 +163,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
     MODE_DRY_RUN = "dry_run"      # 调试模式: 只扫描不交易
     MODE_REPLAY = "replay"        # 回放模式: 用历史数据模拟实时行情
 
-    # ==================== 类属性默认值(不可变/标量)【v2.9.37】 ====================
+    # ==================== 类属性默认值(不可变/标量)【v2.9.37, v2.9.73补齐访问器依赖】 ====================
     _risk_thread = None
     _risk_running: bool = False
     _risk_thread_restarts: int = 0
@@ -185,6 +185,10 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
     _last_risk_check_ts: float = 0.0
     _last_realtime_update_ts: float = 0.0
     _scan_loop_error_count: int = 0
+    _event_bus: Optional[ScannerEventBus] = None
+    _circuit_breaker: Dict = {}  # v2.9.73: 类属性默认值(原在_init_state)
+    _current_sentiment: Dict = {}  # v2.9.73
+    _current_position_ratio: Optional[float] = None  # v2.9.73
 
     def __init__(self, account_id: str = "default", config: Dict = None):
         self.account_id = account_id
@@ -814,6 +818,44 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
     # ==================== 健康度+线程安全 ====================
 
     # ==================== 🔒 线程安全+健康度 ====================
+    # ==================== 📖 状态访问器(替代getattr/hasattr穿透)【v2.9.73】 ====================
+
+    def get_current_sentiment(self) -> Dict:
+        """当前情绪得分(只读)"""
+        return self._current_sentiment
+
+    def get_current_position_ratio(self) -> Optional[float]:
+        """当前仓位比例(只读)"""
+        return self._current_position_ratio
+
+    def get_scan_error_count(self) -> int:
+        """扫描循环连续异常次数(只读)"""
+        return self._scan_loop_error_count
+
+    def get_event_bus(self) -> Optional[ScannerEventBus]:
+        """事件总线实例(只读,可能为None)"""
+        return self._event_bus
+
+    def get_risk_thread(self) -> Optional[threading.Thread]:
+        """风控线程对象(只读,可能为None)"""
+        return self._risk_thread
+
+    def get_circuit_breaker(self) -> Dict:
+        """熔断器状态(只读)"""
+        return self._circuit_breaker
+
+    def get_risk_thread_restarts(self) -> int:
+        """风控线程重启次数(只读)"""
+        return self._risk_thread_restarts
+
+    def is_risk_running(self) -> bool:
+        """风控线程是否在运行(只读)"""
+        return self._risk_running
+
+    def get_trade_date(self) -> str:
+        """当前交易日期(只读,可能为空串)"""
+        return self._trade_date
+
     def _safe_read_state(self, attr_name: str) -> Dict:
         """线程安全深拷贝共享状态(统一辅助)【v2.9.31提取】
         

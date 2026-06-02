@@ -6,7 +6,7 @@
 3. _restart_risk_thread_if_dead: 风控看门狗从_scan_loop_trading提取
 4. _try_recover_quote_source: 行情恢复从_scan_loop_trading提取
 
-v2.9.72更新: mixin拆分后方法分散在scanner_initializer.py和scan_loop_runner.py
+v2.9.73更新: mixin拆分后方法分散在scanner_initializer.py和scan_loop_runner.py
 """
 import ast
 import os
@@ -18,7 +18,7 @@ from scanner_test_helpers import read_all_scanner_sources, find_method_ast
 # ─── _init_broker 拆分验证 ───
 
 class TestInitBrokerDecomposition:
-    """_init_broker拆分为_init_broker_gm/_init_broker_sim (v2.9.72: scanner_initializer.py混入)"""
+    """_init_broker拆分为_init_broker_gm/_init_broker_sim (v2.9.73: scanner_initializer.py混入)"""
 
     def test_init_broker_gm_exists(self):
         """_init_broker_gm方法存在"""
@@ -219,7 +219,7 @@ class TestNoBacktestRegressionV2954:
         assert "market_monitor" not in source
 
     def test_version_constant_updated(self):
-        """版本常量更新为v2.9.72"""
+        """版本常量更新为v2.9.73"""
         api_path = os.path.join(
             os.path.dirname(__file__), "..", "..", 
             "nodes", "web", "api", "scanner_system.py"
@@ -227,4 +227,4 @@ class TestNoBacktestRegressionV2954:
         api_path = os.path.abspath(api_path)
         with open(api_path) as f:
             source = f.read()
-        assert 'v2.9.72' in source
+        assert 'v2.9.73' in source

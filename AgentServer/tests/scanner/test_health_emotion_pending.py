@@ -30,6 +30,20 @@ class TestComputeHealthScore:
         scanner._circuit_breaker = {"trading_paused": False}
         scanner._event_bus = None
         
+        # v2.9.73访问器方法
+        scanner.get_current_sentiment.return_value = {}
+        scanner.get_current_position_ratio.return_value = None
+        scanner.get_scan_error_count.return_value = 0
+        scanner.get_event_bus.return_value = None
+        # 风控线程(默认存活)
+        risk_thread_mock = MagicMock()
+        risk_thread_mock.is_alive.return_value = True
+        scanner.get_risk_thread.return_value = risk_thread_mock
+        scanner.get_circuit_breaker.return_value = {"trading_paused": False}
+        scanner.get_risk_thread_restarts.return_value = 0
+        scanner.is_risk_running.return_value = True
+        scanner.get_trade_date.return_value = ""
+        
         # QuoteManager mock
         qm = MagicMock()
         qm.get_staleness.return_value = 5.0  # 5秒前更新
@@ -70,6 +84,7 @@ class TestComputeHealthScore:
     def test_warning_circuit_breaker(self, mock_scanner):
         """熔断器触发 → 有警告"""
         mock_scanner._circuit_breaker["trading_paused"] = True
+        mock_scanner.get_circuit_breaker.return_value = {"trading_paused": True}
         from nodes.market_monitor.scanner_utils import ScannerUtils
         result = ScannerUtils.compute_health_score(mock_scanner)
         assert any("熔断" in w for w in result["warnings"])
@@ -97,10 +112,12 @@ class TestComputeHealthScore:
 
     def test_event_bus_error_rate_warning(self, mock_scanner):
         """EventBus异常率>10% → 有警告"""
-        mock_scanner._event_bus = MagicMock()
-        mock_scanner._event_bus.get_stats.return_value = {
+        eb = MagicMock()
+        eb.get_stats.return_value = {
             "signal": {"handled": 10, "errors": 5},  # 33% error rate
         }
+        mock_scanner._event_bus = eb
+        mock_scanner.get_event_bus.return_value = eb
         from nodes.market_monitor.scanner_utils import ScannerUtils
         result = ScannerUtils.compute_health_score(mock_scanner)
         assert any("EventBus" in w for w in result["warnings"])

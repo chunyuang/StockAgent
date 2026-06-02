@@ -37,6 +37,7 @@ class TestIntradayProfitLock(unittest.TestCase):
         scanner._broker = MagicMock()
         scanner._get_strategy_risk.return_value = {}
         scanner._trade_date = "20260602"
+        scanner.get_trade_date.return_value = "20260602"
         pm = PositionManager(scanner)
         return pm
 
@@ -157,6 +158,7 @@ class TestDragonHeadEarlyExit(unittest.TestCase):
         scanner._broker = MagicMock()
         scanner._get_strategy_risk.return_value = {}
         scanner._trade_date = "20260602"
+        scanner.get_trade_date.return_value = "20260602"
         pm = PositionManager(scanner)
         # Mock _calc_trade_days_held
         pm._calc_trade_days_held = MagicMock(return_value=5)
@@ -247,6 +249,7 @@ class TestDragonHeadEarlyExit(unittest.TestCase):
         """龙头5天低利润: 无交易日期→不触发"""
         pm = self._make_pm()
         pm._scanner._trade_date = None
+        pm._scanner.get_trade_date.return_value = None
         pos = self._make_pos(profit_pct=1.5)
         risk = {
             "dragon_head_early_exit_days": 5,
@@ -278,6 +281,7 @@ class TestIntradayRulesIntegration(unittest.TestCase):
         scanner._broker = MagicMock()
         scanner._get_strategy_risk.return_value = {}
         scanner._trade_date = "20260602"
+        scanner.get_trade_date.return_value = "20260602"
         scanner._get_open_price.return_value = 10.5
         pm = PositionManager(scanner)
         pm._calc_trade_days_held = MagicMock(return_value=5)
@@ -372,7 +376,7 @@ class TestVersionV2964(unittest.TestCase):
     def test_design_doc_version_v2964(self):
         """Web API版本常量为v2.9.64"""
         from nodes.web.api.scanner_system import _DESIGN_DOC_VERSION
-        self.assertEqual(_DESIGN_DOC_VERSION, "v2.9.72")
+        self.assertEqual(_DESIGN_DOC_VERSION, "v2.9.73")
 
     def test_version_in_source(self):
         """源文件中包含v2.9.64"""
@@ -381,7 +385,7 @@ class TestVersionV2964(unittest.TestCase):
         src_path = os.path.join(base, '..', '..', 'nodes', 'web', 'api', 'scanner_system.py')
         with open(src_path, 'r') as f:
             src = f.read()
-        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.72"', src)
+        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.73"', src)
 
 
 class TestNoBacktestRegression(unittest.TestCase):
