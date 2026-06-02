@@ -6,12 +6,12 @@
  * 依赖: 核心状态ref + api + scannerStore
  */
 
-import { ref, computed, reactive, nextTick } from 'vue'
+import { computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '@/api/client'
 import { useScannerStore } from '@/stores/scanner'
 import { useWebSocket } from '@/hooks/useWebSocket'
-import { parseResponse, signalRemaining as _signalRemaining, factorLabel, pipelineLabels } from '@/utils/scanner'
+import { parseResponse, signalRemaining as _signalRemaining } from '@/utils/scanner'
 
 const scannerApi = '/scanner'
 const configApi = '/strategy-config'
@@ -215,9 +215,9 @@ export function useCoreMethods(refs: CoreRefs) {
   async function fetchLimitPools() { try { const r = await api.get(`${scannerApi}/limit-pools`); const p = parseResponse(r); if (p.success) refs.limitPools.value = p.data } catch { } }
   async function fetchDataSources() { try { const [sR, bR] = await Promise.all([api.get('/datasource/sources'), api.get('/datasource/brokers')]); const sP = parseResponse(sR), bP = parseResponse(bR); if (sP.success) refs.dataSources.value = sP.data || []; if (bP.success) refs.brokers.value = bP.data || [] } catch { } }
   async function fetchHealth() { try { const r = await api.get(`${scannerApi}/health`); const p = parseResponse(r); if (p.success) { refs.healthData.value = p.data; scannerStore.health = p.data; } } catch { } }
-  async function fetchStrategies() { try { const [sR, rR] = await Promise.all([api.get(`${configApi}/strategies`), api.get(`${configApi}/global-risk`)]); if (sR?.success) refs.strategies.value = sR.data; if (rR?.success) refs.globalRisk.value = rR.data } catch (e) { console.error(e) } }
+  async function fetchStrategies() { try { const [sR, rR] = await Promise.all([api.get(`${configApi}/strategies`), api.get(`${configApi}/global-risk`)]); const sP = parseResponse(sR), rP = parseResponse(rR); if (sP.success) refs.strategies.value = sP.data; if (rP.success) refs.globalRisk.value = rP.data } catch (e) { console.error(e) } }
 
-  async function fetchAll(force = false) { await Promise.all([fetchScanner(), fetchStrategies(), fetchHealth()]); fetchLimitPools(); fetchDataSources() }
+  async function fetchAll(_force = false) { await Promise.all([fetchScanner(), fetchStrategies(), fetchHealth()]); fetchLimitPools(); fetchDataSources() }
 
   // 生命周期方法 (由父组件在onMounted/onUnmounted中调用)
   function mount() {

@@ -6,7 +6,6 @@
  */
 
 import { ref, computed } from 'vue'
-import { ElMessage } from 'element-plus'
 import { api } from '@/api/client'
 import { parseResponse } from '@/utils/scanner'
 

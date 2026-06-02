@@ -37,10 +37,15 @@ logger = logging.getLogger("position_checker")
 
 @dataclass
 class CompareAlignmentStats:
-    """compare模式对齐度统计【v2.9.69新增】
+    """compare模式对齐度统计【v2.9.69新增, v2.9.70持久化+通知】
     
     累积compare模式运行结果, 量化legacy与checker的对齐程度。
     当对齐度>=95%时, 可安全切换到checker模式。
+    
+    v2.9.70增强:
+    - 持久化到MongoDB(scanner_alignment_stats集合)
+    - switch_ready变更时发射事件通知
+    - from_dict类方法支持重启恢复
     """
     total_checks: int = 0          # 总检查次数
     total_positions: int = 0       # 总持仓检查次数(含多持仓单次check)
@@ -52,6 +57,7 @@ class CompareAlignmentStats:
     first_check_time: str = ""     # 首次check时间
     consecutive_agree: int = 0     # 连续一致次数
     max_consecutive_agree: int = 0 # 最大连续一致次数
+    _notified_switch_ready: bool = False  # 是否已通知可切换【v2.9.70】
 
     @property
     def alignment_rate(self) -> float:
@@ -73,8 +79,13 @@ class CompareAlignmentStats:
             and self.consecutive_agree >= 20  # 最近20次连续一致
         )
 
-    def record(self, only_legacy: set, only_checker: set, both: set) -> None:
-        """记录一次compare结果"""
+    def record(self, only_legacy: set, only_checker: set, both: set) -> bool:
+        """记录一次compare结果
+        
+        Returns:
+            True if switch_ready状态发生变更(从未就绪→就绪)
+        """
+        was_ready = self.switch_ready
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.total_checks += 1
         self.total_positions += len(only_legacy) + len(only_checker) + len(both)
@@ -91,6 +102,12 @@ class CompareAlignmentStats:
             self.max_consecutive_agree = max(self.max_consecutive_agree, self.consecutive_agree)
         else:
             self.consecutive_agree = 0
+        
+        # 检查switch_ready状态变更【v2.9.70】
+        became_ready = not was_ready and self.switch_ready
+        if became_ready:
+            self._notified_switch_ready = True
+        return became_ready
 
     def to_dict(self) -> Dict[str, Any]:
         """序列化为字典"""
@@ -108,7 +125,34 @@ class CompareAlignmentStats:
             "max_consecutive_agree": self.max_consecutive_agree,
             "last_check_time": self.last_check_time,
             "first_check_time": self.first_check_time,
+            "notified_switch_ready": self._notified_switch_ready,
         }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'CompareAlignmentStats':
+        """从字典恢复统计【v2.9.70:重启恢复】
+        
+        Args:
+            data: to_dict()序列化的字典
+            
+        Returns:
+            恢复后的CompareAlignmentStats实例
+        """
+        if not isinstance(data, dict):
+            return cls()
+        stats = cls()
+        stats.total_checks = int(data.get("total_checks", 0))
+        stats.total_positions = int(data.get("total_positions", 0))
+        stats.agreement_count = int(data.get("agreement_count", 0))
+        stats.only_legacy_count = int(data.get("only_legacy_count", 0))
+        stats.only_checker_count = int(data.get("only_checker_count", 0))
+        stats.both_count = int(data.get("both_count", 0))
+        stats.consecutive_agree = int(data.get("consecutive_agree", 0))
+        stats.max_consecutive_agree = int(data.get("max_consecutive_agree", 0))
+        stats.last_check_time = str(data.get("last_check_time", ""))
+        stats.first_check_time = str(data.get("first_check_time", ""))
+        stats._notified_switch_ready = bool(data.get("notified_switch_ready", False))
+        return stats
 
 
 class PositionChecker:
@@ -130,6 +174,7 @@ class PositionChecker:
         self._sell_checker = None  # 缓存SellSignalChecker实例
         self._backtester = None   # 缓存PortfolioBacktester实例
         self._alignment_stats = CompareAlignmentStats()  # 灰度对齐统计【v2.9.69】
+        self._restore_alignment_stats()  # 重启恢复【v2.9.70】
     
     # ==================== 属性代理 ====================
     
@@ -349,11 +394,37 @@ class PositionChecker:
     # ==================== Compare模式 ====================
     
     async def _check_positions_compare(self, realtime_data: Dict[str, Dict], trade_date: str) -> List[Tuple]:
-        """compare模式: 两种逻辑都跑, 只执行旧逻辑, 记录差异【v2.9.38:用_run_checker_on_positions+差异持久化】"""
+        """compare模式: 两种逻辑都跑, 只执行旧逻辑, 记录差异【v2.9.38+v2.9.70重构】"""
         scanner = self._scanner
         
+        # 并行运行legacy+checker
+        legacy_sell, checker_results, legacy_codes, checker_codes = \
+            self._run_compare_both(realtime_data, trade_date)
+
+        # 记录差异 + 对齐统计
+        only_legacy = legacy_codes - checker_codes
+        only_checker = checker_codes - legacy_codes
+        both = legacy_codes & checker_codes
+        await self._handle_compare_stats(only_legacy, only_checker, both)
+        
+        # 差异通知+持久化
+        if only_legacy or only_checker:
+            await self._handle_compare_diff(
+                trade_date, only_legacy, only_checker, both,
+                legacy_sell, checker_results, realtime_data,
+            )
+
+        # 只执行legacy逻辑
+        await self._check_positions_legacy(realtime_data, trade_date)
+    
+    def _run_compare_both(self, realtime_data: Dict[str, Dict], trade_date: str) -> Tuple:
+        """compare模式: 并行运行legacy+checker, 返回结果集合【v2.9.70提取】
+        
+        Returns:
+            (legacy_sell, checker_results, legacy_codes, checker_codes)
+        """
         # Legacy
-        legacy_sell = scanner._check_stop_loss_take_profit(
+        legacy_sell = self._scanner._check_stop_loss_take_profit(
             self.broker.get_positions(), realtime_data
         )
         legacy_codes = {p.ts_code for p, _, _, _ in legacy_sell}
@@ -369,38 +440,53 @@ class PositionChecker:
                 checker_codes = {pos.ts_code for pos, _, _, _, _ in checker_results}
             except Exception as e:
                 logger.debug(f"[COMPARE] checker执行异常: {e}")
-
-        # 记录差异
-        only_legacy = legacy_codes - checker_codes
-        only_checker = checker_codes - legacy_codes
-        both = legacy_codes & checker_codes
-
-        # 【v2.9.69】记录灰度对齐统计
-        self._alignment_stats.record(only_legacy, only_checker, both)
-
-        if only_legacy or only_checker:
-            logger.info(f"[COMPARE] 卖出差异: "
-                         f"仅legacy={only_legacy or '{}'} "
-                         f"仅checker={only_checker or '{}'} "
-                         f"一致={both or '{}'}")
+        
+        return legacy_sell, checker_results, legacy_codes, checker_codes
+    
+    async def _handle_compare_stats(self, only_legacy: set, only_checker: set, both: set) -> None:
+        """对齐统计记录+持久化+switch_ready通知【v2.9.70提取】"""
+        became_ready = self._alignment_stats.record(only_legacy, only_checker, both)
+        
+        # 每10次check或状态变更时持久化
+        if self._alignment_stats.total_checks % 10 == 0 or became_ready:
+            await self._persist_alignment_stats()
+        
+        if became_ready:
+            logger.info(f"[COMPARE] 🔔 灰度切换就绪! 对齐率={self._alignment_stats.alignment_rate:.1%} "
+                         f"连续一致={self._alignment_stats.consecutive_agree} "
+                         f"总检查={self._alignment_stats.total_checks}")
             try:
-                await scanner._publish_scanner_event("sell_compare", {
-                    "only_legacy": list(only_legacy),
-                    "only_checker": list(only_checker),
-                    "both": list(both),
-                    "time": datetime.now().strftime("%H:%M:%S"),
+                await self._scanner._publish_scanner_event("alignment_switch_ready", {
+                    "alignment_rate": round(self._alignment_stats.alignment_rate, 4),
+                    "consecutive_agree": self._alignment_stats.consecutive_agree,
+                    "total_checks": self._alignment_stats.total_checks,
+                    "recommendation": "可安全切换: 设置 SELL_LOGIC_MODE=checker",
                 })
             except Exception as _e:
-                logger.debug(f"operation failed: {_e}")
+                logger.debug(f"[COMPARE] switch_ready事件发送失败: {_e}")
+    
+    async def _handle_compare_diff(self, trade_date: str, only_legacy: set, only_checker: set,
+                                     both: set, legacy_sell: list, checker_results: list,
+                                     realtime_data: Dict[str, Dict]) -> None:
+        """卖出差异通知+持久化【v2.9.70从_check_positions_compare提取】"""
+        logger.info(f"[COMPARE] 卖出差异: "
+                     f"仅legacy={only_legacy or '{}'} "
+                     f"仅checker={only_checker or '{}'} "
+                     f"一致={both or '{}'}")
+        try:
+            await self._scanner._publish_scanner_event("sell_compare", {
+                "only_legacy": list(only_legacy),
+                "only_checker": list(only_checker),
+                "both": list(both),
+                "time": datetime.now().strftime("%H:%M:%S"),
+            })
+        except Exception as _e:
+            logger.debug(f"operation failed: {_e}")
 
-            # 【v2.9.38】差异持久化到MongoDB(审计用)
-            await self._persist_compare_diff(
-                trade_date, only_legacy, only_checker, both,
-                legacy_sell, checker_results, realtime_data,
-            )
-
-        # 只执行legacy逻辑
-        await self._check_positions_legacy(realtime_data, trade_date)
+        await self._persist_compare_diff(
+            trade_date, only_legacy, only_checker, both,
+            legacy_sell, checker_results, realtime_data,
+        )
     
     # ==================== Checker公共逻辑【v2.9.38提取】 ====================
     
@@ -476,6 +562,42 @@ class PositionChecker:
                 await scanner._save_runtime_snapshot(force=True)
             except Exception as _e:
                 logger.debug(f"[CLEANUP] 运行时快照保存失败: {_e}")
+    
+    async def _persist_alignment_stats(self) -> None:
+        """对齐统计持久化到MongoDB【v2.9.70新增】
+        
+        存入scanner_alignment_stats集合(单文档,按last_check_time更新)。
+        重启时通过_restore_alignment_stats恢复, 避免统计数据丢失。
+        """
+        try:
+            rp = self._scanner._runtime_persistence
+            if rp and rp._mongo_db:
+                stats_dict = self._alignment_stats.to_dict()
+                rp._mongo_db["scanner_alignment_stats"].replace_one(
+                    {"_id": "global"},
+                    {"_id": "global", **stats_dict},
+                    upsert=True,
+                )
+        except Exception as _e:
+            logger.debug(f"[COMPARE] 对齐统计持久化失败: {_e}")
+    
+    def _restore_alignment_stats(self) -> None:
+        """从MongoDB恢复对齐统计【v2.9.70新增】
+        
+        启动时调用, 恢复上次运行的统计数据。
+        如果无历史数据或恢复失败, 使用默认空统计。
+        """
+        try:
+            rp = self._scanner._runtime_persistence
+            if rp and rp._mongo_db:
+                doc = rp._mongo_db["scanner_alignment_stats"].find_one({"_id": "global"})
+                if doc:
+                    self._alignment_stats = CompareAlignmentStats.from_dict(doc)
+                    logger.info(f"[COMPARE] 对齐统计已恢复: 总检查={self._alignment_stats.total_checks} "
+                                f"对齐率={self._alignment_stats.alignment_rate:.1%} "
+                                f"连续一致={self._alignment_stats.consecutive_agree}")
+        except Exception as _e:
+            logger.debug(f"[COMPARE] 对齐统计恢复失败(使用默认): {_e}")
     
     async def _persist_compare_diff(self, trade_date: str, only_legacy: set, only_checker: set,
                                      both: set, legacy_sell: list, checker_results: list,

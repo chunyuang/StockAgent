@@ -380,7 +380,7 @@ export function useScannerMonitor() {
     scanTraceVisible, scanTraceData, scanTraceCode, signalTraceVisible,
     openScanTrace, signalStatusTag,
     // 复盘stub
-    reviewDate, reviewHero, reviewForward, openWeeklyReport, saveSnapshot,
+    reviewDate, reviewHero, reviewForward, openWeeklyReport, weeklyReportData, saveSnapshot,
     backtestRunning, liveBacktestDiff, executionQuality,
     tradeAttributions, paramDriftData, factorEffectData, exportTradeLog,
     disciplineCheck,
