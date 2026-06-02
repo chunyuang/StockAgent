@@ -278,7 +278,7 @@ class TestNoBacktestRegressionV2954:
         assert "market_monitor" not in source
 
     def test_version_constant_updated(self):
-        """版本常量更新为v2.9.61"""
+        """版本常量更新为v2.9.65"""
         api_path = os.path.join(
             os.path.dirname(__file__), "..", "..", 
             "nodes", "web", "api", "scanner_system.py"
@@ -286,4 +286,4 @@ class TestNoBacktestRegressionV2954:
         api_path = os.path.abspath(api_path)
         with open(api_path) as f:
             source = f.read()
-        assert 'v2.9.64' in source
+        assert 'v2.9.65' in source
