@@ -216,7 +216,7 @@ class TestVersionV2963(unittest.TestCase):
         filepath = os.path.join(WEB_API_DIR, "scanner_system.py")
         with open(filepath) as f:
             src = f.read()
-        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.65"', src)
+        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.66"', src)
 
 
 if __name__ == "__main__":
