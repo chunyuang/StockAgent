@@ -1,12 +1,13 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.60 | 日期: 2026-06-02 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.61 | 日期: 2026-06-02 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
 > 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats✅ | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化✅ | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复✅ | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复✅ | v2.9.24 diagnose+情绪调仓提取+DelegateRouter策略扩展✅ | v2.9.25 update_strategy_config bug修复+bare except清理+_init_modules拆分✅ | v2.9.26 全模块bare except清理+position_checker._execute_sell_list提取3子方法✅ | v2.9.27 方法提取到子模块5个+测试适配✅ | v2.9.28 风控线程拆分+filter合并提取+scan_loop错误恢复✅ | v2.9.31 _safe_read_state统一+RuntimeWarning修复+get_positions提取✅ | v2.9.34 情绪得分+收盘同步提取→子模块✅ | v2.9.35 卖出执行提取到PositionManager✅ | v2.9.36 审查P0/P1修复+WS断线补发+前端错误提示 | v2.9.37 _save_param_snapshot提取+_init_state类属性瘦身+start()30行 | v2.9.38 _run_checker_on_positions提取+compare差异持久化+_post_sell_state_cleanup统一 | v2.9.39 _scan_loop_settlement提取→RuntimePersistence+_emit_risk_thread_error委托RiskWatchdog+MarketPhase.is_trading_active+position_checker except修复 | v2.9.42 参数管理6方法DELEGATE_MAP委托+StrategyParamCenter路由策略+scanner 1382行 | v2.9.43 signal_manager方法提取7子方法(execute_signals 161→24行+update_signals 96→9行)+版本同步+1000测试全通过 | v2.9.44 _SubprocessRuntime提取(scanner_daemon 303行闭包→独立类+命令路由表5子handler+_send_ack统一+16新增测试) | v2.9.46 bare except清理(web API)+版本同步+_check_stop_loss_take_profit简化+section合并 | v2.9.47 getattr/hasattr防御消除+关键路径日志级别提升+18新增测试 | v2.9.48 pipeline.apply提取(187→103)+broker.place_order提取(182→109)+33新增测试 | v2.9.49 审查P0安全修复(WS Token首条消息认证+Trading API越权访问)+P1修复(Stream consumer动态化+持仓批量价格查询)+P2修复(System API同步MongoDB→异步)+19新增测试 | v2.9.50 🔴Daemon方法名Bug修复(update_strategy_params→update_strategy_config/run_once→scan_once)+hasattr防御清理6处+except Exception收窄9处+15新增测试 | v2.9.51 getattr防御清理18处+broker正式接口(get_limit_prices/get_realtime_prices)+🔴_daily_start_asset日内回撤永远为0bug修复+_last_scan_duration_ms初始化+22新增测试 | v2.9.52 getattr/hasattr清理(broker/position_manager/runtime_persistence/strategy_scorer/risk_watchdog 5文件)+DELEGATE_MAP外提到scanner_delegate_router(scanner 1391→1308 -83行)+@classmethod@property兼容别名+7测试文件更新+1177测试全通过 |
 | v2.9.53 返回类型注解补全(14个核心模块0.3%缺失,总体9.6%)+scanner_delegate_router Any导入修复+1177测试全通过 |
 | v2.9.54 _init_broker拆分(_init_broker_gm/_init_broker_sim提取)+_scan_loop_trading健壮性(scan_once异常不传播)+_restart_risk_thread_if_dead看门狗提取+_try_recover_quote_source行情恢复提取+25新增测试+1151全通过 |
 | v2.9.60 risk_watchdog 5方法提取(_run_checks 55→19+_check_position_health 57→27+_find_overdue_positions+_try_auto_recovery+_update_overall_status)+signal_manager 3方法提取(_execute_single_buy 55→26+_calc_buy_shares+_check_buy_quality+_apply_buy_slippage)+9新增测试+1459全通过 |
+| v2.9.61 live_filter_pipeline.apply 103→48行+2方法提取(_apply_filter_layers+_finalize_traces)+emotion_cycle.handle_emotion_phase_change 64→47行+2方法提取(_execute_emotion_batch_sell+_emit_rebalance_event)+_calculate_zt_premium 54→12行+2方法提取(_get_prev_trade_date+_calc_avg_zt_premium)+scanner_delegate_router.resolve_delegate 62→16行(if/elif→_DISPATCH_TABLE路由表)+tiered_scanner._l3_builtin_check 58→17行+_check_single_position_stop_profit提取+broker._match 57→28行+_calc_dynamic_slippage提取+risk_watchdog._check_heartbeat 51→13行+2方法提取(_judge_startup_heartbeat+_judge_heartbeat_elapsed)+47新增测试+1421全通过 |
 | v2.9.59 emotion_cycle 5方法提取(_try_add_pending_sell死代码消除+update_sentiment_score 4子方法)+signal_dispatcher 3方法提取(dispatch 63→15 -76%)+event_bus 1方法提取(emit 59→21 -64%)+strategy_scorer 3方法提取(merge_factors 58→7 -88%)+runtime_persistence 3方法提取(post_sell_cleanup 57→22 -61%)+execution_quality 2方法提取(check_buy 71→19 -73%)+risk_watchdog 2方法提取(_check_drawdown 69→28 -59%)+21新增测试+1450全通过 |
 > 回测影响: 零文件修改, 1459测试全通过(scanner 1358+backtest 101)
 
@@ -4058,3 +4059,68 @@ scanner_delegate_router.py: 184行 → 271行 (+87行)
 - 全量通过: 1177 passed, 1 skipped
 - 回测零影响: 51 passed
 - bare except残留: 0处
+
+---
+
+## 五十一、v2.9.61 live_filter_pipeline.apply提取 + emotion_cycle提取 + delegate_router路由表 + tiered_scanner提取 + broker._match提取 + risk_watchdog._check_heartbeat提取 (2026-06-02)
+
+### 51.1 设计目标
+
+1. **🟡 live_filter_pipeline.apply拆分**: 103行→48行(-53%), 提取2个子方法(_apply_filter_layers L2~L7编排+_finalize_traces最终标记)
+2. **🟡 emotion_cycle.handle_emotion_phase_change拆分**: 64行→47行(-27%), 提取2个子方法(_execute_emotion_batch_sell分批卖出+_emit_rebalance_event事件推送)
+3. **🟡 emotion_cycle._calculate_zt_premium拆分**: 54行→12行(-78%), 提取2个子方法(_get_prev_trade_date获取前交易日+_calc_avg_zt_premium批量计算溢价)
+4. **🟡 scanner_delegate_router.resolve_delegate重构**: 62行→16行(-74%), if/elif链→_DISPATCH_TABLE路由表+6个独立_resolve_*函数
+5. **🟡 tiered_scanner._l3_builtin_check拆分**: 58行→17行(-71%), 提取_check_single_position_stop_profit单票检查
+6. **🟡 broker._match拆分**: 57行→28行(-51%), 提取_calc_dynamic_slippage动态滑点计算
+7. **🟡 risk_watchdog._check_heartbeat拆分**: 51行→13行(-75%), 提取_judge_startup_heartbeat+_judge_heartbeat_elapsed
+
+### 51.2 变更文件
+
+| 文件 | 变更 |
+|---|---|
+| live_filter_pipeline.py | apply 103→48行+2方法提取(_apply_filter_layers 55行+_finalize_traces 13行) |
+| emotion_cycle.py | handle_emotion_phase_change 64→47行+2方法提取+_calculate_zt_premium 54→12行+2方法提取 |
+| scanner_delegate_router.py | resolve_delegate 62→16行(if/elif→_DISPATCH_TABLE)+6个_resolve_*函数+_resolve_module_delegate |
+| tiered_scanner.py | _l3_builtin_check 58→17行+_check_single_position_stop_profit 32行提取 |
+| broker.py | _match 57→28行+_calc_dynamic_slippage 32行提取 |
+| risk_watchdog.py | _check_heartbeat 51→13行+_judge_startup_heartbeat+_judge_heartbeat_elapsed |
+| web/api/scanner.py | _DESIGN_DOC_VERSION→v2.9.61 |
+| test_v2961_method_extractions.py | 新增47测试 |
+| test_v2948_pipeline_apply_extraction.py | 2测试适配(apply→_apply_filter_layers) |
+| 7个版本断言文件 | v2.9.60→v2.9.61 |
+
+### 51.3 方法行数改善
+
+| 方法 | 之前 | 之后 | 变化 |
+|---|---|---|---|
+| apply | 103行 | 48行 | -53% |
+| handle_emotion_phase_change | 64行 | 47行 | -27% |
+| resolve_delegate | 62行 | 16行 | -74% |
+| _l3_builtin_check | 58行 | 17行 | -71% |
+| _match | 57行 | 28行 | -51% |
+| _check_heartbeat | 51行 | 13行 | -75% |
+| _calculate_zt_premium | 54行 | 12行 | -78% |
+
+### 51.4 超过50行方法数
+
+- v2.9.60: 18个方法超过50行
+- v2.9.61: 12个方法超过50行(-6, -33%)
+
+### 51.5 测试覆盖 (47新增)
+
+| 测试类 | 用例数 | 覆盖点 |
+|---|---|---|
+| TestLiveFilterPipelineExtraction | 9 | _apply_filter_layers+_finalize_traces+apply行数+委托 |
+| TestEmotionCycleExtraction | 9 | 4个提取方法+行数+async |
+| TestDelegateRouterDispatchTable | 10 | _DISPATCH_TABLE+6个_resolve_*+路由表使用+行数 |
+| TestTieredScannerExtraction | 5 | _check_single_position_stop_profit+行数+委托 |
+| TestBrokerMatchExtraction | 7 | _calc_dynamic_slippage+行数+规则保留 |
+| TestRiskWatchdogHeartbeatExtraction | 5 | 2个提取方法+行数+HealthCheck返回 |
+| TestBigMethodsReduction | 1 | >50行方法数减少 |
+| TestNoBacktestRegressionV2961 | 2 | 回测零影响+版本常量 |
+
+**全量测试**: 1421 passed (0 failed)
+
+### 51.6 回测影响
+
+零。所有变更仅影响market_monitor模块内部重构和测试, 回测引擎零文件修改。
