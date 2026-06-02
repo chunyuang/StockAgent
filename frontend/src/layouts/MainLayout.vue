@@ -33,7 +33,7 @@ import { useTaskStore, useThemeStore } from '@/stores'
 
 const route = useRoute()
 const router = useRouter()
-const { logout } = useAuth()
+const { logout: _logout } = useAuth()
 const taskStore = useTaskStore()
 const themeStore = useThemeStore()
 
