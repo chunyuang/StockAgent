@@ -391,11 +391,11 @@ class TestNoBacktestRegressionV2961(unittest.TestCase):
                 self.assertNotIn("v2.9.61", content, f"{fname}不应包含v2.9.61标记")
 
     def test_version_constant(self):
-        """_DESIGN_DOC_VERSION应为v2.9.66"""
+        """_DESIGN_DOC_VERSION应为v2.9.67"""
         scanner_api = os.path.join(_AGENT_DIR, "nodes", "web", "api", "scanner_system.py")
         with open(scanner_api) as f:
             content = f.read()
-        self.assertIn('v2.9.66', content)
+        self.assertIn('v2.9.67', content)
 
 
 if __name__ == "__main__":

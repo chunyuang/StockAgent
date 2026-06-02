@@ -9,6 +9,7 @@ v2.9.43 测试: _check_stop_loss_only简化 + _persist_scan_result提取到Runti
 import os
 import pytest
 import inspect
+from scanner_test_helpers import read_all_scanner_sources
 
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _SCANNER = os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "scanner.py")
@@ -25,7 +26,7 @@ class TestCheckStopLossOnlySimplified:
 
     def test_method_exists(self):
         """_check_stop_loss_only方法存在"""
-        source = _read(_SCANNER)
+        source = read_all_scanner_sources()
         assert "def _check_stop_loss_only" in source
 
     def test_no_broker_check(self):
@@ -42,7 +43,7 @@ class TestCheckStopLossOnlySimplified:
 
     def test_still_calls_pm(self):
         """仍委托给PositionManager"""
-        source = _read(_SCANNER)
+        source = read_all_scanner_sources()
         idx = source.find("def _check_stop_loss_only")
         assert idx > 0
         method_code = source[idx:idx+500]
@@ -51,7 +52,7 @@ class TestCheckStopLossOnlySimplified:
 
     def test_still_retries_pending_sells(self):
         """仍重试pending_sells"""
-        source = _read(_SCANNER)
+        source = read_all_scanner_sources()
         idx = source.find("def _check_stop_loss_only")
         assert idx > 0
         method_code = source[idx:idx+500]
@@ -59,7 +60,7 @@ class TestCheckStopLossOnlySimplified:
 
     def test_still_executes_sell(self):
         """仍执行卖出"""
-        source = _read(_SCANNER)
+        source = read_all_scanner_sources()
         idx = source.find("def _check_stop_loss_only")
         assert idx > 0
         method_code = source[idx:idx+800]
@@ -71,12 +72,12 @@ class TestPersistScanResultDelegation:
 
     def test_method_exists(self):
         """_persist_scan_result方法存在"""
-        source = _read(_SCANNER)
+        source = read_all_scanner_sources()
         assert "def _persist_scan_result" in source
 
     def test_delegates_to_runtime_persistence(self):
         """委托给RuntimePersistence.persist_scan_result"""
-        source = _read(_SCANNER)
+        source = read_all_scanner_sources()
         idx = source.find("def _persist_scan_result")
         assert idx > 0
         method_code = source[idx:idx+400]
@@ -85,7 +86,7 @@ class TestPersistScanResultDelegation:
 
     def test_no_inline_save_state(self):
         """scanner中不再内联save_state"""
-        source = _read(_SCANNER)
+        source = read_all_scanner_sources()
         idx = source.find("def _persist_scan_result")
         assert idx > 0
         method_code = source[idx:idx+400]
@@ -110,7 +111,7 @@ class TestBrokerDecouplingProgress:
 
     def test_broker_refs_under_17(self):
         """self._broker引用<17处(v2.9.41:新增_daily_start_asset初始化+1)"""
-        source = _read(_SCANNER)
+        source = read_all_scanner_sources()
         count = sum(1 for line in source.splitlines()
                     if 'self._broker' in line and not line.strip().startswith('#'))
         assert count < 17, f"self._broker references: {count} (expected < 17)"
@@ -131,7 +132,7 @@ class TestVersionSync:
     def test_design_doc_version_in_api(self):
         """API版本号为v2.9.43"""
         source = _read(_API)
-        assert '_DESIGN_DOC_VERSION = "v2.9.66"' in source
+        assert '_DESIGN_DOC_VERSION = "v2.9.67"' in source
 
 
 class TestNoBacktestRegressionV2941:

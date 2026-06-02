@@ -147,16 +147,24 @@ class TestBrokerPublicInterfaces:
 # ─── 3. Scanner初始化验证 ───
 
 class TestScannerInitV2951:
-    """验证scanner新增的_init_state属性"""
+    """验证scanner新增的_init_state属性(scanner.py+scanner_initializer.py混入)"""
+
+    def _read_scanner_sources(self) -> str:
+        """合并scanner.py+initializer.py源码"""
+        scanner = _read(os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "scanner.py"))
+        init_path = os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "scanner_initializer.py")
+        if os.path.exists(init_path):
+            scanner += "\n" + _read(init_path)
+        return scanner
 
     def test_daily_start_asset_initialized(self):
         """_daily_start_asset在_init_state中初始化为0.0"""
-        source = _read(os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "scanner.py"))
+        source = self._read_scanner_sources()
         assert "_daily_start_asset: float = 0.0" in source
 
     def test_last_scan_duration_ms_initialized(self):
         """_last_scan_duration_ms在_init_state中初始化为0.0"""
-        source = _read(os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "scanner.py"))
+        source = self._read_scanner_sources()
         assert "_last_scan_duration_ms: float = 0.0" in source
 
     def test_daily_start_asset_set_in_start(self):

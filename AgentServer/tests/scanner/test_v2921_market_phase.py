@@ -12,6 +12,7 @@ import sys
 import pytest
 from datetime import datetime
 from unittest.mock import patch, MagicMock
+from scanner_test_helpers import read_all_scanner_sources
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 SCANNER_PATH = os.path.join(
@@ -31,7 +32,7 @@ class TestMarketPhaseClassify:
         """周末返回WEEKEND"""
         from nodes.market_monitor.scanner import MarketPhase
         # 模拟周六10:00
-        with patch('nodes.market_monitor.scanner.datetime') as mock_dt:
+        with patch('nodes.market_monitor.market_phase.datetime') as mock_dt:
             mock_now = MagicMock()
             mock_now.weekday.return_value = 5  # 周六
             mock_now.hour = 10
@@ -42,7 +43,7 @@ class TestMarketPhaseClassify:
     def test_deep_night_late(self):
         """深夜(23:00+)返回DEEP_NIGHT"""
         from nodes.market_monitor.scanner import MarketPhase
-        with patch('nodes.market_monitor.scanner.datetime') as mock_dt:
+        with patch('nodes.market_monitor.market_phase.datetime') as mock_dt:
             mock_now = MagicMock()
             mock_now.weekday.return_value = 2  # 周三
             mock_now.hour = 23
@@ -53,7 +54,7 @@ class TestMarketPhaseClassify:
     def test_deep_night_early(self):
         """凌晨(0-7点)返回DEEP_NIGHT"""
         from nodes.market_monitor.scanner import MarketPhase
-        with patch('nodes.market_monitor.scanner.datetime') as mock_dt:
+        with patch('nodes.market_monitor.market_phase.datetime') as mock_dt:
             mock_now = MagicMock()
             mock_now.weekday.return_value = 3  # 周四
             mock_now.hour = 3
@@ -64,7 +65,7 @@ class TestMarketPhaseClassify:
     def test_premarket_detected(self):
         """盘前(9:00-9:25)返回PREMARKET"""
         from nodes.market_monitor.scanner import MarketPhase
-        with patch('nodes.market_monitor.scanner.datetime') as mock_dt:
+        with patch('nodes.market_monitor.market_phase.datetime') as mock_dt:
             mock_now = MagicMock()
             mock_now.weekday.return_value = 0  # 周一
             mock_now.hour = 9
@@ -75,7 +76,7 @@ class TestMarketPhaseClassify:
     def test_auction_detected(self):
         """竞价(9:25-9:30)返回AUCTION"""
         from nodes.market_monitor.scanner import MarketPhase
-        with patch('nodes.market_monitor.scanner.datetime') as mock_dt:
+        with patch('nodes.market_monitor.market_phase.datetime') as mock_dt:
             mock_now = MagicMock()
             mock_now.weekday.return_value = 1  # 周二
             mock_now.hour = 9
@@ -86,7 +87,7 @@ class TestMarketPhaseClassify:
     def test_trading_detected(self):
         """交易时间(9:30-15:00)返回TRADING"""
         from nodes.market_monitor.scanner import MarketPhase
-        with patch('nodes.market_monitor.scanner.datetime') as mock_dt:
+        with patch('nodes.market_monitor.market_phase.datetime') as mock_dt:
             mock_now = MagicMock()
             mock_now.weekday.return_value = 2  # 周三
             mock_now.hour = 10
@@ -97,7 +98,7 @@ class TestMarketPhaseClassify:
     def test_after_close_detected(self):
         """收盘后(15:05+)返回AFTER_CLOSE"""
         from nodes.market_monitor.scanner import MarketPhase
-        with patch('nodes.market_monitor.scanner.datetime') as mock_dt:
+        with patch('nodes.market_monitor.market_phase.datetime') as mock_dt:
             mock_now = MagicMock()
             mock_now.weekday.return_value = 3  # 周四
             mock_now.hour = 15
@@ -108,7 +109,7 @@ class TestMarketPhaseClassify:
     def test_off_hours_lunch(self):
         """午间(8:00-9:00)返回OFF_HOURS"""
         from nodes.market_monitor.scanner import MarketPhase
-        with patch('nodes.market_monitor.scanner.datetime') as mock_dt:
+        with patch('nodes.market_monitor.market_phase.datetime') as mock_dt:
             mock_now = MagicMock()
             mock_now.weekday.return_value = 0  # 周一
             mock_now.hour = 8
@@ -211,8 +212,7 @@ class TestRiskLoopUsesMarketPhase:
 
     def test_risk_loop_uses_market_phase(self):
         """_risk_loop_sync(或其委托的_risk_tick_body)使用MarketPhase.classify()"""
-        with open(SCANNER_PATH) as f:
-            src = f.read()
+        src = read_all_scanner_sources()
         import ast
         tree = ast.parse(src)
         # v2.9.56: MarketPhase.classify()已提取到_risk_tick_body
@@ -234,7 +234,7 @@ class TestMarketPhaseEdgeCases:
     def test_trading_start_boundary(self):
         """9:30是交易时间"""
         from nodes.market_monitor.scanner import MarketPhase
-        with patch('nodes.market_monitor.scanner.datetime') as mock_dt:
+        with patch('nodes.market_monitor.market_phase.datetime') as mock_dt:
             mock_now = MagicMock()
             mock_now.weekday.return_value = 0
             mock_now.hour = 9
@@ -245,7 +245,7 @@ class TestMarketPhaseEdgeCases:
     def test_trading_end_boundary(self):
         """15:00仍是交易时间"""
         from nodes.market_monitor.scanner import MarketPhase
-        with patch('nodes.market_monitor.scanner.datetime') as mock_dt:
+        with patch('nodes.market_monitor.market_phase.datetime') as mock_dt:
             mock_now = MagicMock()
             mock_now.weekday.return_value = 0
             mock_now.hour = 15
@@ -256,7 +256,7 @@ class TestMarketPhaseEdgeCases:
     def test_auction_start_boundary(self):
         """9:25是竞价时间"""
         from nodes.market_monitor.scanner import MarketPhase
-        with patch('nodes.market_monitor.scanner.datetime') as mock_dt:
+        with patch('nodes.market_monitor.market_phase.datetime') as mock_dt:
             mock_now = MagicMock()
             mock_now.weekday.return_value = 0
             mock_now.hour = 9
@@ -267,7 +267,7 @@ class TestMarketPhaseEdgeCases:
     def test_gap_between_trading_and_close(self):
         """15:01-15:04是OFF_HOURS(交易和收盘之间)"""
         from nodes.market_monitor.scanner import MarketPhase
-        with patch('nodes.market_monitor.scanner.datetime') as mock_dt:
+        with patch('nodes.market_monitor.market_phase.datetime') as mock_dt:
             mock_now = MagicMock()
             mock_now.weekday.return_value = 0
             mock_now.hour = 15

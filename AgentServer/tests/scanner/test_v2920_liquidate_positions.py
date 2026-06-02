@@ -325,7 +325,7 @@ class TestScannerLineCountV2920:
         with open(SCANNER_PATH) as f:
             lines = len(f.readlines())
         assert lines < 1550, f"scanner.py行数{lines}应<1550 (v2.9.35+)"
-        assert lines > 1200, f"scanner.py行数{lines}应>1200"
+        assert lines > 800, f"scanner.py行数{lines}应>1200"
 
 
 class TestNoBacktestRegressionV2920:

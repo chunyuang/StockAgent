@@ -19,10 +19,11 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
-from nodes.market_monitor.broker import SimulatedBroker
-from nodes.market_monitor.live_filter_pipeline import LiveFilterPipeline
 from nodes.market_monitor.quote_manager import QuoteManager
 from nodes.market_monitor.scanner_event_bus import ScannerEventBus, ScannerEvents
+from nodes.market_monitor.scanner_initializer import ScannerInitializer
+from nodes.market_monitor.scan_loop_runner import ScanLoopRunner
+from nodes.market_monitor.risk_loop_runner import RiskLoopRunner
 
 logger = logging.getLogger("scanner.market")
 
@@ -75,49 +76,7 @@ class _StepTimer:
 
 
 
-class MarketPhase:
-    """市场时间阶段分类【v2.9.21】
-    
-    统一_scan_loop和_risk_loop_sync的时间门控逻辑,
-    消除散布在两个方法中的魔术字符串比较。
-    """
-    WEEKEND = "weekend"          # 周末(调试模式)
-    DEEP_NIGHT = "deep_night"    # 23:00-08:00 极低频
-    PREMARKET = "premarket"      # 09:00-09:25 竞价前
-    AUCTION = "auction"          # 09:25-09:30 竞价
-    TRADING = "trading"          # 09:30-15:00 交易时间
-    AFTER_CLOSE = "after_close"  # 15:05+ 收盘结算
-    OFF_HOURS = "off_hours"      # 其他非交易时间
-
-    @staticmethod
-    def classify() -> str:
-        """分类当前时间阶段(零副作用, 可随时调用)"""
-        now = datetime.now()
-        ct = now.strftime("%H:%M")
-        if now.weekday() >= 5:
-            return MarketPhase.WEEKEND
-        if now.hour >= 23 or now.hour < 8:
-            return MarketPhase.DEEP_NIGHT
-        if "09:00" <= ct < "09:25":
-            return MarketPhase.PREMARKET
-        if "09:25" <= ct < "09:30":
-            return MarketPhase.AUCTION
-        if "09:30" <= ct <= "15:00":
-            return MarketPhase.TRADING
-        if ct >= "15:05":
-            return MarketPhase.AFTER_CLOSE
-        return MarketPhase.OFF_HOURS
-
-    @staticmethod
-    def is_trading_active(phase: str = None) -> bool:
-        """当前是否处于交易活跃时段(竞价+交易)【v2.9.39】
-
-        用于风控线程等需要快速判断是否应执行检查的场景。
-        Args:
-            phase: 传入阶段(省略则自动classify)
-        """
-        p = phase or MarketPhase.classify()
-        return p in (MarketPhase.TRADING, MarketPhase.AUCTION)
+from nodes.market_monitor.market_phase import MarketPhase  # 【v2.9.67提取到独立模块】
 
 
 @dataclass
@@ -182,7 +141,7 @@ class PositionStatus:
     sell_reason: str = ""
 
 
-class MarketScanner:
+class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
     """超短量化市场扫描器"""
 
     # 扫描配置
@@ -243,202 +202,10 @@ class MarketScanner:
 
     # ==================== 初始化子方法 ====================
 
-    def _init_state(self) -> None:
-        """初始化基础状态变量【v2.9.3提取, v2.9.37:标量默认值提升为类属性, v2.9.56:分组初始化】"""
-        self._init_risk_state()
-        self._init_execution_state()
-        self._init_cache_state()
-        self._init_signal_state()
+    # ==================== 初始化方法(ScannerInitializer混入) ====================
+    # _init_state/_init_broker/_init_pipeline/_init_modules/_init_risk
+    # 已提取到 scanner_initializer.py ScannerInitializer 混入类【v2.9.67】
 
-    def _init_risk_state(self) -> None:
-        """初始化风控+交易状态【v2.9.56从_init_state提取】"""
-        self._position_risk_overrides: Dict[str, Dict] = {}
-        self._trailing_stops: Dict[str, Dict] = {}
-        self._position_risk_levels: Dict[str, str] = {}
-        self._pending_orders: Dict[str, Dict] = {}
-        self._pending_sells: Dict[str, Dict] = {}
-        self.SELL_LOGIC_MODE = os.getenv("SELL_LOGIC_MODE", "legacy")
-
-    def _init_execution_state(self) -> None:
-        """初始化执行质量统计【v2.9.56从_init_state提取】"""
-        self._execution_stats = {
-            "total_slippage_pct": 0.0,
-            "total_fills": 0,
-            "partial_fills": 0,
-            "avg_fill_latency_ms": 0.0,
-            "stop_loss_response_times": [],
-        }
-
-    def _init_cache_state(self) -> None:
-        """初始化数据缓存【v2.9.56从_init_state提取】"""
-        self._daily_factors_df: Optional[pd.DataFrame] = None
-        self._realtime_cache: Dict[str, Dict] = {}
-        self._prev_realtime_cache: Dict[str, Dict] = {}
-        self._all_codes: List[str] = []
-
-    def _init_signal_state(self) -> None:
-        """初始化信号+时间线+交易统计【v2.9.56从_init_state提取】"""
-        self._active_signals: List[ScanSignal] = []
-        self._timeline: List[Dict] = []
-        self._stats = {
-            "scans": 0,
-            "signals_found": 0,
-            "trades_executed": 0,
-            "stop_losses": 0,
-            "take_profits": 0,
-            "stocks_scanned": 0,
-        }
-        self._last_scan_duration_ms: float = 0.0
-        self._daily_start_asset: float = 0.0
-
-    def _init_broker(self) -> None:
-        """初始化撮合引擎【v2.9.3提取, v2.9.54:提取_init_broker_gm/_init_broker_sim】"""
-        trade_mode = self.config.get("trade_mode", self.MODE_SIMULATED)
-        self._trade_mode = trade_mode
-        self._stock_name_map: Dict[str, str] = {}  # ts_code→stock_name缓存
-
-        if trade_mode == self.MODE_GM:
-            self._init_broker_gm()
-        else:
-            self._init_broker_sim(trade_mode)
-
-    def _init_broker_gm(self) -> None:
-        """初始化掘金量化Broker【v2.9.54从_init_broker提取】"""
-        from nodes.market_monitor.gm_broker import GmBroker
-        self._gm_broker = GmBroker(
-            token=self.config.get("gm_token", ""),
-            strategy_id=self.config.get("gm_strategy_id", ""),
-            mode=1,
-            serv_addr=self.config.get("gm_serv_addr", ""),
-            account_id=self.account_id,
-        )
-        self._broker = None
-        logger.info("[SCANNER] 交易模式: 掘金量化")
-
-    def _init_broker_sim(self, trade_mode: str) -> None:
-        """初始化仿真Broker(含调试/回放/标准模式)【v2.9.54从_init_broker提取】"""
-        initial_cash = self.config.get("initial_cash", 1_000_000)
-        self._dry_run = (trade_mode == self.MODE_DRY_RUN)
-        self._replay_mode = (trade_mode == self.MODE_REPLAY)
-        self._replay_date = self.config.get("replay_date", None)
-        self._replay_provider = None
-        self._gm_broker = None
-
-        self._broker = SimulatedBroker(account_id=self.account_id, initial_cash=initial_cash)
-
-        if self._dry_run:
-            logger.info("[SCANNER] 交易模式: 🔍调试模式(只扫描不交易)")
-        elif self._replay_mode:
-            try:
-                from nodes.market_monitor.replay_provider import ReplayDataProvider
-                self._replay_provider = ReplayDataProvider()
-                if self._replay_date:
-                    self._replay_provider.get_replay_data(self._replay_date)
-            except (ImportError, OSError, ValueError) as e:
-                logger.error(f"[SCANNER] 回放数据加载失败: {e}")
-            logger.info(f"[SCANNER] 交易模式: 🔄回放模式(日期={self._replay_date or '自动'})")
-        else:
-            logger.info("[SCANNER] 交易模式: 内置仿真撮合")
-
-    def _init_pipeline(self) -> None:
-        """初始化9层筛选管道【v2.9.3提取】"""
-        self._filter_pipeline = LiveFilterPipeline(
-            scanner=self,
-            config={
-                "enable_force_empty": True,
-                "enable_special_period": True,
-                "enable_sentiment_cycle": True,
-                "enable_premarket_filter": True,
-                "enable_auction_filter": True,
-                "max_total_position": 0.7,
-                "max_position_per_stock": 0.35,
-                "max_candidates_per_scan": 10,
-            }
-        )
-        self._current_position_ratio = 1.0
-        self._current_sentiment = {"score": 50, "period": "chaos"}
-
-    def _init_modules(self) -> None:
-        """初始化EventBus+QuoteManager+核心模块+风控+执行质量【v2.9.3提取, v2.9.25拆分为子方法】"""
-        self._init_event_and_quote()
-        self._init_signal_and_risk()
-        self._init_core_modules()
-        self._init_execution_quality()
-
-    def _init_event_and_quote(self) -> None:
-        """初始化EventBus+QuoteManager【v2.9.25提取】"""
-        self._event_bus = ScannerEventBus()
-        self._quote_manager = QuoteManager()
-        self._quote_manager.set_event_emitter(self._make_quote_event_emitter())
-        self._position_manager = None  # 延迟初始化
-        self._strategy_scorer = None
-        self._signal_manager = None
-        self._data_router: Optional[Any] = None
-
-    def _init_signal_and_risk(self) -> None:
-        """初始化信号分发器+参数中心+风控看门狗【v2.9.25提取】"""
-        from nodes.market_monitor.signal_dispatcher import (
-            SignalDispatcher, redis_channel_handler, feishu_channel_handler, log_channel_handler
-        )
-        self._signal_dispatcher = SignalDispatcher(scanner=self)
-        self._signal_dispatcher.register_channel("log", log_channel_handler)
-        self._signal_dispatcher.register_channel("redis", redis_channel_handler)
-        self._feishu_registered = False
-
-        from nodes.market_monitor.strategy_param_center import param_center
-        self._param_center = param_center
-
-        from nodes.market_monitor.risk_watchdog import RiskWatchdog
-        self._risk_watchdog = RiskWatchdog(scanner=self)
-        self._risk_watchdog.register_alert_channel(self._signal_dispatcher.dispatch)
-
-    def _init_core_modules(self) -> None:
-        """初始化PositionManager+StrategyScorer+SignalManager+PositionChecker+RuntimePersistence【v2.9.25提取】"""
-        from nodes.market_monitor.position_manager import PositionManager
-        self._position_manager = PositionManager(self)
-        from nodes.market_monitor.strategy_scorer import StrategyScorer
-        self._strategy_scorer = StrategyScorer(self)
-        from nodes.market_monitor.signal_manager import SignalManager
-        self._signal_manager = SignalManager(self)
-        from nodes.market_monitor.position_checker import PositionChecker
-        self._position_checker = PositionChecker(self)
-        from nodes.market_monitor.runtime_persistence import RuntimePersistence
-        self._runtime_persistence = RuntimePersistence(self)
-
-        # 分级行情扫描器
-        self._use_tiered = self.config.get("use_tiered_scanner", False)
-        self._tiered_scanner = None
-        if self._use_tiered:
-            from nodes.market_monitor.tiered_scanner import TieredScanner
-            self._tiered_scanner = TieredScanner(scanner=self)
-            logger.info("[SCANNER] 分级行情: L1(5min全市场) → L2(30s候选池) → L3(5s持仓)")
-
-    def _init_execution_quality(self) -> None:
-        """初始化执行质量检查+滑点模型【v2.9.25提取】"""
-        from nodes.market_monitor.execution_quality import PreTradeChecker, SlippageModel
-        self._pre_trade_checker = PreTradeChecker(broker=self._broker, config={
-            "max_position_per_stock": 0.35,
-            "max_total_position": 0.70,
-        })
-        self._slippage_model = SlippageModel
-
-    def _init_risk(self) -> None:
-        """初始化风控熔断参数【v2.9.3提取】"""
-        initial_cash = self.config.get("initial_cash", 1_000_000)
-        self._circuit_breaker = {
-            "daily_start_assets": initial_cash,
-            "daily_max_drawdown": 0.05,
-            "consecutive_losses": 0,
-            "consecutive_loss_limit": 3,
-            "trading_paused": False,
-            "pause_reason": "",
-            "today_trades": 0,
-            "today_losses": 0,
-        }
-
-    # ==================== 动态委托分派 ====================
-
-    # 委托映射已移至scanner_delegate_router.DELEGATE_MAP【v2.9.52】
     # 保留_DELEGATE_MAP类属性作为兼容别名(测试代码引用MarketScanner._DELEGATE_MAP)
     @classmethod
     @property
@@ -464,6 +231,7 @@ class MarketScanner:
     def is_running(self) -> bool:
         return self._is_running
 
+    # ==================== 📚 生命周期 ====================
     def get_status(self) -> Dict[str, Any]:
         """Scanner完整状态快照"""
         # 子模块状态(安全读取, 无boker时返回空dict)
@@ -781,310 +549,13 @@ class MarketScanner:
         await self._runtime_persistence.load_positions()
 
     # ==================== Phase1.1: 运行时状态持久化 ====================
-    async def _scan_loop(self, trade_date: str) -> None:
-        """主扫描循环(双层节奏 + 智能刷新)
-        
-        全量扫描(5分钟): 涨停池+策略筛选 → 发现新信号
-        持仓检查(30秒): 只查持仓股行情 → 止损止盈
-        
-        【v2.9.55】阶段处理提取为_handle_*_phase方法
-        """
-        settled = False
-        last_full_scan = 0
+    # ==================== 🔄 扫描循环 + 🛡️ 风控循环 ====================
+    # _scan_loop/_scan_loop_trading/_scan_loop_error_recovery等
+    # _risk_loop_sync/_risk_tick_body/_risk_periodic_checks等
+    # 已提取到 scan_loop_runner.py + risk_loop_runner.py 混入类【v2.9.67】
 
-        if self._replay_mode:
-            await self._scan_loop_replay()
-            return
 
-        try:
-            while self._is_running:
-                phase = MarketPhase.classify()
-                
-                if phase == MarketPhase.WEEKEND:
-                    await self._handle_weekend_phase(trade_date)
-
-                elif phase == MarketPhase.TRADING:
-                    settled = False
-                    did_full_scan = await self._scan_loop_trading(trade_date, last_full_scan)
-                    if did_full_scan:
-                        last_full_scan = time.time()
-                    else:
-                        continue
-                    
-                elif phase in (MarketPhase.PREMARKET, MarketPhase.AUCTION):
-                    settled = False
-                    await self._handle_premarket_phase(trade_date)
-                    
-                elif phase == MarketPhase.AFTER_CLOSE:
-                    if not settled and self._broker:
-                        await self._scan_loop_settlement(trade_date)
-                        settled = True
-                    await asyncio.sleep(60)
-                    
-                else:
-                    await asyncio.sleep(self._scan_loop_phase_sleep(phase))
-
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            await self._scan_loop_error_recovery(e)
-
-    async def _handle_weekend_phase(self, trade_date: str) -> None:
-        """周末阶段: 持仓检查+低频休眠【v2.9.55从_scan_loop提取】"""
-        pos_count = len(self.get_positions())
-        if pos_count > 0:
-            try:
-                await self._check_positions_quick(trade_date)
-            except (RuntimeError, KeyError, ValueError) as e:
-                logger.debug(f"[SCANNER] 周末持仓检查异常: {e}")
-        await asyncio.sleep(60)
-
-    async def _handle_premarket_phase(self, trade_date: str) -> None:
-        """盘前竞价阶段【v2.9.55从_scan_loop提取】"""
-        await self._premarket_auction(trade_date)
-        await asyncio.sleep(120)
-
-    @staticmethod
-    def _scan_loop_phase_sleep(phase) -> int:
-        """非交易时间scan_loop的sleep秒数【v2.9.28提取】"""
-        if phase == MarketPhase.DEEP_NIGHT:
-            return 1800
-        return 300
-
-    async def _scan_loop_error_recovery(self, error: Exception) -> None:
-        """_scan_loop异常恢复【v2.9.28从_scan_loop提取】"""
-        logger.error(f"[SCANNER] _scan_loop异常: {error}", exc_info=True)
-        self._scan_loop_error_count += 1
-        if self._scan_loop_error_count >= 3:
-            logger.error(f"[SCANNER] 连续{self._scan_loop_error_count}次异常, scanner退出")
-            self._is_running = False
-        else:
-            logger.warning(f"[SCANNER] 第{self._scan_loop_error_count}次异常, 30秒后尝试恢复")
-            await asyncio.sleep(30)
-        try:
-            if self._loop and not self._loop.is_closed():
-                self._loop.call_soon_threadsafe(
-                    lambda: self._loop.create_task(self._event_bus.emit(ScannerEvents.SCANNER_ERROR, {
-                        "error": str(error),
-                        "error_type": type(error).__name__,
-                        "timestamp": time.time(),
-                        "consecutive_errors": self._scan_loop_error_count,
-                    }))
-                )
-        except Exception as _e:
-            logger.debug(f"[SCAN_LOOP] 错误恢复事件发射失败: {_e}")
-
-    async def _scan_loop_trading(self, trade_date: str, last_full_scan: float) -> bool:
-        """交易时间(9:30-15:00)处理逻辑
-        
-        职责: 风控线程看门狗 + 行情恢复 + 全量扫描/等待
-        Returns: True=全量扫描完成(更新last_full_scan), False=等待中
-        
-        【v2.9.54:scan_once异常不向上传播,返回False让主循环继续】
-        """
-        # 【v2.9.5:风控线程健康看门狗】检测风控线程存活, 崩溃自动重启
-        self._restart_risk_thread_if_dead()
-        
-        # 【Phase2.2:行情降级自动恢复】每5分钟尝试恢复
-        await self._try_recover_quote_source()
-        
-        elapsed = time.time() - last_full_scan
-        if elapsed >= self.SCAN_INTERVAL:
-            try:
-                await self.scan_once(trade_date)
-                return True
-            except Exception as e:
-                # 【v2.9.54】scan_once异常不杀循环, 由_scan_loop_error_recovery处理
-                logger.error(f"[SCAN_TRADING] scan_once异常: {e}")
-                self._scan_loop_error_count += 1
-                return False
-        else:
-            # 【Phase1.2:持仓检查已由风控线程接管,扫描循环只做sleep等待下一次全量扫描】
-            check_interval = self._get_smart_check_interval(self._broker.get_positions() if self._broker else [])
-            await asyncio.sleep(check_interval)
-            return False
-
-    def _restart_risk_thread_if_dead(self) -> None:
-        """风控线程看门狗: 检测线程退出并自动重启【v2.9.54从_scan_loop_trading提取】"""
-        if not (self._risk_running and self._risk_thread and not self._risk_thread.is_alive()):
-            return
-        self._risk_thread_restarts += 1
-        logger.warning(
-            f"[RISK_WATCHDOG] 风控线程已退出(第{self._risk_thread_restarts}次重启)"
-        )
-        self._risk_running = True
-        self._risk_thread = threading.Thread(
-            target=self._risk_loop_sync, daemon=True,
-            name="scanner-risk-thread",
-        )
-        self._risk_thread.start()
-        if self._risk_thread_restarts >= 3:
-            try:
-                asyncio.create_task(self._publish_scanner_event("status", {
-                    "event": "risk_thread_unstable",
-                    "restarts": self._risk_thread_restarts,
-                }))
-            except RuntimeError:
-                pass  # 事件循环未就绪
-
-    async def _try_recover_quote_source(self) -> None:
-        """行情降级自动恢复尝试【v2.9.54从_scan_loop_trading提取】"""
-        if not self._quote_manager.should_try_recover():
-            return
-        try:
-            recovered = await self._quote_manager.try_recover()
-            if recovered:
-                self._quote_degrade_level = self._quote_manager.degrade_level
-                await self._publish_scanner_event("status", {
-                    "event": "quote_recovered",
-                    "degrade_level": 0,
-                })
-        except (ConnectionError, OSError, TimeoutError) as e:
-            logger.debug(f"[SCAN] 行情恢复尝试异常: {e}")
-
-    async def _scan_loop_settlement(self, trade_date: str) -> None:
-        """盘后结算(15:05+) — 委托给RuntimePersistence【v2.9.39提取】"""
-        await self._runtime_persistence.daily_settlement(trade_date)
-
-    async def _scan_loop_replay(self) -> None:
-        """回放模式循环: 不受交易时间限制, 持续扫描【v2.9.19提取】"""
-        logger.info(f"[REPLAY] 回放循环启动, 日期={self._replay_date}")
-        while self._is_running:
-            trade_date = self._replay_date or datetime.now().strftime("%Y%m%d")
-            await self.scan_once(trade_date, force=True)
-            await asyncio.sleep(self.SCAN_INTERVAL)
-
-    def _risk_loop_sync(self) -> None:
-        """风控独立线程(分级节奏，不受asyncio事件循环影响)
-        
-        设计原则:
-        - threading.Thread(真并行, 不受asyncio协作式调度影响)
-        - 1秒止损检查(用缓存数据, 零API成本)
-        - 30秒完整quick check(东财缓存, 零额度)
-        - 职责: 只负责卖出, 不负责买入
-        - 跌停不可卖: 挂起pending_sells, 不丢追踪止损
-        - 【v2.9.28】提取_risk_non_trading_sleep/_check_stale_quote_cache/_risk_periodic_checks
-        - 【v2.9.56】循环体提取为_risk_tick_body
-        """
-        tick = 0
-        consecutive_errors = 0
-        logger.info("[RISK_THREAD] 风控线程启动")
-        
-        while self._risk_running:
-            try:
-                tick += 1
-                consecutive_errors = 0
-                self._risk_tick_body(tick)
-            except Exception as e:
-                consecutive_errors += 1
-                logger.error(f"[RISK_THREAD] 风控线程异常({consecutive_errors}次): {e}")
-                self._emit_risk_thread_error(e, consecutive_errors)
-                sleep_s = self._risk_error_backoff(consecutive_errors, e)
-                time.sleep(sleep_s)
-                continue
-            time.sleep(1)
-        
-        logger.info("[RISK_THREAD] 风控线程已退出")
-
-    def _risk_tick_body(self, tick: int) -> None:
-        """风控线程单次循环体【v2.9.56从_risk_loop_sync提取】
-        
-        包含: 阶段判断→行情读取→过期检测→止损检查→周期性检查
-        """
-        phase = MarketPhase.classify()
-        sleep_s = self._risk_non_trading_sleep(phase)
-        if sleep_s > 0:
-            time.sleep(sleep_s)
-            return
-        
-        with self._cache_lock:
-            realtime_data = dict(self._realtime_cache) if self._realtime_cache else {}
-
-        if not realtime_data or not self._broker:
-            time.sleep(1)
-            return
-        
-        self._check_stale_quote_cache(tick, phase)
-
-        # 每1秒: 止损检查
-        self._check_stop_loss_only(realtime_data)
-        self._last_risk_check_ts = time.time()
-
-        # 周期性检查(60秒/30秒)
-        self._risk_periodic_checks(tick)
-
-    def _risk_periodic_checks(self, tick: int) -> None:
-        """风控线程周期性检查(60秒跌停超时+30秒quick check)【v2.9.30提取】"""
-        # 60秒: 跌停挂起超时检查
-        if tick % 60 == 0 and self._position_manager:
-            try:
-                self._position_manager.check_pending_sells_timeout()
-            except (RuntimeError, KeyError, AttributeError) as e:
-                logger.debug(f"[RISK_THREAD] pending_sells超时检查异常: {e}")
-
-        # 30秒: 完整quick check(东财缓存, 零额度)
-        if tick % 30 == 0 and self._loop and not self._loop.is_closed():
-            try:
-                risk_trade_date = self._trade_date or datetime.now().strftime("%Y%m%d")
-                future = asyncio.run_coroutine_threadsafe(
-                    self._check_positions_quick(risk_trade_date),
-                    self._loop
-                )
-                future.result(timeout=10)
-            except (RuntimeError, KeyError, TimeoutError, asyncio.TimeoutError) as e:
-                logger.debug(f"[RISK_THREAD] quick check异常: {e}")
-
-    @staticmethod
-    def _risk_non_trading_sleep(phase: str) -> int:
-        """非交易时间返回sleep秒数, 交易时间返回0【v2.9.28提取】"""
-        if phase == MarketPhase.WEEKEND:
-            return 60
-        elif phase == MarketPhase.DEEP_NIGHT:
-            return 300
-        elif phase not in (MarketPhase.TRADING, MarketPhase.AUCTION):
-            return 30
-        return 0
-
-    def _check_stale_quote_cache(self, tick: int, phase: str) -> None:
-        """交易时间内行情缓存过期检测+告警【v2.9.28从_risk_loop_sync提取】"""
-        if phase != MarketPhase.TRADING:
-            return
-        if not self._last_realtime_update_ts:
-            return
-        cache_age = time.time() - (self._last_realtime_update_ts or 0)
-        if cache_age <= 120:
-            return
-        logger.warning(f"[RISK_THREAD] 行情缓存过期({cache_age:.0f}秒), 风控精度下降")
-        # 每5分钟只告警一次(避免刷日志)
-        if tick % 300 == 0:
-            try:
-                if self._loop and not self._loop.is_closed():
-                    self._loop.call_soon_threadsafe(
-                        lambda: self._loop.create_task(self._event_bus.emit(ScannerEvents.SCANNER_ERROR, {
-                            "error": f"行情缓存过期{cache_age:.0f}秒",
-                            "error_type": "StaleQuoteCache",
-                            "timestamp": time.time(),
-                        }))
-                    )
-            except Exception as _e:
-                logger.debug(f"[RISK] 行情缓存过期事件发射失败: {_e}")
-    def _risk_error_backoff(consecutive_errors: int, error: Exception) -> int:
-        """风控线程错误退避sleep秒数【v2.9.28从_risk_loop_sync提取】
-        
-        Returns: sleep秒数
-        """
-        # 3次以内1秒; 3-10次5秒; >10次30秒
-        if consecutive_errors >= 10:
-            return 30
-        elif consecutive_errors >= 3:
-            return 5
-        return 1
-
-    def _emit_risk_thread_error(self, error: Exception, consecutive_errors: int) -> None:
-        """风控线程异常事件发射 — 委托给RiskWatchdog【v2.9.39提取】"""
-        from nodes.market_monitor.risk_watchdog import RiskWatchdog
-        RiskWatchdog.emit_risk_thread_error(self, error, consecutive_errors)
-
+    # ==================== 💰 交易执行+止损止盈 ====================
     def _check_stop_loss_only(self, realtime_data: Dict) -> None:
         """1秒级止损检查 — 委托给PositionManager【v2.9.41简化】
         
@@ -1186,6 +657,7 @@ class MarketScanner:
 
         return new_signals
 
+    # ==================== 📋 状态同步+辅助方法 ====================
     def _sync_broker_prices(self, realtime_data: Dict[str, Dict]) -> None:
         """同步broker实时价格(用于持仓估值和涨跌停判断)【v2.9.19提取】"""
         if not self._broker:
@@ -1343,6 +815,7 @@ class MarketScanner:
 
     # ==================== 健康度+线程安全 ====================
 
+    # ==================== 🔒 线程安全+健康度 ====================
     def _safe_read_state(self, attr_name: str) -> Dict:
         """线程安全深拷贝共享状态(统一辅助)【v2.9.31提取】
         

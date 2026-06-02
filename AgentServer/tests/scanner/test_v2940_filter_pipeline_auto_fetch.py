@@ -9,6 +9,7 @@ v2.9.43 测试: filter_pipeline自动获取持仓/账户 + scanner broker耦合�
 """
 import os
 import pytest
+from scanner_test_helpers import read_all_scanner_sources
 
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _SCANNER = os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "scanner.py")
@@ -59,7 +60,7 @@ class TestScannerFilterPipelineSimplified:
 
     def test_no_positions_assembly(self):
         """scanner不再手动组装positions列表"""
-        source = _read(_SCANNER)
+        source = read_all_scanner_sources()
         idx = source.find("async def _apply_filter_pipeline")
         assert idx > 0
         method_code = source[idx:idx+800]
@@ -69,7 +70,7 @@ class TestScannerFilterPipelineSimplified:
 
     def test_no_account_assembly(self):
         """scanner不再手动组装account"""
-        source = _read(_SCANNER)
+        source = read_all_scanner_sources()
         idx = source.find("async def _apply_filter_pipeline")
         assert idx > 0
         method_code = source[idx:idx+800]
@@ -77,7 +78,7 @@ class TestScannerFilterPipelineSimplified:
 
     def test_pipeline_call_without_positions(self):
         """pipeline.apply调用不传positions参数"""
-        source = _read(_SCANNER)
+        source = read_all_scanner_sources()
         idx = source.find("async def _apply_filter_pipeline")
         assert idx > 0
         method_code = source[idx:idx+800]
@@ -85,7 +86,7 @@ class TestScannerFilterPipelineSimplified:
 
     def test_pipeline_call_without_account(self):
         """pipeline.apply调用不传account参数"""
-        source = _read(_SCANNER)
+        source = read_all_scanner_sources()
         idx = source.find("async def _apply_filter_pipeline")
         assert idx > 0
         method_code = source[idx:idx+800]
@@ -97,14 +98,14 @@ class TestScannerBrokerDecoupling:
 
     def test_broker_refs_under_20(self):
         """self._broker引用<20处"""
-        source = _read(_SCANNER)
+        source = read_all_scanner_sources()
         count = sum(1 for line in source.splitlines()
                     if 'self._broker' in line and not line.strip().startswith('#'))
         assert count < 20, f"self._broker references: {count} (expected < 20)"
 
     def test_uses_get_positions_method(self):
         """get_status中使用self.get_positions()"""
-        source = _read(_SCANNER)
+        source = read_all_scanner_sources()
         idx = source.find("def get_status")
         assert idx > 0
         method_code = source[idx:idx+1000]
@@ -112,7 +113,7 @@ class TestScannerBrokerDecoupling:
 
     def test_scan_loop_uses_get_positions(self):
         """_scan_loop使用self.get_positions()"""
-        source = _read(_SCANNER)
+        source = read_all_scanner_sources()
         idx = source.find("async def _scan_loop")
         assert idx > 0
         method_code = source[idx:idx+2000]
@@ -121,7 +122,7 @@ class TestScannerBrokerDecoupling:
 
     def test_scan_loop_trading_uses_broker_positions(self):
         """_scan_loop_trading使用broker.get_positions()"""
-        source = _read(_SCANNER)
+        source = read_all_scanner_sources()
         idx = source.find("async def _scan_loop_trading")
         assert idx > 0
         method_code = source[idx:idx+2000]
@@ -144,7 +145,7 @@ class TestVersionSync:
     def test_design_doc_version_in_api(self):
         """API版本号为v2.9.43"""
         source = _read(_API)
-        assert '_DESIGN_DOC_VERSION = "v2.9.66"' in source
+        assert '_DESIGN_DOC_VERSION = "v2.9.67"' in source
 
 
 class TestNoBacktestRegressionV2940:
