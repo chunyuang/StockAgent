@@ -20,7 +20,7 @@ const data = ref<HealthDetail | null>(null)
 
 async function fetchData() {
   try {
-    const r = await api.get('/scanner/system-health-detail')
+    const r: any = await api.get('/scanner/system-health-detail')
     if (r?.success) data.value = r.data
   } catch { }
 }

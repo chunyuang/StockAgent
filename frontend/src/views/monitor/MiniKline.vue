@@ -25,7 +25,7 @@ async function fetchKline() {
   if (!props.tsCode) return
   loading.value = true
   try {
-    const r = await api.get(`/scanner/kline/${props.tsCode}?days=${props.days || 30}`)
+    const r: any = await api.get(`/scanner/kline/${props.tsCode}?days=${props.days || 30}`)
     if (r?.success) {
       kline.value = r.data?.kline || []
       annotations.value = r.data?.annotations || []

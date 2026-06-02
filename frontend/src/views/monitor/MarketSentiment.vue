@@ -18,7 +18,7 @@ const data = ref<SentimentData | null>(null)
 
 async function fetchData() {
   try {
-    const r = await api.get('/scanner/market-sentiment')
+    const r: any = await api.get('/scanner/market-sentiment')
     if (r?.success) data.value = r.data
   } catch { }
 }

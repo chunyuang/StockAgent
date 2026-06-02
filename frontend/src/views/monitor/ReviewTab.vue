@@ -1,0 +1,317 @@
+<script setup lang="ts">
+/**
+ * ReviewTab — 📋 复盘Tab (专业版)
+ * 
+ * 从MarketMonitorView.vue提取【v2.9.70】
+ * 所有状态由父组件通过props传入, 避免重复实例化composable。
+ * 
+ * Props: review composable的展开状态 + 策略映射
+ * Emits: fetchReviewData, runBacktest, saveParamSnapshot
+ */
+import { ElDatePicker, ElButton, ElTag } from 'element-plus'
+
+const props = defineProps<{
+  visible: boolean
+  strategyCN: (s: string | number) => string | number
+  strategyMeta: Record<string, any>
+  reviewTab: 'daily' | 'weekly' | 'monthly'
+  reviewLoading: boolean
+  reviewDate: string
+  reviewHero: any
+  reviewForward: any
+  dailyReportData: any
+  weeklyReportData: any
+  weeklyReviewData: any
+  monthlyReviewData: any
+  deviationData: any
+  closedLoopData: any
+  tradeAttributions: any[]
+  paramDriftData: any
+  factorEffectData: any
+  disciplineCheck: any
+  executionQuality: any
+  liveBacktestDiff: any[]
+  backtestRunning: boolean
+}>()
+
+const emit = defineEmits<{
+  (e: 'update:reviewTab', val: string): void
+  (e: 'update:reviewDate', val: string): void
+  (e: 'fetchReviewData'): void
+  (e: 'runBacktest'): void
+  (e: 'saveParamSnapshot'): void
+}>()
+</script>
+
+<template>
+  <div v-if="visible" class="mm-tab-content">
+    <div class="mm-tab-scroll">
+      <!-- 日期/周期选择 -->
+      <div class="review-header">
+        <div class="review-tabs">
+          <button :class="['review-tab', reviewTab === 'daily' ? 'active' : '']" @click="emit('update:reviewTab', 'daily'); emit('fetchReviewData')">📊 日复盘</button>
+          <button :class="['review-tab', reviewTab === 'weekly' ? 'active' : '']" @click="emit('update:reviewTab', 'weekly'); emit('fetchReviewData')">📅 周复盘</button>
+          <button :class="['review-tab', reviewTab === 'monthly' ? 'active' : '']" @click="emit('update:reviewTab', 'monthly'); emit('fetchReviewData')">📆 月复盘</button>
+        </div>
+        <ElDatePicker :modelValue="reviewDate" type="date" size="small" value-format="YYYY-MM-DD" @update:modelValue="emit('update:reviewDate', $event); emit('fetchReviewData')" />
+        <ElButton size="small" @click="emit('fetchReviewData')" :loading="reviewLoading">🔄</ElButton>
+      </div>
+
+      <!-- ============ 第1层: Hero Banner ============ -->
+      <div v-if="reviewHero" class="hero-banner" :class="reviewHero.conclusion_type">
+        <div class="hero-conclusion">{{ reviewHero.conclusion }}</div>
+        <div class="hero-meta">
+          <span v-if="reviewHero.benchmark" class="hero-bench">📊 {{ reviewHero.benchmark.name }} {{ reviewHero.benchmark.pct_chg >= 0 ? '+' : '' }}{{ reviewHero.benchmark.pct_chg }}%</span>
+          <span class="hero-alpha" :class="reviewHero.benchmark?.alpha >= 0 ? 'up' : 'down'">{{ reviewHero.benchmark?.alpha >= 0 ? '跑赢' : '落后' }} {{ Math.abs(reviewHero.benchmark?.alpha || 0) }}%</span>
+          <span class="hero-sentiment">🌡️ {{ reviewHero.sentiment?.period }} {{ reviewHero.sentiment?.score }}分</span>
+        </div>
+      </div>
+
+      <!-- ============ 第2层: 核心仪表盘 ============ -->
+      <div v-if="reviewHero" class="review-scorecard">
+        <div class="rsc"><div class="rsc-label">收益</div><div class="rsc-value" :class="reviewHero.metrics.total_pct >= 0 ? 'up' : 'down'">{{ reviewHero.metrics.total_pct >= 0 ? '+' : '' }}{{ reviewHero.metrics.total_pct }}%</div></div>
+        <div class="rsc"><div class="rsc-label">胜率</div><div class="rsc-value">{{ reviewHero.metrics.win_rate }}%</div></div>
+        <div class="rsc"><div class="rsc-label">交易</div><div class="rsc-value">{{ reviewHero.metrics.trades }}笔</div></div>
+        <div class="rsc"><div class="rsc-label">期望值</div><div class="rsc-value" :class="reviewHero.metrics.expectancy >= 0 ? 'up' : 'down'">{{ reviewHero.metrics.expectancy }}</div></div>
+        <div class="rsc"><div class="rsc-label">纪律分</div><div class="rsc-value" :class="reviewHero.metrics.discipline_score >= 80 ? 'up' : reviewHero.metrics.discipline_score >= 60 ? '' : 'down'">{{ reviewHero.metrics.discipline_score }}</div></div>
+        <div class="rsc"><div class="rsc-label">盈亏比</div><div class="rsc-value">{{ reviewHero.metrics.profit_loss_ratio }}</div></div>
+        <div class="rsc"><div class="rsc-label">止损</div><div class="rsc-value down">{{ reviewHero.metrics.stop_loss_count }}</div></div>
+        <div class="rsc"><div class="rsc-label">止盈</div><div class="rsc-value up">{{ reviewHero.metrics.take_profit_count }}</div></div>
+        <div class="rsc"><div class="rsc-label">连亏</div><div class="rsc-value" :class="reviewHero.metrics.max_consecutive_loss >= 3 ? 'down' : ''">{{ reviewHero.metrics.max_consecutive_loss }}笔</div></div>
+      </div>
+
+      <!-- ============ 第3层: 归因分析 ============ -->
+      <template v-if="reviewTab === 'daily' && dailyReportData">
+        <div class="st" style="margin-top:12px">🎯 策略贡献</div>
+        <div class="strategy-contrib">
+          <div v-for="(data, key) in dailyReportData.positions?.strategy_summary || {}" :key="key" class="strat-card">
+            <div class="strat-header">
+              <ElTag size="small" :color="strategyMeta[key]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(key) }}</ElTag>
+              <span class="strat-pnl" :class="(data.closed_profit || data.total_pnl || 0) >= 0 ? 'up' : 'down'">{{ (data.closed_profit || data.total_pnl || 0) >= 0 ? '+' : '' }}¥{{ (data.closed_profit || data.total_pnl || 0).toFixed(0) }}</span>
+            </div>
+            <div class="strat-metrics">
+              <div class="strat-m"><span class="strat-ml">已平</span><span class="strat-mv">{{ data.closed_count || data.sell_count || 0 }}笔</span></div>
+              <div class="strat-m"><span class="strat-ml">胜率</span><span class="strat-mv" :class="(data.closed_win_rate || data.win_rate || 0) >= 50 ? 'up' : 'down'">{{ (data.closed_win_rate || data.win_rate || 0).toFixed(0) }}%</span></div>
+              <div class="strat-m" v-if="data.avg_win_pct"><span class="strat-ml">均盈</span><span class="strat-mv up">+{{ data.avg_win_pct }}%</span></div>
+              <div class="strat-m" v-if="data.avg_loss_pct"><span class="strat-ml">均亏</span><span class="strat-mv down">{{ data.avg_loss_pct }}%</span></div>
+              <div class="strat-m" v-if="data.stop_loss_count"><span class="strat-ml">止损</span><span class="strat-mv down">{{ data.stop_loss_count }}笔</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="st" style="margin-top:12px">📝 逐笔归因 <span style="font-weight:normal;font-size:11px;color:var(--text-tertiary)">({{ tradeAttributions.length }}笔)</span></div>
+        <div v-if="!tradeAttributions.length" class="empty">暂无交易数据</div>
+        <div v-for="t in tradeAttributions" :key="t.ts_code + t.sell_time" class="attribution-card" :class="t.profit_pct >= 0 ? 'attr-profit' : 'attr-loss'">
+          <div class="attr-top">
+            <ElTag size="small" :color="strategyMeta[t.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(t.strategy) }}</ElTag>
+            <span class="code">{{ t.ts_code }}</span>
+            <span class="name">{{ t.stock_name }}</span>
+            <span :class="t.profit_pct >= 0 ? 'up' : 'down'" class="pct ml-auto">{{ t.profit_pct >= 0 ? '+' : '' }}{{ t.profit_pct.toFixed(1) }}%</span>
+          </div>
+          <div class="attr-detail">
+            <div class="attr-row"><span>买入</span><span>¥{{ t.buy_price?.toFixed(2) }} {{ t.buy_time }}</span></div>
+            <div class="attr-row"><span>卖出</span><span>¥{{ t.sell_price?.toFixed(2) }} {{ t.sell_time }}</span></div>
+            <div class="attr-row"><span>原因</span><span>{{ t.sell_reason }}</span></div>
+            <div class="attr-row" v-if="t.why_profit"><span class="up">赚在哪</span><span>{{ t.why_profit }}</span></div>
+            <div class="attr-row" v-if="t.why_loss"><span class="down">亏在哪</span><span>{{ t.why_loss }}</span></div>
+          </div>
+        </div>
+
+        <div class="st" style="margin-top:12px">📡 扫描漏斗</div>
+        <div v-if="dailyReportData?.scanner_stats" class="review-scan-stats">
+          <div class="rss-row"><span class="rss-label">扫描次数</span><span class="rss-value">{{ dailyReportData.scanner_stats.scan_count || 0 }}次</span></div>
+          <div class="rss-row"><span class="rss-label">发现信号</span><span class="rss-value up">{{ dailyReportData.scanner_stats.total_signals || 0 }}只</span></div>
+          <div class="rss-row"><span class="rss-label">实际买入</span><span class="rss-value">{{ dailyReportData.scanner_stats.buy_count || 0 }}笔</span></div>
+          <div class="rss-row"><span class="rss-label">实际卖出</span><span class="rss-value">{{ dailyReportData.scanner_stats.sell_count || 0 }}笔</span></div>
+        </div>
+        <div v-if="dailyReportData?.sentiment_snapshot" class="review-sentiment-snap">
+          <span style="font-weight:600">🌡️ 情绪快照</span>
+          <span>{{ dailyReportData.sentiment_snapshot }}</span>
+        </div>
+      </template>
+
+      <!-- 周复盘 -->
+      <template v-if="reviewTab === 'weekly' && weeklyReportData">
+        <div class="review-summary-cards">
+          <div class="rsc"><div class="rsc-label">周收益</div><div class="rsc-value" :class="weeklyReportData.weekly_profit >= 0 ? 'up' : 'down'">¥{{ weeklyReportData.weekly_profit?.toFixed(0) }}</div></div>
+          <div class="rsc"><div class="rsc-label">周胜率</div><div class="rsc-value">{{ weeklyReportData.win_rate }}%</div></div>
+          <div class="rsc"><div class="rsc-label">交易</div><div class="rsc-value">{{ weeklyReportData.total_trades }}笔</div></div>
+        </div>
+        <div v-if="weeklyReportData.daily_breakdown" class="st" style="margin-top:12px">📅 逐日明细</div>
+        <div v-if="weeklyReportData.daily_breakdown" class="weekly-daily-table">
+          <div class="wdt-header"><span>日期</span><span>盈亏</span><span>交易</span><span>胜率</span><span>情绪</span></div>
+          <div v-for="d in weeklyReportData.daily_breakdown" :key="d.date" class="wdt-row">
+            <span>{{ d.date }}</span>
+            <span :class="d.profit >= 0 ? 'up' : 'down'">{{ d.profit >= 0 ? '+' : '' }}¥{{ d.profit?.toFixed(0) }}</span>
+            <span>{{ d.trades }}笔</span>
+            <span>{{ d.win_rate }}%</span>
+            <span>{{ d.sentiment || '-' }}</span>
+          </div>
+        </div>
+      </template>
+
+      <!-- 月复盘 -->
+      <template v-if="reviewTab === 'monthly'">
+        <template v-if="monthlyReviewData">
+          <div class="st" style="margin-top:12px">🔬 系统偏差 ({{ monthlyReviewData.period }})</div>
+          <div class="review-scorecard" style="grid-template-columns:repeat(4,1fr)">
+            <div class="rsc"><div class="rsc-label">交易</div><div class="rsc-value">{{ monthlyReviewData.summary?.trades || 0 }}笔</div></div>
+            <div class="rsc"><div class="rsc-label">胜率</div><div class="rsc-value">{{ monthlyReviewData.summary?.win_rate || 0 }}%</div></div>
+            <div class="rsc"><div class="rsc-label">盈亏</div><div class="rsc-value" :class="monthlyReviewData.summary?.pnl >= 0 ? 'up' : 'down'">{{ monthlyReviewData.summary?.pnl >= 0 ? '+' : '' }}{{ monthlyReviewData.summary?.pnl || 0 }}%</div></div>
+            <div class="rsc"><div class="rsc-label">连亏</div><div class="rsc-value">-</div></div>
+          </div>
+          <div class="st" style="margin-top:12px">📈 偏差趋势(近4周)</div>
+          <div v-if="monthlyReviewData.weekly_trend?.length" class="deviation-trend-chart">
+            <div class="trend-axis">
+              <div v-for="w in monthlyReviewData.weekly_trend" :key="w.week" class="trend-col">
+                <div class="trend-bar" :style="{height: Math.min(w.win_rate, 100) + '%', background: w.win_rate >= 60 ? 'var(--color-up)' : w.win_rate >= 40 ? 'var(--color-warn, #e6a23c)' : 'var(--color-down)'}">
+                  <span class="trend-val">{{ w.win_rate }}%</span>
+                </div>
+                <div class="trend-label">{{ w.week }}</div>
+                <div class="trend-sub">{{ w.trades }}笔</div>
+              </div>
+            </div>
+          </div>
+          <div v-else class="empty">无周度数据</div>
+          <div class="st" style="margin-top:12px">⚡ 行为漂移检测</div>
+          <div class="review-2col">
+            <div class="dev-card"><div class="dev-title">🛡️ 止损执行率</div><div class="dev-row"><span>亏损止损/总亏损</span><span :class="monthlyReviewData.behavior_drift?.stop_loss_execution_rate >= 90 ? 'up' : 'down'">{{ monthlyReviewData.behavior_drift?.stop_loss_execution_rate || 0 }}%</span></div><div class="dev-row" style="font-size:11px;color:var(--text-tertiary)"><span>亏损止损{{ monthlyReviewData.behavior_drift?.stop_loss_at_loss || 0 }}笔 / 盈利止损{{ monthlyReviewData.behavior_drift?.stop_loss_at_profit || 0 }}笔</span></div></div>
+            <div class="dev-card"><div class="dev-title">❄️ 冰点期开仓率</div><div class="dev-row"><span>冰点买入占比</span><span :class="monthlyReviewData.behavior_drift?.bearish_period_buy_ratio >= 30 ? 'down' : 'up'">{{ monthlyReviewData.behavior_drift?.bearish_period_buy_ratio || 0 }}%</span></div><div class="dev-row"><span>冰点/总买入</span><span>{{ monthlyReviewData.behavior_drift?.bearish_buys || 0 }}/{{ monthlyReviewData.behavior_drift?.total_buys || 0 }}笔</span></div></div>
+          </div>
+          <div class="st" style="margin-top:12px">🗓️ 日历热力图</div>
+          <div v-if="monthlyReviewData.daily_breakdown?.length" class="calendar-heatmap">
+            <div v-for="d in monthlyReviewData.daily_breakdown" :key="d.date" class="cal-cell" :class="d.pnl > 0 ? 'cal-up' : d.pnl < 0 ? 'cal-down' : 'cal-neutral'">
+              <div class="cal-date">{{ d.date?.slice(-2) }}</div>
+              <div class="cal-pnl">{{ d.pnl >= 0 ? '+' : '' }}{{ d.pnl }}%</div>
+              <div class="cal-trades">{{ d.trades }}笔</div>
+            </div>
+          </div>
+          <div v-else class="empty">无逐日数据</div>
+          <div class="st" style="margin-top:12px">🎯 策略月度贡献</div>
+          <div class="strategy-stacked">
+            <div v-for="(data, key) in monthlyReviewData.strategy_stats || {}" :key="key" class="stacked-bar" :style="{width: Math.max(Math.abs(data.pnl), 5) + '%', background: data.pnl >= 0 ? 'var(--color-up)' : 'var(--color-down)'}">
+              <span class="stacked-label">{{ strategyCN(key) }}</span>
+              <span class="stacked-val">{{ data.pnl >= 0 ? '+' : '' }}{{ data.pnl }}%</span>
+            </div>
+          </div>
+          <div class="st" style="margin-top:12px">🔧 参数漂移检测
+            <ElButton size="small" @click="emit('saveParamSnapshot')" style="margin-left:8px">📸 保存当前快照</ElButton>
+          </div>
+          <div v-if="paramDriftData?.drifts?.length" class="violations-list">
+            <div v-for="(d, i) in paramDriftData.drifts" :key="i" class="violation-item" :class="d.severity === 'high' ? 'sev-high' : 'sev-medium'">
+              <span class="v-icon">{{ d.severity === 'high' ? '🔴' : '🟡' }}</span>
+              <span class="v-type">{{ d.strategy || d.level }}</span>
+              <span class="v-detail">{{ d.key }}: {{ d.old }} → {{ d.new }}</span>
+            </div>
+          </div>
+          <div v-else class="empty">无参数漂移(快照基线: {{ paramDriftData?.start_date || '无' }})</div>
+        </template>
+        <div v-else class="empty">选择日期后查看月复盘</div>
+        <div class="st" style="margin-top:12px">📊 因子效果跟踪 <span style="font-weight:normal;font-size:11px;color:var(--text-tertiary)">(市场漂移检测)</span></div>
+        <div v-if="factorEffectData" class="factor-effect-section">
+          <div v-if="factorEffectData.drift_alerts?.length" class="violations-list" style="margin-bottom:8px">
+            <div v-for="(a, i) in factorEffectData.drift_alerts" :key="i" class="violation-item sev-medium">
+              <span class="v-icon">⚠️</span><span class="v-type">{{ a.factor }}/{{ a.bucket }}</span><span class="v-detail">{{ a.alert }}</span>
+            </div>
+          </div>
+          <div v-for="(periods, fname) in factorEffectData.factor_stats || {}" :key="fname" class="factor-group">
+            <div class="factor-name">{{ fname }}</div>
+            <div v-for="(items, period) in periods" :key="period" class="factor-period">
+              <div class="factor-period-label">{{ period }}</div>
+              <div class="factor-bars">
+                <div v-for="it in items?.slice(0, 5)" :key="it.name" class="factor-bar-row">
+                  <span class="fb-name">{{ it.name }}</span>
+                  <div class="fb-bar-bg"><div class="fb-bar-fill" :style="{width: it.total > 0 ? Math.min(it.win_rate, 100) + '%' : '0%'}" :class="it.win_rate >= 60 ? 'fb-up' : it.win_rate >= 40 ? 'fb-mid' : 'fb-down'"></div></div>
+                  <span class="fb-wr" :class="it.win_rate >= 60 ? 'up' : 'down'">{{ it.win_rate }}%</span>
+                  <span class="fb-cnt">({{ it.total }})</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div v-else class="empty">无因子数据</div>
+        <div class="st" style="margin-top:12px">💡 闭环建议 <span v-if="closedLoopData" style="font-weight:normal;font-size:11px;margin-left:6px" :class="closedLoopData.summary?.high > 0 ? 'down' : 'up'">{{ closedLoopData.summary?.high || 0 }}高 / {{ closedLoopData.summary?.medium || 0 }}中 / {{ closedLoopData.summary?.low || 0 }}低</span></div>
+        <div v-if="closedLoopData?.suggestions?.length" class="closed-loop-list">
+          <div v-for="(s, i) in closedLoopData.suggestions" :key="i" class="cl-card" :class="'cl-' + s.severity">
+            <div class="cl-header"><span class="cl-sev">{{ s.severity === 'high' ? '🔴' : s.severity === 'medium' ? '🟡' : '🔵' }}</span><span class="cl-type">{{ s.type }}</span></div>
+            <div class="cl-diagnosis">{{ s.diagnosis }}</div>
+            <div class="cl-action">👉 {{ s.action }}</div>
+            <div class="cl-verify">✅ 验证: {{ s.verification }}</div>
+            <div v-if="s.worst_cases?.length" class="cl-cases">最差案例: <span v-for="w in s.worst_cases" :key="w.ts_code">{{ w.name }}({{ w.pnl }}%) </span></div>
+          </div>
+        </div>
+        <div v-else class="empty">无闭环建议</div>
+      </template>
+
+      <!-- 第4层: 纪律检查 + 执行质量 -->
+      <template v-if="reviewTab === 'daily' && deviationData">
+        <div class="st" style="margin-top:12px">🔍 执行偏差归因 <span style="font-weight:normal;font-size:11px;color:var(--text-tertiary)">({{ deviationData.period }})</span></div>
+        <div class="review-2col">
+          <div class="dev-card"><div class="dev-title">📊 滑点偏差</div><div class="dev-row"><span>平均滑点</span><span :class="deviationData.deviations?.slippage?.avg_pct > 0 ? 'down' : 'up'">{{ deviationData.deviations?.slippage?.avg_pct || 0 }}%</span></div><div class="dev-row"><span>影响笔数</span><span>{{ deviationData.deviations?.slippage?.count || 0 }}笔</span></div><div class="dev-row"><span>影响幅度</span><span class="down">{{ deviationData.deviations?.slippage?.impact || 0 }}%</span></div></div>
+          <div class="dev-card"><div class="dev-title">🚨 纪律偏差 <span v-if="deviationData.deviations?.discipline?.violations" class="down">（主因）</span></div><div class="dev-row"><span>违规笔数</span><span class="down">{{ deviationData.deviations?.discipline?.violations || 0 }}笔</span></div><div class="dev-row"><span>违规胜率</span><span class="down">{{ deviationData.deviations?.discipline?.violation_wr || 0 }}%</span></div><div class="dev-row"><span>影响幅度</span><span class="down">{{ deviationData.deviations?.discipline?.impact || 0 }}%</span></div></div>
+        </div>
+        <div v-if="deviationData.details?.discipline?.length" class="violations-list" style="margin-top:6px">
+          <div v-for="v in deviationData.details.discipline.slice(0,5)" :key="v.ts_code" class="violation-item sev-high"><span class="v-icon">🔴</span><span class="v-type">{{ v.type }}</span><span class="v-detail">{{ v.period }}期{{ v.strategy }} {{ v.stock_name }}</span></div>
+        </div>
+      </template>
+
+      <template v-if="reviewTab === 'weekly' && weeklyReviewData">
+        <div class="st" style="margin-top:12px">📊 策略效能 ({{ weeklyReviewData.period }})</div>
+        <div class="review-scorecard" style="grid-template-columns:repeat(4,1fr)">
+          <div class="rsc"><div class="rsc-label">交易</div><div class="rsc-value">{{ weeklyReviewData.summary?.trades || 0 }}笔</div></div>
+          <div class="rsc"><div class="rsc-label">胜率</div><div class="rsc-value">{{ weeklyReviewData.summary?.win_rate || 0 }}%</div></div>
+          <div class="rsc"><div class="rsc-label">盈亏</div><div class="rsc-value" :class="weeklyReviewData.summary?.pnl >= 0 ? 'up' : 'down'">{{ weeklyReviewData.summary?.pnl >= 0 ? '+' : '' }}{{ weeklyReviewData.summary?.pnl || 0 }}%</div></div>
+          <div class="rsc"><div class="rsc-label">情绪</div><div class="rsc-value">{{ (Object.values(weeklyReportData.sentiments || {}) as any[])[0]?.period || '-' }}</div></div>
+        </div>
+        <div class="strategy-contrib">
+          <div v-for="(data, key) in weeklyReviewData.strategy_stats || {}" :key="key" class="strat-card">
+            <div class="strat-header"><ElTag size="small" class="tag-solid">{{ strategyCN(key) }}</ElTag><span class="strat-pnl" :class="data.pnl >= 0 ? 'up' : 'down'">{{ data.pnl >= 0 ? '+' : '' }}{{ data.pnl }}%</span></div>
+            <div class="strat-metrics"><div class="strat-m"><span class="strat-ml">笔数</span><span class="strat-mv">{{ data.trades }}笔</span></div><div class="strat-m"><span class="strat-ml">胜率</span><span class="strat-mv" :class="data.win_rate >= 50 ? 'up' : 'down'">{{ data.win_rate }}%</span></div></div>
+          </div>
+        </div>
+        <div class="st" style="margin-top:12px">📈 偏差趋势(近4周)</div>
+        <div class="eq-grid-mini"><div v-for="w in weeklyReviewData.weekly_trend || []" :key="w.week" class="eq-row"><span>{{ w.week }}({{ w.start }})</span><span>{{ w.trades }}笔 WR={{ w.win_rate }}%</span></div></div>
+        <div class="st" style="margin-top:12px">📋 逐日明细</div>
+        <div class="eq-grid-mini"><div v-for="d in weeklyReviewData.daily_breakdown || []" :key="d.date" class="eq-row"><span>{{ d.date }}</span><span>买{{ d.buys }} 卖{{ d.sells }} WR={{ d.win_rate }}% PnL={{ d.pnl }}%</span></div></div>
+      </template>
+
+      <div class="review-2col" style="margin-top:12px">
+        <div class="sentiment-panel">
+          <div class="st">🔍 纪律检查<span v-if="disciplineCheck" style="font-weight:normal;font-size:11px;margin-left:6px" :class="disciplineCheck.execution_rate >= 80 ? 'up' : disciplineCheck.execution_rate >= 60 ? '' : 'down'"> 执行正确率 {{ disciplineCheck.execution_rate }}%</span></div>
+          <div v-if="disciplineCheck && disciplineCheck.violations.length" class="violations-list"><div v-for="(v, i) in disciplineCheck.violations" :key="i" class="violation-item" :class="'sev-' + v.severity"><span class="v-icon">{{ v.severity === 'high' ? '🔴' : '🟡' }}</span><span class="v-type">{{ v.violation }}</span><span class="v-detail">{{ v.detail }}</span></div></div>
+          <div v-else-if="disciplineCheck" class="empty" style="padding:8px 0;color:#67c23a">✅ 无违规交易</div>
+          <div v-else class="empty" style="padding:8px 0">无数据</div>
+        </div>
+        <div class="sentiment-panel">
+          <div class="st">🎯 执行质量</div>
+          <div v-if="executionQuality" class="eq-grid-mini">
+            <div class="eq-row"><span>平均滑点</span><span :class="Math.abs(executionQuality.avg_slippage_pct || 0) > 0.5 ? 'down' : ''">{{ (executionQuality.avg_slippage_pct || 0).toFixed(3) }}%</span></div>
+            <div class="eq-row"><span>最大滑点</span><span>{{ (executionQuality.max_slippage_pct || 0).toFixed(3) }}%</span></div>
+            <div class="eq-row"><span>成交率</span><span :class="(executionQuality.fill_rate_pct || 0) < 90 ? 'down' : 'up'">{{ (executionQuality.fill_rate_pct || 0).toFixed(1) }}%</span></div>
+            <div class="eq-row"><span>下单/成交</span><span>{{ executionQuality.total_orders || 0 }}/{{ executionQuality.filled_orders || 0 }}</span></div>
+          </div>
+          <div v-else class="empty" style="padding:8px 0">无数据</div>
+        </div>
+      </div>
+
+      <div class="st" style="margin-top:12px">📊 实盘 vs 回测偏差
+        <ElButton v-if="!liveBacktestDiff.length" size="small" type="primary" @click="emit('runBacktest')" :loading="backtestRunning" style="margin-left:8px">▶️ 运行回测</ElButton>
+      </div>
+      <div v-if="liveBacktestDiff.length" class="lb-table">
+        <div class="lb-header"><span>策略</span><span>实盘交易</span><span>实盘胜率</span><span>回测胜率</span><span>偏差</span></div>
+        <div v-for="c in liveBacktestDiff" :key="c.strategy" class="lb-row"><span class="code">{{ strategyCN(c.strategy) }}</span><span>{{ c.live_trades }}笔</span><span>{{ c.live_win_rate }}%</span><span>{{ c.bt_win_rate }}%</span><span :class="Math.abs(c.live_win_rate - c.bt_win_rate) > 15 ? 'down' : 'up'">{{ (c.live_win_rate - c.bt_win_rate).toFixed(1) }}%</span></div>
+      </div>
+      <div v-else class="empty">暂无对比数据</div>
+
+      <div class="st" style="margin-top:12px">💡 前瞻建议</div>
+      <div v-if="reviewForward" class="forward-section">
+        <div class="fw-card fw-advice"><div class="fw-title">📌 明日操作</div><div class="fw-content">{{ reviewForward.advice }}</div></div>
+        <div v-if="reviewForward.strategy_recommendations?.length || reviewForward.strategy_switches?.length" class="fw-switches">
+          <div v-for="r in reviewForward.strategy_recommendations" :key="'o'+r.strategy" class="fw-card fw-open"><span class="fw-icon">🟢</span><span><strong>{{ strategyCN(r.strategy) }}</strong> 可开仓 (历史WR {{ r.win_rate }}%)</span></div>
+          <div v-for="s in reviewForward.strategy_switches" :key="'c'+s.strategy" class="fw-card fw-close"><span class="fw-icon">🔴</span><span><strong>{{ strategyCN(s.strategy) }}</strong> {{ s.reason }}</span></div>
+        </div>
+      </div>
+      <div v-else class="empty">选择日期后查看前瞻建议</div>
+    </div>
+  </div>
+</template>

@@ -39,7 +39,7 @@ const strategyColors: Record<string, string> = {
 async function fetchData() {
   loading.value = true
   try {
-    const r = await api.get('/scanner/strategy-performance')
+    const r: any = await api.get('/scanner/strategy-performance')
     if (r?.success) data.value = r.data || []
   } catch { } finally { loading.value = false }
 }

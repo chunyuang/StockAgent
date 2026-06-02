@@ -28,7 +28,7 @@ const loading = ref(false)
 async function fetchData() {
   loading.value = true
   try {
-    const r = await api.get('/scanner/position-risk-matrix')
+    const r: any = await api.get('/scanner/position-risk-matrix')
     if (r?.success) {
       positions.value = r.data?.positions || []
       globalRisk.value = r.data?.global || null
