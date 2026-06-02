@@ -792,9 +792,12 @@ async def get_data_status() -> Dict[str, Any]:
         # 每日因子覆盖率(全量, 单次聚合查询)
         daily_coverage = []
         # 因子组定义: 只包含实际存在且回测需要的因子
+        # 注意: technical_talib(MACD/RSI/BOLL/ATR等)需要talib库，回测时由factor_auto_compute自动补算
+        # health_score只看 basic+technical_ma+volume+limit 4组(这些是lightweight_factor_fill能补的)
         factor_groups = {
             'basic': ['pct_chg', 'pre_close'],
-            'technical': ['ma5', 'macd', 'rsi_6', 'boll_upper', 'atr', 'fear_greed_index'],
+            'technical_ma': ['ma5', 'ma10', 'ma20', 'ma60'],
+            'technical_talib': ['macd', 'rsi_6', 'boll_upper', 'atr', 'fear_greed_index'],
             'volume': ['turnover_rate', 'volume_ratio', 'circ_mv'],
             'limit': ['is_limit_up', 'is_limit_down', 'first_limit_up', 'limit_up_count'],
         }
@@ -829,9 +832,9 @@ async def get_data_status() -> Dict[str, Any]:
                     has = doc.get(f'{f}_count', 0)
                     rates.append(has / total * 100)
                 group_rates[gname] = round(sum(rates) / len(rates), 1)
-            # 核心覆盖率(排除limit组后的3组平均)
-            core_rates = [group_rates[k] for k in ['basic', 'technical', 'volume']]
-            avg_rate = round(sum(core_rates) / len(core_rates), 1)
+            # 核心覆盖率(排除limit组和talib组后的3组平均: basic+technical_ma+volume)
+            core_rates = [group_rates[k] for k in ['basic', 'technical_ma', 'volume'] if k in group_rates]
+            avg_rate = round(sum(core_rates) / len(core_rates), 1) if core_rates else 0
             daily_coverage.append({
                 'date': d,
                 'total': total,
@@ -959,10 +962,15 @@ async def get_data_status() -> Dict[str, Any]:
             if limit_rate < 50:
                 diagnostics.append({'level': 'yellow', 'message': f'涨跌停因子{limit_rate}% — is_limit_up等字段缺失,影响首板/跌停策略(不影响半路追涨)'})
             
-            # 技术因子
-            tech_rate = latest['groups'].get('technical', 0)
-            if tech_rate < 50:
-                diagnostics.append({'level': 'red', 'message': f'技术因子仅{tech_rate}% — MA/MACD/RSI等需factor_auto_compute补算'})
+            # 技术MA因子(已可补算)
+            tech_ma_rate = latest['groups'].get('technical_ma', 0)
+            if tech_ma_rate < 50:
+                diagnostics.append({'level': 'red', 'message': f'MA均线因子仅{tech_ma_rate}% — ma5/ma10/ma20/ma60缺失'})
+            
+            # 技术talib因子(回测时自动补算)
+            tech_talib_rate = latest['groups'].get('technical_talib', 0)
+            if tech_talib_rate < 50:
+                diagnostics.append({'level': 'yellow', 'message': f'TALib指标仅{tech_talib_rate}% — MACD/RSI/BOLL/ATR等回测时自动补算'})
             
             # 数据新鲜度(日线滞后天数)
             if days_old > 3:
@@ -1183,7 +1191,8 @@ async def get_data_status() -> Dict[str, Any]:
         if daily_coverage:
             last_day = daily_coverage[-1]['date']
             all_check_factors = ['pct_chg', 'pre_close', 'open', 'high', 'low', 'close',
-                                 'ma5', 'macd', 'rsi_6', 'boll_upper', 'atr', 'fear_greed_index',
+                                 'ma5', 'ma10', 'ma20', 'ma60',
+                                 'macd', 'rsi_6', 'boll_upper', 'atr', 'fear_greed_index',
                                  'turnover_rate', 'volume_ratio', 'circ_mv',
                                  'is_limit_up', 'is_limit_down', 'first_limit_up', 'limit_up_count']
             factor_detail_latest = await _get_factor_detail(db, last_day, all_check_factors)

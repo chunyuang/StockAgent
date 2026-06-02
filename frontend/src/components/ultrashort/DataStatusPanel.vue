@@ -116,8 +116,8 @@ function fmtDate(d: string) {
 const heatmapOption = computed(() => {
   if (!status.value?.daily_coverage?.length) return null
   const cov = status.value.daily_coverage
-  const groups = ['basic', 'technical', 'volume', 'limit']
-  const groupLabels: Record<string, string> = { basic: '基础', technical: '技术指标', volume: '量价', limit: '涨跌停' }
+  const groups = ['basic', 'technical_ma', 'technical_talib', 'volume', 'limit']
+  const groupLabels: Record<string, string> = { basic: '基础', technical_ma: 'MA均线', technical_talib: 'TALib', volume: '量价', limit: '涨跌停' }
   const data: number[][] = []
   const yLabels = cov.map(c => `${c.date.slice(4,6)}/${c.date.slice(6,8)}`)
   cov.forEach((c, yi) => { groups.forEach((g, xi) => { data.push([xi, yi, c.groups[g] || 0]) }) })
@@ -164,8 +164,8 @@ const diagnosis = computed(() => { if (!status.value?.diagnostics) return []; re
 
 const factorDetailRows = computed(() => {
   const detail = status.value?.factor_detail_latest; if (!detail) return []
-  const groupMap: Record<string, string[]> = { '基础': ['pct_chg', 'pre_close', 'open', 'high', 'low', 'close'], '技术指标': ['ma5', 'macd', 'rsi_6', 'boll_upper', 'atr', 'fear_greed_index'], '量价': ['turnover_rate', 'volume_ratio', 'circ_mv'], '涨跌停': ['is_limit_up', 'is_limit_down', 'first_limit_up', 'limit_up_count'] }
-  const nameMap: Record<string, string> = { pct_chg: '涨跌幅', pre_close: '前收盘', open: '开盘', high: '最高', low: '最低', close: '收盘', ma5: 'MA5', macd: 'MACD', rsi_6: 'RSI6', boll_upper: '布林上轨', atr: 'ATR', fear_greed_index: '恐贪指数', turnover_rate: '换手率', volume_ratio: '量比', circ_mv: '流通市值', is_limit_up: '涨停标记', is_limit_down: '跌停标记', first_limit_up: '首板标记', limit_up_count: '连板数' }
+  const groupMap: Record<string, string[]> = { '基础': ['pct_chg', 'pre_close', 'open', 'high', 'low', 'close'], 'MA均线': ['ma5', 'ma10', 'ma20', 'ma60'], 'TALib(回测补)': ['macd', 'rsi_6', 'boll_upper', 'atr', 'fear_greed_index'], '量价': ['turnover_rate', 'volume_ratio', 'circ_mv'], '涨跌停': ['is_limit_up', 'is_limit_down', 'first_limit_up', 'limit_up_count'] }
+  const nameMap: Record<string, string> = { pct_chg: '涨跌幅', pre_close: '前收盘', open: '开盘', high: '最高', low: '最低', close: '收盘', ma5: 'MA5', ma10: 'MA10', ma20: 'MA20', ma60: 'MA60', macd: 'MACD', rsi_6: 'RSI6', boll_upper: '布林上轨', atr: 'ATR', fear_greed_index: '恐贪指数', turnover_rate: '换手率', volume_ratio: '量比', circ_mv: '流通市值', is_limit_up: '涨停标记', is_limit_down: '跌停标记', first_limit_up: '首板标记', limit_up_count: '连板数' }
   const rows: { group: string; name: string; key: string; coverage: number; status: string }[] = []
   for (const [group, factors] of Object.entries(groupMap)) { for (const f of factors) { const cov = detail[f] ?? 0; let st = 'ok'; if (cov < 50) st = 'danger'; else if (cov < 90) st = 'warning'; rows.push({ group, name: nameMap[f] || f, key: f, coverage: cov, status: st }) } }
   return rows
