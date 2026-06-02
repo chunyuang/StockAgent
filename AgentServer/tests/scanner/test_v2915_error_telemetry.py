@@ -16,6 +16,7 @@ _EVENT_BUS = os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "scanner_eve
 _SUBSCRIBERS = os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "scanner_event_subscribers.py")
 _SCANNER = os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "scanner.py")
 _API_SCANNER = os.path.join(_PROJECT_ROOT, "nodes", "web", "api", "scanner_shared.py")
+_API_STRATEGY = os.path.join(_PROJECT_ROOT, "nodes", "web", "api", "scanner_strategy.py")
 _RW = os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "risk_watchdog.py")
 _WS_BRIDGE = os.path.join(_PROJECT_ROOT, "nodes", "web", "redis_ws_bridge.py")
 _FRONTEND = os.path.join(_PROJECT_ROOT, "..", "frontend", "src", "views", "monitor", "MarketMonitorView.vue")
@@ -105,40 +106,40 @@ class TestParamValidation:
 
     def test_validate_endpoint_exists(self):
         """/params/validate端点存在"""
-        source = _read(_API_SCANNER)
+        source = _read(_API_STRATEGY)
         assert '"/params/validate"' in source
 
     def test_validate_checks_stop_loss(self):
         """验证止损参数(过宽/过紧)"""
-        source = _read(_API_SCANNER)
+        source = _read(_API_STRATEGY)
         idx = source.find("/params/validate")
         block = source[idx:idx+2000]
         assert "stop_loss_pct" in block
 
     def test_validate_checks_take_profit(self):
         """验证止盈参数(过低)"""
-        source = _read(_API_SCANNER)
+        source = _read(_API_STRATEGY)
         idx = source.find("/params/validate")
         block = source[idx:idx+2000]
         assert "take_profit_pct" in block
 
     def test_validate_checks_position_ratio(self):
         """验证单票仓位(过高)"""
-        source = _read(_API_SCANNER)
+        source = _read(_API_STRATEGY)
         idx = source.find("/params/validate")
         block = source[idx:idx+2000]
         assert "max_position_ratio" in block
 
     def test_validate_returns_is_safe(self):
         """验证返回is_safe字段"""
-        source = _read(_API_SCANNER)
+        source = _read(_API_STRATEGY)
         idx = source.find("/params/validate")
         block = source[idx:idx+2000]
         assert '"is_safe"' in block
 
     def test_validate_does_not_update(self):
         """验证不实际更新参数(只检查)"""
-        source = _read(_API_SCANNER)
+        source = _read(_API_STRATEGY)
         idx = source.find("/params/validate")
         block = source[idx:idx+2000]
         assert "update_strategy_params" not in block, \

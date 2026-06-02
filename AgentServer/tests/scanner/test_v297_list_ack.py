@@ -473,7 +473,7 @@ class TestScanTracesAPIOptimization:
         """详情API默认status应为passed(不加载rejected)"""
         # 直接读取源文件验证
         import os
-        api_path = os.path.join(os.path.dirname(__file__), '..', '..', 'nodes', 'web', 'api', 'scanner.py')
+        api_path = os.path.join(os.path.dirname(__file__), '..', '..', 'nodes', 'web', 'api', 'scanner_scan.py')
         with open(api_path) as f:
             source = f.read()
         # 找到get_scan_trace_detail函数
@@ -484,7 +484,7 @@ class TestScanTracesAPIOptimization:
     def test_detail_api_has_offset_param(self):
         """详情API应支持offset分页"""
         import os
-        api_path = os.path.join(os.path.dirname(__file__), '..', '..', 'nodes', 'web', 'api', 'scanner.py')
+        api_path = os.path.join(os.path.dirname(__file__), '..', '..', 'nodes', 'web', 'api', 'scanner_scan.py')
         with open(api_path) as f:
             source = f.read()
         idx = source.find('async def get_scan_trace_detail')
@@ -494,7 +494,7 @@ class TestScanTracesAPIOptimization:
     def test_detail_api_has_summary_mode(self):
         """详情API应支持summary模式(只返回统计)"""
         import os
-        api_path = os.path.join(os.path.dirname(__file__), '..', '..', 'nodes', 'web', 'api', 'scanner.py')
+        api_path = os.path.join(os.path.dirname(__file__), '..', '..', 'nodes', 'web', 'api', 'scanner_scan.py')
         with open(api_path) as f:
             source = f.read()
         idx = source.find('async def get_scan_trace_detail')
@@ -504,7 +504,7 @@ class TestScanTracesAPIOptimization:
     def test_list_api_excludes_candidates(self):
         """列表API应排除candidates和rejected_summary字段"""
         import os
-        api_path = os.path.join(os.path.dirname(__file__), '..', '..', 'nodes', 'web', 'api', 'scanner.py')
+        api_path = os.path.join(os.path.dirname(__file__), '..', '..', 'nodes', 'web', 'api', 'scanner_scan.py')
         with open(api_path) as f:
             source = f.read()
         idx = source.find('async def get_scan_traces')
@@ -515,7 +515,7 @@ class TestScanTracesAPIOptimization:
     def test_pagination_has_more_fields(self):
         """分页信息应包含has_more字段"""
         import os
-        api_path = os.path.join(os.path.dirname(__file__), '..', '..', 'nodes', 'web', 'api', 'scanner.py')
+        api_path = os.path.join(os.path.dirname(__file__), '..', '..', 'nodes', 'web', 'api', 'scanner_scan.py')
         with open(api_path) as f:
             source = f.read()
         idx = source.find('async def get_scan_trace_detail')

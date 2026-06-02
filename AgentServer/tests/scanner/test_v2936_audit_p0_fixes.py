@@ -16,7 +16,7 @@ import pytest
 BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 APP_PY = os.path.join(BASE, "nodes", "web", "app.py")
 SIGNAL_PERSIST = os.path.join(BASE, "nodes", "web", "signal_persistence.py")
-SCANNER_API = os.path.join(BASE, "nodes", "web", "api", "scanner_shared.py")
+SCANNER_API = os.path.join(BASE, "nodes", "web", "api", "scanner_trading.py")
 WS_BRIDGE = os.path.join(BASE, "nodes", "web", "redis_ws_bridge.py")
 
 

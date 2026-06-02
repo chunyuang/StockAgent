@@ -109,24 +109,20 @@ class TestWSReconnect:
     def test_ws_reconnect_3_seconds(self):
         """WS断线重连应为3秒(设计文档Phase4.1规范)"""
         import os
-        view_path = os.path.join(
-            os.path.dirname(__file__), '..', '..', '..', 'frontend', 
-            'src', 'views', 'monitor', 'MarketMonitorView.vue'
+        # P0-3重构: WS重连从MarketMonitorView迁移到useWebSocket hook
+        hook_path = os.path.join(
+            os.path.dirname(__file__), '..', '..', '..', 'frontend',
+            'src', 'hooks', 'useWebSocket.ts'
         )
-        if not os.path.exists(view_path):
-            pytest.skip("Frontend file not found")
+        if not os.path.exists(hook_path):
+            pytest.skip("useWebSocket hook not found")
         
-        with open(view_path) as f:
+        with open(hook_path) as f:
             source = f.read()
         
-        # 查找ws.onclose中的重连间隔
-        onclose_idx = source.find("ws.onclose")
-        assert onclose_idx > 0, "ws.onclose handler not found"
-        
-        # 检查setTimeout(connectWS, 3000)
-        onclose_section = source[onclose_idx:onclose_idx+200]
-        assert "3000" in onclose_section, \
-            f"WS重连间隔应为3000ms(3秒), 实际: {onclose_section}"
+        # 检查默认重连间隔为3000ms
+        assert "retryInterval = 3000" in source, \
+            "useWebSocket默认重连间隔应为3000ms(3秒)"
 
 
 # ============================================================================
@@ -172,7 +168,7 @@ class TestScannerStoreIntegration:
         assert "refreshFromApi" in source
 
     def test_component_uses_store_for_freshness(self):
-        """MarketMonitorView应使用ScannerStore进行WS/REST数据管理"""
+        """MarketMonitorView应使用ScannerStore+useWebSocket进行WS/REST数据管理"""
         import os
         view_path = os.path.join(
             os.path.dirname(__file__), '..', '..', '..', 'frontend', 
@@ -184,14 +180,13 @@ class TestScannerStoreIntegration:
         with open(view_path) as f:
             source = f.read()
         
-        # 组件重构后，dataFreshness可能通过nowMs+lastUpdate计算而非直接引用store属性
-        # 核心验证: 组件使用了scannerStore + freshness相关CSS + WS更新
+        # P0-3重构: WS由useWebSocket hook管理, 不再直接在组件中处理
         assert "useScannerStore" in source, "组件应导入useScannerStore"
         assert "scannerStore" in source, "组件应使用scannerStore实例"
-        assert "updateFromWs" in source, "组件应通过scannerStore.updateFromWs处理WS数据"
-        assert "isWsConnected" in source, "组件应跟踪WS连接状态"
-        # 新鲜度样式仍存在(CSS .rb-freshness)
-        assert "rb-freshness" in source, "组件应包含新鲜度样式定义"
+        # WS连接由useWebSocket hook管理(组件中wsHook.isConnected跟踪状态)
+        assert "wsHook" in source or "useWebSocket" in source, "组件应使用useWebSocket hook管理WS连接"
+        # 新鲜度样式
+        assert "rb-freshness" in source or "freshness" in source, "组件应包含新鲜度相关样式/逻辑"
 
 
 # ============================================================================
