@@ -9,6 +9,7 @@
 """
 
 import os
+import time
 import subprocess
 from datetime import datetime, timezone
 from typing import Dict, List, Any
@@ -1721,7 +1722,7 @@ async def auto_fill_trigger() -> Dict[str, Any]:
         if running:
             return {"success": False, "message": "已有数据补全任务正在运行中，请稍后再试"}
         
-        _sync_tasks[task_id] = {"type": "autofill", "status": "pending", "steps": ["detect", "basic_factors", "derived_factors"]}
+        _sync_tasks[task_id] = {"type": "autofill", "status": "pending", "steps": ["detect", "basic_factors", "daily_bar", "daily_basic", "index_daily", "limit_pools", "derived_factors"]}
     
     def _run_auto_fill():
         import asyncio
@@ -1811,7 +1812,91 @@ async def auto_fill_trigger() -> Dict[str, Any]:
         except Exception as e:
             results.append({"step": "daily_basic", "success": False, "message": str(e)})
         
-        # Step 4: 再跑一次轻量因子补算(确保新数据的因子也补上)
+        # Step 4: 补指数日线(AKShare)
+        index_script = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "../../../scripts/fill_index_daily.py"
+        )
+        index_script = os.path.normpath(index_script)
+        
+        with _sync_lock:
+            _sync_tasks[task_id]["current_step"] = "index_daily"
+        
+        # 用sync-index API的逻辑(直接在线补)
+        try:
+            import requests as http_requests_sync
+            # 调用内部API
+            base_url = "http://localhost:8000"
+            r = http_requests_sync.post(f"{base_url}/api/v1/system/sync-index", timeout=10)
+            idx_json = r.json() if r.status_code == 200 else {}
+            idx_task_id = idx_json.get("task_id", "")
+            if idx_json.get("success"):
+                # 等待完成(最多60秒)
+                for _ in range(20):
+                    time.sleep(3)
+                    try:
+                        sr = http_requests_sync.get(f"{base_url}/api/v1/system/sync-status/{idx_task_id}", timeout=5)
+                        sj = sr.json() if sr.status_code == 200 else {}
+                        if sj.get("data", {}).get("status") in ("success", "partial", "failed"):
+                            idx_result = sj["data"]
+                            break
+                    except:
+                        pass
+                else:
+                    idx_result = {"status": "unknown"}
+                results.append({
+                    "step": "index_daily",
+                    "success": idx_result.get("status") == "success",
+                    "message": f'指数日线补全{idx_result.get("status", "unknown")}',
+                })
+            else:
+                results.append({"step": "index_daily", "success": False, "message": idx_json.get("message", "启动失败")})
+        except Exception as e:
+            results.append({"step": "index_daily", "success": False, "message": str(e)})
+        
+        # Step 5: 补涨跌停池(从stock_daily_ak_full的is_limit_up/down反推)
+        with _sync_lock:
+            _sync_tasks[task_id]["current_step"] = "limit_pools"
+        
+        try:
+            r = subprocess.run(
+                ["python3", "-u", "-c", """
+import sys; sys.path.insert(0, '.')
+from pymongo import MongoClient, UpdateOne
+from datetime import datetime
+db = MongoClient('localhost', 27017)['stock_agent']
+# 检测limit_list缺数据的日期
+sd_dates = sorted(db['stock_daily_ak_full'].distinct('trade_date'))
+ll_dates = set(db['limit_list'].distinct('trade_date'))
+missing = [d for d in sd_dates if d not in ll_dates and d >= 20260501]
+if not missing:
+    print('涨跌停池已完整')
+    exit(0)
+print(f'补涨跌停池: {len(missing)}天')
+for td in missing:
+    docs = list(db['stock_daily_ak_full'].find({'trade_date': td, '$or': [{'is_limit_up': 1}, {'is_limit_down': 1}]}, {'ts_code': 1, 'pct_chg': 1, 'is_limit_up': 1, 'is_limit_down': 1, 'close': 1, 'open': 1, 'high': 1, 'low': 1, 'vol': 1, 'amount': 1, 'pre_close': 1, '_id': 0}))
+    ops = []
+    for doc in docs:
+        doc['trade_date'] = td
+        doc['data_source'] = 'backfill_from_daily'
+        ops.append(UpdateOne({'ts_code': doc['ts_code'], 'trade_date': td}, {'$set': doc}, upsert=True))
+    if ops:
+        r = db['limit_list'].bulk_write(ops)
+        print(f'  {td}: {r.upserted_count}新+{r.modified_count}改')
+"""],
+                capture_output=True, text=True, timeout=120,
+                cwd=os.path.dirname(os.path.abspath(__file__)) + "/../../../",
+            )
+            output = (r.stdout or '')
+            results.append({
+                "step": "limit_pools",
+                "success": r.returncode == 0,
+                "message": output.strip().split('\n')[-1] if output.strip() else "完成",
+            })
+        except Exception as e:
+            results.append({"step": "limit_pools", "success": False, "message": str(e)})
+        
+        # Step 6: 再跑一次轻量因子补算(确保新数据的因子也补上)
         with _sync_lock:
             _sync_tasks[task_id]["current_step"] = "derived_factors"
         

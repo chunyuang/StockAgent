@@ -322,6 +322,8 @@ const autoFillStepLabel: Record<string, string> = {
   basic_factors: '📐 补算基础因子',
   daily_bar: '📊 同步日线数据',
   daily_basic: '📈 同步基础指标',
+  index_daily: '📉 同步指数日线',
+  limit_pools: '🎯 补涨跌停池',
   derived_factors: '🧮 补算衍生因子',
 }
 
