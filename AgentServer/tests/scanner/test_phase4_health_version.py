@@ -180,11 +180,12 @@ class TestScannerStoreIntegration:
         with open(view_path) as f:
             source = f.read()
         
-        # P0-3重构: WS由useWebSocket hook管理, 不再直接在组件中处理
-        assert "useScannerStore" in source, "组件应导入useScannerStore"
-        assert "scannerStore" in source, "组件应使用scannerStore实例"
-        # WS连接由useWebSocket hook管理(组件中wsHook.isConnected跟踪状态)
-        assert "wsHook" in source or "useWebSocket" in source, "组件应使用useWebSocket hook管理WS连接"
+        # P0-2重构: script拆到useScannerMonitor composable, 组件调用composable
+        assert "useScannerStore" in source or "useScannerMonitor" in source, "组件应导入useScannerStore或useScannerMonitor"
+        # v2.9.64: MarketMonitorView script已拆到composable, scannerStore由composable内部使用
+        assert "scannerStore" in source or "useScannerMonitor" in source, "组件应使用scannerStore或useScannerMonitor"
+        # P0-2重构: WS逻辑已随useScannerMonitor迁移, 组件只调用composable
+        assert "useScannerMonitor" in source or "wsHook" in source or "useWebSocket" in source, "组件应使用useScannerMonitor或useWebSocket hook"
         # 新鲜度样式
         assert "rb-freshness" in source or "freshness" in source, "组件应包含新鲜度相关样式/逻辑"
 

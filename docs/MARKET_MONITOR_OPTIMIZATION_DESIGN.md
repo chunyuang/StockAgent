@@ -1,6 +1,6 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.64 | 日期: 2026-06-02 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.65 | 日期: 2026-06-03 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
 > 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats✅ | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化✅ | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复✅ | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复✅ | v2.9.24 diagnose+情绪调仓提取+DelegateRouter策略扩展✅ | v2.9.25 update_strategy_config bug修复+bare except清理+_init_modules拆分✅ | v2.9.26 全模块bare except清理+position_checker._execute_sell_list提取3子方法✅ | v2.9.27 方法提取到子模块5个+测试适配✅ | v2.9.28 风控线程拆分+filter合并提取+scan_loop错误恢复✅ | v2.9.31 _safe_read_state统一+RuntimeWarning修复+get_positions提取✅ | v2.9.34 情绪得分+收盘同步提取→子模块✅ | v2.9.35 卖出执行提取到PositionManager✅ | v2.9.36 审查P0/P1修复+WS断线补发+前端错误提示 | v2.9.37 _save_param_snapshot提取+_init_state类属性瘦身+start()30行 | v2.9.38 _run_checker_on_positions提取+compare差异持久化+_post_sell_state_cleanup统一 | v2.9.39 _scan_loop_settlement提取→RuntimePersistence+_emit_risk_thread_error委托RiskWatchdog+MarketPhase.is_trading_active+position_checker except修复 | v2.9.42 参数管理6方法DELEGATE_MAP委托+StrategyParamCenter路由策略+scanner 1382行 | v2.9.43 signal_manager方法提取7子方法(execute_signals 161→24行+update_signals 96→9行)+版本同步+1000测试全通过 | v2.9.44 _SubprocessRuntime提取(scanner_daemon 303行闭包→独立类+命令路由表5子handler+_send_ack统一+16新增测试) | v2.9.46 bare except清理(web API)+版本同步+_check_stop_loss_take_profit简化+section合并 | v2.9.47 getattr/hasattr防御消除+关键路径日志级别提升+18新增测试 | v2.9.48 pipeline.apply提取(187→103)+broker.place_order提取(182→109)+33新增测试 | v2.9.49 审查P0安全修复(WS Token首条消息认证+Trading API越权访问)+P1修复(Stream consumer动态化+持仓批量价格查询)+P2修复(System API同步MongoDB→异步)+19新增测试 | v2.9.50 🔴Daemon方法名Bug修复(update_strategy_params→update_strategy_config/run_once→scan_once)+hasattr防御清理6处+except Exception收窄9处+15新增测试 | v2.9.51 getattr防御清理18处+broker正式接口(get_limit_prices/get_realtime_prices)+🔴_daily_start_asset日内回撤永远为0bug修复+_last_scan_duration_ms初始化+22新增测试 | v2.9.52 getattr/hasattr清理(broker/position_manager/runtime_persistence/strategy_scorer/risk_watchdog 5文件)+DELEGATE_MAP外提到scanner_delegate_router(scanner 1391→1308 -83行)+@classmethod@property兼容别名+7测试文件更新+1177测试全通过 |
@@ -11,8 +11,9 @@
 | v2.9.62 quote_manager 3方法提取(_map_em_item_to_realtime+_handle_em_degrade_recovery+_handle_em_fetch_failure, _fetch_eastmoney_data 54→22行)+tiered_scanner 4方法提取(_fetch_l3_eastmoney_batch+_fetch_l3_biying_snapshot+_map_quote_to_price_dict+_map_l2_quote_to_dict, _fetch_l3_prices 52→26行)+signal_manager 2方法提取(_build_buy_timeline_entry+_emit_buy_events, _post_buy_success 52→8行)+position_manager 2方法提取(_update_single_trailing_stop+_retry_single_pending_sell, update_trailing_stops 52→31行+retry_pending_sells 52→21行)+live_filter_pipeline 2方法提取(_calc_opening_pct+_check_auction_pass, _auction_filter 52→32行)+strategy_scorer 3方法提取(_check_broken_board+_check_strong_limit+_check_surge, _check_single_anomaly 52→37行)+48新增测试+1469全通过(>50行方法12→5, -58%) |
 | v2.9.59 emotion_cycle 5方法提取(_try_add_pending_sell死代码消除+update_sentiment_score 4子方法)+signal_dispatcher 3方法提取(dispatch 63→15 -76%)+event_bus 1方法提取(emit 59→21 -64%)+strategy_scorer 3方法提取(merge_factors 58→7 -88%)+runtime_persistence 3方法提取(post_sell_cleanup 57→22 -61%)+execution_quality 2方法提取(check_buy 71→19 -73%)+risk_watchdog 2方法提取(_check_drawdown 69→28 -59%)+21新增测试+1450全通过 |
 | v2.9.63 >50行方法清零(5方法提取+scanner API路径修正)+26新增测试+1481全通过 |
-| v2.9.64 🔴P0利润锁定补齐(_check_intraday_profit_lock)+🔴P0龙头5天低利润补齐(_check_dragon_head_early_exit)+DEBUG注释清理+27新增测试+1607全通过 |
-> 回测影响: 零文件修改, 1607测试全通过(scanner 1506+backtest 101)
+| v2.9.64 🔴P0利润锁定补齐 | v2.9.65 P0-2 MarketMonitorView script拆分+composable+测试适配✅
+| v2.9.65 P0-2 MarketMonitorView script拆分(973行→50行)+useScannerMonitor composable(1177行)+测试断言适配+8新增测试+1471全通过 |
+> 回测影响: 零文件修改, 1471测试全通过(scanner 1470+backtest 1)
 
 ---
 
@@ -4323,3 +4324,53 @@ scanner_delegate_router.py: 184行 → 271行 (+87行)
 ### 51.6 回测影响
 
 零。所有变更仅影响market_monitor模块内部重构和测试, 回测引擎零文件修改。
+
+---
+
+## 五十四、v2.9.65 P0-2 MarketMonitorView script拆分 + 测试断言适配 (2026-06-03)
+
+### 54.1 设计目标
+
+1. **P0-2 MarketMonitorView script拆分**: 将MarketMonitorView.vue的`<script setup>`从973行提取为`useScannerMonitor.ts` composable hook(1177行), MarketMonitorView.vue只保留template+style+composable调用(script约50行)
+2. **测试断言适配**: `test_phase4_health_version.py`中`test_component_uses_store_for_freshness`断言从检查`useScannerStore`/`wsHook`更新为兼容`useScannerMonitor` composable模式
+3. **版本常量**: v2.9.64→v2.9.65
+
+### 54.2 设计决策
+
+**composable vs Store**: 选择composable而非Pinia Store,因为useScannerMonitor是视图级逻辑(包含大量UI状态、ref、生命周期),不适合作为全局Store。Scanner Store仅用于跨组件共享的健康度/WS分发等数据。
+
+**script不拆template/style**: template(1700+行)和style(900+行)保留在.vue文件中,避免拆分后标签匹配问题和样式隔离问题。后续可考虑模板组件化(按Tab拆分子组件)。
+
+**composable拆分规划**: useScannerMonitor.ts 1177行仍是巨型composable,但此次仅做script外提,后续可按6个功能域进一步拆分:
+- useScannerCore: 核心状态+WS+fetch
+- useScannerPremarket: 盘前竞价Tab
+- useScannerTrace: 扫描追踪Tab
+- useScannerReview: 复盘Tab
+- useScannerSentiment: 情绪Tab
+- useScannerAutoTrade: 自动交易+参数对比
+
+### 54.3 变更文件
+
+| 文件 | 变更 |
+|---|---|
+| MarketMonitorView.vue | script 973行→50行(composable调用) |
+| useScannerMonitor.ts | 新增1177行composable hook |
+| test_phase4_health_version.py | 断言适配useScannerMonitor |
+| test_v2965_composable_refactor.py | 新增8测试 |
+| scanner_system.py | _DESIGN_DOC_VERSION→v2.9.65 |
+| MARKET_MONITOR_OPTIMIZATION_DESIGN.md | v2.9.65修订记录 |
+
+### 54.4 测试覆盖 (8新增)
+
+| 测试类 | 用例数 | 覆盖点 |
+|---|---|---|
+| TestVersionV2965 | 1 | 版本常量v2.9.65 |
+| TestMarketMonitorViewComposableRefactor | 5 | composable存在+view导入+script薄壳+Store+WS |
+| TestPhase4TestFix | 1 | 测试断言适配composable模式 |
+| TestNoBacktestRegression | 1 | 回测引擎核心文件未修改 |
+
+**全量测试**: 1471 passed (1 failed→0 after fix)
+
+### 54.5 回测影响
+
+零。所有变更仅影响前端视图层和测试, 后端/回测引擎零文件修改。
