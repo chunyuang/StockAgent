@@ -1,6 +1,6 @@
 # 市场监听系统优化设计方案
 
-> 版本: v2.9.71 | 日期: 2026-06-03 | 基线分支: audit/V75-backtest-review
+> 版本: v2.9.72 | 日期: 2026-06-03 | 基线分支: audit/V75-backtest-review
 > 开发分支: feature/market-monitor-optimization
 > 标签: v2.8.0-backtest-ui-v2 (回测UI稳定基线)
 > 状态: 开发中 | Phase1✅ | Phase2✅ | Phase3✅ | Phase4✅ | 代码审查✅ | 线程安全✅ | 审查优化✅ | 继续优化✅ | EventBus✅ | EventBus订阅器✅ | v2.9架构解耦✅ | v2.9.4提取+增强✅ | v2.9.6核心提取+Compare测试✅ | v2.9.7 List+ACK✅ | v2.9.8 Phase4完善✅ | v2.9.9 委托存根消除+profit_pct修复✅ | v2.9.10 /health统一+版本缓存+线程安全✅ | v2.9.11 API端点线程安全✅ | v2.9.12 关键路径健壮性✅ | v2.9.13 _scan_loop提取+线程安全补全✅ | v2.9.14 Redis Stream升级+审计TTL+断线补发✅ | v2.9.15 错误遥测+参数预检+事件扩展✅ | v2.9.16 risk_watchdog线程安全+情绪卖出提取+配置方法简化✅ | v2.9.17 DelegateRouter提取+_with_state_lock统一+参数审计增强✅ | v2.9.18 stop()拆分+QuoteManager封装+pending_sells安全拷贝+_check_force_empty返回stats✅ | v2.9.19 _execute_risk_sell拆分+scan_once提取+_scan_loop回放提取+get_status简化✅ | v2.9.20 _liquidate_positions提取+_execute_force_empty T+1合规修复✅ | v2.9.22 分步计时+卖出统计分类修复+跨日一致性+错误恢复✅ | v2.9.24 diagnose+情绪调仓提取+DelegateRouter策略扩展✅ | v2.9.25 update_strategy_config bug修复+bare except清理+_init_modules拆分✅ | v2.9.26 全模块bare except清理+position_checker._execute_sell_list提取3子方法✅ | v2.9.27 方法提取到子模块5个+测试适配✅ | v2.9.28 风控线程拆分+filter合并提取+scan_loop错误恢复✅ | v2.9.31 _safe_read_state统一+RuntimeWarning修复+get_positions提取✅ | v2.9.34 情绪得分+收盘同步提取→子模块✅ | v2.9.35 卖出执行提取到PositionManager✅ | v2.9.36 审查P0/P1修复+WS断线补发+前端错误提示 | v2.9.37 _save_param_snapshot提取+_init_state类属性瘦身+start()30行 | v2.9.38 _run_checker_on_positions提取+compare差异持久化+_post_sell_state_cleanup统一 | v2.9.39 _scan_loop_settlement提取→RuntimePersistence+_emit_risk_thread_error委托RiskWatchdog+MarketPhase.is_trading_active+position_checker except修复 | v2.9.42 参数管理6方法DELEGATE_MAP委托+StrategyParamCenter路由策略+scanner 1382行 | v2.9.43 signal_manager方法提取7子方法(execute_signals 161→24行+update_signals 96→9行)+版本同步+1000测试全通过 | v2.9.44 _SubprocessRuntime提取(scanner_daemon 303行闭包→独立类+命令路由表5子handler+_send_ack统一+16新增测试) | v2.9.46 bare except清理(web API)+版本同步+_check_stop_loss_take_profit简化+section合并 | v2.9.47 getattr/hasattr防御消除+关键路径日志级别提升+18新增测试 | v2.9.48 pipeline.apply提取(187→103)+broker.place_order提取(182→109)+33新增测试 | v2.9.49 审查P0安全修复(WS Token首条消息认证+Trading API越权访问)+P1修复(Stream consumer动态化+持仓批量价格查询)+P2修复(System API同步MongoDB→异步)+19新增测试 | v2.9.50 🔴Daemon方法名Bug修复(update_strategy_params→update_strategy_config/run_once→scan_once)+hasattr防御清理6处+except Exception收窄9处+15新增测试 | v2.9.51 getattr防御清理18处+broker正式接口(get_limit_prices/get_realtime_prices)+🔴_daily_start_asset日内回撤永远为0bug修复+_last_scan_duration_ms初始化+22新增测试 | v2.9.52 getattr/hasattr清理(broker/position_manager/runtime_persistence/strategy_scorer/risk_watchdog 5文件)+DELEGATE_MAP外提到scanner_delegate_router(scanner 1391→1308 -83行)+@classmethod@property兼容别名+7测试文件更新+1177测试全通过 |
@@ -4611,7 +4611,7 @@ scanner_delegate_router.py: 184行 → 271行 (+87行)
 
 | 文件 | 变更 |
 |------|------|
-| scanner_system.py | get_scanner_health 206L→40L, 新增6个子方法; _DESIGN_DOC_VERSION v2.9.71 |
+| scanner_system.py | get_scanner_health 206L→40L, 新增6个子方法; _DESIGN_DOC_VERSION v2.9.72 |
 | runtime_persistence.py | build_timeline_entry新增trace_id字段; post_sell_cleanup新增trace_id参数贯穿; _emit_sell_events传递trace_id到EventBus |
 | position_manager.py | execute_risk_sell/liquidate_positions每笔卖出生成trace_id, 日志含trace_id |
 
@@ -4649,5 +4649,40 @@ scanner_delegate_router.py: 184行 → 271行 (+87行)
 - 全套: 1515 passed (scanner) + 101 passed (backtest) + 0 TS errors
 
 ### 58.6 回测影响
+
+零。所有变更仅影响market_monitor/web API/前端模块, 回测引擎零文件修改。
+
+## 五十九、v2.9.72 盘前研判拆分 + trace_id全链路 + docstring补齐 (2026-06-03)
+
+### 59.1 变更摘要
+
+1. **_build_premarket_analysis拆分** — 118L→37L, 提取5个评分子方法(情绪/涨跌比/涨停池/持仓竞价/策略胜率)
+2. **_build_limit_pools拆分** — 55L→32L, 提取2个子方法(名称行业映射预加载/涨停列表聚合)
+3. **卖出trace_id全链路** — position_checker(_execute_sell_list+_post_sell_processing) + risk_watchdog(_liquidate_positions) 补齐trace_id
+4. **docstring补齐** — scanner_event_subscribers.py 5个handler + scanner.py:get_positions, 缺失从6→0
+
+### 59.2 trace_id格式汇总
+
+| 调用方 | trace_id格式 | 示例 |
+|--------|-------------|------|
+| position_manager.execute_risk_sell | risk-{ts_code}-{uuid8} | risk-600036.SH-a1b2c3d4 |
+| position_manager.liquidate_positions | liq-{ts_code}-{uuid8} | liq-600036.SH-e5f6g7h8 |
+| position_checker._execute_sell_list | chk-{ts_code}-{uuid8} | chk-000001.SZ-i9j0k1l2 |
+| risk_watchdog._liquidate_positions | emg-{ts_code}-{uuid8} | emg-300750.SZ-m3n4o5p6 |
+| runtime_persistence.build_timeline_entry | sell-{ts_code}-{uuid8} | sell-600036.SH-q7r8s9t0 |
+
+### 59.3 方法行数统计
+
+- `_build_premarket_analysis`: 118L→37L (-69%)
+- `_build_limit_pools`: 55L→32L (-42%)
+- 新提取: `_score_sentiment`(11L), `_score_up_down_ratio`(12L), `_score_limit_pools`(23L), `_score_position_gaps`(10L), `_score_strategy_hit_rate`(9L), `_build_name_industry_maps`(10L), `_aggregate_limit_stats`(13L)
+- **scanner_system.py零方法 >50L** ✅
+- **market_monitor零方法 >50L** ✅
+
+### 59.4 测试
+
+- 1515 passed (scanner) + 101 passed (backtest) + 0 TS errors
+
+### 59.5 回测影响
 
 零。所有变更仅影响market_monitor/web API/前端模块, 回测引擎零文件修改。

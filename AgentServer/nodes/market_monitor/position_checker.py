@@ -613,10 +613,12 @@ class PositionChecker:
     # ==================== 卖出执行 ====================
     
     async def _execute_sell_list(self, to_sell: List[Tuple], trade_date: str, source: str = "legacy") -> List[Tuple]:
-        """执行卖出列表(含跌停挂起、dry_run、P1-7修复)【v2.9.26:提取子方法】"""
+        """执行卖出列表(含跌停挂起、dry_run、P1-7修复)【v2.9.26:提取子方法, v2.9.72:trace_id】"""
+        import uuid
         for pos, reason, force_price, risk in to_sell:
             if pos.available_qty <= 0:
                 continue
+            trace_id = f"chk-{pos.ts_code}-{uuid.uuid4().hex[:8]}"
             # 跌停不可卖 → 挂起pending_sells
             if self._is_limit_down(pos.ts_code):
                 self._handle_limit_down_pending(pos, reason, risk, source)
@@ -625,16 +627,16 @@ class PositionChecker:
             if self.dry_run:
                 self._scanner._add_timeline_log("blocked", pos.ts_code, pos.stock_name,
                     pos.strategy, f"调试模式跳过卖出({reason})", None)
-                logger.info(f"[DRY-RUN] 跳过卖出 {pos.ts_code} {reason}")
+                logger.info(f"[DRY-RUN] 跳过卖出 {pos.ts_code} {reason} trace={trace_id}")
                 continue
             # 执行卖出
             ok, msg, order, sell_info = self._place_sell_order(pos, reason, force_price, risk)
             if ok:
-                await self._post_sell_processing(pos, order, sell_info, reason, risk, source)
+                await self._post_sell_processing(pos, order, sell_info, reason, risk, source, trace_id=trace_id)
             else:
                 self._scanner._add_timeline_log("blocked", pos.ts_code, pos.stock_name,
                     pos.strategy, f"卖出失败: {msg}", None)
-                logger.warning(f"[{source.upper()}] 卖出被拒 {pos.ts_code}: {msg}")
+                logger.warning(f"[{source.upper()}] 卖出被拒 {pos.ts_code}: {msg} trace={trace_id}")
 
     def _handle_limit_down_pending(self, pos, reason: str, risk: Dict, source: str) -> None:
         """跌停不可卖时挂起pending_sells【v2.9.26提取,v2.9.50:移除hasattr防御(_pending_sells在__init__已初始化)】"""
@@ -669,8 +671,8 @@ class PositionChecker:
         }
         return ok, msg, order, sell_info
 
-    async def _post_sell_processing(self, pos, order, sell_info: Dict, reason: str, risk: Dict, source: str) -> None:
-        """卖出后处理: 委托RuntimePersistence.post_sell_cleanup【v2.9.45重构】
+    async def _post_sell_processing(self, pos, order, sell_info: Dict, reason: str, risk: Dict, source: str, *, trace_id: str = "") -> None:
+        """卖出后处理: 委托RuntimePersistence.post_sell_cleanup【v2.9.45重构, v2.9.72:trace_id】
         
         之前: 内联构建timeline+统计+EventBus(63行)
         现在: 统一委托, 与emergency_liquidate/execute_sell_list对齐
@@ -680,7 +682,7 @@ class PositionChecker:
             await rp.post_sell_cleanup(
                 pos, reason, order, sell_info["sell_qty"],
                 sell_info["sell_profit_pct"], sell_info["sell_profit_amount"],
-                source=source,
+                source=source, trace_id=trace_id,
             )
             # checker专属: 记录止损响应时间
             if "止损" in reason:
