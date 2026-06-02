@@ -18,5 +18,10 @@ export const stockApi = {
 
   /** 获取行业列表 */
   async getIndustries() { return await api.get<string[]>('/market/industries') },
+
+  /** 获取股票日线数据 */
+  async getStockDaily(tsCode: string, params?: { limit?: number }) {
+    return await api.get(`/stocks/${tsCode}/daily`, { params })
+  },
 }
 export default stockApi

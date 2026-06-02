@@ -130,7 +130,7 @@ const form = reactive({
 })
 
 const activeCollapse = ref<string[]>([])
-const _configCollapsed = ref(false) // 备用
+// configCollapsed: removed (unused)
 
 const backtestState = reactive({
   running: false,
@@ -1020,7 +1020,7 @@ function onViewLogs(_taskId: string) {
         </div>
       </div>
 
-      <div :class="{ 'tab-hidden': !reviewReport }" class="review-report">
+      <div v-if="reviewReport" class="review-report">
         <!-- 核心指标卡 -->
         <div class="review-cards">
           <div class="review-card" :class="reviewReport.totalReturn >= 0 ? 'positive' : 'negative'">

@@ -4,7 +4,7 @@
  */
 import { ref, computed } from 'vue'
 import { ElInput, ElTag, ElSelect, ElOption, ElCollapse, ElCollapseItem, ElEmpty } from 'element-plus'
-import { Search } from '@element-plus/icons-vue'
+// Search icon used via prefix-icon string
 
 interface FactorDef {
   name: string

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, watch } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { useThemeStore } from '@/stores/theme'
 import { ElMessage, ElTabs, ElTabPane, ElForm, ElFormItem, ElRadioGroup, ElRadio, ElSwitch, ElButton } from 'element-plus'
@@ -35,7 +35,7 @@ async function savePreferences() {
   try {
     // 同步主题到 themeStore
     themeStore.setTheme(preferences.value.theme as 'light' | 'dark' | 'system')
-    await userStore.updatePreferences(preferences.value)
+    await userStore.updatePreferences(preferences.value as any)
     ElMessage.success('设置已保存')
   } finally {
     prefSaving.value = false

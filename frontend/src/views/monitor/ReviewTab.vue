@@ -10,7 +10,7 @@
  */
 import { ElDatePicker, ElButton, ElTag } from 'element-plus'
 
-const props = defineProps<{
+defineProps<{
   visible: boolean
   strategyCN: (s: string | number) => string | number
   strategyMeta: Record<string, any>

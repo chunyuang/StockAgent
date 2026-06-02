@@ -136,11 +136,7 @@ const sectionDescriptions: Record<string, { title: string; desc: string; tips?: 
   }
 }
 
-const activeDescription = computed(() => {
-  if (!activeCollapse.value.length) return null
-  const last = activeCollapse.value[activeCollapse.value.length - 1]
-  return sectionDescriptions[last] || null
-})
+// _activeDescription: removed (unused)
 
 // 折叠面板
 // 配置/流程模式切换
@@ -169,7 +165,7 @@ function toggleStrategy(strategyId: string) {
 
 // 扫描参数辅助
 const currentSweepParam = computed(() => SWEEP_PARAMS.find(p => p.value === props.form.sweep.param))
-const _currentSweepUnit = computed(() => currentSweepParam.value?.unit || '') // 备用
+// currentSweepUnit: removed (unused)
 
 function onSweepParamChange() {
   const p = currentSweepParam.value
@@ -203,7 +199,7 @@ function onSweepParamChange() {
       </div>
     </template>
 
-        <ElCollapse v-if="configMode === 'edit'" v-model="activeCollapse" :class="{ 'sweep-collapse': configMode === 'sweep' }">
+        <ElCollapse v-if="configMode === 'edit'" v-model="activeCollapse">
       <!-- 数据源配置 -->
       <ElCollapseItem name="dataSource">
         <template #title><span>{{ dataSourceTitle }}</span></template>

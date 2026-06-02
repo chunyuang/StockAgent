@@ -152,7 +152,7 @@ onMounted(async () => {
 async function loadChartData() {
   chartLoading.value = true
   try {
-    const dailyData = await stockApi.getStockDaily(tsCode.value, { limit: 120 })
+    const dailyData = await stockApi.getStockDaily(tsCode.value, { limit: 120 }) as any
     klineData.value = dailyData
   } catch {
     klineData.value = []
