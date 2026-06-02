@@ -15,7 +15,7 @@ export const strategyMeta: Record<string, { color: string; icon: string; cn: str
   anomaly_strong: { color: '#409eff', icon: '💪', cn: '强势涨停', desc: '强势涨停确认' },
 }
 
-export const strategyCN = (s: string) => strategyMeta[s]?.cn || s
+export const strategyCN = (s: string | number) => strategyMeta[String(s)]?.cn || s
 export const strategyColor = (s: string) => strategyMeta[s]?.color || '#909399'
 export const strategyIcon = (s: string) => strategyMeta[s]?.icon || '📊'
 
@@ -64,7 +64,7 @@ export const factorCN: Record<string, string> = {
   open_times: '开板次数', fd_amount: '封板资金', limit_times: '连板数',
 }
 
-export const factorLabel = (k: string) => factorCN[k] || k
+export const factorLabel = (k: string | number) => factorCN[String(k)] || k
 
 // ============ Scanner API 封装 ============
 const scannerApi = '/scanner'

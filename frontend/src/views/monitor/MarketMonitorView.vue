@@ -18,7 +18,7 @@ const {
   riskBarCollapsed, strategies, globalRisk,
   editingStrategy, editDialogVisible, editTab, editParams, editRiskParams, saving,
   nowMs, sigRemaining,
-  dailyReport, dailyReportData, dailyReportVisible,
+  dailyReport, dailyReportData, dailyReportVisible, weeklyReportVisible,
   pnlHistory, perfData, perfChartOption,
   premarketSignals, premarketStatus, premarketCandidates,
   scanTraceDates, scanTraceList, scanTraceDetail,
@@ -29,7 +29,8 @@ const {
   tradeAuditVisible, tradeAuditData,
   confirmVisible, confirmLoading, confirmData,
   manualTrade, manualQuote, trailEditPct, trailSaving,
-  dataSources, brokers, tradeMode, replayDate,
+  dataSources, brokers, tradeMode, replayDate, replayDateInput,
+  replayDateVisible,
   fetchScanner, fetchAll, startScanner, stopScanner,
   manualScan, forceScan, quickBuy, quickSell,
   fetchStrategies, fetchHealth, fetchLimitPools,
@@ -37,7 +38,19 @@ const {
   fetchPremarketData, fetchScanTraceDates, fetchScanHistory,
   fetchScanTrace, fetchReviewData, fetchAutoTrades,
   fetchParamCompare, fetchScanConfig, fetchAuditLog,
+  auditLog, auditLogLoading,
   fetchSentimentData, fetchDailyReport,
+  autoTrades, scanConfig, scanConfigLoading,
+  dailySettlement, resetCircuitBreaker,
+  historyData, historyDate, historyLoading, loadHistory,
+  // sentiment sub-composable (explicit destructure for vue-tsc)
+  sentimentMode, sentimentDate, hoveredPoint,
+  sentimentTimeline, sentimentTrades,
+  displayTimeline, isIntradayFallback, intradayMaxCand,
+  xAxisLabels, sentimentMatrix, sentimentRecommendations,
+  sentimentLoading, sentimentLive,
+  phaseGuide, downgradeRules, phaseColors, sentimentAdvice,
+  weeklyReportData,
   openTradeDetail, openTradeAudit,
   runBacktest, runSamePeriodBacktest, saveParamSnapshot,
   setTrailingStop, onManualCodeChange, executeManualTrade,
@@ -46,8 +59,28 @@ const {
   saveStrategy, toggleScanHour,
   layerLabel, layerDesc, distanceToStopLoss,
   playSignalSound, posSort, sortedPositions,
-  strategyCN, normalizePct, formatSlTp,
-  scannerApi, configApi,
+  strategyCN, strategyMeta, normalizePct, formatSlTp, formatRemaining,
+  scannerApi, configApi, themeStore, modeMeta,
+  onModeChange, confirmReplay, cancelReplay, dryRun,
+  stratCollapsed, stratSectionCollapsed, toggleStrat, toggleStrategy,
+  openEditDialog, factorLabel,
+  layerDebugVisible, layerDebugData, openLayerDebug, layerDebugLoading,
+  compareVisible, compareData, compareLoading, loadCompare,
+  openScanTrace, signalStatusTag,
+  scanTraceVisible, scanTraceData, scanTraceCode,
+  formatLayerTrace, formatDecisionDetail,
+  reviewDate, reviewHero, reviewForward, openWeeklyReport, saveSnapshot,
+  backtestRunning, cumulativePnl, liveBacktestDiff, executionQuality,
+  tradeAttributions, paramDriftData, factorEffectData, exportTradeLog,
+  disciplineCheck, toggleDryRun,
+  premarketDebugMode, premarketGroupMode, premarketGroupExpanded,
+  premarketAnalysis, premarketBlockedReasons, premarketFunnel,
+  premarketHitRate, premarketLimitPools, premarketMarketSnapshot,
+  premarketPositionGaps, premarketSentiment, premarketStrategyGroups,
+  auctionTopGainers,
+  scanTraceDate, scanTraceFilter, scanTraceLoadingMore,
+  selectedScanIdx, scanDateCellClass, scanHistory, scanHistoryByHour,
+  scanHistoryLoading, switchScanTraceFilter, rejectionLayerCN,
 } = useScannerMonitor()
 </script>
 <template>
@@ -265,7 +298,7 @@ const {
         <div class="st cp" @click="stratSectionCollapsed = !stratSectionCollapsed">🎛️ 策略控制 <span class="sc-arrow">{{ stratSectionCollapsed ? '▶' : '▼' }}</span></div>
         <template v-if="!stratSectionCollapsed">
         <div v-for="s in strategies" :key="s.id" class="sc" :class="{ disabled: !s.enabled }">
-          <div class="sc-top cp" @click="toggleStrat(s.id)"><span class="sc-icon">{{ strategyMeta[s.id]?.icon || '📋' }}</span><span class="sc-name">{{ s.name }}</span><ElSwitch :model-value="s.enabled" @change="(v: boolean) => toggleStrategy(s.id, v)" size="small" @click.stop /><span class="sc-arrow">{{ stratCollapsed[s.id] ? '▶' : '▼' }}</span></div>
+          <div class="sc-top cp" @click="toggleStrat(s.id)"><span class="sc-icon">{{ strategyMeta[s.id]?.icon || '📋' }}</span><span class="sc-name">{{ s.name }}</span><ElSwitch :model-value="s.enabled" @change="toggleStrategy(s.id, $event)" size="small" @click.stop /><span class="sc-arrow">{{ stratCollapsed[s.id] ? '▶' : '▼' }}</span></div>
           <div v-if="!stratCollapsed[s.id]">
             <div class="sc-desc">{{ strategyMeta[s.id]?.desc || '' }}</div>
             <div class="sc-params"><div v-for="p in (s.paramDescriptions || []).slice(0, 3)" :key="p.key" class="pm"><span class="pk">{{ p.label }}</span><span class="pv">{{ p.displayValue }}{{ p.unit }}</span></div></div>
@@ -737,7 +770,7 @@ const {
               <span v-if="premarketHitRate[g.strategy]" class="pm-group-stat hit-rate" :class="premarketHitRate[g.strategy].win_rate >= 60 ? 'up' : 'warn'">
                 历史 {{ premarketHitRate[g.strategy].win_rate }}%胜 / {{ premarketHitRate[g.strategy].total }}笔
               </span>
-              <span class="pm-group-preview">{{ g.candidates.slice(0, 3).map(c => (c.stock_name || c.ts_code?.slice(0,6)) + ' ' + (c.pct_chg >= 0 ? '+' : '') + c.pct_chg.toFixed(1) + '%').join(' · ') }}{{ g.count > 3 ? ' ...' : '' }}</span>
+              <span class="pm-group-preview">{{ g.candidates.slice(0, 3).map((c: any) => (c.stock_name || c.ts_code?.slice(0,6)) + ' ' + (c.pct_chg >= 0 ? '+' : '') + c.pct_chg.toFixed(1) + '%').join(' · ') }}{{ g.count > 3 ? ' ...' : '' }}</span>
             </div>
             <div v-if="premarketGroupExpanded[g.strategy]" class="pm-group-list">
               <div v-for="c in g.candidates" :key="c.ts_code + c.strategy" class="pm-item">
@@ -851,8 +884,8 @@ const {
           </div>
         </div>
         <div v-if="scanTraceDetail" class="scan-funnel">
-          <template v-for="(layerData, layerName, idx) in scanTraceDetail.summary || {}">
-            <div v-if="layerName !== 'total_candidates' && layerName !== 'passed' && layerName !== 'rejected' && typeof layerData === 'object'" :key="layerName" class="fn-row" :class="{ 'fn-filter': layerData.rejected > 0, 'fn-pass': !layerData.rejected && (layerData.input || 0) > 0 }">
+          <template v-for="(layerData, layerName) in scanTraceDetail.summary || {}">
+            <div v-if="String(layerName) !== 'total_candidates' && String(layerName) !== 'passed' && String(layerName) !== 'rejected' && typeof layerData === 'object'" :key="layerName" class="fn-row" :class="{ 'fn-filter': layerData.rejected > 0, 'fn-pass': !layerData.rejected && (layerData.input || 0) > 0 }">
               <span class="fn-tag">{{ layerLabel(layerName) }}</span>
               <span class="fn-flow">{{ (layerData.input || 0) === 0 && (layerData.output || 0) === 0 && !layerData.rejected ? '—' : (layerData.input || 0) + '→' + (layerData.output || 0) }}</span>
               <span v-if="layerData.rejected" class="fn-rej">淘汰{{ layerData.rejected }}</span>
@@ -876,7 +909,7 @@ const {
           <!-- 淘汰统计视图 -->
           <div v-if="scanTraceFilter === 'summary' && scanTraceDetail.rejected_layer_stats" class="rejected-stats">
             <div v-for="(count, layer) in scanTraceDetail.rejected_layer_stats" :key="layer" class="rs-row">
-              <span class="rs-label">{{ rejectionLayerCN[layer] || layer }}</span>
+              <span class="rs-label">{{ rejectionLayerCN(String(layer)) || layer }}</span>
               <div class="rs-bar-track"><div class="rs-bar-fill" :style="{ width: Math.min(count / (scanTraceDetail._pagination?.rejected_count || 1) * 100, 100) + '%' }"></div></div>
               <span class="rs-count">{{ count }}只</span>
             </div>
@@ -893,7 +926,7 @@ const {
                 <span class="name">{{ sig.stock_name }}</span>
                 <span :class="sig.pct_chg >= 0 ? 'up' : 'down'" style="font-weight:600">{{ sig.pct_chg >= 0 ? '+' : '' }}{{ (sig.pct_chg || 0).toFixed(1) }}%</span>
                 <span v-if="sig.final_status === 'passed'" class="et-ok">✅</span>
-                <span v-else class="et-no">❌{{ rejectionLayerCN[sig.rejection_layer] || sig.rejection_layer }}</span>
+                <span v-else class="et-no">❌{{ rejectionLayerCN(String(sig.rejection_layer)) || sig.rejection_layer }}</span>
               </div>
             </div>
             <div v-if="scanTraceDetail._pagination && (scanTraceDetail._pagination.has_more_passed || scanTraceDetail._pagination.has_more_rejected)" class="load-more-hint">
@@ -1173,7 +1206,7 @@ const {
             <div class="rsc"><div class="rsc-label">交易</div><div class="rsc-value">{{ weeklyReviewData.summary?.trades || 0 }}笔</div></div>
             <div class="rsc"><div class="rsc-label">胜率</div><div class="rsc-value">{{ weeklyReviewData.summary?.win_rate || 0 }}%</div></div>
             <div class="rsc"><div class="rsc-label">盈亏</div><div class="rsc-value" :class="weeklyReviewData.summary?.pnl >= 0 ? 'up' : 'down'">{{ weeklyReviewData.summary?.pnl >= 0 ? '+' : '' }}{{ weeklyReviewData.summary?.pnl || 0 }}%</div></div>
-            <div class="rsc"><div class="rsc-label">情绪</div><div class="rsc-value">{{ Object.values(weeklyReviewData.sentiments || {})[0]?.period || '-' }}</div></div>
+            <div class="rsc"><div class="rsc-label">情绪</div><div class="rsc-value">{{ (Object.values(weeklyReportData.sentiments || {}) as any[])[0]?.period || '-' }}</div></div>
           </div>
           <!-- 策略统计 -->
           <div class="strategy-contrib">
@@ -1650,7 +1683,7 @@ const {
           <ElButton size="small" @click="openTradeAudit" :disabled="!timeline.length">🔍 审查</ElButton>
           <ElButton size="small" @click="fetchDailyReport(); dailyReportVisible = true">📈 复盘</ElButton>
           <ElButton size="small" @click="openWeeklyReport">📊 周报</ElButton>
-          <ElButton size="small" @click="openLayerDebug" :loading="layerDebugLoading">🧪 9层调试</ElButton>
+          <ElButton size="small" @click="layerDebugVisible = true" :loading="layerDebugLoading">🧪 9层调试</ElButton>
           <ElButton size="small" @click="loadCompare" :loading="compareLoading">📊 回测对比</ElButton>
           <ElButton size="small" @click="toggleDryRun">{{ dryRun ? '🔴 关闭调试' : '🔍 开启调试' }}</ElButton>
           <ElButton v-if="circuitBreakerPaused" size="small" type="danger" @click="resetCircuitBreaker">🔓 解熔断</ElButton>
@@ -1699,7 +1732,7 @@ const {
       @manual-buy="() => { manualTrade.ts_code = ''; const input = $refs.codeInput as any; input?.focus() }"
       @sell-selected="() => { if (focusIndex >= 0 && focusIndex < sortedPositions.length) quickSell(sortedPositions[focusIndex]) }"
       @emergency-liquidate="emergencyLiquidate"
-      @toggle-strategy="(i) => { const keys = ['halfway_chase','first_limit_up','dragon_head','limit_down_qiao']; if (strategies[keys[i]]) toggleStrat(strategies[keys[i]].id) }"
+      @toggle-strategy="(i: number) => { const keys = ['halfway_chase','first_limit_up','dragon_head','limit_down_qiao']; const s = strategies.find((x: any) => x.id === keys[i]); if (s) toggleStrat(s.id) }"
       @focus-prev="() => { if (focusIndex > 0) focusIndex-- }"
       @focus-next="() => { if (focusIndex < sortedPositions.length - 1) focusIndex++ }"
       @show-detail="() => { if (focusIndex >= 0 && focusIndex < sortedPositions.length) openTradeDetail(sortedPositions[focusIndex].ts_code) }"
