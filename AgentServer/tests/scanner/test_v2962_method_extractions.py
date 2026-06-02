@@ -343,10 +343,10 @@ class TestNoBacktestRegressionV2962(unittest.TestCase):
 
     def test_version_constant(self):
         """Web API版本常量为v2.9.62"""
-        filepath = os.path.join(WEB_API_DIR, "scanner.py")
+        filepath = os.path.join(WEB_API_DIR, "scanner_system.py")
         with open(filepath) as f:
             src = f.read()
-        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.62"', src)
+        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.63"', src)
 
 
 if __name__ == "__main__":

@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch, PropertyMock
 
 # 项目根目录(从tests/scanner/向上两级到AgentServer)
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-_API_SCANNER = os.path.join(_PROJECT_ROOT, "nodes", "web", "api", "scanner.py")
+_API_SCANNER = os.path.join(_PROJECT_ROOT, "nodes", "web", "api", "scanner_system.py")
 _MONITOR_SCANNER = os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "scanner.py")
 _MONITOR_UTILS = os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "scanner_utils.py")
 _BACKTEST_ENGINE = os.path.join(_PROJECT_ROOT, "nodes", "backtest_engine", "factor_selection", "portfolio_backtest.py")

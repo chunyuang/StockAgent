@@ -277,53 +277,70 @@ class QuoteManager:
         except Exception as e:
             self._handle_em_fetch_failure(e)
 
+    @staticmethod
+    def _merge_limit_up_items(items: list, realtime: Dict[str, Dict]) -> int:
+        """合并涨停池数据到realtime, 返回有效数量【v2.9.63提取】"""
+        count = 0
+        for item in items:
+            ts_code = item.get("ts_code", "")
+            if not ts_code or "." not in ts_code:
+                continue
+            if ts_code in realtime:
+                realtime[ts_code].update({
+                    "is_limit_up": True,
+                    "limit_times": item.get("limit_times", 0),
+                    "fd_amount": item.get("fd_amount", 0),
+                    "first_limit_time": item.get("first_limit_time", ""),
+                    "last_limit_time": item.get("last_limit_time", ""),
+                    "limit_amount": item.get("limit_amount", 0),
+                    "open_times": item.get("open_times", 0),
+                    "up_stat": item.get("up_stat", ""),
+                })
+            count += 1
+        return count
+
+    @staticmethod
+    def _merge_limit_down_items(items: list, realtime: Dict[str, Dict]) -> None:
+        """合并跌停池数据到realtime【v2.9.63提取】"""
+        for item in items:
+            ts_code = item.get("ts_code", "")
+            if ts_code and ts_code in realtime:
+                realtime[ts_code].update({
+                    "is_limit_down": True,
+                    "limit_down_amount": item.get("fd_amount", 0),
+                })
+
+    @staticmethod
+    def _merge_limit_open_items(items: list, realtime: Dict[str, Dict]) -> None:
+        """合并炸板池数据到realtime【v2.9.63提取】"""
+        for item in items:
+            ts_code = item.get("ts_code", "")
+            if ts_code and ts_code in realtime:
+                realtime[ts_code].update({
+                    "is_limit_open": True,
+                    "open_times": item.get("open_times", 0),
+                })
+
     async def _merge_limit_pool_data(
         self, biying: Any, realtime: Dict[str, Dict], today: str
     ) -> None:
-        """【v2.9.57提取】必盈涨停/跌停/炸板池数据合并"""
+        """必盈涨停/跌停/炸板池数据合并【v2.9.63重构: 3池分别提取@staticmethod】"""
         if not biying:
             return
         try:
+            # 涨停池
             limit_ups = await biying.get_limit_up_pool(today)
-            limit_up_count = 0
-            for item in limit_ups:
-                ts_code = item.get("ts_code", "")
-                if not ts_code or "." not in ts_code:
-                    continue
-                if ts_code in realtime:
-                    realtime[ts_code].update({
-                        "is_limit_up": True,
-                        "limit_times": item.get("limit_times", 0),
-                        "fd_amount": item.get("fd_amount", 0),
-                        "first_limit_time": item.get("first_limit_time", ""),
-                        "last_limit_time": item.get("last_limit_time", ""),
-                        "limit_amount": item.get("limit_amount", 0),
-                        "open_times": item.get("open_times", 0),
-                        "up_stat": item.get("up_stat", ""),
-                    })
-                limit_up_count += 1
-            logger.info(f"[QUOTE] 必盈涨停池: {limit_up_count}只")
+            count = self._merge_limit_up_items(limit_ups, realtime)
+            logger.info(f"[QUOTE] 必盈涨停池: {count}只")
 
             # 跌停池
             limit_downs = await biying.get_limit_down_pool(today)
-            for item in limit_downs:
-                ts_code = item.get("ts_code", "")
-                if ts_code and ts_code in realtime:
-                    realtime[ts_code].update({
-                        "is_limit_down": True,
-                        "limit_down_amount": item.get("fd_amount", 0),
-                    })
+            self._merge_limit_down_items(limit_downs, realtime)
 
             # 炸板池
             try:
                 limit_opens = await biying.get_limit_open_pool(today)
-                for item in limit_opens:
-                    ts_code = item.get("ts_code", "")
-                    if ts_code and ts_code in realtime:
-                        realtime[ts_code].update({
-                            "is_limit_open": True,
-                            "open_times": item.get("open_times", 0),
-                        })
+                self._merge_limit_open_items(limit_opens, realtime)
             except Exception as _e:
                 logger.debug(f"operation failed: {_e}")
 

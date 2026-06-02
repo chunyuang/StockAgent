@@ -20,7 +20,7 @@ export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 're
 interface UseWebSocketOptions {
   /** 自动连接，默认 true */
   autoConnect?: boolean
-  /** 最大重连次数，默认 5 */
+  /** 最大重连次数，默认 Infinity (无限重连) */
   maxRetries?: number
   /** 重连间隔 ms，默认 3000 */
   retryInterval?: number
@@ -40,7 +40,7 @@ const subscribers = new Set<(message: WSMessage) => void>()
 export function useWebSocket(options: UseWebSocketOptions = {}) {
   const {
     autoConnect = true,
-    maxRetries = 5,
+    maxRetries = Infinity,
     retryInterval = 3000,
     heartbeatInterval = 30000,
   } = options

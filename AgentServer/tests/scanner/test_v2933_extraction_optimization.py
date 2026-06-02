@@ -13,7 +13,7 @@ import ast
 
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _SCANNER = os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "scanner.py")
-_API_SCANNER = os.path.join(_PROJECT_ROOT, "nodes", "web", "api", "scanner.py")
+_API_SCANNER = os.path.join(_PROJECT_ROOT, "nodes", "web", "api", "scanner_system.py")
 _RW = os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "risk_watchdog.py")
 
 
@@ -163,7 +163,7 @@ class TestVersionSync:
     def test_design_doc_version_in_api(self):
         """API中的_DESIGN_DOC_VERSION应为v2.9.35"""
         source = _read(_API_SCANNER)
-        assert '_DESIGN_DOC_VERSION = "v2.9.62"' in source
+        assert '_DESIGN_DOC_VERSION = "v2.9.63"' in source
 
 
 class TestNoBacktestRegressionV2933:

@@ -14,18 +14,29 @@ import pytest
 
 # 项目根目录
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-_API_SCANNER = os.path.join(_PROJECT_ROOT, "nodes", "web", "api", "scanner.py")
+_API_SCANNER = os.path.join(_PROJECT_ROOT, "nodes", "web", "api", "scanner_shared.py")
 _SUBSCRIBERS = os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "scanner_event_subscribers.py")
 
 
 def _read_api_scanner():
-    return open(_API_SCANNER).read()
+    return _read_all_scanner_api()
 
 def _read_subscribers():
     return open(_SUBSCRIBERS).read()
 
 
 # ==================== 1. _push_to_redis升级测试 ====================
+
+
+def _read_all_scanner_api():
+    """读取所有scanner API子模块内容(拆分后覆盖全部源码)"""
+    import glob
+    api_dir = os.path.join(_PROJECT_ROOT, "nodes", "web", "api")
+    content = ""
+    for f in sorted(glob.glob(os.path.join(api_dir, "scanner_*.py"))):
+        content += open(f).read() + "\n"
+    return content
+
 
 class TestPushToRedisStreamMode:
     """验证_push_to_redis支持Stream模式"""

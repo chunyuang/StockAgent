@@ -296,22 +296,31 @@ class LiveFilterPipeline:
 
         return result
 
+    @staticmethod
+    def _describe_special_period(special_ratio: float, reason: str) -> str:
+        """生成L2特殊时期层详细描述【v2.9.63提取@staticmethod】"""
+        if special_ratio < 1.0:
+            return f"⚠️ {reason} → 仓位系数={special_ratio:.0%} (正常100%, 月末30%, 周五70%)"
+        return "✅ 非特殊时期 → 仓位系数=100% (无月末/季末/年末/节前效应)"
+
+    def _mark_layer_passed(self, result: FilterResult, layer_name: str) -> None:
+        """标记筛选层通过(所有未拒绝候选)【v2.9.63提取】"""
+        for t in result.trace_candidates:
+            if t.final_status != "rejected":
+                t.layer_results[layer_name] = {"passed": True}
+
     async def _apply_filter_layers(
         self, result: FilterResult, trade_date: str,
         realtime_data: Dict, ratio: float
     ) -> float:
-        """应用L2~L7筛选层, 返回仓位系数【v2.9.61:从apply提取】"""
+        """应用L2~L7筛选层, 返回仓位系数【v2.9.63: L2描述+标记通过提取子方法】"""
         # ---- L2: 特殊时期 ----
         if self._layer_enabled["L2_special_period"]:
             special_ratio, reason = self._check_special_period(trade_date)
             result.layers_applied["L2_special_period"] = True
             ratio *= special_ratio
-            result.layer_details["L2_special_period"] = (
-                f"⚠️ {reason} → 仓位系数={special_ratio:.0%} (正常100%, 月末30%, 周五70%)" if special_ratio < 1.0 else f"✅ 非特殊时期 → 仓位系数=100% (无月末/季末/年末/节前效应)"
-            )
-            for t in result.trace_candidates:
-                if t.final_status != "rejected":
-                    t.layer_results["L2_special_period"] = {"passed": True}
+            result.layer_details["L2_special_period"] = self._describe_special_period(special_ratio, reason)
+            self._mark_layer_passed(result, "L2_special_period")
 
         # ---- L3: 情绪周期 ----
         ratio = await self._apply_L3_sentiment(result, trade_date, realtime_data, ratio)
@@ -337,9 +346,7 @@ class LiveFilterPipeline:
         # ---- L6: 策略量能 ---- (已由scanner._apply_strategies完成)
         result.layers_applied["L6_strategy"] = True
         result.layer_details["L6_strategy"] = f"✅ 复用回测策略筛选 → {len(result.candidates)}个候选通过量能/涨幅条件 (半路追涨:涨2-7%+量比>1.5 | 首板:涨停封板 | 龙头:连板回调 | 跌停翘板:撬板反弹)"
-        for t in result.trace_candidates:
-            if t.final_status != "rejected":
-                t.layer_results["L6_strategy"] = {"passed": True}
+        self._mark_layer_passed(result, "L6_strategy")
 
         # ---- L7: 综合排序 ----
         if self._layer_enabled["L7_ranking"]:

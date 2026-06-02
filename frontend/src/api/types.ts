@@ -193,6 +193,10 @@ export type WSMessage =
   | { type: 'connected'; user_id: string }
   | { type: 'pong' }
   | { type: 'subscribed'; task_id: string }
+  | { type: 'scanner_signal'; signals?: any[]; item?: any; _stream_id?: string }
+  | { type: 'scanner_position'; positions?: any[]; account?: any; _stream_id?: string }
+  | { type: 'scanner_timeline'; item?: any; _stream_id?: string }
+  | { type: 'scanner_status'; status?: any; event?: string; error?: string; _stream_id?: string }
 
 // ==================== 股票 ====================
 

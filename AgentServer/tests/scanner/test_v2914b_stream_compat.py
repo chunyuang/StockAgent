@@ -14,7 +14,7 @@ import pytest
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _WS_BRIDGE = os.path.join(_PROJECT_ROOT, "nodes", "web", "redis_ws_bridge.py")
 _SUBSCRIBERS = os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "scanner_event_subscribers.py")
-_API_SCANNER = os.path.join(_PROJECT_ROOT, "nodes", "web", "api", "scanner.py")
+_API_SCANNER = os.path.join(_PROJECT_ROOT, "nodes", "web", "api", "scanner_shared.py")
 
 
 def _read_ws_bridge():
@@ -24,10 +24,21 @@ def _read_subscribers():
     return open(_SUBSCRIBERS).read()
 
 def _read_api_scanner():
-    return open(_API_SCANNER).read()
+    return _read_all_scanner_api()
 
 
 # ==================== 1. Stream消费兼容测试 ====================
+
+
+def _read_all_scanner_api():
+    """读取所有scanner API子模块内容(拆分后覆盖全部源码)"""
+    import glob
+    api_dir = os.path.join(_PROJECT_ROOT, "nodes", "web", "api")
+    content = ""
+    for f in sorted(glob.glob(os.path.join(api_dir, "scanner_*.py"))):
+        content += open(f).read() + "\n"
+    return content
+
 
 class TestStreamConsumerCompatibility:
     """验证Stream消费者兼容两种字段格式"""
