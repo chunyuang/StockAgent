@@ -418,6 +418,144 @@ async def compute_pullback(trade_dates: list[int]):
             print(f"  {td}: pullback_pct computed for {result.modified_count} records ({time.time()-t0:.1f}s)")
 
 
+async def compute_technical_indicators(trade_dates: list[int]):
+    """纯Python计算技术指标: MACD/RSI/BOLL/ATR/恐贪指数 (不需要talib)"""
+    import numpy as np
+    import pandas as pd
+    
+    await mongo_manager.initialize()
+    db = mongo_manager.db
+    
+    max_lookback = 45
+    
+    for td in trade_dates:
+        t0 = time.time()
+        
+        pipeline = [
+            {'$match': {'trade_date': {'$lte': td}}},
+            {'$group': {'_id': '$trade_date'}},
+            {'$sort': {'_id': -1}},
+            {'$limit': max_lookback + 5}
+        ]
+        recent_dates = []
+        async for doc in db['stock_daily_ak_full'].aggregate(pipeline):
+            recent_dates.append(doc['_id'])
+        
+        if len(recent_dates) < 20:
+            print(f"  {td}: not enough lookback data")
+            continue
+        
+        recent_dates.sort()
+        
+        target_codes = []
+        async for doc in db['stock_daily_ak_full'].find({'trade_date': td}, {'ts_code': 1, '_id': 0}):
+            target_codes.append(doc['ts_code'])
+        
+        if not target_codes:
+            continue
+        
+        ops = []
+        batch_size = 500
+        
+        for bi in range(0, len(target_codes), batch_size):
+            batch_codes = target_codes[bi:bi+batch_size]
+            
+            cursor = db['stock_daily_ak_full'].find(
+                {'ts_code': {'$in': batch_codes}, 'trade_date': {'$in': recent_dates}},
+                {'ts_code': 1, 'trade_date': 1, 'open': 1, 'high': 1, 'low': 1, 'close': 1,
+                 'pct_chg': 1, 'vol': 1, 'pre_close': 1, '_id': 0}
+            )
+            
+            stock_data = defaultdict(list)
+            async for doc in cursor:
+                stock_data[doc['ts_code']].append(doc)
+            
+            for ts_code, records in stock_data.items():
+                records.sort(key=lambda x: x['trade_date'])
+                
+                closes = np.array([r.get('close', 0) or 0 for r in records], dtype=float)
+                highs = np.array([r.get('high', 0) or 0 for r in records], dtype=float)
+                lows = np.array([r.get('low', 0) or 0 for r in records], dtype=float)
+                pct_chgs = np.array([r.get('pct_chg', 0) or 0 for r in records], dtype=float)
+                
+                valid = closes > 0
+                if valid.sum() < 20:
+                    continue
+                
+                update = {}
+                
+                # EMA12/EMA26/MACD
+                ema12 = pd.Series(closes).ewm(span=12, adjust=False).mean().values
+                ema26 = pd.Series(closes).ewm(span=26, adjust=False).mean().values
+                dif = ema12 - ema26
+                dea = pd.Series(dif).ewm(span=9, adjust=False).mean().values
+                macd_hist = (dif - dea) * 2
+                if not np.isnan(dif[-1]): update['macd'] = round(float(dif[-1]), 4)
+                if not np.isnan(dea[-1]): update['macd_signal'] = round(float(dea[-1]), 4)
+                if not np.isnan(macd_hist[-1]): update['macd_hist'] = round(float(macd_hist[-1]), 4)
+                
+                # RSI
+                for period, field in [(6, 'rsi_6'), (12, 'rsi_12'), (24, 'rsi_24')]:
+                    delta = np.diff(closes, prepend=closes[0])
+                    gain = np.where(delta > 0, delta, 0.0)
+                    loss = np.where(delta < 0, -delta, 0.0)
+                    avg_gain = pd.Series(gain).ewm(alpha=1.0/period, min_periods=period).mean().values
+                    avg_loss = pd.Series(loss).ewm(alpha=1.0/period, min_periods=period).mean().values
+                    rs = avg_gain / (avg_loss + 1e-10)
+                    rsi_vals = 100 - 100 / (1 + rs)
+                    if not np.isnan(rsi_vals[-1]): update[field] = round(float(rsi_vals[-1]), 4)
+                
+                # Bollinger Bands
+                ma20_s = pd.Series(closes).rolling(20).mean().values
+                std20_s = pd.Series(closes).rolling(20).std().values
+                if not np.isnan(ma20_s[-1]):
+                    update['boll_upper'] = round(float(ma20_s[-1] + 2 * std20_s[-1]), 4)
+                    update['boll_mid'] = round(float(ma20_s[-1]), 4)
+                    update['boll_lower'] = round(float(ma20_s[-1] - 2 * std20_s[-1]), 4)
+                
+                # ATR
+                prev_closes = np.roll(closes, 1); prev_closes[0] = closes[0]
+                tr1 = highs - lows
+                tr2 = np.abs(highs - prev_closes)
+                tr3 = np.abs(lows - prev_closes)
+                tr = np.maximum(tr1, np.maximum(tr2, tr3))
+                atr_val = pd.Series(tr).rolling(14).mean().values
+                if not np.isnan(atr_val[-1]):
+                    update['atr'] = round(float(atr_val[-1]), 4)
+                    if closes[-1] > 0: update['natr'] = round(float(atr_val[-1] / closes[-1] * 100), 4)
+                update['trange'] = round(float(tr[-1]), 4)
+                
+                # 恐贪指数
+                if update.get('rsi_12') is not None:
+                    rsi_norm = (update['rsi_12'] - 50) / 50
+                    update['fear_greed_index'] = round(rsi_norm * 2.5 + 5, 4)
+                
+                # 动量
+                if len(closes) >= 2: update['momentum_1d'] = round(float(closes[-1]/closes[-2]-1), 6)
+                if len(closes) >= 5: update['momentum_5d'] = round(float(closes[-1]/closes[-5]-1), 6)
+                if len(closes) >= 10: update['momentum_10d'] = round(float(closes[-1]/closes[-10]-1), 6)
+                if len(closes) >= 20: update['momentum_20d'] = round(float(closes[-1]/closes[-20]-1), 6)
+                
+                # 波动率
+                if len(pct_chgs) >= 5: update['volatility_5d'] = round(float(np.std(pct_chgs[-5:])), 6)
+                if len(pct_chgs) >= 10: update['volatility_10d'] = round(float(np.std(pct_chgs[-10:])), 6)
+                if len(pct_chgs) >= 20: update['volatility_20d'] = round(float(np.std(pct_chgs[-20:])), 6)
+                
+                # 清理NaN
+                update = {k: v for k, v in update.items() if v is not None and not (isinstance(v, float) and np.isnan(v))}
+                
+                if update:
+                    ops.append(UpdateOne({'ts_code': ts_code, 'trade_date': td}, {'$set': update}))
+                
+                if len(ops) >= 2000:
+                    await db['stock_daily_ak_full'].bulk_write(ops)
+                    ops = []
+        
+        if ops:
+            await db['stock_daily_ak_full'].bulk_write(ops)
+        
+        print(f"  {td}: technical indicators computed ({time.time()-t0:.1f}s)")
+
 async def detect_missing_dates(db, lookback_days: int = 30) -> list[int]:
     """检测最近N天中缺因子的日期 - 检查所有关键因子"""
     all_dates = await db['stock_daily_ak_full'].distinct('trade_date')
@@ -435,6 +573,7 @@ async def detect_missing_dates(db, lookback_days: int = 30) -> list[int]:
         'opening_pct_chg', 'open_above_limit',
         'intraday_max_rise_pct', 'intraday_open_rise_pct',
         'limit_up_count',
+        'macd', 'rsi_6', 'boll_upper', 'atr', 'fear_greed_index',
     ]
     
     trade_dates = []
@@ -492,16 +631,17 @@ async def main():
     print("\n=== Step 6: Compute pullback_pct ===")
     await compute_pullback(trade_dates)
     
+    print("\n=== Step 7: Compute technical indicators (MACD/RSI/BOLL/ATR) ===")
+    await compute_technical_indicators(trade_dates)
+    
     # Verify
     print("\n=== Verification ===")
     for td in trade_dates[-3:]:  # 只验证最近3天
         sample = await db['stock_daily_ak_full'].find_one(
             {'trade_date': td},
-            {'ts_code': 1, 'ma5': 1, 'ma10': 1, 'ma20': 1, 'ma60': 1,
-             'turnover_rate': 1, 'volume_ratio': 1, 'circ_mv': 1,
-             'is_limit_up': 1, 'opening_pct_chg': 1, 'open_above_limit': 1,
-             'intraday_max_rise_pct': 1, 'intraday_open_rise_pct': 1,
-             'limit_up_count': 1, 'pullback_pct': 1, '_id': 0}
+            {'ts_code': 1, 'ma5': 1, 'ma10': 1, 'macd': 1, 'rsi_6': 1, 'boll_upper': 1, 'atr': 1,
+             'turnover_rate': 1, 'is_limit_up': 1, 'opening_pct_chg': 1, 'open_above_limit': 1,
+             'intraday_max_rise_pct': 1, 'limit_up_count': 1, 'pullback_pct': 1, 'fear_greed_index': 1, '_id': 0}
         )
         if sample:
             print(f"  {td}: {sample}")
