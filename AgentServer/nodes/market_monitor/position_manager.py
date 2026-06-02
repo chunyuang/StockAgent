@@ -286,36 +286,18 @@ class PositionManager:
         return None, pos.current_price
     
     def _check_intraday_profit_lock(self, pos, risk: Dict) -> Optional[str]:
-        """盘中利润锁定检查【v2.9.64新增, 对齐sell_signal_checker.check_intraday_profit_lock】
+        """盘中利润锁定: 冲高>=6%回撤>=2.5%仍盈>=2%→close价卖出【v2.9.64】
         
-        逻辑: 盘中冲高>=min_high_rise(默认6%)但从高点回撤>=pullback_pct(默认2.5%)
-        且收盘仍有>=min_profit(默认2%)利润→以close价卖出
-        
-        场景: 持仓盘中冲高8%+但收盘回落到5%,虽然未触发止盈但利润大量回吐。
+        对齐sell_signal_checker.check_intraday_profit_lock。
         此信号在利润保护之上、止盈之下,保护"冲高后大幅回落但仍有利润"的场景。
-        
-        注意: 此信号与止盈不冲突——止盈是current_price触达止盈价(无论收盘如何),
-        利润锁定是盘中高点远离止盈价但current_price回吐太多利润。
-        
-        Returns: sell_reason or None
         """
         if pos.avg_cost <= 0 or pos.current_price <= 0:
             return None
         
         from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
-        
-        min_high_rise = risk.get(
-            "intraday_lock_min_high_rise",
-            GLOBAL_RISK.get("intraday_lock_min_high_rise", 0.06)
-        )
-        pullback_pct = risk.get(
-            "intraday_lock_pullback_pct",
-            GLOBAL_RISK.get("intraday_lock_pullback_pct", 0.025)
-        )
-        min_profit = risk.get(
-            "intraday_lock_min_profit",
-            GLOBAL_RISK.get("intraday_lock_min_profit", 0.02)
-        )
+        min_high_rise = risk.get("intraday_lock_min_high_rise", GLOBAL_RISK.get("intraday_lock_min_high_rise", 0.06))
+        pullback_pct = risk.get("intraday_lock_pullback_pct", GLOBAL_RISK.get("intraday_lock_pullback_pct", 0.025))
+        min_profit = risk.get("intraday_lock_min_profit", GLOBAL_RISK.get("intraday_lock_min_profit", 0.02))
         
         # 从追踪止损获取盘中最高价(更精确), 回退到current_price
         trailing = self._get_trailing_stop_safe(pos.ts_code)
@@ -328,50 +310,28 @@ class PositionManager:
         if high_rise >= min_high_rise and pos.current_price < high_price:
             intraday_pullback = (high_price - pos.current_price) / high_price
             if intraday_pullback >= pullback_pct and close_rise >= min_profit:
-                return (
-                    f"利润锁定(冲高{high_rise*100:.1f}%"
-                    f"回撤{intraday_pullback*100:.1f}%"
-                    f"仍盈{close_rise*100:.1f}%)"
-                )
+                return f"利润锁定(冲高{high_rise*100:.1f}%回撤{intraday_pullback*100:.1f}%仍盈{close_rise*100:.1f}%)"
         
         return None
     
     def _check_dragon_head_early_exit(self, pos, risk: Dict) -> Optional[str]:
-        """龙头5天低利润提前退出检查【v2.9.64新增, 对齐sell_signal_checker龙头5天低利润】
+        """龙头5天低利润: 龙头低吸持仓>=5天且利润<3%→提前退出【v2.9.64】
         
-        逻辑: 龙头低吸策略持仓>=dragon_head_early_exit_days(默认5天)
-        且利润<dragon_head_early_exit_min_profit(默认3%)→提前退出
-        
-        场景: 龙头低吸后5天仍只有1-2%利润,占用了仓位但缺乏上涨动力,
-        类似超时强卖但阈值更低(3% vs 无利润),提前释放资金效率。
-        
-        Returns: sell_reason or None
+        对齐sell_signal_checker龙头5天低利润。仅dragon_head/龙头低吸策略生效。
         """
         strategy_name = pos.strategy or ""
-        # 仅对龙头低吸策略生效
         if strategy_name not in ('dragon_head', '龙头低吸'):
             return None
-        
         if not pos.buy_date:
             return None
         
         from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+        exit_days = risk.get("dragon_head_early_exit_days", GLOBAL_RISK.get("dragon_head_early_exit_days", 5))
+        min_profit = risk.get("dragon_head_early_exit_min_profit", GLOBAL_RISK.get("dragon_head_early_exit_min_profit", 0.03))
         
-        exit_days = risk.get(
-            "dragon_head_early_exit_days",
-            GLOBAL_RISK.get("dragon_head_early_exit_days", 5)
-        )
-        min_profit = risk.get(
-            "dragon_head_early_exit_min_profit",
-            GLOBAL_RISK.get("dragon_head_early_exit_min_profit", 0.03)
-        )
-        
-        # 需要trade_date来计算持仓天数
-        # PositionManager无权直接获取trade_date, 通过scanner的公开属性链获取
-        # PositionChecker在legacy模式中已有trade_date参数, 此处通过scanner间接获取
+        # 从scanner获取trade_date(运行时始终有值)
         scanner = self._scanner
         trade_date = None
-        # 优先从scanner获取(运行时始终有值)
         if hasattr(scanner, '_trade_date') and scanner._trade_date:
             trade_date = scanner._trade_date
         if not trade_date:
@@ -383,10 +343,7 @@ class PositionManager:
         
         close_rise = pos.profit_pct / 100
         if close_rise < min_profit:
-            return (
-                f"龙头5天低利润(持仓{days_held}天"
-                f"盈{close_rise*100:.1f}%<{min_profit*100:.0f}%)"
-            )
+            return f"龙头5天低利润(持仓{days_held}天盈{close_rise*100:.1f}%<{min_profit*100:.0f}%)"
         
         return None
     
