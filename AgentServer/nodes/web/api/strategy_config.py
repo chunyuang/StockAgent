@@ -21,15 +21,64 @@ logger = logging.getLogger("api.strategy_config")
 router = APIRouter(prefix="/api/v1/strategy-config", tags=["策略配置"])
 
 
-# ==================== 运行时覆盖存储(内存) ====================
-# 用户从前端修改的参数存在这里, 重启后恢复默认
+# ==================== 持久化覆盖存储(MongoDB) ====================
+# P1-9修复: 用户从前端修改的参数持久化到MongoDB scanner_config集合
+# 重启后自动恢复, 不再丢失
 _override_params: Dict[str, Dict] = {}   # strategy_id → params
 _override_risk: Dict[str, Dict] = {}     # strategy_id → riskParams
 _override_enabled: Dict[str, bool] = {}  # strategy_id → enabled
+_override_global_risk: Dict[str, Any] = {}  # 全局风控覆盖
+_overrides_loaded: bool = False  # 是否已从MongoDB加载
 
 
-def _get_effective_config(strategy_id: str) -> Dict:
+async def _ensure_overrides_loaded() -> None:
+    """从MongoDB加载覆盖参数(懒加载,首次访问时触发)"""
+    global _override_params, _override_risk, _override_enabled, _override_global_risk, _overrides_loaded
+    if _overrides_loaded:
+        return
+    _overrides_loaded = True
+    try:
+        from core.managers import mongo_manager
+        if not mongo_manager.is_initialized:
+            logger.debug("[CONFIG] MongoDB未初始化, 跳过覆盖参数加载")
+            return
+        doc = await mongo_manager.db["scanner_config"].find_one({"_id": "strategy_config_overrides"})
+        if doc and "data" in doc:
+            data = doc["data"]
+            _override_params = data.get("params", {})
+            _override_risk = data.get("risk", {})
+            _override_enabled = data.get("enabled", {})
+            _override_global_risk = data.get("global_risk", {})
+            logger.info(f"[CONFIG] 从MongoDB恢复策略覆盖: {len(_override_params)}个参数覆盖, {len(_override_enabled)}个启停覆盖")
+    except Exception as e:
+        logger.warning(f"[CONFIG] 加载覆盖参数失败(使用默认值): {e}")
+
+
+async def _persist_overrides() -> None:
+    """将覆盖参数持久化到MongoDB"""
+    try:
+        from core.managers import mongo_manager
+        if not mongo_manager.is_initialized:
+            return
+        from datetime import datetime
+        data = {
+            "params": _override_params,
+            "risk": _override_risk,
+            "enabled": _override_enabled,
+            "global_risk": _override_global_risk,
+        }
+        await mongo_manager.db["scanner_config"].update_one(
+            {"_id": "strategy_config_overrides"},
+            {"$set": {"data": data, "updated_at": datetime.now().isoformat()}},
+            upsert=True,
+        )
+    except Exception as e:
+        logger.warning(f"[CONFIG] 覆盖参数持久化失败(非关键): {e}")
+
+
+async def _get_effective_config(strategy_id: str) -> Dict:
     """获取策略有效配置(默认+覆盖)"""
+    await _ensure_overrides_loaded()
     base = STRATEGY_CONFIGS.get(strategy_id)
     if not base:
         return {}
@@ -62,7 +111,7 @@ async def get_strategies():
     """获取所有超短策略配置(含当前覆盖)"""
     strategies = []
     for sid in STRATEGY_IDS:
-        cfg = _get_effective_config(sid)
+        cfg = await _get_effective_config(sid)
         # 参数描述(加中文label)
         param_descriptions = _describe_params(sid, cfg.get("params", {}))
         risk_descriptions = _describe_risk(cfg.get("riskParams", {}))
@@ -83,15 +132,17 @@ async def get_strategy(strategy_id: str):
     """获取单个策略配置"""
     if strategy_id not in STRATEGY_CONFIGS:
         raise HTTPException(404, f"策略 {strategy_id} 不存在")
-    cfg = _get_effective_config(strategy_id)
+    cfg = await _get_effective_config(strategy_id)
     return {"success": True, "data": cfg}
 
 
 @router.put("/strategies/{strategy_id}")
 async def update_strategy(strategy_id: str, req: StrategyParamUpdate):
-    """更新策略参数/风控/启停"""
+    """更新策略参数/风控/启停(P1-9: 持久化到MongoDB)"""
     if strategy_id not in STRATEGY_CONFIGS:
         raise HTTPException(404, f"策略 {strategy_id} 不存在")
+
+    await _ensure_overrides_loaded()
 
     if req.params is not None:
         _override_params[strategy_id] = req.params
@@ -100,43 +151,59 @@ async def update_strategy(strategy_id: str, req: StrategyParamUpdate):
     if req.enabled is not None:
         _override_enabled[strategy_id] = req.enabled
 
+    # 持久化到MongoDB
+    await _persist_overrides()
+
     # 同步到MarketScanner(如果运行中)
     try:
         from nodes.web.api.scanner import _get_scanner_instance
         scanner = _get_scanner_instance()
         if scanner:
-            scanner.update_strategy_config(strategy_id, _get_effective_config(strategy_id))
+            effective_cfg = await _get_effective_config(strategy_id)
+            scanner.update_strategy_config(strategy_id, effective_cfg)
     except Exception:
         pass
 
-    cfg = _get_effective_config(strategy_id)
-    logger.info(f"[CONFIG] 更新策略 {strategy_id}: enabled={cfg.get('enabled')}")
+    cfg = await _get_effective_config(strategy_id)
+    logger.info(f"[CONFIG] 更新策略 {strategy_id}: enabled={cfg.get('enabled')} (已持久化)")
     return {"success": True, "data": cfg}
 
 
 @router.get("/global-risk")
 async def get_global_risk():
-    """获取全局风控参数"""
-    return {"success": True, "data": GLOBAL_RISK}
+    """获取全局风控参数(含覆盖)"""
+    await _ensure_overrides_loaded()
+    result = dict(GLOBAL_RISK)
+    result.update(_override_global_risk)
+    return {"success": True, "data": result}
 
 
 @router.put("/global-risk")
 async def update_global_risk(req: GlobalRiskUpdate):
-    """更新全局风控参数"""
+    """更新全局风控参数(P1-9: 持久化到MongoDB)"""
+    await _ensure_overrides_loaded()
     for k, v in req.updates.items():
         if k in GLOBAL_RISK:
-            GLOBAL_RISK[k] = v
-    logger.info(f"[CONFIG] 更新全局风控: {req.updates}")
-    return {"success": True, "data": GLOBAL_RISK}
+            _override_global_risk[k] = v
+    # 持久化到MongoDB
+    await _persist_overrides()
+    logger.info(f"[CONFIG] 更新全局风控: {req.updates} (已持久化)")
+    result = dict(GLOBAL_RISK)
+    result.update(_override_global_risk)
+    return {"success": True, "data": result}
 
 
 @router.post("/reset/{strategy_id}")
 async def reset_strategy(strategy_id: str):
-    """重置策略为默认参数"""
+    """重置策略为默认参数(P1-9: 同步清除MongoDB覆盖)"""
+    await _ensure_overrides_loaded()
     _override_params.pop(strategy_id, None)
     _override_risk.pop(strategy_id, None)
     _override_enabled.pop(strategy_id, None)
-    cfg = _get_effective_config(strategy_id)
+    # 持久化清除到MongoDB
+    await _persist_overrides()
+    cfg = await _get_effective_config(strategy_id)
+    logger.info(f"[CONFIG] 重置策略 {strategy_id} (已持久化)")
     return {"success": True, "data": cfg}
 
 
