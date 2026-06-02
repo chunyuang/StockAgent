@@ -2,14 +2,14 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { ElCard, ElProgress, ElTable, ElTableColumn, ElTag, ElButton, ElMessage, ElSwitch, ElTooltip } from 'element-plus'
 import StrategyFactorPanel from './StrategyFactorPanel.vue'
-// 【V66:UI增强】数据可视化图表
+// 数据可视化图表
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
-import { HeatmapChart, BarChart, LineChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, VisualMapComponent, DataZoomComponent } from 'echarts/components'
+import { LineChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent, LegendComponent, DataZoomComponent } from 'echarts/components'
 import VChart from 'vue-echarts'
 
-use([CanvasRenderer, HeatmapChart, BarChart, LineChart, GridComponent, TooltipComponent, VisualMapComponent, DataZoomComponent])
+use([CanvasRenderer, LineChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent])
 
 interface DailyCoverage { date: string; total: number; factor_rate: number; groups: Record<string, number> }
 interface CollectionInfo { count: number; date_range: { start: string; end: string } | null; error?: string }
@@ -36,7 +36,6 @@ const props = defineProps<{
 const loading = ref(false)
 const status = ref<DataStatus | null>(null)
 const error = ref('')
-const factorDetailExpanded = ref(false)
 const syncLoading = ref<string>('')  // 正在同步的action名
 const syncTaskId = ref('')
 const syncStatus = ref<any>(null)
@@ -113,43 +112,61 @@ function fmtDate(d: string) {
   return `${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`
 }
 
-const heatmapOption = computed(() => {
-  if (!status.value?.daily_coverage?.length) return null
-  const cov = status.value.daily_coverage
-  const groups = ['basic', 'technical_ma', 'technical_talib', 'volume', 'limit']
-  const groupLabels: Record<string, string> = { basic: '基础', technical_ma: 'MA均线', technical_talib: 'TALib', volume: '量价', limit: '涨跌停' }
-  const data: number[][] = []
-  const yLabels = cov.map(c => `${c.date.slice(4,6)}/${c.date.slice(6,8)}`)
-  cov.forEach((c, yi) => { groups.forEach((g, xi) => { data.push([xi, yi, c.groups[g] || 0]) }) })
-  const needZoom = yLabels.length > 15
-  const dataZoomY = needZoom ? [{ type: 'slider', yAxisIndex: 0, startValue: Math.max(0, yLabels.length - 30), endValue: yLabels.length - 1, right: 0, width: 16, top: 10, bottom: 30, borderColor: 'var(--border-default)', fillerColor: 'var(--info-bg)', handleStyle: { color: 'var(--el-color-primary)' }, labelFormatter: (v: number) => yLabels[v] || '' }] : []
-  return {
-    tooltip: { formatter: (p: any) => { const c = cov[p.data[1]]; const g = groups[p.data[0]]; return `${fmtDate(c.date)} ${groupLabels[g]}<br/>覆盖率: ${p.data[2]}%<br/>股票数: ${c.total}` } },
-    grid: { left: 60, right: needZoom ? 36 : 30, top: 10, bottom: 30 }, dataZoom: dataZoomY,
-    xAxis: { type: 'category', data: groups.map(g => groupLabels[g]), splitArea: { show: true }, axisLabel: { fontSize: 11 } },
-    yAxis: { type: 'category', data: yLabels, axisLabel: { fontSize: 10 } },
-    visualMap: { min: 0, max: 100, inRange: { color: ['var(--stock-up)', 'var(--el-color-warning)', '#f5da55', '#95d475', 'var(--stock-down)'] }, orient: 'horizontal', left: 'center', bottom: 0, itemWidth: 12, itemHeight: 100, text: ['100%', '0%'], textStyle: { fontSize: 10 } },
-    series: [{ type: 'heatmap', data, label: { show: true, formatter: (p: any) => p.data[2] > 0 ? `${p.data[2]}` : '', fontSize: 9, color: 'var(--text-primary)' }, itemStyle: { borderWidth: 1, borderColor: 'var(--bg-elevated)' } }]
+// ===== 因子分组卡片数据 =====
+const factorGroupCards = computed(() => {
+  const detail = status.value?.factor_detail_latest
+  if (!detail) return []
+  const groups = [
+    { key: 'basic', name: '基础', icon: '📈', factors: ['pct_chg', 'pre_close', 'open', 'high', 'low', 'close'] },
+    { key: 'technical_ma', name: 'MA均线', icon: '〰️', factors: ['ma5', 'ma10', 'ma20', 'ma60'] },
+    { key: 'volume', name: '量价', icon: '📊', factors: ['turnover_rate', 'volume_ratio', 'circ_mv'] },
+    { key: 'limit', name: '涨跌停', icon: '🎯', factors: ['is_limit_up', 'is_limit_down', 'first_limit_up', 'limit_up_count'] },
+    { key: 'technical_talib', name: 'TALib', icon: '🔬', factors: ['macd', 'rsi_6', 'boll_upper', 'atr', 'fear_greed_index'], note: '回测时自动补算' },
+  ]
+  const nameMap: Record<string, string> = {
+    pct_chg: '涨跌幅', pre_close: '前收盘', open: '开盘', high: '最高', low: '最低', close: '收盘',
+    ma5: 'MA5', ma10: 'MA10', ma20: 'MA20', ma60: 'MA60',
+    macd: 'MACD', rsi_6: 'RSI6', boll_upper: '布林上轨', atr: 'ATR', fear_greed_index: '恐贪指数',
+    turnover_rate: '换手率', volume_ratio: '量比', circ_mv: '流通市值',
+    is_limit_up: '涨停标记', is_limit_down: '跌停标记', first_limit_up: '首板标记', limit_up_count: '连板数',
   }
+  return groups.map(g => {
+    const factors = g.factors.map(f => ({ key: f, name: nameMap[f] || f, coverage: detail[f] ?? 0 }))
+    const avgCov = factors.length ? Math.round(factors.reduce((s, f) => s + f.coverage, 0) / factors.length) : 0
+    const missing = factors.filter(f => f.coverage < 90)
+    return { ...g, factors, avgCov, missing, note: (g as any).note || '' }
+  })
 })
 
-const stockCountOption = computed(() => {
-  if (!status.value?.daily_coverage?.length) return null
-  const cov = status.value.daily_coverage
-  const totalDays = cov.length; const showDays = Math.min(totalDays, 60)
-  const startPercent = ((totalDays - showDays) / totalDays) * 100
+// ===== 因子覆盖率趋势图(替代热力图) =====
+const factorTrendOption = computed(() => {
+  const cov = status.value?.daily_coverage
+  if (!cov?.length) return null
+  const showDays = Math.min(cov.length, 60)
+  const data = cov.slice(-showDays)
+  const dates = data.map(c => `${c.date.slice(4,6)}/${c.date.slice(6,8)}`)
+
+  const groupLabels: Record<string, string> = { basic: '基础', technical_ma: 'MA均线', volume: '量价', limit: '涨跌停' }
+  const groupColors: Record<string, string> = { basic: '#409EFF', technical_ma: '#67C23A', volume: '#E6A23C', limit: '#F56C6C' }
+
+  const series = Object.entries(groupLabels).map(([key, name]) => ({
+    name,
+    type: 'line' as const,
+    data: data.map(c => c.groups[key] ?? 0),
+    smooth: true,
+    symbol: 'none',
+    lineStyle: { width: 2, color: groupColors[key] },
+    itemStyle: { color: groupColors[key] },
+  }))
+
   return {
-    tooltip: { trigger: 'axis' }, grid: { left: 50, right: 20, top: 20, bottom: 60 },
-    dataZoom: [
-      { type: 'slider', xAxisIndex: 0, start: startPercent, end: 100, height: 20, bottom: 8, borderColor: 'var(--border-default)', fillerColor: 'var(--info-bg)', handleStyle: { color: 'var(--el-color-primary)' }, labelFormatter: (v: number) => { const idx = Math.round(v / 100 * (cov.length - 1)); return cov[idx] ? `${cov[idx].date.slice(4,6)}/${cov[idx].date.slice(6,8)}` : '' } },
-      { type: 'inside', xAxisIndex: 0 }
-    ],
-    xAxis: { type: 'category', data: cov.map(c => `${c.date.slice(4,6)}/${c.date.slice(6,8)}`), axisLabel: { fontSize: 10, rotate: 30 } },
-    yAxis: [{ type: 'value', name: '股票数', min: 0, axisLabel: { fontSize: 10 } }, { type: 'value', name: '覆盖率%', min: 0, max: 100, axisLabel: { fontSize: 10 } }],
-    series: [
-      { name: '股票数', type: 'bar', data: cov.map(c => c.total), itemStyle: { color: 'var(--el-color-primary)' }, barMaxWidth: 20 },
-      { name: '因子覆盖率', type: 'line', yAxisIndex: 1, data: cov.map(c => c.factor_rate), itemStyle: { color: 'var(--stock-down)' }, lineStyle: { width: 2 }, areaStyle: { color: 'rgba(103,194,58,0.1)' } }
-    ]
+    tooltip: { trigger: 'axis', valueFormatter: (v: number) => `${v}%` },
+    legend: { data: Object.values(groupLabels), bottom: 0, textStyle: { fontSize: 11 } },
+    grid: { left: 40, right: 16, top: 10, bottom: 32 },
+    dataZoom: [{ type: 'inside' }],
+    xAxis: { type: 'category', data: dates, axisLabel: { fontSize: 10, rotate: 30 } },
+    yAxis: { type: 'value', min: 0, max: 100, axisLabel: { fontSize: 10, formatter: '{value}%' } },
+    series,
   }
 })
 
@@ -170,6 +187,12 @@ const factorDetailRows = computed(() => {
   for (const [group, factors] of Object.entries(groupMap)) { for (const f of factors) { const cov = detail[f] ?? 0; let st = 'ok'; if (cov < 50) st = 'danger'; else if (cov < 90) st = 'warning'; rows.push({ group, name: nameMap[f] || f, key: f, coverage: cov, status: st }) } }
   return rows
 })
+
+function covStatus(cov: number): { icon: string; color: string; label: string } {
+  if (cov >= 90) return { icon: '✅', color: 'var(--stock-down)', label: '完整' }
+  if (cov >= 50) return { icon: '⚠️', color: 'var(--el-color-warning)', label: '部分' }
+  return { icon: '❌', color: 'var(--stock-up)', label: '缺失' }
+}
 
 const latestDateStr = computed(() => { const cov = status.value?.daily_coverage; return cov?.length ? fmtDate(cov[cov.length - 1]?.date || '') : '' })
 
@@ -439,16 +462,33 @@ watch(() => props.visible, (v) => { if (v && !status.value) fetchData() })
       </div>
     </ElCard>
 
-    <!-- 【V66:UI增强】因子覆盖热力图 -->
-    <ElCard v-if="heatmapOption" style="margin-top: 12px">
-      <template #header><span>🗺️ 因子覆盖热力图</span></template>
-      <VChart :option="heatmapOption" autoresize style="height: 260px; width: 100%" />
-    </ElCard>
+    <!-- ===== 因子状态仪表盘(替代热力图) ===== -->
+    <div v-if="factorGroupCards.length" class="factor-dashboard">
+      <div class="fd-title">📊 因子状态 <span class="fd-date">{{ latestDateStr }}</span></div>
+      <div class="fd-cards">
+        <div v-for="g in factorGroupCards" :key="g.key" class="fd-group" :class="'fdg-' + g.key">
+          <div class="fdg-header">
+            <span class="fdg-icon">{{ g.icon }}</span>
+            <span class="fdg-name">{{ g.name }}</span>
+            <span class="fdg-pct" :style="{ color: covStatus(g.avgCov).color }">{{ g.avgCov }}%</span>
+          </div>
+          <div class="fdg-bar">
+            <div class="fdg-bar-fill" :style="{ width: g.avgCov + '%', background: covStatus(g.avgCov).color }"></div>
+          </div>
+          <div class="fdg-factors">
+            <span v-for="f in g.factors" :key="f.key" class="fdg-factor" :class="{ ok: f.coverage >= 90, warn: f.coverage >= 50 && f.coverage < 90, bad: f.coverage < 50 }">
+              {{ f.name }} <b>{{ f.coverage }}%</b>
+            </span>
+          </div>
+          <div v-if="g.note" class="fdg-note">{{ g.note }}</div>
+        </div>
+      </div>
+    </div>
 
-    <!-- 【V66:UI增强】股票数&覆盖率趋势 -->
-    <ElCard v-if="stockCountOption" style="margin-top: 12px">
-      <template #header><span>📊 每日股票数 & 因子覆盖率</span></template>
-      <VChart :option="stockCountOption" autoresize style="height: 240px; width: 100%" />
+    <!-- ===== 因子覆盖率趋势 ===== -->
+    <ElCard v-if="factorTrendOption" style="margin-top: 12px">
+      <template #header><span>📈 因子覆盖率趋势</span></template>
+      <VChart :option="factorTrendOption" autoresize style="height: 220px; width: 100%" />
     </ElCard>
 
     <!-- 问题诊断 -->
@@ -518,15 +558,10 @@ watch(() => props.visible, (v) => { if (v && !status.value) fetchData() })
       </ElTable>
     </ElCard>
 
-    <!-- P1: 因子详情(可展开) -->
+    <!-- P1: 因子详情 -->
     <ElCard style="margin-top: 12px">
-      <template #header>
-        <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" @click="factorDetailExpanded = !factorDetailExpanded">
-          <span>📊 因子详情 ({{ latestDateStr }})</span>
-          <span style="font-size: 12px; color: var(--text-tertiary)">{{ factorDetailExpanded ? '收起 ▲' : '展开 ▼' }}</span>
-        </div>
-      </template>
-      <div v-if="factorDetailExpanded && factorDetailRows.length" class="factor-detail-grid">
+      <template #header><span>🔍 因子明细 ({{ latestDateStr }})</span></template>
+      <div v-if="factorDetailRows.length" class="factor-detail-grid">
         <template v-for="(row, i) in factorDetailRows" :key="i">
           <div v-if="i === 0 || row.group !== factorDetailRows[i-1].group" class="fd-group-header">{{ row.group }}</div>
           <div class="fd-row">
@@ -536,7 +571,6 @@ watch(() => props.visible, (v) => { if (v && !status.value) fetchData() })
           </div>
         </template>
       </div>
-      <div v-else-if="!factorDetailExpanded" style="color: var(--text-tertiary); font-size: 13px; text-align: center; padding: 4px 0">点击展开查看每个因子的覆盖率</div>
     </ElCard>
 
     <!-- 数据源 -->
@@ -556,7 +590,10 @@ watch(() => props.visible, (v) => { if (v && !status.value) fetchData() })
     </ElCard>
 
     <!-- 策略因子关系+流程 -->
-    <StrategyFactorPanel />
+    <ElCard style="margin-top: 12px">
+      <template #header><span>🔄 策略因子关系</span></template>
+      <StrategyFactorPanel />
+    </ElCard>
   </div>
 </template>
 
@@ -575,6 +612,27 @@ watch(() => props.visible, (v) => { if (v && !status.value) fetchData() })
 .hb-bar { flex: 1; height: 6px; background: var(--border-default); border-radius: 3px; overflow: hidden; min-width: 60px; }
 .hb-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
 .hb-val { font-size: 11px; color: var(--text-secondary); width: 36px; }
+
+/* 因子仪表盘 */
+.factor-dashboard { margin-top: 12px; }
+.fd-title { font-size: 15px; font-weight: 700; color: var(--text-primary); margin-bottom: 10px; }
+.fd-date { font-size: 12px; color: var(--text-tertiary); font-weight: 400; margin-left: 6px; }
+.fd-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); gap: 10px; }
+.fd-group { padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border-default); background: var(--bg-elevated); transition: border-color 0.2s; }
+.fd-group:hover { border-color: var(--primary-400); }
+.fdg-header { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.fdg-icon { font-size: 18px; }
+.fdg-name { font-weight: 700; font-size: 14px; flex: 1; }
+.fdg-pct { font-weight: 800; font-size: 18px; }
+.fdg-bar { height: 6px; background: var(--border-default); border-radius: 3px; overflow: hidden; margin-bottom: 8px; }
+.fdg-bar-fill { height: 100%; border-radius: 3px; transition: width 0.4s; }
+.fdg-factors { display: flex; flex-wrap: wrap; gap: 4px; }
+.fdg-factor { font-size: 11px; padding: 2px 7px; border-radius: 4px; background: var(--bg-muted); }
+.fdg-factor b { margin-left: 2px; }
+.fdg-factor.ok { color: var(--stock-down); background: var(--stock-down-bg); }
+.fdg-factor.warn { color: var(--el-color-warning); background: var(--warning-bg); }
+.fdg-factor.bad { color: var(--stock-up); background: var(--stock-up-bg); }
+.fdg-note { font-size: 11px; color: var(--text-tertiary); margin-top: 6px; font-style: italic; }
 
 /* 自动补全控制 */
 .auto-fill-control {
