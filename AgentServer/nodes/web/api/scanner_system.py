@@ -248,7 +248,7 @@ _version_cache = {"value": None, "ts": 0}
 _VERSION_CACHE_TTL = 300  # 5分钟缓存
 
 # 【v2.9.10:设计文档版本常量, 与docs/MARKET_MONITOR_OPTIMIZATION_DESIGN.md保持同步】
-_DESIGN_DOC_VERSION = "v2.9.68"
+_DESIGN_DOC_VERSION = "v2.9.69"
 _BASELINE_TAG = "v2.8.0-backtest-ui-v2"
 
 def _get_version_info() -> dict:
@@ -678,4 +678,46 @@ async def get_stream_positions(count: int = 20):
 
 
 # ==================== 复盘增强API ====================
+
+
+# ==================== 灰度对齐API【v2.9.69】 ====================
+
+@router.get("/alignment-stats")
+async def get_alignment_stats():
+    """【v2.9.69】获取compare模式灰度对齐统计
+    
+    量化legacy与checker卖出逻辑的对齐程度。
+    当对齐率>=95%且连续20次一致时, 可安全切换到checker模式。
+    仅当SELL_LOGIC_MODE=compare时累积数据。
+    """
+    try:
+        from nodes.web.api.scanner import _get_scanner_instance
+        scanner = _get_scanner_instance()
+        if not scanner:
+            return {"success": True, "available": False, "message": "Scanner未启动"}
+        
+        checker = scanner._position_checker
+        stats = checker.alignment_stats.to_dict()
+        stats["sell_logic_mode"] = checker.sell_logic_mode
+        
+        # 切换建议
+        if checker.sell_logic_mode == "compare":
+            if stats["switch_ready"]:
+                stats["recommendation"] = "可安全切换: 设置 SELL_LOGIC_MODE=checker"
+            elif stats["total_checks"] < 50:
+                stats["recommendation"] = f"数据不足: 还需{50 - stats['total_checks']}次compare"
+            elif stats["consecutive_agree"] < 20:
+                stats["recommendation"] = f"连续一致不足: 还需{20 - stats['consecutive_agree']}次"
+            else:
+                stats["recommendation"] = f"对齐率{stats['alignment_rate']*100:.1f}%<95%, 继续观察"
+        elif checker.sell_logic_mode == "legacy":
+            stats["recommendation"] = "当前legacy模式, 设置 SELL_LOGIC_MODE=compare 开启灰度"
+        elif checker.sell_logic_mode == "checker":
+            stats["recommendation"] = "已切换到checker模式"
+        else:
+            stats["recommendation"] = f"未知模式: {checker.sell_logic_mode}"
+        
+        return {"success": True, "available": True, "data": stats}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
 

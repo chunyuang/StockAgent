@@ -28,8 +28,87 @@ import threading
 import time
 from datetime import datetime
 from typing import Dict, List, Any, Tuple, Optional
+from dataclasses import dataclass, field
 
 logger = logging.getLogger("position_checker")
+
+
+# ==================== 灰度对齐追踪器【v2.9.69】 ====================
+
+@dataclass
+class CompareAlignmentStats:
+    """compare模式对齐度统计【v2.9.69新增】
+    
+    累积compare模式运行结果, 量化legacy与checker的对齐程度。
+    当对齐度>=95%时, 可安全切换到checker模式。
+    """
+    total_checks: int = 0          # 总检查次数
+    total_positions: int = 0       # 总持仓检查次数(含多持仓单次check)
+    agreement_count: int = 0       # 完全一致次数(legacy==checker)
+    only_legacy_count: int = 0     # 仅legacy触发卖出次数
+    only_checker_count: int = 0    # 仅checker触发卖出次数
+    both_count: int = 0            # 两边都触发卖出次数
+    last_check_time: str = ""      # 最近一次check时间
+    first_check_time: str = ""     # 首次check时间
+    consecutive_agree: int = 0     # 连续一致次数
+    max_consecutive_agree: int = 0 # 最大连续一致次数
+
+    @property
+    def alignment_rate(self) -> float:
+        """对齐率: 完全一致占比(0.0~1.0)"""
+        return self.agreement_count / self.total_checks if self.total_checks > 0 else 0.0
+
+    @property
+    def coverage_rate(self) -> float:
+        """覆盖率: checker触发卖出中与legacy重合的比例(0.0~1.0)"""
+        checker_sells = self.both_count + self.only_checker_count
+        return self.both_count / checker_sells if checker_sells > 0 else 0.0
+
+    @property
+    def switch_ready(self) -> bool:
+        """是否可以安全切换到checker模式(需满足3个条件)"""
+        return (
+            self.total_checks >= 50           # 至少50次compare
+            and self.alignment_rate >= 0.95   # 对齐率>=95%
+            and self.consecutive_agree >= 20  # 最近20次连续一致
+        )
+
+    def record(self, only_legacy: set, only_checker: set, both: set) -> None:
+        """记录一次compare结果"""
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.total_checks += 1
+        self.total_positions += len(only_legacy) + len(only_checker) + len(both)
+        self.only_legacy_count += len(only_legacy)
+        self.only_checker_count += len(only_checker)
+        self.both_count += len(both)
+        self.last_check_time = now
+        if not self.first_check_time:
+            self.first_check_time = now
+
+        if not only_legacy and not only_checker:
+            self.agreement_count += 1
+            self.consecutive_agree += 1
+            self.max_consecutive_agree = max(self.max_consecutive_agree, self.consecutive_agree)
+        else:
+            self.consecutive_agree = 0
+
+    def to_dict(self) -> Dict[str, Any]:
+        """序列化为字典"""
+        return {
+            "total_checks": self.total_checks,
+            "total_positions": self.total_positions,
+            "agreement_count": self.agreement_count,
+            "only_legacy_count": self.only_legacy_count,
+            "only_checker_count": self.only_checker_count,
+            "both_count": self.both_count,
+            "alignment_rate": round(self.alignment_rate, 4),
+            "coverage_rate": round(self.coverage_rate, 4),
+            "switch_ready": self.switch_ready,
+            "consecutive_agree": self.consecutive_agree,
+            "max_consecutive_agree": self.max_consecutive_agree,
+            "last_check_time": self.last_check_time,
+            "first_check_time": self.first_check_time,
+        }
 
 
 class PositionChecker:
@@ -50,6 +129,7 @@ class PositionChecker:
         self._scanner = scanner
         self._sell_checker = None  # 缓存SellSignalChecker实例
         self._backtester = None   # 缓存PortfolioBacktester实例
+        self._alignment_stats = CompareAlignmentStats()  # 灰度对齐统计【v2.9.69】
     
     # ==================== 属性代理 ====================
     
@@ -64,6 +144,11 @@ class PositionChecker:
     @property
     def sell_logic_mode(self) -> str:
         return self._scanner.SELL_LOGIC_MODE
+
+    @property
+    def alignment_stats(self) -> CompareAlignmentStats:
+        """灰度对齐统计【v2.9.69】"""
+        return self._alignment_stats
     
     @property
     def dry_run(self) -> bool:
@@ -289,6 +374,9 @@ class PositionChecker:
         only_legacy = legacy_codes - checker_codes
         only_checker = checker_codes - legacy_codes
         both = legacy_codes & checker_codes
+
+        # 【v2.9.69】记录灰度对齐统计
+        self._alignment_stats.record(only_legacy, only_checker, both)
 
         if only_legacy or only_checker:
             logger.info(f"[COMPARE] 卖出差异: "

@@ -73,7 +73,7 @@ def register_subscribers(scanner) -> None:
 
 # ==================== 审计日志写入器 ====================
 
-async def _write_audit_log(scanner, event_type: str, data: Dict[str, Any]):
+async def _write_audit_log(scanner, event_type: str, data: Dict[str, Any]) -> None:
     """写入审计日志到MongoDB audit_log集合
     
     设计文档Phase3.4: TTL 90天自动清理, 防止无限增长。
@@ -126,7 +126,7 @@ def _safe_serialize(data: Any, max_depth: int = 3) -> Any:
 
 # ==================== Redis状态推送 ====================
 
-async def _push_to_redis(scanner, channel: str, data: Dict[str, Any], use_stream: bool = False, maxlen: int = 1000):
+async def _push_to_redis(scanner, channel: str, data: Dict[str, Any], use_stream: bool = False, maxlen: int = 1000) -> None:
     """推送事件到Redis
     
     Args:
@@ -168,9 +168,9 @@ async def _push_to_redis(scanner, channel: str, data: Dict[str, Any], use_stream
 
 # ==================== Handler工厂 ====================
 
-def _make_risk_sell_handler(scanner):
+def _make_risk_sell_handler(scanner) -> Callable:
     """风控卖出事件handler"""
-    async def on_risk_sell(data: Dict[str, Any]):
+    async def on_risk_sell(data: Dict[str, Any]) -> None:
         # 审计日志
         await _write_audit_log(scanner, "risk_sell_executed", data)
         # Redis状态推送
@@ -188,9 +188,9 @@ def _make_risk_sell_handler(scanner):
     return on_risk_sell
 
 
-def _make_position_changed_handler(scanner):
+def _make_position_changed_handler(scanner) -> Callable:
     """持仓变更事件handler"""
-    async def on_position_changed(data: Dict[str, Any]):
+    async def on_position_changed(data: Dict[str, Any]) -> None:
         # 触发运行时快照自动保存(节流由save_runtime_snapshot内部控制)
         try:
             rp = scanner._runtime_persistence
@@ -209,9 +209,9 @@ def _make_position_changed_handler(scanner):
     return on_position_changed
 
 
-def _make_circuit_breaker_handler(scanner):
+def _make_circuit_breaker_handler(scanner) -> Callable:
     """熔断器事件handler"""
-    async def on_circuit_breaker(data: Dict[str, Any]):
+    async def on_circuit_breaker(data: Dict[str, Any]) -> None:
         # 审计日志(熔断是关键事件,必须记录)
         await _write_audit_log(scanner, "circuit_breaker", data)
         # Redis紧急推送
@@ -228,9 +228,9 @@ def _make_circuit_breaker_handler(scanner):
     return on_circuit_breaker
 
 
-def _make_scan_completed_handler(scanner):
+def _make_scan_completed_handler(scanner) -> Callable:
     """扫描完成事件handler"""
-    async def on_scan_completed(data: Dict[str, Any]):
+    async def on_scan_completed(data: Dict[str, Any]) -> None:
         # 更新健康指标时间戳
         scanner._last_scan_ts = time.time()
         # Redis状态推送(轻量,不含信号详情)
@@ -243,9 +243,9 @@ def _make_scan_completed_handler(scanner):
     return on_scan_completed
 
 
-def _make_quote_degraded_handler(scanner):
+def _make_quote_degraded_handler(scanner) -> Callable:
     """行情降级事件handler"""
-    async def on_quote_degraded(data: Dict[str, Any]):
+    async def on_quote_degraded(data: Dict[str, Any]) -> None:
         # Redis推送(前端应显示降级警告)
         await _push_to_redis(scanner, "scanner:status", {
             "event": "quote_degraded",
@@ -259,9 +259,9 @@ def _make_quote_degraded_handler(scanner):
     return on_quote_degraded
 
 
-def _make_quote_recovered_handler(scanner):
+def _make_quote_recovered_handler(scanner) -> Callable:
     """行情恢复事件handler"""
-    async def on_quote_recovered(data: Dict[str, Any]):
+    async def on_quote_recovered(data: Dict[str, Any]) -> None:
         # Redis推送
         await _push_to_redis(scanner, "scanner:status", {
             "event": "quote_recovered",
@@ -274,18 +274,18 @@ def _make_quote_recovered_handler(scanner):
     return on_quote_recovered
 
 
-def _make_param_updated_handler(scanner):
+def _make_param_updated_handler(scanner) -> Callable:
     """参数更新事件handler"""
-    async def on_param_updated(data: Dict[str, Any]):
+    async def on_param_updated(data: Dict[str, Any]) -> None:
         # 审计日志(参数变更是合规要求)
         await _write_audit_log(scanner, "param_updated", data)
     on_param_updated.__name__ = "on_param_updated"
     return on_param_updated
 
 
-def _make_emotion_changed_handler(scanner):
+def _make_emotion_changed_handler(scanner) -> Callable:
     """情绪变化事件handler"""
-    async def on_emotion_changed(data: Dict[str, Any]):
+    async def on_emotion_changed(data: Dict[str, Any]) -> None:
         # Redis状态推送(前端情绪面板实时更新)
         await _push_to_redis(scanner, "scanner:status", {
             "event": "emotion_changed",
@@ -297,9 +297,9 @@ def _make_emotion_changed_handler(scanner):
     return on_emotion_changed
 
 
-def _make_daily_settled_handler(scanner):
+def _make_daily_settled_handler(scanner) -> Callable:
     """盘后结算事件handler(v2.9:扩展为审计日志+绩效快照+飞书日报)"""
-    async def on_daily_settled(data: Dict[str, Any]):
+    async def on_daily_settled(data: Dict[str, Any]) -> None:
         # 审计日志
         await _write_audit_log(scanner, "daily_settled", data)
         # Redis推送
@@ -324,9 +324,9 @@ def _make_daily_settled_handler(scanner):
     return on_daily_settled
 
 
-def _make_signal_generated_handler(scanner):
+def _make_signal_generated_handler(scanner) -> Callable:
     """信号生成事件handler"""
-    async def on_signal_generated(data: Dict[str, Any]):
+    async def on_signal_generated(data: Dict[str, Any]) -> None:
         # Redis信号推送(Phase2.1: Redis Stream, 不可丢)
         await _push_to_redis(scanner, "scanner:signal", {
             "event": "signal_generated",
@@ -337,9 +337,9 @@ def _make_signal_generated_handler(scanner):
     return on_signal_generated
 
 
-def _make_scanner_error_handler(scanner):
+def _make_scanner_error_handler(scanner) -> Callable:
     """【v2.9.15】扫描器异常事件handler"""
-    async def on_scanner_error(data: Dict[str, Any]):
+    async def on_scanner_error(data: Dict[str, Any]) -> None:
         # 异常推送(Pub/Sub, 允许丢但前端可感知)
         await _push_to_redis(scanner, "scanner:status", {
             "event": "scanner_error",

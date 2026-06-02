@@ -91,7 +91,7 @@ class DataSourceRouter:
         self._statuses: Dict[str, DataSourceStatus] = {}
         self._active_source: Optional[str] = None
 
-    def register(self, name: str, adapter: Any, priority: int = 99):
+    def register(self, name: str, adapter: Any, priority: int = 99) -> None:
         """注册数据源"""
         self._sources[name] = adapter
         self._priorities[name] = priority
@@ -128,7 +128,7 @@ class DataSourceRouter:
 
         return results
 
-    def _select_best_source(self):
+    def _select_best_source(self) -> None:
         """选择最优数据源(优先级数字越小越优先)"""
         best = None
         best_priority = 999
@@ -270,12 +270,12 @@ class DataSourceRouter:
                     self._mark_error(adapter, str(e))
         return [] if "pool" in method_name else None
 
-    def _mark_success(self, adapter):
+    def _mark_success(self, adapter) -> None:
         name = getattr(adapter, 'name', 'unknown')
         if name in self._statuses:
             self._statuses[name].last_success = datetime.now().strftime("%H:%M:%S")
 
-    def _mark_error(self, adapter, error: str):
+    def _mark_error(self, adapter, error: str) -> None:
         name = getattr(adapter, 'name', 'unknown')
         if name in self._statuses:
             self._statuses[name].last_error = error[:100]
@@ -293,7 +293,7 @@ class DataSourceRouter:
                 self._statuses[name].daily_remaining = status.get("daily_remaining", 0)
         return self._statuses
 
-    async def close_all(self):
+    async def close_all(self) -> None:
         """关闭所有数据源"""
         for name, adapter in self._sources.items():
             try:

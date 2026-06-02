@@ -431,8 +431,8 @@ class StrategyParamCenter:
     # ==================== Phase2.3: 参数变更审计日志 ====================
 
     async def _write_param_audit_log(self, strategy_id: str, updates: Dict,
-                                      updated_by: str, danger_warnings: list,
-                                      before: Dict = None, after: Dict = None):
+                                     updated_by: str, danger_warnings: list,
+                                     before: Dict = None, after: Dict = None) -> None:
         """参数变更审计日志(append-only, 存audit_log集合)"""
         try:
             from core.managers import mongo_manager

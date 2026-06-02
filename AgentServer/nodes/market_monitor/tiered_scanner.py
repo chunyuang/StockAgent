@@ -174,7 +174,7 @@ class TieredScanner:
 
     # ──────────────────────────── 配置 ────────────────────────────
 
-    def _apply_config(self):
+    def _apply_config(self) -> None:
         """应用配置覆盖"""
         cfg = self._config.get("tiered_scanner", {})
         if not cfg:
@@ -195,7 +195,7 @@ class TieredScanner:
 
     # ──────────────────────────── 外部引用 ────────────────────────
 
-    def set_scanner(self, scanner: Any):
+    def set_scanner(self, scanner: Any) -> None:
         """设置外层MarketScanner实例引用"""
         self._scanner = scanner
         # 复用scanner的数据路由
@@ -205,21 +205,21 @@ class TieredScanner:
 
     # ──────────────────────────── 回调注册 ────────────────────────
 
-    def on_l1_filter(self, callback: L1FilterCallback):
+    def on_l1_filter(self, callback: L1FilterCallback) -> None:
         """注册L1初筛回调: candidates -> filtered_candidates"""
         self._on_l1_filter = callback
 
-    def on_l2_strategy(self, callback: L2StrategyCallback):
+    def on_l2_strategy(self, callback: L2StrategyCallback) -> None:
         """注册L2策略筛选回调: candidates -> signals"""
         self._on_l2_strategy = callback
 
-    def on_l3_check(self, callback: L3CheckCallback):
+    def on_l3_check(self, callback: L3CheckCallback) -> None:
         """注册L3止损止盈回调: positions+signals -> sell_signals"""
         self._on_l3_check = callback
 
     # ──────────────────────────── 生命周期 ────────────────────────
 
-    async def start(self):
+    async def start(self) -> None:
         """启动三级扫描"""
         if self._is_running:
             logger.warning("[TIERED] 已在运行, 忽略重复启动")
@@ -243,7 +243,7 @@ class TieredScanner:
         self._l2_status.is_running = True
         self._l3_status.is_running = True
 
-    async def stop(self):
+    async def stop(self) -> None:
         """停止三级扫描"""
         if not self._is_running:
             return
@@ -273,7 +273,7 @@ class TieredScanner:
 
     # ──────────────────────────── 数据路由 ────────────────────────
 
-    async def _ensure_data_router(self):
+    async def _ensure_data_router(self) -> None:
         """确保数据路由已初始化"""
         if self._data_router:
             return
@@ -310,7 +310,7 @@ class TieredScanner:
         ct = datetime.now().strftime("%H:%M")
         return "09:15" <= ct <= "15:05"
 
-    def _record_latency(self, level: int, latency_ms: float):
+    def _record_latency(self, level: int, latency_ms: float) -> None:
         """记录延迟"""
         history = self._latency_history.get(level, [])
         history.append(latency_ms)
@@ -325,7 +325,7 @@ class TieredScanner:
             return 0.0
         return sum(history) / len(history)
 
-    def _update_status(self, status: LevelStatus, result: TieredScanResult):
+    def _update_status(self, status: LevelStatus, result: TieredScanResult) -> None:
         """更新扫描状态"""
         status.last_scan_time = result.ts
         status.last_scan_time_str = datetime.fromtimestamp(result.ts).strftime("%Y-%m-%d %H:%M:%S")
@@ -339,7 +339,7 @@ class TieredScanner:
 
     # ──────────────────────────── L1: 全市场初筛 ─────────────────
 
-    async def _l1_loop(self):
+    async def _l1_loop(self) -> None:
         """L1扫描循环: 全市场5分钟初筛"""
         logger.info(f"[L1] 全市场初筛循环启动, 间隔={self.L1_INTERVAL}s")
 
@@ -475,7 +475,7 @@ class TieredScanner:
 
     # ──────────────────────────── L2: 策略筛选 ──────────────────
 
-    async def _l2_loop(self):
+    async def _l2_loop(self) -> None:
         """L2扫描循环: 候选池策略筛选"""
         logger.info(f"[L2] 策略筛选循环启动, 间隔={self.L2_INTERVAL}s")
 
@@ -595,7 +595,7 @@ class TieredScanner:
 
     # ──────────────────────────── L3: 止损止盈 ──────────────────
 
-    async def _l3_loop(self):
+    async def _l3_loop(self) -> None:
         """L3扫描循环: 持仓止损止盈检查"""
         logger.info(f"[L3] 止损止盈循环启动, 间隔={self.L3_INTERVAL}s")
 
