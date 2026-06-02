@@ -109,68 +109,63 @@ class SignalDispatcher:
         logger.info(f"[DISPATCHER] 移除通道: {name}")
 
     async def dispatch(self, signal: DispatchSignal) -> Dict[str, bool]:
-        """
-        分发信号到所有注册通道
-        
-        Returns:
-            {channel_name: success_bool}
-        """
+        """分发信号到所有注册通道(编排方法)"""
         self._stats["total_received"] += 1
         priority_key = signal.priority.value
         self._stats["by_priority"][priority_key] = self._stats["by_priority"].get(priority_key, 0) + 1
 
-        # 1. 信号去重(CRITICAL级不去重)
-        if signal.priority != SignalPriority.CRITICAL:
-            dedup_key = f"{signal.ts_code}|{signal.strategy}|{signal.signal_type}"
-            last_time = self._dedup_cache.get(dedup_key, 0)
-            if time.time() - last_time < self.DEDUP_WINDOW:
-                self._stats["total_deduped"] += 1
-                logger.debug(
-                    f"[DISPATCHER] 去重: {signal.ts_code} {signal.strategy} "
-                    f"(距上次{time.time()-last_time:.0f}s<{self.DEDUP_WINDOW}s)"
-                )
-                return {}
-            self._dedup_cache[dedup_key] = time.time()
-
-        # 2. 过期检查
+        if self._should_dedup(signal):
+            return {}
         if signal.is_expired:
             logger.debug(f"[DISPATCHER] 过期信号丢弃: {signal.ts_code}")
             return {}
 
-        # 3. 分发到所有通道
+        results = await self._dispatch_to_channels(signal)
+        self._record_dispatch(signal, results)
+        return results
+
+    def _should_dedup(self, signal: DispatchSignal) -> bool:
+        """信号去重检查(CRITICAL级不去重)"""
+        if signal.priority == SignalPriority.CRITICAL:
+            return False
+        dedup_key = f"{signal.ts_code}|{signal.strategy}|{signal.signal_type}"
+        last_time = self._dedup_cache.get(dedup_key, 0)
+        if time.time() - last_time < self.DEDUP_WINDOW:
+            self._stats["total_deduped"] += 1
+            logger.debug(f"[DISPATCHER] 去重: {signal.ts_code} {signal.strategy} "
+                         f"(距上次{time.time()-last_time:.0f}s<{self.DEDUP_WINDOW}s)")
+            return True
+        self._dedup_cache[dedup_key] = time.time()
+        return False
+
+    async def _dispatch_to_channels(self, signal: DispatchSignal) -> Dict[str, bool]:
+        """分发到所有通道"""
         results = {}
         for name, handler in self._channels.items():
             try:
                 ok = await handler(signal)
                 results[name] = ok
-                if ok:
-                    self._stats["by_channel"][name]["success"] += 1
-                else:
-                    self._stats["by_channel"][name]["failed"] += 1
+                key = "success" if ok else "failed"
+                self._stats["by_channel"][name][key] += 1
             except Exception as e:
                 logger.warning(f"[DISPATCHER] 通道{name}异常: {e}")
                 results[name] = False
                 self._stats["by_channel"][name]["failed"] += 1
                 self._stats["total_failed"] += 1
+        return results
 
-        # 4. 记录分发日志
+    def _record_dispatch(self, signal: DispatchSignal, results: Dict[str, bool]) -> None:
+        """记录分发日志"""
         self._dispatch_log.append({
             "time": datetime.now().strftime("%H:%M:%S"),
-            "signal_id": signal.signal_id,
-            "ts_code": signal.ts_code,
-            "strategy": signal.strategy,
-            "type": signal.signal_type,
-            "priority": signal.priority.value,
-            "channels": results,
+            "signal_id": signal.signal_id, "ts_code": signal.ts_code,
+            "strategy": signal.strategy, "type": signal.signal_type,
+            "priority": signal.priority.value, "channels": results,
             "source": signal.source,
         })
-
-        # 保持日志最近500条
         if len(self._dispatch_log) > 500:
             self._dispatch_log = self._dispatch_log[-500:]
-
         self._stats["total_dispatched"] += 1
-        return results
 
     async def dispatch_batch(self, signals: List[DispatchSignal]) -> List[Dict[str, bool]]:
         """批量分发"""

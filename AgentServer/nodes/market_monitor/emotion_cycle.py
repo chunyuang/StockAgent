@@ -380,49 +380,43 @@ class EmotionCycleManager:
         return self.DOWNGRADE_RULES.get((old_phase, new_phase))
 
     @staticmethod
+    def _try_add_pending_sell(
+        pending_sells, state_lock, ts_code: str, reason: str, price: float, source: str = "emotion",
+    ) -> None:
+        """跌停挂起卖出(线程安全)"""
+        if pending_sells is None:
+            return
+        import time as _time
+        entry = {"reason": reason, "price": price, "added_at": _time.time(), "source": source}
+        if state_lock:
+            with state_lock:
+                pending_sells[ts_code] = entry
+        else:
+            pending_sells[ts_code] = entry
+
+    @staticmethod
     def build_emotion_sell_list(positions, rule: Dict, old_phase: str, new_phase: str,
                                  is_limit_down_fn=None, pending_sells: Dict = None,
                                  state_lock=None, strategy_risk_fn=None) -> list:
-        """根据情绪降级规则构建卖出列表【v2.9.16:从scanner提取】
-        
-        Args:
-            positions: 当前持仓列表
-            rule: DOWNGRADE_RULES中的规则
-            old_phase: 原始阶段名称
-            new_phase: 新阶段名称
-            is_limit_down_fn: 判断跌停的回调 fn(ts_code) -> bool
-            pending_sells: 跌停挂起卖出字典(可变引用, 直接写入)
-            state_lock: 线程锁(保护pending_sells写入)
-            strategy_risk_fn: 获取策略风控参数回调 fn(strategy) -> dict
-        Returns:
-            [(pos, reason, price, risk), ...] 卖出列表
-        """
-        import time as _time
+        """根据情绪降级规则构建卖出列表【v2.9.16:从scanner提取】"""
         to_sell = []
-        
+
         if rule["action"] == "reduce":
             keep_ratio = rule["keep_ratio"]
             sorted_pos = sorted(positions, key=lambda p: p.profit_pct)
-            total_count = len(sorted_pos)
-            target_count = max(1, int(total_count * keep_ratio))
-            sell_count = total_count - target_count
-            
-            for pos in sorted_pos[:sell_count]:
+            target_count = max(1, int(len(sorted_pos) * keep_ratio))
+
+            for pos in sorted_pos[:len(sorted_pos) - target_count]:
                 if pos.available_qty <= 0:
                     continue
                 if is_limit_down_fn and is_limit_down_fn(pos.ts_code):
-                    if pending_sells is not None:
-                        entry = {"reason": f"情绪降级({old_phase}→{new_phase})", "price": pos.current_price,
-                                 "added_at": _time.time(), "source": "emotion"}
-                        if state_lock:
-                            with state_lock:
-                                pending_sells[pos.ts_code] = entry
-                        else:
-                            pending_sells[pos.ts_code] = entry
+                    EmotionCycleManager._try_add_pending_sell(
+                        pending_sells, state_lock, pos.ts_code,
+                        f"情绪降级({old_phase}→{new_phase})", pos.current_price)
                     continue
                 risk = strategy_risk_fn(pos.strategy) if strategy_risk_fn else {}
                 to_sell.append((pos, f"情绪降级({rule['desc']})", pos.current_price, risk))
-        
+
         elif rule["action"] == "clear_low_profit":
             min_profit = rule.get("min_profit", 0.03)
             for pos in positions:
@@ -430,19 +424,14 @@ class EmotionCycleManager:
                     continue
                 if pos.profit_pct < min_profit * 100:
                     if is_limit_down_fn and is_limit_down_fn(pos.ts_code):
-                        if pending_sells is not None:
-                            entry = {"reason": f"情绪清仓({old_phase}→{new_phase})", "price": pos.current_price,
-                                     "added_at": _time.time(), "source": "emotion"}
-                            if state_lock:
-                                with state_lock:
-                                    pending_sells[pos.ts_code] = entry
-                            else:
-                                pending_sells[pos.ts_code] = entry
+                        EmotionCycleManager._try_add_pending_sell(
+                            pending_sells, state_lock, pos.ts_code,
+                            f"情绪清仓({old_phase}→{new_phase})", pos.current_price)
                         continue
                     risk = strategy_risk_fn(pos.strategy) if strategy_risk_fn else {}
                     to_sell.append((pos, f"情绪清仓({rule['desc']}, 利润{pos.profit_pct:.1f}%<{min_profit*100:.0f}%)",
                                    pos.current_price, risk))
-        
+
         return to_sell
 
     @staticmethod
@@ -513,33 +502,35 @@ class EmotionCycleManager:
 
     @staticmethod
     async def update_sentiment_score(scanner, trade_date: str) -> None:
-        """收盘后更新当日情绪预计算(写入sentiment_scores集合)
-        
-        【v2.9.34从scanner提取】从scanner实时状态或MongoDB获取涨跌停数据,
-        计算情绪得分并写入sentiment_scores集合。
-        """
+        """收盘后更新当日情绪预计算(编排方法)"""
         if not mongo_manager.is_initialized:
             return
         db = mongo_manager.db
         td_int = int(trade_date)
-        
-        # 从scanner实时状态获取涨跌停
+
+        lu, ld, max_lb, data_source = await EmotionCycleManager._fetch_limit_stats(scanner, db, td_int)
+        up_count, down_count, up_down_ratio = await EmotionCycleManager._fetch_up_down_ratio(db, td_int)
+        missing_data = (lu == 0 and ld == 0)
+
+        score, period = EmotionCycleManager._calc_sentiment_score(lu, ld, max_lb, up_down_ratio)
+        await EmotionCycleManager._persist_sentiment_score(db, td_int, score, period, lu, ld, max_lb,
+                                                           up_count, down_count, up_down_ratio, data_source, missing_data)
+
+    @staticmethod
+    async def _fetch_limit_stats(scanner, db, td_int: int):
+        """获取涨跌停数据(实时→limit_list→daily_basic三级降级)"""
         limit_pools = scanner._limit_pools
         lu = len(limit_pools.get("limit_up", []))
         ld = len(limit_pools.get("limit_down", []))
-        max_lb = 1
-        if limit_pools.get("limit_up"):
-            max_lb = max((item.get("limit_times", 1) for item in limit_pools["limit_up"]), default=1)
-        
-        # 没有实时数据则从limit_list/daily_basic查
+        max_lb = max((item.get("limit_times", 1) for item in limit_pools.get("limit_up", [])), default=1) if lu > 0 else 1
+
         data_source = "scanner_realtime"
         if lu == 0 and ld == 0:
             lu = await db["limit_list"].count_documents({"trade_date": td_int, "limit": "U"})
             ld = await db["limit_list"].count_documents({"trade_date": td_int, "limit": "D"})
             max_lb_doc = await db["limit_list"].find_one(
                 {"trade_date": td_int, "limit": "U"},
-                sort=[("limit_times", -1)], projection={"limit_times": 1}
-            )
+                sort=[("limit_times", -1)], projection={"limit_times": 1})
             max_lb = max_lb_doc.get("limit_times", 1) if max_lb_doc else 1
             data_source = "limit_list"
         if lu == 0 and ld == 0:
@@ -547,21 +538,30 @@ class EmotionCycleManager:
             ld = await db["daily_basic"].count_documents({"trade_date": td_int, "pct_chg": {"$lte": -9.8}})
             max_lb = 1
             data_source = "daily_basic"
-        
-        missing_data = (lu == 0 and ld == 0)
-        
-        # 涨跌家数
+        return lu, ld, max_lb, data_source
+
+    @staticmethod
+    async def _fetch_up_down_ratio(db, td_int: int):
+        """获取涨跌家数和涨跌比"""
         up_count = await db["daily_basic"].count_documents({"trade_date": td_int, "pct_chg": {"$gt": 0}})
         down_count = await db["daily_basic"].count_documents({"trade_date": td_int, "pct_chg": {"$lt": 0}})
         up_down_ratio = up_count / max(up_count + down_count, 1)
-        
-        # 情绪公式
-        score = min(100, max(0, min(30,lu) + max(0,20-ld*2) + min(20,max_lb*2) + int(up_down_ratio*15)))
+        return up_count, down_count, up_down_ratio
+
+    @staticmethod
+    def _calc_sentiment_score(lu: int, ld: int, max_lb: int, up_down_ratio: float):
+        """计算情绪得分和周期"""
+        score = min(100, max(0, min(30, lu) + max(0, 20 - ld * 2) + min(20, max_lb * 2) + int(up_down_ratio * 15)))
         if score >= 70: period = "高潮"
         elif score >= 55: period = "分化"
         elif score >= 40: period = "震荡"
         else: period = "冰点"
-        
+        return score, period
+
+    @staticmethod
+    async def _persist_sentiment_score(db, td_int, score, period, lu, ld, max_lb,
+                                       up_count, down_count, up_down_ratio, data_source, missing_data):
+        """持久化情绪得分到MongoDB"""
         from datetime import datetime as _dt
         await db["sentiment_scores"].update_one(
             {"trade_date": td_int},
@@ -574,8 +574,7 @@ class EmotionCycleManager:
                 "data_source": data_source, "missing_data": missing_data,
                 "updated_at": _dt.now().isoformat(),
             }},
-            upsert=True
-        )
+            upsert=True)
 
 
 # 全局单例

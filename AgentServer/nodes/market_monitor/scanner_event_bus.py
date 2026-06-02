@@ -112,64 +112,50 @@ class ScannerEventBus:
             return False
     
     async def emit(self, event: str, data: Dict[str, Any] = None) -> int:
-        """发布事件, 按注册顺序调用所有handler
-        
-        Args:
-            event: 事件名称
-            data: 事件数据
-            
-        Returns:
-            成功处理的handler数量
-        """
+        """发布事件, 按注册顺序调用所有handler(编排方法)"""
         if not self._enabled:
             return 0
-        
+
         data = data or {}
         stats = self._stats[event]
         stats["emitted"] += 1
-        
-        # 记录事件历史
         self._record_history(event, data)
-        
+
         handlers = self._handlers.get(event, [])
         if not handlers:
             logger.debug(f"[EVENT_BUS] {event}: 无订阅者")
             return 0
-        
+
         success_count = 0
         for handler in handlers:
-            try:
-                start = time.monotonic()
-                await handler(data)
-                elapsed = (time.monotonic() - start) * 1000
-                stats["handled"] += 1
+            ok = await self._invoke_handler(event, handler, data, stats)
+            if ok:
                 success_count += 1
-                
-                # 【v2.9.7: handler耗时统计】
-                latency_key = f"{event}.{handler.__name__}"
-                lat = self._handler_latency[latency_key]
-                lat["total_ms"] += elapsed
-                lat["count"] += 1
-                lat["max_ms"] = max(lat["max_ms"], elapsed)
-                
-                if elapsed > 100:  # 超过100ms告警
-                    logger.warning(
-                        f"[EVENT_BUS] {event} handler {handler.__name__} "
-                        f"耗时 {elapsed:.1f}ms"
-                    )
-                else:
-                    logger.debug(
-                        f"[EVENT_BUS] {event} → {handler.__name__} "
-                        f"({elapsed:.1f}ms)"
-                    )
-            except Exception as e:
-                stats["errors"] += 1
-                logger.error(
-                    f"[EVENT_BUS] {event} handler {handler.__name__} 异常: {e}",
-                    exc_info=True
-                )
-        
         return success_count
+
+    async def _invoke_handler(self, event: str, handler: Callable, data: Dict, stats: Dict) -> bool:
+        """调用单个handler并记录耗时/错误"""
+        try:
+            start = time.monotonic()
+            await handler(data)
+            elapsed = (time.monotonic() - start) * 1000
+            stats["handled"] += 1
+
+            latency_key = f"{event}.{handler.__name__}"
+            lat = self._handler_latency[latency_key]
+            lat["total_ms"] += elapsed
+            lat["count"] += 1
+            lat["max_ms"] = max(lat["max_ms"], elapsed)
+
+            if elapsed > 100:
+                logger.warning(f"[EVENT_BUS] {event} handler {handler.__name__} 耗时 {elapsed:.1f}ms")
+            else:
+                logger.debug(f"[EVENT_BUS] {event} → {handler.__name__} ({elapsed:.1f}ms)")
+            return True
+        except Exception as e:
+            stats["errors"] += 1
+            logger.error(f"[EVENT_BUS] {event} handler {handler.__name__} 异常: {e}", exc_info=True)
+            return False
     
     def once(self, event: str, handler: Callable) -> None:
         """注册一次性handler(触发一次后自动取消)

@@ -55,18 +55,24 @@ class TestExecuteRiskSellRefactor:
         assert "_trailing_stops.pop" in source
 
     def test_post_sell_cleanup_contains_eventbus(self):
-        """post_sell_cleanup包含EventBus事件发射"""
+        """post_sell_cleanup及其子方法包含EventBus事件发射"""
         from nodes.market_monitor.runtime_persistence import RuntimePersistence
         source = inspect.getsource(RuntimePersistence.post_sell_cleanup)
-        assert "RISK_SELL_EXECUTED" in source
-        assert "POSITION_CHANGED" in source
+        # v2.9.59: EventBus发射已提取到_emit_sell_events
+        if "RISK_SELL_EXECUTED" not in source:
+            emit_source = inspect.getsource(RuntimePersistence._emit_sell_events)
+            assert "RISK_SELL_EXECUTED" in emit_source
+            assert "POSITION_CHANGED" in emit_source
 
     def test_post_sell_cleanup_contains_persistence(self):
-        """post_sell_cleanup包含持久化调用"""
+        """post_sell_cleanup及其子方法包含持久化调用"""
         from nodes.market_monitor.runtime_persistence import RuntimePersistence
         source = inspect.getsource(RuntimePersistence.post_sell_cleanup)
-        assert "save_state" in source
-        assert "_save_runtime_snapshot" in source
+        # v2.9.59: 持久化已提取到_persist_sell_state
+        if "save_state" not in source:
+            persist_source = inspect.getsource(RuntimePersistence._persist_sell_state)
+            assert "save_state" in persist_source
+            assert "_save_runtime_snapshot" in persist_source
 
     def test_post_sell_cleanup_contains_record_trade_result(self):
         """post_sell_cleanup包含_record_trade_result调用"""

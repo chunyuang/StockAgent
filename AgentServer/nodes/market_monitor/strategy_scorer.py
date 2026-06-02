@@ -59,15 +59,18 @@ class StrategyScorer:
     # ==================== 因子合并 ====================
     
     def merge_factors(self, realtime_data: Dict[str, Dict]) -> pd.DataFrame:
-        """合并日级因子+实时数据"""
+        """合并日级因子+实时数据(编排方法)"""
         if not realtime_data:
             return pd.DataFrame()
 
-        # 实时数据→DataFrame
+        rt_df = self._realtime_to_dataframe(realtime_data)
+        return self._merge_with_daily_factors(rt_df)
+
+    def _realtime_to_dataframe(self, realtime_data: Dict[str, Dict]) -> pd.DataFrame:
+        """实时数据→DataFrame"""
         rt_rows = []
         for ts_code, rt in realtime_data.items():
             row = {"ts_code": ts_code}
-            # 实时因子(覆盖日级)
             row["pct_chg"] = rt.get("pct_chg", 0)
             row["volume_ratio"] = rt.get("volume_ratio", 0)
             row["turnover_rate"] = rt.get("turnover_rate", 0)
@@ -79,27 +82,23 @@ class StrategyScorer:
             row["pre_close"] = rt.get("pre_close", 0)
             row["stock_name"] = rt.get("name", "") or self._name_map.get(ts_code, "")
 
-            # 涨停判断(实时, 防御None/NaN)
             pct = rt.get("pct_chg") or 0
-            if ts_code.startswith('688'):
-                row["is_limit_up"] = 1 if pct >= 19.5 else 0
-                row["is_limit_down"] = 1 if pct <= -19.5 else 0
-            elif ts_code.startswith(('4', '8')):
-                row["is_limit_up"] = 1 if pct >= 29.5 else 0
-                row["is_limit_down"] = 1 if pct <= -29.5 else 0
-            else:
-                row["is_limit_up"] = 1 if pct >= 9.5 else 0
-                row["is_limit_down"] = 1 if pct <= -9.5 else 0
-
-            # 涨停数量统计(从pct_chg推断)
+            row["is_limit_up"], row["is_limit_down"] = self._classify_limit(ts_code, pct)
             row["limit_up_count"] = row["is_limit_up"]
-
             rt_rows.append(row)
+        return pd.DataFrame(rt_rows)
 
-        rt_df = pd.DataFrame(rt_rows)
-        rt_df.set_index("ts_code", inplace=False)
+    @staticmethod
+    def _classify_limit(ts_code: str, pct: float) -> tuple:
+        """根据涨跌幅和板块判断涨停/跌停"""
+        if ts_code.startswith('688'):
+            return (1 if pct >= 19.5 else 0, 1 if pct <= -19.5 else 0)
+        elif ts_code.startswith(('4', '8')):
+            return (1 if pct >= 29.5 else 0, 1 if pct <= -29.5 else 0)
+        return (1 if pct >= 9.5 else 0, 1 if pct <= -9.5 else 0)
 
-        # 合并日级因子(ma5/macd/rsi/boll/atr等)
+    def _merge_with_daily_factors(self, rt_df: pd.DataFrame) -> pd.DataFrame:
+        """合并日级因子"""
         daily_df = self.daily_factors_df
         if daily_df is not None and not daily_df.empty:
             daily_cols = ["ts_code", "ma5", "macd", "rsi_6", "boll_upper", "atr",
@@ -114,7 +113,6 @@ class StrategyScorer:
                     if col in merged.columns:
                         merged[col] = merged[col].fillna(0)
                 return merged
-
         return rt_df
     
     # ==================== 策略配置 ====================
