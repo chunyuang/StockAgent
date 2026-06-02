@@ -25,7 +25,7 @@ class TestVersionV2965:
 
     def test_design_doc_version_is_v2965(self):
         """设计文档版本应为v2.9.65"""
-        assert _read_version() == "v2.9.65"
+        assert _read_version() == "v2.9.66"
 
 
 class TestMarketMonitorViewComposableRefactor:
