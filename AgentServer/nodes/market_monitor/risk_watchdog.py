@@ -581,14 +581,16 @@ class RiskWatchdog:
         return result
 
     async def _liquidate_positions(self, scanner, positions, rp, reason: str, result: Dict) -> int:
-        """遍历持仓执行紧急平仓【v2.9.56从emergency_liquidate提取】
+        """遍历持仓执行紧急平仓【v2.9.56从emergency_liquidate提取, v2.9.72:trace_id】
         
         Returns: 成功清仓数
         """
+        import uuid
         cleared = 0
         for pos in positions:
             if pos.available_qty <= 0:
                 continue  # T+1: 今日买入不可卖
+            trace_id = f"emg-{pos.ts_code}-{uuid.uuid4().hex[:8]}"
 
             scanner._broker.update_realtime(pos.ts_code, pos.current_price)
             ok, msg, order = scanner._broker.place_order(
@@ -605,6 +607,7 @@ class RiskWatchdog:
                 "ts_code": pos.ts_code,
                 "success": ok,
                 "message": msg if not ok else f"卖出{pos.available_qty}股@{order.filled_price:.2f}",
+                "trace_id": trace_id,
             })
             if ok and rp:
                 sell_profit_pct = (pos.current_price - pos.avg_cost) / pos.avg_cost * 100 if pos.avg_cost > 0 else 0
@@ -612,6 +615,7 @@ class RiskWatchdog:
                 await rp.post_sell_cleanup(
                     pos, f"⚠️紧急平仓: {reason}", order, pos.available_qty,
                     sell_profit_pct, sell_profit_amount, source="emergency",
+                    trace_id=trace_id,
                 )
                 cleared += 1
         return cleared

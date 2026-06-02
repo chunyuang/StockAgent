@@ -171,7 +171,7 @@ async def _push_to_redis(scanner, channel: str, data: Dict[str, Any], use_stream
 def _make_risk_sell_handler(scanner) -> Callable:
     """风控卖出事件handler"""
     async def on_risk_sell(data: Dict[str, Any]) -> None:
-        # 审计日志
+        """风控卖出事件: 写审计日志+推送Redis状态"""
         await _write_audit_log(scanner, "risk_sell_executed", data)
         # Redis状态推送
         await _push_to_redis(scanner, "scanner:status", {
@@ -191,6 +191,7 @@ def _make_risk_sell_handler(scanner) -> Callable:
 def _make_position_changed_handler(scanner) -> Callable:
     """持仓变更事件handler"""
     async def on_position_changed(data: Dict[str, Any]) -> None:
+        """持仓变更事件: 触发快照保存+推送Redis状态"""
         # 触发运行时快照自动保存(节流由save_runtime_snapshot内部控制)
         try:
             rp = scanner._runtime_persistence
@@ -212,6 +213,7 @@ def _make_position_changed_handler(scanner) -> Callable:
 def _make_circuit_breaker_handler(scanner) -> Callable:
     """熔断器事件handler"""
     async def on_circuit_breaker(data: Dict[str, Any]) -> None:
+        """熔断器事件: 写审计日志+紧急Redis推送"""
         # 审计日志(熔断是关键事件,必须记录)
         await _write_audit_log(scanner, "circuit_breaker", data)
         # Redis紧急推送
@@ -300,6 +302,7 @@ def _make_emotion_changed_handler(scanner) -> Callable:
 def _make_daily_settled_handler(scanner) -> Callable:
     """盘后结算事件handler(v2.9:扩展为审计日志+绩效快照+飞书日报)"""
     async def on_daily_settled(data: Dict[str, Any]) -> None:
+        """盘后结算事件: 审计日志+绩效快照+飞书日报"""
         # 审计日志
         await _write_audit_log(scanner, "daily_settled", data)
         # Redis推送
@@ -340,6 +343,7 @@ def _make_signal_generated_handler(scanner) -> Callable:
 def _make_scanner_error_handler(scanner) -> Callable:
     """【v2.9.15】扫描器异常事件handler"""
     async def on_scanner_error(data: Dict[str, Any]) -> None:
+        """扫描器异常事件: 推送Redis告警+日志"""
         # 异常推送(Pub/Sub, 允许丢但前端可感知)
         await _push_to_redis(scanner, "scanner:status", {
             "event": "scanner_error",

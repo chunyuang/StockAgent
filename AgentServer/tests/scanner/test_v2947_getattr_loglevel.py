@@ -185,7 +185,7 @@ class TestVersionSync(unittest.TestCase):
         """Web API版本号应为v2.9.61"""
         with open(WEB_API_PATH) as f:
             src = f.read()
-        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.71"', src)
+        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.72"', src)
 
 
 class TestNoBacktestRegression(unittest.TestCase):

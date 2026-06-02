@@ -281,6 +281,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
         return result
 
     def get_positions(self) -> List[Dict]:
+        """获取当前持仓列表(含追踪止损+风险等级)"""
         if self._trade_mode == self.MODE_GM and self._gm_broker:
             return self._gm_broker.get_positions()
         if not self._broker:

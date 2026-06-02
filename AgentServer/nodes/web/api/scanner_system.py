@@ -4,7 +4,7 @@ import asyncio
 import logging
 import math
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -283,7 +283,7 @@ _version_cache = {"value": None, "ts": 0}
 _VERSION_CACHE_TTL = 300  # 5分钟缓存
 
 # 【v2.9.10:设计文档版本常量, 与docs/MARKET_MONITOR_OPTIMIZATION_DESIGN.md保持同步】
-_DESIGN_DOC_VERSION = "v2.9.71"
+_DESIGN_DOC_VERSION = "v2.9.72"
 _BASELINE_TAG = "v2.8.0-backtest-ui-v2"
 
 def _get_version_info() -> dict:
@@ -373,52 +373,60 @@ async def get_event_bus_history(event: str = None, limit: int = 50):
 
 # ==================== 盘前竞价 + 逐笔归因 API ====================
 
+async def _build_name_industry_maps() -> Tuple[dict, dict]:
+    """从stock_basic预加载名称+行业映射【v2.9.72从_build_limit_pools提取】"""
+    from core.managers import mongo_manager
+    name_map, industry_map = {}, {}
+    if not mongo_manager.is_initialized:
+        return name_map, industry_map
+    db = mongo_manager.db
+    async for doc in db["stock_basic"].find({}, {"_id": 0, "ts_code": 1, "name": 1, "industry": 1}):
+        name_map[doc["ts_code"]] = doc.get("name", "")
+        industry_map[doc["ts_code"]] = doc.get("industry", "")
+    return name_map, industry_map
+
+
+def _aggregate_limit_stats(limit_ups: list, name_map: dict, industry_map: dict) -> Tuple[list, dict, dict]:
+    """聚合涨停列表: 连板+板块统计【v2.9.72从_build_limit_pools提取】"""
+    sector_count, continue_count = {}, {}
+    result_list = []
+    for doc in limit_ups:
+        ts_code = doc.get("ts_code", "")
+        name = doc.get("name", "") or name_map.get(ts_code, ts_code[:6])
+        industry = industry_map.get(ts_code, doc.get("sector", ""))
+        result_list.append({"ts_code": ts_code, "name": name,
+                          "open_times": doc.get("open_times", 0), "limit_times": doc.get("limit_times", 1),
+                          "first_time": doc.get("first_time", ""), "sector": industry})
+        lt = doc.get("limit_times", 1) or 1
+        continue_count[str(lt)] = continue_count.get(str(lt), 0) + 1
+        if industry:
+            sector_count[industry] = sector_count.get(industry, 0) + 1
+    return result_list, continue_count, sector_count
+
+
 async def _build_limit_pools(scanner) -> dict:
-    """涨停池+连板分布+板块热力"""
+    """涨停池+连板分布+板块热力【v2.9.72: 拆分2个子方法, 主方法仅编排】"""
     from core.managers import mongo_manager
     result = {"up_count": 0, "down_count": 0, "limit_up_list": [], "continue_stats": {}, "sector_heat": []}
     try:
         if not mongo_manager.is_initialized:
             return result
         db = mongo_manager.db
-        # 最新交易日
         latest = await db["limit_list"].find_one(sort=[("trade_date", -1)])
         if not latest:
             return result
         td = latest["trade_date"]
-        
-        # 预加载stock_basic的name和industry
-        name_map = {}
-        industry_map = {}
-        async for doc in db["stock_basic"].find({}, {"_id": 0, "ts_code": 1, "name": 1, "industry": 1}):
-            name_map[doc["ts_code"]] = doc.get("name", "")
-            industry_map[doc["ts_code"]] = doc.get("industry", "")
-        # 也从scanner的缓存补
+
+        name_map, industry_map = await _build_name_industry_maps()
         if hasattr(scanner, '_stock_name_map') and scanner._stock_name_map:
             for k, v in scanner._stock_name_map.items():
                 if v and not name_map.get(k):
                     name_map[k] = v
-        
-        # 涨停列表
-        limit_ups = []
-        sector_count = {}
-        continue_count = {}
-        async for doc in db["limit_list"].find({"trade_date": td, "limit": "U"}, {"_id": 0}):
-            ts_code = doc.get("ts_code", "")
-            name = doc.get("name", "") or name_map.get(ts_code, ts_code[:6])
-            industry = industry_map.get(ts_code, doc.get("sector", ""))
-            limit_ups.append({"ts_code": ts_code, "name": name,
-                              "open_times": doc.get("open_times", 0), "limit_times": doc.get("limit_times", 1),
-                              "first_time": doc.get("first_time", ""), "sector": industry})
-            # 连板统计
-            lt = doc.get("limit_times", 1) or 1
-            continue_count[str(lt)] = continue_count.get(str(lt), 0) + 1
-            # 板块统计
-            if industry:
-                sector_count[industry] = sector_count.get(industry, 0) + 1
-        
+
+        limit_docs = [doc async for doc in db["limit_list"].find({"trade_date": td, "limit": "U"}, {"_id": 0})]
+        limit_ups, continue_count, sector_count = _aggregate_limit_stats(limit_docs, name_map, industry_map)
         down_count = await db["limit_list"].count_documents({"trade_date": td, "limit": "D"})
-        
+
         result["up_count"] = len(limit_ups)
         result["down_count"] = down_count
         result["limit_up_list"] = limit_ups[:30]
@@ -453,44 +461,45 @@ def _build_position_gaps(scanner) -> list:
     return gaps
 
 
-def _build_premarket_analysis(market_snapshot: dict, sentiment: dict, limit_pools: dict,
-                              position_gaps: list, candidates: list, strategy_groups: list,
-                              hit_rate: dict) -> dict:
-    """盘前综合研判 — 把所有数据串成一条判断链"""
-    reasons = []
-    score = 0  # -3~+3
-    
-    # 1. 情绪周期
+def _score_sentiment(sentiment: dict, reasons: list) -> float:
+    """盘前研判: 情绪周期评分【v2.9.72从_build_premarket_analysis提取】"""
     sent_score = sentiment.get("score", 50)
     sent_phase = sentiment.get("phase_name", "震荡")
     pos_ratio = sentiment.get("position_ratio", 0.5)
     if sent_score >= 55:
         reasons.append({"icon": "📈", "text": f"情绪{sent_score}分({sent_phase})，偏强，仓位系数{pos_ratio*100:.0f}%"})
-        score += 1
+        return 1.0
     elif sent_score < 40:
         reasons.append({"icon": "📉", "text": f"情绪{sent_score}分({sent_phase})，偏弱，仓位系数仅{pos_ratio*100:.0f}%"})
-        score -= 1
-    else:
-        reasons.append({"icon": "📊", "text": f"情绪{sent_score}分({sent_phase})，中性，仓位系数{pos_ratio*100:.0f}%"})
-    
-    # 2. 涨跌比
+        return -1.0
+    reasons.append({"icon": "📊", "text": f"情绪{sent_score}分({sent_phase})，中性，仓位系数{pos_ratio*100:.0f}%"})
+    return 0.0
+
+
+def _score_up_down_ratio(market_snapshot: dict, reasons: list) -> float:
+    """盘前研判: 涨跌比评分【v2.9.72从_build_premarket_analysis提取】"""
     up = market_snapshot.get("up_count", 0)
     down = market_snapshot.get("down_count", 0)
     total = up + down
-    if total > 0:
-        up_ratio = up / total
-        if up_ratio >= 0.6:
-            reasons.append({"icon": "🟢", "text": f"涨跌比 {up}:{down}，涨占{up_ratio*100:.0f}%，多头占优"})
-            score += 1
-        elif up_ratio <= 0.35:
-            reasons.append({"icon": "🔴", "text": f"涨跌比 {up}:{down}，涨仅占{up_ratio*100:.0f}%，空头明显"})
-            score -= 1
-        else:
-            reasons.append({"icon": "⚖️", "text": f"涨跌比 {up}:{down}，多空均衡"})
-    
-    # 3. 涨停池
+    if total <= 0:
+        return 0.0
+    up_ratio = up / total
+    if up_ratio >= 0.6:
+        reasons.append({"icon": "🟢", "text": f"涨跌比 {up}:{down}，涨占{up_ratio*100:.0f}%，多头占优"})
+        return 1.0
+    elif up_ratio <= 0.35:
+        reasons.append({"icon": "🔴", "text": f"涨跌比 {up}:{down}，涨仅占{up_ratio*100:.0f}%，空头明显"})
+        return -1.0
+    reasons.append({"icon": "⚖️", "text": f"涨跌比 {up}:{down}，多空均衡"})
+    return 0.0
+
+
+def _score_limit_pools(limit_pools: dict, reasons: list) -> float:
+    """盘前研判: 涨停池+连板高度+板块集中度评分【v2.9.72提取】"""
+    score = 0.0
     zt_count = limit_pools.get("up_count", 0)
     dt_count = limit_pools.get("down_count", 0)
+    # 涨停池
     if zt_count > 0 or dt_count > 0:
         if zt_count >= 50:
             reasons.append({"icon": "🔥", "text": f"涨停{zt_count}只/跌停{dt_count}只，赚钱效应强"})
@@ -500,8 +509,7 @@ def _build_premarket_analysis(market_snapshot: dict, sentiment: dict, limit_pool
             score -= 1
         else:
             reasons.append({"icon": "📋", "text": f"涨停{zt_count}只/跌停{dt_count}只，正常水平"})
-    
-    # 4. 连板高度
+    # 连板高度
     cont = limit_pools.get("continue_stats", {})
     max_board = max([int(k) for k in cont.keys()], default=0)
     if max_board >= 5:
@@ -510,14 +518,17 @@ def _build_premarket_analysis(market_snapshot: dict, sentiment: dict, limit_pool
     elif max_board <= 2 and zt_count > 0:
         reasons.append({"icon": "⚠️", "text": f"最高仅{max_board}连板，市场高度不够，追高需谨慎"})
         score -= 0.5
-    
-    # 5. 板块集中度
+    # 板块集中度
     sectors = limit_pools.get("sector_heat", [])
     if sectors and sectors[0].get("count", 0) >= 3:
         reasons.append({"icon": "🎯", "text": f"{sectors[0]['name']}板块{sectors[0]['count']}只涨停，有明确主线"})
         score += 0.5
-    
-    # 6. 持仓竞价影响
+    return score
+
+
+def _score_position_gaps(position_gaps: list, reasons: list) -> float:
+    """盘前研判: 持仓竞价影响评分【v2.9.72从_build_premarket_analysis提取】"""
+    score = 0.0
     gap_ups = [p for p in position_gaps if p.get("gap_pct", 0) > 2]
     gap_downs = [p for p in position_gaps if p.get("gap_pct", 0) < -2]
     if gap_ups:
@@ -526,50 +537,60 @@ def _build_premarket_analysis(market_snapshot: dict, sentiment: dict, limit_pool
     if gap_downs:
         reasons.append({"icon": "⬇️", "text": f"{len(gap_downs)}只持仓竞价低开<-2%，需关注风险"})
         score -= 0.5
-    
-    # 7. 策略胜率
+    return score
+
+
+def _score_strategy_hit_rate(hit_rate: dict, reasons: list) -> float:
+    """盘前研判: 策略胜率评分【v2.9.72从_build_premarket_analysis提取】"""
     best_wr = 0
     for s, hr in hit_rate.items():
         if hr.get("total", 0) >= 5:
             best_wr = max(best_wr, hr.get("win_rate", 0))
     if best_wr >= 65:
         reasons.append({"icon": "✅", "text": f"策略历史最高胜率{best_wr}%，近期表现好"})
+        return 0.0
     elif best_wr > 0 and best_wr < 50:
         reasons.append({"icon": "⛔", "text": f"策略历史胜率仅{best_wr}%，需谨慎"})
-        score -= 0.5
-    
+        return -0.5
+    return 0.0
+
+
+def _build_premarket_analysis(market_snapshot: dict, sentiment: dict, limit_pools: dict,
+                              position_gaps: list, candidates: list, strategy_groups: list,
+                              hit_rate: dict) -> dict:
+    """盘前综合研判 — 把所有数据串成一条判断链【v2.9.72: 拆分5个子方法, 主方法仅编排+结论】"""
+    reasons = []
+    score = 0.0
+    pos_ratio = sentiment.get("position_ratio", 0.5)
+
+    # 7维评分(每个子方法返回增量score)
+    score += _score_sentiment(sentiment, reasons)
+    score += _score_up_down_ratio(market_snapshot, reasons)
+    score += _score_limit_pools(limit_pools, reasons)
+    score += _score_position_gaps(position_gaps, reasons)
+    score += _score_strategy_hit_rate(hit_rate, reasons)
+
     # 结论
     if score >= 2:
-        verdict = "bullish"
-        conclusion = "偏多 — 情绪强+赚钱效应好，可以积极操作"
+        verdict, conclusion = "bullish", "偏多 — 情绪强+赚钱效应好，可以积极操作"
     elif score >= 0.5:
-        verdict = "neutral"
-        conclusion = "中性 — 有结构性机会，精选策略+控制仓位"
+        verdict, conclusion = "neutral", "中性 — 有结构性机会，精选策略+控制仓位"
     elif score >= -0.5:
-        verdict = "neutral"
-        conclusion = "中性偏弱 — 机会有限，小仓位试探为主"
+        verdict, conclusion = "neutral", "中性偏弱 — 机会有限，小仓位试探为主"
     else:
-        verdict = "bearish"
-        conclusion = "偏空 — 情绪弱+赚钱效应差，建议防守为主"
-    
+        verdict, conclusion = "bearish", "偏空 — 情绪弱+赚钱效应差，建议防守为主"
+
     # 操作建议
-    if verdict == "bullish":
-        suggestion = f"仓位可用{pos_ratio*100:.0f}%，各策略可正常开仓，注意追高标的风险"
-    elif verdict == "neutral":
-        suggestion = f"仓位控制在{pos_ratio*100:.0f}%以内，优先选择胜率高的策略，避开弱势板块"
-    else:
-        suggestion = f"仓位严控{pos_ratio*100:.0f}%，只做确定性高的机会，已有持仓设好止损"
-    
-    # 数据日期
+    suggestion = (
+        f"仓位可用{pos_ratio*100:.0f}%，各策略可正常开仓，注意追高标的风险" if verdict == "bullish"
+        else f"仓位控制在{pos_ratio*100:.0f}%以内，优先选择胜率高的策略，避开弱势板块" if verdict == "neutral"
+        else f"仓位严控{pos_ratio*100:.0f}%，只做确定性高的机会，已有持仓设好止损"
+    )
     data_date = market_snapshot.get("data_date") or str(limit_pools.get("trade_date", ""))
-    
+
     return {
-        "verdict": verdict,
-        "conclusion": conclusion,
-        "reasons": reasons,
-        "suggestion": suggestion,
-        "score": round(score, 1),
-        "data_date": data_date,
+        "verdict": verdict, "conclusion": conclusion, "reasons": reasons,
+        "suggestion": suggestion, "score": round(score, 1), "data_date": data_date,
     }
 
 

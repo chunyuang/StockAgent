@@ -1,11 +1,11 @@
-"""v2.9.71: ScannerDaemon mixin拆分
+"""v2.9.72: ScannerDaemon mixin拆分
 
 变更:
 1. DaemonCommandMixin: 命令发送(send_command/_wait_for_ack/_ack_listener)+便捷方法5个
 2. DaemonSubscriptionMixin: Redis订阅(_ensure_redis/_init_redis_subscriptions/_subscribe_loop等)+回调4个
 3. DaemonWatchdogMixin: 看门狗(_watchdog_loop/_restart_subprocess/_start_process)+紧急告警2个
 4. ScannerDaemon继承3个mixin, scanner_daemon.py从1146行→753行(-34%)
-5. 版本常量: v2.9.67→v2.9.71
+5. 版本常量: v2.9.67→v2.9.72
 
 回测影响: 零。所有变更仅影响market_monitor模块ScannerDaemon内部拆分。
 """
@@ -42,7 +42,7 @@ def _read_all_daemon_sources():
 # ─── Mixin文件存在验证 ───
 
 class TestDaemonMixinFiles:
-    """v2.9.71拆分的3个mixin文件存在且可导入"""
+    """v2.9.72拆分的3个mixin文件存在且可导入"""
 
     def test_command_mixin_exists(self):
         """daemon_command_mixin.py存在"""
@@ -278,7 +278,7 @@ class TestDaemonRetainedMethods:
 # ─── 回测零影响验证 ───
 
 class TestNoBacktestRegressionV2968:
-    """v2.9.71变更不影响回测模块"""
+    """v2.9.72变更不影响回测模块"""
 
     def test_backtest_engine_unchanged(self):
         """回测引擎核心文件未修改"""
@@ -303,7 +303,7 @@ class TestNoBacktestRegressionV2968:
                         f"daemon_watchdog_mixin不应出现在回测引擎 {f} 中"
 
     def test_version_constant_updated(self):
-        """版本常量更新为v2.9.71"""
+        """版本常量更新为v2.9.72"""
         api_path = os.path.join(
             os.path.dirname(__file__), "..", "..",
             "nodes", "web", "api", "scanner_system.py"
@@ -311,4 +311,4 @@ class TestNoBacktestRegressionV2968:
         api_path = os.path.abspath(api_path)
         with open(api_path) as f:
             source = f.read()
-        assert 'v2.9.71' in source
+        assert 'v2.9.72' in source
