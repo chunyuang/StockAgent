@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""v2.9.73 Scanner访问器接口 + getattr/hasattr防御消除 测试
+"""v2.9.74 Scanner访问器接口 + getattr/hasattr防御消除 测试
 
 覆盖:
 1. 9个Scanner访问器方法存在+返回类型+行为
@@ -203,14 +203,14 @@ class TestVersionV2973(unittest.TestCase):
     """版本常量验证"""
 
     def test_design_doc_version(self):
-        """_DESIGN_DOC_VERSION = v2.9.73"""
+        """_DESIGN_DOC_VERSION = v2.9.74"""
         src_path = os.path.join(PROJECT_ROOT, "nodes", "web", "api", "scanner_system.py")
         with open(src_path) as f:
             content = f.read()
-        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.73"', content)
+        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.74"', content)
 
     def test_scanner_version_assertions(self):
-        """版本断言文件已更新到v2.9.73"""
+        """版本断言文件已更新到v2.9.74"""
         test_dir = os.path.join(PROJECT_ROOT, "tests", "scanner")
         v2972_count = 0
         for fname in os.listdir(test_dir):
@@ -220,7 +220,7 @@ class TestVersionV2973(unittest.TestCase):
                     content = f.read()
                 if "v2.9.72" in content:
                     v2972_count += 1
-        # v2.9.72应该已被替换为v2.9.73,不应再出现(排除本文件自身的引用)
+        # v2.9.72应该已被替换为v2.9.74,不应再出现(排除本文件自身的引用)
         self.assertEqual(v2972_count, 0, f"仍有{v2972_count}个测试文件引用v2.9.72")
 
 

@@ -537,7 +537,7 @@ class TestPositionManager:
             def _is_limit_down(self, ts_code):
                 return False
             
-            # v2.9.73访问器
+            # v2.9.74访问器
             def get_trade_date(self):
                 return self._trade_date
         

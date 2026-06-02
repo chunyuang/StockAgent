@@ -184,9 +184,9 @@ class TestPendingSellsThreadSafety:
     """验证/health读取pending_sells加锁"""
 
     def test_pending_sells_read_uses_state_lock(self):
-        """读取pending_sells使用state_lock(v2.9.73: 拆分到_build_risk_metrics)"""
+        """读取pending_sells使用state_lock(v2.9.74: 拆分到_build_risk_metrics)"""
         source = _read_api_scanner()
-        # v2.9.73: state_lock已拆到_build_risk_metrics子方法中
+        # v2.9.74: state_lock已拆到_build_risk_metrics子方法中
         # 检查整个文件中state_lock保护pending_sells读取
         assert "state_lock" in source, \
             "/health读取pending_sells未加state_lock保护"
@@ -207,7 +207,7 @@ class TestPendingSellsThreadSafety:
             "缺少with state_lock加锁块"
 
     def test_pending_sells_count_not_direct_getattr(self):
-        """不应直接用getattr(scanner, '_pending_sells', {})无锁读取(v2.9.73: 已拆到_build_risk_metrics)"""
+        """不应直接用getattr(scanner, '_pending_sells', {})无锁读取(v2.9.74: 已拆到_build_risk_metrics)"""
         source = _read_api_scanner()
         # 检查_build_risk_metrics中pending_sells的读取方式
         in_risk = False
