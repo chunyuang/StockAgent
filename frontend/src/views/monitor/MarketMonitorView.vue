@@ -63,6 +63,8 @@ const {
   strategyCN, strategyMeta, normalizePct, formatSlTp, formatRemaining,
   scannerApi, configApi, themeStore, modeMeta,
   onModeChange, confirmReplay, cancelReplay, dryRun,
+  // 【v2.9.71: WS连接状态】
+  wsStatus, wsIsConnected, wsRetryCount,
   stratCollapsed, stratSectionCollapsed, toggleStrat, toggleStrategy,
   openEditDialog, factorLabel,
   layerDebugVisible, layerDebugData, openLayerDebug, layerDebugLoading,
@@ -97,6 +99,11 @@ const {
         <ElTag v-if="circuitBreakerPaused" type="danger" size="small">⚠️熔断</ElTag>
         <div v-if="status?.data_sources?.length" class="ds-indicator">
           <span v-for="ds in (status?.data_sources || [])" :key="ds.name" class="ds-dot" :class="{ ok: ds.available, err: !ds.available }">{{ ds.name === 'eastmoney' ? '东财' : ds.name === 'biying' ? '必盈' : ds.name }}</span>
+        </div>
+        <!-- 【v2.9.71: WS连接状态指示器】 -->
+        <div class="ws-indicator" :class="wsIsConnected ? 'ws-ok' : wsStatus === 'reconnecting' ? 'ws-warn' : 'ws-off'" :title="`WebSocket: ${wsStatus}${wsRetryCount > 0 ? ' (重试' + wsRetryCount + ')' : ''}`">
+          <span class="ws-dot"></span>
+          <span class="ws-text">{{ wsIsConnected ? 'WS' : wsStatus === 'reconnecting' ? '重连' : '离线' }}</span>
         </div>
       </div>
       <div class="hh-account" v-if="status">
@@ -1560,6 +1567,19 @@ const {
 .ds-dot { font-size: 10px; padding: 1px 4px; border-radius: 3px; font-weight: 600; cursor: help; }
 .ds-dot.ok { color: var(--stock-down); background: var(--stock-down-bg); }
 .ds-dot.err { color: var(--stock-up); background: var(--stock-up-bg); }
+/* 【v2.9.71: WS连接状态指示器】 */
+.ws-indicator { display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; font-size: 10px; font-weight: 600; cursor: help; padding: 1px 5px; border-radius: 3px; }
+.ws-indicator .ws-dot { width: 6px; height: 6px; border-radius: 50%; }
+.ws-indicator.ws-ok { color: #67c23a; background: #f0f9eb; }
+.ws-indicator.ws-ok .ws-dot { background: #67c23a; animation: ws-pulse 2s infinite; }
+.ws-indicator.ws-warn { color: #e6a23c; background: #fdf6ec; }
+.ws-indicator.ws-warn .ws-dot { background: #e6a23c; }
+.ws-indicator.ws-off { color: #909399; background: #f4f4f5; }
+.ws-indicator.ws-off .ws-dot { background: #909399; }
+:deep(.dark) .ws-indicator.ws-ok { color: #95d475; background: rgba(103,194,58,0.15); }
+:deep(.dark) .ws-indicator.ws-warn { color: #eebe77; background: rgba(230,162,60,0.15); }
+:deep(.dark) .ws-indicator.ws-off { color: #73767a; background: rgba(144,147,153,0.15); }
+@keyframes ws-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 
 /* 【P1-3】时间线盈亏金额 */
 .tl-amt { font-size: 11px; font-weight: 700; min-width: 50px; text-align: right; }

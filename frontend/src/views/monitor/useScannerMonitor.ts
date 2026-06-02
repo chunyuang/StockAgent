@@ -398,5 +398,9 @@ export function useScannerMonitor() {
     fetchAll: core.fetchAll, showConfirm: core.showConfirm, handleConfirm: core.handleConfirm,
     playSignalSound: core.playSignalSound,
     dryRun: core.dryRun,
+    // 【v2.9.71: WS连接状态+数据新鲜度】
+    wsStatus: core.wsStatus,
+    wsIsConnected: core.wsIsConnected,
+    wsRetryCount: core.wsRetryCount,
   }
 }

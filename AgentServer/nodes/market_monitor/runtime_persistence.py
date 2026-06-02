@@ -398,9 +398,11 @@ class RuntimePersistence:
     def build_timeline_entry(
         pos, reason: str, order, quantity: int,
         profit_pct: float, profit_amount: float, *, source: str = "sell",
+        trace_id: str = "",
     ) -> Dict:
-        """构建卖出timeline记录【v2.9.22提取, v2.9.27:从scanner移入RuntimePersistence】"""
-        return {
+        """构建卖出timeline记录【v2.9.22提取, v2.9.27:从scanner移入RuntimePersistence, v2.9.71:trace_id】"""
+        import uuid
+        entry: Dict[str, Any] = {
             "time": datetime.now().strftime("%H:%M:%S"),
             "action": "sell",
             "ts_code": pos.ts_code,
@@ -411,6 +413,8 @@ class RuntimePersistence:
             "reason": reason,
             "profit_pct": round(profit_pct, 2),
             "profit_amount": round(profit_amount, 2),
+            # 【v2.9.71: 卖出链路trace_id — 贯穿timeline/EventBus/MongoDB】
+            "trace_id": trace_id or f"sell-{pos.ts_code}-{uuid.uuid4().hex[:8]}",
             "decision_detail": {
                 "sell_reason": reason,
                 "profit_pct": round(profit_pct, 2),
@@ -421,17 +425,23 @@ class RuntimePersistence:
                 "source": source,
             },
         }
+        return entry
 
     async def post_sell_cleanup(
         self, pos, reason: str, order, quantity: int,
         profit_pct: float, profit_amount: float, *, source: str = "sell",
+        trace_id: str = "",
     ) -> None:
-        """卖出成功后统一清理(编排方法)"""
+        """卖出成功后统一清理(编排方法)【v2.9.71: trace_id贯穿】"""
         scanner = self._scanner
+        if not trace_id:
+            import uuid
+            trace_id = f"sell-{pos.ts_code}-{uuid.uuid4().hex[:8]}"
 
         # Timeline记录
         entry = self.build_timeline_entry(
-            pos, reason, order, quantity, profit_pct, profit_amount, source=source)
+            pos, reason, order, quantity, profit_pct, profit_amount,
+            source=source, trace_id=trace_id)
         scanner._timeline.append(entry)
 
         self._classify_sell_stats(scanner, reason)
@@ -441,8 +451,8 @@ class RuntimePersistence:
             scanner._trailing_stops.pop(pos.ts_code, None)
             scanner._position_risk_levels.pop(pos.ts_code, None)
 
-        await self._emit_sell_events(scanner, pos, reason, order, entry, profit_pct)
-        logger.info(f"[{source.upper()}] {reason}: {pos.ts_code} {quantity}股@{order.filled_price:.2f}")
+        await self._emit_sell_events(scanner, pos, reason, order, entry, profit_pct, trace_id=trace_id)
+        logger.info(f"[{source.upper()}] {reason}: {pos.ts_code} {quantity}股@{order.filled_price:.2f} trace={trace_id}")
 
         await self._persist_sell_state(scanner)
 
@@ -458,19 +468,24 @@ class RuntimePersistence:
             scanner._stats["trades_executed"] += 1
 
     @staticmethod
-    async def _emit_sell_events(scanner, pos, reason, order, entry, profit_pct) -> None:
-        """发射卖出事件(timeline + EventBus)"""
+    async def _emit_sell_events(scanner, pos, reason, order, entry, profit_pct, *, trace_id: str = "") -> None:
+        """发射卖出事件(timeline + EventBus)【v2.9.71: trace_id贯穿EventBus】"""
         try:
             await scanner._publish_scanner_event("timeline", {"item": entry})
         except Exception as _e:
             logger.debug(f"[SCANNER] timeline事件发射失败: {_e}")
         try:
             from nodes.market_monitor.scanner_event_bus import ScannerEvents
-            await scanner._event_bus.emit(ScannerEvents.RISK_SELL_EXECUTED, {
+            event_data = {
                 "ts_code": pos.ts_code, "reason": reason,
-                "price": order.filled_price, "profit_pct": profit_pct})
+                "price": order.filled_price, "profit_pct": profit_pct,
+                "trace_id": trace_id,
+            }
+            await scanner._event_bus.emit(ScannerEvents.RISK_SELL_EXECUTED, event_data)
             await scanner._event_bus.emit(ScannerEvents.POSITION_CHANGED, {
-                "ts_code": pos.ts_code, "action": "sell", "reason": reason})
+                "ts_code": pos.ts_code, "action": "sell", "reason": reason,
+                "trace_id": trace_id,
+            })
         except Exception as _e:
             logger.debug(f"[SCANNER] 卖出事件发射失败: {_e}")
 

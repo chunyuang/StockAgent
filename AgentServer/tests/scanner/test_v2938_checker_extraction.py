@@ -65,20 +65,23 @@ class TestRunCheckerOnPositions:
         assert found, "_check_positions_checker应使用_run_checker_on_positions"
 
     def test_compare_mode_uses_extracted_method(self):
-        """compare模式使用_run_checker_on_positions"""
+        """compare模式使用_run_checker_on_positions(v2.9.71:通过_run_compare_both委托)"""
         src = _read_source()
+        # v2.9.71重构: _check_positions_compare委托给_run_compare_both, 后者调用_run_checker_on_positions
+        assert "_run_compare_both" in src, "_check_positions_compare应委托给_run_compare_both"
+        # _run_compare_both内部调用_run_checker_on_positions
         lines = src.split("\n")
-        in_compare = False
+        in_both = False
         found = False
         for line in lines:
-            if "def _check_positions_compare" in line:
-                in_compare = True
-            elif in_compare and "def " in line and "_check_positions_compare" not in line:
+            if "def _run_compare_both" in line:
+                in_both = True
+            elif in_both and "def " in line and "_run_compare_both" not in line:
                 break
-            elif in_compare and "_run_checker_on_positions" in line:
+            elif in_both and "_run_checker_on_positions" in line:
                 found = True
                 break
-        assert found, "_check_positions_compare应使用_run_checker_on_positions"
+        assert found, "_run_compare_both应使用_run_checker_on_positions"
 
     def test_no_duplicate_checker_loop_in_checker(self):
         """checker模式不再有重复的for pos in positions循环"""
@@ -317,20 +320,23 @@ class TestCompareDiffPersistence:
         assert "agreement_rate" in rp_src
 
     def test_compare_mode_calls_persist(self):
-        """compare模式调用_persist_compare_diff"""
+        """compare模式调用_persist_compare_diff(v2.9.71:通过_handle_compare_diff委托)"""
         src = _read_source()
+        # v2.9.71重构: _check_positions_compare委托给_handle_compare_diff, 后者调用_persist_compare_diff
+        assert "_handle_compare_diff" in src, "_check_positions_compare应委托给_handle_compare_diff"
+        # _handle_compare_diff内部调用_persist_compare_diff
         lines = src.split("\n")
-        in_compare = False
+        in_diff = False
         found = False
         for line in lines:
-            if "def _check_positions_compare" in line:
-                in_compare = True
-            elif in_compare and "def " in line and "_check_positions_compare" not in line:
+            if "def _handle_compare_diff" in line:
+                in_diff = True
+            elif in_diff and "def " in line and "_handle_compare_diff" not in line:
                 break
-            elif in_compare and "_persist_compare_diff" in line:
+            elif in_diff and "_persist_compare_diff" in line:
                 found = True
                 break
-        assert found, "_check_positions_compare应调用_persist_compare_diff"
+        assert found, "_handle_compare_diff应调用_persist_compare_diff"
 
     def test_position_checker_delegates_to_rp(self):
         """position_checker的_persist_compare_diff委托给runtime_persistence【v2.9.45新增】"""
@@ -411,7 +417,7 @@ class TestVersionSync:
         api_path = os.path.join(os.path.dirname(__file__), "..", "..", "nodes", "web", "api", "scanner_system.py")
         with open(api_path) as f:
             src = f.read()
-        assert '_DESIGN_DOC_VERSION = "v2.9.69"' in src
+        assert '_DESIGN_DOC_VERSION = "v2.9.71"' in src
 
     def test_docstring_mentions_version(self):
         """position_checker.py文档提到当前版本"""

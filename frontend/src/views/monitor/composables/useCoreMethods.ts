@@ -245,6 +245,10 @@ export function useCoreMethods(refs: CoreRefs) {
 
   return {
     isRunning, accountInfo, totalPnl, circuitBreakerPaused, dryRun,
+    // 【v2.9.71: 暴露WS连接状态给UI】
+    wsStatus: wsHook.status,
+    wsIsConnected: wsHook.isConnected,
+    wsRetryCount: wsHook.retryCount,
     playSignalSound, showConfirm, handleConfirm,
     fetchScanner, startScanner, stopScanner, manualScan, forceScan,
     quickBuy, quickSell, dailySettlement, resetAccount, sellAllPositions,

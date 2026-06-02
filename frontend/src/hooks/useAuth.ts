@@ -25,7 +25,7 @@ export function useAuth() {
     userStore.setLoading(true)
     
     try {
-      const response = await authApi.login(data)
+      const response = await authApi.loginWithCredentials(data.username, data.password)
       
       // 保存 Token
       localStorage.setItem('access_token', response.access_token)
@@ -59,7 +59,7 @@ export function useAuth() {
     userStore.setLoading(true)
     
     try {
-      await authApi.register(data)
+      await authApi.registerWithCredentials(data.username, data.password, data.email || '')
       
       ElMessage.success('注册成功，请登录')
       
