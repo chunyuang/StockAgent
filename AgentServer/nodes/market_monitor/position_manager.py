@@ -371,58 +371,69 @@ class PositionManager:
         
         return None
     
+    def _update_single_trailing_stop(
+        self, ts_code: str, current_price: float, avg_cost: float,
+        profit_pct: float, trailing_stop_pct: float
+    ) -> Dict:
+        """更新单个持仓的追踪止损状态, 返回更新后的state【v2.9.62提取】"""
+        with self.state_lock:
+            state = dict(self.trailing_stops.get(ts_code, {
+                "high_price": avg_cost,
+                "trailing_stop_pct": trailing_stop_pct,
+                "activated": False,
+                "activated_at": None,
+                "stop_price": 0.0,
+            }))
+
+            # 更新最高价
+            if current_price > state["high_price"]:
+                state["high_price"] = current_price
+                logger.debug(f"[TRAILING] {ts_code} 新高: {current_price:.2f}")
+
+            # 盈利>=2%时激活追踪止损
+            if not state["activated"] and profit_pct >= 2.0:
+                state["activated"] = True
+                state["activated_at"] = datetime.now().strftime("%H:%M:%S")
+                logger.info(f"[TRAILING] {ts_code} 追踪止损激活: 盈利{profit_pct:.1f}%>=2%")
+
+            # 计算追踪止损价
+            if state["activated"]:
+                state["stop_price"] = state["high_price"] * (1 - trailing_stop_pct)
+
+            self.trailing_stops[ts_code] = state
+            return state
+
     def update_trailing_stops(self, positions, realtime_data: Dict) -> None:
         """更新追踪止损状态(每轮扫描后调用)
-        
+
         规则(与真实超短量化对齐):
         1. 买入后, 初始止损=固定止损(如-3%)
         2. 当盈利>=2%时, 激活追踪止损, 止损线=最高价×(1-trailing_pct)
         3. 价格创新高时, 止损线上移
         4. 价格回落触发追踪止损时卖出, 锁住大部分利润
-        
+
         线程安全: 通过state_lock保护trailing_stops读写
+        【v2.9.62重构: 提取_update_single_trailing_stop】
         """
         for pos in positions:
             ts_code = pos.ts_code
             current_price = pos.current_price
-            
+
             if current_price <= 0 or pos.avg_cost <= 0:
                 continue
-            
+
             profit_pct = pos.profit_pct  # 如: 5.0 = +5%
-            
+
             # 获取策略追踪止损比例
             risk = self._scanner._get_strategy_risk(pos.strategy)
             trailing_stop_pct = risk.get("trailing_stop_pct", 0.0)  # 0=不启用
-            
+
             if trailing_stop_pct <= 0:
                 continue
-            
-            with self.state_lock:
-                state = dict(self.trailing_stops.get(ts_code, {
-                    "high_price": pos.avg_cost,
-                    "trailing_stop_pct": trailing_stop_pct,
-                    "activated": False,
-                    "activated_at": None,
-                    "stop_price": 0.0,
-                }))
-                
-                # 更新最高价
-                if current_price > state["high_price"]:
-                    state["high_price"] = current_price
-                    logger.debug(f"[TRAILING] {ts_code} 新高: {current_price:.2f}")
-                
-                # 盈利>=2%时激活追踪止损
-                if not state["activated"] and profit_pct >= 2.0:
-                    state["activated"] = True
-                    state["activated_at"] = datetime.now().strftime("%H:%M:%S")
-                    logger.info(f"[TRAILING] {ts_code} 追踪止损激活: 盈利{profit_pct:.1f}%>=2%")
-                
-                # 计算追踪止损价
-                if state["activated"]:
-                    state["stop_price"] = state["high_price"] * (1 - trailing_stop_pct)
-                
-                self.trailing_stops[ts_code] = state
+
+            self._update_single_trailing_stop(
+                ts_code, current_price, pos.avg_cost, profit_pct, trailing_stop_pct
+            )
     
     # ==================== 超时强卖检查 ====================
     
@@ -609,13 +620,50 @@ class PositionManager:
 
     # ==================== v2.9.27: 风控卖出执行逻辑提取 ====================
 
+    def _retry_single_pending_sell(self, ts_code: str, info: Dict, positions) -> bool:
+        """重试单个挂起卖出, 返回是否成功【v2.9.62提取】"""
+        scanner = self._scanner
+
+        # 检查是否仍持有该票
+        pos = None
+        for p in scanner._broker.get_positions():
+            if p.ts_code == ts_code and p.available_qty > 0:
+                pos = p
+                break
+        if not pos:
+            # 已无持仓或无可用数量, 清除挂起
+            with self.state_lock:
+                self.pending_sells.pop(ts_code, None)
+            return False
+
+        # 检查是否不再跌停
+        if self._is_limit_down(ts_code):
+            return False  # 仍在跌停, 无法卖出
+
+        # 跌停恢复! 尝试执行挂起的卖出
+        reason = info.get("reason", "pending_retry")
+        price = info.get("price", pos.current_price)
+        logger.info(f"[RISK_THREAD] 跌停恢复重试: {ts_code} {reason}")
+
+        if scanner._loop and not scanner._loop.is_closed():
+            import asyncio
+            try:
+                future = asyncio.run_coroutine_threadsafe(
+                    scanner._execute_risk_sell(pos, reason, price, pos.available_qty),
+                    scanner._loop
+                )
+                future.result(timeout=5)
+                return True
+            except Exception as e:
+                logger.debug(f"[RISK_THREAD] 跌停恢复重试失败: {ts_code} {e}")
+        return False
+
     def retry_pending_sells(self, realtime_data: Dict) -> None:
-        """跌停恢复后重试挂起的卖出指令【v2.9.22提取, v2.9.27:从scanner移入PositionManager】
+        """跌停恢复后重试挂起的卖出指令【v2.9.22提取, v2.9.27:从scanner移入PositionManager, v2.9.62重构】
 
         当股票从跌停恢复(非跌停状态)且有挂起的卖出指令时,
         重新尝试执行该卖出。避免跌停恢复后卖出指令被遗忘。
         """
-        scanner = self._scanner
         with self.state_lock:
             pending = dict(self.pending_sells)
         if not pending:
@@ -623,38 +671,8 @@ class PositionManager:
 
         retried = []
         for ts_code, info in pending.items():
-            # 检查是否仍持有该票
-            pos = None
-            for p in scanner._broker.get_positions():
-                if p.ts_code == ts_code and p.available_qty > 0:
-                    pos = p
-                    break
-            if not pos:
-                # 已无持仓或无可用数量, 清除挂起
-                with self.state_lock:
-                    self.pending_sells.pop(ts_code, None)
-                continue
-
-            # 检查是否不再跌停
-            if self._is_limit_down(ts_code):
-                continue  # 仍在跌停, 无法卖出
-
-            # 跌停恢复! 尝试执行挂起的卖出
-            reason = info.get("reason", "pending_retry")
-            price = info.get("price", pos.current_price)
-            logger.info(f"[RISK_THREAD] 跌停恢复重试: {ts_code} {reason}")
-
-            if scanner._loop and not scanner._loop.is_closed():
-                import asyncio
-                try:
-                    future = asyncio.run_coroutine_threadsafe(
-                        scanner._execute_risk_sell(pos, reason, price, pos.available_qty),
-                        scanner._loop
-                    )
-                    future.result(timeout=5)
-                    retried.append(ts_code)
-                except Exception as e:
-                    logger.debug(f"[RISK_THREAD] 跌停恢复重试失败: {ts_code} {e}")
+            if self._retry_single_pending_sell(ts_code, info, None):
+                retried.append(ts_code)
 
         # 清除成功重试的条目
         if retried:

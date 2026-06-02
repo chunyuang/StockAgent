@@ -208,60 +208,74 @@ class QuoteManager:
 
         return realtime
 
+    @staticmethod
+    def _map_em_item_to_realtime(item: Dict) -> Dict:
+        """东方财富单条数据映射到realtime格式【v2.9.62提取】"""
+        return {
+            "price": item.get("price"),
+            "pct_chg": item.get("pct_chg"),
+            "turnover_rate": item.get("turnover_rate"),
+            "volume_ratio": item.get("volume_ratio"),
+            "pe": item.get("pe"),
+            "pb": item.get("pb"),
+            "float_mv": item.get("float_mv"),
+            "open": item.get("open"),
+            "high": item.get("high"),
+            "low": item.get("low"),
+            "pre_close": item.get("pre_close"),
+            "name": item.get("name", ""),
+            "amplitude": item.get("amplitude"),
+        }
+
+    def _handle_em_degrade_recovery(self) -> None:
+        """行情降级恢复处理【v2.9.62提取】"""
+        if self._quote_degrade_level <= 0:
+            return
+        degrade_duration = time.monotonic() - self._degrade_since
+        self._quote_degrade_level = 0
+        self._degrade_since = 0
+        logger.info(f"[QUOTE] 行情恢复正常, 降级已恢复(持续{degrade_duration:.0f}秒)")
+        if self._event_emitter:
+            asyncio.get_event_loop().create_task(self._event_emitter("quote_recovered", {
+                "level": 0,
+                "degrade_duration_s": degrade_duration,
+                "source": "eastmoney",
+            }))
+
+    def _handle_em_fetch_failure(self, error: Exception) -> None:
+        """行情获取失败处理(降级判断)【v2.9.62提取】"""
+        self._quote_fail_count += 1
+        if self._quote_fail_count >= 3 and self._quote_degrade_level == 0:
+            self._quote_degrade_level = 1
+            self._degrade_since = time.monotonic()
+            self._last_recover_attempt = time.monotonic()
+            logger.warning(f"[QUOTE] 东方财富连续3次失败,降级到level 1: {error}")
+            if self._event_emitter:
+                asyncio.get_event_loop().create_task(self._event_emitter("quote_degraded", {
+                    "level": 1,
+                    "source": "eastmoney",
+                    "error": str(error),
+                }))
+        else:
+            logger.warning(f"[QUOTE] 东方财富获取失败({self._quote_fail_count}次): {error}")
+
     async def _fetch_eastmoney_data(
         self, eastmoney: Any, realtime: Dict[str, Dict]
     ) -> None:
-        """【v2.9.57提取】东方财富全市场数据获取 + 降级处理"""
+        """【v2.9.57提取, v2.9.62重构】东方财富全市场数据获取 + 降级处理"""
         if not eastmoney:
             return
         try:
             em_data = await eastmoney.get_all_realtime(force_refresh=True)
             for ts_code, item in em_data.items():
-                realtime[ts_code] = {
-                    "price": item.get("price"),
-                    "pct_chg": item.get("pct_chg"),
-                    "turnover_rate": item.get("turnover_rate"),
-                    "volume_ratio": item.get("volume_ratio"),
-                    "pe": item.get("pe"),
-                    "pb": item.get("pb"),
-                    "float_mv": item.get("float_mv"),
-                    "open": item.get("open"),
-                    "high": item.get("high"),
-                    "low": item.get("low"),
-                    "pre_close": item.get("pre_close"),
-                    "name": item.get("name", ""),
-                    "amplitude": item.get("amplitude"),
-                }
+                realtime[ts_code] = self._map_em_item_to_realtime(item)
             logger.info(f"[QUOTE] 东方财富: {len(em_data)}只全市场快照")
             # 成功 → 重置失败计数, 尝试恢复降级
             self._quote_fail_count = 0
             self._last_fetch_time = time.monotonic()
-            if self._quote_degrade_level > 0:
-                degrade_duration = time.monotonic() - self._degrade_since
-                self._quote_degrade_level = 0
-                self._degrade_since = 0
-                logger.info(f"[QUOTE] 行情恢复正常, 降级已恢复(持续{degrade_duration:.0f}秒)")
-                if self._event_emitter:
-                    asyncio.get_event_loop().create_task(self._event_emitter("quote_recovered", {
-                        "level": 0,
-                        "degrade_duration_s": degrade_duration,
-                        "source": "eastmoney",
-                    }))
+            self._handle_em_degrade_recovery()
         except Exception as e:
-            self._quote_fail_count += 1
-            if self._quote_fail_count >= 3 and self._quote_degrade_level == 0:
-                self._quote_degrade_level = 1
-                self._degrade_since = time.monotonic()
-                self._last_recover_attempt = time.monotonic()
-                logger.warning(f"[QUOTE] 东方财富连续3次失败,降级到level 1: {e}")
-                if self._event_emitter:
-                    asyncio.get_event_loop().create_task(self._event_emitter("quote_degraded", {
-                        "level": 1,
-                        "source": "eastmoney",
-                        "error": str(e),
-                    }))
-            else:
-                logger.warning(f"[QUOTE] 东方财富获取失败({self._quote_fail_count}次): {e}")
+            self._handle_em_fetch_failure(e)
 
     async def _merge_limit_pool_data(
         self, biying: Any, realtime: Dict[str, Dict], today: str

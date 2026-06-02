@@ -663,11 +663,42 @@ class LiveFilterPipeline:
     # L5: 竞价过滤
     # ========================================================================
 
+    @staticmethod
+    def _calc_opening_pct(ts_code: str, realtime_data: Dict) -> Optional[float]:
+        """从实时数据获取开盘涨幅【v2.9.62提取】"""
+        if not realtime_data or ts_code not in realtime_data:
+            return None
+        rd = realtime_data[ts_code]
+        opening_pct = rd.get("opening_pct_chg", None)
+        if opening_pct is None:
+            # 从open和pre_close计算
+            op = rd.get("open", 0)
+            pc = rd.get("pre_close", 0)
+            if op and pc and pc > 0:
+                opening_pct = (op - pc) / pc * 100
+        return opening_pct
+
+    @staticmethod
+    def _check_auction_pass(strategy: str, opening_pct: float) -> bool:
+        """按策略差异化判断竞价过滤【v2.9.62提取】
+
+        首板打板: 需竞价强势(2%~7%)
+        其他策略: 仅排除极端(>-7%或<-5%)
+        """
+        if strategy in ("first_limit_up",):
+            # 首板打板: 需竞价强势(≥2%)且非一字板(<7%)
+            if opening_pct < 2 or opening_pct > 7:
+                return False
+        else:
+            # 半路追涨/跌停翘板/龙头低吸: 仅排除极端
+            if opening_pct > 7 or opening_pct < -5:
+                return False
+        return True
+
     async def _auction_filter(
         self, candidates: List[Dict], trade_date: str, realtime_data: Dict = None
     ) -> List[Dict]:
-        """
-        竞价过滤（实盘优势层！）
+        """竞价过滤（实盘优势层！）
 
         回测只能用opening_pct_chg近似，实盘可获取9:25真实竞价数据
 
@@ -677,6 +708,7 @@ class LiveFilterPipeline:
         3. 策略差异化:
            - 首板打板: 需竞价强势(≥2%) → 排除低开
            - 半路追涨: 不要求竞价强势 → 保留正常区间
+        【v2.9.62重构: 提取_calc_opening_pct+_check_auction_pass】
         """
         filtered = []
 
@@ -684,33 +716,13 @@ class LiveFilterPipeline:
             strategy = c.get("strategy", "")
             ts_code = c.get("ts_code", "")
 
-            # 从实时数据获取开盘涨幅
-            opening_pct = None
-            if realtime_data and ts_code in realtime_data:
-                rd = realtime_data[ts_code]
-                opening_pct = rd.get("opening_pct_chg", None)
-                if opening_pct is None:
-                    # 从open和pre_close计算
-                    op = rd.get("open", 0)
-                    pc = rd.get("pre_close", 0)
-                    if op and pc and pc > 0:
-                        opening_pct = (op - pc) / pc * 100
-
+            opening_pct = self._calc_opening_pct(ts_code, realtime_data)
             if opening_pct is None:
                 filtered.append(c)  # 无竞价数据保留
                 continue
 
-            # 按策略差异化过滤
-            if strategy in ("first_limit_up",):
-                # 首板打板: 需竞价强势(≥2%)
-                if opening_pct < 2:
-                    continue
-                if opening_pct > 7:
-                    continue  # 一字板高开追不上
-            else:
-                # 半路追涨/跌停翘板/龙头低吸: 仅排除极端
-                if opening_pct > 7 or opening_pct < -5:
-                    continue
+            if not self._check_auction_pass(strategy, opening_pct):
+                continue
 
             filtered.append(c)
 

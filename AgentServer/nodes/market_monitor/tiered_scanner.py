@@ -577,12 +577,7 @@ class TieredScanner:
                     for ts_code, quote in quotes.items():
                         refreshed[ts_code] = {
                             **candidates.get(ts_code, {}),
-                            "price": getattr(quote, "price", None) or quote.get("price"),
-                            "pct_chg": getattr(quote, "pct_chg", None) or quote.get("pct_chg"),
-                            "high": getattr(quote, "high", None) or quote.get("high"),
-                            "low": getattr(quote, "low", None) or quote.get("low"),
-                            "volume_ratio": getattr(quote, "volume_ratio", None) or quote.get("volume_ratio"),
-                            "turnover_rate": getattr(quote, "turnover_rate", None) or quote.get("turnover_rate"),
+                            **self._map_l2_quote_to_dict(quote),
                         }
                     return refreshed
                 except Exception as e:
@@ -691,56 +686,92 @@ class TieredScanner:
 
         return []
 
+    @staticmethod
+    def _map_quote_to_price_dict(quote: Any) -> Dict:
+        """统一quote对象(属性/dict)→价格字典【v2.9.62提取】"""
+        return {
+            "price": getattr(quote, "price", None) or quote.get("price"),
+            "pct_chg": getattr(quote, "pct_chg", None) or quote.get("pct_chg"),
+            "high": getattr(quote, "high", None) or quote.get("high"),
+            "low": getattr(quote, "low", None) or quote.get("low"),
+            "open": getattr(quote, "open", None) or quote.get("open"),
+            "pre_close": getattr(quote, "pre_close", None) or quote.get("pre_close"),
+        }
+
+    @staticmethod
+    def _map_l2_quote_to_dict(quote: Any) -> Dict:
+        """L2 quote→缓存字典【v2.9.62提取】"""
+        return {
+            "price": getattr(quote, "price", None) or quote.get("price"),
+            "pct_chg": getattr(quote, "pct_chg", None) or quote.get("pct_chg"),
+            "high": getattr(quote, "high", None) or quote.get("high"),
+            "low": getattr(quote, "low", None) or quote.get("low"),
+            "volume_ratio": getattr(quote, "volume_ratio", None) or quote.get("volume_ratio"),
+            "turnover_rate": getattr(quote, "turnover_rate", None) or quote.get("turnover_rate"),
+        }
+
+    async def _fetch_l3_eastmoney_batch(self, codes: List[str]) -> Dict[str, Dict]:
+        """L3东方财富批量获取【v2.9.62提取】"""
+        prices = {}
+        if not self._data_router:
+            return prices
+        eastmoney = self._data_router._sources.get("eastmoney")
+        if not (eastmoney and hasattr(eastmoney, "get_realtime_quotes_batch")):
+            return prices
+        try:
+            quotes = await eastmoney.get_realtime_quotes_batch(codes)
+            for ts_code, quote in quotes.items():
+                prices[ts_code] = self._map_quote_to_price_dict(quote)
+        except Exception as e:
+            logger.warning(f"[L3] 东方财富批量获取失败: {e}")
+        return prices
+
+    async def _fetch_l3_biying_snapshot(self, biying_codes: List[str]) -> Dict[str, Dict]:
+        """L3必盈快照获取(仅持仓股)【v2.9.62提取】"""
+        prices = {}
+        if not biying_codes or not self._data_router:
+            return prices
+        biying = self._data_router._sources.get("biying")
+        if not (biying and hasattr(biying, "get_realtime_quotes_batch")):
+            return prices
+        try:
+            quotes = await biying.get_realtime_quotes_batch(biying_codes)
+            for ts_code, quote in quotes.items():
+                if ts_code not in prices:
+                    prices[ts_code] = {}
+                prices[ts_code].update({
+                    "biying_price": getattr(quote, "price", None) or quote.get("price"),
+                    "bid_price": getattr(quote, "bid1_price", None) or quote.get("bid1_price"),
+                    "ask_price": getattr(quote, "ask1_price", None) or quote.get("ask1_price"),
+                })
+        except Exception as e:
+            logger.warning(f"[L3] 必盈快照获取失败: {e}")
+        return prices
+
     async def _fetch_l3_prices(self, codes: List[str]) -> Dict[str, Dict]:
         """L3价格获取: 东方财富实时 + 必盈快照(仅持仓股)
 
         东方财富: 免费, 无限次, 全部codes
         必盈: 有限次(~200次/天), 仅用于持仓股快照(5秒一次, 约10-30只)
+        【v2.9.62重构: 提取两个子方法】
         """
-        prices = {}
-
         if not codes:
-            return prices
+            return {}
 
         # 1. 东方财富批量实时(免费, 所有codes)
-        if self._data_router:
-            eastmoney = self._data_router._sources.get("eastmoney")
-            if eastmoney and hasattr(eastmoney, "get_realtime_quotes_batch"):
-                try:
-                    quotes = await eastmoney.get_realtime_quotes_batch(codes)
-                    for ts_code, quote in quotes.items():
-                        prices[ts_code] = {
-                            "price": getattr(quote, "price", None) or quote.get("price"),
-                            "pct_chg": getattr(quote, "pct_chg", None) or quote.get("pct_chg"),
-                            "high": getattr(quote, "high", None) or quote.get("high"),
-                            "low": getattr(quote, "low", None) or quote.get("low"),
-                            "open": getattr(quote, "open", None) or quote.get("open"),
-                            "pre_close": getattr(quote, "pre_close", None) or quote.get("pre_close"),
-                        }
-                except Exception as e:
-                    logger.warning(f"[L3] 东方财富批量获取失败: {e}")
+        prices = await self._fetch_l3_eastmoney_batch(codes)
 
         # 2. 必盈快照(仅持仓股, 5秒一次约10-30只, 远低于200次/天)
         positions = self._get_positions()
         position_codes = {p.get("ts_code", "") for p in positions}
         biying_codes = [c for c in codes if c in position_codes]
+        biying_prices = await self._fetch_l3_biying_snapshot(biying_codes)
 
-        if biying_codes and self._data_router:
-            biying = self._data_router._sources.get("biying")
-            if biying and hasattr(biying, "get_realtime_quotes_batch"):
-                try:
-                    quotes = await biying.get_realtime_quotes_batch(biying_codes)
-                    for ts_code, quote in quotes.items():
-                        # 必盈数据覆盖东方财富(更精确的买卖盘)
-                        if ts_code not in prices:
-                            prices[ts_code] = {}
-                        prices[ts_code].update({
-                            "biying_price": getattr(quote, "price", None) or quote.get("price"),
-                            "bid_price": getattr(quote, "bid1_price", None) or quote.get("bid1_price"),
-                            "ask_price": getattr(quote, "ask1_price", None) or quote.get("ask1_price"),
-                        })
-                except Exception as e:
-                    logger.warning(f"[L3] 必盈快照获取失败: {e}")
+        # 必盈数据覆盖东方财富(更精确的买卖盘)
+        for ts_code, bp in biying_prices.items():
+            if ts_code not in prices:
+                prices[ts_code] = {}
+            prices[ts_code].update(bp)
 
         return prices
 

@@ -346,10 +346,11 @@ class SignalManager:
             logger.info(f"[EXEC] 滑点调整: {sig.ts_code} {sig.price:.2f}→{adjusted_price:.2f} ({slippage*100:.3f}%)")
         return adjusted_price
 
-    async def _post_buy_success(self, sig, order, shares, position_ratio, max_amount, acct) -> None:
-        """买入成功后善后(timeline+统计+事件推送)【v2.9.43从execute_signals提取】"""
-        scanner = self._scanner
-        self.timeline.append({
+    def _build_buy_timeline_entry(
+        self, sig, order, shares, position_ratio, max_amount, acct
+    ) -> Dict:
+        """构建买入时间线索目【v2.9.62提取】"""
+        return {
             "time": datetime.now().strftime("%H:%M:%S"),
             "action": "buy",
             "ts_code": sig.ts_code,
@@ -375,10 +376,11 @@ class SignalManager:
                     "position_count_before": len(self.broker.get_positions()) if self.broker else 0,
                 },
             },
-        })
-        sig.signal_status = "executed"
-        self.stats["trades_executed"] += 1
-        # 推送
+        }
+
+    async def _emit_buy_events(self, sig, shares, order) -> None:
+        """买入事件推送(Redis+EventBus)【v2.9.62提取】"""
+        scanner = self._scanner
         await scanner._publish_scanner_event("signal", {
             "signals": [scanner._signal_to_dict(sig)],
         })
@@ -397,6 +399,15 @@ class SignalManager:
                 })
         except Exception as _e:
             logger.debug(f"event publish failed: {_e}")
+
+    async def _post_buy_success(self, sig, order, shares, position_ratio, max_amount, acct) -> None:
+        """买入成功后善后(timeline+统计+事件推送)【v2.9.43提取, v2.9.62重构】"""
+        self.timeline.append(
+            self._build_buy_timeline_entry(sig, order, shares, position_ratio, max_amount, acct)
+        )
+        sig.signal_status = "executed"
+        self.stats["trades_executed"] += 1
+        await self._emit_buy_events(sig, shares, order)
         logger.info(f"[EXEC] 买入 {sig.ts_code} {shares}股@{order.filled_price:.2f} ({sig.strategy_name})")
 
     # ==================== 日志 ====================

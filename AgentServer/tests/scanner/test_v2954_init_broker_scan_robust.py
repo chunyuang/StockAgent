@@ -286,4 +286,4 @@ class TestNoBacktestRegressionV2954:
         api_path = os.path.abspath(api_path)
         with open(api_path) as f:
             source = f.read()
-        assert 'v2.9.61' in source
+        assert 'v2.9.62' in source
