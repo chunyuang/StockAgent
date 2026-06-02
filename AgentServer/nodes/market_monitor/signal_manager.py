@@ -277,60 +277,74 @@ class SignalManager:
         return True, ""
 
     async def _execute_single_buy(self, sig: ScanSignal) -> Optional[Dict]:
-        """执行单票买入(PositionSizer+质量检查+滑点+下单+善后)【v2.9.43从execute_signals提取】"""
+        """执行单票买入(编排方法)"""
         scanner = self._scanner
-        # PositionSizer
         acct = self.broker.get_account()
         position_ratio = scanner._position_manager.calc_position_ratio(sig) if scanner._position_manager else 0.2
         max_amount = acct.available_cash * position_ratio
-        shares = int(max_amount / sig.price / 100) * 100
-        # 科创板最小200股
-        if sig.ts_code.startswith('688'):
-            shares = int(max_amount / sig.price / 200) * 200
-            if shares <= 0 and max_amount > 0:
-                self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
-                    sig.strategy_name, f"科创板资金不足200股(需≥{sig.price*200:.0f}元)", sig)
-                return
-        if shares <= 0:
-            self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
-                sig.strategy_name, f"资金不足({max_amount:.0f}元<{sig.price*100:.0f}元)", sig)
+
+        shares = self._calc_buy_shares(sig, max_amount)
+        if shares is None:
             return
-        # 更新实时价格
+
         self.broker.update_realtime(sig.ts_code, sig.price)
-        # 执行质量检查
-        if self.pre_trade_checker:
-            self.pre_trade_checker._broker = self.broker
-            ok_pre, pre_reason = self.pre_trade_checker.check_buy(
-                ts_code=sig.ts_code, price=sig.price, quantity=shares,
-                stock_name=sig.stock_name, strategy=sig.strategy,
-            )
-            if not ok_pre:
-                self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
-                    sig.strategy_name, f"执行质量检查拒绝: {pre_reason}", sig)
-                logger.info(f"[EXEC] 买入被拒: {sig.ts_code} {pre_reason}")
-                return
-        # 滑点估算
-        daily_vol = self.realtime_cache.get(sig.ts_code, {}).get("volume", 0)
-        slippage = self.slippage_model.estimate(
-            price=sig.price, quantity=shares,
-            daily_volume=daily_vol * 100 if daily_vol else 0,
-            side="buy", reason=sig.reason,
-        )
-        adjusted_price = self.slippage_model.apply_slippage(sig.price, slippage)
-        if abs(slippage) > 0.001:
-            logger.info(f"[EXEC] 滑点调整: {sig.ts_code} {sig.price:.2f}→{adjusted_price:.2f} ({slippage*100:.3f}%)")
-        # 下单
+        if not self._check_buy_quality(sig, shares):
+            return
+
+        adjusted_price = self._apply_buy_slippage(sig, shares)
         ok, msg, order = self.broker.place_order(
             ts_code=sig.ts_code, stock_name=sig.stock_name,
             side="buy", quantity=shares, price=sig.price,
-            order_type="market", strategy=sig.strategy, reason=sig.reason,
-        )
+            order_type="market", strategy=sig.strategy, reason=sig.reason)
         if ok:
             await self._post_buy_success(sig, order, shares, position_ratio, max_amount, acct)
         else:
             self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
                 sig.strategy_name, f"下单失败: {msg}", sig)
             logger.warning(f"[EXEC] 买入被拒 {sig.ts_code}: {msg}")
+
+    def _calc_buy_shares(self, sig: ScanSignal, max_amount: float) -> Optional[int]:
+        """计算买入股数(含科创板200股门槛)"""
+        if sig.ts_code.startswith('688'):
+            shares = int(max_amount / sig.price / 200) * 200
+            if shares <= 0 and max_amount > 0:
+                self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                    sig.strategy_name, f"科创板资金不足200股(需≥{sig.price*200:.0f}元)", sig)
+                return None
+        else:
+            shares = int(max_amount / sig.price / 100) * 100
+        if shares <= 0:
+            self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                sig.strategy_name, f"资金不足({max_amount:.0f}元<{sig.price*100:.0f}元)", sig)
+            return None
+        return shares
+
+    def _check_buy_quality(self, sig: ScanSignal, shares: int) -> bool:
+        """执行质量检查"""
+        if not self.pre_trade_checker:
+            return True
+        self.pre_trade_checker._broker = self.broker
+        ok_pre, pre_reason = self.pre_trade_checker.check_buy(
+            ts_code=sig.ts_code, price=sig.price, quantity=shares,
+            stock_name=sig.stock_name, strategy=sig.strategy)
+        if not ok_pre:
+            self._add_timeline_log("blocked", sig.ts_code, sig.stock_name,
+                sig.strategy_name, f"执行质量检查拒绝: {pre_reason}", sig)
+            logger.info(f"[EXEC] 买入被拒: {sig.ts_code} {pre_reason}")
+            return False
+        return True
+
+    def _apply_buy_slippage(self, sig: ScanSignal, shares: int) -> float:
+        """滑点估算与调整"""
+        daily_vol = self.realtime_cache.get(sig.ts_code, {}).get("volume", 0)
+        slippage = self.slippage_model.estimate(
+            price=sig.price, quantity=shares,
+            daily_volume=daily_vol * 100 if daily_vol else 0,
+            side="buy", reason=sig.reason)
+        adjusted_price = self.slippage_model.apply_slippage(sig.price, slippage)
+        if abs(slippage) > 0.001:
+            logger.info(f"[EXEC] 滑点调整: {sig.ts_code} {sig.price:.2f}→{adjusted_price:.2f} ({slippage*100:.3f}%)")
+        return adjusted_price
 
     async def _post_buy_success(self, sig, order, shares, position_ratio, max_amount, acct) -> None:
         """买入成功后善后(timeline+统计+事件推送)【v2.9.43从execute_signals提取】"""
