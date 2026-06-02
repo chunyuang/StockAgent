@@ -507,8 +507,21 @@ class TieredScanner:
                 self._l2_status.last_error = str(e)
                 await asyncio.sleep(30)
 
+    @staticmethod
+    def _build_price_cache_from_refreshed(refreshed: Dict) -> Dict:
+        """从刷新行情构建价格缓存(供L3使用)【v2.9.63提取@staticmethod】"""
+        cache = {}
+        for code, item in refreshed.items():
+            cache[code] = {
+                "price": item.get("price"),
+                "high": item.get("high"),
+                "low": item.get("low"),
+                "pct_chg": item.get("pct_chg"),
+            }
+        return cache
+
     async def _l2_scan(self) -> TieredScanResult:
-        """L2单次扫描: 候选池策略筛选"""
+        """L2单次扫描: 候选池策略筛选【v2.9.63: 价格缓存构建提取@staticmethod】"""
         t0 = time.time()
         result = TieredScanResult(level=2, ts=t0)
 
@@ -542,13 +555,7 @@ class TieredScanner:
             result.output_count = len(signals)
 
             # 4. 更新价格缓存(供L3使用)
-            for code, item in refreshed.items():
-                self._price_cache[code] = {
-                    "price": item.get("price"),
-                    "high": item.get("high"),
-                    "low": item.get("low"),
-                    "pct_chg": item.get("pct_chg"),
-                }
+            self._price_cache.update(self._build_price_cache_from_refreshed(refreshed))
 
         except Exception as e:
             result.error = str(e)
@@ -618,8 +625,18 @@ class TieredScanner:
                 self._l3_status.last_error = str(e)
                 await asyncio.sleep(10)
 
+    @staticmethod
+    def _collect_l3_refresh_codes(positions: list, signals: list) -> list:
+        """收集L3需要刷新行情的代码列表(持仓+信号股)【v2.9.63提取】"""
+        codes = [p.get("ts_code", "") for p in positions if p.get("ts_code")]
+        for s in signals:
+            code = s.get("ts_code", "")
+            if code and code not in codes:
+                codes.append(code)
+        return codes
+
     async def _l3_scan(self) -> TieredScanResult:
-        """L3单次扫描: 持仓止损止盈"""
+        """L3单次扫描: 持仓止损止盈【v2.9.63: 代码收集提取@staticmethod】"""
         t0 = time.time()
         result = TieredScanResult(level=3, ts=t0)
 
@@ -636,16 +653,8 @@ class TieredScanner:
                 return result
 
             # 3. 刷新持仓+信号股行情
-            codes_to_refresh = [p.get("ts_code", "") for p in positions if p.get("ts_code")]
-            # 加入信号股
-            for s in signals:
-                code = s.get("ts_code", "")
-                if code and code not in codes_to_refresh:
-                    codes_to_refresh.append(code)
-
+            codes_to_refresh = self._collect_l3_refresh_codes(positions, signals)
             prices = await self._fetch_l3_prices(codes_to_refresh)
-
-            # 更新价格缓存
             self._price_cache.update(prices)
 
             # 4. 回调止损止盈检查

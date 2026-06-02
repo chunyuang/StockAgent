@@ -17,7 +17,7 @@ RP_PATH = os.path.join(
     os.path.dirname(__file__), "..", "..", "nodes", "market_monitor", "runtime_persistence.py"
 )
 WEB_API_PATH = os.path.join(
-    os.path.dirname(__file__), "..", "..", "nodes", "web", "api", "scanner.py"
+    os.path.dirname(__file__), "..", "..", "nodes", "web", "api", "scanner_system.py"
 )
 
 
@@ -185,7 +185,7 @@ class TestVersionSync(unittest.TestCase):
         """Web API版本号应为v2.9.61"""
         with open(WEB_API_PATH) as f:
             src = f.read()
-        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.62"', src)
+        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.63"', src)
 
 
 class TestNoBacktestRegression(unittest.TestCase):

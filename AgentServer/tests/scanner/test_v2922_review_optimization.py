@@ -202,7 +202,7 @@ class TestScanLoopErrorRecovery:
         """scan_once源码包含错误计数重置"""
         from nodes.market_monitor.scanner import MarketScanner
         source = inspect.getsource(MarketScanner.scan_once)
-        assert "_scan_loop_error_count" in source, "scan_once缺少错误计数重置"
+        assert "_reset_scan_error_state" in source, "scan_once缺少错误计数重置(已提取到_reset_scan_error_state)"
 
     def test_scan_loop_max_3_retries(self):
         """_scan_loop_error_recovery连续3次异常才退出【v2.9.28:逻辑提取到error_recovery】"""

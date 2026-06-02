@@ -1110,6 +1110,12 @@ class MarketScanner:
         await self._position_manager.execute_risk_sell(pos, reason, price, quantity)
 
 
+    def _reset_scan_error_state(self) -> None:
+        """成功扫描后重置错误计数【v2.9.63提取】"""
+        if self._scan_loop_error_count > 0:
+            logger.info(f"[SCAN] 恢复成功(之前连续{self._scan_loop_error_count}次异常)")
+            self._scan_loop_error_count = 0
+
     async def scan_once(self, trade_date: str, force: bool = False) -> None:
         """单次扫描
         
@@ -1117,17 +1123,13 @@ class MarketScanner:
             trade_date: 交易日期
             force: 强制模式, 忽略交易时间检查(测试用)
         
-        【v2.9.55】分步计时提取到_StepTimer上下文管理器
+        【v2.9.63】错误状态重置+完成日志提取子方法
         """
         t0 = time.time()
         self._scan_count += 1
         scan_time = datetime.now().strftime("%H:%M:%S")
 
-        # 成功扫描时重置连续错误计数
-        if self._scan_loop_error_count > 0:
-            logger.info(f"[SCAN] 恢复成功(之前连续{self._scan_loop_error_count}次异常)")
-            self._scan_loop_error_count = 0
-
+        self._reset_scan_error_state()
         logger.info(f"[SCAN #{self._scan_count}] 开始扫描 {scan_time}")
 
         timer = _StepTimer()
@@ -1156,15 +1158,13 @@ class MarketScanner:
         # Step 6: 同步broker实时价格
         self._sync_broker_prices(realtime_data)
 
-        # Step 7: 统计+持久化
+        # Step 7: 统计+持久化+完成日志
         elapsed = time.time() - t0
         self._update_scan_stats(scan_time, len(realtime_data), elapsed)
         await self._persist_scan_result()
-
-        slow_info = timer.get_slow_info()
         logger.info(f"[SCAN #{self._scan_count}] 完成: "
                      f"{len(realtime_data)}只 | {len(self._active_signals)}信号 | "
-                     f"{elapsed:.1f}秒{slow_info}")
+                     f"{elapsed:.1f}秒{timer.get_slow_info()}")
 
     async def _apply_strategies_and_filters(
         self, merged_df, trade_date: str, realtime_data: Dict

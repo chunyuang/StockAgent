@@ -408,10 +408,10 @@ class TestVersionSync:
 
     def test_design_doc_version(self):
         """API版本号更新"""
-        api_path = os.path.join(os.path.dirname(__file__), "..", "..", "nodes", "web", "api", "scanner.py")
+        api_path = os.path.join(os.path.dirname(__file__), "..", "..", "nodes", "web", "api", "scanner_system.py")
         with open(api_path) as f:
             src = f.read()
-        assert '_DESIGN_DOC_VERSION = "v2.9.62"' in src
+        assert '_DESIGN_DOC_VERSION = "v2.9.63"' in src
 
     def test_docstring_mentions_version(self):
         """position_checker.py文档提到当前版本"""

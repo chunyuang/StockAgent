@@ -23,7 +23,7 @@ class TestVersionInfo:
         import importlib
         import sys
         # 动态导入scanner API模块
-        api_path = "nodes.web.api.scanner"
+        api_path = "nodes.web.api.scanner_system"
         if api_path in sys.modules:
             mod = sys.modules[api_path]
         else:
@@ -43,7 +43,7 @@ class TestVersionInfo:
         """git命令失败时返回unknown"""
         import subprocess
         import sys
-        api_path = "nodes.web.api.scanner"
+        api_path = "nodes.web.api.scanner_system"
         if api_path not in sys.modules:
             return
         
@@ -64,15 +64,19 @@ class TestVersionInfo:
     def test_health_dead_includes_version(self):
         """Scanner未运行时/health也应包含version字段"""
         import os
-        api_path = os.path.join(
-            os.path.dirname(__file__), '..', '..', 'nodes', 'web', 'api', 'scanner.py'
+        # 拆分后/health端点在scanner_system.py
+        system_path = os.path.join(
+            os.path.dirname(__file__), '..', '..', 'nodes', 'web', 'api', 'scanner_system.py'
         )
-        with open(api_path) as f:
-            source = f.read()
+        if os.path.exists(system_path):
+            with open(system_path) as f:
+                source = f.read()
+        else:
+            pytest.skip("scanner_system.py not found")
         
         # 验证dead状态的health响应包含version(搜索更宽范围)
         dead_idx = source.find('"overall_status": "dead"')
-        assert dead_idx > 0, "dead status not found in scanner.py"
+        assert dead_idx > 0, "dead status not found in scanner_system.py"
         dead_section = source[dead_idx:dead_idx+500]
         assert '"version"' in dead_section or "'version'" in dead_section, \
             "dead状态health响应应包含version字段"
@@ -80,11 +84,15 @@ class TestVersionInfo:
     def test_health_running_includes_version(self):
         """运行时/health响应应包含version字段"""
         import os
-        api_path = os.path.join(
-            os.path.dirname(__file__), '..', '..', 'nodes', 'web', 'api', 'scanner.py'
+        # 拆分后/health端点在scanner_system.py
+        system_path = os.path.join(
+            os.path.dirname(__file__), '..', '..', 'nodes', 'web', 'api', 'scanner_system.py'
         )
-        with open(api_path) as f:
-            source = f.read()
+        if os.path.exists(system_path):
+            with open(system_path) as f:
+                source = f.read()
+        else:
+            pytest.skip("scanner_system.py not found")
         
         # 验证version在_daemon_status之后
         assert '_get_version_info()' in source, \

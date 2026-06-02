@@ -98,17 +98,7 @@ import math
 import json as json_lib
 
 
-def _sanitize_nan(obj):
-    """递归清理NaN/inf, 防止JSON序列化失败"""
-    if isinstance(obj, float):
-        if math.isnan(obj) or math.isinf(obj):
-            return None
-        return obj
-    if isinstance(obj, dict):
-        return {k: _sanitize_nan(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [_sanitize_nan(v) for v in obj]
-    return obj
+from nodes.web.api.utils import sanitize_nan as _sanitize_nan
 
 
 def create_app() -> FastAPI:

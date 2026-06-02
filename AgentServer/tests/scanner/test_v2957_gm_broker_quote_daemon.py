@@ -229,17 +229,17 @@ class TestNoBacktestRegressionV2957(unittest.TestCase):
 
     def test_design_doc_version(self):
         """Web API版本常量应为v2.9.61"""
-        api_path = os.path.join(ROOT, "nodes", "web", "api", "scanner.py")
+        api_path = os.path.join(ROOT, "nodes", "web", "api", "scanner_system.py")
         with open(api_path) as f:
             content = f.read()
-        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.62"', content)
+        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.63"', content)
 
     def test_scanner_version_constant(self):
         """scanner模块应能正常导入"""
         sys.path.insert(0, ROOT)
         try:
-            from nodes.web.api.scanner import _DESIGN_DOC_VERSION
-            self.assertEqual(_DESIGN_DOC_VERSION, "v2.9.62")
+            from nodes.web.api.scanner_system import _DESIGN_DOC_VERSION
+            self.assertEqual(_DESIGN_DOC_VERSION, "v2.9.63")
         except ImportError:
             self.skipTest("scanner module import failed")
 

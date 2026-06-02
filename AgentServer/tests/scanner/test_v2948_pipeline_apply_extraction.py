@@ -16,7 +16,7 @@ PIPELINE_PATH = os.path.join(
     os.path.dirname(__file__), "..", "..", "nodes", "market_monitor", "live_filter_pipeline.py"
 )
 SCANNER_API_PATH = os.path.join(
-    os.path.dirname(__file__), "..", "..", "nodes", "web", "api", "scanner.py"
+    os.path.dirname(__file__), "..", "..", "nodes", "web", "api", "scanner_shared.py"
 )
 
 

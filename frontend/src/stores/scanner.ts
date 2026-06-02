@@ -111,6 +111,12 @@ export const useScannerStore = defineStore('scanner', () => {
     stocks_scanned: 0,
   })
 
+  /** 【P0-3】Scanner状态(WS推送) */
+  const status = ref<any>(null)
+
+  /** 【P0-3】最近错误(用于弹窗) */
+  const lastError = ref<string>('')
+
   // ==================== 数据新鲜度 ====================
 
   /** 最后WS更新时间 */
@@ -209,6 +215,9 @@ export const useScannerStore = defineStore('scanner', () => {
         if (data.stats) stats.value = data.stats
         if (data.sentiment) sentiment.value = data.sentiment
         if (data.position_ratio) positionRatio.value = data.position_ratio
+        // 【P0-3】记录状态和错误
+        status.value = data
+        if (data.event === 'scanner_error') lastError.value = data.error || '未知错误'
         break
     }
 
@@ -320,6 +329,8 @@ export const useScannerStore = defineStore('scanner', () => {
     positionRatio,
     stats,
     isWsConnected,
+    status,
+    lastError,
 
     // 数据新鲜度
     dataFreshness,

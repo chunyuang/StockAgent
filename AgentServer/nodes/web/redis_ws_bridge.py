@@ -288,8 +288,15 @@ class RedisWSBridge:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.debug(f"Stream consumer error: {e}")
-                await asyncio.sleep(1)  # 出错后等待1秒重试
+                # 指数退避: 1s → 2s → 4s → ... → 30s，避免Redis断线时刷日志
+                backoff = min(getattr(self, '_stream_backoff', 1) * 2, 30)
+                self._stream_backoff = backoff
+                logger.debug(f"Stream consumer error (retry in {backoff}s): {e}")
+                await asyncio.sleep(backoff)
+                continue
+            else:
+                # 成功读取后重置退避
+                self._stream_backoff = 1
     
     async def _handle_log_message(self, task_id: str, data: dict) -> None:
         """处理日志消息：透传到WebSocket（不再缓存，前端完成后从API拉取）"""

@@ -13,7 +13,7 @@ import inspect
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _SCANNER = os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "scanner.py")
 _RP = os.path.join(_PROJECT_ROOT, "nodes", "market_monitor", "runtime_persistence.py")
-_API = os.path.join(_PROJECT_ROOT, "nodes", "web", "api", "scanner.py")
+_API = os.path.join(_PROJECT_ROOT, "nodes", "web", "api", "scanner_system.py")
 
 
 def _read(path):
@@ -131,7 +131,7 @@ class TestVersionSync:
     def test_design_doc_version_in_api(self):
         """API版本号为v2.9.43"""
         source = _read(_API)
-        assert '_DESIGN_DOC_VERSION = "v2.9.62"' in source
+        assert '_DESIGN_DOC_VERSION = "v2.9.63"' in source
 
 
 class TestNoBacktestRegressionV2941:

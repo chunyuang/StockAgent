@@ -22,6 +22,7 @@ import SystemHealth from './SystemHealth.vue'
 import KeyboardShortcuts from './KeyboardShortcuts.vue'
 import { useThemeStore } from '@/stores/theme'
 import { useScannerStore } from '@/stores/scanner'
+import { useWebSocket } from '@/hooks/useWebSocket'
 import {
   strategyMeta, strategyCN,
   pipelineLabels,
@@ -48,10 +49,12 @@ let fetchScannerAbort: AbortController | null = null
 let fetchScannerRunning = false
 const themeStore = useThemeStore()
 const scannerStore = useScannerStore() // 【Phase4.1:Scanner Store】
+const wsHook = useWebSocket() // 【P0-3】统一WS连接管理, 替代原始WebSocket
 watch(() => themeStore.isDark, () => { /* theme changes auto-propagate via CSS vars */ })
 let refreshTimer: any = null
-let ws: WebSocket | null = null
-let wsReconnectTimer: any = null
+// 【P0-3】WS连接已由useWebSocket hook统一管理, 不再自行创建
+// scanner事件通过Scanner Store分发, 不再直接处理ws.onmessage
+let _wsSubscribed = false
 const status = ref<ScannerStatus | null>(null)
 const signals = ref<ScanSignal[]>([])
 const positions = ref<PositionInfo[]>([])
@@ -896,81 +899,18 @@ onErrorCaptured((err, instance, info) => {
   return false // 阻止错误继续向上传播，组件不会卸载
 })
 
-onMounted(async () => { try { await Promise.all([fetchScanner(), fetchStrategies(), fetchHealth()]) } catch(e) { console.error('[Mount] fetch error:', e); ElMessage.warning('数据加载失败，请检查连接后刷新') } try { fetchLimitPools(); fetchDataSources(); fetchPerformanceHistory(); connectWS() } catch(e) { console.error('[Mount] setup error:', e); ElMessage.error('实时连接建立失败') } nowTimer = setInterval(() => { nowMs.value = Date.now() }, 1000); const getRefreshInterval = () => { const n = new Date(), h = n.getHours(), m = n.getMinutes(); const isTrading = (h === 9 && m >= 30) || (h >= 10 && h < 15) || (h === 15 && m === 0); return isTrading ? 5000 : 60000 }; refreshTimer = setInterval(() => { if (!autoRefresh.value || ws?.readyState === WebSocket.OPEN) return; fetchScanner(); fetchHealth() }, getRefreshInterval()) })
-onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer); if (nowTimer) clearInterval(nowTimer); disconnectWS() })
-function connectWS() {
-  try {
-    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    ws = new WebSocket(`${proto}//${location.host}/ws`)
-    let wsDebounceTimer: any = null
-    const wsDebouncedFetch = () => { if (wsDebounceTimer) clearTimeout(wsDebounceTimer); wsDebounceTimer = setTimeout(fetchScanner, 500) }
-    let lastSignalStreamId = ''
-    let lastPositionStreamId = ''
-    ws.onopen = () => {
-      // 【v2.9.49】首条消息认证(替代URL token), 再订阅scanner
-      const token = localStorage.getItem('access_token')
-      if (token) ws?.send(JSON.stringify({ type: 'auth', token }))
-      ws?.send(JSON.stringify({ type: 'subscribe_scanner' }))
-      scannerStore.isWsConnected = true
-      // 【v2.9.36】断线重连后补发缺失的Stream消息
-      if (lastSignalStreamId) {
-        fetch(`/api/v1/scanner/stream/signals?after=${lastSignalStreamId}&count=50`)
-          .then(r => r.json()).then(j => {
-            if (j.success && j.data?.length) {
-              for (const msg of j.data) {
-                if (msg.data) scannerStore.updateFromWs('signal', { item: msg.data.signals?.[0] || msg.data.item })
-              }
-              fetchScanner() // 刷新全量状态
-            }
-          }).catch(() => {})
-      }
-      if (lastPositionStreamId) {
-        fetch(`/api/v1/scanner/stream/positions?after=${lastPositionStreamId}&count=50`)
-          .then(r => r.json()).then(j => {
-            if (j.success && j.data?.length) {
-              for (const msg of j.data) {
-                if (msg.data) scannerStore.updateFromWs('position', { positions: msg.data.positions, account: msg.data.account })
-              }
-            }
-          }).catch(() => {})
-      }
-    }
-    ws.onmessage = (e) => {
-      try {
-        const d = JSON.parse(e.data)
-        // 【v2.9.14】记录Stream ID(断线重连后补发用)
-        if (d._stream_id) {
-          if (d.type === 'scanner_signal') lastSignalStreamId = d._stream_id
-          else if (d.type === 'scanner_position') lastPositionStreamId = d._stream_id
-        }
-        // 【Phase4.1:通过Scanner Store分发WS数据】
-        if (d.type === 'scanner_signal') {
-          scannerStore.updateFromWs('signal', { item: d.signals?.[0] || d.item })
-          signals.value = d.signals?.length ? d.signals : signals.value
-          wsDebouncedFetch()
-        } else if (d.type === 'scanner_position') {
-          scannerStore.updateFromWs('position', { positions: d.positions, account: d.account })
-          positions.value = d.positions?.length ? d.positions : positions.value
-        } else if (d.type === 'scanner_timeline') {
-          scannerStore.updateFromWs('timeline', { item: d.item })
-          if (d.item) timeline.value = [...timeline.value, d.item]
-          wsDebouncedFetch()
-        } else if (d.type === 'scanner_status') {
-          scannerStore.updateFromWs('status', d.status || d)
-          if (d.status) status.value = { ...status.value, ...d.status }
-          // 【v2.9.15】异常事件弹窗提示
-          if (d.event === 'scanner_error') {
-            ElMessage({ type: 'error', message: `Scanner异常: ${d.error || '未知错误'}`, duration: 8000 })
-          }
-          wsDebouncedFetch()
-        }
-      } catch {}
-    }
-    ws.onclose = () => { scannerStore.isWsConnected = false; wsReconnectTimer = setTimeout(connectWS, 3000) } // Phase4.1: 3秒重连(设计文档规范)
-    ws.onerror = () => { ws?.close() }
-  } catch {}
-}
-function disconnectWS() { if (wsReconnectTimer) clearTimeout(wsReconnectTimer); if (ws) { ws.close(); ws = null; } }
+onMounted(async () => { try { await Promise.all([fetchScanner(), fetchStrategies(), fetchHealth()]) } catch(e) { console.error('[Mount] fetch error:', e); ElMessage.warning('数据加载失败，请检查连接后刷新') } try { fetchLimitPools(); fetchDataSources(); fetchPerformanceHistory(); /* P0-3: WS由useWebSocket hook管理 */ wsHook.connect(); if (!_wsSubscribed) { wsHook.send({ type: 'subscribe_scanner' }); _wsSubscribed = true } } catch(e) { console.error('[Mount] setup error:', e); ElMessage.error('实时连接建立失败') } nowTimer = setInterval(() => { nowMs.value = Date.now() }, 1000); const getRefreshInterval = () => { const n = new Date(), h = n.getHours(), m = n.getMinutes(); const isTrading = (h === 9 && m >= 30) || (h >= 10 && h < 15) || (h === 15 && m === 0); return isTrading ? 5000 : 60000 }; refreshTimer = setInterval(() => { if (!autoRefresh.value || wsHook.isConnected.value) return; fetchScanner(); fetchHealth() }, getRefreshInterval()) })
+onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer); if (nowTimer) clearInterval(nowTimer); /* P0-3: WS由hook管理引用计数, 不需手动disconnect */ _wsSubscribed = false })
+// 【P0-3+4】WS统一: connectWS/disconnectWS已删除
+// WS连接由useWebSocket hook管理, scanner事件由hook分发到Scanner Store
+// 断线重连+补发由hook+store统一处理, 不再有两套WS连接
+// Store数据变化由watch监听, 本地ref自动同步
+watch(() => scannerStore.signals, (v) => { if (v?.length) signals.value = v }, { deep: true })
+watch(() => scannerStore.positions, (v) => { if (v?.length) positions.value = v }, { deep: true })
+watch(() => scannerStore.timeline, (v) => { if (v?.length) timeline.value = v }, { deep: true })
+watch(() => scannerStore.status, (v) => { if (v) status.value = { ...status.value, ...v } }, { deep: true })
+// Scanner异常事件弹窗
+watch(() => scannerStore.lastError, (v) => { if (v) ElMessage({ type: 'error', message: `Scanner异常: ${v}`, duration: 8000 }) })
 const historyDate = ref('')
 const historyData = ref<any[]>([])
 const historyLoading = ref(false)
