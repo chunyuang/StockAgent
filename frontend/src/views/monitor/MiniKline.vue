@@ -5,7 +5,13 @@
  */
 import { ref, computed, watch, onMounted } from 'vue'
 import { api } from '@/api/client'
+import { use } from 'echarts/core'
+import { CanvasRenderer } from 'echarts/renderers'
+import { PieChart, GaugeChart, BarChart, LineChart } from 'echarts/charts'
+import { TitleComponent, TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
 import VChart from 'vue-echarts'
+
+use([CanvasRenderer, PieChart, GaugeChart, BarChart, LineChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent])
 
 const props = defineProps<{
   tsCode: string

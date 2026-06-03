@@ -385,7 +385,34 @@ const {
     <!-- ==================== 🛡️ 风控Tab ==================== -->
     <div v-if="activeTab === 'risk'" class="mm-tab-content">
       <div class="mm-tab-scroll">
-        <PositionRiskMatrix />
+        <div class="st">🛡️ 风控矩阵</div>
+        <!-- 持仓风险概览 -->
+        <div v-if="positions.length" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:6px;margin-top:8px">
+          <div v-for="pos in sortedPositions" :key="pos.ts_code" class="pos-card" :class="{'pos-focused': positions.indexOf(pos) === focusIndex}">
+            <div class="pos-top">
+              <span class="code">{{ pos.ts_code?.slice(0,6) }}</span>
+              <span class="name">{{ pos.stock_name }}</span>
+              <span :class="pos.profit_pct >= 0 ? 'up' : 'down'" class="pct">{{ pos.profit_pct >= 0 ? '+' : '' }}{{ pos.profit_pct.toFixed(1) }}%</span>
+            </div>
+            <div class="pos-prices-row">
+              <span style="font-size:11px;color:var(--text-tertiary)">成本 ¥{{ pos.cost_price?.toFixed(2) }}</span>
+              <span style="font-size:11px;color:var(--text-primary)">现价 ¥{{ pos.current_price?.toFixed(2) }}</span>
+              <span v-if="pos.stop_loss_pct != null" class="pp-sl" style="font-size:11px">止损 {{ pos.stop_loss_pct }}%</span>
+              <span v-if="pos.take_profit_pct != null" class="pp-tp" style="font-size:11px">止盈 {{ pos.take_profit_pct }}%</span>
+            </div>
+            <div v-if="pos.risk_level && pos.risk_level !== 'normal'" class="pos-risk-row">
+              <span class="pp-risk" :class="pos.risk_level" style="font-size:11px">{{ {high:'🔴高风险',elevated:'🟡较高',low:'🟢低风险'}[pos.risk_level] || pos.risk_level }}</span>
+              <div v-if="pos.distance_to_stop != null" class="risk-track" style="width:60px;display:inline-block;vertical-align:middle;margin-left:6px">
+                <div class="risk-fill" :class="pos.distance_to_stop > 5 ? 'safe' : pos.distance_to_stop > 2 ? 'warning' : 'danger'" :style="{width: Math.min(Math.max(100 - pos.distance_to_stop * 5, 5), 100) + '%'}"></div>
+              </div>
+              <span style="font-size:10px;color:var(--text-tertiary);margin-left:4px">距止损 {{ pos.distance_to_stop?.toFixed(1) || '-' }}%</span>
+            </div>
+            <div v-if="pos.trailing_stop" style="font-size:10px;color:var(--el-color-warning);margin-top:2px">
+              追踪止损 {{ pos.trailing_stop.activated ? '✅已激活' : '⏸未激活' }} {{ (pos.trailing_stop.trailing_stop_pct * 100).toFixed(1) }}%
+            </div>
+          </div>
+        </div>
+        <div v-else class="empty">暂无持仓</div>
       </div>
     </div>
 
