@@ -657,4 +657,109 @@ mm-tab-content {
     border-radius: 50%;
   }
 }
+
+/* ========== 交易详情弹窗样式(v2.9.75死CSS清理误删补回) ========== */
+.td2-sec { margin-bottom: 16px; padding: 12px; background: var(--bg-secondary); border-radius: 8px; }
+.td2-title { font-size: 14px; font-weight: 600; margin-bottom: 10px; color: var(--text-primary); }
+.td2-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.td2-card { padding: 8px 10px; background: var(--bg-elevated); border-radius: 6px; border: 1px solid var(--border-default); }
+.td2-card.sm { padding: 6px 8px; }
+.td2-label { font-size: 11px; color: var(--text-tertiary); margin-bottom: 2px; }
+.td2-val { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.td2-reason { padding: 8px 10px; margin: 8px 0; background: var(--bg-elevated); border-radius: 6px; border-left: 3px solid var(--el-color-primary); font-size: 13px; color: var(--text-secondary); }
+.td2-chain { margin-top: 8px; }
+.td2-chain-title { font-size: 12px; font-weight: 600; color: var(--text-secondary); margin: 8px 0 6px; padding-left: 4px; border-left: 2px solid var(--el-color-primary); }
+.td2-pipeline { display: flex; flex-direction: column; gap: 3px; }
+.td2-pipe-step { display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: var(--bg-elevated); border-radius: 4px; font-size: 12px; }
+.td2-pipe-step.passed { border-left: 2px solid var(--success); }
+.td2-pipe-icon { font-size: 12px; flex-shrink: 0; }
+.td2-pipe-name { font-weight: 500; min-width: 100px; color: var(--text-primary); }
+.td2-pipe-detail { color: var(--text-tertiary); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.td2-factors { display: flex; flex-wrap: wrap; gap: 6px; }
+.td2-factor { padding: 4px 8px; background: var(--bg-elevated); border-radius: 4px; font-size: 12px; }
+.td2-fk { color: var(--text-tertiary); margin-right: 4px; }
+.td2-fv { font-weight: 500; color: var(--text-primary); }
+.td2-empty { text-align: center; padding: 16px; color: var(--text-tertiary); font-size: 13px; }
+.td2-trail-section { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border-default); }
+.td2-trail-ctrl { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+
+/* 审计日志弹窗 */
+.al { max-height: 500px; overflow-y: auto; }
+.ah { display: grid; grid-template-columns: minmax(60px, 1fr) minmax(50px, 1fr) minmax(80px, 1.2fr) minmax(80px, 1.2fr) minmax(50px, 1fr) minmax(50px, 1fr); gap: 4px; padding: 6px 0; font-size: 12px; font-weight: 600; color: var(--text-tertiary); border-bottom: 1px solid var(--border-default); }
+.ar { display: grid; grid-template-columns: minmax(60px, 1fr) minmax(50px, 1fr) minmax(80px, 1.2fr) minmax(80px, 1.2fr) minmax(50px, 1fr) minmax(50px, 1fr); gap: 4px; padding: 6px 0; font-size: 12px; align-items: center; border-bottom: 1px solid var(--border-light); cursor: pointer; overflow: hidden; }
+.ar:hover { background: var(--bg-hover); }
+
+/* 持仓卡片+信号行+通用样式(v2.9.75死CSS清理误删补回) */
+.pos-card { padding: 8px 10px; margin-bottom: 6px; background: var(--bg-elevated); border-radius: 6px; border: 1px solid var(--border-default); min-width: 0; }
+.pos-card:hover { border-color: var(--el-color-primary); }
+.pos-focused { border: 2px solid var(--el-color-primary) !important; box-shadow: 0 0 8px var(--el-color-primary-light-5); }
+.pos-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.pos-card:hover .pct { transform: scale(1.05); }
+.pos-risk-row { margin-top: 4px; }
+.pos-prices-row { display: flex; align-items: center; gap: 8px; padding: 2px 0; font-size: 11px; flex-wrap: wrap; }
+.emergency-btn-inline { font-size: 14px; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--stock-up); color: var(--stock-up); background: transparent; cursor: pointer; }
+.emergency-btn-inline:hover { background: var(--stock-up); color: var(--text-inverse); }
+.emergency-btn-inline.disabled { opacity: 0.4; cursor: not-allowed; }
+.emergency-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; padding: 4px 14px; border: 2px solid var(--stock-up); border-radius: 6px; background: transparent; cursor: pointer; font-size: 12px; font-weight: 700; color: var(--stock-up); transition: all 0.2s; }
+.emergency-btn.active { animation: emergency-pulse 1.5s infinite; }
+.emergency-btn.disabled { opacity: 0.4; cursor: not-allowed; animation: none; }
+.emergency-btn:not(.disabled):hover { background: var(--stock-up); color: var(--text-inverse); }
+.mm-trace { flex-shrink: 0; max-height: 45vh; overflow-y: auto; border-top: 1px solid var(--border-default); background: var(--bg-elevated); }
+.sig-row { display: flex; align-items: center; gap: 5px; padding: 4px 8px; margin-bottom: 2px; background: var(--bg-elevated); border-radius: 4px; border: 1px solid var(--border-default); font-size: 12px; flex-wrap: wrap; min-width: 0; }
+.sig-row:hover { border-color: var(--el-color-primary); }
+.sig-row .el-button { padding: 1px 6px; font-size: 11px; }
+.risk-track { height: 4px; background: var(--bg-muted); border-radius: 2px; overflow: hidden; }
+.risk-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
+.risk-fill.safe { background: linear-gradient(90deg, var(--warning), var(--success)); }
+.risk-fill.warning { background: linear-gradient(90deg, var(--warning), var(--stock-up)); }
+.risk-fill.danger { background: var(--stock-up); animation: risk-pulse 1s infinite; }
+.t1-tag { font-size: 10px; color: var(--el-color-warning); background: var(--warning-bg); padding: 1px 4px; border-radius: 3px; font-weight: 600; }
+.expire-tag { font-size: 11px; color: var(--el-color-primary); background: var(--info-bg); padding: 1px 5px; border-radius: 3px; font-weight: 600; }
+.expire-tag.urgent { color: var(--stock-up); background: var(--stock-up-bg); animation: blink 1s infinite; }
+.btn-xs { padding: 1px 6px; font-size: 11px; }
+.tag-solid { color: var(--text-inverse); border: none; }
+.mini-bar { display: inline-block; width: 40px; height: 4px; background: var(--border-default); border-radius: 2px; vertical-align: middle; margin-left: 4px; }
+.mini-bar-fill { display: block; height: 100%; border-radius: 2px; transition: width 0.3s; }
+.text-stock-up { color: var(--stock-up) !important; }
+.text-stock-down { color: var(--stock-down) !important; }
+.text-tertiary-sm { font-size: 11px; color: var(--text-tertiary); }
+.mini-bar-fill.bar-up { background: var(--stock-up) !important; }
+.mini-bar-fill.bar-down { background: var(--stock-down) !important; }
+.pp-sl { color: var(--stock-up); }
+.pp-tp { color: var(--stock-down); }
+.pp-trail { color: var(--el-color-warning); }
+.pp-risk { font-weight: 600; }
+.pp-risk.high { color: var(--stock-up); }
+.pp-risk.elevated { color: var(--el-color-warning); }
+.pp-risk.low { color: var(--stock-down); }
+@keyframes risk-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+@keyframes blink { 50% { opacity: 0.5; } }
+@keyframes emergency-pulse { 0%,100% { box-shadow: 0 0 4px var(--stock-up); } 50% { box-shadow: 0 0 12px var(--stock-up); } }
+</style>
+
+<!-- 共享基础样式(非scoped, 子Tab组件可继承) -->
+<!-- v2.9.75死CSS清理误删补回: 这些样式被scoped限制不穿透到子Tab -->
+<style lang="scss">
+/* 市场监听器共享基础样式 - 子Tab组件通用 */
+.mm .up { color: var(--stock-up); }
+.mm .down { color: var(--stock-down); }
+.mm .code { font-size: 12px; font-weight: 600; color: var(--text-primary); font-family: monospace; }
+.mm .name { font-size: 12px; color: var(--text-secondary); }
+.mm .empty { text-align: center; color: var(--text-muted); font-size: 12px; padding: 20px 0; }
+.mm .st { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; display: flex; align-items: center; }
+.mm .pct { margin-left: auto; font-weight: 700; font-size: 14px; transition: transform 0.3s; }
+.mm .cp { cursor: pointer; }
+.mm .ml-auto { margin-left: auto; }
+.mm .tag-solid { color: var(--text-inverse); border: none; }
+.mm .btn-xs { padding: 1px 6px; font-size: 11px; }
+.mm .text-tertiary { color: var(--text-tertiary); }
+.mm .text-tertiary-sm { font-size: 11px; color: var(--text-tertiary); }
+.mm .text-stock-up { color: var(--stock-up) !important; }
+.mm .text-stock-down { color: var(--stock-down) !important; }
+.mm .mm-tab-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.mm .mm-tab-scroll { flex: 1; overflow-y: auto; padding: 12px 16px; }
+.mm .tab-btn-sm { padding: 2px 10px; border-radius: 4px; border: 1px solid var(--border-default); background: transparent; font-size: 11px; cursor: pointer; color: var(--text-secondary); transition: all 0.15s; }
+.mm .tab-btn-sm:hover { border-color: var(--el-color-primary-light-5); color: var(--el-color-primary); }
+.mm .tab-btn-sm.active { background: var(--el-color-primary-light-9); border-color: var(--el-color-primary-light-5); color: var(--el-color-primary); font-weight: 600; }
+.mm .tab-btn-sm:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

@@ -268,4 +268,36 @@ const scanTraceCode = (m as any).scanTraceCode
 .scan-chip.debug { border-style: dashed; opacity: 0.85; }
 
 .sc-debug-tag { font-size: 9px; padding: 1px 4px; border-radius: 3px; background: rgba(230,162,60,0.15); color: #e6a23c; font-weight: 600; }
+
+/* ========== 弹窗样式(v2.9.75死CSS清理误删补回) ========== */
+
+/* 9层筛选调试弹窗 */
+.ld-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 12px; color: var(--text-secondary); }
+.ld-title { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; }
+.ld-pipeline { padding: 10px; background: var(--bg-muted); border-radius: 8px; border: 1px solid var(--border-default); margin-bottom: 10px; }
+.ld-layers { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 4px; margin-bottom: 6px; }
+.ld-layer { display: flex; align-items: center; gap: 4px; font-size: 11px; padding: 3px 6px; background: var(--bg-elevated); border-radius: 4px; border: 1px solid var(--border-default); }
+.ld-on { color: var(--stock-down); }
+.ld-off { color: var(--text-tertiary); }
+.ld-name { color: var(--text-secondary); }
+.ld-sentiment { font-size: 12px; color: var(--el-color-primary); padding: 4px 0; }
+.ld-traces { max-height: 400px; overflow-y: auto; }
+.ld-trace-card { padding: 8px 10px; margin-bottom: 6px; background: var(--bg-elevated); border-radius: 6px; border: 1px solid var(--border-default); }
+.ld-trace-top { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.ld-trace-layers { padding-left: 10px; }
+.ld-trace-line { font-size: 11px; color: var(--text-secondary); padding: 1px 0; font-family: monospace; }
+.layer-debug { font-size: 13px; }
+
+/* 单只股票扫描链路弹窗 */
+.scan-trace { font-size: 13px; }
+.st-header { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.st-reason { font-size: 12px; color: var(--text-secondary); padding: 4px 6px; background: var(--bg-elevated); border-radius: 4px; border-left: 3px solid var(--el-color-primary); margin-bottom: 6px; }
+.st-age { font-size: 11px; color: var(--text-tertiary); margin-bottom: 6px; }
+.st-trace, .st-detail, .st-factors { padding: 10px; background: var(--bg-muted); border-radius: 8px; border: 1px solid var(--border-default); margin-bottom: 8px; }
+.st-title { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+.st-line { font-size: 11px; color: var(--text-secondary); padding: 1px 0; font-family: monospace; }
+.st-fg { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 4px; }
+.st-fi { display: flex; flex-direction: column; padding: 3px 6px; background: var(--bg-elevated); border-radius: 4px; }
+.st-fl { font-size: 10px; color: var(--text-tertiary); }
+.st-fv { font-size: 13px; font-weight: 500; }
 </style>
