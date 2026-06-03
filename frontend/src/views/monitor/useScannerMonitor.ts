@@ -249,7 +249,6 @@ export function useScannerMonitor() {
   }
 
   // ==================== 📌 模式切换/回放 ====================
-  function toggleScanHour(_hour: string) { /* 内联实现 - 扫描时段开关 */ }
   function onModeChange(mode: string) { if (mode === 'replay') { /* 触发日期选择 */ } }
   async function confirmReplay() {
     if (!replayDateInput.value) { ElMessage.warning('请选择回放日期'); return }
@@ -356,7 +355,7 @@ export function useScannerMonitor() {
     // 手动交易
     onManualCodeChange, executeManualTrade,
     // 策略保存
-    saveStrategy, toggleScanHour,
+    saveStrategy,
     // 模式切换/回放
     onModeChange, confirmReplay, cancelReplay,
     // 日报
