@@ -8,7 +8,7 @@
  */
 import { provide } from 'vue'
 import { useScannerMonitor } from './useScannerMonitor'
-import { SCANNER_MONITOR_KEY } from './scannerMonitorInject'
+import { SCANNER_MONITOR_KEY, type ScannerMonitorData } from './scannerMonitorInject'
 import ReviewTab from './ReviewTab.vue'
 import OpsTab from './OpsTab.vue'
 import PremarketTab from './PremarketTab.vue'
@@ -18,7 +18,7 @@ import HistoryTab from './HistoryTab.vue'
 import ScanTraceTab from './ScanTraceTab.vue'
 
 const monitorData = useScannerMonitor()
-provide(SCANNER_MONITOR_KEY, monitorData)
+provide(SCANNER_MONITOR_KEY, monitorData as unknown as ScannerMonitorData)
 
 // 在模板中使用的变量仍需解构(vue-tsc要求)
 const {
