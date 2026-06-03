@@ -239,7 +239,7 @@ class TestNoBacktestRegressionV2957(unittest.TestCase):
         sys.path.insert(0, ROOT)
         try:
             from nodes.web.api.scanner_system import _DESIGN_DOC_VERSION
-            self.assertEqual(_DESIGN_DOC_VERSION, "v2.9.74")
+            self.assertEqual(_DESIGN_DOC_VERSION, "v2.9.75")
         except ImportError:
             self.skipTest("scanner module import failed")
 

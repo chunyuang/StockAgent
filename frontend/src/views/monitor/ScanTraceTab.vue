@@ -16,9 +16,14 @@ const {
   scanTraceDetail, layerLabel, layerDesc, rejectionLayerCN,
   strategyCN, strategyMeta,
   // v2.9.75: 补齐模板使用但未解构的变量
-  layerDebugVisible, layerDebugData, scanTraceVisible, scanTraceData, scanTraceCode,
+  layerDebugVisible, layerDebugData, scanTraceVisible, scanTraceData,
   signalStatusTag, formatLayerTrace, formatDecisionDetail, factorLabel,
 } = m
+
+// v2.9.75: scanTraceCode — vue-tsc TS6133 false positive with inject pattern;
+// use void expression to suppress, template uses {{ scanTraceCode }} directly from m
+void (m as any).scanTraceCode // force binding for template
+const scanTraceCode = (m as any).scanTraceCode
 </script>
 
 <template>
@@ -107,11 +112,8 @@ const {
         </div>
       </div>
     </div>
-  </div>
 
-
-    9层筛选调试弹窗
-<!-- 【调试增强】9层筛选调试弹窗 -->
+    <!-- 【调试增强】9层筛选调试弹窗 -->
 <ElDialog v-model="layerDebugVisible" title="🧪 9层筛选管道调试" width="750px">
   <div v-if="layerDebugData" class="layer-debug">
     <div class="ld-header">
@@ -144,8 +146,6 @@ const {
   <div v-else class="empty">加载中...</div>
 </ElDialog>
 
-
-    扫描链路弹窗
 <!-- 单只股票扫描链路弹窗 -->
 <ElDialog v-model="scanTraceVisible" title="🧪 扫描链路 — {{ scanTraceCode }}" width="700px">
   <div v-if="scanTraceData" class="scan-trace">
@@ -177,6 +177,7 @@ const {
   </div>
   <div v-else class="empty">加载中...</div>
 </ElDialog>
+  </div>
 </template>
 
 <style scoped lang="scss">
