@@ -4847,7 +4847,8 @@ provide/inject模式：`MarketMonitorView` 通过 `provide(SCANNER_MONITOR_KEY, 
 | SentimentTab.vue | 237 | 21 | 情绪分析Tab: 时间线+全景+矩阵+建议 |
 | GuideTab.vue | 132 | 2 | 系统引导Tab: 架构+策略+风控+快捷键 |
 | HistoryTab.vue | 73 | 19 | 交易历史Tab: 时间线+订单+平仓+审计 |
-| **合计** | **816** | **112** | **6个Tab组件** |
+| ScanTraceTab.vue | 108 | 57 | 扫描追踪Tab: 历史列表+漏斗+候选追踪 |
+| **合计** | **924** | **169** | **7个Tab组件** |
 
 ### 60.10 MarketMonitorView行数变化
 
@@ -4858,7 +4859,8 @@ provide/inject模式：`MarketMonitorView` 通过 `provide(SCANNER_MONITOR_KEY, 
 | +PremarketTab提取 | 2127 | -258 |
 | +SentimentTab提取 | 1885 | -242 |
 | +GuideTab+HistoryTab提取 | 1682 | -203 |
-| **v2.9.74最终** | **1682** | **-790(-31.9%)** |
+| +ScanTraceTab提取 | 1593 | -89 |
+| **v2.9.74最终** | **1593** | **-879(-35.6%)** |
 
 ### 60.11 vue-tsc错误变化
 
@@ -4883,6 +4885,7 @@ provide/inject模式：`MarketMonitorView` 通过 `provide(SCANNER_MONITOR_KEY, 
 | TestSentimentTabExtraction | 2 | SentimentTab文件存在 |
 | TestGuideTabExtraction | 1 | GuideTab文件存在 |
 | TestHistoryTabExtraction | 1 | HistoryTab文件存在 |
+| TestScanTraceTabExtraction | 1 | ScanTraceTab文件存在 |
 | TestGlobalTSCleanup | 1 | stockApi补全 |
 | TestNoBacktestRegressionV2974 | 1 | 回测引擎零影响 |
 
