@@ -5,13 +5,7 @@
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { api } from '@/api/client'
-import { use } from 'echarts/core'
-import { CanvasRenderer } from 'echarts/renderers'
-import { PieChart, GaugeChart } from 'echarts/charts'
-import { TitleComponent, TooltipComponent, LegendComponent } from 'echarts/components'
-import VChart from 'vue-echarts'
 
-use([CanvasRenderer, PieChart, GaugeChart, TitleComponent, TooltipComponent, LegendComponent])
 
 interface RiskPosition {
   ts_code: string; stock_name: string; strategy_name: string; industry: string
@@ -59,41 +53,14 @@ function slColor(dist: number): string {
   return '#f56c6c'
 }
 
-// 行业饼图
-const industryOption = computed(() => {
-  if (!globalRisk.value?.industry_exposure) return {}
-  const entries = Object.entries(globalRisk.value.industry_exposure)
-  return {
-    tooltip: { trigger: 'item', formatter: '{b}: {d}%' },
-    series: [{
-      type: 'pie', radius: ['40%', '70%'], center: ['50%', '50%'],
-      label: { show: true, fontSize: 10, formatter: '{b}\n{d}%' },
-      data: entries.map(([k, v]) => ({ name: k, value: v })),
-      emphasis: { itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: 'rgba(0,0,0,0.2)' } },
-    }],
-    animation: false,
-  }
-})
 
-// 风险仪表盘
-const gaugeOption = computed(() => {
-  const g = globalRisk.value || {}
-  if (!g) return {}
-  const critical = (g.risk_summary?.critical || 0)
-  const warning = (g.risk_summary?.warning || 0)
-  const total = (g.position_count || 0)
-  const score = total > 0 ? Math.round((critical * 100 + warning * 50) / total) : 0
-  return {
-    series: [{
-      type: 'gauge', startAngle: 200, endAngle: -20, min: 0, max: 100,
-      pointer: { show: true, length: '60%', width: 4, itemStyle: { color: 'auto' } },
-      axisLine: { lineStyle: { width: 8, color: [[0.3, '#67c23a'], [0.7, '#e6a23c'], [1, '#f56c6c']] } },
-      axisTick: { show: false }, splitLine: { show: false }, axisLabel: { show: false },
-      detail: { formatter: '{value}', fontSize: 14, offsetCenter: [0, '70%'], color: 'auto' },
-      data: [{ value: score, name: '风险分' }],
-    }],
-    animation: false,
-  }
+
+const riskScore = computed(() => {
+  if (!globalRisk.value) return 0
+  const c = globalRisk.value.risk_summary?.critical || 0
+  const w = globalRisk.value.risk_summary?.warning || 0
+  const t = globalRisk.value.position_count || 1
+  return Math.round((c * 100 + w * 50) / t)
 })
 
 let timer: number
@@ -111,7 +78,12 @@ onUnmounted(() => clearInterval(timer))
     <!-- 全局仪表 -->
     <div v-if="globalRisk" class="rm-global">
       <div class="rm-gauge">
-        <VChart :option="gaugeOption" autoresize style="height:100px;width:100%" />
+        <div class="css-gauge">
+          <div class="css-gauge-bg">
+            <div class="css-gauge-fill" :style="{ width: riskScore + '%' }"></div>
+          </div>
+          <div class="css-gauge-val" :style="{ color: riskColor(riskScore) }">{{ riskScore }}</div>
+        </div>
       </div>
       <div class="rm-stats">
         <div class="rm-stat">
@@ -137,7 +109,11 @@ onUnmounted(() => clearInterval(timer))
         </div>
       </div>
       <div class="rm-industry" v-if="Object.keys(globalRisk?.industry_exposure || {}).length > 1">
-        <VChart :option="industryOption" autoresize style="height:80px;width:100%" />
+        <div v-for="(pct, name) in globalRisk?.industry_exposure || {}" :key="name" class="ind-bar-row">
+          <span class="ind-label">{{ name }}</span>
+          <div class="ind-bar-track"><div class="ind-bar-fill" :style="{ width: (pct * 100).toFixed(0) + '%' }"></div></div>
+          <span class="ind-pct">{{ (pct * 100).toFixed(0) }}%</span>
+        </div>
       </div>
     </div>
 
@@ -185,7 +161,16 @@ onUnmounted(() => clearInterval(timer))
 .rm-val.warn { color: #f56c6c; }
 .rm-risk-counts { display: flex; gap: 8px; width: 100%; margin-top: 4px; font-size: 11px; }
 .rm-rc.ok { color: #67c23a; } .rm-rc.warn { color: #e6a23c; } .rm-rc.crit { color: #f56c6c; }
-.rm-industry { width: 140px; flex-shrink: 0; }
+.rm-industry { flex: 1; min-width: 120px; }
+.css-gauge { text-align: center; }
+.css-gauge-bg { width: 80px; height: 8px; background: var(--el-fill-color); border-radius: 4px; margin: 4px auto; overflow: hidden; }
+.css-gauge-fill { height: 100%; border-radius: 4px; transition: width 0.3s; background: linear-gradient(90deg, #67c23a, #e6a23c, #f56c6c); }
+.css-gauge-val { font-size: 18px; font-weight: 700; }
+.ind-bar-row { display: flex; align-items: center; gap: 4px; font-size: 10px; margin: 2px 0; }
+.ind-label { width: 40px; text-align: right; color: var(--el-text-color-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ind-bar-track { flex: 1; height: 6px; background: var(--el-fill-color); border-radius: 3px; overflow: hidden; }
+.ind-bar-fill { height: 100%; background: var(--el-color-primary); border-radius: 3px; transition: width 0.3s; }
+.ind-pct { width: 28px; color: var(--el-text-color-secondary); }
 
 .rm-matrix { font-size: 11px; }
 .rm-matrix-header { display: grid; grid-template-columns: 2fr 1fr 1.5fr 1fr 0.8fr 0.8fr; gap: 4px; padding: 4px 6px; color: var(--el-text-color-secondary); font-size: 10px; border-bottom: 1px solid var(--el-border-color-lighter); }
