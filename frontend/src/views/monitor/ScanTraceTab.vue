@@ -28,7 +28,15 @@ void (m as any).scanTraceCode // force binding for template
 const scanTraceCode = (m as any).scanTraceCode
 
 // 挂载时自动加载日期数据(用于日期选择器高亮)
-onMounted(() => { fetchScanTraceDates() })
+// 并自动选择最近有数据的日期加载扫描历史
+onMounted(async () => {
+  const dates = await fetchScanTraceDates()
+  if (!scanTraceDate.value && dates?.length) {
+    const latestDate = dates[0]?.date || dates[0]  // {date: '20260526'} or '20260526'
+    scanTraceDate.value = String(latestDate).replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3')
+    fetchScanHistory()
+  }
+})
 </script>
 
 <template>

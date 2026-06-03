@@ -47,7 +47,9 @@ export function useScanTraceMonitor() {
   })
 
   function toggleScanHour(hour: string) {
-    scanHourCollapse.value[hour] = !(scanHourCollapse.value[hour] ?? true)
+    // 整体替换value触发Vue响应式更新(ref内部对象属性修改不触发computed)
+    const current = scanHourCollapse.value[hour] ?? true
+    scanHourCollapse.value = { ...scanHourCollapse.value, [hour]: !current }
   }
 
   // 日期高亮
@@ -67,7 +69,9 @@ export function useScanTraceMonitor() {
         scanTraceDates.value = p.data || []
         scanTraceHasData.value = p.data  // [{date, count, is_debug}]
       }
+      return scanTraceDates.value  // 返回日期列表供onMounted使用
     } catch { /* ignore */ }
+    return []
   }
 
   async function fetchScanHistory() {
