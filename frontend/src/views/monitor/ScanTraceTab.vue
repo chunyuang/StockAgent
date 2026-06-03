@@ -105,6 +105,75 @@ const {
       </div>
     </div>
   </div>
+
+
+    9层筛选调试弹窗
+<!-- 【调试增强】9层筛选调试弹窗 -->
+<ElDialog v-model="layerDebugVisible" title="🧪 9层筛选管道调试" width="750px">
+  <div v-if="layerDebugData" class="layer-debug">
+    <div class="ld-header">
+      <ElTag :type="layerDebugData.dry_run ? 'warning' : 'success'" size="small">{{ layerDebugData.dry_run ? '🔍调试模式' : '正常交易' }}</ElTag>
+      <span>信号: {{ layerDebugData.total_signals }} | 已执行: {{ layerDebugData.executed_signals }} | 跳过: {{ layerDebugData.skipped_signals }} | 过期: {{ layerDebugData.expired_signals }}</span>
+    </div>
+    <div v-if="layerDebugData.pipeline_config" class="ld-pipeline">
+      <div class="ld-title">管道配置</div>
+      <div class="ld-layers">
+        <div v-for="(enabled, layer) in layerDebugData.pipeline_config.layer_enabled" :key="layer" class="ld-layer">
+          <span :class="enabled ? 'ld-on' : 'ld-off'">{{ enabled ? '✅' : '⏭️' }}</span>
+          <span class="ld-name">{{ layerLabel(layer) }}</span>
+        </div>
+      </div>
+      <div class="ld-sentiment" v-if="layerDebugData.pipeline_config.sentiment">
+        情绪: {{ layerDebugData.pipeline_config.sentiment.score }} → {{ layerDebugData.pipeline_config.sentiment.period }} | 仓位系数: {{ (layerDebugData.pipeline_config.position_ratio * 100).toFixed(0) }}%
+      </div>
+    </div>
+    <div v-if="layerDebugData.signal_traces?.length" class="ld-traces">
+      <div class="ld-title">信号逐层链路</div>
+      <div v-for="trace in layerDebugData.signal_traces" :key="trace.ts_code + trace.strategy" class="ld-trace-card">
+        <div class="ld-trace-top"><span class="code">{{ trace.ts_code }}</span><span class="name">{{ trace.stock_name }}</span><ElTag size="small" type="info">{{ strategyCN(trace.strategy) }}</ElTag><ElTag size="small" :type="signalStatusTag(trace.signal_status).type">{{ signalStatusTag(trace.signal_status).text }}</ElTag></div>
+        <div class="ld-trace-layers">
+          <div v-for="(line, i) in formatLayerTrace(trace.layer_trace)" :key="i" class="ld-trace-line">{{ line }}</div>
+        </div>
+      </div>
+    </div>
+    <div v-else class="empty">暂无信号链路数据</div>
+  </div>
+  <div v-else class="empty">加载中...</div>
+</ElDialog>
+
+
+    扫描链路弹窗
+<!-- 单只股票扫描链路弹窗 -->
+<ElDialog v-model="scanTraceVisible" title="🧪 扫描链路 — {{ scanTraceCode }}" width="700px">
+  <div v-if="scanTraceData" class="scan-trace">
+    <div v-if="scanTraceData.status === 'not_found'" class="empty">{{ scanTraceData.message }}</div>
+    <div v-else>
+      <div class="st-header">
+        <span class="code">{{ scanTraceData.ts_code }}</span>
+        <span class="name">{{ scanTraceData.stock_name }}</span>
+        <ElTag size="small" :type="signalStatusTag(scanTraceData.signal_status).type">{{ signalStatusTag(scanTraceData.signal_status).text }}</ElTag>
+        <span :class="scanTraceData.pct_chg >= 0 ? 'up' : 'down'" style="font-weight:600">{{ scanTraceData.pct_chg >= 0 ? '+' : '' }}{{ scanTraceData.pct_chg?.toFixed(1) }}%</span>
+      </div>
+      <div class="st-reason">{{ scanTraceData.reason }}</div>
+      <div v-if="scanTraceData.age_seconds" class="st-age">信号年龄: {{ scanTraceData.age_seconds }}秒</div>
+      <div v-if="scanTraceData.layer_trace" class="st-trace">
+        <div class="st-title">逐层筛选链路</div>
+        <div v-for="(line, i) in formatLayerTrace(scanTraceData.layer_trace)" :key="i" class="st-line">{{ line }}</div>
+      </div>
+      <div v-if="scanTraceData.decision_detail" class="st-detail">
+        <div class="st-title">决策详情</div>
+        <div v-for="(line, i) in formatDecisionDetail(scanTraceData.decision_detail)" :key="i" class="st-line">{{ line }}</div>
+      </div>
+      <div v-if="scanTraceData.factors" class="st-factors">
+        <div class="st-title">关键因子</div>
+        <div class="st-fg">
+          <div v-for="(v, k) in scanTraceData.factors" :key="k" class="st-fi"><span class="st-fl">{{ factorLabel(k) }}</span><span class="st-fv">{{ typeof v === 'number' ? v.toFixed(2) : v }}</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div v-else class="empty">加载中...</div>
+</ElDialog>
 </template>
 
 <style scoped lang="scss">

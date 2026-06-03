@@ -306,7 +306,7 @@ function dailyHoverBottom(): number {
                 </template>
                 <span v-else class="mt-empty">-</span>
               </td>
-              <td class="mt-total">{{ Object.values(periods).reduce((s: number, v: any) => s + v.count, 0) }}笔</td>
+              <td class="mt-total">{{ Object.values(periods).reduce((s: number, v: any) => s + (v as any).count, 0) }}笔</td>
             </tr>
           </tbody>
         </table>
