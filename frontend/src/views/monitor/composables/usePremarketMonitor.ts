@@ -17,30 +17,40 @@ export function usePremarketMonitor() {
   const premarketStatus = ref<'waiting' | 'active' | 'ended' | 'off' | 'debug'>('off')
   const premarketCandidates = ref<any[]>([])
 
-  // 盘前分析辅助(后续逐步实现)
   const premarketDebugMode = ref(false)
   const premarketGroupMode = ref<'strategy' | 'industry' | 'list'>('strategy')
   const premarketGroupExpanded = ref<Record<string, boolean>>({})
   const premarketAnalysis = ref<any>(null)
-  const premarketBlockedReasons = ref<string[]>([])
+  const premarketBlockedReasons = ref<any>({})
   const premarketFunnel = ref<any>(null)
-  const premarketHitRate = ref<any>(null)
+  const premarketHitRate = ref<Record<string, any>>({})
   const premarketLimitPools = ref<any>(null)
-  const premarketMarketSnapshot = ref<any>(null)
+  const premarketMarketSnapshot = ref<any>({})
   const premarketPositionGaps = ref<any[]>([])
-  const premarketSentiment = ref<any>(null)
+  const premarketSentiment = ref<any>({})
   const premarketStrategyGroups = ref<any[]>([])
   const auctionTopGainers = ref<any[]>([])
 
   // ==================== API ====================
   async function fetchPremarketData() {
     try {
-      const r = await api.get(`${scannerApi}/premarket-status`)
+      const url = premarketDebugMode.value ? `${scannerApi}/debug/premarket-sim` : `${scannerApi}/premarket-status`
+      const r = await api.get(url)
       const p = parseResponse(r)
       if (p.success && p.data) {
         premarketSignals.value = p.data.auction_signals || []
-        premarketStatus.value = p.data.status || 'off'
+        premarketStatus.value = premarketDebugMode.value ? 'debug' : (p.data.status || 'off')
         premarketCandidates.value = p.data.candidates || []
+        auctionTopGainers.value = p.data.top_gainers || []
+        premarketMarketSnapshot.value = p.data.market_snapshot || {}
+        premarketSentiment.value = p.data.sentiment || {}
+        premarketStrategyGroups.value = p.data.strategy_groups || []
+        premarketHitRate.value = p.data.historical_hit_rate || {}
+        premarketFunnel.value = p.data.funnel || null
+        premarketBlockedReasons.value = p.data.blocked_reasons || {}
+        premarketLimitPools.value = p.data.limit_pools || null
+        premarketPositionGaps.value = p.data.position_gaps || []
+        premarketAnalysis.value = p.data.analysis || null
       }
     } catch { /* ignore */ }
   }
