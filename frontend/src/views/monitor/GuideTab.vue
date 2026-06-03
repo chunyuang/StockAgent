@@ -144,3 +144,67 @@ const { startScanner } = useScannerMonitorInject()
     </div>
   </div>
 </template>
+
+<style scoped lang="scss">
+.mm-guide { flex: 1; overflow-y: auto; padding: 12px 16px; }
+
+.guide-banner { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; background: var(--bg-elevated); border-radius: 10px; margin-bottom: 12px; }
+
+.gb-left { display: flex; align-items: center; gap: 14px; }
+
+.gb-logo { font-size: 36px; }
+
+.gb-title { font-size: 18px; font-weight: 700; }
+
+.gb-sub { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+
+.guide-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+
+.gg-card { background: var(--bg-elevated); border-radius: 10px; overflow: hidden; }
+
+.gg-span2 { grid-column: span 2; }
+
+.gg-head { padding: 8px 14px; font-size: 13px; font-weight: 600; background: var(--bg-normal); border-bottom: 1px solid var(--border-light); }
+
+.gg-icon { margin-right: 6px; }
+
+.gg-body { padding: 10px 14px; }
+
+.gg-compact { display: flex; flex-direction: column; gap: 6px; }
+
+.gg-line { font-size: 12px; color: var(--text-secondary); }
+
+.gg-params { display: flex; gap: 10px; }
+
+.gg-p { font-size: 12px; font-weight: 500; }
+
+.gg-pl { color: var(--text-tertiary); font-weight: 400; margin-right: 3px; }
+
+.gf-flow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+.gf-tag { padding: 4px 10px; border-radius: 5px; font-size: 12px; font-weight: 500; background: var(--bg-normal); border: 1px solid var(--border-default); }
+
+.gf-tag.gf-input { background: var(--el-color-primary-light-5); border-color: var(--el-color-primary-light-3); color: var(--el-color-primary-dark-2); }
+
+.gf-tag.gf-output { background: rgba(0,180,42,0.1); border-color: rgba(0,180,42,0.3); color: #00b42a; }
+
+.gf-arrow { color: var(--text-tertiary); font-size: 11px; }
+
+.go-list { display: flex; flex-direction: column; gap: 6px; }
+
+.go-row { display: flex; align-items: center; gap: 8px; font-size: 12px; line-height: 1.5; }
+
+.gr-grid { display: flex; flex-direction: column; gap: 5px; }
+
+.gr-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+
+.gr-k { color: var(--text-tertiary); min-width: 56px; flex-shrink: 0; }
+
+.gr-v { font-weight: 500; font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+
+.gk-row { display: flex; flex-wrap: wrap; gap: 12px; }
+
+.gk-g { font-size: 12px; display: flex; align-items: center; gap: 4px; }
+
+.gk-g kbd { background: var(--bg-normal); border: 1px solid var(--border-default); border-radius: 4px; padding: 1px 6px; font-size: 11px; font-family: 'JetBrains Mono', monospace; }
+</style>

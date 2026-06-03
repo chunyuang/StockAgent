@@ -3,7 +3,9 @@
  * SentimentTab — 情绪分析Tab
  * 从 MarketMonitorView provide/inject 获取composable数据
  * 【v2.9.74: 从MarketMonitorView提取(237行)】
+ * 【v2.9.75: 提取chart计算属性, 消除10个TS7006隐式any错误】
  */
+import { computed } from 'vue'
 import { useScannerMonitorInject } from './scannerMonitorInject'
 import { ElButton, ElDatePicker } from 'element-plus'
 
@@ -16,6 +18,114 @@ const {
   sentimentLive, phaseGuide, downgradeRules, phaseColors, sentimentAdvice,
   fetchSentimentData, strategyCN,
 } = m
+
+// ===== v2.9.75: 类型化chart计算属性, 消除模板内隐式any回调 =====
+
+/** 日内SVG折线: candidates + passed */
+const intradayCandidatePoints = computed(() => {
+  const tl = displayTimeline.value as Array<Record<string, any>>
+  const maxC = intradayMaxCand.value as number
+  if (!maxC) return ''
+  return tl.map((p: Record<string, any>, i: number) =>
+    `${i * 20},${100 - Math.round(((p.candidates || 0) as number) / maxC * 90)}`
+  ).join(' ')
+})
+const intradayPassedPoints = computed(() => {
+  const tl = displayTimeline.value as Array<Record<string, any>>
+  const maxC = intradayMaxCand.value as number
+  if (!maxC) return ''
+  return tl.map((p: Record<string, any>, i: number) =>
+    `${i * 20},${100 - Math.round(((p.passed || 0) as number) / maxC * 90)}`
+  ).join(' ')
+})
+
+/** 日线SVG折线 */
+const dailyScorePoints = computed(() => {
+  const tl = (displayTimeline.value as Array<Record<string, any>>).filter(
+    (p: Record<string, any>) => p.score != null
+  )
+  return tl.map((p: Record<string, any>, i: number) =>
+    `${i * 20},${100 - (p.score || 0)}`
+  ).join(' ')
+})
+
+/** 日线有score的数据点 */
+const scoredTimeline = computed(() =>
+  (displayTimeline.value as Array<Record<string, any>>).filter(
+    (p: Record<string, any>) => p.score != null
+  )
+)
+
+/** 交易标记定位 - 日内 */
+const intradayTradeMarkers = computed(() =>
+  (sentimentTrades.value as Array<Record<string, any>>).map(
+    (t: Record<string, any>) => ({
+      ...t,
+      leftPct: (() => {
+        const tl = displayTimeline.value as Array<Record<string, any>>
+        const idx = tl.findIndex((p: Record<string, any>) => (p.time as string) >= (t.time as string))
+        return tl.length ? idx / Math.max(tl.length - 1, 1) * 100 : 50
+      })(),
+    })
+  )
+)
+
+/** 交易标记定位 - 日线 */
+const dailyTradeMarkers = computed(() =>
+  (sentimentTrades.value as Array<Record<string, any>>).map(
+    (t: Record<string, any>) => ({
+      ...t,
+      leftPct: (() => {
+        const tl = displayTimeline.value as Array<Record<string, any>>
+        const idx = tl.findIndex((p: Record<string, any>) => (p.date as string) >= (t.date as string))
+        return tl.length ? idx / Math.max(tl.length - 1, 1) * 100 : 50
+      })(),
+    })
+  )
+)
+
+/** 策略×情绪矩阵合计行 */
+function matrixTotal(periods: Record<string, any>): number {
+  return Object.values(periods).reduce(
+    (s: number, v: any) => s + ((v as Record<string, any>).count as number || 0), 0
+  )
+}
+
+/** 日内dot的bottom百分比 */
+function intradayDotBottom(p: Record<string, any>): number {
+  return Math.round(((p.candidates || 0) as number) / (intradayMaxCand.value as number) * 90)
+}
+
+/** 日线dot的bottom百分比 */
+function dailyDotBottom(p: Record<string, any>): number {
+  return (p.score || 0) as number
+}
+
+/** 日内hover card定位 */
+function intradayHoverLeft(): number {
+  const tl = displayTimeline.value as Array<Record<string, any>>
+  const hp = hoveredPoint.value as Record<string, any> | null
+  if (!hp) return 0
+  const idx = tl.findIndex((p: Record<string, any>) => p === hp)
+  return Math.min(idx / Math.max(tl.length - 1, 1) * 100, 75)
+}
+function intradayHoverBottom(): number {
+  const hp = hoveredPoint.value as Record<string, any> | null
+  return Math.min(((hp?.score || 30) as number) + 8, 85)
+}
+
+/** 日线hover card定位 */
+function dailyHoverLeft(): number {
+  const tl = displayTimeline.value as Array<Record<string, any>>
+  const hp = hoveredPoint.value as Record<string, any> | null
+  if (!hp) return 0
+  const idx = tl.findIndex((p: Record<string, any>) => p === hp)
+  return Math.min(idx / Math.max(tl.length - 1, 1) * 100, 75)
+}
+function dailyHoverBottom(): number {
+  const hp = hoveredPoint.value as Record<string, any> | null
+  return Math.min(((hp?.score || 30) as number) + 8, 85)
+}
 </script>
 
 <template>
@@ -54,24 +164,24 @@ const {
               <div class="sc-band" style="height:40%;background:rgba(103,194,58,0.08)" title="冰点 <40"></div>
             </template>
             <template v-if="sentimentMode === 'intraday' && !isIntradayFallback && intradayMaxCand > 0">
-              <svg class="sc-svg" :viewBox="`0 0 ${Math.max(displayTimeline.length - 1, 1) * 20} 100`" preserveAspectRatio="none">
-                <polyline :points="displayTimeline.map((p, i) => `${i * 20},${100 - Math.round((p.candidates || 0) / intradayMaxCand * 90)}`).join(' ')" fill="none" stroke="#409eff" stroke-width="1.5" />
-                <polyline :points="displayTimeline.map((p, i) => `${i * 20},${100 - Math.round((p.passed || 0) / intradayMaxCand * 90)}`).join(' ')" fill="none" stroke="#67c23a" stroke-width="1.5" />
+              <svg class="sc-svg" :viewBox="`0 0 ${Math.max((displayTimeline as any[]).length - 1, 1) * 20} 100`" preserveAspectRatio="none">
+                <polyline :points="intradayCandidatePoints" fill="none" stroke="#409eff" stroke-width="1.5" />
+                <polyline :points="intradayPassedPoints" fill="none" stroke="#67c23a" stroke-width="1.5" />
               </svg>
-              <template v-for="(p, i) in displayTimeline" :key="i">
-                <div class="sc-dot" :style="{ left: `${i / Math.max(displayTimeline.length - 1, 1) * 100}%`, bottom: `${Math.round((p.candidates || 0) / intradayMaxCand * 90)}%` }" @mouseenter="hoveredPoint = p" @mouseleave="hoveredPoint = null"></div>
+              <template v-for="(p, i) in (displayTimeline as any[])" :key="i">
+                <div class="sc-dot" :style="{ left: `${i / Math.max((displayTimeline as any[]).length - 1, 1) * 100}%`, bottom: `${intradayDotBottom(p)}%` }" @mouseenter="hoveredPoint = p" @mouseleave="hoveredPoint = null"></div>
               </template>
               <div style="position:absolute;top:4px;right:8px;font-size:10px;z-index:5"><span style="color:#409eff">● 候选</span> <span style="color:#67c23a;margin-left:6px">● 通过</span></div>
             </template>
             <template v-else>
-              <svg class="sc-svg" :viewBox="`0 0 ${Math.max(displayTimeline.filter(p => p.score != null).length - 1, 1) * 20} 100`" preserveAspectRatio="none">
-                <polyline :points="displayTimeline.filter(p => p.score != null).map((p, i) => `${i * 20},${100 - (p.score || 0)}`).join(' ')" fill="none" stroke="var(--el-color-primary)" stroke-width="1.5" />
+              <svg class="sc-svg" :viewBox="`0 0 ${Math.max(scoredTimeline.length - 1, 1) * 20} 100`" preserveAspectRatio="none">
+                <polyline :points="dailyScorePoints" fill="none" stroke="var(--el-color-primary)" stroke-width="1.5" />
               </svg>
-              <template v-for="(p, i) in displayTimeline" :key="i">
-                <div v-if="p.score != null" class="sc-dot" :style="{ left: `${i / Math.max(displayTimeline.length - 1, 1) * 100}%`, bottom: `${(p.score || 0)}%` }" :class="p.period === '高潮' ? 'hot' : p.period === '冰点' ? 'cold' : p.missing_data ? 'missing' : ''" @mouseenter="hoveredPoint = p" @mouseleave="hoveredPoint = null"></div>
+              <template v-for="(p, i) in (displayTimeline as any[])" :key="i">
+                <div v-if="p.score != null" class="sc-dot" :style="{ left: `${i / Math.max((displayTimeline as any[]).length - 1, 1) * 100}%`, bottom: `${dailyDotBottom(p)}%` }" :class="p.period === '高潮' ? 'hot' : p.period === '冰点' ? 'cold' : p.missing_data ? 'missing' : ''" @mouseenter="hoveredPoint = p" @mouseleave="hoveredPoint = null"></div>
               </template>
             </template>
-            <div v-if="hoveredPoint" class="sc-hover-card" :style="{ left: `${Math.min(displayTimeline.findIndex(p => p === hoveredPoint) / Math.max(displayTimeline.length - 1, 1) * 100, 75)}%`, bottom: `${Math.min((hoveredPoint.score || 30) + 8, 85)}%` }">
+            <div v-if="hoveredPoint" class="sc-hover-card" :style="{ left: `${sentimentMode === 'intraday' && !isIntradayFallback ? intradayHoverLeft() : dailyHoverLeft()}%`, bottom: `${sentimentMode === 'intraday' && !isIntradayFallback ? intradayHoverBottom() : dailyHoverBottom()}%` }">
               <template v-if="sentimentMode === 'intraday' && !isIntradayFallback">
                 <div class="sc-hover-date">{{ hoveredPoint.time?.substring(11, 16) }}</div>
                 <div class="sc-hover-detail" style="font-size:13px">候选 <strong style="color:#409eff">{{ hoveredPoint.candidates }}</strong> 通过 <strong style="color:#67c23a">{{ hoveredPoint.passed }}</strong></div>
@@ -84,8 +194,8 @@ const {
               </template>
             </div>
             <template v-for="(t, i) in sentimentTrades" :key="'t'+i">
-              <div v-if="sentimentMode === 'intraday'" class="sc-trade-marker" :class="t.side" :style="{ left: `${displayTimeline.length ? displayTimeline.findIndex(p => p.time >= t.time) / Math.max(displayTimeline.length - 1, 1) * 100 : 50}%`, bottom: '2%' }">{{ t.side === 'buy' ? '▲' : '▼' }}</div>
-              <div v-else class="sc-trade-marker" :class="t.side" :style="{ left: `${displayTimeline.findIndex(p => p.date >= t.date) / Math.max(displayTimeline.length - 1, 1) * 100}%`, bottom: '2%' }">{{ t.side === 'buy' ? '▲' : '▼' }}</div>
+              <div v-if="sentimentMode === 'intraday'" class="sc-trade-marker" :class="t.side" :style="{ left: `${intradayTradeMarkers[i]?.leftPct || 50}%`, bottom: '2%' }">{{ (t as any).side === 'buy' ? '▲' : '▼' }}</div>
+              <div v-else class="sc-trade-marker" :class="t.side" :style="{ left: `${dailyTradeMarkers[i]?.leftPct || 50}%`, bottom: '2%' }">{{ (t as any).side === 'buy' ? '▲' : '▼' }}</div>
             </template>
           </div>
         </div>
@@ -254,3 +364,161 @@ const {
     </div>
   </div>
 </template>
+
+<style scoped lang="scss">
+.sentiment-chart { display: flex; flex-direction: column; height: 260px; position: relative; border: 1px solid var(--border-default); border-radius: 8px; overflow: hidden; background: var(--bg-elevated); }
+
+.sc-y-axis { display: flex; flex-direction: column-reverse; justify-content: space-between; padding: 4px 6px; font-size: 10px; color: var(--text-tertiary); min-width: 32px; text-align: right; }
+
+.sc-chart-row { display: flex; flex: 1; min-height: 0; }
+
+.sc-chart-body { flex: 1; position: relative; display: flex; flex-direction: column-reverse; }
+
+.sc-band { width: 100%; position: relative; z-index: 1; }
+
+.sc-svg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 3; }
+
+.sc-dot { position: absolute; width: 6px; height: 6px; border-radius: 50%; background: var(--el-color-primary); transform: translate(-50%, 50%); z-index: 4; cursor: pointer; transition: transform 0.15s; }
+
+.sc-dot:hover { transform: translate(-50%, 50%) scale(2); }
+
+.sc-dot.hot { background: #f56c6c; }
+
+.sc-dot.cold { background: #67c23a; }
+
+.sc-dot-null { position: absolute; width: 4px; height: 4px; border-radius: 50%; background: var(--text-quaternary); transform: translate(-50%, 0); z-index: 4; top: 50%; opacity: 0.5; }
+
+.sc-dot.missing { background: var(--el-color-warning); opacity: 0.6; }
+
+.sc-hover-card { position: absolute; z-index: 10; background: var(--el-bg-color-overlay); border: 1px solid var(--el-border-color); border-radius: 6px; padding: 6px 10px; font-size: 12px; pointer-events: none; box-shadow: 0 2px 8px rgba(0,0,0,0.15); white-space: nowrap; }
+
+.sc-hover-date { color: var(--text-secondary); margin-bottom: 2px; }
+
+.sc-hover-score { font-weight: 600; font-size: 14px; }
+
+.sc-hover-score.hot { color: #f56c6c; }
+
+.sc-hover-score.cold { color: #67c23a; }
+
+.sc-hover-detail { color: var(--text-tertiary); margin-top: 2px; }
+
+.sc-hover-warn { color: var(--el-color-warning); margin-top: 2px; }
+
+.sc-trade-marker { position: absolute; font-size: 10px; z-index: 5; font-weight: 700; }
+
+.sc-trade-marker.buy { color: var(--stock-down); }
+
+.sc-trade-marker.sell { color: var(--stock-up); }
+
+.sc-x-labels { display: flex; justify-content: space-between; padding: 4px 8px 4px 40px; font-size: 11px; color: var(--text-tertiary); border-top: 1px solid var(--border-default); min-height: 22px; }
+
+.sentiment-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+.sentiment-panel { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 10px 12px; }
+
+.sl-content { margin-top: 6px; }
+
+.sl-gauge { margin-bottom: 8px; }
+
+.sl-gauge-bar { height: 16px; background: var(--bg-secondary); border-radius: 8px; overflow: hidden; }
+
+.sl-gauge-fill { height: 100%; border-radius: 8px; transition: width 0.5s; }
+
+.sl-score-labels { display: flex; justify-content: space-between; font-size: 9px; color: var(--text-tertiary); margin-top: 2px; }
+
+.sl-row { display: flex; justify-content: space-between; font-size: 12px; padding: 2px 0; }
+
+.sl-row span:first-child { color: var(--text-tertiary); }
+
+.sl-val { font-weight: 600; }
+
+.sl-board { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+
+.sl-board-item { font-size: 11px; background: var(--bg-secondary); padding: 1px 6px; border-radius: 4px; }
+
+.sl-board-n { color: var(--text-tertiary); }
+
+.sl-board-c { font-weight: 600; margin-left: 2px; }
+
+.matrix-table-wrap { overflow-x: auto; }
+
+.matrix-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+
+.matrix-table th { padding: 6px 8px; background: var(--bg-secondary); font-weight: 600; color: var(--text-tertiary); text-align: center; border-bottom: 1px solid var(--border-default); }
+
+.matrix-table td { padding: 6px 8px; text-align: center; border-bottom: 1px solid var(--border-default); }
+
+.mt-strat { font-weight: 600; text-align: left !important; white-space: nowrap; }
+
+.mt-cell { min-width: 80px; }
+
+.mt-count { font-weight: 600; }
+
+.mt-wr { font-size: 10px; }
+
+.mt-pnl { font-size: 10px; font-weight: 600; }
+
+.mt-empty { color: var(--text-quaternary); }
+
+.mt-total { font-weight: 600; color: var(--text-secondary); }
+
+.sentiment-3col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+
+.phase-guide { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+
+.phase-card { border: 1px solid var(--border-default); border-radius: 8px; overflow: hidden; transition: all 0.2s; opacity: 0.65; }
+
+.phase-card.active { opacity: 1; box-shadow: 0 0 0 2px var(--el-color-primary); transform: translateY(-1px); }
+
+.phase-header { display: flex; align-items: center; gap: 4px; padding: 6px 8px; font-size: 12px; }
+
+.phase-icon { font-size: 16px; }
+
+.phase-name { font-weight: 700; font-size: 13px; }
+
+.phase-range { margin-left: auto; color: var(--text-tertiary); font-size: 10px; }
+
+.phase-body { padding: 6px 8px; }
+
+.phase-row { display: flex; justify-content: space-between; font-size: 11px; padding: 2px 0; }
+
+.phase-label { color: var(--text-tertiary); }
+
+.phase-val { color: var(--text-primary); font-weight: 500; }
+
+.downgrade-rules { display: flex; flex-direction: column; gap: 4px; }
+
+.dg-rule { display: flex; align-items: center; gap: 6px; padding: 4px 10px; font-size: 11px; background: var(--bg-elevated); border-radius: 4px; border: 1px solid var(--border-default); }
+
+.dg-from, .dg-to { font-weight: 700; min-width: 28px; }
+
+.dg-arrow { color: var(--text-quaternary); }
+
+.dg-action { color: var(--el-color-warning); font-weight: 600; min-width: 60px; }
+
+.dg-desc { color: var(--text-tertiary); }
+
+.rec-warn-section { display: flex; flex-direction: column; gap: 8px; }
+
+.rw-card { padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border-default); }
+
+.rw-card.rw-rec { background: rgba(64,158,255,0.06); border-color: rgba(64,158,255,0.2); }
+
+.rw-card.rw-strat { background: rgba(103,194,58,0.06); border-color: rgba(103,194,58,0.2); }
+
+.rw-card.rw-warn { background: rgba(245,108,108,0.06); border-color: rgba(245,108,108,0.2); }
+
+.rw-card.rw-caution { background: rgba(230,162,60,0.06); border-color: rgba(230,162,60,0.2); }
+
+.rw-title { font-weight: 700; font-size: 13px; margin-bottom: 4px; }
+
+.rw-content { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
+
+.algo-info { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+.algo-section { border: 1px solid var(--border-default); border-radius: 8px; overflow: hidden; }
+
+.algo-title { font-weight: 700; font-size: 12px; padding: 6px 10px; background: var(--bg-elevated); border-bottom: 1px solid var(--border-default); }
+
+.algo-body { padding: 8px 10px; font-size: 11px; color: var(--text-secondary); line-height: 1.6; }
+</style>

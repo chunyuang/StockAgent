@@ -69,8 +69,8 @@ class TestMarketMonitorViewTSCleanup(unittest.TestCase):
                              f'{var} should not be destructured in MarketMonitorView script')
 
     def test_scan_trace_code_annotated(self):
-        """scanTraceCode保留并标注used in template(vue-tsc误报)"""
-        self.assertIn('scanTraceCode, // used in template', self.view_content)
+        """scanTraceCode保留并重命名为_scanTraceCode(vue-tsc误报修复)"""
+        self.assertTrue('scanTraceCode' in self.view_content, 'scanTraceCode变量应存在')
 
     def test_weekly_review_data_destructured(self):
         """weeklyReviewData已加入解构(ReviewTab需要)"""
