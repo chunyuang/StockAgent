@@ -61,10 +61,8 @@ const {
   openEditDialog, factorLabel,
   // scanTrace/layerDebug/signalStatus/formatLayerTrace/formatDecisionDetail
   // are accessed by ScanTraceTab via inject; not needed in this template
-  // but compareVisible/compareData/dailyReportVisible/dailyReport/weeklyReportVisible
-  // are passed as ReviewTab props
+  // compareVisible/compareData passed as ReviewTab props
   compareVisible, compareData,
-  dailyReportVisible, dailyReport, weeklyReportVisible,
   openScanTrace,
   reviewDate, reviewHero, reviewForward,
   backtestRunning, liveBacktestDiff, executionQuality,
@@ -380,6 +378,7 @@ const {
       :dailyReportVisible="dailyReportVisible" :dailyReport="dailyReport"
       :weeklyReportVisible="weeklyReportVisible"
       @update:reviewTab="reviewTab = $event as 'daily' | 'weekly' | 'monthly'" @update:reviewDate="reviewDate = $event"
+      @update:compareVisible="compareVisible = $event" @update:dailyReportVisible="dailyReportVisible = $event" @update:weeklyReportVisible="weeklyReportVisible = $event"
       @fetchReviewData="fetchReviewData" @runBacktest="runBacktest"
       @saveParamSnapshot="saveParamSnapshot"
     />

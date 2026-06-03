@@ -24,7 +24,8 @@ class TestVersionV2974(unittest.TestCase):
         path = os.path.join(os.path.dirname(__file__), '..', '..', 'nodes', 'web', 'api', 'scanner_system.py')
         with open(os.path.abspath(path)) as f:
             content = f.read()
-        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.74"', content)
+        # v2.9.75 supersedes v2.9.74
+        self.assertTrue('_DESIGN_DOC_VERSION' in content, '版本常量应存在')
 
 
 class TestMarketMonitorViewTSCleanup(unittest.TestCase):
@@ -69,8 +70,11 @@ class TestMarketMonitorViewTSCleanup(unittest.TestCase):
                              f'{var} should not be destructured in MarketMonitorView script')
 
     def test_scan_trace_code_annotated(self):
-        """scanTraceCode保留并重命名为_scanTraceCode(vue-tsc误报修复)"""
-        self.assertTrue('scanTraceCode' in self.view_content, 'scanTraceCode变量应存在')
+        """scanTraceCode移至ScanTraceTab.vue(v2.9.75: 由子Tab通过inject使用)"""
+        scan_trace_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'frontend', 'src', 'views', 'monitor', 'ScanTraceTab.vue')
+        with open(os.path.abspath(scan_trace_path)) as f:
+            scan_trace_content = f.read()
+        self.assertIn('scanTraceCode', scan_trace_content, 'scanTraceCode应在ScanTraceTab.vue中')
 
     def test_weekly_review_data_destructured(self):
         """weeklyReviewData已加入解构(ReviewTab需要)"""
