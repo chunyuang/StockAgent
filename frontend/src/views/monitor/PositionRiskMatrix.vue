@@ -5,7 +5,13 @@
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { api } from '@/api/client'
+import { use } from 'echarts/core'
+import { CanvasRenderer } from 'echarts/renderers'
+import { PieChart, GaugeChart } from 'echarts/charts'
+import { TitleComponent, TooltipComponent, LegendComponent } from 'echarts/components'
 import VChart from 'vue-echarts'
+
+use([CanvasRenderer, PieChart, GaugeChart, TitleComponent, TooltipComponent, LegendComponent])
 
 interface RiskPosition {
   ts_code: string; stock_name: string; strategy_name: string; industry: string
@@ -33,7 +39,7 @@ async function fetchData() {
       positions.value = r.data?.positions || []
       globalRisk.value = r.data?.global || null
     }
-  } catch { } finally { loading.value = false }
+  } catch (e) { console.error('[PositionRiskMatrix] fetch error:', e) } finally { loading.value = false }
 }
 
 function riskColor(score: number): string {
@@ -130,7 +136,7 @@ onUnmounted(() => clearInterval(timer))
           <span class="rm-rc crit">🔴 {{ (globalRisk?.risk_summary?.critical || 0) }}</span>
         </div>
       </div>
-      <div class="rm-industry" v-if="Object.keys(globalRisk.industry_exposure || {}).length > 1">
+      <div class="rm-industry" v-if="Object.keys(globalRisk?.industry_exposure || {}).length > 1">
         <VChart :option="industryOption" autoresize style="height:80px;width:100%" />
       </div>
     </div>
