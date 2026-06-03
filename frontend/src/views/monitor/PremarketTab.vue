@@ -5,7 +5,7 @@
  * 【v2.9.74: 从MarketMonitorView提取(254行)】
  * 【v2.9.75: 提取计算属性, 消除TS7006/TS7053错误】
  */
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useScannerMonitorInject } from './scannerMonitorInject'
 import { ElButton, ElTag } from 'element-plus'
 
@@ -30,6 +30,13 @@ const executedCount = computed(() =>
 const blockedCount = computed(() =>
   (premarketCandidates.value as any[]).filter((c: any) => c.signal_status === 'blocked' || c.signal_status === 'skipped').length
 )
+
+// 非交易时间自动加载最近交易日盘前数据
+onMounted(() => {
+  if (premarketStatus.value === 'off' && !premarketDebugMode.value) {
+    fetchPremarketData()
+  }
+})
 </script>
 
 <template>
@@ -40,7 +47,7 @@ const blockedCount = computed(() =>
         <div class="pm-status-icon">{{ premarketStatus === 'active' ? '🔴' : premarketStatus === 'ended' ? '✅' : premarketStatus === 'waiting' ? '⏳' : premarketStatus === 'debug' ? '🧪' : '💤' }}</div>
         <div class="pm-status-text">
           <div class="pm-status-title">{{ ({active: '竞价进行中', ended: '竞价已结束', waiting: '等待竞价(9:15)', debug: '🧪 调试预选模式', off: '非交易时间'} as Record<string, string>)[premarketStatus as string] }} <span v-if="premarketDebugMode" class="pm-debug-badge">SIM</span></div>
-          <div class="pm-status-sub">{{ premarketDebugMode ? '日级因子模拟 · 不影响实盘' : premarketCandidates.length + '只候选 · ' + premarketStrategyGroups.length + '个策略' }}</div>
+          <div class="pm-status-sub">{{ premarketDebugMode ? '最近交易日数据 · 不影响实盘' : premarketCandidates.length + '只候选 · ' + premarketStrategyGroups.length + '个策略' }}</div>
         </div>
         <div class="pm-status-actions">
           <ElButton size="small" @click="fetchPremarketData">🔄</ElButton>
@@ -204,8 +211,8 @@ const blockedCount = computed(() =>
         </div>
         <div v-if="!premarketStrategyGroups.length" class="pm-empty-state">
           <div class="pm-empty-icon">📋</div>
-          <div class="pm-empty-text">{{ premarketDebugMode ? '无日级因子数据，请启动扫描器后再试' : '9:00后自动生成盘前预选' }}</div>
-          <div class="pm-empty-hint">{{ premarketDebugMode ? '调试模式使用daily_factors_df模拟策略扫描' : 'Scanner启动后，竞价阶段自动扫描全市场候选' }}</div>
+          <div class="pm-empty-text">{{ premarketDebugMode ? '无日级因子数据，请启动扫描器后再试' : '非交易时间自动显示最近交易日盘前数据' }}</div>
+          <div class="pm-empty-hint">{{ premarketDebugMode ? '调试模式使用daily_factors_df模拟策略扫描' : '竞价期间(9:15-9:25)自动切换为实时数据' }}</div>
         </div>
       </div>
 
