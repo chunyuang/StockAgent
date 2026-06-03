@@ -26,4 +26,12 @@ app.use(ElementPlus, { locale: zhCn })
 
 // ==================== 挂载 ====================
 
+// 全局错误处理器 - 捕获组件渲染错误
+app.config.errorHandler = (err, instance, info) => {
+  console.error('[Vue Error]', info, err)
+  // 写到全局变量方便调试
+  window.__vueErrors = window.__vueErrors || []
+  window.__vueErrors.push({ info: String(info), error: String(err), stack: err?.stack?.substring(0, 200) })
+}
+
 app.mount('#app')

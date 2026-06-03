@@ -108,8 +108,8 @@ const emit = defineEmits<{
           </div>
         </div>
 
-        <div class="st" style="margin-top:12px">📝 逐笔归因 <span style="font-weight:normal;font-size:11px;color:var(--text-tertiary)">({{ tradeAttributions.length }}笔)</span></div>
-        <div v-if="!tradeAttributions.length" class="empty">暂无交易数据</div>
+        <div class="st" style="margin-top:12px">📝 逐笔归因 <span style="font-weight:normal;font-size:11px;color:var(--text-tertiary)">({{ (tradeAttributions?.length || 0) }}笔)</span></div>
+        <div v-if="!(tradeAttributions?.length || 0)" class="empty">暂无交易数据</div>
         <div v-for="t in tradeAttributions" :key="t.ts_code + t.sell_time" class="attribution-card" :class="t.profit_pct >= 0 ? 'attr-profit' : 'attr-loss'">
           <div class="attr-top">
             <ElTag size="small" :color="strategyMeta[t.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(t.strategy) }}</ElTag>
@@ -128,14 +128,14 @@ const emit = defineEmits<{
 
         <div class="st" style="margin-top:12px">📡 扫描漏斗</div>
         <div v-if="dailyReportData?.scanner_stats" class="review-scan-stats">
-          <div class="rss-row"><span class="rss-label">扫描次数</span><span class="rss-value">{{ dailyReportData.scanner_stats.scan_count || 0 }}次</span></div>
-          <div class="rss-row"><span class="rss-label">发现信号</span><span class="rss-value up">{{ dailyReportData.scanner_stats.total_signals || 0 }}只</span></div>
-          <div class="rss-row"><span class="rss-label">实际买入</span><span class="rss-value">{{ dailyReportData.scanner_stats.buy_count || 0 }}笔</span></div>
-          <div class="rss-row"><span class="rss-label">实际卖出</span><span class="rss-value">{{ dailyReportData.scanner_stats.sell_count || 0 }}笔</span></div>
+          <div class="rss-row"><span class="rss-label">扫描次数</span><span class="rss-value">{{ (dailyReportData?.scanner_stats?.scan_count || 0) || 0 }}次</span></div>
+          <div class="rss-row"><span class="rss-label">发现信号</span><span class="rss-value up">{{ (dailyReportData?.scanner_stats?.total_signals || 0) || 0 }}只</span></div>
+          <div class="rss-row"><span class="rss-label">实际买入</span><span class="rss-value">{{ (dailyReportData?.scanner_stats?.buy_count || 0) || 0 }}笔</span></div>
+          <div class="rss-row"><span class="rss-label">实际卖出</span><span class="rss-value">{{ (dailyReportData?.scanner_stats?.sell_count || 0) || 0 }}笔</span></div>
         </div>
         <div v-if="dailyReportData?.sentiment_snapshot" class="review-sentiment-snap">
           <span style="font-weight:600">🌡️ 情绪快照</span>
-          <span>{{ dailyReportData.sentiment_snapshot }}</span>
+          <span>{{ (dailyReportData?.sentiment_snapshot || "") }}</span>
         </div>
       </template>
 
@@ -143,13 +143,13 @@ const emit = defineEmits<{
       <template v-if="reviewTab === 'weekly' && weeklyReportData">
         <div class="review-summary-cards">
           <div class="rsc"><div class="rsc-label">周收益</div><div class="rsc-value" :class="weeklyReportData.weekly_profit >= 0 ? 'up' : 'down'">¥{{ weeklyReportData.weekly_profit?.toFixed(0) }}</div></div>
-          <div class="rsc"><div class="rsc-label">周胜率</div><div class="rsc-value">{{ weeklyReportData.win_rate }}%</div></div>
-          <div class="rsc"><div class="rsc-label">交易</div><div class="rsc-value">{{ weeklyReportData.total_trades }}笔</div></div>
+          <div class="rsc"><div class="rsc-label">周胜率</div><div class="rsc-value">{{ (weeklyReportData?.win_rate || 0) }}%</div></div>
+          <div class="rsc"><div class="rsc-label">交易</div><div class="rsc-value">{{ (weeklyReportData?.total_trades || 0) }}笔</div></div>
         </div>
-        <div v-if="weeklyReportData.daily_breakdown" class="st" style="margin-top:12px">📅 逐日明细</div>
-        <div v-if="weeklyReportData.daily_breakdown" class="weekly-daily-table">
+        <div v-if="(weeklyReportData?.daily_breakdown)" class="st" style="margin-top:12px">📅 逐日明细</div>
+        <div v-if="(weeklyReportData?.daily_breakdown)" class="weekly-daily-table">
           <div class="wdt-header"><span>日期</span><span>盈亏</span><span>交易</span><span>胜率</span><span>情绪</span></div>
-          <div v-for="d in weeklyReportData.daily_breakdown" :key="d.date" class="wdt-row">
+          <div v-for="d in (weeklyReportData?.daily_breakdown)" :key="d.date" class="wdt-row">
             <span>{{ d.date }}</span>
             <span :class="d.profit >= 0 ? 'up' : 'down'">{{ d.profit >= 0 ? '+' : '' }}¥{{ d.profit?.toFixed(0) }}</span>
             <span>{{ d.trades }}笔</span>
@@ -170,7 +170,7 @@ const emit = defineEmits<{
             <div class="rsc"><div class="rsc-label">连亏</div><div class="rsc-value">-</div></div>
           </div>
           <div class="st" style="margin-top:12px">📈 偏差趋势(近4周)</div>
-          <div v-if="monthlyReviewData.weekly_trend?.length" class="deviation-trend-chart">
+          <div v-if="(monthlyReviewData?.weekly_trend?.length || 0)" class="deviation-trend-chart">
             <div class="trend-axis">
               <div v-for="w in monthlyReviewData.weekly_trend" :key="w.week" class="trend-col">
                 <div class="trend-bar" :style="{height: Math.min(w.win_rate, 100) + '%', background: w.win_rate >= 60 ? 'var(--color-up)' : w.win_rate >= 40 ? 'var(--color-warn, #e6a23c)' : 'var(--color-down)'}">
@@ -188,7 +188,7 @@ const emit = defineEmits<{
             <div class="dev-card"><div class="dev-title">❄️ 冰点期开仓率</div><div class="dev-row"><span>冰点买入占比</span><span :class="monthlyReviewData.behavior_drift?.bearish_period_buy_ratio >= 30 ? 'down' : 'up'">{{ monthlyReviewData.behavior_drift?.bearish_period_buy_ratio || 0 }}%</span></div><div class="dev-row"><span>冰点/总买入</span><span>{{ monthlyReviewData.behavior_drift?.bearish_buys || 0 }}/{{ monthlyReviewData.behavior_drift?.total_buys || 0 }}笔</span></div></div>
           </div>
           <div class="st" style="margin-top:12px">🗓️ 日历热力图</div>
-          <div v-if="monthlyReviewData.daily_breakdown?.length" class="calendar-heatmap">
+          <div v-if="(monthlyReviewData?.daily_breakdown?.length || 0)" class="calendar-heatmap">
             <div v-for="d in monthlyReviewData.daily_breakdown" :key="d.date" class="cal-cell" :class="d.pnl > 0 ? 'cal-up' : d.pnl < 0 ? 'cal-down' : 'cal-neutral'">
               <div class="cal-date">{{ d.date?.slice(-2) }}</div>
               <div class="cal-pnl">{{ d.pnl >= 0 ? '+' : '' }}{{ d.pnl }}%</div>
@@ -198,7 +198,7 @@ const emit = defineEmits<{
           <div v-else class="empty">无逐日数据</div>
           <div class="st" style="margin-top:12px">🎯 策略月度贡献</div>
           <div class="strategy-stacked">
-            <div v-for="(data, key) in monthlyReviewData.strategy_stats || {}" :key="key" class="stacked-bar" :style="{width: Math.max(Math.abs(data.pnl), 5) + '%', background: data.pnl >= 0 ? 'var(--color-up)' : 'var(--color-down)'}">
+            <div v-for="(data, key) in (monthlyReviewData?.strategy_stats) || {}" :key="key" class="stacked-bar" :style="{width: Math.max(Math.abs(data.pnl), 5) + '%', background: data.pnl >= 0 ? 'var(--color-up)' : 'var(--color-down)'}">
               <span class="stacked-label">{{ strategyCN(key) }}</span>
               <span class="stacked-val">{{ data.pnl >= 0 ? '+' : '' }}{{ data.pnl }}%</span>
             </div>
@@ -286,8 +286,8 @@ const emit = defineEmits<{
 
       <div class="review-2col" style="margin-top:12px">
         <div class="sentiment-panel">
-          <div class="st">🔍 纪律检查<span v-if="disciplineCheck" style="font-weight:normal;font-size:11px;margin-left:6px" :class="disciplineCheck.execution_rate >= 80 ? 'up' : disciplineCheck.execution_rate >= 60 ? '' : 'down'"> 执行正确率 {{ disciplineCheck.execution_rate }}%</span></div>
-          <div v-if="disciplineCheck && disciplineCheck.violations.length" class="violations-list"><div v-for="(v, i) in disciplineCheck.violations" :key="i" class="violation-item" :class="'sev-' + v.severity"><span class="v-icon">{{ v.severity === 'high' ? '🔴' : '🟡' }}</span><span class="v-type">{{ v.violation }}</span><span class="v-detail">{{ v.detail }}</span></div></div>
+          <div class="st">🔍 纪律检查<span v-if="disciplineCheck" style="font-weight:normal;font-size:11px;margin-left:6px" :class="(disciplineCheck?.execution_rate || 0) >= 80 ? 'up' : (disciplineCheck?.execution_rate || 0) >= 60 ? '' : 'down'"> 执行正确率 {{ (disciplineCheck?.execution_rate || 0) }}%</span></div>
+          <div v-if="disciplineCheck && (disciplineCheck?.violations?.length || 0)" class="violations-list"><div v-for="(v, i) in disciplineCheck.violations" :key="i" class="violation-item" :class="'sev-' + v.severity"><span class="v-icon">{{ v.severity === 'high' ? '🔴' : '🟡' }}</span><span class="v-type">{{ v.violation }}</span><span class="v-detail">{{ v.detail }}</span></div></div>
           <div v-else-if="disciplineCheck" class="empty" style="padding:8px 0;color:#67c23a">✅ 无违规交易</div>
           <div v-else class="empty" style="padding:8px 0">无数据</div>
         </div>
@@ -304,9 +304,9 @@ const emit = defineEmits<{
       </div>
 
       <div class="st" style="margin-top:12px">📊 实盘 vs 回测偏差
-        <ElButton v-if="!liveBacktestDiff.length" size="small" type="primary" @click="emit('runBacktest')" :loading="backtestRunning" style="margin-left:8px">▶️ 运行回测</ElButton>
+        <ElButton v-if="!(liveBacktestDiff?.length || 0)" size="small" type="primary" @click="emit('runBacktest')" :loading="backtestRunning" style="margin-left:8px">▶️ 运行回测</ElButton>
       </div>
-      <div v-if="liveBacktestDiff.length" class="lb-table">
+      <div v-if="(liveBacktestDiff?.length || 0)" class="lb-table">
         <div class="lb-header"><span>策略</span><span>实盘交易</span><span>实盘胜率</span><span>回测胜率</span><span>偏差</span></div>
         <div v-for="c in liveBacktestDiff" :key="c.strategy" class="lb-row"><span class="code">{{ strategyCN(c.strategy) }}</span><span>{{ c.live_trades }}笔</span><span>{{ c.live_win_rate }}%</span><span>{{ c.bt_win_rate }}%</span><span :class="Math.abs(c.live_win_rate - c.bt_win_rate) > 15 ? 'down' : 'up'">{{ (c.live_win_rate - c.bt_win_rate).toFixed(1) }}%</span></div>
       </div>

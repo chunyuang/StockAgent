@@ -71,11 +71,11 @@ const industryOption = computed(() => {
 
 // 风险仪表盘
 const gaugeOption = computed(() => {
-  const g = globalRisk.value
+  const g = globalRisk.value || {}
   if (!g) return {}
-  const critical = g.risk_summary.critical
-  const warning = g.risk_summary.warning
-  const total = g.position_count
+  const critical = (g.risk_summary?.critical || 0)
+  const warning = (g.risk_summary?.warning || 0)
+  const total = (g.position_count || 0)
   const score = total > 0 ? Math.round((critical * 100 + warning * 50) / total) : 0
   return {
     series: [{
@@ -110,11 +110,11 @@ onUnmounted(() => clearInterval(timer))
       <div class="rm-stats">
         <div class="rm-stat">
           <span class="rm-label">仓位</span>
-          <span class="rm-val">{{ globalRisk.position_ratio }}%</span>
+          <span class="rm-val">{{ (globalRisk?.position_ratio || 0) }}%</span>
         </div>
         <div class="rm-stat">
           <span class="rm-label">现金</span>
-          <span class="rm-val">{{ globalRisk.cash_ratio }}%</span>
+          <span class="rm-val">{{ (globalRisk?.cash_ratio || 0) }}%</span>
         </div>
         <div class="rm-stat">
           <span class="rm-label">集中度</span>
@@ -122,12 +122,12 @@ onUnmounted(() => clearInterval(timer))
         </div>
         <div class="rm-stat">
           <span class="rm-label">行业集中</span>
-          <span class="rm-val">{{ globalRisk.top_industry_concentration }}%</span>
+          <span class="rm-val">{{ (globalRisk?.top_industry_concentration || 0) }}%</span>
         </div>
         <div class="rm-risk-counts">
-          <span class="rm-rc ok">🟢 {{ globalRisk.risk_summary.normal }}</span>
-          <span class="rm-rc warn">🟡 {{ globalRisk.risk_summary.warning }}</span>
-          <span class="rm-rc crit">🔴 {{ globalRisk.risk_summary.critical }}</span>
+          <span class="rm-rc ok">🟢 {{ (globalRisk?.risk_summary?.normal || 0) }}</span>
+          <span class="rm-rc warn">🟡 {{ (globalRisk?.risk_summary?.warning || 0) }}</span>
+          <span class="rm-rc crit">🔴 {{ (globalRisk?.risk_summary?.critical || 0) }}</span>
         </div>
       </div>
       <div class="rm-industry" v-if="Object.keys(globalRisk.industry_exposure || {}).length > 1">
@@ -142,7 +142,7 @@ onUnmounted(() => clearInterval(timer))
       </div>
       <div v-for="p in positions" :key="p.ts_code" class="rm-row" :style="{ borderLeftColor: riskColor(p.risk_score) }">
         <div class="rm-cell rm-cell-name">
-          <span class="rm-code">{{ p.ts_code.slice(0, 6) }}</span>
+          <span class="rm-code">{{ (p.ts_code || "").slice(0, 6) }}</span>
           <span class="rm-sname">{{ p.stock_name }}</span>
           <span class="rm-ind-tag">{{ p.industry }}</span>
         </div>

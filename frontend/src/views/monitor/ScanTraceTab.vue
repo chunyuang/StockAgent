@@ -4,6 +4,7 @@
  * 从 MarketMonitorView provide/inject 获取composable数据
  * 【v2.9.74: 从MarketMonitorView提取(86行)】
  */
+import { onMounted } from 'vue'
 import { useScannerMonitorInject } from './scannerMonitorInject'
 import { ElButton, ElDatePicker, ElTag } from 'element-plus'
 
@@ -18,12 +19,16 @@ const {
   // v2.9.75: 补齐模板使用但未解构的变量
   layerDebugVisible, layerDebugData, scanTraceVisible, scanTraceData,
   signalStatusTag, formatLayerTrace, formatDecisionDetail, factorLabel,
+  fetchScanTraceDates,
 } = m
 
 // v2.9.75: scanTraceCode — vue-tsc TS6133 false positive with inject pattern;
 // use void expression to suppress, template uses {{ scanTraceCode }} directly from m
 void (m as any).scanTraceCode // force binding for template
 const scanTraceCode = (m as any).scanTraceCode
+
+// 挂载时自动加载日期数据(用于日期选择器高亮)
+onMounted(() => { fetchScanTraceDates() })
 </script>
 
 <template>
