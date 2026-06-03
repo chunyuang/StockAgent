@@ -22,7 +22,7 @@ from core.managers import (
     mongo_manager,
 )
 
-from .api import auth_router, user_router, task_router, stock_router, subscription_router, backtest_router, trading_router, system_router, scheduler_router, scanner_router, strategy_config_router, datasource_router
+from .api import auth_router, user_router, task_router, stock_router, subscription_router, backtest_router, trading_router, system_router, scheduler_router, scanner_router, strategy_config_router, datasource_router, factor_router
 from .websocket import websocket_router
 
 
@@ -233,6 +233,7 @@ def create_app() -> FastAPI:
     app.include_router(scanner_router, prefix="/api/v1", tags=["市场监听"])
     app.include_router(strategy_config_router, tags=["策略配置"])
     app.include_router(datasource_router, prefix="/api/v1", tags=["数据源管理"])
+    app.include_router(factor_router, prefix="/api/v1", tags=["因子管理"])
     from .api.admin_db import router as admin_db_router
     app.include_router(admin_db_router, prefix="/api/v1", tags=["数据库管理"])
 
