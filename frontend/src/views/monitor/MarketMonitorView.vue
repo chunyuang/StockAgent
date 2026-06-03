@@ -59,11 +59,13 @@ const {
   wsStatus, wsIsConnected, wsRetryCount,
   stratCollapsed, stratSectionCollapsed, toggleStrat, toggleStrategy,
   openEditDialog, factorLabel,
-  scanTraceVisible, scanTraceData, scanTraceCode,
-  layerDebugVisible, layerDebugData,
+  // scanTrace/layerDebug/signalStatus/formatLayerTrace/formatDecisionDetail
+  // are accessed by ScanTraceTab via inject; not needed in this template
+  // but compareVisible/compareData/dailyReportVisible/dailyReport/weeklyReportVisible
+  // are passed as ReviewTab props
   compareVisible, compareData,
-  openScanTrace, signalStatusTag,
-  formatLayerTrace, formatDecisionDetail,
+  dailyReportVisible, dailyReport, weeklyReportVisible,
+  openScanTrace,
   reviewDate, reviewHero, reviewForward,
   backtestRunning, liveBacktestDiff, executionQuality,
   tradeAttributions, paramDriftData, factorEffectData,
@@ -374,6 +376,9 @@ const {
       :factorEffectData="factorEffectData" :disciplineCheck="disciplineCheck"
       :executionQuality="executionQuality" :liveBacktestDiff="liveBacktestDiff"
       :backtestRunning="backtestRunning"
+      :compareVisible="compareVisible" :compareData="compareData"
+      :dailyReportVisible="dailyReportVisible" :dailyReport="dailyReport"
+      :weeklyReportVisible="weeklyReportVisible"
       @update:reviewTab="reviewTab = $event as 'daily' | 'weekly' | 'monthly'" @update:reviewDate="reviewDate = $event"
       @fetchReviewData="fetchReviewData" @runBacktest="runBacktest"
       @saveParamSnapshot="saveParamSnapshot"

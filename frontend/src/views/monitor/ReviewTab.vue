@@ -32,6 +32,12 @@ defineProps<{
   executionQuality: any
   liveBacktestDiff: any[]
   backtestRunning: boolean
+  // v2.9.75: 补齐模板使用但缺失的props
+  compareVisible: boolean
+  compareData: any[]
+  dailyReportVisible: boolean
+  dailyReport: any
+  weeklyReportVisible: boolean
 }>()
 
 const emit = defineEmits<{
