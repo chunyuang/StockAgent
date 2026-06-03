@@ -35,9 +35,12 @@ export function useScanTraceMonitor() {
   // ==================== API ====================
   async function fetchScanTraceDates() {
     try {
-      const r = await api.get(`${scannerApi}/scan-dates`)
+      const r = await api.get(`${scannerApi}/scan-dates`, { timeout: 10000 })
       const p = parseResponse(r)
-      if (p.success) scanTraceDates.value = p.data || []
+      if (p.success && p.data?.length) {
+        scanTraceDates.value = p.data || []
+        scanTraceHasData.value = p.data  // [{date, count, is_debug}]
+      }
     } catch { /* ignore */ }
   }
 
@@ -134,8 +137,18 @@ export function useScanTraceMonitor() {
   const scanTraceData = computed(() => scanTraceDetail.value)
   const scanTraceCode = computed(() => scanTraceDetail.value?.ts_code || '')
 
+  const scanTraceHasData = ref<any[]>([])  // 有扫描数据的日期列表
+
   function switchScanTraceFilter(f: string) { scanTraceFilter.value = f }
-  function scanDateCellClass(_date: string) { return '' }
+  function scanDateCellClass(date: Date) {
+    const y = date.getFullYear()
+    const m = String(date.getMonth() + 1).padStart(2, '0')
+    const d = String(date.getDate()).padStart(2, '0')
+    const key = `${y}${m}${d}`
+    const item = scanTraceHasData.value.find((x: any) => x.date === key)
+    if (!item) return ''
+    return item.is_debug ? 'has-scan-debug' : 'has-scan-data'
+  }
   function rejectionLayerCN(layer: string) { return layer }
 
   return {
@@ -144,6 +157,7 @@ export function useScanTraceMonitor() {
     scanTraceDate, scanTraceFilter, scanTraceLoadingMore,
     selectedScanIdx, scanHistory, scanHistoryByHour, scanHistoryLoading,
     layerDebugVisible, layerDebugData, layerDebugLoading,
+    scanTraceHasData,
     // 兼容
     scanTraceVisible, scanTraceData, scanTraceCode,
     // 方法

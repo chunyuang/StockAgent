@@ -210,14 +210,14 @@ function dailyHoverBottom(): number {
           <div v-if="sentimentLive" class="sl-content">
             <div class="sl-gauge">
               <div class="sl-gauge-bar">
-                <div class="sl-gauge-fill" :style="{ width: sentimentLive.score + '%', background: sentimentLive.score >= 70 ? '#f56c6c' : sentimentLive.score >= 55 ? '#409eff' : sentimentLive.score >= 40 ? '#e6a23c' : '#67c23a' }"></div>
+                <div class="sl-gauge-fill" :style="{ width: (sentimentLive?.score || 0) + '%', background: (sentimentLive?.score || 0) >= 70 ? '#f56c6c' : (sentimentLive?.score || 0) >= 55 ? '#409eff' : (sentimentLive?.score || 0) >= 40 ? '#e6a23c' : '#67c23a' }"></div>
               </div>
               <div class="sl-score-labels"><span>0 冰点</span><span>40 震荡</span><span>55 分化</span><span>70 高潮</span><span>100</span></div>
             </div>
-            <div class="sl-row"><span>情绪分</span><span class="sl-val" :style="{ color: sentimentLive.score >= 70 ? '#f56c6c' : sentimentLive.score >= 55 ? '#409eff' : sentimentLive.score >= 40 ? '#e6a23c' : '#67c23a' }">{{ sentimentLive.score?.toFixed(0) }}</span></div>
-            <div class="sl-row"><span>周期</span><span class="sl-val">{{ sentimentLive.period_label }}</span></div>
-            <div class="sl-row"><span>仓位系数</span><span class="sl-val">{{ (sentimentLive.position_ratio * 100).toFixed(0) }}%</span></div>
-            <div class="sl-row"><span>允许开仓</span><span class="sl-val" :style="{ color: sentimentLive.position_ratio > 0 ? '#67c23a' : '#f56c6c' }">{{ sentimentLive.position_ratio > 0 ? '✅ 是' : '❌ 否' }}</span></div>
+            <div class="sl-row"><span>情绪分</span><span class="sl-val" :style="{ color: (sentimentLive?.score || 0) >= 70 ? '#f56c6c' : (sentimentLive?.score || 0) >= 55 ? '#409eff' : (sentimentLive?.score || 0) >= 40 ? '#e6a23c' : '#67c23a' }">{{ (sentimentLive?.score || 0)?.toFixed(0) }}</span></div>
+            <div class="sl-row"><span>周期</span><span class="sl-val">{{ (sentimentLive?.period_label || "") }}</span></div>
+            <div class="sl-row"><span>仓位系数</span><span class="sl-val">{{ ((sentimentLive?.position_ratio || 0) * 100).toFixed(0) }}%</span></div>
+            <div class="sl-row"><span>允许开仓</span><span class="sl-val" :style="{ color: (sentimentLive?.position_ratio || 0) > 0 ? '#67c23a' : '#f56c6c' }">{{ (sentimentLive?.position_ratio || 0) > 0 ? '✅ 是' : '❌ 否' }}</span></div>
           </div>
           <div v-else class="empty" style="padding:8px 0">无数据</div>
         </div>
@@ -225,13 +225,13 @@ function dailyHoverBottom(): number {
         <div class="sentiment-panel">
           <div class="st">📊 市场全景</div>
           <div v-if="sentimentLive" class="sl-content">
-            <div class="sl-row"><span>涨停</span><span class="sl-val up">{{ sentimentLive.limit_up_count }}</span></div>
-            <div class="sl-row"><span>跌停</span><span class="sl-val down">{{ sentimentLive.limit_down_count }}</span></div>
+            <div class="sl-row"><span>涨停</span><span class="sl-val up">{{ (sentimentLive?.limit_up_count || 0) }}</span></div>
+            <div class="sl-row"><span>跌停</span><span class="sl-val down">{{ (sentimentLive?.limit_down_count || 0) }}</span></div>
             <div class="sl-row"><span>炸板率</span><span class="sl-val" :style="{ color: sentimentLive.broken_rate > 30 ? '#f56c6c' : 'var(--text-primary)' }">{{ sentimentLive.broken_rate?.toFixed(1) }}%</span></div>
-            <div class="sl-row"><span>炸板数</span><span class="sl-val">{{ sentimentLive.broken_count }}</span></div>
-            <div v-if="sentimentLive.board_distribution && Object.keys(sentimentLive.board_distribution).length" class="sl-board">
+            <div class="sl-row"><span>炸板数</span><span class="sl-val">{{ (sentimentLive?.broken_count || 0) }}</span></div>
+            <div v-if="(sentimentLive?.board_distribution || {}) && Object.keys((sentimentLive?.board_distribution || {})).length" class="sl-board">
               <span style="color:var(--text-tertiary);font-size:11px">连板分布</span>
-              <div v-for="(cnt, times) in sentimentLive.board_distribution" :key="times" class="sl-board-item">
+              <div v-for="(cnt, times) in (sentimentLive?.board_distribution || {})" :key="times" class="sl-board-item">
                 <span class="sl-board-n">{{ times }}板</span><span class="sl-board-c">{{ cnt }}</span>
               </div>
             </div>
@@ -242,8 +242,8 @@ function dailyHoverBottom(): number {
         <div class="sentiment-panel">
           <div class="st">🧮 得分拆解</div>
           <div v-if="sentimentLive" class="sl-content">
-            <div class="sl-row"><span>涨停贡献</span><span class="sl-val">{{ Math.min(30, sentimentLive.limit_up_count) }}/30</span></div>
-            <div class="sl-row"><span>跌停扣分</span><span class="sl-val">{{ Math.max(0, 20 - sentimentLive.limit_down_count * 2) }}/20</span></div>
+            <div class="sl-row"><span>涨停贡献</span><span class="sl-val">{{ Math.min(30, (sentimentLive?.limit_up_count || 0)) }}/30</span></div>
+            <div class="sl-row"><span>跌停扣分</span><span class="sl-val">{{ Math.max(0, 20 - (sentimentLive?.limit_down_count || 0) * 2) }}/20</span></div>
             <div class="sl-row"><span>连板高度</span><span class="sl-val">—/20</span></div>
             <div class="sl-row"><span>涨跌比</span><span class="sl-val">—/15</span></div>
             <div class="sl-row"><span>涨停溢价</span><span class="sl-val">—/15</span></div>
@@ -324,11 +324,11 @@ function dailyHoverBottom(): number {
           <div class="rw-title">🏆 {{ strategyCN(r.strategy) }}</div>
           <div class="rw-content">在 <strong :style="{ color: phaseColors[r.best_period] || 'var(--text-primary)' }">{{ r.best_period }}</strong> 期表现最佳，{{ r.count }}笔 WR{{ r.win_rate }}%</div>
         </div>
-        <div v-if="sentimentLive.score < 40" class="rw-card rw-warn">
+        <div v-if="(sentimentLive?.score || 0) < 40" class="rw-card rw-warn">
           <div class="rw-title">⚠️ 风险警告</div>
           <div class="rw-content">当前情绪冰点，市场极度弱势。建议空仓观望，禁止新开仓。持仓应严格执行止损，亏损标的优先平仓。</div>
         </div>
-        <div v-else-if="sentimentLive.score < 55" class="rw-card rw-caution">
+        <div v-else-if="(sentimentLive?.score || 0) < 55" class="rw-card rw-caution">
           <div class="rw-title">⚡ 震荡提醒</div>
           <div class="rw-content">市场情绪震荡，涨跌分化明显。建议轻仓操作，仅做龙头股低吸，避免追高。严格止损3%。</div>
         </div>

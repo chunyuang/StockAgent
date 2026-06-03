@@ -54,29 +54,29 @@ const blockedCount = computed(() =>
       <div class="pm-overview">
         <div class="pm-ov-card pm-sentiment">
           <div class="pm-ov-label">🌡️ 情绪周期</div>
-          <div class="pm-ov-val" :class="premarketSentiment.score >= 55 ? 'up' : premarketSentiment.score < 40 ? 'down' : ''">
-            {{ premarketSentiment.phase_name || '震荡' }}
-            <span class="pm-ov-sub">{{ premarketSentiment.score }}分</span>
+          <div class="pm-ov-val" :class="(premarketSentiment?.score) >= 55 ? 'up' : (premarketSentiment?.score) < 40 ? 'down' : ''">
+            {{ (premarketSentiment?.phase_name) || '震荡' }}
+            <span class="pm-ov-sub">{{ (premarketSentiment?.score) }}分</span>
           </div>
-          <div class="pm-ov-hint">仓位系数 {{ ((premarketSentiment.position_ratio || 0.5) * 100).toFixed(0) }}%</div>
+          <div class="pm-ov-hint">仓位系数 {{ (((premarketSentiment?.position_ratio) || 0.5) * 100).toFixed(0) }}%</div>
         </div>
         <div class="pm-ov-card">
           <div class="pm-ov-label">📈 涨/跌</div>
           <div class="pm-ov-row">
-            <span class="up">{{ premarketMarketSnapshot.up_count || 0 }}</span>
+            <span class="up">{{ (premarketMarketSnapshot?.up_count) || 0 }}</span>
             <span class="pm-ov-sep">/</span>
-            <span class="down">{{ premarketMarketSnapshot.down_count || 0 }}</span>
+            <span class="down">{{ (premarketMarketSnapshot?.down_count) || 0 }}</span>
           </div>
-          <div class="pm-ov-hint">均幅 {{ (premarketMarketSnapshot.avg_pct_chg || 0).toFixed(2) }}%<span v-if="premarketMarketSnapshot.data_date"> ({{ premarketMarketSnapshot.data_date.slice(4,6) }}/{{ premarketMarketSnapshot.data_date.slice(6,8) }}数据)</span></div>
+          <div class="pm-ov-hint">均幅 {{ ((premarketMarketSnapshot?.avg_pct_chg) || 0).toFixed(2) }}%<span v-if="(premarketMarketSnapshot?.data_date)"> ({{ (premarketMarketSnapshot?.data_date).slice(4,6) }}/{{ (premarketMarketSnapshot?.data_date).slice(6,8) }}数据)</span></div>
         </div>
         <div class="pm-ov-card">
           <div class="pm-ov-label">🔴 涨停/跌停</div>
           <div class="pm-ov-row">
-            <span class="up">{{ premarketMarketSnapshot.limit_up_count || 0 }}</span>
+            <span class="up">{{ (premarketMarketSnapshot?.limit_up_count) || 0 }}</span>
             <span class="pm-ov-sep">/</span>
-            <span class="down">{{ premarketMarketSnapshot.limit_down_count || 0 }}</span>
+            <span class="down">{{ (premarketMarketSnapshot?.limit_down_count) || 0 }}</span>
           </div>
-          <div class="pm-ov-hint">量比>2: {{ premarketMarketSnapshot.volume_ratio_gt2 || 0 }}只</div>
+          <div class="pm-ov-hint">量比>2: {{ (premarketMarketSnapshot?.volume_ratio_gt2) || 0 }}只</div>
         </div>
         <div class="pm-ov-card">
           <div class="pm-ov-label">🎯 信号数</div>
@@ -86,20 +86,20 @@ const blockedCount = computed(() =>
       </div>
 
       <!-- 漏斗+Blocked原因(调试模式) -->
-      <div v-if="premarketDebugMode && (premarketFunnel.total_scanned || Object.keys(premarketBlockedReasons).length)" class="pm-debug-panel">
+      <div v-if="premarketDebugMode && ((premarketFunnel?.total_scanned) || Object.keys(premarketBlockedReasons || {}).length)" class="pm-debug-panel">
         <div class="pm-dp-title">📊 9层漏斗</div>
         <div class="pm-funnel">
-          <div class="pm-funnel-step"><span class="pm-fs-label">全市场</span><span class="pm-fs-val">{{ premarketFunnel.total_scanned || 0 }}</span></div>
+          <div class="pm-funnel-step"><span class="pm-fs-label">全市场</span><span class="pm-fs-val">{{ (premarketFunnel?.total_scanned) || 0 }}</span></div>
           <div class="pm-funnel-arrow">→</div>
-          <div class="pm-funnel-step"><span class="pm-fs-label">策略候选</span><span class="pm-fs-val">{{ premarketFunnel.strategy_candidates || 0 }}</span></div>
+          <div class="pm-funnel-step"><span class="pm-fs-label">策略候选</span><span class="pm-fs-val">{{ (premarketFunnel?.strategy_candidates) || 0 }}</span></div>
           <div class="pm-funnel-arrow">→</div>
-          <div class="pm-funnel-step"><span class="pm-fs-label">9层通过</span><span class="pm-fs-val up">{{ premarketFunnel.after_pipeline || 0 }}</span></div>
+          <div class="pm-funnel-step"><span class="pm-fs-label">9层通过</span><span class="pm-fs-val up">{{ (premarketFunnel?.after_pipeline) || 0 }}</span></div>
           <div class="pm-funnel-arrow">→</div>
-          <div class="pm-funnel-step"><span class="pm-fs-label">blocked</span><span class="pm-fs-val warn">{{ premarketFunnel.blocked || 0 }}</span></div>
+          <div class="pm-funnel-step"><span class="pm-fs-label">blocked</span><span class="pm-fs-val warn">{{ (premarketFunnel?.blocked) || 0 }}</span></div>
           <div class="pm-funnel-arrow">→</div>
-          <div class="pm-funnel-step"><span class="pm-fs-label">已买</span><span class="pm-fs-val" style="color:var(--el-color-success)">{{ premarketFunnel.executed || 0 }}</span></div>
+          <div class="pm-funnel-step"><span class="pm-fs-label">已买</span><span class="pm-fs-val" style="color:var(--el-color-success)">{{ (premarketFunnel?.executed) || 0 }}</span></div>
         </div>
-        <div v-if="Object.keys(premarketBlockedReasons).length" class="pm-blocked-reasons">
+        <div v-if="Object.keys(premarketBlockedReasons || {}).length" class="pm-blocked-reasons">
           <div class="pm-dp-title">🚫 Blocked原因</div>
           <div v-for="(count, reason) in premarketBlockedReasons" :key="reason" class="pm-br-item">
             <span class="pm-br-reason">{{ reason }}</span><span class="pm-br-count">{{ count }}笔</span>
@@ -131,28 +131,28 @@ const blockedCount = computed(() =>
       <!-- 涨停池+连板分布+板块热力 -->
       <div class="pm-zt-section">
         <div class="pm-zt-header">
-          <div class="st">🔴 涨停池 <span class="text-tertiary" style="font-size:10px">({{ premarketLimitPools.up_count || 0 }}只)</span></div>
-          <div class="st">🟢 跌停池 <span class="text-tertiary" style="font-size:10px">({{ premarketLimitPools.down_count || 0 }}只)</span></div>
+          <div class="st">🔴 涨停池 <span class="text-tertiary" style="font-size:10px">({{ (premarketLimitPools?.up_count) || 0 }}只)</span></div>
+          <div class="st">🟢 跌停池 <span class="text-tertiary" style="font-size:10px">({{ (premarketLimitPools?.down_count) || 0 }}只)</span></div>
         </div>
         <div class="pm-zt-body">
-          <div v-if="premarketLimitPools.continue_stats && Object.keys(premarketLimitPools.continue_stats).length" class="pm-continue-bar">
+          <div v-if="(premarketLimitPools?.continue_stats) && Object.keys((premarketLimitPools?.continue_stats)).length" class="pm-continue-bar">
             <span class="pm-cb-label">连板</span>
-            <template v-for="(count, boards) in premarketLimitPools.continue_stats" :key="boards">
+            <template v-for="(count, boards) in (premarketLimitPools?.continue_stats)" :key="boards">
               <span class="pm-cb-item" :class="Number(boards) >= 3 ? 'hot' : ''">{{ boards }}板×{{ count }}</span>
             </template>
           </div>
-          <div v-if="premarketLimitPools.sector_heat && premarketLimitPools.sector_heat.length" class="pm-sector-heat">
+          <div v-if="(premarketLimitPools?.sector_heat) && (premarketLimitPools?.sector_heat).length" class="pm-sector-heat">
             <span class="pm-sh-label">板块</span>
-            <span v-for="s in premarketLimitPools.sector_heat.slice(0, 8)" :key="s.name" class="pm-sh-item" :class="s.count >= 3 ? 'hot' : ''">
+            <span v-for="s in (premarketLimitPools?.sector_heat).slice(0, 8)" :key="s.name" class="pm-sh-item" :class="s.count >= 3 ? 'hot' : ''">
               {{ s.name }}<sub>{{ s.count }}</sub>
             </span>
           </div>
-          <div v-if="premarketLimitPools.limit_up_list && premarketLimitPools.limit_up_list.length" class="pm-zt-list">
+          <div v-if="(premarketLimitPools?.limit_up_list) && (premarketLimitPools?.limit_up_list).length" class="pm-zt-list">
             <div class="pm-zt-toggle cp" @click="premarketGroupExpanded['limit_up'] = !premarketGroupExpanded['limit_up']">
-              {{ premarketGroupExpanded['limit_up'] ? '▼' : '▶' }} 涨停明细 {{ premarketLimitPools.limit_up_list.length }}只
+              {{ premarketGroupExpanded['limit_up'] ? '▼' : '▶' }} 涨停明细 {{ (premarketLimitPools?.limit_up_list).length }}只
             </div>
             <div v-if="premarketGroupExpanded['limit_up']" class="pm-zt-items">
-              <span v-for="z in premarketLimitPools.limit_up_list" :key="z.ts_code" class="pm-zt-tag" :class="z.open_times > 0 ? 'broken' : 'sealed'">
+              <span v-for="z in (premarketLimitPools?.limit_up_list)" :key="z.ts_code" class="pm-zt-tag" :class="z.open_times > 0 ? 'broken' : 'sealed'">
                 {{ z.name }}<sub v-if="z.open_times > 0">炸</sub>
               </span>
             </div>
@@ -182,8 +182,8 @@ const blockedCount = computed(() =>
             <span class="pm-group-stat" :class="g.avg_pct_chg >= 0 ? 'up' : 'down'">均幅 {{ g.avg_pct_chg >= 0 ? '+' : '' }}{{ g.avg_pct_chg.toFixed(1) }}%</span>
             <span v-if="g.executed" class="pm-group-stat executed">已买{{ g.executed }}</span>
             <span v-if="g.blocked" class="pm-group-stat warn">blocked {{ g.blocked }}</span>
-            <span v-if="premarketHitRate[g.strategy]" class="pm-group-stat hit-rate" :class="premarketHitRate[g.strategy].win_rate >= 60 ? 'up' : 'warn'">
-              历史 {{ premarketHitRate[g.strategy].win_rate }}%胜 / {{ premarketHitRate[g.strategy].total }}笔
+            <span v-if="(premarketHitRate?.[g.strategy])" class="pm-group-stat hit-rate" :class="(premarketHitRate?.[g.strategy]).win_rate >= 60 ? 'up' : 'warn'">
+              历史 {{ (premarketHitRate?.[g.strategy]).win_rate }}%胜 / {{ (premarketHitRate?.[g.strategy]).total }}笔
             </span>
             <span class="pm-group-preview">{{ g.candidates.slice(0, 3).map((c: any) => (c.stock_name || c.ts_code?.slice(0,6)) + ' ' + (c.pct_chg >= 0 ? '+' : '') + c.pct_chg.toFixed(1) + '%').join(' · ') }}{{ g.count > 3 ? ' ...' : '' }}</span>
           </div>
