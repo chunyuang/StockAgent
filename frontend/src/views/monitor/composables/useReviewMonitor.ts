@@ -38,14 +38,13 @@ export function useReviewMonitor() {
     reviewLoading.value = true
     try {
       const promises: Promise<any>[] = []
-      const opts = { timeout: 15000 }
+      const opts = { timeout: 60000 }
       const today = new Date().toISOString().slice(0, 10)
       const dateParam = reviewDate.value.replace(/-/g, '')
       const isToday = reviewDate.value === today
 
       // ===== 通用数据 =====
       promises.push(
-        api.get(`${scannerApi}/review-hero?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) reviewHero.value = p.data }),
         api.get(`${scannerApi}/backtest-compare?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) liveBacktestDiff.value = p.data || [] }),
       )
 

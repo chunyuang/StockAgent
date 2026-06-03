@@ -284,9 +284,6 @@ export function useScannerMonitor() {
   const formatDecisionDetail = (detail: Record<string, any>): string[] => { if (!detail) return []; return Object.entries(detail).map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`) }
   const layerLabel = (k: string | number) => { const key = String(k); const label = pipelineLabels[key]; if (!label) return key; const prefix = key.split('_')[0]; return prefix + ' ' + label }
   const layerDesc = (_layer: string | number, _data: any): string => ''
-  const reviewDate = ref('')
-  const reviewHero = ref<any>(null)
-  const reviewForward = ref<any>(null)
   const openWeeklyReport = () => { weeklyReportVisible.value = true }
   const saveSnapshot = async () => { try { await api.post(`${scannerApi}/snapshot`); ElMessage.success('快照已保存') } catch { /* ignore */ } }
   const backtestRunning = ref(false)
@@ -378,8 +375,8 @@ export function useScannerMonitor() {
     // 追踪弹窗别名
     scanTraceVisible, scanTraceData, scanTraceCode, signalTraceVisible,
     openScanTrace, signalStatusTag,
-    // 复盘stub
-    reviewDate, reviewHero, reviewForward, openWeeklyReport, weeklyReportData, saveSnapshot,
+    // 复盘(来自...review)
+    openWeeklyReport, weeklyReportData, saveSnapshot,
     backtestRunning, liveBacktestDiff, executionQuality,
     tradeAttributions, paramDriftData, factorEffectData, exportTradeLog,
     disciplineCheck,
