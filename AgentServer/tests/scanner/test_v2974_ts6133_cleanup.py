@@ -105,6 +105,11 @@ class TestOpsTabExtraction(unittest.TestCase):
         path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'frontend', 'src', 'views', 'monitor', 'HistoryTab.vue')
         self.assertTrue(os.path.exists(os.path.abspath(path)))
 
+    def test_scan_trace_tab_file_exists(self):
+        """ScanTraceTab.vue文件存在"""
+        path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'frontend', 'src', 'views', 'monitor', 'ScanTraceTab.vue')
+        self.assertTrue(os.path.exists(os.path.abspath(path)))
+
     def test_scanner_monitor_inject_exists(self):
         """scannerMonitorInject.ts文件存在"""
         path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'frontend', 'src', 'views', 'monitor', 'scannerMonitorInject.ts')
