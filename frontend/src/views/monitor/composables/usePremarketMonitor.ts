@@ -51,6 +51,12 @@ export function usePremarketMonitor() {
         premarketLimitPools.value = p.data.limit_pools || null
         premarketPositionGaps.value = p.data.position_gaps || []
         premarketAnalysis.value = p.data.analysis || null
+
+        // 非交易时间自动回退到调试模式,显示最近交易日盘前数据
+        if (!premarketDebugMode.value && premarketStatus.value === 'off') {
+          premarketDebugMode.value = true
+          return fetchPremarketData()  // 重新获取调试数据
+        }
       }
     } catch { /* ignore */ }
   }
