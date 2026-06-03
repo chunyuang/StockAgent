@@ -325,8 +325,7 @@ const emit = defineEmits<{
   </div>
 
 
-    回测对比弹窗
-<!-- 回测对比弹窗 -->
+    <!-- 回测对比弹窗 -->
 <ElDialog :model-value="compareVisible" @update:model-value="emit('update:compareVisible', $event)" title="📊 实盘 vs 回测对比" width="700px">
   <div v-if="compareData.length" class="cl-table">
     <div class="cl-h"><span>策略</span><span>实盘交易</span><span>实盘胜率</span><span>实盘盈亏</span><span>回测收益</span><span>回测胜率</span><span>回测回撤</span><span>回测夏普</span></div>
@@ -345,8 +344,7 @@ const emit = defineEmits<{
 </ElDialog>
 
 
-    复盘报告弹窗
-<!-- 【P1-6】复盘报告弹窗 -->
+    <!-- 复盘报告弹窗 -->
 <ElDialog :model-value="dailyReportVisible" @update:model-value="emit('update:dailyReportVisible', $event)" title="📈 每日复盘报告" width="750px">
   <div v-if="dailyReport" class="dr">
     <div class="dr-sec"><div class="dr-t">💰 账户概览</div><div class="dr-g"><div class="dr-i"><span class="dr-l">总资产</span><span class="dr-v">{{ (dailyReport.account.total_assets / 10000).toFixed(1) }}万</span></div><div class="dr-i"><span class="dr-l">可用</span><span class="dr-v">{{ (dailyReport.account.available_cash / 10000).toFixed(1) }}万</span></div><div class="dr-i"><span class="dr-l">仓位</span><span class="dr-v">{{ dailyReport.account.position_ratio }}%</span></div><div class="dr-i"><span class="dr-l">今日盈亏</span><span class="dr-v" :class="dailyReport.account.today_profit >= 0 ? 'up' : 'down'">{{ dailyReport.account.today_profit >= 0 ? '+' : '' }}{{ dailyReport.account.today_profit.toFixed(0) }}</span></div></div></div>
@@ -359,8 +357,7 @@ const emit = defineEmits<{
 </ElDialog>
 
 
-    周报弹窗
-<!-- 周报弹窗 -->
+    <!-- 周报弹窗 -->
 <ElDialog :model-value="weeklyReportVisible" @update:model-value="emit('update:weeklyReportVisible', $event)" title="📊 周报 — 最近5个交易日" width="800px">
   <div v-if="weeklyReportData" class="wr">
     <div class="wr-sec"><div class="wr-t">💰 账户状态</div><div class="wr-g"><div class="wr-i"><span class="wr-l">总资产</span><span class="wr-v">{{ (weeklyReportData.account?.total_assets / 10000 || 0).toFixed(1) }}万</span></div><div class="wr-i"><span class="wr-l">累计盈亏</span><span class="wr-v" :class="weeklyReportData.account?.total_profit >= 0 ? 'up' : 'down'">{{ weeklyReportData.account?.total_profit >= 0 ? '+' : '' }}{{ (weeklyReportData.account?.total_profit || 0).toFixed(0) }}</span></div><div class="wr-i"><span class="wr-l">可用现金</span><span class="wr-v">{{ (weeklyReportData.account?.available_cash / 10000 || 0).toFixed(1) }}万</span></div></div></div>
@@ -610,4 +607,31 @@ const emit = defineEmits<{
 .dev-title { font-weight: 700; font-size: 13px; margin-bottom: 6px; }
 
 .dev-row { display: flex; justify-content: space-between; font-size: 11px; padding: 2px 0; }
+
+/* ========== 弹窗样式(v2.9.75死CSS清理误删补回) ========== */
+
+/* 回测对比弹窗 */
+.cl-table { max-height: 400px; overflow-y: auto; }
+.cl-h { display: grid; grid-template-columns: repeat(8, minmax(50px, 1fr)); gap: 4px; padding: 6px 0; font-size: 12px; font-weight: 600; color: var(--text-tertiary); border-bottom: 1px solid var(--border-default); }
+.cl-r { display: grid; grid-template-columns: repeat(8, minmax(50px, 1fr)); gap: 4px; padding: 6px 0; font-size: 12px; align-items: center; border-bottom: 1px solid var(--border-light); overflow: hidden; }
+
+/* 复盘报告弹窗 */
+.dr-sec { margin-bottom: 14px; padding: 10px; background: var(--bg-muted); border-radius: 8px; border: 1px solid var(--border-default); }
+.dr-t { font-size: 14px; font-weight: 600; margin-bottom: 6px; color: var(--text-primary); }
+.dr-g { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 6px; margin-bottom: 4px; }
+.dr-i { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.dr-l { font-size: 10px; color: var(--text-tertiary); }
+.dr-v { font-size: 13px; font-weight: 500; }
+.dr-p { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; border-bottom: 1px solid var(--border-light); }
+
+/* 周报弹窗 */
+.wr-sec { margin-bottom: 14px; padding: 10px; background: var(--bg-muted); border-radius: 8px; border: 1px solid var(--border-default); }
+.wr-t { font-size: 14px; font-weight: 600; margin-bottom: 6px; color: var(--text-primary); }
+.wr-g { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 6px; margin-bottom: 4px; }
+.wr-i { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.wr-l { font-size: 10px; color: var(--text-tertiary); }
+.wr-v { font-size: 14px; font-weight: 600; }
+.wr-p { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; border-bottom: 1px solid var(--border-light); }
+.wr-day { display: flex; align-items: center; gap: 10px; padding: 4px 0; font-size: 12px; border-bottom: 1px solid var(--border-light); }
+.wr-date { font-weight: 600; color: var(--text-primary); min-width: 80px; }
 </style>
