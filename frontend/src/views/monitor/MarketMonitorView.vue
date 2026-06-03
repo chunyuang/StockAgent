@@ -6,9 +6,16 @@
  * 此文件只负责: 调用composable + 渲染template
  * 【v2.9.74: 清理26个未使用解构变量, 消除TS6133】
  */
+import { provide } from 'vue'
 import { useScannerMonitor } from './useScannerMonitor'
+import { SCANNER_MONITOR_KEY } from './scannerMonitorInject'
 import ReviewTab from './ReviewTab.vue'
+import OpsTab from './OpsTab.vue'
 
+const monitorData = useScannerMonitor()
+provide(SCANNER_MONITOR_KEY, monitorData)
+
+// 在模板中使用的变量仍需解构(vue-tsc要求)
 const {
   loading, autoRefresh,
   status, signals, positions, timeline, orders,
@@ -28,18 +35,15 @@ const {
   signalTraceVisible, tradeDetailVisible, tradeDetailData,
   tradeAuditVisible, tradeAuditData,
   confirmVisible, confirmLoading, confirmData,
-  manualTrade, manualQuote, trailEditPct, trailSaving,
+  manualTrade, trailEditPct, trailSaving,
   tradeMode, replayDate, replayDateInput,
   replayDateVisible,
   startScanner, stopScanner,
-  manualScan, forceScan, quickBuy, quickSell,
-  fetchAutoTrades, fetchScanConfig, fetchAuditLog,
+  manualScan, forceScan, quickBuy, quickSell, fetchAuditLog,
   fetchPremarketData, fetchScanHistory,
   fetchScanTrace, fetchReviewData,
   auditLog, auditLogLoading,
-  fetchSentimentData, fetchDailyReport,
-  autoTrades, scanConfig, scanConfigLoading,
-  dailySettlement, resetCircuitBreaker,
+  fetchSentimentData,
   historyData, historyDate, historyLoading, loadHistory,
   // sentiment sub-composable
   sentimentMode, sentimentDate, hoveredPoint,
@@ -50,9 +54,8 @@ const {
   phaseGuide, downgradeRules, phaseColors, sentimentAdvice,
   openTradeDetail, openTradeAudit,
   runBacktest, saveParamSnapshot,
-  setTrailingStop, onManualCodeChange, executeManualTrade,
-  showConfirm: _showConfirm, handleConfirm,
-  sellAllPositions, resetAccount, emergencyLiquidate,
+  setTrailingStop,
+  showConfirm: _showConfirm, handleConfirm, emergencyLiquidate,
   saveStrategy, toggleScanHour,
   layerLabel, layerDesc,
   posSort, sortedPositions,
@@ -64,14 +67,14 @@ const {
   stratCollapsed, stratSectionCollapsed, toggleStrat, toggleStrategy,
   openEditDialog, factorLabel,
   scanTraceVisible, scanTraceData, scanTraceCode, // used in template
-  layerDebugVisible, layerDebugData, layerDebugLoading,
-  compareVisible, compareData, compareLoading, loadCompare,
+  layerDebugVisible, layerDebugData,
+  compareVisible, compareData,
   openScanTrace, signalStatusTag,
   formatLayerTrace, formatDecisionDetail,
-  reviewDate, reviewHero, reviewForward, openWeeklyReport, saveSnapshot,
+  reviewDate, reviewHero, reviewForward, saveSnapshot,
   backtestRunning, cumulativePnl, liveBacktestDiff, executionQuality,
   tradeAttributions, paramDriftData, factorEffectData, exportTradeLog,
-  disciplineCheck, toggleDryRun,
+  disciplineCheck,
   premarketDebugMode, premarketGroupMode, premarketGroupExpanded,
   premarketAnalysis, premarketBlockedReasons, premarketFunnel,
   premarketHitRate, premarketLimitPools, premarketMarketSnapshot,
@@ -1277,93 +1280,7 @@ const {
       </div>
     </div>
 
-    <!-- ==================== 运维Tab ==================== -->
-    <div v-if="activeTab === 'ops'" class="mm-tab-content">
-      <div class="mm-tab-scroll">
-        <!-- 自动交易操作流 -->
-        <div class="st">🤖 自动交易操作流 <ElButton size="small" @click="fetchAutoTrades">🔄</ElButton></div>
-        <div v-if="!autoTrades.length" class="empty">暂无自动交易记录</div>
-        <div v-else class="auto-trades-list">
-          <div class="at-header"><span>时间</span><span>来源</span><span>操作</span><span>代码</span><span>名称</span><span>数量</span><span>价格</span><span>策略</span><span>原因</span></div>
-          <div v-for="t in autoTrades" :key="t.order_id" class="at-row" :class="{ 'auto-trade': t.source === 'auto', 'manual-trade': t.source === 'manual' }">
-            <span class="tl-time">{{ t.time }}</span>
-            <span><ElTag size="small" :type="t.source === 'auto' ? 'primary' : 'warning'" style="font-size:10px">{{ t.source === 'auto' ? '🤖自动' : '✋手动' }}</ElTag></span>
-            <span class="tl-action" :class="t.side === 'buy' ? 'buy' : 'sell'">{{ t.side === 'buy' ? '买' : '卖' }}</span>
-            <span class="code">{{ t.ts_code }}</span>
-            <span class="name">{{ t.stock_name }}</span>
-            <span>{{ t.quantity }}股</span>
-            <span>¥{{ t.price?.toFixed(2) }}</span>
-            <span v-if="t.strategy" class="tl-strat">{{ strategyCN(t.strategy) }}</span><span v-else>-</span>
-            <span class="text-tertiary" style="font-size:11px">{{ t.reason }}</span>
-          </div>
-        </div>
-
-        <!-- 扫描器配置 -->
-        <div class="st" style="margin-top:16px">⏱️ 扫描器配置 <ElButton size="small" @click="fetchScanConfig" :loading="scanConfigLoading">🔄</ElButton></div>
-        <div v-if="scanConfig" class="scan-config-grid">
-          <div class="sc-item"><span class="sc-label">自动扫描间隔</span><span class="sc-value">{{ scanConfig.scan_interval_desc || scanConfig.scan_interval_sec + '秒' }}</span></div>
-          <div class="sc-item"><span class="sc-label">持仓检查间隔</span><span class="sc-value">{{ scanConfig.position_check_interval_sec }}秒</span></div>
-          <div class="sc-item"><span class="sc-label">持仓快速检查</span><span class="sc-value">{{ scanConfig.position_check_fast_sec }}秒(接近止损)</span></div>
-          <div class="sc-item"><span class="sc-label">持仓紧急检查</span><span class="sc-value">{{ scanConfig.position_check_critical_sec }}秒(触及止损)</span></div>
-          <div class="sc-item"><span class="sc-label">信号过期时间</span><span class="sc-value">{{ scanConfig.signal_expire_desc || scanConfig.signal_expire_sec + '秒' }}</span></div>
-          <div class="sc-item"><span class="sc-label">最大持仓数</span><span class="sc-value">{{ scanConfig.max_positions }}只</span></div>
-          <div class="sc-item"><span class="sc-label">最大仓位比例</span><span class="sc-value">{{ (scanConfig.max_position_ratio * 100).toFixed(0) }}%</span></div>
-          <div class="sc-item" v-if="scanConfig.current_smart_interval"><span class="sc-label">当前智能检查间隔</span><span class="sc-value">{{ scanConfig.current_smart_interval }}秒</span></div>
-          <div class="sc-item"><span class="sc-label">交易模式</span><span class="sc-value">{{ scanConfig.trade_mode === 'simulated' ? '模拟' : scanConfig.trade_mode === 'gm' ? '掘金' : scanConfig.trade_mode }}</span></div>
-          <div class="sc-item"><span class="sc-label">运行状态</span><span class="sc-value" :style="{ color: scanConfig.is_running ? 'var(--el-color-success)' : 'var(--el-color-danger)' }">{{ scanConfig.is_running ? '🟢 运行中' : '🔴 未启动' }}</span></div>
-        </div>
-        <div v-else class="empty" style="padding:8px">点击刷新加载扫描配置</div>
-
-        <!-- 系统健康 -->
-        <div class="st" style="margin-top:16px">💻 系统健康</div>
-        <SystemHealth />
-
-        <!-- 快捷操作 -->
-        <div class="st" style="margin-top:16px">⚡ 快捷操作</div>
-        <div class="ops-grid">
-          <ElButton size="small" @click="manualScan" :loading="loading" :disabled="!isRunning">📡 扫描</ElButton>
-          <ElButton size="small" type="warning" @click="forceScan" :loading="loading" :disabled="!isRunning">⚡ 强扫</ElButton>
-          <ElButton size="small" @click="dailySettlement" :disabled="!isRunning">📅 日结</ElButton>
-          <ElButton size="small" @click="openTradeAudit" :disabled="!timeline.length">🔍 审查</ElButton>
-          <ElButton size="small" @click="fetchDailyReport(); dailyReportVisible = true">📈 复盘</ElButton>
-          <ElButton size="small" @click="openWeeklyReport">📊 周报</ElButton>
-          <ElButton size="small" @click="layerDebugVisible = true" :loading="layerDebugLoading">🧪 9层调试</ElButton>
-          <ElButton size="small" @click="loadCompare" :loading="compareLoading">📊 回测对比</ElButton>
-          <ElButton size="small" @click="toggleDryRun">{{ dryRun ? '🔴 关闭调试' : '🔍 开启调试' }}</ElButton>
-          <ElButton v-if="circuitBreakerPaused" size="small" type="danger" @click="resetCircuitBreaker">🔓 解熔断</ElButton>
-          <ElButton size="small" @click="exportTradeLog">📥 导出日志</ElButton>
-          <ElButton size="small" @click="saveSnapshot">📸 保存快照</ElButton>
-          <ElButton size="small" type="warning" @click="resetAccount">🗑️ 清仓重置</ElButton>
-          <ElButton size="small" @click="sellAllPositions">💰 一键清仓</ElButton>
-        </div>
-
-        <!-- 手动下单 -->
-        <div class="st" style="margin-top:16px">🔧 手动下单</div>
-        <div class="mf ops-mf">
-          <ElInput v-model="manualTrade.ts_code" placeholder="代码 000001.SZ" size="small" @change="onManualCodeChange(manualTrade.ts_code)" />
-          <div class="mf-row"><ElSelect v-model="manualTrade.side" size="small" style="width:70px"><ElOption label="买入" value="buy" /><ElOption label="卖出" value="sell" /></ElSelect><ElInputNumber v-model="manualTrade.quantity" :min="0" :step="100" placeholder="数量" size="small" style="flex:1" controls-position="right" /></div>
-          <div class="mf-row"><ElInputNumber v-model="manualTrade.price" :min="0" :precision="2" :step="0.01" placeholder="价格(0=市价)" size="small" style="flex:1" controls-position="right" /><span v-if="manualQuote" class="mf-hint" @click="manualTrade.price = manualQuote.price">💰 填入现价</span></div>
-          <ElButton type="primary" size="small" :disabled="!manualTrade.ts_code" @click="executeManualTrade" class="w-full">下单</ElButton>
-          <div v-if="manualQuote" class="mf-q">💡 现价: ¥{{ manualQuote.price?.toFixed(2) }} <span v-if="manualQuote.pct_chg" :class="manualQuote.pct_chg >= 0 ? 'up' : 'down'">{{ manualQuote.pct_chg >= 0 ? '+' : '' }}{{ manualQuote.pct_chg.toFixed(2) }}%</span></div>
-        </div>
-
-        <!-- 交易时间线 -->
-        <div class="st" style="margin-top:16px">⏱️ 交易时间线 ({{ timeline.length }}) <span v-if="cumulativePnl !== 0" :class="cumulativePnl >= 0 ? 'up' : 'down'" style="font-size:12px;margin-left:6px">累计{{ cumulativePnl >= 0 ? '+' : '' }}¥{{ cumulativePnl.toFixed(0) }}</span>
-          <div style="display:inline-flex;align-items:center;gap:4px;margin-left:8px"><ElDatePicker v-model="historyDate" type="date" placeholder="日期" size="small" value-format="YYYY-MM-DD" style="width:130px" :disabled-date="(d: Date) => d > new Date()" /><ElButton size="small" @click="loadHistory" :loading="historyLoading" style="padding:2px 8px;font-size:11px">回放</ElButton></div>
-        </div>
-        <div v-if="!timeline.length && !historyData.length" class="empty">暂无交易</div>
-        <div v-else class="ops-timeline">
-          <div v-if="historyData.length" class="history-tag">📜 {{ historyDate }} 历史回放 ({{ historyData.length }}条)</div>
-          <div v-for="(item, i) in historyData.length ? historyData : timeline" :key="i" class="tl-row cp" @click="item.action !== 'blocked' && openTradeDetail(item.ts_code)"><span class="tl-time">{{ item.time }}</span><span class="tl-action" :class="item.action === 'buy' ? 'buy' : item.action === 'sell' ? 'sell' : 'blocked'">{{ item.action === 'buy' ? '买' : item.action === 'sell' ? '卖' : '⛔' }}</span><span class="code">{{ item.ts_code }}</span><span class="name">{{ item.stock_name }}</span><template v-if="item.action !== 'blocked'"><span v-if="item.strategy" class="tl-strat">{{ strategyCN(item.strategy) }}</span><span class="tl-detail">{{ item.shares }}股@{{ item.price.toFixed(2) }}</span><span v-if="item.profit_pct !== undefined" :class="item.profit_pct >= 0 ? 'up' : 'down'">{{ item.profit_pct >= 0 ? '+' : '' }}{{ item.profit_pct.toFixed(1) }}%</span><span v-if="item.profit_amount != null" :class="item.profit_amount >= 0 ? 'up' : 'down'" class="tl-amt">{{ item.profit_amount >= 0 ? '+' : '' }}¥{{ item.profit_amount.toFixed(0) }}</span></template><span v-else class="tl-blocked-reason">{{ item.reason }}</span></div>
-        </div>
-
-        <!-- 历史订单 -->
-        <div v-if="orders.length" class="st" style="margin-top:16px">📋 历史订单 ({{ orders.length }})</div>
-        <div v-if="orders.length" class="ops-timeline">
-          <div v-for="o in orders.slice(0, 50)" :key="o.order_id" class="tl-row cp" @click="openTradeDetail(o.ts_code)"><span class="tl-time">{{ o.trade_date?.slice(-4) || '' }} {{ o.create_time }}</span><span class="tl-action" :class="o.side === 'buy' ? 'buy' : 'sell'">{{ o.side === 'buy' ? '买' : '卖' }}</span><span class="code">{{ o.ts_code }}</span><span class="name">{{ o.stock_name }}</span><span class="tl-detail">{{ o.filled_qty }}股@{{ o.filled_price?.toFixed(2) || '0.00' }}</span><span class="text-tertiary-sm">{{ strategyCN(o.strategy) }}</span></div>
-        </div>
-      </div>
-    </div>
+    <OpsTab v-if="activeTab === 'ops'" />
 
     <!-- 【V50.1】信号链路追踪面板(可收起, 跨Tab) -->
     <div v-if="signalTraceVisible" class="mm-trace">

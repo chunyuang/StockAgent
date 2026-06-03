@@ -1,15 +1,20 @@
-"""v2.9.74 测试: MarketMonitorView TS6133清理 + 未使用解构变量消除
+"""v2.9.74 测试: MarketMonitorView TS6133清理 + OpsTab提取
 
 变更:
-1. MarketMonitorView.vue script清理26个未使用解构变量
+1. MarketMonitorView.vue script清理26+18=44个未使用解构变量
 2. TS6133错误从17→1(vue-tsc模板内插误报,加注释标注)
-3. 前端build零错误
-4. 版本常量 v2.9.73→v2.9.74
+3. 全局TS错误从7→1(其他组件TS6133+类型修复)
+4. 提取OpsTab.vue子组件(provide/inject模式)
+5. 前端build零错误
+6. 版本常量 v2.9.73→v2.9.74
 
 回测影响: 零
 """
 import unittest
 import os
+
+def cls_path():
+    return os.path.join(os.path.dirname(__file__), '..', '..', '..', 'frontend', 'src', 'views', 'monitor', 'MarketMonitorView.vue')
 
 
 class TestVersionV2974(unittest.TestCase):
@@ -32,9 +37,9 @@ class TestMarketMonitorViewTSCleanup(unittest.TestCase):
             cls.view_content = f.read()
 
     def test_removed_unused_destructure_vars(self):
-        """26个未使用的解构变量已从MarketMonitorView移除"""
-        # 这些变量在composable内部使用,但不需要在视图层解构
-        removed_vars = [
+        """44个未使用的解构变量已从MarketMonitorView移除"""
+        # 第一批26个: composable内部使用
+        removed_vars_batch1 = [
             'soundEnabled', 'limitPools', 'limitPoolTab',
             'healthData', 'healthStatus', 'healthEmoji', 'healthCN', 'healthClass',
             'riskBarCollapsed', 'globalRisk', 'nowMs',
@@ -45,6 +50,17 @@ class TestMarketMonitorViewTSCleanup(unittest.TestCase):
             'fetchAll', 'fetchScanner', 'fetchStrategies',
             'playSignalSound', 'openLayerDebug',
         ]
+        # 第二批18个: 移到OpsTab后不再在MarketMonitorView模板使用
+        removed_vars_batch2 = [
+            'manualQuote', 'autoTrades', 'scanConfig', 'scanConfigLoading',
+            'dailySettlement', 'resetCircuitBreaker',
+            'fetchAutoTrades', 'fetchScanConfig', 'fetchDailyReport',
+            'onManualCodeChange', 'executeManualTrade',
+            'sellAllPositions', 'resetAccount',
+            'layerDebugLoading', 'compareLoading', 'loadCompare',
+            'openWeeklyReport', 'toggleDryRun',
+        ]
+        removed_vars = removed_vars_batch1 + removed_vars_batch2
         # 验证这些变量不在script解构中(但可能在composable内部使用)
         script_section = self.view_content.split('</script>')[0]
         for var in removed_vars:
@@ -59,6 +75,46 @@ class TestMarketMonitorViewTSCleanup(unittest.TestCase):
     def test_weekly_review_data_destructured(self):
         """weeklyReviewData已加入解构(ReviewTab需要)"""
         self.assertIn('weeklyReviewData', self.view_content)
+
+
+class TestOpsTabExtraction(unittest.TestCase):
+    """OpsTab子组件提取验证"""
+
+    def test_ops_tab_file_exists(self):
+        """OpsTab.vue文件存在"""
+        path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'frontend', 'src', 'views', 'monitor', 'OpsTab.vue')
+        self.assertTrue(os.path.exists(os.path.abspath(path)))
+
+    def test_scanner_monitor_inject_exists(self):
+        """scannerMonitorInject.ts文件存在"""
+        path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'frontend', 'src', 'views', 'monitor', 'scannerMonitorInject.ts')
+        self.assertTrue(os.path.exists(os.path.abspath(path)))
+
+    def test_ops_tab_uses_inject(self):
+        """OpsTab使用provide/inject模式"""
+        path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'frontend', 'src', 'views', 'monitor', 'OpsTab.vue')
+        with open(os.path.abspath(path)) as f:
+            content = f.read()
+        self.assertIn('useScannerMonitorInject', content)
+        self.assertNotIn('defineProps', content)
+
+    def test_market_monitor_provides(self):
+        """MarketMonitorView provide了composable数据"""
+        with open(cls_path()) as f:
+            content = f.read()
+        self.assertIn('SCANNER_MONITOR_KEY', content)
+        self.assertIn('provide(', content)
+
+
+class TestGlobalTSCleanup(unittest.TestCase):
+    """全局TS错误清理验证"""
+
+    def test_stock_api_has_getStockDaily(self):
+        """stockApi补全getStockDaily方法"""
+        path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'frontend', 'src', 'api', 'modules', 'stock.ts')
+        with open(os.path.abspath(path)) as f:
+            content = f.read()
+        self.assertIn('getStockDaily', content)
 
 
 class TestNoBacktestRegressionV2974(unittest.TestCase):
