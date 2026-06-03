@@ -62,6 +62,8 @@ class Order:
     create_time: str = ""
     fill_time: str = ""
     source: str = "auto"     # auto=自动交易 / manual=手动下单
+    profit_pct: float = 0.0
+    profit_amount: float = 0.0
 
 
 @dataclass
@@ -238,8 +240,8 @@ class SimulatedBroker:
                 "trade_date": o.trade_date,
                 "create_time": o.create_time,
                 "fill_time": o.fill_time,
-                "profit_pct": getattr(o, 'profit_pct', 0),
-                "profit_amount": getattr(o, 'profit_amount', 0),
+                "profit_pct": o.profit_pct,
+                "profit_amount": o.profit_amount,
                 "source": o.source,
             }
             for o in self.orders if o.trade_date == today
