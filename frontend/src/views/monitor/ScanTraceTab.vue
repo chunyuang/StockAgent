@@ -170,7 +170,7 @@ const scanTraceCode = (m as any).scanTraceCode
       <div v-if="scanTraceData.factors" class="st-factors">
         <div class="st-title">关键因子</div>
         <div class="st-fg">
-          <div v-for="(v, k) in scanTraceData.factors" :key="k" class="st-fi"><span class="st-fl">{{ factorLabel(k) }}</span><span class="st-fv">{{ typeof v === 'number' ? v.toFixed(2) : v }}</span></div>
+          <div v-for="(v, k) in scanTraceData.factors" :key="k" class="st-fi"><span class="st-fl">{{ factorLabel(String(k)) }}</span><span class="st-fv">{{ typeof v === 'number' ? v.toFixed(2) : v }}</span></div>
         </div>
       </div>
     </div>
