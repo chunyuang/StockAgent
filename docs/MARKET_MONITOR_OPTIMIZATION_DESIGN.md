@@ -4835,3 +4835,55 @@ MarketMonitorView.vue通过 `useScannerMonitor()` composable解构获取所有�
 ### 60.8 回测影响
 
 零。所有变更仅影响前端视图层script解构/子组件提取和版本常量, 后端/回测引擎零文件修改。
+
+### 60.9 子组件提取汇总 (v2.9.74 追加提交)
+
+provide/inject模式：`MarketMonitorView` 通过 `provide(SCANNER_MONITOR_KEY, monitorData)` 提供全部composable数据，子组件通过 `useScannerMonitorInject()` 注入。
+
+| 子组件 | 行数 | 提取变量数 | 描述 |
+|--------|------|-----------|------|
+| OpsTab.vue | 120 | 47 | 运维Tab: 系统健康+WebSocket+数据源+调试 |
+| PremarketTab.vue | 254 | 23 | 盘前竞价Tab: 状态栏+漏斗+涨停池+策略分组 |
+| SentimentTab.vue | 237 | 21 | 情绪分析Tab: 时间线+全景+矩阵+建议 |
+| GuideTab.vue | 132 | 2 | 系统引导Tab: 架构+策略+风控+快捷键 |
+| HistoryTab.vue | 73 | 19 | 交易历史Tab: 时间线+订单+平仓+审计 |
+| **合计** | **816** | **112** | **6个Tab组件** |
+
+### 60.10 MarketMonitorView行数变化
+
+| 版本 | 行数 | 变化 |
+|------|------|------|
+| v2.8.0基线 | 2472 | - |
+| +OpsTab提取 | 2385 | -87 |
+| +PremarketTab提取 | 2127 | -258 |
+| +SentimentTab提取 | 1885 | -242 |
+| +GuideTab+HistoryTab提取 | 1682 | -203 |
+| **v2.9.74最终** | **1682** | **-790(-31.9%)** |
+
+### 60.11 vue-tsc错误变化
+
+| 版本 | TS6133错误 | 说明 |
+|------|-----------|------|
+| v2.9.74初版 | 26 | 26个composable未使用解构变量 |
+| +全局清理 | 7 | 清理26+修复6个其他组件 |
+| +OpsTab提取 | 1 | 18个OpsTab变量清理 |
+| +PremarketTab | 1 | 17个premarket变量清理 |
+| +SentimentTab | 1 | 18个sentiment变量清理 |
+| +HistoryTab | 1 | 14个history变量清理 |
+| **v2.9.74最终** | **1** | **仅scanTraceCode(vue-tsc误报)** |
+
+### 60.12 测试覆盖更新 (14新增)
+
+| 测试类 | 用例数 | 覆盖点 |
+|--------|--------|--------|
+| TestVersionV2974 | 1 | 版本常量v2.9.74 |
+| TestMarketMonitorViewTSCleanup | 3 | 变量移除+scanTraceCode标注+weeklyReviewData解构 |
+| TestOpsTabExtraction | 4 | OpsTab文件存在+inject模式+provide验证+inject文件存在 |
+| TestPremarketTabExtraction | 2 | PremarketTab文件存在 |
+| TestSentimentTabExtraction | 2 | SentimentTab文件存在 |
+| TestGuideTabExtraction | 1 | GuideTab文件存在 |
+| TestHistoryTabExtraction | 1 | HistoryTab文件存在 |
+| TestGlobalTSCleanup | 1 | stockApi补全 |
+| TestNoBacktestRegressionV2974 | 1 | 回测引擎零影响 |
+
+**全量测试**: 1574 scanner + 51 backtest = 1625 passed (0 failed)
