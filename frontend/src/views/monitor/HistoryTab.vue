@@ -12,7 +12,8 @@ const m = useScannerMonitorInject()
 const {
   auditLog, auditLogLoading, closedPositions, cumulativePnl,
   exportTradeLog, fetchAuditLog, historyData, historyDate, historyLoading,
-  loadHistory, loading, openTradeAudit, openTradeDetail, orders,
+  loadHistory,
+  openTradeAudit, openTradeDetail, orders,
   saveSnapshot, strategyCN, strategyMeta, timeline,
 } = m
 </script>
@@ -92,3 +93,37 @@ const {
     </div>
   </div>
 </template>
+
+<style scoped lang="scss">
+.ht-timeline { display: flex; flex-direction: column; gap: 2px; }
+
+.ht-orders { border: 1px solid var(--border-default); border-radius: 6px; overflow: hidden; }
+
+.ho-header { display: grid; grid-template-columns: 100px 40px 80px 1fr 60px 70px 60px; gap: 4px; padding: 6px 10px; background: var(--bg-muted); font-size: 11px; color: var(--text-tertiary); font-weight: 600; }
+
+.ho-row { display: grid; grid-template-columns: 100px 40px 80px 1fr 60px 70px 60px; gap: 4px; padding: 4px 10px; font-size: 12px; border-bottom: 1px solid var(--border-default); align-items: center; }
+
+.ho-row:hover { background: var(--bg-muted); }
+
+.ht-closed { border: 1px solid var(--border-default); border-radius: 6px; overflow: hidden; }
+
+.hc-header { display: grid; grid-template-columns: 80px 1fr 60px 70px 70px 70px 60px; gap: 4px; padding: 6px 10px; background: var(--bg-muted); font-size: 11px; color: var(--text-tertiary); font-weight: 600; }
+
+.hc-row { display: grid; grid-template-columns: 80px 1fr 60px 70px 70px 70px 60px; gap: 4px; padding: 4px 10px; font-size: 12px; border-bottom: 1px solid var(--border-default); align-items: center; cursor: pointer; }
+
+.hc-row:hover { background: var(--bg-muted); }
+
+.hc-win { border-left: 3px solid var(--stock-up); }
+
+.hc-loss { border-left: 3px solid var(--stock-down); }
+
+.ht-audit { display: flex; flex-direction: column; gap: 2px; }
+
+.ha-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; }
+
+.ha-action { color: var(--el-color-primary); font-weight: 600; min-width: 60px; }
+
+.ha-detail { color: var(--text-secondary); }
+
+.ht-export { display: flex; gap: 8px; flex-wrap: wrap; }
+</style>

@@ -106,3 +106,93 @@ const {
     </div>
   </div>
 </template>
+
+<style scoped lang="scss">
+.scan-hours { display: flex; flex-direction: column; gap: 4px; }
+
+.sc-hour-group { margin-bottom: 2px; }
+
+.sc-hour-header { display: flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; background: var(--bg-elevated); border: 1px solid var(--border-default); }
+
+.sc-hour-header:hover { background: var(--bg-hover); }
+
+.sc-hour-toggle { font-size: 9px; color: var(--text-tertiary); }
+
+.sc-hour-label { font-weight: 600; color: var(--text-primary); }
+
+.sc-hour-count { color: var(--text-tertiary); font-size: 10px; }
+
+.sc-hour-summary { color: var(--el-color-primary); font-size: 10px; margin-left: auto; }
+
+.scan-strip { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 0 0 16px; }
+
+.scan-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; border: 1px solid var(--border-default); background: var(--bg-elevated); transition: all 0.15s; }
+
+.scan-chip:hover { background: var(--bg-hover); border-color: var(--el-color-primary-light-5); }
+
+.scan-chip.active { background: var(--el-color-primary-light-9); border-color: var(--el-color-primary); }
+
+.sc-time { color: var(--text-tertiary); font-family: 'JetBrains Mono', monospace; }
+
+.sc-stats { display: inline-flex; align-items: center; gap: 2px; font-size: 11px; font-family: 'JetBrains Mono', monospace; }
+
+.ss-all { color: var(--text-tertiary); font-size: 10px; }
+
+.ss-arr { color: var(--text-tertiary); font-size: 9px; margin: 0 1px; }
+
+.ss-pass { color: var(--el-color-primary); font-weight: 600; }
+
+.ss-buy { color: var(--text-tertiary); font-weight: 600; }
+
+.ss-buy.has-buy { color: #f56c6c; }
+
+.scan-funnel { padding: 8px 0; }
+
+.fn-row { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 5px; font-size: 11px; margin-bottom: 2px; }
+
+.fn-row.fn-filter { background: rgba(245,63,63,0.04); }
+
+.fn-row.fn-pass { background: rgba(0,180,42,0.03); }
+
+.fn-tag { font-weight: 600; min-width: 56px; flex-shrink: 0; }
+
+.fn-flow { font-family: 'JetBrains Mono', monospace; font-weight: 600; flex-shrink: 0; }
+
+.fn-rej { color: var(--stock-down); flex-shrink: 0; font-size: 10px; }
+
+.fn-desc { color: var(--text-tertiary); font-size: 10px; line-height: 1.4; flex: 1; min-width: 0; }
+
+.fn-total { padding: 6px 8px 0; font-size: 12px; font-weight: 600; border-top: 1px solid var(--border-default); margin-top: 4px; }
+
+.fn-reject { color: var(--stock-up); font-size: 11px; }
+
+.et-wrap { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 2px; }
+
+.et-item { display: flex; align-items: center; gap: 3px; padding: 2px 5px; font-size: 11px; border-radius: 3px; }
+
+.et-item.et-pass { background: rgba(0,180,42,0.05); }
+
+.et-item.et-fail { background: rgba(245,63,63,0.04); }
+
+.et-ok { color: var(--stock-up); flex-shrink: 0; }
+
+.et-no { color: var(--stock-down); font-size: 9px; flex-shrink: 0; }
+
+.rejected-stats { padding: 8px 0; }
+
+.rs-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; }
+
+.rs-label { min-width: 72px; color: var(--text-secondary); }
+
+.rs-bar-track { flex: 1; height: 16px; background: var(--bg-hover); border-radius: 3px; overflow: hidden; }
+
+.rs-bar-fill { height: 100%; background: rgba(245,63,63,0.25); border-radius: 3px; transition: width 0.3s; }
+
+.rs-count { min-width: 40px; text-align: right; font-weight: 600; }
+
+.load-more-hint { text-align: center; padding: 8px 0; }
+
+.scan-chip.debug { border-style: dashed; opacity: 0.85; }
+
+.sc-debug-tag { font-size: 9px; padding: 1px 4px; border-radius: 3px; background: rgba(230,162,60,0.15); color: #e6a23c; font-weight: 600; }
+</style>

@@ -186,8 +186,8 @@ class TestScannerStoreIntegration:
         assert "scannerStore" in source or "useScannerMonitor" in source, "组件应使用scannerStore或useScannerMonitor"
         # P0-2重构: WS逻辑已随useScannerMonitor迁移, 组件只调用composable
         assert "useScannerMonitor" in source or "wsHook" in source or "useWebSocket" in source, "组件应使用useScannerMonitor或useWebSocket hook"
-        # 新鲜度样式
-        assert "rb-freshness" in source or "freshness" in source, "组件应包含新鲜度相关样式/逻辑"
+        # 新鲜度样式 — v2.9.75: rb-freshness样式已移到OpsTab
+        assert "rb-freshness" in source or "freshness" in source or "OpsTab" in source, "组件应包含新鲜度相关样式/逻辑或已提取到OpsTab"
 
 
 # ============================================================================
