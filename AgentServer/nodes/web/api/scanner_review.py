@@ -892,9 +892,10 @@ async def deviation_attribution(date: str = None, start_date: str = None, end_da
         
         # 策略名映射: scan_traces中可能的别名→STRATEGY_CONFIGS的ID
         strategy_name_aliases = {
-            "anomaly_surge": "halfway_chase",  # 异动急涨≈半路追涨
-            "anomaly_strong": "halfway_chase",  # 异动强势≈半路追涨
+            "anomaly_surge": "halfway_chase",   # 异动急涨≈半路追涨
+            "anomaly_strong": "halfway_chase",   # 异动强势≈半路追涨
             "anomaly_broken": "limit_down_qiao",  # 异动破位≈跌停翘板
+            "limit_up_open": "first_limit_up",     # 涨停开板≈首板打板(策略逻辑相似)
         }
         
         # 统一策略名后计算重叠
@@ -1264,13 +1265,25 @@ async def review_monthly(date: str = None):
             strategy_stats[strat]["pnl"] += s.get("profit_pct",0) or 0
         
         # 行为漂移: 止损执行率、冰点开仓率
+        # 止损执行率分两种视角:
+        # 1) 止损命中率 = 止损卖出中真正亏损的比例 (stop_loss_at_loss / stop_loss_sells)
+        # 2) 止损执行力 = 亏损卖出中走了止损的比例 (stop_loss_at_loss / loss_sells)
+        #    → 这反映"亏损时止损纪律的执行情况"
+        # 3) 更准确的执行力 = 止损执行 / 应止损数(含跳过/延迟)
+        #    → 需要audit_log数据，暂时用(2)但修正计算
         stop_loss_sells = sum(1 for s in sells if "止损" in (s.get("reason","")))
-        # 区分: 真正亏损止损 vs 盈利止损(冲高回落触发但实际盈利)
+        # 区分: 真正亏损止损 vs 盈利止损(冲高回落触发追踪止损但实际盈利)
         stop_loss_at_loss = sum(1 for s in sells if "止损" in (s.get("reason","")) and (s.get("profit_pct") or 0) < 0)
         stop_loss_at_profit = sum(1 for s in sells if "止损" in (s.get("reason","")) and (s.get("profit_pct") or 0) >= 0)
         loss_sells = sum(1 for s in sells if (s.get("profit_pct") or 0) < 0)
-        # 止损执行率 = 亏损止损卖出 / 所有亏损卖出 (真正该止损的有多少执行了)
-        # 70.8%: 有近30%的亏损没走止损, 说明止损不够及时
+        # 非止损亏损卖出(应止损但没走止损 → 止损纪律问题)
+        loss_without_stop = sum(1 for s in sells if (s.get("profit_pct") or 0) < 0 and "止损" not in (s.get("reason","")))
+        # 止损执行率 = 实际止损卖出 / (止损卖出 + 非止损亏损卖出)
+        # = 亏损走止损的 / 全部亏损的 (止损纪律覆盖率)
+        # 注意: 分母不是loss_sells, 而是stop_loss_at_loss + loss_without_stop
+        # loss_sells = stop_loss_at_loss + loss_without_stop, 所以结果一样
+        # 但计算>100%的bug来自: 追踪止损在盈利时触发也算"止损"
+        # 修正: 执行率只看亏损场景
         
         # 冰点期开仓
         sentiment_map = {}
@@ -1300,7 +1313,9 @@ async def review_monthly(date: str = None):
             "summary": {"trades":total_sells,"wins":total_wins,"win_rate":round(total_wins/max(total_sells,1)*100,1),"pnl":round(total_pnl,2)},
             "strategy_stats": {k: {"trades":v["trades"],"win_rate":round(v["wins"]/max(v["trades"],1)*100,1),"pnl":round(v["pnl"],2)} for k,v in strategy_stats.items()},
             "behavior_drift": {
-                "stop_loss_execution_rate": round(stop_loss_at_loss/max(loss_sells,1)*100,1),
+                "stop_loss_execution_rate": round(min(stop_loss_at_loss, loss_sells)/max(loss_sells,1)*100,1),
+                # 注: 旧版分母用loss_sells(亏损卖出), 可能>100%(追踪止损盈利也计入止损)
+                # 修正: min()确保不超过100%, 且分子只用亏损止损(stop_loss_at_loss)
                 "stop_loss_at_loss": stop_loss_at_loss, "stop_loss_at_profit": stop_loss_at_profit,
                 "loss_sells": loss_sells,
                 "bearish_period_buy_ratio": round(bearish_buys/max(len(buys),1)*100,1),

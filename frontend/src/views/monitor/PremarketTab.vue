@@ -3,7 +3,9 @@
  * PremarketTab — 盘前竞价Tab
  * 从 MarketMonitorView provide/inject 获取composable数据
  * 【v2.9.74: 从MarketMonitorView提取(254行)】
+ * 【v2.9.75: 提取计算属性, 消除TS7006/TS7053错误】
  */
+import { computed } from 'vue'
 import { useScannerMonitorInject } from './scannerMonitorInject'
 import { ElButton, ElTag } from 'element-plus'
 
@@ -20,6 +22,14 @@ const {
   dryRun, strategyCN, strategyMeta,
   fetchPremarketData, quickBuy,
 } = m
+
+// v2.9.75: 类型化计算属性, 消除模板内隐式any回调
+const executedCount = computed(() =>
+  (premarketCandidates.value as any[]).filter((c: any) => c.signal_status === 'executed').length
+)
+const blockedCount = computed(() =>
+  (premarketCandidates.value as any[]).filter((c: any) => c.signal_status === 'blocked' || c.signal_status === 'skipped').length
+)
 </script>
 
 <template>
@@ -29,7 +39,7 @@ const {
       <div class="pm-status-bar">
         <div class="pm-status-icon">{{ premarketStatus === 'active' ? '🔴' : premarketStatus === 'ended' ? '✅' : premarketStatus === 'waiting' ? '⏳' : premarketStatus === 'debug' ? '🧪' : '💤' }}</div>
         <div class="pm-status-text">
-          <div class="pm-status-title">{{ {active: '竞价进行中', ended: '竞价已结束', waiting: '等待竞价(9:15)', debug: '🧪 调试预选模式', off: '非交易时间'}[premarketStatus] }} <span v-if="premarketDebugMode" class="pm-debug-badge">SIM</span></div>
+          <div class="pm-status-title">{{ ({active: '竞价进行中', ended: '竞价已结束', waiting: '等待竞价(9:15)', debug: '🧪 调试预选模式', off: '非交易时间'} as Record<string, string>)[premarketStatus as string] }} <span v-if="premarketDebugMode" class="pm-debug-badge">SIM</span></div>
           <div class="pm-status-sub">{{ premarketDebugMode ? '日级因子模拟 · 不影响实盘' : premarketCandidates.length + '只候选 · ' + premarketStrategyGroups.length + '个策略' }}</div>
         </div>
         <div class="pm-status-actions">
@@ -71,7 +81,7 @@ const {
         <div class="pm-ov-card">
           <div class="pm-ov-label">🎯 信号数</div>
           <div class="pm-ov-val">{{ premarketCandidates.length }}</div>
-          <div class="pm-ov-hint">已执行 {{ premarketCandidates.filter(c => c.signal_status === 'executed').length }} | blocked {{ premarketCandidates.filter(c => c.signal_status === 'blocked' || c.signal_status === 'skipped').length }}</div>
+          <div class="pm-ov-hint">已执行 {{ executedCount }} | blocked {{ blockedCount }}</div>
         </div>
       </div>
 

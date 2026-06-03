@@ -15,6 +15,9 @@ const {
   switchScanTraceFilter, fetchScanHistory, fetchScanTrace, toggleScanHour,
   scanTraceDetail, layerLabel, layerDesc, rejectionLayerCN,
   strategyCN, strategyMeta,
+  // v2.9.75: 补齐模板使用但未解构的变量
+  layerDebugVisible, layerDebugData, scanTraceVisible, scanTraceData, scanTraceCode,
+  signalStatusTag, formatLayerTrace, formatDecisionDetail, factorLabel,
 } = m
 </script>
 
