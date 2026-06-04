@@ -18,6 +18,7 @@ from nodes.web.api.scanner_shared import (
     ScannerStartRequest, ManualTradeRequest, PartialSellRequest,
     StopScannerRequest, ScanOnceRequest, PauseRequest,
 )
+from nodes.web.api.scanner_system import _build_limit_pools, _build_position_gaps, _build_premarket_analysis
 
 router = APIRouter(prefix="/scanner", tags=["调试/模拟/热更新"])
 
