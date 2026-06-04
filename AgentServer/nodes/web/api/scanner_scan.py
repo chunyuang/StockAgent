@@ -471,23 +471,25 @@ async def get_system_health_detail():
     scanner = await _get_scanner()
     try:
         import time, psutil
+        scanner_running = scanner is not None and getattr(scanner, '_is_running', False)
         scanner_hb = {
-            "is_running": getattr(scanner, '_is_running', False),
-            "uptime_seconds": time.time() - scanner._start_time if hasattr(scanner, '_start_time') and scanner._start_time else 0,
+            "is_running": scanner_running,
+            "uptime_seconds": time.time() - scanner._start_time if scanner_running and hasattr(scanner, '_start_time') and scanner._start_time else 0,
         }
-        data_sources = [{"name": "eastmoney", "available": True, "stocks": len(scanner._realtime_cache) if hasattr(scanner, '_realtime_cache') and scanner._realtime_cache else 0, "note": "免费无限流"}]
+        data_sources = [{"name": "eastmoney", "available": True, "stocks": len(scanner._realtime_cache) if scanner_running and hasattr(scanner, '_realtime_cache') and scanner._realtime_cache else 0, "note": "免费无限流"}]
 
         mongo_status = {"connected": False}
         try:
             from core.managers import mongo_manager
-            # mongo_manager auto-connected
-            mongo_status = {"connected": True, "collections": len(await mongo_manager.db.list_collections())}
+            if mongo_manager.is_initialized:
+                coll_names = await mongo_manager.db.list_collection_names()
+                mongo_status = {"connected": True, "collections": len(coll_names)}
         except Exception:
             pass
 
         redis_status = {"connected": False}
         try:
-            if hasattr(scanner, '_redis') and scanner._redis:
+            if scanner_running and hasattr(scanner, '_redis') and scanner._redis:
                 await scanner._redis.ping()
                 redis_status = {"connected": True}
         except Exception:
