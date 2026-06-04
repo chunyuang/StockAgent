@@ -178,11 +178,171 @@ async def debug_premarket_sim():
     - 情绪+历史命中率
     """
     scanner = await _get_scanner()
-    if not scanner._is_running:
-        return {"success": False, "message": "请先启动扫描器"}
+    scanner_running = scanner is not None and getattr(scanner, '_is_running', False)
     
     from core.managers import mongo_manager
     import pandas as pd
+    
+    # 非交易时间: 如果scanner未运行, 直接从MongoDB构建数据
+    if not scanner_running:
+        if not mongo_manager.is_initialized:
+            return {"success": False, "message": "MongoDB未初始化，无法获取盘前数据"}
+        
+        # 从MongoDB读取最新日线数据作为daily_factors_df的替代
+        try:
+            latest_doc = await mongo_manager.db["stock_daily_ak_full"].find_one(
+                {"trade_date": {"$exists": True}}, sort=[("trade_date", -1)],
+                projection={"trade_date": 1}
+            )
+            if not latest_doc:
+                return {"success": False, "message": "无历史日线数据"}
+            latest_date = str(latest_doc["trade_date"])
+            
+            # 读取该日全市场数据
+            docs = []
+            async for doc in mongo_manager.db["stock_daily_ak_full"].find(
+                {"trade_date": int(latest_date)},
+                {"ts_code": 1, "pct_chg": 1, "close": 1, "vol": 1, "amount": 1}
+            ):
+                docs.append(doc)
+            
+            if not docs:
+                return {"success": False, "message": f"无{latest_date}日线数据"}
+            
+            df = pd.DataFrame(docs)
+            
+            # 构建market_snapshot
+            pcts = df['pct_chg'].dropna() if 'pct_chg' in df.columns else pd.Series()
+            market_snapshot = {
+                "up_count": int((pcts > 0).sum()) if len(pcts) else 0,
+                "down_count": int((pcts < 0).sum()) if len(pcts) else 0,
+                "flat_count": int((pcts == 0).sum()) if len(pcts) else 0,
+                "limit_up_count": int((pcts >= 9.9).sum()) if len(pcts) else 0,
+                "limit_down_count": int((pcts <= -9.9).sum()) if len(pcts) else 0,
+                "avg_pct_chg": round(float(pcts.mean()), 2) if len(pcts) else 0,
+                "volume_ratio_gt2": 0, "total_stocks": len(docs),
+                "data_date": latest_date,
+            }
+            
+            # 构建candidates(粗筛预览)
+            candidates = []
+            strategy_map = {}
+            if 'pct_chg' in df.columns:
+                hc = df[(df['pct_chg'] >= 3) & (df['pct_chg'] <= 7)].nlargest(10, 'pct_chg')
+                for _, row in hc.iterrows():
+                    c = {"ts_code": row.get('ts_code', ''), "stock_name": '',
+                         "strategy": "halfway_chase", "pct_chg": round(row.get('pct_chg', 0), 2),
+                         "volume_ratio": 0, "turnover_rate": 0,
+                         "signal_status": "preview",
+                         "reason": f"涨{row.get('pct_chg',0):.1f}% (粗筛Top10)"}
+                    candidates.append(c)
+                    strategy_map.setdefault("halfway_chase", []).append(c)
+                
+                zt = df[df['pct_chg'] >= 9.9].nlargest(5, 'pct_chg')
+                for _, row in zt.iterrows():
+                    c = {"ts_code": row.get('ts_code', ''), "stock_name": '',
+                         "strategy": "first_limit_up", "pct_chg": round(row.get('pct_chg', 0), 2),
+                         "volume_ratio": 0, "turnover_rate": 0,
+                         "signal_status": "preview",
+                         "reason": f"涨停 {row.get('pct_chg',0):.1f}%"}
+                    candidates.append(c)
+                    strategy_map.setdefault("first_limit_up", []).append(c)
+            
+            # 填充股票名称(从stock_basic集合获取)
+            ts_codes = [c['ts_code'] for c in candidates if c['ts_code']]
+            name_map = {}
+            if ts_codes:
+                async for doc in mongo_manager.db["stock_basic"].find(
+                    {"ts_code": {"$in": ts_codes}},
+                    {"ts_code": 1, "name": 1}
+                ):
+                    if doc.get("name"):
+                        name_map[doc["ts_code"]] = doc["name"]
+                for c in candidates:
+                    if not c.get("stock_name"):
+                        c["stock_name"] = name_map.get(c['ts_code'], '')
+            
+            # 构建strategy_groups
+            strategy_groups = []
+            for s, group in strategy_map.items():
+                avg_pct = sum(c['pct_chg'] for c in group) / len(group) if group else 0
+                strategy_groups.append({"strategy": s, "count": len(group), "executed": 0, "blocked": 0,
+                    "avg_pct_chg": round(avg_pct, 2), "candidates": group[:15]})
+            
+            # 情绪
+            sentiment = {"score": 50, "period": "chaos", "position_ratio": 0.5, "phase_name": "震荡"}
+            try:
+                ss = await mongo_manager.db["sentiment_scores"].find_one(sort=[("updated_at", -1)])
+                if ss:
+                    raw_period = ss.get("period", "chaos")
+                    period_map = {"RISING": "高潮", "DIFFERENTIATION": "分化",
+                                  "CHAOS": "震荡", "BEARISH": "冰点",
+                                  "高潮": "高潮", "分化": "分化", "震荡": "震荡", "冰点": "冰点"}
+                    sentiment = {"score": ss.get("score", 50), "period": raw_period,
+                                 "position_ratio": ss.get("position_ratio", 0.5),
+                                 "phase_name": period_map.get(raw_period, raw_period or "震荡")}
+            except Exception:
+                pass
+            
+            # 历史命中率
+            historical_hit_rate = {}
+            try:
+                pipeline = [
+                    {"$match": {"side": "sell", "profit_pct": {"$ne": None}}},
+                    {"$group": {"_id": "$strategy", "total": {"$sum": 1},
+                                "wins": {"$sum": {"$cond": [{"$gt": ["$profit_pct", 0]}, 1, 0]}},
+                                "avg_profit": {"$avg": "$profit_pct"}}},
+                ]
+                async for doc in mongo_manager.db["broker_orders"].aggregate(pipeline):
+                    s = doc["_id"] or "unknown"
+                    total = doc["total"] or 1
+                    historical_hit_rate[s] = {"total": total, "wins": doc["wins"],
+                        "win_rate": round(doc["wins"] / total * 100, 1),
+                        "avg_profit": round(doc.get("avg_profit", 0), 2)}
+            except Exception:
+                pass
+            
+            # 涨幅TOP
+            top_gainers = []
+            if 'pct_chg' in df.columns:
+                for _, row in df.nlargest(10, 'pct_chg').iterrows():
+                    top_gainers.append({"ts_code": row.get('ts_code', ''), "name": '',
+                        "pct_chg": round(row.get('pct_chg', 0), 2), "volume_ratio": 0})
+            # 填top_gainers名称(从stock_basic集合)
+            tg_codes = [g['ts_code'] for g in top_gainers]
+            if tg_codes:
+                async for doc in mongo_manager.db["stock_basic"].find(
+                    {"ts_code": {"$in": tg_codes}},
+                    {"ts_code": 1, "name": 1}
+                ):
+                    if doc.get("name"):
+                        for g in top_gainers:
+                            if g['ts_code'] == doc['ts_code']:
+                                g['name'] = doc['name']
+            
+            # 漏斗
+            funnel = {"total_scanned": len(docs), "strategy_candidates": len(candidates),
+                       "after_pipeline": len(candidates), "blocked": 0, "executed": 0}
+            
+            # 涨停池
+            limit_pools = {"up_count": market_snapshot["limit_up_count"], "down_count": market_snapshot["limit_down_count"],
+                "continue_stats": {}, "sector_heat": [], "limit_up_list": [], "limit_down_list": []}
+            
+            result_data = {
+                "status": "debug", "market_snapshot": market_snapshot, "sentiment": sentiment,
+                "candidates": candidates[:30], "strategy_groups": strategy_groups[:6],
+                "auction_signals": [], "top_gainers": top_gainers[:10],
+                "historical_hit_rate": historical_hit_rate, "blocked_reasons": {},
+                "funnel": funnel, "is_simulated": True, "cache_source": "mongodb_offline",
+                "limit_pools": limit_pools, "position_gaps": [],
+            }
+            result_data["analysis"] = _build_premarket_analysis(
+                result_data["market_snapshot"], result_data["sentiment"], result_data["limit_pools"],
+                result_data["position_gaps"], result_data["candidates"], result_data["strategy_groups"], result_data["historical_hit_rate"])
+            return {"success": True, "data": result_data}
+        except Exception as e:
+            logger.error(f"[premarket-sim] offline模式失败: {e}")
+            return {"success": False, "message": f"获取盘前数据失败: {e}"}
     
     # ===== 用daily_factors_df填充市场快照(不依赖realtime_cache) =====
     market_snapshot = {"up_count": 0, "down_count": 0, "flat_count": 0, 
@@ -234,22 +394,24 @@ async def debug_premarket_sim():
     
     # ===== 情绪(从MongoDB读最新) =====
     sentiment = {"score": 50, "period": "chaos", "position_ratio": 0.5, "phase_name": "震荡"}
+    _period_map = {"RISING": "高潮", "DIFFERENTIATION": "分化",
+                     "CHAOS": "震荡", "BEARISH": "冰点",
+                     "高潮": "高潮", "分化": "分化", "震荡": "震荡", "冰点": "冰点"}
     try:
         if hasattr(scanner, '_current_sentiment') and scanner._current_sentiment:
+            raw_period = scanner._current_sentiment.get("period", "chaos")
             sentiment = {"score": scanner._current_sentiment.get("score", 50),
-                         "period": scanner._current_sentiment.get("period", "chaos"),
+                         "period": raw_period,
                          "position_ratio": scanner._current_position_ratio or 0.5,
-                         "phase_name": {"RISING": "高潮", "DIFFERENTIATION": "分化", 
-                                         "CHAOS": "震荡", "BEARISH": "冰点"}.get(
-                             scanner._current_sentiment.get("period", ""), "震荡")}
+                         "phase_name": _period_map.get(raw_period, raw_period or "震荡")}
         # 尝试从MongoDB读最新情绪
         if sentiment.get("score") == 50 and mongo_manager.is_initialized:
             ss = await mongo_manager.db["sentiment_scores"].find_one(sort=[("updated_at", -1)])
             if ss:
-                sentiment = {"score": ss.get("score", 50), "period": ss.get("period", "chaos"),
+                raw_period = ss.get("period", "chaos")
+                sentiment = {"score": ss.get("score", 50), "period": raw_period,
                              "position_ratio": ss.get("position_ratio", 0.5),
-                             "phase_name": {"RISING": "高潮", "DIFFERENTIATION": "分化",
-                                             "CHAOS": "震荡", "BEARISH": "冰点"}.get(ss.get("period", ""), "震荡")}
+                             "phase_name": _period_map.get(raw_period, raw_period or "震荡")}
     except Exception:
         pass
     

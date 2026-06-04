@@ -550,7 +550,7 @@ async def get_kline_data(ts_code: str, days: int = 30):
         if not mongo_manager.is_initialized:
             return {"success": True, "data": {"ts_code": ts_code, "kline": [], "annotations": []}}
         from datetime import datetime, timedelta
-        start_date = (datetime.now() - timedelta(days=days * 2)).strftime("%Y%m%d")
+        start_date = int((datetime.now() - timedelta(days=days * 2)).strftime("%Y%m%d"))
 
         cursor = mongo_manager.db["stock_daily_ak_full"].find(
             {"ts_code": ts_code, "trade_date": {"$gte": start_date}},
