@@ -63,6 +63,7 @@ const searchOptions = ref<{ code: string; name: string }[]>([])
 const searchLoading = ref(false)
 const activeCategory = ref<FactorCategory | 'all'>('all')
 const statusFilter = ref<FactorDataStatus | 'all'>('all')
+const marketPhase = ref<'trading' | 'after_close' | 'non_trading'>('non_trading')
 
 // 排序
 const sortBy = ref('')
@@ -117,8 +118,27 @@ const dsStatus = computed(() => {
 async function loadMetadata() {
   try {
     const res = await factorApi.getFactorMetadata()
-    factorMeta.value = res.factors || []
-    categoryList.value = res.categories || []
+    // 从categories中提取所有因子, 映射category名, name→key
+    const cats = res.categories || res.data?.categories || []
+    const catMap: Record<string, string> = { realtime: 'intraday', daily: 'daily', basic: 'fundamental', composite: 'composite', static: 'fundamental' }
+    const allFactors: any[] = []
+    for (const cat of cats) {
+      for (const f of (cat.factors || [])) {
+        allFactors.push({
+          ...f,
+          key: f.name,  // 用name作为key
+          category: catMap[f.category] || f.category || 'daily',
+        })
+      }
+    }
+    factorMeta.value = allFactors
+    // 分类tabs用前端统一的4分组
+    categoryList.value = [
+      { key: 'intraday', name: '盘中实时' },
+      { key: 'daily', name: '日线盘后' },
+      { key: 'fundamental', name: '基本面' },
+      { key: 'composite', name: '复合打分' },
+    ]
   } catch {
     factorMeta.value = []
     categoryList.value = []
@@ -140,9 +160,9 @@ async function loadTableData() {
   try {
     const params: any = {
       page: page.value,
-      page_size: pageSize.value,
+      limit: pageSize.value,
     }
-    if (searchQuery.value) params.codes = [searchQuery.value]
+    if (searchQuery.value) params.codes = searchQuery.value
     if (activeCategories.value.length > 0) params.categories = activeCategories.value
     if (statusFilter.value !== 'all') params.status_filter = statusFilter.value
     if (sortBy.value) {
@@ -150,8 +170,27 @@ async function loadTableData() {
       params.sort_order = sortOrder.value
     }
     const res = await factorApi.getFactorBatchView(params)
-    rows.value = res.items || []
-    total.value = res.total || 0
+    const data = res.data || res
+    // 将factors数组转为嵌套对象格式(前端FactorTable需要)
+    const rawItems = data.items || []
+    rows.value = rawItems.map((item: any) => {
+      const factorMap: Record<string, any> = {}
+      if (Array.isArray(item.factors)) {
+        for (const f of item.factors) {
+          factorMap[f.name] = { value: f.value, status: f.status, display_name: f.display_name, category: f.category }
+        }
+      }
+      return {
+        code: item.ts_code,
+        name: item.stock_name,
+        updated_at: item.trade_date,
+        data_status: item.fresh_count > 0 ? 'fresh' : 'stale',
+        factors: factorMap,
+        fresh_count: item.fresh_count,
+        stale_count: item.stale_count,
+      }
+    })
+    total.value = data.total || 0
   } catch {
     rows.value = []
     total.value = 0
@@ -365,10 +404,10 @@ onUnmounted(() => {
         :factors="factorMeta"
         :active-categories="activeCategories"
         :loading="loading"
+        :market-phase="marketPhase"
         :total="total"
         :page="page"
         :page-size="pageSize"
-        :market-phase="updateStatus?.market_phase || 'non_trading'"
         @page-change="page = $event; loadTableData()"
         @size-change="pageSize = $event; page = 1; loadTableData()"
         @sort-change="handleSortChange"

@@ -366,7 +366,7 @@ async def view_factor(
 
 @router.get("/batch-view")
 async def batch_view_factor(
-    codes: str = Query(..., description="股票代码, 逗号分隔, 如 000001.SZ,600036.SH"),
+    codes: Optional[str] = Query(None, description="股票代码, 逗号分隔, 如 000001.SZ,600036.SH。不传则返回全市场前N只"),
     date: Optional[str] = Query(None, description="日期 YYYYMMDD, 默认今天"),
     category: Optional[str] = Query(None, description="因子分类过滤"),
     status: Optional[str] = Query(None, description="因子状态过滤"),
@@ -378,9 +378,28 @@ async def batch_view_factor(
 
     返回分页的因子数据列表，每只股票一条记录。
     """
-    ts_codes = [c.strip().upper() for c in codes.split(",") if c.strip()]
+    if codes:
+        ts_codes = [c.strip().upper() for c in codes.split(",") if c.strip()]
+    else:
+        # 不传codes时，从daily_basic取有数据的股票
+        try:
+            from pymongo import MongoClient
+            client = MongoClient("mongodb://localhost:27017", serverSelectionTimeoutMS=3000)
+            db = client["stock_agent"]
+            pipeline = [
+                {"$sort": {"trade_date": -1}},
+                {"$group": {"_id": "$ts_code", "trade_date": {"$first": "$trade_date"}}},
+                {"$sort": {"trade_date": -1}},
+                {"$skip": (page - 1) * limit},
+                {"$limit": limit}
+            ]
+            result = list(db["daily_basic"].aggregate(pipeline))
+            ts_codes = [r["_id"] for r in result]
+        except Exception as e:
+            logger.error(f"batch-view fallback: {e}")
+            ts_codes = []
     if not ts_codes:
-        return {"success": False, "message": "请输入至少一个股票代码"}
+        return {"success": True, "data": {"items": [], "total": 0}}
 
     trade_date = _normalize_date(date)
 

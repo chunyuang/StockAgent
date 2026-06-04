@@ -3,7 +3,7 @@ import type { MarketOverview, StockQuote, StockBasic } from '../types'
 
 export const stockApi = {
   async getStockInfo(tsCode: string) { return await api.get(`/stocks/${tsCode}`) },
-  async searchStocks(query: string) { return await api.get<StockBasic[]>('/stocks/search', { params: { query } }) },
+  async searchStocks(query: string) { return await api.get<StockBasic[]>('/stocks/search', { params: { keyword: query } }) },
 
   /** 获取大盘概览(上证/深证/创业板+涨跌统计+热门板块) */
   async getMarketOverview() { return await api.get<MarketOverview>('/market/overview') },
