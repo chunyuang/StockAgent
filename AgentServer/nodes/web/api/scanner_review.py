@@ -1308,19 +1308,74 @@ async def review_monthly(date: str = None):
         async for doc in db["index_daily"].find({"ts_code":"000001.SH","trade_date":{"$gte":int(month_start),"$lte":int(last_day)}},{"trade_date":1,"close":1,"pct_chg":1}).sort("trade_date",1):
             index_data.append({"date":str(doc["trade_date"]),"close":round(doc.get("close",0),2),"pct_chg":round(doc.get("pct_chg",0),2)})
         
+        # 逐日breakdown
+        daily_breakdown = []
+        from collections import defaultdict as _dd
+        daily_sells_map = _dd(list)
+        daily_buys_map = _dd(list)
+        for s in sells:
+            daily_sells_map[str(s.get("trade_date",""))].append(s)
+        for b in buys:
+            daily_buys_map[str(b.get("trade_date",""))].append(b)
+        
+        all_dates = sorted(set(list(daily_sells_map.keys()) + list(daily_buys_map.keys())))
+        for td in all_dates:
+            ds = daily_sells_map.get(td, [])
+            db_ = daily_buys_map.get(td, [])
+            d_wins = sum(1 for s in ds if (s.get("profit_pct") or 0) >= 0)
+            d_pnl = sum(s.get("profit_pct", 0) or 0 for s in ds)
+            d_strat = _dd(lambda: {"trades":0,"wins":0,"pnl":0})
+            for s in ds:
+                st = s.get("strategy","") or "unknown"
+                d_strat[st]["trades"] += 1
+                if (s.get("profit_pct") or 0) >= 0: d_strat[st]["wins"] += 1
+                d_strat[st]["pnl"] += s.get("profit_pct",0) or 0
+            sent = sentiment_map.get(td, {})
+            daily_breakdown.append({
+                "date": td, "trades": len(ds), "buys": len(db_), "sells": len(ds),
+                "win_rate": round(d_wins / max(len(ds), 1) * 100, 1),
+                "pnl": round(d_pnl, 2),
+                "strategy_stats": {k: {"trades":v["trades"],"win_rate":round(v["wins"]/max(v["trades"],1)*100,1),"pnl":round(v["pnl"],2)} for k,v in d_strat.items()},
+                "sentiment": sent.get("period", ""), "sentiment_score": sent.get("score", 0),
+            })
+        
+        # 周趋势(近4周)
+        weekly_trend = []
+        if daily_breakdown:
+            from itertools import groupby as _gb
+            import datetime as _dt2
+            def _week_key(d):
+                try:
+                    dt2 = _dt2.datetime.strptime(d["date"], "%Y%m%d")
+                    return dt2.strftime("%Y-W%W")
+                except: return d["date"][:6]
+            for wk, grp in _gb(daily_breakdown, key=_week_key):
+                g = list(grp)
+                w_trades = sum(d["trades"] for d in g)
+                w_wins = sum(1 for d in g for _ in range(d["trades"]) if False)  # approximate
+                w_pnl = sum(d["pnl"] for d in g)
+                # Recalculate from daily win_rates
+                total_t = sum(d["trades"] for d in g)
+                total_w = sum(round(d["win_rate"]/100*d["trades"]) for d in g)
+                weekly_trend.append({
+                    "week": wk, "start": g[0]["date"], "end": g[-1]["date"],
+                    "trades": total_t, "win_rate": round(total_w/max(total_t,1)*100,1),
+                    "pnl": round(w_pnl, 2), "days": len(g),
+                })
+        
         result = {
             "period": f"{month_start}~{last_day}",
             "summary": {"trades":total_sells,"wins":total_wins,"win_rate":round(total_wins/max(total_sells,1)*100,1),"pnl":round(total_pnl,2)},
             "strategy_stats": {k: {"trades":v["trades"],"win_rate":round(v["wins"]/max(v["trades"],1)*100,1),"pnl":round(v["pnl"],2)} for k,v in strategy_stats.items()},
             "behavior_drift": {
                 "stop_loss_execution_rate": round(min(stop_loss_at_loss, loss_sells)/max(loss_sells,1)*100,1),
-                # 注: 旧版分母用loss_sells(亏损卖出), 可能>100%(追踪止损盈利也计入止损)
-                # 修正: min()确保不超过100%, 且分子只用亏损止损(stop_loss_at_loss)
                 "stop_loss_at_loss": stop_loss_at_loss, "stop_loss_at_profit": stop_loss_at_profit,
                 "loss_sells": loss_sells,
                 "bearish_period_buy_ratio": round(bearish_buys/max(len(buys),1)*100,1),
                 "bearish_buys": bearish_buys, "total_buys": len(buys),
             },
+            "daily_breakdown": daily_breakdown,
+            "weekly_trend": weekly_trend,
             "param_drift": drift_data,
             "index_performance": index_data,
         }
