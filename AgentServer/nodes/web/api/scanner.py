@@ -29,7 +29,7 @@ from nodes.web.api.scanner_report import router as report_router
 from nodes.web.api.scanner_system import router as system_router
 from nodes.web.api.scanner_scan import router as scan_router
 
-router = APIRouter(prefix="/scanner", tags=["市场监听"])
+router = APIRouter(tags=["市场监听"])
 
 # 挂载所有子模块路由
 router.include_router(core_router)
