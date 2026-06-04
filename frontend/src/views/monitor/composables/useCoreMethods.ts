@@ -6,7 +6,7 @@
  * 依赖: 核心状态ref + api + scannerStore
  */
 
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '@/api/client'
 import { useScannerStore } from '@/stores/scanner'
@@ -64,6 +64,16 @@ import type { Ref } from 'vue'
 export function useCoreMethods(refs: CoreRefs) {
   const scannerStore = useScannerStore()
   const wsHook = useWebSocket()
+
+  // 【v2.9.72】WS数据新鲜度追踪：WS连接成功但Redis断开时，scanner数据不会流过WS
+  // 此时ws.isConnected=true但实际无数据，需要降级到轮询
+  const lastWsDataTime = ref(0) // 上次从WS收到scanner数据的时间
+  const WS_DATA_STALE_MS = 15000 // 15秒无WS数据则视为陈旧
+  const wsDataStale = computed(() => {
+    if (!wsHook.isConnected.value) return false // WS断开时不叫"陈旧"，正常走轮询
+    if (lastWsDataTime.value === 0) return true // WS连接但从未收到scanner数据
+    return (Date.now() - lastWsDataTime.value) > WS_DATA_STALE_MS
+  })
 
   let fetchScannerAbort: AbortController | null = null
   let fetchScannerRunning = false
@@ -224,23 +234,35 @@ export function useCoreMethods(refs: CoreRefs) {
   // 生命周期方法 (由父组件在onMounted/onUnmounted中调用)
   function mount() {
     wsHook.connect()
-    if (!_wsSubscribed) { wsHook.send({ type: 'subscribe_scanner' }); _wsSubscribed = true }
+    if (!_wsSubscribed) {
+      wsHook.send({ type: 'subscribe_scanner' })
+      _wsSubscribed = true
+    }
+    // 【v2.9.72】监听WS scanner数据到达，更新新鲜度时间戳
+    const wsUnsub = wsHook.subscribe((msg: any) => {
+      if (msg.type?.startsWith('scanner_')) {
+        lastWsDataTime.value = Date.now()
+      }
+    })
     nowTimer = setInterval(() => { refs.nowMs.value = Date.now() }, 1000)
     const getRefreshInterval = () => { const n = new Date(), h = n.getHours(), m = n.getMinutes(); const isTrading = (h === 9 && m >= 30) || (h >= 10 && h < 15) || (h === 15 && m === 0); return isTrading ? 5000 : 60000 }
-    refreshTimer = setInterval(() => { if (!refs.autoRefresh.value || wsHook.isConnected.value) return; fetchScanner(); fetchHealth() }, getRefreshInterval())
+    // 【v2.9.72】修复：WS连接但Redis断开时数据不更新的bug
+    // 当wsDataStale=true(WS连接但无scanner数据)时，仍执行轮询作为降级
+    refreshTimer = setInterval(() => { if (!refs.autoRefresh.value) return; if (wsHook.isConnected.value && !wsDataStale.value) return; fetchScanner(); fetchHealth() }, getRefreshInterval())
   }
 
   function unmount() {
     if (refreshTimer) clearInterval(refreshTimer)
     if (nowTimer) clearInterval(nowTimer)
     _wsSubscribed = false
+    // wsUnsub is cleaned up by the hook's onUnmounted
   }
 
-  // Store同步
+  // 【v2.9.72】Store同步 - 修复：空数组也必须同步（如0个signal时不更新导致UI不一致）
   function setupStoreWatchers(watch: any) {
-    watch(() => scannerStore.signals, (v: any) => { if (v?.length) refs.signals.value = v }, { deep: true })
-    watch(() => scannerStore.positions, (v: any) => { if (v?.length) refs.positions.value = v }, { deep: true })
-    watch(() => scannerStore.timeline, (v: any) => { if (v?.length) refs.timeline.value = v }, { deep: true })
+    watch(() => scannerStore.signals, (v: any) => { if (v != null) refs.signals.value = v }, { deep: true })
+    watch(() => scannerStore.positions, (v: any) => { if (v != null) refs.positions.value = v }, { deep: true })
+    watch(() => scannerStore.timeline, (v: any) => { if (v != null) refs.timeline.value = v }, { deep: true })
     watch(() => scannerStore.status, (v: any) => { if (v) refs.status.value = { ...refs.status.value, ...v } }, { deep: true })
     watch(() => scannerStore.lastError, (v: string) => { if (v) ElMessage({ type: 'error', message: `Scanner异常: ${v}`, duration: 8000 }) })
   }
