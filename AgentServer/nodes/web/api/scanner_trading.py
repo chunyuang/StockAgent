@@ -238,7 +238,7 @@ async def get_orders(limit: int = 50):
 
 
 
-@router.post("/scanner/daily-settlement")
+@router.post("/daily-settlement")
 async def daily_settlement():
     """手动触发日结算(T+1解锁)"""
     scanner = await _get_scanner()
