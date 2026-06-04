@@ -160,7 +160,26 @@ export function useScanTraceMonitor() {
     return prefix + ' ' + label
   }
 
-  const layerDesc = (_layer: string, _data: any): string => ''
+  const layerDesc = (layer: string, data: any): string => {
+    const descs: Record<string, (d: any) => string> = {
+      L1_force_empty: (d) => d === true || d?.applied ? '✅ 未触发空仓(涨停多/跌停少)' : '⛔ 触发强制空仓',
+      L2_special_period: (d) => d === true || d?.applied ? '✅ 非特殊时期,仓位系数100%' : '⚠️ 特殊时期,降低仓位',
+      L3_sentiment: (d) => typeof d === 'string' ? d : d?.applied ? `✅ 情绪筛选通过` : '⛔ 情绪不达标',
+      L4_premarket: (d) => typeof d === 'string' ? d : d?.applied ? '✅ 盘前预选通过' : '⛔ 盘前预选未通过',
+      L5_auction: (d) => typeof d === 'string' ? d : d?.applied ? '✅ 竞价过滤通过' : '⛔ 竞价异常排除',
+      L6_strategy: (d) => typeof d === 'string' ? d : d?.applied ? '✅ 策略量能达标' : '⛔ 不满足策略条件',
+      L7_ranking: (d) => typeof d === 'string' ? d : d?.applied ? '✅ 排名靠前入选' : '⛔ 排名靠后淘汰',
+      L8_position: (d) => typeof d === 'string' ? d : d?.applied ? '✅ 仓位允许开仓' : '⛔ 仓位已满/超限',
+      L9_execute: (d) => typeof d === 'string' ? d : d?.applied ? '✅ 执行确认' : '⛔ 执行被拒',
+    }
+    const fn = descs[layer]
+    if (fn) try { return fn(data) } catch { /* fallback */ }
+    if (typeof data === 'string') return data
+    if (data?.detail) return data.detail
+    if (data?.reason) return data.reason
+    if (data?.applied !== undefined) return data.applied ? '✅ 通过' : '⛔ 未通过'
+    return ''
+  }
 
   function formatLayerTrace(trace: Record<string, any>): string[] {
     if (!trace) return ['无链路数据']

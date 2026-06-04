@@ -204,7 +204,7 @@ export function useScannerMonitor() {
   async function setTrailingStop(ts_code: string, activated: boolean) {
     trailSaving.value = true
     try {
-      const r = await api.post(`${scannerApi}/trailing-stop`, { ts_code, activated, trailing_stop_pct: trailEditPct.value / 100 })
+      const r = await api.put(`${scannerApi}/trailing-stop/${ts_code}`, { activated, trailing_stop_pct: trailEditPct.value / 100 })
       const p = parseResponse(r)
       if (p.success) { ElMessage.success(`${activated ? '激活' : '取消'}追踪止损`); core.fetchScanner() }
       else ElMessage.error('设置失败')
@@ -216,8 +216,8 @@ export function useScannerMonitor() {
   async function onManualCodeChange(code: string) {
     if (!code) { manualQuote.value = null; return }
     try {
-      const tsCode = code.length === 6 ? code + '.SH' : code
-      const r = await api.get(`${scannerApi}/quote?ts_code=${tsCode}`)
+      const tsCode = code.includes('.') ? code : (code.startsWith('6') || code.startsWith('9') ? code + '.SH' : code + '.SZ')
+      const r = await api.get(`${scannerApi}/quote/${tsCode}`)
       const p = parseResponse(r)
       if (p.success && p.data) { manualQuote.value = p.data; manualTrade.ts_code = tsCode; manualTrade.stock_name = p.data.name || ''; manualTrade.price = p.data.price || 0 }
     } catch { /* ignore */ }
