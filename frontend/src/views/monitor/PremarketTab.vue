@@ -171,10 +171,10 @@ onMounted(() => {
       <div v-if="premarketPositionGaps && premarketPositionGaps.length" class="pm-pos-gap-section">
         <div class="st">💼 持仓竞价影响</div>
         <div class="pm-pos-gaps">
-          <div v-for="p in premarketPositionGaps" :key="p.ts_code" class="pm-pg-item" :class="p.gap_pct >= 0 ? 'gap-up' : 'gap-down'">
+          <div v-for="p in premarketPositionGaps" :key="p.ts_code" class="pm-pg-item" :class="(p.gap_pct || 0) >= 0 ? 'gap-up' : 'gap-down'">
             <span class="pm-pg-name">{{ p.stock_name }}</span>
-            <span class="pm-pg-gap" :class="p.gap_pct >= 0 ? 'up' : 'down'">{{ p.gap_pct >= 0 ? '⬆' : '⬇' }} {{ p.gap_pct >= 0 ? '+' : '' }}{{ p.gap_pct.toFixed(1) }}%</span>
-            <span class="pm-pg-hint">{{ p.gap_pct > 3 ? '强势高开' : p.gap_pct < -2 ? '⚠️风险低开' : '正常' }}</span>
+            <span class="pm-pg-gap" :class="(p.gap_pct || 0) >= 0 ? 'up' : 'down'">{{ (p.gap_pct || 0) >= 0 ? '⬆' : '⬇' }} {{ (p.gap_pct || 0) >= 0 ? '+' : '' }}{{ (p.gap_pct || 0).toFixed(1) }}%</span>
+            <span class="pm-pg-hint">{{ (p.gap_pct || 0) > 3 ? '强势高开' : (p.gap_pct || 0) < -2 ? '⚠️风险低开' : '正常' }}</span>
           </div>
         </div>
       </div>
@@ -186,7 +186,7 @@ onMounted(() => {
             <span class="pm-group-toggle">{{ premarketGroupExpanded[g.strategy] ? '▼' : '▶' }}</span>
             <ElTag size="small" :color="strategyMeta[g.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(g.strategy) }}</ElTag>
             <span class="pm-group-stat">{{ g.count }}只</span>
-            <span class="pm-group-stat" :class="g.avg_pct_chg >= 0 ? 'up' : 'down'">均幅 {{ g.avg_pct_chg >= 0 ? '+' : '' }}{{ g.avg_pct_chg.toFixed(1) }}%</span>
+            <span class="pm-group-stat" :class="(g.avg_pct_chg || 0) >= 0 ? 'up' : 'down'">均幅 {{ (g.avg_pct_chg || 0) >= 0 ? '+' : '' }}{{ (g.avg_pct_chg || 0).toFixed(1) }}%</span>
             <span v-if="g.executed" class="pm-group-stat executed">已买{{ g.executed }}</span>
             <span v-if="g.blocked" class="pm-group-stat warn">blocked {{ g.blocked }}</span>
             <span v-if="(premarketHitRate?.[g.strategy])" class="pm-group-stat hit-rate" :class="(premarketHitRate?.[g.strategy]).win_rate >= 60 ? 'up' : 'warn'">
