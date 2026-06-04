@@ -287,13 +287,7 @@ export function useScannerMonitor() {
   const openWeeklyReport = () => { weeklyReportVisible.value = true }
   const saveSnapshot = async () => { try { await api.post(`${scannerApi}/snapshot`); ElMessage.success('快照已保存') } catch { /* ignore */ } }
   const backtestRunning = ref(false)
-  const liveBacktestDiff = ref<any>(null)
-  const executionQuality = ref<any>(null)
-  const tradeAttributions = ref<any[]>([])
-  const paramDriftData = ref<any>(null)
-  const factorEffectData = ref<any>(null)
   const exportTradeLog = () => { /* stub */ }
-  const disciplineCheck = ref<any>(null)
   const weeklyReportData = computed<Record<string, any>>(() => review.weeklyReviewData?.value as Record<string, any> || {})
 
   // 生命周期
@@ -378,9 +372,8 @@ export function useScannerMonitor() {
     openScanTrace, signalStatusTag,
     // 复盘(来自...review)
     openWeeklyReport, weeklyReportData, saveSnapshot,
-    backtestRunning, liveBacktestDiff, executionQuality,
-    tradeAttributions, paramDriftData, factorEffectData, exportTradeLog,
-    disciplineCheck,
+    backtestRunning,
+    exportTradeLog,
     // 工具
     strategyMeta, formatRemaining, factorLabel, layerLabel, layerDesc,
     // 核心方法
