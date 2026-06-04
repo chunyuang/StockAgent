@@ -16,6 +16,7 @@ ScannerInitializer — MarketScanner初始化逻辑
 
 import logging
 import os
+import threading
 from typing import Dict, Any, Optional, List
 
 logger = logging.getLogger("scanner.init")
@@ -57,6 +58,9 @@ class ScannerInitializer:
     def _init_cache_state(self) -> None:
         """初始化数据缓存【v2.9.56从_init_state提取】"""
         import pandas as pd
+        # 【v2.9.79:提前初始化_state_lock, 避免scan_once在未start时state_lock=None崩溃】
+        if self._state_lock is None:
+            self._state_lock = threading.Lock()
         self._daily_factors_df: Optional[pd.DataFrame] = None
         self._realtime_cache: Dict[str, Dict] = {}
         self._prev_realtime_cache: Dict[str, Dict] = {}

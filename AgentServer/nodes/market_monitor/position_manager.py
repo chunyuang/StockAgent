@@ -72,7 +72,12 @@ class PositionManager:
     @property
     def state_lock(self) -> threading.Lock:
         """共享状态锁(保护trailing_stops/pending_sells/position_risk_levels)"""
-        return self._scanner._state_lock
+        lock = self._scanner._state_lock
+        # 【v2.9.79:defensive】未start时state_lock可能为None, 返回dummy锁避免崩溃
+        if lock is None:
+            lock = threading.Lock()
+            self._scanner._state_lock = lock
+        return lock
     
     def _get_trailing_stop_safe(self, ts_code: str) -> Optional[Dict]:
         """线程安全读取追踪止损状态(深拷贝后释放锁)"""

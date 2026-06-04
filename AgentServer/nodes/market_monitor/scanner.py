@@ -168,7 +168,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
     _risk_running: bool = False
     _risk_thread_restarts: int = 0
     _cache_lock = None
-    _state_lock = None
+    _state_lock: threading.Lock = None  # type: ignore[assignment]  # 初始化在__init__中完成
     _loop = None
     _last_snapshot_save: float = 0.0
     _snapshot_dirty: bool = False
@@ -298,7 +298,27 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
         ]
 
     def get_timeline(self) -> List[Dict]:
-        return list(self._timeline)
+        result = list(self._timeline)
+        # 【v2.9.79】补全空stock_name(旧数据或实时行情无name时)
+        # 如果name_map为空, 先从MongoDB加载(首次调用时)
+        if not self._stock_name_map:
+            try:
+                from pymongo import MongoClient
+                client = MongoClient("mongodb://localhost:27017", serverSelectionTimeoutMS=2000)
+                docs = list(client["stock_agent"]["stock_basic"].find(
+                    {}, {"ts_code": 1, "name": 1, "_id": 0}
+                ).limit(10000))
+                for doc in docs:
+                    if doc.get("ts_code") and doc.get("name"):
+                        self._stock_name_map[doc["ts_code"]] = doc["name"]
+                pass
+            except Exception:
+                pass
+        # 补全空stock_name
+        for t in result:
+            if not t.get("stock_name"):
+                t["stock_name"] = self._stock_name_map.get(t.get("ts_code", ""), "")
+        return result
     async def start(self, trade_date: str = None) -> Dict:
         """启动扫描【v2.9.55: 初始化序列提取到_start_init_sequence】"""
         if self._is_running:
@@ -459,14 +479,36 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
 
 
     def _update_name_map(self, realtime_data: Dict[str, Dict]) -> None:
-        """从实时行情数据更新ts_code→stock_name映射"""
+        """从实时行情数据更新ts_code→stock_name映射
+        
+        【v2.9.79】增强: 当_name_map为空时, 从MongoDB stock_basic加载全量名称映射
+        """
+        # 首次调用时从MongoDB加载全量名称映射(非阻塞同步fallback)
+        names_loaded = False
+        if not self._stock_name_map:
+            try:
+                from pymongo import MongoClient
+                client = MongoClient("mongodb://localhost:27017", serverSelectionTimeoutMS=2000)
+                docs = list(client["stock_agent"]["stock_basic"].find(
+                    {}, {"ts_code": 1, "name": 1, "_id": 0}
+                ).limit(10000))
+                for doc in docs:
+                    if doc.get("ts_code") and doc.get("name"):
+                        self._stock_name_map[doc["ts_code"]] = doc["name"]
+                names_loaded = len(self._stock_name_map) > 0
+                logger.info(f"[SCANNER] 从stock_basic加载{len(self._stock_name_map)}只股票名称映射")
+            except Exception as e:
+                logger.warning(f"[SCANNER] 从stock_basic加载名称映射失败: {e}")
+        
+        # 从实时行情补充名称(优先级更高)
         updated = False
         for ts_code, rt in realtime_data.items():
             name = rt.get("name", "")
             if name and ts_code not in self._stock_name_map:
                 self._stock_name_map[ts_code] = name
                 updated = True
-        if updated and self._strategy_scorer:
+        # 同步名称映射到strategy_scorer(每次scan都同步, 确保scorer名称映射最新)
+        if self._strategy_scorer:
             self._strategy_scorer.update_name_map(self._stock_name_map)
 
     def _get_stock_name(self, ts_code: str) -> str:

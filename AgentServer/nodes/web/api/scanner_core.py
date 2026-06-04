@@ -37,12 +37,16 @@ async def get_all_scanner_data():
     
     # 信号
     signals_data = scanner.get_signals()
+    _fill_stock_names(signals_data, scanner)
     
     # 持仓
     positions_data = scanner.get_positions()
+    _fill_stock_names(positions_data, scanner)
     
     # 时间线
     timeline_data = scanner.get_timeline()
+    # 【v2.9.79】填充空stock_name(旧数据/行情无name时)
+    _fill_stock_names(timeline_data, scanner)
     
     # 如果时间线为空(扫描器未启动)，尝试从MongoDB加载最近交易日数据
     if not timeline_data:
@@ -94,6 +98,9 @@ async def get_all_scanner_data():
                     orders_data.append(d)
         except Exception:
             pass
+    
+    # 填充空stock_name(从scanner的名称映射)
+    _fill_stock_names(timeline_data, scanner)
     
     # 累计盈亏统计(从时间线计算)
     total_profit_amount = 0
