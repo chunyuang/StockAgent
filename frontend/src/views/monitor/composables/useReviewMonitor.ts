@@ -46,6 +46,7 @@ export function useReviewMonitor() {
       // ===== 通用数据 =====
       promises.push(
         api.get(`${scannerApi}/backtest-compare?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) liveBacktestDiff.value = p.data || [] }),
+        api.get(`${scannerApi}/review-hero?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) reviewHero.value = p.data }),
       )
 
       // ===== 按周期差异化 =====
@@ -80,11 +81,13 @@ export function useReviewMonitor() {
           api.get(`${scannerApi}/discipline-check?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) disciplineCheck.value = p.data }),
           api.get(`${scannerApi}/deviation-attribution?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) deviationData.value = p.data }),
           api.get(`${scannerApi}/review-forward?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) reviewForward.value = p.data }),
+          // 执行质量: 从偏差归因数据中提取滑点信息
+          api.get(`${scannerApi}/deviation-attribution?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success && p.data?.deviations?.slippage) executionQuality.value = { avg_slippage_pct: p.data.deviations.slippage.avg_pct || 0, max_slippage_pct: p.data.deviations.slippage.max_pct || 0, fill_rate_pct: p.data.deviations.slippage.fill_rate || 95, total_orders: p.data.live_stats?.trades || 0, filled_orders: p.data.live_stats?.wins || 0 } }),
         )
       } else if (reviewTab.value === 'weekly') {
         promises.push(
           api.get(`${scannerApi}/review-weekly?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) weeklyReviewData.value = p.data }),
-          api.get(`${scannerApi}/deviation-attribution?start_date=&end_date=`, opts).then(r => { const p = parseResponse(r); if (p.success) deviationData.value = p.data }),
+          api.get(`${scannerApi}/deviation-attribution?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) deviationData.value = p.data }),
           api.get(`${scannerApi}/discipline-check?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) disciplineCheck.value = p.data }),
           api.get(`${scannerApi}/review-forward?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) reviewForward.value = p.data }),
         )
