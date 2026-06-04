@@ -92,10 +92,10 @@ const {
         </div>
       </div>
       <div class="hh-account" v-if="status">
-        <span class="ha">资产<span class="hv">{{ (accountInfo.total_assets / 10000).toFixed(1) }}万</span></span>
-        <span class="ha">可用<span class="hv">{{ (accountInfo.available_cash / 10000).toFixed(1) }}万</span></span>
+        <span class="ha">资产<span class="hv">{{ ((accountInfo.total_assets || 0) / 10000).toFixed(1) }}万</span></span>
+        <span class="ha">可用<span class="hv">{{ ((accountInfo.available_cash || 0) / 10000).toFixed(1) }}万</span></span>
         <span class="ha">仓位<span class="hv">{{ positionRatio }}%</span></span>
-        <span class="ha">盈亏<span class="hv" :class="totalPnl >= 0 ? 'up' : 'down'">{{ totalPnl >= 0 ? '+' : '' }}{{ totalPnl.toFixed(0) }}</span></span>
+        <span class="ha">盈亏<span class="hv" :class="totalPnl >= 0 ? 'up' : 'down'">{{ totalPnl >= 0 ? '+' : '' }}{{ (totalPnl || 0).toFixed(0) }}</span></span>
       </div>
       <div class="hh-actions">
         <ElButton v-if="!isRunning" type="success" size="small" @click="startScanner">▶ 启动</ElButton>
@@ -191,16 +191,16 @@ const {
           <div v-if="!positions.length" class="empty">暂无持仓</div>
           <div v-for="(pos, idx) in sortedPositions" :key="pos.ts_code" class="pos-card" :class="{ 'pos-focused': idx === focusIndex }">
             <div class="pos-top"><ElTag size="small" :color="strategyMeta[pos.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="font-size:10px;min-width:48px;text-align:center">{{ pos.strategy_name || strategyCN(pos.strategy) }}</ElTag><span class="code">{{ pos.ts_code }}</span><span class="name">{{ pos.stock_name }}</span><MiniKline :tsCode="pos.ts_code" :compact="true" :days="5" /><span :class="pos.profit_pct >= 0 ? 'up' : 'down'" class="pct">{{ pos.profit_pct >= 0 ? '+' : '' }}{{ pos.profit_pct.toFixed(1) }}%</span><span class="mini-bar"><span class="mini-bar-fill" :style="{ width: Math.min(Math.abs(pos.profit_pct) / 10 * 100, 100) + '%' }" :class="pos.profit_pct >= 0 ? 'bar-up' : 'bar-down'"></span></span><span v-if="pos.today_buy > 0" class="t1-tag">T+1</span><ElButton size="small" type="danger" plain @click="quickSell(pos)" :disabled="pos.available_qty <= 0" class="btn-xs ml-auto">卖出</ElButton><ElButton size="small" type="info" plain @click="openTradeDetail(pos.ts_code)" class="btn-xs">详情</ElButton></div>
-            <div class="pos-info"><span>{{ pos.shares }}股</span><span>成本¥{{ pos.cost_price.toFixed(2) }}</span><span>现价¥{{ pos.current_price.toFixed(2) }}</span><span v-if="pos.market_value" class="mv">市值{{ (pos.market_value / 10000).toFixed(1) }}万</span><span v-if="pos.profit_amount != null" :class="pos.profit_amount >= 0 ? 'up' : 'down'" class="pamt">{{ pos.profit_amount >= 0 ? '+' : '' }}¥{{ Math.abs(pos.profit_amount).toFixed(0) }}</span></div>
+            <div class="pos-info"><span>{{ pos.shares }}股</span><span>成本¥{{ (pos.cost_price || 0).toFixed(2) }}</span><span>现价¥{{ (pos.current_price || 0).toFixed(2) }}</span><span v-if="pos.market_value" class="mv">市值{{ (pos.market_value / 10000).toFixed(1) }}万</span><span v-if="pos.profit_amount != null" :class="pos.profit_amount >= 0 ? 'up' : 'down'" class="pamt">{{ pos.profit_amount >= 0 ? '+' : '' }}¥{{ Math.abs(pos.profit_amount).toFixed(0) }}</span></div>
             <div class="pos-prices-row">
               <span v-if="pos.stop_loss_price" class="pp-sl">止损¥{{ pos.stop_loss_price.toFixed(2) }}</span>
               <span v-if="pos.take_profit_price" class="pp-tp">止盈¥{{ pos.take_profit_price.toFixed(2) }}</span>
-              <span v-if="pos.trailing_stop?.activated" class="pp-trail">📍追踪¥{{ pos.trailing_stop.stop_price?.toFixed(2) }}({{ (pos.trailing_stop.trailing_stop_pct * 100).toFixed(0) }}%)</span>
+              <span v-if="pos.trailing_stop?.activated" class="pp-trail">📍追踪¥{{ pos.trailing_stop.stop_price?.toFixed(2) }}({{ ((pos.trailing_stop.trailing_stop_pct || 0) * 100).toFixed(0) }}%)</span>
               <span v-if="pos.risk_level && pos.risk_level !== 'normal'" class="pp-risk" :class="pos.risk_level">{{ {high:'🔴高风险',elevated:'🟡较高',low:'🟢低风险'}[pos.risk_level] || pos.risk_level }}</span>
             </div>
             <div v-if="pos.stop_loss_pct != null" class="pos-risk-row">
               <div class="risk-track"><div class="risk-fill" :style="{ width: Math.max(0, Math.min(100, (() => { const sl = normalizePct(pos.stop_loss_pct, 3), tp = normalizePct(pos.take_profit_pct, 7), d = sl + tp; return d > 0 ? (pos.profit_pct + sl) / d * 100 : 0 })())) + '%' }" :class="pos.profit_pct + normalizePct(pos.stop_loss_pct, 3) < 1 ? 'danger' : pos.profit_pct + normalizePct(pos.stop_loss_pct, 3) < 2 ? 'warning' : 'safe'"></div></div>
-              <div class="risk-labels-row"><span class="rl stop">止损{{ formatSlTp(pos.stop_loss_pct, 3) }}</span><span v-if="pos.trailing_stop?.activated" class="rl trail">📍{{ (pos.trailing_stop.trailing_stop_pct * 100).toFixed(0) }}%</span><span class="rd" :class="{ danger: pos.profit_pct + normalizePct(pos.stop_loss_pct, 3) < 2 }">距止损{{ (pos.profit_pct + normalizePct(pos.stop_loss_pct, 3)).toFixed(1) }}%</span><span class="rl profit">止盈{{ formatSlTp(pos.take_profit_pct, 7) }}</span></div>
+              <div class="risk-labels-row"><span class="rl stop">止损{{ formatSlTp(pos.stop_loss_pct, 3) }}</span><span v-if="pos.trailing_stop?.activated" class="rl trail">📍{{ ((pos.trailing_stop.trailing_stop_pct || 0) * 100).toFixed(0) }}%</span><span class="rd" :class="{ danger: (pos.profit_pct || 0) + normalizePct(pos.stop_loss_pct, 3) < 2 }">距止损{{ ((pos.profit_pct || 0) + normalizePct(pos.stop_loss_pct, 3)).toFixed(1) }}%</span><span class="rl profit">止盈{{ formatSlTp(pos.take_profit_pct, 7) }}</span></div>
             </div>
           </div>
         </div>

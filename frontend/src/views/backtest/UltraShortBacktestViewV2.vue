@@ -924,7 +924,7 @@ function onViewLogs(_taskId: string) {
         ⏱ 已运行 {{ Math.floor(elapsedSeconds / 60) }}:{{ String(elapsedSeconds % 60).padStart(2, '0') }} · 回测运行中，完成后自动切换到「回测日志」
       </div>
       <div :class="{ 'tab-hidden': !backtestResult?.execution_time_ms }" class="execution-time">
-        ⏱ 上次回测耗时 {{ (backtestResult.execution_time_ms / 1000).toFixed(1) }}秒 · {{ backtestResult?.net_value_series?.length || 0 }} 交易日
+        ⏱ 上次回测耗时 {{ ((backtestResult?.execution_time_ms || 0) / 1000).toFixed(1) }}秒 · {{ backtestResult?.net_value_series?.length || 0 }} 交易日
         <ElButton size="small" type="primary" link @click="activeMainTab = 'log'">📜 查看日志 →</ElButton>
       </div>
 
@@ -945,7 +945,7 @@ function onViewLogs(_taskId: string) {
         ⏱ 已运行 {{ Math.floor(elapsedSeconds / 60) }}:{{ String(elapsedSeconds % 60).padStart(2, '0') }} · 回测运行中...
       </div>
       <div :class="{ 'tab-hidden': !backtestResult?.execution_time_ms }" class="execution-time">
-        ⏱ 回测耗时 {{ (backtestResult.execution_time_ms / 1000).toFixed(1) }}秒 · {{ backtestResult?.net_value_series?.length || 0 }} 交易日
+        ⏱ 回测耗时 {{ ((backtestResult?.execution_time_ms || 0) / 1000).toFixed(1) }}秒 · {{ backtestResult?.net_value_series?.length || 0 }} 交易日
         <ElButton size="small" type="primary" link @click="activeMainTab = 'config'">🎯 修改配置 →</ElButton>
       </div>
 

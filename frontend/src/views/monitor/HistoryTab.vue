@@ -23,7 +23,7 @@ const {
     <div class="mm-tab-scroll">
       <!-- 交易时间线 -->
       <div class="st">⏱️ 交易时间线 <span class="text-tertiary" style="font-size:11px">({{ timeline.length }}笔)</span>
-        <span v-if="cumulativePnl !== 0" :class="cumulativePnl >= 0 ? 'up' : 'down'" style="font-size:12px;margin-left:6px">累计{{ cumulativePnl >= 0 ? '+' : '' }}¥{{ cumulativePnl.toFixed(0) }}</span>
+        <span v-if="cumulativePnl" :class="cumulativePnl >= 0 ? 'up' : 'down'" style="font-size:12px;margin-left:6px">累计{{ cumulativePnl >= 0 ? '+' : '' }}¥{{ cumulativePnl.toFixed(0) }}</span>
         <ElButton v-if="timeline.length" size="small" type="warning" @click="openTradeAudit" style="margin-left:8px">🔍 审查</ElButton>
         <div style="display:inline-flex;align-items:center;gap:4px;margin-left:8px"><ElDatePicker v-model="historyDate" type="date" placeholder="历史日期" size="small" value-format="YYYY-MM-DD" style="width:130px" :disabled-date="(d: Date) => d > new Date()" /><ElButton size="small" @click="loadHistory" :loading="historyLoading">回放</ElButton><ElButton v-if="historyData.length" size="small" type="info" @click="historyData=[];historyDate=''">返回</ElButton></div>
       </div>
@@ -68,7 +68,7 @@ const {
           <span><ElTag size="small" :color="strategyMeta[cp.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="font-size:10px">{{ strategyCN(cp.strategy) }}</ElTag></span>
           <span>¥{{ cp.buy_price?.toFixed(2) }}</span><span>¥{{ cp.sell_price?.toFixed(2) }}</span>
           <span :class="(cp.profit_amount || 0) >= 0 ? 'up' : 'down'">{{ (cp.profit_amount || 0) >= 0 ? '+' : '' }}¥{{ Math.abs(cp.profit_amount || 0).toFixed(0) }}</span>
-          <span :class="cp.profit_pct >= 0 ? 'up' : 'down'" style="font-weight:600">{{ cp.profit_pct >= 0 ? '+' : '' }}{{ cp.profit_pct.toFixed(1) }}%</span>
+          <span :class="(cp.profit_pct || 0) >= 0 ? 'up' : 'down'" style="font-weight:600">{{ (cp.profit_pct || 0) >= 0 ? '+' : '' }}{{ (cp.profit_pct || 0).toFixed(1) }}%</span>
         </div>
       </div>
 

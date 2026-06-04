@@ -178,7 +178,7 @@ export function useCoreMethods(refs: CoreRefs) {
     const a = refs.status.value?.account; if (!a) { ElMessage.warning('请先启动'); return }
     const q = Math.floor(a.available_cash * 0.25 / sig.price / 100) * 100
     if (q <= 0) { ElMessage.warning('资金不足'); return }
-    showConfirm('确认买入', `${sig.stock_name} ${sig.ts_code}\n${sig.strategy_name} | 涨${sig.pct_chg >= 0 ? '+' : ''}${sig.pct_chg.toFixed(1)}%\n买入 ${q}股 × ¥${sig.price.toFixed(2)} ≈ ¥${(q * sig.price).toFixed(0)}`, async () => {
+    showConfirm('确认买入', `${sig.stock_name} ${sig.ts_code}\n${sig.strategy_name} | 涨${(sig.pct_chg || 0) >= 0 ? '+' : ''}${(sig.pct_chg || 0).toFixed(1)}%\n买入 ${q}股 × ¥${(sig.price || 0).toFixed(2)} ≈ ¥${(q * (sig.price || 0)).toFixed(0)}`, async () => {
       try {
         const r = await api.post(`${scannerApi}/trade`, { ts_code: sig.ts_code, stock_name: sig.stock_name, side: 'buy', quantity: q, price: sig.price, order_type: 'market', strategy: sig.strategy, reason: sig.reason })
         const p = parseResponse(r); if (p.success) { ElMessage.success(`买入${sig.stock_name} ${q}股@${p.data.filled_price?.toFixed(2)}`); fetchScanner() } else ElMessage.error('失败')
@@ -188,9 +188,9 @@ export function useCoreMethods(refs: CoreRefs) {
 
   async function quickSell(pos: any) {
     if (pos.available_qty <= 0) { ElMessage.warning('T+1限制'); return }
-    showConfirm('确认卖出', `${pos.stock_name} ${pos.ts_code}\n${pos.profit_pct >= 0 ? '+' : ''}${pos.profit_pct.toFixed(1)}% | 卖出 ${pos.available_qty}股\n成本 ¥${pos.cost_price.toFixed(2)} → 现价 ¥${pos.current_price.toFixed(2)} ≈ ¥${(pos.available_qty * pos.current_price).toFixed(0)}`, async () => {
+    showConfirm('确认卖出', `${pos.stock_name} ${pos.ts_code}\n${(pos.profit_pct || 0) >= 0 ? '+' : ''}${(pos.profit_pct || 0).toFixed(1)}% | 卖出 ${pos.available_qty}股\n成本 ¥${(pos.cost_price || 0).toFixed(2)} → 现价 ¥${(pos.current_price || 0).toFixed(2)} ≈ ¥${(pos.available_qty * (pos.current_price || 0)).toFixed(0)}`, async () => {
       try {
-        const r = await api.post(`${scannerApi}/trade`, { ts_code: pos.ts_code, stock_name: pos.stock_name, side: 'sell', quantity: pos.available_qty, price: pos.current_price, order_type: 'market', strategy: pos.strategy, reason: `手动卖出 ${pos.profit_pct >= 0 ? '+' : ''}${pos.profit_pct.toFixed(1)}%` })
+        const r = await api.post(`${scannerApi}/trade`, { ts_code: pos.ts_code, stock_name: pos.stock_name, side: 'sell', quantity: pos.available_qty, price: pos.current_price, order_type: 'market', strategy: pos.strategy, reason: `手动卖出 ${(pos.profit_pct || 0) >= 0 ? '+' : ''}${(pos.profit_pct || 0).toFixed(1)}%` })
         const p = parseResponse(r); if (p.success) { ElMessage.success(`卖出${pos.stock_name} ${pos.available_qty}股@${p.data.filled_price?.toFixed(2)}`); fetchScanner() } else ElMessage.error('失败')
       } catch (e: any) { ElMessage.error('卖出失败') }
     })
@@ -200,7 +200,7 @@ export function useCoreMethods(refs: CoreRefs) {
 
   async function resetAccount() { showConfirm('⚠️ 重置账户', '将清空所有持仓和交易记录，不可恢复！\n确认重置？', async () => { try { const r = await api.post(`${scannerApi}/reset`); const p = parseResponse(r); if (p.success) { ElMessage.success('账户已重置'); await fetchAll(true) } } catch (e: any) { ElMessage.error('重置失败') } }) }
 
-  async function sellAllPositions() { showConfirm('⚠️ 一键清仓', `确认清仓所有持仓？\n当前持仓 ${refs.positions.value.length} 只，总市值 ¥${refs.positions.value.reduce((s: number, p: any) => s + (p.market_value || p.current_price * p.shares), 0).toFixed(0)}`, async () => { try { const r = await api.post(`${scannerApi}/sell-all`); const p = parseResponse(r); if (p.success) { ElMessage.success(p.data?.message || '清仓完成'); await fetchAll(true) } } catch (e: any) { ElMessage.error('清仓失败') } }) }
+  async function sellAllPositions() { showConfirm('⚠️ 一键清仓', `确认清仓所有持仓？\n当前持仓 ${refs.positions.value.length} 只，总市值 ¥${refs.positions.value.reduce((s: number, p: any) => s + (p.market_value || (p.current_price || 0) * (p.shares || 0)), 0).toFixed(0)}`, async () => { try { const r = await api.post(`${scannerApi}/sell-all`); const p = parseResponse(r); if (p.success) { ElMessage.success(p.data?.message || '清仓完成'); await fetchAll(true) } } catch (e: any) { ElMessage.error('清仓失败') } }) }
 
   async function resetCircuitBreaker() { try { const r = await api.post(`${scannerApi}/circuit-breaker/reset`); const p = parseResponse(r); if (p.success) { ElMessage.success('熔断已重置'); fetchAll(true) } } catch { ElMessage.error('重置失败') } }
 
