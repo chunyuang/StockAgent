@@ -127,7 +127,7 @@ const {
         <span class="tab-icon">🔍</span>
         <span class="tab-text"><span class="tab-label">扫描追踪</span><span class="tab-desc">9层漏斗·执行链</span></span>
       </button>
-      <button :class="['tab-btn', activeTab === 'review' ? 'active' : '']" @click="activeTab = 'review'; fetchReviewData()">
+      <button :class="['tab-btn', activeTab === 'review' ? 'active' : '']" @click="activeTab = 'review'">
         <span class="tab-icon">📋</span>
         <span class="tab-text"><span class="tab-label">复盘</span><span class="tab-desc">日/周·归因·对比</span></span>
       </button>
