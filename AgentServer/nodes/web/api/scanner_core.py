@@ -479,7 +479,30 @@ async def get_position_risk_levels():
     try:
         scanner = _get_scanner_instance()
         if not scanner:
-            return {"success": False, "message": "Scanner未运行"}
+            # Scanner未运行: 复用position-risk-matrix的数据
+            try:
+                matrix_resp = await get_position_risk_matrix()
+                matrix_data = matrix_resp.get('data', {}) if isinstance(matrix_resp, dict) else {}
+                matrix_positions = matrix_data.get('positions', [])
+                grouped = {"normal": [], "warning": [], "critical": []}
+                for p in matrix_positions:
+                    level = p.get('risk_level', 'normal')
+                    grouped.setdefault(level, []).append(p)
+                return {
+                    "success": True,
+                    "data": {
+                        "levels": grouped,
+                        "summary": {
+                            "total": len(matrix_positions),
+                            "normal": len(grouped.get('normal', [])),
+                            "warning": len(grouped.get('warning', [])),
+                            "critical": len(grouped.get('critical', [])),
+                        },
+                        "check_interval": 30,
+                    }
+                }
+            except Exception as e:
+                return {"success": False, "message": f"Scanner未运行: {e}"}
         
         risk_levels = _safe_read_shared(scanner, '_position_risk_levels')
         trailing = _safe_read_shared(scanner, '_trailing_stops')
@@ -488,6 +511,8 @@ async def get_position_risk_levels():
         # 按风险等级分组
         grouped = {"normal": [], "warning": [], "critical": []}
         for pos in positions:
+            if hasattr(pos, '__dict__'):
+                pos = pos.__dict__  # Position object → dict
             ts_code = pos.get("ts_code", "")
             level = risk_levels.get(ts_code, "normal")
             info = {
@@ -507,7 +532,7 @@ async def get_position_risk_levels():
                     "warning": len(grouped.get("warning", [])),
                     "critical": len(grouped.get("critical", [])),
                 },
-                "check_interval": scanner._get_smart_check_interval() if hasattr(scanner, '_get_smart_check_interval') else 30,
+                "check_interval": scanner._get_smart_check_interval(positions) if hasattr(scanner, '_get_smart_check_interval') else 30,
             }
         }
     except Exception as e:
