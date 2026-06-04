@@ -287,7 +287,24 @@ export function useScannerMonitor() {
   const openWeeklyReport = () => { weeklyReportVisible.value = true }
   const saveSnapshot = async () => { try { await api.post(`${scannerApi}/snapshot`); ElMessage.success('快照已保存') } catch { /* ignore */ } }
   const backtestRunning = ref(false)
-  const exportTradeLog = () => { /* stub */ }
+  const exportTradeLog = async () => {
+    try {
+      const r = await api.get(`${scannerApi}/export-trade-log`)
+      const p = parseResponse(r)
+      if (p.success && p.data?.csv) {
+        // 生成CSV下载
+        const blob = new Blob(['\uFEFF' + p.data.csv], { type: 'text/csv;charset=utf-8' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `trade_log_${new Date().toISOString().slice(0,10)}.csv`
+        a.click()
+        URL.revokeObjectURL(url)
+      } else if (p.success) {
+        // 无数据
+      }
+    } catch { /* ignore */ }
+  }
   const weeklyReportData = computed<Record<string, any>>(() => review.weeklyReportData?.value as Record<string, any> || {})
 
   // 生命周期

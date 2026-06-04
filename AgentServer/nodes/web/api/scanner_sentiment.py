@@ -68,7 +68,7 @@ async def get_sentiment_timeline(date: str = None, mode: str = "daily"):
                 td = str(doc["trade_date"])
                 daily_map[td] = {
                     "date": td, "score": doc.get("score", 0), "period": doc.get("period", ""),
-                    "position_ratio": doc.get("position_ratio", 0.3),
+                    "position_ratio": {"高潮": 1.0, "分化": 0.7, "震荡": 0.5, "冰点": 0.25}.get(doc.get("period", ""), doc.get("position_ratio", 0.25)),
                     "limit_up": doc.get("limit_up", 0), "limit_down": doc.get("limit_down", 0),
                     "max_continue": doc.get("max_continue", 0),
                     "up_down_ratio": doc.get("up_down_ratio", 0),
@@ -106,7 +106,7 @@ async def get_sentiment_timeline(date: str = None, mode: str = "daily"):
                     else: period = "冰点"
                     agg_points.append({
                         "date": key, "score": round(avg_score, 1), "period": period,
-                        "position_ratio": {"高潮": 1.0, "分化": 0.7, "震荡": 0.5, "冰点": 0.3}.get(period, 0.3),
+                        "position_ratio": {"高潮": 1.0, "分化": 0.7, "震荡": 0.5, "冰点": 0.25}.get(period, 0.25),
                         "limit_up": total_lu, "limit_down": total_ld,
                         "days": len(grp), "first_date": grp[0]["date"], "last_date": grp[-1]["date"],
                         "missing_data": has_missing,
@@ -306,7 +306,7 @@ async def get_market_sentiment_detail(date: str = None):
                         if exact:
                             sentiment_score = exact.get("score", 50)
                             sentiment_period = exact.get("period", "unknown")
-                            position_ratio = exact.get("position_ratio", 0.3)
+                            position_ratio = {"高潮": 1.0, "分化": 0.7, "震荡": 0.5, "冰点": 0.25}.get(exact.get("period", ""), exact.get("position_ratio", 0.25))
                             if exact.get("missing_data"):
                                 sentiment_period = "冰点(数据缺失)"  # 保留period但标注缺失
                     # 2. 指定日期无数据或未指定日期→读最近的非missing日期
@@ -318,14 +318,14 @@ async def get_market_sentiment_detail(date: str = None):
                         if latest:
                             sentiment_score = latest.get("score", 50)
                             sentiment_period = latest.get("period", "unknown")
-                            position_ratio = latest.get("position_ratio", 0.3)
+                            position_ratio = {"高潮": 1.0, "分化": 0.7, "震荡": 0.5, "冰点": 0.25}.get(latest.get("period", ""), latest.get("position_ratio", 0.25))
             except Exception:
                 pass
         
         # 最终fallback
         if sentiment_score is None: sentiment_score = 50
         if sentiment_period is None: sentiment_period = "unknown"
-        if position_ratio is None: position_ratio = 0.3
+        if position_ratio is None: position_ratio = 0.25
         
         limit_pools = getattr(scanner, '_limit_pools', {})
         limit_up = len(limit_pools.get("limit_up", []))
