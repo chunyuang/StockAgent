@@ -44,7 +44,7 @@ const {
   tradeMode, replayDate, replayDateInput,
   replayDateVisible,
   startScanner, stopScanner,
-  manualScan, forceScan, quickBuy, quickSell, fetchReviewData,
+  manualScan, forceScan, quickBuy, quickSell, fetchReviewData, fetchSentimentData,
   // sentiment sub-composable
   openTradeDetail,
   runBacktest, saveParamSnapshot,
@@ -127,7 +127,7 @@ const {
         <span class="tab-icon">🔍</span>
         <span class="tab-text"><span class="tab-label">扫描追踪</span><span class="tab-desc">9层漏斗·执行链</span></span>
       </button>
-      <button :class="['tab-btn', activeTab === 'review' ? 'active' : '']" @click="activeTab = 'review'">
+      <button :class="['tab-btn', activeTab === 'review' ? 'active' : '']" @click="activeTab = 'review'; fetchReviewData()">
         <span class="tab-icon">📋</span>
         <span class="tab-text"><span class="tab-label">复盘</span><span class="tab-desc">日/周·归因·对比</span></span>
       </button>
@@ -136,7 +136,7 @@ const {
         <span class="tab-text"><span class="tab-label">风控</span><span class="tab-desc">止损·矩阵</span></span>
         <span v-if="positions.some(p => p.risk_level === 'high')" class="tab-badge-danger">!</span>
       </button>
-      <button :class="['tab-btn', activeTab === 'sentiment' ? 'active' : '']" @click="activeTab = 'sentiment'">
+      <button :class="['tab-btn', activeTab === 'sentiment' ? 'active' : '']" @click="activeTab = 'sentiment'; fetchSentimentData()">
         <span class="tab-icon">🌡️</span>
         <span class="tab-text"><span class="tab-label">情绪</span><span class="tab-desc">周期·曲线·矩阵</span></span>
       </button>
