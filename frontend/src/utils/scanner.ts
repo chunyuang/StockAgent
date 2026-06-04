@@ -119,6 +119,7 @@ export function formatPct(v: number): string {
 // 此函数统一将任意格式转为百分比数值
 export function normalizePct(v: number | undefined, fallback: number = 3): number {
   if (v == null || isNaN(v)) return fallback
+  if (v === 0) return 0  // 0% 明确值，不做转换
   // 小于1认为是小数格式(0.03)，大于1认为是百分比格式(3.0)
   return v < 1 ? v * 100 : v
 }

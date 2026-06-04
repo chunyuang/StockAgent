@@ -37,7 +37,7 @@ const {
           <span v-if="item.action === 'blocked'" class="tl-blocked-reason">{{ item.reason }}</span>
           <template v-else>
             <span v-if="item.strategy" class="tl-strat">{{ strategyCN(item.strategy) }}</span>
-            <span class="tl-detail">{{ item.shares }}股@{{ item.price.toFixed(2) }}</span>
+            <span class="tl-detail">{{ item.shares }}股@{{ item.price?.toFixed(2) || '-' }}</span>
             <span v-if="item.profit_pct !== undefined" :class="item.profit_pct >= 0 ? 'up' : 'down'">{{ item.profit_pct >= 0 ? '+' : '' }}{{ item.profit_pct.toFixed(1) }}%</span>
             <span v-if="item.profit_amount != null" :class="item.profit_amount >= 0 ? 'up' : 'down'" class="tl-amt">{{ item.profit_amount >= 0 ? '+' : '' }}¥{{ item.profit_amount.toFixed(0) }}</span>
           </template>
@@ -77,9 +77,9 @@ const {
       <div v-if="!auditLog.length" class="empty">暂无审计记录</div>
       <div v-else class="ht-audit">
         <div v-for="(log, i) in auditLog" :key="i" class="ha-row cp" @click="log.ts_code && openTradeDetail(log.ts_code)">
-          <span class="tl-time">{{ log.time }}</span>
+          <span class="tl-time">{{ log.timestamp?.substring(11, 19) || log.time || '' }}</span>
           <span class="ha-action">{{ log.action }}</span>
-          <span class="ha-detail">{{ log.detail }}</span>
+          <span class="ha-detail">{{ log.reason || log.detail || '' }}</span>
         </div>
       </div>
 
