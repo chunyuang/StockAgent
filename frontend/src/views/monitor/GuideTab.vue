@@ -7,7 +7,7 @@
 import { useScannerMonitorInject } from './scannerMonitorInject'
 import { ElButton } from 'element-plus'
 
-const { startScanner } = useScannerMonitorInject()
+const { startScanner, stopScanner, isRunning } = useScannerMonitorInject()
 </script>
 
 <template>
@@ -21,7 +21,8 @@ const { startScanner } = useScannerMonitorInject()
           <div class="gb-sub">9层漏斗筛选 · 4策略联合选股 · 实时风控守护</div>
         </div>
       </div>
-      <ElButton type="success" size="large" @click="startScanner" style="padding:10px 32px;font-size:15px">▶ 启动扫描器</ElButton>
+      <ElButton v-if="!isRunning" type="success" size="large" @click="startScanner" style="padding:10px 32px;font-size:15px">▶ 启动扫描器</ElButton>
+      <ElButton v-else type="danger" size="large" @click="stopScanner" style="padding:10px 32px;font-size:15px">⏹ 停止扫描器</ElButton>
     </div>
 
     <!-- 4列卡片网格 -->

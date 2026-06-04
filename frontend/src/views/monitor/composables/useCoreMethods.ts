@@ -136,6 +136,8 @@ export function useCoreMethods(refs: CoreRefs) {
       await api.post(`${scannerApi}/start`, payload)
       ElMessage.success('扫描器已启动')
       refs.activeTab.value = 'trading'
+      // 等待scanner后台初始化完成再fetch状态
+      await new Promise(r => setTimeout(r, 1500))
       await fetchScanner()
     } catch (e: any) {
       ElMessage.error('启动失败: ' + (e?.response?.data?.detail || e?.message || '超时'))
