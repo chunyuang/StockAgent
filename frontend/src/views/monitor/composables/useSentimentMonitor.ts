@@ -5,7 +5,7 @@
  * 管理: 情绪时间线/矩阵/建议/阶段指南
  */
 
-import { ref, computed, reactive } from 'vue'
+import { ref, computed } from 'vue'
 import { api } from '@/api/client'
 import { parseResponse } from '@/utils/scanner'
 
@@ -16,22 +16,22 @@ export function useSentimentMonitor() {
   const sentimentDate = ref(new Date().toISOString().slice(0, 10))
   const hoveredPoint = ref<any>(null)
   // 每个模式独立缓存, 切换时不会清空
-  const sentimentCache = reactive<Record<string, any[]>>({})
-  const sentimentTradesCache = reactive<Record<string, any[]>>({})
-  const sentimentTimeline = computed(() => sentimentCache[sentimentMode.value] || [])
-  const sentimentTrades = computed(() => sentimentTradesCache[sentimentMode.value] || [])
+  const sentimentCache = ref<Record<string, any[]>>({})
+  const sentimentTradesCache = ref<Record<string, any[]>>({})
+  const sentimentTimeline = computed(() => sentimentCache.value[sentimentMode.value] || [])
+  const sentimentTrades = computed(() => sentimentTradesCache.value[sentimentMode.value] || [])
   // displayTimeline: 直接用当前模式数据
   // 日内无数据时回退显示日线
   const displayTimeline = computed(() => {
     const data = sentimentTimeline.value
     // 日内模式: 有数据(即使score=null)直接用, 无数据才fallback日线
     if (sentimentMode.value === 'intraday' && !data.length) {
-      const dailyData = sentimentCache['daily'] || []
+      const dailyData = sentimentCache.value['daily'] || []
       return dailyData.slice(-60)
     }
     return data
   })
-  const isIntradayFallback = computed(() => sentimentMode.value === 'intraday' && !sentimentTimeline.value.length && (sentimentCache['daily'] || []).length > 0)
+  const isIntradayFallback = computed(() => sentimentMode.value === 'intraday' && !sentimentTimeline.value.length && (sentimentCache.value['daily'] || []).length > 0)
   // 日内模式candidates最大值(用于归一化Y轴)
   const intradayMaxCand = computed(() => {
     if (sentimentMode.value !== 'intraday') return 0
@@ -112,12 +112,16 @@ export function useSentimentMonitor() {
     try {
       const opts = { timeout: 15000 }
       const dateParam = sentimentDate.value.replace(/-/g, '')
+      const currentMode = sentimentMode.value
       const [tlRes, matRes, liveRes] = await Promise.allSettled([
-        api.get(`${scannerApi}/sentiment-timeline?date=${dateParam}&mode=${sentimentMode.value}`, opts),
+        api.get(`${scannerApi}/sentiment-timeline?date=${dateParam}&mode=${currentMode}`, opts),
         api.get(`${scannerApi}/sentiment-strategy-matrix?date=${dateParam}`, opts),
         api.get(`${scannerApi}/market-sentiment?date=${dateParam}`, opts),
       ])
-      if (tlRes.status === 'fulfilled') { const p = parseResponse(tlRes.value); if (p.success) { sentimentCache[sentimentMode.value] = p.data?.points || []; sentimentTradesCache[sentimentMode.value] = p.data?.trades || [] } }
+      if (tlRes.status === 'fulfilled') {
+        const p = parseResponse(tlRes.value)
+        if (p.success) { sentimentCache.value = { ...sentimentCache.value, [currentMode]: p.data?.points || [] }; sentimentTradesCache.value = { ...sentimentTradesCache.value, [currentMode]: p.data?.trades || [] } }
+      }
       if (matRes.status === 'fulfilled') { const p = parseResponse(matRes.value); if (p.success) { sentimentMatrix.value = p.data?.matrix || {}; sentimentRecommendations.value = p.data?.recommendations || [] } }
       if (liveRes.status === 'fulfilled') { const p = parseResponse(liveRes.value); if (p.success) sentimentLive.value = p.data }
     } catch { /* ignore */ }

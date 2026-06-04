@@ -357,7 +357,14 @@ async def get_market_sentiment_detail(date: str = None):
         period_labels = {"BEARISH": ("冰点", 0, 40), "CHAOS": ("震荡", 40, 55), "DIFFERENTIATION": ("分化", 55, 70), "RISING": ("高潮", 70, 100),
                           "冰点": ("冰点", 0, 40), "震荡": ("震荡", 40, 55), "分化": ("分化", 55, 70), "高潮": ("高潮", 70, 100),
                           "冰点(数据缺失)": ("冰点⚠", 0, 40), "震荡(数据缺失)": ("震荡⚠", 40, 55), "分化(数据缺失)": ("分化⚠", 55, 70), "高潮(数据缺失)": ("高潮⚠", 70, 100)}
-        pi = period_labels.get(sentiment_period, ("未知", 0, 100))
+        pi = period_labels.get(sentiment_period, None)
+        if pi is None:
+            # 根据分数自动推断情绪周期
+            if sentiment_score >= 70: pi = ("高潮", 70, 100)
+            elif sentiment_score >= 55: pi = ("分化", 55, 70)
+            elif sentiment_score >= 40: pi = ("震荡", 40, 55)
+            else: pi = ("冰点", 0, 40)
+            sentiment_period = pi[0]
 
         return _sanitize({"success": True, "data": {
             "score": sentiment_score, "period": sentiment_period, "period_label": pi[0],
