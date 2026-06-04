@@ -212,7 +212,14 @@ async def get_sentiment_strategy_matrix(date: str = None):
             sell_query,
             {"trade_date": 1, "strategy": 1, "reason": 1, "filled_price": 1, "filled_qty": 1}
         ):
-            strategy = doc.get("strategy", "unknown")
+            strategy = doc.get("strategy", "unknown") or "unknown"
+            # 强制空仓等系统指令归为"system_force"策略
+            if not strategy or strategy == "unknown":
+                reason_text = doc.get("reason", "") or ""
+                if "强制" in reason_text or "空仓" in reason_text:
+                    strategy = "system_force"
+                else:
+                    strategy = strategy or "unknown"
             td = doc.get("trade_date", "")
             reason = doc.get("reason", "")
             fp = doc.get("filled_price", 0) or 0
@@ -308,7 +315,7 @@ async def get_market_sentiment_detail(date: str = None):
                             {"missing_data": {"$ne": True}},
                             sort=[("trade_date", -1)]
                         )
-                        if doc:
+                        if latest:
                             sentiment_score = latest.get("score", 50)
                             sentiment_period = latest.get("period", "unknown")
                             position_ratio = latest.get("position_ratio", 0.3)

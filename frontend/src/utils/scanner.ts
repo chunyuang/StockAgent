@@ -13,6 +13,7 @@ export const strategyMeta: Record<string, { color: string; icon: string; cn: str
   anomaly_surge: { color: '#e6a23c', icon: '⚡', cn: '急速拉升', desc: '5分钟急速拉升' },
   anomaly_broken: { color: '#f56c6c', icon: '💔', cn: '涨停炸板', desc: '涨停炸板' },
   anomaly_strong: { color: '#409eff', icon: '💪', cn: '强势涨停', desc: '强势涨停确认' },
+  system_force: { color: '#909399', icon: '🛡️', cn: '系统强平', desc: '强制空仓/风控平仓' },
 }
 
 export const strategyCN = (s: string | number) => strategyMeta[String(s)]?.cn || s
