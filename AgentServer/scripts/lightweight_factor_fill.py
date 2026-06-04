@@ -6,7 +6,7 @@
 用法: python3 scripts/lightweight_factor_fill.py
 """
 import asyncio
-import sys
+import sys, functools
 import os
 import time
 from collections import defaultdict
@@ -566,6 +566,7 @@ async def detect_missing_dates(db, lookback_days: int = 30) -> list[int]:
     recent_dates = all_dates_sorted[:lookback_days]
     
     # 关键因子：任一缺失率>10%则该日期需补
+    # TALib指标(macd/rsi/boll/atr/fear_greed_index)由回测引擎自动补算，不作为缺失判断标准
     key_factors = [
         'ma5', 'ma10', 'ma20', 'ma60',
         'turnover_rate', 'volume_ratio', 'circ_mv',
@@ -573,7 +574,6 @@ async def detect_missing_dates(db, lookback_days: int = 30) -> list[int]:
         'opening_pct_chg', 'open_above_limit',
         'intraday_max_rise_pct', 'intraday_open_rise_pct',
         'limit_up_count',
-        'macd', 'rsi_6', 'boll_upper', 'atr', 'fear_greed_index',
     ]
     
     trade_dates = []
@@ -587,7 +587,7 @@ async def detect_missing_dates(db, lookback_days: int = 30) -> list[int]:
         for factor in key_factors:
             with_factor = await db['stock_daily_ak_full'].count_documents({
                 'trade_date': td,
-                factor: {'$ne': None, '$exists': True, '$gt': 0} if factor not in ('is_limit_up', 'is_limit_down', 'open_above_limit') else {'$ne': None, '$exists': True}
+                factor: {'$ne': None, '$exists': True} if factor not in ('is_limit_up', 'is_limit_down', 'open_above_limit') else {'$ne': None, '$exists': True}
             })
             rate = with_factor / total if total > 0 else 0
             if rate < 0.9:
@@ -632,7 +632,7 @@ async def main():
     await compute_pullback(trade_dates)
     
     print("\n=== Step 7: Compute technical indicators (MACD/RSI/BOLL/ATR) ===")
-    await compute_technical_indicators(trade_dates)
+    print("  Skipped: TALib indicators are computed by the backtest engine at runtime")
     
     # Verify
     print("\n=== Verification ===")
