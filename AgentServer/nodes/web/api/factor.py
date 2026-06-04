@@ -38,14 +38,19 @@ def _today_str() -> str:
     return _now_cst().strftime("%Y%m%d")
 
 
-def _normalize_date(date_input) -> str:
+def _normalize_date(date_input):
     """
-    确保 trade_date 为字符串格式。
-    MongoDB中 trade_date 存为字符串 (如 "20260602")。
+    返回 trade_date int 格式 (MongoDB中实际存为int)。
     """
     if date_input is None:
-        return _today_str()
-    return str(date_input)
+        try:
+            return int(_today_str())
+        except Exception:
+            return None
+    try:
+        return int(date_input)
+    except (ValueError, TypeError):
+        return date_input
 
 
 # ==================== 因子分类映射 ====================
@@ -142,14 +147,23 @@ async def _get_merged_stock_data(ts_code: str, trade_date: str) -> dict:
     return result
 
 
-async def _get_latest_trade_date(ts_code: str, before_date: str) -> Optional[str]:
+async def _get_latest_trade_date(ts_code: str, before_date) -> Optional[int]:
     """获取某只股票在before_date之前的最近交易日期"""
+    try:
+        before = int(before_date) if before_date else None
+    except (ValueError, TypeError):
+        before = before_date
     doc = await mongo_manager.find_one(
         C.STOCK_DAILY,
-        {"ts_code": ts_code, "trade_date": {"$lte": before_date}},
+        {"ts_code": ts_code, "trade_date": {"$lte": before}} if before else {"ts_code": ts_code},
         sort=[("trade_date", -1)],
     )
-    return str(doc["trade_date"]) if doc else None
+    if not doc:
+        return None
+    try:
+        return int(doc["trade_date"])
+    except (ValueError, TypeError):
+        return doc["trade_date"]
 
 
 def _extract_factor_value(factor_def: FactorDefinition, merged_data: dict):
