@@ -21,7 +21,7 @@ import PositionRiskMatrix from './PositionRiskMatrix.vue'
 const monitorData = useScannerMonitor()
 provide(SCANNER_MONITOR_KEY, monitorData as unknown as ScannerMonitorData)
 
-// 在模板中使用的变量仍需解构(vue-tsc要求)
+// 在模板中使用的变量仍需解构(vue-tsc要求) — 必须从同一个实例解构
 const {
   loading, autoRefresh,
   status, signals, positions,
@@ -69,7 +69,7 @@ const {
   backtestRunning, liveBacktestDiff, executionQuality,
   tradeAttributions, paramDriftData, factorEffectData,
   disciplineCheck,
-} = useScannerMonitor()
+} = monitorData
 </script>
 <template>
   <div class="mm" :class="{ dark: themeStore.isDark }">

@@ -11,6 +11,9 @@ import { ElButton, ElDatePicker } from 'element-plus'
 
 const m = useScannerMonitorInject()
 
+// 【v2.9.78d修复】原bug: MarketMonitorView调用了两次useScannerMonitor()
+// 导致provide和模板使用不同实例, inject子组件拿到的是空实例
+// 已在MarketMonitorView中修复为单实例, 此处恢复原始解构
 const {
   sentimentMode, sentimentDate, hoveredPoint, sentimentTimeline,
   sentimentTrades, displayTimeline, isIntradayFallback, intradayMaxCand,

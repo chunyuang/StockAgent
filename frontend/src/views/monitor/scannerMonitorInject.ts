@@ -166,7 +166,10 @@ export interface ScannerMonitorData {
 
 export const SCANNER_MONITOR_KEY: InjectionKey<ScannerMonitorData> = Symbol('scannerMonitor')
 
-/** 子组件中使用: const m = useScannerMonitorInject() */
+/** 子组件中使用: const m = useScannerMonitorInject()
+ *  注意: inject返回普通对象, ref/computed在模板中不会自动解包
+ *  子组件需要用 computed(()=>unref(m.xxx)) 包装后才能在模板中使用
+ */
 export function useScannerMonitorInject(): ScannerMonitorData {
   const data = inject(SCANNER_MONITOR_KEY)
   if (!data) throw new Error('useScannerMonitorInject must be used inside MarketMonitorView')
