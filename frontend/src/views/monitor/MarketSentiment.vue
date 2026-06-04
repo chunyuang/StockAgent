@@ -85,7 +85,7 @@ onUnmounted(() => clearInterval(timer))
         </div>
         <div class="sent-m">
           <span class="sent-ml">仓位系数</span>
-          <span class="sent-mv">{{ (data.position_ratio * 100).toFixed(0) }}%</span>
+          <span class="sent-mv">{{ ((data.position_ratio || 0) * 100).toFixed(0) }}%</span>
         </div>
       </div>
 
