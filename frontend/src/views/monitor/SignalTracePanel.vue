@@ -20,7 +20,7 @@
       <div class="flow-header">
         候选总数: <strong>{{ currentTrace.summary?.total_candidates || 0 }}</strong>
         → 通过: <strong style="color:var(--success)">{{ currentTrace.summary?.passed || 0 }}</strong>
-        → 拒绝: <strong style="color:var(--stock-up)">{{ currentTrace.summary?.rejected || 0 }}</strong>
+        → 拒绝: <strong style="color:var(--stock-up)">{{ (currentTrace.summary?.total_candidates || 0) - (currentTrace.summary?.passed || 0) }}</strong>
         <el-tag size="small" style="margin-left:8px">仓位系数: {{ ((currentTrace.summary?.L8_position?.ratio || 1) * 100).toFixed(0) }}%</el-tag>
       </div>
 
@@ -135,7 +135,7 @@ const currentTrace = ref(null)
 const selectedTraceId = ref('')
 const activeTab = ref('rejected')
 
-const pipelineLayers = [
+const pipelineLayerDefs = [
   { key: 'L1_force_empty', label: 'L1 强制空仓' },
   { key: 'L2_special_period', label: 'L2 特殊时期' },
   { key: 'L3_sentiment', label: 'L3 情绪周期' },
@@ -146,14 +146,20 @@ const pipelineLayers = [
   { key: 'L8_position', label: 'L8 仓位控制' },
 ]
 
+const pipelineLayers = computed(() =>
+  pipelineLayerDefs.map(def => {
+    const s = currentTrace.value?.summary?.[def.key]
+    return { ...def, passed: s?.passed || 0, rejected: s?.rejected || 0 }
+  })
+)
+
 const allCandidates = computed(() => currentTrace.value?.candidates || [])
 const rejectedCandidates = computed(() => allCandidates.value.filter(c => c.final_status === 'rejected'))
 const passedCandidates = computed(() => allCandidates.value.filter(c => c.final_status === 'passed'))
 const maxPassed = computed(() => {
   let max = 0
-  for (const layer of pipelineLayers) {
-    const s = currentTrace.value?.summary?.[layer.key]
-    if (s) max = Math.max(max, s.passed || 0, s.rejected || 0)
+  for (const layer of pipelineLayers.value) {
+    max = Math.max(max, layer.passed || 0, layer.rejected || 0)
   }
   return max || 1
 })
@@ -182,7 +188,7 @@ function getStrategyColor(strategy) {
 async function loadTraces() {
   loading.value = true
   try {
-    const resp = await fetch(`${API_BASE}/api/scanner/scan-traces?limit=20`)
+    const resp = await fetch(`${API_BASE}/api/v1/scanner/scan-traces?limit=20`)
     const data = await resp.json()
     if (data.success) {
       traceList.value = data.data || []
@@ -202,7 +208,7 @@ async function loadTraceDetail() {
   if (!selectedTraceId.value) return
   loading.value = true
   try {
-    const resp = await fetch(`${API_BASE}/api/scanner/scan-traces/${selectedTraceId.value}`)
+    const resp = await fetch(`${API_BASE}/api/v1/scanner/scan-traces/${selectedTraceId.value}`)
     const data = await resp.json()
     if (data.success) {
       currentTrace.value = data.data

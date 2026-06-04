@@ -53,7 +53,7 @@ export function useScannerMonitor() {
     for (const sell of tlSells) {
       const buy = tlBuys.find(b => b.ts_code === sell.ts_code && b.strategy === sell.strategy && !result.some(r => r.buy_time === b.time))
       const buyPrice = buy?.price || sell.decision_detail?.cost_price || 0
-      result.push({ ts_code: sell.ts_code, stock_name: sell.stock_name || buy?.stock_name || '', strategy: sell.strategy, buy_price: buyPrice, sell_price: sell.price, profit_amount: sell.profit_amount || (sell.price - buyPrice) * (sell.shares || 0), profit_pct: sell.profit_pct || (buyPrice > 0 ? (sell.price - buyPrice) / buyPrice * 100 : 0), buy_time: buy?.time || '', sell_time: sell.time || '' })
+      result.push({ ts_code: sell.ts_code, stock_name: sell.stock_name || buy?.stock_name || '', strategy: sell.strategy, buy_price: buyPrice, sell_price: sell.price, profit_amount: sell.profit_amount ?? (sell.price - buyPrice) * (sell.shares || 0), profit_pct: sell.profit_pct ?? (buyPrice > 0 ? (sell.price - buyPrice) / buyPrice * 100 : 0), buy_time: buy?.time || '', sell_time: sell.time || '' })
     }
     const covered = new Set(result.map(r => r.ts_code + r.strategy))
     for (const o of orders.value.filter(o => o.side === 'sell' && o.filled_price > 0)) {
@@ -288,7 +288,7 @@ export function useScannerMonitor() {
   const saveSnapshot = async () => { try { await api.post(`${scannerApi}/snapshot`); ElMessage.success('快照已保存') } catch { /* ignore */ } }
   const backtestRunning = ref(false)
   const exportTradeLog = () => { /* stub */ }
-  const weeklyReportData = computed<Record<string, any>>(() => review.weeklyReviewData?.value as Record<string, any> || {})
+  const weeklyReportData = computed<Record<string, any>>(() => review.weeklyReportData?.value as Record<string, any> || {})
 
   // 生命周期
   onMounted(async () => {

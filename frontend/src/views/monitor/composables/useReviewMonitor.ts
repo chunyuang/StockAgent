@@ -21,7 +21,8 @@ export function useReviewMonitor() {
   const reviewForward = ref<any>(null)
   const dailyReportData = ref<any>(null)
   const weeklyReviewData = ref<any>({})
-  const weeklyReportData = computed(() => weeklyReviewData.value)
+  const weeklyReportRaw = ref<any>(null)
+  const weeklyReportData = computed(() => weeklyReportRaw.value || weeklyReviewData.value)
   const monthlyReviewData = ref<any>({})
   const deviationData = ref<any>(null)
   const closedLoopData = ref<any>(null)
@@ -81,12 +82,13 @@ export function useReviewMonitor() {
           api.get(`${scannerApi}/discipline-check?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) disciplineCheck.value = p.data }),
           api.get(`${scannerApi}/deviation-attribution?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) deviationData.value = p.data }),
           api.get(`${scannerApi}/review-forward?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) reviewForward.value = p.data }),
-          // 执行质量: 从偏差归因数据中提取滑点信息
-          api.get(`${scannerApi}/deviation-attribution?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success && p.data?.deviations?.slippage) executionQuality.value = { avg_slippage_pct: p.data.deviations.slippage.avg_pct || 0, max_slippage_pct: p.data.deviations.slippage.max_pct || 0, fill_rate_pct: p.data.deviations.slippage.fill_rate || 95, total_orders: p.data.live_stats?.trades || 0, filled_orders: p.data.live_stats?.wins || 0 } }),
+          // 执行质量: 直接调用专用API
+          api.get(`${scannerApi}/execution-quality?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) executionQuality.value = p.data }),
         )
       } else if (reviewTab.value === 'weekly') {
         promises.push(
           api.get(`${scannerApi}/review-weekly?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) weeklyReviewData.value = p.data }),
+          api.get(`${scannerApi}/weekly-report?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) weeklyReportRaw.value = p.data }),
           api.get(`${scannerApi}/deviation-attribution?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) deviationData.value = p.data }),
           api.get(`${scannerApi}/discipline-check?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) disciplineCheck.value = p.data }),
           api.get(`${scannerApi}/review-forward?date=${dateParam}`, opts).then(r => { const p = parseResponse(r); if (p.success) reviewForward.value = p.data }),
