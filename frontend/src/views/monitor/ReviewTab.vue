@@ -91,7 +91,7 @@ const emit = defineEmits<{
 
       <!-- ============ 第3层: 归因分析 ============ -->
       <template v-if="reviewTab === 'daily' && dailyReportData">
-        <div class="st" style="margin-top:12px">🎯 策略贡献</div>
+        <div class="st" style="margin-top:8px">🎯 策略贡献</div>
         <div class="strategy-contrib">
           <div v-for="(data, key) in dailyReportData.positions?.strategy_summary || {}" :key="key" class="strat-card">
             <div class="strat-header">
@@ -108,7 +108,7 @@ const emit = defineEmits<{
           </div>
         </div>
 
-        <div class="st" style="margin-top:12px">📝 逐笔归因 <span style="font-weight:normal;font-size:11px;color:var(--text-tertiary)">({{ (tradeAttributions?.length || 0) }}笔)</span></div>
+        <div class="st" style="margin-top:8px">📝 逐笔归因 <span style="font-weight:normal;font-size:11px;color:var(--text-tertiary)">({{ (tradeAttributions?.length || 0) }}笔)</span></div>
         <div v-if="!(tradeAttributions?.length || 0)" class="empty">暂无交易数据</div>
         <div v-for="t in tradeAttributions" :key="t.ts_code + t.sell_time" class="attribution-card" :class="t.profit_pct >= 0 ? 'attr-profit' : 'attr-loss'">
           <div class="attr-top">
@@ -126,7 +126,7 @@ const emit = defineEmits<{
           </div>
         </div>
 
-        <div class="st" style="margin-top:12px">📡 扫描漏斗</div>
+        <div class="st" style="margin-top:8px">📡 扫描漏斗</div>
         <div v-if="dailyReportData?.scanner_stats" class="review-scan-stats">
           <div class="rss-row"><span class="rss-label">扫描次数</span><span class="rss-value">{{ (dailyReportData?.scanner_stats?.scan_count || 0) || 0 }}次</span></div>
           <div class="rss-row"><span class="rss-label">发现信号</span><span class="rss-value up">{{ (dailyReportData?.scanner_stats?.total_signals || 0) || 0 }}只</span></div>
@@ -146,7 +146,7 @@ const emit = defineEmits<{
           <div class="rsc"><div class="rsc-label">周胜率</div><div class="rsc-value">{{ (weeklyReportData?.win_rate || 0) }}%</div></div>
           <div class="rsc"><div class="rsc-label">交易</div><div class="rsc-value">{{ (weeklyReportData?.total_trades || 0) }}笔</div></div>
         </div>
-        <div v-if="(weeklyReportData?.daily_breakdown)" class="st" style="margin-top:12px">📅 逐日明细</div>
+        <div v-if="(weeklyReportData?.daily_breakdown)" class="st" style="margin-top:8px">📅 逐日明细</div>
         <div v-if="(weeklyReportData?.daily_breakdown)" class="weekly-daily-table">
           <div class="wdt-header"><span>日期</span><span>盈亏</span><span>交易</span><span>胜率</span><span>情绪</span></div>
           <div v-for="d in (weeklyReportData?.daily_breakdown)" :key="d.date" class="wdt-row">
@@ -162,19 +162,19 @@ const emit = defineEmits<{
       <!-- 月复盘 -->
       <template v-if="reviewTab === 'monthly'">
         <template v-if="monthlyReviewData">
-          <div class="st" style="margin-top:12px">🔬 系统偏差 ({{ monthlyReviewData.period }})</div>
+          <div class="st" style="margin-top:8px">🔬 系统偏差 ({{ monthlyReviewData.period }})</div>
           <div class="review-scorecard" style="grid-template-columns:repeat(4,1fr)">
             <div class="rsc"><div class="rsc-label">交易</div><div class="rsc-value">{{ monthlyReviewData.summary?.trades || 0 }}笔</div></div>
             <div class="rsc"><div class="rsc-label">胜率</div><div class="rsc-value">{{ monthlyReviewData.summary?.win_rate || 0 }}%</div></div>
             <div class="rsc"><div class="rsc-label">盈亏</div><div class="rsc-value" :class="monthlyReviewData.summary?.pnl >= 0 ? 'up' : 'down'">{{ monthlyReviewData.summary?.pnl >= 0 ? '+' : '' }}{{ monthlyReviewData.summary?.pnl || 0 }}%</div></div>
             <div class="rsc"><div class="rsc-label">连亏</div><div class="rsc-value">-</div></div>
           </div>
-          <div class="st" style="margin-top:12px">📈 偏差趋势(近4周)</div>
+          <div class="st" style="margin-top:8px">📈 偏差趋势(近4周)</div>
           <div v-if="(monthlyReviewData?.weekly_trend?.length || 0)" class="deviation-trend-chart">
             <div class="trend-axis">
               <div v-for="w in monthlyReviewData.weekly_trend" :key="w.week" class="trend-col">
-                <div class="trend-bar" :style="{height: Math.min(w.win_rate, 100) + '%', background: w.win_rate >= 60 ? 'var(--color-up)' : w.win_rate >= 40 ? 'var(--color-warn, #e6a23c)' : 'var(--color-down)'}">
-                  <span class="trend-val">{{ w.win_rate }}%</span>
+                <div class="trend-bar" :style="{height: w.trades > 0 ? Math.max(Math.min(w.win_rate, 100), 8) + '%' : '8px', background: w.trades === 0 ? 'var(--border-default)' : w.win_rate >= 60 ? 'var(--color-up)' : w.win_rate >= 40 ? 'var(--color-warn, #e6a23c)' : 'var(--color-down)'}">
+                  <span v-if="w.trades > 0" class="trend-val">{{ w.win_rate }}%</span>
                 </div>
                 <div class="trend-label">{{ w.week }}</div>
                 <div class="trend-sub">{{ w.trades }}笔</div>
@@ -182,12 +182,12 @@ const emit = defineEmits<{
             </div>
           </div>
           <div v-else class="empty">无周度数据</div>
-          <div class="st" style="margin-top:12px">⚡ 行为漂移检测</div>
+          <div class="st" style="margin-top:8px">⚡ 行为漂移检测</div>
           <div class="review-2col">
             <div class="dev-card"><div class="dev-title">🛡️ 止损执行率</div><div class="dev-row"><span>亏损止损/总亏损</span><span :class="monthlyReviewData.behavior_drift?.stop_loss_execution_rate >= 90 ? 'up' : 'down'">{{ monthlyReviewData.behavior_drift?.stop_loss_execution_rate || 0 }}%</span></div><div class="dev-row" style="font-size:11px;color:var(--text-tertiary)"><span>亏损止损{{ monthlyReviewData.behavior_drift?.stop_loss_at_loss || 0 }}笔 / 盈利止损{{ monthlyReviewData.behavior_drift?.stop_loss_at_profit || 0 }}笔</span></div></div>
             <div class="dev-card"><div class="dev-title">❄️ 冰点期开仓率</div><div class="dev-row"><span>冰点买入占比</span><span :class="monthlyReviewData.behavior_drift?.bearish_period_buy_ratio >= 30 ? 'down' : 'up'">{{ monthlyReviewData.behavior_drift?.bearish_period_buy_ratio || 0 }}%</span></div><div class="dev-row"><span>冰点/总买入</span><span>{{ monthlyReviewData.behavior_drift?.bearish_buys || 0 }}/{{ monthlyReviewData.behavior_drift?.total_buys || 0 }}笔</span></div></div>
           </div>
-          <div class="st" style="margin-top:12px">🗓️ 日历热力图</div>
+          <div class="st" style="margin-top:8px">🗓️ 日历热力图</div>
           <div v-if="(monthlyReviewData?.daily_breakdown?.length || 0)" class="calendar-heatmap">
             <div v-for="d in monthlyReviewData.daily_breakdown" :key="d.date" class="cal-cell" :class="d.pnl > 0 ? 'cal-up' : d.pnl < 0 ? 'cal-down' : 'cal-neutral'">
               <div class="cal-date">{{ d.date?.slice(-2) }}</div>
@@ -196,14 +196,14 @@ const emit = defineEmits<{
             </div>
           </div>
           <div v-else class="empty">无逐日数据</div>
-          <div class="st" style="margin-top:12px">🎯 策略月度贡献</div>
+          <div class="st" style="margin-top:8px">🎯 策略月度贡献</div>
           <div class="strategy-stacked">
             <div v-for="(data, key) in (monthlyReviewData?.strategy_stats) || {}" :key="key" class="stacked-bar" :style="{width: Math.max(Math.abs(data.pnl), 5) + '%', background: data.pnl >= 0 ? 'var(--color-up)' : 'var(--color-down)'}">
               <span class="stacked-label">{{ strategyCN(key) }}</span>
               <span class="stacked-val">{{ data.pnl >= 0 ? '+' : '' }}{{ data.pnl }}%</span>
             </div>
           </div>
-          <div class="st" style="margin-top:12px">🔧 参数漂移检测
+          <div class="st" style="margin-top:8px">🔧 参数漂移检测
             <ElButton size="small" @click="emit('saveParamSnapshot')" style="margin-left:8px">📸 保存当前快照</ElButton>
           </div>
           <div v-if="paramDriftData?.drifts?.length" class="violations-list">
@@ -216,7 +216,7 @@ const emit = defineEmits<{
           <div v-else class="empty">无参数漂移(快照基线: {{ paramDriftData?.start_date || '无' }})</div>
         </template>
         <div v-else class="empty">选择日期后查看月复盘</div>
-        <div class="st" style="margin-top:12px">📊 因子效果跟踪 <span style="font-weight:normal;font-size:11px;color:var(--text-tertiary)">(市场漂移检测)</span></div>
+        <div class="st" style="margin-top:8px">📊 因子效果跟踪 <span style="font-weight:normal;font-size:11px;color:var(--text-tertiary)">(市场漂移检测)</span></div>
         <div v-if="factorEffectData" class="factor-effect-section">
           <div v-if="factorEffectData.drift_alerts?.length" class="violations-list" style="margin-bottom:8px">
             <div v-for="(a, i) in factorEffectData.drift_alerts" :key="i" class="violation-item sev-medium">
@@ -239,7 +239,7 @@ const emit = defineEmits<{
           </div>
         </div>
         <div v-else class="empty">无因子数据</div>
-        <div class="st" style="margin-top:12px">💡 闭环建议 <span v-if="closedLoopData" style="font-weight:normal;font-size:11px;margin-left:6px" :class="closedLoopData.summary?.high > 0 ? 'down' : 'up'">{{ closedLoopData.summary?.high || 0 }}高 / {{ closedLoopData.summary?.medium || 0 }}中 / {{ closedLoopData.summary?.low || 0 }}低</span></div>
+        <div class="st" style="margin-top:8px">💡 闭环建议 <span v-if="closedLoopData" style="font-weight:normal;font-size:11px;margin-left:6px" :class="closedLoopData.summary?.high > 0 ? 'down' : 'up'">{{ closedLoopData.summary?.high || 0 }}高 / {{ closedLoopData.summary?.medium || 0 }}中 / {{ closedLoopData.summary?.low || 0 }}低</span></div>
         <div v-if="closedLoopData?.suggestions?.length" class="closed-loop-list">
           <div v-for="(s, i) in closedLoopData.suggestions" :key="i" class="cl-card" :class="'cl-' + s.severity">
             <div class="cl-header"><span class="cl-sev">{{ s.severity === 'high' ? '🔴' : s.severity === 'medium' ? '🟡' : '🔵' }}</span><span class="cl-type">{{ s.type }}</span></div>
@@ -254,7 +254,7 @@ const emit = defineEmits<{
 
       <!-- 第4层: 纪律检查 + 执行质量 -->
       <template v-if="reviewTab === 'daily' && deviationData">
-        <div class="st" style="margin-top:12px">🔍 执行偏差归因 <span style="font-weight:normal;font-size:11px;color:var(--text-tertiary)">({{ deviationData.period }})</span></div>
+        <div class="st" style="margin-top:8px">🔍 执行偏差归因 <span style="font-weight:normal;font-size:11px;color:var(--text-tertiary)">({{ deviationData.period }})</span></div>
         <div class="review-2col">
           <div class="dev-card"><div class="dev-title">📊 滑点偏差</div><div class="dev-row"><span>平均滑点</span><span :class="deviationData.deviations?.slippage?.avg_pct > 0 ? 'down' : 'up'">{{ deviationData.deviations?.slippage?.avg_pct || 0 }}%</span></div><div class="dev-row"><span>影响笔数</span><span>{{ deviationData.deviations?.slippage?.count || 0 }}笔</span></div><div class="dev-row"><span>影响幅度</span><span class="down">{{ deviationData.deviations?.slippage?.impact || 0 }}%</span></div></div>
           <div class="dev-card"><div class="dev-title">🚨 纪律偏差 <span v-if="deviationData.deviations?.discipline?.violations" class="down">（主因）</span></div><div class="dev-row"><span>违规笔数</span><span class="down">{{ deviationData.deviations?.discipline?.violations || 0 }}笔</span></div><div class="dev-row"><span>违规胜率</span><span class="down">{{ deviationData.deviations?.discipline?.violation_wr || 0 }}%</span></div><div class="dev-row"><span>影响幅度</span><span class="down">{{ deviationData.deviations?.discipline?.impact || 0 }}%</span></div></div>
@@ -265,7 +265,7 @@ const emit = defineEmits<{
       </template>
 
       <template v-if="reviewTab === 'weekly' && weeklyReviewData">
-        <div class="st" style="margin-top:12px">📊 策略效能 ({{ weeklyReviewData.period }})</div>
+        <div class="st" style="margin-top:8px">📊 策略效能 ({{ weeklyReviewData.period }})</div>
         <div class="review-scorecard" style="grid-template-columns:repeat(4,1fr)">
           <div class="rsc"><div class="rsc-label">交易</div><div class="rsc-value">{{ weeklyReviewData.summary?.trades || 0 }}笔</div></div>
           <div class="rsc"><div class="rsc-label">胜率</div><div class="rsc-value">{{ weeklyReviewData.summary?.win_rate || 0 }}%</div></div>
@@ -278,13 +278,32 @@ const emit = defineEmits<{
             <div class="strat-metrics"><div class="strat-m"><span class="strat-ml">笔数</span><span class="strat-mv">{{ data.trades }}笔</span></div><div class="strat-m"><span class="strat-ml">胜率</span><span class="strat-mv" :class="data.win_rate >= 50 ? 'up' : 'down'">{{ data.win_rate }}%</span></div></div>
           </div>
         </div>
-        <div class="st" style="margin-top:12px">📈 偏差趋势(近4周)</div>
-        <div class="eq-grid-mini"><div v-for="w in weeklyReviewData.weekly_trend || []" :key="w.week" class="eq-row"><span>{{ w.week }}({{ w.start }})</span><span>{{ w.trades }}笔 WR={{ w.win_rate }}%</span></div></div>
-        <div class="st" style="margin-top:12px">📋 逐日明细</div>
-        <div class="eq-grid-mini"><div v-for="d in weeklyReviewData.daily_breakdown || []" :key="d.date" class="eq-row"><span>{{ d.date }}</span><span>买{{ d.buys }} 卖{{ d.sells }} WR={{ d.win_rate }}% PnL={{ d.pnl }}%</span></div></div>
+        <div class="st" style="margin-top:8px">📈 偏差趋势(近4周)</div>
+        <div class="deviation-trend-chart">
+          <div class="trend-axis">
+            <div v-for="w in weeklyReviewData.weekly_trend || []" :key="w.week" class="trend-col">
+              <div class="trend-bar" :style="{height: w.trades > 0 ? Math.max(Math.min(w.win_rate, 100), 8) + '%' : '8px', background: w.trades === 0 ? 'var(--border-default)' : w.win_rate >= 60 ? 'var(--color-up)' : w.win_rate >= 40 ? 'var(--color-warn, #e6a23c)' : 'var(--color-down)'}">
+                <span v-if="w.trades > 0" class="trend-val">{{ w.win_rate }}%</span>
+              </div>
+              <div class="trend-label">{{ w.week }}</div>
+              <div class="trend-sub">{{ w.trades }}笔</div>
+            </div>
+          </div>
+        </div>
+        <div class="st" style="margin-top:8px">📋 逐日明细</div>
+        <div v-if="weeklyReviewData?.daily_breakdown?.length" class="weekly-daily-table">
+          <div class="wdt-header"><span>日期</span><span>买入</span><span>卖出</span><span>胜率</span><span>盈亏</span></div>
+          <div v-for="d in weeklyReviewData.daily_breakdown" :key="d.date" class="wdt-row">
+            <span>{{ d.date?.length >= 8 ? d.date.slice(4,6)+'/'+d.date.slice(6,8) : d.date }}</span>
+            <span>{{ d.buys || 0 }}</span>
+            <span>{{ d.sells || 0 }}</span>
+            <span :class="d.win_rate >= 50 ? 'up' : 'down'">{{ d.win_rate }}%</span>
+            <span :class="d.pnl >= 0 ? 'up' : 'down'" style="font-weight:600">{{ d.pnl >= 0 ? '+' : '' }}{{ d.pnl }}%</span>
+          </div>
+        </div>
       </template>
 
-      <div class="review-2col" style="margin-top:12px">
+      <div class="review-2col" style="margin-top:8px">
         <div class="sentiment-panel">
           <div class="st">🔍 纪律检查<span v-if="disciplineCheck" style="font-weight:normal;font-size:11px;margin-left:6px" :class="(disciplineCheck?.execution_rate || 0) >= 80 ? 'up' : (disciplineCheck?.execution_rate || 0) >= 60 ? '' : 'down'"> 执行正确率 {{ (disciplineCheck?.execution_rate || 0) }}%</span></div>
           <div v-if="disciplineCheck && (disciplineCheck?.violations?.length || 0)" class="violations-list"><div v-for="(v, i) in disciplineCheck.violations" :key="i" class="violation-item" :class="'sev-' + v.severity"><span class="v-icon">{{ v.severity === 'high' ? '🔴' : '🟡' }}</span><span class="v-type">{{ v.violation }}</span><span class="v-detail">{{ v.detail }}</span></div></div>
@@ -303,7 +322,7 @@ const emit = defineEmits<{
         </div>
       </div>
 
-      <div class="st" style="margin-top:12px">📊 实盘 vs 回测偏差
+      <div class="st" style="margin-top:8px">📊 实盘 vs 回测偏差
         <ElButton v-if="!(liveBacktestDiff?.length || 0)" size="small" type="primary" @click="emit('runBacktest')" :loading="backtestRunning" style="margin-left:8px">▶️ 运行回测</ElButton>
       </div>
       <div v-if="(liveBacktestDiff?.length || 0)" class="lb-table">
@@ -312,7 +331,7 @@ const emit = defineEmits<{
       </div>
       <div v-else class="empty">暂无对比数据</div>
 
-      <div class="st" style="margin-top:12px">💡 前瞻建议</div>
+      <div class="st" style="margin-top:8px">💡 前瞻建议</div>
       <div v-if="reviewForward" class="forward-section">
         <div class="fw-card fw-advice"><div class="fw-title">📌 明日操作</div><div class="fw-content">{{ reviewForward.advice }}</div></div>
         <div v-if="reviewForward.strategy_recommendations?.length || reviewForward.strategy_switches?.length" class="fw-switches">
@@ -372,7 +391,7 @@ const emit = defineEmits<{
 <style scoped lang="scss">
 .review-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
 
-.review-scan-stats { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 8px 12px; border-radius: 6px; background: var(--bg-elevated); border: 1px solid var(--border-default); }
+.review-scan-stats { display: flex; gap: 12px; padding: 6px 10px; border-radius: 6px; background: var(--bg-elevated); border: 1px solid var(--border-default); font-size: 11px; }
 
 .rss-row { font-size: 12px; }
 
@@ -392,17 +411,17 @@ const emit = defineEmits<{
 
 .review-summary-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
 
-.rsc { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 10px 12px; text-align: center; }
+.rsc { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 6px; padding: 6px 8px; text-align: center; }
 
-.rsc-label { font-size: 11px; color: var(--text-tertiary); margin-bottom: 4px; }
+.rsc-label { font-size: 10px; color: var(--text-tertiary); margin-bottom: 2px; }
 
-.rsc-value { font-size: 16px; font-weight: 600; }
+.rsc-value { font-size: 14px; font-weight: 600; }
 
 .strategy-contrib { display: flex; flex-direction: column; gap: 8px; }
 
-.strat-card { padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-default); background: var(--bg-elevated); }
+.strat-card { padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-default); background: var(--bg-elevated); }
 
-.strat-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.strat-header { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
 
 .strat-pnl { font-weight: 700; font-size: 14px; margin-left: auto; }
 
@@ -418,11 +437,11 @@ const emit = defineEmits<{
 
 .strat-mv { font-weight: 600; }
 
-.attribution-card { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 8px; padding: 10px 12px; margin-bottom: 6px; }
+.attribution-card { background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: 6px; padding: 6px 10px; margin-bottom: 4px; }
 
 .attr-top { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
 
-.attr-detail { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 16px; font-size: 12px; }
+.attr-detail { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px; font-size: 11px; }
 
 .attr-row { display: flex; justify-content: space-between; }
 
@@ -434,7 +453,7 @@ const emit = defineEmits<{
 
 .weekly-daily-table { font-size: 12px; }
 
-.wdt-header, .wdt-row { display: grid; grid-template-columns: 90px 1fr 60px 60px 80px; gap: 8px; padding: 4px 0; }
+.wdt-header, .wdt-row { display: grid; grid-template-columns: 60px 50px 50px 55px 70px; gap: 6px; padding: 3px 0; }
 
 .wdt-header { font-weight: 600; color: var(--text-tertiary); border-bottom: 1px solid var(--border-default); }
 
@@ -444,7 +463,7 @@ const emit = defineEmits<{
 
 .lb-header { font-weight: 600; color: var(--text-tertiary); border-bottom: 1px solid var(--border-default); }
 
-.hero-banner { padding: 14px 16px; border-radius: 10px; margin-bottom: 8px; }
+.hero-banner { padding: 10px 14px; border-radius: 8px; margin-bottom: 6px; }
 
 .hero-banner.profit { background: linear-gradient(135deg, rgba(103,194,58,0.12), rgba(103,194,58,0.04)); border: 1px solid rgba(103,194,58,0.25); }
 
@@ -456,7 +475,7 @@ const emit = defineEmits<{
 
 .hero-banner.neutral { background: var(--bg-elevated); border: 1px solid var(--border-default); }
 
-.hero-conclusion { font-size: 15px; font-weight: 700; line-height: 1.5; margin-bottom: 4px; }
+.hero-conclusion { font-size: 14px; font-weight: 700; line-height: 1.4; margin-bottom: 2px; }
 
 .hero-meta { display: flex; gap: 12px; font-size: 11px; color: var(--text-secondary); flex-wrap: wrap; }
 
@@ -468,7 +487,7 @@ const emit = defineEmits<{
 
 .review-scorecard { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 
-.review-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.review-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 
 .violations-list { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 
@@ -494,9 +513,9 @@ const emit = defineEmits<{
 
 .forward-section { display: flex; flex-direction: column; gap: 8px; }
 
-.deviation-trend-chart { background: var(--bg-elevated); border-radius: 8px; padding: 12px; }
+.deviation-trend-chart { background: var(--bg-elevated); border-radius: 6px; padding: 8px; }
 
-.trend-axis { display: flex; align-items: flex-end; gap: 8px; height: 120px; padding-top: 20px; }
+.trend-axis { display: flex; align-items: flex-end; gap: 8px; height: 100px; padding-top: 16px; }
 
 .trend-col { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; }
 
@@ -508,9 +527,9 @@ const emit = defineEmits<{
 
 .trend-sub { font-size: 10px; color: var(--text-tertiary); }
 
-.calendar-heatmap { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; padding: 8px; background: var(--bg-elevated); border-radius: 8px; }
+.calendar-heatmap { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; padding: 6px; background: var(--bg-elevated); border-radius: 6px; }
 
-.cal-cell { border-radius: 6px; padding: 4px 2px; text-align: center; font-size: 10px; min-height: 48px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.cal-cell { border-radius: 6px; padding: 4px 2px; text-align: center; font-size: 10px; min-height: 40px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 
 .cal-up { background: rgba(207, 48, 48, 0.15); color: var(--color-up, #f56c6c); }
 
@@ -524,7 +543,7 @@ const emit = defineEmits<{
 
 .cal-trades { font-size: 9px; color: var(--text-tertiary); }
 
-.strategy-stacked { display: flex; flex-direction: column; gap: 4px; padding: 8px; background: var(--bg-elevated); border-radius: 8px; }
+.strategy-stacked { display: flex; flex-direction: column; gap: 3px; padding: 6px; background: var(--bg-elevated); border-radius: 6px; }
 
 .stacked-bar { display: flex; align-items: center; justify-content: space-between; border-radius: 4px; padding: 4px 8px; min-width: 80px; }
 
@@ -564,7 +583,7 @@ const emit = defineEmits<{
 
 .closed-loop-list { display: flex; flex-direction: column; gap: 6px; }
 
-.cl-card { border-radius: 8px; padding: 8px 10px; border-left: 3px solid; }
+.cl-card { border-radius: 6px; padding: 6px 8px; border-left: 3px solid; }
 
 .cl-high { background: rgba(245,108,108,0.08); border-color: #f56c6c; }
 
@@ -586,7 +605,7 @@ const emit = defineEmits<{
 
 .cl-cases { font-size: 10px; color: var(--text-tertiary); margin-top: 2px; }
 
-.fw-card { padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border-default); font-size: 12px; }
+.fw-card { padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border-default); font-size: 12px; }
 
 .fw-card.fw-advice { background: rgba(64,158,255,0.06); border-color: rgba(64,158,255,0.2); }
 
@@ -602,9 +621,9 @@ const emit = defineEmits<{
 
 .fw-icon { margin-right: 4px; }
 
-.dev-card { padding: 10px 12px; border-radius: 8px; background: var(--bg-elevated); border: 1px solid var(--border-default); }
+.dev-card { padding: 8px 10px; border-radius: 6px; background: var(--bg-elevated); border: 1px solid var(--border-default); }
 
-.dev-title { font-weight: 700; font-size: 13px; margin-bottom: 6px; }
+.dev-title { font-weight: 700; font-size: 12px; margin-bottom: 4px; }
 
 .dev-row { display: flex; justify-content: space-between; font-size: 11px; padding: 2px 0; }
 
