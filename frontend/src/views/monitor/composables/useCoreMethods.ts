@@ -69,6 +69,7 @@ export function useCoreMethods(refs: CoreRefs) {
   // 此时ws.isConnected=true但实际无数据，需要降级到轮询
   const lastWsDataTime = ref(0) // 上次从WS收到scanner数据的时间
   const WS_DATA_STALE_MS = 15000 // 15秒无WS数据则视为陈旧
+  let _wsUnsubFn: (() => void) | null = null // WS订阅取消函数
   const wsDataStale = computed(() => {
     if (!wsHook.isConnected.value) return false // WS断开时不叫"陈旧"，正常走轮询
     if (lastWsDataTime.value === 0) return true // WS连接但从未收到scanner数据
@@ -239,7 +240,7 @@ export function useCoreMethods(refs: CoreRefs) {
       _wsSubscribed = true
     }
     // 【v2.9.72】监听WS scanner数据到达，更新新鲜度时间戳
-    const wsUnsub = wsHook.subscribe((msg: any) => {
+    _wsUnsubFn = wsHook.subscribe((msg: any) => {
       if (msg.type?.startsWith('scanner_')) {
         lastWsDataTime.value = Date.now()
       }
@@ -255,7 +256,7 @@ export function useCoreMethods(refs: CoreRefs) {
     if (refreshTimer) clearInterval(refreshTimer)
     if (nowTimer) clearInterval(nowTimer)
     _wsSubscribed = false
-    // wsUnsub is cleaned up by the hook's onUnmounted
+    if (_wsUnsubFn) { _wsUnsubFn(); _wsUnsubFn = null }
   }
 
   // 【v2.9.72】Store同步 - 修复：空数组也必须同步（如0个signal时不更新导致UI不一致）
