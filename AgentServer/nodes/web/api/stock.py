@@ -94,7 +94,7 @@ async def search_stocks(
             area=s.get("area"),
             industry=s.get("industry"),
             market=s.get("market"),
-            list_date=s.get("list_date"),
+            list_date=str(s.get("list_date", "")),
         )
         for s in stocks
     ]
@@ -118,7 +118,7 @@ async def get_stock_basic(ts_code: str):
         area=stock.get("area"),
         industry=stock.get("industry"),
         market=stock.get("market"),
-        list_date=stock.get("list_date"),
+        list_date=str(stock.get("list_date", "")),
     )
 
 
@@ -241,7 +241,7 @@ async def get_stocks_by_industry(
             area=s.get("area"),
             industry=s.get("industry"),
             market=s.get("market"),
-            list_date=s.get("list_date"),
+            list_date=str(s.get("list_date", "")),
         )
         for s in stocks
     ]
