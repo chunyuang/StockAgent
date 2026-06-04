@@ -141,7 +141,7 @@ onMounted(async () => {
         </div>
       </div>
       <div class="ld-sentiment" v-if="layerDebugData.pipeline_config.sentiment">
-        情绪: {{ layerDebugData.pipeline_config.sentiment.score }} → {{ layerDebugData.pipeline_config.sentiment.period }} | 仓位系数: {{ (layerDebugData.pipeline_config.position_ratio * 100).toFixed(0) }}%
+        情绪: {{ layerDebugData.pipeline_config.sentiment.score }} → {{ layerDebugData.pipeline_config.sentiment.period }} | 仓位系数: {{ ((layerDebugData.pipeline_config.position_ratio || 0) * 100).toFixed(0) }}%
       </div>
     </div>
     <div v-if="layerDebugData.signal_traces?.length" class="ld-traces">
