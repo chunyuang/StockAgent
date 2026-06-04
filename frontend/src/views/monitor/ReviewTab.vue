@@ -140,26 +140,7 @@ const emit = defineEmits<{
       </template>
 
       <!-- 周复盘 -->
-      <template v-if="reviewTab === 'weekly' && weeklyReportData">
-        <div class="review-summary-cards">
-          <div class="rsc"><div class="rsc-label">周收益</div><div class="rsc-value" :class="weeklyReportData.weekly_profit >= 0 ? 'up' : 'down'">¥{{ weeklyReportData.weekly_profit?.toFixed(0) }}</div></div>
-          <div class="rsc"><div class="rsc-label">周胜率</div><div class="rsc-value">{{ (weeklyReportData?.win_rate || 0) }}%</div></div>
-          <div class="rsc"><div class="rsc-label">交易</div><div class="rsc-value">{{ (weeklyReportData?.total_trades || 0) }}笔</div></div>
-        </div>
-        <div v-if="(weeklyReportData?.daily_breakdown)" class="st" style="margin-top:8px">📅 逐日明细</div>
-        <div v-if="(weeklyReportData?.daily_breakdown)" class="weekly-daily-table">
-          <div class="wdt-header"><span>日期</span><span>盈亏</span><span>交易</span><span>胜率</span><span>情绪</span></div>
-          <div v-for="d in (weeklyReportData?.daily_breakdown)" :key="d.date" class="wdt-row">
-            <span>{{ d.date }}</span>
-            <span :class="d.profit >= 0 ? 'up' : 'down'">{{ d.profit >= 0 ? '+' : '' }}¥{{ d.profit?.toFixed(0) }}</span>
-            <span>{{ d.trades }}笔</span>
-            <span>{{ d.win_rate }}%</span>
-            <span>{{ d.sentiment || '-' }}</span>
-          </div>
-        </div>
-      </template>
-
-      <!-- 月复盘 -->
+      <!-- 周复盘 -->
       <template v-if="reviewTab === 'monthly'">
         <template v-if="monthlyReviewData">
           <div class="st" style="margin-top:8px">🔬 系统偏差 ({{ monthlyReviewData.period }})</div>
@@ -270,7 +251,7 @@ const emit = defineEmits<{
           <div class="rsc"><div class="rsc-label">交易</div><div class="rsc-value">{{ weeklyReviewData.summary?.trades || 0 }}笔</div></div>
           <div class="rsc"><div class="rsc-label">胜率</div><div class="rsc-value">{{ weeklyReviewData.summary?.win_rate || 0 }}%</div></div>
           <div class="rsc"><div class="rsc-label">盈亏</div><div class="rsc-value" :class="weeklyReviewData.summary?.pnl >= 0 ? 'up' : 'down'">{{ weeklyReviewData.summary?.pnl >= 0 ? '+' : '' }}{{ weeklyReviewData.summary?.pnl || 0 }}%</div></div>
-          <div class="rsc"><div class="rsc-label">情绪</div><div class="rsc-value">{{ (Object.values(weeklyReportData.sentiments || {}) as any[])[0]?.period || '-' }}</div></div>
+          <div class="rsc"><div class="rsc-label">情绪</div><div class="rsc-value">{{ (Object.values(weeklyReviewData.sentiments || {}) as any[])[0]?.period || '-' }}</div></div>
         </div>
         <div class="strategy-contrib">
           <div v-for="(data, key) in weeklyReviewData.strategy_stats || {}" :key="key" class="strat-card">
@@ -292,13 +273,14 @@ const emit = defineEmits<{
         </div>
         <div class="st" style="margin-top:8px">📋 逐日明细</div>
         <div v-if="weeklyReviewData?.daily_breakdown?.length" class="weekly-daily-table">
-          <div class="wdt-header"><span>日期</span><span>买入</span><span>卖出</span><span>胜率</span><span>盈亏</span></div>
-          <div v-for="d in weeklyReviewData.daily_breakdown" :key="d.date" class="wdt-row">
+          <div class="wdt-header"><span>日期</span><span>买入</span><span>卖出</span><span>胜率</span><span>盈亏</span><span>情绪</span></div>
+          <div v-for="d in weeklyReviewData.daily_breakdown" :key="d.date" class="wdt-row wdt-6col">
             <span>{{ d.date?.length >= 8 ? d.date.slice(4,6)+'/'+d.date.slice(6,8) : d.date }}</span>
             <span>{{ d.buys || 0 }}</span>
             <span>{{ d.sells || 0 }}</span>
             <span :class="d.win_rate >= 50 ? 'up' : 'down'">{{ d.win_rate }}%</span>
             <span :class="d.pnl >= 0 ? 'up' : 'down'" style="font-weight:600">{{ d.pnl >= 0 ? '+' : '' }}{{ d.pnl }}%</span>
+            <span style="font-size:11px">{{ weeklyReviewData.sentiments?.[d.date]?.period || '-' }}</span>
           </div>
         </div>
       </template>
@@ -453,7 +435,8 @@ const emit = defineEmits<{
 
 .weekly-daily-table { font-size: 12px; }
 
-.wdt-header, .wdt-row { display: grid; grid-template-columns: 60px 50px 50px 55px 70px; gap: 6px; padding: 3px 0; }
+.wdt-header, .wdt-row { display: grid; grid-template-columns: 50px 40px 40px 50px 60px 50px; gap: 4px; padding: 3px 0; }
+.wdt-6col { grid-template-columns: 50px 40px 40px 50px 60px 50px; }
 
 .wdt-header { font-weight: 600; color: var(--text-tertiary); border-bottom: 1px solid var(--border-default); }
 
