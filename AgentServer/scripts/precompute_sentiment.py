@@ -57,24 +57,36 @@ async def compute_sentiment(trade_date: int, db) -> dict:
     
     data_source = "limit_list"
     
-    # 2. limit_list无数据时，从daily_basic用pct_chg统计
+    # 2. limit_list无数据时，从stock_daily_ak_full或daily_basic用pct_chg统计
     if lu == 0 and ld == 0:
-        # 先确认daily_basic有有效的pct_chg数据
-        has_pct = await db["daily_basic"].count_documents({"trade_date": trade_date, "pct_chg": {"$ne": None, "$exists": True}})
-        if has_pct > 0:
-            lu = await db["daily_basic"].count_documents({"trade_date": trade_date, "pct_chg": {"$gte": 9.8}})
-            ld = await db["daily_basic"].count_documents({"trade_date": trade_date, "pct_chg": {"$lte": -9.8}})
+        # 优先用stock_daily_ak_full(更可靠，pct_chg总有)
+        has_pct_ak = await db["stock_daily_ak_full"].count_documents({"trade_date": trade_date, "pct_chg": {"$ne": None, "$exists": True}})
+        if has_pct_ak > 0:
+            lu = await db["stock_daily_ak_full"].count_documents({"trade_date": trade_date, "pct_chg": {"$gte": 9.8}})
+            ld = await db["stock_daily_ak_full"].count_documents({"trade_date": trade_date, "pct_chg": {"$lte": -9.8}})
             max_lb = 1
-            data_source = "daily_basic"
+            data_source = "stock_daily_ak_full"
         else:
-            data_source = "daily_basic(no_pct)"
+            # fallback到daily_basic
+            has_pct = await db["daily_basic"].count_documents({"trade_date": trade_date, "pct_chg": {"$ne": None, "$exists": True}})
+            if has_pct > 0:
+                lu = await db["daily_basic"].count_documents({"trade_date": trade_date, "pct_chg": {"$gte": 9.8}})
+                ld = await db["daily_basic"].count_documents({"trade_date": trade_date, "pct_chg": {"$lte": -9.8}})
+                max_lb = 1
+                data_source = "daily_basic"
+            else:
+                data_source = "daily_basic(no_pct)"
     
     # 3. 都无有效数据
     missing_data = (lu == 0 and ld == 0)
     
-    # 涨跌家数(从daily_basic)
-    up_count = await db["daily_basic"].count_documents({"trade_date": trade_date, "pct_chg": {"$gt": 0}})
-    down_count = await db["daily_basic"].count_documents({"trade_date": trade_date, "pct_chg": {"$lt": 0}})
+    # 涨跌家数(优先stock_daily_ak_full, fallback daily_basic)
+    up_count = await db["stock_daily_ak_full"].count_documents({"trade_date": trade_date, "pct_chg": {"$gt": 0}})
+    down_count = await db["stock_daily_ak_full"].count_documents({"trade_date": trade_date, "pct_chg": {"$lt": 0}})
+    if up_count + down_count == 0:
+        # fallback daily_basic
+        up_count = await db["daily_basic"].count_documents({"trade_date": trade_date, "pct_chg": {"$gt": 0}})
+        down_count = await db["daily_basic"].count_documents({"trade_date": trade_date, "pct_chg": {"$lt": 0}})
     up_down_ratio = up_count / max(up_count + down_count, 1)
     
     # 情绪公式(与EmotionCycleManager._compute_score一致)
