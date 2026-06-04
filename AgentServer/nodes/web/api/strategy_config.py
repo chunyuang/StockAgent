@@ -32,15 +32,18 @@ _overrides_loaded: bool = False  # 是否已从MongoDB加载
 
 
 async def _ensure_overrides_loaded() -> None:
-    """从MongoDB加载覆盖参数(懒加载,首次访问时触发)"""
+    """从MongoDB加载覆盖参数(懒加载,首次访问时触发)
+    
+    修复: 加载失败时重置flag允许重试, 避免永久跳过
+    """
     global _override_params, _override_risk, _override_enabled, _override_global_risk, _overrides_loaded
     if _overrides_loaded:
         return
-    _overrides_loaded = True
     try:
         from core.managers import mongo_manager
         if not mongo_manager.is_initialized:
             logger.debug("[CONFIG] MongoDB未初始化, 跳过覆盖参数加载")
+            _overrides_loaded = True  # MongoDB不可用是永久状态, 不重试
             return
         doc = await mongo_manager.db["scanner_config"].find_one({"_id": "strategy_config_overrides"})
         if doc and "data" in doc:
@@ -50,8 +53,10 @@ async def _ensure_overrides_loaded() -> None:
             _override_enabled = data.get("enabled", {})
             _override_global_risk = data.get("global_risk", {})
             logger.info(f"[CONFIG] 从MongoDB恢复策略覆盖: {len(_override_params)}个参数覆盖, {len(_override_enabled)}个启停覆盖")
+        _overrides_loaded = True
     except Exception as e:
-        logger.warning(f"[CONFIG] 加载覆盖参数失败(使用默认值): {e}")
+        # 关键修复: 加载失败时不设flag, 允许下次重试
+        logger.warning(f"[CONFIG] 加载覆盖参数失败(下次重试): {e}")
 
 
 async def _persist_overrides() -> None:
@@ -180,13 +185,42 @@ async def get_global_risk():
 
 @router.put("/global-risk")
 async def update_global_risk(req: GlobalRiskUpdate):
-    """更新全局风控参数(P1-9: 持久化到MongoDB)"""
+    """更新全局风控参数(P1-9: 持久化到MongoDB)
+    
+    修复: 同时同步到strategy_params集合, 确保param_center读到的全局风控也是最新
+    """
     await _ensure_overrides_loaded()
     for k, v in req.updates.items():
         if k in GLOBAL_RISK:
             _override_global_risk[k] = v
-    # 持久化到MongoDB
+    # 持久化到MongoDB (strategy_config_overrides文档)
     await _persist_overrides()
+    
+    # 【修复】同步到strategy_params集合中每个策略的globalRisk字段
+    try:
+        from core.managers import mongo_manager
+        if mongo_manager.is_initialized:
+            effective_gr = dict(GLOBAL_RISK)
+            effective_gr.update(_override_global_risk)
+            from datetime import datetime as _dt
+            await mongo_manager.db["strategy_params"].update_many(
+                {},
+                {"$set": {"globalRisk": effective_gr, "updated_at": _dt.now().isoformat()}}
+            )
+            logger.info(f"[CONFIG] 全局风控已同步到strategy_params: {req.updates}")
+    except Exception as e:
+        logger.warning(f"[CONFIG] 全局风控同步strategy_params失败(非关键): {e}")
+    
+    # 同步到运行中的Scanner
+    try:
+        from nodes.web.api.scanner import _get_scanner_instance
+        scanner = _get_scanner_instance()
+        if scanner and hasattr(scanner, 'config'):
+            scanner.config.setdefault("global_risk", {})
+            scanner.config["global_risk"].update(req.updates)
+    except Exception:
+        pass
+    
     logger.info(f"[CONFIG] 更新全局风控: {req.updates} (已持久化)")
     result = dict(GLOBAL_RISK)
     result.update(_override_global_risk)

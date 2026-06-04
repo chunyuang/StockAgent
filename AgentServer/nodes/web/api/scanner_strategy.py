@@ -261,7 +261,9 @@ async def get_strategy_performance():
             return {"success": True, "data": []}
         positions = scanner._broker.get_positions()
         timeline = scanner._timeline
-        strategy_names = {"halfway_chase": "半路追涨", "first_limit_up": "首板打板", "dragon_head": "龙头低吸", "limit_down_qiao": "跌停翘板", "limit_up_open": "涨停开板", "manual": "手动"}
+        from nodes.backtest_engine.strategy_defaults import STRATEGY_ID_TO_NAME
+        strategy_names = dict(STRATEGY_ID_TO_NAME)
+        strategy_names["manual"] = "手动"
 
         strategies = {}
         for key, name in strategy_names.items():
@@ -416,7 +418,7 @@ async def get_strategy_params_compare():
                 live_params[strategy_id] = params
         
         # 获取回测基线
-        from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK
+        from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK, STRATEGY_ID_TO_NAME
         backtest_params = {}
         for strategy_id, config in STRATEGY_CONFIGS.items():
             backtest_params[strategy_id] = config
@@ -453,9 +455,7 @@ async def get_strategy_params_compare():
             
             comparisons.append({
                 "strategy_id": sid,
-                "strategy_name": {"halfway_chase": "半路追涨", "first_limit_up": "首板打板", 
-                                   "dragon_head": "龙头低吸", "limit_down_qiao": "跌停翘板",
-                                   "limit_up_open": "涨停开板"}.get(sid, sid),
+                "strategy_name": STRATEGY_ID_TO_NAME.get(sid, sid),
                 "live_params": live,
                 "backtest_params": bt,
                 "param_diffs": param_diffs,

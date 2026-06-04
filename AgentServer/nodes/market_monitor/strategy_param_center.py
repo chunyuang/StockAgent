@@ -90,6 +90,8 @@ class StrategyParamCenter:
         获取策略参数
         
         优先级: MongoDB缓存 > strategy_defaults > 空dict
+        
+        修复: fallback格式与MongoDB存储格式一致, 避免API消费方拿到不同格式
         """
         # 检查缓存是否过期
         if time.time() - self._last_load_time > self._cache_ttl:
@@ -98,7 +100,7 @@ class StrategyParamCenter:
         if strategy_id in self._cache:
             return deepcopy(self._cache[strategy_id])
         
-        # Fallback: 从strategy_defaults读取
+        # Fallback: 从strategy_defaults读取(格式与MongoDB一致)
         try:
             from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK
             if strategy_id in STRATEGY_CONFIGS:
@@ -113,6 +115,11 @@ class StrategyParamCenter:
                     "source": "defaults_fallback",
                     "updated_at": datetime.now().isoformat(),
                 }
+                # 补充params和enabled字段(与MongoDB存储格式对齐)
+                if "params" in cfg:
+                    params["params"] = deepcopy(cfg["params"])
+                if "enabled" in cfg:
+                    params["enabled"] = cfg["enabled"]
                 self._cache[strategy_id] = params
                 return deepcopy(params)
         except ImportError:
@@ -221,6 +228,10 @@ class StrategyParamCenter:
                 "updated_at": datetime.now().isoformat(),
                 "updated_by": "reset",
             }
+            if "params" in cfg:
+                defaults["params"] = deepcopy(cfg["params"])
+            if "enabled" in cfg:
+                defaults["enabled"] = cfg["enabled"]
             return await self.update_strategy_params(
                 strategy_id, defaults, updated_by="reset", comment="重置为默认值"
             )
@@ -270,7 +281,10 @@ class StrategyParamCenter:
             logger.warning(f"[PARAMS] DB加载失败, 使用缓存: {e}")
     
     async def _load_from_defaults(self) -> None:
-        """从strategy_defaults.py加载参数(fallback)"""
+        """从strategy_defaults.py加载参数(fallback)
+        
+        修复: 格式与MongoDB存储格式一致, 补充params和enabled字段
+        """
         try:
             from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK
             for sid, cfg in STRATEGY_CONFIGS.items():
@@ -283,13 +297,20 @@ class StrategyParamCenter:
                     "globalRisk": deepcopy(GLOBAL_RISK),
                     "source": "defaults",
                 }
+                if "params" in cfg:
+                    self._cache[sid]["params"] = deepcopy(cfg["params"])
+                if "enabled" in cfg:
+                    self._cache[sid]["enabled"] = cfg["enabled"]
             self._last_load_time = time.time()
             logger.info(f"[PARAMS] 从defaults加载{len(self._cache)}个策略参数")
         except ImportError as e:
             logger.error(f"[PARAMS] defaults加载失败: {e}")
     
     async def _import_from_defaults(self) -> None:
-        """首次: 从strategy_defaults导入到MongoDB"""
+        """首次: 从strategy_defaults导入到MongoDB
+        
+        修复: 格式与get_strategy_params返回格式一致, 包含params和enabled字段
+        """
         try:
             from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK
             from core.managers import mongo_manager
@@ -306,6 +327,10 @@ class StrategyParamCenter:
                     "source": "defaults_import",
                     "imported_at": datetime.now().isoformat(),
                 }
+                if "params" in cfg:
+                    doc["params"] = deepcopy(cfg["params"])
+                if "enabled" in cfg:
+                    doc["enabled"] = cfg["enabled"]
                 docs.append(doc)
                 self._cache[sid] = doc
             
@@ -379,8 +404,14 @@ class StrategyParamCenter:
             return 0
 
     async def detect_drift(self) -> list:
-        """检测MongoDB与strategy_defaults.py的差异(漂移)"""
+        """检测MongoDB与strategy_defaults.py的差异(漂移)
+        
+        修复: 只对比实际参数字段(params/riskParams/globalRisk), 排除metadata字段
+        (strategy_id/name/source/updated_at/updated_by等不算漂移)
+        """
         drifts = []
+        _METADATA_KEYS = {"strategy_id", "name", "source", "updated_at", "updated_by",
+                         "imported_at", "_id", "maxHoldDays", "filterConditions", "enabled"}
         try:
             from core.managers import mongo_manager
             if mongo_manager.db is None:
@@ -392,23 +423,54 @@ class StrategyParamCenter:
                     {"strategy_id": strategy_id}
                 )
                 if existing:
+                    # 逐字段对比,排除metadata
                     for k, v in config.items():
+                        if k in _METADATA_KEYS:
+                            continue
                         if k in existing and existing[k] != v:
-                            drifts.append({
-                                "strategy": strategy_id,
-                                "key": k,
-                                "mongodb_value": existing[k],
-                                "defaults_value": v,
-                            })
+                            # 对于dict类型(如globalRisk), 做深层对比
+                            if isinstance(v, dict) and isinstance(existing[k], dict):
+                                for dk, dv in v.items():
+                                    if dk in existing[k] and existing[k][dk] != dv:
+                                        drifts.append({
+                                            "strategy": strategy_id,
+                                            "key": f"{k}.{dk}",
+                                            "mongodb_value": existing[k][dk],
+                                            "defaults_value": dv,
+                                        })
+                            else:
+                                drifts.append({
+                                    "strategy": strategy_id,
+                                    "key": k,
+                                    "mongodb_value": existing[k],
+                                    "defaults_value": v,
+                                })
         except Exception as e:
             logger.error(f"[PARAMS] detect_drift失败: {e}")
         return drifts
 
     def _get_all_defaults(self) -> Dict:
-        """获取strategy_defaults.py的全部参数"""
+        """获取strategy_defaults.py的全部参数
+        
+        返回格式与MongoDB strategy_params集合存储格式一致,
+        以便detect_drift正确对比。
+        """
         try:
-            from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS
-            return deepcopy(STRATEGY_CONFIGS)
+            from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK
+            result = {}
+            for sid, cfg in STRATEGY_CONFIGS.items():
+                result[sid] = {
+                    "strategy_id": sid,
+                    "name": cfg.get("name", sid),
+                    "riskParams": deepcopy(cfg.get("riskParams", {})),
+                    "filterConditions": deepcopy(cfg.get("filterConditions", {})),
+                    "maxHoldDays": cfg.get("maxHoldDays", 3),
+                    "globalRisk": deepcopy(GLOBAL_RISK),
+                }
+                # 补充params字段(存在时)
+                if "params" in cfg:
+                    result[sid]["params"] = deepcopy(cfg["params"])
+            return result
         except ImportError:
             return {}
 

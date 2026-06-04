@@ -181,6 +181,11 @@ async def get_sentiment_strategy_matrix(date: str = None):
         db = mongo_manager.db
         import re
         from collections import defaultdict
+        from nodes.backtest_engine.strategy_defaults import STRATEGY_ID_TO_NAME
+        
+        # 策略名映射: 统一使用STRATEGY_ID_TO_NAME, 缺省时用ID本身
+        def _strategy_display_name(sid: str) -> str:
+            return STRATEGY_ID_TO_NAME.get(sid, sid)
         
         # 获取每日情绪阶段
         daily_sentiment = {}
@@ -197,7 +202,7 @@ async def get_sentiment_strategy_matrix(date: str = None):
             if period:
                 daily_sentiment[td] = period
         
-        matrix = defaultdict(lambda: defaultdict(lambda: {"wins": 0, "losses": 0, "count": 0, "total_pnl": 0.0}))
+        matrix = defaultdict(lambda: defaultdict(lambda: {"wins": 0, "losses": 0, "count": 0, "total_pnl": 0.0, "win_pnl": 0.0, "loss_pnl": 0.0}))
         strategy_totals = defaultdict(lambda: {"wins": 0, "losses": 0, "count": 0, "total_pnl": 0.0})
         
         # 构建查询条件: date参数时只统计该日期及之前的卖出
@@ -256,6 +261,10 @@ async def get_sentiment_strategy_matrix(date: str = None):
             matrix[strategy][period]["wins"] += int(is_win)
             matrix[strategy][period]["losses"] += int(not is_win)
             matrix[strategy][period]["total_pnl"] += pnl
+            if is_win:
+                matrix[strategy][period]["win_pnl"] += abs(pnl)
+            else:
+                matrix[strategy][period]["loss_pnl"] += abs(pnl)
             strategy_totals[strategy]["count"] += 1
             strategy_totals[strategy]["wins"] += int(is_win)
             strategy_totals[strategy]["losses"] += int(not is_win)
@@ -265,7 +274,20 @@ async def get_sentiment_strategy_matrix(date: str = None):
         for strat, periods in matrix.items():
             result_matrix[strat] = {}
             for per, data in periods.items():
-                result_matrix[strat][per] = {"count": data["count"], "win_rate": round(data["wins"]/max(data["count"],1)*100,1), "total_pnl": round(data["total_pnl"]), "wins": data["wins"], "losses": data["losses"]}
+                # 盈亏比 = 平均盈利 / 平均亏损
+                profit_loss_ratio = 0.0
+                if data["wins"] > 0 and data["losses"] > 0 and data["loss_pnl"] > 0:
+                    avg_win = data["win_pnl"] / data["wins"]
+                    avg_loss = data["loss_pnl"] / data["losses"]
+                    profit_loss_ratio = round(avg_win / max(avg_loss, 0.001), 2)
+                result_matrix[strat][per] = {
+                    "count": data["count"],
+                    "win_rate": round(data["wins"]/max(data["count"],1)*100,1),
+                    "total_pnl": round(data["total_pnl"]),
+                    "wins": data["wins"],
+                    "losses": data["losses"],
+                    "profit_loss_ratio": profit_loss_ratio,
+                }
         
         recommendations = []
         for strat, periods in result_matrix.items():

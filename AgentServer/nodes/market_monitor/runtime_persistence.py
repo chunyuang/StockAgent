@@ -1062,30 +1062,57 @@ class RuntimePersistence:
         return diff_details
 
     async def save_param_snapshot(self, trade_date: str) -> None:
-        """启动时保存参数快照(供月复盘参数漂移检测)【v2.9.42:从scanner._save_param_snapshot提取】"""
+        """启动时保存参数快照(供月复盘参数漂移检测)【v2.9.42:从scanner._save_param_snapshot提取】
+        
+        修复: 优先从strategy_overrides读取覆盖后的参数, 而非原始strategies配置
+        """
         try:
             from core.managers import mongo_manager as mm
             if mm.is_initialized:
-                # 从scanner.config获取策略参数(运行时状态)
                 scanner_config = self._scanner.config
-                strategies = scanner_config.get("strategies", {})
-                global_risk = scanner_config.get("global_risk", {})
                 today = trade_date or datetime.now().strftime("%Y%m%d")
+                
+                # 读取策略参数: 优先从strategy_overrides(覆盖后), 否则从strategies(原始)
+                strategies = scanner_config.get("strategies", {})
+                strategy_overrides = scanner_config.get("strategy_overrides", {})
+                global_risk = scanner_config.get("global_risk", {})
+                
+                # 构建快照: 合并strategies + overrides
+                merged_strategies = {}
+                for sid, cfg in strategies.items():
+                    merged_cfg = {
+                        "enabled": cfg.get("enabled", True),
+                        "params": dict(cfg.get("params", {})),
+                        "riskParams": dict(cfg.get("riskParams", {})),
+                    }
+                    # 应用strategy_overrides覆盖
+                    if sid in strategy_overrides:
+                        override = strategy_overrides[sid]
+                        if "params" in override:
+                            merged_cfg["params"].update(override["params"])
+                        if "riskParams" in override:
+                            merged_cfg["riskParams"].update(override["riskParams"])
+                        if "enabled" in override:
+                            merged_cfg["enabled"] = override["enabled"]
+                    merged_strategies[sid] = merged_cfg
+                
+                # 也加入overrides中存在但strategies中没有的策略
+                for sid, override in strategy_overrides.items():
+                    if sid not in merged_strategies:
+                        merged_strategies[sid] = {
+                            "enabled": override.get("enabled", True),
+                            "params": dict(override.get("params", {})),
+                            "riskParams": dict(override.get("riskParams", {})),
+                        }
+                
                 snapshot = {
                     "date": today,
-                    "global_risk": {k: v for k, v in global_risk.items() if not k.startswith("__")},
-                    "strategies": {
-                        sid: {
-                            "enabled": cfg.get("enabled", True),
-                            "params": cfg.get("params", {}),
-                            "riskParams": cfg.get("riskParams", {}),
-                        }
-                        for sid, cfg in strategies.items()
-                    },
+                    "global_risk": {k: v for k, v in global_risk.items() if not k.startswith("__")} if global_risk else {},
+                    "strategies": merged_strategies,
                 }
                 await mm.db["param_snapshots"].update_one(
                     {"date": today}, {"$set": snapshot}, upsert=True
                 )
-                logger.info(f"[SCANNER] 参数快照已保存({today})")
+                logger.info(f"[SCANNER] 参数快照已保存({today}), {len(merged_strategies)}个策略")
         except Exception as e:
             logger.warning(f"[SCANNER] 参数快照保存失败: {e}")
