@@ -453,6 +453,10 @@ async def _daily_report_from_mongo():
         cands = doc.get("candidates", [])
         scan_stats["scans"] = scan_stats.get("scans", 0) + 1
         scan_stats["signals_found"] = scan_stats.get("signals_found", 0) + len([c for c in cands if c.get("final_status") == "passed"])
+    scan_stats["scan_count"] = scan_stats.get("scans", 0)
+    scan_stats["total_signals"] = scan_stats.get("signals_found", 0)
+    scan_stats["buy_count"] = len(buys)
+    scan_stats["sell_count"] = len(sells)
     scan_stats["trades_executed"] = len(buys)
     scan_stats["stop_losses"] = sum(1 for s in sells if "止损" in (s.get("reason", "")))
     scan_stats["take_profits"] = sum(1 for s in sells if "止盈" in (s.get("reason", "")) or "追踪止损" in (s.get("reason", "")))

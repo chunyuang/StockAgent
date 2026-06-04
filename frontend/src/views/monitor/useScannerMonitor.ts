@@ -331,6 +331,7 @@ export function useScannerMonitor() {
     fetchAutoTrades: autoTrade.fetchAutoTrades,
     fetchParamCompare: autoTrade.fetchParamCompare,
     fetchScanConfig: autoTrade.fetchScanConfig,
+    fetchSentimentData: sentiment.fetchSentimentData,
     perfChartOption, dailyReportVisible, weeklyReportVisible,
     // 盘前 (子composable)
     ...premarket,
