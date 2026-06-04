@@ -222,13 +222,16 @@ async def get_trade_attribution(date: str = None):
             filled_price = doc.get("filled_price", 0) or 0
             filled_qty = doc.get("filled_qty", 0) or 0
             
-            # 查找对应买入记录
+            # 查找对应买入记录(同日或之前)
             buy_doc = await db["broker_orders"].find_one(
-                {"ts_code": ts_code, "strategy": strategy, "side": "buy", "status": "filled"},
-                sort=[("_id", 1)]
+                {"ts_code": ts_code, "strategy": strategy, "side": "buy", "status": "filled", "trade_date": {"$lte": date}},
+                sort=[("_id", -1)]  # 最近的一次买入
             )
             buy_price = buy_doc.get("filled_price", 0) if buy_doc else 0
             buy_time = buy_doc.get("fill_time", "") if buy_doc else ""
+            # 如果没有买入记录,从profit_pct反推buy_price
+            if buy_price == 0 and filled_price > 0 and profit_pct != 0:
+                buy_price = round(filled_price / (1 + profit_pct / 100), 2)
             
             # 查找scan_trace(买入漏斗)
             scan_info = None
@@ -583,7 +586,7 @@ async def get_review_forward(date: str = None):
             "冰点": {"open": [], "close": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head"]},
         }
         
-        switches = period_strategy_map.get(raw_period, {"open":[],"close":[]})
+        switches = period_strategy_map.get(raw_period, period_strategy_map.get(cn_period, {"open":[],"close":[]}))
         for strat in switches["open"]:
             st = strat_stats.get(strat, {})
             wr = st.get("wins",0) / max(st.get("count",1),1) * 100

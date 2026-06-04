@@ -24,10 +24,20 @@ router = APIRouter(prefix="/scanner", tags=["日报/周报/历史复盘"])
 
 @router.get("/daily-report")
 async def get_daily_report():
-    """每日复盘报告"""
+    """每日复盘报告 — scanner运行时取实时数据,否则从MongoDB聚合"""
     scanner = await _get_scanner()
-    if not scanner._broker:
-        return {"success": True, "data": {}}
+    # 检查scanner是否真正在运行(有真实持仓或今天的timeline记录)
+    has_live = False
+    try:
+        if scanner._broker is not None:
+            positions = scanner._broker.get_positions()
+            has_live = len(positions) > 0 or (hasattr(scanner, '_timeline') and len(scanner._timeline) > 0)
+    except Exception:
+        pass
+    
+    if not has_live:
+        # Scanner未运行: 从MongoDB聚合今日数据
+        return await _daily_report_from_mongo()
     
     try:
         acct = scanner._broker.get_account()
@@ -375,3 +385,112 @@ async def get_weekly_report(date: str = None):
         return {"success": True, "data": {}, "message": str(e)}
 
 
+
+
+async def _daily_report_from_mongo():
+    """Scanner未运行时从MongoDB聚合今日复盘数据"""
+    from core.managers import mongo_manager
+    from collections import defaultdict
+    
+    if not mongo_manager.is_initialized:
+        return {"success": True, "data": {}}
+    
+    db = mongo_manager.db
+    today = datetime.now().strftime("%Y%m%d")
+    
+    # 1. 今日订单
+    buys, sells = [], []
+    async for doc in db["broker_orders"].find({"trade_date": today, "status": "filled"}).sort("fill_time", 1):
+        (buys if doc.get("side") == "buy" else sells).append(doc)
+    
+    if not buys and not sells:
+        return {"success": True, "data": {
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "account": {"total_assets": 0, "available_cash": 0, "market_value": 0, "today_profit": 0, "total_profit": 0, "position_ratio": 0},
+            "positions": {"count": 0, "strategy_summary": {}, "top_profit": [], "top_loss": []},
+            "trades": {"buy": 0, "sell": 0, "total_amount": 0},
+            "scanner_stats": {}, "funnel_summary": None, "sentiment_snapshot": None,
+        }}
+    
+    # 2. 按策略汇总
+    strategy_summary = defaultdict(lambda: {"count": 0, "market_value": 0, "total_profit": 0, "win_count": 0, "loss_count": 0, "closed_count": 0, "closed_profit": 0, "stop_loss_count": 0, "take_profit_count": 0, "wins_pcts": [], "losses_pcts": []})
+    
+    for s in sells:
+        key = s.get("strategy", "") or "unknown"
+        strategy_summary[key]["closed_count"] += 1
+        pnl = s.get("profit_pct", 0) or 0
+        strategy_summary[key]["closed_profit"] += s.get("profit_amount", 0) or 0
+        reason = s.get("reason", "")
+        if pnl >= 0:
+            strategy_summary[key]["win_count"] += 1
+            strategy_summary[key]["wins_pcts"].append(pnl)
+        else:
+            strategy_summary[key]["loss_count"] += 1
+            strategy_summary[key]["losses_pcts"].append(pnl)
+        if "止损" in reason and "追踪" not in reason:
+            strategy_summary[key]["stop_loss_count"] += 1
+        elif "止盈" in reason or "追踪止损" in reason:
+            strategy_summary[key]["take_profit_count"] += 1
+    
+    # 清理+计算派生指标
+    for key in strategy_summary:
+        v = strategy_summary[key]
+        total = v["win_count"] + v["loss_count"]
+        v["win_rate"] = round(v["win_count"] / max(total, 1) * 100, 1)
+        v["closed_win_rate"] = round(v["win_count"] / max(v["closed_count"], 1) * 100, 1)
+        v["avg_win_pct"] = round(sum(v["wins_pcts"]) / len(v["wins_pcts"]), 1) if v["wins_pcts"] else 0
+        v["avg_loss_pct"] = round(sum(v["losses_pcts"]) / len(v["losses_pcts"]), 1) if v["losses_pcts"] else 0
+        v["profit_loss_ratio"] = round(abs(v["avg_win_pct"] / v["avg_loss_pct"]), 1) if v["avg_loss_pct"] and v["avg_win_pct"] else 0
+        v["max_win_pct"] = round(max(v["wins_pcts"]), 1) if v["wins_pcts"] else 0
+        v["max_loss_pct"] = round(min(v["losses_pcts"]), 1) if v["losses_pcts"] else 0
+        # Remove temp lists
+        del v["wins_pcts"]
+        del v["losses_pcts"]
+    
+    # 3. 扫描统计(从scan_traces)
+    scan_stats = {}
+    async for doc in db["scan_traces"].find({"trade_date": today}):
+        cands = doc.get("candidates", [])
+        scan_stats["scans"] = scan_stats.get("scans", 0) + 1
+        scan_stats["signals_found"] = scan_stats.get("signals_found", 0) + len([c for c in cands if c.get("final_status") == "passed"])
+    scan_stats["trades_executed"] = len(buys)
+    scan_stats["stop_losses"] = sum(1 for s in sells if "止损" in (s.get("reason", "")))
+    scan_stats["take_profits"] = sum(1 for s in sells if "止盈" in (s.get("reason", "")) or "追踪止损" in (s.get("reason", "")))
+    
+    # 4. 情绪快照
+    sentiment_snap = None
+    sent_doc = await db["sentiment_scores"].find_one({"trade_date": int(today)})
+    if sent_doc:
+        sentiment_snap = f"{sent_doc.get('period', '')} {sent_doc.get('score', 0)}分"
+    
+    # 5. 账户概算(从broker_state或推算)
+    total_sell_amount = sum((s.get("filled_price", 0) or 0) * (s.get("filled_qty", 0) or 0) for s in sells)
+    total_buy_amount = sum((b.get("filled_price", 0) or 0) * (b.get("filled_qty", 0) or 0) for b in buys)
+    
+    report = {
+        "date": datetime.now().strftime("%Y-%m-%d"),
+        "account": {
+            "total_assets": 0,  # 需要scanner运行时才精确
+            "available_cash": 0,
+            "market_value": 0,
+            "today_profit": round(sum(s.get("profit_amount", 0) or 0 for s in sells), 2),
+            "total_profit": 0,
+            "position_ratio": 0,
+        },
+        "positions": {
+            "count": 0,  # 需要scanner运行时才精确
+            "strategy_summary": dict(strategy_summary),
+            "top_profit": [],
+            "top_loss": [],
+        },
+        "trades": {
+            "buy": len(buys),
+            "sell": len(sells),
+            "total_amount": round(total_buy_amount + total_sell_amount, 2),
+        },
+        "scanner_stats": scan_stats,
+        "funnel_summary": None,
+        "sentiment_snapshot": sentiment_snap,
+    }
+    
+    return {"success": True, "data": _clean_mongo(report)}
