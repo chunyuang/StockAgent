@@ -174,14 +174,14 @@ function onRowClick(row: FactorRow) {
             v-for="factor in group.factors"
             :key="factor.key"
             :prop="`factors.${factor.key}.value`"
-            :label="factor.name"
+            :label="factor.display_name || factor.name"
             width="100"
             sortable
             :sort-method="(a: FactorRow, b: FactorRow) => factorSortMethod(a, b, factor.key)"
           >
             <template #header>
               <ElTooltip :content="factor.description" placement="top" :show-after="300">
-                <span class="fv-factor-header">{{ factor.name }}</span>
+                <span class="fv-factor-header">{{ factor.display_name || factor.name }}</span>
               </ElTooltip>
             </template>
             <template #default="{ row }">
