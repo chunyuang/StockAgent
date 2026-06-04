@@ -141,8 +141,9 @@ export function useReviewMonitor() {
     } catch { /* ignore */ }
   }
 
-  function openWeeklyReport() { /* stub: 后续实现 */ }
-  function exportTradeLog() { /* stub: 后续实现 */ }
+  // openWeeklyReport 和 exportTradeLog 由 useScannerMonitor 统一实现
+  const openWeeklyReport = () => { /* 由useScannerMonitor实现 */ }
+  const exportTradeLog = () => { /* 由useScannerMonitor实现 */ }
 
   return {
     // 状态

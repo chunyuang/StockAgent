@@ -370,7 +370,8 @@ class RuntimePersistence:
         return trace_doc
     
     async def load_timeline(self) -> None:
-        """从MongoDB加载时间线(启动时恢复)"""
+        """从MongoDB加载时间线(启动时恢复)
+        优先加载当天数据; 如果当天无数据则回退到最近一个有数据的交易日"""
         try:
             from core.managers import mongo_manager
             if mongo_manager.db is None:
@@ -379,9 +380,24 @@ class RuntimePersistence:
             account_id = self.broker.account.account_id if self.broker else "default"
             scanner = self._scanner
             
-            cursor = mongo_manager.db["scanner_timeline"].find(
-                {"account_id": account_id, "trade_date": today}
-            ).sort("_id", 1)
+            # 优先查当天，无数据则回退数据最多的最近交易日
+            query = {"account_id": account_id, "trade_date": today}
+            count = await mongo_manager.db["scanner_timeline"].count_documents(query)
+            if count < 3:
+                # 找数据最多的交易日(而非最新)
+                pipeline = [
+                    {"$match": {"account_id": account_id}},
+                    {"$group": {"_id": "$trade_date", "count": {"$sum": 1}}},
+                    {"$sort": {"count": -1}},
+                    {"$limit": 1}
+                ]
+                result = await mongo_manager.db["scanner_timeline"].aggregate(pipeline).to_list(1)
+                if result:
+                    fallback_date = result[0]["_id"]
+                    logger.info(f"[SCAN] 当天({today})时间线数据不足({count}条), 回退到{fallback_date}({result[0]['count']}条)")
+                    query = {"account_id": account_id, "trade_date": fallback_date}
+            
+            cursor = mongo_manager.db["scanner_timeline"].find(query).sort("_id", 1)
             
             async for doc in cursor:
                 doc.pop("_id", None)
@@ -582,9 +598,23 @@ class RuntimePersistence:
             account_id = self.broker.account.account_id if self.broker else "default"
             scanner = self._scanner
             
-            cursor = mongo_manager.db["scanner_timeline"].find(
-                {"account_id": account_id, "trade_date": today}
-            ).sort("_id", 1)
+            # 优先查当天，无数据则回退数据最多的最近交易日
+            query = {"account_id": account_id, "trade_date": today}
+            count = await mongo_manager.db["scanner_timeline"].count_documents(query)
+            if count < 3:
+                pipeline = [
+                    {"$match": {"account_id": account_id}},
+                    {"$group": {"_id": "$trade_date", "count": {"$sum": 1}}},
+                    {"$sort": {"count": -1}},
+                    {"$limit": 1}
+                ]
+                result = await mongo_manager.db["scanner_timeline"].aggregate(pipeline).to_list(1)
+                if result:
+                    fallback_date = result[0]["_id"]
+                    logger.info(f"[SCAN] 当天({today})时间线数据不足({count}条), 回退到{fallback_date}({result[0]['count']}条)")
+                    query = {"account_id": account_id, "trade_date": fallback_date}
+            
+            cursor = mongo_manager.db["scanner_timeline"].find(query).sort("_id", 1)
             
             async for doc in cursor:
                 doc.pop("_id", None)

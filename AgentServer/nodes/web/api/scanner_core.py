@@ -44,6 +44,42 @@ async def get_all_scanner_data():
     # 时间线
     timeline_data = scanner.get_timeline()
     
+    # 如果时间线为空(扫描器未启动)，尝试从MongoDB加载最近交易日数据
+    if not timeline_data:
+        try:
+            from core.managers import mongo_manager
+            if mongo_manager.db is not None:
+                db = mongo_manager.db
+                account_id = scanner.account_id if hasattr(scanner, 'account_id') else "default"
+                # 优先查当天; 如果当天只有blocked记录(<3条), 回退到最近有完整数据的交易日
+                today_str = __import__('datetime').datetime.now().strftime("%Y%m%d")
+                today_count = await db["scanner_timeline"].count_documents(
+                    {"account_id": account_id, "trade_date": today_str}
+                )
+                fallback_date = today_str
+                if today_count < 3:
+                    # 找数据最多的最近交易日
+                    pipeline = [
+                        {"$match": {"account_id": account_id}},
+                        {"$group": {"_id": "$trade_date", "count": {"$sum": 1}}},
+                        {"$sort": {"count": -1}},
+                        {"$limit": 1}
+                    ]
+                    result = await db["scanner_timeline"].aggregate(pipeline).to_list(1)
+                    if result:
+                        fallback_date = result[0]["_id"]
+                if fallback_date:
+                    cursor = db["scanner_timeline"].find(
+                        {"account_id": account_id, "trade_date": fallback_date}
+                    ).sort("_id", 1)
+                    async for doc in cursor:
+                        doc.pop("_id", None)
+                        doc.pop("account_id", None)
+                        doc.pop("trade_date", None)
+                        timeline_data.append(doc)
+        except Exception:
+            pass
+    
     # 订单(最近20条)
     orders_data = []
     if scanner._broker:

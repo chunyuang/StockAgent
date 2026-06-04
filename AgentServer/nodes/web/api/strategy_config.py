@@ -261,7 +261,7 @@ def _describe_params(strategy_id: str, params: Dict) -> List[Dict]:
     for k, v in params.items():
         label_info = PARAM_LABELS.get(k, (k, "", 1))
         label, unit, scale = label_info
-        display_val = v * scale if isinstance(v, (int, float)) and scale != 1 and not isinstance(v, bool) else v
+        display_val = round(v * scale, 4) if isinstance(v, (int, float)) and scale != 1 and not isinstance(v, bool) else v
         result.append({
             "key": k,
             "label": label,
@@ -278,7 +278,7 @@ def _describe_risk(risk_params: Dict) -> List[Dict]:
     for k, v in risk_params.items():
         label_info = RISK_LABELS.get(k, (k, "", 1))
         label, unit, scale = label_info
-        display_val = v * scale if isinstance(v, (int, float)) and scale != 1 and not isinstance(v, bool) else v
+        display_val = round(v * scale, 4) if isinstance(v, (int, float)) and scale != 1 and not isinstance(v, bool) else v
         result.append({
             "key": k,
             "label": label,

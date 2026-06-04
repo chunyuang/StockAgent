@@ -220,7 +220,7 @@ function dailyHoverBottom(): number {
             <div class="sl-row"><span>情绪分</span><span class="sl-val" :style="{ color: (sentimentLive?.score || 0) >= 70 ? '#f56c6c' : (sentimentLive?.score || 0) >= 55 ? '#409eff' : (sentimentLive?.score || 0) >= 40 ? '#e6a23c' : '#67c23a' }">{{ (sentimentLive?.score || 0)?.toFixed(0) }}</span></div>
             <div class="sl-row"><span>周期</span><span class="sl-val">{{ (sentimentLive?.period_label || "") }}</span></div>
             <div class="sl-row"><span>仓位系数</span><span class="sl-val">{{ ((sentimentLive?.position_ratio || 0) * 100).toFixed(0) }}%</span></div>
-            <div class="sl-row"><span>允许开仓</span><span class="sl-val" :style="{ color: (sentimentLive?.position_ratio || 0) > 0 ? '#67c23a' : '#f56c6c' }">{{ (sentimentLive?.position_ratio || 0) > 0 ? '✅ 是' : '❌ 否' }}</span></div>
+            <div class="sl-row"><span>允许开仓</span><span class="sl-val" :style="{ color: (sentimentLive?.position_ratio || 0) >= 0.5 ? '#67c23a' : (sentimentLive?.position_ratio || 0) >= 0.25 ? '#e6a23c' : '#f56c6c' }">{{ (sentimentLive?.position_ratio || 0) >= 0.5 ? '✅ 是' : (sentimentLive?.position_ratio || 0) >= 0.25 ? '⚠️ 仅龙头' : '❌ 否' }}</span></div>
           </div>
           <div v-else class="empty" style="padding:8px 0">无数据</div>
         </div>

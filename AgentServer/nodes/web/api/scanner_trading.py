@@ -476,6 +476,54 @@ async def get_trade_detail(ts_code: str):
     return {"success": True, "data": detail}
 
 
+@router.get("/export-trade-log")
+async def export_trade_log():
+    """导出交易日志CSV - 返回全部订单+时间线数据"""
+    import csv
+    import io
+    scanner = await _get_scanner()
+    
+    rows = []
+    for item in scanner._timeline:
+        rows.append({
+            "time": item.get("time", ""),
+            "action": item.get("action", ""),
+            "ts_code": item.get("ts_code", ""),
+            "stock_name": item.get("stock_name", ""),
+            "strategy": item.get("strategy", ""),
+            "shares": item.get("shares", ""),
+            "price": item.get("price", ""),
+            "reason": item.get("reason", ""),
+            "profit_pct": item.get("profit_pct", ""),
+            "profit_amount": item.get("profit_amount", ""),
+        })
+    
+    for o in scanner._broker.get_orders():
+        rows.append({
+            "time": o.create_time or "",
+            "action": o.side or "",
+            "ts_code": o.ts_code or "",
+            "stock_name": o.stock_name or "",
+            "strategy": o.strategy or "",
+            "shares": o.filled_qty or o.quantity or "",
+            "price": o.filled_price or o.price or "",
+            "reason": o.reason or "",
+            "profit_pct": getattr(o, 'profit_pct', '') or "",
+            "profit_amount": getattr(o, 'profit_amount', '') or "",
+        })
+    
+    if not rows:
+        return {"success": True, "data": {"csv": "", "count": 0}}
+    
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=rows[0].keys())
+    writer.writeheader()
+    writer.writerows(rows)
+    
+    return {"success": True, "data": {"csv": output.getvalue(), "count": len(rows)}}
+
+
+
 
 @router.get("/trade-audit")
 async def get_trade_audit():

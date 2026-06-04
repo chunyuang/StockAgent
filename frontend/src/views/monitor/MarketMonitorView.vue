@@ -9,6 +9,7 @@
 import { provide } from 'vue'
 import { useScannerMonitor } from './useScannerMonitor'
 import { SCANNER_MONITOR_KEY, type ScannerMonitorData } from './scannerMonitorInject'
+import { useThemeStore } from '@/stores/theme'
 import ReviewTab from './ReviewTab.vue'
 import OpsTab from './OpsTab.vue'
 import PremarketTab from './PremarketTab.vue'
@@ -17,9 +18,15 @@ import GuideTab from './GuideTab.vue'
 import HistoryTab from './HistoryTab.vue'
 import ScanTraceTab from './ScanTraceTab.vue'
 import PositionRiskMatrix from './PositionRiskMatrix.vue'
+import MiniKline from './MiniKline.vue'
+import SignalTracePanel from './SignalTracePanel.vue'
+import KeyboardShortcuts from './KeyboardShortcuts.vue'
 
 const monitorData = useScannerMonitor()
 provide(SCANNER_MONITOR_KEY, monitorData as unknown as ScannerMonitorData)
+
+// 确保themeStore独立初始化(避免composable返回undefined的问题)
+const themeStore = monitorData.themeStore || useThemeStore()
 
 // 在模板中使用的变量仍需解构(vue-tsc要求) — 必须从同一个实例解构
 const {
@@ -54,7 +61,7 @@ const {
   layerLabel,
   posSort, sortedPositions,
   strategyCN, strategyMeta, normalizePct, formatSlTp, formatRemaining,
-  themeStore, modeMeta,
+  modeMeta,
   onModeChange, confirmReplay, cancelReplay, dryRun,
   // 【v2.9.71: WS连接状态】
   wsStatus, wsIsConnected, wsRetryCount,
