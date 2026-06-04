@@ -71,10 +71,28 @@ def _clean_mongo(doc):
 
 
 def _fill_stock_names(data, scanner=None) -> list:
-    """填充空stock_name/name字段(从scanner的名称映射), 支持嵌套结构"""
+    """填充空stock_name/name字段(从scanner的名称映射), 支持嵌套结构
+    
+    【v2.9.79】增强: name_map为空时从MongoDB stock_basic加载
+    """
     if not scanner or not data:
         return data
     name_map = getattr(scanner, '_stock_name_map', {})
+    if not name_map:
+        # 从MongoDB加载全量名称映射
+        try:
+            from pymongo import MongoClient
+            client = MongoClient("mongodb://localhost:27017", serverSelectionTimeoutMS=2000)
+            docs = list(client["stock_agent"]["stock_basic"].find(
+                {}, {"ts_code": 1, "name": 1, "_id": 0}
+            ).limit(10000))
+            for doc in docs:
+                if doc.get("ts_code") and doc.get("name"):
+                    name_map[doc["ts_code"]] = doc["name"]
+            if name_map:
+                scanner._stock_name_map = name_map
+        except Exception:
+            pass
     if not name_map:
         return data
     if isinstance(data, dict):
