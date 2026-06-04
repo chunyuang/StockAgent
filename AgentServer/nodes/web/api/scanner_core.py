@@ -158,10 +158,10 @@ async def get_scanner_status():
 @router.post("/start")
 async def start_scanner(req: ScannerStartRequest):
     """启动扫描(后台线程初始化, 立即返回)"""
-    global _scanner_instance
+    from nodes.web.api import scanner_shared
 
-    if _scanner_instance is None or (
-        req.trade_mode != _scanner_instance._trade_mode
+    if scanner_shared._scanner_instance is None or (
+        req.trade_mode != scanner_shared._scanner_instance._trade_mode
     ):
         from nodes.market_monitor.scanner import MarketScanner
         config = dict(req.config)
@@ -171,9 +171,9 @@ async def start_scanner(req: ScannerStartRequest):
         if req.trade_mode == 'gm':
             config.setdefault("gm_token", "")
             config.setdefault("gm_strategy_id", "")
-        _scanner_instance = MarketScanner(account_id=req.account_id, config=config)
+        scanner_shared._scanner_instance = MarketScanner(account_id=req.account_id, config=config)
 
-    scanner = _scanner_instance
+    scanner = scanner_shared._scanner_instance
     if scanner._is_running:
         return {"success": True, "data": {"message": "已在运行中"}}
     
