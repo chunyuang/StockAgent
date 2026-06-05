@@ -809,6 +809,25 @@ class RuntimePersistence:
                 await mongo_manager.db["audit_log"].create_index(
                     "timestamp", expireAfterSeconds=7776000  # 90天
                 )
+                # 【v2.9.80】迁移旧数据: ISO字符串/float → datetime对象(TTL索引要求)
+                try:
+                    from datetime import datetime as _dt
+                    migrated = 0
+                    async for doc in mongo_manager.db["audit_log"].find(
+                        {"timestamp": {"$type": "string"}}, {"_id": 1, "timestamp": 1}
+                    ).limit(200):
+                        try:
+                            new_ts = _dt.fromisoformat(doc["timestamp"])
+                            await mongo_manager.db["audit_log"].update_one(
+                                {"_id": doc["_id"]}, {"$set": {"timestamp": new_ts}}
+                            )
+                            migrated += 1
+                        except (ValueError, TypeError):
+                            pass
+                    if migrated:
+                        logger.info(f"[START] 审计日志timestamp迁移: {migrated}条")
+                except Exception as _me:
+                    logger.debug(f"[START] 审计日志迁移失败(非关键): {_me}")
         except Exception as _e:
             logger.debug(f"[START] 审计日志TTL索引创建失败: {_e}")
 
