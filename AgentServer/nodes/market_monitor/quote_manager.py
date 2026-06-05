@@ -59,7 +59,7 @@ class QuoteManager:
 
     @property
     def degrade_desc(self) -> str:
-        return ["正常", "东财降级", "日线缓存"][self._quote_degrade_level]
+        return ["正常", "东财降级(用缓存)", "日线缓存"][min(self._quote_degrade_level, 2)]
 
     @property
     def cache_lock_initialized(self) -> bool:
@@ -160,7 +160,9 @@ class QuoteManager:
             return False
 
     async def fetch_realtime_batch(self, force: bool = False) -> Dict[str, Dict]:
-        """批量获取实时行情 — 双数据源架构
+        """批量获取实时行情 — 双数据源架构 + 降级链路
+
+        降级链: L0正常(东财实时) → L1东财降级(用缓存) → L2日线缓存(MongoDB)
 
         Returns:
             Dict[ts_code, {price, pct_chg, turnover_rate, ...}]
@@ -192,13 +194,33 @@ class QuoteManager:
                 cache_age = time.time() - eastmoney._cache_time if eastmoney._cache_time > 0 else 9999
                 logger.info(f"[QUOTE] 东财缓存: {len(eastmoney._cache)}只, {cache_age:.0f}秒前")
                 return self._build_realtime_from_cache(eastmoney._cache)
+            # L2降级: 从MongoDB读取最新日线
+            if self._quote_degrade_level >= 1:
+                mongo_data = await self._fallback_to_mongo_daily()
+                if mongo_data:
+                    return mongo_data
             return {}
+
+        # 降级level 2: 尝试从MongoDB读取最近日线数据
+        if self._quote_degrade_level >= 2:
+            logger.info("[QUOTE] Level 2降级: 使用MongoDB日线数据")
+            mongo_data = await self._fallback_to_mongo_daily()
+            if mongo_data:
+                return mongo_data
+            # MongoDB也没数据, 仍尝试东财
 
         realtime: Dict[str, Dict] = {}
         today = datetime.now().strftime("%Y-%m-%d")
 
         # === 1. 东方财富: 全市场5400只 ===
         await self._fetch_eastmoney_data(eastmoney, realtime)
+
+        # L1降级: 东财获取失败后尝试MongoDB
+        if not realtime and self._quote_degrade_level >= 1:
+            logger.warning("[QUOTE] 东财数据为空且已降级, 尝试MongoDB日线")
+            mongo_data = await self._fallback_to_mongo_daily()
+            if mongo_data:
+                return mongo_data
 
         # === 2. 必盈涨停/跌停/炸板池 ===
         await self._merge_limit_pool_data(biying, realtime, today)
@@ -236,26 +258,50 @@ class QuoteManager:
         self._degrade_since = 0
         logger.info(f"[QUOTE] 行情恢复正常, 降级已恢复(持续{degrade_duration:.0f}秒)")
         if self._event_emitter:
-            asyncio.get_event_loop().create_task(self._event_emitter("quote_recovered", {
-                "level": 0,
-                "degrade_duration_s": degrade_duration,
-                "source": "eastmoney",
-            }))
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(self._event_emitter("quote_recovered", {
+                    "level": 0,
+                    "degrade_duration_s": degrade_duration,
+                    "source": "eastmoney",
+                }))
+            except RuntimeError:
+                logger.debug("[QUOTE] 无运行中事件循环, 跳过quote_recovered事件发射")
 
     def _handle_em_fetch_failure(self, error: Exception) -> None:
-        """行情获取失败处理(降级判断)【v2.9.62提取】"""
+        """行情获取失败处理(降级判断)【v2.9.62提取, v2.9.75:增加level2】"""
         self._quote_fail_count += 1
-        if self._quote_fail_count >= 3 and self._quote_degrade_level == 0:
+        if self._quote_fail_count >= 6 and self._quote_degrade_level < 2:
+            # 连续6次失败(约2个扫描周期), 升级到level 2(MongoDB日线)
+            self._quote_degrade_level = 2
+            self._degrade_since = time.monotonic()
+            self._last_recover_attempt = time.monotonic()
+            logger.warning(f"[QUOTE] 东方财富连续{self._quote_fail_count}次失败,降级到level 2(日线缓存): {error}")
+            if self._event_emitter:
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(self._event_emitter("quote_degraded", {
+                        "level": 2,
+                        "source": "eastmoney",
+                        "error": str(error),
+                    }))
+                except RuntimeError:
+                    logger.debug("[QUOTE] 无运行中事件循环, 跳过quote_degraded事件发射")
+        elif self._quote_fail_count >= 3 and self._quote_degrade_level == 0:
             self._quote_degrade_level = 1
             self._degrade_since = time.monotonic()
             self._last_recover_attempt = time.monotonic()
-            logger.warning(f"[QUOTE] 东方财富连续3次失败,降级到level 1: {error}")
+            logger.warning(f"[QUOTE] 东方财富连续3次失败,降级到level 1(缓存模式): {error}")
             if self._event_emitter:
-                asyncio.get_event_loop().create_task(self._event_emitter("quote_degraded", {
-                    "level": 1,
-                    "source": "eastmoney",
-                    "error": str(error),
-                }))
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(self._event_emitter("quote_degraded", {
+                        "level": 1,
+                        "source": "eastmoney",
+                        "error": str(error),
+                    }))
+                except RuntimeError:
+                    logger.debug("[QUOTE] 无运行中事件循环, 跳过quote_degraded事件发射")
         else:
             logger.warning(f"[QUOTE] 东方财富获取失败({self._quote_fail_count}次): {error}")
 
@@ -357,8 +403,6 @@ class QuoteManager:
             self._prev_realtime_cache = dict(self._realtime_cache)
             self._realtime_cache = realtime
 
-        return realtime
-
     def _build_realtime_from_cache(self, em_cache: Dict) -> Dict[str, Dict]:
         """从东方财富缓存构建realtime格式数据"""
         realtime = {}
@@ -422,10 +466,13 @@ class QuoteManager:
         return f"{short_code}.SZ"
 
     def get_staleness(self) -> float:
-        """行情陈旧度(秒) — 上次成功获取到现在的秒数"""
+        """行情陈旧度(秒) — 上次成功获取到现在的秒数，超过30秒标记为stale"""
         if self._last_fetch_time == 0:
             return 999.0
-        return time.monotonic() - self._last_fetch_time
+        elapsed = time.monotonic() - self._last_fetch_time
+        if elapsed > 30 and self._quote_degrade_level == 0:
+            logger.warning(f"[QUOTE] 行情数据陈旧: {elapsed:.0f}秒(>30s阈值)")
+        return elapsed
     
     def should_try_recover(self) -> bool:
         """【Phase2.2】是否应该尝试恢复到更高级别数据源
@@ -484,12 +531,68 @@ class QuoteManager:
 
     def get_status(self) -> Dict[str, Any]:
         """状态(供Scanner.get_status使用)"""
+        staleness = self.get_staleness()
         return {
             "degrade_level": self._quote_degrade_level,
             "degrade_desc": self.degrade_desc,
             "cached_stocks": len(self._realtime_cache),
             "data_sources": list(self._data_router._sources.keys()) if self._data_router else [],
-            "staleness_seconds": round(self.get_staleness(), 1),
+            "staleness_seconds": round(staleness, 1),
+            "is_stale": staleness > 30,  # 【v2.9.75】陈旧度>30s标记
             "degrade_duration_seconds": round(time.monotonic() - self._degrade_since, 1) if self._degrade_since > 0 else 0,
             "next_recover_in_seconds": max(0, round(self._recover_interval - (time.monotonic() - self._last_recover_attempt), 1)) if self._quote_degrade_level > 0 else 0,
         }
+
+    async def _fallback_to_mongo_daily(self) -> Dict[str, Dict]:
+        """【v2.9.75】Level 2降级: 从MongoDB stock_daily_ak_full读取最新日线作为行情源
+
+        当东方财富实时和缓存都不可用时, 从MongoDB读取最近交易日日线数据。
+        日线数据没有量比/换手率等盘中指标, 但有价格和涨跌幅, 足够止损止盈。
+        """
+        try:
+            from core.managers import mongo_manager
+            if not mongo_manager.is_initialized:
+                return {}
+            db = mongo_manager.get_database()
+
+            # 找最近交易日
+            latest = await db["stock_daily_ak_full"].find_one(
+                sort=[("trade_date", -1)],
+                projection={"trade_date": 1}
+            )
+            if not latest:
+                return {}
+
+            td_int = latest["trade_date"]
+            cursor = db["stock_daily_ak_full"].find(
+                {"trade_date": td_int},
+                {"ts_code": 1, "close": 1, "pct_chg": 1, "open": 1, "high": 1,
+                 "low": 1, "pre_close": 1, "vol": 1, "amount": 1}
+            )
+
+            realtime = {}
+            async for doc in cursor:
+                ts_code = doc.get("ts_code", "")
+                if not ts_code:
+                    continue
+                realtime[ts_code] = {
+                    "price": doc.get("close", 0),
+                    "pct_chg": doc.get("pct_chg", 0),
+                    "open": doc.get("open", 0),
+                    "high": doc.get("high", 0),
+                    "low": doc.get("low", 0),
+                    "pre_close": doc.get("pre_close", 0),
+                    "vol": doc.get("vol", 0),
+                    "amount": doc.get("amount", 0),
+                    "data_source": "mongo_daily",
+                }
+
+            if realtime:
+                logger.info(f"[QUOTE] MongoDB日线fallback: {len(realtime)}只(日期={td_int})")
+                # 更新缓存
+                self._realtime_cache = realtime
+                self._last_fetch_time = time.monotonic()
+            return realtime
+        except Exception as e:
+            logger.warning(f"[QUOTE] MongoDB日线fallback失败: {e}")
+            return {}
