@@ -74,6 +74,12 @@ async def backtest_compare(date: str = None):
                     # 有strategy_results时, 拆分到每个策略
                     sr = raw_summary.get("strategy_results", {})
                     cn_to_en = {"半路追涨":"halfway_chase","涨停开板":"limit_up_open","跌停翘板":"limit_down_qiao","首板打板":"first_limit_up","龙头低吸":"dragon_head"}
+                    # 【V75修复】优先从strategy_defaults读取映射
+                    try:
+                        from nodes.backtest_engine.strategy_defaults import STRATEGY_NAME_TO_ID
+                        cn_to_en = dict(STRATEGY_NAME_TO_ID)
+                    except ImportError:
+                        pass
                     if sr:
                         for cn_name, v in sr.items():
                             sid = cn_to_en.get(cn_name, cn_name)
@@ -138,6 +144,12 @@ async def backtest_compare(date: str = None):
                         bt_data = json.load(f)
                     logger.info(f"[BACKTEST-COMPARE] loaded strategies: {list(bt_data.get('strategy_results',{}).keys())}")
                     cn_to_en = {"半路追涨":"halfway_chase","涨停开板":"limit_up_open","跌停翘板":"limit_down_qiao","首板打板":"first_limit_up","龙头低吸":"dragon_head"}
+                    # 【V75修复】优先从strategy_defaults读取映射
+                    try:
+                        from nodes.backtest_engine.strategy_defaults import STRATEGY_NAME_TO_ID
+                        cn_to_en = dict(STRATEGY_NAME_TO_ID)
+                    except ImportError:
+                        pass
                     for cn_name, v in bt_data.get("strategy_results",{}).items():
                         en_name = cn_to_en.get(cn_name, cn_name)
                         if en_name not in backtest_results:
@@ -605,6 +617,11 @@ async def get_review_forward(date: str = None):
             "分化": {"open": ["halfway_chase","dragon_head"], "close": ["first_limit_up"]},
             "震荡": {"open": ["limit_down_qiao"], "close": ["halfway_chase","first_limit_up"]},
             "冰点": {"open": [], "close": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head"]},
+            # 【V75修复】英文key fallback: MongoDB可能存英文period(RISING/BEARISH等)
+            "RISING": {"open": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head"], "close": []},
+            "DIFFERENTIATION": {"open": ["halfway_chase","dragon_head"], "close": ["first_limit_up"]},
+            "CHAOS": {"open": ["limit_down_qiao"], "close": ["halfway_chase","first_limit_up"]},
+            "BEARISH": {"open": [], "close": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head"]},
         }
 
         switches = period_strategy_map.get(raw_period, period_strategy_map.get(cn_period, {"open":[],"close":[]}))
@@ -918,12 +935,14 @@ async def deviation_attribution(date: str = None, start_date: str = None, end_da
                 signal_picks[s].add(ts)
 
         # 策略名映射: scan_traces中可能的别名→STRATEGY_CONFIGS的ID
-        strategy_name_aliases = {
-            "anomaly_surge": "halfway_chase",   # 异动急涨≈半路追涨
-            "anomaly_strong": "halfway_chase",   # 异动强势≈半路追涨
-            "anomaly_broken": "limit_down_qiao",  # 异动破位≈跌停翘板
-            "limit_up_open": "first_limit_up",     # 涨停开板≈首板打板(策略逻辑相似)
-        }
+        # 【V75修复】统一使用strategy_defaults.STRATEGY_ALIASES + 本地补充
+        try:
+            from nodes.backtest_engine.strategy_defaults import STRATEGY_ALIASES as _ALIASES
+            strategy_name_aliases = dict(_ALIASES)
+        except ImportError:
+            strategy_name_aliases = {}
+        # 本地补充(STRATEGY_ALIASES可能不含的旧映射)
+        strategy_name_aliases.setdefault("limit_up_open", "first_limit_up")  # 涨停开板≈首板打板(历史兼容)
 
         # 统一策略名后计算重叠
         def normalize_strat(s):
@@ -1029,22 +1048,56 @@ async def param_snapshot(date: str = None):
     """P2: 参数快照 - 当前参数状态(用于月复盘参数漂移检测)
 
     存一份当前strategy_defaults到MongoDB param_snapshots
+    【V75修复】同时包含strategy_config.py中的覆盖参数(运行时实际值)
     """
     try:
         from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK
         from core.managers import mongo_manager
 
         today = date or datetime.now().strftime("%Y%m%d")
+        
+        # 【V75修复】读取运行时覆盖后的实际值
+        # 1. 先读取strategy_config API的覆盖(来自scanner_config集合)
+        runtime_overrides = {}
+        try:
+            override_doc = await mongo_manager.db["scanner_config"].find_one(
+                {"_id": "strategy_config_overrides"}
+            )
+            if override_doc and "data" in override_doc:
+                runtime_overrides = override_doc["data"]
+        except Exception:
+            pass
+        
+        # 2. 构建快照: 默认值 + 覆盖值
+        override_params = runtime_overrides.get("params", {})
+        override_risk = runtime_overrides.get("risk", {})
+        override_enabled = runtime_overrides.get("enabled", {})
+        override_global_risk = runtime_overrides.get("global_risk", {})
+        
         snapshot = {
             "date": today,
             "global_risk": {k: v for k, v in GLOBAL_RISK.items() if not k.startswith("__")},
             "strategies": {},
         }
+        # 应用全局风控覆盖
+        snapshot["global_risk"].update(override_global_risk)
+        
         for sid, cfg in STRATEGY_CONFIGS.items():
+            # 从默认值开始
+            params = dict(cfg.get("params", {}))
+            risk_params = dict(cfg.get("riskParams", {}))
+            enabled = cfg.get("enabled", True)
+            # 应用覆盖
+            if sid in override_params:
+                params.update(override_params[sid])
+            if sid in override_risk:
+                risk_params.update(override_risk[sid])
+            if sid in override_enabled:
+                enabled = override_enabled[sid]
             snapshot["strategies"][sid] = {
-                "enabled": cfg.get("enabled", True),
-                "params": cfg.get("params", {}),
-                "riskParams": cfg.get("riskParams", {}),
+                "enabled": enabled,
+                "params": params,
+                "riskParams": risk_params,
             }
 
         if mongo_manager.is_initialized:
@@ -1054,7 +1107,7 @@ async def param_snapshot(date: str = None):
                 upsert=True
             )
 
-        return {"success": True, "data": snapshot, "message": f"参数快照已保存({today})"}
+        return {"success": True, "data": snapshot, "message": f"参数快照已保存({today}), 含运行时覆盖"}
     except Exception as e:
         return {"success": False, "message": str(e)}
 

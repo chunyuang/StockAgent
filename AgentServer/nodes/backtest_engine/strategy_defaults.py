@@ -211,6 +211,31 @@ ALL_STRATEGIES = [
 STRATEGY_ID_TO_NAME = {sid: cfg["name"] for sid, cfg in STRATEGY_CONFIGS.items()}
 STRATEGY_NAME_TO_ID = {cfg["name"]: sid for sid, cfg in STRATEGY_CONFIGS.items()}
 
+# 【V75:策略别名映射 — scanner内部使用的anomaly_*等ID映射到正式策略】
+# 问题: strategy_scorer.py发出的anomaly_surge/strong/broken不在STRATEGY_CONFIGS中,
+# 导致策略配置API/参数中心/归因分析无法正确关联这些策略
+# 所有消费方通过此映射将别名归一化到正式策略ID
+STRATEGY_ALIASES = {
+    "anomaly_surge": "halfway_chase",    # 急速拉升 → 半路追涨
+    "anomaly_strong": "halfway_chase",   # 强势涨停 → 半路追涨(已封板,逻辑接近)
+    "anomaly_broken": "limit_down_qiao", # 涨停炸板 → 跌停翘板(开板逻辑)
+    "limit_up_open": "first_limit_up",    # 涨停开板 → 首板打板(历史兼容)
+}
+
+
+def normalize_strategy_id(strategy_id: str) -> str:
+    """将策略别名归一化为正式策略ID
+    
+    消费方(position_manager/scanner_review/strategy_config等)
+    应在查找STRATEGY_CONFIGS之前调用此函数。
+    
+    >>> normalize_strategy_id('anomaly_surge')
+    'halfway_chase'
+    >>> normalize_strategy_id('halfway_chase')
+    'halfway_chase'
+    """
+    return STRATEGY_ALIASES.get(strategy_id, strategy_id)
+
 
 def merge_strategy_params(strategy_id: str, user_params: dict) -> dict:
     """合并用户传入的策略参数与默认值

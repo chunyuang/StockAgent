@@ -18,7 +18,7 @@ from dataclasses import dataclass, asdict
 
 # V47: 引入卖出信号检查器(与回测共享)
 from nodes.backtest_engine.factor_selection.sell_signal_checker import SellSignalChecker
-from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK, STRATEGY_NAME_TO_ID
+from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK, STRATEGY_NAME_TO_ID, normalize_strategy_id
 
 @dataclass
 class Position:
@@ -260,9 +260,10 @@ class PositionManager:
         
         total_cost = buy_price * shares
         # 【V35修复:旧版硬编码5%/10%,现从strategy_defaults策略维度读取,与回测保持一致】
-        from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK, STRATEGY_NAME_TO_ID
+        from nodes.backtest_engine.strategy_defaults import STRATEGY_CONFIGS, GLOBAL_RISK, STRATEGY_NAME_TO_ID, normalize_strategy_id
         strategy_name = signal.get("strategy", "")
-        strategy_id = STRATEGY_NAME_TO_ID.get(strategy_name, "")
+        # 【V75修复】先尝试中文名映射, 再归一化别名(anomaly_surge→halfway_chase)
+        strategy_id = STRATEGY_NAME_TO_ID.get(strategy_name, "") or normalize_strategy_id(strategy_name)
         strategy_config = STRATEGY_CONFIGS.get(strategy_id, {})
         strategy_risk = strategy_config.get("riskParams", {})
         sl_pct = strategy_risk.get("stop_loss_pct", GLOBAL_RISK["stop_loss_pct"])
@@ -447,7 +448,7 @@ class PositionManager:
             # 回测: 龙头低吸持仓5天利润<3%时提前退出,避免5-7天区间继续持仓占用资金+增加回撤
             if not alert.get('level'):
                 _strategy = pos.strategy or '未知'
-                _strategy_id = STRATEGY_NAME_TO_ID.get(_strategy, '')  # 【V63:统一使用STRATEGY_NAME_TO_ID映射】
+                _strategy_id = STRATEGY_NAME_TO_ID.get(_strategy, '') or normalize_strategy_id(_strategy)  # 【V75:加别名归一化】
                 if _strategy_id == 'dragon_head' and alert['hold_days'] >= 5:
                     profit_pct = pos.current_profit_pct(current_price)
                     if profit_pct < 3.0:  # 5天利润<3%
@@ -507,7 +508,7 @@ class PositionManager:
         try:
             # 构建策略参数(从STRATEGY_CONFIGS读取,与回测一致)
             strategy_name = pos.strategy or "龙头低吸"
-            strategy_id = STRATEGY_NAME_TO_ID.get(strategy_name, '')  # 【V63:统一使用STRATEGY_NAME_TO_ID映射】
+            strategy_id = STRATEGY_NAME_TO_ID.get(strategy_name, '') or normalize_strategy_id(strategy_name)  # 【V75:加别名归一化】
 
             strategy_params = {}
             strategy_risk_params = {}
