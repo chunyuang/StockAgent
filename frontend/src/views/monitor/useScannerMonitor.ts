@@ -262,7 +262,7 @@ export function useScannerMonitor() {
 
   // ==================== 📌 对比模式 ====================
   const compareVisible = ref(false)
-  const compareData = ref<any>(null)
+  const compareData = ref<any[]>([])
   const compareLoading = ref(false)
   async function loadCompare() { compareLoading.value = true; try { const r = await api.get(`${scannerApi}/strategy-params-compare`); const p = parseResponse(r); if (p.success) { compareData.value = p.data; compareVisible.value = true } } catch { /* ignore */ } finally { compareLoading.value = false } }
 
@@ -271,19 +271,16 @@ export function useScannerMonitor() {
 
   // ==================== 📌 模板兼容/stub 属性 ====================
   const signalTraceVisible = ref(false)
-  const layerDebugVisible = ref(false)
-  const layerDebugData = ref<any>(null)
-  const layerDebugLoading = ref(false)
-  function openLayerDebug(_sig: any) { layerDebugVisible.value = true }
+  // layerDebugVisible, layerDebugData, layerDebugLoading come from ...scanTrace spread — do NOT override with local refs
+  // (otherwise openLayerDebug writes to scanTrace's refs but template reads ours)
   function signalStatusTag(status?: string): { type: 'success' | 'warning' | 'info' | 'danger'; text: string } { const map: Record<string, { type: 'success' | 'warning' | 'info' | 'danger'; text: string }> = { pending: { type: 'warning', text: '待执行' }, executed: { type: 'success', text: '已执行' }, expired: { type: 'info', text: '已过期' }, rejected: { type: 'danger', text: '已拒绝' } }; return map[status || ''] || { type: 'info', text: status || '未知' } }
   const scanTraceVisible = computed({ get: () => signalTraceVisible.value, set: (v: boolean) => { signalTraceVisible.value = v } })
   const scanTraceData = computed(() => scanTrace.scanTraceDetail?.value || null)
   const scanTraceCode = computed(() => (scanTraceData.value as any)?.ts_code || '')
   function openScanTrace(scanId: string | number) { scanTrace.fetchScanTrace(String(scanId)); signalTraceVisible.value = true }
-  const formatLayerTrace = (trace: Record<string, any>): string[] => { if (!trace) return ['无链路数据']; return Object.entries(trace).map(([layer, info]) => { const applied = typeof info === 'object' && info !== null && (info as any).applied !== undefined ? ((info as any).applied ? '✅' : '⏭️') : ''; const detail = typeof info === 'object' && info !== null ? (info as any).detail || (info as any).reason || '' : String(info); return `${applied} ${layerLabel(layer)}: ${detail}` }) }
-  const formatDecisionDetail = (detail: Record<string, any>): string[] => { if (!detail) return []; return Object.entries(detail).map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`) }
+  // formatLayerTrace and formatDecisionDetail come from ...scanTrace spread — do NOT override with simpler versions
   const layerLabel = (k: string | number) => { const key = String(k); const label = pipelineLabels[key]; if (!label) return key; const prefix = key.split('_')[0]; return prefix + ' ' + label }
-  const layerDesc = (_layer: string | number, _data: any): string => ''
+  // layerDesc comes from ...scanTrace spread — do NOT override with a stub
   const openWeeklyReport = () => { weeklyReportVisible.value = true }
   const saveSnapshot = async () => { try { await api.post(`${scannerApi}/snapshot`); ElMessage.success('快照已保存') } catch { /* ignore */ } }
   const backtestRunning = ref(false)
@@ -380,10 +377,8 @@ export function useScannerMonitor() {
     // 对比
     compareVisible, compareData, compareLoading, loadCompare,
     toggleDryRun, cumulativePnl,
-    // 格式化方法
-    formatLayerTrace, formatDecisionDetail,
-    // 层级调试
-    layerDebugVisible, layerDebugData, openLayerDebug, layerDebugLoading,
+    // 格式化方法 — formatLayerTrace/formatDecisionDetail come from ...scanTrace
+    // 层级调试 — layerDebugVisible/Data/Loading/openLayerDebug come from ...scanTrace
     // 追踪弹窗别名
     scanTraceVisible, scanTraceData, scanTraceCode, signalTraceVisible,
     openScanTrace, signalStatusTag,
@@ -392,7 +387,7 @@ export function useScannerMonitor() {
     backtestRunning,
     exportTradeLog,
     // 工具
-    strategyMeta, formatRemaining, factorLabel, layerLabel, layerDesc,
+    strategyMeta, formatRemaining, factorLabel, layerLabel,
     // 核心方法
     fetchScanner: core.fetchScanner, startScanner: core.startScanner,
     stopScanner: core.stopScanner, manualScan: core.manualScan,
