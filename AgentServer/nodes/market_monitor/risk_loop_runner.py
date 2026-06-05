@@ -120,13 +120,13 @@ class RiskLoopRunner:
             return 60
         elif phase == MarketPhase.DEEP_NIGHT:
             return 300
-        elif phase not in (MarketPhase.TRADING, MarketPhase.AUCTION):
+        elif not MarketPhase.is_in_trading(phase) and phase != MarketPhase.AUCTION:
             return 30
         return 0
 
     def _check_stale_quote_cache(self, tick: int, phase: str) -> None:
         """交易时间内行情缓存过期检测+告警【v2.9.28从_risk_loop_sync提取】"""
-        if phase != MarketPhase.TRADING:
+        if not MarketPhase.is_in_trading(phase):
             return
         if not self._last_realtime_update_ts:
             return

@@ -22,6 +22,17 @@ from nodes.web.api.scanner_shared import (
 router = APIRouter(prefix="/scanner", tags=["市场情绪/情绪矩阵"])
 
 
+def _get_position_ratio_sentiment(period_cn: str, fallback: float = 0.25) -> float:
+    """从strategy_defaults读取仓位系数(与emotion_cycle._get_position_ratio统一来源)"""
+    try:
+        from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+        cn_to_en = {"高潮": "rising", "分化": "differentiation", "震荡": "chaos", "冰点": "bearish"}
+        en_key = cn_to_en.get(period_cn, "bearish")
+        return GLOBAL_RISK.get("sentiment_position_map", {}).get(en_key, fallback)
+    except Exception:
+        return fallback
+
+
 @router.get("/sentiment-timeline")
 async def get_sentiment_timeline(date: str = None, mode: str = "daily"):
     """情绪时间线 — 聚合历史情绪数据,返回时间序列
@@ -68,7 +79,7 @@ async def get_sentiment_timeline(date: str = None, mode: str = "daily"):
                 td = str(doc["trade_date"])
                 daily_map[td] = {
                     "date": td, "score": doc.get("score", 0), "period": doc.get("period", ""),
-                    "position_ratio": {"高潮": 1.0, "分化": 0.7, "震荡": 0.5, "冰点": 0.25}.get(doc.get("period", ""), doc.get("position_ratio", 0.25)),
+                    "position_ratio": _get_position_ratio_sentiment(doc.get("period", ""), doc.get("position_ratio", 0.25)),
                     "limit_up": doc.get("limit_up", 0), "limit_down": doc.get("limit_down", 0),
                     "max_continue": doc.get("max_continue", 0),
                     "up_down_ratio": doc.get("up_down_ratio", 0),
@@ -106,7 +117,7 @@ async def get_sentiment_timeline(date: str = None, mode: str = "daily"):
                     else: period = "冰点"
                     agg_points.append({
                         "date": key, "score": round(avg_score, 1), "period": period,
-                        "position_ratio": {"高潮": 1.0, "分化": 0.7, "震荡": 0.5, "冰点": 0.25}.get(period, 0.25),
+                        "position_ratio": _get_position_ratio_sentiment(period, 0.25),
                         "limit_up": total_lu, "limit_down": total_ld,
                         "days": len(grp), "first_date": grp[0]["date"], "last_date": grp[-1]["date"],
                         "missing_data": has_missing,
@@ -187,6 +198,8 @@ async def get_sentiment_strategy_matrix(date: str = None):
         def _strategy_display_name(sid: str) -> str:
             return STRATEGY_ID_TO_NAME.get(sid, sid)
         
+        # 英文key fallback: MongoDB中如果存了英文period(RISING/BEARISH等),转成中文
+        _en_to_cn_period = {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点"}
         # 获取每日情绪阶段
         daily_sentiment = {}
         # 从sentiment_scores读取,missing_data的日期用前一个有效期补
@@ -194,6 +207,9 @@ async def get_sentiment_strategy_matrix(date: str = None):
         async for doc in db["sentiment_scores"].find({}, {"trade_date": 1, "period": 1, "missing_data": 1}).sort("trade_date", 1):
             td = str(doc["trade_date"])
             period = doc.get("period", "")
+            # 英文key转中文
+            if period in _en_to_cn_period:
+                period = _en_to_cn_period[period]
             if doc.get("missing_data"):
                 # 用前一个有效期补,没有则为数据缺失
                 period = last_valid_period if last_valid_period else "数据缺失"
@@ -328,7 +344,7 @@ async def get_market_sentiment_detail(date: str = None):
                         if exact:
                             sentiment_score = exact.get("score", 50)
                             sentiment_period = exact.get("period", "unknown")
-                            position_ratio = {"高潮": 1.0, "分化": 0.7, "震荡": 0.5, "冰点": 0.25}.get(exact.get("period", ""), exact.get("position_ratio", 0.25))
+                            position_ratio = _get_position_ratio_sentiment(exact.get("period", ""), exact.get("position_ratio", 0.25))
                             if exact.get("missing_data"):
                                 sentiment_period = "冰点(数据缺失)"  # 保留period但标注缺失
                     # 2. 指定日期无数据或未指定日期→读最近的非missing日期
@@ -340,7 +356,7 @@ async def get_market_sentiment_detail(date: str = None):
                         if latest:
                             sentiment_score = latest.get("score", 50)
                             sentiment_period = latest.get("period", "unknown")
-                            position_ratio = {"高潮": 1.0, "分化": 0.7, "震荡": 0.5, "冰点": 0.25}.get(latest.get("period", ""), latest.get("position_ratio", 0.25))
+                            position_ratio = _get_position_ratio_sentiment(latest.get("period", ""), latest.get("position_ratio", 0.25))
             except Exception:
                 pass
         
