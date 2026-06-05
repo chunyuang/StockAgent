@@ -147,24 +147,67 @@ class DaemonWatchdogMixin:
             scanner = _get_scanner_instance()
             if not scanner:
                 return
-            # 【v2.9.50:用get_positions()统一接口,移除_broker直接访问】
-            positions_dict = scanner.get_positions()
-            if not positions_dict:
+            # 【v2.9.81修复】get_positions()返回List[Dict]而非Dict,
+            # 之前代码把列表当dict调.items()会AttributeError。
+            # 同时sell_codes计算后未传给liquidate_positions导致清仓所有持仓。
+            positions_list = scanner.get_positions()
+            if not positions_list:
                 return
             # 按profit_pct排序, 保留利润最高的50%
-            sorted_items = sorted(
-                positions_dict.items(),
-                key=lambda kv: kv[1].get("profit_pct", 0),
+            sorted_positions = sorted(
+                positions_list,
+                key=lambda p: p.get("profit_pct", 0),
                 reverse=True,
             )
-            keep_count = max(1, len(sorted_items) // 2)
-            sell_codes = [code for code, _ in sorted_items[keep_count:]]
-            if sell_codes:
-                # 用liquidate_positions委托, 传入指定标的
-                await scanner._liquidate_positions(
-                    reason="daemon_emergency_reduce",
-                    source="daemon_alert",
-                )
-                logger.warning(f"[DAEMON_ALERT] 紧急减仓{len(sell_codes)}只")
+            keep_count = max(1, len(sorted_positions) // 2)
+            sell_positions = sorted_positions[keep_count:]
+            if sell_positions:
+                sold, failed = 0, 0
+                for pos_info in sell_positions:
+                    ts_code = pos_info.get("ts_code", "")
+                    stock_name = pos_info.get("stock_name", ts_code)
+                    strategy = pos_info.get("strategy", "")
+                    available_qty = pos_info.get("available_qty", 0)
+                    current_price = pos_info.get("current_price", 0)
+                    if available_qty <= 0 or current_price <= 0:
+                        continue
+                    try:
+                        scanner._broker.update_realtime(ts_code, current_price)
+                        ok, msg, order = scanner._broker.place_order(
+                            ts_code=ts_code,
+                            stock_name=stock_name,
+                            side="sell",
+                            quantity=available_qty,
+                            price=current_price,
+                            order_type="market",
+                            strategy=strategy,
+                            reason="daemon_emergency_reduce",
+                        )
+                        if ok:
+                            sold += 1
+                            # 委托RuntimePersistence做卖出后清理
+                            rp = scanner._runtime_persistence
+                            if rp and order:
+                                avg_cost = pos_info.get('avg_cost', 0) or 1
+                                sell_profit_pct = (current_price - avg_cost) / avg_cost * 100
+                                sell_profit_amount = (current_price - avg_cost) * available_qty
+                                await rp.post_sell_cleanup(
+                                    type('Pos', (), {
+                                        'ts_code': ts_code, 'stock_name': stock_name,
+                                        'strategy': strategy, 'available_qty': available_qty,
+                                        'avg_cost': pos_info.get('avg_cost', 0),
+                                        'current_price': current_price,
+                                        'profit_pct': pos_info.get('profit_pct', 0),
+                                    })(),
+                                    "daemon_emergency_reduce", order, available_qty,
+                                    sell_profit_pct, sell_profit_amount,
+                                    source="daemon_alert",
+                                )
+                        else:
+                            failed += 1
+                    except Exception as e:
+                        failed += 1
+                        logger.warning(f"[DAEMON_ALERT] 减仓{ts_code}异常: {e}")
+                logger.warning(f"[DAEMON_ALERT] 紧急减仓完成: 卖出{sold}只, 失败{failed}只")
         except Exception as e:
             logger.warning(f"[DAEMON_ALERT] 紧急减仓失败: {e}")
