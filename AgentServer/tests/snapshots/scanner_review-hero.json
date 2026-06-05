@@ -1,0 +1,37 @@
+{
+  "date": "str",
+  "conclusion": "str",
+  "conclusion_type": "str",
+  "metrics": {
+    "total_pct": "float",
+    "win_rate": "float",
+    "trades": "int",
+    "buys": "int",
+    "stop_loss_count": "int",
+    "take_profit_count": "int",
+    "expectancy": "float",
+    "discipline_score": "int",
+    "max_consecutive_loss": "int",
+    "avg_win": "float",
+    "avg_loss": "float",
+    "profit_loss_ratio": "float"
+  },
+  "benchmark": {
+    "name": "str",
+    "pct_chg": "float",
+    "alpha": "float"
+  },
+  "sentiment": {
+    "period": "str",
+    "score": "int"
+  },
+  "violations": [
+    {
+      "type": "str",
+      "severity": "str",
+      "ts_code": "str",
+      "strategy": "str",
+      "detail": "str"
+    }
+  ]
+}

@@ -1,0 +1,88 @@
+{
+  "success": "bool",
+  "health": {
+    "overall_status": "str",
+    "uptime_seconds": "float",
+    "scanner_heartbeat_age": "int",
+    "alert_count": "int",
+    "checks": {
+      "halfway_chase": {
+        "status": "str",
+        "value": "str",
+        "threshold": "str",
+        "message": "str"
+      },
+      "first_limit_up": {
+        "status": "str",
+        "value": "str",
+        "threshold": "str",
+        "message": "str"
+      },
+      "dragon_head": {
+        "status": "str",
+        "value": "str",
+        "threshold": "str",
+        "message": "str"
+      },
+      "limit_down_qiao": {
+        "status": "str",
+        "value": "str",
+        "threshold": "str",
+        "message": "str"
+      }
+    },
+    "circuit_breaker": {
+      "trading_paused": "bool",
+      "pause_reason": "str",
+      "consecutive_losses": "int",
+      "max_consecutive_losses": "int"
+    },
+    "risk_metrics": {
+      "daily_drawdown_pct": "int",
+      "max_drawdown_pct": "float",
+      "position_ratio": "float",
+      "consecutive_losses": "int",
+      "max_consecutive_losses": "int"
+    },
+    "data_sources": [
+      "<empty_list>"
+    ],
+    "health_score": "int",
+    "data_freshness": "str",
+    "scan_lag_seconds": "int",
+    "risk_check_lag_seconds": "int",
+    "warnings": [
+      "str"
+    ],
+    "is_healthy": "bool",
+    "scanner_health": {
+      "status": "str",
+      "is_healthy": "bool",
+      "scan_lag_seconds": "int",
+      "risk_check_lag_seconds": "int",
+      "quote_staleness_seconds": "float",
+      "risk_thread_alive": "bool",
+      "risk_thread_restarts": "int",
+      "warnings": [
+        "str"
+      ],
+      "event_bus_stats": {}
+    },
+    "pending_sells_detail": [
+      "<empty_list>"
+    ],
+    "risk_thread": {
+      "alive": "bool",
+      "restarts": "int"
+    },
+    "daemon": {
+      "available": "bool"
+    },
+    "version": {
+      "git_hash": "str",
+      "git_branch": "str",
+      "design_doc_version": "str",
+      "baseline_tag": "str"
+    }
+  }
+}

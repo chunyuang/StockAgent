@@ -1,0 +1,22 @@
+{
+  "date": "str",
+  "sentiment": {
+    "period": "str",
+    "score": "int",
+    "raw_period": "str"
+  },
+  "advice": "str",
+  "strategy_recommendations": [
+    "<empty_list>"
+  ],
+  "strategy_switches": [
+    {
+      "strategy": "str",
+      "action": "str",
+      "reason": "str"
+    }
+  ],
+  "drift_warnings": [
+    "<empty_list>"
+  ]
+}

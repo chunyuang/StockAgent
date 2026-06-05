@@ -1,0 +1,90 @@
+{
+  "success": "bool",
+  "data": [
+    {
+      "trade_date": "str",
+      "scan_time": "str",
+      "account_id": "str",
+      "is_debug": "bool",
+      "summary": {
+        "L1_force_empty": {
+          "total": "int",
+          "passed": "int",
+          "rejected": "int",
+          "input": "int",
+          "output": "int"
+        },
+        "L2_special_period": {
+          "total": "int",
+          "passed": "int",
+          "rejected": "int",
+          "input": "int",
+          "output": "int"
+        },
+        "L3_sentiment": {
+          "total": "int",
+          "passed": "int",
+          "rejected": "int",
+          "input": "int",
+          "output": "int"
+        },
+        "L4_premarket": {
+          "total": "int",
+          "passed": "int",
+          "rejected": "int",
+          "input": "int",
+          "output": "int"
+        },
+        "L5_auction": {
+          "total": "int",
+          "passed": "int",
+          "rejected": "int",
+          "input": "int",
+          "output": "int"
+        },
+        "L6_strategy": {
+          "total": "int",
+          "passed": "int",
+          "rejected": "int",
+          "input": "int",
+          "output": "int"
+        },
+        "L7_ranking": {
+          "total": "int",
+          "passed": "int",
+          "rejected": "int",
+          "input": "int",
+          "output": "int"
+        },
+        "L8_position": {
+          "total": "int",
+          "passed": "int",
+          "rejected": "int",
+          "input": "int",
+          "output": "int"
+        },
+        "total_candidates": "int",
+        "passed": "int",
+        "rejected": "int"
+      },
+      "layer_details": {
+        "L1_force_empty": "str",
+        "L2_special_period": "str",
+        "L3_sentiment": "str",
+        "L3_sentiment_data": {
+          "score": "int",
+          "period": "str",
+          "position_ratio": "float",
+          "l3_drop_count": "int"
+        },
+        "L4_premarket": "str",
+        "L5_auction": "str",
+        "L6_strategy": "str",
+        "L7_ranking": "str",
+        "L8_position": "str"
+      },
+      "scan_id": "str"
+    }
+  ],
+  "count": "int"
+}

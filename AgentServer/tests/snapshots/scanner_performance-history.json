@@ -1,0 +1,45 @@
+{
+  "success": "bool",
+  "data": [
+    {
+      "account_id": "str",
+      "timestamp": "str",
+      "trade_date": "str",
+      "account": {
+        "total_assets": "int",
+        "available_cash": "int",
+        "market_value": "int",
+        "total_profit": "float"
+      },
+      "positions": [
+        "<empty_list>"
+      ],
+      "active_signals": "int",
+      "timeline_count": "int",
+      "stats": {
+        "scans": "int",
+        "signals_found": "int",
+        "trades_executed": "int",
+        "stop_losses": "int",
+        "take_profits": "int",
+        "stocks_scanned": "int"
+      },
+      "circuit_breaker": {
+        "daily_start_assets": "int",
+        "daily_max_drawdown": "float",
+        "consecutive_losses": "int",
+        "consecutive_loss_limit": "int",
+        "trading_paused": "bool",
+        "pause_reason": "str",
+        "today_trades": "int",
+        "today_losses": "int"
+      },
+      "sentiment": {
+        "score": "int",
+        "period": "str"
+      },
+      "position_ratio": "float"
+    }
+  ],
+  "count": "int"
+}

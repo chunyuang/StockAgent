@@ -1,0 +1,73 @@
+{
+  "period": "str",
+  "summary": {
+    "trades": "int",
+    "wins": "int",
+    "win_rate": "float",
+    "pnl": "float"
+  },
+  "strategy_stats": {
+    "halfway_chase": {
+      "trades": "int",
+      "win_rate": "float",
+      "pnl": "float"
+    }
+  },
+  "behavior_drift": {
+    "stop_loss_execution_rate": "float",
+    "stop_loss_at_loss": "int",
+    "stop_loss_at_profit": "int",
+    "loss_sells": "int",
+    "bearish_period_buy_ratio": "float",
+    "bearish_buys": "int",
+    "total_buys": "int"
+  },
+  "daily_breakdown": [
+    {
+      "date": "str",
+      "trades": "int",
+      "buys": "int",
+      "sells": "int",
+      "win_rate": "float",
+      "pnl": "float",
+      "strategy_stats": {
+        "halfway_chase": {
+          "trades": "int",
+          "win_rate": "float",
+          "pnl": "float"
+        }
+      },
+      "sentiment": "str",
+      "sentiment_score": "int"
+    }
+  ],
+  "weekly_trend": [
+    {
+      "week": "str",
+      "start": "str",
+      "end": "str",
+      "trades": "int",
+      "win_rate": "float",
+      "pnl": "float",
+      "days": "int"
+    }
+  ],
+  "param_drift": {
+    "start_date": "str",
+    "end_date": "str",
+    "drifts": [
+      {
+        "level": "str",
+        "key": "str",
+        "old": "NoneType",
+        "new": "float",
+        "severity": "str"
+      }
+    ],
+    "drift_count": "int",
+    "high_severity": "int"
+  },
+  "index_performance": [
+    "<empty_list>"
+  ]
+}

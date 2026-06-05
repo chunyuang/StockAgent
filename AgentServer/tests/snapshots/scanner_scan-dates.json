@@ -1,0 +1,10 @@
+{
+  "success": "bool",
+  "data": [
+    {
+      "date": "str",
+      "count": "int",
+      "is_debug": "bool"
+    }
+  ]
+}

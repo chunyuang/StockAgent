@@ -1,0 +1,124 @@
+{
+  "period": "str",
+  "account": {
+    "total_assets": "int",
+    "total_profit": "float",
+    "available_cash": "int"
+  },
+  "daily_stats": {
+    "20260529": {
+      "buys": "int",
+      "sells": "int",
+      "buy_amount": "float",
+      "sell_amount": "float",
+      "strategies": {
+        "halfway_chase": {
+          "trades": "int",
+          "amount": "float"
+        }
+      }
+    },
+    "20260530": {
+      "buys": "int",
+      "sells": "int",
+      "buy_amount": "float",
+      "sell_amount": "float",
+      "strategies": {
+        "halfway_chase": {
+          "trades": "int",
+          "amount": "float"
+        },
+        "": {
+          "trades": "int",
+          "amount": "float"
+        }
+      }
+    },
+    "20260601": {
+      "buys": "int",
+      "sells": "int",
+      "buy_amount": "float",
+      "sell_amount": "float",
+      "strategies": {
+        "halfway_chase": {
+          "trades": "int",
+          "amount": "float"
+        }
+      }
+    },
+    "20260602": {
+      "buys": "int",
+      "sells": "int",
+      "buy_amount": "int",
+      "sell_amount": "float",
+      "strategies": {
+        "halfway_chase": {
+          "trades": "int",
+          "amount": "float"
+        }
+      }
+    },
+    "20260603": {
+      "buys": "int",
+      "sells": "int",
+      "buy_amount": "float",
+      "sell_amount": "float",
+      "strategies": {
+        "halfway_chase": {
+          "trades": "int",
+          "amount": "float"
+        }
+      }
+    },
+    "20260604": {
+      "buys": "int",
+      "sells": "int",
+      "buy_amount": "float",
+      "sell_amount": "float",
+      "strategies": {
+        "halfway_chase": {
+          "trades": "int",
+          "amount": "float"
+        }
+      }
+    },
+    "20260605": {
+      "buys": "int",
+      "sells": "int",
+      "buy_amount": "float",
+      "sell_amount": "int",
+      "strategies": {
+        "halfway_chase": {
+          "trades": "int",
+          "amount": "float"
+        }
+      }
+    }
+  },
+  "strategy_summary": {
+    "halfway_chase": {
+      "trades": "int",
+      "amount": "float"
+    },
+    "": {
+      "trades": "int",
+      "amount": "float"
+    }
+  },
+  "totals": {
+    "trading_days": "int",
+    "total_buys": "int",
+    "total_sells": "int",
+    "total_buy_amount": "float",
+    "total_sell_amount": "float",
+    "net_flow": "float"
+  },
+  "scanner_stats": {
+    "scans": "int",
+    "signals_found": "int",
+    "trades_executed": "int",
+    "stop_losses": "int",
+    "take_profits": "int",
+    "stocks_scanned": "int"
+  }
+}

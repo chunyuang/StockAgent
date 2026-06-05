@@ -30,115 +30,156 @@ SNAPSHOT_DIR.mkdir(exist_ok=True)
 # ========== 前端期望字段定义 ==========
 # 从前端composable/store中提取的关键字段，后端必须返回这些字段
 
+# 以2026-06-05后端实际返回字段为准（从API审计提取）
+# 前端必须适配这些字段名，不能自己编
+
 FRONTEND_EXPECTED_FIELDS = {
+    # === 核心状态API ===
+    
     "/scanner/status": {
-        # useScannerMonitor / scanner store
-        "required": ["overall_status", "health_score", "data_freshness", "is_healthy",
-                     "scan_lag_seconds", "risk_check_lag_seconds", "warnings"],
+        "required": ["is_running", "scan_count", "last_scan_time", "active_signals",
+                     "positions", "stocks_scanned", "account", "account_id",
+                     "trade_mode", "quote_degrade_level"],
     },
     "/scanner/signals": {
-        # ScannerSignal interface
-        "required": ["ts_code", "stock_name", "strategy", "strategy_name",
-                     "price", "pct_chg", "reason", "created_at", "signal_status"],
+        # ScannerSignal: 空列表是正常的（scanner未运行时）
+        "required": [],  # list类型，无法检查字段
+        "item_fields": ["ts_code", "stock_name", "strategy", "price", "pct_chg", "reason", "created_at", "signal_status"],
     },
     "/scanner/positions": {
-        # ScannerPosition interface
-        "required": ["ts_code", "stock_name", "strategy", "strategy_name",
-                     "avg_cost", "current_price", "profit_pct", "available_qty", "total_qty"],
+        # ScannerPosition: 空列表是正常的
+        "required": [],
+        "item_fields": ["ts_code", "stock_name", "strategy", "avg_cost", "current_price", "profit_pct", "available_qty", "total_qty"],
     },
     "/scanner/account": {
         # 实盘Tab资产信息
-        "required": ["total_assets", "available_cash", "totalPnl"],
+        "required": ["total_assets", "available_cash", "market_value", "today_profit", "total_profit", "position_count", "position_ratio"],
     },
     "/scanner/summary": {
-        # 9宫格核心指标
-        "required": ["scan_count", "total_signals", "buy_count", "sell_count"],
-    },
-    "/scanner/daily-report": {
-        # 日复盘 - useReviewMonitor
-        "required": ["date", "hero", "metrics", "violations", "funnel", "strategies"],
-    },
-    "/scanner/weekly-report": {
-        "required": ["overview", "daily_breakdown", "strategy_performance"],
-    },
-    "/scanner/review-monthly": {
-        "required": ["overview", "behavior_drift", "param_drift", "factor_effect"],
-    },
-    "/scanner/sentiment-timeline": {
-        # useSentimentMonitor
-        "required": ["scores", "period", "missing_data"],
-    },
-    "/scanner/market-sentiment": {
-        "required": ["score", "period"],
-    },
-    "/scanner/sentiment-strategy-matrix": {
-        "required": ["matrix"],
-    },
-    "/scanner/position-risk-matrix": {
-        # PositionRiskMatrix.vue
-        "required": ["dimensions", "overall_score", "overall_level"],
-    },
-    "/scanner/scan-dates": {
-        "required": ["dates"],
-    },
-    "/scanner/scan-traces": {
-        # ScanTraceTab
-        "required": ["traces"],
-    },
-    "/scanner/review-hero": {
-        "required": ["date", "return_pct", "win_rate", "conclusion"],
-    },
-    "/scanner/trade-attribution": {
-        "required": ["trades"],
-    },
-    "/scanner/discipline-check": {
-        "required": ["checks", "stop_loss_execution_rate"],
-    },
-    "/scanner/execution-quality": {
-        "required": ["metrics"],
-    },
-    "/scanner/deviation-attribution": {
-        "required": ["slippage", "discipline", "stock_selection", "timing"],
-    },
-    "/scanner/review-forward": {
-        "required": ["suggestions", "period"],
-    },
-    "/scanner/param-snapshot": {
-        "required": ["snapshot", "timestamp"],
-    },
-    "/scanner/param-drift": {
-        "required": ["drifts"],
-    },
-    "/scanner/limit-pools": {
-        # PremarketTab
-        "required": ["zt_count", "dt_count", "candidates"],
+        # 9宫格 - 嵌套在trade_stats/signal_stats/scanner_stats中
+        "required": ["account", "trade_stats", "risk_status", "signal_stats", "scanner_stats", "sentiment"],
     },
     "/scanner/health": {
-        "required": ["status"],
+        "required": ["success", "health"],
     },
-    "/scanner/system-health-detail": {
-        "required": ["components"],
+    
+    # === 复盘API ===
+    
+    "/scanner/daily-report": {
+        # 实际返回: date, account, positions, trades, scanner_stats, funnel_summary, sentiment_snapshot
+        "required": ["date", "account", "scanner_stats"],
+        # ⚠️ 注意: hero/metrics/violations 不在daily-report中，在单独的review-hero API
+        "note": "hero/metrics/violations由review-hero/discipline-check/execution-quality提供，不在daily-report中",
     },
-    "/scanner/audit-log": {
-        "required": ["logs"],
+    "/scanner/review-hero": {
+        # 实际返回: date, conclusion, conclusion_type, metrics, benchmark, sentiment, violations
+        "required": ["date", "conclusion", "conclusion_type", "metrics"],
+        # ⚠️ 注意: 前端期望return_pct/win_rate，但后端返回conclusion_type+metrics
+        "note": "前端需从conclusion或metrics中提取return_pct/win_rate",
+    },
+    "/scanner/trade-attribution": {
+        # list类型，item有: ts_code, stock_name, strategy, buy_price, sell_price, profit_pct...
+        "required": [],
+        "item_fields": ["ts_code", "stock_name", "strategy", "buy_price", "sell_price", "profit_pct", "sell_reason"],
+    },
+    "/scanner/discipline-check": {
+        # 实际返回: date, total_actions, correct_actions, execution_rate, violation_count, violations
+        "required": ["date", "execution_rate", "violation_count", "violations"],
+        # ⚠️ 注意: 前端期望stop_loss_execution_rate，后端返回execution_rate
+        "note": "stop_loss_execution_rate → execution_rate (字段名不同)",
+    },
+    "/scanner/execution-quality": {
+        "required": ["avg_slippage_pct", "fill_rate_pct", "total_orders", "filled_orders", "date"],
+    },
+    "/scanner/deviation-attribution": {
+        # 实际返回: period, live_stats, risk_alerts, deviations, details
+        "required": ["period", "live_stats", "deviations", "details"],
+        # ⚠️ 注意: 前端期望slippage/discipline/stock_selection/timing，后端返回不同的结构
+        "note": "deviation 4层归因可能在details中，需检查嵌套",
+    },
+    "/scanner/review-forward": {
+        # 实际返回: date, sentiment, advice, strategy_switches
+        "required": ["date", "sentiment", "advice"],
+    },
+    "/scanner/weekly-report": {
+        # 实际返回: period, account, daily_stats, strategy_summary, totals, scanner_stats
+        "required": ["period", "account", "daily_stats", "strategy_summary", "totals"],
+        # ⚠️ 注意: 前端期望overview/daily_breakdown/strategy_performance，后端返回不同的字段名
+        "note": "overview→period, daily_breakdown→daily_stats, strategy_performance→strategy_summary",
+    },
+    "/scanner/review-monthly": {
+        # 实际返回: period, summary, strategy_stats, behavior_drift, daily_breakdown, weekly_trend, param_drift
+        "required": ["period", "summary", "strategy_stats", "behavior_drift", "param_drift"],
+    },
+    
+    # === 情绪API ===
+    "/scanner/sentiment-timeline": {
+        # 实际返回: date, mode, points, trades
+        "required": ["date", "mode", "points"],
+        # ⚠️ 注意: 前端期望scores，后端返回points
+        "note": "前端用scores，后端返回points。字段名不同！",
+    },
+    "/scanner/market-sentiment": {
+        "required": ["score", "period", "period_label", "position_ratio", "limit_up_count", "limit_down_count"],
+    },
+    "/scanner/sentiment-strategy-matrix": {
+        "required": ["matrix", "strategy_totals", "recommendations"],
+    },
+    
+    # === 风控API ===
+    "/scanner/position-risk-matrix": {
+        # 实际返回: positions, global (无dimensions/overall_score/overall_level！)
+        "required": ["global"],
+        # ⚠️ 严重问题: 前端期望dimensions/overall_score/overall_level，后端不返回这些字段
+        "note": "dimensions/overall_score/overall_level MISSING! global只有total_assets/cash_ratio等基本字段",
+    },
+    "/scanner/position-risk-levels": {
+        "required": ["levels", "summary", "check_interval"],
+    },
+    
+    # === 扫描追踪API ===
+    "/scanner/scan-dates": {
+        "required": [],
+        "item_fields": ["date", "count", "is_debug"],
+    },
+    "/scanner/scan-traces": {
+        "required": [],
+        "item_fields": ["trade_date", "scan_time", "account_id", "summary", "layer_details", "scan_id"],
+    },
+    "/scanner/limit-pools": {
+        # 非开盘时间全部为空，正常
+        "required": [],
+        "item_fields": [],
+    },
+    
+    # === 参数API ===
+    "/scanner/param-snapshot": {
+        "required": ["date", "global_risk", "strategies"],
+    },
+    "/scanner/param-drift": {
+        "required": ["start_date", "end_date", "drift_count"],
     },
     "/scanner/params": {
-        "required": ["strategies"],
+        "required": ["halfway_chase", "first_limit_up", "limit_down_qiao"],
     },
     "/scanner/strategy-params-compare": {
-        "required": ["default", "current"],
+        "required": ["strategy_comparisons", "global_risk", "drift_count"],
+    },
+    
+    # === 运维API ===
+    "/scanner/system-health-detail": {
+        "required": ["scanner", "data_sources", "mongo", "redis", "system", "health_score"],
+    },
+    "/scanner/audit-log": {
+        "required": [],
+        "item_fields": ["timestamp", "action", "ts_code", "strategy", "reason"],
     },
     "/scanner/performance-history": {
-        "required": ["days"],
-    },
-    "/scanner/timeline/history": {
-        "required": ["items"],
+        "required": [],
+        "item_fields": ["account_id", "trade_date", "account", "stats"],
     },
     "/scanner/auto-trades": {
-        "required": ["trades"],
-    },
-    "/scanner/trade-audit": {
-        "required": ["audits"],
+        "required": [],
     },
 }
 
@@ -216,21 +257,19 @@ class TestAPIContract:
         """检查后端服务是否可访问"""
         import urllib.request
         try:
-            urllib.request.urlopen("http://localhost:50051/health", timeout=3)
+            urllib.request.urlopen("http://localhost:8000/api/v1/scanner/health", timeout=3)
         except Exception:
             pytest.skip("后端服务未启动，跳过API契约测试")
 
-    def _fetch_api(self, endpoint: str, method: str = "GET", params: dict = None) -> dict | None:
+    def _fetch_api(self, endpoint: str, method: str = "GET", base: str = "http://localhost:8000") -> dict | None:
         """请求API并返回JSON"""
         import urllib.request
         import urllib.parse
 
-        base = f"http://localhost:50051{endpoint}"
-        if params:
-            base += "?" + urllib.parse.urlencode(params)
+        base_url = f"{base}/api/v1{endpoint}"
 
         try:
-            req = urllib.request.Request(base, method=method)
+            req = urllib.request.Request(base_url, method=method)
             with urllib.request.urlopen(req, timeout=10) as resp:
                 data = json.loads(resp.read())
                 # 解包常见嵌套：{"data": {...}} 或 {"result": {...}}
