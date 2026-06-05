@@ -164,7 +164,7 @@ async def toggle_dry_run():
 
 
 @router.get("/debug/premarket-sim")
-async def debug_premarket_sim():
+async def debug_premarket_sim(date: str = None):
     """调试模式: 模拟盘前预选(非交易时间可用)
     
     两种策略:
@@ -198,16 +198,19 @@ async def debug_premarket_sim():
                 return {"success": False, "message": "无历史日线数据"}
             latest_date = str(latest_doc["trade_date"])
             
+            # 如果用户指定了日期, 用指定日期
+            target_date = date.replace("-", "") if date else latest_date
+            
             # 读取该日全市场数据
             docs = []
             async for doc in mongo_manager.db["stock_daily_ak_full"].find(
-                {"trade_date": int(latest_date)},
+                {"trade_date": int(target_date)},
                 {"ts_code": 1, "pct_chg": 1, "close": 1, "vol": 1, "amount": 1}
             ):
                 docs.append(doc)
             
             if not docs:
-                return {"success": False, "message": f"无{latest_date}日线数据"}
+                return {"success": False, "message": f"无{target_date}日线数据"}
             
             df = pd.DataFrame(docs)
             
@@ -221,7 +224,7 @@ async def debug_premarket_sim():
                 "limit_down_count": int((pcts <= -9.9).sum()) if len(pcts) else 0,
                 "avg_pct_chg": round(float(pcts.mean()), 2) if len(pcts) else 0,
                 "volume_ratio_gt2": 0, "total_stocks": len(docs),
-                "data_date": latest_date,
+                "data_date": target_date,
             }
             
             # 构建candidates(粗筛预览)

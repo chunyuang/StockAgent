@@ -532,7 +532,7 @@ async def get_audit_log(limit: int = 50):
 
 
 @router.get("/premarket-status")
-async def get_premarket_status():
+async def get_premarket_status(date: str = None):
     """盘前竞价增强版 — 策略分组+情绪背景+量能排名+历史统计
     
     Returns:
