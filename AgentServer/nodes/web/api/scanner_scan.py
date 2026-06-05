@@ -397,7 +397,10 @@ async def set_trailing_stop(ts_code: str, request: Request):
         if not scanner:
             return {"success": False, "message": "Scanner未运行"}
         
-        body = await request.json()
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
         
         # 【v2.9.11:写操作必须在state_lock内完成】
         state_lock = getattr(scanner, '_state_lock', None)
@@ -696,7 +699,10 @@ async def run_quick_backtest(request: Request):
     请求体: {"period": "2025Q1"}  # 可选, 默认2025Q1
     """
     try:
-        body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
         period = body.get("period", "2025Q1")
         
         period_config = {

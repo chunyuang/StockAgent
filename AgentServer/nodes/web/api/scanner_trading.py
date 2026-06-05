@@ -843,8 +843,11 @@ async def emergency_liquidate(request: Request):
     安全: 需要确认参数 reason
     """
     try:
-        body = await request.json()
-        reason = body.get("reason", "API手动触发")
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        reason = body.get("reason", "API手动触发") if isinstance(body, dict) else "API手动触发"
         
         scanner = _get_scanner_instance()
         if not scanner:

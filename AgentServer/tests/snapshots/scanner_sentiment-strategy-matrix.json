@@ -1,57 +1,7 @@
 {
-  "matrix": {
-    "halfway_chase": {
-      "冰点": {
-        "count": "int",
-        "win_rate": "float",
-        "total_pnl": "int",
-        "wins": "int",
-        "losses": "int",
-        "profit_loss_ratio": "float"
-      },
-      "震荡": {
-        "count": "int",
-        "win_rate": "float",
-        "total_pnl": "int",
-        "wins": "int",
-        "losses": "int",
-        "profit_loss_ratio": "float"
-      }
-    },
-    "system_force": {
-      "冰点": {
-        "count": "int",
-        "win_rate": "float",
-        "total_pnl": "int",
-        "wins": "int",
-        "losses": "int",
-        "profit_loss_ratio": "float"
-      }
-    }
-  },
-  "strategy_totals": {
-    "halfway_chase": {
-      "count": "int",
-      "wins": "int",
-      "losses": "int",
-      "win_rate": "float",
-      "total_pnl": "int"
-    },
-    "system_force": {
-      "count": "int",
-      "wins": "int",
-      "losses": "int",
-      "win_rate": "float",
-      "total_pnl": "int"
-    }
-  },
+  "matrix": {},
+  "strategy_totals": {},
   "recommendations": [
-    {
-      "strategy": "str",
-      "best_period": "str",
-      "win_rate": "float",
-      "count": "int",
-      "pnl": "int"
-    }
+    "<empty_list>"
   ]
 }
