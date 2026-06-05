@@ -32,12 +32,6 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '市场监听' },
       },
       {
-        path: 'factors',
-        name: 'FactorView',
-        component: () => import('@/views/factor/FactorView.vue'),
-        meta: { title: '因子查看' },
-      },
-      {
         path: 'cockpit',
         redirect: '/monitor',
       },
