@@ -14,7 +14,7 @@ const m = useScannerMonitorInject()
 // 解构需要的变量
 const {
   premarketStatus, premarketCandidates, premarketSignals,
-  premarketDebugMode, premarketGroupMode, premarketGroupExpanded,
+  premarketDebugMode, premarketDebugUserToggled, premarketGroupMode, premarketGroupExpanded,
   premarketAnalysis, premarketBlockedReasons, premarketFunnel,
   premarketHitRate, premarketLimitPools, premarketMarketSnapshot,
   premarketPositionGaps, premarketSentiment, premarketStrategyGroups,
@@ -51,7 +51,7 @@ onMounted(() => {
         </div>
         <div class="pm-status-actions">
           <ElButton size="small" @click="fetchPremarketData">🔄</ElButton>
-          <button :class="['pm-mode-btn', premarketDebugMode ? 'active' : '']" @click="premarketDebugMode = !premarketDebugMode; fetchPremarketData()" title="用日级因子模拟盘前预选(非交易时间可用)">🧪 调试</button>
+          <button :class="['pm-mode-btn', premarketDebugMode ? 'active' : '']" @click="premarketDebugMode = !premarketDebugMode; premarketDebugUserToggled = true; fetchPremarketData()" title="用日级因子模拟盘前预选(非交易时间可用)">🧪 调试</button>
           <button :class="['pm-mode-btn', premarketGroupMode === 'strategy' ? 'active' : '']" @click="premarketGroupMode = 'strategy'">按策略</button>
           <button :class="['pm-mode-btn', premarketGroupMode === 'list' ? 'active' : '']" @click="premarketGroupMode = 'list'">列表</button>
         </div>
