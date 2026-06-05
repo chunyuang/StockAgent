@@ -208,6 +208,11 @@ class RedisManager(BaseManager):
         """获取 Redis 客户端"""
         self._ensure_initialized()
         return self._client
+
+    @property
+    def is_initialized(self) -> bool:
+        """【v2.9.75】Redis是否已初始化(公共属性,替代直接访问_initialized)"""
+        return self._initialized
     
     def get_pool_stats(self) -> dict:
         """获取连接池状态"""

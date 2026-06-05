@@ -56,7 +56,7 @@ class ScannerUtils:
         """
         try:
             from core.managers import redis_manager
-            if not redis_manager._client:
+            if not redis_manager.client:
                 return
             
             data["timestamp"] = datetime.now().strftime("%H:%M:%S")
@@ -64,14 +64,14 @@ class ScannerUtils:
             
             if event_type in ("signal", "position"):
                 stream_key = f"scanner:{event_type}"
-                await redis_manager._client.xadd(
+                await redis_manager.client.xadd(
                     stream_key,
                     {"data": payload},
                     maxlen=5000 if event_type == "position" else 1000
                 )
             else:
                 channel = f"scanner:{event_type}"
-                await redis_manager._client.publish(channel, payload)
+                await redis_manager.client.publish(channel, payload)
         except Exception as e:
             logger.debug(f"[PUSH] Redis推送失败(可忽略): {e}")
     

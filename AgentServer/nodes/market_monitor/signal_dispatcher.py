@@ -251,7 +251,7 @@ async def redis_channel_handler(signal: DispatchSignal) -> bool:
     """
     try:
         from core.managers import redis_manager
-        if not redis_manager._client:
+        if not redis_manager.client:
             return False
 
         import json
@@ -269,7 +269,7 @@ async def redis_channel_handler(signal: DispatchSignal) -> bool:
             "timestamp": datetime.now().strftime("%H:%M:%S"),
         }
         # Redis Stream: XADD (不可丢, maxlen防内存溢出)
-        await redis_manager._client.xadd(channel, data, maxlen=1000, approximate=True)
+        await redis_manager.client.xadd(channel, data, maxlen=1000, approximate=True)
         return True
     except Exception as e:
         logger.debug(f"[DISPATCHER] Redis Stream通道失败: {e}")

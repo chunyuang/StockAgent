@@ -6,7 +6,7 @@
  * 依赖: 核心状态ref + api + scannerStore
  */
 
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '@/api/client'
 import { useScannerStore } from '@/stores/scanner'
@@ -245,6 +245,20 @@ export function useCoreMethods(refs: CoreRefs) {
         lastWsDataTime.value = Date.now()
       }
     })
+    // 【v2.9.75】WS重连后主动fetch恢复数据
+    const _prevConnected = ref(false)
+    const unwatchWs = watch(() => wsHook.isConnected.value, (connected: boolean, prev: boolean) => {
+      if (connected && !prev) {
+        // WS从断开恢复到连接 → 主动fetch一次全量数据恢复
+        console.log('[WS] 重连成功, 主动fetch恢复数据')
+        fetchScanner()
+        fetchHealth()
+        // 重新订阅scanner频道
+        if (_wsSubscribed) {
+          wsHook.send({ type: 'subscribe_scanner' })
+        }
+      }
+    })
     nowTimer = setInterval(() => { refs.nowMs.value = Date.now() }, 1000)
     const getRefreshInterval = () => { const n = new Date(), h = n.getHours(), m = n.getMinutes(); const isTrading = (h === 9 && m >= 30) || (h >= 10 && h < 15) || (h === 15 && m === 0); return isTrading ? 5000 : 60000 }
     // 【v2.9.72】修复：WS连接但Redis断开时数据不更新的bug
@@ -274,6 +288,8 @@ export function useCoreMethods(refs: CoreRefs) {
     wsStatus: wsHook.status,
     wsIsConnected: wsHook.isConnected,
     wsRetryCount: wsHook.retryCount,
+    // 【v2.9.75: 暴露WS数据新鲜度给UI】
+    wsDataStale,
     playSignalSound, showConfirm, handleConfirm,
     fetchScanner, startScanner, stopScanner, manualScan, forceScan,
     quickBuy, quickSell, dailySettlement, resetAccount, sellAllPositions,

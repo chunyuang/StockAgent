@@ -437,7 +437,7 @@ class RedisWSBridge:
         Returns:
             补发消息数量
         """
-        if not last_id or not redis_manager._initialized:
+        if not last_id or not redis_manager.is_initialized:
             return 0
         
         try:

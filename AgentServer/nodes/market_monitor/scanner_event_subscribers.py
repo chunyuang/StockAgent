@@ -144,7 +144,7 @@ async def _push_to_redis(scanner, channel: str, data: Dict[str, Any], use_stream
     """
     try:
         from core.managers.redis_manager import redis_manager
-        if not redis_manager._initialized:
+        if not redis_manager.is_initialized:
             return
         
         import json
@@ -154,14 +154,15 @@ async def _push_to_redis(scanner, channel: str, data: Dict[str, Any], use_stream
             "account_id": scanner._account_id,
         }
         
+        client = redis_manager.client
         if use_stream:
             # Redis Stream: 消息持久化, 消费者可用XREAD消费, 不丢失
-            await redis_manager._client.xadd(
+            await client.xadd(
                 channel, payload, maxlen=maxlen, approximate=True
             )
         else:
             # Pub/Sub: 实时广播, 不持久化, 离线消费者丢失
-            await redis_manager._client.publish(channel, json.dumps(payload, default=str))
+            await client.publish(channel, json.dumps(payload, default=str))
     except Exception as e:
         logger.debug(f"[REDIS_PUSH] 推送失败(非关键): {e}")
 

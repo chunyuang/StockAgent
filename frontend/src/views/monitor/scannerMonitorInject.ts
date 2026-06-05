@@ -155,10 +155,11 @@ export interface ScannerMonitorData {
   formatLayerTrace: (trace: any) => string[]
   formatDecisionDetail: (detail: any) => string[]
 
-  // --- WS状态 ---
+  // --- WS状态 + 数据新鲜度 ---
   wsStatus: ComputedRef<string>
   wsIsConnected: ComputedRef<boolean>
   wsRetryCount: ComputedRef<number>
+  wsDataStale: ComputedRef<boolean>
 
   // --- 兼容索引签名 (其余composable属性) ---
   [key: string]: any

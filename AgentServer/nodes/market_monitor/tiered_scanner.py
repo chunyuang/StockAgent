@@ -866,6 +866,12 @@ class TieredScanner:
 
     def _level_status_dict(self, status: LevelStatus) -> Dict[str, Any]:
         """LevelStatus转dict"""
+        # 根据status对象引用确定level编号(避免硬编码中文名匹配)
+        level_num = 1
+        if status is self._l2_status:
+            level_num = 2
+        elif status is self._l3_status:
+            level_num = 3
         return {
             "name": status.name,
             "is_running": status.is_running,
@@ -873,9 +879,7 @@ class TieredScanner:
             "scan_count": status.scan_count,
             "candidate_count": status.candidate_count,
             "signal_count": status.signal_count,
-            "avg_latency_ms": round(self._avg_latency(
-                {"L1-全市场初筛": 1, "L2-策略筛选": 2, "L3-止损止盈": 3}.get(status.name, 0)
-            ), 1),
+            "avg_latency_ms": round(self._avg_latency(level_num), 1),
             "error_count": status.error_count,
             "last_error": status.last_error,
         }
