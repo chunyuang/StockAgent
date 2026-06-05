@@ -39,12 +39,17 @@ export function usePremarketMonitor() {
   // ==================== API ====================
   async function fetchPremarketData() {
     try {
+      // 选了非今天的日期时, 强制走debug/sim API(只有它支持历史日期)
+      const today = new Date().toISOString().slice(0, 10)
+      const isOtherDate = premarketDate.value && premarketDate.value !== today
       // 只有用户未手动关闭且在非交易时间才自动用debug模式
-      const useDebug = premarketDebugMode.value || (isNonTradingHours() && !premarketDebugUserToggled.value)
+      const useDebug = premarketDebugMode.value || isOtherDate || (isNonTradingHours() && !premarketDebugUserToggled.value)
       const dateParam = premarketDate.value ? `&date=${premarketDate.value.replace(/-/g, '')}` : ''
       const url = useDebug ? `${scannerApi}/debug/premarket-sim?${dateParam.slice(1)}` : `${scannerApi}/premarket-status${dateParam ? '?' + dateParam.slice(1) : ''}`
       const r = await api.get(url)
       const p = parseResponse(r)
+      // 捕获API错误消息(如无该日期数据)
+      const errorMsg = (r as any)?.message || ''
       if (p.success && p.data) {
         premarketSignals.value = p.data.auction_signals || []
         premarketStatus.value = p.data.status || 'off'
@@ -65,6 +70,13 @@ export function usePremarketMonitor() {
         if (!premarketDebugUserToggled.value && !premarketDebugMode.value && isNonTradingHours() && premarketStatus.value === 'off') {
           premarketDebugMode.value = true
         }
+      } else if (!p.success) {
+        // API返回失败(如无该日期数据), 清空并提示
+        premarketCandidates.value = []
+        premarketSignals.value = []
+        premarketStatus.value = 'off'
+        premarketMarketSnapshot.value = { data_date: premarketDate.value?.replace(/-/g, ''), error: errorMsg || '无数据' }
+        premarketStrategyGroups.value = []
       }
     } catch { /* ignore */ }
   }
