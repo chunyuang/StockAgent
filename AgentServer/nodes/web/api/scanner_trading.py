@@ -478,12 +478,13 @@ async def get_trade_detail(ts_code: str):
 
 @router.get("/export-trade-log")
 async def export_trade_log():
-    """导出交易日志CSV - 返回全部订单+时间线数据"""
+    """导出交易日志CSV - 返回全部订单+时间线数据(含MongoDB历史)"""
     import csv
     import io
     scanner = await _get_scanner()
     
     rows = []
+    # 1. 内存中的timeline
     for item in scanner._timeline:
         rows.append({
             "time": item.get("time", ""),
@@ -498,19 +499,70 @@ async def export_trade_log():
             "profit_amount": item.get("profit_amount", ""),
         })
     
-    for o in scanner._broker.get_orders():
-        rows.append({
-            "time": o.create_time or "",
-            "action": o.side or "",
-            "ts_code": o.ts_code or "",
-            "stock_name": o.stock_name or "",
-            "strategy": o.strategy or "",
-            "shares": o.filled_qty or o.quantity or "",
-            "price": o.filled_price or o.price or "",
-            "reason": o.reason or "",
-            "profit_pct": getattr(o, 'profit_pct', '') or "",
-            "profit_amount": getattr(o, 'profit_amount', '') or "",
-        })
+    # 2. 内存中的orders(守卫: broker可能为None)
+    if scanner._broker:
+        for o in scanner._broker.get_orders():
+            rows.append({
+                "time": o.create_time or "",
+                "action": o.side or "",
+                "ts_code": o.ts_code or "",
+                "stock_name": o.stock_name or "",
+                "strategy": o.strategy or "",
+                "shares": o.filled_qty or o.quantity or "",
+                "price": o.filled_price or o.price or "",
+                "reason": o.reason or "",
+                "profit_pct": getattr(o, 'profit_pct', '') or "",
+                "profit_amount": getattr(o, 'profit_amount', '') or "",
+            })
+    
+    # 3. 【v2.9.80】补充MongoDB历史数据(scanner未运行时也能导出)
+    try:
+        from core.managers import mongo_manager
+        if mongo_manager.is_initialized and scanner._broker:
+            account_id = scanner._broker.account.account_id if scanner._broker else "default"
+            existing_keys = {(r["ts_code"], r.get("time", "")) for r in rows if r.get("ts_code")}
+            # 从scanner_timeline补充
+            async for doc in mongo_manager.db["scanner_timeline"].find(
+                {"account_id": account_id}
+            ).sort("_id", 1):
+                key = (doc.get("ts_code", ""), doc.get("time", ""))
+                if key in existing_keys:
+                    continue  # 去重(内存数据优先)
+                rows.append({
+                    "time": doc.get("time", ""),
+                    "action": doc.get("action", ""),
+                    "ts_code": doc.get("ts_code", ""),
+                    "stock_name": doc.get("stock_name", ""),
+                    "strategy": doc.get("strategy", ""),
+                    "shares": doc.get("shares", ""),
+                    "price": doc.get("price", ""),
+                    "reason": doc.get("reason", ""),
+                    "profit_pct": doc.get("profit_pct", ""),
+                    "profit_amount": doc.get("profit_amount", ""),
+                })
+                existing_keys.add(key)
+            # 从broker_orders补充
+            async for doc in mongo_manager.db["broker_orders"].find(
+                {"account_id": account_id}
+            ).sort("create_time", 1):
+                key = (doc.get("ts_code", ""), doc.get("create_time", ""))
+                if key in existing_keys:
+                    continue
+                rows.append({
+                    "time": doc.get("create_time", ""),
+                    "action": doc.get("side", ""),
+                    "ts_code": doc.get("ts_code", ""),
+                    "stock_name": doc.get("stock_name", ""),
+                    "strategy": doc.get("strategy", ""),
+                    "shares": doc.get("filled_qty", ""),
+                    "price": doc.get("filled_price", ""),
+                    "reason": doc.get("reason", ""),
+                    "profit_pct": doc.get("profit_pct", ""),
+                    "profit_amount": doc.get("profit_amount", ""),
+                })
+                existing_keys.add(key)
+    except Exception:
+        pass  # MongoDB不可用不影响已有数据导出
     
     if not rows:
         return {"success": True, "data": {"csv": "", "count": 0}}

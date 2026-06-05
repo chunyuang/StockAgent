@@ -11,7 +11,7 @@ const m = useScannerMonitorInject()
 
 const {
   auditLog, auditLogLoading, closedPositions, cumulativePnl,
-  exportTradeLog, fetchAuditLog, historyData, historyDate, historyLoading,
+  exportTradeLog, exportJSON, fetchAuditLog, historyData, historyDate, historyLoading,
   loadHistory,
   openTradeAudit, openTradeDetail, orders,
   saveSnapshot, strategyCN, strategyMeta, timeline,
@@ -77,7 +77,7 @@ const {
       <div v-if="!auditLog.length" class="empty">暂无审计记录</div>
       <div v-else class="ht-audit">
         <div v-for="(log, i) in auditLog" :key="i" class="ha-row cp" @click="log.ts_code && openTradeDetail(log.ts_code)">
-          <span class="tl-time">{{ log.timestamp?.substring(11, 19) || log.time || '' }}</span>
+          <span class="tl-time">{{ log.timestamp?.substring(11, 19) || log.time_str?.substring(11, 19) || log.time || '' }}</span>
           <span class="ha-action">{{ log.action }}</span>
           <span class="ha-detail">{{ log.reason || log.detail || '' }}</span>
         </div>
@@ -89,6 +89,7 @@ const {
         <ElButton size="small" @click="exportTradeLog">📥 导出交易日志(CSV)</ElButton>
         <ElButton size="small" @click="saveSnapshot">📸 保存快照</ElButton>
         <ElButton size="small" @click="openTradeAudit" :disabled="!timeline.length">🔍 交易审查</ElButton>
+        <ElButton size="small" @click="exportJSON">📋 导出JSON</ElButton>
       </div>
     </div>
   </div>

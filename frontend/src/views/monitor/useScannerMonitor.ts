@@ -302,6 +302,25 @@ export function useScannerMonitor() {
       }
     } catch { /* ignore */ }
   }
+  const exportJSON = async () => {
+    try {
+      // 导出时间线+订单为JSON
+      const data = {
+        export_time: new Date().toISOString(),
+        timeline: timeline.value,
+        orders: orders.value,
+        closedPositions: closedPositions.value,
+        cumulativePnl: cumulativePnl.value,
+      }
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `trade_data_${new Date().toISOString().slice(0,10)}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch { /* ignore */ }
+  }
   const weeklyReportData = computed<Record<string, any>>(() => review.weeklyReportData?.value as Record<string, any> || {})
 
   // 生命周期
@@ -386,6 +405,7 @@ export function useScannerMonitor() {
     openWeeklyReport, weeklyReportData, saveSnapshot,
     backtestRunning,
     exportTradeLog,
+    exportJSON,
     // 工具
     strategyMeta, formatRemaining, factorLabel, layerLabel,
     // 核心方法

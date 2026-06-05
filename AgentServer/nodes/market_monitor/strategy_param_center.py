@@ -495,7 +495,10 @@ class StrategyParamCenter:
     async def _write_param_audit_log(self, strategy_id: str, updates: Dict,
                                      updated_by: str, danger_warnings: list,
                                      before: Dict = None, after: Dict = None) -> None:
-        """参数变更审计日志(append-only, 存audit_log集合)"""
+        """参数变更审计日志(append-only, 存audit_log集合)
+        
+        字段规范(v2.9.80统一): timestamp=datetime对象, action=标准字段
+        """
         try:
             from core.managers import mongo_manager
             if mongo_manager.db is None:
@@ -512,10 +515,15 @@ class StrategyParamCenter:
             else:
                 changed_fields = {k: {"new": v} for k, v in updates.items()}
             
+            now = datetime.now()
             doc = {
-                "timestamp": datetime.now().isoformat(),
-                "type": "param_change",  # 区别于scanner的signal/trade审计
+                "timestamp": now,  # datetime对象, TTL索引要求Date类型
+                "time_str": now.strftime("%Y-%m-%d %H:%M:%S"),
+                "action": "param_change",  # 统一action字段
+                "reason": f"参数变更: {strategy_id} by {updated_by}",  # 统一reason字段
+                "type": "param_change",  # 保留type向后兼容
                 "strategy_id": strategy_id,
+                "strategy": strategy_id,  # 统一strategy字段
                 "changed_fields": changed_fields,
                 "updated_by": updated_by,
                 "danger_warnings": danger_warnings,
