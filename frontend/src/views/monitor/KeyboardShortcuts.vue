@@ -7,6 +7,9 @@ import { onMounted, onUnmounted } from 'vue'
 
 const emit = defineEmits<{
   (e: 'force-scan'): void
+  (e: 'manual-scan'): void
+  (e: 'start-scanner'): void
+  (e: 'stop-scanner'): void
   (e: 'manual-buy'): void
   (e: 'sell-selected'): void
   (e: 'emergency-liquidate'): void
@@ -25,6 +28,9 @@ function handler(ev: KeyboardEvent) {
   const ctrl = ev.ctrlKey || ev.metaKey
 
   if (key === 'f5') { ev.preventDefault(); emit('force-scan') }
+  else if (key === 'f6') { ev.preventDefault(); emit('manual-scan') }
+  else if (ctrl && key === 'f5') { ev.preventDefault(); emit('start-scanner') }
+  else if (ctrl && key === 'f6') { ev.preventDefault(); emit('stop-scanner') }
   else if (key === 'f9') { ev.preventDefault(); emit('manual-buy') }
   else if (ctrl && key === 's') { ev.preventDefault(); emit('sell-selected') }
   else if (ctrl && key === 'e') { ev.preventDefault(); emit('emergency-liquidate') }

@@ -6,14 +6,16 @@
         "win_rate": "float",
         "total_pnl": "int",
         "wins": "int",
-        "losses": "int"
+        "losses": "int",
+        "profit_loss_ratio": "float"
       },
       "震荡": {
         "count": "int",
         "win_rate": "float",
         "total_pnl": "int",
         "wins": "int",
-        "losses": "int"
+        "losses": "int",
+        "profit_loss_ratio": "float"
       }
     },
     "system_force": {
@@ -22,7 +24,8 @@
         "win_rate": "float",
         "total_pnl": "int",
         "wins": "int",
-        "losses": "int"
+        "losses": "int",
+        "profit_loss_ratio": "float"
       }
     }
   },
