@@ -213,7 +213,7 @@ onMounted(() => {
         <div v-if="!premarketStrategyGroups.length" class="pm-empty-state">
           <div class="pm-empty-icon">📋</div>
           <div class="pm-empty-text">{{ premarketDebugMode ? '无日级因子数据，请启动扫描器后再试' : '非交易时间自动显示最近交易日盘前数据' }}</div>
-          <div class="pm-empty-hint">{{ premarketDebugMode ? '调试模式使用daily_factors_df模拟策略扫描' : '竞价期间(9:15-9:25)自动切换为实时数据' }}</div>
+          <div class="pm-empty-hint">{{ premarketMarketSnapshot?.error ? `⚠️ ${premarketMarketSnapshot.error}` : (premarketDebugMode ? '调试模式使用daily_factors_df模拟策略扫描' : '竞价期间(9:15-9:25)自动切换为实时数据') }}</div>
         </div>
       </div>
 
