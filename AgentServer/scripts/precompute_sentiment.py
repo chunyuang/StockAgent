@@ -97,19 +97,17 @@ async def compute_sentiment(trade_date: int, db) -> dict:
     score_ym = min(15, max(0, int(zt_premium)))
     score = min(100, max(0, score_zu + score_zd + score_lb + score_ud + score_ym))
     
-    # 阶段判断(4级,与实盘L3对齐)
+    # 阶段判断(4级,与实盘L3对齐,仓位系数从strategy_defaults统一读取)
+    from nodes.market_monitor.emotion_cycle import _get_position_ratio
     if score >= 70:
         period = "高潮"
-        position_ratio = 1.0
     elif score >= 55:
         period = "分化"
-        position_ratio = 0.7
     elif score >= 40:
         period = "震荡"
-        position_ratio = 0.5
     else:
         period = "冰点"
-        position_ratio = 0.3
+    position_ratio = _get_position_ratio(period)
     
     return {
         "trade_date": trade_date,

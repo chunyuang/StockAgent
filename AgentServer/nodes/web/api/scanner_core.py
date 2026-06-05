@@ -668,8 +668,25 @@ async def get_position_risk_matrix():
         for pos in positions:
             cost, cur = pos.avg_cost, pos.current_price
             mv = cur * pos.total_qty
-            dist_sl = (cur - cost * 0.97) / max(cur, 0.01) * 100
-            dist_tp = (cost * 1.12 - cur) / max(cur, 0.01) * 100
+            # 从策略风控参数读取SL/TP百分比(fallback 3%/12%)
+            try:
+                risk_params = scanner._get_strategy_risk(pos.strategy or "unknown") if hasattr(scanner, '_get_strategy_risk') else {}
+            except Exception:
+                risk_params = {}
+            sl_pct = risk_params.get("stop_loss_pct", 0.03)
+            tp_pct = risk_params.get("take_profit_pct", 0.12)
+            # 防御: 百分比形式(>1)自动转小数
+            if sl_pct > 1: sl_pct = sl_pct / 100
+            if tp_pct > 1: tp_pct = tp_pct / 100
+            sl_price = cost * (1 - sl_pct) if cost > 0 else 0
+            tp_price = cost * (1 + tp_pct) if cost > 0 else 0
+            # 防御除零: cur=0时dist设为0(不产生NaN)
+            if cur > 0 and cost > 0:
+                dist_sl = (cur - sl_price) / cur * 100
+                dist_tp = (tp_price - cur) / cur * 100
+            else:
+                dist_sl = 0.0
+                dist_tp = 0.0
             position_pct = mv / max(total_mv, 1) * 100
             max_single_pct = max(max_single_pct, position_pct)
             industry = industry_map.get(pos.ts_code, "未知")
@@ -687,7 +704,7 @@ async def get_position_risk_matrix():
                 "profit_pct": round(pos.profit_pct, 2), "profit_amount": round((cur - cost) * pos.total_qty, 0),
                 "market_value": round(mv, 0), "position_pct": round(position_pct, 1),
                 "dist_stop_loss": round(dist_sl, 2), "dist_take_profit": round(dist_tp, 2),
-                "stop_loss_price": round(cost * 0.97, 2), "take_profit_price": round(cost * 1.12, 2),
+                "stop_loss_price": round(sl_price, 2), "take_profit_price": round(tp_price, 2),
                 "volatility": round(abs(pos.profit_pct), 2), "turnover_rate": turnover,
                 "risk_score": round(risk_score, 0), "risk_level": risk_levels.get(pos.ts_code, "normal"),
                 "trailing_stop": trail, "total_qty": pos.total_qty,

@@ -164,7 +164,9 @@ class TestMarketPhaseIsTradingActive:
     def test_trading_is_active(self):
         """交易时段返回True"""
         from nodes.market_monitor.scanner import MarketPhase
-        assert MarketPhase.is_trading_active(MarketPhase.TRADING) is True
+        assert MarketPhase.is_trading_active(MarketPhase.MORNING) is True
+        assert MarketPhase.is_trading_active(MarketPhase.AFTERNOON) is True
+        assert MarketPhase.is_trading_active(MarketPhase.LATE_TRADING) is True
 
     def test_auction_is_active(self):
         """竞价时段返回True"""

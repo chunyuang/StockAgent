@@ -85,15 +85,40 @@ class TestMarketPhaseClassify:
             assert MarketPhase.classify() == MarketPhase.AUCTION
 
     def test_trading_detected(self):
-        """交易时间(9:30-15:00)返回TRADING"""
+        """交易时间(9:30-15:00)返回对应子阶段"""
         from nodes.market_monitor.scanner import MarketPhase
+        # 10:30 → MORNING(早盘)
         with patch('nodes.market_monitor.market_phase.datetime') as mock_dt:
             mock_now = MagicMock()
             mock_now.weekday.return_value = 2  # 周三
             mock_now.hour = 10
             mock_now.strftime.return_value = "10:30"
             mock_dt.now.return_value = mock_now
-            assert MarketPhase.classify() == MarketPhase.TRADING
+            assert MarketPhase.classify() == MarketPhase.MORNING
+        # 13:30 → AFTERNOON(午盘)
+        with patch('nodes.market_monitor.market_phase.datetime') as mock_dt:
+            mock_now = MagicMock()
+            mock_now.weekday.return_value = 2
+            mock_now.hour = 13
+            mock_now.strftime.return_value = "13:30"
+            mock_dt.now.return_value = mock_now
+            assert MarketPhase.classify() == MarketPhase.AFTERNOON
+        # 14:50 → LATE_TRADING(尾盘)
+        with patch('nodes.market_monitor.market_phase.datetime') as mock_dt:
+            mock_now = MagicMock()
+            mock_now.weekday.return_value = 2
+            mock_now.hour = 14
+            mock_now.strftime.return_value = "14:50"
+            mock_dt.now.return_value = mock_now
+            assert MarketPhase.classify() == MarketPhase.LATE_TRADING
+        # 11:45 → LUNCH(午休)
+        with patch('nodes.market_monitor.market_phase.datetime') as mock_dt:
+            mock_now = MagicMock()
+            mock_now.weekday.return_value = 2
+            mock_now.hour = 11
+            mock_now.strftime.return_value = "11:45"
+            mock_dt.now.return_value = mock_now
+            assert MarketPhase.classify() == MarketPhase.LUNCH
 
     def test_after_close_detected(self):
         """收盘后(15:05+)返回AFTER_CLOSE"""
@@ -125,17 +150,18 @@ class TestMarketPhaseClassify:
         phase2 = MarketPhase.classify()
         assert phase1 == phase2
 
-    def test_seven_phases_defined(self):
-        """MarketPhase定义了7个阶段"""
+    def test_ten_phases_defined(self):
+        """MarketPhase定义了10个阶段(含早盘/午休/午盘/尾盘)"""
         from nodes.market_monitor.scanner import MarketPhase
         phases = [
             MarketPhase.WEEKEND, MarketPhase.DEEP_NIGHT,
             MarketPhase.PREMARKET, MarketPhase.AUCTION,
-            MarketPhase.TRADING, MarketPhase.AFTER_CLOSE,
-            MarketPhase.OFF_HOURS,
+            MarketPhase.MORNING, MarketPhase.LUNCH,
+            MarketPhase.AFTERNOON, MarketPhase.LATE_TRADING,
+            MarketPhase.AFTER_CLOSE, MarketPhase.OFF_HOURS,
         ]
-        assert len(phases) == 7
-        assert len(set(phases)) == 7  # 所有阶段值唯一
+        assert len(phases) == 10
+        assert len(set(phases)) == 10  # 所有阶段值唯一
 
 
 class TestScanLoopUsesMarketPhase:
@@ -232,7 +258,7 @@ class TestMarketPhaseEdgeCases:
     """MarketPhase边界时间测试"""
 
     def test_trading_start_boundary(self):
-        """9:30是交易时间"""
+        """9:30是早盘时间"""
         from nodes.market_monitor.scanner import MarketPhase
         with patch('nodes.market_monitor.market_phase.datetime') as mock_dt:
             mock_now = MagicMock()
@@ -240,10 +266,10 @@ class TestMarketPhaseEdgeCases:
             mock_now.hour = 9
             mock_now.strftime.return_value = "09:30"
             mock_dt.now.return_value = mock_now
-            assert MarketPhase.classify() == MarketPhase.TRADING
+            assert MarketPhase.classify() == MarketPhase.MORNING
 
     def test_trading_end_boundary(self):
-        """15:00仍是交易时间"""
+        """15:00仍是尾盘时间"""
         from nodes.market_monitor.scanner import MarketPhase
         with patch('nodes.market_monitor.market_phase.datetime') as mock_dt:
             mock_now = MagicMock()
@@ -251,7 +277,40 @@ class TestMarketPhaseEdgeCases:
             mock_now.hour = 15
             mock_now.strftime.return_value = "15:00"
             mock_dt.now.return_value = mock_now
-            assert MarketPhase.classify() == MarketPhase.TRADING
+            assert MarketPhase.classify() == MarketPhase.LATE_TRADING
+
+    def test_morning_to_lunch_boundary(self):
+        """11:30是午休开始"""
+        from nodes.market_monitor.scanner import MarketPhase
+        with patch('nodes.market_monitor.market_phase.datetime') as mock_dt:
+            mock_now = MagicMock()
+            mock_now.weekday.return_value = 0
+            mock_now.hour = 11
+            mock_now.strftime.return_value = "11:30"
+            mock_dt.now.return_value = mock_now
+            assert MarketPhase.classify() == MarketPhase.LUNCH
+
+    def test_lunch_to_afternoon_boundary(self):
+        """13:00是午盘开始"""
+        from nodes.market_monitor.scanner import MarketPhase
+        with patch('nodes.market_monitor.market_phase.datetime') as mock_dt:
+            mock_now = MagicMock()
+            mock_now.weekday.return_value = 0
+            mock_now.hour = 13
+            mock_now.strftime.return_value = "13:00"
+            mock_dt.now.return_value = mock_now
+            assert MarketPhase.classify() == MarketPhase.AFTERNOON
+
+    def test_afternoon_to_late_trading_boundary(self):
+        """14:30是尾盘开始"""
+        from nodes.market_monitor.scanner import MarketPhase
+        with patch('nodes.market_monitor.market_phase.datetime') as mock_dt:
+            mock_now = MagicMock()
+            mock_now.weekday.return_value = 0
+            mock_now.hour = 14
+            mock_now.strftime.return_value = "14:30"
+            mock_dt.now.return_value = mock_now
+            assert MarketPhase.classify() == MarketPhase.LATE_TRADING
 
     def test_auction_start_boundary(self):
         """9:25是竞价时间"""

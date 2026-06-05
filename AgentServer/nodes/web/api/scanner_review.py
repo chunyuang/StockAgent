@@ -1398,6 +1398,7 @@ async def review_monthly(date: str = None):
             "behavior_drift": {
                 "stop_loss_execution_rate": round(min(stop_loss_at_loss, loss_sells)/max(loss_sells,1)*100,1),
                 "stop_loss_at_loss": stop_loss_at_loss, "stop_loss_at_profit": stop_loss_at_profit,
+                "stop_loss_triggered": stop_loss_sells,  # 止损触发笔数(含盈利时追踪止损)
                 "loss_sells": loss_sells,
                 "bearish_period_buy_ratio": round(bearish_buys/max(len(buys),1)*100,1),
                 "bearish_buys": bearish_buys, "total_buys": len(buys),

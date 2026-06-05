@@ -54,7 +54,7 @@ class ScanLoopRunner:
                 if phase == MarketPhase.WEEKEND:
                     await self._handle_weekend_phase(trade_date)
 
-                elif phase == MarketPhase.TRADING:
+                elif MarketPhase.is_in_trading(phase):
                     settled = False
                     did_full_scan = await self._scan_loop_trading(trade_date, last_full_scan)
                     if did_full_scan:
@@ -132,9 +132,24 @@ class ScanLoopRunner:
         Returns: True=全量扫描完成(更新last_full_scan), False=等待中
 
         【v2.9.54:scan_once异常不向上传播,返回False让主循环继续】
+        【v2.9.70:尾盘(14:30+)禁止新开仓,只做持仓检查】
         """
         self._restart_risk_thread_if_dead()
         await self._try_recover_quote_source()
+
+        # 尾盘只做持仓检查,不做全量扫描(避免新开仓)
+        phase = MarketPhase.classify()
+        if phase == MarketPhase.LATE_TRADING:
+            try:
+                realtime_data = await self._fetch_realtime_batch()
+                await self._check_positions(realtime_data, trade_date)
+                self._sync_broker_prices(realtime_data)
+                await asyncio.sleep(3)
+                return False
+            except Exception as e:
+                logger.error(f"[SCAN_LATE] 尾盘持仓检查异常: {e}")
+                await asyncio.sleep(5)
+                return False
 
         elapsed = time.time() - last_full_scan
         if elapsed >= self.SCAN_INTERVAL:
