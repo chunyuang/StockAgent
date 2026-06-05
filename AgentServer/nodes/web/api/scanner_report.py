@@ -126,6 +126,28 @@ async def get_daily_report():
                 today_trades[side] = today_trades.get(side, 0) + 1
                 today_trades["total_amount"] += doc.get("filled_price", 0) * doc.get("filled_qty", 0)
         
+        # 情绪环境(funnel+sentiment for daily report)
+        funnel_summary = None
+        sentiment_snapshot = None
+        try:
+            if await scanner._broker._ensure_mongo():
+                db2 = scanner._broker._mongo_db
+                # funnel
+                from collections import defaultdict as _dd2
+                funnel_agg = _dd2(lambda: {"total_input": 0, "total_rejected": 0})
+                async for doc in db2["scan_traces"].find({"trade_date": today}, {"summary": 1}):
+                    for layer_name, layer_data in (doc.get("summary") or {}).items():
+                        if isinstance(layer_data, dict) and layer_data.get("rejected", 0) > 0:
+                            funnel_agg[layer_name]["total_input"] += layer_data.get("total", 0)
+                            funnel_agg[layer_name]["total_rejected"] += layer_data.get("rejected", 0)
+                funnel_summary = {k: dict(v) for k, v in funnel_agg.items()} or None
+                # sentiment
+                sent_doc = await db2["sentiment_scores"].find_one({"trade_date": int(today)})
+                if sent_doc:
+                    sentiment_snapshot = f"{sent_doc.get('period', '')} {sent_doc.get('score', 0)}分"
+        except Exception:
+            pass
+
         report = {
             "date": datetime.now().strftime("%Y-%m-%d"),
             "account": {
@@ -158,6 +180,8 @@ async def get_daily_report():
                 "today_losses": cb.get("today_losses", 0),
             },
             "scanner_stats": stats,
+            "funnel_summary": funnel_summary,
+            "sentiment_snapshot": sentiment_snapshot,
         }
         
         return {"success": True, "data": report}

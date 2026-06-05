@@ -73,7 +73,7 @@ async def backtest_compare(date: str = None):
                 if isinstance(raw_summary, dict) and "error" not in raw_summary:
                     # 有strategy_results时, 拆分到每个策略
                     sr = raw_summary.get("strategy_results", {})
-                    cn_to_en = {"半路追涨":"halfway_chase","涨停开板":"first_limit_up","跌停翘板":"limit_down_qiao","首板打板":"first_limit_up","龙头低吸":"dragon_head"}
+                    cn_to_en = {"半路追涨":"halfway_chase","涨停开板":"limit_up_open","跌停翘板":"limit_down_qiao","首板打板":"first_limit_up","龙头低吸":"dragon_head"}
                     if sr:
                         for cn_name, v in sr.items():
                             sid = cn_to_en.get(cn_name, cn_name)
@@ -137,7 +137,7 @@ async def backtest_compare(date: str = None):
                     with open(result_file, 'r') as f:
                         bt_data = json.load(f)
                     logger.info(f"[BACKTEST-COMPARE] loaded strategies: {list(bt_data.get('strategy_results',{}).keys())}")
-                    cn_to_en = {"半路追涨":"halfway_chase","涨停开板":"first_limit_up","跌停翘板":"limit_down_qiao","首板打板":"first_limit_up","龙头低吸":"dragon_head"}
+                    cn_to_en = {"半路追涨":"halfway_chase","涨停开板":"limit_up_open","跌停翘板":"limit_down_qiao","首板打板":"first_limit_up","龙头低吸":"dragon_head"}
                     for cn_name, v in bt_data.get("strategy_results",{}).items():
                         en_name = cn_to_en.get(cn_name, cn_name)
                         if en_name not in backtest_results:
@@ -352,28 +352,33 @@ async def get_review_hero(date: str = None):
 
         # 5. 纪律检查
         violations = []
-        # 冰点开仓
-        if sentiment_doc and sentiment_doc.get("period") in ["bearish", "chaos"] or (sentiment_score < 40 and buys):
+        # 统一情绪周期为英文(兼容中文存储)
+        _cn_to_en_period = {"高潮": "RISING", "分化": "DIFFERENTIATION", "震荡": "CHAOS", "冰点": "BEARISH"}
+        _en_to_cn_period = {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点"}
+        raw_period = sentiment_doc.get("period", "") if sentiment_doc else ""
+        # 如果存储的是中文,转为英文
+        if raw_period in _cn_to_en_period:
+            raw_period = _cn_to_en_period[raw_period]
+        cn_period = _en_to_cn_period.get(raw_period, raw_period)
+        # 冰点开仓(英文或中文都能匹配)
+        if sentiment_doc and raw_period in ["BEARISH", "bearish", "CHAOS", "chaos"] or (sentiment_score < 40 and buys):
             for b in buys:
                 violations.append({
                     "type": "冰点开仓", "severity": "high",
                     "ts_code": b.get("ts_code",""), "strategy": b.get("strategy",""),
-                    "detail": f"情绪{sentiment_score:.0f}分({sentiment_period})时买入{b.get('ts_code','')}"
+                    "detail": f"情绪{sentiment_score:.0f}分({cn_period})时买入{b.get('ts_code','')}"
                 })
         # 情绪不匹配(冰点做半路追涨)
-        period_map = {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点"}
-        strategy_period_fit = {"halfway_chase": ["RISING", "DIFFERENTIATION"], "first_limit_up": ["RISING"], "limit_down_qiao": ["RISING", "DIFFERENTIATION", "CHAOS"]}
+        strategy_period_fit = {"halfway_chase": ["RISING", "DIFFERENTIATION"], "first_limit_up": ["RISING"], "limit_down_qiao": ["RISING", "DIFFERENTIATION", "CHAOS"], "dragon_head": ["RISING", "DIFFERENTIATION"]}
         if sentiment_doc:
-            raw_period = sentiment_doc.get("period", "")
             for b in buys:
                 strat = b.get("strategy", "")
                 fit_periods = strategy_period_fit.get(strat, [])
                 if fit_periods and raw_period not in fit_periods:
-                    cn_period = period_map.get(raw_period, raw_period)
                     violations.append({
                         "type": "情绪不匹配", "severity": "medium",
                         "ts_code": b.get("ts_code",""), "strategy": strat,
-                        "detail": f"{cn_period}期做{strat}(适合{'+'.join(period_map.get(p,p) for p in fit_periods)})"
+                        "detail": f"{cn_period}期做{strat}(适合{'+'.join(_en_to_cn_period.get(p,p) for p in fit_periods)})"
                     })
         # 单日止损过多(≥3)
         stop_losses = [s for s in sells if "止损" in (s.get("reason","") or "") and "追踪" not in (s.get("reason","") or "")];
@@ -440,7 +445,7 @@ async def get_review_hero(date: str = None):
                 "alpha": round(total_pct - benchmark_pct, 2),
             },
             "sentiment": {
-                "period": sentiment_period,
+                "period": cn_period,
                 "score": sentiment_score,
             },
             "violations": violations,
@@ -475,7 +480,12 @@ async def get_discipline_check(date: str = None):
         raw_period = sentiment_doc.get("period","") if sentiment_doc else ""
         sentiment_score = sentiment_doc.get("score",50) if sentiment_doc else 50
 
-        # 策略-情绪适配规则
+        # 统一情绪周期为中文(兼容英文存储)
+        _en_to_cn_period = {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点"}
+        if raw_period in _en_to_cn_period:
+            raw_period = _en_to_cn_period[raw_period]  # 英文转中文
+
+        # 策略-情绪适配规则(统一用中文key)
         strategy_fit = {
             "halfway_chase": {"高潮": True, "分化": True, "震荡": False, "冰点": False},
             "first_limit_up": {"高潮": True, "分化": False, "震荡": False, "冰点": False},
@@ -495,7 +505,7 @@ async def get_discipline_check(date: str = None):
             is_fit = fit.get(raw_period, True)  # 未知策略默认合规
 
             # 冰点期禁止开仓
-            if raw_period in ["BEARISH", "冰点"]:
+            if raw_period in ["BEARISH", "冰点", "bearish"]:
                 violations.append({
                     "ts_code": doc.get("ts_code",""), "strategy": strat, "side": "buy",
                     "violation": "冰点期禁止开仓", "severity": "high",
@@ -568,6 +578,11 @@ async def get_review_forward(date: str = None):
         score = sentiment_doc.get("score",50) if sentiment_doc else 50
         period_map = {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点"}
         cn_period = period_map.get(raw_period, raw_period)
+        # 统一cn_period为中文(如果raw_period已经是中文则保持)
+        # period_map的value已经是中文,所以如果raw_period不在period_map中且是中文则直接用
+        _cn_periods = {"高潮", "分化", "震荡", "冰点"}
+        if raw_period in _cn_periods:
+            cn_period = raw_period
 
         # 2. 策略历史表现(近30天)
         from collections import defaultdict
@@ -813,8 +828,11 @@ async def deviation_attribution(date: str = None, start_date: str = None, end_da
             s_query["trade_date"] = int(sd)
         else:
             s_query["trade_date"] = {"$gte": int(sd), "$lte": int(ed)}
+        _en_to_cn = {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点"}
         async for doc in db["sentiment_scores"].find(s_query, {"trade_date":1, "score":1, "period":1}):
-            sentiment_map[str(doc.get("trade_date",""))] = {"score": doc.get("score",50), "period": doc.get("period","震荡")}
+            raw_p = doc.get("period", "震荡")
+            cn_p = _en_to_cn.get(raw_p, raw_p)  # 英文转中文,中文保持
+            sentiment_map[str(doc.get("trade_date",""))] = {"score": doc.get("score",50), "period": cn_p}
 
         # 4. 获取scan_traces(信号价格,用于滑点计算)
         scan_map = {}  # trade_date -> {ts_code -> {price, strategy}}
@@ -1296,8 +1314,11 @@ async def review_monthly(date: str = None):
 
         # 冰点期开仓
         sentiment_map = {}
+        _en_to_cn = {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点"}
         async for doc in db["sentiment_scores"].find({"trade_date":{"$gte":int(month_start),"$lte":int(last_day)}},{"trade_date":1,"period":1,"score":1}):
-            sentiment_map[str(doc.get("trade_date",""))] = {"period":doc.get("period",""),"score":doc.get("score",50)}
+            raw_p = doc.get("period","")
+            cn_p = _en_to_cn.get(raw_p, raw_p)
+            sentiment_map[str(doc.get("trade_date",""))] = {"period":cn_p,"score":doc.get("score",50)}
 
         bearish_buys = 0
         for b in buys:
@@ -1342,6 +1363,7 @@ async def review_monthly(date: str = None):
             sent = sentiment_map.get(td, {})
             daily_breakdown.append({
                 "date": td, "trades": len(ds), "buys": len(db_), "sells": len(ds),
+                "wins": d_wins,  # 原始胜笔数,供weekly_trend精确计算
                 "win_rate": round(d_wins / max(len(ds), 1) * 100, 1),
                 "pnl": round(d_pnl, 2),
                 "strategy_stats": {k: {"trades":v["trades"],"win_rate":round(v["wins"]/max(v["trades"],1)*100,1),"pnl":round(v["pnl"],2)} for k,v in d_strat.items()},
@@ -1361,14 +1383,11 @@ async def review_monthly(date: str = None):
             for wk, grp in _gb(daily_breakdown, key=_week_key):
                 g = list(grp)
                 w_trades = sum(d["trades"] for d in g)
-                w_wins = sum(1 for d in g for _ in range(d["trades"]) if False)  # approximate
+                w_wins = sum(d.get("wins", round(d["win_rate"]/100*d["trades"])) for d in g)  # 优先用原始wins
                 w_pnl = sum(d["pnl"] for d in g)
-                # Recalculate from daily win_rates
-                total_t = sum(d["trades"] for d in g)
-                total_w = sum(round(d["win_rate"]/100*d["trades"]) for d in g)
                 weekly_trend.append({
                     "week": wk, "start": g[0]["date"], "end": g[-1]["date"],
-                    "trades": total_t, "win_rate": round(total_w/max(total_t,1)*100,1),
+                    "trades": w_trades, "win_rate": round(w_wins/max(w_trades,1)*100,1),
                     "pnl": round(w_pnl, 2), "days": len(g),
                 })
 
@@ -1420,7 +1439,10 @@ async def factor_effectiveness(date: str = None):
             {"_id": 0, "trade_date": 1, "score": 1, "period": 1}
         ):
             td = str(doc.get("trade_date", ""))
-            sentiment_map[td] = {"score": doc.get("score", 50), "period": doc.get("period", "震荡")}
+            raw_p = doc.get("period", "震荡")
+            _en_to_cn = {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点"}
+            cn_p = _en_to_cn.get(raw_p, raw_p)
+            sentiment_map[td] = {"score": doc.get("score", 50), "period": cn_p}
 
         # 2. 加载scan_traces候选(含因子数据)
         factor_stats = {}  # factor_name -> {period -> {total, wins, avg_pnl}}
@@ -1583,11 +1605,15 @@ async def review_closed_loop(date: str = None):
 
         # 加载情绪
         sentiment_map = {}
+        _en_to_cn = {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点"}
         async for doc in db["sentiment_scores"].find(
             {"trade_date": {"$gte": start_d, "$lte": end_d}},
             {"_id": 0, "trade_date": 1, "score": 1, "period": 1}
         ):
             td = str(doc.get("trade_date", ""))
+            raw_p = doc.get("period", "")
+            cn_p = _en_to_cn.get(raw_p, raw_p)
+            doc["period"] = cn_p  # 统一为中文
             sentiment_map[td] = doc
 
         # 加载买卖数据
