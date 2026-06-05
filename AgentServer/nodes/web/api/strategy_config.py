@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from nodes.backtest_engine.strategy_defaults import (
     STRATEGY_CONFIGS, GLOBAL_RISK, STRATEGY_IDS,
     merge_strategy_params, merge_strategy_risk_params,
+    normalize_strategy_id, STRATEGY_ALIASES,
 )
 
 logger = logging.getLogger("api.strategy_config")
@@ -43,7 +44,7 @@ async def _ensure_overrides_loaded() -> None:
         from core.managers import mongo_manager
         if not mongo_manager.is_initialized:
             logger.debug("[CONFIG] MongoDB未初始化, 跳过覆盖参数加载")
-            _overrides_loaded = True  # MongoDB不可用是永久状态, 不重试
+            # 【修复】不设flag, 允许MongoDB后续初始化成功时重试加载
             return
         doc = await mongo_manager.db["scanner_config"].find_one({"_id": "strategy_config_overrides"})
         if doc and "data" in doc:
@@ -135,6 +136,7 @@ async def get_strategies():
 @router.get("/strategies/{strategy_id}")
 async def get_strategy(strategy_id: str):
     """获取单个策略配置"""
+    strategy_id = normalize_strategy_id(strategy_id)
     if strategy_id not in STRATEGY_CONFIGS:
         raise HTTPException(404, f"策略 {strategy_id} 不存在")
     cfg = await _get_effective_config(strategy_id)
@@ -144,6 +146,7 @@ async def get_strategy(strategy_id: str):
 @router.put("/strategies/{strategy_id}")
 async def update_strategy(strategy_id: str, req: StrategyParamUpdate):
     """更新策略参数/风控/启停(P1-9: 持久化到MongoDB)"""
+    strategy_id = normalize_strategy_id(strategy_id)
     if strategy_id not in STRATEGY_CONFIGS:
         raise HTTPException(404, f"策略 {strategy_id} 不存在")
 
@@ -230,6 +233,7 @@ async def update_global_risk(req: GlobalRiskUpdate):
 @router.post("/reset/{strategy_id}")
 async def reset_strategy(strategy_id: str):
     """重置策略为默认参数(P1-9: 同步清除MongoDB覆盖)"""
+    strategy_id = normalize_strategy_id(strategy_id)
     await _ensure_overrides_loaded()
     _override_params.pop(strategy_id, None)
     _override_risk.pop(strategy_id, None)
