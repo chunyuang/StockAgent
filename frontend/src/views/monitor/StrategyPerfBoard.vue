@@ -97,10 +97,10 @@ onUnmounted(() => clearInterval(timer))
             {{ s.name }}
           </td>
           <td :class="s.today_profit >= 0 ? 'up' : 'down'">
-            {{ s.today_profit >= 0 ? '+' : '' }}{{ (s.today_profit / 10000).toFixed(2) }}万
+            {{ s.today_profit >= 0 ? '+' : '' }}{{ ((s.today_profit || 0) / 10000).toFixed(2) }}万
           </td>
           <td :class="s.total_profit >= 0 ? 'up' : 'down'">
-            {{ s.total_profit >= 0 ? '+' : '' }}{{ (s.total_profit / 10000).toFixed(1) }}万
+            {{ s.total_profit >= 0 ? '+' : '' }}{{ ((s.total_profit || 0) / 10000).toFixed(1) }}万
           </td>
           <td>
             <span class="sp-wr" :class="s.win_rate >= 70 ? 'good' : s.win_rate >= 50 ? 'mid' : 'bad'">
