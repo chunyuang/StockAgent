@@ -120,7 +120,7 @@ onMounted(() => {
         <div class="pm-analysis-head">
           <span class="pm-analysis-icon">🧠</span>
           <span class="pm-analysis-title">盘前综合研判</span>
-          <span class="pm-analysis-date" v-if="premarketAnalysis.data_date">{{ premarketAnalysis.data_date.slice(4,6) }}/{{ premarketAnalysis.data_date.slice(6,8) }}数据</span>
+          <span class="pm-analysis-date" v-if="premarketAnalysis.data_date">{{ premarketAnalysis.data_date?.slice(4,6) }}/{{ premarketAnalysis.data_date?.slice(6,8) }}数据</span>
         </div>
         <div class="pm-conclusion" :class="premarketAnalysis.verdict">
           <span class="pm-verdict-icon">{{ premarketAnalysis.verdict === 'bullish' ? '🟢' : premarketAnalysis.verdict === 'bearish' ? '🔴' : '🟡' }}</span>

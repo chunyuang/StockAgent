@@ -150,10 +150,14 @@ export function useScanTraceMonitor() {
     return map[reason] || reason
   }
 
-  const rejectionLayerCN: Record<string, string> = {
+  const rejectionLayerCNMap: Record<string, string> = {
     L1_force_empty: '强制空仓', L2_special_period: '特殊时期', L3_sentiment: '情绪周期',
     L4_premarket: '盘前预选', L5_auction: '竞价过滤', L6_strategy: '策略量能',
     L7_ranking: '综合排序', L8_position: '仓位控制', L9_execute: '执行确认',
+  }
+  // 兼容模板函数调用: rejectionLayerCN('L1_force_empty')
+  function rejectionLayerCN(key: string): string {
+    return rejectionLayerCNMap[key] || key
   }
 
   const layerLabel = (k: string) => {
