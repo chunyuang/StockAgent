@@ -133,7 +133,10 @@ async def update_strategy_params(strategy_id: str, request: Request):
     修改后自动推送到Scanner, 回测和实盘共用同一参数源。
     """
     try:
-        body = await request.json()
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
         updates = body.get("params", {})
         comment = body.get("comment", "")
         updated_by = body.get("updated_by", "api")
@@ -198,7 +201,10 @@ async def validate_params_before_update(request: Request):
     Body: {strategy_id: str, params: {key: value, ...}}
     """
     try:
-        body = await request.json()
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
         strategy_id = body.get("strategy_id", "default")
         params = body.get("params", {})
         

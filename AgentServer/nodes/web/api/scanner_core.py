@@ -463,7 +463,10 @@ async def adjust_position_risk(ts_code: str, request: Request):
     覆盖策略默认值，仅对该持仓生效。
     """
     try:
-        body = await request.json()
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
         scanner = _get_scanner_instance()
         if not scanner:
             return {"success": False, "message": "Scanner未运行"}

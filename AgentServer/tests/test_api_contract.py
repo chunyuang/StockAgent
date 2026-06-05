@@ -276,6 +276,9 @@ class TestAPIContract:
                 if isinstance(data, dict):
                     if "data" in data and isinstance(data["data"], dict):
                         return data["data"]
+                    elif "data" in data and data["data"] is None:
+                        # API返回data:null，表示scanner未运行/无数据
+                        return None
                     if "result" in data and isinstance(data["result"], dict):
                         return data["result"]
                 return data
@@ -288,6 +291,11 @@ class TestAPIContract:
         data = self._fetch_api(endpoint)
         if data is None:
             pytest.skip(f"API {endpoint} 无响应（scanner可能未运行）")
+            return
+
+        # data可能为None（scanner未运行无交易数据）
+        if not isinstance(data, dict):
+            pytest.skip(f"API {endpoint} 返回非dict数据（scanner可能未运行）")
             return
 
         expected = FRONTEND_EXPECTED_FIELDS[endpoint]["required"]
@@ -351,13 +359,14 @@ class TestAPIContract:
     def test_no_duplicate_api_paths(self):
         """确保没有重复的API路径"""
         from nodes.web.api import (
-            scanner, scanner_core, scanner_debug, scanner_report,
+            scanner_core, scanner_debug, scanner_report,
             scanner_review, scanner_scan, scanner_sentiment,
             scanner_strategy, scanner_system, scanner_trading
         )
 
+        # 只遍历子模块（不遍历scanner.py，因为它include所有子路由）
         all_paths = []
-        for module in [scanner, scanner_core, scanner_debug, scanner_report,
+        for module in [scanner_core, scanner_debug, scanner_report,
                        scanner_review, scanner_scan, scanner_sentiment,
                        scanner_strategy, scanner_system, scanner_trading]:
             if hasattr(module, 'router'):

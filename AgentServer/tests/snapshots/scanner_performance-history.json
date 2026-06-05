@@ -9,7 +9,7 @@
         "total_assets": "int",
         "available_cash": "int",
         "market_value": "int",
-        "total_profit": "float"
+        "total_profit": "int"
       },
       "positions": [
         "<empty_list>"

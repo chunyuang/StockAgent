@@ -313,6 +313,9 @@ async def get_review_hero(date: str = None):
             latest = await db["broker_orders"].find_one({"side":"sell","status":"filled"}, sort=[("_id",-1)])
             date = latest.get("trade_date","") if latest else ""
 
+        if not date:
+            return {"success": True, "data": None, "message": "无交易数据"}
+
         # 1. 当日交易统计
         sells, buys = [], []
         async for doc in db["broker_orders"].find({"trade_date": date, "status": "filled"}):
@@ -463,6 +466,9 @@ async def get_discipline_check(date: str = None):
         if not date:
             latest = await db["broker_orders"].find_one({"side":"sell","status":"filled"}, sort=[("_id",-1)])
             date = latest.get("trade_date","") if latest else ""
+
+        if not date:
+            return {"success": True, "data": None, "message": "无交易数据"}
 
         # 情绪
         sentiment_doc = await db["sentiment_scores"].find_one({"trade_date": int(date)})
