@@ -1,0 +1,192 @@
+{
+  "strategy_comparisons": [
+    {
+      "strategy_id": "str",
+      "strategy_name": "str",
+      "live_params": {
+        "strategy_id": "str",
+        "name": "str",
+        "riskParams": {
+          "stop_loss_pct": "float",
+          "take_profit_pct": "float",
+          "max_hold_days": "int",
+          "hold_protection_threshold": "float",
+          "slippage_pct": "float",
+          "trailing_stop_pct": "float"
+        },
+        "filterConditions": {},
+        "maxHoldDays": "int",
+        "globalRisk": {
+          "stop_loss_pct": "float",
+          "take_profit_pct": "float",
+          "max_hold_days": "int",
+          "slippage_pct": "float",
+          "commission_rate": "float",
+          "stamp_duty_rate": "float",
+          "max_position_per_stock": "float",
+          "max_total_position": "float",
+          "liquidity_threshold": "int",
+          "volume_threshold": "float",
+          "force_empty_limit_down": "int",
+          "force_empty_limit_up": "int",
+          "force_empty_index_drop_pct": "float",
+          "force_empty_cooldown_days": "int",
+          "force_empty_cooldown_position_cap": "float",
+          "dragon_head_early_exit_days": "int",
+          "dragon_head_early_exit_min_profit": "float",
+          "intraday_lock_min_high_rise": "float",
+          "intraday_lock_pullback_pct": "float",
+          "intraday_lock_min_profit": "float",
+          "hold_protection_threshold": "float",
+          "live_trading_mode": "bool",
+          "risk_free_rate": "float"
+        },
+        "source": "str",
+        "imported_at": "str"
+      },
+      "backtest_params": {
+        "id": "str",
+        "name": "str",
+        "enabled": "bool",
+        "params": {
+          "min_consecutive_limit": "int",
+          "min_circulation_market_cap": "int",
+          "min_correction_pct": "float",
+          "max_correction_pct": "float",
+          "correction_days_min": "int",
+          "correction_days_max": "int",
+          "support_level": "str",
+          "min_volume_ratio": "float",
+          "max_volume_ratio": "float",
+          "next_day_open_sell_pct": "float",
+          "pullback_mid_fallback_pct": "float",
+          "pullback_profit_lock_threshold": "float",
+          "pullback_high_threshold": "float"
+        },
+        "riskParams": {
+          "stop_loss_pct": "float",
+          "take_profit_pct": "float",
+          "max_hold_days": "int",
+          "hold_protection_threshold": "float",
+          "slippage_pct": "float",
+          "trailing_stop_pct": "float"
+        }
+      },
+      "param_diffs": [
+        {
+          "key": "str",
+          "label": "str",
+          "live_value": {},
+          "backtest_value": "NoneType",
+          "diff": "bool"
+        }
+      ],
+      "drift_count": "int"
+    }
+  ],
+  "global_risk": {
+    "live": {
+      "stop_loss_pct": "float",
+      "take_profit_pct": "float",
+      "max_hold_days": "int",
+      "slippage_pct": "float",
+      "commission_rate": "float",
+      "stamp_duty_rate": "float",
+      "max_position_per_stock": "float",
+      "max_total_position": "float",
+      "liquidity_threshold": "int",
+      "volume_threshold": "float",
+      "force_empty_limit_down": "int",
+      "force_empty_limit_up": "int",
+      "force_empty_index_drop_pct": "float",
+      "force_empty_cooldown_days": "int",
+      "force_empty_cooldown_position_cap": "float",
+      "dragon_head_early_exit_days": "int",
+      "dragon_head_early_exit_min_profit": "float",
+      "intraday_lock_min_high_rise": "float",
+      "intraday_lock_pullback_pct": "float",
+      "intraday_lock_min_profit": "float",
+      "hold_protection_threshold": "float",
+      "live_trading_mode": "bool",
+      "risk_free_rate": "float"
+    },
+    "backtest": {
+      "stop_loss_pct": "float",
+      "take_profit_pct": "float",
+      "max_hold_days": "int",
+      "slippage_pct": "float",
+      "commission_rate": "float",
+      "stamp_duty_rate": "float",
+      "max_position_per_stock": "float",
+      "max_total_position": "float",
+      "liquidity_threshold": "int",
+      "volume_threshold": "float",
+      "force_empty_limit_down": "int",
+      "force_empty_limit_up": "int",
+      "force_empty_index_drop_pct": "float",
+      "force_empty_cooldown_days": "int",
+      "force_empty_cooldown_position_cap": "float",
+      "dragon_head_early_exit_days": "int",
+      "dragon_head_early_exit_min_profit": "float",
+      "intraday_lock_min_high_rise": "float",
+      "intraday_lock_pullback_pct": "float",
+      "intraday_lock_min_profit": "float",
+      "hold_protection_threshold": "float",
+      "live_trading_mode": "bool",
+      "risk_free_rate": "float",
+      "sentiment_position_map": {
+        "rising": "float",
+        "differentiation": "float",
+        "chaos": "float",
+        "bearish": "float"
+      },
+      "sentiment_thresholds": {
+        "rising": "int",
+        "differentiation": "int",
+        "chaos": "int"
+      }
+    },
+    "diffs": [
+      "<empty_list>"
+    ],
+    "sames": [
+      {
+        "key": "str",
+        "label": "str",
+        "live_value": "float",
+        "backtest_value": "float",
+        "diff": "bool",
+        "missing_in_live": "bool"
+      }
+    ],
+    "labels": {
+      "stop_loss_pct": "str",
+      "take_profit_pct": "str",
+      "max_hold_days": "str",
+      "slippage_pct": "str",
+      "commission_rate": "str",
+      "stamp_duty_rate": "str",
+      "max_position_per_stock": "str",
+      "max_total_position": "str",
+      "liquidity_threshold": "str",
+      "volume_threshold": "str",
+      "force_empty_limit_down": "str",
+      "force_empty_limit_up": "str",
+      "force_empty_index_drop_pct": "str",
+      "force_empty_cooldown_days": "str",
+      "force_empty_cooldown_position_cap": "str",
+      "dragon_head_early_exit_days": "str",
+      "dragon_head_early_exit_min_profit": "str",
+      "intraday_lock_min_high_rise": "str",
+      "intraday_lock_pullback_pct": "str",
+      "intraday_lock_min_profit": "str",
+      "hold_protection_threshold": "str",
+      "live_trading_mode": "str",
+      "risk_free_rate": "str"
+    }
+  },
+  "drifts_detected": [
+    "<empty_list>"
+  ],
+  "drift_count": "int"
+}

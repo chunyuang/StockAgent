@@ -1,0 +1,19 @@
+{
+  "positions": [
+    "<empty_list>"
+  ],
+  "global": {
+    "total_assets": "int",
+    "cash_ratio": "float",
+    "position_ratio": "float",
+    "max_single_pct": "int",
+    "top_industry_concentration": "int",
+    "industry_exposure": {},
+    "position_count": "int",
+    "risk_summary": {
+      "normal": "int",
+      "warning": "int",
+      "critical": "int"
+    }
+  }
+}
