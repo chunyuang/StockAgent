@@ -7,14 +7,14 @@
  */
 import { computed, onMounted } from 'vue'
 import { useScannerMonitorInject } from './scannerMonitorInject'
-import { ElButton, ElTag } from 'element-plus'
+import { ElButton, ElTag, ElDatePicker } from 'element-plus'
 
 const m = useScannerMonitorInject()
 
 // 解构需要的变量
 const {
   premarketStatus, premarketCandidates, premarketSignals,
-  premarketDebugMode, premarketDebugUserToggled, premarketGroupMode, premarketGroupExpanded,
+  premarketDebugMode, premarketDebugUserToggled, premarketDate, premarketGroupMode, premarketGroupExpanded,
   premarketAnalysis, premarketBlockedReasons, premarketFunnel,
   premarketHitRate, premarketLimitPools, premarketMarketSnapshot,
   premarketPositionGaps, premarketSentiment, premarketStrategyGroups,
@@ -50,6 +50,7 @@ onMounted(() => {
           <div class="pm-status-sub">{{ premarketDebugMode ? '最近交易日数据 · 不影响实盘' : premarketCandidates.length + '只候选 · ' + premarketStrategyGroups.length + '个策略' }}</div>
         </div>
         <div class="pm-status-actions">
+          <ElDatePicker v-model="premarketDate" type="date" size="small" value-format="YYYY-MM-DD" style="width:130px" @change="fetchPremarketData" />
           <ElButton size="small" @click="fetchPremarketData">🔄</ElButton>
           <button :class="['pm-mode-btn', premarketDebugMode ? 'active' : '']" @click="premarketDebugMode = !premarketDebugMode; premarketDebugUserToggled = true; fetchPremarketData()" title="用日级因子模拟盘前预选(非交易时间可用)">🧪 调试</button>
           <button :class="['pm-mode-btn', premarketGroupMode === 'strategy' ? 'active' : '']" @click="premarketGroupMode = 'strategy'">按策略</button>

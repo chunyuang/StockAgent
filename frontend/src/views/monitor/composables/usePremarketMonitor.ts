@@ -21,6 +21,8 @@ export function usePremarketMonitor() {
   const premarketDebugMode = ref(false)
   // 追踪用户是否手动切换过debug，防止自动重开
   const premarketDebugUserToggled = ref(false)
+  // 盘前日期选择(默认今天)
+  const premarketDate = ref(new Date().toISOString().slice(0, 10))
   const premarketGroupMode = ref<'strategy' | 'industry' | 'list'>('strategy')
   const premarketGroupExpanded = ref<Record<string, boolean>>({})
   const premarketAnalysis = ref<any>(null)
@@ -39,7 +41,8 @@ export function usePremarketMonitor() {
     try {
       // 只有用户未手动关闭且在非交易时间才自动用debug模式
       const useDebug = premarketDebugMode.value || (isNonTradingHours() && !premarketDebugUserToggled.value)
-      const url = useDebug ? `${scannerApi}/debug/premarket-sim` : `${scannerApi}/premarket-status`
+      const dateParam = premarketDate.value ? `&date=${premarketDate.value.replace(/-/g, '')}` : ''
+      const url = useDebug ? `${scannerApi}/debug/premarket-sim?${dateParam.slice(1)}` : `${scannerApi}/premarket-status${dateParam ? '?' + dateParam.slice(1) : ''}`
       const r = await api.get(url)
       const p = parseResponse(r)
       if (p.success && p.data) {
@@ -78,7 +81,7 @@ export function usePremarketMonitor() {
   return {
     // 状态
     premarketSignals, premarketStatus, premarketCandidates,
-    premarketDebugMode, premarketDebugUserToggled, premarketGroupMode, premarketGroupExpanded,
+    premarketDebugMode, premarketDebugUserToggled, premarketDate, premarketGroupMode, premarketGroupExpanded,
     premarketAnalysis, premarketBlockedReasons, premarketFunnel,
     premarketHitRate, premarketLimitPools, premarketMarketSnapshot,
     premarketPositionGaps, premarketSentiment, premarketStrategyGroups,
