@@ -315,7 +315,7 @@ const {
             <div class="td2-chain-title">📍 追踪止损</div>
             <div class="td2-grid">
               <div class="td2-card sm"><div class="td2-label">状态</div><div class="td2-val" :class="tradeDetailData.position.trailing_stop.activated ? 'up' : ''">{{ tradeDetailData.position.trailing_stop.activated ? '✅已激活' : '⏸未激活' }}</div></div>
-              <div class="td2-card sm"><div class="td2-label">比例</div><div class="td2-val">{{ (tradeDetailData.position.trailing_stop.trailing_stop_pct * 100).toFixed(1) }}%</div></div>
+              <div class="td2-card sm"><div class="td2-label">比例</div><div class="td2-val">{{ (tradeDetailData.position.trailing_stop?.trailing_stop_pct * 100).toFixed(1) }}%</div></div>
               <div class="td2-card sm"><div class="td2-label">最高价</div><div class="td2-val">¥{{ tradeDetailData.position.trailing_stop.high_price?.toFixed(2) }}</div></div>
               <div class="td2-card sm"><div class="td2-label">止损价</div><div class="td2-val text-stock-up">¥{{ tradeDetailData.position.trailing_stop.stop_price?.toFixed(2) }}</div></div>
             </div>

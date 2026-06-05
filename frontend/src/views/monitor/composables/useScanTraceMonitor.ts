@@ -37,8 +37,9 @@ export function useScanTraceMonitor() {
       if (!hourMap.has(hour)) hourMap.set(hour, [])
       hourMap.get(hour)!.push(s)
     }
-    const hours = [...hourMap.keys()].sort()
-    const latestHour = hours[hours.length - 1]
+    // 降序排列: 最新时段在最上面
+    const hours = [...hourMap.keys()].sort((a, b) => b.localeCompare(a))
+    const latestHour = hours[0]  // 降序后第一个就是最新
     return hours.map(h => ({
       hour: h,
       items: hourMap.get(h) || [],
@@ -79,6 +80,8 @@ export function useScanTraceMonitor() {
     scanHistoryLoading.value = true
     scanTraceDetail.value = null
     selectedScanIdx.value = -1
+    // 切换日期时重置折叠状态, 避免旧状态残留
+    scanHourCollapse.value = {}
     try {
       const r = await api.get(`${scannerApi}/scan-traces?limit=200&date=${scanTraceDate.value.replace(/-/g, '')}`, { timeout: 15000 })
       const p = parseResponse(r)

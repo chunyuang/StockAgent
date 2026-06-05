@@ -34,12 +34,14 @@ export function usePremarketMonitor() {
   // ==================== API ====================
   async function fetchPremarketData() {
     try {
-      const url = premarketDebugMode.value ? `${scannerApi}/debug/premarket-sim` : `${scannerApi}/premarket-status`
+      // 非交易时间直接走debug模式,避免双请求
+      const useDebug = premarketDebugMode.value || isNonTradingHours()
+      const url = useDebug ? `${scannerApi}/debug/premarket-sim` : `${scannerApi}/premarket-status`
       const r = await api.get(url)
       const p = parseResponse(r)
       if (p.success && p.data) {
         premarketSignals.value = p.data.auction_signals || []
-        premarketStatus.value = premarketDebugMode.value ? 'debug' : (p.data.status || 'off')
+        premarketStatus.value = p.data.status || 'off'
         premarketCandidates.value = p.data.candidates || []
         auctionTopGainers.value = p.data.top_gainers || []
         premarketMarketSnapshot.value = p.data.market_snapshot || {}
@@ -52,13 +54,21 @@ export function usePremarketMonitor() {
         premarketPositionGaps.value = p.data.position_gaps || []
         premarketAnalysis.value = p.data.analysis || null
 
-        // 非交易时间自动回退到调试模式,显示最近交易日盘前数据
+        // 非交易时间自动标记为debug模式
         if (!premarketDebugMode.value && premarketStatus.value === 'off') {
           premarketDebugMode.value = true
-          return fetchPremarketData()  // 重新获取调试数据
         }
       }
     } catch { /* ignore */ }
+  }
+
+  /** 判断当前是否非交易时间(盘前9:00之前、盘后15:30之后、周末) */
+  function isNonTradingHours(): boolean {
+    const now = new Date()
+    const day = now.getDay()
+    const hhmm = now.getHours() * 100 + now.getMinutes()
+    // 周末 或 9:00前 或 15:30后
+    return day === 0 || day === 6 || hhmm < 900 || hhmm >= 1530
   }
 
   return {

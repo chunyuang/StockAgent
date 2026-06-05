@@ -131,7 +131,7 @@ def _fix_funnel_summary(doc: dict):
     
     layers = ["L1_force_empty", "L2_special_period", "L3_sentiment", 
               "L4_premarket", "L5_auction", "L6_strategy",
-              "L7_ranking", "L8_position"]
+              "L7_ranking", "L8_position", "L9_execute"]
     
     # 先清理None值(旧数据可能没有input/output字段)
     for layer in layers:
@@ -185,7 +185,7 @@ async def get_scan_trace_dates():
                 "count": {"$sum": 1},
                 "is_debug": {"$max": {"$cond": [{"$eq": ["$is_debug", True]}, True, False]}}
             }},
-            {"$sort": {"_id": 1}}
+            {"$sort": {"_id": -1}}
         ]
         results = await mongo_manager.db["scan_traces"].aggregate(pipeline).to_list(None)
         dates = [{"date": r["_id"], "count": r["count"], "is_debug": r.get("is_debug", False)} for r in results]

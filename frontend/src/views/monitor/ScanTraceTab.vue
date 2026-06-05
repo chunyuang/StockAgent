@@ -31,7 +31,8 @@ const scanTraceCode = computed(() => unref((m as any).scanTraceCode))
 onMounted(async () => {
   const dates = await fetchScanTraceDates()
   if (!scanTraceDate.value && dates?.length) {
-    const latestDate = dates[0]?.date || dates[0]  // {date: '20260526'} or '20260526'
+    // scan-dates返回降序(最新在前), 取第一个作为最新交易日
+    const latestDate = dates[0]?.date || dates[0]
     scanTraceDate.value = String(latestDate).replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3')
     fetchScanHistory()
   }
@@ -58,7 +59,7 @@ onMounted(async () => {
               <span class="sc-hour-toggle">{{ group.collapsed ? '▶' : '▽' }}</span>
               <span class="sc-hour-label">{{ group.hour }}:00</span>
               <span class="sc-hour-count">{{ group.items.length }}条</span>
-              <span v-if="group.collapsed" class="sc-hour-summary">最新 {{ group.items[group.items.length-1]?.summary?.passed || 0 }}只通过</span>
+              <span v-if="group.collapsed" class="sc-hour-summary">最新 {{ group.items[0]?.summary?.passed || 0 }}只通过</span>
             </div>
             <div v-show="!group.collapsed" class="scan-strip">
               <div v-for="(s, i) in group.items" :key="group.hour + '-' + i" class="scan-chip" :class="{ active: selectedScanIdx === scanHistory.indexOf(s), debug: s.is_debug }" @click="selectedScanIdx = scanHistory.indexOf(s); fetchScanTrace(s.scan_id || '')">

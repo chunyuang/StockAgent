@@ -324,9 +324,28 @@ async def debug_premarket_sim():
             funnel = {"total_scanned": len(docs), "strategy_candidates": len(candidates),
                        "after_pipeline": len(candidates), "blocked": 0, "executed": 0}
             
-            # 涨停池
+            # 涨停池 - 从日线数据构建
+            limit_up_list = []
+            limit_down_list = []
+            continue_stats = {}  # 连板统计(离线模式暂无法计算)
+            sector_heat = []  # 板块热力(离线模式暂无法计算)
+            if 'pct_chg' in df.columns:
+                zt_df = df[df['pct_chg'] >= 9.9]
+                for _, row in zt_df.nlargest(20, 'pct_chg').iterrows():
+                    limit_up_list.append({
+                        "ts_code": row.get('ts_code', ''), "name": name_map.get(row.get('ts_code', ''), ''),
+                        "pct_chg": round(row.get('pct_chg', 0), 2), "open_times": 0,
+                    })
+                dt_df = df[df['pct_chg'] <= -9.9]
+                for _, row in dt_df.nlargest(10, 'pct_chg').iterrows():
+                    limit_down_list.append({
+                        "ts_code": row.get('ts_code', ''), "name": name_map.get(row.get('ts_code', ''), ''),
+                        "pct_chg": round(row.get('pct_chg', 0), 2),
+                    })
+            
             limit_pools = {"up_count": market_snapshot["limit_up_count"], "down_count": market_snapshot["limit_down_count"],
-                "continue_stats": {}, "sector_heat": [], "limit_up_list": [], "limit_down_list": []}
+                "continue_stats": continue_stats, "sector_heat": sector_heat,
+                "limit_up_list": limit_up_list, "limit_down_list": limit_down_list}
             
             result_data = {
                 "status": "debug", "market_snapshot": market_snapshot, "sentiment": sentiment,
