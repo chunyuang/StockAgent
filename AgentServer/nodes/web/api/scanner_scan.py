@@ -593,7 +593,9 @@ async def get_premarket_status(date: str = None):
                 sentiment = {"score": scanner._current_sentiment.get("score", 50),
                              "period": scanner._current_sentiment.get("period", "chaos"),
                              "position_ratio": scanner._current_position_ratio or 0.5,
-                             "phase_name": {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点"}.get(scanner._current_sentiment.get("period", ""), "震荡")}
+                             "phase_name": {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点",
+                                              "rising": "高潮", "differentiation": "分化", "chaos": "震荡", "bearish": "冰点",
+                                              "高潮": "高潮", "分化": "分化", "震荡": "震荡", "冰点": "冰点"}.get(scanner._current_sentiment.get("period", ""), "震荡")}
         except Exception:
             pass
         
@@ -601,10 +603,11 @@ async def get_premarket_status(date: str = None):
         candidates = []
         strategy_map = {}  # strategy -> [candidates]
         for sig in scanner._active_signals:
+            s = sig.strategy or "system_force"
             c = {
                 "ts_code": sig.ts_code,
                 "stock_name": sig.stock_name or (scanner._stock_name_map.get(sig.ts_code, "") if hasattr(scanner, '_stock_name_map') else ""),
-                "strategy": sig.strategy,
+                "strategy": s,
                 "pct_chg": sig.pct_chg or 0,
                 "auction_pct": sig.factors.get('auction_pct'),
                 "volume_ratio": sig.factors.get('volume_ratio', 0),
@@ -613,7 +616,6 @@ async def get_premarket_status(date: str = None):
                 "reason": sig.reason[:80] if sig.reason else '',
             }
             candidates.append(c)
-            s = sig.strategy
             if s not in strategy_map:
                 strategy_map[s] = []
             strategy_map[s].append(c)

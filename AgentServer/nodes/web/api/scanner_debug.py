@@ -280,6 +280,8 @@ async def debug_premarket_sim(date: str = None):
                     raw_period = ss.get("period", "chaos")
                     period_map = {"RISING": "高潮", "DIFFERENTIATION": "分化",
                                   "CHAOS": "震荡", "BEARISH": "冰点",
+                                  "rising": "高潮", "differentiation": "分化",
+                                  "chaos": "震荡", "bearish": "冰点",
                                   "高潮": "高潮", "分化": "分化", "震荡": "震荡", "冰点": "冰点"}
                     sentiment = {"score": ss.get("score", 50), "period": raw_period,
                                  "position_ratio": ss.get("position_ratio", 0.5),
@@ -418,6 +420,10 @@ async def debug_premarket_sim(date: str = None):
     sentiment = {"score": 50, "period": "chaos", "position_ratio": 0.5, "phase_name": "震荡"}
     _period_map = {"RISING": "高潮", "DIFFERENTIATION": "分化",
                      "CHAOS": "震荡", "BEARISH": "冰点",
+                     # 小写英文(来自live_filter_pipeline._calc_sentiment)
+                     "rising": "高潮", "differentiation": "分化",
+                     "chaos": "震荡", "bearish": "冰点",
+                     # 中文(来自emotion_cycle_manager._persist_sentiment_score)
                      "高潮": "高潮", "分化": "分化", "震荡": "震荡", "冰点": "冰点"}
     try:
         if hasattr(scanner, '_current_sentiment') and scanner._current_sentiment:
@@ -443,16 +449,17 @@ async def debug_premarket_sim(date: str = None):
     blocked_reasons = {}  # 被block的原因统计
     
     for sig in scanner._active_signals:
+        s = sig.strategy or "system_force"
         c = {"ts_code": sig.ts_code,
              "stock_name": sig.stock_name or (scanner._stock_name_map.get(sig.ts_code, "") if hasattr(scanner, '_stock_name_map') else ""),
-             "strategy": sig.strategy,
+             "strategy": s,
              "pct_chg": sig.pct_chg or 0,
              "volume_ratio": sig.factors.get('volume_ratio', 0),
              "turnover_rate": sig.factors.get('turnover_rate', 0),
              "signal_status": sig.signal_status,
              "reason": sig.reason[:80] if sig.reason else '',}
         candidates.append(c)
-        strategy_map.setdefault(sig.strategy, []).append(c)
+        strategy_map.setdefault(s, []).append(c)
         
         # 统计blocked原因
         if sig.signal_status in ('blocked', 'skipped') and sig.reason:
