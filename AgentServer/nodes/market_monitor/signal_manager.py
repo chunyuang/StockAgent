@@ -292,6 +292,8 @@ class SignalManager:
             return
 
         adjusted_price = self._apply_buy_slippage(sig, shares)
+        # 【v2.9.80修复】用滑点调整价更新broker实时价格, 使撮合更接近真实成交
+        self.broker.update_realtime(sig.ts_code, adjusted_price)
         ok, msg, order = self.broker.place_order(
             ts_code=sig.ts_code, stock_name=sig.stock_name,
             side="buy", quantity=shares, price=sig.price,
