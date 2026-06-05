@@ -149,7 +149,7 @@ const pipelineLayerDefs = [
 const pipelineLayers = computed(() =>
   pipelineLayerDefs.map(def => {
     const s = currentTrace.value?.summary?.[def.key]
-    return { ...def, passed: s?.passed || 0, rejected: s?.rejected || 0 }
+    return { ...def, passed: s?.passed || 0, rejected: s?.rejected || 0, input: s?.input || 0, output: s?.output || 0 }
   })
 )
 

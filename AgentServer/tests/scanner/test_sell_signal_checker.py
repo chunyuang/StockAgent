@@ -219,7 +219,7 @@ class TestQuoteManager:
         assert qm.degrade_desc == "正常"
         
         qm._quote_degrade_level = 1
-        assert qm.degrade_desc == "东财降级"
+        assert qm.degrade_desc == "东财降级(用缓存)"
         
         qm._quote_degrade_level = 2
         assert qm.degrade_desc == "日线缓存"
