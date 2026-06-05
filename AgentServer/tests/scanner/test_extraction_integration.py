@@ -272,11 +272,11 @@ class TestScannerInit:
         assert hasattr(scanner, '_nav_peak')
         assert scanner._nav_peak == 1.0
 
-    def test_state_lock_not_none_after_check(self):
-        """_state_lock在start前为None"""
+    def test_state_lock_initialized_in_init(self):
+        """_state_lock在__init__时就已初始化(v2.9.79+)"""
         from nodes.market_monitor.scanner import MarketScanner
         scanner = MarketScanner(account_id="test_init")
-        assert scanner._state_lock is None  # start时才初始化
+        assert scanner._state_lock is not None  # _init_state()中提前初始化
 
 
 # ==================== 回测不受影响 ====================
