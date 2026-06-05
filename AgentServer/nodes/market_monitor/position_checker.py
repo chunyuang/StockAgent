@@ -736,6 +736,8 @@ class PositionChecker:
             if price <= 0:
                 continue
             
+            if pos.avg_cost <= 0:
+                continue
             profit_pct = (price - pos.avg_cost) / pos.avg_cost
             if profit_pct > trailing_pct * 2:
                 with self.state_lock:
