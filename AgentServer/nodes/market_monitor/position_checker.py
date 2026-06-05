@@ -651,11 +651,8 @@ class PositionChecker:
         logger.warning(f"[{source.upper()}] 跌停不可卖: {pos.ts_code} {pos.stock_name}")
 
     def _place_sell_order(self, pos, reason: str, force_price, risk: Dict) -> Optional[Dict]:
-        """下单卖出并返回(ok, msg, order, sell_info)【v2.9.26提取】"""
+        """下单卖出并返回(ok, msg, order, sell_info)【v2.9.26提取, v2.9.80:用实际成交价计算盈亏】"""
         sell_qty = pos.available_qty
-        sell_profit_pct = pos.profit_pct
-        sell_profit_amount = (pos.current_price - pos.avg_cost) * sell_qty
-        sell_avg_cost = pos.avg_cost
         sell_current_price = pos.current_price
         sell_price = force_price if force_price else sell_current_price
         self.broker.update_realtime(pos.ts_code, sell_price)
@@ -664,9 +661,17 @@ class PositionChecker:
             side="sell", quantity=sell_qty, price=sell_price,
             order_type="market", strategy=pos.strategy, reason=reason,
         )
+        # 【v2.9.80修复】用实际成交价(fill_price)计算盈亏,与broker.order对齐
+        # 之前用pos.current_price(决策价)与broker.fill_price(成交价)不一致
+        if ok and order and order.filled_price > 0:
+            sell_profit_pct = (order.filled_price - pos.avg_cost) / pos.avg_cost * 100 if pos.avg_cost > 0 else 0
+            sell_profit_amount = (order.filled_price - pos.avg_cost) * sell_qty
+        else:
+            sell_profit_pct = pos.profit_pct
+            sell_profit_amount = (pos.current_price - pos.avg_cost) * sell_qty
         sell_info = {
             "sell_qty": sell_qty, "sell_profit_pct": sell_profit_pct,
-            "sell_profit_amount": sell_profit_amount, "sell_avg_cost": sell_avg_cost,
+            "sell_profit_amount": sell_profit_amount, "sell_avg_cost": pos.avg_cost,
             "sell_current_price": sell_current_price, "risk": risk,
         }
         return ok, msg, order, sell_info
