@@ -70,23 +70,23 @@ const emit = defineEmits<{
       <div v-if="reviewHero" class="hero-banner" :class="reviewHero.conclusion_type">
         <div class="hero-conclusion">{{ reviewHero.conclusion }}</div>
         <div class="hero-meta">
-          <span v-if="reviewHero.benchmark" class="hero-bench">📊 {{ reviewHero.benchmark.name }} {{ reviewHero.benchmark.pct_chg >= 0 ? '+' : '' }}{{ reviewHero.benchmark.pct_chg }}%</span>
-          <span class="hero-alpha" :class="reviewHero.benchmark?.alpha >= 0 ? 'up' : 'down'">{{ reviewHero.benchmark?.alpha >= 0 ? '跑赢' : '落后' }} {{ Math.abs(reviewHero.benchmark?.alpha || 0) }}%</span>
+          <span v-if="reviewHero.benchmark" class="hero-bench">📊 {{ reviewHero.benchmark.name }} {{ (reviewHero.benchmark.pct_chg || 0) >= 0 ? '+' : '' }}{{ reviewHero.benchmark.pct_chg }}%</span>
+          <span v-if="reviewHero.benchmark" class="hero-alpha" :class="reviewHero.benchmark.alpha >= 0 ? 'up' : 'down'">{{ reviewHero.benchmark.alpha >= 0 ? '跑赢' : '落后' }} {{ Math.abs(reviewHero.benchmark.alpha || 0) }}%</span>
           <span class="hero-sentiment">🌡️ {{ reviewHero.sentiment?.period }} {{ reviewHero.sentiment?.score }}分</span>
         </div>
       </div>
 
       <!-- ============ 第2层: 核心仪表盘 ============ -->
       <div v-if="reviewHero" class="review-scorecard">
-        <div class="rsc"><div class="rsc-label">收益</div><div class="rsc-value" :class="reviewHero.metrics.total_pct >= 0 ? 'up' : 'down'">{{ reviewHero.metrics.total_pct >= 0 ? '+' : '' }}{{ reviewHero.metrics.total_pct }}%</div></div>
-        <div class="rsc"><div class="rsc-label">胜率</div><div class="rsc-value">{{ reviewHero.metrics.win_rate }}%</div></div>
-        <div class="rsc"><div class="rsc-label">交易</div><div class="rsc-value">{{ reviewHero.metrics.trades }}笔</div></div>
-        <div class="rsc"><div class="rsc-label">期望值</div><div class="rsc-value" :class="reviewHero.metrics.expectancy >= 0 ? 'up' : 'down'">{{ reviewHero.metrics.expectancy }}</div></div>
-        <div class="rsc"><div class="rsc-label">纪律分</div><div class="rsc-value" :class="reviewHero.metrics.discipline_score >= 80 ? 'up' : reviewHero.metrics.discipline_score >= 60 ? '' : 'down'">{{ reviewHero.metrics.discipline_score }}</div></div>
-        <div class="rsc"><div class="rsc-label">盈亏比</div><div class="rsc-value">{{ reviewHero.metrics.profit_loss_ratio }}</div></div>
-        <div class="rsc"><div class="rsc-label">止损</div><div class="rsc-value down">{{ reviewHero.metrics.stop_loss_count }}</div></div>
-        <div class="rsc"><div class="rsc-label">止盈</div><div class="rsc-value up">{{ reviewHero.metrics.take_profit_count }}</div></div>
-        <div class="rsc"><div class="rsc-label">连亏</div><div class="rsc-value" :class="reviewHero.metrics.max_consecutive_loss >= 3 ? 'down' : ''">{{ reviewHero.metrics.max_consecutive_loss }}笔</div></div>
+        <div class="rsc"><div class="rsc-label">收益</div><div class="rsc-value" :class="(reviewHero.metrics?.total_pct || 0) >= 0 ? 'up' : 'down'">{{ (reviewHero.metrics?.total_pct || 0) >= 0 ? '+' : '' }}{{ reviewHero.metrics?.total_pct ?? '-' }}%</div></div>
+        <div class="rsc"><div class="rsc-label">胜率</div><div class="rsc-value">{{ reviewHero.metrics?.win_rate ?? '-' }}%</div></div>
+        <div class="rsc"><div class="rsc-label">交易</div><div class="rsc-value">{{ reviewHero.metrics?.trades ?? '-' }}笔</div></div>
+        <div class="rsc"><div class="rsc-label">期望值</div><div class="rsc-value" :class="(reviewHero.metrics?.expectancy || 0) >= 0 ? 'up' : 'down'">{{ reviewHero.metrics?.expectancy ?? '-' }}</div></div>
+        <div class="rsc"><div class="rsc-label">纪律分</div><div class="rsc-value" :class="(reviewHero.metrics?.discipline_score || 0) >= 80 ? 'up' : (reviewHero.metrics?.discipline_score || 0) >= 60 ? '' : 'down'">{{ reviewHero.metrics?.discipline_score ?? '-' }}</div></div>
+        <div class="rsc"><div class="rsc-label">盈亏比</div><div class="rsc-value">{{ reviewHero.metrics?.profit_loss_ratio ?? '-' }}</div></div>
+        <div class="rsc"><div class="rsc-label">止损</div><div class="rsc-value down">{{ reviewHero.metrics?.stop_loss_count ?? 0 }}</div></div>
+        <div class="rsc"><div class="rsc-label">止盈</div><div class="rsc-value up">{{ reviewHero.metrics?.take_profit_count ?? 0 }}</div></div>
+        <div class="rsc"><div class="rsc-label">连亏</div><div class="rsc-value" :class="(reviewHero.metrics?.max_consecutive_loss || 0) >= 3 ? 'down' : ''">{{ reviewHero.metrics?.max_consecutive_loss ?? 0 }}笔</div></div>
       </div>
 
       <!-- ============ 第3层: 归因分析 ============ -->
@@ -118,8 +118,8 @@ const emit = defineEmits<{
             <span :class="(t.profit_pct || 0) >= 0 ? 'up' : 'down'" class="pct ml-auto">{{ (t.profit_pct || 0) >= 0 ? '+' : '' }}{{ (t.profit_pct || 0).toFixed(1) }}%</span>
           </div>
           <div class="attr-detail">
-            <div class="attr-row"><span>买入</span><span>¥{{ t.buy_price?.toFixed(2) }} {{ t.buy_time }}</span></div>
-            <div class="attr-row"><span>卖出</span><span>¥{{ t.sell_price?.toFixed(2) }} {{ t.sell_time }}</span></div>
+            <div class="attr-row"><span>买入</span><span>{{ t.buy_price ? '¥' + t.buy_price.toFixed(2) : '未知' }} {{ t.buy_time }}</span></div>
+            <div class="attr-row"><span>卖出</span><span>{{ t.sell_price ? '¥' + t.sell_price.toFixed(2) : '未知' }} {{ t.sell_time }}</span></div>
             <div class="attr-row"><span>原因</span><span>{{ t.sell_reason }}</span></div>
             <div class="attr-row" v-if="t.why_profit"><span class="up">赚在哪</span><span>{{ t.why_profit }}</span></div>
             <div class="attr-row" v-if="t.why_loss"><span class="down">亏在哪</span><span>{{ t.why_loss }}</span></div>
@@ -363,8 +363,8 @@ const emit = defineEmits<{
   <div v-if="weeklyReportData" class="wr">
     <div class="wr-sec"><div class="wr-t">💰 账户状态</div><div class="wr-g"><div class="wr-i"><span class="wr-l">总资产</span><span class="wr-v">{{ ((weeklyReportData?.account?.total_assets || 0) / 10000).toFixed(1) }}万</span></div><div class="wr-i"><span class="wr-l">累计盈亏</span><span class="wr-v" :class="(weeklyReportData?.account?.total_profit || 0) >= 0 ? 'up' : 'down'">{{ (weeklyReportData?.account?.total_profit || 0) >= 0 ? '+' : '' }}{{ (weeklyReportData?.account?.total_profit || 0).toFixed(0) }}</span></div><div class="wr-i"><span class="wr-l">可用现金</span><span class="wr-v">{{ ((weeklyReportData?.account?.available_cash || 0) / 10000).toFixed(1) }}万</span></div></div></div>
     <div class="wr-sec"><div class="wr-t">📈 交易统计</div><div class="wr-g"><div class="wr-i"><span class="wr-l">交易日</span><span class="wr-v">{{ weeklyReportData.totals?.trading_days || 0 }}天</span></div><div class="wr-i"><span class="wr-l">买入</span><span class="wr-v">{{ weeklyReportData.totals?.total_buys || 0 }}笔</span></div><div class="wr-i"><span class="wr-l">卖出</span><span class="wr-v">{{ weeklyReportData.totals?.total_sells || 0 }}笔</span></div><div class="wr-i"><span class="wr-l">净流入</span><span class="wr-v" :class="weeklyReportData.totals?.net_flow >= 0 ? 'up' : 'down'">{{ (weeklyReportData.totals?.net_flow || 0).toFixed(0) }}</span></div></div></div>
-    <div class="wr-sec" v-if="weeklyReportData.strategy_summary"><div class="wr-t">📋 策略汇总</div><div v-for="(s, k) in weeklyReportData.strategy_summary" class="dr-p"><span>{{ strategyCN(k) }}</span><span>{{ s.trades }}笔</span><span :class="s.amount >= 0 ? 'up' : 'down'">¥{{ s.amount >= 0 ? '+' : '' }}{{ (s.amount || 0).toFixed(0) }}</span></div></div>
-    <div class="wr-sec" v-if="weeklyReportData.daily_stats"><div class="wr-t">📅 每日明细</div><div v-for="(stats, date) in weeklyReportData.daily_stats" class="wr-day"><span class="wr-date">{{ date }}</span><span>买{{ stats.buys }}卖{{ stats.sells }}</span><span :class="stats.sell_amount - stats.buy_amount >= 0 ? 'up' : 'down'">¥{{ ((stats.sell_amount || 0) - (stats.buy_amount || 0)).toFixed(0) }}</span></div></div>
+    <div class="dr-sec" v-if="weeklyReportData.strategy_summary"><div class="dr-t">📋 策略汇总</div><div v-for="(s, k) in weeklyReportData.strategy_summary" class="dr-p"><span>{{ strategyCN(k) }}</span><span>{{ s.trades }}笔</span><span :class="(s.amount || 0) >= 0 ? 'up' : 'down'">¥{{ (s.amount || 0) >= 0 ? '+' : '' }}{{ (s.amount || 0).toFixed(0) }}</span></div></div>
+    <div class="dr-sec" v-if="weeklyReportData.daily_stats"><div class="dr-t">📅 每日明细</div><div v-for="(stats, date) in weeklyReportData.daily_stats" class="wr-day"><span class="wr-date">{{ date }}</span><span>买{{ stats.buys }}卖{{ stats.sells }}</span><span :class="((stats.sell_amount || 0) - (stats.buy_amount || 0)) >= 0 ? 'up' : 'down'">¥{{ ((stats.sell_amount || 0) - (stats.buy_amount || 0)).toFixed(0) }}</span></div></div>
   </div>
   <div v-else class="empty">暂无周报数据</div>
 </ElDialog>
