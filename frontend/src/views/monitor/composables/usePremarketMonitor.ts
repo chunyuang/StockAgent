@@ -17,7 +17,10 @@ export function usePremarketMonitor() {
   const premarketStatus = ref<'waiting' | 'active' | 'ended' | 'off' | 'debug'>('off')
   const premarketCandidates = ref<any[]>([])
 
+  // 用户手动控制debug开关，不自动覆盖
   const premarketDebugMode = ref(false)
+  // 追踪用户是否手动切换过debug，防止自动重开
+  const premarketDebugUserToggled = ref(false)
   const premarketGroupMode = ref<'strategy' | 'industry' | 'list'>('strategy')
   const premarketGroupExpanded = ref<Record<string, boolean>>({})
   const premarketAnalysis = ref<any>(null)
@@ -34,8 +37,8 @@ export function usePremarketMonitor() {
   // ==================== API ====================
   async function fetchPremarketData() {
     try {
-      // 非交易时间直接走debug模式,避免双请求
-      const useDebug = premarketDebugMode.value || isNonTradingHours()
+      // 只有用户未手动关闭且在非交易时间才自动用debug模式
+      const useDebug = premarketDebugMode.value || (isNonTradingHours() && !premarketDebugUserToggled.value)
       const url = useDebug ? `${scannerApi}/debug/premarket-sim` : `${scannerApi}/premarket-status`
       const r = await api.get(url)
       const p = parseResponse(r)
@@ -54,8 +57,9 @@ export function usePremarketMonitor() {
         premarketPositionGaps.value = p.data.position_gaps || []
         premarketAnalysis.value = p.data.analysis || null
 
-        // 非交易时间自动标记为debug模式
-        if (!premarketDebugMode.value && premarketStatus.value === 'off') {
+        // 仅在初始加载(用户未手动切换)且非交易时间时自动开启debug
+        // 用户手动关闭后不再自动重开
+        if (!premarketDebugUserToggled.value && !premarketDebugMode.value && isNonTradingHours() && premarketStatus.value === 'off') {
           premarketDebugMode.value = true
         }
       }
@@ -74,7 +78,7 @@ export function usePremarketMonitor() {
   return {
     // 状态
     premarketSignals, premarketStatus, premarketCandidates,
-    premarketDebugMode, premarketGroupMode, premarketGroupExpanded,
+    premarketDebugMode, premarketDebugUserToggled, premarketGroupMode, premarketGroupExpanded,
     premarketAnalysis, premarketBlockedReasons, premarketFunnel,
     premarketHitRate, premarketLimitPools, premarketMarketSnapshot,
     premarketPositionGaps, premarketSentiment, premarketStrategyGroups,
