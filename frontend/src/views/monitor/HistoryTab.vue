@@ -67,8 +67,8 @@ const {
           <span class="code">{{ cp.ts_code }}</span><span class="name">{{ cp.stock_name }}</span>
           <span><ElTag size="small" :color="strategyMeta[cp.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="font-size:10px">{{ strategyCN(cp.strategy) }}</ElTag></span>
           <span>¥{{ cp.buy_price?.toFixed(2) }}</span><span>¥{{ cp.sell_price?.toFixed(2) }}</span>
-          <span :class="(cp.profit_amount || 0) >= 0 ? 'up' : 'down'">{{ (cp.profit_amount || 0) >= 0 ? '+' : '' }}¥{{ Math.abs(cp.profit_amount || 0).toFixed(0) }}</span>
-          <span :class="(cp.profit_pct || 0) >= 0 ? 'up' : 'down'" style="font-weight:600">{{ (cp.profit_pct || 0) >= 0 ? '+' : '' }}{{ (cp.profit_pct || 0).toFixed(1) }}%</span>
+          <span :class="(cp.profit_amount ?? 0) >= 0 ? 'up' : 'down'">{{ (cp.profit_amount ?? 0) >= 0 ? '+' : '' }}¥{{ Math.abs(cp.profit_amount ?? 0).toFixed(0) }}</span>
+          <span :class="(cp.profit_pct ?? 0) >= 0 ? 'up' : 'down'" style="font-weight:600">{{ (cp.profit_pct ?? 0) >= 0 ? '+' : '' }}{{ (cp.profit_pct ?? 0).toFixed(1) }}%</span>
         </div>
       </div>
 

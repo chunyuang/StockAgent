@@ -11,6 +11,7 @@ interface HealthDetail {
   data_sources: { name: string; available: boolean; stocks: number; note?: string }[]
   mongo: { connected: boolean; version?: string; collections?: number }
   redis: { connected: boolean }
+  websocket: { connected?: boolean; client_count?: number }
   system: { cpu_pct: number; memory_pct: number; disk_pct: number }
   alerts: any[]
   health_score: number
@@ -69,6 +70,11 @@ onUnmounted(() => clearInterval(timer))
         <span v-if="data.mongo.collections" class="sh-sub">{{ data.mongo.collections }}集合</span>
         <span class="sh-label" style="margin-left:12px">Redis</span>
         <span :class="data.redis.connected ? 'sh-ok' : 'sh-err'">{{ data.redis.connected ? '🟢' : '🔴' }}</span>
+        <template v-if="data.websocket">
+          <span class="sh-label" style="margin-left:12px">WS</span>
+          <span :class="data.websocket.connected !== false ? 'sh-ok' : 'sh-warn'">{{ data.websocket.connected !== false ? '🟢' : '🟡' }}</span>
+          <span v-if="data.websocket.client_count" class="sh-sub">{{ data.websocket.client_count }}连接</span>
+        </template>
       </div>
 
       <!-- 系统资源 -->
@@ -102,7 +108,7 @@ onUnmounted(() => clearInterval(timer))
 .sh-content { display: flex; flex-direction: column; gap: 6px; }
 .sh-row { display: flex; align-items: center; gap: 6px; }
 .sh-label { color: var(--el-text-color-secondary); font-size: 11px; min-width: 40px; }
-.sh-ok { color: #67c23a; } .sh-err { color: #f56c6c; }
+.sh-ok { color: #67c23a; } .sh-err { color: #f56c6c; } .sh-warn { color: #e6a23c; }
 .sh-sub { font-size: 10px; color: var(--el-text-color-secondary); }
 .sh-ds { font-size: 11px; padding: 1px 4px; border-radius: 2px; }
 .sh-ds.ok { background: #67c23a15; color: #67c23a; } .sh-ds.err { background: #f56c6c15; color: #f56c6c; }
