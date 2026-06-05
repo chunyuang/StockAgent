@@ -27,7 +27,6 @@ import {
   Sunny,
   Moon,
   DataLine,
-  TrendCharts,
 } from '@element-plus/icons-vue'
 import { useAuth } from '@/hooks'
 import { useTaskStore, useThemeStore } from '@/stores'
@@ -48,7 +47,6 @@ const activeMenu = computed(() => {
   const path = route.path
   if (path === '/' || path.startsWith('/ultra-short')) return '/'
   if (path.startsWith('/live-trading') || path.startsWith('/monitor')) return '/monitor'
-  if (path.startsWith('/factors')) return '/factors'
   if (path.startsWith('/stock')) return '/'
   if (path.startsWith('/strategies')) return '/strategies'
   if (path.startsWith('/system') || path.startsWith('/admin') || path.startsWith('/settings')) return '/system/status'
@@ -62,7 +60,6 @@ const activeTaskCount = computed(() => taskStore.activeTaskCount)
 const menuItems = [
   { path: '/', icon: DataAnalysis, title: '策略回测' },
   { path: '/monitor', icon: Monitor, title: '市场监听' },
-  { path: '/factors', icon: TrendCharts, title: '因子查看' },
   { path: '/system/status', icon: DataLine, title: '系统管理' },
 ]
 
