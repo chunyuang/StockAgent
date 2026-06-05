@@ -13,6 +13,7 @@ ScannerEventSubscribers — EventBus事件订阅处理器
 import asyncio
 import logging
 import time
+from datetime import datetime
 from typing import Dict, Any, Optional, Callable
 
 logger = logging.getLogger("scanner.event_subscribers")
@@ -78,10 +79,11 @@ async def _write_audit_log(scanner, event_type: str, data: Dict[str, Any]) -> No
     
     设计文档Phase3.4: TTL 90天自动清理, 防止无限增长。
     
-    Args:
-        scanner: MarketScanner实例
-        event_type: 事件类型
-        data: 事件数据
+    字段规范(v2.9.80统一):
+    - timestamp: datetime对象(MongoDB TTL索引要求Date类型)
+    - time_str: 人类可读字符串
+    - action: 事件类型(与signal_manager对齐)
+    - reason: 事件描述(从data中提取)
     """
     try:
         from core.managers import mongo_manager
@@ -97,14 +99,23 @@ async def _write_audit_log(scanner, event_type: str, data: Dict[str, Any]) -> No
         except Exception as _e:
             pass  # 索引已存在或其他错误, 不影响写入
         
+        now = datetime.now()
+        # 提取reason: 优先用data中的reason/message, 否则用event_type
+        reason = data.get("reason", "") or data.get("message", "") or event_type
         doc = {
-            "event_type": event_type,
+            "timestamp": now,  # datetime对象, TTL索引需要Date类型
+            "time_str": now.strftime("%Y-%m-%d %H:%M:%S"),
+            "event_type": event_type,  # 保留event_type向后兼容
+            "action": event_type,      # 统一action字段(与signal_manager对齐)
+            "reason": reason,          # 统一reason字段(与signal_manager对齐)
             "trade_date": scanner._trade_date,
             "account_id": scanner._account_id,
             "data": _safe_serialize(data),
-            "timestamp": time.time(),
-            "time_str": time.strftime("%Y-%m-%d %H:%M:%S"),
         }
+        # 保留data中的ts_code/strategy到顶层(方便前端查询)
+        for key in ("ts_code", "stock_name", "strategy"):
+            if key in data and data[key]:
+                doc[key] = data[key]
         await mongo_manager.db["audit_log"].insert_one(doc)
     except Exception as e:
         # 审计日志写入失败不应影响主流程

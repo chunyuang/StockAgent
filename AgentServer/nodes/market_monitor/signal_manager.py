@@ -431,13 +431,22 @@ class SignalManager:
     
     async def _write_audit_log(self, action: str, ts_code: str, stock_name: str,
                                 strategy: str, reason: str) -> None:
-        """写入审计日志(append-only, TTL 90天)"""
+        """写入审计日志(append-only, TTL 90天)
+        
+        字段规范(v2.9.80统一):
+        - timestamp: datetime对象(MongoDB TTL索引要求Date类型)
+        - time_str: 人类可读字符串
+        - action: 操作类型
+        - ts_code/stock_name/strategy/reason: 标准字段
+        """
         try:
             from core.managers import mongo_manager
             if mongo_manager.db is None:
                 return
+            now = datetime.now()
             await mongo_manager.db["audit_log"].insert_one({
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": now,
+                "time_str": now.strftime("%Y-%m-%d %H:%M:%S"),
                 "account_id": self._scanner.account_id,
                 "action": action,
                 "ts_code": ts_code,

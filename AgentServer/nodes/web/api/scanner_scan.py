@@ -471,15 +471,31 @@ async def set_trailing_stop(ts_code: str, request: Request):
 @router.get("/system-health-detail")
 async def get_system_health_detail():
     """系统健康运维面板"""
-    scanner = await _get_scanner()
     try:
         import time, psutil
+        scanner = await _get_scanner()
         scanner_running = scanner is not None and getattr(scanner, '_is_running', False)
+        # 【v2.9.80守卫】scanner未运行时不访问scanner属性
+        uptime_seconds = 0
+        if scanner_running:
+            try:
+                start_time = getattr(scanner, '_start_time', None)
+                if start_time and start_time > 0:
+                    uptime_seconds = time.time() - start_time
+            except Exception:
+                pass
         scanner_hb = {
             "is_running": scanner_running,
-            "uptime_seconds": time.time() - scanner._start_time if scanner_running and hasattr(scanner, '_start_time') and scanner._start_time else 0,
+            "uptime_seconds": round(uptime_seconds, 0),
         }
-        data_sources = [{"name": "eastmoney", "available": True, "stocks": len(scanner._realtime_cache) if scanner_running and hasattr(scanner, '_realtime_cache') and scanner._realtime_cache else 0, "note": "免费无限流"}]
+        realtime_count = 0
+        if scanner_running:
+            try:
+                cache = getattr(scanner, '_realtime_cache', None)
+                realtime_count = len(cache) if cache else 0
+            except Exception:
+                pass
+        data_sources = [{"name": "eastmoney", "available": True, "stocks": realtime_count, "note": "免费无限流"}]
 
         mongo_status = {"connected": False}
         try:
@@ -492,9 +508,11 @@ async def get_system_health_detail():
 
         redis_status = {"connected": False}
         try:
-            if scanner_running and hasattr(scanner, '_redis') and scanner._redis:
-                await scanner._redis.ping()
-                redis_status = {"connected": True}
+            if scanner_running:
+                redis_obj = getattr(scanner, '_redis', None)
+                if redis_obj:
+                    await redis_obj.ping()
+                    redis_status = {"connected": True}
         except Exception:
             pass
 
@@ -519,12 +537,40 @@ async def get_system_health_detail():
 
 @router.get("/audit-log")
 async def get_audit_log(limit: int = 50):
-    """操作审计日志"""
+    """操作审计日志
+    
+    字段规范(v2.9.80):
+    - timestamp: ISO格式字符串(前端显示用)
+    - action: 操作类型
+    - reason: 操作原因
+    - ts_code/stock_name/strategy: 标准字段
+    """
     try:
         from core.managers import mongo_manager
         # mongo_manager auto-connected
         logs = []
         async for doc in mongo_manager.db["audit_log"].find({}, {"_id": 0}).sort("timestamp", -1).limit(limit):
+            # 统一字段: 确保timestamp/action/reason字段存在
+            ts = doc.get("timestamp", "")
+            if hasattr(ts, 'isoformat'):
+                # datetime对象 → ISO字符串
+                doc["timestamp"] = ts.isoformat()
+            elif isinstance(ts, (int, float)):
+                # float epoch → ISO字符串
+                from datetime import datetime as _dt
+                doc["timestamp"] = _dt.fromtimestamp(ts).isoformat()
+            elif not ts:
+                doc["timestamp"] = doc.get("time_str", "")
+            # 统一action字段: event_type → action
+            if not doc.get("action") and doc.get("event_type"):
+                doc["action"] = doc["event_type"]
+            # 统一reason字段: data.reason → reason
+            if not doc.get("reason"):
+                data = doc.get("data", {})
+                if isinstance(data, dict):
+                    doc["reason"] = data.get("reason", "") or data.get("message", "") or data.get("detail", "")
+                elif isinstance(data, str):
+                    doc["reason"] = data[:100]
             logs.append(doc)
         return _sanitize({"success": True, "data": logs})
     except Exception as e:
