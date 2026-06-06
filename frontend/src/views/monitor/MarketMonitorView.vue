@@ -6,20 +6,21 @@
  * 此文件只负责: 调用composable + 渲染template
  * 【v2.9.74: 清理26个未使用解构变量, 消除TS6133】
  */
-import { provide } from 'vue'
+import { provide, defineAsyncComponent } from 'vue'
 import { useScannerMonitor } from './useScannerMonitor'
 import { SCANNER_MONITOR_KEY, type ScannerMonitorData } from './scannerMonitorInject'
 import { useThemeStore } from '@/stores/theme'
-import ReviewTab from './ReviewTab.vue'
-import OpsTab from './OpsTab.vue'
-import PremarketTab from './PremarketTab.vue'
-import SentimentTab from './SentimentTab.vue'
+// 默认显示的Tab同步加载，其他Tab懒加载(减小首屏chunk)
 import GuideTab from './GuideTab.vue'
-import HistoryTab from './HistoryTab.vue'
-import ScanTraceTab from './ScanTraceTab.vue'
-import PositionRiskMatrix from './PositionRiskMatrix.vue'
-import MiniKline from './MiniKline.vue'
-import SignalTracePanel from './SignalTracePanel.vue'
+const ReviewTab = defineAsyncComponent(() => import('./ReviewTab.vue'))
+const OpsTab = defineAsyncComponent(() => import('./OpsTab.vue'))
+const PremarketTab = defineAsyncComponent(() => import('./PremarketTab.vue'))
+const SentimentTab = defineAsyncComponent(() => import('./SentimentTab.vue'))
+const HistoryTab = defineAsyncComponent(() => import('./HistoryTab.vue'))
+const ScanTraceTab = defineAsyncComponent(() => import('./ScanTraceTab.vue'))
+const PositionRiskMatrix = defineAsyncComponent(() => import('./PositionRiskMatrix.vue'))
+const MiniKline = defineAsyncComponent(() => import('./MiniKline.vue'))
+const SignalTracePanel = defineAsyncComponent(() => import('./SignalTracePanel.vue'))
 import KeyboardShortcuts from './KeyboardShortcuts.vue'
 
 const monitorData = useScannerMonitor()
