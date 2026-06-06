@@ -242,8 +242,14 @@ async def get_trade_attribution(date: str = None):
             buy_price = buy_doc.get("filled_price", 0) if buy_doc else 0
             buy_time = buy_doc.get("fill_time", "") if buy_doc else ""
             # 如果没有买入记录,从profit_pct反推buy_price
-            if buy_price == 0 and filled_price > 0 and profit_pct != 0:
-                buy_price = round(filled_price / (1 + profit_pct / 100), 2)
+            # 反推公式: buy_price = sell_price / (1 + profit_pct/100)
+            # profit_pct=0时buy_price=sell_price(保本卖出)
+            if buy_price == 0 and filled_price > 0:
+                if profit_pct != 0:
+                    buy_price = round(filled_price / (1 + profit_pct / 100), 2)
+                else:
+                    # profit_pct=0: 保本卖出，买入价≈卖出价
+                    buy_price = round(filled_price, 2)
 
             # 查找scan_trace(买入漏斗)
             scan_info = None
@@ -372,8 +378,8 @@ async def get_review_hero(date: str = None):
         if raw_period in _cn_to_en_period:
             raw_period = _cn_to_en_period[raw_period]
         cn_period = _en_to_cn_period.get(raw_period, raw_period)
-        # 冰点开仓(英文或中文都能匹配)
-        if sentiment_doc and raw_period in ["BEARISH", "bearish", "CHAOS", "chaos"] or (sentiment_score < 40 and buys):
+        # 冰点开仓(仅BEARISH算违规,CHAOS震荡期允许开仓但限制策略)
+        if sentiment_doc and raw_period in ["BEARISH", "bearish"] or (sentiment_score < 40 and buys):
             for b in buys:
                 violations.append({
                     "type": "冰点开仓", "severity": "high",
