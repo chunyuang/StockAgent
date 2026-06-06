@@ -545,7 +545,17 @@ class EmotionCycleManager:
 
     @staticmethod
     async def _fetch_limit_stats(scanner, db, td_int: int) -> Tuple[int, int, int, str]:
-        """获取涨跌停数据(实时→limit_list→daily_basic三级降级)"""
+        """获取涨跌停数据(实时→limit_list→stock_daily_ak_full四级降级)
+        
+        降级链:
+        1. scanner_realtime: 实时必盈涨停池(盘中)
+        2. limit_list(limit="U"): scanner收盘同步写入的涨跌停标记
+        3. stock_daily_ak_full(is_limit_up=1): 东财日线涨跌停标记(阈值9.9%)
+        4. stock_daily_ak_full(pct_chg): 东财日线涨跌幅估算(阈值9.8%)
+        
+        注意: daily_basic没有pct_chg字段,不能用于涨跌停统计!
+        注意: tushare_stk_limit只有up_limit/down_limit价格,没有limit标记!
+        """
         limit_pools = scanner._limit_pools
         lu = len(limit_pools.get("limit_up", []))
         ld = len(limit_pools.get("limit_down", []))
@@ -561,17 +571,28 @@ class EmotionCycleManager:
             max_lb = max_lb_doc.get("limit_times", 1) if max_lb_doc else 1
             data_source = "limit_list"
         if lu == 0 and ld == 0:
-            lu = await db["daily_basic"].count_documents({"trade_date": td_int, "pct_chg": {"$gte": 9.8}})
-            ld = await db["daily_basic"].count_documents({"trade_date": td_int, "pct_chg": {"$lte": -9.8}})
+            # 【v2.9.76修复】daily_basic没有pct_chg，改用stock_daily_ak_full
+            # is_limit_up/is_limit_down是int(1),不是True/False
+            lu = await db["stock_daily_ak_full"].count_documents({"trade_date": td_int, "is_limit_up": 1})
+            ld = await db["stock_daily_ak_full"].count_documents({"trade_date": td_int, "is_limit_down": 1})
             max_lb = 1
-            data_source = "daily_basic"
+            data_source = "stock_daily_ak_full"
+        if lu == 0 and ld == 0:
+            # 最后降级: 用pct_chg估算(9.8%阈值,覆盖9.9%遗漏的)
+            lu = await db["stock_daily_ak_full"].count_documents({"trade_date": td_int, "pct_chg": {"$gte": 9.8}})
+            ld = await db["stock_daily_ak_full"].count_documents({"trade_date": td_int, "pct_chg": {"$lte": -9.8}})
+            max_lb = 1
+            data_source = "stock_daily_ak_full_pct"
         return lu, ld, max_lb, data_source
 
     @staticmethod
     async def _fetch_up_down_ratio(db, td_int: int) -> Tuple[int, int, float]:
-        """获取涨跌家数和涨跌比"""
-        up_count = await db["daily_basic"].count_documents({"trade_date": td_int, "pct_chg": {"$gt": 0}})
-        down_count = await db["daily_basic"].count_documents({"trade_date": td_int, "pct_chg": {"$lt": 0}})
+        """获取涨跌家数和涨跌比
+        
+        注意: daily_basic没有pct_chg字段,改用stock_daily_ak_full
+        """
+        up_count = await db["stock_daily_ak_full"].count_documents({"trade_date": td_int, "pct_chg": {"$gt": 0}})
+        down_count = await db["stock_daily_ak_full"].count_documents({"trade_date": td_int, "pct_chg": {"$lt": 0}})
         up_down_ratio = up_count / max(up_count + down_count, 1)
         return up_count, down_count, up_down_ratio
 

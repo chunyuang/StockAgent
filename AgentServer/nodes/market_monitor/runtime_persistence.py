@@ -927,25 +927,63 @@ class RuntimePersistence:
         return ops
 
     async def _sync_pct_chg_to_daily_basic(self, realtime_cache: Dict, td_int: int, db) -> None:
-        """同步pct_chg字段到daily_basic【v2.9.56从sync_close_data_to_mongo提取】"""
+        """同步pct_chg字段到daily_basic【v2.9.56从sync_close_data_to_mongo提取, v2.9.76修复】
+        
+        优先级:
+        1. realtime_cache中的pct_chg(scanner实时行情)
+        2. stock_daily_ak_full中的pct_chg(东财日线, 始终有值)
+        
+        注意: daily_basic原始数据源(东财daily_basic接口)不含pct_chg字段,
+        必须从stock_daily_ak_full回填!
+        """
         from pymongo.operations import UpdateOne
-        if not realtime_cache:
-            return
         pct_ops = []
         synced = 0
-        for ts_code, quote in realtime_cache.items():
-            pct_chg = quote.get("pct_chg")
-            if pct_chg is not None:
-                pct_ops.append(UpdateOne(
-                    {"trade_date": td_int, "ts_code": ts_code, "pct_chg": None},
-                    {"$set": {"pct_chg": pct_chg, "close": quote.get("close", 0), "data_source": "scanner_realtime"}}
+        
+        # 1. 先从realtime_cache写pct_chg(scanner实时行情)
+        if realtime_cache:
+            for ts_code, quote in realtime_cache.items():
+                pct_chg = quote.get("pct_chg")
+                if pct_chg is not None:
+                    pct_ops.append(UpdateOne(
+                        {"trade_date": td_int, "ts_code": ts_code, "pct_chg": None},
+                        {"$set": {"pct_chg": pct_chg, "data_source": "scanner_realtime"}}
+                    ))
+                    synced += 1
+                    if len(pct_ops) >= 500:
+                        await db["daily_basic"].bulk_write(pct_ops)
+                        pct_ops = []
+        
+        # 2. 批量从stock_daily_ak_full回填pct_chg(填补实时行情未覆盖的)
+        # daily_basic原始数据不含pct_chg,必须从stock_daily_ak_full补
+        try:
+            pipeline = [
+                {"$match": {"trade_date": td_int, "pct_chg": {"$ne": None}}},
+                {"$project": {"ts_code": 1, "pct_chg": 1, "_id": 0}},
+            ]
+            fill_ops = []
+            filled = 0
+            async for doc in db["stock_daily_ak_full"].aggregate(pipeline):
+                fill_ops.append(UpdateOne(
+                    {"trade_date": td_int, "ts_code": doc["ts_code"], "pct_chg": None},
+                    {"$set": {"pct_chg": doc["pct_chg"], "data_source": "stock_daily_ak_full"}}
                 ))
-                synced += 1
-                if len(pct_ops) >= 500:  # 批量上限
-                    await db["daily_basic"].bulk_write(pct_ops)
-                    pct_ops = []
+                filled += 1
+                if len(fill_ops) >= 500:
+                    result = await db["daily_basic"].bulk_write(fill_ops)
+                    synced += result.modified_count
+                    fill_ops = []
+            if fill_ops:
+                result = await db["daily_basic"].bulk_write(fill_ops)
+                synced += result.modified_count
+            if filled > 0:
+                logger.info(f"[SCANNER] daily_basic pct_chg从stock_daily_ak_full回填: {filled}只")
+        except Exception as e:
+            logger.warning(f"[SCANNER] daily_basic pct_chg回填失败: {e}")
+        
         if pct_ops:
             await db["daily_basic"].bulk_write(pct_ops)
+        if synced > 0:
             logger.info(f"[SCANNER] daily_basic pct_chg同步: {synced}只")
 
     # ==================== 盘后结算 ====================
