@@ -112,10 +112,11 @@ class TestDailySettlementRoute:
         pytest.fail("未找到daily_settlement函数定义")
 
     def test_daily_settlement_route_path(self):
-        """路由路径为/scanner/daily-settlement"""
+        """路由路径为/scanner/daily-settlement (router prefix=/scanner)"""
         src = _read(SCANNER_API)
-        assert '@router.post("/scanner/daily-settlement")' in src, \
-            "路由路径应为/scanner/daily-settlement"
+        # router has prefix="/scanner", so route is "/daily-settlement" not "/scanner/daily-settlement"
+        assert '@router.post("/daily-settlement")' in src, \
+            "路由路径应为/daily-settlement (prefix=/scanner)"
 
 
 # ==================== P1#4: _log_cache引用修复 ====================

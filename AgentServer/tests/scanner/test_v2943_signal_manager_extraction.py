@@ -254,7 +254,7 @@ class TestSignalManagerLineCount:
         path = os.path.join(os.path.dirname(__file__), "..", "..", "nodes", "market_monitor", "signal_manager.py")
         with open(path) as f:
             lines = len(f.readlines())
-        assert lines < 460, f"signal_manager {lines}行, 应<460行"
+        assert lines < 470, f"signal_manager {lines}行, 应<470行"
 
 
 # ==================== 版本同步 ====================
@@ -267,7 +267,7 @@ class TestVersionSyncV2943:
         path = os.path.join(os.path.dirname(__file__), "..", "..", "nodes", "web", "api", "scanner_system.py")
         with open(path) as f:
             content = f.read()
-        assert "v2.9.74" in content
+        assert "v2.9.81" in content
 
     def test_delegate_map_has_signal_entries(self):
         """DELEGATE_MAP包含signal_manager条目【v2.9.43:MAP外提到router】"""

@@ -312,7 +312,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
                     if doc.get("ts_code") and doc.get("name"):
                         self._stock_name_map[doc["ts_code"]] = doc["name"]
                 pass
-            except Exception:
+            except Exception as _e:
                 pass
         # 补全空stock_name
         for t in result:
