@@ -455,13 +455,13 @@ async def delete_backtest_history(
 @router.get("/factors")
 async def list_available_factors() -> Dict[str, Any]:
     """获取可用的因子列表"""
-    from nodes.backtest_engine.factor_selection.factor_library import FACTOR_DEFS
+    from nodes.backtest_engine.factor_selection.factor_library import FactorLibrary
 
     # 按分类分组
+    factors = FactorLibrary.list_factors()
     grouped = {}
-    factors = FACTOR_DEFS
     for f in factors:
-        category = f["category"]
+        category = f.get("category", "other")
         if category not in grouped:
             grouped[category] = []
         grouped[category].append(f)

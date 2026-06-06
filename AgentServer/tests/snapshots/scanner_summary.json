@@ -44,7 +44,11 @@
     "trades_executed": "int",
     "stop_losses": "int",
     "take_profits": "int",
-    "stocks_scanned": "int"
+    "stocks_scanned": "int",
+    "scan_count": "int",
+    "total_signals": "int",
+    "active_signals": "int",
+    "positions": "int"
   },
   "sentiment": {
     "score": "int",

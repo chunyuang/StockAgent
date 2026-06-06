@@ -179,7 +179,8 @@ async def get_daily_report():
                 "consecutive_losses": cb.get("consecutive_losses", 0),
                 "today_losses": cb.get("today_losses", 0),
             },
-            "scanner_stats": stats,
+            # scanner_stats: 添加前端兼容字段(scan_count/total_signals/buy_count/sell_count)
+            "scanner_stats": {**stats, "scan_count": stats.get("scans", 0), "total_signals": stats.get("signals_found", 0), "buy_count": today_trades.get("buy", 0), "sell_count": today_trades.get("sell", 0)},
             "funnel_summary": funnel_summary,
             "sentiment_snapshot": sentiment_snapshot,
         }
