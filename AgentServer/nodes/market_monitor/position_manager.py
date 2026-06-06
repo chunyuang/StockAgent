@@ -375,6 +375,13 @@ class PositionManager:
             if current_price <= 0:
                 continue
             
+            # 【v2.9.82修复】用实时价格重算profit_pct, 避免pos.profit_pct基于过期current_price
+            # 风控线程1秒检查时broker可能未update_realtime, pos.profit_pct可能不准
+            if pos.avg_cost > 0 and current_price != pos.current_price:
+                realtime_profit_pct = (current_price - pos.avg_cost) / pos.avg_cost * 100
+            else:
+                realtime_profit_pct = pos.profit_pct
+            
             # 跌停不可卖处理
             handled, sell_item = self._handle_limit_down(pos, current_price)
             if sell_item:
@@ -383,7 +390,7 @@ class PositionManager:
                 continue
             
             # 固定止损+追踪止损
-            sell_item = self._check_quick_stop_loss(pos, rt, current_price)
+            sell_item = self._check_quick_stop_loss(pos, rt, current_price, realtime_profit_pct)
             if sell_item:
                 to_sell.append(sell_item)
         
@@ -421,11 +428,17 @@ class PositionManager:
         
         return False, None
     
-    def _check_quick_stop_loss(self, pos, rt: Dict, current_price: float) -> Optional[Tuple]:
-        """快速止损检查: 固定止损+追踪止损【v2.9.45提取】
+    def _check_quick_stop_loss(self, pos, rt: Dict, current_price: float, realtime_profit_pct: float = None) -> Optional[Tuple]:
+        """快速止损检查: 固定止损+追踪止损【v2.9.45提取, v2.9.82:realtime_profit_pct参数】
         
         Note: 使用_get_risk_with_overrides获取完整风控参数(含take_profit覆盖),
         虽然止损检查不使用take_profit, 但统一获取减少分支。
+        
+        Args:
+            pos: 持仓对象
+            rt: 实时行情dict
+            current_price: 实时价格
+            realtime_profit_pct: 用实时价格计算的profit_pct(v2.9.82新增)
         
         Returns: (pos, reason, price, risk) or None
         """
@@ -433,14 +446,17 @@ class PositionManager:
         risk = self._get_risk_with_overrides(pos)
         sl_pct = -risk.get("stop_loss_pct", 0.03) * 100
         
+        # 【v2.9.82修复】优先用实时profit_pct, 避免pos.profit_pct基于过期current_price
+        check_profit_pct = realtime_profit_pct if realtime_profit_pct is not None else pos.profit_pct
+        
         # 固定止损
-        if pos.profit_pct <= sl_pct:
+        if check_profit_pct <= sl_pct:
             stop_loss_price = self.calc_stop_loss_price(pos, risk)
             today_open = rt.get("open", 0)
             if today_open > 0 and today_open < stop_loss_price:
                 return (pos, f"跳空止损(开{today_open:.2f}<止损{stop_loss_price:.2f})", today_open, risk)
             else:
-                return (pos, f"止损 {pos.profit_pct:.1f}%", current_price, risk)
+                return (pos, f"止损 {check_profit_pct:.1f}%", current_price, risk)
         
         # 追踪止损
         with self.state_lock:
@@ -808,8 +824,11 @@ class PositionManager:
             return
 
         trace_id = f"risk-{pos.ts_code}-{uuid.uuid4().hex[:8]}"
-        sell_profit_pct = pos.profit_pct
-        sell_profit_amount = (pos.current_price - pos.avg_cost) * quantity
+        # 【v2.9.82修复】不再用pos.profit_pct预估值,卖出后从order取实际盈亏
+        # 旧代码: sell_profit_pct = pos.profit_pct / sell_profit_amount = (pos.current_price - pos.avg_cost) * quantity
+        # 问题: pos.current_price可能与实际成交价(fill_price)不同, 导致timeline/EventBus记录的盈亏不准
+        sell_profit_pct = None  # 占位, 卖出成功后从order填充
+        sell_profit_amount = None
 
         try:
             scanner._broker.update_realtime(pos.ts_code, pos.current_price)
@@ -823,9 +842,12 @@ class PositionManager:
             return
 
         if ok:
+            # 【v2.9.82修复】使用broker实际成交的盈亏, 而非卖出前的预估值
+            actual_profit_pct = order.profit_pct if order.profit_pct != 0 else pos.profit_pct
+            actual_profit_amount = order.profit_amount if order.profit_amount != 0 else sell_profit_amount
             await scanner._post_sell_cleanup(
                 pos, reason, order, quantity,
-                sell_profit_pct, sell_profit_amount, source="risk_sell",
+                actual_profit_pct, actual_profit_amount, source="risk_sell",
                 trace_id=trace_id,
             )
         else:
@@ -866,11 +888,14 @@ class PositionManager:
                     strategy=p.strategy,
                     reason=reason,
                 )
+                # 【v2.9.82修复】使用broker实际成交的盈亏, 而非预估值
                 if ok:
                     sold += 1
+                    actual_profit_pct = order.profit_pct if order.profit_pct != 0 else p.profit_pct
+                    actual_profit_amount = order.profit_amount if order.profit_amount != 0 else profit_amount
                     await scanner._post_sell_cleanup(
                         p, reason, order, p.available_qty,
-                        profit_pct, profit_amount, source=source,
+                        actual_profit_pct, actual_profit_amount, source=source,
                         trace_id=trace_id,
                     )
                 else:
