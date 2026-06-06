@@ -32,6 +32,18 @@ export const GLOBAL_RISK = {
   hold_protection_threshold: 0.05,
   live_trading_mode: false,
   risk_free_rate: 0.03,
+  sentiment_position_map: {
+    rising: 1.0,              // 高潮期(≥70): 满仓
+    differentiation: 0.7,    // 分化期(55-70): 七仓
+    chaos: 0.5,              // 震荡期(40-55): 半仓
+    bearish: 0.3,            // 冰点期(<40): 三仓
+  },
+  sentiment_thresholds: {
+    rising: 70,               // ≥70 高潮
+    differentiation: 55,      // 55-70 分化
+    chaos: 40,                // 40-55 震荡
+    // <40 冰点
+  },
 }
 
 // 策略配置 — 与后端 strategy_defaults.py STRATEGY_CONFIGS 完全对齐
