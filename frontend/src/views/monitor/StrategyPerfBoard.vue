@@ -103,11 +103,11 @@ onUnmounted(() => clearInterval(timer))
             {{ s.total_profit >= 0 ? '+' : '' }}{{ ((s.total_profit || 0) / 10000).toFixed(1) }}万
           </td>
           <td>
-            <span class="sp-wr" :class="s.win_rate >= 70 ? 'good' : s.win_rate >= 50 ? 'mid' : 'bad'">
-              {{ s.win_rate }}%
+            <span class="sp-wr" :class="(s.win_rate || 0) >= 70 ? 'good' : (s.win_rate || 0) >= 50 ? 'mid' : 'bad'">
+              {{ s.win_rate ?? '-' }}%
             </span>
           </td>
-          <td>{{ s.profit_loss_ratio }}</td>
+          <td>{{ s.profit_loss_ratio ?? '-' }}</td>
           <td>{{ s.position_count }}</td>
           <td>{{ s.closed_count }}</td>
           <td>

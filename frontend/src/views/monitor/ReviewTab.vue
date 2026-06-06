@@ -110,7 +110,7 @@ const emit = defineEmits<{
 
         <div class="st" style="margin-top:8px">📝 逐笔归因 <span style="font-weight:normal;font-size:11px;color:var(--text-tertiary)">({{ (tradeAttributions?.length || 0) }}笔)</span></div>
         <div v-if="!(tradeAttributions?.length || 0)" class="empty">暂无交易数据</div>
-        <div v-for="t in tradeAttributions" :key="t.ts_code + t.sell_time" class="attribution-card" :class="t.profit_pct >= 0 ? 'attr-profit' : 'attr-loss'">
+        <div v-for="t in tradeAttributions" :key="t.ts_code + t.sell_time" class="attribution-card" :class="(t.profit_pct || 0) >= 0 ? 'attr-profit' : 'attr-loss'">
           <div class="attr-top">
             <ElTag size="small" :color="strategyMeta[t.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(t.strategy) }}</ElTag>
             <span class="code">{{ t.ts_code }}</span>
@@ -309,7 +309,7 @@ const emit = defineEmits<{
       </div>
       <div v-if="(liveBacktestDiff?.length || 0)" class="lb-table">
         <div class="lb-header"><span>策略</span><span>实盘交易</span><span>实盘胜率</span><span>回测胜率</span><span>偏差</span></div>
-        <div v-for="c in liveBacktestDiff" :key="c.strategy" class="lb-row"><span class="code">{{ strategyCN(c.strategy) }}</span><span>{{ c.live_trades }}笔</span><span>{{ c.live_win_rate }}%</span><span>{{ c.bt_win_rate }}%</span><span :class="Math.abs(c.live_win_rate - c.bt_win_rate) > 15 ? 'down' : 'up'">{{ ((c.live_win_rate || 0) - (c.bt_win_rate || 0)).toFixed(1) }}%</span></div>
+        <div v-for="c in liveBacktestDiff" :key="c.strategy" class="lb-row"><span class="code">{{ strategyCN(c.strategy) }}</span><span>{{ c.live_trades || 0 }}笔</span><span>{{ c.live_win_rate || 0 }}%</span><span>{{ c.bt_win_rate || 0 }}%</span><span :class="Math.abs((c.live_win_rate || 0) - (c.bt_win_rate || 0)) > 15 ? 'down' : 'up'">{{ ((c.live_win_rate || 0) - (c.bt_win_rate || 0)).toFixed(1) }}%</span></div>
       </div>
       <div v-else class="empty">暂无对比数据</div>
 
@@ -352,7 +352,7 @@ const emit = defineEmits<{
     <div class="dr-sec"><div class="dr-t">📊 持仓概况</div><div class="dr-g"><div class="dr-i"><span class="dr-l">持仓数</span><span class="dr-v">{{ dailyReport.positions.count }}</span></div><div class="dr-i"><span class="dr-l">止损</span><span class="dr-v text-stock-up">{{ dailyReport.stop_loss_count }}</span></div><div class="dr-i"><span class="dr-l">止盈</span><span class="dr-v text-stock-down">{{ dailyReport.take_profit_count }}</span></div><div class="dr-i"><span class="dr-l">胜率</span><span class="dr-v">{{ dailyReport.win_rate }}%</span></div></div></div>
     <div class="dr-sec" v-if="dailyReport.positions.top_profit?.length"><div class="dr-t">🏆 最赚</div><div v-for="p in dailyReport.positions.top_profit" class="dr-p"><span class="code">{{ p.ts_code }}</span><span>{{ p.name }}</span><span class="up">+{{ p.pct }}%</span></div></div>
     <div class="dr-sec" v-if="dailyReport.positions.top_loss?.length"><div class="dr-t">💀 最亏</div><div v-for="p in dailyReport.positions.top_loss" class="dr-p"><span class="code">{{ p.ts_code }}</span><span>{{ p.name }}</span><span class="down">{{ p.pct }}%</span></div></div>
-    <div class="dr-sec" v-if="dailyReport.positions.strategy_summary"><div class="dr-t">📋 策略汇总</div><div v-for="(s, k) in dailyReport.positions.strategy_summary" class="dr-p"><span>{{ strategyCN(k) }}</span><span>{{ s.count }}只</span><span :class="(s.total_profit || s.total_pnl || 0) >= 0 ? 'up' : 'down'">¥{{ (s.total_profit || s.total_pnl || 0) >= 0 ? '+' : '' }}{{ (s.total_profit || s.total_pnl || 0).toFixed(0) }}</span></div></div>
+    <div class="dr-sec" v-if="dailyReport?.positions?.strategy_summary"><div class="dr-t">📋 策略汇总</div><div v-for="(s, k) in dailyReport.positions.strategy_summary" class="dr-p"><span>{{ strategyCN(k) }}</span><span>{{ s.count }}只</span><span :class="(s.total_profit || s.total_pnl || 0) >= 0 ? 'up' : 'down'">¥{{ (s.total_profit || s.total_pnl || 0) >= 0 ? '+' : '' }}{{ (s.total_profit || s.total_pnl || 0).toFixed(0) }}</span></div></div>
   </div>
   <div v-else class="empty">暂无复盘数据</div>
 </ElDialog>
@@ -362,7 +362,7 @@ const emit = defineEmits<{
 <ElDialog :model-value="weeklyReportVisible" @update:model-value="emit('update:weeklyReportVisible', $event)" title="📊 周报 — 最近5个交易日" width="800px">
   <div v-if="weeklyReportData" class="wr">
     <div class="wr-sec"><div class="wr-t">💰 账户状态</div><div class="wr-g"><div class="wr-i"><span class="wr-l">总资产</span><span class="wr-v">{{ ((weeklyReportData?.account?.total_assets || 0) / 10000).toFixed(1) }}万</span></div><div class="wr-i"><span class="wr-l">累计盈亏</span><span class="wr-v" :class="(weeklyReportData?.account?.total_profit || 0) >= 0 ? 'up' : 'down'">{{ (weeklyReportData?.account?.total_profit || 0) >= 0 ? '+' : '' }}{{ (weeklyReportData?.account?.total_profit || 0).toFixed(0) }}</span></div><div class="wr-i"><span class="wr-l">可用现金</span><span class="wr-v">{{ ((weeklyReportData?.account?.available_cash || 0) / 10000).toFixed(1) }}万</span></div></div></div>
-    <div class="wr-sec"><div class="wr-t">📈 交易统计</div><div class="wr-g"><div class="wr-i"><span class="wr-l">交易日</span><span class="wr-v">{{ weeklyReportData.totals?.trading_days || 0 }}天</span></div><div class="wr-i"><span class="wr-l">买入</span><span class="wr-v">{{ weeklyReportData.totals?.total_buys || 0 }}笔</span></div><div class="wr-i"><span class="wr-l">卖出</span><span class="wr-v">{{ weeklyReportData.totals?.total_sells || 0 }}笔</span></div><div class="wr-i"><span class="wr-l">净流入</span><span class="wr-v" :class="weeklyReportData.totals?.net_flow >= 0 ? 'up' : 'down'">{{ (weeklyReportData.totals?.net_flow || 0).toFixed(0) }}</span></div></div></div>
+    <div class="wr-sec"><div class="wr-t">📈 交易统计</div><div class="wr-g"><div class="wr-i"><span class="wr-l">交易日</span><span class="wr-v">{{ weeklyReportData.totals?.trading_days || 0 }}天</span></div><div class="wr-i"><span class="wr-l">买入</span><span class="wr-v">{{ weeklyReportData.totals?.total_buys || 0 }}笔</span></div><div class="wr-i"><span class="wr-l">卖出</span><span class="wr-v">{{ weeklyReportData.totals?.total_sells || 0 }}笔</span></div><div class="wr-i"><span class="wr-l">净流入</span><span class="wr-v" :class="(weeklyReportData.totals?.net_flow || 0) >= 0 ? 'up' : 'down'">{{ (weeklyReportData.totals?.net_flow || 0).toFixed(0) }}</span></div></div></div>
     <div class="dr-sec" v-if="weeklyReportData.strategy_summary"><div class="dr-t">📋 策略汇总</div><div v-for="(s, k) in weeklyReportData.strategy_summary" class="dr-p"><span>{{ strategyCN(k) }}</span><span>{{ s.trades }}笔</span><span :class="(s.amount || 0) >= 0 ? 'up' : 'down'">¥{{ (s.amount || 0) >= 0 ? '+' : '' }}{{ (s.amount || 0).toFixed(0) }}</span></div></div>
     <div class="dr-sec" v-if="weeklyReportData.daily_stats"><div class="dr-t">📅 每日明细</div><div v-for="(stats, date) in weeklyReportData.daily_stats" class="wr-day"><span class="wr-date">{{ date }}</span><span>买{{ stats.buys }}卖{{ stats.sells }}</span><span :class="((stats.sell_amount || 0) - (stats.buy_amount || 0)) >= 0 ? 'up' : 'down'">¥{{ ((stats.sell_amount || 0) - (stats.buy_amount || 0)).toFixed(0) }}</span></div></div>
   </div>

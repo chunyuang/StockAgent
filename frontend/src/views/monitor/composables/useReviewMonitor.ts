@@ -22,7 +22,7 @@ export function useReviewMonitor() {
   const dailyReportData = ref<any>(null)
   const weeklyReviewData = ref<any>({})
   const weeklyReportRaw = ref<any>(null)
-  const weeklyReportData = computed(() => weeklyReportRaw.value || weeklyReviewData.value)
+  const weeklyReportData = computed(() => weeklyReportRaw.value)
   const monthlyReviewData = ref<any>({})
   const deviationData = ref<any>(null)
   const closedLoopData = ref<any>(null)

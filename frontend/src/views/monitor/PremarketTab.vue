@@ -199,7 +199,7 @@ onMounted(() => {
             <div v-for="c in g.candidates" :key="c.ts_code + c.strategy" class="pm-item">
               <span class="pm-item-code">{{ c.ts_code?.slice(0,6) }}</span>
               <span class="pm-item-name">{{ c.stock_name }}</span>
-              <span :class="c.pct_chg >= 0 ? 'up' : 'down'" class="pm-item-pct">{{ c.pct_chg >= 0 ? '+' : '' }}{{ (c.pct_chg || 0).toFixed(1) }}%</span>
+              <span :class="(c.pct_chg || 0) >= 0 ? 'up' : 'down'" class="pm-item-pct">{{ (c.pct_chg || 0) >= 0 ? '+' : '' }}{{ (c.pct_chg || 0).toFixed(1) }}%</span>
               <span v-if="c.volume_ratio" class="pm-item-factor">量比{{ (c.volume_ratio || 0).toFixed(1) }}</span>
               <span v-if="c.turnover_rate" class="pm-item-factor">换手{{ (c.turnover_rate || 0).toFixed(1) }}%</span>
               <ElTag v-if="c.signal_status === 'executed'" size="small" type="success" style="font-size:9px">已买</ElTag>
@@ -224,7 +224,7 @@ onMounted(() => {
           <span class="code">{{ c.ts_code?.slice(0,6) }}</span>
           <span class="name">{{ c.stock_name }}</span>
           <ElTag size="small" :color="strategyMeta[c.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="font-size:9px">{{ strategyCN(c.strategy) }}</ElTag>
-          <span :class="c.pct_chg >= 0 ? 'up' : 'down'" style="font-weight:600">{{ (c.pct_chg || 0) >= 0 ? '+' : '' }}{{ (c.pct_chg || 0).toFixed(1) }}%</span>
+          <span :class="(c.pct_chg || 0) >= 0 ? 'up' : 'down'" style="font-weight:600">{{ (c.pct_chg || 0) >= 0 ? '+' : '' }}{{ (c.pct_chg || 0).toFixed(1) }}%</span>
           <span :class="(c.volume_ratio || 0) >= 2 ? 'up' : ''">{{ (c.volume_ratio || 0).toFixed(1) }}</span>
           <span :class="(c.turnover_rate || 0) >= 3 ? 'up' : ''">{{ (c.turnover_rate || 0).toFixed(1) }}%</span>
           <ElTag v-if="c.signal_status === 'executed'" size="small" type="success" style="font-size:9px">已买</ElTag>
@@ -260,7 +260,7 @@ onMounted(() => {
             <ElTag size="small" :color="strategyMeta[s.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(s.strategy) }}</ElTag>
             <span class="code">{{ s.ts_code?.slice(0,6) }}</span>
             <span class="name">{{ s.stock_name }}</span>
-            <span :class="s.pct_chg >= 0 ? 'up' : 'down'" style="font-weight:600">{{ s.pct_chg >= 0 ? '+' : '' }}{{ s.pct_chg?.toFixed(1) }}%</span>
+            <span :class="(s.pct_chg || 0) >= 0 ? 'up' : 'down'" style="font-weight:600">{{ (s.pct_chg || 0) >= 0 ? '+' : '' }}{{ (s.pct_chg || 0)?.toFixed(1) }}%</span>
             <span v-if="s.volume_ratio" class="pm-item-factor">量比{{ (s.volume_ratio || 0).toFixed(1) }}</span>
             <ElTag v-if="s.signal_status === 'executed'" size="small" type="success">已买</ElTag>
             <ElButton v-else-if="!dryRun" size="small" type="danger" plain class="btn-xs" @click="quickBuy(s)">买</ElButton>
