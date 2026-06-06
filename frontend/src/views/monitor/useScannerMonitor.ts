@@ -101,18 +101,21 @@ export function useScannerMonitor() {
   // 仓位比(资产中市值占比)
   const positionRatio = computed(() => {
     const acc = status.value?.account
-    if (!acc || acc.total_assets <= 0) return '0'
-    return (acc.market_value / acc.total_assets * 100).toFixed(1)
+    if (!acc || !acc.total_assets || acc.total_assets <= 0) return '0'
+    const ratio = acc.market_value / acc.total_assets * 100
+    if (!isFinite(ratio)) return '0'
+    return ratio.toFixed(1)
   })
 
   // 距止损距离
   function distanceToStopLoss(pos: PositionInfo): string {
     if (pos.stop_loss_price && pos.stop_loss_price > 0 && pos.current_price > 0) {
       const dist = ((pos.current_price - pos.stop_loss_price) / pos.current_price * 100)
-      return dist.toFixed(1) + '%'
+      return (isFinite(dist) ? dist : 0).toFixed(1) + '%'
     }
     const slPct = normalizePct(pos.stop_loss_pct, 3)
-    return (pos.profit_pct + slPct).toFixed(1) + '%'
+    const result = pos.profit_pct + slPct
+    return (isFinite(result) ? result : 0).toFixed(1) + '%'
   }
 
   // ==================== ⚙️ 策略配置 ====================

@@ -88,7 +88,7 @@ export function useAutoTradeMonitor(core: CoreState) {
     const source = core.perfData.value.length > 0 ? core.perfData.value : core.pnlHistory.value.map(p => ({ time: p.time, net_value: p.value / 1000000 + 1, drawdown: 0 }))
     return {
       grid: { top: 10, right: 10, bottom: 20, left: 50 },
-      tooltip: { trigger: 'axis' as const, formatter: (p: any) => `${p[0].axisValue}<br/>净值: ${(p[0].value ?? 0).toFixed(4)}${p[1] ? '<br/>回撤: ' + (p[1].value ?? 0).toFixed(2) + '%' : ''}` },
+      tooltip: { trigger: 'axis' as const, formatter: (p: any) => { if (!p?.length) return ''; const v0 = Number(p[0].value ?? 0); let s = `${p[0].axisValue}<br/>净值: ${isFinite(v0) ? v0.toFixed(4) : '-'}`; if (p[1]) { const v1 = Number(p[1].value ?? 0); s += `<br/>回撤: ${isFinite(v1) ? v1.toFixed(2) : '-'}%`; } return s; } },
       xAxis: { type: 'category', data: source.map(p => p.time), axisLabel: { color: 'var(--text-tertiary)', fontSize: 10 } },
       yAxis: [
         { type: 'value', axisLabel: { color: 'var(--text-tertiary)', fontSize: 10 }, splitLine: { lineStyle: { color: 'var(--border-light)' } } },

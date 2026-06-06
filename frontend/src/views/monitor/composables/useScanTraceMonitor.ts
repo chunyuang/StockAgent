@@ -213,17 +213,17 @@ export function useScanTraceMonitor() {
       for (const [l, a] of Object.entries(fp.layers_applied || {})) {
         lines.push(`  ${a ? '✅' : '⏭️'} ${layerLabel(l)}: ${fp.layer_details?.[l] || (a ? '生效' : '跳过')}`)
       }
-      lines.push(`  最终仓位系数: ${fp.position_ratio ? ((fp.position_ratio ?? 0) * 100).toFixed(0) + '%' : '未知'}`)
+      lines.push(`  最终仓位系数: ${fp.position_ratio ? ((Number(fp.position_ratio) ?? 0) * 100).toFixed(0) + '%' : '未知'}`)
     }
     if (detail.execution) {
       const ex = detail.execution
       lines.push('【执行决策】')
-      if (ex.position_ratio) lines.push(`  仓位比例: ${((ex.position_ratio ?? 0) * 100).toFixed(0)}%`)
-      if (ex.available_cash) lines.push(`  可用资金: ¥${ex.available_cash?.toFixed(0)}`)
-      if (ex.max_amount) lines.push(`  最大买入: ¥${ex.max_amount?.toFixed(0)}`)
+      if (ex.position_ratio) lines.push(`  仓位比例: ${((Number(ex.position_ratio) ?? 0) * 100).toFixed(0)}%`)
+      if (ex.available_cash) lines.push(`  可用资金: ¥${Number(ex.available_cash || 0).toFixed(0)}`)
+      if (ex.max_amount) lines.push(`  最大买入: ¥${Number(ex.max_amount || 0).toFixed(0)}`)
       if (ex.shares) lines.push(`  买入股数: ${ex.shares}股`)
-      if (ex.total_cost) lines.push(`  成本: ¥${ex.total_cost?.toFixed(0)}`)
-      if (ex.filled_price) lines.push(`  成交价: ¥${ex.filled_price?.toFixed(2)}`)
+      if (ex.total_cost) lines.push(`  成本: ¥${Number(ex.total_cost || 0).toFixed(0)}`)
+      if (ex.filled_price) lines.push(`  成交价: ¥${Number(ex.filled_price || 0).toFixed(2)}`)
     }
     if (detail.factors) {
       lines.push('【关键因子】')
@@ -234,7 +234,7 @@ export function useScanTraceMonitor() {
     if (detail.sell_reason) {
       lines.push('【卖出决策】')
       lines.push(`  原因: ${detail.sell_reason}`)
-      if (detail.profit_pct) lines.push(`  盈亏: ${(detail.profit_pct ?? 0).toFixed(2)}%`)
+      if (detail.profit_pct) lines.push(`  盈亏: ${Number(detail.profit_pct ?? 0).toFixed(2)}%`)
     }
     return lines
   }
