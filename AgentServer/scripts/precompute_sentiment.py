@@ -57,25 +57,21 @@ async def compute_sentiment(trade_date: int, db) -> dict:
     
     data_source = "limit_list"
     
-    # 2. limit_list无数据时，从stock_daily_ak_full或daily_basic用pct_chg统计
+    # 2. limit_list无数据时，从stock_daily_ak_full用is_limit_up统计(最可靠)
     if lu == 0 and ld == 0:
-        # 优先用stock_daily_ak_full(更可靠，pct_chg总有)
-        has_pct_ak = await db["stock_daily_ak_full"].count_documents({"trade_date": trade_date, "pct_chg": {"$ne": None, "$exists": True}})
-        if has_pct_ak > 0:
-            lu = await db["stock_daily_ak_full"].count_documents({"trade_date": trade_date, "pct_chg": {"$gte": 9.8}})
-            ld = await db["stock_daily_ak_full"].count_documents({"trade_date": trade_date, "pct_chg": {"$lte": -9.8}})
+        # 【v2.9.76修复】优先用stock_daily_ak_full的is_limit_up字段(int 1)
+        # tushare_stk_limit只有up_limit/down_limit价格,没有limit标记!
+        lu = await db["stock_daily_ak_full"].count_documents({"trade_date": trade_date, "is_limit_up": 1})
+        ld = await db["stock_daily_ak_full"].count_documents({"trade_date": trade_date, "is_limit_down": 1})
+        if lu > 0 or ld > 0:
             max_lb = 1
             data_source = "stock_daily_ak_full"
         else:
-            # fallback到daily_basic
-            has_pct = await db["daily_basic"].count_documents({"trade_date": trade_date, "pct_chg": {"$ne": None, "$exists": True}})
-            if has_pct > 0:
-                lu = await db["daily_basic"].count_documents({"trade_date": trade_date, "pct_chg": {"$gte": 9.8}})
-                ld = await db["daily_basic"].count_documents({"trade_date": trade_date, "pct_chg": {"$lte": -9.8}})
-                max_lb = 1
-                data_source = "daily_basic"
-            else:
-                data_source = "daily_basic(no_pct)"
+            # 降级: 用pct_chg估算
+            lu = await db["stock_daily_ak_full"].count_documents({"trade_date": trade_date, "pct_chg": {"$gte": 9.8}})
+            ld = await db["stock_daily_ak_full"].count_documents({"trade_date": trade_date, "pct_chg": {"$lte": -9.8}})
+            max_lb = 1
+            data_source = "stock_daily_ak_full_pct" if (lu > 0 or ld > 0) else "stock_daily_ak_full(no_data)"
     
     # 3. 都无有效数据
     missing_data = (lu == 0 and ld == 0)

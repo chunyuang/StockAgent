@@ -136,19 +136,22 @@ def write_daily_bar(trade_date=None):
         circ_mv_wan = round(circ_mv / 1e4, 2) if circ_mv and circ_mv > 0 else 0
         
         # 涨跌判断
+        # 【v2.9.76修复】阈值从9.9/19.9/29.9改为9.8/19.8/29.8
+        # 原因: 有些涨停股pct_chg=9.8x%(四舍五入未到9.9%), 被遗漏
+        # 如000068.SZ pct_chg=9.8765%实际是涨停
         is_limit_up = 0
         is_limit_down = 0
         if pre_close and pre_close > 0:
             pct = pct_chg if pct_chg is not None else 0
             if code.startswith(('300', '301')) or code.startswith('688'):
-                if pct >= 19.9: is_limit_up = 1
-                if pct <= -19.9: is_limit_down = 1
+                if pct >= 19.8: is_limit_up = 1
+                if pct <= -19.8: is_limit_down = 1
             elif code.startswith(('8', '4')):
-                if pct >= 29.9: is_limit_up = 1
-                if pct <= -29.9: is_limit_down = 1
+                if pct >= 29.8: is_limit_up = 1
+                if pct <= -29.8: is_limit_down = 1
             else:
-                if pct >= 9.9: is_limit_up = 1
-                if pct <= -9.9: is_limit_down = 1
+                if pct >= 9.8: is_limit_up = 1
+                if pct <= -9.8: is_limit_down = 1
         
         doc = {
             "ts_code": ts_code,
