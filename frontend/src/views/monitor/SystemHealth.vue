@@ -70,7 +70,7 @@ onUnmounted(() => clearInterval(timer))
         <span v-if="data.mongo.collections" class="sh-sub">{{ data.mongo.collections }}集合</span>
         <span class="sh-label" style="margin-left:12px">Redis</span>
         <span :class="data.redis.connected ? 'sh-ok' : 'sh-err'">{{ data.redis.connected ? '🟢' : '🔴' }}</span>
-        <template v-if="data.websocket">
+        <template v-if="data.websocket && data.websocket.connected !== undefined">
           <span class="sh-label" style="margin-left:12px">WS</span>
           <span :class="data.websocket.connected !== false ? 'sh-ok' : 'sh-warn'">{{ data.websocket.connected !== false ? '🟢' : '🟡' }}</span>
           <span v-if="data.websocket.client_count" class="sh-sub">{{ data.websocket.client_count }}连接</span>

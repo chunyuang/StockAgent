@@ -50,10 +50,17 @@ export function useScannerMonitor() {
     const tlBuys = timeline.value.filter(t => t.action === 'buy')
     const tlSells = timeline.value.filter(t => t.action === 'sell')
     const result: any[] = []
+    const usedBuys = new Set<string>()
     for (const sell of tlSells) {
-      const buy = tlBuys.find(b => b.ts_code === sell.ts_code && b.strategy === sell.strategy && !result.some(r => r.buy_time === b.time))
-      const buyPrice = buy?.price || sell.decision_detail?.cost_price || 0
-      result.push({ ts_code: sell.ts_code, stock_name: sell.stock_name || buy?.stock_name || '', strategy: sell.strategy, buy_price: buyPrice, sell_price: sell.price, profit_amount: sell.profit_amount ?? (sell.price - buyPrice) * (sell.shares || 0), profit_pct: sell.profit_pct ?? (buyPrice > 0 ? (sell.price - buyPrice) / buyPrice * 100 : 0), buy_time: buy?.time || '', sell_time: sell.time || '' })
+      // FIFO配对: 找最早未配对的买入
+      const buy = tlBuys.find(b => b.ts_code === sell.ts_code && b.strategy === sell.strategy && !usedBuys.has(b.ts_code + b.time))
+      if (buy) usedBuys.add(buy.ts_code + buy.time)
+      // 买入价反推: buy.price > decision_detail.cost_price > 当前持仓cost_price > 0
+      const buyPrice = buy?.price || sell.decision_detail?.cost_price || positions.value.find(p => p.ts_code === sell.ts_code)?.cost_price || 0
+      // 盈亏: 优先用sell自带的profit_pct/profit_amount(后端已算好), 否则用买卖价差
+      const profitAmount = sell.profit_amount ?? (buyPrice > 0 ? (sell.price - buyPrice) * (sell.shares || 0) : 0)
+      const profitPct = sell.profit_pct ?? (buyPrice > 0 ? (sell.price - buyPrice) / buyPrice * 100 : 0)
+      result.push({ ts_code: sell.ts_code, stock_name: sell.stock_name || buy?.stock_name || '', strategy: sell.strategy, buy_price: buyPrice, sell_price: sell.price, profit_amount: profitAmount, profit_pct: profitPct, buy_time: buy?.time || '', sell_time: sell.time || '' })
     }
     const covered = new Set(result.map(r => r.ts_code + r.strategy))
     for (const o of orders.value.filter(o => o.side === 'sell' && o.filled_price > 0)) {

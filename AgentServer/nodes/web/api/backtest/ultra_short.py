@@ -390,7 +390,7 @@ async def get_ultra_short_history(
             "total_signals": result.get("total_signals"),
             "profit_loss_ratio": result.get("profit_loss_ratio"),
             "annualized_return": result.get("annualized_return"),
-            "execution_time_ms": result.get("execution_time_ms"),
+            "execution_time_ms": result.get("execution_time_ms") or 0,
             "completed_trades": result.get("completed_trades"),
             "initial_cash_result": result.get("initial_cash"),
             "final_value": result.get("final_value"),
