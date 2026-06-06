@@ -234,10 +234,14 @@ async def get_historical_review(date: str = None):
             fp = s.get("filled_price", 0) or 0
             fq = s.get("filled_qty", 0) or 0
             strategy_stats[st]["sell_count"] += 1
-            pct_match = re.search(r'曾盈([\d.]+)%', reason) or re.search(r'-?([\d.]+)%', reason)
-            profit_pct = float(pct_match.group(1)) if pct_match else 0
+            # 优先使用已存的profit_pct字段, fallback到reason正则提取
+            profit_pct = s.get("profit_pct", 0) or 0
+            if profit_pct == 0:
+                pct_match = re.search(r'曾盈([\d.]+)%', reason) or re.search(r'-?([\d.]+)%', reason)
+                profit_pct = float(pct_match.group(1)) if pct_match else 0
             if "止损" in reason and "追踪" not in reason:
-                profit_pct = -abs(profit_pct)
+                if profit_pct > 0:
+                    profit_pct = -abs(profit_pct)  # 止损应为负值
                 strategy_stats[st]["stop_loss"] += 1
             elif "追踪止损" in reason or "止盈" in reason or "冲高" in reason:
                 strategy_stats[st]["take_profit"] += 1
@@ -315,15 +319,13 @@ async def get_weekly_report(date: str = None):
         date: YYYYMMDD格式, 不传则当天
     """
     scanner = await _get_scanner()
-    if not scanner._broker:
-        return {"success": True, "data": {}}
     
     try:
         from core.managers import mongo_manager
         if not mongo_manager.is_initialized:
             return {"success": True, "data": {}}
         
-        account_id = scanner._broker.account.account_id
+        account_id = scanner._broker.account.account_id if scanner and scanner._broker else "default"
         
         # 确定日期范围: 指定日期往前7天
         if date:
@@ -356,9 +358,14 @@ async def get_weekly_report(date: str = None):
                 daily_stats[td]["sell_amount"] += amount
             
             if strategy not in daily_stats[td]["strategies"]:
-                daily_stats[td]["strategies"][strategy] = {"trades": 0, "amount": 0}
+                daily_stats[td]["strategies"][strategy] = {"trades": 0, "amount": 0, "wins": 0, "pnl": 0}
             daily_stats[td]["strategies"][strategy]["trades"] += 1
             daily_stats[td]["strategies"][strategy]["amount"] += amount
+            if side == "sell":
+                pct = doc.get("profit_pct", 0) or 0
+                if pct >= 0:
+                    daily_stats[td]["strategies"][strategy]["wins"] += 1
+                daily_stats[td]["strategies"][strategy]["pnl"] += pct
         
         # 获取账户快照(如果有)
         account_snapshots = {}
@@ -367,17 +374,41 @@ async def get_weekly_report(date: str = None):
         ):
             account_snapshots[doc.get("updated_at", "")] = doc
         
-        # 当前账户状态
-        acct = scanner._broker.get_account()
+        # 当前账户状态(scanner未运行时用0填充)
+        acct = None
+        if scanner and scanner._broker:
+            try:
+                acct = scanner._broker.get_account()
+            except Exception:
+                pass
         
-        # 策略汇总
+        # 策略汇总(含胜率和盈亏)
         strategy_summary = {}
         for td, stats in daily_stats.items():
             for strat, sdata in stats.get("strategies", {}).items():
                 if strat not in strategy_summary:
-                    strategy_summary[strat] = {"trades": 0, "amount": 0}
+                    strategy_summary[strat] = {"trades": 0, "amount": 0, "wins": 0, "pnl": 0}
                 strategy_summary[strat]["trades"] += sdata["trades"]
                 strategy_summary[strat]["amount"] += sdata["amount"]
+        # 从卖出订单补充胜率/盈亏
+        async for doc in mongo_manager.db["broker_orders"].find({
+            "account_id": account_id,
+            "trade_date": {"$gte": start_date},
+            "status": "filled",
+            "side": "sell",
+        }):
+            strat = doc.get("strategy", "unknown")
+            if strat not in strategy_summary:
+                strategy_summary[strat] = {"trades": 0, "amount": 0, "wins": 0, "pnl": 0}
+            pct = doc.get("profit_pct", 0) or 0
+            if pct >= 0:
+                strategy_summary[strat]["wins"] += 1
+            strategy_summary[strat]["pnl"] += pct
+        # 计算胜率
+        for strat in strategy_summary:
+            t = strategy_summary[strat].get("trades", 0)
+            w = strategy_summary[strat].get("wins", 0)
+            strategy_summary[strat]["win_rate"] = round(w / max(t, 1) * 100, 1)
         
         # 总交易统计
         total_buys = sum(d["buys"] for d in daily_stats.values())
@@ -388,9 +419,9 @@ async def get_weekly_report(date: str = None):
         report = {
             "period": f"{start_date} ~ {datetime.now().strftime('%Y%m%d')}",
             "account": {
-                "total_assets": round(acct.total_assets, 2),
-                "total_profit": round(acct.total_profit, 2),
-                "available_cash": round(acct.available_cash, 2),
+                "total_assets": round(acct.total_assets, 2) if acct else 0,
+                "total_profit": round(acct.total_profit, 2) if acct else 0,
+                "available_cash": round(acct.available_cash, 2) if acct else 0,
             },
             "daily_stats": daily_stats,
             "strategy_summary": strategy_summary,
@@ -402,7 +433,7 @@ async def get_weekly_report(date: str = None):
                 "total_sell_amount": round(total_sell_amount, 2),
                 "net_flow": round(total_sell_amount - total_buy_amount, 2),
             },
-            "scanner_stats": scanner._stats,
+            "scanner_stats": scanner._stats if scanner else {},
         }
         
         return {"success": True, "data": report}
@@ -486,11 +517,28 @@ async def _daily_report_from_mongo():
     scan_stats["stop_losses"] = sum(1 for s in sells if "止损" in (s.get("reason", "")))
     scan_stats["take_profits"] = sum(1 for s in sells if "止盈" in (s.get("reason", "")) or "追踪止损" in (s.get("reason", "")))
     
-    # 4. 情绪快照
+    # 4. 情绪快照(优先从scan_traces L3读取, fallback到sentiment_scores)
     sentiment_snap = None
-    sent_doc = await db["sentiment_scores"].find_one({"trade_date": int(today)})
-    if sent_doc:
-        sentiment_snap = f"{sent_doc.get('period', '')} {sent_doc.get('score', 0)}分"
+    latest_with_l3 = await db["scan_traces"].find_one(
+        {"trade_date": today, "layer_details.L3_sentiment": {"$exists": True, "$ne": ""}},
+        sort=[("_id", -1)],
+        projection={"layer_details.L3_sentiment": 1}
+    )
+    if latest_with_l3:
+        sentiment_snap = (latest_with_l3.get("layer_details") or {}).get("L3_sentiment")
+    if not sentiment_snap:
+        sent_doc = await db["sentiment_scores"].find_one({"trade_date": int(today)})
+        if sent_doc:
+            sentiment_snap = f"{sent_doc.get('period', '')} {sent_doc.get('score', 0)}分"
+    
+    # 4b. 漏斗聚合(从scan_traces)
+    funnel_agg = defaultdict(lambda: {"total_input": 0, "total_rejected": 0})
+    async for doc in db["scan_traces"].find({"trade_date": today}, {"summary": 1}):
+        for layer_name, layer_data in (doc.get("summary") or {}).items():
+            if isinstance(layer_data, dict) and layer_data.get("rejected", 0) > 0:
+                funnel_agg[layer_name]["total_input"] += layer_data.get("total", 0)
+                funnel_agg[layer_name]["total_rejected"] += layer_data.get("rejected", 0)
+    funnel_summary = {k: dict(v) for k, v in funnel_agg.items()} or None
     
     # 5. 账户概算(从broker_state或推算)
     total_sell_amount = sum((s.get("filled_price", 0) or 0) * (s.get("filled_qty", 0) or 0) for s in sells)
@@ -518,7 +566,7 @@ async def _daily_report_from_mongo():
             "total_amount": round(total_buy_amount + total_sell_amount, 2),
         },
         "scanner_stats": scan_stats,
-        "funnel_summary": None,
+        "funnel_summary": funnel_summary,
         "sentiment_snapshot": sentiment_snap,
     }
     
