@@ -168,7 +168,7 @@ onMounted(async () => {
         <span class="code">{{ scanTraceData.ts_code }}</span>
         <span class="name">{{ scanTraceData.stock_name }}</span>
         <ElTag size="small" :type="signalStatusTag(scanTraceData.signal_status).type">{{ signalStatusTag(scanTraceData.signal_status).text }}</ElTag>
-        <span :class="scanTraceData.pct_chg >= 0 ? 'up' : 'down'" style="font-weight:600">{{ scanTraceData.pct_chg >= 0 ? '+' : '' }}{{ scanTraceData.pct_chg?.toFixed(1) }}%</span>
+        <span :class="(scanTraceData.pct_chg || 0) >= 0 ? 'up' : 'down'" style="font-weight:600">{{ (scanTraceData.pct_chg || 0) >= 0 ? '+' : '' }}{{ (scanTraceData.pct_chg || 0)?.toFixed(1) }}%</span>
       </div>
       <div class="st-reason">{{ scanTraceData.reason }}</div>
       <div v-if="scanTraceData.age_seconds" class="st-age">信号年龄: {{ scanTraceData.age_seconds }}秒</div>
