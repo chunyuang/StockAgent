@@ -134,12 +134,18 @@ def _fix_funnel_summary(doc: dict):
               "L7_ranking", "L8_position", "L9_execute"]
     
     # 先清理None值(旧数据可能没有input/output字段)
+    # 兼容旧数据: total/passed -> input/output映射
     for layer in layers:
         ld = summary.get(layer)
         if isinstance(ld, dict):
             for k in ["input", "output", "rejected", "passed", "total"]:
                 if ld.get(k) is None:
                     ld[k] = 0
+            # 旧数据用total/passed, 前端期望input/output
+            if ld.get("input", 0) == 0 and ld.get("total", 0) > 0:
+                ld["input"] = ld["total"]
+            if ld.get("output", 0) == 0 and ld.get("passed", 0) > 0:
+                ld["output"] = ld["passed"]
     
     prev_output = 0
     for layer in layers:
