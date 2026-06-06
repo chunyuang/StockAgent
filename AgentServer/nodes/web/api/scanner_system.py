@@ -416,6 +416,14 @@ async def _build_limit_pools(scanner) -> dict:
         if not latest:
             return result
         td = latest["trade_date"]
+        
+        # 如果最新日期无涨停/跌停数据(数据未填充), 回退到最近有数据的日期
+        up_check = await db["limit_list"].count_documents({"trade_date": td, "limit": "U"})
+        if up_check == 0:
+            # 查找最近有涨停数据的日期
+            has_data = await db["limit_list"].find_one({"limit": "U"}, sort=[("trade_date", -1)])
+            if has_data:
+                td = has_data["trade_date"]
 
         name_map, industry_map = await _build_name_industry_maps()
         if hasattr(scanner, '_stock_name_map') and scanner._stock_name_map:

@@ -188,7 +188,7 @@ async def get_scan_trace_dates():
             {"$sort": {"_id": -1}}
         ]
         results = await mongo_manager.db["scan_traces"].aggregate(pipeline).to_list(None)
-        dates = [{"date": r["_id"], "count": r["count"], "is_debug": r.get("is_debug", False)} for r in results]
+        dates = [{"date": str(r["_id"]), "count": r["count"], "is_debug": r.get("is_debug", False)} for r in results]
         return {"success": True, "data": dates}
     except Exception as e:
         return {"success": True, "data": [], "message": str(e)}
@@ -213,6 +213,7 @@ async def get_scan_traces(date: str = None, limit: int = 10):
         
         query = {}
         if date:
+            # scan_traces.trade_date is stored as string "YYYYMMDD"
             query["trade_date"] = date
         
         docs = []

@@ -263,7 +263,8 @@ export function useScanTraceMonitor() {
     const m = String(date.getMonth() + 1).padStart(2, '0')
     const d = String(date.getDate()).padStart(2, '0')
     const key = `${y}${m}${d}`
-    const item = scanTraceHasData.value.find((x: any) => x.date === key)
+    // scan-dates API returns date as string(YYYYMMDD), but guard against int
+    const item = scanTraceHasData.value.find((x: any) => String(x.date) === key)
     if (!item) return ''
     return item.is_debug ? 'has-scan-debug' : 'has-scan-data'
   }
