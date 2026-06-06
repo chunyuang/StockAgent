@@ -26,8 +26,12 @@ def _get_position_ratio_sentiment(period_cn: str, fallback: float = 0.25) -> flo
     """从strategy_defaults读取仓位系数(与emotion_cycle._get_position_ratio统一来源)"""
     try:
         from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+        # 中文key映射
         cn_to_en = {"高潮": "rising", "分化": "differentiation", "震荡": "chaos", "冰点": "bearish"}
-        en_key = cn_to_en.get(period_cn, "bearish")
+        # 英文key也直接支持(大小写不敏感)
+        en_lower = period_cn.lower() if period_cn else ""
+        en_map = {"rising": "rising", "differentiation": "differentiation", "chaos": "chaos", "bearish": "bearish"}
+        en_key = cn_to_en.get(period_cn, en_map.get(en_lower, "bearish"))
         return GLOBAL_RISK.get("sentiment_position_map", {}).get(en_key, fallback)
     except Exception:
         return fallback
@@ -199,7 +203,10 @@ async def get_sentiment_strategy_matrix(date: str = None):
             return STRATEGY_ID_TO_NAME.get(sid, sid)
         
         # 英文key fallback: MongoDB中如果存了英文period(RISING/BEARISH等),转成中文
-        _en_to_cn_period = {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点"}
+        _en_to_cn_period = {
+            "RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点",
+            "rising": "高潮", "differentiation": "分化", "chaos": "震荡", "bearish": "冰点",
+        }
         # 获取每日情绪阶段
         daily_sentiment = {}
         # 从sentiment_scores读取,missing_data的日期用前一个有效期补
@@ -400,6 +407,7 @@ async def get_market_sentiment_detail(date: str = None):
         broken_rate = broken / max(limit_up + broken, 1) * 100
 
         period_labels = {"BEARISH": ("冰点", 0, 40), "CHAOS": ("震荡", 40, 55), "DIFFERENTIATION": ("分化", 55, 70), "RISING": ("高潮", 70, 100),
+                          "bearish": ("冰点", 0, 40), "chaos": ("震荡", 40, 55), "differentiation": ("分化", 55, 70), "rising": ("高潮", 70, 100),
                           "冰点": ("冰点", 0, 40), "震荡": ("震荡", 40, 55), "分化": ("分化", 55, 70), "高潮": ("高潮", 70, 100),
                           "冰点(数据缺失)": ("冰点⚠", 0, 40), "震荡(数据缺失)": ("震荡⚠", 40, 55), "分化(数据缺失)": ("分化⚠", 55, 70), "高潮(数据缺失)": ("高潮⚠", 70, 100)}
         pi = period_labels.get(sentiment_period, None)

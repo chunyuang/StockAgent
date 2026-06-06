@@ -78,16 +78,16 @@ export function useSentimentMonitor() {
       { name: '高潮', icon: '🔥', range: '≥70分', color: '#f56c6c', position: '100%', canOpen: '✅ 全部', strategy: '所有策略开放', advice: '满仓操作，可追涨打板、龙头低吸、跌停翘板', active: cur.includes('高潮') },
       { name: '分化', icon: '⚖️', range: '55-70分', color: '#409eff', position: '50-70%', canOpen: '✅ 精选', strategy: '仅龙头低吸+半路追涨', advice: '降低仓位，只做最强龙头，避免跟风股', active: cur.includes('分化') },
       { name: '震荡', icon: '🌊', range: '40-55分', color: '#e6a23c', position: '25-40%', canOpen: '⚠️ 轻仓', strategy: '仅龙头低吸(小仓)', advice: '轻仓试错，严格止损3%，快进快出', active: cur.includes('震荡') },
-      { name: '冰点', icon: '❄️', range: '<40分', color: '#67c23a', position: '25%', canOpen: '⚠️ 仅龙头低吸', strategy: '龙头低吸(小仓25%)', advice: '极度弱势，半路追涨被禁，仅龙头低吸小仓试错，严格止损', active: cur.includes('冰点') },
+      { name: '冰点', icon: '❄️', range: '<40分', color: '#67c23a', position: '30%', canOpen: '⚠️ 仅龙头低吸', strategy: '龙头低吸(小仓30%)', advice: '极度弱势，半路追涨被禁，仅龙头低吸小仓试错，严格止损', active: cur.includes('冰点') },
     ]
   })
 
   // 情绪降级调仓规则
   const downgradeRules = [
-    { from: '分化', to: '冰点', action: '禁半路追涨', desc: '只保留龙头低吸，仓位≤25%' },
+    { from: '分化', to: '冰点', action: '禁半路追涨', desc: '只保留龙头低吸，仓位≤30%' },
     { from: '高潮', to: '分化', action: '减仓50%', desc: '保留核心仓位' },
     { from: '高潮', to: '冰点', action: '清低利润', desc: '急转直下，保命优先' },
-    { from: '震荡', to: '冰点', action: '禁半路追涨', desc: '只保留龙头低吸，仓位≤25%' },
+    { from: '震荡', to: '冰点', action: '禁半路追涨', desc: '只保留龙头低吸，仓位≤30%' },
     { from: '分化', to: '震荡', action: '减仓60%', desc: '仅保留最强持仓' },
     { from: '高潮', to: '震荡', action: '减仓50%', desc: '市场转弱，保留核心' },
   ]
@@ -104,7 +104,7 @@ export function useSentimentMonitor() {
     if (score >= 70) return `市场高潮，涨停${lu}只，赚钱效应强。可满仓操作，所有策略开放。注意高潮末端可能突然分化，设好止盈。`
     if (score >= 55) return `市场分化，涨停${lu}只跌停${ld}只。建议降仓位至50-70%，只做最强龙头，避免追高跟风股。`
     if (score >= 40) return `市场震荡，涨停${lu}只跌停${ld}只。建议轻仓25-40%试错，严格止损3%，快进快出，不恋战。`
-    return `市场冰点，跌停${ld}只，极度弱势。建议小仓25%试错，半路追涨被禁，仅龙头低吸。严格止损，等待情绪回暖信号。`
+    return `市场冰点，跌停${ld}只，极度弱势。建议小仓30%试错，半路追涨被禁，仅龙头低吸。严格止损，等待情绪回暖信号。`
   })
 
   async function fetchSentimentData() {

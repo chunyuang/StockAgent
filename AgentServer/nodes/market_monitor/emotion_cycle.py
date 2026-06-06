@@ -11,7 +11,9 @@ def _get_position_ratio(period_cn: str) -> float:
     """从strategy_defaults读取仓位系数(单一来源)"""
     from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
     cn_to_en = {"高潮": "rising", "分化": "differentiation", "震荡": "chaos", "冰点": "bearish"}
-    en_key = cn_to_en.get(period_cn, "bearish")
+    en_lower = period_cn.lower() if period_cn else ""
+    en_map = {"rising": "rising", "differentiation": "differentiation", "chaos": "chaos", "bearish": "bearish"}
+    en_key = cn_to_en.get(period_cn, en_map.get(en_lower, "bearish"))
     return GLOBAL_RISK.get("sentiment_position_map", {}).get(en_key, 0.3)
 
 # 情绪周期四阶段:

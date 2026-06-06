@@ -372,7 +372,7 @@ async def get_review_hero(date: str = None):
         violations = []
         # 统一情绪周期为英文(兼容中文存储)
         _cn_to_en_period = {"高潮": "RISING", "分化": "DIFFERENTIATION", "震荡": "CHAOS", "冰点": "BEARISH"}
-        _en_to_cn_period = {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点"}
+        _en_to_cn_period = {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点", "rising": "高潮", "differentiation": "分化", "chaos": "震荡", "bearish": "冰点"}
         raw_period = sentiment_doc.get("period", "") if sentiment_doc else ""
         # 如果存储的是中文,转为英文
         if raw_period in _cn_to_en_period:
@@ -499,7 +499,7 @@ async def get_discipline_check(date: str = None):
         sentiment_score = sentiment_doc.get("score",50) if sentiment_doc else 50
 
         # 统一情绪周期为中文(兼容英文存储)
-        _en_to_cn_period = {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点"}
+        _en_to_cn_period = {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点", "rising": "高潮", "differentiation": "分化", "chaos": "震荡", "bearish": "冰点"}
         if raw_period in _en_to_cn_period:
             raw_period = _en_to_cn_period[raw_period]  # 英文转中文
 
@@ -594,7 +594,7 @@ async def get_review_forward(date: str = None):
 
         raw_period = sentiment_doc.get("period","") if sentiment_doc else ""
         score = sentiment_doc.get("score",50) if sentiment_doc else 50
-        period_map = {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点"}
+        period_map = {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点", "rising": "高潮", "differentiation": "分化", "chaos": "震荡", "bearish": "冰点"}
         cn_period = period_map.get(raw_period, raw_period)
         # 统一cn_period为中文(如果raw_period已经是中文则保持)
         # period_map的value已经是中文,所以如果raw_period不在period_map中且是中文则直接用
@@ -851,7 +851,7 @@ async def deviation_attribution(date: str = None, start_date: str = None, end_da
             s_query["trade_date"] = int(sd)
         else:
             s_query["trade_date"] = {"$gte": int(sd), "$lte": int(ed)}
-        _en_to_cn = {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点"}
+        _en_to_cn = {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点", "rising": "高潮", "differentiation": "分化", "chaos": "震荡", "bearish": "冰点"}
         async for doc in db["sentiment_scores"].find(s_query, {"trade_date":1, "score":1, "period":1}):
             raw_p = doc.get("period", "震荡")
             cn_p = _en_to_cn.get(raw_p, raw_p)  # 英文转中文,中文保持
@@ -1373,7 +1373,7 @@ async def review_monthly(date: str = None):
 
         # 冰点期开仓
         sentiment_map = {}
-        _en_to_cn = {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点"}
+        _en_to_cn = {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点", "rising": "高潮", "differentiation": "分化", "chaos": "震荡", "bearish": "冰点"}
         async for doc in db["sentiment_scores"].find({"trade_date":{"$gte":int(month_start),"$lte":int(last_day)}},{"trade_date":1,"period":1,"score":1}):
             raw_p = doc.get("period","")
             cn_p = _en_to_cn.get(raw_p, raw_p)
@@ -1500,7 +1500,7 @@ async def factor_effectiveness(date: str = None):
         ):
             td = str(doc.get("trade_date", ""))
             raw_p = doc.get("period", "震荡")
-            _en_to_cn = {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点"}
+            _en_to_cn = {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点", "rising": "高潮", "differentiation": "分化", "chaos": "震荡", "bearish": "冰点"}
             cn_p = _en_to_cn.get(raw_p, raw_p)
             sentiment_map[td] = {"score": doc.get("score", 50), "period": cn_p}
 
@@ -1665,7 +1665,7 @@ async def review_closed_loop(date: str = None):
 
         # 加载情绪
         sentiment_map = {}
-        _en_to_cn = {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点"}
+        _en_to_cn = {"RISING": "高潮", "DIFFERENTIATION": "分化", "CHAOS": "震荡", "BEARISH": "冰点", "rising": "高潮", "differentiation": "分化", "chaos": "震荡", "bearish": "冰点"}
         async for doc in db["sentiment_scores"].find(
             {"trade_date": {"$gte": start_d, "$lte": end_d}},
             {"_id": 0, "trade_date": 1, "score": 1, "period": 1}
