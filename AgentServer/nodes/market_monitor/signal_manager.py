@@ -444,6 +444,9 @@ class SignalManager:
             if mongo_manager.db is None:
                 return
             now = datetime.now()
+            # 【v2.9.82】推断level: 止损/熔断=critical, 其他=info
+            is_critical = any(kw in action for kw in ["stop_loss", "circuit_breaker", "error", "risk_sell"])
+            level = "critical" if is_critical else "info"
             await mongo_manager.db["audit_log"].insert_one({
                 "timestamp": now,
                 "time_str": now.strftime("%Y-%m-%d %H:%M:%S"),
@@ -453,6 +456,7 @@ class SignalManager:
                 "stock_name": stock_name,
                 "strategy": strategy,
                 "reason": reason,
+                "level": level,
                 "sentiment": self.current_sentiment.get("period", ""),
                 "position_ratio": self._scanner._current_position_ratio,
                 "sell_logic_mode": self._scanner.SELL_LOGIC_MODE,

@@ -102,12 +102,16 @@ async def _write_audit_log(scanner, event_type: str, data: Dict[str, Any]) -> No
         now = datetime.now()
         # 提取reason: 优先用data中的reason/message, 否则用event_type
         reason = data.get("reason", "") or data.get("message", "") or event_type
+        # 【v2.9.82】推断level: 关键事件自动标记, 其他默认info
+        critical_events = {"circuit_breaker", "scanner_error", "risk_sell_executed"}
+        level = "critical" if event_type in critical_events else "info"
         doc = {
             "timestamp": now,  # datetime对象, TTL索引需要Date类型
             "time_str": now.strftime("%Y-%m-%d %H:%M:%S"),
             "event_type": event_type,  # 保留event_type向后兼容
             "action": event_type,      # 统一action字段(与signal_manager对齐)
             "reason": reason,          # 统一reason字段(与signal_manager对齐)
+            "level": level,             # 日志级别(critical/warning/info)
             "trade_date": scanner._trade_date,
             "account_id": scanner._account_id,
             "data": _safe_serialize(data),

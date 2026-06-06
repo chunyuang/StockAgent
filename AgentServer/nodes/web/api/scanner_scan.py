@@ -529,10 +529,30 @@ async def get_system_health_detail():
         except Exception:
             pass
 
+        # WebSocket状态(从Redis WS桥获取连接数)
+        ws_status = {"connected": False, "client_count": 0}
+        try:
+            from nodes.web.redis_ws_bridge import RedisWSBridge
+            bridge = RedisWSBridge._instance
+            if bridge:
+                ws_status = {"connected": True, "client_count": getattr(bridge, '_client_count', 0)}
+        except Exception:
+            pass
+
         alerts = []
         try:
             from core.managers import mongo_manager
-            async for doc in mongo_manager.db["audit_log"].find({"level": {"$in": ["warning", "critical"]}}, {"_id": 0}).sort("timestamp", -1).limit(10):
+            # 【v2.9.82修复】查询条件兼容: 有level字段的用level过滤，
+            # 无level字段的用action/event_type中的critical/warning关键词匹配
+            alerts_cursor = mongo_manager.db["audit_log"].find(
+                {"$or": [
+                    {"level": {"$in": ["warning", "critical"]}},
+                    {"action": {"$in": ["circuit_breaker", "scanner_error", "risk_sell_executed"]}},
+                    {"event_type": {"$in": ["circuit_breaker", "scanner_error", "risk_sell_executed"]}},
+                ]},
+                {"_id": 0}
+            ).sort("timestamp", -1).limit(10)
+            async for doc in alerts_cursor:
                 alerts.append(doc)
         except Exception:
             pass
@@ -540,6 +560,7 @@ async def get_system_health_detail():
         return _sanitize({"success": True, "data": {
             "scanner": scanner_hb, "data_sources": data_sources,
             "mongo": mongo_status, "redis": redis_status,
+            "websocket": ws_status,
             "system": {"cpu_pct": psutil.cpu_percent(interval=0.1), "memory_pct": psutil.virtual_memory().percent, "disk_pct": psutil.disk_usage('/').percent},
             "alerts": alerts, "health_score": 50,
         }})
