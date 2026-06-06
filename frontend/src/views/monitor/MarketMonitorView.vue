@@ -316,9 +316,9 @@ const {
             <div class="td2-chain-title">📍 追踪止损</div>
             <div class="td2-grid">
               <div class="td2-card sm"><div class="td2-label">状态</div><div class="td2-val" :class="tradeDetailData.position.trailing_stop?.activated ? 'up' : ''">{{ tradeDetailData.position.trailing_stop?.activated ? '✅已激活' : '⏸未激活' }}</div></div>
-              <div class="td2-card sm"><div class="td2-label">比例</div><div class="td2-val">{{ (tradeDetailData.position.trailing_stop?.trailing_stop_pct * 100).toFixed(1) }}%</div></div>
-              <div class="td2-card sm"><div class="td2-label">最高价</div><div class="td2-val">¥{{ tradeDetailData.position.trailing_stop.high_price?.toFixed(2) }}</div></div>
-              <div class="td2-card sm"><div class="td2-label">止损价</div><div class="td2-val text-stock-up">¥{{ tradeDetailData.position.trailing_stop.stop_price?.toFixed(2) }}</div></div>
+              <div class="td2-card sm"><div class="td2-label">比例</div><div class="td2-val">{{ ((tradeDetailData.position.trailing_stop?.trailing_stop_pct || 0) * 100).toFixed(1) }}%</div></div>
+              <div class="td2-card sm"><div class="td2-label">最高价</div><div class="td2-val">¥{{ tradeDetailData.position.trailing_stop?.high_price?.toFixed(2) || '-' }}</div></div>
+              <div class="td2-card sm"><div class="td2-label">止损价</div><div class="td2-val text-stock-up">¥{{ tradeDetailData.position.trailing_stop?.stop_price?.toFixed(2) || '-' }}</div></div>
             </div>
             <div class="td2-trail-ctrl">
               <ElInputNumber v-model="trailEditPct" :min="1" :max="20" :step="0.5" :precision="1" size="small" style="width:110px" />
@@ -414,6 +414,9 @@ const {
     <!-- P2-10: 键盘快捷键 -->
     <KeyboardShortcuts
       @force-scan="forceScan"
+      @manual-scan="manualScan"
+      @start-scanner="startScanner"
+      @stop-scanner="stopScanner"
       @manual-buy="() => { manualTrade.ts_code = ''; const input = $refs.codeInput as any; input?.focus() }"
       @sell-selected="() => { if (focusIndex >= 0 && focusIndex < sortedPositions.length) quickSell(sortedPositions[focusIndex]) }"
       @emergency-liquidate="emergencyLiquidate"

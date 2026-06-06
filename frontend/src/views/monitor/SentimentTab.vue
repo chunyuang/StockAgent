@@ -230,7 +230,7 @@ function dailyHoverBottom(): number {
           <div v-if="sentimentLive" class="sl-content">
             <div class="sl-row"><span>涨停</span><span class="sl-val up">{{ (sentimentLive?.limit_up_count || 0) }}</span></div>
             <div class="sl-row"><span>跌停</span><span class="sl-val down">{{ (sentimentLive?.limit_down_count || 0) }}</span></div>
-            <div class="sl-row"><span>炸板率</span><span class="sl-val" :style="{ color: sentimentLive.broken_rate > 30 ? '#f56c6c' : 'var(--text-primary)' }">{{ sentimentLive.broken_rate?.toFixed(1) }}%</span></div>
+            <div class="sl-row"><span>炸板率</span><span class="sl-val" :style="{ color: (sentimentLive?.broken_rate || 0) > 30 ? '#f56c6c' : 'var(--text-primary)' }">{{ (sentimentLive?.broken_rate || 0).toFixed(1) }}%</span></div>
             <div class="sl-row"><span>炸板数</span><span class="sl-val">{{ (sentimentLive?.broken_count || 0) }}</span></div>
             <div v-if="(sentimentLive?.board_distribution || {}) && Object.keys((sentimentLive?.board_distribution || {})).length" class="sl-board">
               <span style="color:var(--text-tertiary);font-size:11px">连板分布</span>
