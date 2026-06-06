@@ -207,7 +207,7 @@ class TestVersionV2973(unittest.TestCase):
         src_path = os.path.join(PROJECT_ROOT, "nodes", "web", "api", "scanner_system.py")
         with open(src_path) as f:
             content = f.read()
-        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.74"', content)
+        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.81"', content)
 
     def test_scanner_version_assertions(self):
         """版本断言文件已更新到v2.9.74"""

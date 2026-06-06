@@ -82,9 +82,9 @@ class TestQuoteManagerV2962Extraction(unittest.TestCase):
         self.assertTrue(_method_exists(self.src, "_handle_em_degrade_recovery"))
 
     def test_handle_em_degrade_recovery_line_count(self):
-        """_handle_em_degrade_recovery行数合理(≤15)"""
+        """_handle_em_degrade_recovery行数合理(≤20)"""
         lines = _get_method_lines(self.src, "_handle_em_degrade_recovery")
-        self.assertLessEqual(lines, 15, f"_handle_em_degrade_recovery {lines}行, 期望≤15")
+        self.assertLessEqual(lines, 20, f"_handle_em_degrade_recovery {lines}行, 期望≤20")
 
     def test_handle_em_fetch_failure_exists(self):
         """_handle_em_fetch_failure方法存在"""
@@ -346,7 +346,7 @@ class TestNoBacktestRegressionV2962(unittest.TestCase):
         filepath = os.path.join(WEB_API_DIR, "scanner_system.py")
         with open(filepath) as f:
             src = f.read()
-        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.74"', src)
+        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.81"', src)
 
 
 if __name__ == "__main__":

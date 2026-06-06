@@ -508,7 +508,13 @@ async def get_system_health_detail():
 
         redis_status = {"connected": False}
         try:
-            if scanner_running:
+            # 【v2.9.81巡检修复】Redis健康检测不应依赖scanner_running
+            # 优先用redis_manager直连，scanner未运行时也能检测Redis状态
+            from core.managers.redis_manager import redis_manager
+            if redis_manager.is_initialized and redis_manager._client:
+                await redis_manager._client.ping()
+                redis_status = {"connected": True}
+            elif scanner_running:
                 redis_obj = getattr(scanner, '_redis', None)
                 if redis_obj:
                     await redis_obj.ping()

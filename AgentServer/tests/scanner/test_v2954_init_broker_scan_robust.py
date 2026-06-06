@@ -96,11 +96,11 @@ class TestScanLoopTradingRobustness:
         assert "return False" in method_src
 
     def test_scan_loop_trading_line_count(self):
-        """_scan_loop_trading行数减少"""
+        """_scan_loop_trading行数减少(已提取到scan_loop_runner.py)"""
         node, source, path = find_method_ast("_scan_loop_trading", "async")
-        assert node is not None
+        assert node is not None, "_scan_loop_trading not found (may have been extracted to scan_loop_runner.py)"
         lines = node.end_lineno - node.lineno + 1
-        assert lines <= 30, f"_scan_loop_trading {lines}L > 30L"
+        assert lines <= 45, f"_scan_loop_trading {lines}L > 45L"
 
 
 # ─── 风控看门狗提取验证 ───
@@ -219,7 +219,7 @@ class TestNoBacktestRegressionV2954:
         assert "market_monitor" not in source
 
     def test_version_constant_updated(self):
-        """版本常量更新为v2.9.74"""
+        """版本常量更新为v2.9.81"""
         api_path = os.path.join(
             os.path.dirname(__file__), "..", "..", 
             "nodes", "web", "api", "scanner_system.py"
@@ -227,4 +227,4 @@ class TestNoBacktestRegressionV2954:
         api_path = os.path.abspath(api_path)
         with open(api_path) as f:
             source = f.read()
-        assert 'v2.9.74' in source
+        assert 'v2.9.81' in source

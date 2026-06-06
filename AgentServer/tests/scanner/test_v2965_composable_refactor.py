@@ -15,7 +15,7 @@ def _read_version():
     with open(version_file) as f:
         for line in f:
             if '_DESIGN_DOC_VERSION' in line and '=' in line:
-                # _DESIGN_DOC_VERSION = "v2.9.74"
+                # _DESIGN_DOC_VERSION = "v2.9.81"
                 return line.split('"')[1]
     return None
 
@@ -25,7 +25,7 @@ class TestVersionV2965:
 
     def test_design_doc_version_is_v2965(self):
         """设计文档版本应为v2.9.74"""
-        assert _read_version() == "v2.9.74"
+        assert _read_version() == "v2.9.81"
 
 
 class TestMarketMonitorViewComposableRefactor:

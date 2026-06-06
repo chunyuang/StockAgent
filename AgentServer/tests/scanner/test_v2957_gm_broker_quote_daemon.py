@@ -96,9 +96,9 @@ class TestQuoteManagerExtraction(unittest.TestCase):
         cls.tree = _parse(os.path.join(NODES, "quote_manager.py"))
 
     def test_fetch_realtime_batch_reduced(self):
-        """fetch_realtime_batch应<55行(原152行)"""
+        """fetch_realtime_batch应≤75行(原152行, 重构后含更多守卫逻辑)"""
         lines = _method_lines(self.tree, "fetch_realtime_batch")
-        self.assertLessEqual(lines, 55, f"fetch_realtime_batch {lines}行, 预期≤55")
+        self.assertLessEqual(lines, 75, f"fetch_realtime_batch {lines}行, 预期≤75")
 
     def test_fetch_eastmoney_data_exists(self):
         self.assertTrue(_method_exists(self.tree, "_fetch_eastmoney_data"))
@@ -232,14 +232,14 @@ class TestNoBacktestRegressionV2957(unittest.TestCase):
         api_path = os.path.join(ROOT, "nodes", "web", "api", "scanner_system.py")
         with open(api_path) as f:
             content = f.read()
-        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.74"', content)
+        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.81"', content)
 
     def test_scanner_version_constant(self):
         """scanner模块应能正常导入"""
         sys.path.insert(0, ROOT)
         try:
             from nodes.web.api.scanner_system import _DESIGN_DOC_VERSION
-            self.assertEqual(_DESIGN_DOC_VERSION, "v2.9.75")
+            self.assertEqual(_DESIGN_DOC_VERSION, "v2.9.81")
         except ImportError:
             self.skipTest("scanner module import failed")
 

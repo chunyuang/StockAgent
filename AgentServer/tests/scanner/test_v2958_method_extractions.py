@@ -389,7 +389,7 @@ class TestNoBacktestRegressionV2958(unittest.TestCase):
     def test_version_constant_updated(self):
         with open(os.path.join(AGENT_DIR, "nodes", "web", "api", "scanner_system.py")) as f:
             src = f.read()
-        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.74"', src)
+        self.assertIn('_DESIGN_DOC_VERSION = "v2.9.81"', src)
 
     def test_sell_signal_checker_untouched(self):
         """卖出信号检查器不应被修改"""
