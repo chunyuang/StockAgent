@@ -58,14 +58,42 @@ export default defineConfig({
     ]
   },
   build: {
+    chunkSizeWarningLimit: 600,
     rollupOptions: {
       output: {
-        manualChunks: {
-          'element-plus': ['element-plus'],
-          // echarts拆分问题: 把echarts和vue-echarts放在同一个chunk会导致
-          // "Ho[o] is not a constructor"错误(渲染器注册时序问题)
-          // 修复: 不单独拆分echarts, 让它内联到各组件chunk中
-          'vendor': ['vue', 'vue-router', 'pinia', 'axios', 'echarts', 'vue-echarts'],
+        manualChunks(id) {
+          // element-plus组件按需已由auto-import处理，这里拆分大依赖
+          if (id.includes('node_modules/element-plus/')) {
+            // element-plus子模块拆分：es/locale和es/utils较小，保持主chunk
+            if (id.includes('element-plus/es/locale') || id.includes('element-plus/es/utils')) {
+              return 'el-shared';
+            }
+            return 'element-plus';
+          }
+          // echarts单独chunk(不再与vendor捆绑，避免单个chunk过大)
+          if (id.includes('node_modules/echarts/')) {
+            return 'echarts';
+          }
+          if (id.includes('node_modules/vue-echarts/')) {
+            return 'echarts';
+          }
+          // 核心vendor
+          if (id.includes('node_modules/vue/') || id.includes('node_modules/@vue/')) {
+            return 'vendor';
+          }
+          if (id.includes('node_modules/vue-router/')) {
+            return 'vendor';
+          }
+          if (id.includes('node_modules/pinia/')) {
+            return 'vendor';
+          }
+          if (id.includes('node_modules/axios/')) {
+            return 'vendor';
+          }
+          // zrender是echarts的渲染引擎，跟echarts走
+          if (id.includes('node_modules/zrender/')) {
+            return 'echarts';
+          }
         },
       },
     },
