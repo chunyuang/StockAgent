@@ -199,8 +199,9 @@ async def get_sentiment_strategy_matrix(date: str = None):
         from nodes.backtest_engine.strategy_defaults import STRATEGY_ID_TO_NAME
         
         # 策略名映射: 统一使用STRATEGY_ID_TO_NAME, 缺省时用ID本身
+        from nodes.backtest_engine.strategy_defaults import normalize_strategy_id as _normalize_sid
         def _strategy_display_name(sid: str) -> str:
-            return STRATEGY_ID_TO_NAME.get(sid, sid)
+            return STRATEGY_ID_TO_NAME.get(_normalize_sid(sid), sid)
         
         # 英文key fallback: MongoDB中如果存了英文period(RISING/BEARISH等),转成中文
         _en_to_cn_period = {
@@ -240,7 +241,7 @@ async def get_sentiment_strategy_matrix(date: str = None):
             sell_query,
             {"trade_date": 1, "strategy": 1, "reason": 1, "filled_price": 1, "filled_qty": 1}
         ):
-            strategy = doc.get("strategy", "unknown") or "unknown"
+            strategy = _normalize_sid(doc.get("strategy", "unknown") or "unknown")
             # 强制空仓等系统指令归为"system_force"策略
             if not strategy or strategy == "unknown":
                 reason_text = doc.get("reason", "") or ""
@@ -293,6 +294,31 @@ async def get_sentiment_strategy_matrix(date: str = None):
             strategy_totals[strategy]["losses"] += int(not is_win)
             strategy_totals[strategy]["total_pnl"] += pnl
         
+        # 策略ID normalize: 将anomaly_surge等别名归并到正式策略
+        # 合并normalize后的matrix数据(如anomaly_surge和halfway_chase合并)
+        normalized_matrix = defaultdict(lambda: defaultdict(lambda: {"wins": 0, "losses": 0, "count": 0, "total_pnl": 0.0, "win_pnl": 0.0, "loss_pnl": 0.0}))
+        for strat, periods in matrix.items():
+            norm_sid = _normalize_sid(strat)
+            for per, data in periods.items():
+                nd = normalized_matrix[norm_sid][per]
+                nd["wins"] += data["wins"]
+                nd["losses"] += data["losses"]
+                nd["count"] += data["count"]
+                nd["total_pnl"] += data["total_pnl"]
+                nd["win_pnl"] += data["win_pnl"]
+                nd["loss_pnl"] += data["loss_pnl"]
+        # 用normalize后的matrix替换原始matrix
+        matrix = normalized_matrix
+        strategy_totals_norm = defaultdict(lambda: {"wins": 0, "losses": 0, "count": 0, "total_pnl": 0.0})
+        for strat, totals in strategy_totals.items():
+            norm_sid = _normalize_sid(strat)
+            nd = strategy_totals_norm[norm_sid]
+            nd["wins"] += totals["wins"]
+            nd["losses"] += totals["losses"]
+            nd["count"] += totals["count"]
+            nd["total_pnl"] += totals["total_pnl"]
+        strategy_totals = strategy_totals_norm
+        
         result_matrix = {}
         for strat, periods in matrix.items():
             result_matrix[strat] = {}
@@ -321,6 +347,7 @@ async def get_sentiment_strategy_matrix(date: str = None):
         
         return {"success": True, "data": {
             "matrix": result_matrix,
+            "strategy_names": {sid: _strategy_display_name(sid) for sid in result_matrix},
             "strategy_totals": {k: {"count": v["count"], "wins": v["wins"], "losses": v["losses"], "win_rate": round(v["wins"]/max(v["count"],1)*100,1), "total_pnl": round(v["total_pnl"])} for k,v in strategy_totals.items()},
             "recommendations": recommendations[:5],
         }}

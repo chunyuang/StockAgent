@@ -30,21 +30,28 @@ _override_risk: Dict[str, Dict] = {}     # strategy_id → riskParams
 _override_enabled: Dict[str, bool] = {}  # strategy_id → enabled
 _override_global_risk: Dict[str, Any] = {}  # 全局风控覆盖
 _overrides_loaded: bool = False  # 是否已从MongoDB加载
+_overrides_load_attempts: int = 0  # 加载尝试次数(避免MongoDB未初始化时无限重试)
+_MAX_LOAD_ATTEMPTS: int = 10  # 最大加载尝试次数
 
 
 async def _ensure_overrides_loaded() -> None:
     """从MongoDB加载覆盖参数(懒加载,首次访问时触发)
     
     修复: 加载失败时重置flag允许重试, 避免永久跳过
+    修复: 增加重试计数器, 避免MongoDB未初始化时无限重试浪费性能
     """
-    global _override_params, _override_risk, _override_enabled, _override_global_risk, _overrides_loaded
+    global _override_params, _override_risk, _override_enabled, _override_global_risk, _overrides_loaded, _overrides_load_attempts
     if _overrides_loaded:
         return
+    _overrides_load_attempts += 1
     try:
         from core.managers import mongo_manager
         if not mongo_manager.is_initialized:
-            logger.debug("[CONFIG] MongoDB未初始化, 跳过覆盖参数加载")
-            # 【修复】不设flag, 允许MongoDB后续初始化成功时重试加载
+            if _overrides_load_attempts >= _MAX_LOAD_ATTEMPTS:
+                logger.warning(f"[CONFIG] MongoDB未初始化, 已尝试{_overrides_load_attempts}次, 使用默认参数")
+                _overrides_loaded = True  # 放弃重试, 使用默认
+            else:
+                logger.debug(f"[CONFIG] MongoDB未初始化, 跳过覆盖参数加载(尝试{_overrides_load_attempts}/{_MAX_LOAD_ATTEMPTS})")
             return
         doc = await mongo_manager.db["scanner_config"].find_one({"_id": "strategy_config_overrides"})
         if doc and "data" in doc:
@@ -55,6 +62,7 @@ async def _ensure_overrides_loaded() -> None:
             _override_global_risk = data.get("global_risk", {})
             logger.info(f"[CONFIG] 从MongoDB恢复策略覆盖: {len(_override_params)}个参数覆盖, {len(_override_enabled)}个启停覆盖")
         _overrides_loaded = True
+        _overrides_load_attempts = 0  # 加载成功重置
     except Exception as e:
         # 关键修复: 加载失败时不设flag, 允许下次重试
         logger.warning(f"[CONFIG] 加载覆盖参数失败(下次重试): {e}")
@@ -182,7 +190,14 @@ async def get_global_risk():
     """获取全局风控参数(含覆盖)"""
     await _ensure_overrides_loaded()
     result = dict(GLOBAL_RISK)
-    result.update(_override_global_risk)
+    # 深层合并: _override_global_risk中的dict类型字段与默认值合并,而非整体替换
+    for k, v in _override_global_risk.items():
+        if k in result and isinstance(result[k], dict) and isinstance(v, dict):
+            merged = dict(result[k])
+            merged.update(v)
+            result[k] = merged
+        else:
+            result[k] = v
     return {"success": True, "data": result}
 
 
@@ -195,7 +210,18 @@ async def update_global_risk(req: GlobalRiskUpdate):
     await _ensure_overrides_loaded()
     for k, v in req.updates.items():
         if k in GLOBAL_RISK:
-            _override_global_risk[k] = v
+            # 深层合并: 如果GLOBAL_RISK中该key是dict且新值也是dict,则合并而非替换
+            # 避免sentiment_position_map等嵌套dict被整体覆盖
+            if isinstance(GLOBAL_RISK[k], dict) and isinstance(v, dict):
+                existing_override = _override_global_risk.get(k, {})
+                if not isinstance(existing_override, dict):
+                    existing_override = {}
+                merged = dict(GLOBAL_RISK[k])  # 先从默认值开始
+                merged.update(existing_override)  # 应用已有覆盖
+                merged.update(v)  # 应用新覆盖
+                _override_global_risk[k] = merged
+            else:
+                _override_global_risk[k] = v
     # 持久化到MongoDB (strategy_config_overrides文档)
     await _persist_overrides()
     
@@ -226,7 +252,14 @@ async def update_global_risk(req: GlobalRiskUpdate):
     
     logger.info(f"[CONFIG] 更新全局风控: {req.updates} (已持久化)")
     result = dict(GLOBAL_RISK)
-    result.update(_override_global_risk)
+    # 深层合并返回
+    for k, v in _override_global_risk.items():
+        if k in result and isinstance(result[k], dict) and isinstance(v, dict):
+            merged = dict(result[k])
+            merged.update(v)
+            result[k] = merged
+        else:
+            result[k] = v
     return {"success": True, "data": result}
 
 

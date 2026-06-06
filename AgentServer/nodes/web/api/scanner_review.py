@@ -623,11 +623,15 @@ async def get_review_forward(date: str = None):
             "分化": {"open": ["halfway_chase","dragon_head"], "close": ["first_limit_up"]},
             "震荡": {"open": ["limit_down_qiao"], "close": ["halfway_chase","first_limit_up"]},
             "冰点": {"open": [], "close": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head"]},
-            # 【V75修复】英文key fallback: MongoDB可能存英文period(RISING/BEARISH等)
+            # 【V75修复】英文key fallback: MongoDB可能存英文period(RISING/BEARISH等),大小写均支持
             "RISING": {"open": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head"], "close": []},
             "DIFFERENTIATION": {"open": ["halfway_chase","dragon_head"], "close": ["first_limit_up"]},
             "CHAOS": {"open": ["limit_down_qiao"], "close": ["halfway_chase","first_limit_up"]},
             "BEARISH": {"open": [], "close": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head"]},
+            "rising": {"open": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head"], "close": []},
+            "differentiation": {"open": ["halfway_chase","dragon_head"], "close": ["first_limit_up"]},
+            "chaos": {"open": ["limit_down_qiao"], "close": ["halfway_chase","first_limit_up"]},
+            "bearish": {"open": [], "close": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head"]},
         }
 
         switches = period_strategy_map.get(raw_period, period_strategy_map.get(cn_period, {"open":[],"close":[]}))
