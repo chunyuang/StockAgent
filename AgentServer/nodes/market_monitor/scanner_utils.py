@@ -186,7 +186,8 @@ class ScannerUtils:
             "strategy_performance": ScannerUtils._build_strategy_performance(scanner._timeline),
             "risk_status": ScannerUtils._build_risk_status(scanner),
             "signal_stats": ScannerUtils._build_signal_stats(scanner._active_signals),
-            "scanner_stats": dict(scanner._stats),
+            # scanner_stats: 前端兼容字段(scan_count/total_signals/active_signals/positions)
+            "scanner_stats": {**dict(scanner._stats), "scan_count": scanner._stats.get("scans", 0), "total_signals": scanner._stats.get("signals_found", 0), "active_signals": len(scanner._active_signals), "positions": len(positions)},
             "sentiment": scanner.get_current_sentiment(),
             "position_ratio": scanner.get_current_position_ratio(),
         }
