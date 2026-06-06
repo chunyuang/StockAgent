@@ -141,8 +141,8 @@ onMounted(async () => {
           <span class="ld-name">{{ layerLabel(layer) }}</span>
         </div>
       </div>
-      <div class="ld-sentiment" v-if="layerDebugData.pipeline_config.sentiment">
-        情绪: {{ layerDebugData.pipeline_config.sentiment.score }} → {{ layerDebugData.pipeline_config.sentiment.period }} | 仓位系数: {{ ((layerDebugData.pipeline_config.position_ratio || 0) * 100).toFixed(0) }}%
+      <div class="ld-sentiment" v-if="layerDebugData.pipeline_config?.sentiment">
+        情绪: {{ layerDebugData.pipeline_config.sentiment?.score ?? '-' }} → {{ layerDebugData.pipeline_config.sentiment?.period ?? '-' }} | 仓位系数: {{ ((layerDebugData.pipeline_config?.position_ratio || 0) * 100).toFixed(0) }}%
       </div>
     </div>
     <div v-if="layerDebugData.signal_traces?.length" class="ld-traces">
@@ -168,7 +168,7 @@ onMounted(async () => {
         <span class="code">{{ scanTraceData.ts_code }}</span>
         <span class="name">{{ scanTraceData.stock_name }}</span>
         <ElTag size="small" :type="signalStatusTag(scanTraceData.signal_status).type">{{ signalStatusTag(scanTraceData.signal_status).text }}</ElTag>
-        <span :class="(scanTraceData.pct_chg || 0) >= 0 ? 'up' : 'down'" style="font-weight:600">{{ (scanTraceData.pct_chg || 0) >= 0 ? '+' : '' }}{{ (scanTraceData.pct_chg || 0)?.toFixed(1) }}%</span>
+        <span :class="(scanTraceData.pct_chg || 0) >= 0 ? 'up' : 'down'" style="font-weight:600">{{ (scanTraceData.pct_chg || 0) >= 0 ? '+' : '' }}{{ Number(scanTraceData.pct_chg || 0).toFixed(1) }}%</span>
       </div>
       <div class="st-reason">{{ scanTraceData.reason }}</div>
       <div v-if="scanTraceData.age_seconds" class="st-age">信号年龄: {{ scanTraceData.age_seconds }}秒</div>

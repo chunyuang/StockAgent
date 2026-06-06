@@ -199,11 +199,11 @@ const {
           <div v-if="!positions.length" class="empty">暂无持仓</div>
           <div v-for="(pos, idx) in sortedPositions" :key="pos.ts_code" class="pos-card" :class="{ 'pos-focused': idx === focusIndex }">
             <div class="pos-top"><ElTag size="small" :color="strategyMeta[pos.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="font-size:10px;min-width:48px;text-align:center">{{ pos.strategy_name || strategyCN(pos.strategy) }}</ElTag><span class="code">{{ pos.ts_code }}</span><span class="name">{{ pos.stock_name }}</span><MiniKline :tsCode="pos.ts_code" :compact="true" :days="5" /><span :class="(pos.profit_pct || 0) >= 0 ? 'up' : 'down'" class="pct">{{ (pos.profit_pct || 0) >= 0 ? '+' : '' }}{{ (pos.profit_pct || 0).toFixed(1) }}%</span><span class="mini-bar"><span class="mini-bar-fill" :style="{ width: Math.min(Math.abs(pos.profit_pct || 0) / 10 * 100, 100) + '%' }" :class="(pos.profit_pct || 0) >= 0 ? 'bar-up' : 'bar-down'"></span></span><span v-if="pos.today_buy > 0" class="t1-tag">T+1</span><ElButton size="small" type="danger" plain @click="quickSell(pos)" :disabled="pos.available_qty <= 0" class="btn-xs ml-auto">卖出</ElButton><ElButton size="small" type="info" plain @click="openTradeDetail(pos.ts_code)" class="btn-xs">详情</ElButton></div>
-            <div class="pos-info"><span>{{ pos.shares }}股</span><span>成本¥{{ (pos.cost_price || 0).toFixed(2) }}</span><span>现价¥{{ (pos.current_price || 0).toFixed(2) }}</span><span v-if="pos.market_value" class="mv">市值{{ (pos.market_value / 10000).toFixed(1) }}万</span><span v-if="pos.profit_amount != null" :class="pos.profit_amount >= 0 ? 'up' : 'down'" class="pamt">{{ pos.profit_amount >= 0 ? '+' : '' }}¥{{ Math.abs(pos.profit_amount).toFixed(0) }}</span></div>
+            <div class="pos-info"><span>{{ pos.shares }}股</span><span>成本¥{{ Number(pos.cost_price || 0).toFixed(2) }}</span><span>现价¥{{ Number(pos.current_price || 0).toFixed(2) }}</span><span v-if="pos.market_value" class="mv">市值{{ (Number(pos.market_value) / 10000).toFixed(1) }}万</span><span v-if="pos.profit_amount != null" :class="pos.profit_amount >= 0 ? 'up' : 'down'" class="pamt">{{ pos.profit_amount >= 0 ? '+' : '' }}¥{{ Math.abs(Number(pos.profit_amount)).toFixed(0) }}</span></div>
             <div class="pos-prices-row">
-              <span v-if="pos.stop_loss_price" class="pp-sl">止损¥{{ pos.stop_loss_price?.toFixed(2) }}</span>
-              <span v-if="pos.take_profit_price" class="pp-tp">止盈¥{{ pos.take_profit_price?.toFixed(2) }}</span>
-              <span v-if="pos.trailing_stop?.activated" class="pp-trail">📍追踪¥{{ pos.trailing_stop.stop_price?.toFixed(2) }}({{ ((pos.trailing_stop.trailing_stop_pct || 0) * 100).toFixed(0) }}%)</span>
+              <span v-if="pos.stop_loss_price" class="pp-sl">止损¥{{ Number(pos.stop_loss_price).toFixed(2) }}</span>
+              <span v-if="pos.take_profit_price" class="pp-tp">止盈¥{{ Number(pos.take_profit_price).toFixed(2) }}</span>
+              <span v-if="pos.trailing_stop?.activated" class="pp-trail">📍追踪¥{{ Number(pos.trailing_stop.stop_price || 0).toFixed(2) }}({{ ((Number(pos.trailing_stop.trailing_stop_pct) || 0) * 100).toFixed(0) }}%)</span>
               <span v-if="pos.risk_level && pos.risk_level !== 'normal'" class="pp-risk" :class="pos.risk_level">{{ {high:'🔴高风险',elevated:'🟡较高',low:'🟢低风险'}[pos.risk_level] || pos.risk_level }}</span>
             </div>
             <div v-if="pos.stop_loss_pct != null" class="pos-risk-row">
@@ -235,7 +235,7 @@ const {
           <template v-if="tradeDetailData.buy">
             <div class="td2-grid">
               <div class="td2-card"><div class="td2-label">⏰ 时间</div><div class="td2-val">{{ tradeDetailData.buy.time }}</div></div>
-              <div class="td2-card"><div class="td2-label">💰 价格</div><div class="td2-val">¥{{ tradeDetailData.buy.price?.toFixed(2) }}</div></div>
+              <div class="td2-card"><div class="td2-label">💰 价格</div><div class="td2-val">¥{{ Number(tradeDetailData.buy.price || 0).toFixed(2) }}</div></div>
               <div class="td2-card"><div class="td2-label">📊 数量</div><div class="td2-val">{{ tradeDetailData.buy.shares }}股</div></div>
               <div class="td2-card"><div class="td2-label">🎯 策略</div><div class="td2-val"><ElTag size="small" :color="strategyMeta[tradeDetailData.buy.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(tradeDetailData.buy.strategy) }}</ElTag></div></div>
             </div>
@@ -255,11 +255,11 @@ const {
                 <template v-if="tradeDetailData.buy.decision_detail.execution">
                   <div class="td2-chain-title">⚡ 执行决策</div>
                   <div class="td2-grid">
-                    <div class="td2-card sm"><div class="td2-label">仓位比例</div><div class="td2-val">{{ ((tradeDetailData.buy.decision_detail.execution.position_ratio || 0) * 100).toFixed(0) }}%</div></div>
-                    <div class="td2-card sm"><div class="td2-label">可用资金</div><div class="td2-val">¥{{ (tradeDetailData.buy.decision_detail.execution.available_cash || 0).toFixed(0) }}</div></div>
-                    <div class="td2-card sm"><div class="td2-label">买入金额</div><div class="td2-val">¥{{ (tradeDetailData.buy.decision_detail.execution.total_cost || 0).toFixed(0) }}</div></div>
-                    <div class="td2-card sm"><div class="td2-label">成交价</div><div class="td2-val">¥{{ (tradeDetailData.buy.decision_detail.execution.filled_price || 0).toFixed(2) }}</div></div>
-                    <div class="td2-card sm" v-if="tradeDetailData.buy.decision_detail.execution.sentiment"><div class="td2-label">情绪</div><div class="td2-val">{{ tradeDetailData.buy.decision_detail.execution.sentiment.score?.toFixed(0) }}→{{ tradeDetailData.buy.decision_detail.execution.sentiment.period }}</div></div>
+                    <div class="td2-card sm"><div class="td2-label">仓位比例</div><div class="td2-val">{{ ((Number(tradeDetailData.buy.decision_detail.execution.position_ratio) || 0) * 100).toFixed(0) }}%</div></div>
+                    <div class="td2-card sm"><div class="td2-label">可用资金</div><div class="td2-val">¥{{ Number(tradeDetailData.buy.decision_detail.execution.available_cash || 0).toFixed(0) }}</div></div>
+                    <div class="td2-card sm"><div class="td2-label">买入金额</div><div class="td2-val">¥{{ Number(tradeDetailData.buy.decision_detail.execution.total_cost || 0).toFixed(0) }}</div></div>
+                    <div class="td2-card sm"><div class="td2-label">成交价</div><div class="td2-val">¥{{ Number(tradeDetailData.buy.decision_detail.execution.filled_price || 0).toFixed(2) }}</div></div>
+                    <div class="td2-card sm" v-if="tradeDetailData.buy.decision_detail.execution.sentiment"><div class="td2-label">情绪</div><div class="td2-val">{{ Number(tradeDetailData.buy.decision_detail.execution.sentiment.score || 0).toFixed(0) }}→{{ tradeDetailData.buy.decision_detail.execution.sentiment.period }}</div></div>
                     <div class="td2-card sm" v-if="tradeDetailData.buy.decision_detail.execution.circuit_breaker"><div class="td2-label">熔断</div><div class="td2-val" :class="tradeDetailData.buy.decision_detail.execution.circuit_breaker.paused ? 'down' : ''">{{ tradeDetailData.buy.decision_detail.execution.circuit_breaker.paused ? '⛔暂停' : '✅正常' }}</div></div>
                   </div>
                 </template>
@@ -279,20 +279,20 @@ const {
           <template v-if="tradeDetailData.sell">
             <div class="td2-grid">
               <div class="td2-card"><div class="td2-label">⏰ 时间</div><div class="td2-val">{{ tradeDetailData.sell.time }}</div></div>
-              <div class="td2-card"><div class="td2-label">💰 价格</div><div class="td2-val">¥{{ tradeDetailData.sell.price?.toFixed(2) }}</div></div>
-              <div class="td2-card"><div class="td2-label">📊 盈亏</div><div class="td2-val" :class="(tradeDetailData.sell.profit_pct || 0) >= 0 ? 'up' : 'down'">{{ (tradeDetailData.sell.profit_pct || 0) >= 0 ? '+' : '' }}{{ (tradeDetailData.sell.profit_pct || 0).toFixed(2) }}%</div></div>
-              <div class="td2-card"><div class="td2-label">💵 盈亏额</div><div class="td2-val" :class="(tradeDetailData.sell.profit_amount || 0) >= 0 ? 'up' : 'down'">¥{{ (tradeDetailData.sell.profit_amount || 0).toFixed(0) }}</div></div>
+              <div class="td2-card"><div class="td2-label">💰 价格</div><div class="td2-val">¥{{ Number(tradeDetailData.sell.price || 0).toFixed(2) }}</div></div>
+              <div class="td2-card"><div class="td2-label">📊 盈亏</div><div class="td2-val" :class="(tradeDetailData.sell.profit_pct || 0) >= 0 ? 'up' : 'down'">{{ (tradeDetailData.sell.profit_pct || 0) >= 0 ? '+' : '' }}{{ Number(tradeDetailData.sell.profit_pct || 0).toFixed(2) }}%</div></div>
+              <div class="td2-card"><div class="td2-label">💵 盈亏额</div><div class="td2-val" :class="(tradeDetailData.sell.profit_amount || 0) >= 0 ? 'up' : 'down'">¥{{ Number(tradeDetailData.sell.profit_amount || 0).toFixed(0) }}</div></div>
             </div>
             <div class="td2-reason">📋 卖出原因: {{ tradeDetailData.sell.reason }}</div>
             <template v-if="tradeDetailData.sell.decision_detail">
               <div class="td2-chain">
                 <div class="td2-grid">
-                  <div class="td2-card sm" v-if="tradeDetailData.sell.decision_detail.cost_price"><div class="td2-label">成本价</div><div class="td2-val">¥{{ tradeDetailData.sell.decision_detail.cost_price?.toFixed(2) }}</div></div>
-                  <div class="td2-card sm" v-if="tradeDetailData.sell.decision_detail.current_price"><div class="td2-label">卖出价</div><div class="td2-val">¥{{ tradeDetailData.sell.decision_detail.current_price?.toFixed(2) }}</div></div>
+                  <div class="td2-card sm" v-if="tradeDetailData.sell.decision_detail.cost_price"><div class="td2-label">成本价</div><div class="td2-val">¥{{ Number(tradeDetailData.sell.decision_detail.cost_price).toFixed(2) }}</div></div>
+                  <div class="td2-card sm" v-if="tradeDetailData.sell.decision_detail.current_price"><div class="td2-label">卖出价</div><div class="td2-val">¥{{ Number(tradeDetailData.sell.decision_detail.current_price).toFixed(2) }}</div></div>
                   <div class="td2-card sm" v-if="tradeDetailData.sell.decision_detail.stop_loss_pct"><div class="td2-label">止损线</div><div class="td2-val text-stock-up">{{ tradeDetailData.sell.decision_detail.stop_loss_pct }}%</div></div>
                   <div class="td2-card sm" v-if="tradeDetailData.sell.decision_detail.take_profit_pct"><div class="td2-label">止盈线</div><div class="td2-val text-stock-down">{{ tradeDetailData.sell.decision_detail.take_profit_pct }}%</div></div>
-                  <div class="td2-card sm" v-if="tradeDetailData.sell.decision_detail.stop_loss_price"><div class="td2-label">止损价</div><div class="td2-val text-stock-up">¥{{ tradeDetailData.sell.decision_detail.stop_loss_price?.toFixed(2) }}</div></div>
-                  <div class="td2-card sm" v-if="tradeDetailData.sell.decision_detail.take_profit_price"><div class="td2-label">止盈价</div><div class="td2-val text-stock-down">¥{{ tradeDetailData.sell.decision_detail.take_profit_price?.toFixed(2) }}</div></div>
+                  <div class="td2-card sm" v-if="tradeDetailData.sell.decision_detail.stop_loss_price"><div class="td2-label">止损价</div><div class="td2-val text-stock-up">¥{{ Number(tradeDetailData.sell.decision_detail.stop_loss_price).toFixed(2) }}</div></div>
+                  <div class="td2-card sm" v-if="tradeDetailData.sell.decision_detail.take_profit_price"><div class="td2-label">止盈价</div><div class="td2-val text-stock-down">¥{{ Number(tradeDetailData.sell.decision_detail.take_profit_price).toFixed(2) }}</div></div>
                 </div>
               </div>
             </template>
@@ -303,22 +303,22 @@ const {
         <div class="td2-sec" v-if="tradeDetailData.position"><div class="td2-title">📊 当前持仓</div>
           <div class="td2-grid">
             <div class="td2-card"><div class="td2-label">持仓</div><div class="td2-val">{{ tradeDetailData.position.shares }}股</div></div>
-            <div class="td2-card"><div class="td2-label">成本</div><div class="td2-val">¥{{ tradeDetailData.position.cost_price?.toFixed(2) }}</div></div>
-            <div class="td2-card"><div class="td2-label">现价</div><div class="td2-val">¥{{ tradeDetailData.position.current_price?.toFixed(2) }}</div></div>
-            <div class="td2-card"><div class="td2-label">盈亏</div><div class="td2-val" :class="(tradeDetailData.position.profit_pct || 0) >= 0 ? 'up' : 'down'">{{ (tradeDetailData.position.profit_pct || 0) >= 0 ? '+' : '' }}{{ (tradeDetailData.position.profit_pct || 0).toFixed(2) }}%</div></div>
+            <div class="td2-card"><div class="td2-label">成本</div><div class="td2-val">¥{{ Number(tradeDetailData.position.cost_price || 0).toFixed(2) }}</div></div>
+            <div class="td2-card"><div class="td2-label">现价</div><div class="td2-val">¥{{ Number(tradeDetailData.position.current_price || 0).toFixed(2) }}</div></div>
+            <div class="td2-card"><div class="td2-label">盈亏</div><div class="td2-val" :class="(tradeDetailData.position.profit_pct || 0) >= 0 ? 'up' : 'down'">{{ (tradeDetailData.position.profit_pct || 0) >= 0 ? '+' : '' }}{{ Number(tradeDetailData.position.profit_pct || 0).toFixed(2) }}%</div></div>
             <div class="td2-card" v-if="tradeDetailData.position.stop_loss_pct"><div class="td2-label">止损</div><div class="td2-val text-stock-up">{{ formatSlTp(tradeDetailData.position.stop_loss_pct, 3) }}</div></div>
             <div class="td2-card" v-if="tradeDetailData.position.take_profit_pct"><div class="td2-label">止盈</div><div class="td2-val text-stock-down">{{ formatSlTp(tradeDetailData.position.take_profit_pct, 7) }}</div></div>
-            <div class="td2-card" v-if="tradeDetailData.position.stop_loss_price"><div class="td2-label">止损价</div><div class="td2-val text-stock-up">¥{{ tradeDetailData.position.stop_loss_price?.toFixed(2) }}</div></div>
-            <div class="td2-card" v-if="tradeDetailData.position.take_profit_price"><div class="td2-label">止盈价</div><div class="td2-val text-stock-down">¥{{ tradeDetailData.position.take_profit_price?.toFixed(2) }}</div></div>
+            <div class="td2-card" v-if="tradeDetailData.position.stop_loss_price"><div class="td2-label">止损价</div><div class="td2-val text-stock-up">¥{{ Number(tradeDetailData.position.stop_loss_price).toFixed(2) }}</div></div>
+            <div class="td2-card" v-if="tradeDetailData.position.take_profit_price"><div class="td2-label">止盈价</div><div class="td2-val text-stock-down">¥{{ Number(tradeDetailData.position.take_profit_price).toFixed(2) }}</div></div>
           </div>
           <!-- 追踪止损 -->
           <div v-if="tradeDetailData.position.trailing_stop" class="td2-trail-section">
             <div class="td2-chain-title">📍 追踪止损</div>
             <div class="td2-grid">
               <div class="td2-card sm"><div class="td2-label">状态</div><div class="td2-val" :class="tradeDetailData.position.trailing_stop?.activated ? 'up' : ''">{{ tradeDetailData.position.trailing_stop?.activated ? '✅已激活' : '⏸未激活' }}</div></div>
-              <div class="td2-card sm"><div class="td2-label">比例</div><div class="td2-val">{{ ((tradeDetailData.position.trailing_stop?.trailing_stop_pct || 0) * 100).toFixed(1) }}%</div></div>
-              <div class="td2-card sm"><div class="td2-label">最高价</div><div class="td2-val">¥{{ tradeDetailData.position.trailing_stop?.high_price?.toFixed(2) || '-' }}</div></div>
-              <div class="td2-card sm"><div class="td2-label">止损价</div><div class="td2-val text-stock-up">¥{{ tradeDetailData.position.trailing_stop?.stop_price?.toFixed(2) || '-' }}</div></div>
+              <div class="td2-card sm"><div class="td2-label">比例</div><div class="td2-val">{{ ((Number(tradeDetailData.position.trailing_stop?.trailing_stop_pct) || 0) * 100).toFixed(1) }}%</div></div>
+              <div class="td2-card sm"><div class="td2-label">最高价</div><div class="td2-val">¥{{ Number(tradeDetailData.position.trailing_stop?.high_price || 0).toFixed(2) }}</div></div>
+              <div class="td2-card sm"><div class="td2-label">止损价</div><div class="td2-val text-stock-up">¥{{ Number(tradeDetailData.position.trailing_stop?.stop_price || 0).toFixed(2) }}</div></div>
             </div>
             <div class="td2-trail-ctrl">
               <ElInputNumber v-model="trailEditPct" :min="1" :max="20" :step="0.5" :precision="1" size="small" style="width:110px" />
@@ -342,7 +342,7 @@ const {
 
     <!-- 审查弹窗 -->
     <ElDialog v-model="tradeAuditVisible" title="🔍 全部交易审查" width="800px">
-      <div v-if="tradeAuditData.length" class="al"><div class="ah"><span>股票</span><span>策略</span><span>买入</span><span>卖出</span><span>盈亏</span><span>状态</span></div><div v-for="t in tradeAuditData" :key="t.ts_code" class="ar" @click="openTradeDetail(t.ts_code); tradeAuditVisible = false"><span class="code">{{ t.ts_code }}</span><span><ElTag size="small" type="info">{{ strategyCN(t.strategy) }}</ElTag></span><span>{{ t.buy_time }} {{ t.buy_price?.toFixed(2) }}</span><span>{{ t.sell_time || '-' }} {{ t.sell_price?.toFixed(2) || '-' }}</span><span :class="t.profit_pct !== null && t.profit_pct >= 0 ? 'up' : 'down'">{{ t.profit_pct !== null ? (t.profit_pct >= 0 ? '+' : '') + t.profit_pct.toFixed(2) + '%' : '-' }}</span><span class="text-tertiary-sm">{{ t.status }}</span></div></div>
+      <div v-if="tradeAuditData.length" class="al"><div class="ah"><span>股票</span><span>策略</span><span>买入</span><span>卖出</span><span>盈亏</span><span>状态</span></div><div v-for="t in tradeAuditData" :key="t.ts_code" class="ar" @click="openTradeDetail(t.ts_code); tradeAuditVisible = false"><span class="code">{{ t.ts_code }}</span><span><ElTag size="small" type="info">{{ strategyCN(t.strategy) }}</ElTag></span><span>{{ t.buy_time }} {{ t.buy_price?.toFixed(2) }}</span><span>{{ t.sell_time || '-' }} {{ t.sell_price?.toFixed(2) || '-' }}</span><span :class="t.profit_pct !== null && t.profit_pct >= 0 ? 'up' : 'down'">{{ t.profit_pct !== null ? (t.profit_pct >= 0 ? '+' : '') + Number(t.profit_pct).toFixed(2) + '%' : '-' }}</span><span class="text-tertiary-sm">{{ t.status }}</span></div></div>
       <div v-else class="empty">暂无交易记录</div>
     </ElDialog>
     

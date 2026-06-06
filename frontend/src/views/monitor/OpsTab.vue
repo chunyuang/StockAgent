@@ -45,7 +45,7 @@ const {
           <span class="code">{{ t.ts_code }}</span>
           <span class="name">{{ t.stock_name }}</span>
           <span>{{ t.quantity }}股</span>
-          <span>¥{{ t.price?.toFixed(2) }}</span>
+          <span>¥{{ Number(t.price || 0).toFixed(2) }}</span>
           <span v-if="t.strategy" class="tl-strat">{{ strategyCN(t.strategy) }}</span><span v-else>-</span>
           <span class="text-tertiary" style="font-size:11px">{{ t.reason }}</span>
         </div>

@@ -151,7 +151,7 @@ onMounted(() => {
           </div>
           <div v-if="(premarketLimitPools?.sector_heat) && (premarketLimitPools?.sector_heat).length" class="pm-sector-heat">
             <span class="pm-sh-label">板块</span>
-            <span v-for="s in (premarketLimitPools?.sector_heat).slice(0, 8)" :key="s.name" class="pm-sh-item" :class="s.count >= 3 ? 'hot' : ''">
+            <span v-for="s in (premarketLimitPools?.sector_heat || []).slice(0, 8)" :key="s.name" class="pm-sh-item" :class="s.count >= 3 ? 'hot' : ''">
               {{ s.name }}<sub>{{ s.count }}</sub>
             </span>
           </div>
