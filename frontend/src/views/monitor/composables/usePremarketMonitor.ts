@@ -21,8 +21,9 @@ export function usePremarketMonitor() {
   const premarketDebugMode = ref(false)
   // 追踪用户是否手动切换过debug，防止自动重开
   const premarketDebugUserToggled = ref(false)
-  // 盘前日期选择(默认今天)
-  const premarketDate = ref(new Date().toISOString().slice(0, 10))
+  // 默认空字符串, fetchPremarketData会自动选最近交易日
+  // (避免周末/节假日默认选今天导致无数据)
+  const premarketDate = ref('')
   const premarketGroupMode = ref<'strategy' | 'industry' | 'list'>('strategy')
   const premarketGroupExpanded = ref<Record<string, boolean>>({})
   const premarketAnalysis = ref<any>(null)
@@ -64,6 +65,14 @@ export function usePremarketMonitor() {
         premarketLimitPools.value = p.data.limit_pools || null
         premarketPositionGaps.value = p.data.position_gaps || []
         premarketAnalysis.value = p.data.analysis || null
+
+        // 从API响应回填实际数据日期(周末/节假日可能回退到上一交易日)
+        const dataDate = p.data.market_snapshot?.data_date
+        if (dataDate && !premarketDate.value) {
+          // 首次加载: 设置日期为实际数据日期
+          const ds = String(dataDate)
+          premarketDate.value = ds.length === 8 ? `${ds.slice(0,4)}-${ds.slice(4,6)}-${ds.slice(6,8)}` : ds
+        }
 
         // 仅在初始加载(用户未手动切换)且非交易时间时自动开启debug
         // 用户手动关闭后不再自动重开

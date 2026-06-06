@@ -18,7 +18,7 @@ from nodes.web.api.scanner_shared import (
     ScannerStartRequest, ManualTradeRequest, PartialSellRequest,
     StopScannerRequest, ScanOnceRequest, PauseRequest,
 )
-from nodes.web.api.scanner_system import _build_limit_pools, _build_position_gaps, _build_premarket_analysis
+from nodes.web.api.scanner_system import _build_limit_pools, _build_position_gaps, _build_premarket_analysis, _build_name_industry_maps, _aggregate_limit_stats
 
 router = APIRouter(prefix="/scanner", tags=["调试/模拟/热更新"])
 
@@ -198,7 +198,7 @@ async def debug_premarket_sim(date: str = None):
                 return {"success": False, "message": "无历史日线数据"}
             latest_date = str(latest_doc["trade_date"])
             
-            # 如果用户指定了日期, 用指定日期
+            # 如果用户指定了日期, 用指定日期; 否则用最新交易日
             target_date = date.replace("-", "") if date else latest_date
             
             # 读取该日全市场数据
@@ -208,6 +208,16 @@ async def debug_premarket_sim(date: str = None):
                 {"ts_code": 1, "pct_chg": 1, "close": 1, "vol": 1, "amount": 1}
             ):
                 docs.append(doc)
+            
+            # 指定日期无数据(周末/节假日), 自动回退到最近交易日
+            if not docs and target_date != latest_date:
+                logger.info(f"[premarket-sim] {target_date}无数据, 回退到{latest_date}")
+                target_date = latest_date
+                async for doc in mongo_manager.db["stock_daily_ak_full"].find(
+                    {"trade_date": int(target_date)},
+                    {"ts_code": 1, "pct_chg": 1, "close": 1, "vol": 1, "amount": 1}
+                ):
+                    docs.append(doc)
             
             if not docs:
                 return {"success": False, "message": f"无{target_date}日线数据"}
@@ -329,12 +339,36 @@ async def debug_premarket_sim(date: str = None):
             funnel = {"total_scanned": len(docs), "strategy_candidates": len(candidates),
                        "after_pipeline": len(candidates), "blocked": 0, "executed": 0}
             
-            # 涨停池 - 从日线数据构建
+            # 涨停池 - 优先从limit_list集合获取(含炸板/连板数据), 回退到日线pct_chg
             limit_up_list = []
             limit_down_list = []
-            continue_stats = {}  # 连板统计(离线模式暂无法计算)
-            sector_heat = []  # 板块热力(离线模式暂无法计算)
-            if 'pct_chg' in df.columns:
+            continue_stats = {}
+            sector_heat = []
+            limit_from_db = False
+            try:
+                # 查找该日期或最近有数据的日期
+                td_query = int(target_date)
+                ll_doc = await mongo_manager.db["limit_list"].find_one({"trade_date": td_query, "limit": "U"})
+                if not ll_doc:
+                    # 回退到最近有涨停数据的日期
+                    ll_doc = await mongo_manager.db["limit_list"].find_one({"limit": "U"}, sort=[("trade_date", -1)])
+                if ll_doc:
+                    ll_td = ll_doc["trade_date"]
+                    ll_name_map, ll_industry_map = await _build_name_industry_maps()
+                    ll_docs = [doc async for doc in mongo_manager.db["limit_list"].find({"trade_date": ll_td, "limit": "U"}, {"_id": 0})]
+                    ll_ups, ll_continue, ll_sectors = _aggregate_limit_stats(ll_docs, ll_name_map, ll_industry_map)
+                    ll_down = await mongo_manager.db["limit_list"].count_documents({"trade_date": ll_td, "limit": "D"})
+                    limit_up_list = ll_ups[:20]
+                    limit_down_count = ll_down
+                    continue_stats = dict(sorted(ll_continue.items()))
+                    sector_heat = sorted([{"name": k, "count": v} for k, v in ll_sectors.items()], key=lambda x: x["count"], reverse=True)[:8]
+                    market_snapshot["limit_up_count"] = len(ll_ups)
+                    market_snapshot["limit_down_count"] = ll_down
+                    limit_from_db = True
+            except Exception:
+                pass
+            
+            if not limit_from_db and 'pct_chg' in df.columns:
                 zt_df = df[df['pct_chg'] >= 9.9]
                 for _, row in zt_df.nlargest(20, 'pct_chg').iterrows():
                     limit_up_list.append({
@@ -363,7 +397,7 @@ async def debug_premarket_sim(date: str = None):
             result_data["analysis"] = _build_premarket_analysis(
                 result_data["market_snapshot"], result_data["sentiment"], result_data["limit_pools"],
                 result_data["position_gaps"], result_data["candidates"], result_data["strategy_groups"], result_data["historical_hit_rate"])
-            return {"success": True, "data": result_data}
+            return _sanitize({"success": True, "data": result_data})
         except Exception as e:
             logger.error(f"[premarket-sim] offline模式失败: {e}")
             return {"success": False, "message": f"获取盘前数据失败: {e}"}
@@ -577,7 +611,7 @@ async def debug_premarket_sim(date: str = None):
         result_data["market_snapshot"], result_data["sentiment"], result_data["limit_pools"],
         result_data["position_gaps"], result_data["candidates"], result_data["strategy_groups"], result_data["historical_hit_rate"])
     
-    return {"success": True, "data": result_data}
+    return _sanitize({"success": True, "data": result_data})
 
 
 
