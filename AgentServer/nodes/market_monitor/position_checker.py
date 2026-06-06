@@ -719,37 +719,41 @@ class PositionChecker:
     # ==================== 追踪止损 ====================
     
     def update_trailing_stops(self, positions, realtime_data: Dict[str, Dict]) -> None:
-        """更新追踪止损(盈利保护)"""
+        """更新追踪止损(盈利保护)
+
+        【v2.9.83:弃用】DELEGATE_MAP路由到position_manager.update_trailing_stops。
+        内部逻辑已与position_manager对齐(字段格式: high_price/trailing_stop_pct/activated/stop_price)。
+        """
         scanner = self._scanner
-        
         for pos in positions:
             if pos.available_qty <= 0:
                 continue
-            
             risk = scanner._get_strategy_risk(pos.strategy)
             trailing_pct = risk.get("trailing_stop_pct", 0)
             if trailing_pct <= 0:
                 continue
-            
             rt = realtime_data.get(pos.ts_code, {})
             price = rt.get("price", 0) or pos.current_price
-            if price <= 0:
+            if price <= 0 or pos.avg_cost <= 0:
                 continue
-            
-            if pos.avg_cost <= 0:
-                continue
-            profit_pct = (price - pos.avg_cost) / pos.avg_cost
-            if profit_pct > trailing_pct * 2:
-                with self.state_lock:
-                    current_stop = self.trailing_stops.get(pos.ts_code, {}).get("stop_price", 0)
+            profit_pct = (price - pos.avg_cost) / pos.avg_cost * 100
+            with self.state_lock:
+                state = dict(self.trailing_stops.get(pos.ts_code, {
+                    "high_price": pos.avg_cost, "trailing_stop_pct": trailing_pct,
+                    "activated": False, "activated_at": None, "stop_price": 0.0,
+                }))
+                if price > state.get("high_price", pos.avg_cost):
+                    state["high_price"] = price
+                if not state.get("activated") and profit_pct >= 2.0:
+                    state["activated"] = True
+                    state["activated_at"] = datetime.now().strftime("%H:%M:%S")
+                    logger.info(f"[TRAILING] {pos.ts_code} 追踪止损激活: 盈利{profit_pct:.1f}%")
+                if state.get("activated"):
                     new_stop = price * (1 - trailing_pct)
-                    if new_stop > current_stop:
-                        self.trailing_stops[pos.ts_code] = {
-                            "stop_price": round(new_stop, 2),
-                            "activated_at": datetime.now().isoformat(),
-                            "high_water_mark": price,
-                        }
-                        logger.debug(f"[TRAILING] {pos.ts_code} 止损线上移至{new_stop:.2f}(HWM={price:.2f})")
+                    if new_stop > state.get("stop_price", 0):
+                        state["stop_price"] = round(new_stop, 2)
+                        logger.debug(f"[TRAILING] {pos.ts_code} 止损线上移至{new_stop:.2f}")
+                self.trailing_stops[pos.ts_code] = state
     
     def get_effective_stop_price(self, pos, risk: Dict) -> float:
         """获取有效止损价(追踪止损 > 固定止损)"""
@@ -796,10 +800,34 @@ class PositionChecker:
     # ==================== 辅助方法 ====================
     
     def _is_limit_down(self, ts_code: str) -> bool:
-        """判断是否跌停(不可卖)"""
+        """判断是否跌停(不可卖)【v2.9.83:新增ST股±5%跌停阈值】"""
         rt = self.realtime_cache.get(ts_code, {})
         pct = rt.get("pct_chg", 0)
-        if ts_code.startswith('688'):
+
+        # 【v2.9.83修复】ST股跌停阈值±5%, 需从stock_name判断
+        # 与broker._calc_limit_prices对齐(broker已处理ST)
+        stock_name = rt.get("name", "") or ""
+        # 备用: 从scanner的_stock_name_map获取
+        if not stock_name:
+            try:
+                stock_name = self._scanner._stock_name_map.get(ts_code, "") if self._scanner else ""
+            except AttributeError:
+                stock_name = ""
+        # 备用: 从broker持仓获取
+        try:
+            br = self.broker  # 可能因_scanner=None而AttributeError
+            if br and not stock_name:
+                for p in br.get_positions():
+                    if p.ts_code == ts_code:
+                        stock_name = p.stock_name
+                        break
+        except (AttributeError, TypeError):
+            pass
+        is_st = "ST" in stock_name or "*ST" in stock_name
+
+        if is_st:
+            return pct <= -4.5  # ST股±5%, 用-4.5%容差
+        elif ts_code.startswith('688'):
             return pct <= -19.5
         elif ts_code.startswith(('4', '8')):
             return pct <= -29.5
