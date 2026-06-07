@@ -522,7 +522,7 @@ async def _daily_report_from_mongo():
     scan_stats["buy_count"] = len(buys)
     scan_stats["sell_count"] = len(sells)
     scan_stats["trades_executed"] = len(buys)
-    scan_stats["stop_losses"] = sum(1 for s in sells if "止损" in (s.get("reason", "")))
+    scan_stats["stop_losses"] = sum(1 for s in sells if "止损" in (s.get("reason", "")) and "追踪" not in (s.get("reason", "")))
     scan_stats["take_profits"] = sum(1 for s in sells if "止盈" in (s.get("reason", "")) or "追踪止损" in (s.get("reason", "")))
     
     # 4. 情绪快照(优先从scan_traces L3读取, fallback到sentiment_scores)
