@@ -183,6 +183,10 @@ async def get_scanner_status():
                 ds_info.append({"name": name, "available": False})
     status["data_sources"] = ds_info
     
+    # 前端兼容字段(Pinia store refreshFromApi期望的字段名)
+    status["sentiment"] = status.get("filter_pipeline", {}).get("sentiment", None)
+    status["position_ratio"] = status.get("filter_pipeline", {}).get("position_ratio", 1.0)
+    
     # 熔断状态
     if hasattr(scanner, '_circuit_breaker'):
         status["circuit_breaker"] = {
