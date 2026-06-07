@@ -920,7 +920,7 @@ async def deviation_attribution(date: str = None, start_date: str = None, end_da
         }
         for buy in buys:
             td = buy.get("trade_date","")
-            strat = buy.get("strategy","") or "unknown"
+            strat = _norm_strat(buy.get("strategy","") or "unknown")
             sentiment = sentiment_map.get(td, {})
             period = sentiment.get("period","")
             if strat in strategy_sentiment_rules and period:
