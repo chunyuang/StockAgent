@@ -21,6 +21,12 @@ from nodes.web.api.scanner_shared import (
 
 router = APIRouter(prefix="/scanner", tags=["复盘/归因/偏差/参数漂移"])
 
+# 策略ID归一化(anomaly_surge→halfway_chase等)
+try:
+    from nodes.backtest_engine.strategy_defaults import normalize_strategy_id as _norm_strat
+except ImportError:
+    def _norm_strat(s): return s
+
 
 @router.get("/backtest-compare")
 async def backtest_compare(date: str = None):
@@ -43,7 +49,7 @@ async def backtest_compare(date: str = None):
             if date:
                 sell_query["trade_date"] = {"$lte": str(date)}
             async for doc in mongo_manager.db["broker_orders"].find(sell_query):
-                strat = doc.get("strategy","unknown")
+                strat = _norm_strat(doc.get("strategy","unknown"))
                 pct = doc.get("profit_pct",0) or 0
                 ls[strat]["trades"] += 1
                 if pct >= 0:
@@ -339,6 +345,9 @@ async def get_review_hero(date: str = None):
         async for doc in db["broker_orders"].find({"trade_date": date, "status": "filled"}):
             (buys if doc.get("side") == "buy" else sells).append(doc)
 
+        # 止损/止盈计数(基于卖出原因,非胜/负)
+        stop_losses = [s for s in sells if "止损" in (s.get("reason","") or "") and "追踪" not in (s.get("reason","") or "")];
+        take_profits = [s for s in sells if "止盈" in (s.get("reason","") or "") or "追踪止损" in (s.get("reason","") or "")]
         wins = [s for s in sells if (s.get("profit_pct") or 0) >= 0]
         losses = [s for s in sells if (s.get("profit_pct") or 0) < 0]
         win_rate = len(wins) / max(len(sells), 1) * 100
@@ -379,7 +388,7 @@ async def get_review_hero(date: str = None):
             raw_period = _cn_to_en_period[raw_period]
         cn_period = _en_to_cn_period.get(raw_period, raw_period)
         # 冰点开仓(仅BEARISH算违规,CHAOS震荡期允许开仓但限制策略)
-        if sentiment_doc and raw_period in ["BEARISH", "bearish"] or (sentiment_score < 40 and buys):
+        if (sentiment_doc and raw_period in ["BEARISH", "bearish"]) or (sentiment_score < 40 and buys):
             for b in buys:
                 violations.append({
                     "type": "冰点开仓", "severity": "high",
@@ -390,7 +399,7 @@ async def get_review_hero(date: str = None):
         strategy_period_fit = {"halfway_chase": ["RISING", "DIFFERENTIATION"], "first_limit_up": ["RISING"], "limit_down_qiao": ["RISING", "DIFFERENTIATION", "CHAOS"], "dragon_head": ["RISING", "DIFFERENTIATION"]}
         if sentiment_doc:
             for b in buys:
-                strat = b.get("strategy", "")
+                strat = _norm_strat(b.get("strategy", ""))  # 归一化:anomaly_surge→halfway_chase
                 fit_periods = strategy_period_fit.get(strat, [])
                 if fit_periods and raw_period not in fit_periods:
                     violations.append({
@@ -449,7 +458,7 @@ async def get_review_hero(date: str = None):
                 "trades": len(sells),
                 "buys": len(buys),
                 "stop_loss_count": len(stop_losses),
-                "take_profit_count": len(wins),
+                "take_profit_count": len(take_profits),
                 "expectancy": round(expectancy, 2),
                 "discipline_score": discipline_score,
                 "max_consecutive_loss": max_consecutive_loss,
@@ -518,7 +527,7 @@ async def get_discipline_check(date: str = None):
         # 检查买入
         async for doc in db["broker_orders"].find({"trade_date": date, "side": "buy", "status": "filled"}):
             total_actions += 1
-            strat = doc.get("strategy", "")
+            strat = _norm_strat(doc.get("strategy", ""))  # 归一化:anomaly_surge→halfway_chase
             fit = strategy_fit.get(strat, {})
             is_fit = fit.get(raw_period, True)  # 未知策略默认合规
 
@@ -607,7 +616,7 @@ async def get_review_forward(date: str = None):
         strat_stats = defaultdict(lambda: {"wins":0,"losses":0,"count":0})
         recent_sells = db["broker_orders"].find({"side":"sell","status":"filled"}).sort("_id",-1).limit(60)
         async for doc in recent_sells:
-            strat = doc.get("strategy","unknown")
+            strat = _norm_strat(doc.get("strategy","unknown"))
             pct = doc.get("profit_pct",0) or 0
             strat_stats[strat]["count"] += 1
             if pct >= 0:
@@ -1252,7 +1261,7 @@ async def review_weekly(date: str = None):
         # 策略统计
         strategy_stats = defaultdict(lambda: {"trades":0,"wins":0,"pnl":0})
         for s in sells:
-            strat = s.get("strategy","") or "unknown"
+            strat = _norm_strat(s.get("strategy","") or "unknown")
             strategy_stats[strat]["trades"] += 1
             if (s.get("profit_pct") or 0) >= 0:
                 strategy_stats[strat]["wins"] += 1
@@ -1348,7 +1357,7 @@ async def review_monthly(date: str = None):
         from collections import defaultdict
         strategy_stats = defaultdict(lambda: {"trades":0,"wins":0,"pnl":0,"positions":0})
         for s in sells:
-            strat = s.get("strategy","") or "unknown"
+            strat = _norm_strat(s.get("strategy","") or "unknown")
             strategy_stats[strat]["trades"] += 1
             if (s.get("profit_pct") or 0) >= 0:
                 strategy_stats[strat]["wins"] += 1
@@ -1419,7 +1428,7 @@ async def review_monthly(date: str = None):
             d_pnl = sum(s.get("profit_pct", 0) or 0 for s in ds)
             d_strat = _dd(lambda: {"trades":0,"wins":0,"pnl":0})
             for s in ds:
-                st = s.get("strategy","") or "unknown"
+                st = _norm_strat(s.get("strategy","") or "unknown")
                 d_strat[st]["trades"] += 1
                 if (s.get("profit_pct") or 0) >= 0: d_strat[st]["wins"] += 1
                 d_strat[st]["pnl"] += s.get("profit_pct",0) or 0
@@ -1734,7 +1743,7 @@ async def review_closed_loop(date: str = None):
         # 2c. 策略偏差 → 策略参数建议
         strat_stats = {}
         for s in sells:
-            strat = s.get("strategy", "") or "unknown"
+            strat = _norm_strat(s.get("strategy", "") or "unknown")
             if strat not in strat_stats:
                 strat_stats[strat] = {"trades": 0, "wins": 0, "pnl": 0}
             strat_stats[strat]["trades"] += 1
