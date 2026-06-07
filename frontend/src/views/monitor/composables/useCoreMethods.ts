@@ -1,6 +1,6 @@
 /**
  * useCoreMethods - 核心方法 (fetch/start/stop/trade/控制)
- * 
+ *
  * 从useScannerMonitor拆出的核心方法域
  * 管理: fetchScanner/startScanner/stopScanner/quickBuy/quickSell/...
  * 依赖: 核心状态ref + api + scannerStore
@@ -65,15 +65,17 @@ export function useCoreMethods(refs: CoreRefs) {
   const scannerStore = useScannerStore()
   const wsHook = useWebSocket()
 
-  // 【v2.9.72】WS数据新鲜度追踪：WS连接成功但Redis断开时，scanner数据不会流过WS
-  // 此时ws.isConnected=true但实际无数据，需要降级到轮询
+  // 【v2.9.72】WS数据新鲜度追踪:WS连接成功但Redis断开时,scanner数据不会流过WS
+  // 此时ws.isConnected=true但实际无数据,需要降级到轮询
   const lastWsDataTime = ref(0) // 上次从WS收到scanner数据的时间
   const WS_DATA_STALE_MS = 15000 // 15秒无WS数据则视为陈旧
   let _wsUnsubFn: (() => void) | null = null // WS订阅取消函数
   const wsDataStale = computed(() => {
-    if (!wsHook.isConnected.value) return false // WS断开时不叫"陈旧"，正常走轮询
+    if (!wsHook.isConnected.value) return false // WS断开时不叫“陈旧”，正常走轮询
     if (lastWsDataTime.value === 0) return true // WS连接但从未收到scanner数据
-    return (Date.now() - lastWsDataTime.value) > WS_DATA_STALE_MS
+    // 【v2.9.82修复】用nowMs(每秒更新)而非Date.now()(非响应式)
+    // 之前Date.now()不触发computed重算, 导致WS断流15秒后wsDataStale仍为false
+    return (refs.nowMs.value - lastWsDataTime.value) > WS_DATA_STALE_MS
   })
 
   let fetchScannerAbort: AbortController | null = null
@@ -157,7 +159,7 @@ export function useCoreMethods(refs: CoreRefs) {
     }
   }
 
-  async function stopScanner() { showConfirm('停止扫描', '确认停止扫描器？\n持仓将保留，可手动卖出。', async () => { await api.post(`${scannerApi}/stop`, { sell_all: false }); await fetchScanner() }) }
+  async function stopScanner() { showConfirm('停止扫描', '确认停止扫描器?\n持仓将保留,可手动卖出。', async () => { await api.post(`${scannerApi}/stop`, { sell_all: false }); await fetchScanner() }) }
 
   async function manualScan() {
     refs.loading.value = true
@@ -209,21 +211,21 @@ export function useCoreMethods(refs: CoreRefs) {
 
   async function dailySettlement() { try { const r = await api.post(`${scannerApi}/daily-settlement`); const p = parseResponse(r); if (p.success) { ElMessage.success(p.data?.message || '日结算完成'); await fetchScanner() } } catch (e: any) { ElMessage.error('日结算失败') } }
 
-  async function resetAccount() { showConfirm('⚠️ 重置账户', '将清空所有持仓和交易记录，不可恢复！\n确认重置？', async () => { try { const r = await api.post(`${scannerApi}/reset`); const p = parseResponse(r); if (p.success) { ElMessage.success('账户已重置'); await fetchAll(true) } } catch (e: any) { ElMessage.error('重置失败') } }) }
+  async function resetAccount() { showConfirm('⚠️ 重置账户', '将清空所有持仓和交易记录,不可恢复!\n确认重置?', async () => { try { const r = await api.post(`${scannerApi}/reset`); const p = parseResponse(r); if (p.success) { ElMessage.success('账户已重置'); await fetchAll(true) } } catch (e: any) { ElMessage.error('重置失败') } }) }
 
-  async function sellAllPositions() { showConfirm('⚠️ 一键清仓', `确认清仓所有持仓？\n当前持仓 ${refs.positions.value.length} 只，总市值 ¥${refs.positions.value.reduce((s: number, p: any) => s + (p.market_value || (p.current_price || 0) * (p.shares || 0)), 0).toFixed(0)}`, async () => { try { const r = await api.post(`${scannerApi}/sell-all`); const p = parseResponse(r); if (p.success) { ElMessage.success(p.data?.message || '清仓完成'); await fetchAll(true) } } catch (e: any) { ElMessage.error('清仓失败') } }) }
+  async function sellAllPositions() { showConfirm('⚠️ 一键清仓', `确认清仓所有持仓?\n当前持仓 ${refs.positions.value.length} 只,总市值 ¥${refs.positions.value.reduce((s: number, p: any) => s + (p.market_value || (p.current_price || 0) * (p.shares || 0)), 0).toFixed(0)}`, async () => { try { const r = await api.post(`${scannerApi}/sell-all`); const p = parseResponse(r); if (p.success) { ElMessage.success(p.data?.message || '清仓完成'); await fetchAll(true) } } catch (e: any) { ElMessage.error('清仓失败') } }) }
 
   async function resetCircuitBreaker() { try { const r = await api.post(`${scannerApi}/circuit-breaker/reset`); const p = parseResponse(r); if (p.success) { ElMessage.success('熔断已重置'); fetchAll(true) } } catch { ElMessage.error('重置失败') } }
 
   async function pauseCircuitBreaker() {
     try {
-      await ElMessageBox.confirm('确认暂停交易？\n暂停后不会自动买入新信号，但持仓止损止盈仍正常执行。', '暂停交易', { confirmButtonText: '确认', cancelButtonText: '取消', type: 'warning' })
+      await ElMessageBox.confirm('确认暂停交易?\n暂停后不会自动买入新信号,但持仓止损止盈仍正常执行。', '暂停交易', { confirmButtonText: '确认', cancelButtonText: '取消', type: 'warning' })
       const r = await api.post(`${scannerApi}/circuit-breaker/pause`)
       const p = parseResponse(r); if (p.success) { ElMessage.success('已暂停'); fetchAll(true) } else ElMessage.error('操作失败')
     } catch { /* cancelled */ }
   }
 
-  async function emergencyLiquidate() { showConfirm('🚨 紧急平仓', '将立即以市价卖出所有持仓！\n此操作不可撤销！\n\n确认紧急平仓？', async () => { refs.emergencyLiquidating.value = true; try { const r = await api.post(`${scannerApi}/emergency-liquidate`); const p = parseResponse(r); if (p.success) { ElMessage.success(p.data?.message || '紧急平仓完成'); await fetchAll(true) } else ElMessage.error('平仓失败') } catch { ElMessage.error('紧急平仓失败') } finally { refs.emergencyLiquidating.value = false } }) }
+  async function emergencyLiquidate() { showConfirm('🚨 紧急平仓', '将立即以市价卖出所有持仓!\n此操作不可撤销!\n\n确认紧急平仓?', async () => { refs.emergencyLiquidating.value = true; try { const r = await api.post(`${scannerApi}/emergency-liquidate`); const p = parseResponse(r); if (p.success) { ElMessage.success(p.data?.message || '紧急平仓完成'); await fetchAll(true) } else ElMessage.error('平仓失败') } catch { ElMessage.error('紧急平仓失败') } finally { refs.emergencyLiquidating.value = false } }) }
 
   async function fetchLimitPools() { try { const r = await api.get(`${scannerApi}/limit-pools`); const p = parseResponse(r); if (p.success) refs.limitPools.value = p.data } catch { } }
   async function fetchDataSources() { try { const [sR, bR] = await Promise.all([api.get('/datasource/sources'), api.get('/datasource/brokers')]); const sP = parseResponse(sR), bP = parseResponse(bR); if (sP.success) refs.dataSources.value = sP.data || []; if (bP.success) refs.brokers.value = bP.data || [] } catch { } }
@@ -239,7 +241,7 @@ export function useCoreMethods(refs: CoreRefs) {
       wsHook.send({ type: 'subscribe_scanner' })
       _wsSubscribed = true
     }
-    // 【v2.9.72】监听WS scanner数据到达，更新新鲜度时间戳
+    // 【v2.9.72】监听WS scanner数据到达,更新新鲜度时间戳
     _wsUnsubFn = wsHook.subscribe((msg: any) => {
       if (msg.type?.startsWith('scanner_')) {
         lastWsDataTime.value = Date.now()
@@ -260,8 +262,8 @@ export function useCoreMethods(refs: CoreRefs) {
     })
     nowTimer = setInterval(() => { refs.nowMs.value = Date.now() }, 1000)
     const getRefreshInterval = () => { const n = new Date(), h = n.getHours(), m = n.getMinutes(); const isTrading = (h === 9 && m >= 30) || (h >= 10 && h < 15) || (h === 15 && m === 0); return isTrading ? 5000 : 60000 }
-    // 【v2.9.72】修复：WS连接但Redis断开时数据不更新的bug
-    // 当wsDataStale=true(WS连接但无scanner数据)时，仍执行轮询作为降级
+    // 【v2.9.72】修复:WS连接但Redis断开时数据不更新的bug
+    // 当wsDataStale=true(WS连接但无scanner数据)时,仍执行轮询作为降级
     refreshTimer = setInterval(() => { if (!refs.autoRefresh.value) return; if (wsHook.isConnected.value && !wsDataStale.value) return; fetchScanner(); fetchHealth() }, getRefreshInterval())
   }
 
@@ -272,7 +274,7 @@ export function useCoreMethods(refs: CoreRefs) {
     if (_wsUnsubFn) { _wsUnsubFn(); _wsUnsubFn = null }
   }
 
-  // 【v2.9.72】Store同步 - 修复：空数组也必须同步（如0个signal时不更新导致UI不一致）
+  // 【v2.9.72】Store同步 - 修复:空数组也必须同步(如0个signal时不更新导致UI不一致)
   function setupStoreWatchers(watch: any) {
     watch(() => scannerStore.signals, (v: any) => { if (v != null) refs.signals.value = v }, { deep: true })
     watch(() => scannerStore.positions, (v: any) => { if (v != null) refs.positions.value = v }, { deep: true })

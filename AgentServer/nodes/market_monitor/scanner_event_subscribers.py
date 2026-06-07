@@ -351,13 +351,17 @@ def _make_daily_settled_handler(scanner) -> Callable:
 def _make_signal_generated_handler(scanner) -> Callable:
     """信号生成事件handler"""
     async def on_signal_generated(data: Dict[str, Any]) -> None:
-        """信号生成事件: 推送Redis Stream(不可丢)"""
-        # Redis信号推送(Phase2.1: Redis Stream, 不可丢)
-        await _push_to_redis(scanner, "scanner:signal", {
+        """信号生成事件: 推送Redis Pub/Sub状态通知
+        
+        【v2.9.82修复】不再向scanner:signal Stream重复写入！
+        signal_manager._publish_scanner_event("signal")已写入scanner:signal Stream,
+        此处如果再写会导致前端WS收到重复信号。
+        只推scanner:status通知(轻量, 前端用于信号计数/声音提示)。
+        """
+        await _push_to_redis(scanner, "scanner:status", {
             "event": "signal_generated",
             "signal_count": data.get("signal_count", 0),
-            "signals": data.get("signals", []),
-        }, use_stream=True, maxlen=1000)
+        })
     on_signal_generated.__name__ = "on_signal_generated"
     return on_signal_generated
 

@@ -96,24 +96,34 @@ class TestPositionChannelStreamUpgrade:
 # ==================== 3. 信号通道Stream升级测试 ====================
 
 class TestSignalChannelStreamUpgrade:
-    """验证scanner:signal的EventBus订阅器使用Stream"""
+    """验证scanner:signal的EventBus订阅器"""
 
-    def test_signal_handler_uses_stream(self):
-        """信号生成handler使用use_stream=True"""
+    def test_signal_handler_no_duplicate_stream(self):
+        """【v2.9.82】信号生成handler不再向scanner:signal Stream写入(防重复)
+        
+        signal_manager._publish_scanner_event("signal")已写入scanner:signal Stream，
+        EventBus订阅器如果再写会导致前端WS收到重复信号。
+        handler只推scanner:status Pub/Sub(轻量通知)。
+        """
         source = _read_subscribers()
         handler_start = source.find("def _make_signal_generated_handler")
         assert handler_start > 0, "signal_generated handler未找到"
         handler_code = source[handler_start:handler_start+1500]
-        assert "use_stream=True" in handler_code, \
-            "signal handler未设置use_stream=True"
+        # 不应有use_stream=True向scanner:signal写(否则重复)
+        assert '"scanner:signal"' not in handler_code or 'use_stream=True' not in handler_code, \
+            "signal handler不应向scanner:signal Stream重复写入(由_publish_scanner_event负责)"
+        # 应推scanner:status通知
+        assert '"scanner:status"' in handler_code, \
+            "signal handler应推送scanner:status通知"
 
-    def test_signal_handler_maxlen_1000(self):
-        """信号Stream maxlen=1000(设计文档Phase2.1)"""
+    def test_signal_handler_not_writing_stream(self):
+        """【v2.9.82】信号handler向scanner:status推Pub/Sub而非scanner:signal Stream"""
         source = _read_subscribers()
         handler_start = source.find("def _make_signal_generated_handler")
         handler_code = source[handler_start:handler_start+1500]
-        assert "maxlen=1000" in handler_code, \
-            "signal Stream maxlen应为1000(设计文档Phase2.1)"
+        # 应该推送scanner:status (Pub/Sub, 轻量通知)
+        assert 'scanner:status' in handler_code, \
+            "signal handler应推送scanner:status通知(不再向scanner:signal Stream重复写入)"
 
 
 # ==================== 4. Status通道保持Pub/Sub测试 ====================
