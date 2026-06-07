@@ -48,6 +48,8 @@ class CandidateTrace:
     strategy_name: str
     price: float = 0.0
     pct_chg: float = 0.0
+    turnover_rate: float = 0.0   # 换手率因子(v2.9.84)
+    vol_ratio: float = 0.0       # 量比因子(v2.9.84)
     layer_results: Dict[str, Any] = field(default_factory=dict)  # {layer: {passed, reason, score}}
     final_status: str = "pending"  # pending/passed/rejected
     final_rejection_layer: str = ""
@@ -386,6 +388,8 @@ class LiveFilterPipeline:
                 strategy_name=c.get("strategy_name", ""),
                 price=c.get("price", 0),
                 pct_chg=c.get("pct_chg", 0),
+                turnover_rate=c.get("turnover_rate", 0) or c.get("turn", 0) or 0,
+                vol_ratio=c.get("vol_ratio", 0) or 0,
             ))
 
     def _record_layer_drop(self, result, layer, dropped_ids, reason_fn) -> None:
