@@ -260,7 +260,7 @@ onMounted(() => {
             <ElTag size="small" :color="strategyMeta[s.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(s.strategy) }}</ElTag>
             <span class="code">{{ s.ts_code?.slice(0,6) }}</span>
             <span class="name">{{ s.stock_name }}</span>
-            <span :class="(s.pct_chg || 0) >= 0 ? 'up' : 'down'" style="font-weight:600">{{ (s.pct_chg || 0) >= 0 ? '+' : '' }}{{ (s.pct_chg || 0)?.toFixed(1) }}%</span>
+            <span :class="(s.pct_chg || 0) >= 0 ? 'up' : 'down'" style="font-weight:600">{{ (s.pct_chg || 0) >= 0 ? '+' : '' }}{{ (s.pct_chg || 0).toFixed(1) }}%</span>
             <span v-if="s.volume_ratio" class="pm-item-factor">量比{{ (s.volume_ratio || 0).toFixed(1) }}</span>
             <ElTag v-if="s.signal_status === 'executed'" size="small" type="success">已买</ElTag>
             <ElButton v-else-if="!dryRun" size="small" type="danger" plain class="btn-xs" @click="quickBuy(s)">买</ElButton>

@@ -192,7 +192,7 @@ export function useCoreMethods(refs: CoreRefs) {
     showConfirm('确认买入', `${sig.stock_name} ${sig.ts_code}\n${sig.strategy_name} | 涨${(sig.pct_chg || 0) >= 0 ? '+' : ''}${(sig.pct_chg || 0).toFixed(1)}%\n买入 ${q}股 × ¥${(sig.price || 0).toFixed(2)} ≈ ¥${(q * (sig.price || 0)).toFixed(0)}`, async () => {
       try {
         const r = await api.post(`${scannerApi}/trade`, { ts_code: sig.ts_code, stock_name: sig.stock_name, side: 'buy', quantity: q, price: sig.price, order_type: 'market', strategy: sig.strategy, reason: sig.reason })
-        const p = parseResponse(r); if (p.success) { ElMessage.success(`买入${sig.stock_name} ${q}股@${p.data.filled_price?.toFixed(2)}`); fetchScanner() } else ElMessage.error('失败')
+        const p = parseResponse(r); if (p.success) { ElMessage.success(`买入${sig.stock_name} ${q}股@${p.data.filled_price?.toFixed(2) ?? '市价'}`); fetchScanner() } else ElMessage.error('失败')
       } catch (e: any) { ElMessage.error('买入失败') }
     })
   }
@@ -202,7 +202,7 @@ export function useCoreMethods(refs: CoreRefs) {
     showConfirm('确认卖出', `${pos.stock_name} ${pos.ts_code}\n${(pos.profit_pct || 0) >= 0 ? '+' : ''}${(pos.profit_pct || 0).toFixed(1)}% | 卖出 ${pos.available_qty}股\n成本 ¥${(pos.cost_price || 0).toFixed(2)} → 现价 ¥${(pos.current_price || 0).toFixed(2)} ≈ ¥${(pos.available_qty * (pos.current_price || 0)).toFixed(0)}`, async () => {
       try {
         const r = await api.post(`${scannerApi}/trade`, { ts_code: pos.ts_code, stock_name: pos.stock_name, side: 'sell', quantity: pos.available_qty, price: pos.current_price, order_type: 'market', strategy: pos.strategy, reason: `手动卖出 ${(pos.profit_pct || 0) >= 0 ? '+' : ''}${(pos.profit_pct || 0).toFixed(1)}%` })
-        const p = parseResponse(r); if (p.success) { ElMessage.success(`卖出${pos.stock_name} ${pos.available_qty}股@${p.data.filled_price?.toFixed(2)}`); fetchScanner() } else ElMessage.error('失败')
+        const p = parseResponse(r); if (p.success) { ElMessage.success(`卖出${pos.stock_name} ${pos.available_qty}股@${p.data.filled_price?.toFixed(2) ?? '市价'}`); fetchScanner() } else ElMessage.error('失败')
       } catch (e: any) { ElMessage.error('卖出失败') }
     })
   }

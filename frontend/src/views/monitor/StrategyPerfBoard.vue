@@ -96,11 +96,11 @@ onUnmounted(() => clearInterval(timer))
             <span class="sp-dot" :style="{ background: strategyColors[s.key] || '#909399' }"></span>
             {{ s.name }}
           </td>
-          <td :class="s.today_profit >= 0 ? 'up' : 'down'">
-            {{ s.today_profit >= 0 ? '+' : '' }}{{ ((s.today_profit || 0) / 10000).toFixed(2) }}万
+          <td :class="(s.today_profit || 0) >= 0 ? 'up' : 'down'">
+            {{ (s.today_profit || 0) >= 0 ? '+' : '' }}{{ ((s.today_profit || 0) / 10000).toFixed(2) }}万
           </td>
-          <td :class="s.total_profit >= 0 ? 'up' : 'down'">
-            {{ s.total_profit >= 0 ? '+' : '' }}{{ ((s.total_profit || 0) / 10000).toFixed(1) }}万
+          <td :class="(s.total_profit || 0) >= 0 ? 'up' : 'down'">
+            {{ (s.total_profit || 0) >= 0 ? '+' : '' }}{{ ((s.total_profit || 0) / 10000).toFixed(1) }}万
           </td>
           <td>
             <span class="sp-wr" :class="(s.win_rate || 0) >= 70 ? 'good' : (s.win_rate || 0) >= 50 ? 'mid' : 'bad'">
