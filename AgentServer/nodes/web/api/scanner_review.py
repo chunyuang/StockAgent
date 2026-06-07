@@ -1531,14 +1531,18 @@ async def factor_effectiveness(date: str = None):
                 price = c.get("price", 0) or 0
                 strategy = c.get("strategy", "")
 
-                # 动量强度分组(基于pct_chg绝对值,候选中无vol_ratio字段)
+                # 因子分组(v2.9.84增强: 新增换手率/量比因子)
+                turnover = c.get("turnover_rate", 0) or 0
+                vol_ratio = c.get("vol_ratio", 0) or 0
                 momentum_bucket = "弱(<2%)" if abs(pct_chg) < 2 else ("中(2-5%)" if abs(pct_chg) < 5 else "强(>5%)")
-                # 涨幅方向分组
                 gain_bucket = "小涨(<2%)" if pct_chg < 2 else ("中涨(2-5%)" if pct_chg < 5 else "大涨(>5%)")
-                # 策略分组
+                turnover_bucket = "低(<3%)" if turnover < 3 else ("中(3-8%)" if turnover < 8 else "高(>8%)") if turnover > 0 else "未知"
+                vol_ratio_bucket = "缩量(<0.8)" if vol_ratio < 0.8 else ("正常(0.8-1.5)" if vol_ratio < 1.5 else "放量(>1.5)") if vol_ratio > 0 else "未知"
                 strat_name = strategy or "unknown"
 
-                for fname, bucket in [("动量强度", momentum_bucket), ("涨幅区间", gain_bucket), ("策略", strat_name)]:
+                for fname, bucket in [("动量强度", momentum_bucket), ("涨幅区间", gain_bucket),
+                                       ("换手率", turnover_bucket), ("量比", vol_ratio_bucket),
+                                       ("策略", strat_name)]:
                     if fname not in factor_stats:
                         factor_stats[fname] = {}
                     if period not in factor_stats[fname]:
