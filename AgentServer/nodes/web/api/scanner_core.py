@@ -394,7 +394,11 @@ async def get_limit_pools():
 
 
 async def _limit_pools_from_mongo():
-    """从MongoDB limit_list集合读取涨停池(收盘后/非交易时间回退)"""
+    """从MongoDB limit_list集合读取涨停池(收盘后/非交易时间回退)
+    
+    limit_list schema: ts_code, name, limit(U/D), close, amp, fc_ratio,
+    first_time, last_time, open_times, limit_times, source
+    """
     from core.managers import mongo_manager
     
     if not mongo_manager.is_initialized:
@@ -409,50 +413,40 @@ async def _limit_pools_from_mongo():
         
         td = latest["trade_date"]
         
-        limit_ups = []
-        async for doc in db["limit_list"].find({"trade_date": td, "limit": "U"}, {"_id": 0}):
-            limit_ups.append({
-                "ts_code": doc.get("ts_code", ""),
-                "name": doc.get("name", ""),
-                "close": doc.get("close", 0),
-                "pct_chg": doc.get("pct_chg", 0),
-                "limit_times": doc.get("limit_times", 1),
-                "open_times": doc.get("open_times", 0),
-                "fd_amount": round(doc.get("fd_amount", 0) / 1000, 0),
-                "turnover": doc.get("turnover_ratio", 0),
-                "first_time": doc.get("first_time", ""),
-                "industry": doc.get("industry", ""),
-            })
+        # 预加载当天日线pct_chg(用于补limit_list缺失字段)
+        pct_map = {}
+        daily_cursor = db["stock_daily_ak_full"].find(
+            {"trade_date": td}, {"_id": 0, "ts_code": 1, "pct_chg": 1, "close": 1}
+        )
+        async for doc in daily_cursor:
+            pct_map[doc["ts_code"]] = {"pct_chg": doc.get("pct_chg", 0), "close": doc.get("close", 0)}
         
-        limit_downs = []
-        async for doc in db["limit_list"].find({"trade_date": td, "limit": "D"}, {"_id": 0}):
-            limit_downs.append({
-                "ts_code": doc.get("ts_code", ""),
+        def _map_limit_item(doc: dict) -> dict:
+            ts = doc.get("ts_code", "")
+            daily = pct_map.get(ts, {})
+            return {
+                "ts_code": ts,
                 "name": doc.get("name", ""),
-                "close": doc.get("close", 0),
-                "pct_chg": doc.get("pct_chg", 0),
+                "close": daily.get("close") or doc.get("close", 0),
+                "pct_chg": daily.get("pct_chg", 0),
                 "limit_times": doc.get("limit_times", 1),
                 "open_times": doc.get("open_times", 0),
-                "fd_amount": round(doc.get("fd_amount", 0) / 1000, 0),
-                "turnover": doc.get("turnover_ratio", 0),
+                "fd_amount": 0,  # limit_list无此字段
+                "turnover": doc.get("fc_ratio", 0),  # fc_ratio≈换手率
                 "first_time": doc.get("first_time", ""),
-                "industry": doc.get("industry", ""),
-            })
+                "industry": "",  # limit_list无行业字段
+            }
         
-        brokens = []
-        async for doc in db["limit_list"].find({"trade_date": td, "limit": "B"}, {"_id": 0}):
-            brokens.append({
-                "ts_code": doc.get("ts_code", ""),
-                "name": doc.get("name", ""),
-                "close": doc.get("close", 0),
-                "pct_chg": doc.get("pct_chg", 0),
-                "limit_times": doc.get("limit_times", 1),
-                "open_times": doc.get("open_times", 0),
-                "fd_amount": round(doc.get("fd_amount", 0) / 1000, 0),
-                "turnover": doc.get("turnover_ratio", 0),
-                "first_time": doc.get("first_time", ""),
-                "industry": doc.get("industry", ""),
-            })
+        limit_ups, limit_downs, brokens = [], [], []
+        async for doc in db["limit_list"].find({"trade_date": td}, {"_id": 0}):
+            lim = doc.get("limit", "")
+            item = _map_limit_item(doc)
+            if lim == "U":
+                limit_ups.append(item)
+            elif lim == "D":
+                limit_downs.append(item)
+            elif lim == "B":
+                brokens.append(item)
         
         return {
             "success": True,
