@@ -24,6 +24,7 @@ interface GlobalRisk {
 const positions = ref<RiskPosition[]>([])
 const globalRisk = ref<GlobalRisk | null>(null)
 const loading = ref(false)
+const isFallback = ref(false)
 
 async function fetchData() {
   loading.value = true
@@ -32,6 +33,7 @@ async function fetchData() {
     if (r?.success) {
       positions.value = r.data?.positions || []
       globalRisk.value = r.data?.global || null
+      isFallback.value = !!r.data?._fallback
     }
   } catch (e) { console.error('[PositionRiskMatrix] fetch error:', e) } finally { loading.value = false }
 }
@@ -72,6 +74,7 @@ onUnmounted(() => clearInterval(timer))
   <div class="risk-matrix">
     <div class="rm-header">
       <span class="rm-title">🛡️ 风控矩阵</span>
+      <span v-if="isFallback" style="font-size:10px;color:var(--el-color-warning);margin-right:6px">📜历史数据</span>
       <span class="rm-refresh cp" @click="fetchData">🔄</span>
     </div>
 

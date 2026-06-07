@@ -246,7 +246,6 @@ export function useCoreMethods(refs: CoreRefs) {
       }
     })
     // 【v2.9.75】WS重连后主动fetch恢复数据
-    const _prevConnected = ref(false)
     const unwatchWs = watch(() => wsHook.isConnected.value, (connected: boolean, prev: boolean) => {
       if (connected && !prev) {
         // WS从断开恢复到连接 → 主动fetch一次全量数据恢复
