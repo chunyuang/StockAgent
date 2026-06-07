@@ -641,6 +641,24 @@ async def get_position_risk_matrix():
     """持仓风控矩阵 + 全局风险仪表"""
     scanner = await _get_scanner()
     if not scanner._broker:
+        # Scanner未运行时: 从MongoDB读取最后已知的持仓快照作为回退
+        try:
+            from core.managers import mongo_manager
+            if not mongo_manager.is_initialized:
+                return {"success": True, "data": {"positions": [], "global": {}}}
+            # 读取最近的账户快照
+            last_snapshot = await mongo_manager.db["account_snapshots"].find_one(
+                sort=[("timestamp", -1)],
+                projection={"_id": 0}
+            )
+            if last_snapshot and last_snapshot.get("positions"):
+                return {"success": True, "data": {
+                    "positions": last_snapshot["positions"],
+                    "global": last_snapshot.get("global", {}),
+                    "_fallback": True,  # 标记回退数据，前端可显示提示
+                }}
+        except Exception:
+            pass
         return {"success": True, "data": {"positions": [], "global": {}}}
 
     try:
