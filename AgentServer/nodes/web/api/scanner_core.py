@@ -396,8 +396,9 @@ async def get_limit_pools():
 async def _limit_pools_from_mongo():
     """从MongoDB limit_list集合读取涨停池(收盘后/非交易时间回退)
     
-    limit_list schema: ts_code, name, limit(U/D), close, amp, fc_ratio,
-    first_time, last_time, open_times, limit_times, source
+    limit_list有两种数据格式:
+    1. 旧格式(limit="U"/"D"): name, close, fc_ratio, first_time, limit_times等
+    2. 新格式(up_limit/down_limit): 只有涨跌停价格,需要从日线数据判断是否涨停
     """
     from core.managers import mongo_manager
     
@@ -413,7 +414,7 @@ async def _limit_pools_from_mongo():
         
         td = latest["trade_date"]
         
-        # 预加载当天日线pct_chg(用于补limit_list缺失字段)
+        # 预加载当天日线(用于补pct_chg和判断涨停)
         pct_map = {}
         daily_cursor = db["stock_daily_ak_full"].find(
             {"trade_date": td}, {"_id": 0, "ts_code": 1, "pct_chg": 1, "close": 1}
@@ -421,32 +422,62 @@ async def _limit_pools_from_mongo():
         async for doc in daily_cursor:
             pct_map[doc["ts_code"]] = {"pct_chg": doc.get("pct_chg", 0), "close": doc.get("close", 0)}
         
-        def _map_limit_item(doc: dict) -> dict:
-            ts = doc.get("ts_code", "")
-            daily = pct_map.get(ts, {})
-            return {
-                "ts_code": ts,
-                "name": doc.get("name", ""),
-                "close": daily.get("close") or doc.get("close", 0),
-                "pct_chg": daily.get("pct_chg", 0),
-                "limit_times": doc.get("limit_times", 1),
-                "open_times": doc.get("open_times", 0),
-                "fd_amount": 0,  # limit_list无此字段
-                "turnover": doc.get("fc_ratio", 0),  # fc_ratio≈换手率
-                "first_time": doc.get("first_time", ""),
-                "industry": "",  # limit_list无行业字段
-            }
+        # 预加载股票名称
+        name_map = {}
+        async for doc in db["stock_basic"].find({}, {"_id": 0, "ts_code": 1, "name": 1}):
+            name_map[doc["ts_code"]] = doc.get("name", "")
         
         limit_ups, limit_downs, brokens = [], [], []
         async for doc in db["limit_list"].find({"trade_date": td}, {"_id": 0}):
-            lim = doc.get("limit", "")
-            item = _map_limit_item(doc)
-            if lim == "U":
-                limit_ups.append(item)
-            elif lim == "D":
-                limit_downs.append(item)
-            elif lim == "B":
-                brokens.append(item)
+            ts = doc.get("ts_code", "")
+            daily = pct_map.get(ts, {})
+            
+            # 格式1: limit字段存在(旧格式)
+            lim = doc.get("limit")
+            if lim:
+                item = {
+                    "ts_code": ts,
+                    "name": doc.get("name", "") or name_map.get(ts, ""),
+                    "close": daily.get("close") or doc.get("close", 0),
+                    "pct_chg": daily.get("pct_chg", 0),
+                    "limit_times": doc.get("limit_times", 1),
+                    "open_times": doc.get("open_times", 0),
+                    "fd_amount": 0,
+                    "turnover": doc.get("fc_ratio", 0),
+                    "first_time": doc.get("first_time", ""),
+                    "industry": "",
+                }
+                if lim == "U":
+                    limit_ups.append(item)
+                elif lim == "D":
+                    limit_downs.append(item)
+                elif lim == "B":
+                    brokens.append(item)
+            else:
+                # 格式2: up_limit/down_limit(新格式)
+                # 从日线pct_chg判断是否涨停
+                pct = daily.get("pct_chg", 0)
+                close_price = daily.get("close", 0)
+                up_limit = doc.get("up_limit", 0)
+                down_limit = doc.get("down_limit", 0)
+                
+                item = {
+                    "ts_code": ts,
+                    "name": name_map.get(ts, ""),
+                    "close": close_price,
+                    "pct_chg": pct,
+                    "limit_times": 0,
+                    "open_times": 0,
+                    "fd_amount": 0,
+                    "turnover": 0,
+                    "first_time": "",
+                    "industry": "",
+                }
+                # 涨停判断: 收盘价>=涨停价 或 涨幅>=9.8%(考虑四舍五入)
+                if close_price > 0 and up_limit > 0 and close_price >= up_limit * 0.998:
+                    limit_ups.append(item)
+                elif close_price > 0 and down_limit > 0 and close_price <= down_limit * 1.002:
+                    limit_downs.append(item)
         
         return {
             "success": True,
