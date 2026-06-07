@@ -112,6 +112,54 @@ async def get_realtime_quote(ts_code: str):
     except Exception as e:
         logger.warning(f"[QUOTE] 必盈获取失败: {e}")
     
+    # 5. 从MongoDB回退(收盘后/非交易时间)
+    try:
+        from core.managers import mongo_manager
+        if mongo_manager.is_initialized:
+            db = mongo_manager.db
+            # 最新日线
+            daily = await db["stock_daily_ak_full"].find_one(
+                {"ts_code": ts_code},
+                {"_id": 0, "trade_date": 1, "close": 1, "pct_chg": 1, "vol": 1, "open": 1, "high": 1, "low": 1, "pre_close": 1},
+                sort=[("trade_date", -1)]
+            )
+            if daily and daily.get("close", 0) > 0:
+                # 补充名称
+                name = ""
+                basic = await db["stock_basic"].find_one(
+                    {"ts_code": ts_code}, {"_id": 0, "name": 1}
+                )
+                if basic:
+                    name = basic.get("name", "")
+                # 补充换手率/量比
+                turnover = 0
+                dbasic = await db["daily_basic"].find_one(
+                    {"ts_code": ts_code},
+                    {"_id": 0, "turn": 1, "volume_ratio": 1},
+                    sort=[("trade_date", -1)]
+                )
+                if dbasic:
+                    turnover = dbasic.get("turn", 0) or 0
+                return _sanitize({
+                    "success": True,
+                    "data": {
+                        "ts_code": ts_code,
+                        "name": name,
+                        "price": daily["close"],
+                        "pct_chg": daily.get("pct_chg", 0),
+                        "volume_ratio": 0,
+                        "turnover_rate": turnover,
+                        "open": daily.get("open", 0),
+                        "high": daily.get("high", 0),
+                        "low": daily.get("low", 0),
+                        "pre_close": daily.get("pre_close", 0),
+                        "trade_date": daily.get("trade_date", 0),
+                        "source": "mongodb",
+                    },
+                })
+    except Exception as e:
+        logger.warning(f"[QUOTE] MongoDB回退失败: {e}")
+    
     return {"success": False, "message": f"无法获取 {ts_code} 行情"}
 
 # ==================== 【V50.1】扫描链路追踪 ====================
