@@ -70,15 +70,15 @@ const emit = defineEmits<{
       <div v-if="reviewHero" class="hero-banner" :class="reviewHero.conclusion_type">
         <div class="hero-conclusion">{{ reviewHero.conclusion }}</div>
         <div class="hero-meta">
-          <span v-if="reviewHero.benchmark" class="hero-bench">📊 {{ reviewHero.benchmark.name }} {{ (reviewHero.benchmark.pct_chg || 0) >= 0 ? '+' : '' }}{{ reviewHero.benchmark.pct_chg }}%</span>
-          <span v-if="reviewHero.benchmark" class="hero-alpha" :class="reviewHero.benchmark.alpha >= 0 ? 'up' : 'down'">{{ reviewHero.benchmark.alpha >= 0 ? '跑赢' : '落后' }} {{ Math.abs(reviewHero.benchmark.alpha || 0) }}%</span>
+          <span v-if="reviewHero.benchmark" class="hero-bench">📊 {{ reviewHero.benchmark.name }} {{ (reviewHero.benchmark.pct_chg || 0) >= 0 ? '+' : '' }}{{ reviewHero.benchmark.pct_chg || 0 }}%</span>
+          <span v-if="reviewHero.benchmark" class="hero-alpha" :class="(reviewHero.benchmark.alpha || 0) >= 0 ? 'up' : 'down'">{{ (reviewHero.benchmark.alpha || 0) >= 0 ? '跑赢' : '落后' }} {{ Math.abs(reviewHero.benchmark.alpha || 0) }}%</span>
           <span class="hero-sentiment">🌡️ {{ reviewHero.sentiment?.period }} {{ reviewHero.sentiment?.score }}分</span>
         </div>
       </div>
 
       <!-- ============ 第2层: 核心仪表盘 ============ -->
       <div v-if="reviewHero" class="review-scorecard">
-        <div class="rsc"><div class="rsc-label">收益</div><div class="rsc-value" :class="(reviewHero.metrics?.total_pct || 0) >= 0 ? 'up' : 'down'">{{ (reviewHero.metrics?.total_pct || 0) >= 0 ? '+' : '' }}{{ reviewHero.metrics?.total_pct ?? '-' }}%</div></div>
+        <div class="rsc"><div class="rsc-label">收益</div><div class="rsc-value" :class="(reviewHero.metrics?.total_pct || 0) >= 0 ? 'up' : 'down'">{{ reviewHero.metrics?.total_pct != null ? ((reviewHero.metrics.total_pct >= 0 ? '+' : '') + reviewHero.metrics.total_pct + '%') : '-' }}</div></div>
         <div class="rsc"><div class="rsc-label">胜率</div><div class="rsc-value">{{ reviewHero.metrics?.win_rate ?? '-' }}%</div></div>
         <div class="rsc"><div class="rsc-label">交易</div><div class="rsc-value">{{ reviewHero.metrics?.trades ?? '-' }}笔</div></div>
         <div class="rsc"><div class="rsc-label">期望值</div><div class="rsc-value" :class="(reviewHero.metrics?.expectancy || 0) >= 0 ? 'up' : 'down'">{{ reviewHero.metrics?.expectancy ?? '-' }}</div></div>
@@ -96,7 +96,7 @@ const emit = defineEmits<{
           <div v-for="(data, key) in dailyReportData.positions?.strategy_summary || {}" :key="key" class="strat-card">
             <div class="strat-header">
               <ElTag size="small" :color="strategyMeta[key]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(key) }}</ElTag>
-              <span class="strat-pnl" :class="(data.closed_profit || data.total_pnl || 0) >= 0 ? 'up' : 'down'">{{ (data.closed_profit || data.total_pnl || 0) >= 0 ? '+' : '' }}¥{{ (data.closed_profit || data.total_pnl || 0).toFixed(0) }}</span>
+              <span class="strat-pnl" :class="(data.closed_profit || data.total_profit || 0) >= 0 ? 'up' : 'down'">{{ (data.closed_profit || data.total_profit || 0) >= 0 ? '+' : '' }}¥{{ (data.closed_profit || data.total_profit || 0).toFixed(0) }}</span>
             </div>
             <div class="strat-metrics">
               <div class="strat-m"><span class="strat-ml">已平</span><span class="strat-mv">{{ data.closed_count || data.sell_count || 0 }}笔</span></div>
@@ -147,7 +147,7 @@ const emit = defineEmits<{
           <div class="review-scorecard" style="grid-template-columns:repeat(4,1fr)">
             <div class="rsc"><div class="rsc-label">交易</div><div class="rsc-value">{{ monthlyReviewData.summary?.trades || 0 }}笔</div></div>
             <div class="rsc"><div class="rsc-label">胜率</div><div class="rsc-value">{{ monthlyReviewData.summary?.win_rate || 0 }}%</div></div>
-            <div class="rsc"><div class="rsc-label">盈亏</div><div class="rsc-value" :class="monthlyReviewData.summary?.pnl >= 0 ? 'up' : 'down'">{{ monthlyReviewData.summary?.pnl >= 0 ? '+' : '' }}{{ monthlyReviewData.summary?.pnl || 0 }}%</div></div>
+            <div class="rsc"><div class="rsc-label">盈亏</div><div class="rsc-value" :class="(monthlyReviewData.summary?.pnl || 0) >= 0 ? 'up' : 'down'">{{ (monthlyReviewData.summary?.pnl || 0) >= 0 ? '+' : '' }}{{ monthlyReviewData.summary?.pnl || 0 }}%</div></div>
             <div class="rsc"><div class="rsc-label">连亏</div><div class="rsc-value">-</div></div>
           </div>
           <div class="st" style="margin-top:8px">📈 偏差趋势(近4周)</div>

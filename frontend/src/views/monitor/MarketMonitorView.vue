@@ -255,7 +255,7 @@ const {
                 <template v-if="tradeDetailData.buy.decision_detail.execution">
                   <div class="td2-chain-title">⚡ 执行决策</div>
                   <div class="td2-grid">
-                    <div class="td2-card sm"><div class="td2-label">仓位比例</div><div class="td2-val">{{ ((Number(tradeDetailData.buy.decision_detail.execution.position_ratio) || 0) * 100).toFixed(0) }}%</div></div>
+                    <div class="td2-card sm"><div class="td2-label">仓位比例</div><div class="td2-val">{{ ((Number(tradeDetailData.buy.decision_detail.execution.position_ratio ?? 0) || 0) * 100).toFixed(0) }}%</div></div>
                     <div class="td2-card sm"><div class="td2-label">可用资金</div><div class="td2-val">¥{{ Number(tradeDetailData.buy.decision_detail.execution.available_cash || 0).toFixed(0) }}</div></div>
                     <div class="td2-card sm"><div class="td2-label">买入金额</div><div class="td2-val">¥{{ Number(tradeDetailData.buy.decision_detail.execution.total_cost || 0).toFixed(0) }}</div></div>
                     <div class="td2-card sm"><div class="td2-label">成交价</div><div class="td2-val">¥{{ Number(tradeDetailData.buy.decision_detail.execution.filled_price || 0).toFixed(2) }}</div></div>

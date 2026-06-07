@@ -213,12 +213,12 @@ export function useScanTraceMonitor() {
       for (const [l, a] of Object.entries(fp.layers_applied || {})) {
         lines.push(`  ${a ? '✅' : '⏭️'} ${layerLabel(l)}: ${fp.layer_details?.[l] || (a ? '生效' : '跳过')}`)
       }
-      lines.push(`  最终仓位系数: ${fp.position_ratio ? ((Number(fp.position_ratio) ?? 0) * 100).toFixed(0) + '%' : '未知'}`)
+      lines.push(`  最终仓位系数: ${fp.position_ratio ? ((Number(fp.position_ratio) || 0) * 100).toFixed(0) + '%' : '未知'}`)
     }
     if (detail.execution) {
       const ex = detail.execution
       lines.push('【执行决策】')
-      if (ex.position_ratio) lines.push(`  仓位比例: ${((Number(ex.position_ratio) ?? 0) * 100).toFixed(0)}%`)
+      if (ex.position_ratio) lines.push(`  仓位比例: ${((Number(ex.position_ratio) || 0) * 100).toFixed(0)}%`)
       if (ex.available_cash) lines.push(`  可用资金: ¥${Number(ex.available_cash || 0).toFixed(0)}`)
       if (ex.max_amount) lines.push(`  最大买入: ¥${Number(ex.max_amount || 0).toFixed(0)}`)
       if (ex.shares) lines.push(`  买入股数: ${ex.shares}股`)
