@@ -19,6 +19,12 @@ from nodes.web.api.scanner_shared import (
     StopScannerRequest, ScanOnceRequest, PauseRequest,
 )
 
+# 策略ID归一化(anomaly_surge→halfway_chase等)
+try:
+    from nodes.backtest_engine.strategy_defaults import normalize_strategy_id as _norm_strat
+except ImportError:
+    def _norm_strat(s): return s
+
 router = APIRouter(prefix="/scanner", tags=["日报/周报/历史复盘"])
 
 
@@ -52,7 +58,7 @@ async def get_daily_report():
             # 确保pos有stock_name
             if not pos.stock_name and name_map:
                 pos.stock_name = name_map.get(pos.ts_code, "")
-            key = pos.strategy or "unknown"
+            key = _norm_strat(pos.strategy or "unknown")
             if key not in strategy_summary:
                 strategy_summary[key] = {"count": 0, "market_value": 0, "total_profit": 0, "win_count": 0, "loss_count": 0}
             strategy_summary[key]["count"] += 1
@@ -92,7 +98,7 @@ async def get_daily_report():
             strategy_summary[key]["stop_loss_count"] = 0
             strategy_summary[key]["take_profit_count"] = 0
             for item in scanner._timeline:
-                if item.get("action") != "sell" or item.get("strategy") != key:
+                if item.get("action") != "sell" or _norm_strat(item.get("strategy", "")) != key:
                     continue
                 pct = item.get("profit_pct", 0) or 0
                 reason = item.get("reason", "")
@@ -237,7 +243,7 @@ async def get_historical_review(date: str = None):
             # 优先使用已存的profit_pct字段, fallback到reason正则提取
             profit_pct = s.get("profit_pct", 0) or 0
             if profit_pct == 0:
-                pct_match = re.search(r'曾盈([\d.]+)%', reason) or re.search(r'-?([\d.]+)%', reason)
+                pct_match = re.search(r'曾盈([\d.]+)%', reason) or re.search(r'(-?[\d.]+)%', reason)
                 profit_pct = float(pct_match.group(1)) if pct_match else 0
             if "止损" in reason and "追踪" not in reason:
                 if profit_pct > 0:
@@ -248,7 +254,7 @@ async def get_historical_review(date: str = None):
             (strategy_stats[st]["wins"] if profit_pct >= 0 else strategy_stats[st]["losses"]).append(profit_pct)
             strategy_stats[st]["total_pnl"] += fp * fq * profit_pct / 100
         for b in buys:
-            strategy_stats[b.get("strategy", "unknown")]["buy_count"] += 1
+            strategy_stats[_norm_strat(b.get("strategy", "unknown"))]["buy_count"] += 1
         
         strategy_summary = {}
         for k, v in strategy_stats.items():
@@ -348,7 +354,7 @@ async def get_weekly_report(date: str = None):
             
             side = doc.get("side", "")
             amount = doc.get("filled_price", 0) * doc.get("filled_qty", 0)
-            strategy = doc.get("strategy", "unknown")
+            strategy = _norm_strat(doc.get("strategy", "unknown"))
             
             if side == "buy":
                 daily_stats[td]["buys"] += 1
@@ -358,10 +364,11 @@ async def get_weekly_report(date: str = None):
                 daily_stats[td]["sell_amount"] += amount
             
             if strategy not in daily_stats[td]["strategies"]:
-                daily_stats[td]["strategies"][strategy] = {"trades": 0, "amount": 0, "wins": 0, "pnl": 0}
+                daily_stats[td]["strategies"][strategy] = {"trades": 0, "sell_count": 0, "amount": 0, "wins": 0, "pnl": 0}
             daily_stats[td]["strategies"][strategy]["trades"] += 1
             daily_stats[td]["strategies"][strategy]["amount"] += amount
             if side == "sell":
+                daily_stats[td]["strategies"][strategy]["sell_count"] += 1
                 pct = doc.get("profit_pct", 0) or 0
                 if pct >= 0:
                     daily_stats[td]["strategies"][strategy]["wins"] += 1
@@ -387,8 +394,9 @@ async def get_weekly_report(date: str = None):
         for td, stats in daily_stats.items():
             for strat, sdata in stats.get("strategies", {}).items():
                 if strat not in strategy_summary:
-                    strategy_summary[strat] = {"trades": 0, "amount": 0, "wins": 0, "pnl": 0}
+                    strategy_summary[strat] = {"trades": 0, "sell_count": 0, "amount": 0, "wins": 0, "pnl": 0}
                 strategy_summary[strat]["trades"] += sdata["trades"]
+                strategy_summary[strat]["sell_count"] += sdata.get("sell_count", 0)
                 strategy_summary[strat]["amount"] += sdata["amount"]
         # 从卖出订单补充胜率/盈亏
         async for doc in mongo_manager.db["broker_orders"].find({
@@ -397,16 +405,16 @@ async def get_weekly_report(date: str = None):
             "status": "filled",
             "side": "sell",
         }):
-            strat = doc.get("strategy", "unknown")
+            strat = _norm_strat(doc.get("strategy", "unknown"))
             if strat not in strategy_summary:
                 strategy_summary[strat] = {"trades": 0, "amount": 0, "wins": 0, "pnl": 0}
             pct = doc.get("profit_pct", 0) or 0
             if pct >= 0:
                 strategy_summary[strat]["wins"] += 1
             strategy_summary[strat]["pnl"] += pct
-        # 计算胜率
+        # 计算胜率(用sell_count微分母,不是trades)
         for strat in strategy_summary:
-            t = strategy_summary[strat].get("trades", 0)
+            t = strategy_summary[strat].get("sell_count", 0) or strategy_summary[strat].get("trades", 0)
             w = strategy_summary[strat].get("wins", 0)
             strategy_summary[strat]["win_rate"] = round(w / max(t, 1) * 100, 1)
         
@@ -472,7 +480,7 @@ async def _daily_report_from_mongo():
     strategy_summary = defaultdict(lambda: {"count": 0, "market_value": 0, "total_profit": 0, "win_count": 0, "loss_count": 0, "closed_count": 0, "closed_profit": 0, "stop_loss_count": 0, "take_profit_count": 0, "wins_pcts": [], "losses_pcts": []})
     
     for s in sells:
-        key = s.get("strategy", "") or "unknown"
+        key = _norm_strat(s.get("strategy", "") or "unknown")
         strategy_summary[key]["closed_count"] += 1
         pnl = s.get("profit_pct", 0) or 0
         strategy_summary[key]["closed_profit"] += s.get("profit_amount", 0) or 0
