@@ -216,13 +216,25 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         // Bridge发送scanner_signal/position/timeline/status, Store期望signal/position/timeline/status
         case 'scanner_signal':
           if (scannerStore) {
-            scannerStore.updateFromWs('signal', { item: message.signals?.[0] || message.item })
+            // 【v2.9.82修复】信号可能批量到达(signals数组), 必须逐条更新
+            // 之前只取signals[0]导致后续信号丢失
+            const signalItems = message.signals || (message.item ? [message.item] : [])
+            for (const item of signalItems) {
+              scannerStore.updateFromWs('signal', { item })
+            }
           }
           break
           
         case 'scanner_position':
           if (scannerStore) {
-            scannerStore.updateFromWs('position', { positions: message.positions, account: message.account })
+            // 【v2.9.82修复】区分全量/增量: 有positions数组=全量, 有event=增量通知
+            scannerStore.updateFromWs('position', {
+              positions: message.positions,
+              account: message.account,
+              event: message.event,
+              ts_code: message.ts_code,
+              action: message.action,
+            })
           }
           break
           

@@ -187,11 +187,18 @@ export const useScannerStore = defineStore('scanner', () => {
         break
 
       case 'position':
-        if (data.positions) {
+        if (data.positions && data.positions.length > 0) {
+          // 【v2.9.82修复】空数组[]不覆盖 — 防止增量通知清空已有持仓
+          // 增量通知(position_changed)不含positions数组, 只有action/ts_code
           positions.value = data.positions
         }
         if (data.account) {
           account.value = data.account
+        }
+        // 【v2.9.82】增量持仓变更通知: 标记需要REST刷新
+        if (data.event === 'position_changed' && data.ts_code) {
+          // 不直接修改positions(增量数据不完整), 由轮询fetchScanner恢复
+          lastWsUpdate.value = Date.now()
         }
         break
 

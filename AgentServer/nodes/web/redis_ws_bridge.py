@@ -377,14 +377,31 @@ class RedisWSBridge:
         await self._ws_manager.broadcast_scanner_event(msg)
 
     async def _handle_scanner_position_message(self, data: dict, stream_id: str = "") -> None:
-        """处理scanner持仓变更消息"""
+        """处理scanner持仓变更消息
+        
+        【v2.9.82修复】区分两种消息源:
+        1. _publish_scanner_event("position") 全量推送 — data包含positions数组
+        2. EventBus position_changed 增量通知 — data只有{action,ts_code,strategy}
+           这种不应清空前端positions, 只通知前端刷新
+        """
+        positions = data.get("positions")
         msg = {
             "type": "scanner_position",
-            "positions": data.get("positions", []),
             "timestamp": data.get("timestamp"),
         }
         if stream_id:
             msg["_stream_id"] = stream_id
+        
+        if positions is not None and len(positions) > 0:
+            # 全量持仓数据
+            msg["positions"] = positions
+        else:
+            # 增量变更通知 — 通知前端有持仓变更, 但不覆盖positions
+            msg["action"] = data.get("action", "")
+            msg["ts_code"] = data.get("ts_code", "")
+            msg["strategy"] = data.get("strategy", "")
+            msg["event"] = "position_changed"
+        
         await self._ws_manager.broadcast_scanner_event(msg)
 
     async def _handle_scanner_timeline_message(self, data: dict) -> None:
