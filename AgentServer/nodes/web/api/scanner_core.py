@@ -328,22 +328,36 @@ async def get_account():
 
 @router.get("/limit-pools")
 async def get_limit_pools():
-    """获取今日涨停/跌停/炸板池"""
+    """获取今日涨停/跌停/炸板池
+    
+    非开盘时间优先从MongoDB limit_list读取(历史数据), 
+    开盘时间从必盈实时接口获取。
+    """
     scanner = await _get_scanner()
     
     try:
-        if not scanner._data_router:
-            return {"success": True, "data": {"limit_up": [], "limit_down": [], "broken": []}}
+        # 判断是否交易时间
+        from core.settings import settings
+        now = datetime.now()
+        is_trading = (now.hour >= 9 and now.hour < 15) or (now.hour == 9 and now.minute >= 15)
+        
+        # 非交易时间或必盈不可用: 从MongoDB回退
+        if not is_trading or not scanner._data_router:
+            return await _limit_pools_from_mongo()
         
         biying = scanner._data_router._sources.get("biying")
         if not biying:
-            return {"success": True, "data": {"limit_up": [], "limit_down": [], "broken": []}}
+            return await _limit_pools_from_mongo()
         
-        today = datetime.now().strftime("%Y-%m-%d")
+        today = now.strftime("%Y-%m-%d")
         
         limit_ups = await biying.get_limit_up_pool(today)
         limit_downs = await biying.get_limit_down_pool(today)
         brokens = await biying.get_broken_board_pool(today)
+        
+        # 必盈返回空则回退MongoDB
+        if not limit_ups and not limit_downs and not brokens:
+            return await _limit_pools_from_mongo()
         
         def to_list(items):
             result = []
@@ -369,6 +383,81 @@ async def get_limit_pools():
                 "limit_up": to_list(limit_ups),
                 "limit_down": to_list(limit_downs),
                 "broken": to_list(brokens),
+            }
+        }
+    except Exception as e:
+        return await _limit_pools_from_mongo()
+
+
+async def _limit_pools_from_mongo():
+    """从MongoDB limit_list集合读取涨停池(收盘后/非交易时间回退)"""
+    from core.managers import mongo_manager
+    
+    if not mongo_manager.is_initialized:
+        return {"success": True, "data": {"limit_up": [], "limit_down": [], "broken": []}}
+    
+    try:
+        db = mongo_manager.db
+        # 找最新有数据的交易日
+        latest = await db["limit_list"].find_one(sort=[("trade_date", -1)])
+        if not latest:
+            return {"success": True, "data": {"limit_up": [], "limit_down": [], "broken": []}}
+        
+        td = latest["trade_date"]
+        
+        limit_ups = []
+        async for doc in db["limit_list"].find({"trade_date": td, "limit": "U"}, {"_id": 0}):
+            limit_ups.append({
+                "ts_code": doc.get("ts_code", ""),
+                "name": doc.get("name", ""),
+                "close": doc.get("close", 0),
+                "pct_chg": doc.get("pct_chg", 0),
+                "limit_times": doc.get("limit_times", 1),
+                "open_times": doc.get("open_times", 0),
+                "fd_amount": round(doc.get("fd_amount", 0) / 1000, 0),
+                "turnover": doc.get("turnover_ratio", 0),
+                "first_time": doc.get("first_time", ""),
+                "industry": doc.get("industry", ""),
+            })
+        
+        limit_downs = []
+        async for doc in db["limit_list"].find({"trade_date": td, "limit": "D"}, {"_id": 0}):
+            limit_downs.append({
+                "ts_code": doc.get("ts_code", ""),
+                "name": doc.get("name", ""),
+                "close": doc.get("close", 0),
+                "pct_chg": doc.get("pct_chg", 0),
+                "limit_times": doc.get("limit_times", 1),
+                "open_times": doc.get("open_times", 0),
+                "fd_amount": round(doc.get("fd_amount", 0) / 1000, 0),
+                "turnover": doc.get("turnover_ratio", 0),
+                "first_time": doc.get("first_time", ""),
+                "industry": doc.get("industry", ""),
+            })
+        
+        brokens = []
+        async for doc in db["limit_list"].find({"trade_date": td, "limit": "B"}, {"_id": 0}):
+            brokens.append({
+                "ts_code": doc.get("ts_code", ""),
+                "name": doc.get("name", ""),
+                "close": doc.get("close", 0),
+                "pct_chg": doc.get("pct_chg", 0),
+                "limit_times": doc.get("limit_times", 1),
+                "open_times": doc.get("open_times", 0),
+                "fd_amount": round(doc.get("fd_amount", 0) / 1000, 0),
+                "turnover": doc.get("turnover_ratio", 0),
+                "first_time": doc.get("first_time", ""),
+                "industry": doc.get("industry", ""),
+            })
+        
+        return {
+            "success": True,
+            "data": {
+                "limit_up": limit_ups,
+                "limit_down": limit_downs,
+                "broken": brokens,
+                "trade_date": str(td),
+                "source": "mongodb",
             }
         }
     except Exception as e:
