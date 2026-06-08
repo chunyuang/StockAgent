@@ -313,4 +313,12 @@ onMounted(async () => {
 .st-fi { display: flex; flex-direction: column; padding: 3px 6px; background: var(--bg-elevated); border-radius: 4px; }
 .st-fl { font-size: 10px; color: var(--text-tertiary); }
 .st-fv { font-size: 13px; font-weight: 500; }
+
+/* ========== 日期选择器高亮(teleported=false所以scoped生效) ========== */
+:deep(.has-scan-data) { position: relative; }
+:deep(.has-scan-data .el-date-table-cell) { color: var(--el-color-primary) !important; font-weight: 600; }
+:deep(.has-scan-data .el-date-table-cell::after) { content: ''; position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%); width: 4px; height: 4px; border-radius: 50%; background: var(--el-color-primary); }
+:deep(.has-scan-debug) { position: relative; }
+:deep(.has-scan-debug .el-date-table-cell) { color: #e6a23c !important; font-weight: 600; }
+:deep(.has-scan-debug .el-date-table-cell::after) { content: ''; position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%); width: 4px; height: 4px; border-radius: 50%; background: #e6a23c; }
 </style>
