@@ -35,6 +35,10 @@ let heartbeatTimer: number | null = null
 let reconnectTimer: number | null = null
 const subscribers = new Set<(message: WSMessage) => void>()
 
+// 【v2.9.83】WS重连断线补发: 记录最后收到的scanner stream ID
+let lastSignalStreamId: string | null = null
+let lastPositionStreamId: string | null = null
+
 // ==================== Hook 实现 ====================
 
 export function useWebSocket(options: UseWebSocketOptions = {}) {
@@ -162,6 +166,19 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     return send({ type: 'unsubscribe', task_id: taskId })
   }
   
+  function subscribeScanner(): boolean {
+    // 【v2.9.83】重连时携带last_stream_id, 服务端可从断开位置补发
+    return send({
+      type: 'subscribe_scanner',
+      last_signal_stream_id: lastSignalStreamId || undefined,
+      last_position_stream_id: lastPositionStreamId || undefined,
+    })
+  }
+  
+  function unsubscribeScanner(): boolean {
+    return send({ type: 'unsubscribe_scanner' })
+  }
+  
   // ==================== 消息处理 ====================
   
   function handleMessage(data: string): void {
@@ -223,6 +240,8 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
               scannerStore.updateFromWs('signal', { item })
             }
           }
+          // 【v2.9.83】记录最新stream_id用于重连续传
+          if (message._stream_id) lastSignalStreamId = message._stream_id
           break
           
         case 'scanner_position':
@@ -236,6 +255,8 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
               action: message.action,
             })
           }
+          // 【v2.9.83】记录最新stream_id用于重连续传
+          if (message._stream_id) lastPositionStreamId = message._stream_id
           break
           
         case 'scanner_timeline':
@@ -353,5 +374,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     subscribe,
     subscribeTask,
     unsubscribeTask,
+    subscribeScanner,
+    unsubscribeScanner,
   }
 }

@@ -237,7 +237,7 @@ class SimulatedBroker:
                 "status": o.status.value,
                 "strategy": o.strategy,
                 "reason": o.reason,
-                "trade_date": o.trade_date,
+                "trade_date": int(o.trade_date) if o.trade_date else 0,
                 "create_time": o.create_time,
                 "fill_time": o.fill_time,
                 "profit_pct": o.profit_pct,
@@ -249,7 +249,7 @@ class SimulatedBroker:
         if today_orders:
             existing_ids = set()
             async for doc in self._mongo_db["broker_orders"].find(
-                {"account_id": self.account.account_id, "trade_date": today},
+                {"account_id": self.account.account_id, "trade_date": {"$in": [today, int(today)]}},
                 {"order_id": 1}
             ):
                 existing_ids.add(doc["order_id"])
@@ -317,7 +317,7 @@ class SimulatedBroker:
         """【v2.9.57提取】从MongoDB恢复今日订单"""
         today = datetime.now().strftime("%Y%m%d")
         cursor = self._mongo_db["broker_orders"].find(
-            {"account_id": self.account.account_id, "trade_date": today}
+            {"account_id": self.account.account_id, "trade_date": {"$in": [today, int(today)]}}
         )
         loaded_orders = 0
         async for doc in cursor:
@@ -335,7 +335,7 @@ class SimulatedBroker:
                 status=OrderStatus(doc.get("status", "filled")),
                 strategy=doc.get("strategy", ""),
                 reason=doc.get("reason", ""),
-                trade_date=doc.get("trade_date", today),
+                trade_date=str(doc.get("trade_date", today)),
                 create_time=doc.get("create_time", ""),
                 source=doc.get("source", "auto"),
             )

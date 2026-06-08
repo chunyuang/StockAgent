@@ -238,7 +238,7 @@ export function useCoreMethods(refs: CoreRefs) {
   function mount() {
     wsHook.connect()
     if (!_wsSubscribed) {
-      wsHook.send({ type: 'subscribe_scanner' })
+      wsHook.subscribeScanner()
       _wsSubscribed = true
     }
     // 【v2.9.72】监听WS scanner数据到达,更新新鲜度时间戳
@@ -254,9 +254,9 @@ export function useCoreMethods(refs: CoreRefs) {
         console.log('[WS] 重连成功, 主动fetch恢复数据')
         fetchScanner()
         fetchHealth()
-        // 重新订阅scanner频道
+        // 重新订阅scanner频道(携带last_stream_id断线补发)
         if (_wsSubscribed) {
-          wsHook.send({ type: 'subscribe_scanner' })
+          wsHook.subscribeScanner()
         }
       }
     })

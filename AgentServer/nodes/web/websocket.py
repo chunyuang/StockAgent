@@ -251,8 +251,24 @@ async def websocket_endpoint(
             elif msg_type == "subscribe_scanner":
                 # 订阅scanner事件(信号/持仓/时间线)
                 manager.subscribe_scanner(user_id, websocket)
+                # 【v2.9.83修复】WS重连时从last_stream_id补发未消费的signal/position
+                last_signal_id = message.get("last_signal_stream_id")
+                last_position_id = message.get("last_position_stream_id")
+                from nodes.web.redis_ws_bridge import get_bridge
+                bridge = get_bridge()
+                catchup_count = 0
+                if bridge and bridge.is_running:
+                    if last_signal_id:
+                        n = await bridge.catchup_scanner_stream(
+                            "scanner:signal", last_signal_id, websocket)
+                        catchup_count += n
+                    if last_position_id:
+                        n = await bridge.catchup_scanner_stream(
+                            "scanner:position", last_position_id, websocket)
+                        catchup_count += n
                 await websocket.send_json({
                     "type": "subscribed_scanner",
+                    "catchup_count": catchup_count,
                 })
 
             elif msg_type == "unsubscribe_scanner":
