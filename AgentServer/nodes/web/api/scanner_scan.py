@@ -751,11 +751,71 @@ async def get_premarket_status(date: str = None):
                     for strat, items in strategy_map.items():
                         strategy_groups.append({"strategy": strat, "candidates": items, "count": len(items)})
                     
+                    # 【v2.9.83修复】scanner未运行时补全缺失字段: stock_name/phase_name/volume_ratio_gt2/limit_pools/analysis
+                    # 1. 填充股票名称(从stock_basic集合获取)
+                    ts_codes = [c['ts_code'] for c in candidates if c.get('ts_code')]
+                    name_map = {}
+                    if ts_codes:
+                        async for ndoc in db["stock_basic"].find(
+                            {"ts_code": {"$in": ts_codes}},
+                            {"ts_code": 1, "name": 1}
+                        ):
+                            if ndoc.get("name"):
+                                name_map[ndoc["ts_code"]] = ndoc["name"]
+                    for c in candidates:
+                        if not c.get("stock_name"):
+                            c["stock_name"] = name_map.get(c.get('ts_code', ''), '')
+                    
+                    # 2. 补volume_ratio_gt2(日线无此字段,标0)
+                    market_snapshot["volume_ratio_gt2"] = 0
+                    
+                    # 3. 情绪+phase_name双向映射
+                    _period_map = {"RISING": "高潮", "DIFFERENTIATION": "分化",
+                                   "CHAOS": "震荡", "BEARISH": "冰点",
+                                   "rising": "高潮", "differentiation": "分化",
+                                   "chaos": "震荡", "bearish": "冰点",
+                                   "高潮": "高潮", "分化": "分化", "震荡": "震荡", "冰点": "冰点"}
                     sent_doc = await db["sentiment_scores"].find_one({"trade_date": int(target_date)})
-                    sentiment = {}
+                    sentiment = {"score": 50, "period": "chaos", "position_ratio": 0.5, "phase_name": "震荡"}
                     if sent_doc:
-                        sentiment = {"score": sent_doc.get("score", 0), "period": sent_doc.get("period", ""),
-                                     "position_ratio": sent_doc.get("position_ratio", 0.5)}
+                        raw_period = sent_doc.get("period", "chaos")
+                        sentiment = {"score": sent_doc.get("score", 50), "period": raw_period,
+                                     "position_ratio": sent_doc.get("position_ratio", 0.5),
+                                     "phase_name": _period_map.get(raw_period, raw_period or "震荡")}
+                    
+                    # 4. 涨停池(从limit_list集合)
+                    limit_pools = {"up_count": 0, "down_count": 0, "limit_up_list": [], "continue_stats": {}, "sector_heat": []}
+                    try:
+                        from nodes.web.api.scanner_system import _build_name_industry_maps, _aggregate_limit_stats
+                        ll_doc = await db["limit_list"].find_one({"limit": "U"}, sort=[("trade_date", -1)])
+                        if ll_doc:
+                            ll_td = ll_doc["trade_date"]
+                            ll_name_map, ll_industry_map = await _build_name_industry_maps()
+                            ll_docs = [d async for d in db["limit_list"].find({"trade_date": ll_td, "limit": "U"}, {"_id": 0})]
+                            ll_ups, ll_continue, ll_sectors = _aggregate_limit_stats(ll_docs, ll_name_map, ll_industry_map)
+                            ll_down = await db["limit_list"].count_documents({"trade_date": ll_td, "limit": "D"})
+                            limit_pools = {"up_count": len(ll_ups), "down_count": ll_down,
+                                           "limit_up_list": ll_ups[:20], "continue_stats": dict(sorted(ll_continue.items())),
+                                           "sector_heat": sorted([{"name": k, "count": v} for k, v in ll_sectors.items()], key=lambda x: x["count"], reverse=True)[:8]}
+                            market_snapshot["limit_up_count"] = len(ll_ups)
+                            market_snapshot["limit_down_count"] = ll_down
+                    except Exception:
+                        pass
+                    
+                    # 5. 策略分组补全(executed/blocked/avg_pct_chg)
+                    strategy_groups = []
+                    for strat, items in strategy_map.items():
+                        avg_pct = sum(c['pct_chg'] for c in items) / len(items) if items else 0
+                        strategy_groups.append({"strategy": strat, "candidates": items, "count": len(items),
+                                                "executed": 0, "blocked": 0, "avg_pct_chg": round(avg_pct, 2)})
+                    
+                    # 6. 盘前研判
+                    analysis = None
+                    try:
+                        analysis = _build_premarket_analysis(
+                            market_snapshot, sentiment, limit_pools, [], candidates, strategy_groups, {})
+                    except Exception:
+                        pass
                     
                     day_of_week = now.weekday()
                     if day_of_week < 5:
@@ -766,7 +826,7 @@ async def get_premarket_status(date: str = None):
                     else:
                         status = "debug"
                     
-                    return {"success": True, "data": {
+                    return _sanitize({"success": True, "data": {
                         "status": status,
                         "market_snapshot": market_snapshot,
                         "sentiment": sentiment,
@@ -775,10 +835,10 @@ async def get_premarket_status(date: str = None):
                         "auction_signals": [],
                         "top_gainers": candidates[:15],
                         "historical_hit_rate": {},
-                        "limit_pools": {},
+                        "limit_pools": limit_pools,
                         "position_gaps": [],
-                        "analysis": None,
-                    }}
+                        "analysis": analysis,
+                    }})
             return {"success": True, "data": {"status": "off", "candidates": [], "auction_signals": [], "top_gainers": [], "strategy_groups": [], "market_snapshot": {}, "sentiment": {}, "historical_hit_rate": {}}}
         
         from datetime import datetime

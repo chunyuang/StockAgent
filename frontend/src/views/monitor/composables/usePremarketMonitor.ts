@@ -56,11 +56,18 @@ export function usePremarketMonitor() {
       const useDebug = premarketDebugMode.value || isOtherDate || isWeekend || !isInAuctionWindow
       
       const dateParam = premarketDate.value ? `date=${premarketDate.value.replace(/-/g, '')}` : ''
-      const url = useDebug 
+      let url = useDebug 
         ? `${scannerApi}/debug/premarket-sim${dateParam ? '?' + dateParam : ''}`
         : `${scannerApi}/premarket-status${dateParam ? '?' + dateParam : ''}`
-      const r = await api.get(url)
-      const p = parseResponse(r)
+      let r = await api.get(url)
+      let p = parseResponse(r)
+      // 【v2.9.83修复】premarket-status可能因scanner未运行返回空数据(candidates=[]且market_snapshot={})
+      // 自动回退到debug/premarket-sim获取完整MongoDB数据
+      if (!useDebug && p.success && p.data && (!p.data.candidates?.length && !p.data.market_snapshot?.up_count)) {
+        url = `${scannerApi}/debug/premarket-sim${dateParam ? '?' + dateParam : ''}`
+        r = await api.get(url)
+        p = parseResponse(r)
+      }
       // 捕获API错误消息(如无该日期数据)
       const errorMsg = (r as any)?.message || ''
       if (p.success && p.data) {
