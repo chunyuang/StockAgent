@@ -356,11 +356,14 @@ class PositionChecker:
             if pos.available_qty <= 0:
                 continue
             risk = scanner._get_strategy_risk(pos.strategy)
-            pos_overrides = scanner._position_risk_overrides.get(pos.ts_code, {})
+            # 【v2.9.84修复】线程安全读取position_risk_overrides(与position_manager对齐)
+            with self.state_lock:
+                pos_overrides = dict(scanner._position_risk_overrides.get(pos.ts_code, {}))
             sl_pct = pos_overrides.get('stop_loss_pct', risk.get('stop_loss_pct', 0.03))
             if pos.profit_pct / 100 > sl_pct * 2:
                 already = any(p.ts_code == pos.ts_code for p, _, _, _ in to_sell)
-                if not already and pos.profit_pct <= 0:
+                # 【v2.9.84修复】profit_pct<0而非<=0, 恰好0%不应触发移动止损
+                if not already and pos.profit_pct < 0:
                     to_sell.append((pos, f"移动止损(盈利回撤至{pos.profit_pct:.1f}%)", pos.current_price, risk))
                     logger.info(f"[TRAILING] {pos.ts_code} 盈利回撤至{pos.profit_pct:.1f}%, 移动止损触发")
 

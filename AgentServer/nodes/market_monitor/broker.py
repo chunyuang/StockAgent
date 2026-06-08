@@ -478,8 +478,8 @@ class SimulatedBroker:
         if limit_info and current_price >= limit_info.get("upper", 999999):
             return False, "涨停不可买入", quantity
 
-        # 仓位检查
-        est_amount = quantity * current_price
+        # 仓位检查(【v2.9.84修复】估算金额含佣金, 避免扣费后资金不足)
+        est_amount = quantity * current_price * (1 + self.COMMISSION_RATE)
         if est_amount > self.account.available_cash:
             quantity = int(self.account.available_cash / current_price / lot_size) * lot_size
             if quantity <= 0:

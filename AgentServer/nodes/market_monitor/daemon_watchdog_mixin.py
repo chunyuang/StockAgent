@@ -138,10 +138,17 @@ class DaemonWatchdogMixin:
         await self._emergency_reduce_positions()
 
     async def _emergency_reduce_positions(self) -> None:
-        """紧急减仓: 卖出利润最低的50%持仓【v2.9.45提取,v2.9.50接口优化】
+        """紧急减仓: 卖出利润最低的50%持仓【v2.9.45提取,v2.9.50接口优化,v2.9.84:daemon模式委托子进程】
 
-        通过scanner.emergency_liquidate委托, 不再直接操作broker内部。
+        优先通过Redis命令委托子进程执行(daemon模式下scanner在子进程中)。
+        如果非daemon模式(无Redis命令通道), 回退到直接操作broker。
         """
+        # 【v2.9.84修复】daemon模式下应通过Redis命令委托子进程执行
+        # 子进程拥有最新的broker状态, 主进程直接操作可能导致状态不一致
+        if await self._try_delegate_emergency_reduce():
+            return
+
+        # 回退: 非daemon模式, 直接操作broker
         try:
             from nodes.web.api.scanner_shared import _get_scanner_instance
             scanner = _get_scanner_instance()
@@ -211,3 +218,30 @@ class DaemonWatchdogMixin:
                 logger.warning(f"[DAEMON_ALERT] 紧急减仓完成: 卖出{sold}只, 失败{failed}只")
         except Exception as e:
             logger.warning(f"[DAEMON_ALERT] 紧急减仓失败: {e}")
+
+    async def _try_delegate_emergency_reduce(self) -> bool:
+        """尝试通过Redis命令委托子进程执行紧急减仓【v2.9.84新增】
+
+        daemon模式下scanner运行在子进程中, 主进程直接操作broker会导致状态不一致。
+        通过send_command发送emergency_liquidate命令到子进程, 由子进程执行减仓。
+
+        Returns:
+            True=成功委托到子进程, False=非daemon模式或委托失败(回退到本地执行)
+        """
+        try:
+            # 检查是否在daemon模式(有Redis命令通道)
+            if not hasattr(self, '_redis_client') or not self._redis_client:
+                return False
+            if not self.is_alive():
+                logger.warning("[DAEMON_ALERT] 子进程已停止, 无法委托减仓")
+                return False
+
+            # 通过Redis发送emergency_liquidate命令到子进程
+            await self.send_command("emergency_liquidate", {
+                "reason": f"daemon重启{self._restart_count}次失败,紧急减仓",
+            })
+            logger.info("[DAEMON_ALERT] 紧急减仓已委托到子进程执行")
+            return True
+        except Exception as e:
+            logger.debug(f"[DAEMON_ALERT] 委托子进程减仓失败,回退到本地: {e}")
+            return False
