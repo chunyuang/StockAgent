@@ -452,9 +452,11 @@ async def get_market_sentiment_detail(date: str = None):
             else: pi = ("冰点", 0, _th["chaos"])
             sentiment_period = pi[0]
 
+        # can_open: 与EmotionCycleManager.CAN_OPEN对齐(冰点禁止开仓)
+        _can_open = sentiment_period not in ("冰点", "冰点(数据缺失)", "bearish", "BEARISH")
         return _sanitize({"success": True, "data": {
             "score": sentiment_score, "period": sentiment_period, "period_label": pi[0],
-            "position_ratio": position_ratio,
+            "position_ratio": position_ratio, "can_open": _can_open,
             "limit_up_count": limit_up, "limit_down_count": limit_down, "broken_count": broken,
             "broken_rate": round(broken_rate, 1), "board_distribution": board_dist,
             "ranges": [

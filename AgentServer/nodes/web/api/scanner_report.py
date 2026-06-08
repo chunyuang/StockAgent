@@ -235,7 +235,7 @@ async def get_historical_review(date: str = None):
         })
         import re
         for s in sells:
-            st = s.get("strategy", "unknown")
+            st = _norm_strat(s.get("strategy", "unknown"))
             reason = s.get("reason", "")
             fp = s.get("filled_price", 0) or 0
             fq = s.get("filled_qty", 0) or 0
@@ -345,7 +345,7 @@ async def get_weekly_report(date: str = None):
         daily_stats = {}
         async for doc in mongo_manager.db["broker_orders"].find({
             "account_id": account_id,
-            "trade_date": {"$gte": start_date},
+            "trade_date": {"$gte": start_date, "$lte": end_date},
             "status": "filled",
         }).sort("trade_date", 1):
             td = doc.get("trade_date", "")
@@ -401,7 +401,7 @@ async def get_weekly_report(date: str = None):
         # 从卖出订单补充胜率/盈亏
         async for doc in mongo_manager.db["broker_orders"].find({
             "account_id": account_id,
-            "trade_date": {"$gte": start_date},
+            "trade_date": {"$gte": start_date, "$lte": end_date},
             "status": "filled",
             "side": "sell",
         }):
