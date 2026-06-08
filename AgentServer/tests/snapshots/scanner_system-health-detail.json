@@ -1,33 +1,30 @@
 {
-  "success": "bool",
-  "data": {
-    "scanner": {
-      "is_running": "bool",
-      "uptime_seconds": "int"
-    },
-    "data_sources": [
-      {
-        "name": "str",
-        "available": "bool",
-        "stocks": "int",
-        "note": "str"
-      }
-    ],
-    "mongo": {
-      "connected": "bool",
-      "collections": "int"
-    },
-    "redis": {
-      "connected": "bool"
-    },
-    "system": {
-      "cpu_pct": "float",
-      "memory_pct": "float",
-      "disk_pct": "float"
-    },
-    "alerts": [
-      "<empty_list>"
-    ],
-    "health_score": "int"
-  }
+  "scanner": {
+    "is_running": "bool",
+    "uptime_seconds": "int"
+  },
+  "data_sources": [
+    {
+      "name": "str",
+      "available": "bool",
+      "stocks": "int",
+      "note": "str"
+    }
+  ],
+  "mongo": {
+    "connected": "bool",
+    "collections": "int"
+  },
+  "redis": {
+    "connected": "bool"
+  },
+  "system": {
+    "cpu_pct": "float",
+    "memory_pct": "float",
+    "disk_pct": "float"
+  },
+  "alerts": [
+    "<empty_list>"
+  ],
+  "health_score": "int"
 }

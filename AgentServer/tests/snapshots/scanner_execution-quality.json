@@ -1,13 +1,10 @@
 {
-  "success": "bool",
-  "data": {
-    "avg_slippage_pct": "float",
-    "max_slippage_pct": "float",
-    "avg_fill_delay_ms": "int",
-    "fill_rate_pct": "float",
-    "rejected_orders": "int",
-    "total_orders": "int",
-    "filled_orders": "int",
-    "date": "str"
-  }
+  "avg_slippage_pct": "float",
+  "max_slippage_pct": "float",
+  "avg_fill_delay_ms": "int",
+  "fill_rate_pct": "float",
+  "rejected_orders": "int",
+  "total_orders": "int",
+  "filled_orders": "int",
+  "date": "str"
 }

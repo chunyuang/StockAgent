@@ -1,30 +1,27 @@
 {
-  "success": "bool",
-  "data": {
-    "date": "str",
-    "sentiment": {
-      "period": "str",
-      "score": "int",
-      "raw_period": "str"
-    },
-    "advice": "str",
-    "strategy_recommendations": [
-      {
-        "strategy": "str",
-        "action": "str",
-        "win_rate": "float",
-        "count": "int"
-      }
-    ],
-    "strategy_switches": [
-      {
-        "strategy": "str",
-        "action": "str",
-        "reason": "str"
-      }
-    ],
-    "drift_warnings": [
-      "<empty_list>"
-    ]
-  }
+  "date": "str",
+  "sentiment": {
+    "period": "str",
+    "score": "int",
+    "raw_period": "str"
+  },
+  "advice": "str",
+  "strategy_recommendations": [
+    {
+      "strategy": "str",
+      "action": "str",
+      "win_rate": "float",
+      "count": "int"
+    }
+  ],
+  "strategy_switches": [
+    {
+      "strategy": "str",
+      "action": "str",
+      "reason": "str"
+    }
+  ],
+  "drift_warnings": [
+    "<empty_list>"
+  ]
 }

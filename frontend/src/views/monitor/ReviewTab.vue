@@ -96,11 +96,11 @@ const emit = defineEmits<{
           <div v-for="(data, key) in dailyReportData.positions?.strategy_summary || {}" :key="key" class="strat-card">
             <div class="strat-header">
               <ElTag size="small" :color="strategyMeta[key]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(key) }}</ElTag>
-              <span class="strat-pnl" :class="(data.closed_profit || data.total_profit || 0) >= 0 ? 'up' : 'down'">{{ (data.closed_profit || data.total_profit || 0) >= 0 ? '+' : '' }}¥{{ (data.closed_profit || data.total_profit || 0).toFixed(0) }}</span>
+              <span class="strat-pnl" :class="(data.closed_profit ?? data.total_profit ?? 0) >= 0 ? 'up' : 'down'">{{ (data.closed_profit ?? data.total_profit ?? 0) >= 0 ? '+' : '' }}¥{{ (data.closed_profit ?? data.total_profit ?? 0).toFixed(0) }}</span>
             </div>
             <div class="strat-metrics">
               <div class="strat-m"><span class="strat-ml">已平</span><span class="strat-mv">{{ data.closed_count || data.sell_count || 0 }}笔</span></div>
-              <div class="strat-m"><span class="strat-ml">胜率</span><span class="strat-mv" :class="(data.closed_win_rate || data.win_rate || 0) >= 50 ? 'up' : 'down'">{{ (data.closed_win_rate || data.win_rate || 0).toFixed(0) }}%</span></div>
+              <div class="strat-m"><span class="strat-ml">胜率</span><span class="strat-mv" :class="(data.closed_win_rate ?? data.win_rate ?? 0) >= 50 ? 'up' : 'down'">{{ (data.closed_win_rate ?? data.win_rate ?? 0).toFixed(0) }}%</span></div>
               <div class="strat-m" v-if="data.avg_win_pct"><span class="strat-ml">均盈</span><span class="strat-mv up">+{{ data.avg_win_pct }}%</span></div>
               <div class="strat-m" v-if="data.avg_loss_pct"><span class="strat-ml">均亏</span><span class="strat-mv down">{{ data.avg_loss_pct }}%</span></div>
               <div class="strat-m" v-if="data.stop_loss_count"><span class="strat-ml">止损</span><span class="strat-mv down">{{ data.stop_loss_count }}笔</span></div>
@@ -118,8 +118,8 @@ const emit = defineEmits<{
             <span :class="(t.profit_pct || 0) >= 0 ? 'up' : 'down'" class="pct ml-auto">{{ (t.profit_pct || 0) >= 0 ? '+' : '' }}{{ (t.profit_pct || 0).toFixed(1) }}%</span>
           </div>
           <div class="attr-detail">
-            <div class="attr-row"><span>买入</span><span>{{ t.buy_price ? '¥' + Number(t.buy_price).toFixed(2) : '未知' }} {{ t.buy_time }}</span></div>
-            <div class="attr-row"><span>卖出</span><span>{{ t.sell_price ? '¥' + Number(t.sell_price).toFixed(2) : '未知' }} {{ t.sell_time }}</span></div>
+            <div class="attr-row"><span>买入</span><span>{{ t.buy_price != null ? '¥' + Number(t.buy_price).toFixed(2) : '未知' }} {{ t.buy_time }}</span></div>
+            <div class="attr-row"><span>卖出</span><span>{{ t.sell_price != null ? '¥' + Number(t.sell_price).toFixed(2) : '未知' }} {{ t.sell_time }}</span></div>
             <div class="attr-row"><span>原因</span><span>{{ t.sell_reason }}</span></div>
             <div class="attr-row" v-if="t.why_profit"><span class="up">赚在哪</span><span>{{ t.why_profit }}</span></div>
             <div class="attr-row" v-if="t.why_loss"><span class="down">亏在哪</span><span>{{ t.why_loss }}</span></div>

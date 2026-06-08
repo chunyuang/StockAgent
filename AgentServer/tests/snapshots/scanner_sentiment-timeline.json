@@ -1,25 +1,22 @@
 {
-  "success": "bool",
-  "data": {
-    "date": "str",
-    "mode": "str",
-    "points": [
-      {
-        "date": "str",
-        "score": "int",
-        "period": "str",
-        "position_ratio": "float",
-        "limit_up": "int",
-        "limit_down": "int",
-        "max_continue": "int",
-        "up_down_ratio": "float",
-        "zt_premium": "float",
-        "data_source": "str",
-        "missing_data": "bool"
-      }
-    ],
-    "trades": [
-      "<empty_list>"
-    ]
-  }
+  "date": "str",
+  "mode": "str",
+  "points": [
+    {
+      "date": "str",
+      "score": "int",
+      "period": "str",
+      "position_ratio": "float",
+      "limit_up": "int",
+      "limit_down": "int",
+      "max_continue": "int",
+      "up_down_ratio": "float",
+      "zt_premium": "float",
+      "data_source": "str",
+      "missing_data": "bool"
+    }
+  ],
+  "trades": [
+    "<empty_list>"
+  ]
 }
