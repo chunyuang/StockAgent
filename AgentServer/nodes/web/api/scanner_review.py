@@ -346,8 +346,9 @@ async def get_review_hero(date: str = None):
             (buys if doc.get("side") == "buy" else sells).append(doc)
 
         # 止损/止盈计数(基于卖出原因,非胜/负)
-        stop_losses = [s for s in sells if "止损" in (s.get("reason","") or "") and "追踪" not in (s.get("reason","") or "")];
-        take_profits = [s for s in sells if "止盈" in (s.get("reason","") or "") or "追踪止损" in (s.get("reason","") or "")]
+        # 【v2.9.84修复】追踪止损: 盈利时算止盈,亏损时算止损(之前全算止盈)
+        stop_losses = [s for s in sells if ("止损" in (s.get("reason","") or "") and "追踪" not in (s.get("reason","") or "")) or ("追踪止损" in (s.get("reason","") or "") and (s.get("profit_pct") or 0) < 0)];
+        take_profits = [s for s in sells if "止盈" in (s.get("reason","") or "") or ("追踪止损" in (s.get("reason","") or "") and (s.get("profit_pct") or 0) >= 0)]
         wins = [s for s in sells if (s.get("profit_pct") or 0) >= 0]
         losses = [s for s in sells if (s.get("profit_pct") or 0) < 0]
         win_rate = len(wins) / max(len(sells), 1) * 100

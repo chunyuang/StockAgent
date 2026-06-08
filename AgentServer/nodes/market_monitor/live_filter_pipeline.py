@@ -645,7 +645,23 @@ class LiveFilterPipeline:
             score = (limit_up - limit_down) + 50
             score = max(0, min(100, score))
             phase = "rising" if score > 70 else ("chaos" if score >= 40 else "bearish")
-            ratio = 1.0 if score > 70 else (0.5 if score >= 40 else 0.25)
+            # 【v2.9.84修复】Fallback仓位系数从strategy_defaults读取,不再硬编码
+            # 旧值: 1.0/0.5/0.25 → 与strategy_defaults(1.0/0.7/0.5/0.3)不一致
+            # 分化期(55-70)缺失: 55-70走了chaos(0.5), 应走differentiation(0.7)
+            from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+            spm = GLOBAL_RISK.get("sentiment_position_map", {})
+            if score >= 70:
+                phase = "rising"
+                ratio = spm.get("rising", 1.0)
+            elif score >= 55:
+                phase = "differentiation"
+                ratio = spm.get("differentiation", 0.7)
+            elif score >= 40:
+                phase = "chaos"
+                ratio = spm.get("chaos", 0.5)
+            else:
+                phase = "bearish"
+                ratio = spm.get("bearish", 0.3)
 
         return ratio, score, phase
     # ========================================================================

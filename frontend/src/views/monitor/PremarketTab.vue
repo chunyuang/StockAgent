@@ -46,7 +46,7 @@ onMounted(() => {
       <div class="pm-status-bar">
         <div class="pm-status-icon">{{ premarketStatus === 'active' ? '🔴' : premarketStatus === 'ended' ? '✅' : premarketStatus === 'waiting' ? '⏳' : premarketStatus === 'debug' ? '🧪' : '💤' }}</div>
         <div class="pm-status-text">
-          <div class="pm-status-title">{{ ({active: '竞价进行中', ended: '竞价已结束', waiting: '等待竞价(9:15)', debug: '🧪 调试预选模式', off: '非交易时间'} as Record<string, string>)[premarketStatus as string] }} <span v-if="premarketDebugMode" class="pm-debug-badge">SIM</span></div>
+          <div class="pm-status-title">{{ ({active: '竞价进行中', ended: '竞价已结束 · 查看当日预选', waiting: '等待竞价(9:15)', debug: '🧪 调试预选模式', off: '非交易时间'} as Record<string, string>)[premarketStatus as string] }} <span v-if="premarketDebugMode" class="pm-debug-badge">SIM</span></div>
           <div class="pm-status-sub">{{ premarketDebugMode ? '最近交易日数据 · 不影响实盘' : premarketCandidates.length + '只候选 · ' + premarketStrategyGroups.length + '个策略' }}</div>
         </div>
         <div class="pm-status-actions">

@@ -22,7 +22,7 @@ from nodes.web.api.scanner_shared import (
 router = APIRouter(prefix="/scanner", tags=["市场情绪/情绪矩阵"])
 
 
-def _get_position_ratio_sentiment(period_cn: str, fallback: float = 0.25) -> float:
+def _get_position_ratio_sentiment(period_cn: str, fallback: float = 0.3) -> float:
     """从strategy_defaults读取仓位系数(与emotion_cycle._get_position_ratio统一来源)"""
     try:
         from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
@@ -83,7 +83,7 @@ async def get_sentiment_timeline(date: str = None, mode: str = "daily"):
                 td = str(doc["trade_date"])
                 daily_map[td] = {
                     "date": td, "score": doc.get("score", 0), "period": doc.get("period", ""),
-                    "position_ratio": _get_position_ratio_sentiment(doc.get("period", ""), doc.get("position_ratio", 0.25)),
+                    "position_ratio": _get_position_ratio_sentiment(doc.get("period", ""), doc.get("position_ratio", 0.3)),
                     "limit_up": doc.get("limit_up", 0), "limit_down": doc.get("limit_down", 0),
                     "max_continue": doc.get("max_continue", 0),
                     "up_down_ratio": doc.get("up_down_ratio", 0),
@@ -115,9 +115,12 @@ async def get_sentiment_timeline(date: str = None, mode: str = "daily"):
                     total_lu = sum(p.get("limit_up", 0) for p in grp)
                     total_ld = sum(p.get("limit_down", 0) for p in grp)
                     has_missing = any(p.get("missing_data") for p in grp)
-                    if avg_score >= 70: period = "高潮"
-                    elif avg_score >= 55: period = "分化"
-                    elif avg_score >= 40: period = "震荡"
+                    # 【v2.9.84修复】阈值从strategy_defaults统一读取,不再硬编码
+                    from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+                    _th = GLOBAL_RISK.get("sentiment_thresholds", {"rising": 70, "differentiation": 55, "chaos": 40})
+                    if avg_score >= _th["rising"]: period = "高潮"
+                    elif avg_score >= _th["differentiation"]: period = "分化"
+                    elif avg_score >= _th["chaos"]: period = "震荡"
                     else: period = "冰点"
                     agg_points.append({
                         "date": key, "score": round(avg_score, 1), "period": period,
@@ -397,7 +400,7 @@ async def get_market_sentiment_detail(date: str = None):
         # 最终fallback
         if sentiment_score is None: sentiment_score = 50
         if sentiment_period is None: sentiment_period = "unknown"
-        if position_ratio is None: position_ratio = 0.25
+        if position_ratio is None: position_ratio = 0.3
         
         limit_pools = getattr(scanner, '_limit_pools', {})
         limit_up = len(limit_pools.get("limit_up", []))
@@ -440,10 +443,13 @@ async def get_market_sentiment_detail(date: str = None):
         pi = period_labels.get(sentiment_period, None)
         if pi is None:
             # 根据分数自动推断情绪周期
-            if sentiment_score >= 70: pi = ("高潮", 70, 100)
-            elif sentiment_score >= 55: pi = ("分化", 55, 70)
-            elif sentiment_score >= 40: pi = ("震荡", 40, 55)
-            else: pi = ("冰点", 0, 40)
+            # 【v2.9.84修复】阈值从strategy_defaults统一读取,不再硬编码
+            from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+            _th = GLOBAL_RISK.get("sentiment_thresholds", {"rising": 70, "differentiation": 55, "chaos": 40})
+            if sentiment_score >= _th["rising"]: pi = ("高潮", _th["rising"], 100)
+            elif sentiment_score >= _th["differentiation"]: pi = ("分化", _th["differentiation"], _th["rising"])
+            elif sentiment_score >= _th["chaos"]: pi = ("震荡", _th["chaos"], _th["differentiation"])
+            else: pi = ("冰点", 0, _th["chaos"])
             sentiment_period = pi[0]
 
         return _sanitize({"success": True, "data": {
