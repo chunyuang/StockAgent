@@ -48,6 +48,8 @@ class CandidateTrace:
     strategy_name: str
     price: float = 0.0
     pct_chg: float = 0.0
+    turnover_rate: float = 0.0   # 换手率因子(v2.9.84)
+    vol_ratio: float = 0.0       # 量比因子(v2.9.84)
     layer_results: Dict[str, Any] = field(default_factory=dict)  # {layer: {passed, reason, score}}
     final_status: str = "pending"  # pending/passed/rejected
     final_rejection_layer: str = ""
@@ -386,19 +388,28 @@ class LiveFilterPipeline:
                 strategy_name=c.get("strategy_name", ""),
                 price=c.get("price", 0),
                 pct_chg=c.get("pct_chg", 0),
+                turnover_rate=c.get("turnover_rate", 0) or c.get("turn", 0) or 0,
+                vol_ratio=c.get("vol_ratio", 0) or 0,
             ))
 
     def _record_layer_drop(self, result, layer, dropped_ids, reason_fn) -> None:
-        """记录某层被淘汰的候选"""
+        """记录某层被淘汰的候选
+        
+        【v2.9.80修复】用trace_candidates查找原始候选数据，
+        不再从result.candidates(已过滤)中查找，避免dropped候选找不到reason。
+        """
         if not dropped_ids:
             for t in result.trace_candidates:
                 if t.final_status != "rejected":
                     t.layer_results[layer] = {"passed": True}
             return
-        all_candidates = {c["ts_code"]: c for c in result.candidates}
+        # 从trace_candidates中查找(包含所有原始候选，不会被过滤)
+        trace_map = {t.ts_code: t for t in result.trace_candidates}
         for t in result.trace_candidates:
             if t.ts_code in dropped_ids and t.final_status != "rejected":
-                original = all_candidates.get(t.ts_code, {})
+                # 构造候选数据供reason_fn使用
+                original = {"ts_code": t.ts_code, "stock_name": t.stock_name,
+                            "strategy": t.strategy, "strategy_name": t.strategy_name}
                 reason = reason_fn(original)
                 t.layer_results[layer] = {"passed": False, "reason": reason}
                 t.final_status = "rejected"
@@ -407,7 +418,7 @@ class LiveFilterPipeline:
             elif t.final_status != "rejected":
                 t.layer_results[layer] = {"passed": True}
 
-    def _premarket_reject_reason(self, c) -> None:
+    def _premarket_reject_reason(self, c) -> str:
         """分析盘前预选淘汰原因"""
         name = c.get("stock_name", "")
         if "ST" in name.upper():
@@ -423,9 +434,9 @@ class LiveFilterPipeline:
     def _build_trace_summary(self, result) -> Dict:
         """构建追踪汇总 — 正确追踪每层的输入/输出/淘汰
         
-        每层都通过layer_results正确标记了passed/rejected:
-        - 淘汰层(L1/L3冰点/L4/L5/L7): 部分passed, 部分rejected
-        - 仓位调整层(L2/L3非冰点/L6/L8): 全部passed, 0 rejected
+        【v2.9.80修复】每层的input=上次仍存活的候选数(非之前层的rejected)。
+        淘汰层(L1/L3冰点/L4/L5/L7): 部分passed, 部分rejected
+        仓位调整层(L2/L3非冰点/L6/L8): 全部passed, 0 rejected
         """
         layers = ["L1_force_empty", "L2_special_period", "L3_sentiment",
                    "L4_premarket", "L5_auction", "L6_strategy",
@@ -437,12 +448,15 @@ class LiveFilterPipeline:
                         if t.layer_results.get(layer, {}).get("passed") is True)
             rejected = sum(1 for t in result.trace_candidates
                           if t.layer_results.get(layer, {}).get("passed") is False)
-            output = prev_output - rejected  # 本层输出 = 上层输出 - 本层淘汰
+            # 本层input = 上一层output(仍在存活且未在前序层被reject的)
+            # 本层只处理之前仍alive的候选
+            input_count = prev_output
+            output = prev_output - rejected
             result.trace_summary[layer] = {
                 "total": passed + rejected,
                 "passed": passed,
                 "rejected": rejected,
-                "input": prev_output,
+                "input": input_count,
                 "output": output,
             }
             prev_output = output
@@ -631,7 +645,23 @@ class LiveFilterPipeline:
             score = (limit_up - limit_down) + 50
             score = max(0, min(100, score))
             phase = "rising" if score > 70 else ("chaos" if score >= 40 else "bearish")
-            ratio = 1.0 if score > 70 else (0.5 if score >= 40 else 0.25)
+            # 【v2.9.84修复】Fallback仓位系数从strategy_defaults读取,不再硬编码
+            # 旧值: 1.0/0.5/0.25 → 与strategy_defaults(1.0/0.7/0.5/0.3)不一致
+            # 分化期(55-70)缺失: 55-70走了chaos(0.5), 应走differentiation(0.7)
+            from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+            spm = GLOBAL_RISK.get("sentiment_position_map", {})
+            if score >= 70:
+                phase = "rising"
+                ratio = spm.get("rising", 1.0)
+            elif score >= 55:
+                phase = "differentiation"
+                ratio = spm.get("differentiation", 0.7)
+            elif score >= 40:
+                phase = "chaos"
+                ratio = spm.get("chaos", 0.5)
+            else:
+                phase = "bearish"
+                ratio = spm.get("bearish", 0.3)
 
         return ratio, score, phase
     # ========================================================================
