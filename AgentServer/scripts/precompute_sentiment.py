@@ -95,11 +95,14 @@ async def compute_sentiment(trade_date: int, db) -> dict:
     
     # 阶段判断(4级,与实盘L3对齐,仓位系数从strategy_defaults统一读取)
     from nodes.market_monitor.emotion_cycle import _get_position_ratio
-    if score >= 70:
+    # 【v2.9.84修复】阈值从strategy_defaults统一读取,不再硬编码
+    from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+    _th = GLOBAL_RISK.get("sentiment_thresholds", {"rising": 70, "differentiation": 55, "chaos": 40})
+    if score >= _th["rising"]:
         period = "高潮"
-    elif score >= 55:
+    elif score >= _th["differentiation"]:
         period = "分化"
-    elif score >= 40:
+    elif score >= _th["chaos"]:
         period = "震荡"
     else:
         period = "冰点"
