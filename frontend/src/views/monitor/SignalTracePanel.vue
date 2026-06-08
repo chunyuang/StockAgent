@@ -21,7 +21,7 @@
         候选总数: <strong>{{ currentTrace.summary?.total_candidates || 0 }}</strong>
         → 通过: <strong style="color:var(--success)">{{ currentTrace.summary?.passed || 0 }}</strong>
         → 拒绝: <strong style="color:var(--stock-up)">{{ (currentTrace.summary?.total_candidates || 0) - (currentTrace.summary?.passed || 0) }}</strong>
-        <el-tag size="small" style="margin-left:8px">仓位系数: {{ ((currentTrace.summary?.L8_position?.ratio || 1) * 100).toFixed(0) }}%</el-tag>
+        <el-tag size="small" style="margin-left:8px">仓位系数: {{ ((Number(currentTrace.summary?.L8_position?.ratio) || 1) * 100).toFixed(0) }}%</el-tag>
       </div>
 
       <div class="pipeline-bars">

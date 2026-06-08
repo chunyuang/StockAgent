@@ -60,8 +60,8 @@ onUnmounted(() => clearInterval(timer))
         <div v-for="r in data.ranges" :key="r.label" class="sent-seg" :style="{ flex: r.max - r.min, background: r.color + '30' }">
           <span class="sent-label">{{ r.label }}</span>
         </div>
-        <div class="sent-pointer" :style="{ left: data.score + '%' }">
-          <span class="sent-score">{{ data.score }}</span>
+        <div class="sent-pointer" :style="{ left: (data.score ?? 50) + '%' }">
+          <span class="sent-score">{{ data.score ?? '-' }}</span>
         </div>
       </div>
 
@@ -77,7 +77,7 @@ onUnmounted(() => clearInterval(timer))
         </div>
         <div class="sent-m">
           <span class="sent-ml">炸板率</span>
-          <span class="sent-mv" :class="data.broken_rate > 30 ? 'warn' : ''">{{ data.broken_rate }}%</span>
+          <span class="sent-mv" :class="(data.broken_rate ?? 0) > 30 ? 'warn' : ''">{{ (data.broken_rate ?? 0).toFixed(1) }}%</span>
         </div>
         <div class="sent-m">
           <span class="sent-ml">周期</span>

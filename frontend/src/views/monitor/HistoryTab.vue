@@ -50,7 +50,7 @@ const {
       <div v-else class="ht-orders">
         <div class="ho-header"><span>时间</span><span>方向</span><span>代码</span><span>名称</span><span>数量</span><span>价格</span><span>策略</span></div>
         <div v-for="o in orders" :key="o.order_id" class="ho-row cp" @click="openTradeDetail(o.ts_code)">
-          <span class="tl-time">{{ o.trade_date?.slice(-4) || '' }} {{ o.create_time }}</span>
+          <span class="tl-time">{{ String(o.trade_date || '').slice(-4) }} {{ o.create_time }}</span>
           <span class="tl-action" :class="o.side === 'buy' ? 'buy' : 'sell'">{{ o.side === 'buy' ? '买' : '卖' }}</span>
           <span class="code">{{ o.ts_code }}</span><span class="name">{{ o.stock_name }}</span>
           <span>{{ o.filled_qty }}股</span><span>¥{{ o.filled_price?.toFixed(2) || '0.00' }}</span>
