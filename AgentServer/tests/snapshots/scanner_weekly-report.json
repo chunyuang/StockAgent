@@ -5,33 +5,15 @@
     "total_profit": "float",
     "available_cash": "int"
   },
-  "daily_stats": {
-    "20260608": {
-      "buys": "int",
-      "sells": "int",
-      "buy_amount": "float",
-      "sell_amount": "int",
-      "strategies": {
-        "halfway_chase": {
-          "trades": "int",
-          "amount": "float"
-        }
-      }
-    }
-  },
-  "strategy_summary": {
-    "halfway_chase": {
-      "trades": "int",
-      "amount": "float"
-    }
-  },
+  "daily_stats": {},
+  "strategy_summary": {},
   "totals": {
     "trading_days": "int",
     "total_buys": "int",
     "total_sells": "int",
-    "total_buy_amount": "float",
+    "total_buy_amount": "int",
     "total_sell_amount": "int",
-    "net_flow": "float"
+    "net_flow": "int"
   },
   "scanner_stats": {
     "scans": "int",
