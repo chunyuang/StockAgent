@@ -56,7 +56,7 @@ export function useScannerMonitor() {
       const buy = tlBuys.find(b => b.ts_code === sell.ts_code && b.strategy === sell.strategy && !usedBuys.has(b.ts_code + b.time))
       if (buy) usedBuys.add(buy.ts_code + buy.time)
       // 买入价反推: buy.price > decision_detail.cost_price > 当前持仓cost_price > 0
-      const buyPrice = buy?.price || sell.decision_detail?.cost_price || positions.value.find(p => p.ts_code === sell.ts_code)?.cost_price || 0
+      const buyPrice = buy?.price ?? sell.decision_detail?.cost_price ?? positions.value.find(p => p.ts_code === sell.ts_code)?.cost_price ?? 0
       // 盈亏: 优先用sell自带的profit_pct/profit_amount(后端已算好), 否则用买卖价差
       const profitAmount = sell.profit_amount ?? (buyPrice > 0 ? (sell.price - buyPrice) * (sell.shares || 0) : 0)
       const profitPct = sell.profit_pct ?? (buyPrice > 0 ? (sell.price - buyPrice) / buyPrice * 100 : 0)
@@ -67,7 +67,7 @@ export function useScannerMonitor() {
       const key = o.ts_code + o.strategy
       if (covered.has(key)) continue
       const buy = orders.value.find(b => b.side === 'buy' && b.ts_code === o.ts_code && b.strategy === o.strategy)
-      const buyPrice = buy?.filled_price || 0
+      const buyPrice = buy?.filled_price ?? 0
       result.push({ ts_code: o.ts_code, stock_name: o.stock_name || '', strategy: o.strategy, buy_price: buyPrice, sell_price: o.filled_price, profit_amount: (o.filled_price - buyPrice) * o.filled_qty, profit_pct: buyPrice > 0 ? (o.filled_price - buyPrice) / buyPrice * 100 : 0, buy_time: buy?.create_time || '', sell_time: o.create_time || '' })
     }
     return result.sort((a, b) => Math.abs(b.profit_amount) - Math.abs(a.profit_amount))
