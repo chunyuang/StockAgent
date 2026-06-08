@@ -1,29 +1,42 @@
 {
-  "date": "str",
-  "account": {
-    "total_assets": "int",
-    "available_cash": "int",
-    "market_value": "int",
-    "today_profit": "int",
-    "total_profit": "int",
-    "position_ratio": "int"
-  },
-  "positions": {
-    "count": "int",
-    "strategy_summary": {},
-    "top_profit": [
-      "<empty_list>"
-    ],
-    "top_loss": [
-      "<empty_list>"
-    ]
-  },
-  "trades": {
-    "buy": "int",
-    "sell": "int",
-    "total_amount": "int"
-  },
-  "scanner_stats": {},
-  "funnel_summary": "NoneType",
-  "sentiment_snapshot": "NoneType"
+  "success": "bool",
+  "data": {
+    "date": "str",
+    "account": {
+      "total_assets": "int",
+      "available_cash": "int",
+      "market_value": "int",
+      "today_profit": "int",
+      "total_profit": "int",
+      "position_ratio": "int"
+    },
+    "positions": {
+      "count": "int",
+      "strategy_summary": {},
+      "top_profit": [
+        "<empty_list>"
+      ],
+      "top_loss": [
+        "<empty_list>"
+      ]
+    },
+    "trades": {
+      "buy": "int",
+      "sell": "int",
+      "total_amount": "float"
+    },
+    "scanner_stats": {
+      "scans": "int",
+      "signals_found": "int",
+      "scan_count": "int",
+      "total_signals": "int",
+      "buy_count": "int",
+      "sell_count": "int",
+      "trades_executed": "int",
+      "stop_losses": "int",
+      "take_profits": "int"
+    },
+    "funnel_summary": "NoneType",
+    "sentiment_snapshot": "NoneType"
+  }
 }

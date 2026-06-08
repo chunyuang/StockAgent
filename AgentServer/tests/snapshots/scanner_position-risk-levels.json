@@ -1,20 +1,23 @@
 {
-  "levels": {
-    "normal": [
-      "<empty_list>"
-    ],
-    "warning": [
-      "<empty_list>"
-    ],
-    "critical": [
-      "<empty_list>"
-    ]
-  },
-  "summary": {
-    "total": "int",
-    "normal": "int",
-    "warning": "int",
-    "critical": "int"
-  },
-  "check_interval": "float"
+  "success": "bool",
+  "data": {
+    "levels": {
+      "normal": [
+        "<empty_list>"
+      ],
+      "warning": [
+        "<empty_list>"
+      ],
+      "critical": [
+        "<empty_list>"
+      ]
+    },
+    "summary": {
+      "total": "int",
+      "normal": "int",
+      "warning": "int",
+      "critical": "int"
+    },
+    "check_interval": "float"
+  }
 }

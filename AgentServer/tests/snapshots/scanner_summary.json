@@ -1,58 +1,57 @@
 {
-  "generated_at": "str",
-  "account": {
-    "total_assets": "int",
-    "available_cash": "int",
-    "market_value": "int",
-    "total_profit": "float",
-    "position_ratio": "float",
-    "position_count": "int"
-  },
-  "positions": [
-    "<empty_list>"
-  ],
-  "trade_stats": {
-    "total_trades": "int",
-    "buys": "int",
-    "sells": "int",
-    "win_trades": "int",
-    "loss_trades": "int",
-    "win_rate": "float",
-    "avg_profit_pct": "int",
-    "avg_loss_pct": "int"
-  },
-  "strategy_performance": {},
-  "risk_status": {
-    "circuit_breaker_active": "bool",
-    "circuit_breaker_reason": "str",
-    "consecutive_losses": "int",
-    "today_trades": "int",
-    "today_losses": "int",
-    "dry_run": "bool"
-  },
-  "signal_stats": {
-    "total": "int",
-    "new": "int",
-    "executed": "int",
-    "skipped": "int",
-    "expired": "int",
-    "filtered": "int"
-  },
-  "scanner_stats": {
-    "scans": "int",
-    "signals_found": "int",
-    "trades_executed": "int",
-    "stop_losses": "int",
-    "take_profits": "int",
-    "stocks_scanned": "int",
-    "scan_count": "int",
-    "total_signals": "int",
-    "active_signals": "int",
-    "positions": "int"
-  },
-  "sentiment": {
-    "score": "int",
-    "period": "str"
-  },
-  "position_ratio": "float"
+  "success": "bool",
+  "data": {
+    "generated_at": "str",
+    "account": {
+      "total_assets": "int",
+      "available_cash": "int",
+      "market_value": "int",
+      "total_profit": "float",
+      "position_ratio": "float",
+      "position_count": "int"
+    },
+    "positions": [
+      "<empty_list>"
+    ],
+    "trade_stats": {
+      "total_trades": "int",
+      "buys": "int",
+      "sells": "int",
+      "win_trades": "int",
+      "loss_trades": "int",
+      "win_rate": "float",
+      "avg_profit_pct": "int",
+      "avg_loss_pct": "int"
+    },
+    "strategy_performance": {},
+    "risk_status": {
+      "circuit_breaker_active": "bool",
+      "circuit_breaker_reason": "str",
+      "consecutive_losses": "int",
+      "today_trades": "int",
+      "today_losses": "int",
+      "dry_run": "bool"
+    },
+    "signal_stats": {
+      "total": "int",
+      "new": "int",
+      "executed": "int",
+      "skipped": "int",
+      "expired": "int",
+      "filtered": "int"
+    },
+    "scanner_stats": {
+      "scans": "int",
+      "signals_found": "int",
+      "trades_executed": "int",
+      "stop_losses": "int",
+      "take_profits": "int",
+      "stocks_scanned": "int"
+    },
+    "sentiment": {
+      "score": "int",
+      "period": "str"
+    },
+    "position_ratio": "float"
+  }
 }

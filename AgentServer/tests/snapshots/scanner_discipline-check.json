@@ -1,17 +1,5 @@
 {
-  "date": "str",
-  "total_actions": "int",
-  "correct_actions": "int",
-  "execution_rate": "float",
-  "violation_count": "int",
-  "violations": [
-    {
-      "ts_code": "str",
-      "strategy": "str",
-      "side": "str",
-      "violation": "str",
-      "severity": "str",
-      "detail": "str"
-    }
-  ]
+  "success": "bool",
+  "data": "NoneType",
+  "message": "str"
 }
