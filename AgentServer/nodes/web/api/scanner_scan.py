@@ -547,7 +547,107 @@ async def get_premarket_status(date: str = None):
     """
     try:
         scanner = _get_scanner_instance()
+        from datetime import datetime
+        now = datetime.now()
+        ct = now.strftime("%H:%M")
+        
         if not scanner:
+            # Scanner未运行: 从MongoDB回退构建盘前数据
+            from core.managers import mongo_manager
+            if mongo_manager.is_initialized:
+                db = mongo_manager.db
+                import pandas as pd
+                today = now.strftime("%Y%m%d")
+                
+                # 尝试取今天数据, 无则取最近交易日
+                target_date = today
+                docs = []
+                async for doc in db["stock_daily_ak_full"].find(
+                    {"trade_date": int(today)},
+                    {"ts_code": 1, "pct_chg": 1, "close": 1, "vol": 1, "amount": 1}
+                ):
+                    docs.append(doc)
+                
+                if not docs:
+                    latest = await db["stock_daily_ak_full"].find_one(
+                        {}, sort=[("trade_date", -1)], projection={"trade_date": 1}
+                    )
+                    if latest:
+                        target_date = str(latest["trade_date"])
+                        async for doc in db["stock_daily_ak_full"].find(
+                            {"trade_date": int(target_date)},
+                            {"ts_code": 1, "pct_chg": 1, "close": 1, "vol": 1, "amount": 1}
+                        ):
+                            docs.append(doc)
+                
+                if docs:
+                    df = pd.DataFrame(docs)
+                    pcts = df['pct_chg'].dropna() if 'pct_chg' in df.columns else pd.Series()
+                    market_snapshot = {
+                        "up_count": int((pcts > 0).sum()) if len(pcts) else 0,
+                        "down_count": int((pcts < 0).sum()) if len(pcts) else 0,
+                        "flat_count": int((pcts == 0).sum()) if len(pcts) else 0,
+                        "limit_up_count": int((pcts >= 9.9).sum()) if len(pcts) else 0,
+                        "limit_down_count": int((pcts <= -9.9).sum()) if len(pcts) else 0,
+                        "avg_pct_chg": round(float(pcts.mean()), 2) if len(pcts) else 0,
+                        "total_stocks": len(docs),
+                        "data_date": target_date,
+                    }
+                    
+                    # 构建candidates
+                    candidates = []
+                    strategy_map = {}
+                    if 'pct_chg' in df.columns:
+                        hc = df[(df['pct_chg'] >= 3) & (df['pct_chg'] <= 7)].nlargest(10, 'pct_chg')
+                        for _, row in hc.iterrows():
+                            c = {"ts_code": row.get('ts_code', ''), "stock_name": '',
+                                 "strategy": "halfway_chase", "pct_chg": round(row.get('pct_chg', 0), 2),
+                                 "signal_status": "preview",
+                                 "reason": f"涨{row.get('pct_chg',0):.1f}% (Top10)"}
+                            candidates.append(c)
+                            strategy_map.setdefault("halfway_chase", []).append(c)
+                        
+                        fu = df[df['pct_chg'] >= 9.9].nlargest(10, 'pct_chg')
+                        for _, row in fu.iterrows():
+                            c = {"ts_code": row.get('ts_code', ''), "stock_name": '',
+                                 "strategy": "first_limit_up", "pct_chg": round(row.get('pct_chg', 0), 2),
+                                 "signal_status": "preview",
+                                 "reason": f"涨停{row.get('pct_chg',0):.1f}%"}
+                            candidates.append(c)
+                            strategy_map.setdefault("first_limit_up", []).append(c)
+                    
+                    strategy_groups = []
+                    for strat, items in strategy_map.items():
+                        strategy_groups.append({"strategy": strat, "candidates": items, "count": len(items)})
+                    
+                    sent_doc = await db["sentiment_scores"].find_one({"trade_date": int(target_date)})
+                    sentiment = {}
+                    if sent_doc:
+                        sentiment = {"score": sent_doc.get("score", 0), "period": sent_doc.get("period", ""),
+                                     "position_ratio": sent_doc.get("position_ratio", 0.5)}
+                    
+                    day_of_week = now.weekday()
+                    if day_of_week < 5:
+                        if "09:15" <= ct < "09:25":
+                            status = "active"
+                        else:
+                            status = "ended"
+                    else:
+                        status = "debug"
+                    
+                    return {"success": True, "data": {
+                        "status": status,
+                        "market_snapshot": market_snapshot,
+                        "sentiment": sentiment,
+                        "candidates": candidates[:30],
+                        "strategy_groups": strategy_groups[:6],
+                        "auction_signals": [],
+                        "top_gainers": candidates[:15],
+                        "historical_hit_rate": {},
+                        "limit_pools": {},
+                        "position_gaps": [],
+                        "analysis": None,
+                    }}
             return {"success": True, "data": {"status": "off", "candidates": [], "auction_signals": [], "top_gainers": [], "strategy_groups": [], "market_snapshot": {}, "sentiment": {}, "historical_hit_rate": {}}}
         
         from datetime import datetime
@@ -556,7 +656,9 @@ async def get_premarket_status(date: str = None):
         
         # 判断盘前状态
         if not scanner._is_running:
-            status = "off"
+            # Scanner实例存在但未运行: 交易日显示ended(可查看预选数据)
+            day_of_week = now.weekday()
+            status = "ended" if day_of_week < 5 else "debug"
         elif "09:00" <= ct < "09:15":
             status = "waiting"
         elif "09:15" <= ct < "09:25":
@@ -564,7 +666,9 @@ async def get_premarket_status(date: str = None):
         elif "09:25" <= ct < "09:30":
             status = "ended"
         else:
-            status = "off"
+            # 竞价时段外但scanner运行中: 交易日也显示ended
+            day_of_week = now.weekday()
+            status = "ended" if day_of_week < 5 else "off"
         
         # ===== 全市场快照 =====
         market_snapshot = {"up_count": 0, "down_count": 0, "flat_count": 0, "limit_up_count": 0, "limit_down_count": 0,
