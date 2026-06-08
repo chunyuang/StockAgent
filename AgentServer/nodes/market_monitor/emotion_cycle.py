@@ -532,18 +532,16 @@ class EmotionCycleManager:
     @staticmethod
     async def update_sentiment_score(scanner, trade_date: str) -> None:
         """收盘后更新当日情绪预计算(编排方法)"""
-        if not mongo_manager.is_initialized:
-            return
-        db = mongo_manager.db
-        td_int = int(trade_date)
-
-        lu, ld, max_lb, data_source = await EmotionCycleManager._fetch_limit_stats(scanner, db, td_int)
-        up_count, down_count, up_down_ratio = await EmotionCycleManager._fetch_up_down_ratio(db, td_int)
-        missing_data = (lu == 0 and ld == 0)
-
-        score, period = EmotionCycleManager._calc_sentiment_score(lu, ld, max_lb, up_down_ratio)
-        await EmotionCycleManager._persist_sentiment_score(db, td_int, score, period, lu, ld, max_lb,
-                                                           up_count, down_count, up_down_ratio, data_source, missing_data)
+        if not mongo_manager.is_initialized: return
+        db, td_int = mongo_manager.db, int(trade_date)
+        lu, ld, max_lb, src = await EmotionCycleManager._fetch_limit_stats(scanner, db, td_int)
+        up, down, ud_ratio = await EmotionCycleManager._fetch_up_down_ratio(db, td_int)
+        zt_premium = await EmotionCycleManager._fetch_zt_premium_for_update(db, td_int)
+        # 【v2.9.85】补充zt_premium(旧bug:缺此维度导致MongoDB情绪分偏低)
+        score, period = EmotionCycleManager._calc_sentiment_score(lu, ld, max_lb, ud_ratio, zt_premium)
+        missing = (lu == 0 and ld == 0)
+        await EmotionCycleManager._persist_sentiment_score(
+            db, td_int, score, period, lu, ld, max_lb, up, down, ud_ratio, src, missing, zt_premium=zt_premium)
 
     @staticmethod
     async def _fetch_limit_stats(scanner, db, td_int: int) -> Tuple[int, int, int, str]:
@@ -599,9 +597,9 @@ class EmotionCycleManager:
         return up_count, down_count, up_down_ratio
 
     @staticmethod
-    def _calc_sentiment_score(lu: int, ld: int, max_lb: int, up_down_ratio: float) -> Tuple[int, str]:
-        """计算情绪得分和周期"""
-        score = min(100, max(0, min(30, lu) + max(0, 20 - ld * 2) + min(20, max_lb * 2) + int(up_down_ratio * 15)))
+    def _calc_sentiment_score(lu: int, ld: int, max_lb: int, up_down_ratio: float, zt_premium: float = 0.0) -> Tuple[int, str]:
+        """计算情绪得分和周期(5维,与_compute_score对齐)"""
+        score = min(100, max(0, min(30, lu) + max(0, 20 - ld * 2) + min(20, max_lb * 2) + int(up_down_ratio * 15) + min(15, max(0, int(zt_premium)))))
         if score >= 70: period = "高潮"
         elif score >= 55: period = "分化"
         elif score >= 40: period = "震荡"
@@ -609,8 +607,42 @@ class EmotionCycleManager:
         return score, period
 
     @staticmethod
+    async def _fetch_zt_premium_for_update(db, td_int: int) -> float:
+        """收盘后计算昨日涨停今日平均溢价率(供update_sentiment_score使用)【v2.9.85提取】"""
+        try:
+            prev_td_doc = await db["stock_daily_ak_full"].find_one(
+                {"trade_date": {"$lt": td_int}},
+                sort=[("trade_date", -1)], projection={"trade_date": 1}
+            )
+            if not prev_td_doc:
+                return 0.0
+            prev_td = prev_td_doc["trade_date"]
+            # 优先用limit字段(更准确), fallback用is_limit_up
+            yesterday_zt = await db["limit_list"].find(
+                {"trade_date": prev_td, "limit": "U"},
+                projection={"ts_code": 1}
+            ).to_list(50)
+            if not yesterday_zt:
+                yesterday_zt = await db["limit_list"].find(
+                    {"trade_date": prev_td, "is_limit_up": True},
+                    projection={"ts_code": 1}
+                ).to_list(50)
+            if not yesterday_zt:
+                return 0.0
+            zt_codes = [d["ts_code"] for d in yesterday_zt]
+            today_data = await db["stock_daily_ak_full"].find(
+                {"ts_code": {"$in": zt_codes}, "trade_date": td_int},
+                projection={"ts_code": 1, "pct_chg": 1}
+            ).to_list(200)
+            premiums = [d["pct_chg"] for d in today_data if d.get("pct_chg") is not None]
+            return sum(premiums) / len(premiums) if premiums else 0.0
+        except Exception:
+            return 0.0
+
+    @staticmethod
     async def _persist_sentiment_score(db, td_int, score, period, lu, ld, max_lb,
-                                       up_count, down_count, up_down_ratio, data_source, missing_data) -> None:
+                                       up_count, down_count, up_down_ratio, data_source, missing_data,
+                                       zt_premium=0.0) -> None:
         """持久化情绪得分到MongoDB"""
         from datetime import datetime as _dt
         await db["sentiment_scores"].update_one(
@@ -620,7 +652,7 @@ class EmotionCycleManager:
                 "position_ratio": _get_position_ratio(period),
                 "limit_up": lu, "limit_down": ld, "max_continue": max_lb,
                 "up_count": up_count, "down_count": down_count,
-                "up_down_ratio": round(up_down_ratio, 3), "zt_premium": 0,
+                "up_down_ratio": round(up_down_ratio, 3), "zt_premium": round(zt_premium, 1),
                 "data_source": data_source, "missing_data": missing_data,
                 "updated_at": _dt.now().isoformat(),
             }},

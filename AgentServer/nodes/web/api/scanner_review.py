@@ -257,13 +257,25 @@ async def get_trade_attribution(date: str = None):
                     # profit_pct=0: 保本卖出，买入价≈卖出价
                     buy_price = round(filled_price, 2)
 
-            # 查找scan_trace(买入漏斗)
+            # 查找scan_trace(买入漏斗) — 策略名可能存在别名(anomaly_surge vs halfway_chase)
             scan_info = None
             try:
+                # 先用原始strategy查,找不到再用别名反查
                 scan_doc = await db["scan_traces"].find_one(
                     {"candidates.ts_code": ts_code, "candidates.strategy": strategy},
                     {"scan_time": 1, "summary": 1, "layer_details": 1}
                 )
+                if not scan_doc:
+                    # 尝试用别名反查: halfway_chase → anomaly_surge等
+                    from nodes.backtest_engine.strategy_defaults import STRATEGY_ALIASES
+                    alias_list = [k for k, v in STRATEGY_ALIASES.items() if v == strategy]
+                    for alias in alias_list:
+                        scan_doc = await db["scan_traces"].find_one(
+                            {"candidates.ts_code": ts_code, "candidates.strategy": alias},
+                            {"scan_time": 1, "summary": 1, "layer_details": 1}
+                        )
+                        if scan_doc:
+                            break
                 if scan_doc:
                     ld = scan_doc.get("layer_details") or {}
                     scan_info = {
@@ -389,7 +401,7 @@ async def get_review_hero(date: str = None):
             raw_period = _cn_to_en_period[raw_period]
         cn_period = _en_to_cn_period.get(raw_period, raw_period)
         # 冰点开仓(仅BEARISH算违规,CHAOS震荡期允许开仓但限制策略)
-        if (sentiment_doc and raw_period in ["BEARISH", "bearish"]) or (sentiment_score < 40 and buys):
+        if (sentiment_doc and raw_period in ["BEARISH", "bearish"]) and buys:
             for b in buys:
                 violations.append({
                     "type": "冰点开仓", "severity": "high",
@@ -408,8 +420,7 @@ async def get_review_hero(date: str = None):
                         "ts_code": b.get("ts_code",""), "strategy": strat,
                         "detail": f"{cn_period}期做{strat}(适合{'+'.join(_en_to_cn_period.get(p,p) for p in fit_periods)})"
                     })
-        # 单日止损过多(≥3)
-        stop_losses = [s for s in sells if "止损" in (s.get("reason","") or "") and "追踪" not in (s.get("reason","") or "")];
+        # 单日止损过多(≥3) — 使用前面的stop_losses变量,不要重新定义
         if len(stop_losses) >= 3:
             violations.append({
                 "type": "止损过多", "severity": "high",
@@ -885,7 +896,7 @@ async def deviation_attribution(date: str = None, start_date: str = None, end_da
                 if c.get("final_status") == "passed" and c.get("ts_code"):
                     if td not in scan_map:
                         scan_map[td] = {}
-                    scan_map[td][c["ts_code"]] = {"price": c.get("price",0), "strategy": c.get("strategy","")}
+                    scan_map[td][c["ts_code"]] = {"price": c.get("price",0), "strategy": _norm_strat(c.get("strategy",""))}
 
         # ============ 计算偏差 ============
 
@@ -943,7 +954,7 @@ async def deviation_attribution(date: str = None, start_date: str = None, end_da
             td = buy.get("trade_date","")
             if td not in scan_dates:
                 continue  # 跳过无scan_traces数据的日期
-            s = buy.get("strategy","") or "unknown"
+            s = _norm_strat(buy.get("strategy","") or "unknown")
             if s not in live_picks: live_picks[s] = set()
             live_picks[s].add(buy.get("ts_code",""))
 
@@ -1469,10 +1480,11 @@ async def review_monthly(date: str = None):
             "summary": {"trades":total_sells,"wins":total_wins,"win_rate":round(total_wins/max(total_sells,1)*100,1),"pnl":round(total_pnl,2)},
             "strategy_stats": {k: {"trades":v["trades"],"win_rate":round(v["wins"]/max(v["trades"],1)*100,1),"pnl":round(v["pnl"],2)} for k,v in strategy_stats.items()},
             "behavior_drift": {
-                "stop_loss_execution_rate": round(stop_loss_at_loss/max(stop_loss_sells,1)*100,1),
+                "stop_loss_execution_rate": round(stop_loss_at_loss/max(loss_sells,1)*100,1),
                 "stop_loss_at_loss": stop_loss_at_loss, "stop_loss_at_profit": stop_loss_at_profit,
                 "stop_loss_triggered": stop_loss_sells,  # 止损触发笔数(含盈利时追踪止损)
                 "loss_sells": loss_sells,
+                "loss_without_stop": loss_without_stop,  # 未走止损的亏损笔数
                 "bearish_period_buy_ratio": round(bearish_buys/max(len(buys),1)*100,1),
                 "bearish_buys": bearish_buys, "total_buys": len(buys),
             },
@@ -1548,7 +1560,7 @@ async def factor_effectiveness(date: str = None):
                 gain_bucket = "小涨(<2%)" if pct_chg < 2 else ("中涨(2-5%)" if pct_chg < 5 else "大涨(>5%)")
                 turnover_bucket = "低(<3%)" if turnover < 3 else ("中(3-8%)" if turnover < 8 else "高(>8%)") if turnover > 0 else "未知"
                 vol_ratio_bucket = "缩量(<0.8)" if vol_ratio < 0.8 else ("正常(0.8-1.5)" if vol_ratio < 1.5 else "放量(>1.5)") if vol_ratio > 0 else "未知"
-                strat_name = strategy or "unknown"
+                strat_name = _norm_strat(strategy) if strategy else "unknown"
 
                 for fname, bucket in [("动量强度", momentum_bucket), ("涨幅区间", gain_bucket),
                                        ("换手率", turnover_bucket), ("量比", vol_ratio_bucket),
