@@ -172,7 +172,7 @@ async def update_strategy(strategy_id: str, req: StrategyParamUpdate):
 
     # 同步到MarketScanner(如果运行中)
     try:
-        from nodes.web.api.scanner import _get_scanner_instance
+        from nodes.web.api.scanner_shared import _get_scanner_instance
         scanner = _get_scanner_instance()
         if scanner:
             effective_cfg = await _get_effective_config(strategy_id)
@@ -242,7 +242,7 @@ async def update_global_risk(req: GlobalRiskUpdate):
     
     # 同步到运行中的Scanner
     try:
-        from nodes.web.api.scanner import _get_scanner_instance
+        from nodes.web.api.scanner_shared import _get_scanner_instance
         scanner = _get_scanner_instance()
         if scanner and hasattr(scanner, 'config'):
             scanner.config.setdefault("global_risk", {})

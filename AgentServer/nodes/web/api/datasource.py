@@ -40,9 +40,9 @@ async def list_data_sources():
     
     # 尝试从scanner获取实际数据源状态
     try:
-        from nodes.web.api.scanner import _get_scanner
-        scanner = _get_scanner()
-        if scanner._data_router:
+        from nodes.web.api.scanner_shared import _get_scanner_instance
+        scanner = _get_scanner_instance()
+        if scanner and scanner._data_router:
             for name, adapter in scanner._data_router._sources.items():
                 try:
                     status = adapter.get_status()

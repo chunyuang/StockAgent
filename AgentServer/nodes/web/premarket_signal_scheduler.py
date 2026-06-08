@@ -159,7 +159,7 @@ class PremarketSignalScheduler:
         auction_size = 0
 
         try:
-            from nodes.web.api.scanner import _get_scanner_instance
+            from nodes.web.api.scanner_shared import _get_scanner_instance
             scanner = _get_scanner_instance()
 
             if scanner and scanner._is_running:

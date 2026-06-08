@@ -143,7 +143,7 @@ class DaemonWatchdogMixin:
         通过scanner.emergency_liquidate委托, 不再直接操作broker内部。
         """
         try:
-            from nodes.web.api.scanner import _get_scanner_instance
+            from nodes.web.api.scanner_shared import _get_scanner_instance
             scanner = _get_scanner_instance()
             if not scanner:
                 return
