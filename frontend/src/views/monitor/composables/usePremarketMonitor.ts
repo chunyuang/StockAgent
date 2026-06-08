@@ -21,8 +21,9 @@ export function usePremarketMonitor() {
   const premarketDebugMode = ref(false)
   // 追踪用户是否手动切换过debug，防止自动重开
   const premarketDebugUserToggled = ref(false)
-  // 盘前日期选择(默认今天)
-  const premarketDate = ref(new Date().toISOString().slice(0, 10))
+  // 默认空字符串, fetchPremarketData会自动选最近交易日
+  // (避免周末/节假日默认选今天导致无数据)
+  const premarketDate = ref('')
   const premarketGroupMode = ref<'strategy' | 'industry' | 'list'>('strategy')
   const premarketGroupExpanded = ref<Record<string, boolean>>({})
   const premarketAnalysis = ref<any>(null)
@@ -39,13 +40,25 @@ export function usePremarketMonitor() {
   // ==================== API ====================
   async function fetchPremarketData() {
     try {
-      // 选了非今天的日期时, 强制走debug/sim API(只有它支持历史日期)
-      const today = new Date().toISOString().slice(0, 10)
-      const isOtherDate = premarketDate.value && premarketDate.value !== today
-      // 只有用户未手动关闭且在非交易时间才自动用debug模式
-      const useDebug = premarketDebugMode.value || isOtherDate || (isNonTradingHours() && !premarketDebugUserToggled.value)
-      const dateParam = premarketDate.value ? `&date=${premarketDate.value.replace(/-/g, '')}` : ''
-      const url = useDebug ? `${scannerApi}/debug/premarket-sim?${dateParam.slice(1)}` : `${scannerApi}/premarket-status${dateParam ? '?' + dateParam.slice(1) : ''}`
+      const today = new Date()
+      const todayStr = today.toISOString().slice(0, 10)
+      const isOtherDate = premarketDate.value && premarketDate.value !== todayStr
+      const isWeekend = today.getDay() === 0 || today.getDay() === 6
+      
+      // 决定是否用debug/sim API:
+      // 1. 用户手动开了debug → 用
+      // 2. 选了非今天的日期 → 用(只有sim支持date参数)
+      // 3. 周末/节假日 → 用(没有实时数据)
+      // 4. 交易日非竞价时段 → 也用! (scanner没运行时premarket-status返回空数据)
+      //    竞价时段(9:00-9:25)且scanner运行中 → 用premarket-status
+      const hhmm = today.getHours() * 100 + today.getMinutes()
+      const isInAuctionWindow = !isWeekend && hhmm >= 900 && hhmm < 925
+      const useDebug = premarketDebugMode.value || isOtherDate || isWeekend || !isInAuctionWindow
+      
+      const dateParam = premarketDate.value ? `date=${premarketDate.value.replace(/-/g, '')}` : ''
+      const url = useDebug 
+        ? `${scannerApi}/debug/premarket-sim${dateParam ? '?' + dateParam : ''}`
+        : `${scannerApi}/premarket-status${dateParam ? '?' + dateParam : ''}`
       const r = await api.get(url)
       const p = parseResponse(r)
       // 捕获API错误消息(如无该日期数据)
@@ -65,11 +78,35 @@ export function usePremarketMonitor() {
         premarketPositionGaps.value = p.data.position_gaps || []
         premarketAnalysis.value = p.data.analysis || null
 
-        // 仅在初始加载(用户未手动切换)且非交易时间时自动开启debug
-        // 用户手动关闭后不再自动重开
-        if (!premarketDebugUserToggled.value && !premarketDebugMode.value && isNonTradingHours() && premarketStatus.value === 'off') {
-          premarketDebugMode.value = true
+        // 从API响应回填实际数据日期(周末/节假日可能回退到上一交易日)
+        const dataDate = p.data.market_snapshot?.data_date
+        if (dataDate && !premarketDate.value) {
+          // 首次加载: 设置日期为实际数据日期
+          const ds = String(dataDate)
+          premarketDate.value = ds.length === 8 ? `${ds.slice(0,4)}-${ds.slice(4,6)}-${ds.slice(6,8)}` : ds
         }
+
+        // 修正status: debug API统一返回status='debug', 但根据实际时间应该显示更有意义的标签
+        // 交易日9:30前 → waiting(等待竞价)
+        // 交易日9:30后 → ended(竞价已结束,可查看当日预选)
+        // 周末/节假日 → debug(调试模式)
+        if (premarketStatus.value === 'debug') {
+          const now = new Date()
+          const day = now.getDay()
+          const hhmm = now.getHours() * 100 + now.getMinutes()
+          if (day !== 0 && day !== 6) {
+            // 交易日
+            if (hhmm < 915) {
+              premarketStatus.value = 'waiting'
+            } else if (hhmm < 925) {
+              premarketStatus.value = 'active'
+            } else {
+              premarketStatus.value = 'ended'
+            }
+          }
+        }
+
+        // 不再自动开启debug: 交易日始终用debug/sim API, 周末也用
       } else if (!p.success) {
         // API返回失败(如无该日期数据), 清空并提示
         premarketCandidates.value = []

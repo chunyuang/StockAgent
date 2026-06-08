@@ -46,7 +46,7 @@ onMounted(() => {
       <div class="pm-status-bar">
         <div class="pm-status-icon">{{ premarketStatus === 'active' ? '🔴' : premarketStatus === 'ended' ? '✅' : premarketStatus === 'waiting' ? '⏳' : premarketStatus === 'debug' ? '🧪' : '💤' }}</div>
         <div class="pm-status-text">
-          <div class="pm-status-title">{{ ({active: '竞价进行中', ended: '竞价已结束', waiting: '等待竞价(9:15)', debug: '🧪 调试预选模式', off: '非交易时间'} as Record<string, string>)[premarketStatus as string] }} <span v-if="premarketDebugMode" class="pm-debug-badge">SIM</span></div>
+          <div class="pm-status-title">{{ ({active: '竞价进行中', ended: '竞价已结束 · 查看当日预选', waiting: '等待竞价(9:15)', debug: '🧪 调试预选模式', off: '非交易时间'} as Record<string, string>)[premarketStatus as string] }} <span v-if="premarketDebugMode" class="pm-debug-badge">SIM</span></div>
           <div class="pm-status-sub">{{ premarketDebugMode ? '最近交易日数据 · 不影响实盘' : premarketCandidates.length + '只候选 · ' + premarketStrategyGroups.length + '个策略' }}</div>
         </div>
         <div class="pm-status-actions">
@@ -120,7 +120,7 @@ onMounted(() => {
         <div class="pm-analysis-head">
           <span class="pm-analysis-icon">🧠</span>
           <span class="pm-analysis-title">盘前综合研判</span>
-          <span class="pm-analysis-date" v-if="premarketAnalysis.data_date">{{ premarketAnalysis.data_date.slice(4,6) }}/{{ premarketAnalysis.data_date.slice(6,8) }}数据</span>
+          <span class="pm-analysis-date" v-if="premarketAnalysis.data_date">{{ premarketAnalysis.data_date?.slice(4,6) }}/{{ premarketAnalysis.data_date?.slice(6,8) }}数据</span>
         </div>
         <div class="pm-conclusion" :class="premarketAnalysis.verdict">
           <span class="pm-verdict-icon">{{ premarketAnalysis.verdict === 'bullish' ? '🟢' : premarketAnalysis.verdict === 'bearish' ? '🔴' : '🟡' }}</span>
@@ -151,7 +151,7 @@ onMounted(() => {
           </div>
           <div v-if="(premarketLimitPools?.sector_heat) && (premarketLimitPools?.sector_heat).length" class="pm-sector-heat">
             <span class="pm-sh-label">板块</span>
-            <span v-for="s in (premarketLimitPools?.sector_heat).slice(0, 8)" :key="s.name" class="pm-sh-item" :class="s.count >= 3 ? 'hot' : ''">
+            <span v-for="s in (premarketLimitPools?.sector_heat || []).slice(0, 8)" :key="s.name" class="pm-sh-item" :class="s.count >= 3 ? 'hot' : ''">
               {{ s.name }}<sub>{{ s.count }}</sub>
             </span>
           </div>
@@ -193,15 +193,15 @@ onMounted(() => {
             <span v-if="(premarketHitRate?.[g.strategy])" class="pm-group-stat hit-rate" :class="(premarketHitRate?.[g.strategy]).win_rate >= 60 ? 'up' : 'warn'">
               历史 {{ (premarketHitRate?.[g.strategy]).win_rate }}%胜 / {{ (premarketHitRate?.[g.strategy]).total }}笔
             </span>
-            <span class="pm-group-preview">{{ g.candidates.slice(0, 3).map((c: any) => (c.stock_name || c.ts_code?.slice(0,6)) + ' ' + (c.pct_chg >= 0 ? '+' : '') + c.pct_chg.toFixed(1) + '%').join(' · ') }}{{ g.count > 3 ? ' ...' : '' }}</span>
+            <span class="pm-group-preview">{{ g.candidates.slice(0, 3).map((c: any) => (c.stock_name || c.ts_code?.slice(0,6)) + ' ' + ((c.pct_chg || 0) >= 0 ? '+' : '') + (c.pct_chg || 0).toFixed(1) + '%').join(' · ') }}{{ g.count > 3 ? ' ...' : '' }}</span>
           </div>
           <div v-if="premarketGroupExpanded[g.strategy]" class="pm-group-list">
             <div v-for="c in g.candidates" :key="c.ts_code + c.strategy" class="pm-item">
               <span class="pm-item-code">{{ c.ts_code?.slice(0,6) }}</span>
               <span class="pm-item-name">{{ c.stock_name }}</span>
-              <span :class="c.pct_chg >= 0 ? 'up' : 'down'" class="pm-item-pct">{{ c.pct_chg >= 0 ? '+' : '' }}{{ (c.pct_chg || 0).toFixed(1) }}%</span>
-              <span v-if="c.volume_ratio" class="pm-item-factor">量比{{ c.volume_ratio.toFixed(1) }}</span>
-              <span v-if="c.turnover_rate" class="pm-item-factor">换手{{ c.turnover_rate.toFixed(1) }}%</span>
+              <span :class="(c.pct_chg || 0) >= 0 ? 'up' : 'down'" class="pm-item-pct">{{ (c.pct_chg || 0) >= 0 ? '+' : '' }}{{ (c.pct_chg || 0).toFixed(1) }}%</span>
+              <span v-if="c.volume_ratio" class="pm-item-factor">量比{{ (c.volume_ratio || 0).toFixed(1) }}</span>
+              <span v-if="c.turnover_rate" class="pm-item-factor">换手{{ (c.turnover_rate || 0).toFixed(1) }}%</span>
               <ElTag v-if="c.signal_status === 'executed'" size="small" type="success" style="font-size:9px">已买</ElTag>
               <ElTag v-else-if="c.signal_status === 'skipped'" size="small" type="warning" style="font-size:9px">跳过</ElTag>
               <ElTag v-else-if="c.signal_status === 'preview'" size="small" type="info" style="font-size:9px">预览</ElTag>
@@ -224,7 +224,7 @@ onMounted(() => {
           <span class="code">{{ c.ts_code?.slice(0,6) }}</span>
           <span class="name">{{ c.stock_name }}</span>
           <ElTag size="small" :color="strategyMeta[c.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid" style="font-size:9px">{{ strategyCN(c.strategy) }}</ElTag>
-          <span :class="c.pct_chg >= 0 ? 'up' : 'down'" style="font-weight:600">{{ (c.pct_chg || 0) >= 0 ? '+' : '' }}{{ (c.pct_chg || 0).toFixed(1) }}%</span>
+          <span :class="(c.pct_chg || 0) >= 0 ? 'up' : 'down'" style="font-weight:600">{{ (c.pct_chg || 0) >= 0 ? '+' : '' }}{{ (c.pct_chg || 0).toFixed(1) }}%</span>
           <span :class="(c.volume_ratio || 0) >= 2 ? 'up' : ''">{{ (c.volume_ratio || 0).toFixed(1) }}</span>
           <span :class="(c.turnover_rate || 0) >= 3 ? 'up' : ''">{{ (c.turnover_rate || 0).toFixed(1) }}%</span>
           <ElTag v-if="c.signal_status === 'executed'" size="small" type="success" style="font-size:9px">已买</ElTag>
@@ -246,8 +246,8 @@ onMounted(() => {
           <div v-for="g in auctionTopGainers" :key="g.ts_code" class="pm-auction-item">
             <span class="code">{{ g.ts_code?.slice(0,6) }}</span>
             <span class="name">{{ g.name }}</span>
-            <span :class="g.pct_chg >= 0 ? 'up' : 'down'" style="font-weight:700;font-size:14px">{{ g.pct_chg >= 0 ? '+' : '' }}{{ g.pct_chg.toFixed(1) }}%</span>
-            <span v-if="g.volume_ratio" class="pm-item-factor">量比{{ g.volume_ratio.toFixed(1) }}</span>
+            <span :class="(g.pct_chg || 0) >= 0 ? 'up' : 'down'" style="font-weight:700;font-size:14px">{{ (g.pct_chg || 0) >= 0 ? '+' : '' }}{{ (g.pct_chg || 0).toFixed(1) }}%</span>
+            <span v-if="g.volume_ratio" class="pm-item-factor">量比{{ (g.volume_ratio || 0).toFixed(1) }}</span>
           </div>
         </div>
       </div>
@@ -260,8 +260,8 @@ onMounted(() => {
             <ElTag size="small" :color="strategyMeta[s.strategy]?.color || 'var(--text-tertiary)'" class="tag-solid">{{ strategyCN(s.strategy) }}</ElTag>
             <span class="code">{{ s.ts_code?.slice(0,6) }}</span>
             <span class="name">{{ s.stock_name }}</span>
-            <span :class="s.pct_chg >= 0 ? 'up' : 'down'" style="font-weight:600">{{ s.pct_chg >= 0 ? '+' : '' }}{{ s.pct_chg?.toFixed(1) }}%</span>
-            <span v-if="s.volume_ratio" class="pm-item-factor">量比{{ s.volume_ratio.toFixed(1) }}</span>
+            <span :class="(s.pct_chg || 0) >= 0 ? 'up' : 'down'" style="font-weight:600">{{ (s.pct_chg || 0) >= 0 ? '+' : '' }}{{ (s.pct_chg || 0).toFixed(1) }}%</span>
+            <span v-if="s.volume_ratio" class="pm-item-factor">量比{{ (s.volume_ratio || 0).toFixed(1) }}</span>
             <ElTag v-if="s.signal_status === 'executed'" size="small" type="success">已买</ElTag>
             <ElButton v-else-if="!dryRun" size="small" type="danger" plain class="btn-xs" @click="quickBuy(s)">买</ElButton>
           </div>
