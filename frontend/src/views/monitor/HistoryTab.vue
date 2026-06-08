@@ -77,7 +77,7 @@ const {
       <div v-if="!auditLog.length" class="empty">暂无审计记录</div>
       <div v-else class="ht-audit">
         <div v-for="(log, i) in auditLog" :key="i" class="ha-row cp" @click="log.ts_code && openTradeDetail(log.ts_code)">
-          <span class="tl-time">{{ log.timestamp?.substring(11, 19) || log.time_str?.substring(11, 19) || log.time || '' }}</span>
+          <span class="tl-time">{{ String(log.timestamp || log.time_str || log.time || '').split('T').pop()?.substring(0, 8) || '' }}</span>
           <span class="ha-action">{{ log.action }}</span>
           <span class="ha-detail">{{ log.reason || log.detail || '' }}</span>
         </div>

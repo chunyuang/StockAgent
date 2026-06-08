@@ -50,12 +50,19 @@ export function useScannerMonitor() {
     const tlBuys = timeline.value.filter(t => t.action === 'buy')
     const tlSells = timeline.value.filter(t => t.action === 'sell')
     const result: any[] = []
-    const usedBuys = new Set<string>()
+    // 【v2.9.83修复】FIFO配对: 同一股票+策略可能多次买卖，需要按时间顺序配对
+    // 用Map跟踪每个(ts_code+strategy)的未配对买入队列
+    const buyQueues = new Map<string, any[]>()
+    for (const buy of tlBuys) {
+      const key = buy.ts_code + '|' + (buy.strategy || '')
+      if (!buyQueues.has(key)) buyQueues.set(key, [])
+      buyQueues.get(key)!.push(buy)
+    }
     for (const sell of tlSells) {
-      // FIFO配对: 找最早未配对的买入
-      const buy = tlBuys.find(b => b.ts_code === sell.ts_code && b.strategy === sell.strategy && !usedBuys.has(b.ts_code + b.time))
-      if (buy) usedBuys.add(buy.ts_code + buy.time)
-      // 买入价反推: buy.price > decision_detail.cost_price > 当前持仓cost_price > 0
+      const key = sell.ts_code + '|' + (sell.strategy || '')
+      const queue = buyQueues.get(key)
+      const buy = queue?.length ? queue.shift() : undefined
+      // 买入价反推: buy.price > sell.decision_detail?.cost_price > 当前持仓cost_price > 0
       const buyPrice = buy?.price ?? sell.decision_detail?.cost_price ?? positions.value.find(p => p.ts_code === sell.ts_code)?.cost_price ?? 0
       // 盈亏: 优先用sell自带的profit_pct/profit_amount(后端已算好), 否则用买卖价差
       const profitAmount = sell.profit_amount ?? (buyPrice > 0 ? (sell.price - buyPrice) * (sell.shares || 0) : 0)
@@ -320,6 +327,7 @@ export function useScannerMonitor() {
         timeline: timeline.value,
         orders: orders.value,
         closedPositions: closedPositions.value,
+        auditLog: auditLog.value,
         cumulativePnl: cumulativePnl.value,
       }
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
