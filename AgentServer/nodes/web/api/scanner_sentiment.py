@@ -436,20 +436,30 @@ async def get_market_sentiment_detail(date: str = None):
                 pass
         broken_rate = broken / max(limit_up + broken, 1) * 100
 
-        period_labels = {"BEARISH": ("冰点", 0, 40), "CHAOS": ("震荡", 40, 55), "DIFFERENTIATION": ("分化", 55, 70), "RISING": ("高潮", 70, 100),
-                          "bearish": ("冰点", 0, 40), "chaos": ("震荡", 40, 55), "differentiation": ("分化", 55, 70), "rising": ("高潮", 70, 100),
-                          "冰点": ("冰点", 0, 40), "震荡": ("震荡", 40, 55), "分化": ("分化", 55, 70), "高潮": ("高潮", 70, 100),
-                          "冰点(数据缺失)": ("冰点⚠", 0, 40), "震荡(数据缺失)": ("震荡⚠", 40, 55), "分化(数据缺失)": ("分化⚠", 55, 70), "高潮(数据缺失)": ("高潮⚠", 70, 100)}
+        # 【v2.9.85修复】情绪阈值从strategy_defaults统一读取,不再硬编码
+        from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
+        _th = GLOBAL_RISK.get("sentiment_thresholds", {"rising": 70, "differentiation": 55, "chaos": 40})
+        _rising_th = _th["rising"]
+        _diff_th = _th["differentiation"]
+        _chaos_th = _th["chaos"]
+
+        period_labels = {
+            "BEARISH": ("冰点", 0, _chaos_th), "CHAOS": ("震荡", _chaos_th, _diff_th),
+            "DIFFERENTIATION": ("分化", _diff_th, _rising_th), "RISING": ("高潮", _rising_th, 100),
+            "bearish": ("冰点", 0, _chaos_th), "chaos": ("震荡", _chaos_th, _diff_th),
+            "differentiation": ("分化", _diff_th, _rising_th), "rising": ("高潮", _rising_th, 100),
+            "冰点": ("冰点", 0, _chaos_th), "震荡": ("震荡", _chaos_th, _diff_th),
+            "分化": ("分化", _diff_th, _rising_th), "高潮": ("高潮", _rising_th, 100),
+            "冰点(数据缺失)": ("冰点⚠", 0, _chaos_th), "震荡(数据缺失)": ("震荡⚠", _chaos_th, _diff_th),
+            "分化(数据缺失)": ("分化⚠", _diff_th, _rising_th), "高潮(数据缺失)": ("高潮⚠", _rising_th, 100),
+        }
         pi = period_labels.get(sentiment_period, None)
         if pi is None:
             # 根据分数自动推断情绪周期
-            # 【v2.9.84修复】阈值从strategy_defaults统一读取,不再硬编码
-            from nodes.backtest_engine.strategy_defaults import GLOBAL_RISK
-            _th = GLOBAL_RISK.get("sentiment_thresholds", {"rising": 70, "differentiation": 55, "chaos": 40})
-            if sentiment_score >= _th["rising"]: pi = ("高潮", _th["rising"], 100)
-            elif sentiment_score >= _th["differentiation"]: pi = ("分化", _th["differentiation"], _th["rising"])
-            elif sentiment_score >= _th["chaos"]: pi = ("震荡", _th["chaos"], _th["differentiation"])
-            else: pi = ("冰点", 0, _th["chaos"])
+            if sentiment_score >= _rising_th: pi = ("高潮", _rising_th, 100)
+            elif sentiment_score >= _diff_th: pi = ("分化", _diff_th, _rising_th)
+            elif sentiment_score >= _chaos_th: pi = ("震荡", _chaos_th, _diff_th)
+            else: pi = ("冰点", 0, _chaos_th)
             sentiment_period = pi[0]
 
         # can_open: 与EmotionCycleManager.CAN_OPEN对齐(冰点禁止开仓)
@@ -460,10 +470,10 @@ async def get_market_sentiment_detail(date: str = None):
             "limit_up_count": limit_up, "limit_down_count": limit_down, "broken_count": broken,
             "broken_rate": round(broken_rate, 1), "board_distribution": board_dist,
             "ranges": [
-                {"label": "冰点", "min": 0, "max": 40, "color": "#67c23a"},
-                {"label": "震荡", "min": 40, "max": 55, "color": "#e6a23c"},
-                {"label": "分化", "min": 55, "max": 70, "color": "#409eff"},
-                {"label": "高潮", "min": 70, "max": 100, "color": "#f56c6c"},
+                {"label": "冰点", "min": 0, "max": _chaos_th, "color": "#67c23a"},
+                {"label": "震荡", "min": _chaos_th, "max": _diff_th, "color": "#e6a23c"},
+                {"label": "分化", "min": _diff_th, "max": _rising_th, "color": "#409eff"},
+                {"label": "高潮", "min": _rising_th, "max": 100, "color": "#f56c6c"},
             ],
         }})
     except Exception as e:
