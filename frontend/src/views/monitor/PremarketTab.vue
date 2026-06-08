@@ -62,11 +62,11 @@ onMounted(() => {
       <div class="pm-overview">
         <div class="pm-ov-card pm-sentiment">
           <div class="pm-ov-label">🌡️ 情绪周期</div>
-          <div class="pm-ov-val" :class="(premarketSentiment?.score) >= 55 ? 'up' : (premarketSentiment?.score) < 40 ? 'down' : ''">
+          <div class="pm-ov-val" :class="(premarketSentiment?.score ?? 0) >= 55 ? 'up' : (premarketSentiment?.score ?? 0) < 40 ? 'down' : ''">
             {{ (premarketSentiment?.phase_name) || '震荡' }}
-            <span class="pm-ov-sub">{{ (premarketSentiment?.score) }}分</span>
+            <span class="pm-ov-sub">{{ (premarketSentiment?.score ?? '-') }}分</span>
           </div>
-          <div class="pm-ov-hint">仓位系数 {{ (((premarketSentiment?.position_ratio) || 0.5) * 100).toFixed(0) }}%</div>
+          <div class="pm-ov-hint">仓位系数 {{ (((premarketSentiment?.position_ratio) ?? 0.5) * 100).toFixed(0) }}%</div>
         </div>
         <div class="pm-ov-card">
           <div class="pm-ov-label">📈 涨/跌</div>
@@ -75,7 +75,7 @@ onMounted(() => {
             <span class="pm-ov-sep">/</span>
             <span class="down">{{ (premarketMarketSnapshot?.down_count) || 0 }}</span>
           </div>
-          <div class="pm-ov-hint">均幅 {{ ((premarketMarketSnapshot?.avg_pct_chg) || 0).toFixed(2) }}%<span v-if="(premarketMarketSnapshot?.data_date)"> ({{ (premarketMarketSnapshot?.data_date).slice(4,6) }}/{{ (premarketMarketSnapshot?.data_date).slice(6,8) }}数据)</span></div>
+          <div class="pm-ov-hint">均幅 {{ ((premarketMarketSnapshot?.avg_pct_chg) || 0).toFixed(2) }}%<span v-if="premarketMarketSnapshot?.data_date"> ({{ String(premarketMarketSnapshot.data_date).slice(4,6) }}/{{ String(premarketMarketSnapshot.data_date).slice(6,8) }}数据)</span></div>
         </div>
         <div class="pm-ov-card">
           <div class="pm-ov-label">🔴 涨停/跌停</div>
@@ -190,10 +190,10 @@ onMounted(() => {
             <span class="pm-group-stat" :class="(g.avg_pct_chg || 0) >= 0 ? 'up' : 'down'">均幅 {{ (g.avg_pct_chg || 0) >= 0 ? '+' : '' }}{{ (g.avg_pct_chg || 0).toFixed(1) }}%</span>
             <span v-if="g.executed" class="pm-group-stat executed">已买{{ g.executed }}</span>
             <span v-if="g.blocked" class="pm-group-stat warn">blocked {{ g.blocked }}</span>
-            <span v-if="(premarketHitRate?.[g.strategy])" class="pm-group-stat hit-rate" :class="(premarketHitRate?.[g.strategy]).win_rate >= 60 ? 'up' : 'warn'">
-              历史 {{ (premarketHitRate?.[g.strategy]).win_rate }}%胜 / {{ (premarketHitRate?.[g.strategy]).total }}笔
+            <span v-if="premarketHitRate?.[g.strategy]" class="pm-group-stat hit-rate" :class="(premarketHitRate?.[g.strategy])?.win_rate >= 60 ? 'up' : 'warn'">
+              历史 {{ (premarketHitRate?.[g.strategy])?.win_rate ?? '-' }}%胜 / {{ (premarketHitRate?.[g.strategy])?.total ?? '-' }}笔
             </span>
-            <span class="pm-group-preview">{{ g.candidates.slice(0, 3).map((c: any) => (c.stock_name || c.ts_code?.slice(0,6)) + ' ' + ((c.pct_chg || 0) >= 0 ? '+' : '') + (c.pct_chg || 0).toFixed(1) + '%').join(' · ') }}{{ g.count > 3 ? ' ...' : '' }}</span>
+            <span class="pm-group-preview">{{ (g.candidates || []).slice(0, 3).map((c: any) => (c.stock_name || c.ts_code?.slice(0,6)) + ' ' + ((c.pct_chg || 0) >= 0 ? '+' : '') + (c.pct_chg || 0).toFixed(1) + '%').join(' · ') }}{{ g.count > 3 ? ' ...' : '' }}</span>
           </div>
           <div v-if="premarketGroupExpanded[g.strategy]" class="pm-group-list">
             <div v-for="c in g.candidates" :key="c.ts_code + c.strategy" class="pm-item">

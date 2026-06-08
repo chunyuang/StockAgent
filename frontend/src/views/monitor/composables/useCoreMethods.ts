@@ -213,7 +213,7 @@ export function useCoreMethods(refs: CoreRefs) {
 
   async function resetAccount() { showConfirm('⚠️ 重置账户', '将清空所有持仓和交易记录,不可恢复!\n确认重置?', async () => { try { const r = await api.post(`${scannerApi}/reset`); const p = parseResponse(r); if (p.success) { ElMessage.success('账户已重置'); await fetchAll(true) } } catch (e: any) { ElMessage.error('重置失败') } }) }
 
-  async function sellAllPositions() { showConfirm('⚠️ 一键清仓', `确认清仓所有持仓?\n当前持仓 ${refs.positions.value.length} 只,总市值 ¥${refs.positions.value.reduce((s: number, p: any) => s + (p.market_value || (p.current_price || 0) * (p.shares || 0)), 0).toFixed(0)}`, async () => { try { const r = await api.post(`${scannerApi}/sell-all`); const p = parseResponse(r); if (p.success) { ElMessage.success(p.data?.message || '清仓完成'); await fetchAll(true) } } catch (e: any) { ElMessage.error('清仓失败') } }) }
+  async function sellAllPositions() { showConfirm('⚠️ 一键清仓', `确认清仓所有持仓?\n当前持仓 ${refs.positions.value.length} 只,总市值 ¥${refs.positions.value.reduce((s: number, p: any) => s + (Number(p.market_value) || (Number(p.current_price) || 0) * (Number(p.shares) || 0)), 0).toFixed(0)}`, async () => { try { const r = await api.post(`${scannerApi}/sell-all`); const p = parseResponse(r); if (p.success) { ElMessage.success(p.data?.message || '清仓完成'); await fetchAll(true) } } catch (e: any) { ElMessage.error('清仓失败') } }) }
 
   async function resetCircuitBreaker() { try { const r = await api.post(`${scannerApi}/circuit-breaker/reset`); const p = parseResponse(r); if (p.success) { ElMessage.success('熔断已重置'); fetchAll(true) } } catch { ElMessage.error('重置失败') } }
 
@@ -272,6 +272,8 @@ export function useCoreMethods(refs: CoreRefs) {
     if (nowTimer) clearInterval(nowTimer)
     _wsSubscribed = false
     if (_wsUnsubFn) { _wsUnsubFn(); _wsUnsubFn = null }
+    // 重置WS数据新鲜度时间戳, 避免下次mount时wsDataStale判断错误
+    lastWsDataTime.value = 0
   }
 
   // 【v2.9.72】Store同步 - 修复:空数组也必须同步(如0个signal时不更新导致UI不一致)
