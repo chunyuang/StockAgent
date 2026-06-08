@@ -48,8 +48,9 @@ export function useScanTraceMonitor() {
   })
 
   function toggleScanHour(hour: string) {
-    // 整体替换value触发Vue响应式更新(ref内部对象属性修改不触发computed)
-    const current = scanHourCollapse.value[hour] ?? true
+    // 从computed获取实际折叠状态(而非从scanHourCollapse直接取, 因为latestHour默认展开)
+    const group = scanHistoryByHour.value.find(g => g.hour === hour)
+    const current = group?.collapsed ?? true
     scanHourCollapse.value = { ...scanHourCollapse.value, [hour]: !current }
   }
 
