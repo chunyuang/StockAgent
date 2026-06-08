@@ -313,6 +313,10 @@ class LocalMongoManager(BaseManager):
         if trade_date:
             query["trade_date"] = trade_date
         
+        # 只返回有up_limit/down_limit字段的记录(涨跌停价格)
+        # 排除仅涨跌停标记的记录(limit=U/D, 无价格字段)
+        query["up_limit"] = {"$exists": True}
+        
         cursor = self._db['limit_list'].find(query)
         records = list(cursor)
         

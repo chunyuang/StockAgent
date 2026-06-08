@@ -150,6 +150,7 @@ def write_to_daily_basic(trade_date=None):
             "ts_code": ts_code,
             "trade_date": trade_date,
             "pe": pe_ttm if pe_ttm and pe_ttm > 0 else pe,  # 优先PE_TTM
+            "pe_ttm": pe_ttm,  # 单独存PE_TTM字段(因子引擎需要)
             "pb": pb,
             "circ_mv": circ_mv_yi,   # 亿元
             "total_mv": total_mv_yi, # 亿元
