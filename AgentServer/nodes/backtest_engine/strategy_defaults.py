@@ -219,7 +219,9 @@ STRATEGY_ALIASES = {
     "anomaly_surge": "halfway_chase",    # 急速拉升 → 半路追涨
     "anomaly_strong": "halfway_chase",   # 强势涨停 → 半路追涨(已封板,逻辑接近)
     "anomaly_broken": "limit_down_qiao", # 涨停炸板 → 跌停翘板(开板逻辑)
-    "limit_up_open": "first_limit_up",    # 涨停开板 → 首板打板(历史兼容)
+    # ⚠️ 注意: limit_up_open是STRATEGY_CONFIGS中的正式策略(涨停开板),不能放入ALIASES
+    # 否则normalize_strategy_id会把合法策略ID错误映射到另一个策略
+    # 历史兼容映射由scanner_review.py的strategy_name_aliases单独处理
 }
 
 

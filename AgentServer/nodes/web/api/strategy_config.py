@@ -138,7 +138,7 @@ async def get_strategies():
             "paramDescriptions": param_descriptions,
             "riskDescriptions": risk_descriptions,
         })
-    return {"success": True, "data": strategies}
+    return {"success": True, "data": strategies, "aliases": {k: v for k, v in STRATEGY_ALIASES.items()}}
 
 
 @router.get("/strategies/{strategy_id}")
