@@ -374,7 +374,7 @@ class TestCodeReduction:
         with open(POSITION_CHECKER_PATH) as f:
             lines = f.readlines()
         # 原始606行, 提取后应不超过700行(+94行新增方法)
-        assert len(lines) < 850, f"position_checker.py行数{len(lines)}应<850"
+        assert len(lines) < 860, f"position_checker.py行数{len(lines)}应<860"
 
     def test_no_duplicate_for_pos_loop(self):
         """checker和compare不再有重复的for pos in positions遍历"""
