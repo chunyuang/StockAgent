@@ -1,7 +1,10 @@
 {
-  "matrix": {},
-  "strategy_totals": {},
-  "recommendations": [
-    "<empty_list>"
-  ]
+  "success": "bool",
+  "data": {
+    "matrix": {},
+    "strategy_totals": {},
+    "recommendations": [
+      "<empty_list>"
+    ]
+  }
 }

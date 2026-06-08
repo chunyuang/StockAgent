@@ -1,21 +1,24 @@
 {
-  "score": "int",
-  "period": "str",
-  "period_label": "str",
-  "position_ratio": "float",
-  "limit_up_count": "int",
-  "limit_down_count": "int",
-  "broken_count": "int",
-  "broken_rate": "float",
-  "board_distribution": {
-    "1": "int"
-  },
-  "ranges": [
-    {
-      "label": "str",
-      "min": "int",
-      "max": "int",
-      "color": "str"
-    }
-  ]
+  "success": "bool",
+  "data": {
+    "score": "int",
+    "period": "str",
+    "period_label": "str",
+    "position_ratio": "float",
+    "limit_up_count": "int",
+    "limit_down_count": "int",
+    "broken_count": "int",
+    "broken_rate": "float",
+    "board_distribution": {
+      "1": "int"
+    },
+    "ranges": [
+      {
+        "label": "str",
+        "min": "int",
+        "max": "int",
+        "color": "str"
+      }
+    ]
+  }
 }

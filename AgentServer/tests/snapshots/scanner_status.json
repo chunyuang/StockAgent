@@ -1,116 +1,119 @@
 {
-  "is_running": "bool",
-  "scan_count": "int",
-  "last_scan_time": "str",
-  "active_signals": "int",
-  "positions": "int",
-  "stocks_scanned": "int",
-  "account": {
-    "total_assets": "int",
-    "available_cash": "int",
-    "market_value": "int",
-    "total_profit": "float"
-  },
-  "stats": {
-    "scans": "int",
-    "signals_found": "int",
-    "trades_executed": "int",
-    "stop_losses": "int",
-    "take_profits": "int",
-    "stocks_scanned": "int"
-  },
-  "account_id": "str",
-  "trade_mode": "str",
-  "filter_pipeline": {
-    "position_ratio": "float",
-    "sentiment": {
-      "score": "int",
-      "period": "str"
-    }
-  },
-  "risk_watchdog": {
-    "overall_status": "str",
-    "uptime_seconds": "float",
-    "scanner_heartbeat_age": "int",
-    "alert_count": "int",
-    "checks": {}
-  },
-  "signal_dispatcher": {
-    "total_received": "int",
-    "total_dispatched": "int",
-    "total_deduped": "int",
-    "total_failed": "int",
-    "by_channel": {
-      "log": {
-        "success": "int",
-        "failed": "int"
-      },
-      "redis": {
-        "success": "int",
-        "failed": "int"
+  "success": "bool",
+  "data": {
+    "is_running": "bool",
+    "scan_count": "int",
+    "last_scan_time": "str",
+    "active_signals": "int",
+    "positions": "int",
+    "stocks_scanned": "int",
+    "account": {
+      "total_assets": "int",
+      "available_cash": "int",
+      "market_value": "int",
+      "total_profit": "float"
+    },
+    "stats": {
+      "scans": "int",
+      "signals_found": "int",
+      "trades_executed": "int",
+      "stop_losses": "int",
+      "take_profits": "int",
+      "stocks_scanned": "int"
+    },
+    "account_id": "str",
+    "trade_mode": "str",
+    "filter_pipeline": {
+      "position_ratio": "float",
+      "sentiment": {
+        "score": "int",
+        "period": "str"
       }
     },
-    "by_priority": {},
-    "channels": [
-      "str"
-    ],
-    "dedup_cache_size": "int",
-    "recent_dispatches": [
+    "risk_watchdog": {
+      "overall_status": "str",
+      "uptime_seconds": "float",
+      "scanner_heartbeat_age": "int",
+      "alert_count": "int",
+      "checks": {}
+    },
+    "signal_dispatcher": {
+      "total_received": "int",
+      "total_dispatched": "int",
+      "total_deduped": "int",
+      "total_failed": "int",
+      "by_channel": {
+        "log": {
+          "success": "int",
+          "failed": "int"
+        },
+        "redis": {
+          "success": "int",
+          "failed": "int"
+        }
+      },
+      "by_priority": {},
+      "channels": [
+        "str"
+      ],
+      "dedup_cache_size": "int",
+      "recent_dispatches": [
+        "<empty_list>"
+      ]
+    },
+    "tiered_scanner": {},
+    "quote_degrade_level": "int",
+    "quote_degrade_desc": "str",
+    "trailing_stops": {},
+    "position_risk_levels": {},
+    "execution_stats": {
+      "total_slippage_pct": "float",
+      "total_fills": "int",
+      "partial_fills": "int",
+      "avg_fill_latency_ms": "float",
+      "stop_loss_response_times": [
+        "<empty_list>"
+      ]
+    },
+    "scan_loop_errors": "int",
+    "last_realtime_update_ts": "float",
+    "realtime_cache_age_sec": "NoneType",
+    "smart_check_interval": "NoneType",
+    "sell_logic_mode": "str",
+    "health": {
+      "status": "str",
+      "is_healthy": "bool",
+      "scan_lag_seconds": "int",
+      "risk_check_lag_seconds": "int",
+      "quote_staleness_seconds": "float",
+      "risk_thread_alive": "bool",
+      "risk_thread_restarts": "int",
+      "warnings": [
+        "str"
+      ],
+      "event_bus_stats": {}
+    },
+    "market_status": "str",
+    "current_time": "str",
+    "is_trading_time": "bool",
+    "dry_run": "bool",
+    "signal_stats": {
+      "total": "int",
+      "new": "int",
+      "executed": "int",
+      "skipped": "int",
+      "expired": "int",
+      "filtered": "int"
+    },
+    "data_sources": [
       "<empty_list>"
-    ]
-  },
-  "tiered_scanner": {},
-  "quote_degrade_level": "int",
-  "quote_degrade_desc": "str",
-  "trailing_stops": {},
-  "position_risk_levels": {},
-  "execution_stats": {
-    "total_slippage_pct": "float",
-    "total_fills": "int",
-    "partial_fills": "int",
-    "avg_fill_latency_ms": "float",
-    "stop_loss_response_times": [
-      "<empty_list>"
-    ]
-  },
-  "scan_loop_errors": "int",
-  "last_realtime_update_ts": "float",
-  "realtime_cache_age_sec": "NoneType",
-  "smart_check_interval": "NoneType",
-  "sell_logic_mode": "str",
-  "health": {
-    "status": "str",
-    "is_healthy": "bool",
-    "scan_lag_seconds": "int",
-    "risk_check_lag_seconds": "int",
-    "quote_staleness_seconds": "float",
-    "risk_thread_alive": "bool",
-    "risk_thread_restarts": "int",
-    "warnings": [
-      "str"
     ],
-    "event_bus_stats": {}
-  },
-  "market_status": "str",
-  "current_time": "str",
-  "is_trading_time": "bool",
-  "dry_run": "bool",
-  "signal_stats": {
-    "total": "int",
-    "new": "int",
-    "executed": "int",
-    "skipped": "int",
-    "expired": "int",
-    "filtered": "int"
-  },
-  "data_sources": [
-    "<empty_list>"
-  ],
-  "circuit_breaker": {
-    "trading_paused": "bool",
-    "pause_reason": "str",
-    "consecutive_losses": "int",
-    "today_trades": "int",
-    "today_losses": "int"
+    "circuit_breaker": {
+      "trading_paused": "bool",
+      "pause_reason": "str",
+      "consecutive_losses": "int",
+      "today_trades": "int",
+      "today_losses": "int"
+    }
   }
 }

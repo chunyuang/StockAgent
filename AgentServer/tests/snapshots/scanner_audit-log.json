@@ -3,12 +3,14 @@
   "data": [
     {
       "timestamp": "str",
+      "time_str": "str",
       "account_id": "str",
       "action": "str",
       "ts_code": "str",
       "stock_name": "str",
       "strategy": "str",
       "reason": "str",
+      "level": "str",
       "sentiment": "str",
       "position_ratio": "float",
       "sell_logic_mode": "str"
