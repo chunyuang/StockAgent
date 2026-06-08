@@ -126,8 +126,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-
-const API_BASE = import.meta.env.VITE_API_BASE || ''
+import { api } from '@/api/client'
 
 const loading = ref(false)
 const traceList = ref([])
@@ -188,9 +187,8 @@ function getStrategyColor(strategy) {
 async function loadTraces() {
   loading.value = true
   try {
-    const resp = await fetch(`${API_BASE}/api/v1/scanner/scan-traces?limit=20`)
-    const data = await resp.json()
-    if (data.success) {
+    const { data } = await api.get('/scanner/scan-traces', { params: { limit: 20 } })
+    if (data?.success) {
       traceList.value = data.data || []
       if (traceList.value.length > 0 && !selectedTraceId.value) {
         selectedTraceId.value = traceList.value[0]._id
@@ -208,9 +206,8 @@ async function loadTraceDetail() {
   if (!selectedTraceId.value) return
   loading.value = true
   try {
-    const resp = await fetch(`${API_BASE}/api/v1/scanner/scan-traces/${selectedTraceId.value}`)
-    const data = await resp.json()
-    if (data.success) {
+    const { data } = await api.get(`/scanner/scan-traces/${selectedTraceId.value}`)
+    if (data?.success) {
       currentTrace.value = data.data
     }
   } catch (e) {
