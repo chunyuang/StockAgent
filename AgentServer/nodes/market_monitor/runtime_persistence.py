@@ -826,6 +826,31 @@ class RuntimePersistence:
                             pass
                     if migrated:
                         logger.info(f"[START] 审计日志timestamp迁移: {migrated}条")
+                    # 【v2.9.83修复】旧数据time字段→timestamp迁移(TTL覆盖)
+                    try:
+                        time_migrated = 0
+                        async for doc in mongo_manager.db["audit_log"].find(
+                            {"timestamp": {"$exists": False}, "time": {"$exists": True}},
+                            {"_id": 1, "time": 1}
+                        ).limit(200):
+                            try:
+                                old_time = doc.get("time", "")
+                                if isinstance(old_time, str) and old_time:
+                                    new_ts = _dt.fromisoformat(old_time)
+                                elif isinstance(old_time, (int, float)):
+                                    new_ts = _dt.fromtimestamp(old_time)
+                                else:
+                                    continue
+                                await mongo_manager.db["audit_log"].update_one(
+                                    {"_id": doc["_id"]}, {"$set": {"timestamp": new_ts}}
+                                )
+                                time_migrated += 1
+                            except (ValueError, TypeError):
+                                pass
+                        if time_migrated:
+                            logger.info(f"[START] 审计日志time→timestamp迁移: {time_migrated}条")
+                    except Exception as _tme:
+                        logger.debug(f"[START] 审计日志time迁移失败(非关键): {_tme}")
                 except Exception as _me:
                     logger.debug(f"[START] 审计日志迁移失败(非关键): {_me}")
         except Exception as _e:

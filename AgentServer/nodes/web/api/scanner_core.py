@@ -102,11 +102,17 @@ async def get_all_scanner_data():
     # 填充空stock_name(从scanner的名称映射)
     _fill_stock_names(timeline_data, scanner)
     
-    # 累计盈亏统计(从时间线计算)
+    # 累计盈亏统计(优先从broker_orders profit_amount累加，更准确)
     total_profit_amount = 0
+    # 方式1: 从timeline sell事件累加(实时数据)
     for item in timeline_data:
         if item.get("action") == "sell" and item.get("profit_amount"):
             total_profit_amount += item["profit_amount"]
+    # 方式2: 如果timeline无profit_amount，从broker_orders补充(历史回放场景)
+    if total_profit_amount == 0 and orders_data:
+        for o in orders_data:
+            if o.get("side") == "sell" and o.get("profit_amount"):
+                total_profit_amount += o["profit_amount"]
     
     return _sanitize({
         "success": True,
@@ -283,7 +289,15 @@ async def get_timeline_history(date: str = None, days: int = 7):
         if not mongo_manager.is_initialized:
             return {"success": True, "data": []}
         
-        account_id = scanner._broker.account.account_id if scanner._broker else "default"
+        # 【v2.9.83修复】account_id获取: 优先scanner._broker, fallback到scanner.account_id, 最后default
+        account_id = "default"
+        try:
+            if scanner._broker and hasattr(scanner._broker, 'account') and scanner._broker.account:
+                account_id = scanner._broker.account.account_id
+            elif hasattr(scanner, 'account_id') and scanner.account_id:
+                account_id = scanner.account_id
+        except Exception:
+            pass
         
         if date:
             # 指定日期

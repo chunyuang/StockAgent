@@ -612,19 +612,19 @@ async def get_scan_config():
     scanner = await _get_scanner()
     try:
         config = {
-            "scan_interval_sec": scanner.SCAN_INTERVAL,
-            "scan_interval_desc": f"{scanner.SCAN_INTERVAL // 60}分钟",
-            "position_check_interval_sec": scanner.POSITION_CHECK_INTERVAL,
-            "position_check_fast_sec": scanner.POSITION_CHECK_FAST,
-            "position_check_critical_sec": scanner.POSITION_CHECK_CRITICAL,
-            "signal_expire_sec": scanner.SIGNAL_EXPIRE_SECONDS,
-            "signal_expire_desc": f"{scanner.SIGNAL_EXPIRE_SECONDS // 60}分钟",
-            "max_positions": scanner.MAX_POSITIONS,
-            "max_position_ratio": scanner.MAX_POSITION_RATIO,
-            "is_running": scanner._is_running,
-            "trade_mode": scanner._trade_mode if hasattr(scanner, '_trade_mode') else "simulated",
-            "account_id": scanner._broker.account.account_id if scanner._broker else "default",
-            "current_smart_interval": scanner._get_smart_check_interval(scanner._broker.get_positions()) if scanner._is_running and scanner._broker else None,
+            "scan_interval_sec": getattr(scanner, 'SCAN_INTERVAL', 300),
+            "scan_interval_desc": f"{getattr(scanner, 'SCAN_INTERVAL', 300) // 60}分钟",
+            "position_check_interval_sec": getattr(scanner, 'POSITION_CHECK_INTERVAL', 30),
+            "position_check_fast_sec": getattr(scanner, 'POSITION_CHECK_FAST', 10),
+            "position_check_critical_sec": getattr(scanner, 'POSITION_CHECK_CRITICAL', 5),
+            "signal_expire_sec": getattr(scanner, 'SIGNAL_EXPIRE_SECONDS', 1800),
+            "signal_expire_desc": f"{getattr(scanner, 'SIGNAL_EXPIRE_SECONDS', 1800) // 60}分钟",
+            "max_positions": getattr(scanner, 'MAX_POSITIONS', 3),
+            "max_position_ratio": getattr(scanner, 'MAX_POSITION_RATIO', 0.15),
+            "is_running": getattr(scanner, '_is_running', False),
+            "trade_mode": getattr(scanner, '_trade_mode', 'simulated'),
+            "account_id": (scanner._broker.account.account_id if scanner._broker else "default") if hasattr(scanner, '_broker') else "default",
+            "current_smart_interval": scanner._get_smart_check_interval(scanner._broker.get_positions()) if getattr(scanner, '_is_running', False) and scanner._broker and hasattr(scanner, '_get_smart_check_interval') else None,
         }
         return {"success": True, "data": config}
     except Exception as e:

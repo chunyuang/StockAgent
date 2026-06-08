@@ -631,7 +631,13 @@ async def get_audit_log(limit: int = 50):
         from core.managers import mongo_manager
         # mongo_manager auto-connected
         logs = []
-        async for doc in mongo_manager.db["audit_log"].find({}, {"_id": 0}).sort("timestamp", -1).limit(limit):
+        # 【v2.9.83修复】旧数据兼容: sort时优先timestamp，fallback到time/time_str
+        # MongoDB复合排序确保新/旧数据都正确排列
+        async for doc in mongo_manager.db["audit_log"].find(
+            {}, {"_id": 0}
+        ).sort(
+            [("timestamp", -1), ("time", -1), ("time_str", -1)]
+        ).limit(limit):
             # 统一字段: 确保timestamp/action/reason字段存在
             ts = doc.get("timestamp", "")
             if hasattr(ts, 'isoformat'):
@@ -642,17 +648,25 @@ async def get_audit_log(limit: int = 50):
                 from datetime import datetime as _dt
                 doc["timestamp"] = _dt.fromtimestamp(ts).isoformat()
             elif not ts:
-                doc["timestamp"] = doc.get("time_str", "")
+                # 【v2.9.83修复】旧数据time字段→timestamp
+                old_time = doc.get("time", "") or doc.get("time_str", "")
+                if old_time:
+                    doc["timestamp"] = str(old_time)
+                else:
+                    doc["timestamp"] = ""
             # 统一action字段: event_type → action
             if not doc.get("action") and doc.get("event_type"):
                 doc["action"] = doc["event_type"]
-            # 统一reason字段: data.reason → reason
+            # 统一reason字段: detail/reason → reason
             if not doc.get("reason"):
                 data = doc.get("data", {})
                 if isinstance(data, dict):
                     doc["reason"] = data.get("reason", "") or data.get("message", "") or data.get("detail", "")
                 elif isinstance(data, str):
                     doc["reason"] = data[:100]
+                # 【v2.9.83修复】顶层detail字段→reason
+                if not doc.get("reason") and doc.get("detail"):
+                    doc["reason"] = doc["detail"]
             logs.append(doc)
         return _sanitize({"success": True, "data": logs})
     except Exception as e:
