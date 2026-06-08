@@ -755,7 +755,7 @@ async def get_alignment_stats():
     仅当SELL_LOGIC_MODE=compare时累积数据。
     """
     try:
-        from nodes.web.api.scanner import _get_scanner_instance
+        from nodes.web.api.scanner_shared import _get_scanner_instance
         scanner = _get_scanner_instance()
         if not scanner:
             return {"success": True, "available": False, "message": "Scanner未启动"}

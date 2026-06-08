@@ -227,3 +227,6 @@ async def _fetch_result(task_id=None):
     if task and task.get('result'):
         return task['result']
     return None
+
+def pytest_addoption(parser):
+    parser.addoption("--update-snapshot", action="store_true", default=False, help="Update API snapshots")

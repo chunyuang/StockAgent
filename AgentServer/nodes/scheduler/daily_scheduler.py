@@ -293,7 +293,7 @@ class DailyScheduler:
 
         # 优先从Scanner获取实时状态(Scanner负责所有交易逻辑)
         try:
-            from nodes.web.api.scanner import _get_scanner_instance
+            from nodes.web.api.scanner_shared import _get_scanner_instance
             scanner = _get_scanner_instance()
             if scanner and scanner._is_running:
                 # Scanner在运行, 直接读取状态
@@ -473,7 +473,7 @@ class DailyScheduler:
         """
         # 优先从scanner获取信号(有9层筛选+实时行情)
         try:
-            from nodes.web.api.scanner import _get_scanner_instance
+            from nodes.web.api.scanner_shared import _get_scanner_instance
             scanner = _get_scanner_instance()
             if scanner and scanner._is_running:
                 # scanner在运行 → 直接取它的信号
@@ -586,7 +586,7 @@ class DailyScheduler:
         """实时行情(通过Scanner的必盈数据源)"""
         try:
             # 优先从Scanner获取(已接必盈)
-            from nodes.web.api.scanner import _get_scanner_instance
+            from nodes.web.api.scanner_shared import _get_scanner_instance
             scanner = _get_scanner_instance()
             if scanner and scanner._realtime_cache:
                 return scanner._realtime_cache
@@ -764,7 +764,7 @@ class DailyScheduler:
 
         # 优先用scanner的broker(功能更完整)
         try:
-            from nodes.web.api.scanner import _get_scanner_instance
+            from nodes.web.api.scanner_shared import _get_scanner_instance
             scanner = _get_scanner_instance()
             if scanner and scanner._broker:
                 for sig in signals:
