@@ -1,12 +1,9 @@
 {
-  "success": "bool",
-  "data": {
-    "start_date": "str",
-    "end_date": "str",
-    "drifts": [
-      "<empty_list>"
-    ],
-    "drift_count": "int",
-    "high_severity": "int"
-  }
+  "start_date": "str",
+  "end_date": "str",
+  "drifts": [
+    "<empty_list>"
+  ],
+  "drift_count": "int",
+  "high_severity": "int"
 }
