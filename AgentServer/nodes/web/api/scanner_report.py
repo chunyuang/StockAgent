@@ -220,10 +220,13 @@ async def get_historical_review(date: str = None):
                 return {"success": True, "data": None, "message": "无历史交易数据"}
             date = latest.get("trade_date", "")
         
+        # 【v2.9.86修复】broker_orders.trade_date是int类型，必须转换
+        date_int = int(date) if isinstance(date, str) and date.isdigit() else date
+        
         # 查询当日所有成交订单
         buys, sells = [], []
         async for doc in db["broker_orders"].find({
-            "trade_date": date, "status": "filled"
+            "trade_date": date_int, "status": "filled"
         }).sort("fill_time", 1):
             (buys if doc.get("side") == "buy" else sells).append(doc)
         
@@ -342,10 +345,14 @@ async def get_weekly_report(date: str = None):
             start_date = (datetime.now() - timedelta(days=7)).strftime("%Y%m%d")
             end_date = datetime.now().strftime("%Y%m%d")
         
+        # 【v2.9.86修复】broker_orders.trade_date是int，范围查询必须用int
+        start_date_int = int(start_date)
+        end_date_int = int(end_date)
+        
         daily_stats = {}
         async for doc in mongo_manager.db["broker_orders"].find({
             "account_id": account_id,
-            "trade_date": {"$gte": start_date, "$lte": end_date},
+            "trade_date": {"$gte": start_date_int, "$lte": end_date_int},
             "status": "filled",
         }).sort("trade_date", 1):
             td = doc.get("trade_date", "")
@@ -399,9 +406,10 @@ async def get_weekly_report(date: str = None):
                 strategy_summary[strat]["sell_count"] += sdata.get("sell_count", 0)
                 strategy_summary[strat]["amount"] += sdata["amount"]
         # 从卖出订单补充胜率/盈亏
+        # 【v2.9.86修复】broker_orders.trade_date是int，范围查询必须用int
         async for doc in mongo_manager.db["broker_orders"].find({
             "account_id": account_id,
-            "trade_date": {"$gte": start_date, "$lte": end_date},
+            "trade_date": {"$gte": start_date_int, "$lte": end_date_int},
             "status": "filled",
             "side": "sell",
         }):
