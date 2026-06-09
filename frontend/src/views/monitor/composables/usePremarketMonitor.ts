@@ -98,14 +98,14 @@ export function usePremarketMonitor() {
         // 交易日9:30后 → ended(竞价已结束,可查看当日预选)
         // 周末/节假日 → debug(调试模式)
         if (premarketStatus.value === 'debug') {
-          const now = new Date()
-          const day = now.getDay()
-          const hhmm = now.getHours() * 100 + now.getMinutes()
-          if (day !== 0 && day !== 6) {
+          const now2 = new Date()
+          const day2 = now2.getDay()
+          const hhmm2 = now2.getHours() * 100 + now2.getMinutes()
+          if (day2 !== 0 && day2 !== 6) {
             // 交易日
-            if (hhmm < 915) {
+            if (hhmm2 < 915) {
               premarketStatus.value = 'waiting'
-            } else if (hhmm < 925) {
+            } else if (hhmm2 < 925) {
               premarketStatus.value = 'active'
             } else {
               premarketStatus.value = 'ended'

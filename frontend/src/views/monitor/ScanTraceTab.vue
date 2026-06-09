@@ -73,16 +73,16 @@ onMounted(async () => {
           </div>
         </div>
       </div>
-      <div v-if="scanTraceDetail" class="scan-funnel">
-        <template v-for="(layerData, layerName) in scanTraceDetail.summary || {}">
-          <div v-if="String(layerName) !== 'total_candidates' && String(layerName) !== 'passed' && String(layerName) !== 'rejected' && layerData && typeof layerData === 'object'" :key="layerName" class="fn-row" :class="{ 'fn-filter': layerData.rejected > 0, 'fn-pass': !layerData.rejected && (layerData.input || 0) > 0 }">
+      <div v-if="scanTraceDetail?.summary" class="scan-funnel">
+        <template v-for="(layerData, layerName) in scanTraceDetail.summary" :key="layerName">
+          <div v-if="String(layerName) !== 'total_candidates' && String(layerName) !== 'passed' && String(layerName) !== 'rejected' && layerData && typeof layerData === 'object'" class="fn-row" :class="{ 'fn-filter': layerData.rejected > 0, 'fn-pass': !layerData.rejected && (layerData.input || 0) > 0 }">
             <span class="fn-tag">{{ layerLabel(layerName) }}</span>
             <span class="fn-flow">{{ (layerData.input || 0) === 0 && (layerData.output || 0) === 0 && !layerData.rejected ? '—' : (layerData.input || 0) + '→' + (layerData.output || 0) }}</span>
             <span v-if="layerData.rejected" class="fn-rej">淘汰{{ layerData.rejected }}</span>
             <span class="fn-desc">{{ scanTraceDetail.layer_details?.[layerName] || layerDesc(layerName, layerData) || '' }}</span>
           </div>
         </template>
-        <div v-if="scanTraceDetail._pagination" class="fn-total">✅ 通过{{ scanTraceDetail._pagination.passed_count }} / ❌ 淘汰{{ scanTraceDetail._pagination.rejected_count }}</div>
+        <div v-if="scanTraceDetail?._pagination" class="fn-total">✅ 通过{{ scanTraceDetail._pagination.passed_count }} / ❌ 淘汰{{ scanTraceDetail._pagination.rejected_count }}</div>
       </div>
 
       <!-- 底部: 候选追踪(主区域) -->
