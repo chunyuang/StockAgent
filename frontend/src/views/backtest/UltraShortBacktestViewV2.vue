@@ -787,7 +787,7 @@ const reviewReport = computed(() => {
   let bestStrategy = '', worstStrategy = ''
   let bestReturn = -Infinity, worstReturn = Infinity
   for (const [name, data] of strategyEntries) {
-    const ret = data.total_return ?? 0
+    const ret = Number(data.total_return) || 0
     if (ret > bestReturn) { bestReturn = ret; bestStrategy = name }
     if (ret < worstReturn) { worstReturn = ret; worstStrategy = name }
   }
@@ -795,7 +795,8 @@ const reviewReport = computed(() => {
   // 最常见卖出原因
   let topSellReason = '', topSellCount = 0
   for (const [reason, count] of sellReasonEntries) {
-    if ((count as number) > topSellCount) { topSellCount = count as number; topSellReason = reason }
+    const numCount = Number(count) || 0
+    if (numCount > topSellCount) { topSellCount = numCount; topSellReason = reason }
   }
 
   return {
@@ -986,7 +987,7 @@ function onViewLogs(_taskId: string) {
         <VChart v-if="sweepChartOption" :option="sweepChartOption" autoresize style="height: 400px; width: 100%" />
         <ElTable v-if="sweepResult.results?.length" :data="sweepResult.results" size="small" border stripe style="margin-top: 12px">
           <ElTableColumn label="参数值" width="100">
-            <template #default="{ row }">{{ currentSweepParam ? (row.value * currentSweepParam.factor).toFixed(2) + currentSweepParam.unit : row.value }}</template>
+            <template #default="{ row }">{{ currentSweepParam ? (Number(row.value) * currentSweepParam.factor).toFixed(2) + currentSweepParam.unit : row.value }}</template>
           </ElTableColumn>
           <ElTableColumn label="收益率" width="100">
             <template #default="{ row }"><span :style="{ color: row.total_return >= 0 ? 'var(--stock-down)' : 'var(--stock-up)' }">{{ row.total_return?.toFixed(2) }}%</span></template>
@@ -1065,12 +1066,12 @@ function onViewLogs(_taskId: string) {
         <div v-if="reviewReport.strategyEntries.length" class="review-section">
           <div class="rs-title">📊 策略表现对比</div>
           <div class="review-strategy-grid">
-            <div v-for="[name, data] in reviewReport.strategyEntries" :key="name" class="review-strategy-card" :class="(data.total_return ?? 0) >= 0 ? 'positive' : 'negative'">
+            <div v-for="[name, data] in reviewReport.strategyEntries" :key="name" class="review-strategy-card" :class="(Number(data.total_return) || 0) >= 0 ? 'positive' : 'negative'">
               <div class="rsc-name">{{ name }}</div>
               <div class="rsc-stats">
-                <span>收益 {{ (data.total_return ?? 0).toFixed(1) }}%</span>
-                <span>胜率 {{ (data.win_rate ?? 0).toFixed(1) }}%</span>
-                <span>{{ data.trades_count ?? 0 }}笔</span>
+                <span>收益 {{ (Number(data.total_return) || 0).toFixed(1) }}%</span>
+                <span>胜率 {{ (Number(data.win_rate) || 0).toFixed(1) }}%</span>
+                <span>{{ Number(data.trades_count) || 0 }}笔</span>
               </div>
             </div>
           </div>
@@ -1089,9 +1090,9 @@ function onViewLogs(_taskId: string) {
             <div v-for="[reason, count] in reviewReport.sellReasonEntries" :key="reason" class="review-sell-bar">
               <span class="rsb-label">{{ translateSellReason(reason) }}</span>
               <div class="rsb-track">
-                <div class="rsb-fill" :style="{ width: Math.min(100, (count / reviewReport.totalTrades) * 100 * 2) + '%' }"></div>
+                <div class="rsb-fill" :style="{ width: Math.min(100, (Number(count) / Math.max(reviewReport.totalTrades, 1)) * 100 * 2) + '%' }"></div>
               </div>
-              <span class="rsb-count">{{ count }}次</span>
+              <span class="rsb-count">{{ Number(count) || 0 }}次</span>
             </div>
           </div>
           <div v-if="reviewReport.topSellReason" class="rs-summary">

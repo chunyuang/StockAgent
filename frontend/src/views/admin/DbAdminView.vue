@@ -337,7 +337,7 @@ onMounted(() => {
         <ElTableColumn prop="document_count" label="文档数" width="120" />
         <ElTableColumn prop="avg_document_size" label="平均文档大小" width="140">
           <template #default="{ row }">
-            {{ row.avg_document_size ? `${row.avg_document_size.toFixed(2)} B` : '0 B' }}
+            {{ row.avg_document_size ? `${Number(row.avg_document_size).toFixed(2)} B` : '0 B' }}
           </template>
         </ElTableColumn>
         <ElTableColumn prop="size_bytes" label="总大小" width="120">
