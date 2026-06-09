@@ -1,5 +1,10 @@
 {
-  "success": "bool",
-  "data": "NoneType",
-  "message": "str"
+  "date": "int",
+  "total_actions": "int",
+  "correct_actions": "int",
+  "execution_rate": "float",
+  "violation_count": "int",
+  "violations": [
+    "<empty_list>"
+  ]
 }

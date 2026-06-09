@@ -68,7 +68,20 @@
         "rejected": "int"
       },
       "layer_details": {
-        "L1_force_empty": "str"
+        "L1_force_empty": "str",
+        "L2_special_period": "str",
+        "L3_sentiment": "str",
+        "L3_sentiment_data": {
+          "score": "int",
+          "period": "str",
+          "position_ratio": "float",
+          "l3_drop_count": "int"
+        },
+        "L4_premarket": "str",
+        "L5_auction": "str",
+        "L6_strategy": "str",
+        "L7_ranking": "str",
+        "L8_position": "str"
       },
       "scan_id": "str"
     }

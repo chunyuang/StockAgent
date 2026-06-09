@@ -112,8 +112,15 @@ class EmotionCycleManager:
         trade_date: str,
         limit_stocks: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> EmotionScore:
-        """计算当日市场情绪得分(编排方法)"""
-        if trade_date in self._cache:
+        """计算当日市场情绪得分(编排方法)
+        
+        【v2.9.86修复】当limit_stocks传入(实时模式)时跳过缓存，
+        因为盘中涨跌停数会变化，每次扫描都应重新计算。
+        只在limit_stocks=None(历史/盘后模式)时使用缓存。
+        """
+        # 【v2.9.86修复】实时模式(limit_stocks传入)跳过缓存
+        use_cache = limit_stocks is None
+        if use_cache and trade_date in self._cache:
             return self._cache[trade_date]
 
         # 1-4. 收集情绪因子数据
@@ -127,7 +134,9 @@ class EmotionCycleManager:
 
         # 7. 构建结果
         result = self._build_emotion_score(trade_date, score, phase, factors)
-        self._cache[trade_date] = result
+        # 【v2.9.86修复】只在历史/盘后模式(limit_stocks=None)时缓存
+        if use_cache:
+            self._cache[trade_date] = result
 
         logger.info(
             f"[EMOTION] {trade_date}: score={score:.1f}, phase={phase.value}, "

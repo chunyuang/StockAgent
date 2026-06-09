@@ -1,7 +1,35 @@
 {
-  "matrix": {},
-  "strategy_totals": {},
+  "matrix": {
+    "halfway_chase": {
+      "未知": {
+        "count": "int",
+        "win_rate": "float",
+        "total_pnl": "int",
+        "wins": "int",
+        "losses": "int",
+        "profit_loss_ratio": "float"
+      }
+    }
+  },
+  "strategy_names": {
+    "halfway_chase": "str"
+  },
+  "strategy_totals": {
+    "halfway_chase": {
+      "count": "int",
+      "wins": "int",
+      "losses": "int",
+      "win_rate": "float",
+      "total_pnl": "int"
+    }
+  },
   "recommendations": [
-    "<empty_list>"
+    {
+      "strategy": "str",
+      "best_period": "str",
+      "win_rate": "float",
+      "count": "int",
+      "pnl": "int"
+    }
   ]
 }

@@ -11,7 +11,9 @@
     "stop_loss_execution_rate": "float",
     "stop_loss_at_loss": "int",
     "stop_loss_at_profit": "int",
+    "stop_loss_triggered": "int",
     "loss_sells": "int",
+    "loss_without_stop": "int",
     "bearish_period_buy_ratio": "float",
     "bearish_buys": "int",
     "total_buys": "int"

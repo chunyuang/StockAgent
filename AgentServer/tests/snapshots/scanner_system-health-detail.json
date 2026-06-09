@@ -18,13 +18,27 @@
   "redis": {
     "connected": "bool"
   },
+  "websocket": {
+    "connected": "bool",
+    "client_count": "int"
+  },
   "system": {
     "cpu_pct": "float",
     "memory_pct": "float",
     "disk_pct": "float"
   },
   "alerts": [
-    "<empty_list>"
+    {
+      "event_type": "str",
+      "trade_date": "str",
+      "account_id": "str",
+      "data": {
+        "error": "str",
+        "error_type": "str"
+      },
+      "timestamp": "float",
+      "time_str": "str"
+    }
   ],
   "health_score": "int"
 }

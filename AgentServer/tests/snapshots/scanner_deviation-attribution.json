@@ -1,5 +1,50 @@
 {
-  "success": "bool",
-  "data": "NoneType",
-  "message": "str"
+  "period": "str",
+  "live_stats": {
+    "trades": "int",
+    "wins": "int",
+    "win_rate": "float"
+  },
+  "risk_alerts": {
+    "bearish_buy_ratio": "float",
+    "bearish_buy_count": "int",
+    "note": "str"
+  },
+  "deviations": {
+    "slippage": {
+      "avg_pct": "float",
+      "count": "int",
+      "impact": "float"
+    },
+    "discipline": {
+      "violations": "int",
+      "violation_wr": "float",
+      "impact": "int"
+    },
+    "selection": [
+      "<empty_list>"
+    ],
+    "timing": {
+      "late_count": "int",
+      "count": "int"
+    }
+  },
+  "details": {
+    "slippage": [
+      "<empty_list>"
+    ],
+    "discipline": [
+      "<empty_list>"
+    ],
+    "timing": [
+      {
+        "type": "str",
+        "strategy": "str",
+        "execute_time": "str",
+        "expected": "str",
+        "ts_code": "str",
+        "stock_name": "str"
+      }
+    ]
+  }
 }

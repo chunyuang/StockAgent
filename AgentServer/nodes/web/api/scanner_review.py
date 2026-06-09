@@ -47,7 +47,8 @@ async def backtest_compare(date: str = None):
             ls = defaultdict(lambda: {"trades":0,"wins":0,"total_pnl":0})
             sell_query = {"side":"sell","status":"filled"}
             if date:
-                sell_query["trade_date"] = {"$lte": str(date)}
+                # 【v2.9.86修复】broker_orders.trade_date是int，不能用str
+                sell_query["trade_date"] = {"$lte": int(date)}
             async for doc in mongo_manager.db["broker_orders"].find(sell_query):
                 strat = _norm_strat(doc.get("strategy","unknown"))
                 pct = doc.get("profit_pct",0) or 0
@@ -228,10 +229,13 @@ async def get_trade_attribution(date: str = None):
                 return {"success": True, "data": []}
             date = latest.get("trade_date", "")
 
+        # 【v2.9.86修复】broker_orders.trade_date是int，必须转换
+        date_int = int(date) if isinstance(date, str) and date.isdigit() else date
+
         attributions = []
-        # 从broker_orders读取卖出记录
+        # 从broker_order读取卖出记录
         async for doc in db["broker_orders"].find({
-            "trade_date": date, "side": "sell", "status": "filled"
+            "trade_date": date_int, "side": "sell", "status": "filled"
         }).sort("fill_time", 1):
             ts_code = doc.get("ts_code", "")
             strategy = doc.get("strategy", "")
@@ -242,7 +246,7 @@ async def get_trade_attribution(date: str = None):
 
             # 查找对应买入记录(同日或之前)
             buy_doc = await db["broker_orders"].find_one(
-                {"ts_code": ts_code, "strategy": strategy, "side": "buy", "status": "filled", "trade_date": {"$lte": date}},
+                {"ts_code": ts_code, "strategy": strategy, "side": "buy", "status": "filled", "trade_date": {"$lte": date_int}},
                 sort=[("_id", -1)]  # 最近的一次买入
             )
             buy_price = buy_doc.get("filled_price", 0) if buy_doc else 0
@@ -352,9 +356,12 @@ async def get_review_hero(date: str = None):
         if not date:
             return {"success": True, "data": None, "message": "无交易数据"}
 
+        # 【v2.9.86修复】broker_orders.trade_date是int
+        date_int = int(date) if isinstance(date, str) and date.isdigit() else date
+
         # 1. 当日交易统计
         sells, buys = [], []
-        async for doc in db["broker_orders"].find({"trade_date": date, "status": "filled"}):
+        async for doc in db["broker_orders"].find({"trade_date": date_int, "status": "filled"}):
             (buys if doc.get("side") == "buy" else sells).append(doc)
 
         # 止损/止盈计数(基于卖出原因,非胜/负)
@@ -536,8 +543,11 @@ async def get_discipline_check(date: str = None):
         total_actions = 0
         correct_actions = 0
 
+        # 【v2.9.86修复】broker_orders.trade_date是int
+        date_int = int(date) if isinstance(date, str) and date.isdigit() else date
+
         # 检查买入
-        async for doc in db["broker_orders"].find({"trade_date": date, "side": "buy", "status": "filled"}):
+        async for doc in db["broker_orders"].find({"trade_date": date_int, "side": "buy", "status": "filled"}):
             total_actions += 1
             strat = _norm_strat(doc.get("strategy", ""))  # 归一化:anomaly_surge→halfway_chase
             fit = strategy_fit.get(strat, {})
@@ -560,7 +570,7 @@ async def get_discipline_check(date: str = None):
                 correct_actions += 1
 
         # 检查卖出(止损是否及时)
-        async for doc in db["broker_orders"].find({"trade_date": date, "side": "sell", "status": "filled"}):
+        async for doc in db["broker_orders"].find({"trade_date": date_int, "side": "sell", "status": "filled"}):
             total_actions += 1
             pct = doc.get("profit_pct",0) or 0
             reason = doc.get("reason","")
@@ -1573,11 +1583,15 @@ async def factor_effectiveness(date: str = None):
                         factor_stats[fname][period][bucket] = {"total": 0, "wins": 0, "pnl_sum": 0}
                     factor_stats[fname][period][bucket]["total"] += 1
 
+        # 【v2.9.86修复】broker_orders.trade_date是int，scan_traces是string
+        start_str = str(start_date)
+        end_str = str(end_date)
+
         # 3. 用broker_orders的买入和后续卖出结果来补充胜率
         # 简化: 用scan_traces候选的pct_chg作为近似
         buys_by_date = {}  # date -> {ts_code -> {strategy, pct_chg}}
         async for doc in db["broker_orders"].find(
-            {"side": "buy", "status": "filled", "trade_date": {"$gte": str(start_date), "$lte": str(end_date)}},
+            {"side": "buy", "status": "filled", "trade_date": {"$gte": start_date, "$lte": end_date}},
             {"_id": 0, "trade_date": 1, "ts_code": 1, "strategy": 1, "filled_price": 1}
         ):
             td = doc.get("trade_date", "")
@@ -1591,7 +1605,7 @@ async def factor_effectiveness(date: str = None):
         # 用卖出profit_pct来算胜率
         sells_by_buy = {}  # (date, ts_code) -> profit_pct
         async for doc in db["broker_orders"].find(
-            {"side": "sell", "status": "filled", "trade_date": {"$gte": str(start_date), "$lte": str(end_date)}},
+            {"side": "sell", "status": "filled", "trade_date": {"$gte": start_date, "$lte": end_date}},
             {"_id": 0, "trade_date": 1, "ts_code": 1, "strategy": 1, "profit_pct": 1, "reason": 1}
         ):
             sells_by_buy[(doc.get("trade_date", ""), doc.get("ts_code", ""))] = doc.get("profit_pct", 0) or 0

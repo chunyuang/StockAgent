@@ -3,6 +3,7 @@
   "period": "str",
   "period_label": "str",
   "position_ratio": "float",
+  "can_open": "bool",
   "limit_up_count": "int",
   "limit_down_count": "int",
   "broken_count": "int",
