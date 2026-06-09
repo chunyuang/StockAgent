@@ -1660,11 +1660,63 @@ async def factor_effectiveness(date: str = None):
                             "alert": f"{bucket}在不同情绪阶段胜率差{spread:.0f}%,市场漂移明显",
                         })
 
+        # 7. 按周时间趋势: 各因子在不同周的效果变化(v2.9.86增强)
+        weekly_trend = {}  # factor_name -> [{week, win_rate, total, avg_pnl}]
+        # 按周分组: 每7天一组
+        date_int = int(date)
+        week_boundaries = []
+        for w in range(4):  # 最近4周
+            w_end = date_int - w * 7
+            w_start = w_end - 6
+            week_boundaries.append((w_start, w_end, f"W{4-w}"))
+
+        for fname, periods in factor_stats.items():
+            if fname not in weekly_trend:
+                weekly_trend[fname] = []
+            for w_start, w_end, w_label in week_boundaries:
+                w_total = 0
+                w_wins = 0
+                w_pnl = 0
+                for period, buckets in periods.items():
+                    for bucket, stats in buckets.items():
+                        w_total += stats["total"]
+                        w_wins += stats["wins"]
+                        w_pnl += stats["pnl_sum"]
+                if w_total > 0:
+                    weekly_trend[fname].append({
+                        "week": w_label,
+                        "win_rate": round(w_wins / w_total * 100, 1),
+                        "total": w_total,
+                        "avg_pnl": round(w_pnl / w_total, 2),
+                    })
+
+        # 8. 因子衰减检测: 胜率连续2周下降的因子
+        decay_alerts = []
+        for fname, weeks in weekly_trend.items():
+            if len(weeks) >= 3:
+                # 按周排序(从早到晚)
+                sorted_weeks = sorted(weeks, key=lambda x: x["week"])
+                # 检查最近2-3周是否持续下降
+                recent = sorted_weeks[-3:]
+                if (len(recent) >= 3
+                    and recent[-1]["win_rate"] < recent[-2]["win_rate"]
+                    and recent[-2]["win_rate"] < recent[-3]["win_rate"]
+                    and recent[-3]["total"] >= 3):
+                    decay_alerts.append({
+                        "factor": fname,
+                        "trend": [f"{w['week']}:{w['win_rate']}%({w['total']}笔)" for w in recent],
+                        "drop": round(recent[-3]["win_rate"] - recent[-1]["win_rate"], 1),
+                        "alert": f"{fname}胜率连续3周下降({recent[-3]['win_rate']}%→{recent[-1]['win_rate']}%),可能因子衰减",
+                        "action": "建议降低该因子权重或暂停使用,回测验证后决定",
+                    })
+
         return {
             "success": True,
             "data": {
                 "factor_stats": result,
                 "drift_alerts": drift_alerts,
+                "weekly_trend": weekly_trend,
+                "decay_alerts": decay_alerts,
                 "date_range": f"{start_date}~{end_date}",
                 "sentiment_days": len(sentiment_map),
             }
