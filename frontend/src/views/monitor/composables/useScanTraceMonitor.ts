@@ -229,7 +229,7 @@ export function useScanTraceMonitor() {
     if (detail.factors) {
       lines.push('【关键因子】')
       for (const [k, v] of Object.entries(detail.factors)) {
-        if (v !== 0 && v !== null) lines.push(`  ${k}: ${typeof v === 'number' ? v.toFixed(2) : v}`)
+        if (v !== 0 && v !== null) lines.push(`  ${k}: ${typeof v === 'number' && isFinite(v) ? v.toFixed(2) : v}`)
       }
     }
     if (detail.sell_reason) {
