@@ -650,19 +650,19 @@ async def get_review_forward(date: str = None):
         strategy_recommendations = []
         strategy_switches = []
         period_strategy_map = {
-            "高潮": {"open": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head"], "close": []},
-            "分化": {"open": ["halfway_chase","dragon_head"], "close": ["first_limit_up"]},
-            "震荡": {"open": ["limit_down_qiao"], "close": ["halfway_chase","first_limit_up"]},
-            "冰点": {"open": [], "close": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head"]},
+            "高潮": {"open": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head","limit_up_open"], "close": []},
+            "分化": {"open": ["halfway_chase","dragon_head"], "close": ["first_limit_up","limit_up_open"]},
+            "震荡": {"open": ["limit_down_qiao"], "close": ["halfway_chase","first_limit_up","limit_up_open"]},
+            "冰点": {"open": [], "close": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head","limit_up_open"]},
             # 【V75修复】英文key fallback: MongoDB可能存英文period(RISING/BEARISH等),大小写均支持
-            "RISING": {"open": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head"], "close": []},
-            "DIFFERENTIATION": {"open": ["halfway_chase","dragon_head"], "close": ["first_limit_up"]},
-            "CHAOS": {"open": ["limit_down_qiao"], "close": ["halfway_chase","first_limit_up"]},
-            "BEARISH": {"open": [], "close": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head"]},
-            "rising": {"open": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head"], "close": []},
-            "differentiation": {"open": ["halfway_chase","dragon_head"], "close": ["first_limit_up"]},
-            "chaos": {"open": ["limit_down_qiao"], "close": ["halfway_chase","first_limit_up"]},
-            "bearish": {"open": [], "close": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head"]},
+            "RISING": {"open": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head","limit_up_open"], "close": []},
+            "DIFFERENTIATION": {"open": ["halfway_chase","dragon_head"], "close": ["first_limit_up","limit_up_open"]},
+            "CHAOS": {"open": ["limit_down_qiao"], "close": ["halfway_chase","first_limit_up","limit_up_open"]},
+            "BEARISH": {"open": [], "close": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head","limit_up_open"]},
+            "rising": {"open": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head","limit_up_open"], "close": []},
+            "differentiation": {"open": ["halfway_chase","dragon_head"], "close": ["first_limit_up","limit_up_open"]},
+            "chaos": {"open": ["limit_down_qiao"], "close": ["halfway_chase","first_limit_up","limit_up_open"]},
+            "bearish": {"open": [], "close": ["halfway_chase","first_limit_up","limit_down_qiao","dragon_head","limit_up_open"]},
         }
 
         switches = period_strategy_map.get(raw_period, period_strategy_map.get(cn_period, {"open":[],"close":[]}))
@@ -946,6 +946,7 @@ async def deviation_attribution(date: str = None, start_date: str = None, end_da
             "first_limit_up": {"适合": ["高潮"], "不适合": ["分化","震荡","冰点"]},
             "limit_down_qiao": {"适合": ["高潮","分化","震荡"], "不适合": ["冰点"]},
             "dragon_head": {"适合": ["高潮","分化"], "不适合": ["震荡","冰点"]},
+            "limit_up_open": {"适合": ["高潮","分化"], "不适合": ["震荡","冰点"]},  # 涨停开板:仅高情绪期适合
         }
         for buy in buys:
             td = buy.get("trade_date","")
@@ -990,7 +991,9 @@ async def deviation_attribution(date: str = None, start_date: str = None, end_da
         except ImportError:
             strategy_name_aliases = {}
         # 本地补充(STRATEGY_ALIASES可能不含的旧映射)
-        strategy_name_aliases.setdefault("limit_up_open", "first_limit_up")  # 涨停开板≈首板打板(历史兼容)
+        # ⚠️ limit_up_open是STRATEGY_CONFIGS中的正式策略(涨停开板),不能归并到first_limit_up
+        # 只有真正的别名(anomaly_surge→halfway_chase等)才需要归并
+        # strategy_name_aliases.setdefault("limit_up_open", "first_limit_up")  # 已删除: 涨停开板≠首板打板
 
         # 统一策略名后计算重叠
         def normalize_strat(s):
