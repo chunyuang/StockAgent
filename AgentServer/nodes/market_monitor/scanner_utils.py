@@ -271,13 +271,14 @@ class ScannerUtils:
 
     @staticmethod
     def _build_risk_status(scanner) -> Dict[str, Any]:
-        """构建风控状态【v2.9.56从generate_summary_report提取】"""
+        """构建风控状态【v2.9.56从generate_summary_report提取, v2.9.85:None安全】"""
+        cb = scanner._circuit_breaker or {}
         return {
-            "circuit_breaker_active": scanner._circuit_breaker.get("trading_paused", False),
-            "circuit_breaker_reason": scanner._circuit_breaker.get("pause_reason", ""),
-            "consecutive_losses": scanner._circuit_breaker.get("consecutive_losses", 0),
-            "today_trades": scanner._circuit_breaker.get("today_trades", 0),
-            "today_losses": scanner._circuit_breaker.get("today_losses", 0),
+            "circuit_breaker_active": cb.get("trading_paused", False),
+            "circuit_breaker_reason": cb.get("pause_reason", ""),
+            "consecutive_losses": cb.get("consecutive_losses", 0),
+            "today_trades": cb.get("today_trades", 0),
+            "today_losses": cb.get("today_losses", 0),
             "dry_run": scanner._dry_run,
         }
 
@@ -330,7 +331,7 @@ class ScannerUtils:
                 "pending_sells": pending_count,
                 "risk_thread_alive": scanner._risk_thread.is_alive() if scanner._risk_thread else False,
                 "scan_errors": scanner.get_scan_error_count(),
-                "trading_paused": scanner._circuit_breaker.get("trading_paused", False),
+                "trading_paused": (scanner._circuit_breaker or {}).get("trading_paused", False),
             },
         }
 
@@ -385,11 +386,12 @@ class ScannerUtils:
     @staticmethod
     def _check_circuit_breaker_active(scanner, issues: list) -> None:
         """熔断器触发检查【v2.9.56从diagnose提取】"""
-        if scanner._circuit_breaker.get("trading_paused"):
+        cb = scanner._circuit_breaker or {}
+        if cb.get("trading_paused"):
             issues.append({
                 "level": "critical",
                 "area": "circuit_breaker",
-                "message": f"熔断器已触发: {scanner._circuit_breaker.get('pause_reason', '未知')}",
+                "message": f"熔断器已触发: {cb.get('pause_reason', '未知')}",
                 "action": "可调用reset_circuit_breaker()重置",
             })
 

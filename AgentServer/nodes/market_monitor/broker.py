@@ -726,7 +726,7 @@ class SimulatedBroker:
                 buy_date=order.trade_date,
             )
 
-    def _execute_sell(self, order: Order, fill_price: float, total_cost: float) -> Optional[Dict]:
+    def _execute_sell(self, order: Order, fill_price: float, total_cost: float) -> None:
         """执行卖出"""
         pos = self.positions.get(order.ts_code)
         if not pos:

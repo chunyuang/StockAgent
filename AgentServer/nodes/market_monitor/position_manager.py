@@ -632,7 +632,7 @@ class PositionManager:
         
         # 情绪仓位系数
         pipeline_ratio = self._scanner._current_position_ratio
-        if pipeline_ratio < 1.0:
+        if pipeline_ratio is not None and pipeline_ratio < 1.0:
             ratio *= pipeline_ratio
         
         return ratio

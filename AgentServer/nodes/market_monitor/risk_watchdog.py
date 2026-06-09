@@ -659,15 +659,16 @@ class RiskWatchdog:
         Returns: True=允许交易, False=应暂停
         """
         # 【v2.9.17:线程安全读取circuit_breaker(使用_with_state_lock)】
+        cb = scanner._circuit_breaker or {}
         cb_data = RiskWatchdog._with_state_lock(
             scanner,
             lambda: {
-                "trading_paused": scanner._circuit_breaker.get("trading_paused", False),
-                "pause_reason": scanner._circuit_breaker.get("pause_reason", ""),
-                "daily_start_assets": scanner._circuit_breaker.get("daily_start_assets", 0),
-                "daily_max_drawdown": scanner._circuit_breaker.get("daily_max_drawdown", 0.05),
-                "consecutive_losses": scanner._circuit_breaker.get("consecutive_losses", 0),
-                "consecutive_loss_limit": scanner._circuit_breaker.get("consecutive_loss_limit", 3),
+                "trading_paused": cb.get("trading_paused", False),
+                "pause_reason": cb.get("pause_reason", ""),
+                "daily_start_assets": cb.get("daily_start_assets", 0),
+                "daily_max_drawdown": cb.get("daily_max_drawdown", 0.05),
+                "consecutive_losses": cb.get("consecutive_losses", 0),
+                "consecutive_loss_limit": cb.get("consecutive_loss_limit", 3),
             },
         )
 

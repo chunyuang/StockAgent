@@ -126,6 +126,8 @@ class RuntimePersistence:
         # 恢复风控状态(跨日也恢复,不恢复trading_paused)
         if "circuit_breaker" in doc:
             cb = doc["circuit_breaker"]
+            if scanner._circuit_breaker is None:
+                scanner._circuit_breaker = {}
             scanner._circuit_breaker["consecutive_losses"] = cb.get("consecutive_losses", 0)
             scanner._circuit_breaker["today_trades"] = cb.get("today_trades", 0)
             scanner._circuit_breaker["today_losses"] = cb.get("today_losses", 0)
@@ -175,7 +177,7 @@ class RuntimePersistence:
             doc["trailing_stops"] = dict(scanner._trailing_stops)
             doc["position_risk_levels"] = dict(scanner._position_risk_levels)
             doc["pending_sells"] = dict(scanner._pending_sells)
-        doc["circuit_breaker"] = scanner._circuit_breaker
+        doc["circuit_breaker"] = scanner._circuit_breaker or {}
         doc["stats"] = dict(scanner._stats)
         doc["active_signals_count"] = len(scanner._active_signals)
         doc["dry_run"] = scanner._dry_run

@@ -70,7 +70,7 @@ class SignalManager:
     
     @property
     def circuit_breaker(self) -> Dict:
-        return self._scanner._circuit_breaker
+        return self._scanner._circuit_breaker or {}
     
     @property
     def dry_run(self) -> bool:

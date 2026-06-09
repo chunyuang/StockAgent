@@ -186,8 +186,8 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
     _last_realtime_update_ts: float = 0.0
     _scan_loop_error_count: int = 0
     _event_bus: Optional[ScannerEventBus] = None
-    _circuit_breaker: Dict = {}  # v2.9.73: 类属性默认值(原在_init_state)
-    _current_sentiment: Dict = {}  # v2.9.73
+    _circuit_breaker: Optional[Dict] = None  # v2.9.73: 类属性默认值(原在_init_state) 【v2.9.85: Dict→None防共享可变状态】
+    _current_sentiment: Optional[Dict] = None  # v2.9.73 【v2.9.85: Dict→None防共享可变状态】
     _current_position_ratio: Optional[float] = None  # v2.9.73
 
     def __init__(self, account_id: str = "default", config: Dict = None):
@@ -250,7 +250,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
             "trade_mode": self._trade_mode,
             "filter_pipeline": {
                 "position_ratio": self._current_position_ratio,
-                "sentiment": self._current_sentiment,
+                "sentiment": self._current_sentiment or {},
             },
             **module_status,
             "trailing_stops": self._get_activated_trailing_stops_safe(),
@@ -793,10 +793,10 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
         filtered_signals = self._merge_filter_result(signals, result)
 
         # 更新仓位系数和情绪信息
-        old_phase = self._current_sentiment.get("period", "")
+        old_phase = (self._current_sentiment or {}).get("period", "")
         self._current_position_ratio = result.position_ratio
         self._current_sentiment = self._filter_pipeline.get_sentiment_info()
-        new_phase = self._current_sentiment.get("period", "")
+        new_phase = (self._current_sentiment or {}).get("period", "")
 
         logger.info(f"[FILTER] 筛选完成: {len(signals)}→{len(filtered_signals)}个信号, "
                      f"仓位系数={result.position_ratio:.0%}")
@@ -864,7 +864,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
 
     def get_current_sentiment(self) -> Dict:
         """当前情绪得分(只读)"""
-        return self._current_sentiment
+        return self._current_sentiment or {}
 
     def get_current_position_ratio(self) -> Optional[float]:
         """当前仓位比例(只读)"""
@@ -884,7 +884,7 @@ class MarketScanner(ScannerInitializer, ScanLoopRunner, RiskLoopRunner):
 
     def get_circuit_breaker(self) -> Dict:
         """熔断器状态(只读)"""
-        return self._circuit_breaker
+        return self._circuit_breaker or {}
 
     def get_risk_thread_restarts(self) -> int:
         """风控线程重启次数(只读)"""
