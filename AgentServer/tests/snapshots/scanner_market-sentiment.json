@@ -8,9 +8,7 @@
   "limit_down_count": "int",
   "broken_count": "int",
   "broken_rate": "float",
-  "board_distribution": {
-    "1": "int"
-  },
+  "board_distribution": {},
   "ranges": [
     {
       "label": "str",
