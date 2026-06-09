@@ -206,9 +206,25 @@ async function loadTraceDetail() {
   if (!selectedTraceId.value) return
   loading.value = true
   try {
-    const { data } = await api.get(`/scanner/scan-traces/${selectedTraceId.value}`)
+    // 先加载passed候选(用于管道流图)
+    const { data } = await api.get(`/scanner/scan-traces/${selectedTraceId.value}?status=passed&limit=50`)
     if (data?.success) {
       currentTrace.value = data.data
+      // 异步加载rejected候选(用于“淘汰原因”tab)
+      try {
+        const r = await api.get(`/scanner/scan-traces/${selectedTraceId.value}?status=rejected&limit=200`)
+        if (r.data?.success && r.data.data?.candidates) {
+          // 合并rejected候选到candidates列表(前端通过final_status区分)
+          const existing = currentTrace.value?.candidates || []
+          currentTrace.value = {
+            ...currentTrace.value,
+            candidates: [...existing, ...r.data.data.candidates],
+            rejected_layer_stats: r.data.data.rejected_layer_stats,
+          }
+        }
+      } catch (e2) {
+        console.warn('加载淘汰候选失败(非关键):', e2)
+      }
     }
   } catch (e) {
     console.warn('加载追踪详情失败:', e)
