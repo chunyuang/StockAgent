@@ -124,7 +124,7 @@ async def get_sentiment_timeline(date: str = None, mode: str = "daily"):
                     else: period = "冰点"
                     agg_points.append({
                         "date": key, "score": round(avg_score, 1), "period": period,
-                        "position_ratio": _get_position_ratio_sentiment(period, 0.25),
+                        "position_ratio": _get_position_ratio_sentiment(period, 0.3),
                         "limit_up": total_lu, "limit_down": total_ld,
                         "days": len(grp), "first_date": grp[0]["date"], "last_date": grp[-1]["date"],
                         "missing_data": has_missing,
@@ -235,7 +235,7 @@ async def get_sentiment_timeline(date: str = None, mode: str = "daily"):
                         _th = GLOBAL_RISK.get("sentiment_thresholds", {"rising": 70, "differentiation": 55, "chaos": 40})
                         if estimated >= _th["rising"]:
                             p["period"] = "rising"
-                            p["position_ratio"] = _get_position_ratio_sentiment("高潮", 0.9)
+                            p["position_ratio"] = _get_position_ratio_sentiment("高潮", 1.0)
                         elif estimated >= _th["differentiation"]:
                             p["period"] = "differentiation"
                             p["position_ratio"] = _get_position_ratio_sentiment("分化", 0.7)
@@ -456,7 +456,7 @@ async def get_market_sentiment_detail(date: str = None):
                         if exact:
                             sentiment_score = exact.get("score", 50)
                             sentiment_period = exact.get("period", "unknown")
-                            position_ratio = _get_position_ratio_sentiment(exact.get("period", ""), exact.get("position_ratio", 0.25))
+                            position_ratio = _get_position_ratio_sentiment(exact.get("period", ""), exact.get("position_ratio", 0.3))
                             if exact.get("missing_data"):
                                 sentiment_period = "冰点(数据缺失)"  # 保留period但标注缺失
                     # 2. 指定日期无数据或未指定日期→读最近的非missing日期
@@ -468,7 +468,7 @@ async def get_market_sentiment_detail(date: str = None):
                         if latest:
                             sentiment_score = latest.get("score", 50)
                             sentiment_period = latest.get("period", "unknown")
-                            position_ratio = _get_position_ratio_sentiment(latest.get("period", ""), latest.get("position_ratio", 0.25))
+                            position_ratio = _get_position_ratio_sentiment(latest.get("period", ""), latest.get("position_ratio", 0.3))
             except Exception:
                 pass
         

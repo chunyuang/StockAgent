@@ -644,7 +644,9 @@ class LiveFilterPipeline:
             limit_down = sum(1 for v in limit_stocks.values() if v.get("limit_type") == "D")
             score = (limit_up - limit_down) + 50
             score = max(0, min(100, score))
-            phase = "rising" if score > 70 else ("chaos" if score >= 40 else "bearish")
+            # 【v2.9.87修复】Fallback 4阶段映射(与emotion_cycle._calc_sentiment_score对齐)
+            # 旧bug: 3阶段(rising/chaos/bearish)缺失分化期,55-70分走了chaos(0.5仓位)
+            # 应为4阶段: rising/differentiation/chaos/bearish → 1.0/0.7/0.5/0.3
             # 【v2.9.84修复】Fallback仓位系数从strategy_defaults读取,不再硬编码
             # 旧值: 1.0/0.5/0.25 → 与strategy_defaults(1.0/0.7/0.5/0.3)不一致
             # 分化期(55-70)缺失: 55-70走了chaos(0.5), 应走differentiation(0.7)
